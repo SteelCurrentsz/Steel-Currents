@@ -9,6 +9,7 @@
 // There is no second human here, so both fleets are crewed by bot captains.
 
 import { Room } from '../../server/room.js';
+import { scoreboard } from '../../shared/protocol.js';
 
 export class LocalNet extends EventTarget {
   constructor() {
@@ -131,9 +132,7 @@ export class LocalNet extends EventTarget {
       team: this.player.team,
       mode: room.mode,
       phase: room.phase,
-      roster: room.state.ships.map((s) => ({
-        id: s.id, name: s.name, team: s.team, cls: s.classId, bot: s.isBot,
-      })),
+      roster: scoreboard(room.state),
     });
     room.start();
   }

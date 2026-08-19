@@ -232,8 +232,14 @@ export class Battle {
 
     // Helm and telegraph.
     if (!this.sunk) {
-      const turn = (this.input.down('KeyD') ? 1 : 0) - (this.input.down('KeyA') ? 1 : 0);
-      if (turn !== 0) ls.rudderCmd = clamp(ls.rudderCmd + turn * dt * 1.8, -1, 1);
+      // The on-screen helm is a wheel: it sets an angle outright. The keyboard
+      // has to wind toward one.
+      if (this.input.axis.rudder !== null) {
+        ls.rudderCmd = clamp(this.input.axis.rudder, -1, 1);
+      } else {
+        const turn = (this.input.down('KeyD') ? 1 : 0) - (this.input.down('KeyA') ? 1 : 0);
+        if (turn !== 0) ls.rudderCmd = clamp(ls.rudderCmd + turn * dt * 1.8, -1, 1);
+      }
     }
 
     // Look.

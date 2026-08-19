@@ -7,10 +7,12 @@ import { Battle } from './game.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
+import { TouchControls, isTouchDevice } from './touch.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS } from '../../shared/world.js';
+import { MIN_NOTCH, MAX_NOTCH } from '../../shared/sim.js';
 
 const canvas = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -22,6 +24,11 @@ renderer.toneMappingExposure = 1.18;
 // A standalone build (no battle service to reach) hosts its own Room in-tab.
 const net = globalThis.STEEL_CURRENTS_OFFLINE ? new LocalNet() : new Net();
 const input = new Input(canvas);
+input.touch = isTouchDevice();
+if (input.touch) document.getElementById('touch-help')?.removeAttribute('hidden');
+const touchControls = input.touch
+  ? new TouchControls(input, { minNotch: MIN_NOTCH, maxNotch: MAX_NOTCH })
+  : null;
 let title = new TitleScene(renderer);
 let battle = null;
 let current = 'title';
@@ -51,6 +58,10 @@ function show(name) {
   for (const s of screens) {
     document.getElementById(`screen-${s}`).classList.toggle('active', s === name);
   }
+  // The rotate prompt and the on-screen bridge only belong in a battle.
+  document.body.classList.toggle('in-battle', name === 'battle');
+  if (name === 'battle') touchControls?.show();
+  else touchControls?.hide();
   if (name !== 'battle') input.enabled = false;
 }
 

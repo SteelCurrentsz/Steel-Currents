@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#05080f" />
 <title>Steel Currents</title>
 <link rel="stylesheet" href="css/style.css" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a1a2e'/><path d='M4 21h24l-3 5H7z' fill='%238e969d'/><rect x='13' y='9' width='6' height='9' fill='%238e969d'/><rect x='15' y='4' width='2' height='6' fill='%23c02a34'/></svg>" />
@@ -103,6 +107,10 @@
     <div class="panel-body two-col">
       <div>
         <h3>Bridge controls</h3>
+        <p class="help" id="touch-help" hidden>On a touchscreen the bridge is
+        laid out for you: the engine telegraph sits at your left thumb, the
+        wheel along the bottom, and the guns at your right. Drag anywhere on
+        the sea to train them. The keys below work if you attach a keyboard.</p>
         <table class="keys">
           <tr><td>W / S</td><td>Engine telegraph up / down</td></tr>
           <tr><td>A / D</td><td>Rudder port / starboard</td></tr>
@@ -198,6 +206,8 @@
     </div>
   </div>
 
+  <div id="touch-controls" class="touch-controls" hidden></div>
+
   <div class="killfeed" id="killfeed"></div>
   <div class="ribbons" id="ribbons"></div>
   <div class="alerts" id="alerts"></div>
@@ -219,6 +229,12 @@
     <footer class="panel-foot"><button class="btn" data-action="back">Return to port</button></footer>
   </div>
 </section>
+
+<div id="rotate-prompt" class="rotate-prompt">
+  <div class="rot-icon"></div>
+  <p>Turn your device sideways</p>
+  <span>Steel Currents needs the horizon across the screen.</span>
+</div>
 
 <div id="toast" class="toast"></div>
 

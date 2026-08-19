@@ -13,6 +13,12 @@ export class Input {
     this.locked = false;
     this.enabled = false;
     this.handlers = {};
+    // On a touchscreen the on-screen controls drive everything, so the mouse
+    // look path and pointer lock stay out of the way.
+    this.touch = false;
+    // Continuous controls that have no keyboard equivalent. Null means "no one
+    // is holding this", and the keyboard path keeps its say.
+    this.axis = { rudder: null };
 
     this._onKeyDown = (e) => {
       if (!this.enabled) return;
@@ -24,7 +30,7 @@ export class Input {
     };
     this._onKeyUp = (e) => { this.keys.delete(e.code); this.emit('keyup', e.code); };
     this._onMove = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || this.touch) return;
       const s = getSettings().sensitivity;
       if (this.locked) {
         this.mouseDX += e.movementX * 0.0016 * s;
@@ -35,12 +41,13 @@ export class Input {
       }
     };
     this._onDown = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || this.touch) return;
       if (e.button === 0) { this.firing = true; this.emit('fire'); }
       if (e.button === 2) { this.scoped = true; this.emit('scope', true); }
       if (!this.locked && e.button === 0) this.requestLock();
     };
     this._onUp = (e) => {
+      if (this.touch) return;
       if (e.button === 0) this.firing = false;
       if (e.button === 2) { this.scoped = false; this.emit('scope', false); }
     };
@@ -59,6 +66,7 @@ export class Input {
   }
 
   requestLock() {
+    if (this.touch) return;
     if (this.canvas.requestPointerLock) {
       const p = this.canvas.requestPointerLock();
       if (p && p.catch) p.catch(() => { /* user gesture required; retry on next click */ });
@@ -74,6 +82,13 @@ export class Input {
 
   down(code) { return this.keys.has(code); }
 
+  /** Feed a look gesture in screen pixels, as the mouse path does. */
+  addLook(dx, dy) {
+    const s = getSettings().sensitivity;
+    this.mouseDX += dx * 0.0016 * s;
+    this.mouseDY += dy * 0.0016 * s;
+  }
+
   /** Consume accumulated mouse movement for this frame. */
   takeMouse() {
     const d = { x: this.mouseDX, y: this.mouseDY };
@@ -81,5 +96,11 @@ export class Input {
     return d;
   }
 
-  reset() { this.keys.clear(); this.mouseDX = this.mouseDY = 0; this.firing = false; this.scoped = false; }
+  reset() {
+    this.keys.clear();
+    this.mouseDX = this.mouseDY = 0;
+    this.firing = false;
+    this.scoped = false;
+    this.axis.rudder = null;
+  }
 }

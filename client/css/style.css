@@ -318,3 +318,206 @@ input[type="range"] { accent-color: var(--red); }
   .hud-left { width: 200px; }
   .minimap-wrap { width: 150px; height: 150px; }
 }
+
+/* ------------------------------------------------------------------ touch --
+   On-screen bridge controls. Instruments, not game buttons: an engine
+   telegraph with detents, a wheel that holds its angle, and the gunnery on the
+   right where the firing hand sits. Kept translucent so the sea still reads
+   through, and inset from the screen edges so a notch or a home bar cannot
+   swallow a control. */
+
+.touch-controls {
+  position: absolute; inset: 0; z-index: 6;
+  pointer-events: none;
+  touch-action: none;
+  --tc-pad-x: max(1rem, env(safe-area-inset-left), env(safe-area-inset-right));
+  --tc-pad-b: max(0.9rem, env(safe-area-inset-bottom));
+}
+.touch-controls[hidden] { display: none; }
+.touch-controls > * { pointer-events: auto; }
+
+/* The whole screen aims; the instruments sit on top and take their own touches. */
+.tc-look { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+
+.tc-cap {
+  font-size: 0.62rem; letter-spacing: 0.26em; color: var(--steel);
+  text-align: center; margin-bottom: 0.3rem;
+}
+.tc-read {
+  font-size: 0.78rem; letter-spacing: 0.16em; color: var(--sand);
+  text-align: center; margin-top: 0.35rem; font-variant-numeric: tabular-nums;
+}
+
+/* Engine telegraph ------------------------------------------------------- */
+.tc-engine {
+  position: absolute; left: var(--tc-pad-x); bottom: var(--tc-pad-b);
+  width: 74px; touch-action: none;
+}
+.tc-lever {
+  position: relative; height: 168px; width: 100%;
+  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
+  touch-action: none;
+}
+.tc-detents {
+  position: absolute; inset: 6px 10px;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.tc-detents i { display: block; height: 3px; background: rgba(255, 255, 255, 0.16); }
+.tc-detents i.astern { background: rgba(226, 86, 79, 0.4); }
+.tc-knob {
+  position: absolute; left: 4px; right: 4px; height: 26px;
+  background: var(--sand); border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: bottom 0.09s ease-out;
+}
+.tc-knob.astern { background: var(--enemy); }
+
+/* Helm ------------------------------------------------------------------- */
+.tc-helm {
+  position: absolute; bottom: var(--tc-pad-b); left: 50%; transform: translateX(-50%);
+  width: min(300px, 38vw); touch-action: none;
+}
+.tc-wheel {
+  position: relative; height: 52px;
+  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
+  touch-action: none;
+}
+.tc-wheel-mid {
+  position: absolute; left: 50%; top: 6px; bottom: 6px; width: 1px;
+  background: rgba(154, 166, 178, 0.5);
+}
+.tc-wheel-grip {
+  position: absolute; top: 5px; bottom: 5px; width: 34px;
+  left: 50%; transform: translateX(-50%);
+  background: var(--sand); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: left 0.06s linear;
+}
+.tc-wheel-grip.hard { background: var(--enemy); }
+.tc-mid-btn {
+  display: block; width: 100%; margin-top: 0.35rem; min-height: 44px;
+  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.72rem;
+  letter-spacing: 0.2em; cursor: pointer;
+}
+.tc-mid-btn.down { background: rgba(230, 207, 156, 0.2); color: var(--sand-bright); }
+
+/* Gunnery ---------------------------------------------------------------- */
+/* A row, not a stack: a phone in landscape has height to spare nowhere, and a
+   tall column of buttons runs straight up into the minimap. */
+.tc-right {
+  position: absolute; right: var(--tc-pad-x); bottom: var(--tc-pad-b);
+  display: flex; flex-direction: row; align-items: flex-end; gap: 0.4rem;
+}
+.tc-ammo { display: flex; flex-direction: column; gap: 0.35rem; }
+.tc-actions { display: grid; grid-template-columns: repeat(3, auto); gap: 0.35rem; }
+.tc-guns { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
+.tc-ammo-btn, .tc-btn, .tc-scope, .tc-scores {
+  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); letter-spacing: 0.14em;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+/* 44px is the smallest target a thumb hits reliably; nothing here goes under. */
+.tc-ammo-btn, .tc-btn { min-width: 56px; min-height: 44px; font-size: 0.78rem; }
+.tc-ammo-btn.on { background: var(--red); border-color: var(--red); color: #fff; }
+.tc-btn.down { background: rgba(230, 207, 156, 0.22); color: var(--sand-bright); }
+.tc-scope { min-width: 78px; min-height: 44px; font-size: 0.74rem; }
+.tc-scope.on { background: rgba(230, 207, 156, 0.22); color: var(--sand-bright); border-color: var(--sand); }
+
+.tc-fire {
+  width: 96px; height: 96px; border-radius: 50%;
+  background: rgba(192, 33, 44, 0.24); border: 2px solid var(--red);
+  color: var(--sand-bright); font-family: var(--ui); font-size: 1.05rem;
+  letter-spacing: 0.16em; cursor: pointer; touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tc-fire.down { background: var(--red); box-shadow: 0 0 22px rgba(192, 33, 44, 0.65); }
+
+.tc-scores {
+  position: absolute; top: max(0.7rem, env(safe-area-inset-top));
+  right: var(--tc-pad-x); min-height: 44px; padding: 0 0.9rem; font-size: 0.72rem;
+}
+
+/* Short screens: a phone in landscape has very little height to spare. */
+@media (max-height: 460px) {
+  .tc-lever { height: 116px; }
+  .tc-fire { width: 78px; height: 78px; font-size: 0.9rem; }
+  .tc-wheel { height: 44px; }
+  .tc-actions { max-width: 196px; }
+  /* Narrower, never shorter — a 44px-high target still needs 44px. */
+  .tc-btn, .tc-ammo-btn { min-width: 46px; font-size: 0.66rem; }
+  .tc-mid-btn { font-size: 0.66rem; }
+  /* The wheel gives way first; it has the most width to spare. */
+  .tc-helm { width: min(230px, 27vw); }
+}
+
+/* On a touchscreen the on-screen instruments replace their desktop twins, so
+   the originals come out rather than sitting behind them. What is left has to
+   clear the four corners the thumbs occupy. */
+@media (pointer: coarse) {
+  /* Replaced outright: lever for telegraph, wheel for helm, buttons for the
+     shell toggle and the consumable keys. */
+  .hud-bottom .telegraph, .hud-bottom .helm, .shell-toggle, .consumables { display: none; }
+
+  /* Gun status keeps its place, but up top out of the thumbs' way. */
+  .hud-bottom {
+    bottom: auto; top: max(4.7rem, calc(env(safe-area-inset-top) + 4.2rem));
+    gap: 0.6rem; transform: scale(0.78); transform-origin: top center;
+  }
+
+  /* Ship plate to the top-left corner, under the score bar. */
+  .hud-left {
+    left: max(0.8rem, env(safe-area-inset-left));
+    top: max(3.1rem, calc(env(safe-area-inset-top) + 2.6rem));
+    bottom: auto; width: min(220px, 30vw);
+  }
+  .ship-plate { padding: 0.4rem 0.6rem; }
+  .ship-plate .name { font-size: 0.92rem; }
+  .hp-bar { height: 16px; }
+  .hp-bar span { font-size: 0.72rem; }
+
+  /* Minimap above the gunnery cluster, never under the fire button. */
+  .hud-right {
+    right: max(0.8rem, env(safe-area-inset-right));
+    top: max(4.3rem, calc(env(safe-area-inset-top) + 3.8rem));
+    bottom: auto;
+  }
+  .minimap-wrap { width: min(104px, 26vh); height: min(104px, 26vh); }
+  .minimap-wrap.big { width: min(74vh, 74vw); height: min(74vh, 74vw); }
+
+  /* The killfeed and ribbons sit centre-left, clear of both thumb clusters. */
+  .killfeed { top: auto; bottom: 32vh; font-size: 0.8rem; }
+  .ribbons { font-size: 0.8rem; }
+}
+
+/* Readouts adopted from the HUD sit under their instrument. */
+.tc-engine .speed, .tc-helm .heading {
+  text-align: center; font-size: 0.9rem; letter-spacing: 0.08em;
+  color: var(--sand); margin-top: 0.2rem; font-variant-numeric: tabular-nums;
+}
+
+/* Rotate prompt ---------------------------------------------------------- */
+.rotate-prompt {
+  display: none;
+  position: fixed; inset: 0; z-index: 60;
+  background: #05080f; color: var(--sand);
+  flex-direction: column; align-items: center; justify-content: center; gap: 0.9rem;
+  text-align: center; padding: 2rem;
+}
+.rotate-prompt p {
+  margin: 0; font-size: 1.3rem; letter-spacing: 0.2em; text-transform: uppercase;
+}
+.rotate-prompt span { color: var(--steel); font-size: 0.95rem; max-width: 30ch; }
+.rot-icon {
+  width: 46px; height: 74px; border: 2px solid var(--sand); border-radius: 6px;
+  animation: rot-tip 2.4s ease-in-out infinite;
+}
+@keyframes rot-tip {
+  0%, 40% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(-90deg); }
+}
+@media (prefers-reduced-motion: reduce) { .rot-icon { animation: none; transform: rotate(-90deg); } }
+
+/* Only nag a handheld in portrait — never a desktop window that happens to be tall. */
+@media (pointer: coarse) and (orientation: portrait) and (max-width: 900px) {
+  body.in-battle .rotate-prompt { display: flex; }
+}

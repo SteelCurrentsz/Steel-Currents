@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Room } from './room.js';
+import { scoreboard } from '../shared/protocol.js';
 import { MAP_PRESETS } from '../shared/world.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 
@@ -227,7 +228,9 @@ function joinRoom(player, room, msg) {
     team: player.team,
     mode: room.mode,
     phase: room.phase,
-    roster: room.state.ships.map((s) => ({ id: s.id, name: s.name, team: s.team, cls: s.classId, bot: s.isBot })),
+    // Same shape as the 'roster' message: the client keeps whichever arrived
+    // last, so a thinner one here would strip the scoreboard's stats.
+    roster: scoreboard(room.state),
   });
   broadcastLobby();
 }
