@@ -3,7 +3,11 @@ node_modules/
 .DS_Store
 .env
 dist/
-build/
+# Build outputs, all regenerable with `node build/standalone.mjs`.
+# The build script itself is source and stays tracked.
+build/bundle.js
+build/steel-currents.html
+build/*.png
 www/
 ios/
 android/

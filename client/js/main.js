@@ -5,6 +5,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { Battle } from './game.js';
 import { Net } from './net.js';
+import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
@@ -18,7 +19,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.18;
 
-const net = new Net();
+// A standalone build (no battle service to reach) hosts its own Room in-tab.
+const net = globalThis.STEEL_CURRENTS_OFFLINE ? new LocalNet() : new Net();
 const input = new Input(canvas);
 let title = new TitleScene(renderer);
 let battle = null;
@@ -185,7 +187,9 @@ optMetric.onchange = () => setSettings({ metric: optMetric.checked });
 const netState = document.getElementById('net-state');
 
 net.on('open', () => {
-  netState.textContent = 'battle service online';
+  netState.textContent = globalThis.STEEL_CURRENTS_OFFLINE
+    ? 'standalone · ai opposition'
+    : 'battle service online';
   netState.className = 'net-state online';
 });
 net.on('close', () => {
@@ -266,6 +270,8 @@ function renderRooms(rooms) {
 }
 
 async function refreshRooms() {
+  // A standalone build hosts its own battle; there is no lobby to poll.
+  if (globalThis.STEEL_CURRENTS_OFFLINE) return;
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
