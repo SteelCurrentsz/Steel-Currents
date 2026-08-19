@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Steel Currents</title>
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a1a2e'/><path d='M4 21h24l-3 5H7z' fill='%238e969d'/><rect x='13' y='9' width='6' height='9' fill='%238e969d'/><rect x='15' y='4' width='2' height='6' fill='%23c02a34'/></svg>" />
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<!-- ============================ TITLE ============================ -->
+<section id="screen-title" class="screen active">
+  <h1 class="game-title"><span class="l1">Steel</span><span class="l2">Currents</span></h1>
+  <nav class="menu menu-left">
+    <button class="menu-item" data-action="pvp">Fleet Battle</button>
+    <button class="menu-item" data-action="custom">Custom Battle</button>
+  </nav>
+  <nav class="menu menu-right">
+    <button class="menu-item" data-action="options">Options / Help</button>
+    <button class="menu-item" data-action="quit">Quit</button>
+  </nav>
+  <div class="version">1.25</div>
+  <div class="net-state" id="net-state">connecting…</div>
+</section>
+
+<!-- ========================= FLEET BATTLE ========================= -->
+<section id="screen-pvp" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Fleet Battle</h2>
+      <p>Player versus player. Pick a hull, take a side, and fight for the map.</p>
+    </header>
+    <div class="panel-body">
+      <label class="field">
+        <span>Captain</span>
+        <input id="pvp-name" maxlength="18" placeholder="Captain" />
+      </label>
+      <div class="field">
+        <span>Ship</span>
+        <div class="ship-picker" id="pvp-ships"></div>
+      </div>
+      <div class="field">
+        <span>Battles in progress</span>
+        <div class="room-list" id="room-list"><p class="muted">No open battles — start one.</p></div>
+      </div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
+      <button class="btn" id="pvp-quick">Quick Match</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ========================= CUSTOM BATTLE ======================== -->
+<section id="screen-custom" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Custom Battle</h2>
+      <p>Set the sea, the odds and the opposition, then sortie against AI captains.</p>
+    </header>
+    <div class="panel-body">
+      <div class="field">
+        <span>Your ship</span>
+        <div class="ship-picker" id="custom-ships"></div>
+      </div>
+      <div class="grid-2">
+        <label class="field"><span>Map</span><select id="custom-map"></select></label>
+        <label class="field"><span>Mode</span>
+          <select id="custom-mode">
+            <option value="domination">Domination — hold the capture zones</option>
+            <option value="deathmatch">Annihilation — sink them all</option>
+          </select>
+        </label>
+        <label class="field"><span>Allies <b id="allies-val">3</b></span>
+          <input type="range" id="custom-allies" min="0" max="7" value="3" /></label>
+        <label class="field"><span>Enemies <b id="enemies-val">4</b></span>
+          <input type="range" id="custom-enemies" min="1" max="8" value="4" /></label>
+        <label class="field"><span>AI skill</span>
+          <select id="custom-skill">
+            <option value="rookie">Rookie</option>
+            <option value="regular" selected>Regular</option>
+            <option value="veteran">Veteran</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
+      <button class="btn" id="custom-start">Sortie</button>
+    </footer>
+  </div>
+</section>
+
+<!-- =========================== OPTIONS =========================== -->
+<section id="screen-options" class="screen panel-screen">
+  <div class="panel wide">
+    <header class="panel-head">
+      <h2>Options / Help</h2>
+      <p>Steel Currents v1.25</p>
+    </header>
+    <div class="panel-body two-col">
+      <div>
+        <h3>Bridge controls</h3>
+        <table class="keys">
+          <tr><td>W / S</td><td>Engine telegraph up / down</td></tr>
+          <tr><td>A / D</td><td>Rudder port / starboard</td></tr>
+          <tr><td>Q</td><td>Rudder amidships</td></tr>
+          <tr><td>Mouse</td><td>Train the guns / aim</td></tr>
+          <tr><td>Left click</td><td>Fire the ready salvo</td></tr>
+          <tr><td>Right hold</td><td>Gunnery scope</td></tr>
+          <tr><td>1 / 2</td><td>Armour-piercing / high explosive</td></tr>
+          <tr><td>3</td><td>Launch torpedoes</td></tr>
+          <tr><td>4</td><td>Air strike (carriers)</td></tr>
+          <tr><td>R</td><td>Damage control party</td></tr>
+          <tr><td>T</td><td>Make smoke (destroyers)</td></tr>
+          <tr><td>C</td><td>Cycle camera</td></tr>
+          <tr><td>M</td><td>Enlarge the plot</td></tr>
+          <tr><td>Tab</td><td>Scoreboard</td></tr>
+          <tr><td>Esc</td><td>Leave the battle</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Settings</h3>
+        <label class="field"><span>Captain name</span><input id="opt-name" maxlength="18" /></label>
+        <label class="field"><span>Master volume <b id="vol-val">70</b></span>
+          <input type="range" id="opt-volume" min="0" max="100" value="70" /></label>
+        <label class="field"><span>Mouse sensitivity <b id="sens-val">1.0</b></span>
+          <input type="range" id="opt-sens" min="20" max="300" value="100" /></label>
+        <label class="field"><span>Render quality</span>
+          <select id="opt-quality">
+            <option value="low">Low — long draw distance, calm sea</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High — dense swell and spray</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="opt-shadows" checked /> <span>Shadows</span></label>
+        <label class="check"><input type="checkbox" id="opt-shake" checked /> <span>Gunfire camera shake</span></label>
+        <label class="check"><input type="checkbox" id="opt-metric" checked /> <span>Ranges in kilometres (off = nautical miles)</span></label>
+
+        <h3>Fighting the ship</h3>
+        <p class="help">Shells take time to fly. Lead the target: the aim marker
+          shows where your salvo will land, and the range readout tells you how
+          long it will be in the air.</p>
+        <p class="help">Armour-piercing rewards a broadside target amidships —
+          a citadel hit takes a cruiser apart. High explosive starts fires on
+          anything, and is the only useful answer to armour you cannot beat.</p>
+        <p class="help">You are only visible when spotted. Firing gives your
+          position away; smoke and islands take it back.</p>
+      </div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ============================= HUD ============================== -->
+<section id="screen-battle" class="screen battle">
+  <div id="reticle" class="reticle"><div class="ret-cross"></div><div class="ret-lead"></div></div>
+
+  <div class="hud-top">
+    <div class="score-bar">
+      <div class="team t0"><span class="tag">ALLIED</span><b id="score0">0</b></div>
+      <div class="caps" id="cap-bar"></div>
+      <div class="team t1"><b id="score1">0</b><span class="tag">ENEMY</span></div>
+    </div>
+    <div class="battle-timer" id="battle-timer">15:00</div>
+  </div>
+
+  <div class="hud-left">
+    <div class="ship-plate">
+      <div class="name" id="own-name">—</div>
+      <div class="hp-bar"><div class="hp-fill" id="own-hp"></div><span id="own-hp-text">0</span></div>
+      <div class="status-row" id="status-row"></div>
+    </div>
+    <div class="consumables" id="consumables"></div>
+  </div>
+
+  <div class="hud-right">
+    <div class="minimap-wrap" id="minimap-wrap">
+      <canvas id="minimap" width="320" height="320"></canvas>
+    </div>
+  </div>
+
+  <div class="hud-bottom">
+    <div class="telegraph">
+      <div class="tele-label">ENGINE</div>
+      <div class="tele-notches" id="tele-notches"></div>
+      <div class="speed" id="speed-readout">0 kn</div>
+    </div>
+    <div class="armament" id="armament"></div>
+    <div class="helm">
+      <div class="tele-label">HELM</div>
+      <div class="rudder"><div class="rudder-needle" id="rudder-needle"></div></div>
+      <div class="heading" id="heading-readout">000°</div>
+    </div>
+  </div>
+
+  <div class="killfeed" id="killfeed"></div>
+  <div class="ribbons" id="ribbons"></div>
+  <div class="alerts" id="alerts"></div>
+
+  <div class="scoreboard" id="scoreboard"><table id="scoreboard-table"></table></div>
+
+  <div class="sink-overlay" id="sink-overlay">
+    <h2>Your ship has gone down</h2>
+    <p>Stay with the battle as an observer, or return to port.</p>
+    <button class="btn ghost" id="btn-leave">Return to port</button>
+  </div>
+</section>
+
+<!-- ============================ RESULT ============================ -->
+<section id="screen-result" class="screen panel-screen">
+  <div class="panel wide">
+    <header class="panel-head"><h2 id="result-title">Victory</h2><p id="result-sub"></p></header>
+    <div class="panel-body"><table class="result-table" id="result-table"></table></div>
+    <footer class="panel-foot"><button class="btn" data-action="back">Return to port</button></footer>
+  </div>
+</section>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+// Boot, screen flow and the single render loop shared by the title scene and
+// the battle.
+
+import * as THREE from '../../vendor/three.module.js';
+import { TitleScene } from './menu.js';
+import { Battle } from './game.js';
+import { Net } from './net.js';
+import { Input } from './input.js';
+import { audio } from './audio.js';
+import { getSettings, setSettings, QUALITY } from './settings.js';
+import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
+import { MAP_PRESETS } from '../../shared/world.js';
+
+const canvas = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setClearColor(0x050c16);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.18;
+
+const net = new Net();
+const input = new Input(canvas);
+let title = new TitleScene(renderer);
+let battle = null;
+let current = 'title';
+
+// ------------------------------------------------------------------ view --
+
+function applyQuality() {
+  const q = QUALITY[getSettings().quality] || QUALITY.medium;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+  resize();
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  title.resize(w, h);
+  if (battle) battle.resize(w, h);
+}
+window.addEventListener('resize', resize);
+
+// --------------------------------------------------------------- screens --
+
+const screens = ['title', 'pvp', 'custom', 'options', 'battle', 'result'];
+
+function show(name) {
+  current = name;
+  for (const s of screens) {
+    document.getElementById(`screen-${s}`).classList.toggle('active', s === name);
+  }
+  if (name !== 'battle') input.enabled = false;
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+// ------------------------------------------------------------------ menu --
+
+document.querySelectorAll('[data-action]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    audio.resume();
+    audio.click();
+    switch (btn.dataset.action) {
+      case 'pvp': show('pvp'); refreshRooms(); break;
+      case 'custom': show('custom'); break;
+      case 'options': show('options'); break;
+      case 'back': show('title'); break;
+      case 'quit': quit(); break;
+      default: break;
+    }
+  });
+});
+
+function quit() {
+  // A browser cannot close a tab it did not open, so say goodbye instead.
+  document.body.innerHTML =
+    '<div style="display:grid;place-items:center;height:100%;font-family:var(--ui);color:#e6cf9c;letter-spacing:.2em;text-transform:uppercase">Signal ends — fair winds, captain.</div>';
+  document.body.style.background = '#04090f';
+  try { renderer.dispose(); } catch { /* nothing to dispose */ }
+}
+
+// ------------------------------------------------------------ ship picker --
+
+function buildShipPicker(container, selectedId, onPick) {
+  container.innerHTML = '';
+  for (const id of SHIP_ORDER) {
+    const c = SHIP_CLASSES[id];
+    const el = document.createElement('button');
+    el.className = 'ship-card' + (id === selectedId ? ' selected' : '');
+    el.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
+      <div class="nm">${c.name}</div><div class="bl">${c.blurb}</div>`;
+    el.onclick = () => {
+      [...container.children].forEach((x) => x.classList.remove('selected'));
+      el.classList.add('selected');
+      audio.click();
+      onPick(id);
+    };
+    container.appendChild(el);
+  }
+}
+
+const settings = getSettings();
+buildShipPicker(document.getElementById('pvp-ships'), settings.ship, (id) => setSettings({ ship: id }));
+buildShipPicker(document.getElementById('custom-ships'), settings.ship, (id) => setSettings({ ship: id }));
+document.getElementById('pvp-name').value = settings.name;
+document.getElementById('pvp-name').oninput = (e) => setSettings({ name: e.target.value || 'Captain' });
+
+const mapSelect = document.getElementById('custom-map');
+mapSelect.innerHTML = MAP_PRESETS.map((m) => `<option value="${m.id}">${m.name} — ${m.time}</option>`).join('');
+
+const alliesInput = document.getElementById('custom-allies');
+const enemiesInput = document.getElementById('custom-enemies');
+alliesInput.oninput = () => { document.getElementById('allies-val').textContent = alliesInput.value; };
+enemiesInput.oninput = () => { document.getElementById('enemies-val').textContent = enemiesInput.value; };
+
+document.getElementById('custom-start').onclick = () => {
+  audio.resume();
+  if (!net.connected) { toast('Not connected to the battle service.'); return; }
+  net.send({
+    t: 'custom',
+    name: getSettings().name,
+    roomName: `${getSettings().name}'s battle`,
+    classId: getSettings().ship,
+    mapId: mapSelect.value,
+    mode: document.getElementById('custom-mode').value,
+    allies: Number(alliesInput.value),
+    enemies: Number(enemiesInput.value),
+    botSkill: document.getElementById('custom-skill').value,
+    private: true,
+  });
+  toast('Sortieing…');
+};
+
+document.getElementById('pvp-quick').onclick = () => {
+  audio.resume();
+  if (!net.connected) { toast('Not connected to the battle service.'); return; }
+  net.send({ t: 'quickmatch', name: getSettings().name, classId: getSettings().ship });
+  toast('Finding a battle…');
+};
+
+// ---------------------------------------------------------------- options --
+
+const optName = document.getElementById('opt-name');
+const optVol = document.getElementById('opt-volume');
+const optSens = document.getElementById('opt-sens');
+const optQuality = document.getElementById('opt-quality');
+const optShadows = document.getElementById('opt-shadows');
+const optShake = document.getElementById('opt-shake');
+const optMetric = document.getElementById('opt-metric');
+
+optName.value = settings.name;
+optVol.value = settings.volume;
+optSens.value = Math.round(settings.sensitivity * 100);
+optQuality.value = settings.quality;
+optShadows.checked = settings.shadows;
+optShake.checked = settings.shake;
+optMetric.checked = settings.metric;
+document.getElementById('vol-val').textContent = settings.volume;
+document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
+
+optName.oninput = () => { setSettings({ name: optName.value || 'Captain' }); document.getElementById('pvp-name').value = optName.value; };
+optVol.oninput = () => {
+  setSettings({ volume: Number(optVol.value) });
+  document.getElementById('vol-val').textContent = optVol.value;
+  audio.setVolume(Number(optVol.value));
+};
+optSens.oninput = () => {
+  const s = Number(optSens.value) / 100;
+  setSettings({ sensitivity: s });
+  document.getElementById('sens-val').textContent = s.toFixed(1);
+};
+optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
+optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
+optShake.onchange = () => setSettings({ shake: optShake.checked });
+optMetric.onchange = () => setSettings({ metric: optMetric.checked });
+
+// ------------------------------------------------------------------- net --
+
+const netState = document.getElementById('net-state');
+
+net.on('open', () => {
+  netState.textContent = 'battle service online';
+  netState.className = 'net-state online';
+});
+net.on('close', () => {
+  netState.textContent = 'reconnecting…';
+  netState.className = 'net-state offline';
+});
+net.on('hello', (m) => renderRooms(m.rooms));
+net.on('lobby', (m) => renderRooms(m.rooms));
+net.on('error', (m) => toast(m.msg || 'The signal was refused.'));
+
+net.on('joined', (m) => {
+  if (battle) { battle.dispose(); battle = null; }
+  battle = new Battle({
+    renderer, net, input,
+    world: m.world,
+    shipId: m.shipId,
+    team: m.team,
+    classId: getSettings().ship,
+    roster: m.roster,
+    onExit: (result) => endBattle(result),
+  });
+  window.__battle = battle;   // handy handle for debugging in the console
+  show('battle');
+  input.enabled = true;
+  resize();
+  audio.resume();
+  toast('Battle stations');
+});
+
+net.on('start', () => toast('Enemy fleet sighted'));
+net.on('countdown', (m) => { if (m.s > 0 && m.s <= 10) toast(`Battle begins in ${m.s}…`); });
+
+function endBattle(result) {
+  if (battle) { battle.dispose(); battle = null; }
+  if (result && result.roster) {
+    document.getElementById('result-title').textContent =
+      result.winner < 0 ? 'Draw' : result.winner === result.yourTeam ? 'Victory' : 'Battle over';
+    renderResult(result);
+    show('result');
+  } else {
+    show('title');
+  }
+}
+
+function renderResult(result) {
+  document.getElementById('result-sub').textContent =
+    ({ points: 'Decided on points.', elimination: 'One fleet was wiped from the sea.', timeout: 'Time expired.', mutual: 'Both fleets went down.' })[result.reason] || '';
+  const rows = result.roster
+    .slice()
+    .sort((a, b) => b.dmg - a.dmg)
+    .map((r) => `<tr class="t${r.team}"><td>${r.type}</td><td>${r.name}</td>
+      <td>${SHIP_CLASSES[r.cls].name}</td><td>${r.kills} kills</td>
+      <td>${r.dmg.toLocaleString()} damage</td><td>${r.hits} hits</td><td>${r.cits} citadels</td></tr>`)
+    .join('');
+  document.getElementById('result-table').innerHTML =
+    `<tr><th></th><th>Captain</th><th>Ship</th><th></th><th></th><th></th><th></th></tr>${rows}`;
+}
+
+function renderRooms(rooms) {
+  const list = document.getElementById('room-list');
+  if (!rooms || !rooms.length) {
+    list.innerHTML = '<p class="muted">No open battles — start one with Quick Match.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const r of rooms) {
+    const row = document.createElement('div');
+    row.className = 'room-row';
+    row.innerHTML = `<div><div class="rn">${r.name}</div>
+      <div class="rm">${r.map.replace(/_/g, ' ')} · ${r.mode} · ${r.players}/${r.max} captains${r.bots ? ` · ${r.bots} AI` : ''}</div></div>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = r.phase === 'lobby' ? 'Join' : 'Join in progress';
+    btn.onclick = () => net.send({ t: 'joinRoom', room: r.id, name: getSettings().name, classId: getSettings().ship });
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+async function refreshRooms() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    renderRooms(data.rooms);
+  } catch { /* the socket will deliver the lobby anyway */ }
+}
+
+// ------------------------------------------------------------------ loop --
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (battle && current === 'battle') {
+    battle.update(dt);
+    battle.render();
+  } else {
+    title.update(dt);
+    title.render();
+  }
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && current !== 'title' && current !== 'battle') show('title');
+});
+window.addEventListener('pointerdown', () => audio.resume(), { once: true });
+
+applyQuality();
+show('title');
+net.connect();
+requestAnimationFrame(frame);

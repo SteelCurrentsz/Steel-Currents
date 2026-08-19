@@ -1,0 +1,798 @@
+// Authoritative battle simulation. The server owns an instance of this and
+// broadcasts snapshots; the client runs the same code to predict its own hull
+// between snapshots, so steering feels immediate without desyncing.
+
+import {
+  clamp, lerp, wrapAngle, angleDelta, approachAngle, approach, dist, dist2,
+  headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
+} from './math.js';
+import { getClass } from './ships.js';
+import { MAP_HALF, blockedByLand, islandAt, spawnPoint } from './world.js';
+
+export const TICK_RATE = 30;
+export const DT = 1 / TICK_RATE;
+
+const THROTTLE_NOTCHES = [-1, 0, 0.25, 0.5, 0.75, 1]; // index 0 is astern
+export const MIN_NOTCH = 0;
+export const MAX_NOTCH = THROTTLE_NOTCHES.length - 1;
+
+export const CAP_TO_WIN = 1000;
+
+let nextEntityId = 1;
+function eid() { return nextEntityId++; }
+
+export function createState(world, opts = {}) {
+  return {
+    world,
+    t: 0,
+    tick: 0,
+    ships: [],
+    shells: [],
+    torps: [],
+    planes: [],
+    events: [],
+    rng: makeRng((world.seed ^ 0x9e3779b9) >>> 0),
+    score: [0, 0],
+    caps: world.caps.map((c) => ({ id: c.id, x: c.x, z: c.z, r: c.r, owner: -1, progress: 0, contest: -1 })),
+    mode: opts.mode || 'domination',
+    timeLimit: opts.timeLimit || 900,
+    over: false,
+    winner: -1,
+    reason: '',
+  };
+}
+
+export function addShip(state, { id, name, classId, team, index, isBot = false, playerId = null }) {
+  const cls = getClass(classId);
+  const sp = spawnPoint(state.world, team, index);
+  const ship = {
+    id: id || eid(),
+    playerId,
+    name,
+    isBot,
+    classId: cls.id,
+    team,
+    x: sp.x, z: sp.z, heading: sp.heading,
+    speed: 0,
+    notch: 1,
+    rudder: 0,          // -1 port .. 1 starboard, current
+    rudderCmd: 0,
+    hp: cls.hp,
+    maxHp: cls.hp,
+    alive: true,
+    fires: 0,
+    fireTimers: [],
+    flooding: 0,
+    floodTimers: [],
+    repairCd: 0,
+    repairActive: 0,
+    smoke: cls.smokeCharges,
+    smokeActive: 0,
+    engineDamage: 0,
+    steeringDamage: 0,
+    shellType: 'ap',
+    aimX: sp.x + Math.sin(sp.heading) * 6000,
+    aimZ: sp.z + Math.cos(sp.heading) * 6000,
+    turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, cooldown: 0, disabled: 0 })),
+    torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
+    squadrons: cls.planes
+      ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
+      : [],
+    spottedBy: [false, false],
+    lastFiredAt: -999,
+    kills: 0,
+    damageDealt: 0,
+    ribbons: { hits: 0, cits: 0, torps: 0, fires: 0 },
+    respawnAt: 0,
+    input: { throttleUp: false, throttleDown: false },
+  };
+  state.ships.push(ship);
+  return ship;
+}
+
+export function shipClass(ship) { return getClass(ship.classId); }
+
+/** Muzzle-speed compression: shells fly faster than life so battles stay readable. */
+function effVelocity(gunSpec) { return gunSpec.shells.ap.velocity * 1.5; }
+function gravityFor(gunSpec) {
+  const v = effVelocity(gunSpec);
+  return (v * v) / gunSpec.range;
+}
+
+/**
+ * Firing solution for range `d` from a gun `h` metres above the water, aimed at
+ * the target's waterline. Solving for the low arc keeps shells arriving at belt
+ * height in a knife fight and plunging onto decks at extreme range.
+ */
+export function solveBallistic(gunSpec, d, h = 0) {
+  const v = effVelocity(gunSpec);
+  const g = gravityFor(gunSpec);
+  const A = (g * d * d) / (2 * v * v);
+  const disc = d * d - 4 * A * (A - h);
+  if (disc <= 0) {
+    // Beyond maximum range: fall back to the 45-degree solution.
+    const elev = Math.PI / 4;
+    return { elev, tof: (d / (v * Math.cos(elev))), v, g };
+  }
+  const u = (d - Math.sqrt(disc)) / (2 * A);
+  const elev = Math.atan(u);
+  const tof = d / (v * Math.cos(elev));
+  return { elev, tof, v, g };
+}
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
+
+export function applyInput(ship, input) {
+  if (!ship.alive) return;
+  if (typeof input.notch === 'number') ship.notch = clamp(Math.round(input.notch), MIN_NOTCH, MAX_NOTCH);
+  if (typeof input.rudder === 'number') ship.rudderCmd = clamp(input.rudder, -1, 1);
+  if (typeof input.aimX === 'number' && typeof input.aimZ === 'number') {
+    ship.aimX = input.aimX; ship.aimZ = input.aimZ;
+  }
+  if (input.shellType === 'ap' || input.shellType === 'he') ship.shellType = input.shellType;
+}
+
+// ---------------------------------------------------------------------------
+// Movement
+// ---------------------------------------------------------------------------
+
+function stepMovement(state, ship, dt) {
+  const cls = shipClass(ship);
+  const engine = ship.engineDamage > 0 ? 0.45 : 1;
+  // Rudder swings toward its commanded angle at the hull's rudder-shift rate.
+  const shift = (ship.steeringDamage > 0 ? 2.4 : 1) * cls.rudderShift;
+  ship.rudder = approach(ship.rudder, ship.rudderCmd, (2 / shift) * dt);
+
+  const speedFrac = clamp(Math.abs(ship.speed) / cls.maxSpeed, 0, 1);
+  // A hull barely answers the helm below steerage way, and bites hardest near
+  // half speed, which is why full-ahead turns are wider than half-ahead turns.
+  const helm = Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
+  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1);
+  ship.heading = wrapAngle(ship.heading + rate * dt);
+
+  // A hull heels and scrubs off speed in a hard turn, so the telegraph setting
+  // is only the speed you get when the rudder is amidships.
+  const bleed = 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm;
+  const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : cls.maxSpeed) * engine;
+  const target = ordered * bleed;
+  const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
+  ship.speed = approach(ship.speed, target, accel * dt);
+  const v = ship.speed;
+  const nx = ship.x + Math.sin(ship.heading) * v * dt;
+  const nz = ship.z + Math.cos(ship.heading) * v * dt;
+
+  // Land: a grounded ship stops dead and takes hull damage.
+  const isle = islandAt(state.world, nx, nz, cls.hull.beam);
+  if (isle) {
+    const away = headingTo(isle.x, isle.z, ship.x, ship.z);
+    ship.x = isle.x + Math.sin(away) * (isle.r + cls.hull.beam + 4);
+    ship.z = isle.z + Math.cos(away) * (isle.r + cls.hull.beam + 4);
+    if (Math.abs(ship.speed) > 4) {
+      damageShip(state, ship, null, Math.abs(ship.speed) * 42, 'grounding');
+      state.events.push({ e: 'ground', x: ship.x, z: ship.z });
+    }
+    ship.speed *= 0.1;
+  } else {
+    ship.x = nx; ship.z = nz;
+  }
+
+  // Map border acts like a shoal: you slow and take damage rather than leave.
+  const edge = MAP_HALF - 120;
+  if (Math.abs(ship.x) > edge || Math.abs(ship.z) > edge) {
+    ship.x = clamp(ship.x, -edge, edge);
+    ship.z = clamp(ship.z, -edge, edge);
+    ship.speed *= 0.9;
+    damageShip(state, ship, null, 220 * dt, 'border');
+  }
+}
+
+function stepCollisions(state, dt) {
+  const alive = state.ships.filter((s) => s.alive);
+  for (let i = 0; i < alive.length; i++) {
+    for (let j = i + 1; j < alive.length; j++) {
+      const a = alive[i], b = alive[j];
+      const ca = shipClass(a), cb = shipClass(b);
+      const minD = (ca.hull.length + cb.hull.length) * 0.28;
+      const d = dist(a.x, a.z, b.x, b.z);
+      if (d > minD || d === 0) continue;
+      const push = (minD - d) * 0.5;
+      const h = headingTo(a.x, a.z, b.x, b.z);
+      a.x -= Math.sin(h) * push; a.z -= Math.cos(h) * push;
+      b.x += Math.sin(h) * push; b.z += Math.cos(h) * push;
+      const rel = Math.abs(a.speed - b.speed) + Math.abs(a.speed) * 0.2;
+      if (rel > 3) {
+        const dmg = rel * 55 * dt * 30;
+        damageShip(state, a, b, dmg * (cb.hp / ca.hp) * 0.5, 'ram');
+        damageShip(state, b, a, dmg * (ca.hp / cb.hp) * 0.5, 'ram');
+        a.speed *= 0.55; b.speed *= 0.55;
+        state.events.push({ e: 'ram', x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gunnery
+// ---------------------------------------------------------------------------
+
+function turretWorldPos(ship, cls, t) {
+  const spec = cls.turrets[t.id];
+  const w = localToWorld(spec.x, spec.z, ship.heading);
+  return { x: ship.x + w.x, z: ship.z + w.z };
+}
+
+/** Bearing a turret wants, clamped into its firing arc; null when it cannot bear. */
+function turretDesired(ship, cls, t) {
+  const spec = cls.turrets[t.id];
+  const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+  const local = wrapAngle(world - ship.heading);
+  const off = angleDelta(spec.angle, local);
+  const limited = Math.abs(off) > spec.arc;
+  const local2 = limited ? wrapAngle(spec.angle + Math.sign(off) * spec.arc) : local;
+  return { angle: local2, blocked: limited };
+}
+
+function stepTurrets(state, ship, dt) {
+  const cls = shipClass(ship);
+  for (const t of ship.turrets) {
+    if (t.disabled > 0) { t.disabled -= dt; continue; }
+    const want = turretDesired(ship, cls, t);
+    t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
+    if (t.cooldown > 0) t.cooldown -= dt;
+  }
+}
+
+export function canFire(ship) {
+  if (!ship.alive) return false;
+  return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0);
+}
+
+/** Fire every turret that is loaded and on target. Returns barrels fired. */
+export function fireGuns(state, ship) {
+  if (!ship.alive) return 0;
+  const cls = shipClass(ship);
+  const gun = cls.gun;
+  const spec = gun.shells[ship.shellType] || gun.shells.ap;
+  const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, gun.range);
+  const muzzleHeight = 11 + cls.hull.superstructure * 5;
+  let fired = 0;
+
+  for (const t of ship.turrets) {
+    if (t.cooldown > 0 || t.disabled > 0) continue;
+    const tSpec = cls.turrets[t.id];
+    const want = turretDesired(ship, cls, t);
+    if (want.blocked) continue;
+    if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
+
+    const pos = turretWorldPos(ship, cls, t);
+    const bearing = wrapAngle(ship.heading + t.angle);
+    // Dispersion: a cone that widens with range, tightened by the gun's sigma.
+    const spreadBase = (d * 0.0125) / gun.sigma;
+    for (let g = 0; g < tSpec.guns; g++) {
+      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
+      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+      const aimDist = clamp(d + rng, 300, gun.range);
+      const s2 = solveBallistic(gun, aimDist, muzzleHeight);
+      const b = bearing + Math.atan2(lat, Math.max(600, d));
+      const vh = s2.v * Math.cos(s2.elev);
+      state.shells.push({
+        id: eid(),
+        owner: ship.id, team: ship.team,
+        x: pos.x + Math.sin(b) * 12, z: pos.z + Math.cos(b) * 12,
+        y: muzzleHeight,
+        vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
+        g: s2.g,
+        spec, caliber: gun.caliber,
+        classId: cls.id,
+        life: 0,
+      });
+      fired++;
+    }
+    t.cooldown = gun.reload;
+    state.events.push({ e: 'muzzle', x: pos.x, z: pos.z, b: bearing, cal: gun.caliber, ship: ship.id });
+  }
+  if (fired > 0) ship.lastFiredAt = state.t;
+  return fired;
+}
+
+function stepShells(state, dt) {
+  const out = [];
+  for (const sh of state.shells) {
+    sh.life += dt;
+    const px = sh.x, pz = sh.z, py = sh.y;
+    sh.x += sh.vx * dt;
+    sh.z += sh.vz * dt;
+    sh.vy -= sh.g * dt;
+    sh.y += sh.vy * dt;
+
+    let consumed = false;
+    // Ship intersection: sample the segment so fast shells cannot tunnel.
+    for (const target of state.ships) {
+      if (!target.alive || target.team === sh.team) continue;
+      const cls = getClass(target.classId);
+      const halfLen = cls.hull.length * 0.5;
+      const halfBeam = cls.hull.beam * 0.5 + 2;
+      const deck = 9 + cls.hull.superstructure * 14;
+      if (dist2(sh.x, sh.z, target.x, target.z) > (halfLen + 260) * (halfLen + 260)) continue;
+      const steps = 4;
+      for (let i = 1; i <= steps; i++) {
+        const f = i / steps;
+        const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
+        if (cy > deck || cy < -2) continue;
+        if (!pointInBox(cx, cz, target.x, target.z, target.heading, halfLen, halfBeam)) continue;
+        resolveShellHit(state, sh, target, cx, cz, cy);
+        consumed = true;
+        break;
+      }
+      if (consumed) break;
+    }
+    if (consumed) continue;
+
+    if (sh.y <= 0) {
+      const isle = islandAt(state.world, sh.x, sh.z, 0);
+      state.events.push({ e: isle ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber });
+      continue;
+    }
+    if (sh.life > 60) continue;
+    out.push(sh);
+  }
+  state.shells = out;
+}
+
+/** Which part of the hull a shell struck, and the armour it must beat. */
+function hitSection(target, cls, lx, lz, y, descentAngle) {
+  const halfLen = cls.hull.length * 0.5;
+  const rel = Math.abs(lz) / halfLen;
+  const plunging = descentAngle > 0.52; // ~30 degrees, a deck hit
+  if (rel > 0.74) return { part: lz > 0 ? 'bow' : 'stern', armor: cls.armor.bow, cit: false };
+  if (y > 11 + cls.hull.superstructure * 6) return { part: 'superstructure', armor: cls.armor.superstructure, cit: false };
+  if (plunging) return { part: 'deck', armor: cls.armor.deck, cit: rel < 0.58 };
+  // The citadel is the machinery and magazine box amidships, below the belt's
+  // upper edge - the only place a shell can break a ship's back in one hit.
+  return { part: 'belt', armor: cls.armor.belt, cit: rel < 0.6 && y < 10 };
+}
+
+function resolveShellHit(state, sh, target, cx, cz, cy) {
+  const cls = getClass(target.classId);
+  const spec = sh.spec;
+  const l = worldToLocal(cx - target.x, cz - target.z, target.heading);
+  const speed = Math.hypot(sh.vx, sh.vz);
+  const descent = Math.atan2(-sh.vy, Math.max(1, speed));
+  const sec = hitSection(target, cls, l.x, l.z, cy, descent);
+
+  // Impact obliquity: 0 is a square broadside hit, 1 is a shell skidding along
+  // the length of the hull. A shell arriving down the ship's axis bounces.
+  const impactBearing = Math.atan2(sh.vx, sh.vz);
+  const relative = angleDelta(target.heading, impactBearing);
+  const obliq = sec.part === 'deck' ? 0 : Math.abs(Math.cos(relative));
+  const travelled = dist(0, 0, sh.vx * sh.life, sh.vz * sh.life);
+  const penFall = clamp(1.12 - travelled / 30000, 0.5, 1);
+  const effArmor = sec.armor / Math.max(0.35, 1 - obliq * 0.55);
+  const pen = spec.pen * penFall;
+
+  let dmg = 0, kind = 'pen';
+  if (spec.type === 'ap') {
+    if (sec.part !== 'deck' && obliq > 0.92 && spec.pen < sec.armor * 2.2) {
+      kind = 'ricochet'; dmg = 0;
+    } else if (pen < effArmor) {
+      kind = 'shatter'; dmg = spec.damage * 0.04;
+    } else if (pen > effArmor * 4.5 && !sec.cit) {
+      kind = 'overpen'; dmg = spec.damage * 0.1;
+    } else if (sec.cit && pen > effArmor * 1.05) {
+      kind = 'citadel'; dmg = spec.damage;
+    } else {
+      kind = 'pen'; dmg = spec.damage * 0.33;
+    }
+  } else {
+    if (spec.pen >= sec.armor) { kind = 'he'; dmg = spec.damage * 0.4; }
+    else { kind = 'splash'; dmg = spec.damage * 0.1; }
+    const fireRoll = state.rng();
+    if (fireRoll < spec.fireChance * (target.fires >= 3 ? 0.25 : 1)) startFire(state, target);
+    // HE tends to wreck what is exposed: mounts and steering.
+    if (kind === 'he' && state.rng() < 0.06) {
+      if (sec.part === 'stern') target.steeringDamage = 14;
+      else if (sec.part === 'superstructure' && target.turrets.length) {
+        target.turrets[Math.floor(state.rng() * target.turrets.length)].disabled = 12;
+      }
+    }
+  }
+
+  const owner = state.ships.find((s) => s.id === sh.owner);
+  if (dmg > 0) damageShip(state, target, owner, dmg, kind);
+  if (owner) {
+    owner.ribbons.hits++;
+    if (kind === 'citadel') owner.ribbons.cits++;
+  }
+  state.events.push({ e: 'hit', kind, x: cx, y: cy, z: cz, cal: sh.caliber, victim: target.id, owner: sh.owner, dmg: Math.round(dmg) });
+}
+
+// ---------------------------------------------------------------------------
+// Torpedoes
+// ---------------------------------------------------------------------------
+
+export function fireTorpedoes(state, ship) {
+  const cls = shipClass(ship);
+  if (!cls.torpedoes || !ship.alive) return 0;
+  const T = cls.torpedoes;
+  let launched = 0;
+  for (const m of ship.torpMounts) {
+    if (m.cooldown > 0) continue;
+    const spec = T.mounts[m.id];
+    const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+    const local = wrapAngle(world - ship.heading);
+    if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
+    const pos = localToWorld(spec.x, spec.z, ship.heading);
+    const base = wrapAngle(ship.heading + local);
+    for (let i = 0; i < spec.tubes; i++) {
+      const off = (i - (spec.tubes - 1) / 2) * (T.spread / Math.max(1, spec.tubes - 1)) * 2;
+      state.torps.push({
+        id: eid(), owner: ship.id, team: ship.team,
+        x: ship.x + pos.x, z: ship.z + pos.z,
+        heading: wrapAngle(base + off),
+        speed: T.speed, range: T.range, travelled: 0,
+        damage: T.damage, detection: T.detection, arming: T.arming,
+        flood: T.floodChance,
+      });
+      launched++;
+    }
+    m.cooldown = T.reload;
+    state.events.push({ e: 'torpLaunch', x: ship.x + pos.x, z: ship.z + pos.z, ship: ship.id });
+  }
+  return launched;
+}
+
+function stepTorpedoes(state, dt) {
+  const out = [];
+  for (const tp of state.torps) {
+    const nx = tp.x + Math.sin(tp.heading) * tp.speed * dt;
+    const nz = tp.z + Math.cos(tp.heading) * tp.speed * dt;
+    tp.travelled += tp.speed * dt;
+    tp.x = nx; tp.z = nz;
+    if (tp.travelled > tp.range || Math.abs(tp.x) > MAP_HALF || Math.abs(tp.z) > MAP_HALF) continue;
+    if (islandAt(state.world, tp.x, tp.z, 0)) { state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 }); continue; }
+
+    let hit = false;
+    if (tp.travelled > tp.arming) {
+      for (const target of state.ships) {
+        if (!target.alive || target.team === tp.team) continue;
+        const cls = getClass(target.classId);
+        if (!pointInBox(tp.x, tp.z, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 3)) continue;
+        const owner = state.ships.find((s) => s.id === tp.owner);
+        // Torpedo protection scales with hull size.
+        const reduction = clamp((cls.hull.beam - 12) / 46, 0, 0.42);
+        damageShip(state, target, owner, tp.damage * (1 - reduction), 'torpedo');
+        if (state.rng() < tp.flood) startFlood(state, target);
+        if (owner) owner.ribbons.torps++;
+        state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) out.push(tp);
+  }
+  state.torps = out;
+}
+
+// ---------------------------------------------------------------------------
+// Carrier air groups
+// ---------------------------------------------------------------------------
+
+export function launchStrike(state, ship) {
+  const cls = shipClass(ship);
+  if (!cls.planes || !ship.alive) return false;
+  const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
+  if (!sq) return false;
+  const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
+  if (d > cls.planes.strikeRange) return false;
+  sq.state = 'flying';
+  state.planes.push({
+    id: eid(), owner: ship.id, team: ship.team, sqId: sq.id,
+    x: ship.x, z: ship.z, heading: headingTo(ship.x, ship.z, ship.aimX, ship.aimZ),
+    tx: ship.aimX, tz: ship.aimZ,
+    count: cls.planes.perSquadron, hp: cls.planes.hp,
+    phase: 'outbound', dropped: false, life: 0,
+  });
+  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
+  return true;
+}
+
+function stepPlanes(state, dt) {
+  const out = [];
+  for (const p of state.planes) {
+    const carrier = state.ships.find((s) => s.id === p.owner);
+    const cls = carrier ? getClass(carrier.classId) : null;
+    const P = cls && cls.planes ? cls.planes : null;
+    if (!P) continue;
+    p.life += dt;
+
+    // Anti-aircraft fire from every enemy in range chews the squadron down.
+    for (const s of state.ships) {
+      if (!s.alive || s.team === p.team || !getClass(s.classId).aa) continue;
+      const aa = getClass(s.classId).aa;
+      const d = dist(p.x, p.z, s.x, s.z);
+      if (d < aa.range) {
+        p.hp -= aa.dps * dt * (1 - d / aa.range * 0.4);
+      }
+    }
+    if (p.hp <= 0) {
+      state.events.push({ e: 'planesLost', x: p.x, z: p.z });
+      releaseSquadron(state, p);
+      continue;
+    }
+
+    let goalX = p.tx, goalZ = p.tz;
+    if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+    const want = headingTo(p.x, p.z, goalX, goalZ);
+    p.heading = approachAngle(p.heading, want, 1.1 * dt);
+    p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
+    p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
+
+    if (p.phase === 'outbound') {
+      // Drop on the closest enemy inside the strike box.
+      let best = null, bestD = 2200;
+      for (const s of state.ships) {
+        if (!s.alive || s.team === p.team) continue;
+        const d = dist(p.x, p.z, s.x, s.z);
+        if (d < bestD) { best = s; bestD = d; }
+      }
+      if (best && bestD < 1400) {
+        const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
+        const base = headingTo(p.x, p.z, lead.x, lead.z);
+        for (let i = 0; i < p.count; i++) {
+          const off = (i - (p.count - 1) / 2) * P.dropSpread;
+          state.torps.push({
+            id: eid(), owner: p.owner, team: p.team,
+            x: p.x, z: p.z, heading: wrapAngle(base + off),
+            speed: P.torpSpeed, range: P.torpRange, travelled: 0,
+            damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
+          });
+        }
+        state.events.push({ e: 'airDrop', x: p.x, z: p.z });
+        p.phase = 'return';
+      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || p.life > 180) {
+        p.phase = 'return';
+      }
+    } else if (carrier && dist(p.x, p.z, carrier.x, carrier.z) < 300) {
+      releaseSquadron(state, p);
+      continue;
+    } else if (!carrier || p.life > 300) {
+      releaseSquadron(state, p);
+      continue;
+    }
+    out.push(p);
+  }
+  state.planes = out;
+}
+
+function releaseSquadron(state, p) {
+  const carrier = state.ships.find((s) => s.id === p.owner);
+  if (!carrier) return;
+  const sq = carrier.squadrons.find((s) => s.id === p.sqId);
+  if (sq) { sq.state = 'deck'; sq.cooldown = getClass(carrier.classId).planes.rearm; }
+}
+
+/** Simple constant-bearing intercept used by aircraft and bots. */
+export function leadPoint(fromX, fromZ, target, projSpeed) {
+  const tvx = Math.sin(target.heading) * target.speed;
+  const tvz = Math.cos(target.heading) * target.speed;
+  let t = dist(fromX, fromZ, target.x, target.z) / Math.max(1, projSpeed);
+  for (let i = 0; i < 3; i++) {
+    const px = target.x + tvx * t, pz = target.z + tvz * t;
+    t = dist(fromX, fromZ, px, pz) / Math.max(1, projSpeed);
+  }
+  return { x: target.x + tvx * t, z: target.z + tvz * t, t };
+}
+
+// ---------------------------------------------------------------------------
+// Damage, fires, flooding, repair
+// ---------------------------------------------------------------------------
+
+function startFire(state, ship) {
+  if (ship.fireTimers.length >= 4) return;
+  ship.fireTimers.push(30);
+  ship.fires = ship.fireTimers.length;
+  state.events.push({ e: 'fire', ship: ship.id });
+}
+
+function startFlood(state, ship) {
+  if (ship.floodTimers.length >= 3) return;
+  ship.floodTimers.push(40);
+  ship.flooding = ship.floodTimers.length;
+  state.events.push({ e: 'flood', ship: ship.id });
+}
+
+export function damageShip(state, ship, source, amount, kind) {
+  if (!ship.alive || amount <= 0) return;
+  ship.hp -= amount;
+  if (source && source.id !== ship.id) source.damageDealt += Math.min(amount, ship.hp + amount);
+  if (ship.hp <= 0) {
+    ship.hp = 0;
+    ship.alive = false;
+    ship.speed = 0;
+    if (source && source.team !== ship.team) source.kills++;
+    state.events.push({ e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by: source ? source.id : 0, kind });
+  }
+}
+
+export function useRepair(state, ship) {
+  if (!ship.alive || ship.repairCd > 0) return false;
+  const cls = shipClass(ship);
+  ship.repairCd = cls.repairCooldown;
+  ship.repairActive = 12;
+  ship.fireTimers = [];
+  ship.floodTimers = [];
+  ship.fires = 0; ship.flooding = 0;
+  ship.engineDamage = 0; ship.steeringDamage = 0;
+  state.events.push({ e: 'repair', ship: ship.id });
+  return true;
+}
+
+export function useSmoke(state, ship) {
+  if (!ship.alive || ship.smoke <= 0 || ship.smokeActive > 0) return false;
+  ship.smoke--;
+  ship.smokeActive = 22;
+  state.events.push({ e: 'smoke', ship: ship.id, x: ship.x, z: ship.z });
+  return true;
+}
+
+function stepDamageOverTime(state, ship, dt) {
+  const cls = shipClass(ship);
+  if (ship.fireTimers.length) {
+    for (let i = ship.fireTimers.length - 1; i >= 0; i--) {
+      ship.fireTimers[i] -= dt;
+      if (ship.fireTimers[i] <= 0) ship.fireTimers.splice(i, 1);
+    }
+    ship.fires = ship.fireTimers.length;
+    damageShip(state, ship, null, cls.hp * 0.0032 * ship.fires * dt, 'fire');
+  }
+  if (ship.floodTimers.length) {
+    for (let i = ship.floodTimers.length - 1; i >= 0; i--) {
+      ship.floodTimers[i] -= dt;
+      if (ship.floodTimers[i] <= 0) ship.floodTimers.splice(i, 1);
+    }
+    ship.flooding = ship.floodTimers.length;
+    damageShip(state, ship, null, cls.hp * 0.005 * ship.flooding * dt, 'flood');
+  }
+  if (ship.repairActive > 0) {
+    ship.repairActive -= dt;
+    ship.hp = Math.min(ship.maxHp, ship.hp + ship.maxHp * (cls.repairHeal / 12) * dt);
+  }
+  if (ship.repairCd > 0) ship.repairCd -= dt;
+  if (ship.smokeActive > 0) ship.smokeActive -= dt;
+  if (ship.engineDamage > 0) ship.engineDamage -= dt;
+  if (ship.steeringDamage > 0) ship.steeringDamage -= dt;
+  for (const m of ship.torpMounts) if (m.cooldown > 0) m.cooldown -= dt;
+  for (const s of ship.squadrons) if (s.cooldown > 0) s.cooldown -= dt;
+}
+
+// ---------------------------------------------------------------------------
+// Detection
+// ---------------------------------------------------------------------------
+
+function stepDetection(state) {
+  for (const s of state.ships) s.spottedBy = [false, false];
+  for (const target of state.ships) {
+    if (!target.alive) continue;
+    const tc = getClass(target.classId);
+    let conceal = tc.concealment;
+    if (state.t - target.lastFiredAt < 12) conceal += tc.fireDetectPenalty;
+    if (target.smokeActive > 0) conceal *= 0.22;
+    if (target.fires > 0) conceal *= 1.25;
+
+    for (const observer of state.ships) {
+      if (!observer.alive || observer.team === target.team) continue;
+      const oc = getClass(observer.classId);
+      const d = dist(observer.x, observer.z, target.x, target.z);
+      const radar = d < oc.radarRange * 0.55 && target.smokeActive <= 0;
+      if (d > conceal && !radar) continue;
+      if (d > 900 && blockedByLand(state.world, observer.x, observer.z, target.x, target.z)) continue;
+      target.spottedBy[observer.team] = true;
+    }
+  }
+  // Aircraft spot for their own side.
+  for (const p of state.planes) {
+    for (const target of state.ships) {
+      if (!target.alive || target.team === p.team) continue;
+      if (dist(p.x, p.z, target.x, target.z) < 3200) target.spottedBy[p.team] = true;
+    }
+  }
+}
+
+export function torpedoVisible(state, tp, team) {
+  if (tp.team === team) return true;
+  for (const s of state.ships) {
+    if (!s.alive || s.team !== team) continue;
+    if (dist(s.x, s.z, tp.x, tp.z) < tp.detection) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Objectives
+// ---------------------------------------------------------------------------
+
+function stepCaps(state, dt) {
+  if (state.mode !== 'domination') return;
+  for (const cap of state.caps) {
+    const counts = [0, 0];
+    for (const s of state.ships) {
+      if (!s.alive) continue;
+      if (dist(s.x, s.z, cap.x, cap.z) < cap.r) counts[s.team]++;
+    }
+    cap.contest = counts[0] > 0 && counts[1] > 0 ? 2 : counts[0] > 0 ? 0 : counts[1] > 0 ? 1 : -1;
+    if (cap.contest === 0 || cap.contest === 1) {
+      const team = cap.contest;
+      if (cap.owner === team) { cap.progress = 100; }
+      else {
+        cap.progress += dt * (9 + counts[team] * 3.5);
+        if (cap.progress >= 100) {
+          cap.progress = 100;
+          cap.owner = team;
+          state.events.push({ e: 'capture', cap: cap.id, team });
+        }
+      }
+    } else if (cap.contest === -1 && cap.owner === -1) {
+      cap.progress = Math.max(0, cap.progress - dt * 6);
+    }
+    if (cap.owner >= 0) state.score[cap.owner] += dt * 4.2;
+  }
+  for (let team = 0; team < 2; team++) {
+    if (state.score[team] >= CAP_TO_WIN) finish(state, team, 'points');
+  }
+}
+
+function checkElimination(state) {
+  const aliveByTeam = [0, 0];
+  for (const s of state.ships) if (s.alive) aliveByTeam[s.team]++;
+  if (aliveByTeam[0] === 0 && aliveByTeam[1] === 0) finish(state, -1, 'mutual');
+  else if (aliveByTeam[0] === 0) finish(state, 1, 'elimination');
+  else if (aliveByTeam[1] === 0) finish(state, 0, 'elimination');
+}
+
+function finish(state, winner, reason) {
+  if (state.over) return;
+  state.over = true;
+  state.winner = winner;
+  state.reason = reason;
+  state.events.push({ e: 'over', winner, reason });
+}
+
+// ---------------------------------------------------------------------------
+// Main step
+// ---------------------------------------------------------------------------
+
+export function step(state, dt = DT) {
+  state.t += dt;
+  state.tick++;
+  for (const ship of state.ships) {
+    if (!ship.alive) continue;
+    stepMovement(state, ship, dt);
+    stepTurrets(state, ship, dt);
+    stepDamageOverTime(state, ship, dt);
+  }
+  stepCollisions(state, dt);
+  stepShells(state, dt);
+  stepTorpedoes(state, dt);
+  stepPlanes(state, dt);
+  if (state.tick % 3 === 0) stepDetection(state);
+  stepCaps(state, dt);
+  if (!state.over) {
+    checkElimination(state);
+    if (state.t > state.timeLimit) {
+      const w = state.score[0] === state.score[1] ? -1 : state.score[0] > state.score[1] ? 0 : 1;
+      finish(state, w, 'timeout');
+    }
+  }
+  const ev = state.events;
+  state.events = [];
+  return ev;
+}
+
+/** Client-side prediction: advance only the local hull, no weapons or damage. */
+export function predictShip(state, ship, dt) {
+  if (!ship.alive) return;
+  stepMovement(state, ship, dt);
+  stepTurrets(state, ship, dt);
+}
