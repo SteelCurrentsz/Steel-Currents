@@ -1,10 +1,25 @@
 // WebSocket link to the battle service, with a message bus and auto-reconnect
 // while the player is sitting on the title screen.
 
+// The public battle service. Native shells (Capacitor/Cordova) serve the bundle
+// from a local scheme, so there is no server on `location.host` to talk to and
+// they have to be sent here instead.
+export const PUBLIC_SERVER = 'steelcurrents.com';
+
+/** Where the battle service lives for however this build is being served. */
+export function serviceUrl() {
+  if (globalThis.STEEL_CURRENTS_SERVER) return globalThis.STEEL_CURRENTS_SERVER;
+  // Served over the web (steelcurrents.com, a staging host, or localhost during
+  // development): the service is the same origin that handed us the page.
+  if (location.protocol === 'https:') return `wss://${location.host}/ws`;
+  if (location.protocol === 'http:') return `ws://${location.host}/ws`;
+  return `wss://${PUBLIC_SERVER}/ws`;
+}
+
 export class Net extends EventTarget {
   constructor(url) {
     super();
-    this.url = url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+    this.url = url || serviceUrl();
     this.ws = null;
     this.connected = false;
     this.ping = 0;

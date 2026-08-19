@@ -320,22 +320,30 @@ keytool -list -v -keystore ~/steel-currents-release.jks
 ```
 
 ### Issue: Game doesn't connect to server on device
-**Solution**: Update server URL in `client/js/net.js` to your deployed server (not localhost)
+**Solution**: The native shell serves its bundle from a local scheme, so it falls
+back to `wss://steelcurrents.com/ws` (see `client/js/net.js`). Check that the
+production server is actually up:
+
+```bash
+curl https://steelcurrents.com/healthz
+```
+
+To aim a build somewhere else, set the override in `client/index.html` before the
+app boots, then re-run `npm run sync:ios` / `npm run sync:android`:
+
+```html
+<script>globalThis.STEEL_CURRENTS_SERVER = 'wss://staging.steelcurrents.com/ws';</script>
+```
 
 ## Deployment
 
-### Server Configuration for Production
-Update `server/index.js` to use a public URL instead of localhost:8080
+The mobile apps are thin shells around the same battle service the web build
+uses, so **the server has to be deployed before either store build is playable**.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the full walkthrough — `render.yaml`, a
+`Dockerfile` and a `Procfile` are committed, so it is a one-step deploy.
 
-```javascript
-const publicUrl = process.env.PUBLIC_URL || 'wss://game.steelcurrents.com';
-```
-
-### Recommended Hosting
-- **Web Server**: AWS EC2, DigitalOcean, Heroku
-- **WebSocket Server**: Same as above
-- **CDN**: CloudFlare (for static assets)
-- **SSL Certificate**: Let's Encrypt (free)
+No code change is needed to move between environments: the client derives the
+battle service from whatever origin served it.
 
 ## Resources
 

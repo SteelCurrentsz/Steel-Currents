@@ -45,6 +45,10 @@ function safeResolve(urlPath) {
 }
 
 const server = http.createServer((req, res) => {
+  // Hosting platforms poll this to decide whether the instance is live.
+  if (req.url.startsWith('/healthz')) {
+    return json(res, 200, { ok: true, rooms: rooms.size, uptime: Math.round(process.uptime()) });
+  }
   if (req.url.startsWith('/api/status')) {
     return json(res, 200, {
       name: 'Steel Currents',

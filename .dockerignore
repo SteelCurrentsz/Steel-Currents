@@ -1,0 +1,9 @@
+node_modules
+.git
+ios
+android
+www
+docs
+test
+*.mjs
+*.log

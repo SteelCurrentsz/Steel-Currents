@@ -1,0 +1,16 @@
+# Render blueprint: https://render.com/docs/blueprint-spec
+# Deploys the battle service and terminates TLS for steelcurrents.com.
+services:
+  - type: web
+    name: steel-currents
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+    domains:
+      - steelcurrents.com
+      - www.steelcurrents.com
