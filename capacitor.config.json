@@ -1,0 +1,11 @@
+{
+  "appId": "com.steelcurrents.game",
+  "appName": "Steel Currents",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}

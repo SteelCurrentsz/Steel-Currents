@@ -4,3 +4,15 @@ node_modules/
 .env
 dist/
 build/
+www/
+ios/
+android/
+*.jks
+.gradle/
+.idea/
+*.xcodeproj/user/
+DerivedData/
+*.app/
+*.ipa
+*.apk
+*.aab
