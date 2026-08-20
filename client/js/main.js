@@ -211,14 +211,17 @@ optMetric.onchange = () => setSettings({ metric: optMetric.checked });
 // ------------------------------------------------------------------- net --
 
 const netState = document.getElementById('net-state');
+// A standalone build hosts its own battle, so there is no link whose state
+// could be worth reporting. The networked build still says where it stands.
+if (globalThis.STEEL_CURRENTS_OFFLINE) netState.remove();
 
 net.on('open', () => {
-  netState.textContent = globalThis.STEEL_CURRENTS_OFFLINE
-    ? 'standalone · ai opposition'
-    : 'battle service online';
+  if (!netState.isConnected) return;
+  netState.textContent = 'battle service online';
   netState.className = 'net-state online';
 });
 net.on('close', () => {
+  if (!netState.isConnected) return;
   netState.textContent = 'reconnecting…';
   netState.className = 'net-state offline';
 });

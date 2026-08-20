@@ -651,11 +651,6 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .bh-step:hover .chev { color: #7fe0a0; }
 .bh-step:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
 .bh-val { font-size: 1.35rem; letter-spacing: 0.08em; color: var(--sand-bright); }
-.sun {
-  width: 20px; height: 20px; border-radius: 50%; flex: none;
-  background: var(--sand-bright);
-  box-shadow: 0 0 0 3px rgba(255, 243, 212, 0.16), 0 0 12px rgba(255, 243, 212, 0.5);
-}
 
 /* Fleets ----------------------------------------------------------------- */
 .briefing-body {
