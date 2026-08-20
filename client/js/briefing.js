@@ -60,7 +60,13 @@ export class Briefing {
     this.bind();
     this.render();
     // The chart is sized by CSS, so it has to be repainted when that changes.
-    this.onResize = () => this.paintMap();
+    // A full repaint costs about 20ms, and a drag-resize fires far faster than
+    // that, so coalesce them onto the next frame instead of painting per event.
+    let pending = 0;
+    this.onResize = () => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => this.paintMap());
+    };
     window.addEventListener('resize', this.onResize);
   }
 
