@@ -91,7 +91,6 @@ export class Briefing {
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
-    on('time-prev', () => { s.time = cycle(TIMES, s.time, -1); this.render(); });
     on('theatre-btn', () => {
       s.theatre = cycle(MAP_PRESETS.map((m) => m.id), s.theatre, 1);
       this.render();

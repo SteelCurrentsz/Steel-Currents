@@ -54,9 +54,27 @@ uniform float uFogDensity;
 uniform vec3 uFogColor;
 uniform vec2 uGlare;
 uniform float uGlareSize;
+uniform float uStreak;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1, 0)), u.x),
+             mix(hash21(i + vec2(0, 1)), hash21(i + vec2(1, 1)), u.x), u.y);
+}
+float onoise(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.11; a *= 0.5; }
+  return v;
+}
 
 void main() {
   vec3 n = normalize(vNormal);
@@ -91,6 +109,27 @@ void main() {
   float gd = length(vWorld.xz - uGlare) / uGlareSize;
   float pool = exp(-gd * gd * 1.6);
   col += uLightColor * pool * 0.10 * uSpecular;
+
+  // Shore fires reflecting off a moving sea. The reflection is a path, not a
+  // pool: widest at the source and narrowing to the viewer's feet, and cut
+  // into streaks by the swell — that break-up is what says the water moves.
+  if (uStreak > 0.0) {
+    float reach = max(0.0, vWorld.z - cameraPosition.z);
+    float halfw = 40.0 + 0.30 * reach;
+    // Squared explicitly: pow() with a negative base is undefined in GLSL, and
+    // everything to port of the fires has a negative base here.
+    float off = (vWorld.x - uGlare.x) / halfw;
+    float path = exp(-off * off * 2.4);
+    // Beyond the fires there is nothing to reflect, and it dies off with haze.
+    path *= smoothstep(0.0, 120.0, reach) * (1.0 - smoothstep(uGlare.y, uGlare.y + 900.0, vWorld.z));
+
+    vec2 sp = vec2(vWorld.x * 0.020, vWorld.z * 0.0022 - uTime * 0.8);
+    float s = onoise(sp * 2.2) * 0.65 + onoise(sp * 7.0 + 3.1) * 0.35;
+    float streak = smoothstep(0.36, 0.74, s);
+    col += uLightColor * uStreak * path * (streak * 0.92 + 0.08);
+    // The troughs between the streaks stay dark, or the path flattens again.
+    col *= mix(1.0, 0.7 + 0.3 * streak, path * 0.8);
+  }
 
   // Foam only on the true peaks: the four octaves sum to about 1.93x uAmp.
   float peak = uAmp * 1.93;
@@ -153,6 +192,7 @@ export class Ocean {
         uFogColor: { value: new THREE.Color(p.fogColor) },
         uGlare: { value: new THREE.Vector2(300, 1400) },
         uGlareSize: { value: 1600 },
+        uStreak: { value: 0 },
       },
     });
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -164,6 +204,11 @@ export class Ocean {
   setGlare(x, z, size = 2200) {
     this.material.uniforms.uGlare.value.set(x, z);
     this.material.uniforms.uGlareSize.value = size;
+  }
+
+  /** Strength of a broken fire reflection over the glare pool; 0 turns it off. */
+  setStreak(v) {
+    this.material.uniforms.uStreak.value = v;
   }
 
   setSeaState(state) {
