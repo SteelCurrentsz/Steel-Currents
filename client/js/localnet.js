@@ -68,6 +68,8 @@ export class LocalNet extends EventTarget {
         this.startBattle(msg, {
           allies: Math.max(0, Math.min(7, msg.allies ?? 3)),
           enemies: Math.max(1, Math.min(8, msg.enemies ?? 4)),
+          allyClasses: Array.isArray(msg.allyClasses) ? msg.allyClasses.slice(0, 7) : null,
+          enemyClasses: Array.isArray(msg.enemyClasses) ? msg.enemyClasses.slice(0, 8) : null,
           botSkill: msg.botSkill || 'regular',
           mode: msg.mode === 'deathmatch' ? 'deathmatch' : 'domination',
           mapId: msg.mapId,
@@ -124,10 +126,14 @@ export class LocalNet extends EventTarget {
     });
     if (res.error) { this.deliver({ t: 'error', msg: res.error }); return; }
 
-    for (let i = 0; i < opts.allies; i++) room.addBotOnTeam(this.player.team, opts.botSkill);
-    // The chosen Axis hull leads their line; the rest of the screen is mixed.
-    for (let i = 0; i < opts.enemies; i++) {
-      room.addBotOnTeam(1 - this.player.team, opts.botSkill, i === 0 ? opts.axisClass : null);
+    // A briefing names the hulls outright; anything else just asks for counts.
+    const allies = opts.allyClasses?.length ?? opts.allies;
+    const enemies = opts.enemyClasses?.length ?? opts.enemies;
+    for (let i = 0; i < allies; i++) {
+      room.addBotOnTeam(this.player.team, opts.botSkill, opts.allyClasses?.[i] ?? null);
+    }
+    for (let i = 0; i < enemies; i++) {
+      room.addBotOnTeam(1 - this.player.team, opts.botSkill, opts.enemyClasses?.[i] ?? null);
     }
 
     this.deliver({

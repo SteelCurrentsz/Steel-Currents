@@ -31,15 +31,18 @@ const cycle = (arr, cur, step = 1) => {
 };
 
 export class Briefing {
-  constructor({ onStart, getName, onShipChange, initialShip = 'cleveland' }) {
+  constructor({ onStart, getName, onShipChange, onOpenPicker, onClosePicker,
+    initialShip = 'cleveland' }) {
     this.onStart = onStart;
     this.getName = getName;
     this.onShipChange = onShipChange;
+    this.onOpenPicker = onOpenPicker;
+    this.onClosePicker = onClosePicker;
     this.state = {
-      allyShip: initialShip,
-      axisShip: 'hipper',
-      allyEscorts: 3,
-      axisEscorts: 4,
+      // Your fleet's first hull is the one you take the bridge of; the rest
+      // sail under AI captains. The enemy fleet is theirs entirely.
+      allyFleet: [initialShip, 'fletcher', 'fletcher', 'fletcher'],
+      enemyFleet: ['hipper', 'fletcher', 'fletcher', 'fletcher', 'fletcher'],
       time: 'dawn',
       theatre: MAP_PRESETS[0].id,
       skill: 'regular',
@@ -47,10 +50,10 @@ export class Briefing {
 
     this.el = {
       canvas: document.getElementById('custom-map-canvas'),
-      allyShip: document.getElementById('ally-ship-cell'),
-      axisShip: document.getElementById('axis-ship-cell'),
-      allyEscort: document.getElementById('ally-escort-cell'),
-      axisEscort: document.getElementById('axis-escort-cell'),
+      allyAdd: document.getElementById('ally-add-cell'),
+      enemyAdd: document.getElementById('enemy-add-cell'),
+      allyDel: document.getElementById('ally-del-cell'),
+      enemyDel: document.getElementById('enemy-del-cell'),
       time: document.getElementById('time-val'),
       theatre: document.getElementById('theatre-name'),
       axisSide: document.querySelector('.bh-side.axis'),
@@ -74,19 +77,18 @@ export class Briefing {
     const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
     const s = this.state;
 
-    on('ally-ship-prev', () => { s.allyShip = cycle(SHIP_ORDER, s.allyShip, -1); this.onShipChange?.(s.allyShip); this.render(); });
-    on('axis-ship-next', () => { s.axisShip = cycle(SHIP_ORDER, s.axisShip, 1); this.render(); });
-    this.el.allyShip.addEventListener('click', () => { s.allyShip = cycle(SHIP_ORDER, s.allyShip, 1); this.onShipChange?.(s.allyShip); this.render(); });
-    this.el.axisShip.addEventListener('click', () => { s.axisShip = cycle(SHIP_ORDER, s.axisShip, -1); this.render(); });
-
-    // Escorts wrap through their own range: an ally screen may be empty, the
-    // other side always sails with at least one.
-    const stepAlly = (d) => { s.allyEscorts = (s.allyEscorts + d + 8) % 8; this.render(); };
-    const stepAxis = (d) => { s.axisEscorts = ((s.axisEscorts - 1 + d + 8) % 8) + 1; this.render(); };
-    on('ally-escort-prev', () => stepAlly(-1));
-    on('axis-escort-next', () => stepAxis(1));
-    this.el.allyEscort.addEventListener('click', () => stepAlly(1));
-    this.el.axisEscort.addEventListener('click', () => stepAxis(-1));
+    // The four hull icons: an arrow adds to a fleet, a cross removes from it.
+    const press = (el, fn) => {
+      if (!el) return;
+      el.addEventListener('click', fn);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+      });
+    };
+    press(this.el.allyAdd, () => this.openPicker('ally', 'add'));
+    press(this.el.enemyAdd, () => this.openPicker('enemy', 'add'));
+    press(this.el.allyDel, () => this.openPicker('ally', 'remove'));
+    press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('time-prev', () => { s.time = cycle(TIMES, s.time, -1); this.render(); });
@@ -101,27 +103,70 @@ export class Briefing {
     });
   }
 
-  shipCell(classId, { flip, count = null }) {
-    const c = SHIP_CLASSES[classId];
-    const n = count === null ? '' : `<b class="count">&times;${count}</b>`;
-    return `${silhouette(classId, { flip })}${n}
-      <span class="cell-name">${c.name}</span>
-      <span class="cell-type">${c.type} &middot; ${c.typeName}</span>`;
+  /** One of the four hull buttons. */
+  fleetCell(side, mode) {
+    const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    const flip = side === 'enemy';
+    const lead = fleet[0] || 'fletcher';
+    return `${silhouette(lead, { flip, badge: mode === 'add' ? 'arrow' : 'x' })}
+      <b class="count">${fleet.length}</b>`;
   }
 
-  escortCell(count, flip) {
-    // An escort screen is destroyers; the count is what a captain is choosing.
-    return `${silhouette('fletcher', { flip })}<b class="count">&times;${count}</b>
-      <span class="cell-name">${count === 0 ? 'No escort' : 'Escorts'}</span>
-      <span class="cell-type">DD &middot; screen</span>`;
+  /** The add / remove screen. In add mode it lists the hulls that can join; in
+   *  remove mode the ships already in that fleet, so a captain picks which one
+   *  leaves rather than losing whichever happened to be last. */
+  openPicker(side, mode) {
+    this.picker = { side, mode };
+    const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    const yours = side === 'ally';
+    document.getElementById('fleet-title').textContent =
+      mode === 'add' ? 'Add a ship' : 'Remove a ship';
+    document.getElementById('fleet-sub').textContent = mode === 'add'
+      ? `Pick a hull to join ${yours ? 'your' : 'the enemy'} fleet.`
+      : `Pick a ship to take out of ${yours ? 'your' : 'the enemy'} fleet.`;
+
+    const list = document.getElementById('fleet-list');
+    list.innerHTML = '';
+    this.onOpenPicker?.();
+
+    if (mode === 'remove' && fleet.length <= 1) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = 'A fleet cannot put to sea empty. Add another ship first.';
+      list.appendChild(p);
+    }
+
+    const entries = mode === 'add'
+      ? SHIP_ORDER.map((id) => ({ id, index: -1 }))
+      : fleet.map((id, index) => ({ id, index }));
+
+    entries.forEach(({ id, index }) => {
+      const c = SHIP_CLASSES[id];
+      const el = document.createElement('button');
+      el.className = 'ship-card';
+      el.type = 'button';
+      const flagship = mode === 'remove' && index === 0 && yours;
+      el.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
+        <div class="nm">${c.name}</div>
+        <div class="bl">${flagship ? 'Your bridge' : c.blurb}</div>`;
+      if (mode === 'remove' && fleet.length <= 1) el.disabled = true;
+      el.onclick = () => {
+        if (mode === 'add') fleet.push(id);
+        else fleet.splice(index, 1);
+        if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
+        this.render();
+        this.onClosePicker?.();
+      };
+      list.appendChild(el);
+    });
   }
 
   render() {
     const s = this.state;
-    this.el.allyShip.innerHTML = this.shipCell(s.allyShip, { flip: false });
-    this.el.axisShip.innerHTML = this.shipCell(s.axisShip, { flip: true });
-    this.el.allyEscort.innerHTML = this.escortCell(s.allyEscorts, false);
-    this.el.axisEscort.innerHTML = this.escortCell(s.axisEscorts, true);
+    this.el.allyAdd.innerHTML = this.fleetCell('ally', 'add');
+    this.el.enemyAdd.innerHTML = this.fleetCell('enemy', 'add');
+    this.el.allyDel.innerHTML = this.fleetCell('ally', 'remove');
+    this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     this.el.theatre.textContent = MAP_PRESETS.find((m) => m.id === s.theatre).name;
     if (this.el.axisSide) {
@@ -155,12 +200,13 @@ export class Briefing {
       t: 'custom',
       name: this.getName(),
       roomName: `${this.getName()}'s battle`,
-      classId: s.allyShip,
-      axisClass: s.axisShip,
+      classId: s.allyFleet[0],
+      allyClasses: s.allyFleet.slice(1),
+      enemyClasses: s.enemyFleet,
       mapId: s.theatre,
       time: s.time,
-      allies: s.allyEscorts,
-      enemies: s.axisEscorts,
+      allies: s.allyFleet.length - 1,
+      enemies: s.enemyFleet.length,
       botSkill: s.skill,
       private: true,
     };

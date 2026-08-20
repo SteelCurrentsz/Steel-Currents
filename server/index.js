@@ -182,12 +182,17 @@ function handle(player, msg) {
         time: msg.time,
       });
       joinRoom(player, room, msg);
-      const allies = Math.max(0, Math.min(7, msg.allies ?? 3));
-      const enemies = Math.max(1, Math.min(8, msg.enemies ?? 4));
-      for (let i = 0; i < allies; i++) room.addBotOnTeam(player.team, msg.botSkill);
-      // The chosen Axis hull leads their line; the rest of the screen is mixed.
+      // A briefing names the hulls outright; anything else just asks for counts.
+      const list = (v, cap) => (Array.isArray(v) ? v.slice(0, cap) : null);
+      const allyClasses = list(msg.allyClasses, 7);
+      const enemyClasses = list(msg.enemyClasses, 8);
+      const allies = allyClasses?.length ?? Math.max(0, Math.min(7, msg.allies ?? 3));
+      const enemies = enemyClasses?.length ?? Math.max(1, Math.min(8, msg.enemies ?? 4));
+      for (let i = 0; i < allies; i++) {
+        room.addBotOnTeam(player.team, msg.botSkill, allyClasses?.[i] ?? null);
+      }
       for (let i = 0; i < enemies; i++) {
-        room.addBotOnTeam(1 - player.team, msg.botSkill, i === 0 ? msg.axisClass : null);
+        room.addBotOnTeam(1 - player.team, msg.botSkill, enemyClasses?.[i] ?? null);
       }
       room.start();
       break;

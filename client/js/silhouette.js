@@ -51,11 +51,32 @@ const HULLS = {
     <rect x="78" y="22" width="4" height="4"/>`,
 };
 
-/** SVG for one hull, sized to fill its box. `flip` faces her the other way. */
-export function silhouette(classId, { flip = false, cls = '' } = {}) {
+// Badges that say what a hull icon does when it is a button rather than a
+// portrait: an arrow adds a ship, a cross removes one.
+// Drawn above the hull's own box, so the mark never sits on the superstructure.
+const BADGES = {
+  arrow: `<g class="badge">
+    <path d="M50 -15 L50 -3 M44 -9 L50 -3 L56 -9" fill="none"
+      stroke="currentColor" stroke-width="3"
+      stroke-linecap="square" stroke-linejoin="miter"/>
+  </g>`,
+  x: `<g class="badge">
+    <path d="M45 -14 L55 -4 M55 -14 L45 -4" fill="none"
+      stroke="currentColor" stroke-width="3" stroke-linecap="square"/>
+  </g>`,
+};
+
+/** SVG for one hull, sized to fill its box. `flip` faces her the other way,
+ *  and `badge` marks the icon as an add or a remove control. */
+export function silhouette(classId, { flip = false, cls = '', badge = null } = {}) {
   const body = HULLS[classId] || HULLS.fletcher;
-  return `<svg class="sil ${cls}" viewBox="0 0 100 40" preserveAspectRatio="xMidYMid meet"
-    role="img" aria-hidden="true"${flip ? ' style="transform:scaleX(-1)"' : ''}>
-    <g fill="currentColor">${body}</g>
+  const mark = badge ? BADGES[badge] || '' : '';
+  // The badge is drawn outside the flipped group so its arrow keeps pointing
+  // the way it was drawn, whichever way the hull faces.
+  const box = badge ? '0 -18 100 58' : '0 0 100 40';
+  return `<svg class="sil ${cls}" viewBox="${box}" preserveAspectRatio="xMidYMid meet"
+    role="img" aria-hidden="true">
+    <g fill="currentColor"${flip ? ' style="transform:scaleX(-1);transform-origin:50% 50%"' : ''}>${body}</g>
+    ${mark}
   </svg>`;
 }

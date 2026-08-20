@@ -53,7 +53,7 @@ window.addEventListener('resize', resize);
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'battle', 'result'];
+const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -150,7 +150,11 @@ const briefing = new Briefing({
   getName: () => getSettings().name,
   initialShip: settings.ship,
   onShipChange: (id) => setSettings({ ship: id }),
+  // The hull icons open the picker; choosing or cancelling returns to the chart.
+  onOpenPicker: () => show('fleet'),
+  onClosePicker: () => show('custom'),
 });
+document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();

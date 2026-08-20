@@ -82,19 +82,15 @@
 
   <div class="briefing-body">
     <div class="force-row">
-      <button class="force-arrow" id="ally-ship-prev" type="button" aria-label="Previous allied ship">&#9664;</button>
-      <div class="force-cell" id="ally-ship-cell"></div>
+      <div class="force-cell" id="ally-add-cell" role="button" tabindex="0"></div>
       <div class="force-gap"></div>
-      <div class="force-cell" id="axis-ship-cell"></div>
-      <button class="force-arrow" id="axis-ship-next" type="button" aria-label="Next Axis ship">&#9654;</button>
+      <div class="force-cell" id="enemy-add-cell" role="button" tabindex="0"></div>
     </div>
 
-    <div class="force-row escorts">
-      <button class="force-arrow" id="ally-escort-prev" type="button" aria-label="Fewer allied escorts">&#9664;</button>
-      <div class="force-cell" id="ally-escort-cell"></div>
+    <div class="force-row">
+      <div class="force-cell" id="ally-del-cell" role="button" tabindex="0"></div>
       <div class="force-gap"></div>
-      <div class="force-cell" id="axis-escort-cell"></div>
-      <button class="force-arrow" id="axis-escort-next" type="button" aria-label="More Axis escorts">&#9654;</button>
+      <div class="force-cell" id="enemy-del-cell" role="button" tabindex="0"></div>
     </div>
   </div>
 
@@ -241,6 +237,21 @@
     <header class="panel-head"><h2 id="result-title">Victory</h2><p id="result-sub"></p></header>
     <div class="panel-body"><table class="result-table" id="result-table"></table></div>
     <footer class="panel-foot"><button class="btn" data-action="back">Return to port</button></footer>
+  </div>
+</section>
+
+<section id="screen-fleet" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2 id="fleet-title">Add a ship</h2>
+      <p id="fleet-sub">Pick a hull to join the fleet.</p>
+    </header>
+    <div class="panel-body">
+      <div class="ship-picker" id="fleet-list"></div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" id="fleet-back">Back</button>
+    </footer>
   </div>
 </section>
 
