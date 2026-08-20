@@ -55,6 +55,7 @@ uniform vec3 uFogColor;
 uniform vec2 uGlare;
 uniform float uGlareSize;
 uniform float uStreak;
+uniform float uUnder;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
@@ -140,7 +141,18 @@ void main() {
   float fog = 1.0 - exp(-pow(d * uFogDensity, 2.0));
   col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
 
-  gl_FragColor = vec4(col, 1.0);
+  // Seen from underneath, the surface is not the opaque sheet it is from above:
+  // looking steeply up it is a window onto the sky, and towards the horizontal
+  // it turns into a mirror. Without this a hull cannot be inspected from below
+  // at all, because the sea itself is in the way.
+  float alpha = 1.0;
+  if (uUnder > 0.0) {
+    float look = clamp(abs(normalize(cameraPosition - vWorld).y), 0.0, 1.0);
+    alpha = mix(0.95, 0.16, pow(look, 0.7));
+    col = mix(col * 0.45 + vec3(0.02, 0.09, 0.13), col, look);
+  }
+
+  gl_FragColor = vec4(col, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -193,6 +205,7 @@ export class Ocean {
         uGlare: { value: new THREE.Vector2(300, 1400) },
         uGlareSize: { value: 1600 },
         uStreak: { value: 0 },
+        uUnder: { value: 0 },
       },
     });
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -209,6 +222,16 @@ export class Ocean {
   /** Strength of a broken fire reflection over the glare pool; 0 turns it off. */
   setStreak(v) {
     this.material.uniforms.uStreak.value = v;
+  }
+
+  /** Switch the surface to how it looks from underneath it. */
+  setUnder(on) {
+    this.material.uniforms.uUnder.value = on ? 1 : 0;
+    this.material.transparent = !!on;
+    this.material.depthWrite = !on;
+    this.material.needsUpdate = true;
+    // Drawn after the hull, so the ship still occludes the water beyond her.
+    this.mesh.renderOrder = on ? 1 : -1;
   }
 
   setSeaState(state) {

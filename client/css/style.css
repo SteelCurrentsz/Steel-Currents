@@ -726,3 +726,114 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .cell-name { font-size: 0.9rem; }
   .briefing-foot { padding-top: 0.4rem; }
 }
+
+/* ---------------------------- shipyard --------------------------- */
+/* The hull is the screen; everything here is laid over the live 3D view, so
+   only the panels themselves take a pointer and the rest of the section is
+   left free for the camera to be dragged about. */
+
+.screen.yard-screen { display: none; }
+.screen.yard-screen.active { display: block; }
+
+.yard-grab { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.yard-grab:active { cursor: grabbing; }
+
+.yard-screen > *:not(.yard-grab) { position: absolute; z-index: 2; }
+
+/* Head: name, class, the commission control, then the two arrows. ---------- */
+.yard-head {
+  top: max(1.6rem, env(safe-area-inset-top));
+  left: max(1.8rem, env(safe-area-inset-left));
+  max-width: min(46ch, 52vw);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+}
+.yard-head h2 {
+  margin: 0;
+  font-family: var(--stencil);
+  font-size: clamp(2.2rem, 5.2vw, 4rem);
+  line-height: 0.95;
+  letter-spacing: 0.03em;
+  color: var(--sand);
+}
+.yard-class {
+  margin: 0.1rem 0 0;
+  font-size: clamp(0.95rem, 1.7vw, 1.4rem);
+  letter-spacing: 0.1em;
+  color: var(--sand);
+  opacity: 0.82;
+}
+
+.yard-commission {
+  display: block;
+  margin: 1.1rem 0 0;
+  padding: 0.5rem 0;
+  min-height: 44px;
+  background: none; border: 0;
+  font-family: var(--ui);
+  font-size: clamp(1.1rem, 2.1vw, 1.7rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--sand);
+  cursor: pointer;
+  transition: color 0.12s, text-shadow 0.12s;
+}
+.yard-commission:hover, .yard-commission:focus-visible { color: var(--sand-bright); }
+.yard-commission.done { color: var(--ally); }
+
+.yard-arrows { display: flex; gap: clamp(2rem, 8vw, 5.5rem); margin-top: 0.4rem; }
+.yard-arrow {
+  min-width: 56px; min-height: 44px;
+  padding: 0 0.2rem;
+  background: none; border: 0;
+  font-family: var(--ui);
+  font-size: clamp(1.2rem, 2.4vw, 1.9rem);
+  letter-spacing: 0.12em;
+  color: var(--sand);
+  opacity: 0.8;
+  cursor: pointer;
+}
+.yard-arrow:hover, .yard-arrow:focus-visible { opacity: 1; color: var(--sand-bright); }
+
+/* The two datasheets, in the bottom corners. ------------------------------ */
+.yard-sheet {
+  bottom: max(1.6rem, env(safe-area-inset-bottom));
+  font-size: clamp(0.78rem, 1.35vw, 1.05rem);
+  letter-spacing: 0.08em;
+  color: var(--sand);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+  line-height: 1.55;
+  pointer-events: none;
+}
+.yard-hull { left: max(1.8rem, env(safe-area-inset-left)); }
+.yard-arms { right: max(1.8rem, env(safe-area-inset-right)); text-align: right; }
+
+.yard-sheet h3 {
+  margin: 0 0 0.35rem;
+  font-family: var(--stencil);
+  font-size: 1em;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--steel);
+  opacity: 0.9;
+}
+.yard-row { display: flex; gap: 1.4rem; white-space: nowrap; }
+.yard-arms .yard-row { justify-content: flex-end; }
+.yard-row .k { flex: 1; }
+.yard-arms .yard-row .k { text-align: right; }
+.yard-row .v { color: var(--sand-bright); font-variant-numeric: tabular-nums; }
+
+.yard-back {
+  top: max(1.6rem, env(safe-area-inset-top));
+  right: max(1.8rem, env(safe-area-inset-right));
+}
+
+/* On a phone in portrait the two corner sheets would meet in the middle, so
+   they stack under one another and the hull keeps the upper half of the frame. */
+@media (max-width: 620px) {
+  .yard-sheet { font-size: 0.72rem; letter-spacing: 0.05em; }
+  .yard-row { gap: 0.7rem; }
+  .yard-hull { left: max(0.9rem, env(safe-area-inset-left)); }
+  .yard-arms { right: max(0.9rem, env(safe-area-inset-right)); }
+  .yard-head { max-width: 68vw; }
+}

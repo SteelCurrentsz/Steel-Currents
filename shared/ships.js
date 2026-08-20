@@ -67,6 +67,20 @@ export const SHIP_CLASSES = {
     aa: { range: 3500, dps: 128 },
     secondaries: null,
     planes: null,
+    // Presentation only: what the shipyard screen lists. Barrel counts for the
+    // main battery and the torpedo tubes come from `turrets` and `torpedoes`
+    // above, so they can never drift from what the ship actually mounts.
+    datasheet: {
+      displacement: 2050,
+      aircraft: 0,
+      mainRounds: 3600,
+      torpedoesCarried: 10,
+      secondary: null,
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 10, rounds: 12000 },
+        { caliber: 20, label: '20mm', barrels: 7, rounds: 16800 },
+      ],
+    },
   },
 
   cleveland: {
@@ -105,6 +119,16 @@ export const SHIP_CLASSES = {
     aa: { range: 5200, dps: 310 },
     secondaries: { range: 4800, dps: 190 },
     planes: null,
+    datasheet: {
+      displacement: 11750,
+      aircraft: 4,
+      mainRounds: 2400,
+      secondary: { caliber: 127, label: '5"', barrels: 12, rounds: 6000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 28, rounds: 33600 },
+        { caliber: 20, label: '20mm', barrels: 10, rounds: 24000 },
+      ],
+    },
   },
 
   hipper: {
@@ -150,6 +174,17 @@ export const SHIP_CLASSES = {
     aa: { range: 4800, dps: 240 },
     secondaries: { range: 5200, dps: 150 },
     planes: null,
+    datasheet: {
+      displacement: 16170,
+      aircraft: 3,
+      mainRounds: 1280,
+      torpedoesCarried: 12,
+      secondary: { caliber: 105, label: '105mm', barrels: 12, rounds: 4800 },
+      tertiary: [
+        { caliber: 37, label: '37mm', barrels: 12, rounds: 24000 },
+        { caliber: 20, label: '20mm', barrels: 28, rounds: 33600 },
+      ],
+    },
   },
 
   iowa: {
@@ -187,6 +222,16 @@ export const SHIP_CLASSES = {
     aa: { range: 5600, dps: 400 },
     secondaries: { range: 6200, dps: 260 },
     planes: null,
+    datasheet: {
+      displacement: 45000,
+      aircraft: 3,
+      mainRounds: 1170,
+      secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 9000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 80, rounds: 96000 },
+        { caliber: 20, label: '20mm', barrels: 49, rounds: 117600 },
+      ],
+    },
   },
 
   essex: {
@@ -226,6 +271,17 @@ export const SHIP_CLASSES = {
       squadrons: 3, perSquadron: 4, cruiseSpeed: 78, strikeRange: 14000,
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
+    },
+    datasheet: {
+      displacement: 27100,
+      // The air group is the armament that matters; `planes` above carries it.
+      aircraft: 0,
+      mainRounds: 3200,
+      secondary: { caliber: 127, label: '5"', barrels: 8, rounds: 2400 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 68, rounds: 81600 },
+        { caliber: 20, label: '20mm', barrels: 55, rounds: 132000 },
+      ],
     },
   },
 };

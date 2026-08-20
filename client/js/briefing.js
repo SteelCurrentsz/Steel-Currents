@@ -4,7 +4,7 @@
 // take, the hull that leads the other side, how many escorts each side sails
 // with, the hour, and which sea. Nothing on this screen is decorative.
 
-import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_PRESETS, TIMES } from '../../shared/world.js';
 import { silhouette } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
@@ -32,12 +32,13 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, onShipChange, onOpenPicker, onClosePicker,
-    initialShip = 'cleveland' }) {
+    onOpenYard, initialShip = 'cleveland' }) {
     this.onStart = onStart;
     this.getName = getName;
     this.onShipChange = onShipChange;
     this.onOpenPicker = onOpenPicker;
     this.onClosePicker = onClosePicker;
+    this.onOpenYard = onOpenYard;
     this.state = {
       // Your fleet's first hull is the one you take the bridge of; the rest
       // sail under AI captains. The enemy fleet is theirs entirely.
@@ -85,8 +86,10 @@ export class Briefing {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
       });
     };
-    press(this.el.allyAdd, () => this.openPicker('ally', 'add'));
-    press(this.el.enemyAdd, () => this.openPicker('enemy', 'add'));
+    // An arrow opens the shipyard, where a hull is inspected before it is
+    // commissioned; a cross opens the list of ships already in that fleet.
+    press(this.el.allyAdd, () => this.onOpenYard?.('ally'));
+    press(this.el.enemyAdd, () => this.onOpenYard?.('enemy'));
     press(this.el.allyDel, () => this.openPicker('ally', 'remove'));
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
@@ -111,47 +114,48 @@ export class Briefing {
       <b class="count">${fleet.length}</b>`;
   }
 
-  /** The add / remove screen. In add mode it lists the hulls that can join; in
-   *  remove mode the ships already in that fleet, so a captain picks which one
-   *  leaves rather than losing whichever happened to be last. */
-  openPicker(side, mode) {
+  /** Commission a hull into one of the fleets. The shipyard calls this once a
+   *  captain has looked her over. */
+  commission(side, classId) {
+    const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    fleet.push(classId);
+    if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
+    this.render();
+  }
+
+  /** The paying-off screen: the ships already in that fleet, so a captain picks
+   *  which one leaves rather than losing whichever happened to be last. */
+  openPicker(side, mode = 'remove') {
     this.picker = { side, mode };
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
     const yours = side === 'ally';
-    document.getElementById('fleet-title').textContent =
-      mode === 'add' ? 'Add a ship' : 'Remove a ship';
-    document.getElementById('fleet-sub').textContent = mode === 'add'
-      ? `Pick a hull to join ${yours ? 'your' : 'the enemy'} fleet.`
-      : `Pick a ship to take out of ${yours ? 'your' : 'the enemy'} fleet.`;
+    document.getElementById('fleet-title').textContent = 'Remove a ship';
+    document.getElementById('fleet-sub').textContent =
+      `Pick a ship to take out of ${yours ? 'your' : 'the enemy'} fleet.`;
 
     const list = document.getElementById('fleet-list');
     list.innerHTML = '';
     this.onOpenPicker?.();
 
-    if (mode === 'remove' && fleet.length <= 1) {
+    if (fleet.length <= 1) {
       const p = document.createElement('p');
       p.className = 'muted';
       p.textContent = 'A fleet cannot put to sea empty. Add another ship first.';
       list.appendChild(p);
     }
 
-    const entries = mode === 'add'
-      ? SHIP_ORDER.map((id) => ({ id, index: -1 }))
-      : fleet.map((id, index) => ({ id, index }));
-
-    entries.forEach(({ id, index }) => {
+    fleet.forEach((id, index) => {
       const c = SHIP_CLASSES[id];
       const el = document.createElement('button');
       el.className = 'ship-card';
       el.type = 'button';
-      const flagship = mode === 'remove' && index === 0 && yours;
+      const flagship = index === 0 && yours;
       el.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
         <div class="nm">${c.name}</div>
         <div class="bl">${flagship ? 'Your bridge' : c.blurb}</div>`;
-      if (mode === 'remove' && fleet.length <= 1) el.disabled = true;
+      if (fleet.length <= 1) el.disabled = true;
       el.onclick = () => {
-        if (mode === 'add') fleet.push(id);
-        else fleet.splice(index, 1);
+        fleet.splice(index, 1);
         if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
         this.render();
         this.onClosePicker?.();

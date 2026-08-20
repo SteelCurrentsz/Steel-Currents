@@ -235,6 +235,28 @@
   </div>
 </section>
 
+<!-- The shipyard: one hull under way, with the camera free to walk round her.
+     Everything here sits over the live 3D view, so the panels are the only
+     thing in the section that takes a pointer. -->
+<section id="screen-yard" class="screen yard-screen">
+  <div class="yard-grab" id="yard-grab"></div>
+
+  <div class="yard-head">
+    <h2 id="yard-name">Iowa</h2>
+    <p class="yard-class" id="yard-class">Iowa Class Battleship</p>
+    <button class="yard-commission" id="yard-commission" type="button">Commission Vessel</button>
+    <div class="yard-arrows">
+      <button class="yard-arrow" id="yard-prev" type="button" aria-label="Previous ship">&lt;&lt;&lt;</button>
+      <button class="yard-arrow" id="yard-next" type="button" aria-label="Next ship">&gt;&gt;&gt;</button>
+    </div>
+  </div>
+
+  <div class="yard-sheet yard-hull" id="yard-hull"></div>
+  <div class="yard-sheet yard-arms" id="yard-arms"></div>
+
+  <button class="btn ghost yard-back" id="yard-back" type="button">Back</button>
+</section>
+
 <section id="screen-fleet" class="screen panel-screen">
   <div class="panel">
     <header class="panel-head">

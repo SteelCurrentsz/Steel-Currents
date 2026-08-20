@@ -8,6 +8,7 @@ import { Ocean } from './render/ocean.js';
 import { buildShip } from './render/ships.js';
 import { buildHarbour } from './render/harbour.js';
 import { FireSystem } from './render/fire.js';
+import { SHIP_CLASSES } from '../../shared/ships.js';
 
 // Framing, kept together so the composition is easy to nudge. The camera sits
 // on our own bridge front, above and abaft the forward turrets.
@@ -166,7 +167,9 @@ export class TitleScene {
     this.own = buildShip('iowa');
     this.own.group.rotation.y = 0;
     // Guns trained on the port, off the port bow.
-    this.own.turrets.forEach((t, i) => { t.rotation.y = -0.14 + (i % 2 ? 0.05 : -0.04); });
+    this.own.turrets.forEach((t, i) => {
+      t.rotation.y = (SHIP_CLASSES.iowa.turrets[i]?.angle || 0) - 0.14 + (i % 2 ? 0.05 : -0.04);
+    });
     this.scene.add(this.own.group);
     this.addBowWave();
 

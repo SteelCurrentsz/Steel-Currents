@@ -3,6 +3,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
+import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
 import { Battle } from './game.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
@@ -33,6 +34,7 @@ const touchControls = input.touch
   : null;
 let title = new TitleScene(renderer);
 let battle = null;
+let yard = null;
 let current = 'title';
 
 // ------------------------------------------------------------------ view --
@@ -48,12 +50,13 @@ function resize() {
   renderer.setSize(w, h, false);
   title.resize(w, h);
   if (battle) battle.resize(w, h);
+  if (yard) yard.resize(w, h);
 }
 window.addEventListener('resize', resize);
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'battle', 'result'];
+const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -153,8 +156,63 @@ const briefing = new Briefing({
   // The hull icons open the picker; choosing or cancelling returns to the chart.
   onOpenPicker: () => show('fleet'),
   onClosePicker: () => show('custom'),
+  onOpenYard: (side) => openYard(side),
 });
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
+
+// --------------------------------------------------------------- shipyard --
+
+// Which fleet the hull on the water would join, and where in the catalogue we
+// are. The scene itself is built the first time it is asked for: the title
+// screen has enough to do at boot without a second sea and a second hull.
+const yardUi = { side: 'ally', index: 0 };
+
+function openYard(side) {
+  yardUi.side = side;
+  if (!yard) {
+    yard = new ShipyardScene(renderer);
+    yard.resize(window.innerWidth, window.innerHeight);
+  }
+  yard.attach(document.getElementById('yard-grab'));
+  show('yard');
+  renderYard();
+}
+
+function closeYard() {
+  yard?.detach();
+  show('custom');
+}
+
+function sheet(el, heading, rows) {
+  el.innerHTML = `<h3>${heading}</h3>` + rows.map(([k, v]) =>
+    `<div class="yard-row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+}
+
+function renderYard() {
+  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const cls = SHIP_CLASSES[id];
+  yard.setShip(id);
+  document.getElementById('yard-name').textContent = cls.name;
+  document.getElementById('yard-class').textContent = `${cls.name} Class ${cls.typeName}`;
+  sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls));
+  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls));
+}
+
+function stepYard(dir) {
+  yardUi.index = (yardUi.index + dir + SHIP_ORDER.length) % SHIP_ORDER.length;
+  renderYard();
+}
+
+document.getElementById('yard-prev').onclick = () => { audio.click(); stepYard(-1); };
+document.getElementById('yard-next').onclick = () => { audio.click(); stepYard(1); };
+document.getElementById('yard-back').onclick = () => { audio.click(); closeYard(); };
+document.getElementById('yard-commission').onclick = () => {
+  audio.click();
+  const id = SHIP_ORDER[yardUi.index % SHIP_ORDER.length];
+  briefing.commission(yardUi.side, id);
+  toast(`${SHIP_CLASSES[id].name} joins ${yardUi.side === 'ally' ? 'your' : 'the enemy'} fleet.`);
+  closeYard();
+};
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
@@ -318,6 +376,9 @@ function frame(now) {
   if (battle && current === 'battle') {
     battle.update(dt);
     battle.render();
+  } else if (yard && current === 'yard') {
+    yard.update(dt);
+    yard.render();
   } else {
     title.update(dt);
     title.render();
@@ -326,7 +387,13 @@ function frame(now) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
   if (e.code === 'Escape' && current !== 'title' && current !== 'battle') show('title');
+  if (current !== 'yard') return;
+  if (e.code === 'ArrowLeft') stepYard(-1);
+  else if (e.code === 'ArrowRight') stepYard(1);
+  else if (e.code === 'Equal' || e.code === 'NumpadAdd') yard.zoom(-1);
+  else if (e.code === 'Minus' || e.code === 'NumpadSubtract') yard.zoom(1);
 });
 window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 

@@ -16,7 +16,7 @@ const SKY = {
   day: { top: 0x2f6ea8, bottom: 0xa8cbe0 },
 };
 
-function skyDome(time, radius = 20000) {
+export function skyDome(time, radius = 20000) {
   const cfg = SKY[time] || SKY.night;
   const geo = new THREE.SphereGeometry(1, 24, 16);
   const mat = new THREE.ShaderMaterial({
