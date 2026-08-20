@@ -2,18 +2,13 @@
 //
 // Every control here sets something the battle actually uses — the hull you
 // take, the hull that leads the other side, how many escorts each side sails
-// with, the objective, the hour, and which sea. Nothing on this screen is
-// decorative.
+// with, the hour, and which sea. Nothing on this screen is decorative.
 
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS, TIMES } from '../../shared/world.js';
 import { silhouette } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
-const MODES = [
-  { id: 'domination', name: 'Domination' },
-  { id: 'deathmatch', name: 'Annihilation' },
-];
 const SKILLS = [
   { id: 'rookie', name: 'Green' },
   { id: 'regular', name: 'Regular' },
@@ -45,7 +40,6 @@ export class Briefing {
       axisShip: 'hipper',
       allyEscorts: 3,
       axisEscorts: 4,
-      mode: 'domination',
       time: 'dawn',
       theatre: MAP_PRESETS[0].id,
       skill: 'regular',
@@ -57,7 +51,6 @@ export class Briefing {
       axisShip: document.getElementById('axis-ship-cell'),
       allyEscort: document.getElementById('ally-escort-cell'),
       axisEscort: document.getElementById('axis-escort-cell'),
-      mode: document.getElementById('mode-val'),
       time: document.getElementById('time-val'),
       theatre: document.getElementById('theatre-name'),
       axisSide: document.querySelector('.bh-side.axis'),
@@ -89,7 +82,6 @@ export class Briefing {
     this.el.allyEscort.addEventListener('click', () => stepAlly(1));
     this.el.axisEscort.addEventListener('click', () => stepAxis(-1));
 
-    on('mode-next', () => { s.mode = cycle(MODES.map((m) => m.id), s.mode, 1); this.render(); });
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('time-prev', () => { s.time = cycle(TIMES, s.time, -1); this.render(); });
     on('theatre-btn', () => {
@@ -124,26 +116,22 @@ export class Briefing {
     this.el.axisShip.innerHTML = this.shipCell(s.axisShip, { flip: true });
     this.el.allyEscort.innerHTML = this.escortCell(s.allyEscorts, false);
     this.el.axisEscort.innerHTML = this.escortCell(s.axisEscorts, true);
-    this.el.mode.textContent = MODES.find((m) => m.id === s.mode).name;
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     this.el.theatre.textContent = MAP_PRESETS.find((m) => m.id === s.theatre).name;
     if (this.el.axisSide) {
-      this.el.axisSide.textContent = `Axis Forces · ${SKILLS.find((k) => k.id === s.skill).name}`;
+      this.el.axisSide.textContent = `Enemy Forces · ${SKILLS.find((k) => k.id === s.skill).name}`;
     }
   }
 
   paintMap() {
     if (!this.el.canvas) return;
     const theatre = MAP_PRESETS.find((m) => m.id === this.state.theatre);
-    // Zoom 1 puts the whole world across the width; 180 degrees of latitude is
-    // then half that tall. On a screen taller than 2:1 scale up so the chart
-    // still fills it, cropping east and west rather than showing bare canvas.
+    // Zoom 1 fits all 360 degrees across the width. Filling the height instead
+    // would crop the east and west edges — and losing the Pacific from a world
+    // map to avoid a band of empty ocean is the wrong trade.
     const c = this.el.canvas;
-    const w = c.clientWidth || 1200;
-    const h = c.clientHeight || 800;
-    const zoom = Math.max(1, (2 * h) / w);
     drawWorld(c, {
-      focus: [0, 8], zoom,
+      focus: [0, 8], zoom: 1,
       marker: THEATRE_POS[this.state.theatre] || THEATRE_POS.open_ocean,
       markerName: theatre?.name || '',
     });
@@ -164,7 +152,6 @@ export class Briefing {
       classId: s.allyShip,
       axisClass: s.axisShip,
       mapId: s.theatre,
-      mode: s.mode,
       time: s.time,
       allies: s.allyEscorts,
       enemies: s.axisEscorts,
