@@ -40,7 +40,29 @@ function ring(indices) {
     // The joining point is shared, so drop the duplicate.
     for (let i = pts.length ? 1 : 0; i < arc.length; i++) pts.push(arc[i]);
   }
-  return pts;
+  return unwrap(pts);
+}
+
+/** Keep a ring's longitudes continuous.
+ *
+ *  Shapes that straddle the antimeridian — Fiji, Wrangel, Chukotka, Antarctica
+ *  — step from +179 to -179 between two neighbouring points. Drawn literally
+ *  that is a straight line clear across the chart, which is what those stray
+ *  horizontal streaks were. Carrying the offset instead lets the ring run past
+ *  180 and stay in one piece; the copies drawn at plus and minus 360 put it
+ *  back on the far side. */
+function unwrap(pts) {
+  if (pts.length < 2) return pts;
+  const out = [pts[0]];
+  let prev = pts[0][0];
+  for (let i = 1; i < pts.length; i++) {
+    let lon = pts[i][0];
+    while (lon - prev > 180) lon -= 360;
+    while (prev - lon > 180) lon += 360;
+    out.push([lon, pts[i][1]]);
+    prev = lon;
+  }
+  return out;
 }
 
 let RINGS = null;
@@ -53,11 +75,24 @@ function landRings() {
   return RINGS;
 }
 
-const PORTS = [
-  ['SCAPA FLOW', -3, 59], ['GIBRALTAR', -5, 36], ['HALIFAX', -63, 45],
-  ['NEW YORK', -74, 41], ['DAKAR', -17, 15], ['FREETOWN', -13, 8],
-  ['PEARL HARBOR', -158, 21], ['MIDWAY', -177, 28], ['RABAUL', 152, -4],
-  ['SINGAPORE', 104, 1], ['TOKYO', 140, 36], ['MURMANSK', 33, 69],
+// Wartime capitals of the major belligerents. China's is Chongqing, where the
+// Nationalist government sat from 1938; France's is Paris, before the fall.
+const CAPITALS = [
+  ['LONDON', -0.13, 51.51], ['PARIS', 2.35, 48.86], ['BERLIN', 13.40, 52.52],
+  ['ROME', 12.50, 41.90], ['WARSAW', 21.01, 52.23], ['MOSCOW', 37.62, 55.75],
+  ['WASHINGTON', -77.04, 38.91], ['OTTAWA', -75.70, 45.42],
+  ['TOKYO', 139.69, 35.69], ['CHONGQING', 106.55, 29.56],
+  ['NEW DELHI', 77.21, 28.61], ['CANBERRA', 149.13, -35.28],
+  ['WELLINGTON', 174.78, -41.29], ['PRETORIA', 28.19, -25.75],
+];
+
+// Fleet bases and anchorages, which is what this chart is really for.
+const BASES = [
+  ['SCAPA FLOW', -3.30, 58.90], ['GIBRALTAR', -5.35, 36.14],
+  ['PEARL HARBOR', -157.95, 21.35], ['MIDWAY', -177.37, 28.21],
+  ['SINGAPORE', 103.85, 1.29], ['RABAUL', 152.16, -4.20],
+  ['MURMANSK', 33.08, 68.97], ['ALEXANDRIA', 29.92, 31.20],
+  ['TRUK', 151.85, 7.45], ['DAKAR', -17.45, 14.72],
 ];
 
 /**
@@ -68,10 +103,8 @@ export function drawWorld(canvas, opts = {}) {
   const {
     focus = [0, 8], zoom = 1,
     sea = '#0a1826', land = '#2e4860', coast = '#628aa3',
-    grid = 'rgba(130, 165, 190, 0.12)', label = 'rgba(165, 190, 210, 0.55)',
-    equator = 'rgba(150, 185, 210, 0.22)', tropic = 'rgba(140, 175, 200, 0.14)',
     shelf = 'rgba(90, 140, 175, 0.5)',
-    dot = '#9c4747', showPorts = true,
+    capital = '#e6cf9c', base = '#c98b8b', showPlaces = true,
     marker = null, markerName = '',
   } = opts;
 
@@ -89,26 +122,6 @@ export function drawWorld(canvas, opts = {}) {
 
   ctx.fillStyle = sea;
   ctx.fillRect(0, 0, w, h);
-
-  // Graticule every 15 degrees, with the equator, the prime meridian and the
-  // tropics picked out — the lines a navigator would actually reference.
-  const meridian = (lon) => { const x = px(lon); ctx.moveTo(x, 0); ctx.lineTo(x, h); };
-  const parallel = (lat) => { const y = py(lat); ctx.moveTo(0, y); ctx.lineTo(w, y); };
-
-  ctx.strokeStyle = grid;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let lon = -180; lon <= 180; lon += 15) if (lon !== 0) meridian(lon);
-  for (let lat = -75; lat <= 75; lat += 15) if (lat !== 0) parallel(lat);
-  ctx.stroke();
-
-  ctx.strokeStyle = tropic;
-  ctx.setLineDash([5, 5]);
-  ctx.beginPath(); parallel(23.44); parallel(-23.44); ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.strokeStyle = equator;
-  ctx.beginPath(); parallel(0); meridian(0); ctx.stroke();
 
   // Only trace what can be seen: at 1419 polygons, culling off-screen shapes is
   // the difference between a smooth repaint and a visible stall.
@@ -190,20 +203,74 @@ export function drawWorld(canvas, opts = {}) {
     }
   }
 
-  if (!showPorts) return;
-  ctx.font = '11px "Barlow Condensed", "Arial Narrow", sans-serif';
-  ctx.textBaseline = 'middle';
-  for (const [name, lon, lat] of PORTS) {
-    for (const shift of [-360, 0, 360]) {
-      const x = px(lon + shift);
-      const y = py(lat);
-      if (x < -60 || x > w + 60 || y < -20 || y > h + 20) continue;
-      ctx.fillStyle = dot;
-      ctx.beginPath();
-      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = label;
-      ctx.fillText(name, x + 6, y);
+  if (!showPlaces) return;
+
+  // Markers first, labels second. At world scale the European capitals sit
+  // almost on top of one another, so every marker is reserved before any label
+  // is placed — otherwise London's name runs into Berlin's marker. Each label
+  // is then tried in four positions and dropped if it still collides, and
+  // capitals go first so a base yields to a capital rather than the reverse.
+  const taken = [];
+  const clear = (x, y, bw, bh) => {
+    if (x < 2 || y < 2 || x + bw > w - 2 || y + bh > h - 2) return false;
+    return !taken.some((r) => x < r.x + r.w && x + bw > r.x && y < r.y + r.h && y + bh > r.y);
+  };
+
+  const spots = [];
+  for (const [list, kind] of [[CAPITALS, 'capital'], [BASES, 'base']]) {
+    for (const [name, lon, lat] of list) {
+      for (const shift of [-360, 0, 360]) {
+        const x = px(lon + shift);
+        const y = py(lat);
+        if (x < -80 || x > w + 80 || y < -20 || y > h + 20) continue;
+        spots.push({ name, x, y, kind });
+      }
     }
+  }
+
+  for (const s of spots) {
+    const isCapital = s.kind === 'capital';
+    ctx.fillStyle = isCapital ? capital : base;
+    if (isCapital) {
+      // A capital gets a ringed square; a base a plain dot.
+      ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
+      ctx.strokeStyle = capital;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(s.x - 5, s.y - 5, 10, 10);
+      ctx.globalAlpha = 1;
+      taken.push({ x: s.x - 6, y: s.y - 6, w: 12, h: 12 });
+    } else {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      taken.push({ x: s.x - 4, y: s.y - 4, w: 8, h: 8 });
+    }
+  }
+
+  // The theatre ring owns its patch of chart; keep names out of it.
+  if (marker) {
+    const mx = px(marker[0]);
+    const my = py(marker[1]);
+    taken.push({ x: mx - 62, y: my - 32, w: 124, h: 80 });
+  }
+
+  ctx.textBaseline = 'top';
+  for (const s of spots) {
+    const isCapital = s.kind === 'capital';
+    ctx.font = isCapital
+      ? '600 12px "Barlow Condensed", "Arial Narrow", sans-serif'
+      : '11px "Barlow Condensed", "Arial Narrow", sans-serif';
+    const tw = ctx.measureText(s.name).width;
+    const th = 12;
+    const pad = isCapital ? 9 : 7;
+    const spot = [
+      [s.x + pad, s.y - th / 2], [s.x - pad - tw, s.y - th / 2],
+      [s.x - tw / 2, s.y - pad - th], [s.x - tw / 2, s.y + pad],
+    ].find(([lx, ly]) => clear(lx, ly, tw, th));
+    if (!spot) continue;
+    taken.push({ x: spot[0] - 2, y: spot[1], w: tw + 4, h: th });
+    ctx.fillStyle = isCapital ? capital : base;
+    ctx.fillText(s.name, spot[0], spot[1]);
   }
 }

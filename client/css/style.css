@@ -598,10 +598,20 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 /* The chart is reference, not the subject: hold it back so the fleets read. */
 .briefing-veil {
   position: absolute; inset: 0;
+  /* Tapered rather than ramped: a gradient that reaches zero and then goes
+     flat leaves a slope break, and the eye reads that break as a hard line
+     across the chart. These stops ease out instead, so there is no seam. */
   background:
-    radial-gradient(ellipse at 50% 48%, rgba(4, 9, 15, 0) 0%, rgba(4, 9, 15, 0.34) 84%),
-    linear-gradient(180deg, rgba(4, 9, 15, 0.8) 0%, rgba(4, 9, 15, 0) 20%,
-                    rgba(4, 9, 15, 0) 76%, rgba(4, 9, 15, 0.84) 100%);
+    linear-gradient(180deg,
+      rgba(4, 9, 15, 0.86) 0%, rgba(4, 9, 15, 0.72) 4%, rgba(4, 9, 15, 0.52) 9%,
+      rgba(4, 9, 15, 0.32) 14%, rgba(4, 9, 15, 0.16) 19%, rgba(4, 9, 15, 0.06) 24%,
+      rgba(4, 9, 15, 0.015) 29%, rgba(4, 9, 15, 0) 34%,
+      rgba(4, 9, 15, 0) 64%, rgba(4, 9, 15, 0.015) 69%, rgba(4, 9, 15, 0.06) 74%,
+      rgba(4, 9, 15, 0.17) 80%, rgba(4, 9, 15, 0.36) 86%, rgba(4, 9, 15, 0.62) 93%,
+      rgba(4, 9, 15, 0.88) 100%),
+    radial-gradient(125% 95% at 50% 50%,
+      rgba(4, 9, 15, 0) 34%, rgba(4, 9, 15, 0.06) 58%,
+      rgba(4, 9, 15, 0.18) 78%, rgba(4, 9, 15, 0.32) 100%);
 }
 .screen.briefing > *:not(.briefing-map):not(.briefing-veil) { position: relative; z-index: 2; }
 
