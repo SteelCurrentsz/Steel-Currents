@@ -113,6 +113,11 @@ export const OCEAN_PRESETS = {
     light: 0xcfe1f8, specular: 1.0, amp: 2.9, fog: 0.00005, fogColor: 0x0b1a2b,
     lightDir: new THREE.Vector3(0.35, 0.42, -1).normalize(),
   },
+  dawn: {
+    deep: 0x0b1c30, shallow: 0x1f4260, sky: 0x7a6a6a,
+    light: 0xffc98f, specular: 0.9, amp: 2.6, fog: 0.000045, fogColor: 0x3a3f52,
+    lightDir: new THREE.Vector3(0.75, 0.18, -0.6).normalize(),
+  },
   dusk: {
     deep: 0x11283e, shallow: 0x27506e, sky: 0x6d5a68,
     light: 0xffd9b3, specular: 0.85, amp: 3.2, fog: 0.00005, fogColor: 0x2f3247,

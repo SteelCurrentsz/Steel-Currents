@@ -9,6 +9,7 @@ import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
+import { Briefing } from './briefing.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
@@ -103,7 +104,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.click();
     switch (btn.dataset.action) {
       case 'pvp': show('pvp'); refreshRooms(); break;
-      case 'custom': show('custom'); break;
+      case 'custom': show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
       case 'back': show('title'); break;
       case 'quit': quit(); break;
@@ -142,34 +143,20 @@ function buildShipPicker(container, selectedId, onPick) {
 
 const settings = getSettings();
 buildShipPicker(document.getElementById('pvp-ships'), settings.ship, (id) => setSettings({ ship: id }));
-buildShipPicker(document.getElementById('custom-ships'), settings.ship, (id) => setSettings({ ship: id }));
 document.getElementById('pvp-name').value = settings.name;
 document.getElementById('pvp-name').oninput = (e) => setSettings({ name: e.target.value || 'Captain' });
 
-const mapSelect = document.getElementById('custom-map');
-mapSelect.innerHTML = MAP_PRESETS.map((m) => `<option value="${m.id}">${m.name} — ${m.time}</option>`).join('');
-
-const alliesInput = document.getElementById('custom-allies');
-const enemiesInput = document.getElementById('custom-enemies');
-alliesInput.oninput = () => { document.getElementById('allies-val').textContent = alliesInput.value; };
-enemiesInput.oninput = () => { document.getElementById('enemies-val').textContent = enemiesInput.value; };
+const briefing = new Briefing({
+  getName: () => getSettings().name,
+  initialShip: settings.ship,
+  onShipChange: (id) => setSettings({ ship: id }),
+});
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
   fullscreen.enterBattleView(document.documentElement);
   if (!net.connected) { toast('Not connected to the battle service.'); return; }
-  net.send({
-    t: 'custom',
-    name: getSettings().name,
-    roomName: `${getSettings().name}'s battle`,
-    classId: getSettings().ship,
-    mapId: mapSelect.value,
-    mode: document.getElementById('custom-mode').value,
-    allies: Number(alliesInput.value),
-    enemies: Number(enemiesInput.value),
-    botSkill: document.getElementById('custom-skill').value,
-    private: true,
-  });
+  net.send(briefing.request());
   toast('Sortieing…');
 };
 
@@ -244,6 +231,7 @@ net.on('joined', (m) => {
     team: m.team,
     classId: getSettings().ship,
     roster: m.roster,
+    mode: m.mode,
     onExit: (result) => endBattle(result),
   });
   window.__battle = battle;   // handy handle for debugging in the console

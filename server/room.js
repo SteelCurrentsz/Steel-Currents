@@ -26,7 +26,7 @@ export class Room {
     this.private = !!opts.private;
     this.autoStart = opts.autoStart !== false;
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
-    this.world = generateWorld(this.seed, this.mapId);
+    this.world = generateWorld(this.seed, this.mapId, opts.time);
     this.state = createState(this.world, { mode: this.mode, timeLimit: opts.timeLimit || 900 });
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain

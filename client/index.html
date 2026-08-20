@@ -58,43 +58,60 @@
 </section>
 
 <!-- ========================= CUSTOM BATTLE ======================== -->
-<section id="screen-custom" class="screen panel-screen">
-  <div class="panel">
-    <header class="panel-head">
+<section id="screen-custom" class="screen briefing">
+  <canvas id="custom-map-canvas" class="briefing-map"></canvas>
+  <div class="briefing-veil"></div>
+
+  <header class="briefing-head">
+    <div class="bh-left">
       <h2>Custom Battle</h2>
-      <p>Set the sea, the odds and the opposition, then sortie against AI captains.</p>
-    </header>
-    <div class="panel-body">
-      <div class="field">
-        <span>Your ship</span>
-        <div class="ship-picker" id="custom-ships"></div>
+      <div class="bh-row">
+        <button class="bh-step" id="time-prev" type="button" aria-label="Earlier in the day">
+          <span class="sun" aria-hidden="true"></span><span class="chev">&lt;&lt;&lt;</span>
+        </button>
       </div>
-      <div class="grid-2">
-        <label class="field"><span>Map</span><select id="custom-map"></select></label>
-        <label class="field"><span>Mode</span>
-          <select id="custom-mode">
-            <option value="domination">Domination — hold the capture zones</option>
-            <option value="deathmatch">Annihilation — sink them all</option>
-          </select>
-        </label>
-        <label class="field"><span>Allies <b id="allies-val">3</b></span>
-          <input type="range" id="custom-allies" min="0" max="7" value="3" /></label>
-        <label class="field"><span>Enemies <b id="enemies-val">4</b></span>
-          <input type="range" id="custom-enemies" min="1" max="8" value="4" /></label>
-        <label class="field"><span>AI skill</span>
-          <select id="custom-skill">
-            <option value="rookie">Rookie</option>
-            <option value="regular" selected>Regular</option>
-            <option value="veteran">Veteran</option>
-          </select>
-        </label>
-      </div>
+      <p class="bh-side ally">Allied Forces</p>
     </div>
-    <footer class="panel-foot">
+    <div class="bh-right">
+      <button class="bh-step rev" id="mode-next" type="button">
+        <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="mode-val">Domination</span>
+      </button>
+      <button class="bh-step rev" id="time-next" type="button">
+        <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="time-val">Dawn</span>
+      </button>
+      <p class="bh-side axis">Axis Forces</p>
+    </div>
+  </header>
+
+  <div class="briefing-body">
+    <div class="force-row">
+      <button class="force-arrow" id="ally-ship-prev" type="button" aria-label="Previous allied ship">&#9664;</button>
+      <div class="force-cell" id="ally-ship-cell"></div>
+      <div class="force-gap"></div>
+      <div class="force-cell" id="axis-ship-cell"></div>
+      <button class="force-arrow" id="axis-ship-next" type="button" aria-label="Next Axis ship">&#9654;</button>
+    </div>
+
+    <div class="force-row escorts">
+      <button class="force-arrow" id="ally-escort-prev" type="button" aria-label="Fewer allied escorts">&#9664;</button>
+      <div class="force-cell" id="ally-escort-cell"></div>
+      <div class="force-gap"></div>
+      <div class="force-cell" id="axis-escort-cell"></div>
+      <button class="force-arrow" id="axis-escort-next" type="button" aria-label="More Axis escorts">&#9654;</button>
+    </div>
+  </div>
+
+  <footer class="briefing-foot">
+    <button class="globe-btn" id="theatre-btn" type="button">
+      <span class="globe" aria-hidden="true"></span>
+      <span class="globe-name" id="theatre-name">North Atlantic</span>
+    </button>
+    <div class="briefing-actions">
       <button class="btn ghost" data-action="back">Back</button>
       <button class="btn" id="custom-start">Sortie</button>
-    </footer>
-  </div>
+    </div>
+  </footer>
+
 </section>
 
 <!-- =========================== OPTIONS =========================== -->

@@ -72,6 +72,8 @@ export class LocalNet extends EventTarget {
           mode: msg.mode === 'deathmatch' ? 'deathmatch' : 'domination',
           mapId: msg.mapId,
           roomName: msg.roomName,
+          time: msg.time,
+          axisClass: msg.axisClass,
         });
         break;
 
@@ -111,6 +113,7 @@ export class LocalNet extends EventTarget {
       private: true,
       autoStart: false,
       botSkill: opts.botSkill,
+      time: opts.time,
       onEmpty: () => { this.room = null; },
     });
     this.room = room;
@@ -122,7 +125,10 @@ export class LocalNet extends EventTarget {
     if (res.error) { this.deliver({ t: 'error', msg: res.error }); return; }
 
     for (let i = 0; i < opts.allies; i++) room.addBotOnTeam(this.player.team, opts.botSkill);
-    for (let i = 0; i < opts.enemies; i++) room.addBotOnTeam(1 - this.player.team, opts.botSkill);
+    // The chosen Axis hull leads their line; the rest of the screen is mixed.
+    for (let i = 0; i < opts.enemies; i++) {
+      room.addBotOnTeam(1 - this.player.team, opts.botSkill, i === 0 ? opts.axisClass : null);
+    }
 
     this.deliver({
       t: 'joined',

@@ -18,7 +18,7 @@ const INPUT_HZ = 20;
 const CAMERAS = ['chase', 'bridge', 'tactical'];
 
 export class Battle {
-  constructor({ renderer, net, input, world, shipId, team, classId, roster, onExit }) {
+  constructor({ renderer, net, input, world, shipId, team, classId, roster, mode, onExit }) {
     this.renderer = renderer;
     this.net = net;
     this.input = input;
@@ -27,6 +27,8 @@ export class Battle {
     this.team = team;
     this.classId = classId;
     this.cls = getClass(classId);
+    // Which objective is being fought: the server decides, the client reports it.
+    this.mode = mode || 'domination';
     this.onExit = onExit;
     this.roster = roster || [];
     this.names = new Map(this.roster.map((r) => [r.id, r.name]));

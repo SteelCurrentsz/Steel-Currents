@@ -21,7 +21,9 @@ export function getPreset(id) {
  * Deterministic island field. Islands are circles (with a jagged silhouette the
  * renderer derives from the same seed) that block hulls, shells and spotting.
  */
-export function generateWorld(seed, presetId) {
+export const TIMES = ['dawn', 'day', 'dusk', 'night'];
+
+export function generateWorld(seed, presetId, time = null) {
   const preset = getPreset(presetId);
   const rng = makeRng(seed);
   const islands = [];
@@ -47,7 +49,10 @@ export function generateWorld(seed, presetId) {
     { id: 'C', x: 2600, z: -1900, r: 800 },
   ].filter((c) => !islands.some((i) => dist(i.x, i.z, c.x, c.z) < i.r + c.r * 0.4));
 
-  return { seed, preset: preset.id, time: preset.time, sea: preset.sea, islands, caps };
+  return {
+    seed, preset: preset.id, sea: preset.sea, islands, caps,
+    time: TIMES.includes(time) ? time : preset.time,
+  };
 }
 
 /** Spawn line for a team: team 0 starts south (-Z), team 1 north (+Z). */

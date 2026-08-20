@@ -179,12 +179,16 @@ function handle(player, msg) {
         private: msg.private !== false,
         autoStart: false,
         botSkill: msg.botSkill || 'regular',
+        time: msg.time,
       });
       joinRoom(player, room, msg);
       const allies = Math.max(0, Math.min(7, msg.allies ?? 3));
       const enemies = Math.max(1, Math.min(8, msg.enemies ?? 4));
       for (let i = 0; i < allies; i++) room.addBotOnTeam(player.team, msg.botSkill);
-      for (let i = 0; i < enemies; i++) room.addBotOnTeam(1 - player.team, msg.botSkill);
+      // The chosen Axis hull leads their line; the rest of the screen is mixed.
+      for (let i = 0; i < enemies; i++) {
+        room.addBotOnTeam(1 - player.team, msg.botSkill, i === 0 ? msg.axisClass : null);
+      }
       room.start();
       break;
     }

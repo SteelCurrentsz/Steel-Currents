@@ -11,6 +11,7 @@ import { makeRng } from '../../../shared/math.js';
 
 const SKY = {
   night: { top: 0x050d1c, bottom: 0x1d3550 },
+  dawn: { top: 0x142b4f, bottom: 0xc98a5e },
   dusk: { top: 0x1d2542, bottom: 0x8a5f50 },
   day: { top: 0x2f6ea8, bottom: 0xa8cbe0 },
 };
