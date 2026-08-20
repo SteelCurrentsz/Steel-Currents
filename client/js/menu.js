@@ -6,8 +6,10 @@
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
 import { buildShip } from './render/ships.js';
-import { buildHarbour } from './render/harbour.js';
+import { buildHarbour, islandHeight } from './render/harbour.js';
 import { FireSystem } from './render/fire.js';
+import { ExplosionSystem } from './render/explosion.js';
+import { BomberRaid } from './render/aircraft.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 
 // Framing, kept together so the composition is easy to nudge. The camera sits
@@ -15,16 +17,20 @@ import { SHIP_CLASSES } from '../../shared/ships.js';
 // Just above the bridge roof and forward of the mast, so the foredeck and A
 // turret run away from the lens with nothing of our own rig in the way.
 const CAM = {
-  pos: new THREE.Vector3(0, 38, 46),
-  look: new THREE.Vector3(0, 34, 900),
-  fov: 48,
+  pos: new THREE.Vector3(0, 40, 44),
+  look: new THREE.Vector3(0, 96, 2400),
+  fov: 46,
 };
 
-// Our ship's heading: mostly along the quay, closing it slowly.
+// Our ship's heading: mostly along the island, closing it slowly.
 // Heading set so the port opens a little off the starboard bow, clear of
 // the wordmark, and slow enough that the framing holds.
 const OWN_HEADING = -0.10;
 const OWN_SPEED = 2.0;
+// How far off she is standing. The island is a couple of thousand metres away,
+// which is what puts the whole of it inside the frame with sea either side of
+// it — close in it read as a coastline running off both edges.
+const OWN_START = -1850;
 
 const SKY_VERT = /* glsl */`
 varying vec3 vDir;
@@ -70,16 +76,22 @@ void main() {
   // The glow is strongest low down and toward the burning port.
   float bearing = max(0.0, dot(normalize(vec3(d.x, 0.0, d.z)), normalize(uGlowDir)));
   float low = pow(1.0 - up, 3.4);
-  col += uGlow * low * pow(bearing, 3.2) * 1.0;
+  col += uGlow * low * pow(bearing, 2.3) * 1.0;
 
   // Overcast, drifting: soot spread flat across the sky, thickest over the fires.
   vec2 sp = vec2(atan(d.z, d.x) * 1.6, up * 3.4) + vec2(uTime * 0.006, 0.0);
   float cloud = fbm(sp * 1.5);
   col = mix(col, col * 0.45 + uGlow * 0.16 * pow(bearing, 2.0), smoothstep(0.35, 0.85, cloud) * (1.0 - up * 0.45));
 
-  // A few stars where the smoke has not reached.
-  float star = step(0.9975, hash21(floor(d.xz * 620.0 + d.y * 130.0)));
-  col += vec3(star) * up * 0.5 * (1.0 - smoothstep(0.3, 0.7, cloud));
+  // A few stars where the smoke has not reached. Sampled on a cell of the
+  // direction and then measured from the middle of that cell, so each one is a
+  // point of light rather than a streak drawn across it.
+  vec3 cell = floor(d * 340.0);
+  float pick = hash21(cell.xz + cell.y * 71.3);
+  vec2 jitter = vec2(hash21(cell.xy + 3.1), hash21(cell.zy + 7.7)) - 0.5;
+  float within = 1.0 - smoothstep(0.06, 0.30, length(fract(d * 340.0).xz - 0.5 - jitter));
+  float star = step(0.9982, pick) * within;
+  col += vec3(star) * up * 0.75 * (1.0 - smoothstep(0.3, 0.7, cloud));
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -91,7 +103,7 @@ export class TitleScene {
   constructor(renderer) {
     this.renderer = renderer;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x120b0a, 0.00026);
+    this.scene.fog = new THREE.FogExp2(0x120b0a, 0.00021);
 
     this.camera = new THREE.PerspectiveCamera(CAM.fov, 1, 1, 40000);
 
@@ -102,7 +114,7 @@ export class TitleScene {
       uniforms: {
         uTop: { value: new THREE.Color(0x03050d) },
         uHaze: { value: new THREE.Color(0x110b0d) },
-        uGlow: { value: new THREE.Color(0x521e07) },
+        uGlow: { value: new THREE.Color(0x8a3208) },
         uGlowDir: { value: new THREE.Vector3(-0.3, 0, 1).normalize() },
         uTime: { value: 0 },
       },
@@ -114,25 +126,27 @@ export class TitleScene {
     this.scene.add(sky);
 
     // -- water, lit by the fires rather than the moon -----------------------
-    this.ocean = new Ocean('night', 16000, 200);
+    this.ocean = new Ocean('night', 22000, 300);
     const ou = this.ocean.material.uniforms;
-    ou.uDeep.value = new THREE.Color(0x0a0908);
-    ou.uShallow.value = new THREE.Color(0x140c09);
-    ou.uSkyTint.value = new THREE.Color(0x1c110b);
+    ou.uDeep.value = new THREE.Color(0x0c0d10);
+    ou.uShallow.value = new THREE.Color(0x1a1512);
+    ou.uSkyTint.value = new THREE.Color(0x2a1a12);
     ou.uLightColor.value = new THREE.Color(0xff8a30);
     ou.uLightDir.value.set(-0.25, 0.28, 1).normalize();
-    ou.uSpecular.value = 0.13;
+    ou.uSpecular.value = 0.20;
     ou.uFogColor.value = new THREE.Color(0x140d0c);
     ou.uFogDensity.value = 0.00006;
     this.ocean.setSeaState(3);
     // The pool of reflected fire sits under the port, not under a moon, and is
     // broken into streaks rather than laid on as a flat sheet of light.
-    this.ocean.setGlare(-40, 420, 420);
-    this.ocean.setStreak(0.34);
+    this.ocean.setGlare(-40, 430, 700);
+    this.ocean.setStreak(0.40);
     this.scene.add(this.ocean.mesh);
 
     // -- ambient ------------------------------------------------------------
-    this.scene.add(new THREE.HemisphereLight(0x63401f, 0x1a1210, 1.15));
+    // The ground half is warm rather than near-black: everything over the island
+    // — smoke, aircraft, the undersides of roofs — is lit from the fires below.
+    this.scene.add(new THREE.HemisphereLight(0x63401f, 0x3a2114, 1.15));
     // A broad wash from the direction of the fires: the point lights alone fall
     // off long before they reach the far end of the yard, which left the whole
     // port in silhouette.
@@ -162,6 +176,21 @@ export class TitleScene {
     this.harbour = buildHarbour(this.fires);
     this.scene.add(this.harbour);
     this.fires.buildEmbers();
+
+    // -- the raid ------------------------------------------------------------
+    // Bombs are still coming down on her: flights cross the island, and what
+    // they drop bursts where it lands rather than at a fixed height.
+    this.blasts = new ExplosionSystem(this.scene);
+    this.raid = new BomberRaid(this.scene, {
+      target: { x0: -780, x1: 780, z0: 430, z1: 1500 },
+      groundAt: (x, z) => Math.max(0, islandHeight(x, z)),
+      onImpact: (x, y, z) => this.blasts.blast(x, y, z, {
+        size: 115 + Math.random() * 75, duration: 3.4, debris: 80,
+      }),
+    });
+    // And the yard is going up on its own between times: ready-use ammunition,
+    // fuel drums, whatever the last stick started.
+    this.nextMinor = 2.5;
 
     // -- our own ship -------------------------------------------------------
     this.own = buildShip('iowa');
@@ -224,12 +253,28 @@ export class TitleScene {
     this.skyMat.uniforms.uTime.value = this.time;
     this.ocean.update(dt, this.camera.position);
     this.fires.update(dt);
+    this.blasts.update(dt);
+    this.raid.update(dt);
+
+    this.nextMinor -= dt;
+    if (this.nextMinor <= 0) {
+      this.nextMinor = 0.9 + Math.random() * 2.2;
+      const x = -880 + Math.random() * 1760;
+      const z = 430 + Math.random() * 1000;
+      this.blasts.blast(x, Math.max(0, islandHeight(x, z)), z, {
+        size: 32 + Math.random() * 42,
+        duration: 2.1,
+        debris: 24,
+        plume: Math.random() < 0.45,
+      });
+    }
 
     // Our ship stands on past the port, so the water streams by and the
     // bearing on the fires opens slowly.
     this.travel += dt * OWN_SPEED;
     const g = this.own.group;
-    g.position.set(Math.sin(OWN_HEADING) * this.travel, 0, Math.cos(OWN_HEADING) * this.travel);
+    g.position.set(Math.sin(OWN_HEADING) * this.travel, 0,
+      OWN_START + Math.cos(OWN_HEADING) * this.travel);
     g.rotation.y = OWN_HEADING;
 
     // She rides the swell; the camera is bolted to her, so the horizon moves.

@@ -12,7 +12,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 
-const NOISE = /* glsl */`
+export const NOISE = /* glsl */`
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
   p += dot(p, p + 45.32);
@@ -31,14 +31,14 @@ float vnoise(vec2 p) {
 }
 
 // Rotating each octave stops the lattice of the value noise showing through as
-// a grid, which is what makes cheap fbm look like cheap fbm. Four octaves: the
-// flames cover a lot of screen and each pixel pays for this three times over,
-// so the fifth and sixth are not worth their fill cost on a phone.
+// a grid, which is what makes cheap fbm look like cheap fbm. Five octaves: each
+// pixel pays for this three times over, so the sixth is not worth its fill cost
+// on a phone — but the fifth is what keeps a flame from going soft close up.
 float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
   mat2 rot = mat2(0.80, 0.60, -0.60, 0.80);
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     v += a * vnoise(p);
     p = rot * p * 2.03;
     a *= 0.5;

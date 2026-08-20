@@ -31,6 +31,7 @@ const MAT = {
   timber: new THREE.MeshLambertMaterial({ color: 0x3a2c20 }),
   dark: new THREE.MeshLambertMaterial({ color: 0x24262a }),
   charred: new THREE.MeshLambertMaterial({ color: 0x191715 }),
+  ground: new THREE.MeshLambertMaterial({ color: 0x2b2621 }),
   lit: new THREE.MeshBasicMaterial({ color: 0xffb460 }),
 };
 
@@ -52,6 +53,74 @@ const roof = (w, h, d, mat, x, y, z, ry = 0) => {
   if (ry) m.rotation.y = ry;
   return m;
 };
+
+// The land the port stands on. The height field is module-level and fixed, so
+// anything that has to sit on the island — a house, a bomb crater — can ask it
+// where the ground is without the answer depending on draw order.
+const ISLAND = (() => {
+  let s = 20260821 >>> 0;
+  const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const bumps = [];
+  for (let i = 0; i < 16; i++) {
+    bumps.push({
+      x: -1000 + r() * 2000,
+      z: 1000 + r() * 1400,
+      r: 240 + r() * 430,
+      h: 26 + r() * 150,
+    });
+  }
+  return { bumps };
+})();
+
+/** Ground level at a point ashore; below zero is sea. */
+export function islandHeight(x, z) {
+  // Seaward of the quay the beach shelves away; behind it the yard is flat for
+  // as far back as the sheds and the tank farm stand, and only then does it
+  // start to climb into the town and the ridge behind.
+  let h;
+  if (z < 415) h = ((z - 300) / 115) * 24 - 24;
+  else if (z < 900) h = 0;
+  else h = Math.pow(Math.min(1, (z - 900) / 1400), 1.5) * 104;
+  if (z > 2300) h -= Math.pow((z - 2300) / 560, 2) * 220;
+
+  for (const b of ISLAND.bumps) {
+    const d = Math.hypot(x - b.x, (z - b.z) * 1.25) / b.r;
+    if (d < 1) h += b.h * Math.pow(Math.cos((d * Math.PI) / 2), 2);
+  }
+
+  // And the ends: the ground runs out into the sea on either hand, which is
+  // what makes this an island rather than a coastline crossing the frame.
+  const taper = 1 - Math.pow(Math.min(1, Math.max(0, (Math.abs(x) - 830) / 500)), 1.7);
+  return h * taper - (1 - taper) * 30;
+}
+
+/** The island as drawn: a height field meshed edge to edge, with the shoreline
+ *  falling out of it wherever the ground crosses sea level. */
+function buildIsland() {
+  const X0 = -1500, X1 = 1500, Z0 = 300, Z1 = 2900;
+  const NX = 60, NZ = 36;
+  const pos = [], idx = [];
+  for (let j = 0; j <= NZ; j++) {
+    for (let i = 0; i <= NX; i++) {
+      const x = X0 + ((X1 - X0) * i) / NX;
+      const z = Z0 + ((Z1 - Z0) * j) / NZ;
+      pos.push(x, islandHeight(x, z), z);
+    }
+  }
+  for (let j = 0; j < NZ; j++) {
+    for (let i = 0; i < NX; i++) {
+      const a = j * (NX + 1) + i;
+      idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, MAT.ground);
+  mesh.renderOrder = -1;
+  return mesh;
+}
 
 /** Collects transforms and emits one InstancedMesh per shape. */
 class Batch {
@@ -208,9 +277,9 @@ export function buildHarbour(fires, seed = 20260820) {
     tankFarm.add(box(2, t.h, 2, MAT.steel, t.x + t.r, t.h / 2, t.z));
     if (t.fire) {
       fires.addFire(t.x, t.h * 0.9, t.z, {
-        width: t.r * 2.1, height: t.r * 3.4, layers: 3, intensity: 1.15,
-        smokeWidth: t.r * 5.5, smokeHeight: 620, lean: 0.34,
-        light: t.x < 300, lightRange: 900, embers: 90,
+        width: t.r * 3.2, height: t.r * 6.2, layers: 3, intensity: 1.3,
+        smokeWidth: t.r * 7.0, smokeHeight: 900, lean: 0.34,
+        light: t.x < 300, lightRange: 1500, embers: 130,
       });
     }
   }
@@ -225,27 +294,31 @@ export function buildHarbour(fires, seed = 20260820) {
   // -- the town behind ------------------------------------------------------
 
   for (let i = 0; i < 46; i++) {
-    const bx = -1250 + rng() * 2300;
-    const bz = 940 + rng() * 520;
+    const bx = -1000 + rng() * 1900;
+    const bz = 940 + rng() * 620;
     const bw = 40 + rng() * 70;
     const bh = 24 + rng() * 60;
     const bd = 40 + rng() * 60;
-    g.add(box(bw, bh, bd, rng() < 0.4 ? MAT.concrete : MAT.brick, bx, bh / 2, bz));
-    if (rng() < 0.5) g.add(roof(bw + 3, 9, bd + 3, MAT.roof, bx, bh + 4, bz));
+    // Set into the slope rather than perched on it, so no house stands on stilts
+    // where the ground falls away under one corner.
+    const gy = islandHeight(bx, bz) - 6;
+    g.add(box(bw, bh, bd, rng() < 0.4 ? MAT.concrete : MAT.brick, bx, gy + bh / 2, bz));
+    if (rng() < 0.5) g.add(roof(bw + 3, 9, bd + 3, MAT.roof, bx, gy + bh + 4, bz));
     for (let k = 0; k < 5; k++) {
       if (rng() < 0.55) continue;
-      windows.add(bx - bw / 2 + 6 + rng() * (bw - 12), 8 + rng() * (bh - 14), bz - bd / 2 - 0.6, 3.5, 5, 1);
+      windows.add(bx - bw / 2 + 6 + rng() * (bw - 12), gy + 8 + rng() * (bh - 14), bz - bd / 2 - 0.6, 3.5, 5, 1);
     }
   }
   // Two mill chimneys, one of them alight at the head.
-  for (const [cx, cz, ch, alight] of [[-880, 1010, 130, false], [420, 1060, 150, true]]) {
+  for (const [cx, cz, ch, alight] of [[-760, 1010, 130, false], [420, 1060, 150, true]]) {
+    const gy = islandHeight(cx, cz) - 4;
     const stack = new THREE.Mesh(new THREE.CylinderGeometry(7, 12, ch, 14), MAT.brick);
-    stack.position.set(cx, ch / 2, cz);
+    stack.position.set(cx, gy + ch / 2, cz);
     g.add(stack);
     if (alight) {
-      fires.addFire(cx, ch, cz, {
-        width: 20, height: 40, layers: 2, intensity: 0.8,
-        smokeWidth: 110, smokeHeight: 460, lean: 0.4, light: false, embers: 20,
+      fires.addFire(cx, gy + ch, cz, {
+        width: 30, height: 76, layers: 2, intensity: 0.95,
+        smokeWidth: 150, smokeHeight: 700, lean: 0.4, light: false, embers: 30,
       });
     }
   }
@@ -305,11 +378,11 @@ export function buildHarbour(fires, seed = 20260820) {
     // and the pall over the ship is the same either way.
     const heavy = i % 2 === 0;
     fires.addFire(-150 + i * 34 + (rng() - 0.5) * 14, 14 + v * 10, QUAY_Z - 58, {
-      width: 24 + v * 20, height: 38 + v * 46, layers: heavy ? 3 : 2,
-      intensity: 1.0 + v * 0.4,
-      smokeWidth: 130 + v * 90, smokeHeight: heavy ? 520 + v * 240 : 0,
+      width: 34 + v * 30, height: 66 + v * 80, layers: heavy ? 3 : 2,
+      intensity: 1.15 + v * 0.4,
+      smokeWidth: 150 + v * 110, smokeHeight: heavy ? 700 + v * 320 : 0,
       lean: 0.22 + v * 0.2,
-      light: i % 4 === 0, lightRange: 900, embers: 70,
+      light: i % 4 === 0, lightRange: 1400, embers: 90,
     });
   }
 
@@ -320,8 +393,8 @@ export function buildHarbour(fires, seed = 20260820) {
   wreck.group.rotation.set(0, 0.03, 0.42);
   g.add(wreck.group);
   fires.addFire(196, 12, QUAY_Z - 62, {
-    width: 40, height: 70, layers: 3, intensity: 1.1,
-    smokeWidth: 150, smokeHeight: 520, lean: 0.26, lightRange: 700, embers: 60,
+    width: 58, height: 120, layers: 3, intensity: 1.25,
+    smokeWidth: 190, smokeHeight: 760, lean: 0.26, lightRange: 1200, embers: 90,
   });
 
   // A destroyer still fast alongside, dark and intact.
@@ -333,38 +406,33 @@ export function buildHarbour(fires, seed = 20260820) {
   // A warehouse well alight at the head of the quay.
   const blaze = sheds.find((s) => s.burnt && s.x > 40) || sheds[0];
   fires.addFire(blaze.x, blaze.h * 0.7, blaze.z, {
-    width: blaze.w * 0.7, height: blaze.h * 2.3, layers: 4, intensity: 1.2,
-    smokeWidth: 300, smokeHeight: 720, lean: 0.32, lightRange: 900, embers: 110,
+    width: blaze.w * 1.0, height: blaze.h * 4.6, layers: 4, intensity: 1.35,
+    smokeWidth: 380, smokeHeight: 1050, lean: 0.32, lightRange: 1600, embers: 150,
   });
   // And a second seat further down the row.
   const far = sheds.find((s) => s.burnt && s.x < -180 && s.x > -520);
   if (far) {
     fires.addFire(far.x, far.h * 0.6, far.z, {
-      width: far.w * 0.65, height: far.h * 2.1, layers: 4, intensity: 1.05,
-      smokeWidth: 260, smokeHeight: 640, lean: 0.3, lightRange: 700, embers: 80,
+      width: far.w * 0.95, height: far.h * 4.2, layers: 4, intensity: 1.2,
+      smokeWidth: 340, smokeHeight: 940, lean: 0.3, lightRange: 1400, embers: 120,
     });
   }
   // Burning oil spread on the water off the tanker.
   for (let i = 0; i < 5; i++) {
     fires.addFire(-250 + i * 60, 1, QUAY_Z - 132 + (rng() - 0.5) * 44, {
-      width: 46, height: 20, layers: 2, intensity: 0.85,
-      smokeWidth: 140, smokeHeight: i % 2 ? 340 : 0, lean: 0.5,
+      width: 62, height: 34, layers: 2, intensity: 0.95,
+      smokeWidth: 170, smokeHeight: i % 2 ? 440 : 0, lean: 0.5,
       light: false, embers: 25,
     });
   }
 
-  // -- headland behind the town --------------------------------------------
+  // -- the island itself ----------------------------------------------------
 
-  for (let i = 0; i < 5; i++) {
-    const hx = -1600 + i * 800;
-    const hill = new THREE.Mesh(
-      new THREE.SphereGeometry(420 + rng() * 260, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-      MAT.dark,
-    );
-    hill.scale.set(1, 0.30 + rng() * 0.18, 0.7);
-    hill.position.set(hx, -20, 1750 + rng() * 300);
-    g.add(hill);
-  }
+  // Seen from a mile out the port has to stand on something, and that something
+  // has to end: land that runs off both edges of the frame is a coast, not an
+  // island. The height field dips below sea level at the margins, so the
+  // shoreline draws itself where it crosses zero.
+  g.add(buildIsland());
 
   crates.build(g);
   drums.build(g);

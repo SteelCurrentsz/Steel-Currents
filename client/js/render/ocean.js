@@ -11,21 +11,31 @@ varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
 
-// Four travelling swells; the analytic derivative gives us the normal for free.
+// Six travelling swells, each sharpened so the crests come up and the troughs
+// go long — a plain sine sum reads as corrugated iron, not as water. The
+// analytic derivative gives us the normal for free.
+//
+// heightAt() in this file mirrors this function exactly, so hulls ride the same
+// water the shader draws. Change one and the other has to follow.
 vec3 wave(vec2 p, float t) {
-  vec2 d1 = normalize(vec2( 1.0,  0.35));
-  vec2 d2 = normalize(vec2(-0.6,  1.0));
-  vec2 d3 = normalize(vec2( 0.2, -1.0));
-  vec2 d4 = normalize(vec2(-1.0, -0.25));
+  vec2 dirs[6];
+  dirs[0] = normalize(vec2( 1.00,  0.35));
+  dirs[1] = normalize(vec2(-0.60,  1.00));
+  dirs[2] = normalize(vec2( 0.20, -1.00));
+  dirs[3] = normalize(vec2(-1.00, -0.25));
+  dirs[4] = normalize(vec2( 0.80,  0.62));
+  dirs[5] = normalize(vec2(-0.30, -0.95));
   float h = 0.0; vec2 g = vec2(0.0);
-  float amp = uAmp; float freq = 0.0075; float speed = 1.1;
-  vec2 dirs[4]; dirs[0]=d1; dirs[1]=d2; dirs[2]=d3; dirs[3]=d4;
-  for (int i = 0; i < 4; i++) {
+  float amp = uAmp; float freq = 0.0062; float speed = 1.02;
+  const float K = 1.45;
+  for (int i = 0; i < 6; i++) {
     vec2 d = dirs[i];
     float phase = dot(d, p) * freq + t * speed;
-    h += sin(phase) * amp;
-    g += d * cos(phase) * amp * freq;
-    freq *= 2.13; amp *= 0.52; speed *= 1.28;
+    float u = 0.5 + 0.5 * sin(phase);
+    float sh = pow(u, K);
+    h += (sh - 0.5) * 2.0 * amp;
+    g += d * freq * amp * K * pow(u, K - 1.0) * cos(phase);
+    freq *= 1.86; amp *= 0.58; speed *= 1.21;
   }
   return vec3(h, g);
 }
@@ -91,7 +101,7 @@ void main() {
 
   // Close in, ripples the geometry cannot afford break up the highlight; this is
   // what turns a single mirror-ball glint into a glittering path on the water.
-  float detail = clamp(1.0 - length(cameraPosition - vWorld) / 5000.0, 0.0, 1.0);
+  float detail = clamp(1.0 - length(cameraPosition - vWorld) / 14000.0, 0.0, 1.0);
   vec2 q = vWorld.xz;
   float rx = sin(q.x * 0.21 + uTime * 2.3) + sin(q.y * 0.13 - uTime * 1.7);
   float rz = sin(q.y * 0.19 - uTime * 2.1) + sin(q.x * 0.11 + uTime * 1.3);
@@ -123,8 +133,11 @@ void main() {
     float path = exp(-off * off * 2.4);
     // Beyond the fires there is nothing to reflect, and it dies off with haze.
     path *= smoothstep(0.0, 120.0, reach) * (1.0 - smoothstep(uGlare.y, uGlare.y + 900.0, vWorld.z));
+    // And it dies with the range to what is burning: a fire a mile off does not
+    // light the water round the ship, however well it lights its own shore.
+    path *= 1.0 - smoothstep(0.0, 1500.0, abs(vWorld.z - uGlare.y));
 
-    vec2 sp = vec2(vWorld.x * 0.020, vWorld.z * 0.0022 - uTime * 0.8);
+    vec2 sp = vec2(vWorld.x * 0.0075, vWorld.z * 0.0022 - uTime * 0.8);
     float s = onoise(sp * 2.2) * 0.65 + onoise(sp * 7.0 + 3.1) * 0.35;
     float streak = smoothstep(0.36, 0.74, s);
     col += uLightColor * uStreak * path * (streak * 0.92 + 0.08);
@@ -132,8 +145,9 @@ void main() {
     col *= mix(1.0, 0.7 + 0.3 * streak, path * 0.8);
   }
 
-  // Foam only on the true peaks: the four octaves sum to about 1.93x uAmp.
-  float peak = uAmp * 1.93;
+  // Foam only on the true peaks: the six sharpened octaves sum to about 2.3x
+  // uAmp at their crest.
+  float peak = uAmp * 2.3;
   float foam = smoothstep(peak * 0.80, peak * 0.99, vCrest);
   col = mix(col, vec3(0.82, 0.88, 0.95), foam * 0.30);
 
@@ -247,16 +261,19 @@ export class Ocean {
     }
   }
 
-  /** Wave height at a world point, matching the vertex shader closely enough
-   *  for hulls to ride the swell. */
+  /** Wave height at a world point. This mirrors `wave()` in the vertex shader
+   *  above, so hulls ride the water the shader actually draws; the two have to
+   *  be changed together. */
   heightAt(x, z, time = this.material.uniforms.uTime.value) {
-    const dirs = [[1, 0.35], [-0.6, 1], [0.2, -1], [-1, -0.25]];
-    let h = 0, amp = this.material.uniforms.uAmp.value, freq = 0.0075, speed = 1.1;
+    const dirs = [[1, 0.35], [-0.6, 1], [0.2, -1], [-1, -0.25], [0.8, 0.62], [-0.3, -0.95]];
+    let h = 0, amp = this.material.uniforms.uAmp.value, freq = 0.0062, speed = 1.02;
+    const K = 1.45;
     for (const [dx, dz] of dirs) {
       const len = Math.hypot(dx, dz);
       const phase = ((dx / len) * x + (dz / len) * z) * freq + time * speed;
-      h += Math.sin(phase) * amp;
-      freq *= 2.13; amp *= 0.52; speed *= 1.28;
+      const u = 0.5 + 0.5 * Math.sin(phase);
+      h += (Math.pow(u, K) - 0.5) * 2 * amp;
+      freq *= 1.86; amp *= 0.58; speed *= 1.21;
     }
     return h;
   }
