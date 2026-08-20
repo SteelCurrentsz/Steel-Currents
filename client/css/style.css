@@ -349,10 +349,15 @@ input[type="range"] { accent-color: var(--red); }
 }
 
 /* Engine telegraph ------------------------------------------------------- */
-.tc-engine {
-  position: absolute; left: var(--tc-pad-x); bottom: var(--tc-pad-b);
-  width: 74px; touch-action: none;
+.tc-bar {
+  position: absolute; bottom: var(--tc-pad-b);
+  left: var(--tc-pad-x); right: var(--tc-pad-x);
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 0.8rem; pointer-events: none;
 }
+.tc-bar > * { pointer-events: auto; }
+
+.tc-engine { width: 74px; flex: none; touch-action: none; }
 .tc-lever {
   position: relative; height: 168px; width: 100%;
   background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
@@ -373,9 +378,11 @@ input[type="range"] { accent-color: var(--red); }
 .tc-knob.astern { background: var(--enemy); }
 
 /* Helm ------------------------------------------------------------------- */
+/* The wheel takes what the instruments either side leave, within reason, and
+   sits centred in that gap rather than centred on the screen. */
 .tc-helm {
-  position: absolute; bottom: var(--tc-pad-b); left: 50%; transform: translateX(-50%);
-  width: min(300px, 38vw); touch-action: none;
+  flex: 0 1 300px; min-width: 150px; max-width: 300px;
+  margin: 0 auto; touch-action: none;
 }
 .tc-wheel {
   position: relative; height: 52px;
@@ -405,7 +412,7 @@ input[type="range"] { accent-color: var(--red); }
 /* A row, not a stack: a phone in landscape has height to spare nowhere, and a
    tall column of buttons runs straight up into the minimap. */
 .tc-right {
-  position: absolute; right: var(--tc-pad-x); bottom: var(--tc-pad-b);
+  flex: none;
   display: flex; flex-direction: row; align-items: flex-end; gap: 0.4rem;
 }
 .tc-ammo { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -447,7 +454,7 @@ input[type="range"] { accent-color: var(--red); }
   .tc-btn, .tc-ammo-btn { min-width: 46px; font-size: 0.66rem; }
   .tc-mid-btn { font-size: 0.66rem; }
   /* The wheel gives way first; it has the most width to spare. */
-  .tc-helm { width: min(230px, 27vw); }
+  .tc-helm { flex: 0 1 230px; max-width: 230px; }
 }
 
 /* On a touchscreen the on-screen instruments replace their desktop twins, so
@@ -520,4 +527,57 @@ input[type="range"] { accent-color: var(--red); }
 /* Only nag a handheld in portrait — never a desktop window that happens to be tall. */
 @media (pointer: coarse) and (orientation: portrait) and (max-width: 900px) {
   body.in-battle .rotate-prompt { display: flex; }
+}
+
+/* ------------------------------------------------------------- fullscreen --
+   Always reachable, never in the way: sits in the bottom-right on the menus,
+   and retreats to a small icon in the corner once a battle is under way. */
+
+.fs-toggle {
+  position: fixed; z-index: 40;
+  right: max(1rem, env(safe-area-inset-right));
+  top: max(1rem, env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 0.5rem;
+  min-height: 44px; padding: 0 0.85rem;
+  background: rgba(8, 19, 31, 0.72); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.72rem;
+  letter-spacing: 0.2em; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.fs-toggle:hover, .fs-toggle:focus-visible { color: var(--sand); border-color: rgba(230, 207, 156, 0.55); }
+.fs-toggle:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
+
+/* Two corner brackets: the arrows-out mark, drawn rather than iconographed. */
+.fs-icon {
+  width: 14px; height: 14px; flex: none; position: relative;
+}
+.fs-icon::before, .fs-icon::after {
+  content: ''; position: absolute; width: 6px; height: 6px;
+  border: 2px solid currentColor;
+}
+.fs-icon::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.fs-icon::after { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+.fs-toggle.on .fs-icon::before { border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; width: 5px; height: 5px; }
+.fs-toggle.on .fs-icon::after { border-left: 2px solid currentColor; border-top: 2px solid currentColor; width: 5px; height: 5px; }
+
+/* The panel screens own their corners for Back / Start buttons. */
+body.on-panel .fs-toggle { display: none; }
+
+/* In battle the label goes; the corner brackets alone are enough. */
+body.in-battle .fs-toggle {
+  top: max(0.7rem, env(safe-area-inset-top));
+  right: auto; left: max(0.8rem, env(safe-area-inset-left));
+  padding: 0 0.6rem; opacity: 0.5;
+}
+body.in-battle .fs-toggle .fs-label { display: none; }
+body.in-battle .fs-toggle:hover { opacity: 1; }
+
+/* The touch bridge already owns the top-left corner in battle; on a coarse
+   pointer the toggle steps aside to the top edge beside the score bar. */
+@media (pointer: coarse) {
+  body.in-battle .fs-toggle {
+    left: 50%; transform: translateX(-50%);
+    top: max(0.4rem, env(safe-area-inset-top)); opacity: 0.42;
+  }
 }

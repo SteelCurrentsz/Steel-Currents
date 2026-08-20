@@ -33,6 +33,7 @@ export class TouchControls {
     this.root.innerHTML = `
       <div class="tc-look" id="tc-look"></div>
 
+      <div class="tc-bar">
       <div class="tc-engine" id="tc-engine">
         <div class="tc-cap">ENGINE</div>
         <div class="tc-lever" id="tc-lever">
@@ -63,6 +64,7 @@ export class TouchControls {
           <button class="tc-scope" id="tc-scope" type="button">SCOPE</button>
           <button class="tc-fire" id="tc-fire" type="button"><span>FIRE</span></button>
         </div>
+      </div>
       </div>
 
       <button class="tc-scores" id="tc-scores" type="button">SCORES</button>
@@ -148,7 +150,10 @@ export class TouchControls {
       this.input.addLook(e.clientX - p.x, e.clientY - p.y);
       p.x = e.clientX; p.y = e.clientY;
     });
-    const end = (e) => active.delete(e.pointerId);
+    const end = (e) => {
+      active.delete(e.pointerId);
+      try { zone.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
   }
@@ -189,7 +194,10 @@ export class TouchControls {
       e.preventDefault(); e.stopPropagation();
       goTo(notchAt(e.clientY));
     });
-    const end = () => { dragging = false; };
+    const end = (e) => {
+      dragging = false;
+      try { lever.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    };
     lever.addEventListener('pointerup', end);
     lever.addEventListener('pointercancel', end);
   }
@@ -224,7 +232,10 @@ export class TouchControls {
       e.preventDefault(); e.stopPropagation();
       set(e.clientX);
     });
-    const end = () => { dragging = false; };
+    const end = (e) => {
+      dragging = false;
+      try { wheel.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    };
     wheel.addEventListener('pointerup', end);
     wheel.addEventListener('pointercancel', end);
   }
@@ -239,9 +250,10 @@ export class TouchControls {
       this.input.firing = true;
       this.input.emit('fire');
     });
-    const end = () => {
+    const end = (e) => {
       btn.classList.remove('down');
       this.input.firing = false;
+      try { btn.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     };
     btn.addEventListener('pointerup', end);
     btn.addEventListener('pointercancel', end);

@@ -8,6 +8,7 @@ import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
+import * as fullscreen from './fullscreen.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
@@ -60,9 +61,30 @@ function show(name) {
   }
   // The rotate prompt and the on-screen bridge only belong in a battle.
   document.body.classList.toggle('in-battle', name === 'battle');
+  // Panel screens put their own buttons in the corners; the fullscreen toggle
+  // stands down rather than sitting on top of them.
+  document.body.classList.toggle('on-panel', name !== 'title' && name !== 'battle');
   if (name === 'battle') touchControls?.show();
   else touchControls?.hide();
   if (name !== 'battle') input.enabled = false;
+}
+
+const fsBtn = document.getElementById('btn-fullscreen');
+if (fullscreen.supported()) {
+  fsBtn.onclick = () => { audio.click(); fullscreen.toggle(document.documentElement); };
+  fullscreen.onChange((on) => {
+    fsBtn.classList.toggle('on', on);
+    fsBtn.querySelector('.fs-label').textContent = on ? 'EXIT FULL' : 'FULLSCREEN';
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyF' && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) {
+      fullscreen.toggle(document.documentElement);
+    }
+  });
+} else {
+  // iPhone Safari has no element fullscreen; offering a dead control is worse
+  // than offering none.
+  fsBtn.remove();
 }
 
 function toast(msg) {
@@ -134,6 +156,7 @@ enemiesInput.oninput = () => { document.getElementById('enemies-val').textConten
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
+  fullscreen.enterBattleView(document.documentElement);
   if (!net.connected) { toast('Not connected to the battle service.'); return; }
   net.send({
     t: 'custom',
@@ -152,6 +175,7 @@ document.getElementById('custom-start').onclick = () => {
 
 document.getElementById('pvp-quick').onclick = () => {
   audio.resume();
+  fullscreen.enterBattleView(document.documentElement);
   if (!net.connected) { toast('Not connected to the battle service.'); return; }
   net.send({ t: 'quickmatch', name: getSettings().name, classId: getSettings().ship });
   toast('Finding a battle…');
