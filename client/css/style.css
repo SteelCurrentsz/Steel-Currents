@@ -712,7 +712,14 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
     linear-gradient(currentColor, currentColor) center/100% 2px no-repeat,
     linear-gradient(currentColor, currentColor) center/2px 100% no-repeat;
 }
-.globe-name { font-size: 0.95rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.globe-label {
+  font-size: 0.95rem; letter-spacing: 0.16em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.globe-name {
+  font-size: 0.95rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--sand); white-space: nowrap;
+}
 
 /* A phone in landscape has no vertical room for the full instrument sizes. */
 @media (max-height: 460px) {
@@ -836,4 +843,98 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .yard-hull { left: max(0.9rem, env(safe-area-inset-left)); }
   .yard-arms { right: max(0.9rem, env(safe-area-inset-right)); }
   .yard-head { max-width: 68vw; }
+}
+
+/* ------------------------ deployment chart ----------------------- */
+/* The chart is the screen. Everything else is held to the edges so that as
+   much ocean as possible is left to drag a pin about on. */
+
+.screen.map-screen { display: none; background: #071320; }
+.screen.map-screen.active { display: block; }
+
+#deploy-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; display: block;
+  cursor: grab; touch-action: none;
+}
+#deploy-canvas:active { cursor: grabbing; }
+
+.deploy-head {
+  position: absolute;
+  /* A scrim under the readout: at world scale the chart runs right under it,
+     and a shadow alone is not enough to keep the type off the Aleutians. */
+  padding: 0.7rem 1.4rem 0.9rem 0;
+  background: radial-gradient(120% 140% at 0% 0%,
+    rgba(4, 10, 17, 0.86) 0%, rgba(4, 10, 17, 0.62) 45%, rgba(4, 10, 17, 0) 100%);
+  top: max(1.2rem, env(safe-area-inset-top));
+  left: max(1.4rem, env(safe-area-inset-left));
+  pointer-events: none;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
+}
+.deploy-head h2 {
+  margin: 0;
+  font-family: var(--stencil);
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sand);
+}
+.deploy-readout {
+  display: flex; flex-direction: column; gap: 0.1rem;
+  margin-top: 0.35rem;
+  font-size: clamp(0.82rem, 1.5vw, 1.05rem);
+  letter-spacing: 0.1em;
+  color: var(--steel);
+}
+.deploy-readout b {
+  font-size: 1.25em; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--sand-bright);
+}
+
+.deploy-zoom {
+  position: absolute;
+  top: max(1.2rem, env(safe-area-inset-top));
+  right: max(1.4rem, env(safe-area-inset-right));
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.deploy-zoom button {
+  width: 46px; height: 46px;
+  background: rgba(9, 20, 33, 0.8);
+  border: 1px solid var(--panel-line);
+  color: var(--sand);
+  font-family: var(--ui); font-size: 1.5rem; line-height: 1;
+  cursor: pointer;
+}
+.deploy-zoom button:hover { border-color: var(--sand); color: var(--sand-bright); }
+
+.deploy-hint {
+  position: absolute;
+  bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 3.6rem);
+  left: 50%; transform: translateX(-50%);
+  margin: 0; padding: 0 1rem;
+  max-width: min(46ch, 90vw); text-align: center;
+  font-size: 0.85rem; letter-spacing: 0.08em;
+  color: var(--steel);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.deploy-hint.bad { color: var(--enemy); }
+
+.deploy-close {
+  position: absolute;
+  bottom: max(1.2rem, env(safe-area-inset-bottom));
+  left: 50%; transform: translateX(-50%);
+  width: 48px; height: 48px;
+  background: rgba(9, 20, 33, 0.85);
+  border: 1px solid var(--panel-line);
+  color: var(--sand);
+  font-family: var(--ui); font-size: 1.7rem; line-height: 1;
+  cursor: pointer;
+}
+.deploy-close:hover { border-color: var(--sand); color: var(--sand-bright); }
+.deploy-close:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
+
+@media (max-width: 620px) {
+  .deploy-head { max-width: 64vw; }
+  .deploy-readout { font-size: 0.76rem; }
 }

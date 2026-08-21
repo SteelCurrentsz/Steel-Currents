@@ -228,9 +228,8 @@ export class BattleScene {
   }
 
   addBorder() {
-    const pts = [
-      [-MAP_HALF, -MAP_HALF], [MAP_HALF, -MAP_HALF], [MAP_HALF, MAP_HALF], [-MAP_HALF, MAP_HALF], [-MAP_HALF, -MAP_HALF],
-    ];
+    const H = this.world?.half || MAP_HALF;
+    const pts = [[-H, -H], [H, -H], [H, H], [-H, H], [-H, -H]];
     const pos = [];
     for (let i = 1; i < pts.length; i++) {
       pos.push(pts[i - 1][0], 8, pts[i - 1][1], pts[i][0], 8, pts[i][1]);

@@ -5,7 +5,7 @@
 // with, the hour, and which sea. Nothing on this screen is decorative.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
-import { MAP_PRESETS, TIMES } from '../../shared/world.js';
+import { TIMES, MAP_HALF_MIN } from '../../shared/world.js';
 import { silhouette } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
@@ -16,14 +16,9 @@ const SKILLS = [
 ];
 const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 
-// Where each theatre sits, so the globe button moves the ring on the chart.
-// The chart itself always shows the whole world.
-const THEATRE_POS = {
-  north_atlantic: [-35, 47],
-  solomon_narrows: [158, -8],
-  coral_shelf: [150, -18],
-  open_ocean: [-25, 5],
-};
+// Fifty thousand yards, in metres, which is the most sea room the game will
+// lay a battlefield out over.
+const BATTLE_MAX_M = 45720;
 
 const cycle = (arr, cur, step = 1) => {
   const i = arr.indexOf(cur);
@@ -32,20 +27,23 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, onShipChange, onOpenPicker, onClosePicker,
-    onOpenYard, initialShip = 'cleveland' }) {
+    onOpenYard, onOpenChart, initialShip = 'cleveland' }) {
     this.onStart = onStart;
     this.getName = getName;
     this.onShipChange = onShipChange;
     this.onOpenPicker = onOpenPicker;
     this.onClosePicker = onClosePicker;
     this.onOpenYard = onOpenYard;
+    this.onOpenChart = onOpenChart;
     this.state = {
       // Your fleet's first hull is the one you take the bridge of; the rest
       // sail under AI captains. The enemy fleet is theirs entirely.
       allyFleet: [initialShip, 'fletcher', 'fletcher', 'fletcher'],
       enemyFleet: ['hipper', 'fletcher', 'fletcher', 'fletcher', 'fletcher'],
       time: 'dawn',
-      theatre: MAP_PRESETS[0].id,
+      // Where the battle is fought. The chart sets this; until it has been
+      // opened, a stretch of the North Atlantic with plenty of sea room.
+      deploy: { lon: -30, lat: 45, name: 'North Atlantic Ocean', km: 45.72 },
       skill: 'regular',
     };
 
@@ -94,11 +92,7 @@ export class Briefing {
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
-    on('theatre-btn', () => {
-      s.theatre = cycle(MAP_PRESETS.map((m) => m.id), s.theatre, 1);
-      this.render();
-      this.paintMap();
-    });
+    on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
     this.el.axisSide?.addEventListener('click', () => {
       s.skill = cycle(SKILLS.map((k) => k.id), s.skill, 1);
       this.render();
@@ -171,23 +165,30 @@ export class Briefing {
     this.el.allyDel.innerHTML = this.fleetCell('ally', 'remove');
     this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
-    this.el.theatre.textContent = MAP_PRESETS.find((m) => m.id === s.theatre).name;
+    this.el.theatre.textContent = s.deploy.name;
     if (this.el.axisSide) {
       this.el.axisSide.textContent = `Enemy Forces · ${SKILLS.find((k) => k.id === s.skill).name}`;
     }
   }
 
+  /** Take a location back from the deployment chart. */
+  setDeploy(at) {
+    this.state.deploy = at;
+    this.render();
+    this.paintMap();
+  }
+
   paintMap() {
     if (!this.el.canvas) return;
-    const theatre = MAP_PRESETS.find((m) => m.id === this.state.theatre);
+    const d = this.state.deploy;
     // Zoom 1 fits all 360 degrees across the width. Filling the height instead
     // would crop the east and west edges — and losing the Pacific from a world
     // map to avoid a band of empty ocean is the wrong trade.
     const c = this.el.canvas;
     drawWorld(c, {
       focus: [0, 8], zoom: 1,
-      marker: THEATRE_POS[this.state.theatre] || THEATRE_POS.open_ocean,
-      markerName: theatre?.name || '',
+      marker: [d.lon, d.lat],
+      markerName: d.name,
     });
   }
 
@@ -197,8 +198,26 @@ export class Briefing {
     this.paintMap();
   }
 
+  /**
+   * The theatre the pin implies. Confined water means an island field to fight
+   * through; open ocean means open ocean; and high latitudes get the North
+   * Atlantic's weather whatever the sea room.
+   */
+  theatreFor(d) {
+    if (Math.abs(d.lat) > 48) return 'north_atlantic';
+    const m = d.km * 1000;
+    if (m < BATTLE_MAX_M * 0.45) return 'solomon_narrows';
+    if (m < BATTLE_MAX_M * 0.85) return 'coral_shelf';
+    return 'open_ocean';
+  }
+
   request() {
     const s = this.state;
+    const d = s.deploy;
+    // The same berth lays out the same island field every time, so the seed is
+    // the position rather than the clock.
+    const seed = (Math.round((d.lon + 180) * 4096) * 131071
+      + Math.round((d.lat + 90) * 4096)) >>> 0;
     return {
       t: 'custom',
       name: this.getName(),
@@ -206,11 +225,16 @@ export class Briefing {
       classId: s.allyFleet[0],
       allyClasses: s.allyFleet.slice(1),
       enemyClasses: s.enemyFleet,
-      mapId: s.theatre,
+      mapId: this.theatreFor(d),
       time: s.time,
       allies: s.allyFleet.length - 1,
       enemies: s.enemyFleet.length,
       botSkill: s.skill,
+      seed,
+      half: Math.max(MAP_HALF_MIN, (d.km * 1000) / 2),
+      place: d.name,
+      lon: d.lon,
+      lat: d.lat,
       private: true,
     };
   }

@@ -11,6 +11,7 @@ import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
 import { Briefing } from './briefing.js';
+import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
@@ -56,7 +57,7 @@ window.addEventListener('resize', resize);
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'battle', 'result'];
+const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'map', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -157,8 +158,23 @@ const briefing = new Briefing({
   onOpenPicker: () => show('fleet'),
   onClosePicker: () => show('custom'),
   onOpenYard: (side) => openYard(side),
+  onOpenChart: (at) => openChart(at),
 });
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
+
+// ------------------------------------------------------- deployment chart --
+
+const deploy = new DeployMap({
+  onPick: (at) => briefing.setDeploy(at),
+});
+
+function openChart(at) {
+  show('map');
+  // The canvas has no size until the screen is up, so the first paint waits for
+  // the layout rather than drawing into a nought-by-nought chart.
+  requestAnimationFrame(() => deploy.show(at));
+}
+document.getElementById('deploy-close').onclick = () => { audio.click(); show('custom'); };
 
 // --------------------------------------------------------------- shipyard --
 
@@ -376,6 +392,10 @@ function frame(now) {
   if (battle && current === 'battle') {
     battle.update(dt);
     battle.render();
+  } else if (current === 'map') {
+    // The chart is a 2D canvas that repaints only when something moves, so the
+    // scene behind it is left alone while it is up.
+    deploy.update();
   } else if (yard && current === 'yard') {
     yard.update(dt);
     yard.render();

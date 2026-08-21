@@ -92,7 +92,8 @@
   <footer class="briefing-foot">
     <button class="globe-btn" id="theatre-btn" type="button">
       <span class="globe" aria-hidden="true"></span>
-      <span class="globe-name" id="theatre-name">North Atlantic</span>
+      <span class="globe-label">Deployment Location:</span>
+      <span class="globe-name" id="theatre-name">North Atlantic Ocean</span>
     </button>
     <div class="briefing-actions">
       <button class="btn ghost" data-action="back">Back</button>
@@ -238,6 +239,22 @@
 <!-- The shipyard: one hull under way, with the camera free to walk round her.
      Everything here sits over the live 3D view, so the panels are the only
      thing in the section that takes a pointer. -->
+<!-- The deployment chart. Full-bleed: the chart is the screen, and the only
+     furniture on it is the readout, the zoom keys and the way out. -->
+<section id="screen-map" class="screen map-screen">
+  <canvas id="deploy-canvas"></canvas>
+  <div class="deploy-head">
+    <h2>Deployment Location</h2>
+    <div id="deploy-readout" class="deploy-readout"></div>
+  </div>
+  <div class="deploy-zoom">
+    <button id="deploy-in" type="button" aria-label="Zoom in">+</button>
+    <button id="deploy-out" type="button" aria-label="Zoom out">&minus;</button>
+  </div>
+  <p id="deploy-hint" class="deploy-hint"></p>
+  <button class="deploy-close" id="deploy-close" type="button" aria-label="Close the chart">&times;</button>
+</section>
+
 <section id="screen-yard" class="screen yard-screen">
   <div class="yard-grab" id="yard-grab"></div>
 

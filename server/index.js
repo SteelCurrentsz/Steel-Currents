@@ -180,6 +180,10 @@ function handle(player, msg) {
         autoStart: false,
         botSkill: msg.botSkill || 'regular',
         time: msg.time,
+        // Where the pin was dropped: the seed makes the same berth lay out the
+        // same island field every time, and `half` is the sea room there.
+        seed: Number.isFinite(msg.seed) ? (msg.seed >>> 0) : undefined,
+        half: Number.isFinite(msg.half) ? msg.half : undefined,
       });
       joinRoom(player, room, msg);
       // A briefing names the hulls outright; anything else just asks for counts.

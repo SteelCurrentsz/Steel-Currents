@@ -179,7 +179,7 @@ function stepMovement(state, ship, dt) {
   }
 
   // Map border acts like a shoal: you slow and take damage rather than leave.
-  const edge = MAP_HALF - 120;
+  const edge = (state.world.half || MAP_HALF) - 120;
   if (Math.abs(ship.x) > edge || Math.abs(ship.z) > edge) {
     ship.x = clamp(ship.x, -edge, edge);
     ship.z = clamp(ship.z, -edge, edge);
@@ -450,7 +450,8 @@ function stepTorpedoes(state, dt) {
     const nz = tp.z + Math.cos(tp.heading) * tp.speed * dt;
     tp.travelled += tp.speed * dt;
     tp.x = nx; tp.z = nz;
-    if (tp.travelled > tp.range || Math.abs(tp.x) > MAP_HALF || Math.abs(tp.z) > MAP_HALF) continue;
+    const bound = state.world.half || MAP_HALF;
+    if (tp.travelled > tp.range || Math.abs(tp.x) > bound || Math.abs(tp.z) > bound) continue;
     if (islandAt(state.world, tp.x, tp.z, 0)) { state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 }); continue; }
 
     let hit = false;

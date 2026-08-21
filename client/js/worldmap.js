@@ -9,6 +9,7 @@
 // Coordinates throughout are [longitude, latitude].
 
 import { LAND_TOPOLOGY } from './worlddata.js';
+import { seaLabels, oceanLabels } from './waters.js';
 
 /** Decode the delta-encoded arcs into absolute lon/lat once, then cache. */
 let ARCS = null;
@@ -75,6 +76,95 @@ function landRings() {
   return RINGS;
 }
 
+/**
+ * Land polygons with their bounding boxes, so a point can be tested against the
+ * handful of shapes that could possibly contain it rather than all 1,419.
+ */
+let BOXED = null;
+function boxedLand() {
+  if (BOXED) return BOXED;
+  BOXED = landRings().map((poly) => {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [lon, lat] of poly[0]) {
+      if (lon < x0) x0 = lon;
+      if (lon > x1) x1 = lon;
+      if (lat < y0) y0 = lat;
+      if (lat > y1) y1 = lat;
+    }
+    return { poly, x0, x1, y0, y1 };
+  });
+  return BOXED;
+}
+
+/** Crossing count of a ray east from the point over one ring. */
+function crossings(ring_, lon, lat) {
+  let n = 0;
+  for (let i = 0, j = ring_.length - 1; i < ring_.length; j = i++) {
+    const [xi, yi] = ring_[i];
+    const [xj, yj] = ring_[j];
+    if ((yi > lat) !== (yj > lat)
+      && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) n++;
+  }
+  return n;
+}
+
+/**
+ * Is this point at sea?
+ *
+ * Tested against the same polygons the chart draws, with the same even-odd
+ * rule, so a lake counts as water and an island in a lake counts as land — and
+ * so the answer can never disagree with what is on the screen. Rings are stored
+ * unwrapped past the antimeridian, hence the three shifts.
+ */
+export function isWater(lon, lat) {
+  if (lat > 90 || lat < -90) return false;
+  for (const b of boxedLand()) {
+    for (const shift of [-360, 0, 360]) {
+      const l = lon + shift;
+      if (l < b.x0 || l > b.x1 || lat < b.y0 || lat > b.y1) continue;
+      let n = 0;
+      for (const r of b.poly) n += crossings(r, l, lat);
+      if (n % 2 === 1) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The side of the largest square of clear water that will fit centred on a
+ * point, in kilometres, capped at `maxKm`.
+ *
+ * The battlefield is a square of sea; if the water a captain has picked is
+ * narrower than the full battlefield, the battlefield is what fits. Bisection
+ * over a sampled ring is exact enough at this scale — half a kilometre either
+ * way is a tenth of a pixel on the chart.
+ */
+export function waterSquareKm(lon, lat, maxKm) {
+  const clear = (km) => {
+    const dLat = km / 2 / 111.32;
+    const dLon = dLat / Math.max(0.08, Math.cos((lat * Math.PI) / 180));
+    for (let i = 0; i <= 6; i++) {
+      for (let j = 0; j <= 6; j++) {
+        // Only the perimeter needs testing: if the edge is clear and the centre
+        // is clear, an island wholly inside would have to be smaller than the
+        // sample spacing, which at this scale is under a kilometre.
+        if (i > 0 && i < 6 && j > 0 && j < 6) continue;
+        if (!isWater(lon + (i / 3 - 1) * dLon, lat + (j / 3 - 1) * dLat)) return false;
+      }
+    }
+    return true;
+  };
+  if (!isWater(lon, lat)) return 0;
+  if (clear(maxKm)) return maxKm;
+  let lo = 0;
+  let hi = maxKm;
+  for (let k = 0; k < 12; k++) {
+    const mid = (lo + hi) / 2;
+    if (clear(mid)) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
 // Wartime capitals of the major belligerents. China's is Chongqing, where the
 // Nationalist government sat from 1938; France's is Paris, before the fall.
 const CAPITALS = [
@@ -106,6 +196,7 @@ export function drawWorld(canvas, opts = {}) {
     shelf = 'rgba(90, 140, 175, 0.5)',
     capital = '#e6cf9c', base = '#c98b8b', showPlaces = true,
     marker = null, markerName = '',
+    graticule = false, showWaters = false,
   } = opts;
 
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -122,6 +213,32 @@ export function drawWorld(canvas, opts = {}) {
 
   ctx.fillStyle = sea;
   ctx.fillRect(0, 0, w, h);
+
+  if (graticule) {
+    // Meridians and parallels at a spacing that stays legible as the chart is
+    // opened out: ten degrees across the world, down to one degree close in.
+    const step = zoom > 24 ? 1 : zoom > 8 ? 5 : zoom > 3 ? 10 : 15;
+    ctx.strokeStyle = 'rgba(120, 168, 200, 0.13)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const lon0 = Math.ceil((focus[0] - (w / 2) / scale) / step) * step;
+    const gTop = Math.max(0, py(90));
+    const gBot = Math.min(h, py(-90));
+    for (let lon = lon0; lon <= focus[0] + (w / 2) / scale; lon += step) {
+      ctx.moveTo(px(lon), gTop); ctx.lineTo(px(lon), gBot);
+    }
+    const lat0 = Math.ceil((focus[1] - (h / 2) / scale) / step) * step;
+    for (let lat = lat0; lat <= focus[1] + (h / 2) / scale; lat += step) {
+      if (lat > 90 || lat < -90) continue;
+      ctx.moveTo(0, py(lat)); ctx.lineTo(w, py(lat));
+    }
+    ctx.stroke();
+    // The equator carries a little more weight than the rest.
+    if (Math.abs(focus[1]) < (h / 2) / scale) {
+      ctx.strokeStyle = 'rgba(140, 190, 220, 0.26)';
+      ctx.beginPath(); ctx.moveTo(0, py(0)); ctx.lineTo(w, py(0)); ctx.stroke();
+    }
+  }
 
   // Only trace what can be seen: at 1419 polygons, culling off-screen shapes is
   // the difference between a smooth repaint and a visible stall.
@@ -203,6 +320,70 @@ export function drawWorld(canvas, opts = {}) {
     }
   }
 
+  // Beyond the poles there is no chart. On a tall frame at world scale a good
+  // part of the canvas is off the map altogether, and leaving it painted as sea
+  // with the meridians running on through it reads as a fault.
+  const yTop = py(90);
+  const yBot = py(-90);
+  if (yTop > 0 || yBot < h) {
+    ctx.fillStyle = '#04090f';
+    if (yTop > 0) ctx.fillRect(0, 0, w, yTop);
+    if (yBot < h) ctx.fillRect(0, yBot, w, h - yBot);
+    ctx.strokeStyle = 'rgba(110, 154, 180, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (yTop > 0) { ctx.moveTo(0, yTop); ctx.lineTo(w, yTop); }
+    if (yBot < h) { ctx.moveTo(0, yBot); ctx.lineTo(w, yBot); }
+    ctx.stroke();
+  }
+
+  if (showWaters) {
+    // A body is worth naming when it is neither a speck nor larger than the
+    // chart: oceans at world scale, seas as it is opened out, straits close in.
+    const marks = [];
+    for (const kind of ['ocean', 'sea']) {
+      for (const wb of kind === 'ocean' ? oceanLabels() : seaLabels()) {
+        const rpx = (wb.r / 111.32) * scale;
+        const min = kind === 'ocean' ? 150 : 26;
+        const max = kind === 'ocean' ? 4000 : 900;
+        if (rpx < min || rpx > max) continue;
+        let best = null;
+        for (const shift of [-360, 0, 360]) {
+          const x = px(wb.lon + shift);
+          const y = py(wb.lat);
+          if (x < -100 || x > w + 100 || y < -20 || y > h + 20) continue;
+          if (!best || Math.abs(x - w / 2) < Math.abs(best.x - w / 2)) best = { x, y };
+        }
+        if (best) marks.push({ ...wb, x: best.x, y: best.y, kind, rpx });
+      }
+    }
+    // Biggest first, so an ocean's name is placed before the seas inside it.
+    marks.sort((a, b) => b.rpx - a.rpx);
+    const used = [];
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const m of marks) {
+      const size = m.kind === 'ocean'
+        ? Math.min(26, Math.max(13, m.rpx / 22))
+        : Math.min(17, Math.max(10, m.rpx / 9));
+      ctx.font = `${m.kind === 'ocean' ? 500 : 400} ${size}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      const label = m.kind === 'ocean' ? m.name.toUpperCase() : m.name;
+      const bw = ctx.measureText(label).width + 10;
+      const bh = size + 4;
+      const box = { x: m.x - bw / 2, y: m.y - bh / 2, w: bw, h: bh };
+      if (used.some((r) => box.x < r.x + r.w && box.x + box.w > r.x
+        && box.y < r.y + r.h && box.y + box.h > r.y)) continue;
+      used.push(box);
+      ctx.fillStyle = m.kind === 'ocean'
+        ? 'rgba(150, 196, 224, 0.42)' : 'rgba(150, 196, 224, 0.62)';
+      if (m.kind === 'ocean') ctx.letterSpacing = '0.24em';
+      ctx.fillText(label, m.x, m.y);
+      ctx.letterSpacing = '0px';
+    }
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
   if (!showPlaces) return;
 
   // Markers first, labels second. At world scale the European capitals sit
@@ -216,15 +397,19 @@ export function drawWorld(canvas, opts = {}) {
     return !taken.some((r) => x < r.x + r.w && x + bw > r.x && y < r.y + r.h && y + bh > r.y);
   };
 
+  // A chart that wraps can show the same place twice, once at each seam. Only
+  // the copy nearest the middle is kept, or Canberra appears at both edges.
   const spots = [];
   for (const [list, kind] of [[CAPITALS, 'capital'], [BASES, 'base']]) {
     for (const [name, lon, lat] of list) {
+      let best = null;
       for (const shift of [-360, 0, 360]) {
         const x = px(lon + shift);
         const y = py(lat);
         if (x < -80 || x > w + 80 || y < -20 || y > h + 20) continue;
-        spots.push({ name, x, y, kind });
+        if (!best || Math.abs(x - w / 2) < Math.abs(best.x - w / 2)) best = { name, x, y, kind };
       }
+      if (best) spots.push(best);
     }
   }
 

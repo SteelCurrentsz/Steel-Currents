@@ -216,9 +216,10 @@ export class Hud {
   drawMinimap(own, ships, snap) {
     const ctx = this.ctx;
     const size = this.el.minimap.width;
-    const scale = size / (MAP_HALF * 2);
-    const toX = (x) => (x + MAP_HALF) * scale;
-    const toY = (z) => size - (z + MAP_HALF) * scale;
+    const H = this.world?.half || MAP_HALF;
+    const scale = size / (H * 2);
+    const toX = (x) => (x + H) * scale;
+    const toY = (z) => size - (z + H) * scale;
 
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(8,24,42,0.75)';

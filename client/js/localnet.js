@@ -76,6 +76,8 @@ export class LocalNet extends EventTarget {
           roomName: msg.roomName,
           time: msg.time,
           axisClass: msg.axisClass,
+          seed: msg.seed,
+          half: msg.half,
         });
         break;
 
@@ -116,6 +118,8 @@ export class LocalNet extends EventTarget {
       autoStart: false,
       botSkill: opts.botSkill,
       time: opts.time,
+      seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
+      half: Number.isFinite(opts.half) ? opts.half : undefined,
       onEmpty: () => { this.room = null; },
     });
     this.room = room;

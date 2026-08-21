@@ -151,7 +151,8 @@ function steerToward(state, ship, desiredHeading, dt) {
       break;
     }
   }
-  if (Math.abs(ship.x) > MAP_HALF - 900 || Math.abs(ship.z) > MAP_HALF - 900) {
+  const edge = (state.world.half || MAP_HALF) - 900;
+  if (Math.abs(ship.x) > edge || Math.abs(ship.z) > edge) {
     target = headingTo(ship.x, ship.z, 0, 0);
   }
   const d = angleDelta(ship.heading, target);
