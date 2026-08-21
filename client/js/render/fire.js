@@ -45,6 +45,21 @@ float fbm(vec2 p) {
   }
   return v;
 }
+
+// The cheap one. Smoke is soft and the fine grain in a flame is nearly all
+// carried by its first octaves, so those two pay for three lookups instead of
+// six — and between them they cover most of the screen.
+float fbm3(vec2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  mat2 rot = mat2(0.80, 0.60, -0.60, 0.80);
+  for (int i = 0; i < 3; i++) {
+    v += a * vnoise(p);
+    p = rot * p * 2.03;
+    a *= 0.5;
+  }
+  return v;
+}
 `;
 
 // Both flame and smoke stand on the ground and face the camera about the
@@ -79,56 +94,97 @@ uniform vec3 uTint;
 varying vec2 vUv;
 ${NOISE}
 
-/** Roughly a blackbody sweep: the hotter the gas, the further up this runs. */
-vec3 flameColour(float d) {
-  vec3 c = mix(vec3(0.26, 0.020, 0.003), vec3(0.95, 0.20, 0.015), smoothstep(0.00, 0.34, d));
-  c = mix(c, vec3(1.00, 0.52, 0.07), smoothstep(0.30, 0.60, d));
-  c = mix(c, vec3(1.00, 0.83, 0.32), smoothstep(0.58, 0.86, d));
-  c = mix(c, vec3(1.00, 0.97, 0.86), smoothstep(0.86, 1.00, d));
+/**
+ * Blackbody, near enough. A real fire is only white where the gas is thickest
+ * and lowest; by the time it is a third of the way up the column it is orange,
+ * and the tips are deep red going to soot. Running the whole ramp on thickness
+ * alone is what makes procedural fire look like a lava lamp.
+ */
+vec3 flameColour(float h) {
+  vec3 c = mix(vec3(0.09, 0.008, 0.002), vec3(0.62, 0.09, 0.008), smoothstep(0.00, 0.20, h));
+  c = mix(c, vec3(0.98, 0.24, 0.020), smoothstep(0.18, 0.42, h));
+  c = mix(c, vec3(1.00, 0.52, 0.070), smoothstep(0.40, 0.62, h));
+  c = mix(c, vec3(1.00, 0.80, 0.260), smoothstep(0.60, 0.82, h));
+  c = mix(c, vec3(1.00, 0.95, 0.760), smoothstep(0.82, 0.96, h));
   return c;
 }
 
 void main() {
   vec2 uv = vUv;
-  float t = uTime * 0.9 + uSeed * 31.7;
+  float t = uTime * 0.95 + uSeed * 31.7;
 
-  // The column wanders about its own axis as it climbs. Without this the
-  // envelope is a straight-sided cone, and a cone reads as a cut-out.
+  // The column wanders about its own axis as it climbs, and the wander grows
+  // with height: the gas at the seat is held in place by what is burning, and
+  // everything above it is free to be pushed about.
   float wob = fbm(vec2(uSeed * 17.0, uv.y * 2.4 - t * 0.8)) - 0.5;
-  float cx = 0.5 + wob * 0.55 * pow(uv.y, 1.25);
+  float shear = fbm(vec2(uSeed * 5.3 + 40.0, uv.y * 1.1 - t * 0.35)) - 0.5;
+  float cx = 0.5 + wob * 0.50 * pow(uv.y, 1.25) + shear * 0.34 * pow(uv.y, 1.8);
 
+  // Sampled with the vertical axis compressed and scrolling, so the structure
+  // is drawn out into tongues that climb rather than blobs that sit still.
   vec2 p = vec2((uv.x - 0.5) * 3.4, uv.y * 1.35 - t);
   vec2 warp = vec2(fbm(p * 1.6 + uSeed), fbm(p * 1.6 + 9.2 + uSeed));
   float n = fbm(p + warp * 0.8);
   float fine = fbm(p * 4.6 + warp * 1.5);
   // A third scale, drifting faster than the other two: this is what reads as
   // gas actually moving rather than a pattern sliding upward.
-  float grain = fbm(p * 11.0 + vec2(0.0, -t * 1.7) + warp * 0.6);
+  float grain = fbm3(p * 11.0 + vec2(0.0, -t * 1.7) + warp * 0.6);
 
   // Widest at the root, tapering as the gas rises and cools.
-  float taper = mix(0.44 + uSeed * 0.20, 0.05 + uSeed * 0.06, pow(uv.y, 0.62 + uSeed * 0.30));
+  float taper = mix(0.46 + uSeed * 0.20, 0.05 + uSeed * 0.06, pow(uv.y, 0.62 + uSeed * 0.30));
   float r = abs(uv.x - cx) / max(taper, 0.001);
   float body = 1.0 - smoothstep(0.15, 1.0, r);
-  body *= smoothstep(0.0, 0.05, uv.y) * (1.0 - smoothstep(0.30, 1.0, uv.y));
+  body *= smoothstep(0.0, 0.04, uv.y) * (1.0 - smoothstep(0.32, 1.0, uv.y));
+
+  // The seat: the bed of fire over whatever is actually burning. It is wider
+  // than the column, near solid, and barely flickers — a fire without one is a
+  // ribbon floating in the air.
+  float bedW = 1.0 - smoothstep(0.25, 0.92, abs(uv.x - 0.5) / (taper * 1.9 + 0.10));
+  float bed = bedW * exp(-uv.y * 11.0) * (0.65 + 0.35 * grain);
 
   // Combustion is continuous down at the seat and breaks into separate tongues
   // as it rises, so the noise is allowed to cut deeper the higher it goes.
-  float bite = mix(0.12, 1.05, pow(uv.y, 0.70));
+  float bite = mix(0.10, 1.08, pow(uv.y, 0.68));
   float mask = clamp((n - 0.5) * 2.6 + 1.0 - bite, 0.0, 1.0);
   mask = smoothstep(0.0, 0.55, mask);
 
   // Fine noise frays the edge, where the sheet is thin enough for it to tell,
   // and the grain breaks the body up into separate sheets of flame.
   float d = body * mask - fine * 0.22 * smoothstep(0.1, 0.9, uv.y);
-  d *= 0.72 + 0.28 * grain;
+  d *= 0.70 + 0.30 * grain;
+  d = max(d, bed);
   d = clamp(d, 0.0, 1.0);
-  if (d < 0.004) discard;
+  if (d < 0.003) discard;
 
-  // Temperature is not the same thing as thickness: the core is white even
-  // where the sheet is thin, and the fringes stay red even where it is not.
-  float heat = clamp(d * 0.55 + (1.0 - r * 0.8) * (1.0 - pow(uv.y, 0.75)) * 0.75
-                     + grain * 0.14 * (1.0 - uv.y), 0.0, 1.0);
-  gl_FragColor = vec4(flameColour(heat) * uTint, clamp(d * uIntensity, 0.0, 1.0));
+  // Temperature falls hard with height and softly across the column, so the
+  // white is only ever in the heart of the seat.
+  float heat = (1.0 - pow(uv.y, 0.55)) * (1.0 - r * 0.55) * (0.55 + 0.65 * d)
+             + bed * 0.55 + grain * 0.10 * (1.0 - uv.y);
+  heat = clamp(heat, 0.0, 1.0);
+
+  // The last of the column is gas that has stopped burning, so it darkens into
+  // the smoke above rather than simply fading out.
+  float sooty = smoothstep(0.55, 1.0, uv.y) * (1.0 - bed);
+  vec3 col = mix(flameColour(heat), vec3(0.055, 0.042, 0.038), sooty * 0.85);
+
+  gl_FragColor = vec4(col * uTint, clamp(d * uIntensity, 0.0, 1.0));
+}
+`;
+
+// A soft halo of light round every seat of fire. Real fire at a distance is
+// mostly this: the flame itself is small, and what carries across a mile of
+// night is the glow it throws into the smoke and dust above it.
+const GLOW_FRAG = /* glsl */`
+uniform float uIntensity;
+uniform vec3 uTint;
+varying vec2 vUv;
+
+void main() {
+  vec2 p = (vUv - vec2(0.5, 0.28)) * vec2(1.0, 0.78);
+  float r = length(p) * 2.0;
+  float a = exp(-r * r * 3.4) * uIntensity;
+  if (a < 0.002) discard;
+  gl_FragColor = vec4(mix(vec3(1.0, 0.42, 0.10), vec3(1.0, 0.76, 0.34), a) * uTint, a);
 }
 `;
 
@@ -148,8 +204,10 @@ void main() {
   // horizontal coordinate rather than the raw uv.
   float spread = 0.22 + uv.y * 1.05;
   vec2 p = vec2((uv.x - 0.5) / spread * 2.6, uv.y * 1.1 - t);
-  vec2 warp = vec2(fbm(p * 1.1 + uSeed), fbm(p * 1.1 + 4.4 + uSeed));
-  float n = fbm(p + warp * 0.9);
+  // Three octaves throughout: the columns are the largest thing on the screen
+  // by area, and soot has no fine structure worth six of them.
+  vec2 warp = vec2(fbm3(p * 1.1 + uSeed), fbm3(p * 1.1 + 4.4 + uSeed));
+  float n = fbm3(p + warp * 0.9) * 0.75 + fbm3(p * 3.1 + 11.0) * 0.25;
 
   float across = 1.0 - smoothstep(0.35, 1.0, abs(uv.x - 0.5) / spread);
   float rise = smoothstep(0.0, 0.22, uv.y) * (1.0 - smoothstep(0.55, 1.0, uv.y));
@@ -213,6 +271,7 @@ export class FireSystem {
     this.scene = scene;
     this.time = 0;
     this.flames = [];
+    this.glows = [];
     this.smoke = [];
     this.lights = [];
     this.emberCount = emberCount;
@@ -256,6 +315,30 @@ export class FireSystem {
       this.flames.push({
         mesh, mat, base: intensity * (1 - f * 0.3) * (2.4 / layers), phase: Math.random() * 10,
       });
+    }
+
+    // The halo the seat throws up into the smoke over it.
+    {
+      const mat = new THREE.ShaderMaterial({
+        vertexShader: BILLBOARD_VERT,
+        fragmentShader: GLOW_FRAG,
+        uniforms: {
+          uIntensity: { value: intensity * 0.30 },
+          uTint: { value: tint.clone() },
+          uSize: { value: new THREE.Vector2(width * 3.4, height * 2.1) },
+          uLean: { value: lean * 0.4 },
+        },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(QUAD, mat);
+      mesh.position.set(x, y, z);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 9;
+      this.scene.add(mesh);
+      this.glows.push({ mat, base: intensity * 0.30, phase: Math.random() * 10 });
     }
 
     if (smokeHeight > 0) {
@@ -330,6 +413,12 @@ export class FireSystem {
       f.mat.uniforms.uIntensity.value = f.base * (0.86 + 0.1 * a + 0.06 * b);
     }
     for (const s of this.smoke) s.mat.uniforms.uTime.value += dt;
+    for (const g of this.glows) {
+      // The halo breathes with the fire under it, a beat behind the flame.
+      const a = Math.sin(this.time * 3.1 + g.phase);
+      const b = Math.sin(this.time * 1.3 + g.phase * 1.7);
+      g.mat.uniforms.uIntensity.value = g.base * (0.84 + 0.11 * a + 0.07 * b);
+    }
     for (const l of this.lights) {
       const a = Math.sin(this.time * 6.1 + l.phase);
       const b = Math.sin(this.time * 11.7 + l.phase * 1.7);

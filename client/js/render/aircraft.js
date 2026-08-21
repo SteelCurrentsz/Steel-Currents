@@ -7,6 +7,7 @@
 // at that range is smaller than a pixel and would otherwise arrive from nowhere.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { mergeStatic } from './merge.js';
 
 const DARK = new THREE.MeshLambertMaterial({ color: 0x3d444f });
 const GLASS = new THREE.MeshBasicMaterial({ color: 0x2b3a48 });
@@ -79,11 +80,13 @@ export function buildBomber(span = 72) {
   stbd.position.set(span * 0.5, 0.4 * c, 0);
   g.add(stbd);
 
-  g.userData.props = props;
+  // Welded down: at the range these are seen from, four turning discs are not
+  // worth twenty-odd draw calls an aeroplane.
+  mergeStatic(g);
   return g;
 }
 
-const BOMB_MAX = 24;
+const BOMB_MAX = 48;
 
 /**
  * Waves of bombers over a target box, and the bombs they let go.
@@ -101,10 +104,14 @@ export class BomberRaid {
     // The box they aim at, in world metres.
     target = { x0: -700, x1: 700, z0: 430, z1: 1100 },
     altitude = 430,
-    speed = 96,
+    speed = 132,
     gravity = 45,
-    interval = 7,
-    flight = 5,
+    interval = 5,
+    flight = 4,
+    // Two flights in the air at once, each working its own stretch of the
+    // waterfront: one formation crossing a five-kilometre island leaves most of
+    // the frame quiet most of the time.
+    flights = 2,
   } = {}) {
     this.scene = scene;
     this.onImpact = onImpact;
@@ -120,16 +127,20 @@ export class BomberRaid {
     this.aircraft = [];
     this.bombs = [];
     this.time = 0;
-    // The first flight is already inbound when the screen comes up, rather than
-    // making anyone wait out a full interval to see one.
-    this.nextWave = 1.5;
 
-    for (let i = 0; i < flight; i++) {
-      const g = buildBomber();
-      g.visible = false;
-      scene.add(g);
-      this.aircraft.push({ group: g, alive: false, dir: 1, drops: 0, nextDrop: 0 });
+    for (let f = 0; f < flights; f++) {
+      for (let i = 0; i < flight; i++) {
+        const g = buildBomber();
+        g.visible = false;
+        scene.add(g);
+        this.aircraft.push({
+          group: g, flight: f, seat: i, alive: false, dir: 1,
+          stick: 0, nextDrop: 0, gap: 0, runX0: 0, runX1: 0,
+        });
+      }
     }
+    this.flights = flights;
+    this.waveDue = [1.5, 6.5].slice(0, flights);
 
     // Bombs, pooled: a dart with a streak behind it so it can be followed down.
     const bombGeo = new THREE.CylinderGeometry(0.9, 0.45, 4.6, 6);
@@ -150,30 +161,40 @@ export class BomberRaid {
     }
   }
 
-  /** Send a flight across, from one side or the other. */
-  launch() {
+  /** Send one flight across a stretch of the waterfront. */
+  launch(flightId) {
     const t = this.target;
     const dir = Math.random() < 0.5 ? 1 : -1;
     const lane = t.z0 + Math.random() * (t.z1 - t.z0);
-    const startX = dir > 0 ? t.x0 - 1400 : t.x1 + 1400;
+    // Each flight works its own run rather than the whole island, so a pass is
+    // half a minute rather than a minute and a half.
+    const span = 1500 + Math.random() * 900;
+    const runX0 = t.x0 + Math.random() * (t.x1 - t.x0 - span);
+    const runX1 = runX0 + span;
+    const startX = dir > 0 ? runX0 - 600 : runX1 + 600;
 
-    this.aircraft.forEach((a, i) => {
+    for (const a of this.aircraft) {
+      if (a.flight !== flightId) continue;
+      const i = a.seat;
       // A shallow vic: the leader out front, the wingmen back and to each side.
       const rank = i === 0 ? 0 : 1;
       const wing = i === 0 ? 0 : (i % 2 ? -1 : 1);
-      a.group.visible = true;
       a.alive = true;
+      a.group.visible = true;
       a.dir = dir;
-      a.drops = 0;
+      a.stick = 5;
       a.nextDrop = 0;
+      a.gap = 0;
+      a.runX0 = runX0;
+      a.runX1 = runX1;
       a.group.position.set(
-        startX - dir * rank * 130 + wing * 15,
-        this.altitude + (Math.random() - 0.5) * 40,
-        lane + wing * 150 + (Math.random() - 0.5) * 60,
+        startX - dir * rank * 150 + wing * 20,
+        this.altitude + (Math.random() - 0.5) * 50,
+        lane + wing * 170 + (Math.random() - 0.5) * 70,
       );
       // Nose along the track: the model is built pointing at +Z.
       a.group.rotation.set(0, dir > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
-    });
+    }
   }
 
   drop(a) {
@@ -192,35 +213,42 @@ export class BomberRaid {
 
   update(dt) {
     this.time += dt;
-    const t = this.target;
 
-    // Next wave, once the sky is clear.
-    this.nextWave -= dt;
-    if (this.nextWave <= 0 && !this.aircraft.some((a) => a.alive)) {
-      this.launch();
-      this.nextWave = this.interval;
+    // Each flight goes again as soon as the last one is clear and its interval
+    // has run, so there is nearly always something over the island.
+    for (let f = 0; f < this.flights; f++) {
+      this.waveDue[f] -= dt;
+      if (this.waveDue[f] > 0) continue;
+      if (this.aircraft.some((a) => a.alive && a.flight === f)) continue;
+      this.launch(f);
+      this.waveDue[f] = this.interval + Math.random() * 4;
     }
 
     for (const a of this.aircraft) {
       if (!a.alive) continue;
       const p = a.group.position;
       p.x += a.dir * this.speed * dt;
-      // Props turn; at this range it is the only motion on the airframe.
-      for (const d of a.group.userData.props) d.rotation.z += dt * 26;
 
-      // Over the target, she lets a stick go one bomb at a time.
-      const over = p.x > t.x0 && p.x < t.x1;
-      if (over && a.drops < 4) {
-        a.nextDrop -= dt;
-        if (a.nextDrop <= 0) {
-          this.drop(a);
-          a.drops++;
-          a.nextDrop = 0.45 + Math.random() * 0.25;
+      // Over the target she works in sticks: five away one after another, a
+      // pause while the bay is reloaded, then another stick — so bombs are
+      // coming down for as long as she is over the island, not once a pass.
+      const over = p.x > a.runX0 && p.x < a.runX1;
+      if (over) {
+        if (a.gap > 0) {
+          a.gap -= dt;
+          if (a.gap <= 0) a.stick = 4 + Math.floor(Math.random() * 3);
+        } else {
+          a.nextDrop -= dt;
+          if (a.nextDrop <= 0) {
+            this.drop(a);
+            a.nextDrop = 0.32 + Math.random() * 0.2;
+            if (--a.stick <= 0) a.gap = 2.4 + Math.random() * 1.6;
+          }
         }
       }
 
-      // Off the far side, she is done.
-      if ((a.dir > 0 && p.x > t.x1 + 1700) || (a.dir < 0 && p.x < t.x0 - 1700)) {
+      // Clear of the island, she is done.
+      if ((a.dir > 0 && p.x > a.runX1 + 700) || (a.dir < 0 && p.x < a.runX0 - 700)) {
         a.alive = false;
         a.group.visible = false;
       }

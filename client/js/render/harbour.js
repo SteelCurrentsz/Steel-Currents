@@ -23,8 +23,8 @@ function makeRng(seed) {
 // deal per pixel with this many lights on it.
 const MAT = {
   stone: new THREE.MeshLambertMaterial({ color: 0x4a4741 }),
-  concrete: new THREE.MeshLambertMaterial({ color: 0x5a5750 }),
-  brick: new THREE.MeshLambertMaterial({ color: 0x53372c }),
+  concrete: new THREE.MeshLambertMaterial({ color: 0x6b675e }),
+  brick: new THREE.MeshLambertMaterial({ color: 0x67432f }),
   roof: new THREE.MeshLambertMaterial({ color: 0x2e3134 }),
   steel: new THREE.MeshLambertMaterial({ color: 0x434a51 }),
   rust: new THREE.MeshLambertMaterial({ color: 0x5b3520 }),
@@ -82,9 +82,9 @@ const ISLAND = (() => {
   for (let i = 0; i < 34; i++) {
     bumps.push({
       x: -2500 + r() * 5000,
-      z: 1000 + r() * 1400,
-      r: 260 + r() * 460,
-      h: 26 + r() * 160,
+      z: 1500 + r() * 1200,
+      r: 280 + r() * 480,
+      h: 20 + r() * 92,
     });
   }
   return { bumps };
@@ -98,7 +98,7 @@ export function islandHeight(x, z) {
   let h;
   if (z < 415) h = ((z - 300) / 115) * 24 - 24;
   else if (z < 900) h = 0;
-  else h = Math.pow(Math.min(1, (z - 900) / 1400), 1.5) * 104;
+  else h = Math.pow(Math.min(1, (z - 900) / 1500), 1.7) * 96;
   if (z > 2300) h -= Math.pow((z - 2300) / 560, 2) * 220;
 
   for (const b of ISLAND.bumps) {
@@ -390,28 +390,171 @@ export function buildHarbour(fires, seed = 20260820) {
 
   // -- the town behind ------------------------------------------------------
 
-  for (let i = 0; i < 150; i++) {
-    const bx = -2300 + rng() * 4600;
-    const bz = 940 + rng() * 700;
-    const bw = 40 + rng() * 70;
-    const bh = 24 + rng() * 60;
-    const bd = 40 + rng() * 60;
-    // Set into the slope rather than perched on it, so no house stands on stilts
-    // where the ground falls away under one corner.
-    const gy = islandHeight(bx, bz) - 6;
-    if (gy < -4) continue;
-    (rng() < 0.4 ? concrete : brick).add(bx, gy + bh / 2, bz, bw, bh, bd);
-    if (rng() < 0.5) roofs.add(bx, gy + bh + 4, bz, bw + 3, 9, bd + 3);
-    for (let k = 0; k < 5; k++) {
-      if (rng() < 0.55) continue;
-      windows.add(bx - bw / 2 + 6 + rng() * (bw - 12), gy + 8 + rng() * (bh - 14),
-        bz - bd / 2 - 0.6, 3.5, 5, 1);
+  /**
+   * One building, put together the way a building is: walls, a floor line, a
+   * cornice, window openings in courses on every face, a roof of one of four
+   * kinds, and stacks on it. A gutted one has no roof and its floors showing.
+   */
+  const building = (bx, bz, bw, bd, storeys, opt = {}) => {
+    const floor = 5.0;
+    const bh = storeys * floor;
+    // Grade level. The walls are carried six metres below it so that nothing
+    // stands on stilts where the ground falls away under one corner — sinking
+    // the whole building instead buried the ones on the flat.
+    const gy = islandHeight(bx, bz);
+    if (gy < -1) return;
+    const burnt = opt.burnt ?? rng() < 0.18;
+    const wall = burnt ? charred : (opt.wall || (rng() < 0.42 ? concrete : brick));
+
+    if (burnt) {
+      // A shell: the four walls standing to different heights, the floors laid
+      // bare inside them, and nothing on top.
+      const stub = 0.55 + rng() * 0.4;
+      const shell = (w, h, d, x, z) => wall.add(x, gy + h / 2 - 3, z, w, h + 6, d);
+      shell(bw, bh * stub, 1.5, bx, bz);
+      shell(bw, bh * (stub - 0.15), 1.5, bx, bz + bd - 1.5);
+      for (const sx of [-1, 1]) {
+        shell(1.5, bh * (stub - 0.1 - rng() * 0.25), bd, bx + (sx * bw) / 2, bz + bd / 2);
+      }
+      for (let k = 1; k < storeys * stub; k++) {
+        charred.add(bx, gy + k * floor, bz + bd / 2, bw - 2, 0.6, bd - 2);
+      }
+      return;
+    }
+
+    wall.add(bx, gy + bh / 2 - 3, bz + bd / 2, bw, bh + 6, bd);
+    // Ground floor: shopfronts and doorways, darker than the storeys above.
+    dark.add(bx, gy + floor * 0.45, bz + bd / 2, bw + 0.4, floor * 0.9, bd + 0.4);
+    // Cornice, and a parapet if the roof is flat.
+    concrete.add(bx, gy + bh + 0.5, bz + bd / 2, bw + 2.4, 1.0, bd + 2.4);
+
+    // Window courses. Openings on all four faces, a scatter of them dark, and
+    // the ground floor left to the shopfronts.
+    const bays = Math.max(2, Math.floor(bw / 6.5));
+    const baysD = Math.max(2, Math.floor(bd / 6.5));
+    for (let st = 1; st < storeys; st++) {
+      const wy = gy + st * floor + floor * 0.55;
+      for (let i = 0; i < bays; i++) {
+        const wx = bx - bw / 2 + ((i + 0.5) * bw) / bays;
+        if (rng() > 0.42) windows.add(wx, wy, bz - 0.5, 2.6, 3.6, 1);
+      }
+      // Only the seaward returns: the camera never gets round the back of the
+      // town, and a window there is an instance drawn for nobody.
+      for (let i = 0; i < baysD * 0.5; i++) {
+        const wz = bz + ((i + 0.5) * bd) / baysD;
+        if (rng() > 0.62) windows.add(bx - bw / 2 - 0.5, wy, wz, 1, 3.6, 2.6);
+        if (rng() > 0.62) windows.add(bx + bw / 2 + 0.5, wy, wz, 1, 3.6, 2.6);
+      }
+    }
+
+    // Roof. A town has all four kinds in it and they are most of the skyline.
+    const kind = opt.roof ?? rng();
+    if (kind < 0.42) {
+      roofs.add(bx, gy + bh + 5, bz + bd / 2, bw + 2, 11, bd + 2);          // gable
+    } else if (kind < 0.62) {
+      roofs.add(bx, gy + bh + 4, bz + bd / 2, bw + 2, 8, bd + 2);           // shallow
+      concrete.add(bx, gy + bh + 8.5, bz + bd / 2, bw * 0.5, 1, bd * 0.5);
+    } else if (kind < 0.84) {
+      // Flat, behind a parapet, with the machinery house on top.
+      concrete.add(bx, gy + bh + 2.6, bz + bd / 2, bw + 2.4, 3.2, 1.6);
+      concrete.add(bx, gy + bh + 2.6, bz + bd, bw + 2.4, 3.2, 1.6);
+      for (const sx of [-1, 1]) {
+        concrete.add(bx + (sx * (bw + 2.4)) / 2, gy + bh + 2.6, bz + bd / 2, 1.6, 3.2, bd + 2.4);
+      }
+      if (rng() < 0.6) brick.add(bx + (rng() - 0.5) * bw * 0.4, gy + bh + 4.5,
+        bz + bd * (0.3 + rng() * 0.4), 9, 5, 9);
+    } else {
+      // Mansard: a steep lower pitch with a flat top behind it.
+      roofs.add(bx, gy + bh + 6, bz + bd / 2, bw + 2, 13, bd + 2);
+      concrete.add(bx, gy + bh + 6.4, bz + bd / 2, bw * 0.55, 0.8, bd * 0.55);
+    }
+
+    // Chimney stacks: one per party wall, which is what a terrace looks like.
+    const stacks = 1 + Math.floor(rng() * 2);
+    for (let k = 0; k < stacks; k++) {
+      const sx = bx - bw / 2 + ((k + 1) * bw) / (stacks + 1);
+      brick.add(sx, gy + bh + 8, bz + bd * (0.3 + rng() * 0.4), 3.0, 12, 3.0);
+      dark.add(sx, gy + bh + 14.4, bz + bd * 0.5, 3.6, 0.8, 3.6);
+    }
+    // A fire escape down the face of some of the taller ones.
+    if (storeys >= 4 && rng() < 0.4) {
+      const fx = bx + (rng() < 0.5 ? -1 : 1) * (bw / 2 + 1.2);
+      for (let st = 1; st < storeys; st++) {
+        steel.add(fx, gy + st * floor, bz + bd * 0.5, 2.4, 0.4, bd * 0.5);
+        steel.add(fx, gy + st * floor + 1.4, bz + bd * 0.25, 0.3, 2.8, 0.3);
+        steel.add(fx, gy + st * floor + 1.4, bz + bd * 0.75, 0.3, 2.8, 0.3);
+      }
+    }
+  };
+
+  // The town is laid out in blocks along streets running with the contour,
+  // because a town is: scattering houses over a hillside reads as a spill of
+  // boxes, and a terrace with a street in front of it reads as a town.
+  for (let row = 0; row < 4; row++) {
+    const bz = 900 + row * 150;
+    tarmac.add(0, 0, bz - 16, 4600, 1.0, 16);
+    let bx = -2280;
+    while (bx < 2280) {
+      const blockLen = 90 + rng() * 190;
+      if (rng() < 0.14) { bx += blockLen; continue; }        // a gap, or a yard
+      // A terrace: houses of the same depth joined along the street front.
+      const depth = 34 + rng() * 26;
+      const storeys = 4 + Math.floor(rng() * (row < 2 ? 7 : 5));
+      let px = bx;
+      while (px < bx + blockLen - 20) {
+        const w = 22 + rng() * 26;
+        building(px + w / 2, bz, w, depth, storeys + (rng() < 0.25 ? 1 : 0));
+        px += w + 1.5;
+      }
+      bx += blockLen + 26 + rng() * 40;                      // a side street
+    }
+  }
+  // The bonded warehouses and shipping offices immediately behind the sheds:
+  // eight to fifteen storeys of them, and the tallest thing on the waterfront.
+  {
+    let bx = -2400;
+    while (bx < 2400) {
+      const w = 70 + rng() * 90;
+      if (rng() < 0.22) { bx += w + 40; continue; }
+      building(bx + w / 2, 660 + rng() * 40, w, 56 + rng() * 30,
+        8 + Math.floor(rng() * 8), { wall: rng() < 0.5 ? brick : concrete, roof: 0.72 });
+      bx += w + 34 + rng() * 60;
+    }
+  }
+
+  // A few larger blocks standing above the terraces.
+  for (let i = 0; i < 18; i++) {
+    const bx = -2100 + rng() * 4200;
+    const bz = 920 + rng() * 480;
+    building(bx, bz, 60 + rng() * 50, 50 + rng() * 40, 7 + Math.floor(rng() * 6),
+      { wall: concrete, roof: 0.7 });
+  }
+  // The town hall, with the clock tower that goes with it.
+  {
+    const hx = 640, hz = 1010;
+    const gy = islandHeight(hx, hz) - 4;
+    concrete.add(hx, gy + 26, hz, 150, 52, 70);
+    concrete.add(hx, gy + 53, hz, 154, 2.4, 74);
+    for (let i = 0; i < 10; i++) {
+      for (const wy of [gy + 16, gy + 34]) {
+        windows.add(hx - 66 + i * 14.6, wy, hz - 36, 4, 8, 1);
+      }
+    }
+    concrete.add(hx - 52, gy + 52, hz, 26, 52, 26);
+    concrete.add(hx - 52, gy + 80, hz, 30, 4, 30);
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(17, 30, 4), MAT.roof);
+    spire.position.set(hx - 52, gy + 97, hz);
+    spire.rotation.y = Math.PI / 4;
+    g.add(spire);
+    // Clock faces, which is the one lit thing left in the town.
+    for (const [dx, dz] of [[0, -14], [0, 14], [-14, 0], [14, 0]]) {
+      windows.add(hx - 52 + dx, gy + 72, hz + dz, dz ? 7 : 1, 7, dz ? 1 : 7);
     }
   }
 
   // A church, which is the one thing in a town like this with a spire on it.
   {
-    const cx = -520, cz = 1180;
+    const cx = -520, cz = 1080;
     const gy = islandHeight(cx, cz) - 4;
     brick.add(cx, gy + 22, cz, 46, 44, 96);
     roofs.add(cx, gy + 50, cz, 50, 16, 99);
@@ -628,6 +771,7 @@ export function buildHarbour(fires, seed = 20260820) {
   return {
     group: g,
     battleship: bb.group,
+    battleshipBow: bb.forward,
     berth: { x: DOCK_X + 40, y: 0, z: DOCK_Z - 26 },
     /** Sweep the searchlights. */
     update(t) {

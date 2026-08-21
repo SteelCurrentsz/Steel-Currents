@@ -57,7 +57,7 @@ void main() {
   // that give it its shape, and the fine boil that gives it its resolution.
   vec2 q = vec2(ang * 3.6, r * 2.4 - uLife * 1.7) + uSeed * 37.0;
   float n = fbm(q * 1.7 + vec2(fbm(q * 2.3), fbm(q * 2.3 + 5.1)) * 0.8);
-  float fine = fbm(q * 6.1 + uLife * 0.9);
+  float fine = fbm3(q * 6.1 + uLife * 0.9);
   float edge = grow * (0.62 + 0.42 * n + 0.05 * fine);
 
   float d = 1.0 - smoothstep(edge * 0.52, edge, r);
@@ -100,7 +100,7 @@ void main() {
   float head = smoothstep(0.45, 0.95, uv.y) * (1.0 - smoothstep(0.95, 1.0, uv.y));
   spread *= mix(1.0, 1.0 - 0.30 * smoothstep(0.15, 0.55, uv.y) + 1.05 * head, uPower);
   vec2 p = vec2((uv.x - 0.5) / spread * 2.4, uv.y * 1.15 - uLife * 0.85 + uSeed * 11.0);
-  float n = fbm(p * 1.25 + vec2(fbm(p * 1.1), fbm(p * 1.1 + 3.3)) * 0.9);
+  float n = fbm(p * 1.25 + vec2(fbm3(p * 1.1), fbm3(p * 1.1 + 3.3)) * 0.9);
 
   float across = 1.0 - smoothstep(0.32, 1.0, abs(uv.x - 0.5) / spread);
   // The head of the column climbs as the blast ages; below it the stem thins.
@@ -114,6 +114,23 @@ void main() {
   vec3 col = mix(vec3(0.062, 0.055, 0.050), vec3(0.14, 0.125, 0.115), n);
   col = mix(col, uLit, pow(1.0 - uv.y, 3.0) * (1.0 - smoothstep(0.0, 0.45, uLife)) * 0.85);
   gl_FragColor = vec4(col, d);
+}
+`;
+
+// The flash. For the first tenth of a second a detonation is not a fireball at
+// all — it is a light too bright to have an edge, and everything round it is
+// washed out. Without it a big blast reads as an orange balloon inflating.
+const FLASH_FRAG = /* glsl */`
+uniform float uLife;
+varying vec2 vUv;
+
+void main() {
+  float r = length(vUv - 0.5) * 2.0;
+  // Up in a couple of frames, gone in a tenth of a second.
+  float t = smoothstep(0.0, 0.012, uLife) * (1.0 - smoothstep(0.02, 0.13, uLife));
+  float a = exp(-r * r * 5.0) * t;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(mix(vec3(1.0, 0.72, 0.34), vec3(1.0, 0.99, 0.95), a), a);
 }
 `;
 
@@ -240,6 +257,7 @@ export class ExplosionSystem {
     };
 
     const ball = mk(FIREBALL_FRAG, {}, THREE.AdditiveBlending, 11);
+    const flash = mk(FLASH_FRAG, {}, THREE.AdditiveBlending, 13);
     const plume = mk(PLUME_FRAG, { uLit: { value: new THREE.Color(0.7, 0.28, 0.07) } },
       THREE.NormalBlending, 9);
 
@@ -262,7 +280,7 @@ export class ExplosionSystem {
     light.visible = false;
     this.scene.add(light);
 
-    return { ball, plume, ring, light, life: 2, dur: 1, size: 1, lightPeak: 0 };
+    return { ball, flash, plume, ring, light, life: 2, dur: 1, size: 1, lightPeak: 0 };
   }
 
   /**
@@ -284,6 +302,8 @@ export class ExplosionSystem {
 
     s.ball.visible = true;
     s.ball.position.set(x, y, z);
+    s.flash.visible = true;
+    s.flash.position.set(x, y + size * 0.3, z);
     s.ball.material.uniforms.uSeed.value = Math.random();
     s.ball.material.uniforms.uPower.value = power;
 
@@ -340,6 +360,8 @@ export class ExplosionSystem {
       const t = Math.min(1, s.life);
 
       s.ball.material.uniforms.uLife.value = t;
+      s.flash.material.uniforms.uLife.value = t;
+      s.flash.material.uniforms.uSize.value = s.size * 7.0;
       s.ball.material.uniforms.uSize.value = s.size * 2.2;
       s.ball.material.uniforms.uRise.value = s.size * 0.35 * Math.pow(t, 0.7);
 
@@ -349,6 +371,7 @@ export class ExplosionSystem {
         s.plume.material.uniforms.uRise.value = s.size * 3.0;
       }
 
+      if (s.flash.visible && t > 0.14) s.flash.visible = false;
       s.ring.material.uniforms.uLife.value = t;
       s.ring.scale.setScalar(s.size * 4.5);
 
@@ -359,6 +382,7 @@ export class ExplosionSystem {
 
       if (s.life > 1) {
         s.ball.visible = s.plume.visible = s.ring.visible = s.light.visible = false;
+        s.flash.visible = false;
       }
     }
   }

@@ -12,12 +12,15 @@
 // y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { mergeStatic } from './merge.js';
 
 export const LOA = 270;
 export const BEAM = 33;
 export const DRAFT = 11;
 // Main deck height amidships. She has a good deal of sheer forward.
 const DECK = 9.6;
+// Where the bow section parts from the rest when the magazines go.
+const SPLIT_Z = 44;
 
 const P = {
   hull: 0x5b6875,        // measure 22: navy blue up to the sheer strake
@@ -98,8 +101,16 @@ function flareAt(t) {
   return 1 + Math.pow(Math.max(0, t), 2.4) * 0.85;
 }
 
+/**
+ * The hull, in two pieces: everything abaft the forward barbettes, and the bow
+ * section forward of them. She is drawn that way so that when her forward
+ * magazines go the bow can be heaved up out of the water as a unit, the way it
+ * happens to a ship that loses them.
+ */
 function buildHull() {
   const g = new THREE.Group();
+  const fwd = new THREE.Group();
+  g.add(fwd);
   const N = 60;
   const rings = [];
   for (let i = 0; i <= N; i++) {
@@ -115,10 +126,10 @@ function buildHull() {
   }
 
   // A band of the hull between two heights, taking its width from either the
-  // waterline beam or the flared deck beam.
-  const band = (yTop, yBot, wTop, wBot, color) => {
+  // waterline beam or the flared deck beam, over a range of stations.
+  const band = (yTop, yBot, wTop, wBot, color, i0, i1) => {
     const pos = [];
-    for (let i = 0; i < N; i++) {
+    for (let i = i0; i < i1; i++) {
       const a = rings[i], b = rings[i + 1];
       for (const s of [1, -1]) {
         const at = wTop(a) * s, bt = wTop(b) * s;
@@ -140,23 +151,43 @@ function buildHull() {
   };
 
   const W = (r) => r.w, WD = (r) => r.wDeck;
-  // Sheer strake and topsides, boot topping at the waterline, red below.
-  g.add(band((r) => r.deckY, () => 5.4, WD, W, P.hullUpper));
-  g.add(band(() => 5.4, () => 1.1, W, W, P.hull));
-  g.add(band(() => 1.1, () => -1.1, W, W, P.boot));
-  g.add(band(() => -1.1, (r) => r.keelY, W, (r) => Math.max(0.6, r.w * 0.18), P.antifoul));
+  // The station the bow section breaks at: just forward of the barbettes.
+  const split = rings.findIndex((r) => r.z >= SPLIT_Z);
 
-  // Main deck.
-  const deck = [];
-  for (let i = 0; i < N; i++) {
-    const a = rings[i], b = rings[i + 1];
-    deck.push(-a.wDeck, a.deckY, a.z, a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z);
-    deck.push(-a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z, -b.wDeck, b.deckY, b.z);
-  }
-  const dGeo = new THREE.BufferGeometry();
-  dGeo.setAttribute('position', new THREE.Float32BufferAttribute(deck, 3));
-  dGeo.computeVertexNormals();
-  g.add(new THREE.Mesh(dGeo, mat(P.deck)));
+  const bands = (into, i0, i1) => {
+    into.add(band((r) => r.deckY, () => 5.4, WD, W, P.hullUpper, i0, i1));
+    into.add(band(() => 5.4, () => 1.1, W, W, P.hull, i0, i1));
+    into.add(band(() => 1.1, () => -1.1, W, W, P.boot, i0, i1));
+    into.add(band(() => -1.1, (r) => r.keelY, W, (r) => Math.max(0.6, r.w * 0.18),
+      P.antifoul, i0, i1));
+
+    const deck = [];
+    for (let i = i0; i < i1; i++) {
+      const a = rings[i], b = rings[i + 1];
+      deck.push(-a.wDeck, a.deckY, a.z, a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z);
+      deck.push(-a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z, -b.wDeck, b.deckY, b.z);
+    }
+    const dGeo = new THREE.BufferGeometry();
+    dGeo.setAttribute('position', new THREE.Float32BufferAttribute(deck, 3));
+    dGeo.computeVertexNormals();
+    into.add(new THREE.Mesh(dGeo, mat(P.deck)));
+  };
+  bands(g, 0, split);
+  bands(fwd, split, N);
+
+  // The bulkhead the break leaves standing: torn plating where she parted. Cut
+  // to the station's own section rather than boxed, or its corners stand out
+  // through her sides as a fin while she is still in one piece.
+  const b = rings[split];
+  const kw = Math.max(0.6, b.w * 0.18);
+  const sect = [
+    -b.w, b.deckY, b.z, b.w, b.deckY, b.z, kw, b.keelY, b.z,
+    -b.w, b.deckY, b.z, kw, b.keelY, b.z, -kw, b.keelY, b.z,
+  ];
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.Float32BufferAttribute(sect, 3));
+  sGeo.computeVertexNormals();
+  g.add(new THREE.Mesh(sGeo, mat(P.gunDark)));
 
   // Transom: she is cut off square aft, which is the one flat face on her.
   const st = rings[0];
@@ -171,7 +202,7 @@ function buildHull() {
     g.add(planks);
   }
 
-  return { group: g, rings };
+  return { group: g, forward: fwd, rings };
 }
 
 // ------------------------------------------------------------- the batteries --
@@ -370,8 +401,12 @@ function kingfisher() {
  */
 export function buildIowa() {
   const root = new THREE.Group();
-  const { group: hull } = buildHull();
+  const { group: hull, forward } = buildHull();
   root.add(hull);
+
+  // Anything standing forward of the break goes with the bow section, so that
+  // when it lifts it takes A and B turrets and the forecastle with it.
+  const place = (obj, z) => (z >= SPLIT_Z ? forward : root).add(obj);
 
   const turrets = [];
 
@@ -381,10 +416,10 @@ export function buildIowa() {
     const t = turret16();
     t.position.set(0, sheerAt(z / (LOA / 2)) + lift, z);
     if (aft) t.rotation.y = Math.PI;
-    root.add(t);
+    place(t, z);
     turrets.push(t);
     // The deckhouse the superfiring turret stands on.
-    if (lift) root.add(box(15, lift, 15, P.hullUpper, 0, sheerAt(z / (LOA / 2)) + lift / 2, z));
+    if (lift) place(box(15, lift, 15, P.hullUpper, 0, sheerAt(z / (LOA / 2)) + lift / 2, z), z);
   }
 
   // -- superstructure ------------------------------------------------------
@@ -485,7 +520,7 @@ export function buildIowa() {
     const b = bofors();
     b.position.set(x, y, z);
     b.rotation.y = x < 0 ? -0.7 : 0.7;
-    root.add(b);
+    place(b, z);
   }
 
   // Oerlikons down both deck edges, wherever there is room for a man to stand.
@@ -498,7 +533,7 @@ export function buildIowa() {
       const o = oerlikon();
       o.position.set(s * edge, sheerAt(t), z);
       o.rotation.y = s * 0.9;
-      root.add(o);
+      place(o, z);
     }
   }
 
@@ -541,16 +576,16 @@ export function buildIowa() {
   // -- forecastle ----------------------------------------------------------
   // Breakwater, anchors in their hawsepipes, capstans and the jackstaff.
   const bw = box(24, 1.6, 0.5, P.hullUpper, 0, sheerAt(0.78) + 0.8, 106);
-  root.add(bw);
+  forward.add(bw);
   for (const s of [-1, 1]) {
-    root.add(box(2.6, 2.2, 0.6, P.gunDark, s * 6.5, sheerAt(0.90) - 1.2, 122));
+    forward.add(box(2.6, 2.2, 0.6, P.gunDark, s * 6.5, sheerAt(0.90) - 1.2, 122));
     const cap = cyl(1.1, 1.1, 1.0, P.gunDark, 12);
     cap.position.set(s * 5.0, sheerAt(0.80) + 0.5, 110);
-    root.add(cap);
+    forward.add(cap);
   }
   const jack = cyl(0.12, 0.16, 7, P.rail, 6);
   jack.position.set(0, sheerAt(0.97) + 3.5, 132);
-  root.add(jack);
+  forward.add(jack);
   const ensign = cyl(0.12, 0.16, 7, P.rail, 6);
   ensign.position.set(0, DECK + 3.5, -131);
   root.add(ensign);
@@ -576,6 +611,16 @@ export function buildIowa() {
   rGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
   root.add(new THREE.LineSegments(rGeo, new THREE.LineBasicMaterial({ color: P.rail })));
 
+  // Weld her down. The turrets train and the bow section can be blown off, so
+  // those are baked on their own and left as separate objects; everything else
+  // becomes one mesh per colour.
+  for (const t of turrets) { t.userData.dynamic = true; mergeStatic(t); }
+  // The bow section stays marked dynamic throughout, so welding the rest of her
+  // down leaves it a separate object that can still be blown off.
+  forward.userData.dynamic = true;
+  mergeStatic(forward);
+  mergeStatic(root);
+
   root.userData = { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK };
-  return { group: root, turrets, length: LOA, beam: BEAM, deckY: DECK };
+  return { group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK };
 }

@@ -17,8 +17,8 @@ import { SHIP_CLASSES } from '../../shared/ships.js';
 // Just above the bridge roof and forward of the mast, so the foredeck and A
 // turret run away from the lens with nothing of our own rig in the way.
 const CAM = {
-  pos: new THREE.Vector3(0, 40, 44),
-  look: new THREE.Vector3(0, 96, 2400),
+  pos: new THREE.Vector3(0, 46, 44),
+  look: new THREE.Vector3(0, 58, 2000),
   fov: 46,
 };
 
@@ -30,7 +30,7 @@ const OWN_SPEED = 2.0;
 // How far off she is standing. The island is a couple of thousand metres away,
 // which is what puts the whole of it inside the frame with sea either side of
 // it — close in it read as a coastline running off both edges.
-const OWN_START = -1850;
+const OWN_START = -1300;
 
 const SKY_VERT = /* glsl */`
 varying vec3 vDir;
@@ -146,7 +146,7 @@ export class TitleScene {
     // -- ambient ------------------------------------------------------------
     // The ground half is warm rather than near-black: everything over the island
     // — smoke, aircraft, the undersides of roofs — is lit from the fires below.
-    this.scene.add(new THREE.HemisphereLight(0x63401f, 0x3a2114, 1.15));
+    this.scene.add(new THREE.HemisphereLight(0x76501f, 0x452617, 1.35));
     // A broad wash from the direction of the fires: the point lights alone fall
     // off long before they reach the far end of the yard, which left the whole
     // port in silhouette.
@@ -164,7 +164,7 @@ export class TitleScene {
     this.scene.add(backlight);
     // A front fill along the line of sight: without it anything standing between
     // us and the fires goes to a flat black cut-out.
-    const fill = new THREE.DirectionalLight(0xb0561f, 0.6);
+    const fill = new THREE.DirectionalLight(0xb0561f, 0.85);
     fill.position.set(-40, 45, -900);
     this.scene.add(fill);
     const moon = new THREE.DirectionalLight(0x3d5c86, 0.35);
@@ -197,6 +197,7 @@ export class TitleScene {
     // screen comes up; a while later her forward magazines go, and she settles
     // at her moorings. The screen loops, so the cycle does too.
     this.bb = this.port.battleship;
+    this.bbBow = this.port.battleshipBow;
     this.bbT = 0;
     this.bbGone = false;
     for (const dz of [-70, -10, 46]) {
@@ -275,18 +276,34 @@ export class TitleScene {
       this.detonate();
     }
     if (this.bbGone) {
+      const s = this.bbT - MAG_AT;
       // Down by the head and over to starboard, easing as she takes the water.
-      const k = Math.min(1, (this.bbT - MAG_AT) / 9);
+      const k = Math.min(1, s / 9);
       const e = 1 - Math.pow(1 - k, 3);
       this.bb.rotation.z = 0.40 * e;
       this.bb.rotation.x = -0.07 * e;
       this.bb.position.y = -7.5 * e;
+
+      // The bow section is thrown up by the magazine going under it, hangs a
+      // moment, and comes down broken-backed and settling ahead of the rest.
+      const LIFT = 26, UP = 0.6, FALL = 3.6;
+      let rise;
+      if (s < UP) rise = Math.sin((s / UP) * (Math.PI / 2));
+      else if (s < UP + FALL) rise = Math.cos(((s - UP) / FALL) * (Math.PI / 2));
+      else rise = 0;
+      const settled = Math.min(1, Math.max(0, (s - UP - FALL * 0.5) / 4));
+      this.bbBow.position.y = LIFT * rise - 6.5 * settled;
+      this.bbBow.position.z = 9 * rise + 4 * settled;
+      this.bbBow.rotation.x = -0.30 * rise + 0.16 * settled;
+      this.bbBow.rotation.z = 0.10 * rise + 0.16 * settled;
     }
     if (this.bbT >= RESET_AT) {
       this.bbT = 0;
       this.bbGone = false;
       this.bb.rotation.set(0, Math.PI / 2 + 0.02, 0);
       this.bb.position.y = 0;
+      this.bbBow.position.set(0, 0, 0);
+      this.bbBow.rotation.set(0, 0, 0);
     }
   }
 
@@ -296,7 +313,7 @@ export class TitleScene {
 
     // The magazine itself: a fireball two hundred metres across with a white
     // heart that outlasts the skin, and a cap rolling over on top of it.
-    const m = at(50, 16);
+    const m = at(62, 16);
     this.blasts.blast(m.x, m.y, m.z, {
       size: 300, duration: 6.5, debris: 220, power: 1,
     });
