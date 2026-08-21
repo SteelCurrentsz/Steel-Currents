@@ -9,6 +9,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
 import { buildShip } from './render/ships.js';
+import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 
@@ -81,7 +82,10 @@ export class ShipyardScene {
       this.scene.remove(this.ship.group);
       this.ship.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
-    this.ship = buildShip(classId);
+    // The Iowa has a portrait model of her own — every barrel, director and
+    // aerial on her. It is far too much geometry for forty ships in a battle,
+    // and exactly right for one ship being looked over.
+    this.ship = classId === 'iowa' ? buildIowa() : buildShip(classId);
     // Trained a little off the bow so the barrels read as barrels rather than
     // as three dots pointing at the lens.
     // Trained off the centreline so the barrels read as barrels rather than as

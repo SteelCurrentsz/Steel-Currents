@@ -30,14 +30,16 @@ void main() {
 const FIREBALL_FRAG = /* glsl */`
 uniform float uLife;
 uniform float uSeed;
+uniform float uPower;     // 0 for a drum going up, 1 for a magazine
 varying vec2 vUv;
 ${NOISE}
 
 vec3 ramp(float t) {
-  vec3 c = mix(vec3(0.18, 0.012, 0.002), vec3(0.92, 0.17, 0.012), smoothstep(0.00, 0.30, t));
-  c = mix(c, vec3(1.00, 0.48, 0.06), smoothstep(0.26, 0.56, t));
-  c = mix(c, vec3(1.00, 0.82, 0.30), smoothstep(0.54, 0.80, t));
-  c = mix(c, vec3(1.00, 0.98, 0.90), smoothstep(0.80, 1.00, t));
+  vec3 c = mix(vec3(0.16, 0.010, 0.002), vec3(0.92, 0.17, 0.012), smoothstep(0.00, 0.28, t));
+  c = mix(c, vec3(1.00, 0.46, 0.05), smoothstep(0.24, 0.54, t));
+  c = mix(c, vec3(1.00, 0.80, 0.28), smoothstep(0.52, 0.78, t));
+  c = mix(c, vec3(1.00, 0.97, 0.88), smoothstep(0.78, 0.94, t));
+  c = mix(c, vec3(1.00, 1.00, 0.99), smoothstep(0.94, 1.00, t));
   return c;
 }
 
@@ -50,21 +52,32 @@ void main() {
   // pressure — a linear expansion reads as an inflating balloon.
   float grow = pow(uLife, 0.42);
 
-  // The boiling edge. Sampled in polar coordinates so the lobes belong to the
-  // ball rather than sliding across a square.
-  vec2 q = vec2(ang * 1.9, r * 2.4 - uLife * 1.7) + uSeed * 37.0;
+  // The boiling surface, in polar coordinates so the lobes belong to the ball
+  // rather than sliding across a square. Two scales: the big cauliflower heads
+  // that give it its shape, and the fine boil that gives it its resolution.
+  vec2 q = vec2(ang * 3.6, r * 2.4 - uLife * 1.7) + uSeed * 37.0;
   float n = fbm(q * 1.7 + vec2(fbm(q * 2.3), fbm(q * 2.3 + 5.1)) * 0.8);
-  float edge = grow * (0.62 + 0.55 * n);
+  float fine = fbm(q * 6.1 + uLife * 0.9);
+  float edge = grow * (0.62 + 0.42 * n + 0.05 * fine);
 
-  float d = 1.0 - smoothstep(edge * 0.55, edge, r);
+  float d = 1.0 - smoothstep(edge * 0.52, edge, r);
+  // The fine boil bites into the skin, where the sheet is thin enough to tell.
+  d -= (1.0 - smoothstep(edge * 0.45, edge, r)) * fine * 0.28 * uLife;
+  d = clamp(d, 0.0, 1.0);
   if (d < 0.004) discard;
 
-  // Cooling: the core stays bright longest, the skirts go to soot first.
-  float heat = clamp(d * (1.25 - uLife * 1.05) - (1.0 - d) * uLife * 0.5, 0.0, 1.0);
-  float soot = smoothstep(0.45, 1.0, uLife) * (1.0 - d * 0.6);
-  vec3 col = mix(ramp(heat), vec3(0.06, 0.05, 0.045), soot);
+  // Soot rolls up out of the fireball and eats it from the outside in, and
+  // veins of it cross the face — that structure is most of what separates a
+  // fireball from a glowing disc.
+  float vein = smoothstep(0.35, 0.85, fbm(q * 3.4 - uLife * 1.2));
+  float heat = clamp(d * (1.30 - uLife * 1.00) - (1.0 - d) * uLife * 0.5
+                     - vein * uLife * 0.55, 0.0, 1.0);
+  // A magazine keeps a white heart long after the skin has gone dirty.
+  heat = max(heat, uPower * (1.0 - smoothstep(0.0, 0.55, uLife)) * (1.0 - smoothstep(0.0, 0.32, r)));
+  float soot = smoothstep(0.40, 1.0, uLife) * (1.0 - d * 0.55);
+  vec3 col = mix(ramp(heat), vec3(0.055, 0.048, 0.042), soot);
 
-  float fade = 1.0 - smoothstep(0.68, 1.0, uLife);
+  float fade = 1.0 - smoothstep(0.66, 1.0, uLife);
   gl_FragColor = vec4(col, clamp(d * fade, 0.0, 1.0));
 }
 `;
@@ -74,6 +87,7 @@ void main() {
 const PLUME_FRAG = /* glsl */`
 uniform float uLife;
 uniform float uSeed;
+uniform float uPower;
 uniform vec3 uLit;
 varying vec2 vUv;
 ${NOISE}
@@ -81,13 +95,17 @@ ${NOISE}
 void main() {
   vec2 uv = vUv;
   float spread = 0.20 + uv.y * (0.75 + uLife * 0.9);
+  // A big enough blast rolls its head over into a cap, with the stem drawn in
+  // under it: the column is not a cone all the way up.
+  float head = smoothstep(0.45, 0.95, uv.y) * (1.0 - smoothstep(0.95, 1.0, uv.y));
+  spread *= mix(1.0, 1.0 - 0.30 * smoothstep(0.15, 0.55, uv.y) + 1.05 * head, uPower);
   vec2 p = vec2((uv.x - 0.5) / spread * 2.4, uv.y * 1.15 - uLife * 0.85 + uSeed * 11.0);
   float n = fbm(p * 1.25 + vec2(fbm(p * 1.1), fbm(p * 1.1 + 3.3)) * 0.9);
 
   float across = 1.0 - smoothstep(0.32, 1.0, abs(uv.x - 0.5) / spread);
   // The head of the column climbs as the blast ages; below it the stem thins.
-  float head = smoothstep(0.0, 0.16, uv.y) * (1.0 - smoothstep(uLife * 1.15, uLife * 1.15 + 0.35, uv.y));
-  float d = across * head * smoothstep(0.24, 0.76, n);
+  float rise = smoothstep(0.0, 0.16, uv.y) * (1.0 - smoothstep(uLife * 1.15, uLife * 1.15 + 0.35, uv.y));
+  float d = across * rise * smoothstep(0.24, 0.76, n);
 
   float fade = smoothstep(0.0, 0.10, uLife) * (1.0 - smoothstep(0.55, 1.0, uLife));
   d = clamp(d * fade * 0.95, 0.0, 1.0);
@@ -123,8 +141,10 @@ void main() {
 // the vertex stage so the CPU never touches a particle.
 const DEBRIS_VERT = /* glsl */`
 uniform float uTime;
+uniform float uPix;    // pixels per metre at one metre: viewportH / 2 tan(fov/2)
 attribute vec3 vel;
 attribute vec2 born;   // x = time of the blast, y = how long this piece lasts
+attribute float psize; // how big the piece is, in metres
 varying float vAge;
 
 void main() {
@@ -139,7 +159,9 @@ void main() {
   vec3 pos = position + vel * t + vec3(0.0, -0.5 * 42.0 * t * t, 0.0);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = max(1.0, 260.0 / max(1.0, -mv.z)) * (1.0 - age * 0.4);
+  // Sized off the projection, so a burning frame off a battleship two thousand
+  // metres away is still a chunk of ship and not a one-pixel spark.
+  gl_PointSize = max(1.0, psize * uPix / max(1.0, -mv.z)) * (1.0 - age * 0.4);
 }
 `;
 
@@ -150,7 +172,10 @@ void main() {
   if (dot(d, d) > 0.25) discard;
   // Struck metal and burning fragments: bright as they leave, dull as they fall.
   vec3 col = mix(vec3(1.0, 0.82, 0.42), vec3(0.42, 0.10, 0.03), pow(vAge, 0.7));
-  gl_FragColor = vec4(col, (1.0 - smoothstep(0.6, 1.0, vAge)) * 0.9);
+  // Soft-edged and thinning as it cools, so a piece of plating tumbling away
+  // does not read as a bubble with a hard rim.
+  float core = 1.0 - smoothstep(0.06, 0.25, dot(d, d));
+  gl_FragColor = vec4(col, core * (1.0 - smoothstep(0.5, 1.0, vAge)) * 0.85);
 }
 `;
 
@@ -171,14 +196,16 @@ export class ExplosionSystem {
     const pos = new Float32Array(DEBRIS_MAX * 3);
     const vel = new Float32Array(DEBRIS_MAX * 3);
     const born = new Float32Array(DEBRIS_MAX * 2).fill(-1e9);
+    const psize = new Float32Array(DEBRIS_MAX).fill(1);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('vel', new THREE.BufferAttribute(vel, 3));
     geo.setAttribute('born', new THREE.BufferAttribute(born, 2));
+    geo.setAttribute('psize', new THREE.BufferAttribute(psize, 1));
     this.debrisMat = new THREE.ShaderMaterial({
       vertexShader: DEBRIS_VERT,
       fragmentShader: DEBRIS_FRAG,
-      uniforms: { uTime: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uPix: { value: 900 } },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -196,7 +223,7 @@ export class ExplosionSystem {
         vertexShader: BILLBOARD_VERT,
         fragmentShader: frag,
         uniforms: {
-          uLife: { value: 2 }, uSeed: { value: 0 },
+          uLife: { value: 2 }, uSeed: { value: 0 }, uPower: { value: 0 },
           uSize: { value: 1 }, uRise: { value: 0 }, ...extra,
         },
         transparent: true,
@@ -244,7 +271,9 @@ export class ExplosionSystem {
    *               70 for a stick of bombs in a warehouse.
    * @param debris how many fragments to throw out; 0 for a small one.
    */
-  blast(x, y, z, { size = 40, duration = 2.2, debris = 40, light = true, plume = true } = {}) {
+  blast(x, y, z, {
+    size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0,
+  } = {}) {
     const s = this.slots[this.next];
     this.next = (this.next + 1) % this.slots.length;
 
@@ -256,15 +285,19 @@ export class ExplosionSystem {
     s.ball.visible = true;
     s.ball.position.set(x, y, z);
     s.ball.material.uniforms.uSeed.value = Math.random();
+    s.ball.material.uniforms.uPower.value = power;
 
     s.plume.visible = plume;
     s.plume.position.set(x, y, z);
     s.plume.material.uniforms.uSeed.value = Math.random();
+    s.plume.material.uniforms.uPower.value = power;
 
     s.ring.visible = true;
     s.ring.position.set(x, y + 1.5, z);
 
-    s.lightPeak = light ? size * 0.9 : 0;
+    // Capped: past a point a bigger blast does not put out proportionally more
+    // light at the range this is seen from, it just burns the picture out.
+    s.lightPeak = light ? Math.min(size * 0.9, 130) : 0;
     s.light.visible = light;
     s.light.position.set(x, y + size * 0.5, z);
     s.light.distance = size * 26;
@@ -277,6 +310,7 @@ export class ExplosionSystem {
     this.debrisNext = (this.debrisNext + 1) % DEBRIS_MAX;
     const g = this.debris.geometry;
     const p = g.attributes.position, v = g.attributes.vel, b = g.attributes.born;
+    const ps = g.attributes.psize;
 
     // Up and out, with the slow pieces staying low and the fast ones arcing.
     const th = Math.random() * Math.PI * 2;
@@ -284,8 +318,16 @@ export class ExplosionSystem {
     const speed = size * (0.5 + Math.random() * 1.5);
     p.setXYZ(i, x, y + 2, z);
     v.setXYZ(i, Math.cos(th) * speed * (1 - up), speed * up * 1.5, Math.sin(th) * speed * (1 - up));
-    b.setXY(i, this.time, 1.6 + Math.random() * 2.2);
-    p.needsUpdate = v.needsUpdate = b.needsUpdate = true;
+    b.setXY(i, this.time, 1.6 + Math.random() * 2.6);
+    // Fragments run from cinders up to plating; the big ones are rarer.
+    ps.setX(i, size * (0.008 + Math.pow(Math.random(), 3) * 0.032));
+    p.needsUpdate = v.needsUpdate = b.needsUpdate = ps.needsUpdate = true;
+  }
+
+  /** Keep the debris sized correctly when the window or the lens changes. */
+  resize(viewportHeight, fovDeg) {
+    this.debrisMat.uniforms.uPix.value =
+      viewportHeight / (2 * Math.tan((fovDeg * Math.PI) / 360));
   }
 
   update(dt) {

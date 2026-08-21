@@ -31,14 +31,14 @@ float vnoise(vec2 p) {
 }
 
 // Rotating each octave stops the lattice of the value noise showing through as
-// a grid, which is what makes cheap fbm look like cheap fbm. Five octaves: each
-// pixel pays for this three times over, so the sixth is not worth its fill cost
-// on a phone — but the fifth is what keeps a flame from going soft close up.
+// a grid, which is what makes cheap fbm look like cheap fbm. Six octaves: the
+// camera stands well off the fires now, so each flame covers few enough pixels
+// to afford the detail that keeps it from going soft.
 float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
   mat2 rot = mat2(0.80, 0.60, -0.60, 0.80);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     v += a * vnoise(p);
     p = rot * p * 2.03;
     a *= 0.5;
@@ -101,6 +101,9 @@ void main() {
   vec2 warp = vec2(fbm(p * 1.6 + uSeed), fbm(p * 1.6 + 9.2 + uSeed));
   float n = fbm(p + warp * 0.8);
   float fine = fbm(p * 4.6 + warp * 1.5);
+  // A third scale, drifting faster than the other two: this is what reads as
+  // gas actually moving rather than a pattern sliding upward.
+  float grain = fbm(p * 11.0 + vec2(0.0, -t * 1.7) + warp * 0.6);
 
   // Widest at the root, tapering as the gas rises and cools.
   float taper = mix(0.44 + uSeed * 0.20, 0.05 + uSeed * 0.06, pow(uv.y, 0.62 + uSeed * 0.30));
@@ -114,14 +117,17 @@ void main() {
   float mask = clamp((n - 0.5) * 2.6 + 1.0 - bite, 0.0, 1.0);
   mask = smoothstep(0.0, 0.55, mask);
 
-  // Fine noise frays the edge, where the sheet is thin enough for it to tell.
+  // Fine noise frays the edge, where the sheet is thin enough for it to tell,
+  // and the grain breaks the body up into separate sheets of flame.
   float d = body * mask - fine * 0.22 * smoothstep(0.1, 0.9, uv.y);
+  d *= 0.72 + 0.28 * grain;
   d = clamp(d, 0.0, 1.0);
   if (d < 0.004) discard;
 
   // Temperature is not the same thing as thickness: the core is white even
   // where the sheet is thin, and the fringes stay red even where it is not.
-  float heat = clamp(d * 0.55 + (1.0 - r * 0.8) * (1.0 - pow(uv.y, 0.75)) * 0.75, 0.0, 1.0);
+  float heat = clamp(d * 0.55 + (1.0 - r * 0.8) * (1.0 - pow(uv.y, 0.75)) * 0.75
+                     + grain * 0.14 * (1.0 - uv.y), 0.0, 1.0);
   gl_FragColor = vec4(flameColour(heat) * uTint, clamp(d * uIntensity, 0.0, 1.0));
 }
 `;

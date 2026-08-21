@@ -173,7 +173,8 @@ export class TitleScene {
 
     // -- the port -----------------------------------------------------------
     this.fires = new FireSystem(this.scene);
-    this.harbour = buildHarbour(this.fires);
+    this.port = buildHarbour(this.fires);
+    this.harbour = this.port.group;
     this.scene.add(this.harbour);
     this.fires.buildEmbers();
 
@@ -182,7 +183,7 @@ export class TitleScene {
     // they drop bursts where it lands rather than at a fixed height.
     this.blasts = new ExplosionSystem(this.scene);
     this.raid = new BomberRaid(this.scene, {
-      target: { x0: -780, x1: 780, z0: 430, z1: 1500 },
+      target: { x0: -2300, x1: 2300, z0: 430, z1: 1600 },
       groundAt: (x, z) => Math.max(0, islandHeight(x, z)),
       onImpact: (x, y, z) => this.blasts.blast(x, y, z, {
         size: 115 + Math.random() * 75, duration: 3.4, debris: 80,
@@ -191,6 +192,21 @@ export class TitleScene {
     // And the yard is going up on its own between times: ready-use ammunition,
     // fuel drums, whatever the last stick started.
     this.nextMinor = 2.5;
+
+    // The battleship at the fitting-out berth. She is already burning when the
+    // screen comes up; a while later her forward magazines go, and she settles
+    // at her moorings. The screen loops, so the cycle does too.
+    this.bb = this.port.battleship;
+    this.bbT = 0;
+    this.bbGone = false;
+    for (const dz of [-70, -10, 46]) {
+      const p = this.bb.localToWorld(new THREE.Vector3(0, 14, dz));
+      this.fires.addFire(p.x, p.y, p.z, {
+        width: 26, height: 60, layers: 2, intensity: 1.05,
+        smokeWidth: 150, smokeHeight: 620, lean: 0.28,
+        light: dz === -10, lightRange: 900, embers: 60,
+      });
+    }
 
     // -- our own ship -------------------------------------------------------
     this.own = buildShip('iowa');
@@ -243,9 +259,66 @@ export class TitleScene {
     this.own.group.add(wake);
   }
 
+  /**
+   * The magazine goes, and she settles.
+   *
+   * MAG_AT seconds of burning, then the detonation, then she lists and goes
+   * down by the bow over the next few seconds and lies there until the cycle
+   * comes round again.
+   */
+  stepBattleship(dt) {
+    const MAG_AT = 21, RESET_AT = 46;
+    this.bbT += dt;
+
+    if (!this.bbGone && this.bbT >= MAG_AT) {
+      this.bbGone = true;
+      this.detonate();
+    }
+    if (this.bbGone) {
+      // Down by the head and over to starboard, easing as she takes the water.
+      const k = Math.min(1, (this.bbT - MAG_AT) / 9);
+      const e = 1 - Math.pow(1 - k, 3);
+      this.bb.rotation.z = 0.40 * e;
+      this.bb.rotation.x = -0.07 * e;
+      this.bb.position.y = -7.5 * e;
+    }
+    if (this.bbT >= RESET_AT) {
+      this.bbT = 0;
+      this.bbGone = false;
+      this.bb.rotation.set(0, Math.PI / 2 + 0.02, 0);
+      this.bb.position.y = 0;
+    }
+  }
+
+  /** Forty thousand tons of battleship losing her forward magazines. */
+  detonate() {
+    const at = (dz, dy = 12) => this.bb.localToWorld(new THREE.Vector3(0, dy, dz));
+
+    // The magazine itself: a fireball two hundred metres across with a white
+    // heart that outlasts the skin, and a cap rolling over on top of it.
+    const m = at(50, 16);
+    this.blasts.blast(m.x, m.y, m.z, {
+      size: 300, duration: 6.5, debris: 220, power: 1,
+    });
+    // Then the ready-use rooms and the fuel, walking aft down her length over
+    // the next second and a half.
+    const stagger = [[76, 130, 0.18], [18, 150, 0.42], [-30, 120, 0.75], [-88, 105, 1.15]];
+    for (const [dz, size, delay] of stagger) {
+      setTimeout(() => {
+        if (!this.blasts) return;
+        const p = at(dz, 14);
+        this.blasts.blast(p.x, p.y, p.z, {
+          size, duration: 4.2, debris: 90, power: 0.6,
+        });
+      }, delay * 1000);
+    }
+  }
+
   resize(w, h) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // Debris is sized off the projection, so it has to be told about it.
+    this.blasts?.resize(h, CAM.fov);
   }
 
   update(dt) {
@@ -255,12 +328,15 @@ export class TitleScene {
     this.fires.update(dt);
     this.blasts.update(dt);
     this.raid.update(dt);
+    this.port.update(this.time);
+
+    this.stepBattleship(dt);
 
     this.nextMinor -= dt;
     if (this.nextMinor <= 0) {
       this.nextMinor = 0.9 + Math.random() * 2.2;
-      const x = -880 + Math.random() * 1760;
-      const z = 430 + Math.random() * 1000;
+      const x = -2400 + Math.random() * 4800;
+      const z = 430 + Math.random() * 1100;
       this.blasts.blast(x, Math.max(0, islandHeight(x, z)), z, {
         size: 32 + Math.random() * 42,
         duration: 2.1,
