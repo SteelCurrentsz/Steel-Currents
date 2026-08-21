@@ -9,11 +9,6 @@ import { TIMES, MAP_HALF_MIN } from '../../shared/world.js';
 import { silhouette } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
-const SKILLS = [
-  { id: 'rookie', name: 'Green' },
-  { id: 'regular', name: 'Regular' },
-  { id: 'veteran', name: 'Veteran' },
-];
 const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 
 // Fifty thousand yards, in metres, which is the most sea room the game will
@@ -26,10 +21,13 @@ const cycle = (arr, cur, step = 1) => {
 };
 
 export class Briefing {
-  constructor({ onStart, getName, onShipChange, onOpenPicker, onClosePicker,
+  constructor({ onStart, getName, getSkill, onShipChange, onOpenPicker, onClosePicker,
     onOpenYard, onOpenChart, initialShip = 'cleveland' }) {
     this.onStart = onStart;
     this.getName = getName;
+    // How hard the other side fights is a preference rather than a property of
+    // this battle, so it is set in Options and read from there.
+    this.getSkill = getSkill || (() => 'regular');
     this.onShipChange = onShipChange;
     this.onOpenPicker = onOpenPicker;
     this.onClosePicker = onClosePicker;
@@ -44,7 +42,6 @@ export class Briefing {
       // Where the battle is fought. The chart sets this; until it has been
       // opened, a stretch of the North Atlantic with plenty of sea room.
       deploy: { lon: -30, lat: 45, name: 'North Atlantic Ocean', km: 45.72 },
-      skill: 'regular',
     };
 
     this.el = {
@@ -55,7 +52,6 @@ export class Briefing {
       enemyDel: document.getElementById('enemy-del-cell'),
       time: document.getElementById('time-val'),
       theatre: document.getElementById('theatre-name'),
-      axisSide: document.querySelector('.bh-side.axis'),
     };
     if (!this.el.canvas) return;
 
@@ -93,10 +89,6 @@ export class Briefing {
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
-    this.el.axisSide?.addEventListener('click', () => {
-      s.skill = cycle(SKILLS.map((k) => k.id), s.skill, 1);
-      this.render();
-    });
   }
 
   /** One of the four hull buttons. */
@@ -166,9 +158,6 @@ export class Briefing {
     this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     this.el.theatre.textContent = s.deploy.name;
-    if (this.el.axisSide) {
-      this.el.axisSide.textContent = `Enemy Forces · ${SKILLS.find((k) => k.id === s.skill).name}`;
-    }
   }
 
   /** Take a location back from the deployment chart. */
@@ -229,7 +218,7 @@ export class Briefing {
       time: s.time,
       allies: s.allyFleet.length - 1,
       enemies: s.enemyFleet.length,
-      botSkill: s.skill,
+      botSkill: this.getSkill(),
       seed,
       half: Math.max(MAP_HALF_MIN, (d.km * 1000) / 2),
       place: d.name,

@@ -8,6 +8,7 @@ const DEFAULTS = {
   volume: 70,
   sensitivity: 1,
   quality: 'medium',
+  botSkill: 'regular',
   shadows: true,
   shake: true,
   metric: true,

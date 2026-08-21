@@ -71,7 +71,7 @@
       <button class="bh-step rev" id="time-next" type="button">
         <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="time-val">Dawn</span>
       </button>
-      <p class="bh-side axis">Enemy Forces</p>
+      <p class="bh-side axis" id="enemy-side">Enemy Forces</p>
     </div>
   </header>
 
@@ -142,6 +142,13 @@
           <input type="range" id="opt-volume" min="0" max="100" value="70" /></label>
         <label class="field"><span>Mouse sensitivity <b id="sens-val">1.0</b></span>
           <input type="range" id="opt-sens" min="20" max="300" value="100" /></label>
+        <label class="field"><span>Enemy skill</span>
+          <select id="opt-skill">
+            <option value="rookie">Green — slow to find the range</option>
+            <option value="regular" selected>Regular</option>
+            <option value="veteran">Veteran — shoots straight and manoeuvres</option>
+          </select>
+        </label>
         <label class="field"><span>Render quality</span>
           <select id="opt-quality">
             <option value="low">Low — long draw distance, calm sea</option>

@@ -634,8 +634,6 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   margin: 0.2rem 0 0; font-size: 0.86rem; letter-spacing: 0.2em;
   text-transform: uppercase; color: var(--steel);
 }
-.bh-side.axis { cursor: pointer; }
-.bh-side.axis:hover { color: var(--sand); }
 
 .bh-step {
   display: flex; align-items: center; gap: 0.55rem;

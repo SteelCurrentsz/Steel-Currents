@@ -152,6 +152,7 @@ document.getElementById('pvp-name').oninput = (e) => setSettings({ name: e.targe
 
 const briefing = new Briefing({
   getName: () => getSettings().name,
+  getSkill: () => getSettings().botSkill,
   initialShip: settings.ship,
   onShipChange: (id) => setSettings({ ship: id }),
   // The hull icons open the picker; choosing or cancelling returns to the chart.
@@ -251,6 +252,7 @@ document.getElementById('pvp-quick').onclick = () => {
 const optName = document.getElementById('opt-name');
 const optVol = document.getElementById('opt-volume');
 const optSens = document.getElementById('opt-sens');
+const optSkill = document.getElementById('opt-skill');
 const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
 const optShake = document.getElementById('opt-shake');
@@ -259,6 +261,7 @@ const optMetric = document.getElementById('opt-metric');
 optName.value = settings.name;
 optVol.value = settings.volume;
 optSens.value = Math.round(settings.sensitivity * 100);
+optSkill.value = settings.botSkill;
 optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
 optShake.checked = settings.shake;
@@ -277,6 +280,7 @@ optSens.oninput = () => {
   setSettings({ sensitivity: s });
   document.getElementById('sens-val').textContent = s.toFixed(1);
 };
+optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optShake.onchange = () => setSettings({ shake: optShake.checked });
