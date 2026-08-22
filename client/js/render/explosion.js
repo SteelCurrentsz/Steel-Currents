@@ -14,12 +14,18 @@ import { NOISE } from './fire.js';
 const BILLBOARD_VERT = /* glsl */`
 uniform float uSize;
 uniform float uRise;
+uniform float uFogDensity;
 varying vec2 vUv;
+varying float vFog;
 
 void main() {
   vUv = uv;
   vec4 centre = modelViewMatrix * vec4(0.0, uRise, 0.0, 1.0);
   centre.xy += position.xy * uSize;
+  // Drawn through the same haze as everything else at that range, or a blast
+  // two kilometres off is the only sharp thing in the frame.
+  float fd = uFogDensity * length(centre.xyz);
+  vFog = 1.0 - exp(-fd * fd);
   gl_Position = projectionMatrix * centre;
 }
 `;
@@ -69,7 +75,9 @@ const FIREBALL_FRAG = /* glsl */`
 uniform float uLife;
 uniform float uSeed;
 uniform float uPower;     // 0 for a drum going up, 1 for a magazine
+uniform vec3 uFogColor;
 varying vec2 vUv;
+varying float vFog;
 ${NOISE3}
 
 vec3 ramp(float t) {
@@ -149,6 +157,7 @@ void main() {
   // smoke behind her.
   float fade = 1.0 - smoothstep(0.52, 0.94, uLife);
   a *= mix(1.0, smoothstep(0.30, 0.72, fine), smoothstep(0.30, 0.95, uLife));
+  col = mix(col, uFogColor, vFog);
   gl_FragColor = vec4(col, clamp(a * fade, 0.0, 1.0));
 }
 `;
@@ -160,6 +169,7 @@ const GLARE_FRAG = /* glsl */`
 uniform float uAge;      // seconds since the blast, not a fraction of its life
 uniform float uPower;
 varying vec2 vUv;
+varying float vFog;
 
 void main() {
   float r = length(vUv - 0.5) * 2.0;
@@ -170,7 +180,7 @@ void main() {
   // is over long before the smoke is.
   float a = (exp(-k * k * 2.6) * 0.80 + exp(-k * 2.1) * 0.26)
           * (1.0 - smoothstep(0.05, 0.75, uAge));
-  a *= 0.45 + 0.75 * uPower;
+  a *= (0.45 + 0.75 * uPower) * (1.0 - vFog);
   if (a < 0.003) discard;
   gl_FragColor = vec4(mix(vec3(1.0, 0.44, 0.12), vec3(1.0, 0.88, 0.62), a), a * 0.85);
 }
@@ -183,7 +193,9 @@ uniform float uLife;
 uniform float uSeed;
 uniform float uPower;
 uniform vec3 uLit;
+uniform vec3 uFogColor;
 varying vec2 vUv;
+varying float vFog;
 ${NOISE}
 
 void main() {
@@ -209,6 +221,7 @@ void main() {
 
   vec3 col = mix(vec3(0.062, 0.055, 0.050), vec3(0.14, 0.125, 0.115), n);
   col = mix(col, uLit, pow(1.0 - uv.y, 3.0) * (1.0 - smoothstep(0.0, 0.45, uLife)) * 0.85);
+  col = mix(col, uFogColor, vFog);
   gl_FragColor = vec4(col, d);
 }
 `;
@@ -219,13 +232,14 @@ void main() {
 const FLASH_FRAG = /* glsl */`
 uniform float uAge;      // seconds
 varying vec2 vUv;
+varying float vFog;
 
 void main() {
   float r = length(vUv - 0.5) * 2.0;
   // Up in a couple of frames, gone in a tenth of a second. In seconds, so a
   // long-burning blast does not hold its flash for half of it.
   float t = smoothstep(0.0, 0.015, uAge) * (1.0 - smoothstep(0.03, 0.15, uAge));
-  float a = exp(-r * r * 5.0) * t;
+  float a = exp(-r * r * 5.0) * t * (1.0 - vFog);
   if (a < 0.003) discard;
   gl_FragColor = vec4(mix(vec3(1.0, 0.72, 0.34), vec3(1.0, 0.99, 0.95), a), a);
 }
@@ -303,6 +317,8 @@ export class ExplosionSystem {
   constructor(scene, { slots = 16 } = {}) {
     this.scene = scene;
     this.time = 0;
+    this.fogColor = scene.fog ? scene.fog.color.clone() : new THREE.Color(0, 0, 0);
+    this.fogDensity = scene.fog ? (scene.fog.density || 0) : 0;
     this.slots = [];
 
     for (let i = 0; i < slots; i++) this.slots.push(this.makeSlot());
@@ -339,7 +355,9 @@ export class ExplosionSystem {
         fragmentShader: frag,
         uniforms: {
           uLife: { value: 2 }, uAge: { value: 99 }, uSeed: { value: 0 },
-          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 }, ...extra,
+          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 },
+          uFogColor: { value: this.fogColor }, uFogDensity: { value: this.fogDensity },
+          ...extra,
         },
         transparent: true,
         depthWrite: false,

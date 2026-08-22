@@ -303,6 +303,7 @@ export function buildHarbour(fires, seed = 20260820) {
     steel: loose(MAT.steel), dark: loose(MAT.dark), rust: loose(MAT.rust),
   }, craneGroup.position);
   mergeStatic(craneGroup);
+  craneGroup.userData.dynamic = true;
   g.add(craneGroup);
 
   const bags = { steel, dark, rust };
@@ -348,6 +349,7 @@ export function buildHarbour(fires, seed = 20260820) {
 
   // The ship herself, moored along the outer face of the apron.
   const bb = buildIowa();
+  bb.group.userData.dynamic = true;
   bb.group.position.set(DOCK_X + 40, 0, DOCK_Z - 26);
   bb.group.rotation.y = Math.PI / 2 + 0.02;
   // Guns trained fore and aft as she would lie alongside, not at the town.
@@ -669,6 +671,7 @@ export function buildHarbour(fires, seed = 20260820) {
     const pivot = new THREE.Group();
     pivot.position.set(bx + 34, gy + 10, bz);
     pivot.add(beam);
+    pivot.userData.dynamic = true;
     g.add(pivot);
     beams.push({ pivot, phase: rng() * 6.28, rate: 0.09 + rng() * 0.06, lean: 0.5 + rng() * 0.3 });
   }
@@ -801,6 +804,15 @@ export function buildHarbour(fires, seed = 20260820) {
   rust.build(g);
   roofs.build(g);
   tarmac.build(g);
+
+  // Weld the yard down. Everything one-off in it — the tanks, the pipe runs,
+  // the emplacements, the wrecks alongside, the island itself — was a mesh of
+  // its own, which came to the best part of four hundred draw calls for a
+  // shore that never moves. The ship at the berth, the crane that comes down
+  // and the searchlights are marked dynamic and left alone; the rest becomes
+  // one buffer per colour. The instanced batches are already one call each and
+  // are skipped.
+  mergeStatic(g);
 
   // The gantry that comes down when the raid finds it. A gantry crane does not
   // shatter — a leg goes, the frame walks off its feet, and eighty metres of

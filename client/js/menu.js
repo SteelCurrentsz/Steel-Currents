@@ -11,6 +11,7 @@ import { FireSystem } from './render/fire.js';
 import { ExplosionSystem } from './render/explosion.js';
 import { BomberRaid } from './render/aircraft.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
+import { getSettings, QUALITY } from './settings.js';
 
 // Framing, kept together so the composition is easy to nudge. The camera sits
 // on our own bridge front, above and abaft the forward turrets.
@@ -63,7 +64,7 @@ float vnoise(vec2 p) {
 }
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
-  for (int i = 0; i < 5; i++) { v += a * vnoise(p); p *= 2.07; a *= 0.5; }
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.07; a *= 0.5; }
   return v;
 }
 
@@ -102,6 +103,10 @@ void main() {
 export class TitleScene {
   constructor(renderer) {
     this.renderer = renderer;
+    // What the machine has been told it can afford. The title screen is the
+    // heaviest thing in the game — a burning port, a raid and an ocean, all in
+    // one frame — so it is the one that has to listen.
+    this.quality = QUALITY[getSettings().quality] || QUALITY.medium;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0x120b0a, 0.00021);
 
@@ -121,12 +126,18 @@ export class TitleScene {
       side: THREE.BackSide,
       depthWrite: false,
     });
+    // Drawn after the rest of the opaque pass rather than before it. The sky
+    // covers the whole frame and its shader is not cheap; letting the sea and
+    // the island lay depth down first means better than half of it is thrown
+    // out before the fragment stage ever runs.
     const sky = new THREE.Mesh(new THREE.SphereGeometry(16000, 32, 20), this.skyMat);
-    sky.renderOrder = -2;
+    sky.renderOrder = 1;
     this.scene.add(sky);
 
     // -- water, lit by the fires rather than the moon -----------------------
-    this.ocean = new Ocean('night', 22000, 300);
+    // The swell is carried by the shader, not by the mesh, so the grid only
+    // has to be fine enough to hold the silhouette of the nearest wave.
+    this.ocean = new Ocean('night', 22000, Math.min(200, this.quality.oceanSegments));
     const ou = this.ocean.material.uniforms;
     ou.uDeep.value = new THREE.Color(0x0c0d10);
     ou.uShallow.value = new THREE.Color(0x1a1512);
@@ -172,11 +183,10 @@ export class TitleScene {
     this.scene.add(moon);
 
     // -- the port -----------------------------------------------------------
-    this.fires = new FireSystem(this.scene);
+    this.fires = new FireSystem(this.scene, { detail: Math.min(1, this.quality.particles) });
     this.port = buildHarbour(this.fires);
     this.harbour = this.port.group;
     this.scene.add(this.harbour);
-    this.fires.buildEmbers();
 
     // -- the raid ------------------------------------------------------------
     // Bombs are still coming down on her: flights cross the island, and what
@@ -215,6 +225,9 @@ export class TitleScene {
         light: dz === -10, lightRange: 1300, embers: 85,
       });
     }
+    // Every seat of fire in the port is placed by now, so they can be welded
+    // into their instanced draws. Nothing of the fire is on screen before this.
+    this.fires.build();
 
     // -- our own ship -------------------------------------------------------
     this.own = buildShip('iowa');

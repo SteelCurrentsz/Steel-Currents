@@ -23,6 +23,10 @@ export function mergeStatic(group) {
   const walk = (node) => {
     for (const child of node.children) {
       if (child.userData.dynamic) continue;
+      // An instanced mesh is already one draw call for all of its copies, and
+      // welding it would keep exactly one of them. Points carry their own
+      // attributes and are not geometry in this sense either.
+      if (child.isInstancedMesh || child.isPoints) continue;
       if (child.isMesh && child.geometry.attributes.position) found.push(child);
       else if (child.isGroup || child.isObject3D) walk(child);
     }
@@ -36,15 +40,18 @@ export function mergeStatic(group) {
   const v = new THREE.Vector3();
 
   for (const mesh of found) {
-    // Non-indexed, so the pieces can simply be concatenated.
-    const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+    // Indexing is kept: throwing it away to concatenate would turn a box from
+    // eight vertices into thirty-six, and vertex work is not free just because
+    // the draw call went away.
+    const geo = mesh.geometry;
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
     m.multiplyMatrices(inv, mesh.matrixWorld);
     nm.getNormalMatrix(m);
 
     let bucket = byMat.get(mesh.material);
-    if (!bucket) byMat.set(mesh.material, (bucket = { pos: [], nor: [] }));
+    if (!bucket) byMat.set(mesh.material, (bucket = { pos: [], nor: [], idx: [] }));
+    const base = bucket.pos.length / 3;
 
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m);
@@ -54,8 +61,13 @@ export function mergeStatic(group) {
         bucket.nor.push(v.x, v.y, v.z);
       }
     }
-    if (geo !== mesh.geometry) geo.dispose();
-    mesh.geometry.dispose();
+    if (geo.index) {
+      const ix = geo.index;
+      for (let i = 0; i < ix.count; i++) bucket.idx.push(base + ix.getX(i));
+    } else {
+      for (let i = 0; i < pos.count; i++) bucket.idx.push(base + i);
+    }
+    geo.dispose();
     mesh.removeFromParent();
   }
 
@@ -64,9 +76,12 @@ export function mergeStatic(group) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
     if (bucket.nor.length === bucket.pos.length) {
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.nor, 3));
-    } else {
-      geo.computeVertexNormals();
     }
+    const n = bucket.pos.length / 3;
+    geo.setIndex(n > 65535
+      ? new THREE.Uint32BufferAttribute(bucket.idx, 1)
+      : new THREE.Uint16BufferAttribute(bucket.idx, 1));
+    if (bucket.nor.length !== bucket.pos.length) geo.computeVertexNormals();
     group.add(new THREE.Mesh(geo, material));
   }
   return found.length - byMat.size;
