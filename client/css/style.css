@@ -5,6 +5,8 @@
 :root {
   --red: #c0212c;
   --red-dark: #7c1119;
+  --mark-red: #be133b;
+  --mark-shadow: #04050a;
   --sand: #e6cf9c;
   --sand-bright: #fff3d4;
   --ink: #08131f;
@@ -36,20 +38,25 @@ html, body {
 
 .game-title {
   position: absolute; top: 7vh; left: 7vw; margin: 0;
-  font-family: var(--stencil);
-  line-height: 0.86;
-  letter-spacing: 0.06em;
-  color: var(--red);
-  text-transform: uppercase;
-  text-shadow:
-    0 0 1px var(--red-dark),
-    3px 4px 0 rgba(0, 0, 0, 0.55),
-    0 0 42px rgba(192, 33, 44, 0.35);
-  -webkit-text-stroke: 1.5px rgba(60, 8, 12, 0.55);
+  line-height: 0;
   pointer-events: none;
 }
-.game-title span { display: block; font-size: clamp(3rem, 8.4vw, 8.5rem); }
-.game-title .l2 { margin-left: 0.1em; }
+/* The mark carries its own hard shadow, cut into the artwork rather than
+   filtered on, so it stays a clean offset copy at any size. */
+.title-mark {
+  display: block;
+  width: clamp(19rem, 41vw, 46rem);
+  height: auto;
+  overflow: visible;
+}
+.mark-face { fill: var(--mark-red); }
+.mark-shadow { fill: var(--mark-shadow); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; border: 0; overflow: hidden; white-space: nowrap;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+}
 
 .menu { position: absolute; bottom: 8vh; display: flex; flex-direction: column; gap: 1.1rem; }
 .menu-left { left: 7vw; align-items: flex-start; }
