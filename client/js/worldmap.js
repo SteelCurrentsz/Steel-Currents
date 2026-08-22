@@ -139,6 +139,29 @@ export function isWater(lon, lat) {
  * over a sampled ring is exact enough at this scale — half a kilometre either
  * way is a tenth of a pixel on the chart.
  */
+/**
+ * Is there open water within `km` of this point?
+ *
+ * A captain is allowed to lay a corner of the battlefield a little way inland
+ * — a beach, a spit, a harbour mole — so a point is acceptable if it is water
+ * or if water is close enough to it. Sixteen samples on the circle and eight
+ * halfway in: a strip of shore a thousand yards wide is a few hundred metres
+ * on the chart, and nothing finer than that survives the coastline data
+ * anyway.
+ */
+export function nearWater(lon, lat, km) {
+  if (isWater(lon, lat)) return true;
+  const dLat = km / 111.32;
+  const dLon = dLat / Math.max(0.08, Math.cos((lat * Math.PI) / 180));
+  for (const f of [1, 0.5]) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      if (isWater(lon + Math.cos(a) * dLon * f, lat + Math.sin(a) * dLat * f)) return true;
+    }
+  }
+  return false;
+}
+
 export function waterSquareKm(lon, lat, maxKm) {
   const clear = (km) => {
     const dLat = km / 2 / 111.32;

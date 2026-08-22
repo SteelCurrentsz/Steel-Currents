@@ -599,7 +599,12 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   position: absolute; inset: 0;
   padding: 0; overflow: hidden;
 }
-.screen.briefing.active { display: grid; grid-template-rows: auto 1fr auto; }
+/* One column, explicitly the width of the screen. A grid track left to size
+   itself takes its widest item, so on a narrow phone the two fleets kept their
+   full width and the enemy's half was pushed off the side. */
+.screen.briefing.active {
+  display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: 100%;
+}
 
 .briefing-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The chart is reference, not the subject: hold it back so the fleets read. */
@@ -662,9 +667,15 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   display: flex; flex-direction: column; justify-content: center;
   gap: clamp(1rem, 5vh, 3rem);
   padding: 0 max(1rem, env(safe-area-inset-left));
-  min-height: 0;
+  /* A flex item will not shrink below the widest thing in it unless it is told
+     it may. Without this the two fleets keep their full width on a narrow
+     phone and the enemy's half of the screen is pushed off the side of it. */
+  min-height: 0; min-width: 0;
 }
-.force-row { display: flex; align-items: center; justify-content: center; gap: clamp(0.4rem, 1.5vw, 1.2rem); }
+.force-row {
+  display: flex; align-items: center; justify-content: center;
+  gap: clamp(0.4rem, 1.5vw, 1.2rem); min-width: 0;
+}
 .force-gap { width: clamp(1rem, 8vw, 7rem); flex: none; }
 
 .force-arrow {
@@ -677,7 +688,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .force-arrow:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
 
 .force-cell {
-  flex: 0 1 260px; max-width: 260px;
+  flex: 0 1 260px; max-width: 260px; min-width: 0;
   display: grid; justify-items: center; gap: 0.15rem;
   padding: 0.4rem 0.6rem; cursor: pointer;
   color: var(--sand-bright);
@@ -691,12 +702,36 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-size: 1.3rem; letter-spacing: 0.06em; color: var(--sand-bright);
   font-variant-numeric: tabular-nums; margin-top: -0.2rem;
 }
+/* The main-battery button under each fleet's hull. Shaped like the turret it
+   draws rather than boxed: the artwork is the button, so the hit area follows
+   the gunhouse and the rifles instead of a rectangle round them. */
+.turret-row { margin-top: -0.2rem; }
+.turret-btn {
+  flex: 0 1 260px; max-width: 260px; min-width: 0;
+  display: grid; justify-items: center;
+  background: none; border: 0; padding: 0.2rem 0.6rem;
+  color: var(--sand-bright); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.14s ease, transform 0.14s ease, filter 0.14s ease;
+}
+.turret-btn .turret-art {
+  width: min(clamp(96px, 15vw, 150px), 100%); height: auto; display: block;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
+}
+.turret-btn:hover { color: #fff3d4; transform: translateY(-2px) scale(1.04); }
+.turret-btn:active { transform: translateY(0) scale(0.98); }
+.turret-btn:focus-visible { outline: 2px solid var(--sand); outline-offset: 4px; }
+
 .cell-name { font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; }
 .cell-type { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel); }
 
 /* Footer ----------------------------------------------------------------- */
 .briefing-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  /* Wraps, and the chart button gives way first. Held on one line, the water's
+     name pushed Sortie off the side of a phone in portrait and there was no
+     way to start the battle at all. */
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem 1rem; flex-wrap: wrap; min-width: 0;
   padding: 0.9rem max(1.4rem, env(safe-area-inset-right))
            max(1rem, env(safe-area-inset-bottom)) max(1.4rem, env(safe-area-inset-left));
   background: linear-gradient(0deg, rgba(8, 16, 26, 0.85), rgba(8, 16, 26, 0));
@@ -707,6 +742,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   background: none; border: 0; cursor: pointer;
   color: var(--steel); font-family: var(--ui);
   -webkit-tap-highlight-color: transparent;
+  flex: 1 1 auto; min-width: 0; text-align: left;
 }
 .globe-btn:hover { color: var(--sand); }
 .globe-btn:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
@@ -724,7 +760,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .globe-name {
   font-size: 0.95rem; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--sand); white-space: nowrap;
+  /* The Bellingshausen Sea is a long name and the button is not the point of
+     the screen: it gives way before the buttons that start the battle do. */
+  overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
+.briefing-actions { flex: 0 0 auto; }
 
 /* A phone in landscape has no vertical room for the full instrument sizes. */
 @media (max-height: 460px) {
@@ -735,6 +775,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .briefing-body { gap: 0.6rem; }
   .force-cell .sil { height: 46px; }
   .escorts .force-cell .sil { height: 32px; }
+  .turret-btn .turret-art { width: min(84px, 30vw); }
   .cell-name { font-size: 0.9rem; }
   .briefing-foot { padding-top: 0.4rem; }
 }

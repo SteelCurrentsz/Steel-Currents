@@ -6,14 +6,14 @@
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { TIMES, MAP_HALF_MIN } from '../../shared/world.js';
-import { silhouette } from './silhouette.js';
+import { silhouette, turret } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
 const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 
-// Fifty thousand yards, in metres, which is the most sea room the game will
+// Seventy thousand yards, in metres, which is the most sea room the game will
 // lay a battlefield out over.
-const BATTLE_MAX_M = 45720;
+const BATTLE_MAX_M = 64008;
 
 const cycle = (arr, cur, step = 1) => {
   const i = arr.indexOf(cur);
@@ -39,9 +39,13 @@ export class Briefing {
       allyFleet: [initialShip, 'fletcher', 'fletcher', 'fletcher'],
       enemyFleet: ['hipper', 'fletcher', 'fletcher', 'fletcher', 'fletcher'],
       time: 'dawn',
-      // Where the battle is fought. The chart sets this; until it has been
-      // opened, a stretch of the North Atlantic with plenty of sea room.
-      deploy: { lon: -30, lat: 45, name: 'North Atlantic Ocean', km: 45.72 },
+      // Where the battle is fought. The chart sets this — four corners and the
+      // water between them; until it has been opened, a stretch of the North
+      // Atlantic with plenty of sea room.
+      deploy: {
+        lon: -30, lat: 45, name: 'North Atlantic Ocean',
+        km: 32.0, w: 32.0, h: 32.0, room: 64.0, pins: null,
+      },
     };
 
     this.el = {
@@ -50,6 +54,8 @@ export class Briefing {
       enemyAdd: document.getElementById('enemy-add-cell'),
       allyDel: document.getElementById('ally-del-cell'),
       enemyDel: document.getElementById('enemy-del-cell'),
+      allyTurret: document.getElementById('ally-turret'),
+      enemyTurret: document.getElementById('enemy-turret'),
       time: document.getElementById('time-val'),
       theatre: document.getElementById('theatre-name'),
     };
@@ -156,6 +162,9 @@ export class Briefing {
     this.el.enemyAdd.innerHTML = this.fleetCell('enemy', 'add');
     this.el.allyDel.innerHTML = this.fleetCell('ally', 'remove');
     this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
+    // Each side's guns face the other, the way the hull silhouettes do.
+    if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret();
+    if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret({ flip: true });
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     this.el.theatre.textContent = s.deploy.name;
   }
@@ -194,7 +203,9 @@ export class Briefing {
    */
   theatreFor(d) {
     if (Math.abs(d.lat) > 48) return 'north_atlantic';
-    const m = d.km * 1000;
+    // Sea room, not the size of the box the captain drew: a small action in
+    // the middle of the Atlantic is still fought in open water.
+    const m = (d.room ?? d.km) * 1000;
     if (m < BATTLE_MAX_M * 0.45) return 'solomon_narrows';
     if (m < BATTLE_MAX_M * 0.85) return 'coral_shelf';
     return 'open_ocean';

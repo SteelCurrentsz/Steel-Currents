@@ -1,27 +1,41 @@
 // The deployment chart: pick where the battle is fought.
 //
-// A full-screen chart of the world with a pin on it. The pin can be dragged
-// anywhere there is water and nowhere there is not — the test is run against
+// A full-screen chart of the world with four pins on it. They are the corners
+// of the battlefield: drag any one and the box changes shape, and the water
+// inside the four of them is what the fleets will fight over. A corner may
+// stand in open water or on a thousand yards of shore — a beach, a spit, a
+// harbour mole — and nowhere further inland than that. The test is run against
 // the same coastline polygons the chart draws, so it can never disagree with
-// what is on the screen. Where the pin lands names the water it is in and how
-// much sea room there is, and both go back to the briefing.
+// what is on the screen.
 
-import { drawWorld, isWater, waterSquareKm } from './worldmap.js';
+import { drawWorld, nearWater, waterSquareKm } from './worldmap.js';
 import { waterName } from './waters.js';
 
-// The battlefield is fifty thousand yards on a side, which is a shade under
-// forty-six kilometres. Anywhere with less sea room than that fights in what
-// there is.
-export const BATTLE_YARDS = 50000;
+// The battlefield is at most seventy thousand yards on a side, which is a
+// shade under sixty-four kilometres. It cannot be made smaller than a gunnery
+// range across, or there would be nothing to manoeuvre in.
+export const BATTLE_YARDS = 70000;
 export const BATTLE_KM = (BATTLE_YARDS * 0.9144) / 1000;
+const MIN_YARDS = 8000;
+const MIN_KM = (MIN_YARDS * 0.9144) / 1000;
+
+// How far inland a corner may be laid: a thousand yards of shore, no more.
+const SHORE_YARDS = 1000;
+const SHORE_KM = (SHORE_YARDS * 0.9144) / 1000;
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 220;
 
+const KM_PER_DEG = 111.32;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+/** Degrees of longitude per kilometre at a latitude. */
+const lonKm = (lat) => 1 / (KM_PER_DEG * Math.max(0.08, Math.cos((lat * Math.PI) / 180)));
 
 export class DeployMap {
-  /** @param onPick called with {lon, lat, name, km} whenever the pin settles. */
+  /**
+   * @param onPick called with {lon, lat, name, km, room, pins} whenever a
+   *        corner settles.
+   */
   constructor({ onPick, onClose } = {}) {
     this.onPick = onPick;
     this.onClose = onClose;
@@ -30,16 +44,67 @@ export class DeployMap {
     this.hint = document.getElementById('deploy-hint');
     if (!this.canvas) return;
 
-    // Somewhere with sea room to start, and the pin in the middle of the view.
+    // Somewhere with sea room to start. The four corners come up as a square
+    // of half the largest field, which leaves room to drag them out.
     this.view = { lon: 0, lat: 10, zoom: 1 };
-    this.pin = { lon: -30, lat: 40 };
-    this.pinValid = true;
+    this.setBox(-30, 45, BATTLE_KM * 0.5);
+    this.held = -1;               // which corner is under the finger
+    this.badTap = false;          // the last tap was into the middle of a continent
     this.dragging = null;         // 'pin' | 'pan' | null
     this.pointers = new Map();
     this.pinch = 0;
     this.dirty = true;
 
     this.bind();
+  }
+
+  // ------------------------------------------------------------------ box --
+
+  /** Lay the four corners out as a square of `km` a side, centred on a point. */
+  setBox(lon, lat, km) {
+    const dLat = km / 2 / KM_PER_DEG;
+    const dLon = (km / 2) * lonKm(lat);
+    // Clockwise from the north-west, so the outline draws without crossing.
+    this.pins = [
+      { lon: lon - dLon, lat: lat + dLat },
+      { lon: lon + dLon, lat: lat + dLat },
+      { lon: lon + dLon, lat: lat - dLat },
+      { lon: lon - dLon, lat: lat - dLat },
+    ];
+    this.checkPins();
+  }
+
+  /** The centre of the four corners. */
+  get centre() {
+    const n = this.pins.length;
+    let lon = 0;
+    let lat = 0;
+    for (const p of this.pins) { lon += p.lon; lat += p.lat; }
+    return { lon: lon / n, lat: lat / n };
+  }
+
+  /**
+   * How far the box reaches, in kilometres east-west and north-south. The
+   * battlefield the game lays out is square, so the longer of the two is what
+   * it has to cover.
+   */
+  extent() {
+    const lats = this.pins.map((p) => p.lat);
+    const lons = this.pins.map((p) => p.lon);
+    const c = this.centre;
+    const dLat = Math.max(...lats) - Math.min(...lats);
+    const dLon = Math.max(...lons) - Math.min(...lons);
+    return {
+      w: dLon / lonKm(c.lat),
+      h: dLat * KM_PER_DEG,
+    };
+  }
+
+  /** Every corner has to stand in water or on a thousand yards of shore. */
+  checkPins() {
+    this.bad = this.pins.map((p) => !nearWater(p.lon, p.lat, SHORE_KM));
+    this.valid = !this.bad.some(Boolean);
+    return this.valid;
   }
 
   // --------------------------------------------------------------- geometry --
@@ -90,10 +155,11 @@ export class DeployMap {
         this.dragging = null;
         return;
       }
-      const pin = this.toScreen(this.pin.lon, this.pin.lat);
-      // A generous grab radius: the pin is the point of this screen, and on a
-      // phone a 12-pixel target is not one.
-      this.dragging = Math.hypot(p.x - pin.x, p.y - pin.y + 14) < 40 ? 'pin' : 'pan';
+      // The nearest corner, if the finger is anywhere near one. A generous
+      // grab radius: the pins are the point of this screen, and on a phone a
+      // twelve-pixel target is not one.
+      this.held = this.nearestPin(p, 40);
+      this.dragging = this.held >= 0 ? 'pin' : 'pan';
       this.downAt = p;
       try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
     };
@@ -117,25 +183,43 @@ export class DeployMap {
         this.normalise();
         this.dirty = true;
       } else if (this.dragging === 'pin') {
-        this.movePin(this.toWorld(p.x, p.y + 14));
+        this.movePin(this.held, this.toWorld(p.x, p.y + 14));
       }
     };
 
     this.onUp = (e) => {
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = 0;
-      // A tap on open water drops the pin there. Hunting for a forty-pixel grab
-      // circle is no way to work a chart on a phone, and a tap is a pan that
-      // went nowhere, so the two never collide.
+      // A tap on open water carries the whole box there, shape and all.
+      // Hunting for a forty-pixel grab circle is no way to work a chart on a
+      // phone, and a tap is a pan that went nowhere, so the two never collide.
       if (this.dragging === 'pan' && this.downAt) {
         const p = local(e);
         if (Math.hypot(p.x - this.downAt.x, p.y - this.downAt.y) < 6) {
-          this.movePin(this.toWorld(p.x, p.y));
-          if (this.pinValid) this.settle();
+          const to = this.toWorld(p.x, p.y);
+          // A tap into the middle of a continent is a slip, not an order.
+          if (!nearWater(to.lon, to.lat, SHORE_KM)) {
+            this.badTap = true;
+            this.dirty = true;
+            this.dragging = null;
+            this.held = -1;
+            try { el.releasePointerCapture(e.pointerId); } catch { /* gone */ }
+            return;
+          }
+          this.badTap = false;
+          this.moveBox(to);
+          // Bring the chart with it. The corners are the whole of this screen,
+          // and a box carried to a spot off to one side and then zoomed away
+          // from is a box the captain has to go hunting for.
+          this.view.lon = this.centre.lon;
+          this.view.lat = this.centre.lat;
+          this.normalise();
+          this.settle();
         }
       }
       if (this.dragging === 'pin') this.settle();
       this.dragging = null;
+      this.held = -1;
       try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
     };
 
@@ -187,9 +271,14 @@ export class DeployMap {
     this.dirty = true;
   }
 
+  /**
+   * The zoom buttons work about the battlefield rather than about the middle
+   * of the view. Anchoring on the view centre lets the box slide out of frame
+   * and then walks away from it, which is no use at all on a screen whose
+   * whole purpose is four corners that have to be dragged.
+   */
   zoom(factor) {
-    const { w, h } = this.size;
-    this.zoomAt({ x: w / 2, y: h / 2 }, factor);
+    this.zoomAt(this.toScreen(this.centre.lon, this.centre.lat), factor);
   }
 
   normalise() {
@@ -200,43 +289,161 @@ export class DeployMap {
     this.view.lat = clamp(this.view.lat, Math.min(0, -90 + half), Math.max(0, 90 - half));
   }
 
-  // -------------------------------------------------------------------- pin --
+  // ------------------------------------------------------------------ pins --
 
-  /** Move the pin, but only onto water: over land it stays where it was. */
-  movePin(at) {
-    this.pinValid = isWater(at.lon, at.lat);
-    if (this.pinValid) {
-      this.pin = at;
-      this.result = null;
+  /** The corner nearest a point on the canvas, or -1 if none is within reach. */
+  nearestPin(p, reach) {
+    let best = -1;
+    let bd = reach;
+    this.pins.forEach((pin, i) => {
+      const q = this.toScreen(pin.lon, pin.lat);
+      const d = Math.hypot(p.x - q.x, p.y - q.y + 14);
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best;
+  }
+
+  /**
+   * Put one corner somewhere, and bring the two either side of it along so the
+   * box stays a box: each of them shares one edge with the corner that moved.
+   */
+  setCorner(i, lon, lat) {
+    const c = this.pins;
+    c[i] = { lon, lat: clamp(lat, -89, 89) };
+    const prev = (i + 3) % 4;
+    const next = (i + 1) % 4;
+    // Laid out clockwise from the north-west, so a corner shares its latitude
+    // with one neighbour and its longitude with the other, alternating.
+    if (i % 2 === 0) {
+      c[next] = { lon: c[next].lon, lat: c[i].lat };
+      c[prev] = { lon: c[i].lon, lat: c[prev].lat };
+    } else {
+      c[next] = { lon: c[i].lon, lat: c[next].lat };
+      c[prev] = { lon: c[prev].lon, lat: c[i].lat };
     }
+  }
+
+  /**
+   * Drag one corner. It is held to the seventy-thousand-yard limit against the
+   * corner opposite it, and to a minimum, so the box can neither be stretched
+   * past what the game will lay out nor pinched shut. The limits are measured
+   * the same way the readout measures, so what it says is what is enforced.
+   */
+  movePin(i, at) {
+    if (i < 0) return;
+    const far = this.pins[(i + 2) % 4];
+    this.setCorner(i, at.lon, at.lat);
+
+    // A degenerate box has no direction to be pushed back out along, so give
+    // it one before scaling.
+    const seed = (cur, ref, deg) => (Math.abs(cur - ref) < 1e-9 ? ref + deg : cur);
+    this.setCorner(i,
+      seed(this.pins[i].lon, far.lon, MIN_KM * lonKm(far.lat)),
+      seed(this.pins[i].lat, far.lat, MIN_KM / KM_PER_DEG));
+
+    for (let pass = 0; pass < 3; pass++) {
+      const e = this.extent();
+      const c = this.pins[i];
+      const fix = (size, cur, ref) => {
+        if (size > BATTLE_KM) return ref + (cur - ref) * (BATTLE_KM / size);
+        if (size < MIN_KM) return ref + (cur - ref) * (MIN_KM / Math.max(size, 1e-6));
+        return cur;
+      };
+      const lon = fix(e.w, c.lon, far.lon);
+      const lat = fix(e.h, c.lat, far.lat);
+      if (lon === c.lon && lat === c.lat) break;
+      this.setCorner(i, lon, lat);
+    }
+
+    this.checkPins();
+    this.result = null;
     this.dirty = true;
   }
 
-  /** Work out where the pin has landed. Only done on release: the sea-room
-   *  search runs a few hundred point-in-polygon tests and has no business
-   *  running on every pointermove. */
+  /**
+   * Hold the box to its limits about its own centre. Needed after it is
+   * carried somewhere else as well as after a corner is dragged: a box of
+   * fixed degrees covers more ground the nearer the equator it is taken, so a
+   * seventy-thousand-yard field moved south would otherwise quietly grow.
+   */
+  clampBox() {
+    for (let pass = 0; pass < 3; pass++) {
+      const e = this.extent();
+      const c = this.centre;
+      const f = (size) => (size > BATTLE_KM ? BATTLE_KM / size
+        : (size < MIN_KM ? MIN_KM / Math.max(size, 1e-6) : 1));
+      const fw = f(e.w);
+      const fh = f(e.h);
+      if (fw === 1 && fh === 1) break;
+      this.pins = this.pins.map((p) => ({
+        lon: c.lon + (p.lon - c.lon) * fw,
+        lat: clamp(c.lat + (p.lat - c.lat) * fh, -89, 89),
+      }));
+    }
+  }
+
+  /** Carry the whole box somewhere else, keeping its shape. */
+  moveBox(at) {
+    const c = this.centre;
+    const dLon = at.lon - c.lon;
+    const dLat = at.lat - c.lat;
+    this.pins = this.pins.map((p) => ({
+      lon: p.lon + dLon, lat: clamp(p.lat + dLat, -89, 89),
+    }));
+    this.clampBox();
+    this.checkPins();
+    this.result = null;
+    this.dirty = true;
+  }
+
+  /**
+   * Work out what the four corners have settled on. Only done on release: the
+   * sea-room search runs a few hundred point-in-polygon tests and has no
+   * business running on every pointermove.
+   */
   settle() {
-    const km = waterSquareKm(this.pin.lon, this.pin.lat, BATTLE_KM);
+    const c = this.centre;
+    const e = this.extent();
+    // The game lays a square field out, so it has to reach the longer side.
+    const km = clamp(Math.max(e.w, e.h), MIN_KM, BATTLE_KM);
     this.result = {
-      lon: this.pin.lon,
-      lat: this.pin.lat,
-      name: waterName(this.pin.lon, this.pin.lat),
+      lon: c.lon,
+      lat: c.lat,
+      name: waterName(c.lon, c.lat),
       km,
+      w: e.w,
+      h: e.h,
+      // How much clear water there is round the middle, which is what decides
+      // whether this is an open-ocean action or a fight through islands. It is
+      // not the same question as how big a box the captain has drawn.
+      room: waterSquareKm(c.lon, c.lat, BATTLE_KM),
+      pins: this.pins.map((p) => ({ lon: p.lon, lat: p.lat })),
     };
-    this.pinValid = km > 0;
     this.onPick?.(this.result);
     this.dirty = true;
     this.paintReadout();
   }
 
-  /** Open the chart on a location that has already been chosen. It comes up at
-   *  world scale with the pin in the middle of it, and is zoomed in from there
-   *  to place the pin exactly. */
+  /** Open the chart on a battlefield that has already been chosen. It comes up
+   *  at world scale with the box in the middle of it, and is zoomed in from
+   *  there to place the corners exactly. */
   show(at) {
-    if (at) this.pin = { lon: at.lon, lat: at.lat };
-    this.view.lon = this.pin.lon;
-    this.view.lat = this.pin.lat;
-    this.view.zoom = MIN_ZOOM;
+    if (at?.pins?.length === 4) {
+      this.pins = at.pins.map((p) => ({ lon: p.lon, lat: p.lat }));
+      this.clampBox();
+      this.checkPins();
+      this.result = null;
+    } else if (at) {
+      this.setBox(at.lon, at.lat, clamp(at.km || BATTLE_KM * 0.5, MIN_KM, BATTLE_KM));
+      this.result = null;
+    }
+    const c = this.centre;
+    this.view.lon = c.lon;
+    this.view.lat = c.lat;
+    // Framed on the box rather than on the world. Four corners that have to be
+    // dragged are no use at a scale where the whole battlefield is half a
+    // pixel across; zooming out to find another sea is one gesture away.
+    this.view.zoom = this.zoomForBox(0.34);
     this.normalise();
     if (!this.result) this.settle();
     this.dirty = true;
@@ -244,18 +451,33 @@ export class DeployMap {
     this.paint();
   }
 
+  /** The zoom that puts the box across `frac` of the shorter side of the view. */
+  zoomForBox(frac) {
+    const { w, h } = this.size;
+    const e = this.extent();
+    const deg = Math.max(
+      e.h / KM_PER_DEG,
+      e.w * lonKm(this.centre.lat),
+      0.02,
+    );
+    const wanted = (frac * Math.min(w, h)) / deg;       // pixels per degree
+    return clamp((wanted * 360) / w, MIN_ZOOM, MAX_ZOOM);
+  }
+
   paintReadout() {
     if (!this.readout) return;
     const r = this.result;
     if (!r) { this.readout.textContent = ''; return; }
-    const yards = Math.round((r.km * 1000) / 0.9144 / 100) * 100;
+    const yd = (km) => Math.round((km * 1000) / 0.9144 / 100) * 100;
     const ns = r.lat >= 0 ? 'N' : 'S';
     const ew = r.lon >= 0 ? 'E' : 'W';
+    const confined = r.room < r.km - 0.05;
     this.readout.innerHTML =
       `<b>${r.name}</b><span>${Math.abs(r.lat).toFixed(2)}&deg;${ns} `
       + `${Math.abs(r.lon).toFixed(2)}&deg;${ew}</span>`
-      + `<span>${yards.toLocaleString('en-US')} &times; ${yards.toLocaleString('en-US')} yd`
-      + `${r.km < BATTLE_KM - 0.05 ? ' &mdash; confined water' : ''}</span>`;
+      + `<span>${yd(r.w).toLocaleString('en-US')} &times; `
+      + `${yd(r.h).toLocaleString('en-US')} yd`
+      + `${confined ? ' &mdash; confined water' : ''}</span>`;
   }
 
   // ------------------------------------------------------------------ paint --
@@ -282,59 +504,100 @@ export class DeployMap {
     });
 
     const ctx = this.canvas.getContext('2d');
-    const p = this.toScreen(this.pin.lon, this.pin.lat);
-    const s = this.scale();
+    const pts = this.pins.map((q) => this.toScreen(q.lon, q.lat));
+    const ok = this.valid;
+    const line = ok ? 'rgba(230, 207, 156, 0.90)' : 'rgba(226, 86, 79, 0.90)';
+    const wash = ok ? 'rgba(230, 207, 156, 0.07)' : 'rgba(226, 86, 79, 0.10)';
 
-    // The battlefield: fifty thousand yards square, drawn to scale once it is
-    // big enough on the chart to be worth drawing.
-    const km = this.result ? this.result.km : BATTLE_KM;
-    const halfLat = km / 2 / 111.32;
-    const halfLon = halfLat / Math.max(0.08, Math.cos((this.pin.lat * Math.PI) / 180));
-    const bw = halfLon * 2 * s;
-    const bh = halfLat * 2 * s;
-    if (bw > 7) {
-      ctx.strokeStyle = this.pinValid ? 'rgba(230, 207, 156, 0.85)' : 'rgba(226, 86, 79, 0.85)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 5]);
-      ctx.strokeRect(p.x - bw / 2, p.y - bh / 2, bw, bh);
-      ctx.setLineDash([]);
-      ctx.fillStyle = this.pinValid ? 'rgba(230, 207, 156, 0.08)' : 'rgba(226, 86, 79, 0.10)';
-      ctx.fillRect(p.x - bw / 2, p.y - bh / 2, bw, bh);
-    }
+    // The battlefield: the water inside the four corners, hatched so it reads
+    // as a claimed area rather than as an empty frame drawn on the chart.
+    const area = new Path2D();
+    area.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) area.lineTo(pts[i].x, pts[i].y);
+    area.closePath();
 
-    // The pin itself: a teardrop standing on the point it marks.
-    const col = this.pinValid ? '#e6cf9c' : '#e2564f';
     ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = wash;
+    ctx.fill(area);
+    ctx.clip(area);
+    // Slanted lines across it, drawn from the top-left corner of the canvas so
+    // the hatch stays put while the box is dragged over it.
+    ctx.strokeStyle = ok ? 'rgba(230, 207, 156, 0.30)' : 'rgba(226, 86, 79, 0.34)';
+    ctx.lineWidth = 1;
+    const step = 14;
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(-11, -12, -13, -24, 0, -30);
-    ctx.bezierCurveTo(13, -24, 11, -12, 0, 0);
-    ctx.closePath();
-    ctx.fillStyle = col;
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.beginPath();
-    ctx.arc(0, -20, 4.4, 0, Math.PI * 2);
-    ctx.fillStyle = '#0b1a26';
-    ctx.fill();
+    for (let k = -h; k < w + h; k += step) {
+      ctx.moveTo(k, 0);
+      ctx.lineTo(k + h, h);
+    }
+    ctx.stroke();
     ctx.restore();
 
-    // A ring on the water under it, so the exact point is not hidden by the pin.
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, 7, 3, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([7, 5]);
+    ctx.stroke(area);
+    ctx.setLineDash([]);
+
+    // The square the game will actually lay out, which has to reach the longer
+    // side of whatever shape the captain has drawn.
+    if (this.result) {
+      const c = this.toScreen(this.centre.lon, this.centre.lat);
+      const s = this.scale();
+      const halfLat = this.result.km / 2 / KM_PER_DEG;
+      const halfLon = (this.result.km / 2) * lonKm(this.centre.lat);
+      const bw = halfLon * 2 * s;
+      const bh = halfLat * 2 * s;
+      if (bw > 10) {
+        ctx.strokeStyle = 'rgba(154, 166, 178, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 4]);
+        ctx.strokeRect(c.x - bw / 2, c.y - bh / 2, bw, bh);
+        ctx.setLineDash([]);
+      }
+    }
+
+    // The corners. Each is a teardrop standing on the point it marks, with a
+    // ring on the water under it so the exact spot is not hidden by the pin.
+    pts.forEach((q, i) => {
+      const col = this.bad[i] ? '#e2564f' : '#e6cf9c';
+      ctx.save();
+      ctx.translate(q.x, q.y);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(-11, -12, -13, -24, 0, -30);
+      ctx.bezierCurveTo(13, -24, 11, -12, 0, 0);
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.beginPath();
+      ctx.arc(0, -20, 4.4, 0, Math.PI * 2);
+      ctx.fillStyle = '#0b1a26';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(q.x, q.y, 7, 3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    });
 
     if (this.hint) {
-      this.hint.textContent = this.pinValid
-        ? 'Drag the pin, or tap open water, to set the berth. Scroll or pinch to zoom.'
-        : 'That is dry land. The pin has to stand in open water.';
-      this.hint.classList.toggle('bad', !this.pinValid);
+      const trouble = !ok || !!this.badTap;
+      this.hint.textContent = this.badTap
+        ? 'That is inland. The battlefield has to be laid on water, or on no '
+          + 'more than a thousand yards of shore.'
+        : (ok
+          ? 'Drag the four corners to set the battlefield, or tap the chart to '
+            + 'move the whole of it. Scroll or pinch to zoom.'
+          : 'A corner is too far inland. Each one has to stand in open water, '
+            + 'or on no more than a thousand yards of shore.');
+      this.hint.classList.toggle('bad', trouble);
     }
   }
 

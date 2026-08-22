@@ -80,3 +80,36 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
     ${mark}
   </svg>`;
 }
+
+/**
+ * A main-battery turret, drawn the way the recognition cards draw a hull:
+ * flat, side-on, no detail that would not survive at thumbnail size.
+ *
+ * Proportioned off a 16"/50 triple — the gunhouse about twelve metres long and
+ * the rifles better than twenty outside it, which is why the barrels take up
+ * more than half the drawing. Barbette below, sloped face, rangefinder ear out
+ * the back, and three rifles run out with their muzzle swells. It points to
+ * the right; `flip` turns it about to face the other way.
+ */
+export function turret({ flip = false } = {}) {
+  return `<svg class="turret-art" viewBox="0 0 200 92" role="img" aria-hidden="true"
+    preserveAspectRatio="xMidYMid meet"${flip ? ' style="transform:scaleX(-1)"' : ''}>
+    <g fill="currentColor">
+      <!-- the deck she stands on, and the barbette she trains in -->
+      <rect x="14" y="84" width="104" height="6"/>
+      <path d="M26 84 L30 64 L106 64 L110 84 Z"/>
+      <!-- gunhouse: overhanging rear, flat roof, face sloped back from the guns -->
+      <path d="M18 64 L18 34 L27 26 L96 26 L114 47 L114 64 Z"/>
+      <rect x="20" y="20" width="82" height="7"/>
+      <!-- sighting hood and the periscope on the roof -->
+      <rect x="52" y="12" width="16" height="9"/>
+      <rect x="82" y="14" width="6" height="7"/>
+      <!-- the rangefinder ear out the back -->
+      <rect x="4" y="36" width="15" height="11"/>
+      <!-- three rifles run out through the face, each with its muzzle swell -->
+      <rect x="108" y="32" width="72" height="6"/><rect x="176" y="30" width="9" height="10"/>
+      <rect x="108" y="42" width="80" height="6"/><rect x="184" y="40" width="9" height="10"/>
+      <rect x="108" y="52" width="72" height="6"/><rect x="176" y="50" width="9" height="10"/>
+    </g>
+  </svg>`;
+}

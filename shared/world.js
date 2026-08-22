@@ -7,9 +7,9 @@ import { makeRng, dist } from './math.js';
 // custom battle sets its own from the sea room where the pin was dropped; this
 // is what everything else gets.
 export const MAP_HALF = 7000;
-// Fifty thousand yards on a side is the largest battlefield the game will lay
-// out, which is 22,860 m from the centre to the border.
-export const MAP_HALF_MAX = 22860;
+// Seventy thousand yards on a side is the largest battlefield the game will
+// lay out, which is 32,004 m from the centre to the border.
+export const MAP_HALF_MAX = 32004;   // 70,000 yd
 export const MAP_HALF_MIN = 3000;
 export const SEA_LEVEL = 0;
 
