@@ -91,6 +91,14 @@ uniform float uTime;
 uniform float uSeed;
 uniform float uIntensity;
 uniform vec3 uTint;
+// Everything below is in metres rather than in fractions of the quad, which is
+// what makes a big fire read as a big fire: a tongue of flame is the same size
+// whether it is coming out of a drum or off a burning warehouse, and it climbs
+// at the same speed, so the eye reads the scale off the motion.
+uniform vec2 uCell;    // how many tongue-widths across and up the quad
+uniform float uRate;   // noise units climbed per second
+uniform float uBed;    // depth of the seat, as a fraction of the quad
+uniform float uTip;    // how broad she still is at the head
 varying vec2 vUv;
 ${NOISE}
 
@@ -111,60 +119,76 @@ vec3 flameColour(float h) {
 
 void main() {
   vec2 uv = vUv;
-  float t = uTime * 0.95 + uSeed * 31.7;
+  // Time in noise units. A column three times as tall takes three times as
+  // long to carry a tongue from its seat to its head, and that is the whole
+  // difference between a bonfire and a burning oil farm.
+  float t = uTime * uRate + uSeed * 31.7;
 
   // The column wanders about its own axis as it climbs, and the wander grows
   // with height: the gas at the seat is held in place by what is burning, and
-  // everything above it is free to be pushed about.
-  float wob = fbm(vec2(uSeed * 17.0, uv.y * 2.4 - t * 0.8)) - 0.5;
-  float shear = fbm(vec2(uSeed * 5.3 + 40.0, uv.y * 1.1 - t * 0.35)) - 0.5;
-  float cx = 0.5 + wob * 0.50 * pow(uv.y, 1.25) + shear * 0.34 * pow(uv.y, 1.8);
+  // everything above it is free to be pushed about. Slow, in the same clock as
+  // the climb, so a tall column sways rather than shivers.
+  float wob = fbm(vec2(uSeed * 17.0, uv.y * 2.4 - t * 0.34)) - 0.5;
+  float shear = fbm(vec2(uSeed * 5.3 + 40.0, uv.y * 1.1 - t * 0.16)) - 0.5;
+  float cx = 0.5 + wob * 0.40 * pow(uv.y, 1.25) + shear * 0.30 * pow(uv.y, 1.8);
 
-  // Sampled with the vertical axis compressed and scrolling, so the structure
-  // is drawn out into tongues that climb rather than blobs that sit still.
-  vec2 p = vec2((uv.x - 0.5) * 3.4, uv.y * 1.35 - t);
-  vec2 warp = vec2(fbm(p * 1.6 + uSeed), fbm(p * 1.6 + 9.2 + uSeed));
-  float n = fbm(p + warp * 0.8);
-  float fine = fbm(p * 4.6 + warp * 1.5);
+  // Sampled on the metre grid and scrolling upward, so the structure is drawn
+  // out into tongues that climb rather than blobs that sit still.
+  vec2 p = vec2((uv.x - 0.5) * uCell.x, uv.y * uCell.y - t);
+  vec2 warp = vec2(fbm(p * 0.30 + uSeed), fbm(p * 0.30 + 9.2 + uSeed));
+  float n = fbm(p * 0.34 + warp * 0.8);
+  float fine = fbm(p * 1.15 + warp * 1.5);
   // A third scale, drifting faster than the other two: this is what reads as
   // gas actually moving rather than a pattern sliding upward.
-  float grain = fbm3(p * 11.0 + vec2(0.0, -t * 1.7) + warp * 0.6);
+  float grain = fbm3(p * 2.6 + vec2(0.0, -t * 1.7) + warp * 0.6);
 
-  // Widest at the root, tapering as the gas rises and cools.
-  float taper = mix(0.46 + uSeed * 0.20, 0.05 + uSeed * 0.06, pow(uv.y, 0.62 + uSeed * 0.30));
+  // Widest at the root, and for a big fire still broad at the head — a
+  // conflagration does not come to a point, it stands up as a wall and rolls
+  // over at the top.
+  float taper = mix(0.50 + uSeed * 0.16, uTip * (0.85 + uSeed * 0.3), pow(uv.y, 0.70));
   float r = abs(uv.x - cx) / max(taper, 0.001);
-  float body = 1.0 - smoothstep(0.15, 1.0, r);
-  body *= smoothstep(0.0, 0.04, uv.y) * (1.0 - smoothstep(0.32, 1.0, uv.y));
+  float body = 1.0 - smoothstep(0.12, 1.0, r);
+  body *= smoothstep(0.0, 0.03, uv.y) * (1.0 - smoothstep(0.40, 1.0, uv.y));
+
+  // Across a wide seat the fire is not one column but several standing side by
+  // side, leaning into each other as they climb. Without this a big fire is
+  // just a small one enlarged.
+  float lobes = fbm(vec2((uv.x - 0.5) * uCell.x * 0.42 + uSeed * 9.0,
+                         uv.y * uCell.y * 0.16 - t * 0.5));
+  body *= mix(1.0, 0.45 + 1.15 * lobes, smoothstep(2.0, 5.0, uCell.x) * 0.75);
 
   // The seat: the bed of fire over whatever is actually burning. It is wider
   // than the column, near solid, and barely flickers — a fire without one is a
-  // ribbon floating in the air.
-  float bedW = 1.0 - smoothstep(0.25, 0.92, abs(uv.x - 0.5) / (taper * 1.9 + 0.10));
-  float bed = bedW * exp(-uv.y * 11.0) * (0.65 + 0.35 * grain);
+  // ribbon floating in the air. Its depth is set in metres, so a big seat is a
+  // deep bed of flame and not a bright line along the bottom of the quad.
+  float bedW = 1.0 - smoothstep(0.25, 0.95, abs(uv.x - 0.5) / (taper * 1.7 + 0.12));
+  float bed = bedW * exp(-uv.y / max(uBed, 0.01)) * (0.68 + 0.32 * grain);
 
   // Combustion is continuous down at the seat and breaks into separate tongues
   // as it rises, so the noise is allowed to cut deeper the higher it goes.
-  float bite = mix(0.10, 1.08, pow(uv.y, 0.68));
+  float bite = mix(0.10, 1.06, pow(uv.y, 0.68));
   float mask = clamp((n - 0.5) * 2.6 + 1.0 - bite, 0.0, 1.0);
   mask = smoothstep(0.0, 0.55, mask);
 
   // Fine noise frays the edge, where the sheet is thin enough for it to tell,
   // and the grain breaks the body up into separate sheets of flame.
-  float d = body * mask - fine * 0.22 * smoothstep(0.1, 0.9, uv.y);
-  d *= 0.70 + 0.30 * grain;
+  float d = body * mask - fine * 0.20 * smoothstep(0.1, 0.9, uv.y);
+  d *= 0.72 + 0.28 * grain;
   d = max(d, bed);
   d = clamp(d, 0.0, 1.0);
   if (d < 0.003) discard;
 
   // Temperature falls hard with height and softly across the column, so the
-  // white is only ever in the heart of the seat.
-  float heat = (1.0 - pow(uv.y, 0.55)) * (1.0 - r * 0.55) * (0.55 + 0.65 * d)
-             + bed * 0.55 + grain * 0.10 * (1.0 - uv.y);
+  // white is only ever in the heart of the seat — except that a deep bed of
+  // fire carries its heat further up than a shallow one does.
+  float reach = 0.45 + 0.55 * smoothstep(0.02, 0.30, uBed);
+  float heat = (1.0 - pow(uv.y / reach, 0.55)) * (1.0 - r * 0.50) * (0.55 + 0.65 * d)
+             + bed * 0.60 + grain * 0.10 * (1.0 - uv.y);
   heat = clamp(heat, 0.0, 1.0);
 
   // The last of the column is gas that has stopped burning, so it darkens into
   // the smoke above rather than simply fading out.
-  float sooty = smoothstep(0.55, 1.0, uv.y) * (1.0 - bed);
+  float sooty = smoothstep(0.52, 1.0, uv.y) * (1.0 - bed);
   vec3 col = mix(flameColour(heat), vec3(0.055, 0.042, 0.038), sooty * 0.85);
 
   gl_FragColor = vec4(col * uTint, clamp(d * uIntensity, 0.0, 1.0));
@@ -263,6 +287,13 @@ void main() {
 }
 `;
 
+// A tongue of flame is about this across, and climbs at about this speed,
+// whatever it is coming off. Holding both fixed in metres is what tells the eye
+// how big a fire is: the same shader at the same numbers reads as a burning
+// drum at ten metres and as a burning oil farm at two hundred.
+const TONGUE_M = 13;
+const RISE_MS = 15;
+
 const QUAD = new THREE.PlaneGeometry(1, 1, 1, 1);
 
 /** Fires, the smoke off them, the embers they throw, and the light they cast. */
@@ -290,6 +321,17 @@ export class FireSystem {
   } = {}) {
     for (let i = 0; i < layers; i++) {
       const f = i / Math.max(1, layers - 1);
+      const w = width * (1 - f * 0.35);
+      const h = height * (1 - f * 0.28);
+      // The scale of the fire, worked out in metres and handed to the shader,
+      // so the flame keeps a tongue the same size and a climb the same speed
+      // however big the seat under it is.
+      const cell = new THREE.Vector2(
+        Math.max(1.7, w / TONGUE_M), Math.max(2.6, h / TONGUE_M),
+      );
+      const rate = (RISE_MS / TONGUE_M) * (0.9 + f * 0.25);
+      const bed = THREE.MathUtils.clamp((w * 0.34) / h, 0.045, 0.34);
+      const tip = THREE.MathUtils.clamp(0.06 + (w / h) * 0.42, 0.08, 0.42);
       const mat = new THREE.ShaderMaterial({
         vertexShader: BILLBOARD_VERT,
         fragmentShader: FLAME_FRAG,
@@ -298,7 +340,11 @@ export class FireSystem {
           uSeed: { value: Math.random() },
           uIntensity: { value: intensity * (1 - f * 0.3) * (2.4 / layers) },
           uTint: { value: tint.clone() },
-          uSize: { value: new THREE.Vector2(width * (1 - f * 0.35), height * (1 - f * 0.28)) },
+          uCell: { value: cell },
+          uRate: { value: rate },
+          uBed: { value: bed },
+          uTip: { value: tip },
+          uSize: { value: new THREE.Vector2(w, h) },
           uLean: { value: lean * (0.6 + f) },
         },
         transparent: true,
@@ -314,6 +360,9 @@ export class FireSystem {
       this.scene.add(mesh);
       this.flames.push({
         mesh, mat, base: intensity * (1 - f * 0.3) * (2.4 / layers), phase: Math.random() * 10,
+        // A small fire flutters; a big one surges. The flicker runs on the
+        // column's own clock so the two never look like the same fire.
+        beat: THREE.MathUtils.clamp(34 / h, 0.30, 1.0),
       });
     }
 
@@ -408,8 +457,8 @@ export class FireSystem {
     for (const f of this.flames) {
       f.mat.uniforms.uTime.value += dt;
       // Flicker from two beats that do not share a period, so it never pulses.
-      const a = Math.sin(this.time * 7.3 + f.phase);
-      const b = Math.sin(this.time * 2.9 + f.phase * 2.1);
+      const a = Math.sin(this.time * 7.3 * f.beat + f.phase);
+      const b = Math.sin(this.time * 2.9 * f.beat + f.phase * 2.1);
       f.mat.uniforms.uIntensity.value = f.base * (0.86 + 0.1 * a + 0.06 * b);
     }
     for (const s of this.smoke) s.mat.uniforms.uTime.value += dt;

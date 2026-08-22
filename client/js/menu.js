@@ -182,16 +182,23 @@ export class TitleScene {
     // Bombs are still coming down on her: flights cross the island, and what
     // they drop bursts where it lands rather than at a fixed height.
     this.blasts = new ExplosionSystem(this.scene);
+    // Blasts that have to wait their turn — a magazine walking aft, the wreck
+    // of a crane going into the water — run off the scene's own clock rather
+    // than off a timer, so they keep their spacing at any frame rate.
+    this.pending = [];
     this.raid = new BomberRaid(this.scene, {
       target: { x0: -2300, x1: 2300, z0: 430, z1: 1600 },
       groundAt: (x, z) => Math.max(0, islandHeight(x, z)),
-      onImpact: (x, y, z) => this.blasts.blast(x, y, z, {
-        size: 115 + Math.random() * 75, duration: 3.4, debris: 80,
-      }),
+      onImpact: (x, y, z) => this.bombHit(x, y, z),
     });
     // And the yard is going up on its own between times: ready-use ammunition,
     // fuel drums, whatever the last stick started.
     this.nextMinor = 2.5;
+    // The gantry crane is on somebody's target list. The next flight over is
+    // told to put one on it; if the stick goes wide the next is told again.
+    // Once she is down she lies there a while before the screen puts her back.
+    this.craneDue = 4;
+    this.craneRebuild = null;
 
     // The battleship at the fitting-out berth. She is already burning when the
     // screen comes up; a while later her forward magazines go, and she settles
@@ -203,9 +210,9 @@ export class TitleScene {
     for (const dz of [-70, -10, 46]) {
       const p = this.bb.localToWorld(new THREE.Vector3(0, 14, dz));
       this.fires.addFire(p.x, p.y, p.z, {
-        width: 26, height: 60, layers: 2, intensity: 1.05,
-        smokeWidth: 150, smokeHeight: 620, lean: 0.28,
-        light: dz === -10, lightRange: 900, embers: 60,
+        width: 40, height: 105, layers: 2, intensity: 1.2,
+        smokeWidth: 240, smokeHeight: 1050, lean: 0.28,
+        light: dz === -10, lightRange: 1300, embers: 85,
       });
     }
 
@@ -221,6 +228,43 @@ export class TitleScene {
 
     this.time = Math.random() * 30;
     this.travel = 20;
+  }
+
+  /** Set a blast off `delay` seconds from now, on the scene's clock. */
+  later(delay, fn) {
+    this.pending.push({ at: this.time + delay, fn });
+  }
+
+  /**
+   * A bomb has arrived. Everything the raid does to the port happens here: the
+   * burst itself, and — if it has come down on the gantry crane — the crane.
+   */
+  bombHit(x, y, z) {
+    this.blasts.blast(x, y, z, {
+      size: 115 + Math.random() * 75, duration: 3.4, debris: 80,
+    });
+
+    const crane = this.port.crane;
+    // A near miss on the legs is enough: a gantry stands on four feet and only
+    // needs to lose one of them.
+    if (crane && !crane.falling && !crane.down
+        && Math.abs(x - crane.x) < 90 && Math.abs(z - crane.z) < 110
+        && crane.topple()) {
+      // The hit itself, up among the frames rather than down at the apron.
+      this.blasts.blast(crane.x, crane.top * 0.72, crane.z, {
+        size: 95, duration: 3.0, debris: 110, power: 0.35,
+      });
+      // She takes about four seconds to go over. This is the head of the jib
+      // arriving in the basin: spray, not fire.
+      this.later(4.0, () => {
+        this.blasts.blast(crane.x - 10, 2, crane.z - 118, {
+          size: 78, duration: 2.6, debris: 60, light: false, plume: false,
+        });
+        this.blasts.blast(crane.x + 22, 3, crane.z - 74, {
+          size: 46, duration: 2.2, debris: 30, light: false, plume: false,
+        });
+      });
+    }
   }
 
   /** The white water our own bow is pushing up, which is what says "under way". */
@@ -321,13 +365,12 @@ export class TitleScene {
     // the next second and a half.
     const stagger = [[76, 130, 0.18], [18, 150, 0.42], [-30, 120, 0.75], [-88, 105, 1.15]];
     for (const [dz, size, delay] of stagger) {
-      setTimeout(() => {
-        if (!this.blasts) return;
+      this.later(delay, () => {
         const p = at(dz, 14);
         this.blasts.blast(p.x, p.y, p.z, {
           size, duration: 4.2, debris: 90, power: 0.6,
         });
-      }, delay * 1000);
+      });
     }
   }
 
@@ -345,9 +388,39 @@ export class TitleScene {
     this.fires.update(dt);
     this.blasts.update(dt);
     this.raid.update(dt);
-    this.port.update(this.time);
+    this.port.update(this.time, dt);
+
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      if (this.time < this.pending[i].at) continue;
+      const { fn } = this.pending.splice(i, 1)[0];
+      fn();
+    }
 
     this.stepBattleship(dt);
+
+    // Somebody is briefed onto the crane until it is down; once it is, the
+    // wreck lies in the basin for a while before the screen stands it up again
+    // and the next flight is given the job.
+    const crane = this.port.crane;
+    if (crane) {
+      if (crane.down) {
+        // The clock starts when she goes down, not when she was aimed at:
+        // however long the flight took to find her, the wreck lies there.
+        if (this.craneRebuild === null) this.craneRebuild = 44;
+        this.craneRebuild -= dt;
+        if (this.craneRebuild <= 0) {
+          crane.reset();
+          this.craneRebuild = null;
+          this.craneDue = 16;
+        }
+      } else if (!crane.falling) {
+        this.craneDue -= dt;
+        if (this.craneDue <= 0) {
+          this.raid.strike(crane.x, crane.z);
+          this.craneDue = 24;
+        }
+      }
+    }
 
     this.nextMinor -= dt;
     if (this.nextMinor <= 0) {

@@ -9,6 +9,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { buildShip } from './ships.js';
 import { buildIowa } from './iowa.js';
+import { mergeStatic } from './merge.js';
 
 function makeRng(seed) {
   let s = seed >>> 0;
@@ -256,26 +257,59 @@ export function buildHarbour(fires, seed = 20260820) {
 
   // -- gantry cranes --------------------------------------------------------
 
-  const craneAt = (cx) => {
+  // The gantries. All but one are instanced into the batches with everything
+  // else; the odd one out is built as a group of its own so it can be knocked
+  // down, which is worth the draw calls for exactly one crane.
+  const craneAt = (cx, bags, origin = null) => {
     const H = 78;
-    const at = (b, dx, dy, dz, sx, sy, sz) =>
-      b.add(cx + dx, QUAY_TOP + dy, QUAY_Z + 34 + dz, sx, sy, sz);
+    const at = (b, dx, dy, dz, sx, sy, sz) => {
+      const x = cx + dx, y = QUAY_TOP + dy, z = QUAY_Z + 34 + dz;
+      if (origin) b.add(x - origin.x, y - origin.y, z - origin.z, sx, sy, sz);
+      else b.add(x, y, z, sx, sy, sz);
+    };
     for (const lx of [-16, 16]) {
-      for (const lz of [-14, 14]) at(steel, lx * 1.15, H / 2, lz, 4, H, 4);
-      at(steel, lx * 1.15, H * 0.42, 0, 3, 2.5, 30);
-      at(steel, lx * 1.15, H * 0.74, 0, 3, 2.5, 30);
+      for (const lz of [-14, 14]) at(bags.steel, lx * 1.15, H / 2, lz, 4, H, 4);
+      at(bags.steel, lx * 1.15, H * 0.42, 0, 3, 2.5, 30);
+      at(bags.steel, lx * 1.15, H * 0.74, 0, 3, 2.5, 30);
     }
-    at(steel, 0, H * 0.5, -14, 40, 3, 3);
-    at(steel, 0, H * 0.82, 14, 40, 3, 3);
-    at(steel, 0, H + 4, 0, 44, 8, 34);
-    at(steel, 0, H + 10, -62, 7, 5, 130);
-    at(steel, 0, H + 10, 30, 10, 5, 26);
-    at(dark, 0, H + 6, 34, 16, 12, 16);
-    at(dark, 0, H - 12, -96, 0.8, 44, 0.8);
-    at(rust, 0, H - 34, -96, 6, 4, 6);
-    at(dark, 13, H - 6, -8, 10, 9, 10);
+    at(bags.steel, 0, H * 0.5, -14, 40, 3, 3);
+    at(bags.steel, 0, H * 0.82, 14, 40, 3, 3);
+    at(bags.steel, 0, H + 4, 0, 44, 8, 34);
+    at(bags.steel, 0, H + 10, -62, 7, 5, 130);
+    at(bags.steel, 0, H + 10, 30, 10, 5, 26);
+    at(bags.dark, 0, H + 6, 34, 16, 12, 16);
+    at(bags.dark, 0, H - 12, -96, 0.8, 44, 0.8);
+    at(bags.rust, 0, H - 34, -96, 6, 4, 6);
+    at(bags.dark, 13, H - 6, -8, 10, 9, 10);
   };
-  for (let cx = X0 + 260; cx < X1 - 260; cx += 330) craneAt(cx);
+
+  // The one that comes down. Chosen near the middle of the frame so the fall
+  // is actually seen, and pivoted on its seaward feet so it goes into the
+  // basin rather than back over the sheds.
+  const FALLER_X = 340;
+  const craneGroup = new THREE.Group();
+  craneGroup.position.set(FALLER_X, QUAY_TOP, QUAY_Z + 20);
+  // Each piece is a mesh of its own inside the group; they are welded into one
+  // buffer per colour below, and the group keeps the pivot.
+  const loose = (mat) => ({
+    add: (x, y, z, sx, sy, sz) => {
+      const m = new THREE.Mesh(UNIT, mat);
+      m.position.set(x, y, z);
+      m.scale.set(sx, sy, sz);
+      craneGroup.add(m);
+    },
+  });
+  craneAt(FALLER_X, {
+    steel: loose(MAT.steel), dark: loose(MAT.dark), rust: loose(MAT.rust),
+  }, craneGroup.position);
+  mergeStatic(craneGroup);
+  g.add(craneGroup);
+
+  const bags = { steel, dark, rust };
+  for (let cx = X0 + 260; cx < X1 - 260; cx += 330) {
+    if (Math.abs(cx - FALLER_X) < 1) continue;
+    craneAt(cx, bags);
+  }
 
   // -- the battleship dock --------------------------------------------------
 
@@ -350,9 +384,9 @@ export function buildHarbour(fires, seed = 20260820) {
     steel.add(t.x + t.r, t.h / 2, t.z, 2, t.h, 2);
     if (t.fire) {
       fires.addFire(t.x, t.h * 0.9, t.z, {
-        width: t.r * 3.2, height: t.r * 6.2, layers: 3, intensity: 1.3,
-        smokeWidth: t.r * 7.0, smokeHeight: 900, lean: 0.34,
-        light: t.x < 300, lightRange: 1500, embers: 130,
+        width: t.r * 4.6, height: t.r * 9.4, layers: 3, intensity: 1.45,
+        smokeWidth: t.r * 11.0, smokeHeight: 1500, lean: 0.34,
+        light: t.x < 300, lightRange: 2100, embers: 170,
       });
     }
   }
@@ -587,8 +621,8 @@ export function buildHarbour(fires, seed = 20260820) {
     g.add(stack);
     if (alight) {
       fires.addFire(cx, gy + ch, cz, {
-        width: 30, height: 76, layers: 2, intensity: 0.95,
-        smokeWidth: 150, smokeHeight: 700, lean: 0.4, light: false, embers: 30,
+        width: 40, height: 110, layers: 2, intensity: 1.0,
+        smokeWidth: 210, smokeHeight: 1000, lean: 0.4, light: false, embers: 40,
       });
     }
   }
@@ -689,11 +723,11 @@ export function buildHarbour(fires, seed = 20260820) {
     // and the pall over the ship is the same either way.
     const heavy = i % 2 === 0;
     fires.addFire(-150 + i * 34 + (rng() - 0.5) * 14, 14 + v * 10, QUAY_Z - 58, {
-      width: 34 + v * 30, height: 66 + v * 80, layers: heavy ? 3 : 2,
-      intensity: 1.15 + v * 0.4,
-      smokeWidth: 150 + v * 110, smokeHeight: heavy ? 700 + v * 320 : 0,
+      width: 52 + v * 46, height: 105 + v * 130, layers: heavy ? 3 : 2,
+      intensity: 1.25 + v * 0.4,
+      smokeWidth: 230 + v * 170, smokeHeight: heavy ? 1150 + v * 500 : 0,
       lean: 0.22 + v * 0.2,
-      light: i % 4 === 0, lightRange: 1400, embers: 90,
+      light: i % 4 === 0, lightRange: 1900, embers: 120,
     });
   }
 
@@ -703,8 +737,8 @@ export function buildHarbour(fires, seed = 20260820) {
   wreck.group.rotation.set(0, 0.03, 0.42);
   g.add(wreck.group);
   fires.addFire(196, 12, QUAY_Z - 62, {
-    width: 58, height: 120, layers: 3, intensity: 1.25,
-    smokeWidth: 190, smokeHeight: 760, lean: 0.26, lightRange: 1200, embers: 90,
+    width: 88, height: 195, layers: 3, intensity: 1.35,
+    smokeWidth: 290, smokeHeight: 1250, lean: 0.26, lightRange: 1700, embers: 120,
   });
 
   // Destroyers still fast alongside, dark and intact.
@@ -722,10 +756,10 @@ export function buildHarbour(fires, seed = 20260820) {
   alight.forEach((sd, i) => {
     if (i % 2) return;
     fires.addFire(sd.x, sd.h * 0.7, sd.z, {
-      width: sd.w * 0.95, height: sd.h * (3.6 + rng() * 1.6), layers: 3,
-      intensity: 1.2 + rng() * 0.3,
-      smokeWidth: 320 + rng() * 130, smokeHeight: 880 + rng() * 300, lean: 0.3,
-      light: i % 4 === 0, lightRange: 1600, embers: 120,
+      width: sd.w * 1.5, height: sd.h * (5.6 + rng() * 2.4), layers: 3,
+      intensity: 1.35 + rng() * 0.3,
+      smokeWidth: 520 + rng() * 220, smokeHeight: 1450 + rng() * 500, lean: 0.3,
+      light: i % 4 === 0, lightRange: 2200, embers: 170,
     });
   });
   // And in the town on the slope behind, where the incendiaries went.
@@ -735,18 +769,18 @@ export function buildHarbour(fires, seed = 20260820) {
     const fy = islandHeight(fx, fz);
     if (fy < 4) continue;
     fires.addFire(fx, fy + 10, fz, {
-      width: 40 + rng() * 40, height: 90 + rng() * 90, layers: 2,
-      intensity: 1.0 + rng() * 0.3,
-      smokeWidth: 220 + rng() * 120, smokeHeight: 700 + rng() * 260, lean: 0.36,
-      light: false, embers: 60,
+      width: 66 + rng() * 66, height: 150 + rng() * 150, layers: 2,
+      intensity: 1.15 + rng() * 0.3,
+      smokeWidth: 360 + rng() * 200, smokeHeight: 1150 + rng() * 430, lean: 0.36,
+      light: false, embers: 85,
     });
   }
   // Burning oil spread on the water off the tanker.
   for (let i = 0; i < 5; i++) {
-    fires.addFire(-250 + i * 60, 1, QUAY_Z - 132 + (rng() - 0.5) * 44, {
-      width: 62, height: 34, layers: 2, intensity: 0.95,
-      smokeWidth: 170, smokeHeight: i % 2 ? 440 : 0, lean: 0.5,
-      light: false, embers: 25,
+    fires.addFire(-250 + i * 68, 1, QUAY_Z - 132 + (rng() - 0.5) * 44, {
+      width: 105, height: 60, layers: 2, intensity: 1.05,
+      smokeWidth: 260, smokeHeight: i % 2 ? 720 : 0, lean: 0.5,
+      light: false, embers: 35,
     });
   }
 
@@ -768,17 +802,66 @@ export function buildHarbour(fires, seed = 20260820) {
   roofs.build(g);
   tarmac.build(g);
 
+  // The gantry that comes down when the raid finds it. A gantry crane does not
+  // shatter — a leg goes, the frame walks off its feet, and eighty metres of
+  // steel turns over into the basin, slowly at first and then all at once.
+  const crane = {
+    group: craneGroup,
+    // Where the bomb has to land to bring her down, and where the wreck ends up.
+    x: FALLER_X,
+    z: QUAY_Z + 34,
+    top: QUAY_TOP + 88,
+    falling: false,
+    down: false,
+    t: 0,
+    /** Start her over. Returns false if she is already going. */
+    topple() {
+      if (this.falling || this.down) return false;
+      this.falling = true;
+      this.t = 0;
+      return true;
+    },
+    step(dt) {
+      if (!this.falling) return;
+      this.t += dt;
+      const T = 4.2;
+      const k = Math.min(1, this.t / T);
+      // A rod going over its own foot: barely moving while the weight is still
+      // over the base, and then away, so the last thirty degrees take about as
+      // long as the first sixty.
+      const theta = (Math.PI / 2 + 0.14) * Math.pow(k, 2.1);
+      this.group.rotation.x = -theta;
+      // She staggers as the legs buckle before the frame lets go.
+      const shudder = this.t < 0.7 ? Math.sin(this.t * 34) * 0.010 * (1 - this.t / 0.7) : 0;
+      this.group.rotation.z = shudder + 0.05 * Math.pow(k, 3);
+      // The feet tear off the apron as she goes, so she slides seaward and
+      // settles into the basin rather than standing on her own footings.
+      this.group.position.y = QUAY_TOP - 13 * Math.pow(k, 3.2);
+      this.group.position.z = QUAY_Z + 20 - 16 * Math.pow(k, 2.6);
+      if (k >= 1) { this.falling = false; this.down = true; }
+    },
+    reset() {
+      this.falling = false;
+      this.down = false;
+      this.t = 0;
+      this.group.rotation.set(0, 0, 0);
+      this.group.position.set(FALLER_X, QUAY_TOP, QUAY_Z + 20);
+    },
+  };
+
   return {
     group: g,
     battleship: bb.group,
     battleshipBow: bb.forward,
     berth: { x: DOCK_X + 40, y: 0, z: DOCK_Z - 26 },
-    /** Sweep the searchlights. */
-    update(t) {
+    crane,
+    /** Sweep the searchlights, and keep the falling gantry going over. */
+    update(t, dt = 0) {
       for (const b of beams) {
         b.pivot.rotation.z = Math.sin(t * b.rate + b.phase) * b.lean;
         b.pivot.rotation.x = Math.sin(t * b.rate * 0.6 + b.phase * 2) * 0.16;
       }
+      crane.step(dt);
     },
   };
 }

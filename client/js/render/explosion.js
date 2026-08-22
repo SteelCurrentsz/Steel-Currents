@@ -24,61 +24,155 @@ void main() {
 }
 `;
 
+// Value noise in three dimensions. A fireball has to be sampled on the ball it
+// is, not on the disc it is drawn as: sampling in polar coordinates makes the
+// lobes run out along the radius and turns the whole thing into a catherine
+// wheel, which is exactly what it looks like.
+const NOISE3 = /* glsl */`
+float h31(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+float vnoise3(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  float a = mix(h31(i + vec3(0,0,0)), h31(i + vec3(1,0,0)), u.x);
+  float b = mix(h31(i + vec3(0,1,0)), h31(i + vec3(1,1,0)), u.x);
+  float c = mix(h31(i + vec3(0,0,1)), h31(i + vec3(1,0,1)), u.x);
+  float d = mix(h31(i + vec3(0,1,1)), h31(i + vec3(1,1,1)), u.x);
+  return mix(mix(a, b, u.y), mix(c, d, u.y), u.z);
+}
+float fbm3d(vec3 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise3(p); p = p * 2.07 + 19.3; a *= 0.5; }
+  return v;
+}
+// Two octaves, for the domain warp and the soot veins. Eight lookups a sample
+// is expensive enough that the places which only need a shape, not a texture,
+// are worth paying less for.
+float fbm3dLow(vec3 p) {
+  float v = 0.5 * vnoise3(p);
+  return v + 0.25 * vnoise3(p * 2.07 + 19.3);
+}
+`;
+
 // The fireball proper: a ball of burning gas that swells fast, slows, cools
 // from white through yellow to a deep red, and is eaten from the outside in by
 // the soot it is making.
+//
+// It is drawn as a sphere seen face on — the depth is reconstructed across the
+// quad, the noise is sampled on the direction that gives, and the whole field
+// is advected outward as the ball grows. That is what makes the surface roll
+// the way burning gas does instead of sliding about like a texture.
 const FIREBALL_FRAG = /* glsl */`
 uniform float uLife;
 uniform float uSeed;
 uniform float uPower;     // 0 for a drum going up, 1 for a magazine
 varying vec2 vUv;
-${NOISE}
+${NOISE3}
 
 vec3 ramp(float t) {
-  vec3 c = mix(vec3(0.16, 0.010, 0.002), vec3(0.92, 0.17, 0.012), smoothstep(0.00, 0.28, t));
-  c = mix(c, vec3(1.00, 0.46, 0.05), smoothstep(0.24, 0.54, t));
-  c = mix(c, vec3(1.00, 0.80, 0.28), smoothstep(0.52, 0.78, t));
-  c = mix(c, vec3(1.00, 0.97, 0.88), smoothstep(0.78, 0.94, t));
-  c = mix(c, vec3(1.00, 1.00, 0.99), smoothstep(0.94, 1.00, t));
+  vec3 c = mix(vec3(0.10, 0.006, 0.001), vec3(0.86, 0.14, 0.010), smoothstep(0.00, 0.26, t));
+  c = mix(c, vec3(1.00, 0.40, 0.040), smoothstep(0.24, 0.52, t));
+  c = mix(c, vec3(1.00, 0.72, 0.180), smoothstep(0.50, 0.76, t));
+  c = mix(c, vec3(1.00, 0.93, 0.640), smoothstep(0.76, 0.93, t));
+  c = mix(c, vec3(1.00, 1.00, 0.97), smoothstep(0.93, 1.00, t));
   return c;
 }
 
 void main() {
-  vec2 p = vUv - 0.5;
-  float r = length(p) * 2.0;
-  float ang = atan(p.y, p.x);
+  vec2 p = (vUv - 0.5) * 2.0;
+  if (length(p) > 1.0) discard;
 
-  // Fast at first and then slowing, the way a real ball of gas runs out of
-  // pressure — a linear expansion reads as an inflating balloon.
-  float grow = pow(uLife, 0.42);
+  // Growth: quick off the mark and easing off, the way a ball of gas runs out
+  // of pressure. Smooth all the way through — no kink for the eye to catch.
+  float grow = 1.0 - exp(-uLife * 4.2);
+  float R = mix(0.13, 0.92, grow);
 
-  // The boiling surface, in polar coordinates so the lobes belong to the ball
-  // rather than sliding across a square. Two scales: the big cauliflower heads
-  // that give it its shape, and the fine boil that gives it its resolution.
-  vec2 q = vec2(ang * 3.6, r * 2.4 - uLife * 1.7) + uSeed * 37.0;
-  float n = fbm(q * 1.7 + vec2(fbm(q * 2.3), fbm(q * 2.3 + 5.1)) * 0.8);
-  float fine = fbm3(q * 6.1 + uLife * 0.9);
-  float edge = grow * (0.62 + 0.42 * n + 0.05 * fine);
+  // She does not stay a ball. The buoyant gas pulls up out of the middle, so
+  // she is drawn in below and rolls over on top as she climbs.
+  vec2 pn = p / R;
+  pn.y = (pn.y - 0.14 * grow) / (1.0 + 0.20 * grow);
+  pn.x *= 1.0 + 0.10 * grow;
 
-  float d = 1.0 - smoothstep(edge * 0.52, edge, r);
-  // The fine boil bites into the skin, where the sheet is thin enough to tell.
-  d -= (1.0 - smoothstep(edge * 0.45, edge, r)) * fine * 0.28 * uLife;
-  d = clamp(d, 0.0, 1.0);
-  if (d < 0.004) discard;
+  float rn = length(pn);
+  if (rn > 1.7) discard;
+  float rc = min(rn, 1.0);
+  vec3 dir = vec3(pn.x / max(rn, 1e-4) * rc, pn.y / max(rn, 1e-4) * rc,
+                  sqrt(max(0.0, 1.0 - rc * rc)));
 
-  // Soot rolls up out of the fireball and eats it from the outside in, and
-  // veins of it cross the face — that structure is most of what separates a
-  // fireball from a glowing disc.
-  float vein = smoothstep(0.35, 0.85, fbm(q * 3.4 - uLife * 1.2));
-  float heat = clamp(d * (1.30 - uLife * 1.00) - (1.0 - d) * uLife * 0.5
-                     - vein * uLife * 0.55, 0.0, 1.0);
+  // The field the ball is boiling through. It is dragged outward as she swells
+  // and lifted as she climbs, so a lump keeps its identity while it moves.
+  vec3 q = dir * (2.55 - 1.05 * grow) + vec3(uSeed * 53.0, -grow * 1.90, uSeed * 17.0);
+  // Domain warp: without it the heads are round and evenly spaced, which is
+  // the one thing a real fireball never is.
+  vec3 w = vec3(fbm3dLow(q * 0.85 + 4.2), fbm3dLow(q * 0.85 + 21.7),
+                fbm3dLow(q * 0.85 + 60.4)) - 0.375;
+  float n = fbm3d(q * 1.20 + w * 1.5);
+  float fine = fbm3dLow(q * 3.60 + 7.7) * 1.34;
+
+  // Cauliflower: the heads stand proud of the mean radius, so the silhouette
+  // is lumpy and the lumps belong to the surface rather than to the outline.
+  // The noise is stretched about its mean first — fbm sits in a narrow band
+  // round a half, and used raw it makes a ball with a dimpled skin.
+  float N = clamp((n - 0.46) * 3.1, -1.0, 1.0);
+  float F = clamp((fine - 0.48) * 2.6, -1.0, 1.0);
+  float lump = 1.00 + 0.34 * N + 0.11 * F;
+  float a = 1.0 - smoothstep(lump * 0.80, lump * 1.02, rn);
+  if (a < 0.004) discard;
+
+  // How much gas the eye is looking through: most at the middle of the disc,
+  // none at the limb. This is what gives it volume.
+  float thick = sqrt(max(0.0, 1.0 - rc * rc)) * a;
+
+  // Soot: made in the flame, rolled out to the surface, and thickening as she
+  // cools. The veins of it across the face are most of what separates a
+  // fireball from a glowing balloon.
+  float vein = smoothstep(0.34, 0.80, fbm3dLow(q * 2.05 + w * 0.8 + 3.1) * 1.34);
+  // Gas this hot cools in a moment; what is left burns on much longer, dirty
+  // and red. Holding the white too long is what makes a blast read as a lamp.
+  float cool = smoothstep(0.00, 0.40, uLife);
+
+  float heat = (1.26 - cool * 1.34) * (0.26 + 0.94 * thick)
+             + 0.30 * N - vein * cool * 0.78;
   // A magazine keeps a white heart long after the skin has gone dirty.
-  heat = max(heat, uPower * (1.0 - smoothstep(0.0, 0.55, uLife)) * (1.0 - smoothstep(0.0, 0.32, r)));
-  float soot = smoothstep(0.40, 1.0, uLife) * (1.0 - d * 0.55);
-  vec3 col = mix(ramp(heat), vec3(0.055, 0.048, 0.042), soot);
+  heat = max(heat, uPower * (1.0 - smoothstep(0.0, 0.60, uLife))
+                   * (1.0 - smoothstep(0.0, 0.42, rn)));
+  heat = clamp(heat, 0.0, 1.0);
 
-  float fade = 1.0 - smoothstep(0.66, 1.0, uLife);
-  gl_FragColor = vec4(col, clamp(d * fade, 0.0, 1.0));
+  float soot = clamp(smoothstep(0.10, 0.75, uLife) * (0.26 + 0.78 * vein)
+                     * (1.0 - thick * 0.50), 0.0, 1.0);
+  vec3 col = mix(ramp(heat), vec3(0.048, 0.042, 0.038), soot);
+
+  // She does not blink out: the skin tears into rags and goes up with the
+  // smoke behind her.
+  float fade = 1.0 - smoothstep(0.52, 0.94, uLife);
+  a *= mix(1.0, smoothstep(0.30, 0.72, fine), smoothstep(0.30, 0.95, uLife));
+  gl_FragColor = vec4(col, clamp(a * fade, 0.0, 1.0));
+}
+`;
+
+// The glare round the fireball. The ball itself is drawn solid so its soot can
+// actually darken what is behind it; this is the light it throws, laid over
+// the top, which is what a bright thing does to a camera and to an eye.
+const GLARE_FRAG = /* glsl */`
+uniform float uAge;      // seconds since the blast, not a fraction of its life
+uniform float uPower;
+varying vec2 vUv;
+
+void main() {
+  float r = length(vUv - 0.5) * 2.0;
+  float grow = 1.0 - exp(-uAge * 5.0);
+  float R = mix(0.18, 1.0, grow);
+  float k = r / R;
+  // Bright core, soft skirt, and gone inside a second — the light off a blast
+  // is over long before the smoke is.
+  float a = (exp(-k * k * 2.6) * 0.80 + exp(-k * 2.1) * 0.26)
+          * (1.0 - smoothstep(0.05, 0.75, uAge));
+  a *= 0.45 + 0.75 * uPower;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(mix(vec3(1.0, 0.44, 0.12), vec3(1.0, 0.88, 0.62), a), a * 0.85);
 }
 `;
 
@@ -105,10 +199,12 @@ void main() {
   float across = 1.0 - smoothstep(0.32, 1.0, abs(uv.x - 0.5) / spread);
   // The head of the column climbs as the blast ages; below it the stem thins.
   float rise = smoothstep(0.0, 0.16, uv.y) * (1.0 - smoothstep(uLife * 1.15, uLife * 1.15 + 0.35, uv.y));
-  float d = across * rise * smoothstep(0.24, 0.76, n);
+  float d = across * rise * smoothstep(0.20, 0.72, n);
 
-  float fade = smoothstep(0.0, 0.10, uLife) * (1.0 - smoothstep(0.55, 1.0, uLife));
-  d = clamp(d * fade * 0.95, 0.0, 1.0);
+  // She stands long after the fire in her has gone out — the column is what is
+  // left of a blast, and cutting it short is what makes one read as a puff.
+  float fade = smoothstep(0.0, 0.08, uLife) * (1.0 - smoothstep(0.66, 1.0, uLife));
+  d = clamp(d * fade * 1.15, 0.0, 1.0);
   if (d < 0.004) discard;
 
   vec3 col = mix(vec3(0.062, 0.055, 0.050), vec3(0.14, 0.125, 0.115), n);
@@ -121,13 +217,14 @@ void main() {
 // all — it is a light too bright to have an edge, and everything round it is
 // washed out. Without it a big blast reads as an orange balloon inflating.
 const FLASH_FRAG = /* glsl */`
-uniform float uLife;
+uniform float uAge;      // seconds
 varying vec2 vUv;
 
 void main() {
   float r = length(vUv - 0.5) * 2.0;
-  // Up in a couple of frames, gone in a tenth of a second.
-  float t = smoothstep(0.0, 0.012, uLife) * (1.0 - smoothstep(0.02, 0.13, uLife));
+  // Up in a couple of frames, gone in a tenth of a second. In seconds, so a
+  // long-burning blast does not hold its flash for half of it.
+  float t = smoothstep(0.0, 0.015, uAge) * (1.0 - smoothstep(0.03, 0.15, uAge));
   float a = exp(-r * r * 5.0) * t;
   if (a < 0.003) discard;
   gl_FragColor = vec4(mix(vec3(1.0, 0.72, 0.34), vec3(1.0, 0.99, 0.95), a), a);
@@ -145,11 +242,13 @@ void main() {
   // A thin shell that thickens and softens as it runs out of energy.
   float w = 0.06 + uLife * 0.22;
   float d = 1.0 - smoothstep(0.0, w, abs(r - front));
-  d *= 1.0 - smoothstep(0.75, 1.0, r);
-  float fade = (1.0 - smoothstep(0.25, 1.0, uLife)) * smoothstep(0.0, 0.06, uLife);
+  d *= 1.0 - smoothstep(0.70, 1.0, r);
+  // Soft on both edges and thin: a shockwave picks dust up off the ground, it
+  // does not lay a plate down on it.
+  float fade = (1.0 - smoothstep(0.20, 0.85, uLife)) * smoothstep(0.0, 0.05, uLife);
   d *= fade;
   if (d < 0.004) discard;
-  gl_FragColor = vec4(vec3(0.62, 0.56, 0.47), d * 0.26);
+  gl_FragColor = vec4(vec3(0.60, 0.54, 0.46), d * 0.17);
 }
 `;
 
@@ -201,11 +300,10 @@ const DEBRIS_MAX = 900;
 
 /** One pool of blasts, from a stick of bombs down to a burning drum going up. */
 export class ExplosionSystem {
-  constructor(scene, { slots = 12 } = {}) {
+  constructor(scene, { slots = 16 } = {}) {
     this.scene = scene;
     this.time = 0;
     this.slots = [];
-    this.next = 0;
 
     for (let i = 0; i < slots; i++) this.slots.push(this.makeSlot());
 
@@ -240,8 +338,8 @@ export class ExplosionSystem {
         vertexShader: BILLBOARD_VERT,
         fragmentShader: frag,
         uniforms: {
-          uLife: { value: 2 }, uSeed: { value: 0 }, uPower: { value: 0 },
-          uSize: { value: 1 }, uRise: { value: 0 }, ...extra,
+          uLife: { value: 2 }, uAge: { value: 99 }, uSeed: { value: 0 },
+          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 }, ...extra,
         },
         transparent: true,
         depthWrite: false,
@@ -256,7 +354,11 @@ export class ExplosionSystem {
       return m;
     };
 
-    const ball = mk(FIREBALL_FRAG, {}, THREE.AdditiveBlending, 11);
+    // The ball is drawn solid: soot that cannot darken what is behind it is not
+    // soot, and an additive fireball is a lamp. The glare over it carries the
+    // light instead.
+    const ball = mk(FIREBALL_FRAG, {}, THREE.NormalBlending, 11);
+    const glare = mk(GLARE_FRAG, {}, THREE.AdditiveBlending, 12);
     const flash = mk(FLASH_FRAG, {}, THREE.AdditiveBlending, 13);
     const plume = mk(PLUME_FRAG, { uLit: { value: new THREE.Color(0.7, 0.28, 0.07) } },
       THREE.NormalBlending, 9);
@@ -280,7 +382,7 @@ export class ExplosionSystem {
     light.visible = false;
     this.scene.add(light);
 
-    return { ball, flash, plume, ring, light, life: 2, dur: 1, size: 1, lightPeak: 0 };
+    return { ball, glare, flash, plume, ring, light, life: 2, dur: 1, size: 1, lightPeak: 0 };
   }
 
   /**
@@ -292,8 +394,15 @@ export class ExplosionSystem {
   blast(x, y, z, {
     size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0,
   } = {}) {
-    const s = this.slots[this.next];
-    this.next = (this.next + 1) % this.slots.length;
+    // A free slot if there is one, and the one furthest through its life if
+    // there is not: cutting a young fireball off in the middle to start another
+    // is the one thing that reads as a glitch rather than as a blast.
+    let s = null;
+    for (const c of this.slots) if (c.life > 1) { s = c; break; }
+    if (!s) {
+      s = this.slots[0];
+      for (const c of this.slots) if (c.life > s.life) s = c;
+    }
 
     s.life = 0;
     s.dur = duration;
@@ -302,6 +411,9 @@ export class ExplosionSystem {
 
     s.ball.visible = true;
     s.ball.position.set(x, y, z);
+    s.glare.visible = true;
+    s.glare.position.set(x, y, z);
+    s.glare.material.uniforms.uPower.value = power;
     s.flash.visible = true;
     s.flash.position.set(x, y + size * 0.3, z);
     s.ball.material.uniforms.uSeed.value = Math.random();
@@ -359,11 +471,18 @@ export class ExplosionSystem {
       s.life += dt / s.dur;
       const t = Math.min(1, s.life);
 
+      // The ball climbs as she goes: gas this hot does not sit where it was
+      // made. Eased so the lift never snaps on.
+      const rise = s.size * 0.55 * (1 - Math.exp(-t * 2.3));
+      const age = s.life * s.dur;
       s.ball.material.uniforms.uLife.value = t;
-      s.flash.material.uniforms.uLife.value = t;
-      s.flash.material.uniforms.uSize.value = s.size * 7.0;
       s.ball.material.uniforms.uSize.value = s.size * 2.2;
-      s.ball.material.uniforms.uRise.value = s.size * 0.35 * Math.pow(t, 0.7);
+      s.ball.material.uniforms.uRise.value = rise;
+      s.flash.material.uniforms.uAge.value = age;
+      s.flash.material.uniforms.uSize.value = s.size * 4.2;
+      s.glare.material.uniforms.uAge.value = age;
+      s.glare.material.uniforms.uSize.value = s.size * 3.4;
+      s.glare.material.uniforms.uRise.value = rise;
 
       if (s.plumeOn) {
         s.plume.material.uniforms.uLife.value = t;
@@ -371,7 +490,7 @@ export class ExplosionSystem {
         s.plume.material.uniforms.uRise.value = s.size * 3.0;
       }
 
-      if (s.flash.visible && t > 0.14) s.flash.visible = false;
+      if (s.flash.visible && age > 0.16) s.flash.visible = false;
       s.ring.material.uniforms.uLife.value = t;
       s.ring.scale.setScalar(s.size * 4.5);
 
@@ -380,9 +499,11 @@ export class ExplosionSystem {
       const flash = Math.exp(-t * 7.0) + Math.exp(-t * 1.6) * 0.35;
       s.light.intensity = s.lightPeak * flash * 0.3;
 
+      if (s.glare.visible && age > 0.8) s.glare.visible = false;
+
       if (s.life > 1) {
         s.ball.visible = s.plume.visible = s.ring.visible = s.light.visible = false;
-        s.flash.visible = false;
+        s.flash.visible = s.glare.visible = false;
       }
     }
   }

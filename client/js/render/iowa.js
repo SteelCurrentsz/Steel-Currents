@@ -195,11 +195,13 @@ function buildHull() {
     (st.deckY - DRAFT) / 2, st.z - 0.3);
   g.add(transom);
 
-  // Teak laid over the steel forward and aft of the superstructure.
+  // Teak laid over the steel forward and aft of the superstructure. The
+  // forecastle patch goes on the bow section, or it stays hanging in the air
+  // when the bow goes.
   for (const [z, len, w] of [[86, 60, 13], [-46, 64, 15]]) {
     const planks = box(w * 2, 0.25, len, P.wood, 0, DECK + 2.0, z);
     planks.position.y = sheerAt(z / (LOA / 2)) + 0.14;
-    g.add(planks);
+    (z >= SPLIT_Z ? fwd : g).add(planks);
   }
 
   return { group: g, forward: fwd, rings };
@@ -425,8 +427,9 @@ export function buildIowa() {
   // -- superstructure ------------------------------------------------------
   const S = DECK + 0.4;
 
-  // 01 deck: the long deckhouse the secondary battery stands on.
-  root.add(box(26, 4.2, 118, P.hullUpper, 0, S + 2.1, 6));
+  // 01 deck: the long deckhouse the secondary battery stands on. It stops at
+  // the break, so nothing of it is left overhanging when the bow goes.
+  root.add(box(26, 4.2, 96, P.hullUpper, 0, S + 2.1, -5));
   // 02 deck, narrower, carrying the funnels and the boat deck.
   root.add(box(20, 3.8, 86, P.hullUpper, 0, S + 6.1, 6));
 
@@ -592,24 +595,32 @@ export function buildIowa() {
 
   // -- railings ------------------------------------------------------------
   // Three courses of wire down each side: at this scale they are what stops the
-  // deck edge from reading as a cliff.
-  const railPts = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = -1 + (2 * i) / 40;
-    const z = (t * LOA) / 2;
-    const w = halfBeam(t) * flareAt(t) - 0.4;
-    for (const h of [0.5, 1.0, 1.4]) railPts.push({ z, w, y: sheerAt(t) + h });
-  }
-  const linePos = [];
-  for (let i = 0; i < railPts.length - 3; i += 3) {
-    for (let k = 0; k < 3; k++) {
-      const a = railPts[i + k], b = railPts[i + 3 + k];
-      for (const s of [-1, 1]) linePos.push(s * a.w, a.y, a.z, s * b.w, b.y, b.z);
+  // deck edge from reading as a cliff. Run in two pieces, parting where the
+  // hull does — one length of wire drawn over the break leaves the outline of
+  // a bow standing in the air after the bow itself has gone.
+  const railMat = new THREE.LineBasicMaterial({ color: P.rail });
+  const rails = (z0, z1) => {
+    const pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = -1 + (2 * i) / 40;
+      const z = (t * LOA) / 2;
+      if (z < z0 || z > z1) continue;
+      const w = halfBeam(t) * flareAt(t) - 0.4;
+      for (const h of [0.5, 1.0, 1.4]) pts.push({ z, w, y: sheerAt(t) + h });
     }
-  }
-  const rGeo = new THREE.BufferGeometry();
-  rGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
-  root.add(new THREE.LineSegments(rGeo, new THREE.LineBasicMaterial({ color: P.rail })));
+    const linePos = [];
+    for (let i = 0; i < pts.length - 3; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        const a = pts[i + k], b = pts[i + 3 + k];
+        for (const s of [-1, 1]) linePos.push(s * a.w, a.y, a.z, s * b.w, b.y, b.z);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+    return new THREE.LineSegments(geo, railMat);
+  };
+  root.add(rails(-LOA, SPLIT_Z));
+  forward.add(rails(SPLIT_Z, LOA));
 
   // Weld her down. The turrets train and the bow section can be blown off, so
   // those are baked on their own and left as separate objects; everything else
