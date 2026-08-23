@@ -166,9 +166,19 @@ function stepMovement(state, ship, dt) {
   // Land: a grounded ship stops dead and takes hull damage.
   const isle = islandAt(state.world, nx, nz, cls.hull.beam);
   if (isle) {
-    const away = headingTo(isle.x, isle.z, ship.x, ship.z);
-    ship.x = isle.x + Math.sin(away) * (isle.r + cls.hull.beam + 4);
-    ship.z = isle.z + Math.cos(away) * (isle.r + cls.hull.beam + 4);
+    if (isle.shore) {
+      // Real coastline. There is no centre to be pushed away from — the shape
+      // is a shape — so she stops where she struck and is backed a length down
+      // her own wake, which is where the water she was last floating in is.
+      const back = Math.sign(ship.speed || 1) * 14;
+      const bx = ship.x - Math.sin(ship.heading) * back;
+      const bz = ship.z - Math.cos(ship.heading) * back;
+      if (!islandAt(state.world, bx, bz, cls.hull.beam)) { ship.x = bx; ship.z = bz; }
+    } else {
+      const away = headingTo(isle.x, isle.z, ship.x, ship.z);
+      ship.x = isle.x + Math.sin(away) * (isle.r + cls.hull.beam + 4);
+      ship.z = isle.z + Math.cos(away) * (isle.r + cls.hull.beam + 4);
+    }
     if (Math.abs(ship.speed) > 4) {
       damageShip(state, ship, null, Math.abs(ship.speed) * 42, 'grounding');
       state.events.push({ e: 'ground', x: ship.x, z: ship.z });

@@ -1,6 +1,9 @@
 // Headless checks for the simulation: ballistics, armour, torpedoes, bots.
 import assert from 'node:assert/strict';
-import { generateWorld } from '../shared/world.js';
+import {
+  generateWorld, landAt, landMask, blockedByLand, islandAt, groundHeight,
+  spawnPoint,
+} from '../shared/world.js';
 import {
   createState, addShip, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip,
@@ -169,6 +172,106 @@ check('a sinking is credited to the shooter', () => {
   assert.equal(b.alive, false);
   assert.equal(a.kills, 1);
   assert.ok(a.damageDealt > 0);
+});
+
+// ------------------------------------------------------- the real coastline --
+
+/** The Strait of Gibraltar: Spain to the north, Morocco to the south, and
+ *  eight miles of water between them. A good box to test land in, because
+ *  every answer can be checked against an atlas. */
+function strait() {
+  return generateWorld(20260822, 'coral_shelf', 'day', 16000, { lon: -5.5, lat: 35.97 });
+}
+
+check('the chart\'s coastline is raised into the battlefield', () => {
+  const w = strait();
+  assert.ok(w.land.length > 0, 'expected coastline in the Strait of Gibraltar');
+  const pts = w.land.reduce((a, r) => a + r.length, 0);
+  assert.ok(pts > 100, `expected a surveyed shore, got ${pts} points`);
+  assert.equal(w.islands.length, 0, 'real land should displace the invented islands');
+  // North and south are ashore; the strait between them is not.
+  assert.ok(landAt(w, 0, 14000), 'Spain should be ashore');
+  assert.ok(landAt(w, 0, -14000), 'Morocco should be ashore');
+  assert.ok(!landAt(w, 0, 0), 'the strait should be open water');
+  // Open ocean has no land at all.
+  const deep = generateWorld(1, 'open_ocean', 'day', 16000, { lon: -30, lat: 45 });
+  assert.equal(deep.land.length, 0, 'the mid-Atlantic has no coast in it');
+});
+
+check('the mask the sim collides on matches the coastline it was cut from', () => {
+  const w = strait();
+  const m = landMask(w);
+  // Point in polygon over the rings themselves, even-odd, which is what the
+  // scanline fill is meant to reproduce.
+  const inPolys = (x, z) => {
+    let n = 0;
+    for (const r of w.land) {
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [xi, zi] = r[i];
+        const [xj, zj] = r[j];
+        if ((zi > z) === (zj > z)) continue;
+        if (xi + ((z - zi) / (zj - zi)) * (xj - xi) > x) n++;
+      }
+    }
+    return n % 2 === 1;
+  };
+  let checked = 0;
+  let agree = 0;
+  for (let i = 0; i < 4000; i++) {
+    const x = ((i * 37) % 1000) / 1000 * 30000 - 15000;
+    const z = ((i * 71) % 997) / 997 * 30000 - 15000;
+    // Skip anything within a cell of the shore: the mask is sampled at cell
+    // centres and cannot be expected to agree finer than that.
+    if (Math.abs(groundHeight(w, x, z)) < 60) continue;
+    checked++;
+    if (landAt(w, x, z) === inPolys(x, z)) agree++;
+  }
+  assert.ok(checked > 500, `expected a decent sample, got ${checked}`);
+  assert.equal(agree, checked, `${checked - agree} of ${checked} points disagreed`);
+});
+
+check('a ship driven at the coast runs aground on it', () => {
+  const w = strait();
+  const state = createState(w, { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  ship.x = 0; ship.z = 6000; ship.heading = 0;   // north, at Spain
+  ship.notch = 4;
+  const hp0 = ship.hp;
+  let grounded = false;
+  for (let i = 0; i < 60 * 60 * 4; i++) {
+    for (const ev of step(state, DT)) if (ev.e === 'ground') grounded = true;
+    if (grounded) break;
+  }
+  assert.ok(grounded, 'she should have gone aground on the Spanish shore');
+  assert.ok(ship.hp < hp0, 'grounding should hurt');
+  assert.ok(!landAt(w, ship.x, ship.z), 'she should be left floating, not inland');
+  assert.ok(Math.abs(ship.speed) < 4, `she should be stopped, making ${ship.speed}`);
+});
+
+check('the coast breaks a sight line and stops a shell', () => {
+  const w = strait();
+  // Straight through Spain.
+  assert.ok(blockedByLand(w, -6000, 15000, 6000, 15000) || landAt(w, 0, 15000),
+    'a sight line through Spain should be blocked');
+  // Down the middle of the strait, which is open water the whole way.
+  assert.ok(!blockedByLand(w, -14000, 0, 14000, 0), 'the strait itself is clear');
+  // A shell arriving ashore finds land under it.
+  assert.ok(islandAt(w, 0, 14000, 0), 'a shell on the beach should find land');
+  assert.equal(islandAt(w, 0, 0, 0), null, 'a shell in the strait should not');
+});
+
+check('fleets form up on water, not on a headland', () => {
+  const w = strait();
+  for (const team of [0, 1]) {
+    for (let i = 0; i < 8; i++) {
+      const p = spawnPoint(w, team, i);
+      assert.ok(!landAt(w, p.x, p.z, 200),
+        `team ${team} ship ${i} spawned ashore at ${Math.round(p.x)},${Math.round(p.z)}`);
+    }
+  }
+  for (const c of w.caps) {
+    assert.ok(!landAt(w, c.x, c.z), `capture zone ${c.id} is ashore`);
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

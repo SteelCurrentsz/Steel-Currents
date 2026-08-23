@@ -5,7 +5,7 @@ import { Ocean, OCEAN_PRESETS } from './ocean.js';
 import { buildShip } from './ships.js';
 import { Effects } from './effects.js';
 import { QUALITY } from '../settings.js';
-import { MAP_HALF } from '../../../shared/world.js';
+import { MAP_HALF, landMask, groundHeight } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { makeRng } from '../../../shared/math.js';
 
@@ -54,6 +54,95 @@ function starField(count = 700) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xcddcf2, size: 42, sizeAttenuation: true, transparent: true, opacity: 0.75 }));
+}
+
+/**
+ * The real coastline, built as ground.
+ *
+ * Raised off the same grid the simulation runs its collision against, so what
+ * is drawn and what a hull runs aground on are one thing rather than two that
+ * agree most of the time. Every cell that is ashore, and a two-cell apron of
+ * shallows round it, becomes a quad at the height the sim says the ground is;
+ * the coast then falls out of the grid where the height crosses the waterline
+ * instead of being drawn as a separate line.
+ *
+ * One mesh for the lot: a coastal battlefield is fifty thousand cells of land
+ * and that is not fifty thousand draw calls.
+ */
+function buildCoast(world) {
+  const m = landMask(world);
+  if (!m.any) return null;
+  // Drawn at twice the cell the sim collides on. The coastline carries its
+  // detail at about seven hundred metres, so three hundred holds all of it,
+  // and it is a quarter of the triangles.
+  const STEP = 2;
+  const cell = m.cell * STEP;
+  const n = Math.ceil((m.half * 2) / cell) + 1;
+  const half = m.half;
+  const at = (i, j) => {
+    const x = -half + (i + 0.5) * cell;
+    const z = -half + (j + 0.5) * cell;
+    const mi = Math.floor((x + half) / m.cell);
+    const mj = Math.floor((z + half) / m.cell);
+    if (mi < 0 || mj < 0 || mi >= m.n || mj >= m.n) return 0;
+    return m.grid[mj * m.n + mi];
+  };
+
+  // Height at a grid corner, cached: every corner is asked for by up to four
+  // quads and the shore distance behind it is the expensive part.
+  const hs = new Float32Array((n + 1) * (n + 1)).fill(NaN);
+  const height = (i, j) => {
+    const k = j * (n + 1) + i;
+    if (!Number.isNaN(hs[k])) return hs[k];
+    const x = -half + i * cell;
+    const z = -half + j * cell;
+    hs[k] = groundHeight(world, x, z);
+    return hs[k];
+  };
+
+  const pos = [];
+  const col = [];
+  // Two greens and a sand, picked by height: beach, scrub, high ground.
+  const shade = (h) => {
+    if (h < 6) return [0.62, 0.58, 0.44];
+    if (h < 60) return [0.30, 0.35, 0.22];
+    return [0.24, 0.27, 0.20];
+  };
+
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      // Land, or within two cells of it: the apron carries the beach down
+      // under the water so the shore does not end in a cliff.
+      let near = false;
+      for (let dj = -1; dj <= 1 && !near; dj++) {
+        for (let di = -1; di <= 1; di++) if (at(i + di, j + dj)) { near = true; break; }
+      }
+      if (!near) continue;
+
+      const x0 = -half + i * cell;
+      const z0 = -half + j * cell;
+      const h00 = height(i, j);
+      const h10 = height(i + 1, j);
+      const h11 = height(i + 1, j + 1);
+      const h01 = height(i, j + 1);
+      if (h00 < -20 && h10 < -20 && h11 < -20 && h01 < -20) continue;
+
+      // Wound anticlockwise seen from above, so the ground faces the sky.
+      pos.push(x0, h00, z0, x0 + cell, h11, z0 + cell, x0 + cell, h10, z0);
+      pos.push(x0, h00, z0, x0, h01, z0 + cell, x0 + cell, h11, z0 + cell);
+      const a = shade((h00 + h10 + h11 + h01) / 4);
+      for (let v = 0; v < 6; v++) col.push(a[0], a[1], a[2]);
+    }
+  }
+  if (!pos.length) return null;
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+  }));
 }
 
 /** Islands: a jagged low-poly cone plus a foam ring at the waterline. */
@@ -193,6 +282,8 @@ export class BattleScene {
     ));
 
     for (const isle of world.islands) this.scene.add(buildIsland(isle));
+    const coast = buildCoast(world);
+    if (coast) this.scene.add(coast);
     this.addBorder();
     this.addCapRings();
 

@@ -304,57 +304,56 @@ export class DeployMap {
   }
 
   /**
-   * Put one corner somewhere, and bring the two either side of it along so the
-   * box stays a box: each of them shares one edge with the corner that moved.
+   * Put one corner somewhere. It goes alone: the other three stay where they
+   * were, so the four of them can be worked into any shape a captain wants —
+   * a rectangle, a diamond, a wedge running along a coast. Only the corner
+   * under the finger moves.
    */
   setCorner(i, lon, lat) {
-    const c = this.pins;
-    c[i] = { lon, lat: clamp(lat, -89, 89) };
-    const prev = (i + 3) % 4;
-    const next = (i + 1) % 4;
-    // Laid out clockwise from the north-west, so a corner shares its latitude
-    // with one neighbour and its longitude with the other, alternating.
-    if (i % 2 === 0) {
-      c[next] = { lon: c[next].lon, lat: c[i].lat };
-      c[prev] = { lon: c[i].lon, lat: c[prev].lat };
-    } else {
-      c[next] = { lon: c[i].lon, lat: c[next].lat };
-      c[prev] = { lon: c[prev].lon, lat: c[i].lat };
-    }
+    this.pins[i] = { lon, lat: clamp(lat, -89, 89) };
   }
 
   /**
-   * Drag one corner. It is held to the seventy-thousand-yard limit against the
-   * corner opposite it, and to a minimum, so the box can neither be stretched
-   * past what the game will lay out nor pinched shut. The limits are measured
-   * the same way the readout measures, so what it says is what is enforced.
+   * Drag one corner, held to the seventy-thousand-yard limit. The limit is on
+   * how far the four of them reach between them, so a corner can be taken as
+   * far as it likes in any direction until the box is as wide or as deep as
+   * the game will lay out, and then no further — and the other three are not
+   * dragged along to enforce it.
    */
   movePin(i, at) {
     if (i < 0) return;
-    const far = this.pins[(i + 2) % 4];
-    this.setCorner(i, at.lon, at.lat);
+    // What the other three already reach, in degrees.
+    let lo = { lon: Infinity, lat: Infinity };
+    let hi = { lon: -Infinity, lat: -Infinity };
+    this.pins.forEach((p, k) => {
+      if (k === i) return;
+      lo.lon = Math.min(lo.lon, p.lon); hi.lon = Math.max(hi.lon, p.lon);
+      lo.lat = Math.min(lo.lat, p.lat); hi.lat = Math.max(hi.lat, p.lat);
+    });
 
-    // A degenerate box has no direction to be pushed back out along, so give
-    // it one before scaling.
-    const seed = (cur, ref, deg) => (Math.abs(cur - ref) < 1e-9 ? ref + deg : cur);
-    this.setCorner(i,
-      seed(this.pins[i].lon, far.lon, MIN_KM * lonKm(far.lat)),
-      seed(this.pins[i].lat, far.lat, MIN_KM / KM_PER_DEG));
+    const c = this.centre;
+    // lonKm gives degrees of longitude to the kilometre, so a distance in
+    // kilometres becomes a span in degrees by multiplying, not dividing.
+    const degLon = lonKm(c.lat);
+    const degLat = 1 / KM_PER_DEG;
+    const maxLon = BATTLE_KM * degLon;
+    const maxLat = BATTLE_KM * degLat;
 
-    for (let pass = 0; pass < 3; pass++) {
-      const e = this.extent();
-      const c = this.pins[i];
-      const fix = (size, cur, ref) => {
-        if (size > BATTLE_KM) return ref + (cur - ref) * (BATTLE_KM / size);
-        if (size < MIN_KM) return ref + (cur - ref) * (MIN_KM / Math.max(size, 1e-6));
-        return cur;
-      };
-      const lon = fix(e.w, c.lon, far.lon);
-      const lat = fix(e.h, c.lat, far.lat);
-      if (lon === c.lon && lat === c.lat) break;
-      this.setCorner(i, lon, lat);
+    // Anywhere that keeps the whole box inside the limit.
+    let lon = clamp(at.lon, hi.lon - maxLon, lo.lon + maxLon);
+    let lat = clamp(at.lat, hi.lat - maxLat, lo.lat + maxLat);
+    // And a floor under it, so a corner dropped on top of another one does not
+    // leave a battlefield with no sea room in it.
+    const minLon = MIN_KM * degLon;
+    const minLat = MIN_KM * degLat;
+    if (hi.lon - lo.lon < minLon && lon > lo.lon - minLon && lon < hi.lon + minLon) {
+      lon = lon < (lo.lon + hi.lon) / 2 ? lo.lon - minLon : hi.lon + minLon;
+    }
+    if (hi.lat - lo.lat < minLat && lat > lo.lat - minLat && lat < hi.lat + minLat) {
+      lat = lat < (lo.lat + hi.lat) / 2 ? lo.lat - minLat : hi.lat + minLat;
     }
 
+    this.setCorner(i, lon, lat);
     this.checkPins();
     this.result = null;
     this.dirty = true;
@@ -367,6 +366,16 @@ export class DeployMap {
    * seventy-thousand-yard field moved south would otherwise quietly grow.
    */
   clampBox() {
+    // A box with no width to it cannot be scaled back out — nought times
+    // anything is nought — so it is laid out afresh instead. It only happens
+    // if something has squashed it flat, but a battlefield with no sea room in
+    // it is not something to leave lying about.
+    const e0 = this.extent();
+    if (e0.w < MIN_KM * 0.02 || e0.h < MIN_KM * 0.02) {
+      const c0 = this.centre;
+      this.setBox(c0.lon, clamp(c0.lat, -80, 80), MIN_KM * 2);
+      return;
+    }
     for (let pass = 0; pass < 3; pass++) {
       const e = this.extent();
       const c = this.centre;
@@ -385,10 +394,22 @@ export class DeployMap {
   /** Carry the whole box somewhere else, keeping its shape. */
   moveBox(at) {
     const c = this.centre;
-    const dLon = at.lon - c.lon;
-    const dLat = at.lat - c.lat;
+    // The whole box has to stay on the chart, so the limit is on where its
+    // centre may go rather than on each corner. Clamping the corners flattens
+    // the box against the pole instead of stopping it at one.
+    const lats = this.pins.map((p) => p.lat);
+    const up = Math.max(...lats) - c.lat;
+    const down = c.lat - Math.min(...lats);
+    const lat = clamp(at.lat, -89 + down, 89 - up);
+    // Carried by the ground it covers, not by the degrees it spans. A box of
+    // fixed longitude is a different size at every latitude, so translating in
+    // degrees would have it swell on the way to the equator and pinch shut on
+    // the way to the pole.
+    const from = lonKm(c.lat);
+    const to = lonKm(lat);
     this.pins = this.pins.map((p) => ({
-      lon: p.lon + dLon, lat: clamp(p.lat + dLat, -89, 89),
+      lon: at.lon + ((p.lon - c.lon) / from) * to,
+      lat: p.lat + (lat - c.lat),
     }));
     this.clampBox();
     this.checkPins();

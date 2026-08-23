@@ -1,144 +1,22 @@
 // The world chart behind the briefing screens.
 //
 // The coastlines are Natural Earth 1:50m — real survey data, not an
-// approximation drawn from memory. It ships as TopoJSON (see worlddata.js) and
-// is decoded here: arcs are shared between neighbouring rings and stored as
-// deltas on a quantisation grid, which is why a whole world of coastline costs
-// about half a megabyte instead of several.
+// approximation drawn from memory. It ships as TopoJSON (see
+// shared/worlddata.js), which stores arcs as deltas on a quantisation grid and
+// shares them between neighbouring shapes; that is why a whole world of
+// coastline costs about half a megabyte instead of several.
 //
 // Coordinates throughout are [longitude, latitude].
 
-import { LAND_TOPOLOGY } from './worlddata.js';
+// The coastline itself — decoding, the shapes, and the water test — is shared
+// with the simulation rather than kept here. The chart and the battlefield have
+// to be raised from exactly the same polygons: a coast the chart draws in one
+// place and the sim collides on in another is worse than no coast at all.
+import { landRings, boxedLand, isWater } from '../../shared/coast.js';
 import { seaLabels, oceanLabels } from './waters.js';
 
-/** Decode the delta-encoded arcs into absolute lon/lat once, then cache. */
-let ARCS = null;
-function arcs() {
-  if (ARCS) return ARCS;
-  const { scale, translate } = LAND_TOPOLOGY.transform;
-  ARCS = LAND_TOPOLOGY.arcs.map((arc) => {
-    let x = 0;
-    let y = 0;
-    const out = new Array(arc.length);
-    for (let i = 0; i < arc.length; i++) {
-      x += arc[i][0];
-      y += arc[i][1];
-      out[i] = [x * scale[0] + translate[0], y * scale[1] + translate[1]];
-    }
-    return out;
-  });
-  return ARCS;
-}
+export { isWater };
 
-/** Stitch a ring's arc indices into one run of points. A negative index means
- *  that arc traversed backwards, which is how TopoJSON shares a coastline
- *  between the two shapes that meet along it. */
-function ring(indices) {
-  const all = arcs();
-  const pts = [];
-  for (const idx of indices) {
-    const arc = idx < 0 ? all[~idx].slice().reverse() : all[idx];
-    // The joining point is shared, so drop the duplicate.
-    for (let i = pts.length ? 1 : 0; i < arc.length; i++) pts.push(arc[i]);
-  }
-  return unwrap(pts);
-}
-
-/** Keep a ring's longitudes continuous.
- *
- *  Shapes that straddle the antimeridian — Fiji, Wrangel, Chukotka, Antarctica
- *  — step from +179 to -179 between two neighbouring points. Drawn literally
- *  that is a straight line clear across the chart, which is what those stray
- *  horizontal streaks were. Carrying the offset instead lets the ring run past
- *  180 and stay in one piece; the copies drawn at plus and minus 360 put it
- *  back on the far side. */
-function unwrap(pts) {
-  if (pts.length < 2) return pts;
-  const out = [pts[0]];
-  let prev = pts[0][0];
-  for (let i = 1; i < pts.length; i++) {
-    let lon = pts[i][0];
-    while (lon - prev > 180) lon -= 360;
-    while (prev - lon > 180) lon += 360;
-    out.push([lon, pts[i][1]]);
-    prev = lon;
-  }
-  return out;
-}
-
-let RINGS = null;
-/** Every land polygon as [exteriorRing, ...holes]. Lakes arrive as holes, so
- *  the Caspian and the Great Lakes come out of the data rather than being
- *  patched back in afterwards. */
-function landRings() {
-  if (RINGS) return RINGS;
-  RINGS = LAND_TOPOLOGY.polygons.map((poly) => poly.map(ring));
-  return RINGS;
-}
-
-/**
- * Land polygons with their bounding boxes, so a point can be tested against the
- * handful of shapes that could possibly contain it rather than all 1,419.
- */
-let BOXED = null;
-function boxedLand() {
-  if (BOXED) return BOXED;
-  BOXED = landRings().map((poly) => {
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const [lon, lat] of poly[0]) {
-      if (lon < x0) x0 = lon;
-      if (lon > x1) x1 = lon;
-      if (lat < y0) y0 = lat;
-      if (lat > y1) y1 = lat;
-    }
-    return { poly, x0, x1, y0, y1 };
-  });
-  return BOXED;
-}
-
-/** Crossing count of a ray east from the point over one ring. */
-function crossings(ring_, lon, lat) {
-  let n = 0;
-  for (let i = 0, j = ring_.length - 1; i < ring_.length; j = i++) {
-    const [xi, yi] = ring_[i];
-    const [xj, yj] = ring_[j];
-    if ((yi > lat) !== (yj > lat)
-      && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) n++;
-  }
-  return n;
-}
-
-/**
- * Is this point at sea?
- *
- * Tested against the same polygons the chart draws, with the same even-odd
- * rule, so a lake counts as water and an island in a lake counts as land — and
- * so the answer can never disagree with what is on the screen. Rings are stored
- * unwrapped past the antimeridian, hence the three shifts.
- */
-export function isWater(lon, lat) {
-  if (lat > 90 || lat < -90) return false;
-  for (const b of boxedLand()) {
-    for (const shift of [-360, 0, 360]) {
-      const l = lon + shift;
-      if (l < b.x0 || l > b.x1 || lat < b.y0 || lat > b.y1) continue;
-      let n = 0;
-      for (const r of b.poly) n += crossings(r, l, lat);
-      if (n % 2 === 1) return false;
-    }
-  }
-  return true;
-}
-
-/**
- * The side of the largest square of clear water that will fit centred on a
- * point, in kilometres, capped at `maxKm`.
- *
- * The battlefield is a square of sea; if the water a captain has picked is
- * narrower than the full battlefield, the battlefield is what fits. Bisection
- * over a sampled ring is exact enough at this scale — half a kilometre either
- * way is a tenth of a pixel on the chart.
- */
 /**
  * Is there open water within `km` of this point?
  *

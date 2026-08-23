@@ -239,6 +239,20 @@ export class Hud {
       ctx.arc(toX(isle.x), toY(isle.z), isle.r * scale, 0, Math.PI * 2);
       ctx.fill();
     }
+    // The real coastline, the shape the chart drew it: a captain looking at
+    // the plot has to see the same headland the lookouts do. Filled even-odd
+    // in one path, so a lake or an inland sea comes out as the water it is.
+    const land = this.world.land || [];
+    if (land.length) {
+      ctx.beginPath();
+      for (const ring of land) {
+        if (ring.length < 3) continue;
+        ctx.moveTo(toX(ring[0][0]), toY(ring[0][1]));
+        for (let i = 1; i < ring.length; i++) ctx.lineTo(toX(ring[i][0]), toY(ring[i][1]));
+        ctx.closePath();
+      }
+      ctx.fill('evenodd');
+    }
 
     for (const cap of this.world.caps) {
       const snapCap = snap && snap.caps.find((c) => c.id === cap.id);

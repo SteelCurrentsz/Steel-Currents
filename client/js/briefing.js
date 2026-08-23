@@ -233,6 +233,8 @@ export class Briefing {
       seed,
       half: Math.max(MAP_HALF_MIN, (d.km * 1000) / 2),
       place: d.name,
+      // The position is what puts the real coastline into the battlefield:
+      // both ends raise the same land from it.
       lon: d.lon,
       lat: d.lat,
       private: true,

@@ -78,6 +78,8 @@ export class LocalNet extends EventTarget {
           axisClass: msg.axisClass,
           seed: msg.seed,
           half: msg.half,
+          lon: msg.lon,
+          lat: msg.lat,
         });
         break;
 
@@ -120,6 +122,10 @@ export class LocalNet extends EventTarget {
       time: opts.time,
       seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
       half: Number.isFinite(opts.half) ? opts.half : undefined,
+      // Where on the earth this is being fought, which is what puts the real
+      // coastline into the battlefield.
+      place: (Number.isFinite(opts.lon) && Number.isFinite(opts.lat))
+        ? { lon: opts.lon, lat: opts.lat } : undefined,
       onEmpty: () => { this.room = null; },
     });
     this.room = room;
