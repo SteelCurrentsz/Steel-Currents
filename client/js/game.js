@@ -345,18 +345,25 @@ export class Battle {
       const z = isSelf ? this.localShip.z : prev ? lerp(s.z, prev.z, t) : s.z;
       const h = isSelf ? this.localShip.heading : prev ? s.h + angleDelta(s.h, prev.h) * t : s.h;
 
-      const wave = this.scene.ocean.heightAt(x, z);
-      view.group.position.set(x, wave * 0.5 - 1.0, z);
-      view.group.rotation.y = h;
+      // She takes the attitude the water under her puts on: the sea is sampled
+      // at her bow, her stern and both beams, so a hull two hundred metres long
+      // rides the swell rather than following every wave in it.
+      const cls = getClass(s.c);
+      const att = this.scene.ocean.attitude(x, z, h, cls.hull.length, cls.hull.beam);
       const speed = isSelf ? this.localShip.speed : s.v;
-      view.group.rotation.z = Math.sin(performance.now() * 0.0006 + s.i) * 0.012 - (isSelf ? this.localShip.rudder * 0.05 : 0);
-      view.group.rotation.x = Math.sin(performance.now() * 0.0004 + s.i * 2) * 0.008;
+      view.group.position.set(x, att.heave * 0.85 - 1.0, z);
+      view.group.rotation.set(0, 0, 0);
+      view.group.rotation.order = 'YXZ';
+      view.group.rotation.y = h;
+      // Pitch and roll from the water, plus the heel a rudder puts on her.
+      view.group.rotation.x = att.pitch * 0.85;
+      view.group.rotation.z = att.roll * 0.75 - (isSelf ? this.localShip.rudder * 0.05 : 0);
 
       const turrets = isSelf ? this.localShip.turrets.map((tt) => tt.angle) : s.tu;
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
 
-      const load = clamp(Math.abs(speed) / getClass(s.c).maxSpeed, 0, 1);
-      view.wake.material.opacity = load * 0.85;
+      view.wake.update(dt, x, z, h, speed, this.scene.ocean);
+      const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
       view.group.visible = !!s.a;
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 

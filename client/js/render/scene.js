@@ -4,6 +4,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS } from './ocean.js';
 import { buildShip } from './ships.js';
 import { Effects } from './effects.js';
+import { Wake } from './wake.js';
 import { QUALITY } from '../settings.js';
 import { MAP_HALF, landMask, groundHeight } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
@@ -203,31 +204,10 @@ export class ShipView {
     scene.add(this.group);
 
     const len = this.cls.hull.length;
-    const wakeGeo = new THREE.PlaneGeometry(1, len * 3.4, 1, 12);
-    wakeGeo.rotateX(-Math.PI / 2);
-    wakeGeo.translate(0, 0, -len * 1.7);
-    {
-      const pos = wakeGeo.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        const z = pos.getZ(i);
-        const k = Math.min(1, -z / (len * 3.4));
-        pos.setX(i, pos.getX(i) * this.cls.hull.beam * (0.9 + k * 3.4));
-      }
-      pos.needsUpdate = true;
-    }
-    const c = document.createElement('canvas');
-    c.width = 8; c.height = 128;
-    const ctx = c.getContext('2d');
-    const grad = ctx.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0, 'rgba(226,240,252,0.75)');
-    grad.addColorStop(0.35, 'rgba(200,225,245,0.28)');
-    grad.addColorStop(1, 'rgba(190,220,245,0)');
-    ctx.fillStyle = grad; ctx.fillRect(0, 0, 8, 128);
-    this.wake = new THREE.Mesh(wakeGeo, new THREE.MeshBasicMaterial({
-      map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, opacity: 0,
-    }));
-    this.wake.position.set(0, 1.4, -len * 0.42);
-    this.group.add(this.wake);
+    // The wake is laid in the world rather than towed behind her, so it stays
+    // where she has been and curves when she does.
+    this.wake = new Wake(scene, { length: len, beam: this.cls.hull.beam });
+    this.wake.attach(this.group);
 
     // A marker so friend and foe are readable at a glance from the bridge.
     const ringGeo = new THREE.RingGeometry(len * 0.62, len * 0.68, 28);
@@ -242,6 +222,7 @@ export class ShipView {
 
   dispose(scene) {
     scene.remove(this.group);
+    this.wake.dispose();
   }
 }
 

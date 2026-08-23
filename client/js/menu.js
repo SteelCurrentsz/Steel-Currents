@@ -5,6 +5,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
+import { Wake } from './render/wake.js';
 import { buildShip } from './render/ships.js';
 import { buildHarbour, islandHeight } from './render/harbour.js';
 import { FireSystem } from './render/fire.js';
@@ -27,7 +28,30 @@ const CAM = {
 // Heading set so the port opens a little off the starboard bow, clear of
 // the wordmark, and slow enough that the framing holds.
 const OWN_HEADING = -0.10;
+// How fast she crosses the scene. This is a framing rate, not a sea speed:
+// slow, so the bearing on the port opens over the whole time the menu is up.
 const OWN_SPEED = 2.0;
+// What her bow wave is made to think she is doing — a proper eighteen knots,
+// which is what a battleship standing in to bombard would be making. Kept
+// apart from OWN_SPEED so the white water looks right without the framing
+// running away with itself.
+const OWN_WAKE_SPEED = 9.5;
+
+// A destroyer working a screening station out ahead of us. She is there for
+// her wake: the camera sits on our own bridge looking forward, so our bow wave
+// is under the forecastle and out of the picture, and a ship under helm shows
+// what a wake does that a ship on a straight course cannot — it stays in the
+// water she has been through, so it lies astern in a long curve instead of
+// swinging round with her. She works a slow oval, easing and working up as she
+// comes round, which keeps her in the frame without her ever standing still.
+// Her station is a bearing and a distance from us rather than a place on the
+// chart, so she stays with us as we stand on — that is what keeping station
+// means, and it is also the only way she is still in the picture ten minutes
+// after the menu came up.
+// The oval is kept near enough round that she never eases below about fifteen
+// knots at the ends of it — a destroyer coasting to a stop on her patrol would
+// leave no wake at all, which rather defeats the point of her.
+const ESCORT = { ahead: 760, abeam: -40, a: 300, b: 180, w: 0.036 };
 // How far off she is standing. The island is a couple of thousand metres away,
 // which is what puts the whole of it inside the frame with sea either side of
 // it — close in it read as a coastline running off both edges.
@@ -238,6 +262,7 @@ export class TitleScene {
     });
     this.scene.add(this.own.group);
     this.addBowWave();
+    this.addEscort();
 
     this.time = Math.random() * 30;
     this.travel = 20;
@@ -282,39 +307,66 @@ export class TitleScene {
 
   /** The white water our own bow is pushing up, which is what says "under way". */
   addBowWave() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 16; canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    const grad = ctx.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0, 'rgba(255,236,214,0.85)');
-    grad.addColorStop(0.35, 'rgba(232,206,186,0.42)');
-    grad.addColorStop(1, 'rgba(210,190,175,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 16, 128);
-    const tex = new THREE.CanvasTexture(canvas);
+    // The same wake the battle uses, so the water round the bow behaves the
+    // same on both screens. Only the bow wave is built: the camera sits on the
+    // bridge looking forward, so the trail astern would never be in frame.
+    this.wake = new Wake(this.scene, {
+      length: this.own.length, beam: this.own.beam, trail: false,
+    });
+    this.wake.attach(this.own.group);
+  }
 
-    const L = this.own.length;
-    for (const side of [-1, 1]) {
-      const geo = new THREE.PlaneGeometry(20, 150, 1, 10);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, depthWrite: false,
-        blending: THREE.AdditiveBlending, opacity: 0.5,
-      }));
-      mesh.position.set(side * (this.own.beam * 0.42), 1.5, L * 0.22);
-      mesh.rotation.y = side * 0.06;
-      this.own.group.add(mesh);
-    }
-    // The wake astern.
-    const wakeGeo = new THREE.PlaneGeometry(46, 420, 1, 14);
-    wakeGeo.rotateX(-Math.PI / 2);
-    wakeGeo.translate(0, 0, -210);
-    const wake = new THREE.Mesh(wakeGeo, new THREE.MeshBasicMaterial({
-      map: tex, transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, opacity: 0.3,
-    }));
-    wake.position.set(0, 1.4, -L * 0.48);
-    this.own.group.add(wake);
+  /** The destroyer on her screening station, and the wake she is here for. */
+  addEscort() {
+    this.escort = buildShip('fletcher');
+    this.escort.turrets.forEach((t) => { t.rotation.y = 0.9; });
+    this.scene.add(this.escort.group);
+    this.escortT = Math.PI * 0.7;
+    this.escortHead = 0;
+    this.escortWake = new Wake(this.scene, {
+      length: this.escort.length, beam: this.escort.beam, foam: 0xd6e6f6,
+    });
+    this.escortWake.attach(this.escort.group);
+  }
+
+  /** Take her round her oval one frame's worth. */
+  stepEscort(dt) {
+    const e = this.escort;
+    if (!e) return;
+    this.escortT += dt * ESCORT.w;
+    const th = this.escortT;
+    // Her station: so far ahead of us and so far out on the bow, carried along
+    // with us on our course.
+    const own = this.own.group.position;
+    const ch = Math.cos(OWN_HEADING), sh = Math.sin(OWN_HEADING);
+    const cx = own.x + sh * ESCORT.ahead + ch * ESCORT.abeam;
+    const cz = own.z + ch * ESCORT.ahead - sh * ESCORT.abeam;
+    const x = cx + ESCORT.a * Math.cos(th);
+    const z = cz + ESCORT.b * Math.sin(th);
+    // Her course and speed come out of the track rather than being set beside
+    // it, so the wake she lays and the way she is pointing always agree. The
+    // station's own way through the water counts towards both.
+    const vx = sh * OWN_SPEED - ESCORT.a * ESCORT.w * Math.sin(th);
+    const vz = ch * OWN_SPEED + ESCORT.b * ESCORT.w * Math.cos(th);
+    const head = Math.atan2(vx, vz);
+    const speed = Math.hypot(vx, vz);
+    // Rate of turn, for the heel. Taken as the shortest way round so it does
+    // not spike when the heading crosses astern.
+    let d = head - this.escortHead;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    this.escortHead = head;
+
+    const att = this.ocean.attitude(x, z, head, e.length, e.beam);
+    const g = e.group;
+    g.rotation.order = 'YXZ';
+    g.position.set(x, att.heave - 0.8, z);
+    g.rotation.y = head;
+    g.rotation.x = att.pitch;
+    // A destroyer heels outward into her turn, and hard — twelve hundred tons
+    // on a narrow beam. That heel is most of what says she is under helm.
+    g.rotation.z = att.roll - (dt > 0 ? d / dt : 0) * 3.0;
+    this.escortWake.update(dt, x, z, head, speed, this.ocean);
   }
 
   /**
@@ -410,6 +462,7 @@ export class TitleScene {
     }
 
     this.stepBattleship(dt);
+    this.stepEscort(dt);
 
     // Somebody is briefed onto the crane until it is down; once it is, the
     // wreck lies in the basin for a while before the screen stands it up again
@@ -456,13 +509,18 @@ export class TitleScene {
       OWN_START + Math.cos(OWN_HEADING) * this.travel);
     g.rotation.y = OWN_HEADING;
 
-    // She rides the swell; the camera is bolted to her, so the horizon moves.
-    const roll = Math.sin(this.time * 0.42) * 0.019 + Math.sin(this.time * 0.97) * 0.007;
-    const pitch = Math.sin(this.time * 0.55 + 1.1) * 0.012;
-    const heave = Math.sin(this.time * 0.48) * 1.1;
-    g.rotation.z = roll;
-    g.rotation.x = pitch;
-    g.position.y = heave - 1.0;
+    // She rides the swell — the real swell, read off the same wave train the
+    // ocean shader is drawing, so she lifts to the seas you can see running
+    // under her. The camera is bolted to her, so the horizon moves with it.
+    // Damped: forty thousand tons does not follow the water exactly, and the
+    // view has to stay steady enough to read the wordmark over.
+    const att = this.ocean.attitude(g.position.x, g.position.z, OWN_HEADING,
+      this.own.length, this.own.beam);
+    g.rotation.order = 'YXZ';
+    g.rotation.z = att.roll * 0.55;
+    g.rotation.x = att.pitch * 0.60;
+    g.position.y = att.heave * 0.55 - 1.0;
+    this.wake.update(dt, g.position.x, g.position.z, OWN_HEADING, OWN_WAKE_SPEED, null);
 
     // The camera rides the bridge, so it inherits her motion exactly. The
     // transform has to be refreshed before it is read, or the view lags a frame.
