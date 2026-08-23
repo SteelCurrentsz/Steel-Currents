@@ -190,7 +190,7 @@ function buildIsland(isle) {
 
 /** A ship as it appears on screen: hull, turrets, wake ribbon, damage state. */
 export class ShipView {
-  constructor(scene, classId, team, isSelf) {
+  constructor(scene, classId, team, isSelf, ocean = null) {
     const built = buildShip(classId);
     this.group = built.group;
     this.turrets = built.turrets;
@@ -206,8 +206,9 @@ export class ShipView {
     const len = this.cls.hull.length;
     // The wake is laid in the world rather than towed behind her, so it stays
     // where she has been and curves when she does.
-    this.wake = new Wake(scene, { length: len, beam: this.cls.hull.beam });
-    this.wake.attach(this.group);
+    this.wake = new Wake(scene, {
+      length: len, beam: this.cls.hull.beam, ocean,
+    });
 
     // A marker so friend and foe are readable at a glance from the bridge.
     const ringGeo = new THREE.RingGeometry(len * 0.62, len * 0.68, 28);
@@ -336,7 +337,7 @@ export class BattleScene {
   getShipView(id, classId, team, isSelf) {
     let v = this.shipViews.get(id);
     if (!v) {
-      v = new ShipView(this.scene, classId, team, isSelf);
+      v = new ShipView(this.scene, classId, team, isSelf, this.ocean);
       this.shipViews.set(id, v);
     }
     return v;

@@ -33,7 +33,12 @@ export const WAVES = [
 ];
 const G = 9.81;
 
-const WAVE_GLSL = /* glsl */`
+// Exported so anything that has to sit on this water -- the wakes above all --
+// can be displaced by the very same function, evaluated in its own vertex
+// stage. Two shaders reading one piece of code is the only way two surfaces
+// ever actually agree; matching one against the other by hand does not survive
+// the first change to either.
+export const WAVE_GLSL = /* glsl */`
 // Deep-water gravity waves. Returns the displaced point; the surface normal and
 // the fold of the surface (which is where foam is made) come back in the outs.
 uniform float uTime;
@@ -443,6 +448,16 @@ export class Ocean {
   }
 
   /**
+   * The wave parameter that lands on a world point: feed this to `gerstner()`
+   * in a vertex shader and the vertex comes out at (x, z) on the surface. What
+   * rides the water is placed by where it is, not by where the water started.
+   */
+  paramAt(x, z, time = this.material.uniforms.uTime.value) {
+    const s = this.sample(x, z, time);
+    return { x: s.px, z: s.pz };
+  }
+
+  /**
    * Where the surface is at a world point, and which way it is tilted.
    *
    * This mirrors `gerstner()` in the vertex shader, so hulls ride the water the
@@ -500,7 +515,7 @@ export class Ocean {
       const ny = ddzz * ddxx - ddzx * ddxz;
       const nz = ddzx * ddxy - ddzy * ddxx;
       const l = Math.hypot(nx, ny, nz) || 1;
-      out = { y: dy, nx: nx / l, ny: ny / l, nz: nz / l };
+      out = { y: dy, px, pz, nx: nx / l, ny: ny / l, nz: nz / l };
     }
     return out;
   }

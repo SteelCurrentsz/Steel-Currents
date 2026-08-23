@@ -5,7 +5,6 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
-import { Wake } from './render/wake.js';
 import { buildShip } from './render/ships.js';
 import { buildHarbour, islandHeight } from './render/harbour.js';
 import { FireSystem } from './render/fire.js';
@@ -31,11 +30,6 @@ const OWN_HEADING = -0.10;
 // How fast she crosses the scene. This is a framing rate, not a sea speed:
 // slow, so the bearing on the port opens over the whole time the menu is up.
 const OWN_SPEED = 2.0;
-// What her bow wave is made to think she is doing — a proper eighteen knots,
-// which is what a battleship standing in to bombard would be making. Kept
-// apart from OWN_SPEED so the white water looks right without the framing
-// running away with itself.
-const OWN_WAKE_SPEED = 9.5;
 
 // How far off she is standing. The island is a couple of thousand metres away,
 // which is what puts the whole of it inside the frame with sea either side of
@@ -249,7 +243,6 @@ export class TitleScene {
       t.rotation.y = (SHIP_CLASSES.iowa.turrets[i]?.angle || 0) - 0.14 + (i % 2 ? 0.05 : -0.04);
     });
     this.scene.add(this.own.group);
-    this.addBowWave();
 
     this.time = Math.random() * 30;
     this.travel = 20;
@@ -290,17 +283,6 @@ export class TitleScene {
         });
       });
     }
-  }
-
-  /** The white water our own bow is pushing up, which is what says "under way". */
-  addBowWave() {
-    // The same wake the battle uses, so the water round the bow behaves the
-    // same on both screens. Only the bow wave is built: the camera sits on the
-    // bridge looking forward, so the trail astern would never be in frame.
-    this.wake = new Wake(this.scene, {
-      length: this.own.length, beam: this.own.beam, trail: false,
-    });
-    this.wake.attach(this.own.group);
   }
 
   /**
@@ -453,7 +435,6 @@ export class TitleScene {
     g.rotation.z = att.roll * 0.55;
     g.rotation.x = att.pitch * 0.60;
     g.position.y = att.heave * 0.55 - 1.0;
-    this.wake.update(dt, g.position.x, g.position.z, OWN_HEADING, OWN_WAKE_SPEED, null);
 
     // The camera rides the bridge, so it inherits her motion exactly. The
     // transform has to be refreshed before it is read, or the view lags a frame.
