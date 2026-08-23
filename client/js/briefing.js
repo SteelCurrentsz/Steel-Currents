@@ -163,8 +163,10 @@ export class Briefing {
     this.el.allyDel.innerHTML = this.fleetCell('ally', 'remove');
     this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
     // Each side's guns face the other, the way the hull silhouettes do.
-    if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret();
-    if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret({ flip: true });
+    // Each battery trains outboard, away from the middle of the screen: ours on
+    // the left points left, theirs on the right points right.
+    if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret({ flip: true });
+    if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret();
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     this.el.theatre.textContent = s.deploy.name;
   }

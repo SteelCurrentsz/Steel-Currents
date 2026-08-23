@@ -37,21 +37,6 @@ const OWN_SPEED = 2.0;
 // running away with itself.
 const OWN_WAKE_SPEED = 9.5;
 
-// A destroyer working a screening station out ahead of us. She is there for
-// her wake: the camera sits on our own bridge looking forward, so our bow wave
-// is under the forecastle and out of the picture, and a ship under helm shows
-// what a wake does that a ship on a straight course cannot — it stays in the
-// water she has been through, so it lies astern in a long curve instead of
-// swinging round with her. She works a slow oval, easing and working up as she
-// comes round, which keeps her in the frame without her ever standing still.
-// Her station is a bearing and a distance from us rather than a place on the
-// chart, so she stays with us as we stand on — that is what keeping station
-// means, and it is also the only way she is still in the picture ten minutes
-// after the menu came up.
-// The oval is kept near enough round that she never eases below about fifteen
-// knots at the ends of it — a destroyer coasting to a stop on her patrol would
-// leave no wake at all, which rather defeats the point of her.
-const ESCORT = { ahead: 760, abeam: -40, a: 300, b: 180, w: 0.036 };
 // How far off she is standing. The island is a couple of thousand metres away,
 // which is what puts the whole of it inside the frame with sea either side of
 // it — close in it read as a coastline running off both edges.
@@ -215,7 +200,10 @@ export class TitleScene {
     // -- the raid ------------------------------------------------------------
     // Bombs are still coming down on her: flights cross the island, and what
     // they drop bursts where it lands rather than at a fixed height.
-    this.blasts = new ExplosionSystem(this.scene);
+    // Blasts stand a long time now -- the cloud off a stick of bombs is still
+    // climbing ten seconds later -- so there have to be enough slots for the
+    // ones still dying while the next flight is putting more down.
+    this.blasts = new ExplosionSystem(this.scene, { slots: 26 });
     // Blasts that have to wait their turn — a magazine walking aft, the wreck
     // of a crane going into the water — run off the scene's own clock rather
     // than off a timer, so they keep their spacing at any frame rate.
@@ -262,7 +250,6 @@ export class TitleScene {
     });
     this.scene.add(this.own.group);
     this.addBowWave();
-    this.addEscort();
 
     this.time = Math.random() * 30;
     this.travel = 20;
@@ -279,7 +266,7 @@ export class TitleScene {
    */
   bombHit(x, y, z) {
     this.blasts.blast(x, y, z, {
-      size: 115 + Math.random() * 75, duration: 3.4, debris: 80,
+      size: 115 + Math.random() * 75, duration: 3.4, debris: 210,
     });
 
     const crane = this.port.crane;
@@ -290,16 +277,16 @@ export class TitleScene {
         && crane.topple()) {
       // The hit itself, up among the frames rather than down at the apron.
       this.blasts.blast(crane.x, crane.top * 0.72, crane.z, {
-        size: 95, duration: 3.0, debris: 110, power: 0.35,
+        size: 95, duration: 3.0, debris: 240, power: 0.35,
       });
       // She takes about four seconds to go over. This is the head of the jib
       // arriving in the basin: spray, not fire.
       this.later(4.0, () => {
         this.blasts.blast(crane.x - 10, 2, crane.z - 118, {
-          size: 78, duration: 2.6, debris: 60, light: false, plume: false,
+          size: 78, duration: 2.6, debris: 90, light: false, plume: false,
         });
         this.blasts.blast(crane.x + 22, 3, crane.z - 74, {
-          size: 46, duration: 2.2, debris: 30, light: false, plume: false,
+          size: 46, duration: 2.2, debris: 45, light: false, plume: false,
         });
       });
     }
@@ -314,59 +301,6 @@ export class TitleScene {
       length: this.own.length, beam: this.own.beam, trail: false,
     });
     this.wake.attach(this.own.group);
-  }
-
-  /** The destroyer on her screening station, and the wake she is here for. */
-  addEscort() {
-    this.escort = buildShip('fletcher');
-    this.escort.turrets.forEach((t) => { t.rotation.y = 0.9; });
-    this.scene.add(this.escort.group);
-    this.escortT = Math.PI * 0.7;
-    this.escortHead = 0;
-    this.escortWake = new Wake(this.scene, {
-      length: this.escort.length, beam: this.escort.beam, foam: 0xd6e6f6,
-    });
-    this.escortWake.attach(this.escort.group);
-  }
-
-  /** Take her round her oval one frame's worth. */
-  stepEscort(dt) {
-    const e = this.escort;
-    if (!e) return;
-    this.escortT += dt * ESCORT.w;
-    const th = this.escortT;
-    // Her station: so far ahead of us and so far out on the bow, carried along
-    // with us on our course.
-    const own = this.own.group.position;
-    const ch = Math.cos(OWN_HEADING), sh = Math.sin(OWN_HEADING);
-    const cx = own.x + sh * ESCORT.ahead + ch * ESCORT.abeam;
-    const cz = own.z + ch * ESCORT.ahead - sh * ESCORT.abeam;
-    const x = cx + ESCORT.a * Math.cos(th);
-    const z = cz + ESCORT.b * Math.sin(th);
-    // Her course and speed come out of the track rather than being set beside
-    // it, so the wake she lays and the way she is pointing always agree. The
-    // station's own way through the water counts towards both.
-    const vx = sh * OWN_SPEED - ESCORT.a * ESCORT.w * Math.sin(th);
-    const vz = ch * OWN_SPEED + ESCORT.b * ESCORT.w * Math.cos(th);
-    const head = Math.atan2(vx, vz);
-    const speed = Math.hypot(vx, vz);
-    // Rate of turn, for the heel. Taken as the shortest way round so it does
-    // not spike when the heading crosses astern.
-    let d = head - this.escortHead;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    this.escortHead = head;
-
-    const att = this.ocean.attitude(x, z, head, e.length, e.beam);
-    const g = e.group;
-    g.rotation.order = 'YXZ';
-    g.position.set(x, att.heave - 0.8, z);
-    g.rotation.y = head;
-    g.rotation.x = att.pitch;
-    // A destroyer heels outward into her turn, and hard — twelve hundred tons
-    // on a narrow beam. That heel is most of what says she is under helm.
-    g.rotation.z = att.roll - (dt > 0 ? d / dt : 0) * 3.0;
-    this.escortWake.update(dt, x, z, head, speed, this.ocean);
   }
 
   /**
@@ -424,7 +358,7 @@ export class TitleScene {
     // heart that outlasts the skin, and a cap rolling over on top of it.
     const m = at(62, 16);
     this.blasts.blast(m.x, m.y, m.z, {
-      size: 300, duration: 6.5, debris: 220, power: 1,
+      size: 300, duration: 6.5, debris: 420, power: 1,
     });
     // Then the ready-use rooms and the fuel, walking aft down her length over
     // the next second and a half.
@@ -433,7 +367,7 @@ export class TitleScene {
       this.later(delay, () => {
         const p = at(dz, 14);
         this.blasts.blast(p.x, p.y, p.z, {
-          size, duration: 4.2, debris: 90, power: 0.6,
+          size, duration: 4.2, debris: 260, power: 0.6,
         });
       });
     }
@@ -462,7 +396,6 @@ export class TitleScene {
     }
 
     this.stepBattleship(dt);
-    this.stepEscort(dt);
 
     // Somebody is briefed onto the crane until it is down; once it is, the
     // wreck lies in the basin for a while before the screen stands it up again
@@ -496,7 +429,7 @@ export class TitleScene {
       this.blasts.blast(x, Math.max(0, islandHeight(x, z)), z, {
         size: 32 + Math.random() * 42,
         duration: 2.1,
-        debris: 24,
+        debris: 60,
         plume: Math.random() < 0.45,
       });
     }

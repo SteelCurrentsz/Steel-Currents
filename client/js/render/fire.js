@@ -253,7 +253,7 @@ void main() {
   vec2 p = (vUv - vec2(0.5, 0.28)) * vec2(1.0, 0.78);
   float r = length(p) * 2.0;
   // Out well inside the card, so the halo never shows a corner.
-  float a = exp(-r * r * 3.4) * vLevel.y * (1.0 - smoothstep(0.80, 1.0, r));
+  float a = exp(-r * r * 4.8) * vLevel.y * (1.0 - smoothstep(0.72, 1.0, r));
   a *= 1.0 - vFog;
   if (a < 0.002) discard;
   gl_FragColor = vec4(mix(vec3(1.0, 0.42, 0.10), vec3(1.0, 0.76, 0.34), a), a);
@@ -424,6 +424,12 @@ export class FireSystem {
     smokeWidth = 90, smokeHeight = 320, lean = 0.28,
     light = true, lightRange = 420, embers = 40,
   } = {}) {
+    // The port is meant to read as a city alight rather than as a row of
+    // bonfires. Every seat is drawn taller and broader than the thing under it
+    // would strictly give: that is what a fire big enough to light the cloud
+    // base looks like from a mile off, and it is the whole point of the shot.
+    width *= 1.20;
+    height *= 1.40;
     layers = THREE.MathUtils.clamp(Math.round(layers * this.detail), 1, layers);
     embers = Math.round(embers * this.detail);
     for (let i = 0; i < layers; i++) {
@@ -456,9 +462,12 @@ export class FireSystem {
     }
 
     // The halo the seat throws up into the smoke over it.
+    // Kept well down. The halo is the light the fire throws into the smoke over
+    // it, not the fire; turned up it floods the whole waterfront with flat
+    // orange and the flames stop having any shape at all.
     this.glows.push({
-      x, y, z, w: width * 3.4, h: height * 2.1, lean: lean * 0.4,
-      base: intensity * 0.30, phase: Math.random() * 10,
+      x, y, z, w: width * 3.0, h: height * 1.9, lean: lean * 0.4,
+      base: intensity * 0.16, phase: Math.random() * 10,
     });
 
     if (smokeHeight > 0) {

@@ -89,7 +89,7 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
  * the rifles better than twenty outside it, which is why the barrels take up
  * more than half the drawing. Barbette below, sloped face, rangefinder ear out
  * the back, and three rifles run out with their muzzle swells. It points to
- * the right; `flip` turns it about to face the other way.
+ * the right; `flip` trains it round to the left.
  */
 export function turret({ flip = false } = {}) {
   return `<svg class="turret-art" viewBox="0 0 200 92" role="img" aria-hidden="true"

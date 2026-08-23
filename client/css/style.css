@@ -715,7 +715,9 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   transition: color 0.14s ease, transform 0.14s ease, filter 0.14s ease;
 }
 .turret-btn .turret-art {
-  width: min(clamp(96px, 15vw, 150px), 100%); height: auto; display: block;
+  /* Sized to sit alongside the hull icons above and below it rather than to
+     dominate them: about as wide as the ship glyph is drawn. */
+  width: min(clamp(72px, 9vw, 112px), 100%); height: auto; display: block;
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
 }
 .turret-btn:hover { color: #fff3d4; transform: translateY(-2px) scale(1.04); }
@@ -775,7 +777,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .briefing-body { gap: 0.6rem; }
   .force-cell .sil { height: 46px; }
   .escorts .force-cell .sil { height: 32px; }
-  .turret-btn .turret-art { width: min(84px, 30vw); }
+  .turret-btn .turret-art { width: min(64px, 24vw); }
   .cell-name { font-size: 0.9rem; }
   .briefing-foot { padding-top: 0.4rem; }
 }
