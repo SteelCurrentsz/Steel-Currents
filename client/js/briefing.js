@@ -57,6 +57,8 @@ export class Briefing {
       enemyDel: document.getElementById('enemy-del-cell'),
       allyTurret: document.getElementById('ally-turret'),
       enemyTurret: document.getElementById('enemy-turret'),
+      allyList: document.getElementById('ally-fleet-list'),
+      enemyList: document.getElementById('enemy-fleet-list'),
       time: document.getElementById('time-val'),
       weather: document.getElementById('weather-val'),
       theatre: document.getElementById('theatre-name'),
@@ -98,6 +100,25 @@ export class Briefing {
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
+  }
+
+  /**
+   * A fleet, listed hull by hull: her type on the left and her name beside it.
+   * The first of your own is the one you take the bridge of, so it carries the
+   * flag — with four destroyers in company that is the only way to tell which
+   * of them is yours.
+   */
+  fleetList(side) {
+    const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    return fleet.map((id, i) => {
+      const cls = SHIP_CLASSES[id];
+      const code = cls?.type || '??';
+      const name = cls?.name || id;
+      const flag = side === 'ally' && i === 0 ? ' flag' : '';
+      return `<li class="fleet-ship${flag}">`
+        + `<b class="hull-code">${code}</b>`
+        + `<span class="hull-name">${name}</span></li>`;
+    }).join('');
   }
 
   /** One of the four hull buttons. */
@@ -170,6 +191,8 @@ export class Briefing {
     // the left points left, theirs on the right points right.
     if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret({ flip: true });
     if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret();
+    if (this.el.allyList) this.el.allyList.innerHTML = this.fleetList('ally');
+    if (this.el.enemyList) this.el.enemyList.innerHTML = this.fleetList('enemy');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
     this.el.theatre.textContent = s.deploy.name;

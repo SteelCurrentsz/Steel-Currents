@@ -668,11 +668,73 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .bh-step:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
 .bh-val { font-size: 1.35rem; letter-spacing: 0.08em; color: var(--sand-bright); }
 
+/* The fleet rosters ------------------------------------------------------- */
+/* Every hull that will sail, listed down the outer edge of the chart: type on
+   the left, name beside it, and the whole bar coloured by whose it is. Laid
+   over the chart rather than in the flex column, so the fleet buttons stay
+   centred on the screen whatever the rosters do. */
+.fleet-list {
+  position: absolute; top: 0; bottom: 0;
+  width: var(--roster-w);
+  margin: 0; padding: 0.2rem 0; list-style: none;
+  display: flex; flex-direction: column; gap: 0.3rem;
+  overflow-y: auto; overscroll-behavior: contain;
+  /* The chart is behind it and the fleet buttons are beside it: the list takes
+     no pointer, so neither is blocked by a column of empty space under it. */
+  pointer-events: none;
+  scrollbar-width: thin;
+}
+.fleet-list.ally { left: max(0.6rem, env(safe-area-inset-left)); }
+.fleet-list.axis { right: max(0.6rem, env(safe-area-inset-right)); }
+
+.fleet-ship {
+  flex: none;
+  display: grid; grid-template-columns: 2.6rem 1fr; align-items: center;
+  gap: 0.1rem;
+  min-height: 1.85rem; padding: 0.12rem 0.5rem 0.12rem 0.1rem;
+  font-family: var(--ui); font-size: clamp(0.82rem, 1.5vw, 1.02rem);
+  letter-spacing: 0.04em;
+  color: var(--sand-bright);
+  border: 1px solid transparent;
+  border-left-width: 3px;
+}
+.fleet-list.ally .fleet-ship {
+  background: linear-gradient(90deg, rgba(31, 72, 128, 0.92), rgba(24, 54, 96, 0.72));
+  border-color: rgba(126, 178, 236, 0.30);
+  border-left-color: #4f8ede;
+}
+.fleet-list.axis .fleet-ship {
+  background: linear-gradient(270deg, rgba(126, 34, 34, 0.92), rgba(94, 26, 26, 0.72));
+  border-color: rgba(232, 138, 132, 0.30);
+  border-left-color: transparent;
+  border-right: 3px solid #c8443c;
+  grid-template-columns: 2.6rem 1fr;
+  padding: 0.12rem 0.1rem 0.12rem 0.5rem;
+}
+/* The hull you take the bridge of, marked so a captain can see which of four
+   destroyers is his own. */
+.fleet-ship.flag { border-left-color: var(--sand); }
+.fleet-list.axis .fleet-ship.flag { border-right-color: var(--sand); }
+
+.hull-code {
+  font-weight: 700; letter-spacing: 0.06em; text-align: center;
+  color: #ffffff; font-variant-numeric: tabular-nums;
+}
+.hull-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+}
+
 /* Fleets ----------------------------------------------------------------- */
 .briefing-body {
   display: flex; flex-direction: column; justify-content: center;
   gap: clamp(1rem, 5vh, 3rem);
-  padding: 0 max(1rem, env(safe-area-inset-left));
+  /* The rosters are laid over this, one down each edge, so the hull buttons
+     are inset by exactly as much room as they take. One number, used by both,
+     because a roster and a gap for it that disagree is two bugs rather than
+     one. */
+  --roster-w: clamp(9.5rem, 19vw, 17rem);
+  padding: 0 calc(var(--roster-w) + max(1rem, env(safe-area-inset-left)));
   /* A flex item will not shrink below the widest thing in it unless it is told
      it may. Without this the two fleets keep their full width on a narrow
      phone and the enemy's half of the screen is pushed off the side of it. */
@@ -991,4 +1053,41 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 @media (max-width: 620px) {
   .deploy-head { max-width: 64vw; }
   .deploy-readout { font-size: 0.76rem; }
+}
+
+/* On a phone there is no room for a column down each side *and* the hull
+   buttons between them: inset far enough for the rosters and the buttons are
+   postage stamps. So the whole body becomes a grid instead — the buttons keep
+   their three rows across the top, and the two fleets take a fourth row under
+   them, side by side. Nothing is laid over anything, so nothing gets crushed
+   by something else's padding. */
+@media (max-width: 640px) {
+  .briefing-body {
+    display: grid;
+    /* minmax(0,...) or the tracks refuse to go below the widest ship's name
+       and the two columns push each other off the screen — the same trap the
+       fleet buttons fell into further up this file. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    align-content: center;
+    gap: clamp(0.4rem, 1.6vh, 1.1rem) 0.7rem;
+    padding: 0 max(0.6rem, env(safe-area-inset-left));
+  }
+  .briefing-body > .force-row { grid-column: 1 / -1; }
+  .briefing-body > div.force-row:nth-of-type(1) { grid-row: 1; }
+  .briefing-body > div.force-row:nth-of-type(2) { grid-row: 2; }
+  .briefing-body > div.force-row:nth-of-type(3) { grid-row: 3; }
+  .fleet-list {
+    position: static; width: auto; min-height: 0;
+    grid-row: 4; gap: 0.2rem;
+    /* Down here it is beside the buttons rather than over them, so it can take
+       a finger — which is what lets a long fleet be scrolled. */
+    pointer-events: auto;
+  }
+  .fleet-list.ally { grid-column: 1; }
+  .fleet-list.axis { grid-column: 2; }
+  .fleet-ship { min-height: 1.45rem; font-size: 0.76rem; grid-template-columns: 2rem 1fr; }
+  .fleet-list.axis .fleet-ship { grid-template-columns: 2rem 1fr; }
+  .force-cell .sil { height: clamp(34px, 6.5vh, 56px); }
+  .turret-btn .turret-art { width: min(66px, 22vw); }
 }
