@@ -75,6 +75,7 @@ export class LocalNet extends EventTarget {
           mapId: msg.mapId,
           roomName: msg.roomName,
           time: msg.time,
+          weather: msg.weather,
           axisClass: msg.axisClass,
           seed: msg.seed,
           half: msg.half,
@@ -120,6 +121,7 @@ export class LocalNet extends EventTarget {
       autoStart: false,
       botSkill: opts.botSkill,
       time: opts.time,
+      weather: opts.weather,
       seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
       half: Number.isFinite(opts.half) ? opts.half : undefined,
       // Where on the earth this is being fought, which is what puts the real

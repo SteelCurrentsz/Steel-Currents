@@ -31,7 +31,38 @@ export function getPreset(id) {
  */
 export const TIMES = ['dawn', 'day', 'dusk', 'night'];
 
-export function generateWorld(seed, presetId, time = null, half = MAP_HALF, place = null) {
+/**
+ * The weather over the battle.
+ *
+ * Both ends read this: the server so that a rough sea is rough for everybody's
+ * gunnery, the client so that it looks like the sea the server is running. Sea
+ * state is added to the theatre's own, so the Solomons in a thunderstorm are
+ * still calmer water than the North Atlantic in one.
+ *
+ *   sea      how much this adds to the sea state.
+ *   light    how much of the sun gets through.
+ *   fog      how much thicker the air is than a clear day's.
+ *   sight    how far a lookout can see, as a fraction. Rain closes a battle
+ *            right down, which is a tactical fact and not a filter over it.
+ *   fall     what is coming down, if anything.
+ *   lightning average seconds between strikes, or 0.
+ */
+export const WEATHERS = ['sunny', 'cloudy', 'rain', 'thunder', 'snow'];
+
+export const WEATHER = {
+  sunny:   { name: 'Sunny',        sea: 0,   light: 1.00, fog: 1.0, sight: 1.00, fall: null,   drop: 0,    lightning: 0 },
+  cloudy:  { name: 'Cloudy',       sea: 0.6, light: 0.70, fog: 1.5, sight: 0.90, fall: null,   drop: 0,    lightning: 0 },
+  rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0 },
+  thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9 },
+  snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0 },
+};
+
+export function getWeather(id) {
+  return WEATHER[id] || WEATHER.sunny;
+}
+
+export function generateWorld(seed, presetId, time = null, half = MAP_HALF, place = null,
+  weather = null) {
   const preset = getPreset(presetId);
   const rng = makeRng(seed);
   const HALF = Math.max(MAP_HALF_MIN, Math.min(MAP_HALF_MAX, half));
@@ -76,9 +107,13 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     { id: 'C', x: 2600 * k, z: -1900 * k, r: 800 * Math.min(1.6, k) },
   ].filter((c) => !islands.some((i) => dist(i.x, i.z, c.x, c.z) < i.r + c.r * 0.4));
 
+  const wx = WEATHERS.includes(weather) ? weather : 'sunny';
   const world = {
-    seed, preset: preset.id, sea: preset.sea, islands, land, caps, half: HALF,
+    seed, preset: preset.id, islands, land, caps, half: HALF,
     time: TIMES.includes(time) ? time : preset.time,
+    weather: wx,
+    // The theatre's own sea, plus whatever the weather is adding to it.
+    sea: Math.max(0, Math.min(6, preset.sea + WEATHER[wx].sea)),
   };
   // A zone the fleets cannot reach is not a zone. Anything that has come down
   // on a headland is moved to the nearest water, and dropped if there is none.

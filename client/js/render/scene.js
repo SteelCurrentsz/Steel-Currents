@@ -2,11 +2,12 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS } from './ocean.js';
+import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { Effects } from './effects.js';
 import { Wake } from './wake.js';
 import { QUALITY } from '../settings.js';
-import { MAP_HALF, landMask, groundHeight } from '../../../shared/world.js';
+import { MAP_HALF, landMask, groundHeight, getWeather } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { makeRng } from '../../../shared/math.js';
 
@@ -17,15 +18,23 @@ const SKY = {
   day: { top: 0x2f6ea8, bottom: 0xa8cbe0 },
 };
 
-export function skyDome(time, radius = 20000) {
+/**
+ * The sky. `overcast` is how far to pull it toward the flat grey lid a bad day
+ * puts over the sea — 0 leaves the hour's own sky alone, 1 replaces it.
+ */
+export function skyDome(time, radius = 20000, overcast = 0) {
   const cfg = SKY[time] || SKY.night;
+  // Cloud is darker overhead than it is at the horizon, the same way clear sky
+  // is, so the dome keeps its gradient rather than going to a flat wall.
+  const lidTop = new THREE.Color(0x39434d);
+  const lidBot = new THREE.Color(0x6d7a86);
   const geo = new THREE.SphereGeometry(1, 24, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      top: { value: new THREE.Color(cfg.top) },
-      bottom: { value: new THREE.Color(cfg.bottom) },
+      top: { value: new THREE.Color(cfg.top).lerp(lidTop, overcast) },
+      bottom: { value: new THREE.Color(cfg.bottom).lerp(lidBot, overcast) },
     },
     vertexShader: `varying vec3 vp; void main(){ vp = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: `
@@ -237,11 +246,35 @@ export class BattleScene {
     this.time = world.time || 'night';
 
     const preset = OCEAN_PRESETS[this.time] ? this.time : 'night';
-    this.scene.add(skyDome(preset, q.drawDistance * 0.8));
-    if (preset === 'night') this.scene.add(starField(600));
+    // What the sky is doing. It thickens the air, takes the sun off the water
+    // and puts a lid over the whole thing -- and the same numbers shorten the
+    // range a lookout can pick a ship up at, over in the simulation.
+    const wx = getWeather(world.weather);
+    this.wx = wx;
+    // How much of the hour's own sky is left. A thunderstorm at noon is not a
+    // dark night; it is a grey day, and the two look nothing alike.
+    // Curved, because the first tenth of cloud takes far more of the colour
+    // out of a sea than the last tenth does.
+    const overcast = Math.pow(1 - wx.light, 0.72);
+
+    this.scene.add(skyDome(preset, q.drawDistance * 0.8, overcast));
+    // No stars through cloud.
+    if (preset === 'night' && overcast < 0.3) this.scene.add(starField(600));
 
     this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
     this.ocean.setSeaState(world.sea ?? 2);
+    // Water under cloud is not blue: it takes its colour off the sky, and the
+    // sky has gone grey. Everything the sea reads its colour from is pulled the
+    // same way, so the two go on agreeing.
+    {
+      const u = this.ocean.material.uniforms;
+      const dull = (target, k) => (c) => c.lerp(new THREE.Color(target), k);
+      dull(0x69747e, overcast)(u.uSkyTint.value);
+      dull(0x121a20, overcast * 0.88)(u.uDeep.value);
+      dull(0x27343c, overcast * 0.92)(u.uShallow.value);
+      dull(0x78838d, overcast * 0.90)(u.uFogColor.value);
+      dull(0xb4bdc6, overcast * 0.70)(u.uLightColor.value);
+    }
     {
       // The reflected pool sits opposite the light, out toward the horizon.
       const d = OCEAN_PRESETS[preset].lightDir;
@@ -250,17 +283,23 @@ export class BattleScene {
     this.scene.add(this.ocean.mesh);
 
     const p = OCEAN_PRESETS[preset];
-    this.scene.fog = new THREE.FogExp2(p.fogColor, p.fog * 0.7);
+    const fogCol = new THREE.Color(p.fogColor).lerp(new THREE.Color(0x78838d), overcast * 0.90);
+    this.scene.fog = new THREE.FogExp2(fogCol, p.fog * 0.7 * wx.fog);
+    // An overcast has no sun path on the water and very little glitter.
+    this.ocean.material.uniforms.uSpecular.value = p.specular * (0.22 + 0.78 * wx.light);
 
     // Warships are grey on a dark sea: without a strong sky term they read as
     // black silhouettes, so the ambient does most of the work at night.
-    const sun = new THREE.DirectionalLight(p.light, preset === 'day' ? 1.9 : preset === 'dusk' ? 1.15 : 0.85);
+    const sunI = preset === 'day' ? 1.9 : preset === 'dusk' ? 1.15 : 0.85;
+    const sun = new THREE.DirectionalLight(p.light, sunI * wx.light);
     sun.position.copy(p.lightDir).multiplyScalar(3000);
     this.scene.add(sun);
+    // The sky term is held up more than the sun is: under cloud the light is
+    // all sky and no sun, which is why an overcast day is flat rather than dark.
     this.scene.add(new THREE.HemisphereLight(
       preset === 'day' ? 0xa8cee6 : preset === 'dusk' ? 0x7e8fb0 : 0x4a6c9c,
       preset === 'day' ? 0x2c5a72 : 0x111a26,
-      preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55,
+      (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light),
     ));
 
     for (const isle of world.islands) this.scene.add(buildIsland(isle));
@@ -270,6 +309,7 @@ export class BattleScene {
     this.addCapRings();
 
     this.effects = new Effects(this.scene, q.particles);
+    this.weather = new Weather(this.scene, wx, { count: Math.round(9000 * q.particles) });
 
     this.camera = new THREE.PerspectiveCamera(58, 1, 2, q.drawDistance);
     this.shipViews = new Map();
@@ -356,6 +396,7 @@ export class BattleScene {
   update(dt) {
     this.ocean.update(dt, this.camera.position);
     this.effects.update(dt);
+    this.weather.update(dt, this.camera.position);
   }
 
   render() {

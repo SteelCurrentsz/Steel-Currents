@@ -654,6 +654,12 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-family: var(--ui); color: var(--sand);
   -webkit-tap-highlight-color: transparent;
 }
+/* The hour and the weather, side by side above the enemy's column. They wrap
+   onto separate lines rather than shrink when there is no room for both. */
+.bh-steps {
+  display: flex; align-items: center; justify-content: flex-end;
+  flex-wrap: wrap; gap: 0.2rem 1.4rem; min-width: 0;
+}
 .bh-step.rev { flex-direction: row; }
 .bh-step .chev {
   color: #4ea86a; letter-spacing: 0.1em; font-size: 1.05rem; font-weight: 700;

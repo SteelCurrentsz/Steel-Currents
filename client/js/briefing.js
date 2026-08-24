@@ -5,7 +5,7 @@
 // with, the hour, and which sea. Nothing on this screen is decorative.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
-import { TIMES, MAP_HALF_MIN } from '../../shared/world.js';
+import { TIMES, WEATHERS, WEATHER, MAP_HALF_MIN } from '../../shared/world.js';
 import { silhouette, turret } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
@@ -39,6 +39,7 @@ export class Briefing {
       allyFleet: [initialShip, 'fletcher', 'fletcher', 'fletcher'],
       enemyFleet: ['hipper', 'fletcher', 'fletcher', 'fletcher', 'fletcher'],
       time: 'dawn',
+      weather: 'sunny',
       // Where the battle is fought. The chart sets this — four corners and the
       // water between them; until it has been opened, a stretch of the North
       // Atlantic with plenty of sea room.
@@ -57,6 +58,7 @@ export class Briefing {
       allyTurret: document.getElementById('ally-turret'),
       enemyTurret: document.getElementById('enemy-turret'),
       time: document.getElementById('time-val'),
+      weather: document.getElementById('weather-val'),
       theatre: document.getElementById('theatre-name'),
     };
     if (!this.el.canvas) return;
@@ -94,6 +96,7 @@ export class Briefing {
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
+    on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
   }
 
@@ -168,6 +171,7 @@ export class Briefing {
     if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret({ flip: true });
     if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret();
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
+    if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
     this.el.theatre.textContent = s.deploy.name;
   }
 
@@ -229,6 +233,7 @@ export class Briefing {
       enemyClasses: s.enemyFleet,
       mapId: this.theatreFor(d),
       time: s.time,
+      weather: s.weather,
       allies: s.allyFleet.length - 1,
       enemies: s.enemyFleet.length,
       botSkill: this.getSkill(),

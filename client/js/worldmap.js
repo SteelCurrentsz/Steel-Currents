@@ -93,11 +93,15 @@ const BASES = [
 export function drawWorld(canvas, opts = {}) {
   const {
     focus = [0, 8], zoom = 1,
-    sea = '#0a1826', land = '#2e4860', coast = '#628aa3',
+    sea = '#0a1826',
+    // Land is painted the way land is: a strand of sand round every coast, the
+    // green of everything that grows behind it, and snow where nothing does.
+    land = '#3f7042', sand = '#c9b083', snow = '#eef4f7',
+    coast = '#8aa9b8',
     shelf = 'rgba(90, 140, 175, 0.5)',
     capital = '#e6cf9c', base = '#c98b8b', showPlaces = true,
     marker = null, markerName = '',
-    graticule = false, showWaters = false,
+    graticule = false, showWaters = false, frame = true,
   } = opts;
 
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -141,6 +145,63 @@ export function drawWorld(canvas, opts = {}) {
     }
   }
 
+  // Ranges that are white for their height rather than their latitude. There is
+  // no elevation in the coastline data, so these are named: longitude, latitude,
+  // how far the snow reaches in degrees, and how solidly it lies.
+  const HIGHLANDS = [
+    [86, 33, 13, 0.95],    // the Himalaya and the Tibetan plateau
+    [72, 39, 8, 0.70],     // the Pamirs and the Hindu Kush
+    [-70.5, -19, 4.5, 0.65],  // the central Andes
+    [-71.5, -42, 5.0, 0.60],  // the Patagonian ice fields
+    [10.5, 46.5, 3.2, 0.75],  // the Alps
+    [44, 42.8, 3.0, 0.65],    // the Caucasus
+    [-116, 51, 7.0, 0.55],    // the Canadian Rockies
+    [-149, 62, 7.5, 0.75],    // the Alaska Range
+    [14, 66.5, 5.5, 0.60],    // the Scandes
+    [60, 65, 4.5, 0.45],      // the Urals
+    [95, 52, 6.0, 0.40],      // the Sayan and Altai
+  ];
+
+  /**
+   * Snow, over whatever land is already clipped to. Two ice caps off the
+   * latitude and a handful of ranges off the list above, all as gradients so
+   * the white comes on gradually rather than along a line of latitude drawn
+   * across Canada.
+   */
+  const paintSnow = (shift) => {
+    const cap = (fromLat, toLat) => {
+      const y0 = py(fromLat);
+      const y1 = py(toLat);
+      if ((y0 < 0 && y1 < 0) || (y0 > h && y1 > h)) return;
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, 'rgba(238, 244, 247, 0)');
+      g.addColorStop(0.55, 'rgba(238, 244, 247, 0.55)');
+      g.addColorStop(1, snow);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, Math.min(y0, y1) - 2, w, Math.abs(y1 - y0) + 4);
+      // Solid beyond the far end of the ramp: the pole is not a gradient.
+      if (toLat > 0) { if (y1 > 0) { ctx.fillStyle = snow; ctx.fillRect(0, 0, w, y1); } }
+      else if (y1 < h) { ctx.fillStyle = snow; ctx.fillRect(0, y1, w, h - y1); }
+    };
+    // Where the ice actually is, rather than where a line of latitude drawn
+    // across southern Canada would put it.
+    cap(58, 72);
+    cap(-56, -70);
+
+    for (const [lon, lat, deg, strength] of HIGHLANDS) {
+      const cx = px(lon + shift);
+      const cy = py(lat);
+      const r = deg * scale;
+      if (r < 1.5 || cx + r < 0 || cx - r > w || cy + r < 0 || cy - r > h) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(238, 244, 247, ${strength})`);
+      g.addColorStop(0.5, `rgba(238, 244, 247, ${strength * 0.55})`);
+      g.addColorStop(1, 'rgba(238, 244, 247, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+  };
+
   // Only trace what can be seen: at 1419 polygons, culling off-screen shapes is
   // the difference between a smooth repaint and a visible stall.
   const lonLo = focus[0] - (w / 2) / scale - 2;
@@ -148,15 +209,32 @@ export function drawWorld(canvas, opts = {}) {
   const latLo = focus[1] - (h / 2) / scale - 2;
   const latHi = focus[1] + (h / 2) / scale + 2;
 
-  const tracePoly = (poly, shift) => {
-    ctx.beginPath();
+  // Projected once into a Path2D and then reused. The strand is built by
+  // stroking every coastline a dozen times over at falling widths, and
+  // re-projecting a continent's worth of vertices for each of those passes is
+  // the difference between a repaint you notice and one you do not.
+  const addPoly = (path, poly, shift) => {
     for (const r of poly) {
-      for (let i = 0; i < r.length; i++) {
+      let lx = 0;
+      let ly = 0;
+      let n = 0;
+      const last = r.length - 1;
+      for (let i = 0; i <= last; i++) {
         const x = px(r[i][0] + shift);
         const y = py(r[i][1]);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        // Detail finer than a pixel costs exactly as much to stroke as detail
+        // that can be seen, and shows none of it. At world scale that is most
+        // of a 1:50m coastline. Dropped once, here, rather than at every one
+        // of the strand's passes -- which is the difference between a chart
+        // that repaints in a frame and one that takes a second.
+        if (n > 0 && i < last && Math.abs(x - lx) < 0.6 && Math.abs(y - ly) < 0.6) continue;
+        if (n === 0) path.moveTo(x, y); else path.lineTo(x, y);
+        lx = x; ly = y; n++;
       }
-      ctx.closePath();
+      // An island smaller than a pixel decimates to a single point and would
+      // vanish. It is still an island: give it a pixel.
+      if (n < 3) path.rect(lx - 0.5, ly - 0.5, 1, 1);
+      path.closePath();
     }
   };
 
@@ -181,18 +259,72 @@ export function drawWorld(canvas, opts = {}) {
   for (const shift of [-360, 0, 360]) {
     const shown = polys.filter((p) => visible(p, shift));
     if (!shown.length) continue;
+    const paths = [];
+    const all = new Path2D();
+    for (const poly of shown) {
+      const path = new Path2D();
+      addPoly(path, poly, shift);
+      paths.push(path);
+      all.addPath(path);
+    }
 
-    // A soft shelf under each coast, the way a chart shades shallow water.
+    // A soft shelf under each coast, the way a chart shades shallow water. The
+    // shape under it is filled sand, so the shelf reads as shallows running up
+    // onto a beach rather than as a halo round a green blot.
     ctx.save();
     ctx.shadowColor = shelf;
     ctx.shadowBlur = 16;
+    ctx.fillStyle = sand;
+    ctx.fill(all, 'evenodd');
+    ctx.restore();
+
+    // Everything from here is inside the coastline.
+    ctx.save();
+    ctx.clip(all, 'evenodd');
+
+    // The green of the interior, laid over the whole landmass...
     ctx.fillStyle = land;
-    for (const poly of shown) { tracePoly(poly, shift); ctx.fill('evenodd'); }
+    ctx.fillRect(0, 0, w, h);
+
+    // ...and then the strand brought back along every coast. A wide soft
+    // stroke on the coastline, clipped to the land, leaves its outer half in
+    // the sea and its inner half on the shore: run it several times from broad
+    // and faint to narrow and solid and the two colours meet in a gradient
+    // rather than on a line. How far the sand reaches inland is a fixed
+    // distance on the ground, so opening the chart out widens the beach the
+    // way zooming into a photograph would, instead of keeping it a fixed
+    // number of pixels and turning every continent to sand at world scale.
+    // ...with a floor, because at world scale the true width of a beach is a
+    // fraction of a pixel and a chart that draws it honestly draws nothing. A
+    // few pixels of strand round every continent is what every atlas ever
+    // printed does, and it is what makes a coastline read as a coastline.
+    const strandPx = Math.max(5.0, Math.min(46, scale * 0.62));
+    ctx.strokeStyle = sand;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // As many passes as the band is wide enough to show. A five-pixel strand
+    // is smooth in three; forty pixels needs a dozen, and by then there is a
+    // coastline or two on the screen rather than the whole world's worth.
+    const PASSES = Math.max(3, Math.min(14, Math.round(strandPx * 0.55)));
+    for (let i = 0; i < PASSES; i++) {
+      const t = i / (PASSES - 1);
+      ctx.globalAlpha = 0.05 + t * t * 0.42;
+      ctx.lineWidth = strandPx * 2 * (1 - t * 0.94);
+      for (const path of paths) ctx.stroke(path);
+    }
+    ctx.globalAlpha = 1;
+
+    // Snow. There is no elevation in this data, so the ice caps come off the
+    // latitude -- which is where nearly all of it is anyway -- and the ranges
+    // that are white for their height rather than their latitude are named
+    // below and laid on as their own soft patches.
+    paintSnow(shift);
+
     ctx.restore();
 
     ctx.strokeStyle = coast;
     ctx.lineWidth = 0.8;
-    for (const poly of shown) { tracePoly(poly, shift); ctx.stroke(); }
+    for (const path of paths) ctx.stroke(path);
   }
 
   // The theatre this briefing is set in, ringed on the chart.
@@ -285,7 +417,42 @@ export function drawWorld(canvas, opts = {}) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  if (!showPlaces) return;
+  // ---- the neatline -------------------------------------------------------
+  // A chart has a border. Two rules with a hair of sea between them, ticked at
+  // the corners the way a survey sheet is, and the whole thing inside the
+  // canvas rather than on its edge so it reads as a frame round the map and
+  // not as the window it happens to be drawn in.
+  const drawFrame = () => {
+    ctx.save();
+    ctx.lineJoin = 'miter';
+    // A breath of shadow inside the border, so the chart sits in the frame.
+    const vig = ctx.createLinearGradient(0, 0, 0, 22);
+    vig.addColorStop(0, 'rgba(3, 8, 14, 0.55)');
+    vig.addColorStop(1, 'rgba(3, 8, 14, 0)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, w, 22);
+
+    ctx.strokeStyle = 'rgba(230, 207, 156, 0.62)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(4, 4, w - 8, h - 8);
+    ctx.strokeStyle = 'rgba(230, 207, 156, 0.30)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(9.5, 9.5, w - 19, h - 19);
+
+    // Corner ticks, in from each corner along both edges.
+    ctx.strokeStyle = 'rgba(230, 207, 156, 0.72)';
+    ctx.lineWidth = 2;
+    const t = 18;
+    ctx.beginPath();
+    for (const [cx, cy, sx, sy] of [[4, 4, 1, 1], [w - 4, 4, -1, 1],
+      [4, h - 4, 1, -1], [w - 4, h - 4, -1, -1]]) {
+      ctx.moveTo(cx, cy + sy * t); ctx.lineTo(cx, cy); ctx.lineTo(cx + sx * t, cy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  if (!showPlaces) { if (frame) drawFrame(); return; }
 
   // Markers first, labels second. At world scale the European capitals sit
   // almost on top of one another, so every marker is reserved before any label
@@ -359,4 +526,6 @@ export function drawWorld(canvas, opts = {}) {
     ctx.fillStyle = isCapital ? capital : base;
     ctx.fillText(s.name, spot[0], spot[1]);
   }
+
+  if (frame) drawFrame();
 }

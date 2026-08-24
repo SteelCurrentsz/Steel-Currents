@@ -7,7 +7,7 @@ import {
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
 import { getClass } from './ships.js';
-import { MAP_HALF, blockedByLand, islandAt, spawnPoint } from './world.js';
+import { MAP_HALF, blockedByLand, islandAt, spawnPoint, getWeather } from './world.js';
 
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
@@ -689,6 +689,10 @@ function stepDetection(state) {
     const tc = getClass(target.classId);
     let conceal = tc.concealment;
     if (state.t - target.lastFiredAt < 12) conceal += tc.fireDetectPenalty;
+    // Weather shortens the range a lookout can pick her up at. Radar below is
+    // left alone, which is the whole point of radar: in a rain squall a set is
+    // worth more than every pair of eyes on the ship.
+    conceal *= getWeather(state.world?.weather).sight;
     if (target.smokeActive > 0) conceal *= 0.22;
     if (target.fires > 0) conceal *= 1.25;
 
