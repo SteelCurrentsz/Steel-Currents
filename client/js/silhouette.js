@@ -53,10 +53,16 @@ const HULLS = {
 
 // Badges that say what a hull icon does when it is a button rather than a
 // portrait: an arrow adds a ship, a cross removes one.
-// Drawn above the hull's own box, so the mark never sits on the superstructure.
+//
+// The arrow stands outboard of the hull and points away from the middle of the
+// screen -- out to port for your fleet on the left, out to starboard for
+// theirs on the right. It is drawn once, on the left, and mirrored: the box is
+// symmetrical about the hull's own centre line, so the same flip that turns
+// the enemy's hull to face the other way carries her arrow round with it. The
+// cross is symmetrical, so it mirrors onto itself and stays where it is.
 const BADGES = {
   arrow: `<g class="badge">
-    <path d="M50 -15 L50 -3 M44 -9 L50 -3 L56 -9" fill="none"
+    <path d="M-6 30 L-18 30 M-12 24 L-18 30 L-12 36" fill="none"
       stroke="currentColor" stroke-width="3"
       stroke-linecap="square" stroke-linejoin="miter"/>
   </g>`,
@@ -71,13 +77,22 @@ const BADGES = {
 export function silhouette(classId, { flip = false, cls = '', badge = null } = {}) {
   const body = HULLS[classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
-  // The badge is drawn outside the flipped group so its arrow keeps pointing
-  // the way it was drawn, whichever way the hull faces.
-  const box = badge ? '0 -18 100 58' : '0 0 100 40';
+  // Room either side for the arrow, and above for the cross. Equal margins, so
+  // the box's centre line is the hull's centre line and the mirror below maps
+  // the hull onto itself and the arrow across to the other side. Both badges
+  // share the box, so the hull is drawn at one size whichever mark it carries.
+  const box = badge ? '-22 -18 144 58' : '0 0 100 40';
+  // The badge goes inside the flipped group on purpose: what a captain reads
+  // off the arrow is which way is *out*, and that is the one thing about it
+  // that has to turn round with the fleet it belongs to.
+  //
+  // The mirror is written out as a transform rather than left to a CSS
+  // transform-origin: it has to fold about the hull's own centre line, x = 50,
+  // and `50%` of a box whose left edge is negative is not that line in every
+  // engine. `x -> 100 - x` is, everywhere.
   return `<svg class="sil ${cls}" viewBox="${box}" preserveAspectRatio="xMidYMid meet"
     role="img" aria-hidden="true">
-    <g fill="currentColor"${flip ? ' style="transform:scaleX(-1);transform-origin:50% 50%"' : ''}>${body}</g>
-    ${mark}
+    <g fill="currentColor"${flip ? ' transform="translate(100 0) scale(-1 1)"' : ''}>${body}${mark}</g>
   </svg>`;
 }
 
@@ -90,9 +105,13 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
  * more than half the drawing. Barbette below, sloped face, rangefinder ear out
  * the back, and three rifles run out with their muzzle swells. It points to
  * the right; `flip` trains it round to the left.
+ *
+ * The arrow off the muzzles is the same mark the hull icons carry, drawn at the
+ * same size on screen: the whole drawing is mirrored for the left-hand fleet,
+ * so the arrow trains round with the guns and always points outboard.
  */
 export function turret({ flip = false } = {}) {
-  return `<svg class="turret-art" viewBox="0 0 200 92" role="img" aria-hidden="true"
+  return `<svg class="turret-art" viewBox="0 0 248 92" role="img" aria-hidden="true"
     preserveAspectRatio="xMidYMid meet"${flip ? ' style="transform:scaleX(-1)"' : ''}>
     <g fill="currentColor">
       <!-- the deck she stands on, and the barbette she trains in -->
@@ -111,5 +130,11 @@ export function turret({ flip = false } = {}) {
       <rect x="108" y="42" width="80" height="6"/><rect x="184" y="40" width="9" height="10"/>
       <rect x="108" y="52" width="72" height="6"/><rect x="176" y="50" width="9" height="10"/>
     </g>
+    <!-- the same badge the hull icons carry, out beyond the muzzles: shaft,
+         arms and stroke all scaled by the ratio of the two drawings, so it
+         comes out the size the ship's arrow comes out. -->
+    <path d="M206 46 L236 46 M221 31 L236 46 L221 61" fill="none"
+      stroke="currentColor" stroke-width="7.5"
+      stroke-linecap="square" stroke-linejoin="miter"/>
   </svg>`;
 }
