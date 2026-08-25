@@ -151,6 +151,11 @@ input[type="range"] { accent-color: var(--red); }
 }
 .btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
 .btn.ghost { background: transparent; border: 1px solid var(--panel-line); color: var(--sand); }
+/* A button with nothing to do says so and stops answering. */
+.btn:disabled {
+  background: #3a2626; color: rgba(255, 255, 255, 0.42); cursor: not-allowed;
+}
+.btn:disabled:hover { filter: none; transform: none; }
 
 .keys { width: 100%; border-collapse: collapse; font-size: 1rem; }
 .keys td { padding: 0.3rem 0.6rem 0.3rem 0; color: var(--steel); }
@@ -677,26 +682,30 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   position: absolute; top: 0; bottom: 0;
   width: var(--roster-w);
   margin: 0; padding: 0.2rem 0; list-style: none;
-  display: flex; flex-direction: column; gap: 0.3rem;
+  display: flex; flex-direction: column; gap: 0.16rem;
   overflow-y: auto; overscroll-behavior: contain;
-  /* The chart is behind it and the fleet buttons are beside it: the list takes
-     no pointer, so neither is blocked by a column of empty space under it. */
-  pointer-events: none;
-  scrollbar-width: thin;
+  /* Twenty-five hulls is more than any screen has room for, so the column
+     scrolls -- which means it has to take a pointer to be scrolled by. Nothing
+     of the chart under it is a control, and the fleet buttons are inset by
+     exactly this width, so there is nothing for it to be in the way of.
+     The bars themselves are not buttons: the fleet is edited through the hull
+     icons in the middle. */
+  pointer-events: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(150, 190, 226, 0.35) transparent;
 }
 .fleet-list.ally { left: max(0.6rem, env(safe-area-inset-left)); }
 .fleet-list.axis { right: max(0.6rem, env(safe-area-inset-right)); }
 
 .fleet-ship {
   flex: none;
-  display: grid; grid-template-columns: 2.6rem 1fr; align-items: center;
+  display: grid; grid-template-columns: 1.9rem 1fr; align-items: center;
   gap: 0.1rem;
-  min-height: 1.85rem; padding: 0.12rem 0.5rem 0.12rem 0.1rem;
-  font-family: var(--ui); font-size: clamp(0.82rem, 1.5vw, 1.02rem);
-  letter-spacing: 0.04em;
+  min-height: 1.28rem; padding: 0.04rem 0.35rem 0.04rem 0.08rem;
+  font-family: var(--ui); font-size: clamp(0.66rem, 1.05vw, 0.84rem);
+  letter-spacing: 0.03em;
   color: var(--sand-bright);
   border: 1px solid transparent;
-  border-left-width: 3px;
+  border-left-width: 2px;
 }
 .fleet-list.ally .fleet-ship {
   background: linear-gradient(90deg, rgba(31, 72, 128, 0.92), rgba(24, 54, 96, 0.72));
@@ -707,9 +716,9 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   background: linear-gradient(270deg, rgba(126, 34, 34, 0.92), rgba(94, 26, 26, 0.72));
   border-color: rgba(232, 138, 132, 0.30);
   border-left-color: transparent;
-  border-right: 3px solid #c8443c;
-  grid-template-columns: 2.6rem 1fr;
-  padding: 0.12rem 0.1rem 0.12rem 0.5rem;
+  border-right: 2px solid #c8443c;
+  grid-template-columns: 1.9rem 1fr;
+  padding: 0.04rem 0.08rem 0.04rem 0.35rem;
 }
 /* The hull you take the bridge of, marked so a captain can see which of four
    destroyers is his own. */
@@ -733,7 +742,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
      are inset by exactly as much room as they take. One number, used by both,
      because a roster and a gap for it that disagree is two bugs rather than
      one. */
-  --roster-w: clamp(9.5rem, 19vw, 17rem);
+  --roster-w: clamp(7.4rem, 13.5vw, 12.5rem);
   padding: 0 calc(var(--roster-w) + max(1rem, env(safe-area-inset-left)));
   /* A flex item will not shrink below the widest thing in it unless it is told
      it may. Without this the two fleets keep their full width on a narrow
@@ -809,7 +818,13 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
            max(1rem, env(safe-area-inset-bottom)) max(1.4rem, env(safe-area-inset-left));
   background: linear-gradient(0deg, rgba(8, 16, 26, 0.85), rgba(8, 16, 26, 0));
 }
-.briefing-actions { display: flex; gap: 0.6rem; }
+.briefing-actions { display: flex; gap: 0.6rem; align-items: center; }
+.sortie-note {
+  margin: 0; flex: 0 1 auto; min-width: 0;
+  font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--steel); text-align: right; line-height: 1.2;
+}
+.sortie-note:empty { display: none; }
 .globe-btn {
   display: flex; align-items: center; gap: 0.6rem; min-height: 44px;
   background: none; border: 0; cursor: pointer;
@@ -1089,8 +1104,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   }
   .fleet-list.ally { grid-column: 1; }
   .fleet-list.axis { grid-column: 2; }
-  .fleet-ship { min-height: 1.45rem; font-size: 0.76rem; grid-template-columns: 2rem 1fr; }
-  .fleet-list.axis .fleet-ship { grid-template-columns: 2rem 1fr; }
+  .fleet-ship { min-height: 1.15rem; font-size: 0.64rem; grid-template-columns: 1.7rem 1fr; }
+  .fleet-list.axis .fleet-ship { grid-template-columns: 1.7rem 1fr; }
   .force-cell .sil { height: clamp(34px, 6.5vh, 56px); }
   .turret-btn .turret-art { width: min(82px, 27.3vw); }
 }

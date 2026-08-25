@@ -15,6 +15,11 @@ const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 // lay a battlefield out over.
 const BATTLE_MAX_M = 64008;
 
+// How many hulls one side may sail with. Both fleets start empty — a captain
+// says what he is taking to sea rather than being handed a squadron — and
+// neither may grow past this.
+export const FLEET_MAX = 25;
+
 const cycle = (arr, cur, step = 1) => {
   const i = arr.indexOf(cur);
   return arr[(i + step + arr.length) % arr.length];
@@ -22,7 +27,7 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, getSkill, onShipChange, onOpenPicker, onClosePicker,
-    onOpenYard, onOpenChart, initialShip = 'cleveland' }) {
+    onOpenYard, onOpenChart }) {
     this.onStart = onStart;
     this.getName = getName;
     // How hard the other side fights is a preference rather than a property of
@@ -34,10 +39,13 @@ export class Briefing {
     this.onOpenYard = onOpenYard;
     this.onOpenChart = onOpenChart;
     this.state = {
-      // Your fleet's first hull is the one you take the bridge of; the rest
-      // sail under AI captains. The enemy fleet is theirs entirely.
-      allyFleet: [initialShip, 'fletcher', 'fletcher', 'fletcher'],
-      enemyFleet: ['hipper', 'fletcher', 'fletcher', 'fletcher', 'fletcher'],
+      // Both sides start with nothing. Your fleet's first hull is the one you
+      // take the bridge of; the rest sail under AI captains, and the enemy
+      // fleet is theirs entirely — but every one of them is commissioned by
+      // hand, so a battle is the one a captain asked for rather than the one
+      // the screen came up with.
+      allyFleet: [],
+      enemyFleet: [],
       time: 'dawn',
       weather: 'sunny',
       // Where the battle is fought. The chart sets this — four corners and the
@@ -62,6 +70,7 @@ export class Briefing {
       time: document.getElementById('time-val'),
       weather: document.getElementById('weather-val'),
       theatre: document.getElementById('theatre-name'),
+      start: document.getElementById('custom-start'),
     };
     if (!this.el.canvas) return;
 
@@ -76,6 +85,14 @@ export class Briefing {
       pending = requestAnimationFrame(() => this.paintMap());
     };
     window.addEventListener('resize', this.onResize);
+    // A window resize is not the only thing that changes the chart's box: the
+    // screen going up, a phone's address bar sliding away, the safe-area
+    // insets turning over on a rotation. Watch the canvas itself, and the
+    // chart is repainted for all of them rather than for one of them.
+    if (typeof ResizeObserver === 'function') {
+      this.observer = new ResizeObserver(this.onResize);
+      this.observer.observe(this.el.canvas);
+    }
   }
 
   bind() {
@@ -121,22 +138,31 @@ export class Briefing {
     }).join('');
   }
 
-  /** One of the four hull buttons. */
+  /**
+   * One of the four hull buttons.
+   *
+   * The drawing is a battleship rather than whichever hull happens to lead the
+   * fleet: these are controls, not portraits, and a fleet that starts empty
+   * has no lead hull to draw. What is in the fleet is on the roster down the
+   * edge of the screen, hull by hull, which is a better answer than one
+   * silhouette could be.
+   */
   fleetCell(side, mode) {
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
     const flip = side === 'enemy';
-    const lead = fleet[0] || 'fletcher';
-    return `${silhouette(lead, { flip, badge: mode === 'add' ? 'arrow' : 'x' })}
+    return `${silhouette('yamato', { flip, badge: mode === 'add' ? 'arrow' : 'x' })}
       <b class="count">${fleet.length}</b>`;
   }
 
   /** Commission a hull into one of the fleets. The shipyard calls this once a
-   *  captain has looked her over. */
+   *  captain has looked her over. False if that fleet is already full. */
   commission(side, classId) {
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    if (fleet.length >= FLEET_MAX) return false;
     fleet.push(classId);
     if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
     this.render();
+    return true;
   }
 
   /** The paying-off screen: the ships already in that fleet, so a captain picks
@@ -153,10 +179,10 @@ export class Briefing {
     list.innerHTML = '';
     this.onOpenPicker?.();
 
-    if (fleet.length <= 1) {
+    if (!fleet.length) {
       const p = document.createElement('p');
       p.className = 'muted';
-      p.textContent = 'A fleet cannot put to sea empty. Add another ship first.';
+      p.textContent = 'There is nothing in this fleet yet.';
       list.appendChild(p);
     }
 
@@ -169,7 +195,6 @@ export class Briefing {
       el.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
         <div class="nm">${c.name}</div>
         <div class="bl">${flagship ? 'Your bridge' : c.blurb}</div>`;
-      if (fleet.length <= 1) el.disabled = true;
       el.onclick = () => {
         fleet.splice(index, 1);
         if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
@@ -196,6 +221,23 @@ export class Briefing {
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
     this.el.theatre.textContent = s.deploy.name;
+
+    // Nothing sails until both sides have something to sail. The button says
+    // so by being unavailable, and the note beside it says why.
+    const why = this.blocker();
+    if (this.el.start) this.el.start.disabled = !!why;
+    const note = document.getElementById('sortie-note');
+    if (note) note.textContent = why || '';
+  }
+
+  /** Why this battle cannot be fought yet, or '' if it can. */
+  blocker() {
+    const a = this.state.allyFleet.length;
+    const e = this.state.enemyFleet.length;
+    if (!a && !e) return 'Commission a ship for each side.';
+    if (!a) return 'Your fleet is empty.';
+    if (!e) return 'The enemy fleet is empty.';
+    return '';
   }
 
   /** Take a location back from the deployment chart. */
@@ -212,6 +254,11 @@ export class Briefing {
     // would crop the east and west edges — and losing the Pacific from a world
     // map to avoid a band of empty ocean is the wrong trade.
     const c = this.el.canvas;
+    // While this screen is down the canvas has no box, and a chart painted
+    // into no box is stretched to whatever box it turns out to have -- which
+    // is what used to squash the world every time the deployment chart handed
+    // a position back. drawWorld draws nothing rather than guess a size, and
+    // the observer on the canvas takes the repaint when it has one.
     drawWorld(c, {
       focus: [0, 8], zoom: 1,
       marker: [d.lon, d.lat],

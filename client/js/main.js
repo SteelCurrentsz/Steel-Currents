@@ -10,7 +10,7 @@ import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
-import { Briefing } from './briefing.js';
+import { Briefing, FLEET_MAX } from './briefing.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
@@ -153,8 +153,9 @@ document.getElementById('pvp-name').oninput = (e) => setSettings({ name: e.targe
 const briefing = new Briefing({
   getName: () => getSettings().name,
   getSkill: () => getSettings().botSkill,
-  initialShip: settings.ship,
-  onShipChange: (id) => setSettings({ ship: id }),
+  // Only when there is a flagship to remember. An empty fleet has no lead
+  // hull, and writing that away would lose the last one a captain chose.
+  onShipChange: (id) => { if (id) setSettings({ ship: id }); },
   // The hull icons open the picker; choosing or cancelling returns to the chart.
   onOpenPicker: () => show('fleet'),
   onClosePicker: () => show('custom'),
@@ -226,13 +227,19 @@ document.getElementById('yard-back').onclick = () => { audio.click(); closeYard(
 document.getElementById('yard-commission').onclick = () => {
   audio.click();
   const id = SHIP_ORDER[yardUi.index % SHIP_ORDER.length];
-  briefing.commission(yardUi.side, id);
-  toast(`${SHIP_CLASSES[id].name} joins ${yardUi.side === 'ally' ? 'your' : 'the enemy'} fleet.`);
+  const whose = yardUi.side === 'ally' ? 'your' : 'the enemy';
+  if (!briefing.commission(yardUi.side, id)) {
+    toast(`${FLEET_MAX} ships is all ${whose} fleet will take.`);
+    return;
+  }
+  toast(`${SHIP_CLASSES[id].name} joins ${whose} fleet.`);
   closeYard();
 };
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
+  const why = briefing.blocker();
+  if (why) { toast(why); return; }
   fullscreen.enterBattleView(document.documentElement);
   if (!net.connected) { toast('Not connected to the battle service.'); return; }
   net.send(briefing.request());
@@ -403,6 +410,13 @@ function frame(now) {
   } else if (yard && current === 'yard') {
     yard.update(dt);
     yard.render();
+  } else if (current === 'custom') {
+    // Nothing of the harbour shows through the briefing: its chart covers the
+    // screen edge to edge and the fleets are laid over that. Rendering the sea
+    // behind it buys a frame nobody can see, and that frame is the one
+    // standing between a captain and the chart when he opens it -- the scene
+    // is queued several frames deep, and the chart waits for all of them.
+    // Nothing here is drawn at less detail; it is simply not drawn twice.
   } else {
     title.update(dt);
     title.render();

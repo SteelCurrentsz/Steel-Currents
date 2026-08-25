@@ -12,7 +12,7 @@
 // with the simulation rather than kept here. The chart and the battlefield have
 // to be raised from exactly the same polygons: a coast the chart draws in one
 // place and the sim collides on in another is worse than no coast at all.
-import { landRings, boxedLand, isWater } from '../../shared/coast.js';
+import { boxedLand, isWater } from '../../shared/coast.js';
 import { seaLabels, oceanLabels } from './waters.js';
 
 export { isWater };
@@ -89,6 +89,9 @@ const BASES = [
 /**
  * Paint the chart. `focus` is [lon, lat] at the centre and `zoom` scales the
  * projection — 1 fits all 360 degrees of longitude across the canvas width.
+ *
+ * Returns false, having drawn nothing, if the canvas has no box on the page
+ * yet; see below.
  */
 export function drawWorld(canvas, opts = {}) {
   const {
@@ -104,9 +107,16 @@ export function drawWorld(canvas, opts = {}) {
     graticule = false, showWaters = false, frame = true,
   } = opts;
 
+  // A canvas on a screen that is not up yet has no box to paint into. Painting
+  // a made-up one is worse than not painting at all: the chart is drawn at one
+  // shape and then stretched to whatever shape the screen turns out to be, and
+  // the world comes back squashed. Say nothing was drawn and let the caller
+  // ask again once it has a size.
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!(w > 0) || !(h > 0)) return false;
+
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = canvas.clientWidth || 1200;
-  const h = canvas.clientHeight || 800;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext('2d');
@@ -238,30 +248,24 @@ export function drawWorld(canvas, opts = {}) {
     }
   };
 
-  const visible = (poly, shift) => {
-    const outer = poly[0];
-    let minLon = Infinity; let maxLon = -Infinity;
-    let minLat = Infinity; let maxLat = -Infinity;
-    for (const [lon, lat] of outer) {
-      const l = lon + shift;
-      if (l < minLon) minLon = l;
-      if (l > maxLon) maxLon = l;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-    }
-    return maxLon >= lonLo && minLon <= lonHi && maxLat >= latLo && minLat <= latHi;
-  };
+  // The bounding boxes come from the shared coastline, which works them out
+  // once and keeps them. Walking a continent's vertices to find its corners
+  // again on every repaint costs more than drawing the ones that are on
+  // screen, and at a close zoom nearly all of it is spent proving that shapes
+  // on the other side of the world are still on the other side of the world.
+  const visible = (b, shift) =>
+    b.x1 + shift >= lonLo && b.x0 + shift <= lonHi && b.y1 >= latLo && b.y0 <= latHi;
 
   // Drawn three times across so the chart wraps at the dateline rather than
   // ending in open sea. Holes come from the data, so a single evenodd fill
   // leaves the lakes as water.
-  const polys = landRings();
+  const polys = boxedLand();
   for (const shift of [-360, 0, 360]) {
     const shown = polys.filter((p) => visible(p, shift));
     if (!shown.length) continue;
     const paths = [];
     const all = new Path2D();
-    for (const poly of shown) {
+    for (const { poly } of shown) {
       const path = new Path2D();
       addPoly(path, poly, shift);
       paths.push(path);
@@ -452,7 +456,7 @@ export function drawWorld(canvas, opts = {}) {
     ctx.restore();
   };
 
-  if (!showPlaces) { if (frame) drawFrame(); return; }
+  if (!showPlaces) { if (frame) drawFrame(); return true; }
 
   // Markers first, labels second. At world scale the European capitals sit
   // almost on top of one another, so every marker is reserved before any label
@@ -528,4 +532,5 @@ export function drawWorld(canvas, opts = {}) {
   }
 
   if (frame) drawFrame();
+  return true;
 }
