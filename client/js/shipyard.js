@@ -354,12 +354,26 @@ export function hullSheet(cls) {
   return rows;
 }
 
+/**
+ * How far a mounting can be trained off its rest bearing, in words.
+ *
+ * `arc` is the half-angle either side, so a mount with PI can be laid anywhere
+ * on the horizon. The narrowest mounting on a ship is the one that decides
+ * whether she can fight without turning, so that is the one quoted.
+ */
+function traverse(cls) {
+  const tightest = cls.turrets.reduce((a, t) => Math.min(a, t.arc), Math.PI);
+  if (tightest >= Math.PI - 0.01) return '360°';
+  return `${Math.round((tightest * 180) / Math.PI) * 2}°`;
+}
+
 /** Every barrel she carries, with the magazine behind it. */
 export function armsSheet(cls) {
   const d = cls.datasheet;
   const rows = [];
   rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
     `${num(d.mainRounds)} rds`]);
+  rows.push(['Main battery training', traverse(cls)]);
   if (d.secondary) {
     rows.push([`${count(d.secondary.barrels)} ${d.secondary.label} secondary`,
       `${num(d.secondary.rounds)} rds`]);

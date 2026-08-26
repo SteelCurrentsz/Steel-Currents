@@ -574,6 +574,10 @@ export function mountingSheet(b) {
   const rows = [
     ['Mount', b.mount],
     ['Attack selection', TARGETS[b.targets] || 'Ships'],
+    // How much of the horizon it can be laid on without being dug out and
+    // rebuilt. A casemate has a slot to shoot through; a turret has none.
+    ['Traverse', b.traverse >= 360 ? '360°'
+      : b.traverse > 0 ? `${b.traverse}°` : 'None — track-laid'],
   ];
   rows.push(['Weight', b.weight >= 1000
     ? `${num(Math.round(b.weight))} t`

@@ -60,14 +60,14 @@ export class Room {
     return counts[0] <= counts[1] ? 0 : 1;
   }
 
-  join(player, { name, classId, team }) {
+  join(player, { name, classId, team, at = null }) {
     if (this.players.size >= this.maxPlayers) return { error: 'Room is full' };
     if (this.phase === 'ended') return { error: 'That battle is over' };
     const cls = SHIP_ORDER.includes(classId) ? classId : 'fletcher';
     const t = this.pickTeam(team);
     const ship = addShip(this.state, {
       name: (name || 'Captain').slice(0, 18),
-      classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id,
+      classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id, at,
     });
     player.team = t;
     player.shipId = ship.id;
@@ -110,11 +110,11 @@ export class Room {
     this.broadcastRoster();
   }
 
-  addBotOnTeam(team, skill = this.botSkill, classId = null) {
+  addBotOnTeam(team, skill = this.botSkill, classId = null, at = null) {
     const cls = classId || SHIP_ORDER[Math.floor(Math.random() * SHIP_ORDER.length)];
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
     const ship = addShip(this.state, {
-      name, classId: cls, team, index: this.teamIndex[team]++, isBot: true,
+      name, classId: cls, team, index: this.teamIndex[team]++, isBot: true, at,
     });
     this.brains.set(ship.id, createBotBrain(skill));
     return ship;

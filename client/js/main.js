@@ -13,6 +13,7 @@ import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
 import { Briefing, FLEET_MAX } from './briefing.js';
+import { LayoutMap } from './layout.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
@@ -61,7 +62,7 @@ window.addEventListener('resize', resize);
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'guns', 'map', 'battle', 'result'];
+const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'guns', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -294,14 +295,34 @@ document.getElementById('battery-emplace').onclick = () => {
   closeGuns();
 };
 
+// ---------------------------------------------------- the order of battle --
+
+// Sortie no longer sends the fleets straight to sea: it opens a plan of the
+// battlefield with a token on it for every hull and every battery, and the
+// captain says where each of them starts and which way it faces. The request
+// is built once, here, so the chart and the server raise the same world from
+// the same numbers.
+const layout = new LayoutMap({
+  onBack: () => { audio.click(); show('custom'); },
+  onGo: (plan) => {
+    audio.click();
+    fullscreen.enterBattleView(document.documentElement);
+    if (!net.connected) { toast('Not connected to the battle service.'); return; }
+    net.send({ ...layoutReq, layout: plan });
+    toast('Sortieing…');
+  },
+});
+let layoutReq = null;
+
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
   const why = briefing.blocker();
   if (why) { toast(why); return; }
-  fullscreen.enterBattleView(document.documentElement);
-  if (!net.connected) { toast('Not connected to the battle service.'); return; }
-  net.send(briefing.request());
-  toast('Sortieing…');
+  layoutReq = briefing.request();
+  show('lay');
+  // The canvas has no box until the screen is up, so the chart is raised on the
+  // next frame rather than drawn into a nought-by-nought canvas.
+  requestAnimationFrame(() => layout.show(layoutReq));
 };
 
 document.getElementById('pvp-quick').onclick = () => {
@@ -465,6 +486,8 @@ function frame(now) {
     // The chart is a 2D canvas that repaints only when something moves, so the
     // scene behind it is left alone while it is up.
     deploy.update();
+  } else if (current === 'lay') {
+    layout.update();
   } else if (yard && current === 'yard') {
     yard.update(dt);
     yard.render();
@@ -487,6 +510,9 @@ function frame(now) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
+  // Backing out of the plan goes to the briefing, not to the title screen: the
+  // fleets are still there and the captain is one keystroke from another try.
+  if (e.code === 'Escape' && current === 'lay') { show('custom'); return; }
   if (e.code === 'Escape' && current !== 'title' && current !== 'battle') show('title');
   if (current !== 'yard') return;
   if (e.code === 'ArrowLeft') stepYard(-1);

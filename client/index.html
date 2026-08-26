@@ -303,6 +303,25 @@
   <button class="deploy-close" id="deploy-close" type="button" aria-label="Close the chart">&times;</button>
 </section>
 
+<!-- ====================== THE ORDER OF BATTLE ===================== -->
+<!-- The last thing before the guns: a plan of the battlefield with a token on
+     it for every hull and every battery, laid out where they will start. Same
+     furniture as the deployment chart, because it is the same kind of screen —
+     the chart is everything and the controls are held to the edges. -->
+<section id="screen-lay" class="screen map-screen lay-screen">
+  <canvas id="lay-canvas"></canvas>
+  <div class="deploy-head">
+    <h2>Order of Battle</h2>
+    <div id="lay-readout" class="deploy-readout"></div>
+  </div>
+  <p id="lay-hint" class="deploy-hint"></p>
+  <div class="lay-actions">
+    <button class="btn ghost" id="lay-back" type="button">Back</button>
+    <button class="btn ghost" id="lay-auto" type="button">Form Up</button>
+    <button class="btn" id="lay-go" type="button">Sortie</button>
+  </div>
+</section>
+
 <section id="screen-yard" class="screen yard-screen">
   <div class="yard-grab" id="yard-grab"></div>
 

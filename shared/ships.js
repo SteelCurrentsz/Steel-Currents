@@ -24,6 +24,9 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 
 export const SHIP_CLASSES = {
   fletcher: {
+    // Five single 5"/38 dual-purpose mounts, quick-training and unobstructed on a
+    // flush deck: `arc` is the half-angle either side of a mount's rest bearing,
+    // so PI is a gun that trains right round. These are the ones that do.
     id: 'fletcher',
     name: 'Fletcher',
     type: 'DD',
@@ -46,11 +49,11 @@ export const SHIP_CLASSES = {
     smokeCharges: 3,
     armor: { belt: 19, deck: 13, citadel: 19, bow: 13, superstructure: 13 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 34, angle: 0, arc: 2.62, guns: 1 },
-      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: 2.62, guns: 1 },
-      { id: 2, name: 'X', x: 0, z: -18, angle: Math.PI, arc: 2.53, guns: 1 },
-      { id: 3, name: 'Y', x: 0, z: -28, angle: Math.PI, arc: 2.53, guns: 1 },
-      { id: 4, name: 'Z', x: 0, z: -38, angle: Math.PI, arc: 2.53, guns: 1 },
+      { id: 0, name: 'A', x: 0, z: 34, angle: 0, arc: Math.PI, guns: 1 },
+      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: Math.PI, guns: 1 },
+      { id: 2, name: 'X', x: 0, z: -18, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 3, name: 'Y', x: 0, z: -28, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 4, name: 'Z', x: 0, z: -38, angle: Math.PI, arc: Math.PI, guns: 1 },
     ],
     gun: {
       caliber: 127, reload: 3.4, traverse: 0.52, range: 11800, sigma: 1.9,
@@ -84,6 +87,8 @@ export const SHIP_CLASSES = {
   },
 
   cleveland: {
+    // Four triple 6" turrets, superfiring fore and aft. Wide arcs, but the
+    // superstructure takes a bite out of each of them.
     id: 'cleveland',
     name: 'Cleveland',
     type: 'CL',
@@ -109,7 +114,7 @@ export const SHIP_CLASSES = {
       { id: 0, name: 'A', x: 0, z: 58, angle: 0, arc: 2.62, guns: 3 },
       { id: 1, name: 'B', x: 0, z: 44, angle: 0, arc: 2.62, guns: 3 },
       { id: 2, name: 'X', x: 0, z: -42, angle: Math.PI, arc: 2.53, guns: 3 },
-      { id: 3, name: 'Y', x: 0, z: -56, angle: Math.PI, arc: 2.53, guns: 3 },
+      { id: 3, name: 'Y', x: 0, z: -56, angle: Math.PI, arc: 2.44, guns: 3 },
     ],
     gun: {
       caliber: 152, reload: 6.4, traverse: 0.31, range: 15400, sigma: 1.7,
@@ -132,6 +137,8 @@ export const SHIP_CLASSES = {
   },
 
   hipper: {
+    // Four twin 8" turrets. Heavier than a light cruiser's and correspondingly
+    // slower and narrower in their training.
     id: 'hipper',
     name: 'Admiral Hipper',
     type: 'CA',
@@ -154,10 +161,10 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 178, deck: 76, citadel: 178, bow: 30, superstructure: 20 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 66, angle: 0, arc: 2.62, guns: 2 },
-      { id: 1, name: 'B', x: 0, z: 52, angle: 0, arc: 2.62, guns: 2 },
-      { id: 2, name: 'X', x: 0, z: -48, angle: Math.PI, arc: 2.53, guns: 2 },
-      { id: 3, name: 'Y', x: 0, z: -62, angle: Math.PI, arc: 2.53, guns: 2 },
+      { id: 0, name: 'A', x: 0, z: 66, angle: 0, arc: 2.44, guns: 2 },
+      { id: 1, name: 'B', x: 0, z: 52, angle: 0, arc: 2.36, guns: 2 },
+      { id: 2, name: 'X', x: 0, z: -48, angle: Math.PI, arc: 2.36, guns: 2 },
+      { id: 3, name: 'Y', x: 0, z: -62, angle: Math.PI, arc: 2.27, guns: 2 },
     ],
     gun: {
       caliber: 203, reload: 11.2, traverse: 0.24, range: 17200, sigma: 1.6,
@@ -188,6 +195,9 @@ export const SHIP_CLASSES = {
   },
 
   iowa: {
+    // Three 16"/50 triples. A turret this size is blast-limited as much as it is
+    // structurally limited, so the heaviest guns on the list have the least of
+    // the horizon to shoot at.
     id: 'iowa',
     name: 'Iowa',
     type: 'BB',
@@ -210,9 +220,9 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 307, deck: 152, citadel: 307, bow: 38, superstructure: 38 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 78, angle: 0, arc: 2.62, guns: 3 },
-      { id: 1, name: 'B', x: 0, z: 58, angle: 0, arc: 2.62, guns: 3 },
-      { id: 2, name: 'Y', x: 0, z: -74, angle: Math.PI, arc: 2.53, guns: 3 },
+      { id: 0, name: 'A', x: 0, z: 78, angle: 0, arc: 2.36, guns: 3 },
+      { id: 1, name: 'B', x: 0, z: 58, angle: 0, arc: 2.27, guns: 3 },
+      { id: 2, name: 'Y', x: 0, z: -74, angle: Math.PI, arc: 2.36, guns: 3 },
     ],
     gun: {
       caliber: 406, reload: 26, traverse: 0.09, range: 21600, sigma: 1.35,
@@ -235,6 +245,8 @@ export const SHIP_CLASSES = {
   },
 
   essex: {
+    // Two twin 5"/38 on the island. They can only fire outboard: the flight deck
+    // is in the way of everything else.
     id: 'essex',
     name: 'Essex',
     type: 'CV',
@@ -257,8 +269,8 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 102, deck: 76, citadel: 102, bow: 25, superstructure: 20 },
     turrets: [
-      { id: 0, name: 'A', x: 15, z: 46, angle: 0, arc: 1.75, guns: 2 },
-      { id: 1, name: 'Y', x: 15, z: -46, angle: Math.PI, arc: 1.75, guns: 2 },
+      { id: 0, name: 'A', x: 15, z: 46, angle: 0, arc: 1.40, guns: 2 },
+      { id: 1, name: 'Y', x: 15, z: -46, angle: Math.PI, arc: 1.40, guns: 2 },
     ],
     gun: {
       caliber: 127, reload: 4.2, traverse: 0.44, range: 10600, sigma: 2.2,

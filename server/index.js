@@ -29,9 +29,12 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-// `client/` is the web root; `vendor/` and `shared/` are mounted alongside it so
-// the browser and the server can import exactly the same simulation modules.
-const MOUNTS = ['vendor', 'shared'];
+// `client/` is the web root; `vendor/`, `shared/` and `server/` are mounted
+// alongside it so the browser and the server can import exactly the same
+// simulation modules. `server/` is there because the offline build hosts a Room
+// inside the tab -- localnet.js imports it, main.js imports localnet, so
+// without the mount the client will not boot at all over HTTP.
+const MOUNTS = ['vendor', 'shared', 'server'];
 
 function safeResolve(urlPath) {
   const clean = decodeURIComponent(urlPath.split('?')[0]);
@@ -189,18 +192,31 @@ function handle(player, msg) {
         place: (Number.isFinite(msg.lon) && Number.isFinite(msg.lat))
           ? { lon: msg.lon, lat: msg.lat } : undefined,
       });
-      joinRoom(player, room, msg);
+      // Berths off the order-of-battle chart, if the captain laid one out. The
+      // first ally berth is the captain's own hull, because that is the order
+      // the fleets are built in below and the order the chart was drawn in.
+      // Every one of them is checked again in addShip -- these are only the
+      // numbers that arrived over the wire.
+      const berths = (v, cap) => (Array.isArray(v)
+        ? v.slice(0, cap).map((b) => (b && Number.isFinite(b.x) && Number.isFinite(b.z)
+          ? { x: b.x, z: b.z, h: b.h } : null))
+        : null);
+      const allyAt = berths(msg.layout?.allies, 25);
+      const enemyAt = berths(msg.layout?.enemies, 25);
+      joinRoom(player, room, msg, allyAt?.[0] ?? null);
       // A briefing names the hulls outright; anything else just asks for counts.
       const list = (v, cap) => (Array.isArray(v) ? v.slice(0, cap) : null);
-      const allyClasses = list(msg.allyClasses, 7);
-      const enemyClasses = list(msg.enemyClasses, 8);
-      const allies = allyClasses?.length ?? Math.max(0, Math.min(7, msg.allies ?? 3));
-      const enemies = enemyClasses?.length ?? Math.max(1, Math.min(8, msg.enemies ?? 4));
+      const allyClasses = list(msg.allyClasses, 24);
+      const enemyClasses = list(msg.enemyClasses, 25);
+      const allies = allyClasses?.length ?? Math.max(0, Math.min(24, msg.allies ?? 3));
+      const enemies = enemyClasses?.length ?? Math.max(1, Math.min(25, msg.enemies ?? 4));
       for (let i = 0; i < allies; i++) {
-        room.addBotOnTeam(player.team, msg.botSkill, allyClasses?.[i] ?? null);
+        room.addBotOnTeam(player.team, msg.botSkill, allyClasses?.[i] ?? null,
+          allyAt?.[i + 1] ?? null);
       }
       for (let i = 0; i < enemies; i++) {
-        room.addBotOnTeam(1 - player.team, msg.botSkill, enemyClasses?.[i] ?? null);
+        room.addBotOnTeam(1 - player.team, msg.botSkill, enemyClasses?.[i] ?? null,
+          enemyAt?.[i] ?? null);
       }
       room.start();
       break;
@@ -233,9 +249,11 @@ function handle(player, msg) {
   }
 }
 
-function joinRoom(player, room, msg) {
+function joinRoom(player, room, msg, at = null) {
   player.name = String(msg.name || 'Captain').slice(0, 18);
-  const res = room.join(player, { name: player.name, classId: msg.classId, team: msg.team });
+  const res = room.join(player, {
+    name: player.name, classId: msg.classId, team: msg.team, at,
+  });
   if (res.error) { player.send({ t: 'error', msg: res.error }); return; }
   player.send({
     t: 'joined',

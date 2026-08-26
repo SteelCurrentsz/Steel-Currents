@@ -7,7 +7,7 @@ import {
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
 import { getClass } from './ships.js';
-import { MAP_HALF, blockedByLand, islandAt, spawnPoint, getWeather } from './world.js';
+import { MAP_HALF, blockedByLand, islandAt, landAt, spawnPoint, getWeather } from './world.js';
 
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
@@ -42,9 +42,31 @@ export function createState(world, opts = {}) {
   };
 }
 
-export function addShip(state, { id, name, classId, team, index, isBot = false, playerId = null }) {
+/**
+ * Where a hull starts: the berth her captain gave her on the order-of-battle
+ * chart, or the spawn line when she was not given one.
+ *
+ * The placement is checked here rather than taken on trust. The client draws
+ * the chart from the same seed and the same position, so it raises the same
+ * coastline this does -- but a berth that is nevertheless aground, off the
+ * battlefield or plain nonsense falls back to the line, because a ship sitting
+ * inside a headland is worse than a ship in the wrong place.
+ */
+function berth(world, team, index, at, cls) {
+  const line = spawnPoint(world, team, index);
+  if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.z)) return line;
+  const half = (world?.half || MAP_HALF) - 150;
+  const x = clamp(at.x, -half, half);
+  const z = clamp(at.z, -half, half);
+  if (landAt(world, x, z, Math.max(120, cls.hull.length * 0.6))) return line;
+  return { x, z, heading: Number.isFinite(at.h) ? wrapAngle(at.h) : line.heading };
+}
+
+export function addShip(state, {
+  id, name, classId, team, index, isBot = false, playerId = null, at = null,
+}) {
   const cls = getClass(classId);
-  const sp = spawnPoint(state.world, team, index);
+  const sp = berth(state.world, team, index, at, cls);
   const ship = {
     id: id || eid(),
     playerId,

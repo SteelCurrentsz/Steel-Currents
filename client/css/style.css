@@ -1136,6 +1136,58 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .deploy-readout { font-size: 0.76rem; }
 }
 
+/* ------------------------ the order of battle -------------------- */
+/* The placement chart borrows the deployment chart's furniture and adds a row
+   of buttons along the bottom in place of the single way out. */
+
+#lay-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; display: block;
+  touch-action: none; cursor: default;
+}
+
+.lay-actions {
+  position: absolute;
+  bottom: max(1.2rem, env(safe-area-inset-bottom));
+  /* Stretched edge to edge and centred inside, rather than pinned at the
+     halfway mark: an absolute box that starts at 50% can only ever be half the
+     screen wide, and three buttons in half a phone wrap onto two rows. */
+  left: 0; right: 0;
+  display: flex; gap: 0.7rem; flex-wrap: wrap; justify-content: center;
+}
+.lay-actions .btn { min-width: 8.5rem; }
+/* A sortie that cannot be ordered still looks like the button it is, so the
+   eye goes to the line of text above it rather than hunting for a control. */
+.lay-actions .btn[disabled] {
+  opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6);
+}
+
+/* Clear of the buttons: the hint is the reason a greyed-out Sortie is greyed
+   out, so it must never end up underneath it. */
+.lay-screen .deploy-hint {
+  bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 4.2rem);
+}
+
+@media (max-width: 620px) {
+  .lay-actions { gap: 0.45rem; padding: 0 0.5rem; }
+  .lay-actions .btn { min-width: 0; padding: 0.55rem 0.9rem; font-size: 0.82rem; }
+  .lay-screen .deploy-hint { bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 3.6rem); }
+}
+
+/* A phone on its side has no height to give away. */
+@media (max-height: 520px) {
+  .lay-actions {
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    gap: 0.4rem;
+  }
+  .lay-actions .btn { min-width: 0; padding: 0.4rem 0.8rem; font-size: 0.78rem; }
+  .lay-screen .deploy-hint {
+    bottom: calc(max(0.5rem, env(safe-area-inset-bottom)) + 2.6rem);
+    font-size: 0.74rem;
+  }
+  .lay-screen .deploy-head { padding-bottom: 0.4rem; }
+}
+
 /* On a phone there is no room for a column down each side *and* the hull
    buttons between them: inset far enough for the rosters and the buttons are
    postage stamps. So the whole body becomes a grid instead — the buttons keep

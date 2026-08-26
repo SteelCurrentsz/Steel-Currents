@@ -220,38 +220,53 @@ export class Briefing {
   openPicker(side, mode = 'remove') {
     this.picker = { side, mode };
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    const guns = this.guns(side);
     const yours = side === 'ally';
-    document.getElementById('fleet-title').textContent = 'Remove a ship';
+    document.getElementById('fleet-title').textContent = 'Stand something down';
     document.getElementById('fleet-sub').textContent =
-      `Pick a ship to take out of ${yours ? 'your' : 'the enemy'} fleet.`;
+      `Pick a ship or a battery to take out of ${yours ? 'your' : 'the enemy'} order of battle.`;
 
     const list = document.getElementById('fleet-list');
     list.innerHTML = '';
     this.onOpenPicker?.();
 
-    if (!fleet.length) {
+    if (!fleet.length && !guns.length) {
       const p = document.createElement('p');
       p.className = 'muted';
-      p.textContent = 'There is nothing in this fleet yet.';
+      p.textContent = 'There is nothing on this side yet.';
       list.appendChild(p);
     }
 
-    fleet.forEach((id, index) => {
-      const c = SHIP_CLASSES[id];
+    const card = (type, name, blurb, take) => {
       const el = document.createElement('button');
       el.className = 'ship-card';
       el.type = 'button';
-      const flagship = index === 0 && yours;
-      el.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
-        <div class="nm">${c.name}</div>
-        <div class="bl">${flagship ? 'Your bridge' : c.blurb}</div>`;
+      el.innerHTML = `<div class="type">${type}</div>
+        <div class="nm">${name}</div>
+        <div class="bl">${blurb}</div>`;
       el.onclick = () => {
-        fleet.splice(index, 1);
-        if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
+        take();
         this.render();
         this.onClosePicker?.();
       };
       list.appendChild(el);
+    };
+
+    fleet.forEach((id, index) => {
+      const c = SHIP_CLASSES[id];
+      const flagship = index === 0 && yours;
+      card(`${c.type} · ${c.typeName}`, c.name, flagship ? 'Your bridge' : c.blurb, () => {
+        fleet.splice(index, 1);
+        if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
+      });
+    });
+    // The batteries come off the same list. There is one control for standing
+    // something down and it takes anything: a captain who wants a gun off the
+    // headland should not have to work out that it is a different button.
+    guns.forEach((id, index) => {
+      const b = BATTERIES[id];
+      if (!b) return;
+      card(`Coast battery · ${b.bore}`, b.name, b.place, () => { guns.splice(index, 1); });
     });
   }
 
@@ -355,6 +370,10 @@ export class Briefing {
       classId: s.allyFleet[0],
       allyClasses: s.allyFleet.slice(1),
       enemyClasses: s.enemyFleet,
+      // The batteries go with the request so the order-of-battle chart can put
+      // a token on the ground for each of them.
+      allyGuns: s.allyGuns.slice(),
+      enemyGuns: s.enemyGuns.slice(),
       mapId: this.theatreFor(d),
       time: s.time,
       weather: s.weather,

@@ -274,5 +274,73 @@ check('fleets form up on water, not on a headland', () => {
   }
 });
 
+check('a hull starts where her captain berthed her, unless she cannot float there', () => {
+  const w = strait();
+  const state = createState(w, { mode: 'deathmatch' });
+
+  // The middle of the strait: deep water, and nowhere near the spawn line.
+  const put = addShip(state, {
+    name: 'Placed', classId: 'fletcher', team: 0, index: 0,
+    at: { x: 1200, z: -600, h: 1.25 },
+  });
+  assert.equal(put.x, 1200, 'a berth on open water should be honoured');
+  assert.equal(put.z, -600);
+  assert.ok(Math.abs(put.heading - 1.25) < 1e-6, 'and so should the heading she was given');
+  // Her guns look where she is pointed rather than back at the spawn line.
+  assert.ok(put.aimZ > put.z, 'aim point should lead the bow she was turned to');
+
+  // Spain, which no destroyer floats on: the line takes her instead.
+  const line = spawnPoint(w, 0, 1);
+  const aground = addShip(state, {
+    name: 'Aground', classId: 'fletcher', team: 0, index: 1,
+    at: { x: 0, z: 14000, h: 0 },
+  });
+  assert.equal(aground.x, line.x, 'a berth ashore should fall back to the spawn line');
+  assert.equal(aground.z, line.z);
+
+  // And so does a berth outside the battlefield, or one that is not a number.
+  const far = addShip(state, {
+    name: 'Far', classId: 'fletcher', team: 1, index: 0, at: { x: 9e9, z: 9e9 },
+  });
+  assert.ok(Math.abs(far.x) <= w.half && Math.abs(far.z) <= w.half,
+    'a berth off the chart should be brought back onto it');
+  const none = addShip(state, {
+    name: 'None', classId: 'fletcher', team: 1, index: 1, at: { x: NaN, z: 0 },
+  });
+  const line2 = spawnPoint(w, 1, 1);
+  assert.equal(none.x, line2.x, 'nonsense should fall back to the spawn line');
+});
+
+check('a turret trains no further than its arc allows', () => {
+  const w = generateWorld(4242, 'open_ocean');
+  w.islands = [];
+  w.land = [];
+  const state = createState(w, { mode: 'deathmatch' });
+  // Two hulls: the Fletcher's mounts train right round, the Essex's do not.
+  for (const [classId, dead] of [['fletcher', false], ['essex', true]]) {
+    const cls = SHIP_CLASSES[classId];
+    const ship = addShip(state, { name: classId, classId, team: 0, index: 0 });
+    ship.x = 0; ship.z = 0; ship.heading = 0;
+    // Dead astern, which is the worst bearing any of them has.
+    ship.aimX = 0; ship.aimZ = -8000;
+    for (let i = 0; i < 900; i++) step(state, DT);
+    const off = ship.turrets.map((t, k) =>
+      Math.abs(((t.angle - cls.turrets[k].angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+    const trained = off.some((o, k) => o <= cls.turrets[k].arc + 1e-3);
+    assert.ok(trained, `${classId} turrets should settle inside their arcs`);
+    for (const [k, t] of ship.turrets.entries()) {
+      const local = ((t.angle - cls.turrets[k].angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      assert.ok(Math.abs(local) <= cls.turrets[k].arc + 1e-3,
+        `${classId} turret ${k} trained ${Math.round((local * 180) / Math.PI)} deg,`
+        + ` past its ${Math.round((cls.turrets[k].arc * 180) / Math.PI)} deg stop`);
+    }
+    if (dead) {
+      assert.ok(cls.turrets.every((t) => t.arc < Math.PI - 0.01),
+        'a carrier should not have a mount that trains right round');
+    }
+    state.ships.length = 0;
+  }
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

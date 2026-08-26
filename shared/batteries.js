@@ -26,6 +26,7 @@ export const BATTERY_ORDER = [
  * @property {string} bore        bore as its own service wrote it
  * @property {number} barrels     barrels in this emplacement
  * @property {number} calibers    barrel length in calibres, so L/50 is 50
+ * @property {number} traverse    degrees of training, 360 for a full circle
  * @property {string} mount       what the gun itself stands on
  * @property {string} targets     aircraft | ships | dual, what it can engage
  * @property {number} armour      millimetres of shield or turret armour, 0 if none
@@ -51,6 +52,7 @@ export const BATTERIES = {
     // Dual-purpose — it was built to shoot at aircraft and turned out to be
   // the best anti-armour and anti-shipping gun on the wall as well.
     targets: 'dual',
+    traverse: 360,
     mount: 'Cruciform platform',
     armour: 10,
     weight: 5.2, reload: 4, range: 14860, ceiling: 8000,
@@ -68,6 +70,7 @@ export const BATTERIES = {
     // A field howitzer laid on the beaches and the ships off them. No
   // anti-aircraft laying gear and nothing like the ceiling for it.
     targets: 'ships',
+    traverse: 60,
     mount: 'Split-trail carriage',
     armour: 4,
     weight: 1.5, reload: 7.5, range: 9970,
@@ -83,6 +86,7 @@ export const BATTERIES = {
     calibers: 48,
     // A naval low-angle gun in a casemate. Ships, and nothing else.
     targets: 'ships',
+    traverse: 120,
     mount: 'Naval pedestal',
     armour: 30,
     weight: 16, reload: 10, range: 19500,
@@ -99,6 +103,7 @@ export const BATTERIES = {
     calibers: 40,
     // Ships. It was laid on a channel six hundred yards wide.
     targets: 'ships',
+    traverse: 360,
     mount: 'Barbette pivot',
     armour: 60,
     weight: 40, reload: 60, range: 21000,
@@ -114,6 +119,7 @@ export const BATTERIES = {
     calibers: 50,
     // Ships. A battleship turret does not train fast enough for anything else.
     targets: 'ships',
+    traverse: 360,
     mount: 'Twin turret',
     armour: 457,
     weight: 900, reload: 48, range: 22860,
@@ -129,6 +135,7 @@ export const BATTERIES = {
     calibers: 52,
     // Ships, and the far side of the Channel.
     targets: 'ships',
+    traverse: 120,
     mount: 'Bettungsschiessgeruest',
     armour: 0,
     weight: 337, reload: 26, range: 55700,
@@ -145,6 +152,7 @@ export const BATTERIES = {
     calibers: 50,
     // Ships, and only ships: the elevation stops well short of the sky.
     targets: 'ships',
+    traverse: 145,
     mount: 'Barbette carriage M1919',
     armour: 0,
     weight: 400, reload: 60, range: 41150,
@@ -161,6 +169,7 @@ export const BATTERIES = {
     calibers: 40,
     // Whatever it was pointed at, and it was pointed at forts and ships.
     targets: 'ships',
+    traverse: 0,
     mount: 'Railway carriage, four rails',
     armour: 0,
     weight: 1350, reload: 180, range: 47000,
