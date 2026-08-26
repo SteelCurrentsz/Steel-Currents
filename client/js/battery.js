@@ -295,7 +295,7 @@ export class BatteryScene {
     // A gun in its emplacement on a headland is the subject, not the gun alone,
     // so this leaves the ground round it in the frame rather than cropping to
     // the concrete.
-    return Math.max(S * 0.95, ((S * 0.6) / Math.tan(hHalf)) * 1.2);
+    return Math.max(S * 1.0, ((S * 0.62) / Math.tan(hHalf)) * 1.22);
   }
 
   minRange() { return (this.battery?.span || 26) * MIN_RANGE; }
@@ -359,15 +359,14 @@ function distance(m) {
   return `${(m / 1000).toFixed(1)} km · ${num(Math.round(m / 0.9144 / 100) * 100)} yd`;
 }
 
-/** What the crew stood behind, and what it all weighed. */
-export function emplacementSheet(b) {
-  const rows = [['Cover', b.mount === 'railway' ? 'None' : titleCase(b.mount)]];
-  if (b.concrete) rows.push(['Concrete', `${(b.concrete / 1000).toFixed(1)} m`]);
-  if (b.armour) rows.push(['Face armour', `${num(b.armour)} mm`]);
-  if (!b.concrete && !b.armour) rows.push(['Protection', 'Open mounting']);
-  rows.push(['Mounting', b.weight >= 1000
+/** What the gun stands on, what it weighs, and who fights it. */
+export function mountingSheet(b) {
+  const rows = [['Mount', b.mount]];
+  rows.push(['Weight', b.weight >= 1000
     ? `${num(Math.round(b.weight))} t`
     : `${b.weight >= 10 ? Math.round(b.weight) : b.weight} t`]);
+  rows.push([b.armour >= 100 ? 'Turret armour' : 'Shield',
+    b.armour ? `${num(b.armour)} mm` : 'None']);
   rows.push(['Crew', `${num(b.crew)} men`]);
   return rows;
 }
@@ -384,4 +383,3 @@ export function ordnanceSheet(b) {
   return rows;
 }
 
-const titleCase = (s) => s.charAt(0).toUpperCase() + s.slice(1);

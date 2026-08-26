@@ -4,7 +4,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
-import { BatteryScene, emplacementSheet, ordnanceSheet } from './battery.js';
+import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
 import { Battle } from './game.js';
 import { Net } from './net.js';
@@ -270,7 +270,7 @@ function renderGuns() {
   document.getElementById('battery-name').textContent = b.name;
   document.getElementById('battery-piece').textContent = b.piece;
   document.getElementById('battery-place').textContent = b.place;
-  sheet(document.getElementById('battery-works'), 'Emplacement', emplacementSheet(b));
+  sheet(document.getElementById('battery-works'), 'Mounting', mountingSheet(b));
   sheet(document.getElementById('battery-guns'), 'Ordnance', ordnanceSheet(b));
 }
 

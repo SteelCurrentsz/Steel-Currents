@@ -1,57 +1,51 @@
-// The coast batteries, built out of primitives at their real size.
+// The coast guns, built out of primitives at their real size.
 //
-// Every one of these is a portrait rather than a battlefield model: it is
-// looked at from ten metres on a screen that has nothing else on it, so the
-// embrasure is a hole through a wall rather than a dark rectangle painted on
-// one, the barrel has its breech ring and its muzzle swell, and the concrete
-// has the pilasters, the drip course and the earth banked against it that a
-// casemate actually has.
+// There is no concrete here: what is on the screen is the gun and the mounting
+// it stands on, and nothing else. That puts every piece of it under the eye at
+// ten metres, so the mountings are built the way they were made — a racer with
+// teeth on it, trunnions in bearings with caps over them, a cradle the barrel
+// recoils through, recoil cylinders bolted to that cradle, elevating arcs with
+// a pinion housing against them, handwheels the layers actually turned, seats
+// for the layers to sit on, a loading tray behind the breech and a ladder up to
+// the platform it stands on.
 //
-// Metres throughout, and the ground the emplacement stands on is y = 0. The
-// gun points down +Z, which is seaward; the scene turns the whole group to
-// face whichever way the camera wants it.
+// Two rules held throughout. Nothing floats: every part is carried by the part
+// under it, and anything that reaches the ground reaches y = 0 exactly. And
+// nothing is a hollow shell — an open-ended lathe or a single-sided plate has
+// no thickness, shows the inside of its own far wall, and reads as a fin, so
+// where a curve is wanted it is faceted out of plates that do have thickness.
+//
+// Metres throughout. The gun points down +Z, and the ground is y = 0.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { BATTERIES } from '../../../shared/batteries.js';
 import { mergeStatic } from './merge.js';
 
-// ---------------------------------------------------------------- stuff --
+// ------------------------------------------------------------- materials --
 
 const MAT = {
-  // Bunker concrete: poured in 1942, weathered since. Two tones, because a
-  // casemate that is one flat colour reads as a block rather than as concrete.
-  concrete: new THREE.MeshLambertMaterial({ color: 0x8a8578 }),
-  concreteDim: new THREE.MeshLambertMaterial({ color: 0x6e6a5f }),
-  // What is behind the embrasure. Not black: a hole that is pure black reads
-  // as a missing face rather than as a chamber with a gun in it.
-  cave: new THREE.MeshLambertMaterial({ color: 0x1e1c19 }),
-  // The chamber itself, which has to be a box turned outside in. A solid one
-  // fills the room and hides the gun standing in it; this one is only ever
-  // seen from the inside, so what shows through the embrasure is its far wall
-  // with the breech in front of it.
-  chamber: new THREE.MeshLambertMaterial({ color: 0x272420, side: THREE.BackSide }),
-  steel: new THREE.MeshLambertMaterial({ color: 0x4b5157 }),
-  gun: new THREE.MeshLambertMaterial({ color: 0x3b4146 }),
-  darkSteel: new THREE.MeshLambertMaterial({ color: 0x2b3035 }),
-  brass: new THREE.MeshLambertMaterial({ color: 0x8a7238 }),
-  rust: new THREE.MeshLambertMaterial({ color: 0x5b3b25 }),
-  earth: new THREE.MeshLambertMaterial({ color: 0x6f6248 }),
-  turf: new THREE.MeshLambertMaterial({ color: 0x4d5c36 }),
-  sandbag: new THREE.MeshLambertMaterial({ color: 0x8d8461 }),
-  rock: new THREE.MeshLambertMaterial({ color: 0x585449 }),
-  timber: new THREE.MeshLambertMaterial({ color: 0x4a3a28 }),
-  // Wehrmacht dunkelgelb, and the olive the Coast Artillery painted with.
+  gun: new THREE.MeshLambertMaterial({ color: 0x4a5057 }),
+  gunDark: new THREE.MeshLambertMaterial({ color: 0x343a40 }),
+  steel: new THREE.MeshLambertMaterial({ color: 0x5b6169 }),
+  bright: new THREE.MeshLambertMaterial({ color: 0x8d949b }),
+  dark: new THREE.MeshLambertMaterial({ color: 0x24282d }),
+  brass: new THREE.MeshLambertMaterial({ color: 0x8f7638 }),
+  rust: new THREE.MeshLambertMaterial({ color: 0x6a4326 }),
+  // Wehrmacht dunkelgelb, and the olive drab the Coast Artillery painted with.
   camo: new THREE.MeshLambertMaterial({ color: 0x6d6242 }),
-  olive: new THREE.MeshLambertMaterial({ color: 0x4a4f3a }),
+  camoDark: new THREE.MeshLambertMaterial({ color: 0x52492f }),
+  olive: new THREE.MeshLambertMaterial({ color: 0x5b6150 }),
+  oliveDark: new THREE.MeshLambertMaterial({ color: 0x40453a }),
+  rubber: new THREE.MeshLambertMaterial({ color: 0x1d1f20 }),
+  timber: new THREE.MeshLambertMaterial({ color: 0x5a4630 }),
+  // The mounting's own bedplate: what a gun this heavy is bolted down to, and
+  // near enough flush with the ground to read as part of the mounting.
+  bed: new THREE.MeshLambertMaterial({ color: 0x6b6d68 }),
+  bore: new THREE.MeshLambertMaterial({ color: 0x131313 }),
 };
 
-// Each primitive gets its own geometry rather than a shared unit box scaled to
-// fit. Sharing would save allocations for the few milliseconds between building
-// an emplacement and welding it down — and mergeStatic disposes every source
-// geometry it consumes, which would take the shared one with it and leave the
-// next battery holding a freed buffer.
+// ------------------------------------------------------------ primitives --
 
-/** A box of a given size, put where it goes. */
 function box(g, mat, w, h, d, x, y, z, ry = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   m.position.set(x, y, z);
@@ -60,7 +54,7 @@ function box(g, mat, w, h, d, x, y, z, ry = 0) {
   return m;
 }
 
-/** A cylinder standing on its end unless it is turned. */
+/** A cylinder on its end. */
 function cyl(g, mat, rTop, rBot, h, x, y, z, seg = 20) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), mat);
   m.position.set(x, y, z);
@@ -68,7 +62,7 @@ function cyl(g, mat, rTop, rBot, h, x, y, z, seg = 20) {
   return m;
 }
 
-/** A cylinder lying along +Z, which is how a gun barrel lies. */
+/** A cylinder lying along +Z, its near end at z. */
 function tube(g, mat, rFront, rBack, len, x, y, z, seg = 18) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rFront, rBack, len, seg), mat);
   m.rotation.x = Math.PI / 2;
@@ -77,728 +71,856 @@ function tube(g, mat, rFront, rBack, len, x, y, z, seg = 18) {
   return m;
 }
 
-/**
- * A bank of earth: wide at the bottom, narrow at the top, sloped on its outer
- * face and square against whatever it is heaped against.
- *
- * `axis` is which way the slope runs — 'x' for a bank down one flank, 'z' for
- * one across the back — and `sign` is which side of it the outer face is on.
- * `pull` is how much narrower the top is than the base, which is what sets the
- * angle of the slope.
- *
- * It is capped with turf, cut to the top face rather than to the base, because
- * a slab of grass the width of the bottom of the bank hangs in the air over the
- * slope and is the first thing anybody notices.
- */
-function bank(g, w, h, d, x, y, z, pull, axis = 'x', sign = 1) {
-  const geo = new THREE.BoxGeometry(w, h, d).toNonIndexed();
-  const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    if (p.getY(i) <= 0) continue;
-    if (axis === 'x') { if (p.getX(i) * sign > 0) p.setX(i, p.getX(i) - sign * pull); }
-    else if (p.getZ(i) * sign > 0) p.setZ(i, p.getZ(i) - sign * pull);
-  }
-  geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, MAT.earth);
+/** A cylinder lying along X, centred on x — a shaft, an axle, a trunnion. */
+function shaft(g, mat, r, len, x, y, z, seg = 14) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), mat);
+  m.rotation.z = Math.PI / 2;
   m.position.set(x, y, z);
   g.add(m);
-  // The grass on top, exactly as wide as the top of the bank is.
-  if (axis === 'x') box(g, MAT.turf, w - pull, 0.3, d, x - sign * pull / 2, y + h / 2, z);
-  else box(g, MAT.turf, w, 0.3, d - pull, x, y + h / 2, z - sign * pull / 2);
   return m;
 }
 
-// -------------------------------------------------------------- barrels --
+/** A ring lying flat: a roller path, a race, a bolt circle. */
+function ring(g, mat, r, t, x, y, z, seg = 30) {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r, t, 8, seg), mat);
+  m.rotation.x = Math.PI / 2;
+  m.position.set(x, y, z);
+  g.add(m);
+  return m;
+}
+
+// ------------------------------------------------------------------- kit --
+
+/** A training rack: the ring of teeth the traversing pinion walks round. */
+function racer(g, mat, r, y, teeth = 44, size = 1) {
+  ring(g, mat, r, 0.055 * size, 0, y, 0, Math.min(52, teeth));
+  for (let i = 0; i < teeth; i++) {
+    const a = (i / teeth) * Math.PI * 2;
+    box(g, mat, 0.1 * size, 0.13 * size, 0.2 * size,
+      Math.sin(a) * r, y, Math.cos(a) * r, a);
+  }
+}
+
+/** A toothed elevating arc standing on edge, its centre at the trunnion. */
+function elevArc(g, mat, r, x, y, z, from = -0.4, to = 0.35, teeth = 14, w = 0.22) {
+  for (let i = 0; i <= teeth; i++) {
+    const a = from + (to - from) * (i / teeth);
+    const m = box(g, mat, w, 0.28, 0.24, x, y - Math.cos(a) * r, z - Math.sin(a) * r);
+    m.rotation.x = a;
+  }
+  // The web behind the teeth, so it reads as an arc and not a row of blocks.
+  for (let i = 0; i < teeth; i++) {
+    const a = from + (to - from) * ((i + 0.5) / teeth);
+    const m = box(g, mat, w * 0.72, 0.6, 0.28,
+      x, y - Math.cos(a) * (r - 0.38), z - Math.sin(a) * (r - 0.38));
+    m.rotation.x = a;
+  }
+}
+
+/** A handwheel on its shaft. `ax` is 'x' for one turned facing along the gun,
+ *  'z' for one turned side-on to it. */
+function handwheel(g, mat, r, x, y, z, ax = 'x') {
+  const t = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.13, 6, 18), mat);
+  if (ax === 'x') t.rotation.y = Math.PI / 2;
+  t.position.set(x, y, z);
+  g.add(t);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI;
+    const s = box(g, mat, ax === 'x' ? 0.045 : r * 2, r * 2, ax === 'x' ? r * 2 : 0.045, x, y, z);
+    if (ax === 'x') s.rotation.x = a; else s.rotation.z = a;
+    s.scale.set(1, 1, 1);
+    // Keep the spoke inside the rim.
+    if (ax === 'x') s.scale.z = 0.94; else s.scale.x = 0.94;
+    s.scale.y = 0.06;
+  }
+  if (ax === 'x') shaft(g, mat, r * 0.17, r * 0.9, x, y, z, 10);
+  else tube(g, mat, r * 0.17, r * 0.17, r * 0.9, x, y, z - r * 0.45, 10);
+  box(g, MAT.dark, 0.055, 0.055, 0.15, x + (ax === 'x' ? 0.05 : 0), y + r * 0.86, z);
+}
+
+/** A layer's seat: pan, back, and the stalk carrying them off the carriage. */
+function seat(g, mat, x, y, z, ry = 0) {
+  cyl(g, mat, 0.05, 0.06, y * 0.9, x, y * 0.55, z, 10);
+  const p = box(g, mat, 0.4, 0.06, 0.34, x, y, z, ry);
+  p.rotation.x = 0.09;
+  const b = box(g, mat, 0.38, 0.28, 0.055, x, y + 0.16, z - 0.15, ry);
+  b.rotation.x = -0.2;
+}
+
+/** A run of railing along Z: two rails and the stanchions under them. */
+function railing(g, mat, len, x, y, z, ry = 0, h = 1.05) {
+  const grp = new THREE.Group();
+  grp.position.set(x, y, z);
+  grp.rotation.y = ry;
+  g.add(grp);
+  const n = Math.max(2, Math.round(len / 1.3));
+  for (let i = 0; i <= n; i++) {
+    box(grp, mat, 0.05, h, 0.05, 0, h / 2, -len / 2 + (len * i) / n);
+  }
+  box(grp, mat, 0.05, 0.05, len, 0, h, 0);
+  box(grp, mat, 0.04, 0.04, len, 0, h * 0.52, 0);
+}
+
+/** A ladder, from wherever it starts down to whatever it reaches. */
+function ladder(g, mat, h, x, y, z, ry = 0, w = 0.46) {
+  const grp = new THREE.Group();
+  grp.position.set(x, y, z);
+  grp.rotation.y = ry;
+  g.add(grp);
+  for (const s of [-1, 1]) box(grp, mat, 0.055, h, 0.055, (s * w) / 2, h / 2, 0);
+  const n = Math.max(2, Math.round(h / 0.32));
+  for (let i = 1; i <= n; i++) box(grp, mat, w, 0.04, 0.04, 0, (h * i) / (n + 1), 0);
+}
+
+/** A flight of steps up to a platform, standing on the ground. */
+function steps(g, mat, h, run, x, y, z, ry = 0, w = 0.9) {
+  const grp = new THREE.Group();
+  grp.position.set(x, y, z);
+  grp.rotation.y = ry;
+  g.add(grp);
+  const n = Math.max(3, Math.round(h / 0.24));
+  for (let i = 1; i <= n; i++) {
+    box(grp, mat, w, 0.05, run / n, 0, (h * i) / n, -run / 2 + (run * (i - 0.5)) / n);
+  }
+  for (const s of [-1, 1]) {
+    const st = box(grp, mat, 0.06, 0.14, Math.hypot(run, h), (s * w) / 2, h / 2, 0);
+    st.rotation.x = -Math.atan2(h, run);
+    // A handrail over the stringer.
+    const hr = box(grp, mat, 0.05, 0.05, Math.hypot(run, h), (s * w) / 2, h / 2 + 0.85, 0);
+    hr.rotation.x = -Math.atan2(h, run);
+    for (let i = 0; i <= 2; i++) {
+      box(grp, mat, 0.045, 0.85, 0.045, (s * w) / 2,
+        (h * i) / 2 + 0.42, -run / 2 + (run * i) / 2);
+    }
+  }
+}
+
+/** A road wheel with tyre, rim, hub and spokes, standing on the ground. */
+function roadWheel(g, r, wd, x, y, z, spokes = 6) {
+  const t = new THREE.Mesh(new THREE.TorusGeometry(r - wd * 0.35, wd * 0.35, 6, 20), MAT.rubber);
+  t.rotation.y = Math.PI / 2;
+  t.position.set(x, y, z);
+  g.add(t);
+  shaft(g, MAT.camoDark, r * 0.58, wd * 0.42, x, y, z, 18);
+  shaft(g, MAT.dark, r * 0.2, wd * 1.15, x, y, z, 12);
+  for (let i = 0; i < spokes; i++) {
+    const a = (i / spokes) * Math.PI;
+    const s = box(g, MAT.camoDark, wd * 0.3, r * 1.72, 0.05, x, y, z);
+    s.rotation.x = a;
+  }
+}
+
+/** A levelling jack: screw, footplate on the ground, and the pad it carries. */
+function jack(g, mat, x, y, z) {
+  cyl(g, MAT.dark, 0.2, 0.24, 0.1, x, 0.05, z, 12);
+  cyl(g, MAT.bright, 0.06, 0.06, y - 0.1, x, (y - 0.1) / 2 + 0.1, z, 10);
+  box(g, mat, 0.26, 0.1, 0.26, x, y, z);
+}
+
+/** A shell standing on its base, the way ready rounds were stood by the gun. */
+function round_(g, bore, x, y, z, matBody = MAT.gunDark) {
+  const L = bore * 4.2;
+  cyl(g, MAT.brass, bore * 0.5, bore * 0.5, L * 0.4, x, y + L * 0.2, z, 14);
+  cyl(g, matBody, bore * 0.48, bore * 0.5, L * 0.34, x, y + L * 0.57, z, 14);
+  cyl(g, matBody, bore * 0.1, bore * 0.48, L * 0.26, x, y + L * 0.87, z, 14);
+}
+
+// ---------------------------------------------------------------- barrel --
 
 /**
- * A gun barrel, from the breech ring to the muzzle.
+ * A built-up gun barrel: chamber, jacket, chase and muzzle.
  *
- * Built to the real shape rather than as one tube: the powder chamber is the
- * thickest part and the chase tapers away from it, which is why a naval gun
- * looks like a cone with a lump at the back and a ring at the front. `bore` is
- * in metres and `calibers` is the length in bores, so an L/50 is fifty of them.
+ * Real heavy guns are hoops shrunk over a liner, so the tube steps down in
+ * diameter two or three times between the breech and the muzzle rather than
+ * tapering smoothly, and every step shows as a shoulder. That is most of what
+ * makes a barrel read as a gun rather than as a pipe.
  *
- * The group's origin is the trunnion, and the barrel runs down +Z from it, so
- * the caller elevates by turning the group about x.
+ * The group's origin is the trunnion axis and the tube runs down +Z, so the
+ * caller elevates by turning the group about x.
  */
 function gunBarrel(bore, calibers, opts = {}) {
-  const {
-    mat = MAT.gun, breechMat = MAT.darkSteel,
-    back = 0.9,          // how far the breech reaches behind the trunnion, in bores
-    muzzleSwell = true,  // a thickened ring at the muzzle
-    jacket = true,       // the thickened breech end of a built-up gun
-  } = opts;
+  const { mat = MAT.gun, brake = false } = opts;
   const g = new THREE.Group();
   const L = bore * calibers;
-  // A gun is about two and a bit bores across at the breech and a little over
-  // one at the muzzle.
-  const rB = bore * 1.15;
-  const rM = bore * 0.66;
+  const rChamber = bore * 1.2;
+  const rJacket = bore * 1.0;
+  const rChase = bore * 0.79;
+  const rMuzzle = bore * 0.63;
 
-  // The breech: block, ring, and the mushroom head of the obturator.
-  const bl = bore * back;
-  box(g, breechMat, rB * 2.05, rB * 2.05, bl, 0, 0, -bl / 2);
-  tube(g, breechMat, rB * 1.18, rB * 1.18, bore * 0.3, 0, 0, -bl - bore * 0.3);
-  if (jacket) {
-    // The jacket, shrunk over the back third of the tube.
-    tube(g, mat, rB * 0.92, rB, L * 0.3, 0, 0, 0);
-    tube(g, mat, rM * 1.32, rB * 0.9, L * 0.55, 0, 0, L * 0.3);
-    tube(g, mat, rM, rM * 1.3, L * 0.15, 0, 0, L * 0.85);
-  } else {
-    tube(g, mat, rM, rB, L, 0, 0, 0);
+  tube(g, mat, rJacket, rChamber, L * 0.2, 0, 0, 0);
+  tube(g, mat, rChase, rJacket, L * 0.26, 0, 0, L * 0.2);
+  tube(g, mat, rMuzzle * 1.06, rChase, L * 0.48, 0, 0, L * 0.46);
+  tube(g, mat, rMuzzle, rMuzzle * 1.06, L * 0.06, 0, 0, L * 0.94);
+  // The shoulders where one shrunk course laps over the next.
+  tube(g, mat, rChamber * 1.04, rChamber * 1.04, bore * 0.3, 0, 0, L * 0.2 - bore * 0.3);
+  tube(g, mat, rJacket * 1.05, rJacket * 1.05, bore * 0.26, 0, 0, L * 0.46 - bore * 0.26);
+  tube(g, mat, rMuzzle * 1.17, rMuzzle * 1.17, bore * 0.5, 0, 0, L - bore * 0.5);
+
+  let end = L;
+  if (brake) {
+    tube(g, MAT.gunDark, bore * 1.12, bore * 1.12, bore * 4.4, 0, 0, L - bore * 0.2);
+    for (let i = 0; i < 2; i++) {
+      box(g, MAT.bore, bore * 2.5, bore * 0.42, bore * 0.85,
+        0, 0, L + bore * (0.9 + i * 1.7));
+    }
+    end = L + bore * 4.2;
   }
-  if (muzzleSwell) {
-    tube(g, mat, rM * 1.16, rM * 1.16, bore * 0.45, 0, 0, L - bore * 0.45);
-  }
-  // The bore itself, so the muzzle is a hole rather than a disc.
-  tube(g, MAT.cave, bore * 0.5, bore * 0.5, bore * 1.4, 0, 0, L - bore * 1.35);
+  tube(g, MAT.bore, bore * 0.5, bore * 0.5, bore * 1.6, 0, 0, end - bore * 1.5);
   g.userData.length = L;
   return g;
 }
 
-/** The recuperator and recoil cylinders that ride over and under a barrel. */
-function recoilGear(g, bore, len, opts = {}) {
-  const { above = true, below = true, side = 0 } = opts;
-  const r = bore * 0.42;
-  if (above) tube(g, MAT.steel, r, r, len, 0, bore * 1.5, -bore * 0.4);
-  if (below) {
-    tube(g, MAT.steel, r * 0.85, r * 0.85, len * 0.8, 0, -bore * 1.45, -bore * 0.4);
+/**
+ * The breech: ring, block, operating gear and the tray a round goes in on.
+ * Added to the elevating group, behind the trunnion.
+ */
+function breech(g, bore, opts = {}) {
+  const { mat = MAT.gunDark, screw = true, len = 1.0, tray = true } = opts;
+  const bl = bore * len * 3.0;
+  const r = bore * 1.32;
+
+  tube(g, mat, r, r * 1.05, bl * 0.6, 0, 0, -bl * 0.6);
+  box(g, mat, r * 1.95, r * 1.95, bl * 0.5, 0, 0, -bl * 0.82);
+  if (screw) {
+    // Interrupted screw, closed, with its hinge arm and operating lever.
+    cyl(g, MAT.bright, r * 0.84, r * 0.84, bore * 0.32, 0, 0, -bl * 1.08, 16)
+      .rotation.x = Math.PI / 2;
+    cyl(g, mat, r * 0.6, r * 0.7, bore * 0.46, 0, 0, -bl * 1.28, 16)
+      .rotation.x = Math.PI / 2;
+    box(g, mat, r * 0.42, r * 0.9, bore * 0.66, r * 1.15, 0, -bl * 1.08);
+    const lv = box(g, MAT.dark, 0.065, 0.065, r * 2.1, r * 1.3, -r * 0.25, -bl * 1.1);
+    lv.rotation.x = 0.55;
+  } else {
+    // Vertical sliding block, dropped clear for loading.
+    box(g, MAT.bright, r * 1.45, r * 2.1, bore * 0.4, 0, -r * 0.55, -bl * 1.04);
+    box(g, MAT.dark, 0.055, 0.46, 0.055, r * 0.9, -r * 0.3, -bl * 1.14);
   }
-  if (side) {
+  if (tray) {
+    box(g, MAT.steel, bore * 1.9, 0.05, bore * 4.4, 0, -r * 0.8, -bl * 1.9);
     for (const s of [-1, 1]) {
-      tube(g, MAT.steel, r * 0.8, r * 0.8, len * 0.85, s * bore * 1.5, 0, -bore * 0.4);
+      box(g, MAT.steel, 0.05, bore * 0.46, bore * 4.4, s * bore * 0.9, -r * 0.56, -bl * 1.9);
     }
+    box(g, MAT.steel, bore * 1.9, bore * 0.7, 0.07, 0, -r * 0.48, -bl * 1.9 - bore * 2.2);
   }
 }
-
-// ------------------------------------------------------------ casemates --
 
 /**
- * A concrete casemate: the box the gun lives in, with a hole through the front
- * for it to shoot out of.
- *
- * The front is built as four walls round the opening rather than as one wall
- * with a dark patch, so the embrasure is a real hole with a chamber behind it
- * and the wall has thickness where the light catches its edge. The cheeks flare
- * outward, which is what gives the gun its traverse and what makes a casemate
- * recognisable from seaward.
+ * The cradle: the trough the barrel recoils through, with its guide rails, the
+ * trunnion bosses either side and the recoil cylinders bolted along it.
  */
-function casemate(g, o) {
-  const {
-    w = 15, d = 13, h = 5,           // outside, above ground
-    wall = 2.0,                       // how thick
-    roof = 2.0,
-    embW = 3.4, embH = 2.2,           // the opening, at its narrowest
-    flare = 1.9,                      // how much wider it is at the front face
-    sill = 1.5,                       // how far up the opening starts
-    wings = 4.0,                      // blast walls forward of the front face
-    wingH = 0.86,                     // and how far up the wall they reach
-    berm = true,
-    apron = true,
-    mat = MAT.concrete, dim = MAT.concreteDim,
-  } = o;
-
-  const zF = d / 2;                   // the front face
-  const hw = w / 2;
-
-  // Floor slab, and the chamber behind the opening.
-  box(g, dim, w, 0.5, d, 0, 0.25, 0);
-  box(g, MAT.chamber, w - wall * 2, h - 0.6, d - wall, 0, (h - 0.6) / 2 + 0.5, -wall / 2);
-
-  // Side walls and the back, with a doorway through it.
-  for (const s of [-1, 1]) box(g, mat, wall, h, d, s * (hw - wall / 2), h / 2, 0);
-  const dr = 1.5;
-  box(g, mat, (w - dr) / 2, h, wall, -(w + dr) / 4, h / 2, -zF + wall / 2);
-  box(g, mat, (w - dr) / 2, h, wall, (w + dr) / 4, h / 2, -zF + wall / 2);
-  box(g, mat, dr, h - 2.3, wall, 0, h - (h - 2.3) / 2, -zF + wall / 2);
-  box(g, MAT.cave, dr, 2.3, 0.3, 0, 1.15, -zF + wall * 0.5);
-
-  // The front. Two cheeks flaring outward, a lintel over the opening and a
-  // sill under it: four pieces round a hole, not a wall with a stripe on it.
-  const inner = embW / 2;
-  const outer = embW / 2 + flare;
+function cradle(g, bore, len, opts = {}) {
+  const { mat = MAT.gun, cylsAbove = 1, cylsBelow = 1, cylsSide = 0, front = 0.32 } = opts;
+  const r = bore * 1.58;
+  tube(g, mat, r, r * 1.05, len, 0, 0, -len * front);
   for (const s of [-1, 1]) {
-    const geo = new THREE.BufferGeometry();
-    const x0 = s * inner, x1 = s * outer, x2 = s * hw;
-    // A wedge: narrow at the back of the wall, wide at the front face.
-    const v = [
-      x0, sill, zF - wall, x2, sill, zF - wall, x2, sill + embH, zF - wall,
-      x0, sill + embH, zF - wall,
-      x1, sill, zF, x2, sill, zF, x2, sill + embH, zF, x1, sill + embH, zF,
-    ];
-    const idx = s > 0
-      ? [0, 4, 5, 0, 5, 1, 3, 2, 6, 3, 6, 7, 0, 3, 7, 0, 7, 4, 1, 5, 6, 1, 6, 2, 4, 7, 6, 4, 6, 5]
-      : [0, 5, 4, 0, 1, 5, 3, 6, 2, 3, 7, 6, 0, 7, 3, 0, 4, 7, 1, 6, 5, 1, 2, 6, 4, 6, 7, 4, 5, 6];
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    g.add(new THREE.Mesh(geo, mat));
+    box(g, mat, bore * 0.4, bore * 0.34, len, s * r * 0.8, r * 0.7, -len * front + len / 2);
   }
-  // Lintel above, sill below, both the full width of the front.
-  box(g, mat, w, h - sill - embH, wall, 0, sill + embH + (h - sill - embH) / 2, zF - wall / 2);
-  box(g, mat, w, sill, wall, 0, sill / 2, zF - wall / 2);
-
-  // Roof slab, oversailing the walls, with a drip course on the front edge.
-  box(g, mat, w + 0.7, roof, d + 0.5, 0, h + roof / 2, 0);
-  box(g, dim, w + 0.9, 0.35, 0.5, 0, h + 0.2, zF + 0.3);
-
-  // Pilasters down the sides: shuttering marks and the buttresses between them.
+  // Trunnion bosses, and the trunnions running out of them into the bearings.
   for (const s of [-1, 1]) {
-    for (let i = -1; i <= 1; i++) {
-      box(g, dim, 0.35, h - 0.6, 0.9, s * (hw + 0.14), (h - 0.6) / 2 + 0.3, i * d * 0.28);
-    }
+    cyl(g, mat, r * 0.92, r, bore * 0.6, s * (r + bore * 0.28), 0, 0, 16)
+      .rotation.z = Math.PI / 2;
+    shaft(g, MAT.bright, bore * 0.5, bore * 1.6, s * (r + bore * 1.05), 0, 0, 14);
   }
-
-  // Blast wings running forward from the front face, splayed out.
-  if (wings > 0) {
-    for (const s of [-1, 1]) {
-      const m = box(g, mat, 1.0, h * wingH, wings, s * (hw - 0.3), h * wingH / 2,
-        zF + wings / 2);
-      m.rotation.y = -s * 0.22;
-      m.position.x = s * (hw - 0.3 + Math.sin(0.22) * wings * 0.5);
-    }
+  const cr = bore * 0.42;
+  for (let i = 0; i < cylsAbove; i++) {
+    const x = cylsAbove === 1 ? 0 : (i - 0.5) * bore * 2.3;
+    tube(g, MAT.steel, cr, cr, len * 0.84, x, r + cr * 0.95, -len * front + len * 0.06);
+    tube(g, MAT.bright, cr * 0.42, cr * 0.42, len * 0.36, x, r + cr * 0.95,
+      -len * front + len * 0.88);
   }
-
-  // Concrete apron in front, so the gun is not standing on grass.
-  if (apron) box(g, dim, w + 2, 0.35, wings + 2.5, 0, 0.17, zF + (wings + 2.5) / 2 - 0.5);
-
-  // Earth banked up the sides and over the back, and turf over the roof, which
-  // is what actually hid these things: from seaward the concrete is a rise in
-  // the ground with a hole in it.
-  if (berm) {
-    // Banked partway up the wall rather than over it: the photographs show
-    // earth heaped against the flanks with the concrete still standing clear
-    // above, and a bank as tall and as broad as the bunker itself would be all
-    // anyone could see of the emplacement.
-    const bw = h * 0.85;            // how far out the foot of the bank reaches
-    const bh = h * 0.74;
-    for (const s of [-1, 1]) {
-      bank(g, bw, bh, d * 0.94, s * (hw + bw / 2 - 0.2), bh / 2, -d * 0.03,
-        bw * 0.62, 'x', s);
-    }
-    bank(g, w + bw * 1.6, h * 0.86, bw * 1.3, 0, h * 0.43, -zF - bw * 0.62 + 0.2,
-      bw * 0.8, 'z', -1);
-    box(g, MAT.turf, w + 0.7, 0.3, d + 0.5, 0, h + roof, 0);
+  for (let i = 0; i < cylsBelow; i++) {
+    const x = cylsBelow === 1 ? 0 : (i - 0.5) * bore * 2.3;
+    tube(g, MAT.steel, cr * 0.92, cr * 0.92, len * 0.78, x, -r - cr * 0.95,
+      -len * front + len * 0.06);
   }
+  for (let i = 0; i < cylsSide; i++) {
+    const s = i % 2 ? 1 : -1;
+    tube(g, MAT.steel, cr * 0.9, cr * 0.9, len * 0.8, s * (r + cr * 1.15), -r * 0.3,
+      -len * front + len * 0.06);
+  }
+  return r;
 }
 
-// ------------------------------------------------------- the eight guns --
+/** A telescopic sight on its bracket. */
+function sight(g, x, y, z) {
+  box(g, MAT.gunDark, 0.1, 0.24, 0.1, x, y - 0.14, z);
+  tube(g, MAT.dark, 0.05, 0.065, 0.58, x, y, z - 0.18, 12);
+  cyl(g, MAT.bright, 0.042, 0.042, 0.05, x, y, z - 0.21, 10).rotation.x = Math.PI / 2;
+}
 
-/** 8.8 cm Flak 36 in an open ringstand. */
+// -------------------------------------------------------------- the guns --
+
+/** 8.8 cm Flak 36 on its cruciform platform. */
 function buildFlak88(g, b) {
   const bore = b.caliber / 1000;
 
-  // The ringstand: a concrete parapet with the pit floor inside it.
-  // Closed at the bottom as well as the top: a lathe is an open shell, and an
-  // unclosed one shows the inside of its own far wall as a curved black fin
-  // hanging off the emplacement.
-  const prof = [[3.1, 0], [3.1, 1.25], [3.45, 1.45], [3.75, 1.25], [3.75, 0], [3.1, 0]];
-  const lathe = new THREE.LatheGeometry(
-    prof.map(([r, y]) => new THREE.Vector2(r, y)), 28);
-  g.add(new THREE.Mesh(lathe, MAT.concrete));
-  // The floor runs right out under the parapet: a lathe is an open shell, and
-  // a disc that stops at the inner face leaves a ring of daylight under it.
-  cyl(g, MAT.concreteDim, 3.8, 3.8, 0.45, 0, -0.15, 0, 28);
-  // Ammunition niches let into the inner face of the parapet.
-  for (let i = 0; i < 5; i++) {
-    const a = -0.9 + i * 0.45;
-    box(g, MAT.cave, 0.62, 0.5, 0.3, Math.sin(a) * 2.94, 0.7, Math.cos(a) * 2.94, a);
-  }
-  // Sandbags round the rim, laid a little unevenly because they were.
-  for (let i = 0; i < 34; i++) {
-    const a = (i / 34) * Math.PI * 2;
-    const r = 3.42 + (i % 3) * 0.02;
-    box(g, MAT.sandbag, 0.62, 0.24, 0.34,
-      Math.sin(a) * r, 1.55 + (i % 2) * 0.24, Math.cos(a) * r, a + (i % 5) * 0.05);
-  }
-
-  // The cruciform platform: the Sonderanhänger outriggers, jacked down level.
-  const p = new THREE.Group();
-  box(p, MAT.camo, 1.5, 0.3, 1.5, 0, 0.35, 0);
+  // The platform: centre casting, four outriggers, a jack under each end.
+  box(g, MAT.camo, 1.5, 0.3, 1.5, 0, 0.5, 0);
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const m = box(p, MAT.camo, dx ? 3.2 : 0.6, 0.22, dz ? 3.2 : 0.6,
-      dx * 2.0, 0.35, dz * 2.0);
-    m.rotation.y = 0;
-    box(p, MAT.darkSteel, 0.4, 0.5, 0.4, dx * 3.4, 0.2, dz * 3.4);
+    box(g, MAT.camo, dx ? 3.0 : 0.62, 0.22, dz ? 3.0 : 0.62, dx * 2.1, 0.5, dz * 2.1);
+    box(g, MAT.camoDark, dx ? 3.0 : 0.16, 0.12, dz ? 3.0 : 0.16, dx * 2.1, 0.62, dz * 2.1);
+    cyl(g, MAT.dark, 0.09, 0.09, 0.34, dx * 0.76, 0.5, dz * 0.76, 10);
+    jack(g, MAT.camoDark, dx * 3.5, 0.5, dz * 3.5);
   }
-  g.add(p);
 
-  // Pedestal, turntable and the mount itself.
-  cyl(g, MAT.camo, 0.62, 0.78, 0.7, 0, 0.85, 0, 16);
+  // Pedestal and the racer the mounting trains on.
+  cyl(g, MAT.camo, 0.6, 0.78, 0.62, 0, 0.96, 0, 18);
+  racer(g, MAT.camoDark, 0.66, 1.26, 30, 0.9);
+
   const turn = new THREE.Group();
-  turn.position.y = 1.2;
-  turn.rotation.y = 0.4;
+  turn.position.y = 1.3;
+  turn.rotation.y = 0.34;
   g.add(turn);
-  cyl(turn, MAT.camo, 0.75, 0.75, 0.36, 0, 0.18, 0, 20);
-  // The layers' seats and their handwheels, one either side.
+  cyl(turn, MAT.camo, 0.72, 0.78, 0.28, 0, 0.14, 0, 20);
+  box(turn, MAT.camo, 1.5, 0.2, 1.0, 0, 0.34, -0.1);
   for (const s of [-1, 1]) {
-    box(turn, MAT.camo, 0.5, 0.7, 0.5, s * 0.95, 0.6, -0.15);
-    cyl(turn, MAT.darkSteel, 0.28, 0.28, 0.07, s * 1.3, 0.85, 0.2, 14)
-      .rotation.z = Math.PI / 2;
-    box(turn, MAT.olive, 0.42, 0.12, 0.42, s * 0.95, 1.0, -0.15);
+    box(turn, MAT.camo, 0.24, 1.0, 1.15, s * 0.62, 0.72, 0.05);
+    cyl(turn, MAT.camo, 0.28, 0.28, 0.3, s * 0.62, 1.05, 0.05, 14).rotation.z = Math.PI / 2;
+    box(turn, MAT.camoDark, 0.32, 0.16, 0.34, s * 0.62, 1.05, 0.05);
+    // Layer's stand, handwheel and seat, one either side.
+    box(turn, MAT.camo, 0.44, 0.5, 0.5, s * 1.02, 0.5, -0.35);
+    handwheel(turn, MAT.camoDark, 0.23, s * 1.3, 0.62, -0.35, 'x');
+    seat(turn, MAT.camoDark, s * 1.05, 0.72, -0.95);
+    box(turn, MAT.camoDark, 0.62, 0.05, 0.42, s * 1.05, 0.28, -0.75);
   }
-  // The shield: two plates with a fold, which is how the Flak 36's was made.
-  const sh = box(turn, MAT.camo, 2.5, 1.35, 0.06, 0, 1.05, 0.62);
-  sh.rotation.x = -0.12;
-  box(turn, MAT.camo, 2.5, 0.55, 0.05, 0, 1.9, 0.5).rotation.x = 0.42;
+  box(turn, MAT.camo, 0.3, 0.36, 0.34, -0.42, 0.52, -0.16);
+  sight(turn, -1.0, 1.0, 0.2);
 
-  // Trunnions and the barrel, up at the angle an eighty-eight sat at.
-  box(turn, MAT.camo, 1.5, 0.5, 0.8, 0, 1.15, 0);
+  // Shield: main plate with the top panel folded back, side wings, and a square
+  // hole for the gun made of four plates rather than a dark patch on one.
+  const sh = new THREE.Group();
+  sh.position.set(0, 0.2, 0.74);
+  sh.rotation.x = -0.13;
+  turn.add(sh);
+  // The slot is tall, because the gun has to be able to elevate through it.
+  const HW = 1.3, AP = 0.34;
+  for (const s of [-1, 1]) box(sh, MAT.camo, HW - AP, 1.5, 0.05, (s * (HW + AP)) / 2, 0.85, 0);
+  box(sh, MAT.camo, AP * 2, 0.3, 0.05, 0, 1.45, 0);
+  box(sh, MAT.camo, AP * 2, 0.55, 0.05, 0, 0.375, 0);
+  for (const s of [-1, 1]) {
+    const wing = box(sh, MAT.camo, 0.5, 1.5, 0.05, s * (HW + 0.22), 0.85, -0.05);
+    wing.rotation.y = s * 0.42;
+  }
+  const top = box(sh, MAT.camo, HW * 2, 0.55, 0.05, 0, 1.71, -0.09);
+  top.rotation.x = 0.5;
+  box(sh, MAT.camoDark, HW * 2, 0.08, 0.08, 0, 0.13, -0.03);
+  for (const s of [-1, 1]) box(sh, MAT.camoDark, 0.07, 1.5, 0.07, s * (HW - 0.04), 0.85, -0.03);
+
+  // The gun.
   const arm = new THREE.Group();
-  arm.position.set(0, 1.25, 0);
-  arm.rotation.x = -0.62;
+  arm.position.set(0, 1.05, 0.05);
+  arm.rotation.x = -0.45;
   turn.add(arm);
-  const bar = gunBarrel(bore, b.calibers, { mat: MAT.camo, breechMat: MAT.darkSteel, back: 3.2 });
-  arm.add(bar);
-  recoilGear(arm, bore, bore * 20, { above: true, below: false });
-  // The cradle sleeve the barrel recoils through.
-  tube(arm, MAT.camo, bore * 1.5, bore * 1.6, 1.5, 0, 0, 0.1);
-  // Muzzle brake — the 36 had one, and it is the first thing anybody draws.
-  tube(arm, MAT.darkSteel, bore * 1.15, bore * 1.15, 0.42, 0, 0, bore * b.calibers - 0.1);
+  cradle(arm, bore, 1.6, { mat: MAT.camo, cylsAbove: 1, cylsBelow: 0, front: 0.3 });
+  // The elevating arc rides on the cradle and the pinion on the carriage, so
+  // the arc goes in the elevating group: hung off the carriage it would swing
+  // away from its own gun.
+  elevArc(arm, MAT.camoDark, 0.6, -0.42, 0, 0, -0.3, 0.6, 10, 0.16);
+  arm.add(gunBarrel(bore, b.calibers, { mat: MAT.camo, brake: true }));
+  breech(arm, bore, { mat: MAT.camoDark, screw: false, len: 0.85 });
+  // Fuze setter and spent-case guide, both hung off the cradle.
+  box(arm, MAT.camoDark, 0.32, 0.3, 0.5, -0.42, -0.15, -0.6);
+  handwheel(arm, MAT.dark, 0.13, -0.62, -0.15, -0.6, 'x');
+  const chute = box(arm, MAT.steel, 0.3, 0.05, 0.66, 0, -0.3, -1.02);
+  chute.rotation.x = 0.3;
 
-  // Ammunition and the crew's clutter.
-  for (let i = 0; i < 4; i++) {
-    box(g, MAT.olive, 0.85, 0.3, 0.38, -1.5 - (i % 2) * 0.5,
-      0.25 + Math.floor(i / 2) * 0.32, 1.6 + Math.floor(i / 2) * 0.45, 0.25);
+  // Ready rounds in their rack, and crates, all of it standing on the ground.
+  box(g, MAT.olive, 1.6, 0.1, 0.46, -2.2, 0.05, 2.5, 0.3);
+  for (let i = 0; i < 5; i++) {
+    round_(g, bore, -2.9 + i * 0.35, 0.1, 2.28 + i * 0.11);
   }
-  box(g, MAT.olive, 0.55, 0.5, 0.9, 1.9, 0.4, -1.4, -0.3);
+  for (let i = 0; i < 3; i++) {
+    box(g, MAT.olive, 0.86, 0.3, 0.4, 2.4 + (i % 2) * 0.12,
+      0.15 + Math.floor(i / 2) * 0.3, -1.5 - (i % 2) * 0.5, 0.2 - i * 0.15);
+  }
 }
 
-/** 10 cm leFH 14/19(t) in a Type H611 casemate. */
+/** 10 cm leFH 14/19(t) on its split-trail carriage. */
 function buildMerville(g, b) {
   const bore = b.caliber / 1000;
-  casemate(g, {
-    w: 12.5, d: 13, h: 4.2, wall: 2.0, roof: 2.0,
-    embW: 2.8, embH: 1.9, flare: 1.7, sill: 1.4, wings: 3.0,
-  });
-  // The howitzer, wheels and all: it went into the casemate as it came out of
-  // the park, split trail and rubber tyres.
-  const gun = new THREE.Group();
-  gun.position.set(0, 0.5, 3.6);
-  gun.rotation.y = 0.06;
-  g.add(gun);
-  // Split trail, spades down.
+  const R = 0.62;                          // wheel radius, which sets the height
+
+  shaft(g, MAT.camoDark, 0.09, 2.0, 0, R, 0, 12);
+  for (const s of [-1, 1]) roadWheel(g, R, 0.2, s * 1.04, R, 0);
+
+  // The trails, splayed and dropped onto their spades.
   for (const s of [-1, 1]) {
-    const t = box(gun, MAT.camo, 0.28, 0.26, 3.4, s * 0.5, 0.35, -1.8);
-    t.rotation.y = -s * 0.16;
-    box(gun, MAT.darkSteel, 0.34, 0.5, 0.24, s * 1.05, 0.22, -3.4);
+    const t = new THREE.Group();
+    t.position.set(s * 0.3, R * 0.74, -0.15);
+    t.rotation.y = -s * 0.17;
+    // Drooping enough that the trail end is on the ground and the spade is in
+    // it, which is where a gun in action has them.
+    t.rotation.x = -0.105;
+    g.add(t);
+    box(t, MAT.camo, 0.24, 0.26, 3.1, 0, 0, -1.55);
+    box(t, MAT.camoDark, 0.3, 0.08, 3.1, 0, 0.16, -1.55);
+    box(t, MAT.dark, 0.3, 0.44, 0.16, 0, -0.24, -3.05);
+    box(t, MAT.timber, 0.065, 0.065, 0.9, 0.16, 0.2, -2.85);
+    // The trail-end handle the crew lifted it by.
+    box(t, MAT.camoDark, 0.34, 0.06, 0.06, 0, 0.2, -3.05);
   }
-  box(gun, MAT.camo, 1.3, 0.45, 1.4, 0, 0.6, -0.3);
-  // Wheels.
-  for (const s of [-1, 1]) {
-    const wl = cyl(gun, MAT.darkSteel, 0.62, 0.62, 0.24, s * 1.15, 0.62, 0, 20);
-    wl.rotation.z = Math.PI / 2;
-    cyl(gun, MAT.camo, 0.34, 0.34, 0.26, s * 1.15, 0.62, 0, 14).rotation.z = Math.PI / 2;
-  }
-  // Shield: the leFH's was a flat plate with the top panel folded down.
-  box(gun, MAT.camo, 2.0, 1.15, 0.05, 0, 1.15, 0.5).rotation.x = -0.1;
-  // Cradle, trunnions, and a short fat howitzer barrel at howitzer elevation.
-  box(gun, MAT.camo, 0.9, 0.5, 0.7, 0, 0.95, 0.1);
+  box(g, MAT.camo, 0.72, 0.22, 0.5, 0, R * 0.8, -0.6);
+
+  // Top carriage, elevating gear, seat.
+  box(g, MAT.camo, 0.9, 0.5, 0.8, 0, R + 0.24, -0.06);
+  for (const s of [-1, 1]) box(g, MAT.camo, 0.16, 0.72, 0.6, s * 0.42, R + 0.62, 0);
+  box(g, MAT.camo, 0.3, 0.34, 0.32, -0.5, R + 0.18, -0.42);
+  handwheel(g, MAT.camoDark, 0.19, -0.7, R + 0.18, -0.42, 'x');
+  handwheel(g, MAT.camoDark, 0.17, 0.62, R + 0.14, -0.6, 'x');
+  seat(g, MAT.camoDark, -0.92, R + 0.1, -1.0);
+
+  // Shield.
+  const sh = new THREE.Group();
+  sh.position.set(0, R - 0.1, 0.5);
+  sh.rotation.x = -0.1;
+  g.add(sh);
+  const HW = 0.95, AP = 0.3;
+  for (const s of [-1, 1]) box(sh, MAT.camo, HW - AP, 1.2, 0.04, (s * (HW + AP)) / 2, 0.68, 0);
+  box(sh, MAT.camo, AP * 2, 0.42, 0.04, 0, 1.07, 0);
+  box(sh, MAT.camo, AP * 2, 0.46, 0.04, 0, 0.31, 0);
+  const tp = box(sh, MAT.camo, HW * 2, 0.4, 0.04, 0, 1.35, -0.07);
+  tp.rotation.x = 0.55;
+  box(sh, MAT.camoDark, HW * 2, 0.07, 0.07, 0, 0.1, -0.02);
+
+  // The howitzer: short, thick, laid high.
   const arm = new THREE.Group();
-  arm.position.set(0, 1.0, 0.1);
-  arm.rotation.x = -0.26;
-  gun.add(arm);
-  arm.add(gunBarrel(bore, b.calibers, { mat: MAT.camo, back: 2.6, muzzleSwell: false }));
-  recoilGear(arm, bore, bore * 12, { above: true, below: true });
-  tube(arm, MAT.camo, bore * 1.7, bore * 1.8, 1.1, 0, 0, 0);
-  // Ready rounds stacked against the chamber wall.
-  for (let i = 0; i < 6; i++) {
-    cyl(g, MAT.brass, 0.05, 0.05, 0.5, -3.6 + (i % 3) * 0.16, 0.75, -1.4 - Math.floor(i / 3) * 0.2, 10);
+  arm.position.set(0, R + 0.55, -0.02);
+  arm.rotation.x = -0.34;
+  g.add(arm);
+  cradle(arm, bore, 1.15, { mat: MAT.camo, cylsAbove: 1, cylsBelow: 1, front: 0.28 });
+  elevArc(arm, MAT.camoDark, 0.45, -0.48, 0, 0, -0.2, 0.6, 9, 0.14);
+  arm.add(gunBarrel(bore, b.calibers, { mat: MAT.camo }));
+  breech(arm, bore, { mat: MAT.camoDark, screw: false, len: 0.7, tray: false });
+  sight(arm, -0.4, 0.24, -0.08);
+
+  for (let i = 0; i < 4; i++) {
+    round_(g, bore, 1.7 + (i % 2) * 0.3, 0, -1.5 - Math.floor(i / 2) * 0.36);
   }
+  box(g, MAT.timber, 0.9, 0.34, 0.44, -1.8, 0.17, -1.7, -0.25);
 }
 
-/** 15 cm Tbts KC/36 in a Type H612 casemate — the Longues emplacement. */
+/** 15 cm Tbts KC/36 on a naval pedestal. */
 function buildLongues(g, b) {
   const bore = b.caliber / 1000;
-  casemate(g, {
-    w: 15.5, d: 13.5, h: 5.0, wall: 2.0, roof: 2.0,
-    embW: 3.6, embH: 2.4, flare: 2.2, sill: 1.7, wings: 4.2,
-  });
-  // The gun stands on its own concrete pivot block, back inside the chamber.
-  cyl(g, MAT.concreteDim, 1.5, 1.7, 0.9, 0, 0.5, 1.6, 20);
+
+  cyl(g, MAT.bed, 1.85, 1.95, 0.22, 0, 0.11, 0, 26);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    cyl(g, MAT.dark, 0.06, 0.06, 0.12, Math.sin(a) * 1.72, 0.26, Math.cos(a) * 1.72, 8);
+  }
+  cyl(g, MAT.gun, 1.15, 1.32, 0.92, 0, 0.66, 0, 22);
+  racer(g, MAT.gunDark, 1.02, 1.14, 40, 1.0);
+
   const mount = new THREE.Group();
-  mount.position.set(0, 0.95, 1.6);
-  mount.rotation.y = 0.05;
+  mount.position.y = 1.2;
+  mount.rotation.y = 0.16;
   g.add(mount);
-  cyl(mount, MAT.steel, 1.25, 1.35, 0.5, 0, 0.25, 0, 20);
-  // The pedestal and the training gear round it.
-  cyl(mount, MAT.gun, 0.8, 0.95, 0.9, 0, 0.85, 0, 18);
+  cyl(mount, MAT.gun, 1.05, 1.1, 0.3, 0, 0.15, 0, 22);
+  box(mount, MAT.gun, 2.1, 0.14, 1.9, 0, 0.34, -0.15);
   for (const s of [-1, 1]) {
-    box(mount, MAT.gun, 0.55, 0.75, 0.6, s * 1.0, 0.85, -0.4);
-    cyl(mount, MAT.darkSteel, 0.3, 0.3, 0.08, s * 1.35, 1.0, -0.1, 14)
-      .rotation.z = Math.PI / 2;
+    box(mount, MAT.gun, 0.2, 0.95, 1.1, s * 0.76, 0.85, 0.1);
+    cyl(mount, MAT.gun, 0.27, 0.3, 0.26, s * 0.76, 1.28, 0.1, 14).rotation.z = Math.PI / 2;
+    box(mount, MAT.gunDark, 0.3, 0.16, 0.34, s * 0.76, 1.3, 0.1);
+    seat(mount, MAT.gunDark, s * 0.74, 0.62, -1.0);
+    handwheel(mount, MAT.gunDark, 0.24, s * 0.86, 0.78, -0.5, 'z');
   }
-  // Naval shield: a curved face with a flat roof, the shape the Tbts mounting
-  // carried. Built from a lathe segment so the front is actually round.
-  const shield = new THREE.Group();
-  shield.position.set(0, 1.3, 0);
-  mount.add(shield);
-  const arc = new THREE.CylinderGeometry(1.55, 1.55, 1.9, 20, 1, true,
-    -Math.PI * 0.42, Math.PI * 0.84);
-  const sm = new THREE.Mesh(arc, MAT.steel);
-  sm.material = MAT.steel;
-  sm.position.y = 0.95;
-  shield.add(sm);
-  cyl(shield, MAT.steel, 1.6, 1.6, 0.09, 0, 1.94, 0, 20);
-  for (const s of [-1, 1]) box(shield, MAT.steel, 0.09, 1.9, 1.5, s * 1.5, 0.95, -0.75);
-  // Trunnions, cradle and the barrel out through the embrasure.
-  box(mount, MAT.gun, 1.1, 0.55, 0.8, 0, 1.85, 0.2);
+  box(mount, MAT.gun, 0.34, 0.44, 0.4, 0.6, 0.5, -0.1);
+  sight(mount, -0.78, 1.14, 0.4);
+
+  // The shield: an arc of plates that have thickness, a roof over them, side
+  // plates back to the open rear, and an aperture the gun comes through.
+  const sh = new THREE.Group();
+  sh.position.y = 0.3;
+  mount.add(sh);
+  const RS = 1.5;
+  for (let i = 0; i < 7; i++) {
+    const a = (-0.44 + (0.88 * i) / 6) * Math.PI;
+    if (Math.abs(a) < 0.2) continue;       // where the barrel comes out
+    const p = box(sh, MAT.steel, RS * 0.46, 1.8, 0.09,
+      Math.sin(a) * RS, 0.9, Math.cos(a) * RS);
+    p.rotation.y = a;
+  }
+  box(sh, MAT.steel, 0.62, 0.52, 0.09, 0, 1.54, RS);
+  box(sh, MAT.steel, 0.62, 0.6, 0.09, 0, 0.3, RS);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(RS + 0.06, RS + 0.06, 0.09, 22, 1,
+    false, -Math.PI * 0.47, Math.PI * 0.94), MAT.steel);
+  roof.position.y = 1.84;
+  sh.add(roof);
+  // The side plates run forward far enough to meet the outermost plate of the
+   // arc, so the shield closes rather than showing a slot down each shoulder.
+  for (const s of [-1, 1]) {
+    box(sh, MAT.steel, 0.09, 1.8, 1.9, s * 1.44, 0.9, -0.62);
+    box(sh, MAT.gunDark, 0.1, 0.13, 1.9, s * 1.44, 1.83, -0.62);
+  }
+  box(sh, MAT.steel, 2.88, 0.09, 1.6, 0, 1.84, -0.77);
+
   const arm = new THREE.Group();
-  arm.position.set(0, 1.95, 0.2);
-  arm.rotation.x = -0.09;
+  arm.position.set(0, 1.28, 0.1);
+  arm.rotation.x = -0.1;
   mount.add(arm);
-  arm.add(gunBarrel(bore, b.calibers, { back: 1.5 }));
-  recoilGear(arm, bore, bore * 16, { above: true, below: true });
-  tube(arm, MAT.gun, bore * 1.55, bore * 1.7, 2.2, 0, 0, -0.2);
-  // Shell hoist housing and a rack of ready rounds along the back wall.
-  box(g, MAT.concreteDim, 1.6, 2.4, 1.2, -4.6, 1.2, -4.6);
-  for (let i = 0; i < 8; i++) {
-    cyl(g, MAT.brass, 0.08, 0.08, 0.68, 4.2 - (i % 4) * 0.26, 0.84,
-      -4.4 - Math.floor(i / 4) * 0.3, 10);
+  cradle(arm, bore, 2.3, { cylsAbove: 0, cylsBelow: 2, cylsSide: 2, front: 0.32 });
+  elevArc(arm, MAT.gunDark, 0.78, 0.6, 0, 0, -0.28, 0.55, 12, 0.18);
+  arm.add(gunBarrel(bore, b.calibers));
+  breech(arm, bore, { screw: true, len: 1.0 });
+
+  // Ready rounds on a rack that stands on the ground, not in the air over it.
+  box(g, MAT.steel, 1.35, 0.06, 0.95, -0.66, 0.62, -1.75);
+  for (const [rx, rz] of [[-1.26, -1.34], [-0.06, -1.34], [-1.26, -2.16], [-0.06, -2.16]]) {
+    box(g, MAT.steel, 0.07, 0.62, 0.07, rx, 0.31, rz);
   }
-  // An observation slit in the roof lip, which the H612 had over the gun.
-  box(g, MAT.cave, 1.6, 0.3, 0.2, 0, 5.6, 6.85);
+  for (let i = 0; i < 6; i++) {
+    round_(g, bore, -1.16 + (i % 3) * 0.46, 0.65, -1.5 - Math.floor(i / 3) * 0.42);
+  }
+  // The rammer, laid across the bedplate where the loading number left it.
+  box(g, MAT.timber, 0.08, 0.08, 2.5, 1.42, 0.26, -0.35, 0.12);
+  cyl(g, MAT.timber, 0.1, 0.1, 0.34, 1.28, 0.26, -1.5, 10).rotation.x = Math.PI / 2;
 }
 
-/** 28 cm Krupp L/40 in an open barbette pit. */
+/** 28 cm Krupp L/40 on a barbette pivot mount. */
 function buildOscarsborg(g, b) {
   const bore = b.caliber / 1000;
-  // The pit: rock cut away and lined with concrete, with a parapet round it.
-  const prof = [[6.4, 0], [6.4, 2.2], [6.9, 2.5], [8.4, 2.2], [8.4, 0], [6.4, 0]];
-  g.add(new THREE.Mesh(new THREE.LatheGeometry(
-    prof.map(([r, y]) => new THREE.Vector2(r, y)), 30), MAT.concrete));
-  cyl(g, MAT.concreteDim, 6.42, 6.42, 0.5, 0, -0.25, 0, 30);
-  // The mound the pit is sunk into, turned as one piece: a ring of boxes round
-  // a gun pit reads as a ring of boxes however they are shuffled.
-  const moundProf = [[8.3, 0], [8.3, 1.4], [8.75, 1.45], [11.5, 0.75], [16, 0]];
-  g.add(new THREE.Mesh(new THREE.LatheGeometry(
-    moundProf.map(([r, y]) => new THREE.Vector2(r, y)), 32), MAT.earth));
-  // And the rock the mound is heaped against, breaking out of it landward.
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI * 0.66 + (i / 5) * Math.PI * 0.68;
-    const r = 10.6 + (i % 3) * 0.8;
-    box(g, MAT.rock, 3.6 + (i % 3) * 1.1, 1.5 + (i % 4) * 0.5, 3.0,
-      Math.sin(a) * r, 0.4 + (i % 3) * 0.2, Math.cos(a) * r, a + (i % 4) * 0.11);
-  }
-  // Ammunition niches and the shell rail round the inside of the parapet.
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI * 0.62 + (i / 5) * Math.PI * 0.76;
-    box(g, MAT.cave, 1.0, 1.1, 0.4, Math.sin(a) * 6.28, 0.8, Math.cos(a) * 6.28, a);
-  }
 
-  // The mounting: a big pivot, a heavy carriage and the barrel over it.
-  cyl(g, MAT.concreteDim, 2.6, 3.0, 0.7, 0, 0.35, 0, 24);
+  cyl(g, MAT.bed, 3.3, 3.5, 0.3, 0, 0.15, 0, 30);
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    cyl(g, MAT.dark, 0.09, 0.09, 0.16, Math.sin(a) * 3.1, 0.36, Math.cos(a) * 3.1, 8);
+  }
+  cyl(g, MAT.gun, 2.3, 2.6, 0.55, 0, 0.57, 0, 26);
+  racer(g, MAT.gunDark, 2.1, 0.9, 56, 1.3);
+
   const mount = new THREE.Group();
-  mount.position.set(0, 0.7, 0);
-  mount.rotation.y = 0.12;
+  mount.position.y = 0.95;
+  mount.rotation.y = 0.2;
   g.add(mount);
-  cyl(mount, MAT.steel, 2.35, 2.5, 0.55, 0, 0.28, 0, 24);
-  // Racer and the two side frames the trunnions sit in.
+  cyl(mount, MAT.gun, 2.2, 2.3, 0.34, 0, 0.17, 0, 26);
+  box(mount, MAT.gun, 3.5, 0.2, 4.2, 0, 0.42, -0.5);
+
   for (const s of [-1, 1]) {
-    const f = box(mount, MAT.gun, 0.5, 2.4, 4.0, s * 1.55, 1.5, -0.3);
-    f.rotation.x = 0.0;
-    box(mount, MAT.gun, 0.6, 0.9, 1.1, s * 1.55, 2.9, 0.1);
-    cyl(mount, MAT.darkSteel, 0.55, 0.55, 0.14, s * 1.9, 1.1, -1.6, 16)
-      .rotation.z = Math.PI / 2;
+    box(mount, MAT.gun, 0.44, 2.3, 3.4, s * 1.5, 1.6, -0.2);
+    box(mount, MAT.gunDark, 0.5, 0.3, 3.4, s * 1.5, 2.72, -0.2);
+    cyl(mount, MAT.gun, 0.52, 0.56, 0.5, s * 1.5, 2.55, 0.35, 16).rotation.z = Math.PI / 2;
+    box(mount, MAT.gunDark, 0.56, 0.3, 0.62, s * 1.5, 2.58, 0.35);
+    for (let i = 0; i < 3; i++) {
+      cyl(mount, MAT.gunDark, 0.26, 0.26, 0.48, s * 1.5, 1.3, -1.3 + i * 1.1, 14)
+        .rotation.z = Math.PI / 2;
+    }
+    // Layer's footplate, railed, with a ladder down to the bedplate.
+    box(mount, MAT.steel, 1.15, 0.08, 2.4, s * 2.42, 1.1, -0.6);
+    for (const t of [-1, 1]) {
+      box(mount, MAT.steel, 0.09, 1.1, 0.09, s * 2.42, 0.55, -0.6 + t * 1.08);
+    }
+    railing(mount, MAT.steel, 2.4, s * 2.95, 1.14, -0.6, 0, 0.95);
+    // Down to the bedplate, which is what it has to reach to be a ladder.
+    ladder(mount, MAT.steel, 1.75, s * 2.42, -0.65, -1.88, 0);
+    handwheel(mount, MAT.gunDark, 0.32, s * 1.98, 1.62, -0.55, 'x');
   }
-  box(mount, MAT.gun, 3.1, 0.7, 3.6, 0, 0.75, -0.3);
-  // Shield: the old Krupp guns carried a heavy curved mantlet rather than a
-  // full house, so the barrel comes out of a shield that turns with it.
+  box(mount, MAT.gun, 3.5, 0.35, 0.8, 0, 2.72, -1.8);
+  box(mount, MAT.gun, 0.66, 0.95, 0.76, 1.14, 0.85, 0.15);
+  sight(mount, -1.9, 2.2, 0.5);
+
+  // The loading platform behind the breech.
+  box(mount, MAT.steel, 2.6, 0.1, 1.8, 0, 1.9, -3.0);
+  for (const t of [-1, 1]) box(mount, MAT.steel, 0.1, 1.9, 0.1, t * 1.15, 0.95, -3.7);
+  railing(mount, MAT.steel, 1.8, 1.32, 1.95, -3.0, 0, 0.95);
+  railing(mount, MAT.steel, 1.8, -1.32, 1.95, -3.0, 0, 0.95);
+  // The back rail stops either side of the steps rather than across them.
+  for (const t of [-1, 1]) railing(mount, MAT.steel, 0.7, t * 0.95, 1.95, -3.85, Math.PI / 2, 0.95);
+  round_(mount, bore, 0.72, 1.95, -3.2);
+  box(mount, MAT.timber, 0.12, 0.12, 2.6, -0.7, 2.02, -3.2);
+  // Rising to meet the back edge of the platform, at the height of it.
+  steps(g, MAT.steel, 2.9, 2.0, 0, 0, -5.8, 0, 1.0);
+
+  // The mantlet, turning and elevating with the gun.
   const arm = new THREE.Group();
-  arm.position.set(0, 2.55, 0.1);
-  arm.rotation.x = -0.16;
+  arm.position.set(0, 2.55, 0.35);
+  arm.rotation.x = -0.14;
   mount.add(arm);
-  // The mantlet: a plate house across the front of the trunnions that turns
-  // and elevates with the gun. Solid plate rather than a curved sheet — an
-  // open-ended arc has no thickness and reads as a fin from behind.
-  box(arm, MAT.steel, 4.4, 2.9, 0.22, 0, 0.35, 1.35);
-  for (const t of [-1, 1]) {
-    const cheek = box(arm, MAT.steel, 0.2, 2.7, 2.2, t * 2.1, 0.35, 0.3);
-    cheek.rotation.y = -t * 0.10;
-  }
-  box(arm, MAT.steel, 4.3, 0.2, 2.2, 0, 1.75, 0.35);
-  box(arm, MAT.steel, 4.3, 0.2, 1.4, 0, -1.05, 0.75);
-  arm.add(gunBarrel(bore, b.calibers, { back: 1.6 }));
-  recoilGear(arm, bore, bore * 9, { above: false, below: true, side: 1 });
-  tube(arm, MAT.gun, bore * 1.45, bore * 1.6, 3.2, 0, 0, 0.2);
-  // The layers' platforms either side, and the loading tray behind.
+  box(arm, MAT.steel, 3.5, 2.6, 0.2, 0, 0.1, 1.2);
   for (const s of [-1, 1]) {
-    box(mount, MAT.steel, 1.3, 0.1, 2.2, s * 2.6, 1.35, -0.6);
-    for (let i = 0; i < 3; i++) box(mount, MAT.steel, 0.06, 1.0, 0.06, s * (2.1 + i * 0.5), 1.85, 0.4);
+    const cheek = box(arm, MAT.steel, 0.18, 2.4, 1.7, s * 1.74, 0.1, 0.4);
+    cheek.rotation.y = -s * 0.08;
   }
-  box(mount, MAT.gun, 1.4, 0.35, 2.6, 0, 2.1, -2.6);
-  // A rangefinder post on the parapet, where the sound-and-flash men stood.
-  cyl(g, MAT.concrete, 0.5, 0.6, 2.4, -7.2, 1.2, -3.4, 14);
-  box(g, MAT.steel, 2.2, 0.35, 0.35, -7.2, 2.5, -3.4);
+  box(arm, MAT.steel, 3.4, 0.18, 1.7, 0, 1.35, 0.4);
+  box(arm, MAT.steel, 3.4, 0.18, 1.1, 0, -1.15, 0.65);
+  cradle(arm, bore, 3.4, { cylsAbove: 0, cylsBelow: 1, cylsSide: 2, front: 0.34 });
+  elevArc(arm, MAT.gunDark, 1.45, 1.14, 0, 0, -0.28, 0.5, 14, 0.3);
+  arm.add(gunBarrel(bore, b.calibers));
+  breech(arm, bore, { screw: true, len: 1.05 });
 }
 
-/** Fort Drum's twin 14"/50 turret, without the concrete ship under it. */
+/** Fort Drum's twin 14"/50 turret. */
 function buildDrum(g, b) {
   const bore = b.caliber / 1000;
-  // A low ring of concrete for it to stand on, and no more than that.
-  cyl(g, MAT.concreteDim, 7.6, 8.2, 1.1, 0, 0.55, 0, 32);
-  cyl(g, MAT.concrete, 7.0, 7.0, 0.3, 0, 1.2, 0, 32);
+
+  // The armoured barbette, standing on the ground: plate courses and rivets.
+  cyl(g, MAT.gunDark, 5.5, 5.7, 2.2, 0, 1.1, 0, 34);
+  for (const y of [0.55, 1.65]) {
+    for (let i = 0; i < 34; i++) {
+      const a = (i / 34) * Math.PI * 2;
+      box(g, MAT.gun, 0.4, 0.09, 0.09, Math.sin(a) * 5.56, y, Math.cos(a) * 5.56, a);
+    }
+  }
+  ring(g, MAT.gun, 5.6, 0.1, 0, 2.16, 0, 34);
+  cyl(g, MAT.bright, 5.3, 5.3, 0.16, 0, 2.28, 0, 34);
 
   const t = new THREE.Group();
-  t.position.y = 1.35;
-  t.rotation.y = -0.34;
+  t.position.y = 2.36;
+  t.rotation.y = -0.3;
   g.add(t);
-  // The armoured barbette drum the turret trains in.
-  cyl(t, MAT.darkSteel, 6.1, 6.2, 1.5, 0, 0.75, 0, 30);
-  for (let i = 0; i < 30; i++) {
-    const a = (i / 30) * Math.PI * 2;
-    box(t, MAT.steel, 0.5, 0.16, 0.16, Math.sin(a) * 6.2, 1.42, Math.cos(a) * 6.2, a);
-  }
+  cyl(t, MAT.gunDark, 5.4, 5.45, 0.5, 0, 0.25, 0, 32);
 
-  // The gunhouse: sloped face, flat roof, overhanging rear. Built as a box
-  // whose front face is raked back, which is what an armoured face plate is.
-  const gh = new THREE.Group();
-  gh.position.y = 1.5;
-  t.add(gh);
-  const W = 8.6, H = 3.4, D = 8.8;
+  const W = 8.2, H = 3.3, D = 8.4;
   const geo = new THREE.BoxGeometry(W, H, D).toNonIndexed();
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    // Rake the front face back at the top and pull the sides in a little, so
-    // the house tapers the way a turret does.
-    if (pos.getZ(i) > 0 && pos.getY(i) > 0) pos.setZ(i, D * 0.34);
-    if (pos.getZ(i) > 0) pos.setX(i, pos.getX(i) * 0.88);
+    if (pos.getZ(i) > 0 && pos.getY(i) > 0) pos.setZ(i, D * 0.3);
+    if (pos.getZ(i) > 0) pos.setX(i, pos.getX(i) * 0.86);
   }
   geo.computeVertexNormals();
-  const house = new THREE.Mesh(geo, MAT.steel);
-  house.position.y = H / 2;
-  gh.add(house);
-  // Roof plate, sighting hoods and the rangefinder ears out the back corners.
-  box(gh, MAT.darkSteel, W * 0.95, 0.22, D * 0.86, 0, H + 0.05, -D * 0.06);
+  const house = new THREE.Mesh(geo, MAT.gunDark);
+  house.position.set(0, H / 2 + 0.5, 0);
+  t.add(house);
   for (const s of [-1, 1]) {
-    cyl(gh, MAT.steel, 0.62, 0.68, 0.55, s * 2.4, H + 0.35, -1.2, 16);
-    cyl(gh, MAT.darkSteel, 0.2, 0.2, 0.5, s * 2.4, H + 0.8, -1.2, 12);
-    box(gh, MAT.steel, 1.5, 1.1, 1.0, s * (W / 2 - 0.1), 1.9, -D / 2 + 0.9);
+    for (let i = -1; i <= 1; i++) {
+      box(t, MAT.gun, 0.08, H - 0.4, 0.16, s * (W / 2 - 0.01), H / 2 + 0.5, i * 2.4);
+    }
   }
-  box(gh, MAT.steel, 2.4, 0.8, 0.7, 0, H + 0.45, -D / 2 + 0.5);
-  // Two 14-inch rifles, side by side, in their own embrasures.
+  box(t, MAT.gun, W * 0.96, 0.22, D * 0.88, 0, H + 0.61, -D * 0.05);
   for (const s of [-1, 1]) {
-    box(gh, MAT.darkSteel, 2.0, 1.7, 0.5, s * 1.85, 1.75, D * 0.30);
-    box(gh, MAT.cave, 1.3, 1.1, 0.3, s * 1.85, 1.75, D * 0.33);
+    cyl(t, MAT.gunDark, 0.58, 0.64, 0.5, s * 2.3, H + 0.95, -1.0, 16);
+    cyl(t, MAT.gun, 0.17, 0.17, 0.44, s * 2.3, H + 1.36, -1.0, 12);
+    box(t, MAT.gunDark, 1.5, 1.05, 1.0, s * (W / 2 - 0.25), 2.1, -D / 2 + 0.85);
+    box(t, MAT.bore, 0.14, 0.2, 0.1, s * (W / 2 + 0.42), 2.15, -D / 2 + 0.85);
+  }
+  box(t, MAT.gunDark, 2.2, 0.75, 0.7, 0, H + 1.05, -D / 2 + 0.45);
+  box(t, MAT.gun, 0.9, 1.7, 0.1, 1.9, 1.4, -D / 2 - 0.03);
+  box(t, MAT.dark, 0.13, 0.13, 0.1, 2.28, 1.4, -D / 2 - 0.1);
+  ladder(g, MAT.gun, 2.36, 1.9, 0, -5.62, 0);
+
+  for (const s of [-1, 1]) {
     const arm = new THREE.Group();
-    arm.position.set(s * 1.85, 1.75, D * 0.20);
-    arm.rotation.x = -0.07;
-    gh.add(arm);
-    arm.add(gunBarrel(bore, b.calibers, { back: 1.1 }));
-    // The sleeve the rifle runs out through.
-    tube(arm, MAT.gun, bore * 1.4, bore * 1.5, 2.0, 0, 0, 0.1);
+    arm.position.set(s * 1.75, 1.85, D * 0.16);
+    arm.rotation.x = -0.06;
+    t.add(arm);
+    box(arm, MAT.gunDark, 2.05, 1.85, 0.55, 0, 0, 0.55);
+    box(arm, MAT.gun, 2.15, 0.13, 0.6, 0, 0.92, 0.55);
+    cradle(arm, bore, 2.6, { cylsAbove: 0, cylsBelow: 0, cylsSide: 2, front: 0.3 });
+    arm.add(gunBarrel(bore, b.calibers));
+    breech(arm, bore, { screw: true, len: 0.9, tray: false });
   }
 }
 
-/** 38 cm SK C/34 in the Cap Gris-Nez casemate. */
+/** 38 cm SK C/34 on its Bettungsschiessgerüst. */
 function buildTodt(g, b) {
   const bore = b.caliber / 1000;
-  casemate(g, {
-    w: 30, d: 32, h: 15, wall: 3.5, roof: 3.5,
-    embW: 7.5, embH: 5.6, flare: 5.0, sill: 4.2, wings: 5.5, wingH: 0.42,
-    berm: false, apron: true,
-  });
-  // The Todt casemates were stepped rather than slab-sided: the front is a
-  // wedge of concrete rising back to the roof, which is what made them so hard
-  // to hit from seaward.
-  for (let i = 0; i < 4; i++) {
-    const t = i / 3;
-    // Rising back from the embrasure, each course a little taller and a little
-    // narrower than the one in front of it.
-    box(g, MAT.concrete, 30 - t * 2.5, 1.5 + t * 3.4, 9,
-      0, 18.5 + (1.5 + t * 3.4) / 2, 11.5 - i * 8.6);
-  }
-  // ...with a skirt of concrete down each flank, stepping down toward the sea.
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 4; i++) {
-      box(g, MAT.concreteDim, 3.6, 15.5 - i * 3.0, 8.4, s * 16.6,
-        (15.5 - i * 3.0) / 2, -12 + i * 8.4);
-    }
-  }
-  bank(g, 46, 17, 22, 0, 8.5, -27, 16, 'z', -1);
-  // A Tobruk observation cupola on the shoulder of the roof.
-  cyl(g, MAT.concrete, 1.5, 1.8, 1.6, -11.5, 19.3, 10, 18);
-  cyl(g, MAT.cave, 1.15, 1.15, 0.4, -11.5, 20.2, 10, 18);
 
-  // The gun: a naval mounting on its Bettung, high up in the chamber.
-  cyl(g, MAT.concreteDim, 4.6, 5.2, 2.4, 0, 1.2, 4, 26);
+  cyl(g, MAT.bed, 5.2, 5.5, 0.4, 0, 0.2, 0, 34);
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2;
+    cyl(g, MAT.dark, 0.12, 0.12, 0.2, Math.sin(a) * 5.0, 0.5, Math.cos(a) * 5.0, 8);
+  }
+  cyl(g, MAT.gun, 4.0, 4.4, 0.7, 0, 0.75, 0, 30);
+  racer(g, MAT.gunDark, 3.6, 1.15, 72, 1.6);
+
   const mount = new THREE.Group();
-  mount.position.set(0, 2.4, 4);
-  mount.rotation.y = -0.04;
+  mount.position.y = 1.2;
+  mount.rotation.y = -0.14;
   g.add(mount);
-  cyl(mount, MAT.steel, 4.2, 4.4, 1.1, 0, 0.55, 0, 26);
+  cyl(mount, MAT.gun, 3.8, 3.95, 0.5, 0, 0.25, 0, 30);
+  box(mount, MAT.gun, 6.4, 0.26, 7.6, 0, 0.62, -1.0);
+
   for (const s of [-1, 1]) {
-    box(mount, MAT.gun, 1.1, 4.2, 6.4, s * 2.9, 2.9, -0.6);
-    box(mount, MAT.gun, 1.3, 1.6, 2.0, s * 2.9, 5.4, 0.4);
+    box(mount, MAT.gun, 0.62, 3.6, 4.4, s * 2.3, 2.55, -0.2);
+    box(mount, MAT.gunDark, 0.72, 0.36, 4.4, s * 2.3, 4.4, -0.2);
+    cyl(mount, MAT.gun, 0.74, 0.8, 0.7, s * 2.3, 4.1, 0.5, 18).rotation.z = Math.PI / 2;
+    box(mount, MAT.gunDark, 0.8, 0.42, 0.9, s * 2.3, 4.15, 0.5);
+    for (let i = 0; i < 3; i++) {
+      cyl(mount, MAT.gunDark, 0.38, 0.38, 0.66, s * 2.3, 2.1, -1.7 + i * 1.5, 14)
+        .rotation.z = Math.PI / 2;
+    }
+    // Sighting cabin outboard of each frame, with a ladder up to it.
+    box(mount, MAT.gun, 0.9, 1.2, 1.4, s * 2.98, 3.4, 0.6);
+    box(mount, MAT.bore, 0.1, 0.24, 0.5, s * 3.44, 3.6, 0.6);
+    box(mount, MAT.steel, 1.0, 0.08, 1.6, s * 3.0, 2.76, 0.6);
+    ladder(mount, MAT.steel, 2.14, s * 3.0, 0.62, -0.25, 0);
+    handwheel(mount, MAT.gunDark, 0.38, s * 2.86, 2.5, -0.6, 'x');
   }
-  box(mount, MAT.gun, 5.6, 1.3, 5.8, 0, 1.5, -0.8);
+  box(mount, MAT.gun, 5.2, 0.4, 1.1, 0, 4.4, -2.1);
+  box(mount, MAT.gun, 5.2, 0.36, 0.9, 0, 1.5, 1.4);
+  box(mount, MAT.gun, 0.96, 1.42, 1.06, 1.6, 1.32, 0.35);
+
+  // Working platform round the breech, railed, reached by steps.
+  box(mount, MAT.steel, 6.6, 0.12, 3.0, 0, 2.0, -3.9);
+  for (let i = -2; i <= 2; i++) box(mount, MAT.steel, 0.12, 2.0, 0.12, i * 1.5, 1.0, -4.9);
+  railing(mount, MAT.steel, 3.0, 3.24, 2.06, -3.9, 0, 1.05);
+  railing(mount, MAT.steel, 3.0, -3.24, 2.06, -3.9, 0, 1.05);
+  for (const t of [-1, 1]) {
+    railing(mount, MAT.steel, 2.5, t * 2.05, 2.06, -5.34, Math.PI / 2, 1.05);
+  }
+  box(mount, MAT.gun, 0.3, 2.9, 0.3, 1.5, 3.51, -5.1);
+  box(mount, MAT.gun, 0.3, 2.9, 0.3, -1.5, 3.51, -5.1);
+  box(mount, MAT.gun, 3.3, 0.3, 0.34, 0, 5.11, -5.1);
+  box(mount, MAT.dark, 0.11, 1.1, 0.11, 0, 4.41, -5.1);
+  round_(mount, bore, 0, 2.06, -4.4);
+  round_(mount, bore, 1.9, 2.06, -4.4);
+  steps(g, MAT.steel, 3.26, 2.2, 0, 0, -6.6, 0, 1.2);
+
   const arm = new THREE.Group();
-  arm.position.set(0, 4.7, 0.6);
-  arm.rotation.x = -0.11;
+  arm.position.set(0, 4.1, 0.5);
+  arm.rotation.x = -0.1;
   mount.add(arm);
-  arm.add(gunBarrel(bore, b.calibers, { back: 1.3 }));
-  recoilGear(arm, bore, bore * 10, { above: true, below: true, side: 1 });
-  tube(arm, MAT.gun, bore * 1.5, bore * 1.7, 5.0, 0, 0, -0.4);
-  // Shell and charge handling behind the mounting.
-  box(g, MAT.steel, 3.0, 0.5, 9.0, 0, 3.6, -9);
-  for (let i = 0; i < 5; i++) {
-    cyl(g, MAT.gun, 0.19, 0.19, 1.7, -1.0 + i * 0.5, 4.5, -6 - (i % 2) * 0.8, 12)
-      .rotation.x = Math.PI / 2;
-  }
-  box(g, MAT.concreteDim, 4.0, 6.0, 3.0, -11, 3.0, -12);
+  cradle(arm, bore, 5.2, { cylsAbove: 2, cylsBelow: 1, cylsSide: 2, front: 0.34 });
+  elevArc(arm, MAT.gunDark, 2.2, 1.6, 0, 0, -0.28, 0.45, 18, 0.42);
+  arm.add(gunBarrel(bore, b.calibers));
+  breech(arm, bore, { screw: true, len: 1.05 });
 }
 
-/** A casemated 16-inch barbette pair — Townsley and Davis. */
+/** Two 16"/50 M1919 on barbette carriages. */
 function buildTownsley(g, b) {
   const bore = b.caliber / 1000;
-  const W = 36, D = 26, H = 9;
-  // The casemate proper: one block, two guns, an embrasure apiece.
-  box(g, MAT.concreteDim, W, 0.6, D, 0, 0.3, 0);
-  box(g, MAT.concrete, 3.0, H, D, 0, H / 2, 0);                       // centre pier
-  for (const s of [-1, 1]) box(g, MAT.concrete, 3.0, H, D, s * (W / 2 - 1.5), H / 2, 0);
-  box(g, MAT.concrete, W, H, 3.0, 0, H / 2, -D / 2 + 1.5);
-  box(g, MAT.concrete, W + 1.2, 3.0, D + 1.0, 0, H + 1.5, 0);          // roof slab
   for (const s of [-1, 1]) {
-    // Each gun room, its opening and the chamber behind it.
-    box(g, MAT.chamber, 12.5, H - 0.6, D - 4, s * 9.5, (H - 0.6) / 2 + 0.6, -1.5);
-    box(g, MAT.concrete, 12.5, H - 5.2, 3.0, s * 9.5, H - (H - 5.2) / 2, D / 2 - 1.5);
-    box(g, MAT.concrete, 12.5, 2.2, 3.0, s * 9.5, 1.1, D / 2 - 1.5);
-    for (const t of [-1, 1]) {
-      box(g, MAT.concrete, 2.6, 3.0, 3.0, s * 9.5 + t * 4.5, 3.3, D / 2 - 1.5);
-    }
-  }
-  // Twenty feet of concrete under a hill of earth: from seaward it is a rise
-  // in the ground with two square holes in it.
-  for (const s of [-1, 1]) {
-    bank(g, 13, H + 3, D * 0.9, s * (W / 2 + 6.0), (H + 3) / 2, -1.5, 9, 'x', s);
-  }
-  bank(g, W + 24, H + 3, 18, 0, (H + 3) / 2, -D / 2 - 8, 13, 'z', -1);
-  box(g, MAT.turf, W + 1.2, 0.3, D + 1.0, 0, H + 3.05, 0);
-  // Concrete apron and the splinter wall along the front.
-  box(g, MAT.concreteDim, W + 6, 0.4, 8, 0, 0.2, D / 2 + 3.6);
-  for (const s of [-1, 1]) box(g, MAT.concrete, 1.2, 4.0, 7.0, s * (W / 2 + 1.4), 2.0, D / 2 + 3);
+    const gun = new THREE.Group();
+    gun.position.set(s * 9.0, 0, 0);
+    g.add(gun);
 
-  // Two 16-inch guns on barbette carriages, run out through the openings.
-  for (const s of [-1, 1]) {
-    cyl(g, MAT.concreteDim, 2.6, 3.0, 1.4, s * 9.5, 0.7, 1.5, 22);
-    const mount = new THREE.Group();
-    mount.position.set(s * 9.5, 1.4, 1.5);
-    mount.rotation.y = -s * 0.02;
-    g.add(mount);
-    cyl(mount, MAT.olive, 2.3, 2.45, 0.7, 0, 0.35, 0, 22);
-    for (const t of [-1, 1]) {
-      box(mount, MAT.olive, 0.7, 2.6, 4.6, t * 1.8, 2.0, -0.4);
-      box(mount, MAT.olive, 0.9, 1.0, 1.4, t * 1.8, 3.6, 0.3);
+    cyl(gun, MAT.bed, 3.6, 3.8, 0.34, 0, 0.17, 0, 30);
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      cyl(gun, MAT.dark, 0.1, 0.1, 0.18, Math.sin(a) * 3.4, 0.43, Math.cos(a) * 3.4, 8);
     }
-    box(mount, MAT.olive, 3.6, 0.9, 4.2, 0, 1.1, -0.5);
+    cyl(gun, MAT.olive, 2.7, 3.0, 0.6, 0, 0.62, 0, 28);
+    racer(gun, MAT.oliveDark, 2.5, 1.0, 60, 1.4);
+
+    const mount = new THREE.Group();
+    mount.position.y = 1.05;
+    mount.rotation.y = -s * 0.03;
+    gun.add(mount);
+    cyl(mount, MAT.olive, 2.6, 2.7, 0.4, 0, 0.2, 0, 28);
+    box(mount, MAT.olive, 4.6, 0.22, 6.0, 0, 0.5, -0.8);
+    for (const t of [-1, 1]) {
+      box(mount, MAT.olive, 0.5, 2.6, 5.2, t * 1.7, 1.85, -0.4);
+      box(mount, MAT.oliveDark, 0.6, 0.3, 5.2, t * 1.7, 3.2, -0.4);
+      cyl(mount, MAT.olive, 0.6, 0.64, 0.56, t * 1.7, 3.0, 0.9, 16).rotation.z = Math.PI / 2;
+      box(mount, MAT.oliveDark, 0.66, 0.34, 0.72, t * 1.7, 3.04, 0.9);
+      for (let i = 0; i < 3; i++) {
+        cyl(mount, MAT.oliveDark, 0.3, 0.3, 0.54, t * 1.7, 1.6, -2.0 + i * 1.6, 14)
+          .rotation.z = Math.PI / 2;
+      }
+      handwheel(mount, MAT.oliveDark, 0.32, t * 2.22, 1.9, -0.6, 'x');
+      box(mount, MAT.olive, 0.6, 0.6, 0.7, t * 1.78, 1.9, -0.6);
+    }
+    box(mount, MAT.olive, 3.9, 0.34, 0.9, 0, 3.2, -2.6);
+    box(mount, MAT.olive, 0.8, 1.0, 0.9, 1.2, 0.9, 0.75);
+    sight(mount, -2.05, 2.5, 1.15);
+
+    box(mount, MAT.steel, 4.8, 0.1, 2.6, 0, 1.6, -4.4);
+    for (let i = -1; i <= 1; i++) box(mount, MAT.steel, 0.1, 1.6, 0.1, i * 1.8, 0.8, -5.3);
+    railing(mount, MAT.steel, 2.6, 2.35, 1.65, -4.4, 0, 1.0);
+    railing(mount, MAT.steel, 2.6, -2.35, 1.65, -4.4, 0, 1.0);
+    for (const t of [-1, 1]) {
+      railing(mount, MAT.steel, 1.7, t * 1.55, 1.65, -5.65, Math.PI / 2, 1.0);
+    }
+    box(mount, MAT.olive, 0.5, 0.5, 3.0, 0, 1.9, -4.6);
+    round_(mount, bore, 1.5, 1.65, -4.1);
+    round_(mount, bore, -1.5, 1.65, -4.1);
+    steps(gun, MAT.steel, 2.7, 2.0, 0, 0, -6.75, 0, 1.1);
+
     const arm = new THREE.Group();
-    arm.position.set(0, 3.0, 0.3);
+    arm.position.set(0, 3.0, 0.9);
     arm.rotation.x = -0.05;
     mount.add(arm);
-    arm.add(gunBarrel(bore, b.calibers, { mat: MAT.olive, back: 1.2 }));
-    recoilGear(arm, bore, bore * 9, { above: false, below: true, side: 1 });
-    tube(arm, MAT.olive, bore * 1.5, bore * 1.65, 3.4, 0, 0, -0.3);
-    // The loading platform and the rammer behind the breech.
-    box(mount, MAT.steel, 4.4, 0.12, 3.0, 0, 1.9, -3.2);
-    box(mount, MAT.olive, 0.7, 0.7, 3.4, 0, 2.8, -3.6);
+    cradle(arm, bore, 4.4, {
+      mat: MAT.olive, cylsAbove: 0, cylsBelow: 1, cylsSide: 2, front: 0.32,
+    });
+    elevArc(arm, MAT.oliveDark, 1.75, 1.2, 0, 0, -0.26, 0.42, 15, 0.34);
+    arm.add(gunBarrel(bore, b.calibers, { mat: MAT.olive }));
+    breech(arm, bore, { mat: MAT.oliveDark, screw: true, len: 1.05 });
   }
 }
 
-/** Schwerer Gustav: 80 cm of bore on two double tracks. */
+/** Schwerer Gustav: eighty centimetres of bore on four rails. */
 function buildGustav(g, b) {
   const bore = b.caliber / 1000;
-  const L = bore * b.calibers;
+  const TRACK = 62;
 
-  // The track: four rails on a bed of sleepers, in a shallow cutting.
-  box(g, MAT.rock, 26, 0.5, 90, 0, -0.25, 0);
-  for (let i = -22; i <= 22; i++) {
-    box(g, MAT.timber, 22, 0.24, 1.1, 0, 0.12, i * 2.0);
-  }
+  // Ballast, sleepers and four rails, all at ground level.
+  box(g, MAT.timber, 21, 0.2, TRACK, 0, 0.1, 0);
+  for (let i = -20; i <= 20; i++) box(g, MAT.timber, 19, 0.2, 1.1, 0, 0.3, i * 1.5);
   for (const x of [-7.4, -5.9, 5.9, 7.4]) {
-    box(g, MAT.rust, 0.16, 0.34, 88, x, 0.4, 0);
-    box(g, MAT.rust, 0.34, 0.1, 88, x, 0.57, 0);
-  }
-  // The cutting walls either side, so it reads as dug in rather than parked.
-  for (const s of [-1, 1]) {
-    // The cutting walls slope away from the track, not toward it.
-    bank(g, 14, 4.5, 90, s * 20, 2.25, 0, 7, 'x', -s);
+    box(g, MAT.rust, 0.16, 0.24, TRACK, x, 0.52, 0);
+    box(g, MAT.rust, 0.36, 0.1, TRACK, x, 0.69, 0);
   }
 
-  // Two bogie trains, one under each pair of rails, four trucks to a side.
+  // Two bogie trains, four trucks apiece, riding on those rails.
   for (const s of [-1, 1]) {
     const bx = s * 6.65;
     for (let t = -1.5; t <= 1.5; t++) {
-      const z = t * 9.5;
-      box(g, MAT.darkSteel, 2.4, 1.5, 8.4, bx, 1.35, z);
-      for (let wI = 0; wI < 5; wI++) {
-        const wz = z - 3.4 + wI * 1.7;
-        const wl = cyl(g, MAT.rust, 0.5, 0.5, 0.26, bx, 0.62, wz, 14);
-        wl.rotation.z = Math.PI / 2;
-        box(g, MAT.darkSteel, 2.6, 0.34, 0.3, bx, 0.62, wz);
+      const z = t * 8.0;
+      box(g, MAT.gunDark, 2.5, 1.1, 7.2, bx, 1.85, z);
+      box(g, MAT.gun, 2.7, 0.22, 7.2, bx, 2.5, z);
+      for (let w = 0; w < 5; w++) {
+        const wz = z - 2.8 + w * 1.4;
+        for (const r of [-0.75, 0.75]) shaft(g, MAT.rust, 0.51, 0.2, bx + r, 1.25, wz, 14);
+        shaft(g, MAT.dark, 0.13, 1.7, bx, 1.25, wz, 10);
+        box(g, MAT.gunDark, 2.6, 0.24, 0.3, bx, 1.62, wz);
+        box(g, MAT.gun, 2.2, 0.13, 0.22, bx, 1.79, wz);
       }
     }
-    // The longitudinal girder each train carries.
-    box(g, MAT.gun, 3.0, 2.2, 42, bx, 3.2, 0);
-    for (let i = -4; i <= 4; i++) box(g, MAT.darkSteel, 3.2, 1.6, 0.4, bx, 3.2, i * 4.6);
+    box(g, MAT.gun, 2.9, 2.0, 40, bx, 3.62, 0);
+    for (let i = -9; i <= 9; i++) box(g, MAT.gunDark, 3.04, 1.5, 0.34, bx, 3.62, i * 2.1);
+    box(g, MAT.gunDark, 3.1, 0.3, 40, bx, 4.6, 0);
   }
-  // The cross-braced deck that ties the two trains together.
-  box(g, MAT.gun, 16.5, 1.1, 30, 0, 4.7, 0);
-  for (let i = -3; i <= 3; i++) box(g, MAT.darkSteel, 15, 0.5, 0.5, 0, 5.3, i * 4.4);
-  // Stairs and railed walkways down both sides — the crew of two hundred and
-  // fifty had to get about it somehow.
+  box(g, MAT.gun, 16.2, 0.9, 26, 0, 5.2, 0);
+  for (let i = -5; i <= 5; i++) box(g, MAT.gunDark, 15.4, 0.4, 0.5, 0, 5.72, i * 2.3);
   for (const s of [-1, 1]) {
-    box(g, MAT.steel, 1.6, 0.12, 30, s * 9.0, 5.35, 0);
-    for (let i = -6; i <= 6; i++) {
-      box(g, MAT.steel, 0.08, 1.0, 0.08, s * 9.7, 5.9, i * 2.4);
-    }
-    box(g, MAT.steel, 1.7, 0.08, 30, s * 9.7, 6.4, 0);
-    for (let i = 0; i < 8; i++) box(g, MAT.steel, 1.2, 0.1, 0.4, s * 10.6, 0.7 + i * 0.62, -12 + i * 0.5);
+    box(g, MAT.steel, 1.5, 0.12, 26, s * 8.85, 5.71, 0);
+    railing(g, MAT.steel, 26, s * 9.5, 5.77, 0, 0, 1.05);
+    ladder(g, MAT.steel, 5.71, s * 9.4, 0, -12.4, 0);
   }
 
-  // The turntable the whole mounting elevates from.
-  cyl(g, MAT.gun, 4.6, 5.0, 1.2, 0, 5.85, 1.5, 26);
+  cyl(g, MAT.gun, 4.4, 4.8, 1.0, 0, 6.15, 1.0, 28);
+  racer(g, MAT.gunDark, 4.2, 6.64, 68, 1.6);
   const mount = new THREE.Group();
-  mount.position.set(0, 6.4, 1.5);
+  mount.position.set(0, 6.7, 1.0);
   g.add(mount);
-  // The trunnion frames, which on Gustav were as tall as a house.
+  cyl(mount, MAT.gun, 4.2, 4.3, 0.5, 0, 0.25, 0, 28);
+  box(mount, MAT.gun, 8.2, 0.5, 8.4, 0, 0.6, -1.2);
   for (const s of [-1, 1]) {
-    box(mount, MAT.gun, 1.6, 5.2, 7.0, s * 3.4, 2.6, -1.0);
-    box(mount, MAT.darkSteel, 1.9, 2.0, 2.6, s * 3.4, 4.6, 0.6);
-    // Elevating arcs.
-    const arc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.5, 22, 1, true,
-      Math.PI * 0.05, Math.PI * 0.55), MAT.darkSteel);
-    arc.rotation.z = Math.PI / 2;
-    arc.position.set(s * 2.4, 4.6, 0.6);
-    mount.add(arc);
+    box(mount, MAT.gun, 1.5, 4.6, 6.2, s * 3.1, 3.1, -0.8);
+    box(mount, MAT.gunDark, 1.62, 0.4, 6.2, s * 3.1, 5.5, -0.8);
+    cyl(mount, MAT.gun, 1.1, 1.2, 1.2, s * 3.1, 4.9, 0.6, 20).rotation.z = Math.PI / 2;
+    box(mount, MAT.gunDark, 1.25, 0.6, 1.5, s * 3.1, 4.95, 0.6);
+    for (let i = 0; i < 3; i++) {
+      cyl(mount, MAT.gunDark, 0.55, 0.55, 1.56, s * 3.1, 2.6, -2.6 + i * 2.0, 14)
+        .rotation.z = Math.PI / 2;
+    }
+    ladder(mount, MAT.steel, 4.6, s * 3.95, 0.85, -3.9, 0);
   }
-  box(mount, MAT.gun, 8.6, 1.6, 8.0, 0, 0.8, -1.0);
+  box(mount, MAT.gun, 7.5, 0.5, 1.4, 0, 5.5, -3.4);
+  box(mount, MAT.gun, 1.36, 1.75, 1.5, 2.05, 1.2, 0.45);
 
   const arm = new THREE.Group();
-  arm.position.set(0, 4.6, 0.6);
-  arm.rotation.x = -0.22;
+  arm.position.set(0, 4.9, 0.6);
+  arm.rotation.x = -0.2;
   mount.add(arm);
-  // The cradle: a box girder the barrel recoils through, most of its length.
-  box(arm, MAT.gun, 3.2, 3.0, 12, 0, 0, 5.0);
-  for (let i = 0; i < 6; i++) box(arm, MAT.darkSteel, 3.4, 0.4, 0.5, 0, 0, 1.0 + i * 2.0);
-  arm.add(gunBarrel(bore, b.calibers, { back: 2.2 }));
-  recoilGear(arm, bore, 9, { above: true, below: false, side: 1 });
-  // The breech end: on this gun it was a wagon in its own right.
-  box(arm, MAT.darkSteel, 3.4, 3.4, 3.0, 0, 0, -3.2);
-  cyl(arm, MAT.gun, 1.5, 1.5, 0.6, 0, 0, -4.9, 20).rotation.x = Math.PI / 2;
+  cradle(arm, bore, 11.5, { cylsAbove: 2, cylsBelow: 1, cylsSide: 2, front: 0.3 });
+  elevArc(arm, MAT.gunDark, 3.3, 2.05, 0, 0, -0.24, 0.46, 20, 0.7);
+  arm.add(gunBarrel(bore, b.calibers));
+  breech(arm, bore, { screw: true, len: 1.1 });
 
-  // The loading crane and a shell on its trolley, which is the only way the
-  // scale of the thing reads: the round is seven tonnes and taller than a man.
-  box(g, MAT.gun, 1.0, 9.0, 1.0, -6.0, 10.4, -13);
-  box(g, MAT.gun, 1.0, 9.0, 1.0, 6.0, 10.4, -13);
-  box(g, MAT.gun, 13.5, 1.0, 1.2, 0, 14.6, -13);
-  box(g, MAT.darkSteel, 0.3, 3.4, 0.3, 0, 12.6, -13);
-  const sh = new THREE.Group();
-  sh.position.set(0, 7.2, -13);
-  sh.rotation.x = Math.PI / 2;
-  g.add(sh);
-  cyl(sh, MAT.rust, 0.4, 0.4, 2.6, 0, 0, 0, 18);
-  cyl(sh, MAT.rust, 0.06, 0.4, 1.5, 0, 2.0, 0, 18);
-  box(g, MAT.darkSteel, 2.0, 0.6, 3.0, 0, 5.7, -13);
+  // The loading gantry, standing on the deck, and a round on its trolley under
+  // it: seven tonnes of shell, and the one thing on the model that gives the
+  // barrel its scale.
+  for (const s of [-1, 1]) {
+    box(g, MAT.gun, 0.9, 7.4, 0.9, s * 5.2, 9.35, -11.0);
+    box(g, MAT.gunDark, 1.05, 0.4, 1.05, s * 5.2, 5.85, -11.0);
+  }
+  box(g, MAT.gun, 11.3, 0.9, 1.1, 0, 13.5, -11.0);
+  box(g, MAT.gunDark, 0.32, 2.6, 0.32, 0, 11.8, -11.0);
+  box(g, MAT.gun, 1.6, 0.5, 2.4, 0, 10.3, -11.0);
+  box(g, MAT.steel, 2.2, 0.34, 3.0, 0, 5.82, -11.0);
+  for (const r of [-0.9, 0.9]) shaft(g, MAT.dark, 0.16, 2.0, 0, 5.79, -11.0 + r, 12);
+  round_(g, bore, 0, 5.99, -11.0);
 }
 
 const BUILDERS = {
@@ -813,7 +935,7 @@ const BUILDERS = {
 };
 
 /**
- * Build one emplacement, ready to be stood on the ground at y = 0.
+ * Build one gun, ready to be stood on the ground at y = 0.
  *
  * @returns {{group: THREE.Group, span: number, focusY: number}}
  */
@@ -821,19 +943,28 @@ export function buildBattery(id) {
   const b = BATTERIES[id] || BATTERIES.longues;
   const group = new THREE.Group();
   (BUILDERS[id] || buildLongues)(group, b);
-  // Nothing on these moves, so the whole emplacement welds down to one mesh
-  // per material — a couple of hundred boxes becoming a dozen draw calls.
+  // Nothing on these moves once it is built, so the whole gun welds down to one
+  // mesh per material — several hundred pieces becoming a dozen draw calls.
   mergeStatic(group);
   group.updateMatrixWorld(true);
-  const bb = new THREE.Box3().setFromObject(group);
+  let bb = new THREE.Box3().setFromObject(group);
+  // Shift the whole gun so its middle is over the origin. The camera orbits
+  // that origin, and a gun whose muzzle reaches twelve metres one way and five
+  // the other is framed off-centre otherwise — which is how a barrel ends up
+  // running off the side of the screen.
+  const cx = (bb.min.x + bb.max.x) / 2;
+  const cz = (bb.min.z + bb.max.z) / 2;
+  for (const child of group.children) { child.position.x -= cx; child.position.z -= cz; }
+  group.updateMatrixWorld(true);
+  bb = new THREE.Box3().setFromObject(group);
   return {
     group,
-    // The declared size of the emplacement, not the bounding box: the earth
-    // banked round a casemate and the cutting Gustav stands in are ground
-    // rather than gun, and framing on them puts the gun in the distance.
-    span: b.span,
-    // Looked at a little above the middle of it, which for a casemate is the
-    // embrasure and for a railway gun is the trunnions.
-    focusY: bb.min.y + (bb.max.y - bb.min.y) * 0.42,
+    // The gun's real extent now that there is no concrete round it to inflate
+    // the box: whichever of the declared span and the measured one is larger,
+    // so a barrel that runs out further than expected is still in the frame.
+    span: Math.max(b.span, bb.max.x - bb.min.x, bb.max.z - bb.min.z),
+    // Looked at a little above the middle of it, which for most of these is the
+    // trunnions and for the railway gun is its deck.
+    focusY: bb.min.y + (bb.max.y - bb.min.y) * 0.45,
   };
 }
