@@ -27,6 +27,7 @@ export const BATTERY_ORDER = [
  * @property {number} barrels     barrels in this emplacement
  * @property {number} calibers    barrel length in calibres, so L/50 is 50
  * @property {string} mount       what the gun itself stands on
+ * @property {string} targets     aircraft | ships | dual, what it can engage
  * @property {number} armour      millimetres of shield or turret armour, 0 if none
  * @property {number} weight      tonnes, gun and mounting
  * @property {number} reload      seconds between rounds
@@ -47,6 +48,9 @@ export const BATTERIES = {
     piece: '8.8 cm Flak 36',
     caliber: 88, bore: '88 mm', barrels: 1,
     calibers: 56,
+    // Dual-purpose — it was built to shoot at aircraft and turned out to be
+  // the best anti-armour and anti-shipping gun on the wall as well.
+    targets: 'dual',
     mount: 'Cruciform platform',
     armour: 10,
     weight: 5.2, reload: 4, range: 14860, ceiling: 8000,
@@ -61,6 +65,9 @@ export const BATTERIES = {
     piece: '10 cm leFH 14/19(t)',
     caliber: 100, bore: '100 mm', barrels: 1,
     calibers: 19,
+    // A field howitzer laid on the beaches and the ships off them. No
+  // anti-aircraft laying gear and nothing like the ceiling for it.
+    targets: 'ships',
     mount: 'Split-trail carriage',
     armour: 4,
     weight: 1.5, reload: 7.5, range: 9970,
@@ -74,6 +81,8 @@ export const BATTERIES = {
     piece: '15 cm Tbts KC/36',
     caliber: 150, bore: '150 mm', barrels: 1,
     calibers: 48,
+    // A naval low-angle gun in a casemate. Ships, and nothing else.
+    targets: 'ships',
     mount: 'Naval pedestal',
     armour: 30,
     weight: 16, reload: 10, range: 19500,
@@ -88,6 +97,8 @@ export const BATTERIES = {
     piece: '28 cm Krupp L/40',
     caliber: 280, bore: '11 in', barrels: 1,
     calibers: 40,
+    // Ships. It was laid on a channel six hundred yards wide.
+    targets: 'ships',
     mount: 'Barbette pivot',
     armour: 60,
     weight: 40, reload: 60, range: 21000,
@@ -101,6 +112,8 @@ export const BATTERIES = {
     piece: '14"/50 M1909 twin turret',
     caliber: 356, bore: '14 in', barrels: 2,
     calibers: 50,
+    // Ships. A battleship turret does not train fast enough for anything else.
+    targets: 'ships',
     mount: 'Twin turret',
     armour: 457,
     weight: 900, reload: 48, range: 22860,
@@ -114,6 +127,8 @@ export const BATTERIES = {
     piece: '38 cm SK C/34',
     caliber: 380, bore: '380 mm', barrels: 1,
     calibers: 52,
+    // Ships, and the far side of the Channel.
+    targets: 'ships',
     mount: 'Bettungsschiessgeruest',
     armour: 0,
     weight: 337, reload: 26, range: 55700,
@@ -128,6 +143,8 @@ export const BATTERIES = {
     piece: '16"/50 M1919 on barbette carriage',
     caliber: 406, bore: '16 in', barrels: 2,
     calibers: 50,
+    // Ships, and only ships: the elevation stops well short of the sky.
+    targets: 'ships',
     mount: 'Barbette carriage M1919',
     armour: 0,
     weight: 400, reload: 60, range: 41150,
@@ -142,6 +159,8 @@ export const BATTERIES = {
     piece: '80 cm Kanone (E)',
     caliber: 800, bore: '800 mm', barrels: 1,
     calibers: 40,
+    // Whatever it was pointed at, and it was pointed at forts and ships.
+    targets: 'ships',
     mount: 'Railway carriage, four rails',
     armour: 0,
     weight: 1350, reload: 180, range: 47000,

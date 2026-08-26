@@ -564,9 +564,17 @@ function distance(m) {
   return `${(m / 1000).toFixed(1)} km · ${num(Math.round(m / 0.9144 / 100) * 100)} yd`;
 }
 
-/** What the gun stands on, what it weighs, and who fights it. */
+// What a gun is allowed to engage. Only the eighty-eight is both: it was built
+// to shoot at aircraft and turned out to be the best anti-shipping gun on the
+// Atlantic Wall as well, and everything else on this list is laid on the sea.
+const TARGETS = { aircraft: 'Aircraft', ships: 'Ships', dual: 'Dual-purpose' };
+
+/** What the gun stands on, what it shoots at, what it weighs, and who fights it. */
 export function mountingSheet(b) {
-  const rows = [['Mount', b.mount]];
+  const rows = [
+    ['Mount', b.mount],
+    ['Attack selection', TARGETS[b.targets] || 'Ships'],
+  ];
   rows.push(['Weight', b.weight >= 1000
     ? `${num(Math.round(b.weight))} t`
     : `${b.weight >= 10 ? Math.round(b.weight) : b.weight} t`]);

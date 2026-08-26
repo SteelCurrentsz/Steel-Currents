@@ -673,28 +673,40 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .bh-step:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
 .bh-val { font-size: 1.35rem; letter-spacing: 0.08em; color: var(--sand-bright); }
 
-/* The fleet rosters ------------------------------------------------------- */
-/* Every hull that will sail, listed down the outer edge of the chart: type on
-   the left, name beside it, and the whole bar coloured by whose it is. Laid
-   over the chart rather than in the flex column, so the fleet buttons stay
-   centred on the screen whatever the rosters do. */
-.fleet-list {
+/* The rosters ------------------------------------------------------------- */
+/* Each side's order of battle, down the outer edge of the chart: the hulls
+   first, with the type on the left and the name beside it, and under them the
+   batteries that side has put ashore. Laid over the chart rather than in the
+   flex column, so the fleet buttons stay centred on the screen whatever the
+   rosters do. */
+.roster {
   position: absolute; top: 0; bottom: 0;
   width: var(--roster-w);
-  margin: 0; padding: 0.2rem 0; list-style: none;
-  display: flex; flex-direction: column; gap: 0.16rem;
+  display: flex; flex-direction: column; gap: 0.42rem;
+  padding: 0.2rem 0;
   overflow-y: auto; overscroll-behavior: contain;
-  /* Twenty-five hulls is more than any screen has room for, so the column
-     scrolls -- which means it has to take a pointer to be scrolled by. Nothing
-     of the chart under it is a control, and the fleet buttons are inset by
-     exactly this width, so there is nothing for it to be in the way of.
-     The bars themselves are not buttons: the fleet is edited through the hull
-     icons in the middle. */
+  /* Twenty-five hulls and twenty-five batteries is more than any screen has
+     room for, so the column scrolls -- which means it has to take a pointer to
+     be scrolled by. Nothing of the chart under it is a control, and the fleet
+     buttons are inset by exactly this width, so there is nothing for it to be
+     in the way of. The bars themselves are not buttons: a side's order of
+     battle is edited through the icons in the middle. */
   pointer-events: auto;
   scrollbar-width: thin; scrollbar-color: rgba(150, 190, 226, 0.35) transparent;
 }
-.fleet-list.ally { left: max(0.6rem, env(safe-area-inset-left)); }
-.fleet-list.axis { right: max(0.6rem, env(safe-area-inset-right)); }
+.roster.ally { left: max(0.6rem, env(safe-area-inset-left)); }
+.roster.axis { right: max(0.6rem, env(safe-area-inset-right)); }
+
+.fleet-list, .gun-list {
+  flex: none;
+  margin: 0; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 0.16rem;
+}
+/* A hairline between the ships and the guns, so the two halves of the column
+   read as two lists without either of them needing a heading. */
+.gun-list:not(:empty) { padding-top: 0.42rem; }
+.roster.ally .gun-list:not(:empty) { border-top: 1px solid rgba(126, 178, 236, 0.35); }
+.roster.axis .gun-list:not(:empty) { border-top: 1px solid rgba(232, 138, 132, 0.35); }
 
 .fleet-ship {
   flex: none;
@@ -707,12 +719,12 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   border: 1px solid transparent;
   border-left-width: 2px;
 }
-.fleet-list.ally .fleet-ship {
+.roster.ally .fleet-ship {
   background: linear-gradient(90deg, rgba(31, 72, 128, 0.92), rgba(24, 54, 96, 0.72));
   border-color: rgba(126, 178, 236, 0.30);
   border-left-color: #4f8ede;
 }
-.fleet-list.axis .fleet-ship {
+.roster.axis .fleet-ship {
   background: linear-gradient(270deg, rgba(126, 34, 34, 0.92), rgba(94, 26, 26, 0.72));
   border-color: rgba(232, 138, 132, 0.30);
   border-left-color: transparent;
@@ -723,7 +735,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 /* The hull you take the bridge of, marked so a captain can see which of four
    destroyers is his own. */
 .fleet-ship.flag { border-left-color: var(--sand); }
-.fleet-list.axis .fleet-ship.flag { border-right-color: var(--sand); }
+.roster.axis .fleet-ship.flag { border-right-color: var(--sand); }
 
 .hull-code {
   font-weight: 700; letter-spacing: 0.06em; text-align: center;
@@ -732,6 +744,33 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .hull-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: center;
+}
+
+/* A battery carries its name and nothing else. There is no type code on it
+   because there is nothing to abbreviate: a coast gun is known by the place it
+   stands, and "Longues-sur-Mer" is the whole of what a captain needs. */
+.gun-emp {
+  flex: none;
+  box-sizing: border-box; width: 100%; min-width: 0;
+  padding: 0.12rem 0.4rem;
+  font-family: var(--ui); font-size: clamp(0.62rem, 0.98vw, 0.8rem);
+  line-height: 1.05rem; letter-spacing: 0.03em; text-align: center;
+  color: var(--sand-bright);
+  /* A block rather than a flex box on purpose: text-overflow has nothing to
+     work on inside a flex container, and "Battery Townsley & Battery Davis" is
+     half as wide again as the column it has to sit in. */
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.roster.ally .gun-emp {
+  background: linear-gradient(90deg, rgba(31, 72, 128, 0.92), rgba(24, 54, 96, 0.72));
+  border-color: rgba(126, 178, 236, 0.30);
+  border-left: 2px solid #4f8ede;
+}
+.roster.axis .gun-emp {
+  background: linear-gradient(270deg, rgba(126, 34, 34, 0.92), rgba(94, 26, 26, 0.72));
+  border-color: rgba(232, 138, 132, 0.30);
+  border-right: 2px solid #c8443c;
 }
 
 /* Fleets ----------------------------------------------------------------- */
@@ -1119,17 +1158,20 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .briefing-body > div.force-row:nth-of-type(1) { grid-row: 1; }
   .briefing-body > div.force-row:nth-of-type(2) { grid-row: 2; }
   .briefing-body > div.force-row:nth-of-type(3) { grid-row: 3; }
-  .fleet-list {
+  .roster {
     position: static; width: auto; min-height: 0;
-    grid-row: 4; gap: 0.2rem;
+    grid-row: 4; gap: 0.3rem;
     /* Down here it is beside the buttons rather than over them, so it can take
-       a finger — which is what lets a long fleet be scrolled. */
+       a finger — which is what lets a long order of battle be scrolled. */
     pointer-events: auto;
   }
-  .fleet-list.ally { grid-column: 1; }
-  .fleet-list.axis { grid-column: 2; }
+  .roster.ally { grid-column: 1; }
+  .roster.axis { grid-column: 2; }
+  .fleet-list, .gun-list { gap: 0.2rem; }
+  .gun-list:not(:empty) { padding-top: 0.3rem; }
   .fleet-ship { min-height: 1.15rem; font-size: 0.64rem; grid-template-columns: 1.7rem 1fr; }
-  .fleet-list.axis .fleet-ship { grid-template-columns: 1.7rem 1fr; }
+  .roster.axis .fleet-ship { grid-template-columns: 1.7rem 1fr; }
+  .gun-emp { font-size: 0.6rem; line-height: 0.95rem; }
   .force-cell .sil { height: clamp(34px, 6.5vh, 56px); }
   .turret-btn .turret-art { width: min(82px, 27.3vw); }
 }

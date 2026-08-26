@@ -92,10 +92,17 @@
   </header>
 
   <div class="briefing-body">
-    <!-- The two fleets in full, down the outer edges: every hull that will
-         sail, her type and her name. -->
-    <ul class="fleet-list ally" id="ally-fleet-list" aria-label="Your fleet"></ul>
-    <ul class="fleet-list axis" id="enemy-fleet-list" aria-label="Enemy fleet"></ul>
+    <!-- Each side's order of battle, down the outer edges: every hull that
+         will sail with her type and her name, and under them every battery
+         that side has ashore. -->
+    <div class="roster ally">
+      <ul class="fleet-list" id="ally-fleet-list" aria-label="Your fleet"></ul>
+      <ul class="gun-list" id="ally-gun-list" aria-label="Your coast batteries"></ul>
+    </div>
+    <div class="roster axis">
+      <ul class="fleet-list" id="enemy-fleet-list" aria-label="Enemy fleet"></ul>
+      <ul class="gun-list" id="enemy-gun-list" aria-label="Enemy coast batteries"></ul>
+    </div>
 
     <div class="force-row">
       <div class="force-cell" id="ally-add-cell" role="button" tabindex="0"></div>
@@ -326,7 +333,7 @@
     <h2 id="battery-name">Longues-sur-Mer Battery</h2>
     <p class="yard-class" id="battery-piece">15 cm Tbts KC/36</p>
     <p class="yard-class battery-place" id="battery-place">Longues-sur-Mer, Normandy</p>
-    <button class="yard-commission" id="battery-emplace" type="button">Emplace Battery</button>
+    <button class="yard-commission" id="battery-emplace" type="button">Deploy Battery</button>
     <div class="yard-arrows">
       <button class="yard-arrow" id="battery-prev" type="button" aria-label="Previous battery">&lt;&lt;&lt;</button>
       <button class="yard-arrow" id="battery-next" type="button" aria-label="Next battery">&gt;&gt;&gt;</button>

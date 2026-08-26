@@ -53,7 +53,11 @@ export class DeployMap {
     this.dragging = null;         // 'pin' | 'pan' | null
     this.pointers = new Map();
     this.pinch = 0;
-    this.dirty = true;
+    // Nothing to paint until show() has been given a battlefield and a scale.
+    // Left dirty, the render loop paints the chart once at whatever the view
+    // happens to be before show() sets it, and that first paint is a whole
+    // world of coastline thrown away a frame later.
+    this.dirty = false;
 
     this.bind();
   }
@@ -109,11 +113,23 @@ export class DeployMap {
 
   // --------------------------------------------------------------- geometry --
 
+  /**
+   * How big the canvas is on the page.
+   *
+   * Cached, because reading clientWidth forces the browser to settle the
+   * layout before it can answer, and this is read from the projection — which
+   * means once per pin, once per corner, once per hit test, dozens of times in
+   * the course of drawing one chart. It is thrown away whenever the canvas
+   * could have changed size: on a resize, and at the top of every repaint.
+   */
   get size() {
-    return {
-      w: this.canvas.clientWidth || 1200,
-      h: this.canvas.clientHeight || 800,
-    };
+    if (!this._size) {
+      this._size = {
+        w: this.canvas.clientWidth || 1200,
+        h: this.canvas.clientHeight || 800,
+      };
+    }
+    return this._size;
   }
 
   scale() { return (this.size.w / 360) * this.view.zoom; }
@@ -246,7 +262,7 @@ export class DeployMap {
     };
     window.addEventListener('keydown', this.onKey);
 
-    this.onResize = () => { this.dirty = true; };
+    this.onResize = () => { this._size = null; this.dirty = true; };
     window.addEventListener('resize', this.onResize);
   }
 
@@ -464,6 +480,7 @@ export class DeployMap {
     // Framed on the box rather than on the world. Four corners that have to be
     // dragged are no use at a scale where the whole battlefield is half a
     // pixel across; zooming out to find another sea is one gesture away.
+    this._size = null;
     this.view.zoom = this.zoomForBox(0.34);
     this.normalise();
     if (!this.result) this.settle();
@@ -505,13 +522,17 @@ export class DeployMap {
 
   /** Repaint if anything has changed. Called from the render loop. */
   update() {
-    if (!this.dirty) return;
-    this.dirty = false;
-    this.paint();
+    if (this.dirty) this.paint();
   }
 
   paint() {
     if (!this.canvas) return;
+    // Painting is what `dirty` was asking for, so it is answered here rather
+    // than in update(). Opening the chart used to draw the whole world twice —
+    // once from show() and again on the next frame, because show() set the flag
+    // and then painted without clearing it.
+    this.dirty = false;
+    this._size = null;
     const { w, h } = this.size;
     drawWorld(this.canvas, {
       focus: [this.view.lon, this.view.lat],
@@ -540,15 +561,27 @@ export class DeployMap {
     ctx.fillStyle = wash;
     ctx.fill(area);
     ctx.clip(area);
-    // Slanted lines across it, drawn from the top-left corner of the canvas so
-    // the hatch stays put while the box is dragged over it.
+    // Slanted lines across it, on a grid anchored to the top-left corner of the
+    // canvas so the hatch stays put while the box is dragged over it — but only
+    // the lines that can actually cross the box, and only over the height of it.
+    // Hatching the whole canvas and letting the clip throw the rest away is two
+    // hundred full-length strokes to fill a rectangle a fifth of the screen.
+    let x0 = Infinity; let x1 = -Infinity;
+    let y0 = Infinity; let y1 = -Infinity;
+    for (const q of pts) {
+      if (q.x < x0) x0 = q.x;
+      if (q.x > x1) x1 = q.x;
+      if (q.y < y0) y0 = q.y;
+      if (q.y > y1) y1 = q.y;
+    }
     ctx.strokeStyle = ok ? 'rgba(230, 207, 156, 0.30)' : 'rgba(226, 86, 79, 0.34)';
     ctx.lineWidth = 1;
     const step = 14;
     ctx.beginPath();
-    for (let k = -h; k < w + h; k += step) {
-      ctx.moveTo(k, 0);
-      ctx.lineTo(k + h, h);
+    const kFrom = Math.floor((x0 - y1) / step) * step;
+    for (let k = kFrom; k <= x1 - y0; k += step) {
+      ctx.moveTo(k + y0, y0);
+      ctx.lineTo(k + y1, y1);
     }
     ctx.stroke();
     ctx.restore();

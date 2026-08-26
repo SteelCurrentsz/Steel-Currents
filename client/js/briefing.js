@@ -5,6 +5,7 @@
 // with, the hour, and which sea. Nothing on this screen is decorative.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
+import { BATTERIES } from '../../shared/batteries.js';
 import { TIMES, WEATHERS, WEATHER, MAP_HALF_MIN } from '../../shared/world.js';
 import { silhouette, turret } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
@@ -72,6 +73,8 @@ export class Briefing {
       enemyTurret: document.getElementById('enemy-turret'),
       allyList: document.getElementById('ally-fleet-list'),
       enemyList: document.getElementById('enemy-fleet-list'),
+      allyGunList: document.getElementById('ally-gun-list'),
+      enemyGunList: document.getElementById('enemy-gun-list'),
       time: document.getElementById('time-val'),
       weather: document.getElementById('weather-val'),
       theatre: document.getElementById('theatre-name'),
@@ -145,6 +148,23 @@ export class Briefing {
       return `<li class="fleet-ship${flag}">`
         + `<b class="hull-code">${code}</b>`
         + `<span class="hull-name">${name}</span></li>`;
+    }).join('');
+  }
+
+  /**
+   * The batteries one side has ashore, listed under its fleet.
+   *
+   * The name and nothing else: there is no type code on a coast gun because
+   * there is nothing to abbreviate — one is known by the place it stands, and
+   * "Longues-sur-Mer" is the whole of what a captain needs to read.
+   */
+  gunList(side) {
+    return this.guns(side).map((id) => {
+      const b = BATTERIES[id];
+      const name = b ? b.name : id;
+      // The long ones are cut with an ellipsis in the bar, so the whole name is
+      // put where a pointer can still find it.
+      return `<li class="gun-emp" title="${name}">${name}</li>`;
     }).join('');
   }
 
@@ -250,6 +270,8 @@ export class Briefing {
     if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = this.turretCell('enemy', false);
     if (this.el.allyList) this.el.allyList.innerHTML = this.fleetList('ally');
     if (this.el.enemyList) this.el.enemyList.innerHTML = this.fleetList('enemy');
+    if (this.el.allyGunList) this.el.allyGunList.innerHTML = this.gunList('ally');
+    if (this.el.enemyGunList) this.el.enemyGunList.innerHTML = this.gunList('enemy');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
     this.el.theatre.textContent = s.deploy.name;
