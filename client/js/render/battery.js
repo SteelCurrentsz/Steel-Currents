@@ -38,6 +38,10 @@ const MAT = {
   oliveDark: new THREE.MeshLambertMaterial({ color: 0x40453a }),
   rubber: new THREE.MeshLambertMaterial({ color: 0x1d1f20 }),
   timber: new THREE.MeshLambertMaterial({ color: 0x5a4630 }),
+  // Hessian, filled and stacked. Two tones so a wall of them is a wall of bags
+  // rather than a slab: every other course takes the darker one.
+  bag: new THREE.MeshLambertMaterial({ color: 0x9a8c66 }),
+  bagDark: new THREE.MeshLambertMaterial({ color: 0x817353 }),
   // The mounting's own bedplate: what a gun this heavy is bolted down to, and
   // near enough flush with the ground to read as part of the mounting.
   bed: new THREE.MeshLambertMaterial({ color: 0x6b6d68 }),
@@ -225,6 +229,70 @@ function round_(g, bore, x, y, z, matBody = MAT.gunDark) {
   cyl(g, matBody, bore * 0.1, bore * 0.48, L * 0.26, x, y + L * 0.87, z, 14);
 }
 
+// -------------------------------------------------------------- sandbags --
+
+// A filled bag is about half a metre long and a hand deep. These are laid in a
+// bond — every other course offset by half a bag — with each bag turned a
+// degree or two off true and settled a centimetre or so, because a revetment
+// built of bags all square to one another reads as brickwork. The wobble is
+// taken off the bag's own index rather than a random number, so a battery
+// looks the same every time it is drawn.
+
+const BAG_W = 0.46;
+const BAG_H = 0.2;
+const BAG_D = 0.3;
+
+function sandbag(g, x, y, z, ry, i) {
+  const m = box(g, i % 2 ? MAT.bag : MAT.bagDark,
+    BAG_W * (0.94 + 0.09 * Math.sin(i * 2.1)),
+    BAG_H * (0.9 + 0.14 * Math.sin(i * 1.3)),
+    BAG_D * (0.92 + 0.12 * Math.cos(i * 0.7)),
+    x, y - 0.012 * Math.sin(i * 3.1), z, ry + 0.05 * Math.sin(i * 1.7));
+  m.rotation.z = 0.035 * Math.cos(i * 2.3);
+  return m;
+}
+
+/**
+ * A revetment curved round the front of a mounting: courses of bags on a
+ * shrinking radius, so the wall leans back into itself the way a real one does.
+ */
+function sandbagArc(g, o) {
+  const {
+    r = 4.0, from = -1.2, to = 1.2, courses = 5, y0 = 0, setback = 0.075,
+    z = 0, x = 0,
+  } = o;
+  let k = 0;
+  for (let c = 0; c < courses; c++) {
+    const rc = r - c * setback;
+    const n = Math.max(3, Math.round((Math.abs(to - from) * rc) / BAG_W));
+    for (let i = 0; i <= n; i++) {
+      const a = from + ((to - from) * (i + (c % 2 ? 0.5 : 0))) / n;
+      if (a > to + 0.001 || a < from - 0.001) continue;
+      sandbag(g, x + Math.sin(a) * rc, y0 + BAG_H / 2 + c * (BAG_H - 0.018),
+        z + Math.cos(a) * rc, a, k++);
+    }
+  }
+}
+
+/** A straight run of revetment, lying across the front of a gun. */
+function sandbagWall(g, o) {
+  const { len = 5, courses = 5, x = 0, y0 = 0, z = 0, ry = 0, setback = 0.07 } = o;
+  const grp = new THREE.Group();
+  grp.position.set(x, y0, z);
+  grp.rotation.y = ry;
+  g.add(grp);
+  let k = 0;
+  for (let c = 0; c < courses; c++) {
+    const n = Math.max(2, Math.round(len / BAG_W));
+    for (let i = 0; i <= n; i++) {
+      const t = ((i + (c % 2 ? 0.5 : 0)) / n) * len - len / 2;
+      if (Math.abs(t) > len / 2 + 0.01) continue;
+      sandbag(grp, t, BAG_H / 2 + c * (BAG_H - 0.018), -c * setback, 0, k++);
+    }
+  }
+  return grp;
+}
+
 // ---------------------------------------------------------------- barrel --
 
 /**
@@ -302,6 +370,32 @@ function breech(g, bore, opts = {}) {
     }
     box(g, MAT.steel, bore * 1.9, bore * 0.7, 0.07, 0, -r * 0.48, -bl * 1.9 - bore * 2.2);
   }
+}
+
+/**
+ * The barrel and its breech together, in a group that slides back through the
+ * cradle when the gun fires.
+ *
+ * Marked dynamic, so the welder that bakes the rest of the mounting into one
+ * mesh per material leaves this alone — it is the one part of a coast gun that
+ * moves. The caller records it on the group's gun list, and the scene drives it.
+ */
+function recoiling(arm, bore, calibers, opts = {}) {
+  const rec = new THREE.Group();
+  rec.userData.dynamic = true;
+  arm.add(rec);
+  rec.add(gunBarrel(bore, calibers, opts.barrel));
+  breech(rec, bore, opts.breech);
+  return {
+    node: rec,
+    // Where the flash comes out, measured from the trunnion down the bore.
+    muzzleZ: bore * calibers + (opts.barrel && opts.barrel.brake ? bore * 4.2 : 0),
+    bore,
+    // How far the gun runs back. A hydro-spring recoil system is designed for
+    // about three bores of stroke, and the heaviest are capped by the length of
+    // the slide rather than by the arithmetic.
+    stroke: Math.min(1.35, bore * 3.1),
+  };
 }
 
 /**
@@ -416,8 +510,10 @@ function buildFlak88(g, b) {
   // the arc goes in the elevating group: hung off the carriage it would swing
   // away from its own gun.
   elevArc(arm, MAT.camoDark, 0.6, -0.42, 0, 0, -0.3, 0.6, 10, 0.16);
-  arm.add(gunBarrel(bore, b.calibers, { mat: MAT.camo, brake: true }));
-  breech(arm, bore, { mat: MAT.camoDark, screw: false, len: 0.85 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    barrel: { mat: MAT.camo, brake: true },
+    breech: { mat: MAT.camoDark, screw: false, len: 0.85 },
+  }));
   // Fuze setter and spent-case guide, both hung off the cradle.
   box(arm, MAT.camoDark, 0.32, 0.3, 0.5, -0.42, -0.15, -0.6);
   handwheel(arm, MAT.dark, 0.13, -0.62, -0.15, -0.6, 'x');
@@ -433,6 +529,8 @@ function buildFlak88(g, b) {
     box(g, MAT.olive, 0.86, 0.3, 0.4, 2.4 + (i % 2) * 0.12,
       0.15 + Math.floor(i / 2) * 0.3, -1.5 - (i % 2) * 0.5, 0.2 - i * 0.15);
   }
+  // A ring of bags round the front of the pit, clear of the outriggers.
+  sandbagArc(g, { r: 4.35, from: -1.15, to: 1.15, courses: 5 });
 }
 
 /** 10 cm leFH 14/19(t) on its split-trail carriage. */
@@ -489,14 +587,17 @@ function buildMerville(g, b) {
   g.add(arm);
   cradle(arm, bore, 1.15, { mat: MAT.camo, cylsAbove: 1, cylsBelow: 1, front: 0.28 });
   elevArc(arm, MAT.camoDark, 0.45, -0.48, 0, 0, -0.2, 0.6, 9, 0.14);
-  arm.add(gunBarrel(bore, b.calibers, { mat: MAT.camo }));
-  breech(arm, bore, { mat: MAT.camoDark, screw: false, len: 0.7, tray: false });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    barrel: { mat: MAT.camo },
+    breech: { mat: MAT.camoDark, screw: false, len: 0.7, tray: false },
+  }));
   sight(arm, -0.4, 0.24, -0.08);
 
   for (let i = 0; i < 4; i++) {
     round_(g, bore, 1.7 + (i % 2) * 0.3, 0, -1.5 - Math.floor(i / 2) * 0.36);
   }
   box(g, MAT.timber, 0.9, 0.34, 0.44, -1.8, 0.17, -1.7, -0.25);
+  sandbagWall(g, { len: 5.2, z: 2.75, courses: 5 });
 }
 
 /** 15 cm Tbts KC/36 on a naval pedestal. */
@@ -560,8 +661,9 @@ function buildLongues(g, b) {
   mount.add(arm);
   cradle(arm, bore, 2.3, { cylsAbove: 0, cylsBelow: 2, cylsSide: 2, front: 0.32 });
   elevArc(arm, MAT.gunDark, 0.78, 0.6, 0, 0, -0.28, 0.55, 12, 0.18);
-  arm.add(gunBarrel(bore, b.calibers));
-  breech(arm, bore, { screw: true, len: 1.0 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    breech: { screw: true, len: 1.0 },
+  }));
 
   // Ready rounds on a rack that stands on the ground, not in the air over it.
   box(g, MAT.steel, 1.35, 0.06, 0.95, -0.66, 0.62, -1.75);
@@ -574,6 +676,7 @@ function buildLongues(g, b) {
   // The rammer, laid across the bedplate where the loading number left it.
   box(g, MAT.timber, 0.08, 0.08, 2.5, 1.42, 0.26, -0.35, 0.12);
   cyl(g, MAT.timber, 0.1, 0.1, 0.34, 1.28, 0.26, -1.5, 10).rotation.x = Math.PI / 2;
+  sandbagArc(g, { r: 3.5, from: -1.15, to: 1.15, courses: 6 });
 }
 
 /** 28 cm Krupp L/40 on a barbette pivot mount. */
@@ -644,70 +747,141 @@ function buildOscarsborg(g, b) {
   box(arm, MAT.steel, 3.4, 0.18, 1.1, 0, -1.15, 0.65);
   cradle(arm, bore, 3.4, { cylsAbove: 0, cylsBelow: 1, cylsSide: 2, front: 0.34 });
   elevArc(arm, MAT.gunDark, 1.45, 1.14, 0, 0, -0.28, 0.5, 14, 0.3);
-  arm.add(gunBarrel(bore, b.calibers));
-  breech(arm, bore, { screw: true, len: 1.05 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    breech: { screw: true, len: 1.05 },
+  }));
+
+  sandbagArc(g, { r: 5.3, from: -1.1, to: 1.1, courses: 6 });
 }
 
-/** Fort Drum's twin 14"/50 turret. */
+/**
+ * Fort Drum's twin 14"/50 turret.
+ *
+ * A battleship turret bolted to an island: eighteen inches of armour on the
+ * face, fourteen on the roof, and a barbette a captain could walk round. The
+ * face is faceted rather than flat — five plates raked back at rising angles,
+ * which is what an armoured face plate of that period looks like — and every
+ * plate edge on the house carries the strap and rivet line that held it there.
+ */
 function buildDrum(g, b) {
   const bore = b.caliber / 1000;
+  const RB = 5.5;
 
-  // The armoured barbette, standing on the ground: plate courses and rivets.
-  cyl(g, MAT.gunDark, 5.5, 5.7, 2.2, 0, 1.1, 0, 34);
-  for (const y of [0.55, 1.65]) {
-    for (let i = 0; i < 34; i++) {
-      const a = (i / 34) * Math.PI * 2;
-      box(g, MAT.gun, 0.4, 0.09, 0.09, Math.sin(a) * 5.56, y, Math.cos(a) * 5.56, a);
+  // The barbette: a flared skirt at the bottom, two armour courses above it,
+  // rivets along every seam, and the roller path the turret turns on.
+  cyl(g, MAT.gunDark, RB, RB + 0.5, 0.55, 0, 0.275, 0, 36);
+  cyl(g, MAT.gunDark, RB, RB, 1.75, 0, 1.43, 0, 36);
+  for (const y of [0.62, 1.36, 2.06]) ring(g, MAT.gun, RB + 0.02, 0.055, 0, y, 0, 36);
+  for (const y of [0.62, 1.36, 2.06]) {
+    for (let i = 0; i < 40; i++) {
+      const ang = (i / 40) * Math.PI * 2;
+      box(g, MAT.gun, 0.14, 0.1, 0.1, Math.sin(ang) * (RB + 0.03), y, Math.cos(ang) * (RB + 0.03), ang);
     }
   }
-  ring(g, MAT.gun, 5.6, 0.1, 0, 2.16, 0, 34);
-  cyl(g, MAT.bright, 5.3, 5.3, 0.16, 0, 2.28, 0, 34);
+  // Vertical butt straps between the plates.
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2;
+    box(g, MAT.gun, 0.24, 1.9, 0.1, Math.sin(ang) * (RB + 0.03), 1.35, Math.cos(ang) * (RB + 0.03), ang);
+  }
+  cyl(g, MAT.bright, RB - 0.25, RB - 0.25, 0.18, 0, 2.39, 0, 36);
+  ring(g, MAT.dark, RB - 0.25, 0.09, 0, 2.42, 0, 36);
+
+  // A grating walk round the barbette, railed, with a ladder down to the
+  // ground: it is what gives the thing its scale, and the crew had to get at
+  // the training rack somehow.
+  const RW = RB + 1.05;
+  for (let i = 0; i < 28; i++) {
+    const ang = (i / 28) * Math.PI * 2;
+    const pl = box(g, MAT.steel, 1.12, 0.07, (2 * Math.PI * RW) / 28 + 0.06,
+      Math.sin(ang) * (RB + 0.55), 2.16, Math.cos(ang) * (RB + 0.55), ang);
+    pl.rotation.y = ang;
+    box(g, MAT.steel, 0.09, 1.0, 0.09, Math.sin(ang) * RW, 1.66, Math.cos(ang) * RW);
+    if (i % 2 === 0) {
+      box(g, MAT.steel, 0.05, 1.0, 0.05, Math.sin(ang) * RW, 2.67, Math.cos(ang) * RW);
+    }
+  }
+  ring(g, MAT.steel, RW, 0.045, 0, 3.17, 0, 36);
+  ring(g, MAT.steel, RW, 0.035, 0, 2.72, 0, 36);
+  ladder(g, MAT.steel, 2.2, 1.6, 0, -RW - 0.05, 0);
 
   const t = new THREE.Group();
-  t.position.y = 2.36;
+  t.position.y = 2.48;
   t.rotation.y = -0.3;
   g.add(t);
-  cyl(t, MAT.gunDark, 5.4, 5.45, 0.5, 0, 0.25, 0, 32);
+  cyl(t, MAT.gunDark, RB - 0.1, RB - 0.05, 0.42, 0, 0.21, 0, 34);
 
-  const W = 8.2, H = 3.3, D = 8.4;
-  const geo = new THREE.BoxGeometry(W, H, D).toNonIndexed();
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    if (pos.getZ(i) > 0 && pos.getY(i) > 0) pos.setZ(i, D * 0.3);
-    if (pos.getZ(i) > 0) pos.setX(i, pos.getX(i) * 0.86);
-  }
-  geo.computeVertexNormals();
-  const house = new THREE.Mesh(geo, MAT.gunDark);
-  house.position.set(0, H / 2 + 0.5, 0);
-  t.add(house);
-  for (const s of [-1, 1]) {
+  // The gunhouse: side and rear walls as plate, and a faceted face raked back.
+  const W = 8.4, H = 3.4, D = 8.6;
+  const y0 = 0.42;
+  for (const sgn of [-1, 1]) {
+    box(t, MAT.gun, 0.42, H, D, sgn * (W / 2 - 0.21), y0 + H / 2, -0.2);
+    // Butt straps and rivet lines down the side.
     for (let i = -1; i <= 1; i++) {
-      box(t, MAT.gun, 0.08, H - 0.4, 0.16, s * (W / 2 - 0.01), H / 2 + 0.5, i * 2.4);
+      box(t, MAT.gun, 0.1, H - 0.3, 0.22, sgn * (W / 2 + 0.01), y0 + H / 2, i * 2.5);
+      for (let k = 0; k < 7; k++) {
+        box(t, MAT.gun, 0.08, 0.1, 0.1, sgn * (W / 2 + 0.05),
+          y0 + 0.35 + k * 0.44, i * 2.5);
+      }
     }
   }
-  box(t, MAT.gun, W * 0.96, 0.22, D * 0.88, 0, H + 0.61, -D * 0.05);
-  for (const s of [-1, 1]) {
-    cyl(t, MAT.gunDark, 0.58, 0.64, 0.5, s * 2.3, H + 0.95, -1.0, 16);
-    cyl(t, MAT.gun, 0.17, 0.17, 0.44, s * 2.3, H + 1.36, -1.0, 12);
-    box(t, MAT.gunDark, 1.5, 1.05, 1.0, s * (W / 2 - 0.25), 2.1, -D / 2 + 0.85);
-    box(t, MAT.bore, 0.14, 0.2, 0.1, s * (W / 2 + 0.42), 2.15, -D / 2 + 0.85);
-  }
-  box(t, MAT.gunDark, 2.2, 0.75, 0.7, 0, H + 1.05, -D / 2 + 0.45);
-  box(t, MAT.gun, 0.9, 1.7, 0.1, 1.9, 1.4, -D / 2 - 0.03);
-  box(t, MAT.dark, 0.13, 0.13, 0.1, 2.28, 1.4, -D / 2 - 0.1);
-  ladder(g, MAT.gun, 2.36, 1.9, 0, -5.62, 0);
+  box(t, MAT.gun, W, H, 0.5, 0, y0 + H / 2, -D / 2 + 0.05);
+  box(t, MAT.gunDark, W - 0.84, 0.5, D - 0.5, 0, y0 + 0.25, -0.2);
 
-  for (const s of [-1, 1]) {
+  // Five face plates, each raked a little further back than the one below it.
+  const FACE = [
+    [0.10, 0.55, 3.62], [0.30, 1.42, 3.55], [0.52, 2.25, 3.30],
+    [0.78, 2.95, 2.90], [1.02, 3.42, 2.38],
+  ];
+  for (const [rake, fy, fz] of FACE) {
+    const pl = box(t, MAT.gun, W - 0.1 - rake * 0.5, 0.98, 0.5, 0, y0 + fy, fz);
+    pl.rotation.x = -rake;
+    const st = box(t, MAT.gun, W - 0.1 - rake * 0.5, 0.12, 0.12, 0, y0 + fy - 0.48, fz + 0.24);
+    st.rotation.x = -rake;
+  }
+  // Roof: plate, hatches, vents, sighting hoods and their periscopes.
+  box(t, MAT.gun, W - 0.1, 0.3, D - 0.3, 0, y0 + H + 0.15, -0.25);
+  box(t, MAT.gun, W - 0.5, 0.08, D - 0.8, 0, y0 + H + 0.34, -0.25);
+  for (const sgn of [-1, 1]) {
+    cyl(t, MAT.gunDark, 0.6, 0.66, 0.52, sgn * 2.35, y0 + H + 0.55, -1.2, 18);
+    cyl(t, MAT.gun, 0.18, 0.18, 0.5, sgn * 2.35, y0 + H + 1.0, -1.2, 12);
+    box(t, MAT.bore, 0.1, 0.14, 0.12, sgn * 2.35, y0 + H + 1.12, -1.42);
+    cyl(t, MAT.gun, 0.28, 0.3, 0.24, sgn * 3.2, y0 + H + 0.42, 1.6, 12);
+    box(t, MAT.gun, 0.9, 0.14, 0.9, sgn * 1.2, y0 + H + 0.4, -3.1);
+  }
+  box(t, MAT.gunDark, 2.4, 0.8, 0.8, 0, y0 + H + 0.65, -D / 2 + 0.55);
+  // Rangefinder hoods out the after corners, with their windows.
+  for (const sgn of [-1, 1]) {
+    box(t, MAT.gunDark, 1.7, 1.15, 1.1, sgn * (W / 2 - 0.2), y0 + 1.75, -D / 2 + 1.0);
+    box(t, MAT.gun, 1.75, 0.14, 1.15, sgn * (W / 2 - 0.2), y0 + 2.36, -D / 2 + 1.0);
+    box(t, MAT.bore, 0.12, 0.22, 0.42, sgn * (W / 2 + 0.66), y0 + 1.82, -D / 2 + 1.0);
+  }
+  // The door out the back, its handle, and the rungs beside it.
+  box(t, MAT.gun, 0.95, 1.8, 0.12, 1.95, y0 + 0.95, -D / 2 - 0.2);
+  box(t, MAT.dark, 0.13, 0.13, 0.12, 2.33, y0 + 0.95, -D / 2 - 0.3);
+  for (let k = 0; k < 3; k++) box(t, MAT.gun, 0.4, 0.06, 0.06, 1.95, y0 + 0.2 + k * 0.3, -D / 2 - 0.3);
+
+  // Two rifles, each through a port with a rotating mantlet round it.
+  for (const sgn of [-1, 1]) {
     const arm = new THREE.Group();
-    arm.position.set(s * 1.75, 1.85, D * 0.16);
+    arm.position.set(sgn * 1.8, y0 + 1.5, 2.5);
     arm.rotation.x = -0.06;
     t.add(arm);
-    box(arm, MAT.gunDark, 2.05, 1.85, 0.55, 0, 0, 0.55);
-    box(arm, MAT.gun, 2.15, 0.13, 0.6, 0, 0.92, 0.55);
-    cradle(arm, bore, 2.6, { cylsAbove: 0, cylsBelow: 0, cylsSide: 2, front: 0.3 });
-    arm.add(gunBarrel(bore, b.calibers));
-    breech(arm, bore, { screw: true, len: 0.9, tray: false });
+    // Port shield: a disc of armour that turns with the gun, and the collar
+    // behind it that closes the hole in the face.
+    cyl(arm, MAT.gunDark, 1.02, 1.02, 0.34, 0, 0, 0.5, 20).rotation.x = Math.PI / 2;
+    cyl(arm, MAT.gun, 1.1, 1.1, 0.12, 0, 0, 0.68, 20).rotation.x = Math.PI / 2;
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2;
+      box(arm, MAT.gun, 0.1, 0.1, 0.1, Math.sin(ang) * 0.92, Math.cos(ang) * 0.92, 0.72);
+    }
+    cradle(arm, bore, 2.7, { cylsAbove: 0, cylsBelow: 0, cylsSide: 2, front: 0.3 });
+    g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+      breech: { screw: true, len: 0.9, tray: false },
+    }));
   }
+
+  // A revetment of sandbags heaped round the front of the barbette.
+  sandbagArc(g, { r: RW + 1.5, from: -1.05, to: 1.05, courses: 8 });
 }
 
 /** 38 cm SK C/34 on its Bettungsschiessgerüst. */
@@ -771,8 +945,11 @@ function buildTodt(g, b) {
   mount.add(arm);
   cradle(arm, bore, 5.2, { cylsAbove: 2, cylsBelow: 1, cylsSide: 2, front: 0.34 });
   elevArc(arm, MAT.gunDark, 2.2, 1.6, 0, 0, -0.28, 0.45, 18, 0.42);
-  arm.add(gunBarrel(bore, b.calibers));
-  breech(arm, bore, { screw: true, len: 1.05 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    breech: { screw: true, len: 1.05 },
+  }));
+
+  sandbagArc(g, { r: 7.4, from: -1.0, to: 1.0, courses: 8 });
 }
 
 /** Two 16"/50 M1919 on barbette carriages. */
@@ -833,8 +1010,12 @@ function buildTownsley(g, b) {
       mat: MAT.olive, cylsAbove: 0, cylsBelow: 1, cylsSide: 2, front: 0.32,
     });
     elevArc(arm, MAT.oliveDark, 1.75, 1.2, 0, 0, -0.26, 0.42, 15, 0.34);
-    arm.add(gunBarrel(bore, b.calibers, { mat: MAT.olive }));
-    breech(arm, bore, { mat: MAT.oliveDark, screw: true, len: 1.05 });
+    g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+      barrel: { mat: MAT.olive },
+      breech: { mat: MAT.oliveDark, screw: true, len: 1.05 },
+    }));
+
+    sandbagWall(gun, { len: 9.5, z: 6.4, courses: 8 });
   }
 }
 
@@ -905,8 +1086,9 @@ function buildGustav(g, b) {
   mount.add(arm);
   cradle(arm, bore, 11.5, { cylsAbove: 2, cylsBelow: 1, cylsSide: 2, front: 0.3 });
   elevArc(arm, MAT.gunDark, 3.3, 2.05, 0, 0, -0.24, 0.46, 20, 0.7);
-  arm.add(gunBarrel(bore, b.calibers));
-  breech(arm, bore, { screw: true, len: 1.1 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    breech: { screw: true, len: 1.1 },
+  }));
 
   // The loading gantry, standing on the deck, and a round on its trolley under
   // it: seven tonnes of shell, and the one thing on the model that gives the
@@ -942,6 +1124,7 @@ const BUILDERS = {
 export function buildBattery(id) {
   const b = BATTERIES[id] || BATTERIES.longues;
   const group = new THREE.Group();
+  group.userData.guns = [];
   (BUILDERS[id] || buildLongues)(group, b);
   // Nothing on these moves once it is built, so the whole gun welds down to one
   // mesh per material — several hundred pieces becoming a dozen draw calls.
@@ -959,6 +1142,8 @@ export function buildBattery(id) {
   bb = new THREE.Box3().setFromObject(group);
   return {
     group,
+    // The recoiling masses, for the scene to fire and to run back.
+    guns: group.userData.guns,
     // The gun's real extent now that there is no concrete round it to inflate
     // the box: whichever of the declared span and the measured one is larger,
     // so a barrel that runs out further than expected is still in the frame.

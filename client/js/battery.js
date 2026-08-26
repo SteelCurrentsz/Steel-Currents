@@ -11,6 +11,8 @@ import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
 import { skyDome } from './render/scene.js';
 import { buildBattery } from './render/battery.js';
+import { GunFire } from './render/gunfire.js';
+import { BATTERIES } from '../../shared/batteries.js';
 
 // How high the emplacement stands above the water. Coast batteries were sited
 // high for the sight line, and it is also what lets the beach and the surf be
@@ -24,6 +26,10 @@ const CREST = 26;
 const ENFILADE = -1.30;
 const VIEW_YAW = 4.35;
 const VIEW_PITCH = 0.20;
+
+// Which way the smoke goes: offshore and along the beach, the same set as the
+// sea is running.
+const WIND = { x: -0.55, y: 0.35 };
 
 const MIN_RANGE = 0.5;
 const MAX_RANGE = 3.6;
@@ -67,16 +73,19 @@ export function landY(x, z) {
 /** The coast as a mesh, coloured by height: turf, then sand, then the shelf. */
 function buildLand() {
   const X0 = -900, X1 = 900, Z0 = -560, Z1 = 620;
-  const NX = 150, NZ = 118;
+  const NX = 156, NZ = 124;
   const pos = [];
   const col = [];
   const idx = [];
   const turf = new THREE.Color(0x4f5d38);
+  const turfDry = new THREE.Color(0x636b3e);
   const scrub = new THREE.Color(0x6b6b44);
+  const rock = new THREE.Color(0x6d6659);
   const dune = new THREE.Color(0xa89771);
   const sand = new THREE.Color(0xc9b78f);
   const wet = new THREE.Color(0x6e6552);
   const c = new THREE.Color();
+  const tmp = new THREE.Color();
   for (let j = 0; j <= NZ; j++) {
     for (let i = 0; i <= NX; i++) {
       // Bunched toward the middle: the interesting ground is the crest, the
@@ -93,6 +102,22 @@ function buildLand() {
       else if (y > 1.6) c.copy(dune).lerp(turf, smooth(1.6, 9, y));
       else if (y > -0.4) c.copy(sand).lerp(dune, smooth(1.6, 0.2, y) * 0.5);
       else c.copy(wet).lerp(sand, smooth(-3.4, -0.4, y));
+      // Where the ground is steep, nothing grows on it: the bluff shows rock
+      // and scree through the turf, and the steeper it is the more of it. This
+      // is what stops a coastline being a green sheet folded once.
+      const slope = Math.hypot(landY(x + 6, z) - landY(x - 6, z),
+        landY(x, z + 6) - landY(x, z - 6)) / 12;
+      c.lerp(rock, smooth(0.45, 1.15, slope) * 0.78);
+      // And a little unevenness in the turf itself, so it is grazing and not
+      // baize. Two frequencies off the position, no texture and no noise table.
+      const mot = Math.sin(x * 0.09 + z * 0.05) * Math.sin(z * 0.13 - x * 0.031)
+        + 0.55 * Math.sin(x * 0.021 - z * 0.017)
+        + 0.3 * Math.sin(x * 0.31 + z * 0.27);
+      if (y > 2.2) {
+        c.lerp(tmp.copy(turfDry), Math.max(0, Math.min(1, 0.44 + mot * 0.42)));
+        // A shade darker in the hollows, where the ground holds its water.
+        c.multiplyScalar(0.94 + 0.11 * Math.sin(x * 0.013 + z * 0.019 + 2.1));
+      }
       col.push(c.r, c.g, c.b);
     }
   }
@@ -151,6 +176,165 @@ function buildSurf() {
   return mesh;
 }
 
+/**
+ * The rocks off the point: a few stacks standing out of the water where the
+ * shelf has not quite drowned, and one bigger island out on the beam.
+ *
+ * Built as one merged buffer rather than as objects, because they never move
+ * and there is no reason for them to cost more than one draw call between them.
+ */
+function buildStacks() {
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const dark = new THREE.Color(0x4c4740);
+  const lit = new THREE.Color(0x7c7466);
+  const weed = new THREE.Color(0x3d4030);
+  const c = new THREE.Color();
+  // Where each one stands, how big it is, and how tall out of the water.
+  const STACKS = [
+    [-330, 250, 26, 15], [-268, 296, 14, 8], [-386, 315, 9, 5],
+    [255, 285, 20, 11], [312, 330, 11, 6],
+    [-760, 470, 120, 46], [640, 520, 86, 30],
+  ];
+  for (const [sx, sz, rad, h] of STACKS) {
+    const N = 11;
+    const base = pos.length / 3;
+    // A crown of ridges round a peak: a cone that has been weathered rather
+    // than a cone.
+    pos.push(sx, h, sz);
+    c.copy(lit).lerp(dark, 0.25);
+    col.push(c.r, c.g, c.b);
+    for (let ring_ = 1; ring_ <= 3; ring_++) {
+      const t = ring_ / 3;
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        const wob = 0.72 + 0.28 * Math.sin(i * 2.7 + ring_ * 1.9) + 0.16 * Math.sin(i * 5.1);
+        const r = rad * t * wob;
+        const y = h * (1 - t * t) - (ring_ === 3 ? h * 0.22 : 0);
+        pos.push(sx + Math.sin(a) * r, y, sz + Math.cos(a) * r);
+        c.copy(y < 1.6 ? weed : lit).lerp(dark, 0.2 + 0.5 * Math.abs(Math.sin(i * 1.7 + ring_)));
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      idx.push(base, base + 1 + i, base + 1 + j);
+      for (let ring_ = 0; ring_ < 2; ring_++) {
+        const a0 = base + 1 + ring_ * N;
+        idx.push(a0 + i, a0 + N + i, a0 + j, a0 + j, a0 + N + i, a0 + N + j);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    vertexColors: true, side: THREE.DoubleSide,
+  }));
+}
+
+/**
+ * Scrub on the headland: gorse and marram, as one instanced clump repeated a
+ * few hundred times. One draw call for the lot, and it is the difference
+ * between ground and a green surface.
+ */
+function buildScrub() {
+  const geo = new THREE.BufferGeometry();
+  const pos = [];
+  const idx = [];
+  // Three blades crossed, tapering, leaning off true.
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI;
+    const dx = Math.sin(a) * 0.5, dz = Math.cos(a) * 0.5;
+    const lean = 0.12 * Math.sin(k * 2.1);
+    const b = pos.length / 3;
+    // Wider than it is tall: a tuft of marram, not a sapling.
+    pos.push(-dx, 0, -dz, dx, 0, dz,
+      dx * 0.2 + lean, 0.4 + k * 0.05, dz * 0.2 + lean);
+    idx.push(b, b + 1, b + 2);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({
+    color: 0x6a7442, side: THREE.DoubleSide,
+  });
+
+  const N = 520;
+  const mesh = new THREE.InstancedMesh(geo, mat, N);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  let n = 0;
+  for (let i = 0; i < N * 3 && n < N; i++) {
+    // A deterministic scatter, thinned near the gun so the crew have somewhere
+    // to stand, and stopped at the top of the beach.
+    const x = ((i * 97) % 1601) - 800;
+    const z = ((i * 211) % 641) - 300;
+    const y = landY(x, z);
+    if (y < 3.5) continue;
+    if (Math.hypot(x, z) < 26) continue;
+    if ((i * 37) % 5 === 0) continue;
+    q.setFromAxisAngle(up, (i % 17) * 0.37);
+    p.set(x, y - 0.05, z);
+    const s = 0.75 + ((i * 13) % 9) * 0.14;
+    sc.set(s, s * (0.8 + ((i * 7) % 5) * 0.12), s);
+    mesh.setMatrixAt(n++, m.compose(p, q, sc));
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/**
+ * Boulders and outcrop, scattered over the headland: another instanced clump,
+ * squashed and turned differently every time, so the ground has something on it
+ * at the scale between a tuft of grass and a rock stack.
+ */
+function buildBoulders() {
+  const geo = new THREE.IcosahedronGeometry(1, 0);
+  const p = geo.attributes.position;
+  // Knock it about, so it is a stone rather than a die.
+  for (let i = 0; i < p.count; i++) {
+    const k = 0.72 + 0.4 * Math.abs(Math.sin(i * 2.3) * Math.cos(i * 1.7));
+    p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.68, p.getZ(i) * k);
+  }
+  geo.computeVertexNormals();
+  const mesh = new THREE.InstancedMesh(geo,
+    new THREE.MeshLambertMaterial({ color: 0x6d6659 }), 170);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const pos = new THREE.Vector3();
+  const sc = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  let n = 0;
+  for (let i = 0; i < 900 && n < 170; i++) {
+    const x = ((i * 131) % 1741) - 870;
+    const z = ((i * 289) % 821) - 380;
+    const y = landY(x, z);
+    if (y < 1.0) continue;
+    if (Math.hypot(x, z) < 30) continue;
+    // Thicker down the bluff, where the ground is breaking up.
+    const steep = Math.abs(landY(x, z + 8) - landY(x, z - 8)) / 16;
+    if (steep < 0.18 && (i * 53) % 4 !== 0) continue;
+    q.setFromAxisAngle(up, (i % 23) * 0.29);
+    pos.set(x, y - 0.2, z);
+    const s = 0.6 + ((i * 17) % 11) * 0.34;
+    sc.set(s, s * (0.6 + ((i * 11) % 6) * 0.13), s * (0.8 + ((i * 5) % 4) * 0.14));
+    mesh.setMatrixAt(n++, m.compose(pos, q, sc));
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
 export class BatteryScene {
   constructor(renderer) {
     this.renderer = renderer;
@@ -170,16 +354,25 @@ export class BatteryScene {
     this.scene.add(this.ocean.mesh);
 
     this.scene.add(buildLand());
+    this.scene.add(buildStacks());
+    this.scene.add(buildScrub());
+    this.scene.add(buildBoulders());
     this.scene.add(buildSurf());
 
     this.hemi = new THREE.HemisphereLight(0xc3daf1, 0x51503f, 0.95);
     this.scene.add(this.hemi);
+    // What the sky and the sun are doing when nothing is firing, so the flash
+    // has something to be lifted from and returned to.
+    this.hemiBase = 0.95;
+    this.hemiSky = this.hemi.color.clone();
+    this.flashSky = new THREE.Color(0xffd8a4);
     // The sun is put where it lights the face the camera is looking at. That
     // face is the one with the embrasure in it, and since the guns lie in
     // enfilade the sun ends up over the camera's shoulder and a little to one
     // side — about thirty degrees off, which is enough for the concrete to
     // have a lit face and a shaded one instead of reading as a flat grey.
     this.sun = new THREE.DirectionalLight(0xfff1d6, 1.5);
+    this.sunBase = 1.5;
     this.sun.position.set(-700, 700, -120);
     this.scene.add(this.sun);
     // And a cool bounce off the water, to keep the shadow side readable.
@@ -189,6 +382,7 @@ export class BatteryScene {
 
     this.scene.fog = new THREE.FogExp2(0xa9c4d8, 0.00035);
 
+    this.fire = new GunFire(this.scene);
     this.battery = null;
     this.id = null;
     this.time = 0;
@@ -213,6 +407,7 @@ export class BatteryScene {
     // arrangement that puts the embrasure and the sea in the same picture.
     this.battery.group.rotation.y = ENFILADE;
     this.scene.add(this.battery.group);
+    this.fire.setBattery(this.battery, BATTERIES[id] ? BATTERIES[id].reload : 10, CREST);
 
     this.ranged = false;
     this.orbit.range = this.orbit.target = this.fitRange();
@@ -335,6 +530,16 @@ export class BatteryScene {
     this.camera.lookAt(0, focusY, 0);
 
     this.ocean.update(dt, this.camera.position);
+    // The guns keep their own time, and the smoke drifts on the same wind the
+    // sea is running before.
+    if (this.battery) this.battery.group.updateMatrixWorld(true);
+    this.fire.update(dt, WIND);
+    // The flash lights the world by lifting the two lights already in the
+    // scene rather than by adding a third one to it.
+    const lit = this.fire.flashLevel;
+    this.hemi.intensity = this.hemiBase + lit * 1.5;
+    this.hemi.color.copy(this.hemiSky).lerp(this.flashSky, lit * 0.8);
+    this.sun.intensity = this.sunBase + lit * 0.55;
   }
 
   render() {
