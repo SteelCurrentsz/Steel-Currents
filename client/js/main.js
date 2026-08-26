@@ -4,6 +4,8 @@
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
+import { BatteryScene, emplacementSheet, ordnanceSheet } from './battery.js';
+import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
 import { Battle } from './game.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
@@ -36,6 +38,7 @@ const touchControls = input.touch
 let title = new TitleScene(renderer);
 let battle = null;
 let yard = null;
+let guns = null;
 let current = 'title';
 
 // ------------------------------------------------------------------ view --
@@ -52,12 +55,13 @@ function resize() {
   title.resize(w, h);
   if (battle) battle.resize(w, h);
   if (yard) yard.resize(w, h);
+  if (guns) guns.resize(w, h);
 }
 window.addEventListener('resize', resize);
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'map', 'battle', 'result'];
+const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'guns', 'map', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -161,6 +165,7 @@ const briefing = new Briefing({
   onClosePicker: () => show('custom'),
   onOpenYard: (side) => openYard(side),
   onOpenChart: (at) => openChart(at),
+  onOpenGuns: (side) => openGuns(side),
 });
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
@@ -234,6 +239,59 @@ document.getElementById('yard-commission').onclick = () => {
   }
   toast(`${SHIP_CLASSES[id].name} joins ${whose} fleet.`);
   closeYard();
+};
+
+// --------------------------------------------------------------- gun park --
+// The shipyard's opposite number, and built the same way: one scene, made the
+// first time it is asked for, with plain DOM panels over it.
+
+const gunsUi = { side: 'ally', index: 0 };
+
+function openGuns(side) {
+  gunsUi.side = side;
+  if (!guns) {
+    guns = new BatteryScene(renderer);
+    guns.resize(window.innerWidth, window.innerHeight);
+  }
+  guns.attach(document.getElementById('battery-grab'));
+  show('guns');
+  renderGuns();
+}
+
+function closeGuns() {
+  guns?.detach();
+  show('custom');
+}
+
+function renderGuns() {
+  const id = BATTERY_ORDER[(gunsUi.index + BATTERY_ORDER.length) % BATTERY_ORDER.length];
+  const b = BATTERIES[id];
+  guns.setBattery(id);
+  document.getElementById('battery-name').textContent = b.name;
+  document.getElementById('battery-piece').textContent = b.piece;
+  document.getElementById('battery-place').textContent = b.place;
+  sheet(document.getElementById('battery-works'), 'Emplacement', emplacementSheet(b));
+  sheet(document.getElementById('battery-guns'), 'Ordnance', ordnanceSheet(b));
+}
+
+function stepGuns(dir) {
+  gunsUi.index = (gunsUi.index + dir + BATTERY_ORDER.length) % BATTERY_ORDER.length;
+  renderGuns();
+}
+
+document.getElementById('battery-prev').onclick = () => { audio.click(); stepGuns(-1); };
+document.getElementById('battery-next').onclick = () => { audio.click(); stepGuns(1); };
+document.getElementById('battery-back').onclick = () => { audio.click(); closeGuns(); };
+document.getElementById('battery-emplace').onclick = () => {
+  audio.click();
+  const id = BATTERY_ORDER[gunsUi.index % BATTERY_ORDER.length];
+  const whose = gunsUi.side === 'ally' ? 'your' : 'the enemy';
+  if (!briefing.emplace(gunsUi.side, id)) {
+    toast(`${FLEET_MAX} batteries is all ${whose} coast will take.`);
+    return;
+  }
+  toast(`${BATTERIES[id].name} goes in on ${whose} shore.`);
+  closeGuns();
 };
 
 document.getElementById('custom-start').onclick = () => {
@@ -410,6 +468,9 @@ function frame(now) {
   } else if (yard && current === 'yard') {
     yard.update(dt);
     yard.render();
+  } else if (guns && current === 'guns') {
+    guns.update(dt);
+    guns.render();
   } else if (current === 'custom') {
     // Nothing of the harbour shows through the briefing: its chart covers the
     // screen edge to edge and the fleets are laid over that. Rendering the sea

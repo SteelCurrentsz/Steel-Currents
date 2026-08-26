@@ -105,10 +105,10 @@
 
     <div class="force-row turret-row">
       <button class="turret-btn" id="ally-turret" type="button"
-              aria-label="Your main battery"></button>
+              aria-label="Your coast batteries"></button>
       <div class="force-gap"></div>
       <button class="turret-btn rev" id="enemy-turret" type="button"
-              aria-label="Enemy main battery"></button>
+              aria-label="Enemy coast batteries"></button>
     </div>
 
     <div class="force-row">
@@ -313,6 +313,30 @@
   <div class="yard-sheet yard-arms" id="yard-arms"></div>
 
   <button class="btn ghost yard-back" id="yard-back" type="button">Back</button>
+</section>
+
+<!-- ======================= THE GUN PARK ========================== -->
+<!-- The shipyard's opposite number, and deliberately the same screen: the
+     name and the two arrows in one corner, a datasheet in each of the other
+     two, and the thing itself behind all of them. -->
+<section id="screen-guns" class="screen yard-screen">
+  <div class="yard-grab" id="battery-grab"></div>
+
+  <div class="yard-head">
+    <h2 id="battery-name">Longues-sur-Mer Battery</h2>
+    <p class="yard-class" id="battery-piece">15 cm Tbts KC/36</p>
+    <p class="yard-class battery-place" id="battery-place">Longues-sur-Mer, Normandy</p>
+    <button class="yard-commission" id="battery-emplace" type="button">Emplace Battery</button>
+    <div class="yard-arrows">
+      <button class="yard-arrow" id="battery-prev" type="button" aria-label="Previous battery">&lt;&lt;&lt;</button>
+      <button class="yard-arrow" id="battery-next" type="button" aria-label="Next battery">&gt;&gt;&gt;</button>
+    </div>
+  </div>
+
+  <div class="yard-sheet yard-hull" id="battery-works"></div>
+  <div class="yard-sheet yard-arms" id="battery-guns"></div>
+
+  <button class="btn ghost yard-back" id="battery-back" type="button">Back</button>
 </section>
 
 <section id="screen-fleet" class="screen panel-screen">

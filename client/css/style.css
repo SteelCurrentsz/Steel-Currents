@@ -800,6 +800,13 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   width: min(clamp(89px, 11.2vw, 139px), 100%); height: auto; display: block;
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
 }
+/* How many batteries that side has ashore, read the same way the hull counts
+   above and below it are: same size, same colour, same tabular figures, so the
+   three numbers down each half of the screen line up as one column. */
+.turret-btn .count {
+  font-size: 1.3rem; letter-spacing: 0.06em; color: var(--sand-bright);
+  font-variant-numeric: tabular-nums; margin-top: -0.15rem;
+}
 .turret-btn:hover { color: #fff3d4; transform: translateY(-2px) scale(1.04); }
 .turret-btn:active { transform: translateY(0) scale(0.98); }
 .turret-btn:focus-visible { outline: 2px solid var(--sand); outline-offset: 4px; }
@@ -903,6 +910,23 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   color: var(--sand);
   opacity: 0.82;
 }
+
+/* A battery's name is two or three times a ship's — "Battery Townsley &
+   Battery Davis" against "Iowa" — so it is set smaller and given more of the
+   screen to run across before it wraps. */
+#screen-guns .yard-head {
+  max-width: min(40ch, 46vw);
+  /* A hull is looked at against the sea and a coast battery against the sky,
+     which is the brighter of the two by a long way. A tight shadow under the
+     type as well as the soft one behind it is what keeps sand legible over a
+     bright horizon — a scrim behind the whole head would be a dark rectangle
+     laid over the artwork, which is worse than the problem. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 16px rgba(0, 0, 0, 0.9);
+}
+#screen-guns .yard-head h2 { font-size: clamp(1.5rem, 3.1vw, 2.5rem); line-height: 1.02; }
+/* Where it stands, under what it is: a second line of the same kind, held back
+   so the gun's own designation still leads. */
+.battery-place { opacity: 0.6; font-size: clamp(0.8rem, 1.35vw, 1.05rem); }
 
 .yard-commission {
   display: block;

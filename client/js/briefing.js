@@ -27,7 +27,7 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, getSkill, onShipChange, onOpenPicker, onClosePicker,
-    onOpenYard, onOpenChart }) {
+    onOpenYard, onOpenChart, onOpenGuns }) {
     this.onStart = onStart;
     this.getName = getName;
     // How hard the other side fights is a preference rather than a property of
@@ -38,6 +38,7 @@ export class Briefing {
     this.onClosePicker = onClosePicker;
     this.onOpenYard = onOpenYard;
     this.onOpenChart = onOpenChart;
+    this.onOpenGuns = onOpenGuns;
     this.state = {
       // Both sides start with nothing. Your fleet's first hull is the one you
       // take the bridge of; the rest sail under AI captains, and the enemy
@@ -46,6 +47,10 @@ export class Briefing {
       // the screen came up with.
       allyFleet: [],
       enemyFleet: [],
+      // The coast batteries each side has emplaced. They are chosen the same
+      // way the hulls are, off the turret button under each fleet.
+      allyGuns: [],
+      enemyGuns: [],
       time: 'dawn',
       weather: 'sunny',
       // Where the battle is fought. The chart sets this — four corners and the
@@ -114,6 +119,11 @@ export class Briefing {
     press(this.el.allyDel, () => this.openPicker('ally', 'remove'));
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
+    // The battery under each fleet opens the gun park, the way the hull icon
+    // over it opens the shipyard.
+    on('ally-turret', () => this.onOpenGuns?.('ally'));
+    on('enemy-turret', () => this.onOpenGuns?.('enemy'));
+
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
@@ -138,6 +148,11 @@ export class Briefing {
     }).join('');
   }
 
+  /** One of the two battery buttons: the turret, and how many are ashore. */
+  turretCell(side, flip) {
+    return `${turret({ flip })}<b class="count">${this.guns(side).length}</b>`;
+  }
+
   /**
    * One of the four hull buttons.
    *
@@ -152,6 +167,21 @@ export class Briefing {
     const flip = side === 'enemy';
     return `${silhouette('yamato', { flip, badge: mode === 'add' ? 'arrow' : 'x' })}
       <b class="count">${fleet.length}</b>`;
+  }
+
+  /** The batteries one side has ashore. */
+  guns(side) {
+    return side === 'ally' ? this.state.allyGuns : this.state.enemyGuns;
+  }
+
+  /** Put a battery ashore for one side. The gun park calls this once a captain
+   *  has looked it over. False if that side already has its full allowance. */
+  emplace(side, batteryId) {
+    const guns = this.guns(side);
+    if (guns.length >= FLEET_MAX) return false;
+    guns.push(batteryId);
+    this.render();
+    return true;
   }
 
   /** Commission a hull into one of the fleets. The shipyard calls this once a
@@ -213,9 +243,11 @@ export class Briefing {
     this.el.enemyDel.innerHTML = this.fleetCell('enemy', 'remove');
     // Each side's guns face the other, the way the hull silhouettes do.
     // Each battery trains outboard, away from the middle of the screen: ours on
-    // the left points left, theirs on the right points right.
-    if (this.el.allyTurret) this.el.allyTurret.innerHTML = turret({ flip: true });
-    if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = turret();
+    // the left points left, theirs on the right points right. The count under
+    // each is how many batteries that side has ashore, and it reads the same
+    // way the hull counts above and below it do.
+    if (this.el.allyTurret) this.el.allyTurret.innerHTML = this.turretCell('ally', true);
+    if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = this.turretCell('enemy', false);
     if (this.el.allyList) this.el.allyList.innerHTML = this.fleetList('ally');
     if (this.el.enemyList) this.el.enemyList.innerHTML = this.fleetList('enemy');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
