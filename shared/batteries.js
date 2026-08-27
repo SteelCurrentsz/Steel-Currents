@@ -6,10 +6,10 @@
 // battery had several guns the entry describes one gun of it, because one gun
 // is what a captain is looking at on the selection screen.
 //
-// Only the client reads this today: emplacements are chosen and counted on the
-// briefing, and the simulation does not yet put them on the battlefield. It
-// sits beside ships.js because it is the same kind of thing — ordnance data,
-// written down once, read by whatever needs it.
+// The briefing chooses and counts them, the order-of-battle chart sites them,
+// and the simulation fights them off these same figures. It sits beside
+// ships.js because it is the same kind of thing — ordnance data, written down
+// once, read by whatever needs it.
 
 /** The order they are stepped through, roughly by bore. */
 export const BATTERY_ORDER = [
@@ -210,8 +210,15 @@ export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
  * scenery. So the *reach* is the real range with a multiplier on it, and every
  * battery gets the same one: what a captain reads off the sheet still tells him
  * which of these outranges which, and by how much.
+ *
+ * At fifteen, every gun on the list covers the whole of any battlefield the
+ * game will lay out: the shortest-ranged of them, Merville's field howitzers,
+ * carries a hundred and fifty thousand metres against a corner-to-corner
+ * distance of ninety. Range no longer decides whether a battery can reach a
+ * target — the traverse arc decides what it can bear on at all, and range
+ * decides how flat the shell arrives and how long it is in the air.
  */
-export const BATTERY_REACH = 3;
+export const BATTERY_REACH = 15;
 
 /** How far the battery actually shoots on this battlefield, in metres. */
 export const batteryReach = (b) => b.range * BATTERY_REACH;

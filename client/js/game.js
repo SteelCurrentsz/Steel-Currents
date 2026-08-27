@@ -50,6 +50,12 @@ export class Battle {
     this.shellTrails = new Map();
 
     this.camMode = 'chase';
+    // What the camera is looking at, when it is not looking at your own hull:
+    // {kind:'ship'|'battery', id, name}, set by tapping a contact on the plot.
+    // You still have the con while you are watching — the helm and the
+    // telegraph answer, the guns hold whatever bearing they were left on.
+    this.watching = null;
+    this.watchYaw = 0;
     this.yaw = 0;
     this.pitch = 0.22;
     this.camDistance = this.cls.hull.length * 1.5;
@@ -64,6 +70,11 @@ export class Battle {
     this.showScores = false;
     this.lastInputSent = 0;
     this.result = null;
+
+    // Tapping a hull or a gun on the plot puts the camera on it; tapping it
+    // again, or tapping open water, brings the view back to your own bridge.
+    this.hud.onPick = (hit) => this.lookAt(hit);
+    document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
 
     this.raycaster = new THREE.Raycaster();
     this.seaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -215,11 +226,57 @@ export class Battle {
         this.camMode = CAMERAS[(i + 1) % CAMERAS.length];
         break;
       }
-      case 'KeyM': this.mapBig = !this.mapBig; this.hud.toggleMap(this.mapBig); break;
+      // The plot is a control as well as a picture, and a pointer locked to the
+      // sea has no cursor to put on it. Opening the plot gives the mouse back;
+      // the next click on the water takes it again.
+      case 'KeyM':
+        this.mapBig = !this.mapBig;
+        this.hud.toggleMap(this.mapBig);
+        if (this.mapBig) this.input.releaseLock();
+        break;
       case 'Tab': this.showScores = !this.showScores; this.hud.showScoreboard(this.roster, this.shipId, this.showScores); break;
-      case 'Escape': this.leave(); break;
+      // Out of somebody else's view first, out of the battle second.
+      case 'Escape':
+        if (this.watching) this.lookAt(null); else this.leave();
+        break;
       default: break;
     }
+  }
+
+  /**
+   * Put the camera on a contact from the plot, or bring it home.
+   *
+   * Tapping what is already being watched is how you get back, which means the
+   * same tap both goes and returns and there is nothing else to learn.
+   */
+  lookAt(hit) {
+    const same = hit && this.watching
+      && this.watching.kind === hit.kind && this.watching.id === hit.id;
+    if (!hit || same || (hit.kind === 'ship' && hit.id === this.shipId)) {
+      this.watching = null;
+    } else {
+      this.watching = hit;
+      // Start the orbit where the camera already is, so the view swings round
+      // to the new subject rather than cutting to a random bearing.
+      this.watchYaw = this.yaw;
+    }
+    this.hud.setWatching(this.watching);
+    this.hud.setWatchBanner(this.watching);
+    audio.click();
+  }
+
+  /** Where whatever the camera is watching is now, or null if it has gone. */
+  watchPoint() {
+    if (!this.watching) return null;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap) return null;
+    if (this.watching.kind === 'battery') {
+      const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
+      return b ? { x: b.x, y: b.y, z: b.z, span: 60 } : null;
+    }
+    const s = snap.ships.find((x) => x.i === this.watching.id);
+    if (!s) return null;
+    return { x: s.x, y: 0, z: s.z, span: getClass(s.c).hull.length };
   }
 
   fire() {
@@ -250,15 +307,19 @@ export class Battle {
       }
     }
 
-    // Look.
-    const m = this.input.takeMouse();
-    const zoom = this.scoped ? 0.35 : 1;
-    this.yaw = wrapAngle(this.yaw + m.x * zoom);
-    this.pitch = clamp(this.pitch + m.y * zoom, -0.35, 0.55);
-
-    this.updateAimPoint();
-    ls.aimX = this.aimPoint.x;
-    ls.aimZ = this.aimPoint.z;
+    // Look. While the camera is off watching somebody else the drag walks that
+    // orbit instead, and the guns hold the bearing they were left laid on —
+    // swinging the whole main battery every time a captain glances at another
+    // ship is not what glancing at another ship should do.
+    if (!this.watching) {
+      const m = this.input.takeMouse();
+      const zoom = this.scoped ? 0.35 : 1;
+      this.yaw = wrapAngle(this.yaw + m.x * zoom);
+      this.pitch = clamp(this.pitch + m.y * zoom, -0.35, 0.55);
+      this.updateAimPoint();
+      ls.aimX = this.aimPoint.x;
+      ls.aimZ = this.aimPoint.z;
+    }
     ls.shellType = this.shellType;
 
     // Predict our own hull, then ease toward the server's version of it.
@@ -404,7 +465,8 @@ export class Battle {
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
       view.group.position.set(g.x, g.y, g.z);
-      view.group.rotation.y = g.al ? g.h + ang : view.group.rotation.y;
+      // The emplacement stands still; the mounting inside it trains.
+      if (g.al) view.spin.rotation.y = g.h + ang;
       view.marker.visible = this.camMode === 'tactical';
       // Silenced, and burning where it stands.
       if (!g.al) {
@@ -479,6 +541,24 @@ export class Battle {
     const targetFov = this.scoped ? 16 : 58;
     this.fov = lerp(this.fov, targetFov, 1 - Math.pow(0.002, dt));
     cam.fov = this.fov;
+
+    // Watching something else: an observer's orbit round it, high enough to see
+    // what it is doing and close enough to see it do it.
+    const watch = this.watchPoint();
+    if (watch) {
+      this.watchYaw = wrapAngle(this.watchYaw + this.input.takeMouse().x);
+      const d = Math.max(150, watch.span * 3.2);
+      cam.position.set(
+        watch.x - Math.sin(this.watchYaw) * d,
+        watch.y + d * 0.26 + 14,
+        watch.z - Math.cos(this.watchYaw) * d,
+      );
+      cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+      cam.updateProjectionMatrix();
+      return;
+    }
+    // The thing being watched has sunk or been silenced: come home.
+    if (this.watching) { this.watching = null; this.hud.setWatching(null); this.hud.setWatchBanner(null); }
 
     const wave = this.scene.ocean.heightAt(ls.x, ls.z);
     if (this.camMode === 'tactical') {

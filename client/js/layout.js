@@ -12,6 +12,7 @@
 import {
   generateWorld, islandAt, islandRing, shoreDistance, MAP_HALF,
 } from '../../shared/world.js';
+import { shipClearance } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 
@@ -174,6 +175,9 @@ export class LayoutMap {
       kind: 'ship', classId, team, mine, index,
       name: cls.name, type: cls.type,
       length: cls.hull.length,
+      // What counts as afloat for her. The same figure the server checks the
+      // berth against, so a hull the chart accepts is never moved on arrival.
+      clearance: shipClearance(cls),
       x: 0, z: 0, heading: team === 0 ? 0 : Math.PI, ok: true,
     };
   }
@@ -203,7 +207,7 @@ export class LayoutMap {
       const sign = t.team === 0 ? -1 : 1;
       const wantX = ((t.index % 8) - 3.5) * spacing;
       const wantZ = sign * back - sign * Math.floor(t.index / 8) * Math.max(500, spacing * 0.6);
-      const berth = this.float(wantX, wantZ, Math.max(120, t.length * 0.6));
+      const berth = this.float(wantX, wantZ, t.clearance);
       t.x = berth.x;
       t.z = berth.z;
       t.heading = t.team === 0 ? 0 : Math.PI;
@@ -309,7 +313,7 @@ export class LayoutMap {
       // Sea room for her own length, so she is not sitting on a shoal. Islands
       // and the real shore are both land here -- a hull does not care which
       // kind of ground she is on when she is on it.
-      t.ok = inside && !islandAt(this.world, t.x, t.z, Math.max(120, t.length * 0.6));
+      t.ok = inside && !islandAt(this.world, t.x, t.z, t.clearance);
     } else {
       t.ok = inside && !!islandAt(this.world, t.x, t.z, 0);
     }

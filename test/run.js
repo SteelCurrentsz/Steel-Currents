@@ -6,7 +6,7 @@ import {
 } from '../shared/world.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
-  useRepair, DT, damageShip,
+  useRepair, DT, damageShip, shipClearance,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
@@ -348,11 +348,13 @@ check('a turret trains no further than its arc allows', () => {
 // --------------------------------------------------------- coast artillery --
 
 /** A battery on the shore and one ship out in front of it. */
-function shoot(batteryId, gap) {
+function shoot(batteryId, gap, half = 32004) {
   // The largest battlefield there is, so a gun that reaches fifty-five
   // thousand metres has somewhere to reach to and nothing is being shoved back
-  // off the border mid-test.
+  // off the border mid-test. `half` can be opened out past that when a check
+  // needs a target further off than any real battlefield allows.
   const world = generateWorld(4242, 'open_ocean', 'day', 32004);
+  world.half = half;
   world.islands = [];
   world.land = [];
   const state = createState(world, { mode: 'deathmatch' });
@@ -365,15 +367,10 @@ function shoot(batteryId, gap) {
 }
 
 check('a battery opens fire inside its reach and stays quiet outside it', () => {
-  // The shortest-reaching gun on the list, because the far half of this check
-  // has to put a ship outside its reach and still inside the battlefield, and
-  // the battlefield is only sixty-four thousand metres across.
   const b = BATTERIES.merville;
   const reach = batteryReach(b);
-  const far = reach * 1.6;
-  assert.ok(far / 2 < 32004 - 600, 'both ends of this check are on the battlefield');
 
-  const near = shoot('merville', reach * 0.6);
+  const near = shoot('merville', 40000);
   let salvos = 0;
   for (let i = 0; i < 30 * 120; i++) {
     for (const ev of step(near.state, DT)) if (ev.e === 'muzzle' && ev.battery) salvos++;
@@ -381,7 +378,12 @@ check('a battery opens fire inside its reach and stays quiet outside it', () => 
   assert.ok(salvos >= 4, `expected the battery to fire, got ${salvos} salvos`);
   assert.ok(near.ship.hp < near.ship.maxHp, 'and to hit something with them');
 
-  const out = shoot('merville', far);
+  // The far half cannot be set up on a real battlefield: every gun on the list
+  // now reaches further than any battlefield is wide, which is the point of the
+  // multiplier. So this one is fought over an impossibly large sea, purely to
+  // get the target out past the reach without the border shoving her back in.
+  const beyond = reach * 1.4;
+  const out = shoot('merville', beyond * 2, beyond * 4);
   let fired = 0;
   for (let i = 0; i < 30 * 120; i++) {
     for (const ev of step(out.state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
@@ -445,17 +447,16 @@ check('the gun a battery fires is built from its own datasheet', () => {
       `${id} should shoot to its reach, not to its historical range`);
     assert.equal(g.reload, b.reload, `${id} should load as fast as it says it does`);
     assert.equal(g.caliber, b.caliber);
-    // The solution at maximum reach must still be a real one, and the shell
-    // must live long enough to arrive: the cull in stepShells is a net under
-    // the arithmetic, not a range limit in disguise.
-    const s = solveBallistic(g, g.range * 0.98, 40);
-    assert.ok(s.tof > 1 && s.tof < 200, `${id} time of flight ${s.tof}`);
-    assert.ok(s.elev < Math.PI / 4 + 0.01, `${id} elevation ${s.elev}`);
-    // And the longest shot anyone can actually take on the largest
-    // battlefield there is — corner to corner — arrives as well.
-    const corner = Math.min(g.range, 32004 * 2 * Math.SQRT2);
-    const c = solveBallistic(g, corner, 40);
-    assert.ok(c.tof < 200, `${id} corner-to-corner time of flight ${c.tof}`);
+    // Every gun on the list outreaches the battlefield now, so the shot that
+    // matters is the longest one anybody can actually take: corner to corner
+    // on the largest battlefield there is. The solution has to be a real one
+    // and the shell has to live long enough to arrive — the cull in stepShells
+    // is a net under the arithmetic, not a range limit in disguise.
+    const corner = 32004 * 2 * Math.SQRT2;
+    assert.ok(g.range > corner, `${id} should outreach the largest battlefield`);
+    const c = solveBallistic(g, corner, 200);
+    assert.ok(c.tof > 1 && c.tof < 200, `${id} corner-to-corner time of flight ${c.tof}`);
+    assert.ok(c.elev < Math.PI / 4 + 0.01, `${id} elevation ${c.elev}`);
   }
   // Bore decides weight of shell: the eight-hundred throws more than the
   // eighty-eight by rather a lot.
@@ -500,9 +501,9 @@ check('islands are shapes, and everything agrees on which shape', () => {
 
 check('a battery reaches past its historical range, and the sheet still says what it was', () => {
   const b = BATTERIES.merville;
-  // The howitzer's real range is under ten thousand metres. Put a ship twice
-  // that far out: in life it would have been perfectly safe.
-  const gap = b.range * 2;
+  // The howitzer's real range is under ten thousand metres. Put a ship four
+  // times that far out: in life it would have been perfectly safe.
+  const gap = b.range * 4;
   assert.ok(gap > b.range && gap < batteryReach(b), 'past the real range, inside the reach');
   const { state, ship } = shoot('merville', gap);
   let salvos = 0;
@@ -518,6 +519,41 @@ check('a battery reaches past its historical range, and the sheet still says wha
   assert.equal(BATTERIES.merville.range, 9970, 'the real range stays on the datasheet');
   assert.equal(BATTERIES.todt.range, 55700);
   assert.equal(BATTERIES.gustav.range, 47000);
+});
+
+check('a hull can be berthed right in under the shore', () => {
+  const w = generateWorld(9911, 'solomon_narrows');
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const state = createState(w, { mode: 'deathmatch' });
+
+  // A cable's length off the beach, due east of the island's middle.
+  const R = islandRadius(isle, Math.PI / 2);
+  for (const [id, name] of [['fletcher', 'a destroyer'], ['iowa', 'a battleship']]) {
+    const cls = SHIP_CLASSES[id];
+    const off = shipClearance(cls) + 12;
+    assert.ok(off < 60, `${name} should need only a few tens of metres, not ${off}`);
+    const x = isle.x + R + off;
+    const z = isle.z;
+    assert.ok(!islandAt(w, x, z, shipClearance(cls)), `${name} is afloat there`);
+    const ship = addShip(state, {
+      name, classId: id, team: 0, index: 0, at: { x, z, h: 0 },
+    });
+    assert.equal(ship.x, x, `${name} should be left where she was berthed`);
+    assert.equal(ship.z, z);
+    // Which is genuinely close in: nearer than the old clearance would allow.
+    assert.ok(Math.hypot(ship.x - isle.x, ship.z - isle.z) - R < 70,
+      `${name} should be right in under the shore`);
+    state.ships.length = 0;
+  }
+
+  // Aground is still aground: a berth on the beach falls back to the line.
+  const line = spawnPoint(w, 0, 0);
+  const beached = addShip(state, {
+    name: 'Beached', classId: 'iowa', team: 0, index: 0,
+    at: { x: isle.x, z: isle.z, h: 0 },
+  });
+  assert.equal(beached.x, line.x, 'a berth on the island itself is refused');
+  assert.equal(beached.z, line.z);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

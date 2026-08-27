@@ -65,8 +65,25 @@ function berth(world, team, index, at, cls) {
   const half = (world?.half || MAP_HALF) - 150;
   const x = clamp(at.x, -half, half);
   const z = clamp(at.z, -half, half);
-  if (landAt(world, x, z, Math.max(120, cls.hull.length * 0.6))) return line;
+  // Only that she is afloat, with room for her own beam. A captain who wants
+  // to start his destroyers tucked in under the headland is entitled to: the
+  // test is whether she is aground, not whether she has a comfortable offing.
+  // The exact rim rather than the collision mask, so an anchorage a few tens
+  // of metres off an island's beach is not refused by a hundred-and-fifty-metre
+  // grid cell.
+  if (islandAt(world, x, z, shipClearance(cls))) return line;
   return { x, z, heading: Number.isFinite(at.h) ? wrapAngle(at.h) : line.heading };
+}
+
+/**
+ * How much water a hull needs round her to count as afloat, in metres.
+ *
+ * Her own half-beam and a little for the swing, which is what actually decides
+ * whether she is touching. Her length does not come into it — a battleship laid
+ * along a shore is no more aground than a destroyer is.
+ */
+export function shipClearance(cls) {
+  return Math.max(20, cls.hull.beam * 0.6);
 }
 
 export function addShip(state, {
@@ -449,17 +466,29 @@ function stepBatteries(state, dt) {
       }
     }
 
+    const arc = batteryArc(b);
     // Re-acquired twice a second rather than thirty times. Working out what a
-    // battery can see is the expensive part of it, and nothing on a
+    // battery can *see* is the expensive part -- the walk clear of its own
+    // ground and the sight line over everything else -- and nothing on a
     // battlefield moves far in a thirtieth of a second.
     if (state.tick % 15 === bat.id % 15) {
       const found = batteryTarget(state, bat, b, gun);
       bat.targetId = found ? found.id : 0;
     }
-    const target = bat.targetId
+    // But the cheap half of it is checked every tick. A ship that has just run
+    // out of range or out of the arc must not go on being shot at for the rest
+    // of the half-second until the battery next looks up.
+    let target = bat.targetId
       ? state.ships.find((sp) => sp.id === bat.targetId && sp.alive)
       : null;
-    const arc = batteryArc(b);
+    if (target) {
+      const d = dist(bat.x, bat.z, target.x, target.z);
+      const bearing = headingTo(bat.x, bat.z, target.x, target.z);
+      if (d > gun.range || Math.abs(angleDelta(bat.heading, bearing)) > arc) {
+        target = null;
+        bat.targetId = 0;
+      }
+    }
     // With nothing to shoot at, back to the bearing it was laid on.
     const want = target
       ? clamp(angleDelta(bat.heading, headingTo(bat.x, bat.z, target.x, target.z)), -arc, arc)

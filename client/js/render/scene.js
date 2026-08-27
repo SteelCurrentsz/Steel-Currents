@@ -190,6 +190,7 @@ function buildIslands(islands) {
   const g = new THREE.Group();
   const pos = [];
   const col = [];
+  const idx = [];
   const foam = [];
 
   for (const isle of islands) {
@@ -230,25 +231,32 @@ function buildIslands(islands) {
       }
     }
 
-    const push = (k) => { pos.push(px[k], py[k], pz[k]); };
-    const shade = (k) => { const c = isleShade(py[k]); col.push(c[0], c[1], c[2]); };
+    // Indexed, and with one shared vertex at the summit. Every ring vertex is
+    // written once and referred to by all four triangles that meet on it, so
+    // the normals average across them and the hill shades as a hill. Written
+    // per-triangle instead, it comes out as a fan of hard radial facets --
+    // which is what a spoked mesh looks like when nothing is welded.
+    const base = pos.length / 3;
+    const put = (k) => {
+      pos.push(px[k], py[k], pz[k]);
+      const c = isleShade(py[k]);
+      col.push(c[0], c[1], c[2]);
+    };
+    put(0);                                  // the summit, once
+    const apex = base;
+    const ring = (i, j) => base + 1 + i * (nr - 1) + (j - 1);
+    for (let i = 0; i < spokes; i++) {
+      for (let j = 1; j < nr; j++) put(i * nr + j);
+    }
     for (let i = 0; i < spokes; i++) {
       const i2 = (i + 1) % spokes;
-      for (let j = 0; j < nr - 1; j++) {
-        const a = i * nr + j;
-        const b = i * nr + j + 1;
-        const c = i2 * nr + j;
-        const d = i2 * nr + j + 1;
-        if (j === 0) {
-          // The summit closes on itself: one fan of triangles, no seam.
-          push(a); push(b); push(d);
-          shade(a); shade(b); shade(d);
-          continue;
-        }
-        push(a); push(b); push(d);
-        push(a); push(d); push(c);
-        shade(a); shade(b); shade(d);
-        shade(a); shade(d); shade(c);
+      idx.push(apex, ring(i, 1), ring(i2, 1));
+      for (let j = 1; j < nr - 1; j++) {
+        const a = ring(i, j);
+        const b = ring(i, j + 1);
+        const c = ring(i2, j);
+        const d = ring(i2, j + 1);
+        idx.push(a, b, d, a, d, c);
       }
     }
 
@@ -272,6 +280,7 @@ function buildIslands(islands) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
   geo.computeVertexNormals();
   const land = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.95, metalness: 0,
@@ -285,6 +294,99 @@ function buildIslands(islands) {
     color: 0xa8c6d2, transparent: true, opacity: 0.2, depthWrite: false,
     side: THREE.DoubleSide,
   })));
+  return g;
+}
+
+/**
+ * The mark that says a battery is there.
+ *
+ * A lattice observation tower with a platform and a pennant on it. Every one of
+ * these emplacements had one — a coast gun is laid by an observer with a
+ * rangefinder, not by the men on the breech — and it is the thing about a
+ * battery that a ship out at sea could actually pick out, because it is forty
+ * metres of steel against the sky rather than a gun down in a pit.
+ *
+ * Which is the point of it. The gun itself is modelled at its own size and is a
+ * handful of pixels from any useful range; the tower is real, it is tall, and
+ * it makes the battery findable from the water.
+ */
+function batteryMark(span, team) {
+  const g = new THREE.Group();
+  const H = Math.max(26, Math.min(60, span * 1.6));
+  const base = Math.max(2.6, span * 0.14);
+  const top = base * 0.42;
+  const steel = new THREE.MeshStandardMaterial({
+    color: 0x6b7076, roughness: 0.85, metalness: 0.35,
+  });
+
+  // Four legs, raked in to the platform.
+  const legGeo = new THREE.CylinderGeometry(0.42, 0.42, 1, 5);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const bx = Math.sin(a) * base;
+    const bz = Math.cos(a) * base;
+    const tx = Math.sin(a) * top;
+    const tz = Math.cos(a) * top;
+    const dx = tx - bx;
+    const dz = tz - bz;
+    const leg = new THREE.Mesh(legGeo, steel);
+    leg.scale.y = Math.hypot(dx, H, dz);
+    leg.position.set((bx + tx) / 2, H / 2, (bz + tz) / 2);
+    leg.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(dx, H, dz).normalize(),
+    );
+    g.add(leg);
+  }
+
+  // Bracing, so it reads as a lattice rather than as four sticks.
+  const braceGeo = new THREE.BoxGeometry(1, 0.3, 0.3);
+  for (let k = 1; k <= 3; k++) {
+    const y = (H * k) / 4;
+    const r = base + (top - base) * (k / 4);
+    for (let i = 0; i < 4; i++) {
+      const a0 = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const a1 = ((i + 1) / 4) * Math.PI * 2 + Math.PI / 4;
+      const x0 = Math.sin(a0) * r;
+      const z0 = Math.cos(a0) * r;
+      const x1 = Math.sin(a1) * r;
+      const z1 = Math.cos(a1) * r;
+      const bar = new THREE.Mesh(braceGeo, steel);
+      bar.scale.x = Math.hypot(x1 - x0, z1 - z0);
+      bar.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
+      bar.rotation.y = Math.atan2(x1 - x0, z1 - z0) + Math.PI / 2;
+      g.add(bar);
+    }
+  }
+
+  // The observation platform, and the rangefinder hood on it.
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(top * 2.9, 1.1, top * 2.9), steel);
+  deck.position.y = H;
+  g.add(deck);
+  const hood = new THREE.Mesh(
+    new THREE.BoxGeometry(top * 2.1, 2.6, top * 1.5),
+    new THREE.MeshStandardMaterial({ color: 0x555c60, roughness: 0.8, metalness: 0.3 }),
+  );
+  hood.position.y = H + 1.9;
+  g.add(hood);
+
+  // The staff, and the pennant whose colour says whose gun this is.
+  const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 11, 5), steel);
+  staff.position.y = H + 8.5;
+  g.add(staff);
+  const fw = Math.max(6, span * 0.36);
+  const fh = 3.4;
+  const flagGeo = new THREE.BufferGeometry();
+  flagGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, fw, -fh * 0.5, 0, 0, -fh, 0,
+  ], 3));
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(flagGeo, new THREE.MeshBasicMaterial({
+    color: team === 0 ? 0x6fd3a0 : 0xe2564f,
+    side: THREE.DoubleSide, depthWrite: false,
+  }));
+  flag.position.y = H + 13.4;
+  g.add(flag);
   return g;
 }
 
@@ -491,18 +593,21 @@ export class BattleScene {
   /**
    * A coast battery, standing where it was sited.
    *
-   * The whole emplacement turns with the mounting rather than the barrel alone.
-   * With the concrete gone these are open gun pits -- a pedestal, a racer and a
-   * revetment of sandbags -- and the pit is what a gun of that kind is trained
-   * in, so turning the lot of it is nearer the truth than swinging a barrel
-   * over a revetment that stays put.
+   * Two nodes: the ground it stands on, and the mounting turning on that
+   * ground. With the concrete gone these are open gun pits -- a pedestal, a
+   * racer and a revetment of sandbags -- and the pit turns with the gun, which
+   * is nearer the truth than swinging a barrel over a revetment that stays put.
+   * The observation tower, the pennant and the ring belong to the ground and do
+   * not move.
    */
   getBatteryView(id, batteryId, team) {
     let v = this.batteryViews.get(id);
     if (!v) {
       const built = buildBattery(batteryId);
       const group = new THREE.Group();
-      group.add(built.group);
+      const spin = new THREE.Group();
+      spin.add(built.group);
+      group.add(spin);
       this.scene.add(group);
 
       // Whose it is, read from a mile away: the same ring a hull carries.
@@ -515,7 +620,12 @@ export class BattleScene {
       marker.position.y = 1.5;
       group.add(marker);
 
-      v = { group, marker, span: built.span, batteryId, team, smokeTimer: 0 };
+      // The observation post, standing clear of the gun pit.
+      const mark = batteryMark(built.span, team);
+      mark.position.set(built.span * 0.6, 0, -built.span * 0.45);
+      group.add(mark);
+
+      v = { group, spin, marker, mark, span: built.span, batteryId, team, smokeTimer: 0 };
       this.batteryViews.set(id, v);
     }
     return v;

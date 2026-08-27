@@ -42,6 +42,11 @@ export class Input {
     };
     this._onDown = (e) => {
       if (!this.enabled || this.touch) return;
+      // A click on a HUD control belongs to that control, not to the sea: it
+      // must not open fire and it must not grab the pointer back. Once the
+      // pointer is locked every event targets the canvas anyway, so this only
+      // ever lets go of clicks the player can actually see the cursor for.
+      if (!this.locked && e.target !== this.canvas) return;
       if (e.button === 0) { this.firing = true; this.emit('fire'); }
       if (e.button === 2) { this.scoped = true; this.emit('scope', true); }
       if (!this.locked && e.button === 0) this.requestLock();

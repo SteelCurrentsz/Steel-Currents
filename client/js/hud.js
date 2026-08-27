@@ -2,6 +2,7 @@
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
+import { BATTERIES } from '../../shared/batteries.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle } from '../../shared/math.js';
 import { getSettings } from './settings.js';
 
@@ -20,11 +21,68 @@ export class Hud {
       ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
       sink: $('sink-overlay'), reticle: $('reticle'),
+      watchBanner: $('watch-banner'), watchWhat: $('watch-what'),
     };
     this.ctx = this.el.minimap.getContext('2d');
     this.built = false;
     this.lastRibbon = 0;
+    // Everything the last plot drew, in canvas pixels, so a tap on the plot can
+    // be turned back into the hull or the gun that was tapped.
+    this.plot = [];
+    this.onPick = null;
+    this.watching = null;
+    this.el.minimap.addEventListener('pointerdown', (e) => {
+      const hit = this.hitPlot(e);
+      if (hit) { e.preventDefault(); e.stopPropagation(); }
+      this.onPick?.(hit);
+    });
     $('btn-leave').onclick = onLeave;
+  }
+
+  /**
+   * What was under a tap on the plot, or null for open water.
+   *
+   * The plot is small and a finger is not, so the pick radius is generous and
+   * the nearest mark inside it wins. Batteries are tested first: they do not
+   * move, so a captain who wants one has aimed at it.
+   */
+  hitPlot(e) {
+    const el = this.el.minimap;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    // The canvas has its own pixel size, which the CSS box need not match.
+    const px = ((e.clientX - r.left) / r.width) * el.width;
+    const py = ((e.clientY - r.top) / r.height) * el.height;
+    const reach = (el.width / r.width) * 22;
+    // A division in line abreast is a few pixels wide on this plot and your own
+    // hull is in the middle of it, so a straight nearest-mark pick keeps
+    // landing on yourself — which is the one answer that does nothing. Ranked
+    // instead: a gun ashore, then somebody else's hull, then your own, and the
+    // nearest inside each rank.
+    const rank = (m) => (m.kind === 'battery' ? 0 : m.id === this.selfId ? 2 : 1);
+    let best = null;
+    for (const mark of this.plot) {
+      const d = Math.hypot(mark.x - px, mark.y - py);
+      if (d > reach) continue;
+      if (!best || rank(mark) < rank(best) || (rank(mark) === rank(best) && d < best.d)) {
+        best = { ...mark, d };
+      }
+    }
+    return best ? { kind: best.kind, id: best.id, name: best.name } : null;
+  }
+
+  /** Which contact the camera is watching, so the plot can ring it. */
+  setWatching(watch) { this.watching = watch; }
+
+  /** The banner that names what the camera has gone to look at. */
+  setWatchBanner(watch) {
+    const el = this.el.watchBanner;
+    if (!el) return;
+    el.hidden = !watch;
+    if (watch) {
+      this.el.watchWhat.textContent = watch.kind === 'battery'
+        ? `Watching ${watch.name}` : `Watching ${watch.name}`;
+    }
   }
 
   buildFor(classId) {
@@ -285,22 +343,29 @@ export class Hud {
       }
     }
 
+    this.plot = [];
+    this.selfId = own ? own.i : 0;
+
     // The guns ashore, plotted as the fixed marks they are: a square, because
     // nothing on this plot that moves is drawn as one.
     for (const g of (snap && snap.batteries) || []) {
       const x = toX(g.x), y = toY(g.z);
       ctx.fillStyle = !g.al ? 'rgba(120,120,120,0.7)'
         : g.tm === this.team ? '#6fd3a0' : '#e2564f';
-      ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
+      ctx.fillRect(x - 4, y - 4, 8, 8);
+      // A hollow surround, so a battery reads as a battery at a glance and is
+      // a big enough thing to put a finger on.
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - 7.5, y - 7.5, 15, 15);
       if (g.al) {
         // Which way it is laid, so a captain can see what he must not cross.
-        ctx.strokeStyle = ctx.fillStyle;
-        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.sin(g.h + g.a) * 9, y - Math.cos(g.h + g.a) * 9);
+        ctx.lineTo(x + Math.sin(g.h + g.a) * 13, y - Math.cos(g.h + g.a) * 13);
         ctx.stroke();
       }
+      this.plot.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
     }
 
     for (const s of ships) {
@@ -320,6 +385,20 @@ export class Hud {
         ctx.strokeStyle = 'rgba(230,207,156,0.35)';
         ctx.beginPath();
         ctx.arc(x, y, this.cls.gun.range * scale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      this.plot.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact' });
+    }
+
+    // A ring round whatever the camera is looking at, so it is obvious where
+    // the view has gone and what to tap to get out of it.
+    if (this.watching) {
+      const mark = this.plot.find((m) => m.kind === this.watching.kind && m.id === this.watching.id);
+      if (mark) {
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(mark.x, mark.y, 12, 0, Math.PI * 2);
         ctx.stroke();
       }
     }

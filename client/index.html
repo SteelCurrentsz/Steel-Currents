@@ -171,7 +171,8 @@
           <tr><td>R</td><td>Damage control party</td></tr>
           <tr><td>T</td><td>Make smoke (destroyers)</td></tr>
           <tr><td>C</td><td>Cycle camera</td></tr>
-          <tr><td>M</td><td>Enlarge the plot</td></tr>
+          <tr><td>M</td><td>Enlarge the plot, and give the mouse back to it</td></tr>
+          <tr><td>Click the plot</td><td>Watch that hull or that shore battery</td></tr>
           <tr><td>Tab</td><td>Scoreboard</td></tr>
           <tr><td>Esc</td><td>Leave the battle</td></tr>
         </table>
@@ -243,6 +244,13 @@
   <div class="hud-right">
     <div class="minimap-wrap" id="minimap-wrap">
       <canvas id="minimap" width="320" height="320"></canvas>
+    </div>
+    <p class="minimap-hint">M — big plot &middot; click a contact to watch it</p>
+    <!-- Whose view the camera has gone to, and how to come back. Only up while
+         the camera is somewhere other than your own bridge. -->
+    <div class="watch-banner" id="watch-banner" role="status" hidden>
+      <span class="watch-what" id="watch-what"></span>
+      <button class="watch-back" id="watch-back" type="button">Back to my bridge</button>
     </div>
   </div>
 
