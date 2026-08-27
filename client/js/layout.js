@@ -15,11 +15,16 @@ import {
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 
-// How much of the token is the body and how much is the handle you turn it by,
-// in screen pixels. Generous, because this has to work under a thumb.
+// The counter a ship or a gun is drawn as when the chart is zoomed right out,
+// and the peg beside it you turn her by. Generous, because this has to work
+// under a thumb. Zoomed in, a hull grows to her own length; see `bodyR`.
 const BODY_R = 17;
 const HANDLE_R = 13;
-const HANDLE_OUT = 40;
+
+// How far in the chart will go. At 1 the whole battlefield is across the
+// shorter side of the screen; at 14 a destroyer's token is about her own length.
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 14;
 
 const TEAM = [
   { fill: '#2c5da8', line: '#8cc2ff', dim: 'rgba(44, 93, 168, 0.5)' },
@@ -28,6 +33,16 @@ const TEAM = [
 const BAD = '#e2564f';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// The largest round distance that still fits in `want` metres, out of the ones
+// a chart is ruled in. Keeps the grid squares and the scale bar honest at any
+// zoom without either of them growing past the space they were given.
+const STEPS = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+const niceStep = (want) => {
+  let out = STEPS[0];
+  for (const v of STEPS) if (v <= want) out = v;
+  return out;
+};
 
 /**
  * A chart of one battlefield with everybody's starting position on it.
@@ -52,6 +67,11 @@ export class LayoutMap {
     this.drag = null;
     this.dirty = false;
     this._size = null;
+    // Where the chart is looking: the metres at the middle of the screen, and
+    // how far in. Zoom 1 is the whole battlefield across the shorter side.
+    this.view = { x: 0, z: 0, zoom: 1 };
+    this.pointers = new Map();
+    this.pinch = 0;
     this.bind();
   }
 
@@ -101,6 +121,9 @@ export class LayoutMap {
         this.check(t);
       }
     }
+    // A different battlefield is looked at afresh; the same one keeps whatever
+    // corner of it the captain had walked over to.
+    if (this.worldSig !== sig) this.view = { x: 0, z: 0, zoom: 1 };
     this.worldSig = sig;
 
     this._size = null;
@@ -121,16 +144,26 @@ export class LayoutMap {
       const mine = ships.filter((t) => t.team === 0).length;
       const theirs = ships.length - mine;
       const myGuns = guns.filter((t) => t.team === 0).length;
-      this.readout.innerHTML =
-        `<b>${this.req?.place || 'Open sea'}</b>`
+      const across = Math.round((this.half * 2) / 0.9144 / 1000);
+      const html = `<b>${this.req?.place || 'Open sea'}</b>`
         + `<span>${mine} of yours against ${theirs}`
         + `${guns.length ? ` &middot; ${myGuns} of ${guns.length} batteries yours` : ''}</span>`
-        + `<span>${Math.round((this.half * 2) / 0.9144 / 1000)}k yards across</span>`;
+        + `<span>${across}k yards across`
+        + `${this.view.zoom > 1.01 ? ` &middot; &times;${this.view.zoom.toFixed(1)}` : ''}</span>`;
+      // Only when it has actually changed. This runs on every repaint and a
+      // repaint runs on every pointer move; writing the same words back invalidates
+      // the layout, and the scale bar reads a box off the hint next time round.
+      if (html !== this._readout) { this.readout.innerHTML = html; this._readout = html; }
     }
     if (this.hint) {
-      this.hint.textContent = why
-        || 'Drag to move, drag the peg off the bow to turn. Ships on the water, guns ashore.';
-      this.hint.classList.toggle('bad', !!why);
+      const text = why
+        || 'Drag to move, the peg off the bow to turn, the water to pan. '
+         + 'Scroll or pinch to zoom. Ships on the water, guns ashore.';
+      if (text !== this._hint) {
+        this.hint.textContent = text;
+        this.hint.classList.toggle('bad', !!why);
+        this._hint = text;
+      }
     }
     if (this.goBtn) this.goBtn.disabled = !!why;
   }
@@ -300,29 +333,130 @@ export class LayoutMap {
     return this._size;
   }
 
-  /** Metres to pixels. The whole battlefield is always in the frame — this is
-   *  a plan of it, not a view of part of it.
+  /**
+   * Metres to pixels with the whole battlefield in frame — the chart laid out
+   * so that its shorter side just touches the edge of the screen.
    *
-   *  The battlefield is square, so the chart is the largest square that fits
-   *  between the margins and clear of the row of buttons along the foot. That
-   *  is the width on a phone held upright and the height on one turned on its
-   *  side, and neither case has to be special-cased to come out right. */
-  get scale() {
+   * The battlefield is square and the screen is not, so at this scale the long
+   * way runs off past the border into open sea. That is the right way round: a
+   * chart table is bigger than the chart on it.
+   */
+  get fitScale() {
     const { w, h } = this.size;
-    const side = Math.max(160, Math.min(w - 40, h - 140));
-    return side / (this.half * 2);
+    return Math.max(1e-6, Math.min(w, h) / (this.half * 2));
   }
+
+  get scale() { return this.fitScale * this.view.zoom; }
 
   toScreen(x, z) {
     const { w, h } = this.size;
     const s = this.scale;
-    return { x: w / 2 + x * s, y: h / 2 - z * s };
+    return { x: w / 2 + (x - this.view.x) * s, y: h / 2 - (z - this.view.z) * s };
   }
 
   fromScreen(px, py) {
     const { w, h } = this.size;
     const s = this.scale;
-    return { x: (px - w / 2) / s, z: (h / 2 - py) / s };
+    return { x: this.view.x + (px - w / 2) / s, z: this.view.z - (py - h / 2) / s };
+  }
+
+  /**
+   * How big a token is drawn, in pixels.
+   *
+   * A hull is drawn to her own length once the chart is zoomed in far enough
+   * for that to be bigger than the counter — which is the point of zooming in.
+   * Below that she stays a counter, because a destroyer at forty thousand
+   * yards to the inch is smaller than the ink.
+   */
+  bodyR(t) {
+    if (t.kind !== 'ship') return BODY_R * 0.72;
+    return clamp((t.length * this.scale) / 2, BODY_R, BODY_R * 3.2);
+  }
+
+  /** How far off the bow the peg you turn her by sits. */
+  handleOut(t) { return this.bodyR(t) + 23; }
+
+  // --------------------------------------------------------------- view --
+
+  /**
+   * Keep the battlefield within reach.
+   *
+   * Zoomed out far enough to see the whole of it there is nothing to pan to,
+   * so the view is pinned to the middle. Zoomed in, the centre of the screen
+   * may go as far as the border and no further — which lets a captain work
+   * right into a corner without ever losing the field off the side.
+   */
+  clampView() {
+    const { w, h } = this.size;
+    const s = this.scale;
+    const slackX = Math.max(0, this.half - w / (2 * s));
+    const slackZ = Math.max(0, this.half - h / (2 * s));
+    this.view.x = clamp(this.view.x, -slackX, slackX);
+    this.view.z = clamp(this.view.z, -slackZ, slackZ);
+  }
+
+  /** Zoom about a point on the canvas, so what is under the finger stays put. */
+  zoomAt(p, factor) {
+    const before = this.fromScreen(p.x, p.y);
+    this.view.zoom = clamp(this.view.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    const after = this.fromScreen(p.x, p.y);
+    this.view.x += before.x - after.x;
+    this.view.z += before.z - after.z;
+    this.clampView();
+    this.dirty = true;
+  }
+
+  /**
+   * The zoom keys work about the middle of the screen, which is what a captain
+   * expects while he is looking at something.
+   *
+   * If that leaves nothing of his on the screen the chart walks to the nearest
+   * token instead. The fleets form up on two lines a long way either side of
+   * the middle of the field, so zooming in on the centre lands in empty ocean
+   * every time, and hunting for your own ships is no way to write an order of
+   * battle. Scrolling and pinching are anchored on the finger and are left
+   * alone: those go where they were aimed.
+   */
+  zoom(factor) {
+    const { w, h } = this.size;
+    this.zoomAt({ x: w / 2, y: h / 2 }, factor);
+    if (!this.onScreen()) this.lookAt(this.nearestToken());
+  }
+
+  /** Is any token visible at all? */
+  onScreen() {
+    const { w, h } = this.size;
+    return this.tokens.some((t) => {
+      const p = this.toScreen(t.x, t.z);
+      const r = this.bodyR(t) + 20;
+      return p.x > -r && p.x < w + r && p.y > -r && p.y < h + r;
+    });
+  }
+
+  /** Whatever is closest to where the chart is already looking. */
+  nearestToken() {
+    let best = null;
+    let bestD = Infinity;
+    for (const t of this.tokens) {
+      const d = Math.hypot(t.x - this.view.x, t.z - this.view.z);
+      if (d < bestD) { best = t; bestD = d; }
+    }
+    return best;
+  }
+
+  /** Put something in the middle of the screen. */
+  lookAt(t) {
+    if (!t) return;
+    this.view.x = t.x;
+    this.view.z = t.z;
+    this.clampView();
+    this.dirty = true;
+  }
+
+  /** Back to the whole battlefield, centred. */
+  fit() {
+    this.view = { x: 0, z: 0, zoom: 1 };
+    this.dirty = true;
   }
 
   // ------------------------------------------------------------ pointers --
@@ -334,58 +468,113 @@ export class LayoutMap {
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
-    const down = (e) => {
-      const p = at(e);
+    /** The token under the finger, and whether it was taken by body or handle. */
+    const pick = (p) => {
       let best = null;
       let bestD = Infinity;
       for (const t of this.tokens) {
         const s = this.toScreen(t.x, t.z);
-        const hx = s.x + Math.sin(t.heading) * HANDLE_OUT;
-        const hy = s.y - Math.cos(t.heading) * HANDLE_OUT;
+        const out = this.handleOut(t);
+        const hx = s.x + Math.sin(t.heading) * out;
+        const hy = s.y - Math.cos(t.heading) * out;
         const dh = Math.hypot(p.x - hx, p.y - hy);
         if (dh < HANDLE_R + 8 && dh < bestD) { best = { t, mode: 'turn' }; bestD = dh; }
         const db = Math.hypot(p.x - s.x, p.y - s.y);
-        if (db < BODY_R + 6 && db < bestD) { best = { t, mode: 'move' }; bestD = db; }
+        if (db < this.bodyR(t) + 8 && db < bestD) { best = { t, mode: 'move' }; bestD = db; }
       }
-      if (!best) return;
-      this.drag = best;
-      // The one being moved is drawn last, so it is on top of whatever it is
-      // being dragged over.
-      this.tokens.splice(this.tokens.indexOf(best.t), 1);
-      this.tokens.push(best.t);
+      return best;
+    };
+
+    const down = (e) => {
+      const p = at(e);
+      this.pointers.set(e.pointerId, p);
+      // Two fingers is always a pinch, whatever the first one had hold of.
+      if (this.pointers.size === 2) {
+        this.pinch = this.spread();
+        this.drag = null;
+        return;
+      }
+      const hit = pick(p);
+      // Nothing under the finger: the chart itself is dragged instead.
+      this.drag = hit || { mode: 'pan', from: p };
+      if (hit) {
+        // The one being moved is drawn last, so it is on top of whatever it is
+        // being dragged over.
+        this.tokens.splice(this.tokens.indexOf(hit.t), 1);
+        this.tokens.push(hit.t);
+      }
+      el.classList.toggle('panning', !hit);
       try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
       this.dirty = true;
       e.preventDefault();
     };
 
     const move = (e) => {
-      if (!this.drag) return;
+      const prev = this.pointers.get(e.pointerId);
+      if (!prev) return;
       const p = at(e);
-      const t = this.drag.t;
-      if (this.drag.mode === 'move') {
+      this.pointers.set(e.pointerId, p);
+
+      if (this.pointers.size === 2 && this.pinch > 0) {
+        const now = this.spread();
+        this.zoomAt(this.midpoint(), now / Math.max(1, this.pinch));
+        this.pinch = now;
+        e.preventDefault();
+        return;
+      }
+      if (!this.drag) return;
+      if (this.drag.mode === 'pan') {
+        const s = this.scale;
+        this.view.x -= (p.x - prev.x) / s;
+        this.view.z += (p.y - prev.y) / s;
+        this.clampView();
+      } else if (this.drag.mode === 'move') {
+        const t = this.drag.t;
         const w = this.fromScreen(p.x, p.y);
         t.x = clamp(w.x, -this.half + 150, this.half - 150);
         t.z = clamp(w.z, -this.half + 150, this.half - 150);
+        this.check(t);
       } else {
+        const t = this.drag.t;
         const s = this.toScreen(t.x, t.z);
         t.heading = Math.atan2(p.x - s.x, s.y - p.y);
+        this.check(t);
       }
-      this.check(t);
       this.dirty = true;
       e.preventDefault();
     };
 
     const up = (e) => {
-      if (!this.drag) return;
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.pinch = 0;
       this.drag = null;
+      el.classList.remove('panning');
       try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
       this.dirty = true;
+    };
+
+    this.onWheel = (e) => {
+      e.preventDefault();
+      this.zoomAt(at(e), e.deltaY < 0 ? 1.18 : 1 / 1.18);
     };
 
     el.addEventListener('pointerdown', down);
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('wheel', this.onWheel, { passive: false });
+
+    document.getElementById('lay-in')?.addEventListener('click', () => this.zoom(1.5));
+    document.getElementById('lay-out')?.addEventListener('click', () => this.zoom(1 / 1.5));
+    document.getElementById('lay-fit')?.addEventListener('click', () => this.fit());
+
+    this.onKey = (e) => {
+      if (!document.getElementById('screen-lay')?.classList.contains('active')) return;
+      if (e.code === 'Equal' || e.code === 'NumpadAdd') this.zoom(1.5);
+      else if (e.code === 'Minus' || e.code === 'NumpadSubtract') this.zoom(1 / 1.5);
+      else if (e.code === 'Digit0' || e.code === 'Numpad0') this.fit();
+    };
+    window.addEventListener('keydown', this.onKey);
 
     if (this.backBtn) this.backBtn.onclick = () => this.onBack?.();
     if (this.autoBtn) {
@@ -394,8 +583,18 @@ export class LayoutMap {
     if (this.goBtn) {
       this.goBtn.onclick = () => { if (!this.blocker()) this.onGo?.(this.result()); };
     }
-    this.onResize = () => { this._size = null; this.dirty = true; };
+    this.onResize = () => { this._size = null; this.clampView(); this.dirty = true; };
     window.addEventListener('resize', this.onResize);
+  }
+
+  spread() {
+    const [a, b] = [...this.pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  midpoint() {
+    const [a, b] = [...this.pointers.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
 
   // -------------------------------------------------------------- paint --
@@ -419,14 +618,27 @@ export class LayoutMap {
 
     const s = this.scale;
     const half = this.half * s;
-    const cx = w / 2;
-    const cy = h / 2;
+    const mid = this.toScreen(0, 0);
+    const cx = mid.x;
+    const cy = mid.y;
 
-    // The sea, and the borders of the battlefield.
+    // Off the chart: the table the chart is lying on. Everything outside the
+    // battlefield's borders is drawn darker so that the borders read as the
+    // edge of the water a captain is allowed to fight over, not as the edge of
+    // the screen.
+    ctx.fillStyle = '#07141f';
+    ctx.fillRect(0, 0, w, h);
+
+    // The sea inside them.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - half, cy - half, half * 2, half * 2);
+    ctx.clip();
     ctx.fillStyle = '#0a1b2b';
     ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
 
-    // The land, exactly as the simulation will raise it.
+    // The land, exactly as the simulation will raise it. Clipped to the
+    // borders with the sea, so an island that straddles one is cut off at it.
     ctx.fillStyle = '#3f5a3a';
     ctx.strokeStyle = '#9fb69a';
     ctx.lineWidth = 1;
@@ -439,38 +651,50 @@ export class LayoutMap {
         });
         path.closePath();
       }
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(cx - half, cy - half, half * 2, half * 2);
-      ctx.clip();
       ctx.fill(path, 'evenodd');
       ctx.stroke(path);
-      ctx.restore();
     }
     for (const i of this.world.islands || []) {
       const p = this.toScreen(i.x, i.z);
+      // Off the side of the screen entirely: nothing to draw, and at close
+      // zoom on a big field that is most of them.
+      if (p.x + i.r * s < 0 || p.x - i.r * s > w || p.y + i.r * s < 0 || p.y - i.r * s > h) continue;
       ctx.beginPath();
       ctx.arc(p.x, p.y, i.r * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
 
-    // A grid at a round number of yards, and the border over it.
-    const gridM = this.half > 20000 ? 10000 : this.half > 9000 ? 5000 : 2000;
+    // A grid at a round number of metres, picked so the squares stay about a
+    // finger apart however far the chart is zoomed in.
+    const gridM = niceStep(150 / s);
+    const x0 = Math.max(-this.half, this.view.x - w / (2 * s));
+    const x1 = Math.min(this.half, this.view.x + w / (2 * s));
+    const z0 = Math.max(-this.half, this.view.z - h / (2 * s));
+    const z1 = Math.min(this.half, this.view.z + h / (2 * s));
     ctx.strokeStyle = 'rgba(120, 168, 200, 0.14)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let g = -this.half; g <= this.half + 1; g += gridM) {
-      ctx.moveTo(cx + g * s, cy - half); ctx.lineTo(cx + g * s, cy + half);
-      ctx.moveTo(cx - half, cy - g * s); ctx.lineTo(cx + half, cy - g * s);
+    for (let g = Math.ceil(x0 / gridM) * gridM; g <= x1; g += gridM) {
+      const px = cx + g * s;
+      ctx.moveTo(px, cy - half); ctx.lineTo(px, cy + half);
+    }
+    for (let g = Math.ceil(z0 / gridM) * gridM; g <= z1; g += gridM) {
+      const py = cy - g * s;
+      ctx.moveTo(cx - half, py); ctx.lineTo(cx + half, py);
     }
     ctx.stroke();
+    ctx.restore();
+
+    // The border itself, over the top of everything inside it.
     ctx.strokeStyle = 'rgba(230, 207, 156, 0.55)';
     ctx.lineWidth = 2;
     ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
 
     // Whose end of the field is whose, so a captain knows which way is theirs.
-    // Down the right-hand edge, clear of the hint line that runs across the
-    // foot of the screen and clear of the scale bar in the other corner.
+    // Printed on the chart rather than pinned to the screen: they belong to the
+    // battlefield and they move with it. Down the right-hand edge, clear of the
+    // hint line that runs across the foot of the screen.
     ctx.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.letterSpacing = '0.2em';
     ctx.textAlign = 'right';
@@ -483,22 +707,28 @@ export class LayoutMap {
     for (const t of this.tokens) this.drawToken(ctx, t);
     this.drawNames(ctx);
 
-    // The scale bar, because a plan without one says nothing about range. It
-    // sits inside the border: below it is the row of buttons.
-    const barM = gridM;
-    const bx = cx - half + 14;
-    const by = cy + half - 18;
+    // The scale bar, because a plan without one says nothing about range. This
+    // one belongs to the view rather than to the chart -- it says what the
+    // current zoom is worth -- so it is pinned to the corner of the screen.
+    const barM = niceStep(150 / s);
+    const bw = barM * s;
+    const bx = 18;
+    // Kept above the hint line rather than at a fixed height off the foot: on a
+    // phone that line runs to four rows and a bar underneath it lands in the
+    // middle of the words.
+    const hintTop = this.hint ? this.hint.getBoundingClientRect().top : h;
+    const by = Math.max(40, Math.min(h - 96, hintTop - 18));
     ctx.strokeStyle = 'rgba(230, 207, 156, 0.75)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(bx, by); ctx.lineTo(bx + barM * s, by);
+    ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by);
     ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 4);
-    ctx.moveTo(bx + barM * s, by - 4); ctx.lineTo(bx + barM * s, by + 4);
+    ctx.moveTo(bx + bw, by - 4); ctx.lineTo(bx + bw, by + 4);
     ctx.stroke();
     ctx.fillStyle = 'rgba(230, 207, 156, 0.8)';
     ctx.textAlign = 'left';
     ctx.font = '11px "Barlow Condensed", "Arial Narrow", sans-serif';
-    ctx.fillText(`${Math.round(barM / 0.9144 / 100) * 100} yd`, bx + barM * s + 8, by + 4);
+    ctx.fillText(`${Math.round(barM / 0.9144 / 100) * 100} yd`, bx + bw + 8, by + 4);
 
     this.status();
   }
@@ -508,11 +738,13 @@ export class LayoutMap {
     const col = TEAM[t.team];
     const sin = Math.sin(t.heading);
     const cos = Math.cos(t.heading);
+    const r = this.bodyR(t);
+    const out = this.handleOut(t);
 
     // A gun's field of fire, so what it is pointed at means something.
     if (t.kind === 'gun') {
       const half = ((t.traverse >= 360 ? 360 : t.traverse) / 2) * (Math.PI / 180);
-      const reach = 54;
+      const reach = r * 4.4;
       ctx.beginPath();
       if (t.traverse >= 360) {
         ctx.arc(p.x, p.y, reach, 0, Math.PI * 2);
@@ -533,12 +765,12 @@ export class LayoutMap {
     }
 
     // The handle it is turned by, and the shaft joining it to the body.
-    const hx = p.x + sin * HANDLE_OUT;
-    const hy = p.y - cos * HANDLE_OUT;
+    const hx = p.x + sin * out;
+    const hy = p.y - cos * out;
     ctx.strokeStyle = 'rgba(230, 207, 156, 0.55)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(p.x + sin * BODY_R, p.y - cos * BODY_R);
+    ctx.moveTo(p.x + sin * r, p.y - cos * r);
     ctx.lineTo(hx, hy);
     ctx.stroke();
     ctx.beginPath();
@@ -555,16 +787,18 @@ export class LayoutMap {
     ctx.rotate(t.heading);
     ctx.beginPath();
     if (t.kind === 'ship') {
-      // A hull: pointed at the bow, square at the transom.
-      ctx.moveTo(0, -BODY_R);
-      ctx.lineTo(BODY_R * 0.6, -BODY_R * 0.25);
-      ctx.lineTo(BODY_R * 0.55, BODY_R * 0.85);
-      ctx.lineTo(-BODY_R * 0.55, BODY_R * 0.85);
-      ctx.lineTo(-BODY_R * 0.6, -BODY_R * 0.25);
+      // A hull: pointed at the bow, square at the transom, and about as fine
+      // as the real one -- her beam is roughly a seventh of her length.
+      const beam = r * 0.36;
+      ctx.moveTo(0, -r);
+      ctx.lineTo(beam, -r * 0.45);
+      ctx.lineTo(beam * 0.92, r * 0.88);
+      ctx.lineTo(-beam * 0.92, r * 0.88);
+      ctx.lineTo(-beam, -r * 0.45);
       ctx.closePath();
     } else {
       // A gun: a drum with a barrel out of it.
-      ctx.arc(0, 0, BODY_R * 0.72, 0, Math.PI * 2);
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
     }
     ctx.fillStyle = t.ok ? col.fill : BAD;
     ctx.fill();
@@ -573,8 +807,8 @@ export class LayoutMap {
     ctx.stroke();
     if (t.kind === 'gun') {
       ctx.beginPath();
-      ctx.moveTo(0, -BODY_R * 0.5);
-      ctx.lineTo(0, -BODY_R * 1.25);
+      ctx.moveTo(0, -r * 0.7);
+      ctx.lineTo(0, -r * 1.75);
       ctx.lineWidth = 4;
       ctx.stroke();
     }
@@ -601,8 +835,9 @@ export class LayoutMap {
       // Under the token, unless the token is pointed that way -- a hull steering
       // down the chart has her peg where her name would go, so the name goes
       // over her head instead.
+      const r = this.bodyR(t);
       const over = Math.cos(t.heading) < 0;
-      const base = over ? p.y - BODY_R - 9 : p.y + BODY_R + 13;
+      const base = over ? p.y - r - 9 : p.y + r + 13;
       const away = over ? -11 : 11;
       // A line further off, then two, before the name is given up: a division
       // in line abreast then reads as a stepped column rather than one blot.
@@ -612,7 +847,8 @@ export class LayoutMap {
         y = base + step * away;
         room = clear(p.x, y);
       }
-      if (!room) continue;
+      // Off the side of the screen: nothing to write.
+      if (!room || p.x < -80 || p.x > this.size.w + 80 || y < 0 || y > this.size.h) continue;
       taken.push({ x: p.x, y });
       ctx.fillStyle = t.ok ? 'rgba(240, 232, 214, 0.9)' : '#ffd9d6';
       ctx.fillText(t.name.length > 20 ? `${t.name.slice(0, 19)}…` : t.name, p.x, y);

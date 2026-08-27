@@ -1140,11 +1140,16 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 /* The placement chart borrows the deployment chart's furniture and adds a row
    of buttons along the bottom in place of the single way out. */
 
+/* The chart is the screen, edge to edge, and everything else floats over it. */
 #lay-canvas {
   position: absolute; inset: 0;
   width: 100%; height: 100%; display: block;
-  touch-action: none; cursor: default;
+  touch-action: none; cursor: grab;
 }
+#lay-canvas.panning { cursor: grabbing; }
+
+/* The fit key is square rather than a sign, so it needs its own size. */
+.lay-zoom button:last-child { font-size: 1.05rem; }
 
 .lay-actions {
   position: absolute;
