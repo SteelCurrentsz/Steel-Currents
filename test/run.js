@@ -8,7 +8,9 @@ import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip,
 } from '../shared/sim.js';
-import { BATTERIES, batteryGun, batteryArc } from '../shared/batteries.js';
+import {
+  BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
+} from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { buildSnapshot } from '../shared/protocol.js';
@@ -362,24 +364,30 @@ function shoot(batteryId, gap) {
   return { state, bat, ship };
 }
 
-check('a battery opens fire inside its range and stays quiet outside it', () => {
-  const b = BATTERIES.longues;
-  // Well inside nineteen and a half thousand metres, and well outside it.
-  const near = shoot('longues', b.range * 0.6);
+check('a battery opens fire inside its reach and stays quiet outside it', () => {
+  // The shortest-reaching gun on the list, because the far half of this check
+  // has to put a ship outside its reach and still inside the battlefield, and
+  // the battlefield is only sixty-four thousand metres across.
+  const b = BATTERIES.merville;
+  const reach = batteryReach(b);
+  const far = reach * 1.6;
+  assert.ok(far / 2 < 32004 - 600, 'both ends of this check are on the battlefield');
+
+  const near = shoot('merville', reach * 0.6);
   let salvos = 0;
-  for (let i = 0; i < 30 * 90; i++) {
+  for (let i = 0; i < 30 * 120; i++) {
     for (const ev of step(near.state, DT)) if (ev.e === 'muzzle' && ev.battery) salvos++;
   }
   assert.ok(salvos >= 4, `expected the battery to fire, got ${salvos} salvos`);
   assert.ok(near.ship.hp < near.ship.maxHp, 'and to hit something with them');
 
-  const far = shoot('longues', b.range * 1.6);
+  const out = shoot('merville', far);
   let fired = 0;
-  for (let i = 0; i < 30 * 90; i++) {
-    for (const ev of step(far.state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
+  for (let i = 0; i < 30 * 120; i++) {
+    for (const ev of step(out.state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
   }
-  assert.equal(fired, 0, 'a ship beyond maximum range must not be engaged');
-  assert.equal(far.ship.hp, far.ship.maxHp, 'and must take no damage');
+  assert.equal(fired, 0, 'a ship beyond the battery\'s reach must not be engaged');
+  assert.equal(out.ship.hp, out.ship.maxHp, 'and must take no damage');
 });
 
 check('a battery trains no further than its mounting allows', () => {
@@ -426,16 +434,28 @@ check('a battery can be silenced, and its armour decides how fast', () => {
 });
 
 check('the gun a battery fires is built from its own datasheet', () => {
+  assert.ok(BATTERY_REACH > 1, 'a coast gun reaches further here than it did in life');
   for (const id of Object.keys(BATTERIES)) {
     const b = BATTERIES[id];
     const g = batteryGun(id);
-    assert.equal(g.range, b.range, `${id} should shoot as far as it says it does`);
+    // The sheet keeps the real figure; the shells obey the reach. One is a
+    // fixed multiple of the other, so the sheet still says which of these
+    // outranges which and by how much.
+    assert.equal(g.range, b.range * BATTERY_REACH,
+      `${id} should shoot to its reach, not to its historical range`);
     assert.equal(g.reload, b.reload, `${id} should load as fast as it says it does`);
     assert.equal(g.caliber, b.caliber);
-    // The solution at maximum range must still be a real one.
-    const s = solveBallistic(g, b.range * 0.98, 40);
-    assert.ok(s.tof > 1 && s.tof < 400, `${id} time of flight ${s.tof}`);
+    // The solution at maximum reach must still be a real one, and the shell
+    // must live long enough to arrive: the cull in stepShells is a net under
+    // the arithmetic, not a range limit in disguise.
+    const s = solveBallistic(g, g.range * 0.98, 40);
+    assert.ok(s.tof > 1 && s.tof < 200, `${id} time of flight ${s.tof}`);
     assert.ok(s.elev < Math.PI / 4 + 0.01, `${id} elevation ${s.elev}`);
+    // And the longest shot anyone can actually take on the largest
+    // battlefield there is — corner to corner — arrives as well.
+    const corner = Math.min(g.range, 32004 * 2 * Math.SQRT2);
+    const c = solveBallistic(g, corner, 40);
+    assert.ok(c.tof < 200, `${id} corner-to-corner time of flight ${c.tof}`);
   }
   // Bore decides weight of shell: the eight-hundred throws more than the
   // eighty-eight by rather a lot.
@@ -476,6 +496,28 @@ check('islands are shapes, and everything agrees on which shape', () => {
   for (const p of [spawnPoint(w, 0, 0), spawnPoint(w, 1, 0)]) {
     assert.ok(!islandAt(w, p.x, p.z, 200), 'and no fleet forms up on one');
   }
+});
+
+check('a battery reaches past its historical range, and the sheet still says what it was', () => {
+  const b = BATTERIES.merville;
+  // The howitzer's real range is under ten thousand metres. Put a ship twice
+  // that far out: in life it would have been perfectly safe.
+  const gap = b.range * 2;
+  assert.ok(gap > b.range && gap < batteryReach(b), 'past the real range, inside the reach');
+  const { state, ship } = shoot('merville', gap);
+  let salvos = 0;
+  for (let i = 0; i < 30 * 120; i++) {
+    for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery) salvos++;
+  }
+  assert.ok(salvos >= 3, `expected the battery to reach her, got ${salvos} salvos`);
+  assert.ok(ship.hp < ship.maxHp, 'and to hurt her at twice its historical range');
+
+  // And the figure the gun park reads off is untouched: the datasheet is the
+  // history, the reach is the game. (The screen itself is checked in the
+  // browser; here it is enough that the number it reads has not moved.)
+  assert.equal(BATTERIES.merville.range, 9970, 'the real range stays on the datasheet');
+  assert.equal(BATTERIES.todt.range, 55700);
+  assert.equal(BATTERIES.gustav.range, 47000);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

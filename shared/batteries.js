@@ -200,6 +200,22 @@ export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
 //   406 mm 13500     6300     640
 //
 // Which are power laws in the bore to within a few per cent.
+/**
+ * How much further a coast gun shoots here than it did in life.
+ *
+ * The figures in the table above are the real ones and stay that way — that is
+ * what the gun park puts in front of a captain, and a datasheet that lies is
+ * worth nothing. But a battlefield in this game runs to seventy thousand yards
+ * across, and a gun laid on one end of it that reaches ten thousand metres is
+ * scenery. So the *reach* is the real range with a multiplier on it, and every
+ * battery gets the same one: what a captain reads off the sheet still tells him
+ * which of these outranges which, and by how much.
+ */
+export const BATTERY_REACH = 3;
+
+/** How far the battery actually shoots on this battlefield, in metres. */
+export const batteryReach = (b) => b.range * BATTERY_REACH;
+
 const REF_BORE = 127;
 const curve = (at127, power) => (mm) => Math.round(at127 * (mm / REF_BORE) ** power);
 const apDamage = curve(2100, 1.62);
@@ -212,11 +228,12 @@ const GUNS = new Map();
  * A firing solution's worth of gun, in the shape `solveBallistic` and the shell
  * step expect from a ship.
  *
- * `range` is the battery's own maximum, and the ballistics are solved against
- * it: a gun that reaches nineteen thousand metres lobs its shell on the arc
- * that reaches nineteen thousand metres, and one that reaches fifty-five
- * thousand throws it flatter and further. That is what makes range mean
- * something rather than being a number on a datasheet.
+ * `range` here is the battery's reach — its real maximum with the battlefield's
+ * multiplier on it, see BATTERY_REACH — and the ballistics are solved against
+ * it: a gun that reaches sixty thousand metres throws its shell flatter and
+ * further than one that reaches thirty. That is what makes range mean something
+ * rather than being a number on a datasheet. The number on the datasheet stays
+ * the real one; this is the one the shells obey.
  */
 export function batteryGun(id) {
   let g = GUNS.get(id);
@@ -227,7 +244,7 @@ export function batteryGun(id) {
   g = {
     caliber: mm,
     reload: b.reload,
-    range: b.range,
+    range: batteryReach(b),
     // Bedded in concrete or on a barbette, a coast gun does not roll, and a gun
     // that does not roll shoots tighter than the same gun at sea.
     sigma: 2.4,
@@ -274,7 +291,13 @@ export function batteryHp(b) {
   return Math.round(600 + b.weight * 4 + b.armour * 6);
 }
 
-/** What a battery that shoots upward does to aircraft, or null. */
+/**
+ * What a battery that shoots upward does to aircraft, or null.
+ *
+ * Anti-aircraft reach is left alone. A flak battery's ceiling is set by how
+ * long the fuse burns and how high the shell still has the speed to matter,
+ * and no amount of battlefield makes that further.
+ */
 export function batteryAa(b) {
   if (b.targets === 'ships') return null;
   return { range: Math.min(b.range, 7000), dps: Math.round(b.caliber * 1.7) };

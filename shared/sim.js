@@ -480,7 +480,10 @@ function fireBattery(state, bat, b, gun, target) {
   // A bedded gun shoots tighter than a rolling one, and the lead is the same
   // problem a ship's gunnery officer has: where she will be, not where she is.
   const s2 = solveBallistic(gun, d, bat.y);
-  const lead = Math.min(s2.tof, 30);
+  // The full flight time, up to a minute of it: at forty thousand metres a
+  // shell is a good half-minute in the air, and a battery that leads by thirty
+  // seconds of it lays every salvo astern of the target.
+  const lead = Math.min(s2.tof, 60);
   const ax = target.x + Math.sin(target.heading) * target.speed * lead;
   const az = target.z + Math.cos(target.heading) * target.speed * lead;
   const aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
@@ -604,7 +607,11 @@ function stepShells(state, dt) {
       state.events.push({ e: isle ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber });
       continue;
     }
-    if (sh.life > 60) continue;
+    // A shell always ends on the water or on something, so this is only a net
+    // under the arithmetic. It has to clear the longest flight on the largest
+    // battlefield, which for a coast gun shooting across seventy thousand yards
+    // is well over a minute.
+    if (sh.life > 200) continue;
     out.push(sh);
   }
   state.shells = out;
