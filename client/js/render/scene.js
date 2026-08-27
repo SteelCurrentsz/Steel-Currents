@@ -4,10 +4,13 @@ import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS } from './ocean.js';
 import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
+import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Wake } from './wake.js';
 import { QUALITY } from '../settings.js';
-import { MAP_HALF, landMask, groundHeight, getWeather } from '../../../shared/world.js';
+import {
+  MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
+} from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { makeRng } from '../../../shared/math.js';
 
@@ -155,45 +158,133 @@ function buildCoast(world) {
   }));
 }
 
-/** Islands: a jagged low-poly cone plus a foam ring at the waterline. */
-function buildIsland(isle) {
+/**
+ * The islands, as ground rather than as scenery.
+ *
+ * Each one is a radial mesh laid on the same rim the simulation collides with:
+ * spokes out from the middle, rings along them, the height at every vertex
+ * taken from `islandHeight`. So the beach a captain can see is the beach his
+ * bow grounds on, and a coast battery placed on the high ground is standing on
+ * high ground rather than hovering over a cone.
+ *
+ * The mesh runs on past the waterline to a shelf twenty-odd metres down, so
+ * the island rises out of the seabed instead of out of a hole.
+ *
+ * All of them are welded into one geometry. A big battlefield carries over a
+ * hundred islands, and a hundred islands is two hundred draw calls for
+ * something that never moves.
+ */
+const ISLE_RINGS = [0, 0.16, 0.31, 0.45, 0.58, 0.7, 0.8, 0.88, 0.95, 1, 1.14, 1.32];
+
+/** Two greens, a sand and a seabed, picked by height. */
+function isleShade(h) {
+  if (h < -2) return [0.19, 0.24, 0.26];
+  if (h < 4) return [0.66, 0.61, 0.46];
+  if (h < 16) return [0.48, 0.50, 0.35];
+  if (h < 95) return [0.30, 0.37, 0.22];
+  return [0.26, 0.29, 0.22];
+}
+
+function buildIslands(islands) {
+  if (!islands.length) return null;
   const g = new THREE.Group();
-  const rng = makeRng(isle.shape || 1);
-  const sides = 11;
   const pos = [];
-  const rim = [];
-  for (let i = 0; i < sides; i++) {
-    const a = (i / sides) * Math.PI * 2;
-    const r = isle.r * (0.78 + rng() * 0.34);
-    rim.push([Math.sin(a) * r, Math.cos(a) * r]);
+  const col = [];
+  const foam = [];
+
+  for (const isle of islands) {
+    const rng = makeRng(isle.shape || 1);
+    const spokes = Math.max(20, Math.min(44, Math.round(isle.r / 22)));
+    // A ridge factor per spoke, so the hill has shoulders and gullies instead
+    // of being a dome of revolution. It is faded out at the summit and at the
+    // waterline, which keeps the top flat enough to build on and the beach at
+    // sea level where the collision says it is.
+    const ridge = [];
+    for (let i = 0; i < spokes; i++) ridge.push(0.84 + rng() * 0.32);
+
+    const nr = ISLE_RINGS.length;
+    const px = new Float32Array(spokes * nr);
+    const py = new Float32Array(spokes * nr);
+    const pz = new Float32Array(spokes * nr);
+    for (let i = 0; i < spokes; i++) {
+      const a = (i / spokes) * Math.PI * 2;
+      const R = islandRadius(isle, a);
+      const sn = Math.sin(a);
+      const cs = Math.cos(a);
+      for (let j = 0; j < nr; j++) {
+        const f = ISLE_RINGS[j];
+        const x = isle.x + sn * R * f;
+        const z = isle.z + cs * R * f;
+        let y;
+        if (f >= 1) {
+          // Off the beach and down onto the shelf.
+          const t = (f - 1) / (ISLE_RINGS[nr - 1] - 1);
+          y = -24 * t * t;
+        } else {
+          y = islandHeight(isle, x, z);
+          const bump = Math.sin(Math.PI * f);
+          y *= 1 + (ridge[i] - 1) * bump * 0.9;
+        }
+        const k = i * nr + j;
+        px[k] = x; py[k] = y; pz[k] = z;
+      }
+    }
+
+    const push = (k) => { pos.push(px[k], py[k], pz[k]); };
+    const shade = (k) => { const c = isleShade(py[k]); col.push(c[0], c[1], c[2]); };
+    for (let i = 0; i < spokes; i++) {
+      const i2 = (i + 1) % spokes;
+      for (let j = 0; j < nr - 1; j++) {
+        const a = i * nr + j;
+        const b = i * nr + j + 1;
+        const c = i2 * nr + j;
+        const d = i2 * nr + j + 1;
+        if (j === 0) {
+          // The summit closes on itself: one fan of triangles, no seam.
+          push(a); push(b); push(d);
+          shade(a); shade(b); shade(d);
+          continue;
+        }
+        push(a); push(b); push(d);
+        push(a); push(d); push(c);
+        shade(a); shade(b); shade(d);
+        shade(a); shade(d); shade(c);
+      }
+    }
+
+    // Foam at the waterline, following the rim rather than ringing it.
+    for (let i = 0; i < spokes; i++) {
+      const i2 = (i + 1) % spokes;
+      const a0 = (i / spokes) * Math.PI * 2;
+      const a1 = (i2 / spokes) * Math.PI * 2;
+      const r0 = islandRadius(isle, a0);
+      const r1 = islandRadius(isle, a1);
+      const p = (a, r) => [isle.x + Math.sin(a) * r, 1.2, isle.z + Math.cos(a) * r];
+      const in0 = p(a0, r0 * 0.985);
+      const in1 = p(a1, r1 * 0.985);
+      const out0 = p(a0, r0 * 1.06);
+      const out1 = p(a1, r1 * 1.06);
+      foam.push(...in0, ...out1, ...out0);
+      foam.push(...in0, ...in1, ...out1);
+    }
   }
-  const peaks = [
-    [0, 0, isle.height],
-    [isle.r * 0.3, isle.r * 0.2, isle.height * 0.72],
-    [-isle.r * 0.35, -isle.r * 0.25, isle.height * 0.6],
-  ];
-  for (let i = 0; i < sides; i++) {
-    const a = rim[i], b = rim[(i + 1) % sides];
-    const peak = peaks[i % peaks.length];
-    pos.push(a[0], -6, a[1], b[0], -6, b[1], peak[0], peak[2], peak[1]);
-  }
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
   const land = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    color: 0x46503a, flatShading: true, roughness: 0.95, metalness: 0,
+    vertexColors: true, roughness: 0.95, metalness: 0,
   }));
+  land.renderOrder = -1;
   g.add(land);
 
-  const shore = new THREE.Mesh(
-    new THREE.RingGeometry(isle.r * 0.9, isle.r * 1.12, 24),
-    new THREE.MeshBasicMaterial({ color: 0x7fa8b8, transparent: true, opacity: 0.28, depthWrite: false }),
-  );
-  shore.rotation.x = -Math.PI / 2;
-  shore.position.y = 1.2;
-  g.add(shore);
-
-  g.position.set(isle.x, 0, isle.z);
+  const fg = new THREE.BufferGeometry();
+  fg.setAttribute('position', new THREE.Float32BufferAttribute(foam, 3));
+  g.add(new THREE.Mesh(fg, new THREE.MeshBasicMaterial({
+    color: 0xa8c6d2, transparent: true, opacity: 0.2, depthWrite: false,
+    side: THREE.DoubleSide,
+  })));
   return g;
 }
 
@@ -302,8 +393,13 @@ export class BattleScene {
       (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light),
     ));
 
-    for (const isle of world.islands) this.scene.add(buildIsland(isle));
-    const coast = buildCoast(world);
+    const isles = buildIslands(world.islands);
+    if (isles) this.scene.add(isles);
+    // A battlefield has either a real coastline or invented islands, never
+    // both, and the islands raise themselves above at their own detail. Running
+    // the mask terrain over them as well would lay a hundred-and-fifty-metre
+    // staircase on top of a three-hundred-metre island.
+    const coast = world.land?.length ? buildCoast(world) : null;
     if (coast) this.scene.add(coast);
     this.addBorder();
     this.addCapRings();
@@ -313,6 +409,10 @@ export class BattleScene {
 
     this.camera = new THREE.PerspectiveCamera(58, 1, 2, q.drawDistance);
     this.shipViews = new Map();
+    // The guns ashore. Built the first time one turns up in a snapshot, which
+    // is also the first frame of the battle -- both sides sited them before it
+    // started, so there is nothing to wait for.
+    this.batteryViews = new Map();
 
     // Shell tracers, drawn as a single instanced batch.
     const tracerGeo = new THREE.SphereGeometry(3.2, 6, 5);
@@ -386,6 +486,44 @@ export class BattleScene {
   removeShipView(id) {
     const v = this.shipViews.get(id);
     if (v) { v.dispose(this.scene); this.shipViews.delete(id); }
+  }
+
+  /**
+   * A coast battery, standing where it was sited.
+   *
+   * The whole emplacement turns with the mounting rather than the barrel alone.
+   * With the concrete gone these are open gun pits -- a pedestal, a racer and a
+   * revetment of sandbags -- and the pit is what a gun of that kind is trained
+   * in, so turning the lot of it is nearer the truth than swinging a barrel
+   * over a revetment that stays put.
+   */
+  getBatteryView(id, batteryId, team) {
+    let v = this.batteryViews.get(id);
+    if (!v) {
+      const built = buildBattery(batteryId);
+      const group = new THREE.Group();
+      group.add(built.group);
+      this.scene.add(group);
+
+      // Whose it is, read from a mile away: the same ring a hull carries.
+      const ringGeo = new THREE.RingGeometry(built.span * 0.62, built.span * 0.72, 28);
+      ringGeo.rotateX(-Math.PI / 2);
+      const marker = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+        color: team === 0 ? 0x6fd3a0 : 0xe2564f,
+        transparent: true, opacity: 0.4, depthWrite: false,
+      }));
+      marker.position.y = 1.5;
+      group.add(marker);
+
+      v = { group, marker, span: built.span, batteryId, team, smokeTimer: 0 };
+      this.batteryViews.set(id, v);
+    }
+    return v;
+  }
+
+  removeBatteryView(id) {
+    const v = this.batteryViews.get(id);
+    if (v) { this.scene.remove(v.group); this.batteryViews.delete(id); }
   }
 
   resize(w, h) {

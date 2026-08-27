@@ -58,11 +58,22 @@ export function buildSnapshot(state, team, viewerShipId) {
     .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
     .map((p) => ({ i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team }));
 
+  // The guns ashore. Both sides put them on the chart before the battle, so
+  // neither is being told anything it did not already know -- what changes is
+  // where each one is trained and whether it is still in action.
+  const batteries = state.batteries.map((b) => ({
+    i: b.id, b: b.batteryId, tm: b.team,
+    x: Math.round(b.x), z: Math.round(b.z), y: r1(b.y),
+    h: r3(b.heading), a: r3(b.angle),
+    hp: Math.round(b.hp), mx: b.maxHp,
+    al: b.alive ? 1 : 0,
+  }));
+
   return {
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, shells, torps, planes,
+    ships, shells, torps, planes, batteries,
     caps: state.caps.map((c) => ({ id: c.id, o: c.owner, p: Math.round(c.progress), k: c.contest })),
     score: [Math.round(state.score[0]), Math.round(state.score[1])],
     over: state.over ? { winner: state.winner, reason: state.reason } : null,

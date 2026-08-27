@@ -4,7 +4,7 @@
 
 import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js';
 import { getClass } from '../shared/ships.js';
-import { blockedByLand, MAP_HALF } from '../shared/world.js';
+import { blockedByLand, islandRadius, MAP_HALF } from '../shared/world.js';
 import { fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair, useSmoke, canFire } from '../shared/sim.js';
 
 const SKILL = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
@@ -52,7 +52,11 @@ export function stepBot(state, ship, brain, dt) {
   }
 
   if (!target) {
+    // Nothing afloat to fight. If a shore battery is inside the guns as she
+    // goes past, she puts a few rounds into it -- but she does not stop to do
+    // it: an emplacement is not going anywhere and the capture zones are.
     patrol(state, ship, brain, dt);
+    shellShore(state, ship, brain, cls);
     return;
   }
 
@@ -111,6 +115,32 @@ export function stepBot(state, ship, brain, dt) {
   }
 }
 
+/**
+ * Lay the guns on the nearest enemy battery inside them and open fire.
+ *
+ * High explosive: there is no citadel in a gun pit and no belt to beat, only a
+ * shield and the crew behind it. Returns whether anything was engaged.
+ */
+function shellShore(state, ship, brain, cls) {
+  let best = null;
+  let bestD = Infinity;
+  for (const b of state.batteries) {
+    if (!b.alive || b.team === ship.team) continue;
+    const d = dist(ship.x, ship.z, b.x, b.z);
+    if (d > cls.gun.range * 0.95 || d >= bestD) continue;
+    best = b;
+    bestD = d;
+  }
+  if (!best) return false;
+  ship.aimX = best.x;
+  ship.aimZ = best.z;
+  if (brain.fireTimer <= 0 && canFire(ship)) {
+    ship.shellType = cls.gun.shells.he ? 'he' : 'ap';
+    if (fireGuns(state, ship) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
+  }
+  return true;
+}
+
 function pickShell(cls, targetCls, d) {
   if (!cls.gun.shells.he) return 'ap';
   // AP into fat armoured broadsides, HE into anything thin or far away.
@@ -145,7 +175,10 @@ function steerToward(state, ship, desiredHeading, dt) {
   const ahead = { x: ship.x + Math.sin(ship.heading) * look, z: ship.z + Math.cos(ship.heading) * look };
   let target = desiredHeading;
   for (const i of state.world.islands) {
-    if (dist(ahead.x, ahead.z, i.x, i.z) < i.r + 300) {
+    // The island's reach on the bearing she is looking down, not a circle round
+    // it: she should not sheer away from a bay she could sail into.
+    const reach = islandRadius(i, Math.atan2(ahead.x - i.x, ahead.z - i.z));
+    if (dist(ahead.x, ahead.z, i.x, i.z) < reach + 300) {
       const away = headingTo(i.x, i.z, ship.x, ship.z);
       target = away;
       break;

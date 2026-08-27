@@ -218,6 +218,16 @@ function handle(player, msg) {
         room.addBotOnTeam(1 - player.team, msg.botSkill, enemyClasses?.[i] ?? null,
           enemyAt?.[i] ?? null);
       }
+      // The guns ashore, where the captain sited them on the chart.
+      const guns = (v) => (Array.isArray(v) ? v.slice(0, 12).filter((id) => typeof id === 'string') : []);
+      const allyGunAt = berths(msg.layout?.allyGuns, 12);
+      const enemyGunAt = berths(msg.layout?.enemyGuns, 12);
+      guns(msg.allyGuns).forEach((id, i) => {
+        room.addBatteryOnTeam(player.team, id, allyGunAt?.[i] ?? null);
+      });
+      guns(msg.enemyGuns).forEach((id, i) => {
+        room.addBatteryOnTeam(1 - player.team, id, enemyGunAt?.[i] ?? null);
+      });
       room.start();
       break;
     }

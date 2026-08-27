@@ -2,12 +2,13 @@
 import assert from 'node:assert/strict';
 import {
   generateWorld, landAt, landMask, blockedByLand, islandAt, groundHeight,
-  spawnPoint,
+  spawnPoint, islandRadius, islandHeight, shoreDistance,
 } from '../shared/world.js';
 import {
-  createState, addShip, step, fireGuns, fireTorpedoes, solveBallistic,
+  createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip,
 } from '../shared/sim.js';
+import { BATTERIES, batteryGun, batteryArc } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { buildSnapshot } from '../shared/protocol.js';
@@ -339,6 +340,141 @@ check('a turret trains no further than its arc allows', () => {
         'a carrier should not have a mount that trains right round');
     }
     state.ships.length = 0;
+  }
+});
+
+// --------------------------------------------------------- coast artillery --
+
+/** A battery on the shore and one ship out in front of it. */
+function shoot(batteryId, gap) {
+  // The largest battlefield there is, so a gun that reaches fifty-five
+  // thousand metres has somewhere to reach to and nothing is being shoved back
+  // off the border mid-test.
+  const world = generateWorld(4242, 'open_ocean', 'day', 32004);
+  world.islands = [];
+  world.land = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  // Laid due north, which is where the ship is put.
+  const bat = addBattery(state, { batteryId, team: 0, x: 0, z: -gap / 2, heading: 0 });
+  const ship = addShip(state, { name: 'Target', classId: 'cleveland', team: 1, index: 0 });
+  // Notch 1 is stop; notch 0 is full astern.
+  ship.x = 0; ship.z = gap / 2; ship.heading = Math.PI / 2; ship.notch = 1;
+  return { state, bat, ship };
+}
+
+check('a battery opens fire inside its range and stays quiet outside it', () => {
+  const b = BATTERIES.longues;
+  // Well inside nineteen and a half thousand metres, and well outside it.
+  const near = shoot('longues', b.range * 0.6);
+  let salvos = 0;
+  for (let i = 0; i < 30 * 90; i++) {
+    for (const ev of step(near.state, DT)) if (ev.e === 'muzzle' && ev.battery) salvos++;
+  }
+  assert.ok(salvos >= 4, `expected the battery to fire, got ${salvos} salvos`);
+  assert.ok(near.ship.hp < near.ship.maxHp, 'and to hit something with them');
+
+  const far = shoot('longues', b.range * 1.6);
+  let fired = 0;
+  for (let i = 0; i < 30 * 90; i++) {
+    for (const ev of step(far.state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
+  }
+  assert.equal(fired, 0, 'a ship beyond maximum range must not be engaged');
+  assert.equal(far.ship.hp, far.ship.maxHp, 'and must take no damage');
+});
+
+check('a battery trains no further than its mounting allows', () => {
+  // Todt has 120 degrees of traverse: 60 either side of where it was laid.
+  const { state, bat, ship } = shoot('todt', 20000);
+  const arc = batteryArc(BATTERIES.todt);
+  assert.ok(Math.abs(arc - Math.PI / 3) < 1e-6, 'sixty degrees either side');
+
+  // Dead astern of the emplacement, which it can never bear on.
+  ship.x = 0; ship.z = bat.z - 12000; ship.notch = 1;
+  let fired = 0;
+  for (let i = 0; i < 30 * 120; i++) {
+    for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
+  }
+  assert.equal(fired, 0, 'a target behind the battery must not be engaged');
+  assert.ok(Math.abs(bat.angle) <= arc + 1e-6, 'and the gun must stay inside its stops');
+});
+
+check('a battery can be silenced, and its armour decides how fast', () => {
+  // A destroyer's 5-inch against Fort Drum's turret face is a nuisance; the
+  // same shells against a field howitzer in the open are not.
+  const hard = shoot('drum', 6000);
+  const soft = shoot('merville', 6000);
+  for (const s of [hard, soft]) {
+    s.ship.classId = 'fletcher';
+    s.ship.hp = 1e9;
+    s.ship.maxHp = 1e9;
+  }
+  const pound = ({ state, bat, ship }) => {
+    const before = bat.hp;
+    for (let i = 0; i < 30 * 200 && bat.alive; i++) {
+      ship.aimX = bat.x; ship.aimZ = bat.z;
+      if (i > 60) fireGuns(state, ship);
+      step(state, DT);
+    }
+    return { took: before - bat.hp, alive: bat.alive, of: before };
+  };
+  const h = pound(hard);
+  const sft = pound(soft);
+  assert.ok(sft.took > 0, 'a howitzer in the open should be taking damage');
+  assert.equal(sft.alive, false, 'and should end up silenced');
+  assert.ok(h.took / h.of < sft.took / sft.of,
+    'a 457 mm turret face should shrug off what kills an open carriage');
+});
+
+check('the gun a battery fires is built from its own datasheet', () => {
+  for (const id of Object.keys(BATTERIES)) {
+    const b = BATTERIES[id];
+    const g = batteryGun(id);
+    assert.equal(g.range, b.range, `${id} should shoot as far as it says it does`);
+    assert.equal(g.reload, b.reload, `${id} should load as fast as it says it does`);
+    assert.equal(g.caliber, b.caliber);
+    // The solution at maximum range must still be a real one.
+    const s = solveBallistic(g, b.range * 0.98, 40);
+    assert.ok(s.tof > 1 && s.tof < 400, `${id} time of flight ${s.tof}`);
+    assert.ok(s.elev < Math.PI / 4 + 0.01, `${id} elevation ${s.elev}`);
+  }
+  // Bore decides weight of shell: the eight-hundred throws more than the
+  // eighty-eight by rather a lot.
+  assert.ok(batteryGun('gustav').shells.ap.damage
+    > batteryGun('flak88').shells.ap.damage * 25, 'an 800 mm shell is not an 88');
+});
+
+check('islands are shapes, and everything agrees on which shape', () => {
+  const w = generateWorld(9911, 'solomon_narrows');
+  assert.ok(w.islands.length > 2, 'expected an island field');
+  for (const i of w.islands) {
+    assert.equal(i.rim.length, 24, 'every island carries a rim');
+    const min = Math.min(...i.rim);
+    const max = Math.max(...i.rim);
+    assert.ok(max - min > i.r * 0.1, 'and the rim is not a circle');
+    assert.ok(max <= i.rmax, 'and never reaches past the cheap reject radius');
+
+    // The point test, the ring the chart draws and the height the renderer
+    // raises all have to agree about where the water's edge is.
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const r = islandRadius(i, a);
+      const inX = i.x + Math.sin(a) * r * 0.9;
+      const inZ = i.z + Math.cos(a) * r * 0.9;
+      const outX = i.x + Math.sin(a) * r * 1.1;
+      const outZ = i.z + Math.cos(a) * r * 1.1;
+      assert.ok(islandAt(w, inX, inZ, 0), 'inside the rim is ashore');
+      assert.equal(islandAt(w, outX, outZ, 0), null, 'outside it is water');
+      assert.ok(islandHeight(i, inX, inZ) > 0, 'and has ground above water on it');
+      assert.equal(islandHeight(i, outX, outZ), 0, 'and none beyond it');
+    }
+    // The summit is the highest thing on it, which is where a battery goes.
+    assert.ok(islandHeight(i, i.x, i.z) > islandHeight(i, i.x + i.r * 0.6, i.z));
+    // And the mask the fleets are laid out against knows the island is there.
+    assert.ok(landAt(w, i.x, i.z), 'an island is land to the spawn code too');
+    assert.ok(shoreDistance(w, i.x, i.z) > 0, 'and inland of its own shore');
+  }
+  for (const p of [spawnPoint(w, 0, 0), spawnPoint(w, 1, 0)]) {
+    assert.ok(!islandAt(w, p.x, p.z, 200), 'and no fleet forms up on one');
   }
 });
 

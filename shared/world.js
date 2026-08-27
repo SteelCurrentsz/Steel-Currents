@@ -1,7 +1,7 @@
 // Battlefield generation. Both ends build the identical map from a seed: the
 // server for collision and line of sight, the client for the visible islands.
 
-import { makeRng, dist } from './math.js';
+import { makeRng, dist, TAU } from './math.js';
 import { coastFor } from './coast.js';
 
 // Default half-width of the battlefield, in metres from centre to border. A
@@ -25,9 +25,116 @@ export function getPreset(id) {
   return MAP_PRESETS.find((m) => m.id === id) || MAP_PRESETS[0];
 }
 
+// ---------------------------------------------------------------------------
+// Islands
+// ---------------------------------------------------------------------------
+//
+// An island is a shape, not a circle. Its outline is a rim of radii taken at
+// even bearings round its middle, and everything that has to know where the
+// island is -- the hull that runs aground on it, the shell that lands on it,
+// the sight line it breaks, the ground a coast battery is built on, the mesh
+// the renderer raises and the outline the chart draws -- reads that one rim.
+// So they cannot disagree with each other, which is what a circle for the
+// simulation and a jagged silhouette for the renderer used to do.
+
+/** How many bearings the rim is sampled at. */
+const RIM_N = 24;
+
 /**
- * Deterministic island field. Islands are circles (with a jagged silhouette the
- * renderer derives from the same seed) that block hulls, shells and spotting.
+ * A rim of `RIM_N` radii around a mean of `r`.
+ *
+ * Three harmonics laid over one another: one long axis, one that puts a
+ * headland and a bay opposite each other, and a short one for the detail. The
+ * radius never falls below two-thirds of the mean, so the outline stays
+ * star-shaped about the middle -- which is what lets every query below be a
+ * lookup at one bearing instead of a walk round a polygon.
+ */
+function makeRim(rng, r) {
+  const a1 = 0.10 + rng() * 0.13;
+  const a2 = 0.05 + rng() * 0.10;
+  const a3 = 0.03 + rng() * 0.06;
+  const p1 = rng() * TAU;
+  const p2 = rng() * TAU;
+  const p3 = rng() * TAU;
+  const rim = [];
+  for (let i = 0; i < RIM_N; i++) {
+    const a = (i / RIM_N) * TAU;
+    const k = 1 + a1 * Math.sin(2 * a + p1)
+      + a2 * Math.sin(3 * a + p2)
+      + a3 * Math.sin(5 * a + p3);
+    rim.push(r * Math.max(0.66, k));
+  }
+  return rim;
+}
+
+/**
+ * The furthest the rim reaches from the middle.
+ *
+ * Every test below rejects on this before it interpolates, so it has to be the
+ * real maximum and not a guess at one: a headland that reached past a guessed
+ * radius would be ground a hull sailed straight through.
+ */
+function rimMax(rim, r) {
+  let m = r;
+  for (const v of rim) if (v > m) m = v;
+  // The rim is sampled at two dozen bearings and read back interpolated, so
+  // nothing between two samples can be higher than the higher of them.
+  return m;
+}
+
+/**
+ * The island's radius on a bearing, in metres.
+ *
+ * Bearings run the way the game's headings do: clockwise from +Z, so
+ * `Math.atan2(x - isle.x, z - isle.z)`. Between rim samples the radius is
+ * interpolated, so the outline is smooth rather than a two-dozen-sided nut.
+ */
+export function islandRadius(isle, bearing) {
+  const rim = isle.rim;
+  if (!rim || !rim.length) return isle.r;
+  const t = ((((bearing / TAU) % 1) + 1) % 1) * rim.length;
+  const i = Math.floor(t);
+  const f = t - i;
+  return rim[i] * (1 - f) + rim[(i + 1) % rim.length] * f;
+}
+
+/** The outline as a closed ring of [x, z], built once and kept on the island. */
+export function islandRing(isle, steps = RIM_N * 3) {
+  if (isle._ring && isle._ring.length === steps) return isle._ring;
+  const ring = [];
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * TAU;
+    const r = islandRadius(isle, a);
+    ring.push([isle.x + Math.sin(a) * r, isle.z + Math.cos(a) * r]);
+  }
+  isle._ring = ring;
+  return ring;
+}
+
+/**
+ * How high the ground stands at a point on an island, in metres. Zero at the
+ * water's edge and outside it.
+ *
+ * A beach for the outer sixth, then the climb, then a summit that flattens
+ * off -- which is the shape of the ground a coast battery was actually built
+ * on, and the reason a gun placed inland is not standing on a slope.
+ */
+export function islandHeight(isle, x, z) {
+  const dx = x - isle.x;
+  const dz = z - isle.z;
+  const d = Math.hypot(dx, dz);
+  const R = islandRadius(isle, Math.atan2(dx, dz));
+  if (d >= R) return 0;
+  const u = 1 - d / R;
+  const BEACH = 0.11;
+  if (u < BEACH) return isle.height * 0.06 * (u / BEACH);
+  const v = (u - BEACH) / (1 - BEACH);
+  return isle.height * (0.06 + 0.94 * v * v * (3 - 2 * v));
+}
+
+/**
+ * Deterministic island field. Islands are shapes (see above) that block hulls,
+ * shells and spotting.
  */
 export const TIMES = ['dawn', 'day', 'dusk', 'night'];
 
@@ -92,7 +199,10 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     if (Math.abs(z) > HALF - 2600 && Math.abs(x) < 2200) continue;
     if (islands.some((i) => dist(i.x, i.z, x, z) < i.r + r + 500)) continue;
     islands.push({
+      // `r` stays the mean radius: it is what the spacing above is judged on
+      // and what a cheap reject test uses. The rim is the actual shape.
       x, z, r,
+      ...(() => { const rim = makeRim(rng, r); return { rim, rmax: rimMax(rim, r) }; })(),
       height: 90 + rng() * 220,
       shape: Math.floor(rng() * 100000),
     });
@@ -169,12 +279,24 @@ const MASKS = new WeakMap();
 export const MASK_CELL = 150;      // metres
 
 export function landMask(world) {
+  // Kept against how much land the world has as well as against the world
+  // itself. A battlefield never changes its coastline in play, but a caller
+  // that builds one and then takes the islands out of it -- a test setting up
+  // open water, a tool -- would otherwise go on colliding with the islands it
+  // had removed, because the mask was raised before they went.
+  const stamp = (world.land?.length || 0) * 1e6 + (world.islands?.length || 0);
   let m = MASKS.get(world);
-  if (m) return m;
+  if (m && m.stamp === stamp) return m;
   const half = world.half || MAP_HALF;
   const n = Math.ceil((half * 2) / MASK_CELL) + 1;
   const grid = new Uint8Array(n * n);
-  const rings = world.land || [];
+  // Both kinds of land go through the same scanline. An island is ground like
+  // any other: a fleet should not form up on one, and a battery sited on one
+  // wants the same distance-from-the-water the real coast gives.
+  const rings = [
+    ...(world.land || []),
+    ...(world.islands || []).map((i) => islandRing(i)),
+  ];
 
   if (rings.length) {
     // One scanline per row, through the middle of the row's cells.
@@ -203,7 +325,7 @@ export function landMask(world) {
     }
   }
 
-  m = { n, cell: MASK_CELL, half, grid, any: rings.length > 0 };
+  m = { n, cell: MASK_CELL, half, grid, stamp, any: rings.length > 0 };
   m.dist = signedDistance(grid, n, MASK_CELL);
   MASKS.set(world, m);
   return m;
@@ -308,6 +430,24 @@ export function landBlocks(world, ax, az, bx, bz) {
  * ground. Negative offshore, which is what the renderer runs the beach down.
  */
 export function groundHeight(world, x, z) {
+  // An island's own relief, which is a shape rather than a distance field: a
+  // three-hundred-metre island is four mask cells across, and a chamfer over
+  // four cells is a pyramid, not a hill.
+  let top = 0;
+  let near = 0;
+  for (const i of world.islands) {
+    if (Math.abs(x - i.x) > i.r * 2.2 || Math.abs(z - i.z) > i.r * 2.2) continue;
+    const h = islandHeight(i, x, z);
+    if (h > top) top = h;
+    // The shelf an island stands on: the seabed comes up to meet it rather
+    // than the island rising out of deep water like a post.
+    const d = Math.hypot(x - i.x, z - i.z);
+    const R = islandRadius(i, Math.atan2(x - i.x, z - i.z));
+    if (d > R && d < R * 1.9) near = Math.max(near, 1 - (d - R) / (R * 0.9));
+  }
+  if (top > 0) return top;
+  if (near > 0) return -40 + 34 * near * near;
+
   const d = shoreDistance(world, x, z);
   // Offshore: the beach runs on under the water for a little way rather than
   // stopping at the waterline, so the shore is a shore and not a kerb.
@@ -347,28 +487,51 @@ export function spawnPoint(world, team, index) {
   return clear ? { x: clear.x, z: clear.z, heading } : { x, z, heading };
 }
 
-/** True when the segment a->b is broken by land. */
-export function blockedByLand(world, ax, az, bx, bz) {
+/**
+ * True when the segment a->b is broken by land.
+ *
+ * `ignore` takes one island out of the test. A gun standing on a hill is not
+ * blocked by the hill it is standing on — that is the whole reason it was put
+ * there — and a flat test run from a point inside an island would otherwise
+ * say every bearing from it was closed.
+ */
+export function blockedByLand(world, ax, az, bx, bz, ignore = null) {
   if (landBlocks(world, ax, az, bx, bz)) return true;
   for (const i of world.islands) {
-    // Closest approach of the segment to the island centre.
+    if (i === ignore) continue;
+    // Closest approach of the segment to the island centre, tested against the
+    // rim on that bearing rather than against a circle: a sight line down a bay
+    // is open and one over a headland is not, and a circle cannot tell them
+    // apart.
     const dx = bx - ax, dz = bz - az;
     const len2 = dx * dx + dz * dz;
     let t = len2 > 0 ? ((i.x - ax) * dx + (i.z - az) * dz) / len2 : 0;
     if (t < 0) t = 0; else if (t > 1) t = 1;
     const cx = ax + dx * t, cz = az + dz * t;
-    if (dist(cx, cz, i.x, i.z) < i.r) return true;
+    if (dist(cx, cz, i.x, i.z) < islandRadius(i, Math.atan2(cx - i.x, cz - i.z))) return true;
   }
   return false;
 }
 
 export function islandAt(world, x, z, pad = 0) {
   for (const i of world.islands) {
-    if (dist(x, z, i.x, i.z) < i.r + pad) return i;
+    const dx = x - i.x;
+    const dz = z - i.z;
+    const d = Math.hypot(dx, dz);
+    // Cheap reject first, against the island's own longest reach.
+    if (d > (i.rmax || i.r) + pad) continue;
+    if (d < islandRadius(i, Math.atan2(dx, dz)) + pad) return i;
   }
   // Real coastline. Nothing above needs to know which shape it hit, only that
   // it is aground, so the whole shore answers as one piece of land.
-  if (landAt(world, x, z, pad)) return SHORE;
+  //
+  // Only asked when there is a coastline to ask about. The mask carries the
+  // islands as well now, and its cells are a hundred and fifty metres across —
+  // so a shell a few metres off a small island's beach would come back ashore
+  // from the mask after the exact test above had already said it was in the
+  // water. The rim is the answer for an island; the mask is the answer for a
+  // coast; a battlefield never has both.
+  if (world.land?.length && landAt(world, x, z, pad)) return SHORE;
   return null;
 }
 

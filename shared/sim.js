@@ -7,7 +7,12 @@ import {
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
 import { getClass } from './ships.js';
-import { MAP_HALF, blockedByLand, islandAt, landAt, spawnPoint, getWeather } from './world.js';
+import {
+  BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa,
+} from './batteries.js';
+import {
+  MAP_HALF, blockedByLand, islandAt, landAt, spawnPoint, getWeather, groundHeight,
+} from './world.js';
 
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
@@ -27,6 +32,8 @@ export function createState(world, opts = {}) {
     t: 0,
     tick: 0,
     ships: [],
+    // The guns that were bolted to the ground before the fleets arrived.
+    batteries: [],
     shells: [],
     torps: [],
     planes: [],
@@ -329,6 +336,216 @@ export function fireGuns(state, ship) {
   return fired;
 }
 
+// ---------------------------------------------------------------------------
+// Coast artillery
+// ---------------------------------------------------------------------------
+//
+// A battery is a gun that cannot move, cannot be hidden and cannot be reasoned
+// with. It picks the nearest enemy inside its own maximum range that it can
+// both see and bear on, trains onto her at whatever rate a mounting of its
+// weight comes round, and fires on its own reload. Everything that decides any
+// of that is the battery's own datasheet.
+
+/**
+ * Put a battery on the ground.
+ *
+ * `heading` is the bearing the emplacement was laid on; the guns train either
+ * side of it as far as the mounting allows and no further.
+ */
+export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
+  const b = BATTERIES[batteryId];
+  if (!b) return null;
+  const bat = {
+    id: id || eid(),
+    batteryId,
+    team,
+    x, z,
+    // Standing on the ground, which is what puts its muzzle above the sea and
+    // gives it the extra reach a gun on a hill has always had.
+    y: Math.max(4, groundHeight(state.world, x, z)),
+    heading: wrapAngle(heading),
+    // The island it is standing on, kept so its own hill is not counted as
+    // being in its way. Null on a real coastline, which is one piece of land
+    // and has no single shape to take out of the test.
+    own: (() => { const g = islandAt(state.world, x, z, 0); return g && !g.shore ? g : null; })(),
+    angle: 0,                 // training, relative to the bearing it was laid on
+    cooldown: b.reload * 0.35, // not every gun opens fire on the same second
+    hp: batteryHp(b),
+    maxHp: batteryHp(b),
+    alive: true,
+    targetId: 0,
+    lastFiredAt: -999,
+    kills: 0,
+    damageDealt: 0,
+  };
+  state.batteries.push(bat);
+  return bat;
+}
+
+/** Whoever fired a shell: a ship, or one of the guns ashore. */
+function shellOwner(state, sh) {
+  return sh.fromBattery
+    ? state.batteries.find((b) => b.id === sh.owner)
+    : state.ships.find((x) => x.id === sh.owner);
+}
+
+/**
+ * Where a battery's sight line starts.
+ *
+ * Not at the gun. A battery stands on the ground, and a flat test run from a
+ * point that is itself ashore says every bearing out of it is closed. So the
+ * line is picked up a little way out along the bearing, past the gun's own
+ * ground — which is what a gun on a hill actually shoots over.
+ */
+function batteryEye(state, bat, bearing) {
+  const limit = bat.own ? (bat.own.rmax || bat.own.r) * 2 + 300 : 900;
+  for (let r = 150; r <= limit; r += 150) {
+    const x = bat.x + Math.sin(bearing) * r;
+    const z = bat.z + Math.cos(bearing) * r;
+    if (!islandAt(state.world, x, z, 0)) return { x, z };
+  }
+  return bat;
+}
+
+/** The enemy this battery would rather be shooting at, or null. */
+function batteryTarget(state, bat, b, gun) {
+  const arc = batteryArc(b);
+  let best = null;
+  let bestD = Infinity;
+  for (const ship of state.ships) {
+    if (!ship.alive || ship.team === bat.team) continue;
+    const d = dist(bat.x, bat.z, ship.x, ship.z);
+    // Out of range is out of range. This is the whole of what range means.
+    if (d > gun.range || d > bestD) continue;
+    // Inside the arc the mounting allows, or it can never bear.
+    const bearing = headingTo(bat.x, bat.z, ship.x, ship.z);
+    if (Math.abs(angleDelta(bat.heading, bearing)) > arc) continue;
+    // And in sight: a hill between the two of them stops the shooting the same
+    // way it stops a ship's — but not the hill the gun is standing on.
+    if (d > 900) {
+      const eye = batteryEye(state, bat, bearing);
+      if (blockedByLand(state.world, eye.x, eye.z, ship.x, ship.z, bat.own)) continue;
+    }
+    best = ship;
+    bestD = d;
+  }
+  return best;
+}
+
+function stepBatteries(state, dt) {
+  for (const bat of state.batteries) {
+    if (!bat.alive) continue;
+    const b = BATTERIES[bat.batteryId];
+    const gun = batteryGun(bat.batteryId);
+    if (bat.cooldown > 0) bat.cooldown -= dt;
+
+    // Anything that shoots upward takes its share of whatever flies over it.
+    const aa = batteryAa(b);
+    if (aa) {
+      for (const p of state.planes) {
+        if (p.team === bat.team) continue;
+        const d = dist(bat.x, bat.z, p.x, p.z);
+        if (d < aa.range) p.hp -= aa.dps * dt * (1 - (d / aa.range) * 0.4);
+      }
+    }
+
+    // Re-acquired twice a second rather than thirty times. Working out what a
+    // battery can see is the expensive part of it, and nothing on a
+    // battlefield moves far in a thirtieth of a second.
+    if (state.tick % 15 === bat.id % 15) {
+      const found = batteryTarget(state, bat, b, gun);
+      bat.targetId = found ? found.id : 0;
+    }
+    const target = bat.targetId
+      ? state.ships.find((sp) => sp.id === bat.targetId && sp.alive)
+      : null;
+    const arc = batteryArc(b);
+    // With nothing to shoot at, back to the bearing it was laid on.
+    const want = target
+      ? clamp(angleDelta(bat.heading, headingTo(bat.x, bat.z, target.x, target.z)), -arc, arc)
+      : 0;
+    bat.angle = approachAngle(bat.angle, want, gun.traverse * dt);
+    if (!target) { bat.targetId = 0; continue; }
+    if (bat.cooldown > 0) continue;
+    // Laid on, or still coming round.
+    if (Math.abs(angleDelta(bat.angle, want)) > 0.02) continue;
+    fireBattery(state, bat, b, gun, target);
+  }
+}
+
+function fireBattery(state, bat, b, gun, target) {
+  const spec = gun.shells.ap;
+  const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
+  const bearing = wrapAngle(bat.heading + bat.angle);
+  // A bedded gun shoots tighter than a rolling one, and the lead is the same
+  // problem a ship's gunnery officer has: where she will be, not where she is.
+  const s2 = solveBallistic(gun, d, bat.y);
+  const lead = Math.min(s2.tof, 30);
+  const ax = target.x + Math.sin(target.heading) * target.speed * lead;
+  const az = target.z + Math.cos(target.heading) * target.speed * lead;
+  const aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
+  const aimB = headingTo(bat.x, bat.z, ax, az);
+  const spreadBase = (aimD * 0.0125) / gun.sigma;
+
+  for (let g = 0; g < b.barrels; g++) {
+    const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
+    const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+    const shotD = clamp(aimD + rng, 300, gun.range);
+    const sol = solveBallistic(gun, shotD, bat.y);
+    const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
+    const vh = sol.v * Math.cos(sol.elev);
+    state.shells.push({
+      id: eid(),
+      owner: bat.id, team: bat.team, fromBattery: true,
+      x: bat.x + Math.sin(bb) * 14, z: bat.z + Math.cos(bb) * 14,
+      y: bat.y + 6,
+      vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: sol.v * Math.sin(sol.elev),
+      g: sol.g,
+      spec, caliber: gun.caliber,
+      classId: null,
+      life: 0,
+    });
+  }
+  bat.cooldown = gun.reload;
+  bat.lastFiredAt = state.t;
+  state.events.push({
+    e: 'muzzle', x: bat.x, z: bat.z, y: bat.y + 6, b: bearing,
+    cal: gun.caliber, battery: bat.id,
+  });
+}
+
+/**
+ * A shell arriving on a battery.
+ *
+ * There is no citadel to find and no belt to bounce off — an emplacement is a
+ * hole in the ground with a gun in it — so the question is only whether the
+ * shell beats what the crew has over their heads. If it does not, it still
+ * throws splinters about, which is why a battery under fire from a destroyer
+ * is being worn down rather than ignored.
+ */
+function resolveBatteryHit(state, sh, bat) {
+  const b = BATTERIES[bat.batteryId];
+  const spec = sh.spec;
+  const through = spec.pen >= b.armour;
+  const dmg = spec.damage * (through ? 0.5 : 0.12);
+  bat.hp -= dmg;
+  const shooter = shellOwner(state, sh);
+  if (shooter) {
+    shooter.damageDealt += dmg;
+    if (shooter.ribbons) shooter.ribbons.hits++;
+  }
+  state.events.push({
+    e: 'hit', x: bat.x, y: bat.y + 5, z: bat.z, cal: sh.caliber,
+    kind: through ? 'pen' : 'shatter', victim: bat.id, battery: true,
+  });
+  if (bat.hp <= 0 && bat.alive) {
+    bat.alive = false;
+    bat.hp = 0;
+    if (shooter) shooter.kills++;
+    state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
+  }
+}
+
 function stepShells(state, dt) {
   const out = [];
   for (const sh of state.shells) {
@@ -355,6 +572,26 @@ function stepShells(state, dt) {
         if (cy > deck || cy < -2) continue;
         if (!pointInBox(cx, cz, target.x, target.z, target.heading, halfLen, halfBeam)) continue;
         resolveShellHit(state, sh, target, cx, cz, cy);
+        consumed = true;
+        break;
+      }
+      if (consumed) break;
+    }
+    if (consumed) continue;
+
+    // And the guns ashore, which are a low, wide target rather than a hull.
+    for (const bat of state.batteries) {
+      if (!bat.alive || bat.team === sh.team) continue;
+      const b = BATTERIES[bat.batteryId];
+      const reach = b.span * 0.5 + 6;
+      if (dist2(sh.x, sh.z, bat.x, bat.z) > (reach + 240) * (reach + 240)) continue;
+      const steps = 4;
+      for (let i = 1; i <= steps; i++) {
+        const f = i / steps;
+        const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
+        if (cy > bat.y + 14 || cy < bat.y - 4) continue;
+        if (dist2(cx, cz, bat.x, bat.z) > reach * reach) continue;
+        resolveBatteryHit(state, sh, bat);
         consumed = true;
         break;
       }
@@ -431,9 +668,13 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
     }
   }
 
-  const owner = state.ships.find((s) => s.id === sh.owner);
+  // Whoever fired it: a ship, or one of the guns ashore. A battery carries the
+  // same id, team, kills and damage a hull does, so it can be credited the
+  // same way without the damage code having to know which it is holding.
+  const owner = shellOwner(state, sh);
   if (dmg > 0) damageShip(state, target, owner, dmg, kind);
-  if (owner) {
+  // A battery keeps no ribbon book: there is nobody aboard it to give one to.
+  if (owner && owner.ribbons) {
     owner.ribbons.hits++;
     if (kind === 'citadel') owner.ribbons.cits++;
   }
@@ -810,6 +1051,7 @@ export function step(state, dt = DT) {
     stepDamageOverTime(state, ship, dt);
   }
   stepCollisions(state, dt);
+  stepBatteries(state, dt);
   stepShells(state, dt);
   stepTorpedoes(state, dt);
   stepPlanes(state, dt);

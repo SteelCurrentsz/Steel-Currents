@@ -179,3 +179,103 @@ export const BATTERIES = {
 
 /** How many barrels the whole emplacement carries. */
 export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
+
+// ---------------------------------------------------------------------------
+// What the gun does when it is fired
+// ---------------------------------------------------------------------------
+//
+// The figures above are what a battery *is*. Everything below is what it takes
+// to put a shell in the air, worked out from them rather than written down
+// twice — so a battery's reach, its rate of fire and the weight of what it
+// throws all come from the same numbers the selection screen shows a captain.
+
+// The ships' own guns, as four points to fit against: bore in millimetres
+// against what one shell does. A coast gun of a given bore throws the same
+// shell a ship of that bore does, because it is very often literally the same
+// shell — Fort Drum's fourteen-inch came off a battleship.
+//
+//   127 mm  2100 AP  1800 HE   80 mm penetration
+//   152 mm  3300     2500     165
+//   203 mm  5100     3300     265
+//   406 mm 13500     6300     640
+//
+// Which are power laws in the bore to within a few per cent.
+const REF_BORE = 127;
+const curve = (at127, power) => (mm) => Math.round(at127 * (mm / REF_BORE) ** power);
+const apDamage = curve(2100, 1.62);
+const heDamage = curve(1800, 1.08);
+const apPen = curve(80, 1.79);
+
+const GUNS = new Map();
+
+/**
+ * A firing solution's worth of gun, in the shape `solveBallistic` and the shell
+ * step expect from a ship.
+ *
+ * `range` is the battery's own maximum, and the ballistics are solved against
+ * it: a gun that reaches nineteen thousand metres lobs its shell on the arc
+ * that reaches nineteen thousand metres, and one that reaches fifty-five
+ * thousand throws it flatter and further. That is what makes range mean
+ * something rather than being a number on a datasheet.
+ */
+export function batteryGun(id) {
+  let g = GUNS.get(id);
+  if (g) return g;
+  const b = BATTERIES[id] || BATTERIES.longues;
+  const mm = b.caliber;
+  const velocity = 780;
+  g = {
+    caliber: mm,
+    reload: b.reload,
+    range: b.range,
+    // Bedded in concrete or on a barbette, a coast gun does not roll, and a gun
+    // that does not roll shoots tighter than the same gun at sea.
+    sigma: 2.4,
+    // How fast it comes round, in radians a second. A hand-cranked flak mount
+    // is round in ten seconds; a fourteen-inch turret takes a minute and a half.
+    traverse: 0.6 / (1 + b.weight / 60),
+    shells: {
+      ap: {
+        type: 'ap', caliber: mm,
+        damage: apDamage(mm), pen: apPen(mm), velocity,
+        fuseArm: mm * 0.9, fireChance: 0.02, drag: 0.0022,
+      },
+      he: {
+        type: 'he', caliber: mm,
+        damage: heDamage(mm), pen: Math.round(mm / 6), velocity: velocity * 0.96,
+        fuseArm: 0, fireChance: 0.1 + mm / 4000, drag: 0.0026,
+      },
+    },
+  };
+  GUNS.set(id, g);
+  return g;
+}
+
+/**
+ * The half-angle either side of the bearing the battery was laid on, in
+ * radians — the same convention a ship's turret uses.
+ *
+ * A gun with no traverse at all still gets a couple of degrees: Gustav was
+ * trained by walking it along a curved siding, which is not nothing, and a
+ * battery that can never bear on anything is not a battery.
+ */
+export function batteryArc(b) {
+  return Math.max(0.05, ((b.traverse || 0) / 2) * (Math.PI / 180));
+}
+
+/**
+ * What it takes to put the battery out of action.
+ *
+ * Mostly the weight of the mounting — there is a great deal of steel in a
+ * fourteen-inch turret and very little in a field howitzer — plus what the
+ * crew has over their heads.
+ */
+export function batteryHp(b) {
+  return Math.round(600 + b.weight * 4 + b.armour * 6);
+}
+
+/** What a battery that shoots upward does to aircraft, or null. */
+export function batteryAa(b) {
+  if (b.targets === 'ships') return null;
+  return { range: Math.min(b.range, 7000), dps: Math.round(b.caliber * 1.7) };
+}

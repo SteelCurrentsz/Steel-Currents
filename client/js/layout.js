@@ -10,7 +10,7 @@
 // what is there when the fleets arrive, rather than a picture of it.
 
 import {
-  generateWorld, islandAt, shoreDistance, MAP_HALF,
+  generateWorld, islandAt, islandRing, shoreDistance, MAP_HALF,
 } from '../../shared/world.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
@@ -270,7 +270,11 @@ export class LayoutMap {
       if (i.r < 110) continue;                     // a rock, not a gun position
       out.push({ x: i.x, z: i.z, score: Math.min(i.r, 1800), taken: false });
     }
-    if (this.world.land?.length) {
+    // And the ground itself, walked on a grid and scored by how far inland each
+    // cell is. This finds the shoulders of a large island as well as the whole
+    // of a real coastline -- the mask carries both now -- while the island
+    // centres above catch the small ones a grid this coarse steps over.
+    {
       const step = Math.max(240, this.half / 26);
       for (let z = -this.half + step; z < this.half; z += step) {
         for (let x = -this.half + step; x < this.half; x += step) {
@@ -658,9 +662,18 @@ export class LayoutMap {
       const p = this.toScreen(i.x, i.z);
       // Off the side of the screen entirely: nothing to draw, and at close
       // zoom on a big field that is most of them.
-      if (p.x + i.r * s < 0 || p.x - i.r * s > w || p.y + i.r * s < 0 || p.y - i.r * s > h) continue;
+      const reach = i.r * 1.34 * s;
+      if (p.x + reach < 0 || p.x - reach > w || p.y + reach < 0 || p.y - reach > h) continue;
+      // The outline the simulation collides with, not a circle round it: a
+      // battery is placed on this shape and has to be standing on the ground
+      // the shells will find.
+      const ring = islandRing(i);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, i.r * s, 0, Math.PI * 2);
+      ring.forEach(([x, z], k) => {
+        const q = this.toScreen(x, z);
+        if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      });
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
     }

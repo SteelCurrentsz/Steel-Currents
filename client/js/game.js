@@ -121,12 +121,18 @@ export class Battle {
       const d = this.distanceFade(ev.x, ev.z);
       switch (ev.e) {
         case 'muzzle':
-          fx.muzzle(ev.x, 18, ev.z, ev.b, ev.cal);
+          // A coast gun's muzzle is where its own ground is, which for a
+          // battery on a headland is a long way above a ship's.
+          fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, d);
           if (ev.ship === this.shipId && getSettings().shake) this.shake = Math.min(1, ev.cal / 320);
           break;
         case 'splash': fx.splash(ev.x, ev.z, ev.cal); if (d < 0.75) audio.splash(d); break;
         case 'landhit': fx.hit(ev.x, 12, ev.z, 'he', ev.cal); break;
+        case 'batterySilenced':
+          fx.explosion(ev.x, (ev.y || 0) + 6, ev.z, 1.6);
+          if (d < 1) audio.explosion(1.6, d);
+          break;
         case 'hit': {
           fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
           if (ev.owner === this.shipId) {
@@ -387,6 +393,31 @@ export class Battle {
 
     for (const [id] of this.scene.shipViews) {
       if (!seen.has(id)) this.scene.removeShipView(id);
+    }
+
+    // The guns ashore. They do not move, so there is nothing to interpolate
+    // but the training -- which is the only thing about them that changes.
+    const gunsSeen = new Set();
+    for (const g of a.batteries || []) {
+      gunsSeen.add(g.i);
+      const view = this.scene.getBatteryView(g.i, g.b, g.tm);
+      const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
+      const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
+      view.group.position.set(g.x, g.y, g.z);
+      view.group.rotation.y = g.al ? g.h + ang : view.group.rotation.y;
+      view.marker.visible = this.camMode === 'tactical';
+      // Silenced, and burning where it stands.
+      if (!g.al) {
+        view.smokeTimer -= dt;
+        if (view.smokeTimer <= 0) {
+          view.smokeTimer = 0.4 + Math.random() * 0.5;
+          const off = (Math.random() - 0.5) * view.span * 0.6;
+          this.scene.effects.fire(g.x + off, g.y + 4, g.z + (Math.random() - 0.5) * view.span * 0.6);
+        }
+      }
+    }
+    for (const [id] of this.scene.batteryViews) {
+      if (!gunsSeen.has(id)) this.scene.removeBatteryView(id);
     }
 
     // Shells, torpedoes and aircraft as instanced batches.

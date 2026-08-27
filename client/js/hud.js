@@ -1,7 +1,7 @@
 // Bridge instruments: telegraph, helm, armament, damage state, plot and feeds.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
-import { MAP_HALF } from '../../shared/world.js';
+import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle } from '../../shared/math.js';
 import { getSettings } from './settings.js';
 
@@ -233,10 +233,16 @@ export class Hud {
       ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke();
     }
 
+    // The islands, in the shape the hulls run aground on rather than as the
+    // circles they used to be plotted as.
     ctx.fillStyle = 'rgba(56,64,47,0.9)';
     for (const isle of this.world.islands) {
+      const ring = islandRing(isle);
       ctx.beginPath();
-      ctx.arc(toX(isle.x), toY(isle.z), isle.r * scale, 0, Math.PI * 2);
+      ring.forEach(([x, z], i) => {
+        if (i === 0) ctx.moveTo(toX(x), toY(z)); else ctx.lineTo(toX(x), toY(z));
+      });
+      ctx.closePath();
       ctx.fill();
     }
     // The real coastline, the shape the chart drew it: a captain looking at
@@ -275,6 +281,24 @@ export class Hud {
         ctx.beginPath();
         ctx.moveTo(toX(tp.x), toY(tp.z));
         ctx.lineTo(toX(tp.x + Math.sin(tp.h) * 380), toY(tp.z + Math.cos(tp.h) * 380));
+        ctx.stroke();
+      }
+    }
+
+    // The guns ashore, plotted as the fixed marks they are: a square, because
+    // nothing on this plot that moves is drawn as one.
+    for (const g of (snap && snap.batteries) || []) {
+      const x = toX(g.x), y = toY(g.z);
+      ctx.fillStyle = !g.al ? 'rgba(120,120,120,0.7)'
+        : g.tm === this.team ? '#6fd3a0' : '#e2564f';
+      ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
+      if (g.al) {
+        // Which way it is laid, so a captain can see what he must not cross.
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.sin(g.h + g.a) * 9, y - Math.cos(g.h + g.a) * 9);
         ctx.stroke();
       }
     }

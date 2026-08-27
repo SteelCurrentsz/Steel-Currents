@@ -1,7 +1,7 @@
 // A room is one battle: its own world, simulation and player list.
 
 import {
-  createState, addShip, applyInput, step, fireGuns, fireTorpedoes,
+  createState, addShip, addBattery, applyInput, step, fireGuns, fireTorpedoes,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -108,6 +108,19 @@ export class Room {
       this.brains.set(ship.id, createBotBrain(skill));
     }
     this.broadcastRoster();
+  }
+
+  /**
+   * Emplace a coast battery. It has no captain and no brain: the simulation
+   * fights it off its own datasheet.
+   */
+  addBatteryOnTeam(team, batteryId, at = null) {
+    return addBattery(this.state, {
+      batteryId, team,
+      x: at && Number.isFinite(at.x) ? at.x : 0,
+      z: at && Number.isFinite(at.z) ? at.z : (team === 0 ? -1 : 1) * (this.state.world.half - 1200),
+      heading: at && Number.isFinite(at.h) ? at.h : (team === 0 ? 0 : Math.PI),
+    });
   }
 
   addBotOnTeam(team, skill = this.botSkill, classId = null, at = null) {
