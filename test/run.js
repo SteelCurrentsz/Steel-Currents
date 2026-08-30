@@ -6,12 +6,13 @@ import {
 } from '../shared/world.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
-  useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT,
+  useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
+import { angleDelta } from '../shared/math.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -400,20 +401,55 @@ check('a battery opens fire inside its reach and stays quiet outside it', () => 
   assert.equal(out.ship.hp, out.ship.maxHp, 'and must take no damage');
 });
 
-check('a battery trains no further than its mounting allows', () => {
+check('a battery trains inside its stops, and is re-laid to reach past them', () => {
   // Todt has 120 degrees of traverse: 60 either side of where it was laid.
   const { state, bat, ship } = shoot('todt', 20000);
   const arc = batteryArc(BATTERIES.todt);
   assert.ok(Math.abs(arc - Math.PI / 3) < 1e-6, 'sixty degrees either side');
+  const laid = bat.heading;
 
-  // Dead astern of the emplacement, which it can never bear on.
+  // Dead astern of the emplacement, which the mounting cannot bear on from
+  // where it stands.
   ship.x = 0; ship.z = bat.z - 12000; ship.notch = 1;
   let fired = 0;
-  for (let i = 0; i < 30 * 120; i++) {
-    for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery) fired++;
+  let firstShot = -1;
+  let worstAngle = 0;
+  for (let i = 0; i < 30 * 240; i++) {
+    for (const ev of step(state, DT)) {
+      if (ev.e === 'muzzle' && ev.battery) { fired++; if (firstShot < 0) firstShot = i; }
+    }
+    worstAngle = Math.max(worstAngle, Math.abs(bat.angle));
   }
-  assert.equal(fired, 0, 'a target behind the battery must not be engaged');
-  assert.ok(Math.abs(bat.angle) <= arc + 1e-6, 'and the gun must stay inside its stops');
+  // The gun never leaves its stops: what came round was the mounting under it.
+  assert.ok(worstAngle <= arc + 1e-6, 'the gun must stay inside its stops');
+  // Nothing in the first half-minute: a hundred and eighty degrees of training
+  // gear is a job of work, and the crew has to do it before anybody fires.
+  assert.ok(firstShot < 0 || firstShot > 30 * 25,
+    `the battery opened fire after ${(firstShot / 30).toFixed(1)}s, before it could be round`);
+  // But it does get there in the end, which is the point of a coast battery.
+  assert.ok(fired > 0, 'a battery that can see a ship should eventually engage her');
+  assert.ok(Math.abs(angleDelta(bat.heading, laid)) > 1,
+    'and it should have been re-laid a long way off its original bearing');
+});
+
+check('a casemate is not re-laid the way a pedestal is', () => {
+  // Merville is a field howitzer in a casemate with sixty degrees of traverse;
+  // the 88 is a cruciform platform that already points anywhere. One of them
+  // has to be shifted to reach past its arc and the other never does.
+  const narrow = shoot('merville', 6000);
+  narrow.ship.x = 0; narrow.ship.z = narrow.bat.z - 5000;
+  const laid = narrow.bat.heading;
+  for (let i = 0; i < 30 * 60; i++) step(narrow.state, DT);
+  const swung = Math.abs(angleDelta(narrow.bat.heading, laid));
+
+  const all = shoot('flak88', 6000);
+  all.ship.x = 0; all.ship.z = all.bat.z - 5000;
+  const laid2 = all.bat.heading;
+  for (let i = 0; i < 30 * 60; i++) step(all.state, DT);
+  assert.ok(Math.abs(angleDelta(all.bat.heading, laid2)) < 1e-6,
+    'a mounting that already trains through 360 is never re-laid');
+  assert.ok(swung > 0.2, 'a narrow mounting is shifted onto what it cannot otherwise reach');
+  assert.ok(swung < Math.PI, 'but by hand, and slowly');
 });
 
 check('a battery can be silenced, and its armour decides how fast', () => {
@@ -772,6 +808,11 @@ check('a gun stands on its ground, never inside it', () => {
             `ground ${g.toFixed(1)}m under a pad cut at ${bat.y.toFixed(1)}m`);
         }
       }
+      // And it stands proud of that ground: an earthwork, not a slice off the
+      // top of the hill flush with it.
+      const under = groundHeight(w, x, z);
+      assert.ok(bat.y >= under + batteryRise(span) - 0.001,
+        `a pad at ${bat.y.toFixed(1)}m over ground at ${under.toFixed(1)}m is not an earthwork`);
       tested++;
       state.batteries.length = 0;
     }

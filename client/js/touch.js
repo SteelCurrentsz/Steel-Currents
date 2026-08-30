@@ -162,8 +162,9 @@ export class TouchControls {
       if (active.size >= 2) {
         const [a, b] = [...active.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        // A step every so many pixels, so a slow pinch is not a stream of them.
-        if (pinch > 4 && Math.abs(d - pinch) > 14) {
+        // A step every so many pixels, so a pinch is a dial rather than a
+        // switch: a finger's width of spread is about one notch of a wheel.
+        if (pinch > 4 && Math.abs(d - pinch) > 22) {
           this.input.emit('wheel', d > pinch ? -1 : 1);
           pinch = d;
         }
@@ -178,6 +179,12 @@ export class TouchControls {
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
+    // A pointerup that never arrives -- a finger that leaves the glass during a
+    // system gesture, a tab that loses focus mid-drag -- would otherwise leave
+    // the pad convinced two fingers are still down, and every drag after it
+    // would be read as a pinch that never moves.
+    zone.addEventListener('lostpointercapture', end);
+    window.addEventListener('blur', () => { active.clear(); pinch = 0; });
   }
 
   // -- engine telegraph -----------------------------------------------------

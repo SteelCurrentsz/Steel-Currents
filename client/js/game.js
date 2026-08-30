@@ -91,13 +91,6 @@ export class Battle {
     this.hud.onPick = (hit) => this.lookAt(hit);
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
-    // The same two things the wheel does, for a screen with no wheel on it.
-    const zoomKey = (id, dir) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      this.input.emit('wheel', dir);
-    });
-    zoomKey('watch-in', -1);
-    zoomKey('watch-out', 1);
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
@@ -252,7 +245,7 @@ export class Battle {
       // camera, not this one: standing further off her when you are outside,
       // and putting a glass to your eye when you are aboard.
       if (this.watching) {
-        if (this.watchPov) this.watchFov = clamp(this.watchFov * (dir > 0 ? 1.16 : 0.86), 7, 68);
+        if (this.watchPov) this.watchFov = clamp(this.watchFov * (dir > 0 ? 1.12 : 0.89), 7, 68);
         else this.watchDist = clamp(this.watchDist * (dir > 0 ? 1.18 : 0.85), 0.5, 26);
         return;
       }

@@ -422,6 +422,9 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     // and has no single shape to take out of the test.
     own: (() => { const g = islandAt(state.world, x, z, 0); return g && !g.shore ? g : null; })(),
     angle: 0,                 // training, relative to the bearing it was laid on
+    // The bearing the crew is shifting the whole mounting onto, when what they
+    // can see is outside the arc the mounting allows from where it is laid.
+    relayTo: null,
     cooldown: b.reload * 0.35, // not every gun opens fire on the same second
     hp: batteryHp(b),
     maxHp: batteryHp(b),
@@ -444,24 +447,34 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
  * a gun position is built, and it is also the only way a flat platform and a
  * hillside can meet without one of them going through the other.
  */
-function batteryPad(world, x, z, span = 20) {
-  // Over the whole of what the emplacement covers -- the pit, the observation
-  // post beside it and the apron banked round the lot -- not just the gun's own
-  // circle. Sampling the middle only left the uphill side of the platform
-  // buried: the hill went on climbing past where anybody had looked, and came
-  // up through the revetment with the gun standing inside it. The pad is cut at
-  // the height of the highest ground it covers, which is what levelling a gun
-  // position into a slope actually means.
+export function batteryPad(world, x, z, span = 20) {
+  // Over the whole of what the emplacement covers -- the pit and the apron
+  // banked round it -- not just the gun's own circle. Sampling the middle only
+  // left the uphill side of the platform buried: the hill went on climbing past
+  // where anybody had looked, and came up through the revetment with the gun
+  // standing inside it.
   let top = groundHeight(world, x, z);
   for (const k of BATTERY_FOOTPRINT) {
     const r = Math.max(6, span * k);
-    for (let a = 0; a < 12; a++) {
-      const th = (a / 12) * TAU;
+    for (let a = 0; a < 16; a++) {
+      const th = (a / 16) * TAU;
       const h = groundHeight(world, x + Math.cos(th) * r, z + Math.sin(th) * r);
       if (h > top) top = h;
     }
   }
-  return Math.max(4, top);
+  // And then a little higher again. A gun position is not a slice taken off a
+  // hill flush with the top of it -- it is an earthwork, spoil dug out and
+  // banked up until the piece stands clear of everything round it. Standing the
+  // pad exactly at the highest ground it covers left the hill grazing the
+  // platform wherever the sampling had missed by a metre, and the gun looked
+  // half-buried; standing it proud means the emplacement is a small hill of its
+  // own and nothing can come up through it.
+  return Math.max(4, top + batteryRise(span));
+}
+
+/** How far a gun's earthwork stands above the ground it is dug out of. */
+export function batteryRise(span = 20) {
+  return Math.max(2.2, span * 0.11);
 }
 
 /**
@@ -470,7 +483,7 @@ function batteryPad(world, x, z, span = 20) {
  * The last of them is the outer edge of the apron, so nothing the emplacement
  * is drawn with stands on ground that was never measured.
  */
-export const BATTERY_FOOTPRINT = [0.22, 0.45, 0.67, 0.89];
+export const BATTERY_FOOTPRINT = [0.2, 0.4, 0.6, 0.78, 0.94];
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
 function shellOwner(state, sh) {
@@ -498,7 +511,7 @@ function batteryEye(state, bat, bearing) {
 }
 
 /** The enemy this battery would rather be shooting at, or null. */
-function batteryTarget(state, bat, b, gun) {
+function batteryTarget(state, bat, b, gun, arcLimit = true) {
   const arc = batteryArc(b);
   let best = null;
   let bestD = Infinity;
@@ -507,9 +520,11 @@ function batteryTarget(state, bat, b, gun) {
     const d = dist(bat.x, bat.z, ship.x, ship.z);
     // Out of range is out of range. This is the whole of what range means.
     if (d > gun.range || d > bestD) continue;
-    // Inside the arc the mounting allows, or it can never bear.
     const bearing = headingTo(bat.x, bat.z, ship.x, ship.z);
-    if (Math.abs(angleDelta(bat.heading, bearing)) > arc) continue;
+    // Inside the arc the mounting allows, or it can never bear -- unless we are
+    // asking the other question, which is what the battery could reach if it
+    // were re-laid.
+    if (arcLimit && Math.abs(angleDelta(bat.heading, bearing)) > arc) continue;
     // And in sight: a hill between the two of them stops the shooting the same
     // way it stops a ship's — but not the hill the gun is standing on.
     if (d > 900) {
@@ -520,6 +535,21 @@ function batteryTarget(state, bat, b, gun) {
     bestD = d;
   }
   return best;
+}
+
+/**
+ * How fast a battery can be shifted onto a new bearing, in radians a second.
+ *
+ * Not the traverse: the traverse is the gun swinging on its own mounting, and
+ * this is the mounting itself being re-laid, which on a pedestal is a matter of
+ * the whole crew on the training gear and on a casemated piece is a matter of
+ * concrete. So a gun that can already point anywhere never does it, a wide
+ * mounting does it slowly, and a narrow one -- a casemate cut for one stretch
+ * of water -- barely does it at all.
+ */
+function relayRate(b) {
+  if ((b.traverse ?? 120) >= 360) return 0;
+  return 0.02 + (b.traverse ?? 120) / 120 * 0.03;
 }
 
 function stepBatteries(state, dt) {
@@ -562,12 +592,31 @@ function stepBatteries(state, dt) {
         bat.targetId = 0;
       }
     }
+    // Nothing it can bear on: is there something it *could* bear on if the
+    // mounting were shifted? A coast battery is not a fixture -- a crew that
+    // can see a ship outside its arc gets on the training gear and brings the
+    // whole mounting round onto her, and that is the difference between a gun
+    // that fights the action it is in and one that spends it pointed at an
+    // empty stretch of sea because of where it happened to be laid.
+    if (!target && state.tick % 15 === bat.id % 15) {
+      const rate = relayRate(b);
+      if (rate > 0) {
+        const off = batteryTarget(state, bat, b, gun, false);
+        bat.relayTo = off ? headingTo(bat.x, bat.z, off.x, off.z) : null;
+      }
+    }
+    if (!target && bat.relayTo !== null && bat.relayTo !== undefined) {
+      const rate = relayRate(b);
+      bat.heading = approachAngle(bat.heading, bat.relayTo, rate * dt);
+      if (Math.abs(angleDelta(bat.heading, bat.relayTo)) < 0.01) bat.relayTo = null;
+    }
     // With nothing to shoot at, back to the bearing it was laid on.
     const want = target
       ? clamp(angleDelta(bat.heading, headingTo(bat.x, bat.z, target.x, target.z)), -arc, arc)
       : 0;
     bat.angle = approachAngle(bat.angle, want, gun.traverse * dt);
     if (!target) { bat.targetId = 0; continue; }
+    bat.relayTo = null;
     if (bat.cooldown > 0) continue;
     // Laid on, or still coming round.
     if (Math.abs(angleDelta(bat.angle, want)) > 0.02) continue;

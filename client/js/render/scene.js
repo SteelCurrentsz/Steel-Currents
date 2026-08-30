@@ -376,8 +376,8 @@ function batteryApron(world, at, span) {
   // Out to the last ring the pad height was measured on, so the apron always
   // reaches past the ground that decided how high it stands, with enough rings
   // that the skirt comes down to the hillside over a slope rather than a step.
-  const RINGS = [1, 1.5, 2.1, 2.6];
-  const SPOKES = 24;
+  const RINGS = [1, 1.35, 1.7, 2.05, 2.4, 2.76];
+  const SPOKES = 32;
   const pos = [];
   const idx = [];
   const col = [];
@@ -397,9 +397,27 @@ function batteryApron(world, at, span) {
       const r = R * RINGS[k];
       const x = sn * r;
       const z = cs * r;
-      // Local height: the terrain out there relative to the pad, never above it.
-      const y = k === 0 ? 0
-        : Math.min(0, groundHeight(world, at.x + x, at.z + z) - at.y);
+      // Local height: the terrain out there relative to the pad, never above
+      // it. Taken as the highest of the point itself and a small ring round it,
+      // because what matters is not the ground at the sample but the ground
+      // between the samples -- a spur that rises between two of them would come
+      // up through the flat the two of them span.
+      let y = 0;
+      if (k > 0) {
+        const wx = at.x + x;
+        const wz = at.z + z;
+        const near = R * 0.2;
+        let g = groundHeight(world, wx, wz);
+        for (let q = 0; q < 4; q++) {
+          const th2 = (q / 4) * Math.PI * 2 + 0.7;
+          const h = groundHeight(world, wx + Math.cos(th2) * near, wz + Math.sin(th2) * near);
+          if (h > g) g = h;
+        }
+        y = Math.min(0, g - at.y);
+        // The outermost ring is driven into the hillside rather than left
+        // sitting on it, so the earthwork ends buried instead of in mid-air.
+        if (k === RINGS.length - 1) y -= Math.max(3, span * 0.2);
+      }
       put(x, y, z, k === 0 ? PAD : FILL);
     }
   }

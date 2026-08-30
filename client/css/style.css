@@ -1270,18 +1270,6 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 }
 .watch-back:hover { border-color: var(--sand); color: var(--sand-bright); }
 
-/* Near and far while spectating, for a captain who has no wheel to roll. The
-   look pad pinches as well; these are here so the gesture does not have to be
-   guessed at. */
-.watch-zoom {
-  background: rgba(230, 207, 156, 0.1);
-  border: 1px solid var(--panel-line);
-  color: var(--sand);
-  font-family: var(--ui); font-size: 1.05rem; line-height: 1;
-  width: 40px; min-height: 40px;
-  cursor: pointer; pointer-events: auto;
-}
-.watch-zoom:hover { border-color: var(--sand); color: var(--sand-bright); }
 
 /* The plot is a control now, not just a picture: `.battle > *` turns pointer
    events off for the whole HUD and hands them back per control, and the plot

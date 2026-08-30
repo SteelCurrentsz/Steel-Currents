@@ -30,6 +30,11 @@ const HANDLE_R = 13;
 // happens to be.
 const MAX_ZOOM = 14;
 
+/** A name cut to fit, with an ellipsis where it was cut. */
+function short(name, n) {
+  return name.length > n ? `${name.slice(0, n - 1)}…` : name;
+}
+
 const TEAM = [
   { fill: '#2c5da8', line: '#8cc2ff', dim: 'rgba(44, 93, 168, 0.5)' },
   { fill: '#9c332e', line: '#ffa9a2', dim: 'rgba(156, 51, 46, 0.5)' },
@@ -204,6 +209,9 @@ export class LayoutMap {
       kind: 'gun', classId: batteryId, team, mine: team === 0, index,
       name: b.name, type: b.bore,
       traverse: b.traverse ?? 120,
+      // What the piece will reach, in metres. The chart draws its field of fire
+      // to this and writes it under the counter, so the two agree.
+      range: b.range,
       x: 0, z: 0, heading: team === 0 ? 0 : Math.PI, ok: true,
     };
   }
@@ -990,23 +998,43 @@ export class LayoutMap {
     // A gun's field of fire, so what it is pointed at means something.
     if (t.kind === 'gun') {
       const half = ((t.traverse >= 360 ? 360 : t.traverse) / 2) * (Math.PI / 180);
-      const reach = r * 4.4;
-      ctx.beginPath();
+      // Drawn to the gun's own range on the ground, not to a fixed number of
+      // pixels. It used to be four and a half counter-widths whatever the
+      // chart was showing, which meant the wedge was a different distance every
+      // time the captain zoomed -- a picture of the range that changed while he
+      // watched, and told him nothing about how far the gun would actually
+      // shoot. In metres it is the same stretch of sea at every zoom.
+      const reach = Math.max(r * 1.6, (t.range || 12000) * this.scale);
+      // Canvas angles run from +x and clockwise on a y-down canvas, and the
+      // heading runs from +z and clockwise on the chart, so the two differ by a
+      // quarter turn.
+      const a0 = t.heading - half - Math.PI / 2;
+      const a1 = t.heading + half - Math.PI / 2;
+      ctx.strokeStyle = t.ok ? col.dim : 'rgba(226, 86, 79, 0.55)';
       if (t.traverse >= 360) {
+        // A mounting that points anywhere has nothing to say about bearing, so
+        // all it draws is how far it shoots: a ring, not a disc. Filling in the
+        // whole circle at the gun's real range put a wash over half the chart
+        // and hid the sea the captain was trying to read.
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
         ctx.arc(p.x, p.y, reach, 0, Math.PI * 2);
+        ctx.stroke();
       } else {
+        // A limited mounting has a bearing worth showing, so the wedge is
+        // filled -- faintly, because there may be a dozen of them.
+        ctx.beginPath();
         ctx.moveTo(p.x, p.y);
-        // Canvas angles run from +x and clockwise on a y-down canvas, and the
-        // heading runs from +z and clockwise on the chart, so the two differ by
-        // a quarter turn.
-        const a0 = t.heading - half - Math.PI / 2;
-        const a1 = t.heading + half - Math.PI / 2;
         ctx.arc(p.x, p.y, reach, a0, a1);
         ctx.closePath();
+        ctx.fillStyle = t.ok ? col.dim : 'rgba(226, 86, 79, 0.32)';
+        ctx.globalAlpha = 0.16;
+        ctx.fill();
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
       }
-      ctx.fillStyle = t.ok ? col.dim : 'rgba(226, 86, 79, 0.32)';
-      ctx.globalAlpha = 0.35;
-      ctx.fill();
       ctx.globalAlpha = 1;
     }
 
@@ -1097,7 +1125,13 @@ export class LayoutMap {
       if (!room || p.x < -80 || p.x > this.size.w + 80 || y < 0 || y > this.size.h) continue;
       taken.push({ x: p.x, y });
       ctx.fillStyle = t.ok ? 'rgba(240, 232, 214, 0.9)' : '#ffd9d6';
-      ctx.fillText(t.name.length > 20 ? `${t.name.slice(0, 19)}…` : t.name, p.x, y);
+      const label = t.kind === 'gun' && t.range
+        // The gun's range, in the yards the rest of the chart is measured in.
+        // A figure, not a picture of one: it says the same thing whatever the
+        // chart is zoomed to.
+        ? `${short(t.name, 18)} · ${Math.round(t.range / 0.9144 / 100) * 100} yd`
+        : short(t.name, 20);
+      ctx.fillText(label, p.x, y);
     }
   }
 
