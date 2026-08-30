@@ -364,20 +364,19 @@ function buildIslands(islands) {
  * `at` is the emplacement's world position; the mesh is built in the view's own
  * local frame, so its origin is the pad and its y is metres above or below it.
  */
-function batteryApron(world, at, span) {
-  // The levelled ground is the emplacement's own size and no more.
-  //
-  // It used to be nine metres across at the least and two and a half times that
-  // at the edge, whatever was standing on it -- so an 8.8 cm Flak, which is a
-  // five-metre gun, sat in the middle of a forty-six-metre parade ground and
-  // read as a toy. It is cut to the piece now: a little under twice the span of
-  // the mounting across, which is what a gun pit and its revetment measure.
-  const R = Math.max(3, span * 0.34);
+function batteryApron(world, at, span, foot = 0) {
+  // The levelled ground is the emplacement's own size and no more -- but it is
+  // its whole size. The platform has to carry everything the gun is built with,
+  // outriggers, revetment, ready racks and all, or the pieces at the edge of it
+  // hang off the side of the mound with nothing under them. `foot` is what the
+  // model actually measures across the ground; the datasheet span is the floor
+  // under that, for a piece whose model happens to be compact.
+  const R = Math.max(3, span * 0.5, foot * 1.14);
   // Out to the last ring the pad height was measured on, so the apron always
   // reaches past the ground that decided how high it stands, with enough rings
   // that the skirt comes down to the hillside over a slope rather than a step.
-  const RINGS = [1, 1.35, 1.7, 2.05, 2.4, 2.76];
-  const SPOKES = 32;
+  const RINGS = [1, 1.28, 1.58, 1.9, 2.24, 2.6];
+  const SPOKES = 40;
   const pos = [];
   const idx = [];
   const col = [];
@@ -385,16 +384,37 @@ function batteryApron(world, at, span) {
     pos.push(x, y, z);
     col.push(shade[0], shade[1], shade[2]);
   };
-  const PAD = [0.42, 0.40, 0.34];      // levelled earth and rubble
-  const FILL = [0.36, 0.36, 0.29];     // the spoil banked round it
+  // Spoil out of the hill it was dug from, not a slab of concrete. The pad was
+  // a fixed pale grey that came out brighter than any ground in the game, so an
+  // emplacement on a green headland sat on what looked like a golf ball. It
+  // takes the colour of the ground at its own height and darkens it: bare
+  // trodden earth on the platform, banked spoil round that, and the hillside's
+  // own colour where the two meet, so the mound belongs to the hill.
+  const here = isleShade(at.y, 0, 0);
+  const tone = (k, g) => [
+    Math.min(1, here[0] * k + g), Math.min(1, here[1] * k + g), Math.min(1, here[2] * k + g),
+  ];
+  const PAD = tone(0.70, 0.055);       // levelled earth and rubble
+  const FILL = tone(0.85, 0.025);      // the spoil banked round it
+  const EDGE = here;                   // where it meets the hill again
+  // And an outline that is not a turned circle: spoil is thrown, not moulded.
+  const seed = Math.abs(Math.round(at.x * 0.37 + at.z * 0.11));
+  const ph = [(seed % 61) / 61 * 6.28, (seed % 37) / 37 * 6.28, (seed % 23) / 23 * 6.28];
+  const wob = (th) => 1
+    + 0.14 * Math.sin(th * 3 + ph[0])
+    + 0.085 * Math.sin(th * 5 - ph[1])
+    + 0.05 * Math.sin(th * 8 + ph[2]);
 
   put(0, 0, 0, PAD);                   // the middle of the platform
   for (let i = 0; i < SPOKES; i++) {
     const th = (i / SPOKES) * Math.PI * 2;
     const sn = Math.sin(th);
     const cs = Math.cos(th);
+    const rough = wob(th);
     for (let k = 0; k < RINGS.length; k++) {
-      const r = R * RINGS[k];
+      // The platform itself stays a clean working circle -- it was levelled --
+      // and everything banked outside it is ragged.
+      const r = R * RINGS[k] * (k === 0 ? 1 : 1 + (rough - 1) * ((k - 1) / (RINGS.length - 2)));
       const x = sn * r;
       const z = cs * r;
       // Local height: the terrain out there relative to the pad, never above
@@ -418,7 +438,10 @@ function batteryApron(world, at, span) {
         // sitting on it, so the earthwork ends buried instead of in mid-air.
         if (k === RINGS.length - 1) y -= Math.max(3, span * 0.2);
       }
-      put(x, y, z, k === 0 ? PAD : FILL);
+      const shade = k === 0 ? PAD
+        : k >= RINGS.length - 2 ? EDGE
+          : FILL;
+      put(x, y, z, shade);
     }
   }
   const ring = (i, k) => 1 + i * RINGS.length + k;
@@ -688,7 +711,7 @@ export class BattleScene {
       group.add(marker);
 
       // The ground it stands on, cut to fit the hill it stands on.
-      if (at) group.add(batteryApron(this.world, at, built.span));
+      if (at) group.add(batteryApron(this.world, at, built.span, built.foot));
 
       v = { group, spin, marker, span: built.span, batteryId, team, smokeTimer: 0 };
       this.batteryViews.set(id, v);

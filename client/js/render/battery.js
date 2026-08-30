@@ -38,6 +38,7 @@ const MAT = {
   oliveDark: new THREE.MeshLambertMaterial({ color: 0x40453a }),
   rubber: new THREE.MeshLambertMaterial({ color: 0x1d1f20 }),
   timber: new THREE.MeshLambertMaterial({ color: 0x5a4630 }),
+  timberPale: new THREE.MeshLambertMaterial({ color: 0x6d5740 }),
   // Hessian, filled and stacked. Two tones so a wall of them is a wall of bags
   // rather than a slab: every other course takes the darker one.
   bag: new THREE.MeshLambertMaterial({ color: 0x9a8c66 }),
@@ -253,21 +254,94 @@ function sandbag(g, x, y, z, ry, i) {
 }
 
 /**
+ * The boards a gun crew stands on.
+ *
+ * A gun pit floors out in mud within a day of being dug, so it is decked --
+ * planks on bearers, laid in a ring round the mounting with the pedestal in the
+ * middle of it. It is also what stops the ready racks, the crates and the
+ * revetment reading as three separate things somebody left on a hillside: they
+ * all stand on the same floor, and the floor runs up to the bags.
+ */
+function duckboards(g, o = {}) {
+  const {
+    inner = 1.6, outer = 4.2, from = -1.9, to = 1.9, y = 0.035,
+  } = o;
+  const span = to - from;
+  // Short boards laid across the run, in courses out from the mounting -- which
+  // is how duckboarding is actually made and, more to the point, how it reads.
+  // Laid the other way, as long planks running out from the middle, the deck
+  // came out as a fan of wedges: they had to splay to cover the outer edge, and
+  // a floor whose boards get wider the further out you go is not a floor.
+  const step = Math.max(0.32, (outer - inner) / 11);
+  let c = 0;
+  for (let r = inner + step * 0.5; r < outer; r += step, c++) {
+    const m = Math.max(4, Math.round((span * r) / 0.6));
+    const bearer = c % 3 === 0;
+    for (let i = 0; i < m; i++) {
+      // Every other course offset by half a board, so the joints break.
+      const a = from + (span * (i + (c % 2 ? 0.5 : 0.02))) / m;
+      if (a > to || a < from) continue;
+      const board = box(g, (i + c) % 3 === 1 ? MAT.timber : MAT.timberPale,
+        Math.min(0.62, r * span * 0.9 / m), 0.05, step * 0.86,
+        Math.sin(a) * r, y, Math.cos(a) * r, a);
+      board.rotation.x = 0.008 * Math.sin(i * 1.9 + c);
+    }
+    // A bearer under every third course, showing at the edge of the boards.
+    if (bearer) {
+      const n = Math.max(3, Math.round((span * r) / 1.1));
+      for (let i = 0; i < n; i++) {
+        const a = from + (span * (i + 0.5)) / n;
+        box(g, MAT.timber, 0.16, 0.06, step * 1.02,
+          Math.sin(a) * r, y - 0.05, Math.cos(a) * r, a);
+      }
+    }
+  }
+}
+
+/**
+ * Spent cases, thrown clear of the breech and left where they rolled.
+ *
+ * Fired brass is the one thing that says a gun position has been in action, and
+ * at ten metres it is the difference between a model of a gun and a place where
+ * men are working one.
+ */
+function spentCases(g, bore, n, x, z, spread = 1.6) {
+  const L = bore * 1.7;
+  for (let i = 0; i < n; i++) {
+    const a = i * 2.399;
+    const rr = spread * Math.sqrt((i + 0.5) / n);
+    const c = cyl(g, MAT.brass, bore * 0.5, bore * 0.52, L,
+      x + Math.sin(a) * rr, bore * 0.5, z + Math.cos(a) * rr, 10);
+    c.rotation.z = Math.PI / 2;
+    c.rotation.y = a * 1.7;
+  }
+}
+
+/**
  * A revetment curved round the front of a mounting: courses of bags on a
  * shrinking radius, so the wall leans back into itself the way a real one does.
  */
 function sandbagArc(g, o) {
   const {
     r = 4.0, from = -1.2, to = 1.2, courses = 5, y0 = 0, setback = 0.075,
-    z = 0, x = 0,
+    z = 0, x = 0, taper = 1,
   } = o;
   let k = 0;
   for (let c = 0; c < courses; c++) {
     const rc = r - c * setback;
-    const n = Math.max(3, Math.round((Math.abs(to - from) * rc) / BAG_W));
+    // Each course a bag shorter at each end than the one under it, so the wall
+    // walks down to the ground where it finishes. Built with every course the
+    // same length it ended in a sheer stack of bags standing in the open with
+    // nothing either side of it -- which is what made a revetment read as a
+    // piece of wall somebody had dropped rather than as part of the pit.
+    const cut = (c * BAG_W * 0.92 * taper) / rc;
+    const a0 = from + cut;
+    const a1 = to - cut;
+    if (a1 - a0 < BAG_W / rc) break;
+    const n = Math.max(2, Math.round(((a1 - a0) * rc) / BAG_W));
     for (let i = 0; i <= n; i++) {
-      const a = from + ((to - from) * (i + (c % 2 ? 0.5 : 0))) / n;
-      if (a > to + 0.001 || a < from - 0.001) continue;
+      const a = a0 + ((a1 - a0) * (i + (c % 2 ? 0.5 : 0))) / n;
+      if (a > a1 + 0.001 || a < a0 - 0.001) continue;
       sandbag(g, x + Math.sin(a) * rc, y0 + BAG_H / 2 + c * (BAG_H - 0.018),
         z + Math.cos(a) * rc, a, k++);
     }
@@ -283,10 +357,13 @@ function sandbagWall(g, o) {
   g.add(grp);
   let k = 0;
   for (let c = 0; c < courses; c++) {
-    const n = Math.max(2, Math.round(len / BAG_W));
+    // Stepped in at both ends, course by course, the same way the arc is.
+    const lc = len - c * BAG_W * 1.84;
+    if (lc < BAG_W) break;
+    const n = Math.max(1, Math.round(lc / BAG_W));
     for (let i = 0; i <= n; i++) {
-      const t = ((i + (c % 2 ? 0.5 : 0)) / n) * len - len / 2;
-      if (Math.abs(t) > len / 2 + 0.01) continue;
+      const t = ((i + (c % 2 ? 0.5 : 0)) / n) * lc - lc / 2;
+      if (Math.abs(t) > lc / 2 + 0.01) continue;
       sandbag(grp, t, BAG_H / 2 + c * (BAG_H - 0.018), -c * setback, 0, k++);
     }
   }
@@ -529,8 +606,12 @@ function buildFlak88(g, b) {
     box(g, MAT.olive, 0.86, 0.3, 0.4, 2.4 + (i % 2) * 0.12,
       0.15 + Math.floor(i / 2) * 0.3, -1.5 - (i % 2) * 0.5, 0.2 - i * 0.15);
   }
-  // A ring of bags round the front of the pit, clear of the outriggers.
-  sandbagArc(g, { r: 4.35, from: -1.15, to: 1.15, courses: 5 });
+  // The pit floor, the bags round it, and the brass on the boards. The
+  // decking is what ties the ready rack, the crates and the revetment to the
+  // gun: they all stand on one floor instead of on bare ground beside it.
+  duckboards(g, { inner: 1.5, outer: 4.3, from: -1.95, to: 1.95 });
+  sandbagArc(g, { r: 4.35, from: -1.85, to: 1.85, courses: 5 });
+  spentCases(g, bore, 9, -1.5, -1.9, 1.5);
 }
 
 /** 10 cm leFH 14/19(t) on its split-trail carriage. */
@@ -593,11 +674,19 @@ function buildMerville(g, b) {
   }));
   sight(arm, -0.4, 0.24, -0.08);
 
+  // The position round it: boards to stand the trail and the wheels on, the
+  // revetment carried round both flanks rather than laid across the front, and
+  // the ammunition on the decking with the rest of it. The gun used to sit on
+  // bare grass with a crate and a length of wall beside it, three things in a
+  // field; a floor is what makes them one position.
+  duckboards(g, { inner: 1.05, outer: 2.95, from: -2.2, to: 2.2, y: 0.03 });
   for (let i = 0; i < 4; i++) {
-    round_(g, bore, 1.7 + (i % 2) * 0.3, 0, -1.5 - Math.floor(i / 2) * 0.36);
+    round_(g, bore, 1.7 + (i % 2) * 0.3, 0.06, -1.5 - Math.floor(i / 2) * 0.36);
   }
-  box(g, MAT.timber, 0.9, 0.34, 0.44, -1.8, 0.17, -1.7, -0.25);
-  sandbagWall(g, { len: 5.2, z: 2.75, courses: 5 });
+  box(g, MAT.timber, 0.9, 0.34, 0.44, -1.8, 0.23, -1.7, -0.25);
+  box(g, MAT.olive, 0.8, 0.3, 0.42, -1.95, 0.21, 1.15, 0.18);
+  sandbagArc(g, { r: 3.5, from: -1.55, to: 1.55, courses: 5 });
+  spentCases(g, bore, 5, -1.0, -1.4, 1.1);
 }
 
 /** 15 cm Tbts KC/36 on a naval pedestal. */
@@ -676,7 +765,9 @@ function buildLongues(g, b) {
   // The rammer, laid across the bedplate where the loading number left it.
   box(g, MAT.timber, 0.08, 0.08, 2.5, 1.42, 0.26, -0.35, 0.12);
   cyl(g, MAT.timber, 0.1, 0.1, 0.34, 1.28, 0.26, -1.5, 10).rotation.x = Math.PI / 2;
-  sandbagArc(g, { r: 3.5, from: -1.15, to: 1.15, courses: 6 });
+  duckboards(g, { inner: 1.4, outer: 3.45, from: -1.95, to: 1.95 });
+  sandbagArc(g, { r: 3.5, from: -1.85, to: 1.85, courses: 6 });
+  spentCases(g, bore, 7, -1.3, -1.7, 1.3);
 }
 
 /** 28 cm Krupp L/40 on a barbette pivot mount. */
@@ -751,7 +842,8 @@ function buildOscarsborg(g, b) {
     breech: { screw: true, len: 1.05 },
   }));
 
-  sandbagArc(g, { r: 5.3, from: -1.1, to: 1.1, courses: 6 });
+  duckboards(g, { inner: 2.4, outer: 5.25, from: -1.85, to: 1.85 });
+  sandbagArc(g, { r: 5.3, from: -1.75, to: 1.75, courses: 6 });
 }
 
 /**
@@ -881,7 +973,9 @@ function buildDrum(g, b) {
   }
 
   // A revetment of sandbags heaped round the front of the barbette.
-  sandbagArc(g, { r: RW + 1.5, from: -1.05, to: 1.05, courses: 8 });
+  duckboards(g, { inner: RW * 0.6, outer: RW + 1.45, from: -1.8, to: 1.8 });
+  sandbagArc(g, { r: RW + 1.5, from: -1.7, to: 1.7, courses: 8 });
+  spentCases(g, bore, 5, -RW * 0.5, -RW * 0.8, 2.2);
 }
 
 /** 38 cm SK C/34 on its Bettungsschiessgerüst. */
@@ -949,7 +1043,9 @@ function buildTodt(g, b) {
     breech: { screw: true, len: 1.05 },
   }));
 
-  sandbagArc(g, { r: 7.4, from: -1.0, to: 1.0, courses: 8 });
+  duckboards(g, { inner: 3.4, outer: 7.35, from: -1.72, to: 1.72 });
+  sandbagArc(g, { r: 7.4, from: -1.62, to: 1.62, courses: 8 });
+  spentCases(g, bore, 6, -3.0, -3.6, 2.4);
 }
 
 /** Two 16"/50 M1919 on barbette carriages. */
@@ -1015,7 +1111,15 @@ function buildTownsley(g, b) {
       breech: { mat: MAT.oliveDark, screw: true, len: 1.05 },
     }));
 
-    sandbagWall(gun, { len: 9.5, z: 6.4, courses: 8 });
+    // The working floor round the barbette, and a revetment behind it that is
+    // a wall rather than a pavement: eight courses over nine metres, stepped in
+    // at both ends, came out as a low ramp of brickwork lying on the grass.
+    duckboards(gun, { inner: 4.1, outer: 6.6, from: -1.85, to: 1.85 });
+    sandbagWall(gun, { len: 6.2, z: 6.9, courses: 7 });
+    for (const t of [-1, 1]) {
+      sandbagWall(gun, { len: 3.6, x: t * 4.6, z: 4.9, ry: t * 1.0, courses: 6 });
+    }
+    spentCases(gun, bore, 5, -2.6, -3.4, 2.0);
   }
 }
 
@@ -1121,6 +1225,34 @@ const BUILDERS = {
  *
  * @returns {{group: THREE.Group, span: number, focusY: number}}
  */
+/**
+ * Every piece of a gun, unwelded, with its box in the gun's own frame.
+ *
+ * `buildBattery` welds the whole thing down to one mesh per material, which is
+ * what you want on a battlefield and useless for asking whether any single
+ * piece of it is standing in mid-air. This builds the same gun and hands back
+ * the parts, so that question can be asked -- and answered in a check that runs
+ * every time, rather than by somebody noticing a floating sandbag.
+ */
+export function batteryParts(id) {
+  const b = BATTERIES[id] || BATTERIES.longues;
+  const group = new THREE.Group();
+  group.userData.guns = [];
+  (BUILDERS[id] || buildLongues)(group, b);
+  group.updateMatrixWorld(true);
+  const parts = [];
+  group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    o.geometry.computeBoundingBox();
+    const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    parts.push({
+      min: [bb.min.x, bb.min.y, bb.min.z],
+      max: [bb.max.x, bb.max.y, bb.max.z],
+    });
+  });
+  return parts;
+}
+
 export function buildBattery(id) {
   const b = BATTERIES[id] || BATTERIES.longues;
   const group = new THREE.Group();
@@ -1140,8 +1272,24 @@ export function buildBattery(id) {
   for (const child of group.children) { child.position.x -= cx; child.position.z -= cz; }
   group.updateMatrixWorld(true);
   bb = new THREE.Box3().setFromObject(group);
+  // What the gun stands on, in metres from its middle: the furthest anything
+  // low enough to be resting on the ground reaches out. The barrel is left out
+  // of it -- a twenty-metre muzzle is in the air, and the platform under the
+  // gun has no business being twenty metres wide because of it.
+  let foot = 0;
+  const low = Math.max(2.5, (bb.max.y - bb.min.y) * 0.45);
+  for (const child of group.children) {
+    const a = child.geometry?.attributes?.position;
+    if (!a) continue;
+    for (let i = 0; i < a.count; i++) {
+      if (a.getY(i) > low) continue;
+      const d = Math.hypot(a.getX(i) + child.position.x, a.getZ(i) + child.position.z);
+      if (d > foot) foot = d;
+    }
+  }
   return {
     group,
+    foot,
     // The recoiling masses, for the scene to fire and to run back.
     guns: group.userData.guns,
     // The gun's real extent now that there is no concrete round it to inflate

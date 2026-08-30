@@ -11,6 +11,7 @@ import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
 } from '../../shared/sim.js';
 import { clamp, lerp, wrapAngle, angleDelta, dist, MPS_TO_KNOTS } from '../../shared/math.js';
+import { groundHeight } from '../../shared/world.js';
 
 const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
 const INPUT_HZ = 20;
@@ -683,6 +684,13 @@ export class Battle {
         );
         cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
         cam.fov = 52;
+        // Above the hill she stands on, and still looking at her. Walking the
+        // orbit round a gun on a headland used to bury the camera in the slope.
+        const floor = groundHeight(this.scene.world, cam.position.x, cam.position.z);
+        if (cam.position.y < floor + 7) {
+          cam.position.y = floor + 7;
+          cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+        }
       }
       cam.updateProjectionMatrix();
       return;
@@ -722,6 +730,16 @@ export class Battle {
       );
       cam.lookAt(look);
     }
+
+    // Nothing puts the camera inside the ground.
+    //
+    // Orbiting a battery on a headland used to walk the camera straight into
+    // the hillside: the view went to mud, and a captain who could not see
+    // anything and could not get out of it concluded the camera would not move
+    // at all. It is lifted to stand clear of whatever is under it, ashore or
+    // afloat, wherever it has been asked to go.
+    const floor = groundHeight(this.scene.world, cam.position.x, cam.position.z);
+    cam.position.y = Math.max(cam.position.y, floor + 7, 2.5);
 
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 1.8);

@@ -13,6 +13,7 @@ import {
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { angleDelta } from '../shared/math.js';
+import { batteryParts } from '../client/js/render/battery.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -818,6 +819,40 @@ check('a gun stands on its ground, never inside it', () => {
     }
   }
   assert.ok(tested >= 6, `only ${tested} emplacements were on land to test`);
+});
+
+check('no piece of a gun stands in mid-air', () => {
+  // Every part of an emplacement has to be carried by something, and everything
+  // that carries it has to reach the ground. Built out of a few hundred boxes
+  // apiece, that is not a thing anybody is going to keep true by looking at the
+  // screen -- so it is asked here: group the pieces into what touches what, and
+  // every group must have something in it resting on the ground.
+  const EPS = 0.07;
+  const GROUND = 0.15;
+  const hits = (a, b) => {
+    for (let i = 0; i < 3; i++) {
+      if (a.min[i] - EPS > b.max[i] || b.min[i] - EPS > a.max[i]) return false;
+    }
+    return true;
+  };
+  for (const id of Object.keys(BATTERIES)) {
+    const parts = batteryParts(id);
+    assert.ok(parts.length > 40, `${id} should be built of more than ${parts.length} pieces`);
+    const n = parts.length;
+    const up = [...Array(n).keys()];
+    const find = (k) => (up[k] === k ? k : (up[k] = find(up[k])));
+    for (let a = 0; a < n; a++) {
+      for (let b2 = a + 1; b2 < n; b2++) if (hits(parts[a], parts[b2])) up[find(a)] = find(b2);
+    }
+    const grounded = new Set();
+    for (let a = 0; a < n; a++) if (parts[a].min[1] <= GROUND) grounded.add(find(a));
+    const floating = [];
+    for (let a = 0; a < n; a++) {
+      if (!grounded.has(find(a))) floating.push(parts[a].min.map((v) => Math.round(v * 10) / 10));
+    }
+    assert.equal(floating.length, 0,
+      `${id}: ${floating.length} pieces in mid-air, first at ${JSON.stringify(floating[0])}`);
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

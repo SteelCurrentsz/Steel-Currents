@@ -483,7 +483,7 @@ export function batteryRise(span = 20) {
  * The last of them is the outer edge of the apron, so nothing the emplacement
  * is drawn with stands on ground that was never measured.
  */
-export const BATTERY_FOOTPRINT = [0.2, 0.4, 0.6, 0.78, 0.94];
+export const BATTERY_FOOTPRINT = [0.25, 0.5, 0.75, 1.0, 1.18, 1.35];
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
 function shellOwner(state, sh) {
