@@ -10,6 +10,7 @@ import { Room } from './room.js';
 import { scoreboard } from '../shared/protocol.js';
 import { MAP_PRESETS } from '../shared/world.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
+import { crewBattle } from './setup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -192,41 +193,12 @@ function handle(player, msg) {
         place: (Number.isFinite(msg.lon) && Number.isFinite(msg.lat))
           ? { lon: msg.lon, lat: msg.lat } : undefined,
       });
-      // Berths off the order-of-battle chart, if the captain laid one out. The
-      // first ally berth is the captain's own hull, because that is the order
-      // the fleets are built in below and the order the chart was drawn in.
-      // Every one of them is checked again in addShip -- these are only the
-      // numbers that arrived over the wire.
-      const berths = (v, cap) => (Array.isArray(v)
-        ? v.slice(0, cap).map((b) => (b && Number.isFinite(b.x) && Number.isFinite(b.z)
-          ? { x: b.x, z: b.z, h: b.h } : null))
-        : null);
-      const allyAt = berths(msg.layout?.allies, 25);
-      const enemyAt = berths(msg.layout?.enemies, 25);
-      joinRoom(player, room, msg, allyAt?.[0] ?? null);
-      // A briefing names the hulls outright; anything else just asks for counts.
-      const list = (v, cap) => (Array.isArray(v) ? v.slice(0, cap) : null);
-      const allyClasses = list(msg.allyClasses, 24);
-      const enemyClasses = list(msg.enemyClasses, 25);
-      const allies = allyClasses?.length ?? Math.max(0, Math.min(24, msg.allies ?? 3));
-      const enemies = enemyClasses?.length ?? Math.max(1, Math.min(25, msg.enemies ?? 4));
-      for (let i = 0; i < allies; i++) {
-        room.addBotOnTeam(player.team, msg.botSkill, allyClasses?.[i] ?? null,
-          allyAt?.[i + 1] ?? null);
-      }
-      for (let i = 0; i < enemies; i++) {
-        room.addBotOnTeam(1 - player.team, msg.botSkill, enemyClasses?.[i] ?? null,
-          enemyAt?.[i] ?? null);
-      }
-      // The guns ashore, where the captain sited them on the chart.
-      const guns = (v) => (Array.isArray(v) ? v.slice(0, 12).filter((id) => typeof id === 'string') : []);
-      const allyGunAt = berths(msg.layout?.allyGuns, 12);
-      const enemyGunAt = berths(msg.layout?.enemyGuns, 12);
-      guns(msg.allyGuns).forEach((id, i) => {
-        room.addBatteryOnTeam(player.team, id, allyGunAt?.[i] ?? null);
-      });
-      guns(msg.enemyGuns).forEach((id, i) => {
-        room.addBatteryOnTeam(1 - player.team, id, enemyGunAt?.[i] ?? null);
+      // The fleets, the guns ashore and the berths the captain gave them, all
+      // out of setup.js -- the same code the standalone build runs, so a
+      // sortie means the same thing whether or not there is a socket in it.
+      crewBattle(room, msg, (at) => {
+        const res = joinRoom(player, room, msg, at);
+        return res?.error ? { error: res.error } : { team: player.team };
       });
       room.start();
       break;
@@ -264,7 +236,7 @@ function joinRoom(player, room, msg, at = null) {
   const res = room.join(player, {
     name: player.name, classId: msg.classId, team: msg.team, at,
   });
-  if (res.error) { player.send({ t: 'error', msg: res.error }); return; }
+  if (res.error) { player.send({ t: 'error', msg: res.error }); return res; }
   player.send({
     t: 'joined',
     room: room.summary(),
@@ -278,6 +250,7 @@ function joinRoom(player, room, msg, at = null) {
     roster: scoreboard(room.state),
   });
   broadcastLobby();
+  return res;
 }
 
 server.listen(PORT, HOST, () => {

@@ -48,10 +48,11 @@ function columnTexture() {
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 128, 0, 0);
   g.addColorStop(0.00, 'rgba(255,255,255,0.00)'); // the very base, hidden in the sea
-  g.addColorStop(0.10, 'rgba(255,255,255,0.80)');
-  g.addColorStop(0.42, 'rgba(240,248,255,0.46)');
-  g.addColorStop(0.74, 'rgba(228,240,252,0.20)');
-  g.addColorStop(1.00, 'rgba(220,236,250,0.00)'); // torn to mist at the top
+  g.addColorStop(0.09, 'rgba(255,255,255,0.86)');
+  g.addColorStop(0.34, 'rgba(240,248,255,0.52)');
+  g.addColorStop(0.60, 'rgba(232,244,255,0.26)');
+  g.addColorStop(0.83, 'rgba(226,240,252,0.07)');
+  g.addColorStop(1.00, 'rgba(220,236,250,0.00)'); // torn to nothing at the top
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 128);
   // A little streaking across the column, so it is water and not a cone.
@@ -73,13 +74,14 @@ function columnTexture() {
  * it reading as a solid traffic cone.
  */
 function makeGeometry() {
-  const column = new THREE.CylinderGeometry(0.42, 1, 1, 20, 5, true);
+  const column = new THREE.CylinderGeometry(0.24, 1, 1, 20, 6, true);
   column.translate(0, 0.5, 0);
   // Water does not come up as a cone. The wall is pushed in and out around the
   // circumference and up the height, so the silhouette is ragged from every
   // bearing -- and since each splash is turned to a random heading, the same
   // shape never reads as the same shape twice.
   const p = column.attributes.position;
+  const col = [];
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
     const a = Math.atan2(x, z);
@@ -89,7 +91,18 @@ function makeGeometry() {
       + 0.09 * Math.sin(a * 8 + y * 11.7);
     p.setX(i, x * wob);
     p.setZ(i, z * wob);
+    // What comes up out of the sea is sea. The foot of the column carries the
+    // water's own colour and only the top of the throw -- where it has been
+    // torn apart and is more air than water -- goes white. A column that is
+    // white all the way down reads as a sheet of paper standing on the swell.
+    const up = Math.min(1, y * 1.35);
+    col.push(
+      0.62 + 0.38 * up,
+      0.76 + 0.24 * up,
+      0.84 + 0.16 * up,
+    );
   }
+  column.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   column.computeVertexNormals();
   // The crown: the collar of water thrown out sideways at the moment of impact,
   // leaning outwards. Short, wide, and gone in under a second.
@@ -107,16 +120,25 @@ function makeGeometry() {
  * reads as water moving rather than a decal on it. Scaled wide in x and z and
  * separately in y, so the wave can spread without the crest growing taller.
  */
-function makeSwellGeometry(seg = 56) {
+function makeSwellGeometry(seg = 72) {
   const pos = [];
   const uv = [];
   const idx = [];
-  const bands = [[0.80, 0], [1.0, 1], [1.22, 0]];
+  // Trough behind, crest, and a short steep face in front: a wave running
+  // outward is not symmetrical, and the steep side is the side it is going.
+  const bands = [[0.70, 0], [1.0, 1], [1.09, 0]];
   for (let b = 0; b < bands.length; b++) {
     const [r, y] = bands[b];
     for (let i = 0; i <= seg; i++) {
       const a = (i / seg) * Math.PI * 2;
-      pos.push(Math.sin(a) * r, y, Math.cos(a) * r);
+      // Nor is it a circle. The ring is pushed in and out around its
+      // circumference so it spreads unevenly, the way water does when it is
+      // running out across a sea that already has a swell on it.
+      const wob = 1
+        + 0.055 * Math.sin(a * 2 + 0.7)
+        + 0.038 * Math.sin(a * 3 - 1.9)
+        + 0.022 * Math.sin(a * 5 + 2.6);
+      pos.push(Math.sin(a) * r * wob, y, Math.cos(a) * r * wob);
       uv.push(i / seg, b / (bands.length - 1));
     }
   }
@@ -155,6 +177,36 @@ function swellTexture() {
 // ships firing at once, so the pool has to take a couple of straddles at a time
 // without a splash going missing. They are cheap: one shared geometry, one draw
 // call each, and culled when they are over the horizon.
+/**
+ * The patch of churned water a splash leaves behind: torn foam, not a ring.
+ *
+ * Drawn as blobs rather than a gradient because foam is lumpy, and a soft
+ * circle on the sea reads as a lens flare rather than as water.
+ */
+function foamTexture() {
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  for (let i = 0; i < 90; i++) {
+    const a = Math.random() * Math.PI * 2;
+    // Packed towards the middle, thinning out to nothing at the rim.
+    const rr = Math.pow(Math.random(), 0.6) * 0.46;
+    const x = size / 2 + Math.cos(a) * rr * size;
+    const y = size / 2 + Math.sin(a) * rr * size;
+    const r = (2 + Math.random() * 9) * (1 - rr);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1.5, r));
+    const alpha = 0.5 * (1 - rr / 0.46);
+    g.addColorStop(0, `rgba(255,255,255,${alpha.toFixed(3)})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1.5, r), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 const COLUMNS = 30;
 const SWELLS = 72;
 
@@ -170,27 +222,42 @@ export class Splashes {
     const geo = makeGeometry();
     this.colTex = columnTexture();
     this.swellTex = swellTexture();
+    this.foamTex = foamTexture();
     this.swellGeo = makeSwellGeometry();
+    this.foamGeo = new THREE.PlaneGeometry(2, 2);
 
     const colMat = new THREE.MeshBasicMaterial({
       map: this.colTex, transparent: true, depthWrite: false,
-      side: THREE.DoubleSide, color: 0xeaf4ff,
+      side: THREE.DoubleSide, color: 0xf2f8ff, vertexColors: true,
     });
     const swellMat = new THREE.MeshBasicMaterial({
       map: this.swellTex, transparent: true, depthWrite: false,
       side: THREE.DoubleSide, color: 0xe8f3ff,
     });
 
+    const crownMat = new THREE.MeshBasicMaterial({
+      map: this.colTex, transparent: true, depthWrite: false,
+      side: THREE.DoubleSide, color: 0xdcecfa,
+    });
+    const foamMat = new THREE.MeshBasicMaterial({
+      map: this.foamTex, transparent: true, depthWrite: false,
+      side: THREE.DoubleSide, color: 0xeef6ff,
+    });
+
     this.colPool = [];
     this.crownPool = [];
     this.swellPool = [];
+    this.foamPool = [];
     for (let i = 0; i < COLUMNS; i++) {
       const m = new THREE.Mesh(geo.column, colMat.clone());
       m.visible = false; m.renderOrder = 3;
       scene.add(m); this.colPool.push(m);
-      const c = new THREE.Mesh(geo.crown, colMat.clone());
+      const c = new THREE.Mesh(geo.crown, crownMat.clone());
       c.visible = false; c.renderOrder = 3;
       scene.add(c); this.crownPool.push(c);
+      const f = new THREE.Mesh(this.foamGeo, foamMat.clone());
+      f.visible = false; f.renderOrder = 1; f.rotation.x = -Math.PI / 2;
+      scene.add(f); this.foamPool.push(f);
     }
     for (let i = 0; i < SWELLS; i++) {
       const m = new THREE.Mesh(this.swellGeo, swellMat.clone());
@@ -199,6 +266,7 @@ export class Splashes {
     }
     this.columns = [];
     this.swells = [];
+    this.foams = [];
   }
 
   /**
@@ -216,6 +284,11 @@ export class Splashes {
       col.rotation.y = Math.random() * Math.PI * 2;
       col.material.opacity = 1;
       col.visible = true;
+      // Leaned a few degrees off the vertical and squashed slightly on one
+      // axis: a shell arrives on a slant and throws the water the way it was
+      // going, so a column standing dead upright looks like a prop.
+      col.rotation.z = (Math.random() - 0.5) * 0.20;
+      col.rotation.x = (Math.random() - 0.5) * 0.20;
       if (crown) {
         crown.position.set(x, 0, z);
         crown.rotation.y = Math.random() * Math.PI * 2;
@@ -228,7 +301,22 @@ export class Splashes {
       const rise = 0.22 + height * 0.006;
       this.columns.push({
         col, crown, x, z, h: height, r: radius,
+        squash: 0.82 + Math.random() * 0.36,
         life: 0, rise, ttl: rise + 1.3 + height * 0.022,
+      });
+    }
+    // The patch of churned water underneath it, which is what actually marks
+    // where the round went in: it is still there long after the column has
+    // fallen, and it is the last thing to go.
+    const foam = this.foamPool.pop();
+    if (foam) {
+      foam.position.set(x, 0.28, z);
+      foam.rotation.z = Math.random() * Math.PI * 2;
+      foam.material.opacity = 0;
+      foam.visible = true;
+      this.foams.push({
+        m: foam, r0: radius * 1.5, r1: radius * 4.2,
+        life: 0, ttl: 3.4 + height * 0.05, peak: 0.62,
       });
     }
     // And the swell that runs out from it. Three crests, thrown in order, each
@@ -291,7 +379,7 @@ export class Splashes {
         // of disturbed water rather than a slab standing on it.
         c.col.position.y = -c.h * 0.05 * u;
       }
-      c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread);
+      c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread * c.squash);
       c.col.material.opacity = 0.9 * (1 - k) * (1 - k * k);
       if (c.crown) {
         // The collar is thrown out in the first fifth of a second and is gone
@@ -301,6 +389,22 @@ export class Splashes {
         c.crown.material.opacity = 0.6 * (1 - u) * (1 - u);
         if (u >= 1 && c.crown.visible) { c.crown.visible = false; this.crownPool.push(c.crown); c.crown = null; }
       }
+    }
+
+    for (let i = this.foams.length - 1; i >= 0; i--) {
+      const f = this.foams[i];
+      f.life += dt;
+      const k = f.life / f.ttl;
+      if (k >= 1) {
+        f.m.visible = false; this.foamPool.push(f.m);
+        this.foams.splice(i, 1);
+        continue;
+      }
+      // Spreads quickly at first and then drifts, the way a patch of aerated
+      // water does before the sea closes over it again.
+      const r = f.r0 + (f.r1 - f.r0) * Math.pow(k, 0.45);
+      f.m.scale.set(r, r, 1);
+      f.m.material.opacity = f.peak * Math.min(1, f.life * 5) * (1 - k) * (1 - k);
     }
 
     for (let i = this.swells.length - 1; i >= 0; i--) {

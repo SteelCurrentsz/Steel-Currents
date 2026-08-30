@@ -13,6 +13,8 @@ import {
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
+import { Room } from '../server/room.js';
+import { crewBattle } from '../server/setup.js';
 import { buildSnapshot } from '../shared/protocol.js';
 
 let failures = 0;
@@ -661,6 +663,86 @@ check('the walk inland finds the middle from anywhere on an island', () => {
     assert.ok(mid.d > R * 0.5,
       `walked to ${Math.round(mid.d)} m of ground on an island of ${Math.round(R)} m`);
   }
+});
+
+check('a sortie is crewed the same way with a socket and without one', () => {
+  // The standalone build hosts its own battle in the tab, and used to do it
+  // with a second copy of this that had never heard of the order-of-battle
+  // chart: every hull went to the spawn line and no gun went ashore at all.
+  // Both builds go through crewBattle now, so this is the contract they share.
+  const layout = {
+    allies: [{ x: -1200, z: 2000, h: 0.4 }, { x: 900, z: 2600, h: 0 }],
+    enemies: [{ x: -2600, z: -2900, h: 3.1 }],
+    allyGuns: [{ x: 4000, z: 1500, h: 1 }],
+    enemyGuns: [{ x: -4200, z: -1800, h: -1 }],
+  };
+  const req = {
+    layout, botSkill: 'regular',
+    allyClasses: ['fletcher'], enemyClasses: ['fletcher'],
+    allyGuns: ['flak88'], enemyGuns: ['flak88'],
+  };
+  // A room stood up without the tick timer, since nothing here needs to run.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 4242, half: 12000, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, req, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'fletcher', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  }, { allies: 7, enemies: 8, guns: 12 });
+
+  const mine = room.state.ships.filter((s) => s.team === 0);
+  const theirs = room.state.ships.filter((s) => s.team === 1);
+  assert.equal(mine.length, 2, 'the captain and one consort');
+  assert.equal(theirs.length, 1);
+  // The first ally berth is the captain's own hull.
+  assert.equal(mine[0].x, -1200, 'the captain berthed where he said');
+  assert.equal(mine[0].z, 2000);
+  assert.ok(Math.abs(mine[0].heading - 0.4) < 1e-6, 'on the heading he gave her');
+  assert.equal(mine[1].x, 900, 'and so is his consort');
+  assert.equal(mine[1].z, 2600);
+  assert.equal(theirs[0].x, -2600, 'and so is the enemy');
+  assert.equal(theirs[0].z, -2900);
+
+  assert.equal(room.state.batteries.length, 2, 'both sides got their guns ashore');
+  const ally = room.state.batteries.find((b) => b.team === 0);
+  const foe = room.state.batteries.find((b) => b.team === 1);
+  assert.equal(ally.x, 4000, 'the gun is where it was sited');
+  assert.equal(ally.z, 1500);
+  assert.equal(foe.x, -4200);
+  assert.equal(foe.z, -1800);
+  clearInterval(room.timer);
+});
+
+check('the plot knows about a ship the lookouts have not sighted', () => {
+  // Fog of war decides what a captain can see and shoot at; it does not decide
+  // what is on his plot. A fleet action is fought off a plot with everybody's
+  // position on it, so an enemy over the horizon comes down the wire as a
+  // contact -- position and heading, nothing else -- and nowhere near the
+  // renderer or the gunnery.
+  const w = generateWorld(2024, 'open_ocean', 'day', 16000);
+  const state = createState(w, { mode: 'deathmatch' });
+  const mine = addShip(state, { name: 'Mine', classId: 'fletcher', team: 0, index: 0,
+    at: { x: -14000, z: -14000, h: 0 } });
+  const far = addShip(state, { name: 'Far', classId: 'fletcher', team: 1, index: 0,
+    at: { x: 14000, z: 14000, h: 0 } });
+  far.spottedBy = [false, false];
+
+  const snap = buildSnapshot(state, 0, mine.id);
+  assert.ok(!snap.ships.some((s) => s.i === far.id),
+    'an unsighted enemy is not a target');
+  const mark = snap.contacts.find((c) => c.i === far.id);
+  assert.ok(mark, 'but she is on the plot');
+  assert.equal(mark.x, 14000, 'where she actually is');
+  assert.equal(mark.z, 14000);
+  assert.equal(mark.tm, 1, 'and on the side she is actually on');
+  assert.equal(mark.hp, undefined, 'without telling her enemy how she is doing');
+
+  // Once she is sighted she moves the other way, and is not counted twice.
+  far.spottedBy = [true, false];
+  const seen = buildSnapshot(state, 0, mine.id);
+  assert.ok(seen.ships.some((s) => s.i === far.id), 'a sighted enemy is a target');
+  assert.ok(!seen.contacts.some((c) => c.i === far.id), 'and only on the plot once');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -37,10 +37,25 @@ export function shipSnapshot(ship, full) {
 
 export function buildSnapshot(state, team, viewerShipId) {
   const ships = [];
+  // What a captain can see out of the bridge windows, and what the plot knows.
+  //
+  // The two are not the same thing. `ships` is what his lookouts have actually
+  // sighted -- it is what the renderer draws and what his guns can be laid on.
+  // `contacts` is the rest of the order of battle, position and heading only,
+  // and it goes nowhere but the plot: a fleet action is fought off a plot that
+  // has everybody's last known position on it, and a captain who cannot see
+  // where the enemy line is cannot manoeuvre against it.
+  const contacts = [];
   for (const s of state.ships) {
     const friendly = s.team === team;
-    if (!friendly && !s.spottedBy[team]) continue;
     if (!s.alive && !friendly) continue;
+    if (!friendly && !s.spottedBy[team]) {
+      contacts.push({
+        i: s.id, x: Math.round(s.x), z: Math.round(s.z), h: r3(s.heading),
+        tm: s.team, c: s.classId, n: s.name,
+      });
+      continue;
+    }
     ships.push(shipSnapshot(s, friendly || s.id === viewerShipId));
   }
   const visibleOwners = new Set(ships.map((s) => s.i));
@@ -73,7 +88,7 @@ export function buildSnapshot(state, team, viewerShipId) {
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, shells, torps, planes, batteries,
+    ships, contacts, shells, torps, planes, batteries,
     caps: state.caps.map((c) => ({ id: c.id, o: c.owner, p: Math.round(c.progress), k: c.contest })),
     score: [Math.round(state.score[0]), Math.round(state.score[1])],
     over: state.over ? { winner: state.winner, reason: state.reason } : null,

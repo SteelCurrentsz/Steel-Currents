@@ -74,6 +74,7 @@ export class Battle {
     // Tapping a hull or a gun on the plot puts the camera on it; tapping it
     // again, or tapping open water, brings the view back to your own bridge.
     this.hud.onPick = (hit) => this.lookAt(hit);
+    this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
 
     this.raycaster = new THREE.Raycaster();
@@ -243,11 +244,7 @@ export class Battle {
       // The plot is a control as well as a picture, and a pointer locked to the
       // sea has no cursor to put on it. Opening the plot gives the mouse back;
       // the next click on the water takes it again.
-      case 'KeyM':
-        this.mapBig = !this.mapBig;
-        this.hud.toggleMap(this.mapBig);
-        if (this.mapBig) this.input.releaseLock();
-        break;
+      case 'KeyM': this.toggleMap(); break;
       case 'Tab': this.showScores = !this.showScores; this.hud.showScoreboard(this.roster, this.shipId, this.showScores); break;
       // Out of somebody else's view first, out of the battle second.
       case 'Escape':
@@ -263,6 +260,20 @@ export class Battle {
    * Tapping what is already being watched is how you get back, which means the
    * same tap both goes and returns and there is nothing else to learn.
    */
+  /**
+   * Put the chart table up, or take it down.
+   *
+   * The plot is a control as well as a picture, and a pointer locked to the sea
+   * has no cursor to put on it; raising the table gives the mouse back and the
+   * next click on the water takes it again.
+   */
+  toggleMap(want = !this.mapBig) {
+    this.mapBig = want;
+    this.hud.toggleMap(this.mapBig);
+    if (this.mapBig) this.input.releaseLock();
+    audio.click();
+  }
+
   lookAt(hit) {
     const same = hit && this.watching
       && this.watching.kind === hit.kind && this.watching.id === hit.id;
@@ -276,6 +287,9 @@ export class Battle {
     }
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching);
+    // The table has done its job the moment a contact is picked off it: what
+    // the captain wanted was the view, and the view is behind the table.
+    if (this.mapBig && this.watching) this.toggleMap(false);
     audio.click();
   }
 
@@ -293,7 +307,10 @@ export class Battle {
       // The same two hundred and twenty metres the squadron is drawn at.
       return pl ? { x: pl.x, y: 220, z: pl.z, span: 70 } : null;
     }
-    const s = snap.ships.find((x) => x.i === this.watching.id);
+    // Sighted or only reported: the camera goes to either, because the plot
+    // shows either and a mark you can tap has to be a mark you can watch.
+    const s = snap.ships.find((x) => x.i === this.watching.id)
+      || (snap.contacts || []).find((x) => x.i === this.watching.id);
     if (!s) return null;
     return { x: s.x, y: 0, z: s.z, span: getClass(s.c).hull.length };
   }

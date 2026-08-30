@@ -250,7 +250,7 @@
     <div class="minimap-wrap" id="minimap-wrap">
       <canvas id="minimap" width="320" height="320"></canvas>
     </div>
-    <p class="minimap-hint">M — big plot &middot; click a contact to watch it</p>
+    <p class="minimap-hint">Tap the plot for the big one &middot; M</p>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
     <div class="watch-banner" id="watch-banner" role="status" hidden>
@@ -270,6 +270,16 @@
       <div class="tele-label">HELM</div>
       <div class="rudder"><div class="rudder-needle" id="rudder-needle"></div></div>
       <div class="heading" id="heading-readout">000°</div>
+    </div>
+  </div>
+
+  <!-- The big plot: the chart table, in the middle of the screen where a
+       captain would stand over it. Raised by tapping the corner plot and put
+       away the same way. -->
+  <div class="plot-table" id="plot-table" hidden>
+    <div class="plot-table-box">
+      <canvas id="minimap-big" width="640" height="640"></canvas>
+      <p class="plot-table-hint">Tap a contact to watch it</p>
     </div>
   </div>
 

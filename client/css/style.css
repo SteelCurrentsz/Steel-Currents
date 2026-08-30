@@ -299,8 +299,30 @@ input[type="range"] { accent-color: var(--red); }
    seconds thing, so they have swapped. */
 .hud-right { position: absolute; right: 1.2vw; top: 1vh; bottom: auto; }
 .minimap-wrap { width: 240px; height: 240px; border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72); }
-.minimap-wrap.big { width: 60vh; height: 60vh; }
 #minimap { width: 100%; height: 100%; display: block; }
+
+/* The big plot, laid out in the middle of the screen like a chart table. It is
+   put up and taken down from the corner plot, which stays where it is: the
+   thing you press to raise it is the thing you press to lower it. */
+.plot-table {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 8, 14, 0.55);
+}
+.plot-table[hidden] { display: none; }
+.plot-table-box {
+  width: min(78vh, 78vw); max-width: 760px;
+  border: 1px solid var(--panel-line);
+  background: rgba(6, 16, 28, 0.94);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  padding: 0;
+}
+#minimap-big { display: block; width: 100%; aspect-ratio: 1 / 1; cursor: pointer; touch-action: manipulation; }
+.plot-table-hint {
+  margin: 0; padding: 0.35rem 0.6rem; text-align: center;
+  font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--steel); border-top: 1px solid var(--panel-line);
+}
 .minimap-hint {
   margin: 0.3rem 0 0; text-align: right;
   font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase;
@@ -560,7 +582,6 @@ input[type="range"] { accent-color: var(--red); }
     bottom: auto;
   }
   .minimap-wrap { width: min(136px, 34vh); height: min(136px, 34vh); }
-  .minimap-wrap.big { width: min(74vh, 74vw); height: min(74vh, 74vw); }
 
   /* The killfeed and ribbons sit centre-left, clear of both thumb clusters. */
   .killfeed { top: auto; bottom: 32vh; font-size: 0.8rem; }

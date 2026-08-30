@@ -9,6 +9,7 @@
 // There is no second human here, so both fleets are crewed by bot captains.
 
 import { Room } from '../../server/room.js';
+import { crewBattle } from '../../server/setup.js';
 import { scoreboard } from '../../shared/protocol.js';
 
 export class LocalNet extends EventTarget {
@@ -61,22 +62,20 @@ export class LocalNet extends EventTarget {
       case 'quickmatch':
         // No one else is out there to wait for, so skip the lobby clock and
         // put a full bot fleet on each side.
-        this.startBattle(msg, { allies: 3, enemies: 4, botSkill: 'regular' });
+        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular' });
         break;
 
       case 'custom':
+        // Straight through, order of battle and all. What the briefing asked
+        // for is what gets built -- the counts are clamped inside crewBattle,
+        // which is the same clamp the socket build applies.
         this.startBattle(msg, {
-          allies: Math.max(0, Math.min(7, msg.allies ?? 3)),
-          enemies: Math.max(1, Math.min(8, msg.enemies ?? 4)),
-          allyClasses: Array.isArray(msg.allyClasses) ? msg.allyClasses.slice(0, 7) : null,
-          enemyClasses: Array.isArray(msg.enemyClasses) ? msg.enemyClasses.slice(0, 8) : null,
           botSkill: msg.botSkill || 'regular',
           mode: msg.mode === 'deathmatch' ? 'deathmatch' : 'domination',
           mapId: msg.mapId,
           roomName: msg.roomName,
           time: msg.time,
           weather: msg.weather,
-          axisClass: msg.axisClass,
           seed: msg.seed,
           half: msg.half,
           lon: msg.lon,
@@ -86,7 +85,7 @@ export class LocalNet extends EventTarget {
 
       case 'joinRoom':
         // Rooms are never shared in a standalone build, so this is a new battle.
-        this.startBattle(msg, { allies: 3, enemies: 4, botSkill: 'regular' });
+        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular' });
         break;
 
       case 'leave':
@@ -133,20 +132,18 @@ export class LocalNet extends EventTarget {
     this.room = room;
 
     this.player.name = String(msg.name || 'Captain').slice(0, 18);
-    const res = room.join(this.player, {
-      name: this.player.name, classId: msg.classId, team: msg.team,
-    });
-    if (res.error) { this.deliver({ t: 'error', msg: res.error }); return; }
-
-    // A briefing names the hulls outright; anything else just asks for counts.
-    const allies = opts.allyClasses?.length ?? opts.allies;
-    const enemies = opts.enemyClasses?.length ?? opts.enemies;
-    for (let i = 0; i < allies; i++) {
-      room.addBotOnTeam(this.player.team, opts.botSkill, opts.allyClasses?.[i] ?? null);
-    }
-    for (let i = 0; i < enemies; i++) {
-      room.addBotOnTeam(1 - this.player.team, opts.botSkill, opts.enemyClasses?.[i] ?? null);
-    }
+    // The fleets, the guns ashore and the berths off the order-of-battle
+    // chart, out of the same setup.js the socket build runs. This used to be a
+    // second copy that had never learned about the chart, so a captain who laid
+    // his squadron out and pressed Sortie found it back on the spawn line with
+    // no artillery on the coast at all.
+    const out = crewBattle(room, { ...msg, botSkill: opts.botSkill }, (at) => {
+      const res = room.join(this.player, {
+        name: this.player.name, classId: msg.classId, team: msg.team, at,
+      });
+      return res.error ? { error: res.error } : { team: this.player.team };
+    }, { allies: 7, enemies: 8, guns: 12 });
+    if (out && out.error) { this.deliver({ t: 'error', msg: out.error }); return; }
 
     this.deliver({
       t: 'joined',

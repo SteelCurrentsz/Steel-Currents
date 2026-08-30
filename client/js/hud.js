@@ -20,24 +20,45 @@ export class Hud {
       score0: $('score0'), score1: $('score1'), killfeed: $('killfeed'),
       ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
+      bigPlot: $('minimap-big'), plotTable: $('plot-table'),
       sink: $('sink-overlay'), reticle: $('reticle'),
       watchBanner: $('watch-banner'), watchWhat: $('watch-what'),
     };
-    this.ctx = this.el.minimap.getContext('2d');
     this.built = false;
     this.lastRibbon = 0;
-    // Everything the last plot drew, in canvas pixels, so a tap on the plot can
-    // be turned back into the hull or the gun that was tapped.
-    this.plot = [];
     this.onPick = null;
+    this.onToggleMap = null;
     this.watching = null;
+    // The two plots: the one in the corner and the chart table in the middle.
+    // Both are drawn from the same call, and each remembers what it drew -- in
+    // its own box's pixels -- so a tap on either can be turned back into the
+    // hull or the gun that was tapped.
+    this.plots = [
+      { cv: this.el.minimap, ctx: this.el.minimap.getContext('2d'), marks: [] },
+      { cv: this.el.bigPlot, ctx: this.el.bigPlot.getContext('2d'), marks: [] },
+    ];
+    // The corner plot raises the chart table and puts it away again. It is a
+    // hundred pixels across on a phone -- too small to aim a finger at one
+    // destroyer in a line -- so what it is good for is the one big target it
+    // is: press it, and the plot you can work on comes up in the middle.
     this.el.minimap.addEventListener('pointerdown', (e) => {
-      const hit = this.hitPlot(e);
-      if (hit) { e.preventDefault(); e.stopPropagation(); }
-      this.onPick?.(hit);
+      e.preventDefault(); e.stopPropagation();
+      this.onToggleMap?.();
+    });
+    this.el.bigPlot.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      this.onPick?.(this.hitPlot(e, 1));
+    });
+    // Anywhere off the table puts it away, which is what a captain expects of
+    // something laid over his bridge windows.
+    this.el.plotTable.addEventListener('pointerdown', (e) => {
+      if (e.target === this.el.plotTable) { e.preventDefault(); this.onToggleMap?.(); }
     });
     $('btn-leave').onclick = onLeave;
   }
+
+  /** Is the chart table up? */
+  get mapBig() { return !this.el.plotTable.hidden; }
 
   /**
    * What was under a tap on the plot, or null for open water.
@@ -46,15 +67,15 @@ export class Hud {
    * the nearest mark inside it wins. Batteries are tested first: they do not
    * move, so a captain who wants one has aimed at it.
    */
-  hitPlot(e) {
-    const el = this.el.minimap;
+  hitPlot(e, which = 0) {
+    const plot = this.plots[which];
+    const el = plot.cv;
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return null;
-    // The canvas has its own pixel size, which the CSS box need not match.
     // Marks are plotted in the box's own pixels, so a tap needs no conversion.
     const px = e.clientX - r.left;
     const py = e.clientY - r.top;
-    const reach = Math.max(18, r.width * 0.11);
+    const reach = Math.max(18, r.width * 0.055);
     // A division in line abreast is a few pixels wide on this plot and your own
     // hull is in the middle of it, so a straight nearest-mark pick keeps
     // landing on yourself — which is the one answer that does nothing. Ranked
@@ -63,7 +84,7 @@ export class Hud {
     const rank = (m) => (m.kind === 'battery' || m.kind === 'plane' ? 0
       : m.id === this.selfId ? 2 : 1);
     let best = null;
-    for (const mark of this.plot) {
+    for (const mark of plot.marks) {
       const d = Math.hypot(mark.x - px, mark.y - py);
       if (d > reach) continue;
       if (!best || rank(mark) < rank(best) || (rank(mark) === rank(best) && d < best.d)) {
@@ -270,11 +291,23 @@ export class Hud {
 
   setSunk(sunk) { this.el.sink.classList.toggle('show', sunk); }
 
-  toggleMap(big) { this.el.minimapWrap.classList.toggle('big', big); }
+  toggleMap(big) { this.el.plotTable.hidden = !big; }
 
-  /** The plot: own ship, contacts, torpedo tracks, capture zones, islands. */
+  /**
+   * The plot: own ship, contacts, torpedo tracks, capture zones, islands.
+   *
+   * Drawn into every plot that is on screen -- the corner one always, the chart
+   * table when it is up -- from the one call, so the two can never disagree.
+   */
   drawMinimap(own, ships, snap) {
-    const ctx = this.ctx;
+    for (const plot of this.plots) {
+      if (plot.cv.offsetParent === null && plot.cv !== this.el.minimap) { plot.marks = []; continue; }
+      this.paintPlot(plot, own, ships, snap);
+    }
+  }
+
+  paintPlot(plot, own, ships, snap) {
+    const ctx = plot.ctx;
     // The plot is drawn in the pixels it is actually shown at.
     //
     // It used to be a fixed three-hundred-and-twenty-pixel canvas squeezed into
@@ -283,7 +316,7 @@ export class Hud {
     // two and a half, which is to say invisible. Sizing the backing store to
     // the box -- times the screen's own pixel ratio, so it stays sharp -- means
     // a mark drawn six pixels wide is six pixels wide on the glass.
-    const cv = this.el.minimap;
+    const cv = plot.cv;
     const dpr = Math.min(2.5, window.devicePixelRatio || 1);
     const size = Math.max(64, Math.round(cv.clientWidth || 240));
     const store = Math.round(size * dpr);
@@ -361,7 +394,8 @@ export class Hud {
       }
     }
 
-    this.plot = [];
+    const marks = [];
+    plot.marks = marks;
     this.selfId = own ? own.i : 0;
 
     // The guns ashore, plotted as the fixed marks they are: a square, because
@@ -384,12 +418,20 @@ export class Hud {
         ctx.lineTo(x + Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
-      this.plot.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
+      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
     }
 
-    for (const s of ships) {
+    // Everything afloat, wherever it is. A hull the lookouts have sighted is a
+    // filled counter; one the plot knows about but nobody has eyes on is drawn
+    // hollow, so a captain can still tell a report from a sighting -- but both
+    // are on the plot, at any range, which is what a plot is for.
+    const afloat = [
+      ...ships.map((s) => ({ s, seen: true })),
+      ...((snap && snap.contacts) || []).map((s) => ({ s, seen: false })),
+    ];
+    for (const { s, seen } of afloat) {
       const self = own && s.i === own.i;
-      ctx.fillStyle = self ? '#e6cf9c' : s.tm === this.team ? '#6fd3a0' : '#e2564f';
+      const tint = self ? '#e6cf9c' : s.tm === this.team ? '#6fd3a0' : '#e2564f';
       const x = toX(s.x), y = toY(s.z);
       ctx.save();
       ctx.translate(x, y);
@@ -397,11 +439,17 @@ export class Hud {
       ctx.beginPath();
       ctx.moveTo(0, -7 * k); ctx.lineTo(4 * k, 5.6 * k); ctx.lineTo(-4 * k, 5.6 * k);
       ctx.closePath();
-      ctx.fill();
-      // An outline in the sea's own colour, so two hulls in company still read
-      // as two: a solid counter loses its neighbour on a plot this small.
-      ctx.strokeStyle = 'rgba(8,24,42,0.85)';
-      ctx.lineWidth = 1;
+      if (seen) {
+        ctx.fillStyle = tint;
+        ctx.fill();
+        // An outline in the sea's own colour, so two hulls in company still
+        // read as two: a solid counter loses its neighbour on a plot this small.
+        ctx.strokeStyle = 'rgba(8,24,42,0.85)';
+        ctx.lineWidth = 1;
+      } else {
+        ctx.strokeStyle = tint;
+        ctx.lineWidth = 1.5;
+      }
       ctx.stroke();
       ctx.restore();
       if (self) {
@@ -411,7 +459,7 @@ export class Hud {
         ctx.arc(x, y, this.cls.gun.range * scale, 0, Math.PI * 2);
         ctx.stroke();
       }
-      this.plot.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact' });
+      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact' });
     }
 
     // Aircraft, both sides. A squadron is over the map for a minute or two and
@@ -430,7 +478,7 @@ export class Hud {
       ctx.moveTo(-6.5 * k, 3.8 * k); ctx.lineTo(0, -5 * k); ctx.lineTo(6.5 * k, 3.8 * k);
       ctx.stroke();
       ctx.restore();
-      this.plot.push({
+      marks.push({
         kind: 'plane', id: pl.i, x, y,
         name: `${pl.n} aircraft`,
       });
@@ -439,7 +487,7 @@ export class Hud {
     // A ring round whatever the camera is looking at, so it is obvious where
     // the view has gone and what to tap to get out of it.
     if (this.watching) {
-      const mark = this.plot.find((m) => m.kind === this.watching.kind && m.id === this.watching.id);
+      const mark = marks.find((m) => m.kind === this.watching.kind && m.id === this.watching.id);
       if (mark) {
         ctx.strokeStyle = '#e6cf9c';
         ctx.lineWidth = 1.6;
