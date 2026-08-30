@@ -28,14 +28,19 @@
       <use class="mark-face" href="#wordmark" />
     </svg>
   </h1>
-  <nav class="menu menu-left">
-    <button class="menu-item" data-action="pvp">Fleet Battle</button>
-    <button class="menu-item" data-action="custom">Custom Battle</button>
-  </nav>
-  <nav class="menu menu-right">
-    <button class="menu-item" data-action="options">Options / Help</button>
-    <button class="menu-item" data-action="quit">Quit</button>
-  </nav>
+  <!-- Two menus, one in each bottom corner. On a phone the corners are close
+       enough together that they walk into each other, so this wrapper lets the
+       stylesheet stack them into a single centred column instead. -->
+  <div class="title-menus">
+    <nav class="menu menu-left">
+      <button class="menu-item" data-action="pvp">Fleet Battle</button>
+      <button class="menu-item" data-action="custom">Custom Battle</button>
+    </nav>
+    <nav class="menu menu-right">
+      <button class="menu-item" data-action="options">Options / Help</button>
+      <button class="menu-item" data-action="quit">Quit</button>
+    </nav>
+  </div>
   <div class="version">1.25</div>
   <div class="net-state" id="net-state">connecting…</div>
 </section>

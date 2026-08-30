@@ -578,5 +578,57 @@ check('a battery mixes its arcs, so some shells come down on the deck', () => {
   assert.ok(parts.deck < total, 'and it should not be lobbing every salvo');
 });
 
+// The order-of-battle chart is portable JS with no DOM in it above the
+// constructor, so the rule it sites batteries by can be checked here rather
+// than only in a browser.
+const { LayoutMap } = await import('../client/js/layout.js');
+
+check('a battery is sited on the middle of its ground, not on the beach', () => {
+  for (const [seed, preset, half] of [
+    [3221164032, 'open_ocean', 16000],
+    [9911, 'solomon_narrows', 12000],
+    [777, 'coral_shelf', 24000],
+  ]) {
+    const w = generateWorld(seed, preset, 'day', half, { lon: -30, lat: 45 });
+    const lay = Object.create(LayoutMap.prototype);
+    lay.world = w;
+    lay.half = w.half;
+    const spots = lay.landSpots(8);
+    assert.ok(spots.length >= 4, `${preset}: expected somewhere to put the guns`);
+    for (const s of spots) {
+      assert.ok(islandAt(w, s.x, s.z, 0), `${preset}: a gun position must be ashore`);
+      // Not on the rim: at least a couple of hundred metres of ground round it,
+      // and no further than three-quarters of the way out from the middle of
+      // whatever it is standing on.
+      const d = lay.landDepth(s.x, s.z);
+      assert.ok(d > 200, `${preset}: sited ${Math.round(d)} m from the water, which is the beach`);
+      const isle = w.islands.find((i) => Math.hypot(i.x - s.x, i.z - s.z) < (i.rmax || i.r));
+      if (isle) {
+        const out = Math.hypot(isle.x - s.x, isle.z - s.z)
+          / islandRadius(isle, Math.atan2(s.x - isle.x, s.z - isle.z));
+        assert.ok(out < 0.75, `${preset}: sited ${(out * 100).toFixed(0)}% of the way to the rim`);
+      }
+    }
+  }
+});
+
+check('the walk inland finds the middle from anywhere on an island', () => {
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 12000);
+  const lay = Object.create(LayoutMap.prototype);
+  lay.world = w;
+  lay.half = w.half;
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  // Started right on the beach, on every bearing.
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const R = islandRadius(isle, a);
+    const from = { x: isle.x + Math.sin(a) * R * 0.94, z: isle.z + Math.cos(a) * R * 0.94 };
+    assert.ok(lay.landDepth(from.x, from.z) < R * 0.1, 'started on the beach');
+    const mid = lay.inland(from.x, from.z);
+    assert.ok(mid.d > R * 0.5,
+      `walked to ${Math.round(mid.d)} m of ground on an island of ${Math.round(R)} m`);
+  }
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

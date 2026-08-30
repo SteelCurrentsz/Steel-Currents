@@ -58,6 +58,9 @@ html, body {
   clip: rect(0 0 0 0); clip-path: inset(50%);
 }
 
+/* The wrapper is inert on a wide screen — the two menus stay pinned in their
+   own corners — and becomes the column on a phone. See the media query below. */
+.title-menus { display: contents; }
 .menu { position: absolute; bottom: 8vh; display: flex; flex-direction: column; gap: 1.1rem; }
 .menu-left { left: 7vw; align-items: flex-start; }
 .menu-right { right: 6vw; align-items: flex-end; text-align: right; }
@@ -81,6 +84,53 @@ html, body {
 }
 .menu-left .menu-item:hover { transform: translateX(10px); }
 .menu-right .menu-item:hover { transform: translateX(-10px); }
+
+/* Two menus in opposite corners need a screen wide enough to have corners. On
+   a phone they walk into each other -- FLEET BATTLE lands on top of OPTIONS /
+   HELP and neither can be read or tapped -- so below that width they become one
+   centred column, and every item gets a thumb's worth of height. */
+@media (max-width: 700px) {
+  .title-menus { display: flex; }
+  .menu {
+    position: static;
+    align-items: center;
+    gap: 0.2rem;
+    width: 100%;
+  }
+  .menu-left, .menu-right { left: auto; right: auto; text-align: center; }
+  .title-menus {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: max(5vh, calc(env(safe-area-inset-bottom) + 1.5rem));
+    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+    padding: 0 1rem;
+  }
+  .menu-item {
+    min-height: 46px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(1.15rem, 5.4vw, 1.7rem);
+    letter-spacing: 0.1em;
+  }
+  .menu-left .menu-item:hover, .menu-right .menu-item:hover { transform: none; }
+}
+/* On a phone held sideways there is height for four rows and not much else. */
+@media (max-width: 700px) and (max-height: 460px) {
+  .menu-item { min-height: 38px; font-size: clamp(1rem, 3.4vw, 1.3rem); }
+  .title-menus { bottom: max(1.5vh, env(safe-area-inset-bottom)); }
+}
+
+/* A wide phone on its side keeps the two corners — there is width for them —
+   but the type shrinks with the height and the items end up a couple of dozen
+   pixels tall. They still have to be worth aiming a thumb at. */
+@media (max-height: 500px) {
+  .menu { bottom: max(2vh, env(safe-area-inset-bottom)); gap: 0.15rem; }
+  .menu-item {
+    min-height: 42px;
+    display: flex; align-items: center;
+    font-size: clamp(1.05rem, 3.2vw, 1.5rem);
+  }
+  .menu-right .menu-item { justify-content: flex-end; }
+}
 
 .version {
   position: absolute; right: 1.6vw; bottom: 1.4vh;
@@ -1168,7 +1218,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   border: 1px solid var(--panel-line);
   color: var(--steel);
   font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.08em;
-  padding: 0.28rem 0.6rem;
+  padding: 0.28rem 0.7rem;
+  /* The one way out of somebody else's view, so it is a real target rather
+     than a line of small type. */
+  min-height: 40px;
+  display: inline-flex; align-items: center;
   cursor: pointer;
 }
 .watch-back:hover { border-color: var(--sand); color: var(--sand-bright); }
@@ -1187,7 +1241,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 @media (max-width: 620px) {
   .watch-banner { padding: 0.3rem 0.45rem; gap: 0.4rem; }
   .watch-what { font-size: 0.66rem; }
-  .watch-back { font-size: 0.64rem; padding: 0.24rem 0.45rem; }
+  .watch-back { font-size: 0.64rem; padding: 0.24rem 0.55rem; min-height: 38px; }
 }
 
 /* A phone on its side has the score and the clock along the top, so the banner
@@ -1247,12 +1301,34 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
     bottom: max(0.5rem, env(safe-area-inset-bottom));
     gap: 0.4rem;
   }
-  .lay-actions .btn { min-width: 0; padding: 0.4rem 0.8rem; font-size: 0.78rem; }
+  /* Still a thumb's worth of button: short of height is not a reason to make
+     Sortie hard to hit. */
+  .lay-actions .btn {
+    min-width: 0; padding: 0.4rem 0.9rem; font-size: 0.78rem;
+    min-height: 40px; display: flex; align-items: center; justify-content: center;
+  }
   .lay-screen .deploy-hint {
     bottom: calc(max(0.5rem, env(safe-area-inset-bottom)) + 2.6rem);
     font-size: 0.74rem;
   }
   .lay-screen .deploy-head { padding-bottom: 0.4rem; }
+}
+
+/* A phone held sideways keeps the side rosters -- there is width for them --
+   but not the height. The hull buttons grew down over the Deployment Location
+   row, so the cross that stands a ship down and the button that moves the
+   battle shared the same strip of screen and a tap could get either. Everything
+   in the middle column comes down a size instead. */
+@media (max-height: 500px) {
+  .briefing-body { gap: clamp(0.3rem, 1.6vh, 0.8rem); }
+  .force-cell { padding: 0.15rem 0.6rem; }
+  .force-cell .sil { height: clamp(30px, 11vh, 46px); }
+  .escorts .force-cell .sil { height: clamp(24px, 8vh, 34px); }
+  .force-cell .count { font-size: 0.95rem; }
+  .turret-btn { padding: 0.1rem 0.6rem; }
+  .turret-btn .turret-art { width: min(66px, 9vw); }
+  .briefing-foot { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .briefing-head { padding-top: 0.4rem; }
 }
 
 /* On a phone there is no room for a column down each side *and* the hull

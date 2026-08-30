@@ -10,7 +10,7 @@
 // what is there when the fleets arrive, rather than a picture of it.
 
 import {
-  generateWorld, islandAt, islandRing, shoreDistance, MAP_HALF,
+  generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF,
 } from '../../shared/world.js';
 import { shipClearance } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
@@ -166,9 +166,13 @@ export class LayoutMap {
       if (html !== this._readout) { this.readout.innerHTML = html; this._readout = html; }
     }
     if (this.hint) {
-      const text = why
-        || 'Drag to move, the peg off the bow to turn, the water to pan. '
-         + 'Scroll or pinch to zoom. Ships on the water, guns ashore.';
+      // Five lines of instructions on a phone is a paragraph over the chart, so
+      // the narrow screens get the short version of the same thing.
+      const tight = (this.canvas.clientWidth || 1200) < 560;
+      const text = why || (tight
+        ? 'Drag to move, the peg to turn. Ships afloat, guns ashore.'
+        : 'Drag to move, the peg off the bow to turn, the water to pan. '
+          + 'Scroll or pinch to zoom. Ships on the water, guns ashore.');
       if (text !== this._hint) {
         this.hint.textContent = text;
         this.hint.classList.toggle('bad', !!why);
@@ -237,6 +241,10 @@ export class LayoutMap {
           t.x = wanted.x;
           t.z = wanted.z;
         } else {
+          // No ground anywhere on this battlefield. The gun goes on its own
+          // side of the middle and comes up marked, which tells the captain
+          // what is wrong far better than putting it somewhere plausible and
+          // letting him find out later.
           t.x = 0;
           t.z = side * this.half * 0.5;
         }
@@ -269,6 +277,52 @@ export class LayoutMap {
   }
 
   /**
+   * How far inland a point is, in metres. Zero or less at sea.
+   *
+   * Exact for an invented island -- the rim is a closed shape and the distance
+   * to it is arithmetic -- and off the collision mask for a real coastline,
+   * which is one piece of land with no middle to measure from.
+   */
+  landDepth(x, z) {
+    for (const i of this.world.islands || []) {
+      const dx = x - i.x;
+      const dz = z - i.z;
+      const d = Math.hypot(dx, dz);
+      if (d > (i.rmax || i.r)) continue;
+      const R = islandRadius(i, Math.atan2(dx, dz));
+      if (d < R) return R - d;
+    }
+    const m = shoreDistance(this.world, x, z);
+    return m > 0 ? m : 0;
+  }
+
+  /**
+   * Walk a point to the middle of the ground it is standing on.
+   *
+   * A battery dropped on the rim of an island is a token half in the water with
+   * a finger-sized target on a phone, and the first thing a captain has to do
+   * is drag it somewhere sensible. So it is put somewhere sensible: a few steps
+   * of hill-climbing on how far inland it is, which walks it up to the fattest
+   * part of whatever it is on and stops there.
+   */
+  inland(x, z) {
+    let best = { x, z, d: this.landDepth(x, z) };
+    let step = Math.max(90, this.half / 40);
+    for (let pass = 0; pass < 22 && step > 25; pass++) {
+      let moved = false;
+      for (let a = 0; a < 8; a++) {
+        const th = (a / 8) * Math.PI * 2;
+        const nx = best.x + Math.cos(th) * step;
+        const nz = best.z + Math.sin(th) * step;
+        const d = this.landDepth(nx, nz);
+        if (d > best.d) { best = { x: nx, z: nz, d }; moved = true; }
+      }
+      if (!moved) step *= 0.55;
+    }
+    return best;
+  }
+
+  /**
    * Ground worth putting a gun on.
    *
    * Two kinds of land answer here and they are found in different ways. A real
@@ -276,23 +330,28 @@ export class LayoutMap {
    * walked on a grid and scored by how far inland each cell is. Invented
    * islands are small and far apart -- a grid coarse enough to cross the
    * battlefield steps clean over them -- so each one offers its own middle.
+   *
+   * Everything that comes out of here has been walked to the middle of its own
+   * ground first, so a battery is never sited on a beach it has to be dragged
+   * off before it can be aimed.
    */
   landSpots(want) {
     const out = [];
     for (const i of this.world.islands || []) {
       if (i.r < 110) continue;                     // a rock, not a gun position
-      out.push({ x: i.x, z: i.z, score: Math.min(i.r, 1800), taken: false });
+      // The middle of an island is the middle of the island, which is also the
+      // summit and the flattest ground on it.
+      out.push({ x: i.x, z: i.z, score: Math.min(i.r, 1800) + 400, taken: false });
     }
-    // And the ground itself, walked on a grid and scored by how far inland each
-    // cell is. This finds the shoulders of a large island as well as the whole
-    // of a real coastline -- the mask carries both now -- while the island
-    // centres above catch the small ones a grid this coarse steps over.
+    // And the ground itself, walked on a grid. Two hundred metres inland at
+    // least: a cell on the beach is land the mask agrees is land and nowhere to
+    // put a gun.
     {
       const step = Math.max(240, this.half / 26);
       for (let z = -this.half + step; z < this.half; z += step) {
         for (let x = -this.half + step; x < this.half; x += step) {
-          const d = shoreDistance(this.world, x, z);
-          if (d < 90) continue;                    // at sea, or on the beach
+          const d = this.landDepth(x, z);
+          if (d < 200) continue;
           out.push({ x, z, score: Math.min(d, 1800), taken: false });
         }
       }
@@ -311,6 +370,12 @@ export class LayoutMap {
     for (const s of out) {
       if (kept.length >= want) break;
       if (!kept.includes(s)) kept.push(s);
+    }
+    // And each of them walked to the middle of its own ground.
+    for (const s of kept) {
+      const mid = this.inland(s.x, s.z);
+      s.x = mid.x;
+      s.z = mid.z;
     }
     return kept;
   }
@@ -623,6 +688,11 @@ export class LayoutMap {
   paint() {
     if (!this.canvas || !this.world) return;
     this.dirty = false;
+    // Written before anything is drawn, because the scale bar is placed off the
+    // hint's box and the hint is what has just changed. Reading it after would
+    // put the bar where the words used to be -- and since the chart only
+    // repaints when something moves, it would stay there.
+    this.status();
     this._size = null;
     const { w, h } = this.size;
     if (!(w > 0) || !(h > 0)) { this.dirty = true; return; }
@@ -755,8 +825,6 @@ export class LayoutMap {
     ctx.textAlign = 'left';
     ctx.font = '11px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.fillText(`${Math.round(barM / 0.9144 / 100) * 100} yd`, bx + bw + 8, by + 4);
-
-    this.status();
   }
 
   drawToken(ctx, t) {
