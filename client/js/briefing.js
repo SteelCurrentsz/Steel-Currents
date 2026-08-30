@@ -6,15 +6,13 @@
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
-import { TIMES, WEATHERS, WEATHER, MAP_HALF_MIN } from '../../shared/world.js';
+import {
+  TIMES, WEATHERS, WEATHER, theatreFor, battlefieldSeed, battlefieldHalf,
+} from '../../shared/world.js';
 import { silhouette, turret } from './silhouette.js';
 import { drawWorld } from './worldmap.js';
 
 const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
-
-// Seventy thousand yards, in metres, which is the most sea room the game will
-// lay a battlefield out over.
-const BATTLE_MAX_M = 64008;
 
 // How many hulls one side may sail with. Both fleets start empty — a captain
 // says what he is taking to sea rather than being handed a squadron — and
@@ -346,23 +344,13 @@ export class Briefing {
    * through; open ocean means open ocean; and high latitudes get the North
    * Atlantic's weather whatever the sea room.
    */
-  theatreFor(d) {
-    if (Math.abs(d.lat) > 48) return 'north_atlantic';
-    // Sea room, not the size of the box the captain drew: a small action in
-    // the middle of the Atlantic is still fought in open water.
-    const m = (d.room ?? d.km) * 1000;
-    if (m < BATTLE_MAX_M * 0.45) return 'solomon_narrows';
-    if (m < BATTLE_MAX_M * 0.85) return 'coral_shelf';
-    return 'open_ocean';
-  }
-
   request() {
     const s = this.state;
     const d = s.deploy;
-    // The same berth lays out the same island field every time, so the seed is
-    // the position rather than the clock.
-    const seed = (Math.round((d.lon + 180) * 4096) * 131071
-      + Math.round((d.lat + 90) * 4096)) >>> 0;
+    // Theatre, seed and size all come out of shared/world.js, which is what the
+    // deployment chart draws its preview from and what the server raises the
+    // battlefield from. One answer, three screens.
+    const seed = battlefieldSeed(d.lon, d.lat);
     return {
       t: 'custom',
       name: this.getName(),
@@ -374,14 +362,14 @@ export class Briefing {
       // a token on the ground for each of them.
       allyGuns: s.allyGuns.slice(),
       enemyGuns: s.enemyGuns.slice(),
-      mapId: this.theatreFor(d),
+      mapId: theatreFor(d),
       time: s.time,
       weather: s.weather,
       allies: s.allyFleet.length - 1,
       enemies: s.enemyFleet.length,
       botSkill: this.getSkill(),
       seed,
-      half: Math.max(MAP_HALF_MIN, (d.km * 1000) / 2),
+      half: battlefieldHalf(d.km),
       place: d.name,
       // The position is what puts the real coastline into the battlefield:
       // both ends raise the same land from it.

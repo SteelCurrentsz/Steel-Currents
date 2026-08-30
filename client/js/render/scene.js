@@ -298,6 +298,77 @@ function buildIslands(islands) {
 }
 
 /**
+ * The ground a battery is built on.
+ *
+ * A gun position is not set down on a hillside, it is cut into one: the pad is
+ * levelled at the height of its uphill side and the spoil is thrown out to make
+ * up the downhill one. Without that a flat emplacement on a slope has half of
+ * it buried and the other half standing in the air, which is what a single
+ * height sample gets you.
+ *
+ * So: a flat platform at the pad height, and a skirt round it falling to meet
+ * the terrain. The skirt never rises above the pad — where the hill is higher
+ * than the platform it simply carries on through, which is the cutting.
+ *
+ * `at` is the emplacement's world position; the mesh is built in the view's own
+ * local frame, so its origin is the pad and its y is metres above or below it.
+ */
+function batteryApron(world, at, span) {
+  const R = Math.max(9, span * 0.62);
+  const RINGS = [1, 1.5, 2.2];
+  const SPOKES = 20;
+  const pos = [];
+  const idx = [];
+  const col = [];
+  const put = (x, y, z, shade) => {
+    pos.push(x, y, z);
+    col.push(shade[0], shade[1], shade[2]);
+  };
+  const PAD = [0.42, 0.40, 0.34];      // levelled earth and rubble
+  const FILL = [0.36, 0.36, 0.29];     // the spoil banked round it
+
+  put(0, 0, 0, PAD);                   // the middle of the platform
+  for (let i = 0; i < SPOKES; i++) {
+    const th = (i / SPOKES) * Math.PI * 2;
+    const sn = Math.sin(th);
+    const cs = Math.cos(th);
+    for (let k = 0; k < RINGS.length; k++) {
+      const r = R * RINGS[k];
+      const x = sn * r;
+      const z = cs * r;
+      // Local height: the terrain out there relative to the pad, never above it.
+      const y = k === 0 ? 0
+        : Math.min(0, groundHeight(world, at.x + x, at.z + z) - at.y);
+      put(x, y, z, k === 0 ? PAD : FILL);
+    }
+  }
+  const ring = (i, k) => 1 + i * RINGS.length + k;
+  for (let i = 0; i < SPOKES; i++) {
+    const j = (i + 1) % SPOKES;
+    idx.push(0, ring(i, 0), ring(j, 0));
+    for (let k = 0; k < RINGS.length - 1; k++) {
+      idx.push(ring(i, k), ring(i, k + 1), ring(j, k + 1));
+      idx.push(ring(i, k), ring(j, k + 1), ring(j, k));
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 1, metalness: 0,
+  }));
+  // Over the hillside it is cut into, so the two do not fight for the same
+  // fragments along the join.
+  mesh.renderOrder = 1;
+  mesh.material.polygonOffset = true;
+  mesh.material.polygonOffsetFactor = -2;
+  mesh.material.polygonOffsetUnits = -2;
+  return mesh;
+}
+
+/**
  * The mark that says a battery is there.
  *
  * A lattice observation tower with a platform and a pennant on it. Every one of
@@ -600,7 +671,7 @@ export class BattleScene {
    * The observation tower, the pennant and the ring belong to the ground and do
    * not move.
    */
-  getBatteryView(id, batteryId, team) {
+  getBatteryView(id, batteryId, team, at = null) {
     let v = this.batteryViews.get(id);
     if (!v) {
       const built = buildBattery(batteryId);
@@ -624,6 +695,9 @@ export class BattleScene {
       const mark = batteryMark(built.span, team);
       mark.position.set(built.span * 0.6, 0, -built.span * 0.45);
       group.add(mark);
+
+      // The ground it stands on, cut to fit the hill it stands on.
+      if (at) group.add(batteryApron(this.world, at, built.span));
 
       v = { group, spin, marker, mark, span: built.span, batteryId, team, smokeTimer: 0 };
       this.batteryViews.set(id, v);

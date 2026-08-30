@@ -109,10 +109,18 @@ export class LayoutMap {
 
     this.auto();
 
-    // Only over the same battlefield: a different berth raises a different
-    // coastline, and the old positions would be somewhere else entirely.
+    // What a captain laid out is his, and it is not thrown away lightly. The
+    // plan is kept whenever the battlefield is still the same size — the berths
+    // are metres from its centre, so they still mean what they meant — even if
+    // he has since moved the battle to another stretch of sea. Anything that is
+    // aground on the new coast comes back marked, with Sortie held until he has
+    // moved it; that is a great deal better than silently re-forming a squadron
+    // he spent a minute arranging.
+    //
+    // Only a change of *size* starts again, because then the berths are out of
+    // the borders and there is nothing sensible to keep.
     const sig = `${req.mapId}|${req.seed}|${this.half}`;
-    if (this.worldSig === sig) {
+    if (this.sizeSig === this.half) {
       for (const t of this.tokens) {
         const was = kept.get(`${t.kind}:${t.classId}:${t.team}:${t.index}`);
         if (!was) continue;
@@ -126,6 +134,7 @@ export class LayoutMap {
     // corner of it the captain had walked over to.
     if (this.worldSig !== sig) this.view = { x: 0, z: 0, zoom: 1 };
     this.worldSig = sig;
+    this.sizeSig = this.half;
 
     this._size = null;
     this.dirty = true;

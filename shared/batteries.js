@@ -211,14 +211,16 @@ export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
  * battery gets the same one: what a captain reads off the sheet still tells him
  * which of these outranges which, and by how much.
  *
- * At fifteen, every gun on the list covers the whole of any battlefield the
- * game will lay out: the shortest-ranged of them, Merville's field howitzers,
- * carries a hundred and fifty thousand metres against a corner-to-corner
- * distance of ninety. Range no longer decides whether a battery can reach a
- * target — the traverse arc decides what it can bear on at all, and range
- * decides how flat the shell arrives and how long it is in the air.
+ * At twenty-five, every gun on the list covers the whole of any battlefield
+ * the game will lay out several times over: the shortest-ranged of them,
+ * Merville's field howitzers, carries a quarter of a million metres against a
+ * corner-to-corner distance of ninety thousand. Nothing afloat is out of reach
+ * of a battery that can bear on it, which is what a coast gun ought to feel
+ * like from the water. What is left to range is the arc — see `loftedGun` —
+ * and to the mounting is the traverse, which is what decides whether the gun
+ * can bear at all.
  */
-export const BATTERY_REACH = 15;
+export const BATTERY_REACH = 25;
 
 /** How far the battery actually shoots on this battlefield, in metres. */
 export const batteryReach = (b) => b.range * BATTERY_REACH;

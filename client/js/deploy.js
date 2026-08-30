@@ -10,6 +10,9 @@
 
 import { drawWorld, nearWater, waterSquareKm } from './worldmap.js';
 import { waterName } from './waters.js';
+import {
+  generateWorld, islandRing, theatreFor, battlefieldSeed, battlefieldHalf,
+} from '../../shared/world.js';
 
 // The battlefield is at most seventy thousand yards on a side, which is a
 // shade under sixty-four kilometres. It cannot be made smaller than a gunnery
@@ -489,6 +492,46 @@ export class DeployMap {
     this.paint();
   }
 
+  /**
+   * The battlefield this box will actually produce.
+   *
+   * The same seed, the same theatre and the same half-width the briefing sends
+   * and the server raises, so what is drawn inside the box here is the land the
+   * fleets will be laid out on and the land they will fight over. Built once
+   * per box and kept: it is a coastline clip and an island scatter, and the box
+   * is dragged at sixty frames a second.
+   */
+  preview() {
+    const c = this.centre;
+    const e = this.extent();
+    const km = clamp(Math.max(e.w, e.h), MIN_KM, BATTLE_KM);
+    const seed = battlefieldSeed(c.lon, c.lat);
+    const mapId = theatreFor({ lat: c.lat, room: this.result?.room, km });
+    const half = battlefieldHalf(km);
+    const key = `${seed}|${mapId}|${half}`;
+    // Raising it clips a coastline and scatters an island field, which is a few
+    // milliseconds -- fine once, ruinous sixty times a second. While a corner is
+    // under the finger the last one stands; it is rebuilt when the box settles.
+    if (this._preview && (this.dragging || this.pointers.size)) return this._preview;
+    if (this._preview?.key !== key) {
+      this._preview = {
+        key,
+        half,
+        lon: c.lon,
+        lat: c.lat,
+        world: generateWorld(seed, mapId, null, half, { lon: c.lon, lat: c.lat }, null),
+      };
+    }
+    return this._preview;
+  }
+
+  /** Battlefield metres to degrees, about the middle of the box. */
+  fieldToLonLat(p, x, z) {
+    const mPerLat = KM_PER_DEG * 1000;
+    const mPerLon = mPerLat * Math.max(0.02, Math.cos((p.lat * Math.PI) / 180));
+    return { lon: p.lon + x / mPerLon, lat: p.lat + z / mPerLat };
+  }
+
   /** The zoom that puts the box across `frac` of the shorter side of the view. */
   zoomForBox(frac) {
     const { w, h } = this.size;
@@ -607,6 +650,42 @@ export class DeployMap {
         ctx.setLineDash([2, 4]);
         ctx.strokeRect(c.x - bw / 2, c.y - bh / 2, bw, bh);
         ctx.setLineDash([]);
+      }
+
+      // And the land inside it.
+      //
+      // A stretch of open ocean is not empty when the fleets get there: the
+      // battlefield scatters islands over water the world chart shows as blank,
+      // and a captain who picks a spot here is entitled to see the ground he
+      // will be laying his batteries on rather than meeting it for the first
+      // time on the order-of-battle chart. Raised from the same seed the
+      // briefing sends and the server builds from, so this is that land and not
+      // an impression of it.
+      if (bw > 34) {
+        const p = this.preview();
+        const isles = p.world.islands || [];
+        if (isles.length) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(c.x - bw / 2, c.y - bh / 2, bw, bh);
+          ctx.clip();
+          ctx.fillStyle = 'rgba(63, 90, 58, 0.92)';
+          ctx.strokeStyle = 'rgba(159, 182, 154, 0.8)';
+          ctx.lineWidth = 1;
+          for (const isle of isles) {
+            const ring = islandRing(isle);
+            ctx.beginPath();
+            ring.forEach(([mx, mz], i) => {
+              const ll = this.fieldToLonLat(p, mx, mz);
+              const q = this.toScreen(ll.lon, ll.lat);
+              if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+            });
+            ctx.closePath();
+            ctx.fill();
+            if (bw > 120) ctx.stroke();
+          }
+          ctx.restore();
+        }
       }
     }
 

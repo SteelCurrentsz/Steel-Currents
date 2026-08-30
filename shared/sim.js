@@ -379,7 +379,12 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     x, z,
     // Standing on the ground, which is what puts its muzzle above the sea and
     // gives it the extra reach a gun on a hill has always had.
-    y: Math.max(4, groundHeight(state.world, x, z)),
+    //
+    // The highest ground under the emplacement's own footprint, not the height
+    // at the one point it is pinned to. A gun pit is levelled into a hillside
+    // before the gun goes in it, and taking the middle of a slope would leave
+    // the uphill half of the platform buried and the downhill half in the air.
+    y: batteryPad(state.world, x, z, b.span),
     heading: wrapAngle(heading),
     // The island it is standing on, kept so its own hill is not counted as
     // being in its way. Null on a real coastline, which is one piece of land
@@ -397,6 +402,26 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
   };
   state.batteries.push(bat);
   return bat;
+}
+
+/**
+ * The height a battery's platform is cut at, in metres.
+ *
+ * Sampled round the emplacement rather than at its centre and taking the
+ * highest: the pad is levelled *into* the slope, so it stands at the height of
+ * the uphill side and the ground falls away from the downhill one. That is how
+ * a gun position is built, and it is also the only way a flat platform and a
+ * hillside can meet without one of them going through the other.
+ */
+function batteryPad(world, x, z, span = 20) {
+  const r = Math.max(6, span * 0.5);
+  let top = groundHeight(world, x, z);
+  for (let a = 0; a < 8; a++) {
+    const th = (a / 8) * TAU;
+    const h = groundHeight(world, x + Math.cos(th) * r, z + Math.sin(th) * r);
+    if (h > top) top = h;
+  }
+  return Math.max(4, top);
 }
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
@@ -502,6 +527,36 @@ function stepBatteries(state, dt) {
   }
 }
 
+/**
+ * The arc a battery chooses to shoot on.
+ *
+ * A gun laying on a distant ship has two solutions to pick from: a flat one
+ * that arrives at belt height, and a lofted one that comes down on the deck.
+ * Real coast gunnery used both — flat for a target close in, plunging fire for
+ * one a long way off, because a deck is thinner than a belt and a shell falling
+ * out of the sky finds it.
+ *
+ * `solveBallistic` always takes the low root of whatever gun it is handed, so
+ * the choice is made here instead, by handing it a gun whose nominal maximum
+ * range makes the low root come out at the elevation we want. For a shot of
+ * `d` metres at elevation θ that range is `d / sin 2θ` — which is the range
+ * equation read backwards.
+ */
+function loftedGun(state, gun, d) {
+  // Half the salvos go up. Which half is drawn per salvo rather than per
+  // battery, so a gun that is firing steadily straddles a target in both
+  // planes rather than settling into one habit.
+  const plunging = state.rng() < 0.5;
+  const theta = plunging
+    ? 0.56 + state.rng() * 0.17     // 32 to 42 degrees: down onto the deck
+    : 0.14 + state.rng() * 0.16;    // 8 to 17 degrees: flat, into the belt
+  const nominal = d / Math.max(0.08, Math.sin(2 * theta));
+  // Never shorter than the shot itself: a nominal range under the distance is
+  // a gun that cannot reach, and the solver would give back its 45-degree
+  // fallback and drop the shell short.
+  return { ...gun, range: Math.max(nominal, d * 1.02) };
+}
+
 function fireBattery(state, bat, b, gun, target) {
   const spec = gun.shells.ap;
   const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
@@ -519,11 +574,13 @@ function fireBattery(state, bat, b, gun, target) {
   const aimB = headingTo(bat.x, bat.z, ax, az);
   const spreadBase = (aimD * 0.0125) / gun.sigma;
 
+  // One arc for the whole salvo: the barrels of a battery are laid together.
+  const arc = loftedGun(state, gun, aimD);
   for (let g = 0; g < b.barrels; g++) {
     const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
     const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
     const shotD = clamp(aimD + rng, 300, gun.range);
-    const sol = solveBallistic(gun, shotD, bat.y);
+    const sol = solveBallistic(arc, shotD, bat.y);
     const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
     const vh = sol.v * Math.cos(sol.elev);
     state.shells.push({
@@ -714,7 +771,11 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
     owner.ribbons.hits++;
     if (kind === 'citadel') owner.ribbons.cits++;
   }
-  state.events.push({ e: 'hit', kind, x: cx, y: cy, z: cz, cal: sh.caliber, victim: target.id, owner: sh.owner, dmg: Math.round(dmg) });
+  state.events.push({
+    e: 'hit', kind, part: sec.part,
+    x: cx, y: cy, z: cz, cal: sh.caliber,
+    victim: target.id, owner: sh.owner, dmg: Math.round(dmg),
+  });
 }
 
 // ---------------------------------------------------------------------------

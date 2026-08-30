@@ -274,6 +274,11 @@ export class Battle {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
       return b ? { x: b.x, y: b.y, z: b.z, span: 60 } : null;
     }
+    if (this.watching.kind === 'plane') {
+      const pl = (snap.planes || []).find((x) => x.i === this.watching.id);
+      // The same two hundred and twenty metres the squadron is drawn at.
+      return pl ? { x: pl.x, y: 220, z: pl.z, span: 70 } : null;
+    }
     const s = snap.ships.find((x) => x.i === this.watching.id);
     if (!s) return null;
     return { x: s.x, y: 0, z: s.z, span: getClass(s.c).hull.length };
@@ -461,7 +466,7 @@ export class Battle {
     const gunsSeen = new Set();
     for (const g of a.batteries || []) {
       gunsSeen.add(g.i);
-      const view = this.scene.getBatteryView(g.i, g.b, g.tm);
+      const view = this.scene.getBatteryView(g.i, g.b, g.tm, { x: g.x, y: g.y, z: g.z });
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
       view.group.position.set(g.x, g.y, g.z);

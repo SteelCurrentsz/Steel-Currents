@@ -348,7 +348,7 @@ check('a turret trains no further than its arc allows', () => {
 // --------------------------------------------------------- coast artillery --
 
 /** A battery on the shore and one ship out in front of it. */
-function shoot(batteryId, gap, half = 32004) {
+function shoot(batteryId, gap, half = 32004, classId = 'cleveland') {
   // The largest battlefield there is, so a gun that reaches fifty-five
   // thousand metres has somewhere to reach to and nothing is being shoved back
   // off the border mid-test. `half` can be opened out past that when a check
@@ -360,7 +360,7 @@ function shoot(batteryId, gap, half = 32004) {
   const state = createState(world, { mode: 'deathmatch' });
   // Laid due north, which is where the ship is put.
   const bat = addBattery(state, { batteryId, team: 0, x: 0, z: -gap / 2, heading: 0 });
-  const ship = addShip(state, { name: 'Target', classId: 'cleveland', team: 1, index: 0 });
+  const ship = addShip(state, { name: 'Target', classId, team: 1, index: 0 });
   // Notch 1 is stop; notch 0 is full astern.
   ship.x = 0; ship.z = gap / 2; ship.heading = Math.PI / 2; ship.notch = 1;
   return { state, bat, ship };
@@ -554,6 +554,28 @@ check('a hull can be berthed right in under the shore', () => {
   });
   assert.equal(beached.x, line.x, 'a berth on the island itself is refused');
   assert.equal(beached.z, line.z);
+});
+
+check('a battery mixes its arcs, so some shells come down on the deck', () => {
+  // Twenty thousand metres, which is a real coast-gunnery range, against a ship
+  // lying still so that where the shells land is about the arc and nothing else.
+  // Longues loads in ten seconds, so a long test gets a real sample of arcs.
+  const { state, ship } = shoot('longues', 20000, 32004, 'iowa');
+  ship.hp = 1e12;
+  ship.maxHp = 1e12;
+  const parts = {};
+  for (let i = 0; i < 30 * 1200; i++) {
+    for (const ev of step(state, DT)) {
+      if (ev.e === 'hit' && ev.victim === ship.id) parts[ev.part] = (parts[ev.part] || 0) + 1;
+    }
+  }
+  const total = Object.values(parts).reduce((a, b) => a + b, 0);
+  assert.ok(total > 25, `expected the battery to be hitting her, got ${total} hits`);
+  assert.ok(parts.deck > 0, `expected plunging fire onto the deck, got ${JSON.stringify(parts)}`);
+  assert.ok((parts.belt || 0) + (parts.superstructure || 0) > 0,
+    `expected flat fire as well, got ${JSON.stringify(parts)}`);
+  // Neither arc should be the only one it ever uses.
+  assert.ok(parts.deck < total, 'and it should not be lobbing every salvo');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

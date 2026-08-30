@@ -26,6 +26,46 @@ export function getPreset(id) {
 }
 
 // ---------------------------------------------------------------------------
+// From a place on the chart to a battlefield
+// ---------------------------------------------------------------------------
+//
+// Three numbers turn a spot a captain picked into the battlefield he will fight
+// over: which theatre it is, what seed lays the islands out, and how far the
+// borders are from the middle. They live here rather than in whichever screen
+// happened to need them first, because *every* screen has to agree — the chart
+// he chooses on, the plan he lays his fleet out on, and the sea he arrives in.
+// A different answer on any of them is a different map.
+
+/** How many metres across the largest battlefield the game will lay out. */
+export const BATTLE_MAX_M = MAP_HALF_MAX * 2;
+
+/**
+ * Which theatre a stretch of sea is fought as.
+ *
+ * By sea room rather than by the size of the box the captain drew: a small
+ * action in the middle of the Atlantic is still fought in open water.
+ */
+export function theatreFor({ lat = 0, room, km = 0 } = {}) {
+  if (Math.abs(lat) > 48) return 'north_atlantic';
+  const m = (room ?? km) * 1000;
+  if (m < BATTLE_MAX_M * 0.45) return 'solomon_narrows';
+  if (m < BATTLE_MAX_M * 0.85) return 'coral_shelf';
+  return 'open_ocean';
+}
+
+/** The same berth lays out the same island field every time, so the seed is
+ *  the position rather than the clock. */
+export function battlefieldSeed(lon, lat) {
+  return (Math.round((lon + 180) * 4096) * 131071
+    + Math.round((lat + 90) * 4096)) >>> 0;
+}
+
+/** Half the width of the battlefield a box of `km` across is fought over. */
+export function battlefieldHalf(km) {
+  return Math.max(MAP_HALF_MIN, Math.min(MAP_HALF_MAX, ((km || 0) * 1000) / 2));
+}
+
+// ---------------------------------------------------------------------------
 // Islands
 // ---------------------------------------------------------------------------
 //

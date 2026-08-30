@@ -59,7 +59,8 @@ export class Hud {
     // landing on yourself — which is the one answer that does nothing. Ranked
     // instead: a gun ashore, then somebody else's hull, then your own, and the
     // nearest inside each rank.
-    const rank = (m) => (m.kind === 'battery' ? 0 : m.id === this.selfId ? 2 : 1);
+    const rank = (m) => (m.kind === 'battery' || m.kind === 'plane' ? 0
+      : m.id === this.selfId ? 2 : 1);
     let best = null;
     for (const mark of this.plot) {
       const d = Math.hypot(mark.x - px, mark.y - py);
@@ -388,6 +389,28 @@ export class Hud {
         ctx.stroke();
       }
       this.plot.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact' });
+    }
+
+    // Aircraft, both sides. A squadron is over the map for a minute or two and
+    // decides an action while it is there, so it belongs on the plot as much as
+    // anything that floats -- and it can be watched, which is the only way to
+    // see a strike go in from anywhere but underneath it.
+    for (const pl of (snap && snap.planes) || []) {
+      const x = toX(pl.x), y = toY(pl.z);
+      ctx.strokeStyle = pl.tm === this.team ? '#6fd3a0' : '#e2564f';
+      ctx.lineWidth = 1.6;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-pl.h);
+      // A swept pair of wings: unmistakably not a hull, at four pixels.
+      ctx.beginPath();
+      ctx.moveTo(-6, 3.5); ctx.lineTo(0, -4.5); ctx.lineTo(6, 3.5);
+      ctx.stroke();
+      ctx.restore();
+      this.plot.push({
+        kind: 'plane', id: pl.i, x, y,
+        name: `${pl.n} aircraft`,
+      });
     }
 
     // A ring round whatever the camera is looking at, so it is obvious where
