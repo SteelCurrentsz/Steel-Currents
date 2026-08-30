@@ -12,7 +12,7 @@ import {
   MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
-import { makeRng } from '../../../shared/math.js';
+import { makeRng, clamp } from '../../../shared/math.js';
 
 const SKY = {
   night: { top: 0x050d1c, bottom: 0x1d3550 },
@@ -174,15 +174,55 @@ function buildCoast(world) {
  * hundred islands, and a hundred islands is two hundred draw calls for
  * something that never moves.
  */
-const ISLE_RINGS = [0, 0.16, 0.31, 0.45, 0.58, 0.7, 0.8, 0.88, 0.95, 1, 1.14, 1.32];
+// Closer together near the water, where the beach and the first of the slope
+// are, and again at the summit; the shelf below the waterline needs only two.
+const ISLE_RINGS = [
+  0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.56, 0.63,
+  0.70, 0.76, 0.82, 0.87, 0.91, 0.945, 0.972, 0.99, 1, 1.14, 1.32,
+];
 
-/** Two greens, a sand and a seabed, picked by height. */
-function isleShade(h) {
-  if (h < -2) return [0.19, 0.24, 0.26];
-  if (h < 4) return [0.66, 0.61, 0.46];
-  if (h < 16) return [0.48, 0.50, 0.35];
-  if (h < 95) return [0.30, 0.37, 0.22];
-  return [0.26, 0.29, 0.22];
+/**
+ * The colour of a piece of ground, by how high it stands and how steep it is.
+ *
+ * Height alone gives a hill painted in stripes, which is the one thing real
+ * land never looks like. What breaks the banding is the slope: anything steeper
+ * than about thirty degrees is rock, because soil does not stay on it, and
+ * that is true at ten metres and at three hundred. So a cliff at the waterline
+ * is grey, the shelf behind the beach is sand, the gentle flanks are scrub and
+ * grass, and the tops go bare.
+ *
+ * `slope` is the fall of the ground, 0 flat and 1 at forty-five degrees.
+ */
+const GROUND = {
+  seabed: [0.17, 0.22, 0.25],
+  sand: [0.71, 0.66, 0.50],
+  dune: [0.62, 0.60, 0.44],
+  scrub: [0.40, 0.44, 0.28],
+  grass: [0.24, 0.33, 0.18],
+  upland: [0.30, 0.32, 0.23],
+  rock: [0.40, 0.39, 0.36],
+  crag: [0.30, 0.30, 0.29],
+};
+
+function mix(a, b, t) {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
+function isleShade(h, slope = 0, grain = 0) {
+  if (h < -1.5) return GROUND.seabed;
+  // The soil line: steep ground is bare whatever height it is at.
+  const bare = clamp((slope - 0.52) / 0.5, 0, 1);
+  let soil;
+  if (h < 1.5) soil = GROUND.sand;
+  else if (h < 6) soil = mix(GROUND.sand, GROUND.dune, (h - 1.5) / 4.5);
+  else if (h < 20) soil = mix(GROUND.dune, GROUND.scrub, (h - 6) / 14);
+  else if (h < 75) soil = mix(GROUND.scrub, GROUND.grass, (h - 20) / 55);
+  else soil = mix(GROUND.grass, GROUND.upland, Math.min(1, (h - 75) / 170));
+  const stone = h > 120 ? mix(GROUND.rock, GROUND.crag, Math.min(1, (h - 120) / 160)) : GROUND.rock;
+  const c = mix(soil, stone, bare);
+  // A little variation vertex to vertex, so a flank is not one flat wash.
+  const g = 1 + grain;
+  return [clamp(c[0] * g, 0, 1), clamp(c[1] * g, 0, 1), clamp(c[2] * g, 0, 1)];
 }
 
 function buildIslands(islands) {
@@ -195,13 +235,9 @@ function buildIslands(islands) {
 
   for (const isle of islands) {
     const rng = makeRng(isle.shape || 1);
-    const spokes = Math.max(20, Math.min(44, Math.round(isle.r / 22)));
-    // A ridge factor per spoke, so the hill has shoulders and gullies instead
-    // of being a dome of revolution. It is faded out at the summit and at the
-    // waterline, which keeps the top flat enough to build on and the beach at
-    // sea level where the collision says it is.
-    const ridge = [];
-    for (let i = 0; i < spokes; i++) ridge.push(0.84 + rng() * 0.32);
+    // Enough spokes that the ridges and gullies the height field carries are
+    // actually resolved rather than aliased into facets.
+    const spokes = Math.max(48, Math.min(120, Math.round(isle.r / 8)));
 
     const nr = ISLE_RINGS.length;
     const px = new Float32Array(spokes * nr);
@@ -222,9 +258,10 @@ function buildIslands(islands) {
           const t = (f - 1) / (ISLE_RINGS[nr - 1] - 1);
           y = -24 * t * t;
         } else {
+          // Straight off the shared height field and nothing added: the hill
+          // on the screen has to be the hill the shells and the gun platforms
+          // are working from, or a battery cut to one stands in the other.
           y = islandHeight(isle, x, z);
-          const bump = Math.sin(Math.PI * f);
-          y *= 1 + (ridge[i] - 1) * bump * 0.9;
         }
         const k = i * nr + j;
         px[k] = x; py[k] = y; pz[k] = z;
@@ -237,16 +274,30 @@ function buildIslands(islands) {
     // per-triangle instead, it comes out as a fan of hard radial facets --
     // which is what a spoked mesh looks like when nothing is welded.
     const base = pos.length / 3;
-    const put = (k) => {
+    // How steep the ground is at a vertex, from its neighbours along the spoke
+    // and round the ring: the rise over the run between the samples either
+    // side of it. It is what decides whether a piece of ground is soil or rock.
+    const fall = (a, b) => {
+      const run = Math.hypot(px[a] - px[b], pz[a] - pz[b]);
+      return run > 1 ? (py[a] - py[b]) / run : 0;
+    };
+    const slopeAt = (i, j) => {
+      const along = fall(i * nr + Math.min(nr - 1, j + 1), i * nr + Math.max(0, j - 1));
+      const round = fall((i + 1) % spokes * nr + j, ((i - 1) + spokes) % spokes * nr + j);
+      return Math.hypot(along, round);
+    };
+    const grain = (k) => (((k * 2654435761) >>> 0) % 1000) / 1000 * 0.17 - 0.085;
+    const put = (i, j) => {
+      const k = i * nr + j;
       pos.push(px[k], py[k], pz[k]);
-      const c = isleShade(py[k]);
+      const c = isleShade(py[k], slopeAt(i, j), grain(k + isle.shape));
       col.push(c[0], c[1], c[2]);
     };
-    put(0);                                  // the summit, once
+    put(0, 0);                               // the summit, once
     const apex = base;
     const ring = (i, j) => base + 1 + i * (nr - 1) + (j - 1);
     for (let i = 0; i < spokes; i++) {
-      for (let j = 1; j < nr; j++) put(i * nr + j);
+      for (let j = 1; j < nr; j++) put(i, j);
     }
     for (let i = 0; i < spokes; i++) {
       const i2 = (i + 1) % spokes;
@@ -314,12 +365,18 @@ function buildIslands(islands) {
  * local frame, so its origin is the pad and its y is metres above or below it.
  */
 function batteryApron(world, at, span) {
-  const R = Math.max(9, span * 0.62);
+  // The levelled ground is the emplacement's own size and no more.
+  //
+  // It used to be nine metres across at the least and two and a half times that
+  // at the edge, whatever was standing on it -- so an 8.8 cm Flak, which is a
+  // five-metre gun, sat in the middle of a forty-six-metre parade ground and
+  // read as a toy. It is cut to the piece now: a little under twice the span of
+  // the mounting across, which is what a gun pit and its revetment measure.
+  const R = Math.max(3, span * 0.34);
   // Out to the last ring the pad height was measured on, so the apron always
-  // reaches past the ground that decided how high it stands -- and one more
-  // ring than it used to have, so the skirt comes down to the hillside over a
-  // slope rather than in a step.
-  const RINGS = [1, 1.45, 1.95, 2.55];
+  // reaches past the ground that decided how high it stands, with enough rings
+  // that the skirt comes down to the hillside over a slope rather than a step.
+  const RINGS = [1, 1.5, 2.1, 2.6];
   const SPOKES = 24;
   const pos = [];
   const idx = [];
@@ -370,99 +427,6 @@ function batteryApron(world, at, span) {
   mesh.material.polygonOffsetFactor = -2;
   mesh.material.polygonOffsetUnits = -2;
   return mesh;
-}
-
-/**
- * The mark that says a battery is there.
- *
- * A lattice observation tower with a platform and a pennant on it. Every one of
- * these emplacements had one — a coast gun is laid by an observer with a
- * rangefinder, not by the men on the breech — and it is the thing about a
- * battery that a ship out at sea could actually pick out, because it is forty
- * metres of steel against the sky rather than a gun down in a pit.
- *
- * Which is the point of it. The gun itself is modelled at its own size and is a
- * handful of pixels from any useful range; the tower is real, it is tall, and
- * it makes the battery findable from the water.
- */
-function batteryMark(span, team) {
-  const g = new THREE.Group();
-  const H = Math.max(26, Math.min(60, span * 1.6));
-  const base = Math.max(2.6, span * 0.14);
-  const top = base * 0.42;
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0x6b7076, roughness: 0.85, metalness: 0.35,
-  });
-
-  // Four legs, raked in to the platform.
-  const legGeo = new THREE.CylinderGeometry(0.42, 0.42, 1, 5);
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const bx = Math.sin(a) * base;
-    const bz = Math.cos(a) * base;
-    const tx = Math.sin(a) * top;
-    const tz = Math.cos(a) * top;
-    const dx = tx - bx;
-    const dz = tz - bz;
-    const leg = new THREE.Mesh(legGeo, steel);
-    leg.scale.y = Math.hypot(dx, H, dz);
-    leg.position.set((bx + tx) / 2, H / 2, (bz + tz) / 2);
-    leg.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(dx, H, dz).normalize(),
-    );
-    g.add(leg);
-  }
-
-  // Bracing, so it reads as a lattice rather than as four sticks.
-  const braceGeo = new THREE.BoxGeometry(1, 0.3, 0.3);
-  for (let k = 1; k <= 3; k++) {
-    const y = (H * k) / 4;
-    const r = base + (top - base) * (k / 4);
-    for (let i = 0; i < 4; i++) {
-      const a0 = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      const a1 = ((i + 1) / 4) * Math.PI * 2 + Math.PI / 4;
-      const x0 = Math.sin(a0) * r;
-      const z0 = Math.cos(a0) * r;
-      const x1 = Math.sin(a1) * r;
-      const z1 = Math.cos(a1) * r;
-      const bar = new THREE.Mesh(braceGeo, steel);
-      bar.scale.x = Math.hypot(x1 - x0, z1 - z0);
-      bar.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
-      bar.rotation.y = Math.atan2(x1 - x0, z1 - z0) + Math.PI / 2;
-      g.add(bar);
-    }
-  }
-
-  // The observation platform, and the rangefinder hood on it.
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(top * 2.9, 1.1, top * 2.9), steel);
-  deck.position.y = H;
-  g.add(deck);
-  const hood = new THREE.Mesh(
-    new THREE.BoxGeometry(top * 2.1, 2.6, top * 1.5),
-    new THREE.MeshStandardMaterial({ color: 0x555c60, roughness: 0.8, metalness: 0.3 }),
-  );
-  hood.position.y = H + 1.9;
-  g.add(hood);
-
-  // The staff, and the pennant whose colour says whose gun this is.
-  const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 11, 5), steel);
-  staff.position.y = H + 8.5;
-  g.add(staff);
-  const fw = Math.max(6, span * 0.36);
-  const fh = 3.4;
-  const flagGeo = new THREE.BufferGeometry();
-  flagGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0, fw, -fh * 0.5, 0, 0, -fh, 0,
-  ], 3));
-  flagGeo.computeVertexNormals();
-  const flag = new THREE.Mesh(flagGeo, new THREE.MeshBasicMaterial({
-    color: team === 0 ? 0x6fd3a0 : 0xe2564f,
-    side: THREE.DoubleSide, depthWrite: false,
-  }));
-  flag.position.y = H + 13.4;
-  g.add(flag);
-  return g;
 }
 
 /** A ship as it appears on screen: hull, turrets, wake ribbon, damage state. */
@@ -525,9 +489,20 @@ export class BattleScene {
     // out of a sea than the last tenth does.
     const overcast = Math.pow(1 - wx.light, 0.72);
 
-    this.scene.add(skyDome(preset, q.drawDistance * 0.8, overcast));
+    // The sky rides with the camera.
+    //
+    // It used to be pinned to the middle of the battlefield, which is up to
+    // sixteen thousand metres from wherever a captain actually is; the far side
+    // of the dome then stood further off than the far plane and was clipped
+    // clean away, and what showed through the hole was the black behind the
+    // world -- a hard-edged wedge of night sitting over the sea in broad
+    // daylight. Carried on the camera it is always the same distance off in
+    // every direction, which is what a sky is.
+    this.sky = skyDome(preset, q.drawDistance * 0.8, overcast);
+    this.scene.add(this.sky);
     // No stars through cloud.
-    if (preset === 'night' && overcast < 0.3) this.scene.add(starField(600));
+    this.stars = (preset === 'night' && overcast < 0.3) ? starField(600) : null;
+    if (this.stars) this.scene.add(this.stars);
 
     this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
     this.ocean.setSeaState(world.sea ?? 2);
@@ -672,8 +647,7 @@ export class BattleScene {
    * ground. With the concrete gone these are open gun pits -- a pedestal, a
    * racer and a revetment of sandbags -- and the pit turns with the gun, which
    * is nearer the truth than swinging a barrel over a revetment that stays put.
-   * The observation tower, the pennant and the ring belong to the ground and do
-   * not move.
+   * The apron and the ring belong to the ground and do not move.
    */
   getBatteryView(id, batteryId, team, at = null) {
     let v = this.batteryViews.get(id);
@@ -695,15 +669,10 @@ export class BattleScene {
       marker.position.y = 1.5;
       group.add(marker);
 
-      // The observation post, standing clear of the gun pit.
-      const mark = batteryMark(built.span, team);
-      mark.position.set(built.span * 0.6, 0, -built.span * 0.45);
-      group.add(mark);
-
       // The ground it stands on, cut to fit the hill it stands on.
       if (at) group.add(batteryApron(this.world, at, built.span));
 
-      v = { group, spin, marker, mark, span: built.span, batteryId, team, smokeTimer: 0 };
+      v = { group, spin, marker, span: built.span, batteryId, team, smokeTimer: 0 };
       this.batteryViews.set(id, v);
     }
     return v;
@@ -720,9 +689,14 @@ export class BattleScene {
   }
 
   update(dt) {
-    this.ocean.update(dt, this.camera.position);
+    const eye = this.camera.position;
+    // Height is left alone: a dome that rose and fell with the bridge would
+    // slide the horizon up and down the sky as the camera climbed.
+    if (this.sky) this.sky.position.set(eye.x, 0, eye.z);
+    if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
+    this.ocean.update(dt, eye);
     this.effects.update(dt);
-    this.weather.update(dt, this.camera.position);
+    this.weather.update(dt, eye);
   }
 
   render() {

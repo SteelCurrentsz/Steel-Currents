@@ -210,8 +210,7 @@ export class Hud {
     if (!el) return;
     el.hidden = !watch;
     if (watch) {
-      this.el.watchWhat.textContent =
-        `${pov ? 'Aboard' : 'Watching'} ${watch.name} · C`;
+      this.el.watchWhat.textContent = `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
     }
   }
 

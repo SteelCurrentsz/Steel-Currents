@@ -61,6 +61,16 @@ export class Battle {
     // see what she can see; a captain watching a strike go in wants to see the
     // ship it is going into. C swaps between the two.
     this.watchPov = true;
+    // The spectator's own glass and his own legs: how far out the orbit stands
+    // and how high above her it is, and what field of view he is looking
+    // through when he is aboard. All three are worked by the wheel or a pinch.
+    this.watchDist = 3.2;      // multiples of her length
+    this.watchEl = 0.30;       // orbit elevation, radians above the horizontal
+    this.watchFov = 52;
+    // What the camera is actually on this frame, chasing the numbers above, so
+    // a notch of the wheel is a glass being wound rather than a cut.
+    this.watchFovNow = 52;
+    this.watchDistNow = 3.2;
     this.yaw = 0;
     this.pitch = 0.22;
     this.camDistance = this.cls.hull.length * 1.5;
@@ -81,6 +91,19 @@ export class Battle {
     this.hud.onPick = (hit) => this.lookAt(hit);
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
+    // The same two things the wheel does, for a screen with no wheel on it.
+    const zoomKey = (id, dir) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      this.input.emit('wheel', dir);
+    });
+    zoomKey('watch-in', -1);
+    zoomKey('watch-out', 1);
+    document.getElementById('watch-swap')?.addEventListener('click', () => {
+      if (!this.watching) return;
+      this.watchPov = !this.watchPov;
+      this.hud.setWatchBanner(this.watching, this.watchPov);
+      audio.click();
+    });
 
     this.raycaster = new THREE.Raycaster();
     this.seaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -225,6 +248,14 @@ export class Battle {
     this.input.on('fire', () => this.fire());
     this.input.on('scope', (on) => { this.scoped = on; });
     this.input.on('wheel', (dir) => {
+      // While the camera is off watching somebody else the wheel works that
+      // camera, not this one: standing further off her when you are outside,
+      // and putting a glass to your eye when you are aboard.
+      if (this.watching) {
+        if (this.watchPov) this.watchFov = clamp(this.watchFov * (dir > 0 ? 1.16 : 0.86), 7, 68);
+        else this.watchDist = clamp(this.watchDist * (dir > 0 ? 1.18 : 0.85), 0.5, 26);
+        return;
+      }
       this.camDistance = clamp(this.camDistance * (dir > 0 ? 1.15 : 0.87), this.cls.hull.length * 0.7, this.cls.hull.length * 6);
     });
   }
@@ -298,6 +329,11 @@ export class Battle {
       const facing = this.headingOf(hit);
       this.watchYaw = facing === null ? this.yaw : facing;
       this.watchPitch = 0.06;
+      this.watchEl = 0.30;
+      this.watchDist = 3.2;
+      this.watchDistNow = 3.2;
+      this.watchFov = 52;
+      this.watchFovNow = 52;
     }
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
@@ -619,6 +655,9 @@ export class Battle {
     const watch = this.watchPoint();
     if (watch) {
       const m = this.input.takeMouse();
+      const ease = 1 - Math.pow(0.0009, dt);
+      this.watchFovNow = lerp(this.watchFovNow, this.watchFov, ease);
+      this.watchDistNow = lerp(this.watchDistNow, this.watchDist, ease);
       this.watchYaw = wrapAngle(this.watchYaw + m.x);
       this.watchPitch = clamp(this.watchPitch + m.y, -0.42, 0.55);
       if (this.watchPov) {
@@ -636,14 +675,21 @@ export class Battle {
           Math.cos(this.watchYaw) * Math.cos(this.watchPitch),
         );
         cam.lookAt(cam.position.clone().add(dir.multiplyScalar(2000)));
+        cam.fov = this.watchFovNow;
       } else {
-        const d = Math.max(150, watch.span * 3.2);
+        // The drag walks the orbit round her and up and down it; the wheel
+        // stands it off her or brings it in. Close enough to read the damage
+        // on her plating, far enough to see the whole action she is in.
+        this.watchEl = clamp(this.watchEl - m.y, -0.16, 1.28);
+        const d = Math.max(40, watch.span * this.watchDistNow);
+        const flat = Math.cos(this.watchEl);
         cam.position.set(
-          watch.x - Math.sin(this.watchYaw) * d,
-          watch.y + d * 0.26 + 14,
-          watch.z - Math.cos(this.watchYaw) * d,
+          watch.x - Math.sin(this.watchYaw) * d * flat,
+          watch.y + watch.span * 0.25 + d * Math.sin(this.watchEl) + 6,
+          watch.z - Math.cos(this.watchYaw) * d * flat,
         );
         cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+        cam.fov = 52;
       }
       cam.updateProjectionMatrix();
       return;

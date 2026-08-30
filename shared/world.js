@@ -90,18 +90,24 @@ const RIM_N = 24;
  * lookup at one bearing instead of a walk round a polygon.
  */
 function makeRim(rng, r) {
-  const a1 = 0.10 + rng() * 0.13;
-  const a2 = 0.05 + rng() * 0.10;
-  const a3 = 0.03 + rng() * 0.06;
+  const a1 = 0.12 + rng() * 0.15;
+  const a2 = 0.07 + rng() * 0.11;
+  const a3 = 0.05 + rng() * 0.07;
+  const a4 = 0.03 + rng() * 0.05;
   const p1 = rng() * TAU;
   const p2 = rng() * TAU;
   const p3 = rng() * TAU;
+  const p4 = rng() * TAU;
   const rim = [];
   for (let i = 0; i < RIM_N; i++) {
     const a = (i / RIM_N) * TAU;
+    // Four harmonics: the long axis, a headland against a bay, the points
+    // between them, and enough of a seventh to keep the coast from reading as
+    // an ellipse from the bridge of a ship standing off it.
     const k = 1 + a1 * Math.sin(2 * a + p1)
       + a2 * Math.sin(3 * a + p2)
-      + a3 * Math.sin(5 * a + p3);
+      + a3 * Math.sin(5 * a + p3)
+      + a4 * Math.sin(7 * a + p4);
     rim.push(r * Math.max(0.66, k));
   }
   return rim;
@@ -152,12 +158,48 @@ export function islandRing(isle, steps = RIM_N * 3) {
 }
 
 /**
+ * The relief an island's flanks carry: spurs, gullies and roughness.
+ *
+ * Numbers rather than a noise field, because both ends of the wire have to
+ * raise the same ground out of the same island and a table of eleven
+ * coefficients travels where a noise implementation does not. Four terms: two
+ * that run down the flanks as ridges and the valleys between them, and two
+ * that vary with height as well so the slopes are not smooth sheets.
+ */
+function makeRelief(rng) {
+  return {
+    n1: 3 + Math.floor(rng() * 4),        // 3-6 spurs off the summit
+    p1: rng() * TAU,
+    a1: 0.20 + rng() * 0.12,
+    n2: 7 + Math.floor(rng() * 5),        // the gullies between them
+    p2: rng() * TAU,
+    a2: 0.07 + rng() * 0.07,
+    f1: 5 + rng() * 4,                    // benches and steps up the slope
+    q1: rng() * TAU,
+    n3: 2 + Math.floor(rng() * 3),
+    q2: rng() * TAU,
+    a3: 0.05 + rng() * 0.04,
+  };
+}
+
+/**
  * How high the ground stands at a point on an island, in metres. Zero at the
  * water's edge and outside it.
  *
  * A beach for the outer sixth, then the climb, then a summit that flattens
  * off -- which is the shape of the ground a coast battery was actually built
  * on, and the reason a gun placed inland is not standing on a slope.
+ *
+ * Over that, relief. The renderer used to add its own ridges to the mesh after
+ * the fact, which meant the hill on the screen and the hill the simulation was
+ * working from were two different hills: a gun pit cut to one of them stood in
+ * the air or in the ground of the other. The relief lives here now, so there is
+ * one hill, and the shells, the sight lines, the gun platforms and the mesh all
+ * read it.
+ *
+ * It is faded out at both ends -- to nothing at the waterline, so the beach
+ * meets the sea exactly where the outline says it does, and to nothing at the
+ * summit, so there is level ground up there to build on.
  */
 export function islandHeight(isle, x, z) {
   const dx = x - isle.x;
@@ -166,10 +208,44 @@ export function islandHeight(isle, x, z) {
   const R = islandRadius(isle, Math.atan2(dx, dz));
   if (d >= R) return 0;
   const u = 1 - d / R;
-  const BEACH = 0.11;
-  if (u < BEACH) return isle.height * 0.06 * (u / BEACH);
-  const v = (u - BEACH) / (1 - BEACH);
-  return isle.height * (0.06 + 0.94 * v * v * (3 - 2 * v));
+  // A strand, then the climb, then a summit that flattens off. The strand is a
+  // strand and not a desert: it used to be an ninth of the island's radius, so
+  // a kilometre-wide island came with a hundred-metre beach all the way round
+  // and read as a sandbank with a lawn in the middle.
+  const BEACH = 0.045;
+  let h;
+  if (u < BEACH) h = isle.height * 0.03 * (u / BEACH);
+  else {
+    // Steeply off the back of the beach and easing into the top: land that
+    // came out of the sea stands up out of it, and the gentle dome the
+    // smoothstep gave was the shape of a slag heap rather than an island.
+    const v = (u - BEACH) / (1 - BEACH);
+    const t = Math.min(1, v / 0.82);
+    const steep = Math.pow(t, 0.6);
+    const eased = t * t * (3 - 2 * t);
+    h = isle.height * (0.03 + 0.97 * (steep * 0.66 + eased * 0.34));
+  }
+  const rel = isle.relief;
+  if (!rel) return h;
+  const a = Math.atan2(dx, dz);
+  // Nothing at the water, nothing on the summit, everything on the flanks.
+  const flank = Math.sin(Math.PI * Math.min(1, u / 0.9));
+  const k = flank * flank * (1.6 - flank * 0.6);
+  const wave = rel.a1 * Math.cos(rel.n1 * a + rel.p1)
+    + rel.a2 * Math.cos(rel.n2 * a + rel.p2)
+    + rel.a3 * Math.sin(u * rel.f1 + rel.n3 * a + rel.q1)
+    + rel.a3 * 0.7 * Math.sin(u * rel.f1 * 1.9 - a + rel.q2);
+  // Biased downward, so what the relief mostly does is cut valleys rather than
+  // raise peaks. Erosion takes ground away; and it keeps the summit the highest
+  // thing on the island, which is what the gun-siting walk inland relies on.
+  // Scaled by the height the profile has already reached, so a gully on a low
+  // flank is a shallow one.
+  const relief = h * k * (wave * 0.85 - 0.24);
+  // Two floors and a ceiling. A gully never cuts more than three-quarters of
+  // the way down, so the middle of an island cannot open into a hole at sea
+  // level; and nothing the relief raises ever stands above the summit, so the
+  // walk inland that sites a gun always ends on the top of the island.
+  return Math.min(isle.height, Math.max(h * 0.25, h + relief));
 }
 
 /**
@@ -243,7 +319,11 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
       // and what a cheap reject test uses. The rim is the actual shape.
       x, z, r,
       ...(() => { const rim = makeRim(rng, r); return { rim, rmax: rimMax(rim, r) }; })(),
-      height: 90 + rng() * 220,
+      // Height in proportion to size, so an island is the same shape of thing
+      // whether it is a rock or a headland: a flat-topped mesa a kilometre
+      // across and a hundred metres high is a mine spoil heap, not an island.
+      height: r * (0.20 + rng() * 0.22),
+      relief: makeRelief(rng),
       shape: Math.floor(rng() * 100000),
     });
   }

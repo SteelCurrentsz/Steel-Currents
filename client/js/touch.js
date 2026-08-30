@@ -139,20 +139,41 @@ export class TouchControls {
 
   bindLook(zone) {
     const active = new Map();
+    // Two fingers on the look pad pinch, which is the gesture everybody
+    // already has for near and far. It sends the same 'wheel' the mouse does,
+    // so nothing downstream has to know a finger did it.
+    let pinch = 0;
     zone.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       try { zone.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
       active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (active.size === 2) {
+        const [a, b] = [...active.values()];
+        pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      }
     });
     zone.addEventListener('pointermove', (e) => {
       const p = active.get(e.pointerId);
       if (!p) return;
       e.preventDefault();
-      this.input.addLook(e.clientX - p.x, e.clientY - p.y);
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
       p.x = e.clientX; p.y = e.clientY;
+      if (active.size >= 2) {
+        const [a, b] = [...active.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        // A step every so many pixels, so a slow pinch is not a stream of them.
+        if (pinch > 4 && Math.abs(d - pinch) > 14) {
+          this.input.emit('wheel', d > pinch ? -1 : 1);
+          pinch = d;
+        }
+        return;
+      }
+      this.input.addLook(dx, dy);
     });
     const end = (e) => {
       active.delete(e.pointerId);
+      if (active.size < 2) pinch = 0;
       try { zone.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     };
     zone.addEventListener('pointerup', end);

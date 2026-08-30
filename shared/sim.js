@@ -470,7 +470,7 @@ function batteryPad(world, x, z, span = 20) {
  * The last of them is the outer edge of the apron, so nothing the emplacement
  * is drawn with stands on ground that was never measured.
  */
-export const BATTERY_FOOTPRINT = [0.35, 0.7, 1.05, 1.4, 1.75];
+export const BATTERY_FOOTPRINT = [0.22, 0.45, 0.67, 0.89];
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
 function shellOwner(state, sh) {
