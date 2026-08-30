@@ -55,9 +55,15 @@ export function createState(world, opts = {}) {
  *
  * The placement is checked here rather than taken on trust. The client draws
  * the chart from the same seed and the same position, so it raises the same
- * coastline this does -- but a berth that is nevertheless aground, off the
- * battlefield or plain nonsense falls back to the line, because a ship sitting
- * inside a headland is worse than a ship in the wrong place.
+ * coastline this does, and a berth the chart accepted is accepted here.
+ *
+ * A berth that is nevertheless aground is *moved off the rock*, not thrown
+ * away: she is walked out to the nearest clear water and left there. Sending
+ * her back to the spawn line instead would undo the captain's plan without
+ * telling him -- his squadron would form up in the corner he spent a minute
+ * moving it out of -- and a hull fifty metres from where he put her is a great
+ * deal closer to his intention than one five miles away. Only a berth with no
+ * water anywhere near it falls back to the line.
  */
 function berth(world, team, index, at, cls) {
   const line = spawnPoint(world, team, index);
@@ -65,14 +71,39 @@ function berth(world, team, index, at, cls) {
   const half = (world?.half || MAP_HALF) - 150;
   const x = clamp(at.x, -half, half);
   const z = clamp(at.z, -half, half);
+  const heading = Number.isFinite(at.h) ? wrapAngle(at.h) : line.heading;
   // Only that she is afloat, with room for her own beam. A captain who wants
   // to start his destroyers tucked in under the headland is entitled to: the
   // test is whether she is aground, not whether she has a comfortable offing.
   // The exact rim rather than the collision mask, so an anchorage a few tens
   // of metres off an island's beach is not refused by a hundred-and-fifty-metre
   // grid cell.
-  if (islandAt(world, x, z, shipClearance(cls))) return line;
-  return { x, z, heading: Number.isFinite(at.h) ? wrapAngle(at.h) : line.heading };
+  const clear = shipClearance(cls);
+  if (!islandAt(world, x, z, clear)) return { x, z, heading };
+  const off = nearestWater(world, x, z, clear, half);
+  return off ? { x: off.x, z: off.z, heading } : line;
+}
+
+/**
+ * The closest open water to a point, or null if there is none within reach.
+ *
+ * A ring search outward in steps a shade under the hull's own clearance, so
+ * nothing that would float is stepped over, taking the first bearing that is
+ * clear. Sixteen bearings is enough to find the sea off any headland this
+ * world grows, and the whole search is a few hundred cheap rim tests -- it
+ * runs once per hull at the moment she is created and never again.
+ */
+function nearestWater(world, x, z, clear, half, reach = 1500) {
+  const step = Math.max(30, clear * 0.9);
+  for (let r = step; r <= reach; r += step) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const px = clamp(x + Math.sin(a) * r, -half, half);
+      const pz = clamp(z + Math.cos(a) * r, -half, half);
+      if (!islandAt(world, px, pz, clear)) return { x: px, z: pz };
+    }
+  }
+  return null;
 }
 
 /**

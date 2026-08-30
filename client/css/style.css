@@ -293,7 +293,11 @@ input[type="range"] { accent-color: var(--red); }
 .consumable.ready { border-color: var(--sand); color: var(--sand); }
 .consumable.active { border-color: var(--ally); color: var(--ally); }
 
-.hud-right { position: absolute; right: 1.2vw; bottom: 11vh; }
+/* The plot lives in the top-right corner, which is where a captain's eye goes
+   for it. It used to sit down by the gunnery cluster with the scoreboard key
+   above it; the scores are a once-a-battle thing and the plot is a once-a-few-
+   seconds thing, so they have swapped. */
+.hud-right { position: absolute; right: 1.2vw; top: 1vh; bottom: auto; }
 .minimap-wrap { width: 240px; height: 240px; border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72); }
 .minimap-wrap.big { width: 60vh; height: 60vh; }
 #minimap { width: 100%; height: 100%; display: block; }
@@ -483,9 +487,11 @@ input[type="range"] { accent-color: var(--red); }
   display: flex; flex-direction: row; align-items: flex-end; gap: 0.4rem;
 }
 .tc-ammo { display: flex; flex-direction: column; gap: 0.35rem; }
-.tc-actions { display: grid; grid-template-columns: repeat(3, auto); gap: 0.35rem; }
+/* Four across, so the seven keys come out as two even rows beside the two-high
+   ammo column rather than three ragged ones. */
+.tc-actions { display: grid; grid-template-columns: repeat(4, auto); gap: 0.35rem; }
 .tc-guns { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
-.tc-ammo-btn, .tc-btn, .tc-scope, .tc-scores {
+.tc-ammo-btn, .tc-btn, .tc-scope {
   background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
   color: var(--steel); font-family: var(--ui); letter-spacing: 0.14em;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
@@ -506,17 +512,14 @@ input[type="range"] { accent-color: var(--red); }
 }
 .tc-fire.down { background: var(--red); box-shadow: 0 0 22px rgba(192, 33, 44, 0.65); }
 
-.tc-scores {
-  position: absolute; top: max(0.7rem, env(safe-area-inset-top));
-  right: var(--tc-pad-x); min-height: 44px; padding: 0 0.9rem; font-size: 0.72rem;
-}
-
 /* Short screens: a phone in landscape has very little height to spare. */
 @media (max-height: 460px) {
   .tc-lever { height: 116px; }
   .tc-fire { width: 78px; height: 78px; font-size: 0.9rem; }
   .tc-wheel { height: 44px; }
-  .tc-actions { max-width: 196px; }
+  /* Just enough width for the four across at the narrower key size, which is
+     what keeps the cluster two rows deep beside the ammo column. */
+  .tc-actions { max-width: 212px; }
   /* Narrower, never shorter — a 44px-high target still needs 44px. */
   .tc-btn, .tc-ammo-btn { min-width: 46px; font-size: 0.66rem; }
   .tc-mid-btn { font-size: 0.66rem; }
@@ -549,13 +552,14 @@ input[type="range"] { accent-color: var(--red); }
   .hp-bar { height: 16px; }
   .hp-bar span { font-size: 0.72rem; }
 
-  /* Minimap above the gunnery cluster, never under the fire button. */
+  /* The plot in the corner itself, with the room the scoreboard key used to
+     take, so a contact on it is big enough to see and to put a finger on. */
   .hud-right {
-    right: max(0.8rem, env(safe-area-inset-right));
-    top: max(4.3rem, calc(env(safe-area-inset-top) + 3.8rem));
+    right: max(0.5rem, env(safe-area-inset-right));
+    top: max(0.5rem, calc(env(safe-area-inset-top) + 0.2rem));
     bottom: auto;
   }
-  .minimap-wrap { width: min(104px, 26vh); height: min(104px, 26vh); }
+  .minimap-wrap { width: min(136px, 34vh); height: min(136px, 34vh); }
   .minimap-wrap.big { width: min(74vh, 74vw); height: min(74vh, 74vw); }
 
   /* The killfeed and ribbons sit centre-left, clear of both thumb clusters. */
@@ -1197,9 +1201,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .watch-banner {
   position: absolute;
   right: 0;
-  /* Above the plot, in the clear: below it is the bottom of the screen and
-     the telegraph. */
-  bottom: calc(100% + 0.5rem);
+  /* Under the plot, which now sits in the top corner: above it is the edge of
+     the screen. The hint line goes with it, so the two stay in the same order
+     they read in. */
+  top: calc(100% + 1.6rem);
+  bottom: auto;
   display: flex; align-items: center; gap: 0.6rem;
   padding: 0.4rem 0.6rem;
   background: rgba(9, 20, 33, 0.86);
@@ -1243,6 +1249,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .watch-what { font-size: 0.66rem; }
   .watch-back { font-size: 0.64rem; padding: 0.24rem 0.55rem; min-height: 38px; }
 }
+
 
 /* A phone on its side has the score and the clock along the top, so the banner
    goes under the plot instead of over it. The key hint goes altogether: there
@@ -1295,23 +1302,48 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .lay-screen .deploy-hint { bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 3.6rem); }
 }
 
-/* A phone on its side has no height to give away. */
+/* A phone on its side has no height to give away, so the chart takes the
+   screen and everything else is pushed out to the edges of it.
+
+   The heading comes down to the name of the water and the strength -- every
+   line of it is a line of battlefield the captain cannot see -- and the row of
+   buttons comes off the foot to stand in a column down the left, opposite the
+   zoom keys. A row along the bottom costs the chart a band the full width of
+   the screen; a column costs it a strip one button wide, and on a screen this
+   shape the order of battle needs every row it can get. */
 @media (max-height: 520px) {
+  /* Narrow as well as short: the fleets form up in the middle of the chart,
+     so the heading is kept inside the corner rather than reaching across the
+     column of sea they stand in. */
+  .lay-screen .deploy-head { padding: 0.35rem 1rem 0.4rem 0; max-width: 12rem; }
+  .lay-screen .deploy-head h2 { font-size: 0.82rem; letter-spacing: 0.02em; }
+  .lay-screen .deploy-readout { margin-top: 0.1rem; font-size: 0.64rem; gap: 0; }
+  .lay-screen .deploy-readout span:last-child { display: none; }
+
   .lay-actions {
-    bottom: max(0.5rem, env(safe-area-inset-bottom));
-    gap: 0.4rem;
+    /* `right` and `bottom` are unset rather than overridden, so the box shrinks
+       to the buttons instead of stretching the width of the screen. */
+    left: max(0.5rem, env(safe-area-inset-left));
+    right: auto; bottom: auto;
+    top: 50%; transform: translateY(-50%);
+    flex-direction: column; align-items: flex-start;
+    flex-wrap: nowrap; padding: 0; gap: 0.4rem;
   }
   /* Still a thumb's worth of button: short of height is not a reason to make
      Sortie hard to hit. */
   .lay-actions .btn {
-    min-width: 0; padding: 0.4rem 0.9rem; font-size: 0.78rem;
+    min-width: 6.2rem; padding: 0.4rem 0.7rem; font-size: 0.74rem;
     min-height: 40px; display: flex; align-items: center; justify-content: center;
   }
-  .lay-screen .deploy-hint {
-    bottom: calc(max(0.5rem, env(safe-area-inset-bottom)) + 2.6rem);
-    font-size: 0.74rem;
+  /* And the standing instructions go: there is no room for a paragraph over a
+     chart this size. What is left is the line that says why Sortie is greyed
+     out, which a captain must always be able to read. */
+  .lay-screen .deploy-hint:not(.bad) { display: none; }
+  .lay-screen .deploy-hint.bad {
+    bottom: max(0.4rem, env(safe-area-inset-bottom));
+    left: auto; right: 0.6rem; transform: none; text-align: right;
+    max-width: 58vw; font-size: 0.72rem;
   }
-  .lay-screen .deploy-head { padding-bottom: 0.4rem; }
 }
 
 /* A phone held sideways keeps the side rosters -- there is width for them --

@@ -24,7 +24,10 @@ const HANDLE_R = 13;
 
 // How far in the chart will go. At 1 the whole battlefield is across the
 // shorter side of the screen; at 14 a destroyer's token is about her own length.
-const MIN_ZOOM = 1;
+// How far in the chart will go. Zoom 1 is the battlefield covering the screen
+// edge to edge; the floor is worked out per screen (see `wholeZoom`) so that
+// zooming out always reaches the whole field however square or long the screen
+// happens to be.
 const MAX_ZOOM = 14;
 
 const TEAM = [
@@ -132,7 +135,7 @@ export class LayoutMap {
     }
     // A different battlefield is looked at afresh; the same one keeps whatever
     // corner of it the captain had walked over to.
-    if (this.worldSig !== sig) this.view = { x: 0, z: 0, zoom: 1 };
+    if (this.worldSig !== sig) this.frameAll();
     this.worldSig = sig;
     this.sizeSig = this.half;
 
@@ -230,12 +233,20 @@ export class LayoutMap {
     const guns = this.tokens.filter((t) => t.kind === 'gun');
     if (guns.length) {
       const spots = this.landSpots(guns.length * 2 + 4);
+      // Ground inside what the chart can show, the same way landSpots ranks it:
+      // a gun the captain cannot see is a gun he cannot move.
+      const box = this.homeBox();
+      const home = (o) => clamp(
+        Math.min(box.x * 0.86 - Math.abs(o.x), box.z * 0.86 - Math.abs(o.z)),
+        -this.half, this.half * 0.3,
+      ) * 1.6;
       for (const t of guns) {
         const side = t.team === 0 ? -1 : 1;
+        const worth = (o) => o.score + home(o)
+          + (Math.sign(o.z) === side ? 900 : 0);
         const wanted = spots
           .filter((s) => !s.taken)
-          .sort((a, bb) => (bb.score + (Math.sign(bb.z) === side ? 900 : 0))
-            - (a.score + (Math.sign(a.z) === side ? 900 : 0)))[0];
+          .sort((a, bb) => worth(bb) - worth(a))[0];
         if (wanted) {
           wanted.taken = true;
           t.x = wanted.x;
@@ -336,6 +347,23 @@ export class LayoutMap {
    * off before it can be aimed.
    */
   landSpots(want) {
+    // A gun in the corner of the battlefield is off the side of the chart when
+    // it opens, under its furniture, and a nuisance to get a finger on. So a
+    // spot is ranked on how far inside the *visible* part of the field it is as
+    // well as on how far inland: `homeBox` is what the screen can show at the
+    // chart's own zoom, and ground within it is what a captain can reach
+    // without doing anything first.
+    //
+    // Preferred, not required. An island field with land only in the corners is
+    // still somewhere to put a gun, and being told there is nowhere at all
+    // would be worse than a drag.
+    const box = this.homeBox();
+    const home = (x, z) => Math.min(
+      box.x * 0.86 - Math.abs(x),
+      box.z * 0.86 - Math.abs(z),
+    );
+    const rank = (o) => o.score + clamp(home(o.x, o.z), -this.half, this.half * 0.3) * 1.6;
+
     const out = [];
     for (const i of this.world.islands || []) {
       if (i.r < 110) continue;                     // a rock, not a gun position
@@ -356,7 +384,7 @@ export class LayoutMap {
         }
       }
     }
-    out.sort((a, b) => b.score - a.score);
+    out.sort((a, b) => rank(b) - rank(a));
     // Thinned, so the batteries are spread over the battlefield rather than
     // stacked in the middle of the largest island. If that leaves too few, the
     // rest are taken as they come: crowded is better than in the sea.
@@ -407,25 +435,39 @@ export class LayoutMap {
 
   get size() {
     if (!this._size) {
+      // A sensible box even with no canvas to measure, so the layout rules can
+      // be exercised — and reasoned about — without a browser under them.
       this._size = {
-        w: this.canvas.clientWidth || 1200,
-        h: this.canvas.clientHeight || 800,
+        w: this.canvas?.clientWidth || 1200,
+        h: this.canvas?.clientHeight || 800,
       };
     }
     return this._size;
   }
 
   /**
-   * Metres to pixels with the whole battlefield in frame — the chart laid out
-   * so that its shorter side just touches the edge of the screen.
+   * Metres to pixels at zoom 1: the battlefield covering the screen.
    *
-   * The battlefield is square and the screen is not, so at this scale the long
-   * way runs off past the border into open sea. That is the right way round: a
-   * chart table is bigger than the chart on it.
+   * The battlefield is square and a screen is not, so this is laid to the
+   * *longer* side. There is then no chart table round the chart — the whole
+   * viewport is sea a captain can put a ship on — at the cost of the short way
+   * running off the top and bottom, or off the sides, until he zooms out.
    */
   get fitScale() {
     const { w, h } = this.size;
-    return Math.max(1e-6, Math.min(w, h) / (this.half * 2));
+    return Math.max(1e-6, Math.max(w, h) / (this.half * 2));
+  }
+
+  /**
+   * The zoom at which the whole battlefield is in frame, borders and all.
+   *
+   * Below 1 by exactly the screen's aspect: on a square screen there is nothing
+   * to give up and it is 1, on a long one it is the ratio of the sides. This is
+   * the floor for zooming out and what the fit key goes to.
+   */
+  get wholeZoom() {
+    const { w, h } = this.size;
+    return Math.min(1, Math.min(w, h) / Math.max(w, h));
   }
 
   get scale() { return this.fitScale * this.view.zoom; }
@@ -480,7 +522,7 @@ export class LayoutMap {
   /** Zoom about a point on the canvas, so what is under the finger stays put. */
   zoomAt(p, factor) {
     const before = this.fromScreen(p.x, p.y);
-    this.view.zoom = clamp(this.view.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    this.view.zoom = clamp(this.view.zoom * factor, this.wholeZoom, MAX_ZOOM);
     const after = this.fromScreen(p.x, p.y);
     this.view.x += before.x - after.x;
     this.view.z += before.z - after.z;
@@ -535,9 +577,119 @@ export class LayoutMap {
     this.dirty = true;
   }
 
-  /** Back to the whole battlefield, centred. */
+  /** Back to the whole battlefield, borders and all, centred. */
   fit() {
-    this.view = { x: 0, z: 0, zoom: 1 };
+    this.view = { x: 0, z: 0, zoom: this.wholeZoom };
+    this.dirty = true;
+  }
+
+  /**
+   * How much of the battlefield is on the screen at the chart's own zoom,
+   * measured in metres either side of the middle.
+   *
+   * The long axis is the whole field and the short one is however much of it
+   * the screen's shape leaves room for. Everything laid out automatically is
+   * kept inside this, so that opening the chart shows the captain his whole
+   * order of battle without a single square of the screen going to waste.
+   */
+  homeBox() {
+    const { w, h } = this.size;
+    const s = this.fitScale;
+    return {
+      x: Math.min(this.half, w / (2 * s)),
+      z: Math.min(this.half, h / (2 * s)),
+    };
+  }
+
+  /**
+   * The band of screen the chart has to itself, in pixels from the top.
+   *
+   * The heading and the row of buttons are drawn over the chart, so a token
+   * behind either of them is a token a captain has to work around. Measured
+   * rather than guessed: they are sized by the stylesheet and change with the
+   * screen.
+   */
+  clearBand(span = null) {
+    const { w, h } = this.size;
+    const rect = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el || el.hidden) return null;
+      const r = el.getBoundingClientRect();
+      return r.height > 2 ? r : null;
+    };
+    const head = rect('#screen-lay .deploy-head');
+    const foot = rect('.lay-actions');
+    const hint = rect('#lay-hint');
+    // Only what lies across the chart counts. Given the column of screen the
+    // fleets are actually going to stand in, a panel is charged for in full if
+    // it reaches into that column and not at all if it does not: on a phone
+    // held sideways the buttons run down the left-hand edge and the fleets form
+    // up in the middle, and the two never meet. Without a column to go on, a
+    // panel is charged at the fraction of the width it covers instead.
+    const across = (r) => {
+      if (!r) return 0;
+      if (span) return r.right > span.x0 && r.left < span.x1 ? 1 : 0;
+      return Math.min(1, r.width / w);
+    };
+    const top = head ? Math.min(h * 0.35, (head.bottom + 6) * across(head)) : 0;
+    const under = Math.min(
+      foot ? h - (h - foot.top) * across(foot) : h,
+      hint ? h - (h - hint.top) * across(hint) : h,
+    );
+    const bottom = Math.max(h * 0.65, under - 6);
+    return { top, bottom };
+  }
+
+  /**
+   * The view the chart opens on: as much chart as the screen will take, with
+   * the whole order of battle standing clear of the chart's own furniture.
+   *
+   * Zoom 1 is the battlefield covering the screen, so nothing of the table
+   * shows — and the automatic layout keeps every gun inside what zoom 1 can
+   * show. The fleets form up on the simulation's own two lines, which on a
+   * screen that is much wider than it is tall can reach past the heading and
+   * the buttons; only then does this give a little of the screen back, and only
+   * as much as it has to. The fit key still opens out to the borders.
+   */
+  frameAll() {
+    const { w, h } = this.size;
+    if (!this.tokens.length) { this.view = { x: 0, z: 0, zoom: 1 }; this.dirty = true; return; }
+    let x0 = Infinity; let x1 = -Infinity;
+    let z0 = Infinity; let z1 = -Infinity;
+    for (const t of this.tokens) {
+      if (t.x < x0) x0 = t.x;
+      if (t.x > x1) x1 = t.x;
+      if (t.z < z0) z0 = t.z;
+      if (t.z > z1) z1 = t.z;
+    }
+    // Room for the token itself, its name and a gun's arc, in metres.
+    const pad = Math.max(700, this.half * 0.035);
+    // What has to be on the screen is the tokens. The padding round them is
+    // room for their names, and it is given up before a single square of the
+    // chart is: zoom 1 is the battlefield covering the screen edge to edge with
+    // none of the table showing, and the only thing worth coming down off it
+    // for is a ship the captain would otherwise not be able to see at all.
+    const bareX = Math.max(600, x1 - x0);
+    const bareZ = Math.max(600, z1 - z0);
+    const onScreen = Math.min(w / bareX, h / bareZ) / this.fitScale;
+    const zoom = clamp(Math.min(onScreen, 1), this.wholeZoom, 1);
+    const s = this.fitScale * zoom;
+    // Where in the screen the order of battle stands. The heading and the
+    // buttons are drawn over the chart, so the fleets are nudged clear of them
+    // -- but only of the ones that actually lie over the column of screen the
+    // fleets occupy, and only as far as the room left over allows. Standing a
+    // ship off the bottom edge to dodge a heading in the far corner would be a
+    // poor trade.
+    const colHalf = Math.min(w, (bareX + pad * 2) * s) / 2;
+    const band = this.clearBand({ x0: w / 2 - colHalf, x1: w / 2 + colHalf });
+    const want = ((band.top + band.bottom) / 2 - h / 2) / s;
+    const slack = Math.max(0, (h - (bareZ + pad * 2) * s) / 2) / s;
+    this.view = {
+      x: (x0 + x1) / 2,
+      z: (z0 + z1) / 2 + clamp(want, -slack, slack),
+      zoom,
+    };
+    this.clampView();
     this.dirty = true;
   }
 

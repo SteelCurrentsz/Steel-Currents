@@ -13,6 +13,10 @@ const ACTIONS = [
   { code: 'KeyT', label: 'SMK', title: 'Make smoke' },
   { code: 'KeyC', label: 'CAM', title: 'Change camera' },
   { code: 'KeyM', label: 'MAP', title: 'Enlarge the map' },
+  // The scoreboard used to have the top-right corner to itself. The plot has it
+  // now -- a captain looks at the plot every few seconds and at the scores once
+  // a battle -- so it takes its place among the other things you press once.
+  { code: 'Tab', label: 'SCR', title: 'Scoreboard' },
 ];
 
 const NOTCH_LABELS = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
@@ -66,8 +70,6 @@ export class TouchControls {
         </div>
       </div>
       </div>
-
-      <button class="tc-scores" id="tc-scores" type="button">SCORES</button>
     `;
 
     const detents = this.root.querySelector('#tc-detents');
@@ -100,7 +102,6 @@ export class TouchControls {
         this.input.emit('key', btn.dataset.code);
       });
     }
-    this.tap(this.root.querySelector('#tc-scores'), () => this.input.emit('key', 'Tab'));
 
     const scope = this.root.querySelector('#tc-scope');
     this.tap(scope, () => {

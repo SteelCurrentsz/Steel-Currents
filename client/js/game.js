@@ -159,6 +159,10 @@ export class Battle {
         case 'torpLaunch': if (ev.ship === this.shipId) audio.torpedo(); break;
         case 'torpHit':
           fx.explosion(ev.x, 4, ev.z, 1.6);
+          // A torpedo goes off under the water, so what is seen from a bridge
+          // is not the fireball but the column it throws up alongside -- taller
+          // than anything a gun makes, which is why one hit ends an argument.
+          fx.splash(ev.x, ev.z, 620);
           audio.explosion(1.5, d);
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
           if (ev.victim === this.shipId) this.hud.alert('Torpedo hit');
@@ -180,6 +184,16 @@ export class Battle {
           this.hud.alert(ev.team === this.team ? `Point ${ev.cap} captured` : `Point ${ev.cap} lost`);
           break;
         case 'ram': fx.explosion(ev.x, 4, ev.z, 1.2); break;
+        case 'airDrop': {
+          // The fish going into the sea: a short row of splashes across the
+          // squadron's line, small ones, because a torpedo enters nose first.
+          for (let i = 0; i < 3; i++) {
+            fx.splash(ev.x + (i - 1) * 26 + (Math.random() - 0.5) * 14,
+              ev.z + (Math.random() - 0.5) * 26, 150);
+          }
+          if (d < 0.8) audio.splash(d);
+          break;
+        }
         case 'planesLost': if (ev.team === this.team) this.hud.alert('Squadron lost'); break;
         default: break;
       }

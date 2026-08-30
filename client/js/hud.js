@@ -51,9 +51,10 @@ export class Hud {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return null;
     // The canvas has its own pixel size, which the CSS box need not match.
-    const px = ((e.clientX - r.left) / r.width) * el.width;
-    const py = ((e.clientY - r.top) / r.height) * el.height;
-    const reach = (el.width / r.width) * 22;
+    // Marks are plotted in the box's own pixels, so a tap needs no conversion.
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
+    const reach = Math.max(18, r.width * 0.11);
     // A division in line abreast is a few pixels wide on this plot and your own
     // hull is in the middle of it, so a straight nearest-mark pick keeps
     // landing on yourself — which is the one answer that does nothing. Ranked
@@ -274,7 +275,23 @@ export class Hud {
   /** The plot: own ship, contacts, torpedo tracks, capture zones, islands. */
   drawMinimap(own, ships, snap) {
     const ctx = this.ctx;
-    const size = this.el.minimap.width;
+    // The plot is drawn in the pixels it is actually shown at.
+    //
+    // It used to be a fixed three-hundred-and-twenty-pixel canvas squeezed into
+    // whatever box the stylesheet gave it, which on a phone is about a hundred:
+    // a destroyer's counter came out at two pixels across and a gun ashore at
+    // two and a half, which is to say invisible. Sizing the backing store to
+    // the box -- times the screen's own pixel ratio, so it stays sharp -- means
+    // a mark drawn six pixels wide is six pixels wide on the glass.
+    const cv = this.el.minimap;
+    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    const size = Math.max(64, Math.round(cv.clientWidth || 240));
+    const store = Math.round(size * dpr);
+    if (cv.width !== store || cv.height !== store) { cv.width = store; cv.height = store; }
+    ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
+    // And the marks come down a little on a small plot, so a division in line
+    // abreast is still four counters rather than one blob.
+    const k = clamp(size / 240, 0.7, 1.15);
     const H = this.world?.half || MAP_HALF;
     const scale = size / (H * 2);
     const toX = (x) => (x + H) * scale;
@@ -329,8 +346,8 @@ export class Hud {
       ctx.arc(toX(cap.x), toY(cap.z), cap.r * scale, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = ctx.strokeStyle;
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(cap.id, toX(cap.x) - 4, toY(cap.z) + 4);
+      ctx.font = `bold ${Math.round(12 * k)}px sans-serif`;
+      ctx.fillText(cap.id, toX(cap.x) - 4 * k, toY(cap.z) + 4 * k);
     }
 
     if (snap) {
@@ -351,19 +368,20 @@ export class Hud {
     // nothing on this plot that moves is drawn as one.
     for (const g of (snap && snap.batteries) || []) {
       const x = toX(g.x), y = toY(g.z);
+      const r = 4.6 * k;
       ctx.fillStyle = !g.al ? 'rgba(120,120,120,0.7)'
         : g.tm === this.team ? '#6fd3a0' : '#e2564f';
-      ctx.fillRect(x - 4, y - 4, 8, 8);
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
       // A hollow surround, so a battery reads as a battery at a glance and is
       // a big enough thing to put a finger on.
       ctx.strokeStyle = ctx.fillStyle;
       ctx.lineWidth = 1;
-      ctx.strokeRect(x - 7.5, y - 7.5, 15, 15);
+      ctx.strokeRect(x - r * 1.9, y - r * 1.9, r * 3.8, r * 3.8);
       if (g.al) {
         // Which way it is laid, so a captain can see what he must not cross.
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.sin(g.h + g.a) * 13, y - Math.cos(g.h + g.a) * 13);
+        ctx.lineTo(x + Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
       this.plot.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
@@ -377,9 +395,14 @@ export class Hud {
       ctx.translate(x, y);
       ctx.rotate(-s.h);
       ctx.beginPath();
-      ctx.moveTo(0, -6); ctx.lineTo(3.4, 5); ctx.lineTo(-3.4, 5);
+      ctx.moveTo(0, -7 * k); ctx.lineTo(4 * k, 5.6 * k); ctx.lineTo(-4 * k, 5.6 * k);
       ctx.closePath();
       ctx.fill();
+      // An outline in the sea's own colour, so two hulls in company still read
+      // as two: a solid counter loses its neighbour on a plot this small.
+      ctx.strokeStyle = 'rgba(8,24,42,0.85)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.restore();
       if (self) {
         // Firing arc of the main battery, so you can see what will bear.
@@ -404,7 +427,7 @@ export class Hud {
       ctx.rotate(-pl.h);
       // A swept pair of wings: unmistakably not a hull, at four pixels.
       ctx.beginPath();
-      ctx.moveTo(-6, 3.5); ctx.lineTo(0, -4.5); ctx.lineTo(6, 3.5);
+      ctx.moveTo(-6.5 * k, 3.8 * k); ctx.lineTo(0, -5 * k); ctx.lineTo(6.5 * k, 3.8 * k);
       ctx.stroke();
       ctx.restore();
       this.plot.push({
@@ -421,7 +444,7 @@ export class Hud {
         ctx.strokeStyle = '#e6cf9c';
         ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.arc(mark.x, mark.y, 12, 0, Math.PI * 2);
+        ctx.arc(mark.x, mark.y, 13 * k, 0, Math.PI * 2);
         ctx.stroke();
       }
     }

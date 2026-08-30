@@ -2,6 +2,7 @@
 // funnel smoke and smoke screens. One shared canvas texture, two materials.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { Splashes, splashSize } from './splash.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -37,6 +38,9 @@ export class Effects {
       scene.add(s);
       this.pool.push(s);
     }
+
+    // The water a round throws up is meshes, not sprites -- see splash.js.
+    this.splashes = new Splashes(scene, intensity);
 
     this.lights = [];
     for (let i = 0; i < 6; i++) {
@@ -82,16 +86,29 @@ export class Effects {
     entry.life = 0.12;
   }
 
-  /** Shell splash: a tall column of water. */
+  /**
+   * A round in the water: the column, the collar and the swell running out.
+   *
+   * The mesh work is in splash.js. What is left here is the mist -- the torn
+   * top of the column, which is the one part of a splash that genuinely is a
+   * cloud and so is the one part a billboard tells the truth about.
+   */
   splash(x, z, caliber = 152) {
-    const scale = 0.6 + caliber / 300;
-    const n = Math.max(1, Math.round(3 * this.intensity));
+    this.splashes.splash(x, z, caliber);
+    const { height, radius } = splashSize(caliber);
+    const n = Math.max(1, Math.round(2 * this.intensity));
     for (let i = 0; i < n; i++) {
+      const up = height * (0.55 + i * 0.22);
       this.spawn({
-        x: x + (Math.random() - 0.5) * 6, y: 2 + i * 5 * scale, z: z + (Math.random() - 0.5) * 6,
-        vy: (14 - i * 2) * scale, vx: (Math.random() - 0.5) * 4, vz: (Math.random() - 0.5) * 4,
-        size: (10 + i * 4) * scale, grow: 9 * scale, ttl: 1.5 + i * 0.2,
-        color: 0xd8e6f2, opacity: 0.75,
+        x: x + (Math.random() - 0.5) * radius * 2,
+        y: up,
+        z: z + (Math.random() - 0.5) * radius * 2,
+        vy: height * 0.22 * (1 - i * 0.25),
+        vx: (Math.random() - 0.5) * radius * 1.6,
+        vz: (Math.random() - 0.5) * radius * 1.6,
+        size: radius * (2.2 + i * 0.9), grow: radius * 1.6,
+        ttl: 1.4 + height * 0.02 + i * 0.25,
+        color: 0xdfeaf6, opacity: 0.5, drag: 0.75,
       });
     }
   }
@@ -167,6 +184,7 @@ export class Effects {
   }
 
   update(dt) {
+    this.splashes.update(dt);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
       p.life += dt;

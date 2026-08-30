@@ -292,14 +292,20 @@ check('a hull starts where her captain berthed her, unless she cannot float ther
   // Her guns look where she is pointed rather than back at the spawn line.
   assert.ok(put.aimZ > put.z, 'aim point should lead the bow she was turned to');
 
-  // Spain, which no destroyer floats on: the line takes her instead.
+  // Spain, which no destroyer floats on. She is walked off it to the nearest
+  // water rather than sent back to the corner: a captain's plan is not undone
+  // silently just because one hull was laid a little too far in.
   const line = spawnPoint(w, 0, 1);
   const aground = addShip(state, {
     name: 'Aground', classId: 'fletcher', team: 0, index: 1,
     at: { x: 0, z: 14000, h: 0 },
   });
-  assert.equal(aground.x, line.x, 'a berth ashore should fall back to the spawn line');
-  assert.equal(aground.z, line.z);
+  assert.ok(!islandAt(w, aground.x, aground.z, shipClearance(SHIP_CLASSES.fletcher)),
+    'a berth ashore should end up afloat');
+  const swum = Math.hypot(aground.x - 0, aground.z - 14000);
+  const toLine = Math.hypot(aground.x - line.x, aground.z - line.z);
+  assert.ok(swum <= 1600 || toLine < 1,
+    `she should be moved just clear of the shore, not ${Math.round(swum)}m away`);
 
   // And so does a berth outside the battlefield, or one that is not a number.
   const far = addShip(state, {
@@ -546,14 +552,20 @@ check('a hull can be berthed right in under the shore', () => {
     state.ships.length = 0;
   }
 
-  // Aground is still aground: a berth on the beach falls back to the line.
+  // A berth on the island itself is still refused -- but she is put in the
+  // water off it, alongside the plan she belongs to, not back on the spawn
+  // line five miles away.
   const line = spawnPoint(w, 0, 0);
   const beached = addShip(state, {
     name: 'Beached', classId: 'iowa', team: 0, index: 0,
     at: { x: isle.x, z: isle.z, h: 0 },
   });
-  assert.equal(beached.x, line.x, 'a berth on the island itself is refused');
-  assert.equal(beached.z, line.z);
+  assert.ok(!islandAt(w, beached.x, beached.z, shipClearance(SHIP_CLASSES.iowa)),
+    'a berth on the island should end up afloat');
+  assert.ok(Math.hypot(beached.x - isle.x, beached.z - isle.z) < isle.rmax + 1600,
+    'and just off that island, not back on the spawn line');
+  assert.ok(Math.hypot(beached.x - line.x, beached.z - line.z) > 1,
+    'she should not have been sent back to the line');
 });
 
 check('a battery mixes its arcs, so some shells come down on the deck', () => {
@@ -608,6 +620,27 @@ check('a battery is sited on the middle of its ground, not on the beach', () => 
           / islandRadius(isle, Math.atan2(s.x - isle.x, s.z - isle.z));
         assert.ok(out < 0.75, `${preset}: sited ${(out * 100).toFixed(0)}% of the way to the rim`);
       }
+    }
+    // And the ones actually handed out are not jammed into a corner of the
+    // battlefield, where a token is half under the chart's furniture.
+    const lay2 = Object.create(LayoutMap.prototype);
+    lay2.world = w;
+    lay2.half = w.half;
+    lay2.tokens = [];
+    for (const team of [0, 1]) {
+      for (let k = 0; k < 2; k++) {
+        lay2.tokens.push(lay2.gunToken('longues', team, k));
+      }
+    }
+    lay2.tokens.push(lay2.shipToken('fletcher', 0, 0, true));
+    lay2.tokens.push(lay2.shipToken('fletcher', 1, 0, false));
+    lay2.auto();
+    for (const t of lay2.tokens) {
+      if (t.kind !== 'gun') continue;
+      assert.ok(t.ok, `${preset}: an auto-sited battery must be ashore`);
+      const edge = w.half - Math.max(Math.abs(t.x), Math.abs(t.z));
+      assert.ok(edge > w.half * 0.08,
+        `${preset}: sited ${Math.round(edge)} m from the border, which is the corner`);
     }
   }
 });
