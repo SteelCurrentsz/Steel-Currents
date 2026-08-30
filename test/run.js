@@ -14,6 +14,7 @@ import {
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
+import { enterpriseParts } from '../client/js/render/enterprise.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -853,6 +854,50 @@ check('no piece of a gun stands in mid-air', () => {
     assert.equal(floating.length, 0,
       `${id}: ${floating.length} pieces in mid-air, first at ${JSON.stringify(floating[0])}`);
   }
+});
+
+check('the carrier is one connected ship, with nothing left in mid-air', () => {
+  // Two thousand pieces, and moving any one deck can leave whatever stood on it
+  // hanging. Weld them by overlap and there must be exactly one body: if the
+  // radar aerial or a bridge wing lamp comes away, it shows up here as a second.
+  const EPS = 0.1;
+  const hits = (a, b) => {
+    for (let i = 0; i < 3; i++) {
+      if (a.min[i] - EPS > b.max[i] || b.min[i] - EPS > a.max[i]) return false;
+    }
+    return true;
+  };
+  const parts = enterpriseParts();
+  assert.ok(parts.length > 1500, `she should be built of more than ${parts.length} pieces`);
+  const n = parts.length;
+  const up = [...Array(n).keys()];
+  const find = (k) => (up[k] === k ? k : (up[k] = find(up[k])));
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) if (hits(parts[a], parts[b])) up[find(a)] = find(b);
+  }
+  const bodies = new Map();
+  for (let a = 0; a < n; a++) {
+    const r = find(a);
+    if (!bodies.has(r)) bodies.set(r, []);
+    bodies.get(r).push(a);
+  }
+  let adrift = null;
+  if (bodies.size > 1) {
+    let main = null;
+    for (const [r, m] of bodies) if (!main || m.length > bodies.get(main).length) main = r;
+    for (const [r, m] of bodies) {
+      if (r !== main) { adrift = parts[m[0]].min.map((v) => Math.round(v * 10) / 10); break; }
+    }
+  }
+  assert.equal(bodies.size, 1, `${bodies.size - 1} piece(s) adrift, one at ${JSON.stringify(adrift)}`);
+  // And she must be the right way round: the island goes to starboard, which
+  // with the bow at +z and up at +y is negative x.
+  let islandX = 0;
+  let top = -Infinity;
+  for (const q of parts) {
+    if (q.max[1] > top) { top = q.max[1]; islandX = (q.min[0] + q.max[0]) / 2; }
+  }
+  assert.ok(islandX < -5, `the island should stand to starboard, not at x ${islandX.toFixed(1)}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
