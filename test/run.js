@@ -6,7 +6,7 @@ import {
 } from '../shared/world.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
-  useRepair, DT, damageShip, shipClearance,
+  useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
@@ -743,6 +743,40 @@ check('the plot knows about a ship the lookouts have not sighted', () => {
   const seen = buildSnapshot(state, 0, mine.id);
   assert.ok(seen.ships.some((s) => s.i === far.id), 'a sighted enemy is a target');
   assert.ok(!seen.contacts.some((c) => c.i === far.id), 'and only on the plot once');
+});
+
+check('a gun stands on its ground, never inside it', () => {
+  // A pad cut at the height of the middle of the position leaves the uphill
+  // half of it buried: the hill goes on climbing past where anybody looked and
+  // comes up through the revetment. The pad is measured over everything the
+  // emplacement covers, so no ground under it is higher than it is.
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const state = createState(w, { mode: 'deathmatch' });
+  const isles = [...w.islands].sort((a, b) => b.r - a.r).slice(0, 4);
+  let tested = 0;
+  for (const isle of isles) {
+    const R = isle.rmax || isle.r;
+    // Not the summit -- the slopes, which are where a pad gets buried.
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = isle.x + Math.sin(a) * R * 0.45;
+      const z = isle.z + Math.cos(a) * R * 0.45;
+      if (!islandAt(w, x, z, 0)) continue;
+      const bat = addBattery(state, { batteryId: 'longues', team: 0, x, z, heading: a });
+      const span = BATTERIES.longues.span;
+      for (const ring of BATTERY_FOOTPRINT) {
+        for (let j = 0; j < 12; j++) {
+          const th = (j / 12) * Math.PI * 2;
+          const g = groundHeight(w, x + Math.cos(th) * span * ring, z + Math.sin(th) * span * ring);
+          assert.ok(g <= bat.y + 0.001,
+            `ground ${g.toFixed(1)}m under a pad cut at ${bat.y.toFixed(1)}m`);
+        }
+      }
+      tested++;
+      state.batteries.length = 0;
+    }
+  }
+  assert.ok(tested >= 6, `only ${tested} emplacements were on land to test`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

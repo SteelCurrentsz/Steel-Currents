@@ -33,9 +33,12 @@ export class Hud {
     // Both are drawn from the same call, and each remembers what it drew -- in
     // its own box's pixels -- so a tap on either can be turned back into the
     // hull or the gun that was tapped.
+    // Each carries its own view: how far in it is zoomed and what it is
+    // centred on, in metres. The corner plot is always the whole battlefield;
+    // the table is the one a captain works in close on.
     this.plots = [
-      { cv: this.el.minimap, ctx: this.el.minimap.getContext('2d'), marks: [] },
-      { cv: this.el.bigPlot, ctx: this.el.bigPlot.getContext('2d'), marks: [] },
+      { cv: this.el.minimap, ctx: this.el.minimap.getContext('2d'), marks: [], view: { x: 0, z: 0, zoom: 1 } },
+      { cv: this.el.bigPlot, ctx: this.el.bigPlot.getContext('2d'), marks: [], view: { x: 0, z: 0, zoom: 1 } },
     ];
     // The corner plot raises the chart table and puts it away again. It is a
     // hundred pixels across on a phone -- too small to aim a finger at one
@@ -45,10 +48,7 @@ export class Hud {
       e.preventDefault(); e.stopPropagation();
       this.onToggleMap?.();
     });
-    this.el.bigPlot.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      this.onPick?.(this.hitPlot(e, 1));
-    });
+    this.bindTable();
     // Anywhere off the table puts it away, which is what a captain expects of
     // something laid over his bridge windows.
     this.el.plotTable.addEventListener('pointerdown', (e) => {
@@ -59,6 +59,110 @@ export class Hud {
 
   /** Is the chart table up? */
   get mapBig() { return !this.el.plotTable.hidden; }
+
+  /**
+   * Working the chart table: drag it about, zoom into it, tap a contact on it.
+   *
+   * A drag and a tap arrive the same way, so they are told apart by how far the
+   * finger went: under a few pixels is a tap on a contact, anything more was a
+   * captain moving the chart under his hand and must not also send the camera
+   * somewhere. Two fingers pinch, which is the only gesture on a chart that
+   * everybody already knows.
+   */
+  bindTable() {
+    const cv = this.el.bigPlot;
+    const view = this.plots[1].view;
+    const pointers = new Map();
+    let moved = 0;
+    let pinch = 0;
+
+    const at = (e) => {
+      const r = cv.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top, box: r.width || 1 };
+    };
+    // Metres per pixel at this zoom, which is what turns a drag into a course
+    // over the ground.
+    const perPx = (box) => ((this.world?.half || MAP_HALF) * 2) / (box * view.zoom);
+
+    const clampView = (box) => {
+      const H = this.world?.half || MAP_HALF;
+      const half = (H * 2) / view.zoom / 2;
+      const slack = Math.max(0, H - half);
+      view.x = clamp(view.x, -slack, slack);
+      view.z = clamp(view.z, -slack, slack);
+      return box;
+    };
+
+    const zoomAt = (p, factor) => {
+      const m = perPx(p.box);
+      // What is under the finger before, and after: the difference is the pan
+      // that keeps it under the finger.
+      const bx = view.x + (p.x - p.box / 2) * m;
+      const bz = view.z - (p.y - p.box / 2) * m;
+      view.zoom = clamp(view.zoom * factor, 1, 12);
+      const m2 = perPx(p.box);
+      view.x = bx - (p.x - p.box / 2) * m2;
+      view.z = bz + (p.y - p.box / 2) * m2;
+      clampView(p.box);
+    };
+
+    cv.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      cv.setPointerCapture?.(e.pointerId);
+      pointers.set(e.pointerId, at(e));
+      if (pointers.size === 1) { moved = 0; cv.classList.add('panning'); }
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+    });
+
+    cv.addEventListener('pointermove', (e) => {
+      const was = pointers.get(e.pointerId);
+      if (!was) return;
+      const now = at(e);
+      pointers.set(e.pointerId, now);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinch > 4 && d > 4) {
+          zoomAt({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, box: now.box }, d / pinch);
+          moved += Math.abs(d - pinch);
+        }
+        pinch = d;
+        return;
+      }
+      const m = perPx(now.box);
+      view.x -= (now.x - was.x) * m;
+      view.z += (now.y - was.y) * m;
+      moved += Math.hypot(now.x - was.x, now.y - was.y);
+      clampView(now.box);
+    });
+
+    const up = (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) {
+        cv.classList.remove('panning');
+        if (moved < 6) this.onPick?.(this.hitPlot(e, 1));
+      }
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
+
+    cv.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomAt(at(e), Math.exp(-e.deltaY * 0.0016));
+    }, { passive: false });
+
+    const key = (id, fn) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); fn();
+    });
+    const middle = () => ({ x: cv.clientWidth / 2, y: cv.clientWidth / 2, box: cv.clientWidth || 1 });
+    key('plot-in', () => zoomAt(middle(), 1.5));
+    key('plot-out', () => zoomAt(middle(), 1 / 1.5));
+    key('plot-fit', () => { view.x = 0; view.z = 0; view.zoom = 1; });
+  }
 
   /**
    * What was under a tap on the plot, or null for open water.
@@ -97,14 +201,17 @@ export class Hud {
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
 
-  /** The banner that names what the camera has gone to look at. */
-  setWatchBanner(watch) {
+  /**
+   * The banner that names what the camera has gone to look at, and says which
+   * way you are looking at it from -- aboard her, or standing off her.
+   */
+  setWatchBanner(watch, pov = true) {
     const el = this.el.watchBanner;
     if (!el) return;
     el.hidden = !watch;
     if (watch) {
-      this.el.watchWhat.textContent = watch.kind === 'battery'
-        ? `Watching ${watch.name}` : `Watching ${watch.name}`;
+      this.el.watchWhat.textContent =
+        `${pov ? 'Aboard' : 'Watching'} ${watch.name} · C`;
     }
   }
 
@@ -326,21 +433,31 @@ export class Hud {
     // abreast is still four counters rather than one blob.
     const k = clamp(size / 240, 0.7, 1.15);
     const H = this.world?.half || MAP_HALF;
-    const scale = size / (H * 2);
-    const toX = (x) => (x + H) * scale;
-    const toY = (z) => size - (z + H) * scale;
+    const view = plot.view;
+    const scale = (size / (H * 2)) * view.zoom;
+    const toX = (x) => size / 2 + (x - view.x) * scale;
+    const toY = (z) => size / 2 - (z - view.z) * scale;
 
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(8,24,42,0.75)';
     ctx.fillRect(0, 0, size, size);
 
+    // The grid is laid on the battlefield, not on the canvas, so it stays put
+    // under the chart when it is panned and gives a captain something to judge
+    // a range by when he has zoomed in.
     ctx.strokeStyle = 'rgba(154,166,178,0.14)';
     ctx.lineWidth = 1;
-    for (let i = 1; i < 8; i++) {
-      const p = (size / 8) * i;
-      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke();
+    const step = (H * 2) / 8;
+    for (let i = -8; i <= 8; i++) {
+      const w = i * step;
+      const px = toX(w); const py = toY(w);
+      if (px >= 0 && px <= size) { ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, size); ctx.stroke(); }
+      if (py >= 0 && py <= size) { ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(size, py); ctx.stroke(); }
     }
+    // The border of the battlefield: past it there is nothing to fight over,
+    // and when the chart is zoomed in it is the only thing that says so.
+    ctx.strokeStyle = 'rgba(154,166,178,0.4)';
+    ctx.strokeRect(toX(-H), toY(H), H * 2 * scale, H * 2 * scale);
 
     // The islands, in the shape the hulls run aground on rather than as the
     // circles they used to be plotted as.

@@ -36,8 +36,11 @@ const REF_BORE = 127;
 export function splashSize(bore = REF_BORE) {
   const k = Math.max(0.35, bore / REF_BORE);
   return {
-    height: 20 * Math.pow(k, 1.1),
-    radius: 4.2 * Math.pow(k, 1.05),
+    height: 23 * Math.pow(k, 1.12),
+    // A splash is a *mass* of water, not a spout: the column that comes up off
+    // a heavy shell is nearly half as wide as it is tall, boiling outwards as
+    // it rises. A narrow spike is what a stone dropped in a pond does.
+    radius: 5.4 * Math.pow(k, 1.02),
   };
 }
 
@@ -48,18 +51,22 @@ function columnTexture() {
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 128, 0, 0);
   g.addColorStop(0.00, 'rgba(255,255,255,0.00)'); // the very base, hidden in the sea
-  g.addColorStop(0.09, 'rgba(255,255,255,0.86)');
-  g.addColorStop(0.34, 'rgba(240,248,255,0.52)');
-  g.addColorStop(0.60, 'rgba(232,244,255,0.26)');
-  g.addColorStop(0.83, 'rgba(226,240,252,0.07)');
-  g.addColorStop(1.00, 'rgba(220,236,250,0.00)'); // torn to nothing at the top
+  g.addColorStop(0.07, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.30, 'rgba(245,251,255,0.74)');
+  g.addColorStop(0.55, 'rgba(238,248,255,0.44)');
+  g.addColorStop(0.78, 'rgba(232,245,255,0.18)');
+  g.addColorStop(1.00, 'rgba(226,242,255,0.00)'); // torn to nothing at the top
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 128);
   // A little streaking across the column, so it is water and not a cone.
   ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 70; i++) {
-    ctx.fillStyle = `rgba(0,0,0,${0.10 + Math.random() * 0.35})`;
-    ctx.fillRect(Math.random() * 16, Math.random() * 128, 1 + Math.random() * 3, 5 + Math.random() * 30);
+  for (let i = 0; i < 90; i++) {
+    // Long and thin, and thinning towards the top: the water leaves the sea in
+    // ropes, and it is the gaps between them that make a column look like it is
+    // going somewhere rather than just sitting there.
+    const y = Math.random() * 128;
+    ctx.fillStyle = `rgba(0,0,0,${(0.08 + Math.random() * 0.3) * (0.35 + y / 128)})`;
+    ctx.fillRect(Math.random() * 16, y, 0.8 + Math.random() * 2, 12 + Math.random() * 48);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = THREE.RepeatWrapping;
@@ -73,22 +80,41 @@ function columnTexture() {
  * you can see the far wall of it through the near one -- which is what stops
  * it reading as a solid traffic cone.
  */
+/**
+ * The billowing profile of the column, as a multiple of its base radius.
+ *
+ * Water thrown up by a shell does not taper away like a cone. It leaves the sea
+ * as a wide skirt, boils *outwards* as it rises -- the mass is widest around a
+ * third of the way up, where it has had time to spread and has not yet run out
+ * of momentum -- and only then tears apart into a head of spray. That shape,
+ * more than anything else, is what makes a splash read as tons of water rather
+ * than as a plume of smoke.
+ */
+function billow(t) {
+  if (t < 0.16) return 1.06 - t * 0.9;                  // the skirt at the sea
+  if (t < 0.48) return 0.92 + (t - 0.16) * 1.25;        // boiling outward
+  if (t < 0.78) return 1.32 - (t - 0.48) * 0.5;         // the shoulder of it
+  return 1.17 - (t - 0.78) * 3.4;                       // torn away at the head
+}
+
 function makeGeometry() {
-  const column = new THREE.CylinderGeometry(0.24, 1, 1, 20, 6, true);
+  const column = new THREE.CylinderGeometry(1, 1, 1, 28, 16, true);
   column.translate(0, 0.5, 0);
-  // Water does not come up as a cone. The wall is pushed in and out around the
-  // circumference and up the height, so the silhouette is ragged from every
-  // bearing -- and since each splash is turned to a random heading, the same
-  // shape never reads as the same shape twice.
+  // Water does not come up as a cone. On top of the billowing profile the wall
+  // is pushed in and out around the circumference and up the height, in three
+  // frequencies, so the silhouette is lumpy from every bearing -- and since
+  // each splash is turned to a random heading, the same shape never reads as
+  // the same shape twice.
   const p = column.attributes.position;
   const col = [];
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
     const a = Math.atan2(x, z);
-    const wob = 1
-      + 0.20 * Math.sin(a * 3 + y * 7.1)
-      + 0.13 * Math.sin(a * 5 - y * 4.3)
-      + 0.09 * Math.sin(a * 8 + y * 11.7);
+    const wob = billow(y) * (1
+      + 0.19 * Math.sin(a * 3 + y * 6.4)
+      + 0.13 * Math.sin(a * 5 - y * 9.1)
+      + 0.09 * Math.sin(a * 8 + y * 14.3)
+      + 0.11 * Math.sin(y * 12.0 + a));
     p.setX(i, x * wob);
     p.setZ(i, z * wob);
     // What comes up out of the sea is sea. The foot of the column carries the
@@ -106,7 +132,7 @@ function makeGeometry() {
   column.computeVertexNormals();
   // The crown: the collar of water thrown out sideways at the moment of impact,
   // leaning outwards. Short, wide, and gone in under a second.
-  const crown = new THREE.CylinderGeometry(2.1, 0.75, 1, 20, 1, true);
+  const crown = new THREE.CylinderGeometry(2.6, 0.8, 1, 24, 1, true);
   crown.translate(0, 0.5, 0);
   return { column, crown };
 }
@@ -120,13 +146,13 @@ function makeGeometry() {
  * reads as water moving rather than a decal on it. Scaled wide in x and z and
  * separately in y, so the wave can spread without the crest growing taller.
  */
-function makeSwellGeometry(seg = 72) {
+function makeSwellGeometry(seg = 108) {
   const pos = [];
   const uv = [];
   const idx = [];
   // Trough behind, crest, and a short steep face in front: a wave running
   // outward is not symmetrical, and the steep side is the side it is going.
-  const bands = [[0.70, 0], [1.0, 1], [1.09, 0]];
+  const bands = [[0.62, 0], [0.86, 0.55], [1.0, 1], [1.07, 0.5], [1.13, 0]];
   for (let b = 0; b < bands.length; b++) {
     const [r, y] = bands[b];
     for (let i = 0; i <= seg; i++) {
@@ -135,9 +161,8 @@ function makeSwellGeometry(seg = 72) {
       // circumference so it spreads unevenly, the way water does when it is
       // running out across a sea that already has a swell on it.
       const wob = 1
-        + 0.055 * Math.sin(a * 2 + 0.7)
-        + 0.038 * Math.sin(a * 3 - 1.9)
-        + 0.022 * Math.sin(a * 5 + 2.6);
+        + 0.034 * Math.sin(a * 2 + 0.7)
+        + 0.021 * Math.sin(a * 3 - 1.9);
       pos.push(Math.sin(a) * r * wob, y, Math.cos(a) * r * wob);
       uv.push(i / seg, b / (bands.length - 1));
     }
@@ -160,17 +185,21 @@ function makeSwellGeometry(seg = 72) {
 /** Foam along the crest and nothing at the troughs. */
 function swellTexture() {
   const c = document.createElement('canvas');
-  c.width = 8; c.height = 64;
+  c.width = 8; c.height = 128;
   const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, 0, 64);
+  const g = ctx.createLinearGradient(0, 0, 0, 128);
   g.addColorStop(0.00, 'rgba(255,255,255,0)');
-  g.addColorStop(0.38, 'rgba(246,252,255,0.40)');
-  g.addColorStop(0.52, 'rgba(255,255,255,0.78)');
-  g.addColorStop(0.70, 'rgba(238,248,255,0.30)');
+  g.addColorStop(0.20, 'rgba(244,251,255,0.14)');
+  g.addColorStop(0.40, 'rgba(248,253,255,0.42)');
+  g.addColorStop(0.53, 'rgba(255,255,255,0.66)');
+  g.addColorStop(0.68, 'rgba(242,250,255,0.34)');
+  g.addColorStop(0.86, 'rgba(232,245,255,0.10)');
   g.addColorStop(1.00, 'rgba(226,240,252,0)');
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 8, 64);
-  return new THREE.CanvasTexture(c);
+  ctx.fillRect(0, 0, 8, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.minFilter = THREE.LinearFilter;
+  return t;
 }
 
 // A full salvo from a battleship is nine shells and a fleet action has several
@@ -245,6 +274,7 @@ export class Splashes {
     });
 
     this.colPool = [];
+    this.corePool = [];
     this.crownPool = [];
     this.swellPool = [];
     this.foamPool = [];
@@ -252,6 +282,12 @@ export class Splashes {
       const m = new THREE.Mesh(geo.column, colMat.clone());
       m.visible = false; m.renderOrder = 3;
       scene.add(m); this.colPool.push(m);
+      // The same wall again, inside and turned the other way. Where the two
+      // overlap -- the middle of the mass -- the water is opaque; at the edges
+      // only one of them is in the way, and it feathers.
+      const core = new THREE.Mesh(geo.column, colMat.clone());
+      core.visible = false; core.renderOrder = 3;
+      scene.add(core); this.corePool.push(core);
       const c = new THREE.Mesh(geo.crown, crownMat.clone());
       c.visible = false; c.renderOrder = 3;
       scene.add(c); this.crownPool.push(c);
@@ -280,10 +316,16 @@ export class Splashes {
     const col = this.colPool.pop();
     if (col) {
       const crown = this.crownPool.pop();
+      const core = this.corePool.pop();
       col.position.set(x, 0, z);
       col.rotation.y = Math.random() * Math.PI * 2;
       col.material.opacity = 1;
       col.visible = true;
+      if (core) {
+        core.position.set(x, 0, z);
+        core.rotation.y = col.rotation.y + 1.9 + Math.random();
+        core.visible = true;
+      }
       // Leaned a few degrees off the vertical and squashed slightly on one
       // axis: a shell arrives on a slant and throws the water the way it was
       // going, so a column standing dead upright looks like a prop.
@@ -300,7 +342,7 @@ export class Splashes {
       // what makes it possible to spot a straddle at twenty thousand yards.
       const rise = 0.22 + height * 0.006;
       this.columns.push({
-        col, crown, x, z, h: height, r: radius,
+        col, core, crown, x, z, h: height, r: radius,
         squash: 0.82 + Math.random() * 0.36,
         life: 0, rise, ttl: rise + 1.3 + height * 0.022,
       });
@@ -357,6 +399,7 @@ export class Splashes {
       const k = c.life / c.ttl;
       if (k >= 1) {
         c.col.visible = false; this.colPool.push(c.col);
+        if (c.core) { c.core.visible = false; this.corePool.push(c.core); }
         if (c.crown) { c.crown.visible = false; this.crownPool.push(c.crown); }
         this.columns.splice(i, 1);
         continue;
@@ -373,7 +416,7 @@ export class Splashes {
       } else {
         const u = (c.life - c.rise) / (c.ttl - c.rise);
         f = (1 - u) * (1 - u * u * 0.3);
-        spread = 1 + u * 0.5;
+        spread = 1 + u * 0.34;
         // And it goes back where it came from: the foot of the column settles
         // under the surface as it falls, so what is left at the end is a patch
         // of disturbed water rather than a slab standing on it.
@@ -381,6 +424,15 @@ export class Splashes {
       }
       c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread * c.squash);
       c.col.material.opacity = 0.9 * (1 - k) * (1 - k * k);
+      if (c.core) {
+        // A shade shorter and narrower, so its own lumps sit inside the outer
+        // wall's rather than fighting with them along the silhouette.
+        c.core.position.y = c.col.position.y;
+        c.core.scale.set(c.r * spread * 0.74, Math.max(0.5, c.h * f * 0.88), c.r * spread * 0.74 * c.squash);
+        c.core.rotation.z = c.col.rotation.z * 0.6;
+        c.core.rotation.x = c.col.rotation.x * 0.6;
+        c.core.material.opacity = c.col.material.opacity * 0.85;
+      }
       if (c.crown) {
         // The collar is thrown out in the first fifth of a second and is gone
         // before the column has finished rising.
@@ -418,13 +470,19 @@ export class Splashes {
         this.swells.splice(i, 1);
         continue;
       }
-      const r = s.r0 + s.speed * t;
+      // Easing off as it goes: a ring of water leaves the splash fast and then
+      // settles into the sea's own motion, and a crest travelling at a constant
+      // speed to the end of its life reads as a shockwave rather than a swell.
+      const r = s.r0 + s.speed * t * (1 - 0.28 * k);
       // The crest flattens as the ring spreads: the same water round a longer
       // circumference. That is also what keeps a big splash's wave readable
       // out to a couple of hundred metres and a small one's gone in thirty.
       const decay = s.r0 / r;
       s.m.scale.set(r, s.crest * Math.max(0.15, Math.pow(decay, 0.6)), r);
-      s.m.material.opacity = s.peak * Math.min(1, t * 6) * (1 - k) * (1 - k);
+      // Smoothstep in and out, so neither end of its life has a corner in it.
+      const rise = Math.min(1, t * 3.5);
+      const fade = (1 - k) * (1 - k) * (1 - k * 0.4);
+      s.m.material.opacity = s.peak * rise * rise * (3 - 2 * rise) * fade;
     }
   }
 }

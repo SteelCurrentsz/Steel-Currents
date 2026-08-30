@@ -315,8 +315,12 @@ function buildIslands(islands) {
  */
 function batteryApron(world, at, span) {
   const R = Math.max(9, span * 0.62);
-  const RINGS = [1, 1.5, 2.2];
-  const SPOKES = 20;
+  // Out to the last ring the pad height was measured on, so the apron always
+  // reaches past the ground that decided how high it stands -- and one more
+  // ring than it used to have, so the skirt comes down to the hillside over a
+  // slope rather than in a step.
+  const RINGS = [1, 1.45, 1.95, 2.55];
+  const SPOKES = 24;
   const pos = [];
   const idx = [];
   const col = [];

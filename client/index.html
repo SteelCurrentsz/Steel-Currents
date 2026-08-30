@@ -278,8 +278,15 @@
        away the same way. -->
   <div class="plot-table" id="plot-table" hidden>
     <div class="plot-table-box">
-      <canvas id="minimap-big" width="640" height="640"></canvas>
-      <p class="plot-table-hint">Tap a contact to watch it</p>
+      <div class="plot-table-canvas">
+        <canvas id="minimap-big" width="640" height="640"></canvas>
+        <div class="deploy-zoom plot-zoom">
+          <button id="plot-in" type="button" aria-label="Zoom in">+</button>
+          <button id="plot-out" type="button" aria-label="Zoom out">&minus;</button>
+          <button id="plot-fit" type="button" aria-label="Whole battlefield">&#9723;</button>
+        </div>
+      </div>
+      <p class="plot-table-hint">Drag to pan &middot; scroll or pinch to zoom &middot; tap a contact to watch it</p>
     </div>
   </div>
 

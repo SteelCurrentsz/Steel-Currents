@@ -56,6 +56,11 @@ export class Battle {
     // telegraph answer, the guns hold whatever bearing they were left on.
     this.watching = null;
     this.watchYaw = 0;
+    this.watchPitch = 0.06;
+    // Aboard her, or standing off her. A captain who taps a contact wants to
+    // see what she can see; a captain watching a strike go in wants to see the
+    // ship it is going into. C swaps between the two.
+    this.watchPov = true;
     this.yaw = 0;
     this.pitch = 0.22;
     this.camDistance = this.cls.hull.length * 1.5;
@@ -237,6 +242,12 @@ export class Battle {
       case 'KeyR': this.net.send({ t: 'repair' }); break;
       case 'KeyT': this.net.send({ t: 'smoke' }); break;
       case 'KeyC': {
+        if (this.watching) {
+          this.watchPov = !this.watchPov;
+          this.hud.setWatchBanner(this.watching, this.watchPov);
+          audio.click();
+          break;
+        }
         const i = CAMERAS.indexOf(this.camMode);
         this.camMode = CAMERAS[(i + 1) % CAMERAS.length];
         break;
@@ -281,16 +292,32 @@ export class Battle {
       this.watching = null;
     } else {
       this.watching = hit;
-      // Start the orbit where the camera already is, so the view swings round
-      // to the new subject rather than cutting to a random bearing.
-      this.watchYaw = this.yaw;
+      // Start looking the way she is going, if we know which way that is: a
+      // captain stepping onto somebody's bridge is facing over her bow, not
+      // over her quarter. Failing that, keep the bearing the camera is on.
+      const facing = this.headingOf(hit);
+      this.watchYaw = facing === null ? this.yaw : facing;
+      this.watchPitch = 0.06;
     }
     this.hud.setWatching(this.watching);
-    this.hud.setWatchBanner(this.watching);
+    this.hud.setWatchBanner(this.watching, this.watchPov);
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
     audio.click();
+  }
+
+  /** Which way the thing being watched is pointed, or null if we cannot tell. */
+  headingOf(hit) {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap || !hit) return null;
+    const from = hit.kind === 'battery' ? snap.batteries
+      : hit.kind === 'plane' ? snap.planes
+        : [...snap.ships, ...(snap.contacts || [])];
+    const e = (from || []).find((x) => x.i === hit.id);
+    if (!e) return null;
+    // A battery is laid on a bearing and then trained off it.
+    return hit.kind === 'battery' ? wrapAngle(e.h + e.a) : e.h;
   }
 
   /** Where whatever the camera is watching is now, or null if it has gone. */
@@ -298,21 +325,29 @@ export class Battle {
     if (!this.watching) return null;
     const snap = this.snapshots[this.snapshots.length - 1];
     if (!snap) return null;
+    // `eye` is where somebody standing watch on the thing would have his head:
+    // above the gun pit on a battery, in the cockpit of an aircraft, up on the
+    // bridge of a ship. It is what the point-of-view camera sits at.
     if (this.watching.kind === 'battery') {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
-      return b ? { x: b.x, y: b.y, z: b.z, span: 60 } : null;
+      return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
     }
     if (this.watching.kind === 'plane') {
       const pl = (snap.planes || []).find((x) => x.i === this.watching.id);
       // The same two hundred and twenty metres the squadron is drawn at.
-      return pl ? { x: pl.x, y: 220, z: pl.z, span: 70 } : null;
+      return pl ? { x: pl.x, y: 220, z: pl.z, span: 70, eye: 2 } : null;
     }
     // Sighted or only reported: the camera goes to either, because the plot
     // shows either and a mark you can tap has to be a mark you can watch.
     const s = snap.ships.find((x) => x.i === this.watching.id)
       || (snap.contacts || []).find((x) => x.i === this.watching.id);
     if (!s) return null;
-    return { x: s.x, y: 0, z: s.z, span: getClass(s.c).hull.length };
+    const cls = getClass(s.c);
+    return {
+      x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5, z: s.z,
+      span: cls.hull.length,
+      eye: 14 + cls.hull.superstructure * 12,
+    };
   }
 
   fire() {
@@ -578,18 +613,38 @@ export class Battle {
     this.fov = lerp(this.fov, targetFov, 1 - Math.pow(0.002, dt));
     cam.fov = this.fov;
 
-    // Watching something else: an observer's orbit round it, high enough to see
-    // what it is doing and close enough to see it do it.
+    // Watching something else. Either you are on her bridge looking out of her
+    // windows, or you are standing off her watching her work; the drag turns
+    // your head in the first and walks the orbit in the second.
     const watch = this.watchPoint();
     if (watch) {
-      this.watchYaw = wrapAngle(this.watchYaw + this.input.takeMouse().x);
-      const d = Math.max(150, watch.span * 3.2);
-      cam.position.set(
-        watch.x - Math.sin(this.watchYaw) * d,
-        watch.y + d * 0.26 + 14,
-        watch.z - Math.cos(this.watchYaw) * d,
-      );
-      cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+      const m = this.input.takeMouse();
+      this.watchYaw = wrapAngle(this.watchYaw + m.x);
+      this.watchPitch = clamp(this.watchPitch + m.y, -0.42, 0.55);
+      if (this.watchPov) {
+        // Where a lookout on her would actually be standing, and a little
+        // forward of her middle so her own upperworks are not in the way.
+        const eye = watch.y + watch.eye;
+        cam.position.set(
+          watch.x + Math.sin(this.watchYaw) * watch.span * 0.06,
+          eye,
+          watch.z + Math.cos(this.watchYaw) * watch.span * 0.06,
+        );
+        const dir = new THREE.Vector3(
+          Math.sin(this.watchYaw) * Math.cos(this.watchPitch),
+          -Math.sin(this.watchPitch),
+          Math.cos(this.watchYaw) * Math.cos(this.watchPitch),
+        );
+        cam.lookAt(cam.position.clone().add(dir.multiplyScalar(2000)));
+      } else {
+        const d = Math.max(150, watch.span * 3.2);
+        cam.position.set(
+          watch.x - Math.sin(this.watchYaw) * d,
+          watch.y + d * 0.26 + 14,
+          watch.z - Math.cos(this.watchYaw) * d,
+        );
+        cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+      }
       cam.updateProjectionMatrix();
       return;
     }

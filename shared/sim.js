@@ -445,15 +445,32 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
  * hillside can meet without one of them going through the other.
  */
 function batteryPad(world, x, z, span = 20) {
-  const r = Math.max(6, span * 0.5);
+  // Over the whole of what the emplacement covers -- the pit, the observation
+  // post beside it and the apron banked round the lot -- not just the gun's own
+  // circle. Sampling the middle only left the uphill side of the platform
+  // buried: the hill went on climbing past where anybody had looked, and came
+  // up through the revetment with the gun standing inside it. The pad is cut at
+  // the height of the highest ground it covers, which is what levelling a gun
+  // position into a slope actually means.
   let top = groundHeight(world, x, z);
-  for (let a = 0; a < 8; a++) {
-    const th = (a / 8) * TAU;
-    const h = groundHeight(world, x + Math.cos(th) * r, z + Math.sin(th) * r);
-    if (h > top) top = h;
+  for (const k of BATTERY_FOOTPRINT) {
+    const r = Math.max(6, span * k);
+    for (let a = 0; a < 12; a++) {
+      const th = (a / 12) * TAU;
+      const h = groundHeight(world, x + Math.cos(th) * r, z + Math.sin(th) * r);
+      if (h > top) top = h;
+    }
   }
   return Math.max(4, top);
 }
+
+/**
+ * The rings the pad is sampled on, as multiples of the battery's span.
+ *
+ * The last of them is the outer edge of the apron, so nothing the emplacement
+ * is drawn with stands on ground that was never measured.
+ */
+export const BATTERY_FOOTPRINT = [0.35, 0.7, 1.05, 1.4, 1.75];
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
 function shellOwner(state, sh) {

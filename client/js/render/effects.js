@@ -96,19 +96,23 @@ export class Effects {
   splash(x, z, caliber = 152) {
     this.splashes.splash(x, z, caliber);
     const { height, radius } = splashSize(caliber);
-    const n = Math.max(1, Math.round(2 * this.intensity));
+    const n = Math.max(2, Math.round(5 * this.intensity));
     for (let i = 0; i < n; i++) {
-      const up = height * (0.55 + i * 0.22);
+      // Thrown round the head and the shoulder of the mass, not stacked up its
+      // middle: what feathers a splash is the spray coming off its edges.
+      const t = 0.42 + (i / n) * 0.62;
+      const a = Math.random() * Math.PI * 2;
+      const out = radius * (0.5 + Math.random() * 0.85);
       this.spawn({
-        x: x + (Math.random() - 0.5) * radius * 2,
-        y: up,
-        z: z + (Math.random() - 0.5) * radius * 2,
-        vy: height * 0.22 * (1 - i * 0.25),
-        vx: (Math.random() - 0.5) * radius * 1.6,
-        vz: (Math.random() - 0.5) * radius * 1.6,
-        size: radius * (2.2 + i * 0.9), grow: radius * 1.6,
-        ttl: 1.4 + height * 0.02 + i * 0.25,
-        color: 0xdfeaf6, opacity: 0.5, drag: 0.75,
+        x: x + Math.sin(a) * out,
+        y: height * t,
+        z: z + Math.cos(a) * out,
+        vy: height * 0.24 * (1 - t * 0.5),
+        vx: Math.sin(a) * radius * 0.9,
+        vz: Math.cos(a) * radius * 0.9,
+        size: radius * (1.5 + Math.random() * 1.3), grow: radius * 1.9,
+        ttl: 1.5 + height * 0.024 + Math.random() * 0.5,
+        color: 0xe8f2fc, opacity: 0.42, drag: 0.8,
       });
     }
   }
