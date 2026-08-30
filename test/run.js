@@ -330,7 +330,7 @@ check('a turret trains no further than its arc allows', () => {
   w.land = [];
   const state = createState(w, { mode: 'deathmatch' });
   // Two hulls: the Fletcher's mounts train right round, the Essex's do not.
-  for (const [classId, dead] of [['fletcher', false], ['essex', true]]) {
+  for (const [classId, dead] of [['fletcher', false], ['enterprise', true]]) {
     const cls = SHIP_CLASSES[classId];
     const ship = addShip(state, { name: classId, classId, team: 0, index: 0 });
     ship.x = 0; ship.z = 0; ship.heading = 0;

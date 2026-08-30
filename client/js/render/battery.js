@@ -254,6 +254,24 @@ function sandbag(g, x, y, z, ry, i) {
 }
 
 /**
+ * Mark a group as the part of the gun that trains.
+ *
+ * A coast battery turns its mounting, not its position. The renderer used to
+ * rotate the whole built model -- bed, decking, revetment, ammunition and
+ * ladders with it -- so a battery coming onto a target dragged its sandbags
+ * round with the barrel and its crates orbited the pit. What turns is what the
+ * gun turns on and nothing under it.
+ *
+ * Marked dynamic as well, so the welder that bakes the fixed parts into one
+ * mesh per material leaves this and everything under it alone.
+ */
+function trains(g, node) {
+  node.userData.dynamic = true;
+  (g.userData.turn || (g.userData.turn = [])).push(node);
+  return node;
+}
+
+/**
  * The boards a gun crew stands on.
  *
  * A gun pit floors out in mud within a day of being dug, so it is decked --
@@ -541,7 +559,7 @@ function buildFlak88(g, b) {
   const turn = new THREE.Group();
   turn.position.y = 1.3;
   turn.rotation.y = 0.34;
-  g.add(turn);
+  g.add(trains(g, turn));
   cyl(turn, MAT.camo, 0.72, 0.78, 0.28, 0, 0.14, 0, 20);
   box(turn, MAT.camo, 1.5, 0.2, 1.0, 0, 0.34, -0.1);
   for (const s of [-1, 1]) {
@@ -619,8 +637,15 @@ function buildMerville(g, b) {
   const bore = b.caliber / 1000;
   const R = 0.62;                          // wheel radius, which sets the height
 
-  shaft(g, MAT.camoDark, 0.09, 2.0, 0, R, 0, 12);
-  for (const s of [-1, 1]) roadWheel(g, R, 0.2, s * 1.04, R, 0);
+  // The whole carriage traverses. A split-trail piece is laid by shifting the
+  // trail, so what comes round onto a target is the gun, its wheels and its
+  // trails together -- and the boards and the bags it stands among stay where
+  // they were dug.
+  const car = new THREE.Group();
+  g.add(trains(g, car));
+
+  shaft(car, MAT.camoDark, 0.09, 2.0, 0, R, 0, 12);
+  for (const s of [-1, 1]) roadWheel(car, R, 0.2, s * 1.04, R, 0);
 
   // The trails, splayed and dropped onto their spades.
   for (const s of [-1, 1]) {
@@ -630,7 +655,7 @@ function buildMerville(g, b) {
     // Drooping enough that the trail end is on the ground and the spade is in
     // it, which is where a gun in action has them.
     t.rotation.x = -0.105;
-    g.add(t);
+    car.add(t);
     box(t, MAT.camo, 0.24, 0.26, 3.1, 0, 0, -1.55);
     box(t, MAT.camoDark, 0.3, 0.08, 3.1, 0, 0.16, -1.55);
     box(t, MAT.dark, 0.3, 0.44, 0.16, 0, -0.24, -3.05);
@@ -638,21 +663,21 @@ function buildMerville(g, b) {
     // The trail-end handle the crew lifted it by.
     box(t, MAT.camoDark, 0.34, 0.06, 0.06, 0, 0.2, -3.05);
   }
-  box(g, MAT.camo, 0.72, 0.22, 0.5, 0, R * 0.8, -0.6);
+  box(car, MAT.camo, 0.72, 0.22, 0.5, 0, R * 0.8, -0.6);
 
   // Top carriage, elevating gear, seat.
-  box(g, MAT.camo, 0.9, 0.5, 0.8, 0, R + 0.24, -0.06);
-  for (const s of [-1, 1]) box(g, MAT.camo, 0.16, 0.72, 0.6, s * 0.42, R + 0.62, 0);
-  box(g, MAT.camo, 0.3, 0.34, 0.32, -0.5, R + 0.18, -0.42);
-  handwheel(g, MAT.camoDark, 0.19, -0.7, R + 0.18, -0.42, 'x');
-  handwheel(g, MAT.camoDark, 0.17, 0.62, R + 0.14, -0.6, 'x');
-  seat(g, MAT.camoDark, -0.92, R + 0.1, -1.0);
+  box(car, MAT.camo, 0.9, 0.5, 0.8, 0, R + 0.24, -0.06);
+  for (const s of [-1, 1]) box(car, MAT.camo, 0.16, 0.72, 0.6, s * 0.42, R + 0.62, 0);
+  box(car, MAT.camo, 0.3, 0.34, 0.32, -0.5, R + 0.18, -0.42);
+  handwheel(car, MAT.camoDark, 0.19, -0.7, R + 0.18, -0.42, 'x');
+  handwheel(car, MAT.camoDark, 0.17, 0.62, R + 0.14, -0.6, 'x');
+  seat(car, MAT.camoDark, -0.92, R + 0.1, -1.0);
 
   // Shield.
   const sh = new THREE.Group();
   sh.position.set(0, R - 0.1, 0.5);
   sh.rotation.x = -0.1;
-  g.add(sh);
+  car.add(sh);
   const HW = 0.95, AP = 0.3;
   for (const s of [-1, 1]) box(sh, MAT.camo, HW - AP, 1.2, 0.04, (s * (HW + AP)) / 2, 0.68, 0);
   box(sh, MAT.camo, AP * 2, 0.42, 0.04, 0, 1.07, 0);
@@ -665,7 +690,7 @@ function buildMerville(g, b) {
   const arm = new THREE.Group();
   arm.position.set(0, R + 0.55, -0.02);
   arm.rotation.x = -0.34;
-  g.add(arm);
+  car.add(arm);
   cradle(arm, bore, 1.15, { mat: MAT.camo, cylsAbove: 1, cylsBelow: 1, front: 0.28 });
   elevArc(arm, MAT.camoDark, 0.45, -0.48, 0, 0, -0.2, 0.6, 9, 0.14);
   g.userData.guns.push(recoiling(arm, bore, b.calibers, {
@@ -704,7 +729,7 @@ function buildLongues(g, b) {
   const mount = new THREE.Group();
   mount.position.y = 1.2;
   mount.rotation.y = 0.16;
-  g.add(mount);
+  g.add(trains(g, mount));
   cyl(mount, MAT.gun, 1.05, 1.1, 0.3, 0, 0.15, 0, 22);
   box(mount, MAT.gun, 2.1, 0.14, 1.9, 0, 0.34, -0.15);
   for (const s of [-1, 1]) {
@@ -785,7 +810,7 @@ function buildOscarsborg(g, b) {
   const mount = new THREE.Group();
   mount.position.y = 0.95;
   mount.rotation.y = 0.2;
-  g.add(mount);
+  g.add(trains(g, mount));
   cyl(mount, MAT.gun, 2.2, 2.3, 0.34, 0, 0.17, 0, 26);
   box(mount, MAT.gun, 3.5, 0.2, 4.2, 0, 0.42, -0.5);
 
@@ -899,7 +924,7 @@ function buildDrum(g, b) {
   const t = new THREE.Group();
   t.position.y = 2.48;
   t.rotation.y = -0.3;
-  g.add(t);
+  g.add(trains(g, t));
   cyl(t, MAT.gunDark, RB - 0.1, RB - 0.05, 0.42, 0, 0.21, 0, 34);
 
   // The gunhouse: side and rear walls as plate, and a faceted face raked back.
@@ -952,6 +977,41 @@ function buildDrum(g, b) {
   box(t, MAT.dark, 0.13, 0.13, 0.12, 2.33, y0 + 0.95, -D / 2 - 0.3);
   for (let k = 0; k < 3; k++) box(t, MAT.gun, 0.4, 0.06, 0.06, 1.95, y0 + 0.2 + k * 0.3, -D / 2 - 0.3);
 
+  // The turret's own fittings, which are what say it is a turret off a
+  // battleship rather than a box with two pipes in it.
+  //
+  // Along the roof: the training rack's cover, the exhaust trunk, the wireless
+  // aerial spreader and the officer of the turret's hood; down the sides, the
+  // lifting eyes the whole gunhouse was craned aboard by, and the sponsons the
+  // secondary sighting ports look out of. Fort Drum was Number 1 mounting off
+  // an American dreadnought set in concrete on a rock, and everything on it
+  // came off a ship.
+  box(t, MAT.gunDark, 1.1, 0.42, 5.4, 0, y0 + H + 0.5, -0.4);
+  for (let i = 0; i < 7; i++) {
+    box(t, MAT.gun, 1.24, 0.1, 0.14, 0, y0 + H + 0.72, -2.6 + i * 0.86);
+  }
+  cyl(t, MAT.gunDark, 0.4, 0.44, 1.15, 2.9, y0 + H + 0.9, -2.5, 14);
+  cyl(t, MAT.dark, 0.34, 0.34, 0.12, 2.9, y0 + H + 1.5, -2.5, 14);
+  // The aerial spreader, on its two stanchions.
+  for (const sgn of [-1, 1]) box(t, MAT.steel, 0.09, 1.5, 0.09, sgn * 3.3, y0 + H + 1.1, -3.3);
+  box(t, MAT.steel, 6.8, 0.07, 0.07, 0, y0 + H + 1.82, -3.3);
+  // Lifting eyes: four of them, where the crane hooks went on.
+  for (const sgn of [-1, 1]) {
+    for (const fz of [2.2, -2.6]) {
+      box(t, MAT.gunDark, 0.5, 0.44, 0.3, sgn * (W / 2 - 0.1), y0 + H - 0.25, fz);
+      cyl(t, MAT.dark, 0.17, 0.17, 0.14, sgn * (W / 2 + 0.16), y0 + H - 0.22, fz, 12)
+        .rotation.z = Math.PI / 2;
+    }
+    // Sighting sponsons out the shoulders, with their slits.
+    box(t, MAT.gun, 0.7, 0.8, 1.5, sgn * (W / 2 + 0.14), y0 + 2.3, 1.5);
+    box(t, MAT.bore, 0.18, 0.16, 1.0, sgn * (W / 2 + 0.5), y0 + 2.45, 1.5);
+    box(t, MAT.gun, 0.86, 0.16, 1.66, sgn * (W / 2 + 0.14), y0 + 2.78, 1.5);
+    // Steps up the side of the gunhouse to the roof hatch.
+    for (let k = 0; k < 5; k++) {
+      box(t, MAT.gun, 0.34, 0.06, 0.06, sgn * (W / 2 + 0.24), y0 + 0.9 + k * 0.52, -3.2);
+    }
+  }
+
   // Two rifles, each through a port with a rotating mantlet round it.
   for (const sgn of [-1, 1]) {
     const arm = new THREE.Group();
@@ -966,10 +1026,32 @@ function buildDrum(g, b) {
       const ang = (i / 12) * Math.PI * 2;
       box(arm, MAT.gun, 0.1, 0.1, 0.1, Math.sin(ang) * 0.92, Math.cos(ang) * 0.92, 0.72);
     }
+    // The blast bag between the mantlet and the face, which is the one soft
+    // thing on a turret and reads instantly as one.
+    for (let i = 0; i < 5; i++) {
+      const r2 = 1.16 + i * 0.03;
+      cyl(arm, i % 2 ? MAT.camoDark : MAT.camo, r2, r2, 0.16, 0, 0, 0.86 + i * 0.15, 16)
+        .rotation.x = Math.PI / 2;
+    }
     cradle(arm, bore, 2.7, { cylsAbove: 0, cylsBelow: 0, cylsSide: 2, front: 0.3 });
+    // Recoil cylinders above the trunnions, and the elevating arc under them.
+    for (const t2 of [-1, 1]) {
+      cyl(arm, MAT.gunDark, 0.3, 0.3, 2.4, t2 * 0.62, 0.62, -0.5, 14)
+        .rotation.x = Math.PI / 2;
+      cyl(arm, MAT.bright, 0.11, 0.11, 0.9, t2 * 0.62, 0.62, 0.95, 10)
+        .rotation.x = Math.PI / 2;
+    }
+    elevArc(arm, MAT.gunDark, 1.05, 0.75, 0, 0, -0.3, 0.5, 12, 0.26);
     g.userData.guns.push(recoiling(arm, bore, b.calibers, {
       breech: { screw: true, len: 0.9, tray: false },
     }));
+  }
+  // Inside the gunhouse, seen through the door: the loading tray and the
+  // rammer, and a rack of bagged charges against the after bulkhead.
+  box(t, MAT.gunDark, 5.4, 0.14, 0.5, 0, y0 + 0.9, -D / 2 + 0.9);
+  for (let i = 0; i < 6; i++) {
+    cyl(t, MAT.camo, 0.26, 0.26, 0.9, -1.4 + i * 0.56, y0 + 1.15, -D / 2 + 0.9, 12)
+      .rotation.z = Math.PI / 2;
   }
 
   // A revetment of sandbags heaped round the front of the barbette.
@@ -993,7 +1075,7 @@ function buildTodt(g, b) {
   const mount = new THREE.Group();
   mount.position.y = 1.2;
   mount.rotation.y = -0.14;
-  g.add(mount);
+  g.add(trains(g, mount));
   cyl(mount, MAT.gun, 3.8, 3.95, 0.5, 0, 0.25, 0, 30);
   box(mount, MAT.gun, 6.4, 0.26, 7.6, 0, 0.62, -1.0);
 
@@ -1067,7 +1149,7 @@ function buildTownsley(g, b) {
     const mount = new THREE.Group();
     mount.position.y = 1.05;
     mount.rotation.y = -s * 0.03;
-    gun.add(mount);
+    gun.add(trains(g, mount));
     cyl(mount, MAT.olive, 2.6, 2.7, 0.4, 0, 0.2, 0, 28);
     box(mount, MAT.olive, 4.6, 0.22, 6.0, 0, 0.5, -0.8);
     for (const t of [-1, 1]) {
@@ -1167,7 +1249,7 @@ function buildGustav(g, b) {
   racer(g, MAT.gunDark, 4.2, 6.64, 68, 1.6);
   const mount = new THREE.Group();
   mount.position.set(0, 6.7, 1.0);
-  g.add(mount);
+  g.add(trains(g, mount));
   cyl(mount, MAT.gun, 4.2, 4.3, 0.5, 0, 0.25, 0, 28);
   box(mount, MAT.gun, 8.2, 0.5, 8.4, 0, 0.6, -1.2);
   for (const s of [-1, 1]) {
@@ -1290,6 +1372,9 @@ export function buildBattery(id) {
   return {
     group,
     foot,
+    // What turns when the battery trains: the mounting above the racer, and
+    // nothing under it. Two of them on a two-gun emplacement.
+    turn: group.userData.turn || [],
     // The recoiling masses, for the scene to fire and to run back.
     guns: group.userData.guns,
     // The gun's real extent now that there is no concrete round it to inflate

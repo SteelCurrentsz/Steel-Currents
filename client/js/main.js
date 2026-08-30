@@ -216,8 +216,13 @@ function renderYard() {
   const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
   const cls = SHIP_CLASSES[id];
   yard.setShip(id);
-  document.getElementById('yard-name').textContent = cls.name;
-  document.getElementById('yard-class').textContent = `${cls.name} Class ${cls.typeName}`;
+  // Her full name and pennant where there is room for it; the short one is what
+  // the rosters and the plot use.
+  document.getElementById('yard-name').textContent = cls.fullName || cls.name;
+  // A ship whose class is not her own name says so: the Big E is a Yorktown,
+  // and a datasheet that called her an Enterprise-class carrier would be wrong.
+  document.getElementById('yard-class').textContent =
+    `${cls.className || cls.name} Class ${cls.typeName}`;
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls));
   sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls));
 }

@@ -62,7 +62,7 @@ const HULLS = {
     <rect x="74" y="23.2" width="13" height="6.3"/>
     <rect x="86" y="25.2" width="8" height="2.2"/>`,
   // A carrier: flight deck over everything, island to starboard.
-  essex: `
+  enterprise: `
     <path d="M2 26 L98 26 L98 31 L94 37 L8 37 Z"/>
     <rect x="60" y="17" width="9" height="9"/>
     <rect x="63" y="9" width="3" height="9"/>

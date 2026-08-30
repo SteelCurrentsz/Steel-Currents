@@ -244,30 +244,41 @@ export const SHIP_CLASSES = {
     },
   },
 
-  essex: {
-    // Two twin 5"/38 on the island. They can only fire outboard: the flight deck
-    // is in the way of everything else.
-    id: 'essex',
-    name: 'Essex',
+  enterprise: {
+    // Five-inch singles in galleries down both sides of the flight deck, which
+    // is why the two mountings here fire outboard and nowhere else: the deck is
+    // in the way of everything across the ship.
+    //
+    // The Big E: Yorktown class, three of which were built and one of which
+    // came home. She was at Midway, at the Eastern Solomons, at Santa Cruz and
+    // at Guadalcanal, and by the end of 1942 she was the only American carrier
+    // left afloat in the Pacific -- with a sign on the hangar deck that read
+    // "Enterprise vs Japan".
+    id: 'enterprise',
+    name: 'Enterprise',
+    fullName: 'USS Enterprise CV-6',
+    className: 'Yorktown',
     type: 'CV',
     typeName: 'Aircraft Carrier',
     nation: 'usa',
     blurb: 'Fights at ranges nothing else can reach. Caught alone on the surface, it is a very large target.',
-    hull: { length: 265, beam: 35, draft: 8.5, superstructure: 0.55, flightDeck: true },
-    hp: 55400,
-    maxSpeed: 32.7 * KNOTS,
+    hull: { length: 251, beam: 34, draft: 7.9, superstructure: 0.55, flightDeck: true },
+    hp: 48200,
+    maxSpeed: 32.5 * KNOTS,
     reverseSpeed: 7 * KNOTS,
-    accel: 0.52,
-    turnRate: 0.058,
-    rudderShift: 11,
+    accel: 0.54,
+    turnRate: 0.062,
+    rudderShift: 10.5,
     speedLossInTurn: 0.18,
-    concealment: 14800,
+    concealment: 14400,
     fireDetectPenalty: 5200,
     radarRange: 15000,
     repairCooldown: 90,
     repairHeal: 0.1,
     smokeCharges: 0,
-    armor: { belt: 102, deck: 76, citadel: 102, bow: 25, superstructure: 20 },
+    // Thinner than an Essex everywhere: the Yorktowns were built to a treaty
+    // displacement and paid for their speed and their air group in plating.
+    armor: { belt: 102, deck: 60, citadel: 102, bow: 19, superstructure: 16 },
     turrets: [
       { id: 0, name: 'A', x: 15, z: 46, angle: 0, arc: 1.40, guns: 2 },
       { id: 1, name: 'Y', x: 15, z: -46, angle: Math.PI, arc: 1.40, guns: 2 },
@@ -285,20 +296,20 @@ export const SHIP_CLASSES = {
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
     },
     datasheet: {
-      displacement: 27100,
+      displacement: 19800,
       // The air group is the armament that matters; `planes` above carries it.
       aircraft: 0,
       mainRounds: 3200,
       secondary: { caliber: 127, label: '5"', barrels: 8, rounds: 2400 },
       tertiary: [
-        { caliber: 40, label: '40mm', barrels: 68, rounds: 81600 },
-        { caliber: 20, label: '20mm', barrels: 55, rounds: 132000 },
+        { caliber: 40, label: '40mm', barrels: 32, rounds: 38400 },
+        { caliber: 20, label: '20mm', barrels: 46, rounds: 110400 },
       ],
     },
   },
 };
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'iowa', 'essex'];
+export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

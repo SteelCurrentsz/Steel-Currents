@@ -372,10 +372,26 @@ function batteryApron(world, at, span, foot = 0) {
   // model actually measures across the ground; the datasheet span is the floor
   // under that, for a piece whose model happens to be compact.
   const R = Math.max(3, span * 0.5, foot * 1.14);
-  // Out to the last ring the pad height was measured on, so the apron always
-  // reaches past the ground that decided how high it stands, with enough rings
-  // that the skirt comes down to the hillside over a slope rather than a step.
-  const RINGS = [1, 1.28, 1.58, 1.9, 2.24, 2.6];
+  // How far the mound has to reach before it meets the ground again.
+  //
+  // The platform is cut at the height of the highest ground under it, so on a
+  // slope the downhill side of it stands over a gap -- and how big that gap is
+  // depends entirely on the hill. A fixed skirt was fine on a shoulder and
+  // ended in mid-air on anything steeper, with the emplacement apparently
+  // floating off the side of the hill. So the drop is measured, and the mound
+  // is banked out far enough to come down it at about one in one and a quarter,
+  // which is roughly the angle loose spoil stands at before it slides.
+  let drop = 0;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const g0 = groundHeight(world, at.x + Math.sin(a) * R * 2.2, at.z + Math.cos(a) * R * 2.2);
+    if (at.y - g0 > drop) drop = at.y - g0;
+  }
+  // Banked out to meet the ground, but not without limit: a gun sited on the
+  // lip of a cliff would otherwise grow a ramp a hundred metres across.
+  const reach = Math.min(R * 6, Math.max(R * 2.6, R + drop * 1.25));
+  const OUT = reach / R;
+  const RINGS = [1, ...[0.11, 0.26, 0.45, 0.68, 1].map((t) => 1 + (OUT - 1) * t)];
   const SPOKES = 40;
   const pos = [];
   const idx = [];
@@ -695,10 +711,16 @@ export class BattleScene {
     if (!v) {
       const built = buildBattery(batteryId);
       const group = new THREE.Group();
-      const spin = new THREE.Group();
-      spin.add(built.group);
-      group.add(spin);
+      group.add(built.group);
       this.scene.add(group);
+      // What turns is the mounting, not the emplacement. The whole model used
+      // to be hung in a spinning group, so a battery coming onto a target
+      // dragged its revetment, its decking and its ammunition round with the
+      // barrel -- everything in the pit orbiting the pintle, which is what a
+      // gun training at an odd angle looked like. A piece whose model has no
+      // separate mounting falls back to turning the lot, which is right for a
+      // field carriage and harmless for anything else.
+      const spin = built.turn.length ? built.turn : [built.group];
 
       // Whose it is, read from a mile away: the same ring a hull carries.
       const ringGeo = new THREE.RingGeometry(built.span * 0.62, built.span * 0.72, 28);

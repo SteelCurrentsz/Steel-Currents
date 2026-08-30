@@ -566,8 +566,9 @@ export class Battle {
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
       view.group.position.set(g.x, g.y, g.z);
-      // The emplacement stands still; the mounting inside it trains.
-      if (g.al) view.spin.rotation.y = g.h + ang;
+      // The emplacement stands still; the mounting inside it trains. A model
+      // with two mountings -- Townsley has a gun at each end -- turns both.
+      if (g.al) for (const m of view.spin) m.rotation.y = g.h + ang;
       view.marker.visible = this.camMode === 'tactical';
       // Silenced, and burning where it stands.
       if (!g.al) {
