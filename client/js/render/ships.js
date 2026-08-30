@@ -4,6 +4,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
+import { buildEnterprise } from './enterprise.js';
 
 const PALETTE = {
   hull: 0x8e969d,
@@ -298,6 +299,19 @@ function addRailings(group, cls, rings, deckY) {
  */
 export function buildShip(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
+  // The Big E is modelled rather than generated: a Yorktown's flight deck,
+  // island, galleries and catwalks are not a shape a procedural hull can be
+  // talked into, and she is the one ship in the game a captain can walk round.
+  if (cls.id === 'enterprise') {
+    const built = buildEnterprise();
+    built.group.userData = {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    };
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+    };
+  }
   const root = new THREE.Group();
   const { group: hull, freeboard, rings } = buildHull(cls);
   root.add(hull);
