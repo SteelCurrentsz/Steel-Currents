@@ -729,14 +729,19 @@ function hangarInterior(g) {
   }
 
   // Aircraft struck below, wings folded, ranged along both sides.
-  const park = [-0.80, -0.64, -0.48, -0.16, 0.02, 0.20, 0.52, 0.68, 0.84];
+  const park = [-0.86, -0.72, -0.58, -0.44, -0.16, -0.02, 0.14, 0.30,
+    0.52, 0.64, 0.76, 0.88];
   park.forEach((u, i) => {
     const z = (zA + zF) / 2 + u * ((zF - zA) / 2);
     if (overWell(z)) return;
     const s = i % 2 ? 1 : -1;
-    const x = s * (half(z) - 4.6);
-    if (i % 3 === 0) dauntless(g, x, HANGAR + 0.55, z, s > 0 ? 1.45 : -1.45, true);
-    else wildcat(g, x, HANGAR + 0.5, z, s > 0 ? 1.5 : -1.5);
+    const ry = s > 0 ? 1.5 : -1.5;
+    // Struck below in squadron order, aft to forward: the torpedo bombers on
+    // the after part of the deck where there is width for them, the dive
+    // bombers amidships, the fighters forward and nearest the lifts.
+    if (u < -0.4) avenger(g, s * (half(z) - 5.4), HANGAR + 0.55, z, ry);
+    else if (u < 0.35) dauntless(g, s * (half(z) - 4.6), HANGAR + 0.55, z, ry, true);
+    else wildcat(g, s * (half(z) - 4.0), HANGAR + 0.5, z, ry);
   });
 
   // The people's gear: benches and racks against the sides, drums, crates, and
@@ -803,10 +808,13 @@ function elevators(g) {
         box(lift, M.steel, 0.4, 0.6, 0.5, s * (LIFT_HW - 0.35), -0.45, dz);
       }
     }
-    // Two of the three are bringing an aircraft up; the after one is empty and
-    // on its way down for the next.
+    // One off each squadron riding up: a fighter forward, a dive bomber
+    // amidships, a torpedo bomber aft. This is where her aircraft are when she
+    // is found at the start of a watch -- on the lifts, coming up -- rather
+    // than ranged on the deck she has to land on.
     if (i === 0) wildcat(lift, 0, 0.32, -0.4, 0.16);
     else if (i === 1) dauntless(lift, 0, 0.36, -0.6, -0.1, true);
+    else avenger(lift, 0, 0.34, -0.9, 0.08);
     mergeStatic(lift);
     lifts.push({ group: lift, phase: i / zs.length });
   });
@@ -1961,32 +1969,11 @@ function avenger(g, x, y, z, ry) {
   return p;
 }
 
-/**
- * A deckload spot: the air group ranged aft the way it was before a strike,
- * fighters first because they take off in the shortest run.
- */
-function airGroup(g) {
-  const y = FD + 0.35;
-  const z0 = -FDL * 0.40;
-  let z = z0;
-  // Six Wildcats in two ranks.
-  for (let i = 0; i < 6; i++) {
-    const s = i % 2 ? 1 : -1;
-    wildcat(g, s * 5.2 + (i % 2 ? 1.4 : -1.4), y, z + Math.floor(i / 2) * 7.4, s * 0.13);
-  }
-  z += 24;
-  // Nine Dauntlesses, wings out, staggered across the deck.
-  for (let i = 0; i < 9; i++) {
-    const col = i % 3;
-    dauntless(g, (col - 1) * 8.2, y, z + Math.floor(i / 3) * 8.6, (col - 1) * 0.08);
-  }
-  z += 28;
-  // Four Avengers at the after end, where there is width for their span.
-  for (let i = 0; i < 4; i++) {
-    const s = i % 2 ? 1 : -1;
-    avenger(g, s * 6.0, y, z + Math.floor(i / 2) * 10.2, s * 0.1);
-  }
-}
+// Nothing is ranged on the flight deck. A carrier lying in her berth with a
+// deck park is a carrier that cannot land an aircraft or work her lifts, and it
+// is not how one is found at the start of a watch: the group is struck below,
+// and what is coming up is on the lifts. The deck is a runway, and a runway
+// with aeroplanes parked on it is a car park.
 
 // ------------------------------------------------------------------ build --
 
@@ -2048,7 +2035,6 @@ export function buildEnterprise() {
   island(g);
   armament(g);
   boatsAndCranes(g);
-  airGroup(g);
   const lifts = elevators(g);
   mergeStatic(g);
   // The lifts run whenever anything is drawing her -- the shipyard and the

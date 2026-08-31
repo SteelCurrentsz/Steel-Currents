@@ -1118,5 +1118,42 @@ check('an air group is landed on something she can actually embark', () => {
   assert.ok(pkg.torp > pkg.bomb, `flew ${pkg.torp} torpedo to ${pkg.bomb} bomb`);
 });
 
+check('a carrier is found with a clear deck and her aircraft on the lifts', () => {
+  // A flight deck with a deck park on it is a flight deck she cannot land on
+  // and cannot work her lifts through, and it is not how a carrier is found
+  // lying in her berth. Nothing with aircraft paint on it may sit above the
+  // flight deck unless it is riding a platform.
+  const built = buildEnterprise();
+  built.group.updateMatrixWorld(true);
+  const PAINT = new Set(['33475e', '9aa4ad', '24282c', 'd9dde2']);
+  const lifts = built.lifts.map((l) => l.group);
+  let onDeck = 0;
+  let riding = 0;
+  let below = 0;
+  built.group.traverse((o) => {
+    if (!o.isMesh || !o.material || !o.material.color) return;
+    if (!PAINT.has(o.material.color.getHexString())) return;
+    o.geometry.computeBoundingBox();
+    const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    let rides = false;
+    for (let n = o; n; n = n.parent) if (lifts.includes(n)) rides = true;
+    if (rides) riding++;
+    else if (b.min.y > built.flightDeckY - 0.5) onDeck++;
+    else below++;
+  });
+  assert.equal(onDeck, 0, `${onDeck} aircraft mesh(es) ranged on the flight deck`);
+  assert.ok(riding > 0, 'no aircraft on her lifts at all');
+  assert.ok(below > 0, 'nothing struck below in her hangar');
+  // And what is on a lift must fit the platform rather than hang over the well.
+  built.lifts.forEach((l, i) => {
+    const b = new THREE.Box3().setFromObject(l.group);
+    const halfX = Math.max(Math.abs(b.min.x), Math.abs(b.max.x));
+    const halfZ = Math.max(Math.abs(b.min.z - l.group.position.z),
+      Math.abs(b.max.z - l.group.position.z));
+    assert.ok(halfX <= LIFT_HW + 0.2 && halfZ <= LIFT_HW + 0.2,
+      `lift ${i} is loaded ${halfX.toFixed(1)} x ${halfZ.toFixed(1)} over a ${LIFT_HW} platform`);
+  });
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);
