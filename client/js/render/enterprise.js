@@ -145,7 +145,7 @@ const FD = 17.0;               // flight deck above the waterline
 // Where the hangar begins and ends, as stations. Forward of it is the
 // forecastle, abaft it the quarterdeck: both open decks under the overhang.
 const HGR_F = 0.64;
-const HGR_A = -0.72;
+const HGR_A = -0.82;
 
 /**
  * The lines.
@@ -208,7 +208,7 @@ function sheer(t) {
 
 /** Flare at the sheer: outward forward, a little tumblehome aft. */
 function flare(t) {
-  if (t > 0.30) return 0.03 + 0.22 * Math.pow((t - 0.30) / 0.70, 1.7);
+  if (t > 0.30) return 0.03 + 0.34 * Math.pow((t - 0.30) / 0.70, 1.6);
   if (t < -0.55) return -0.04 * Math.min(1, (-t - 0.55) / 0.35);
   return 0.03;
 }
@@ -221,11 +221,32 @@ function flare(t) {
  * than a wall; the counter rakes the other way over the screws. Nothing about a
  * hull is a straight extrusion, and this is the function that says so.
  */
+const STEM = 7.2;      // how far the forecastle stands ahead of the forefoot
+const COUNTER = 3.2;   // and how far the transom's head stands abaft its foot
+
+/**
+ * The stem profile: not a rake, a curve.
+ *
+ * A straight raked stem is a line from the forefoot to the forecastle and it
+ * looks like one. Hers sweeps: nearly upright where it leaves the water, then
+ * curving further and further forward as it rises, so the forecastle stands
+ * seven metres ahead of the point where the keel comes up. That curve is the
+ * single line that says Yorktown from a mile off, and the flare over it is what
+ * throws the sea aside when she is making thirty knots into a head swell.
+ */
+function stemAt(y) { return STEM * Math.pow(Math.max(0, y) / 13.2, 1.45); }
+/** The counter: the same idea at the other end, gentler, over the screws. */
+function counterAt(y) { return COUNTER * Math.pow(Math.max(0, y) / 9.0, 1.25); }
+/** Ease a curve in without leaving a crease across the middle body. */
+function smooth(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
+
 function zAt(t, y) {
   let z = (t * LOA) / 2;
-  const h = Math.max(0, y);
-  if (t > 0.55) z += 0.175 * h * Math.pow((t - 0.55) / 0.45, 1.55);
-  else if (t < -0.80) z -= 0.085 * h * Math.pow((-t - 0.80) / 0.20, 1.4);
+  // The stations take the profile's curve, and are pulled back as they take it
+  // so the stem head -- her extreme point, which is what length overall is
+  // measured to -- still lands where it should.
+  if (t > 0.46) z += smooth((t - 0.46) / 0.54) * (stemAt(y) - STEM);
+  else if (t < -0.70) z -= smooth((-t - 0.70) / 0.30) * (counterAt(y) - COUNTER);
   return z;
 }
 
@@ -509,20 +530,25 @@ function hangarSides(g) {
 
   // The gallery deck: a plated storey carrying the ready rooms, the guns' crews
   // and the twenty-millimetre galleries, right out to the deck edge.
-  const GW = FDW / 2 - 0.35;
-  const z0 = -FDL / 2 + 7 + LOA * 0.012;
-  const z1 = FDL / 2 - 7 + LOA * 0.012;
-  const SEG = 30;
+  // It follows the flight deck's own outline, drawing in at both ends with it.
+  // Run it out square and its plating stands proud of the deck edge where the
+  // deck has tapered away, and the pillars under the after overhang come out as
+  // a bare frame hanging in the air abaft the round-down.
+  const z0 = fdEndA(0) + 3;
+  const z1 = fdEndF(0) - 3;
+  const SEG = 34;
   for (let i = 0; i < SEG; i++) {
     const za = z0 + ((z1 - z0) * i) / SEG;
     const zb = z0 + ((z1 - z0) * (i + 1)) / SEG;
     const zc = (za + zb) / 2;
     const len = zb - za;
+    const GW = fdHalf(zc) - 0.35;
+    const ang = Math.atan2(fdHalf(zb) - fdHalf(za), len);
     // The deck under it, and the side plating up to the flight deck.
     box(g, M.steelDark, 2 * GW, 0.32, len + 0.1, 0, GALLERY, zc);
     for (const s of [-1, 1]) {
       box(g, M.hull, 0.3, FD - GALLERY - 0.85, len + 0.1, s * GW,
-        (GALLERY + FD - 0.85) / 2 + 0.15, zc);
+        (GALLERY + FD - 0.85) / 2 + 0.15, zc, s * ang);
       // Scuttles down the gallery, and a watertight door every fifth frame.
       if (i % 2 === 0) {
         cyl(g, M.glass, 0.3, 0.3, 0.14, s * (GW + 0.16), GALLERY + 1.5, zc, 8)
@@ -541,7 +567,7 @@ function hangarSides(g) {
       const t = ta + (tb - ta) * (i / 4);
       const y = sheer(t);
       const z = zAt(t, y);
-      const w = Math.min(GW - 0.8, sideX(t) - 0.4);
+      const w = Math.min(fdHalf(z) - 1.2, sideX(t) - 0.4);
       if (w <= 1) continue;
       for (const s of [-1, 1]) {
         box(g, M.steelDark, 0.44, GALLERY - y, 0.44, s * w, (GALLERY + y) / 2, z);
@@ -610,7 +636,7 @@ function groundTackle(g) {
     }
   }
   // Bitts, chocks and fairleads down both sides of both open decks.
-  for (const [ta, tb, n] of [[0.70, 0.93, 5], [-0.93, -0.76, 4]]) {
+  for (const [ta, tb, n] of [[0.70, 0.93, 5], [-0.955, HGR_A - 0.01, 3]]) {
     for (let i = 0; i < n; i++) {
       const t = ta + ((tb - ta) * (i + 0.5)) / n;
       const y = sheer(t);
@@ -627,14 +653,14 @@ function groundTackle(g) {
   }
   // Two capstans on the quarterdeck, and the after towing bitts between them.
   {
-    const t = -0.85;
+    const t = -0.90;
     const y = sheer(t);
     const z = zAt(t, y);
-    for (const s of [-1, 1]) cyl(g, M.steel, 0.7, 0.85, 1.1, s * 3.6, y + 0.55, z, 12);
-    box(g, M.steelDark, 3.0, 0.9, 1.4, 0, y + 0.45, z - 4.0);
+    for (const s of [-1, 1]) cyl(g, M.steel, 0.7, 0.85, 1.1, s * 3.0, y + 0.55, z, 12);
+    box(g, M.steelDark, 3.0, 0.9, 1.4, 0, y + 0.45, z - 3.4);
   }
   // Guardrails round the open ends.
-  for (const [ta, tb] of [[0.665, 0.94], [-0.94, -0.735]]) {
+  for (const [ta, tb] of [[0.665, 0.94], [-0.945, HGR_A - 0.005]]) {
     for (const s of [-1, 1]) {
       const pts = [];
       for (let i = 0; i <= 8; i++) {
@@ -802,10 +828,12 @@ function flightDeck(g) {
   {
     const z = FDL * 0.31 + FD_MID;
     const w = fdHalf(z) - 2;
+    // Folded down, which is how they lie whenever the deck park is aft: raised,
+    // they stand across the deck like a row of hoardings.
     for (let i = 0; i < 7; i++) {
       const x = -w + i * ((2 * w) / 6);
-      const p = box(g, M.canvas, (2 * w) / 6 - 0.4, 2.2, 0.16, x, FD + 1.3, z);
-      p.rotation.x = -0.08;
+      const p = box(g, M.canvas, (2 * w) / 6 - 0.4, 2.0, 0.16, x, FD + 0.32, z - 0.9);
+      p.rotation.x = Math.PI / 2 - 0.06;
     }
   }
 }
@@ -908,13 +936,13 @@ function island(g) {
   // A platform round the island at the top of the base, carrying the 20 mm and
   // the funnel's own uptake casing, which starts here and goes all the way up.
   box(g, M.hull, W - 0.4, 2.8, 21.0, cx, D(5.8), Z - 0.5);
-  box(g, M.steelDark, W + 2.6, 0.3, 9.0, ox(0.9), D(7.2), Z - 7.0);
+  box(g, M.steelDark, W + 3.0, 0.3, 7.0, ox(0.8), D(7.2), Z + 4.0);
   {
     const pts = [];
-    for (let i = 0; i <= 5; i++) pts.push([ox(W / 2 + 1.9), D(7.35), Z - 11.2 + i * 1.7]);
+    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(7.35), Z + 1.0 + i * 1.5]);
     railing(g, pts, 1.0, 2);
   }
-  for (const dz of [-9.6, -5.4]) oerlikon(g, ox(W / 2 + 1.3), D(7.35), Z + dz, S * 1.4);
+  for (const dz of [2.0, 6.0]) oerlikon(g, ox(W / 2 + 1.3), D(7.35), Z + dz, S * 1.4);
 
   // ------------------------------------------------------- the bridge decks --
   // Each stepped in from the one below it, with its window band and its wings.
@@ -972,40 +1000,65 @@ function island(g) {
   // ------------------------------------------------------------ the funnel --
   // The uptake casing, canted a few degrees outboard so the smoke clears the
   // deck, with the cap flaring off the top of it and a grille across the mouth.
-  const FZ = Z - 8.4;
+  const FZ = Z - 8.6;
   const FY0 = 7.0;
-  const FY1 = 17.4;
+  const FY1 = 16.4;
+  const FH = FY1 - FY0;
+  const FL = 9.2;                       // how long the casing is fore and aft
   const fun = new THREE.Group();
   fun.position.set(ox(0.35), D((FY0 + FY1) / 2), FZ);
   fun.rotation.z = -S * 0.055;
   g.add(fun);
-  box(fun, M.hull, W + 0.5, FY1 - FY0, 8.6, 0, 0, 0);
-  // Corner strakes, so it reads as plating rather than a solid.
+  box(fun, M.hull, W + 0.6, FH, FL, 0, 0, 0);
+  // Corner strakes and the horizontal ribs down it, so it reads as riveted
+  // plating rather than as one solid block of nothing.
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      box(fun, M.hullDark, 0.3, FY1 - FY0, 0.3,
-        sx * (W + 0.5) / 2, 0, sz * 4.3);
+      box(fun, M.hullDark, 0.32, FH, 0.32, sx * (W + 0.6) / 2, 0, sz * (FL / 2 - 0.2));
     }
   }
-  // The cap: a flared collar and the grille of bars across the mouth.
-  box(fun, M.steelDark, W + 1.5, 0.55, 9.6, 0, (FY1 - FY0) / 2 + 0.28, 0);
-  box(fun, M.hullDark, W + 1.0, 0.5, 9.0, 0, (FY1 - FY0) / 2 + 0.85, 0);
+  for (let i = 1; i <= 3; i++) {
+    const y = -FH / 2 + (i * FH) / 4;
+    box(fun, M.hullDark, W + 0.9, 0.22, FL + 0.3, 0, y, 0);
+  }
+  // The cap: a flared collar, a black band round it, and the grille of bars
+  // across the mouth with the dark of the uptake behind them.
+  box(fun, M.steelDark, W + 1.6, 0.5, FL + 1.1, 0, FH / 2 + 0.25, 0);
+  box(fun, M.boot, W + 1.3, 0.85, FL + 0.7, 0, FH / 2 + 0.9, 0);
+  box(fun, M.cave, W - 0.5, 0.3, FL - 1.2, 0, FH / 2 + 1.2, 0);
   for (let i = 0; i < 7; i++) {
-    box(fun, M.steelDark, 0.16, 0.35, 8.4,
-      -(W - 0.6) / 2 + (i * (W - 0.6)) / 6, (FY1 - FY0) / 2 + 1.05, 0);
+    box(fun, M.steelDark, 0.16, 0.3, FL - 1.0,
+      -(W - 0.7) / 2 + (i * (W - 0.7)) / 6, FH / 2 + 1.32, 0);
   }
-  box(fun, M.cave, W - 0.4, 0.3, 8.0, 0, (FY1 - FY0) / 2 + 0.72, 0);
-  // Steam pipes up the after face, and the siren on the forward one.
-  for (const s of [-1, 1]) {
-    const pp = cyl(fun, M.steelDark, 0.26, 0.26, FY1 - FY0 + 2.6,
-      s * 1.5, 1.3, -4.5, 8);
-    box(fun, M.steelDark, 0.5, 0.4, 0.5, s * 1.5, (FY1 - FY0) / 2 + 1.5, -4.5);
-    pp.rotation.x = 0;
+  for (let i = 0; i < 3; i++) {
+    box(fun, M.steelDark, W - 0.5, 0.3, 0.16, 0, FH / 2 + 1.32,
+      -(FL - 1.4) / 2 + (i * (FL - 1.4)) / 2);
   }
+  // Steam pipes up the after face, standing proud of it, with their whistles.
   for (const s of [-1, 1]) {
-    cyl(fun, M.bright, 0.34, 0.44, 0.9, s * 0.9, (FY1 - FY0) / 2 - 1.6, 4.5, 10)
+    cyl(fun, M.steelDark, 0.26, 0.26, FH + 2.2, s * 1.6, 1.1, -FL / 2 - 0.3, 8);
+    box(fun, M.steelDark, 0.5, 0.45, 0.5, s * 1.6, FH / 2 + 1.5, -FL / 2 - 0.3);
+  }
+  // The siren on the forward face, and a ladder up the outboard one.
+  for (const s of [-1, 1]) {
+    cyl(fun, M.bright, 0.34, 0.44, 0.9, s * 0.9, FH / 2 - 2.0, FL / 2 + 0.3, 10)
       .rotation.x = Math.PI / 2;
   }
+  for (let i = 0; i < 11; i++) {
+    box(fun, M.steel, 0.1, 0.08, 0.5, -S * (W + 0.6) / 2 - S * 0.22,
+      -FH / 2 + 0.6 + i * (FH - 1.2) / 10, 1.2);
+  }
+  for (const dz of [0.95, 1.45]) {
+    box(fun, M.steel, 0.1, FH - 0.8, 0.1, -S * (W + 0.6) / 2 - S * 0.22, 0, dz);
+  }
+  // A gallery round the foot of the casing, with a pair of 20 mm on it.
+  box(g, M.steelDark, W + 4.2, 0.3, FL + 1.6, ox(0.9), D(FY0 + 0.15), FZ);
+  {
+    const pts = [];
+    for (let i = 0; i <= 5; i++) pts.push([ox(W / 2 + 2.4), D(FY0 + 0.3), FZ - 5.0 + i * 2.0]);
+    railing(g, pts, 1.0, 2);
+  }
+  for (const dz of [-3.2, 3.2]) oerlikon(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz, S * 1.4);
   // Searchlight platforms either side of the funnel, on their brackets.
   for (const s of [-1, 1]) {
     const px = cx + S * s * (W / 2 + 1.9);
@@ -1062,17 +1115,33 @@ function island(g) {
       wr.rotation.z = -S * s * 0.15 * i;
     }
   }
-  // SC air-search: the bedstead array on a platform spanning all three legs.
+  // The air-search bedspring: a wide rectangular mattress of dipoles on a short
+  // topmast above the truck. It is the biggest single thing on her upperworks
+  // and the one that says 1942 rather than 1938 -- so it is built at the size
+  // it was, not as a token on a stick.
   box(g, M.steel, 2.6, 0.6, 2.8, cx, D(24.6), mastZ);
+  cyl(g, M.steel, 0.18, 0.24, 2.6, cx, D(26.1), mastZ, 8);
   const sc = new THREE.Group();
-  sc.position.set(cx, D(24.9), mastZ);
+  sc.position.set(cx, D(27.2), mastZ);
+  // Trained round on its trunnion, so the mattress shows its face from the beam
+  // and from the bow rather than standing edge-on to both.
+  sc.rotation.y = 1.15;
   g.add(sc);
-  box(sc, M.steel, 4.8, 0.16, 0.32, 0, 0, 0);
-  box(sc, M.steel, 4.8, 0.16, 0.32, 0, 1.6, 0);
-  for (let i = 0; i < 9; i++) {
-    box(sc, M.steel, 0.1, 1.7, 0.1, -2.2 + i * 0.55, 0.8, 0);
-    box(sc, M.steel, 0.08, 0.08, 0.95, -2.2 + i * 0.55, 0.8, 0.37);
+  const SCW = 6.4;
+  const SCH = 2.7;
+  for (const y of [0, SCH]) box(sc, M.steel, SCW, 0.18, 0.34, 0, y, 0);
+  for (const sx of [-1, 1]) box(sc, M.steel, 0.18, SCH, 0.34, sx * SCW / 2, SCH / 2, 0);
+  for (let i = 0; i < 13; i++) {
+    const x = -SCW / 2 + 0.25 + (i * (SCW - 0.5)) / 12;
+    box(sc, M.steel, 0.1, SCH - 0.2, 0.1, x, SCH / 2, 0);
+    for (const y of [SCH * 0.3, SCH * 0.7]) {
+      box(sc, M.steel, 0.07, 0.07, 0.85, x, y, 0.4);
+    }
   }
+  // Its backing frame and the trunnion it turns on.
+  box(sc, M.steel, SCW - 0.6, 0.12, 0.12, 0, SCH / 2, -0.35);
+  for (const sx of [-1, 1]) box(sc, M.steel, 0.12, 0.12, 0.8, sx * 1.4, SCH / 2, -0.2);
+  cyl(sc, M.steelDark, 0.3, 0.3, 0.7, 0, -0.5, 0, 10);
   // SG surface-search in its cheese housing, on the starboard yardarm.
   const sg = cyl(g, M.steel, 0.95, 0.95, 0.55, ox(2.4), D(22.8), mastZ, 14);
   sg.rotation.x = Math.PI / 2;
