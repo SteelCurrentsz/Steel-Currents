@@ -10,7 +10,7 @@
 // her island goes. Waterline at y = 0. Her real
 // figures, which everything below is measured off:
 //
-//   length overall        251.4 m      flight deck        244 x 26 m
+//   length overall        262.0 m      flight deck      254.5 x 26 m
 //   waterline beam         25.4 m      extreme beam        34.8 m
 //   draft                   7.9 m      freeboard, hangar   ~14 m
 //   three centreline elevators, nine arresting wires, three barriers
@@ -134,10 +134,10 @@ function tub(g, r, depth, x, y, z, seg = 14) {
  * off the shell at that station, and a box would put them all in a straight
  * line down a flat side.
  */
-const LOA = 251.4;
+const LOA = 262.0;
 const WLB = 25.4;              // waterline beam
 const FDW = 26.0;              // flight deck width
-const FDL = 244.0;             // flight deck length
+const FDL = 254.5;             // flight deck length
 const DRAFT = 7.9;
 // A Yorktown floats a good deal lower than her flight deck suggests: the shell
 // plating stops at the hangar deck, about seven metres up, and the flight deck
@@ -171,21 +171,24 @@ const HGR_A = -0.82;
 /** Half-beam of the shell at the waterline, station -1 (transom) to +1 (stem). */
 function halfBeam(t) {
   const b = WLB / 2;
-  if (t > 0.42) {
+  if (t > 0.32) {
     // The entrance: hollow, so the waterlines are concave before they meet the
-    // stem rather than running straight into a wedge.
+    // stem rather than running straight into a wedge. It begins a third of the
+    // way forward of amidships and takes the rest of her to close, which is
+    // what a thirty-three knot hull wants and what makes her look like one.
     // Clamped: a station exactly at the stem puts k a hair over one in floating
     // point, and a negative number to a fractional power is not a number.
-    const k = Math.min(1, (t - 0.42) / 0.58);
-    return b * Math.max(0.007, Math.pow(Math.max(0, 1 - k * k), 0.6));
+    const k = Math.min(1, (t - 0.32) / 0.68);
+    return b * Math.max(0.007, Math.pow(Math.max(0, 1 - k * k), 0.72));
   }
-  if (t < -0.62) {
-    // The run, into a transom a third of the beam across.
-    const k = (-t - 0.62) / 0.38;
-    return b * (1 - 0.66 * Math.pow(k, 1.45));
+  if (t < -0.52) {
+    // The run, drawn out over the after half and closing into a transom under
+    // a third of the beam across.
+    const k = (-t - 0.52) / 0.48;
+    return b * (1 - 0.71 * Math.pow(k, 1.5));
   }
   // Parallel midbody, with the small swell amidships that every hull has.
-  return b * (1 - 0.035 * t * t);
+  return b * (1 - 0.05 * t * t);
 }
 
 /** The keel line: straight amidships, rising at both ends. */
@@ -226,7 +229,7 @@ function flare(t) {
  * than a wall; the counter rakes the other way over the screws. Nothing about a
  * hull is a straight extrusion, and this is the function that says so.
  */
-const STEM = 7.2;      // how far the forecastle stands ahead of the forefoot
+const STEM = 7.8;      // how far the forecastle stands ahead of the forefoot
 const COUNTER = 3.2;   // and how far the transom's head stands abaft its foot
 
 /**

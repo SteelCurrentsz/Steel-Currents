@@ -262,7 +262,7 @@ export const SHIP_CLASSES = {
     typeName: 'Aircraft Carrier',
     nation: 'usa',
     blurb: 'Fights at ranges nothing else can reach. Caught alone on the surface, it is a very large target.',
-    hull: { length: 251, beam: 26, draft: 7.9, superstructure: 0.55, flightDeck: true },
+    hull: { length: 262, beam: 26, draft: 7.9, superstructure: 0.55, flightDeck: true },
     hp: 48200,
     maxSpeed: 32.5 * KNOTS,
     reverseSpeed: 7 * KNOTS,
@@ -285,14 +285,14 @@ export const SHIP_CLASSES = {
     // centreline, which is why a Yorktown was always short of guns on the
     // engaged side and had to turn to bring the other four to bear.
     turrets: [
-      { id: 0, name: 'S1', x: -15.4, z: 78.8, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 1, name: 'S2', x: -15.4, z: 72.0, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 2, name: 'S3', x: -15.4, z: -56.9, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 3, name: 'S4', x: -15.4, z: -63.7, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 4, name: 'P1', x: 15.4, z: 68.8, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 5, name: 'P2', x: 15.4, z: 62.0, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 6, name: 'P3', x: 15.4, z: -67.0, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 7, name: 'P4', x: 15.4, z: -73.8, angle: Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 0, name: 'S1', x: -15.4, z: 82.0, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 1, name: 'S2', x: -15.4, z: 75.2, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 2, name: 'S3', x: -15.4, z: -59.5, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 3, name: 'S4', x: -15.4, z: -66.3, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 4, name: 'P1', x: 15.4, z: 71.5, angle: Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 5, name: 'P2', x: 15.4, z: 64.7, angle: Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 6, name: 'P3', x: 15.4, z: -70.0, angle: Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 1.32, guns: 1 },
     ],
     gun: {
       caliber: 127, reload: 4.2, traverse: 0.44, range: 10600, sigma: 2.2,

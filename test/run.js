@@ -995,5 +995,27 @@ check('both sides of her hull face outboard', () => {
     `${backs.length} of ${hits} rays landed on an inside-out face, first from ${JSON.stringify(backs[0])}`);
 });
 
+check('the carrier\'s guns stand where her datasheet says they do', () => {
+  // The model lays her sponsons off her own length and the simulation lays her
+  // guns off the datasheet. Change one -- her length, the sponson spacing, the
+  // deck's taper -- and they part company silently: the shells come out of a
+  // point in mid-air beside her. So they are checked against each other.
+  const built = buildEnterprise();
+  const sheet = SHIP_CLASSES.enterprise;
+  assert.equal(built.turrets.length, sheet.turrets.length,
+    `${built.turrets.length} mounts built against ${sheet.turrets.length} on the sheet`);
+  assert.equal(built.length, sheet.hull.length,
+    `the model is ${built.length} m long and the sheet says ${sheet.hull.length}`);
+  built.turrets.forEach((m, i) => {
+    const t = sheet.turrets[i];
+    assert.ok(Math.abs(m.position.x - t.x) < 0.15 && Math.abs(m.position.z - t.z) < 0.15,
+      `${t.name} is modelled at ${m.position.x.toFixed(1)}, ${m.position.z.toFixed(1)} `
+      + `and laid at ${t.x}, ${t.z}`);
+    // And on the side its name claims: starboard is negative x.
+    assert.ok(t.name.startsWith('S') === (t.x < 0),
+      `${t.name} is on the wrong side at x ${t.x}`);
+  });
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);
