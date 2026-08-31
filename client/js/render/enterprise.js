@@ -942,7 +942,11 @@ function island(g) {
   // an island is that it is out of the way of the landing circuit, and the
   // circuit is flown to port.
   const S = -1;
-  const X = S * (FDW / 2 - 2.2);  // its inboard face, just off the deck edge
+  // Her island hangs over the side. Only a metre of it stands on the flight
+  // deck; the rest is cantilevered out past the deck edge on a sponson, which
+  // is the whole point -- every square metre of it kept inboard is a square
+  // metre taken off the landing area.
+  const X = S * (FDW / 2 - 1.0);  // its inboard face, a metre in from the edge
   const Z = LOA * 0.06;
   const W = 5.6;
   const cx = X + S * (W / 2);
@@ -952,6 +956,32 @@ function island(g) {
   const D = (h) => FD + h;
 
   // ------------------------------------------------------------ the base --
+  // The sponson under it: a plated box off the gallery deck reaching out past
+  // the deck edge, because the island's outboard four-fifths stand on nothing
+  // else. Deep brackets under that, down onto the ship's side.
+  {
+    const sxi = S * (FDW / 2 - 2.6);       // where it ties into the gallery deck
+    const sxo = ox(W / 2 + 0.7);           // and how far out it reaches
+    const sw = Math.abs(sxo - sxi);
+    const scx = (sxi + sxo) / 2;
+    box(g, M.steelDark, sw, 0.34, 27.4, scx, GALLERY, Z);
+    box(g, M.hull, 0.32, FD - GALLERY - 0.2, 27.4, sxo, (GALLERY + FD) / 2, Z);
+    for (const dz of [-13.5, 13.5]) {
+      box(g, M.hull, sw, FD - GALLERY - 0.2, 0.3, scx, (GALLERY + FD) / 2, Z + dz);
+    }
+    for (let i = 0; i < 7; i++) {
+      const z = Z - 12 + i * 4;
+      const br = box(g, M.steelDark, sw + 1.4, 0.28, 0.28, scx, GALLERY - 1.5, z);
+      br.rotation.z = -S * 0.42;
+      box(g, M.steelDark, 0.24, 3.4, 0.24, sxo, GALLERY - 1.6, z);
+    }
+    // A walkway outboard of the sponson, under the island's own gallery.
+    box(g, M.steelDark, 1.7, 0.14, 24.0, sxo + S * 1.0, GALLERY + 0.1, Z);
+    const pts = [];
+    for (let i = 0; i <= 9; i++) pts.push([sxo + S * 1.8, GALLERY + 0.2, Z - 11.5 + i * 2.55]);
+    railing(g, pts, 1.0, 2);
+  }
+
   // The island proper, standing on the flight deck and overhanging the side.
   box(g, M.hull, W, 4.0, 26.4, cx, D(2.0), Z);
   box(g, M.steelDark, W + 0.5, 0.3, 26.8, cx, D(4.0), Z);
@@ -993,13 +1023,13 @@ function island(g) {
   // A platform round the island at the top of the base, carrying the 20 mm and
   // the funnel's own uptake casing, which starts here and goes all the way up.
   box(g, M.hull, W - 0.4, 2.6, 22.4, cx, D(5.3), Z - 0.5);
-  box(g, M.steelDark, W + 3.0, 0.3, 7.4, ox(0.8), D(6.6), Z + 4.2);
+  box(g, M.steelDark, W + 3.0, 0.3, 7.4, ox(0.8), D(6.6), Z + 9.4);
   {
     const pts = [];
-    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(6.75), Z + 1.0 + i * 1.6]);
+    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(6.75), Z + 6.2 + i * 1.6]);
     railing(g, pts, 1.0, 2);
   }
-  for (const dz of [1.6, 5.4]) oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
+  for (const dz of [6.8, 10.6]) oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
 
   // ------------------------------------------------------- the bridge decks --
   // Each stepped in from the one below it, with its window band and its wings.
@@ -1007,10 +1037,10 @@ function island(g) {
   // wheelhouse on a box, not a pagoda, and the whole of it stands well under
   // the height of her funnel.
   const decks = [
-    ['pilot', 6.6, 5.0, 13.0, 2.7, 4.0],   // floor, width, length, height, centre
-    ['flag', 9.3, 4.6, 10.6, 2.4, 3.6],
-    ['plot', 11.7, 4.0, 8.0, 2.2, 3.6],
-    ['sky', 13.9, 3.4, 5.6, 1.7, 3.8],
+    ['pilot', 6.6, 5.0, 9.8, 2.7, 8.0],    // floor, width, length, height, centre
+    ['flag', 9.3, 4.6, 8.6, 2.4, 7.8],
+    ['plot', 11.7, 4.0, 6.8, 2.2, 7.8],
+    ['sky', 13.9, 3.4, 5.0, 1.7, 8.0],
   ];
   for (const [name, y, w, d, h, dz] of decks) {
     const z = Z + dz;
@@ -1044,27 +1074,86 @@ function island(g) {
       railing(g, pts, 1.0, 2);
     }
   }
+  // ------------------------------------------------- the open bridge --
+  // A Yorktown was conned from the open bridge, not from behind glass: a
+  // walkway wrapped round the front and both sides of the pilot house behind a
+  // splinter bulwark, with the pelorus on each wing and the engine telegraphs
+  // by the centreline. It is the shape that makes the forward end of the
+  // island read as a bridge rather than as another box on the pile.
+  for (const [y, w, d, dz, bh] of [[6.6, 5.0, 9.8, 8.0, 1.25], [9.3, 4.6, 8.6, 7.8, 1.15]]) {
+    const z = Z + dz;
+    const ow = w / 2 + 1.7;
+    const od = d / 2 + 1.5;
+    const N = 19;
+    for (let i = 0; i < N; i++) {
+      const a = -1.95 + (i / (N - 1)) * 3.9;
+      const px = cx + Math.sin(a) * ow;
+      const pz = z + Math.cos(a) * od;
+      // The bulwark, and the platform it stands on.
+      box(g, M.hull, 1.05, bh, 0.22, px, D(y) + bh / 2, pz, a);
+      box(g, M.steelDark, 1.05, 0.16, 1.9, px - Math.sin(a) * 0.85,
+        D(y) + 0.08, pz - Math.cos(a) * 0.85, a);
+      // A stiffener down the outside of it, and a bracket under the platform.
+      if (i % 3 === 0) {
+        box(g, M.hullDark, 0.18, bh, 0.18, cx + Math.sin(a) * (ow + 0.12),
+          D(y) + bh / 2, z + Math.cos(a) * (od + 0.12));
+        const br = box(g, M.steelDark, 2.0, 0.16, 0.16,
+          cx + Math.sin(a) * (ow - 0.9), D(y) - 0.6, z + Math.cos(a) * (od - 0.9));
+        br.rotation.y = -a;
+        br.rotation.z = Math.sin(a) > 0 ? 0.5 : -0.5;
+      }
+    }
+    // The pelorus on each wing, and the telegraphs by the centreline.
+    for (const sgn of [-1, 1]) {
+      const px = cx + sgn * (ow - 0.7);
+      cyl(g, M.steelDark, 0.16, 0.2, 1.0, px, D(y) + 0.5, z + od * 0.35, 8);
+      cyl(g, M.bright, 0.34, 0.34, 0.16, px, D(y) + 1.05, z + od * 0.35, 12);
+      cyl(g, M.steelDark, 0.2, 0.24, 1.1, cx + sgn * 1.1, D(y) + 0.55, z + od - 0.9, 8);
+      box(g, M.bright, 0.36, 0.4, 0.22, cx + sgn * 1.1, D(y) + 1.2, z + od - 0.9);
+    }
+    // The windscreen over the front of the bulwark.
+    for (let i = 0; i < 5; i++) {
+      const a = -0.5 + (i / 4) * 1.0;
+      const wv = box(g, M.glass, 1.0, 0.55, 0.1, cx + Math.sin(a) * (ow + 0.02),
+        D(y) + bh + 0.26, z + Math.cos(a) * (od + 0.02), a);
+      wv.rotation.x = -0.22;
+    }
+  }
+  // The chart house abaft the pilot house, and the ladder up its side.
+  box(g, M.hull, 4.2, 2.4, 3.2, cx, D(6.6) + 1.2, Z + 1.6);
+  box(g, M.glass, 4.34, 0.8, 2.6, cx, D(6.6) + 1.6, Z + 1.6);
+  box(g, M.steelDark, 4.7, 0.24, 3.6, cx, D(9.0), Z + 1.6);
+  for (let i = 0; i < 5; i++) {
+    box(g, M.steel, 0.5, 0.08, 0.1, ox(-4.2 / 2 - 0.2), D(4.4 + i * 0.55), Z + 1.6);
+  }
+  for (const sgn of [-1, 1]) {
+    box(g, M.steel, 0.1, 2.6, 0.1, ox(-4.2 / 2 - 0.2), D(5.6), Z + 1.6 + sgn * 0.25);
+  }
+
   // The two 24-inch signal lamps, standing on the pilot house wings.
   for (const s of [-1, 1]) {
     const wx = cx + S * s * (5.0 / 2 + 0.85);
-    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(6.6) + 0.57, Z + 7.0);
-    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(6.6) + 1.25, Z + 7.0, 12)
+    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(6.6) + 0.57, Z + 10.6);
+    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(6.6) + 1.25, Z + 10.6, 12)
       .rotation.x = Math.PI / 2;
   }
   // Flag bags on the flag bridge wings, and the halyard cleats above them.
   for (const s of [-1, 1]) {
     const wx = cx + S * s * (4.6 / 2 + 0.85);
-    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(9.3) + 0.5, Z + 0.4);
+    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(9.3) + 0.5, Z + 5.0);
   }
 
   // ------------------------------------------------------------ the funnel --
   // The uptake casing, canted a few degrees outboard so the smoke clears the
   // deck, with the cap flaring off the top of it and a grille across the mouth.
-  const FZ = Z - 8.6;
+  const FZ = Z - 6.6;
   const FY0 = 6.6;
   const FY1 = 16.4;
   const FH = FY1 - FY0;
-  const FL = 9.2;                       // how long the casing is fore and aft
+  // Long. A Yorktown's uptake casing is not a chimney stuck on the back of the
+  // bridge, it is the whole after half of the island -- twelve metres of it
+  // fore and aft, which is most of the structure's length.
+  const FL = 12.4;
   const fun = new THREE.Group();
   fun.position.set(ox(0.35), D((FY0 + FY1) / 2), FZ);
   fun.rotation.z = -S * 0.055;
@@ -1138,14 +1227,14 @@ function island(g) {
   // -------------------------------------------------------- the tripod mast --
   // Stepped on the second deck between the bridge and the funnel, so its legs
   // land on structure rather than on air.
-  const mastZ = Z - 2.6;
+  const mastZ = Z + 1.35;
   const mastFoot = D(6.6);
   const mastTop = D(25.6);
   // The legs are splayed at the foot and gather at the truck -- that is what
   // makes it a tripod rather than three posts standing side by side. Each is
   // lofted between the two points it actually runs between, so it leans the
   // way it should instead of leaning outwards as it rises.
-  for (const [dx, dz] of [[0, 2.6], [-2.3, -1.9], [2.3, -1.9]]) {
+  for (const [dx, dz] of [[0, 1.7], [-2.3, -1.7], [2.3, -1.7]]) {
     const x0 = cx + S * dx;
     const z0 = mastZ + dz;
     const rise = mastTop - mastFoot;
@@ -1241,7 +1330,7 @@ function island(g) {
   // ------------------------------------------------------- fire control --
   // Mk 37 directors with their Mk 4 antennas: one on the air plot's roof
   // looking forward, one on a platform abaft the funnel.
-  const dirs = [[D(13.9), Z + 3.8, 1], [D(10.6), FZ - 6.4, -1]];
+  const dirs = [[D(13.9), Z + 8.0, 1], [D(10.6), Z - 15.0, -1]];
   for (const [y, z, fwd] of dirs) {
     if (fwd < 0) {
       // The after director's platform, carried off the island's after end.
@@ -1269,7 +1358,7 @@ function island(g) {
   // The short pole mast abaft the funnel, with its yard and the after signal
   // light on it: the second stick every photograph of her shows.
   {
-    const pz = FZ - 6.6;
+    const pz = Z - 15.0;
     const py = D(10.9);
     cyl(g, M.steel, 0.16, 0.26, 11.0, cx, py + 5.5, pz, 8);
     box(g, M.steel, 6.0, 0.14, 0.14, cx, py + 8.4, pz);
@@ -1283,7 +1372,7 @@ function island(g) {
   }
 
   // The flag staff at the island's truck.
-  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(17.3), Z + 3.8);   // at the truck of the island
+  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(17.3), Z + 8.0);   // at the truck of the island
 }
 
 // ---------------------------------------------------------------- weapons --
