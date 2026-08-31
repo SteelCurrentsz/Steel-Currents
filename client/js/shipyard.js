@@ -259,6 +259,9 @@ export class ShipyardScene {
     g.rotation.z = Math.sin(this.time * 0.5) * 0.012 + Math.sin(this.time * 1.13) * 0.005;
     g.rotation.x = Math.sin(this.time * 0.62 + 0.8) * 0.008;
     g.position.y = Math.sin(this.time * 0.55) * 0.55;
+    // Her lifts work while she is being looked at, which is the only way to see
+    // the hangar under the flight deck.
+    g.userData.step?.(this.time);
 
     this.floatFoam();
 

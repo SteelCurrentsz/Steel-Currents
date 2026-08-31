@@ -395,6 +395,10 @@ export class Battle {
   update(dt) {
     const ls = this.localShip;
     const settings = getSettings();
+    // A clock for whatever on a ship moves of its own accord: the carrier's
+    // lifts run off this, and it is shared so every hull in sight is on the
+    // same one rather than each keeping its own.
+    this.time = (this.time || 0) + dt;
 
     // Helm and telegraph.
     if (!this.sunk) {
@@ -529,6 +533,9 @@ export class Battle {
 
       const turrets = isSelf ? this.localShip.turrets.map((tt) => tt.angle) : s.tu;
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
+
+      // Anything on her that works itself -- a carrier's lifts, so far.
+      view.group.userData.step?.(this.time);
 
       view.wake.update(dt, x, z, h, speed, this.scene.ocean);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);

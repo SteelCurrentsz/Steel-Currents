@@ -304,11 +304,13 @@ export function buildShip(classId) {
   // talked into, and she is the one ship in the game a captain can walk round.
   if (cls.id === 'enterprise') {
     const built = buildEnterprise();
-    built.group.userData = {
+    // Keep whatever the model hung on the group -- her lifts run off
+    // userData.step -- rather than replacing it wholesale.
+    Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    };
+    });
     return {
-      group: built.group, turrets: built.turrets,
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
       length: built.length, beam: built.beam, deckY: built.deckY,
     };
   }

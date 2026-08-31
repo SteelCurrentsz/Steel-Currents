@@ -14,7 +14,7 @@ import {
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { enterpriseParts, buildEnterprise } from '../client/js/render/enterprise.js';
+import { enterpriseParts, buildEnterprise, stepLifts } from '../client/js/render/enterprise.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -1015,6 +1015,35 @@ check('the carrier\'s guns stand where her datasheet says they do', () => {
     assert.ok(t.name.startsWith('S') === (t.x < 0),
       `${t.name} is on the wrong side at x ${t.x}`);
   });
+});
+
+check('her lifts run the whole way between the two decks', () => {
+  // Three of them, and each must actually reach both ends: a lift that stops
+  // short leaves a hole in the flight deck with a platform hanging in it, and
+  // one that overruns puts an aircraft through the hangar deck.
+  const built = buildEnterprise();
+  assert.equal(built.lifts.length, 3, `${built.lifts.length} lifts built`);
+  const top = built.flightDeckY;
+  const bottom = built.deckY;
+  const seen = built.lifts.map(() => ({ hi: -Infinity, lo: Infinity }));
+  for (let t = 0; t < 120; t += 0.25) {
+    stepLifts(built.lifts, t);
+    built.lifts.forEach((l, i) => {
+      const y = l.group.position.y;
+      assert.ok(y <= top + 0.01 && y >= bottom - 0.01,
+        `lift ${i} ran to ${y.toFixed(2)}, outside ${bottom} to ${top}`);
+      seen[i].hi = Math.max(seen[i].hi, y);
+      seen[i].lo = Math.min(seen[i].lo, y);
+    });
+  }
+  seen.forEach((r, i) => {
+    assert.ok(Math.abs(r.hi - top) < 0.05, `lift ${i} never came up level with the deck`);
+    assert.ok(r.hi - r.lo > (top - bottom) * 0.85, `lift ${i} only travelled ${(r.hi - r.lo).toFixed(1)} m`);
+  });
+  // And they are staggered: never all three at the same height.
+  stepLifts(built.lifts, 0);
+  const ys = built.lifts.map((l) => +l.group.position.y.toFixed(2));
+  assert.ok(new Set(ys).size > 1, `all three lifts sit at ${ys[0]} together`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

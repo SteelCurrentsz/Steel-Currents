@@ -46,7 +46,17 @@ const M = {
   raft: new THREE.MeshLambertMaterial({ color: 0x2a2f34 }),
   // Inside the hangar, seen through the side openings: almost black.
   cave: new THREE.MeshLambertMaterial({ color: 0x171c21 }),
-  curtain: new THREE.MeshLambertMaterial({ color: 0x3b444e }),
+  // The hangar is lit, and no light in this scene reaches inside it, so its
+  // surfaces are drawn at a fixed tone rather than shaded. A Lambert surface
+  // with nothing shining on it is black, which is what made the openings read
+  // as holes cut in the side rather than as a space with a deck in it.
+  hangarDeck: new THREE.MeshBasicMaterial({ color: 0x474d55 }),
+  hangarSteel: new THREE.MeshBasicMaterial({ color: 0x565d66 }),
+  hangarDark: new THREE.MeshBasicMaterial({ color: 0x363c43 }),
+  lamp: new THREE.MeshBasicMaterial({ color: 0xd9d3bd }),
+  // Drawn flat for the same reason as the hangar behind them: a curtain in a
+  // shadowed opening that takes no light is indistinguishable from a hole.
+  curtain: new THREE.MeshBasicMaterial({ color: 0x3d454e }),
   // Deck blue 20-B: what the open steel decks were painted under Measure 21.
   deckBlue: new THREE.MeshLambertMaterial({ color: 0x39434f }),
   // Signal bunting, which is the one place on a warship in Measure 21 where
@@ -551,9 +561,12 @@ function hangarSides(g) {
       box(g, M.hull, 0.34, 1.0, len + 0.2, s * x, HTOP - 0.5, zc);
       // The frame between one bay and the next.
       box(g, M.hull, 0.38, HTOP - HANGAR, 0.85, s * x, mid, z0);
-      // The opening itself: either the dark of the hangar or a curtain in it.
-      box(g, open ? M.cave : M.curtain, 0.2, HTOP - HANGAR - 2.0,
-        len - 1.0, s * (x - 0.16), mid + 0.05, zc);
+      // The opening itself. An open bay is left open -- there is a hangar
+      // behind it to see now -- and the rest carry their curtain rolled down.
+      if (!open) {
+        box(g, M.curtain, 0.2, HTOP - HANGAR - 2.0, len - 1.0,
+          s * (x - 0.16), mid + 0.05, zc);
+      }
       if (!open) {
         // The roll the curtain winds onto, under the header.
         const r = cyl(g, M.steelDark, 0.24, 0.24, len - 1.2, s * (x - 0.3), HTOP - 1.4, zc, 8);
@@ -561,7 +574,14 @@ function hangarSides(g) {
       }
     }
     // The hangar overhead, seen from outside as the strip above the openings.
-    box(g, M.steelDark, 2 * x - 0.4, 0.3, len, 0, HTOP + 0.15, zc);
+    if (overWell(zc)) {
+      for (const s of [-1, 1]) {
+        box(g, M.steelDark, x - 0.2 - LIFT_HW, 0.3, len,
+          s * (LIFT_HW + (x - 0.2 - LIFT_HW) / 2), HTOP + 0.15, zc);
+      }
+    } else {
+      box(g, M.steelDark, 2 * x - 0.4, 0.3, len, 0, HTOP + 0.15, zc);
+    }
   }
 
   // Bulkheads closing the hangar fore and aft, with the big doors in them.
@@ -592,7 +612,14 @@ function hangarSides(g) {
     const GW = fdHalf(zc) - 0.35;
     const ang = Math.atan2(fdHalf(zb) - fdHalf(za), len);
     // The deck under it, and the side plating up to the flight deck.
-    box(g, M.steelDark, 2 * GW, 0.32, len + 0.1, 0, GALLERY, zc);
+    if (overWell(zc)) {
+      for (const s of [-1, 1]) {
+        box(g, M.steelDark, GW - LIFT_HW, 0.32, len + 0.1,
+          s * (LIFT_HW + (GW - LIFT_HW) / 2), GALLERY, zc);
+      }
+    } else {
+      box(g, M.steelDark, 2 * GW, 0.32, len + 0.1, 0, GALLERY, zc);
+    }
     for (const s of [-1, 1]) {
       box(g, M.hull, 0.3, FD - GALLERY - 0.85, len + 0.1, s * GW,
         (GALLERY + FD - 0.85) / 2 + 0.15, zc, s * ang);
@@ -621,6 +648,192 @@ function hangarSides(g) {
       }
       box(g, M.steelDark, 2 * w, 0.34, 0.44, 0, GALLERY - 0.3, z);
     }
+  }
+}
+
+// ---------------------------------------------------- inside the hangar --
+
+/**
+ * The hangar deck, which is the reason the ship exists.
+ *
+ * A hundred and ninety metres of it, five and a half clear to the overhead, and
+ * until now it was a black void behind the side openings. It is a working space:
+ * plated deck with the tie-down strips let into it, transverse girders and
+ * deckhead lights overhead, pillars taking the flight deck's weight down through
+ * it, aircraft ranged along both sides with their wings folded, and the benches,
+ * drums, crates and tractors of the people who kept them flying. All of it reads
+ * through the side openings and, when a lift is down, straight up the well.
+ */
+function hangarInterior(g) {
+  const zA = zAt(HGR_A, HANGAR) + 1.0;
+  const zF = zAt(HGR_F, HANGAR) - 1.0;
+  const at = (z) => Math.max(-1, Math.min(1, z / (LOA / 2)));
+  const half = (z) => Math.max(2, sideX(at(z)) - 0.45);
+
+  // The deck: plating with the tie-down strips down it fore and aft.
+  const N = 40;
+  for (let i = 0; i < N; i++) {
+    const z0 = zA + ((zF - zA) * i) / N;
+    const z1 = zA + ((zF - zA) * (i + 1)) / N;
+    const zc = (z0 + z1) / 2;
+    box(g, M.hangarDeck, 2 * half(zc), 0.3, z1 - z0 + 0.1, 0, HANGAR + 0.15, zc);
+  }
+  for (const dx of [-9.5, -5.5, -2.0, 2.0, 5.5, 9.5]) {
+    box(g, M.hangarDark, 0.34, 0.1, zF - zA, dx, HANGAR + 0.34, (zA + zF) / 2);
+  }
+
+  // Overhead: transverse girders on their brackets, two longitudinal beams
+  // running the length, and the deckhead lights between them.
+  const bays = 26;
+  for (let i = 0; i <= bays; i++) {
+    const z = zA + ((zF - zA) * i) / bays;
+    const w = half(z) - 0.3;
+    if (overWell(z)) {
+      for (const s of [-1, 1]) {
+        box(g, M.hangarSteel, w - LIFT_HW, 0.55, 0.4,
+          s * (LIFT_HW + (w - LIFT_HW) / 2), HTOP - 0.5, z);
+      }
+    } else {
+      box(g, M.hangarSteel, 2 * w, 0.55, 0.4, 0, HTOP - 0.5, z);
+    }
+    for (const s of [-1, 1]) {
+      const br = box(g, M.hangarSteel, 1.4, 0.3, 0.3, s * (w - 0.5), HTOP - 1.1, z);
+      br.rotation.z = -s * 0.6;
+    }
+    if (i % 2 === 1 && !overWell(z)) {
+      for (const s of [-1, 1]) box(g, M.lamp, 0.7, 0.16, 0.5, s * 4.6, HTOP - 0.85, z);
+    }
+  }
+  for (const s of [-1, 1]) {
+    box(g, M.hangarSteel, 0.4, 0.5, zF - zA, s * 7.9, HTOP - 1.0, (zA + zF) / 2);
+  }
+
+  // Pillars, carrying the flight deck down through the hangar, clear of the
+  // wells and clear of the aircraft lanes.
+  for (let i = 0; i < 13; i++) {
+    const z = zA + 6 + ((zF - zA - 12) * i) / 12;
+    if (overWell(z)) continue;
+    for (const s of [-1, 1]) {
+      box(g, M.hangarSteel, 0.42, HTOP - HANGAR - 0.4, 0.42, s * 7.9, (HANGAR + HTOP) / 2, z);
+    }
+  }
+
+  // The fire curtains: rolled divisions that shut the hangar into three.
+  for (const z of [zA + (zF - zA) * 0.34, zA + (zF - zA) * 0.68]) {
+    if (overWell(z)) continue;
+    const w = half(z) - 0.4;
+    box(g, M.hangarDark, 2 * w, 0.9, 0.28, 0, HTOP - 1.5, z);
+    for (const s of [-1, 1]) {
+      box(g, M.hangarSteel, 0.3, HTOP - HANGAR - 0.4, 0.3, s * w, (HANGAR + HTOP) / 2, z);
+    }
+  }
+
+  // Aircraft struck below, wings folded, ranged along both sides.
+  const park = [-0.80, -0.64, -0.48, -0.16, 0.02, 0.20, 0.52, 0.68, 0.84];
+  park.forEach((u, i) => {
+    const z = (zA + zF) / 2 + u * ((zF - zA) / 2);
+    if (overWell(z)) return;
+    const s = i % 2 ? 1 : -1;
+    const x = s * (half(z) - 4.6);
+    if (i % 3 === 0) dauntless(g, x, HANGAR + 0.55, z, s > 0 ? 1.45 : -1.45, true);
+    else wildcat(g, x, HANGAR + 0.5, z, s > 0 ? 1.5 : -1.5);
+  });
+
+  // The people's gear: benches and racks against the sides, drums, crates, and
+  // a pair of deck tractors.
+  for (let i = 0; i < 14; i++) {
+    const z = zA + 8 + ((zF - zA - 16) * i) / 13;
+    if (overWell(z)) continue;
+    const s = i % 2 ? 1 : -1;
+    const x = s * (half(z) - 0.9);
+    box(g, M.hangarDark, 1.3, 1.0, 3.0, x, HANGAR + 0.8, z);
+    if (i % 3 === 1) {
+      for (const dz of [-0.7, 0.7]) {
+        cyl(g, M.gunDark, 0.32, 0.32, 0.9, x - s * 1.2, HANGAR + 0.75, z + dz, 10);
+      }
+    }
+    if (i % 4 === 2) box(g, M.canvas, 1.1, 0.9, 1.6, x - s * 1.4, HANGAR + 0.75, z);
+  }
+  for (const [tz, ts] of [[zA + 22, -1], [zF - 30, 1]]) {
+    if (overWell(tz)) continue;
+    const tx = ts * 3.2;
+    box(g, M.gunDark, 1.6, 0.9, 3.0, tx, HANGAR + 0.75, tz);
+    box(g, M.gunDark, 1.3, 0.7, 1.0, tx, HANGAR + 1.5, tz - 0.6);
+    for (const dz of [-1.0, 1.0]) {
+      for (const s of [-1, 1]) {
+        cyl(g, M.wire, 0.35, 0.35, 0.3, tx + s * 0.85, HANGAR + 0.5, tz + dz, 10)
+          .rotation.z = Math.PI / 2;
+      }
+    }
+  }
+}
+
+// ------------------------------------------------------------ the lifts --
+
+/**
+ * The three lift platforms, which are the only moving thing on her but the guns.
+ *
+ * Each is its own group so the welder leaves it alone, and each carries what it
+ * is bringing up: an aircraft comes off the hangar deck, rides up the well and
+ * is on the flight deck a few seconds later. That is the whole point of the
+ * ship, and until now the elevators were three painted rectangles.
+ *
+ * @returns {Array<{group: THREE.Group, phase: number}>}
+ */
+function elevators(g) {
+  const lifts = [];
+  const zs = liftZs();
+  zs.forEach((z, i) => {
+    const lift = new THREE.Group();
+    lift.position.set(0, FD, z);
+    lift.userData.dynamic = true;
+    g.add(lift);
+    // The platform: a plated deck with its own planking over the steel.
+    box(lift, M.hullDark, 2 * LIFT_HW - 0.3, 0.5, 2 * LIFT_HW - 0.3, 0, -0.42, 0);
+    for (let k = 0; k < 14; k++) {
+      const w = (2 * LIFT_HW - 0.5) / 14;
+      box(lift, k % 3 === 1 ? M.deckDark : M.deck, w - 0.05, 0.3, 2 * LIFT_HW - 0.5,
+        -LIFT_HW + 0.25 + w * (k + 0.5), -0.15, 0);
+    }
+    // Its edge coaming, and the guide shoes that ride the rails in the trunk.
+    for (const s of [-1, 1]) {
+      box(lift, M.steelDark, 0.2, 0.35, 2 * LIFT_HW - 0.3, s * (LIFT_HW - 0.2), -0.02, 0);
+      box(lift, M.steelDark, 2 * LIFT_HW - 0.3, 0.35, 0.2, 0, -0.02, s * (LIFT_HW - 0.2));
+      for (const dz of [-LIFT_HW + 1.2, LIFT_HW - 1.2]) {
+        box(lift, M.steel, 0.4, 0.6, 0.5, s * (LIFT_HW - 0.35), -0.45, dz);
+      }
+    }
+    // Two of the three are bringing an aircraft up; the after one is empty and
+    // on its way down for the next.
+    if (i === 0) wildcat(lift, 0, 0.32, -0.4, 0.16);
+    else if (i === 1) dauntless(lift, 0, 0.36, -0.6, -0.1, true);
+    mergeStatic(lift);
+    lifts.push({ group: lift, phase: i / zs.length });
+  });
+  return lifts;
+}
+
+/**
+ * Work the lifts.
+ *
+ * A cycle is: sitting at the flight deck, down the well, sitting on the hangar
+ * deck, back up. Eased at both ends, because a lift that snaps between two
+ * heights reads as a glitch rather than as machinery, and staggered so the
+ * three of them are never doing the same thing at once.
+ */
+export function stepLifts(lifts, t) {
+  if (!lifts) return;
+  const PERIOD = 34;
+  const DROP = FD - HANGAR - 0.55;
+  for (const l of lifts) {
+    let u = ((t / PERIOD) + l.phase) % 1;
+    if (u < 0) u += 1;
+    let k = 0;                                   // 0 at the flight deck, 1 below
+    if (u < 0.36) k = 0;
+    else if (u < 0.48) k = (u - 0.36) / 0.12;
+    else if (u < 0.86) k = 1;
+    else k = 1 - (u - 0.86) / 0.14;
+    l.group.position.y = FD - DROP * (k * k * (3 - 2 * k));
   }
 }
 
@@ -724,6 +937,39 @@ function groundTackle(g) {
 
 /** Where the deck's midpoint sits: a shade forward of the ship's own midships. */
 const FD_MID = LOA * 0.012;
+
+/**
+ * The three centreline lifts.
+ *
+ * Each one is a hole through the ship: through the flight deck, through the
+ * gallery deck under it and through the hangar overhead, with a platform
+ * running up and down inside it. Everything laid across those decks has to be
+ * cut round the wells, which is why they are declared here rather than inside
+ * the deck that happens to draw them first.
+ */
+const LIFT_HW = 7.4;                 // half the well, athwartships and fore-and-aft
+const LIFT_AT = [0.34, 0.0, -0.30];  // where they sit along the flight deck
+function liftZs() { return LIFT_AT.map((u) => u * FDL + FD_MID); }
+
+/** The parts of a fore-and-aft run that are not over a well. */
+function clearOfWells(z0, z1) {
+  let spans = [[z0, z1]];
+  for (const lz of liftZs()) {
+    const a = lz - LIFT_HW;
+    const b = lz + LIFT_HW;
+    const out = [];
+    for (const [s0, s1] of spans) {
+      if (b <= s0 || a >= s1) { out.push([s0, s1]); continue; }
+      if (s0 < a - 0.01) out.push([s0, a]);
+      if (s1 > b + 0.01) out.push([b, s1]);
+    }
+    spans = out;
+  }
+  return spans;
+}
+
+/** Whether a station lies over a well at all. */
+function overWell(z) { return liftZs().some((lz) => Math.abs(z - lz) < LIFT_HW); }
 /** Deck station, -1 at the round-down to +1 at the forward edge. */
 function fdU(z) { return (z - FD_MID) / (FDL / 2); }
 const FD_TAPER_F = 0.42;       // how much width the bow end loses
@@ -778,8 +1024,13 @@ function flightDeck(g) {
     const x = -HW + (FDW * (i + 0.5)) / planks;
     const zf = fdEndF(Math.abs(x) + FDW / planks / 2);
     const za = fdEndA(Math.abs(x) + FDW / planks / 2);
-    box(g, i % 3 === 1 ? M.deckDark : M.deck, FDW / planks - 0.04, 0.34,
-      zf - za, x, FD, (zf + za) / 2);
+    const m = i % 3 === 1 ? M.deckDark : M.deck;
+    // Planks over a lift stop at the well and start again the far side of it:
+    // the hole has to be a hole, or the platform comes up through the deck.
+    const runs = Math.abs(x) < LIFT_HW ? clearOfWells(za, zf) : [[za, zf]];
+    for (const [a, b] of runs) {
+      box(g, m, FDW / planks - 0.04, 0.34, b - a, x, FD, (a + b) / 2);
+    }
   }
   // Deck edge coaming, following the outline round both ends.
   for (const s of [-1, 1]) {
@@ -813,7 +1064,15 @@ function flightDeck(g) {
     const z = (i / 13) * (FDL / 2 - 6) + LOA * 0.012;
     const t = (z / (LOA / 2));
     const w = Math.min(2 * fdHalf(z), halfBeam(t) * 2 + 4);
-    box(g, M.steelDark, w, 0.8, 0.5, 0, FD - 0.6, z);
+    if (overWell(z)) {
+      // A frame across a well would be a girder through the middle of the hole.
+      for (const s of [-1, 1]) {
+        box(g, M.steelDark, w / 2 - LIFT_HW, 0.8, 0.5,
+          s * (LIFT_HW + (w / 2 - LIFT_HW) / 2), FD - 0.6, z);
+      }
+    } else {
+      box(g, M.steelDark, w, 0.8, 0.5, 0, FD - 0.6, z);
+    }
     // The pillars stand on whatever deck is under them -- the gallery deck over
     // the hangar, the open deck beyond its ends -- so none of them hangs free.
     const foot = t > HGR_F || t < HGR_A ? sheer(Math.max(-1, Math.min(1, t))) : GALLERY;
@@ -836,18 +1095,26 @@ function flightDeck(g) {
     }
   }
 
-  // Three centreline elevators: outline, platform, and the gap round it.
-  const LIFTS = [FDL * 0.34, FDL * 0.0, -FDL * 0.3];
-  for (const lz of LIFTS) {
-    const z = lz + LOA * 0.012;
+  // The three wells: coaming round the opening in the flight deck, and the
+  // trunk that runs down from it to the hangar for the platform to move in.
+  for (const z of liftZs()) {
     for (const s of [-1, 1]) {
-      box(g, M.steelDark, 0.24, 0.4, 14.6, s * 7.3, FD + 0.16, z);
-      box(g, M.steelDark, 14.8, 0.4, 0.24, 0, FD + 0.16, z + s * 7.3);
+      box(g, M.steelDark, 0.3, 0.45, 2 * LIFT_HW + 0.6, s * LIFT_HW, FD + 0.18, z);
+      box(g, M.steelDark, 2 * LIFT_HW + 0.6, 0.45, 0.3, 0, FD + 0.18, z + s * LIFT_HW);
+      // The trunk, and the guide rails the platform runs on.
+      box(g, M.hullDark, 0.3, FD - HANGAR, 2 * LIFT_HW,
+        s * (LIFT_HW + 0.15), (FD + HANGAR) / 2, z);
+      box(g, M.hullDark, 2 * LIFT_HW + 0.6, FD - HANGAR, 0.3,
+        0, (FD + HANGAR) / 2, z + s * (LIFT_HW + 0.15));
+      for (const dz of [-LIFT_HW + 1.2, LIFT_HW - 1.2]) {
+        box(g, M.steel, 0.22, FD - HANGAR - 0.4, 0.34, s * (LIFT_HW - 0.12),
+          (FD + HANGAR) / 2, z + dz);
+      }
     }
-    // The platform, a shade proud of the deck, with its own planking.
-    for (let i = 0; i < 12; i++) {
-      box(g, i % 3 === 1 ? M.deckDark : M.deck, 14.2 / 12 - 0.05, 0.3, 14.2,
-        -7.1 + (14.2 * (i + 0.5)) / 12, FD + 0.02, z);
+    // The lift's own machinery: the sheaves over the head of the trunk.
+    for (const s of [-1, 1]) {
+      const sh = cyl(g, M.steelDark, 0.5, 0.5, 0.3, s * (LIFT_HW - 0.5), FD - 1.0, z, 12);
+      sh.rotation.z = Math.PI / 2;
     }
   }
 
@@ -1732,12 +1999,14 @@ export function enterpriseParts() {
   const g = new THREE.Group();
   buildHull(g);
   hangarSides(g);
+  hangarInterior(g);
   groundTackle(g);
   flightDeck(g);
   catwalks(g);
   island(g);
   armament(g);
   boatsAndCranes(g);
+  elevators(g);
   g.updateMatrixWorld(true);
   const parts = [];
   g.traverse((o) => {
@@ -1760,6 +2029,7 @@ export function buildEnterprise() {
   const g = new THREE.Group();
   buildHull(g);
   hangarSides(g);
+  hangarInterior(g);
   groundTackle(g);
   flightDeck(g);
   catwalks(g);
@@ -1767,9 +2037,15 @@ export function buildEnterprise() {
   armament(g);
   boatsAndCranes(g);
   airGroup(g);
+  const lifts = elevators(g);
   mergeStatic(g);
+  // The lifts run whenever anything is drawing her -- the shipyard and the
+  // battle both -- so the ship carries its own animation rather than each
+  // scene having to know she has elevators.
+  g.userData.step = (t) => stepLifts(lifts, t);
   return {
     group: g,
+    lifts,
     // In the order the sponsons were built, which is the order the datasheet
     // lists them: starboard forward pair, starboard after pair, then port.
     turrets: g.userData.turrets || [],
