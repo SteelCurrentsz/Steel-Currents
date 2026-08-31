@@ -49,6 +49,11 @@ const M = {
   curtain: new THREE.MeshLambertMaterial({ color: 0x3b444e }),
   // Deck blue 20-B: what the open steel decks were painted under Measure 21.
   deckBlue: new THREE.MeshLambertMaterial({ color: 0x39434f }),
+  // Signal bunting, which is the one place on a warship in Measure 21 where
+  // there is any colour at all -- and it is what you see first on her yardarm.
+  flagRed: new THREE.MeshLambertMaterial({ color: 0xb0392f }),
+  flagBlue: new THREE.MeshLambertMaterial({ color: 0x2f5c92 }),
+  flagGold: new THREE.MeshLambertMaterial({ color: 0xd8b452 }),
   wire: new THREE.MeshLambertMaterial({ color: 0x232a31 }),
   // Blue-grey over light grey: the 1942 scheme her aircraft wore.
   planeTop: new THREE.MeshLambertMaterial({ color: 0x33475e }),
@@ -948,8 +953,21 @@ function island(g) {
 
   // ------------------------------------------------------------ the base --
   // The island proper, standing on the flight deck and overhanging the side.
-  box(g, M.hull, W, 4.4, 25.0, cx, D(2.2), Z);
-  box(g, M.steelDark, W + 0.5, 0.3, 25.4, cx, D(4.4), Z);
+  box(g, M.hull, W, 4.0, 26.4, cx, D(2.0), Z);
+  box(g, M.steelDark, W + 0.5, 0.3, 26.8, cx, D(4.0), Z);
+  // The gallery round the foot of it, which is where her people actually walk.
+  for (const s of [-1, 1]) {
+    const gx = cx + S * s * (W / 2 + 0.9);
+    box(g, M.steelDark, 1.9, 0.16, 22.0, gx, D(4.1), Z);
+    for (const bz of [-8, -3, 2, 7]) {
+      const br = box(g, M.steelDark, 2.1, 0.16, 0.16, cx + S * s * (W / 2 + 0.6),
+        D(3.5), Z + bz);
+      br.rotation.z = -S * s * 0.5;
+    }
+    const pts = [];
+    for (let i = 0; i <= 8; i++) pts.push([cx + S * s * (W / 2 + 1.75), D(4.2), Z - 11 + i * 2.75]);
+    railing(g, pts, 1.0, 2);
+  }
   // Doors and ladders down the inboard face, where the deck crew reach it.
   for (const dz of [-9.0, -3.0, 3.0, 9.0]) {
     box(g, M.steelDark, 0.16, 2.0, 0.9, ox(-W / 2 - 0.1), D(1.0), Z + dz);
@@ -974,22 +992,25 @@ function island(g) {
   // ------------------------------------------- the second deck and its guns --
   // A platform round the island at the top of the base, carrying the 20 mm and
   // the funnel's own uptake casing, which starts here and goes all the way up.
-  box(g, M.hull, W - 0.4, 2.8, 21.0, cx, D(5.8), Z - 0.5);
-  box(g, M.steelDark, W + 3.0, 0.3, 7.0, ox(0.8), D(7.2), Z + 4.0);
+  box(g, M.hull, W - 0.4, 2.6, 22.4, cx, D(5.3), Z - 0.5);
+  box(g, M.steelDark, W + 3.0, 0.3, 7.4, ox(0.8), D(6.6), Z + 4.2);
   {
     const pts = [];
-    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(7.35), Z + 1.0 + i * 1.5]);
+    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(6.75), Z + 1.0 + i * 1.6]);
     railing(g, pts, 1.0, 2);
   }
-  for (const dz of [2.0, 6.0]) oerlikon(g, ox(W / 2 + 1.3), D(7.35), Z + dz, S * 1.4);
+  for (const dz of [1.6, 5.4]) oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
 
   // ------------------------------------------------------- the bridge decks --
   // Each stepped in from the one below it, with its window band and its wings.
+  // Lower and longer than a battleship's tower: a Yorktown's island is a
+  // wheelhouse on a box, not a pagoda, and the whole of it stands well under
+  // the height of her funnel.
   const decks = [
-    ['pilot', 7.2, 5.0, 12.0, 2.9, 3.4],   // floor, width, length, height, centre
-    ['flag', 10.1, 4.6, 10.0, 2.6, 3.0],
-    ['plot', 12.7, 4.0, 7.6, 2.4, 3.2],
-    ['sky', 15.1, 3.4, 5.4, 1.9, 3.6],
+    ['pilot', 6.6, 5.0, 13.0, 2.7, 4.0],   // floor, width, length, height, centre
+    ['flag', 9.3, 4.6, 10.6, 2.4, 3.6],
+    ['plot', 11.7, 4.0, 8.0, 2.2, 3.6],
+    ['sky', 13.9, 3.4, 5.6, 1.7, 3.8],
   ];
   for (const [name, y, w, d, h, dz] of decks) {
     const z = Z + dz;
@@ -1026,21 +1047,21 @@ function island(g) {
   // The two 24-inch signal lamps, standing on the pilot house wings.
   for (const s of [-1, 1]) {
     const wx = cx + S * s * (5.0 / 2 + 0.85);
-    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(7.2) + 0.57, Z + 6.2);
-    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(7.2) + 1.25, Z + 6.2, 12)
+    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(6.6) + 0.57, Z + 7.0);
+    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(6.6) + 1.25, Z + 7.0, 12)
       .rotation.x = Math.PI / 2;
   }
   // Flag bags on the flag bridge wings, and the halyard cleats above them.
   for (const s of [-1, 1]) {
     const wx = cx + S * s * (4.6 / 2 + 0.85);
-    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(10.1) + 0.5, Z + 0.4);
+    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(9.3) + 0.5, Z + 0.4);
   }
 
   // ------------------------------------------------------------ the funnel --
   // The uptake casing, canted a few degrees outboard so the smoke clears the
   // deck, with the cap flaring off the top of it and a grille across the mouth.
   const FZ = Z - 8.6;
-  const FY0 = 7.0;
+  const FY0 = 6.6;
   const FY1 = 16.4;
   const FH = FY1 - FY0;
   const FL = 9.2;                       // how long the casing is fore and aft
@@ -1118,7 +1139,7 @@ function island(g) {
   // Stepped on the second deck between the bridge and the funnel, so its legs
   // land on structure rather than on air.
   const mastZ = Z - 2.6;
-  const mastFoot = D(7.0);
+  const mastFoot = D(6.6);
   const mastTop = D(25.6);
   // The legs are splayed at the foot and gather at the truck -- that is what
   // makes it a tripod rather than three posts standing side by side. Each is
@@ -1136,7 +1157,7 @@ function island(g) {
   }
   // Cross bracing between the legs.
   for (const h of [9.6, 12.8, 16.0, 19.2, 22.4]) {
-    const k = 1 - (h - 7) / (25.6 - 7);
+    const k = 1 - (h - 6.6) / (25.6 - 6.6);
     box(g, M.steel, 4.6 * k + 0.5, 0.16, 0.16, cx, D(h), mastZ - 1.9 * k);
     box(g, M.steel, 0.16, 0.16, 4.5 * k + 0.5, cx, D(h), mastZ + 0.35 * k);
   }
@@ -1153,6 +1174,32 @@ function island(g) {
       const wr = box(g, M.wire, 0.05, 5.6, 0.05, cx + S * s * i * 1.7, D(18.5), mastZ);
       wr.rotation.z = -S * s * 0.15 * i;
     }
+  }
+  // A hoist of bunting on the outboard halyard. On a ship painted one colour
+  // from her boot topping to her masthead, the signal flags are the only colour
+  // there is, and at any range they are the first thing the eye finds on her.
+  {
+    const bunting = [M.flagRed, M.mark, M.flagBlue, M.flagGold, M.flagRed, M.mark, M.flagBlue];
+    const hx = cx + S * 3 * 1.7;
+    const drop = 1.05;
+    const step = 0.24;
+    // The halyard the hoist is bent onto, led from the yardarm down and out.
+    const rope = box(g, M.wire, 0.06, drop * bunting.length + 0.6, 0.06,
+      hx + S * (0.5 + step * (bunting.length - 1) / 2),
+      D(20.9) - (drop * (bunting.length - 1)) / 2 - 0.35, mastZ);
+    rope.rotation.z = -S * Math.atan2(step * (bunting.length - 1), drop * (bunting.length - 1));
+    for (let i = 0; i < bunting.length; i++) {
+      const y = D(20.9) - 0.35 - i * drop;
+      const f = box(g, bunting[i], 0.1, 0.86, 0.95, hx + S * (0.5 + i * step), y, mastZ);
+      f.rotation.z = -S * 0.45;
+      f.rotation.y = 0.12 * (i % 2 ? 1 : -1);
+    }
+  }
+  // Two more halyards led down to the flag bags on the bridge wings.
+  for (const s of [-1, 1]) {
+    const hw = box(g, M.wire, 0.05, 11.4, 0.05, cx + S * s * 2.9, D(15.4), mastZ + 1.2);
+    hw.rotation.x = -0.30;
+    hw.rotation.z = -S * s * 0.16;
   }
   // The air-search bedspring: a wide rectangular mattress of dipoles on a short
   // topmast above the truck. It is the biggest single thing on her upperworks
@@ -1194,7 +1241,7 @@ function island(g) {
   // ------------------------------------------------------- fire control --
   // Mk 37 directors with their Mk 4 antennas: one on the air plot's roof
   // looking forward, one on a platform abaft the funnel.
-  const dirs = [[D(15.1), Z + 3.2, 1], [D(11.0), FZ - 6.4, -1]];
+  const dirs = [[D(13.9), Z + 3.8, 1], [D(10.6), FZ - 6.4, -1]];
   for (const [y, z, fwd] of dirs) {
     if (fwd < 0) {
       // The after director's platform, carried off the island's after end.
@@ -1219,8 +1266,24 @@ function island(g) {
     for (const s of [-1, 1]) cyl(d, M.gun, 0.2, 0.2, 0.5, s * 1.4, 2.95, 0.2, 8).rotation.z = Math.PI / 2;
   }
 
+  // The short pole mast abaft the funnel, with its yard and the after signal
+  // light on it: the second stick every photograph of her shows.
+  {
+    const pz = FZ - 6.6;
+    const py = D(10.9);
+    cyl(g, M.steel, 0.16, 0.26, 11.0, cx, py + 5.5, pz, 8);
+    box(g, M.steel, 6.0, 0.14, 0.14, cx, py + 8.4, pz);
+    for (const s of [-1, 1]) {
+      cyl(g, M.bright, 0.26, 0.26, 0.4, cx + S * s * 2.6, py + 8.7, pz, 10)
+        .rotation.x = Math.PI / 2;
+      const st = box(g, M.wire, 0.05, 5.4, 0.05, cx + S * s * 2.2, py + 6.0, pz);
+      st.rotation.z = -S * s * 0.16;
+    }
+    cyl(g, M.steel, 0.1, 0.14, 3.0, cx, py + 12.2, pz, 6);
+  }
+
   // The flag staff at the island's truck.
-  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(18.7), Z + 3.6);   // at the truck of the island
+  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(17.3), Z + 3.8);   // at the truck of the island
 }
 
 // ---------------------------------------------------------------- weapons --
@@ -1343,13 +1406,30 @@ function armament(g) {
     box(g, M.steelDark, 1.6, 1.4, 2.2, x + s * 3.2, gy + 0.85, z);
   }
 
-  // Four quad Bofors in tubs: two forward on the bow gallery, two aft.
-  const forty = [[1, LOA * 0.42], [-1, LOA * 0.42], [1, -LOA * 0.41], [-1, -LOA * 0.40]];
+  // Eight quad Bofors in their tubs: a pair right forward on the bow gallery,
+  // where a Yorktown was blindest and where they were the first thing added; a
+  // pair behind them; two on the starboard side abaft the island, hung out over
+  // the deck edge on their own sponsons; and two aft.
+  const forty = [
+    [1, LOA * 0.455], [-1, LOA * 0.455],
+    [1, LOA * 0.40], [-1, LOA * 0.40],
+    [-1, -LOA * 0.005], [-1, -LOA * 0.055],
+    [1, -LOA * 0.41], [-1, -LOA * 0.40],
+  ];
   for (const [s, z] of forty) {
     const x = s * (Math.min(fdHalf(z) + 0.4, halfBeam(z / (LOA / 2)) + 3.4));
+    // The sponson it stands on, carried off the gallery deck on brackets.
+    box(g, M.steelDark, 6.0, 0.3, 6.0, x, gy + 0.6, z);
+    for (const dz of [-2.0, 2.0]) {
+      const br = box(g, M.steelDark, 3.2, 0.2, 0.2, x - s * 1.4, gy - 0.1, z + dz);
+      br.rotation.z = s * 0.5;
+    }
     tub(g, 3.0, 1.2, x, gy + 0.6, z, 14);
-    box(g, M.steelDark, 5.6, 0.3, 5.6, x, gy + 0.6, z);
     bofors(g, x, gy + 0.72, z, z > 0 ? 0 : Math.PI);
+    // Ready-service lockers round the inboard side of the tub.
+    for (const dz of [-2.2, 2.2]) {
+      box(g, M.steelDark, 1.1, 1.0, 1.4, x - s * 2.6, gy + 1.1, z + dz);
+    }
   }
 
   // Oerlikons down both catwalks, in their own shields.
@@ -1359,6 +1439,7 @@ function armament(g) {
       const z = t * (FDL / 2 - 12) + LOA * 0.012;
       // Not where the five-inch sponsons already are.
       if (sponsons.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 8)) continue;
+      if (forty.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 6)) continue;
       oerlikon(g, s * (fdHalf(z) + 1.4), FD - 1.83, z, s > 0 ? 1.5 : -1.5);
     }
   }
