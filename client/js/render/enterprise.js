@@ -285,7 +285,12 @@ function loftBand(g, m, lo, hi, opts = {}) {
     for (let j = 0; j < row - 1; j++) {
       const a = i * row + j;
       const b = (i + 1) * row + j;
-      idx.push(a, a + 1, b + 1, a, b + 1, b);
+      // Wound so the shell looks outboard. The ring runs up the port side and
+      // back down the starboard, so getting this the wrong way round turns the
+      // whole hull inside out at once: both sides get culled, and what you see
+      // of her is the inside of the far side showing through the near one --
+      // which reads as a ship with only one side to her.
+      idx.push(a, b + 1, a + 1, a, b, b + 1);
     }
   }
   if (cap) {
@@ -320,8 +325,11 @@ function buildHull(g) {
   // rises above a strake, at the forefoot and under the counter, that strake
   // simply runs out. Clamping the bands to each other is what keeps the bottom
   // paint in the water where it belongs.
-  const BOOT_LO = -1.2;
-  const BOOT_HI = 0.6;
+  // Deep, because a carrier's draft moves a long way between full bunkers and
+  // empty and because she is looked at from close aboard in a seaway: a shallow
+  // boot topping puts bottom paint above the water on every other wave.
+  const BOOT_LO = -2.2;
+  const BOOT_HI = 0.7;
   const atLeast = (v) => (t) => Math.max(keelY(t), v);
   loftBand(g, M.antifoul, keelY, atLeast(BOOT_LO), { M: 7 });
   loftBand(g, M.boot, atLeast(BOOT_LO), atLeast(BOOT_HI), { M: 2 });
@@ -841,10 +849,19 @@ function catwalks(g) {
 /**
  * The island: small, on the starboard side, with the funnel built into it.
  *
- * A Yorktown's island is about a tenth of the deck's length and hangs over the
- * side, so the flight deck loses almost nothing to it. Pilot house, navigating
- * bridge, flag bridge, air plot, the funnel aft of them all, and a tripod mast
- * carrying the air-search aerial.
+ * A Yorktown's island is about a tenth of the deck's length and five metres
+ * wide, and it is one structure, not a bridge with a chimney beside it: the
+ * uptakes come up through it and the funnel is its after end, canted a few
+ * degrees outboard so the smoke clears the deck. Everything on it is stepped in
+ * from the level below, which is what gives it its profile, and everything
+ * stands on the level below -- there is nothing on a warship that is not bolted
+ * to something.
+ *
+ * Bottom to top: the base at flight-deck level with its doors and ready
+ * lockers, the pilot house, the flag bridge, air plot, sky control; the tripod
+ * mast between the bridge and the funnel; the funnel with its cap, grille,
+ * steam pipes and siren; searchlight platforms either side of it; Mk 37
+ * directors fore and aft; and 20 mm galleries wherever there was room.
  */
 function island(g) {
   // Starboard, which in this frame is negative x: the bow is +z and up is +y,
@@ -857,106 +874,245 @@ function island(g) {
   const Z = LOA * 0.06;
   const W = 5.6;
   const cx = X + S * (W / 2);
+  /** Athwartships, in island terms: outboard is positive. */
+  const ox = (d) => cx + S * d;
+  /** A level's floor, as a height above the water. */
+  const D = (h) => FD + h;
 
-  // The base structure, standing on the flight deck and overhanging the side.
-  box(g, M.hull, W, 4.2, 26, cx, FD + 2.3, Z);
-  box(g, M.hull, W + 1.4, 3.4, 22, cx + S * 0.4, FD + 5.9, Z + 1);
-  // Bridge levels, each stepped in, with their windows.
-  const decks = [
-    [FD + 7.9, 5.0, 15.0, 2.6],   // navigating bridge
-    [FD + 10.6, 4.6, 12.0, 2.4],  // flag bridge
-    [FD + 13.0, 4.0, 8.6, 2.2],   // air plot
-    [FD + 15.2, 3.4, 6.0, 2.0],   // sky control
-  ];
-  for (const [y, w, d, h] of decks) {
-    box(g, M.hull, w, h, d, cx, y + h / 2, Z + 2);
-    // The window band, and the wing bridges either side of it.
-    box(g, M.glass, w + 0.12, h * 0.34, d * 0.92, cx, y + h * 0.62, Z + 2);
+  // ------------------------------------------------------------ the base --
+  // The island proper, standing on the flight deck and overhanging the side.
+  box(g, M.hull, W, 4.4, 25.0, cx, D(2.2), Z);
+  box(g, M.steelDark, W + 0.5, 0.3, 25.4, cx, D(4.4), Z);
+  // Doors and ladders down the inboard face, where the deck crew reach it.
+  for (const dz of [-9.0, -3.0, 3.0, 9.0]) {
+    box(g, M.steelDark, 0.16, 2.0, 0.9, ox(-W / 2 - 0.1), D(1.0), Z + dz);
+  }
+  for (const dz of [-10.5, 7.5]) {
+    for (let i = 0; i < 7; i++) {
+      box(g, M.steel, 0.5, 0.08, 0.1, ox(-W / 2 - 0.24), D(0.4 + i * 0.6), Z + dz);
+    }
     for (const s of [-1, 1]) {
-      box(g, M.steelDark, 1.6, 0.12, d * 0.7, cx + S * s * (w / 2 + 0.7), y + 0.06, Z + 2);
+      box(g, M.steel, 0.1, 4.4, 0.1, ox(-W / 2 - 0.24), D(2.2), Z + dz + s * 0.25);
+    }
+  }
+  // Ready-service lockers and life rafts stowed against the outboard face.
+  for (const dz of [-7.5, -1.5, 4.5]) {
+    box(g, M.steelDark, 1.1, 1.3, 2.6, ox(W / 2 + 0.55), D(0.65), Z + dz);
+  }
+  for (const dz of [-11.0, 8.5]) {
+    const r = cyl(g, M.raft, 0.34, 0.34, 2.4, ox(W / 2 + 0.35), D(2.6), Z + dz, 8);
+    r.rotation.x = Math.PI / 2;
+  }
+
+  // ------------------------------------------- the second deck and its guns --
+  // A platform round the island at the top of the base, carrying the 20 mm and
+  // the funnel's own uptake casing, which starts here and goes all the way up.
+  box(g, M.hull, W - 0.4, 2.8, 21.0, cx, D(5.8), Z - 0.5);
+  box(g, M.steelDark, W + 2.6, 0.3, 9.0, ox(0.9), D(7.2), Z - 7.0);
+  {
+    const pts = [];
+    for (let i = 0; i <= 5; i++) pts.push([ox(W / 2 + 1.9), D(7.35), Z - 11.2 + i * 1.7]);
+    railing(g, pts, 1.0, 2);
+  }
+  for (const dz of [-9.6, -5.4]) oerlikon(g, ox(W / 2 + 1.3), D(7.35), Z + dz, S * 1.4);
+
+  // ------------------------------------------------------- the bridge decks --
+  // Each stepped in from the one below it, with its window band and its wings.
+  const decks = [
+    ['pilot', 7.2, 5.0, 12.0, 2.9, 3.4],   // floor, width, length, height, centre
+    ['flag', 10.1, 4.6, 10.0, 2.6, 3.0],
+    ['plot', 12.7, 4.0, 7.6, 2.4, 3.2],
+    ['sky', 15.1, 3.4, 5.4, 1.9, 3.6],
+  ];
+  for (const [name, y, w, d, h, dz] of decks) {
+    const z = Z + dz;
+    box(g, M.hull, w, h, d, cx, D(y) + h / 2, z);
+    box(g, M.steelDark, w + 0.5, 0.28, d + 0.5, cx, D(y + h) + 0.14, z);
+    if (name !== 'sky') {
+      // The window band runs round three sides of a pilot house.
+      box(g, M.glass, w + 0.14, h * 0.36, d * 0.9, cx, D(y) + h * 0.66, z);
+      box(g, M.glass, w * 0.86, h * 0.36, d + 0.14, cx, D(y) + h * 0.66, z);
+    } else {
+      // Sky control is open, behind a splinter bulwark.
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        box(g, M.steel, 0.9, 1.2, 0.18, cx + Math.sin(a) * (w / 2), D(y) + 0.6,
+          z + Math.cos(a) * (d / 2), a);
+      }
+    }
+    // Wing bridges: a platform out each side on its brackets, with a rail.
+    for (const s of [-1, 1]) {
+      const wx = cx + S * s * (w / 2 + 0.85);
+      box(g, M.steelDark, 1.8, 0.14, d * 0.72, wx, D(y) + 0.07, z);
+      for (const bz of [-d * 0.28, d * 0.28]) {
+        const br = box(g, M.steelDark, 2.0, 0.16, 0.16, cx + S * s * (w / 2 + 0.6),
+          D(y) - 0.5, z + bz);
+        br.rotation.z = -S * s * 0.45;
+      }
       const pts = [];
       for (let i = 0; i <= 4; i++) {
-        pts.push([cx + S * s * (w / 2 + 1.4), y + 0.1, Z + 2 - d * 0.35 + (i * d * 0.7) / 4]);
+        pts.push([cx + S * s * (w / 2 + 1.65), D(y) + 0.12, z - d * 0.36 + (i * d * 0.72) / 4]);
       }
       railing(g, pts, 1.0, 2);
     }
   }
-
-  // The funnel: rectangular, faired into the island's after end, with its cap
-  // and the steam pipes up the back of it.
-  box(g, M.hull, W + 0.8, 13.5, 8.4, cx, FD + 9.5, Z - 8.2);
-  box(g, M.steelDark, W + 1.2, 0.9, 8.8, cx, FD + 16.4, Z - 8.2);
+  // The two 24-inch signal lamps, standing on the pilot house wings.
   for (const s of [-1, 1]) {
-    cyl(g, M.steelDark, 0.34, 0.34, 5.0, cx + S * s * 1.7, FD + 18.6, Z - 8.2, 8);
-  }
-  // The uptake casing forward of the funnel, and the searchlight platform on it.
-  box(g, M.hull, W - 0.6, 2.6, 4.0, cx, FD + 17.9, Z - 4.6);
-  for (const s of [-1, 1]) {
-    cyl(g, M.bright, 0.75, 0.75, 1.1, cx + S * s * 1.6, FD + 19.8, Z - 4.6, 12)
+    const wx = cx + S * s * (5.0 / 2 + 0.85);
+    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(7.2) + 0.57, Z + 6.2);
+    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(7.2) + 1.25, Z + 6.2, 12)
       .rotation.x = Math.PI / 2;
   }
-
-  // The tripod mast, its yards, and the air-search aerial on top: an SC bedstead
-  // and, on the yard below it, the SG surface-search dish in its housing.
-  const mastY = FD + 17.0;
-  const mastZ = Z + 1.0;
-  for (const [dx, dz] of [[0, 1.6], [-1.5, -1.1], [1.5, -1.1]]) {
-    const leg = cyl(g, M.steel, 0.22, 0.3, 15.5, cx + S * dx, mastY + 7.7, mastZ + dz, 8);
-    leg.rotation.x = -dz * 0.02;
-    leg.rotation.z = dx * 0.02;
-  }
-  for (const y of [mastY + 4, mastY + 9, mastY + 13]) {
-    box(g, M.steel, 3.4, 0.12, 0.12, cx, y, mastZ);
-    box(g, M.steel, 0.12, 0.12, 3.0, cx, y, mastZ);
-  }
-  // Signal yard with its halyards.
-  box(g, M.steel, 11.0, 0.16, 0.16, cx, mastY + 11.5, mastZ);
+  // Flag bags on the flag bridge wings, and the halyard cleats above them.
   for (const s of [-1, 1]) {
-    for (let i = 1; i <= 3; i++) {
-      const wr = box(g, M.wire, 0.05, 6.0, 0.05, cx + S * s * i * 1.7, mastY + 8.5, mastZ);
-      wr.rotation.z = -s * 0.14 * i;
+    const wx = cx + S * s * (4.6 / 2 + 0.85);
+    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(10.1) + 0.5, Z + 0.4);
+  }
+
+  // ------------------------------------------------------------ the funnel --
+  // The uptake casing, canted a few degrees outboard so the smoke clears the
+  // deck, with the cap flaring off the top of it and a grille across the mouth.
+  const FZ = Z - 8.4;
+  const FY0 = 7.0;
+  const FY1 = 17.4;
+  const fun = new THREE.Group();
+  fun.position.set(ox(0.35), D((FY0 + FY1) / 2), FZ);
+  fun.rotation.z = -S * 0.055;
+  g.add(fun);
+  box(fun, M.hull, W + 0.5, FY1 - FY0, 8.6, 0, 0, 0);
+  // Corner strakes, so it reads as plating rather than a solid.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      box(fun, M.hullDark, 0.3, FY1 - FY0, 0.3,
+        sx * (W + 0.5) / 2, 0, sz * 4.3);
     }
   }
-  // SC air-search: a flat bedstead array of dipoles, on a platform at the truck
-  // spanning all three legs -- which is what it stands on, so it has to reach
-  // them both ways.
-  box(g, M.steel, 3.6, 0.6, 4.4, cx, mastY + 14.6, mastZ);
+  // The cap: a flared collar and the grille of bars across the mouth.
+  box(fun, M.steelDark, W + 1.5, 0.55, 9.6, 0, (FY1 - FY0) / 2 + 0.28, 0);
+  box(fun, M.hullDark, W + 1.0, 0.5, 9.0, 0, (FY1 - FY0) / 2 + 0.85, 0);
+  for (let i = 0; i < 7; i++) {
+    box(fun, M.steelDark, 0.16, 0.35, 8.4,
+      -(W - 0.6) / 2 + (i * (W - 0.6)) / 6, (FY1 - FY0) / 2 + 1.05, 0);
+  }
+  box(fun, M.cave, W - 0.4, 0.3, 8.0, 0, (FY1 - FY0) / 2 + 0.72, 0);
+  // Steam pipes up the after face, and the siren on the forward one.
+  for (const s of [-1, 1]) {
+    const pp = cyl(fun, M.steelDark, 0.26, 0.26, FY1 - FY0 + 2.6,
+      s * 1.5, 1.3, -4.5, 8);
+    box(fun, M.steelDark, 0.5, 0.4, 0.5, s * 1.5, (FY1 - FY0) / 2 + 1.5, -4.5);
+    pp.rotation.x = 0;
+  }
+  for (const s of [-1, 1]) {
+    cyl(fun, M.bright, 0.34, 0.44, 0.9, s * 0.9, (FY1 - FY0) / 2 - 1.6, 4.5, 10)
+      .rotation.x = Math.PI / 2;
+  }
+  // Searchlight platforms either side of the funnel, on their brackets.
+  for (const s of [-1, 1]) {
+    const px = cx + S * s * (W / 2 + 1.9);
+    box(g, M.steelDark, 3.4, 0.28, 4.4, px, D(12.4), FZ + 0.6);
+    for (const bz of [-1.4, 1.4]) {
+      const br = box(g, M.steelDark, 3.0, 0.18, 0.18, cx + S * s * (W / 2 + 1.1),
+        D(11.7), FZ + 0.6 + bz);
+      br.rotation.z = -S * s * 0.5;
+    }
+    cyl(g, M.bright, 0.78, 0.78, 1.2, px, D(13.3), FZ + 0.6, 14).rotation.x = Math.PI / 2;
+    box(g, M.steelDark, 0.5, 1.0, 0.5, px, D(12.9), FZ + 0.6);
+    const pts = [];
+    for (let i = 0; i <= 3; i++) pts.push([px + S * s * 1.6, D(12.55), FZ - 1.4 + i * 1.4]);
+    railing(g, pts, 1.0, 2);
+  }
+
+  // -------------------------------------------------------- the tripod mast --
+  // Stepped on the second deck between the bridge and the funnel, so its legs
+  // land on structure rather than on air.
+  const mastZ = Z - 2.6;
+  const mastFoot = D(7.0);
+  const mastTop = D(25.6);
+  // The legs are splayed at the foot and gather at the truck -- that is what
+  // makes it a tripod rather than three posts standing side by side. Each is
+  // lofted between the two points it actually runs between, so it leans the
+  // way it should instead of leaning outwards as it rises.
+  for (const [dx, dz] of [[0, 2.6], [-2.3, -1.9], [2.3, -1.9]]) {
+    const x0 = cx + S * dx;
+    const z0 = mastZ + dz;
+    const rise = mastTop - mastFoot;
+    const len = Math.hypot(cx - x0, rise, mastZ - z0);
+    const leg = cyl(g, M.steel, 0.2, 0.34, len,
+      (x0 + cx) / 2, (mastFoot + mastTop) / 2, (z0 + mastZ) / 2, 8);
+    leg.rotation.x = Math.atan2(mastZ - z0, rise);
+    leg.rotation.z = Math.atan2(x0 - cx, rise);
+  }
+  // Cross bracing between the legs.
+  for (const h of [9.6, 12.8, 16.0, 19.2, 22.4]) {
+    const k = 1 - (h - 7) / (25.6 - 7);
+    box(g, M.steel, 4.6 * k + 0.5, 0.16, 0.16, cx, D(h), mastZ - 1.9 * k);
+    box(g, M.steel, 0.16, 0.16, 4.5 * k + 0.5, cx, D(h), mastZ + 0.35 * k);
+  }
+  // The lookout's platform, and the signal yard with its halyards.
+  box(g, M.steelDark, 3.4, 0.2, 3.0, cx, D(17.6), mastZ);
+  {
+    const pts = [];
+    for (let i = 0; i <= 4; i++) pts.push([ox(1.5), D(17.7), mastZ - 1.4 + i * 0.7]);
+    railing(g, pts, 1.0, 2);
+  }
+  box(g, M.steel, 11.0, 0.18, 0.18, cx, D(21.2), mastZ);
+  for (const s of [-1, 1]) {
+    for (let i = 1; i <= 3; i++) {
+      const wr = box(g, M.wire, 0.05, 5.6, 0.05, cx + S * s * i * 1.7, D(18.5), mastZ);
+      wr.rotation.z = -S * s * 0.15 * i;
+    }
+  }
+  // SC air-search: the bedstead array on a platform spanning all three legs.
+  box(g, M.steel, 2.6, 0.6, 2.8, cx, D(24.6), mastZ);
   const sc = new THREE.Group();
-  sc.position.set(cx, mastY + 14.9, mastZ);
+  sc.position.set(cx, D(24.9), mastZ);
   g.add(sc);
-  box(sc, M.steel, 4.6, 0.14, 0.3, 0, 0, 0);
-  box(sc, M.steel, 4.6, 0.14, 0.3, 0, 1.5, 0);
+  box(sc, M.steel, 4.8, 0.16, 0.32, 0, 0, 0);
+  box(sc, M.steel, 4.8, 0.16, 0.32, 0, 1.6, 0);
   for (let i = 0; i < 9; i++) {
-    box(sc, M.steel, 0.1, 1.6, 0.1, -2.1 + i * 0.525, 0.75, 0);
-    box(sc, M.steel, 0.08, 0.08, 0.9, -2.1 + i * 0.525, 0.75, 0.35);
+    box(sc, M.steel, 0.1, 1.7, 0.1, -2.2 + i * 0.55, 0.8, 0);
+    box(sc, M.steel, 0.08, 0.08, 0.95, -2.2 + i * 0.55, 0.8, 0.37);
   }
   // SG surface-search in its cheese housing, on the starboard yardarm.
-  const sg = cyl(g, M.steel, 0.9, 0.9, 0.5, cx + S * 2.2, mastY + 13.4, mastZ, 14);
+  const sg = cyl(g, M.steel, 0.95, 0.95, 0.55, ox(2.4), D(22.8), mastZ, 14);
   sg.rotation.x = Math.PI / 2;
-  box(g, M.steel, 0.3, 1.9, 0.2, cx + S * 2.2, mastY + 13.4, mastZ - 0.3);
+  box(g, M.steel, 0.32, 2.0, 0.22, ox(2.4), D(21.9), mastZ);
+  // Whip aerials down the outboard side of the island, hinged out.
+  for (const dz of [-12.0, -6.0, 6.0, 11.0]) {
+    const w = cyl(g, M.wire, 0.05, 0.09, 6.0, ox(W / 2 + 0.3), D(6.6), Z + dz, 6);
+    w.rotation.z = S * 0.35;
+  }
 
-  // Mk 37 director with its Mk 4 antenna, forward and aft of the island.
-  for (const dz of [7.5, -13.5]) {
+  // ------------------------------------------------------- fire control --
+  // Mk 37 directors with their Mk 4 antennas: one on the air plot's roof
+  // looking forward, one on a platform abaft the funnel.
+  const dirs = [[D(15.1), Z + 3.2, 1], [D(11.0), FZ - 6.4, -1]];
+  for (const [y, z, fwd] of dirs) {
+    if (fwd < 0) {
+      // The after director's platform, carried off the island's after end.
+      box(g, M.steelDark, 5.4, 0.3, 5.0, cx, y - 0.15, z);
+      for (const s of [-1, 1]) {
+        const br = box(g, M.steelDark, 2.6, 0.18, 0.18, cx + S * s * 1.6, y - 0.9, z);
+        br.rotation.z = -S * s * 0.5;
+      }
+      box(g, M.hull, 3.2, 3.6, 5.6, cx, y - 1.9, z + 1.9);
+    }
     const d = new THREE.Group();
-    d.position.set(cx, FD + (dz > 0 ? 13.0 : 17.4), Z + dz);
+    d.position.set(cx, y, z);
+    d.rotation.y = fwd > 0 ? 0 : Math.PI;
     g.add(d);
-    cyl(d, M.gun, 1.5, 1.7, 1.0, 0, 0, 0, 14);
-    box(d, M.gun, 3.0, 1.8, 3.4, 0, 1.4, 0);
-    box(d, M.gunDark, 3.1, 0.5, 0.2, 0, 1.9, 1.7);
+    cyl(d, M.gun, 1.55, 1.75, 1.0, 0, 0.5, 0, 14);
+    box(d, M.gun, 3.0, 1.9, 3.4, 0, 1.95, 0);
+    box(d, M.gunDark, 3.1, 0.5, 0.2, 0, 2.5, 1.7);
+    box(d, M.glass, 2.2, 0.4, 0.16, 0, 2.2, 1.75);
     // The Mk 4 mattress on its trunnions.
-    box(d, M.steel, 2.6, 1.9, 0.16, 0, 3.0, 0.2);
-    for (let i = 0; i < 5; i++) box(d, M.steel, 0.08, 0.08, 0.5, -1.0 + i * 0.5, 3.0, 0.45);
-    for (const s of [-1, 1]) cyl(d, M.gun, 0.2, 0.2, 0.5, s * 1.4, 2.4, 0.2, 8).rotation.z = Math.PI / 2;
+    box(d, M.steel, 2.6, 1.9, 0.16, 0, 3.55, 0.2);
+    for (let i = 0; i < 5; i++) box(d, M.steel, 0.08, 0.08, 0.5, -1.0 + i * 0.5, 3.55, 0.45);
+    for (const s of [-1, 1]) cyl(d, M.gun, 0.2, 0.2, 0.5, s * 1.4, 2.95, 0.2, 8).rotation.z = Math.PI / 2;
   }
 
-  // The flag staff at the island's truck, and the two 24-inch signal lamps
-  // standing on the navigating bridge's wings where their crews could reach.
-  box(g, M.steel, 0.12, 3.2, 0.12, cx, FD + 18.6, Z + 2);
-  for (const s of [-1, 1]) {
-    cyl(g, M.bright, 0.42, 0.42, 0.6, cx + S * s * 3.2, FD + 8.4, Z + 4.6, 12)
-      .rotation.x = Math.PI / 2;
-    box(g, M.steelDark, 0.24, 0.9, 0.24, cx + S * s * 3.2, FD + 7.7, Z + 4.6);
-  }
+  // The flag staff at the island's truck.
+  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(18.7), Z + 3.6);   // at the truck of the island
 }
 
 // ---------------------------------------------------------------- weapons --
@@ -1113,8 +1269,11 @@ function boatsAndCranes(g) {
   const boom = cyl(g, M.steel, 0.3, 0.42, 15.0, kx - 4.5, HANGAR + 8.6, kz + 1.0, 10);
   boom.rotation.z = 1.05;
   boom.rotation.y = 0.25;
-  tubeZ(g, M.wire, 0.05, 8.0, kx - 8.6, HANGAR + 6.4, kz + 2.2, 6).rotation.x = 0.1;
-  box(g, M.steelDark, 0.6, 0.8, 0.6, kx - 8.6, HANGAR + 2.6, kz + 2.2);
+  // The fall hangs straight down off the boom head, with the hook block on it.
+  box(g, M.wire, 0.06, 7.6, 0.06, kx - 8.6, HANGAR + 6.4, kz + 2.2);
+  box(g, M.steelDark, 0.6, 0.8, 0.6, kx - 8.6, HANGAR + 2.4, kz + 2.2);
+  cyl(g, M.steelDark, 0.42, 0.42, 0.24, kx - 8.6, HANGAR + 2.9, kz + 2.2, 10)
+    .rotation.z = Math.PI / 2;
 
   // Boats in their davits under the flight deck overhang, both sides: two motor
   // whaleboats and a pair of forty-foot utility boats.
@@ -1303,8 +1462,15 @@ export function enterpriseParts() {
   g.traverse((o) => {
     if (!o.isMesh || !o.geometry) return;
     o.geometry.computeBoundingBox();
-    const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
-    parts.push({ min: [bb.min.x, bb.min.y, bb.min.z], max: [bb.max.x, bb.max.y, bb.max.z] });
+    const lb = o.geometry.boundingBox;
+    const bb = lb.clone().applyMatrix4(o.matrixWorld);
+    parts.push({
+      min: [bb.min.x, bb.min.y, bb.min.z],
+      max: [bb.max.x, bb.max.y, bb.max.z],
+      // Its own size, before it was turned: a gun barrel laid at forty degrees
+      // has a fat axis-aligned box and is still a stick.
+      size: [lb.max.x - lb.min.x, lb.max.y - lb.min.y, lb.max.z - lb.min.z],
+    });
   });
   return parts;
 }

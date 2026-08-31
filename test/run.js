@@ -14,7 +14,8 @@ import {
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { enterpriseParts } from '../client/js/render/enterprise.js';
+import { enterpriseParts, buildEnterprise } from '../client/js/render/enterprise.js';
+import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -890,6 +891,34 @@ check('the carrier is one connected ship, with nothing left in mid-air', () => {
     }
   }
   assert.equal(bodies.size, 1, `${bodies.size - 1} piece(s) adrift, one at ${JSON.stringify(adrift)}`);
+  // Touching is not the same as being attached. A funnel resting a four-
+  // centimetre corner against a mast leg passes the weld above and still hangs
+  // in the air to look at, so every piece must also share a real face with
+  // something: their boxes must meet in all three axes and overlap by more than
+  // half the smaller piece in at least two of them. A stick -- a barrel, a
+  // yardarm, a wire -- is a projection by nature and needs only one, judged on
+  // its own size rather than the fat box a tilted stick casts on the axes.
+  const span = (q, i) => q.max[i] - q.min[i];
+  const stick = (q) => {
+    const d = [...q.size].sort((x, y) => y - x);
+    return d[0] > 3.5 * d[1];
+  };
+  const faces = (q, r) => {
+    let solid = 0;
+    for (let i = 0; i < 3; i++) {
+      const o = Math.min(q.max[i], r.max[i]) - Math.max(q.min[i], r.min[i]);
+      if (o < -EPS) return 0;
+      if (o >= 0.5 * Math.min(span(q, i), span(r, i)) - EPS) solid++;
+    }
+    return solid;
+  };
+  const loose = [];
+  for (const q of parts) {
+    const want = stick(q) ? 1 : 2;
+    if (!parts.some((r) => r !== q && faces(q, r) >= want)) loose.push(q);
+  }
+  assert.equal(loose.length, 0, `${loose.length} piece(s) hanging in the air, `
+    + `first at ${JSON.stringify(loose[0] && loose[0].min.map((v) => Math.round(v * 10) / 10))}`);
   // And she must be the right way round: the island goes to starboard, which
   // with the bow at +z and up at +y is negative x.
   let islandX = 0;
@@ -898,6 +927,58 @@ check('the carrier is one connected ship, with nothing left in mid-air', () => {
     if (q.max[1] > top) { top = q.max[1]; islandX = (q.min[0] + q.max[0]) / 2; }
   }
   assert.ok(islandX < -5, `the island should stand to starboard, not at x ${islandX.toFixed(1)}`);
+});
+
+check('both sides of her hull face outboard', () => {
+  // The shell is lofted as a ring: up the port side and back down the starboard.
+  // Wind it the wrong way and every face on both sides looks inboard, gets
+  // culled, and what you see of the ship is the inside of her far side showing
+  // through the near one -- a hull with only one side to it. Fire rays at her
+  // from all round and every one must land on a face looking back.
+  const built = buildEnterprise();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    // The raycaster culls back faces exactly the way the renderer does, so on an
+    // inside-out hull it would skip the near side and report the far side's
+    // inner face pointing helpfully back at us. This throwaway copy is made
+    // double-sided so the ray reports the first surface it actually meets.
+    o.material = o.material.clone();
+    o.material.side = THREE.DoubleSide;
+    meshes.push(o);
+  });
+  const ray = new THREE.Raycaster();
+  const normal = new THREE.Matrix3();
+  let hits = 0;
+  const backs = [];
+  // Athwartships at every height there is ship at: the underwater body, the
+  // topsides, the hangar and the gallery deck. Then straight down, which is how
+  // a deck wound the wrong way up shows itself.
+  const shots = [];
+  for (const side of [-1, 1]) {
+    for (let zi = -8; zi <= 8; zi++) {
+      for (const y of [-5, -2, 0, 3, 6, 9, 11, 15]) {
+        shots.push([[side * 70, y, (zi / 10) * 112], [-side, 0, 0]]);
+      }
+    }
+  }
+  for (let zi = -8; zi <= 8; zi++) {
+    for (const x of [-9, -3, 3, 9]) shots.push([[x, 60, (zi / 10) * 112], [0, -1, 0]]);
+  }
+  for (const [from, d] of shots) {
+    const dir = new THREE.Vector3(d[0], d[1], d[2]);
+    ray.set(new THREE.Vector3(from[0], from[1], from[2]), dir);
+    const got = ray.intersectObjects(meshes, false);
+    if (!got.length || !got[0].face) continue;
+    hits++;
+    const n = got[0].face.normal.clone()
+      .applyMatrix3(normal.getNormalMatrix(got[0].object.matrixWorld)).normalize();
+    if (n.dot(dir) > 0) backs.push(from.map((v) => Math.round(v)));
+  }
+  assert.ok(hits > 100, `only ${hits} rays found her at all`);
+  assert.equal(backs.length, 0,
+    `${backs.length} of ${hits} rays landed on an inside-out face, first from ${JSON.stringify(backs[0])}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
