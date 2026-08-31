@@ -951,6 +951,7 @@ check('both sides of her hull face outboard', () => {
   const ray = new THREE.Raycaster();
   const normal = new THREE.Matrix3();
   let hits = 0;
+  let ends = 0;
   const backs = [];
   // Athwartships at every height there is ship at: the underwater body, the
   // topsides, the hangar and the gallery deck. Then straight down, which is how
@@ -966,17 +967,30 @@ check('both sides of her hull face outboard', () => {
   for (let zi = -8; zi <= 8; zi++) {
     for (const x of [-9, -3, 3, 9]) shots.push([[x, 60, (zi / 10) * 112], [0, -1, 0]]);
   }
+  // And straight down the centreline at both ends. The shell is lofted as a
+  // ring per station, so the first and last rings are open edges: without a cap
+  // there is a slot up the stem and the transom is a hole. A ray fired at
+  // either end must find plating, and it must be plating facing the ray.
+  for (const y of [-2, 0, 2, 5, 8]) {
+    shots.push([[0, y, 190], [0, 0, -1]]);
+    shots.push([[0, y, -190], [0, 0, 1]]);
+    shots.push([[1.2, y, 190], [0, 0, -1]]);
+    shots.push([[-1.2, y, -190], [0, 0, 1]]);
+  }
   for (const [from, d] of shots) {
     const dir = new THREE.Vector3(d[0], d[1], d[2]);
     ray.set(new THREE.Vector3(from[0], from[1], from[2]), dir);
     const got = ray.intersectObjects(meshes, false);
+    const atEnd = Math.abs(from[2]) === 190;
     if (!got.length || !got[0].face) continue;
+    if (atEnd) ends++;
     hits++;
     const n = got[0].face.normal.clone()
       .applyMatrix3(normal.getNormalMatrix(got[0].object.matrixWorld)).normalize();
     if (n.dot(dir) > 0) backs.push(from.map((v) => Math.round(v)));
   }
   assert.ok(hits > 100, `only ${hits} rays found her at all`);
+  assert.ok(ends === 20, `${20 - ends} ray(s) down the centreline found no plating at her ends`);
   assert.equal(backs.length, 0,
     `${backs.length} of ${hits} rays landed on an inside-out face, first from ${JSON.stringify(backs[0])}`);
 });

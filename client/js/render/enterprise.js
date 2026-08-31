@@ -172,7 +172,7 @@ function halfBeam(t) {
     // Clamped: a station exactly at the stem puts k a hair over one in floating
     // point, and a negative number to a fractional power is not a number.
     const k = Math.min(1, (t - 0.42) / 0.58);
-    return b * Math.max(0.015, Math.pow(Math.max(0, 1 - k * k), 0.6));
+    return b * Math.max(0.007, Math.pow(Math.max(0, 1 - k * k), 0.6));
   }
   if (t < -0.62) {
     // The run, into a transom a third of the beam across.
@@ -252,6 +252,21 @@ function zAt(t, y) {
 
 /** Where the bilge turn finishes, as a fraction of the section's height. */
 const BILGE = 0.30;
+
+// Where the paint changes. Deep, because a carrier's draft moves a long way
+// between full bunkers and empty and because she is looked at from close aboard
+// in a seaway: a shallow boot topping puts bottom paint above the water on
+// every other wave.
+const BOOT_LO = -2.2;
+const BOOT_HI = 0.7;
+
+/** The three strakes, clamped to a station's keel so none runs below the hull. */
+function strakes(t) {
+  const kb = keelY(t);
+  const lo = Math.max(kb, BOOT_LO);
+  const hi = Math.max(kb, BOOT_HI);
+  return [[kb, lo, M.antifoul], [lo, hi, M.boot], [hi, sheer(t), M.hull]];
+}
 
 /**
  * The half-breadth of the shell at a station and a height.
@@ -339,6 +354,36 @@ function loftBand(g, m, lo, hi, opts = {}) {
   g.add(new THREE.Mesh(geo, m));
 }
 
+/**
+ * Close one end of the shell, in paint.
+ *
+ * `out` is +1 at the stem and -1 at the transom, and it decides the winding, so
+ * whichever end this is the surface looks out of the ship rather than into it.
+ */
+function capEnd(g, t, out) {
+  for (const [lo, hi, mat] of strakes(t)) {
+    if (hi - lo < 0.01) continue;
+    const pos = [];
+    const idx = [];
+    const S = 8;
+    for (let j = 0; j <= S; j++) {
+      const y = lo + ((hi - lo) * j) / S;
+      const w = shellAt(t, y);
+      pos.push(-w, y, zAt(t, y), w, y, zAt(t, y));
+    }
+    for (let j = 0; j < S; j++) {
+      const a = j * 2;
+      if (out > 0) idx.push(a, a + 3, a + 2, a, a + 1, a + 3);
+      else idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, mat));
+  }
+}
+
 function buildHull(g) {
   // Three strakes on one surface: antifouling from the keel to a foot below
   // the waterline, the boot topping across it, and the topside above. A paint
@@ -346,38 +391,32 @@ function buildHull(g) {
   // rises above a strake, at the forefoot and under the counter, that strake
   // simply runs out. Clamping the bands to each other is what keeps the bottom
   // paint in the water where it belongs.
-  // Deep, because a carrier's draft moves a long way between full bunkers and
-  // empty and because she is looked at from close aboard in a seaway: a shallow
-  // boot topping puts bottom paint above the water on every other wave.
-  const BOOT_LO = -2.2;
-  const BOOT_HI = 0.7;
   const atLeast = (v) => (t) => Math.max(keelY(t), v);
   loftBand(g, M.antifoul, keelY, atLeast(BOOT_LO), { M: 7 });
   loftBand(g, M.boot, atLeast(BOOT_LO), atLeast(BOOT_HI), { M: 2 });
   loftBand(g, M.hull, atLeast(BOOT_HI), sheer, { M: 7, cap: true });
 
-  // The transom, closed with its own curved surface, and the counter under it.
-  {
-    const t = -1;
-    const pos = [];
-    const idx = [];
-    const kb = keelY(t);
-    const sh = sheer(t);
-    const S = 12;
-    for (let j = 0; j <= S; j++) {
-      const y = kb + ((sh - kb) * j) / S;
-      const w = shellAt(t, y);
-      pos.push(-w, y, zAt(t, y), w, y, zAt(t, y));
-    }
-    for (let j = 0; j < S; j++) {
-      const a = j * 2;
-      idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    g.add(new THREE.Mesh(geo, M.hull));
+  // Both ends closed, and closed in the same three strakes the sides carry.
+  //
+  // The shell is lofted as a ring from station to station, which leaves the
+  // first and last rings as open edges: the transom aft and, at the stem, a
+  // slot a third of a metre wide running the whole height of the bow. The
+  // transom used to be capped with one plate of topside grey -- no boot
+  // topping, no bottom paint, a different ship below the waterline from the one
+  // either side of it -- and the stem was not capped at all.
+  capEnd(g, -1, -1);
+  capEnd(g, 1, 1);
+  // The stem bar itself: a rounded cutwater laid up the profile, painted at
+  // each height with whatever the shell beside it is painted.
+  for (let i = 0; i < 26; i++) {
+    const y0 = keelY(1) + ((sheer(1) - keelY(1)) * i) / 26;
+    const y1 = keelY(1) + ((sheer(1) - keelY(1)) * (i + 1)) / 26;
+    const y = (y0 + y1) / 2;
+    const band = strakes(1).find(([lo, hi]) => y >= lo && y < hi);
+    const dz = zAt(1, y1) - zAt(1, y0);
+    const bar = cyl(g, band ? band[2] : M.hull, 0.3, 0.3,
+      Math.hypot(y1 - y0, dz) + 0.42, 0, y, zAt(1, y) + 0.05, 10);
+    bar.rotation.x = -Math.atan2(dz, y1 - y0);
   }
 
   // The knuckle: a rubbing strake along the sheer, which is the line that gives
