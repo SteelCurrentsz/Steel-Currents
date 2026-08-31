@@ -12,9 +12,12 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
+import { normaliseAirGroup, defaultAirGroup, launchStrike } from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { enterpriseParts, buildEnterprise, stepLifts } from '../client/js/render/enterprise.js';
+import {
+  enterpriseParts, buildEnterprise, stepLifts, LIFT_HW, liftZs, FD,
+} from '../client/js/render/enterprise.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -1044,6 +1047,75 @@ check('her lifts run the whole way between the two decks', () => {
   stepLifts(built.lifts, 0);
   const ys = built.lifts.map((l) => +l.group.position.y.toFixed(2));
   assert.ok(new Set(ys).size > 1, `all three lifts sit at ${ys[0]} together`);
+});
+
+check('nothing is left hanging over an open lift well', () => {
+  // A lift well is a hole through the flight deck, and everything painted or
+  // rigged on that deck has to be cut round it -- the centreline stripe, the
+  // arresting wires, the barriers. Miss one and it stays stretched across the
+  // opening in mid-air the moment the platform goes down, which is exactly
+  // what it looks like. Anything riding the platform itself is allowed.
+  const wells = liftZs();
+  const over = [];
+  for (const q of enterpriseParts()) {
+    if (q.moving) continue;
+    if (q.min[1] < FD - 0.1 || q.min[1] > FD + 3) continue;
+    for (const lz of wells) {
+      const ox = Math.min(LIFT_HW, q.max[0]) - Math.max(-LIFT_HW, q.min[0]);
+      const oz = Math.min(lz + LIFT_HW, q.max[2]) - Math.max(lz - LIFT_HW, q.min[2]);
+      if (ox > 0.3 && oz > 0.3) {
+        over.push([q.min[0], q.min[1], q.min[2]].map((v) => Math.round(v * 10) / 10));
+        break;
+      }
+    }
+  }
+  assert.equal(over.length, 0,
+    `${over.length} piece(s) span an open well, first at ${JSON.stringify(over[0])}`);
+});
+
+check('an air group is landed on something she can actually embark', () => {
+  const cls = SHIP_CLASSES.enterprise;
+  const spec = cls.planes.group;
+  const sum = (g) => g.fighters + g.dive + g.torpedo;
+
+  // Nothing asked for: her datasheet's own loadout.
+  assert.deepEqual(normaliseAirGroup(cls, null), defaultAirGroup(cls));
+  assert.equal(sum(defaultAirGroup(cls)), spec.total);
+
+  // More than she has hangar for is trimmed to the hangar.
+  const big = normaliseAirGroup(cls, { fighters: 8, dive: 8, torpedo: 8 });
+  assert.ok(sum(big) <= spec.total, `trimmed to ${sum(big)}, over ${spec.total}`);
+  assert.ok(big.dive + big.torpedo >= spec.minStrike, 'trimmed away her strike aircraft');
+
+  // A group with nothing that can hit a ship gets strike aircraft back.
+  const allFighters = normaliseAirGroup(cls, { fighters: 12, dive: 0, torpedo: 0 });
+  assert.ok(allFighters.dive + allFighters.torpedo >= spec.minStrike,
+    'sailed with no strike aircraft at all');
+  assert.ok(sum(allFighters) <= spec.total);
+
+  // Rubbish, negative and out-of-range numbers all land somewhere legal.
+  for (const junk of [{}, { fighters: -5, dive: 99, torpedo: NaN },
+    { fighters: '3', dive: 2.7, torpedo: null }]) {
+    const g = normaliseAirGroup(cls, junk);
+    for (const k of ['fighters', 'dive', 'torpedo']) {
+      assert.ok(Number.isInteger(g[k]) && g[k] >= spec.min[k] && g[k] <= spec.max[k],
+        `${k} came out ${g[k]} from ${JSON.stringify(junk)}`);
+    }
+    assert.ok(sum(g) <= spec.total && g.dive + g.torpedo >= spec.minStrike);
+  }
+
+  // And a ship carries what she was given, not what the class says.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, {
+    name: 'Big E', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighters: 0, dive: 2, torpedo: 8 },
+  });
+  assert.deepEqual(ship.airGroup, { fighters: 0, dive: 2, torpedo: 8 });
+  // A strike off her flies what she is carrying: fish, not a fixed four.
+  ship.aimX = ship.x + 400; ship.aimZ = ship.z + 400;
+  assert.ok(launchStrike(state, ship), 'she would not launch');
+  const pkg = state.planes[state.planes.length - 1];
+  assert.ok(pkg.torp > pkg.bomb, `flew ${pkg.torp} torpedo to ${pkg.bomb} bomb`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

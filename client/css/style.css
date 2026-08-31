@@ -1123,6 +1123,125 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .yard-arms .yard-row .k { text-align: right; }
 .yard-row .v { color: var(--sand-bright); font-variant-numeric: tabular-nums; }
 
+/* An air-group row is the one line on a datasheet a captain can press. */
+.yard-row.act {
+  pointer-events: auto;
+  cursor: pointer;
+  border-bottom: 1px dashed rgba(230, 207, 156, 0.35);
+}
+.yard-row.act:hover .k, .yard-row.act:hover .v { color: var(--sand-bright); }
+.yard-row.act .v::after {
+  content: ' \203A';
+  color: var(--steel);
+}
+
+/* The air group panel: amidships on the right, where the armament sheet it
+   belongs to is, and clear of the ship herself. -------------------------- */
+.airgroup {
+  position: absolute;
+  top: 50%;
+  right: max(1.8rem, env(safe-area-inset-right));
+  transform: translateY(-50%);
+  width: min(21rem, 74vw);
+  padding: 1rem 1.1rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  z-index: 6;
+}
+.airgroup h3 {
+  margin: 0 0 0.2rem;
+  font-family: var(--stencil);
+  font-size: 1.05rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--sand);
+}
+.ag-sub {
+  margin: 0 0 0.8rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--steel);
+}
+.ag-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.34rem 0;
+  border-top: 1px solid rgba(154, 166, 178, 0.16);
+}
+.ag-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.86rem;
+  letter-spacing: 0.06em;
+  color: var(--sand);
+}
+.ag-name em {
+  font-style: normal;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  color: var(--steel);
+  opacity: 0.85;
+}
+.ag-step {
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: none;
+  background: rgba(154, 166, 178, 0.12);
+  border: 1px solid var(--panel-line);
+  color: var(--sand);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ag-step:hover:not(:disabled) { background: rgba(230, 207, 156, 0.2); color: var(--sand-bright); }
+.ag-step:disabled { opacity: 0.28; cursor: default; }
+.ag-n {
+  width: 1.6rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  color: var(--sand-bright);
+}
+.ag-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--panel-line);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+.ag-total span:last-child { color: var(--sand-bright); font-variant-numeric: tabular-nums; }
+.ag-total.full span:last-child { color: var(--ally); }
+.ag-note {
+  margin: 0.4rem 0 0;
+  min-height: 1.1em;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: var(--enemy);
+}
+.ag-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+.ag-actions .btn { flex: 1; padding: 0.45rem 0.6rem; font-size: 0.78rem; }
+
+@media (max-width: 620px) {
+  .airgroup { width: min(19rem, 84vw); padding: 0.8rem 0.85rem 0.7rem; }
+  .ag-name { font-size: 0.78rem; }
+}
+@media (max-height: 520px) {
+  .airgroup { top: auto; bottom: max(0.8rem, env(safe-area-inset-bottom)); transform: none; }
+}
+
 .yard-back {
   top: max(1.6rem, env(safe-area-inset-top));
   right: max(1.8rem, env(safe-area-inset-right));

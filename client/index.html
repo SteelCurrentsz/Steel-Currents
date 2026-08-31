@@ -374,6 +374,36 @@
   <div class="yard-sheet yard-hull" id="yard-hull"></div>
   <div class="yard-sheet yard-arms" id="yard-arms"></div>
 
+  <!-- What she embarks. Opens off either air-group row on the armament sheet. -->
+  <div class="airgroup" id="airgroup" hidden>
+    <h3>Air Group</h3>
+    <p class="ag-sub" id="ag-sub">Twelve aircraft in the hangar. Balance them as you like.</p>
+    <div class="ag-row" data-kind="fighters">
+      <span class="ag-name">Fighters<em>Wildcat &mdash; escort</em></span>
+      <button class="ag-step" type="button" data-kind="fighters" data-step="-1" aria-label="Fewer fighters">&minus;</button>
+      <span class="ag-n" id="ag-n-fighters">4</span>
+      <button class="ag-step" type="button" data-kind="fighters" data-step="1" aria-label="More fighters">+</button>
+    </div>
+    <div class="ag-row" data-kind="dive">
+      <span class="ag-name">Dive bombers<em>Dauntless &mdash; bombs</em></span>
+      <button class="ag-step" type="button" data-kind="dive" data-step="-1" aria-label="Fewer dive bombers">&minus;</button>
+      <span class="ag-n" id="ag-n-dive">4</span>
+      <button class="ag-step" type="button" data-kind="dive" data-step="1" aria-label="More dive bombers">+</button>
+    </div>
+    <div class="ag-row" data-kind="torpedo">
+      <span class="ag-name">Torpedo bombers<em>Avenger &mdash; torpedoes</em></span>
+      <button class="ag-step" type="button" data-kind="torpedo" data-step="-1" aria-label="Fewer torpedo bombers">&minus;</button>
+      <span class="ag-n" id="ag-n-torpedo">4</span>
+      <button class="ag-step" type="button" data-kind="torpedo" data-step="1" aria-label="More torpedo bombers">+</button>
+    </div>
+    <div class="ag-total" id="ag-total"><span>Embarked</span><span id="ag-total-n">12 / 12</span></div>
+    <p class="ag-note" id="ag-note"></p>
+    <div class="ag-actions">
+      <button class="btn ghost" id="ag-reset" type="button">Default</button>
+      <button class="btn" id="ag-done" type="button">Done</button>
+    </div>
+  </div>
+
   <button class="btn ghost yard-back" id="yard-back" type="button">Back</button>
 </section>
 

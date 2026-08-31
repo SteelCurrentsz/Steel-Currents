@@ -305,6 +305,22 @@ export const SHIP_CLASSES = {
       squadrons: 3, perSquadron: 4, cruiseSpeed: 78, strikeRange: 14000,
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
+      // What a dive bomber does when it gets there: a thousand-pound bomb is
+      // not a torpedo -- less damage, no flooding, but it does not have to get
+      // down on the water to deliver it, and it starts fires.
+      bombDamage: 4200, bombHit: 0.42, bombFire: 0.34,
+      // The air group she sails with. A captain may re-balance it in the yard
+      // between fighters, dive bombers and torpedo bombers, inside these
+      // limits: twelve aircraft in all, and she must embark something that can
+      // hit a ship or there is no point sending her.
+      group: {
+        total: 12,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 8, dive: 8, torpedo: 8 },
+        minStrike: 2,
+        // Her Midway loadout: a squadron of each.
+        default: { fighters: 4, dive: 4, torpedo: 4 },
+      },
     },
     datasheet: {
       displacement: 19800,

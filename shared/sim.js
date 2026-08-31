@@ -119,6 +119,7 @@ export function shipClearance(cls) {
 
 export function addShip(state, {
   id, name, classId, team, index, isBot = false, playerId = null, at = null,
+  airGroup = null,
 }) {
   const cls = getClass(classId);
   const sp = berth(state.world, team, index, at, cls);
@@ -155,6 +156,7 @@ export function addShip(state, {
     squadrons: cls.planes
       ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
       : [],
+    airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
     spottedBy: [false, false],
     lastFiredAt: -999,
     kills: 0,
@@ -947,6 +949,53 @@ function stepTorpedoes(state, dt) {
 // Carrier air groups
 // ---------------------------------------------------------------------------
 
+/** The air group a class sails with unless a captain has said otherwise. */
+export function defaultAirGroup(cls) {
+  const g = cls.planes && cls.planes.group;
+  return g ? { ...g.default } : null;
+}
+
+/**
+ * Take what a captain asked for and make it something she can actually embark.
+ *
+ * Each type is clamped to its own limits, the whole group to her capacity, and
+ * she must sail with enough strike aircraft to be worth sending. Anything the
+ * trimming leaves over goes to the fighters, who are the ones you can always
+ * find room for. Both ends run this, so a request that arrives malformed --
+ * or edited on its way -- is landed on a legal group rather than rejected.
+ */
+export function normaliseAirGroup(cls, want) {
+  const spec = cls.planes && cls.planes.group;
+  if (!spec) return null;
+  if (!want || typeof want !== 'object') return { ...spec.default };
+  const pick = (k) => {
+    const v = Math.round(Number(want[k]));
+    if (!Number.isFinite(v)) return spec.default[k];
+    return Math.max(spec.min[k], Math.min(spec.max[k], v));
+  };
+  const g = { fighters: pick('fighters'), dive: pick('dive'), torpedo: pick('torpedo') };
+  // Enough strike aircraft to be worth the deck space.
+  let strike = g.dive + g.torpedo;
+  while (strike < spec.minStrike) {
+    if (g.torpedo < spec.max.torpedo) g.torpedo++;
+    else if (g.dive < spec.max.dive) g.dive++;
+    else break;
+    strike = g.dive + g.torpedo;
+  }
+  // And no more aircraft than she has hangar for: trim the fighters first,
+  // then whichever strike type she has most of.
+  let total = g.fighters + g.dive + g.torpedo;
+  while (total > spec.total) {
+    if (g.fighters > spec.min.fighters) g.fighters--;
+    else if (g.dive > g.torpedo && g.dive > spec.min.dive) g.dive--;
+    else if (g.torpedo > spec.min.torpedo) g.torpedo--;
+    else if (g.dive > spec.min.dive) g.dive--;
+    else break;
+    total = g.fighters + g.dive + g.torpedo;
+  }
+  return g;
+}
+
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
@@ -955,11 +1004,28 @@ export function launchStrike(state, ship) {
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
   if (d > cls.planes.strikeRange) return false;
   sq.state = 'flying';
+  // The package is a share of what she is actually carrying, not a fixed four
+  // aircraft: torpedo bombers put fish in the water, dive bombers put bombs on
+  // the deck, and the fighters go along to keep the flak and the CAP off them,
+  // which is worth more to the strike than another bomb would be.
+  const group = ship.airGroup || defaultAirGroup(cls) || { fighters: 0, dive: 0, torpedo: 4 };
+  const share = (n) => Math.max(0, Math.round(n / cls.planes.squadrons));
+  let torp = share(group.torpedo);
+  let bomb = share(group.dive);
+  // A group small enough to round away to nothing still sends what it has:
+  // otherwise a captain who embarked two torpedo bombers watches a squadron
+  // fly out, find the enemy and drop nothing at all.
+  if (torp + bomb === 0) {
+    if (group.torpedo >= group.dive && group.torpedo > 0) torp = 1;
+    else if (group.dive > 0) bomb = 1;
+  }
   state.planes.push({
     id: eid(), owner: ship.id, team: ship.team, sqId: sq.id,
     x: ship.x, z: ship.z, heading: headingTo(ship.x, ship.z, ship.aimX, ship.aimZ),
     tx: ship.aimX, tz: ship.aimZ,
-    count: cls.planes.perSquadron, hp: cls.planes.hp,
+    torp, bomb,
+    count: Math.max(1, torp + bomb),
+    hp: cls.planes.hp * (1 + share(group.fighters) * 0.22),
     phase: 'outbound', dropped: false, life: 0,
   });
   state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
@@ -1008,14 +1074,25 @@ function stepPlanes(state, dt) {
       if (best && bestD < 1400) {
         const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
         const base = headingTo(p.x, p.z, lead.x, lead.z);
-        for (let i = 0; i < p.count; i++) {
-          const off = (i - (p.count - 1) / 2) * P.dropSpread;
+        const torp = p.torp ?? p.count;
+        for (let i = 0; i < torp; i++) {
+          const off = (i - (torp - 1) / 2) * P.dropSpread;
           state.torps.push({
             id: eid(), owner: p.owner, team: p.team,
             x: p.x, z: p.z, heading: wrapAngle(base + off),
             speed: P.torpSpeed, range: P.torpRange, travelled: 0,
             damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
           });
+        }
+        // The dive bombers go in over the top. A bomb either hits or it does
+        // not -- there is nothing to run on and nothing to comb -- so it is
+        // settled here rather than given a body to fly.
+        for (let i = 0; i < (p.bomb || 0); i++) {
+          if (state.rng() > (P.bombHit ?? 0.4)) continue;
+          const owner = state.ships.find((s) => s.id === p.owner) || null;
+          damageShip(state, best, owner, P.bombDamage ?? 4000, 'he');
+          if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
+          state.events.push({ e: 'bombHit', x: best.x, z: best.z });
         }
         state.events.push({ e: 'airDrop', x: p.x, z: p.z });
         p.phase = 'return';

@@ -10,6 +10,7 @@ import {
   TIMES, WEATHERS, WEATHER, theatreFor, battlefieldSeed, battlefieldHalf,
 } from '../../shared/world.js';
 import { silhouette, turret } from './silhouette.js';
+import { getSettings } from './settings.js';
 import { drawWorld } from './worldmap.js';
 
 const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
@@ -362,6 +363,9 @@ export class Briefing {
       // a token on the ground for each of them.
       allyGuns: s.allyGuns.slice(),
       enemyGuns: s.enemyGuns.slice(),
+      // How her carriers are stored: fighters, dive bombers and torpedo
+      // bombers, as the captain balanced them in the yard.
+      airGroup: getSettings().airGroup,
       mapId: theatreFor(d),
       time: s.time,
       weather: s.weather,

@@ -19,7 +19,7 @@ import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS } from '../../shared/world.js';
-import { MIN_NOTCH, MAX_NOTCH } from '../../shared/sim.js';
+import { MIN_NOTCH, MAX_NOTCH, normaliseAirGroup } from '../../shared/sim.js';
 
 const canvas = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -189,7 +189,7 @@ document.getElementById('deploy-close').onclick = () => { audio.click(); show('c
 // Which fleet the hull on the water would join, and where in the catalogue we
 // are. The scene itself is built the first time it is asked for: the title
 // screen has enough to do at boot without a second sea and a second hull.
-const yardUi = { side: 'ally', index: 0 };
+const yardUi = { side: 'ally', index: 0, ag: null };
 
 function openYard(side) {
   yardUi.side = side;
@@ -203,13 +203,100 @@ function openYard(side) {
 }
 
 function closeYard() {
+  closeAirGroup();
   yard?.detach();
   show('custom');
 }
 
 function sheet(el, heading, rows) {
-  el.innerHTML = `<h3>${heading}</h3>` + rows.map(([k, v]) =>
-    `<div class="yard-row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+  // A row with a third entry is one a captain can press: it names the action.
+  el.innerHTML = `<h3>${heading}</h3>` + rows.map(([k, v, act]) =>
+    `<div class="yard-row${act ? ' act' : ''}"${act ? ` data-act="${act}"` : ''}>`
+    + `<span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+  for (const row of el.querySelectorAll('.yard-row.act')) {
+    row.onclick = () => { audio.click(); if (row.dataset.act === 'airgroup') openAirGroup(); };
+  }
+}
+
+// ------------------------------------------------------------- air group --
+
+/**
+ * What the carrier embarks, and the panel that sets it.
+ *
+ * Twelve aircraft in the hangar, split between fighters, dive bombers and
+ * torpedo bombers however the captain likes, inside the limits her datasheet
+ * carries. The choice is kept in settings and rides the sortie request, so the
+ * hulls on her side sail with it and the simulation flies what was actually
+ * embarked: torpedo bombers put fish in the water, dive bombers put bombs on
+ * the deck, fighters keep the flak off the strike.
+ */
+const AG_KINDS = ['fighters', 'dive', 'torpedo'];
+
+function airGroupSpec() {
+  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  return SHIP_CLASSES[id]?.planes?.group || null;
+}
+
+/** The group as chosen, landed on something legal for this class. */
+function currentAirGroup(cls) {
+  if (!cls?.planes) return null;
+  return normaliseAirGroup(cls, getSettings().airGroup);
+}
+
+function openAirGroup() {
+  const spec = airGroupSpec();
+  if (!spec) return;
+  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  yardUi.ag = { ...currentAirGroup(SHIP_CLASSES[id]) };
+  document.getElementById('airgroup').hidden = false;
+  renderAirGroup();
+}
+
+function closeAirGroup() {
+  document.getElementById('airgroup').hidden = true;
+  yardUi.ag = null;
+}
+
+function renderAirGroup() {
+  const spec = airGroupSpec();
+  const g = yardUi.ag;
+  if (!spec || !g) return;
+  const total = AG_KINDS.reduce((n, k) => n + g[k], 0);
+  const strike = g.dive + g.torpedo;
+  document.getElementById('ag-sub').textContent =
+    `${spec.total} aircraft in the hangar. Balance them as you like.`;
+  for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
+  document.getElementById('ag-total-n').textContent = `${total} / ${spec.total}`;
+  document.getElementById('ag-total').classList.toggle('full', total === spec.total);
+  // Every stepper says for itself whether it can be pressed, so a captain is
+  // never left wondering which limit stopped him.
+  for (const btn of document.querySelectorAll('.ag-step')) {
+    const k = btn.dataset.kind;
+    const d = Number(btn.dataset.step);
+    const n = g[k] + d;
+    let ok = n >= spec.min[k] && n <= spec.max[k];
+    if (ok && d > 0) ok = total < spec.total;
+    if (ok && d < 0 && k !== 'fighters') ok = strike - 1 >= spec.minStrike;
+    btn.disabled = !ok;
+  }
+  const note = document.getElementById('ag-note');
+  if (total > spec.total) note.textContent = 'More than she has hangar for.';
+  else if (strike < spec.minStrike) note.textContent = 'She needs strike aircraft to be worth sending.';
+  else if (total < spec.total) note.textContent = `${spec.total - total} spaces empty in the hangar.`;
+  else note.textContent = '';
+}
+
+function stepAirGroup(kind, d) {
+  const spec = airGroupSpec();
+  const g = yardUi.ag;
+  if (!spec || !g) return;
+  const n = g[kind] + d;
+  if (n < spec.min[kind] || n > spec.max[kind]) return;
+  const total = AG_KINDS.reduce((a, k) => a + g[k], 0);
+  if (d > 0 && total >= spec.total) return;
+  if (d < 0 && kind !== 'fighters' && g.dive + g.torpedo - 1 < spec.minStrike) return;
+  g[kind] = n;
+  renderAirGroup();
 }
 
 function renderYard() {
@@ -223,14 +310,31 @@ function renderYard() {
   // and a datasheet that called her an Enterprise-class carrier would be wrong.
   document.getElementById('yard-class').textContent =
     `${cls.className || cls.name} Class ${cls.typeName}`;
-  sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls));
-  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls));
+  const group = currentAirGroup(cls);
+  sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
+  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));
 }
 
 function stepYard(dir) {
   yardUi.index = (yardUi.index + dir + SHIP_ORDER.length) % SHIP_ORDER.length;
+  closeAirGroup();
   renderYard();
 }
+
+for (const btn of document.querySelectorAll('.ag-step')) {
+  btn.onclick = () => { audio.click(); stepAirGroup(btn.dataset.kind, Number(btn.dataset.step)); };
+}
+document.getElementById('ag-reset').onclick = () => {
+  audio.click();
+  const spec = airGroupSpec();
+  if (spec) { yardUi.ag = { ...spec.default }; renderAirGroup(); }
+};
+document.getElementById('ag-done').onclick = () => {
+  audio.click();
+  if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag } });
+  closeAirGroup();
+  renderYard();
+};
 
 document.getElementById('yard-prev').onclick = () => { audio.click(); stepYard(-1); };
 document.getElementById('yard-next').onclick = () => { audio.click(); stepYard(1); };

@@ -10,6 +10,9 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
+import { normaliseAirGroup } from '../shared/sim.js';
+import { getClass } from '../shared/ships.js';
+
 /**
  * The berths off the order-of-battle chart, sanitised.
  *
@@ -49,6 +52,18 @@ export function crewBattle(room, req, seat, limits = {}) {
   const res = seat(allyAt?.[0] ?? null) || {};
   if (res.error) return res;
   const team = res.team ?? 0;
+
+  // The air group the captain chose in the yard, for her side only. It has to
+  // be bound after the seating, because that is when her team is known -- so
+  // her own hull, which was seated a moment ago, is given it here and every
+  // ship added below picks it up from the room.
+  if (req.airGroup) {
+    room.airGroup = { team, group: req.airGroup };
+    for (const sh of room.state.ships) {
+      if (sh.team !== team || !sh.squadrons || !sh.squadrons.length) continue;
+      sh.airGroup = normaliseAirGroup(getClass(sh.classId), req.airGroup);
+    }
+  }
 
   const allyClasses = Array.isArray(req.allyClasses) ? req.allyClasses.slice(0, maxA) : null;
   const enemyClasses = Array.isArray(req.enemyClasses) ? req.enemyClasses.slice(0, maxE) : null;

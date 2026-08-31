@@ -60,6 +60,15 @@ export class Room {
     return counts[0] <= counts[1] ? 0 : 1;
   }
 
+  /**
+   * The air group the captain who set the battle up chose, for the side she
+   * set it up for. Her carriers embark it; the other side's sail with what the
+   * datasheet says, because nobody asked them.
+   */
+  airGroupFor(team) {
+    return this.airGroup && this.airGroup.team === team ? this.airGroup.group : null;
+  }
+
   join(player, { name, classId, team, at = null }) {
     if (this.players.size >= this.maxPlayers) return { error: 'Room is full' };
     if (this.phase === 'ended') return { error: 'That battle is over' };
@@ -68,6 +77,7 @@ export class Room {
     const ship = addShip(this.state, {
       name: (name || 'Captain').slice(0, 18),
       classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id, at,
+      airGroup: this.airGroupFor(t),
     });
     player.team = t;
     player.shipId = ship.id;
@@ -104,6 +114,7 @@ export class Room {
       const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
       const ship = addShip(this.state, {
         name, classId, team, index: this.teamIndex[team]++, isBot: true,
+        airGroup: this.airGroupFor(team),
       });
       this.brains.set(ship.id, createBotBrain(skill));
     }
@@ -128,6 +139,7 @@ export class Room {
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
     const ship = addShip(this.state, {
       name, classId: cls, team, index: this.teamIndex[team]++, isBot: true, at,
+      airGroup: this.airGroupFor(team),
     });
     this.brains.set(ship.id, createBotBrain(skill));
     return ship;

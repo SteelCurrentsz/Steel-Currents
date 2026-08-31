@@ -338,13 +338,14 @@ const barrels = (cls) => cls.turrets.reduce((n, t) => n + t.guns, 0);
 const tubes = (cls) => (cls.torpedoes?.mounts || []).reduce((n, m) => n + m.tubes, 0);
 
 /** Weight, speed, aircraft and how thick she is where it counts. */
-export function hullSheet(cls) {
+export function hullSheet(cls, group = null) {
   const d = cls.datasheet;
   const rows = [
     ['Displacement', `${num(d.displacement)} t`],
     ['Top speed', `${Math.round(cls.maxSpeed / 0.5144)} kn`],
   ];
-  const air = cls.planes ? cls.planes.squadrons * cls.planes.perSquadron : d.aircraft;
+  const g = cls.planes ? (group || cls.planes.group.default) : null;
+  const air = g ? g.fighters + g.dive + g.torpedo : d.aircraft;
   rows.push(['Aircraft', air
     ? `${air} ${cls.planes ? 'carrier aircraft' : 'sea planes'}`
     : 'None embarked']);
@@ -371,7 +372,7 @@ function traverse(cls) {
 }
 
 /** Every barrel she carries, with the magazine behind it. */
-export function armsSheet(cls) {
+export function armsSheet(cls, group = null) {
   const d = cls.datasheet;
   const rows = [];
   rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
@@ -389,8 +390,13 @@ export function armsSheet(cls) {
       `${num(d.torpedoesCarried ?? tubes(cls))} fish`]);
   }
   if (cls.planes) {
-    rows.push([`${cls.planes.squadrons} strike squadrons`,
-      `${cls.planes.squadrons * cls.planes.perSquadron} aircraft`]);
+    // Both of these open the air group panel: what she is carrying is the one
+    // thing on a carrier's sheet a captain gets to decide.
+    const g = group || cls.planes.group.default;
+    const air = g.fighters + g.dive + g.torpedo;
+    rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
+    rows.push(['Air group',
+      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T`, 'airgroup']);
   }
   return rows;
 }

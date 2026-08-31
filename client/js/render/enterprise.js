@@ -1084,7 +1084,12 @@ function flightDeck(g) {
 
   // Markings: the centreline down the whole deck, and the dashed lines marking
   // the landing area's edges, which draw in with the deck.
-  box(g, M.mark, 0.5, 0.06, FDL * 0.86, 0, FD + 0.2, FD_MID);
+  // The centreline is painted on the deck, so where there is no deck there is
+  // no line: it stops at each well and picks up the far side. Run it straight
+  // through and it hangs across the opening whenever a lift goes down.
+  for (const [a, b] of clearOfWells(FD_MID - FDL * 0.43, FD_MID + FDL * 0.43)) {
+    box(g, M.mark, 0.5, 0.06, b - a, 0, FD + 0.2, (a + b) / 2);
+  }
   for (const s of [-1, 1]) {
     for (let i = 0; i < 30; i++) {
       const z = fdEndA(0) + 8 + i * 4.4;
@@ -1119,8 +1124,10 @@ function flightDeck(g) {
   }
 
   // Arresting gear: nine wires across the after third, raised on their fairleads.
+  // Nine of them, all abaft the after lift: a wire laid across a well has
+  // nothing under it for half its length the moment the platform drops.
   for (let i = 0; i < 9; i++) {
-    const z = fdEndA(0) + 14 + i * 5.4;
+    const z = fdEndA(0) + 12 + i * 3.8;
     const w = fdHalf(z) - 1.4;
     tubeX(g, M.wire, 0.075, 2 * w, 0, FD + 0.42, z, 6);
     for (const s of [-1, 1]) {
@@ -1129,7 +1136,7 @@ function flightDeck(g) {
   }
   // Three crash barriers, forward of the wires: stanchions and their cables.
   for (let i = 0; i < 3; i++) {
-    const z = -FDL * 0.06 + i * 6.5 + FD_MID;
+    const z = -FDL * 0.24 + i * 6.0 + FD_MID;
     const w = fdHalf(z) - 1.0;
     for (const s of [-1, 1]) {
       box(g, M.steelDark, 0.34, 1.5, 0.34, s * w, FD + 0.9, z);
@@ -1140,7 +1147,7 @@ function flightDeck(g) {
 
   // Palisades: the folding wind screens forward of the parking area.
   {
-    const z = FDL * 0.31 + FD_MID;
+    const z = FDL * 0.26 + FD_MID;
     const w = fdHalf(z) - 2;
     // Folded down, which is how they lie whenever the deck park is aft: raised,
     // they stand across the deck like a row of hoardings.
@@ -2011,6 +2018,10 @@ export function enterpriseParts() {
   const parts = [];
   g.traverse((o) => {
     if (!o.isMesh || !o.geometry) return;
+    // Whether it rides something that moves -- a lift platform, a gun mounting.
+    // Those are allowed over an open well; the deck is not.
+    let moving = false;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) { moving = true; break; }
     o.geometry.computeBoundingBox();
     const lb = o.geometry.boundingBox;
     const bb = lb.clone().applyMatrix4(o.matrixWorld);
@@ -2020,6 +2031,7 @@ export function enterpriseParts() {
       // Its own size, before it was turned: a gun barrel laid at forty degrees
       // has a fat axis-aligned box and is still a stick.
       size: [lb.max.x - lb.min.x, lb.max.y - lb.min.y, lb.max.z - lb.min.z],
+      moving,
     });
   });
   return parts;
@@ -2053,4 +2065,4 @@ export function buildEnterprise() {
   };
 }
 
-export { LOA, FDW, FDL, HANGAR, FD };
+export { LOA, FDW, FDL, HANGAR, FD, LIFT_HW, liftZs };
