@@ -605,9 +605,12 @@ export class Battle {
       view.group.rotation.set(0, 0, 0);
       view.group.rotation.order = 'YXZ';
       view.group.rotation.y = h;
-      // Pitch and roll from the water, plus the heel a rudder puts on her.
+      // Pitch is the water under her. Roll is her own, swung on her own period
+      // against what the sea and her rudder are doing to her, so how much she
+      // rocks is a matter of how big she is.
       view.group.rotation.x = att.pitch * 0.85;
-      view.group.rotation.z = att.roll * 0.75 - (isSelf ? this.localShip.rudder * 0.05 : 0);
+      view.group.rotation.z = view.heelTo(att.roll, dt,
+        isSelf ? -this.localShip.rudder * 0.05 : 0);
 
       const turrets = isSelf ? this.localShip.turrets.map((tt) => tt.angle) : s.tu;
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });

@@ -15,6 +15,8 @@ import { SHIP_CLASSES } from '../shared/ships.js';
 import { normaliseAirGroup, defaultAirGroup, launchStrike } from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
+import { Ocean } from '../client/js/render/ocean.js';
+import { ShipView, rollPeriod, rollHeed } from '../client/js/render/scene.js';
 import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
   __aircraft,
@@ -1400,6 +1402,78 @@ check('nothing but the launching aircraft is ever on the runway', () => {
   });
   assert.deepEqual(carried, [0, 0, 0],
     `the lifts have aircraft welded into them: ${JSON.stringify(carried)}`);
+});
+
+check('a hull swings on her own period rather than lying on the water', () => {
+  // The sea does not set a ship's angle, it pushes her towards one. Knock her
+  // over in flat water and let go: she should roll back through upright, past
+  // it, and go on swinging -- at her own period, and dying away, not snapping
+  // back like a needle.
+  const she = Object.create(ShipView.prototype);
+  she.cls = SHIP_CLASSES.fletcher;
+  she.roll = 0.14;                       // eight degrees down, and released
+  she.rollV = 0;
+  const dt = 1 / 60;
+  const zeros = [];
+  let was = she.roll;
+  let over = 0;                          // how far past upright she swings
+  for (let t = 0; t < 90; t += dt) {
+    const r = she.heelTo(0, dt);
+    if ((was > 0) !== (r > 0)) zeros.push(t);
+    over = Math.min(over, r);
+    was = r;
+  }
+  assert.ok(zeros.length >= 6, `she crossed upright only ${zeros.length} times`);
+  assert.ok(over < -0.05,
+    `she only swung ${(-over).toFixed(3)} rad past upright before stopping`);
+  // Half a swing between crossings, and the period is the one her beam gives.
+  const half = (zeros[zeros.length - 1] - zeros[0]) / (zeros.length - 1);
+  const want = rollPeriod(SHIP_CLASSES.fletcher.hull.beam);
+  assert.ok(Math.abs(half * 2 - want) < want * 0.15,
+    `she rolls in ${(half * 2).toFixed(1)} s where her beam says ${want.toFixed(1)} s`);
+  // And she settles: a ship that rolls for ever has no damping at all.
+  assert.ok(Math.abs(she.roll) < 0.02, `she was still at ${(she.roll).toFixed(3)} rad`);
+});
+
+check('a destroyer rolls in a sea a battleship walks through', () => {
+  // Every hull used to take the exact angle of the water under her, so a
+  // Fletcher and an Iowa rolled the same three and a half degrees. Size has to
+  // tell: a short ship lies along the swell and takes all of it, a long one
+  // spans several waves whose slopes cancel under her.
+  const sea = Object.create(Ocean.prototype);
+  sea.material = { uniforms: { uAmp: { value: 2.9 }, uSteep: { value: 1 }, uTime: { value: 0 } } };
+  const DEG = 180 / Math.PI;
+  const dt = 1 / 60;
+  const peak = {};
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const v = Object.create(ShipView.prototype);
+    v.cls = cls; v.roll = 0; v.rollV = 0;
+    let most = 0;
+    for (let t = 0; t < 300; t += dt) {
+      const att = sea.attitude(1200, -800, 0.7, cls.hull.length, cls.hull.beam, t);
+      const r = v.heelTo(att.roll, dt);
+      if (t > 40) most = Math.max(most, Math.abs(r) * DEG);   // let her settle first
+    }
+    peak[id] = most;
+  }
+  // In order of size, every one rolls less than the one before her.
+  const order = ['fletcher', 'cleveland', 'hipper', 'enterprise', 'iowa'];
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(peak[order[i]] < peak[order[i - 1]],
+      `${order[i]} rolls ${peak[order[i]].toFixed(2)}deg against `
+      + `${order[i - 1]}'s ${peak[order[i - 1]].toFixed(2)}deg`);
+  }
+  // A destroyer is lively and the capital ships are not.
+  assert.ok(peak.fletcher > 4 && peak.fletcher < 9,
+    `a Fletcher rolls ${peak.fletcher.toFixed(1)}deg`);
+  assert.ok(peak.iowa < 2.6, `an Iowa rolls ${peak.iowa.toFixed(1)}deg`);
+  assert.ok(peak.enterprise < 3.0, `Enterprise rolls ${peak.enterprise.toFixed(1)}deg`);
+  assert.ok(peak.fletcher > peak.iowa * 2,
+    'a destroyer should roll at least twice what a battleship does');
+  // And the big ones swing slower, which is the other half of looking heavy.
+  assert.ok(rollPeriod(SHIP_CLASSES.iowa.hull.beam)
+    > rollPeriod(SHIP_CLASSES.fletcher.hull.beam) * 1.4, 'an Iowa should roll slowly');
+  assert.ok(rollHeed(114) > rollHeed(270) * 2, 'a short hull should take more of the sea');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

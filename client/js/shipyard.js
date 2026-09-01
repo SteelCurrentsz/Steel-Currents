@@ -8,6 +8,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
+import { rollPeriod, rollHeed } from './render/scene.js';
 import { buildShip } from './render/ships.js';
 import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
@@ -254,9 +255,17 @@ export class ShipyardScene {
     this.time += dt;
     if (!this.ship) return;
 
-    // She rides the swell rather than standing still on it.
+    // She rides the swell rather than standing still on it, and how much she
+    // rides it is a matter of how big she is -- the same beam and length that
+    // decide her roll at sea decide it in her berth. A Fletcher is never still;
+    // an Iowa alongside barely moves.
     const g = this.ship.group;
-    g.rotation.z = Math.sin(this.time * 0.5) * 0.012 + Math.sin(this.time * 1.13) * 0.005;
+    const hull = SHIP_CLASSES[this.classId]?.hull;
+    const T = rollPeriod(hull ? hull.beam : 20);
+    const heed = rollHeed(hull ? hull.length : 180);
+    const w = (Math.PI * 2) / T;
+    g.rotation.z = (Math.sin(this.time * w) * 0.030
+      + Math.sin(this.time * w * 2.3 + 1.1) * 0.010) * heed;
     g.rotation.x = Math.sin(this.time * 0.62 + 0.8) * 0.008;
     g.position.y = Math.sin(this.time * 0.55) * 0.55;
     // Her lifts work while she is being looked at, which is the only way to see

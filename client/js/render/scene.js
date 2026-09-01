@@ -487,6 +487,28 @@ function batteryApron(world, at, span, foot = 0) {
 }
 
 /** A ship as it appears on screen: hull, turrets, wake ribbon, damage state. */
+/**
+ * Her natural roll period, in seconds.
+ *
+ * A hull swings like a pendulum whose length is set by her beam and her
+ * stability, and for a warship the two together come out at a little under
+ * three root-beam: about nine seconds for a Fletcher, sixteen for an Iowa.
+ * That is the whole reason a destroyer looks lively and a battleship does not.
+ */
+export function rollPeriod(beam) { return 2.7 * Math.sqrt(beam); }
+
+/**
+ * How much of the sea's slope actually reaches her.
+ *
+ * A destroyer is shorter than the swell running under her and lies along it, so
+ * she takes very nearly all of it. A battleship spans several waves at once and
+ * their slopes cancel out under her bottom before they ever become a heeling
+ * moment -- and what is left has a much stiffer ship to shift.
+ */
+export function rollHeed(length) {
+  return Math.min(1, Math.max(0.16, Math.pow(115 / length, 1.3)));
+}
+
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null) {
     const built = buildShip(classId);
@@ -499,6 +521,10 @@ export class ShipView {
     this.smokeTimer = 0;
     this.fireTimer = 0;
     this.sinking = 0;
+    // How far over she is at this instant, and how fast she is going over.
+    // She is not laid on the water like a raft: she swings, and the sea pushes.
+    this.roll = 0;
+    this.rollV = 0;
     scene.add(this.group);
 
     const len = this.cls.hull.length;
@@ -517,6 +543,36 @@ export class ShipView {
     }));
     this.marker.position.y = 1.5;
     this.group.add(this.marker);
+  }
+
+  /**
+   * Lay her over as far as the sea has her, and let her swing back.
+   *
+   * The water does not set her angle, it pushes her towards one: she has a
+   * righting moment and a great deal of mass, so what comes out is her own
+   * roll, at her own period, going on after the wave that started it has run
+   * out from under her. From the bridge that is the difference between a
+   * Fletcher rolling five or six degrees and an Iowa hardly moving in the
+   * same sea.
+   *
+   * `heel` is anything holding her over that is not the sea -- a rudder hard
+   * across, which lays a ship into her turn.
+   */
+  heelTo(waveRoll, dt, heel = 0) {
+    const w = (Math.PI * 2) / rollPeriod(this.cls.hull.beam);
+    const target = waveRoll * rollHeed(this.cls.hull.length) + heel;
+    // Lightly damped on purpose: critically damped, she would simply track the
+    // water and there would be no roll to watch at all.
+    const ZETA = 0.13;
+    // Sub-stepped, so a long frame neither blows the spring up nor runs her
+    // roll in slow motion.
+    const n = Math.min(8, Math.max(1, Math.ceil(dt / 0.04)));
+    const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      this.rollV += (w * w * (target - this.roll) - 2 * ZETA * w * this.rollV) * h;
+      this.roll += this.rollV * h;
+    }
+    return this.roll;
   }
 
   dispose(scene) {
