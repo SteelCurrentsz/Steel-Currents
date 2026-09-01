@@ -31,6 +31,13 @@ export function shipSnapshot(ship, full) {
     s.str = ship.steeringDamage > 0 ? 1 : 0;
     s.kills = ship.kills;
     s.dmg = Math.round(ship.damageDealt);
+    // The course laid off for her on the chart, if she has one. Only her own
+    // side is told: it is an intention, and intentions are not visible to the
+    // enemy through a pair of binoculars.
+    if (ship.wayX !== null && ship.wayZ !== null) {
+      s.wx = Math.round(ship.wayX);
+      s.wz = Math.round(ship.wayZ);
+    }
   }
   return s;
 }

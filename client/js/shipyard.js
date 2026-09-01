@@ -8,7 +8,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
-import { rollPeriod, rollHeed } from './render/scene.js';
+import { rollPeriod, rollHeed, pitchPeriod, pitchHeed } from './render/seakeeping.js';
 import { buildShip } from './render/ships.js';
 import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
@@ -266,7 +266,11 @@ export class ShipyardScene {
     const w = (Math.PI * 2) / T;
     g.rotation.z = (Math.sin(this.time * w) * 0.030
       + Math.sin(this.time * w * 2.3 + 1.1) * 0.010) * heed;
-    g.rotation.x = Math.sin(this.time * 0.62 + 0.8) * 0.008;
+    // And she pitches on her own period too, which for anything above a
+    // destroyer is barely at all.
+    const pw = (Math.PI * 2) / pitchPeriod(hull ? hull.length : 180);
+    g.rotation.x = Math.sin(this.time * pw + 0.8) * 0.026
+      * pitchHeed(hull ? hull.length : 180);
     g.position.y = Math.sin(this.time * 0.55) * 0.55;
     // Her lifts work while she is being looked at, which is the only way to see
     // the hangar under the flight deck. On wall time, so they run at the same

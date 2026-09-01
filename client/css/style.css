@@ -284,21 +284,20 @@ input[type="range"] { accent-color: var(--red); }
 .status-chip.flood { color: #58b6ff; }
 .status-chip.engine, .status-chip.steering { color: #e2c14f; }
 
-.consumables { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
-.consumable {
-  width: 62px; padding: 0.35rem; text-align: center; background: rgba(8, 19, 31, 0.6);
-  border: 1px solid var(--panel-line); font-size: 0.72rem; letter-spacing: 0.08em; color: var(--steel);
-}
-.consumable b { display: block; font-size: 1rem; color: var(--sand); }
-.consumable.ready { border-color: var(--sand); color: var(--sand); }
-.consumable.active { border-color: var(--ally); color: var(--ally); }
 
 /* The plot lives in the top-right corner, which is where a captain's eye goes
    for it. It used to sit down by the gunnery cluster with the scoreboard key
    above it; the scores are a once-a-battle thing and the plot is a once-a-few-
    seconds thing, so they have swapped. */
-.hud-right { position: absolute; right: 1.2vw; top: 1vh; bottom: auto; }
-.minimap-wrap { width: 240px; height: 240px; border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72); }
+.hud-right { position: absolute; right: 0.7vw; top: 0.8vh; bottom: auto; }
+/* The plot has the corner to itself. It is the instrument the whole action is
+   read off and now the thing the fleet is conned from, so it is sized to the
+   corner it sits in rather than to a fixed number of pixels -- big enough to
+   put a finger on a destroyer, and stopped well short of owning the screen. */
+.minimap-wrap {
+  width: min(30vw, 42vh, 400px); height: min(30vw, 42vh, 400px);
+  border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72);
+}
 #minimap { width: 100%; height: 100%; display: block; }
 
 /* The big plot, laid out in the middle of the screen like a chart table. It is
@@ -345,36 +344,82 @@ input[type="range"] { accent-color: var(--red); }
   color: var(--steel); opacity: 0.7;
 }
 
-.hud-bottom {
-  position: absolute; left: 0; right: 0; bottom: 1.2vh;
-  display: flex; align-items: flex-end; justify-content: center; gap: 2.4rem;
+/* ------------------------------------------------------------- the conn --
+   A captain with his guns fought for him has three things left to do, so there
+   are three keys, small, along the bottom edge where a thumb finds them. Each
+   raises one panel above them and nothing else moves. */
+.conn-keys {
+  position: absolute; left: 0; right: 0; bottom: max(0.8vh, env(safe-area-inset-bottom));
+  display: flex; justify-content: center; gap: 0.55rem;
+  pointer-events: none; z-index: 7;
 }
-.tele-label { font-size: 0.7rem; letter-spacing: 0.28em; color: var(--steel); text-align: center; }
-.tele-notches { display: flex; flex-direction: column-reverse; gap: 3px; margin: 0.3rem 0; }
-.notch { width: 74px; height: 9px; background: rgba(255, 255, 255, 0.12); }
-.notch.on { background: var(--sand); }
-.notch.astern { background: rgba(226, 86, 79, 0.35); }
-.notch.astern.on { background: var(--enemy); }
-.speed, .heading { text-align: center; font-size: 1.15rem; letter-spacing: 0.1em; color: var(--sand); }
+.conn-key {
+  pointer-events: auto;
+  width: 62px; min-height: 50px; padding: 0.3rem 0.2rem 0.25rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  background: rgba(8, 19, 31, 0.78); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.6rem;
+  letter-spacing: 0.16em; cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.conn-key svg { width: 22px; height: 22px; display: block; }
+.conn-key:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.5); }
+.conn-key.on { color: var(--sand); border-color: var(--sand); background: rgba(20, 34, 48, 0.9); }
+/* Something wants doing: an aircraft ready to go, a fire to put out. */
+.conn-key.due { color: var(--ally); border-color: rgba(111, 211, 160, 0.6); }
+.conn-key.spent { opacity: 0.42; }
 
-.armament { display: flex; gap: 0.45rem; align-items: flex-end; }
-.gun-cell {
-  width: 54px; background: rgba(8, 19, 31, 0.6); border: 1px solid var(--panel-line);
-  padding: 0.3rem; text-align: center; font-size: 0.72rem; color: var(--steel);
+/* The panel the keys raise, standing on top of them in the lower middle. */
+.conn-panel {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(max(0.8vh, env(safe-area-inset-bottom)) + 58px);
+  width: min(340px, 82vw); z-index: 7; pointer-events: auto;
+  background: rgba(6, 16, 28, 0.94); border: 1px solid var(--panel-line);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
 }
-.gun-cell .bar { height: 5px; background: rgba(255, 255, 255, 0.12); margin-top: 0.25rem; }
-.gun-cell .bar i { display: block; height: 100%; background: var(--sand); width: 0%; }
-.gun-cell.ready { color: var(--sand); border-color: rgba(230, 207, 156, 0.5); }
-.gun-cell.blocked { color: var(--enemy); border-color: rgba(226, 86, 79, 0.5); }
-.shell-toggle { display: flex; gap: 0.35rem; margin-left: 0.6rem; }
-.shell-btn {
-  padding: 0.35rem 0.6rem; border: 1px solid var(--panel-line); background: rgba(8, 19, 31, 0.6);
-  color: var(--steel); font-family: var(--ui); letter-spacing: 0.12em; cursor: pointer; font-size: 0.85rem;
+.conn-panel[hidden] { display: none; }
+.conn-panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--panel-line);
+  font-size: 0.68rem; letter-spacing: 0.24em; color: var(--steel);
 }
-.shell-btn.on { border-color: var(--red); color: #fff; background: rgba(192, 33, 44, 0.35); }
+.conn-panel-sub { letter-spacing: 0.1em; color: var(--sand); font-size: 0.9rem; }
+.conn-panel-body { padding: 0.6rem 0.7rem 0.7rem; }
 
-.rudder { width: 120px; height: 10px; background: rgba(255, 255, 255, 0.1); position: relative; margin: 0.4rem 0; }
-.rudder-needle { position: absolute; top: -3px; left: 50%; width: 4px; height: 16px; background: var(--sand); transform: translateX(-50%); transition: left 0.1s linear; }
+/* The telegraph, laid out as the lever it is: astern at the bottom, flank at
+   the top, and the notch she is ringing up lit. */
+.tele-rows { display: flex; flex-direction: column-reverse; gap: 4px; }
+.tele-row {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  background: none; border: 1px solid transparent; padding: 0.22rem 0.4rem;
+  color: var(--steel); font-family: var(--ui); font-size: 0.74rem;
+  letter-spacing: 0.16em; cursor: pointer; text-align: left;
+}
+.tele-row i { display: block; height: 9px; flex: 1; background: rgba(255, 255, 255, 0.12); }
+.tele-row span { width: 5.2rem; }
+.tele-row.astern i { background: rgba(226, 86, 79, 0.3); }
+.tele-row:hover { border-color: rgba(230, 207, 156, 0.4); color: var(--sand); }
+.tele-row.on { color: var(--sand); }
+.tele-row.on i { background: var(--sand); }
+.tele-row.astern.on i { background: var(--enemy); }
+
+/* The rows in the air and damage-control panels: a thing to do and its state. */
+.conn-act {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: rgba(8, 19, 31, 0.6); border: 1px solid var(--panel-line);
+  padding: 0.42rem 0.6rem; margin-bottom: 0.4rem; cursor: pointer;
+  color: var(--steel); font-family: var(--ui); font-size: 0.76rem;
+  letter-spacing: 0.12em;
+}
+.conn-act:last-child { margin-bottom: 0; }
+.conn-act b { color: var(--sand); font-size: 0.86rem; letter-spacing: 0.08em; }
+.conn-act.ready { border-color: rgba(230, 207, 156, 0.5); color: var(--sand); }
+.conn-act.active { border-color: var(--ally); color: var(--ally); }
+.conn-act.spent { opacity: 0.45; cursor: default; }
+.conn-note {
+  margin: 0.45rem 0 0; font-size: 0.62rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--steel); opacity: 0.75; text-align: center;
+}
 
 .killfeed { position: absolute; top: 4.6rem; right: 1.4vw; display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-end; }
 .kill-row { background: rgba(8, 19, 31, 0.7); padding: 0.25rem 0.6rem; font-size: 0.9rem; letter-spacing: 0.04em; }
@@ -425,15 +470,14 @@ input[type="range"] { accent-color: var(--red); }
 @media (max-width: 760px) {
   .panel-body.two-col, .grid-2 { grid-template-columns: 1fr; }
   .hud-left { width: 200px; }
-  .minimap-wrap { width: 150px; height: 150px; }
+  .minimap-wrap { width: min(36vw, 34vh, 230px); height: min(36vw, 34vh, 230px); }
 }
 
 /* ------------------------------------------------------------------ touch --
    On-screen bridge controls. Instruments, not game buttons: an engine
-   telegraph with detents, a wheel that holds its angle, and the gunnery on the
-   right where the firing hand sits. Kept translucent so the sea still reads
-   through, and inset from the screen edges so a notch or a home bar cannot
-   swallow a control. */
+   somewhere for a finger to say "turn my head". It covers the screen, so it sits
+   under everything that is meant to be pressed: the plot in its corner and the
+   conn keys along the bottom are both above it. */
 
 .touch-controls {
   position: absolute; inset: 0; z-index: 6;
@@ -447,195 +491,6 @@ input[type="range"] { accent-color: var(--red); }
 
 /* The whole screen aims; the instruments sit on top and take their own touches. */
 .tc-look { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
-
-.tc-cap {
-  font-size: 0.62rem; letter-spacing: 0.26em; color: var(--steel);
-  text-align: center; margin-bottom: 0.3rem;
-}
-.tc-read {
-  font-size: 0.78rem; letter-spacing: 0.16em; color: var(--sand);
-  text-align: center; margin-top: 0.35rem; font-variant-numeric: tabular-nums;
-}
-
-/* Engine telegraph ------------------------------------------------------- */
-.tc-bar {
-  position: absolute; bottom: var(--tc-pad-b);
-  left: var(--tc-pad-x); right: var(--tc-pad-x);
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 0.8rem; pointer-events: none;
-}
-.tc-bar > * { pointer-events: auto; }
-
-.tc-engine { width: 74px; flex: none; touch-action: none; }
-.tc-lever {
-  position: relative; height: 168px; width: 100%;
-  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
-  touch-action: none;
-}
-.tc-detents {
-  position: absolute; inset: 6px 10px;
-  display: flex; flex-direction: column; justify-content: space-between;
-}
-.tc-detents i { display: block; height: 3px; background: rgba(255, 255, 255, 0.16); }
-.tc-detents i.astern { background: rgba(226, 86, 79, 0.4); }
-.tc-knob {
-  position: absolute; left: 4px; right: 4px; height: 26px;
-  background: var(--sand); border: 1px solid rgba(0, 0, 0, 0.35);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-  transition: bottom 0.09s ease-out;
-}
-.tc-knob.astern { background: var(--enemy); }
-
-/* Helm ------------------------------------------------------------------- */
-/* The wheel takes what the instruments either side leave, within reason, and
-   sits centred in that gap rather than centred on the screen. */
-.tc-helm {
-  flex: 0 1 300px; min-width: 150px; max-width: 300px;
-  margin: 0 auto; touch-action: none;
-}
-.tc-wheel {
-  position: relative; height: 52px;
-  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
-  touch-action: none;
-}
-.tc-wheel-mid {
-  position: absolute; left: 50%; top: 6px; bottom: 6px; width: 1px;
-  background: rgba(154, 166, 178, 0.5);
-}
-.tc-wheel-grip {
-  position: absolute; top: 5px; bottom: 5px; width: 34px;
-  left: 50%; transform: translateX(-50%);
-  background: var(--sand); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-  transition: left 0.06s linear;
-}
-.tc-wheel-grip.hard { background: var(--enemy); }
-.tc-mid-btn {
-  display: block; width: 100%; margin-top: 0.35rem; min-height: 44px;
-  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
-  color: var(--steel); font-family: var(--ui); font-size: 0.72rem;
-  letter-spacing: 0.2em; cursor: pointer;
-}
-.tc-mid-btn.down { background: rgba(230, 207, 156, 0.2); color: var(--sand-bright); }
-
-/* Gunnery ---------------------------------------------------------------- */
-/* A row, not a stack: a phone in landscape has height to spare nowhere, and a
-   tall column of buttons runs straight up into the minimap. */
-.tc-right {
-  flex: none;
-  display: flex; flex-direction: row; align-items: flex-end; gap: 0.4rem;
-}
-.tc-ammo { display: flex; flex-direction: column; gap: 0.35rem; }
-/* Four across, so the seven keys come out as two even rows beside the two-high
-   ammo column rather than three ragged ones. */
-.tc-actions { display: grid; grid-template-columns: repeat(4, auto); gap: 0.35rem; }
-.tc-guns { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
-.tc-ammo-btn, .tc-btn, .tc-scope {
-  background: rgba(8, 19, 31, 0.62); border: 1px solid var(--panel-line);
-  color: var(--steel); font-family: var(--ui); letter-spacing: 0.14em;
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-/* 44px is the smallest target a thumb hits reliably; nothing here goes under. */
-.tc-ammo-btn, .tc-btn { min-width: 56px; min-height: 44px; font-size: 0.78rem; }
-.tc-ammo-btn.on { background: var(--red); border-color: var(--red); color: #fff; }
-.tc-btn.down { background: rgba(230, 207, 156, 0.22); color: var(--sand-bright); }
-.tc-scope { min-width: 78px; min-height: 44px; font-size: 0.74rem; }
-.tc-scope.on { background: rgba(230, 207, 156, 0.22); color: var(--sand-bright); border-color: var(--sand); }
-
-.tc-fire {
-  width: 96px; height: 96px; border-radius: 50%;
-  background: rgba(192, 33, 44, 0.24); border: 2px solid var(--red);
-  color: var(--sand-bright); font-family: var(--ui); font-size: 1.05rem;
-  letter-spacing: 0.16em; cursor: pointer; touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-.tc-fire.down { background: var(--red); box-shadow: 0 0 22px rgba(192, 33, 44, 0.65); }
-
-/* Short screens: a phone in landscape has very little height to spare. */
-@media (max-height: 460px) {
-  .tc-lever { height: 116px; }
-  .tc-fire { width: 78px; height: 78px; font-size: 0.9rem; }
-  .tc-wheel { height: 44px; }
-  /* Just enough width for the four across at the narrower key size, which is
-     what keeps the cluster two rows deep beside the ammo column. */
-  .tc-actions { max-width: 212px; }
-  /* Narrower, never shorter — a 44px-high target still needs 44px. */
-  .tc-btn, .tc-ammo-btn { min-width: 46px; font-size: 0.66rem; }
-  .tc-mid-btn { font-size: 0.66rem; }
-  /* The wheel gives way first; it has the most width to spare. */
-  .tc-helm { flex: 0 1 230px; max-width: 230px; }
-}
-
-/* On a touchscreen the on-screen instruments replace their desktop twins, so
-   the originals come out rather than sitting behind them. What is left has to
-   clear the four corners the thumbs occupy. */
-@media (pointer: coarse) {
-  /* Replaced outright: lever for telegraph, wheel for helm, buttons for the
-     shell toggle and the consumable keys. */
-  .hud-bottom .telegraph, .hud-bottom .helm, .shell-toggle, .consumables { display: none; }
-
-  /* Gun status keeps its place, but up top out of the thumbs' way. */
-  .hud-bottom {
-    bottom: auto; top: max(4.7rem, calc(env(safe-area-inset-top) + 4.2rem));
-    gap: 0.6rem; transform: scale(0.78); transform-origin: top center;
-  }
-
-  /* Ship plate to the top-left corner, under the score bar. */
-  .hud-left {
-    left: max(0.8rem, env(safe-area-inset-left));
-    top: max(3.1rem, calc(env(safe-area-inset-top) + 2.6rem));
-    bottom: auto; width: min(220px, 30vw);
-  }
-  .ship-plate { padding: 0.4rem 0.6rem; }
-  .ship-plate .name { font-size: 0.92rem; }
-  .hp-bar { height: 16px; }
-  .hp-bar span { font-size: 0.72rem; }
-
-  /* The plot in the corner itself, with the room the scoreboard key used to
-     take, so a contact on it is big enough to see and to put a finger on. */
-  .hud-right {
-    right: max(0.5rem, env(safe-area-inset-right));
-    top: max(0.5rem, calc(env(safe-area-inset-top) + 0.2rem));
-    bottom: auto;
-  }
-  .minimap-wrap { width: min(136px, 34vh); height: min(136px, 34vh); }
-
-  /* The killfeed and ribbons sit centre-left, clear of both thumb clusters. */
-  .killfeed { top: auto; bottom: 32vh; font-size: 0.8rem; }
-  .ribbons { font-size: 0.8rem; }
-}
-
-/* Readouts adopted from the HUD sit under their instrument. */
-.tc-engine .speed, .tc-helm .heading {
-  text-align: center; font-size: 0.9rem; letter-spacing: 0.08em;
-  color: var(--sand); margin-top: 0.2rem; font-variant-numeric: tabular-nums;
-}
-
-/* Rotate prompt ---------------------------------------------------------- */
-.rotate-prompt {
-  display: none;
-  position: fixed; inset: 0; z-index: 60;
-  background: #05080f; color: var(--sand);
-  flex-direction: column; align-items: center; justify-content: center; gap: 0.9rem;
-  text-align: center; padding: 2rem;
-}
-.rotate-prompt p {
-  margin: 0; font-size: 1.3rem; letter-spacing: 0.2em; text-transform: uppercase;
-}
-.rotate-prompt span { color: var(--steel); font-size: 0.95rem; max-width: 30ch; }
-.rot-icon {
-  width: 46px; height: 74px; border: 2px solid var(--sand); border-radius: 6px;
-  animation: rot-tip 2.4s ease-in-out infinite;
-}
-@keyframes rot-tip {
-  0%, 40% { transform: rotate(0deg); }
-  60%, 100% { transform: rotate(-90deg); }
-}
-@media (prefers-reduced-motion: reduce) { .rot-icon { animation: none; transform: rotate(-90deg); } }
-
-/* Only nag a handheld in portrait — never a desktop window that happens to be tall. */
-@media (pointer: coarse) and (orientation: portrait) and (max-width: 900px) {
-  body.in-battle .rotate-prompt { display: flex; }
-}
 
 /* ------------------------------------------------------------- fullscreen --
    Always reachable, never in the way: sits in the bottom-right on the menus,

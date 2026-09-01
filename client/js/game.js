@@ -9,6 +9,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
+  steerToWaypoint,
 } from '../../shared/sim.js';
 import { clamp, lerp, wrapAngle, angleDelta, dist, MPS_TO_KNOTS } from '../../shared/math.js';
 import { groundHeight } from '../../shared/world.js';
@@ -37,15 +38,15 @@ export class Battle {
     this.scene = new BattleScene(renderer, world, getSettings().quality);
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
-    this.hud.onShellSelect((t) => { this.shellType = t; this.hud.setShellType(t); });
-    // The consumable tiles are buttons as well as read-outs, so a captain on a
-    // touchscreen has the same reach as one with a keyboard.
-    this.hud.onConsumable?.((k) => {
-      if (k === 'air') this.net.send({ t: 'strike' });
+    this.hud.setSelected(shipId);
+    // The three conn keys, and what each of their panels does.
+    this.hud.onConn?.((k, v) => {
+      if (k === 'notch') this.setNotch(v);
+      else if (k === 'air') this.net.send({ t: 'strike' });
       else if (k === 'plane') this.togglePilotView();
       else if (k === 'repair') this.net.send({ t: 'repair' });
       else if (k === 'smoke') this.net.send({ t: 'smoke' });
-      else if (k === 'torp') this.fireTorpedoes?.();
+      audio.click();
     });
 
     // Local mirror of our own hull, stepped with the shared simulation.
@@ -65,6 +66,9 @@ export class Battle {
     // You still have the con while you are watching — the helm and the
     // telegraph answer, the guns hold whatever bearing they were left on.
     this.watching = null;
+    // Which of our own the plot is conning. Your own hull until you say
+    // otherwise, so the first course you lay off goes to her.
+    this.selected = shipId;
     this.watchYaw = 0;
     this.watchPitch = 0.06;
     // Aboard her, or standing off her. A captain who taps a contact wants to
@@ -88,8 +92,6 @@ export class Battle {
     this.fov = 58;
     this.shake = 0;
     this.aimPoint = new THREE.Vector3();
-    this.shellType = 'ap';
-    this.hud.setShellType('ap');
     this.sunk = false;
     this.mapBig = false;
     this.showScores = false;
@@ -98,7 +100,7 @@ export class Battle {
 
     // Tapping a hull or a gun on the plot puts the camera on it; tapping it
     // again, or tapping open water, brings the view back to your own bridge.
-    this.hud.onPick = (hit) => this.lookAt(hit);
+    this.hud.onPick = (hit, at) => this.workPlot(hit, at);
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
     document.getElementById('watch-swap')?.addEventListener('click', () => {
@@ -256,7 +258,6 @@ export class Battle {
   bindInput() {
     this.input.enabled = true;
     this.input.on('key', (code) => this.onKey(code));
-    this.input.on('fire', () => this.fire());
     this.input.on('scope', (on) => { this.scoped = on; });
     this.input.on('wheel', (dir) => {
       // While the camera is off watching somebody else the wheel works that
@@ -274,12 +275,12 @@ export class Battle {
   onKey(code) {
     const ls = this.localShip;
     switch (code) {
-      case 'KeyW': ls.notch = clamp(ls.notch + 1, MIN_NOTCH, MAX_NOTCH); audio.click(); break;
-      case 'KeyS': ls.notch = clamp(ls.notch - 1, MIN_NOTCH, MAX_NOTCH); audio.click(); break;
-      case 'KeyQ': ls.rudderCmd = 0; break;
-      case 'Digit1': this.shellType = 'ap'; this.hud.setShellType('ap'); break;
-      case 'Digit2': this.shellType = 'he'; this.hud.setShellType('he'); break;
-      case 'Digit3': this.net.send({ t: 'torp' }); break;
+      case 'KeyW': this.setNotch(ls.notch + 1); audio.click(); break;
+      case 'KeyS': this.setNotch(ls.notch - 1); audio.click(); break;
+      // Her guns and her torpedoes are fought by her own officers. What is
+      // left to her captain is where she goes, when her aircraft go, and
+      // getting her fires out.
+      case 'KeyQ': this.setCourse(null); break;
       case 'Digit4': this.net.send({ t: 'strike' }); break;
       case 'KeyP': this.togglePilotView(); break;
       case 'KeyR': this.net.send({ t: 'repair' }); break;
@@ -325,6 +326,47 @@ export class Battle {
     this.mapBig = want;
     this.hud.toggleMap(this.mapBig);
     if (this.mapBig) this.input.releaseLock();
+    audio.click();
+  }
+
+  /**
+   * A tap on the plot.
+   *
+   * The plot is the command table: your own side is conned from it, and
+   * everything else on it is something to look at. So a friendly hull is taken
+   * under orders, open water is where the ship under orders is sent, and an
+   * enemy or a gun ashore puts the camera on it as it always did.
+   */
+  workPlot(hit, at) {
+    if (hit && hit.kind === 'ship' && hit.team === this.team) {
+      this.selected = this.selected === hit.id ? null : hit.id;
+      this.hud.setSelected(this.selected);
+      audio.click();
+      return;
+    }
+    if (!hit && at) {
+      const id = this.selected ?? this.shipId;
+      this.setCourse(at, id);
+      return;
+    }
+    this.lookAt(hit);
+  }
+
+  /**
+   * Lay a course off for a ship: hers to steer, and the plot draws the leg.
+   *
+   * Her own hull is steered here as well so the prediction agrees with the
+   * server; the rest of the division are somebody else's hulls and the order
+   * goes up the wire alone.
+   */
+  setCourse(at, id = this.selected ?? this.shipId) {
+    if (!at) {
+      this.wayX = null; this.wayZ = null;
+      if (id === this.shipId) this.net.send({ t: 'goto', x: null, z: null });
+      return;
+    }
+    if (id === this.shipId) { this.wayX = at.x; this.wayZ = at.z; }
+    this.net.send({ t: 'goto', ship: id, x: Math.round(at.x), z: Math.round(at.z) });
     audio.click();
   }
 
@@ -456,9 +498,17 @@ export class Battle {
     this.hud.setWatchBanner?.(this.watching, false);
   }
 
-  fire() {
-    if (this.sunk) return;
-    this.net.send({ t: 'fire' });
+  /**
+   * Ring up a speed.
+   *
+   * The telegraph is the one thing about her own movement a captain still works
+   * directly, so it is set here and sent, rather than being wound toward.
+   */
+  setNotch(n) {
+    const want = clamp(Math.round(n), MIN_NOTCH, MAX_NOTCH);
+    if (this.localShip.notch === want) return;
+    this.localShip.notch = want;
+    this.net.send({ t: 'input', notch: want });
   }
 
   leave() {
@@ -478,16 +528,15 @@ export class Battle {
     // on a slow machine is a minute and a half.
     this.time = performance.now() / 1000;
 
-    // Helm and telegraph.
+    // The helm answers the chart, not a wheel. Steered here as well as on the
+    // server, and by the same shared code, so the hull the player is watching
+    // is going where the authority is taking her instead of arguing with it
+    // every tick.
     if (!this.sunk) {
-      // The on-screen helm is a wheel: it sets an angle outright. The keyboard
-      // has to wind toward one.
-      if (this.input.axis.rudder !== null) {
-        ls.rudderCmd = clamp(this.input.axis.rudder, -1, 1);
-      } else {
-        const turn = (this.input.down('KeyD') ? 1 : 0) - (this.input.down('KeyA') ? 1 : 0);
-        if (turn !== 0) ls.rudderCmd = clamp(ls.rudderCmd + turn * dt * 1.8, -1, 1);
-      }
+      ls.wayX = this.wayX ?? null;
+      ls.wayZ = this.wayZ ?? null;
+      if (!steerToWaypoint(this.local, ls)) ls.rudderCmd = 0;
+      if (ls.wayX === null) { this.wayX = null; this.wayZ = null; }
     }
 
     // Look. While the camera is off watching somebody else the drag walks that
@@ -500,10 +549,7 @@ export class Battle {
       this.yaw = wrapAngle(this.yaw + m.x * zoom);
       this.pitch = clamp(this.pitch + m.y * zoom, -0.35, 0.55);
       this.updateAimPoint();
-      ls.aimX = this.aimPoint.x;
-      ls.aimZ = this.aimPoint.z;
     }
-    ls.shellType = this.shellType;
 
     // Predict our own hull, then ease toward the server's version of it.
     predictShip(this.local, ls, dt);
@@ -518,12 +564,10 @@ export class Battle {
     const now = performance.now() / 1000;
     if (now - this.lastInputSent > 1 / INPUT_HZ) {
       this.lastInputSent = now;
-      this.net.send({
-        t: 'input', notch: ls.notch, rudder: ls.rudderCmd,
-        aimX: Math.round(ls.aimX), aimZ: Math.round(ls.aimZ), shellType: this.shellType,
-      });
+      // Only the telegraph goes up the wire now. Her helm follows the course
+      // her captain laid off, and her guns are her own gunnery officer's.
+      this.net.send({ t: 'input', notch: ls.notch });
     }
-    if (this.input.firing) this.autoFire(dt);
 
     this.syncEntities(dt);
     this.updateCamera(dt);
@@ -538,14 +582,6 @@ export class Battle {
     this.hud.update(ownForHud, snap);
     if (snap) this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
-  }
-
-  autoFire(dt) {
-    this.autoTimer = (this.autoTimer || 0) - dt;
-    if (this.autoTimer <= 0) {
-      this.autoTimer = 0.25;
-      this.net.send({ t: 'fire' });
-    }
   }
 
   /** Where the guns are laid: the sea point under the crosshair. */
@@ -585,6 +621,11 @@ export class Battle {
     if (!a) return;
     const t = b ? clamp((renderTime - a.at) / Math.max(0.0001, b.at - a.at), 0, 1) : 0;
 
+    if (this.selected !== this.shipId
+      && !a.ships.some((s) => s.i === this.selected && s.a)) {
+      this.selected = this.shipId;
+      this.hud.setSelected(this.selected);
+    }
     const seen = new Set();
     for (const s of a.ships) {
       seen.add(s.i);
@@ -605,14 +646,16 @@ export class Battle {
       view.group.rotation.set(0, 0, 0);
       view.group.rotation.order = 'YXZ';
       view.group.rotation.y = h;
-      // Pitch is the water under her. Roll is her own, swung on her own period
-      // against what the sea and her rudder are doing to her, so how much she
-      // rocks is a matter of how big she is.
-      view.group.rotation.x = att.pitch * 0.85;
-      view.group.rotation.z = view.heelTo(att.roll, dt,
-        isSelf ? -this.localShip.rudder * 0.05 : 0);
+      // Neither her pitch nor her roll is the angle of the water: both are her
+      // own, swung on her own periods against what the sea and her rudder are
+      // doing to her. How much she moves is a matter of how big she is.
+      const sea = view.sea.step(att, dt, isSelf ? -this.localShip.rudder * 0.05 : 0);
+      view.group.rotation.x = sea.pitch;
+      view.group.rotation.z = sea.roll;
 
-      const turrets = isSelf ? this.localShip.turrets.map((tt) => tt.angle) : s.tu;
+      // Every ship's guns are laid by her own gunnery officer now, ours
+      // included, so the bearings all come off the wire.
+      const turrets = s.tu;
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
 
       // Anything on her that works itself -- a carrier's lifts, so far.

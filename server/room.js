@@ -2,6 +2,7 @@
 
 import {
   createState, addShip, addBattery, applyInput, step, fireGuns, fireTorpedoes,
+  steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -79,6 +80,10 @@ export class Room {
       classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id, at,
       airGroup: this.airGroupFor(t),
     });
+    // A player's ship gets a brain too. She fights herself -- gunnery,
+    // torpedoes, damage control -- and her captain keeps the helm and the
+    // aircraft, which is the whole of what he does.
+    this.brains.set(ship.id, createBotBrain('veteran'));
     player.team = t;
     player.shipId = ship.id;
     player.room = this;
@@ -194,10 +199,14 @@ export class Room {
       this.accum -= DT;
       steps++;
       for (const ship of this.state.ships) {
-        if (ship.isBot && ship.alive) {
-          const brain = this.brains.get(ship.id);
-          if (brain) stepBot(this.state, ship, brain, DT);
-        }
+        if (!ship.alive) continue;
+        // Everything afloat fights itself. A ship with a captain aboard is
+        // conned by him -- her helm and her aircraft are his -- and fights
+        // herself round that.
+        const brain = this.brains.get(ship.id);
+        if (brain) stepBot(this.state, ship, brain, DT, !ship.isBot);
+        // And a course laid off on the chart is steered to, whoever gave it.
+        if (!ship.isBot) steerToWaypoint(this.state, ship);
       }
       const events = step(this.state, DT);
       if (events.length) this.dispatchEvents(events);
@@ -270,11 +279,48 @@ export class Room {
     if (!ship || !ship.alive) return;
     switch (msg.t) {
       case 'input': applyInput(ship, msg); break;
+      // A course order off the chart. It may be given to any ship on the
+      // giver's own side, which is what makes the plot a command table rather
+      // than a map -- but never to the enemy's.
+      case 'goto': {
+        const target = typeof msg.ship === 'number'
+          ? this.state.ships.find((s) => s.id === msg.ship) : ship;
+        if (!target || !target.alive || target.team !== ship.team) break;
+        // No point given is the order cancelled: she holds what she is on.
+        if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
+          target.wayX = null;
+          target.wayZ = null;
+          target.rudderCmd = 0;
+          break;
+        }
+        target.wayX = msg.x;
+        target.wayZ = msg.z;
+        // Ordered somewhere and stopped: give her steerage way to get there.
+        if (target.notch <= 1) target.notch = 4;
+        break;
+      }
+      case 'notch': {
+        const target = typeof msg.ship === 'number'
+          ? this.state.ships.find((s) => s.id === msg.ship) : ship;
+        if (!target || !target.alive || target.team !== ship.team) break;
+        applyInput(target, { notch: msg.notch });
+        break;
+      }
       case 'fire': fireGuns(this.state, ship); break;
       case 'torp': fireTorpedoes(this.state, ship); break;
       case 'repair': useRepair(this.state, ship); break;
       case 'smoke': useSmoke(this.state, ship); break;
-      case 'strike': launchStrike(this.state, ship); break;
+      case 'strike': {
+        // Her aircraft go for whatever her fire control is on. The guns and the
+        // squadron fight the same ship, which is what a captain ordering a
+        // strike means by it -- he does not lay off a separate bearing.
+        const brain = this.brains.get(ship.id);
+        const foe = brain && this.state.ships.find(
+          (s) => s.id === brain.targetId && s.alive && s.team !== ship.team);
+        if (foe) { ship.aimX = foe.x; ship.aimZ = foe.z; }
+        launchStrike(this.state, ship);
+        break;
+      }
       default: break;
     }
   }

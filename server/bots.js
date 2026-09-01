@@ -4,8 +4,11 @@
 
 import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js';
 import { getClass } from '../shared/ships.js';
-import { blockedByLand, islandRadius, MAP_HALF } from '../shared/world.js';
-import { fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair, useSmoke, canFire } from '../shared/sim.js';
+import { blockedByLand } from '../shared/world.js';
+import {
+  fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
+  useSmoke, canFire, steerToward,
+} from '../shared/sim.js';
 
 const SKILL = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
@@ -33,7 +36,15 @@ function preferredRange(cls) {
   }
 }
 
-export function stepBot(state, ship, brain, dt) {
+/**
+ * One captain's turn of thought.
+ *
+ * `conned` says somebody else has the helm -- a human, working her off the
+ * chart. Her gunnery officer, her torpedo officer and her damage control party
+ * are still hers and still do their jobs; what she will not do is steer herself
+ * or fly off her own aircraft. Those two belong to whoever is conning her.
+ */
+export function stepBot(state, ship, brain, dt, conned = false) {
   if (!ship.alive) return;
   const cls = getClass(ship.classId);
   brain.retarget -= dt;
@@ -55,7 +66,8 @@ export function stepBot(state, ship, brain, dt) {
     // Nothing afloat to fight. If a shore battery is inside the guns as she
     // goes past, she puts a few rounds into it -- but she does not stop to do
     // it: an emplacement is not going anywhere and the capture zones are.
-    patrol(state, ship, brain, dt);
+    if (conned) layAhead(ship);
+    else patrol(state, ship, brain, dt);
     shellShore(state, ship, brain, cls);
     return;
   }
@@ -81,10 +93,10 @@ export function stepBot(state, ship, brain, dt) {
   if (ship.hp < ship.maxHp * 0.3 && cls.type !== 'DD') {
     desired = wrapAngle(bearingToTarget + brain.kite * 0.6);
   }
-  steerToward(state, ship, desired, dt);
-
-  const speedNotch = d > want * 1.3 ? 5 : ship.hp < ship.maxHp * 0.35 ? 5 : 4;
-  ship.notch = speedNotch;
+  if (!conned) {
+    steerToward(state, ship, desired);
+    ship.notch = d > want * 1.3 ? 5 : ship.hp < ship.maxHp * 0.35 ? 5 : 4;
+  }
 
   // Destroyers duck into smoke when caught in the open.
   if (cls.smokeCharges && ship.smoke > 0 && ship.smokeActive <= 0 && ship.hp < ship.maxHp * 0.65 && d < cls.gun.range * 0.6) {
@@ -106,7 +118,8 @@ export function stepBot(state, ship, brain, dt) {
     ship.aimX = saveAimX; ship.aimZ = saveAimZ;
   }
 
-  if (cls.planes && canSee && d < cls.planes.strikeRange) {
+  // A conned ship's aircraft are her captain's to send, and nobody else's.
+  if (!conned && cls.planes && canSee && d < cls.planes.strikeRange) {
     const p = leadPoint(ship.x, ship.z, target, 78);
     const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
     ship.aimX = p.x; ship.aimZ = p.z;
@@ -169,34 +182,16 @@ function pickTarget(state, ship) {
   return best;
 }
 
-function steerToward(state, ship, desiredHeading, dt) {
-  // Nudge around islands rather than beaching.
-  const look = 900;
-  const ahead = { x: ship.x + Math.sin(ship.heading) * look, z: ship.z + Math.cos(ship.heading) * look };
-  let target = desiredHeading;
-  for (const i of state.world.islands) {
-    // The island's reach on the bearing she is looking down, not a circle round
-    // it: she should not sheer away from a bay she could sail into.
-    const reach = islandRadius(i, Math.atan2(ahead.x - i.x, ahead.z - i.z));
-    if (dist(ahead.x, ahead.z, i.x, i.z) < reach + 300) {
-      const away = headingTo(i.x, i.z, ship.x, ship.z);
-      target = away;
-      break;
-    }
-  }
-  const edge = (state.world.half || MAP_HALF) - 900;
-  if (Math.abs(ship.x) > edge || Math.abs(ship.z) > edge) {
-    target = headingTo(ship.x, ship.z, 0, 0);
-  }
-  const d = angleDelta(ship.heading, target);
-  ship.rudderCmd = clamp(d * 2.2, -1, 1);
-}
-
 function patrol(state, ship, brain, dt) {
   ship.notch = 4;
   const cap = state.caps.find((c) => c.owner !== ship.team) || state.caps[0];
   const goal = cap ? { x: cap.x, z: cap.z } : { x: 0, z: 0 };
-  steerToward(state, ship, headingTo(ship.x, ship.z, goal.x, goal.z), dt);
+  steerToward(state, ship, headingTo(ship.x, ship.z, goal.x, goal.z));
+  layAhead(ship);
+}
+
+/** Nothing in sight: the guns train ahead and wait. */
+function layAhead(ship) {
   ship.aimX = ship.x + Math.sin(ship.heading) * 5000;
   ship.aimZ = ship.z + Math.cos(ship.heading) * 5000;
 }

@@ -243,14 +243,13 @@
       <div class="hp-bar"><div class="hp-fill" id="own-hp"></div><span id="own-hp-text">0</span></div>
       <div class="status-row" id="status-row"></div>
     </div>
-    <div class="consumables" id="consumables"></div>
   </div>
 
   <div class="hud-right">
     <div class="minimap-wrap" id="minimap-wrap">
-      <canvas id="minimap" width="320" height="320"></canvas>
+      <canvas id="minimap" width="440" height="440"></canvas>
     </div>
-    <p class="minimap-hint">Tap the plot for the big one &middot; M</p>
+    <p class="minimap-hint">Tap a ship, then the sea &middot; M for the big chart</p>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
     <div class="watch-banner" id="watch-banner" role="status" hidden>
@@ -260,18 +259,46 @@
     </div>
   </div>
 
-  <div class="hud-bottom">
-    <div class="telegraph">
-      <div class="tele-label">ENGINE</div>
-      <div class="tele-notches" id="tele-notches"></div>
-      <div class="speed" id="speed-readout">0 kn</div>
-    </div>
-    <div class="armament" id="armament"></div>
-    <div class="helm">
-      <div class="tele-label">HELM</div>
-      <div class="rudder"><div class="rudder-needle" id="rudder-needle"></div></div>
-      <div class="heading" id="heading-readout">000°</div>
-    </div>
+  <!-- What is left for a captain to do. His guns are fought for him; the con,
+       the aircraft and the damage control parties are his. Three keys along the
+       bottom, and each raises its own panel above them. -->
+  <div class="conn-panel" id="conn-panel" hidden>
+    <div class="conn-panel-head"><span id="conn-panel-title">ENGINE</span>
+      <span class="conn-panel-sub" id="conn-panel-sub"></span></div>
+    <div class="conn-panel-body" id="conn-panel-body"></div>
+  </div>
+
+  <div class="conn-keys" id="conn-keys">
+    <button class="conn-key" id="key-helm" type="button" data-panel="helm"
+            aria-label="Engine room telegraph">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="6.4" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="16" cy="16" r="12.4" fill="none" stroke="currentColor" stroke-width="2"/>
+        <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M16 3.6v6M16 22.4v6M3.6 16h6M22.4 16h6"/>
+          <path d="M7.2 7.2l4.2 4.2M20.6 20.6l4.2 4.2M24.8 7.2l-4.2 4.2M11.4 20.6l-4.2 4.2"/>
+        </g>
+      </svg>
+      <span>HELM</span>
+    </button>
+    <button class="conn-key" id="key-air" type="button" data-panel="air"
+            aria-label="Air group">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 3.5c1.3 0 2 1.4 2 3.2v4.1l10.5 5.6v2.7L18 16.4v5.4l3.4 2.3v2.3L16 25l-5.4 1.4v-2.3l3.4-2.3v-5.4L3.5 19.1v-2.7L14 10.8V6.7c0-1.8.7-3.2 2-3.2z"
+              fill="currentColor"/>
+      </svg>
+      <span>AIR</span>
+    </button>
+    <button class="conn-key" id="key-ship" type="button" data-panel="ship"
+            aria-label="Damage control">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 3l11 4v8.2c0 6.7-4.4 11.9-11 13.8-6.6-1.9-11-7.1-11-13.8V7z"
+              fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M16 10.5v9M11.5 15h9" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round"/>
+      </svg>
+      <span>SHIP</span>
+    </button>
   </div>
 
   <!-- The big plot: the chart table, in the middle of the screen where a

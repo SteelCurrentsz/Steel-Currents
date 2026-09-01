@@ -1,4 +1,7 @@
-// Bridge instruments: telegraph, helm, armament, damage state, plot and feeds.
+// Bridge instruments: the conn keys and their panels, damage state, the plot
+// and the feeds. Her guns are fought by her own officers and have no controls
+// here; what a captain works is her speed, her aircraft and her damage control,
+// and he lays her course off on the plot.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
@@ -8,15 +11,23 @@ import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 
+// The engine-room telegraph, bottom to top: astern, stop, and up through her
+// speeds. The order is the lever's order, not an array's.
+const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
+
+const PANEL_TITLES = { helm: 'ENGINE', air: 'AIR GROUP', ship: 'DAMAGE CONTROL' };
+
 export class Hud {
   constructor({ team, world, onLeave }) {
     this.team = team;
     this.world = world;
     this.el = {
       ownName: $('own-name'), ownHp: $('own-hp'), ownHpText: $('own-hp-text'),
-      status: $('status-row'), consumables: $('consumables'), armament: $('armament'),
-      tele: $('tele-notches'), speed: $('speed-readout'), rudder: $('rudder-needle'),
-      heading: $('heading-readout'), capBar: $('cap-bar'), timer: $('battle-timer'),
+      status: $('status-row'),
+      connKeys: $('conn-keys'), connPanel: $('conn-panel'),
+      connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
+      connBody: $('conn-panel-body'),
+      capBar: $('cap-bar'), timer: $('battle-timer'),
       score0: $('score0'), score1: $('score1'), killfeed: $('killfeed'),
       ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
@@ -40,14 +51,11 @@ export class Hud {
       { cv: this.el.minimap, ctx: this.el.minimap.getContext('2d'), marks: [], view: { x: 0, z: 0, zoom: 1 } },
       { cv: this.el.bigPlot, ctx: this.el.bigPlot.getContext('2d'), marks: [], view: { x: 0, z: 0, zoom: 1 } },
     ];
-    // The corner plot raises the chart table and puts it away again. It is a
-    // hundred pixels across on a phone -- too small to aim a finger at one
-    // destroyer in a line -- so what it is good for is the one big target it
-    // is: press it, and the plot you can work on comes up in the middle.
-    this.el.minimap.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      this.onToggleMap?.();
-    });
+    // The corner plot is the command table now, not a button that opens one:
+    // it has the whole corner to itself and a ship on it is big enough to put a
+    // finger on. Tap one of your own to take her under orders, tap open water
+    // to send her there. The big table is still there, on M.
+    this.bindPick(this.el.minimap, 0);
     this.bindTable();
     // Anywhere off the table puts it away, which is what a captain expects of
     // something laid over his bridge windows.
@@ -55,6 +63,28 @@ export class Hud {
       if (e.target === this.el.plotTable) { e.preventDefault(); this.onToggleMap?.(); }
     });
     $('btn-leave').onclick = onLeave;
+  }
+
+  /**
+   * Make a plot pickable: a tap on it is a pick, a drag on it is not.
+   *
+   * The chart table has its own handling because it pans and zooms as well; the
+   * corner plot does neither, so it only has to tell a tap from a smudge.
+   */
+  bindPick(cv, which) {
+    let from = null;
+    cv.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      from = { x: e.clientX, y: e.clientY };
+    });
+    const up = (e) => {
+      if (!from) return;
+      const moved = Math.hypot(e.clientX - from.x, e.clientY - from.y);
+      from = null;
+      if (moved < 8) this.onPick?.(this.hitPlot(e, which), this.plotPoint(e, which));
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', () => { from = null; });
   }
 
   /** Is the chart table up? */
@@ -144,7 +174,7 @@ export class Hud {
       pointers.delete(e.pointerId);
       if (pointers.size === 0) {
         cv.classList.remove('panning');
-        if (moved < 6) this.onPick?.(this.hitPlot(e, 1));
+        if (moved < 6) this.onPick?.(this.hitPlot(e, 1), this.plotPoint(e, 1));
       }
     };
     cv.addEventListener('pointerup', up);
@@ -195,8 +225,27 @@ export class Hud {
         best = { ...mark, d };
       }
     }
-    return best ? { kind: best.kind, id: best.id, name: best.name } : null;
+    return best
+      ? { kind: best.kind, id: best.id, name: best.name, team: best.team }
+      : null;
   }
+
+  /** Where on the battlefield a tap on a plot landed, in metres. */
+  plotPoint(e, which = 0) {
+    const plot = this.plots[which];
+    const r = plot.cv.getBoundingClientRect();
+    if (!r.width) return null;
+    const size = plot.cv.clientWidth || 240;
+    const H = this.world?.half || MAP_HALF;
+    const scale = (size / (H * 2)) * plot.view.zoom;
+    return {
+      x: plot.view.x + ((e.clientX - r.left) - size / 2) / scale,
+      z: plot.view.z - ((e.clientY - r.top) - size / 2) / scale,
+    };
+  }
+
+  /** Which ship the chart is conning, so she can be ringed. */
+  setSelected(id) { this.selected = id ?? null; }
 
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
@@ -217,47 +266,21 @@ export class Hud {
   buildFor(classId) {
     const cls = SHIP_CLASSES[classId];
     this.cls = cls;
-    this.el.tele.innerHTML = '';
-    for (let i = 0; i <= 5; i++) {
-      const d = document.createElement('div');
-      d.className = 'notch' + (i === 0 ? ' astern' : '');
-      this.el.tele.appendChild(d);
-    }
-    this.el.armament.innerHTML = '';
-    this.gunCells = cls.turrets.map((t) => {
-      const cell = document.createElement('div');
-      cell.className = 'gun-cell';
-      cell.innerHTML = `<div class="lbl">${t.name}</div><div class="bar"><i></i></div>`;
-      this.el.armament.appendChild(cell);
-      return cell;
-    });
-    const toggle = document.createElement('div');
-    toggle.className = 'shell-toggle';
-    toggle.innerHTML = `<button class="shell-btn clickable" data-shell="ap">AP</button>
-                        <button class="shell-btn clickable" data-shell="he">HE</button>`;
-    this.el.armament.appendChild(toggle);
-    this.shellButtons = [...toggle.querySelectorAll('.shell-btn')];
 
-    this.el.consumables.innerHTML = '';
-    const list = [{ k: 'repair', label: 'DAMAGE CTL', key: 'R' }];
-    if (cls.smokeCharges) list.push({ k: 'smoke', label: 'SMOKE', key: 'T' });
-    if (cls.torpedoes) list.push({ k: 'torp', label: 'TORPEDOES', key: '3' });
-    if (cls.planes) {
-      list.push({ k: 'air', label: 'AIR STRIKE', key: '4' });
-      // Ride with her: the camera goes on the aeroplane on the after lift and
-      // stays with her down the deck and out to the target.
-      list.push({ k: 'plane', label: 'PILOT VIEW', key: 'PL' });
+    // What a captain still does himself. Three keys, and each raises one panel.
+    this.keys = {};
+    for (const el of this.el.connKeys.querySelectorAll('.conn-key')) {
+      this.keys[el.dataset.panel] = el;
+      el.onclick = () => this.togglePanel(el.dataset.panel);
     }
-    this.consumables = {};
-    for (const c of list) {
-      const el = document.createElement('div');
-      el.className = 'consumable';
-      el.innerHTML = `<b>${c.key}</b>${c.label}<span class="cd"></span>`;
-      el.classList.add('clickable');
-      el.dataset.use = c.k;
-      this.el.consumables.appendChild(el);
-      this.consumables[c.k] = el;
+    // No aircraft aboard, no air panel: the key goes rather than sitting there
+    // dead, and the other two close up.
+    if (!cls.planes) {
+      this.keys.air?.remove();
+      delete this.keys.air;
     }
+    this.panel = null;
+    this.acts = {};
 
     this.el.capBar.innerHTML = '';
     this.capEls = {};
@@ -271,19 +294,122 @@ export class Hud {
     this.built = true;
   }
 
-  /** The consumable tiles double as buttons: this says what to do when pressed. */
-  onConsumable(fn) {
-    for (const [k, el] of Object.entries(this.consumables || {})) {
-      el.onclick = () => fn(k);
+  /**
+   * The keys themselves: her speed on the helm key, and a mark on the others
+   * when there is something waiting to be done.
+   */
+  paintKeys(own) {
+    const kn = Math.abs(own.v * MPS_TO_KNOTS);
+    if (this.keys.helm) {
+      this.keys.helm.querySelector('span').textContent = `${kn.toFixed(0)} KN`;
+    }
+    if (this.keys.air) {
+      const ready = (own.sq || []).filter((q) => q === 0).length;
+      this.keys.air.classList.toggle('due', ready > 0);
+      this.keys.air.classList.toggle('spent', ready === 0);
+    }
+    if (this.keys.ship) {
+      const hurt = (own.f || 0) + (own.fl || 0) > 0;
+      this.keys.ship.classList.toggle('due', hurt && own.rc <= 0);
     }
   }
 
-  onShellSelect(fn) {
-    this.shellButtons.forEach((b) => { b.onclick = () => fn(b.dataset.shell); });
+  /** Whatever panel is up, showing the state it is a control for. */
+  paintPanel(own) {
+    if (this.panel === 'helm') {
+      const kn = Math.abs(own.v * MPS_TO_KNOTS);
+      const deg = ((wrapAngle(own.h) * 180) / Math.PI + 360) % 360;
+      this.el.connSub.textContent =
+        `${kn.toFixed(1)} kn · ${String(Math.round(deg)).padStart(3, '0')}°`;
+      (this.teleRows || []).forEach((r, i) => {
+        r.classList.toggle('on', own.notch === 0 ? i === 0 : i > 0 && i <= own.notch);
+      });
+      return;
+    }
+    const set = (k, text, cls) => {
+      const el = this.acts[k];
+      if (!el) return;
+      el.querySelector('b').textContent = text;
+      el.classList.toggle('ready', cls === 'ready');
+      el.classList.toggle('active', cls === 'active');
+      el.classList.toggle('spent', cls === 'spent');
+    };
+    if (this.panel === 'air') {
+      const ready = (own.sq || []).filter((q) => q === 0).length;
+      const soon = (own.sq || []).filter((q) => q > 0);
+      set('air', ready > 0 ? `×${ready}` : soon.length ? `${Math.ceil(Math.min(...soon))}s` : '—',
+        ready > 0 ? 'ready' : 'spent');
+      set('plane', 'PL', 'ready');
+      this.el.connSub.textContent = `${ready} ready`;
+      return;
+    }
+    set('repair', own.rc > 0 ? `${Math.ceil(own.rc)}s` : 'READY', own.rc <= 0 ? 'ready' : 'spent');
+    set('smoke', `×${own.smk ?? 0}`,
+      own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
+    const hurt = (own.f || 0) + (own.fl || 0);
+    this.el.connSub.textContent = hurt ? `${hurt} to fight` : 'sound';
   }
 
-  setShellType(type) {
-    this.shellButtons.forEach((b) => b.classList.toggle('on', b.dataset.shell === type));
+  /**
+   * What to do when something on a conn panel is pressed.
+   *
+   * One handler for the lot: 'notch' with a number for the telegraph, and a
+   * name for everything else -- 'air', 'plane', 'repair', 'smoke'.
+   */
+  onConn(fn) { this.connFn = fn; }
+
+  /** Raise a panel, or lower the one that is up. */
+  togglePanel(which) {
+    this.panel = this.panel === which ? null : which;
+    for (const [k, el] of Object.entries(this.keys || {})) {
+      el.classList.toggle('on', k === this.panel);
+    }
+    this.el.connPanel.hidden = !this.panel;
+    if (!this.panel) return;
+    this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
+    this.el.connBody.innerHTML = '';
+    this.acts = {};
+    if (this.panel === 'helm') this.buildHelmPanel();
+    else this.buildActionPanel(this.panel);
+    if (this.lastOwn) this.paintPanel(this.lastOwn);
+  }
+
+  /** The telegraph, as the lever it is: astern at the bottom, flank at the top. */
+  buildHelmPanel() {
+    const rows = document.createElement('div');
+    rows.className = 'tele-rows';
+    this.teleRows = NOTCHES.map((label, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tele-row' + (i === 0 ? ' astern' : '');
+      b.innerHTML = `<span>${label}</span><i></i>`;
+      b.onclick = () => this.connFn?.('notch', i);
+      rows.appendChild(b);
+      return b;
+    });
+    this.el.connBody.appendChild(rows);
+    const note = document.createElement('p');
+    note.className = 'conn-note';
+    note.textContent = 'Course is laid off on the plot';
+    this.el.connBody.appendChild(note);
+  }
+
+  /** The air group, or the damage control parties. */
+  buildActionPanel(which) {
+    const cls = this.cls;
+    const list = which === 'air'
+      ? [{ k: 'air', label: 'Launch strike' }, { k: 'plane', label: 'Pilot view' }]
+      : [{ k: 'repair', label: 'Damage control' },
+        ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : [])];
+    for (const a of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'conn-act';
+      b.innerHTML = `<span>${a.label}</span><b></b>`;
+      b.onclick = () => this.connFn?.(a.k);
+      this.el.connBody.appendChild(b);
+      this.acts[a.k] = b;
+    }
   }
 
   formatRange(m) {
@@ -309,46 +435,9 @@ export class Hud {
     if (own.str) chips.push('<span class="status-chip steering">STEERING</span>');
     this.el.status.innerHTML = chips.join('');
 
-    [...this.el.tele.children].forEach((n, i) => {
-      n.classList.toggle('on', own.notch === 0 ? i === 0 : i > 0 && i <= own.notch);
-    });
-    this.el.speed.textContent = `${Math.abs(own.v * MPS_TO_KNOTS).toFixed(1)} kn`;
-    this.el.rudder.style.left = `${50 + (own.rud || 0) * 46}%`;
-    const deg = ((wrapAngle(own.h) * 180) / Math.PI + 360) % 360;
-    this.el.heading.textContent = `${String(Math.round(deg)).padStart(3, '0')}°`;
-
-    if (own.cd) {
-      own.cd.forEach((cd, i) => {
-        const cell = this.gunCells[i];
-        if (!cell) return;
-        const reload = cls.gun.reload;
-        const pct = clamp(1 - cd / reload, 0, 1);
-        cell.querySelector('i').style.width = `${pct * 100}%`;
-        cell.classList.toggle('ready', cd <= 0 && !(own.dis && own.dis[i]));
-        cell.classList.toggle('blocked', !!(own.dis && own.dis[i]));
-      });
-    }
-
-    const cd = (el, v, ready) => {
-      if (!el) return;
-      el.querySelector('.cd').textContent = v > 0 ? `${Math.ceil(v)}s` : '';
-      el.classList.toggle('ready', ready);
-    };
-    cd(this.consumables.repair, own.rc, own.rc <= 0);
-    if (this.consumables.smoke) {
-      this.consumables.smoke.querySelector('.cd').textContent = `×${own.smk ?? 0}`;
-      this.consumables.smoke.classList.toggle('ready', (own.smk ?? 0) > 0);
-      this.consumables.smoke.classList.toggle('active', own.sm === 1);
-    }
-    if (this.consumables.torp && own.tp) {
-      const min = Math.min(...own.tp);
-      cd(this.consumables.torp, min, min <= 0);
-    }
-    if (this.consumables.air && own.sq) {
-      const ready = own.sq.filter((s) => s === 0).length;
-      this.consumables.air.querySelector('.cd').textContent = `×${ready}`;
-      this.consumables.air.classList.toggle('ready', ready > 0);
-    }
+    this.lastOwn = own;
+    this.paintKeys(own);
+    if (this.panel) this.paintPanel(own);
 
     if (snap) {
       this.el.score0.textContent = snap.score[this.team];
@@ -589,7 +678,41 @@ export class Hud {
         ctx.arc(x, y, this.cls.gun.range * scale, 0, Math.PI * 2);
         ctx.stroke();
       }
-      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact' });
+      // The course she has been given, drawn from her to the point on the
+      // chart it was laid off at. An order you cannot see is an order you
+      // cannot tell you have given.
+      if (s.wx !== undefined && s.wz !== undefined) {
+        const wx = toX(s.wx), wy = toY(s.wz);
+        const chosen = s.i === this.selected;
+        ctx.save();
+        ctx.strokeStyle = chosen ? 'rgba(230,207,156,0.9)' : 'rgba(111,211,160,0.45)';
+        ctx.lineWidth = chosen ? 1.8 : 1.2;
+        ctx.setLineDash([5 * k, 4 * k]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(wx, wy);
+        ctx.stroke();
+        // The head, laid on the bearing of the leg it ends.
+        ctx.setLineDash([]);
+        const a = Math.atan2(wy - y, wx - x);
+        const h = 7 * k;
+        ctx.beginPath();
+        ctx.moveTo(wx, wy);
+        ctx.lineTo(wx - Math.cos(a - 0.42) * h, wy - Math.sin(a - 0.42) * h);
+        ctx.moveTo(wx, wy);
+        ctx.lineTo(wx - Math.cos(a + 0.42) * h, wy - Math.sin(a + 0.42) * h);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // And a ring round the ship the chart is currently conning.
+      if (s.i === this.selected) {
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 11 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm });
     }
 
     // Aircraft, both sides. A squadron is over the map for a minute or two and

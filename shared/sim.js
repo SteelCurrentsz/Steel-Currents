@@ -11,7 +11,8 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa,
 } from './batteries.js';
 import {
-  MAP_HALF, blockedByLand, islandAt, landAt, spawnPoint, getWeather, groundHeight,
+  MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
+  groundHeight,
 } from './world.js';
 
 export const TICK_RATE = 30;
@@ -135,6 +136,10 @@ export function addShip(state, {
     notch: 1,
     rudder: 0,          // -1 port .. 1 starboard, current
     rudderCmd: 0,
+    // Where her captain has told her to go, if anywhere. A course laid off on
+    // the chart rather than a wheel held over.
+    wayX: null,
+    wayZ: null,
     hp: cls.hp,
     maxHp: cls.hp,
     alive: true,
@@ -206,6 +211,58 @@ export function solveBallistic(gunSpec, d, h = 0) {
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
+
+/**
+ * Put the wheel over for a course, keeping her off the rocks.
+ *
+ * Shared, because both ends of the wire have to steer a ship the same way: the
+ * server because it is the authority, the client because it predicts its own
+ * hull and a client that steered differently would fight the server every tick.
+ */
+export function steerToward(state, ship, desiredHeading) {
+  // Nudge around islands rather than beaching.
+  const look = 900;
+  const ahead = {
+    x: ship.x + Math.sin(ship.heading) * look,
+    z: ship.z + Math.cos(ship.heading) * look,
+  };
+  let target = desiredHeading;
+  for (const i of state.world.islands) {
+    // The island's reach on the bearing she is looking down, not a circle round
+    // it: she should not sheer away from a bay she could sail into.
+    const reach = islandRadius(i, Math.atan2(ahead.x - i.x, ahead.z - i.z));
+    if (dist(ahead.x, ahead.z, i.x, i.z) < reach + 300) {
+      target = headingTo(i.x, i.z, ship.x, ship.z);
+      break;
+    }
+  }
+  const edge = (state.world.half || MAP_HALF) - 900;
+  if (Math.abs(ship.x) > edge || Math.abs(ship.z) > edge) {
+    target = headingTo(ship.x, ship.z, 0, 0);
+  }
+  ship.rudderCmd = clamp(angleDelta(ship.heading, target) * 2.2, -1, 1);
+}
+
+/** How close she has to get before a waypoint counts as reached. */
+export const WAYPOINT_REACHED = 260;
+
+/**
+ * Steer for the point her captain put on the chart.
+ *
+ * She holds the last course she was given once she gets there rather than
+ * rounding up and stopping: a course order is a course, not a berth.
+ */
+export function steerToWaypoint(state, ship) {
+  if (ship.wayX === null || ship.wayZ === null) return false;
+  if (dist(ship.x, ship.z, ship.wayX, ship.wayZ) < WAYPOINT_REACHED) {
+    ship.wayX = null;
+    ship.wayZ = null;
+    ship.rudderCmd = 0;
+    return false;
+  }
+  steerToward(state, ship, headingTo(ship.x, ship.z, ship.wayX, ship.wayZ));
+  return true;
+}
 
 export function applyInput(ship, input) {
   if (!ship.alive) return;

@@ -19,7 +19,7 @@ import { audio } from './audio.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS } from '../../shared/world.js';
-import { MIN_NOTCH, MAX_NOTCH, normaliseAirGroup } from '../../shared/sim.js';
+import { normaliseAirGroup } from '../../shared/sim.js';
 
 const canvas = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -33,9 +33,7 @@ const net = globalThis.STEEL_CURRENTS_OFFLINE ? new LocalNet() : new Net();
 const input = new Input(canvas);
 input.touch = isTouchDevice();
 if (input.touch) document.getElementById('touch-help')?.removeAttribute('hidden');
-const touchControls = input.touch
-  ? new TouchControls(input, { minNotch: MIN_NOTCH, maxNotch: MAX_NOTCH })
-  : null;
+const touchControls = input.touch ? new TouchControls(input) : null;
 let title = new TitleScene(renderer);
 let battle = null;
 let yard = null;

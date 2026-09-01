@@ -12,11 +12,15 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
-import { normaliseAirGroup, defaultAirGroup, launchStrike } from '../shared/sim.js';
+import {
+  normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
+} from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean } from '../client/js/render/ocean.js';
-import { ShipView, rollPeriod, rollHeed } from '../client/js/render/scene.js';
+import { ShipView } from '../client/js/render/scene.js';
+import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed }
+  from '../client/js/render/seakeeping.js';
 import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
   __aircraft,
@@ -1409,16 +1413,15 @@ check('a hull swings on her own period rather than lying on the water', () => {
   // over in flat water and let go: she should roll back through upright, past
   // it, and go on swinging -- at her own period, and dying away, not snapping
   // back like a needle.
-  const she = Object.create(ShipView.prototype);
-  she.cls = SHIP_CLASSES.fletcher;
+  const she = new Seakeeping(SHIP_CLASSES.fletcher.hull);
   she.roll = 0.14;                       // eight degrees down, and released
-  she.rollV = 0;
+  const flat = { roll: 0, pitch: 0 };
   const dt = 1 / 60;
   const zeros = [];
   let was = she.roll;
   let over = 0;                          // how far past upright she swings
   for (let t = 0; t < 90; t += dt) {
-    const r = she.heelTo(0, dt);
+    const r = she.step(flat, dt).roll;
     if ((was > 0) !== (r > 0)) zeros.push(t);
     over = Math.min(over, r);
     was = r;
@@ -1426,54 +1429,141 @@ check('a hull swings on her own period rather than lying on the water', () => {
   assert.ok(zeros.length >= 6, `she crossed upright only ${zeros.length} times`);
   assert.ok(over < -0.05,
     `she only swung ${(-over).toFixed(3)} rad past upright before stopping`);
-  // Half a swing between crossings, and the period is the one her beam gives.
   const half = (zeros[zeros.length - 1] - zeros[0]) / (zeros.length - 1);
   const want = rollPeriod(SHIP_CLASSES.fletcher.hull.beam);
   assert.ok(Math.abs(half * 2 - want) < want * 0.15,
     `she rolls in ${(half * 2).toFixed(1)} s where her beam says ${want.toFixed(1)} s`);
-  // And she settles: a ship that rolls for ever has no damping at all.
-  assert.ok(Math.abs(she.roll) < 0.02, `she was still at ${(she.roll).toFixed(3)} rad`);
+  assert.ok(Math.abs(she.roll) < 0.02, `she was still at ${she.roll.toFixed(3)} rad`);
+
+  // Pitch is the other way about: she comes up into the wave and stops there.
+  // A hull that went on nodding fore and aft would look like a bath toy.
+  const nod = new Seakeeping(SHIP_CLASSES.fletcher.hull);
+  nod.pitch = 0.10;
+  let crossings = 0;
+  let last = nod.pitch;
+  for (let t = 0; t < 60; t += dt) {
+    const q = nod.step(flat, dt).pitch;
+    if ((last > 0) !== (q > 0)) crossings++;
+    last = q;
+  }
+  assert.ok(crossings <= 2, `she nodded through level ${crossings} times`);
+  assert.ok(Math.abs(nod.pitch) < 0.005, 'she never settled fore and aft');
 });
 
-check('a destroyer rolls in a sea a battleship walks through', () => {
+check('a destroyer works in a sea her betters walk through', () => {
   // Every hull used to take the exact angle of the water under her, so a
-  // Fletcher and an Iowa rolled the same three and a half degrees. Size has to
-  // tell: a short ship lies along the swell and takes all of it, a long one
-  // spans several waves whose slopes cancel under her.
+  // Fletcher and an Iowa rolled the same 3.6 degrees and pitched the same 2.8.
+  // Size has to tell, in both -- and it tells harder in pitch, because a ship
+  // only pitches to a wave of about her own length.
   const sea = Object.create(Ocean.prototype);
-  sea.material = { uniforms: { uAmp: { value: 2.9 }, uSteep: { value: 1 }, uTime: { value: 0 } } };
+  sea.material = { uniforms: { uAmp: { value: 3.95 }, uSteep: { value: 1 }, uTime: { value: 0 } } };
   const DEG = 180 / Math.PI;
   const dt = 1 / 60;
-  const peak = {};
+  const roll = {};
+  const pitch = {};
   for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
-    const v = Object.create(ShipView.prototype);
-    v.cls = cls; v.roll = 0; v.rollV = 0;
-    let most = 0;
+    const v = new Seakeeping(cls.hull);
+    let r = 0; let q = 0;
     for (let t = 0; t < 300; t += dt) {
       const att = sea.attitude(1200, -800, 0.7, cls.hull.length, cls.hull.beam, t);
-      const r = v.heelTo(att.roll, dt);
-      if (t > 40) most = Math.max(most, Math.abs(r) * DEG);   // let her settle first
+      v.step(att, dt);
+      if (t > 40) {                          // let her settle first
+        r = Math.max(r, Math.abs(v.roll) * DEG);
+        q = Math.max(q, Math.abs(v.pitch) * DEG);
+      }
     }
-    peak[id] = most;
+    roll[id] = r; pitch[id] = q;
   }
-  // In order of size, every one rolls less than the one before her.
+  // In order of size, every one of them works less than the one before her.
   const order = ['fletcher', 'cleveland', 'hipper', 'enterprise', 'iowa'];
   for (let i = 1; i < order.length; i++) {
-    assert.ok(peak[order[i]] < peak[order[i - 1]],
-      `${order[i]} rolls ${peak[order[i]].toFixed(2)}deg against `
-      + `${order[i - 1]}'s ${peak[order[i - 1]].toFixed(2)}deg`);
+    assert.ok(roll[order[i]] < roll[order[i - 1]],
+      `${order[i]} rolls ${roll[order[i]].toFixed(2)}deg against `
+      + `${order[i - 1]}'s ${roll[order[i - 1]].toFixed(2)}deg`);
+    assert.ok(pitch[order[i]] < pitch[order[i - 1]] + 0.05,
+      `${order[i]} pitches ${pitch[order[i]].toFixed(2)}deg against `
+      + `${order[i - 1]}'s ${pitch[order[i - 1]].toFixed(2)}deg`);
   }
-  // A destroyer is lively and the capital ships are not.
-  assert.ok(peak.fletcher > 4 && peak.fletcher < 9,
-    `a Fletcher rolls ${peak.fletcher.toFixed(1)}deg`);
-  assert.ok(peak.iowa < 2.6, `an Iowa rolls ${peak.iowa.toFixed(1)}deg`);
-  assert.ok(peak.enterprise < 3.0, `Enterprise rolls ${peak.enterprise.toFixed(1)}deg`);
-  assert.ok(peak.fletcher > peak.iowa * 2,
+  assert.ok(roll.fletcher > 5 && roll.fletcher < 11, `a Fletcher rolls ${roll.fletcher.toFixed(1)}deg`);
+  assert.ok(roll.iowa < 3.4, `an Iowa rolls ${roll.iowa.toFixed(1)}deg`);
+  assert.ok(roll.fletcher > roll.iowa * 2,
     'a destroyer should roll at least twice what a battleship does');
-  // And the big ones swing slower, which is the other half of looking heavy.
+  // The carrier is the one that was complained about: she must be nearly flat
+  // fore and aft, and well under a destroyer.
+  assert.ok(pitch.enterprise < 0.6,
+    `Enterprise still pitches ${pitch.enterprise.toFixed(2)}deg`);
+  assert.ok(pitch.iowa < 0.6, `an Iowa still pitches ${pitch.iowa.toFixed(2)}deg`);
+  assert.ok(pitch.fletcher > pitch.enterprise * 3,
+    `a Fletcher pitches ${pitch.fletcher.toFixed(2)}deg to Enterprise's `
+    + `${pitch.enterprise.toFixed(2)}deg -- not enough of a difference`);
+  // And the big ones work slowly, which is the other half of looking heavy.
   assert.ok(rollPeriod(SHIP_CLASSES.iowa.hull.beam)
     > rollPeriod(SHIP_CLASSES.fletcher.hull.beam) * 1.4, 'an Iowa should roll slowly');
+  assert.ok(pitchPeriod(270) > pitchPeriod(114) * 1.3, 'and pitch slowly');
   assert.ok(rollHeed(114) > rollHeed(270) * 2, 'a short hull should take more of the sea');
+  assert.ok(pitchHeed(114) > pitchHeed(262) * 4,
+    'and far more of it fore and aft than a long one');
+});
+
+check('a ship fights herself while her captain cons her', () => {
+  // Her guns, her torpedoes and her damage control are her own officers' now.
+  // What is left to a captain is where she goes and when her aircraft go, so a
+  // brain given a conned ship must fire and must not touch her helm, her
+  // telegraph or her squadrons.
+  const st = createState(generateWorld(7, 'open_ocean'), { mode: 'deathmatch' });
+  const mine = addShip(st, { name: 'Mine', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'hipper', team: 1, index: 0 });
+  mine.x = 0; mine.z = 0; foe.x = 6000; foe.z = 0;
+  // Ordered north-about, away from the enemy she is engaging, and given way on.
+  mine.notch = 4;
+  mine.wayX = 0; mine.wayZ = -9000;
+  const brains = [createBotBrain('veteran'), createBotBrain('veteran')];
+  // Long enough for a six-thousand-ton cruiser to come the whole way round:
+  // she has a hundred seconds, and spends more than half of them turning.
+  for (let i = 0; i < 3000; i++) {
+    stepBot(st, mine, brains[0], DT, true);
+    stepBot(st, foe, brains[1], DT, false);
+    steerToWaypoint(st, mine);
+    step(st, DT);
+  }
+  assert.ok(mine.damageDealt > 500,
+    `conned, she did ${Math.round(mine.damageDealt)} damage -- her guns are not being fought`);
+  assert.equal(mine.notch, 4, 'her brain rang up a speed her captain did not order');
+  // And she went where she was sent, not where the brain would have taken her.
+  const away = Math.abs(angleDelta(mine.heading, Math.PI));
+  assert.ok(away < 0.4,
+    `she steered ${mine.heading.toFixed(2)} rad, not the course she was given`);
+  assert.ok(mine.z < -150, `she made good only ${Math.round(-mine.z)} m up her course`);
+
+  // A ship with nobody aboard still steers herself, and fights.
+  const bot = addShip(st, { name: 'Bot', classId: 'cleveland', team: 0, index: 1, isBot: true });
+  bot.x = 500; bot.z = 200;
+  const bb = createBotBrain('veteran');
+  const heading0 = bot.heading;
+  for (let i = 0; i < 300; i++) { stepBot(st, bot, bb, DT, false); step(st, DT); }
+  assert.ok(bot.notch > 1, 'a bot never rang up any speed at all');
+  assert.notEqual(bot.heading, heading0, 'a bot never touched her own helm');
+});
+
+check('a captain keeps his aircraft to himself', () => {
+  // The one thing the AI must not do for him. A conned carrier in range of a
+  // target holds her squadrons; the same carrier left to herself flies them.
+  const build = (conned) => {
+    const st = createState(generateWorld(11, 'open_ocean'), { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+    cv.x = 0; cv.z = 0; foe.x = 6000; foe.z = 0;
+    foe.spottedBy[0] = 3;
+    const brain = createBotBrain('veteran');
+    for (let i = 0; i < 400; i++) {
+      foe.spottedBy[0] = 3;
+      stepBot(st, cv, brain, DT, conned);
+      step(st, DT);
+    }
+    return cv.squadrons.filter((q) => q.state !== 'deck').length;
+  };
+  assert.equal(build(true), 0, 'she flew off aircraft her captain did not order');
+  assert.ok(build(false) > 0, 'left to herself she never flew anything');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
