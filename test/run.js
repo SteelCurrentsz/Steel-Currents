@@ -17,6 +17,7 @@ import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
+  __aircraft,
 } from '../client/js/render/enterprise.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -1112,7 +1113,7 @@ check('an air group is landed on something she can actually embark', () => {
   });
   assert.deepEqual(ship.airGroup, { fighters: 0, dive: 2, torpedo: 8 });
   // A strike off her flies what she is carrying: fish, not a fixed four.
-  ship.aimX = ship.x + 400; ship.aimZ = ship.z + 400;
+  ship.aimX = ship.x + 4000; ship.aimZ = ship.z + 4000;
   assert.ok(launchStrike(state, ship), 'she would not launch');
   const pkg = state.planes[state.planes.length - 1];
   assert.ok(pkg.torp > pkg.bomb, `flew ${pkg.torp} torpedo to ${pkg.bomb} bomb`);
@@ -1208,10 +1209,197 @@ check('a launch runs the whole evolution, hangar to bow', () => {
     assert.ok(rolling[i].z >= rolling[i - 1].z - 0.01, 'she went backwards on her run');
   }
 
-  // Afterwards she is back on the lift, ready for the next one.
+  // Afterwards she is airborne and stays airborne: she does not vanish and she
+  // does not reappear on the lift behind her. The scene flies her from there.
+  const wasAt = { y: plane.position.y, z: plane.position.z };
   built.group.userData.step(40);
+  assert.equal(plane.position.y, wasAt.y, 'the deck put her back after she had gone');
+  assert.equal(plane.position.z, wasAt.z, 'the deck put her back after she had gone');
+  // And when whatever was flying her is done, she comes home to the lift.
+  built.group.userData.recover();
+  built.group.userData.step(41);
   assert.ok(Math.abs(plane.position.y - (aft.position.y + 0.34)) < 0.6,
-    'she did not come back to the lift after the launch');
+    'she did not come back to the lift when she was recovered');
+});
+
+check('her aircraft are the size the real ones were', () => {
+  // These are looked at from a couple of metres away on a lift and ridden off
+  // the deck, so they are built to their own dimensions rather than to whatever
+  // looked right. Folded spans are what decides how many strike below.
+  const THREE_ = THREE;
+  const measure = (type, folded) => {
+    const g = new THREE_.Group();
+    __aircraft[type](g, 0, 0, 0, 0, folded);
+    g.updateMatrixWorld(true);
+    // Only the state she is actually in: both sets of wings are built.
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      for (let n = o; n; n = n.parent) if (!n.visible) { o.userData.hidden = true; return; }
+    });
+    const b = new THREE_.Box3();
+    g.traverse((o) => {
+      if (o.isMesh && !o.userData.hidden) b.expandByObject(o);
+    });
+    return { len: b.max.z - b.min.z, span: b.max.x - b.min.x, high: b.max.y - b.min.y };
+  };
+  // Length, span and height as built, against the aeroplane herself. A metre
+  // and a half either way is the tolerance -- the spinner and the hook are
+  // included here and are not in every published figure.
+  const want = {
+    wildcat: { len: 8.8, span: 4.4, high: 3.6, folded: true },
+    dauntless: { len: 10.1, span: 12.7, high: 4.1, folded: false },
+    avenger: { len: 12.2, span: 16.5, high: 4.7, folded: false },
+  };
+  for (const [type, w] of Object.entries(want)) {
+    const m = measure(type, w.folded);
+    for (const k of ['len', 'span', 'high']) {
+      assert.ok(Math.abs(m[k] - w[k]) < 1.5,
+        `${type} ${k} is ${m[k].toFixed(1)} m where she should be ${w[k]}`);
+    }
+  }
+  // And folded, the Avenger goes down the well she has to fit: 5.6 m across a
+  // 14.8 m lift, which is the whole reason the sto-wing exists.
+  const stowed = measure('avenger', true);
+  assert.ok(Math.abs(stowed.span - 5.64) < 1.0,
+    `an Avenger folds to ${stowed.span.toFixed(1)} m, not 5.6`);
+  assert.ok(stowed.span < LIFT_HW * 2, 'she does not fit on her own lift folded');
+});
+
+check('she does not take off with her wings folded', () => {
+  // A carrier aeroplane is struck below folded and cannot fly that way. She
+  // spreads on the lift, on her way up, and she is spread for the whole of the
+  // taxi, the run-up and the deck run -- or the wing she is flying on is lying
+  // along her own fuselage.
+  const built = buildEnterprise();
+  const wings = built.deckPlane.children
+    .map((c) => c.userData && c.userData.wings).find(Boolean)
+    || (built.group.userData.deck.plane || {}).wings;
+  assert.ok(wings && wings.stowed && wings.spread, 'she has only one set of wings');
+
+  built.group.userData.step(0);
+  assert.ok(wings.stowed.visible && !wings.spread.visible,
+    'she is standing on the lift with her wings spread');
+
+  built.group.userData.launch(0);
+  const seen = [];
+  for (let t = 0; t <= 12.4; t += 0.05) {
+    built.group.userData.step(t);
+    seen.push({ t, out: wings.spread.visible, in: wings.stowed.visible });
+  }
+  assert.ok(seen.every((s) => s.out !== s.in), 'both sets of wings were showing at once');
+  // Folded while she is below, spread by the time she starts to move aft.
+  assert.ok(seen.filter((s) => s.t < 2.5).every((s) => !s.out),
+    'she spread her wings in the hangar');
+  assert.ok(seen.filter((s) => s.t > 4.4).every((s) => s.out),
+    'she taxied or ran with her wings folded');
+
+  // And struck below again when the squadron is home.
+  built.group.userData.recover();
+  assert.ok(wings.stowed.visible && !wings.spread.visible,
+    'she was struck below with her wings still spread');
+});
+
+check('her wheels come up once she is off the deck', () => {
+  // An aeroplane that carries her undercarriage out to the target is an
+  // aeroplane nobody would fly. It goes up as she unsticks and comes down
+  // again when she is struck below.
+  const built = buildEnterprise();
+  const deck = built.group.userData.deck;
+  const plane = built.deckPlane;
+  // The propeller is turning throughout, and a blade pointing down is lower
+  // than a wheel: stop it before measuring anything, or what gets measured is
+  // the propeller.
+  if (deck.plane.prop) deck.plane.prop.visible = false;
+  // How far the lowest thing on her hangs below her own datum, which is where
+  // her tyres touch the deck.
+  const drop = () => {
+    // Level her first: she rotates nose-up as she goes, and a tail swung down
+    // by the climb attitude measures as an undercarriage that never came up.
+    // Then look at the tyres and nothing else -- the wells they come up into
+    // are part of the airframe and stay where they are.
+    plane.rotation.set(0, 0, 0);
+    plane.updateMatrixWorld(true);
+    let lowest = Infinity;
+    plane.traverse((o) => {
+      if (!o.isMesh || !o.material.color || o.material.color.getHexString() !== '24282c') return;
+      for (let n = o; n; n = n.parent) if (!n.visible) return;
+      lowest = Math.min(lowest, new THREE.Box3().setFromObject(o).min.y);
+    });
+    assert.ok(Number.isFinite(lowest), 'she has no wheels at all');
+    return plane.position.y - lowest;
+  };
+  built.group.userData.step(0);
+  const stood = drop();
+
+  // Measured while she is taxiing: wings already out, and she is not yet
+  // rocking against the brakes, so the only thing that can move is the gear.
+  built.group.userData.launch(0);
+  built.group.userData.step(6.0);
+  const taxi = drop();
+  let onDeck = 0;
+  for (let t = 4.5; t <= 7.2; t += 0.1) {
+    built.group.userData.step(t);
+    onDeck = Math.max(onDeck, Math.abs(drop() - taxi));
+  }
+  assert.ok(onDeck < 0.05, `her wheels moved by ${onDeck.toFixed(2)} m while taxiing`);
+
+  built.group.userData.step(12.4);
+  const flying = drop();
+  assert.ok(taxi - flying > 0.65,
+    `her wheels only came up ${(taxi - flying).toFixed(2)} m`);
+  assert.ok(deck.airborne, 'she never got airborne');
+
+  built.group.userData.recover();
+  built.group.userData.step(40);
+  assert.ok(Math.abs(drop() - stood) < 0.05, 'her wheels stayed up when she came home');
+});
+
+check('only one aircraft uses the deck at a time', () => {
+  // The lift has to fetch her, she has to taxi aft and run up: the deck is
+  // busy for the whole of that, and a second squadron cannot go until it is
+  // clear. Otherwise two aeroplanes occupy the same strip of planking.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  ship.aimX = ship.x + 5000; ship.aimZ = ship.z + 5000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.ok(!launchStrike(state, ship), 'a second squadron went while the deck was busy');
+  // Wind the clock past the evolution and the next one can go.
+  ship.deckBusy = 0;
+  assert.ok(launchStrike(state, ship), 'she would not launch once the deck was clear');
+  assert.ok(ship.deckBusy > 10, 'the deck was not marked busy for the launch');
+});
+
+check('a strike is not flown at a target under her own bows', () => {
+  // A squadron aimed on top of the ship reaches its target on the tick it is
+  // launched and is recovered on the next one -- the aeroplane the player just
+  // watched leave the deck vanishes under him. There is a minimum range for a
+  // strike, and inside it she does not launch at all.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  ship.aimX = ship.x + 300; ship.aimZ = ship.z;
+  assert.ok(!launchStrike(state, ship), 'she flew a strike at a target alongside');
+  assert.equal(ship.deckBusy, 0, 'the deck was fouled by a strike that never went');
+  // And she is not sulking: give the target sea room and she goes.
+  ship.aimX = ship.x + 5000; ship.aimZ = ship.z;
+  assert.ok(launchStrike(state, ship), 'she would not launch at a proper range');
+});
+
+check('nothing but the launching aircraft is ever on the runway', () => {
+  // A lift at the top is part of the flight deck, so an aeroplane parked on one
+  // is an aeroplane on the runway. Only the after lift carries one, and it is
+  // the one that goes.
+  const built = buildEnterprise();
+  const PAINT = new Set(['33475e', '9aa4ad', '24282c', 'd9dde2']);
+  const carried = built.lifts.map((l) => {
+    let n = 0;
+    l.group.traverse((o) => {
+      if (o.isMesh && o.material && o.material.color
+        && PAINT.has(o.material.color.getHexString())) n++;
+    });
+    return n;
+  });
+  assert.deepEqual(carried, [0, 0, 0],
+    `the lifts have aircraft welded into them: ${JSON.stringify(carried)}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

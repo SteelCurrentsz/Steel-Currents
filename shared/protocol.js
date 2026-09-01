@@ -71,7 +71,14 @@ export function buildSnapshot(state, team, viewerShipId) {
   }
   const planes = state.planes
     .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
-    .map((p) => ({ i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team }));
+    // `o` is the carrier she flew off and `a` is how long she has been up:
+    // between them the client can put the aeroplane it watched leave the deck
+    // on the squadron the simulation is flying, and climb her out rather than
+    // having her appear at cruising height the instant the button is pressed.
+    .map((p) => ({
+      i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
+      o: p.owner, a: r1(p.life),
+    }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so
   // neither is being told anything it did not already know -- what changes is

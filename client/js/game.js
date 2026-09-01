@@ -38,6 +38,15 @@ export class Battle {
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
     this.hud.onShellSelect((t) => { this.shellType = t; this.hud.setShellType(t); });
+    // The consumable tiles are buttons as well as read-outs, so a captain on a
+    // touchscreen has the same reach as one with a keyboard.
+    this.hud.onConsumable?.((k) => {
+      if (k === 'air') this.net.send({ t: 'strike' });
+      else if (k === 'plane') this.togglePilotView();
+      else if (k === 'repair') this.net.send({ t: 'repair' });
+      else if (k === 'smoke') this.net.send({ t: 'smoke' });
+      else if (k === 'torp') this.fireTorpedoes?.();
+    });
 
     // Local mirror of our own hull, stepped with the shared simulation.
     this.local = createState(world, {});
@@ -272,6 +281,7 @@ export class Battle {
       case 'Digit2': this.shellType = 'he'; this.hud.setShellType('he'); break;
       case 'Digit3': this.net.send({ t: 'torp' }); break;
       case 'Digit4': this.net.send({ t: 'strike' }); break;
+      case 'KeyP': this.togglePilotView(); break;
       case 'KeyR': this.net.send({ t: 'repair' }); break;
       case 'KeyT': this.net.send({ t: 'smoke' }); break;
       case 'KeyC': {
@@ -371,9 +381,37 @@ export class Battle {
       return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
     }
     if (this.watching.kind === 'plane') {
-      const pl = (snap.planes || []).find((x) => x.i === this.watching.id);
-      // The same two hundred and twenty metres the squadron is drawn at.
-      return pl ? { x: pl.x, y: 220, z: pl.z, span: 70, eye: 2 } : null;
+      // Riding with one of your own: while she is still aboard -- waiting in
+      // the hangar, riding the lift, running down the deck -- she is the
+      // carrier's own model, so ask the model where it is rather than the
+      // simulation, which only knows about the squadron once it is up.
+      if (this.watching.carrier != null && !this.flying) {
+        const v = this.scene.shipViews.get(this.watching.carrier);
+        const g = v && v.group.userData.deckPlane;
+        if (g) {
+          const w = new THREE.Vector3();
+          g.getWorldPosition(w);
+          return { x: w.x, y: w.y, z: w.z, span: 14, eye: 2.4, close: true };
+        }
+      }
+      const id = this.watching.carrier != null && this.flying
+        ? this.flying.id : this.watching.id;
+      const pl = (snap.planes || []).find((x) => x.i === id);
+      if (pl) {
+        return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span: 14, eye: 2.2, close: true };
+      }
+      // She is down, or home. Fall back to the carrier so the view does not
+      // drop into the sea.
+      if (this.watching.carrier != null) {
+        const v = this.scene.shipViews.get(this.watching.carrier);
+        const g = v && v.group.userData.deckPlane;
+        if (g) {
+          const w = new THREE.Vector3();
+          g.getWorldPosition(w);
+          return { x: w.x, y: w.y, z: w.z, span: 14, eye: 2.4, close: true };
+        }
+      }
+      return null;
     }
     // Sighted or only reported: the camera goes to either, because the plot
     // shows either and a mark you can tap has to be a mark you can watch.
@@ -386,6 +424,36 @@ export class Battle {
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
     };
+  }
+
+  /**
+   * Ride with the aeroplane.
+   *
+   * Puts the camera on the ready aircraft where she stands -- on the after lift,
+   * in the hangar if the lift is down -- and keeps it on her through the whole
+   * launch and out to the target. Press it again to come back to your ship.
+   */
+  togglePilotView() {
+    if (this.watching && this.watching.kind === 'plane' && this.watching.carrier != null) {
+      this.watching = null;
+      this.hud.setWatching(null);
+      this.hud.setWatchBanner(null);
+      return;
+    }
+    const v = this.scene.shipViews.get(this.shipId);
+    if (!v || !v.group.userData.deckPlane) {
+      this.hud.alert('No aircraft to ride');
+      return;
+    }
+    this.watching = { kind: 'plane', carrier: this.shipId, id: null,
+      name: 'the ready aircraft' };
+    this.watchPov = false;
+    this.watchYaw = 2.5;              // over her port quarter, looking forward
+    this.watchEl = 0.16;
+    this.watchDist = 0.72;            // multiples of her length, so about ten metres
+    this.watchDistNow = 0.72;
+    this.hud.setWatching?.(this.watching);
+    this.hud.setWatchBanner?.(this.watching, false);
   }
 
   fire() {
@@ -636,7 +704,11 @@ export class Battle {
     let p = 0;
     for (const pl of a.planes) {
       if (p >= this.scene.planeMesh.count) break;
-      dummy.position.set(pl.x, 220, pl.z);
+      // The one aeroplane a carrier put in the air is drawn as an aeroplane,
+      // not as a marker: it is the model that came up the lift and went down
+      // the deck, so it is left off the instanced flight here.
+      if (this.flying && this.flying.id === pl.i) continue;
+      dummy.position.set(pl.x, this.planeHeight(pl), pl.z);
       dummy.rotation.set(0, pl.h, 0);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
@@ -644,6 +716,82 @@ export class Battle {
     }
     this.hideRest(this.scene.planeMesh, p);
     this.scene.planeMesh.instanceMatrix.needsUpdate = true;
+    this.flyLaunched(a);
+  }
+
+  /**
+   * How high a squadron is: off the deck at first, then climbing to cruise.
+   *
+   * She starts at the height she leaves the round-down at, so the aeroplane the
+   * player has just watched go down the deck carries straight on climbing when
+   * the scene takes her over instead of dropping through twenty metres of air.
+   */
+  planeHeight(pl) {
+    const CRUISE = 220;
+    const OFF_DECK = 42;
+    const k = Math.min(1, Math.max(0, ((pl.a ?? 99) - 6) / 30));
+    return OFF_DECK + (CRUISE - OFF_DECK) * (k * k * (3 - 2 * k));
+  }
+
+  /**
+   * Fly the aeroplane that left the deck.
+   *
+   * She is the carrier's own model, so once she is off the bow she is taken
+   * out of the ship's group and put in the world, and from then on she is
+   * flown on her squadron's position -- out to the target and back -- rather
+   * than being deleted the moment she runs out of deck. When the squadron is
+   * recovered or shot down she goes back aboard and waits on the after lift.
+   */
+  flyLaunched(a) {
+    // Which of the carriers on the plot has just put her ready aircraft up, and
+    // which squadron on the plot is the one she flew off.
+    let up = null;
+    for (const [id, v] of this.scene.shipViews) {
+      const deck = v.group.userData.deck;
+      if (!deck || !deck.airborne) continue;
+      const pl = (a.planes || []).find((q) => q.o === id);
+      if (pl) { up = { id, v, deck, pl }; break; }
+      // Off the deck, but her squadron is no longer on the plot: recovered, or
+      // shot down. Stand her back on the lift rather than leaving the model
+      // hanging in the air off the bow.
+      if (!this.flying || this.flying.ownerView !== v) v.group.userData.recover?.();
+    }
+
+    if (!up) {
+      // Nothing of ours is up: put her back aboard if she was.
+      if (this.flying) {
+        const v = this.flying.ownerView;
+        v.group.attach(this.flying.group);
+        v.group.userData.recover?.();
+        this.flying = null;
+      }
+      return;
+    }
+
+    const { v, deck, pl } = up;
+    if (!this.flying || this.flying.id !== pl.i) {
+      // Hand her over: the same object, kept where she is in the world.
+      this.scene.scene.attach(v.group.userData.deckPlane);
+      this.flying = {
+        id: pl.i, ownerView: v, group: v.group.userData.deckPlane,
+        heading: pl.h, bank: 0,
+      };
+    }
+    const g = this.flying.group;
+    const y = this.planeHeight(pl);
+    // Nose up while she is climbing, and bank into the turn: both come out of
+    // where she was last frame, so they have to be read before she is moved.
+    const rise = y - g.position.y;
+    let turn = pl.h - this.flying.heading;
+    while (turn > Math.PI) turn -= Math.PI * 2;
+    while (turn < -Math.PI) turn += Math.PI * 2;
+    this.flying.heading = pl.h;
+    this.flying.bank += (Math.max(-0.5, Math.min(0.5, turn * 6)) - this.flying.bank) * 0.12;
+    g.position.set(pl.x, y, pl.z);
+    g.rotation.set(Math.max(-0.26, Math.min(0.10, -rise * 0.05)), pl.h, this.flying.bank);
+    g.visible = true;
+    const prop = deck.plane && deck.plane.prop;
+    if (prop) prop.rotation.z += 1.6;
   }
 
   hideRest(mesh, from) {
@@ -693,14 +841,17 @@ export class Battle {
         // stands it off her or brings it in. Close enough to read the damage
         // on her plating, far enough to see the whole action she is in.
         this.watchEl = clamp(this.watchEl - m.y, -0.16, 1.28);
-        const d = Math.max(40, watch.span * this.watchDistNow);
+        const near = !!watch.close;
+        const d = Math.max(near ? 7 : 40, watch.span * this.watchDistNow);
+        const rise = near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
+        const aim = watch.y + watch.span * (near ? 0.03 : 0.2);
         const flat = Math.cos(this.watchEl);
         cam.position.set(
           watch.x - Math.sin(this.watchYaw) * d * flat,
-          watch.y + watch.span * 0.25 + d * Math.sin(this.watchEl) + 6,
+          watch.y + rise + d * Math.sin(this.watchEl),
           watch.z - Math.cos(this.watchYaw) * d * flat,
         );
-        cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+        cam.lookAt(watch.x, aim, watch.z);
         cam.fov = 52;
         // Above the hill she stands on, and still looking at her. Walking the
         // orbit round a gun on a headland used to bury the camera in the slope.

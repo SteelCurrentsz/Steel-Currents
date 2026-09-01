@@ -157,6 +157,10 @@ export function addShip(state, {
       ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
       : [],
     airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
+    // How long her deck is still busy with the last launch. One aeroplane goes
+    // at a time: the lift has to fetch her, she has to taxi aft and run up, and
+    // nothing else can use the deck while she is on it.
+    deckBusy: 0,
     spottedBy: [false, false],
     lastFiredAt: -999,
     kills: 0,
@@ -996,14 +1000,26 @@ export function normaliseAirGroup(cls, want) {
   return g;
 }
 
+/** How long one launch takes the deck, from the lift going down to wheels up. */
+export const DECK_CYCLE = 13;
+/** No nearer than this: closer than her own deck run is not a target. */
+export const MIN_STRIKE_RANGE = 1200;
+
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
+  if (ship.deckBusy > 0) return false;
   const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
   if (!sq) return false;
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
   if (d > cls.planes.strikeRange) return false;
+  // And not at a point on top of her. A squadron sent to where it already is
+  // arrives on the next tick and is recovered on the one after -- the aircraft
+  // is still on the lift when the simulation has already flown it out and
+  // brought it home, which is not a strike, it is a bookkeeping entry.
+  if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
+  ship.deckBusy = DECK_CYCLE;
   // The package is a share of what she is actually carrying, not a fixed four
   // aircraft: torpedo bombers put fish in the water, dive bombers put bombs on
   // the deck, and the fighters go along to keep the flak and the CAP off them,
@@ -1210,6 +1226,7 @@ function stepDamageOverTime(state, ship, dt) {
   if (ship.steeringDamage > 0) ship.steeringDamage -= dt;
   for (const m of ship.torpMounts) if (m.cooldown > 0) m.cooldown -= dt;
   for (const s of ship.squadrons) if (s.cooldown > 0) s.cooldown -= dt;
+  if (ship.deckBusy > 0) ship.deckBusy -= dt;
 }
 
 // ---------------------------------------------------------------------------

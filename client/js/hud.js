@@ -242,12 +242,19 @@ export class Hud {
     const list = [{ k: 'repair', label: 'DAMAGE CTL', key: 'R' }];
     if (cls.smokeCharges) list.push({ k: 'smoke', label: 'SMOKE', key: 'T' });
     if (cls.torpedoes) list.push({ k: 'torp', label: 'TORPEDOES', key: '3' });
-    if (cls.planes) list.push({ k: 'air', label: 'AIR STRIKE', key: '4' });
+    if (cls.planes) {
+      list.push({ k: 'air', label: 'AIR STRIKE', key: '4' });
+      // Ride with her: the camera goes on the aeroplane on the after lift and
+      // stays with her down the deck and out to the target.
+      list.push({ k: 'plane', label: 'PILOT VIEW', key: 'PL' });
+    }
     this.consumables = {};
     for (const c of list) {
       const el = document.createElement('div');
       el.className = 'consumable';
       el.innerHTML = `<b>${c.key}</b>${c.label}<span class="cd"></span>`;
+      el.classList.add('clickable');
+      el.dataset.use = c.k;
       this.el.consumables.appendChild(el);
       this.consumables[c.k] = el;
     }
@@ -262,6 +269,13 @@ export class Hud {
       this.capEls[cap.id] = el;
     }
     this.built = true;
+  }
+
+  /** The consumable tiles double as buttons: this says what to do when pressed. */
+  onConsumable(fn) {
+    for (const [k, el] of Object.entries(this.consumables || {})) {
+      el.onclick = () => fn(k);
+    }
   }
 
   onShellSelect(fn) {

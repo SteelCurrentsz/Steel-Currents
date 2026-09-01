@@ -810,14 +810,11 @@ function elevators(g) {
         box(lift, M.steel, 0.4, 0.6, 0.5, s * (LIFT_HW - 0.35), -0.45, dz);
       }
     }
-    // One off each squadron riding up: a fighter forward, a dive bomber
-    // amidships. This is where her aircraft are when she is found at the start
-    // of a watch -- on the lifts, coming up -- rather than ranged on the deck
-    // she has to land on. The after lift's aircraft is not built into it: it is
-    // the one that goes when she launches, so it lives on the ship and rides
-    // the lift rather than being welded to it.
-    if (i === 0) wildcat(lift, 0, 0.32, -0.4, 0.16);
-    else if (i === 1) dauntless(lift, 0, 0.36, -0.6, -0.1, true);
+    // The forward and midships lifts run empty. A lift at the top is part of
+    // the flight deck, so an aeroplane parked on one is an aeroplane on the
+    // runway -- and there is never anything on the runway but the one going
+    // off it. The ready aircraft is on the after lift, and it is not built
+    // into the lift: it lives on the ship and rides it, so it can get off.
     mergeStatic(lift);
     lifts.push({ group: lift, phase: i / zs.length });
   });
@@ -830,7 +827,12 @@ function deckAircraft(g) {
   plane.userData.dynamic = true;
   g.add(plane);
   const body = avenger(plane, 0, 0, 0, 0, true, true);
-  return { group: plane, prop: body.userData.prop || null };
+  return {
+    group: plane,
+    prop: body.userData.prop || null,
+    wings: body.userData.wings || null,
+    gear: body.userData.gear || null,
+  };
 }
 
 const LIFT_DROP = FD - HANGAR - 0.55;
@@ -874,9 +876,34 @@ export function stepDeck(deck, t) {
   if (!plane) return;
   const p = plane.group;
   const AFT_Z = aft.group.position.z;
+  // Wings spread or stowed. Folded she is struck below and rides the lift;
+  // spread she is ready to go, and she cannot fly any other way.
+  const wings = (out) => {
+    if (!plane.wings) return;
+    plane.wings.spread.visible = out;
+    plane.wings.stowed.visible = !out;
+  };
+  const gear = (u) => { if (plane.gear) plane.gear(u); };
 
-  if (run < 0 || run >= LAUNCH) {
+  if (deck.airborne) return;        // she is flying; the scene has her now
+  if (run >= LAUNCH) {
+    // The evolution is over, so she went -- and she has to be handed over
+    // whether or not a frame happened to land in the last tenth of a second of
+    // the deck run. At five frames a second it would not, and she would snap
+    // back to the lift with the squadron she is flying still in the air.
+    deck.airborne = true;
+    aft.group.position.y = FD;
+    wings(true);
+    gear(1);
+    p.visible = true;
+    p.position.set(0, FD + 26.34, 150);
+    p.rotation.set(-0.20, 0, 0);
+    return;
+  }
+  if (run < 0) {
     // Waiting: standing on the after lift, wherever the lift happens to be.
+    wings(false);
+    gear(0);
     p.visible = true;
     p.position.set(0, aft.group.position.y + 0.34, AFT_Z - 0.45);
     p.rotation.set(0, 0.08, 0);
@@ -893,15 +920,18 @@ export function stepDeck(deck, t) {
 
   if (run < 1.5) {
     // Down the well with her, to the hangar deck.
+    wings(false);
     const k = ease(run / 1.5);
     y = deck.startY + (FD - LIFT_DROP - deck.startY) * k;
     aft.group.position.y = y;
   } else if (run < 4.2) {
-    // And back up, which is the lift doing the job it is there for.
+    // And back up, which is the lift doing the job it is there for. Her wings
+    // go out on the way, once she is clear of the hangar overhead.
     const k = ease((run - 1.5) / 2.7);
     y = (FD - LIFT_DROP) + LIFT_DROP * k;
     aft.group.position.y = y;
     turning = k * 8;
+    wings(run > 3.3);
   } else if (run < 7.4) {
     // Taxiing aft to the spot, swinging straight as she goes.
     const k = ease((run - 4.2) / 3.2);
@@ -920,6 +950,7 @@ export function stepDeck(deck, t) {
     // The deck run: she unsticks about two-thirds of the way up and climbs
     // away over the bow.
     aft.group.position.y = FD;
+    wings(true);
     const k = (run - 8.8) / (LAUNCH - 8.8);
     const UNSTICK = 20;
     z = SPOT + (150 - SPOT) * (k * k * 0.75 + k * 0.25);
@@ -929,7 +960,14 @@ export function stepDeck(deck, t) {
       const climb = (z - UNSTICK) / 130;
       y = FD + 26 * climb * climb;
       pitch = -0.20 * Math.min(1, climb * 3.5);
+      gear(climb * 2.4);          // wheels up as soon as she is off the deck
+    } else {
+      gear(0);
     }
+    // Once she is off the bow she belongs to whatever is flying her, not to
+    // the deck. The scene takes her over there and she keeps going; she does
+    // not vanish and she does not reappear on the lift behind her.
+    if (z > 138) deck.airborne = true;
   }
 
   p.visible = true;
@@ -940,7 +978,7 @@ export function stepDeck(deck, t) {
 
 /** Kept for the tests and for anything that only wants the lifts moved. */
 export function stepLifts(lifts, t) {
-  stepDeck({ lifts, plane: null, launchAt: null, startY: FD }, t);
+  stepDeck({ lifts, plane: null, launchAt: null, startY: FD, airborne: false }, t);
 }
 
 // --------------------------------------------- forecastle and quarterdeck --
@@ -1980,6 +2018,165 @@ function boatsAndCranes(g) {
 // In each of these the origin is where the tyres touch the deck, and the nose
 // points along +z.
 
+/**
+ * A lofted body: a rounded section carried along a set of stations.
+ *
+ * An aeroplane fuselage is not a brick, and built out of boxes it reads as one.
+ * The player now rides one of these off the deck from two metres away, so the
+ * body is lofted through its own sections the same way the ship's shell is: a
+ * superelliptic ring at each station, stitched between stations, capped at both
+ * ends so there is no looking straight up the inside of her.
+ *
+ * `stations` run from the sternpost forward, each `{ z, w, h, y }` -- the full
+ * width and depth of the section there and the height of its centre.
+ */
+function airframe(p, m, stations, opt = {}) {
+  const seg = opt.seg || 14;
+  const e = opt.e === undefined ? 0.78 : opt.e;   // 1 is an ellipse, less is boxier
+  const flat = opt.flat || 0;                     // flatten the underside by this much
+  const pos = [];
+  const idx = [];
+  for (const st of stations) {
+    for (let j = 0; j < seg; j++) {
+      const a = (j / seg) * Math.PI * 2;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      const x = (st.w / 2) * Math.sign(c) * Math.pow(Math.abs(c), e);
+      let y = (st.h / 2) * Math.sign(s) * Math.pow(Math.abs(s), e);
+      if (y < 0) y *= 1 - flat;
+      pos.push(x, st.y + y, st.z);
+    }
+  }
+  // Blue-grey over light grey, and the line between them runs along the widest
+  // point of the section -- which is where the painters put it. The two skins
+  // share their vertices and differ only in which faces go to which material.
+  const low = [];
+  const half = Math.floor(seg / 2);
+  const bin = (j) => (j < half ? idx : low);
+  for (let i = 0; i < stations.length - 1; i++) {
+    for (let j = 0; j < seg; j++) {
+      const j1 = (j + 1) % seg;
+      const a = i * seg + j;
+      const d = i * seg + j1;
+      const b = (i + 1) * seg + j;
+      const c = (i + 1) * seg + j1;
+      bin(j).push(a, c, b, a, d, c);
+    }
+  }
+  const cap = (i, out) => {
+    const st = stations[i];
+    const hub = pos.length / 3;
+    pos.push(0, st.y, st.z + out * st.w * 0.14);
+    for (let j = 0; j < seg; j++) {
+      const j1 = (j + 1) % seg;
+      const a = i * seg + j;
+      const b = i * seg + j1;
+      if (out > 0) bin(j).push(hub, a, b);
+      else bin(j).push(hub, b, a);
+    }
+  };
+  if (opt.capA !== false) cap(0, -1);
+  if (opt.capF !== false) cap(stations.length - 1, 1);
+  const skin = (list, mat) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(list);
+    g.computeVertexNormals();
+    const o = new THREE.Mesh(g, mat);
+    p.add(o);
+    return o;
+  };
+  const top = skin(idx, m);
+  skin(low, opt.mBot || m);
+  return top;
+}
+
+/** Half-thickness of a symmetric section, as a fraction of the chord. */
+function foil(u, t) {
+  return 5 * t * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u
+    + 0.2843 * u * u * u - 0.1015 * u * u * u * u);
+}
+
+/**
+ * One lifting surface: a tapered panel with a real section, built as an upper
+ * skin and a lower skin so the two can be painted apart -- which is the point,
+ * because a 1942 aeroplane is blue-grey above and light grey below, and that is
+ * what tells you which way up she is against the sea.
+ *
+ * `x, y, z` is the leading edge at the root; the panel is carried `span` out to
+ * `side`, tapering from `rootC` to `tipC`, and the tip is rounded off.
+ */
+function wing(p, mTop, mBot, o) {
+  const S = o.stations || 6;
+  const C = o.chordwise || 12;
+  const side = o.side;
+  const rootC = o.rootC;
+  const tipC = o.tipC === undefined ? rootC * 0.6 : o.tipC;
+  const t = o.thick === undefined ? 0.13 : o.thick;
+  const camber = o.camber === undefined ? 0.022 : o.camber;
+  const round = o.round !== false;
+  const up = [];
+  const dn = [];
+  for (let k = 0; k <= S; k++) {
+    const f = k / S;
+    // Ease the last station in so the tip is rounded off, not sheared square.
+    const tipR = round ? Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (f - 0.88) / 0.12), 2))) : 1;
+    const c = rootC + (tipC - rootC) * f;
+    const x = o.x + side * o.span * f;
+    const y = o.y + Math.sin(o.dihedral || 0) * o.span * f;
+    const zle = o.z - (o.sweep || 0) * f;
+    const tw = (o.twist || 0) * f;
+    for (let i = 0; i <= C; i++) {
+      const u = i / C;
+      const ht = foil(u, t) * c * tipR;
+      const yc = camber * 4 * u * (1 - u) * c;
+      const lift = tw * (u - 0.25) * c;
+      const z = zle - u * c;
+      up.push(x, y + yc + ht + lift, z);
+      dn.push(x, y + yc - ht + lift, z);
+    }
+  }
+  const skin = (arr, mat, flip) => {
+    const idx = [];
+    for (let k = 0; k < S; k++) {
+      for (let i = 0; i < C; i++) {
+        const a = k * (C + 1) + i;
+        const b = (k + 1) * (C + 1) + i;
+        if (flip) idx.push(a, a + 1, b, b, a + 1, b + 1);
+        else idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    p.add(new THREE.Mesh(g, mat));
+  };
+  skin(up, mTop, side < 0);
+  skin(dn, mBot, side > 0);
+  // Tip and root, closed between the two skins.
+  const shut = (k, mat, flip) => {
+    const pos = [];
+    for (let i = 0; i <= C; i++) {
+      const a = (k * (C + 1) + i) * 3;
+      pos.push(up[a], up[a + 1], up[a + 2], dn[a], dn[a + 1], dn[a + 2]);
+    }
+    const idx = [];
+    for (let i = 0; i < C; i++) {
+      const a = i * 2;
+      if (flip) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    p.add(new THREE.Mesh(g, mat));
+  };
+  shut(S, mTop, side < 0);
+  if (o.rootCap !== false) shut(0, mBot, side > 0);
+}
+
 /** A radial in its cowling: gills, cowl ring, spinner, blades, exhaust stubs. */
 function radial(p, r, y, z, span, blades = 3, spin = false) {
   cyl(p, M.gunDark, r * 0.86, r * 0.86, 1.05, 0, y, z - 0.2, 16).rotation.x = Math.PI / 2;
@@ -1993,12 +2190,12 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
   cyl(p, M.planeTop, r, r * 1.04, 1.3, 0, y, z - 0.1, 16).rotation.x = Math.PI / 2;
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2;
-    box(p, M.planeBottom, 0.2, 0.2, 0.34, Math.sin(a) * r * 1.03, y + Math.cos(a) * r * 1.03,
-      z - 0.72, a);
+    box(p, M.gunDark, 0.17, 0.17, 0.3, Math.sin(a) * r * 0.97, y + Math.cos(a) * r * 0.97,
+      z - 0.68, a);
   }
   cyl(p, M.planeBottom, r * 0.72, r * 0.9, 0.22, 0, y, z + 0.6, 16).rotation.x = Math.PI / 2;
   // Spinner, hub and blades, each with its own twist. On an aeroplane that is
-  // going to run its engine the blades go in a group of their own, so the
+  // going to run her engine the blades go in a group of their own, so the
   // welder leaves them and they can be turned.
   cyl(p, M.prop, 0.17, 0.3, 0.62, 0, y, z + 0.95, 12).rotation.x = Math.PI / 2;
   let disc = p;
@@ -2010,9 +2207,20 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
     p.userData.prop = disc;
   }
   for (let i = 0; i < blades; i++) {
-    const bl = box(disc, M.prop, 0.32, span, 0.1, 0, spin ? 0 : y, spin ? 0 : z + 1.05);
+    // A blade is not a plank: it is wide at the root, narrow and twisted at the
+    // tip, and it is the twist that catches the light going round.
+    const bl = new THREE.Group();
+    bl.position.set(0, spin ? 0 : y, spin ? 0 : z + 1.05);
     bl.rotation.z = (i / blades) * Math.PI * 2 + 0.4;
-    bl.rotation.y = 0.28;
+    disc.add(bl);
+    const N = 4;
+    const L = span / 2;                        // the blade is a radius, not a span
+    for (let k = 0; k < N; k++) {
+      const f = (k + 0.5) / N;
+      const seg2 = box(bl, M.prop, 0.34 - 0.17 * f, L * 0.88 / N + 0.02, 0.09,
+        0, L * (0.12 + 0.88 * f), 0);
+      seg2.rotation.y = 0.52 - 0.36 * f;
+    }
   }
   // Exhaust stubs out of the cowl's lower flanks.
   for (const s of [-1, 1]) {
@@ -2031,20 +2239,39 @@ function greenhouse(p, w, h, y, z0, z1, bays) {
     box(p, M.glass, w, h * 0.86, d - 0.1, 0, y + h * 0.5, z);
     box(p, M.planeTop, w + 0.04, h * 0.9, 0.07, 0, y + h * 0.5, z + d / 2);
   }
+  // The windscreen, raked back over the instrument panel, and its frame.
+  const scr = box(p, M.glass, w * 0.96, h * 0.95, 0.1, 0, y + h * 0.5, z1 + 0.12);
+  scr.rotation.x = -0.42;
+  const arch = box(p, M.planeTop, w + 0.05, h * 0.99, 0.09, 0, y + h * 0.5, z1 + 0.2);
+  arch.rotation.x = -0.42;
   // The rails it slides on, and the coaming round the sill.
   for (const s of [-1, 1]) box(p, M.planeTop, 0.08, 0.1, len, s * w / 2, y, z0 + len / 2);
   box(p, M.planeTop, w + 0.06, 0.12, 0.1, 0, y + h * 0.94, z0 + 0.06);
 }
 
-/** Fin, rudder, tailplane and elevators, with their hinge lines showing. */
+/** Fin, rudder, tailplane and elevators, lofted like the wings they are. */
 function empennage(p, finH, finC, span, chord, y, z) {
-  box(p, M.planeTop, 0.14, finH, finC, 0, y + finH / 2, z + 0.25);
-  box(p, M.planeTop, 0.12, finH * 0.82, finC * 0.42, 0, y + finH * 0.44, z - finC * 0.42);
-  box(p, M.planeBottom, 0.15, 0.1, finC * 0.44, 0, y + finH * 0.04, z - finC * 0.42);
+  // Fin and rudder: one panel stood on edge, so the section is a real one.
+  const fin = new THREE.Group();
+  fin.position.set(0, y, z);
+  fin.rotation.z = Math.PI / 2;
+  p.add(fin);
+  wing(fin, M.planeTop, M.planeTop, {
+    side: 1, x: 0, y: 0, z: finC * 0.55, span: finH, rootC: finC, tipC: finC * 0.5,
+    sweep: finC * 0.42, thick: 0.1, camber: 0, stations: 5, chordwise: 9,
+  });
+  // The rudder hinged on its trailing edge, and the tab on that.
+  box(p, M.planeTop, 0.055, finH * 0.76, 0.06, 0, y + finH * 0.44, z - finC * 0.1);
+  box(p, M.planeBottom, 0.13, 0.11, finC * 0.34, 0, y + finH * 0.03, z - finC * 0.44);
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, span / 2, 0.13, chord, s * span / 4, y, z + 0.1);
-    box(p, M.planeBottom, span / 2 - 0.1, 0.1, chord * 0.4, s * span / 4, y - 0.02,
-      z - chord * 0.5);
+    wing(p, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y, z: z + chord * 0.5, span: span / 2, rootC: chord,
+      tipC: chord * 0.62, sweep: chord * 0.22, thick: 0.11, camber: 0,
+      stations: 5, chordwise: 9, rootCap: false,
+    });
+    // The elevator hinge line, laid into the surface it hinges on.
+    box(p, M.planeTop, span / 2 - 0.16, 0.05, 0.06, s * span / 4, y + 0.055,
+      z - chord * 0.18);
   }
 }
 
@@ -2061,13 +2288,13 @@ function insignia(p, x, y, z, r, up = true) {
   m.position.set(x, y, z);
   if (!up) m.rotation.z = Math.PI / 2;    // stand it on the fuselage side
   p.add(m);
-  cyl(m, M.insignia, r, r, 0.05, 0, 0, 0, 16);
+  cyl(m, M.insignia, r, r, 0.06, 0, 0, 0, 16);
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + 0.2;
-    box(m, M.star, r * 0.36, 0.06, r * 0.95,
-      Math.sin(a) * r * 0.42, 0.02, Math.cos(a) * r * 0.42, a);
+    box(m, M.star, r * 0.36, 0.05, r * 0.95,
+      Math.sin(a) * r * 0.42, 0.055, Math.cos(a) * r * 0.42, a);
   }
-  cyl(m, M.star, r * 0.32, r * 0.32, 0.06, 0, 0.02, 0, 10);
+  cyl(m, M.star, r * 0.32, r * 0.32, 0.05, 0, 0.055, 0, 10);
 }
 
 /** A main leg: oleo, scissors, wheel and the door on its side. */
@@ -2083,16 +2310,122 @@ function mainGear(p, s, x, z, len, r, rake = 0.12) {
   tyre.rotation.z = Math.PI / 2;
   cyl(leg, M.bright, r * 0.42, r * 0.42, 0.3, s * 0.16, -len * 0.93, 0, 10)
     .rotation.z = Math.PI / 2;
-  box(p, M.planeBottom, 0.09, len * 0.72, 0.62, x - s * 0.2, len * 0.62, z);
+  box(p, M.cave, 0.5, 0.16, 0.66, x - s * 0.1, len * 0.1, z);
+  return leg;
 }
 
 /** Tailwheel and the hook stowed up under the sternpost. */
-function tailGear(p, z, r, hookLen) {
-  cyl(p, M.planeBottom, 0.09, 0.11, 0.42, 0, r + 0.2, z, 8);
-  cyl(p, M.prop, r, r, 0.16, 0, r, z, 10).rotation.z = Math.PI / 2;
+function tailGear(p, z, r, hookLen, len = 0.42) {
+  // The wheel and its leg in a group of their own, so they can be swung up
+  // into the sternpost; the hook stays where it is, because a hook that goes
+  // up with the wheel is a hook that cannot catch a wire.
+  const leg = new THREE.Group();
+  leg.position.set(0, r + len, z);
+  p.add(leg);
+  cyl(leg, M.planeBottom, 0.09, 0.11, len, 0, -len * 0.52, 0, 8);
+  cyl(leg, M.prop, r, r, 0.16, 0, -len, 0, 10).rotation.z = Math.PI / 2;
   const hook = box(p, M.gunDark, 0.09, 0.09, hookLen, 0, r + 0.75, z - hookLen * 0.42);
   hook.rotation.x = -0.34;
   box(p, M.gunDark, 0.2, 0.16, 0.3, 0, r + 0.4, z - hookLen * 0.86);
+  return leg;
+}
+
+/**
+ * A panel folded on the Grumman sto-wing.
+ *
+ * The hinge is skewed, so the panel does two things at once: it stands up on
+ * edge with its leading edge down, and it swings aft until it lies fore and aft
+ * alongside the fuselage. Both come out of the same pair of right angles -- the
+ * span turned aft, the chord turned up -- with a little skew on top so the tips
+ * ride up as they go back, which is what it looks like on a deck.
+ */
+function foldWing(p, s, o) {
+  const hinge = new THREE.Group();
+  hinge.position.set(o.at[0], o.at[1], o.at[2]);
+  hinge.rotation.x = o.skew || 0;          // tips carried up as they go aft
+  hinge.rotation.z = s * (o.lean || 0);
+  p.add(hinge);
+  const w = new THREE.Group();
+  w.rotation.order = 'ZYX';
+  w.rotation.y = s * Math.PI / 2;          // the span swung aft
+  w.rotation.z = -s * Math.PI / 2;         // the chord stood on end, LE down
+  hinge.add(w);
+  wing(w, M.planeTop, M.planeBottom, {
+    side: s, x: 0, y: 0, z: 0, span: o.span, rootC: o.rootC, tipC: o.tipC,
+    sweep: o.sweep, thick: o.thick, camber: 0.02, twist: -0.02,
+  });
+  // The guns in the leading edge, which folded is the bottom edge.
+  for (const [gx, gy] of o.guns || []) {
+    box(w, M.gunDark, 0.22, 0.22, 0.24, s * gx, gy, -0.16);
+  }
+  // The star, on what is now the outboard face of her.
+  insignia(w, s * o.span * 0.54, 0.16, -o.rootC * 0.5, o.star);
+  return w;
+}
+
+// A carrier aeroplane stands on her tail: nose up, so the wing is at an angle
+// of attack while she is still on the deck and she flies herself off it. That
+// is done here by carrying the centreline up as it goes forward -- the frames
+// stay upright, which is what they are, and the gear stays where it belongs:
+// a long main leg forward and a stub wheel under the sternpost.
+const sitline = (f, k) => (z) => f + k * z;
+
+/** An F4F-4 Wildcat with her wings swung back flat along her sides. */
+function wildcat(g, x, y, z, ry) {
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = sitline(1.36, 0.15);
+  // The barrel body: deepest at the wing, tapering hard to a slender sternpost.
+  airframe(p, M.planeTop, [
+    { z: -4.05, w: 0.20, h: 0.62, y: cl(-4.05) + 0.34 },
+    { z: -3.20, w: 0.58, h: 1.04, y: cl(-3.20) + 0.22 },
+    { z: -2.10, w: 0.84, h: 1.34, y: cl(-2.10) + 0.12 },
+    { z: -1.00, w: 1.08, h: 1.60, y: cl(-1.00) + 0.04 },
+    { z: 0.10, w: 1.24, h: 1.80, y: cl(0.10) },
+    { z: 1.05, w: 1.30, h: 1.86, y: cl(1.05) },
+    { z: 2.05, w: 1.24, h: 1.76, y: cl(2.05) + 0.02 },
+    { z: 2.95, w: 1.12, h: 1.54, y: cl(2.95) + 0.05 },
+    { z: 3.55, w: 0.98, h: 1.34, y: cl(3.55) + 0.08 },
+  ], { flat: 0.14, e: 0.8, mBot: M.planeBottom });
+  radial(p, 0.8, cl(3.9) + 0.08, 3.85, 3.0);
+  greenhouse(p, 0.96, 0.64, cl(1.0) + 0.86, 0.05, 1.65, 3);
+  // The turtledeck aft of the hood, running down to the fin.
+  airframe(p, M.planeTop, [
+    { z: -3.60, w: 0.30, h: 0.30, y: cl(-3.60) + 0.42 },
+    { z: -2.20, w: 0.62, h: 0.52, y: cl(-2.20) + 0.52 },
+    { z: -0.90, w: 0.82, h: 0.66, y: cl(-0.90) + 0.62 },
+    { z: 0.00, w: 0.90, h: 0.70, y: cl(0.00) + 0.66 },
+  ], { flat: 0.4, e: 0.85, capF: false, mBot: M.planeTop });
+  // The sto-wing: the panels pivot on a skewed hinge at the root, stand up on
+  // edge with the leading edge down, and swing aft to lie fore and aft along
+  // her sides. It is why twice as many of them fitted below as of anything
+  // else, and the aeroplane ends up no wider than her own tailplane.
+  for (const s of [-1, 1]) foldWing(p, s, {
+    at: [s * 0.62, cl(1.05) - 0.74, 1.6], skew: 0.10, lean: 0.05,
+    span: 4.15, rootC: 1.80, tipC: 1.26, sweep: 0.30, thick: 0.135,
+    star: 0.56, guns: [[0.9, 0.14], [2.0, 0.11]],
+  });
+  // The hinge fairings left standing at the roots, and the stub the panels
+  // fold off.
+  for (const s of [-1, 1]) {
+    box(p, M.planeTop, 0.56, 0.78, 1.5, s * 0.68, cl(1.1) - 0.14, 1.25);
+    const hinge = box(p, M.planeBottom, 0.86, 0.34, 1.0, s * 0.98, cl(1.1) - 0.12, 1.3);
+    hinge.rotation.z = s * 0.22;
+  }
+  insignia(p, 0.40, cl(-1.5) + 0.08, -1.5, 0.38, false);
+  insignia(p, -0.40, cl(-1.5) + 0.08, -1.5, 0.38, false);
+  empennage(p, 1.34, 1.16, 3.75, 0.92, cl(-3.5) + 0.34, -3.3);
+  // Her narrow-track gear cranks up into the fuselage sides, so it stands close
+  // in under her and the wheels are half buried when it is down.
+  for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.02, 0.34, 0.02);
+  tailGear(p, -3.85, 0.17, 1.0, 0.3);
+  // Aerial mast and the wire back to the fin.
+  box(p, M.planeTop, 0.07, 0.62, 0.07, 0, cl(0.5) + 1.32, 0.5);
+  const wire = box(p, M.wire, 0.03, 0.03, 3.9, 0, cl(-1.4) + 1.28, -1.4);
+  wire.rotation.x = -0.2;
+  return p;
 }
 
 /** An SBD Dauntless: the perforated dive flaps are the whole point of her. */
@@ -2101,172 +2434,189 @@ function dauntless(g, x, y, z, ry, folded = false) {
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  const F = 1.55;                       // the fuselage centreline, off the deck
-  // Fuselage: a deep forward body tapering to the sternpost, with the spine
-  // decking aft of the gunner.
-  box(p, M.planeTop, 1.12, 1.5, 4.4, 0, F, 1.4);
-  box(p, M.planeTop, 0.9, 1.15, 3.4, 0, F - 0.06, -2.4);
-  box(p, M.planeBottom, 1.02, 0.55, 7.2, 0, F - 0.72, 0.4);
-  box(p, M.planeTop, 0.55, 0.4, 2.6, 0, F + 0.62, -1.9);
-  radial(p, 0.72, F + 0.1, 4.1, 3.2);
-  // The greenhouse: pilot forward, gunner aft, open at his end.
-  greenhouse(p, 0.94, 0.72, F + 0.72, -0.9, 2.1, 4);
-  box(p, M.cave, 0.86, 0.5, 1.5, 0, F + 0.9, -1.6);
-  // His twin thirties on their ring.
+  const cl = sitline(1.44, 0.13);
+  airframe(p, M.planeTop, [
+    { z: -4.85, w: 0.20, h: 0.60, y: cl(-4.85) + 0.36 },
+    { z: -3.90, w: 0.52, h: 0.96, y: cl(-3.90) + 0.24 },
+    { z: -2.60, w: 0.78, h: 1.22, y: cl(-2.60) + 0.14 },
+    { z: -1.20, w: 0.98, h: 1.44, y: cl(-1.20) + 0.05 },
+    { z: 0.10, w: 1.10, h: 1.58, y: cl(0.10) },
+    { z: 1.40, w: 1.14, h: 1.62, y: cl(1.40) },
+    { z: 2.70, w: 1.08, h: 1.52, y: cl(2.70) + 0.03 },
+    { z: 3.70, w: 0.96, h: 1.32, y: cl(3.70) + 0.06 },
+  ], { flat: 0.1, e: 0.8, mBot: M.planeBottom });
+  radial(p, 0.72, cl(4.0) + 0.06, 3.95, 3.2);
+  // The greenhouse: pilot forward, gunner aft under a long open hood.
+  greenhouse(p, 0.92, 0.70, cl(0.9) + 0.76, -1.0, 2.05, 4);
+  box(p, M.cave, 0.84, 0.5, 1.4, 0, cl(-1.6) + 0.92, -1.7);
+  // His twin thirties on their ring, and the ring itself.
+  cyl(p, M.planeTop, 0.46, 0.48, 0.14, 0, cl(-2.0) + 0.98, -2.0, 14);
   for (const s of [-1, 1]) {
-    const gun = cyl(p, M.gunDark, 0.055, 0.055, 1.5, s * 0.16, F + 1.2, -2.1, 6);
+    const gun = cyl(p, M.gunDark, 0.055, 0.055, 1.5, s * 0.16, cl(-2.1) + 1.22, -2.1, 6);
     gun.rotation.x = -0.5;
   }
-  box(p, M.gunDark, 0.5, 0.12, 0.4, 0, F + 1.02, -1.9);
-  // Wings: dihedral outboard of a flat centre section, with the ailerons and
-  // the slots in the leading edge she needed to stay honest in a dive.
+  box(p, M.gunDark, 0.5, 0.12, 0.4, 0, cl(-1.9) + 1.04, -1.9);
+  // Wings: a flat centre section with dihedral outboard of it, the ailerons,
+  // and the split flaps -- perforated above and below -- that are her mark.
+  const WY = cl(0.9) - 0.52;
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, 2.0, 0.22, 2.1, s * 1.0, F - 0.68, 0.9);
+    wing(p, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: WY, z: 1.9, span: 1.9, rootC: 2.35, tipC: 2.20,
+      sweep: 0.06, thick: 0.14, camber: 0.024, stations: 3, round: false,
+      rootCap: false,
+    });
     const w = new THREE.Group();
-    w.position.set(s * 2.0, F - 0.68, 0.9);
-    w.rotation.z = -s * 0.17;
+    w.position.set(s * 1.9, WY, 0);
+    w.rotation.z = -s * 0.175;
     p.add(w);
-    box(w, M.planeTop, 4.4, 0.2, 1.95, s * 2.2, 0, 0);
-    box(w, M.planeBottom, 4.3, 0.1, 1.8, s * 2.2, -0.09, 0);
-    box(w, M.planeTop, 1.7, 0.14, 0.5, s * 3.6, 0.02, -0.95);       // aileron
-    box(w, M.gunDark, 1.5, 0.1, 0.16, s * 3.6, 0.04, 0.9);          // leading-edge slot
-    box(w, M.planeBottom, 0.5, 0.2, 0.7, s * 4.3, -0.02, 0.1);      // tip
-    // The split flaps, perforated above and below: the Dauntless's own mark.
-    for (const dy of [0.22, -0.22]) {
-      box(w, M.gunDark, 4.2, 0.09, 0.52, s * 2.1, dy, -1.22);
+    wing(w, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: 0, z: 1.84, span: 4.35, rootC: 2.20, tipC: 1.18,
+      sweep: 0.62, thick: 0.13, camber: 0.024, twist: -0.03, rootCap: false,
+    });
+    box(w, M.planeTop, 1.66, 0.11, 0.5, s * 3.5, 0.06, -0.28);         // aileron
+    box(w, M.gunDark, 1.5, 0.09, 0.14, s * 3.5, 0.02, 1.66);           // leading-edge slot
+    for (const dy of [0.2, -0.2]) {
+      box(w, M.gunDark, 4.1, 0.08, 0.5, s * 2.1, dy, -0.6);
       for (let i = 0; i < 9; i++) {
-        cyl(w, M.cave, 0.075, 0.075, 0.12, s * (0.4 + i * 0.42), dy, -1.22, 6);
+        cyl(w, M.cave, 0.07, 0.07, 0.1, s * (0.4 + i * 0.42), dy, -0.6, 6);
       }
     }
-    insignia(w, s * 2.6, 0.12, -0.1, 0.62);
+    insignia(w, s * 2.5, 0.16, 0.55, 0.62);
+    // Her two thirties in the wing roots, and the pitot under the port panel.
+    box(w, M.gunDark, 0.18, 0.18, 0.2, s * 0.5, -0.1, 1.82);
   }
-  insignia(p, 0.58, F - 0.1, -2.2, 0.5, false);
-  insignia(p, -0.58, F - 0.1, -2.2, 0.5, false);
-  empennage(p, 1.5, 1.3, 3.4, 1.0, F + 0.5, -4.2);
-  // The crutch that swung her bomb clear of the propeller.
-  box(p, M.gunDark, 0.14, 0.5, 1.5, 0, F - 1.05, 1.3);
-  for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 1.5, 1.05, 0.4);
-  tailGear(p, -4.6, 0.19, 1.2);
-  // Aerial mast and the wire back to the fin.
-  box(p, M.planeTop, 0.07, 0.7, 0.07, 0, F + 1.5, 0.6);
-  const wire = box(p, M.wire, 0.03, 0.03, 4.6, 0, F + 1.6, -1.7);
-  wire.rotation.x = -0.12;
+  insignia(p, 0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
+  insignia(p, -0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
+  empennage(p, 1.5, 1.32, 3.9, 1.02, cl(-4.3) + 0.4, -4.0);
+  // The crutch that swung her bomb clear of the propeller, and the bomb on it.
+  const cr = box(p, M.gunDark, 0.14, 0.55, 1.5, 0, cl(1.2) - 1.05, 1.3);
+  cr.rotation.x = 0.1;
+  cyl(p, M.gunDark, 0.17, 0.17, 1.7, 0, cl(1.0) - 1.35, 1.2, 10).rotation.x = Math.PI / 2;
+  cyl(p, M.gunDark, 0.17, 0.02, 0.5, 0, cl(1.9) - 1.35, 2.2, 10).rotation.x = Math.PI / 2;
+  for (const s of [-1, 1]) {
+    box(p, M.gunDark, 0.02, 0.3, 0.3, s * 0.1, cl(0.3) - 1.35, 0.45);
+  }
+  for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
+  tailGear(p, -4.45, 0.19, 1.2, 0.34);
+  box(p, M.planeTop, 0.07, 0.7, 0.07, 0, cl(0.6) + 1.4, 0.6);
+  const wire = box(p, M.wire, 0.03, 0.03, 4.6, 0, cl(-1.8) + 1.4, -1.8);
+  wire.rotation.x = -0.16;
   if (folded) p.scale.set(0.995, 1, 1);
   return p;
 }
 
-/** An F4F-4 Wildcat with her wings swung back flat along her sides. */
-function wildcat(g, x, y, z, ry) {
-  const p = new THREE.Group();
-  p.position.set(x, y, z);
-  p.rotation.y = ry;
-  g.add(p);
-  const F = 1.5;
-  // The barrel fuselage, deep at the wing and slab-sided aft.
-  box(p, M.planeTop, 1.3, 1.62, 3.6, 0, F, 0.9);
-  box(p, M.planeTop, 1.0, 1.25, 3.0, 0, F - 0.04, -2.1);
-  box(p, M.planeBottom, 1.18, 0.6, 6.0, 0, F - 0.78, 0.2);
-  radial(p, 0.8, F + 0.06, 3.3, 3.0);
-  greenhouse(p, 1.0, 0.66, F + 0.78, 0.0, 1.7, 3);
-  box(p, M.planeTop, 0.6, 0.42, 2.2, 0, F + 0.66, -1.5);
-  // The sto-wing: the wings pivot on a skewed hinge at the root and end up
-  // lying flat along the fuselage, leading edge down. It is why twice as many
-  // of them fitted below as of anything else.
-  for (const s of [-1, 1]) {
-    // Folded, the panel lies fore and aft alongside the fuselage with its
-    // leading edge down -- not stuck out athwartships. The whole value of the
-    // sto-wing is that the aeroplane ends up no wider than its own tailplane.
-    const w = new THREE.Group();
-    w.position.set(s * 1.32, F - 0.05, 1.1);
-    w.rotation.z = s * 0.2;
-    w.rotation.x = 0.09;
-    w.rotation.y = -s * 0.06;
-    p.add(w);
-    box(w, M.planeTop, 0.26, 1.75, 4.3, 0, 0, -1.9);
-    box(w, M.planeBottom, 0.14, 1.6, 4.1, s * 0.15, 0, -1.9);
-    box(w, M.planeTop, 0.22, 0.55, 1.5, 0, 0.6, -3.5);              // aileron
-    box(w, M.gunDark, 0.18, 0.26, 0.26, s * 0.06, -0.62, -0.5);     // gun ports
-    box(w, M.gunDark, 0.18, 0.26, 0.26, s * 0.06, -0.62, -1.2);
-    box(w, M.planeBottom, 0.3, 0.45, 0.5, 0, -0.78, -3.9);          // tip
-    insignia(w, s * 0.15, 0.1, -2.3, 0.55, false);
-  }
-  // The hinge fairings left standing at the roots.
-  for (const s of [-1, 1]) {
-    box(p, M.planeTop, 0.5, 0.75, 1.2, s * 0.72, F - 0.1, 1.05);
-    const hinge = box(p, M.planeBottom, 0.9, 0.3, 0.9, s * 1.05, F - 0.05, 1.1);
-    hinge.rotation.z = s * 0.2;
-  }
-  insignia(p, 0.55, F - 0.15, -1.6, 0.5, false);
-  insignia(p, -0.55, F - 0.15, -1.6, 0.5, false);
-  empennage(p, 1.35, 1.15, 2.9, 0.9, F + 0.42, -3.5);
-  // Her narrow-track gear cranks up into the fuselage sides, so it sits close
-  // in under her and the wheels are half buried when it is down.
-  for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.0, 0.34, 0.02);
-  tailGear(p, -3.8, 0.17, 1.0);
-  box(p, M.planeTop, 0.07, 0.62, 0.07, 0, F + 1.42, 0.5);
-  const wire = box(p, M.wire, 0.03, 0.03, 3.9, 0, F + 1.5, -1.4);
-  wire.rotation.x = -0.13;
-  return p;
-}
-
-/** A TBF-1 Avenger, folded: the ball turret is what names her at any range. */
+/** A TBF-1 Avenger: the ball turret is what names her at any range. */
 function avenger(g, x, y, z, ry, folded = true, spin = false) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  const F = 1.85;
-  // A deep body with a bomb bay in the belly of it -- she is a big aeroplane,
+  const cl = sitline(1.74, 0.12);
+  // A deep body with the bomb bay in the belly of it -- she is a big aeroplane,
   // and the whole middle of her is the space a torpedo goes in.
-  box(p, M.planeTop, 1.5, 1.95, 5.4, 0, F, 1.6);
-  box(p, M.planeTop, 1.15, 1.5, 4.0, 0, F - 0.1, -3.0);
-  box(p, M.planeBottom, 1.36, 0.75, 4.6, 0, F - 1.05, 1.2);
+  airframe(p, M.planeTop, [
+    { z: -5.90, w: 0.24, h: 0.72, y: cl(-5.90) + 0.42 },
+    { z: -4.80, w: 0.64, h: 1.18, y: cl(-4.80) + 0.28 },
+    { z: -3.40, w: 0.98, h: 1.56, y: cl(-3.40) + 0.16 },
+    { z: -1.80, w: 1.28, h: 1.90, y: cl(-1.80) + 0.06 },
+    { z: -0.20, w: 1.46, h: 2.14, y: cl(-0.20) },
+    { z: 1.40, w: 1.50, h: 2.20, y: cl(1.40) },
+    { z: 3.00, w: 1.42, h: 2.06, y: cl(3.00) + 0.03 },
+    { z: 4.20, w: 1.26, h: 1.80, y: cl(4.20) + 0.07 },
+    { z: 4.95, w: 1.10, h: 1.56, y: cl(4.95) + 0.10 },
+  ], { flat: 0.08, e: 0.8, mBot: M.planeBottom });
+  radial(p, 0.95, cl(5.2) + 0.1, 5.1, 3.9, 3, spin);
+  // The bay, its doors, and the fish inside them.
   for (const s of [-1, 1]) {
-    box(p, M.planeBottom, 0.12, 0.7, 4.4, s * 0.62, F - 1.35, 1.2);   // bay doors
+    box(p, M.planeBottom, 0.1, 0.34, 4.3, s * 0.5, cl(1.2) - 1.02, 1.2);
   }
-  box(p, M.cave, 1.0, 0.2, 4.2, 0, F - 1.45, 1.2);
-  radial(p, 0.95, F + 0.1, 5.0, 3.9, 3, spin);
-  greenhouse(p, 1.16, 0.8, F + 0.95, 1.1, 3.6, 4);
+  box(p, M.cave, 0.86, 0.16, 4.1, 0, cl(1.2) - 1.1, 1.2);
+  // The fish itself, up in the bay where she carries it.
+  cyl(p, M.steelDark, 0.26, 0.26, 4.0, 0, cl(1.1) - 0.96, 1.1, 12).rotation.x = Math.PI / 2;
+  cyl(p, M.steelDark, 0.26, 0.06, 0.8, 0, cl(3.2) - 0.96, 3.3, 12).rotation.x = Math.PI / 2;
+  for (const s of [-1, 1]) {
+    box(p, M.steelDark, 0.03, 0.46, 0.46, s * 0.15, cl(-0.9) - 0.96, -0.9);
+    box(p, M.steelDark, 0.46, 0.03, 0.46, 0, cl(-0.9) - 0.96 + s * 0.23, -0.9);
+  }
+  greenhouse(p, 1.14, 0.80, cl(2.3) + 1.0, 1.05, 3.55, 4);
   // The turret: a glazed ball on its ring with the fifty out of the side.
-  cyl(p, M.planeTop, 0.7, 0.72, 0.28, 0, F + 0.95, -0.5, 14);
-  cyl(p, M.glass, 0.66, 0.66, 0.95, 0, F + 1.5, -0.5, 14);
-  cyl(p, M.planeTop, 0.66, 0.5, 0.3, 0, F + 2.0, -0.5, 14);
-  const fifty = cyl(p, M.gunDark, 0.06, 0.06, 1.5, 0.3, F + 1.6, 0.1, 6);
+  cyl(p, M.planeTop, 0.72, 0.74, 0.3, 0, cl(-0.5) + 0.96, -0.5, 14);
+  cyl(p, M.glass, 0.66, 0.68, 0.9, 0, cl(-0.5) + 1.5, -0.5, 14);
+  cyl(p, M.planeTop, 0.62, 0.42, 0.34, 0, cl(-0.5) + 2.02, -0.5, 14);
+  // The frames of it, which are what you actually see of a turret at range.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI;
+    box(p, M.planeTop, 0.07, 0.94, 0.07, Math.sin(a) * 0.66, cl(-0.5) + 1.5,
+      -0.5 + Math.cos(a) * 0.66, a);
+    box(p, M.planeTop, 0.07, 0.94, 0.07, -Math.sin(a) * 0.66, cl(-0.5) + 1.5,
+      -0.5 - Math.cos(a) * 0.66, a);
+  }
+  cyl(p, M.planeTop, 0.68, 0.68, 0.07, 0, cl(-0.5) + 1.94, -0.5, 14);
+  const fifty = cyl(p, M.gunDark, 0.06, 0.06, 1.5, 0.3, cl(-0.4) + 1.6, 0.1, 6);
   fifty.rotation.x = -0.35;
   // The spine aft of her, and the tunnel gun under the tail.
-  box(p, M.planeTop, 0.7, 0.5, 2.6, 0, F + 0.72, -2.4);
-  const tunnel = cyl(p, M.gunDark, 0.05, 0.05, 1.1, 0, F - 1.15, -2.6, 6);
-  tunnel.rotation.x = 0.35;
-  // The same sto-wing as the Wildcat's, on a wing half as big again.
+  airframe(p, M.planeTop, [
+    { z: -4.60, w: 0.30, h: 0.30, y: cl(-4.60) + 0.5 },
+    { z: -3.20, w: 0.60, h: 0.52, y: cl(-3.20) + 0.62 },
+    { z: -1.60, w: 0.76, h: 0.66, y: cl(-1.60) + 0.72 },
+    { z: -0.90, w: 0.80, h: 0.70, y: cl(-0.90) + 0.74 },
+  ], { flat: 0.4, e: 0.85, capF: false, mBot: M.planeTop });
+  box(p, M.cave, 0.4, 0.1, 0.7, 0, cl(-3.0) - 0.68, -3.0);
+  const tunnel = cyl(p, M.gunDark, 0.05, 0.05, 0.9, 0, cl(-3.0) - 0.6, -3.05, 6);
+  tunnel.rotation.x = 0.5;
+  // The same sto-wing as the Wildcat's, on a wing half as big again -- and
+  // both states of it are built, because an aeroplane spreads her wings before
+  // she runs and folds them again when she is struck below. Which pair is
+  // showing is a matter of which group is visible, so the evolution can spread
+  // them at the right moment instead of her taking off folded.
+  const WY = cl(1.5) - 0.82;
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, 1.5, 0.26, 2.7, s * 0.75, F - 0.75, 1.5);
+    // The centre section stays put whether she is folded or spread.
+    wing(p, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: WY, z: 2.9, span: 0.95, rootC: 3.0, tipC: 2.9,
+      sweep: 0.04, thick: 0.14, stations: 2, round: false, rootCap: false,
+    });
+    foldWing(stowed, s, {
+      at: [s * 0.92, WY - 0.72, 2.8], skew: 0.09, lean: 0.05,
+      span: 6.0, rootC: 2.9, tipC: 1.5, sweep: 0.85, thick: 0.135, star: 0.72,
+      guns: [[2.0, 0.12]],
+    });
     const w = new THREE.Group();
-    w.position.set(s * (folded ? 2.0 : 1.4), F - (folded ? 0.35 : 0.6), 1.6);
-    w.rotation.z = s * (folded ? 0.22 : -0.06);
-    w.rotation.x = folded ? 0.07 : 0;
-    w.rotation.y = folded ? -s * 0.05 : 0;
-    p.add(w);
-    if (folded) {
-      box(w, M.planeTop, 0.32, 2.5, 5.8, 0, 0, -2.7);
-      box(w, M.planeBottom, 0.17, 2.3, 5.6, s * 0.18, 0, -2.7);
-      box(w, M.planeTop, 0.26, 0.7, 1.9, 0, 0.9, -4.9);
-      box(w, M.planeBottom, 0.34, 0.6, 0.6, 0, -1.1, -5.4);
-      insignia(w, s * 0.19, 0.15, -3.2, 0.72, false);
-    } else {
-      box(w, M.planeTop, 6.0, 0.26, 2.4, s * 3.0, 0, 0);
-      box(w, M.planeBottom, 5.8, 0.13, 2.2, s * 3.0, -0.11, 0);
-      box(w, M.planeTop, 2.0, 0.16, 0.6, s * 4.6, 0.02, -1.3);
-      insignia(w, s * 3.4, 0.14, -0.2, 0.72);
-    }
+    w.position.set(s * 0.95, WY, 2.9);
+    w.rotation.z = -s * 0.06;
+    spread.add(w);
+    wing(w, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: 0, z: 0, span: 7.25, rootC: 2.9, tipC: 1.5,
+      sweep: 0.85, thick: 0.135, camber: 0.024, twist: -0.03, rootCap: false,
+    });
+    box(w, M.planeTop, 2.1, 0.11, 0.62, s * 5.2, 0.06, -1.9);        // aileron
+    box(w, M.planeTop, 2.9, 0.12, 0.8, s * 1.9, 0.02, -2.3);         // flap
+    box(w, M.gunDark, 0.22, 0.22, 0.24, s * 1.5, 0.1, 0.04);         // wing fifty
+    insignia(w, s * 4.0, 0.16, -0.6, 0.72);
   }
-  insignia(p, 0.74, F - 0.2, -2.6, 0.6, false);
-  insignia(p, -0.74, F - 0.2, -2.6, 0.6, false);
-  empennage(p, 2.1, 1.7, 4.4, 1.3, F + 0.62, -5.0);
-  for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 2.0, 1.3, 0.46);
-  tailGear(p, -5.4, 0.21, 1.1);
-  box(p, M.planeTop, 0.08, 0.8, 0.08, 0, F + 1.9, 1.4);
-  const wire = box(p, M.wire, 0.03, 0.03, 5.4, 0, F + 2.0, -1.6);
-  wire.rotation.x = -0.1;
+  stowed.visible = folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+  insignia(p, 0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
+  insignia(p, -0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
+  empennage(p, 2.05, 1.7, 5.8, 1.3, cl(-5.2) + 0.46, -4.8);
+  const legs = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
+  const tailLeg = tailGear(p, -5.5, 0.21, 1.1, 0.36);
+  const down = legs.map((l) => l.g.rotation.z);
+  // 0 is down and locked, 1 is up and the doors shut behind her.
+  p.userData.gear = (u) => {
+    const k = Math.max(0, Math.min(1, u));
+    const e = k * k * (3 - 2 * k);
+    legs.forEach((l, i) => { l.g.rotation.z = down[i] + l.s * 1.5 * e; });
+    tailLeg.rotation.x = 1.6 * e;
+  };
+  box(p, M.planeTop, 0.08, 0.8, 0.08, 0, cl(1.4) + 1.9, 1.4);
+  const wire = box(p, M.wire, 0.03, 0.03, 5.4, 0, cl(-1.6) + 1.86, -1.6);
+  wire.rotation.x = -0.14;
   return p;
 }
 
@@ -2345,13 +2695,27 @@ export function buildEnterprise() {
   // battle both -- so the ship carries her own animation rather than each scene
   // having to know she has elevators. `launch` starts the evolution; the
   // simulation calls it when a squadron goes.
-  const deck = { lifts, plane, launchAt: null, startY: FD };
+  const deck = { lifts, plane, launchAt: null, startY: FD, airborne: false };
   g.userData.deck = deck;
   g.userData.deckPlane = plane.group;
   g.userData.step = (t) => stepDeck(deck, t);
   g.userData.launch = (t) => {
     deck.launchAt = t;
+    deck.airborne = false;
     deck.startY = lifts[lifts.length - 1].group.position.y;
+  };
+  // Called when whatever was flying her is finished with her: she comes home
+  // to the after lift and waits for the next launch.
+  g.userData.recover = () => {
+    deck.airborne = false;
+    deck.launchAt = null;
+    // Struck below again: wings folded, wheels down, on the lift.
+    if (plane.gear) plane.gear(0);
+    if (plane.wings) {
+      plane.wings.spread.visible = false;
+      plane.wings.stowed.visible = true;
+    }
+    plane.group.rotation.set(0, 0.08, 0);
   };
   return {
     group: g,
@@ -2363,5 +2727,9 @@ export function buildEnterprise() {
     length: LOA, beam: FDW, deckY: HANGAR, flightDeckY: FD,
   };
 }
+
+// The three types on their own, so they can be looked at and measured
+// without a ship round them.
+export const __aircraft = { wildcat, dauntless, avenger };
 
 export { LOA, FDW, FDL, HANGAR, FD, LIFT_HW, liftZs };
