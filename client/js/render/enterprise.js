@@ -70,6 +70,8 @@ const M = {
   planeBottom: new THREE.MeshLambertMaterial({ color: 0x9aa4ad }),
   prop: new THREE.MeshLambertMaterial({ color: 0x24282c }),
   star: new THREE.MeshLambertMaterial({ color: 0xd9dde2 }),
+  // Insignia blue, which is the only other colour on a 1942 aeroplane.
+  insignia: new THREE.MeshLambertMaterial({ color: 0x1d3866 }),
 };
 
 // ------------------------------------------------------------ primitives --
@@ -814,7 +816,7 @@ function elevators(g) {
     // than ranged on the deck she has to land on.
     if (i === 0) wildcat(lift, 0, 0.32, -0.4, 0.16);
     else if (i === 1) dauntless(lift, 0, 0.36, -0.6, -0.1, true);
-    else avenger(lift, 0, 0.34, -0.9, 0.08);
+    else avenger(lift, 0, 0.34, -0.45, 0.08);
     mergeStatic(lift);
     lifts.push({ group: lift, phase: i / zs.length });
   });
@@ -1862,112 +1864,306 @@ function boatsAndCranes(g) {
 
 // ------------------------------------------------------------- the air group --
 
-/** An SBD Dauntless, folded or spread, in the 1942 blue-grey over light grey. */
+// ------------------------------------------------------------ her aircraft --
+//
+// Three types, and each is built round the one thing that identifies it: a
+// Wildcat's wings swing back and lie flat along its sides on the Grumman
+// sto-wing; a Dauntless has the perforated split flaps above and below its
+// trailing edge; an Avenger has the ball turret amidships. Everything else --
+// the cowl and its gills, the exhaust stubs, the framing of the greenhouse,
+// the arrestor hook, the star on its blue disc -- they share, so it is built
+// once and each type says what size it wants it.
+//
+// Their real dimensions, because they are looked at from a metre away on a
+// lift and from the hangar side openings:
+//
+//   F4F-4 Wildcat    8.8 m long   11.6 m span, 4.4 folded   2.8 m high
+//   SBD-3 Dauntless 10.0 m long   12.7 m span, no fold      4.1 m high
+//   TBF-1 Avenger   12.2 m long   16.5 m span, 5.6 folded   4.7 m high
+//
+// In each of these the origin is where the tyres touch the deck, and the nose
+// points along +z.
+
+/** A radial in its cowling: gills, cowl ring, spinner, blades, exhaust stubs. */
+function radial(p, r, y, z, span, blades = 3) {
+  cyl(p, M.gunDark, r * 0.86, r * 0.86, 1.05, 0, y, z - 0.2, 16).rotation.x = Math.PI / 2;
+  // The cylinder heads showing through the front of the cowl.
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    cyl(p, M.gunDark, 0.13, 0.13, 0.5, Math.sin(a) * r * 0.62, y + Math.cos(a) * r * 0.62,
+      z + 0.1, 6).rotation.x = Math.PI / 2;
+  }
+  // The cowl itself, and the cooling gills round its after lip.
+  cyl(p, M.planeTop, r, r * 1.04, 1.3, 0, y, z - 0.1, 16).rotation.x = Math.PI / 2;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    box(p, M.planeBottom, 0.2, 0.2, 0.34, Math.sin(a) * r * 1.03, y + Math.cos(a) * r * 1.03,
+      z - 0.72, a);
+  }
+  cyl(p, M.planeBottom, r * 0.72, r * 0.9, 0.22, 0, y, z + 0.6, 16).rotation.x = Math.PI / 2;
+  // Spinner, hub and blades, each with its own twist.
+  cyl(p, M.prop, 0.17, 0.3, 0.62, 0, y, z + 0.95, 12).rotation.x = Math.PI / 2;
+  for (let i = 0; i < blades; i++) {
+    const bl = box(p, M.prop, 0.32, span, 0.1, 0, y, z + 1.05);
+    bl.rotation.z = (i / blades) * Math.PI * 2 + 0.4;
+    bl.rotation.y = 0.28;
+  }
+  // Exhaust stubs out of the cowl's lower flanks.
+  for (const s of [-1, 1]) {
+    cyl(p, M.gunDark, 0.1, 0.1, 0.55, s * r * 0.7, y - r * 0.55, z - 0.85, 6)
+      .rotation.x = Math.PI / 2;
+  }
+}
+
+/** A greenhouse: framed bays with the dark of the cockpit behind them. */
+function greenhouse(p, w, h, y, z0, z1, bays) {
+  const len = z1 - z0;
+  box(p, M.cave, w * 0.9, h * 0.9, len, 0, y + h / 2, z0 + len / 2);
+  for (let i = 0; i < bays; i++) {
+    const d = len / bays;
+    const z = z0 + d * (i + 0.5);
+    box(p, M.glass, w, h * 0.86, d - 0.1, 0, y + h * 0.5, z);
+    box(p, M.planeTop, w + 0.04, h * 0.9, 0.07, 0, y + h * 0.5, z + d / 2);
+  }
+  // The rails it slides on, and the coaming round the sill.
+  for (const s of [-1, 1]) box(p, M.planeTop, 0.08, 0.1, len, s * w / 2, y, z0 + len / 2);
+  box(p, M.planeTop, w + 0.06, 0.12, 0.1, 0, y + h * 0.94, z0 + 0.06);
+}
+
+/** Fin, rudder, tailplane and elevators, with their hinge lines showing. */
+function empennage(p, finH, finC, span, chord, y, z) {
+  box(p, M.planeTop, 0.14, finH, finC, 0, y + finH / 2, z + 0.25);
+  box(p, M.planeTop, 0.12, finH * 0.82, finC * 0.42, 0, y + finH * 0.44, z - finC * 0.42);
+  box(p, M.planeBottom, 0.15, 0.1, finC * 0.44, 0, y + finH * 0.04, z - finC * 0.42);
+  for (const s of [-1, 1]) {
+    box(p, M.planeTop, span / 2, 0.13, chord, s * span / 4, y, z + 0.1);
+    box(p, M.planeBottom, span / 2 - 0.1, 0.1, chord * 0.4, s * span / 4, y - 0.02,
+      z - chord * 0.5);
+  }
+}
+
+/**
+ * The star on its blue disc: upper surfaces of the wings and both sides of the
+ * fuselage, which is where the 1942 marking went.
+ *
+ * The star is built out of five arms rather than drawn as a five-sided disc: a
+ * pentagon at this range is a blob, and the shape is the only thing on the
+ * aeroplane that says whose it is.
+ */
+function insignia(p, x, y, z, r, up = true) {
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  if (!up) m.rotation.z = Math.PI / 2;    // stand it on the fuselage side
+  p.add(m);
+  cyl(m, M.insignia, r, r, 0.05, 0, 0, 0, 16);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.2;
+    box(m, M.star, r * 0.36, 0.06, r * 0.95,
+      Math.sin(a) * r * 0.42, 0.02, Math.cos(a) * r * 0.42, a);
+  }
+  cyl(m, M.star, r * 0.32, r * 0.32, 0.06, 0, 0.02, 0, 10);
+}
+
+/** A main leg: oleo, scissors, wheel and the door on its side. */
+function mainGear(p, s, x, z, len, r, rake = 0.12) {
+  const leg = new THREE.Group();
+  leg.position.set(x, len, z);
+  leg.rotation.z = -s * rake;
+  p.add(leg);
+  cyl(leg, M.planeBottom, 0.12, 0.14, len * 0.62, 0, -len * 0.3, 0, 8);
+  cyl(leg, M.bright, 0.085, 0.085, len * 0.44, 0, -len * 0.72, 0, 8);
+  box(leg, M.planeBottom, 0.05, len * 0.3, 0.16, s * 0.12, -len * 0.5, 0.1);
+  const tyre = cyl(leg, M.prop, r, r, 0.28, s * 0.16, -len * 0.93, 0, 14);
+  tyre.rotation.z = Math.PI / 2;
+  cyl(leg, M.bright, r * 0.42, r * 0.42, 0.3, s * 0.16, -len * 0.93, 0, 10)
+    .rotation.z = Math.PI / 2;
+  box(p, M.planeBottom, 0.09, len * 0.72, 0.62, x - s * 0.2, len * 0.62, z);
+}
+
+/** Tailwheel and the hook stowed up under the sternpost. */
+function tailGear(p, z, r, hookLen) {
+  cyl(p, M.planeBottom, 0.09, 0.11, 0.42, 0, r + 0.2, z, 8);
+  cyl(p, M.prop, r, r, 0.16, 0, r, z, 10).rotation.z = Math.PI / 2;
+  const hook = box(p, M.gunDark, 0.09, 0.09, hookLen, 0, r + 0.75, z - hookLen * 0.42);
+  hook.rotation.x = -0.34;
+  box(p, M.gunDark, 0.2, 0.16, 0.3, 0, r + 0.4, z - hookLen * 0.86);
+}
+
+/** An SBD Dauntless: the perforated dive flaps are the whole point of her. */
 function dauntless(g, x, y, z, ry, folded = false) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  // Fuselage: a tapered body with the cockpit glazing along the top.
-  box(p, M.planeTop, 1.15, 1.35, 6.6, 0, 0.95, 0);
-  box(p, M.planeBottom, 1.05, 0.5, 6.2, 0, 0.35, 0);
-  box(p, M.glass, 0.9, 0.55, 2.6, 0, 1.75, 0.3);
-  // Engine, cowl and propeller.
-  cyl(p, M.gunDark, 0.72, 0.78, 1.1, 0, 1.0, 3.6, 14).rotation.x = Math.PI / 2;
-  cyl(p, M.prop, 0.16, 0.16, 0.4, 0, 1.0, 4.2, 10).rotation.x = Math.PI / 2;
-  for (let i = 0; i < 3; i++) {
-    const bl = box(p, M.prop, 0.28, 3.1, 0.1, 0, 1.0, 4.35);
-    bl.rotation.z = (i / 3) * Math.PI * 2;
-  }
-  // Wings: the Dauntless did not fold, so they are always out.
+  const F = 1.55;                       // the fuselage centreline, off the deck
+  // Fuselage: a deep forward body tapering to the sternpost, with the spine
+  // decking aft of the gunner.
+  box(p, M.planeTop, 1.12, 1.5, 4.4, 0, F, 1.4);
+  box(p, M.planeTop, 0.9, 1.15, 3.4, 0, F - 0.06, -2.4);
+  box(p, M.planeBottom, 1.02, 0.55, 7.2, 0, F - 0.72, 0.4);
+  box(p, M.planeTop, 0.55, 0.4, 2.6, 0, F + 0.62, -1.9);
+  radial(p, 0.72, F + 0.1, 4.1, 3.2);
+  // The greenhouse: pilot forward, gunner aft, open at his end.
+  greenhouse(p, 0.94, 0.72, F + 0.72, -0.9, 2.1, 4);
+  box(p, M.cave, 0.86, 0.5, 1.5, 0, F + 0.9, -1.6);
+  // His twin thirties on their ring.
   for (const s of [-1, 1]) {
-    const w = box(p, M.planeTop, 5.6, 0.22, 1.85, s * 3.1, 0.75, 0.4);
-    w.rotation.z = s * 0.045;
-    box(p, M.planeBottom, 5.6, 0.1, 1.7, s * 3.1, 0.63, 0.4);
-    // The perforated dive flaps along the trailing edge.
-    box(p, M.gunDark, 5.4, 0.08, 0.4, s * 3.1, 0.72, -0.6);
+    const gun = cyl(p, M.gunDark, 0.055, 0.055, 1.5, s * 0.16, F + 1.2, -2.1, 6);
+    gun.rotation.x = -0.5;
   }
-  box(p, M.star, 1.3, 0.04, 1.3, -3.4, 0.88, 0.4);
-  // Tail: fin, rudder and tailplane.
-  box(p, M.planeTop, 0.16, 1.7, 1.5, 0, 2.0, -3.0);
-  for (const s of [-1, 1]) box(p, M.planeTop, 1.8, 0.14, 1.0, s * 1.0, 1.05, -3.1);
-  // Undercarriage: fixed spatted legs and a tailwheel.
+  box(p, M.gunDark, 0.5, 0.12, 0.4, 0, F + 1.02, -1.9);
+  // Wings: dihedral outboard of a flat centre section, with the ailerons and
+  // the slots in the leading edge she needed to stay honest in a dive.
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, 0.3, 0.9, 0.5, s * 1.5, 0.35, 1.2);
-    cyl(p, M.prop, 0.35, 0.35, 0.24, s * 1.5, 0.32, 1.2, 10).rotation.z = Math.PI / 2;
+    box(p, M.planeTop, 2.0, 0.22, 2.1, s * 1.0, F - 0.68, 0.9);
+    const w = new THREE.Group();
+    w.position.set(s * 2.0, F - 0.68, 0.9);
+    w.rotation.z = -s * 0.17;
+    p.add(w);
+    box(w, M.planeTop, 4.4, 0.2, 1.95, s * 2.2, 0, 0);
+    box(w, M.planeBottom, 4.3, 0.1, 1.8, s * 2.2, -0.09, 0);
+    box(w, M.planeTop, 1.7, 0.14, 0.5, s * 3.6, 0.02, -0.95);       // aileron
+    box(w, M.gunDark, 1.5, 0.1, 0.16, s * 3.6, 0.04, 0.9);          // leading-edge slot
+    box(w, M.planeBottom, 0.5, 0.2, 0.7, s * 4.3, -0.02, 0.1);      // tip
+    // The split flaps, perforated above and below: the Dauntless's own mark.
+    for (const dy of [0.22, -0.22]) {
+      box(w, M.gunDark, 4.2, 0.09, 0.52, s * 2.1, dy, -1.22);
+      for (let i = 0; i < 9; i++) {
+        cyl(w, M.cave, 0.075, 0.075, 0.12, s * (0.4 + i * 0.42), dy, -1.22, 6);
+      }
+    }
+    insignia(w, s * 2.6, 0.12, -0.1, 0.62);
   }
-  cyl(p, M.prop, 0.16, 0.16, 0.14, 0, 0.2, -3.2, 8).rotation.z = Math.PI / 2;
-  if (folded) p.scale.set(0.98, 1, 1);
+  insignia(p, 0.58, F - 0.1, -2.2, 0.5, false);
+  insignia(p, -0.58, F - 0.1, -2.2, 0.5, false);
+  empennage(p, 1.5, 1.3, 3.4, 1.0, F + 0.5, -4.2);
+  // The crutch that swung her bomb clear of the propeller.
+  box(p, M.gunDark, 0.14, 0.5, 1.5, 0, F - 1.05, 1.3);
+  for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 1.5, 1.05, 0.4);
+  tailGear(p, -4.6, 0.19, 1.2);
+  // Aerial mast and the wire back to the fin.
+  box(p, M.planeTop, 0.07, 0.7, 0.07, 0, F + 1.5, 0.6);
+  const wire = box(p, M.wire, 0.03, 0.03, 4.6, 0, F + 1.6, -1.7);
+  wire.rotation.x = -0.12;
+  if (folded) p.scale.set(0.995, 1, 1);
   return p;
 }
 
-/** An F4F Wildcat, wings folded back along the fuselage as they were on deck. */
+/** An F4F-4 Wildcat with her wings swung back flat along her sides. */
 function wildcat(g, x, y, z, ry) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  box(p, M.planeTop, 1.25, 1.5, 5.4, 0, 1.15, 0);
-  box(p, M.planeBottom, 1.15, 0.55, 5.0, 0, 0.45, 0);
-  box(p, M.glass, 0.95, 0.6, 1.8, 0, 2.0, 0.2);
-  cyl(p, M.gunDark, 0.78, 0.82, 1.2, 0, 1.2, 2.9, 14).rotation.x = Math.PI / 2;
-  for (let i = 0; i < 3; i++) {
-    const bl = box(p, M.prop, 0.3, 3.0, 0.11, 0, 1.2, 3.6);
-    bl.rotation.z = (i / 3) * Math.PI * 2 + 0.4;
-  }
-  // Folded wings: swung back and up along the sides, which is the Wildcat's
-  // own trick and the reason so many of them fitted on a deck.
+  const F = 1.5;
+  // The barrel fuselage, deep at the wing and slab-sided aft.
+  box(p, M.planeTop, 1.3, 1.62, 3.6, 0, F, 0.9);
+  box(p, M.planeTop, 1.0, 1.25, 3.0, 0, F - 0.04, -2.1);
+  box(p, M.planeBottom, 1.18, 0.6, 6.0, 0, F - 0.78, 0.2);
+  radial(p, 0.8, F + 0.06, 3.3, 3.0);
+  greenhouse(p, 1.0, 0.66, F + 0.78, 0.0, 1.7, 3);
+  box(p, M.planeTop, 0.6, 0.42, 2.2, 0, F + 0.66, -1.5);
+  // The sto-wing: the wings pivot on a skewed hinge at the root and end up
+  // lying flat along the fuselage, leading edge down. It is why twice as many
+  // of them fitted below as of anything else.
   for (const s of [-1, 1]) {
+    // Folded, the panel lies fore and aft alongside the fuselage with its
+    // leading edge down -- not stuck out athwartships. The whole value of the
+    // sto-wing is that the aeroplane ends up no wider than its own tailplane.
     const w = new THREE.Group();
-    w.position.set(s * 0.7, 1.5, 0.3);
-    w.rotation.z = s * 1.35;
-    w.rotation.x = 0.12;
+    w.position.set(s * 1.32, F - 0.05, 1.1);
+    w.rotation.z = s * 0.2;
+    w.rotation.x = 0.09;
+    w.rotation.y = -s * 0.06;
     p.add(w);
-    box(w, M.planeTop, 0.24, 4.4, 1.7, s * 0.1, -2.0, -0.6);
-    box(w, M.planeBottom, 0.12, 4.2, 1.5, s * 0.22, -2.0, -0.6);
+    box(w, M.planeTop, 0.26, 1.75, 4.3, 0, 0, -1.9);
+    box(w, M.planeBottom, 0.14, 1.6, 4.1, s * 0.15, 0, -1.9);
+    box(w, M.planeTop, 0.22, 0.55, 1.5, 0, 0.6, -3.5);              // aileron
+    box(w, M.gunDark, 0.18, 0.26, 0.26, s * 0.06, -0.62, -0.5);     // gun ports
+    box(w, M.gunDark, 0.18, 0.26, 0.26, s * 0.06, -0.62, -1.2);
+    box(w, M.planeBottom, 0.3, 0.45, 0.5, 0, -0.78, -3.9);          // tip
+    insignia(w, s * 0.15, 0.1, -2.3, 0.55, false);
   }
-  box(p, M.planeTop, 0.16, 1.6, 1.3, 0, 2.1, -2.4);
-  for (const s of [-1, 1]) box(p, M.planeTop, 1.5, 0.13, 0.9, s * 0.85, 1.2, -2.5);
+  // The hinge fairings left standing at the roots.
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, 0.22, 0.7, 0.3, s * 0.6, 0.5, 0.9);
-    cyl(p, M.prop, 0.3, 0.3, 0.2, s * 0.6, 0.3, 0.9, 10).rotation.z = Math.PI / 2;
+    box(p, M.planeTop, 0.5, 0.75, 1.2, s * 0.72, F - 0.1, 1.05);
+    const hinge = box(p, M.planeBottom, 0.9, 0.3, 0.9, s * 1.05, F - 0.05, 1.1);
+    hinge.rotation.z = s * 0.2;
   }
+  insignia(p, 0.55, F - 0.15, -1.6, 0.5, false);
+  insignia(p, -0.55, F - 0.15, -1.6, 0.5, false);
+  empennage(p, 1.35, 1.15, 2.9, 0.9, F + 0.42, -3.5);
+  // Her narrow-track gear cranks up into the fuselage sides, so it sits close
+  // in under her and the wheels are half buried when it is down.
+  for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.0, 0.34, 0.02);
+  tailGear(p, -3.8, 0.17, 1.0);
+  box(p, M.planeTop, 0.07, 0.62, 0.07, 0, F + 1.42, 0.5);
+  const wire = box(p, M.wire, 0.03, 0.03, 3.9, 0, F + 1.5, -1.4);
+  wire.rotation.x = -0.13;
   return p;
 }
 
-/** A TBF Avenger, wings folded alongside: the biggest thing on her deck. */
-function avenger(g, x, y, z, ry) {
+/** A TBF-1 Avenger, folded: the ball turret is what names her at any range. */
+function avenger(g, x, y, z, ry, folded = true) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  box(p, M.planeTop, 1.5, 1.9, 8.2, 0, 1.35, 0);
-  box(p, M.planeBottom, 1.4, 0.6, 7.8, 0, 0.5, 0);
-  box(p, M.glass, 1.1, 0.7, 2.4, 0, 2.4, 1.2);
-  // The ball turret, which is what says Avenger at any distance.
-  cyl(p, M.glass, 0.62, 0.62, 0.8, 0, 2.5, -1.3, 12);
-  cyl(p, M.gunDark, 0.9, 0.95, 1.4, 0, 1.4, 4.4, 14).rotation.x = Math.PI / 2;
-  for (let i = 0; i < 3; i++) {
-    const bl = box(p, M.prop, 0.34, 3.9, 0.12, 0, 1.4, 5.2);
-    bl.rotation.z = (i / 3) * Math.PI * 2 + 0.9;
-  }
+  const F = 1.85;
+  // A deep body with a bomb bay in the belly of it -- she is a big aeroplane,
+  // and the whole middle of her is the space a torpedo goes in.
+  box(p, M.planeTop, 1.5, 1.95, 5.4, 0, F, 1.6);
+  box(p, M.planeTop, 1.15, 1.5, 4.0, 0, F - 0.1, -3.0);
+  box(p, M.planeBottom, 1.36, 0.75, 4.6, 0, F - 1.05, 1.2);
   for (const s of [-1, 1]) {
+    box(p, M.planeBottom, 0.12, 0.7, 4.4, s * 0.62, F - 1.35, 1.2);   // bay doors
+  }
+  box(p, M.cave, 1.0, 0.2, 4.2, 0, F - 1.45, 1.2);
+  radial(p, 0.95, F + 0.1, 5.0, 3.9);
+  greenhouse(p, 1.16, 0.8, F + 0.95, 1.1, 3.6, 4);
+  // The turret: a glazed ball on its ring with the fifty out of the side.
+  cyl(p, M.planeTop, 0.7, 0.72, 0.28, 0, F + 0.95, -0.5, 14);
+  cyl(p, M.glass, 0.66, 0.66, 0.95, 0, F + 1.5, -0.5, 14);
+  cyl(p, M.planeTop, 0.66, 0.5, 0.3, 0, F + 2.0, -0.5, 14);
+  const fifty = cyl(p, M.gunDark, 0.06, 0.06, 1.5, 0.3, F + 1.6, 0.1, 6);
+  fifty.rotation.x = -0.35;
+  // The spine aft of her, and the tunnel gun under the tail.
+  box(p, M.planeTop, 0.7, 0.5, 2.6, 0, F + 0.72, -2.4);
+  const tunnel = cyl(p, M.gunDark, 0.05, 0.05, 1.1, 0, F - 1.15, -2.6, 6);
+  tunnel.rotation.x = 0.35;
+  // The same sto-wing as the Wildcat's, on a wing half as big again.
+  for (const s of [-1, 1]) {
+    box(p, M.planeTop, 1.5, 0.26, 2.7, s * 0.75, F - 0.75, 1.5);
     const w = new THREE.Group();
-    w.position.set(s * 0.85, 1.7, 0.9);
-    w.rotation.z = s * 1.42;
-    w.rotation.x = 0.16;
+    w.position.set(s * (folded ? 2.0 : 1.4), F - (folded ? 0.35 : 0.6), 1.6);
+    w.rotation.z = s * (folded ? 0.22 : -0.06);
+    w.rotation.x = folded ? 0.07 : 0;
+    w.rotation.y = folded ? -s * 0.05 : 0;
     p.add(w);
-    box(w, M.planeTop, 0.3, 6.2, 2.1, s * 0.12, -2.9, -0.9);
-    box(w, M.planeBottom, 0.16, 6.0, 1.9, s * 0.26, -2.9, -0.9);
+    if (folded) {
+      box(w, M.planeTop, 0.32, 2.5, 5.8, 0, 0, -2.7);
+      box(w, M.planeBottom, 0.17, 2.3, 5.6, s * 0.18, 0, -2.7);
+      box(w, M.planeTop, 0.26, 0.7, 1.9, 0, 0.9, -4.9);
+      box(w, M.planeBottom, 0.34, 0.6, 0.6, 0, -1.1, -5.4);
+      insignia(w, s * 0.19, 0.15, -3.2, 0.72, false);
+    } else {
+      box(w, M.planeTop, 6.0, 0.26, 2.4, s * 3.0, 0, 0);
+      box(w, M.planeBottom, 5.8, 0.13, 2.2, s * 3.0, -0.11, 0);
+      box(w, M.planeTop, 2.0, 0.16, 0.6, s * 4.6, 0.02, -1.3);
+      insignia(w, s * 3.4, 0.14, -0.2, 0.72);
+    }
   }
-  box(p, M.planeTop, 0.2, 2.2, 1.9, 0, 2.6, -3.6);
-  for (const s of [-1, 1]) box(p, M.planeTop, 2.2, 0.16, 1.2, s * 1.2, 1.35, -3.7);
-  for (const s of [-1, 1]) {
-    box(p, M.planeTop, 0.26, 0.95, 0.36, s * 1.1, 0.6, 1.5);
-    cyl(p, M.prop, 0.38, 0.38, 0.26, s * 1.1, 0.38, 1.5, 10).rotation.z = Math.PI / 2;
-  }
+  insignia(p, 0.74, F - 0.2, -2.6, 0.6, false);
+  insignia(p, -0.74, F - 0.2, -2.6, 0.6, false);
+  empennage(p, 2.1, 1.7, 4.4, 1.3, F + 0.62, -5.0);
+  for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 2.0, 1.3, 0.46);
+  tailGear(p, -5.4, 0.21, 1.1);
+  box(p, M.planeTop, 0.08, 0.8, 0.08, 0, F + 1.9, 1.4);
+  const wire = box(p, M.wire, 0.03, 0.03, 5.4, 0, F + 2.0, -1.6);
+  wire.rotation.x = -0.1;
   return p;
 }
+
 
 // Nothing is ranged on the flight deck. A carrier lying in her berth with a
 // deck park is a carrier that cannot land an aircraft or work her lifts, and it
