@@ -488,6 +488,29 @@ function batteryApron(world, at, span, foot = 0) {
 }
 
 /** A ship as it appears on screen: hull, turrets, wake ribbon, damage state. */
+/**
+ * Weld a handful of geometries into one, for a shape that has to be instanced.
+ *
+ * Instancing draws a single geometry many times, so a shape made of four boxes
+ * has to become one box-worth of triangles first. Positions and normals only:
+ * nothing here is textured.
+ */
+function weld(parts) {
+  const pos = [];
+  const nrm = [];
+  for (const g of parts) {
+    const flat = g.index ? g.toNonIndexed() : g;
+    pos.push(...flat.getAttribute('position').array);
+    nrm.push(...flat.getAttribute('normal').array);
+    if (flat !== g) flat.dispose();
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  return out;
+}
+
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null) {
     const built = buildShip(classId);
@@ -615,7 +638,6 @@ export class BattleScene {
     const coast = world.land?.length ? buildCoast(world) : null;
     if (coast) this.scene.add(coast);
     this.addBorder();
-    this.addCapRings();
 
     this.effects = new Effects(this.scene, q.particles);
     this.weather = new Weather(this.scene, wx, { count: Math.round(9000 * q.particles) });
@@ -642,9 +664,16 @@ export class BattleScene {
     this.torpedoes.frustumCulled = false;
     this.scene.add(this.torpedoes);
 
-    const planeGeo = new THREE.ConeGeometry(6, 20, 4);
-    planeGeo.rotateX(Math.PI / 2);
-    this.planeMat = new THREE.MeshBasicMaterial({ color: 0x2f4d7a });
+    // A squadron in the air, drawn as an aeroplane rather than as the blue dart
+    // it used to be: a fuselage, a wing and a tailplane, welded into one
+    // instanced shape and painted the blue-grey her upper surfaces are.
+    const planeGeo = weld([
+      new THREE.BoxGeometry(3.2, 3.2, 15).translate(0, 0, 1),
+      new THREE.BoxGeometry(19, 1.1, 4.4).translate(0, 0, 1.5),
+      new THREE.BoxGeometry(8.2, 1.0, 2.6).translate(0, 0.4, -6.2),
+      new THREE.BoxGeometry(1.0, 4.6, 2.8).translate(0, 2.4, -6.6),
+    ]);
+    this.planeMat = new THREE.MeshLambertMaterial({ color: 0x33475e });
     this.planeMesh = new THREE.InstancedMesh(planeGeo, this.planeMat, 60);
     this.planeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.planeMesh.frustumCulled = false;
@@ -665,26 +694,6 @@ export class BattleScene {
     this.scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
       color: 0xe2564f, transparent: true, opacity: 0.35,
     })));
-  }
-
-  addCapRings() {
-    this.capRings = new Map();
-    for (const cap of this.world.caps) {
-      const geo = new THREE.RingGeometry(cap.r - 18, cap.r, 64);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        color: 0xcfd8e0, transparent: true, opacity: 0.32, depthWrite: false,
-      }));
-      mesh.position.set(cap.x, 3, cap.z);
-      this.scene.add(mesh);
-      this.capRings.set(cap.id, mesh);
-    }
-  }
-
-  setCapOwner(id, owner, myTeam) {
-    const ring = this.capRings.get(id);
-    if (!ring) return;
-    ring.material.color.set(owner < 0 ? 0xcfd8e0 : owner === myTeam ? 0x6fd3a0 : 0xe2564f);
   }
 
   getShipView(id, classId, team, isSelf) {

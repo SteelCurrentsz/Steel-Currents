@@ -14,12 +14,13 @@ import {
 import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
+  SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections,
 } from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean } from '../client/js/render/ocean.js';
 import { ShipView } from '../client/js/render/scene.js';
-import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed }
+import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
 import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
@@ -1461,18 +1462,20 @@ check('a destroyer works in a sea her betters walk through', () => {
   const dt = 1 / 60;
   const roll = {};
   const pitch = {};
+  const heave = {};
   for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
     const v = new Seakeeping(cls.hull);
-    let r = 0; let q = 0;
+    let r = 0; let q = 0; let lo = Infinity; let hi = -Infinity;
     for (let t = 0; t < 300; t += dt) {
       const att = sea.attitude(1200, -800, 0.7, cls.hull.length, cls.hull.beam, t);
       v.step(att, dt);
       if (t > 40) {                          // let her settle first
         r = Math.max(r, Math.abs(v.roll) * DEG);
         q = Math.max(q, Math.abs(v.pitch) * DEG);
+        lo = Math.min(lo, v.heave); hi = Math.max(hi, v.heave);
       }
     }
-    roll[id] = r; pitch[id] = q;
+    roll[id] = r; pitch[id] = q; heave[id] = hi - lo;
   }
   // In order of size, every one of them works less than the one before her.
   const order = ['fletcher', 'cleveland', 'hipper', 'enterprise', 'iowa'];
@@ -1503,6 +1506,22 @@ check('a destroyer works in a sea her betters walk through', () => {
   assert.ok(rollHeed(114) > rollHeed(270) * 2, 'a short hull should take more of the sea');
   assert.ok(pitchHeed(114) > pitchHeed(262) * 4,
     'and far more of it fore and aft than a long one');
+
+  // And she must not go up and down bodily either. This is the one that made a
+  // carrier look like she was plunging: an eighth of a degree of pitch, and
+  // eight metres of heave, because the sea's own rise was handed to her whole.
+  // The water she is in rises and falls about eleven metres.
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(heave[order[i]] < heave[order[i - 1]] + 0.2,
+      `${order[i]} heaves ${heave[order[i]].toFixed(1)} m against `
+      + `${order[i - 1]}'s ${heave[order[i - 1]].toFixed(1)} m`);
+  }
+  assert.ok(heave.enterprise < 2.6, `Enterprise still rises ${heave.enterprise.toFixed(1)} m`);
+  assert.ok(heave.iowa < 2.6, `an Iowa still rises ${heave.iowa.toFixed(1)} m`);
+  assert.ok(heave.fletcher > heave.enterprise * 2.5,
+    'a destroyer should ride a sea a carrier goes through');
+  assert.ok(heave.fletcher < 9, `a Fletcher is thrown ${heave.fletcher.toFixed(1)} m`);
+  assert.ok(heaveHeed(114) > heaveHeed(262) * 2, 'a short hull is lifted more');
 });
 
 check('a ship fights herself while her captain cons her', () => {
@@ -1564,6 +1583,78 @@ check('a captain keeps his aircraft to himself', () => {
   };
   assert.equal(build(true), 0, 'she flew off aircraft her captain did not order');
   assert.ok(build(false) > 0, 'left to herself she never flew anything');
+});
+
+check('she is counted in compartments and holes, not in hit points', () => {
+  // A ship is not a pool that runs down. She is compartments, and what a shell
+  // does is open one of them. Her condition is the sum of what is still sound.
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Her', classId: 'cleveland', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.cleveland;
+
+  // Every compartment sound, and between them they are the whole of her.
+  const total = SECTIONS.reduce((a, k) => a + her.sections[k.k].max, 0);
+  assert.ok(Math.abs(total - cls.hp) < 1, `her compartments add to ${Math.round(total)}, not ${cls.hp}`);
+  assert.equal(hullIntegrity(her), her.hp);
+  assert.ok(SECTIONS.every((k) => her.sections[k.k].pens === 0), 'she started holed');
+
+  // A shell into her machinery takes it out of her machinery and nowhere else.
+  damageShip(st, her, null, 2000, 'pen', 'mid');
+  assert.equal(her.sections.mid.max - her.sections.mid.hp, 2000);
+  assert.equal(her.sections.bow.hp, her.sections.bow.max, 'her bow paid for a hit amidships');
+  assert.equal(her.hp, hullIntegrity(her), 'her condition is not what her compartments say');
+
+  // Wreck the machinery outright and she cannot steam; wreck her steering aft
+  // and she will not answer her helm. That is what the compartments are for.
+  damageShip(st, her, null, her.sections.mid.hp, 'pen', 'mid');
+  assert.equal(her.sections.mid.hp, 0);
+  assert.ok(her.engineDamage > 0, 'her machinery is gone and she is still steaming');
+  damageShip(st, her, null, her.sections.stern.hp, 'pen', 'stern');
+  assert.ok(her.steeringDamage > 0, 'her steering is gone and she still answers');
+  assert.ok(her.alive, 'two compartments should not sink a cruiser');
+
+  // Fire has no station: it eats the ship, so it is shared over what is left.
+  const beforeBow = her.sections.bow.hp;
+  damageShip(st, her, null, 900, 'fire');
+  assert.ok(her.sections.bow.hp < beforeBow, 'a fire burned nothing at all');
+
+  // And she goes when every compartment is gone, not a moment before.
+  for (const k of SECTIONS) damageShip(st, her, null, cls.hp, 'pen', k.k);
+  assert.equal(her.hp, 0);
+  assert.ok(!her.alive, 'gutted, and still afloat');
+});
+
+check('gunfire holes her where it hits her', () => {
+  // The station a shell strikes decides which compartment pays, and only the
+  // rounds that actually got inside are counted as holes: a ricochet off the
+  // belt is not a penetration, and neither is a shell that shatters on it.
+  const st = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const me = addShip(st, { name: 'Me', classId: 'iowa', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'cleveland', team: 1, index: 0 });
+  me.x = 0; me.z = 0; foe.x = 0; foe.z = 11000;
+  foe.heading = Math.PI / 2;              // broadside on, so there is a target
+  foe.spottedBy[0] = 9;
+  me.aimX = foe.x; me.aimZ = foe.z;
+  for (let i = 0; i < 4000; i++) {
+    foe.spottedBy[0] = 9;
+    me.aimX = foe.x; me.aimZ = foe.z;
+    if (i % 60 === 0) fireGuns(st, me);
+    step(st, DT);
+    if (!foe.alive) break;
+  }
+  const holes = SECTIONS.reduce((a, k) => a + foe.sections[k.k].pens, 0);
+  assert.ok(holes > 0, 'a battleship fired at a cruiser for two minutes and put no holes in her');
+  const hurt = SECTIONS.filter((k) => foe.sections[k.k].hp < foe.sections[k.k].max);
+  assert.ok(hurt.length > 0, 'she took damage in no compartment at all');
+  assert.ok(hurt.length < SECTIONS.length || !foe.alive,
+    'every compartment was opened evenly, which is not how shells work');
+  // Holes only where something got in.
+  for (const k of SECTIONS) {
+    const c = foe.sections[k.k];
+    if (c.pens > 0) {
+      assert.ok(c.hp < c.max, `${k.k} is holed ${c.pens} times and undamaged`);
+    }
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

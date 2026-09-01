@@ -142,6 +142,8 @@ export function addShip(state, {
     wayZ: null,
     hp: cls.hp,
     maxHp: cls.hp,
+    // She is not a pool of hit points. She is compartments, and this is them.
+    sections: freshSections(cls.hp),
     alive: true,
     fires: 0,
     fireTimers: [],
@@ -925,7 +927,12 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
   // same id, team, kills and damage a hull does, so it can be credited the
   // same way without the damage code having to know which it is holding.
   const owner = shellOwner(state, sh);
-  if (dmg > 0) damageShip(state, target, owner, dmg, kind);
+  const where = sectionAt(l.z / (cls.hull.length * 0.5), sec.part);
+  if (dmg > 0) damageShip(state, target, owner, dmg, kind, where);
+  // A penetration is a hole in her, and holes are what she is now counted in.
+  // A shell that bounced, shattered on the plate or went straight through
+  // without bursting has not opened a compartment.
+  if (PENETRATING.has(kind)) target.sections[where].pens++;
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
     owner.ribbons.hits++;
@@ -993,7 +1000,10 @@ function stepTorpedoes(state, dt) {
         const owner = state.ships.find((s) => s.id === tp.owner);
         // Torpedo protection scales with hull size.
         const reduction = clamp((cls.hull.beam - 12) / 46, 0, 0.42);
-        damageShip(state, target, owner, tp.damage * (1 - reduction), 'torpedo');
+        const lt = worldToLocal(tp.x - target.x, tp.z - target.z, target.heading);
+        const hole = sectionAt(lt.z / (cls.hull.length * 0.5), 'belt');
+        damageShip(state, target, owner, tp.damage * (1 - reduction), 'torpedo', hole);
+        target.sections[hole].pens++;
         if (state.rng() < tp.flood) startFlood(state, target);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
@@ -1163,7 +1173,10 @@ function stepPlanes(state, dt) {
         for (let i = 0; i < (p.bomb || 0); i++) {
           if (state.rng() > (P.bombHit ?? 0.4)) continue;
           const owner = state.ships.find((s) => s.id === p.owner) || null;
-          damageShip(state, best, owner, P.bombDamage ?? 4000, 'he');
+          const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
+          const cell = sectionAt(clamp(lb.z / (getClass(best.classId).hull.length * 0.5), -1, 1), 'deck');
+          damageShip(state, best, owner, P.bombDamage ?? 4000, 'bomb', cell);
+          best.sections[cell].pens++;
           if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
           state.events.push({ e: 'bombHit', x: best.x, z: best.z });
         }
@@ -1221,16 +1234,105 @@ function startFlood(state, ship) {
   state.events.push({ e: 'flood', ship: ship.id });
 }
 
-export function damageShip(state, ship, source, amount, kind) {
+/**
+ * How a ship is divided up for damage.
+ *
+ * She has no pool of hit points that runs down; she has compartments, and what
+ * kills her is water where water should not be. Each section holds its own
+ * share of what she can take, and where a shell goes in decides which one pays.
+ * The two the fight turns on are her machinery, which is what she moves on, and
+ * her steering aft.
+ *
+ * `from` and `to` are fractions of her half-length: +1 is the stem, -1 the
+ * transom. The superstructure has no station -- it is everything above the
+ * weather deck, wherever along her it is hit.
+ */
+/** The outcomes that actually put a hole in her and let the sea in. */
+export const PENETRATING = new Set(['pen', 'citadel', 'he', 'torpedo', 'bomb']);
+
+export const SECTIONS = [
+  { k: 'bow', name: 'Bow', from: 0.60, to: 1.01, share: 0.12 },
+  { k: 'fwd', name: 'Forward magazine', from: 0.20, to: 0.60, share: 0.21 },
+  { k: 'mid', name: 'Machinery', from: -0.20, to: 0.20, share: 0.27 },
+  { k: 'aft', name: 'After magazine', from: -0.62, to: -0.20, share: 0.21 },
+  { k: 'stern', name: 'Steering', from: -1.01, to: -0.62, share: 0.11 },
+  { k: 'works', name: 'Superstructure', from: null, to: null, share: 0.08 },
+];
+
+/** Which section a hit at this station belongs to. */
+export function sectionAt(rel, part) {
+  if (part === 'superstructure') return 'works';
+  for (const s of SECTIONS) {
+    if (s.from !== null && rel >= s.from && rel < s.to) return s.k;
+  }
+  return rel > 0 ? 'bow' : 'stern';
+}
+
+/** A fresh set of compartments, all sound. */
+export function freshSections(maxHp) {
+  const out = {};
+  for (const s of SECTIONS) out[s.k] = { hp: maxHp * s.share, max: maxHp * s.share, pens: 0 };
+  return out;
+}
+
+/** What is left of her, added up out of her compartments. */
+export function hullIntegrity(ship) {
+  let hp = 0;
+  for (const s of SECTIONS) hp += ship.sections[s.k].hp;
+  return hp;
+}
+
+export function damageShip(state, ship, source, amount, kind, where = null) {
   if (!ship.alive || amount <= 0) return;
-  ship.hp -= amount;
-  if (source && source.id !== ship.id) source.damageDealt += Math.min(amount, ship.hp + amount);
+  const before = ship.hp;
+  // Into the compartment that took it. Fire, flooding, ramming and the ground
+  // are not a hit in one place, so they are shared out over what is left of
+  // her -- a fire eats the ship, not a frame of it.
+  const hit = where && ship.sections[where] ? [where] : SECTIONS.map((s) => s.k);
+  if (hit.length === 1) {
+    const sec = ship.sections[hit[0]];
+    const took = Math.min(sec.hp, amount);
+    sec.hp -= took;
+    // Anything the compartment could not absorb goes into the rest of her:
+    // a shell through a wrecked bow still opens frames behind it.
+    let rest = amount - took;
+    if (rest > 0) spread(ship, rest);
+  } else {
+    spread(ship, amount);
+  }
+  ship.hp = hullIntegrity(ship);
+  if (source && source.id !== ship.id) source.damageDealt += Math.min(amount, before);
+
+  // What the compartments actually do. Her machinery gone is a ship that will
+  // not steam; her steering gone is a ship that will not answer her helm.
+  const dead = (k) => ship.sections[k].hp <= 0;
+  if (dead('mid')) ship.engineDamage = Math.max(ship.engineDamage, 1);
+  if (dead('stern')) ship.steeringDamage = Math.max(ship.steeringDamage, 1);
+
   if (ship.hp <= 0) {
     ship.hp = 0;
     ship.alive = false;
     ship.speed = 0;
     if (source && source.team !== ship.team) source.kills++;
     state.events.push({ e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by: source ? source.id : 0, kind });
+  }
+}
+
+/** Share damage over whatever is still holding, worst-first being wrong here. */
+function spread(ship, amount) {
+  let left = amount;
+  for (let pass = 0; pass < 3 && left > 1e-6; pass++) {
+    const live = SECTIONS.map((s) => ship.sections[s.k]).filter((c) => c.hp > 0);
+    if (!live.length) break;
+    const total = live.reduce((a, c) => a + c.hp, 0);
+    const chunk = left;
+    left = 0;
+    for (const c of live) {
+      const want = chunk * (c.hp / total);
+      const took = Math.min(c.hp, want);
+      c.hp -= took;
+      left += want - took;
+    }
   }
 }
 

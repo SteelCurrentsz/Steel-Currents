@@ -4,14 +4,17 @@
 import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
 import { Hud } from './hud.js';
+import { DamageBoard } from './render/damageboard.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint,
+  steerToWaypoint, PENETRATING,
 } from '../../shared/sim.js';
-import { clamp, lerp, wrapAngle, angleDelta, dist, MPS_TO_KNOTS } from '../../shared/math.js';
+import {
+  clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, MPS_TO_KNOTS,
+} from '../../shared/math.js';
 import { groundHeight } from '../../shared/world.js';
 
 const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
@@ -39,6 +42,15 @@ export class Battle {
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
     this.hud.setSelected(shipId);
+    // The damage board builds its own little renderer the first time the
+    // wrench is pressed, and is fed her compartments every frame after.
+    this.hud.onDamageBoard?.((canvas) => {
+      this.board = new DamageBoard(canvas, classId);
+      for (const h of this.holes) this.board.hole(h[0], h[1], h[2]);
+    });
+    // Where she has been holed, in her own frame, kept so the board can show
+    // the same holes after it has been put away and raised again.
+    this.holes = [];
     // The three conn keys, and what each of their panels does.
     this.hud.onConn?.((k, v) => {
       if (k === 'notch') this.setNotch(v);
@@ -69,6 +81,8 @@ export class Battle {
     // Which of our own the plot is conning. Your own hull until you say
     // otherwise, so the first course you lay off goes to her.
     this.selected = shipId;
+    // An aeroplane on the approach, coming back aboard after her sortie.
+    this.landing = null;
     this.watchYaw = 0;
     this.watchPitch = 0.06;
     // Aboard her, or standing off her. A captain who taps a contact wants to
@@ -187,6 +201,9 @@ export class Battle {
           } else if (ev.victim === this.shipId) {
             this.shake = Math.max(this.shake, 0.5);
             audio.hit(ev.kind);
+            // A hole in our own hull goes on the damage board, at the place on
+            // her the shell actually went in.
+            if (PENETRATING.has(ev.kind)) this.markHole(ev.x, ev.y, ev.z);
           }
           break;
         }
@@ -580,6 +597,8 @@ export class Battle {
       : null;
     const snap = this.snapshots[this.snapshots.length - 1];
     this.hud.update(ownForHud, snap);
+    // The board only turns while it is being looked at.
+    if (this.board && this.hud.panel === 'dmg') this.board.update(ownForHud?.sec, dt);
     if (snap) this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
@@ -642,7 +661,7 @@ export class Battle {
       const cls = getClass(s.c);
       const att = this.scene.ocean.attitude(x, z, h, cls.hull.length, cls.hull.beam);
       const speed = isSelf ? this.localShip.speed : s.v;
-      view.group.position.set(x, att.heave * 0.85 - 1.0, z);
+      view.group.position.set(x, 0, z);       // her height is the seakeeping's
       view.group.rotation.set(0, 0, 0);
       view.group.rotation.order = 'YXZ';
       view.group.rotation.y = h;
@@ -650,6 +669,7 @@ export class Battle {
       // own, swung on her own periods against what the sea and her rudder are
       // doing to her. How much she moves is a matter of how big she is.
       const sea = view.sea.step(att, dt, isSelf ? -this.localShip.rudder * 0.05 : 0);
+      view.group.position.y = sea.heave - 1.0;
       view.group.rotation.x = sea.pitch;
       view.group.rotation.z = sea.roll;
 
@@ -804,15 +824,24 @@ export class Battle {
     }
 
     if (!up) {
-      // Nothing of ours is up: put her back aboard if she was.
+      // Her squadron is home. She is not: she is three hundred metres astern of
+      // the ship, where the simulation released her, and snapping her onto the
+      // lift from there is the thing that reads as an aeroplane vanishing. So
+      // she flies the approach instead -- round onto the centreline, down the
+      // glide, over the round-down and onto the deck.
       if (this.flying) {
-        const v = this.flying.ownerView;
-        v.group.attach(this.flying.group);
-        v.group.userData.recover?.();
+        this.landing = {
+          t0: this.time, view: this.flying.ownerView, group: this.flying.group,
+          from: this.flying.group.position.clone(),
+          fromY: this.flying.group.rotation.y,
+        };
         this.flying = null;
       }
+      this.flyApproach();
       return;
     }
+    // Coming aboard and ordered up again: the deck is hers, so she goes.
+    this.landing = null;
 
     const { v, deck, pl } = up;
     if (!this.flying || this.flying.id !== pl.i) {
@@ -838,6 +867,63 @@ export class Battle {
     g.visible = true;
     const prop = deck.plane && deck.plane.prop;
     if (prop) prop.rotation.z += 1.6;
+  }
+
+  /**
+   * Remember a hole, in her own frame rather than the world's.
+   *
+   * The event says where the shell struck in the world; she has moved and
+   * turned since, so it is put into her own coordinates at the moment it
+   * happens and stays there.
+   */
+  markHole(wx, wy, wz) {
+    const ls = this.localShip;
+    const l = worldToLocal(wx - ls.x, wz - ls.z, ls.heading);
+    const h = [l.x, (wy ?? 8) - 6, l.z];
+    this.holes.push(h);
+    if (this.holes.length > 90) this.holes.shift();
+    this.board?.hole(h[0], h[1], h[2]);
+  }
+
+  /**
+   * The approach: she comes up the wake, over the round-down and onto the deck.
+   *
+   * Flown in the world, because that is where she is -- the carrier is moving
+   * under her, so the point she is aiming at moves too and is worked out fresh
+   * every frame from where the ship is now.
+   */
+  flyApproach() {
+    const L = this.landing;
+    if (!L) return;
+    const APPROACH = 7.5;
+    const k = Math.min(1, (this.time - L.t0) / APPROACH);
+    const v = L.view;
+    const g = L.group;
+    if (!v.group.parent) { this.landing = null; return; }
+    // Where she is going: the after end of the flight deck, in world terms.
+    const deck = v.group.userData.flightDeckY ?? 17;
+    const spot = new THREE.Vector3(0, deck + 0.4, -(v.cls.hull.length * 0.42));
+    v.group.updateMatrixWorld(true);
+    spot.applyMatrix4(v.group.matrixWorld);
+    // Eased in, and dropping onto the deck late rather than sinking the whole
+    // way down: she flies level up the wake and then settles.
+    const e = k * k * (3 - 2 * k);
+    g.position.lerpVectors(L.from, spot, e);
+    g.position.y = L.from.y + (spot.y - L.from.y) * (e * e);
+    const want = v.group.rotation.y;
+    let d = want - L.fromY;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    g.rotation.set(0.06 * (1 - e), L.fromY + d * e, 0);
+    g.visible = true;
+    const prop = v.group.userData.deck?.plane?.prop;
+    if (prop) prop.rotation.z += 1.1 * (1 - e * 0.7);
+    if (k < 1) return;
+    // Down, and struck below: the model goes back into the ship's own group and
+    // stands on the after lift where she started.
+    v.group.attach(g);
+    v.group.userData.recover?.();
+    this.landing = null;
   }
 
   hideRest(mesh, from) {

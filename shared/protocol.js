@@ -2,7 +2,7 @@
 // receive the enemies your side can actually see.
 
 import { getClass } from './ships.js';
-import { torpedoVisible } from './sim.js';
+import { torpedoVisible, SECTIONS } from './sim.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -34,6 +34,12 @@ export function shipSnapshot(ship, full) {
     // The course laid off for her on the chart, if she has one. Only her own
     // side is told: it is an intention, and intentions are not visible to the
     // enemy through a pair of binoculars.
+    // Her compartments: what is left of each, and how many holes are in it.
+    // This is what a captain reads her condition off now -- there is no bar.
+    s.sec = SECTIONS.map((k) => {
+      const c = ship.sections[k.k];
+      return [Math.round((c.hp / c.max) * 100), c.pens];
+    });
     if (ship.wayX !== null && ship.wayZ !== null) {
       s.wx = Math.round(ship.wayX);
       s.wz = Math.round(ship.wayZ);

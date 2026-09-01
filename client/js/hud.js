@@ -7,6 +7,7 @@ import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle } from '../../shared/math.js';
+import { SECTIONS } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
@@ -15,20 +16,22 @@ const $ = (id) => document.getElementById(id);
 // speeds. The order is the lever's order, not an array's.
 const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
 
-const PANEL_TITLES = { helm: 'ENGINE', air: 'AIR GROUP', ship: 'DAMAGE CONTROL' };
+const PANEL_TITLES = {
+  helm: 'ENGINE', dmg: 'DAMAGE', air: 'AIR GROUP', ship: 'DAMAGE CONTROL',
+};
 
 export class Hud {
   constructor({ team, world, onLeave }) {
     this.team = team;
     this.world = world;
     this.el = {
-      ownName: $('own-name'), ownHp: $('own-hp'), ownHpText: $('own-hp-text'),
+      ownName: $('own-name'), condRow: $('cond-row'),
       status: $('status-row'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
       connBody: $('conn-panel-body'),
-      capBar: $('cap-bar'), timer: $('battle-timer'),
-      score0: $('score0'), score1: $('score1'), killfeed: $('killfeed'),
+      timer: $('battle-timer'),
+      killfeed: $('killfeed'),
       ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
       bigPlot: $('minimap-big'), plotTable: $('plot-table'),
@@ -56,6 +59,12 @@ export class Hud {
     // finger on. Tap one of your own to take her under orders, tap open water
     // to send her there. The big table is still there, on M.
     this.bindPick(this.el.minimap, 0);
+    // And the magnifier in its corner, which is the way to the big chart now
+    // that the plot itself is a control.
+    document.getElementById('plot-open')?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      this.onToggleMap?.();
+    });
     this.bindTable();
     // Anywhere off the table puts it away, which is what a captain expects of
     // something laid over his bridge windows.
@@ -282,15 +291,6 @@ export class Hud {
     this.panel = null;
     this.acts = {};
 
-    this.el.capBar.innerHTML = '';
-    this.capEls = {};
-    for (const cap of this.world.caps) {
-      const el = document.createElement('div');
-      el.className = 'cap';
-      el.innerHTML = `<div class="prog"></div>${cap.id}`;
-      this.el.capBar.appendChild(el);
-      this.capEls[cap.id] = el;
-    }
     this.built = true;
   }
 
@@ -314,6 +314,37 @@ export class Hud {
     }
   }
 
+  /**
+   * Her condition on the ship plate: one pip per compartment, in the order they
+   * run from her stem to her transom, and the total number of holes in her.
+   */
+  paintCondition(sec) {
+    if (!this.condPips) {
+      this.el.condRow.innerHTML = '';
+      this.condPips = SECTIONS.map((s) => {
+        const el = document.createElement('i');
+        el.title = s.name;
+        this.el.condRow.appendChild(el);
+        return el;
+      });
+      this.condCount = document.createElement('span');
+      this.el.condRow.appendChild(this.condCount);
+    }
+    let holes = 0;
+    SECTIONS.forEach((s, i) => {
+      const c = (sec && sec[i]) || [100, 0];
+      holes += c[1];
+      const f = clamp(c[0] / 100, 0, 1);
+      this.condPips[i].style.setProperty('--fill', `${f * 100}%`);
+      this.condPips[i].classList.toggle('hurt', f <= 0.6 && f > 0);
+      this.condPips[i].classList.toggle('gone', f <= 0);
+    });
+    const worst = Math.min(...SECTIONS.map((s, i) => ((sec && sec[i]) ? sec[i][0] : 100)));
+    this.condCount.textContent = holes
+      ? `${holes} hole${holes === 1 ? '' : 's'}`
+      : worst >= 99 ? 'sound' : `${worst}%`;
+  }
+
   /** Whatever panel is up, showing the state it is a control for. */
   paintPanel(own) {
     if (this.panel === 'helm') {
@@ -324,6 +355,28 @@ export class Hud {
       (this.teleRows || []).forEach((r, i) => {
         r.classList.toggle('on', own.notch === 0 ? i === 0 : i > 0 && i <= own.notch);
       });
+      return;
+    }
+    if (this.panel === 'dmg') {
+      let holes = 0;
+      SECTIONS.forEach((s, i) => {
+        const row = this.boardRows && this.boardRows[i];
+        const c = (own.sec && own.sec[i]) || [100, 0];
+        holes += c[1];
+        if (!row) return;
+        const f = clamp(c[0] / 100, 0, 1);
+        row.querySelector('i').style.setProperty('--fill', `${f * 100}%`);
+        row.querySelector('b').textContent = c[1] ? `${c[1]}` : '—';
+        row.classList.toggle('hurt', f <= 0.6 && f > 0);
+        row.classList.toggle('gone', f <= 0);
+      });
+      // Holes if she has any; failing that, the worst compartment aboard. She
+      // can be badly knocked about by splinters and near misses without one
+      // shell having got inside her, and saying "sound" to that is a lie.
+      const worst = Math.min(...SECTIONS.map((s, i) => (own.sec && own.sec[i] ? own.sec[i][0] : 100)));
+      this.el.connSub.textContent = holes
+        ? `${holes} penetration${holes === 1 ? '' : 's'}`
+        : worst >= 99 ? 'sound' : `${worst}% worst`;
       return;
     }
     const set = (k, text, cls) => {
@@ -365,11 +418,13 @@ export class Hud {
       el.classList.toggle('on', k === this.panel);
     }
     this.el.connPanel.hidden = !this.panel;
+    this.el.connPanel.classList.toggle('wide', this.panel === 'dmg');
     if (!this.panel) return;
     this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
     this.el.connBody.innerHTML = '';
     this.acts = {};
     if (this.panel === 'helm') this.buildHelmPanel();
+    else if (this.panel === 'dmg') this.buildDamagePanel();
     else this.buildActionPanel(this.panel);
     if (this.lastOwn) this.paintPanel(this.lastOwn);
   }
@@ -393,6 +448,35 @@ export class Hud {
     note.textContent = 'Course is laid off on the plot';
     this.el.connBody.appendChild(note);
   }
+
+  /**
+   * The damage board: her own hull stood in the air, and what is open in her.
+   *
+   * Built the first time it is asked for -- it carries a renderer of its own,
+   * and a captain who never presses the wrench should never pay for one.
+   */
+  buildDamagePanel() {
+    const wrap = document.createElement('div');
+    wrap.className = 'board-wrap';
+    const cv = document.createElement('canvas');
+    cv.className = 'board-canvas';
+    wrap.appendChild(cv);
+    this.el.connBody.appendChild(wrap);
+    const list = document.createElement('div');
+    list.className = 'board-list';
+    this.el.connBody.appendChild(list);
+    this.boardRows = SECTIONS.map((sec) => {
+      const row = document.createElement('div');
+      row.className = 'board-row';
+      row.innerHTML = `<span>${sec.name}</span><i></i><b></b>`;
+      list.appendChild(row);
+      return row;
+    });
+    this.onBoard?.(cv);
+  }
+
+  /** Say who builds the hologram, so the HUD need not import a renderer. */
+  onDamageBoard(fn) { this.onBoard = fn; }
 
   /** The air group, or the damage control parties. */
   buildActionPanel(which) {
@@ -421,12 +505,9 @@ export class Hud {
     const cls = this.cls;
 
     this.el.ownName.textContent = `${own.n || ''} · ${cls.name} (${cls.type})`;
-    const frac = clamp(own.hp / (own.maxHp || cls.hp), 0, 1);
-    this.el.ownHp.style.width = `${frac * 100}%`;
-    this.el.ownHp.style.background = frac > 0.5
-      ? 'linear-gradient(90deg,#4fae7d,#6fd3a0)'
-      : frac > 0.22 ? 'linear-gradient(90deg,#c9a13c,#e2c14f)' : 'linear-gradient(90deg,#a23029,#e2564f)';
-    this.el.ownHpText.textContent = `${Math.round(own.hp)} / ${Math.round(own.maxHp || cls.hp)}`;
+    // Her condition, compartment by compartment: one pip each, and the number
+    // of holes in her. There is no bar, because a ship does not have one.
+    this.paintCondition(own.sec);
 
     const chips = [];
     if (own.f) chips.push(`<span class="status-chip fire">FIRE ×${own.f}</span>`);
@@ -440,18 +521,8 @@ export class Hud {
     if (this.panel) this.paintPanel(own);
 
     if (snap) {
-      this.el.score0.textContent = snap.score[this.team];
-      this.el.score1.textContent = snap.score[1 - this.team];
       const left = Math.max(0, 900 - snap.time);
       this.el.timer.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
-      for (const cap of snap.caps) {
-        const el = this.capEls[cap.id];
-        if (!el) continue;
-        el.classList.toggle('own', cap.o === this.team);
-        el.classList.toggle('enemy', cap.o >= 0 && cap.o !== this.team);
-        el.classList.toggle('contested', cap.k === 2);
-        el.querySelector('.prog').style.height = `${cap.p}%`;
-      }
     }
   }
 
@@ -586,20 +657,6 @@ export class Hud {
         ctx.closePath();
       }
       ctx.fill('evenodd');
-    }
-
-    for (const cap of this.world.caps) {
-      const snapCap = snap && snap.caps.find((c) => c.id === cap.id);
-      const owner = snapCap ? snapCap.o : -1;
-      ctx.strokeStyle = owner < 0 ? 'rgba(207,216,224,0.6)'
-        : owner === this.team ? 'rgba(111,211,160,0.9)' : 'rgba(226,86,79,0.9)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(toX(cap.x), toY(cap.z), cap.r * scale, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.font = `bold ${Math.round(12 * k)}px sans-serif`;
-      ctx.fillText(cap.id, toX(cap.x) - 4 * k, toY(cap.z) + 4 * k);
     }
 
     if (snap) {

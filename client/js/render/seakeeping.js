@@ -57,6 +57,26 @@ export function pitchHeed(length) {
 }
 
 /**
+ * How much of the sea's rise and fall she actually takes up.
+ *
+ * A ship long enough to lie across several crests at once does not ride up and
+ * over them, she goes through them: the water heaps up along her side and her
+ * own buoyancy hardly notices. A destroyer, which is shorter than the wave she
+ * is on, is lifted by the whole of it.
+ *
+ * This is the one that made a carrier look like she was plunging. She was not
+ * pitching -- an eighth of a degree, measured -- she was going up and down
+ * eight metres bodily, because the four points the sea was sampled at were
+ * averaged and handed to her whole, whatever her length.
+ */
+export function heaveHeed(length) {
+  // The leading fraction is the same for everybody: no hull follows the surface
+  // exactly, because she has her own inertia and drags a great deal of water
+  // with her. What varies by length is the rest of it.
+  return 0.62 * Math.min(1, Math.max(0.2, Math.pow(125 / length, 1.6)));
+}
+
+/**
  * One hull's motion in the water, integrated frame by frame.
  *
  * Roll and pitch are each a lightly damped spring driven by the slope of the
@@ -69,10 +89,16 @@ export class Seakeeping {
     this.pitchW = (Math.PI * 2) / pitchPeriod(hull.length);
     this.rollHeed = rollHeed(hull.length);
     this.pitchHeed = pitchHeed(hull.length);
+    this.heaveHeed = heaveHeed(hull.length);
+    // Heave has a period of its own too -- she is a cork on a spring made of
+    // her own waterplane -- and it goes with her length like pitch does.
+    this.heaveW = (Math.PI * 2) / (pitchPeriod(hull.length) * 1.25);
     this.roll = 0;
     this.rollV = 0;
     this.pitch = 0;
     this.pitchV = 0;
+    this.heave = 0;
+    this.heaveV = 0;
   }
 
   /**
@@ -89,6 +115,7 @@ export class Seakeeping {
     const h = dt / n;
     const rollTo = att.roll * this.rollHeed + heel;
     const pitchTo = att.pitch * this.pitchHeed;
+    const heaveTo = att.heave * this.heaveHeed;
     for (let i = 0; i < n; i++) {
       // Roll is lightly damped: critically damped, she would simply track the
       // water and there would be no roll to watch at all.
@@ -100,6 +127,11 @@ export class Seakeeping {
       this.pitchV += (this.pitchW * this.pitchW * (pitchTo - this.pitch)
         - 2 * PITCH_ZETA * this.pitchW * this.pitchV) * h;
       this.pitch += this.pitchV * h;
+      // And she rises and falls on the same sort of spring, well damped: a
+      // hull that bobbed would look like a float on a line.
+      this.heaveV += (this.heaveW * this.heaveW * (heaveTo - this.heave)
+        - 2 * HEAVE_ZETA * this.heaveW * this.heaveV) * h;
+      this.heave += this.heaveV * h;
     }
     return this;
   }
@@ -107,3 +139,4 @@ export class Seakeeping {
 
 const ROLL_ZETA = 0.13;
 const PITCH_ZETA = 1.25;
+const HEAVE_ZETA = 1.1;

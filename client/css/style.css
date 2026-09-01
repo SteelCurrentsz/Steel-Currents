@@ -253,31 +253,59 @@ input[type="range"] { accent-color: var(--red); }
 }
 
 .hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; padding-top: 0.6rem; }
-.score-bar { display: flex; align-items: center; gap: 1.4rem; font-size: 1.1rem; }
-.score-bar .team { display: flex; align-items: center; gap: 0.6rem; }
-.score-bar .tag { font-size: 0.72rem; letter-spacing: 0.24em; color: var(--steel); }
-.score-bar .t0 b { color: var(--ally); font-size: 1.6rem; }
-.score-bar .t1 b { color: var(--enemy); font-size: 1.6rem; }
-.caps { display: flex; gap: 0.5rem; }
-.cap {
-  width: 46px; height: 26px; border: 1px solid var(--panel-line);
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; letter-spacing: 0.1em; background: rgba(8, 19, 31, 0.6);
-  position: relative; overflow: hidden;
-}
-.cap .prog { position: absolute; inset: auto 0 0 0; height: 0%; background: rgba(255, 255, 255, 0.18); }
-.cap.own { border-color: var(--ally); color: var(--ally); }
-.cap.enemy { border-color: var(--enemy); color: var(--enemy); }
-.cap.contested { animation: flash 0.8s infinite alternate; }
-@keyframes flash { from { background: rgba(226, 86, 79, 0.05); } to { background: rgba(226, 86, 79, 0.28); } }
 .battle-timer { font-size: 1.4rem; letter-spacing: 0.14em; color: var(--sand); }
 
 .hud-left { position: absolute; left: 1.4vw; bottom: 12vh; width: 280px; }
 .ship-plate { background: rgba(8, 19, 31, 0.55); border-left: 3px solid var(--red); padding: 0.6rem 0.8rem; }
 .ship-plate .name { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.08em; }
-.hp-bar { position: relative; height: 20px; background: rgba(255, 255, 255, 0.08); margin-top: 0.35rem; }
-.hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #4fae7d, #6fd3a0); transition: width 0.25s ease; }
-.hp-bar span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; letter-spacing: 0.08em; }
+/* Her condition, compartment by compartment. One pip each, running stem to
+   transom, filled with what is left of it -- and the count of holes in her.
+   There is no health bar anywhere in the game: a ship is not a number. */
+.cond-row { display: flex; align-items: center; gap: 3px; margin-top: 0.4rem; }
+.cond-row i {
+  --fill: 100%;
+  display: block; flex: 1; height: 14px; position: relative;
+  background: rgba(255, 255, 255, 0.08);
+}
+.cond-row i::after {
+  content: ''; position: absolute; inset: auto 0 0 0; height: var(--fill);
+  background: var(--ally); transition: height 0.25s ease;
+}
+.cond-row i.hurt::after { background: var(--sand); }
+.cond-row i.gone::after { background: var(--enemy); }
+.cond-row span {
+  margin-left: 0.5rem; font-size: 0.66rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--steel); white-space: nowrap;
+}
+
+/* The damage board: her own hull turning in the air over the panel. */
+.board-wrap {
+  width: 100%; aspect-ratio: 16 / 8; margin-bottom: 0.5rem;
+  background: radial-gradient(ellipse at 50% 60%, rgba(46, 128, 158, 0.22), transparent 68%);
+  border: 1px solid rgba(88, 200, 232, 0.22);
+}
+.board-canvas { display: block; width: 100%; height: 100%; }
+.board-list { display: flex; flex-direction: column; gap: 3px; }
+.board-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.68rem; letter-spacing: 0.12em; color: var(--steel);
+}
+.board-row span { width: 8.4rem; }
+.board-row i {
+  --fill: 100%;
+  flex: 1; height: 7px; background: rgba(255, 255, 255, 0.1); position: relative;
+}
+.board-row i::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: var(--fill);
+  background: #58c8e8; transition: width 0.25s ease;
+}
+.board-row.hurt i::after { background: var(--sand); }
+.board-row.gone i::after { background: var(--enemy); }
+.board-row b { width: 1.8rem; text-align: right; color: var(--sand); }
+.board-row.gone b { color: var(--enemy); }
+
+/* The damage panel is the one that needs room: it has a ship in it. */
+.conn-panel.wide { width: min(430px, 92vw); }
 .status-row { display: flex; gap: 0.4rem; margin-top: 0.45rem; flex-wrap: wrap; }
 .status-chip { font-size: 0.72rem; letter-spacing: 0.14em; padding: 0.15rem 0.45rem; border: 1px solid currentColor; }
 .status-chip.fire { color: #ff9a3c; }
@@ -299,6 +327,19 @@ input[type="range"] { accent-color: var(--red); }
   border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72);
 }
 #minimap { width: 100%; height: 100%; display: block; }
+.minimap-wrap { position: relative; }
+/* The key that raises the chart table, in the plot's own top-right corner --
+   which is the one corner of it nothing is ever plotted in. */
+.plot-zoom-key {
+  position: absolute; top: 4px; right: 4px; width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 16, 28, 0.82); border: 1px solid var(--panel-line);
+  color: var(--steel); cursor: pointer; padding: 0; z-index: 2;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.plot-zoom-key svg { width: 17px; height: 17px; display: block; }
+.plot-zoom-key:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
+@media (pointer: coarse) { .plot-zoom-key { width: 36px; height: 36px; } }
 
 /* The big plot, laid out in the middle of the screen like a chart table. It is
    put up and taken down from the corner plot, which stays where it is: the

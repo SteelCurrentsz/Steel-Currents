@@ -308,6 +308,8 @@ export function buildShip(classId) {
     // userData.step -- rather than replacing it wholesale.
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      // Where an aeroplane coming aboard has to end up.
+      flightDeckY: built.flightDeckY,
     });
     return {
       group: built.group, turrets: built.turrets, lifts: built.lifts,
