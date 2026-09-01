@@ -16,7 +16,7 @@ import { normaliseAirGroup, defaultAirGroup, launchStrike } from '../shared/sim.
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
-  enterpriseParts, buildEnterprise, stepLifts, LIFT_HW, liftZs, FD,
+  enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
 } from '../client/js/render/enterprise.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -1124,9 +1124,12 @@ check('a carrier is found with a clear deck and her aircraft on the lifts', () =
   // lying in her berth. Nothing with aircraft paint on it may sit above the
   // flight deck unless it is riding a platform.
   const built = buildEnterprise();
+  // Work the deck first: unstepped, the ready aircraft is still at the origin
+  // and the check would pass without ever looking at where she really stands.
+  built.group.userData.step(3);
   built.group.updateMatrixWorld(true);
   const PAINT = new Set(['33475e', '9aa4ad', '24282c', 'd9dde2']);
-  const lifts = built.lifts.map((l) => l.group);
+  const lifts = built.lifts.map((l) => l.group).concat(built.deckPlane);
   let onDeck = 0;
   let riding = 0;
   let below = 0;
@@ -1143,6 +1146,11 @@ check('a carrier is found with a clear deck and her aircraft on the lifts', () =
   });
   assert.equal(onDeck, 0, `${onDeck} aircraft mesh(es) ranged on the flight deck`);
   assert.ok(riding > 0, 'no aircraft on her lifts at all');
+  // The ready aircraft stands on the after lift, not on the deck beside it.
+  const ready = new THREE.Box3().setFromObject(built.deckPlane);
+  const aft = built.lifts[built.lifts.length - 1].group;
+  assert.ok(Math.abs(ready.min.y - aft.position.y) < 1.2,
+    `the ready aircraft sits ${(ready.min.y - aft.position.y).toFixed(1)} m off the lift`);
   assert.ok(below > 0, 'nothing struck below in her hangar');
   // And what is on a lift must fit the platform rather than hang over the well.
   built.lifts.forEach((l, i) => {
@@ -1153,6 +1161,57 @@ check('a carrier is found with a clear deck and her aircraft on the lifts', () =
     assert.ok(halfX <= LIFT_HW + 0.2 && halfZ <= LIFT_HW + 0.2,
       `lift ${i} is loaded ${halfX.toFixed(1)} x ${halfZ.toFixed(1)} over a ${LIFT_HW} platform`);
   });
+});
+
+check('a launch runs the whole evolution, hangar to bow', () => {
+  // Pressing the strike button should show what a launch actually is: the after
+  // lift takes her down to the hangar, brings her up, she taxis aft to the
+  // spot, and goes down the deck and off over the bow. Each of those has to
+  // happen, in that order, or it is an aeroplane teleporting off a ship.
+  const built = buildEnterprise();
+  const plane = built.deckPlane;
+  const aft = built.lifts[built.lifts.length - 1].group;
+  built.group.userData.step(0);
+  built.group.userData.launch(0);
+
+  const track = [];
+  for (let t = 0; t <= 12.4; t += 0.05) {
+    built.group.userData.step(t);
+    track.push({ t, y: plane.position.y, z: plane.position.z, lift: aft.position.y });
+  }
+  const at = (a, b) => track.filter((s) => s.t >= a && s.t < b);
+
+  // Down to the hangar, and the aeroplane goes with the lift.
+  const low = Math.min(...track.map((s) => s.lift));
+  assert.ok(low < HANGAR + 1.5, `the lift only went down to ${low.toFixed(1)}`);
+  const bottom = track.find((s) => s.lift === low);
+  assert.ok(Math.abs(bottom.y - bottom.lift) < 1.2, 'she did not ride the lift down');
+  assert.ok(bottom.t < 2.0, `the lift reached the hangar at ${bottom.t.toFixed(1)} s`);
+
+  // Back up to the flight deck before she goes anywhere.
+  const upAgain = track.find((s) => s.t > 2 && s.lift > FD - 0.2);
+  assert.ok(upAgain && upAgain.t < 5, 'the lift never came back up');
+
+  // Aft to the spot, which is abaft where the lift is.
+  const aftMost = track.reduce((a, b) => (b.z < a.z ? b : a));
+  assert.ok(aftMost.z < aft.position.z - 20,
+    `she only taxied to ${aftMost.z.toFixed(0)}, and the lift is at ${aft.position.z.toFixed(0)}`);
+  assert.ok(aftMost.t > 5 && aftMost.t < 9.5, `she was at the spot at ${aftMost.t.toFixed(1)} s`);
+
+  // Then forward, off the bow, and climbing.
+  const last = track[track.length - 1];
+  assert.ok(last.z > 120, `she left the deck at z ${last.z.toFixed(0)}`);
+  assert.ok(last.y > FD + 8, `she was still at ${last.y.toFixed(1)} m going over the bow`);
+  // And she runs forward the whole way rather than jumping about.
+  const rolling = at(9, 12.4);
+  for (let i = 1; i < rolling.length; i++) {
+    assert.ok(rolling[i].z >= rolling[i - 1].z - 0.01, 'she went backwards on her run');
+  }
+
+  // Afterwards she is back on the lift, ready for the next one.
+  built.group.userData.step(40);
+  assert.ok(Math.abs(plane.position.y - (aft.position.y + 0.34)) < 0.6,
+    'she did not come back to the lift after the launch');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

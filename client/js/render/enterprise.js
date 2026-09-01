@@ -811,31 +811,56 @@ function elevators(g) {
       }
     }
     // One off each squadron riding up: a fighter forward, a dive bomber
-    // amidships, a torpedo bomber aft. This is where her aircraft are when she
-    // is found at the start of a watch -- on the lifts, coming up -- rather
-    // than ranged on the deck she has to land on.
+    // amidships. This is where her aircraft are when she is found at the start
+    // of a watch -- on the lifts, coming up -- rather than ranged on the deck
+    // she has to land on. The after lift's aircraft is not built into it: it is
+    // the one that goes when she launches, so it lives on the ship and rides
+    // the lift rather than being welded to it.
     if (i === 0) wildcat(lift, 0, 0.32, -0.4, 0.16);
     else if (i === 1) dauntless(lift, 0, 0.36, -0.6, -0.1, true);
-    else avenger(lift, 0, 0.34, -0.45, 0.08);
     mergeStatic(lift);
     lifts.push({ group: lift, phase: i / zs.length });
   });
   return lifts;
 }
 
+/** The aircraft that flies when she launches, and where it waits. */
+function deckAircraft(g) {
+  const plane = new THREE.Group();
+  plane.userData.dynamic = true;
+  g.add(plane);
+  const body = avenger(plane, 0, 0, 0, 0, true, true);
+  return { group: plane, prop: body.userData.prop || null };
+}
+
+const LIFT_DROP = FD - HANGAR - 0.55;
+/** Ease a 0..1 run so machinery starts and stops rather than snapping. */
+function ease(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
+
 /**
- * Work the lifts.
+ * Her deck cycle: the lifts working, and the launch when one is called for.
  *
- * A cycle is: sitting at the flight deck, down the well, sitting on the hangar
- * deck, back up. Eased at both ends, because a lift that snaps between two
- * heights reads as a glitch rather than as machinery, and staggered so the
- * three of them are never doing the same thing at once.
+ * Idle, each lift runs its own slow round -- at the flight deck, down the well,
+ * on the hangar deck, back up -- staggered so the three are never doing the
+ * same thing at once, and the after lift has the ready aircraft standing on it.
+ *
+ * A launch is the whole evolution, because that is what it looks like from the
+ * bridge and it is the reason the ship exists: the after lift takes her down to
+ * the hangar deck, brings her up, she taxis aft to the spot, runs up against
+ * the brakes, and goes down the deck and off over the bow. Twelve seconds, and
+ * the aeroplane the simulation then flies is the one you watched leave.
  */
-export function stepLifts(lifts, t) {
-  if (!lifts) return;
+export function stepDeck(deck, t) {
+  if (!deck) return;
+  const { lifts, plane } = deck;
+  const aft = lifts[lifts.length - 1];
+  const run = deck.launchAt === null ? -1 : t - deck.launchAt;
+  const LAUNCH = 12.4;
+
+  // The lifts, idling.
   const PERIOD = 34;
-  const DROP = FD - HANGAR - 0.55;
   for (const l of lifts) {
+    if (l === aft && run >= 0 && run < LAUNCH) continue;
     let u = ((t / PERIOD) + l.phase) % 1;
     if (u < 0) u += 1;
     let k = 0;                                   // 0 at the flight deck, 1 below
@@ -843,8 +868,79 @@ export function stepLifts(lifts, t) {
     else if (u < 0.48) k = (u - 0.36) / 0.12;
     else if (u < 0.86) k = 1;
     else k = 1 - (u - 0.86) / 0.14;
-    l.group.position.y = FD - DROP * (k * k * (3 - 2 * k));
+    l.group.position.y = FD - LIFT_DROP * ease(k);
   }
+
+  if (!plane) return;
+  const p = plane.group;
+  const AFT_Z = aft.group.position.z;
+
+  if (run < 0 || run >= LAUNCH) {
+    // Waiting: standing on the after lift, wherever the lift happens to be.
+    p.visible = true;
+    p.position.set(0, aft.group.position.y + 0.34, AFT_Z - 0.45);
+    p.rotation.set(0, 0.08, 0);
+    if (plane.prop) plane.prop.rotation.z = 0;
+    return;
+  }
+
+  const SPOT = fdEndA(0) + 11;          // where she is spotted for the run
+  let y = FD;
+  let z = AFT_Z - 0.45;
+  let pitch = 0;
+  let yaw = 0.08;
+  let turning = 0;                      // how fast the propeller is going round
+
+  if (run < 1.5) {
+    // Down the well with her, to the hangar deck.
+    const k = ease(run / 1.5);
+    y = deck.startY + (FD - LIFT_DROP - deck.startY) * k;
+    aft.group.position.y = y;
+  } else if (run < 4.2) {
+    // And back up, which is the lift doing the job it is there for.
+    const k = ease((run - 1.5) / 2.7);
+    y = (FD - LIFT_DROP) + LIFT_DROP * k;
+    aft.group.position.y = y;
+    turning = k * 8;
+  } else if (run < 7.4) {
+    // Taxiing aft to the spot, swinging straight as she goes.
+    const k = ease((run - 4.2) / 3.2);
+    aft.group.position.y = FD;
+    z = (AFT_Z - 0.45) + (SPOT - (AFT_Z - 0.45)) * k;
+    yaw = 0.08 * (1 - k);
+    turning = 9;
+  } else if (run < 8.8) {
+    // Held on the brakes with the engine wound up, waiting for the flag.
+    aft.group.position.y = FD;
+    z = SPOT;
+    yaw = 0;
+    turning = 26;
+    pitch = -0.012 * Math.sin((run - 7.4) * 22);
+  } else {
+    // The deck run: she unsticks about two-thirds of the way up and climbs
+    // away over the bow.
+    aft.group.position.y = FD;
+    const k = (run - 8.8) / (LAUNCH - 8.8);
+    const UNSTICK = 20;
+    z = SPOT + (150 - SPOT) * (k * k * 0.75 + k * 0.25);
+    yaw = 0;
+    turning = 30;
+    if (z > UNSTICK) {
+      const climb = (z - UNSTICK) / 130;
+      y = FD + 26 * climb * climb;
+      pitch = -0.20 * Math.min(1, climb * 3.5);
+    }
+  }
+
+  p.visible = true;
+  p.position.set(0, y + 0.34, z);
+  p.rotation.set(pitch, yaw, 0);
+  if (plane.prop) plane.prop.rotation.z += turning * 0.05;
+}
+
+/** Kept for the tests and for anything that only wants the lifts moved. */
+export function stepLifts(lifts, t) {
+  stepDeck({ lifts, plane: null, launchAt: null, startY: FD }, t);
 }
 
 // --------------------------------------------- forecastle and quarterdeck --
@@ -1885,7 +1981,7 @@ function boatsAndCranes(g) {
 // points along +z.
 
 /** A radial in its cowling: gills, cowl ring, spinner, blades, exhaust stubs. */
-function radial(p, r, y, z, span, blades = 3) {
+function radial(p, r, y, z, span, blades = 3, spin = false) {
   cyl(p, M.gunDark, r * 0.86, r * 0.86, 1.05, 0, y, z - 0.2, 16).rotation.x = Math.PI / 2;
   // The cylinder heads showing through the front of the cowl.
   for (let i = 0; i < 9; i++) {
@@ -1901,10 +1997,20 @@ function radial(p, r, y, z, span, blades = 3) {
       z - 0.72, a);
   }
   cyl(p, M.planeBottom, r * 0.72, r * 0.9, 0.22, 0, y, z + 0.6, 16).rotation.x = Math.PI / 2;
-  // Spinner, hub and blades, each with its own twist.
+  // Spinner, hub and blades, each with its own twist. On an aeroplane that is
+  // going to run its engine the blades go in a group of their own, so the
+  // welder leaves them and they can be turned.
   cyl(p, M.prop, 0.17, 0.3, 0.62, 0, y, z + 0.95, 12).rotation.x = Math.PI / 2;
+  let disc = p;
+  if (spin) {
+    disc = new THREE.Group();
+    disc.position.set(0, y, z + 1.05);
+    disc.userData.dynamic = true;
+    p.add(disc);
+    p.userData.prop = disc;
+  }
   for (let i = 0; i < blades; i++) {
-    const bl = box(p, M.prop, 0.32, span, 0.1, 0, y, z + 1.05);
+    const bl = box(disc, M.prop, 0.32, span, 0.1, 0, spin ? 0 : y, spin ? 0 : z + 1.05);
     bl.rotation.z = (i / blades) * Math.PI * 2 + 0.4;
     bl.rotation.y = 0.28;
   }
@@ -2104,7 +2210,7 @@ function wildcat(g, x, y, z, ry) {
 }
 
 /** A TBF-1 Avenger, folded: the ball turret is what names her at any range. */
-function avenger(g, x, y, z, ry, folded = true) {
+function avenger(g, x, y, z, ry, folded = true, spin = false) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2119,7 +2225,7 @@ function avenger(g, x, y, z, ry, folded = true) {
     box(p, M.planeBottom, 0.12, 0.7, 4.4, s * 0.62, F - 1.35, 1.2);   // bay doors
   }
   box(p, M.cave, 1.0, 0.2, 4.2, 0, F - 1.45, 1.2);
-  radial(p, 0.95, F + 0.1, 5.0, 3.9);
+  radial(p, 0.95, F + 0.1, 5.0, 3.9, 3, spin);
   greenhouse(p, 1.16, 0.8, F + 0.95, 1.1, 3.6, 4);
   // The turret: a glazed ball on its ring with the fifty out of the side.
   cyl(p, M.planeTop, 0.7, 0.72, 0.28, 0, F + 0.95, -0.5, 14);
@@ -2197,6 +2303,7 @@ export function enterpriseParts() {
   armament(g);
   boatsAndCranes(g);
   elevators(g);
+  deckAircraft(g);
   g.updateMatrixWorld(true);
   const parts = [];
   g.traverse((o) => {
@@ -2232,14 +2339,24 @@ export function buildEnterprise() {
   armament(g);
   boatsAndCranes(g);
   const lifts = elevators(g);
+  const plane = deckAircraft(g);
   mergeStatic(g);
-  // The lifts run whenever anything is drawing her -- the shipyard and the
-  // battle both -- so the ship carries its own animation rather than each
-  // scene having to know she has elevators.
-  g.userData.step = (t) => stepLifts(lifts, t);
+  // The deck runs whenever anything is drawing her -- the shipyard and the
+  // battle both -- so the ship carries her own animation rather than each scene
+  // having to know she has elevators. `launch` starts the evolution; the
+  // simulation calls it when a squadron goes.
+  const deck = { lifts, plane, launchAt: null, startY: FD };
+  g.userData.deck = deck;
+  g.userData.deckPlane = plane.group;
+  g.userData.step = (t) => stepDeck(deck, t);
+  g.userData.launch = (t) => {
+    deck.launchAt = t;
+    deck.startY = lifts[lifts.length - 1].group.position.y;
+  };
   return {
     group: g,
     lifts,
+    deckPlane: plane.group,
     // In the order the sponsons were built, which is the order the datasheet
     // lists them: starboard forward pair, starboard after pair, then port.
     turrets: g.userData.turrets || [],

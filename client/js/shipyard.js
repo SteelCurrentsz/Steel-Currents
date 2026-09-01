@@ -260,8 +260,9 @@ export class ShipyardScene {
     g.rotation.x = Math.sin(this.time * 0.62 + 0.8) * 0.008;
     g.position.y = Math.sin(this.time * 0.55) * 0.55;
     // Her lifts work while she is being looked at, which is the only way to see
-    // the hangar under the flight deck.
-    g.userData.step?.(this.time);
+    // the hangar under the flight deck. On wall time, so they run at the same
+    // speed however fast the yard happens to be drawing.
+    g.userData.step?.(performance.now() / 1000);
 
     this.floatFoam();
 

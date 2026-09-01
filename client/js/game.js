@@ -217,6 +217,14 @@ export class Battle {
           if (d < 0.8) audio.splash(d);
           break;
         }
+        case 'launch': {
+          // Run the whole evolution on the ship that launched: down the lift,
+          // up again, aft to the spot and off over the bow. It is her own
+          // animation -- the carrier knows how, and this only tells her when.
+          const v = this.scene.shipViews.get(ev.ship);
+          v?.group.userData.launch?.(this.time);
+          break;
+        }
         case 'planesLost': if (ev.team === this.team) this.hud.alert('Squadron lost'); break;
         default: break;
       }
@@ -396,9 +404,11 @@ export class Battle {
     const ls = this.localShip;
     const settings = getSettings();
     // A clock for whatever on a ship moves of its own accord: the carrier's
-    // lifts run off this, and it is shared so every hull in sight is on the
-    // same one rather than each keeping its own.
-    this.time = (this.time || 0) + dt;
+    // lifts and her launch cycle run off this. It is wall time, not a sum of
+    // frame steps -- a launch takes twelve seconds because that is how long it
+    // takes, and accumulating dt made it take twelve seconds of frames, which
+    // on a slow machine is a minute and a half.
+    this.time = performance.now() / 1000;
 
     // Helm and telegraph.
     if (!this.sunk) {

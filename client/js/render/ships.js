@@ -311,6 +311,7 @@ export function buildShip(classId) {
     });
     return {
       group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
       length: built.length, beam: built.beam, deckY: built.deckY,
     };
   }
