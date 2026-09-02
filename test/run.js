@@ -1311,21 +1311,26 @@ check('the cruiser is the size the real Cleveland was', () => {
     `she draws ${(-keel).toFixed(2)} m and the sheet says ${sheet.hull.draft}`);
 });
 
-check('the cruiser has a forecastle that breaks down to a quarterdeck', () => {
-  // A Cleveland is not a flush-decker. Her forecastle runs from the stem aft to
-  // abreast the after superstructure and then drops a whole deck to the
-  // quarterdeck, which is where her aircraft live. Loft her flush and she is a
-  // very large destroyer.
+check('the cruiser runs one deck at one height, with no step in it', () => {
+  // Her weather deck is flush: it rises forward and does nothing else. It used
+  // to break down a whole deck aft, which is what the real ship does and what
+  // read on screen as a dent in her quarterdeck.
+  let last = clevelandDeckAt(-91);
+  let worst = 0;
+  let at = 0;
+  for (let z = -90; z <= 91; z += 1) {
+    const d = clevelandDeckAt(z);
+    if (Math.abs(d - last) > worst) { worst = Math.abs(d - last); at = z; }
+    last = d;
+  }
+  assert.ok(worst < 0.25, `her deck steps ${worst.toFixed(2)} m in one metre at z ${at}`);
   const fwd = clevelandDeckAt(60);
   const mid = clevelandDeckAt(0);
-  const justFwd = clevelandDeckAt(-30);
-  const justAft = clevelandDeckAt(-40);
   const aft = clevelandDeckAt(-80);
   assert.ok(mid > 7.5 && mid < 10.0, `${mid.toFixed(2)} m of freeboard amidships`);
   assert.ok(fwd > mid + 0.8, `her deck rises only ${(fwd - mid).toFixed(2)} m forward`);
-  assert.ok(justFwd - justAft > 2.2,
-    `her forecastle drops only ${(justFwd - justAft).toFixed(2)} m at the break`);
-  assert.ok(aft > 4.5 && aft < 6.5, `her quarterdeck is at ${aft.toFixed(2)} m`);
+  assert.ok(mid - aft < 1.2 && mid - aft > 0,
+    `her deck falls ${(mid - aft).toFixed(2)} m aft, which is a step and not a sheer`);
 });
 
 check('the cruiser is one connected ship, with nothing left in mid-air', () => {
@@ -1380,6 +1385,40 @@ check('nothing on the cruiser stands inside a gun barrel', () => {
     assert.equal(hits.length, 0, `a gun is inside the ${other}: ${hits.length} pieces, `
       + `first at ${JSON.stringify(hits[0] && hits[0][0].min.map((v) => Math.round(v * 10) / 10))}`);
   }
+});
+
+check('nothing on the cruiser is buried inside anything else', () => {
+  // Her mounts have to stand on her, not in her. The forward twin 5" was
+  // inside the navigating bridge, both waist mounts were inside the boats and
+  // the ventilators and the Bofors tubs, and the after one was inside the
+  // second tier of the after superstructure. A mount sinks its barbette skirt
+  // into the deck it stands on and no further.
+  const DEEP = 0.35;
+  const parts = clevelandParts();
+  // A wire or a barrel is a stick: tilt one and the axis-aligned box it casts
+  // is far larger than the stick, so judging it by that box judges a shadow.
+  const stick = (q) => {
+    const d = [...q.size].sort((x, y) => y - x);
+    return d[0] > 3.5 * d[1];
+  };
+  const solid = parts.filter((q) => !stick(q));
+  const ov = (a, b, i) => Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]);
+  const worst = [];
+  for (const a of solid) {
+    // A turret's barbette goes down through the deck to the shell room, so the
+    // hull is the one thing the main battery is allowed to be inside.
+    if (a.from !== 'secondary' && a.from !== 'lightAA') continue;
+    for (const b of solid) {
+      if (b.from === a.from) continue;
+      const deep = Math.min(ov(a, b, 0), ov(a, b, 1), ov(a, b, 2));
+      if (deep > DEEP) {
+        worst.push(`${a.from} at `
+          + `(${((a.min[0] + a.max[0]) / 2).toFixed(0)}, ${((a.min[2] + a.max[2]) / 2).toFixed(0)})`
+          + ` is ${deep.toFixed(2)} m inside ${b.from}`);
+      }
+    }
+  }
+  assert.equal(worst.length, 0, `${worst.length} buried piece(s): ${worst[0]}`);
 });
 
 check('the cruiser\'s turrets stand where her datasheet says', () => {
