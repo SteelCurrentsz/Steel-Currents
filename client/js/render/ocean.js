@@ -25,11 +25,26 @@ import * as THREE from '../../../vendor/three.module.js';
 // metres, amplitude as a fraction of the sea state's, steepness, and heading.
 // They have to agree exactly or hulls will ride water the screen is not
 // drawing, so both ends read these same numbers.
+// Halved in length from what they were, because the train was a swell train:
+// waves the better part of a kilometre long, which is an ocean crossing's worth
+// of fetch and not a sea anybody fights in. Shorter waves put the same motion
+// into a hull at a fraction of the height, which is the point -- the height is
+// what was taking a carrier's screws out of the water.
+/**
+ * The scale that turns a weather preset into metres of wave.
+ *
+ * At the old value the four components summed to nearly eight metres of
+ * amplitude -- a fifteen metre sea, which is a storm nobody launches aircraft
+ * in, and which left a carrier's propellers in the air at the bottom of every
+ * trough. This is a rough day rather than a gale.
+ */
+export const AMP_SCALE = 0.42;
+
 export const WAVES = [
-  { len: 940, amp: 1.00, steep: 0.62, dir: [0.86, 0.51] },
-  { len: 470, amp: 0.52, steep: 0.70, dir: [-0.42, 0.91] },
-  { len: 232, amp: 0.29, steep: 0.74, dir: [0.31, -0.95] },
-  { len: 121, amp: 0.16, steep: 0.78, dir: [-0.97, -0.24] },
+  { len: 470, amp: 1.00, steep: 0.62, dir: [0.86, 0.51] },
+  { len: 235, amp: 0.52, steep: 0.70, dir: [-0.42, 0.91] },
+  { len: 116, amp: 0.29, steep: 0.74, dir: [0.31, -0.95] },
+  { len: 60, amp: 0.16, steep: 0.78, dir: [-0.97, -0.24] },
 ];
 const G = 9.81;
 
@@ -429,7 +444,7 @@ export class Ocean {
 
   setSeaState(state) {
     const k = 0.4 + state * 0.28;
-    this.material.uniforms.uAmp.value = this.preset.amp * k;
+    this.material.uniforms.uAmp.value = this.preset.amp * k * AMP_SCALE;
     // A calm sea is glassy and a rough one is not: the chop rides the state
     // rather than sitting at one strength whatever the weather.
     this.material.uniforms.uChop.value = 0.5 + Math.min(1.6, k) * 0.75;
@@ -526,26 +541,65 @@ export class Ocean {
   }
 
   /**
-   * The attitude a hull of this length and beam takes on the sea here: how far
-   * she is lifted, and the pitch and roll the water under her puts on. Sampled
-   * at four points rather than read off the normal at one, because a ship is
-   * two hundred metres long and does not follow a wave shorter than she is.
+   * The attitude a hull of this length and beam takes on the sea here.
+   *
+   * Averaged over her whole waterplane rather than read off four corners of it.
+   * That is what a hull actually does: she displaces the water under the whole
+   * of her, so what lifts her is the mean level under her bottom, and a wave
+   * much shorter than she is has a crest under one part of her and a trough
+   * under another and lifts her not at all. Out of that one change comes both
+   * halves of the behaviour -- a destroyer rides every wave because she is
+   * shorter than most of them, and a carrier goes through the short ones and
+   * lifts only to the long swell.
+   *
+   * It has to be the mean and not a fraction of a sample, because the number is
+   * a water level: draw her at some damped fraction of it and the sea leaves
+   * her, which puts her screws in the air at the bottom of every trough.
    */
   attitude(x, z, heading, length, beam, time = this.material.uniforms.uTime.value) {
     const sh = Math.sin(heading);
     const ch = Math.cos(heading);
-    const hl = length * 0.42;
+    const hl = length * 0.46;
     const hb = Math.max(beam * 0.5, 4);
     const at = (fwd, side) => this.heightAt(
       x + sh * fwd + ch * side, z + ch * fwd - sh * side, time);
-    const bow = at(hl, 0);
-    const stern = at(-hl, 0);
-    const port = at(0, -hb);
-    const stbd = at(0, hb);
+
+    // Seven stations along her, three abreast at each: enough to average out a
+    // sea a good deal shorter than she is without costing a sample per metre.
+    const STA = 7;
+    let sum = 0;
+    let n = 0;
+    let fwdSum = 0;
+    let aftSum = 0;
+    let fwdN = 0;
+    let aftN = 0;
+    let portSum = 0;
+    let stbdSum = 0;
+    let armF = 0;
+    let armS = 0;
+    for (let i = 0; i < STA; i++) {
+      const u = STA === 1 ? 0 : (i / (STA - 1)) * 2 - 1;   // -1 aft to +1 forward
+      const fwd = u * hl;
+      for (const side of [-hb * 0.7, 0, hb * 0.7]) {
+        const h = at(fwd, side);
+        sum += h; n++;
+        if (u > 0.1) { fwdSum += h; fwdN++; armF += fwd; }
+        else if (u < -0.1) { aftSum += h; aftN++; }
+        if (side < 0) { portSum += h; armS += -side; }
+        else if (side > 0) stbdSum += h;
+      }
+    }
+    const heave = sum / n;
+    // Pitch and roll from the difference between her halves, over the distance
+    // between where those halves act.
+    const armFwd = fwdN ? armF / fwdN : hl;
+    const trim = fwdN && aftN ? (fwdSum / fwdN) - (aftSum / aftN) : 0;
+    const list = (stbdSum - portSum) / STA;
+    const armSide = armS / STA;
     return {
-      heave: (bow + stern + port + stbd) * 0.25,
-      pitch: Math.atan2(bow - stern, hl * 2),
-      roll: Math.atan2(stbd - port, hb * 2),
+      heave,
+      pitch: Math.atan2(trim, armFwd * 2),
+      roll: Math.atan2(list, armSide * 2),
     };
   }
 }

@@ -57,24 +57,19 @@ export function pitchHeed(length) {
 }
 
 /**
- * How much of the sea's rise and fall she actually takes up.
+ * How much of the sea's rise and fall she takes up: all of it.
  *
- * A ship long enough to lie across several crests at once does not ride up and
- * over them, she goes through them: the water heaps up along her side and her
- * own buoyancy hardly notices. A destroyer, which is shorter than the wave she
- * is on, is lifted by the whole of it.
+ * This used to be a fraction, to stop a carrier looking as though she were
+ * plunging. It was the wrong lever. The number coming out of the sea is a water
+ * level, and a ship drawn at half a water level is a ship the sea has left --
+ * which put her propellers in the air at the bottom of every trough.
  *
- * This is the one that made a carrier look like she was plunging. She was not
- * pitching -- an eighth of a degree, measured -- she was going up and down
- * eight metres bodily, because the four points the sea was sampled at were
- * averaged and handed to her whole, whatever her length.
+ * The filtering belongs where the water is measured, not here: the sea is now
+ * averaged over her whole waterplane, so a wave shorter than she is lifts her
+ * hardly at all and the long swell lifts her with everything else on it. She
+ * follows that mean exactly, and stays in the water.
  */
-export function heaveHeed(length) {
-  // The leading fraction is the same for everybody: no hull follows the surface
-  // exactly, because she has her own inertia and drags a great deal of water
-  // with her. What varies by length is the rest of it.
-  return 0.62 * Math.min(1, Math.max(0.2, Math.pow(125 / length, 1.6)));
-}
+export function heaveHeed() { return 1; }
 
 /**
  * One hull's motion in the water, integrated frame by frame.

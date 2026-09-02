@@ -313,7 +313,7 @@ void main() {
   // Nothing at the very edge of the ribbon, or the ribbon is what you see --
   // and feathered well in from it, because a wake seen from a mile off and
   // nearly edge-on is a few pixels tall.
-  float edge = 1.0 - smoothstep(0.86, 1.0, s);
+  float edge = 1.0 - smoothstep(0.72, 1.0, s);
   edge *= smoothstep(0.0, 0.02, vAge);
   foam *= edge * uOpacity;
   aDark *= edge * uOpacity;
@@ -323,6 +323,15 @@ void main() {
   float fog = 1.0 - exp(-pow(dcam * uFogDensity, 2.0));
   float clear = clamp(1.0 - fog, 0.0, 1.0);
   add *= clear;
+  // ...and thinned with it as well, which the fog was not doing. Fog was only
+  // tinting the foam's colour and leaving its coverage alone, so a wake three
+  // kilometres off -- where the whole ribbon comes to two or three pixels and
+  // every sample in it piles into the same one -- stayed fully opaque and drew
+  // itself as a hard white stroke across the sea. It is the one thing out there
+  // that looked painted on rather than floating in the water.
+  float far = 1.0 - 0.94 * smoothstep(450.0, 2400.0, dcam);
+  foam *= clear * far;
+  aDark *= clear * far;
 
   float a = clamp(foam + aDark * (1.0 - foam), 0.0, 1.0);
   if (a < 0.003 && dot(add, add) < 1e-6) discard;
@@ -462,9 +471,21 @@ export class Wake {
     const bx = x + Math.sin(heading) * this.bowOffset;
     const bz = z + Math.cos(heading) * this.bowOffset;
     const cur = { x: bx, z: bz, t: this.clock, v: Math.abs(speed), h: heading };
-    if (this.pts.length < 2) {
+    // How far she is from the last piece of water she laid. If it is further
+    // than she could possibly have sailed since, she did not sail it: she was
+    // put there -- at the start of a battle, when a chart order moves her, or
+    // when a view of her is built fresh. Joining the two draws a dead straight
+    // ribbon from where she was to where she is, hundreds or thousands of
+    // metres of it, and at that length and width it comes out as a hard bright
+    // line ruled across the sea. It is the one part of the wake that never
+    // looked like water, and it is not a wake at all.
+    const gap = this.pts.length > 1
+      ? Math.hypot(bx - this.pts[1].x, bz - this.pts[1].z) : 0;
+    const jumped = this.pts.length > 1
+      && gap > Math.max(STEP_M * 3, Math.abs(speed) * dt * 8 + STEP_M);
+    if (this.pts.length < 2 || jumped) {
       this.pts = [cur, { ...cur }];
-    } else if (Math.hypot(bx - this.pts[1].x, bz - this.pts[1].z) >= STEP_M) {
+    } else if (gap >= STEP_M) {
       this.pts.unshift(cur);
       if (this.pts.length > POINTS) this.pts.length = POINTS;
     } else {

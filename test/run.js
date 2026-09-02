@@ -15,10 +15,12 @@ import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
+  DECK_RUN,
 } from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { Ocean } from '../client/js/render/ocean.js';
+import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
+import { Wake } from '../client/js/render/wake.js';
 import { ShipView } from '../client/js/render/scene.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
@@ -1122,7 +1124,11 @@ check('an air group is landed on something she can actually embark', () => {
   // A strike off her flies what she is carrying: fish, not a fixed four.
   ship.aimX = ship.x + 4000; ship.aimZ = ship.z + 4000;
   assert.ok(launchStrike(state, ship), 'she would not launch');
-  const pkg = state.planes[state.planes.length - 1];
+  // Nothing is in the air yet: she has to get down the deck first.
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before she had moved');
+  for (let i = 0; i < Math.ceil((DECK_RUN + 0.5) / DT); i++) step(state, DT);
+  const pkg = state.planes.find((p) => p.role === 'torpedo');
+  assert.ok(pkg, 'she flew off no torpedo bombers at all');
   assert.ok(pkg.torp > pkg.bomb, `flew ${pkg.torp} torpedo to ${pkg.bomb} bomb`);
 });
 
@@ -1427,6 +1433,69 @@ check('nothing but the launching aircraft is ever on the runway', () => {
     `the lifts have aircraft welded into them: ${JSON.stringify(carried)}`);
 });
 
+check('a ship that is placed does not rule a line across the sea', () => {
+  // The wake is laid in the world: each piece of it stays where she made it.
+  // That is right while she is sailing and wrong the moment she is put
+  // somewhere -- at the start of a battle, or when a view of her is built
+  // fresh. Joining the piece she laid before to where she now is drew a dead
+  // straight ribbon across the map, and a ribbon four kilometres long and
+  // eighty metres wide comes out as a hard bright line ruled over the water.
+  const scene = new THREE.Scene();
+  const wake = new Wake(scene, { length: 262, beam: 26, ocean: null });
+  const spread = () => {
+    const p = wake.pts;
+    let most = 0;
+    for (let i = 1; i < p.length; i++) {
+      most = Math.max(most, Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z));
+    }
+    return most;
+  };
+  // Steaming north at a fair clip, laying a proper trail.
+  let z = 0;
+  for (let i = 0; i < 400; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 0, z, 0, 15, null); }
+  assert.ok(wake.pts.length > 4, 'she laid no trail at all');
+  const sailed = spread();
+  assert.ok(sailed < 40, `sailing, her trail steps ${sailed.toFixed(0)} m at a time`);
+
+  // Now put her four kilometres away, the way a battle start does.
+  wake.update(1 / 30, 4000, 4000, 0, 15, null);
+  const after = spread();
+  assert.ok(after < 40,
+    `placed, her trail spans ${after.toFixed(0)} m between two pieces -- that is the line`);
+  // And she picks up laying a normal trail again from where she was put.
+  for (let i = 0; i < 200; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 4000, 4000 + z, 0, 15, null); }
+  assert.ok(wake.pts.length > 4, 'she never started a new trail');
+  assert.ok(spread() < 40, 'her new trail is broken too');
+});
+
+check('the sea never leaves the hull', () => {
+  // The complaint this exists for: a carrier dipping in and out of the water
+  // far enough to put her propellers in the air. Damping her heave caused it --
+  // the sea went on moving eleven metres while she moved two, so the water left
+  // her. What she rides now is the mean level under her whole waterplane, which
+  // is a real water level, and it can never get further from her than the sea
+  // itself is rough.
+  const sea = Object.create(Ocean.prototype);
+  const amp = 3.2 * (0.4 + 3 * 0.28) * AMP_SCALE;
+  sea.material = { uniforms: { uAmp: { value: amp }, uSteep: { value: 1 }, uTime: { value: 0 } } };
+  const dt = 1 / 30;
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const v = new Seakeeping(cls.hull);
+    let worst = 0;
+    for (let t = 0; t < 200; t += dt) {
+      const att = sea.attitude(1200, -800, 0.7, cls.hull.length, cls.hull.beam, t);
+      v.step(att, dt);
+      if (t < 30) continue;
+      // How far the water at her middle gets from where her waterline sits.
+      worst = Math.max(worst, Math.abs(sea.heightAt(1200, -800, t) - v.heave));
+    }
+    // She must keep a good half of her draft in the water at the worst of it,
+    // or there is daylight under her and her screws are turning in air.
+    assert.ok(worst < cls.hull.draft * 0.55,
+      `${id} draws ${cls.hull.draft} m and the sea gets ${worst.toFixed(1)} m from her waterline`);
+  }
+});
+
 check('a hull swings on her own period rather than lying on the water', () => {
   // The sea does not set a ship's angle, it pushes her towards one. Knock her
   // over in flat water and let go: she should roll back through upright, past
@@ -1474,8 +1543,12 @@ check('a destroyer works in a sea her betters walk through', () => {
   // Fletcher and an Iowa rolled the same 3.6 degrees and pitched the same 2.8.
   // Size has to tell, in both -- and it tells harder in pitch, because a ship
   // only pitches to a wave of about her own length.
+  // The sea the battle actually runs on: the roughest weather preset at the
+  // sea state a sortie uses, scaled the way the ocean scales it. Taking the
+  // number from the ocean means this check cannot drift away from the game.
   const sea = Object.create(Ocean.prototype);
-  sea.material = { uniforms: { uAmp: { value: 3.95 }, uSteep: { value: 1 }, uTime: { value: 0 } } };
+  const amp = 3.2 * (0.4 + 3 * 0.28) * AMP_SCALE;
+  sea.material = { uniforms: { uAmp: { value: amp }, uSteep: { value: 1 }, uTime: { value: 0 } } };
   const DEG = 180 / Math.PI;
   const dt = 1 / 60;
   const roll = {};
@@ -1505,15 +1578,15 @@ check('a destroyer works in a sea her betters walk through', () => {
       `${order[i]} pitches ${pitch[order[i]].toFixed(2)}deg against `
       + `${order[i - 1]}'s ${pitch[order[i - 1]].toFixed(2)}deg`);
   }
-  assert.ok(roll.fletcher > 5 && roll.fletcher < 11, `a Fletcher rolls ${roll.fletcher.toFixed(1)}deg`);
-  assert.ok(roll.iowa < 3.4, `an Iowa rolls ${roll.iowa.toFixed(1)}deg`);
+  assert.ok(roll.fletcher > 3 && roll.fletcher < 9, `a Fletcher rolls ${roll.fletcher.toFixed(1)}deg`);
+  assert.ok(roll.iowa < 1.6, `an Iowa rolls ${roll.iowa.toFixed(1)}deg`);
   assert.ok(roll.fletcher > roll.iowa * 2,
     'a destroyer should roll at least twice what a battleship does');
   // The carrier is the one that was complained about: she must be nearly flat
   // fore and aft, and well under a destroyer.
-  assert.ok(pitch.enterprise < 0.6,
+  assert.ok(pitch.enterprise < 0.4,
     `Enterprise still pitches ${pitch.enterprise.toFixed(2)}deg`);
-  assert.ok(pitch.iowa < 0.6, `an Iowa still pitches ${pitch.iowa.toFixed(2)}deg`);
+  assert.ok(pitch.iowa < 0.4, `an Iowa still pitches ${pitch.iowa.toFixed(2)}deg`);
   assert.ok(pitch.fletcher > pitch.enterprise * 3,
     `a Fletcher pitches ${pitch.fletcher.toFixed(2)}deg to Enterprise's `
     + `${pitch.enterprise.toFixed(2)}deg -- not enough of a difference`);
@@ -1536,10 +1609,12 @@ check('a destroyer works in a sea her betters walk through', () => {
   }
   assert.ok(heave.enterprise < 2.6, `Enterprise still rises ${heave.enterprise.toFixed(1)} m`);
   assert.ok(heave.iowa < 2.6, `an Iowa still rises ${heave.iowa.toFixed(1)} m`);
-  assert.ok(heave.fletcher > heave.enterprise * 2.5,
+  assert.ok(heave.fletcher > heave.enterprise * 1.7,
     'a destroyer should ride a sea a carrier goes through');
-  assert.ok(heave.fletcher < 9, `a Fletcher is thrown ${heave.fletcher.toFixed(1)} m`);
-  assert.ok(heaveHeed(114) > heaveHeed(262) * 2, 'a short hull is lifted more');
+  assert.ok(heave.fletcher < 6, `a Fletcher is thrown ${heave.fletcher.toFixed(1)} m`);
+  // Heave is no longer scaled down per ship at all: it is a water level, and
+  // the filtering by length happens where the sea is measured.
+  assert.equal(heaveHeed(114), 1);
 });
 
 check('a ship fights herself while her captain cons her', () => {
@@ -1752,6 +1827,11 @@ check('a strike goes up as three flights and comes home as one squadron', () => 
   cv.x = 0; cv.z = 0; foe.x = 5000; foe.z = 0;
   cv.aimX = foe.x; cv.aimZ = foe.z;
   assert.ok(launchStrike(st, cv), 'she would not launch');
+  // The order rings the deck; the aeroplanes come when she is off it. Pressing
+  // the button used to put a squadron in the sky on that tick, while the model
+  // of her was still taxiing past the island.
+  assert.equal(st.planes.length, 0, 'she launched before she had taxied');
+  for (let i = 0; i < Math.ceil((DECK_RUN + 0.5) / DT); i++) step(st, DT);
   const roles = st.planes.map((p) => p.role).sort();
   assert.deepEqual(roles, ['dive', 'fighter', 'torpedo'],
     `she sent up ${JSON.stringify(roles)}`);

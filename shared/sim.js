@@ -168,6 +168,8 @@ export function addShip(state, {
     // at a time: the lift has to fetch her, she has to taxi aft and run up, and
     // nothing else can use the deck while she is on it.
     deckBusy: 0,
+    // A launch ordered and not yet off the deck.
+    launching: null,
     spottedBy: [false, false],
     lastFiredAt: -999,
     kills: 0,
@@ -1091,6 +1093,12 @@ export function launchStrike(state, ship) {
   if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
   ship.deckBusy = DECK_CYCLE;
+  // The order is not the launch. Pressing it rings the deck: the lift fetches
+  // her up, she taxis forward, runs up against the brakes and goes down the
+  // deck, and only when her wheels leave the planking is there an aeroplane in
+  // the air. Putting the squadron on the board on the tick the button was
+  // pressed had one appear over the ship while the model of her was still
+  // taxiing past the island.
   // A strike is not one lump of aeroplanes. It is up to three flights, and they
   // do not want the same things: the fighters go to clear the air and then to
   // shoot up whatever is small enough to hurt, the dive bombers will take
@@ -1111,29 +1119,56 @@ export function launchStrike(state, ship) {
     else if (group.fighters > 0) fighters = 1;
     else torp = 1;
   }
-  const heading = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
-  const flights = [
-    { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
-    { role: 'dive', count: bomb, torp: 0, bomb },
-    { role: 'torpedo', count: torp, torp, bomb: 0 },
-  ].filter((f) => f.count > 0);
-  for (const f of flights) {
+  ship.launching = {
+    sqId: sq.id, left: DECK_RUN,
+    tx: ship.aimX, tz: ship.aimZ,
+    flights: [
+      { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
+      { role: 'dive', count: bomb, torp: 0, bomb },
+      { role: 'torpedo', count: torp, torp, bomb: 0 },
+    ].filter((f) => f.count > 0),
+    escort: fighters,
+  };
+  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
+  return true;
+}
+
+/**
+ * How long from the flag to her wheels leaving the deck.
+ *
+ * The lift, the taxi, the run-up and the deck run itself. It is what the model
+ * on screen takes, and the two have to agree or an aeroplane appears in the sky
+ * while the one you are watching is still on the planking.
+ */
+export const DECK_RUN = 15.5;
+
+/** Put the flights in the air, once she has actually left the deck. */
+function stepLaunch(state, ship, dt) {
+  const L = ship.launching;
+  if (!L) return;
+  L.left -= dt;
+  if (L.left > 0) return;
+  ship.launching = null;
+  const cls = shipClass(ship);
+  const sq = ship.squadrons.find((s) => s.id === L.sqId);
+  // She was sunk, or her squadron was struck below while she was on the run.
+  if (!ship.alive || !sq || sq.state !== 'flying') return;
+  const heading = headingTo(ship.x, ship.z, L.tx, L.tz);
+  for (const f of L.flights) {
     state.planes.push({
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
       x: ship.x, z: ship.z, heading,
-      tx: ship.aimX, tz: ship.aimZ,
+      tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
       count: f.count,
       // Fighters are harder to catch than a loaded bomber, and they are what
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
       hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
-        * (1 + (f.role === 'fighter' ? 0 : fighters * 0.18)),
+        * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)),
       phase: 'outbound', dropped: false, life: 0, hunt: 0,
       targetId: 0, targetAir: 0,
     });
   }
-  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
-  return true;
 }
 
 /** How big a hull is, for the purpose of deciding who goes after her. */
@@ -1526,6 +1561,7 @@ function stepDamageOverTime(state, ship, dt) {
   for (const m of ship.torpMounts) if (m.cooldown > 0) m.cooldown -= dt;
   for (const s of ship.squadrons) if (s.cooldown > 0) s.cooldown -= dt;
   if (ship.deckBusy > 0) ship.deckBusy -= dt;
+  if (ship.launching) stepLaunch(state, ship, dt);
 }
 
 // ---------------------------------------------------------------------------
