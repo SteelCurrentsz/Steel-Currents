@@ -8,6 +8,9 @@ export class Input {
     this.keys = new Set();
     this.mouseDX = 0;
     this.mouseDY = 0;
+    // Set by the bridge while the camera is watching something other than your
+    // own ship: the pointer stays free and a drag walks the orbit.
+    this.orbiting = false;
     this.firing = false;
     this.scoped = false;
     this.locked = false;
@@ -47,13 +50,15 @@ export class Input {
       // pointer is locked every event targets the canvas anyway, so this only
       // ever lets go of clicks the player can actually see the cursor for.
       if (!this.locked && e.target !== this.canvas) return;
-      if (e.button === 0) { this.firing = true; this.emit('fire'); }
       if (e.button === 2) { this.scoped = true; this.emit('scope', true); }
-      if (!this.locked && e.button === 0) this.requestLock();
+      // While the camera is off watching something -- riding an aeroplane, most
+      // of all -- the pointer is not taken. A locked pointer has no cursor, and
+      // a captain watching his squadron go still wants to press the conn keys
+      // and work the plot. Dragging turns the view instead, which needs no lock.
+      if (!this.locked && e.button === 0 && !this.orbiting) this.requestLock();
     };
     this._onUp = (e) => {
       if (this.touch) return;
-      if (e.button === 0) this.firing = false;
       if (e.button === 2) { this.scoped = false; this.emit('scope', false); }
     };
     this._onWheel = (e) => { if (this.enabled) this.emit('wheel', Math.sign(e.deltaY)); };

@@ -440,27 +440,12 @@ export class Battle {
       return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
     }
     if (this.watching.kind === 'plane') {
-      // Riding with one of your own: while she is still aboard -- waiting in
-      // the hangar, riding the lift, running down the deck -- she is the
-      // carrier's own model, so ask the model where it is rather than the
-      // simulation, which only knows about the squadron once it is up.
-      if (this.watching.carrier != null && !this.flying) {
-        const v = this.scene.shipViews.get(this.watching.carrier);
-        const g = v && v.group.userData.deckPlane;
-        if (g) {
-          const w = new THREE.Vector3();
-          g.getWorldPosition(w);
-          return { x: w.x, y: w.y, z: w.z, span: 14, eye: 2.4, close: true };
-        }
-      }
-      const id = this.watching.carrier != null && this.flying
-        ? this.flying.id : this.watching.id;
-      const pl = (snap.planes || []).find((x) => x.i === id);
-      if (pl) {
-        return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span: 14, eye: 2.2, close: true };
-      }
-      // She is down, or home. Fall back to the carrier so the view does not
-      // drop into the sea.
+      // Riding one of your own. She is the carrier's own model for the whole
+      // of it -- waiting in the hangar, riding the lift, down the deck, out to
+      // the target and back down the glide -- so the camera asks the model
+      // where it is and never anything else. Two sources for one aeroplane is
+      // what made this jump: the model was interpolated and the camera was
+      // reading raw snapshots, so they disagreed ten times a second.
       if (this.watching.carrier != null) {
         const v = this.scene.shipViews.get(this.watching.carrier);
         const g = v && v.group.userData.deckPlane;
@@ -469,6 +454,13 @@ export class Battle {
           g.getWorldPosition(w);
           return { x: w.x, y: w.y, z: w.z, span: 14, eye: 2.4, close: true };
         }
+        return null;
+      }
+      // Somebody else's squadron, watched off the plot: there is no model for
+      // that one, so it is flown off the interpolated plot position.
+      const pl = (this.planesNow || []).find((x) => x.i === this.watching.id);
+      if (pl) {
+        return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span: 14, eye: 2.2, close: true };
       }
       return null;
     }
@@ -505,12 +497,14 @@ export class Battle {
       return;
     }
     this.watching = { kind: 'plane', carrier: this.shipId, id: null,
-      name: 'the ready aircraft' };
+      name: 'the ready aircraft — drag to look round her' };
     this.watchPov = false;
     this.watchYaw = 2.5;              // over her port quarter, looking forward
-    this.watchEl = 0.16;
-    this.watchDist = 0.72;            // multiples of her length, so about ten metres
-    this.watchDistNow = 0.72;
+    this.watchEl = 0.24;              // a little above her, not edge-on
+    // Multiples of her length. Ten metres put the camera inside the wing: an
+    // aeroplane needs standing off far enough that she reads as an aeroplane.
+    this.watchDist = 1.55;
+    this.watchDistNow = 1.55;
     this.hud.setWatching?.(this.watching);
     this.hud.setWatchBanner?.(this.watching, false);
   }
@@ -767,8 +761,25 @@ export class Battle {
     this.hideRest(this.scene.torpedoes, m);
     this.scene.torpedoes.instanceMatrix.needsUpdate = true;
 
+    // Squadrons are interpolated between snapshots like everything else. They
+    // used not to be, and the aeroplane the camera rides was the one thing on
+    // screen stepping ten times a second instead of running: that is what made
+    // riding her look broken.
+    const planes = (a.planes || []).map((pl) => {
+      const nx = b ? (b.planes || []).find((q) => q.i === pl.i) : null;
+      if (!nx) return pl;
+      return {
+        ...pl,
+        x: lerp(pl.x, nx.x, t),
+        z: lerp(pl.z, nx.z, t),
+        h: pl.h + angleDelta(pl.h, nx.h) * t,
+        a: lerp(pl.a, nx.a, t),
+      };
+    });
+    this.planesNow = planes;
+
     let p = 0;
-    for (const pl of a.planes) {
+    for (const pl of planes) {
       if (p >= this.scene.planeMesh.count) break;
       // The one aeroplane a carrier put in the air is drawn as an aeroplane,
       // not as a marker: it is the model that came up the lift and went down
@@ -782,7 +793,7 @@ export class Battle {
     }
     this.hideRest(this.scene.planeMesh, p);
     this.scene.planeMesh.instanceMatrix.needsUpdate = true;
-    this.flyLaunched(a);
+    this.flyLaunched(planes);
   }
 
   /**
@@ -808,14 +819,14 @@ export class Battle {
    * than being deleted the moment she runs out of deck. When the squadron is
    * recovered or shot down she goes back aboard and waits on the after lift.
    */
-  flyLaunched(a) {
+  flyLaunched(planes) {
     // Which of the carriers on the plot has just put her ready aircraft up, and
     // which squadron on the plot is the one she flew off.
     let up = null;
     for (const [id, v] of this.scene.shipViews) {
       const deck = v.group.userData.deck;
       if (!deck || !deck.airborne) continue;
-      const pl = (a.planes || []).find((q) => q.o === id);
+      const pl = planes.find((q) => q.o === id);
       if (pl) { up = { id, v, deck, pl }; break; }
       // Off the deck, but her squadron is no longer on the plot: recovered, or
       // shot down. Stand her back on the lift rather than leaving the model
@@ -845,11 +856,20 @@ export class Battle {
 
     const { v, deck, pl } = up;
     if (!this.flying || this.flying.id !== pl.i) {
-      // Hand her over: the same object, kept where she is in the world.
+      // Hand her over: the same object, kept where she is in the world. She is
+      // off the bow and her squadron is wherever the simulation has flown it
+      // to, which is not the same place -- so she joins it rather than being
+      // put there. That jump is what the camera riding her used to take.
       this.scene.scene.attach(v.group.userData.deckPlane);
       this.flying = {
         id: pl.i, ownerView: v, group: v.group.userData.deckPlane,
-        heading: pl.h, bank: 0,
+        heading: pl.h, bank: 0, joined: this.time,
+        from: v.group.userData.deckPlane.position.clone(),
+        // How long the join takes is how far there is to go: an aeroplane that
+        // covered three hundred metres in the same second and a half she takes
+        // to cover fifty would be doing four hundred knots to do it.
+        join: clamp(dist(v.group.userData.deckPlane.position.x,
+          v.group.userData.deckPlane.position.z, pl.x, pl.z) / 105, 1.2, 4.5),
       };
     }
     const g = this.flying.group;
@@ -862,7 +882,19 @@ export class Battle {
     while (turn < -Math.PI) turn += Math.PI * 2;
     this.flying.heading = pl.h;
     this.flying.bank += (Math.max(-0.5, Math.min(0.5, turn * 6)) - this.flying.bank) * 0.12;
-    g.position.set(pl.x, y, pl.z);
+    // Joining up: eased out to her squadron over a climbing turn's worth of
+    // flying, taken at a speed an aeroplane could actually make good.
+    const j = Math.min(1, (this.time - this.flying.joined) / this.flying.join);
+    if (j < 1) {
+      const e = j * j * (3 - 2 * j);
+      g.position.set(
+        lerp(this.flying.from.x, pl.x, e),
+        lerp(this.flying.from.y, y, e),
+        lerp(this.flying.from.z, pl.z, e),
+      );
+    } else {
+      g.position.set(pl.x, y, pl.z);
+    }
     g.rotation.set(Math.max(-0.26, Math.min(0.10, -rise * 0.05)), pl.h, this.flying.bank);
     g.visible = true;
     const prop = deck.plane && deck.plane.prop;
@@ -945,6 +977,9 @@ export class Battle {
     // windows, or you are standing off her watching her work; the drag turns
     // your head in the first and walks the orbit in the second.
     const watch = this.watchPoint();
+    // Tell the pointer to stay free while the camera is off watching: a drag
+    // turns the view and every control on the screen stays clickable.
+    this.input.orbiting = !!watch;
     if (watch) {
       const m = this.input.takeMouse();
       const ease = 1 - Math.pow(0.0009, dt);
