@@ -30,6 +30,8 @@ import {
 } from '../client/js/render/enterprise.js';
 import { fletcherParts, buildFletcher, deckAt as fletcherDeckAt }
   from '../client/js/render/fletcher.js';
+import { clevelandParts, buildCleveland, deckAt as clevelandDeckAt }
+  from '../client/js/render/cleveland.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -1146,6 +1148,26 @@ check('the destroyer is one connected ship, with nothing left in mid-air', () =>
     + `${JSON.stringify(loose[0] && loose[0].min.map((v) => Math.round(v * 10) / 10))}`);
 });
 
+check('nothing on the destroyer stands inside a gun barrel', () => {
+  // Her after mounts stow trained aft, and a 5"/38 is nearly seven metres of
+  // gun on the centreline. Mount 55's barrel ran straight through the Bofors
+  // tub on the fantail and mount 53's through the one on the deckhouse: at
+  // rest, with nothing training, the guns were inside the anti-aircraft
+  // battery. Nothing she carries may sit inside a mount as it is stowed.
+  const parts = fletcherParts();
+  const by = (name) => parts.filter((q) => q.from === name);
+  const guns = by('mainBattery');
+  const clash = (a, b) => [0, 1, 2].every((i) =>
+    Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]) > 0.05);
+  for (const other of ['lightAA', 'depthCharges', 'torpedoes', 'boats', 'railings']) {
+    const hits = [];
+    for (const a of guns) for (const b of by(other)) if (clash(a, b)) hits.push([a, b]);
+    assert.equal(hits.length, 0, `a gun is inside the ${other}: `
+      + `${hits.length} pieces, first at `
+      + `${JSON.stringify(hits[0] && hits[0][0].min.map((v) => Math.round(v * 10) / 10))}`);
+  }
+});
+
 check('the destroyer\'s guns and tubes stand where her datasheet says', () => {
   // Her model is laid out on her own stations and the simulation fires from the
   // datasheet's. Let them drift apart and the shells and the fish come out of
@@ -1258,6 +1280,176 @@ check('the destroyer has the sheer of a flush-decker', () => {
   assert.ok(fwd > mid + 2.0, `her deck rises only ${(fwd - mid).toFixed(2)} m forward`);
   assert.ok(aft < mid && aft > mid - 1.2,
     `her deck edge aft is at ${aft.toFixed(2)} against ${mid.toFixed(2)} amidships`);
+});
+
+check('the cruiser is the size the real Cleveland was', () => {
+  // 610 ft 1 in on 66 ft 4 in, drawing 24 ft 6 in. Her hull may not be wider
+  // than that; her aircraft may, because on the real ship a Seahawk on the
+  // catapult has its wingtip out over the side, and so does the accommodation
+  // ladder when it is rigged.
+  const parts = clevelandParts();
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  let keel = Infinity;
+  let half = 0;
+  let wide = null;
+  for (const q of parts) {
+    z0 = Math.min(z0, q.min[2]); z1 = Math.max(z1, q.max[2]);
+    keel = Math.min(keel, q.min[1]);
+    if (q.from === 'aviation' || q.from === 'fittings') continue;
+    const x = Math.max(Math.abs(q.min[0]), Math.abs(q.max[0]));
+    if (x > half) { half = x; wide = q; }
+  }
+  const sheet = SHIP_CLASSES.cleveland;
+  assert.ok(Math.abs((z1 - z0) - 185.9) < 2.5,
+    `she is ${(z1 - z0).toFixed(1)} m over all and a Cleveland is 185.9`);
+  assert.ok(half * 2 < 20.6,
+    `she measures ${(half * 2).toFixed(2)} m over her extreme beam of 20.2, `
+    + `widest is ${wide.from} at z ${((wide.min[2] + wide.max[2]) / 2).toFixed(1)}`);
+  assert.ok(half * 2 > 19.4, `she is only ${(half * 2).toFixed(2)} m in the beam`);
+  assert.ok(Math.abs(-keel - sheet.hull.draft) < 0.6,
+    `she draws ${(-keel).toFixed(2)} m and the sheet says ${sheet.hull.draft}`);
+});
+
+check('the cruiser has a forecastle that breaks down to a quarterdeck', () => {
+  // A Cleveland is not a flush-decker. Her forecastle runs from the stem aft to
+  // abreast the after superstructure and then drops a whole deck to the
+  // quarterdeck, which is where her aircraft live. Loft her flush and she is a
+  // very large destroyer.
+  const fwd = clevelandDeckAt(60);
+  const mid = clevelandDeckAt(0);
+  const justFwd = clevelandDeckAt(-30);
+  const justAft = clevelandDeckAt(-40);
+  const aft = clevelandDeckAt(-80);
+  assert.ok(mid > 7.5 && mid < 10.0, `${mid.toFixed(2)} m of freeboard amidships`);
+  assert.ok(fwd > mid + 0.8, `her deck rises only ${(fwd - mid).toFixed(2)} m forward`);
+  assert.ok(justFwd - justAft > 2.2,
+    `her forecastle drops only ${(justFwd - justAft).toFixed(2)} m at the break`);
+  assert.ok(aft > 4.5 && aft < 6.5, `her quarterdeck is at ${aft.toFixed(2)} m`);
+});
+
+check('the cruiser is one connected ship, with nothing left in mid-air', () => {
+  const EPS = 0.12;
+  const parts = clevelandParts();
+  assert.ok(parts.length > 1800, `she should be built of more than ${parts.length} pieces`);
+  const n = parts.length;
+  const hits = (a, b) => {
+    for (let i = 0; i < 3; i++) {
+      if (a.min[i] - EPS > b.max[i] || b.min[i] - EPS > a.max[i]) return false;
+    }
+    return true;
+  };
+  const up = [...Array(n).keys()];
+  const find = (k) => (up[k] === k ? k : (up[k] = find(up[k])));
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) if (hits(parts[a], parts[b])) up[find(a)] = find(b);
+  }
+  const bodies = new Map();
+  for (let a = 0; a < n; a++) {
+    const r = find(a);
+    if (!bodies.has(r)) bodies.set(r, []);
+    bodies.get(r).push(a);
+  }
+  let adrift = null;
+  if (bodies.size > 1) {
+    let main = null;
+    for (const [r, m] of bodies) if (!main || m.length > bodies.get(main).length) main = r;
+    for (const [r, m] of bodies) {
+      if (r !== main) {
+        adrift = `${parts[m[0]].from} at `
+          + `${JSON.stringify(parts[m[0]].min.map((v) => Math.round(v * 10) / 10))}`;
+        break;
+      }
+    }
+  }
+  assert.equal(bodies.size, 1, `${bodies.size - 1} piece(s) adrift, one is ${adrift}`);
+});
+
+check('nothing on the cruiser stands inside a gun barrel', () => {
+  // Her turrets stow trained fore and aft and a 6"/47 is eleven metres of gun
+  // from the trunnion, so the centreline ahead of turret 1 and abaft turret 4
+  // belongs to them.
+  const parts = clevelandParts();
+  const by = (name) => parts.filter((q) => q.from === name);
+  const guns = by('mainBattery');
+  const clash = (a, b) => [0, 1, 2].every((i) =>
+    Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]) > 0.05);
+  for (const other of ['lightAA', 'secondary', 'aviation', 'boats', 'railings']) {
+    const hits = [];
+    for (const a of guns) for (const b of by(other)) if (clash(a, b)) hits.push([a, b]);
+    assert.equal(hits.length, 0, `a gun is inside the ${other}: ${hits.length} pieces, `
+      + `first at ${JSON.stringify(hits[0] && hits[0][0].min.map((v) => Math.round(v * 10) / 10))}`);
+  }
+});
+
+check('the cruiser\'s turrets stand where her datasheet says', () => {
+  const built = buildCleveland();
+  const sheet = SHIP_CLASSES.cleveland;
+  assert.equal(built.turrets.length, sheet.turrets.length,
+    `${built.turrets.length} turrets built against ${sheet.turrets.length} on the sheet`);
+  built.turrets.forEach((m, i) => {
+    const t = sheet.turrets[i];
+    assert.ok(Math.abs(m.position.x - t.x) < 0.2 && Math.abs(m.position.z - t.z) < 0.2,
+      `${t.name} is modelled at ${m.position.x.toFixed(1)}, ${m.position.z.toFixed(1)} `
+      + `and laid at ${t.x}, ${t.z}`);
+  });
+  // Fore and aft, the inner turret superfires over the outer one.
+  const y = (i) => built.turrets[i].position.y;
+  assert.ok(y(1) > y(0) + 2.0, 'turret 2 does not superfire over turret 1');
+  assert.ok(y(2) > y(3) + 2.0, 'turret 3 does not superfire over turret 4');
+});
+
+check('both sides of the cruiser\'s hull face outboard', () => {
+  const built = buildCleveland();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    o.material.side = THREE.DoubleSide;
+    meshes.push(o);
+  });
+  const ray = new THREE.Raycaster();
+  const normal = new THREE.Matrix3();
+  const shots = [];
+  for (const side of [-1, 1]) {
+    for (let zi = -11; zi <= 11; zi++) {
+      for (const y of [-6, -3, 0, 3, 6, 8, 10, 13, 16, 20]) {
+        shots.push([[side * 60, y, (zi / 10) * 84], [-side, 0, 0]]);
+      }
+    }
+  }
+  for (let zi = -10; zi <= 10; zi++) {
+    for (const x of [-7, -2.5, 2.5, 7]) {
+      shots.push([[x, 70, (zi / 10) * 86], [0, -1, 0]]);
+      shots.push([[x, -60, (zi / 10) * 86], [0, 1, 0]]);
+    }
+  }
+  const ENDS = [];
+  for (const y of [0, 3, 6]) {
+    ENDS.push([[0, y, 200], [0, 0, -1]], [[0, y, -200], [0, 0, 1]]);
+  }
+  shots.push(...ENDS);
+  let hits = 0;
+  let ends = 0;
+  const backs = [];
+  for (const [from, d] of shots) {
+    const dir = new THREE.Vector3(d[0], d[1], d[2]);
+    ray.set(new THREE.Vector3(from[0], from[1], from[2]), dir);
+    const got = ray.intersectObjects(meshes, false);
+    if (!got.length || !got[0].face) continue;
+    if (Math.abs(from[2]) === 200) ends++;
+    hits++;
+    const n = got[0].face.normal.clone()
+      .applyMatrix3(normal.getNormalMatrix(got[0].object.matrixWorld)).normalize();
+    if (n.dot(dir) > 0) backs.push(from.map((v) => Math.round(v)));
+  }
+  assert.ok(hits > 150, `only ${hits} rays found her at all`);
+  assert.equal(ends, ENDS.length,
+    `${ENDS.length - ends} ray(s) down the centreline found no plating at her ends`);
+  assert.equal(backs.length, 0,
+    `${backs.length} of ${hits} rays landed on an inside-out face, `
+    + `first from ${JSON.stringify(backs[0])}`);
 });
 
 check('her lifts run the whole way between the two decks', () => {

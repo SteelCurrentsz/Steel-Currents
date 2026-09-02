@@ -6,6 +6,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
+import { buildCleveland } from './cleveland.js';
 
 const PALETTE = {
   hull: 0x8e969d,
@@ -321,6 +322,19 @@ export function buildShip(classId) {
   // And the Fletcher, for the same reason: a flush-decker with five open
   // gunhouses, two banks of tubes on the centreline and the depth charge gear
   // aft is a particular ship, not a length and a beam.
+  // And the Cleveland: four triple turrets, a tower bridge, a forecastle that
+  // breaks down a whole deck aft, and her aircraft on the quarterdeck.
+  if (cls.id === 'cleveland') {
+    const built = buildCleveland();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+    };
+  }
+
   if (cls.id === 'fletcher') {
     const built = buildFletcher();
     Object.assign(built.group.userData, {

@@ -18,6 +18,9 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import {
+  box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, ladder,
+} from './shipkit.js';
 
 export const LOA = 114.7;
 export const BEAM = 12.1;
@@ -57,122 +60,6 @@ const mat = (color, opts) => {
   return MATS[key];
 };
 const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
-
-// ------------------------------------------------------------ primitives --
-
-function box(g, m, w, h, d, x, y, z, ry = 0) {
-  const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-  o.position.set(x, y, z);
-  o.rotation.y = ry;
-  g.add(o);
-  return o;
-}
-
-function cyl(g, m, rt, rb, h, x, y, z, seg = 12) {
-  const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m);
-  o.position.set(x, y, z);
-  g.add(o);
-  return o;
-}
-
-/** A tube lying fore and aft: a boom, a rail, a gun barrel, a torpedo. */
-function tubeZ(g, m, r, len, x, y, z, seg = 10) {
-  const o = cyl(g, m, r, r, len, x, y, z, seg);
-  o.rotation.x = Math.PI / 2;
-  return o;
-}
-
-/** A tube lying athwartships: an axle, a depth charge on its rack. */
-function tubeX(g, m, r, len, x, y, z, seg = 10) {
-  const o = cyl(g, m, r, r, len, x, y, z, seg);
-  o.rotation.z = Math.PI / 2;
-  return o;
-}
-
-function sphere(g, m, r, x, y, z, seg = 10) {
-  const o = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(6, seg / 2)), m);
-  o.position.set(x, y, z);
-  g.add(o);
-  return o;
-}
-
-/** Smoothstep, for anything that has to start and stop rather than snap. */
-function smooth(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
-
-/** Read a table of [t, value] at t, with a smooth blend between entries. */
-function lerpTable(table, t) {
-  if (t <= table[0][0]) return table[0][1];
-  const last = table[table.length - 1];
-  if (t >= last[0]) return last[1];
-  for (let i = 1; i < table.length; i++) {
-    const [t1, v1] = table[i];
-    if (t > t1) continue;
-    const [t0, v0] = table[i - 1];
-    return v0 + (v1 - v0) * smooth((t - t0) / (t1 - t0));
-  }
-  return last[1];
-}
-
-/**
- * A stack of superelliptic rings, lofted into a closed shell with a flat top.
- *
- * Every deckhouse on her and every gunhouse is one of these: a rounded-corner
- * box, which is what naval structures actually are. Rings run bottom to top as
- * `[halfWidth, halfDepth, zCentre, y]`.
- *
- * The winding is the whole reason this is one function and not three copies.
- * Wound the wrong way, a deckhouse's faces all look inward, the single-sided
- * materials cull them, and you see straight through the ship -- which is what
- * the bridge and all five gunhouses were doing.
- */
-function loftRings(g, m, rings, opts = {}) {
-  const N = opts.n || 18;
-  const px = opts.px === undefined ? 0.5 : opts.px;
-  const pz = opts.pz === undefined ? 0.55 : opts.pz;
-  const pos = [];
-  const idx = [];
-  for (const [hw, hd, zc, y] of rings) {
-    for (let i = 0; i < N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      const c = Math.cos(a);
-      const s2 = Math.sin(a);
-      pos.push(hw * Math.sign(s2) * Math.pow(Math.abs(s2), px), y,
-        zc + hd * Math.sign(c) * Math.pow(Math.abs(c), pz));
-    }
-  }
-  for (let r = 0; r < rings.length - 1; r++) {
-    for (let i = 0; i < N; i++) {
-      const j = (i + 1) % N;
-      const a = r * N + i;
-      const b = r * N + j;
-      const c = (r + 1) * N + i;
-      const d = (r + 1) * N + j;
-      // Outboard. The rings run +z round to +x, so the top vertex has to come
-      // second for the cross product to point away from the centreline.
-      idx.push(a, d, c, a, b, d);
-    }
-  }
-  if (opts.cap !== false) {
-    const top = (rings.length - 1) * N;
-    const [, , zc, y] = rings[rings.length - 1];
-    const hub = pos.length / 3;
-    pos.push(0, y, zc);
-    for (let i = 0; i < N; i++) idx.push(hub, top + i, top + ((i + 1) % N));
-  }
-  if (opts.floor) {
-    const [, , zc, y] = rings[0];
-    const hub = pos.length / 3;
-    pos.push(0, y, zc);
-    for (let i = 0; i < N; i++) idx.push(hub, ((i + 1) % N), i);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, m);
-  g.add(mesh);
-  return mesh;
-}
 
 // ----------------------------------------------------------- her own lines --
 //
@@ -795,7 +682,7 @@ function bridge(g) {
         .rotation.z = Math.PI / 2;
     }
     // The inclined ladder up to the gun deck, and vertical rungs above it.
-    ladder(g, sgn * 4.3, deckAt(5.2) + 0.1, L01, 5.2, 7.4, sgn);
+    ladder(g, M.steelDark, sgn * 4.3, deckAt(5.2) + 0.1, L01, 5.2, 7.4);
     for (let i = 0; i < 6; i++) {
       box(g, M.steelDark, 0.5, 0.07, 0.07, sgn * 1.5, L01 + 0.3 + i * 0.44, 11.8);
     }
@@ -970,38 +857,6 @@ function mast(g) {
 }
 
 /**
- * An inclined ladder: two stringers, a run of treads and a handrail each side.
- *
- * A ship is covered in these and they are the first thing that gives away a
- * flat-shaded box as a model rather than a ship. Drawn as one tilted plank,
- * which is what this was, it reads as a plank.
- */
-function ladder(g, x, y0, y1, z0, z1, sgn) {
-  const rise = y1 - y0;
-  const run = z1 - z0;
-  const len = Math.hypot(rise, run);
-  const ang = Math.atan2(rise, run);
-  const mid = [x, (y0 + y1) / 2, (z0 + z1) / 2];
-  for (const off of [-0.34, 0.34]) {
-    const st = box(g, M.steelDark, 0.09, 0.16, len, x + off, mid[1], mid[2]);
-    st.rotation.x = -ang;
-    const rail = box(g, M.steelDark, 0.06, 0.06, len, x + off * 1.05, mid[1] + 0.85, mid[2]);
-    rail.rotation.x = -ang;
-    for (let i = 0; i <= 3; i++) {
-      const f = i / 3;
-      cyl(g, M.steelDark, 0.05, 0.05, 0.9,
-        x + off * 1.03, y0 + rise * f + 0.42, z0 + run * f, 6);
-    }
-  }
-  const steps = Math.max(4, Math.round(len / 0.3));
-  for (let i = 1; i < steps; i++) {
-    const f = i / steps;
-    box(g, M.steelDark, 0.72, 0.05, 0.2, x, y0 + rise * f, z0 + run * f);
-  }
-  return sgn;
-}
-
-/**
  * The heights of her three bridge levels above the waterline, named once so a
  * life buoy or an Oerlikon can be put on one without guessing.
  */
@@ -1061,7 +916,7 @@ function depthCharges(g) {
   // The racks: rails running to the transom with the charges nose to tail on
   // them. This is what a destroyer is actually for.
   for (const sgn of [-1, 1]) {
-    const x = sgn * 1.9;
+    const x = sgn * 2.45;
     for (const rail of [-0.35, 0.35]) {
       box(g, M.steelDark, 0.1, 0.34, 13, x + rail, deckAt(-48) + 0.3, -48);
     }
@@ -1332,15 +1187,25 @@ function afterHouse(g) {
  * deckhouse, two on the fantail bandstands.
  */
 function lightAA(g) {
-  // Two twins in tubs abreast the after funnel, one on the after deckhouse,
-  // two on the fantail.
+  // Five twin Bofors: two in tubs abreast the after funnel, two abreast on the
+  // after deckhouse, and one right aft on the fantail between the depth charge
+  // racks.
+  //
+  // Where they are is decided by where the 5-inch barrels lie. The after mounts
+  // stow trained aft, and a barrel is nearly seven metres of gun on the
+  // centreline: anything standing on the centreline between mount 53 and the
+  // transom is inside one. A pair on the fantail is the arrangement that looks
+  // right in a photograph and cannot be built -- twenty-four feet of deck will
+  // not take two tubs and a five-inch barrel between them -- so the pair goes
+  // on the deckhouse, where there is beam for it, and the odd one goes abaft
+  // everything.
   for (const sgn of [-1, 1]) {
     bofors(g, sgn * 3.9, deckAt(FUNNEL_A) + 0.1, FUNNEL_A, sgn * 0.45);
   }
-  bofors(g, 0, deckAt(HOUSE_A[1] + 2.2) + 2.5, HOUSE_A[1] + 2.2, 0);
   for (const sgn of [-1, 1]) {
-    bofors(g, sgn * (halfDeck(-50) - 1.85), deckAt(-50) + 0.1, -50, sgn * 0.6);
+    bofors(g, sgn * 2.5, deckAt(-32.2) + 2.5, -32.2, sgn * 0.5);
   }
+  bofors(g, 0, deckAt(-54.8) + 0.1, -54.8, 0);
   // Seven Oerlikons: four on the 01 level round the bridge, two in the waist,
   // one on the forecastle.
   const roof01 = deckAt(15) + 3.0;
