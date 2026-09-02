@@ -398,24 +398,65 @@ function weatherDeck(g) {
   geo.computeVertexNormals();
   g.add(new THREE.Mesh(geo, M.deck));
 
-  // The sheer strake: the band of plating at the deck edge, a shade darker, and
-  // the low bulwark forward that keeps the sea out of the anchor gear.
-  for (let i = 0; i < STATIONS; i++) {
-    const t0 = -1 + (2 * i) / STATIONS;
-    const t1 = -1 + (2 * (i + 1)) / STATIONS;
-    if (t0 < 0.52) continue;
-    const h = 0.5 * smooth((t0 - 0.52) / 0.3);
-    for (const sgn of [-1, 1]) {
-      const w0 = shellAt(t0, sheer(t0));
-      const w1 = shellAt(t1, sheer(t1));
-      const p0 = new THREE.Vector3(sgn * w0, sheer(t0), zAt(t0, sheer(t0)));
-      const p1 = new THREE.Vector3(sgn * w1, sheer(t1), zAt(t1, sheer(t1)));
-      const mid = p0.clone().add(p1).multiplyScalar(0.5);
-      const len = p0.distanceTo(p1) + 0.05;
-      const b = box(g, M.hull, 0.16, h, len, mid.x, mid.y + h / 2, mid.z);
-      b.rotation.y = Math.atan2(p1.x - p0.x, p1.z - p0.z);
+  bulwark(g);
+}
+
+/**
+ * The gunwale: a solid strip of plating standing up all along the deck edge,
+ * low amidships and rising into a proper bulwark forward where the sea comes
+ * aboard.
+ *
+ * It is lofted in one piece, outer face, cap and inner face, because it was a
+ * row of separate flat plates laid round the curve of the bow -- and a row of
+ * plates round a curve is a picket fence. From ahead you looked between them
+ * and saw the sea through her, which is the hole in her bow; from abeam, at
+ * deck height, the gaps ran aft down her whole side as a dashed line of
+ * daylight.
+ */
+function bulwark(g) {
+  const pos = [];
+  const idx = [];
+  const TH = 0.22;
+  // Waist height all along, growing into a bulwark forward of the break.
+  const capAt = (t) => 0.2 + 0.78 * smooth((t - 0.46) / 0.34);
+  for (let i = 0; i <= STATIONS; i++) {
+    const t = -1 + (2 * i) / STATIONS;
+    const sh = sheer(t);
+    const w = Math.max(0.06, shellAt(t, sh));
+    const z = zAt(t, sh);
+    const h = capAt(t);
+    const inner = Math.max(0.03, w - TH);
+    for (const sgn of [1, -1]) {
+      pos.push(sgn * w, sh, z);                 // 0 outer foot
+      pos.push(sgn * w, sh + h, z);             // 1 outer head
+      pos.push(sgn * inner, sh + h, z);         // 2 inner head
+      pos.push(sgn * inner, sh + 0.02, z);      // 3 inner foot
     }
   }
+  const PER = 8;
+  for (let i = 0; i < STATIONS; i++) {
+    const a = i * PER;
+    const b = (i + 1) * PER;
+    for (let k = 0; k < 2; k++) {
+      const o = k * 4;                          // 0 = port (+x), 4 = starboard
+      const [A, B, C, D] = [a + o, a + o + 1, a + o + 2, a + o + 3];
+      const [E, F, G, H] = [b + o, b + o + 1, b + o + 2, b + o + 3];
+      if (k === 0) {
+        idx.push(A, B, F, A, F, E);             // outer face, looking to port
+        idx.push(B, C, G, B, G, F);             // the cap
+        idx.push(C, D, H, C, H, G);             // inner face
+      } else {
+        idx.push(A, F, B, A, E, F);
+        idx.push(B, G, C, B, F, G);
+        idx.push(C, H, D, C, G, H);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, M.hull));
 }
 
 /** Bilge keels, shafts, struts, screws and rudders: what is under her. */
@@ -1208,8 +1249,10 @@ function railings(g) {
       }
     }
   };
-  // The whole deck edge, less the stretches the mounts and the racks own.
-  put(-54, 53, (z) => (z > 20 && z < 40) || (z > -44 && z < -30));
+  // The whole deck edge, less the stretches the mounts and the racks own --
+  // and less the forecastle, where the bulwark does the same job and a rail
+  // standing in it looks like a fence growing out of a wall.
+  put(-54, 25, (z) => (z > 20 && z < 40) || (z > -44 && z < -30));
 }
 
 /** The odds and ends: lockers, searchlight, life buoys, the binnacle. */

@@ -26,7 +26,7 @@ import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
 import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
-  __aircraft,
+  __aircraft, deckPhases,
 } from '../client/js/render/enterprise.js';
 import { fletcherParts, buildFletcher, deckAt as fletcherDeckAt }
   from '../client/js/render/fletcher.js';
@@ -1540,22 +1540,58 @@ check('she does not take off with her wings folded', () => {
     'she is standing on the lift with her wings spread');
 
   built.group.userData.launch(0);
+  // The evolution is paced to end when the simulation puts her squadron up, so
+  // the phases are asked for rather than counted in seconds.
+  const ph = deckPhases(built.group.userData.deck);
   const seen = [];
-  for (let t = 0; t <= 12.4; t += 0.05) {
+  for (let t = 0; t <= ph.launch; t += 0.05) {
     built.group.userData.step(t);
     seen.push({ t, out: wings.spread.visible, in: wings.stowed.visible });
   }
   assert.ok(seen.every((s) => s.out !== s.in), 'both sets of wings were showing at once');
   // Folded while she is below, spread by the time she starts to move aft.
-  assert.ok(seen.filter((s) => s.t < 2.5).every((s) => !s.out),
+  assert.ok(seen.filter((s) => s.t < ph.down * 1.6).every((s) => !s.out),
     'she spread her wings in the hangar');
-  assert.ok(seen.filter((s) => s.t > 4.4).every((s) => s.out),
+  assert.ok(seen.filter((s) => s.t > ph.taxied).every((s) => s.out),
     'she taxied or ran with her wings folded');
 
   // And struck below again when the squadron is home.
   built.group.userData.recover();
   assert.ok(wings.stowed.visible && !wings.spread.visible,
     'she was struck below with her wings still spread');
+});
+
+check('her squadron goes up the moment she leaves the deck', () => {
+  // The evolution on screen and the tick that puts her flights in the air have
+  // to be the same moment. They were four seconds apart: for those four seconds
+  // three squadron markers flew off the bow while the aeroplane you were
+  // watching was still on the planking -- and the aeroplane, handed over before
+  // her squadron existed, was stood back on the lift, which is an aircraft that
+  // takes off and teleports home.
+  const built = buildEnterprise();
+  const deck = built.group.userData.deck;
+  built.group.userData.launch(0);
+  let airborneAt = null;
+  for (let t = 0; t <= 40; t += 1 / 60) {
+    built.group.userData.step(t);
+    if (deck.airborne) { airborneAt = t; break; }
+  }
+  assert.ok(airborneAt !== null, 'she never left the deck at all');
+  assert.ok(Math.abs(airborneAt - DECK_RUN) < 0.25,
+    `she leaves the deck at ${airborneAt.toFixed(2)} s and her squadron goes up at ${DECK_RUN}`);
+  assert.equal(deckPhases(deck).launch, DECK_RUN, 'the evolution is not paced to the deck run');
+  // And she must not jump at the handover: where the deck run left her is where
+  // whatever flies her next has to pick her up.
+  built.group.userData.launch(0);
+  let prev = null;
+  let worst = 0;
+  for (let t = 0; t <= DECK_RUN + 0.5; t += 1 / 60) {
+    built.group.userData.step(t);
+    const p2 = built.deckPlane.position.clone();
+    if (prev) worst = Math.max(worst, p2.distanceTo(prev));
+    prev = p2;
+  }
+  assert.ok(worst < 3.0, `she jumped ${worst.toFixed(1)} m in one frame of her own launch`);
 });
 
 check('her wheels come up once she is off the deck', () => {

@@ -47,7 +47,7 @@ export function pitchPeriod(length) { return 0.44 * Math.sqrt(length) * 1.02; }
  * twice what a long one does.
  */
 export function rollHeed(length) {
-  return Math.min(1, Math.max(0.16, Math.pow(62.5 / length, 0.915)));
+  return Math.min(1, Math.max(0.16, Math.pow(47 / length, 0.915)));
 }
 
 /**
@@ -64,7 +64,7 @@ export function rollHeed(length) {
  * what she did, and still pitches four times what a carrier does.
  */
 export function pitchHeed(length) {
-  return Math.min(1, Math.max(0.09, Math.pow(75.8 / length, 1.78)));
+  return Math.min(1, Math.max(0.06, Math.pow(63 / length, 1.78)));
 }
 
 /**

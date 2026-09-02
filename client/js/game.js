@@ -22,6 +22,10 @@ const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
 const INPUT_HZ = 20;
 
 const CAMERAS = ['chase', 'bridge', 'tactical'];
+// How deep the camera may go. The bottom, not the surface: the orbit is allowed
+// under the water, and the only thing down there it must not get inside is the
+// ground.
+const SEABED = -34;
 
 export class Battle {
   constructor({ renderer, net, input, world, shipId, team, classId, roster, mode, onExit }) {
@@ -283,10 +287,14 @@ export class Battle {
       // and putting a glass to your eye when you are aboard.
       if (this.watching) {
         if (this.watchPov) this.watchFov = clamp(this.watchFov * (dir > 0 ? 1.12 : 0.89), 7, 68);
-        else this.watchDist = clamp(this.watchDist * (dir > 0 ? 1.18 : 0.85), 0.5, 26);
+        // Right in, close enough to read the plating, and right out to see
+        // the whole action. The old floor of half her length stood a carrier
+        // off at a hundred and thirty metres however hard you pulled.
+        else this.watchDist = clamp(this.watchDist * (dir > 0 ? 1.18 : 0.85), 0.06, 26);
         return;
       }
-      this.camDistance = clamp(this.camDistance * (dir > 0 ? 1.15 : 0.87), this.cls.hull.length * 0.7, this.cls.hull.length * 6);
+      this.camDistance = clamp(this.camDistance * (dir > 0 ? 1.15 : 0.87),
+        this.cls.hull.length * 0.14, this.cls.hull.length * 6);
     });
   }
 
@@ -828,10 +836,15 @@ export class Battle {
       const deck = v.group.userData.deck;
       if (!deck || !deck.airborne) continue;
       const pl = planes.find((q) => q.o === id);
-      if (pl) { up = { id, v, deck, pl }; break; }
-      // Off the deck, but her squadron is no longer on the plot: recovered, or
-      // shot down. Stand her back on the lift rather than leaving the model
-      // hanging in the air off the bow.
+      if (pl) { deck.lostAt = 0; up = { id, v, deck, pl }; break; }
+      // Off the deck, but her squadron is not on the plot. That is usually
+      // because she was recovered or shot down -- but for the first moments
+      // after she leaves the planking it is only that the tick putting her
+      // flights up has not landed yet, and standing her back on the lift for
+      // that is an aeroplane snapping home the instant after it took off. So
+      // she is given a moment before anyone concludes she is gone.
+      deck.lostAt = (deck.lostAt || 0) + dt;
+      if (deck.lostAt < 3.0) continue;
       if (!this.flying || this.flying.ownerView !== v) v.group.userData.recover?.();
     }
 
@@ -842,12 +855,24 @@ export class Battle {
       // she flies the approach instead -- round onto the centreline, down the
       // glide, over the round-down and onto the deck.
       if (this.flying) {
-        this.landing = {
-          t0: this.time, view: this.flying.ownerView, group: this.flying.group,
-          from: this.flying.group.position.clone(),
-          fromY: this.flying.group.rotation.y,
-        };
+        const v = this.flying.ownerView;
+        const g = this.flying.group;
+        const far = v.group.position.distanceTo(g.position);
         this.flying = null;
+        if (far > 1500) {
+          // She did not come home: she was shot down, or struck below out
+          // where her squadron was. Flying an approach from four miles out
+          // means sliding her across the sea at six hundred knots, which is
+          // the aeroplane that appears to teleport back to the ship. Put her
+          // below instead, which is where she is.
+          v.group.attach(g);
+          v.group.userData.recover?.();
+        } else {
+          this.landing = {
+            t0: this.time, view: v, group: g,
+            from: g.position.clone(), fromY: g.rotation.y,
+          };
+        }
       }
       this.flyApproach();
       return;
@@ -1002,9 +1027,12 @@ export class Battle {
         // The drag walks the orbit round her and up and down it; the wheel
         // stands it off her or brings it in. Close enough to read the damage
         // on her plating, far enough to see the whole action she is in.
-        this.watchEl = clamp(this.watchEl - m.y, -0.16, 1.28);
+        // Down past the horizontal and under her: the orbit is allowed below
+        // the water now, so you can come up under a hull and look at her
+        // screws, or watch a torpedo run in from where it is running.
+        this.watchEl = clamp(this.watchEl - m.y, -1.15, 1.28);
         const near = !!watch.close;
-        const d = Math.max(near ? 7 : 40, watch.span * this.watchDistNow);
+        const d = Math.max(near ? 3 : 8, watch.span * this.watchDistNow);
         const rise = near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
         const aim = watch.y + watch.span * (near ? 0.03 : 0.2);
         const flat = Math.cos(this.watchEl);
@@ -1017,10 +1045,13 @@ export class Battle {
         cam.fov = 52;
         // Above the hill she stands on, and still looking at her. Walking the
         // orbit round a gun on a headland used to bury the camera in the slope.
+        // Out of the ground, but not out of the water: the only floor down
+        // here is the bottom.
         const floor = groundHeight(this.scene.world, cam.position.x, cam.position.z);
-        if (cam.position.y < floor + 7) {
-          cam.position.y = floor + 7;
-          cam.lookAt(watch.x, watch.y + watch.span * 0.2, watch.z);
+        const bed = Math.max(floor + 7, SEABED);
+        if (cam.position.y < bed) {
+          cam.position.y = bed;
+          cam.lookAt(watch.x, aim, watch.z);
         }
       }
       cam.updateProjectionMatrix();
@@ -1070,7 +1101,7 @@ export class Battle {
     // at all. It is lifted to stand clear of whatever is under it, ashore or
     // afloat, wherever it has been asked to go.
     const floor = groundHeight(this.scene.world, cam.position.x, cam.position.z);
-    cam.position.y = Math.max(cam.position.y, floor + 7, 2.5);
+    cam.position.y = Math.max(cam.position.y, floor + 7, SEABED);
 
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 1.8);
@@ -1082,7 +1113,14 @@ export class Battle {
     cam.updateProjectionMatrix();
   }
 
-  render() { this.scene.render(); }
+  render() {
+    // Whether the eye is in the water, decided fresh each frame from where the
+    // camera actually ended up and what the sea is doing under it.
+    const cam = this.scene.camera;
+    const sea = this.scene.ocean.heightAt(cam.position.x, cam.position.z);
+    this.scene.setUnderwater(cam.position.y < sea - 0.2);
+    this.scene.render();
+  }
 
   resize(w, h) { this.scene.resize(w, h); }
 

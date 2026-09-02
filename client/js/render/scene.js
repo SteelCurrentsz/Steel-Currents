@@ -495,6 +495,33 @@ function batteryApron(world, at, span, foot = 0) {
  * has to become one box-worth of triangles first. Positions and normals only:
  * nothing here is textured.
  */
+/**
+ * The same weld, but keeping the parts in material groups.
+ *
+ * Takes `[geometry, materialIndex]` pairs and returns one geometry with a
+ * group per index, so an instanced mesh can be painted in more than one colour
+ * -- which is the difference between an aeroplane and a silhouette.
+ */
+function weldGroups(parts) {
+  const pos = [];
+  const nrm = [];
+  const groups = [];
+  for (const [g, mi] of parts) {
+    const flat = g.index ? g.toNonIndexed() : g;
+    const start = pos.length / 3;
+    pos.push(...flat.getAttribute('position').array);
+    nrm.push(...flat.getAttribute('normal').array);
+    groups.push([start, pos.length / 3 - start, mi]);
+    if (flat !== g) flat.dispose();
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  for (const [s2, c, mi] of groups) out.addGroup(s2, c, mi);
+  return out;
+}
+
 function weld(parts) {
   const pos = [];
   const nrm = [];
@@ -612,6 +639,9 @@ export class BattleScene {
     const p = OCEAN_PRESETS[preset];
     const fogCol = new THREE.Color(p.fogColor).lerp(new THREE.Color(0x78838d), overcast * 0.90);
     this.scene.fog = new THREE.FogExp2(fogCol, p.fog * 0.7 * wx.fog);
+    // Kept, so the view can be put back the way it was when the camera comes up.
+    this.airFog = { color: fogCol.clone(), density: this.scene.fog.density,
+      sky: this.scene.background || null };
     // An overcast has no sun path on the water and very little glitter.
     this.ocean.material.uniforms.uSpecular.value = p.specular * (0.22 + 0.78 * wx.light);
 
@@ -664,22 +694,59 @@ export class BattleScene {
     this.torpedoes.frustumCulled = false;
     this.scene.add(this.torpedoes);
 
-    // A squadron in the air, drawn as an aeroplane rather than as the blue dart
-    // it used to be: a fuselage, a wing and a tailplane, welded into one
-    // instanced shape and painted the blue-grey her upper surfaces are.
-    const planeGeo = weld([
-      new THREE.BoxGeometry(3.2, 3.2, 15).translate(0, 0, 1),
-      new THREE.BoxGeometry(19, 1.1, 4.4).translate(0, 0, 1.5),
-      new THREE.BoxGeometry(8.2, 1.0, 2.6).translate(0, 0.4, -6.2),
-      new THREE.BoxGeometry(1.0, 4.6, 2.8).translate(0, 2.4, -6.6),
+    // A squadron in the air. Painted the way her aircraft actually were --
+    // blue-grey over light grey -- and not in one colour: a single dark tone on
+    // every face makes an aeroplane a black cut-out from every angle except
+    // straight down-sun, which is the all-black aircraft you used to see come
+    // off a carrier.
+    const planeGeo = weldGroups([
+      // Upper surfaces.
+      [new THREE.BoxGeometry(2.9, 1.9, 13.6).translate(0, 0.55, 1), 0],
+      [new THREE.BoxGeometry(17.5, 0.7, 4.0).translate(0, 0.35, 1.4), 0],
+      [new THREE.BoxGeometry(7.4, 0.6, 2.4).translate(0, 0.5, -5.8), 0],
+      [new THREE.BoxGeometry(0.7, 3.6, 2.6).translate(0, 2.0, -6.2), 0],
+      [new THREE.BoxGeometry(2.0, 1.3, 2.4).translate(0, 1.5, 0.6), 0],
+      // And the undersides, which is what you see of her most of the time.
+      [new THREE.BoxGeometry(2.9, 1.5, 13.6).translate(0, -0.6, 1), 1],
+      [new THREE.BoxGeometry(17.5, 0.55, 4.0).translate(0, -0.15, 1.4), 1],
+      [new THREE.BoxGeometry(7.4, 0.5, 2.4).translate(0, 0.05, -5.8), 1],
     ]);
-    this.planeMat = new THREE.MeshLambertMaterial({ color: 0x33475e });
+    this.planeMat = [
+      new THREE.MeshLambertMaterial({ color: 0x4a617c }),
+      new THREE.MeshLambertMaterial({ color: 0x9aa4ad }),
+    ];
     this.planeMesh = new THREE.InstancedMesh(planeGeo, this.planeMat, 60);
     this.planeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.planeMesh.frustumCulled = false;
     this.scene.add(this.planeMesh);
 
     this.dummy = new THREE.Object3D();
+  }
+
+  /**
+   * Put the camera under the water, or take it back out.
+   *
+   * Underwater is not just a camera position: the light goes green and stops
+   * carrying, the surface becomes a ceiling you look up through rather than an
+   * opaque sheet, and the sky is not there any more.
+   */
+  setUnderwater(on) {
+    if (this.under === on) return;
+    this.under = on;
+    this.ocean.setUnder(on);
+    // The sky is a dome, not a background colour, so it has to be taken away
+    // rather than painted over -- and there is no sky under water.
+    if (this.sky) this.sky.visible = !on;
+    if (this.stars) this.stars.visible = !on;
+    if (!this.airFog) return;
+    if (on) {
+      const deep = new THREE.Color(0x0a2531);
+      this.scene.fog = new THREE.FogExp2(deep, 0.011);
+      this.scene.background = deep;
+    } else {
+      this.scene.fog = new THREE.FogExp2(this.airFog.color, this.airFog.density);
+      this.scene.background = this.airFog.sky || null;
+    }
   }
 
   addBorder() {

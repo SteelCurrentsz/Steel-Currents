@@ -24,6 +24,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
 import { AERO, launchProfile } from './aero.js';
+import { DECK_RUN } from '../../../shared/sim.js';
 
 // ------------------------------------------------------------- materials --
 
@@ -865,11 +866,17 @@ export function stepDeck(deck, t) {
   if (!deck) return;
   const { lifts, plane } = deck;
   const aft = lifts[lifts.length - 1];
-  const run = deck.launchAt === null ? -1 : t - deck.launchAt;
   // How long each part of the evolution takes. Everything up to the flag is a
   // handling job and is timed; everything after it is flown, and takes as long
   // as the aeroplane takes.
   const LAUNCH = ROLL + (deck.profile ? deck.profile.rows.length * deck.profile.dt : 12);
+  // Played so that she leaves the deck exactly when the simulation puts her
+  // squadron in the air. Left to run at its own length the evolution took four
+  // seconds longer, and for those four seconds the squadron was already up:
+  // three markers flying off the bow while the aeroplane you were watching was
+  // still on the planking, which is the aircraft that appeared out of nothing.
+  const pace = LAUNCH / DECK_RUN;
+  const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
 
   // The lifts, idling.
   const PERIOD = 34;
@@ -908,8 +915,12 @@ export function stepDeck(deck, t) {
     wings(true);
     gear(1);
     p.visible = true;
-    p.position.set(0, FD + 26.34, 150);
-    p.rotation.set(-0.20, 0, 0);
+    // Where the deck run actually left her, not a spot picked by hand: put her
+    // anywhere else and she jumps at the moment she is handed over.
+    const end = deck.profile ? deck.profile.rows[deck.profile.rows.length - 1] : null;
+    const spotZ = aft.group.position.z - 0.45 + TAXI;
+    p.position.set(0, FD + (end ? end[1] : 26.34) + 0.34, spotZ + (end ? end[0] : 210));
+    p.rotation.set(end ? -end[2] : -0.20, 0, 0);
     return;
   }
   if (run < 0) {
@@ -987,14 +998,30 @@ export function stepDeck(deck, t) {
     yaw = 0;
     turning = 34;
     gear(up ? Math.min(1, (h - 3) / 14) : 0);
-    // Once she is well clear of the bow she belongs to whatever is flying her.
-    if (z > fdEndF(0) + 40) deck.airborne = true;
+    // Once she is well clear of the bow -- and once the simulation has actually
+    // put her squadron up -- she belongs to whatever is flying her.
+    if (z > fdEndF(0) + 40 && run >= LAUNCH) deck.airborne = true;
   }
 
   p.visible = true;
   p.position.set(0, y + 0.34, z);
   p.rotation.set(pitch, yaw, 0);
   if (plane.prop) plane.prop.rotation.z += turning * 0.05;
+}
+
+/**
+ * When each part of the evolution happens, on the clock the ship is stepped
+ * with rather than on the evolution's own.
+ *
+ * The whole thing is played at whatever pace makes her leave the deck exactly
+ * when the simulation puts her squadron up, so the wall-clock time of "wings
+ * out" moves with the aeroplane's deck run. Anything that wants to know when
+ * a phase happens has to ask, not count seconds of its own.
+ */
+export function deckPhases(deck) {
+  const LAUNCH = ROLL + (deck && deck.profile ? deck.profile.rows.length * deck.profile.dt : 12);
+  const k = DECK_RUN / LAUNCH;
+  return { down: DOWN * k, up: UP * k, taxied: TAXIED * k, roll: ROLL * k, launch: DECK_RUN };
 }
 
 /** Kept for the tests and for anything that only wants the lifts moved. */
