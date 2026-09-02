@@ -49,11 +49,11 @@ export const SHIP_CLASSES = {
     smokeCharges: 3,
     armor: { belt: 19, deck: 13, citadel: 19, bow: 13, superstructure: 13 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 34, angle: 0, arc: Math.PI, guns: 1 },
+      { id: 0, name: 'A', x: 0, z: 32, angle: 0, arc: Math.PI, guns: 1 },
       { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: Math.PI, guns: 1 },
-      { id: 2, name: 'X', x: 0, z: -18, angle: Math.PI, arc: Math.PI, guns: 1 },
-      { id: 3, name: 'Y', x: 0, z: -28, angle: Math.PI, arc: Math.PI, guns: 1 },
-      { id: 4, name: 'Z', x: 0, z: -38, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 2, name: 'X', x: 0, z: -28, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 3, name: 'Y', x: 0, z: -37, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 4, name: 'Z', x: 0, z: -45, angle: Math.PI, arc: Math.PI, guns: 1 },
     ],
     gun: {
       caliber: 127, reload: 3.4, traverse: 0.52, range: 11800, sigma: 1.9,
@@ -61,8 +61,8 @@ export const SHIP_CLASSES = {
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: 0, z: 6, angle: 0, arc: 2.44, tubes: 5 },
-        { id: 1, x: 0, z: -6, angle: 0, arc: 2.44, tubes: 5 },
+        { id: 0, x: 0, z: -3, angle: 0, arc: 2.44, tubes: 5 },
+        { id: 1, x: 0, z: -19, angle: 0, arc: 2.44, tubes: 5 },
       ],
       reload: 62, damage: 12800, speed: 30 * KNOTS, range: 8500,
       detection: 1100, arming: 400, spread: 0.09, floodChance: 0.32,

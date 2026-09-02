@@ -28,6 +28,8 @@ import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
   __aircraft,
 } from '../client/js/render/enterprise.js';
+import { fletcherParts, buildFletcher, deckAt as fletcherDeckAt }
+  from '../client/js/render/fletcher.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -38,6 +40,25 @@ let failures = 0;
 function check(name, fn) {
   try { fn(); console.log(`  ok   ${name}`); }
   catch (err) { failures++; console.log(`  FAIL ${name}\n       ${err.message}`); }
+}
+
+/**
+ * Run a body with the dice loaded, and put the real ones back afterwards.
+ *
+ * Gunnery scatter, torpedo timers and which way a brain kites are all drawn
+ * from `Math.random`, so a check that measures how much damage a ship does in
+ * a fixed number of ticks passes and fails by luck. Pinning the sequence makes
+ * the answer the same every run, which is the only kind of answer a test can
+ * act on.
+ */
+function pinned(fn) {
+  const real = Math.random;
+  let seed = 0x2545f491;
+  Math.random = () => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return ((seed >>> 0) % 1e6) / 1e6;
+  };
+  try { return fn(); } finally { Math.random = real; }
 }
 
 function duel(aClass, bClass, gap = 9000, opts = {}) {
@@ -1030,6 +1051,204 @@ check('the carrier\'s guns stand where her datasheet says they do', () => {
   });
 });
 
+check('the destroyer is the size the real Fletcher was', () => {
+  // 376 ft 6 in on 39 ft 8 in, drawing 17 ft 9 in: the numbers that make her a
+  // Fletcher rather than a generic destroyer. Nothing bolted to her -- a gun
+  // tub, a raft, a K-gun -- may hang over the side either, because the beam is
+  // measured over everything and a tub cantilevered off the deck edge reads as
+  // a fatter ship both to the eye and to anyone measuring her.
+  const parts = fletcherParts();
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  let half = 0;
+  let keel = Infinity;
+  let wide = null;
+  for (const q of parts) {
+    z0 = Math.min(z0, q.min[2]); z1 = Math.max(z1, q.max[2]);
+    keel = Math.min(keel, q.min[1]);
+    const x = Math.max(Math.abs(q.min[0]), Math.abs(q.max[0]));
+    if (x > half) { half = x; wide = q; }
+  }
+  const sheet = SHIP_CLASSES.fletcher;
+  assert.ok(Math.abs((z1 - z0) - 114.7) < 1.5,
+    `she is ${(z1 - z0).toFixed(1)} m over all and a Fletcher is 114.7`);
+  assert.ok(half * 2 < 12.4,
+    `she measures ${(half * 2).toFixed(2)} m over her extreme beam of 12.1, `
+    + `widest at z ${((wide.min[2] + wide.max[2]) / 2).toFixed(1)} y `
+    + `${((wide.min[1] + wide.max[1]) / 2).toFixed(1)}`);
+  assert.ok(half * 2 > 11.6, `she is only ${(half * 2).toFixed(2)} m in the beam`);
+  assert.ok(Math.abs(-keel - sheet.hull.draft) < 0.6,
+    `she draws ${(-keel).toFixed(2)} m and the sheet says ${sheet.hull.draft}`);
+});
+
+check('the destroyer is one connected ship, with nothing left in mid-air', () => {
+  // The same weld the carrier gets. She is a small ship carrying a great deal
+  // of gear, and moving one deckhouse a metre leaves whatever stood on it --
+  // a mount, a tub, a raft in its rack -- hanging over the deck.
+  const EPS = 0.1;
+  const parts = fletcherParts();
+  assert.ok(parts.length > 900, `she should be built of more than ${parts.length} pieces`);
+  const n = parts.length;
+  const hits = (a, b) => {
+    for (let i = 0; i < 3; i++) {
+      if (a.min[i] - EPS > b.max[i] || b.min[i] - EPS > a.max[i]) return false;
+    }
+    return true;
+  };
+  const up = [...Array(n).keys()];
+  const find = (k) => (up[k] === k ? k : (up[k] = find(up[k])));
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) if (hits(parts[a], parts[b])) up[find(a)] = find(b);
+  }
+  const bodies = new Map();
+  for (let a = 0; a < n; a++) {
+    const r = find(a);
+    if (!bodies.has(r)) bodies.set(r, []);
+    bodies.get(r).push(a);
+  }
+  let adrift = null;
+  if (bodies.size > 1) {
+    let main = null;
+    for (const [r, m] of bodies) if (!main || m.length > bodies.get(main).length) main = r;
+    for (const [r, m] of bodies) {
+      if (r !== main) { adrift = `${parts[m[0]].from} at ${JSON.stringify(parts[m[0]].min.map((v) => Math.round(v * 10) / 10))}`; break; }
+    }
+  }
+  assert.equal(bodies.size, 1, `${bodies.size - 1} piece(s) adrift, one is ${adrift}`);
+  // Touching is not being attached. A raft resting a corner against a rail
+  // passes the weld above and still hangs in the air to look at, so every piece
+  // must share a real face with something: their boxes must meet in all three
+  // axes and overlap by more than half the smaller piece in at least two. A
+  // stick -- a barrel, a stanchion, an aerial wire -- is a projection by nature
+  // and needs only one, judged on its own size rather than the fat box a tilted
+  // stick casts on the axes.
+  const span = (q, i) => q.max[i] - q.min[i];
+  const stick = (q) => {
+    const d = [...q.size].sort((x, y) => y - x);
+    return d[0] > 3.5 * d[1];
+  };
+  const faces = (q, r) => {
+    let solid = 0;
+    for (let i = 0; i < 3; i++) {
+      const o = Math.min(q.max[i], r.max[i]) - Math.max(q.min[i], r.min[i]);
+      if (o < -EPS) return 0;
+      if (o >= 0.5 * Math.min(span(q, i), span(r, i)) - EPS) solid++;
+    }
+    return solid;
+  };
+  const loose = [];
+  for (const q of parts) {
+    const want = stick(q) ? 1 : 2;
+    if (!parts.some((r) => r !== q && faces(q, r) >= want)) loose.push(q);
+  }
+  assert.equal(loose.length, 0, `${loose.length} piece(s) hanging in the air, first `
+    + `${loose[0] && loose[0].from} at `
+    + `${JSON.stringify(loose[0] && loose[0].min.map((v) => Math.round(v * 10) / 10))}`);
+});
+
+check('the destroyer\'s guns and tubes stand where her datasheet says', () => {
+  // Her model is laid out on her own stations and the simulation fires from the
+  // datasheet's. Let them drift apart and the shells and the fish come out of
+  // points in the air beside her.
+  const built = buildFletcher();
+  const sheet = SHIP_CLASSES.fletcher;
+  assert.equal(built.turrets.length, sheet.turrets.length,
+    `${built.turrets.length} mounts built against ${sheet.turrets.length} on the sheet`);
+  built.turrets.forEach((m, i) => {
+    const t = sheet.turrets[i];
+    assert.ok(Math.abs(m.position.x - t.x) < 0.15 && Math.abs(m.position.z - t.z) < 0.15,
+      `${t.name} is modelled at ${m.position.x.toFixed(1)}, ${m.position.z.toFixed(1)} `
+      + `and laid at ${t.x}, ${t.z}`);
+  });
+  // The mounts aft superfire: 54 stands above 55, and both above the water.
+  const y = (i) => built.turrets[i].position.y;
+  assert.ok(y(1) > y(0) + 1.5, 'mount 52 does not superfire over 51');
+  assert.ok(y(3) > y(4) + 1.5, 'mount 54 does not superfire over 55');
+  // And the tubes are on the centreline, in the two gaps in the waist, with
+  // nothing of the funnels standing in either of them.
+  const banks = sheet.torpedoes.mounts;
+  assert.equal(banks.length, 2, `${banks.length} torpedo mounts on the sheet`);
+  const tubes = fletcherParts().filter((q) => q.from === 'torpedoes');
+  for (const b of banks) {
+    assert.equal(b.x, 0, `a bank is laid off the centreline at x ${b.x}`);
+    assert.ok(tubes.some((q) => q.min[2] < b.z && q.max[2] > b.z),
+      `nothing is modelled at the bank the sheet puts at z ${b.z}`);
+  }
+  const funnels = fletcherParts().filter((q) => q.from === 'funnels');
+  for (const q of tubes) {
+    for (const f of funnels) {
+      const clash = [0, 1, 2].every((i) => q.min[i] < f.max[i] - 0.05 && q.max[i] > f.min[i] + 0.05);
+      assert.ok(!clash, `a torpedo tube is inside the funnel casing at z ${q.min[2].toFixed(1)}`);
+    }
+  }
+});
+
+check('both sides of the destroyer\'s hull face outboard', () => {
+  // The same ring-lofted shell as the carrier's, and the same way to get it
+  // wrong. Fire at her from all round: every ray must land on a face looking
+  // back, and the rays down her centreline must find plating at stem and
+  // transom rather than falling through an open ring.
+  const built = buildFletcher();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    o.material.side = THREE.DoubleSide;
+    meshes.push(o);
+  });
+  const ray = new THREE.Raycaster();
+  const normal = new THREE.Matrix3();
+  const shots = [];
+  for (const side of [-1, 1]) {
+    for (let zi = -8; zi <= 8; zi++) {
+      for (const y of [-4, -2, 0, 2, 4]) shots.push([[side * 40, y, (zi / 10) * 50], [-side, 0, 0]]);
+    }
+  }
+  // Straight down, which is how a deck wound the wrong way up shows itself.
+  for (let zi = -9; zi <= 9; zi++) {
+    for (const x of [-4, -1.5, 1.5, 4]) shots.push([[x, 40, (zi / 10) * 52], [0, -1, 0]]);
+  }
+  const ENDS = [];
+  for (const y of [0, 2, 4]) {
+    ENDS.push([[0, y, 120], [0, 0, -1]], [[0, y, -120], [0, 0, 1]]);
+  }
+  shots.push(...ENDS);
+  let hits = 0;
+  let ends = 0;
+  const backs = [];
+  for (const [from, d] of shots) {
+    const dir = new THREE.Vector3(d[0], d[1], d[2]);
+    ray.set(new THREE.Vector3(from[0], from[1], from[2]), dir);
+    const got = ray.intersectObjects(meshes, false);
+    if (!got.length || !got[0].face) continue;
+    if (Math.abs(from[2]) === 120) ends++;
+    hits++;
+    const n = got[0].face.normal.clone()
+      .applyMatrix3(normal.getNormalMatrix(got[0].object.matrixWorld)).normalize();
+    if (n.dot(dir) > 0) backs.push(from.map((v) => Math.round(v)));
+  }
+  assert.ok(hits > 100, `only ${hits} rays found her at all`);
+  assert.equal(ends, ENDS.length,
+    `${ENDS.length - ends} ray(s) down the centreline found no plating at her ends`);
+  assert.equal(backs.length, 0,
+    `${backs.length} of ${hits} rays landed on an inside-out face, first from ${JSON.stringify(backs[0])}`);
+});
+
+check('the destroyer has the sheer of a flush-decker', () => {
+  // One unbroken deck from stem to transom, rising hard forward: that is what
+  // makes her recognisable and it is what a lofting bug takes away first. Loft
+  // her topsides to a constant instead of to the sheer and she comes out a
+  // slab-sided barge with eight metres of freeboard amidships.
+  const fwd = fletcherDeckAt(48);
+  const mid = fletcherDeckAt(0);
+  const aft = fletcherDeckAt(-50);
+  assert.ok(mid > 4.2 && mid < 5.6, `${mid.toFixed(2)} m of freeboard amidships`);
+  assert.ok(fwd > mid + 2.0, `her deck rises only ${(fwd - mid).toFixed(2)} m forward`);
+  assert.ok(aft < mid && aft > mid - 1.2,
+    `her deck edge aft is at ${aft.toFixed(2)} against ${mid.toFixed(2)} amidships`);
+});
+
 check('her lifts run the whole way between the two decks', () => {
   // Three of them, and each must actually reach both ends: a lift that stops
   // short leaves a hole in the flight deck with a platform hanging in it, and
@@ -1617,7 +1836,7 @@ check('a destroyer works in a sea her betters walk through', () => {
   assert.equal(heaveHeed(114), 1);
 });
 
-check('a ship fights herself while her captain cons her', () => {
+check('a ship fights herself while her captain cons her', () => pinned(() => {
   // Her guns, her torpedoes and her damage control are her own officers' now.
   // What is left to a captain is where she goes and when her aircraft go, so a
   // brain given a conned ship must fire and must not touch her helm, her
@@ -1659,7 +1878,7 @@ check('a ship fights herself while her captain cons her', () => {
   for (let i = 0; i < 300; i++) { stepBot(st, bot, bb, DT, false); step(st, DT); }
   assert.ok(bot.notch > 1, 'a bot never rang up any speed at all');
   assert.notEqual(bot.heading, heading0, 'a bot never touched her own helm');
-});
+}));
 
 check('a captain keeps his aircraft to himself', () => {
   // The one thing the AI must not do for him. A conned carrier in range of a
