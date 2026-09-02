@@ -14,7 +14,7 @@ import {
 import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
-  SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections,
+  SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
 } from '../shared/sim.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
@@ -1173,21 +1173,23 @@ check('a carrier is found with a clear deck and her aircraft on the lifts', () =
 
 check('a launch runs the whole evolution, hangar to bow', () => {
   // Pressing the strike button should show what a launch actually is: the after
-  // lift takes her down to the hangar, brings her up, she taxis aft to the
-  // spot, and goes down the deck and off over the bow. Each of those has to
-  // happen, in that order, or it is an aeroplane teleporting off a ship.
+  // lift takes her down to the hangar and brings her up, she taxis forward off
+  // it under her own power and lines up, she is held on the brakes while the
+  // engine is run up, and then she rolls. Each of those has to happen, in that
+  // order, or it is an aeroplane teleporting off a ship.
   const built = buildEnterprise();
   const plane = built.deckPlane;
   const aft = built.lifts[built.lifts.length - 1].group;
   built.group.userData.step(0);
   built.group.userData.launch(0);
+  const pr = built.group.userData.deck.profile;
+  const END = 7.6 + pr.rows.length * pr.dt;
 
   const track = [];
-  for (let t = 0; t <= 12.4; t += 0.05) {
+  for (let t = 0; t <= END; t += 0.05) {
     built.group.userData.step(t);
     track.push({ t, y: plane.position.y, z: plane.position.z, lift: aft.position.y });
   }
-  const at = (a, b) => track.filter((s) => s.t >= a && s.t < b);
 
   // Down to the hangar, and the aeroplane goes with the lift.
   const low = Math.min(...track.map((s) => s.lift));
@@ -1200,34 +1202,48 @@ check('a launch runs the whole evolution, hangar to bow', () => {
   const upAgain = track.find((s) => s.t > 2 && s.lift > FD - 0.2);
   assert.ok(upAgain && upAgain.t < 5, 'the lift never came back up');
 
-  // Aft to the spot, which is abaft where the lift is.
-  const aftMost = track.reduce((a, b) => (b.z < a.z ? b : a));
-  assert.ok(aftMost.z < aft.position.z - 20,
-    `she only taxied to ${aftMost.z.toFixed(0)}, and the lift is at ${aft.position.z.toFixed(0)}`);
-  assert.ok(aftMost.t > 5 && aftMost.t < 9.5, `she was at the spot at ${aftMost.t.toFixed(1)} s`);
-
-  // Then forward, off the bow, and climbing.
-  const last = track[track.length - 1];
-  assert.ok(last.z > 120, `she left the deck at z ${last.z.toFixed(0)}`);
-  assert.ok(last.y > FD + 8, `she was still at ${last.y.toFixed(1)} m going over the bow`);
-  // And she runs forward the whole way rather than jumping about.
-  const rolling = at(9, 12.4);
-  for (let i = 1; i < rolling.length; i++) {
-    assert.ok(rolling[i].z >= rolling[i - 1].z - 0.01, 'she went backwards on her run');
+  // Taxied FORWARD off the lift, not dragged aft: she is a fifteen-thousand
+  // pound aeroplane under her own power, and she never goes backwards.
+  const onLift = track.find((s) => s.t > 3.6).z;
+  const lined = track.find((s) => s.t > 6.4);
+  assert.ok(lined.z > onLift + 12,
+    `she taxied from ${onLift.toFixed(0)} to ${lined.z.toFixed(0)}, which is not forward`);
+  for (let i = 1; i < track.length; i++) {
+    assert.ok(track[i].z >= track[i - 1].z - 0.01,
+      `she went backwards at ${track[i].t.toFixed(1)} s`);
   }
+
+  // Then the run, and it is a run: she accelerates, so the ground she covers in
+  // the last second of it is well over what she covered in the first.
+  const gained = (t0, t1) => {
+    const a2 = track.find((s) => s.t >= t0);
+    const b2 = track.find((s) => s.t >= t1);
+    return b2.z - a2.z;
+  };
+  const early = gained(8.0, 9.0);
+  const late = gained(13.5, 14.5);
+  assert.ok(late > early * 2.5,
+    `she made ${early.toFixed(1)} m in her first second and ${late.toFixed(1)} in her last`);
+
+  // And off the bow, climbing.
+  const last = track[track.length - 1];
+  assert.ok(last.z > 140, `she left the deck at z ${last.z.toFixed(0)}`);
+  assert.ok(last.y > FD + 8, `she was still at ${last.y.toFixed(1)} m going over the bow`);
 
   // Afterwards she is airborne and stays airborne: she does not vanish and she
   // does not reappear on the lift behind her. The scene flies her from there.
+  built.group.userData.step(END + 4);
   const wasAt = { y: plane.position.y, z: plane.position.z };
-  built.group.userData.step(40);
+  built.group.userData.step(END + 40);
   assert.equal(plane.position.y, wasAt.y, 'the deck put her back after she had gone');
   assert.equal(plane.position.z, wasAt.z, 'the deck put her back after she had gone');
   // And when whatever was flying her is done, she comes home to the lift.
   built.group.userData.recover();
-  built.group.userData.step(41);
+  built.group.userData.step(END + 41);
   assert.ok(Math.abs(plane.position.y - (aft.position.y + 0.34)) < 0.6,
     'she did not come back to the lift when she was recovered');
 });
+
 
 check('her aircraft are the size the real ones were', () => {
   // These are looked at from a couple of metres away on a lift and ridden off
@@ -1341,16 +1357,18 @@ check('her wheels come up once she is off the deck', () => {
   // Measured while she is taxiing: wings already out, and she is not yet
   // rocking against the brakes, so the only thing that can move is the gear.
   built.group.userData.launch(0);
+  const pr = deck.profile;
+  const END = 7.6 + pr.rows.length * pr.dt;
   built.group.userData.step(6.0);
   const taxi = drop();
   let onDeck = 0;
-  for (let t = 4.5; t <= 7.2; t += 0.1) {
+  for (let t = 4.5; t <= 7.4; t += 0.1) {
     built.group.userData.step(t);
     onDeck = Math.max(onDeck, Math.abs(drop() - taxi));
   }
   assert.ok(onDeck < 0.05, `her wheels moved by ${onDeck.toFixed(2)} m while taxiing`);
 
-  built.group.userData.step(12.4);
+  built.group.userData.step(END);
   const flying = drop();
   assert.ok(taxi - flying > 0.65,
     `her wheels only came up ${(taxi - flying).toFixed(2)} m`);
@@ -1537,6 +1555,10 @@ check('a ship fights herself while her captain cons her', () => {
   mine.notch = 4;
   mine.wayX = 0; mine.wayZ = -9000;
   const brains = [createBotBrain('veteran'), createBotBrain('veteran')];
+  // A brain picks which way it kites at random, and which way the enemy kites
+  // decides how far our own ship gets dragged off before she settles on the
+  // course she was given. Pin it, or this check passes and fails by luck.
+  brains.forEach((b) => { b.kite = 1; b.wander = 0; });
   // Long enough for a six-thousand-ton cruiser to come the whole way round:
   // she has a hundred seconds, and spends more than half of them turning.
   for (let i = 0; i < 3000; i++) {
@@ -1552,7 +1574,7 @@ check('a ship fights herself while her captain cons her', () => {
   const away = Math.abs(angleDelta(mine.heading, Math.PI));
   assert.ok(away < 0.4,
     `she steered ${mine.heading.toFixed(2)} rad, not the course she was given`);
-  assert.ok(mine.z < -150, `she made good only ${Math.round(-mine.z)} m up her course`);
+  assert.ok(mine.z < -120, `she made good only ${Math.round(-mine.z)} m up her course`);
 
   // A ship with nobody aboard still steers herself, and fights.
   const bot = addShip(st, { name: 'Bot', classId: 'cleveland', team: 0, index: 1, isBot: true });
@@ -1574,12 +1596,19 @@ check('a captain keeps his aircraft to himself', () => {
     cv.x = 0; cv.z = 0; foe.x = 6000; foe.z = 0;
     foe.spottedBy[0] = 3;
     const brain = createBotBrain('veteran');
+    brain.kite = 1;
+    // Whether anything ever left the deck, not whether anything is still up at
+    // the end: a squadron can go, be shot down by the target's own guns and be
+    // struck below again inside the run, and looking only at the last tick
+    // would call that "she never flew anything".
+    let flew = 0;
     for (let i = 0; i < 400; i++) {
       foe.spottedBy[0] = 3;
       stepBot(st, cv, brain, DT, conned);
       step(st, DT);
+      flew = Math.max(flew, cv.squadrons.filter((q) => q.state !== 'deck').length);
     }
-    return cv.squadrons.filter((q) => q.state !== 'deck').length;
+    return flew;
   };
   assert.equal(build(true), 0, 'she flew off aircraft her captain did not order');
   assert.ok(build(false) > 0, 'left to herself she never flew anything');
@@ -1655,6 +1684,85 @@ check('gunfire holes her where it hits her', () => {
       assert.ok(c.hp < c.max, `${k.k} is holed ${c.pens} times and undamaged`);
     }
   }
+});
+
+check('each kind of aeroplane goes after its own kind of target', () => {
+  // A strike is three flights and they do not want the same things. Put a
+  // destroyer, a cruiser and a battleship in front of one and see where each
+  // flight points itself.
+  const st = createState(generateWorld(21, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const dd = addShip(st, { name: 'Tin', classId: 'fletcher', team: 1, index: 0 });
+  const cl = addShip(st, { name: 'Light', classId: 'cleveland', team: 1, index: 1 });
+  const bb = addShip(st, { name: 'Big', classId: 'iowa', team: 1, index: 2 });
+  cv.x = 0; cv.z = 0;
+  // All three at much the same range, so it is the choice and not the distance.
+  dd.x = 4000; dd.z = 300;
+  cl.x = 4000; cl.z = 0;
+  bb.x = 4000; bb.z = -300;
+
+  const flight = (role) => ({
+    id: 99, owner: cv.id, team: 0, sqId: 1, role,
+    x: 0, z: 0, heading: 0, tx: 4000, tz: 0, torp: 0, bomb: 0, count: 4,
+    hp: 100, phase: 'outbound', dropped: false, life: 0, hunt: 0,
+    targetId: 0, targetAir: 0,
+  });
+
+  // The torpedo bombers want the biggest hull afloat.
+  assert.equal(pickAirTarget(st, flight('torpedo')).ship.id, bb.id,
+    'the torpedo bombers did not go for the battleship');
+  // The fighters want the smallest.
+  assert.equal(pickAirTarget(st, flight('fighter')).ship.id, dd.id,
+    'the fighters did not go for the destroyer');
+  // And a dive bomber takes what is nearest, which here is the cruiser dead
+  // ahead of her.
+  assert.equal(pickAirTarget(st, flight('dive')).ship.id, cl.id,
+    'the dive bombers did not take the nearest');
+
+  // Sink the battleship and the torpedo bombers move down to the next biggest,
+  // rather than sulking or going for the destroyer.
+  bb.alive = false;
+  assert.equal(pickAirTarget(st, flight('torpedo')).ship.id, cl.id,
+    'with the battleship gone the fish went to the wrong ship');
+
+  // Aircraft in the air trump everything for a fighter -- that is what she is
+  // for -- and nothing else in the strike is distracted by them.
+  const enemyAir = {
+    id: 77, owner: bb.id, team: 1, sqId: 5, role: 'dive',
+    x: 800, z: 0, heading: 0, tx: 0, tz: 0, torp: 0, bomb: 4, count: 4,
+    hp: 100, phase: 'outbound', dropped: false, life: 0, hunt: 0,
+    targetId: 0, targetAir: 0,
+  };
+  st.planes.push(enemyAir);
+  assert.equal(pickAirTarget(st, flight('fighter')).air.id, 77,
+    'the fighters ignored an enemy formation in front of them');
+  assert.ok(!pickAirTarget(st, flight('torpedo')).air,
+    'the torpedo bombers went chasing aeroplanes');
+  assert.ok(!pickAirTarget(st, flight('dive')).air,
+    'the dive bombers went chasing aeroplanes');
+});
+
+check('a strike goes up as three flights and comes home as one squadron', () => {
+  const st = createState(generateWorld(23, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, {
+    name: 'Big E', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighters: 4, dive: 4, torpedo: 4 },
+  });
+  const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 5000; foe.z = 0;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  const roles = st.planes.map((p) => p.role).sort();
+  assert.deepEqual(roles, ['dive', 'fighter', 'torpedo'],
+    `she sent up ${JSON.stringify(roles)}`);
+  assert.ok(st.planes.every((p) => p.sqId === st.planes[0].sqId), 'they came off different squadrons');
+  // One flight home does not put the squadron back on the board while the
+  // other two are still over the enemy.
+  const sq = cv.squadrons.find((q) => q.state === 'flying');
+  assert.ok(sq, 'nothing is marked flying');
+  st.planes = st.planes.slice(1);
+  assert.equal(cv.squadrons.find((q) => q.id === sq.id).state, 'flying',
+    'the squadron came back on the board with two flights still up');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

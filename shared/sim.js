@@ -1068,7 +1068,11 @@ export function normaliseAirGroup(cls, want) {
 }
 
 /** How long one launch takes the deck, from the lift going down to wheels up. */
-export const DECK_CYCLE = 13;
+// How long her deck is fouled by one launch. It is the whole evolution -- lift
+// down, lift up, taxi, run up, and the run itself, which is flown and takes as
+// long as a loaded Avenger takes to get her wheels off five hundred feet of
+// planking. Nothing else can use the deck until she is off it.
+export const DECK_CYCLE = 20;
 /** No nearer than this: closer than her own deck run is not a target. */
 export const MIN_STRIKE_RANGE = 1200;
 
@@ -1087,32 +1091,92 @@ export function launchStrike(state, ship) {
   if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
   ship.deckBusy = DECK_CYCLE;
-  // The package is a share of what she is actually carrying, not a fixed four
-  // aircraft: torpedo bombers put fish in the water, dive bombers put bombs on
-  // the deck, and the fighters go along to keep the flak and the CAP off them,
-  // which is worth more to the strike than another bomb would be.
+  // A strike is not one lump of aeroplanes. It is up to three flights, and they
+  // do not want the same things: the fighters go to clear the air and then to
+  // shoot up whatever is small enough to hurt, the dive bombers will take
+  // anything they are pointed at, and the torpedo bombers are only worth their
+  // fuel against something big. So they go up as separate flights and each one
+  // finds its own target.
   const group = ship.airGroup || defaultAirGroup(cls) || { fighters: 0, dive: 0, torpedo: 4 };
   const share = (n) => Math.max(0, Math.round(n / cls.planes.squadrons));
-  let torp = share(group.torpedo);
+  let fighters = share(group.fighters);
   let bomb = share(group.dive);
+  let torp = share(group.torpedo);
   // A group small enough to round away to nothing still sends what it has:
   // otherwise a captain who embarked two torpedo bombers watches a squadron
   // fly out, find the enemy and drop nothing at all.
-  if (torp + bomb === 0) {
-    if (group.torpedo >= group.dive && group.torpedo > 0) torp = 1;
+  if (fighters + bomb + torp === 0) {
+    if (group.torpedo > 0) torp = 1;
     else if (group.dive > 0) bomb = 1;
+    else if (group.fighters > 0) fighters = 1;
+    else torp = 1;
   }
-  state.planes.push({
-    id: eid(), owner: ship.id, team: ship.team, sqId: sq.id,
-    x: ship.x, z: ship.z, heading: headingTo(ship.x, ship.z, ship.aimX, ship.aimZ),
-    tx: ship.aimX, tz: ship.aimZ,
-    torp, bomb,
-    count: Math.max(1, torp + bomb),
-    hp: cls.planes.hp * (1 + share(group.fighters) * 0.22),
-    phase: 'outbound', dropped: false, life: 0,
-  });
+  const heading = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+  const flights = [
+    { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
+    { role: 'dive', count: bomb, torp: 0, bomb },
+    { role: 'torpedo', count: torp, torp, bomb: 0 },
+  ].filter((f) => f.count > 0);
+  for (const f of flights) {
+    state.planes.push({
+      id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
+      x: ship.x, z: ship.z, heading,
+      tx: ship.aimX, tz: ship.aimZ,
+      torp: f.torp, bomb: f.bomb,
+      count: f.count,
+      // Fighters are harder to catch than a loaded bomber, and they are what
+      // keeps the flak and the enemy's CAP off the ones carrying the weapons.
+      hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
+        * (1 + (f.role === 'fighter' ? 0 : fighters * 0.18)),
+      phase: 'outbound', dropped: false, life: 0, hunt: 0,
+      targetId: 0, targetAir: 0,
+    });
+  }
   state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
   return true;
+}
+
+/** How big a hull is, for the purpose of deciding who goes after her. */
+function bulk(s) { return getClass(s.classId).hull.length; }
+
+/**
+ * What a flight is looking for, which depends entirely on what it is.
+ *
+ * A fighter's business is the other side's aircraft; with the air clear she
+ * goes down on whatever is small enough for a few fifties to hurt -- a
+ * destroyer's bridge and her open mounts, not a battleship's belt.
+ *
+ * A dive bomber will take anything she is pointed at, so she takes the nearest
+ * thing worth a bomb.
+ *
+ * A torpedo bomber is carrying one fish and will get one run at it, and a fish
+ * is wasted on a destroyer: she goes for the biggest hull afloat.
+ */
+export function pickAirTarget(state, p) {
+  const REACH = 9000;
+  if (p.role === 'fighter') {
+    let air = null;
+    let airD = 5200;
+    for (const q of state.planes) {
+      if (q.team === p.team || q.id === p.id) continue;
+      const d = dist(p.x, p.z, q.x, q.z);
+      if (d < airD) { air = q; airD = d; }
+    }
+    if (air) return { air };
+  }
+  let best = null;
+  let score = Infinity;
+  for (const s2 of state.ships) {
+    if (!s2.alive || s2.team === p.team) continue;
+    const d = dist(p.x, p.z, s2.x, s2.z);
+    if (d > REACH) continue;
+    let v;
+    if (p.role === 'fighter') v = bulk(s2) * 2.2 + d * 0.02;          // the smallest
+    else if (p.role === 'torpedo') v = -bulk(s2) * 6 + d * 0.02;      // the biggest
+    else v = d * 0.02;                                               // the nearest
+    if (v < score) { best = s2; score = v; }
+  }
+  return best ? { ship: best } : null;
 }
 
 function stepPlanes(state, dt) {
@@ -1139,6 +1203,29 @@ function stepPlanes(state, dt) {
       continue;
     }
 
+    // Every couple of seconds she looks again for the thing she is actually
+    // after, which is not the same thing for every flight in the strike.
+    p.hunt -= dt;
+    if (p.phase === 'outbound' && p.hunt <= 0) {
+      p.hunt = 2;
+      const want = pickAirTarget(state, p);
+      if (want && want.air) {
+        p.targetAir = want.air.id; p.targetId = 0;
+        p.tx = want.air.x; p.tz = want.air.z;
+      } else if (want && want.ship) {
+        p.targetId = want.ship.id; p.targetAir = 0;
+        p.tx = want.ship.x; p.tz = want.ship.z;
+      }
+    }
+    // And she follows it: a ship under way is not where she was two seconds ago.
+    if (p.phase === 'outbound') {
+      const mark = p.targetAir
+        ? state.planes.find((q) => q.id === p.targetAir)
+        : state.ships.find((q) => q.id === p.targetId && q.alive);
+      if (mark) { p.tx = mark.x; p.tz = mark.z; }
+      else if (p.targetAir || p.targetId) { p.targetAir = 0; p.targetId = 0; p.hunt = 0; }
+    }
+
     let goalX = p.tx, goalZ = p.tz;
     if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
     const want = headingTo(p.x, p.z, goalX, goalZ);
@@ -1146,13 +1233,59 @@ function stepPlanes(state, dt) {
     p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
     p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
 
+    if (p.phase === 'outbound' && p.role === 'fighter') {
+      // A fighter's attack: guns, in a turning fight or in a firing pass.
+      const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir) : null;
+      if (foe && dist(p.x, p.z, foe.x, foe.z) < 420) {
+        // Both flights are shooting; the one with more aircraft up and the
+        // better position does more of it. She wears them down rather than
+        // deciding it in one pass.
+        const bite = P.fighterGuns ?? 26;
+        foe.hp -= bite * p.count * dt;
+        p.hp -= (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt;
+        if (foe.hp <= 0) {
+          state.events.push({ e: 'planesLost', x: foe.x, z: foe.z, team: foe.team });
+          releaseSquadron(state, foe);
+          foe.hp = -1;
+        }
+        out.push(p);
+        continue;
+      }
+      // Nothing left in the air to fight: down on the small stuff with guns.
+      const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
+      if (mark && dist(p.x, p.z, mark.x, mark.z) < 260) {
+        const owner = state.ships.find((q) => q.id === p.owner) || null;
+        const strafe = (P.strafeDamage ?? 260) * p.count;
+        damageShip(state, mark, owner, strafe, 'he', 'works');
+        mark.sections.works.pens += 1;
+        if (state.rng() < 0.3) startFire(state, mark);
+        state.events.push({ e: 'airDrop', x: p.x, z: p.z });
+        p.phase = 'return';
+      } else if (p.life > 150) {
+        p.phase = 'return';
+      }
+      out.push(p);
+      continue;
+    }
+
     if (p.phase === 'outbound') {
-      // Drop on the closest enemy inside the strike box.
-      let best = null, bestD = 2200;
-      for (const s of state.ships) {
-        if (!s.alive || s.team === p.team) continue;
-        const d = dist(p.x, p.z, s.x, s.z);
-        if (d < bestD) { best = s; bestD = d; }
+      // Drop on the target this flight came for. Only if she cannot find it
+      // does she take whatever is nearest instead: a torpedo bomber that went
+      // out after a battleship does not throw her fish at the first destroyer
+      // she passes.
+      let best = null;
+      let bestD = 2200;
+      const want = state.ships.find((q) => q.id === p.targetId && q.alive);
+      if (want) {
+        const d = dist(p.x, p.z, want.x, want.z);
+        if (d < bestD) { best = want; bestD = d; }
+      }
+      if (!best) {
+        for (const s of state.ships) {
+          if (!s.alive || s.team === p.team) continue;
+          const d = dist(p.x, p.z, s.x, s.z);
+          if (d < bestD) { best = s; bestD = d; }
+        }
       }
       if (best && bestD < 1400) {
         const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
@@ -1200,6 +1333,13 @@ function stepPlanes(state, dt) {
 function releaseSquadron(state, p) {
   const carrier = state.ships.find((s) => s.id === p.owner);
   if (!carrier) return;
+  // A strike goes up as three flights off one squadron. The squadron is not
+  // back until all of them are: releasing it on the first one home would put
+  // her aircraft on the board while two flights of them are still over the
+  // enemy.
+  const others = state.planes.some(
+    (q) => q !== p && q.id !== p.id && q.sqId === p.sqId && q.owner === p.owner && q.hp > 0);
+  if (others) return;
   const sq = carrier.squadrons.find((s) => s.id === p.sqId);
   if (sq) { sq.state = 'deck'; sq.cooldown = getClass(carrier.classId).planes.rearm; }
 }

@@ -91,6 +91,8 @@ export function buildSnapshot(state, team, viewerShipId) {
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life),
+      // What she is: it decides what she is drawn as and what she is after.
+      r: p.role || 'torpedo',
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

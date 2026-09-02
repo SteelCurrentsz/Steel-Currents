@@ -5,6 +5,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
 import { Hud } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
+import { Airborne, AERO, stallSpeed } from './render/aero.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -793,7 +794,7 @@ export class Battle {
     }
     this.hideRest(this.scene.planeMesh, p);
     this.scene.planeMesh.instanceMatrix.needsUpdate = true;
-    this.flyLaunched(planes);
+    this.flyLaunched(planes, dt);
   }
 
   /**
@@ -819,7 +820,7 @@ export class Battle {
    * than being deleted the moment she runs out of deck. When the squadron is
    * recovered or shot down she goes back aboard and waits on the after lift.
    */
-  flyLaunched(planes) {
+  flyLaunched(planes, dt) {
     // Which of the carriers on the plot has just put her ready aircraft up, and
     // which squadron on the plot is the one she flew off.
     let up = null;
@@ -856,46 +857,40 @@ export class Battle {
 
     const { v, deck, pl } = up;
     if (!this.flying || this.flying.id !== pl.i) {
-      // Hand her over: the same object, kept where she is in the world. She is
-      // off the bow and her squadron is wherever the simulation has flown it
-      // to, which is not the same place -- so she joins it rather than being
-      // put there. That jump is what the camera riding her used to take.
+      // Hand her over: the same object, kept where she is in the world, and
+      // flying from here on. She leaves the deck at the speed the deck run left
+      // her at, and everything after that is her wing and her engine against
+      // her weight -- so she flies out to her squadron rather than being put on
+      // top of it, which is the jump the camera riding her used to take.
       this.scene.scene.attach(v.group.userData.deckPlane);
+      const g0 = v.group.userData.deckPlane;
+      const w0 = new THREE.Vector3();
+      g0.getWorldPosition(w0);
       this.flying = {
-        id: pl.i, ownerView: v, group: v.group.userData.deckPlane,
-        heading: pl.h, bank: 0, joined: this.time,
-        from: v.group.userData.deckPlane.position.clone(),
-        // How long the join takes is how far there is to go: an aeroplane that
-        // covered three hundred metres in the same second and a half she takes
-        // to cover fifty would be doing four hundred knots to do it.
-        join: clamp(dist(v.group.userData.deckPlane.position.x,
-          v.group.userData.deckPlane.position.z, pl.x, pl.z) / 105, 1.2, 4.5),
+        id: pl.i, ownerView: v, group: g0,
+        air: new Airborne(AERO.avenger, w0.x, w0.y, w0.z,
+          v.group.rotation.y, stallSpeed(AERO.avenger) * 1.18),
       };
     }
     const g = this.flying.group;
-    const y = this.planeHeight(pl);
-    // Nose up while she is climbing, and bank into the turn: both come out of
-    // where she was last frame, so they have to be read before she is moved.
-    const rise = y - g.position.y;
-    let turn = pl.h - this.flying.heading;
-    while (turn > Math.PI) turn -= Math.PI * 2;
-    while (turn < -Math.PI) turn += Math.PI * 2;
-    this.flying.heading = pl.h;
-    this.flying.bank += (Math.max(-0.5, Math.min(0.5, turn * 6)) - this.flying.bank) * 0.12;
-    // Joining up: eased out to her squadron over a climbing turn's worth of
-    // flying, taken at a speed an aeroplane could actually make good.
-    const j = Math.min(1, (this.time - this.flying.joined) / this.flying.join);
-    if (j < 1) {
-      const e = j * j * (3 - 2 * j);
-      g.position.set(
-        lerp(this.flying.from.x, pl.x, e),
-        lerp(this.flying.from.y, y, e),
-        lerp(this.flying.from.z, pl.z, e),
-      );
-    } else {
-      g.position.set(pl.x, y, pl.z);
+    const air = this.flying.air;
+    // She flies to where her squadron is, on her own wing: banking into the
+    // turn, and climbing at the rate the power left over from drag allows. She
+    // is not put there -- if she were, she would fly like a cursor.
+    air.step(dt, pl.x, this.planeHeight(pl), pl.z);
+    // The squadron is the authority on where she really is, so if her own
+    // flying has let her drift a long way from it she is eased back on. This
+    // hardly ever bites; it is here so a long stall in the tab cannot leave
+    // the aeroplane a mile from the squadron she is supposed to be.
+    const off = dist(air.x, air.z, pl.x, pl.z);
+    if (off > 400) {
+      const k = Math.min(1, (off - 400) / 400) * 0.5;
+      air.x = lerp(air.x, pl.x, k);
+      air.z = lerp(air.z, pl.z, k);
+      air.y = lerp(air.y, this.planeHeight(pl), k);
     }
-    g.rotation.set(Math.max(-0.26, Math.min(0.10, -rise * 0.05)), pl.h, this.flying.bank);
+    g.position.set(air.x, air.y, air.z);
+    g.rotation.set(air.pitch, air.heading, -air.bank);
     g.visible = true;
     const prop = deck.plane && deck.plane.prop;
     if (prop) prop.rotation.z += 1.6;
