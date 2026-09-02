@@ -35,12 +35,19 @@ export function pitchPeriod(length) { return 0.44 * Math.sqrt(length) * 1.02; }
  * How much of the sea's slope reaches her athwartships.
  *
  * A destroyer is shorter than the swell running under her and lies along it, so
- * she takes very nearly all of it. A battleship spans several waves at once and
- * their slopes cancel out under her bottom before they are ever a heeling
- * moment -- and what is left has a much stiffer ship to shift.
+ * she takes much more of it than a battleship, which spans several waves at
+ * once and has their slopes cancel out under her bottom before they are ever a
+ * heeling moment -- and what is left has a much stiffer ship to shift.
+ *
+ * The destroyer end of this used to be pinned at the ceiling: she took the
+ * whole angle of the water, which put five degrees of roll on a Fletcher in the
+ * roughest preset and made her tiring to watch. She now takes a little under
+ * three fifths of it. The curve was re-fitted rather than simply scaled, so the
+ * big ships come down only slightly and a short hull still heels more than
+ * twice what a long one does.
  */
 export function rollHeed(length) {
-  return Math.min(1, Math.max(0.16, Math.pow(115 / length, 1.3)));
+  return Math.min(1, Math.max(0.16, Math.pow(62.5 / length, 0.915)));
 }
 
 /**
@@ -51,9 +58,13 @@ export function rollHeed(length) {
  * carrier in a hundred-metre sea and the crests under her bow and her stern
  * cancel, and she goes through it flat. That is why a destroyer's bow is in the
  * air and Enterprise, in the same water, is not moving.
+ *
+ * Re-fitted with the roll curve, and for the same reason: a Fletcher nodding a
+ * degree and a half is a ship nobody wants to aim from. She takes about half
+ * what she did, and still pitches four times what a carrier does.
  */
 export function pitchHeed(length) {
-  return Math.min(1, Math.max(0.09, Math.pow(108 / length, 2.1)));
+  return Math.min(1, Math.max(0.09, Math.pow(75.8 / length, 1.78)));
 }
 
 /**

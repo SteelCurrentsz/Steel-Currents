@@ -1200,14 +1200,25 @@ check('both sides of the destroyer\'s hull face outboard', () => {
   const ray = new THREE.Raycaster();
   const normal = new THREE.Matrix3();
   const shots = [];
+  // Athwartships at every height there is ship at -- and that has to include
+  // everything standing on the deck, not just the shell. Her bridge and all
+  // five gunhouses were once lofted inside out, and a sweep that stopped at the
+  // deck edge saw none of it: from outside she had a hole where her
+  // superstructure should be and you looked through her at the sea.
   for (const side of [-1, 1]) {
-    for (let zi = -8; zi <= 8; zi++) {
-      for (const y of [-4, -2, 0, 2, 4]) shots.push([[side * 40, y, (zi / 10) * 50], [-side, 0, 0]]);
+    for (let zi = -11; zi <= 11; zi++) {
+      for (const y of [-4, -2, 0, 2, 4, 5.5, 7, 8.5, 10, 12, 14]) {
+        shots.push([[side * 40, y, (zi / 10) * 51], [-side, 0, 0]]);
+      }
     }
   }
-  // Straight down, which is how a deck wound the wrong way up shows itself.
-  for (let zi = -9; zi <= 9; zi++) {
-    for (const x of [-4, -1.5, 1.5, 4]) shots.push([[x, 40, (zi / 10) * 52], [0, -1, 0]]);
+  // Straight down, which is how a deck wound the wrong way up shows itself,
+  // and straight up, which is how a missing bottom does.
+  for (let zi = -10; zi <= 10; zi++) {
+    for (const x of [-4, -1.5, 1.5, 4]) {
+      shots.push([[x, 40, (zi / 10) * 52], [0, -1, 0]]);
+      shots.push([[x, -40, (zi / 10) * 52], [0, 1, 0]]);
+    }
   }
   const ENDS = [];
   for (const y of [0, 2, 4]) {
@@ -1797,7 +1808,12 @@ check('a destroyer works in a sea her betters walk through', () => {
       `${order[i]} pitches ${pitch[order[i]].toFixed(2)}deg against `
       + `${order[i - 1]}'s ${pitch[order[i - 1]].toFixed(2)}deg`);
   }
-  assert.ok(roll.fletcher > 3 && roll.fletcher < 9, `a Fletcher rolls ${roll.fletcher.toFixed(1)}deg`);
+  // She used to take the whole angle of the water and roll five degrees, which
+  // was tiring to watch and hard to aim from. Steadier now, but she must still
+  // be a destroyer and not a pier.
+  assert.ok(roll.fletcher > 2 && roll.fletcher < 6, `a Fletcher rolls ${roll.fletcher.toFixed(1)}deg`);
+  assert.ok(pitch.fletcher > 0.4 && pitch.fletcher < 1.2,
+    `a Fletcher pitches ${pitch.fletcher.toFixed(2)}deg`);
   assert.ok(roll.iowa < 1.6, `an Iowa rolls ${roll.iowa.toFixed(1)}deg`);
   assert.ok(roll.fletcher > roll.iowa * 2,
     'a destroyer should roll at least twice what a battleship does');
