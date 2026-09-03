@@ -484,19 +484,50 @@ function deliverOrdnance(state, p, best, P) {
       damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
     });
   }
-  // The dive bombers go in over the top. A bomb either hits or it does
-  // not -- there is nothing to run on and nothing to comb -- so it is
-  // settled here rather than given a body to fly.
+  // The dive bombers go in over the top. Whether a bomb hits is settled here
+  // -- there is nothing to run on and nothing to comb, so a bomb is a die roll
+  // and not a body to fly -- but where it is going is sent up the wire, so
+  // what a captain sees is bombs coming down at his ship and bursting on her
+  // or throwing water up alongside. They used to be settled in silence: the
+  // damage arrived and nothing whatever happened on screen.
   for (let i = 0; i < (p.bomb || 0); i++) {
-    if (state.rng() > (P.bombHit ?? 0.4)) continue;
+    const hit = state.rng() <= (P.bombHit ?? 0.4);
+    // A miss is a miss you can see: it goes into the water short, over or off
+    // her beam, which is where they went.
+    const off = hit ? 0 : 45 + state.rng() * 130;
+    const ang = state.rng() * Math.PI * 2;
+    state.events.push({
+      e: 'bomb', team: p.team, i: p.id,
+      x: p.x, z: p.z,
+      tx: best.x + Math.sin(ang) * off,
+      tz: best.z + Math.cos(ang) * off,
+      hit: hit ? 1 : 0,
+    });
+    if (!hit) continue;
     const owner = state.ships.find((s) => s.id === p.owner) || null;
     const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
     const cell = sectionAt(clamp(lb.z / (getClass(best.classId).hull.length * 0.5), -1, 1), 'deck');
     damageShip(state, best, owner, P.bombDamage ?? 4000, 'bomb', cell);
     best.sections[cell].pens++;
     if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
-    state.events.push({ e: 'bombHit', x: best.x, z: best.z });
   }
+}
+
+/**
+ * A flight firing her guns at something, for the look of it.
+ *
+ * The damage is done wherever it is done; this is the tracer reaching out from
+ * her to it, which is the only thing that tells anybody watching that she is
+ * shooting at all. Throttled, because a trigger held down is a message every
+ * tenth of a second and a wire full of them is not worth the tracer.
+ */
+function gunsSeen(state, p, tx, tz, air) {
+  if (state.t - (p.gunAt ?? -9) < 0.12) return;
+  p.gunAt = state.t;
+  state.events.push({
+    e: 'airGuns', i: p.id, team: p.team,
+    x: p.x, z: p.z, tx, tz, air: air ? 1 : 0,
+  });
 }
 
 /**
@@ -560,6 +591,7 @@ export function strafe(state, ship, id, dt) {
     if (q.dead || q.team === p.team) continue;
     if (dist(p.x, p.z, q.x, q.z) > RANGE || bore(q.x, q.z) > CONE) continue;
     q.hp -= (P.fighterGuns ?? 26) * p.count * dt;
+    gunsSeen(state, p, q.x, q.z, true);
     if (q.hp <= 0) killFlight(state, q, 'fighters');
     return true;
   }
@@ -568,6 +600,7 @@ export function strafe(state, ship, id, dt) {
     if (dist(p.x, p.z, s.x, s.z) > RANGE || bore(s.x, s.z) > CONE) continue;
     const owner = state.ships.find((q) => q.id === p.owner) || null;
     damageShip(state, s, owner, (P.strafeDamage ?? 260) * p.count * dt, 'he', 'works');
+    gunsSeen(state, p, s.x, s.z, false);
     return true;
   }
   return false;
@@ -969,7 +1002,7 @@ function stepBatteries(state, dt) {
       for (const p of state.planes) {
         if (p.team === bat.team) continue;
         const d = dist(bat.x, bat.z, p.x, p.z);
-        if (d < aa.range) p.hp -= aa.dps * dt * (1 - (d / aa.range) * 0.4);
+        if (d < aa.range) p.hp -= aa.dps * dt * aaBite(d, aa.range);
       }
     }
 
@@ -1549,6 +1582,40 @@ function stepLaunch(state, ship, dt) {
   }
 }
 
+/**
+ * What each kind can sustain in a turn, in radians a second, and how fast she
+ * rolls into one.
+ *
+ * A Wildcat clean at cruise comes round at about sixteen degrees a second; a
+ * loaded Avenger with a torpedo slung under her is a good deal slower than
+ * that, and it is why a torpedo attack has to be set up from a long way out.
+ */
+const TURN_RATE = { fighter: 0.28, dive: 0.22, scout: 0.22, torpedo: 0.17 };
+const ROLL_RATE = 0.5;
+
+/**
+ * How much of a battery's fire is telling, at a given fraction of its range.
+ *
+ * Anti-aircraft fire is not one weapon with one reach. The heavy dual-purpose
+ * guns throw a shell eleven thousand yards and burst it on a time fuse, and
+ * out at the edge of that they hardly ever hit anything: what they do is break
+ * up a formation and make it fly badly. What kills aeroplanes is the automatic
+ * guns inside three thousand yards, and the twenty-millimetre inside one.
+ *
+ * So the reach is the heavy battery's and the killing is the light one's, and
+ * a strike is meant to get through and lose part of itself doing it. It used
+ * to fall off from full effect to sixty per cent across the whole envelope,
+ * which put a strike under something very near point-blank fire from the
+ * moment it was sighted -- and the arithmetic of that is that no strike ever
+ * arrived. Every squadron the Enterprise flew off was shot into the sea three
+ * thousand metres short of the ship it was sent to attack, every time, and
+ * nobody ever saw a bomb dropped.
+ */
+function aaBite(d, range) {
+  const u = clamp(d / range, 0, 1);
+  return 0.10 + 0.90 * Math.pow(1 - u, 2.2);
+}
+
 /** How big a hull is, for the purpose of deciding who goes after her. */
 function bulk(s) { return getClass(s.classId).hull.length; }
 
@@ -1617,7 +1684,7 @@ function stepPlanes(state, dt) {
       if (d >= scls.aa.range) continue;
       const bear = aaBearing(scls, s, p.x, p.z);
       if (bear.barrels === 0) continue;
-      const hurt = scls.aa.dps * bear.share * dt * (1 - d / scls.aa.range * 0.4);
+      const hurt = scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range);
       p.hp -= hurt;
       // And the tracer that goes with it. One burst at a time per ship, on the
       // gun's own rhythm rather than every tick, or the wire carries a
@@ -1671,9 +1738,26 @@ function stepPlanes(state, dt) {
       let goalX = p.tx, goalZ = p.tz;
       if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
       const want = headingTo(p.x, p.z, goalX, goalZ);
-      p.heading = approachAngle(p.heading, want, 1.1 * dt);
+      // She rolls into a turn and out of it.
+      //
+      // A flight used to change course at 1.1 radians a second, which is sixty
+      // degrees -- that is a marker being dragged round a chart, not an
+      // aeroplane, and on screen it read as a formation snapping from one
+      // heading to another and back. What she can really do is a sustained
+      // rate that depends on what she is, and she has to bank to get it and
+      // roll level to come out: the rate itself is what is rate-limited, so
+      // there are no corners anywhere in her track.
+      const rate = TURN_RATE[p.role] ?? 0.22;
+      const asked = clamp(angleDelta(p.heading, want) * 1.5, -rate, rate);
+      const was = p.turn ?? 0;
+      p.turn = was + clamp(asked - was, -ROLL_RATE * dt, ROLL_RATE * dt);
+      p.heading = wrapAngle(p.heading + p.turn * dt);
       p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
       p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
+    } else {
+      // Somebody is flying her: her bank is his, and the client that has her
+      // draws it off his own stick rather than off this.
+      p.turn = 0;
     }
 
     if (p.flown) { out.push(p); continue; }
@@ -1688,6 +1772,8 @@ function stepPlanes(state, dt) {
         const bite = P.fighterGuns ?? 26;
         foe.hp -= bite * p.count * dt;
         p.hp -= (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt;
+        gunsSeen(state, p, foe.x, foe.z, true);
+        gunsSeen(state, foe, p.x, p.z, true);
         if (foe.hp <= 0) killFlight(state, foe, 'fighters');
         out.push(p);
         continue;
@@ -1700,7 +1786,8 @@ function stepPlanes(state, dt) {
         damageShip(state, mark, owner, strafe, 'he', 'works');
         mark.sections.works.pens += 1;
         if (state.rng() < 0.3) startFire(state, mark);
-        state.events.push({ e: 'airDrop', x: p.x, z: p.z });
+        p.gunAt = -9;
+        gunsSeen(state, p, mark.x, mark.z, false);
         p.phase = 'return';
       } else if (p.life > 150) {
         p.phase = 'return';

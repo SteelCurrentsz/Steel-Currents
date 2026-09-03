@@ -54,7 +54,7 @@ export function shipSnapshot(ship, full) {
   return s;
 }
 
-export function buildSnapshot(state, team, viewerShipId) {
+export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   const ships = [];
   // What a captain can see out of the bridge windows, and what the plot knows.
   //
@@ -64,18 +64,26 @@ export function buildSnapshot(state, team, viewerShipId) {
   // and it goes nowhere but the plot: a fleet action is fought off a plot that
   // has everybody's last known position on it, and a captain who cannot see
   // where the enemy line is cannot manoeuvre against it.
+  //
+  // With one exception, and it is the whole of spectating: the ship the viewer
+  // has picked off the plot and is watching comes through in full, spotted or
+  // not. Watching a contact used to put the camera over an empty patch of sea
+  // -- there was no hull in the snapshot to draw, because nobody had sighted
+  // her -- and a captain looking at a ship through his own periscope of a
+  // camera is entitled to see her.
   const contacts = [];
   for (const s of state.ships) {
     const friendly = s.team === team;
-    if (!s.alive && !friendly) continue;
-    if (!friendly && !s.spottedBy[team]) {
+    const watched = s.id === watchId;
+    if (!s.alive && !friendly && !watched) continue;
+    if (!friendly && !watched && !s.spottedBy[team]) {
       contacts.push({
         i: s.id, x: Math.round(s.x), z: Math.round(s.z), h: r3(s.heading),
         tm: s.team, c: s.classId, n: s.name,
       });
       continue;
     }
-    ships.push(shipSnapshot(s, friendly || s.id === viewerShipId));
+    ships.push(shipSnapshot(s, friendly || s.id === viewerShipId || watched));
   }
   const visibleOwners = new Set(ships.map((s) => s.i));
   const shells = [];
@@ -97,6 +105,9 @@ export function buildSnapshot(state, team, viewerShipId) {
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life),
+      // How hard she is turning, so the client can bank her properly instead
+      // of differencing two headings five times a second.
+      b: r3(p.turn || 0),
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
       // Whether she still has anything to drop, so a pilot's release button

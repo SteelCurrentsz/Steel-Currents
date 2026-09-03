@@ -58,12 +58,15 @@ export class Battle {
     // the same holes after it has been put away and raised again.
     this.holes = [];
     // The three conn keys, and what each of their panels does.
+    // Every one of these is given to whichever ship is being conned -- your
+    // own, or whoever you have picked off the plot and are watching.
     this.hud.onConn?.((k, v) => {
+      const ship = this.conned();
       if (k === 'notch') this.setNotch(v);
-      else if (k === 'air') this.net.send({ t: 'strike' });
+      else if (k === 'air') this.net.send({ t: 'strike', ship });
       else if (k === 'plane') this.togglePilotView();
-      else if (k === 'repair') this.net.send({ t: 'repair' });
-      else if (k === 'smoke') this.net.send({ t: 'smoke' });
+      else if (k === 'repair') this.net.send({ t: 'repair', ship });
+      else if (k === 'smoke') this.net.send({ t: 'smoke', ship });
       audio.click();
     });
 
@@ -88,6 +91,9 @@ export class Battle {
     // You still have the con while you are watching — the helm and the
     // telegraph answer, the guns hold whatever bearing they were left on.
     this.watching = null;
+    // Which ship the server has been told the camera is on, so the word only
+    // goes up the wire when it changes.
+    this.watchSent = 0;
     // Which of our own the plot is conning. Your own hull until you say
     // otherwise, so the first course you lay off goes to her.
     this.selected = shipId;
@@ -289,6 +295,25 @@ export class Battle {
           v?.group.userData.launch?.(this.time);
           break;
         }
+        case 'bomb': {
+          // One bomb away, and where she is going. The arc is flown by the
+          // scene; whether she hits was settled the moment the pilot let go.
+          const from = (this.planesNow || []).find((q) => q.i === ev.i);
+          const y = from ? this.planeHeight(from) : 220;
+          this.scene.bombs.drop(ev.x, y, ev.z, ev.tx, ev.tz, !!ev.hit, fx);
+          break;
+        }
+        case 'airGuns': {
+          // Her guns: tracer reaching out from her to whatever she is on. The
+          // aeroplane the player is flying draws her own, off the stick,
+          // without waiting for the wire to tell her she fired.
+          if (this.flight && this.flight.id === ev.i) break;
+          const from = (this.planesNow || []).find((q) => q.i === ev.i);
+          const y = from ? this.planeHeight(from) : 200;
+          const ty = ev.air ? y - 8 : 22;
+          this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          break;
+        }
         case 'planesLost': if (ev.team === this.team) this.hud.alert('Squadron lost'); break;
         default: break;
       }
@@ -395,10 +420,16 @@ export class Battle {
    * enemy or a gun ashore puts the camera on it as it always did.
    */
   workPlot(hit, at) {
-    if (hit && hit.kind === 'ship' && hit.team === this.team) {
-      this.selected = this.selected === hit.id ? null : hit.id;
+    // Any ship picked off the plot is the ship you are watching and the ship
+    // you are conning, whichever side she is on. The two used to be different
+    // things -- tapping your own division selected her for orders and tapping
+    // the enemy moved the camera -- and the result was that half the marks on
+    // the chart did one thing and half did the other.
+    if (hit && hit.kind === 'ship') {
+      this.lookAt(hit);
+      this.selected = this.watching && this.watching.kind === 'ship'
+        ? this.watching.id : this.shipId;
       this.hud.setSelected(this.selected);
-      audio.click();
       return;
     }
     if (!hit && at) {
@@ -445,6 +476,15 @@ export class Battle {
       this.watchDistNow = 3.2;
       this.watchFov = 52;
       this.watchFovNow = 52;
+    }
+    // And the server is told, because it decides what this client is shown:
+    // a ship nobody aboard has sighted is not in the snapshot at all, and
+    // watching her put the camera over an empty patch of sea. Named, she
+    // comes through in full.
+    const eyes = this.watching && this.watching.kind === 'ship' ? this.watching.id : 0;
+    if (eyes !== this.watchSent) {
+      this.watchSent = eyes;
+      this.net.send({ t: 'watch', ship: eyes });
     }
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
@@ -554,6 +594,7 @@ export class Battle {
       armed: (pl.r || 'torpedo') !== 'fighter',
       sent: 0,
       guns: 0,
+      tracer: 0,
     };
     // If the flight taken is the one the carrier's own deck model is flying --
     // the aeroplane that came up the lift and went down the deck -- she is put
@@ -615,14 +656,29 @@ export class Battle {
     p.step(dt, sea);
     if (!p.alive) { this.leaveFlight(true); return; }
 
-    // The guns: held down, reported in bursts rather than per frame.
+    // The guns: held down, reported in bursts rather than per frame. The
+    // tracer is drawn here rather than off the wire coming back, because a
+    // pilot pressing the trigger has to see it leave the wing now.
     if (stick.firing) {
       f.guns += dt;
+      f.tracer -= dt;
+      if (f.tracer <= 0) {
+        f.tracer = 0.1;
+        const cp = Math.cos(p.pitch);
+        const R = 620;
+        this.scene.flak.fire(
+          p.x, p.y - 0.6, p.z,
+          p.x + Math.sin(p.heading) * cp * R,
+          p.y + Math.sin(p.pitch) * R,
+          p.z + Math.cos(p.heading) * cp * R,
+          12.7, 8, this.scene.effects,
+        );
+      }
       if (f.guns > 0.15) {
         this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
         f.guns = 0;
       }
-    } else f.guns = 0;
+    } else { f.guns = 0; f.tracer = 0; }
 
     f.sent -= dt;
     if (f.sent <= 0) {
@@ -675,9 +731,31 @@ export class Battle {
    */
   setNotch(n) {
     const want = clamp(Math.round(n), MIN_NOTCH, MAX_NOTCH);
+    // Watching somebody else, the telegraph is hers: a captain who has picked
+    // a ship off the plot and is standing on her bridge rings up her engine
+    // room, not his own two miles away.
+    const conned = this.conned();
+    if (conned !== this.shipId) {
+      this.net.send({ t: 'notch', ship: conned, notch: want });
+      return;
+    }
     if (this.localShip.notch === want) return;
     this.localShip.notch = want;
     this.net.send({ t: 'input', notch: want });
+  }
+
+  /** Whose bridge the controls answer: the ship being watched, else your own. */
+  conned() {
+    return this.watching && this.watching.kind === 'ship'
+      ? this.watching.id : this.shipId;
+  }
+
+  /** The snapshot of whoever is being read out at the bottom of the screen. */
+  shownShip() {
+    const id = this.conned();
+    if (id === this.shipId) return this.ownSnap;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    return snap ? snap.ships.find((s) => s.i === id) || null : null;
   }
 
   leave() {
@@ -749,9 +827,22 @@ export class Battle {
       ? { ...this.ownSnap, v: ls.speed, h: ls.heading, notch: ls.notch, rud: ls.rudderCmd, maxHp: this.cls.hp }
       : null;
     const snap = this.snapshots[this.snapshots.length - 1];
-    this.hud.update(ownForHud, snap);
+    // The plate at the bottom reads whichever bridge you are standing on. Your
+    // own hull comes off the local prediction so the telegraph and the heading
+    // answer the instant they are worked; anybody else's comes off the wire.
+    const other = this.conned() === this.shipId ? null : this.shownShip();
+    const shown = other
+      ? { ...other, maxHp: getClass(other.c).hp }
+      : ownForHud;
+    if (shown) this.hud.setShown(shown.c);
+    this.hud.update(shown, snap);
     // The board only turns while it is being looked at.
-    if (this.board && this.hud.panel === 'dmg') this.board.update(ownForHud?.sec, dt);
+    if (this.board && this.hud.panel === 'dmg') {
+      if (shown) this.board.build(shown.c);
+      this.board.update(shown?.sec, dt);
+    }
+    // The plot is always drawn round your own hull, whoever the camera is on:
+    // it is your chart table, and the mark in the middle of it is you.
     if (snap) this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
@@ -793,10 +884,18 @@ export class Battle {
     if (!a) return;
     const t = b ? clamp((renderTime - a.at) / Math.max(0.0001, b.at - a.at), 0, 1) : 0;
 
-    if (this.selected !== this.shipId
-      && !a.ships.some((s) => s.i === this.selected && s.a)) {
-      this.selected = this.shipId;
-      this.hud.setSelected(this.selected);
+    // A ship conned off the chart holds the con until she sinks or drops off
+    // the plot altogether. She used to have to be in `ships` -- which an
+    // enemy the lookouts have lost is not -- and the con snapped back to your
+    // own bridge a tick after you gave it away.
+    if (this.selected !== this.shipId) {
+      const still = a.ships.some((s) => s.i === this.selected && s.a)
+        || (a.contacts || []).some((s) => s.i === this.selected);
+      if (!still) {
+        this.selected = this.shipId;
+        this.hud.setSelected(this.selected);
+        if (this.watching && this.watching.kind === 'ship') this.lookAt(null);
+      }
     }
     const seen = new Set();
     for (const s of a.ships) {
@@ -938,6 +1037,7 @@ export class Battle {
         z: lerp(pl.z, nx.z, t),
         h: pl.h + angleDelta(pl.h, nx.h) * t,
         a: lerp(pl.a, nx.a, t),
+        b: lerp(pl.b || 0, nx.b || 0, t),
       };
     });
     this.planesNow = planes;
@@ -946,13 +1046,20 @@ export class Battle {
     // them as she actually has.
     this.scene.flights.begin();
     for (const pl of planes) {
-      // How hard she is turning, from how fast her heading is changing: an
-      // aeroplane in a turn is banked, and a formation of them all banked
-      // together is the thing that reads as a squadron manoeuvring.
-      const was = this.planeTurn.get(pl.i);
-      const rate = was === undefined ? 0 : angleDelta(was, pl.h) / Math.max(dt, 1 / 120);
-      this.planeTurn.set(pl.i, pl.h);
-      const bank = clamp(rate * 1.6, -1.05, 1.05);
+      // How hard she is banked.
+      //
+      // It used to be worked out by differencing her heading between two
+      // snapshots, which arrive five times a second: the answer jumped between
+      // hard over and level from frame to frame and the formation flickered.
+      // The simulation knows her turn rate now and sends it, and a banked turn
+      // is a coordinated one -- tan(bank) = v.omega / g -- so the angle is the
+      // angle she would really be at. Eased so a rate quantised on the wire
+      // still rolls rather than steps.
+      const want = clamp(Math.atan2(60 * (pl.b || 0), 9.81), -1.15, 1.15);
+      const held = this.planeTurn.get(pl.i);
+      const bank = held === undefined ? want
+        : held + (want - held) * (1 - Math.pow(0.02, dt));
+      this.planeTurn.set(pl.i, bank);
       const climb = clamp(((pl.a ?? 99) - 6) / 30, 0, 1);
       const pitch = (1 - climb) * 0.14;
       // The one aeroplane a carrier put in the air is drawn by the deck

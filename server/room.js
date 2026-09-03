@@ -257,7 +257,7 @@ export class Room {
 
   sendSnapshots() {
     for (const p of this.players.values()) {
-      p.send(buildSnapshot(this.state, p.team, p.shipId));
+      p.send(buildSnapshot(this.state, p.team, p.shipId, p.watching || 0));
     }
   }
 
@@ -275,18 +275,41 @@ export class Room {
     return this.state.ships.find((s) => s.id === player.shipId);
   }
 
+  /**
+   * Which ship an order is for: the one named in it, or the giver's own.
+   *
+   * The plot is a director's table and a ship picked off it is conned from it,
+   * whichever side she is on, so there is no team check here. What there is
+   * is a check that she exists and is still afloat.
+   */
+  conned(ship, msg) {
+    if (typeof msg.ship !== 'number' || msg.ship === ship.id) return ship;
+    const target = this.state.ships.find((s) => s.id === msg.ship);
+    return target && target.alive ? target : ship;
+  }
+
   command(player, msg) {
+    // Which ship the camera is on. It is answered before anything else,
+    // because a captain whose own ship has gone down is exactly the man who
+    // wants to watch somebody else's -- and the guard below would have turned
+    // him away.
+    if (msg.t === 'watch') {
+      player.watching = typeof msg.ship === 'number' ? msg.ship : 0;
+      return;
+    }
     const ship = this.shipOf(player);
     if (!ship || !ship.alive) return;
     switch (msg.t) {
       case 'input': applyInput(ship, msg); break;
       // A course order off the chart. It may be given to any ship on the
-      // giver's own side, which is what makes the plot a command table rather
-      // than a map -- but never to the enemy's.
+      // plot -- the giver's own division, and the enemy's line as well. That
+      // is not how a battle works and it is not meant to be: the plot here is
+      // a director's table, and a player who has picked a ship off it and is
+      // watching her from her own bridge conns her.
       case 'goto': {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
-        if (!target || !target.alive || target.team !== ship.team) break;
+        if (!target || !target.alive) break;
         // No point given is the order cancelled: she holds what she is on.
         if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
           target.wayX = null;
@@ -303,14 +326,17 @@ export class Room {
       case 'notch': {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
-        if (!target || !target.alive || target.team !== ship.team) break;
+        if (!target || !target.alive) break;
         applyInput(target, { notch: msg.notch });
         break;
       }
       case 'fire': fireGuns(this.state, ship); break;
       case 'torp': fireTorpedoes(this.state, ship); break;
-      case 'repair': useRepair(this.state, ship); break;
-      case 'smoke': useSmoke(this.state, ship); break;
+      // Damage control and smoke are given to whichever ship is being conned,
+      // the same way a course is. A captain watching another ship from her own
+      // bridge is on her bridge.
+      case 'repair': useRepair(this.state, this.conned(ship, msg)); break;
+      case 'smoke': useSmoke(this.state, this.conned(ship, msg)); break;
       // A player flying one of her flights by hand. `fly` is where the
       // aeroplane is now, `drop` lets go of what she is carrying, and `land`
       // hands her back to the autopilot.
@@ -324,11 +350,12 @@ export class Room {
         // Her aircraft go for whatever her fire control is on. The guns and the
         // squadron fight the same ship, which is what a captain ordering a
         // strike means by it -- he does not lay off a separate bearing.
-        const brain = this.brains.get(ship.id);
+        const from = this.conned(ship, msg);
+        const brain = this.brains.get(from.id);
         const foe = brain && this.state.ships.find(
-          (s) => s.id === brain.targetId && s.alive && s.team !== ship.team);
-        if (foe) { ship.aimX = foe.x; ship.aimZ = foe.z; }
-        launchStrike(this.state, ship);
+          (s) => s.id === brain.targetId && s.alive && s.team !== from.team);
+        if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
+        launchStrike(this.state, from);
         break;
       }
       default: break;

@@ -272,3 +272,162 @@ export class Flak {
     this.park(n);
   }
 }
+
+// ---------------------------------------------------------------- the bombs --
+
+/**
+ * A bomb: a body, an ogive nose and a box tail on four fins.
+ *
+ * Built pointing down +Z, one long and one across, so an instance can be
+ * scaled and laid along the line it is falling on.
+ */
+export function bombGeometry() {
+  const RINGS = [
+    // [z along the bomb, radius], nose first.
+    [0.50, 0.00], [0.45, 0.10], [0.39, 0.17], [0.30, 0.23],
+    [0.18, 0.26], [-0.06, 0.27], [-0.24, 0.24], [-0.34, 0.20],
+    [-0.42, 0.17], [-0.50, 0.15],
+  ];
+  const N = 10;
+  const pos = [];
+  const idx = [];
+  for (const [z, r] of RINGS) {
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      pos.push(Math.cos(a) * r, Math.sin(a) * r, z);
+    }
+  }
+  for (let k = 0; k < RINGS.length - 1; k++) {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      idx.push(k * N + i, (k + 1) * N + i, (k + 1) * N + j,
+        k * N + i, (k + 1) * N + j, k * N + j);
+    }
+  }
+  // The cruciform tail: four vanes standing off the body aft, which is what a
+  // bomb is steered by and what says "bomb" rather than "shell" at any range
+  // you would see one from.
+  const fin = (ax, ay) => {
+    const base = pos.length / 3;
+    const t = 0.018;                                  // half the vane's thickness
+    // Eight corners of a thin slab: out along (ax, ay), thick across it, and
+    // running from the tail forward to the after end of the body.
+    for (const r of [0.11, 0.31]) {
+      for (const wsg of [-1, 1]) {
+        for (const z of [-0.52, -0.20]) {
+          pos.push(ax * r - ay * wsg * t, ay * r + ax * wsg * t, z);
+        }
+      }
+    }
+    const at = (ri, wi, zi) => base + (ri * 2 + wi) * 2 + zi;
+    const quad = (a, b, c, d) => {
+      // Both windings, so a vane is solid whichever side of it you are on
+      // without having to reason about which way each face points.
+      idx.push(a, b, c, a, c, d, a, d, c, a, c, b);
+    };
+    quad(at(0, 0, 0), at(0, 0, 1), at(0, 1, 1), at(0, 1, 0));   // inboard end
+    quad(at(1, 0, 0), at(1, 0, 1), at(1, 1, 1), at(1, 1, 0));   // outboard edge
+    quad(at(0, 0, 0), at(0, 0, 1), at(1, 0, 1), at(1, 0, 0));   // one face
+    quad(at(0, 1, 0), at(0, 1, 1), at(1, 1, 1), at(1, 1, 0));   // and the other
+    quad(at(0, 0, 0), at(0, 1, 0), at(1, 1, 0), at(1, 0, 0));   // the tail edge
+    quad(at(0, 0, 1), at(0, 1, 1), at(1, 1, 1), at(1, 0, 1));   // and forward
+  };
+  fin(1, 0); fin(-1, 0); fin(0, 1); fin(0, -1);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * The bombs on the way down.
+ *
+ * A dive bomber's bomb is settled the moment she lets go of it -- there is
+ * nothing for it to run on and nothing to comb -- so the simulation does not
+ * fly a body for it. What it sends is where the bomb was released and where it
+ * is going to arrive, and this flies the arc between the two: which is the
+ * whole of what anybody on the receiving end ever saw of it, and without it a
+ * strike going in was damage appearing out of a clear sky.
+ */
+export class Bombs {
+  constructor(scene, max = 48) {
+    this.max = max;
+    this.live = [];
+    this.mat = new THREE.MeshLambertMaterial({ color: 0x3c4149 });
+    this.mesh = new THREE.InstancedMesh(bombGeometry(), this.mat, max);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    scene.add(this.mesh);
+    this.dummy = new THREE.Object3D();
+    this.dir = new THREE.Vector3();
+    this.quat = new THREE.Quaternion();
+    this.fwd = new THREE.Vector3(0, 0, 1);
+    this.park(0);
+  }
+
+  park(from) {
+    const d = this.dummy;
+    d.position.set(0, -20000, 0);
+    d.quaternion.identity();
+    d.scale.setScalar(0.001);
+    d.updateMatrix();
+    for (let i = from; i < this.max; i++) this.mesh.setMatrixAt(i, d.matrix);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * One bomb away. `y` is the height she was released from, `hit` says whether
+   * this one is going to find the ship or go into the water alongside.
+   *
+   * The drawn size is exaggerated the same way a shell's is, and for the same
+   * reason: a real thousand-pounder is a metre and three quarters long, and at
+   * the range you watch one come down from that is not a pixel. It is
+   * exaggerated by the same factor, so a bomb and a sixteen-inch round stand
+   * in the right relation to each other.
+   */
+  drop(x, y, z, tx, tz, hit, effects, size = 9) {
+    if (this.live.length >= this.max) return;
+    this.live.push({
+      x0: x, y0: Math.max(40, y), z0: z, x1: tx, z1: tz,
+      t: 0, fall: 3.6 + Math.random() * 0.5, hit, effects, size,
+    });
+  }
+
+  update(dt) {
+    const d = this.dummy;
+    let n = 0;
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const b = this.live[i];
+      b.t += dt;
+      const u = b.t / b.fall;
+      if (u >= 1) {
+        // Arrival: a burst on her upperworks, or a column of water alongside.
+        if (b.effects) {
+          if (b.hit) b.effects.explosion(b.x1, 14, b.z1, 1.7);
+          else b.effects.splash(b.x1, b.z1, 320);
+        }
+        this.live.splice(i, 1);
+        continue;
+      }
+      if (n >= this.max) continue;
+      // Level flight speed carried forward, and gravity taking her down: the
+      // arc is what says "released from an aeroplane" rather than "dropped".
+      const x = b.x0 + (b.x1 - b.x0) * u;
+      const z = b.z0 + (b.z1 - b.z0) * u;
+      const y = b.y0 * (1 - u * u);
+      d.position.set(x, y, z);
+      this.dir.set((b.x1 - b.x0), -2 * b.y0 * u, (b.z1 - b.z0));
+      if (this.dir.lengthSq() > 1e-6) {
+        this.dir.normalize();
+        this.quat.setFromUnitVectors(this.fwd, this.dir);
+        d.quaternion.copy(this.quat);
+      } else d.quaternion.identity();
+      d.scale.set(b.size * 0.34, b.size * 0.34, b.size);
+      d.updateMatrix();
+      this.mesh.setMatrixAt(n++, d.matrix);
+    }
+    this.park(n);
+  }
+}

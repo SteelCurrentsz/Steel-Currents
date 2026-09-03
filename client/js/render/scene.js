@@ -6,7 +6,7 @@ import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
-import { Shells, Flak } from './ordnance.js';
+import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
 import { Wake } from './wake.js';
@@ -753,6 +753,8 @@ export class BattleScene {
     this.shells = new Shells(this.scene, 900);
     // The light battery's tracer and the black puffs it leaves behind.
     this.flak = new Flak(this.scene, 900);
+    // What the dive bombers let go of, on the way down.
+    this.bombs = new Bombs(this.scene, 64);
 
     // The fish in the water and the rope of bubbles behind each of them.
     // See torpedo.js: the track is the weapon, as far as anybody conning a
@@ -884,6 +886,7 @@ export class BattleScene {
     this.ocean.update(dt, eye);
     this.effects.update(dt);
     this.flak.update(dt);
+    this.bombs.update(dt);
     this.torpedoes.update(dt, this.torpsNow || [],
       (x, z) => this.ocean.heightAt(x, z));
     this.weather.update(dt, eye);

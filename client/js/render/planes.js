@@ -25,15 +25,24 @@ import { __aircraft } from './enterprise.js';
  * The models are written as a few hundred boxes and cylinders because that is
  * how you write a readable aeroplane. This is what makes them affordable.
  */
-function weld(group) {
+export function weld(group) {
   group.updateMatrixWorld(true);
   const mats = [];
   const buckets = new Map();
   const m = new THREE.Matrix4();
   const nm = new THREE.Matrix3();
   const v = new THREE.Vector3();
+  // A model that can fold its wings has both states built into it and shows
+  // one of them. Welding walks the tree rather than the picture, so without
+  // this an Avenger came out of here with two sets of wings -- the spread
+  // pair she is flying on and the stowed pair lying along her sides.
+  const shown = (o) => {
+    for (let n = o; n && n !== group.parent; n = n.parent) if (n.visible === false) return false;
+    return true;
+  };
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
+    if (!shown(o)) return;
     const list = Array.isArray(o.material) ? o.material : [o.material];
     const mat = list[0];
     let b = buckets.get(mat);
@@ -82,7 +91,7 @@ function weld(group) {
 }
 
 /** One of each type, in flight trim, welded and ready to instance. */
-function flightModels() {
+export function flightModels() {
   const out = {};
   const make = (key, build) => {
     const g = new THREE.Group();
@@ -107,7 +116,7 @@ function flightModels() {
     p.add(disc);
     out[key] = weld(g);
   };
-  make('wildcat', (g) => __aircraft.wildcat(g, 0, 0, 0, 0, { gear: false }));
+  make('wildcat', (g) => __aircraft.wildcat(g, 0, 0, 0, 0, false, { gear: false }));
   make('dauntless', (g) => __aircraft.dauntless(g, 0, 0, 0, 0, false, { gear: false }));
   make('avenger', (g) => __aircraft.avenger(g, 0, 0, 0, 0, false, true, { gear: false }));
   return out;

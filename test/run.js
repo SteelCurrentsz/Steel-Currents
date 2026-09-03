@@ -22,8 +22,9 @@ import { Pilot, AERO } from '../client/js/render/aero.js';
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { arsenal } from '../client/js/hud.js';
-import { shellLength } from '../client/js/render/ordnance.js';
-import { angleDelta } from '../shared/math.js';
+import { shellLength, bombGeometry } from '../client/js/render/ordnance.js';
+import { weld, flightModels } from '../client/js/render/planes.js';
+import { angleDelta, dist } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
 import { Wake } from '../client/js/render/wake.js';
@@ -305,6 +306,82 @@ check('snapshots hide unspotted enemies', () => {
   const ownView = buildSnapshot(state, 0, a.id);
   assert.ok(ownView.ships.some((s) => s.i === a.id), 'you always see your own ship');
   assert.ok(ownView.ships.find((s) => s.i === a.id).cd, 'own ship snapshot carries reload timers');
+});
+
+check('a ship you are watching comes through in full, however far off she is', () => {
+  // The plot shows the whole order of battle, and a mark you can tap has to be
+  // a mark you can watch. Watching an enemy nobody aboard had sighted used to
+  // put the camera over an empty patch of sea: she was a contact -- a position
+  // and a heading and nothing else -- so there was no hull in the snapshot to
+  // draw and no condition to read out. Named as the one being watched, she
+  // comes through the same way your own division does.
+  const { state, a, b } = duel('fletcher', 'iowa', 12000);
+  for (let i = 0; i < 10; i++) step(state, DT);
+  const blind = buildSnapshot(state, 1, b.id);
+  assert.ok(!blind.ships.some((s) => s.i === a.id), 'she was sighted after all');
+  assert.ok(blind.contacts.some((s) => s.i === a.id), 'she is not even on the plot');
+
+  const watched = buildSnapshot(state, 1, b.id, a.id);
+  const her = watched.ships.find((s) => s.i === a.id);
+  assert.ok(her, 'the ship being watched is still not in the snapshot');
+  assert.ok(!watched.contacts.some((s) => s.i === a.id),
+    'she is a contact and a ship at once');
+  // And in full: her compartments and her reload timers, which is what the
+  // plate at the bottom of the screen reads.
+  assert.ok(her.sec && her.sec.length, 'she came through without her compartments');
+  assert.ok(her.cd, 'she came through without her reload timers');
+  // Nobody else is given away by it.
+  const others = state.ships.filter((s) => s.team === 0 && s.id !== a.id);
+  for (const o of others) {
+    assert.ok(!watched.ships.some((s) => s.i === o.id), 'watching one ship uncovered another');
+  }
+});
+
+check('a ship picked off the plot is conned from it, whichever side she is on', () => {
+  // The plot is a director's table. A captain who has picked a ship off it and
+  // is standing on her bridge rings up her engine room and lays off her course
+  // -- and that goes for the enemy's line as well as his own division, which
+  // is not how a battle works and is exactly what was asked for.
+  const room = new Room({ name: 'Test', mode: 'deathmatch', autoStart: false, seed: 7 });
+  const sent = [];
+  const player = { id: 'p1', name: 'You', send: (m) => sent.push(m) };
+  room.join(player, { name: 'You', classId: 'fletcher', team: 0 });
+  const mine = room.state.ships.find((s) => s.id === player.shipId);
+  const friend = addShip(room.state, { name: 'Mate', classId: 'cleveland', team: 0, index: 1 });
+  const foe = addShip(room.state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+
+  for (const target of [friend, foe]) {
+    room.command(player, { t: 'goto', ship: target.id, x: 4321, z: -1234 });
+    assert.equal(target.wayX, 4321, `${target.name} did not take the course`);
+    assert.equal(target.wayZ, -1234, `${target.name} did not take the course`);
+    room.command(player, { t: 'notch', ship: target.id, notch: 3 });
+    assert.equal(target.notch, 3, `${target.name} did not answer the telegraph`);
+  }
+  // Your own hull is untouched by an order given to somebody else.
+  assert.equal(mine.wayX, null, 'the order went to your own ship as well');
+
+  // Damage control is hers too: pressed while watching another ship, it is her
+  // parties that turn out, not yours two miles away.
+  friend.fires = 2;
+  mine.fires = 2;
+  room.command(player, { t: 'repair', ship: friend.id });
+  assert.equal(friend.fires, 0, 'her fires were not put out');
+  assert.equal(mine.fires, 2, 'your own parties turned out instead of hers');
+
+  // A ship that has gone down takes no orders at all.
+  foe.alive = false;
+  room.command(player, { t: 'notch', ship: foe.id, notch: 1 });
+  assert.equal(foe.notch, 3, 'a sunk ship answered her telegraph');
+  room.command(player, { t: 'goto', ship: foe.id, x: 10, z: 10 });
+  assert.equal(foe.wayX, 4321, 'a sunk ship took a course');
+
+  // And the camera: a player says which ship he is watching, and it is that
+  // ship the snapshot is built to show him.
+  room.command(player, { t: 'watch', ship: foe.id });
+  assert.equal(player.watching, foe.id, 'the room did not note who he is watching');
+  room.command(player, { t: 'watch', ship: 0 });
+  assert.equal(player.watching, 0, 'he could not stop watching');
+  room.close();
 });
 
 check('a sinking is credited to the shooter', () => {
@@ -1903,6 +1980,56 @@ check('a launch runs the whole evolution, hangar to bow', () => {
 });
 
 
+check('an aeroplane in the air is flying on her wings', () => {
+  // Two things put aeroplanes in the sky with no wings on them, and one of
+  // them put a second pair on the ones that had any.
+  //
+  // The Wildcat was built folded and only folded -- there was no spread state
+  // in her at all -- so every fighter the Enterprise flew off was a fuselage.
+  // And the welder that flattens a model into one geometry for instancing
+  // walked the whole tree rather than what is actually showing, so an Avenger
+  // came out of it carrying both her spread wings and her stowed ones.
+  const span = (build) => {
+    const g = new THREE.Group();
+    build(g);
+    const { geo } = weld(g);
+    geo.computeBoundingBox();
+    const b = geo.boundingBox;
+    return { span: b.max.x - b.min.x, verts: geo.attributes.position.count };
+  };
+  const spread = span((g) => __aircraft.wildcat(g, 0, 0, 0, 0, false, { gear: false }));
+  assert.ok(Math.abs(spread.span - 11.58) < 1.5,
+    `a Wildcat in flight trim spans ${spread.span.toFixed(1)} m, not 11.6`);
+
+  // And welding takes only the state that is showing: an aeroplane with her
+  // wings out has fewer vertices in her than one carrying both pairs would.
+  const folded = span((g) => __aircraft.avenger(g, 0, 0, 0, 0, true, false, { gear: false }));
+  const out = span((g) => __aircraft.avenger(g, 0, 0, 0, 0, false, false, { gear: false }));
+  const both = (() => {
+    const g = new THREE.Group();
+    const p = __aircraft.avenger(g, 0, 0, 0, 0, false, false, { gear: false });
+    p.userData.wings.stowed.visible = true;
+    const { geo } = weld(g);
+    return geo.attributes.position.count;
+  })();
+  assert.ok(out.verts < both,
+    'an Avenger in flight trim is welded with her folded wings still on her');
+  assert.ok(Math.abs(out.span - 16.5) < 1.5,
+    `an Avenger in flight trim spans ${out.span.toFixed(1)} m, not 16.5`);
+  assert.ok(folded.span < out.span, 'folding her wings did not make her narrower');
+
+  // The three models the scene actually flies, built the way the scene builds
+  // them: every one of them has a wing on her.
+  const models = flightModels();
+  for (const [key, { geo }] of Object.entries(models)) {
+    geo.computeBoundingBox();
+    const b = geo.boundingBox;
+    const s = b.max.x - b.min.x;
+    const len = b.max.z - b.min.z;
+    assert.ok(s > len * 0.9, `the ${key} in the air is ${s.toFixed(1)} m across and ${len.toFixed(1)} m long`);
+  }
+});
+
 check('her aircraft are the size the real ones were', () => {
   // These are looked at from a couple of metres away on a lift and ridden off
   // the deck, so they are built to their own dimensions rather than to whatever
@@ -1944,6 +2071,53 @@ check('her aircraft are the size the real ones were', () => {
   assert.ok(Math.abs(stowed.span - 5.64) < 1.0,
     `an Avenger folds to ${stowed.span.toFixed(1)} m, not 5.6`);
   assert.ok(stowed.span < LIFT_HW * 2, 'she does not fit on her own lift folded');
+});
+
+check('the whole flight deck is flush while she is launching', () => {
+  // A lift down the well is a hole in the flight deck the width of the deck,
+  // and an aeroplane taking off across one is an aeroplane in the hangar. The
+  // after lift is the evolution -- she rides it down and up again -- but the
+  // other two have to be at the deck for the whole of it, and they were on
+  // their own idle cycle, a third of which is spent below.
+  const built = buildEnterprise();
+  const lifts = built.lifts;
+  const aft = lifts[lifts.length - 1];
+  const others = lifts.filter((l) => l !== aft);
+  assert.ok(others.length >= 2, 'she has fewer lifts than she is supposed to');
+
+  // Idle her until one of the other lifts is down at the hangar deck.
+  let downAt = null;
+  for (let t = 0; t <= 60 && downAt === null; t += 1 / 30) {
+    built.group.userData.step(t);
+    if (others.some((l) => l.group.position.y < HANGAR + 1.2)) downAt = t;
+  }
+  assert.ok(downAt !== null, 'the lifts never went below at all');
+
+  // Now call away a strike from exactly that moment.
+  built.group.userData.launch(downAt);
+  let worst = 0;
+  let ranAt = null;
+  for (let u = 0; u <= DECK_RUN; u += 1 / 60) {
+    built.group.userData.step(downAt + u);
+    if (u >= 2) {
+      for (const l of others) worst = Math.max(worst, FD - l.group.position.y);
+    }
+    if (ranAt === null && built.deckPlane.position.z > aft.group.position.z + 4) {
+      ranAt = u;
+    }
+  }
+  assert.ok(worst < 0.05,
+    `a lift was ${worst.toFixed(2)} m below the deck while she was launching`);
+  assert.ok(ranAt !== null && ranAt >= 2,
+    'she started to move before the deck could have been made flush');
+
+  // And they go back to working once she has gone.
+  let dropped = false;
+  for (let u = DECK_RUN; u <= DECK_RUN + 40 && !dropped; u += 1 / 30) {
+    built.group.userData.step(downAt + u);
+    dropped = others.some((l) => l.group.position.y < FD - 1);
+  }
+  assert.ok(dropped, 'the lifts never worked again after a launch');
 });
 
 check('she does not take off with her wings folded', () => {
@@ -2815,6 +2989,67 @@ check('a flight shot down is reported once, not twice', () => {
   assert.ok(killedByFighters > 0, 'the fighters never got into it, so nothing was tested');
   assert.equal(new Set(seen).size, seen.length,
     `${seen.length - new Set(seen).size} flight(s) were reported lost twice`);
+});
+
+check('a strike gets through and drops what it is carrying', () => {
+  // The point of having aircraft at all. Anti-aircraft fire used to be at full
+  // effect out to the edge of its envelope, so a strike crossing a battleship's
+  // five and a half thousand metres of it was under something close to
+  // point-blank fire for a minute and a quarter each way -- and the arithmetic
+  // of that was that nothing ever arrived. Every squadron the Enterprise flew
+  // off was shot into the sea three thousand metres short of the ship it was
+  // sent to attack, and no bomb was ever dropped and no torpedo ever entered
+  // the water.
+  //
+  // A strike is meant to get through and to lose part of itself doing it.
+  const st = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0;
+  foe.x = 0; foe.z = 9000;
+
+  let bombs = 0;
+  let hits = 0;
+  let dropped = 0;
+  let lost = 0;
+  let closest = 1e9;
+  for (let i = 0; i < 30 * 240; i++) {
+    foe.spottedBy[0] = 3;
+    cv.aimX = foe.x; cv.aimZ = foe.z;
+    if (i % 300 === 0) launchStrike(st, cv);
+    for (const ev of step(st, DT)) {
+      if (ev.e === 'bomb') { bombs++; if (ev.hit) hits++; }
+      if (ev.e === 'airDrop') dropped++;
+      if (ev.e === 'planesLost') lost++;
+    }
+    for (const p of st.planes) closest = Math.min(closest, dist(p.x, p.z, foe.x, foe.z));
+  }
+  assert.ok(closest < 900, `the strike never got closer than ${Math.round(closest)} m`);
+  assert.ok(bombs > 0, 'not one bomb was dropped in four minutes');
+  assert.ok(hits > 0, 'every bomb dropped in four minutes missed');
+  assert.ok(dropped > 0, 'not one torpedo went into the water');
+  assert.ok(foe.hp < foe.maxHp * 0.95, 'the strike did her no harm worth counting');
+  // And the flak is not decorative either: a strike against a battleship pays
+  // for what it does.
+  assert.ok(lost > 0, 'she flew through a battleship\'s light battery untouched');
+
+  // A bomb's own arithmetic: where it is going is sent with it, so the client
+  // can fly the body down, and a miss goes into the water near her rather than
+  // nowhere at all.
+  const bomb = (() => {
+    for (let i = 0; i < 30 * 200; i++) {
+      foe.spottedBy[0] = 3;
+      cv.aimX = foe.x; cv.aimZ = foe.z;
+      if (i % 300 === 0) launchStrike(st, cv);
+      for (const ev of step(st, DT)) if (ev.e === 'bomb') return ev;
+    }
+    return null;
+  })();
+  assert.ok(bomb, 'no more bombs were dropped');
+  assert.ok(Number.isFinite(bomb.tx) && Number.isFinite(bomb.tz),
+    'a bomb was dropped without saying where it was going');
+  assert.ok(dist(bomb.tx, bomb.tz, foe.x, foe.z) < 400,
+    'a bomb was aimed at open sea');
 });
 
 check('a strike goes up as three flights and comes home as one squadron', () => {

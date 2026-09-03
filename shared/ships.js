@@ -87,7 +87,7 @@ export const SHIP_CLASSES = {
     // that, times the share of the barrels that can bear on her -- so the
     // figure here is larger than the damage anyone ever takes from it.
     aa: {
-      range: 3500, dps: 221,
+      range: 3500, dps: 15,
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200,
           mounts: [
@@ -182,7 +182,7 @@ export const SHIP_CLASSES = {
       ],
     },
     aa: {
-      range: 5200, dps: 773,
+      range: 5200, dps: 52,
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
           mounts: [
@@ -304,7 +304,7 @@ export const SHIP_CLASSES = {
       ],
     },
     aa: {
-      range: 4800, dps: 871,
+      range: 4800, dps: 58,
       guns: [
         { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
           mounts: [
@@ -397,7 +397,7 @@ export const SHIP_CLASSES = {
       ],
     },
     aa: {
-      range: 5600, dps: 1529,
+      range: 5600, dps: 100,
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
           mounts: [
@@ -507,7 +507,7 @@ export const SHIP_CLASSES = {
     // gun on a carrier, only the light battery round her galleries.
     secondary: null,
     aa: {
-      range: 5800, dps: 2338,
+      range: 5800, dps: 152,
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
           mounts: [

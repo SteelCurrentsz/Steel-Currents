@@ -20,7 +20,6 @@ const GONE = new THREE.Color(0xe2564f);
 export class DamageBoard {
   constructor(canvas, classId) {
     this.canvas = canvas;
-    this.classId = classId;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setClearColor(0x000000, 0);
     this.scene = new THREE.Scene();
@@ -29,6 +28,29 @@ export class DamageBoard {
     const key = new THREE.DirectionalLight(0xbfe8ff, 0.9);
     key.position.set(-0.4, 1, 0.6);
     this.scene.add(key);
+    this.spin = 0.6;
+    this.build(classId);
+  }
+
+  /**
+   * Stand a hull on the board.
+   *
+   * Called again when the board is asked to show somebody else's ship -- a
+   * captain watching another ship from her own bridge reads her condition,
+   * and reading a Fletcher's compartments off a drawing of an Iowa is worse
+   * than useless. Only the model is rebuilt; the renderer and the canvas it
+   * is drawing into are kept, because a WebGL context is not a thing to throw
+   * away and make again every time somebody taps the chart.
+   */
+  build(classId) {
+    if (this.classId === classId) return;
+    this.classId = classId;
+    if (this.rig) {
+      this.scene.remove(this.rig);
+      this.rig.traverse((o) => {
+        if (o.isMesh) { o.geometry?.dispose?.(); }
+      });
+    }
 
     const cls = SHIP_CLASSES[classId];
     this.len = cls.hull.length;
@@ -99,7 +121,6 @@ export class DamageBoard {
       color: 0xffc07a, transparent: true, opacity: 0.95, depthTest: false,
     });
 
-    this.spin = 0.6;
     this.frame(this.len);
   }
 

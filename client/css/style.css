@@ -409,6 +409,8 @@ input[type="range"] { accent-color: var(--red); }
 /* Something wants doing: an aircraft ready to go, a fire to put out. */
 .conn-key.due { color: var(--ally); border-color: rgba(111, 211, 160, 0.6); }
 .conn-key.spent { opacity: 0.42; }
+/* A ship with no aircraft aboard has no air key, and the other two close up. */
+.conn-key[hidden] { display: none; }
 
 /* The panel the keys raise, standing on top of them in the lower middle. */
 .conn-panel {

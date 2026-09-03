@@ -878,6 +878,21 @@ export function stepDeck(deck, t) {
   const pace = LAUNCH / DECK_RUN;
   const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
 
+  // Ranging for a launch: the deck is made flush before anything goes down it.
+  //
+  // A lift down the well is a hole in the flight deck the width of the deck,
+  // and an aeroplane taking off across one is an aeroplane in the hangar. So
+  // the whole time an evolution is on, every lift is at the flight deck --
+  // brought up as the flag goes up rather than snapped there, because a
+  // fifteen-ton platform does not teleport. When the evolution is over they
+  // pick their own cycle up again, and go back down just as smoothly.
+  const dt = Math.max(0, Math.min(0.5, t - (deck.lastT ?? t)));
+  deck.lastT = t;
+  const ranging = run >= 0 && run < LAUNCH + 2;
+  const FLUSH = 1.4;                             // seconds to come up and level
+  deck.flush = Math.max(0, Math.min(1,
+    (deck.flush ?? 0) + (ranging ? dt / FLUSH : -dt / FLUSH)));
+
   // The lifts, idling.
   const PERIOD = 34;
   for (const l of lifts) {
@@ -889,7 +904,8 @@ export function stepDeck(deck, t) {
     else if (u < 0.48) k = (u - 0.36) / 0.12;
     else if (u < 0.86) k = 1;
     else k = 1 - (u - 0.86) / 0.14;
-    l.group.position.y = FD - LIFT_DROP * ease(k);
+    const idle = FD - LIFT_DROP * ease(k);
+    l.group.position.y = idle + (FD - idle) * ease(deck.flush);
   }
 
   if (!plane) return;
@@ -2261,12 +2277,17 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
     { z: z + 0.34, w: r * 1.86, h: r * 1.86, y },
     { z: z + 0.60, w: r * 1.52, h: r * 1.52, y },
   ], { seg: SEG, e: 1, capF: false, capA: false, mBot: M.planeTop });
-  // The gills round its after lip, laid into the cowl rather than standing off.
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    box(p, M.planeBottom, 0.16, 0.16, 0.26, Math.sin(a) * r * 1.0, y + Math.cos(a) * r * 1.0,
-      z - 1.22, a);
-  }
+  // The cowl flaps round its after lip: a short ring flared out a little from
+  // the cowl, with the shadow of the gap under it. They were sixteen pale
+  // cubes scattered round the circumference on a rotation that did not line
+  // them up with anything, and what that looked like was a handful of gravel
+  // stuck to her nose.
+  airframe(p, M.planeTop, [
+    { z: z - 1.42, w: r * 2.16, h: r * 2.16, y },
+    { z: z - 1.24, w: r * 2.12, h: r * 2.12, y },
+    { z: z - 1.16, w: r * 2.02, h: r * 2.02, y },
+  ], { seg: SEG, e: 1, capF: false, capA: false, mBot: M.planeTop });
+  cyl(p, M.cave, r * 1.03, r * 1.03, 0.1, 0, y, z - 1.46, SEG).rotation.x = Math.PI / 2;
   // Spinner, hub and blades. On an aeroplane that is going to run her engine
   // the blades go in a group of their own so the welder leaves them.
   const spinner = cyl(p, M.prop, 0.06, 0.30, 0.74, 0, y, z + 0.86, 14);
@@ -2302,24 +2323,71 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
   }
 }
 
-/** A greenhouse: framed bays with the dark of the cockpit behind them. */
+/**
+ * A greenhouse: a faired hood over the cockpit, framed, with the dark of the
+ * cockpit behind the glass.
+ *
+ * It used to be a row of flat panes standing square on the spine like a train
+ * of carriage windows, and it was the single thing that made all three of
+ * these look like a box with a wing bolted on. A hood is a half-body: round
+ * over the pilot's head, flat at the sill, and it dies away aft into the
+ * turtledeck rather than stopping at a bulkhead.
+ *
+ * `w` and `h` are the width and height over the pilot, `y` the sill, and the
+ * hood runs from `z0` aft to `z1` at the windscreen. `bays` is how many frames
+ * are laid across it, which is what tells a Wildcat from an Avenger at a
+ * glance.
+ */
 function greenhouse(p, w, h, y, z0, z1, bays) {
   const len = z1 - z0;
-  box(p, M.cave, w * 0.9, h * 0.9, len, 0, y + h / 2, z0 + len / 2);
-  for (let i = 0; i < bays; i++) {
-    const d = len / bays;
-    const z = z0 + d * (i + 0.5);
-    box(p, M.glass, w, h * 0.86, d - 0.1, 0, y + h * 0.5, z);
-    box(p, M.planeTop, w + 0.04, h * 0.9, 0.07, 0, y + h * 0.5, z + d / 2);
+  // The hood itself. `flat: 1` squashes the underside away, so what is built
+  // is the half-shell above the sill and nothing below it -- and the dark of
+  // the cockpit is the same shell again, a little smaller, inside the glass.
+  // It used to be a square box in there, and the corners of it stood right out
+  // through the glazing: half of what read as "a box on top" was the box.
+  const N = 12;
+  const shell = (k) => {
+    const rings = [];
+    for (let i = 0; i <= N; i++) {
+      const f = i / N;                               // 0 right aft, 1 at the screen
+      const z = z0 + len * f;
+      // Standing full height over the pilot, fairing away into the spine over
+      // the last third aft and rounding down at the screen.
+      const rise = Math.min(1, 0.30 + f * 1.9);
+      const nose = 1 - 0.30 * Math.pow(Math.max(0, (f - 0.82) / 0.18), 2);
+      rings.push({ z, w: w * rise * nose * k, h: h * 2 * rise * nose * k, y });
+    }
+    return rings;
+  };
+  airframe(p, M.cave, shell(0.9), {
+    seg: 14, e: 0.86, flat: 1, capA: false, capF: false, mBot: M.cave,
+  });
+  airframe(p, M.glass, shell(1), {
+    seg: 16, e: 0.86, flat: 1, capA: false, capF: false, mBot: M.glass,
+  });
+  // The frames across it: thin hoops standing a hair proud of the glass they
+  // hold, built the same way the hood is so they follow its shape instead of
+  // being a chain of little cubes laid over it.
+  for (let i = 1; i < bays; i++) {
+    const f = i / bays;
+    const z = z0 + len * f;
+    const rise = Math.min(1, 0.30 + f * 1.9);
+    const nose = 1 - 0.30 * Math.pow(Math.max(0, (f - 0.82) / 0.18), 2);
+    const bw = w * rise * nose * 1.03;
+    const bh = h * 2 * rise * nose * 1.03;
+    airframe(p, M.planeTop, [
+      { z: z - 0.03, w: bw, h: bh, y },
+      { z: z + 0.03, w: bw, h: bh, y },
+    ], { seg: 16, e: 0.86, flat: 1, capA: false, capF: false, mBot: M.planeTop });
   }
-  // The windscreen, raked back over the instrument panel, and its frame.
-  const scr = box(p, M.glass, w * 0.96, h * 0.95, 0.1, 0, y + h * 0.5, z1 + 0.12);
+  // The windscreen, raked back over the instrument panel, and its arch.
+  const scr = box(p, M.glass, w * 0.9, h * 0.9, 0.09, 0, y + h * 0.48, z1 + 0.14);
   scr.rotation.x = -0.42;
-  const arch = box(p, M.planeTop, w + 0.05, h * 0.99, 0.09, 0, y + h * 0.5, z1 + 0.2);
+  const arch = box(p, M.planeTop, w * 0.94, h * 0.95, 0.08, 0, y + h * 0.48, z1 + 0.21);
   arch.rotation.x = -0.42;
-  // The rails it slides on, and the coaming round the sill.
-  for (const s of [-1, 1]) box(p, M.planeTop, 0.08, 0.1, len, s * w / 2, y, z0 + len / 2);
-  box(p, M.planeTop, w + 0.06, 0.12, 0.1, 0, y + h * 0.94, z0 + 0.06);
+  // The rails she slides on, and the coaming round the sill.
+  for (const s of [-1, 1]) box(p, M.planeTop, 0.07, 0.09, len, s * w * 0.5, y, z0 + len / 2);
+  box(p, M.planeTop, w * 0.7, 0.1, 0.09, 0, y + h * 0.24, z0 + 0.05);
 }
 
 /** Fin, rudder, tailplane and elevators, lofted like the wings they are. */
@@ -2443,8 +2511,13 @@ function foldWing(p, s, o) {
 // a long main leg forward and a stub wheel under the sternpost.
 const sitline = (f, k) => (z) => f + k * z;
 
-/** An F4F-4 Wildcat with her wings swung back flat along her sides. */
-function wildcat(g, x, y, z, ry, opts = {}) {
+/**
+ * An F4F-4 Wildcat. Folded by default, because that is how she is struck below.
+ *
+ * The signature matches the other two: `folded` says which set of wings is
+ * showing, and `opts` carries the rest of her trim.
+ */
+function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2477,16 +2550,55 @@ function wildcat(g, x, y, z, ry, opts = {}) {
   // edge with the leading edge down, and swing aft to lie fore and aft along
   // her sides. It is why twice as many of them fitted below as of anything
   // else, and the aeroplane ends up no wider than her own tailplane.
-  for (const s of [-1, 1]) foldWing(p, s, {
-    at: [s * 0.62, cl(1.05) - 0.74, 1.6], skew: 0.10, lean: 0.05,
-    span: 4.15, rootC: 1.80, tipC: 1.26, sweep: 0.30, thick: 0.112,
-    star: 0.56, guns: [[0.9, 0.14], [2.0, 0.11]],
-  });
-  // The hinge fairings left standing at the roots, and the stub the panels
-  // fold off.
+  //
+  // Both sets are built and one of them is shown, the same way the Avenger
+  // does it. She used to be built folded and only folded, which is why every
+  // Wildcat in the air had no wings on her.
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
+  for (const s of [-1, 1]) {
+    foldWing(stowed, s, {
+      at: [s * 0.62, cl(1.05) - 0.74, 1.6], skew: 0.10, lean: 0.05,
+      span: 4.15, rootC: 1.80, tipC: 1.26, sweep: 0.30, thick: 0.112,
+      star: 0.56, guns: [[0.9, 0.14], [2.0, 0.11]],
+    });
+    // Spread: the same panel, straight out off the same hinge, with a little
+    // dihedral on it.
+    const w = new THREE.Group();
+    w.position.set(s * 0.66, cl(1.05) - 0.30, 1.45);
+    w.rotation.z = -s * 0.05;
+    spread.add(w);
+    wing(w, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: 0, z: 0, span: 4.98, rootC: 1.80, tipC: 1.26,
+      sweep: 0.30, thick: 0.112, camber: 0.022, twist: -0.02, rootCap: false,
+    });
+    box(w, M.planeTop, 1.5, 0.10, 0.44, s * 3.6, 0.05, -0.72);       // aileron
+    box(w, M.planeTop, 1.7, 0.11, 0.56, s * 1.5, 0.02, -0.86);       // flap
+    // Her fifties: the muzzles standing out of the leading edge, and the
+    // blister over each breech. They used to be a pair of cubes hung two
+    // thirds of a metre ahead of the wing, in the air on their own.
+    for (const gx of [1.3, 2.3]) {
+      cyl(w, M.gunDark, 0.05, 0.05, 0.42, s * gx, 0.035, 0.12, 6)
+        .rotation.x = Math.PI / 2;
+      box(w, M.planeTop, 0.34, 0.13, 0.62, s * gx, 0.03, -0.24);
+    }
+    insignia(w, s * 2.7, 0.14, -0.42, 0.56);
+    // The root fillet: the wing does not meet the body at a step.
+    box(w, M.planeTop, 0.5, 0.30, 1.55, s * 0.16, 0.05, -0.72);
+  }
+  stowed.visible = !!folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+  // The stub the panels fold off, which is there whichever way they are set,
+  // and the hinge fairing, which is only a thing to look at when they are
+  // folded back along her: spread, it stood out at the root as a pale slab
+  // half a metre thick on top of a wing.
   for (const s of [-1, 1]) {
     box(p, M.planeTop, 0.56, 0.78, 1.5, s * 0.68, cl(1.1) - 0.14, 1.25);
-    const hinge = box(p, M.planeBottom, 0.86, 0.34, 1.0, s * 0.98, cl(1.1) - 0.12, 1.3);
+    const hinge = box(stowed, M.planeBottom, 0.86, 0.34, 1.0,
+      s * 0.98, cl(1.1) - 0.12, 1.3);
     hinge.rotation.z = s * 0.22;
   }
   insignia(p, 0.40, cl(-1.5) + 0.08, -1.5, 0.38, false);

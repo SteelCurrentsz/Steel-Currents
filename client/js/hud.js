@@ -370,6 +370,9 @@ export class Hud {
   buildFor(classId) {
     const cls = SHIP_CLASSES[classId];
     this.cls = cls;
+    // Whose ship the plate at the bottom is reading. Your own until you pick
+    // somebody else off the chart; see setShown.
+    this.shown = cls;
 
     // What a captain still does himself. Three keys, and each raises one panel.
     this.keys = {};
@@ -377,16 +380,45 @@ export class Hud {
       this.keys[el.dataset.panel] = el;
       el.onclick = () => this.togglePanel(el.dataset.panel);
     }
-    // No aircraft aboard, no air panel: the key goes rather than sitting there
-    // dead, and the other two close up.
-    if (!cls.planes) {
-      this.keys.air?.remove();
-      delete this.keys.air;
-    }
     this.panel = null;
     this.acts = {};
 
     this.built = true;
+    this.showKeys(cls);
+  }
+
+  /**
+   * The keys a ship actually has. No aircraft aboard, no air key -- hidden
+   * rather than taken away, because the next ship read out on this plate may
+   * be a carrier.
+   */
+  showKeys(cls) {
+    if (this.keys && this.keys.air) this.keys.air.hidden = !cls.planes;
+  }
+
+  /**
+   * Read out somebody else's ship.
+   *
+   * Everything on the plate -- her name and class, her compartments, her
+   * telegraph, her arsenal -- is her own. It used to be yours whoever you were
+   * watching, so a captain standing on a destroyer's bridge was shown a
+   * battleship's condition and a battleship's guns.
+   *
+   * Panels are built against a class, so whatever is up comes down and is
+   * built again for her the next time it is raised.
+   */
+  setShown(classId) {
+    const cls = SHIP_CLASSES[classId];
+    if (!this.built || !cls || cls === this.shown) return;
+    this.shown = cls;
+    this.showKeys(cls);
+    if (this.panel) {
+      const was = this.panel;
+      this.togglePanel(was);
+      // 'air' on a ship that has none has no key to raise it; anything else
+      // comes straight back up, built for her.
+      if (was !== 'air' || cls.planes) this.togglePanel(was);
+    }
   }
 
   /**
@@ -718,7 +750,7 @@ export class Hud {
     const list = document.createElement('div');
     list.className = 'arms-list';
     let band = null;
-    for (const w of arsenal(this.cls)) {
+    for (const w of arsenal(this.shown)) {
       if (w.band !== band) {
         band = w.band;
         const h = document.createElement('div');
@@ -784,7 +816,7 @@ export class Hud {
 
   /** The air group, or the damage control parties. */
   buildActionPanel(which) {
-    const cls = this.cls;
+    const cls = this.shown;
     // A carrier sends a strike; a cruiser shoots a scout off a catapult, and
     // calling that a strike oversells four Kingfishers considerably.
     const air = cls.planes && cls.planes.group ? 'Launch strike' : 'Launch scout';
@@ -809,7 +841,7 @@ export class Hud {
 
   update(own, snap) {
     if (!this.built || !own) return;
-    const cls = this.cls;
+    const cls = this.shown;
 
     this.el.ownName.textContent = `${own.n || ''} · ${cls.name} (${cls.type})`;
     // Her condition, compartment by compartment: one pip each, and the number
