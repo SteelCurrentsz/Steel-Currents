@@ -1887,11 +1887,20 @@ function fiveInch(g, root, x, y, z, ry) {
 }
 
 /** A quadruple 40 mm Bofors on its power mount. */
+// The light guns built during the current pass, so the builder can hand them
+// to the scene. Reset when a build starts: two Enterprises in one action must
+// not end up sharing one another's mountings.
+let AA_MOUNTS = [];
+
 function bofors(g, x, y, z, ry) {
   const m = new THREE.Group();
   m.position.set(x, y, z);
   m.rotation.y = ry;
+  // She trains: the welder leaves her alone and the scene lays her.
+  m.userData.dynamic = true;
+  m.userData.rest = ry;
   g.add(m);
+  AA_MOUNTS.push(m);
   cyl(m, M.gunDark, 1.0, 1.15, 0.45, 0, 0.22, 0, 14);
   box(m, M.gun, 2.0, 0.9, 1.7, 0, 0.85, -0.3);
   for (const s of [-1, 1]) box(m, M.gun, 0.5, 1.1, 1.0, s * 1.1, 1.0, -0.2);
@@ -1915,7 +1924,11 @@ function oerlikon(g, x, y, z, ry) {
   const m = new THREE.Group();
   m.position.set(x, y, z);
   m.rotation.y = ry;
+  // She trains: the welder leaves her alone and the scene lays her.
+  m.userData.dynamic = true;
+  m.userData.rest = ry;
   g.add(m);
+  AA_MOUNTS.push(m);
   cyl(m, M.gunDark, 0.24, 0.34, 1.15, 0, 0.57, 0, 10);
   const arm = new THREE.Group();
   arm.position.set(0, 1.15, 0);
@@ -2749,6 +2762,7 @@ export function enterpriseParts() {
 }
 
 export function buildEnterprise() {
+  AA_MOUNTS = [];
   const g = new THREE.Group();
   buildHull(g);
   hangarSides(g);
@@ -2802,6 +2816,7 @@ export function buildEnterprise() {
     // In the order the sponsons were built, which is the order the datasheet
     // lists them: starboard forward pair, starboard after pair, then port.
     turrets: g.userData.turrets || [],
+    aaMounts: AA_MOUNTS,
     length: LOA, beam: FDW, deckY: HANGAR, flightDeckY: FD,
   };
 }

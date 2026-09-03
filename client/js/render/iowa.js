@@ -411,6 +411,17 @@ export function buildIowa() {
   const place = (obj, z) => (z >= SPLIT_Z ? forward : root).add(obj);
 
   const turrets = [];
+  // Everything else aboard that trains: the secondary mountings and the light
+  // battery. Each is marked so the welder leaves it alone, and each remembers
+  // the bearing it rests on so the scene can lay it in the ship's own frame.
+  const secMounts = [];
+  const aaMounts = [];
+  const trains = (obj, rest, into) => {
+    obj.userData.dynamic = true;
+    obj.userData.rest = rest;
+    into.push(obj);
+    return obj;
+  };
 
   // -- main battery --------------------------------------------------------
   // A and B forward, superfiring; Y aft. The barbette heights step up.
@@ -478,6 +489,7 @@ export function buildIowa() {
     for (const s of [-1, 1]) {
       const o = oerlikon();
       o.position.set(s * 5.0, S + 8.0, z);
+      trains(o, 0, aaMounts);
       root.add(o);
     }
   }
@@ -501,6 +513,7 @@ export function buildIowa() {
       const m = mount5();
       m.position.set(s * 12.2, S + 4.2, z);
       m.rotation.y = s > 0 ? 1.35 : -1.35;
+      trains(m, m.rotation.y, secMounts);
       root.add(m);
     }
   }
@@ -523,6 +536,7 @@ export function buildIowa() {
     const b = bofors();
     b.position.set(x, y, z);
     b.rotation.y = x < 0 ? -0.7 : 0.7;
+    trains(b, b.rotation.y, aaMounts);
     place(b, z);
   }
 
@@ -536,6 +550,7 @@ export function buildIowa() {
       const o = oerlikon();
       o.position.set(s * edge, sheerAt(t), z);
       o.rotation.y = s * 0.9;
+      trains(o, o.rotation.y, aaMounts);
       place(o, z);
     }
   }
@@ -633,5 +648,8 @@ export function buildIowa() {
   mergeStatic(root);
 
   root.userData = { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK };
-  return { group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK };
+  return {
+    group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK,
+    secMounts, aaMounts,
+  };
 }

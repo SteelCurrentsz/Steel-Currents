@@ -1138,6 +1138,40 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
 // Torpedoes
 // ---------------------------------------------------------------------------
 
+/**
+ * Where a torpedo mounting wants to be laid, and where it is allowed to be.
+ *
+ * The same problem as a turret's: the bearing the captain is aiming at, cut
+ * down to the sector the bank can actually train through.
+ */
+function torpDesired(ship, spec, local) {
+  const off = angleDelta(spec.angle, local);
+  return Math.abs(off) > spec.arc
+    ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
+    : local;
+}
+
+/**
+ * Train the tubes.
+ *
+ * A bank of torpedo tubes is not a thing that fires wherever it is pointed at
+ * the instant the button is pressed: it is fifteen tons of tubes on a training
+ * ring, and it has to be brought round onto the firing bearing first. So it
+ * follows the aim point on its own gear, and the order to fire is only obeyed
+ * once it has arrived.
+ */
+function stepTorpMounts(state, ship, dt) {
+  const cls = shipClass(ship);
+  if (!cls.torpedoes || !ship.torpMounts.length) return;
+  const T = cls.torpedoes;
+  const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+  const local = wrapAngle(world - ship.heading);
+  const rate = (T.traverse ?? 0.3) * dt;
+  for (const m of ship.torpMounts) {
+    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], local), rate);
+  }
+}
+
 export function fireTorpedoes(state, ship) {
   const cls = shipClass(ship);
   if (!cls.torpedoes || !ship.alive) return 0;
@@ -1149,8 +1183,12 @@ export function fireTorpedoes(state, ship) {
     const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
     if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
+    // And she has to have come round. Fired before the bank has trained, the
+    // fish go where the tubes were pointing, which is over her own bow.
+    if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local))) > 0.05) continue;
     const pos = localToWorld(spec.x, spec.z, ship.heading);
-    const base = wrapAngle(ship.heading + local);
+    // Down the line of the tubes, which is where a torpedo goes.
+    const base = wrapAngle(ship.heading + m.angle);
     for (let i = 0; i < spec.tubes; i++) {
       const off = (i - (spec.tubes - 1) / 2) * (T.spread / Math.max(1, spec.tubes - 1)) * 2;
       state.torps.push({
@@ -1879,6 +1917,7 @@ export function step(state, dt = DT) {
     if (!ship.alive) continue;
     stepMovement(state, ship, dt);
     stepTurrets(state, ship, dt);
+    stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
   }

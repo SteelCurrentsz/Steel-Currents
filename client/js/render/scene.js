@@ -7,6 +7,7 @@ import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Shells, Flak } from './ordnance.js';
+import { Torpedoes } from './torpedo.js';
 import { Wake } from './wake.js';
 import { Seakeeping } from './seakeeping.js';
 import { QUALITY } from '../settings.js';
@@ -544,6 +545,14 @@ export class ShipView {
     const built = buildShip(classId);
     this.group = built.group;
     this.turrets = built.turrets;
+    // Everything else aboard that trains. The main battery is laid off the
+    // snapshot; so are the secondary mountings and the tubes, because the
+    // simulation trains those too. The light battery is laid here, off the
+    // aircraft the scene is already drawing: a Bofors is not worth a wire
+    // message and there are sixty of them on a battleship.
+    this.secMounts = built.secMounts || [];
+    this.aaMounts = built.aaMounts || [];
+    this.torpMounts = built.torpMounts || [];
     this.classId = classId;
     this.cls = SHIP_CLASSES[classId];
     this.team = team;
@@ -573,6 +582,61 @@ export class ShipView {
     this.group.add(this.marker);
   }
 
+
+  /**
+   * Lay everything on her that trains.
+   *
+   * `sec` and `torp` are the bearings the simulation has her mountings on, in
+   * her own frame. The light battery has no such list -- it follows whatever
+   * aircraft is nearest and inside its own sector, and goes back to its rest
+   * bearing when the sky is empty, which is what a gun crew does.
+   */
+  layMounts(sec, torp, planes, dt) {
+    const lay = (node, want, rate) => {
+      const rest = node.userData.rest || 0;
+      const target = want - rest;
+      let d = target - node.rotation.y;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      node.rotation.y += Math.max(-rate, Math.min(rate, d));
+    };
+    if (sec) {
+      for (let i = 0; i < this.secMounts.length && i < sec.length; i++) {
+        lay(this.secMounts[i], sec[i], 1);
+      }
+    }
+    if (torp) {
+      for (let i = 0; i < this.torpMounts.length && i < torp.length; i++) {
+        lay(this.torpMounts[i], torp[i], 1);
+      }
+    }
+    if (!this.aaMounts.length) return;
+    // The nearest squadron, in her own frame.
+    let want = null;
+    let best = Infinity;
+    for (const p of planes || []) {
+      if (p.tm === this.team) continue;
+      const dx = p.x - this.group.position.x;
+      const dz = p.z - this.group.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > best || d2 > 36e6) continue;
+      best = d2;
+      want = Math.atan2(dx, dz) - this.group.rotation.y;
+    }
+    const rate = 1.6 * dt;
+    for (const m of this.aaMounts) {
+      const rest = m.userData.rest || 0;
+      let aim = rest;
+      if (want !== null) {
+        let off = want - rest;
+        while (off > Math.PI) off -= Math.PI * 2;
+        while (off < -Math.PI) off += Math.PI * 2;
+        // Round as far as her own structure lets her, and no further.
+        aim = rest + Math.max(-1.9, Math.min(1.9, off));
+      }
+      lay(m, aim, rate);
+    }
+  }
 
   dispose(scene) {
     scene.remove(this.group);
@@ -689,12 +753,10 @@ export class BattleScene {
     // The light battery's tracer and the black puffs it leaves behind.
     this.flak = new Flak(this.scene, 900);
 
-    const torpGeo = new THREE.BoxGeometry(2.4, 1.2, 7);
-    this.torpMat = new THREE.MeshBasicMaterial({ color: 0xdfe9f2, transparent: true, opacity: 0.75 });
-    this.torpedoes = new THREE.InstancedMesh(torpGeo, this.torpMat, 200);
-    this.torpedoes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.torpedoes.frustumCulled = false;
-    this.scene.add(this.torpedoes);
+    // The fish in the water and the rope of bubbles behind each of them.
+    // See torpedo.js: the track is the weapon, as far as anybody conning a
+    // ship is concerned.
+    this.torpedoes = new Torpedoes(this.scene, this.ocean, 48);
 
     // A squadron in the air. Painted the way her aircraft actually were --
     // blue-grey over light grey -- and not in one colour: a single dark tone on
@@ -842,6 +904,8 @@ export class BattleScene {
     this.ocean.update(dt, eye);
     this.effects.update(dt);
     this.flak.update(dt);
+    this.torpedoes.update(dt, this.torpsNow || [],
+      (x, z) => this.ocean.heightAt(x, z));
     this.weather.update(dt, eye);
   }
 

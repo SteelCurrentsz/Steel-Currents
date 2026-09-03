@@ -24,6 +24,7 @@ import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
 import { Wake } from '../client/js/render/wake.js';
 import { ShipView } from '../client/js/render/scene.js';
+import { torpedoGeometry } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
 import {
@@ -137,6 +138,10 @@ check('battleship AP citadels a cruiser but light AP bounces off a battleship', 
 check('torpedoes run out to range and detonate on contact', () => {
   const { state, a, b } = duel('fletcher', 'iowa', 1600);
   a.aimX = b.x; a.aimZ = b.z;
+  // The bank has to come round first: fifteen tons of tubes on a training
+  // ring do not swing onto a beam bearing the instant the button is pressed.
+  assert.equal(fireTorpedoes(state, a), 0, 'she fired before her tubes had trained');
+  for (let i = 0; i < 30 * 10; i++) step(state, DT);
   const launched = fireTorpedoes(state, a);
   assert.ok(launched > 0, 'destroyer should launch torpedoes');
   let hits = 0;
@@ -145,6 +150,89 @@ check('torpedoes run out to range and detonate on contact', () => {
   }
   assert.ok(hits > 0, 'torpedo spread should hit a stationary battleship');
   assert.ok(b.hp < b.maxHp, 'torpedo damage should apply');
+});
+
+check('the tubes train onto the bearing, and the fish go where they point', () => {
+  const state = createState(generateWorld(2020, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 0; dd.z = 0; dd.heading = 0;
+  // Right abeam to starboard, which is ninety degrees off her rest bearing.
+  dd.aimX = 4000; dd.aimZ = 0;
+  assert.ok(dd.torpMounts.every((m) => Math.abs(m.angle) < 0.01),
+    'her tubes do not start fore and aft');
+  assert.equal(fireTorpedoes(state, dd), 0, 'she fired before training');
+  for (let i = 0; i < 30 * 10; i++) step(state, DT);
+  for (const m of dd.torpMounts) {
+    assert.ok(Math.abs(m.angle - Math.PI / 2) < 0.05,
+      `a bank stopped at ${m.angle.toFixed(2)} rad instead of coming abeam`);
+  }
+  assert.ok(fireTorpedoes(state, dd) > 0, 'she would not fire once trained');
+  // And they run down the line of the tubes, not the line of the aim point:
+  // the spread is laid off the bank's own bearing.
+  for (const tp of state.torps) {
+    assert.ok(Math.abs(tp.heading - Math.PI / 2) < 0.25,
+      `a fish left on ${tp.heading.toFixed(2)} rad`);
+  }
+});
+
+check('a bank that cannot come round on the target does not fire at all', () => {
+  const state = createState(generateWorld(2021, 'open_ocean'), { mode: 'deathmatch' });
+  const ca = addShip(state, { name: 'CA', classId: 'hipper', team: 0, index: 0 });
+  ca.x = 0; ca.z = 0; ca.heading = 0;
+  // Dead ahead. A Hipper's tubes are beam mountings and neither can be laid
+  // over her bow.
+  ca.aimX = 0; ca.aimZ = 6000;
+  for (let i = 0; i < 30 * 15; i++) step(state, DT);
+  assert.equal(fireTorpedoes(state, ca), 0, 'she fired her beam tubes over her own bow');
+  // Put the target on her beam and she can.
+  ca.aimX = 6000; ca.aimZ = 0;
+  for (let i = 0; i < 30 * 15; i++) step(state, DT);
+  assert.ok(fireTorpedoes(state, ca) > 0, 'she would not fire on her own beam');
+});
+
+check('the guns and the tubes on the models actually train', () => {
+  // Sim-side training is only half of it: a mounting that swings in the
+  // simulation and sits still on screen is a gun that fires out of its side.
+  const built = buildFletcher();
+  assert.equal(built.torpMounts.length, SHIP_CLASSES.fletcher.torpedoes.mounts.length,
+    'her modelled banks do not match the tubes on her datasheet');
+  assert.ok(built.aaMounts.length > 0, 'none of her light battery trains');
+  for (const m of [...built.torpMounts, ...built.aaMounts]) {
+    assert.ok(m.userData.dynamic, 'a mounting was welded into the hull');
+    assert.ok(Number.isFinite(m.userData.rest), 'a mounting does not know its rest bearing');
+  }
+  const cl = buildCleveland();
+  assert.equal(cl.secMounts.length, SHIP_CLASSES.cleveland.secondary.mounts.length,
+    'her modelled secondary does not match her datasheet');
+  for (const m of cl.secMounts) assert.ok(m.userData.dynamic, 'a secondary mount is welded down');
+
+  // And laying one puts it where it was asked to go, in the ship's own frame.
+  const view = new ShipView({ add() {}, remove() {} }, 'fletcher', 0, false);
+  const want = Math.PI / 2;
+  for (let i = 0; i < 200; i++) view.layMounts(null, [want, want], [], 1 / 30);
+  for (const m of view.torpMounts) {
+    const laid = m.rotation.y + (m.userData.rest || 0);
+    assert.ok(Math.abs(angleDelta(laid, want)) < 0.02,
+      `a bank was laid on ${laid.toFixed(2)} rad instead of ${want.toFixed(2)}`);
+  }
+  // With nothing in the air the light battery comes back to its rest bearing.
+  for (let i = 0; i < 400; i++) view.layMounts(null, null, [], 1 / 30);
+  for (const m of view.aaMounts) {
+    assert.ok(Math.abs(m.rotation.y) < 0.02, 'a gun did not come back to its rest bearing');
+  }
+});
+
+check('a torpedo is a torpedo, and it leaves a track behind it', () => {
+  // The fish: seven metres long and half a metre across, which is what a
+  // Mk 15 is. It used to be a box.
+  const geo = torpedoGeometry();
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const len = bb.max.z - bb.min.z;
+  const across = bb.max.x - bb.min.x;
+  assert.ok(len > 6.5 && len < 7.6, `she is ${len.toFixed(2)} m long`);
+  assert.ok(across > 0.5 && across < 1.4, `she is ${across.toFixed(2)} m across`);
+  assert.ok(len / across > 5, 'she is not slender enough to be a torpedo');
 });
 
 check('fires and flooding burn a ship down and repair clears them', () => {

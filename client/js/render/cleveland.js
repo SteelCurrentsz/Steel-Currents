@@ -472,6 +472,10 @@ function fiveInch(g, x, y, z, ry) {
   const mount = new THREE.Group();
   mount.position.set(x, y, z);
   mount.rotation.y = ry;
+  // A twin 5"/38 trains on its own barbette, so the whole gunhouse comes
+  // round: the welder leaves it alone and the scene lays it.
+  mount.userData.dynamic = true;
+  mount.userData.rest = ry;
   g.add(mount);
   cyl(mount, M.steelDark, 2.05, 2.15, 0.7, 0, -0.35, 0, 20);
   cyl(mount, M.gunDark, 2.2, 2.2, 0.14, 0, 0.05, 0, 24);
@@ -524,6 +528,8 @@ function quadBofors(g, x, y, z, ry) {
   const t = tub(g, 2.5, 1.25, x, y, z, ry, 18);
   const m = new THREE.Group();
   m.position.y = 0.4;
+  m.userData.dynamic = true;
+  m.userData.rest = ry;
   t.add(m);
   cyl(m, M.gunDark, 0.66, 0.86, 0.6, 0, 0.3, 0, 14);
   box(m, M.gun, 2.5, 0.8, 1.3, 0, 0.95, -0.15);
@@ -549,7 +555,7 @@ function quadBofors(g, x, y, z, ry) {
     box(g, M.steelDark, 0.6, 0.85, 0.5,
       x + Math.sin(a) * 3.0, y + 0.42, z + Math.cos(a) * 3.0, a);
   }
-  return t;
+  return m;
 }
 
 /** A twin 40 mm, which is the same gun in a smaller tub. */
@@ -557,6 +563,8 @@ function twinBofors(g, x, y, z, ry) {
   const t = tub(g, 1.6, 1.15, x, y, z, ry, 14);
   const m = new THREE.Group();
   m.position.y = 0.35;
+  m.userData.dynamic = true;
+  m.userData.rest = ry;
   t.add(m);
   cyl(m, M.gunDark, 0.44, 0.58, 0.5, 0, 0.25, 0, 12);
   box(m, M.gun, 1.2, 0.66, 1.05, 0, 0.78, -0.1);
@@ -565,7 +573,7 @@ function twinBofors(g, x, y, z, ry) {
     cyl(m, M.gunDark, 0.11, 0.11, 0.34, dx, 1.05, 2.3, 10).rotation.x = Math.PI / 2;
   }
   for (const sgn of [-1, 1]) box(m, M.steelDark, 0.44, 0.1, 0.44, sgn * 1.0, 0.55, -0.45);
-  return t;
+  return m;
 }
 
 /** A single 20 mm Oerlikon on its pedestal, in a small tub. */
@@ -573,6 +581,8 @@ function oerlikon(g, x, y, z, ry) {
   const t = tub(g, 1.0, 1.0, x, y, z, ry, 10);
   const o = new THREE.Group();
   o.position.y = 0.3;
+  o.userData.dynamic = true;
+  o.userData.rest = ry;
   t.add(o);
   cyl(o, M.gunDark, 0.17, 0.24, 0.95, 0, 0.48, 0, 10);
   const g2 = new THREE.Group();
@@ -584,7 +594,7 @@ function oerlikon(g, x, y, z, ry) {
   cyl(g2, M.gunDark, 0.32, 0.32, 0.16, 0, 0.3, -0.05, 12).rotation.z = Math.PI / 2;
   box(g2, M.gun, 0.5, 0.16, 0.5, 0, -0.2, -0.45);
   for (const sgn of [-1, 1]) box(g2, M.gunDark, 0.1, 0.34, 0.1, sgn * 0.22, -0.28, -0.6);
-  return t;
+  return o;
 }
 
 // -------------------------------------------------------- superstructure --
@@ -1480,25 +1490,27 @@ const STATIC = [
  * the waist, two a side, on the boat deck.
  */
 function secondary(g) {
+  const mounts = [];
+  g.userData.secMounts = mounts;
   // Mount 51, on the 01 roof forward of the bridge tower, superfiring over
   // turret 2. It stands here and not higher up the tower because a twin 5"/38
   // has seven metres of gun in front of it: any further forward and the
   // barrels are inside turret 2, any further aft and the mount is inside the
   // navigating bridge, which is where it was.
   cyl(g, M.steel, 2.3, 2.5, 1.5, 0, L01() + 0.45, M51_Z, 20);
-  fiveInch(g, 0, L01() + 1.2, M51_Z, 0);
+  mounts.push(fiveInch(g, 0, L01() + 1.2, M51_Z, 0));
   // Mount 52, aft, on the roof of the after superstructure.
   cyl(g, M.steel, 2.3, 2.5, 1.5, 0, L01() + 3.35, M52_Z, 20);
-  fiveInch(g, 0, L01() + 4.1, M52_Z, Math.PI);
+  mounts.push(fiveInch(g, 0, L01() + 4.1, M52_Z, Math.PI));
   // And the four waist mounts, on sponsons at the edge of the 01 roof, two a
   // side, stowed fore and aft.
   for (const sgn of [-1, 1]) {
     cyl(g, M.steel, 2.3, 2.5, 1.2, 0, L01() + 0.6, 0, 20).position
       .set(sgn * WAIST_X, L01() + 0.6, WAIST_F);
-    fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_F, sgn * 0.26);
+    mounts.push(fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_F, sgn * 0.26));
     cyl(g, M.steel, 2.3, 2.5, 1.2, 0, L01() + 0.6, 0, 20).position
       .set(sgn * WAIST_X, L01() + 0.6, WAIST_A);
-    fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_A, Math.PI - sgn * 0.26);
+    mounts.push(fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_A, Math.PI - sgn * 0.26));
   }
 }
 
@@ -1511,19 +1523,22 @@ function secondary(g) {
  * anything standing there in front of turret 1 or abaft turret 4 is inside one.
  */
 function lightAA(g) {
+  const mounts = [];
+  const keep = (m) => { mounts.push(m); return m; };
+  g.userData.aaMounts = mounts;
   // Four quads: two abreast the bridge on the 01 level, one on the after
   // superstructure, one on the quarterdeck abreast the crane.
   for (const sgn of [-1, 1]) {
-    quadBofors(g, sgn * 6.6, L01() + 0.2, 33.5, sgn * 0.5);
+    keep(quadBofors(g, sgn * 6.6, L01() + 0.2, 33.5, sgn * 0.5));
   }
-  quadBofors(g, 0, L01() + 3.05, -33.0, 0);
-  quadBofors(g, 0, deckAt(-80) + 0.1, -80.0, 0);
+  keep(quadBofors(g, 0, L01() + 3.05, -33.0, 0));
+  keep(quadBofors(g, 0, deckAt(-80) + 0.1, -80.0, 0));
   // Six twins: abreast the funnels, on the forecastle abreast turret 2, and on
   // the quarterdeck abreast turret 4.
   for (const sgn of [-1, 1]) {
-    twinBofors(g, sgn * 7.85, L01() + 0.15, 10.5, sgn * 0.7);
-    twinBofors(g, sgn * (halfDeck(50) - 2.4), deckAt(50) + 0.1, 50.0, sgn * 0.8);
-    twinBofors(g, sgn * (halfDeck(-50) - 2.4), deckAt(-50) + 0.1, -50.0, sgn * 0.8);
+    keep(twinBofors(g, sgn * 7.85, L01() + 0.15, 10.5, sgn * 0.7));
+    keep(twinBofors(g, sgn * (halfDeck(50) - 2.4), deckAt(50) + 0.1, 50.0, sgn * 0.8));
+    keep(twinBofors(g, sgn * (halfDeck(-50) - 2.4), deckAt(-50) + 0.1, -50.0, sgn * 0.8));
   }
   // Ten Oerlikons: round the bridge, along the boat deck and right forward.
   // Ten Oerlikons, in pairs. None of them on the centreline: her turrets stow
@@ -1536,7 +1551,7 @@ function lightAA(g) {
     [66.0, deckAt(66) + 0.1, 3.2],
     [-64.0, deckAt(-64) + 0.1, 3.6],
   ]) {
-    for (const sgn of [-1, 1]) oerlikon(g, sgn * ox, oy, oz, sgn * 1.1);
+    for (const sgn of [-1, 1]) keep(oerlikon(g, sgn * ox, oy, oz, sgn * 1.1));
   }
 }
 
@@ -1567,6 +1582,8 @@ export function buildCleveland() {
   mergeStatic(g);
   const turrets = mainBattery(g);
   g.userData.classId = 'cleveland';
+  const secMounts = g.userData.secMounts || [];
+  const aaMounts = g.userData.aaMounts || [];
 
   // Her catapults. Like the carrier, she carries her own launch: the scene only
   // tells her when the order was given, and she knows what a launch looks like.
@@ -1612,7 +1629,10 @@ export function buildCleveland() {
     c.car.position.z = CAT_A;
     c.group.rotation.y = c.sgn * CAT_REST;
   };
-  return { group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0) };
+  return {
+    group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
+    secMounts, aaMounts,
+  };
 }
 
 /**

@@ -16,6 +16,12 @@ export function shipSnapshot(ship, full) {
     tu: ship.turrets.map((t) => r3(t.angle)),
     sm: ship.smokeActive > 0 ? 1 : 0,
   };
+  // Where her secondary battery and her torpedo tubes are trained. Everyone
+  // sees these, friend or enemy: a destroyer swinging her tubes onto your beam
+  // is the most important thing on the horizon, and it is visible through a
+  // pair of binoculars.
+  if (ship.secMounts.length) s.se = ship.secMounts.map((m) => r3(m.angle));
+  if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
   if (full) {
     s.notch = ship.notch;
     s.rud = r3(ship.rudder);

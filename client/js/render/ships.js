@@ -258,28 +258,44 @@ function addSuperstructure(group, cls, deckY) {
   aft.position.set(0, deckY + 2.2 * s, -L * 0.2);
   group.add(aft);
 
-  // Secondary and AA mounts along the waist.
+  // Secondary and AA mounts along the waist. Each is its own group, because
+  // each of them trains: a gun that cannot be pointed is scenery.
+  const aaMounts = [];
   const aaCount = type === 'BB' ? 8 : type === 'DD' ? 3 : 6;
   for (let i = 0; i < aaCount; i++) {
     for (const side of [-1, 1]) {
-      const m = cyl(1.1, 1.3, 1.6, PALETTE.turretTop, 'aa' + cls.id, 8);
-      m.position.set(side * B * 0.38, deckY + 1.2, L * (0.24 - (i / aaCount) * 0.5));
-      group.add(m);
+      const z = L * (0.24 - (i / aaCount) * 0.5);
+      const mount = new THREE.Group();
+      mount.position.set(side * B * 0.38, deckY + 1.2, z);
+      mount.rotation.y = side * 1.2;
+      mount.userData.dynamic = true;
+      mount.userData.rest = mount.rotation.y;
+      group.add(mount);
+      aaMounts.push(mount);
+      mount.add(cyl(1.1, 1.3, 1.6, PALETTE.turretTop, 'aa' + cls.id, 8));
       const barrels = box(0.35, 0.35, 3.2, PALETTE.barrel, 'aab' + cls.id);
-      barrels.position.set(side * B * 0.38, deckY + 2.1, L * (0.24 - (i / aaCount) * 0.5) + 1.4);
-      group.add(barrels);
+      barrels.position.set(0, 0.9, 1.4);
+      mount.add(barrels);
     }
   }
+  group.userData.aaMounts = aaMounts;
 
-  // Torpedo tubes on the centreline for the ships that carry them.
+  // Torpedo tubes on the centreline for the ships that carry them. They train
+  // on their own ring, so the bank is a group of its own too.
+  const torpMounts = [];
   if (cls.torpedoes) {
     for (const m of cls.torpedoes.mounts) {
-      const tube = box(2.6, 1.8, 7.5, PALETTE.turretTop, 'tt' + cls.id);
-      tube.position.set(m.x, deckY + 1.6, m.z);
-      tube.rotation.y = m.angle;
-      group.add(tube);
+      const bank = new THREE.Group();
+      bank.position.set(m.x, deckY + 1.6, m.z);
+      bank.rotation.y = m.angle;
+      bank.userData.dynamic = true;
+      bank.userData.rest = m.angle;
+      group.add(bank);
+      torpMounts.push(bank);
+      bank.add(box(2.6, 1.8, 7.5, PALETTE.turretTop, 'tt' + cls.id));
     }
   }
+  group.userData.torpMounts = torpMounts;
 }
 
 function addRailings(group, cls, rings, deckY) {
@@ -317,6 +333,7 @@ export function buildShip(classId) {
       group: built.group, turrets: built.turrets, lifts: built.lifts,
       deckPlane: built.deckPlane,
       length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: built.aaMounts || [], torpMounts: [],
     };
   }
   // And the Fletcher, for the same reason: a flush-decker with five open
@@ -332,6 +349,8 @@ export function buildShip(classId) {
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      torpMounts: [],
     };
   }
 
@@ -342,6 +361,8 @@ export function buildShip(classId) {
     });
     return {
       group: built.group, turrets: built.turrets,
+      secMounts: [], aaMounts: built.aaMounts || [],
+      torpMounts: built.torpMounts || [],
       length: built.length, beam: built.beam, deckY: built.deckY,
     };
   }

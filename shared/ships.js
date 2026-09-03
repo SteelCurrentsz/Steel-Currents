@@ -74,6 +74,9 @@ export const SHIP_CLASSES = {
         { id: 1, x: 0, z: -19, angle: 0, arc: 2.44, tubes: 5 },
       ],
       name: 'Mk 15 torpedo', role: 'surface', caliber: 533,
+      // How fast the bank comes round on its training gear. A quintuple mount
+      // is fifteen tons of tubes and it does not swing quickly.
+      traverse: 0.30,
       reload: 62, damage: 12800, speed: 30 * KNOTS, range: 8500,
       detection: 1100, arming: 400, spread: 0.09, floodChance: 0.32,
     },
@@ -281,6 +284,7 @@ export const SHIP_CLASSES = {
         { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
+      traverse: 0.26,
       reload: 78, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
     },

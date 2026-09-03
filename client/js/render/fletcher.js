@@ -540,6 +540,9 @@ function torpedoBank(g, z) {
   cyl(bank, M.gunDark, 1.2, 1.2, 0.12, 0, 0.56, 0, 16);
   const rack = new THREE.Group();
   rack.position.y = 0.62;
+  // The bank trains: the welder leaves it and everything on it alone.
+  rack.userData.dynamic = true;
+  rack.userData.rest = 0;
   bank.add(rack);
   // Five tubes, side by side, the outer pair sat a little lower so the bank
   // reads as the trapezoid it is rather than a slab.
@@ -560,7 +563,7 @@ function torpedoBank(g, z) {
   box(rack, M.gunDark, 0.5, 0.12, 0.5, S * 2.1, 0.05, -1.9);
   box(rack, M.gunDark, 0.16, 0.7, 0.16, S * 2.1, 0.42, -1.9);
   box(rack, M.gun, 3.9, 0.22, 0.5, 0, 0.02, -3.3);
-  return bank;
+  return rack;
 }
 
 /** A twin 40 mm Bofors in its splinter shield, on its own bandstand. */
@@ -583,6 +586,9 @@ function bofors(g, x, y, z, ry) {
   // The mount: a pedestal, the cradle and two barrels with their flash hiders.
   const gunG = new THREE.Group();
   gunG.position.y = 0.35;
+  // The gun swings inside its shield; the shield is structure and does not.
+  gunG.userData.dynamic = true;
+  gunG.userData.rest = ry;
   tub.add(gunG);
   cyl(gunG, M.gunDark, 0.42, 0.55, 0.5, 0, 0.25, 0, 12);
   box(gunG, M.gun, 1.15, 0.62, 1.0, 0, 0.75, -0.1);
@@ -600,7 +606,7 @@ function bofors(g, x, y, z, ry) {
   }
   // Ready-use ammunition against the inside of the shield.
   for (const sgn of [-1, 1]) box(tub, M.gunDark, 0.4, 0.5, 0.7, sgn * 1.5, 0.35, -1.1);
-  return tub;
+  return gunG;
 }
 
 /** A single 20 mm Oerlikon on its pedestal, behind a splinter shield. */
@@ -620,6 +626,8 @@ function oerlikon(g, x, y, z, ry) {
   cyl(o, M.gunDark, 0.22, 0.3, 1.1, 0, 0.55, 0, 10);
   const g2 = new THREE.Group();
   g2.position.y = 1.15;
+  g2.userData.dynamic = true;
+  g2.userData.rest = ry;
   o.add(g2);
   // The gun: barrel, the big drum magazine on top, and the shoulder rests.
   const bar = tubeZ(g2, M.gunDark, 0.05, 1.9, 0, 0.1, 0.9, 8);
@@ -627,7 +635,7 @@ function oerlikon(g, x, y, z, ry) {
   cyl(g2, M.gunDark, 0.28, 0.28, 0.16, 0, 0.42, 0.1, 12);
   box(g2, M.gunDark, 0.16, 0.3, 0.5, 0, 0.1, -0.2);
   for (const sgn of [-1, 1]) box(g2, M.gunDark, 0.06, 0.24, 0.06, sgn * 0.2, -0.05, -0.45);
-  return o;
+  return g2;
 }
 
 // -------------------------------------------------------- superstructure --
@@ -1165,7 +1173,9 @@ const STATIC = [
   ['depthCharges', depthCharges],
   ['fittings', fittings],
   ['lightAA', lightAA],
-  ['torpedoes', (g) => { torpedoBank(g, TUBES_F); torpedoBank(g, TUBES_A); }],
+  ['torpedoes', (g) => {
+    g.userData.torpMounts = [torpedoBank(g, TUBES_F), torpedoBank(g, TUBES_A)];
+  }],
   ['railings', railings],
 ];
 
@@ -1187,6 +1197,9 @@ function afterHouse(g) {
  * deckhouse, two on the fantail bandstands.
  */
 function lightAA(g) {
+  const mounts = [];
+  const keep = (m) => { mounts.push(m); return m; };
+  g.userData.aaMounts = mounts;
   // Five twin Bofors: two in tubs abreast the after funnel, two abreast on the
   // after deckhouse, and one right aft on the fantail between the depth charge
   // racks.
@@ -1200,12 +1213,12 @@ function lightAA(g) {
   // on the deckhouse, where there is beam for it, and the odd one goes abaft
   // everything.
   for (const sgn of [-1, 1]) {
-    bofors(g, sgn * 3.9, deckAt(FUNNEL_A) + 0.1, FUNNEL_A, sgn * 0.45);
+    keep(bofors(g, sgn * 3.9, deckAt(FUNNEL_A) + 0.1, FUNNEL_A, sgn * 0.45));
   }
   for (const sgn of [-1, 1]) {
-    bofors(g, sgn * 2.5, deckAt(-32.2) + 2.5, -32.2, sgn * 0.5);
+    keep(bofors(g, sgn * 2.5, deckAt(-32.2) + 2.5, -32.2, sgn * 0.5));
   }
-  bofors(g, 0, deckAt(-54.8) + 0.1, -54.8, 0);
+  keep(bofors(g, 0, deckAt(-54.8) + 0.1, -54.8, 0));
   // Seven Oerlikons: four on the 01 level round the bridge, two in the waist,
   // one on the forecastle.
   const roof01 = deckAt(15) + 3.0;
@@ -1213,9 +1226,9 @@ function lightAA(g) {
     [19.0, roof01, 3.5], [7.0, roof01, 3.5],
     [-24.0, deckAt(-24) + 0.05, halfDeck(-24) - 1.75],
   ]) {
-    for (const sgn of [-1, 1]) oerlikon(g, sgn * ox, oy, oz, sgn * 1.1);
+    for (const sgn of [-1, 1]) keep(oerlikon(g, sgn * ox, oy, oz, sgn * 1.1));
   }
-  oerlikon(g, 0, deckAt(28) + 0.05, 28, 0);
+  keep(oerlikon(g, 0, deckAt(28) + 0.05, 28, 0));
 }
 
 /** The five 5"/38 mounts, at the stations her datasheet gives: two forward
@@ -1244,7 +1257,13 @@ export function buildFletcher() {
   const turrets = mainBattery(g);
 
   g.userData.classId = 'fletcher';
-  return { group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0) };
+  return {
+    group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
+    // Everything else aboard that trains: her tubes and her light battery.
+    // See ships.js -- the scene lays them the same way it lays her turrets.
+    torpMounts: g.userData.torpMounts || [],
+    aaMounts: g.userData.aaMounts || [],
+  };
 }
 
 /**

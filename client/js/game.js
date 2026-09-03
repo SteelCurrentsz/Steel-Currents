@@ -695,6 +695,9 @@ export class Battle {
       // included, so the bearings all come off the wire.
       const turrets = s.tu;
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
+      // And everything else that trains: her secondary mountings and her
+      // tubes off the snapshot, her light battery off the aircraft overhead.
+      view.layMounts(s.se, s.tt, this.planesNow, dt);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
@@ -773,18 +776,19 @@ export class Battle {
     this.scene.shells.hideFrom(n);
     this.scene.shells.flush();
 
-    let m = 0;
-    for (const tp of a.torps) {
-      if (m >= this.scene.torpedoes.count) break;
+    // The torpedoes, interpolated like everything else, and handed to the
+    // module that draws the fish and lays her track. It wants world positions
+    // and a course, and it works out the rest.
+    this.torpsNow = a.torps.map((tp) => {
       const prev = b ? b.torps.find((x) => x.i === tp.i) : null;
-      dummy.position.set(prev ? lerp(tp.x, prev.x, t) : tp.x, 1.5, prev ? lerp(tp.z, prev.z, t) : tp.z);
-      dummy.rotation.set(0, tp.h, 0);
-      dummy.scale.setScalar(1);
-      dummy.updateMatrix();
-      this.scene.torpedoes.setMatrixAt(m++, dummy.matrix);
-    }
-    this.hideRest(this.scene.torpedoes, m);
-    this.scene.torpedoes.instanceMatrix.needsUpdate = true;
+      return {
+        i: tp.i,
+        x: prev ? lerp(tp.x, prev.x, t) : tp.x,
+        z: prev ? lerp(tp.z, prev.z, t) : tp.z,
+        h: prev ? tp.h + angleDelta(tp.h, prev.h) * t : tp.h,
+      };
+    });
+    this.scene.torpsNow = this.torpsNow;
 
     // Squadrons are interpolated between snapshots like everything else. They
     // used not to be, and the aeroplane the camera rides was the one thing on
