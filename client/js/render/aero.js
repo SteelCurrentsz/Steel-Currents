@@ -11,6 +11,14 @@
 // she goes, and a turn rate that falls out of the bank angle the way a
 // coordinated turn actually does. The coefficients are the real machines'.
 
+/** Wrap to -PI..PI, so a heading can be added to for ever. */
+function wrapAngle(a) {
+  let x = a;
+  while (x > Math.PI) x -= Math.PI * 2;
+  while (x < -Math.PI) x += Math.PI * 2;
+  return x;
+}
+
 export const RHO = 1.225;              // kg/m3, sea level
 export const G = 9.80665;
 
@@ -34,14 +42,21 @@ export const AERO = {
   wildcat: {
     mass: 3610, wing: 24.2, span: 11.58, clMax: 1.55, cd0: 0.0250,
     thrust: 15600, vMax: 143, name: 'F4F-4',
+    // How she handles: roll and pitch rates in radians a second at fighting
+    // speed, how far over she will go, and what the airframe will take.
+    rollRate: 2.9, pitchRate: 1.35, bankMax: 1.45, gLimit: 6.0,
   },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
+    rollRate: 2.1, pitchRate: 1.15, bankMax: 1.35, gLimit: 5.0,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',
+    // A loaded torpedo bomber is a bus. She rolls slowly and she will not be
+    // hauled about, which is exactly why she needs the fighters.
+    rollRate: 1.5, pitchRate: 0.85, bankMax: 1.15, gLimit: 4.0,
   },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
@@ -49,6 +64,7 @@ export const AERO = {
   kingfisher: {
     mass: 2600, wing: 24.3, span: 10.95, clMax: 1.50, cd0: 0.0410,
     thrust: 9000, vMax: 74, name: 'OS2U-3',
+    rollRate: 1.6, pitchRate: 0.95, bankMax: 1.15, gLimit: 4.0,
   },
 };
 
@@ -221,6 +237,132 @@ export function catapultProfile(aero, stroke = 21) {
     if (s > stroke + 120 && y > 10) break;
   }
   return { dt, rows };
+}
+
+/**
+ * An aeroplane with somebody in it.
+ *
+ * `Airborne` above is an autopilot: hand it a point and it goes there. This is
+ * the other thing -- a flight model driven by a stick and a throttle, which is
+ * what a player needs. It is deliberately the *simplified* model that a mobile
+ * flight game uses, because that is what was asked for and because a full
+ * six-degree-of-freedom aeroplane on a thumbstick is unflyable:
+ *
+ *   - the stick commands a pitch rate and a roll rate, not a control surface;
+ *   - an instructor coordinates the turn with rudder, holds the nose up in a
+ *     bank, and rolls the wings level when the stick is released;
+ *   - the wing still has to do the work. Speed comes from thrust against drag
+ *     and gravity down the flight path, the turn rate falls out of the bank
+ *     and the speed the way a real coordinated turn does, and pulling harder
+ *     than the wing will carry buffets and then stalls her.
+ *
+ * So she flies on her own energy: dive and she goes fast, haul her round at
+ * low speed and she mushes and falls out of it. That is the part that has to
+ * be real for the flying to be worth doing at all.
+ */
+export class Pilot {
+  constructor(aero, { x = 0, y = 300, z = 0, heading = 0, speed = null } = {}) {
+    this.a = aero;
+    this.x = x; this.y = y; this.z = z;
+    this.heading = heading;
+    this.pitch = 0;
+    this.bank = 0;
+    this.v = speed === null ? aero.vMax * 0.75 : speed;
+    this.throttle = 1;
+    // What the stick is asking for, -1 to 1: nose up positive, right roll
+    // positive.
+    this.stickPitch = 0;
+    this.stickRoll = 0;
+    // How hard the wing is being asked to work, in g, and how close that is to
+    // letting go. The HUD reads both.
+    this.g = 1;
+    this.stall = 0;
+    this.alive = true;
+  }
+
+  /** The speed below which this wing will not hold her up in level flight. */
+  get vStall() { return stallSpeed(this.a); }
+
+  /**
+   * One step of flying.
+   *
+   * Sub-stepped, because a stick hard over at three hundred knots turns her
+   * fast enough that a whole frame of it in one go is visibly wrong.
+   */
+  step(dt, seaAt = 0) {
+    const a = this.a;
+    const h = Math.min(dt, 1 / 60);
+    for (let n = 0, steps = Math.max(1, Math.ceil(dt / h)); n < steps; n++) {
+      const s = Math.min(h, dt - n * h);
+      if (s <= 0) break;
+      this.substep(s, seaAt);
+    }
+    return this;
+  }
+
+  substep(s, seaAt) {
+    const a = this.a;
+    const vs = this.vStall;
+    // How much authority she has: a control surface works on dynamic pressure,
+    // so an aeroplane near the stall is soggy and one going flat out is
+    // vicious. Below the stall she has almost nothing.
+    const q = Math.min(1.6, Math.max(0.12, (this.v / (vs * 1.7)) ** 2));
+
+    // Roll. A fighter rolls fast; a loaded torpedo bomber does not.
+    const rollRate = (a.rollRate ?? 2.6) * q;
+    const wantBank = this.stickRoll * (a.bankMax ?? 1.35);
+    // The instructor: hands off, she rolls level on her own dihedral.
+    const target = Math.abs(this.stickRoll) > 0.03 ? wantBank : 0;
+    const dB = Math.max(-rollRate * s, Math.min(rollRate * s, target - this.bank));
+    this.bank += dB;
+
+    // Pitch. The stick asks for g; the wing decides whether it gets it.
+    const pitchRate = (a.pitchRate ?? 1.15) * q;
+    // In a bank she needs more than one g just to hold her height, and the
+    // instructor feeds that in so she does not fall out of every turn.
+    const hold = 1 / Math.max(0.25, Math.cos(this.bank));
+    const askG = hold + this.stickPitch * (a.gLimit ?? 5.5);
+    // The most this wing can pull at this speed.
+    const maxG = Math.max(0.15, (this.v * this.v) / (vs * vs));
+    this.g = Math.max(-1.5, Math.min(askG, maxG));
+    // Buffet and departure: asking for more than the wing has.
+    this.stall = Math.max(0, Math.min(1, (askG - maxG) / Math.max(1, maxG * 0.5)));
+
+    // The turn. The horizontal part of the lift pulls her round -- which is
+    // why a turn costs speed and why she cannot turn at all inverted at low g.
+    const turn = (G * this.g * Math.sin(this.bank)) / Math.max(18, this.v);
+    this.heading = wrapAngle(this.heading + turn * s);
+    // And the vertical part against gravity gives the climb rate.
+    const gamma = (G * (this.g * Math.cos(this.bank) - Math.cos(this.pitch)))
+      / Math.max(18, this.v);
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + gamma * s));
+
+    // Energy: thrust against drag and the component of weight along the path.
+    const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));
+    const T = thrust(a, this.v, this.throttle);
+    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2);
+    this.v += ((T - D) / a.mass - G * Math.sin(this.pitch)) * s;
+    // She can be slower than the stall -- that is what a stall is -- but not
+    // stopped, and not faster than the airframe allows in a dive.
+    this.v = Math.max(8, Math.min(a.vMax * 1.55, this.v));
+
+    // A stalled wing drops the nose whether the pilot likes it or not.
+    if (this.stall > 0.35 && this.v < vs * 1.05) {
+      this.pitch -= 1.1 * this.stall * s;
+      this.bank += (this.bank >= 0 ? 1 : -1) * 0.5 * this.stall * s;
+    }
+
+    const ground = this.v * Math.cos(this.pitch);
+    this.x += Math.sin(this.heading) * ground * s;
+    this.z += Math.cos(this.heading) * ground * s;
+    this.y += this.v * Math.sin(this.pitch) * s;
+    // The sea is hard.
+    if (this.y < seaAt + 2) {
+      this.y = seaAt + 2;
+      if (this.pitch < 0) this.pitch = 0;
+      this.alive = false;
+    }
+  }
 }
 
 /**

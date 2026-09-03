@@ -118,6 +118,12 @@ export class Hud {
       status: $('status-row'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
+      flyTake: $('fly-take'), cockpit: $('cockpit'), hudLeft: $('hud-left'),
+      flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
+      flyThr: $('fly-thr'), flyStall: $('fly-stall'),
+      flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
+      flyStick: $('fly-stick'), flyKnob: $('fly-stick-knob'),
+      flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -565,6 +571,135 @@ export class Hud {
       return row;
     });
     this.onBoard?.(cv);
+  }
+
+  /**
+   * The cockpit: the stick, the throttle and the two triggers.
+   *
+   * Laid out the way a mobile flight game lays it out, because that is what
+   * thumbs already know: the stick under the left thumb with pitch on the
+   * vertical and roll on the horizontal, the throttle as a slider up the left
+   * edge beside it, guns and the drop under the right thumb. Everything is
+   * pointer events rather than touch events, so it works the same under a
+   * finger and under a mouse.
+   */
+  bindCockpit(fns) {
+    this.fly = { pitch: 0, roll: 0, throttle: 1, firing: false };
+    this.flyFns = fns || {};
+    const el = this.el;
+    if (!el.flyStick) return;
+
+    // ---- the stick -------------------------------------------------------
+    let stickId = null;
+    const stickAt = (ev) => {
+      const r = el.flyStick.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const rad = r.width / 2;
+      let dx = (ev.clientX - cx) / rad;
+      let dy = (ev.clientY - cy) / rad;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) { dx /= len; dy /= len; }
+      this.fly.roll = dx;
+      // Screen down is nose up, which is what a stick does.
+      this.fly.pitch = -dy;
+      el.flyKnob.style.transform =
+        `translate(calc(-50% + ${dx * rad * 0.66}px), calc(-50% + ${dy * rad * 0.66}px))`;
+    };
+    const stickOff = () => {
+      stickId = null;
+      this.fly.roll = 0;
+      this.fly.pitch = 0;
+      el.flyKnob.style.transform = 'translate(-50%, -50%)';
+    };
+    el.flyStick.addEventListener('pointerdown', (ev) => {
+      stickId = ev.pointerId;
+      el.flyStick.setPointerCapture(ev.pointerId);
+      stickAt(ev);
+      ev.preventDefault();
+    });
+    el.flyStick.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId === stickId) stickAt(ev);
+    });
+    for (const k of ['pointerup', 'pointercancel', 'pointerleave']) {
+      el.flyStick.addEventListener(k, (ev) => {
+        if (ev.pointerId === stickId) stickOff();
+      });
+    }
+
+    // ---- the throttle ----------------------------------------------------
+    let thrId = null;
+    const thrAt = (ev) => {
+      const r = el.flyThrottle.getBoundingClientRect();
+      const t = clamp(1 - (ev.clientY - r.top) / r.height, 0, 1);
+      this.fly.throttle = t;
+      el.flyThrottleFill.style.height = `${t * 100}%`;
+    };
+    el.flyThrottle.addEventListener('pointerdown', (ev) => {
+      thrId = ev.pointerId;
+      el.flyThrottle.setPointerCapture(ev.pointerId);
+      thrAt(ev);
+      ev.preventDefault();
+    });
+    el.flyThrottle.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId === thrId) thrAt(ev);
+    });
+    for (const k of ['pointerup', 'pointercancel']) {
+      el.flyThrottle.addEventListener(k, (ev) => { if (ev.pointerId === thrId) thrId = null; });
+    }
+
+    // ---- the triggers ----------------------------------------------------
+    const hold = (btn, on, off) => {
+      btn.addEventListener('pointerdown', (ev) => {
+        btn.setPointerCapture(ev.pointerId);
+        on();
+        ev.preventDefault();
+      });
+      for (const k of ['pointerup', 'pointercancel', 'pointerleave']) {
+        btn.addEventListener(k, () => off());
+      }
+    };
+    hold(el.flyGuns,
+      () => { this.fly.firing = true; el.flyGuns.classList.add('on'); },
+      () => { this.fly.firing = false; el.flyGuns.classList.remove('on'); });
+    el.flyDrop.onclick = () => this.flyFns.drop?.();
+    el.flyLeave.onclick = () => this.flyFns.leave?.();
+    el.flyTake.onclick = () => this.flyFns.take?.();
+  }
+
+  /** Raise or lower the "take this aeroplane" button. */
+  setFlyOffer(on) {
+    if (this.el.flyTake) this.el.flyTake.hidden = !on;
+  }
+
+  /** In the cockpit, or back on the bridge. */
+  setCockpit(on) {
+    if (this.el.cockpit) this.el.cockpit.hidden = !on;
+    if (this.el.connKeys) this.el.connKeys.style.display = on ? 'none' : '';
+    // Her condition is a thing for her bridge, and it sits exactly where the
+    // stick goes.
+    if (this.el.hudLeft) this.el.hudLeft.style.display = on ? 'none' : '';
+    if (on) {
+      this.panel = null;
+      if (this.el.connPanel) this.el.connPanel.hidden = true;
+      for (const k of Object.values(this.keys || {})) k.classList.remove('on');
+      this.setFlyOffer(false);
+      // Full throttle on the way in: nobody takes an aeroplane to idle it.
+      this.fly.throttle = 1;
+      if (this.el.flyThrottleFill) this.el.flyThrottleFill.style.height = '100%';
+    }
+  }
+
+  /** What the pilot reads: speed, height, what the wing is carrying. */
+  paintCockpit(p) {
+    const el = this.el;
+    if (!el.flySpeed || !p) return;
+    el.flySpeed.textContent = Math.round(p.v * 1.94384);
+    el.flyAlt.textContent = Math.round(p.y * 3.28084);
+    el.flyG.textContent = p.g.toFixed(1);
+    el.flyThr.textContent = Math.round(this.fly.throttle * 100);
+    el.flyStall.hidden = p.stall < 0.25;
+    el.flyDrop.classList.toggle('spent', !p.armed);
   }
 
   /** Say who builds the hologram, so the HUD need not import a renderer. */

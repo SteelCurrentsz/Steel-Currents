@@ -3,7 +3,8 @@
 import {
   createState, addShip, addBattery, applyInput, step, fireGuns, fireTorpedoes,
   steerToWaypoint,
-  launchStrike, useRepair, useSmoke, DT, TICK_RATE,
+  launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
+  releasePlane, strafe,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
@@ -310,6 +311,15 @@ export class Room {
       case 'torp': fireTorpedoes(this.state, ship); break;
       case 'repair': useRepair(this.state, ship); break;
       case 'smoke': useSmoke(this.state, ship); break;
+      // A player flying one of her flights by hand. `fly` is where the
+      // aeroplane is now, `drop` lets go of what she is carrying, and `land`
+      // hands her back to the autopilot.
+      case 'fly': flyPlane(this.state, ship, msg); break;
+      case 'drop': dropOrdnance(this.state, ship, msg.i); break;
+      case 'land': releasePlane(this.state, msg.i); break;
+      // Her guns, held down. `dt` is how long the trigger has been down since
+      // the last word, clamped so a client cannot claim a minute of it.
+      case 'gun': strafe(this.state, ship, msg.i, Math.min(0.3, Math.max(0, msg.dt || 0))); break;
       case 'strike': {
         // Her aircraft go for whatever her fire control is on. The guns and the
         // squadron fight the same ship, which is what a captain ordering a

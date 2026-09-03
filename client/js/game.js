@@ -5,7 +5,8 @@ import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
 import { Hud } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
-import { Airborne, AERO, stallSpeed } from './render/aero.js';
+import { Airborne, AERO, stallSpeed, Pilot } from './render/aero.js';
+import { ROLE_TYPE } from './render/planes.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -73,11 +74,15 @@ export class Battle {
 
     this.entities = new Map();
     this.snapshots = [];
+    // Last heading seen for each flight, so a turn can be read off as bank.
+    this.planeTurn = new Map();
     this.snapTime = 0;
     this.serverTime = 0;
     this.shellTrails = new Map();
 
     this.camMode = 'chase';
+    // The aeroplane the player has taken, if any: see takeFlight.
+    this.flight = null;
     // What the camera is looking at, when it is not looking at your own hull:
     // {kind:'ship'|'battery', id, name}, set by tapping a contact on the plot.
     // You still have the con while you are watching — the helm and the
@@ -120,6 +125,17 @@ export class Battle {
     // Tapping a hull or a gun on the plot puts the camera on it; tapping it
     // again, or tapping open water, brings the view back to your own bridge.
     this.hud.onPick = (hit, at) => this.workPlot(hit, at);
+    // The cockpit: one button to take an aeroplane, and the stick, throttle
+    // and triggers once you are in her.
+    this.hud.bindCockpit({
+      take: () => this.takeFlight(),
+      leave: () => this.leaveFlight(),
+      drop: () => {
+        if (!this.flight || !this.flight.armed) return;
+        this.net.send({ t: 'drop', i: this.flight.id });
+        audio.click();
+      },
+    });
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
     document.getElementById('watch-swap')?.addEventListener('click', () => {
@@ -432,6 +448,9 @@ export class Battle {
     }
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
+    // Picked one of your own flights off the plot: offer to take her. This is
+    // the only way into the cockpit, and it is one tap from the chart.
+    this.hud.setFlyOffer(this.canTake());
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
@@ -499,6 +518,121 @@ export class Battle {
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
     };
+  }
+
+  /** Is the thing being watched a flight of ours that could be flown? */
+  canTake() {
+    const w = this.watching;
+    if (!w || w.kind !== 'plane' || w.id == null || this.flight) return false;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const pl = snap && (snap.planes || []).find((q) => q.i === w.id);
+    return !!pl && pl.tm === this.team && pl.o === this.shipId;
+  }
+
+  /**
+   * Take an aeroplane.
+   *
+   * The flight stays the simulation's -- it is still shot at, it still counts
+   * against her squadron, and it still has to get home -- but from here on it
+   * is flown from the cockpit rather than by the autopilot, and where it is
+   * goes back over the wire the same way the ship's own aim does.
+   */
+  takeFlight() {
+    if (!this.canTake()) return;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
+    if (!pl) return;
+    const aero = AERO[ROLE_TYPE[pl.r || 'torpedo']] || AERO.avenger;
+    this.flight = {
+      id: pl.i,
+      role: pl.r || 'torpedo',
+      pilot: new Pilot(aero, {
+        x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h,
+        speed: aero.vMax * 0.72,
+      }),
+      // What she is carrying, and how long since the last word to the server.
+      armed: (pl.r || 'torpedo') !== 'fighter',
+      sent: 0,
+      guns: 0,
+    };
+    // If the flight taken is the one the carrier's own deck model is flying --
+    // the aeroplane that came up the lift and went down the deck -- she is put
+    // back aboard. There is one aeroplane, and the pilot has her; two of the
+    // same flight in the air is the duplicate this whole thing is meant to
+    // avoid.
+    if (this.flying && this.flying.id === pl.i) {
+      const v = this.flying.ownerView;
+      const g = this.flying.group;
+      this.flying = null;
+      this.landing = null;
+      if (v && g) {
+        v.group.attach(g);
+        v.group.userData.recover?.();
+      }
+    }
+    this.watching = null;
+    this.hud.setWatching(null);
+    this.hud.setWatchBanner(null);
+    this.hud.setFlyOffer(false);
+    this.hud.setCockpit(true);
+    if (this.mapBig) this.toggleMap(false);
+    audio.click();
+  }
+
+  /** Hand her back to the autopilot and go back to the bridge. */
+  leaveFlight(lost = false) {
+    if (!this.flight) return;
+    this.net.send({ t: 'land', i: this.flight.id });
+    this.flight = null;
+    this.hud.setCockpit(false);
+    if (lost) this.hud.alert('Aircraft down');
+  }
+
+  /**
+   * Fly her for one frame.
+   *
+   * The stick and the throttle come off the cockpit; the aeroplane comes off
+   * the flight model in aero.js, which is a wing and an engine rather than a
+   * cursor. Where she ends up is sent to the simulation a few times a second
+   * -- often enough that the flight the plot shows is the one under the
+   * player, sparing enough that it is not a message a frame.
+   */
+  stepFlight(dt) {
+    const f = this.flight;
+    if (!f) return;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const pl = snap && (snap.planes || []).find((q) => q.i === f.id);
+    // She is gone: shot down, or her squadron was released under her.
+    if (!pl) { this.leaveFlight(true); return; }
+    f.armed = !pl.d;
+
+    const stick = this.hud.fly || { pitch: 0, roll: 0, throttle: 1 };
+    const p = f.pilot;
+    p.stickPitch = stick.pitch;
+    p.stickRoll = stick.roll;
+    p.throttle = stick.throttle;
+    const sea = this.scene.ocean.heightAt(p.x, p.z);
+    p.step(dt, sea);
+    if (!p.alive) { this.leaveFlight(true); return; }
+
+    // The guns: held down, reported in bursts rather than per frame.
+    if (stick.firing) {
+      f.guns += dt;
+      if (f.guns > 0.15) {
+        this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
+        f.guns = 0;
+      }
+    } else f.guns = 0;
+
+    f.sent -= dt;
+    if (f.sent <= 0) {
+      f.sent = 0.1;
+      this.net.send({
+        t: 'fly', i: f.id,
+        x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+      });
+    }
+    this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
   }
 
   /**
@@ -604,6 +738,7 @@ export class Battle {
       this.net.send({ t: 'input', notch: ls.notch });
     }
 
+    this.stepFlight(dt);
     this.syncEntities(dt);
     this.updateCamera(dt);
     this.scene.update(dt);
@@ -807,21 +942,40 @@ export class Battle {
     });
     this.planesNow = planes;
 
-    let p = 0;
+    // Every flight in the air, as the aircraft she actually is and as many of
+    // them as she actually has.
+    this.scene.flights.begin();
     for (const pl of planes) {
-      if (p >= this.scene.planeMesh.count) break;
-      // The one aeroplane a carrier put in the air is drawn as an aeroplane,
-      // not as a marker: it is the model that came up the lift and went down
-      // the deck, so it is left off the instanced flight here.
-      if (this.flying && this.flying.id === pl.i) continue;
-      dummy.position.set(pl.x, this.planeHeight(pl), pl.z);
-      dummy.rotation.set(0, pl.h, 0);
-      dummy.scale.setScalar(1);
-      dummy.updateMatrix();
-      this.scene.planeMesh.setMatrixAt(p++, dummy.matrix);
+      // How hard she is turning, from how fast her heading is changing: an
+      // aeroplane in a turn is banked, and a formation of them all banked
+      // together is the thing that reads as a squadron manoeuvring.
+      const was = this.planeTurn.get(pl.i);
+      const rate = was === undefined ? 0 : angleDelta(was, pl.h) / Math.max(dt, 1 / 120);
+      this.planeTurn.set(pl.i, pl.h);
+      const bank = clamp(rate * 1.6, -1.05, 1.05);
+      const climb = clamp(((pl.a ?? 99) - 6) / 30, 0, 1);
+      const pitch = (1 - climb) * 0.14;
+      // The one aeroplane a carrier put in the air is drawn by the deck
+      // handover instead -- she is the model that went down the deck -- so her
+      // slot in the formation is left empty rather than filled twice.
+      const skip = this.flying && this.flying.id === pl.i ? 0 : -1;
+      // The one the player is flying is drawn where the flight model says she
+      // is, at the attitude the stick has her in -- not at the position the
+      // last snapshot happened to carry.
+      const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
+      if (mine) {
+        this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
+          mine.heading, mine.bank, mine.pitch, Math.max(1, pl.n || 1), skip);
+      } else {
+        this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
+          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip);
+      }
     }
-    this.hideRest(this.scene.planeMesh, p);
-    this.scene.planeMesh.instanceMatrix.needsUpdate = true;
+    this.scene.flights.end();
+    // Forget the flights that are no longer up, so the map does not grow.
+    for (const id of [...this.planeTurn.keys()]) {
+      if (!planes.some((q) => q.i === id)) this.planeTurn.delete(id);
+    }
     this.flyLaunched(planes, dt);
   }
 
@@ -855,7 +1009,9 @@ export class Battle {
     for (const [id, v] of this.scene.shipViews) {
       const deck = v.group.userData.deck;
       if (!deck || !deck.airborne) continue;
-      const pl = planes.find((q) => q.o === id);
+      // Never the flight the player is flying: that one has a pilot in her.
+      const pl = planes.find((q) => q.o === id
+        && !(this.flight && this.flight.id === q.i));
       if (pl) { deck.lostAt = 0; up = { id, v, deck, pl }; break; }
       // Off the deck, but her squadron is not on the plot. That is usually
       // because she was recovered or shot down -- but for the first moments
@@ -1017,6 +1173,38 @@ export class Battle {
   updateCamera(dt) {
     const cam = this.scene.camera;
     const ls = this.localShip;
+    // In the cockpit, the camera belongs to the aeroplane and to nothing else:
+    // over her shoulder, banking with her, looking where her nose is looking.
+    if (this.flight) {
+      const p = this.flight.pilot;
+      cam.fov = 62;
+      cam.updateProjectionMatrix();
+      // Far enough back and high enough that she is in the frame with the sea
+      // under her: a chase camera that cannot see its own aeroplane is a
+      // camera pointed at nothing.
+      const back = 34;
+      const up = 9;
+      // Behind and above, in her own frame, so the view rolls with her the way
+      // a chase camera does rather than staying pinned to the horizon.
+      const cp = Math.cos(p.pitch);
+      const bx = -Math.sin(p.heading) * cp * back - Math.sin(p.bank) * Math.cos(p.heading) * up;
+      const bz = -Math.cos(p.heading) * cp * back + Math.sin(p.bank) * Math.sin(p.heading) * up;
+      const by = Math.sin(p.pitch) * back * -1 + Math.cos(p.bank) * up;
+      cam.position.set(p.x + bx, Math.max(p.y + by, 3), p.z + bz);
+      cam.up.set(Math.sin(p.bank) * Math.cos(p.heading) * -1, Math.cos(p.bank),
+        Math.sin(p.bank) * Math.sin(p.heading));
+      // Looking down her nose, but not so far ahead that she drops out of the
+      // bottom of the picture.
+      const look = 70;
+      cam.lookAt(
+        p.x + Math.sin(p.heading) * cp * look,
+        p.y + Math.sin(p.pitch) * look + 2,
+        p.z + Math.cos(p.heading) * cp * look,
+      );
+      this.input.orbiting = false;
+      return;
+    }
+    cam.up.set(0, 1, 0);
     const targetFov = this.scoped ? 16 : 58;
     this.fov = lerp(this.fov, targetFov, 1 - Math.pow(0.002, dt));
     cam.fov = this.fov;

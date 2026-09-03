@@ -235,7 +235,7 @@
     <div class="battle-timer" id="battle-timer">15:00</div>
   </div>
 
-  <div class="hud-left">
+  <div class="hud-left" id="hud-left">
     <!-- No bar. What she is worth is what her compartments are worth, and that
          is read off the damage board behind the wrench. -->
     <div class="ship-plate">
@@ -278,6 +278,41 @@
     <div class="conn-panel-head"><span id="conn-panel-title">ENGINE</span>
       <span class="conn-panel-sub" id="conn-panel-sub"></span></div>
     <div class="conn-panel-body" id="conn-panel-body"></div>
+  </div>
+
+  <!-- Taking an aeroplane. Tap a flight of your own on the plot and this comes
+       up under it: the one button that puts you in the cockpit. -->
+  <button class="fly-take" id="fly-take" type="button" hidden>
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 3.5c1.3 0 2 1.4 2 3.2v4.1l10.5 5.6v2.7L18 16.4v5.4l3.4 2.3v2.3L16 25l-5.4 1.4v-2.3l3.4-2.3v-5.4L3.5 19.1v-2.7L14 10.8V6.7c0-1.8.7-3.2 2-3.2z"
+            fill="currentColor"/>
+    </svg>
+    <span>CONTROL</span>
+  </button>
+
+  <!-- The cockpit. Left thumb flies her and works the throttle, right thumb
+       shoots and drops. Nothing else is on screen while you are up there. -->
+  <div class="cockpit" id="cockpit" hidden>
+    <div class="fly-readout" id="fly-readout">
+      <div><b id="fly-speed">0</b><i>KN IAS</i></div>
+      <div><b id="fly-alt">0</b><i>FT</i></div>
+      <div><b id="fly-g">1.0</b><i>G</i></div>
+      <div><b id="fly-thr">100</b><i>THR</i></div>
+    </div>
+    <div class="fly-stall" id="fly-stall" hidden>STALL</div>
+    <div class="fly-throttle" id="fly-throttle">
+      <div class="fly-throttle-fill" id="fly-throttle-fill"></div>
+      <span>THR</span>
+    </div>
+    <div class="fly-stick" id="fly-stick">
+      <div class="fly-stick-knob" id="fly-stick-knob"></div>
+    </div>
+    <div class="fly-actions">
+      <button class="fly-btn drop" id="fly-drop" type="button">DROP</button>
+      <button class="fly-btn guns" id="fly-guns" type="button">FIRE</button>
+    </div>
+    <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
+    <div class="fly-reticle" id="fly-reticle"></div>
   </div>
 
   <div class="conn-keys" id="conn-keys">

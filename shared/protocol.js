@@ -99,6 +99,9 @@ export function buildSnapshot(state, team, viewerShipId) {
       o: p.owner, a: r1(p.life),
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
+      // Whether she still has anything to drop, so a pilot's release button
+      // can go dead once she has let go of it.
+      d: p.dropped ? 1 : 0,
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

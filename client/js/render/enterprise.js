@@ -2444,7 +2444,7 @@ function foldWing(p, s, o) {
 const sitline = (f, k) => (z) => f + k * z;
 
 /** An F4F-4 Wildcat with her wings swung back flat along her sides. */
-function wildcat(g, x, y, z, ry) {
+function wildcat(g, x, y, z, ry, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2494,8 +2494,10 @@ function wildcat(g, x, y, z, ry) {
   empennage(p, 1.34, 1.16, 3.75, 0.92, cl(-3.5) + 0.34, -3.3);
   // Her narrow-track gear cranks up into the fuselage sides, so it stands close
   // in under her and the wheels are half buried when it is down.
-  for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.02, 0.34, 0.02);
-  tailGear(p, -3.85, 0.17, 1.0, 0.3);
+  if (opts.gear !== false) {
+    for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.02, 0.34, 0.02);
+    tailGear(p, -3.85, 0.17, 1.0, 0.3);
+  }
   // Aerial mast and the wire back to the fin.
   box(p, M.planeTop, 0.07, 0.62, 0.07, 0, cl(0.5) + 1.32, 0.5);
   const wire = box(p, M.wire, 0.03, 0.03, 3.9, 0, cl(-1.4) + 1.28, -1.4);
@@ -2504,7 +2506,7 @@ function wildcat(g, x, y, z, ry) {
 }
 
 /** An SBD Dauntless: the perforated dive flaps are the whole point of her. */
-function dauntless(g, x, y, z, ry, folded = false) {
+function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2577,8 +2579,10 @@ function dauntless(g, x, y, z, ry, folded = false) {
   for (const s of [-1, 1]) {
     box(p, M.gunDark, 0.02, 0.3, 0.3, s * 0.1, cl(0.3) - 1.35, 0.45);
   }
-  for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
-  tailGear(p, -4.45, 0.19, 1.2, 0.34);
+  if (opts.gear !== false) {
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
+    tailGear(p, -4.45, 0.19, 1.2, 0.34);
+  }
   box(p, M.planeTop, 0.07, 0.7, 0.07, 0, cl(0.6) + 1.4, 0.6);
   const wire = box(p, M.wire, 0.03, 0.03, 4.6, 0, cl(-1.8) + 1.4, -1.8);
   wire.rotation.x = -0.16;
@@ -2587,7 +2591,7 @@ function dauntless(g, x, y, z, ry, folded = false) {
 }
 
 /** A TBF-1 Avenger: the ball turret is what names her at any range. */
-function avenger(g, x, y, z, ry, folded = true, spin = false) {
+function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2688,8 +2692,9 @@ function avenger(g, x, y, z, ry, folded = true, spin = false) {
   insignia(p, 0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
   insignia(p, -0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
   empennage(p, 2.05, 1.7, 5.8, 1.3, cl(-5.2) + 0.46, -4.8);
-  const legs = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
-  const tailLeg = tailGear(p, -5.5, 0.21, 1.1, 0.36);
+  const legs = opts.gear === false ? []
+    : [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
+  const tailLeg = opts.gear === false ? null : tailGear(p, -5.5, 0.21, 1.1, 0.36);
   const down = legs.map((l) => l.g.rotation.z);
   // 0 is down and locked, 1 is up and the doors shut behind her.
   p.userData.gear = (u) => {

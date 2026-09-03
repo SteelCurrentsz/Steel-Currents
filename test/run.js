@@ -16,7 +16,11 @@ import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, aaBattery, aaBarrels, aaBearing, mountBears,
+  flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
+import { Pilot, AERO } from '../client/js/render/aero.js';
+const AERO_WILDCAT = AERO.wildcat;
+const AERO_AVENGER = AERO.avenger;
 import { arsenal } from '../client/js/hud.js';
 import { shellLength } from '../client/js/render/ordnance.js';
 import { angleDelta } from '../shared/math.js';
@@ -2657,6 +2661,160 @@ check('each kind of aeroplane goes after its own kind of target', () => {
     'the torpedo bombers went chasing aeroplanes');
   assert.ok(!pickAirTarget(st, flight('dive')).air,
     'the dive bombers went chasing aeroplanes');
+});
+
+check('a pilot flies her flight, and nobody else can', () => {
+  const state = createState(generateWorld(7373, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 8000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  launchStrike(state, cv);
+  for (let i = 0; i < 30 * 20; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    step(state, DT);
+  }
+  const p = state.planes.find((q) => q.owner === cv.id);
+  assert.ok(p, 'nothing got up to fly');
+  // The enemy cannot fly her, and neither can a message with nonsense in it.
+  assert.equal(flyPlane(state, foe, { i: p.id, x: p.x, z: p.z, h: 0 }), false,
+    'the other side flew her aeroplane');
+  assert.equal(flyPlane(state, cv, { i: p.id, x: NaN, z: 0, h: 0 }), false,
+    'she accepted a position that is not a number');
+  // Nor can her own side teleport her: only as far as she could have flown.
+  assert.equal(flyPlane(state, cv, { i: p.id, x: p.x + 9000, z: p.z, h: 0 }), false,
+    'she was moved nine kilometres in one message');
+
+  // Flown properly, she goes where the pilot puts her and the autopilot lets
+  // go of her.
+  let x = p.x;
+  let z = p.z;
+  let h = p.heading;
+  for (let i = 0; i < 30 * 6; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    h += 0.3 * DT;
+    x += Math.sin(h) * 100 * DT;
+    z += Math.cos(h) * 100 * DT;
+    if (i % 3 === 0) {
+      assert.ok(flyPlane(state, cv, { i: p.id, x, z, h }), 'she refused a legal position');
+    }
+    step(state, DT);
+  }
+  assert.ok(p.flown, 'she is not marked as being flown');
+  assert.ok(Math.hypot(p.x - x, p.z - z) < 40,
+    `the flight is ${Math.round(Math.hypot(p.x - x, p.z - z))} m from where the pilot put her`);
+
+  // Let go of her and the autopilot has her again within a second and a half.
+  releasePlane(state, p.id);
+  const wasX = p.x;
+  for (let i = 0; i < 30 * 3; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    step(state, DT);
+  }
+  assert.ok(!p.flown, 'she is still marked as flown after being let go');
+  assert.ok(Math.abs(p.x - wasX) > 1 || Math.abs(p.z - z) > 1, 'nobody is flying her at all');
+});
+
+check('an aeroplane flies on her wing, not on a cursor', () => {
+  // Hands off she holds what she is given; hauled round she pays for it in
+  // speed and height, and hauled round hard enough she stalls. That is the
+  // whole difference between a flight model and a waypoint.
+  const level = new Pilot(AERO_WILDCAT, { y: 900, speed: 110 });
+  for (let i = 0; i < 60 * 10; i++) level.step(1 / 60);
+  assert.ok(Math.abs(level.bank) < 0.02, 'hands off, she will not fly level');
+  assert.ok(Math.abs(level.y - 900) < 25, `hands off she wandered to ${level.y.toFixed(0)} m`);
+
+  const turn = new Pilot(AERO_WILDCAT, { y: 900, speed: 130 });
+  turn.stickRoll = -1;
+  turn.stickPitch = 0.6;
+  const v0 = turn.v;
+  for (let i = 0; i < 60 * 8; i++) turn.step(1 / 60);
+  assert.ok(Math.abs(turn.bank) > 1.0, `she only reached ${turn.bank.toFixed(2)} rad of bank`);
+  assert.ok(turn.v < v0 - 20, `a hard turn cost her only ${(v0 - turn.v).toFixed(0)} m/s`);
+  assert.ok(Math.abs(turn.heading) > 0.6, 'hauling her round did not turn her');
+
+  // And a bomber yanked about at low speed departs rather than obeying.
+  const slow = new Pilot(AERO_AVENGER, { y: 900, speed: 46 });
+  slow.stickPitch = 1;
+  for (let i = 0; i < 60 * 4; i++) slow.step(1 / 60);
+  assert.ok(slow.stall > 0.4, `she was asked for more than her wing had and gave ${slow.stall.toFixed(2)}`);
+  assert.ok(slow.pitch < 0.25, 'she went on climbing through a stall');
+});
+
+check('a squadron always comes back, however her flights end', () => {
+  // The bug this is here for: whether a squadron was released was worked out
+  // per flight, at the moment each one left, against an array that had not
+  // been rebuilt yet -- so a flight that had already gone still counted as
+  // airborne. Two flights of one squadron ending on the same tick each saw the
+  // other as still out, neither released the squadron, and the carrier could
+  // never rearm it. Her aircraft never came back.
+  const state = createState(generateWorld(9090, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'CL', classId: 'cleveland', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 7000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  let launched = 0;
+  let stuckFor = 0;
+  const came = new Set();
+  for (let i = 0; i < 30 * 60 * 5; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    if (i % (30 * 20) === 0 && launchStrike(state, cv)) launched++;
+    step(state, DT);
+    // Any squadron marked flying with nothing of it in the air, and not on the
+    // deck run, is one that will never come home.
+    const bad = cv.squadrons.filter((q) => q.state === 'flying'
+      && !(cv.launching && cv.launching.sqId === q.id)
+      && !state.planes.some((p) => p.owner === cv.id && p.sqId === q.id));
+    for (const q of cv.squadrons) if (q.state === 'deck') came.add(q.id);
+    stuckFor = bad.length ? stuckFor + 1 : 0;
+    assert.ok(stuckFor < 30 * 3,
+      `squadron ${bad[0] && bad[0].id} has been flying with nothing in the air for 3s`);
+  }
+  assert.ok(launched >= 4, `she only got ${launched} strikes away in five minutes`);
+  // Four strikes off three squadrons is only possible if squadrons came back
+  // and went again -- and every one of them has to have been struck below at
+  // some point, not just the lucky one.
+  for (const q of cv.squadrons) {
+    assert.ok(came.has(q.id), `squadron ${q.id} never once came home`);
+  }
+});
+
+check('a flight shot down is reported once, not twice', () => {
+  // A flight killed by another flight is marked dead and left in the array so
+  // whatever killed it can still find it. Before, the loop then reached it and
+  // reported it lost all over again -- two "squadron lost" messages, and two
+  // attempts to bring the same squadron home.
+  const state = createState(generateWorld(9091, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv2 = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0 });
+  // Well apart, so the dogfight below happens out of reach of either ship's
+  // anti-aircraft fire and the only thing that can kill a flight is another
+  // flight -- which is the path under test.
+  cv.x = 0; cv.z = 0; cv2.x = 0; cv2.z = 12000;
+  cv.aimX = cv2.x; cv.aimZ = cv2.z;
+  cv2.aimX = cv.x; cv2.aimZ = cv.z;
+  assert.ok(launchStrike(state, cv) && launchStrike(state, cv2), 'both would not launch');
+  // Wait for the flights to get off the deck, then put the two forces on top
+  // of one another so the fighters are certain to meet.
+  for (let i = 0; i < 30 * 20; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    step(state, DT);
+  }
+  assert.ok(state.planes.length >= 6, `only ${state.planes.length} flights got up`);
+  for (const p of state.planes) { p.x = 11000 + (p.team ? 60 : 0); p.z = 6000; }
+  const seen = [];
+  let killedByFighters = 0;
+  for (let i = 0; i < 30 * 90; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    for (const e of step(state, DT)) {
+      if (e.e !== 'planesLost') continue;
+      seen.push(e.i);
+      if (e.why === 'fighters') killedByFighters++;
+    }
+  }
+  assert.ok(killedByFighters > 0, 'the fighters never got into it, so nothing was tested');
+  assert.equal(new Set(seen).size, seen.length,
+    `${seen.length - new Set(seen).size} flight(s) were reported lost twice`);
 });
 
 check('a strike goes up as three flights and comes home as one squadron', () => {

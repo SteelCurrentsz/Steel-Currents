@@ -427,6 +427,123 @@ input[type="range"] { accent-color: var(--red); }
 .conn-panel-sub { letter-spacing: 0.1em; color: var(--sand); font-size: 0.9rem; }
 .conn-panel-body { padding: 0.6rem 0.7rem 0.7rem; }
 
+/* Taking an aeroplane. The one button that does it, right at the bottom under
+   the conning keys, so it is under the thumb and impossible to miss. */
+.fly-take {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: max(0.4vh, env(safe-area-inset-bottom)); z-index: 9;
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.42rem 1.1rem;
+  background: rgba(10, 26, 18, 0.94); border: 1px solid var(--ally);
+  color: var(--ally); font-family: var(--ui); font-size: 0.78rem;
+  letter-spacing: 0.24em; cursor: pointer; pointer-events: auto;
+}
+.fly-take[hidden] { display: none; }
+.fly-take svg { width: 20px; height: 20px; display: block; }
+.fly-take:hover { background: rgba(18, 44, 30, 0.96); }
+
+/* The cockpit: War Thunder Mobile's layout, which is the one everybody's
+   thumbs already know. Stick bottom left, throttle up the left edge, guns and
+   the drop bottom right, instruments top left, and nothing else in the way. */
+.cockpit { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+.cockpit[hidden] { display: none; }
+
+.fly-readout {
+  position: absolute; left: max(0.8rem, env(safe-area-inset-left));
+  top: max(0.8rem, env(safe-area-inset-top));
+  display: flex; flex-direction: column; gap: 0.1rem;
+  font-family: var(--ui); letter-spacing: 0.14em;
+}
+.fly-readout > div { display: flex; align-items: baseline; gap: 0.4rem; }
+.fly-readout b {
+  font-size: 1.15rem; color: var(--sand-bright); min-width: 3.2rem; text-align: right;
+  font-weight: 600;
+}
+.fly-readout i { font-style: normal; font-size: 0.56rem; color: var(--steel); }
+
+.fly-stall {
+  position: absolute; left: 50%; top: 26%; transform: translateX(-50%);
+  font-family: var(--ui); font-size: 1.3rem; letter-spacing: 0.4em;
+  color: var(--enemy); text-shadow: 0 0 12px rgba(226, 86, 79, 0.7);
+  animation: stallBlink 0.5s steps(2, end) infinite;
+}
+.fly-stall[hidden] { display: none; }
+@keyframes stallBlink { 50% { opacity: 0.15; } }
+
+/* The throttle: a slider up the left edge, dragged with the same thumb that
+   flies her. */
+.fly-throttle {
+  position: absolute; left: max(0.6rem, env(safe-area-inset-left));
+  bottom: 27vh; width: 46px; height: 34vh;
+  background: rgba(8, 19, 31, 0.7); border: 1px solid var(--panel-line);
+  pointer-events: auto; touch-action: none; cursor: ns-resize;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.fly-throttle-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 100%;
+  background: linear-gradient(to top, rgba(111, 211, 160, 0.5), rgba(111, 211, 160, 0.16));
+}
+.fly-throttle span {
+  position: relative; font-family: var(--ui); font-size: 0.5rem;
+  letter-spacing: 0.2em; color: var(--sand); padding-bottom: 0.3rem;
+}
+
+/* The stick. Thumb down anywhere in the box takes it; pitch on the vertical,
+   roll on the horizontal; let go and she rolls level on her own. */
+.fly-stick {
+  position: absolute; left: calc(max(0.6rem, env(safe-area-inset-left)) + 58px);
+  bottom: 4vh; width: min(38vw, 190px); height: min(38vw, 190px);
+  border-radius: 50%; border: 1px solid rgba(154, 166, 178, 0.35);
+  background: radial-gradient(circle, rgba(8, 19, 31, 0.5), rgba(8, 19, 31, 0.16));
+  pointer-events: auto; touch-action: none;
+}
+.fly-stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 30%; height: 30%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%; background: rgba(230, 207, 156, 0.24);
+  border: 1px solid var(--sand); pointer-events: none;
+}
+
+.fly-actions {
+  position: absolute; right: max(0.8rem, env(safe-area-inset-right));
+  bottom: 5vh; display: flex; flex-direction: column; gap: 0.7rem;
+  align-items: center; pointer-events: auto;
+}
+.fly-btn {
+  width: 92px; height: 92px; border-radius: 50%;
+  font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.2em;
+  cursor: pointer; touch-action: none;
+  background: rgba(8, 19, 31, 0.78); color: var(--steel);
+  border: 2px solid var(--panel-line);
+}
+.fly-btn.guns { border-color: rgba(230, 207, 156, 0.7); color: var(--sand); }
+.fly-btn.guns:active, .fly-btn.guns.on { background: rgba(230, 207, 156, 0.24); }
+.fly-btn.drop { width: 74px; height: 74px; border-color: rgba(226, 86, 79, 0.7); color: var(--enemy); }
+.fly-btn.drop:active { background: rgba(226, 86, 79, 0.24); }
+.fly-btn.drop.spent { opacity: 0.35; }
+
+.fly-leave {
+  position: absolute; right: max(0.8rem, env(safe-area-inset-right));
+  top: max(0.8rem, env(safe-area-inset-top));
+  padding: 0.35rem 0.8rem; pointer-events: auto; cursor: pointer;
+  background: rgba(8, 19, 31, 0.8); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.6rem;
+  letter-spacing: 0.2em;
+}
+
+/* The gunsight: a fixed reticle on the nose, which is where a fixed gun
+   points. */
+.fly-reticle {
+  position: absolute; left: 50%; top: 50%; width: 76px; height: 76px;
+  transform: translate(-50%, -50%); pointer-events: none;
+  border: 1px solid rgba(230, 207, 156, 0.5); border-radius: 50%;
+}
+.fly-reticle::before, .fly-reticle::after {
+  content: ''; position: absolute; background: rgba(230, 207, 156, 0.65);
+}
+.fly-reticle::before { left: 50%; top: -14px; width: 1px; height: 14px; }
+.fly-reticle::after { top: 50%; left: -14px; height: 1px; width: 14px; }
+
 /* The arsenal: every mounting aboard, grouped by battery. Scrolls, because a
    battleship carries more kinds of gun than fit above a row of keys. */
 .conn-panel.tall .conn-panel-body { max-height: min(52vh, 420px); overflow-y: auto; }

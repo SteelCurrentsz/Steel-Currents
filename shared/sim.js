@@ -463,6 +463,156 @@ export function fireGuns(state, ship) {
   return fired;
 }
 
+/**
+ * What a flight actually drops, and what it does when it arrives.
+ *
+ * One place, because two things call it: the flight's own attack run, and a
+ * pilot pressing the button. A torpedo bomber puts real fish in the water and
+ * they run; a dive bomber's bomb either hits or it does not, because there is
+ * nothing to run on and nothing to comb.
+ */
+function deliverOrdnance(state, p, best, P) {
+  const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
+  const base = headingTo(p.x, p.z, lead.x, lead.z);
+  const torp = p.torp ?? p.count;
+  for (let i = 0; i < torp; i++) {
+    const off = (i - (torp - 1) / 2) * P.dropSpread;
+    state.torps.push({
+      id: eid(), owner: p.owner, team: p.team,
+      x: p.x, z: p.z, heading: wrapAngle(base + off),
+      speed: P.torpSpeed, range: P.torpRange, travelled: 0,
+      damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
+    });
+  }
+  // The dive bombers go in over the top. A bomb either hits or it does
+  // not -- there is nothing to run on and nothing to comb -- so it is
+  // settled here rather than given a body to fly.
+  for (let i = 0; i < (p.bomb || 0); i++) {
+    if (state.rng() > (P.bombHit ?? 0.4)) continue;
+    const owner = state.ships.find((s) => s.id === p.owner) || null;
+    const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
+    const cell = sectionAt(clamp(lb.z / (getClass(best.classId).hull.length * 0.5), -1, 1), 'deck');
+    damageShip(state, best, owner, P.bombDamage ?? 4000, 'bomb', cell);
+    best.sections[cell].pens++;
+    if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
+    state.events.push({ e: 'bombHit', x: best.x, z: best.z });
+  }
+}
+
+/**
+ * A flight somebody is flying by hand.
+ *
+ * The simulation owns everything that matters about a flight -- what shoots at
+ * her, what she can attack, whether her squadron is home -- but a player
+ * cannot fly an aeroplane through fifteen snapshots a second of somebody
+ * else's autopilot. So the client that has taken her sends where she is, the
+ * same way it already sends where its own ship is aiming, and the simulation
+ * stops steering her and gets on with everything else.
+ *
+ * The checks are the point: a flight can only be flown by the side that owns
+ * her, only while she is up, and only from a position she could actually have
+ * reached. Nobody teleports a torpedo bomber into somebody's engine room.
+ */
+export function flyPlane(state, ship, msg) {
+  if (!ship || !ship.alive) return false;
+  const p = state.planes.find((q) => q.id === msg.i);
+  if (!p || p.dead) return false;
+  if (p.team !== ship.team || p.owner !== ship.id) return false;
+  if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z) || !Number.isFinite(msg.h)) return false;
+  // No further than she could have flown since the last word from her, with a
+  // good margin for a slow connection. A flight doing three hundred knots
+  // covers a hundred and fifty metres a second.
+  const cls = shipClass(ship);
+  const top = (cls.planes ? cls.planes.cruiseSpeed : 80) * 3.2;
+  const since = Math.max(0.05, Math.min(2, state.t - (p.flownAt ?? state.t)));
+  const reach = top * since + 80;
+  if (dist(p.x, p.z, msg.x, msg.z) > reach) return false;
+  p.x = msg.x;
+  p.z = msg.z;
+  p.heading = wrapAngle(msg.h);
+  p.flown = true;
+  p.flownAt = state.t;
+  // Under a pilot she is not hunting on her own account any more.
+  p.targetAir = 0;
+  return true;
+}
+
+/**
+ * The pilot's guns.
+ *
+ * A fighter's whole armament is fixed forward, so this is only ever "what is
+ * she pointed at, and is it close enough" -- there is no aiming to do beyond
+ * putting the nose on it, which is what the reticle is for. Anything inside a
+ * narrow cone ahead of her and inside gun range takes it: another flight, or
+ * a ship's upperworks.
+ */
+export function strafe(state, ship, id, dt) {
+  const p = state.planes.find((q) => q.id === id);
+  if (!p || p.dead || !ship || p.owner !== ship.id) return false;
+  const cls = shipClass(ship);
+  const P = cls.planes;
+  if (!P) return false;
+  const RANGE = 700;
+  const CONE = 0.16;                       // about nine degrees either side
+  const bore = (x, z) => Math.abs(angleDelta(p.heading, headingTo(p.x, p.z, x, z)));
+  // Another flight first: that is what a fighter is for.
+  for (const q of state.planes) {
+    if (q.dead || q.team === p.team) continue;
+    if (dist(p.x, p.z, q.x, q.z) > RANGE || bore(q.x, q.z) > CONE) continue;
+    q.hp -= (P.fighterGuns ?? 26) * p.count * dt;
+    if (q.hp <= 0) killFlight(state, q, 'fighters');
+    return true;
+  }
+  for (const s of state.ships) {
+    if (!s.alive || s.team === p.team) continue;
+    if (dist(p.x, p.z, s.x, s.z) > RANGE || bore(s.x, s.z) > CONE) continue;
+    const owner = state.ships.find((q) => q.id === p.owner) || null;
+    damageShip(state, s, owner, (P.strafeDamage ?? 260) * p.count * dt, 'he', 'works');
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Let go of a flight: the pilot has left her, or been shot out of her.
+ *
+ * She goes back on the autopilot where she is, heading for whatever she was
+ * sent after -- not back to the beginning of her sortie.
+ */
+export function releasePlane(state, id) {
+  const p = state.planes.find((q) => q.id === id);
+  if (!p) return;
+  p.flown = false;
+  p.hunt = 0;
+}
+
+/**
+ * Drop what she is carrying, now, because the pilot said so.
+ *
+ * The same weapons the autopilot would have dropped, on the same terms -- she
+ * still has to be near enough to something to be dropping at it.
+ */
+export function dropOrdnance(state, ship, id) {
+  const p = state.planes.find((q) => q.id === id);
+  if (!p || p.dead || !ship || p.owner !== ship.id) return false;
+  if (p.dropped) return false;
+  const cls = shipClass(ship);
+  const P = cls.planes;
+  if (!P) return false;
+  let best = null;
+  let bestD = 1600;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === p.team) continue;
+    const d = dist(p.x, p.z, s.x, s.z);
+    if (d < bestD) { best = s; bestD = d; }
+  }
+  if (!best) return false;
+  p.dropped = true;
+  deliverOrdnance(state, p, best, P);
+  p.phase = 'return';
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // The light battery
 // ---------------------------------------------------------------------------
@@ -1392,6 +1542,8 @@ function stepLaunch(state, ship, dt) {
       hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
         * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)),
       phase: 'outbound', dropped: false, life: 0, hunt: 0,
+      // Set while somebody is flying her by hand; see flyPlane.
+      flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0,
     });
   }
@@ -1443,6 +1595,10 @@ export function pickAirTarget(state, p) {
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
+    // Already shot down this tick by another flight, or already home. She is
+    // kept in the array until the tick ends so whatever killed her can still
+    // find her, and she is dropped here rather than counted again.
+    if (p.dead) continue;
     const carrier = state.ships.find((s) => s.id === p.owner);
     const cls = carrier ? getClass(carrier.classId) : null;
     const P = cls && cls.planes ? cls.planes : null;
@@ -1479,8 +1635,7 @@ function stepPlanes(state, dt) {
       }
     }
     if (p.hp <= 0) {
-      state.events.push({ e: 'planesLost', x: p.x, z: p.z });
-      releaseSquadron(state, p);
+      killFlight(state, p, 'flak');
       continue;
     }
 
@@ -1507,12 +1662,21 @@ function stepPlanes(state, dt) {
       else if (p.targetAir || p.targetId) { p.targetAir = 0; p.targetId = 0; p.hunt = 0; }
     }
 
-    let goalX = p.tx, goalZ = p.tz;
-    if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
-    const want = headingTo(p.x, p.z, goalX, goalZ);
-    p.heading = approachAngle(p.heading, want, 1.1 * dt);
-    p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
-    p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
+    // Where she goes, unless there is somebody in her. A flight under a pilot
+    // is flown by the client that took her and steered by nobody here; if the
+    // word from that client stops coming she is picked up again on the next
+    // tick and carries on to wherever she was sent.
+    if (p.flown && state.t - (p.flownAt ?? 0) > 1.5) p.flown = false;
+    if (!p.flown) {
+      let goalX = p.tx, goalZ = p.tz;
+      if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+      const want = headingTo(p.x, p.z, goalX, goalZ);
+      p.heading = approachAngle(p.heading, want, 1.1 * dt);
+      p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
+      p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
+    }
+
+    if (p.flown) { out.push(p); continue; }
 
     if (p.phase === 'outbound' && p.role === 'fighter') {
       // A fighter's attack: guns, in a turning fight or in a firing pass.
@@ -1524,11 +1688,7 @@ function stepPlanes(state, dt) {
         const bite = P.fighterGuns ?? 26;
         foe.hp -= bite * p.count * dt;
         p.hp -= (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt;
-        if (foe.hp <= 0) {
-          state.events.push({ e: 'planesLost', x: foe.x, z: foe.z, team: foe.team });
-          releaseSquadron(state, foe);
-          foe.hp = -1;
-        }
+        if (foe.hp <= 0) killFlight(state, foe, 'fighters');
         out.push(p);
         continue;
       }
@@ -1550,10 +1710,15 @@ function stepPlanes(state, dt) {
     }
 
     if (p.phase === 'outbound') {
-      // Drop on the target this flight came for. Only if she cannot find it
-      // does she take whatever is nearest instead: a torpedo bomber that went
-      // out after a battleship does not throw her fish at the first destroyer
-      // she passes.
+      // The attack run.
+      //
+      // A strike does not fly at a ship and let go at whatever range it
+      // happens to be. A torpedo bomber comes down to the water and runs in
+      // straight and level until she is close enough that the fish cannot be
+      // combed; a dive bomber comes over the top and drops steep. Both of them
+      // hold their weapons until they are properly in -- which is what makes
+      // them worth shooting at on the way, and what makes the flak worth
+      // having.
       let best = null;
       let bestD = 2200;
       const want = state.ships.find((q) => q.id === p.targetId && q.alive);
@@ -1568,61 +1733,89 @@ function stepPlanes(state, dt) {
           if (d < bestD) { best = s; bestD = d; }
         }
       }
-      if (best && bestD < 1400) {
-        const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
-        const base = headingTo(p.x, p.z, lead.x, lead.z);
-        const torp = p.torp ?? p.count;
-        for (let i = 0; i < torp; i++) {
-          const off = (i - (torp - 1) / 2) * P.dropSpread;
-          state.torps.push({
-            id: eid(), owner: p.owner, team: p.team,
-            x: p.x, z: p.z, heading: wrapAngle(base + off),
-            speed: P.torpSpeed, range: P.torpRange, travelled: 0,
-            damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
-          });
-        }
-        // The dive bombers go in over the top. A bomb either hits or it does
-        // not -- there is nothing to run on and nothing to comb -- so it is
-        // settled here rather than given a body to fly.
-        for (let i = 0; i < (p.bomb || 0); i++) {
-          if (state.rng() > (P.bombHit ?? 0.4)) continue;
-          const owner = state.ships.find((s) => s.id === p.owner) || null;
-          const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
-          const cell = sectionAt(clamp(lb.z / (getClass(best.classId).hull.length * 0.5), -1, 1), 'deck');
-          damageShip(state, best, owner, P.bombDamage ?? 4000, 'bomb', cell);
-          best.sections[cell].pens++;
-          if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
-          state.events.push({ e: 'bombHit', x: best.x, z: best.z });
-        }
-        state.events.push({ e: 'airDrop', x: p.x, z: p.z });
+      // How close each kind presses before it lets go. A torpedo has to be
+      // dropped near enough that the target cannot turn away from it, and a
+      // bomb is aimed from above and can be released further out.
+      const RELEASE = p.torp > 0 ? 900 : 1250;
+      if (best && bestD < RELEASE) {
+        deliverOrdnance(state, p, best, P);
+        state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.phase = 'return';
+      } else if (best && bestD < 2200) {
+        // In the run. She steers for the point she wants to drop from rather
+        // than at the ship itself: a torpedo bomber wants to be off the beam,
+        // where the target is longest, and a dive bomber wants to be over her.
+        if (p.torp > 0) {
+          const beam = best.heading + (angleDelta(headingTo(best.x, best.z, p.x, p.z),
+            best.heading) > 0 ? Math.PI / 2 : -Math.PI / 2);
+          p.tx = best.x + Math.sin(beam) * 1100;
+          p.tz = best.z + Math.cos(beam) * 1100;
+        } else {
+          p.tx = best.x;
+          p.tz = best.z;
+        }
       } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || p.life > 180) {
         p.phase = 'return';
       }
     } else if (carrier && dist(p.x, p.z, carrier.x, carrier.z) < 300) {
-      releaseSquadron(state, p);
+      // Home. Her squadron is struck below and rearmed by the sweep below.
+      p.dead = true;
       continue;
     } else if (!carrier || p.life > 300) {
-      releaseSquadron(state, p);
+      // Out of fuel, or her ship is gone from under her.
+      killFlight(state, p, 'fuel');
       continue;
     }
     out.push(p);
   }
   state.planes = out;
+  sweepSquadrons(state);
 }
 
-function releaseSquadron(state, p) {
-  const carrier = state.ships.find((s) => s.id === p.owner);
-  if (!carrier) return;
-  // A strike goes up as three flights off one squadron. The squadron is not
-  // back until all of them are: releasing it on the first one home would put
-  // her aircraft on the board while two flights of them are still over the
-  // enemy.
-  const others = state.planes.some(
-    (q) => q !== p && q.id !== p.id && q.sqId === p.sqId && q.owner === p.owner && q.hp > 0);
-  if (others) return;
-  const sq = carrier.squadrons.find((s) => s.id === p.sqId);
-  if (sq) { sq.state = 'deck'; sq.cooldown = getClass(carrier.classId).planes.rearm; }
+/**
+ * Take a flight out of the air, once and for all.
+ *
+ * Marked rather than spliced, because the loop that finds it is iterating the
+ * same array a moment later: a flight shot down by another flight has to stay
+ * findable until the tick ends, and it must not be counted twice while it is.
+ */
+function killFlight(state, p, why) {
+  if (p.dead) return;
+  p.dead = true;
+  p.hp = -1;
+  state.events.push({ e: 'planesLost', i: p.id, x: p.x, z: p.z, team: p.team, why });
+}
+
+/**
+ * Bring home any squadron that is marked flying with nothing of it left in
+ * the air.
+ *
+ * This used to be worked out per flight, at the moment each one left: "am I
+ * the last of my squadron?" -- and the answer was read off an array that had
+ * not been rebuilt yet, so a flight that had already gone still counted as
+ * airborne. Two flights of the same squadron leaving on the same tick each saw
+ * the other as still out, neither released the squadron, and the carrier could
+ * never rearm it. Her aircraft simply never came back.
+ *
+ * A sweep cannot get that wrong. It asks the only question that matters --
+ * is there anything of this squadron still in the air? -- against the array as
+ * it now stands, every tick, and it self-heals if anything ever does slip
+ * through.
+ */
+function sweepSquadrons(state) {
+  for (const ship of state.ships) {
+    if (!ship.squadrons.length) continue;
+    const cls = getClass(ship.classId);
+    if (!cls.planes) continue;
+    for (const sq of ship.squadrons) {
+      if (sq.state !== 'flying') continue;
+      // Still on the deck run: ordered up, not yet off.
+      if (ship.launching && ship.launching.sqId === sq.id) continue;
+      if (state.planes.some((p) => p.owner === ship.id && p.sqId === sq.id)) continue;
+      sq.state = 'deck';
+      sq.cooldown = cls.planes.rearm;
+    }
+  }
 }
 
 /** Simple constant-bearing intercept used by aircraft and bots. */

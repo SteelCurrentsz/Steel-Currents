@@ -8,6 +8,7 @@ import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Shells, Flak } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
+import { Flights } from './planes.js';
 import { Wake } from './wake.js';
 import { Seakeeping } from './seakeeping.js';
 import { QUALITY } from '../settings.js';
@@ -758,31 +759,10 @@ export class BattleScene {
     // ship is concerned.
     this.torpedoes = new Torpedoes(this.scene, this.ocean, 48);
 
-    // A squadron in the air. Painted the way her aircraft actually were --
-    // blue-grey over light grey -- and not in one colour: a single dark tone on
-    // every face makes an aeroplane a black cut-out from every angle except
-    // straight down-sun, which is the all-black aircraft you used to see come
-    // off a carrier.
-    const planeGeo = weldGroups([
-      // Upper surfaces.
-      [new THREE.BoxGeometry(2.9, 1.9, 13.6).translate(0, 0.55, 1), 0],
-      [new THREE.BoxGeometry(17.5, 0.7, 4.0).translate(0, 0.35, 1.4), 0],
-      [new THREE.BoxGeometry(7.4, 0.6, 2.4).translate(0, 0.5, -5.8), 0],
-      [new THREE.BoxGeometry(0.7, 3.6, 2.6).translate(0, 2.0, -6.2), 0],
-      [new THREE.BoxGeometry(2.0, 1.3, 2.4).translate(0, 1.5, 0.6), 0],
-      // And the undersides, which is what you see of her most of the time.
-      [new THREE.BoxGeometry(2.9, 1.5, 13.6).translate(0, -0.6, 1), 1],
-      [new THREE.BoxGeometry(17.5, 0.55, 4.0).translate(0, -0.15, 1.4), 1],
-      [new THREE.BoxGeometry(7.4, 0.5, 2.4).translate(0, 0.05, -5.8), 1],
-    ]);
-    this.planeMat = [
-      new THREE.MeshLambertMaterial({ color: 0x4a617c }),
-      new THREE.MeshLambertMaterial({ color: 0x9aa4ad }),
-    ];
-    this.planeMesh = new THREE.InstancedMesh(planeGeo, this.planeMat, 60);
-    this.planeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.planeMesh.frustumCulled = false;
-    this.scene.add(this.planeMesh);
+    // The squadrons in the air: the same aircraft that sit on the Enterprise's
+    // deck, in flight trim, as many of them as the flight actually has. See
+    // planes.js.
+    this.flights = new Flights(this.scene, 96);
 
     this.dummy = new THREE.Object3D();
   }
