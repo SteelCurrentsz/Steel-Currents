@@ -25,7 +25,10 @@ export class TouchControls {
     const active = new Map();
     // Two fingers on the look pad pinch, which is the gesture everybody
     // already has for near and far. It sends the same 'wheel' the mouse does,
-    // so nothing downstream has to know a finger did it.
+    // so nothing downstream has to know a finger did it -- but in fractions of
+    // a notch rather than whole ones, so spreading your fingers is a dial you
+    // turn and not a ratchet you click. A mouse still sends whole notches and
+    // gets exactly what it always did.
     let pinch = 0;
     zone.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -46,10 +49,11 @@ export class TouchControls {
       if (active.size >= 2) {
         const [a, b] = [...active.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        // A step every so many pixels, so a pinch is a dial rather than a
-        // switch: a finger's width of spread is about one notch of a wheel.
-        if (pinch > 4 && Math.abs(d - pinch) > 22) {
-          this.input.emit('wheel', d > pinch ? -1 : 1);
+        // How far apart the fingers are, as notches of a wheel: doubling the
+        // spread is about five notches in, which is the rate a mouse gives for
+        // the same amount of work.
+        if (pinch > 8 && d > 8 && Math.abs(d - pinch) > 1.5) {
+          this.input.emit('wheel', Math.log(pinch / d) / Math.log(1.15));
           pinch = d;
         }
         return;

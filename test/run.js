@@ -15,14 +15,14 @@ import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
-  DECK_RUN, aaBattery, aaBarrels, aaBearing, mountBears,
+  DECK_RUN, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
 import { Pilot, AERO } from '../client/js/render/aero.js';
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { arsenal } from '../client/js/hud.js';
-import { shellLength, bombGeometry } from '../client/js/render/ordnance.js';
+import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels } from '../client/js/render/planes.js';
 import { angleDelta, dist } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
@@ -2151,10 +2151,132 @@ check('she does not take off with her wings folded', () => {
   assert.ok(seen.filter((s) => s.t > ph.taxied).every((s) => s.out),
     'she taxied or ran with her wings folded');
 
-  // And struck below again when the squadron is home.
-  built.group.userData.recover();
+  // And struck below again when the squadron is home. Coming home is an
+  // evolution of its own now -- up the deck, onto the lift, down the well --
+  // so it is flown rather than snapped, and what has to be true is that she is
+  // folded by the time she is below.
+  const home = ph.launch + 4;
+  built.group.userData.step(home);
+  built.group.userData.recover(home);
+  for (let t = home; t <= home + 12; t += 0.05) built.group.userData.step(t);
   assert.ok(wings.stowed.visible && !wings.spread.visible,
     'she was struck below with her wings still spread');
+});
+
+check('a second squadron gets a deck to take off from', () => {
+  // A carrier has one aeroplane she draws in full, and a captain can order a
+  // second squadron up while the first is still out. Her model is in the world
+  // by then -- taken out of the ship's group so it could fly -- and the deck
+  // evolution positions her in the ship's own frame. Run it on her there and
+  // she is put at ship coordinates in world space, which is a long way from
+  // the ship and generally under the sea: the take-off where nothing appears.
+  const built = buildEnterprise();
+  const p = built.deckPlane;
+  const home = p.parent;
+
+  // Flying: somebody has taken her into the world.
+  const world = new THREE.Group();
+  world.add(p);
+  p.position.set(1234, 300, -5678);
+  const before = p.position.clone();
+  built.group.userData.launch(0);
+  for (let t = 0; t <= DECK_RUN + 1; t += 1 / 60) built.group.userData.step(t);
+  assert.ok(p.position.equals(before),
+    'the deck put an aeroplane that is not aboard back on the planking');
+
+  // Given back, the deck works: she comes up the lift and goes.
+  home.add(p);
+  built.group.userData.stow();
+  const deck = built.group.userData.deck;
+  built.group.userData.launch(30);
+  let up = false;
+  for (let t = 30; t <= 30 + DECK_RUN + 0.6; t += 1 / 60) {
+    built.group.userData.step(t);
+    if (p.position.y > FD - 1) up = true;
+  }
+  assert.ok(up, 'nothing came up the lift for the second squadron');
+  assert.ok(deck.airborne, 'the second squadron never left the deck');
+});
+
+check('she lands back aboard and is struck below on the lift', () => {
+  // What happens to an aeroplane that has dropped what she was carrying. She
+  // used to be snapped onto the after lift at flight-deck level and left
+  // standing there between sorties, riding its idle cycle up and down in plain
+  // view. An aircraft carrier strikes her aircraft below: she picks up a wire
+  // at the round-down, rolls up the deck to the lift, folds, and goes down the
+  // well into the hangar the next launch fetches her out of.
+  const built = buildEnterprise();
+  const deck = built.group.userData.deck;
+  const aft = built.lifts[built.lifts.length - 1];
+  const p = built.deckPlane;
+
+  // Between sorties she is below, not on the flight deck.
+  built.group.userData.step(0);
+  assert.ok(deck.stowed, 'she is not struck below to begin with');
+  assert.ok(p.position.y < HANGAR + 2,
+    `she is standing at ${p.position.y.toFixed(1)} m, which is the flight deck`);
+  // And the lift is free to work: it does not sit under her.
+  let moved = false;
+  for (let t = 0; t <= 40; t += 0.1) {
+    built.group.userData.step(t);
+    if (aft.group.position.y > HANGAR + 3 && p.position.y < HANGAR + 2) moved = true;
+  }
+  assert.ok(moved, 'the after lift never worked while she was below');
+
+  // Now fly the whole sortie: the lift fetches her up, she goes, she comes
+  // home, and she ends where she started.
+  built.group.userData.launch(50);
+  let onDeck = false;
+  for (let t = 50; t <= 50 + DECK_RUN + 0.6; t += 1 / 60) {
+    built.group.userData.step(t);
+    if (p.position.y > FD - 1) onDeck = true;
+  }
+  assert.ok(onDeck, 'she never came up out of the hangar');
+  assert.ok(deck.airborne, 'she never left the deck');
+  assert.ok(!deck.stowed, 'she is somehow below and airborne at once');
+
+  // Home: she touches down at the round-down and rolls up the deck.
+  const t0 = 50 + DECK_RUN + 1;
+  built.group.userData.step(t0);
+  built.group.userData.recover(t0);
+  const track = [];
+  for (let t = t0; t <= t0 + 10; t += 1 / 60) {
+    built.group.userData.step(t);
+    track.push({ t: t - t0, z: p.position.z, y: p.position.y,
+      lift: aft.group.position.y, stowed: deck.stowed });
+  }
+  const first = track[2];
+  const last = track[track.length - 1];
+  assert.ok(first.z < aft.group.position.z - 20,
+    `she landed at ${first.z.toFixed(0)}, which is not the round-down`);
+  assert.ok(first.y > FD - 1, 'she landed somewhere other than the flight deck');
+  assert.ok(last.y < HANGAR + 2,
+    `she finished at ${last.y.toFixed(1)} m, which is not the hangar deck`);
+  assert.ok(Math.abs(last.z - (aft.group.position.z - 0.45)) < 1.5,
+    'she did not end up on the after lift');
+  assert.ok(deck.stowed, 'she is not struck below at the end of it');
+  // She rolled up the deck rather than sliding sideways down the well: there
+  // is a stretch where she is moving forward at flight-deck level.
+  const rolled = track.filter((r) => r.y > FD - 1);
+  assert.ok(rolled.length > 60 && rolled[rolled.length - 1].z > rolled[0].z + 20,
+    'she went below without ever rolling up the deck');
+  // And the lift went down with her, rather than her sinking through it. Only
+  // while she is on the way down: once she is below, the lift goes back to its
+  // own cycle and leaves her there, which is the whole point of striking her
+  // below.
+  const sank = track.filter((r) => r.y < FD - 2 && !r.stowed);
+  assert.ok(sank.every((r) => Math.abs(r.lift - r.y) < 1.0),
+    'she went down the well without the lift under her');
+
+  // The next launch fetches her out again.
+  const t1 = t0 + 14;
+  built.group.userData.launch(t1);
+  let up = false;
+  for (let t = t1; t <= t1 + DECK_RUN + 0.6; t += 1 / 60) {
+    built.group.userData.step(t);
+    if (p.position.y > FD - 1) up = true;
+  }
+  assert.ok(up, 'she never came up for the second sortie');
 });
 
 check('her squadron goes up the moment she leaves the deck', () => {
@@ -2528,6 +2650,96 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
   const R = cl.aa.range * 0.4;
   assert.ok(aaBearing(cl, ship, R, 0).share > aaBearing(cl, ship, 0, R).share,
     'the cruiser fights an aeroplane no better on the beam than over the bow');
+});
+
+check('a torpedo is never fired down her own deck', () => {
+  // A torpedo does not leave a barrel: it goes over the side, into the water,
+  // and runs. A bank on the centreline of a destroyer, trained anywhere near
+  // fore and aft, is pointed down a hundred and fourteen metres of her own
+  // forecastle -- and she used to fire there quite happily, five fish into her
+  // own bow.
+  const cls = SHIP_CLASSES.fletcher;
+  const spec = cls.torpedoes.mounts[0];
+  const clear = (deg) => torpedoClear(cls, spec, (deg * Math.PI) / 180);
+  assert.ok(!clear(0), 'she fires a torpedo straight over her own bow');
+  assert.ok(!clear(180), 'she fires a torpedo through her own stern');
+  assert.ok(!clear(15) && !clear(-15), 'she fires a torpedo down her forecastle');
+  assert.ok(clear(90) && clear(-90), 'she cannot fire on the beam, which is the whole point');
+  assert.ok(clear(45) && clear(135), 'her arc is narrower than a destroyer\'s really is');
+  // The blind sector either side of the bow is about thirty degrees, which is
+  // what a Fletcher's quintuple mount really had.
+  let shut = 0;
+  for (let d = 0; d < 90; d++) if (!clear(d)) shut = d;
+  assert.ok(Math.abs(shut - 29) <= 6, `she is blind ${shut}\u00b0 either side of the bow, not about 30`);
+  // A mount on the beam shoots over its own side and not across the ship.
+  const hip = SHIP_CLASSES.hipper;
+  const stbd = hip.torpedoes.mounts.find((m) => m.x > 0);
+  assert.ok(torpedoClear(hip, stbd, Math.PI / 2), 'her starboard tubes cannot fire to starboard');
+  assert.ok(!torpedoClear(hip, stbd, -Math.PI / 2),
+    'her starboard tubes fire a torpedo across her own deck');
+
+  // And in the simulation: laid on a target dead ahead, the tubes train to the
+  // edge of what they can shoot on and the order to fire is refused.
+  const state = createState(generateWorld(31, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  dd.x = 0; dd.z = 0; dd.heading = 0;
+  foe.x = 0; foe.z = 4000;
+  foe.spottedBy[0] = 3;
+  dd.aimX = foe.x; dd.aimZ = foe.z;
+  for (let i = 0; i < 30 * 20; i++) step(state, DT);
+  for (const m of dd.torpMounts) {
+    const off = (Math.abs(m.angle) * 180) / Math.PI;
+    assert.ok(off > 20, `a bank trained to ${off.toFixed(0)}\u00b0 off the bow, which is her own forecastle`);
+  }
+  const before = state.torps.length;
+  fireTorpedoes(state, dd);
+  assert.equal(state.torps.length, before, 'she fired into her own bow after all');
+  // Put the target on the beam and she fires.
+  foe.x = 4000; foe.z = 0;
+  dd.aimX = foe.x; dd.aimZ = foe.z;
+  for (let i = 0; i < 30 * 20; i++) step(state, DT);
+  fireTorpedoes(state, dd);
+  assert.ok(state.torps.length > before, 'she will not fire on the beam either');
+  // And what she did fire is running clear of her, not along her.
+  for (const tp of state.torps) {
+    const off = Math.abs(angleDelta(dd.heading, tp.heading));
+    assert.ok(off > 0.4 && off < Math.PI - 0.4,
+      `a fish is running ${((off * 180) / Math.PI).toFixed(0)}\u00b0 off her own head`);
+  }
+});
+
+check('nothing bolted to her deck stands in the way of her tubes', () => {
+  // The other half of it, and the half you can see: a bank of tubes sweeps a
+  // disc of deck as it trains, and anything standing in that disc is something
+  // fifteen tons of tubes swings straight through. A ventilator cowl stood
+  // inside the forward bank's arc and a boat davit inside the after one.
+  const built = buildFletcher();
+  built.group.updateMatrixWorld(true);
+  const parts = fletcherParts().filter((p) => !p.moving);
+  for (const [i, m] of built.torpMounts.entries()) {
+    const box = new THREE.Box3().setFromObject(m);
+    const c = new THREE.Vector3();
+    m.getWorldPosition(c);
+    // How far the tubes reach from the training ring, and the band of height
+    // they sweep through.
+    const reach = Math.max(box.max.z - c.z, c.z - box.min.z, box.max.x - c.x, c.x - box.min.x);
+    assert.ok(reach > 3, `bank ${i} is only ${reach.toFixed(1)} m of tubes`);
+    const fouls = [];
+    for (const p of parts) {
+      // Only what is at the height the tubes swing at.
+      if (p.max[1] < box.min.y + 0.15 || p.min[1] > box.max.y - 0.15) continue;
+      // The hull itself is one box the whole length of her, which every
+      // mounting aboard is inside; it says nothing about what is on deck.
+      if (p.size[2] > 40) continue;
+      const nx = Math.max(p.min[0], Math.min(c.x, p.max[0]));
+      const nz = Math.max(p.min[2], Math.min(c.z, p.max[2]));
+      const d = Math.hypot(nx - c.x, nz - c.z);
+      if (d < reach - 0.1) fouls.push(`${p.from} at ${d.toFixed(1)} m`);
+    }
+    assert.equal(fouls.length, 0,
+      `bank ${i} sweeps through ${fouls.length} thing(s): ${fouls[0]}`);
+  }
 });
 
 check('a mounting only fires on a bearing it can train to', () => {
@@ -3013,20 +3225,21 @@ check('a strike gets through and drops what it is carrying', () => {
   let dropped = 0;
   let lost = 0;
   let closest = 1e9;
-  for (let i = 0; i < 30 * 240; i++) {
+  let bomb = null;
+  for (let i = 0; i < 30 * 420; i++) {
     foe.spottedBy[0] = 3;
     cv.aimX = foe.x; cv.aimZ = foe.z;
     if (i % 300 === 0) launchStrike(st, cv);
     for (const ev of step(st, DT)) {
-      if (ev.e === 'bomb') { bombs++; if (ev.hit) hits++; }
+      if (ev.e === 'bomb') { bombs++; if (ev.hit) hits++; bomb = bomb || ev; }
       if (ev.e === 'airDrop') dropped++;
       if (ev.e === 'planesLost') lost++;
     }
     for (const p of st.planes) closest = Math.min(closest, dist(p.x, p.z, foe.x, foe.z));
   }
   assert.ok(closest < 900, `the strike never got closer than ${Math.round(closest)} m`);
-  assert.ok(bombs > 0, 'not one bomb was dropped in four minutes');
-  assert.ok(hits > 0, 'every bomb dropped in four minutes missed');
+  assert.ok(bombs > 0, 'not one bomb was dropped in seven minutes');
+  assert.ok(hits > 0, `${bombs} bombs were dropped in seven minutes and every one missed`);
   assert.ok(dropped > 0, 'not one torpedo went into the water');
   assert.ok(foe.hp < foe.maxHp * 0.95, 'the strike did her no harm worth counting');
   // And the flak is not decorative either: a strike against a battleship pays
@@ -3036,20 +3249,40 @@ check('a strike gets through and drops what it is carrying', () => {
   // A bomb's own arithmetic: where it is going is sent with it, so the client
   // can fly the body down, and a miss goes into the water near her rather than
   // nowhere at all.
-  const bomb = (() => {
-    for (let i = 0; i < 30 * 200; i++) {
-      foe.spottedBy[0] = 3;
-      cv.aimX = foe.x; cv.aimZ = foe.z;
-      if (i % 300 === 0) launchStrike(st, cv);
-      for (const ev of step(st, DT)) if (ev.e === 'bomb') return ev;
-    }
-    return null;
-  })();
-  assert.ok(bomb, 'no more bombs were dropped');
+  assert.ok(bomb, 'no bomb was reported at all');
   assert.ok(Number.isFinite(bomb.tx) && Number.isFinite(bomb.tz),
     'a bomb was dropped without saying where it was going');
-  assert.ok(dist(bomb.tx, bomb.tz, foe.x, foe.z) < 400,
-    'a bomb was aimed at open sea');
+  assert.ok(dist(bomb.tx, bomb.tz, bomb.x, bomb.z) < 500,
+    'a bomb was let go half a mile from what it was aimed at, which is not dive bombing');
+});
+
+check('a bomb is aimed the way a bombsight aims one', () => {
+  // Released at the speed she is going, and falling under gravity against the
+  // air: there is one angle that puts the bomb and the ship in the same place
+  // and it is found by shooting the problem, not by drawing a curve between
+  // two points and calling it an arc.
+  //
+  // A dive bomber lets go a few hundred metres out from two hundred up, so the
+  // answer has to be nose-down. If it comes out nose-up she is lobbing.
+  const dive = bombAim(260, 220, 108);
+  assert.ok(dive.theta < -0.3,
+    `she lets go at ${((dive.theta * 180) / Math.PI).toFixed(0)}\u00b0, which is not a dive`);
+  assert.ok(dive.fall > 1.5 && dive.fall < 6,
+    `the bomb is in the air ${dive.fall.toFixed(1)} s, which is not a fall of 220 m`);
+  // Closer in is steeper, further out is shallower, and both are monotonic:
+  // that is what makes the bisection above sound.
+  assert.ok(bombAim(120, 220, 108).theta < dive.theta, 'closer in is not steeper');
+  assert.ok(bombAim(420, 220, 108).theta > dive.theta, 'further out is not shallower');
+  // And a longer fall from higher up, which is the other half of the sum.
+  assert.ok(bombAim(260, 420, 108).fall > dive.fall, 'twice the height is not a longer fall');
+  // And the air is really in it: dropped from rest a bomb does not go on
+  // accelerating for ever, she settles at her terminal velocity, and a
+  // thousand-pounder's is about three hundred metres a second.
+  const b = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+  for (let t = 0; t < 120; t += 1 / 60) bombStep(b, 1 / 60);
+  const vT = -b.vy;
+  assert.ok(vT > 250 && vT < 340,
+    `a bomb falls at ${vT.toFixed(0)} m/s after two minutes, which is a vacuum`);
 });
 
 check('a strike goes up as three flights and comes home as one squadron', () => {

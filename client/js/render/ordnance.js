@@ -341,15 +341,80 @@ export function bombGeometry() {
   return geo;
 }
 
+// Gravity, and how hard the air holds a bomb back.
+//
+// A thousand-pound bomb has a terminal velocity somewhere around three hundred
+// metres a second, and `BOMB_DRAG` is the number that produces it: the
+// retardation is k.v.v, so at terminal velocity k.v.v = g and k = g / vT^2.
+// At the two hundred and fifty knots she is let go at, that is about a sixth
+// of gravity -- small enough to be worth having and far too big to ignore over
+// a fall of a quarter of a mile.
+const G = 9.81;
+const BOMB_DRAG = G / (300 * 300);
+
+/**
+ * Fly one bomb from a release to wherever the air and gravity take it.
+ *
+ * `step` is fixed, so the answer is the same on every machine.
+ */
+export function bombStep(b, dt) {
+  const sp = Math.hypot(b.vx, b.vy, b.vz);
+  const k = BOMB_DRAG * sp;
+  b.vx -= b.vx * k * dt;
+  b.vy -= (b.vy * k + G) * dt;
+  b.vz -= b.vz * k * dt;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  b.z += b.vz * dt;
+}
+
+/**
+ * What angle to let go at so the bomb arrives where it is meant to.
+ *
+ * This is the bombsight. The aeroplane is going at a known speed, the target
+ * is a known distance away and a known distance below, and there is exactly
+ * one dive angle that puts the two together -- so it is found by shooting the
+ * problem and bisecting on the answer, drag and all, rather than by pretending
+ * a bomb travels in a straight line to wherever it was aimed.
+ *
+ * Returns the elevation in radians (negative is nose-down), and how long she
+ * is in the air for.
+ */
+export function bombAim(range, drop, speed) {
+  const fly = (theta) => {
+    const b = { x: 0, y: 0, z: 0, vx: 0, vy: Math.sin(theta) * speed, vz: Math.cos(theta) * speed };
+    for (let t = 0; t < 60; t += 1 / 30) {
+      bombStep(b, 1 / 30);
+      if (b.z >= range) return { over: b.y + drop, t };
+      if (b.y < -drop - 4000) break;
+    }
+    return { over: b.y + drop, t: 60 };
+  };
+  // Between straight down and well above the horizontal. A shallower angle
+  // always arrives higher, so the answer is monotonic and bisects cleanly.
+  let lo = -1.45;
+  let hi = 0.9;
+  let mid = -0.4;
+  let shot = fly(mid);
+  for (let i = 0; i < 22; i++) {
+    mid = (lo + hi) / 2;
+    shot = fly(mid);
+    if (shot.over > 0) hi = mid; else lo = mid;
+  }
+  return { theta: mid, fall: shot.t };
+}
+
 /**
  * The bombs on the way down.
  *
  * A dive bomber's bomb is settled the moment she lets go of it -- there is
  * nothing for it to run on and nothing to comb -- so the simulation does not
  * fly a body for it. What it sends is where the bomb was released and where it
- * is going to arrive, and this flies the arc between the two: which is the
- * whole of what anybody on the receiving end ever saw of it, and without it a
- * strike going in was damage appearing out of a clear sky.
+ * is going to arrive, and this flies the real thing between the two: released
+ * at the speed she is going, falling under gravity against the air, and lying
+ * along its own line of flight the whole way down. It used to be interpolated
+ * from one point to the other on a squared curve, which is not an arc a bomb
+ * has ever flown.
  */
 export class Bombs {
   constructor(scene, max = 48) {
@@ -387,23 +452,47 @@ export class Bombs {
    * exaggerated by the same factor, so a bomb and a sixteen-inch round stand
    * in the right relation to each other.
    */
-  drop(x, y, z, tx, tz, hit, effects, size = 9) {
+  drop(x, y, z, tx, tz, hit, effects, size = 9, speed = 108) {
     if (this.live.length >= this.max) return;
+    const y0 = Math.max(40, y);
+    const dx = tx - x;
+    const dz = tz - z;
+    const range = Math.hypot(dx, dz);
+    // Straight down on top of her is a dive bomber's business and the aim
+    // below cannot solve it; give her a little way to run.
+    const D = Math.max(20, range);
+    const aim = bombAim(D, y0 - (hit ? 14 : 0), speed);
+    const ux = range > 1e-3 ? dx / range : 0;
+    const uz = range > 1e-3 ? dz / range : 1;
+    const flat = Math.cos(aim.theta) * speed;
     this.live.push({
-      x0: x, y0: Math.max(40, y), z0: z, x1: tx, z1: tz,
-      t: 0, fall: 3.6 + Math.random() * 0.5, hit, effects, size,
+      x, y: y0, z,
+      vx: ux * flat, vy: Math.sin(aim.theta) * speed, vz: uz * flat,
+      // Where she is meant to end up, so the burst goes where the simulation
+      // said it would however the integration rounds.
+      x1: tx, z1: tz, y1: hit ? 14 : 0,
+      t: 0, fall: aim.fall, hit, effects, size,
     });
   }
 
   update(dt) {
     const d = this.dummy;
     let n = 0;
+    const STEP = 1 / 120;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const b = this.live[i];
-      b.t += dt;
-      const u = b.t / b.fall;
-      if (u >= 1) {
+      // Integrated at a fixed step so a slow frame does not fly her further
+      // than a fast one.
+      let left = Math.min(0.25, dt);
+      while (left > 0) {
+        const h = Math.min(STEP, left);
+        bombStep(b, h);
+        b.t += h;
+        left -= h;
+      }
+      if (b.y <= b.y1 || b.t > b.fall + 2) {
         // Arrival: a burst on her upperworks, or a column of water alongside.
+        // Where the simulation said, not where the rounding left her.
         if (b.effects) {
           if (b.hit) b.effects.explosion(b.x1, 14, b.z1, 1.7);
           else b.effects.splash(b.x1, b.z1, 320);
@@ -412,13 +501,11 @@ export class Bombs {
         continue;
       }
       if (n >= this.max) continue;
-      // Level flight speed carried forward, and gravity taking her down: the
-      // arc is what says "released from an aeroplane" rather than "dropped".
-      const x = b.x0 + (b.x1 - b.x0) * u;
-      const z = b.z0 + (b.z1 - b.z0) * u;
-      const y = b.y0 * (1 - u * u);
-      d.position.set(x, y, z);
-      this.dir.set((b.x1 - b.x0), -2 * b.y0 * u, (b.z1 - b.z0));
+      d.position.set(b.x, b.y, b.z);
+      // Nose along her own line of flight, which is what a falling bomb does:
+      // she weathercocks, and by the time she arrives she is pointing straight
+      // down.
+      this.dir.set(b.vx, b.vy, b.vz);
       if (this.dir.lengthSq() > 1e-6) {
         this.dir.normalize();
         this.quat.setFromUnitVectors(this.fwd, this.dir);

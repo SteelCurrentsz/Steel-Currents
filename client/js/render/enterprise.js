@@ -846,6 +846,12 @@ const UP = 3.6;         // and back to the flight deck, wings going out on the w
 const TAXIED = 6.4;     // taxied forward off the lift and lined up
 const ROLL = 7.6;       // run up against the brakes, and the flag
 const TAXI = 20;        // metres of deck she taxis forward over
+// And coming home the other way: she picks up a wire at the round-down, rolls
+// up the deck to the after lift, and the lift takes her below.
+const LAND_ROLL = 3.0;  // up the deck from the round-down onto the lift
+const LAND_SINK = 3.4;  // and down the well into the hangar
+/** Where she picks up a wire: a little way up the deck from the round-down. */
+function landZ() { return fdEndA(0) + 14; }
 /** Ease a 0..1 run so machinery starts and stops rather than snapping. */
 function ease(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
 
@@ -895,8 +901,9 @@ export function stepDeck(deck, t) {
 
   // The lifts, idling.
   const PERIOD = 34;
+  const working = (run >= 0 && run < LAUNCH) || deck.landAt != null;
   for (const l of lifts) {
-    if (l === aft && run >= 0 && run < LAUNCH) continue;
+    if (l === aft && working) continue;
     let u = ((t / PERIOD) + l.phase) % 1;
     if (u < 0) u += 1;
     let k = 0;                                   // 0 at the flight deck, 1 below
@@ -910,6 +917,15 @@ export function stepDeck(deck, t) {
 
   if (!plane) return;
   const p = plane.group;
+  // The model belongs to the ship, and everything below positions her in the
+  // ship's own frame. While she is flying she is parented to the world
+  // instead: run the evolution on her then and she is put at ship coordinates
+  // in world space, which is to say a long way from the ship and generally
+  // under the sea. That is the take-off where no aeroplane appears -- order a
+  // second squadron up while the first is still out and the deck went through
+  // the whole evolution with nothing on it. Whoever took her has to give her
+  // back before the deck can be used again.
+  if (deck.owner && p.parent !== deck.owner) return;
   const AFT_Z = aft.group.position.z;
   // Wings spread or stowed. Folded she is struck below and rides the lift;
   // spread she is ready to go, and she cannot fly any other way.
@@ -939,12 +955,51 @@ export function stepDeck(deck, t) {
     p.rotation.set(end ? -end[2] : -0.20, 0, 0);
     return;
   }
+  const LIFT_Z0 = AFT_Z - 0.45;
   if (run < 0) {
-    // Waiting: standing on the after lift, wherever the lift happens to be.
+    // Not launching. Either she is being recovered -- rolling up the deck from
+    // the round-down and riding the lift down -- or she is already below in the
+    // hangar, waiting for the next time the flag goes up.
+    //
+    // She used to stand on the after lift on the flight deck between sorties,
+    // riding its idle cycle up and down in plain view. An aircraft carrier
+    // does not park her aircraft on the lift: she strikes them below, which is
+    // what the lift is for, and it is why the launch begins with the lift
+    // going down to fetch one.
+    if (deck.landAt != null) {
+      const r = t - deck.landAt;
+      gear(0);
+      p.visible = true;
+      if (r < LAND_ROLL) {
+        // Up the deck under her own power, slowing, wings folding as she goes.
+        const k = ease(r / LAND_ROLL);
+        wings(r < LAND_ROLL * 0.55);
+        aft.group.position.y = FD;
+        const LAND_Z = landZ();
+        p.position.set(0, FD + 0.34, LAND_Z + (LIFT_Z0 - LAND_Z) * k);
+        p.rotation.set(0, 0.08 * k, 0);
+        if (plane.prop) plane.prop.rotation.z += (1 - k) * 0.6;
+        return;
+      }
+      if (r < LAND_ROLL + LAND_SINK) {
+        // Down the well with her, and she is below.
+        const k = ease((r - LAND_ROLL) / LAND_SINK);
+        wings(false);
+        const ly = FD - LIFT_DROP * k;
+        aft.group.position.y = ly;
+        p.position.set(0, ly + 0.34, LIFT_Z0);
+        p.rotation.set(0, 0.08, 0);
+        if (plane.prop) plane.prop.rotation.z = 0;
+        return;
+      }
+      deck.landAt = null;
+      deck.stowed = true;
+    }
     wings(false);
     gear(0);
     p.visible = true;
-    p.position.set(0, aft.group.position.y + 0.34, AFT_Z - 0.45);
+    p.position.set(0,
+      (deck.stowed ? FD - LIFT_DROP : aft.group.position.y) + 0.34, LIFT_Z0);
     p.rotation.set(0, 0.08, 0);
     if (plane.prop) plane.prop.rotation.z = 0;
     return;
@@ -964,12 +1019,15 @@ export function stepDeck(deck, t) {
   let turning = 0;                      // how fast the propeller is going round
 
   if (run < DOWN) {
-    // Down the well with her, to the hangar deck.
+    // The lift down the well. She rides it if she is on it; if she is already
+    // struck below -- which she is between sorties -- it is coming down to
+    // fetch her and she stands on the hangar deck until it arrives.
     wings(false);
     gear(0);
     const k = ease(run / DOWN);
-    y = deck.startY + (FD - LIFT_DROP - deck.startY) * k;
-    aft.group.position.y = y;
+    const ly = deck.startY + (FD - LIFT_DROP - deck.startY) * k;
+    aft.group.position.y = ly;
+    y = deck.stowed ? FD - LIFT_DROP : ly;
   } else if (run < UP) {
     // And back up, which is the lift doing the job it is there for. Her wings
     // go out on the way, once she is clear of the hangar overhead.
@@ -978,6 +1036,7 @@ export function stepDeck(deck, t) {
     aft.group.position.y = y;
     turning = k * 8;
     wings(run > UP - 0.9);
+    deck.stowed = false;                 // she is on the platform now
   } else if (run < TAXIED) {
     // Taxiing: forward off the lift under power, swinging onto the centreline
     // as she goes. Fourteen knots, which is a brisk taxi.
@@ -2903,22 +2962,43 @@ export function buildEnterprise() {
   const spot = lifts[lifts.length - 1].group.position.z - 0.45 + TAXI;
   const deck = {
     lifts, plane, launchAt: null, startY: FD, airborne: false,
+    // Struck below between sorties, which is where a carrier keeps her
+    // aircraft, and the reason the launch begins with the lift going down.
+    stowed: true, landAt: null,
     profile: launchProfile(AERO.avenger, fdEndF(0) - spot),
   };
+  // Whose frame the deck evolution is drawn in. See stepDeck.
+  deck.owner = plane.group.parent;
   g.userData.deck = deck;
+  // Where an aeroplane coming home puts her wheels down. The approach flies to
+  // this and the recovery rolls up the deck from it, so the two agree.
+  g.userData.landingSpot = [0, FD + 0.34, landZ()];
   g.userData.deckPlane = plane.group;
   g.userData.step = (t) => stepDeck(deck, t);
   g.userData.launch = (t) => {
     deck.launchAt = t;
     deck.airborne = false;
+    deck.landAt = null;
     deck.startY = lifts[lifts.length - 1].group.position.y;
   };
-  // Called when whatever was flying her is finished with her: she comes home
-  // to the after lift and waits for the next launch.
-  g.userData.recover = () => {
+  // She is down: wheels on the planking at the round-down, hook in a wire.
+  // What follows is the recovery -- up the deck to the after lift, wings
+  // folding, and the lift down into the hangar -- and stepDeck flies it.
+  g.userData.recover = (t = deck.lastT ?? 0) => {
     deck.airborne = false;
     deck.launchAt = null;
-    // Struck below again: wings folded, wheels down, on the lift.
+    deck.landAt = t;
+    deck.stowed = false;
+    if (plane.gear) plane.gear(0);
+  };
+  // And the other way a sortie ends, which is not coming home at all: shot
+  // down, or struck below out where her squadron was. There is no evolution to
+  // watch, so she is simply below.
+  g.userData.stow = () => {
+    deck.airborne = false;
+    deck.launchAt = null;
+    deck.landAt = null;
+    deck.stowed = true;
     if (plane.gear) plane.gear(0);
     if (plane.wings) {
       plane.wings.spread.visible = false;

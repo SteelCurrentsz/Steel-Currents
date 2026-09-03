@@ -203,6 +203,24 @@ export class Flights {
     }
   }
 
+  /**
+   * One aeroplane on her own, at whatever attitude she is in.
+   *
+   * A formation is a formation; a wreck is an aeroplane going down by herself,
+   * end over end, and she needs the whole attitude rather than a slot in
+   * somebody's division. Drawn out of the same batch, so she costs nothing.
+   */
+  one(role, x, y, z, heading, bank, pitch, roll = 0) {
+    const b = this.batches[ROLE_TYPE[role] || 'avenger'];
+    if (!b || b.n >= this.max) return;
+    const d = this.dummy;
+    d.position.set(x, y, z);
+    d.rotation.set(pitch, heading, -bank + roll);
+    d.scale.setScalar(1);
+    d.updateMatrix();
+    b.mesh.setMatrixAt(b.n++, d.matrix);
+  }
+
   end() {
     for (const key of Object.keys(this.batches)) {
       this.parkFrom(key, this.batches[key].n);

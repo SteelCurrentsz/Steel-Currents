@@ -7,7 +7,7 @@ import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta } from '../../shared/math.js';
-import { SECTIONS } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
@@ -90,6 +90,9 @@ export function arsenal(cls) {
       role: T.role || 'surface',
       band: 'Torpedo tubes',
       specs: T.mounts.map((m) => ({ ...m, guns: m.tubes })),
+      // Tubes have a second thing in their way besides their own training
+      // gear: the ship they are bolted to. See torpedoClear.
+      hull: cls,
     });
   }
   if (cls.depthCharges) {
@@ -801,7 +804,10 @@ export class Hud {
       if (!el || !w.specs) continue;
       let on = 0;
       for (const m of w.specs) {
-        if (Math.abs(angleDelta(m.angle, local)) <= m.arc) on += m.guns || 1;
+        if (Math.abs(angleDelta(m.angle, local)) > m.arc) continue;
+        // A bank of tubes trained down her own forecastle bears on nothing.
+        if (w.hull && !torpedoClear(w.hull, m, local)) continue;
+        on += m.guns || 1;
       }
       if (w.band === 'Main battery') { onMain = on; ofMain = w.barrels; }
       el.textContent = on === w.barrels

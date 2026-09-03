@@ -150,6 +150,64 @@ export class Effects {
   }
 
   /**
+   * An aeroplane coming apart: the pieces thrown out of it.
+   *
+   * Not smoke -- smoke billows and stands still, and this is the opposite of
+   * that. These are small, hard, fast things going outwards and then falling,
+   * with a little burning trash among them, and they are what tells you an
+   * aeroplane blew up rather than that something caught fire near you.
+   */
+  debris(x, y, z, n = 10, scale = 1) {
+    const count = Math.round(n * this.intensity);
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const up = 6 + Math.random() * 26;
+      const out = 16 + Math.random() * 46;
+      const hot = i % 4 === 0;
+      this.spawn({
+        x, y, z,
+        vx: Math.cos(a) * out, vy: up, vz: Math.sin(a) * out,
+        // Small and staying small: a piece of aeroplane does not billow.
+        size: (1.6 + Math.random() * 2.6) * scale, grow: 0.6, ttl: 2.6 + Math.random() * 2.4,
+        drag: 0.16,
+        glow: hot,
+        color: hot ? 0xffb057 : 0x2b2f34,
+        opacity: hot ? 0.95 : 0.85,
+      });
+    }
+    // And the smoke it all came out of.
+    for (let i = 0; i < Math.round(4 * this.intensity); i++) {
+      this.spawn({
+        x, y, z,
+        vx: (Math.random() - 0.5) * 16, vy: 2 + Math.random() * 8, vz: (Math.random() - 0.5) * 16,
+        size: 9 * scale, grow: 16, ttl: 2.6 + Math.random() * 2,
+        color: 0x33383e, opacity: 0.75,
+      });
+    }
+  }
+
+  /**
+   * The smoke out of a burning aeroplane on her way down.
+   *
+   * One puff, laid where she is now: strung together as she falls it is the
+   * trail, and the trail is the thing you actually see from a mile off.
+   */
+  wreckSmoke(x, y, z, fire = 1) {
+    this.spawn({
+      x, y, z,
+      vx: (Math.random() - 0.5) * 5, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 5,
+      size: 5, grow: 13, ttl: 2.4 + Math.random() * 1.6,
+      drag: 0.5, color: 0x2f3339, opacity: 0.7,
+    });
+    if (fire > 0 && Math.random() < 0.5) {
+      this.spawn({
+        x, y, z, size: 4.5, grow: 2, ttl: 0.4, glow: true,
+        color: 0xffa042, opacity: 0.9, drag: 0.7,
+      });
+    }
+  }
+
+  /**
    * A gun going off: the flash, and then the smoke that stands there.
    *
    * The flash is over in a fifth of a second and is the part everybody draws.

@@ -1327,11 +1327,66 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
  * The same problem as a turret's: the bearing the captain is aiming at, cut
  * down to the sector the bank can actually train through.
  */
-function torpDesired(ship, spec, local) {
+/**
+ * Can a bank of tubes fire on this bearing without putting the fish into her
+ * own ship?
+ *
+ * A torpedo does not leave a barrel at half a mile a second: it goes over the
+ * side, into the water, and runs. So the tube has to be pointed somewhere the
+ * fish can actually get clear from -- and a bank on the centreline of a
+ * destroyer, trained anywhere near fore and aft, is pointed down a hundred
+ * and fourteen metres of her own deck.
+ *
+ * The test is the geometry and nothing else: from where the tube sits inside
+ * her hull box, does the line of the shot reach the side before it reaches
+ * the bow or the stern, and does it do it inside a beam's run? A Fletcher's
+ * centreline mount comes out of that with about thirty degrees blind either
+ * side of the bow and the same astern, which is what she really had.
+ */
+export function torpedoClear(cls, spec, local) {
+  const hx = cls.hull.beam * 0.5;
+  const hz = cls.hull.length * 0.5;
+  const dx = Math.sin(local);
+  const dz = Math.cos(local);
+  // Which side she has to go out over. A mount on the centreline may use
+  // either; one on the beam has to use its own, because the other one is
+  // across the whole ship.
+  const wall = spec.x > 0.5 ? hx : spec.x < -0.5 ? -hx : (dx > 0 ? hx : -hx);
+  const across = wall - spec.x;
+  if (Math.abs(dx) < 1e-6 || Math.sign(dx) !== Math.sign(across)) return false;
+  // How far she runs before she is over the side, and before she would be
+  // over the bow or the stern.
+  const side = across / dx;
+  const end = Math.abs(dz) < 1e-6 ? Infinity : ((dz > 0 ? hz : -hz) - spec.z) / dz;
+  // Clear of the side first, and within a beam of running: a fish still over
+  // her forecastle thirty metres from the tube is a fish in her own bow.
+  return side <= end && side <= cls.hull.beam;
+}
+
+/**
+ * Where the tubes want to point: the aim bearing, brought inside their arc,
+ * and off any bearing their own hull is in the way of.
+ *
+ * A bank asked for a bearing it cannot shoot on trains to the nearest one it
+ * can, which is what a torpedo officer does -- he lays the mount on the edge
+ * of the arc and waits for the ship to come round.
+ */
+function torpDesired(ship, spec, local, cls) {
   const off = angleDelta(spec.angle, local);
-  return Math.abs(off) > spec.arc
+  let want = Math.abs(off) > spec.arc
     ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
     : local;
+  if (!cls || torpedoClear(cls, spec, want)) return want;
+  // Blocked. Walk out to either side of the wanted bearing and take the
+  // nearest one that is both inside the arc and clear of her own hull.
+  for (let step = 0.04; step <= Math.PI; step += 0.04) {
+    for (const sgn of [1, -1]) {
+      const t = wrapAngle(want + sgn * step);
+      if (Math.abs(angleDelta(spec.angle, t)) > spec.arc) continue;
+      if (torpedoClear(cls, spec, t)) return t;
+    }
+  }
+  return want;
 }
 
 /**
@@ -1351,7 +1406,7 @@ function stepTorpMounts(state, ship, dt) {
   const local = wrapAngle(world - ship.heading);
   const rate = (T.traverse ?? 0.3) * dt;
   for (const m of ship.torpMounts) {
-    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], local), rate);
+    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], local, cls), rate);
   }
 }
 
@@ -1366,9 +1421,16 @@ export function fireTorpedoes(state, ship) {
     const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
     if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
+    // Her own hull is not something to fire a torpedo through. The bank trains
+    // to the nearest bearing it can shoot on, so it will be sitting on the
+    // edge of the blind sector with the target beyond it -- and firing there
+    // is five fish thirty degrees off the target for the sake of pressing the
+    // button. The order is refused until the ship has come round.
+    if (!torpedoClear(cls, spec, local)) continue;
+    if (!torpedoClear(cls, spec, m.angle)) continue;
     // And she has to have come round. Fired before the bank has trained, the
     // fish go where the tubes were pointing, which is over her own bow.
-    if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local))) > 0.05) continue;
+    if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
     const pos = localToWorld(spec.x, spec.z, ship.heading);
     // Down the line of the tubes, which is where a torpedo goes.
     const base = wrapAngle(ship.heading + m.angle);
@@ -1820,10 +1882,16 @@ function stepPlanes(state, dt) {
           if (d < bestD) { best = s; bestD = d; }
         }
       }
-      // How close each kind presses before it lets go. A torpedo has to be
-      // dropped near enough that the target cannot turn away from it, and a
-      // bomb is aimed from above and can be released further out.
-      const RELEASE = p.torp > 0 ? 900 : 1250;
+      // How close each kind presses before it lets go.
+      //
+      // A torpedo has to be dropped near enough that the target cannot turn
+      // away from it. A bomb has to be dropped from a dive, which means going
+      // in over the top of her and letting go a few hundred metres out -- a
+      // bomber releasing at twelve hundred and fifty metres from two hundred
+      // up is not dive bombing, it is lobbing, and the only way a bomb gets
+      // from there to the ship is by being thrown thirty degrees above the
+      // horizontal. She presses home instead, and pays the flak for it.
+      const RELEASE = p.torp > 0 ? 900 : 260;
       if (best && bestD < RELEASE) {
         deliverOrdnance(state, p, best, P);
         state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });

@@ -99,6 +99,8 @@ export class Battle {
     this.selected = shipId;
     // An aeroplane on the approach, coming back aboard after her sortie.
     this.landing = null;
+    // What is left of the ones that were shot down, on their way into the sea.
+    this.wrecks = [];
     this.watchYaw = 0;
     this.watchPitch = 0.06;
     // Aboard her, or standing off her. A captain who taps a contact wants to
@@ -292,7 +294,17 @@ export class Battle {
           // up again, aft to the spot and off over the bow. It is her own
           // animation -- the carrier knows how, and this only tells her when.
           const v = this.scene.shipViews.get(ev.ship);
-          v?.group.userData.launch?.(this.time);
+          if (!v) break;
+          // A carrier has one aeroplane she draws in full, and a captain can
+          // order a second squadron up while the first is still out. Her model
+          // was in the world by then -- taken out of the ship's group so she
+          // could fly -- and running the deck evolution on her put her at ship
+          // coordinates in world space, which is to say nowhere near the ship.
+          // That is the take-off where nothing appears. She is brought home
+          // first; the squadron she was leading carries on without her, drawn
+          // by the formation the same as the rest of it.
+          this.recallDeckPlane(v);
+          v.group.userData.launch?.(this.time);
           break;
         }
         case 'bomb': {
@@ -314,7 +326,10 @@ export class Battle {
           this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
           break;
         }
-        case 'planesLost': if (ev.team === this.team) this.hud.alert('Squadron lost'); break;
+        case 'planesLost':
+          this.shootDown(ev);
+          if (ev.team === this.team) this.hud.alert('Squadron lost');
+          break;
         default: break;
       }
     }
@@ -342,15 +357,18 @@ export class Battle {
       // camera, not this one: standing further off her when you are outside,
       // and putting a glass to your eye when you are aboard.
       if (this.watching) {
-        if (this.watchPov) this.watchFov = clamp(this.watchFov * (dir > 0 ? 1.12 : 0.89), 7, 68);
+        if (this.watchPov) this.watchFov = clamp(this.watchFov * Math.pow(1.12, dir), 7, 68);
         // Right in, close enough to read the plating, and right out to see
         // the whole action. The old floor of half her length stood a carrier
         // off at a hundred and thirty metres however hard you pulled.
-        else this.watchDist = clamp(this.watchDist * (dir > 0 ? 1.18 : 0.85), 0.06, 26);
+        else this.watchDist = clamp(this.watchDist * Math.pow(1.18, dir), 0.06, 26);
         return;
       }
-      this.camDistance = clamp(this.camDistance * (dir > 0 ? 1.15 : 0.87),
-        this.cls.hull.length * 0.14, this.cls.hull.length * 6);
+      // `dir` is notches of wheel, and a pinch sends fractions of one, so the
+      // same line serves a mouse and two fingers. In as close as her plating
+      // and out far enough to see the whole action.
+      this.camDistance = clamp(this.camDistance * Math.pow(1.15, dir),
+        this.cls.hull.length * 0.05, this.cls.hull.length * 6);
     });
   }
 
@@ -603,13 +621,7 @@ export class Battle {
     // avoid.
     if (this.flying && this.flying.id === pl.i) {
       const v = this.flying.ownerView;
-      const g = this.flying.group;
-      this.flying = null;
-      this.landing = null;
-      if (v && g) {
-        v.group.attach(g);
-        v.group.userData.recover?.();
-      }
+      if (v) this.recallDeckPlane(v);
     }
     this.watching = null;
     this.hud.setWatching(null);
@@ -794,7 +806,10 @@ export class Battle {
       const m = this.input.takeMouse();
       const zoom = this.scoped ? 0.35 : 1;
       this.yaw = wrapAngle(this.yaw + m.x * zoom);
-      this.pitch = clamp(this.pitch + m.y * zoom, -0.35, 0.55);
+      // Far enough either way that the orbit can be walked from overhead to
+      // under her keel. The old stop at 0.55 was about thirty degrees of
+      // looking down, which is nowhere near the water.
+      this.pitch = clamp(this.pitch + m.y * zoom, -0.87, 1.16);
       this.updateAimPoint();
     }
 
@@ -1078,12 +1093,102 @@ export class Battle {
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip);
       }
     }
+    for (const w of this.wrecks) {
+      this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch);
+    }
     this.scene.flights.end();
     // Forget the flights that are no longer up, so the map does not grow.
     for (const id of [...this.planeTurn.keys()]) {
       if (!planes.some((q) => q.i === id)) this.planeTurn.delete(id);
     }
+    // The ones that are not flying any more: the wrecks on their way down.
+    this.stepWrecks(dt);
     this.flyLaunched(planes, dt);
+  }
+
+  /**
+   * A flight is shot down, and it is worth watching.
+   *
+   * There was no such thing before: the marker was removed from the plot and
+   * that was the whole of it -- a squadron of aeroplanes simply stopped
+   * existing in mid-air. What happens to an aeroplane hit by a shell is one of
+   * two things, and both of them are worth the frame they cost. Either she
+   * blows up where she is, and there is nothing left but pieces going
+   * outwards, or she is set on fire and goes down: nose over, trailing smoke,
+   * turning as she falls, into the sea.
+   */
+  shootDown(ev) {
+    const pl = (this.planesNow || []).find((q) => q.i === ev.i);
+    const role = (pl && pl.r) || 'torpedo';
+    const heading = pl ? pl.h : 0;
+    const y = pl ? this.planeHeight(pl) : 200;
+    // A flight is several aeroplanes; losing it is several of them going down.
+    const n = Math.min(3, Math.max(1, pl ? (pl.n || 1) : 1));
+    const fx = this.scene.effects;
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 26;
+      const x = ev.x + Math.cos(heading) * off;
+      const z = ev.z - Math.sin(heading) * off;
+      const y0 = y + (Math.random() - 0.5) * 18;
+      // Out of fuel is not being shot at: she ditches, she does not explode.
+      const burst = ev.why !== 'fuel' && Math.random() < 0.4;
+      if (burst) {
+        fx.explosion(x, y0, z, 0.85);
+        fx.debris(x, y0, z, 12);
+        const near = this.distanceFade(x, z);
+        if (near < 0.85) audio.explosion(0.7, near);
+        continue;
+      }
+      if (this.wrecks.length > 14) this.wrecks.shift();
+      const sp = 62 + Math.random() * 28;
+      this.wrecks.push({
+        role, x, y: y0, z,
+        vx: Math.sin(heading) * sp, vy: -4 - Math.random() * 8, vz: Math.cos(heading) * sp,
+        heading, pitch: -0.15, bank: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random()),
+        // How fast she is going round as she falls. A wing off one side is a
+        // spin; a hit in the engine is a long flat glide with the smoke
+        // streaming off her.
+        spin: (Math.random() - 0.5) * 2.6,
+        tumble: 0.5 + Math.random() * 1.4,
+        smoke: 0,
+      });
+    }
+  }
+
+  /**
+   * Fly the wrecks down.
+   *
+   * Nothing clever: what is left of her has a lot of drag and no lift, so she
+   * goes over on her back or into a spin and falls, and the trail of smoke
+   * off her is what anybody watching actually sees. She finishes in the water.
+   */
+  stepWrecks(dt) {
+    const fx = this.scene.effects;
+    for (let i = this.wrecks.length - 1; i >= 0; i--) {
+      const w = this.wrecks[i];
+      const drag = Math.pow(0.72, dt);
+      w.vx *= drag; w.vz *= drag;
+      w.vy = w.vy * drag - 9.81 * dt;
+      w.x += w.vx * dt;
+      w.y += w.vy * dt;
+      w.z += w.vz * dt;
+      w.heading = wrapAngle(w.heading + w.spin * dt);
+      w.bank = wrapAngle(w.bank + w.tumble * dt);
+      w.pitch = clamp(w.pitch - 0.55 * dt, -1.3, 0.4);
+      w.smoke -= dt;
+      if (w.smoke <= 0) {
+        w.smoke = 0.055;
+        fx.wreckSmoke(w.x, w.y, w.z);
+      }
+      const sea = this.scene.ocean.heightAt(w.x, w.z);
+      if (w.y <= sea + 1) {
+        // In. A hundred-knot aeroplane going into the sea throws a good deal
+        // of water up, and then there is nothing there at all.
+        fx.splash(w.x, w.z, 260);
+        fx.explosion(w.x, sea + 3, w.z, 0.6);
+        this.wrecks.splice(i, 1);
+      }
+    }
   }
 
   /**
@@ -1128,7 +1233,7 @@ export class Battle {
       // she is given a moment before anyone concludes she is gone.
       deck.lostAt = (deck.lostAt || 0) + dt;
       if (deck.lostAt < 3.0) continue;
-      if (!this.flying || this.flying.ownerView !== v) v.group.userData.recover?.();
+      if (!this.flying || this.flying.ownerView !== v) v.group.userData.stow?.();
     }
 
     if (!up) {
@@ -1149,7 +1254,7 @@ export class Battle {
           // the aeroplane that appears to teleport back to the ship. Put her
           // below instead, which is where she is.
           v.group.attach(g);
-          v.group.userData.recover?.();
+          v.group.userData.stow?.();
         } else {
           this.landing = {
             t0: this.time, view: v, group: g,
@@ -1262,11 +1367,32 @@ export class Battle {
     const prop = v.group.userData.deck?.plane?.prop;
     if (prop) prop.rotation.z += 1.1 * (1 - e * 0.7);
     if (k < 1) return;
-    // Down, and struck below: the model goes back into the ship's own group and
-    // stands on the after lift where she started.
+    // Down: the model goes back into the ship's own group, and the recovery
+    // takes it from there -- up the deck to the after lift, wings folding, and
+    // the lift down into the hangar she came out of.
     v.group.attach(g);
-    v.group.userData.recover?.();
+    v.group.userData.recover?.(this.time);
     this.landing = null;
+  }
+
+  /**
+   * Bring a carrier's own aeroplane back into her group, wherever she is.
+   *
+   * The model belongs to the ship; while she is flying she is parented to the
+   * world instead, and anything that wants to run the deck evolution has to
+   * have her back in the ship's frame first or it will be positioning a
+   * world-space object with ship-space numbers.
+   */
+  recallDeckPlane(v) {
+    if (this.flying && this.flying.ownerView === v) {
+      v.group.attach(this.flying.group);
+      this.flying = null;
+    }
+    if (this.landing && this.landing.view === v) {
+      v.group.attach(this.landing.group);
+      this.landing = null;
+    }
+    v.group.userData.stow?.();
   }
 
   hideRest(mesh, from) {
@@ -1286,27 +1412,43 @@ export class Battle {
       const p = this.flight.pilot;
       cam.fov = 62;
       cam.updateProjectionMatrix();
+      // The camera trails her; it is not bolted to her.
+      //
+      // It used to take her attitude exactly, which sounds right and is what
+      // made it unusable: roll the aeroplane and the whole world turned over
+      // round a picture of an aeroplane that never moved, and every touch of
+      // the stick threw the horizon about. What a chase camera does is lag --
+      // it swings round after her in its own time, and it keeps the horizon
+      // very nearly where the horizon is, so what you see rolling is the
+      // aeroplane. The rig below is her heading and pitch eased toward hers
+      // over about a third of a second, and a quarter of her bank.
+      const r = this.flight.rig || (this.flight.rig = {
+        heading: p.heading, pitch: p.pitch, bank: 0,
+      });
+      const k = 1 - Math.pow(0.0008, Math.min(0.1, dt));
+      r.heading = wrapAngle(r.heading + angleDelta(r.heading, p.heading) * k);
+      r.pitch = lerp(r.pitch, clamp(p.pitch, -0.7, 0.7), k);
+      r.bank = lerp(r.bank, clamp(p.bank * 0.26, -0.34, 0.34), k);
       // Far enough back and high enough that she is in the frame with the sea
       // under her: a chase camera that cannot see its own aeroplane is a
       // camera pointed at nothing.
       const back = 34;
       const up = 9;
-      // Behind and above, in her own frame, so the view rolls with her the way
-      // a chase camera does rather than staying pinned to the horizon.
-      const cp = Math.cos(p.pitch);
-      const bx = -Math.sin(p.heading) * cp * back - Math.sin(p.bank) * Math.cos(p.heading) * up;
-      const bz = -Math.cos(p.heading) * cp * back + Math.sin(p.bank) * Math.sin(p.heading) * up;
-      const by = Math.sin(p.pitch) * back * -1 + Math.cos(p.bank) * up;
+      const cp = Math.cos(r.pitch);
+      const bx = -Math.sin(r.heading) * cp * back - Math.sin(r.bank) * Math.cos(r.heading) * up;
+      const bz = -Math.cos(r.heading) * cp * back + Math.sin(r.bank) * Math.sin(r.heading) * up;
+      const by = -Math.sin(r.pitch) * back + Math.cos(r.bank) * up;
       cam.position.set(p.x + bx, Math.max(p.y + by, 3), p.z + bz);
-      cam.up.set(Math.sin(p.bank) * Math.cos(p.heading) * -1, Math.cos(p.bank),
-        Math.sin(p.bank) * Math.sin(p.heading));
-      // Looking down her nose, but not so far ahead that she drops out of the
-      // bottom of the picture.
+      cam.up.set(-Math.sin(r.bank) * Math.cos(r.heading), Math.cos(r.bank),
+        Math.sin(r.bank) * Math.sin(r.heading));
+      // Looking down the rig's nose rather than hers, so a hard pull does not
+      // whip the view -- but through a point on the aeroplane, so however far
+      // the rig is lagging she stays in the middle of the picture.
       const look = 70;
       cam.lookAt(
-        p.x + Math.sin(p.heading) * cp * look,
-        p.y + Math.sin(p.pitch) * look + 2,
-        p.z + Math.cos(p.heading) * cp * look,
+        p.x + Math.sin(r.heading) * cp * look,
+        p.y + Math.sin(r.pitch) * look + 2,
+        p.z + Math.cos(r.heading) * cp * look,
       );
       this.input.orbiting = false;
       return;
@@ -1401,19 +1543,24 @@ export class Battle {
       );
       cam.lookAt(cam.position.clone().add(dir.multiplyScalar(1000)));
     } else {
+      // A real orbit round her, and the drag walks it up and down.
+      //
+      // It used to stand at a fixed height above the water and only tilt what
+      // it looked at, so there was no way to get the camera under the surface
+      // from your own bridge at all -- you could look down at the sea and that
+      // was the end of it. The elevation is the drag now, and it is allowed
+      // below the waterline: drop it under her and you are looking up at her
+      // bottom and her screws with the sea over your head.
       const d = this.scoped ? this.camDistance * 0.55 : this.camDistance;
-      const height = d * 0.42 + 18;
+      const el = clamp(0.38 - this.pitch, -0.78, 1.25);
+      const flat = Math.cos(el);
+      const aim = wave * 0.5 + this.cls.hull.superstructure * 5 + 6;
       cam.position.set(
-        ls.x - Math.sin(this.yaw) * d,
-        wave * 0.5 + height,
-        ls.z - Math.cos(this.yaw) * d,
+        ls.x - Math.sin(this.yaw) * d * flat,
+        wave * 0.5 + 6 + d * Math.sin(el),
+        ls.z - Math.cos(this.yaw) * d * flat,
       );
-      const look = new THREE.Vector3(
-        ls.x + Math.sin(this.yaw) * 400,
-        wave * 0.5 + 10 - this.pitch * 700,
-        ls.z + Math.cos(this.yaw) * 400,
-      );
-      cam.lookAt(look);
+      cam.lookAt(ls.x, aim, ls.z);
     }
 
     // Nothing puts the camera inside the ground.

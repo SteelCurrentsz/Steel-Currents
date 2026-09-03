@@ -907,8 +907,11 @@ function funnels(g) {
   // tubes end up inside it.
   box(g, M.steel, 6.2, 2.7, 7.4, 0, deckAt(FUNNEL_A) + 1.35, FUNNEL_A);
   box(g, M.deckDark, 6.4, 0.14, 7.4, 0, deckAt(FUNNEL_A) + 2.7, FUNNEL_A);
-  // Ventilator cowls along it, turned to the wind.
-  for (const [vz, sgn] of [[12, -1], [12, 1], [3, -1], [3, 1], [-4, -1], [-13, 1]]) {
+  // Ventilator cowls along it, turned to the wind. None of them within reach
+  // of a torpedo bank: the one that stood at frame -4 was inside the arc the
+  // forward tubes train through, and a cowl two metres tall is not something
+  // fifteen tons of tubes swings over.
+  for (const [vz, sgn] of [[12, -1], [12, 1], [3, -1], [3, 1], [-9, -1], [-13, 1]]) {
     const v = new THREE.Group();
     v.position.set(sgn * (halfDeck(vz) - 1.9), deckAt(vz) + 0.1, vz);
     g.add(v);
@@ -1002,8 +1005,15 @@ function boatsAndRafts(g) {
   box(hull, M.steelDark, 1.25, 0.12, 4.0, 0, 0.42, -0.2);
   box(hull, M.steelDark, 0.8, 0.44, 1.4, 0, 0.32, -1.6);
   // Davits, and the falls hanging down from them.
-  for (const dz of [z - 3.4, z + 3.4]) {
-    const dav = cyl(g, M.steel, 0.13, 0.17, 4.6, x - S * 0.7, deckAt(dz) + 2.3, dz, 8);
+  //
+  // Outboard of the boat, which is the only place a davit can be if it is to
+  // swing her over the side -- and, just as much to the point, the only place
+  // it is not standing in the way of the after bank of tubes. The after davit
+  // used to be inboard of her and two feet inside the arc the tubes swing
+  // through: train the bank to port and five twenty-one inch tubes went
+  // straight through it.
+  for (const dz of [z - 2.9, z + 2.9]) {
+    const dav = cyl(g, M.steel, 0.13, 0.17, 4.6, x + S * 0.55, deckAt(dz) + 2.3, dz, 8);
     dav.rotation.z = S * 0.3;
     box(g, M.wire, 0.05, 2.2, 0.05, x, deckAt(dz) + 3.6, dz);
   }

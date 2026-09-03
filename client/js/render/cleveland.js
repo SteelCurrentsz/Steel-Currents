@@ -1629,6 +1629,10 @@ export function buildCleveland() {
     c.car.position.z = CAT_A;
     c.group.rotation.y = c.sgn * CAT_REST;
   };
+  // A cruiser has no hangar and no lift: there is nowhere for a scout to go
+  // but back on her cradle, so being struck below and being craned aboard are
+  // the same evolution. The carrier tells the two apart; she does not.
+  g.userData.stow = g.userData.recover;
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
     secMounts, aaMounts,
