@@ -322,8 +322,8 @@ export function buildShip(classId) {
   // And the Fletcher, for the same reason: a flush-decker with five open
   // gunhouses, two banks of tubes on the centreline and the depth charge gear
   // aft is a particular ship, not a length and a beam.
-  // And the Cleveland: four triple turrets, a tower bridge, a forecastle that
-  // breaks down a whole deck aft, and her aircraft on the quarterdeck.
+  // And the Cleveland: four triple turrets, a bullnosed tower bridge, and two
+  // catapults right aft that train out and throw her scouts off.
   if (cls.id === 'cleveland') {
     const built = buildCleveland();
     Object.assign(built.group.userData, {

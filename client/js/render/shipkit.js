@@ -125,6 +125,107 @@ function loftRings(g, m, rings, opts = {}) {
 }
 
 /**
+ * A closed plan outline, extruded through a stack of heights.
+ *
+ * `loftRings` can only make a rounded-corner box, which is why every bridge
+ * built out of it comes out as blocks stacked on blocks. A real bridge front
+ * is a bullnose: a rounded face carried round on to straight sides and closed
+ * by a square back. This takes that outline directly.
+ *
+ * Layers run bottom to top as `{ pts, y }`, all with the same number of
+ * points, so a level can be drawn in above its own foot to overhang or set
+ * back. The outline is wound to face outboard whichever way it was handed in.
+ */
+function loftShape(g, m, layers, opts = {}) {
+  const N = layers[0].pts.length;
+  let pts = layers.map((l) => l.pts);
+  let area = 0;
+  for (let i = 0; i < N; i++) {
+    const [x0, z0] = pts[0][i];
+    const [x1, z1] = pts[0][(i + 1) % N];
+    area += x0 * z1 - x1 * z0;
+  }
+  // Outboard faces want the outline running front -> starboard -> back, which
+  // is the negative direction in the (x, z) plane.
+  if (area > 0) pts = pts.map((p) => p.slice().reverse());
+  const pos = [];
+  const idx = [];
+  for (let r = 0; r < layers.length; r++) {
+    for (const [x, z] of pts[r]) pos.push(x, layers[r].y, z);
+  }
+  for (let r = 0; r < layers.length - 1; r++) {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      const a = r * N + i;
+      const b = r * N + j;
+      const c = (r + 1) * N + i;
+      const d = (r + 1) * N + j;
+      idx.push(a, d, c, a, b, d);
+    }
+  }
+  const hubOf = (r) => {
+    let sx = 0;
+    let sz = 0;
+    for (const [x, z] of pts[r]) { sx += x; sz += z; }
+    return [sx / N, sz / N];
+  };
+  if (opts.cap !== false) {
+    const r = layers.length - 1;
+    const top = r * N;
+    const [hx, hz] = hubOf(r);
+    const hub = pos.length / 3;
+    pos.push(hx, layers[r].y, hz);
+    for (let i = 0; i < N; i++) idx.push(hub, top + i, top + ((i + 1) % N));
+  }
+  if (opts.floor) {
+    const [hx, hz] = hubOf(0);
+    const hub = pos.length / 3;
+    pos.push(hx, layers[0].y, hz);
+    for (let i = 0; i < N; i++) idx.push(hub, ((i + 1) % N), i);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, m);
+  g.add(mesh);
+  return mesh;
+}
+
+/**
+ * The plan of a deckhouse: an elliptical bullnose forward, straight sides, and
+ * a back that is either square or rounded the same way.
+ *
+ * `arc` is how many points go into each rounded end, so two plans built with
+ * the same `arc` can be lofted between.
+ */
+function planHouse(o) {
+  const arc = o.arc || 9;
+  const hw = o.hw;
+  const nose = o.nose === undefined ? hw : o.nose;
+  const tail = o.tail || 0;
+  const zn = o.zFront - nose;
+  const zt = o.zBack + tail;
+  const pts = [];
+  // The starboard half of the bullnose, from right ahead round to the side.
+  for (let i = 0; i <= arc; i++) {
+    const th = (i / arc) * (Math.PI / 2);
+    pts.push([hw * Math.sin(th), zn + nose * Math.cos(th)]);
+  }
+  // Down the starboard side, across the back and up to the port side.
+  for (let i = 0; i <= 2 * arc; i++) {
+    const ph = (i / (2 * arc)) * Math.PI;
+    pts.push([hw * Math.cos(ph), zt - tail * Math.sin(ph)]);
+  }
+  // And the port half of the bullnose, stopping short of right ahead.
+  for (let i = 0; i < arc; i++) {
+    const th = (i / arc) * (Math.PI / 2);
+    pts.push([-hw * Math.cos(th), zn + nose * Math.sin(th)]);
+  }
+  return pts;
+}
+
+/**
  * An inclined ladder: two stringers, a run of treads and a handrail each side.
  *
  * A ship is covered in these and they are the first thing that gives away a
@@ -154,4 +255,7 @@ function ladder(g, m, x, y0, y1, z0, z1) {
   }
 }
 
-export { box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, ladder };
+export {
+  box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
+  planHouse, ladder,
+};

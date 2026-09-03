@@ -30,8 +30,10 @@ import {
 } from '../client/js/render/enterprise.js';
 import { fletcherParts, buildFletcher, deckAt as fletcherDeckAt }
   from '../client/js/render/fletcher.js';
-import { clevelandParts, buildCleveland, deckAt as clevelandDeckAt }
-  from '../client/js/render/cleveland.js';
+import {
+  clevelandParts, buildCleveland, deckAt as clevelandDeckAt,
+  halfDeck as clevelandHalfDeck,
+} from '../client/js/render/cleveland.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -1419,6 +1421,101 @@ check('nothing on the cruiser is buried inside anything else', () => {
     }
   }
   assert.equal(worst.length, 0, `${worst.length} buried piece(s): ${worst[0]}`);
+});
+
+check('the cruiser\'s superstructure sits down on her deck, with no daylight under it', () => {
+  // Her deck has sheer, so a deckhouse lofted from one constant height is
+  // buried at one end of itself and standing clear of the planking at the
+  // other -- which is exactly what she was doing: a hand's breadth of open air
+  // running the whole length of her superstructure, aft.
+  const house = clevelandParts()
+    .filter((p) => p.from === 'bridge')
+    .sort((a, b) => (b.max[2] - b.min[2]) - (a.max[2] - a.min[2]))[0];
+  assert.ok(house && house.max[2] - house.min[2] > 60,
+    'could not find the long deckhouse in her bridge');
+  for (let z = house.min[2]; z <= house.max[2]; z += 2) {
+    const deck = clevelandDeckAt(z);
+    assert.ok(house.min[1] <= deck,
+      `the deckhouse foot is at ${house.min[1].toFixed(2)} and the deck under it `
+      + `at ${deck.toFixed(2)}, at z ${z.toFixed(0)}`);
+  }
+});
+
+check('nothing on the cruiser is rigged over her side below her deck', () => {
+  // An accommodation ladder down her side is a harbour rig and she is at sea;
+  // more to the point, anything hanging outboard of the shell and below the
+  // deck line reads as a piece of her that has come adrift.
+  const bad = [];
+  for (const p of clevelandParts()) {
+    if (p.from === 'hull') continue;
+    const z = (p.min[2] + p.max[2]) / 2;
+    const out = Math.max(Math.abs(p.min[0]), Math.abs(p.max[0]));
+    if (out <= clevelandHalfDeck(z)) continue;
+    if (p.min[1] >= clevelandDeckAt(z) - 0.5) continue;
+    bad.push(`${p.from} at x ${out.toFixed(1)} z ${z.toFixed(0)} `
+      + `hanging to y ${p.min[1].toFixed(1)}`);
+  }
+  assert.equal(bad.length, 0, `over her side: ${bad[0]}`);
+});
+
+check('the cruiser trains her catapults out and shoots on the simulation\'s clock', () => {
+  const built = buildCleveland();
+  const deck = built.group.userData.deck;
+  const cats = deck.cats;
+  assert.equal(cats.length, 2, `she has ${cats.length} catapults`);
+  const trained = () => cats.map((c) => Math.abs(c.group.rotation.y));
+  built.group.userData.step(0);
+  assert.ok(trained().every((a) => a < 0.2), 'she stows her catapults trained out');
+
+  // The order: both train out, and the aeroplane leaves the track at exactly
+  // the moment the simulation puts her flight on the plot -- otherwise there
+  // is an aeroplane in the sky with one still sitting on the cradle.
+  built.group.userData.launch(0);
+  let away = null;
+  let widest = 0;
+  for (let t = 0; t <= 20; t += 1 / 60) {
+    built.group.userData.step(t);
+    widest = Math.max(widest, Math.min(...trained()));
+    if (deck.airborne && away === null) away = t;
+  }
+  assert.ok(widest > 1.0, `her catapults only trained to ${widest.toFixed(2)} rad`);
+  // And they come back in on their own, once the aeroplane is away: nothing
+  // has to tell her the evolution is over.
+  assert.ok(trained().every((a) => a < 0.2),
+    `her catapults were still trained out to ${Math.min(...trained()).toFixed(2)} rad `
+    + 'long after the shot');
+  const want = SHIP_CLASSES.cleveland.planes.deckRun;
+  assert.ok(away !== null && Math.abs(away - want) < 0.2,
+    `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s `
+    + `against ${want}s on the plot`);
+
+  // And afterwards she is found as she started: catapults in, car home, the
+  // aeroplane back on her cradle.
+  built.group.userData.recover();
+  built.group.userData.step(30);
+  assert.ok(trained().every((a) => a < 0.2), 'her catapults stayed trained out');
+  for (const c of cats) {
+    assert.ok(!c.gone && c.plane.visible, 'she never got her aeroplane back');
+  }
+});
+
+check('the cruiser launches her scouts, and nothing flies before she has shot it off', () => {
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, {
+    name: 'Cleveland', classId: 'cleveland', team: 0, index: 0,
+  });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.cleveland.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  // A cruiser puts up scouts, not a torpedo strike: she has no fish aboard.
+  assert.ok(state.planes.every((p) => p.torp === 0),
+    'her floatplanes went off carrying torpedoes');
 });
 
 check('the cruiser\'s turrets stand where her datasheet says', () => {

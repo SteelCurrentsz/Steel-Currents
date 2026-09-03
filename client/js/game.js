@@ -891,10 +891,13 @@ export class Battle {
       const g0 = v.group.userData.deckPlane;
       const w0 = new THREE.Vector3();
       g0.getWorldPosition(w0);
+      // On her own type's wing: a Kingfisher off a cruiser's catapult is not
+      // an Avenger off a carrier's deck, and each ship says which she flew.
+      const a = AERO[deck.aero || 'avenger'] || AERO.avenger;
       this.flying = {
         id: pl.i, ownerView: v, group: g0,
-        air: new Airborne(AERO.avenger, w0.x, w0.y, w0.z,
-          v.group.rotation.y, stallSpeed(AERO.avenger) * 1.18),
+        air: new Airborne(a, w0.x, w0.y, w0.z,
+          v.group.rotation.y, stallSpeed(a) * 1.18),
       };
     }
     const g = this.flying.group;
@@ -952,9 +955,14 @@ export class Battle {
     const v = L.view;
     const g = L.group;
     if (!v.group.parent) { this.landing = null; return; }
-    // Where she is going: the after end of the flight deck, in world terms.
+    // Where she is going. A carrier's aeroplane comes home to the after end of
+    // the flight deck; a cruiser's alights alongside and is craned back on to
+    // the catapult she was shot off, so the ship says where if she has one.
+    const home = v.group.userData.landingSpot;
     const deck = v.group.userData.flightDeckY ?? 17;
-    const spot = new THREE.Vector3(0, deck + 0.4, -(v.cls.hull.length * 0.42));
+    const spot = home
+      ? new THREE.Vector3(home[0], home[1], home[2])
+      : new THREE.Vector3(0, deck + 0.4, -(v.cls.hull.length * 0.42));
     v.group.updateMatrixWorld(true);
     spot.applyMatrix4(v.group.matrixWorld);
     // Eased in, and dropping onto the deck late rather than sinking the whole

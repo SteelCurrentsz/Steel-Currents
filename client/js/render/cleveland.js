@@ -6,25 +6,27 @@
 // turrets, twelve five-inch in six twin mounts, and enough forty-millimetre to
 // make her the ship a Japanese pilot least wanted to attack.
 //
-// She is not a flush-decker. Her forecastle deck runs from the stem aft to
-// abreast the after superstructure and then breaks down a whole deck to the
-// quarterdeck, which is where her aircraft live: two catapults, a crane on the
-// centreline, and a hangar under the fantail. Get that break wrong and she is
-// not a Cleveland, she is a large destroyer.
+// Her weather deck runs unbroken from stem to stern, with sheer forward and
+// nothing but the fall of the sheer aft -- no step down to a quarterdeck. Right
+// aft is where her aircraft live: two catapults, a crane on the centreline, and
+// a hangar under the fantail.
 //
 // Local frame, as everywhere else in the renderer: +Z is the bow, +Y is up, and
 // therefore starboard is -X. y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { AERO, catapultProfile } from './aero.js';
+import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
-  box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, ladder,
+  box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
+  planHouse, ladder,
 } from './shipkit.js';
 
 export const LOA = 185.9;
 export const BEAM = 20.2;
 export const DRAFT = 7.5;
-/** Starboard, in this frame. The accommodation ladder goes on this side. */
+/** Starboard, in this frame. */
 const S = -1;
 
 // Measure 21, navy blue, the same as the rest of the fleet in the yard.
@@ -608,7 +610,52 @@ const WAIST_F = 6.0;                         // the forward pair of waist mounts
 const WAIST_A = -8.5;                        // and the after pair
 const WAIST_X = 6.7;
 const AFTWORKS = [-36, -22];                 // the after superstructure, tier 2
+// The aviation arrangements, right aft: two catapults on the quarterdeck with
+// the crane between them and the hangar under it.
+const CAT_Z = -70;                           // where the turntables stand
+const CAT_X = 5.9;                           // and how far off the centreline
+// The girder, in the turntable's own frame. The pivot is near its after end,
+// not in the middle of it: a catapult swings its muzzle out over the water and
+// hardly moves its breech, which is the only way it can train out at all
+// without the after end of it sweeping across her quarterdeck.
+const CAT_BACK = -5.0;
+const CAT_FRONT = 14.0;
+const CAT_A = CAT_BACK + 1.6;                // the car, at rest at the breech
+const CAT_STROKE = 17.0;                     // how much track she has ahead
+const CAT_REST = 0.10;                       // trained fore and aft
+const CAT_OUT = 1.16;                        // and trained out to shoot
+const PLANE_Y = 1.95;                        // the aeroplane, on her cradle
+const PLANE_Z = 0.2;
+// How long the simulation gives the whole evolution. The model is paced to it,
+// so the aeroplane leaves the track on the tick her flight goes on the plot.
+const DECK_RUN = SHIP_CLASSES.cleveland.planes.deckRun;
 const M52_Z = -27.0;                         // mount 52, on its roof
+
+/** A deck plate cut to a house's plan, with an edge to it you can see. */
+function plate(g, pts, y, t = 0.16) {
+  return loftShape(g, M.deckDark, [{ pts, y: y - t }, { pts, y }], { floor: true });
+}
+
+/**
+ * Splinter plating round the edge of a platform, left open across the back
+ * where the ladder comes up.
+ */
+function screen(g, pts, y, h) {
+  let zmin = Infinity;
+  for (const [, z] of pts) zmin = Math.min(zmin, z);
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 0.06) continue;
+    const mx = (a[0] + b[0]) / 2;
+    const mz = (a[1] + b[1]) / 2;
+    if (mz < zmin + 0.05 && Math.abs(mx) < 1.7) continue;
+    const ry = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    box(g, M.steel, 0.15, h, len + 0.08, mx, y + h / 2, mz, ry);
+    box(g, M.steelDark, 0.38, 0.12, len + 0.08, mx, y + h + 0.06, mz, ry);
+  }
+}
 
 /**
  * The forward superstructure: a tower, which is what makes her look like a
@@ -623,96 +670,137 @@ function bridge(g) {
   const base = FCASTLE();
   // The superstructure deck: one long deckhouse on the weather deck, running
   // from abaft turret 2 to abreast the after turrets. Everything above her
-  // weather deck stands on its roof.
+  // weather deck stands on its roof. The deck under her has sheer, so her
+  // sides are carried down past the lowest point of it: the surplus is buried
+  // inside the hull, and there is no daylight anywhere along her foot.
+  const sole = deckAt(BRIDGE_A) - 1.2;
   loftRings(g, M.steel, [
-    [8.1, (BRIDGE_F - BRIDGE_A) / 2, (BRIDGE_F + BRIDGE_A) / 2, base],
+    [8.1, (BRIDGE_F - BRIDGE_A) / 2, (BRIDGE_F + BRIDGE_A) / 2, sole],
     [8.1, (BRIDGE_F - BRIDGE_A) / 2, (BRIDGE_F + BRIDGE_A) / 2, L01()],
   ]);
   box(g, M.deckDark, 16.4, 0.14, BRIDGE_F - BRIDGE_A - 0.8, 0, L01() + 0.07,
     (BRIDGE_F + BRIDGE_A) / 2);
-  // 02: the bridge tower, standing well abaft mount 51 so its guns are not
-  // inside it.
-  loftRings(g, M.steel, [
-    [5.6, (TOWER[1] - TOWER[0]) / 2, (TOWER[0] + TOWER[1]) / 2, L01()],
-    [5.6, (TOWER[1] - TOWER[0]) / 2, (TOWER[0] + TOWER[1]) / 2, L02()],
-  ]);
-  box(g, M.deckDark, 11.4, 0.14, TOWER[1] - TOWER[0] - 0.6, 0, L02() + 0.07,
-    (TOWER[0] + TOWER[1]) / 2);
-  // 03: the navigating bridge, with the window band round its front.
-  loftRings(g, M.steel, [
-    [4.5, 6.5, 19.5, L02()],
-    [4.5, 6.5, 19.5, L03()],
-  ]);
-  box(g, M.deckDark, 9.2, 0.14, 12.8, 0, L03() + 0.07, 19.5);
-  // 04: the open bridge inside its splinter coaming.
-  loftRings(g, M.steel, [
-    [3.6, 4.6, 20.0, L03()],
-    [3.6, 4.6, 20.0, L04()],
-  ]);
-  box(g, M.deckDark, 7.4, 0.14, 9.4, 0, L04() + 0.07, 20.0);
+  // Above the 01 roof she is not a stack of boxes. Every level is a bullnose
+  // forward carried round on to straight sides and closed by a square back,
+  // each set back from the one below it, with the armoured conning tower
+  // standing in the middle of the bridge front and the pilothouse windows
+  // wrapped round it. That shape is what makes a Cleveland's bridge her own.
+  const ARC = 9;
+  const plan = (hw, zBack, zFront, nose) =>
+    planHouse({ hw, zBack, zFront, nose, arc: ARC });
 
-  // The armoured conning tower, built into the front of the tower: five inches
-  // of plate with a sight slit round it, and the flying bridge on top.
-  cyl(g, M.steel, 2.6, 2.9, L02() - base, 0, (base + L02()) / 2, 26.6, 20);
-  cyl(g, M.gunDark, 2.72, 2.72, 0.36, 0, L02() - 1.3, 26.6, 20);
-  cyl(g, M.steel, 2.4, 2.6, 1.2, 0, L02() + 0.6, 26.6, 20);
-  cyl(g, M.deckDark, 2.9, 2.9, 0.14, 0, L02() + 1.25, 26.6, 20);
+  // 02: the bridge structure on the 01 roof, tumbling home as it rises, with
+  // the pilothouse deck laid over it and a walkway all round its front.
+  loftShape(g, M.steel, [
+    { pts: plan(5.90, TOWER[0], TOWER[1], 5.30), y: L01() },
+    { pts: plan(5.76, TOWER[0], TOWER[1] - 0.18, 5.20), y: L02() - 1.1 },
+    { pts: plan(5.58, TOWER[0], TOWER[1] - 0.40, 5.05), y: L02() },
+  ]);
+  const d02 = plan(5.72, TOWER[0], TOWER[1] - 0.26, 5.16);
+  plate(g, d02, L02() + 0.14);
+  screen(g, d02, L02() + 0.14, 1.02);
 
-  // Windows: the band round the front of the navigating bridge.
-  for (let i = 0; i < 15; i++) {
-    const a = -1.35 + (i / 14) * 2.7;
-    const r = 5.6;
-    const wx = Math.sin(a) * r * 0.8;
-    const wz = 19.5 + Math.cos(a) * r * 1.06;
-    box(g, M.glass, 1.0, 0.9, 0.12, wx, L02() + 1.9, wz, a);
-    box(g, M.steelDark, 1.04, 0.12, 0.14, wx, L02() + 2.42, wz, a);
-    box(g, M.steelDark, 1.04, 0.12, 0.14, wx, L02() + 1.4, wz, a);
+  // 03: the pilothouse. Her front plating flares out from the deck to the
+  // sill, the window band above it stands vertical, and the roof overhangs it
+  // as an eyebrow -- which is the whole reason a bridge front reads as a
+  // bridge front and not as a box.
+  const PH_A = 13.0;
+  const PH_F = 27.4;
+  const ph = (hw, nose) => plan(hw, PH_A, PH_F, nose);
+  loftShape(g, M.steel, [
+    { pts: ph(4.30, 4.10), y: L02() + 0.14 },
+    { pts: ph(4.70, 4.50), y: L02() + 1.05 },
+    { pts: ph(4.70, 4.50), y: L02() + 2.55 },
+    { pts: ph(4.60, 4.40), y: L03() },
+  ]);
+  plate(g, plan(5.05, PH_A, PH_F + 0.42, 4.86), L03() + 0.16);
+
+  // The windows, laid along the pilothouse plan so they follow the bullnose
+  // instead of being strung across a flat face.
+  const wall = ph(4.74, 4.54);
+  for (let i = 0; i < wall.length; i++) {
+    const a = wall[i];
+    const b = wall[(i + 1) % wall.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const mx = (a[0] + b[0]) / 2;
+    const mz = (a[1] + b[1]) / 2;
+    if (len < 0.1 || mz < PH_A + 3.4) continue;
+    const ry = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    box(g, M.glass, 0.1, 1.25, len * 0.9, mx, L02() + 1.82, mz, ry);
+    box(g, M.steelDark, 0.16, 0.13, len + 0.06, mx, L02() + 2.5, mz, ry);
+    box(g, M.steelDark, 0.16, 0.13, len + 0.06, mx, L02() + 1.12, mz, ry);
   }
+
+  // 04: sky control, and the open bridge on its roof inside splinter plating.
+  loftShape(g, M.steel, [
+    { pts: plan(3.80, 16.0, 26.2, 3.70), y: L03() + 0.16 },
+    { pts: plan(3.70, 16.0, 26.0, 3.60), y: L04() },
+  ]);
+  const d04 = plan(4.00, 15.8, 26.4, 3.86);
+  plate(g, d04, L04() + 0.14);
+  screen(g, d04, L04() + 0.14, 1.24);
+
+  // The armoured conning tower: five inches of plate standing right through
+  // the bridge, its face proud of the pilothouse front with the sight slit in
+  // line with the windows, and a lookout platform on top of it.
+  const CT_Z = 26.2;
+  cyl(g, M.steel, 2.62, 2.86, L03() - L01(), 0, (L01() + L03()) / 2, CT_Z, 22);
+  cyl(g, M.gunDark, 2.74, 2.74, 0.4, 0, L02() + 1.75, CT_Z, 22);
+  cyl(g, M.steel, 2.5, 2.62, 0.5, 0, L02() + 2.2, CT_Z, 22);
+  cyl(g, M.deckDark, 2.92, 2.92, 0.16, 0, L03() + 0.16, CT_Z, 22);
+  for (let i = 0; i < 12; i++) {
+    const a = -1.5 + (i / 11) * 3.0;
+    const rx = Math.sin(a) * 2.86;
+    const rz = CT_Z + Math.cos(a) * 2.86;
+    cyl(g, M.steelDark, 0.05, 0.05, 1.0, rx, L03() + 0.7, rz, 6);
+  }
+  for (const rr of [0.62, 1.06]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.86, 0.05, 5, 26,
+      Math.PI * 1.06), M.steelDark);
+    ring.position.set(0, L03() + rr, CT_Z);
+    ring.rotation.x = Math.PI / 2;
+    ring.rotation.z = -Math.PI * 0.53;
+    g.add(ring);
+  }
+
   // Doors and portholes down the deckhouse sides, and ladders between decks.
   for (const sgn of [-1, 1]) {
     for (const dz of [-26, -12, 13, 24, 33]) {
-      box(g, M.gunDark, 0.16, 2.0, 1.0, sgn * 8.2, base + 1.05, dz);
+      box(g, M.gunDark, 0.16, 2.0, 1.0, sgn * 8.2, deckAt(dz) + 1.05, dz);
     }
     for (const dz of [-30, -20, -3, 8, 21, 28, 35]) {
-      cyl(g, M.glass, 0.22, 0.22, 0.1, sgn * 8.16, base + 2.0, dz, 10)
+      cyl(g, M.glass, 0.22, 0.22, 0.1, sgn * 8.16, deckAt(dz) + 2.0, dz, 10)
         .rotation.z = Math.PI / 2;
-      cyl(g, M.steelDark, 0.28, 0.28, 0.07, sgn * 8.13, base + 2.0, dz, 10)
+      cyl(g, M.steelDark, 0.28, 0.28, 0.07, sgn * 8.13, deckAt(dz) + 2.0, dz, 10)
         .rotation.z = Math.PI / 2;
     }
-    ladder(g, M.steelDark, sgn * 6.6, base + 0.1, L01(), 34.4, 37.4);
-    ladder(g, M.steelDark, sgn * 4.6, L01() + 0.1, L02(), 11.0, 14.2);
-    ladder(g, M.steelDark, sgn * 3.4, L02() + 0.1, L03(), 19.0, 21.8);
+    for (const dz of [12.6, 21.0]) {
+      box(g, M.gunDark, 0.16, 1.9, 0.95, sgn * 5.6, L01() + 1.0, dz);
+    }
+    ladder(g, M.steelDark, sgn * 6.6, deckAt(35.9) + 0.1, L01(), 34.4, 37.4);
+    ladder(g, M.steelDark, sgn * 4.9, L01() + 0.1, L02(), 10.6, 13.8);
+    ladder(g, M.steelDark, sgn * 3.6, L02() + 0.2, L03(), 13.4, 16.2);
+    ladder(g, M.steelDark, sgn * 2.6, L03() + 0.24, L04(), 16.4, 19.0);
   }
 
-  // The open bridge: splinter plating, a pelorus, the engine order telegraphs,
-  // the target designation transmitter, and the wings out either side.
-  const N = 22;
-  for (let i = 0; i < N; i++) {
-    const a = (i / N) * Math.PI * 2;
-    if (Math.abs(a - Math.PI) < 0.38) continue;
-    const r = 4.2;
-    const cx = Math.sin(a) * r * 0.86;
-    const cz = 20.0 + Math.cos(a) * r * 1.1;
-    box(g, M.steel, 0.16, 1.3, (2 * Math.PI * r) / N + 0.14, cx, L04() + 0.7, cz,
-      a + Math.PI / 2);
-    box(g, M.steelDark, 0.4, 0.12, (2 * Math.PI * r) / N + 0.14, cx, L04() + 1.38, cz,
-      a + Math.PI / 2);
-  }
-  cyl(g, M.gunDark, 0.2, 0.24, 1.3, 0, L04() + 0.7, 23.0, 10);
-  box(g, M.gunDark, 0.66, 0.24, 0.66, 0, L04() + 1.4, 23.0);
+  // The open bridge itself: the pelorus on the centreline, the target
+  // designation transmitters either side of it, and the wings out beyond.
+  cyl(g, M.gunDark, 0.2, 0.24, 1.3, 0, L04() + 0.8, 23.4, 10);
+  box(g, M.gunDark, 0.66, 0.24, 0.66, 0, L04() + 1.5, 23.4);
   for (const sgn of [-1, 1]) {
-    cyl(g, M.gunDark, 0.3, 0.36, 1.05, sgn * 1.8, L04() + 0.55, 22.4, 10);
-    box(g, M.gun, 0.55, 0.5, 0.42, sgn * 1.8, L04() + 1.3, 22.4);
+    cyl(g, M.gunDark, 0.3, 0.36, 1.05, sgn * 1.9, L04() + 0.66, 22.6, 10);
+    box(g, M.gun, 0.55, 0.5, 0.42, sgn * 1.9, L04() + 1.4, 22.6);
     // The wings, on their brackets, with a signal lamp and a repeater on each.
-    box(g, M.deckDark, 3.2, 0.16, 3.6, sgn * 4.9, L04(), 20.6);
+    box(g, M.deckDark, 3.2, 0.16, 3.6, sgn * 5.2, L04() + 0.14, 20.6);
     for (const bz of [19.1, 22.1]) {
-      const br = box(g, M.steel, 3.0, 0.18, 0.24, sgn * 4.9, L04() - 0.6, bz);
+      const br = box(g, M.steel, 3.0, 0.18, 0.24, sgn * 5.2, L04() - 0.5, bz);
       br.rotation.z = sgn * 0.4;
     }
-    box(g, M.steel, 0.16, 1.2, 3.6, sgn * 6.42, L04() + 0.68, 20.6);
-    box(g, M.steelDark, 0.42, 0.12, 3.6, sgn * 6.38, L04() + 1.32, 20.6);
-    cyl(g, M.gunDark, 0.3, 0.3, 0.5, sgn * 6.18, L04() + 0.8, 21.8, 10);
-    box(g, M.glass, 0.36, 0.36, 0.07, sgn * 6.18, L04() + 0.8, 22.08);
+    box(g, M.steel, 0.16, 1.24, 3.6, sgn * 6.72, L04() + 0.76, 20.6);
+    box(g, M.steelDark, 0.42, 0.12, 3.6, sgn * 6.68, L04() + 1.44, 20.6);
+    box(g, M.steel, 3.2, 1.24, 0.16, sgn * 5.2, L04() + 0.76, 18.86);
+    cyl(g, M.gunDark, 0.3, 0.3, 0.5, sgn * 6.48, L04() + 0.9, 21.8, 10);
+    box(g, M.glass, 0.36, 0.36, 0.07, sgn * 6.48, L04() + 0.9, 22.08);
   }
 
   // The two forward Mk 37s, abreast the tower one level down from the main
@@ -836,7 +924,7 @@ function funnels(g) {
   // to the wind, and well clear of the waist mounts on the deck above.
   for (const [vz, sgn] of [[26, -1], [26, 1], [-1, -1], [-1, 1], [-20, -1], [-20, 1]]) {
     const v = new THREE.Group();
-    v.position.set(sgn * (halfDeck(vz) - 1.5), FCASTLE() + 0.1, vz);
+    v.position.set(sgn * (halfDeck(vz) - 1.5), deckAt(vz) + 0.1, vz);
     g.add(v);
     cyl(v, M.steel, 0.42, 0.5, 2.4, 0, 1.2, 0, 12);
     const bell = cyl(v, M.steel, 0.78, 0.44, 1.0, 0, 2.6, 0.3, 14);
@@ -1012,10 +1100,16 @@ function seaPlane(g, x, y, z, ry) {
   box(p, M.glass, 0.86, 0.6, 2.4, 0, 2.0, 0.9);
   cyl(p, M.gunDark, 0.62, 0.66, 1.2, 0, 1.35, 4.2, 14).rotation.x = Math.PI / 2;
   cyl(p, M.gunDark, 0.14, 0.14, 0.3, 0, 1.35, 4.9, 10).rotation.x = Math.PI / 2;
+  // The airscrew as its own group, so it can be wound up on the cradle.
+  const prop = new THREE.Group();
+  prop.position.set(0, 1.35, 4.95);
+  prop.userData.dynamic = true;
+  p.add(prop);
   for (const a of [0, 2.09, 4.19]) {
-    const bl = box(p, M.gunDark, 0.22, 3.2, 0.08, 0, 1.35, 4.95);
+    const bl = box(prop, M.gunDark, 0.22, 3.2, 0.08, 0, 0, 0);
     bl.rotation.z = a;
   }
+  p.userData.prop = prop;
   // The float she lands on, on its struts.
   box(p, M.planeLow, 1.1, 0.85, 8.2, 0, -0.35, 0.2);
   box(p, M.planeLow, 0.8, 0.5, 1.4, 0, 0.05, 4.2);
@@ -1038,27 +1132,47 @@ function seaPlane(g, x, y, z, ry) {
  * a very long stern.
  */
 function aviation(g) {
-  const qd = deckAt(-70);
+  const qd = deckAt(CAT_Z);
+  const cats = [];
   for (const sgn of [-1, 1]) {
-    const cz = -70;
     const cat = new THREE.Group();
-    cat.position.set(sgn * 5.2, qd, cz);
-    cat.rotation.y = sgn * 0.10;
+    cat.position.set(sgn * CAT_X, qd, CAT_Z);
+    cat.rotation.y = sgn * CAT_REST;
+    // She trains, so the welder leaves her and everything under her alone.
+    cat.userData.dynamic = true;
     g.add(cat);
     // The turntable the catapult trains on, and the girder itself.
-    cyl(cat, M.steelDark, 2.2, 2.4, 0.6, 0, 0.3, 0, 18);
-    for (const rail of [-0.9, 0.9]) {
-      box(cat, M.steel, 0.34, 0.5, 18, rail, 1.05, 0);
-      box(cat, M.steelDark, 0.42, 0.14, 18, rail, 1.36, 0);
+    const len = CAT_FRONT - CAT_BACK;
+    const mid = (CAT_FRONT + CAT_BACK) / 2;
+    cyl(cat, M.steelDark, 2.0, 2.2, 0.6, 0, 0.3, 0, 18);
+    for (const rail of [-0.75, 0.75]) {
+      box(cat, M.steel, 0.3, 0.5, len, rail, 1.05, mid);
+      box(cat, M.steelDark, 0.36, 0.14, len, rail, 1.36, mid);
     }
-    for (let i = 0; i < 9; i++) {
-      box(cat, M.steel, 2.2, 0.24, 0.34, 0, 0.75, -8.0 + i * 2.05);
+    for (let i = 0; i < 10; i++) {
+      box(cat, M.steel, 1.8, 0.24, 0.3, 0, 0.75, CAT_BACK + 0.9 + i * 1.95);
     }
-    // The powder charge house at the after end, and the car on the rails.
-    box(cat, M.steel, 2.4, 1.3, 2.6, 0, 1.3, -9.1);
-    box(cat, M.steelDark, 2.2, 0.4, 1.9, 0, 1.75, 1.2);
-    seaPlane(cat, 0, 2.1, 1.4, 0);
+    // Trusswork under the girder forward, where it is carried out over the
+    // side with nothing under it but the sea.
+    for (let i = 0; i < 6; i++) {
+      const br = box(cat, M.steel, 0.16, 0.14, 2.4, 0, 0.55, CAT_BACK + 6.4 + i * 1.9);
+      br.rotation.x = i % 2 ? 0.6 : -0.6;
+    }
+    // The powder charge house at the after end: the catapult is a gun, and
+    // this is its breech.
+    box(cat, M.steel, 2.2, 1.3, 2.6, 0, 1.3, CAT_BACK + 0.6);
+    box(cat, M.steelDark, 1.1, 0.9, 1.1, 0, 2.1, CAT_BACK + 0.6);
+    // The car she is bolted to, which is the thing that actually moves.
+    const car = new THREE.Group();
+    car.position.set(0, 0, CAT_A);
+    car.userData.dynamic = true;
+    cat.add(car);
+    box(car, M.steelDark, 1.9, 0.4, 1.9, 0, 1.75, 0);
+    box(car, M.steel, 2.0, 0.24, 0.5, 0, 1.5, -0.9);
+    const plane = seaPlane(car, 0, 1.95, 0.2, 0);
+    cats.push({ group: cat, car, plane, prop: plane.userData.prop, sgn });
   }
+  g.userData.catapults = cats;
   // The aircraft crane on the centreline, with its jib stowed fore and aft.
   const cr = new THREE.Group();
   cr.position.set(0, qd, -86.0);
@@ -1085,6 +1199,94 @@ function aviation(g) {
   // which is what the doors in her transom are for.
   // The recovery mat, stowed against the bulwark.
   box(g, M.canvas, 5.0, 0.14, 9.0, S * 6.4, qd + 0.1, -66);
+}
+
+/**
+ * Her launch, from the order to the aeroplane leaving the end of the track.
+ *
+ * A cruiser does not have a deck to run down: the catapult trains out on its
+ * turntable until it is pointing off the quarter, the pilot winds the engine
+ * right up against the holdback, and then a powder charge throws the whole
+ * cradle down eighteen metres of girder. The whole thing is played on the same
+ * clock the simulation launches on, so what the eye sees leave the ship and
+ * what the plot says is in the air are the same event.
+ */
+const TRAIN = 3.4;                     // trained out and pointing off the bow
+const RUNUP = 5.0;                     // engine wound up, waiting for the flag
+const HOME = 4.0;                      // and trained back in afterwards
+
+function stepCatapults(deck, t) {
+  const pr = deck.profile;
+  const shot = pr.rows.length * pr.dt;
+  // Paced so the aeroplane leaves the track at exactly the moment the
+  // simulation puts her squadron up, however long the integrated shot takes.
+  const pace = (RUNUP + shot) / deck.run;
+  const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
+  // Both catapults train out on the order and both come back in afterwards --
+  // she is flying off aircraft, and that is a quarterdeck evolution, not one
+  // man's job on one girder.
+  let out = 0;
+  if (run >= 0) {
+    if (run < TRAIN) out = smooth(run / TRAIN);
+    else if (run < RUNUP + shot) out = 1;
+    else out = 1 - smooth((run - RUNUP - shot) / HOME);
+  }
+  for (const c of deck.cats) {
+    c.group.rotation.y = c.sgn * (CAT_REST + (CAT_OUT - CAT_REST) * out);
+    if (deck.live !== c || run < 0) {
+      // Sitting on her cradle with the engine ticking over, waiting her turn.
+      c.car.position.z = CAT_A;
+      if (!c.gone) {
+        c.plane.position.set(0, PLANE_Y, PLANE_Z);
+        c.plane.rotation.set(0, 0, 0);
+        if (c.prop) c.prop.rotation.z += 0.04;
+      }
+      continue;
+    }
+    let along = CAT_A;
+    let y = 0;
+    let pitch = 0;
+    let turning = 30;
+    if (run < TRAIN) {
+      // Trained out on the turntable, engine coming up as she goes round.
+      turning = 3 + 14 * out;
+    } else if (run < RUNUP) {
+      // Held on the holdback with the engine wound right up: she shakes.
+      pitch = 0.005 * Math.sin((run - TRAIN) * 26);
+    } else if (run < RUNUP + shot) {
+      // The shot itself, read off the integrated profile.
+      turning = 34;
+      const i = Math.min(pr.rows.length - 1,
+        Math.max(0, Math.round((run - RUNUP) / pr.dt)));
+      const [s2, h, th] = pr.rows[i];
+      along = CAT_A + s2;
+      y = h;
+      pitch = -th;
+      // Off the end of the girder and climbing away. She is handed over at the
+      // end of the profile, which the pacing above puts on the same tick the
+      // simulation puts her flight on the plot.
+      if (s2 > CAT_STROKE + 34 && run >= RUNUP + shot - pr.dt) {
+        deck.airborne = true;
+        c.gone = true;
+      }
+    } else {
+      // Gone. A frame can step clean over the last row of the profile, so the
+      // hand-over is latched here as well: past the end of the shot she is
+      // away, whether or not a frame landed on the moment she left the track.
+      deck.airborne = true;
+      c.gone = true;
+      turning = 0;
+    }
+    c.car.position.z = Math.min(CAT_A + CAT_STROKE, along);
+    if (!c.gone) {
+      // Past the end of the girder there is no car under her: she carries on
+      // along the line of the track on her own.
+      c.plane.position.set(0, PLANE_Y + y,
+        PLANE_Z + Math.max(0, along - (CAT_A + CAT_STROKE)));
+      c.plane.rotation.set(pitch, 0, 0);
+      if (c.prop) c.prop.rotation.z += turning * 0.05;
+    }
+  }
 }
 
 /** Boats: two motor launches and two whaleboats, on davits on the boat deck. */
@@ -1134,8 +1336,8 @@ function boats(g) {
     boat(sgn * 6.9, -20.0, 8.2, sgn);
   }
   // Carley floats and life rafts, stowed against the deckhouse sides.
-  const racks = [[31, 8.3, FCASTLE() + 1.6], [-10, 8.3, FCASTLE() + 1.6],
-    [-27, 8.1, FCASTLE() + 1.6], [-38, 6.4, FCASTLE() + 1.6]];
+  const racks = [[31, 8.3, deckAt(31) + 1.6], [-10, 8.3, deckAt(-10) + 1.6],
+    [-27, 8.1, deckAt(-27) + 1.6], [-38, 6.4, deckAt(-38) + 1.6]];
   for (const [rz, rx, ry] of racks) for (const sgn of [-1, 1]) {
     const r = new THREE.Group();
     r.position.set(sgn * rx, ry, rz);
@@ -1225,7 +1427,7 @@ function railings(g) {
   put(-86, 62, (z) => (z > 36 && z < 50) || (z > -62 && z < -36));
 }
 
-/** Searchlights, lockers, life buoys and the accommodation ladder. */
+/** Searchlights, lockers and life buoys. */
 function fittings(g) {
   // Two 36" searchlights on platforms abreast the after funnel.
   for (const sgn of [-1, 1]) {
@@ -1247,11 +1449,6 @@ function fittings(g) {
     t.rotation.y = Math.PI / 2;
     g.add(t);
   }
-  // The accommodation ladder, rigged down the starboard side in harbour.
-  const az = -2;
-  ladder(g, M.steelDark, S * (halfDeck(az) + 0.5), deckAt(az) - 4.6, deckAt(az) + 0.2,
-    az - 5.2, az + 1.0);
-  box(g, M.steelDark, 1.4, 0.16, 2.4, S * (halfDeck(az) + 0.8), deckAt(az) - 4.7, az - 6.2);
 }
 
 // ------------------------------------------------------------------ build --
@@ -1324,7 +1521,7 @@ function lightAA(g) {
   // Six twins: abreast the funnels, on the forecastle abreast turret 2, and on
   // the quarterdeck abreast turret 4.
   for (const sgn of [-1, 1]) {
-    twinBofors(g, sgn * 6.9, L01() + 0.15, 10.5, sgn * 0.7);
+    twinBofors(g, sgn * 7.85, L01() + 0.15, 10.5, sgn * 0.7);
     twinBofors(g, sgn * (halfDeck(50) - 2.4), deckAt(50) + 0.1, 50.0, sgn * 0.8);
     twinBofors(g, sgn * (halfDeck(-50) - 2.4), deckAt(-50) + 0.1, -50.0, sgn * 0.8);
   }
@@ -1370,6 +1567,51 @@ export function buildCleveland() {
   mergeStatic(g);
   const turrets = mainBattery(g);
   g.userData.classId = 'cleveland';
+
+  // Her catapults. Like the carrier, she carries her own launch: the scene only
+  // tells her when the order was given, and she knows what a launch looks like.
+  const cats = g.userData.catapults || [];
+  const deck = {
+    cats, live: null, launchAt: null, airborne: false, plane: null,
+    aero: 'kingfisher', run: DECK_RUN,
+    profile: catapultProfile(AERO.kingfisher, CAT_STROKE),
+  };
+  g.userData.deck = deck;
+  g.userData.deckPlane = cats.length ? cats[0].plane : null;
+  g.userData.step = (t) => stepCatapults(deck, t);
+  g.userData.launch = (t) => {
+    // The two catapults are used turn and turn about, which is what keeps one
+    // of them free while the other is being reloaded by the crane.
+    const next = cats.find((c) => !c.gone && c !== deck.live) || deck.live;
+    deck.live = next;
+    deck.launchAt = t;
+    deck.airborne = false;
+    if (next) {
+      next.gone = false;
+      next.plane.visible = true;
+      g.userData.deckPlane = next.plane;
+      g.userData.deckPlaneOwner = next;
+      deck.plane = { group: next.plane, prop: next.prop };
+      // Where she comes back to: her own cradle, not a spot on the deck.
+      g.userData.landingSpot = [next.sgn * CAT_X, deckAt(CAT_Z) + PLANE_Y + 0.6,
+        CAT_Z + CAT_A];
+    }
+  };
+  // Whatever was flying her is finished with her: she is back on her cradle,
+  // craned aboard and bolted down for the next shot.
+  g.userData.recover = () => {
+    const c = g.userData.deckPlaneOwner || deck.live;
+    deck.airborne = false;
+    deck.launchAt = null;
+    if (!c) return;
+    c.gone = false;
+    if (c.plane.parent !== c.car) c.car.add(c.plane);
+    c.plane.position.set(0, PLANE_Y, PLANE_Z);
+    c.plane.rotation.set(0, 0, 0);
+    c.plane.visible = true;
+    c.car.position.z = CAT_A;
+    c.group.rotation.y = c.sgn * CAT_REST;
+  };
   return { group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0) };
 }
 
@@ -1405,4 +1647,7 @@ export function clevelandParts() {
   return parts;
 }
 
-export { LOA as CLEVELAND_LOA, BEAM as CLEVELAND_BEAM, DRAFT as CLEVELAND_DRAFT, deckAt };
+export {
+  LOA as CLEVELAND_LOA, BEAM as CLEVELAND_BEAM, DRAFT as CLEVELAND_DRAFT,
+  deckAt, halfDeck,
+};

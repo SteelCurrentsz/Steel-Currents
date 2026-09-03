@@ -43,6 +43,13 @@ export const AERO = {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',
   },
+  // The cruiser's scout. Four hundred and fifty horsepower and a great float
+  // hung under her, so she is slow and draggy -- and much too slow to get off
+  // anything, which is exactly why she is shot off a catapult instead.
+  kingfisher: {
+    mass: 2600, wing: 24.3, span: 10.95, clMax: 1.50, cd0: 0.0410,
+    thrust: 9000, vMax: 74, name: 'OS2U-3',
+  },
 };
 
 /** Aspect ratio: span squared over wing area, which is where induced drag comes from. */
@@ -157,6 +164,61 @@ export function launchProfile(aero, deckAhead) {
     y += v * Math.sin(pitch) * dt;
     rows.push([s, y, pitch, 1]);
     if (s > deckAhead + 60 && y > 24) break;
+  }
+  return { dt, rows };
+}
+
+/**
+ * A catapult shot, integrated the same way a deck run is.
+ *
+ * A cruiser's floatplane cannot take herself off: she is put on a cradle and
+ * thrown, sixty-odd knots in about seventy feet of track, which is two and a
+ * half g in the small of the observer's back. So the run is not thrust against
+ * drag -- it is the catapult's stroke -- and only what happens after the end
+ * of the track is flying.
+ *
+ * Same shape of answer as `launchProfile`: `{ dt, rows }` with each row
+ * `[distance, height, pitch, flying]`, distance measured along the track from
+ * where she sat.
+ */
+export function catapultProfile(aero, stroke = 21) {
+  const dt = 1 / 120;
+  // Off the end at a comfortable margin over the stall, flaps down.
+  const vEnd = stallSpeed(aero, 1.35) * 1.12;
+  const acc = (vEnd * vEnd) / (2 * stroke);
+  const rows = [[0, 0, 0, 0]];
+  let s = 0;
+  let v = 0;
+  let y = 0;
+  let pitch = 0;
+  let t = 0;
+  let off = false;
+  while (t < 16) {
+    t += dt;
+    if (!off) {
+      v = Math.min(vEnd, v + acc * dt);
+      s = Math.min(stroke, s + v * dt);
+      // She sits nose-up on the cradle and comes up a little more as she goes.
+      pitch = 0.05 + 0.05 * (v / vEnd);
+      rows.push([s, 0, pitch, 0]);
+      if (s >= stroke - 1e-6) off = true;
+      continue;
+    }
+    // Off the end of the track with barely enough speed: she sags towards the
+    // water first and only starts climbing once she has a few knots in hand,
+    // which is what a catapult launch looks like from the quarterdeck.
+    const cl = clFor(aero, v);
+    const T = thrust(aero, v);
+    const D = drag(aero, v, cl);
+    const best = (T - D) / (aero.mass * G);
+    const want = Math.max(-0.06, Math.min(0.16, best));
+    pitch += Math.max(-0.4 * dt, Math.min(0.4 * dt, want - pitch));
+    v += ((T - D) / aero.mass - G * Math.sin(pitch)) * dt;
+    v = Math.max(stallSpeed(aero) * 0.95, v);
+    s += v * Math.cos(pitch) * dt;
+    y += v * Math.sin(pitch) * dt;
+    rows.push([s, y, pitch, 1]);
+    if (s > stroke + 120 && y > 10) break;
   }
   return { dt, rows };
 }

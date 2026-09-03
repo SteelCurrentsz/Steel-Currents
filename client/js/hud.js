@@ -481,8 +481,11 @@ export class Hud {
   /** The air group, or the damage control parties. */
   buildActionPanel(which) {
     const cls = this.cls;
+    // A carrier sends a strike; a cruiser shoots a scout off a catapult, and
+    // calling that a strike oversells four Kingfishers considerably.
+    const air = cls.planes && cls.planes.group ? 'Launch strike' : 'Launch scout';
     const list = which === 'air'
-      ? [{ k: 'air', label: 'Launch strike' }, { k: 'plane', label: 'Pilot view' }]
+      ? [{ k: 'air', label: air }, { k: 'plane', label: 'Pilot view' }]
       : [{ k: 'repair', label: 'Damage control' },
         ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : [])];
     for (const a of list) {

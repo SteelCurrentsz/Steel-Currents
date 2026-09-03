@@ -123,7 +123,25 @@ export const SHIP_CLASSES = {
     torpedoes: null,
     aa: { range: 5200, dps: 310 },
     secondaries: { range: 4800, dps: 190 },
-    planes: null,
+    // Her four Kingfishers, off the two catapults on the quarterdeck. They are
+    // not a strike group and this does not pretend they are: a cruiser's
+    // floatplanes went up to spot her fall of shot and to look over the horizon
+    // for her, and the two hundred pounds of bomb one of them could carry was
+    // for a submarine caught on the surface. So she puts up one aeroplane at a
+    // time, it stings rather than strikes, and getting it back aboard by crane
+    // keeps the catapult busy long after the shot itself.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9000,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
+      // Off a catapult, not down a flight deck: the whole evolution is the
+      // catapult training out, the engine running up and the shot itself.
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      // Nothing for a captain to balance -- she embarks scouts and that is all
+      // there is aboard -- so there is no hangar to re-stow and no `group`.
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
     datasheet: {
       displacement: 11750,
       aircraft: 4,

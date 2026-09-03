@@ -358,10 +358,13 @@ export function hullSheet(cls, group = null) {
     ['Displacement', `${num(d.displacement)} t`],
     ['Top speed', `${Math.round(cls.maxSpeed / 0.5144)} kn`],
   ];
-  const g = cls.planes ? (group || cls.planes.group.default) : null;
+  // A carrier's group is hers to balance; a cruiser's floatplanes are simply
+  // what she has, so a class with aircraft and no hangar to re-stow says so.
+  const spec = cls.planes && cls.planes.group;
+  const g = spec ? (group || spec.default) : null;
   const air = g ? g.fighters + g.dive + g.torpedo : d.aircraft;
   rows.push(['Aircraft', air
-    ? `${air} ${cls.planes ? 'carrier aircraft' : 'sea planes'}`
+    ? `${air} ${spec ? 'carrier aircraft' : 'sea planes'}`
     : 'None embarked']);
   rows.push(
     ['Belt', `${cls.armor.belt} mm`],
@@ -403,7 +406,7 @@ export function armsSheet(cls, group = null) {
     rows.push([`${count(tubes(cls))} 21" tubes`,
       `${num(d.torpedoesCarried ?? tubes(cls))} fish`]);
   }
-  if (cls.planes) {
+  if (cls.planes && cls.planes.group) {
     // Both of these open the air group panel: what she is carrying is the one
     // thing on a carrier's sheet a captain gets to decide.
     const g = group || cls.planes.group.default;
@@ -411,6 +414,8 @@ export function armsSheet(cls, group = null) {
     rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
     rows.push(['Air group',
       `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T`, 'airgroup']);
+  } else if (cls.planes) {
+    rows.push([`${cls.planes.squadrons} catapults`, `${d.aircraft} sea planes`]);
   }
   return rows;
 }

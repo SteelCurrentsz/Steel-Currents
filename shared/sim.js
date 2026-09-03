@@ -1092,7 +1092,7 @@ export function launchStrike(state, ship) {
   // brought it home, which is not a strike, it is a bookkeeping entry.
   if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
-  ship.deckBusy = DECK_CYCLE;
+  ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
   // The order is not the launch. Pressing it rings the deck: the lift fetches
   // her up, she taxis forward, runs up against the brakes and goes down the
   // deck, and only when her wheels leave the planking is there an aeroplane in
@@ -1105,7 +1105,8 @@ export function launchStrike(state, ship) {
   // anything they are pointed at, and the torpedo bombers are only worth their
   // fuel against something big. So they go up as separate flights and each one
   // finds its own target.
-  const group = ship.airGroup || defaultAirGroup(cls) || { fighters: 0, dive: 0, torpedo: 4 };
+  const group = ship.airGroup || defaultAirGroup(cls) || cls.planes.flight
+    || { fighters: 0, dive: 0, torpedo: 4 };
   const share = (n) => Math.max(0, Math.round(n / cls.planes.squadrons));
   let fighters = share(group.fighters);
   let bomb = share(group.dive);
@@ -1120,7 +1121,7 @@ export function launchStrike(state, ship) {
     else torp = 1;
   }
   ship.launching = {
-    sqId: sq.id, left: DECK_RUN,
+    sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
     flights: [
       { role: 'fighter', count: fighters, torp: 0, bomb: 0 },

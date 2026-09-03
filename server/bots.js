@@ -120,7 +120,7 @@ export function stepBot(state, ship, brain, dt, conned = false) {
 
   // A conned ship's aircraft are her captain's to send, and nobody else's.
   if (!conned && cls.planes && canSee && d < cls.planes.strikeRange) {
-    const p = leadPoint(ship.x, ship.z, target, 78);
+    const p = leadPoint(ship.x, ship.z, target, cls.planes.cruiseSpeed);
     const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
     ship.aimX = p.x; ship.aimZ = p.z;
     launchStrike(state, ship);
