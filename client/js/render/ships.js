@@ -6,6 +6,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
+import { buildHipper } from './hipper.js';
 import { buildCleveland } from './cleveland.js';
 
 const PALETTE = {
@@ -351,6 +352,22 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
       torpMounts: [],
+    };
+  }
+
+  // And the Hipper: a flush-decked German heavy cruiser with a tower bridge, a
+  // capped funnel, an athwartships catapult and four twin eight-inch turrets is
+  // not a length and a beam either.
+  if (cls.id === 'hipper') {
+    const built = buildHipper();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      torpMounts: built.torpMounts || [],
     };
   }
 

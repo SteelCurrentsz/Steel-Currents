@@ -1221,9 +1221,17 @@ export class Battle {
     for (const [id, v] of this.scene.shipViews) {
       const deck = v.group.userData.deck;
       if (!deck || !deck.airborne) continue;
-      // Never the flight the player is flying: that one has a pilot in her.
-      const pl = planes.find((q) => q.o === id
+      // Which of this carrier's flights the model on the deck has become.
+      //
+      // The one she is already flying if it is still up; failing that, the
+      // youngest, which is the one that has just left the planking. Taking
+      // whichever came first in the list meant that the second squadron off
+      // the deck was handed the first squadron's marker -- three miles away
+      // and outbound -- and the aeroplane was dragged after it.
+      const mine = planes.filter((q) => q.o === id
         && !(this.flight && this.flight.id === q.i));
+      const pl = (this.flying && mine.find((q) => q.i === this.flying.id))
+        || mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
       if (pl) { deck.lostAt = 0; up = { id, v, deck, pl }; break; }
       // Off the deck, but her squadron is not on the plot. That is usually
       // because she was recovered or shot down -- but for the first moments
@@ -1295,12 +1303,20 @@ export class Battle {
     // is not put there -- if she were, she would fly like a cursor.
     air.step(dt, pl.x, this.planeHeight(pl), pl.z);
     // The squadron is the authority on where she really is, so if her own
-    // flying has let her drift a long way from it she is eased back on. This
-    // hardly ever bites; it is here so a long stall in the tab cannot leave
-    // the aeroplane a mile from the squadron she is supposed to be.
+    // flying has let her drift a long way from it she is eased back on.
+    //
+    // Eased. It used to move her half the remaining distance every frame once
+    // she was four hundred metres out, which at sixty frames a second is not a
+    // correction, it is a teleport -- and it fired every time, because she was
+    // born at the ship and the squadron three hundred metres off the bow. She
+    // leaves the deck where her flight already is now, so this should almost
+    // never bite; when it does, it takes a second and a half rather than a
+    // frame, and it is here so a long stall in the tab cannot leave the
+    // aeroplane a mile from the squadron she is supposed to be.
     const off = dist(air.x, air.z, pl.x, pl.z);
-    if (off > 400) {
-      const k = Math.min(1, (off - 400) / 400) * 0.5;
+    if (off > 250) {
+      const k = (1 - Math.pow(0.35, Math.min(0.1, dt)))
+        * Math.min(1, (off - 250) / 600);
       air.x = lerp(air.x, pl.x, k);
       air.z = lerp(air.z, pl.z, k);
       air.y = lerp(air.y, this.planeHeight(pl), k);

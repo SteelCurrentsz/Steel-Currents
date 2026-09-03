@@ -1613,22 +1613,48 @@ export function launchStrike(state, ship) {
  */
 export const DECK_RUN = 15.5;
 
-/** Put the flights in the air, once she has actually left the deck. */
+/**
+ * How far ahead of the ship the deck run leaves an aeroplane.
+ *
+ * She does not appear over the ship: she has just run five hundred feet of
+ * planking and gone off the bow, climbing away, and where she is at that
+ * moment is where whatever flies her next has to pick her up. Born at the ship
+ * instead, she was three or four hundred metres from her own flight the
+ * instant she existed -- and the client, finding the aeroplane it was drawing
+ * that far from the squadron it belonged to, dragged it across the gap. That
+ * is the aeroplane that takes off and then teleports.
+ */
+export const DECK_RUN_OUT = 210;
+
+/**
+ * Put a flight in the air, once she has actually left the deck -- and then
+ * range the next one and send her down after her.
+ *
+ * A squadron does not leave the deck abreast. One aeroplane at a time comes up
+ * the lift, taxis forward, runs up and goes, and the next one follows her
+ * down. It used to put every flight of the strike into the air on the same
+ * tick, which is three squadrons appearing at once round the single aeroplane
+ * you had just watched take off.
+ */
 function stepLaunch(state, ship, dt) {
   const L = ship.launching;
   if (!L) return;
   L.left -= dt;
   if (L.left > 0) return;
-  ship.launching = null;
   const cls = shipClass(ship);
   const sq = ship.squadrons.find((s) => s.id === L.sqId);
   // She was sunk, or her squadron was struck below while she was on the run.
-  if (!ship.alive || !sq || sq.state !== 'flying') return;
-  const heading = headingTo(ship.x, ship.z, L.tx, L.tz);
-  for (const f of L.flights) {
+  if (!ship.alive || !sq || sq.state !== 'flying') { ship.launching = null; return; }
+  const f = L.flights.shift();
+  if (f) {
+    // Off the bow on the ship's own head, climbing, and turning toward the
+    // target from there: the deck run is down her centreline, not toward
+    // whatever she has been laid on.
     state.planes.push({
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
-      x: ship.x, z: ship.z, heading,
+      x: ship.x + Math.sin(ship.heading) * DECK_RUN_OUT,
+      z: ship.z + Math.cos(ship.heading) * DECK_RUN_OUT,
+      heading: ship.heading,
       tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
       count: f.count,
@@ -1639,9 +1665,15 @@ function stepLaunch(state, ship, dt) {
       phase: 'outbound', dropped: false, life: 0, hunt: 0,
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
-      targetId: 0, targetAir: 0,
+      targetId: 0, targetAir: 0, turn: 0,
     });
   }
+  if (!L.flights.length) { ship.launching = null; return; }
+  // The next one is ranged and goes down the deck after her. The deck stays
+  // busy for the whole of it, so nothing else can use it meanwhile.
+  L.left = cls.planes.deckRun ?? DECK_RUN;
+  ship.deckBusy = Math.max(ship.deckBusy, L.left + (cls.planes.deckCycle ?? DECK_CYCLE) * 0.35);
+  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
 }
 
 /**
