@@ -191,6 +191,21 @@ export class Battle {
           audio.gun(ev.cal, d);
           if (ev.ship === this.shipId && getSettings().shake) this.shake = Math.min(1, ev.cal / 320);
           break;
+        case 'aa': {
+          // The light battery opening up: tracer reaching out to the squadron
+          // and, from the heavy mountings, the black puffs bursting round it.
+          // Where the squadron is in the sky is the client's business -- the
+          // simulation flies a squadron on the water plane -- so the height
+          // comes off the aeroplane the scene is already drawing.
+          const pl = (this.planesNow || []).find((q) =>
+            Math.abs(q.x - ev.tx) < 260 && Math.abs(q.z - ev.tz) < 260);
+          const ty = pl ? this.planeHeight(pl) : 220;
+          const view = this.scene.shipViews.get(ev.ship);
+          const gy = view ? view.group.position.y + 14 : 16;
+          this.scene.flak.fire(ev.x, gy, ev.z, ev.tx, ty, ev.tz, ev.cal, ev.n, fx);
+          if (d < 0.6) audio.gun(Math.min(75, ev.cal), Math.max(d, 0.35));
+          break;
+        }
         case 'splash': fx.splash(ev.x, ev.z, ev.cal); if (d < 0.75) audio.splash(d); break;
         case 'landhit': fx.hit(ev.x, 12, ev.z, 'he', ev.cal); break;
         case 'batterySilenced':
@@ -741,21 +756,22 @@ export class Battle {
     // Shells, torpedoes and aircraft as instanced batches.
     const dummy = this.scene.dummy;
     let n = 0;
+    // A shell is drawn nose-first along the line it is actually flying, so the
+    // line between the last snapshot's position and this one is what points
+    // her. That is her velocity to within a tick, which is near enough: a
+    // shell does not change direction quickly.
     for (const sh of a.shells) {
-      if (n >= this.scene.tracers.count) break;
       const prev = b ? b.shells.find((x) => x.i === sh.i) : null;
-      dummy.position.set(
-        prev ? lerp(sh.x, prev.x, t) : sh.x,
-        prev ? lerp(sh.y, prev.y, t) : sh.y,
-        prev ? lerp(sh.z, prev.z, t) : sh.z,
-      );
-      dummy.scale.setScalar(0.6 + sh.c / 260);
-      dummy.updateMatrix();
-      this.scene.tracers.setMatrixAt(n++, dummy.matrix);
+      const x = prev ? lerp(sh.x, prev.x, t) : sh.x;
+      const y = prev ? lerp(sh.y, prev.y, t) : sh.y;
+      const z = prev ? lerp(sh.z, prev.z, t) : sh.z;
+      const dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
+      const dy = prev ? prev.y - sh.y : 0.2;
+      const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
+      n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
     }
-    this.hideRest(this.scene.tracers, n);
-    this.scene.tracers.count = this.scene.tracers.count; // keep allocation
-    this.scene.tracers.instanceMatrix.needsUpdate = true;
+    this.scene.shells.hideFrom(n);
+    this.scene.shells.flush();
 
     let m = 0;
     for (const tp of a.torps) {

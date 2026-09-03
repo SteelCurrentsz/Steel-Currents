@@ -160,6 +160,18 @@ export function addShip(state, {
     aimZ: sp.z + Math.cos(sp.heading) * 6000,
     turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, cooldown: 0, disabled: 0 })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
+    // The secondary battery, mount by mount. It is not laid by her captain --
+    // a secondary mounting is in local control, and the gun captain shoots at
+    // whatever he can see and bear on -- so each one carries its own target,
+    // its own training and its own loading.
+    secMounts: cls.secondary
+      ? cls.secondary.mounts.map((m, i) => ({
+        id: i, angle: m.angle, cooldown: 0, disabled: 0, target: 0,
+      }))
+      : [],
+    // How long since her light battery last opened up, per aircraft, so the
+    // tracer on screen is the tracer the simulation is firing.
+    aaFire: 0,
     squadrons: cls.planes
       ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
       : [],
@@ -449,6 +461,181 @@ export function fireGuns(state, ship) {
   }
   if (fired > 0) ship.lastFiredAt = state.t;
   return fired;
+}
+
+// ---------------------------------------------------------------------------
+// The light battery
+// ---------------------------------------------------------------------------
+//
+// Anti-aircraft fire is not a circle round the ship. It is a few dozen barrels
+// bolted to particular places on her, each with a sector of sky its own
+// superstructure lets it see, and an aeroplane coming in fine on the bow is
+// met by a fraction of what one coming in on the beam would meet. So the
+// battery is built out of the mountings on the datasheet -- the light guns,
+// and every dual-purpose mounting she has, because a 5"/38 is an
+// anti-aircraft gun -- and only the barrels that can actually train onto the
+// bearing do any damage.
+
+const AA_CACHE = new Map();
+const r = (v) => Math.round(v * 10) / 10;
+
+/** Every barrel aboard that can be pointed at an aeroplane, with its sector. */
+export function aaBattery(cls) {
+  const hit = AA_CACHE.get(cls.id);
+  if (hit) return hit;
+  const out = [];
+  const add = (m, range, caliber, name) => out.push({
+    x: m.x, z: m.z, angle: m.angle, arc: m.arc, guns: m.guns || 1,
+    range, caliber, name,
+  });
+  // The heavy dual-purpose mountings first: they are the ones that reach.
+  if (cls.gun && cls.gun.role === 'dp') {
+    for (const t of cls.turrets) add(t, cls.aa ? cls.aa.range : 4000, cls.gun.caliber, cls.gun.name);
+  }
+  if (cls.secondary && cls.secondary.role === 'dp') {
+    for (const m of cls.secondary.mounts) {
+      add(m, cls.aa ? cls.aa.range : 4000, cls.secondary.caliber, cls.secondary.name);
+    }
+  }
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    for (const m of g.mounts) add(m, g.range, g.caliber, g.name);
+  }
+  AA_CACHE.set(cls.id, out);
+  return out;
+}
+
+/** Total barrels in her light battery, bearing or not. */
+export function aaBarrels(cls) {
+  return aaBattery(cls).reduce((n, m) => n + m.guns, 0);
+}
+
+/**
+ * What she can actually bring to bear on an aeroplane on that bearing, as a
+ * share of her whole battery, and how many barrels that is.
+ */
+export function aaBearing(cls, ship, px, pz) {
+  const battery = aaBattery(cls);
+  const d = dist(ship.x, ship.z, px, pz);
+  const bearing = headingTo(ship.x, ship.z, px, pz);
+  let all = 0;
+  let on = 0;
+  for (const m of battery) {
+    all += m.guns;
+    if (d > m.range) continue;
+    if (!mountBears(ship, m, bearing)) continue;
+    on += m.guns;
+  }
+  return { share: all > 0 ? on / all : 0, barrels: on, of: all, bearing, range: d };
+}
+
+// ---------------------------------------------------------------------------
+// The secondary battery
+// ---------------------------------------------------------------------------
+//
+// A secondary mounting is not laid by the captain. It is in local control: the
+// gun captain is told which side to watch, picks the nearest thing he can see
+// and bear on, and opens up on his own. So this is a battery of small
+// independent fire-control problems rather than one big one -- which is why
+// the waist mountings on one side go on firing while the ones on the other
+// side have nothing to shoot at, and why turning the ship changes who is in
+// action without anybody ordering anything.
+
+/** Where a mounting is in the world, given the ship's heading. */
+function mountWorldPos(ship, spec) {
+  const w = localToWorld(spec.x, spec.z, ship.heading);
+  return { x: ship.x + w.x, z: ship.z + w.z };
+}
+
+/** Can this mounting be laid on that bearing, or is her own ship in the way? */
+export function mountBears(ship, spec, worldBearing) {
+  const local = wrapAngle(worldBearing - ship.heading);
+  return Math.abs(angleDelta(spec.angle, local)) <= spec.arc;
+}
+
+/**
+ * What a secondary mounting shoots at: the nearest enemy she can see, inside
+ * her own range, on a bearing she can actually train to.
+ */
+function secondaryTarget(state, ship, spec, S) {
+  let best = null;
+  let bestD = Infinity;
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team) continue;
+    if (!foe.spottedBy[ship.team]) continue;
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    if (d > S.range || d >= bestD) continue;
+    if (!mountBears(ship, spec, headingTo(ship.x, ship.z, foe.x, foe.z))) continue;
+    best = foe;
+    bestD = d;
+  }
+  return best;
+}
+
+function stepSecondary(state, ship, dt) {
+  const cls = shipClass(ship);
+  const S = cls.secondary;
+  if (!S || !ship.secMounts.length) return;
+  const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
+  const muzzleHeight = 9 + cls.hull.superstructure * 4;
+  for (const m of ship.secMounts) {
+    if (m.disabled > 0) { m.disabled -= dt; continue; }
+    if (m.cooldown > 0) m.cooldown -= dt;
+    const spec = S.mounts[m.id];
+    const foe = secondaryTarget(state, ship, spec, S);
+    if (!foe) {
+      // Nothing on her side: back to the bearing she rests on.
+      m.angle = approachAngle(m.angle, spec.angle, S.traverse * dt);
+      m.target = 0;
+      continue;
+    }
+    m.target = foe.id;
+    // Lead her: a five-inch shell takes seconds to get there and the target is
+    // making twenty knots across the line of sight.
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    const flight = d / (spec.velocity * 0.82);
+    const lx = foe.x + Math.sin(foe.heading) * foe.speed * flight;
+    const lz = foe.z + Math.cos(foe.heading) * foe.speed * flight;
+    const world = headingTo(ship.x, ship.z, lx, lz);
+    const local = wrapAngle(world - ship.heading);
+    const off = angleDelta(spec.angle, local);
+    const want = Math.abs(off) > spec.arc
+      ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
+      : local;
+    m.angle = approachAngle(m.angle, want, S.traverse * dt);
+    if (m.cooldown > 0) continue;
+    if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
+    if (Math.abs(off) > spec.arc) continue;
+
+    const pos = mountWorldPos(ship, spec);
+    const bearing = wrapAngle(ship.heading + m.angle);
+    const aimD = clamp(dist(pos.x, pos.z, lx, lz), 400, S.range);
+    const spreadBase = (aimD * 0.0125) / S.sigma;
+    for (let g = 0; g < spec.guns; g++) {
+      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
+      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+      const shotD = clamp(aimD + rng, 300, S.range);
+      const s2 = solveBallistic(S, shotD, muzzleHeight);
+      const b = bearing + Math.atan2(lat, Math.max(600, aimD));
+      const vh = s2.v * Math.cos(s2.elev);
+      state.shells.push({
+        id: eid(),
+        owner: ship.id, team: ship.team,
+        x: pos.x + Math.sin(b) * 8, z: pos.z + Math.cos(b) * 8,
+        y: muzzleHeight,
+        vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
+        g: s2.g,
+        spec: spec0, caliber: S.caliber,
+        classId: cls.id,
+        life: 0,
+      });
+    }
+    m.cooldown = S.reload;
+    state.events.push({
+      e: 'muzzle', x: pos.x, z: pos.z, y: muzzleHeight, b: bearing,
+      cal: S.caliber, ship: ship.id,
+    });
+    ship.lastFiredAt = state.t;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1224,13 +1411,33 @@ function stepPlanes(state, dt) {
     if (!P) continue;
     p.life += dt;
 
-    // Anti-aircraft fire from every enemy in range chews the squadron down.
+    // Anti-aircraft fire from every enemy that can bear chews the squadron
+    // down. Only the barrels that can actually train onto her do anything:
+    // coming in fine on the bow of a ship whose after battery is masked is a
+    // different proposition from crossing her beam.
     for (const s of state.ships) {
-      if (!s.alive || s.team === p.team || !getClass(s.classId).aa) continue;
-      const aa = getClass(s.classId).aa;
+      if (!s.alive || s.team === p.team) continue;
+      const scls = getClass(s.classId);
+      if (!scls.aa) continue;
       const d = dist(p.x, p.z, s.x, s.z);
-      if (d < aa.range) {
-        p.hp -= aa.dps * dt * (1 - d / aa.range * 0.4);
+      if (d >= scls.aa.range) continue;
+      const bear = aaBearing(scls, s, p.x, p.z);
+      if (bear.barrels === 0) continue;
+      const hurt = scls.aa.dps * bear.share * dt * (1 - d / scls.aa.range * 0.4);
+      p.hp -= hurt;
+      // And the tracer that goes with it. One burst at a time per ship, on the
+      // gun's own rhythm rather than every tick, or the wire carries a
+      // thousand rounds a second nobody could see anyway.
+      s.aaFire -= dt;
+      if (s.aaFire <= 0) {
+        s.aaFire = 0.22 + 0.5 / Math.max(1, bear.barrels / 8);
+        state.events.push({
+          e: 'aa', ship: s.id, x: r(s.x), z: r(s.z),
+          tx: r(p.x), tz: r(p.z), n: bear.barrels,
+          // What is doing the shooting at this range: the heavy dual-purpose
+          // mountings out here, the automatic guns close in.
+          cal: d > 2600 ? 127 : d > 1500 ? 40 : 20,
+        });
       }
     }
     if (p.hp <= 0) {
@@ -1672,6 +1879,7 @@ export function step(state, dt = DT) {
     if (!ship.alive) continue;
     stepMovement(state, ship, dt);
     stepTurrets(state, ship, dt);
+    stepSecondary(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
   }
   stepCollisions(state, dt);

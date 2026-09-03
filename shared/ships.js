@@ -2,9 +2,17 @@
 // historical, but the relationships (a Fletcher out-turns an Iowa, an Iowa's
 // belt shrugs off 152 mm HE) follow the real vessels they are named for.
 //
-// Local ship frame: +Z is the bow, +X is starboard. Turret `angle` is the
+// Local ship frame: +Z is the bow, +X is starboard. A mounting's `angle` is the
 // rest bearing in that frame (0 = forward, PI = aft) and `arc` is the maximum
-// traverse away from that rest bearing.
+// traverse away from that rest bearing -- so `arc` of PI is a gun that trains
+// right round and nothing is that. Every gun on every ship here is blocked by
+// her own structure over some sector: an A turret cannot fire through her own
+// bridge, a waist mounting cannot fire across her own deck, and a gun laid on
+// a bearing it cannot reach does not fire at all.
+//
+// `role` says what a mounting may engage: 'surface' for a gun that cannot
+// elevate to an aeroplane, 'aa' for one that cannot depress to a ship, and
+// 'dp' for a dual-purpose mounting that does both.
 
 import { KNOTS } from './math.js';
 
@@ -49,13 +57,14 @@ export const SHIP_CLASSES = {
     smokeCharges: 3,
     armor: { belt: 19, deck: 13, citadel: 19, bow: 13, superstructure: 13 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 32, angle: 0, arc: Math.PI, guns: 1 },
-      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: Math.PI, guns: 1 },
-      { id: 2, name: 'X', x: 0, z: -28, angle: Math.PI, arc: Math.PI, guns: 1 },
-      { id: 3, name: 'Y', x: 0, z: -37, angle: Math.PI, arc: Math.PI, guns: 1 },
-      { id: 4, name: 'Z', x: 0, z: -45, angle: Math.PI, arc: Math.PI, guns: 1 },
+      { id: 0, name: 'A', x: 0, z: 32, angle: 0, arc: 2.46, guns: 1 },
+      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: 2.39, guns: 1 },
+      { id: 2, name: 'X', x: 0, z: -28, angle: Math.PI, arc: 2.44, guns: 1 },
+      { id: 3, name: 'Y', x: 0, z: -37, angle: Math.PI, arc: 2.36, guns: 1 },
+      { id: 4, name: 'Z', x: 0, z: -45, angle: Math.PI, arc: 2.27, guns: 1 },
     ],
     gun: {
+      name: '5"/38 Mk 30', role: 'dp',
       caliber: 127, reload: 3.4, traverse: 0.52, range: 11800, sigma: 1.9,
       shells: shells(127, 2100, 1800, 80, 792, 0.08),
     },
@@ -64,11 +73,43 @@ export const SHIP_CLASSES = {
         { id: 0, x: 0, z: -3, angle: 0, arc: 2.44, tubes: 5 },
         { id: 1, x: 0, z: -19, angle: 0, arc: 2.44, tubes: 5 },
       ],
+      name: 'Mk 15 torpedo', role: 'surface', caliber: 533,
       reload: 62, damage: 12800, speed: 30 * KNOTS, range: 8500,
       detection: 1100, arming: 400, spread: 0.09, floodChance: 0.32,
     },
-    aa: { range: 3500, dps: 128 },
-    secondaries: null,
+    // Her own five-inch is the anti-aircraft battery -- a Fletcher's main
+    // armament is dual-purpose -- and the light guns are what she has left when
+    // an aeroplane is inside the five-inch minimum.
+    // `dps` is the whole battery firing. What actually reaches an aeroplane is
+    // that, times the share of the barrels that can bear on her -- so the
+    // figure here is larger than the damage anyone ever takes from it.
+    aa: {
+      range: 3500, dps: 221,
+      guns: [
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200,
+          mounts: [
+            { x: -3.9, z: -11.2, angle: -0.45, arc: 2.09, guns: 2 },
+            { x: 3.9, z: -11.2, angle: 0.45, arc: 2.09, guns: 2 },
+            { x: -2.5, z: -32.2, angle: -2.6, arc: 2.09, guns: 2 },
+            { x: 2.5, z: -32.2, angle: 2.6, arc: 2.09, guns: 2 },
+            { x: 0, z: -54.8, angle: Math.PI, arc: 2.27, guns: 2 },
+          ] },
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          mounts: [
+            { x: -3.2, z: 14, angle: -1.3, arc: 1.92, guns: 2 },
+            { x: 3.2, z: 14, angle: 1.3, arc: 1.92, guns: 2 },
+            { x: -3.4, z: -24, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 3.4, z: -24, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: 0, z: -41, angle: Math.PI, arc: 2.09, guns: 1 },
+          ] },
+      ],
+    },
+    // Two stern racks and six K-guns. There is nothing under the sea in this
+    // war to drop them on, so they are listed and carried and never used.
+    depthCharges: {
+      name: 'Mk 6 depth charge', role: 'sub', racks: 2, throwers: 6, carried: 56,
+    },
+    secondary: null,
     planes: null,
     // Presentation only: what the shipyard screen lists. Barrel counts for the
     // main battery and the torpedo tubes come from `turrets` and `torpedoes`
@@ -117,12 +158,57 @@ export const SHIP_CLASSES = {
       { id: 3, name: 'Y', x: 0, z: -56, angle: Math.PI, arc: 2.44, guns: 3 },
     ],
     gun: {
+      name: '6"/47 Mk 16', role: 'surface',
       caliber: 152, reload: 6.4, traverse: 0.31, range: 15400, sigma: 1.7,
       shells: shells(152, 3300, 2500, 165, 812, 0.12),
     },
     torpedoes: null,
-    aa: { range: 5200, dps: 310 },
-    secondaries: { range: 4800, dps: 190 },
+    // Twelve five-inch in six twin mounts: one superfiring forward, one aft,
+    // and four in the waist that can only fire on their own side.
+    secondary: {
+      name: '5"/38 Mk 32', role: 'dp',
+      caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 0, z: 32.5, angle: 0, arc: 2.44, guns: 2 },
+        { x: 0, z: -27.0, angle: Math.PI, arc: 2.36, guns: 2 },
+        { x: -6.7, z: 6.0, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 6.7, z: 6.0, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -6.7, z: -8.5, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 6.7, z: -8.5, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+      ],
+    },
+    aa: {
+      range: 5200, dps: 773,
+      guns: [
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          mounts: [
+            { x: -6.6, z: 33.5, angle: -0.5, arc: 2.09, guns: 4 },
+            { x: 6.6, z: 33.5, angle: 0.5, arc: 2.09, guns: 4 },
+            { x: 0, z: -33.0, angle: Math.PI, arc: 2.44, guns: 4 },
+            { x: 0, z: -80.0, angle: Math.PI, arc: 2.27, guns: 4 },
+            { x: -7.85, z: 10.5, angle: -Math.PI / 2, arc: 1.75, guns: 2 },
+            { x: 7.85, z: 10.5, angle: Math.PI / 2, arc: 1.75, guns: 2 },
+            { x: -7.6, z: 50.0, angle: -0.8, arc: 1.92, guns: 2 },
+            { x: 7.6, z: 50.0, angle: 0.8, arc: 1.92, guns: 2 },
+            { x: -7.6, z: -50.0, angle: -2.3, arc: 1.92, guns: 2 },
+            { x: 7.6, z: -50.0, angle: 2.3, arc: 1.92, guns: 2 },
+          ] },
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          mounts: [
+            { x: -4.6, z: 12.0, angle: -1.1, arc: 1.83, guns: 1 },
+            { x: 4.6, z: 12.0, angle: 1.1, arc: 1.83, guns: 1 },
+            { x: -7.2, z: 24.0, angle: -1.1, arc: 1.83, guns: 1 },
+            { x: 7.2, z: 24.0, angle: 1.1, arc: 1.83, guns: 1 },
+            { x: -7.6, z: -3.0, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 7.6, z: -3.0, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: -3.2, z: 66.0, angle: -0.9, arc: 1.92, guns: 1 },
+            { x: 3.2, z: 66.0, angle: 0.9, arc: 1.92, guns: 1 },
+            { x: -3.6, z: -64.0, angle: -2.2, arc: 1.92, guns: 1 },
+            { x: 3.6, z: -64.0, angle: 2.2, arc: 1.92, guns: 1 },
+          ] },
+      ],
+    },
     // Her four Kingfishers, off the two catapults on the quarterdeck. They are
     // not a strike group and this does not pretend they are: a cruiser's
     // floatplanes went up to spot her fall of shot and to look over the horizon
@@ -185,6 +271,7 @@ export const SHIP_CLASSES = {
       { id: 3, name: 'Y', x: 0, z: -62, angle: Math.PI, arc: 2.27, guns: 2 },
     ],
     gun: {
+      name: '20.3 cm SK C/34', role: 'surface',
       caliber: 203, reload: 11.2, traverse: 0.24, range: 17200, sigma: 1.6,
       shells: shells(203, 5100, 3300, 265, 925, 0.14),
     },
@@ -193,11 +280,49 @@ export const SHIP_CLASSES = {
         { id: 0, x: -8, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3 },
         { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3 },
       ],
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
       reload: 78, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
     },
-    aa: { range: 4800, dps: 240 },
-    secondaries: { range: 5200, dps: 150 },
+    // Six twin 10.5 cm on the beam: three a side, and none of them can fire
+    // across her.
+    secondary: {
+      name: '10.5 cm SK C/33', role: 'dp',
+      caliber: 105, reload: 4.6, traverse: 0.40, range: 7600, sigma: 1.05,
+      shells: shells(105, 1500, 1300, 62, 900, 0.06),
+      mounts: [
+        { x: -8.4, z: 22, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 8.4, z: 22, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -8.6, z: 2, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: 8.6, z: 2, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: -8.2, z: -20, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 8.2, z: -20, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+      ],
+    },
+    aa: {
+      range: 4800, dps: 871,
+      guns: [
+        { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
+          mounts: [
+            { x: -7.8, z: 30, angle: -1.2, arc: 1.92, guns: 2 },
+            { x: 7.8, z: 30, angle: 1.2, arc: 1.92, guns: 2 },
+            { x: -8.0, z: -6, angle: -Math.PI / 2, arc: 1.75, guns: 2 },
+            { x: 8.0, z: -6, angle: Math.PI / 2, arc: 1.75, guns: 2 },
+            { x: -7.4, z: -34, angle: -1.9, arc: 1.92, guns: 2 },
+            { x: 7.4, z: -34, angle: 1.9, arc: 1.92, guns: 2 },
+          ] },
+        { name: '2 cm Flak 38', caliber: 20, role: 'aa', reload: 0.1, range: 1700,
+          mounts: [
+            { x: -6.4, z: 40, angle: -1.0, arc: 1.83, guns: 4 },
+            { x: 6.4, z: 40, angle: 1.0, arc: 1.83, guns: 4 },
+            { x: -7.2, z: 14, angle: -1.5, arc: 1.83, guns: 4 },
+            { x: 7.2, z: 14, angle: 1.5, arc: 1.83, guns: 4 },
+            { x: -6.8, z: -26, angle: -1.9, arc: 1.83, guns: 4 },
+            { x: 6.8, z: -26, angle: 1.9, arc: 1.83, guns: 4 },
+            { x: 0, z: -50, angle: Math.PI, arc: 2.27, guns: 4 },
+          ] },
+      ],
+    },
     planes: null,
     datasheet: {
       displacement: 16170,
@@ -243,12 +368,68 @@ export const SHIP_CLASSES = {
       { id: 2, name: 'Y', x: 0, z: -74, angle: Math.PI, arc: 2.36, guns: 3 },
     ],
     gun: {
+      name: '16"/50 Mk 7', role: 'surface',
       caliber: 406, reload: 26, traverse: 0.09, range: 21600, sigma: 1.35,
       shells: shells(406, 13500, 6300, 640, 762, 0.28),
     },
     torpedoes: null,
-    aa: { range: 5600, dps: 400 },
-    secondaries: { range: 6200, dps: 260 },
+    // Twenty five-inch in ten twin mounts, five a side. A battleship's
+    // secondary battery is a destroyer's main one, and it fires on its own.
+    secondary: {
+      name: '5"/38 Mk 28', role: 'dp',
+      caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
+      shells: shells(127, 2000, 1750, 80, 792, 0.08),
+      mounts: [
+        { x: -11.2, z: 42, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: 11.2, z: 42, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: -11.6, z: 24, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 11.6, z: 24, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -11.6, z: 4, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: 11.6, z: 4, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: -11.4, z: -16, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 11.4, z: -16, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -10.8, z: -38, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: 10.8, z: -38, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+      ],
+    },
+    aa: {
+      range: 5600, dps: 1529,
+      guns: [
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
+          mounts: [
+            { x: -13.0, z: 62, angle: -1.0, arc: 2.09, guns: 4 },
+            { x: 13.0, z: 62, angle: 1.0, arc: 2.09, guns: 4 },
+            { x: -14.0, z: 34, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.0, z: 34, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -14.2, z: 12, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.2, z: 12, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -14.0, z: -10, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.0, z: -10, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -13.4, z: -30, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 13.4, z: -30, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -12.0, z: -52, angle: -2.1, arc: 2.09, guns: 4 },
+            { x: 12.0, z: -52, angle: 2.1, arc: 2.09, guns: 4 },
+            { x: -9.0, z: -84, angle: -2.4, arc: 2.09, guns: 4 },
+            { x: 9.0, z: -84, angle: 2.4, arc: 2.09, guns: 4 },
+            { x: 0, z: 92, angle: 0, arc: 2.36, guns: 4 },
+            { x: 0, z: -96, angle: Math.PI, arc: 2.36, guns: 4 },
+            { x: -6.0, z: 74, angle: -0.7, arc: 2.09, guns: 4 },
+            { x: 6.0, z: 74, angle: 0.7, arc: 2.09, guns: 4 },
+            { x: -6.0, z: -68, angle: -2.4, arc: 2.09, guns: 4 },
+            { x: 6.0, z: -68, angle: 2.4, arc: 2.09, guns: 4 },
+          ] },
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800,
+          mounts: [
+            { x: -14.6, z: 50, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 14.6, z: 50, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -15.0, z: 20, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 15.0, z: 20, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -14.8, z: -12, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 14.8, z: -12, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 0, z: -78, angle: Math.PI, arc: 2.27, guns: 7 },
+          ] },
+      ],
+    },
     planes: null,
     datasheet: {
       displacement: 45000,
@@ -313,12 +494,41 @@ export const SHIP_CLASSES = {
       { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 1.32, guns: 1 },
     ],
     gun: {
+      name: '5"/38 Mk 21', role: 'dp',
       caliber: 127, reload: 4.2, traverse: 0.44, range: 10600, sigma: 2.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
     },
     torpedoes: null,
-    aa: { range: 5800, dps: 470 },
-    secondaries: { range: 4200, dps: 120 },
+    // Her eight five-inch are the main battery above; there is no secondary
+    // gun on a carrier, only the light battery round her galleries.
+    secondary: null,
+    aa: {
+      range: 5800, dps: 2338,
+      guns: [
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
+          mounts: [
+            { x: -14.0, z: 66, angle: -1.0, arc: 2.09, guns: 4 },
+            { x: 14.0, z: 66, angle: 1.0, arc: 2.09, guns: 4 },
+            { x: -15.6, z: 30, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 15.6, z: 30, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -15.8, z: 0, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 15.8, z: 0, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -15.4, z: -34, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 15.4, z: -34, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+          ] },
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800,
+          mounts: [
+            { x: -16.0, z: 78, angle: -0.9, arc: 1.92, guns: 6 },
+            { x: 16.0, z: 78, angle: 0.9, arc: 1.92, guns: 6 },
+            { x: -16.6, z: 46, angle: -Math.PI / 2, arc: 1.83, guns: 6 },
+            { x: 16.6, z: 46, angle: Math.PI / 2, arc: 1.83, guns: 6 },
+            { x: -16.8, z: -16, angle: -Math.PI / 2, arc: 1.83, guns: 6 },
+            { x: 16.8, z: -16, angle: Math.PI / 2, arc: 1.83, guns: 6 },
+            { x: -15.0, z: -70, angle: -2.3, arc: 1.92, guns: 5 },
+            { x: 15.0, z: -70, angle: 2.3, arc: 1.92, guns: 5 },
+          ] },
+      ],
+    },
     planes: {
       squadrons: 3, perSquadron: 4, cruiseSpeed: 78, strikeRange: 14000,
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,

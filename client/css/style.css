@@ -427,6 +427,46 @@ input[type="range"] { accent-color: var(--red); }
 .conn-panel-sub { letter-spacing: 0.1em; color: var(--sand); font-size: 0.9rem; }
 .conn-panel-body { padding: 0.6rem 0.7rem 0.7rem; }
 
+/* The arsenal: every mounting aboard, grouped by battery. Scrolls, because a
+   battleship carries more kinds of gun than fit above a row of keys. */
+.conn-panel.tall .conn-panel-body { max-height: min(52vh, 420px); overflow-y: auto; }
+.arms-band {
+  font-size: 0.58rem; letter-spacing: 0.22em; color: var(--steel);
+  opacity: 0.75; margin: 0.5rem 0 0.25rem;
+}
+.arms-band:first-child { margin-top: 0; }
+.arms-row {
+  border: 1px solid var(--panel-line); border-left: 2px solid rgba(230, 207, 156, 0.5);
+  padding: 0.34rem 0.5rem 0.4rem; margin-bottom: 0.3rem;
+  background: rgba(12, 24, 38, 0.6);
+}
+.arms-name {
+  font-size: 0.92rem; letter-spacing: 0.06em; color: var(--sand-bright);
+  line-height: 1.15;
+}
+.arms-sub {
+  font-size: 0.62rem; letter-spacing: 0.1em; color: var(--steel);
+  margin-top: 0.06rem;
+}
+.arms-stats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.05rem 0.6rem; margin: 0.3rem 0 0;
+}
+.arms-stats > div { display: flex; justify-content: space-between; gap: 0.4rem; }
+.arms-stats dt {
+  font-size: 0.58rem; letter-spacing: 0.16em; color: var(--steel); opacity: 0.8;
+}
+.arms-stats dd { margin: 0; font-size: 0.68rem; color: #dbe4ec; letter-spacing: 0.04em; }
+/* What can actually be laid on the target right now: the firing arcs, made
+   visible. Green when the whole battery bears, amber when her own structure
+   is masking part of it, red when she has to come round before it can fire. */
+.arms-bear {
+  margin-top: 0.28rem; padding-top: 0.24rem; border-top: 1px solid var(--panel-line);
+  font-size: 0.62rem; letter-spacing: 0.14em; color: var(--ally);
+}
+.arms-bear.part { color: var(--sand); }
+.arms-bear.masked { color: var(--enemy); }
+
 /* The telegraph, laid out as the lever it is: astern at the bottom, flank at
    the top, and the notch she is ringing up lit. */
 .tele-rows { display: flex; flex-direction: column-reverse; gap: 4px; }

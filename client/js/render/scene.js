@@ -6,6 +6,7 @@ import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
+import { Shells, Flak } from './ordnance.js';
 import { Wake } from './wake.js';
 import { Seakeeping } from './seakeeping.js';
 import { QUALITY } from '../settings.js';
@@ -679,13 +680,14 @@ export class BattleScene {
     // started, so there is nothing to wait for.
     this.batteryViews = new Map();
 
-    // Shell tracers, drawn as a single instanced batch.
-    const tracerGeo = new THREE.SphereGeometry(3.2, 6, 5);
-    this.tracerMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
-    this.tracers = new THREE.InstancedMesh(tracerGeo, this.tracerMat, 400);
-    this.tracers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.tracers.frustumCulled = false;
-    this.scene.add(this.tracers);
+    // The shells in the air: real projectiles, laid along their own line of
+    // flight and sized off the bore that fired them. See ordnance.js.
+    // Room for a fleet action: five ships with secondary batteries in local
+    // control put a great many small shells in the air at once, and a shell
+    // that is not drawn is a salvo the spotter cannot see.
+    this.shells = new Shells(this.scene, 900);
+    // The light battery's tracer and the black puffs it leaves behind.
+    this.flak = new Flak(this.scene, 900);
 
     const torpGeo = new THREE.BoxGeometry(2.4, 1.2, 7);
     this.torpMat = new THREE.MeshBasicMaterial({ color: 0xdfe9f2, transparent: true, opacity: 0.75 });
@@ -839,6 +841,7 @@ export class BattleScene {
     if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
     this.effects.update(dt);
+    this.flak.update(dt);
     this.weather.update(dt, eye);
   }
 

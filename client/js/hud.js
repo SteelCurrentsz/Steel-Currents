@@ -6,7 +6,7 @@
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
-import { MPS_TO_KNOTS, clamp, wrapAngle } from '../../shared/math.js';
+import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta } from '../../shared/math.js';
 import { SECTIONS } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
@@ -17,8 +17,97 @@ const $ = (id) => document.getElementById(id);
 const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
 
 const PANEL_TITLES = {
-  helm: 'ENGINE', dmg: 'DAMAGE', air: 'AIR GROUP', ship: 'DAMAGE CONTROL',
+  helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
+  ship: 'DAMAGE CONTROL',
 };
+
+const M_TO_YARDS = 1.09361;
+
+/** What a mounting is allowed to engage, in the words a gunnery officer uses. */
+const ROLE_LABEL = {
+  surface: 'Surface', aa: 'Air', dp: 'Dual purpose', sub: 'Submarine',
+};
+
+/**
+ * Everything she carries, in the order a gunnery officer would list it:
+ * the main battery, the secondary, the light battery, and then whatever else
+ * is aboard that goes off.
+ *
+ * Each entry is what the arsenal panel shows -- the mounting's name, its bore,
+ * how long it takes to load, how far it reaches and what it may be laid on.
+ */
+export function arsenal(cls) {
+  const rows = [];
+  const barrels = (mounts) => mounts.reduce((n, m) => n + (m.guns || 1), 0);
+  if (cls.gun) {
+    rows.push({
+      name: cls.gun.name || `${cls.gun.caliber} mm`,
+      caliber: cls.gun.caliber,
+      barrels: barrels(cls.turrets),
+      mounts: cls.turrets.length,
+      reload: cls.gun.reload,
+      range: cls.gun.range,
+      role: cls.gun.role || 'surface',
+      band: 'Main battery',
+      specs: cls.turrets,
+    });
+  }
+  if (cls.secondary) {
+    rows.push({
+      name: cls.secondary.name,
+      caliber: cls.secondary.caliber,
+      barrels: barrels(cls.secondary.mounts),
+      mounts: cls.secondary.mounts.length,
+      reload: cls.secondary.reload,
+      range: cls.secondary.range,
+      role: cls.secondary.role || 'dp',
+      band: 'Secondary battery',
+      specs: cls.secondary.mounts,
+    });
+  }
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    rows.push({
+      name: g.name,
+      caliber: g.caliber,
+      barrels: barrels(g.mounts),
+      mounts: g.mounts.length,
+      reload: g.reload,
+      range: g.range,
+      role: g.role || 'aa',
+      band: 'Light battery',
+      specs: g.mounts,
+    });
+  }
+  if (cls.torpedoes) {
+    const T = cls.torpedoes;
+    rows.push({
+      name: T.name || 'Torpedo',
+      caliber: T.caliber || 533,
+      barrels: T.mounts.reduce((n, m) => n + m.tubes, 0),
+      mounts: T.mounts.length,
+      reload: T.reload,
+      range: T.range,
+      role: T.role || 'surface',
+      band: 'Torpedo tubes',
+      specs: T.mounts.map((m) => ({ ...m, guns: m.tubes })),
+    });
+  }
+  if (cls.depthCharges) {
+    const D = cls.depthCharges;
+    rows.push({
+      name: D.name,
+      caliber: null,
+      barrels: D.racks + D.throwers,
+      mounts: D.racks + D.throwers,
+      reload: null,
+      range: null,
+      role: D.role || 'sub',
+      band: 'Depth charges',
+      note: `${D.racks} racks, ${D.throwers} throwers, ${D.carried} carried`,
+    });
+  }
+  return rows;
+}
 
 export class Hud {
   constructor({ team, world, onLeave }) {
@@ -396,6 +485,7 @@ export class Hud {
       this.el.connSub.textContent = `${ready} ready`;
       return;
     }
+    if (this.panel === 'arms') { this.paintArsenal(own); return; }
     set('repair', own.rc > 0 ? `${Math.ceil(own.rc)}s` : 'READY', own.rc <= 0 ? 'ready' : 'spent');
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
@@ -419,12 +509,14 @@ export class Hud {
     }
     this.el.connPanel.hidden = !this.panel;
     this.el.connPanel.classList.toggle('wide', this.panel === 'dmg');
+    this.el.connPanel.classList.toggle('tall', this.panel === 'arms');
     if (!this.panel) return;
     this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
     this.el.connBody.innerHTML = '';
     this.acts = {};
     if (this.panel === 'helm') this.buildHelmPanel();
     else if (this.panel === 'dmg') this.buildDamagePanel();
+    else if (this.panel === 'arms') this.buildArsenalPanel();
     else this.buildActionPanel(this.panel);
     if (this.lastOwn) this.paintPanel(this.lastOwn);
   }
@@ -477,6 +569,83 @@ export class Hud {
 
   /** Say who builds the hologram, so the HUD need not import a renderer. */
   onDamageBoard(fn) { this.onBoard = fn; }
+
+  /**
+   * The arsenal: every gun, tube and charge aboard, and what each may engage.
+   *
+   * Read off the class rather than off the snapshot, because it is her
+   * armament and not her state: what she carries does not change during an
+   * action. Ranges are in yards, which is what a gunnery officer would have
+   * been given them in.
+   */
+  buildArsenalPanel() {
+    this.armsRows = [];
+    const list = document.createElement('div');
+    list.className = 'arms-list';
+    let band = null;
+    for (const w of arsenal(this.cls)) {
+      if (w.band !== band) {
+        band = w.band;
+        const h = document.createElement('div');
+        h.className = 'arms-band';
+        h.textContent = band;
+        list.appendChild(h);
+      }
+      const row = document.createElement('div');
+      row.className = 'arms-row';
+      const mounts = w.mounts > 1 && w.barrels !== w.mounts
+        ? `${w.barrels} barrels in ${w.mounts} mounts`
+        : `${w.barrels} ${w.barrels === 1 ? 'mount' : 'mounts'}`;
+      const stats = [];
+      if (w.caliber) stats.push(['Calibre', `${w.caliber} mm`]);
+      if (w.reload != null) {
+        stats.push(['Reload', w.reload >= 1 ? `${w.reload.toFixed(1)} s` : `${Math.round(60 / w.reload)} rpm`]);
+      }
+      if (w.range != null) {
+        stats.push(['Range', `${Math.round(w.range * M_TO_YARDS).toLocaleString()} yd`]);
+      }
+      stats.push(['Target', ROLE_LABEL[w.role] || w.role]);
+      row.innerHTML = `<div class="arms-name">${w.name}</div>`
+        + `<div class="arms-sub">${w.note || mounts}</div>`
+        + `<dl class="arms-stats">${stats
+          .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
+        + (w.specs ? '<div class="arms-bear"></div>' : '');
+      list.appendChild(row);
+      this.armsRows.push({ w, el: row.querySelector('.arms-bear') });
+    }
+    this.el.connBody.appendChild(list);
+  }
+
+  /**
+   * How much of each battery can be laid on where she is aiming.
+   *
+   * This is the firing arcs made visible. A ship steering straight at her
+   * target has half her guns masked by her own bow and the panel says so; put
+   * the wheel over and watch the count come up. It is the single most useful
+   * thing a gunnery officer knows and there was no way to see it.
+   */
+  paintArsenal(own) {
+    if (!this.armsRows || !this.armsRows.length) return;
+    const world = Math.atan2((own.ax ?? own.x) - own.x, (own.az ?? own.z) - own.z);
+    const local = wrapAngle(world - own.h);
+    let onMain = 0;
+    let ofMain = 0;
+    for (const { w, el } of this.armsRows) {
+      if (!el || !w.specs) continue;
+      let on = 0;
+      for (const m of w.specs) {
+        if (Math.abs(angleDelta(m.angle, local)) <= m.arc) on += m.guns || 1;
+      }
+      if (w.band === 'Main battery') { onMain = on; ofMain = w.barrels; }
+      el.textContent = on === w.barrels
+        ? 'All bearing'
+        : on === 0 ? 'Masked — cannot bear' : `${on} of ${w.barrels} bearing`;
+      el.classList.toggle('masked', on === 0);
+      el.classList.toggle('part', on > 0 && on < w.barrels);
+    }
+    this.el.connSub.textContent = ofMain
+      ? `${onMain} of ${ofMain} bearing` : '';
+  }
 
   /** The air group, or the damage control parties. */
   buildActionPanel(which) {

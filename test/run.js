@@ -15,8 +15,10 @@ import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
-  DECK_RUN,
+  DECK_RUN, aaBattery, aaBarrels, aaBearing, mountBears,
 } from '../shared/sim.js';
+import { arsenal } from '../client/js/hud.js';
+import { shellLength } from '../client/js/render/ordnance.js';
 import { angleDelta } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
@@ -2214,6 +2216,159 @@ check('a destroyer works in a sea her betters walk through', () => {
   // Heave is no longer scaled down per ship at all: it is a water level, and
   // the filtering by length happens where the sea is measured.
   assert.equal(heaveHeed(114), 1);
+});
+
+check('every gun on every ship is blocked by her own structure somewhere', () => {
+  // A mounting that trains right round fires through the ship it is bolted to.
+  // Nothing aboard may do that: every arc is a half-angle either side of the
+  // rest bearing, and a full circle is PI.
+  const bad = [];
+  const look = (cls, what, mounts) => {
+    for (const m of mounts || []) {
+      if (!(m.arc < Math.PI - 0.01)) {
+        bad.push(`${cls.id} ${what} at z ${m.z} trains ${(m.arc * 2 * 180 / Math.PI).toFixed(0)}deg`);
+      }
+    }
+  };
+  for (const cls of Object.values(SHIP_CLASSES)) {
+    look(cls, 'main battery', cls.turrets);
+    if (cls.secondary) look(cls, 'secondary', cls.secondary.mounts);
+    for (const g of (cls.aa && cls.aa.guns) || []) look(cls, g.name, g.mounts);
+    if (cls.torpedoes) look(cls, 'tubes', cls.torpedoes.mounts);
+  }
+  assert.equal(bad.length, 0, `unlimited training: ${bad[0]}`);
+});
+
+check('a ship brings less to bear ahead than she does on the beam', () => {
+  // The whole point of the arcs. A ship steering at her target has her after
+  // guns masked by her own superstructure; put the wheel over and they come
+  // into action. If that is not true the arcs are decorative.
+  for (const cls of Object.values(SHIP_CLASSES)) {
+    const ship = { x: 0, z: 0, heading: 0 };
+    const R = cls.aa.range * 0.4;
+    const ahead = aaBearing(cls, ship, 0, R);
+    const beam = aaBearing(cls, ship, R, 0);
+    assert.ok(ahead.share < 1 && beam.share < 1,
+      `${cls.id} brings her whole light battery to bear on one bearing`);
+    assert.ok(ahead.barrels > 0 && beam.barrels > 0,
+      `${cls.id} cannot shoot at an aeroplane at all`);
+    assert.ok(aaBarrels(cls) === aaBattery(cls).reduce((n, m) => n + m.guns, 0));
+  }
+  // And a ship end-on to an aeroplane is worse off than one beam-on. The
+  // Enterprise is the exception and she is allowed to be: her galleries are
+  // packed forward and aft round the flight deck, not amidships.
+  const cl = SHIP_CLASSES.cleveland;
+  const ship = { x: 0, z: 0, heading: 0 };
+  const R = cl.aa.range * 0.4;
+  assert.ok(aaBearing(cl, ship, R, 0).share > aaBearing(cl, ship, 0, R).share,
+    'the cruiser fights an aeroplane no better on the beam than over the bow');
+});
+
+check('a mounting only fires on a bearing it can train to', () => {
+  const cls = SHIP_CLASSES.iowa;
+  const ship = { x: 0, z: 0, heading: 0 };
+  // A waist five-inch mount on the starboard side: it may fire to starboard
+  // and it may not fire across her.
+  const stbd = cls.secondary.mounts.find((m) => m.x > 0 && Math.abs(m.z) < 10);
+  assert.ok(mountBears(ship, stbd, Math.PI / 2), 'she cannot fire on her own beam');
+  assert.ok(!mountBears(ship, stbd, -Math.PI / 2), 'she fires straight through her own hull');
+  assert.ok(!mountBears(ship, stbd, 0), 'she fires through her own bow');
+  // And the arc travels with the ship: put the helm over and the same mounting
+  // covers a different piece of the horizon.
+  const turned = { x: 0, z: 0, heading: Math.PI / 2 };
+  assert.ok(mountBears(turned, stbd, Math.PI), 'her arcs do not turn with her');
+});
+
+check('the secondary battery fights on its own, and only where it bears', () => {
+  const state = createState(generateWorld(5150, 'open_ocean'), { mode: 'deathmatch' });
+  const own = addShip(state, { name: 'CL', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  own.x = 0; own.z = 0; own.heading = 0;
+  // Right abeam to starboard, well inside the secondary battery's range.
+  foe.x = 3000; foe.z = 0; foe.heading = Math.PI;
+  own.spottedBy = [true, true];
+  foe.spottedBy = [true, true];
+  // Her captain is laying the main battery somewhere else entirely: the
+  // secondary is in local control and does not care.
+  own.aimX = 0; own.aimZ = 30000;
+  const cal = SHIP_CLASSES.cleveland.secondary.caliber;
+  let salvos = 0;
+  for (let i = 0; i < 400; i++) {
+    foe.spottedBy = [true, true];
+    salvos += step(state, DT).filter((e) => e.e === 'muzzle' && e.ship === own.id
+      && e.cal === cal).length;
+  }
+  assert.ok(salvos > 0, 'her secondary battery never opened fire');
+  // Only the mounts that bear. Beam on, that is the engaged side and the two
+  // centreline mounts -- never the disengaged waist.
+  const S = SHIP_CLASSES.cleveland.secondary;
+  const bearing = S.mounts.filter((m) => mountBears(own, m, Math.PI / 2)).length;
+  assert.ok(bearing > 0 && bearing < S.mounts.length,
+    `${bearing} of ${S.mounts.length} mounts bear on the beam`);
+  // And the shells she fired are her secondary's, not her main battery's.
+  const sec = state.shells.filter((sh) => sh.caliber === cal);
+  assert.ok(sec.length > 0, 'no five-inch shells in the air');
+});
+
+check('a ship with nothing on her engaged side does not fire her secondary', () => {
+  const state = createState(generateWorld(5151, 'open_ocean'), { mode: 'deathmatch' });
+  const own = addShip(state, { name: 'BB', classId: 'iowa', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  // Dead ahead. An Iowa's five-inch are all beam mounts and none of them can
+  // be laid on her own bow.
+  own.x = 0; own.z = 0; own.heading = 0;
+  foe.x = 0; foe.z = 4000;
+  const cal = SHIP_CLASSES.iowa.secondary.caliber;
+  let salvos = 0;
+  for (let i = 0; i < 300; i++) {
+    own.spottedBy = [true, true];
+    foe.spottedBy = [true, true];
+    salvos += step(state, DT).filter((e) => e.e === 'muzzle' && e.ship === own.id
+      && e.cal === cal).length;
+  }
+  assert.equal(salvos, 0, 'she fired her beam mountings straight over her bow');
+});
+
+check('the arsenal lists every weapon aboard, with what each may engage', () => {
+  const ROLES = new Set(['surface', 'aa', 'dp', 'sub']);
+  for (const cls of Object.values(SHIP_CLASSES)) {
+    const rows = arsenal(cls);
+    assert.ok(rows.length >= 3, `${cls.id} lists only ${rows.length} weapons`);
+    for (const w of rows) {
+      assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
+      assert.ok(ROLES.has(w.role), `${cls.id} ${w.name} may engage "${w.role}"`);
+      assert.ok(w.barrels > 0, `${cls.id} ${w.name} has no barrels`);
+    }
+    // Her main battery, her light battery, and her tubes if she has any, all
+    // reach the list -- and the barrel counts match her datasheet.
+    const light = rows.filter((w) => w.role === 'aa');
+    assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
+    for (const t of cls.datasheet.tertiary || []) {
+      const row = rows.find((w) => w.caliber === t.caliber);
+      assert.ok(row, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
+      assert.equal(row.barrels, t.barrels,
+        `${cls.id} ${t.label}: ${row.barrels} mounted against ${t.barrels} on her sheet`);
+    }
+    assert.equal(!!rows.find((w) => w.band === 'Torpedo tubes'), !!cls.torpedoes,
+      `${cls.id} torpedo tubes are listed wrongly`);
+  }
+  // A Fletcher's depth charges are aboard and on the list, whatever there is
+  // to drop them on.
+  const dc = arsenal(SHIP_CLASSES.fletcher).find((w) => w.role === 'sub');
+  assert.ok(dc && dc.barrels > 0, 'her depth charge gear is not in the arsenal');
+});
+
+check('a shell is drawn to its own bore, and an anti-aircraft round is tiny', () => {
+  // The complaint that started this: every shell was the same yellow ball. A
+  // sixteen-inch round has to be plainly bigger than a five-inch one and both
+  // plainly bigger than a Bofors round.
+  const sizes = [406, 203, 152, 127, 40, 20].map(shellLength);
+  for (let i = 1; i < sizes.length; i++) {
+    assert.ok(sizes[i] < sizes[i - 1], 'shells do not fall in size with the bore');
+  }
+  assert.ok(shellLength(406) > shellLength(40) * 3.5,
+    'a sixteen-inch round is not conspicuously bigger than a Bofors round');
+  assert.ok(shellLength(20) > 0.5, 'a 20 mm round is drawn too small to see at all');
 });
 
 check('a ship fights herself while her captain cons her', () => pinned(() => {
