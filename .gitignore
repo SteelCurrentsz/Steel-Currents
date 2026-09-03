@@ -8,6 +8,9 @@ dist/
 build/bundle.js
 build/steel-currents.html
 build/*.png
+# Throwaway probe pages: one ship on a plane of sea, so a model can be
+# measured and photographed without starting a battle. Made as needed.
+client/__*.html
 www/
 ios/
 android/
