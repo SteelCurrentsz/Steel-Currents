@@ -16,7 +16,7 @@ import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
-  flightDeckOut, resolveShellHit, buoyancy,
+  flightDeckOut, resolveShellHit, buoyancy, launchOffset,
   flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
 import { Pilot, AERO } from '../client/js/render/aero.js';
@@ -2662,8 +2662,12 @@ check('her wheels come up once she is off the deck', () => {
   }
   assert.ok(onDeck < 0.05, `her wheels moved by ${onDeck.toFixed(2)} m while taxiing`);
 
-  built.group.userData.step(END);
+  // Just before the hand-over: she is off the planking and climbing, wheels
+  // up, and still being drawn. On the tick after this the flight takes over
+  // and the model is put out of sight -- see the check below.
+  built.group.userData.step(END - 0.4);
   const flying = gap();
+  built.group.userData.step(END);
   assert.ok(taxi - flying > 0.65,
     `her wheels only came up ${(taxi - flying).toFixed(2)} m`);
   assert.ok(deck.airborne, 'she never got airborne');
@@ -3501,7 +3505,11 @@ check('a flight shot down is reported once, not twice', () => {
   for (const p of state.planes) { p.x = 11000 + (p.team ? 60 : 0); p.z = 6000; }
   const seen = [];
   let killedByFighters = 0;
-  for (let i = 0; i < 30 * 90; i++) {
+  // A fighter engagement is not settled in a pass: they wear each other down.
+  // One Wildcat flight against another at twenty-six rounds a second takes
+  // over a minute of contact, and they are turning about each other the whole
+  // time -- so the window has to be long enough for one of them to lose.
+  for (let i = 0; i < 30 * 150; i++) {
     for (const s of state.ships) s.spottedBy = [true, true];
     for (const e of step(state, DT)) {
       if (e.e !== 'planesLost') continue;
@@ -3707,9 +3715,14 @@ check('a strike forms up over the ship and goes out in company', () => {
     if (!departed && st.planes.length >= 3 && st.planes.every((p) => p.phase === 'outbound')) {
       departed = st.t;
     }
-    // How spread out the strike is, once it has set off and before it breaks
-    // to attack.
-    if (departed && st.t > departed + 25 && st.planes.length >= 3
+    // How spread out the strike is on passage: after it has set off, and
+    // before it is in to attack. Over the target it is meant to come apart --
+    // the torpedo bombers go down to the water and out to the beam while the
+    // dive bombers climb over the top -- so that is not the question here.
+    const far = st.planes.length ? Math.min(...st.ships
+      .filter((q) => q.alive && q.team !== st.planes[0].team)
+      .map((q) => dist(st.planes[0].x, st.planes[0].z, q.x, q.z))) : 0;
+    if (departed && st.t > departed + 25 && far > 4000 && st.planes.length >= 3
       && st.planes.every((p) => p.phase === 'outbound')) {
       let span = 0;
       for (const a of st.planes) {
@@ -3723,6 +3736,7 @@ check('a strike forms up over the ship and goes out in company', () => {
   assert.ok(worst < 8, `a flight moved ${worst.toFixed(0)} m in one tick`);
   assert.ok(departed > 0, 'the strike never set off');
   assert.ok(spans.length > 100, 'the strike was never all outbound together');
+  assert.ok(departed < 140, `the strike took ${departed.toFixed(0)} s to set off`);
   const widest = Math.max(...spans);
   assert.ok(widest < 1500,
     `the strike was strung out over ${widest.toFixed(0)} m`);
@@ -4122,6 +4136,151 @@ check('a fire spreads from the compartment it started in', () => {
   for (let i = 0; i < 30 * 120; i++) step(state, DT);
   assert.ok(a.sections.mid.fire < 0.05,
     'the compartment flooded and the fire in it went on burning under water');
+});
+
+check('the aeroplane that has taken off is not left hanging in the air', () => {
+  // The model on the deck and the flight on the plot are the same aeroplane.
+  // Once the run is over the flight is being drawn out where the run left her,
+  // so the model has to go: left where it was, it hangs a hundred and fifty
+  // metres off the bow and forty metres up for the rest of the sortie -- an
+  // aeroplane that takes off and then stops, levitating. The catapult ships
+  // had exactly the same thing over the quarterdeck.
+  const cv = buildEnterprise();
+  cv.group.userData.step(0);
+  cv.group.userData.launch(0);
+  assert.equal(cv.deckPlane.visible, true, 'she is invisible on the lift');
+  cv.group.userData.step(DECK_RUN * 0.6);
+  assert.equal(cv.deckPlane.visible, true, 'she vanished in the middle of her run');
+  for (const t of [DECK_RUN + 0.1, DECK_RUN + 5, DECK_RUN + 30]) {
+    cv.group.userData.step(t);
+    assert.equal(cv.deckPlane.visible, false,
+      `the carrier's aeroplane is still being drawn ${(t - DECK_RUN).toFixed(1)} s after she left the deck`);
+  }
+  // And she comes back when the next one is ranged.
+  cv.group.userData.stow();
+  cv.group.userData.step(DECK_RUN + 31);
+  assert.equal(cv.deckPlane.visible, true, 'nothing came up the lift for the next launch');
+
+  const cl = buildCleveland();
+  const deck = cl.group.userData.deck;
+  cl.group.userData.step(0);
+  cl.group.userData.launch(0);
+  const scout = cl.group.userData.deckPlane;
+  assert.equal(scout.visible, true, 'her scout is invisible on the cradle');
+  const shot = deck.run;
+  cl.group.userData.step(shot * 0.5);
+  assert.equal(scout.visible, true, 'her scout vanished halfway down the track');
+  for (const t of [shot + 0.5, shot + 10, shot + 40]) {
+    cl.group.userData.step(t);
+    assert.equal(scout.visible, false,
+      `the cruiser's scout is still being drawn ${(t - shot).toFixed(1)} s after the shot`);
+  }
+  cl.group.userData.recover();
+  cl.group.userData.step(shot + 41);
+  assert.equal(scout.visible, true, 'nothing was craned back onto the cradle');
+});
+
+check('an aeroplane has a height, and gravity has her', () => {
+  // A flight used to have no height at all: the client drew her at one worked
+  // out from how long she had been up, so every aeroplane in the game climbed
+  // at the same rate to the same altitude whatever she was and whatever she
+  // was doing, and a dive bomber dived by changing a number nothing else could
+  // see. She flies the vertical now, on her own rate of climb, against her own
+  // weight.
+  const st = createState(generateWorld(515, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  launchStrike(st, cv);
+
+  const seen = new Map();
+  const low = new Map();
+  const high = new Map();
+  let worstRate = 0;
+  const was = new Map();
+  for (let i = 0; i < 30 * 240; i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    step(st, DT);
+    for (const p of st.planes) {
+      if (!seen.has(p.id)) seen.set(p.id, { role: p.role, born: p.y });
+      // On the way out. Everybody lets down onto the deck coming home, so
+      // that is not what tells one kind from another.
+      if (p.phase === 'outbound' && p.life > 40) {
+        low.set(p.role, Math.min(low.get(p.role) ?? 1e9, p.y));
+        high.set(p.role, Math.max(high.get(p.role) ?? -1e9, p.y));
+      }
+      const b = was.get(p.id);
+      if (b !== undefined) worstRate = Math.max(worstRate, Math.abs(p.y - b) / DT);
+      was.set(p.id, p.y);
+    }
+  }
+  assert.ok(seen.size >= 3, 'nothing got up');
+  // She is born at the height the launch leaves her at, not at cruise.
+  for (const [, v] of seen) {
+    assert.ok(v.born > 10 && v.born < 60,
+      `she came off the deck at ${v.born.toFixed(0)} m`);
+  }
+  // Nothing changes height faster than an aeroplane can. Her best rate of
+  // climb is about eleven metres a second and the airframe will stand a
+  // forty-odd metre dive; anything past that is a marker being dragged.
+  assert.ok(worstRate < 60,
+    `something changed height at ${worstRate.toFixed(0)} m/s`);
+  // And the three kinds do different things in the vertical, because they are
+  // doing different jobs: the torpedo bombers come right down on the water to
+  // drop, and the dive bombers go up over the top to push down on her.
+  assert.ok(low.get('torpedo') < 80,
+    `the torpedo bombers never got below ${(low.get('torpedo') || 0).toFixed(0)} m`);
+  assert.ok(high.get('dive') > high.get('torpedo') + 150,
+    `the dive bombers topped out at ${(high.get('dive') || 0).toFixed(0)} m `
+    + `against the torpedo bombers' ${(high.get('torpedo') || 0).toFixed(0)}`);
+  assert.ok(low.get('dive') > low.get('torpedo'),
+    'the dive bombers went as low as the torpedo bombers');
+});
+
+check("the Admiral Hipper flies her Arados off her catapult", () => {
+  // She had a catapult, a hangar, a crane and three aeroplanes on her
+  // datasheet, and no way whatever to use any of it.
+  const cls = SHIP_CLASSES.hipper;
+  assert.ok(cls.planes, 'she still has no air group');
+  assert.ok(cls.planes.catapult, 'she is not a catapult ship');
+
+  const st = createState(generateWorld(606, 'open_ocean'), { mode: 'deathmatch' });
+  const ca = addShip(st, { name: 'Hipper', classId: 'hipper', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ca.x + 5000; foe.z = ca.z;
+  ca.aimX = foe.x; ca.aimZ = foe.z;
+  assert.ok(launchStrike(st, ca), 'she would not launch');
+  for (let i = 0; i < 30 * 40; i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    step(st, DT);
+  }
+  assert.ok(st.planes.length > 0, 'nothing came off her catapult');
+
+  // Her catapult goes off the beam, not off the bow: the girder lies across
+  // her. So her scout appears out on her side, and putting her a hundred and
+  // fifty metres dead ahead instead would be a scout appearing a long way from
+  // where you watched her go.
+  const off = launchOffset(cls, 1);
+  assert.ok(Math.abs(off.bearing) > 1.0,
+    `her catapult shoots ${(off.bearing * 57.3).toFixed(0)} degrees off her head`);
+  assert.ok(off.out > 60 && off.out < 200, `her shot ends ${off.out} m out`);
+
+  // And the model works: the ring trains, the trolley runs out, and the
+  // aeroplane is away and out of sight by the time the flight is on the plot.
+  const built = buildHipper();
+  const deck = built.group.userData.deck;
+  assert.ok(deck, 'her model has no catapult to work');
+  assert.equal(deck.run, cls.planes.deckRun,
+    'her catapult is paced to something other than her own launch');
+  built.group.userData.step(0);
+  built.group.userData.launch(0);
+  const car = () => deck.cat.car.position.z;
+  const at0 = car();
+  built.group.userData.step(deck.run * 0.75);
+  assert.ok(car() > at0 + 8, 'her trolley never left the breech');
+  built.group.userData.step(deck.run + 0.5);
+  assert.equal(deck.cat.plane.visible, false, 'her scout is still on the girder');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

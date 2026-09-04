@@ -596,7 +596,7 @@ export function strafe(state, ship, id, dt) {
   for (const q of state.planes) {
     if (q.dead || q.team === p.team) continue;
     if (dist(p.x, p.z, q.x, q.z) > RANGE || bore(q.x, q.z) > CONE) continue;
-    q.hp -= (P.fighterGuns ?? 26) * p.count * dt;
+    q.hp -= (P.fighterGuns ?? FIGHTER_GUNS) * p.count * dt;
     gunsSeen(state, p, q.x, q.z, true);
     if (q.hp <= 0) killFlight(state, q, 'fighters');
     return true;
@@ -1663,6 +1663,9 @@ export function launchStrike(state, ship) {
     // Filled in when she is actually airborne, because until then there is no
     // flight to be the leader.
     lead: 0, slot: 0,
+    // Which side a catapult ship is shooting off this time. She has two and
+    // uses them turn and turn about.
+    side: (ship.catSide = -(ship.catSide || 1)),
     flights: [
       { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
       { role: 'dive', count: bomb, torp: 0, bomb },
@@ -1699,6 +1702,23 @@ export const DECK_RUN = 24.5;
  * round-down and her wheels leave the planking amidships.
  */
 export const DECK_RUN_OUT = 156;
+
+/**
+ * Where a launch leaves her, relative to the ship: how far, and on what
+ * bearing off her head.
+ *
+ * A carrier's aeroplane goes off the bow, so she is dead ahead. A cruiser's
+ * scout is thrown off a catapult that has been trained out over the side, so
+ * she is off the beam -- and putting her ahead instead is a scout that appears
+ * a hundred and fifty metres from where you watched her go. The distances are
+ * measured off the integrated launch each ship actually flies.
+ */
+export function launchOffset(cls, side = 1) {
+  const P = cls.planes || {};
+  const out = P.runOut ?? DECK_RUN_OUT;
+  const bearing = (P.runBearing ?? 0) * (P.runBearing ? side : 1);
+  return { out, bearing };
+}
 
 /**
  * Put a flight in the air, once she has actually left the deck -- and then
@@ -1751,16 +1771,25 @@ function stepLaunch(state, ship, dt) {
     // Off the bow on the ship's own head, climbing, and turning toward the
     // target from there: the deck run is down her centreline, not toward
     // whatever she has been laid on.
+    // Where this ship's launch actually leaves her: off the bow down a flight
+    // deck, off the beam off a catapult.
+    const off = launchOffset(cls, L.side || 1);
+    const away = wrapAngle(ship.heading + off.bearing);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
-      x: ship.x + Math.sin(ship.heading) * DECK_RUN_OUT,
-      z: ship.z + Math.cos(ship.heading) * DECK_RUN_OUT,
-      heading: ship.heading,
+      x: ship.x + Math.sin(away) * off.out,
+      z: ship.z + Math.cos(away) * off.out,
+      heading: away,
       tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
       count: f.count,
       // Fighters are harder to catch than a loaded bomber, and they are what
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
+      // Where the launch actually leaves her, off the ground: the end of the
+      // integrated deck run or catapult shot, not a number chosen to look
+      // right. She climbs away from there under her own power.
+      y: cls.planes.runHeight ?? 41,
+      vy: 4,
       hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
         * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)),
       // She does not set off on her own. A strike forms up over the ship and
@@ -1915,8 +1944,127 @@ function formationGoal(state, p, carrier) {
  * loaded Avenger with a torpedo slung under her is a good deal slower than
  * that, and it is why a torpedo attack has to be set up from a long way out.
  */
+/**
+ * What a fighter's guns do to another aeroplane, in damage a second.
+ *
+ * Six half-inch guns firing into another aircraft settle it quickly once
+ * somebody is in position -- seconds, not minutes. At twenty-six, which is
+ * where this started, two flights of Wildcats could turn about each other for
+ * four minutes without either of them going down, which is not a fighter
+ * action, it is an escort.
+ */
+const FIGHTER_GUNS = 85;
+
 const TURN_RATE = { fighter: 0.28, dive: 0.22, scout: 0.22, torpedo: 0.17 };
 const ROLL_RATE = 0.5;
+
+/** Gravity, which everything in the air is subject to. */
+const G = 9.80665;
+
+/**
+ * What each kind can do in the vertical, and how high she can get.
+ *
+ * `climb` is her best rate of climb at sea level in metres a second -- a
+ * Wildcat's twenty-two hundred feet a minute, a loaded Avenger's eleven -- and
+ * it falls off as she gets up, because the engine is breathing thinner air.
+ * `dive` is what the airframe will stand going down. Between them and gravity
+ * they are the whole of an aeroplane's vertical.
+ *
+ * A flight used to have no height at all. The client drew her at a height it
+ * worked out from how long she had been up, which meant every aeroplane in the
+ * game climbed at the same rate to the same altitude whatever she was and
+ * whatever she was doing, and a dive bomber dived by changing a number on the
+ * client that nothing else could see.
+ */
+const AIRFRAME = {
+  fighter: { climb: 11.5, ceiling: 3800, dive: 34 },
+  dive: { climb: 7.5, ceiling: 3400, dive: 46 },
+  scout: { climb: 5.5, ceiling: 3000, dive: 26 },
+  torpedo: { climb: 6.0, ceiling: 2900, dive: 24 },
+};
+
+/** What a strike cruises at, and what it comes down to in order to attack. */
+const CRUISE_ALT = 540;
+/**
+ * And the height it forms up at, which is lower.
+ *
+ * Everybody joins at the rendezvous height and the whole strike climbs out
+ * together afterwards. Having the leader circle at cruising height instead
+ * left each flight that came off the deck two hundred metres below her and
+ * climbing -- and climbing costs speed, so they could not close either, and
+ * the strike went out strung a kilometre apart.
+ */
+const FORM_ALT = 260;
+/** A torpedo bomber runs in on the water; a dive bomber comes over the top. */
+const RUN_IN_ALT = { torpedo: 42, dive: 900, fighter: 300, scout: 260 };
+/**
+ * How far out each kind starts changing height, and where she has to be at it.
+ *
+ * A torpedo bomber does not dive at her target: she lets down miles out and
+ * runs in flat on the water, which is why she is in the flak so long and why
+ * she needs the fighters. A dive bomber does the opposite -- she comes in high
+ * and pushes over on top. Both have to be at the right height before they get
+ * there, not diving for it at the last moment.
+ */
+const RUN_IN_FROM = { torpedo: 5200, dive: 4200, fighter: 3000, scout: 3200 };
+const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
+
+/** The best rate of climb anything in this strike can hold. */
+function slowestClimb(state, p) {
+  let slow = Infinity;
+  for (const q of state.planes) {
+    if (q.dead || q.owner !== p.owner || q.sqId !== p.sqId) continue;
+    const f = AIRFRAME[q.role] || AIRFRAME.scout;
+    if (f.climb < slow) slow = f.climb;
+  }
+  return Number.isFinite(slow) ? slow : (AIRFRAME[p.role] || AIRFRAME.scout).climb;
+}
+
+/**
+ * The height she wants to be at, which is a matter of what she is doing.
+ *
+ * Forming up and on passage she is at cruising height. Once she is in to
+ * attack she goes to the height her weapon is delivered from: a torpedo
+ * bomber comes right down to the water, a dive bomber goes up and over the
+ * top to push down on her target. Coming home she lets down onto her deck.
+ */
+function wantedHeight(state, p, carrier, inCompany) {
+  // In company she flies her leader's height. That is what keeping station
+  // means, and without it the flights drift apart in the vertical and then in
+  // the horizontal too, because height is speed: one climbing while another is
+  // levelling off is one slower than the other.
+  if (inCompany && p.lead && p.lead !== p.id) {
+    const lead = state.planes.find((q) => q.id === p.lead && !q.dead);
+    if (lead) return lead.y || CRUISE_ALT;
+  }
+  // Forming up: everybody at the rendezvous height, so nobody is climbing
+  // while she is trying to close.
+  if (p.phase === 'formup') return FORM_ALT;
+  if (p.phase === 'return') {
+    if (!carrier) return CRUISE_ALT;
+    const d = dist(p.x, p.z, carrier.x, carrier.z);
+    // Down the glide over the last mile and a half.
+    if (d > 2400) return CRUISE_ALT;
+    return 30 + (CRUISE_ALT - 30) * Math.min(1, (d - 300) / 2100);
+  }
+  if (p.phase !== 'outbound') return CRUISE_ALT;
+  // A fighter goes to whatever height the thing she is after is at.
+  if (p.targetAir) {
+    const foe = state.planes.find((q) => q.id === p.targetAir && !q.dead);
+    if (foe) return Math.max(60, foe.y || CRUISE_ALT);
+  }
+  const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
+  if (!mark) return CRUISE_ALT;
+  const d = dist(p.x, p.z, mark.x, mark.z);
+  const from = RUN_IN_FROM[p.role] ?? 3600;
+  if (d > from) return CRUISE_ALT;
+  const at = RUN_IN_ALT[p.role] ?? 260;
+  const by = RUN_IN_BY[p.role] ?? 700;
+  // Eased into over the run-in, so she is at her attack height before she gets
+  // there rather than diving for it at the last moment.
+  const k = clamp((d - by) / Math.max(1, from - by), 0, 1);
+  return at + (CRUISE_ALT - at) * k;
+}
 
 /**
  * How much of a battery's fire is telling, at a given fraction of its range.
@@ -2099,6 +2247,33 @@ function stepPlanes(state, dt) {
         const off = dist(p.x, p.z, station.x, station.z);
         speed *= clamp(1 + (off - 120) / 900, 0.9, 1.22);
       }
+
+      // The vertical, which she has weight in.
+      //
+      // She climbs at the rate her engine has power to spare for, and that
+      // falls off as she gets up into thinner air. She dives at whatever the
+      // airframe will stand. And she cannot change her vertical speed
+      // instantly in either direction, because she has mass: the rate of
+      // change is held to about a third of a gravity, which is what a pilot
+      // would pull.
+      const frame = AIRFRAME[p.role] || AIRFRAME.scout;
+      const wantY = wantedHeight(state, p, carrier, !!station);
+      // A formation climbs at the rate its slowest aeroplane can hold, because
+      // otherwise it is not a formation. Left to their own rates the fighters
+      // were at cruising height while the torpedo bombers were still two
+      // hundred metres below and climbing -- and climbing costs speed, so the
+      // strike went out strung further and further apart the higher it got.
+      const best = station ? Math.min(frame.climb, slowestClimb(state, p)) : frame.climb;
+      const rise = best * Math.max(0.15, 1 - p.y / frame.ceiling);
+      const askVy = clamp((wantY - p.y) * 0.22, -frame.dive, rise);
+      p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -G * 0.34 * dt, G * 0.34 * dt);
+      p.y = Math.max(14, p.y + p.vy * dt);
+
+      // And height is speed. Going down she gains it and going up she pays
+      // for it, which is why a dive bomber is fast in the dive and a loaded
+      // bomber climbing out is slow.
+      speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
+
       p.x += Math.sin(p.heading) * speed * dt;
       p.z += Math.cos(p.heading) * speed * dt;
     } else {
@@ -2116,7 +2291,7 @@ function stepPlanes(state, dt) {
         // Both flights are shooting; the one with more aircraft up and the
         // better position does more of it. She wears them down rather than
         // deciding it in one pass.
-        const bite = P.fighterGuns ?? 26;
+        const bite = P.fighterGuns ?? FIGHTER_GUNS;
         foe.hp -= bite * p.count * dt;
         p.hp -= (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt;
         gunsSeen(state, p, foe.x, foe.z, true);
@@ -2136,7 +2311,11 @@ function stepPlanes(state, dt) {
         p.gunAt = -9;
         gunsSeen(state, p, mark.x, mark.z, false);
         p.phase = 'return';
-      } else if (p.life > 150) {
+      } else if (p.life > 260) {
+        // Out of patrol endurance. It used to be a hundred and fifty seconds,
+        // which was most of a sortie once a strike started spending a minute
+        // forming up over the ship: the escort turned for home about the time
+        // it found anything to fight.
         p.phase = 'return';
       }
       out.push(p);

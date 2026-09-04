@@ -227,6 +227,13 @@ export const SHIP_CLASSES = {
       // Off a catapult, not down a flight deck: the whole evolution is the
       // catapult training out, the engine running up and the shot itself.
       catapult: true, deckRun: 8.6, deckCycle: 30,
+      // The height the catapult shot leaves her at, off the integrated
+      // profile: a scout is thrown off level and climbs from there.
+      runHeight: 22,
+      // Where the shot leaves her: a hundred and forty metres out, on the
+      // bearing the catapult was trained to, which is well round on the bow.
+      // Measured off the integrated catapult shot, not guessed.
+      runOut: 141, runBearing: 1.16,
       // Nothing for a captain to balance -- she embarks scouts and that is all
       // there is aboard -- so there is no hangar to re-stow and no `group`.
       flight: { fighters: 0, dive: 2, torpedo: 0 },
@@ -327,7 +334,25 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    planes: null,
+    // Three Arado 196s, worked off a single athwartships catapult abaft her
+    // funnel, with a hangar forward of it and a heavy crane to starboard to
+    // fish them out of the water again. She flew them as scouts -- which is
+    // what a heavy cruiser's aircraft were for -- so they go out to look, and
+    // what they carry is enough to be a nuisance to a destroyer rather than a
+    // threat to anything bigger.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 54, strikeRange: 8500,
+      rearm: 110, hp: 620, dropSpread: 0.07,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 700, bombHit: 0.28, bombFire: 0.12,
+      catapult: true, deckRun: 9.4, deckCycle: 34,
+      runHeight: 20,
+      // Where the shot leaves her. Her catapult lies across the ship, so her
+      // scouts go off the beam, not off the bow -- measured off the same
+      // integrated shot the model on deck flies.
+      runOut: 128, runBearing: 1.42,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
     datasheet: {
       displacement: 16170,
       aircraft: 3,
@@ -535,6 +560,11 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 3, perSquadron: 4, cruiseSpeed: 78, strikeRange: 14000,
+      // Where and how high her deck run leaves an aeroplane, measured off the
+      // integrated launch the model on her deck actually flies -- so the
+      // aeroplane the formation starts drawing is the one that just went off
+      // the bow, in the same place at the same height.
+      runOut: 156, runHeight: 41,
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
       // What a dive bomber does when it gets there: a thousand-pound bomb is

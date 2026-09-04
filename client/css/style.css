@@ -322,6 +322,22 @@ input[type="range"] { accent-color: var(--red); }
    read off and now the thing the fleet is conned from, so it is sized to the
    corner it sits in rather than to a fixed number of pixels -- big enough to
    put a finger on a destroyer, and stopped well short of owning the screen. */
+/* The free-camera key, over the plot in the top corner: the only way to walk
+   the camera off its ship, and lit while it is off. */
+.free-cam-key {
+  display: block; margin: 0 0 5px auto; padding: 5px 12px;
+  font: 600 11px/1 var(--stencil, inherit); letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: rgba(6, 16, 28, 0.82); border: 1px solid var(--panel-line);
+  color: var(--steel); cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.free-cam-key:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
+.free-cam-key[aria-pressed="true"] {
+  color: #0b141d; background: var(--sand); border-color: var(--sand);
+}
+@media (pointer: coarse) { .free-cam-key { padding: 8px 14px; font-size: 12px; } }
+
 .minimap-wrap {
   width: min(30vw, 42vh, 400px); height: min(30vw, 42vh, 400px);
   border: 1px solid var(--panel-line); background: rgba(6, 16, 28, 0.72);

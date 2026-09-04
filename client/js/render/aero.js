@@ -64,6 +64,16 @@ export const AERO = {
     // hauled about, which is exactly why she needs the fighters.
     rollRate: 1.5, pitchRate: 0.85, bankMax: 1.15, gLimit: 4.0,
   },
+  // The German cruiser's scout: an Arado 196, a low-wing monoplane on two big
+  // floats with a nine-hundred-horsepower radial. Faster and a good deal
+  // stronger than a Kingfisher -- she was armed well enough to take a
+  // submarine on -- and still far too draggy on those floats to get herself
+  // off anything without a catapult under her.
+  arado: {
+    mass: 3300, wing: 28.4, span: 12.44, clMax: 1.48, cd0: 0.0390,
+    thrust: 12600, vMax: 86, name: 'Ar 196A-3',
+    rollRate: 1.7, pitchRate: 1.0, bankMax: 1.2, gLimit: 4.5,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

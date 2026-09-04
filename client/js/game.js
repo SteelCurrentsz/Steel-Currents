@@ -108,6 +108,10 @@ export class Battle {
     // point on the sea it orbits instead. Null means it is on whatever it is
     // following -- your own hull, or a mark picked off the chart.
     this.roam = null;
+    // Whether the free camera is up. It is the one way the camera comes off a
+    // ship, it has a key of its own in the corner, and picking anything on the
+    // plot puts it away again. See freeCamera.
+    this.freeCam = false;
     // What is left of the ones that were shot down, on their way into the sea.
     this.wrecks = [];
     this.watchYaw = 0;
@@ -155,6 +159,7 @@ export class Battle {
     });
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
+    document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
@@ -581,6 +586,8 @@ export class Battle {
     }
     // Picking a mark off the chart recentres on it: whatever the camera had
     // been walked to, it is on this now.
+    // Picking anything off the plot is how you come out of the free camera.
+    if (hit) this.freeCamera(false);
     if (hit) this.roam = null;
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
@@ -790,14 +797,11 @@ export class Battle {
       this.hud.alert('No aircraft in the air');
       return;
     }
-    // The one the carrier's own model is flying if she is up -- that is the
-    // aeroplane drawn in full rather than as one of a formation -- and failing
-    // that, the youngest flight she has put up.
-    const hero = null;
-    const pick = hero || mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
-    this.roam = null;
+    // The youngest flight she has put up: the one that has just gone.
+    const pick = mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
+    this.freeCamera(false);
     this.watching = {
-      kind: 'plane', carrier: hero ? this.shipId : null, id: pick.i,
+      kind: 'plane', carrier: null, id: pick.i,
       name: `${pick.r === 'fighter' ? 'her fighters' : pick.r === 'dive' ? 'her dive bombers' : 'her torpedo bombers'} — drag to look round them`,
     };
     this.watchPov = false;
@@ -841,7 +845,39 @@ export class Battle {
    * as far as you like, and it stays where it is put. Tapping any mark on the
    * chart brings it back and recentres it on that.
    */
+  /**
+   * The free camera: on, off, and the only way in.
+   *
+   * It used to start the moment anybody shift-dragged or put two fingers on
+   * the glass, which meant the camera wandered off its ship by accident and
+   * there was nothing on screen to say it had. It is a thing you ask for now,
+   * it shows that it is on, and picking anything off the plot puts it back.
+   */
+  freeCamera(on = !this.freeCam) {
+    const want = !!on;
+    if (want === !!this.freeCam) return;
+    this.freeCam = want;
+    const key = document.getElementById('free-cam');
+    if (key) key.setAttribute('aria-pressed', want ? 'true' : 'false');
+    if (want) {
+      // She starts wherever the camera is already looking, so turning her on
+      // does not move the picture.
+      const here = this.focusPoint();
+      this.roam = { x: here.x, z: here.z };
+      if (this.watching) this.lookAt(null);
+      this.hud.setWatchBanner({ name: 'the battlefield' }, false);
+      this.hud.alert('Free camera — pick anything on the plot to come back');
+    } else {
+      this.roam = null;
+      if (!this.watching) this.hud.setWatchBanner(null);
+    }
+    audio.click();
+  }
+
   panCamera(dx, dy, dt) {
+    // Only with the free camera up: it is the one way the camera leaves its
+    // ship, and it has a key of its own. See freeCamera.
+    if (!this.freeCam) return;
     if (!dx && !dy) return;
     const here = this.focusPoint();
     if (!this.roam) this.roam = { x: here.x, z: here.z };
@@ -857,9 +893,6 @@ export class Battle {
     const H = (this.scene.world && this.scene.world.half) || 20000;
     this.roam.x = clamp(this.roam.x, -H, H);
     this.roam.z = clamp(this.roam.z, -H, H);
-    // Walking away from a contact is letting go of it: the camera is yours now.
-    if (this.watching) this.lookAt(null);
-    else this.hud.setWatchBanner({ name: 'the battlefield' }, false);
   }
 
   /** Where the camera is looking: a mark, a point it was walked to, or you. */
@@ -877,6 +910,7 @@ export class Battle {
 
   /** Bring the camera home to your own bridge. */
   cameraHome() {
+    this.freeCamera(false);
     this.roam = null;
     if (this.watching) this.lookAt(null);
     else this.hud.setWatchBanner(null);
@@ -1281,12 +1315,10 @@ export class Battle {
       const bank = held === undefined ? want
         : held + (want - held) * (1 - Math.pow(0.02, dt));
       this.planeTurn.set(pl.i, bank);
-      const climb = clamp(((pl.a ?? 99) - 6) / 30, 0, 1);
-      // Nose up while she is still climbing out, levelling off as she reaches
-      // cruise -- and starting at the angle the deck run leaves her at, so the
-      // aeroplane the formation takes over is at the attitude the aeroplane
-      // that came off the planking was in.
-      const pitch = (1 - climb) * 0.15;
+      // Nose up when she is going up and nose down when she is going down, at
+      // the angle her own rate of climb over her speed works out to. A dive
+      // bomber pushed over is drawn pushed over, because she is.
+      const pitch = clamp(Math.atan2(pl.vy ?? 0, 78), -0.85, 0.5);
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
@@ -1411,12 +1443,12 @@ export class Battle {
    * the scene takes her over instead of dropping through twenty metres of air.
    */
   planeHeight(pl) {
-    const CRUISE = 220;
-    // Where the deck run leaves her: forty-one metres, off the round-down and
-    // over the bow, measured off the same integrated launch the model flies.
-    const OFF_DECK = 41;
-    const k = Math.min(1, Math.max(0, ((pl.a ?? 99) - 6) / 30));
-    return OFF_DECK + (CRUISE - OFF_DECK) * (k * k * (3 - 2 * k));
+    // She has a height, and the simulation flies her to it. It used to be
+    // worked out here from how long she had been up, which meant every
+    // aeroplane in the game climbed at the same rate to the same altitude
+    // whatever she was and whatever she was doing -- and a dive bomber dived
+    // by changing a number nothing else could see.
+    return pl.y ?? 220;
   }
 
   /**

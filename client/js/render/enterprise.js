@@ -936,7 +936,14 @@ export function stepDeck(deck, t) {
   };
   const gear = (u) => { if (plane.gear) plane.gear(u); };
 
-  if (deck.airborne) return;        // she is flying; the scene has her now
+  // She is away, and her flight is being drawn out where the deck run left
+  // her. The model on the deck is not a second aeroplane: it is put out of
+  // sight until the lift brings the next one up.
+  //
+  // It used to be left exactly where the run ended, which is a hundred and
+  // fifty metres off the bow and forty metres up -- an aeroplane that took off
+  // and then stopped, hanging in the air, for the rest of the sortie.
+  if (deck.airborne) { p.visible = false; return; }
   if (run >= LAUNCH) {
     // The evolution is over, so she went -- and she has to be handed over
     // whether or not a frame happened to land in the last tenth of a second of
@@ -946,7 +953,7 @@ export function stepDeck(deck, t) {
     aft.group.position.y = FD;
     wings(true);
     gear(1);
-    p.visible = true;
+    p.visible = false;
     // Where the deck run actually left her, not a spot picked by hand: put her
     // anywhere else and she jumps at the moment she is handed over.
     const end = deck.profile ? deck.profile.rows[deck.profile.rows.length - 1] : null;

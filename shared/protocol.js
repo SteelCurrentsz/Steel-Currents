@@ -132,6 +132,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life),
+      // How high she is, and how fast she is going up or down. The client used
+      // to work her height out from how long she had been up, which made every
+      // aeroplane climb at the same rate to the same altitude whatever she was
+      // and whatever she was doing.
+      y: r1(p.y ?? 220), vy: r1(p.vy ?? 0),
       // How hard she is turning, so the client can bank her properly instead
       // of differencing two headings five times a second.
       b: r3(p.turn || 0),

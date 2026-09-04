@@ -21,6 +21,8 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
 import { buildInterior, bySection } from './interior.js';
+import { AERO, catapultProfile } from './aero.js';
+import { DECK_RUN } from '../../../shared/sim.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
@@ -635,6 +637,11 @@ const B_Z = 52;                 // Bruno, superfiring over her
 const BRIDGE = [22, 47];        // the tower, foot to fore end
 const FUNNEL_Z = 6;
 const CAT_Z = -12;              // the catapult, athwartships
+// Her catapult's stroke. The trolley sits inboard of the ring and is thrown
+// out along the girder; she is off the end of it in about seventy feet.
+const CAT_A = -8.0;             // the trolley at rest, inboard end of the track
+const CAT_STROKE = 20.0;        // and how much track she has to be thrown down
+const CAT_TRAIN = 0.30;         // how far the ring swings round to shoot
 const HANGAR = [-32, -18];      // the aircraft house
 const AFT_TOWER = [-46, -34];   // the after control position
 
@@ -1208,11 +1215,19 @@ function aircraft(g) {
   }
   // The catapult: a long girder across her on a training ring, with the
   // trolley on it and an Arado sitting on the trolley.
+  //
+  // It works. The ring trains, the trolley runs out along the girder and the
+  // aeroplane is thrown off the end of it -- so the whole thing is left out of
+  // the weld and driven by stepCatapult below, the same way the carrier's
+  // lifts and the Cleveland's catapults are.
   const cat = new THREE.Group();
   cat.position.set(0, sdeck(CAT_Z) + 1.4, CAT_Z);
+  cat.userData.dynamic = true;
   g.add(cat);
   cyl(cat, M.steelDark, 2.0, 2.3, 0.9, 0, -0.75, 0, 18);
-  // The girder itself, athwartships, twenty-two metres of it.
+  // The girder itself, athwartships, twenty-two metres of it. Her stroke runs
+  // out along its own +z, so the group is turned to lie across her and the
+  // trolley runs to starboard.
   const girder = new THREE.Group();
   girder.rotation.y = Math.PI / 2;
   cat.add(girder);
@@ -1222,8 +1237,15 @@ function aircraft(g) {
     box(girder, M.steelDark, 2.1, 0.5, 0.16, 0, -0.15, i * 2.4);
   }
   // The trolley, and the aeroplane on it.
-  box(girder, M.gunDark, 2.2, 0.34, 3.0, 0, 0.62, 0);
-  arado(girder, 0, 0.95, 0, 0);
+  const car = new THREE.Group();
+  car.position.z = CAT_A;
+  girder.add(car);
+  box(car, M.gunDark, 2.2, 0.34, 3.0, 0, 0, 0);
+  const plane = new THREE.Group();
+  plane.position.set(0, 0.33, 0);
+  car.add(plane);
+  const p2 = arado(plane, 0, 0, 0, 0);
+  g.userData.catapult = { cat, girder, car, plane, prop: p2.userData.prop };
   // And a second one struck down beside the hangar, wings folded back.
   arado(g, S * 5.6, foot + 0.35, HANGAR[0] + 4.5, S * 0.25, true);
   // The crane: a pedestal, a lattice jib, and the whip hanging off it.
@@ -1291,10 +1313,15 @@ function arado(g, x, y, z, ry, folded = false) {
   // The cowling and the propeller.
   cyl(p, M.gunDark, 0.62, 0.66, 1.1, 0, 1.62, 3.9, 14).rotation.x = Math.PI / 2;
   cyl(p, M.planeTop, 0.16, 0.3, 0.5, 0, 1.62, 4.6, 10).rotation.x = Math.PI / 2;
+  // The blades in a group of their own, so they can be turned over.
+  const prop = new THREE.Group();
+  prop.position.set(0, 1.62, 4.75);
+  p.add(prop);
   for (let i = 0; i < 3; i++) {
-    const bl = box(p, M.gunDark, 0.16, 3.0, 0.06, 0, 1.62, 4.75);
+    const bl = box(prop, M.gunDark, 0.16, 3.0, 0.06, 0, 0, 0);
     bl.rotation.z = (i / 3) * Math.PI * 2;
   }
+  p.userData.prop = prop;
   // The greenhouse, which on an Arado runs almost to the fin.
   loftRings(p, M.glass, [
     [0.42, 0.5, -2.0, 2.1], [0.5, 0.55, 0.4, 2.16], [0.46, 0.5, 2.4, 2.12],
@@ -1541,6 +1568,84 @@ function mountings(g) {
  * Everything static is welded into as few meshes as the materials allow; the
  * mountings are built afterwards and left alone, because they have to train.
  */
+/**
+ * Her catapult, working.
+ *
+ * The same evolution the Cleveland flies, athwartships instead of fore and
+ * aft: the ring trains round into the wind, the engine runs up on the trolley,
+ * and the shot itself is read off the integrated catapult profile -- thrust
+ * against her weight down twenty metres of track and then flying. Once she is
+ * off the end of it the flight is drawn out where the shot left her, so the
+ * model goes out of sight until she is craned back aboard.
+ */
+const CAT_TRAIN_T = 2.4;        // seconds to swing the ring round
+const CAT_RUNUP = 5.4;          // and to wind the engine up on the trolley
+
+function stepCatapult(deck, t) {
+  const c = deck.cat;
+  if (!c) return;
+  const pr = deck.profile;
+  const shot = pr.rows.length * pr.dt;
+  // Paced so she leaves the track at the moment the simulation puts her
+  // flight up, however long the integrated shot takes.
+  const pace = (CAT_RUNUP + shot) / deck.run;
+  const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
+
+  // The ring trains out on the order and comes back afterwards.
+  let out = 0;
+  if (run >= 0) {
+    if (run < CAT_TRAIN_T) out = smooth(run / CAT_TRAIN_T);
+    else if (run < CAT_RUNUP + shot) out = 1;
+    else out = 1 - smooth((run - CAT_RUNUP - shot) / 3.5);
+  }
+  c.cat.rotation.y = CAT_TRAIN * out;
+
+  if (run < 0) {
+    // On the trolley, inboard, with the engine ticking over.
+    c.car.position.z = CAT_A;
+    c.plane.position.set(0, 0.33, 0);
+    c.plane.rotation.set(0, 0, 0);
+    c.plane.visible = !deck.gone;
+    if (c.prop && !deck.gone) c.prop.rotation.z += 0.04;
+    return;
+  }
+  if (deck.gone) { c.plane.visible = false; return; }
+
+  let along = CAT_A;
+  let y = 0;
+  let pitch = 0;
+  let turning = 3;
+  if (run < CAT_TRAIN_T) {
+    turning = 3 + 14 * out;
+  } else if (run < CAT_RUNUP) {
+    // Held on the trolley with the engine wound right up: she shakes.
+    turning = 30;
+    pitch = 0.005 * Math.sin((run - CAT_TRAIN_T) * 26);
+  } else if (run < CAT_RUNUP + shot) {
+    turning = 34;
+    const i = Math.min(pr.rows.length - 1,
+      Math.max(0, Math.round((run - CAT_RUNUP) / pr.dt)));
+    const [s2, h, th] = pr.rows[i];
+    along = CAT_A + s2;
+    y = h;
+    // Nose up: she is climbing away off the end of the girder.
+    pitch = th;
+  } else {
+    deck.airborne = true;
+    deck.gone = true;
+    c.plane.visible = false;
+    return;
+  }
+  c.car.position.z = Math.min(CAT_A + CAT_STROKE, along);
+  // Past the end of the girder there is no trolley under her: she carries on
+  // along the line of the track on her own.
+  c.plane.position.set(0, 0.33 + y,
+    Math.max(0, along - (CAT_A + CAT_STROKE)));
+  c.plane.rotation.set(pitch, 0, 0);
+  c.plane.visible = true;
+  if (c.prop) c.prop.rotation.z += turning * 0.05;
+}
+
 export function buildHipper() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
@@ -1553,11 +1658,53 @@ export function buildHipper() {
   const turrets = mainBattery(g);
   mountings(g);
   g.userData.classId = 'hipper';
+
+  // Her catapult, and the handful of calls the scene works it with. She flies
+  // her Arados off it the same way the Cleveland flies her Kingfishers: the
+  // simulation says when, and the ship knows what a launch looks like.
+  const deck = {
+    cat: g.userData.catapult, live: null, launchAt: null, airborne: false,
+    gone: false, plane: null, flightId: 0, pending: [], endMatrix: null,
+    // Paced to her own launch, not the carrier's. Both ships used to take the
+    // carrier's twenty-four-second deck cycle, so the simulation put a scout
+    // on the plot fifteen seconds before the model left the girder.
+    aero: 'arado', run: CLS.planes ? CLS.planes.deckRun : DECK_RUN,
+    profile: catapultProfile(AERO.arado, CAT_STROKE),
+  };
+  g.userData.deck = deck;
+  g.userData.deckPlane = g.userData.catapult ? g.userData.catapult.plane : null;
+  g.userData.step = (t) => stepCatapult(deck, t);
+  g.userData.launch = (t) => {
+    deck.launchAt = t;
+    deck.airborne = false;
+    deck.gone = false;
+    if (deck.cat) deck.cat.plane.visible = true;
+  };
+  // She has no hangar lift and no arrester wire: a floatplane alights
+  // alongside and is fished out by the crane and put back on her trolley, so
+  // being recovered and being struck below are the same evolution.
+  g.userData.recover = () => {
+    deck.airborne = false;
+    deck.launchAt = null;
+    deck.gone = false;
+    if (!deck.cat) return;
+    if (deck.cat.plane.parent !== deck.cat.car) deck.cat.car.add(deck.cat.plane);
+    deck.cat.plane.position.set(0, 0.33, 0);
+    deck.cat.plane.rotation.set(0, 0, 0);
+    deck.cat.plane.visible = true;
+    deck.cat.car.position.z = CAT_A;
+    deck.cat.cat.rotation.y = 0;
+  };
+  g.userData.stow = g.userData.recover;
+  // Where she comes back to: her own trolley, out on the end of the girder.
+  g.userData.landingSpot = [S * 9, sdeck(CAT_Z) + 2.4, CAT_Z];
+
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
     secMounts: g.userData.secMounts || [],
     aaMounts: g.userData.aaMounts || [],
     torpMounts: g.userData.torpMounts || [],
+    deckPlane: g.userData.deckPlane,
   };
 }
 

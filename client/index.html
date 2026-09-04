@@ -246,6 +246,12 @@
   </div>
 
   <div class="hud-right">
+    <!-- The one way into the free camera. It used to start the moment anybody
+         shift-dragged, which meant the camera wandered off its ship by
+         accident; now it is a thing you ask for and a thing you can see is on.
+         Picking anything off the plot below comes straight back out of it. -->
+    <button class="free-cam-key" id="free-cam" type="button"
+            aria-pressed="false">Free cam</button>
     <div class="minimap-wrap" id="minimap-wrap">
       <canvas id="minimap" width="440" height="440"></canvas>
       <!-- The corner plot is worked directly now, so the way to the big chart

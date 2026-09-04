@@ -1301,7 +1301,17 @@ function stepCatapults(deck, t) {
       c.plane.position.set(0, PLANE_Y + y,
         PLANE_Z + Math.max(0, along - (CAT_A + CAT_STROKE)));
       c.plane.rotation.set(pitch, 0, 0);
+      c.plane.visible = true;
       if (c.prop) c.prop.rotation.z += turning * 0.05;
+    } else {
+      // She is away, and her flight is being drawn out where the shot left
+      // her. The model on the cradle is not a second aeroplane: it is put out
+      // of sight until she is craned back aboard.
+      //
+      // It used simply to stop being positioned, which left it hanging in the
+      // air over the quarterdeck exactly where the shot ended -- a scout that
+      // took off and then paused, levitating, for the rest of the battle.
+      c.plane.visible = false;
     }
   }
 }
