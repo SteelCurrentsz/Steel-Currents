@@ -2,7 +2,7 @@
 // receive the enemies your side can actually see.
 
 import { getClass } from './ships.js';
-import { torpedoVisible, SECTIONS } from './sim.js';
+import { torpedoVisible, SECTIONS, sectionVolume } from './sim.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -27,6 +27,21 @@ export function shipSnapshot(ship, full) {
       const c = ship.sections[k.k];
       return Math.round((c.hp / c.max) * 9);
     }),
+    // How she is floating: how much deeper the water in her has put her, how
+    // far over she is lying, and how far down by the head or the stern. Three
+    // numbers, and between them they are the whole of how she sinks -- there
+    // is no canned animation for the client to play, only this.
+    fl: [r1(ship.sink), r3(ship.heel), r3(ship.trim)],
+    // Which compartments have water in them and which are alight, in tenths,
+    // so the fire and the water can be drawn where they actually are.
+    wt: SECTIONS.map((k) => {
+      const c = ship.sections[k.k];
+      const v = sectionVolume(getClass(ship.classId), k.k);
+      return v ? Math.round(Math.min(1, (c.wP + c.wS) / v) * 9) : 0;
+    }),
+    fr: SECTIONS.map((k) => Math.round(ship.sections[k.k].fire * 9)),
+    // Where her back went, if it went.
+    bk: ship.broke == null ? null : r3(ship.broke),
   };
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam

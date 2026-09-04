@@ -457,7 +457,10 @@ export function buildShip(classId) {
   buildInterior(root, genericHull(cls, freeboard));
   mergeStatic(root, bySection(cls.hull.length));
 
-  root.userData = { classId: cls.id, length: cls.hull.length, beam: cls.hull.beam, deckY };
+  // Assigned into, not over: buildInterior left her lines on her and the
+  // renderer reads them back.
+  Object.assign(root.userData,
+    { classId: cls.id, length: cls.hull.length, beam: cls.hull.beam, deckY });
   return { group: root, turrets, length: cls.hull.length, beam: cls.hull.beam, deckY };
 }
 

@@ -16,7 +16,7 @@ import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
-  flightDeckOut,
+  flightDeckOut, resolveShellHit, buoyancy,
   flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
 import { Pilot, AERO } from '../client/js/render/aero.js';
@@ -253,16 +253,24 @@ check('a torpedo is a torpedo, and it leaves a track behind it', () => {
   assert.ok(len / across > 5, 'she is not slender enough to be a torpedo');
 });
 
-check('fires and flooding burn a ship down and repair clears them', () => {
+check('fires burn her down, the sea comes in, and repair fights both', () => {
   const { state, a } = duel('fletcher', 'iowa');
-  a.fireTimers = [30, 30]; a.fires = 2;
-  a.floodTimers = [40]; a.flooding = 1;
+  // A fire in her machinery and a hole in her side abreast of it, four metres
+  // down. Both of them are things in a particular compartment now, not
+  // counters on the ship.
+  a.sections.mid.fire = 0.5;
+  a.sections.fwd.holeS = 0.4;
+  a.sections.fwd.holeY = 4;
   const before = a.hp;
   for (let i = 0; i < 30 * 5; i++) step(state, DT);
   assert.ok(a.hp < before, 'damage over time should tick');
+  assert.ok(a.sections.fwd.wS > 1, 'no water came in through the hole');
+  assert.ok(a.sections.fwd.wP === 0, 'water came in on the side that is not open');
+  assert.ok(a.fires >= 1, 'the fire went out on its own');
+  assert.ok(a.sink > 0, 'she is no deeper for all that water');
   useRepair(state, a);
-  assert.equal(a.fires, 0);
-  assert.equal(a.flooding, 0);
+  assert.equal(a.fires, 0, 'the fire is still burning after damage control');
+  assert.equal(a.sections.fwd.holeS, 0, 'the hole was not shored up');
 });
 
 check('concealment: a destroyer is invisible before it opens fire', () => {
@@ -3782,6 +3790,51 @@ check('every ship has an inside, and it is inside her', () => {
       `${id}'s insides go down to ${bb.min.y.toFixed(1)} below a ${cls.hull.draft} m draft`);
     assert.ok(bb.max.z <= cls.hull.length / 2 + 1 && bb.min.z >= -cls.hull.length / 2 - 1,
       `${id}'s insides run past her own ends`);
+
+    // And not a point of it outside her plating -- tested against the very
+    // lines the plating was lofted through, at the station each point really
+    // belongs to. Her stem and her counter are raked, so the station a point
+    // is at is not its distance along her over her half-length: it is solved
+    // for, the same way the shell was.
+    //
+    // A box has thickness and height, so it stands at several stations at
+    // once. Fitted to the station at its middle -- which is how this was
+    // written first -- its corners come out through the plating wherever the
+    // hull is curving, which at the ends is everywhere: pale ticks of bulkhead
+    // and frame showing along the waterline of an undamaged ship.
+    const L = built.group.userData.lines;
+    assert.ok(L, `${id} does not carry the lines she was built to`);
+    const halfLen = cls.hull.length / 2;
+    const stationOf = (z, y) => {
+      if (!L.zAt) return Math.max(-1, Math.min(1, z / halfLen));
+      let lo = -1.02;
+      let hi = 1.02;
+      for (let k = 0; k < 26; k++) {
+        const mid = (lo + hi) / 2;
+        if (L.zAt(mid, y) < z) lo = mid; else hi = mid;
+      }
+      return Math.max(-1, Math.min(1, (lo + hi) / 2));
+    };
+    let proud = 0;
+    let worst = 0;
+    let mark = null;
+    for (const m of inside) {
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const px = Math.abs(pos.getX(i));
+        const py = pos.getY(i);
+        const pz = pos.getZ(i);
+        const t = stationOf(pz, py);
+        const over = Math.max(px - L.shellAt(t, py), py - L.sheer(t), L.keelY(t) - py);
+        if (over > 0.30) {
+          proud++;
+          if (over > worst) { worst = over; mark = [px, py, pz]; }
+        }
+      }
+    }
+    assert.equal(proud, 0,
+      `${id} has ${proud} points of her insides outside her plating, worst `
+      + `${worst.toFixed(2)} m at ${mark && mark.map((v) => v.toFixed(0)).join(',')}`);
     // And there is enough of it to be worth looking at: decks, bulkheads,
     // boilers, turbines, magazines and the steering gear.
     assert.ok(tris > 900, `${id} has only ${tris | 0} triangles inside her`);
@@ -3929,6 +3982,146 @@ check('the deck hands her over where and how she left it', () => {
   // draws her where she already is.
   assert.ok(Math.abs(DECK_RUN_OUT - deck.endPose.z) < 12,
     `the deck leaves her at ${deck.endPose.z.toFixed(0)} and her flight is born at ${DECK_RUN_OUT}`);
+});
+
+check('a shell that gets through opens her plating, and the sea comes in', () => {
+  // A penetration used to be an entry in a book: a number off the hit points
+  // and a counter incremented. It is a hole now, of a size, at a depth, on a
+  // side -- and below the waterline the sea comes through it.
+  const { state, a, b } = duel('iowa', 'cleveland', 9000);
+  a.aimX = b.x; a.aimZ = b.z;
+  const before = JSON.stringify(b.sections.mid);
+  // A sixteen-inch shell into her machinery, two metres under water.
+  const sh = {
+    id: 1, owner: a.id, team: a.team, caliber: 406,
+    spec: { type: 'ap', pen: 700, damage: 5000, fireChance: 0, shells: { ap: { velocity: 762 } } },
+    x: b.x, y: -2, z: b.z, vx: 0, vy: -40, vz: 400, life: 2,
+  };
+  resolveShellHit(state, sh, b, b.x, b.z, -2);
+  assert.notEqual(JSON.stringify(b.sections.mid), before, 'nothing happened to her at all');
+  const holed = SECTIONS.some((k) => {
+    const c = b.sections[k.k];
+    return c.holeP + c.holeS > 0;
+  });
+  assert.ok(holed, 'a sixteen-inch shell through her side left her watertight');
+  // And that hole lets water in, which nothing else in the model does.
+  const wet = () => SECTIONS.reduce((n, k) => n + b.sections[k.k].water, 0);
+  const w0 = wet();
+  for (let i = 0; i < 30 * 20; i++) step(state, DT);
+  assert.ok(wet() > w0 + 1, 'the hole is below her waterline and let nothing in');
+  assert.ok(b.sink > 0, 'all that water has not put her any deeper');
+});
+
+check('the sea decides how she sinks, and it is never the same twice', () => {
+  // No canned animation: how long she lasts, how far over she goes and which
+  // way she is down by all come out of where the water is. Three ships, three
+  // different endings, from the same code.
+  const put = (cls, holes) => {
+    const world = generateWorld(3, 'open_ocean');
+    const st = createState(world, { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'A', classId: cls, team: 0, index: 0 });
+    const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    foe.x = s.x + 60000; foe.z = s.z + 60000;      // hull down, out of it
+    for (const [k, side, area] of holes) {
+      s.sections[k][side] = area;
+      s.sections[k].holeY = 4;
+      // A torpedo does not only open her plating: it wrecks the compartment
+      // it goes into, and a wrecked compartment's bulkheads do not hold the
+      // water back. That is why one hit floods more than one space.
+      s.sections[k].hp = 0;
+    }
+    s.hp = hullIntegrity(s);
+    let t = 0;
+    let peakHeel = 0;
+    for (let i = 0; i < 30 * 900; i++) {
+      step(st, DT);
+      // She is being tested for flooding, not for pilotage.
+      s.x = Math.max(-4000, Math.min(4000, s.x));
+      s.z = Math.max(-4000, Math.min(4000, s.z));
+      t += DT;
+      peakHeel = Math.max(peakHeel, Math.abs(s.heel));
+      if (!s.alive) break;
+    }
+    return { ship: s, t, peakHeel, alive: s.alive };
+  };
+
+  // One torpedo in a destroyer's forward magazine: she lists to the side it
+  // went in, is slowed right down, and goes.
+  const one = put('fletcher', [['fwd', 'holeS', 26]]);
+  assert.equal(one.alive, false, 'a torpedo forward did not sink a destroyer at all');
+  assert.ok(one.ship.heel > 0.08,
+    `she went down with a list of ${(one.ship.heel * 57.3).toFixed(0)} degrees to starboard`);
+  assert.ok(one.t > 20 && one.t < 400,
+    `she took ${one.t.toFixed(0)} s, which is either instant or for ever`);
+
+  // Two on the same side: over much further, and much faster.
+  const same = put('fletcher', [['fwd', 'holeS', 26], ['mid', 'holeS', 24]]);
+  assert.equal(same.alive, false, 'two torpedoes did not sink a destroyer');
+  assert.ok(same.t < one.t, 'two torpedoes took longer than one');
+  assert.ok(same.peakHeel > one.peakHeel,
+    'two torpedoes in the same side did not lay her over further than one');
+
+  // And two on opposite sides -- which is counter-flooding. The water is on
+  // both sides of her instead of one, so she stays much more upright, and she
+  // stays afloat much longer, even though she has taken just as much sea
+  // aboard. That is the whole reason ships were counter-flooded.
+  const both = put('fletcher', [['fwd', 'holeS', 26], ['aft', 'holeP', 24]]);
+  assert.ok(both.peakHeel < same.peakHeel * 0.5,
+    `counter-flooded she still lay over ${(both.peakHeel * 57.3).toFixed(0)} degrees `
+    + `against ${(same.peakHeel * 57.3).toFixed(0)} for the same water on one side`);
+  assert.ok(both.ship.sink > 0.3, 'she took two torpedoes and did not settle at all');
+  assert.ok(both.t > same.t * 1.5,
+    `counter-flooded she lasted ${both.t.toFixed(0)} s against ${same.t.toFixed(0)}`);
+});
+
+check('water in her costs her speed, and the list costs her more', () => {
+  const world = generateWorld(11, 'open_ocean');
+  const mk = () => {
+    const st = createState(world, { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+    s.notch = 5;
+    return { st, s };
+  };
+  const run = (s, st, secs) => {
+    for (let i = 0; i < 30 * secs; i++) {
+      step(st, DT);
+      s.x = Math.max(-4000, Math.min(4000, s.x));
+      s.z = Math.max(-4000, Math.min(4000, s.z));
+    }
+    return s.speed;
+  };
+  const dry = mk();
+  const fast = run(dry.s, dry.st, 90);
+  const wet = mk();
+  wet.s.sections.fwd.holeS = 8;
+  wet.s.sections.fwd.holeY = 4;
+  const slow = run(wet.s, wet.st, 90);
+  assert.ok(fast > 12, `she never worked up: ${fast.toFixed(1)} m/s`);
+  assert.ok(slow < fast * 0.85,
+    `holed and listing she still made ${slow.toFixed(1)} against ${fast.toFixed(1)}`);
+  assert.ok(wet.s.heel > 0.05, 'the water is all on one side and she is upright');
+});
+
+check('a fire spreads from the compartment it started in', () => {
+  const { state, a } = duel('cleveland', 'iowa', 40000);
+  a.sections.mid.fire = 0.9;
+  const lit = () => SECTIONS.filter((k) => a.sections[k.k].fire > 0.05).map((k) => k.k);
+  assert.deepEqual(lit(), ['mid'], 'it did not start where it was put');
+  // A steel bulkhead holds a fire back until the structure round it has been
+  // opened up, so it takes a couple of minutes to get next door -- which is
+  // about what it took.
+  for (let i = 0; i < 30 * 150; i++) step(state, DT);
+  const now = lit();
+  assert.ok(now.length > 1, 'a fire burned for two and a half minutes and went nowhere');
+  assert.ok(now.includes('fwd') || now.includes('aft'),
+    'it did not get through a bulkhead into the compartment next door');
+  assert.ok(a.alive, 'a single fire burned a cruiser out on its own');
+  // And the sea puts it out, which is the one good thing about the sea.
+  a.sections.mid.holeS = 20;
+  a.sections.mid.holeY = 4;
+  for (let i = 0; i < 30 * 120; i++) step(state, DT);
+  assert.ok(a.sections.mid.fire < 0.05,
+    'the compartment flooded and the fire in it went on burning under water');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -588,6 +588,13 @@ export class ShipView {
     // compartment that has gone is taken off, and what was behind it -- her
     // decks, her frames, her machinery -- is what you see. See setCondition.
     this.gone = new Set();
+    // How she is floating, off the wire: deeper, over, and down by the head.
+    this.sinkY = 0;
+    this.heelBy = 0;
+    this.trimBy = 0;
+    // Set once she has stopped floating; see founder.
+    this.going = null;
+    this.halves = null;
     // Everything on her, sorted by the compartment it belongs to, so opening
     // her up is a walk over one short list rather than the whole ship.
     this.byPart = new Map();
@@ -637,6 +644,118 @@ export class ShipView {
       if (gone) (lost || (lost = [])).push(SECTIONS[i]);
     }
     return lost;
+  }
+
+  /**
+   * How she is floating, and how she goes down.
+   *
+   * `fl` is what the wire carries: how much deeper the water in her has put
+   * her, how far over she is lying, and how far down by the head or the stern.
+   * Three numbers, and they are the whole of it -- there is no canned sinking
+   * here to play. A ship with her forward magazine open goes down by the bow;
+   * one with two torpedoes in the same side rolls over; one flooded evenly
+   * settles upright. It is the same code in all three cases.
+   */
+  setFloating(fl) {
+    if (!fl) return;
+    this.sinkY = fl[0] || 0;
+    this.heelBy = fl[1] || 0;
+    this.trimBy = fl[2] || 0;
+  }
+
+  /**
+   * She has gone. From here she is under her own weight of water.
+   *
+   * The attitude she is in when she stops floating is the attitude she goes
+   * down in, and it goes on developing: the end that is heavy goes first, the
+   * list she has runs on over, and she gathers way downwards as the last of
+   * the air goes out of her.
+   */
+  founder(ev) {
+    if (this.going) return;
+    this.going = {
+      t: 0,
+      heel: ev && ev.heel != null ? ev.heel : this.heelBy,
+      trim: ev && ev.trim != null ? ev.trim : this.trimBy,
+      broke: ev && ev.broke != null ? ev.broke : null,
+    };
+    if (this.going.broke != null) this.breakHer(this.going.broke);
+  }
+
+  /**
+   * Her back goes, and she is two ships.
+   *
+   * Everything forward of the break is put in one group and everything abaft
+   * it in another, and from then on each half is on its own: the broken ends
+   * are the heavy ends, so they go down first and the two halves stand up on
+   * end away from each other. Nothing here is animated by hand -- each half
+   * simply has its own trim, and the trim is which way its broken end is.
+   */
+  breakHer(at) {
+    if (this.halves) return;
+    const half = this.cls.hull.length / 2;
+    const zc = at * half;
+    const fore = new THREE.Group();
+    const aft = new THREE.Group();
+    fore.position.z = zc;
+    aft.position.z = zc;
+    for (const child of [...this.group.children]) {
+      if (child === this.marker) continue;
+      // Which side of the break it is on, by where it actually sits.
+      let z = child.position.z;
+      if (child.isMesh && child.geometry) {
+        if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+        z = child.geometry.boundingBox.getCenter(new THREE.Vector3()).z + child.position.z;
+      }
+      const into = z >= zc ? fore : aft;
+      this.group.remove(child);
+      child.position.z -= zc;
+      into.add(child);
+    }
+    this.group.add(fore);
+    this.group.add(aft);
+    this.breakZ = zc;
+    this.halves = { fore, aft };
+  }
+
+  /**
+   * One step of going down. Returns false once there is nothing left to draw.
+   */
+  stepFounder(dt) {
+    const g = this.going;
+    if (!g) return true;
+    g.t += dt;
+    const k = g.t;
+    const len = this.cls.hull.length;
+    // She goes slowly at first and then quickly: the air is still coming out
+    // of her, and the deeper she gets the less there is left to hold her up.
+    const down = 0.55 * k + 0.16 * k * k;
+    // And whatever she was doing when she stopped floating, she goes on doing.
+    const heel = g.heel + Math.sign(g.heel || 1) * Math.min(1.1, k * 0.06);
+    const trim = g.trim + Math.sign(g.trim || 0.2) * Math.min(0.9, k * 0.05);
+    if (this.halves) {
+      // Two halves, each hanging from its own broken end.
+      //
+      // There is no buoyancy at the break, so that end of each half drops and
+      // the other end -- the bow of one, the stern of the other -- comes up
+      // out of the water. They pivot on the break and drift apart along the
+      // line she used to be, which is what a ship that has broken her back
+      // looks like from the moment it happens to the moment the last of her
+      // goes under.
+      for (const [key, part] of Object.entries(this.halves)) {
+        const way = key === 'fore' ? -1 : 1;
+        part.rotation.x = way * Math.min(1.15, k * 0.11);
+        part.position.y = -down * (1 + k * 0.04);
+        part.position.z = this.breakZ + way * -Math.min(len * 0.10, k * 1.1);
+      }
+      this.group.rotation.z = heel * 0.5;
+    } else {
+      this.group.position.y = -down;
+      this.group.rotation.x = trim;
+      this.group.rotation.z = heel;
+    }
+    // Gone when the highest part of her is well under.
+    return down < this.cls.hull.length * 0.5 + 20;
   }
 
   /** Where a compartment is on her, in her own frame: for wreckage and flash. */

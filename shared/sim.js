@@ -142,9 +142,12 @@ export function addShip(state, {
     sections: freshSections(cls.hp),
     alive: true,
     fires: 0,
-    fireTimers: [],
+    // Where the sea is in her, how far over she is lying, and how far down.
+    // All three come out of the water in her compartments; see buoyancy.
+    sink: 0, heel: 0, trim: 0,
+    // The station her back went at, if it went. See breakStation.
+    broke: null,
     flooding: 0,
-    floodTimers: [],
     repairCd: 0,
     repairActive: 0,
     smoke: cls.smokeCharges,
@@ -307,8 +310,15 @@ function stepMovement(state, ship, dt) {
   // A hull heels and scrubs off speed in a hard turn, so the telegraph setting
   // is only the speed you get when the rudder is amidships.
   const bleed = 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm;
+  // And water inside her costs more than any turn does. Every tonne of it is
+  // a tonne she has to drag, she is sitting deeper so there is more of her in
+  // the water, and once she is lying over her screws and her rudder are not
+  // square to it any more. A destroyer with her forward magazine flooded does
+  // not make thirty-six knots.
+  const flood = 1 - Math.min(0.75, ship.sink / Math.max(1, cls.hull.draft * 0.9) * 0.8
+    + Math.abs(ship.heel) * 0.9);
   const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : cls.maxSpeed) * engine;
-  const target = ordered * bleed;
+  const target = ordered * bleed * flood;
   const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
   ship.speed = approach(ship.speed, target, accel * dt);
   const v = ship.speed;
@@ -1246,7 +1256,7 @@ function hitSection(target, cls, lx, lz, y, descentAngle) {
   return { part: 'belt', armor: cls.armor.belt, cit: rel < 0.6 && y < 10 };
 }
 
-function resolveShellHit(state, sh, target, cx, cz, cy) {
+export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const cls = getClass(target.classId);
   const spec = sh.spec;
   const l = worldToLocal(cx - target.x, cz - target.z, target.heading);
@@ -1281,7 +1291,11 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
     if (spec.pen >= sec.armor) { kind = 'he'; dmg = spec.damage * 0.4; }
     else { kind = 'splash'; dmg = spec.damage * 0.1; }
     const fireRoll = state.rng();
-    if (fireRoll < spec.fireChance * (target.fires >= 3 ? 0.25 : 1)) startFire(state, target);
+    if (fireRoll < spec.fireChance * (target.fires >= 4 ? 0.3 : 1)) {
+      // Where the shell went, not somewhere on the ship in general.
+      startFire(state, target,
+        sectionAt(l.z / (cls.hull.length * 0.5), sec.part), 0.3);
+    }
     // HE tends to wreck what is exposed: mounts and steering.
     if (kind === 'he' && state.rng() < 0.06) {
       if (sec.part === 'stern') target.steeringDamage = 14;
@@ -1300,7 +1314,26 @@ function resolveShellHit(state, sh, target, cx, cz, cy) {
   // A penetration is a hole in her, and holes are what she is now counted in.
   // A shell that bounced, shattered on the plate or went straight through
   // without bursting has not opened a compartment.
-  if (PENETRATING.has(kind)) target.sections[where].pens++;
+  if (PENETRATING.has(kind)) {
+    target.sections[where].pens++;
+    // And it is a hole in her plating, not only an entry in a book.
+    //
+    // A shell that goes through the side takes a piece of it with her: about
+    // her own calibre across for a clean penetration, several times that where
+    // the burst has blown the plating in. Below the waterline the sea comes
+    // straight in; above it, nothing happens until she has settled far enough
+    // for the sea to reach the hole -- which is how a ship hit high up in the
+    // forenoon founders in the afternoon.
+    const bore = sh.caliber / 1000;
+    const blown = kind === 'citadel' ? 9 : kind === 'he' ? 3.5 : 2.2;
+    const area = Math.PI * (bore * blown * 0.5) ** 2;
+    // Where it went in, relative to her waterline, and which side of her.
+    const depth = -(cy - 0.6);
+    const side = l.x >= 0 ? 1 : -1;
+    if (sec.part !== 'deck' && sec.part !== 'superstructure') {
+      openHull(state, target, where, area, side, depth);
+    }
+  }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
     owner.ribbons.hits++;
@@ -1472,7 +1505,16 @@ function stepTorpedoes(state, dt) {
         const hole = sectionAt(lt.z / (cls.hull.length * 0.5), 'belt');
         damageShip(state, target, owner, tp.damage * (1 - reduction), 'torpedo', hole);
         target.sections[hole].pens++;
-        if (state.rng() < tp.flood) startFlood(state, target);
+        // A torpedo does not make a hole, it makes a room. Twenty to forty
+        // square metres of her side is simply gone, four metres under water,
+        // on whichever side she was hit -- which is why one torpedo puts a
+        // list on a ship and two on the same side roll her over.
+        //
+        // The anti-torpedo protection of a big hull cuts the opening down but
+        // does not close it: that is what the bulges were for.
+        const side = lt.x >= 0 ? 1 : -1;
+        openHull(state, target, hole,
+          (18 + state.rng() * 16) * (1 - reduction), side, 3.5 + state.rng() * 2);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
         hit = true;
@@ -2242,18 +2284,354 @@ export function leadPoint(fromX, fromZ, target, projSpeed) {
 // Damage, fires, flooding, repair
 // ---------------------------------------------------------------------------
 
-function startFire(state, ship) {
-  if (ship.fireTimers.length >= 4) return;
-  ship.fireTimers.push(30);
-  ship.fires = ship.fireTimers.length;
-  state.events.push({ e: 'fire', ship: ship.id });
+/**
+ * Something is alight in one of her compartments.
+ *
+ * A fire is not a counter on the ship any more: it is a thing burning in a
+ * particular compartment, which grows, eats the structure round it, spreads
+ * into the compartments next door, and is put out by the sea when the sea
+ * gets there. `where` says which compartment; without one it is the
+ * superstructure, which is where most fires start.
+ */
+function startFire(state, ship, where = 'works', strength = 0.35) {
+  const c = ship.sections[where] || ship.sections.works;
+  if (!c) return;
+  const was = c.fire;
+  c.fire = Math.min(1, c.fire + strength);
+  ship.fires = burningCount(ship);
+  if (was < 0.05) state.events.push({ e: 'fire', ship: ship.id, at: where });
 }
 
-function startFlood(state, ship) {
-  if (ship.floodTimers.length >= 3) return;
-  ship.floodTimers.push(40);
-  ship.flooding = ship.floodTimers.length;
-  state.events.push({ e: 'flood', ship: ship.id });
+/** How many of her compartments are alight. */
+function burningCount(ship) {
+  let n = 0;
+  for (const s of SECTIONS) if (ship.sections[s.k].fire > 0.08) n++;
+  return n;
+}
+
+/** How many of her compartments have water in them. */
+function floodedCount(ship) {
+  let n = 0;
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    if (c.wP + c.wS > 1) n++;
+  }
+  return n;
+}
+
+/**
+ * Open her plating to the sea.
+ *
+ * `area` is how big the hole is in square metres and `side` is which side of
+ * her it is on -- which is the whole of why she lies over afterwards. A shell
+ * that goes in below the waterline makes a hole about its own calibre; a
+ * torpedo makes one the size of a room.
+ *
+ * Above the waterline nothing comes in until she settles far enough for the
+ * sea to reach it, which is what makes a ship that has been hit high up
+ * suddenly start flooding an hour later.
+ */
+function openHull(state, ship, where, area, side, depth) {
+  const c = ship.sections[where];
+  if (!c || area <= 0) return;
+  const first = c.holeP + c.holeS < 0.01;
+  if (side < 0) c.holeP += area; else c.holeS += area;
+  // How far below her waterline the hole is, so the head of water over it can
+  // be worked out. Holes above the waterline are recorded at a negative depth
+  // and only start drawing when she has settled onto them.
+  c.holeY = Math.min(c.holeY ?? 99, depth);
+  if (first) state.events.push({ e: 'flood', ship: ship.id, at: where });
+  ship.flooding = floodedCount(ship);
+}
+
+/**
+ * The sea coming in, going where it wants to go, and what it does to her.
+ *
+ * Water enters through a hole at a rate that depends on how deep the hole is:
+ * a hole a metre down fills slowly, and the same hole with five metres of sea
+ * over it fills fast. So as she settles, everything already open to the sea
+ * starts flooding harder -- which is why a ship that is slowly going down
+ * usually goes down suddenly at the end. That is all this is, and everything
+ * else about how she sinks falls out of it.
+ */
+/**
+ * How much of a compartment is in wing spaces, each side.
+ *
+ * This is what decides whether flooding puts a list on her. Water lies level:
+ * pour it into one open box and its weight ends up on the centreline, however
+ * it got in. What throws a ship over is the water trapped out at the side of
+ * her -- the wing compartments, the bunkers, the spaces outboard of the
+ * machinery -- because that water cannot get across to the other side.
+ *
+ * So a hole on the starboard side fills the starboard wing first, which heels
+ * her; then the middle of the compartment, which does not; and the port wing
+ * last, which brings her back upright. That is why a ship hit by one torpedo
+ * lists and then slowly rights herself as the compartment presses full, and it
+ * is why counter-flooding works.
+ */
+const WING = 0.16;
+
+/** Where the water in a compartment ends up, port and starboard. */
+function splitWater(total, vol, side) {
+  if (total <= 0) return [0, 0];
+  if (!side || vol <= 0) return [total / 2, total / 2];
+  const wing = vol * WING;
+  const near = Math.min(total, wing);
+  let rest = total - near;
+  const even = Math.min(rest, Math.max(0, vol - 2 * wing));
+  rest -= even;
+  const nearTot = near + even / 2;
+  const farTot = even / 2 + rest;
+  return side > 0 ? [farTot, nearTot] : [nearTot, farTot];
+}
+
+/**
+ * The sea coming in, going where it wants to go, and what it does to her.
+ *
+ * Water enters through a hole at a rate that depends on how deep the hole is:
+ * a hole a metre down fills slowly, and the same hole with five metres of sea
+ * over it fills fast. So as she settles, everything already open to the sea
+ * starts flooding harder -- which is why a ship that is slowly going down
+ * usually goes down suddenly at the end. That is all this is, and everything
+ * else about how she sinks falls out of it.
+ */
+function stepFlooding(state, ship, dt) {
+  const cls = shipClass(ship);
+  const b = buoyancy(ship);
+  let took = 0;
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    const open = c.holeP + c.holeS;
+    const vol = sectionVolume(cls, s.k);
+    if (open > 0 && vol > 0) {
+      // How much sea is standing over the hole now: what it was when it was
+      // made, plus however much deeper she is sitting since.
+      const head = (c.holeY ?? 1) + b.sink;
+      if (head > 0.05) {
+        // Torricelli, with the usual coefficient for a ragged hole in
+        // plating -- and choked by the wreckage and the machinery the water
+        // has to get past, which is what makes a flooded compartment take a
+        // minute rather than five seconds.
+        const rate = 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16;
+        const full = c.water / vol;
+        const q = Math.min(vol - c.water, rate * (1 - full * 0.7) * dt);
+        if (q > 0) { c.water += q; took += q; }
+      }
+    }
+    // And it puts the fire out, which is the one good thing about it. The
+    // water is in the bottom of the compartment, which is where the fire is,
+    // so it starts knocking it down as soon as there is any depth of it --
+    // and the more there is, the faster. Waiting for the compartment to be a
+    // quarter full meant a fire went on burning in a flooded space, because
+    // the water was draining onward through a wrecked bulkhead as fast as it
+    // came in and the level never got there.
+    if (c.fire > 0 && vol > 0) {
+      const depth = Math.min(1, c.water / (vol * 0.12));
+      if (depth > 0.02) c.fire = Math.max(0, c.fire - dt * 1.1 * depth);
+    }
+  }
+
+  // Through a bulkhead that has been wrecked, into the compartment next door.
+  // A sound bulkhead holds; one with its plating opened does not, which is why
+  // a hit that opens two compartments to each other is so much worse than two
+  // hits that do not.
+  for (let i = 0; i < SECTIONS.length - 1; i++) {
+    const a = SECTIONS[i];
+    const bb = SECTIONS[i + 1];
+    if (a.from === null || bb.from === null) continue;
+    const ca = ship.sections[a.k];
+    const cb = ship.sections[bb.k];
+    const worst = Math.min(ca.hp / ca.max, cb.hp / cb.max);
+    if (worst > 0.25) continue;
+    const va = sectionVolume(cls, a.k);
+    const vb = sectionVolume(cls, bb.k);
+    if (!va || !vb) continue;
+    const head = ca.water / va - cb.water / vb;
+    if (Math.abs(head) < 0.02) continue;
+    const gap = Math.max(0, 1 - worst * 4);
+    const move = clamp(head * Math.min(va, vb) * 0.08 * gap * dt,
+      -cb.water, ca.water);
+    ca.water -= move;
+    cb.water += move;
+  }
+
+  // Where it all ends up, port and starboard: derived from how much there is
+  // and which side of her is open, never accumulated. Water does not remember
+  // which hole it came through -- it lies level -- and treating the two sides
+  // as separate buckets gave a destroyer the whole of a flooded compartment
+  // standing on one side of her, which is a heeling moment no destroyer has
+  // ever had.
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    const vol = sectionVolume(cls, s.k);
+    const side = c.holeS > c.holeP ? 1 : c.holeP > c.holeS ? -1 : 0;
+    const [wp, ws] = splitWater(c.water, vol, side);
+    c.wP = wp;
+    c.wS = ws;
+  }
+  if (took > 0) ship.flooding = floodedCount(ship);
+
+  // What the water does to her structure: a compartment full of sea is a
+  // compartment that is not holding anything up.
+  // Water works on her structure too -- bulkheads that were never meant to
+  // hold this much give way -- but only slowly. What sinks a ship is the
+  // buoyancy, not an accountancy of hit points: leave this high enough to
+  // matter on its own and a battleship with one small hole in her forefoot
+  // founders in nine minutes without ever settling an inch.
+  if (took > 0) {
+    damageShip(state, ship, null, cls.hp * 0.0004 * ship.flooding * dt, 'flood');
+  }
+
+  // And whether she is still floating. Not a hit-point total: she goes when
+  // the sea comes in over her deck edge, which depends entirely on how much
+  // water is inside her and where it is.
+  const after = buoyancy(ship);
+  ship.sink = after.sink;
+  ship.heel = after.heel;
+  ship.trim = after.trim;
+  // Her back can go before she does. Once it has, there is no ship: two
+  // halves, and neither of them floats for long.
+  if (ship.alive && ship.broke == null) {
+    const at = breakStation(ship);
+    if (at != null) {
+      ship.broke = at;
+      state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z) });
+      founder(state, ship, 'broken');
+      return;
+    }
+  }
+  // Over on her beam ends, or the sea coming in over the deck edge. Either
+  // way she has stopped being a ship.
+  if (ship.alive && Math.abs(after.heel) > 1.25) founder(state, ship, 'capsize');
+  else if (ship.alive && after.reserve <= 0) founder(state, ship, 'flooding');
+}
+
+/**
+ * Fire in a ship: it grows where it is, eats what is round it, and gets into
+ * the next compartment.
+ */
+function stepFires(state, ship, dt) {
+  const cls = shipClass(ship);
+  let any = false;
+  const spread = [];
+  for (let i = 0; i < SECTIONS.length; i++) {
+    const k = SECTIONS[i].k;
+    const c = ship.sections[k];
+    if (c.fire <= 0) continue;
+    any = true;
+    // It grows until it has everything in the compartment that will burn, and
+    // then it burns out. A compartment already wrecked has less left in it.
+    // It goes on growing while there is anything left in the compartment to
+    // burn, and dies back once there is not. There used to be a floor here --
+    // anything under two per cent was called out -- and it quietly made fire
+    // unable to spread at all: a fire that has just got through a bulkhead
+    // starts very small indeed, and it was put out on the same tick it caught.
+    // A fire takes minutes to develop, not seconds. At the rate this ran
+    // first, anything alight at all was an inferno in three quarters of a
+    // minute, and since a developed fire spreads, one shell burned a cruiser
+    // out end to end inside two.
+    const fuel = Math.max(0.15, c.hp / c.max);
+    c.fire = clamp(c.fire + (0.012 * fuel - 0.005) * dt, 0, 1);
+    damageShip(state, ship, null, cls.hp * 0.0012 * c.fire * dt, 'fire', k);
+    // Into the compartments either side of it, through the bulkhead. A big
+    // fire gets through faster than a small one -- but it is a steel bulkhead,
+    // and it takes minutes, not seconds. Set too fast, one hit put the whole
+    // ship alight inside a minute and a half and burned her out on her own.
+    if (c.fire > 0.45) {
+      for (const j of [i - 1, i + 1]) {
+        if (j < 0 || j >= SECTIONS.length) continue;
+        spread.push([SECTIONS[j].k, c.fire * 0.014 * dt, k]);
+      }
+      // And up into the superstructure, where the boats and the paint are.
+      if (k !== 'works') spread.push(['works', c.fire * 0.007 * dt, k]);
+    }
+  }
+  for (const [k, amt, from] of spread) {
+    const n = ship.sections[k];
+    const src = ship.sections[from];
+    // A steel bulkhead holds a fire back. It gets through where the structure
+    // has already been opened up -- a hole in the bulkhead, a wrecked
+    // compartment, a door left open by the blast -- and not otherwise. Without
+    // this every fire ran the length of the ship on its own, and one shell
+    // burned a cruiser out end to end.
+    if (Math.min(n.hp / n.max, src.hp / src.max) > 0.6) continue;
+    // Not into a compartment that is already under water.
+    const vol = sectionVolume(cls, k);
+    if (vol && n.water > vol * 0.3) continue;
+    if (n.fire < 0.9) startFire(state, ship, k, amt);
+  }
+  if (any) ship.fires = burningCount(ship);
+}
+
+/**
+ * Has her back broken?
+ *
+ * A hull is a girder. Blow a compartment out of the middle of it, or flood one
+ * end of it hard enough while the other end is still buoyant, and the girder
+ * fails: she breaks at the bulkhead where the bending is worst, and the two
+ * halves go down separately. It is what happened to a good many of them, and
+ * it is not something to be scripted -- it either follows from the damage or
+ * it does not.
+ *
+ * Returns the station she breaks at, in fractions of her half-length, or null.
+ */
+export function breakStation(ship) {
+  if (ship.broke != null) return ship.broke;
+  const cls = shipClass(ship);
+  const b = buoyancy(ship);
+  // Nothing breaks a hull that is not carrying a great deal of water. A ship
+  // with a compartment shot out of her and no flooding is a damaged ship, not
+  // a broken one, and she steams home.
+  if (b.water < b.free * 0.35) return null;
+  let worst = null;
+  let worstLoad = 0;
+  for (let i = 1; i < SECTIONS.length - 1; i++) {
+    const s = SECTIONS[i];
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    // The girder has to be actually cut, not merely damaged: the compartment
+    // at the break is gone.
+    if (c.hp > c.max * 0.02) continue;
+    const mid = (s.from + s.to) / 2;
+    // The bending moment: the water forward of this station against the water
+    // abaft it. A ship flooded evenly settles; a ship flooded at one end
+    // breaks, because the buoyant end is holding the flooded end up.
+    let fwd = 0;
+    let aft = 0;
+    for (const q of SECTIONS) {
+      if (q.from === null) continue;
+      const w = ship.sections[q.k].wP + ship.sections[q.k].wS;
+      if ((q.from + q.to) / 2 > mid) fwd += w; else aft += w;
+    }
+    const unbalance = Math.abs(fwd - aft) / Math.max(1, fwd + aft);
+    const load = unbalance * 0.7 + (b.water / Math.max(1, b.free)) * 0.5;
+    if (load > worstLoad) { worstLoad = load; worst = mid; }
+  }
+  return worstLoad > 0.95 ? worst : null;
+}
+
+/**
+ * She has stopped floating.
+ *
+ * There is no separate "sunk" state to animate: what she does on the way down
+ * is whatever her water and her wreckage make her do, and the clients read
+ * that off her trim, her heel, and whether her back went.
+ */
+function founder(state, ship, kind) {
+  ship.alive = false;
+  ship.speed = 0;
+  const at = breakStation(ship);
+  if (at != null) ship.broke = at;
+  state.events.push({
+    e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by: 0, kind,
+    // How she is going: how far over, how far down by the head, and where her
+    // back went if it went. The client puts her under on these and nothing
+    // else, so two ships never go down the same way.
+    heel: r(ship.heel), trim: r(ship.trim), broke: ship.broke ?? null,
+  });
 }
 
 /**
@@ -2293,9 +2671,166 @@ export function sectionAt(rel, part) {
 /** A fresh set of compartments, all sound. */
 export function freshSections(maxHp) {
   const out = {};
-  for (const s of SECTIONS) out[s.k] = { hp: maxHp * s.share, max: maxHp * s.share, pens: 0 };
+  for (const s of SECTIONS) {
+    out[s.k] = {
+      hp: maxHp * s.share, max: maxHp * s.share, pens: 0,
+      // The sea's way in, and the sea once it is in.
+      //
+      // `holeP` and `holeS` are the open area in her plating below the
+      // waterline on each side, in square metres. `wP` and `wS` are the water
+      // that has come through them, in cubic metres. Kept per side because
+      // that is the whole of why a ship lies over: the weight of the water is
+      // out to one side of her centreline and it stays there.
+      holeP: 0, holeS: 0, water: 0, wP: 0, wS: 0,
+      // How hard this compartment is burning, 0 to 1. Fire is a thing that
+      // lives in a compartment, spreads to the ones next to it, and is put out
+      // by the water coming in -- rather than a number of fires on a ship.
+      fire: 0,
+    };
+  }
   return out;
 }
+
+/**
+ * How much water each compartment will hold, in cubic metres.
+ *
+ * Her underwater volume shared out by the same fractions the damage is, which
+ * is close enough: what matters is that a battleship's machinery space holds a
+ * great deal more water than a destroyer's, and that the ends hold less than
+ * the middle.
+ */
+export function sectionVolume(cls, k) {
+  const s = SECTIONS.find((q) => q.k === k);
+  if (!s || s.from === null) return 0;
+  const box = cls.hull.length * cls.hull.beam * cls.hull.draft * 0.62;
+  return box * s.share;
+}
+
+/**
+ * How much of her stands out of the water when she is whole, in metres.
+ *
+ * Not in the class data, and it is wanted in three places, so it is worked out
+ * from her draft the way a warship's freeboard really runs: roughly her own
+ * draft again above the water, proportionally less in a big ship because she
+ * is so much deeper.
+ */
+export function freeboardOf(cls) {
+  return Math.max(2.6, cls.hull.draft * (cls.hull.draft > 9 ? 0.95 : 1.15));
+}
+
+/** Every cubic metre of water she has taken, and how it is spread. */
+export function floodWater(ship) {
+  let total = 0;
+  let port = 0;
+  let stbd = 0;
+  let moment = 0;
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    const w = c.wP + c.wS;
+    total += w;
+    port += c.wP;
+    stbd += c.wS;
+    // Where along her it is, for the trim: positive is forward.
+    moment += w * ((s.from + s.to) / 2);
+  }
+  return { total, port, stbd, moment };
+}
+
+/**
+ * How she is floating: how much deeper, how far over, and how far down by the
+ * head or the stern.
+ *
+ * She has a certain volume of buoyancy in reserve above the waterline, and
+ * every cubic metre of sea that gets inside her uses some of it up. When it is
+ * gone she is not floating any more. The heel is the water's weight out to one
+ * side against the righting moment her beam gives her; the trim is the same
+ * sum along her length. Nothing here is a canned animation -- put the water in
+ * a different place and she goes down differently.
+ */
+export function buoyancy(ship) {
+  const cls = shipClass(ship);
+  const h = cls.hull;
+  const w = floodWater(ship);
+  const fb = freeboardOf(cls);
+  // What she weighs, near enough: her block coefficient is about a half in a
+  // destroyer and a little more in anything fatter, and a cubic metre of sea
+  // is a tonne.
+  const disp = h.length * h.beam * h.draft * 0.55;
+  // How much deeper the water aboard has put her: tonnes over the area of her
+  // waterplane.
+  const sink = w.total / Math.max(1, h.length * h.beam * 0.72);
+
+  // Her metacentric height -- how stiff she is. A warship of this size carries
+  // a metre or two of it, and every compartment with water slopping about in
+  // it takes some away, because water that can move is weight that moves to
+  // the low side as she rolls. That is free surface, and it is what actually
+  // capsizes ships: they go over long before they are full.
+  const gm0 = Math.max(0.8, h.beam * 0.075);
+  let freeSurface = 0;
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    const vol = sectionVolume(cls, s.k);
+    if (!vol) continue;
+    const f = (c.wP + c.wS) / vol;
+    // The loss of metacentric height from a free surface is the second moment
+    // of that surface over the volume she displaces -- length times breadth
+    // cubed over twelve, and the cube is why subdivision matters so much. A
+    // compartment split down the centreline has a quarter the free-surface
+    // effect of an open one, which is the entire reason warships are built
+    // that way; taking the full beam here capsized a destroyer the moment one
+    // compartment was half full.
+    const len = h.length * s.share;
+    const bEff = h.beam * 0.62;
+    const i = (len * bEff * bEff * bEff) / 12;
+    // Worst when a compartment is part full; none at all when it is empty or
+    // pressed right up, which is why counter-flooding a ship works.
+    freeSurface += 4 * f * (1 - f) * (i / Math.max(1, disp));
+  }
+  const gm = gm0 - freeSurface;
+
+  // How far over she lies: the water's weight out to one side against what is
+  // left of her stability. sin(heel) = moment / (displacement x GM).
+  const off = w.stbd - w.port;
+  const arm = h.beam * 0.26;
+  let heel = Math.asin(clamp(
+    (off * arm) / Math.max(1, disp * Math.max(0.10, gm)), -0.999, 0.999));
+  // And the loll.
+  //
+  // A ship whose metacentric height has gone is not upright and she is not on
+  // her beam ends either: she lolls, and finds a new place to sit at some
+  // angle off the vertical. The worse her stability, the further over that is,
+  // and past a point there is no coming back from it. It develops as the
+  // free surface eats her stiffness rather than arriving all at once -- she
+  // used to snap to eighty degrees the instant GM crossed zero, which is a
+  // switch, not a ship.
+  if (gm < 0.15) {
+    const loll = Math.min(1.45, (0.15 - gm) * 2.2);
+    heel = Math.sign(heel || off || 1) * Math.min(1.5, Math.abs(heel) + loll);
+  }
+
+  // And how far down by the head or the stern: the same sum taken along her,
+  // against her longitudinal stability, which is enormous by comparison --
+  // which is why a ship heels many degrees and trims few.
+  const gml = h.length * 1.1;
+  const trim = Math.asin(clamp(
+    (w.moment * h.length * 0.5) / Math.max(1, disp * gml), -0.999, 0.999));
+
+  // When the sea comes over the deck edge she is finished, and that is a
+  // matter of how she is lying as much as how much water is in her: a ship
+  // heeled thirty degrees puts her gunwale under with half the water an
+  // upright one needs. This is why the way she is hit decides how long she
+  // lasts, and it is the whole of the sinking condition.
+  const edge = sink + Math.abs(Math.sin(heel)) * h.beam * 0.5
+    + Math.abs(Math.sin(trim)) * h.length * 0.5;
+  return {
+    water: w.total, sink, heel, trim, gm, edge, freeboard: fb,
+    reserve: Math.max(0, 1 - edge / fb),
+    free: h.length * h.beam * fb * 0.55,
+  };
+}
+
 
 /** What is left of her, added up out of her compartments. */
 export function hullIntegrity(ship) {
@@ -2363,9 +2898,19 @@ export function useRepair(state, ship) {
   const cls = shipClass(ship);
   ship.repairCd = cls.repairCooldown;
   ship.repairActive = 12;
-  ship.fireTimers = [];
-  ship.floodTimers = [];
-  ship.fires = 0; ship.flooding = 0;
+  // What a damage control party actually does: puts the fires out and shores
+  // up and plugs what it can reach. It cannot pump out what is already in her
+  // -- that water stays, and so does the list it has put on her -- but it
+  // stops any more coming in through the holes it has closed.
+  for (const sec of SECTIONS) {
+    const c = ship.sections[sec.k];
+    c.fire = 0;
+    c.holeP = 0;
+    c.holeS = 0;
+  }
+  ship.sink = buoyancy(ship).sink;
+  ship.fires = 0;
+  ship.flooding = floodedCount(ship);
   ship.engineDamage = 0; ship.steeringDamage = 0;
   state.events.push({ e: 'repair', ship: ship.id });
   return true;
@@ -2381,22 +2926,8 @@ export function useSmoke(state, ship) {
 
 function stepDamageOverTime(state, ship, dt) {
   const cls = shipClass(ship);
-  if (ship.fireTimers.length) {
-    for (let i = ship.fireTimers.length - 1; i >= 0; i--) {
-      ship.fireTimers[i] -= dt;
-      if (ship.fireTimers[i] <= 0) ship.fireTimers.splice(i, 1);
-    }
-    ship.fires = ship.fireTimers.length;
-    damageShip(state, ship, null, cls.hp * 0.0032 * ship.fires * dt, 'fire');
-  }
-  if (ship.floodTimers.length) {
-    for (let i = ship.floodTimers.length - 1; i >= 0; i--) {
-      ship.floodTimers[i] -= dt;
-      if (ship.floodTimers[i] <= 0) ship.floodTimers.splice(i, 1);
-    }
-    ship.flooding = ship.floodTimers.length;
-    damageShip(state, ship, null, cls.hp * 0.005 * ship.flooding * dt, 'flood');
-  }
+  stepFires(state, ship, dt);
+  stepFlooding(state, ship, dt);
   if (ship.repairActive > 0) {
     ship.repairActive -= dt;
     ship.hp = Math.min(ship.maxHp, ship.hp + ship.maxHp * (cls.repairHeal / 12) * dt);

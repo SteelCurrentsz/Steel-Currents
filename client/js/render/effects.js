@@ -292,15 +292,52 @@ export class Effects {
     }
   }
 
-  fire(x, y, z) {
+  /**
+   * Something burning aboard a ship.
+   *
+   * `heat` is how hard, 0 to 1, and it changes what a fire looks like rather
+   * than only how much of it there is. A small one is a yellow flicker with a
+   * thread of grey over it. A big one has a bright core with dark red rolling
+   * out of the top of it, embers going up on the draught, and a column of
+   * black that leans away and spreads -- which is what you actually see from
+   * ten miles off, long before you can see the ship.
+   */
+  fire(x, y, z, heat = 0.5) {
+    const h = Math.max(0.12, Math.min(1, heat));
+    // The core: short-lived, bright, and low down where the fuel is.
     this.spawn({
-      x: x + (Math.random() - 0.5) * 8, y: y + 4, z: z + (Math.random() - 0.5) * 8,
-      vy: 9 + Math.random() * 5, size: 9, grow: 12, ttl: 1.1, glow: true,
-      color: 0xff8a2a, opacity: 0.95,
+      x: x + (Math.random() - 0.5) * 6 * h, y: y + 2,
+      z: z + (Math.random() - 0.5) * 6 * h,
+      vy: 7 + Math.random() * 6 * h, size: 4 + 7 * h, grow: 9 + 10 * h,
+      ttl: 0.75 + 0.5 * h, glow: true,
+      color: h > 0.6 ? 0xfff0b0 : 0xffb347, opacity: 0.95,
     });
+    // Flame rolling off the top of it, which is where the colour is.
     this.spawn({
-      x, y: y + 10, z, vy: 12, vx: (Math.random() - 0.5) * 6,
-      size: 14, grow: 26, ttl: 3, color: 0x24272b, opacity: 0.55,
+      x: x + (Math.random() - 0.5) * 8 * h, y: y + 6 + 5 * h,
+      z: z + (Math.random() - 0.5) * 8 * h,
+      vy: 10 + 8 * h, vx: (Math.random() - 0.5) * 4, vz: (Math.random() - 0.5) * 4,
+      size: 7 + 10 * h, grow: 16 + 14 * h, ttl: 1.1 + 0.8 * h, glow: true,
+      color: 0xd8451c, opacity: 0.5 + 0.35 * h,
+    });
+    // Embers, on the draught the fire makes itself.
+    if (Math.random() < h) {
+      this.spawn({
+        x: x + (Math.random() - 0.5) * 10, y: y + 8,
+        z: z + (Math.random() - 0.5) * 10,
+        vy: 16 + Math.random() * 18, vx: (Math.random() - 0.5) * 9,
+        vz: (Math.random() - 0.5) * 9,
+        size: 1.1, grow: 0.4, ttl: 1.4 + Math.random(), glow: true,
+        color: 0xffbe5e, opacity: 0.9,
+      });
+    }
+    // And the smoke, which is the part you see from over the horizon: oily
+    // and black over a bad fire, thin and grey over a small one.
+    this.spawn({
+      x, y: y + 9, z,
+      vy: 9 + 7 * h, vx: (Math.random() - 0.5) * 7, vz: (Math.random() - 0.5) * 7,
+      size: 10 + 12 * h, grow: 22 + 30 * h, ttl: 2.6 + 2.4 * h,
+      color: h > 0.5 ? 0x141618 : 0x3a4046, opacity: 0.35 + 0.35 * h,
     });
   }
 

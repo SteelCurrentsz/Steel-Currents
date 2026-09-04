@@ -55,12 +55,23 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
  * are.
  */
 function platform(g, m, hull, y, t0, t1, inset = 0.10, steps = 26) {
+  // Clipped to where the hull actually reaches this height. Her keel rises at
+  // both ends, so a deck laid at one height from stem to stern runs out under
+  // the counter and out through the forefoot -- which is a plate hanging in
+  // the water below an undamaged ship.
+  const has = (t) => y > hull.keelY(t) + 0.25 && y < hull.sheer(t);
+  let ta = t0;
+  let tb = t1;
+  const step = (t1 - t0) / 400;
+  while (ta < t1 && !has(ta)) ta += step;
+  while (tb > ta && !has(tb)) tb -= step;
+  if (tb - ta < Math.abs(t1 - t0) * 0.02) return null;
   const pos = [];
   const idx = [];
   let n = 0;
   let prev = null;
   for (let i = 0; i <= steps; i++) {
-    const t = t0 + ((t1 - t0) * i) / steps;
+    const t = ta + ((tb - ta) * i) / steps;
     const z = hull.zAt ? hull.zAt(t, y) : (t * hull.loa) / 2;
     // Held off the shell by a fraction of the breadth rather than a fixed
     // margin, so a deck reads as a deck at any scale -- and so that looking in
@@ -129,6 +140,92 @@ function zOf(hull, t) {
 }
 
 /**
+ * Which station a point belongs to, given how far along her it is and how high.
+ *
+ * Her stem and her counter are raked, so a point three metres up at the bow is
+ * a good deal further forward than a point on the waterline at the same
+ * station. Everything inside her that is placed by a fore-and-aft distance has
+ * to be turned back into a station at its own height, or it is placed against
+ * the wrong part of the hull -- which at the ends means outside it.
+ */
+function stationAt(hull, z, y) {
+  if (!hull.zAt) return Math.max(-1, Math.min(1, z / (hull.loa / 2)));
+  let lo = -1.02;
+  let hi = 1.02;
+  for (let i = 0; i < 26; i++) {
+    const mid = (lo + hi) / 2;
+    if (hull.zAt(mid, y) < z) lo = mid; else hi = mid;
+  }
+  return Math.max(-1, Math.min(1, (lo + hi) / 2));
+}
+
+/**
+ * The widest a box of this height and length can be at this point in her, or
+ * zero if it does not fit there at all.
+ *
+ * Checked at every corner, at the station each corner really belongs to.
+ */
+function roomAt(hull, z, dz, y0, y1) {
+  let w = Infinity;
+  for (const y of [y0, (y0 + y1) / 2, y1]) {
+    for (const dd of [-dz, 0, dz]) {
+      const t = stationAt(hull, z + dd, y);
+      if (y < hull.keelY(t) + 0.2 || y > hull.sheer(t) - 0.2) return 0;
+      w = Math.min(w, hull.shellAt(t, y));
+    }
+  }
+  return Math.max(0, w);
+}
+
+/**
+ * The narrowest the hull gets between two heights at a station.
+ *
+ * Anything drawn as a box has to fit inside her over the whole of its own
+ * height, not just at the middle of it. Sized off the middle -- which is what
+ * this is here to stop -- a bulkhead the full breadth of the ship at its waist
+ * has its bottom corners out through the plating, because the hull is tucking
+ * in towards the keel down there. That is what the pale ticks showing under
+ * an undamaged hull were.
+ */
+function narrowest(hull, t, y0, y1) {
+  let w = Infinity;
+  for (let i = 0; i <= 6; i++) {
+    w = Math.min(w, hull.shellAt(t, y0 + ((y1 - y0) * i) / 6));
+  }
+  return Math.max(0, w);
+}
+
+/**
+ * How far aft, and how far forward, she still has this much depth.
+ *
+ * A shaft, a floor plate or a length of pipe run out to a fixed station goes
+ * through the bottom of her at the ends, where the keel is rising towards the
+ * counter and the forefoot. Everything long asks this instead.
+ */
+function reachAt(hull, y, dir, needHalf = 0) {
+  let t = 0;
+  for (let i = 0; i <= 200; i++) {
+    const q = dir * (i / 200);
+    if (hull.keelY(q) > y - 0.35) break;
+    // And enough breadth for whatever is being run out there. A shaft has
+    // depth under it a long way aft and no room beside it, so the keel alone
+    // is not the question.
+    if (needHalf && hull.shellAt(q, y) < needHalf + 0.4) break;
+    t = q;
+  }
+  return t;
+}
+
+/** The same, over a length of her as well as a height: for anything long. */
+function fits(hull, t0, t1, y0, y1) {
+  let w = Infinity;
+  for (let i = 0; i <= 6; i++) {
+    w = Math.min(w, narrowest(hull, t0 + ((t1 - t0) * i) / 6, y0, y1));
+  }
+  return Math.max(0, w);
+}
+
+/**
  * Her machinery: boilers forward of the turbines, on the centreline, with the
  * uptakes going up to wherever her funnels are.
  *
@@ -148,8 +245,10 @@ function machinery(g, hull, sole, top) {
   // anything smaller than a battleship, which is why the funnels are forward
   // of the mainmast.
   const bz1 = z0 + len * 0.62;
-  const beam = hull.shellAt(0.05, sole + 1) * 2;
   const head = Math.max(2.2, top - sole);
+  // The breadth she has to work in is the narrowest the hull gets anywhere in
+  // the machinery space, over the whole of its height -- not the widest.
+  const beam = fits(hull, t0, t1, sole, top) * 2;
   const nBoilers = Math.max(2, Math.min(8, Math.round(hull.loa / 34)));
   const rows = Math.max(1, Math.round(nBoilers / 2));
   const pitch = (bz1 - z0) / rows;
@@ -202,9 +301,13 @@ function machinery(g, hull, sole, top) {
     box(g, M.machine, beam * 0.2, head * 0.42, 2.2, x, sole + head * 0.24, ez0 + L + 1.1);
     // Condenser underneath, and the shaft aft out through the bulkhead.
     tubeZ(g, M.frame, beam * 0.06, L * 0.7, x, sole + 0.5, ez0 + L * 0.5, 8);
-    const tail = Math.abs(zOf(hull, -0.80) - (ez0 + L + 2.2));
-    tubeZ(g, M.frame, Math.max(0.16, beam * 0.022), tail,
-      x, sole + 0.55, ez0 + L + 2.2 - tail / 2, 8);
+    // Aft as far as she still has the depth for a shaft, which is short of the
+    // sternpost: the keel is coming up to meet the counter back there.
+    const shaftY = sole + 0.55;
+    const rad = Math.max(0.16, beam * 0.022);
+    const zEnd = zOf(hull, reachAt(hull, shaftY, -1, Math.abs(x) + rad * 1.2));
+    const tail = Math.max(2, (ez0 + L + 2.2) - zEnd);
+    tubeZ(g, M.frame, rad, tail, x, shaftY, ez0 + L + 2.2 - tail / 2, 8);
   }
   // Floor plates over the bilge, which is what you stand on down there, and
   // the gratings above them.
@@ -218,8 +321,8 @@ function machinery(g, hull, sole, top) {
 function magazine(g, hull, t0, t1, sole, top, cal) {
   const tc = (t0 + t1) / 2;
   const zc = zOf(hull, tc);
-  const half = hull.shellAt(tc, sole + 1.5);
   const head = Math.max(2, top - sole);
+  const half = fits(hull, t0, t1, sole, top);
   const r = Math.max(0.08, cal * 0.5);
   // Shell rooms below, handing room over them, and the trunk up to the
   // gunhouse. Two tiers of racks against the wing bulkheads with the working
@@ -262,9 +365,10 @@ function magazine(g, hull, t0, t1, sole, top, cal) {
  * is gone, so it is worth being able to see the thing that broke.
  */
 function steering(g, hull, sole) {
-  const t = -0.86;
+  // As far aft as the tiller flat can be and still be inside her.
+  const t = Math.max(-0.92, reachAt(hull, sole + 0.4, -1) + 0.05);
   const z = zOf(hull, t);
-  const half = Math.max(1, hull.shellAt(t, sole + 1.5));
+  const half = Math.max(1, fits(hull, t - 0.06, t + 0.06, sole, sole + 3.2));
   // The rudder stock coming up through the counter into the tiller flat, the
   // quadrant keyed to it, and the two rams that swing it.
   cyl(g, M.machine, half * 0.13, half * 0.13, 3.4, 0, sole + 1.7, z, 12);
@@ -276,14 +380,14 @@ function steering(g, hull, sole) {
     // The steering engine and its telemotor pipes, up the side.
     tubeZ(g, M.pipe, 0.12, 6, s * half * 0.8, sole + 2.2, z + 4, 6);
   }
-  platform(g, M.deck, hull, sole + 0.05, -1, -0.66, 0.2, 8);
+  platform(g, M.deck, hull, sole + 0.05, t - 0.1, -0.60, 0.2, 8);
 }
 
 /** Chain lockers: the cable flaked down in the eyes of her. */
 function cableLockers(g, hull, sole) {
-  const t = 0.80;
+  const t = Math.min(0.86, reachAt(hull, sole + 0.4, 1) - 0.05);
   const z = zOf(hull, t);
-  const half = Math.max(0.6, hull.shellAt(t, sole + 2));
+  const half = Math.max(0.6, fits(hull, t - 0.06, t + 0.06, sole, sole + 2.4));
   for (const s of [-1, 1]) {
     const x = s * half * 0.45;
     box(g, M.frame, half * 0.5, 0.2, 3.2, x, sole + 0.3, z);
@@ -305,6 +409,11 @@ export function buildInterior(g, hull) {
   const inside = new THREE.Group();
   inside.userData.inside = true;
   g.add(inside);
+  // The lines she was built to, kept on her. Anything that wants to know where
+  // her plating is -- the check that nothing inside her sticks out through it,
+  // the flooding, the way she settles -- asks her rather than working it out
+  // again from a copy of the numbers.
+  g.userData.lines = hull;
 
   const keel = hull.keelY(0);
   const deck = hull.sheer(0);
@@ -349,26 +458,33 @@ export function buildInterior(g, hull) {
     const hgt = y1 - y0;
     if (hgt < 1.2) continue;
     const step = Math.max(8, hull.loa / 16);
-    for (let z = -hull.loa * 0.46; z <= hull.loa * 0.46; z += step) {
-      const t = z / (hull.loa / 2);
+    const lo = Math.max(-0.94, reachAt(hull, y0, -1)) * (hull.loa / 2);
+    const hi = Math.min(0.94, reachAt(hull, y0, 1)) * (hull.loa / 2);
+    for (let z = lo; z <= hi; z += step) {
+      const t = stationAt(hull, z, (y0 + y1) / 2);
       // Not through the machinery: that space is one space from the tank top
       // to the deck over it, which is why it is the one that sinks her.
       if (li === 0 && t > -0.22 && t < 0.22) continue;
-      const half = hull.shellAt(t, (y0 + y1) / 2) * 0.86;
+      const half = roomAt(hull, z, 0.12, y0 + 0.1, y1 - 0.1) * 0.94;
       if (half < 0.6) continue;
       box(inside, M.bulkhead, half * 2, hgt * 0.94, 0.16, 0, (y0 + y1) / 2, z);
       // A door through it, so it reads as a bulkhead and not a wall.
       box(inside, M.frame, half * 0.28, hgt * 0.6, 0.2, half * 0.4, y0 + hgt * 0.3, z);
     }
     // The centreline bulkhead, fore and aft, that the flats are either side of.
-    for (const [ta, tb] of [[-0.92, -0.24], [0.24, 0.92]]) {
-      const za = zOf(hull, ta);
-      const zb = zOf(hull, tb);
+    // Stopped short of where her keel comes up to meet the counter and the
+    // forefoot: run out to a fixed station it hangs below the bottom of her.
+    const aft = Math.max(-0.92, reachAt(hull, y0, -1));
+    const fwd = Math.min(0.92, reachAt(hull, y0, 1));
+    for (const [ca, cb] of [[aft, -0.24], [0.24, fwd]]) {
+      if (cb - ca < 0.08) continue;
+      const za = zOf(hull, ca);
+      const zb = zOf(hull, cb);
       box(inside, M.bulkhead, 0.16, hgt * 0.94, zb - za, 0, (y0 + y1) / 2, (za + zb) / 2);
     }
     // And a ladder down to the deck below, abaft the machinery.
     const zl = zOf(hull, -0.34);
-    const hl = hull.shellAt(-0.34, (y0 + y1) / 2) * 0.5;
+    const hl = narrowest(hull, -0.34, y0, y1) * 0.5;
     const lad = new THREE.Mesh(new THREE.BoxGeometry(1.0, hgt, 0.14), M.frame);
     lad.position.set(hl, (y0 + y1) / 2, zl);
     lad.rotation.x = 0.45;
@@ -389,15 +505,23 @@ export function buildInterior(g, hull) {
   const rib = Math.max(2, Math.round(hull.loa / 26));
   for (let i = 0; i <= rib; i++) {
     const t = -0.96 + (1.92 * i) / rib;
-    const y0 = hull.keelY(t);
-    const y1 = hull.sheer(t);
-    const z = zOf(hull, t);
+    const y0 = hull.keelY(t) + 0.25;
+    const y1 = hull.sheer(t) - 0.25;
+    if (y1 - y0 < 1) continue;
     for (let j = 0; j < 5; j++) {
-      const y = y0 + ((y1 - y0) * (j + 0.5)) / 5;
-      const half = hull.shellAt(t, y);
-      if (half < 0.3) continue;
+      const ya = y0 + ((y1 - y0) * j) / 5;
+      const yb = y0 + ((y1 - y0) * (j + 1)) / 5;
+      // Each length of rib is drawn at the station its own height belongs to,
+      // and sized to fit at every corner of itself. A frame is a plate with
+      // thickness and height, so it stands at several stations at once, and
+      // one fitted to the station at its middle has its corners through the
+      // plating anywhere the hull is curving -- which at the ends is
+      // everywhere.
+      const z = hull.zAt ? hull.zAt(t, (ya + yb) / 2) : zOf(hull, t);
+      const half = roomAt(hull, z, 0.16, ya, yb);
+      if (half < 0.5) continue;
       for (const s of [-1, 1]) {
-        box(inside, M.frame, 0.14, (y1 - y0) / 5, 0.3, s * (half - 0.14), y, z);
+        box(inside, M.frame, 0.14, yb - ya, 0.3, s * (half - 0.2), (ya + yb) / 2, z);
       }
     }
   }
