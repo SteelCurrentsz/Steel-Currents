@@ -28,8 +28,90 @@ export class DamageBoard {
     const key = new THREE.DirectionalLight(0xbfe8ff, 0.9);
     key.position.set(-0.4, 1, 0.6);
     this.scene.add(key);
+    // How she is stood: turned about her mast, and tipped so you are looking
+    // down on her. She turns herself until somebody takes hold of her, and
+    // from then on she is theirs.
     this.spin = 0.6;
+    this.tilt = 0.34;
+    this.zoom = 1;
+    this.held = false;
+    this.grabbed(canvas);
     this.build(classId);
+  }
+
+  /**
+   * Take hold of her and turn her.
+   *
+   * A damage board you cannot turn is a picture of one side of a ship, and
+   * the side you want is always the other one -- a hole in her starboard
+   * quarter is behind the drawing. Drag to swing her round and to tip her over
+   * so you can look down into her or up at her keel; pinch, or roll the wheel,
+   * to come in closer. She stops turning herself the moment she is touched.
+   */
+  grabbed(canvas) {
+    let last = null;
+    let pinch = 0;
+    const pts = new Map();
+    // The panel scrolls and the chart pans; neither should happen because
+    // somebody dragged the ship.
+    canvas.style.touchAction = 'none';
+
+    const turn = (dx, dy) => {
+      this.held = true;
+      this.spin -= dx * 0.011;
+      // Not over the top: she tips from looking up at her keel to looking
+      // straight down on her deck and stops there, because past either end
+      // the drag reverses and it feels broken.
+      this.tilt = Math.max(-0.6, Math.min(1.45, this.tilt + dy * 0.009));
+    };
+    const gap = () => {
+      const [a, b] = [...pts.values()];
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      canvas.setPointerCapture?.(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      last = { x: e.clientX, y: e.clientY };
+      if (pts.size === 2) pinch = gap();
+      e.preventDefault();
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const was = pts.get(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        // Two fingers: the gap between them is the zoom, and what is left of
+        // the movement still turns her.
+        const d = gap();
+        if (pinch > 8 && d > 8) {
+          this.zoom = Math.max(0.45, Math.min(3.2, this.zoom * (d / pinch)));
+          pinch = d;
+        }
+        return;
+      }
+      turn(e.clientX - was.x, e.clientY - was.y);
+      last = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
+    });
+    const up = (e) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = 0;
+      if (!pts.size) last = null;
+    };
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('pointerleave', up);
+    canvas.addEventListener('wheel', (e) => {
+      this.zoom = Math.max(0.45, Math.min(3.2, this.zoom * Math.pow(1.12, -Math.sign(e.deltaY))));
+      e.preventDefault();
+    }, { passive: false });
+    // Back to where she started: turning herself, on the beam, at full length.
+    canvas.addEventListener('dblclick', () => {
+      this.held = false;
+      this.tilt = 0.34;
+      this.zoom = 1;
+    });
   }
 
   /**
@@ -146,9 +228,10 @@ export class DamageBoard {
 
   /** `sec` is the wire's [integrity 0-100, penetrations] per compartment. */
   update(sec, dt) {
-    this.spin += dt * 0.24;
+    // She turns herself slowly until somebody takes hold of her.
+    if (!this.held) this.spin += dt * 0.24;
     this.rig.rotation.y = this.spin;
-    this.rig.rotation.x = 0.34;
+    this.rig.rotation.x = this.tilt;
     if (sec) {
       SECTIONS.forEach((s, i) => {
         const slab = this.slabs[s.k];
@@ -167,7 +250,8 @@ export class DamageBoard {
       this.camera.aspect = w / Math.max(1, h);
       this.camera.updateProjectionMatrix();
     }
-    this.camera.position.set(0, this.dist * 0.34, this.dist);
+    const d = this.dist / this.zoom;
+    this.camera.position.set(0, d * 0.34, d);
     this.camera.lookAt(0, 0, 0);
     this.renderer.render(this.scene, this.camera);
   }

@@ -1535,12 +1535,38 @@ export function normaliseAirGroup(cls, want) {
   return g;
 }
 
+/**
+ * Which of her compartments the flight deck stands on.
+ *
+ * A carrier's flight deck is a structure built on top of the hull, and it is
+ * only as good as what is underneath it. Blow the machinery spaces open and
+ * the deck over them goes with them: there is a hole in the planking where
+ * aircraft have to run.
+ *
+ * The deck run starts at the round-down and goes the length of her, so it
+ * crosses the after magazine, the machinery and the forward magazine. Any one
+ * of those opened up and there is nothing to fly off.
+ */
+const DECK_OVER = ['aft', 'mid', 'fwd'];
+
+/**
+ * Is her flight deck wrecked?
+ *
+ * Not damaged -- wrecked. A compartment has to be gone, not merely holed,
+ * before the deck above it is unusable: a carrier fought with her deck full of
+ * holes all through the war, and patched them between strikes.
+ */
+export function flightDeckOut(ship) {
+  if (!ship.sections) return false;
+  return DECK_OVER.some((k) => ship.sections[k] && ship.sections[k].hp <= 0);
+}
+
 /** How long one launch takes the deck, from the lift going down to wheels up. */
 // How long her deck is fouled by one launch. It is the whole evolution -- lift
 // down, lift up, taxi, run up, and the run itself, which is flown and takes as
 // long as a loaded Avenger takes to get her wheels off five hundred feet of
 // planking. Nothing else can use the deck until she is off it.
-export const DECK_CYCLE = 20;
+export const DECK_CYCLE = 26;
 /** No nearer than this: closer than her own deck run is not a target. */
 export const MIN_STRIKE_RANGE = 1200;
 
@@ -1548,6 +1574,8 @@ export function launchStrike(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
   if (ship.deckBusy > 0) return false;
+  // Nothing takes off over a hole. See flightDeckOut.
+  if (flightDeckOut(ship)) return false;
   const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
   if (!sq) return false;
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
@@ -1589,6 +1617,10 @@ export function launchStrike(state, ship) {
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
+    // The first flight off the deck leads the strike; the rest form on her.
+    // Filled in when she is actually airborne, because until then there is no
+    // flight to be the leader.
+    lead: 0, slot: 0,
     flights: [
       { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
       { role: 'dive', count: bomb, torp: 0, bomb },
@@ -1607,20 +1639,24 @@ export function launchStrike(state, ship) {
  * on screen takes, and the two have to agree or an aeroplane appears in the sky
  * while the one you are watching is still on the planking.
  */
-export const DECK_RUN = 15.5;
+export const DECK_RUN = 24.5;
 
 /**
  * How far ahead of the ship the deck run leaves an aeroplane.
  *
- * She does not appear over the ship: she has just run five hundred feet of
+ * She does not appear over the ship: she has just run the length of the
  * planking and gone off the bow, climbing away, and where she is at that
  * moment is where whatever flies her next has to pick her up. Born at the ship
  * instead, she was three or four hundred metres from her own flight the
  * instant she existed -- and the client, finding the aeroplane it was drawing
  * that far from the squadron it belonged to, dragged it across the gap. That
  * is the aeroplane that takes off and then teleports.
+ *
+ * The figure is where the Enterprise's launch evolution actually leaves her,
+ * measured off the integrated deck run rather than guessed: she starts at the
+ * round-down and her wheels leave the planking amidships.
  */
-export const DECK_RUN_OUT = 210;
+export const DECK_RUN_OUT = 156;
 
 /**
  * Put a flight in the air, once she has actually left the deck -- and then
@@ -1635,18 +1671,45 @@ export const DECK_RUN_OUT = 210;
 function stepLaunch(state, ship, dt) {
   const L = ship.launching;
   if (!L) return;
-  L.left -= dt;
-  if (L.left > 0) return;
   const cls = shipClass(ship);
   const sq = ship.squadrons.find((s) => s.id === L.sqId);
+  // The deck going out is not something to find out about at the end of the
+  // run: she is on it now, at eighty knots, and the moment the planking opens
+  // under her there is nowhere for her to go.
+  const wrecked = ship.alive && sq && sq.state === 'flying' && flightDeckOut(ship);
+  L.left -= dt;
+  if (L.left > 0 && !wrecked) return;
   // She was sunk, or her squadron was struck below while she was on the run.
-  if (!ship.alive || !sq || sq.state !== 'flying') { ship.launching = null; return; }
+  // Whatever of the strike is already up stops waiting for the rest of it.
+  if (!ship.alive || !sq || sq.state !== 'flying') {
+    ship.launching = null;
+    releaseStrike(state, ship, L.sqId);
+    return;
+  }
+  // The deck went out from under her while she was running down it.
+  //
+  // She is at eighty knots on a deck with a hole in it and there is nowhere to
+  // go: she goes into it. Whatever of the strike had already left carries on
+  // -- they are in the air and the ship's troubles are no longer theirs -- and
+  // the rest of the squadron is still below, so it is put back on the board
+  // for whenever the deck is fit to use again.
+  if (flightDeckOut(ship)) {
+    ship.launching = null;
+    ship.deckBusy = 0;
+    sq.state = 'deck';
+    sq.cooldown = Math.max(sq.cooldown, 30);
+    releaseStrike(state, ship, L.sqId);
+    state.events.push({ e: 'deckCrash', ship: ship.id, x: r(ship.x), z: r(ship.z) });
+    damageShip(state, ship, null, cls.hp * 0.02, 'fire', 'works');
+    startFire(state, ship);
+    return;
+  }
   const f = L.flights.shift();
   if (f) {
     // Off the bow on the ship's own head, climbing, and turning toward the
     // target from there: the deck run is down her centreline, not toward
     // whatever she has been laid on.
-    state.planes.push({
+    const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
       x: ship.x + Math.sin(ship.heading) * DECK_RUN_OUT,
       z: ship.z + Math.cos(ship.heading) * DECK_RUN_OUT,
@@ -1658,18 +1721,148 @@ function stepLaunch(state, ship, dt) {
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
       hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
         * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)),
-      phase: 'outbound', dropped: false, life: 0, hunt: 0,
+      // She does not set off on her own. A strike forms up over the ship and
+      // goes out together -- see stepFormation.
+      phase: 'formup', dropped: false, life: 0, hunt: 0,
+      lead: L.lead, slot: L.slot++,
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0, turn: 0,
-    });
+    };
+    if (!L.lead) L.lead = p.id;
+    state.planes.push(p);
+    // Which flight the aeroplane that has just gone down the deck became.
+    //
+    // The client draws one aeroplane in full -- the model it watched come up
+    // the lift and run -- and it has to know which marker on the plot she is.
+    // It used to work that out by taking whichever of the carrier's flights
+    // was youngest, and the answer changed under it every time another one
+    // went: the aeroplane already in the air was let go of, snapped onto the
+    // formation of the flight that had just left, and the flight she had been
+    // was drawn from nothing somewhere else. That is the squadron that takes
+    // off one at a time and then all jumps together.
+    state.events.push({ e: 'airborne', ship: ship.id, i: p.id, r: p.role });
   }
-  if (!L.flights.length) { ship.launching = null; return; }
+  if (!L.flights.length) {
+    ship.launching = null;
+    // The last of them is up, so the strike is complete and it goes.
+    releaseStrike(state, ship, L.sqId);
+    return;
+  }
   // The next one is ranged and goes down the deck after her. The deck stays
   // busy for the whole of it, so nothing else can use it meanwhile.
   L.left = cls.planes.deckRun ?? DECK_RUN;
   ship.deckBusy = Math.max(ship.deckBusy, L.left + (cls.planes.deckCycle ?? DECK_CYCLE) * 0.35);
   state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
+}
+
+/**
+ * The strike is complete: it stops circling and sets off.
+ *
+ * Nothing about this moves an aeroplane. It changes what each of them is
+ * flying towards, and they fly there.
+ */
+function releaseStrike(state, ownerId, sqId) {
+  for (const p of state.planes) {
+    if (p.owner !== ownerId || p.sqId !== sqId) continue;
+    if (p.phase === 'formup') p.phase = 'outbound';
+  }
+}
+
+/**
+ * Is the strike formed up and ready to go?
+ *
+ * Two things have to be true: the last of it is off the deck, and everybody
+ * is in station. Releasing it the moment the last aeroplane's wheels came up
+ * put the leader a mile and a half ahead of the flight that had just taken
+ * off, and since they all cruise at the same speed nobody could ever close
+ * that -- so the strike went out as a string of three rather than as one
+ * formation. It waits, going round its circle, until they are on her.
+ */
+function strikeFormed(state, lead, ship) {
+  if (ship && ship.launching && ship.launching.sqId === lead.sqId) return false;
+  // Somebody has been lost, or cannot join for some reason we have not thought
+  // of. A strike does not circle its own carrier for ever.
+  let youngest = lead.life;
+  let joined = true;
+  for (const q of state.planes) {
+    if (q.dead || q.id === lead.id) continue;
+    if (q.owner !== lead.owner || q.sqId !== lead.sqId) continue;
+    youngest = Math.min(youngest, q.life);
+    const g = formationGoal(state, q, ship);
+    if (g && dist(q.x, q.z, g.x, g.z) > JOIN) joined = false;
+  }
+  // On her, or the rendezvous has taken as long as a rendezvous is allowed to
+  // take. A strike does not circle its own carrier for ever waiting for a
+  // flight that has been shot down or cannot close for some reason we have
+  // not thought of: it goes.
+  return joined || youngest > RENDEZVOUS;
+}
+
+/**
+ * How far off her leader each flight of a strike stands.
+ *
+ * Across and astern, in the leader's own frame, in metres. Wide enough that
+ * three formations read as three formations rather than one smear, close
+ * enough that they read as one strike -- which is the point of forming up at
+ * all. A strike that goes out in company arrives in company; three flights
+ * that each set off the moment their wheels came up arrive one at a time and
+ * are shot down one at a time.
+ */
+const STATION = [[0, 0], [250, -210], [-270, -250], [460, -450], [-490, -490]];
+
+/** How near the enemy the strike breaks formation and each flight goes in. */
+const BREAK_RANGE = 4000;
+
+/** Near enough her station to count as joined up. */
+const JOIN = 420;
+/** And how long the whole strike will wait for the last of it, in seconds. */
+const RENDEZVOUS = 20;
+
+/**
+ * Where a flight is trying to be while the strike is still forming up, or
+ * while it is on its way out in company.
+ *
+ * The leader flies a left-hand circuit over the ship until the last of them is
+ * off the deck. Everybody else flies to her station on the leader. Both of
+ * them are goals, not positions: nothing here sets x or z, so there is no way
+ * for any of it to put an aeroplane anywhere. It can only ever make her fly
+ * somewhere.
+ */
+function formationGoal(state, p, carrier) {
+  if (!p.lead || p.lead === p.id) {
+    if (p.phase !== 'formup') return null;
+    // The form-up circle: a mile-wide left-hand orbit over the ship, at the
+    // rate she can hold, so she is always turning gently rather than beating
+    // back and forth across the same patch of sky.
+    if (!carrier) return null;
+    // Flown at the rate she can actually hold it: a mile-and-a-half circle at
+    // ninety metres a second, so the point she is chasing is going round it a
+    // shade slower than she is and she can sit on it instead of cutting the
+    // corner every lap.
+    const R = 1500;
+    const a = p.life * 0.06;
+    return { x: carrier.x + Math.sin(a) * R, z: carrier.z + Math.cos(a) * R };
+  }
+  const lead = state.planes.find((q) => q.id === p.lead && !q.dead);
+  // Her leader has been shot down, or has already gone in. She is her own
+  // leader from here.
+  if (!lead) { p.lead = p.id; return null; }
+  if (lead.phase === 'return') { p.lead = p.id; return null; }
+  // In sight of the enemy the formation breaks and each flight makes its own
+  // attack, which is what a strike does over the target: they arrive together
+  // and they go in separately, from different bearings, so the flak cannot
+  // concentrate on any one of them.
+  if (p.phase !== 'formup') {
+    for (const s of state.ships) {
+      if (!s.alive || s.team === p.team) continue;
+      if (dist(lead.x, lead.z, s.x, s.z) < BREAK_RANGE) { p.lead = p.id; return null; }
+    }
+  }
+  const [sx, sz] = STATION[Math.min(STATION.length - 1, p.slot || 0)];
+  const sn = Math.sin(lead.heading);
+  const cs = Math.cos(lead.heading);
+  return { x: lead.x + sn * sz + cs * sx, z: lead.z + cs * sz - sn * sx };
 }
 
 /**
@@ -1796,6 +1989,16 @@ function stepPlanes(state, dt) {
       continue;
     }
 
+    // Where she is trying to be while the strike is forming up over the ship,
+    // and while it is going out in company afterwards. Null once she has
+    // broken away to make her own attack.
+    const station = formationGoal(state, p, carrier);
+    // The leader decides when the strike goes.
+    if (p.phase === 'formup' && (!p.lead || p.lead === p.id)
+      && strikeFormed(state, p, carrier)) {
+      releaseStrike(state, p.owner, p.sqId);
+    }
+
     // Every couple of seconds she looks again for the thing she is actually
     // after, which is not the same thing for every flight in the strike.
     p.hunt -= dt;
@@ -1827,6 +2030,9 @@ function stepPlanes(state, dt) {
     if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
       if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+      // In company: she flies her station on the leader rather than at the
+      // target, and only breaks off when the strike is close enough to attack.
+      else if (station) { goalX = station.x; goalZ = station.z; }
       const want = headingTo(p.x, p.z, goalX, goalZ);
       // She rolls into a turn and out of it.
       //
@@ -1842,8 +2048,17 @@ function stepPlanes(state, dt) {
       const was = p.turn ?? 0;
       p.turn = was + clamp(asked - was, -ROLL_RATE * dt, ROLL_RATE * dt);
       p.heading = wrapAngle(p.heading + p.turn * dt);
-      p.x += Math.sin(p.heading) * P.cruiseSpeed * dt;
-      p.z += Math.cos(p.heading) * P.cruiseSpeed * dt;
+      // Joining up is done on the throttle. A flight astern of her station
+      // cannot ever catch her leader at the same cruise, so she opens up a
+      // little to close and comes back to cruise once she is on -- which is
+      // the whole of formation flying and costs one multiplication.
+      let speed = P.cruiseSpeed;
+      if (station) {
+        const off = dist(p.x, p.z, station.x, station.z);
+        speed *= clamp(1 + (off - 120) / 900, 0.9, 1.22);
+      }
+      p.x += Math.sin(p.heading) * speed * dt;
+      p.z += Math.cos(p.heading) * speed * dt;
     } else {
       // Somebody is flying her: her bank is his, and the client that has her
       // draws it off his own stick rather than off this.
@@ -1940,8 +2155,18 @@ function stepPlanes(state, dt) {
       } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || p.life > 180) {
         p.phase = 'return';
       }
-    } else if (carrier && dist(p.x, p.z, carrier.x, carrier.z) < 300) {
+    } else if (p.phase === 'return' && carrier
+      && dist(p.x, p.z, carrier.x, carrier.z) < 300) {
       // Home. Her squadron is struck below and rearmed by the sweep below.
+      //
+      // Only on the way home. A flight forming up over the ship is within
+      // three hundred metres of her for most of a minute, and taking that for
+      // a recovery struck the whole strike below the moment it left the deck.
+      //
+      // Unless there is no deck left to come home to, in which case she is
+      // over her own ship with nowhere to put her wheels down and she goes in
+      // the water alongside.
+      if (flightDeckOut(carrier)) { killFlight(state, p, 'nodeck'); continue; }
       p.dead = true;
       continue;
     } else if (!carrier || p.life > 300) {

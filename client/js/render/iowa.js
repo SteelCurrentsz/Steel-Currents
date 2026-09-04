@@ -13,6 +13,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { buildInterior, bySection } from './interior.js';
 
 export const LOA = 270;
 export const BEAM = 33;
@@ -645,7 +646,24 @@ export function buildIowa() {
   // down leaves it a separate object that can still be blown off.
   forward.userData.dynamic = true;
   mergeStatic(forward);
-  mergeStatic(root);
+  // And what is inside her, fitted to the same lines her plating was lofted
+  // through, welded one buffer per compartment so a compartment blown out of
+  // her shows what is behind the plating. Her bow section is already its own
+  // object -- it can be blown off whole -- so it is left alone.
+  buildInterior(root, {
+    loa: LOA,
+    sheer: sheerAt,
+    keelY: keelAt,
+    shellAt: (t, y) => {
+      const w = halfBeam(t);
+      const k = keelAt(t);
+      if (y <= k) return 0;
+      const up = Math.min(1, Math.max(0, (y - k) / Math.max(0.6, -k)));
+      const belly = Math.pow(up, 0.40);
+      return Math.max(0.05, w * belly * (y > 0 ? flareAt(t) : 1));
+    },
+  });
+  mergeStatic(root, bySection(LOA));
 
   root.userData = { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK };
   return {

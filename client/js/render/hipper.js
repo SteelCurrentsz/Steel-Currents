@@ -20,6 +20,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
@@ -1544,7 +1545,11 @@ export function buildHipper() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
   barbettes(g);
-  mergeStatic(g);
+  // Her insides, fitted to her own lines, and the weld split one buffer per
+  // compartment so a compartment blown out of her can have its plating taken
+  // off and you can see them. See interior.js.
+  buildInterior(g, { loa: LOA, shellAt, keelY, sheer, zAt });
+  mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);
   g.userData.classId = 'hipper';

@@ -15,7 +15,8 @@ import { SHIP_CLASSES } from '../shared/ships.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
-  DECK_RUN, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
+  DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
+  flightDeckOut,
   flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
 import { Pilot, AERO } from '../client/js/render/aero.js';
@@ -28,6 +29,8 @@ const AERO_AVENGER = AERO.avenger;
 import { arsenal } from '../client/js/hud.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels } from '../client/js/render/planes.js';
+import { meshSection } from '../client/js/render/interior.js';
+import { buildShip } from '../client/js/render/ships.js';
 import { angleDelta, dist } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
@@ -2184,7 +2187,7 @@ check('a launch runs the whole evolution, hangar to bow', () => {
   built.group.userData.step(0);
   built.group.userData.launch(0);
   const pr = built.group.userData.deck.profile;
-  const END = 7.6 + pr.rows.length * pr.dt;
+  const END = DECK_RUN;
 
   const track = [];
   for (let t = 0; t <= END; t += 0.05) {
@@ -2203,15 +2206,28 @@ check('a launch runs the whole evolution, hangar to bow', () => {
   const upAgain = track.find((s) => s.t > 2 && s.lift > FD - 0.2);
   assert.ok(upAgain && upAgain.t < 5, 'the lift never came back up');
 
-  // Taxied FORWARD off the lift, not dragged aft: she is a fifteen-thousand
-  // pound aeroplane under her own power, and she never goes backwards.
-  const onLift = track.find((s) => s.t > 3.6).z;
-  const lined = track.find((s) => s.t > 6.4);
-  assert.ok(lined.z > onLift + 12,
-    `she taxied from ${onLift.toFixed(0)} to ${lined.z.toFixed(0)}, which is not forward`);
-  for (let i = 1; i < track.length; i++) {
-    assert.ok(track[i].z >= track[i - 1].z - 0.01,
-      `she went backwards at ${track[i].t.toFixed(1)} s`);
+  // Ranged AFT off the lift to the round-down: a deck launch starts at the
+  // after end of the flight deck and uses the whole of it. She used to line up
+  // twenty metres forward of the after lift and be off the planking again by
+  // the time she was over the bridge, which is a fifth of the deck.
+  const ph = deckPhases(built.group.userData.deck);
+  const onLift = track.find((s) => s.t > ph.up + 0.1).z;
+  const lined = track.find((s) => s.t > ph.taxied + 0.1);
+  assert.ok(lined.z < onLift - 30,
+    `she ranged from ${onLift.toFixed(0)} to ${lined.z.toFixed(0)}, which is not aft`);
+  // And she starts at the round-down, not somewhere up the middle of the ship.
+  const aftEnd = -124.6;
+  assert.ok(lined.z < aftEnd + 12,
+    `she lined up at ${lined.z.toFixed(0)}, which is ${(lined.z - aftEnd).toFixed(0)} m up the deck`);
+  // The run itself never goes backwards, and it takes most of the deck: her
+  // wheels leave the planking around amidships, not over the after lift.
+  const off = track.find((s) => s.t > ph.roll && s.y > FD + 0.6);
+  assert.ok(off && off.z > -30 && off.z < 60,
+    `she unstuck at ${off ? off.z.toFixed(0) : 'never'}, which is not most of a deck run`);
+  const runOnly = track.filter((s) => s.t >= ph.roll);
+  for (let i = 1; i < runOnly.length; i++) {
+    assert.ok(runOnly[i].z >= runOnly[i - 1].z - 0.01,
+      `she went backwards at ${runOnly[i].t.toFixed(1)} s`);
   }
 
   // Then the run, and it is a run: she accelerates, so the ground she covers in
@@ -2607,32 +2623,46 @@ check('her wheels come up once she is off the deck', () => {
     assert.ok(Number.isFinite(lowest), 'she has no wheels at all');
     return plane.position.y - lowest;
   };
+  // Measured with her held level. She is nose-up when she comes off the deck,
+  // and a nose-up aeroplane's tail is lower than a level one's -- which reads
+  // as the wheels having come only halfway up when they are fully retracted.
+  // The question is where the wheels are on the aeroplane, not what attitude
+  // the aeroplane is in.
+  const gap = () => {
+    const was = plane.rotation.x;
+    plane.rotation.x = 0;
+    plane.updateMatrixWorld(true);
+    const d = drop();
+    plane.rotation.x = was;
+    plane.updateMatrixWorld(true);
+    return d;
+  };
   built.group.userData.step(0);
-  const stood = drop();
+  const stood = gap();
 
   // Measured while she is taxiing: wings already out, and she is not yet
   // rocking against the brakes, so the only thing that can move is the gear.
   built.group.userData.launch(0);
-  const pr = deck.profile;
-  const END = 7.6 + pr.rows.length * pr.dt;
-  built.group.userData.step(6.0);
-  const taxi = drop();
+  const ph = deckPhases(deck);
+  const END = DECK_RUN;
+  built.group.userData.step((ph.up + ph.taxied) / 2);
+  const taxi = gap();
   let onDeck = 0;
-  for (let t = 4.5; t <= 7.4; t += 0.1) {
+  for (let t = ph.up + 0.4; t <= ph.roll - 0.2; t += 0.1) {
     built.group.userData.step(t);
-    onDeck = Math.max(onDeck, Math.abs(drop() - taxi));
+    onDeck = Math.max(onDeck, Math.abs(gap() - taxi));
   }
   assert.ok(onDeck < 0.05, `her wheels moved by ${onDeck.toFixed(2)} m while taxiing`);
 
   built.group.userData.step(END);
-  const flying = drop();
+  const flying = gap();
   assert.ok(taxi - flying > 0.65,
     `her wheels only came up ${(taxi - flying).toFixed(2)} m`);
   assert.ok(deck.airborne, 'she never got airborne');
 
   built.group.userData.recover();
   built.group.userData.step(40);
-  assert.ok(Math.abs(drop() - stood) < 0.05, 'her wheels stayed up when she came home');
+  assert.ok(Math.abs(gap() - stood) < 0.05, 'her wheels stayed up when she came home');
 });
 
 check('only one aircraft uses the deck at a time', () => {
@@ -3322,7 +3352,7 @@ check('a pilot flies her flight, and nobody else can', () => {
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 8000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
   launchStrike(state, cv);
-  for (let i = 0; i < 30 * 20; i++) {
+  for (let i = 0; i < 30 * (DECK_RUN + 4); i++) {
     for (const s of state.ships) s.spottedBy = [true, true];
     step(state, DT);
   }
@@ -3408,9 +3438,9 @@ check('a squadron always comes back, however her flights end', () => {
   let launched = 0;
   let stuckFor = 0;
   const came = new Set();
-  for (let i = 0; i < 30 * 60 * 5; i++) {
+  for (let i = 0; i < 30 * 60 * 8; i++) {
     for (const s of state.ships) s.spottedBy = [true, true];
-    if (i % (30 * 20) === 0 && launchStrike(state, cv)) launched++;
+    if (i % (30 * 8) === 0 && launchStrike(state, cv)) launched++;
     step(state, DT);
     // Any squadron marked flying with nothing of it in the air, and not on the
     // deck run, is one that will never come home.
@@ -3422,7 +3452,7 @@ check('a squadron always comes back, however her flights end', () => {
     assert.ok(stuckFor < 30 * 3,
       `squadron ${bad[0] && bad[0].id} has been flying with nothing in the air for 3s`);
   }
-  assert.ok(launched >= 4, `she only got ${launched} strikes away in five minutes`);
+  assert.ok(launched >= 4, `she only got ${launched} strikes away in eight minutes`);
   // Four strikes off three squadrons is only possible if squadrons came back
   // and went again -- and every one of them has to have been struck below at
   // some point, not just the lucky one.
@@ -3449,11 +3479,17 @@ check('a flight shot down is reported once, not twice', () => {
   // Wait for the flights to get off the deck -- one at a time, so the whole
   // strike takes three deck runs -- then put the two forces on top of one
   // another so the fighters are certain to meet.
-  for (let i = 0; i < 30 * 60; i++) {
+  // Long enough for both strikes to be up AND to have formed up and set off:
+  // a flight still circling its own carrier waiting for the rest of the strike
+  // is not hunting anything, so putting two of them nose to nose proves
+  // nothing.
+  for (let i = 0; i < 30 * (STRIKE_RUN + 30); i++) {
     for (const s of state.ships) s.spottedBy = [true, true];
     step(state, DT);
   }
   assert.ok(state.planes.length >= 6, `only ${state.planes.length} flights got up`);
+  assert.ok(state.planes.every((p) => p.phase !== 'formup'),
+    'the strikes never left their form-up circles');
   for (const p of state.planes) { p.x = 11000 + (p.team ? 60 : 0); p.z = 6000; }
   const seen = [];
   let killedByFighters = 0;
@@ -3629,6 +3665,270 @@ check('a strike goes up as three flights and comes home as one squadron', () => 
   st.planes = st.planes.slice(1);
   assert.equal(cv.squadrons.find((q) => q.id === sq.id).state, 'flying',
     'the squadron came back on the board with two flights still up');
+});
+
+check('a strike forms up over the ship and goes out in company', () => {
+  // Three flights leaving one at a time used to set off one at a time as well,
+  // and since they all cruise at the same speed the last of them could never
+  // close the mile and a half the first had on her. What arrived over the
+  // enemy was a queue. It forms up now: the leader flies a circle over the
+  // ship until the rest of the strike is on her, and then they go together.
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+
+  // Every flight, every tick, for the whole sortie: nothing may ever move
+  // further in one tick than an aeroplane can fly in one. This is the check
+  // that says there is no teleport left anywhere in the flight path.
+  const last = new Map();
+  let worst = 0;
+  let together = 0;
+  let departed = 0;
+  const spans = [];
+  for (let i = 0; i < 30 * 260; i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    step(st, DT);
+    for (const p of st.planes) {
+      const was = last.get(p.id);
+      if (was) worst = Math.max(worst, Math.hypot(p.x - was.x, p.z - was.z));
+      last.set(p.id, { x: p.x, z: p.z });
+    }
+    if (!departed && st.planes.length >= 3 && st.planes.every((p) => p.phase === 'outbound')) {
+      departed = st.t;
+    }
+    // How spread out the strike is, once it has set off and before it breaks
+    // to attack.
+    if (departed && st.t > departed + 25 && st.planes.length >= 3
+      && st.planes.every((p) => p.phase === 'outbound')) {
+      let span = 0;
+      for (const a of st.planes) {
+        for (const b of st.planes) span = Math.max(span, Math.hypot(a.x - b.x, a.z - b.z));
+      }
+      spans.push(span);
+      if (span < 900) together++;
+    }
+  }
+  // A flight cruises at seventy-eight metres a second, which is 2.6 m a tick.
+  assert.ok(worst < 8, `a flight moved ${worst.toFixed(0)} m in one tick`);
+  assert.ok(departed > 0, 'the strike never set off');
+  assert.ok(spans.length > 100, 'the strike was never all outbound together');
+  const widest = Math.max(...spans);
+  assert.ok(widest < 1500,
+    `the strike was strung out over ${widest.toFixed(0)} m`);
+  assert.ok(together > spans.length * 0.8,
+    `the strike was only in company for ${together} of ${spans.length} ticks`);
+});
+
+check('the deck says which flight the aeroplane that just left it became', () => {
+  // The client draws one aeroplane in full -- the one it watched go down the
+  // deck -- and it has to know which marker on the plot she is. It used to
+  // guess "whichever flight is youngest", and the answer changed under it
+  // every time another aeroplane went: the one already up was let go of and
+  // snapped onto the new one's formation. The simulation names her instead.
+  const st = createState(generateWorld(515, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  launchStrike(st, cv);
+  const named = [];
+  for (let i = 0; i < 30 * (DECK_RUN * 3 + 4); i++) {
+    for (const e of step(st, DT)) if (e.e === 'airborne') named.push(e);
+  }
+  assert.equal(named.length, 3, `${named.length} aeroplanes were named off the deck, not 3`);
+  for (const e of named) assert.equal(e.ship, cv.id, 'the wrong ship was named');
+  // Each name is a different flight, and between them they are the whole
+  // strike -- nobody is named twice and nobody is left out.
+  const ids = new Set(named.map((e) => e.i));
+  assert.equal(ids.size, 3, 'the same flight was named twice');
+  for (const p of st.planes) {
+    assert.ok(ids.has(p.id), `flight ${p.id} got up without being named`);
+  }
+});
+
+check('every ship has an inside, and it is inside her', () => {
+  // A hull used to be a shell with nothing behind the plating. Open her up --
+  // and a compartment blown out of her does open her up -- and you were
+  // looking through the ship at the sea on the far side. She has decks,
+  // bulkheads, machinery and magazines now, fitted to her own lines.
+  //
+  // Fitted to her own lines is the thing that has to be checked: an interior
+  // built to the wrong beam sticks out through the plating, and what you get
+  // is a boiler hanging in the air alongside an undamaged ship.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const built = buildShip(id);
+    const cls = SHIP_CLASSES[id];
+    const inside = built.group.children.filter((c) => c.isMesh
+      && c.userData.mergeKey === 'in');
+    assert.equal(inside.length > 0, true, `${id} has nothing inside her`);
+
+    // Everything inside her is inside her: no wider than her beam, no deeper
+    // than her keel, and no higher than her deck.
+    let tris = 0;
+    const bb = new THREE.Box3();
+    for (const m of inside) {
+      m.geometry.computeBoundingBox();
+      bb.union(m.geometry.boundingBox);
+      const ix = m.geometry.getIndex();
+      tris += (ix ? ix.count : m.geometry.attributes.position.count) / 3;
+    }
+    const beam = cls.hull.beam / 2;
+    assert.ok(bb.max.x <= beam + 0.6 && bb.min.x >= -beam - 0.6,
+      `${id}'s insides stick out to ${bb.max.x.toFixed(1)} on a ${beam.toFixed(1)} m half-beam`);
+    assert.ok(bb.min.y >= -cls.hull.draft - 1.5,
+      `${id}'s insides go down to ${bb.min.y.toFixed(1)} below a ${cls.hull.draft} m draft`);
+    assert.ok(bb.max.z <= cls.hull.length / 2 + 1 && bb.min.z >= -cls.hull.length / 2 - 1,
+      `${id}'s insides run past her own ends`);
+    // And there is enough of it to be worth looking at: decks, bulkheads,
+    // boilers, turbines, magazines and the steering gear.
+    assert.ok(tris > 900, `${id} has only ${tris | 0} triangles inside her`);
+
+    // Specifically, there is machinery in the machinery space. Decks and
+    // bulkheads alone are a set of empty shelves: what makes an engine room
+    // read as an engine room is the boilers and the turbines in it, and they
+    // have to be down in the bottom of her amidships where they belong.
+    const half = cls.hull.length / 2;
+    const deep = -cls.hull.draft * 0.55;
+    let low = 0;
+    for (const m of inside) {
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        if (y < deep && Math.abs(z) < half * 0.22) low++;
+      }
+    }
+    assert.ok(low > 250,
+      `${id} has only ${low} points of machinery in the bottom of her amidships`);
+  }
+});
+
+check('a compartment blown out of her opens the ship up', () => {
+  // Her plating is welded one buffer per compartment, so the compartment that
+  // has gone can have its plating taken off -- and what is behind it is the
+  // inside of the ship. Everything standing on that piece of deck goes with
+  // it; everything on the rest of her stays.
+  for (const id of ['fletcher', 'hipper', 'iowa']) {
+    const view = { group: buildShip(id).group };
+    const half = SHIP_CLASSES[id].hull.length / 2;
+    const plating = new Map();
+    for (const c of view.group.children) {
+      if (!c.isMesh) continue;
+      const k = meshSection(c);
+      if (!k) continue;
+      plating.set(k, (plating.get(k) || 0) + 1);
+    }
+    // Every compartment along her has plating of its own.
+    for (const sec of SECTIONS) {
+      if (sec.from === null) continue;
+      assert.ok(plating.get(sec.k) > 0,
+        `${id} has no plating welded for her ${sec.name}`);
+    }
+    // Taking one off leaves the rest of her, and leaves her insides.
+    const before = view.group.children.filter((c) => c.isMesh && c.visible).length;
+    let hid = 0;
+    for (const c of view.group.children) {
+      if (c.isMesh && meshSection(c) === 'mid') { c.visible = false; hid++; }
+    }
+    assert.ok(hid > 0, `${id} lost no plating when her machinery went`);
+    const after = view.group.children.filter((c) => c.isMesh && c.visible).length;
+    assert.equal(after, before - hid, `${id} lost the wrong things`);
+    const stillInside = view.group.children.some((c) => c.isMesh && c.visible
+      && c.userData.mergeKey === 'in');
+    assert.ok(stillInside, `${id} has nothing left to see through the hole`);
+  }
+});
+
+check('nothing takes off over a hole in the flight deck', () => {
+  const st = createState(generateWorld(818, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  assert.equal(flightDeckOut(cv), false, 'her deck is out before anything has hit her');
+  assert.ok(launchStrike(st, cv), 'she would not launch with a sound deck');
+
+  // Now blow the machinery out from under the flight deck while an aeroplane
+  // is on the run down it. She has nowhere to go.
+  for (let i = 0; i < 30 * 5; i++) step(st, DT);
+  assert.ok(cv.launching, 'nothing was on the deck run');
+  cv.sections.mid.hp = 0;
+  cv.hp = hullIntegrity(cv);
+  assert.equal(flightDeckOut(cv), true, 'her deck is not out with her machinery gone');
+  let crashed = false;
+  for (let i = 0; i < 30 * 3 && !crashed; i++) {
+    for (const e of step(st, DT)) if (e.e === 'deckCrash') crashed = true;
+  }
+  assert.ok(crashed, 'she ran off the end of a wrecked deck without crashing');
+  assert.equal(cv.launching, null, 'the launch carried on over the hole');
+
+  // And nothing else goes until the deck is fit to use.
+  cv.deckBusy = 0;
+  for (const q of cv.squadrons) q.cooldown = 0;
+  assert.equal(launchStrike(st, cv), false, 'she launched off a wrecked deck');
+  // Mended, and she can fly again.
+  cv.sections.mid.hp = cv.sections.mid.max;
+  cv.hp = hullIntegrity(cv);
+  assert.equal(flightDeckOut(cv), false, 'her deck is still out after repairs');
+  assert.ok(launchStrike(st, cv), 'she would not launch after her deck was made good');
+});
+
+check('a flight with no deck to come home to goes in the water', () => {
+  const st = createState(generateWorld(919, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  launchStrike(st, cv);
+  for (let i = 0; i < 30 * (DECK_RUN + 3); i++) step(st, DT);
+  const p = st.planes[0];
+  assert.ok(p, 'nothing got up');
+  // Her ship's machinery goes while she is out. She comes home to a hole.
+  cv.sections.mid.hp = 0;
+  cv.hp = hullIntegrity(cv);
+  p.phase = 'return';
+  p.lead = p.id;
+  p.x = cv.x + 40; p.z = cv.z + 40;
+  let ditched = null;
+  for (let i = 0; i < 30 * 6 && !ditched; i++) {
+    for (const e of step(st, DT)) if (e.e === 'planesLost' && e.i === p.id) ditched = e;
+  }
+  assert.ok(ditched, 'she landed on a flight deck that is not there');
+  assert.equal(ditched.why, 'nodeck', `she was lost to ${ditched && ditched.why}`);
+});
+
+check('the deck hands her over where and how she left it', () => {
+  // The aeroplane the player watches go down the deck and the aeroplane the
+  // formation draws a moment later have to be the same aeroplane in the same
+  // place at the same attitude, or the hand-over is a flick.
+  const built = buildEnterprise();
+  const deck = built.group.userData.deck;
+  const plane = built.deckPlane;
+  built.group.userData.step(0);
+  built.group.userData.launch(0);
+  built.group.userData.step(DECK_RUN);
+
+  // Where the evolution actually leaves her, and where the deck says it does.
+  assert.ok(deck.endPose, 'the deck does not say where the run leaves her');
+  assert.ok(Math.abs(plane.position.z - deck.endPose.z) < 0.6
+    && Math.abs(plane.position.y - deck.endPose.y) < 0.6,
+    `the deck says ${deck.endPose.z.toFixed(1)} but leaves her at ${plane.position.z.toFixed(1)}`);
+  assert.ok(Math.abs(plane.rotation.x - deck.endPose.pitch) < 0.02,
+    'the deck says a different attitude from the one she is in');
+
+  // And she is nose UP, because she is climbing away off the bow. Drawn nose
+  // down here and nose up by the formation, the hand-over flicked her through
+  // seventeen degrees.
+  assert.ok(plane.rotation.x > 0.05,
+    `she leaves the deck at ${plane.rotation.x.toFixed(3)}, which is nose down`);
+
+  // The simulation puts her flight up at the same place, so the formation
+  // draws her where she already is.
+  assert.ok(Math.abs(DECK_RUN_OUT - deck.endPose.z) < 12,
+    `the deck leaves her at ${deck.endPose.z.toFixed(0)} and her flight is born at ${DECK_RUN_OUT}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

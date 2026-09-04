@@ -8,6 +8,9 @@ import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
 import { buildHipper } from './hipper.js';
 import { buildCleveland } from './cleveland.js';
+import { buildInterior, bySection } from './interior.js';
+import { sectionAt } from '../../../shared/sim.js';
+import { mergeStatic } from './merge.js';
 
 const PALETTE = {
   hull: 0x8e969d,
@@ -79,10 +82,19 @@ function buildHull(cls) {
     rings.push({ z, w, deckY: sheer, keelY: -D + keelRise, keelW: Math.max(0.5, w * 0.22) });
   }
 
+  // Her plating is built in bands, one per compartment, rather than as one
+  // sheet from stem to stern. It is the same geometry either way -- but a
+  // compartment blown out of her can only have its plating taken off if that
+  // plating is its own mesh. See interior.js.
+  const bandOf = (t) => sectionAt(t);
   const build = (yTop, yBot, wTopKey, wBotKey, color, key) => {
-    const pos = [];
+    const bands = new Map();
     for (let i = 0; i < stations; i++) {
       const a = rings[i], b = rings[i + 1];
+      const t = -1 + (2 * (i + 0.5)) / stations;
+      const band = bandOf(t);
+      let pos = bands.get(band);
+      if (!pos) bands.set(band, (pos = []));
       for (const side of [1, -1]) {
         const ax = a[wTopKey] * side, bx = b[wTopKey] * side;
         const ax2 = a[wBotKey] * side, bx2 = b[wBotKey] * side;
@@ -96,30 +108,67 @@ function buildHull(cls) {
         }
       }
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.computeVertexNormals();
-    return new THREE.Mesh(geo, sharedMat(key + cls.id, color));
+    const out = [];
+    for (const pos of bands.values()) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      out.push(new THREE.Mesh(geo, sharedMat(key + cls.id, color)));
+    }
+    return out;
   };
 
   // Freeboard, boot topping and underwater body.
-  group.add(build((r) => r.deckY, () => 0.9, 'w', 'w', PALETTE.hull, 'hull'));
-  group.add(build(() => 0.9, () => -0.9, 'w', 'w', PALETTE.boot, 'boot'));
-  group.add(build(() => -0.9, (r) => r.keelY, 'w', 'keelW', PALETTE.antifoul, 'anti'));
+  for (const m of build((r) => r.deckY, () => 0.9, 'w', 'w', PALETTE.hull, 'hull')) group.add(m);
+  for (const m of build(() => 0.9, () => -0.9, 'w', 'w', PALETTE.boot, 'boot')) group.add(m);
+  for (const m of build(() => -0.9, (r) => r.keelY, 'w', 'keelW', PALETTE.antifoul, 'anti')) group.add(m);
 
-  // Deck plating.
-  const deckPos = [];
+  // Deck plating, in the same bands.
+  const deckBands = new Map();
   for (let i = 0; i < stations; i++) {
     const a = rings[i], b = rings[i + 1];
+    const band = bandOf(-1 + (2 * (i + 0.5)) / stations);
+    let deckPos = deckBands.get(band);
+    if (!deckPos) deckBands.set(band, (deckPos = []));
     deckPos.push(-a.w, a.deckY, a.z, a.w, a.deckY, a.z, b.w, b.deckY, b.z);
     deckPos.push(-a.w, a.deckY, a.z, b.w, b.deckY, b.z, -b.w, b.deckY, b.z);
   }
-  const deckGeo = new THREE.BufferGeometry();
-  deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPos, 3));
-  deckGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(deckGeo, sharedMat('deck' + cls.id, PALETTE.deck)));
+  for (const deckPos of deckBands.values()) {
+    const deckGeo = new THREE.BufferGeometry();
+    deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPos, 3));
+    deckGeo.computeVertexNormals();
+    group.add(new THREE.Mesh(deckGeo, sharedMat('deck' + cls.id, PALETTE.deck)));
+  }
 
   return { group, freeboard, rings };
+}
+
+/**
+ * The same lines `buildHull` generates, as the three functions the interior
+ * builder wants: her half-breadth at a station and a height, her keel, and her
+ * deck. Written once here rather than twice, so the inside of a generated hull
+ * cannot drift out of the plating that is drawn round it.
+ */
+function genericHull(cls, freeboard) {
+  const { length: L, beam: B, draft: D } = cls.hull;
+  const type = cls.type;
+  const sheer = (t) => freeboard + Math.pow(Math.max(0, t), 2) * (type === 'CV' ? 0.6 : 2.4);
+  const keelY = (t) => -D + Math.pow(Math.abs(t), 3.2) * D * 0.85;
+  return {
+    loa: L,
+    sheer,
+    keelY,
+    // The plating is a straight-sided ring at each station, so the half-breadth
+    // does not vary with height except right down on the keel, where the strake
+    // tucks in to the flat of the bottom.
+    shellAt: (t, y) => {
+      const w = halfBeamAt(t, B, type);
+      const k = keelY(t);
+      if (y <= k) return 0;
+      if (y >= -0.9) return w;
+      return Math.max(0.5, w * 0.22) + (w - Math.max(0.5, w * 0.22)) * ((y - k) / Math.max(0.1, -0.9 - k));
+    },
+  };
 }
 
 function box(w, h, d, color, key) {
@@ -393,9 +442,20 @@ export function buildShip(classId) {
 
   const turrets = cls.turrets.map((spec) => {
     const t = buildTurret(cls, spec, cls.type === 'CV' ? deckY + 1.6 : deckY);
+    // She is welded down now, so anything that trains has to say so.
+    t.userData.dynamic = true;
     root.add(t);
     return t;
   });
+
+  // Her insides, fitted to the same lines the plating was generated from, and
+  // the weld split one buffer per compartment so a compartment blown out of
+  // her shows what is behind the plating. See interior.js.
+  //
+  // The turrets are put on after this and are marked dynamic, so they train
+  // and are never welded down.
+  buildInterior(root, genericHull(cls, freeboard));
+  mergeStatic(root, bySection(cls.hull.length));
 
   root.userData = { classId: cls.id, length: cls.hull.length, beam: cls.hull.beam, deckY };
   return { group: root, turrets, length: cls.hull.length, beam: cls.hull.beam, deckY };

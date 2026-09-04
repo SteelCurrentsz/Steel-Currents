@@ -15,6 +15,18 @@ export function shipSnapshot(ship, full) {
     f: ship.fires, fl: ship.flooding,
     tu: ship.turrets.map((t) => r3(t.angle)),
     sm: ship.smokeActive > 0 ? 1 : 0,
+    // What is left of each of her compartments, in tenths, for everybody.
+    //
+    // Her own captain gets the full figures below; this is the coarse one, and
+    // it goes to anyone who can see her because it is what the renderer opens
+    // her up with. A compartment blown out is a hole in the ship you can see
+    // from the next ship in the line -- plating gone, frames bare, her decks
+    // and her machinery open to the weather -- and that is not private
+    // information.
+    sk: SECTIONS.map((k) => {
+      const c = ship.sections[k.k];
+      return Math.round((c.hp / c.max) * 9);
+    }),
   };
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam

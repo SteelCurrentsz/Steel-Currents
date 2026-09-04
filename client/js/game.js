@@ -99,6 +99,10 @@ export class Battle {
     this.selected = shipId;
     // An aeroplane on the approach, coming back aboard after her sortie.
     this.landing = null;
+    // The aircraft that have left the deck and are climbing out to join their
+    // flights: one for each aeroplane still between the bow and her formation.
+    // See startFlyoff.
+    this.flyoff = [];
     // Where the camera is standing when it has been walked off its ship: a
     // point on the sea it orbits instead. Null means it is on whatever it is
     // following -- your own hull, or a mark picked off the chart.
@@ -334,8 +338,32 @@ export class Battle {
           // That is the take-off where nothing appears. She is brought home
           // first; the squadron she was leading carries on without her, drawn
           // by the formation the same as the rest of it.
+          //
+          // It should almost never come to that now: she joins her flight a
+          // few seconds after she is off the bow and is aboard again long
+          // before the next one is ranged. See flyLaunched.
           this.recallDeckPlane(v);
           v.group.userData.launch?.(this.time);
+          break;
+        }
+        case 'airborne': {
+          // Which flight the aeroplane that has just gone down the deck
+          // became. The simulation says so, because it is the only thing that
+          // knows: the client used to work it out by taking whichever of the
+          // carrier's flights was youngest, and the answer changed under it
+          // every time another aeroplane went.
+          const v = this.scene.shipViews.get(ev.ship);
+          const deck = v && v.group.userData.deck;
+          if (!deck) break;
+          deck.flightId = ev.i;
+          // Her wheels have left the planking. She joins the queue for a model
+          // to be handed to her; flyLaunched does the handing, on whichever
+          // frame the evolution's own clock says she is off. The two clocks
+          // are within a frame of each other but either can be first, and the
+          // order for the next aeroplane arrives in the same breath as this
+          // one -- so the queue, rather than a single slot that the next order
+          // overwrites before anybody has looked at it.
+          if (deck.pending) deck.pending.push(ev.i);
           break;
         }
         case 'bomb': {
@@ -355,6 +383,16 @@ export class Battle {
           const y = from ? this.planeHeight(from) : 200;
           const ty = ev.air ? y - 8 : 22;
           this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          break;
+        }
+        case 'deckCrash': {
+          // An aeroplane at eighty knots on a flight deck with a hole in it.
+          // She goes into it, and there is a fire on the deck where she went.
+          const near = this.distanceFade(ev.x, ev.z);
+          fx.explosion(ev.x, 20, ev.z, 1.6);
+          fx.debris(ev.x, 20, ev.z, 20);
+          if (near < 0.9) audio.explosion(1.2, near);
+          if (ev.ship === this.shipId) this.hud.alert('Crash on deck — flight deck out');
           break;
         }
         case 'planesLost':
@@ -586,7 +624,7 @@ export class Battle {
       // And only while the carrier's model really is flying her: struck below
       // in the hangar she is not an aeroplane to ride, she is a parked one.
       if (this.watching.carrier != null
-        && this.flying && this.flying.id === this.watching.id) {
+        && this.flyingFor(this.watching.id)) {
         const v = this.scene.shipViews.get(this.watching.carrier);
         const g = v && v.group.userData.deckPlane;
         if (g) {
@@ -653,15 +691,12 @@ export class Battle {
       guns: 0,
       tracer: 0,
     };
-    // If the flight taken is the one the carrier's own deck model is flying --
-    // the aeroplane that came up the lift and went down the deck -- she is put
-    // back aboard. There is one aeroplane, and the pilot has her; two of the
-    // same flight in the air is the duplicate this whole thing is meant to
-    // avoid.
-    if (this.flying && this.flying.id === pl.i) {
-      const v = this.flying.ownerView;
-      if (v) this.recallDeckPlane(v);
-    }
+    // If the flight taken is the one still climbing out from the deck run,
+    // that copy is dropped. There is one aeroplane, and the pilot has her; two
+    // of the same flight in the air is the duplicate this whole thing is meant
+    // to avoid.
+    const out = this.flyingFor(pl.i);
+    if (out) this.endFlyoff(out);
     this.watching = null;
     this.hud.setWatching(null);
     this.hud.setWatchBanner(null);
@@ -772,7 +807,7 @@ export class Battle {
     // The one the carrier's own model is flying if she is up -- that is the
     // aeroplane drawn in full rather than as one of a formation -- and failing
     // that, the youngest flight she has put up.
-    const hero = this.flying && mine.find((p) => p.i === this.flying.id);
+    const hero = mine.find((p) => this.flyingFor(p.i));
     const pick = hero || mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
     this.roam = null;
     this.watching = {
@@ -1064,6 +1099,26 @@ export class Battle {
       // tubes off the snapshot, her light battery off the aircraft overhead.
       view.layMounts(s.se, s.tt, this.planesNow, dt);
 
+      // What is left of her, compartment by compartment. A compartment blown
+      // out of her has its plating taken off and you see into the ship: the
+      // bulkheads, the deck below, the boiler room or the magazine that was in
+      // there. When one goes it goes with a flash and a good deal of wreckage
+      // over the side, because that is what it is.
+      const lost = view.setCondition(s.sk);
+      if (lost) {
+        for (const sec of lost) {
+          const at = view.partCentre(sec);
+          const wx = x + Math.sin(h) * at.z;
+          const wz = z + Math.cos(h) * at.z;
+          this.scene.effects.explosion(wx, at.y + 6, wz, 2.2);
+          this.scene.effects.debris(wx, at.y + 6, wz, 26);
+          this.scene.effects.splash(wx, wz, 200);
+          const near = this.distanceFade(wx, wz);
+          if (near < 0.95) audio.explosion(1.4, near);
+          if (s.i === this.shipId) this.hud.alert(`${sec.name} blown out`);
+        }
+      }
+
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
 
@@ -1192,11 +1247,15 @@ export class Battle {
         : held + (want - held) * (1 - Math.pow(0.02, dt));
       this.planeTurn.set(pl.i, bank);
       const climb = clamp(((pl.a ?? 99) - 6) / 30, 0, 1);
-      const pitch = (1 - climb) * 0.14;
+      // Nose up while she is still climbing out, levelling off as she reaches
+      // cruise -- and starting at the angle the deck run leaves her at, so the
+      // aeroplane the formation takes over is at the attitude the aeroplane
+      // that came off the planking was in.
+      const pitch = (1 - climb) * 0.15;
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
-      const skip = this.flying && this.flying.id === pl.i ? 0 : -1;
+      const skip = this.flyingFor(pl.i) ? 0 : -1;
       // The one the player is flying is drawn where the flight model says she
       // is, at the attitude the stick has her in -- not at the position the
       // last snapshot happened to carry.
@@ -1316,132 +1375,157 @@ export class Battle {
    */
   planeHeight(pl) {
     const CRUISE = 220;
-    const OFF_DECK = 42;
+    // Where the deck run leaves her: forty-one metres, off the round-down and
+    // over the bow, measured off the same integrated launch the model flies.
+    const OFF_DECK = 41;
     const k = Math.min(1, Math.max(0, ((pl.a ?? 99) - 6) / 30));
     return OFF_DECK + (CRUISE - OFF_DECK) * (k * k * (3 - 2 * k));
   }
 
   /**
-   * Fly the aeroplane that left the deck.
+   * Is this flight the one an aeroplane off the deck is flying out to join?
    *
-   * She is the carrier's own model, so once she is off the bow she is taken
-   * out of the ship's group and put in the world, and from then on she is
-   * flown on her squadron's position -- out to the target and back -- rather
-   * than being deleted the moment she runs out of deck. When the squadron is
-   * recovered or shot down she goes back aboard and waits on the after lift.
+   * There can be several at once -- a carrier launches a strike one aeroplane
+   * at a time and the first is still climbing away when the second goes -- so
+   * this is a list, not a single one.
+   */
+  flyingFor(id) {
+    return this.flyoff.find((f) => f.id === id) || null;
+  }
+
+  /**
+   * The aeroplane that has just left the deck starts flying.
+   *
+   * She is a copy of the carrier's own deck model, taken at the moment her
+   * wheels left the planking and put in the world where she is. A copy,
+   * because the ship has exactly one aeroplane modelled in full and the deck
+   * needs it back at once for the next one: the first attempt at this flew the
+   * original, and the next launch had to wrench her home -- which is an
+   * aeroplane vanishing off her formation and reappearing on the lift, on
+   * every launch after the first. She costs nothing to copy: the geometry and
+   * the materials are shared, only the transforms are hers.
+   */
+  startFlyoff(view, flightId) {
+    const deck = view.group.userData.deck;
+    const src = view.group.userData.deckPlane;
+    if (!deck || !src || this.flyingFor(flightId)) return;
+    const g = src.clone(true);
+    g.matrixAutoUpdate = true;
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    // Where the run left her. Taken from the deck's own account of where that
+    // is -- the last row of the profile the launch was integrated into, or the
+    // pose latched at the moment the catapult let go -- rather than from where
+    // the model happens to be standing, because by the time anybody looks the
+    // model has been ranged again for the next one.
+    view.group.updateMatrixWorld(true);
+    let m;
+    if (deck.endPose) {
+      const e = deck.endPose;
+      m = new THREE.Matrix4().makeRotationX(e.pitch);
+      m.setPosition(e.x, e.y, e.z);
+      m.premultiply(view.group.matrixWorld);
+    } else if (deck.endMatrix) {
+      m = deck.endMatrix;
+    } else {
+      src.updateMatrixWorld(true);
+      m = src.matrixWorld;
+    }
+    m.decompose(pos, quat, scl);
+    g.position.copy(pos);
+    g.quaternion.copy(quat);
+    g.scale.copy(scl);
+    g.visible = true;
+    this.scene.scene.add(g);
+    // On her own type's wing: a Kingfisher off a cruiser's catapult is not an
+    // Avenger off a carrier's deck, and each ship says which she flew.
+    const a = AERO[deck.aero || 'avenger'] || AERO.avenger;
+    this.flyoff.push({
+      id: flightId, view, group: g, aero: a,
+      air: new Airborne(a, pos.x, pos.y, pos.z,
+        view.group.rotation.y, stallSpeed(a) * 1.18),
+    });
+    // And the ship's own model goes back below, ready to be ranged again --
+    // unless she is already ranging the next one, in which case leaving her
+    // alone is the whole point of flying a copy.
+    deck.flightId = 0;
+    deck.endMatrix = null;
+    if (deck.launchAt === null) view.group.userData.stow?.();
+  }
+
+  /** Take one off the board, whatever became of her. */
+  endFlyoff(f) {
+    const i = this.flyoff.indexOf(f);
+    if (i >= 0) this.flyoff.splice(i, 1);
+    if (f.group.parent) f.group.parent.remove(f.group);
+  }
+
+  /**
+   * Fly the aircraft that have left the deck out to their flights.
+   *
+   * Each one flies on her own wing -- banking into the turn, climbing on
+   * whatever power is left over from drag -- until she is inside her own
+   * wingspan of the slot her flight is drawing her in. At that point the
+   * formation draws her along with the rest of it and the copy is dropped,
+   * and because she is where the slot is there is nothing to see happen.
+   *
+   * Nothing in here ever sets a position to anything but where her own flying
+   * has taken her, so there is no way for one of them to jump.
    */
   flyLaunched(planes, dt) {
-    // Which of the carriers on the plot has just put her ready aircraft up, and
-    // which squadron on the plot is the one she flew off.
-    let up = null;
-    for (const [id, v] of this.scene.shipViews) {
+    // Anything whose wheels have left the planking. The order that names her
+    // and the evolution that flies her are stepped by different clocks and
+    // either can be first, so the queue is drained here, where both are known.
+    for (const [, v] of this.scene.shipViews) {
       const deck = v.group.userData.deck;
-      if (!deck || !deck.airborne) continue;
-      // Which of this carrier's flights the model on the deck has become.
-      //
-      // The one she is already flying if it is still up; failing that, the
-      // youngest, which is the one that has just left the planking. Taking
-      // whichever came first in the list meant that the second squadron off
-      // the deck was handed the first squadron's marker -- three miles away
-      // and outbound -- and the aeroplane was dragged after it.
-      const mine = planes.filter((q) => q.o === id
+      if (!deck || !deck.pending || !deck.pending.length) continue;
+      if (!deck.endPose && !deck.endMatrix && !deck.airborne) continue;
+      this.startFlyoff(v, deck.pending.shift());
+    }
+    for (const f of [...this.flyoff]) {
+      const pl = planes.find((q) => q.i === f.id
         && !(this.flight && this.flight.id === q.i));
-      const pl = (this.flying && mine.find((q) => q.i === this.flying.id))
-        || mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
-      if (pl) { deck.lostAt = 0; up = { id, v, deck, pl }; break; }
-      // Off the deck, but her squadron is not on the plot. That is usually
-      // because she was recovered or shot down -- but for the first moments
-      // after she leaves the planking it is only that the tick putting her
-      // flights up has not landed yet, and standing her back on the lift for
-      // that is an aeroplane snapping home the instant after it took off. So
-      // she is given a moment before anyone concludes she is gone.
-      deck.lostAt = (deck.lostAt || 0) + dt;
-      if (deck.lostAt < 3.0) continue;
-      if (!this.flying || this.flying.ownerView !== v) v.group.userData.stow?.();
-    }
-
-    if (!up) {
-      // Her squadron is home. She is not: she is three hundred metres astern of
-      // the ship, where the simulation released her, and snapping her onto the
-      // lift from there is the thing that reads as an aeroplane vanishing. So
-      // she flies the approach instead -- round onto the centreline, down the
-      // glide, over the round-down and onto the deck.
-      if (this.flying) {
-        const v = this.flying.ownerView;
-        const g = this.flying.group;
-        const far = v.group.position.distanceTo(g.position);
-        this.flying = null;
-        if (far > 1500) {
-          // She did not come home: she was shot down, or struck below out
-          // where her squadron was. Flying an approach from four miles out
-          // means sliding her across the sea at six hundred knots, which is
-          // the aeroplane that appears to teleport back to the ship. Put her
-          // below instead, which is where she is.
-          v.group.attach(g);
-          v.group.userData.stow?.();
-        } else {
+      if (!pl) {
+        // Her flight is off the plot: recovered, shot down, or taken over by a
+        // pilot. If she is near her ship she flies the approach and comes
+        // aboard; if she is out where her squadron was, she is simply gone.
+        const far = f.view.group.position.distanceTo(f.group.position);
+        this.endFlyoff(f);
+        if (far < 1500 && !this.landing) {
           this.landing = {
-            t0: this.time, view: v, group: g,
-            from: g.position.clone(), fromY: g.rotation.y,
+            t0: this.time, view: f.view, group: f.group,
+            from: f.group.position.clone(), fromY: f.group.rotation.y,
           };
+          this.scene.scene.add(f.group);
         }
+        continue;
       }
-      this.flyApproach();
-      return;
+      const air = f.air;
+      const goalY = this.planeHeight(pl);
+      air.step(dt, pl.x, goalY, pl.z);
+      f.group.position.set(air.x, air.y, air.z);
+      f.group.rotation.set(air.pitch, air.heading, -air.bank);
+      f.group.visible = true;
+      if (f.prop === undefined) {
+        f.prop = null;
+        f.group.traverse((o) => { if (o.userData && o.userData.isProp) f.prop = o; });
+      }
+      if (f.prop) f.prop.rotation.z += 1.6;
+      // Joined up. From here the formation draws her along with the rest of
+      // her flight and the copy is dropped -- and because she is inside a
+      // wingspan of the slot she is handed to, there is nothing to see happen.
+      //
+      // She flies faster than her flight cruises, so she closes, overshoots
+      // and comes round again: a pass within a wingspan usually takes a few
+      // seconds. The time limit is for the case where she cannot settle -- her
+      // flight turning hard, or the tab having been asleep -- and it still
+      // waits until she is near enough that letting go of her is not a jump.
+      f.out = (f.out || 0) + dt;
+      const off = Math.hypot(air.x - pl.x, air.y - goalY, air.z - pl.z);
+      if (off < 55 || (f.out > 40 && off < 300)) this.endFlyoff(f);
     }
-    // Coming aboard and ordered up again: the deck is hers, so she goes.
-    this.landing = null;
-
-    const { v, deck, pl } = up;
-    if (!this.flying || this.flying.id !== pl.i) {
-      // Hand her over: the same object, kept where she is in the world, and
-      // flying from here on. She leaves the deck at the speed the deck run left
-      // her at, and everything after that is her wing and her engine against
-      // her weight -- so she flies out to her squadron rather than being put on
-      // top of it, which is the jump the camera riding her used to take.
-      this.scene.scene.attach(v.group.userData.deckPlane);
-      const g0 = v.group.userData.deckPlane;
-      const w0 = new THREE.Vector3();
-      g0.getWorldPosition(w0);
-      // On her own type's wing: a Kingfisher off a cruiser's catapult is not
-      // an Avenger off a carrier's deck, and each ship says which she flew.
-      const a = AERO[deck.aero || 'avenger'] || AERO.avenger;
-      this.flying = {
-        id: pl.i, ownerView: v, group: g0,
-        air: new Airborne(a, w0.x, w0.y, w0.z,
-          v.group.rotation.y, stallSpeed(a) * 1.18),
-      };
-    }
-    const g = this.flying.group;
-    const air = this.flying.air;
-    // She flies to where her squadron is, on her own wing: banking into the
-    // turn, and climbing at the rate the power left over from drag allows. She
-    // is not put there -- if she were, she would fly like a cursor.
-    air.step(dt, pl.x, this.planeHeight(pl), pl.z);
-    // The squadron is the authority on where she really is, so if her own
-    // flying has let her drift a long way from it she is eased back on.
-    //
-    // Eased. It used to move her half the remaining distance every frame once
-    // she was four hundred metres out, which at sixty frames a second is not a
-    // correction, it is a teleport -- and it fired every time, because she was
-    // born at the ship and the squadron three hundred metres off the bow. She
-    // leaves the deck where her flight already is now, so this should almost
-    // never bite; when it does, it takes a second and a half rather than a
-    // frame, and it is here so a long stall in the tab cannot leave the
-    // aeroplane a mile from the squadron she is supposed to be.
-    const off = dist(air.x, air.z, pl.x, pl.z);
-    if (off > 250) {
-      const k = (1 - Math.pow(0.35, Math.min(0.1, dt)))
-        * Math.min(1, (off - 250) / 600);
-      air.x = lerp(air.x, pl.x, k);
-      air.z = lerp(air.z, pl.z, k);
-      air.y = lerp(air.y, this.planeHeight(pl), k);
-    }
-    g.position.set(air.x, air.y, air.z);
-    g.rotation.set(air.pitch, air.heading, -air.bank);
-    g.visible = true;
-    const prop = deck.plane && deck.plane.prop;
-    if (prop) prop.rotation.z += 1.6;
+    this.flyApproach();
   }
 
   /**
@@ -1516,14 +1600,14 @@ export class Battle {
    * world-space object with ship-space numbers.
    */
   recallDeckPlane(v) {
-    if (this.flying && this.flying.ownerView === v) {
-      v.group.attach(this.flying.group);
-      this.flying = null;
-    }
+    // Anything of hers still climbing out from an earlier run keeps flying:
+    // those are copies, and the ship's own model is not out there with them.
     if (this.landing && this.landing.view === v) {
       v.group.attach(this.landing.group);
       this.landing = null;
     }
+    const deck = v.group.userData.deck;
+    if (deck) deck.flightId = 0;
     v.group.userData.stow?.();
   }
 

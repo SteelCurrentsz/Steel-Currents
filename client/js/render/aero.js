@@ -27,10 +27,16 @@ export const G = 9.80665;
  *
  * This is the whole reason a loaded Avenger gets off five hundred feet of deck.
  * A carrier turns into wind and works up to thirty knots to launch, so the air
- * is already going past the wing at forty-odd knots before she has moved: her
- * airspeed on the deck is her speed over it plus this.
+ * is already going past the wing before she has moved: her airspeed on the deck
+ * is her speed over it plus this.
+ *
+ * Thirty knots is a launching carrier's own speed through the water with very
+ * little natural wind in it, which is the honest figure. It used to be
+ * forty-three, and that is a great deal of free airspeed: a loaded Avenger
+ * unstuck in fifty-eight metres, which is a fifth of the Enterprise's flight
+ * deck. She takes the whole of it now, as she did.
  */
-export const WIND_OVER_DECK = 22;      // m/s, about 43 knots
+export const WIND_OVER_DECK = 15.4;    // m/s, thirty knots
 
 /**
  * The three types, to their own weights and wings.
@@ -179,7 +185,10 @@ export function launchProfile(aero, deckAhead) {
     s += v * Math.cos(pitch) * dt;
     y += v * Math.sin(pitch) * dt;
     rows.push([s, y, pitch, 1]);
-    if (s > deckAhead + 60 && y > 24) break;
+    // Off, over the bow and climbing away: the evolution is over and whatever
+    // flies her next takes her from here. Run on any further and the whole
+    // launch cycle gets longer for pictures nobody is looking at.
+    if (s > deckAhead + 25 && y > 18) break;
   }
   return { dt, rows };
 }

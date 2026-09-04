@@ -23,6 +23,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { buildInterior, bySection } from './interior.js';
 import { AERO, launchProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
 
@@ -843,9 +844,8 @@ const LIFT_DROP = FD - HANGAR - 0.55;
 // is timed; the run itself is flown and takes as long as the aeroplane takes.
 const DOWN = 1.2;       // the lift on its way to the hangar
 const UP = 3.6;         // and back to the flight deck, wings going out on the way
-const TAXIED = 6.4;     // taxied forward off the lift and lined up
-const ROLL = 7.6;       // run up against the brakes, and the flag
-const TAXI = 20;        // metres of deck she taxis forward over
+const TAXIED = 8.6;     // taxied aft off the lift to the spot and lined up
+const ROLL = 10.0;      // run up against the brakes, and the flag
 // And coming home the other way: she picks up a wire at the round-down, rolls
 // up the deck to the after lift, and the lift takes her below.
 const LAND_ROLL = 3.0;  // up the deck from the round-down onto the lift
@@ -950,9 +950,9 @@ export function stepDeck(deck, t) {
     // Where the deck run actually left her, not a spot picked by hand: put her
     // anywhere else and she jumps at the moment she is handed over.
     const end = deck.profile ? deck.profile.rows[deck.profile.rows.length - 1] : null;
-    const spotZ = aft.group.position.z - 0.45 + TAXI;
+    const spotZ = deck.spot ?? (aft.group.position.z - 0.45);
     p.position.set(0, FD + (end ? end[1] : 26.34) + 0.34, spotZ + (end ? end[0] : 210));
-    p.rotation.set(end ? -end[2] : -0.20, 0, 0);
+    p.rotation.set(end ? end[2] : 0.20, 0, 0);
     return;
   }
   const LIFT_Z0 = AFT_Z - 0.45;
@@ -1005,13 +1005,14 @@ export function stepDeck(deck, t) {
     return;
   }
 
-  // Where she starts her run: off the lift and forward onto the centreline.
-  // She used to be dragged thirty-nine metres AFT to a spot behind the lift,
-  // nose-first, which is a hundred-ton aeroplane sliding backwards -- correct
-  // for handlers ranging her, and unreadable as taxiing. She taxis forward
-  // under her own power instead, which is what it looks like from the island.
+  // Where she starts her run: off the lift and aft to the round-down, which is
+  // the after end of the flight deck and where a deck launch begins. She used
+  // to line up twenty metres forward of the after lift and take off over the
+  // middle of the ship, using a fifth of the deck: that is a catapult shot
+  // without the catapult. She is ranged right aft now and has the whole of it,
+  // which is what all that planking is for.
   const LIFT_Z = AFT_Z - 0.45;
-  const SPOT = LIFT_Z + TAXI;
+  const SPOT = deck.spot ?? LIFT_Z;
   let y = FD;
   let z = LIFT_Z;
   let pitch = 0;
@@ -1038,13 +1039,14 @@ export function stepDeck(deck, t) {
     wings(run > UP - 0.9);
     deck.stowed = false;                 // she is on the platform now
   } else if (run < TAXIED) {
-    // Taxiing: forward off the lift under power, swinging onto the centreline
-    // as she goes. Fourteen knots, which is a brisk taxi.
+    // Taxiing: aft off the lift under her own power, swinging onto the
+    // centreline as she goes. Seventeen knots, which is a deck being ranged
+    // in a hurry, because that is what a strike going off is.
     const k = ease((run - UP) / (TAXIED - UP));
     aft.group.position.y = FD;
     wings(true);
     gear(0);
-    z = LIFT_Z + TAXI * k;
+    z = LIFT_Z + (SPOT - LIFT_Z) * k;
     yaw = 0.08 * (1 - k);
     turning = 11;
     // She rocks a little on her oleos as she rolls.
@@ -1069,7 +1071,11 @@ export function stepDeck(deck, t) {
     const [s2, h, th, up] = pr.rows[i];
     z = SPOT + s2;
     y = FD + h;
-    pitch = -th;
+    // Nose up, which is what a climb is. It was negated here, so an aeroplane
+    // coming off the round-down was drawn nose down all the way up the deck --
+    // and the formation that took her over a moment later was drawn nose up,
+    // which is a seventeen-degree flick at the hand-over.
+    pitch = th;
     yaw = 0;
     turning = 34;
     gear(up ? Math.min(1, (h - 3) / 14) : 0);
@@ -2358,6 +2364,9 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
     disc.userData.dynamic = true;
     p.add(disc);
     p.userData.prop = disc;
+    // Marked on the disc itself, so a copy of this model can find its own
+    // propeller rather than the one still aboard. See startFlyoff.
+    disc.userData.isProp = true;
   }
   for (let i = 0; i < blades; i++) {
     // A blade is not a plank: wide at the root, narrow and twisted at the tip,
@@ -2951,7 +2960,22 @@ export function buildEnterprise() {
   boatsAndCranes(g);
   const lifts = elevators(g);
   const plane = deckAircraft(g);
-  mergeStatic(g);
+  // What is under her hangar deck. A carrier is a hull with a hangar and a
+  // flight deck built on top of it, and everything that makes her steam --
+  // eight boilers and four sets of turbines, in her case -- is below the
+  // hangar, which is what the interior builder fits into her lines. The
+  // hangar itself is already modelled above it.
+  //
+  // The weld is split one buffer per compartment so a compartment blown out of
+  // her can have its plating taken off. That is also what puts a hole in her
+  // flight deck when the machinery under it goes: see flightDeckOut.
+  buildInterior(g, {
+    loa: LOA, shellAt, zAt, keelY,
+    // Her "deck" for this purpose is the hangar deck, not the flight deck:
+    // there is nothing below the hangar but the hull.
+    sheer: () => HANGAR,
+  });
+  mergeStatic(g, bySection(LOA));
   // The deck runs whenever anything is drawing her -- the shipyard and the
   // battle both -- so the ship carries her own animation rather than each scene
   // having to know she has elevators. `launch` starts the evolution; the
@@ -2959,9 +2983,21 @@ export function buildEnterprise() {
   // Her take-off, integrated once out of her own weight and wing so it can be
   // read back the same way every time. The deck ahead of her is what is left
   // between where she lines up and the bow.
-  const spot = lifts[lifts.length - 1].group.position.z - 0.45 + TAXI;
+  // Right aft, at the round-down, with her tail wheel just inside the deck
+  // edge -- which is where a deck launch starts and why the deck is as long as
+  // it is.
+  const spot = fdEndA(0) + 6.5;
   const deck = {
-    lifts, plane, launchAt: null, startY: FD, airborne: false,
+    lifts, plane, launchAt: null, startY: FD, airborne: false, spot,
+    // Which flight in the air she is, once she is off the deck. Set from
+    // the simulation's 'airborne' event and cleared when she is aboard
+    // again -- see flyLaunched.
+    flightId: 0,
+    // Flights whose wheels have left the planking and are waiting for a model
+    // to be handed to them. A queue, because the evolution is restarted for
+    // the next aeroplane on the same tick this one's wheels come up, and the
+    // order and the evolution can land a frame either side of each other.
+    pending: [],
     // Struck below between sorties, which is where a carrier keeps her
     // aircraft, and the reason the launch begins with the lift going down.
     stowed: true, landAt: null,
@@ -2969,6 +3005,16 @@ export function buildEnterprise() {
   };
   // Whose frame the deck evolution is drawn in. See stepDeck.
   deck.owner = plane.group.parent;
+  // Where the deck run leaves her, in the ship's own frame: the last row of
+  // the profile the launch was integrated into. Whatever takes her over flies
+  // her from here, and it reads this rather than looking at where the model
+  // happens to be -- the evolution is restarted for the next aeroplane on the
+  // same tick this one's wheels come up, and a hand-over that depended on
+  // catching the model at that instant caught it about as often as not.
+  {
+    const end = deck.profile.rows[deck.profile.rows.length - 1];
+    deck.endPose = { x: 0, y: FD + end[1] + 0.34, z: spot + end[0], pitch: end[2] };
+  }
   g.userData.deck = deck;
   // Where an aeroplane coming home puts her wheels down. The approach flies to
   // this and the recovery rolls up the deck from it, so the two agree.

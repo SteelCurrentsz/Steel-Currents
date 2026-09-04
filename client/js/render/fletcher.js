@@ -18,6 +18,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { buildInterior, bySection } from './interior.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, ladder,
 } from './shipkit.js';
@@ -1263,7 +1264,11 @@ export function buildFletcher() {
   for (const [, build] of STATIC) build(g);
   // Everything static welded into one mesh per material. Done before the guns
   // go on, because the guns have to keep moving.
-  mergeStatic(g);
+  // Her insides, fitted to her own lines, and the weld split one buffer per
+  // compartment so a compartment blown out of her can have its plating taken
+  // off and you can see them. See interior.js.
+  buildInterior(g, { loa: LOA, shellAt, keelY, sheer, zAt });
+  mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
 
   g.userData.classId = 'fletcher';

@@ -11,6 +11,8 @@ import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
 import { Wake } from './wake.js';
 import { Seakeeping } from './seakeeping.js';
+import { meshSection } from './interior.js';
+import { SECTIONS, sectionAt } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
   MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
@@ -581,6 +583,67 @@ export class ShipView {
     }));
     this.marker.position.y = 1.5;
     this.group.add(this.marker);
+
+    // Which of her compartments have been blown out of her. The plating of a
+    // compartment that has gone is taken off, and what was behind it -- her
+    // decks, her frames, her machinery -- is what you see. See setCondition.
+    this.gone = new Set();
+    // Everything on her, sorted by the compartment it belongs to, so opening
+    // her up is a walk over one short list rather than the whole ship.
+    this.byPart = new Map();
+    const half = this.cls.hull.length / 2;
+    for (const child of this.group.children) {
+      let k = null;
+      if (child.isMesh) k = meshSection(child);
+      // A mounting that trains was never welded, so it has no compartment on
+      // it -- but it is bolted to a piece of deck like everything else, and it
+      // goes when that piece of deck goes.
+      if (!k && child.userData.dynamic) k = sectionAt(child.position.z / half);
+      if (!k) continue;
+      if (!this.byPart.has(k)) this.byPart.set(k, []);
+      this.byPart.get(k).push(child);
+    }
+  }
+
+  /**
+   * Open her up where she has been blown open.
+   *
+   * `sk` is what the wire carries for every ship: what is left of each of her
+   * compartments, in tenths. A compartment at nothing is not damaged, it is
+   * gone -- so its plating comes off her, along with whatever was standing on
+   * it, and the inside of the ship at that station is left showing: the
+   * bulkhead the flooding stopped at, the deck below, the machinery or the
+   * magazine that was in there.
+   *
+   * Returns the compartments that have just gone, so whoever called can put a
+   * flash and some wreckage where they went. Nothing else in here has any
+   * effect, so it is safe to call every frame.
+   */
+  setCondition(sk) {
+    if (!sk) return null;
+    let lost = null;
+    for (let i = 0; i < SECTIONS.length; i++) {
+      const k = SECTIONS[i].k;
+      const gone = sk[i] <= 0;
+      if (gone === this.gone.has(k)) continue;
+      if (gone) this.gone.add(k); else this.gone.delete(k);
+      // The superstructure is not a length of hull: taking its plating off
+      // would take the bridge, the funnels and the masts with it, and a ship
+      // whose upperworks have been shot away still has a hull. It burns and
+      // it stops working -- which the simulation already does -- rather than
+      // disappearing.
+      if (k === 'works') continue;
+      for (const o of this.byPart.get(k) || []) o.visible = !gone;
+      if (gone) (lost || (lost = [])).push(SECTIONS[i]);
+    }
+    return lost;
+  }
+
+  /** Where a compartment is on her, in her own frame: for wreckage and flash. */
+  partCentre(sec) {
+    const half = this.cls.hull.length / 2;
+    const z = ((sec.from ?? -0.1) + (sec.to ?? 0.1)) / 2 * half;
+    return { z, y: this.cls.hull.draft * 0.4 };
   }
 
 

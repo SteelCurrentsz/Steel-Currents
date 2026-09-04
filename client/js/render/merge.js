@@ -14,8 +14,15 @@ import * as THREE from '../../../vendor/three.module.js';
 /**
  * Weld every static mesh under `group` into one mesh per material, in place.
  * Returns the number of draw calls saved, which is what this is for.
+ *
+ * `keyOf(mesh, cx, cy, cz)` optionally splits the weld further: meshes with
+ * different keys go into different buffers even when they share a material,
+ * and each welded mesh carries its key in `userData.mergeKey`. A hull uses it
+ * to weld one buffer per compartment, which is what lets a compartment's
+ * plating be taken off her when it is blown out -- see interior.js. The cost
+ * is a handful of extra draw calls per ship.
  */
-export function mergeStatic(group) {
+export function mergeStatic(group, keyOf = null) {
   group.updateMatrixWorld(true);
   const inv = group.matrixWorld.clone().invert();
 
@@ -49,8 +56,17 @@ export function mergeStatic(group) {
     m.multiplyMatrices(inv, mesh.matrixWorld);
     nm.getNormalMatrix(m);
 
-    let bucket = byMat.get(mesh.material);
-    if (!bucket) byMat.set(mesh.material, (bucket = { pos: [], nor: [], idx: [] }));
+    let key = null;
+    if (keyOf) {
+      // Where the piece is in her, in the ship's own frame, so the splitter
+      // can say which compartment it belongs to.
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const c = geo.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(m);
+      key = keyOf(mesh, c.x, c.y, c.z);
+    }
+    const slot = key === null ? mesh.material : `${key}\u0000${mesh.material.uuid}`;
+    let bucket = byMat.get(slot);
+    if (!bucket) byMat.set(slot, (bucket = { pos: [], nor: [], idx: [], key, material: mesh.material }));
     const base = bucket.pos.length / 3;
 
     for (let i = 0; i < pos.count; i++) {
@@ -71,7 +87,8 @@ export function mergeStatic(group) {
     mesh.removeFromParent();
   }
 
-  for (const [material, bucket] of byMat) {
+  for (const bucket of byMat.values()) {
+    const material = bucket.material;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
     if (bucket.nor.length === bucket.pos.length) {
@@ -82,7 +99,9 @@ export function mergeStatic(group) {
       ? new THREE.Uint32BufferAttribute(bucket.idx, 1)
       : new THREE.Uint16BufferAttribute(bucket.idx, 1));
     if (bucket.nor.length !== bucket.pos.length) geo.computeVertexNormals();
-    group.add(new THREE.Mesh(geo, material));
+    const welded = new THREE.Mesh(geo, material);
+    if (bucket.key !== null) welded.userData.mergeKey = bucket.key;
+    group.add(welded);
   }
   return found.length - byMat.size;
 }

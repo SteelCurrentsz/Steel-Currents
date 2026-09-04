@@ -16,6 +16,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
@@ -1271,12 +1272,18 @@ function stepCatapults(deck, t) {
       const [s2, h, th] = pr.rows[i];
       along = CAT_A + s2;
       y = h;
-      pitch = -th;
+      // Nose up: she is climbing away off the end of the girder.
+      pitch = th;
       // Off the end of the girder and climbing away. She is handed over at the
       // end of the profile, which the pacing above puts on the same tick the
       // simulation puts her flight on the plot.
       if (s2 > CAT_STROKE + 34 && run >= RUNUP + shot - pr.dt) {
         deck.airborne = true;
+        // Where the shot left her, latched at the moment it did. Whatever
+        // flies her next reads this rather than trying to catch the model at
+        // that instant -- see startFlyoff.
+        c.plane.updateMatrixWorld(true);
+        deck.endMatrix = c.plane.matrixWorld.clone();
         c.gone = true;
       }
     } else {
@@ -1579,7 +1586,11 @@ export function buildCleveland() {
   for (const [, build] of STATIC) build(g);
   // Everything static welded into one mesh per material. Done before the guns
   // go on, because the guns have to keep moving.
-  mergeStatic(g);
+  // Her insides, fitted to her own lines, and the weld split one buffer per
+  // compartment so a compartment blown out of her can have its plating taken
+  // off and you can see them. See interior.js.
+  buildInterior(g, { loa: LOA, shellAt, keelY, sheer, zAt });
+  mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   g.userData.classId = 'cleveland';
   const secMounts = g.userData.secMounts || [];
@@ -1590,6 +1601,14 @@ export function buildCleveland() {
   const cats = g.userData.catapults || [];
   const deck = {
     cats, live: null, launchAt: null, airborne: false, plane: null,
+    // Which flight in the air the aeroplane off the catapult is. See the
+    // 'airborne' event and flyLaunched.
+    flightId: 0,
+    // Flights whose wheels have left the track and are waiting for a model to
+    // be handed to them. A queue, because the order can arrive a frame either
+    // side of the evolution ending.
+    pending: [],
+    endMatrix: null,
     aero: 'kingfisher', run: DECK_RUN,
     profile: catapultProfile(AERO.kingfisher, CAT_STROKE),
   };
