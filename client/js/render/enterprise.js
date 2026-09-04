@@ -868,6 +868,22 @@ function ease(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 
  * the brakes, and goes down the deck and off over the bow. Twelve seconds, and
  * the aeroplane the simulation then flies is the one you watched leave.
  */
+/**
+ * Put her below, on the after lift, in the hangar.
+ *
+ * The resting place for the deck model whenever there is no evolution to draw
+ * her in. It is inside the ship, so nothing shows even if something turns her
+ * visible again, and it is where the next launch expects to find her.
+ */
+function below(deck, p, aft) {
+  // Only if she is still ours. While somebody else is flying her the model is
+  // parented to the world, and ship coordinates put into world space are a
+  // long way from the ship and generally under the sea.
+  if (deck.owner && p.parent !== deck.owner) return;
+  p.position.set(0, FD - LIFT_DROP + 0.34, aft.group.position.z - 0.45);
+  p.rotation.set(0, 0.08, 0);
+}
+
 export function stepDeck(deck, t) {
   if (!deck) return;
   const { lifts, plane } = deck;
@@ -943,7 +959,14 @@ export function stepDeck(deck, t) {
   // It used to be left exactly where the run ended, which is a hundred and
   // fifty metres off the bow and forty metres up -- an aeroplane that took off
   // and then stopped, hanging in the air, for the rest of the sortie.
-  if (deck.airborne) { p.visible = false; return; }
+  // Struck below the moment she is away, and struck below she stays. Hiding
+  // her was not enough on its own: she was hidden where the deck run left her,
+  // which is a hundred and fifty metres off the bow and forty metres up, and
+  // anything that showed her again -- the next evolution starting on the same
+  // tick, a recovery, a spectator switching ships -- showed her there. That is
+  // the aeroplane hanging over the runway. She goes to the lift, in the
+  // hangar, which is where a carrier's aircraft are when they are not on deck.
+  if (deck.airborne) { p.visible = false; below(deck, p, aft); return; }
   if (run >= LAUNCH) {
     // The evolution is over, so she went -- and she has to be handed over
     // whether or not a frame happened to land in the last tenth of a second of
@@ -954,12 +977,11 @@ export function stepDeck(deck, t) {
     wings(true);
     gear(1);
     p.visible = false;
-    // Where the deck run actually left her, not a spot picked by hand: put her
-    // anywhere else and she jumps at the moment she is handed over.
-    const end = deck.profile ? deck.profile.rows[deck.profile.rows.length - 1] : null;
-    const spotZ = deck.spot ?? (aft.group.position.z - 0.45);
-    p.position.set(0, FD + (end ? end[1] : 26.34) + 0.34, spotZ + (end ? end[0] : 210));
-    p.rotation.set(end ? end[2] : 0.20, 0, 0);
+    // Where the deck run left her is published on the deck as `endPose`, off
+    // the profile, for anything that wants to take her over. The model itself
+    // goes below: it is not the aeroplane that is flying, and a model left at
+    // the end of the run is a model standing in the air.
+    below(deck, p, aft);
     return;
   }
   const LIFT_Z0 = AFT_Z - 0.45;
@@ -3033,6 +3055,10 @@ export function buildEnterprise() {
     deck.airborne = false;
     deck.landAt = null;
     deck.startY = lifts[lifts.length - 1].group.position.y;
+    // The evolution starts with the lift going down to fetch her, so she has
+    // to be down there when it does -- not still standing where the last one
+    // finished.
+    if (deck.stowed) below(deck, plane.group, lifts[lifts.length - 1]);
   };
   // She is down: wheels on the planking at the round-down, hook in a wire.
   // What follows is the recovery -- up the deck to the after lift, wings
@@ -3052,6 +3078,10 @@ export function buildEnterprise() {
     deck.launchAt = null;
     deck.landAt = null;
     deck.stowed = true;
+    // Below now, not next frame. Between the order and the frame that draws it
+    // there is a window, and anything that read the model in that window read
+    // her at the end of her take-off run -- in the air, off the bow.
+    below(deck, plane.group, lifts[lifts.length - 1]);
     if (plane.gear) plane.gear(0);
     if (plane.wings) {
       plane.wings.spread.visible = false;

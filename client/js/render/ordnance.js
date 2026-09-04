@@ -497,6 +497,9 @@ export class Bombs {
           if (b.hit) b.effects.explosion(b.x1, 14, b.z1, 1.7);
           else b.effects.splash(b.x1, b.z1, 320);
         }
+        // And a bomb that hit went through a deck. Whoever is keeping the
+        // ships knows which one and what that does to her.
+        if (b.hit && this.onHit) this.onHit(b.x1, 14, b.z1);
         this.live.splice(i, 1);
         continue;
       }

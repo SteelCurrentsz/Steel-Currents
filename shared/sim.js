@@ -1977,14 +1977,22 @@ const G = 9.80665;
  * client that nothing else could see.
  */
 const AIRFRAME = {
-  fighter: { climb: 11.5, ceiling: 3800, dive: 34 },
-  dive: { climb: 7.5, ceiling: 3400, dive: 46 },
-  scout: { climb: 5.5, ceiling: 3000, dive: 26 },
-  torpedo: { climb: 6.0, ceiling: 2900, dive: 24 },
+  // `g` is how hard she can change what her vertical speed is doing, in
+  // gravities. A ship's aeroplane on passage pulls almost nothing; a fighter
+  // manoeuvring pulls a fair amount; a dive bomber pushing over the top and
+  // pulling out at the bottom pulls a great deal, because that is the whole
+  // manoeuvre. Left at a third of a gravity for everybody a dive bomber took
+  // half a minute to get her nose down, which is not a dive -- she arrived
+  // over the target still flying level and dropped her bomb out of the
+  // window, which is exactly what it looked like.
+  fighter: { climb: 11.5, ceiling: 3800, dive: 34, g: 1.3 },
+  dive: { climb: 9.0, ceiling: 3600, dive: 118, g: 2.7 },
+  scout: { climb: 5.5, ceiling: 3000, dive: 26, g: 0.4 },
+  torpedo: { climb: 6.0, ceiling: 2900, dive: 30, g: 0.55 },
 };
 
 /** What a strike cruises at, and what it comes down to in order to attack. */
-const CRUISE_ALT = 540;
+const CRUISE_ALT = 760;
 /**
  * And the height it forms up at, which is lower.
  *
@@ -1996,7 +2004,36 @@ const CRUISE_ALT = 540;
  */
 const FORM_ALT = 260;
 /** A torpedo bomber runs in on the water; a dive bomber comes over the top. */
-const RUN_IN_ALT = { torpedo: 42, dive: 900, fighter: 300, scout: 260 };
+const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260 };
+/**
+ * A dive bombing attack, which is a shape rather than a height.
+ *
+ * She climbs to the perch on the way in, comes over the top of her target,
+ * and goes down a straight line at fifty-odd degrees until she is close
+ * enough to be sure of her aim. Height against ground range is what a dive
+ * angle is, so the profile is written that way round and the angle falls out
+ * of it -- fifteen hundred metres of height given up over nine hundred of
+ * ground is a fifty-one degree dive, which is a dive bomber's dive.
+ *
+ * What it replaces was a bomber that flew flat at nine hundred metres and let
+ * go: the bomb had to be thrown thirty degrees above the horizontal to reach
+ * the ship at all, and nothing about it looked like an attack.
+ */
+const DIVE_PERCH = 1150;       // the height she pushes over from
+const DIVE_PUSH = 900;         // and the ground range she does it at
+const DIVE_DROP = 260;         // her height when the bomb leaves her
+const DIVE_AT = 240;           // and the range -- just inside the release
+/**
+ * And the speed she holds coming down, which is what the brakes are for.
+ *
+ * A dive bomber without her brakes out arrives too fast to aim and too fast
+ * to pull out; with them she holds about two hundred and fifty knots all the
+ * way down whatever the angle. So her speed through the air is the constant
+ * and her speed over the ground is what is left of it once the vertical has
+ * taken its share -- which is why a steep dive crosses the ground slowly and
+ * why the flak gets a long look at her.
+ */
+const DIVE_SPEED = 128;
 /**
  * How far out each kind starts changing height, and where she has to be at it.
  *
@@ -2006,7 +2043,11 @@ const RUN_IN_ALT = { torpedo: 42, dive: 900, fighter: 300, scout: 260 };
  * and pushes over on top. Both have to be at the right height before they get
  * there, not diving for it at the last moment.
  */
-const RUN_IN_FROM = { torpedo: 5200, dive: 4200, fighter: 3000, scout: 3200 };
+// A dive bomber starts for the perch the moment she is out of company, which
+// is a long way out: two hundred and fifty metres of climb at a loaded
+// bomber's rate of climb is most of a minute, and she has to be at the top of
+// it before she is over her target rather than still going up underneath her.
+const RUN_IN_FROM = { torpedo: 5200, dive: 9000, fighter: 3000, scout: 3200 };
 const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
 
 /** The best rate of climb anything in this strike can hold. */
@@ -2043,9 +2084,12 @@ function wantedHeight(state, p, carrier, inCompany) {
   if (p.phase === 'return') {
     if (!carrier) return CRUISE_ALT;
     const d = dist(p.x, p.z, carrier.x, carrier.z);
-    // Down the glide over the last mile and a half.
-    if (d > 2400) return CRUISE_ALT;
-    return 30 + (CRUISE_ALT - 30) * Math.min(1, (d - 300) / 2100);
+    // Down the glide over the last two miles. It is a long let-down because
+    // she is coming down from cruising height with a bomber's rate of descent,
+    // and a squadron that arrives over her ship still at altitude has to circle
+    // to get rid of it.
+    if (d > 3400) return CRUISE_ALT;
+    return 30 + (CRUISE_ALT - 30) * Math.min(1, (d - 300) / 3100);
   }
   if (p.phase !== 'outbound') return CRUISE_ALT;
   // A fighter goes to whatever height the thing she is after is at.
@@ -2058,6 +2102,25 @@ function wantedHeight(state, p, carrier, inCompany) {
   const d = dist(p.x, p.z, mark.x, mark.z);
   const from = RUN_IN_FROM[p.role] ?? 3600;
   if (d > from) return CRUISE_ALT;
+  // The dive, which is its own shape and not an eased approach to a height.
+  if (p.role === 'dive') {
+    if (d > DIVE_PUSH) {
+      // Still climbing to the perch: she wants to be over the top of her
+      // target with height in hand, not arriving at it level.
+      const k = clamp((d - DIVE_PUSH) / Math.max(1, from - DIVE_PUSH), 0, 1);
+      return DIVE_PERCH + (CRUISE_ALT - DIVE_PERCH) * k;
+    }
+    // Over the top and down. She pushes over from the height she actually
+    // reached, which is not always the perch: a strike is still climbing out
+    // when the target is only a few miles away, and a dive flown down to a
+    // line she never got up to is a climb followed by a dive. Whatever she has
+    // when she arrives on top of her target is what she gives up.
+    if (p.perch === undefined) p.perch = Math.max(DIVE_DROP + 260, p.y);
+    // Straight in the ground range, which is what makes it a constant angle
+    // all the way to the release.
+    const k = clamp((d - DIVE_AT) / (DIVE_PUSH - DIVE_AT), 0, 1);
+    return DIVE_DROP + (p.perch - DIVE_DROP) * k;
+  }
   const at = RUN_IN_ALT[p.role] ?? 260;
   const by = RUN_IN_BY[p.role] ?? 700;
   // Eased into over the run-in, so she is at her attack height before she gets
@@ -2265,14 +2328,31 @@ function stepPlanes(state, dt) {
       // strike went out strung further and further apart the higher it got.
       const best = station ? Math.min(frame.climb, slowestClimb(state, p)) : frame.climb;
       const rise = best * Math.max(0.15, 1 - p.y / frame.ceiling);
-      const askVy = clamp((wantY - p.y) * 0.22, -frame.dive, rise);
-      p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -G * 0.34 * dt, G * 0.34 * dt);
+      // How hard she goes after the height she wants. A dive bomber pushing
+      // over wants her nose down now, and she has the wing to do it with.
+      const pull = G * (frame.g ?? 0.34) * dt;
+      // A dive bomber holds the line she is diving down rather than easing
+      // onto it: a lazy gain leaves her a couple of hundred metres above the
+      // profile all the way in, which is a shallow glide and not a dive.
+      const askVy = clamp((wantY - p.y) * (p.role === 'dive' ? 1.4 : 0.22),
+        -frame.dive, rise);
+      p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -pull, pull);
       p.y = Math.max(14, p.y + p.vy * dt);
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded
       // bomber climbing out is slow.
-      speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
+      //
+      // Except in the dive itself. There the brakes hold her airspeed and the
+      // ground speed is whatever is left over -- so the steeper she is, the
+      // slower she crosses the ground. Without that she went down at the same
+      // hundred and fifteen metres a second she cruised at and could not get
+      // her nose past thirty degrees: a fast shallow glide, not a dive.
+      if (p.role === 'dive' && p.vy < -12) {
+        speed = Math.sqrt(Math.max(400, DIVE_SPEED * DIVE_SPEED - p.vy * p.vy));
+      } else {
+        speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
+      }
 
       p.x += Math.sin(p.heading) * speed * dt;
       p.z += Math.cos(p.heading) * speed * dt;
@@ -2516,6 +2596,13 @@ function openHull(state, ship, where, area, side, depth) {
   if (!c || area <= 0) return;
   const first = c.holeP + c.holeS < 0.01;
   if (side < 0) c.holeP += area; else c.holeS += area;
+  // And which side of her the water in here is going to sit on. Remembered on
+  // the compartment rather than worked out from which holes are still open --
+  // a damage control party that shores the holes does not make the water that
+  // is already inside her run back across to the other side, and taking the
+  // side off the holes meant she snapped bolt upright the moment the repair
+  // button was pressed.
+  if (!c.side) c.side = side < 0 ? -1 : 1;
   // How far below her waterline the hole is, so the head of water over it can
   // be worked out. Holes above the waterline are recorded at a negative depth
   // and only start drawing when she has settled onto them.
@@ -2646,7 +2733,12 @@ function stepFlooding(state, ship, dt) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
     const vol = sectionVolume(cls, s.k);
-    const side = c.holeS > c.holeP ? 1 : c.holeP > c.holeS ? -1 : 0;
+    // Which side of her the water is on. Remembered from when she was opened,
+    // so shoring the hole does not send the water back across the ship; the
+    // holes themselves are only the fallback, for water that got in some way
+    // that did not go through openHull.
+    const side = c.side
+      || (c.holeS > c.holeP ? 1 : c.holeP > c.holeS ? -1 : 0);
     const [wp, ws] = splitWater(c.water, vol, side);
     c.wP = wp;
     c.wS = ws;
@@ -2861,6 +2953,10 @@ export function freshSections(maxHp) {
       // that is the whole of why a ship lies over: the weight of the water is
       // out to one side of her centreline and it stays there.
       holeP: 0, holeS: 0, water: 0, wP: 0, wS: 0,
+      // Which side of her this compartment was opened on. Once the sea is in,
+      // it is on that side of her and it stays there: it does not run back
+      // across the ship because the hole it came through has been shored up.
+      side: 0,
       // How hard this compartment is burning, 0 to 1. Fire is a thing that
       // lives in a compartment, spreads to the ones next to it, and is put out
       // by the water coming in -- rather than a number of fires on a ship.

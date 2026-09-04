@@ -31,7 +31,13 @@ export function shipSnapshot(ship, full) {
     // far over she is lying, and how far down by the head or the stern. Three
     // numbers, and between them they are the whole of how she sinks -- there
     // is no canned animation for the client to play, only this.
-    fl: [r1(ship.sink), r3(ship.heel), r3(ship.trim)],
+    //
+    // Its own key. It used to be `fl`, which is also the number of her
+    // compartments that are flooding, two lines above -- so the count was
+    // overwritten by the triple every time a snapshot was built, and the ship
+    // plate reported "FLOODING x0,0,0" at a captain who wanted to know how
+    // many compartments were making water.
+    fo: [r1(ship.sink), r3(ship.heel), r3(ship.trim)],
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.
     wt: SECTIONS.map((k) => {

@@ -445,34 +445,36 @@ export class Hud {
   }
 
   /**
-   * Her condition on the ship plate: one pip per compartment, in the order they
-   * run from her stem to her transom, and the total number of holes in her.
+   * Her condition on the ship plate, in a line of plain English.
+   *
+   * There used to be a row of six little meters here, one per compartment,
+   * each with the name of a magazine or a boiler room on it. That is an
+   * inventory rather than a damage report, and it is the second one on the
+   * screen: the damage board above draws the same six compartments on a
+   * drawing of the ship, where a hole is in a place instead of being a number
+   * beside a label. So the plate says what a bridge messenger would say --
+   * how many holes are in her and what the worst of it is -- and anybody who
+   * wants to know which compartment opens the board.
    */
   paintCondition(sec) {
-    if (!this.condPips) {
+    if (!this.condCount) {
       this.el.condRow.innerHTML = '';
-      this.condPips = SECTIONS.map((s) => {
-        const el = document.createElement('i');
-        el.title = s.name;
-        this.el.condRow.appendChild(el);
-        return el;
-      });
       this.condCount = document.createElement('span');
       this.el.condRow.appendChild(this.condCount);
     }
     let holes = 0;
+    let gone = 0;
     SECTIONS.forEach((s, i) => {
       const c = (sec && sec[i]) || [100, 0];
       holes += c[1];
-      const f = clamp(c[0] / 100, 0, 1);
-      this.condPips[i].style.setProperty('--fill', `${f * 100}%`);
-      this.condPips[i].classList.toggle('hurt', f <= 0.6 && f > 0);
-      this.condPips[i].classList.toggle('gone', f <= 0);
+      if (c[0] <= 0) gone++;
     });
     const worst = Math.min(...SECTIONS.map((s, i) => ((sec && sec[i]) ? sec[i][0] : 100)));
-    this.condCount.textContent = holes
-      ? `${holes} hole${holes === 1 ? '' : 's'}`
-      : worst >= 99 ? 'sound' : `${worst}%`;
+    const bits = [];
+    if (holes) bits.push(`${holes} hole${holes === 1 ? '' : 's'}`);
+    if (gone) bits.push(`${gone} compartment${gone === 1 ? '' : 's'} open`);
+    if (!bits.length) bits.push(worst >= 99 ? 'sound' : `${worst}%`);
+    this.condCount.textContent = bits.join(' · ');
   }
 
   /** Whatever panel is up, showing the state it is a control for. */
@@ -488,17 +490,15 @@ export class Hud {
       return;
     }
     if (this.panel === 'dmg') {
+      // No meters. Her condition is read off the ship herself, on the board
+      // above: a row of six bars labelled "forward magazine" and "after
+      // boiler room" is an inventory, not a damage report. What a damage
+      // control officer wants is to see where she is open and where the water
+      // has got to, on a drawing of the ship -- so that is all there is, and
+      // the line under it is the summary a messenger would give.
       let holes = 0;
       SECTIONS.forEach((s, i) => {
-        const row = this.boardRows && this.boardRows[i];
-        const c = (own.sec && own.sec[i]) || [100, 0];
-        holes += c[1];
-        if (!row) return;
-        const f = clamp(c[0] / 100, 0, 1);
-        row.querySelector('i').style.setProperty('--fill', `${f * 100}%`);
-        row.querySelector('b').textContent = c[1] ? `${c[1]}` : '—';
-        row.classList.toggle('hurt', f <= 0.6 && f > 0);
-        row.classList.toggle('gone', f <= 0);
+        holes += ((own.sec && own.sec[i]) || [100, 0])[1];
       });
       // Holes if she has any; failing that, the worst compartment aboard. She
       // can be badly knocked about by splinters and near misses without one
@@ -595,16 +595,14 @@ export class Hud {
     cv.className = 'board-canvas';
     wrap.appendChild(cv);
     this.el.connBody.appendChild(wrap);
-    const list = document.createElement('div');
-    list.className = 'board-list';
-    this.el.connBody.appendChild(list);
-    this.boardRows = SECTIONS.map((sec) => {
-      const row = document.createElement('div');
-      row.className = 'board-row';
-      row.innerHTML = `<span>${sec.name}</span><i></i><b></b>`;
-      list.appendChild(row);
-      return row;
-    });
+    // No list of meters underneath. The board is the ship, and everything
+    // that used to be in the rows -- what is left of each compartment, how
+    // many holes are in it, how much water is in it -- is drawn on her.
+    this.boardRows = null;
+    const note = document.createElement('p');
+    note.className = 'conn-note';
+    note.textContent = 'Drag to turn her · pinch or scroll to come in';
+    this.el.connBody.appendChild(note);
     this.onBoard?.(cv);
   }
 
@@ -850,8 +848,8 @@ export class Hud {
     const cls = this.shown;
 
     this.el.ownName.textContent = `${own.n || ''} · ${cls.name} (${cls.type})`;
-    // Her condition, compartment by compartment: one pip each, and the number
-    // of holes in her. There is no bar, because a ship does not have one.
+    // Her condition, in a line: how many holes are in her and how much of her
+    // is open. Where they are is on the board, drawn on the ship.
     this.paintCondition(own.sec);
 
     const chips = [];

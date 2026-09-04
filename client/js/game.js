@@ -5,6 +5,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
 import { Hud } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
+import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, stallSpeed, Pilot } from './render/aero.js';
 import { ROLE_TYPE } from './render/planes.js';
 import { audio } from './audio.js';
@@ -45,6 +46,9 @@ export class Battle {
     this.names = new Map(this.roster.map((r) => [r.id, r.name]));
 
     this.scene = new BattleScene(renderer, world, getSettings().quality);
+    // A bomb arrives where the scene flew it to, so the scene is what says
+    // when. See bombThrough.
+    this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
     this.hud.setSelected(shipId);
@@ -282,6 +286,8 @@ export class Battle {
           break;
         case 'hit': {
           fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
+          // And it comes out of the ship, where it went in.
+          this.shellDamage(ev);
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
             this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
@@ -298,6 +304,16 @@ export class Battle {
         case 'torpLaunch': if (ev.ship === this.shipId) audio.torpedo(); break;
         case 'torpHit':
           fx.explosion(ev.x, 4, ev.z, 1.6);
+          // A torpedo opens a hole the better part of ten metres across, under
+          // the waterline, and throws a good deal of the side of the ship into
+          // the air with it.
+          {
+            const v = this.scene.shipViews.get(ev.victim);
+            if (v) {
+              v.punch(ev.x, (ev.y ?? -2), ev.z, holeRadius('torpedo', 1000), 0.4);
+              this.scene.debris.burst(ev.x, 6, ev.z, 3.4, 0.9);
+            }
+          }
           // A torpedo goes off under the water, so what is seen from a bridge
           // is not the fireball but the column it throws up alongside -- taller
           // than anything a gun makes, which is why one hit ends an argument.
@@ -1025,6 +1041,7 @@ export class Battle {
     // The board only turns while it is being looked at.
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);
+      this.board.setWater(shown?.wt);
       this.board.update(shown?.sec, dt);
     }
     // The plot is always drawn round your own hull, whoever the camera is on:
@@ -1111,7 +1128,7 @@ export class Battle {
       // inside her has put her deeper, laid her over to one side, and pulled
       // one end of her down. All three come off the wire and none of them is
       // an animation -- they are what her flooding works out to.
-      view.setFloating(s.fl);
+      view.setFloating(s.fo);
       view.group.position.y = sea.heave - 1.0 - view.sinkY;
       view.group.rotation.x = sea.pitch + view.trimBy;
       view.group.rotation.z = sea.roll - view.heelBy;
@@ -1136,13 +1153,22 @@ export class Battle {
           const wx = x + Math.sin(h) * at.z;
           const wz = z + Math.cos(h) * at.z;
           this.scene.effects.explosion(wx, at.y + 6, wz, 2.2);
-          this.scene.effects.debris(wx, at.y + 6, wz, 26);
           this.scene.effects.splash(wx, wz, 200);
+          // Forty metres of ship coming apart puts a great deal of the ship in
+          // the air. Real pieces, thrown and falling and going into the sea --
+          // not a puff of sprites.
+          this.scene.debris.burst(wx, at.y + 8, wz,
+            5.5 + cls.hull.length / 60, 1);
           const near = this.distanceFade(wx, wz);
           if (near < 0.95) audio.explosion(1.4, near);
           if (s.i === this.shipId) this.hud.alert(`${sec.name} blown out`);
         }
       }
+
+      // The compartments that have gone, coming apart: a slice a frame from
+      // the middle of the section outwards, so a length of hull is seen to be
+      // torn out of her rather than switched off.
+      view.stepTearing(dt);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
@@ -1192,26 +1218,6 @@ export class Battle {
         }
       }
 
-      // The sea getting in, where it is getting in: a hole below the waterline
-      // with the ship still moving throws a great deal of water about.
-      if (s.wt) {
-        view.floodTimer = (view.floodTimer || 0) - dt;
-        if (view.floodTimer <= 0) {
-          view.floodTimer = 0.3;
-          const l = getClass(s.c).hull.length;
-          for (let i = 0; i < SECTIONS.length; i++) {
-            const wet = (s.wt[i] || 0) / 9;
-            if (wet < 0.1 || SECTIONS[i].from === null) continue;
-            const sec = SECTIONS[i];
-            const mid = (sec.from + sec.to) / 2;
-            const off = mid * l * 0.5;
-            const side = (view.heelBy >= 0 ? -1 : 1) * getClass(s.c).hull.beam * 0.5;
-            this.scene.effects.splash(
-              x + Math.sin(h) * off + Math.cos(h) * side,
-              z + Math.cos(h) * off - Math.sin(h) * side, 60 + wet * 90);
-          }
-        }
-      }
     }
 
     for (const [id] of this.scene.shipViews) {
@@ -1530,6 +1536,61 @@ export class Battle {
   }
 
   /**
+   * What a shell does to the ship it hit.
+   *
+   * The rule is the one the simulation already works to and the one the guns
+   * were designed round: only a round that gets through takes structure with
+   * it. A shell that bounces off the belt, shatters on the plate or goes
+   * clean through without bursting leaves a scar and a great deal of noise,
+   * and the ship is the same shape afterwards. One that gets inside her and
+   * bursts takes a piece of her away, roughly its own bore across for a clean
+   * hole and several times that where the burst has blown the side in -- which
+   * is exactly the area the simulation opens her to the sea by, so the hole
+   * you can see and the hole she is flooding through are the same hole.
+   *
+   * Nothing here is a canned piece of damage. There is no list of places a
+   * ship can be broken and no set of pre-built wrecked models: the geometry
+   * that goes is the geometry the shell arrived at, wherever that was.
+   */
+  /**
+   * A bomb through a deck, where it went through.
+   *
+   * The simulation settles whether a bomb hits at the moment it is released
+   * -- there is nothing for it to run on and nothing to comb -- and the arc
+   * is flown by the scene, so the place it arrives is known here and nowhere
+   * else. A hit is a hole in the deck and a great deal of the deck in the
+   * air.
+   */
+  bombThrough(x, y, z) {
+    let hit = null;
+    let best = 70;
+    for (const [, v] of this.scene.shipViews) {
+      const d = Math.hypot(v.group.position.x - x, v.group.position.z - z);
+      if (d < v.cls.hull.length * 0.6 && d < best + v.cls.hull.length * 0.6) {
+        hit = v; best = d;
+      }
+    }
+    if (!hit) return;
+    hit.punch(x, y, z, holeRadius('bomb', 454), 0.4);
+    this.scene.debris.burst(x, y + 4, z, 4.2, 1);
+  }
+
+  shellDamage(ev) {
+    if (!PENETRATING.has(ev.kind)) return;
+    const v = this.scene.shipViews.get(ev.victim);
+    if (!v) return;
+    const r = holeRadius(ev.kind, ev.cal);
+    if (!r) return;
+    const went = v.punch(ev.x, ev.y ?? 8, ev.z, r, 0.45);
+    // A citadel hit is a burst in the middle of her, and what it vents through
+    // the deck is the deck. Anything smaller throws splinters, not wreckage.
+    if (ev.kind === 'citadel' && went > 0) {
+      this.scene.debris.burst(ev.x, (ev.y ?? 8) + 3, ev.z,
+        2.2 + (ev.cal || 152) / 1000 * 3, 1);
+    }
+  }
+
+  /**
    * Remember a hole, in her own frame rather than the world's.
    *
    * The event says where the shell struck in the world; she has moved and
@@ -1559,7 +1620,15 @@ export class Battle {
     const k = Math.min(1, (this.time - L.t0) / APPROACH);
     const v = L.view;
     const g = L.group;
-    if (!v.group.parent) { this.landing = null; return; }
+    // Her ship has gone from the scene under her -- sunk, or the view
+    // disposed. There is nothing to land on and nothing owns the model any
+    // more, so it goes with her rather than being left hanging in the world.
+    if (!v.group.parent) {
+      g.visible = false;
+      v.group.attach(g);
+      this.landing = null;
+      return;
+    }
     // Where she is going. A carrier's aeroplane comes home to the after end of
     // the flight deck; a cruiser's alights alongside and is craned back on to
     // the catapult she was shot off, so the ship says where if she has one.

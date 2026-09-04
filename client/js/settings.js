@@ -35,8 +35,12 @@ export function setSettings(patch) {
   return cache;
 }
 
+// `plating` is how small a piece of a ship's side is, in square metres, and so
+// how small a hole a shell can make in her. It costs vertices: a fleet carrier
+// cut to a metre and a half is a quarter of a million triangles, which is
+// nothing on a desktop and a great deal on a telephone.
 export const QUALITY = {
-  low: { oceanSegments: 140, oceanSize: 22000, pixelRatio: 1, shadows: false, particles: 0.5, drawDistance: 26000 },
-  medium: { oceanSegments: 260, oceanSize: 26000, pixelRatio: 1.25, shadows: true, particles: 1, drawDistance: 30000 },
-  high: { oceanSegments: 420, oceanSize: 30000, pixelRatio: 1.6, shadows: true, particles: 1.7, drawDistance: 34000 },
+  low: { oceanSegments: 140, oceanSize: 22000, pixelRatio: 1, shadows: false, particles: 0.5, drawDistance: 26000, plating: 8 },
+  medium: { oceanSegments: 260, oceanSize: 26000, pixelRatio: 1.25, shadows: true, particles: 1, drawDistance: 30000, plating: 3 },
+  high: { oceanSegments: 420, oceanSize: 30000, pixelRatio: 1.6, shadows: true, particles: 1.7, drawDistance: 34000, plating: 1.6 },
 };

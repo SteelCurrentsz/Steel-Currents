@@ -159,6 +159,7 @@ export class DamageBoard {
     // A slab over each compartment, standing in for the bulkheads she is
     // actually divided by. This is what carries the colour.
     this.slabs = {};
+    this.water = {};
     for (const sec of SECTIONS) {
       if (sec.from === null) continue;
       const half = this.len / 2;
@@ -180,7 +181,34 @@ export class DamageBoard {
       );
       bh.position.set(0, this.beam * 0.1, z1);
       this.rig.add(bh);
-      this.slabs[sec.k] = { box, mat: m };
+      this.slabs[sec.k] = { box, mat: m, y: box.position.y, h: this.beam * 0.5 };
+      // And the sea in her, drawn inside the same compartment: a body of water
+      // standing in the bottom of it that rises as she floods.
+      const wg = new THREE.BoxGeometry(this.beam * 0.88, this.beam * 0.5, (z1 - z0) * 0.96);
+      const wm = new THREE.MeshBasicMaterial({
+        color: 0x1348a8, transparent: true, opacity: 0.6, depthWrite: false,
+      });
+      const wmesh = new THREE.Mesh(wg, wm);
+      wmesh.position.copy(box.position);
+      wmesh.visible = false;
+      wmesh.renderOrder = 2;
+      this.rig.add(wmesh);
+      // The surface of it. A body of blue inside a blue ship is hard to read
+      // at the size this panel is; a bright line where the water actually
+      // stands is not, and the line is the number a damage control officer is
+      // after -- how far up the compartment it has got.
+      const sg = new THREE.PlaneGeometry(this.beam * 0.88, (z1 - z0) * 0.96);
+      sg.rotateX(-Math.PI / 2);
+      const sm = new THREE.MeshBasicMaterial({
+        color: 0xcdf4ff, transparent: true, opacity: 0.95,
+        side: THREE.DoubleSide, depthWrite: false,
+      });
+      const smesh = new THREE.Mesh(sg, sm);
+      smesh.position.copy(box.position);
+      smesh.visible = false;
+      smesh.renderOrder = 3;
+      this.rig.add(smesh);
+      this.water[sec.k] = { mesh: wmesh, mat: wm, top: smesh };
     }
     // The superstructure has no station along her, so it is shown as a band
     // standing above the whole of her middle.
@@ -224,6 +252,33 @@ export class DamageBoard {
     m.position.set(side * Math.max(Math.abs(lx), this.beam * 0.42),
       Math.max(-this.beam * 0.2, Math.min(this.beam * 0.9, ly)), lz);
     this.marks.add(m);
+  }
+
+  /**
+   * How much sea is in each compartment, in tenths.
+   *
+   * Drawn as water standing in her: a level in the bottom of each
+   * compartment that rises as it floods, and a colour that says how deep it
+   * is. It is the one thing a damage control officer actually needs to see and
+   * the one thing a row of hit-point bars cannot show him.
+   */
+  setWater(wt) {
+    if (!wt) return;
+    SECTIONS.forEach((sec, i) => {
+      const slab = this.slabs[sec.k];
+      const w = this.water && this.water[sec.k];
+      if (!slab || !w) return;
+      const f = Math.max(0, Math.min(1, (wt[i] || 0) / 9));
+      w.mesh.visible = f > 0.01;
+      w.top.visible = f > 0.01;
+      if (f <= 0.01) return;
+      // The water stands in the bottom of the compartment and rises.
+      const full = slab.h;
+      w.mesh.scale.y = Math.max(0.02, f);
+      w.mesh.position.y = slab.y - full / 2 + (full * f) / 2;
+      w.mat.opacity = 0.5 + f * 0.4;
+      w.top.position.y = slab.y - full / 2 + full * f;
+    });
   }
 
   /** `sec` is the wire's [integrity 0-100, penetrations] per compartment. */

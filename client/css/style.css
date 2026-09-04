@@ -259,22 +259,14 @@ input[type="range"] { accent-color: var(--red); }
 .ship-plate { background: rgba(8, 19, 31, 0.55); border-left: 3px solid var(--red); padding: 0.6rem 0.8rem; }
 .ship-plate .name { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.08em; }
 /* Her condition, compartment by compartment. One pip each, running stem to
-   transom, filled with what is left of it -- and the count of holes in her.
+   transom, filled with what is left of it. They have gone: her condition is
+   read off the ship herself, on the damage board, where a hole is in a place
+   rather than being a number beside a label. What is left here is the one
+   line a bridge messenger would give you.
    There is no health bar anywhere in the game: a ship is not a number. */
-.cond-row { display: flex; align-items: center; gap: 3px; margin-top: 0.4rem; }
-.cond-row i {
-  --fill: 100%;
-  display: block; flex: 1; height: 14px; position: relative;
-  background: rgba(255, 255, 255, 0.08);
-}
-.cond-row i::after {
-  content: ''; position: absolute; inset: auto 0 0 0; height: var(--fill);
-  background: var(--ally); transition: height 0.25s ease;
-}
-.cond-row i.hurt::after { background: var(--sand); }
-.cond-row i.gone::after { background: var(--enemy); }
+.cond-row { display: flex; align-items: center; margin-top: 0.4rem; }
 .cond-row span {
-  margin-left: 0.5rem; font-size: 0.66rem; letter-spacing: 0.12em;
+  font-size: 0.66rem; letter-spacing: 0.12em;
   text-transform: uppercase; color: var(--steel); white-space: nowrap;
 }
 
@@ -285,24 +277,6 @@ input[type="range"] { accent-color: var(--red); }
   border: 1px solid rgba(88, 200, 232, 0.22);
 }
 .board-canvas { display: block; width: 100%; height: 100%; }
-.board-list { display: flex; flex-direction: column; gap: 3px; }
-.board-row {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-size: 0.68rem; letter-spacing: 0.12em; color: var(--steel);
-}
-.board-row span { width: 8.4rem; }
-.board-row i {
-  --fill: 100%;
-  flex: 1; height: 7px; background: rgba(255, 255, 255, 0.1); position: relative;
-}
-.board-row i::after {
-  content: ''; position: absolute; inset: 0 auto 0 0; width: var(--fill);
-  background: #58c8e8; transition: width 0.25s ease;
-}
-.board-row.hurt i::after { background: var(--sand); }
-.board-row.gone i::after { background: var(--enemy); }
-.board-row b { width: 1.8rem; text-align: right; color: var(--sand); }
-.board-row.gone b { color: var(--enemy); }
 
 /* The damage panel is the one that needs room: it has a ship in it. */
 .conn-panel.wide { width: min(430px, 92vw); }

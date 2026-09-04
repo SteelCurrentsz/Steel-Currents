@@ -12,6 +12,8 @@ import { Flights } from './planes.js';
 import { Wake } from './wake.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection } from './interior.js';
+import { Plating } from './plating.js';
+import { Debris } from './debris.js';
 import { SECTIONS, sectionAt } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -543,8 +545,11 @@ function weld(parts) {
   return out;
 }
 
+// Scratch, so a shell hit does not allocate.
+const TMP = new THREE.Vector3();
+
 export class ShipView {
-  constructor(scene, classId, team, isSelf, ocean = null) {
+  constructor(scene, classId, team, isSelf, ocean = null, quality = undefined) {
     const built = buildShip(classId);
     this.group = built.group;
     this.turrets = built.turrets;
@@ -588,6 +593,13 @@ export class ShipView {
     // compartment that has gone is taken off, and what was behind it -- her
     // decks, her frames, her machinery -- is what you see. See setCondition.
     this.gone = new Set();
+    // Her plating, triangle by triangle: what a shell actually takes out of
+    // her. See plating.js -- this is what makes a hole a hole rather than a
+    // compartment disappearing.
+    this.plating = new Plating(this.group, quality);
+    // Compartments the simulation has said are gone, being torn out of her a
+    // slice at a time rather than switched off. See setCondition.
+    this.tearing = [];
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
     this.heelBy = 0;
@@ -640,8 +652,24 @@ export class ShipView {
       // it stops working -- which the simulation already does -- rather than
       // disappearing.
       if (k === 'works') continue;
-      for (const o of this.byPart.get(k) || []) o.visible = !gone;
-      if (gone) (lost || (lost = [])).push(SECTIONS[i]);
+      // Her mountings and her boats are bolted to the piece of deck that has
+      // gone, so they go with it -- there is nothing left holding them.
+      for (const o of this.byPart.get(k) || []) {
+        if (!o.userData.dynamic) continue;
+        o.visible = !gone;
+      }
+      if (!gone) continue;
+      // And the structure itself is torn out, from the middle of the section
+      // outwards, over about a second. A forty-metre length of ship does not
+      // stop existing between two frames; it comes apart, and you can watch it
+      // go. See stepTearing.
+      const half = this.cls.hull.length / 2;
+      this.tearing.push({
+        k, t: 0,
+        mid: ((SECTIONS[i].from + SECTIONS[i].to) / 2) * half,
+        span: Math.abs(SECTIONS[i].to - SECTIONS[i].from) * half * 0.5 + 3,
+      });
+      (lost || (lost = [])).push(SECTIONS[i]);
     }
     return lost;
   }
@@ -756,6 +784,50 @@ export class ShipView {
     }
     // Gone when the highest part of her is well under.
     return down < this.cls.hull.length * 0.5 + 20;
+  }
+
+  /**
+   * A shell got through, here. Take the plating it went through with it.
+   *
+   * The point is in the world -- it is where the round actually burst -- and
+   * it is put into her own frame through her matrix, so her heel, her trim
+   * and how deep she is sitting are all already in it. A hit that opens her
+   * below the waterline opens her below the waterline, and stays there.
+   *
+   * Returns how much plating went, so the caller can tell a hit that opened
+   * her up from one that burst against something already blown away.
+   */
+  punch(wx, wy, wz, r, soft = 0.55) {
+    if (!this.plating) return 0;
+    const p = TMP.set(wx, wy, wz);
+    this.group.updateMatrixWorld(true);
+    this.group.worldToLocal(p);
+    return this.plating.punch(p.x, p.y, p.z, r, soft);
+  }
+
+  /**
+   * The compartments that have gone, coming apart.
+   *
+   * One slice a frame, widening from the middle of the section: the plating
+   * over the burst goes first and the tear runs forward and aft from it. It
+   * takes about a second, which is about how long it takes.
+   */
+  stepTearing(dt) {
+    if (!this.tearing.length) return;
+    let live = 0;
+    for (const t of this.tearing) {
+      const was = t.t;
+      t.t = Math.min(1, t.t + dt / 0.9);
+      const e = (x) => x * x * (3 - 2 * x);
+      const r0 = e(was) * t.span;
+      const r1 = e(t.t) * t.span;
+      if (r1 > r0) {
+        this.plating.strip(t.mid - r1, t.mid - r0);
+        this.plating.strip(t.mid + r0, t.mid + r1);
+      }
+      if (t.t < 1) this.tearing[live++] = t;
+    }
+    this.tearing.length = live;
   }
 
   /** Where a compartment is on her, in her own frame: for wreckage and flash. */
@@ -948,6 +1020,13 @@ export class BattleScene {
     // planes.js.
     this.flights = new Flights(this.scene, 96);
 
+    // The ship itself, in the air, when something big lets go: plating, deck
+    // beams and ready-use rounds thrown up and out and falling back into the
+    // sea. See debris.js.
+    this.debris = new Debris(this.scene, this.ocean,
+      Math.max(120, Math.round(420 * q.particles)));
+    this.debris.onSplash = (x, z, size) => this.effects.splashes.splash(x, z, 60 * size);
+
     this.dummy = new THREE.Object3D();
   }
 
@@ -994,7 +1073,7 @@ export class BattleScene {
   getShipView(id, classId, team, isSelf) {
     let v = this.shipViews.get(id);
     if (!v) {
-      v = new ShipView(this.scene, classId, team, isSelf, this.ocean);
+      v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating);
       this.shipViews.set(id, v);
     }
     return v;
@@ -1067,6 +1146,7 @@ export class BattleScene {
     if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
     this.effects.update(dt);
+    this.debris.update(dt);
     this.flak.update(dt);
     this.bombs.update(dt);
     this.torpedoes.update(dt, this.torpsNow || [],

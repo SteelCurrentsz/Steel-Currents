@@ -12,6 +12,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
+import { shipSnapshot } from '../shared/protocol.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
@@ -30,6 +31,8 @@ import { arsenal } from '../client/js/hud.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels } from '../client/js/render/planes.js';
 import { meshSection } from '../client/js/render/interior.js';
+import { Plating, holeRadius } from '../client/js/render/plating.js';
+import { Debris } from '../client/js/render/debris.js';
 import { buildShip } from '../client/js/render/ships.js';
 import { angleDelta, dist } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
@@ -2589,12 +2592,15 @@ check('her squadron goes up the moment she leaves the deck', () => {
     `she leaves the deck at ${airborneAt.toFixed(2)} s and her squadron goes up at ${DECK_RUN}`);
   assert.equal(deckPhases(deck).launch, DECK_RUN, 'the evolution is not paced to the deck run');
   // And she must not jump at the handover: where the deck run left her is where
-  // whatever flies her next has to pick her up.
+  // whatever flies her next has to pick her up. Measured over the frames she is
+  // actually drawn in -- once she is away she is struck below, which is a jump
+  // nobody sees and the whole point of doing it.
   built.group.userData.launch(0);
   let prev = null;
   let worst = 0;
   for (let t = 0; t <= DECK_RUN + 0.5; t += 1 / 60) {
     built.group.userData.step(t);
+    if (!built.deckPlane.visible) { prev = null; continue; }
     const p2 = built.deckPlane.position.clone();
     if (prev) worst = Math.max(worst, p2.distanceTo(prev));
     prev = p2;
@@ -3976,21 +3982,38 @@ check('the deck hands her over where and how she left it', () => {
   const plane = built.deckPlane;
   built.group.userData.step(0);
   built.group.userData.launch(0);
-  built.group.userData.step(DECK_RUN);
+  // The last frame she is actually drawn in, which is the pose whatever takes
+  // her over has to pick her up at.
+  let last = null;
+  for (let t = 0; t <= DECK_RUN + 0.5; t += 1 / 60) {
+    built.group.userData.step(t);
+    if (plane.visible) last = { z: plane.position.z, y: plane.position.y, p: plane.rotation.x };
+  }
 
   // Where the evolution actually leaves her, and where the deck says it does.
   assert.ok(deck.endPose, 'the deck does not say where the run leaves her');
-  assert.ok(Math.abs(plane.position.z - deck.endPose.z) < 0.6
-    && Math.abs(plane.position.y - deck.endPose.y) < 0.6,
-    `the deck says ${deck.endPose.z.toFixed(1)} but leaves her at ${plane.position.z.toFixed(1)}`);
-  assert.ok(Math.abs(plane.rotation.x - deck.endPose.pitch) < 0.02,
+  assert.ok(last, 'she was never drawn at all');
+  assert.ok(Math.abs(last.z - deck.endPose.z) < 3.5
+    && Math.abs(last.y - deck.endPose.y) < 1.2,
+    `the deck says ${deck.endPose.z.toFixed(1)} but leaves her at ${last.z.toFixed(1)}`);
+  assert.ok(Math.abs(last.p - deck.endPose.pitch) < 0.05,
     'the deck says a different attitude from the one she is in');
 
   // And she is nose UP, because she is climbing away off the bow. Drawn nose
   // down here and nose up by the formation, the hand-over flicked her through
   // seventeen degrees.
-  assert.ok(plane.rotation.x > 0.05,
-    `she leaves the deck at ${plane.rotation.x.toFixed(3)}, which is nose down`);
+  assert.ok(last.p > 0.05,
+    `she leaves the deck at ${last.p.toFixed(3)}, which is nose down`);
+
+  // And once she is away, the model is not left standing where the run
+  // finished. That is a hundred and fifty metres off the bow and forty metres
+  // up, and everything that ever showed her again -- the next evolution, a
+  // recovery, changing ships -- showed her hanging there. She is struck below,
+  // inside the ship, which is where a carrier's aircraft live.
+  assert.ok(deck.airborne, 'she never left the deck');
+  assert.ok(!plane.visible, 'the aeroplane that has gone is still being drawn');
+  assert.ok(plane.position.y < FD && Math.abs(plane.position.z) < built.length * 0.5,
+    `she is parked at ${plane.position.z.toFixed(0)} m, ${plane.position.y.toFixed(0)} m up`);
 
   // The simulation puts her flight up at the same place, so the formation
   // draws her where she already is.
@@ -4198,6 +4221,9 @@ check('an aeroplane has a height, and gravity has her', () => {
   const low = new Map();
   const high = new Map();
   let worstRate = 0;
+  // A dive bomber is the one thing here that is supposed to come down fast.
+  let steepest = 0;
+  let worstDive = 0;
   const was = new Map();
   for (let i = 0; i < 30 * 240; i++) {
     for (const s of st.ships) s.spottedBy = [true, true];
@@ -4211,7 +4237,15 @@ check('an aeroplane has a height, and gravity has her', () => {
         high.set(p.role, Math.max(high.get(p.role) ?? -1e9, p.y));
       }
       const b = was.get(p.id);
-      if (b !== undefined) worstRate = Math.max(worstRate, Math.abs(p.y - b) / DT);
+      if (b !== undefined) {
+        const rate = (p.y - b) / DT;
+        if (p.role === 'dive') {
+          steepest = Math.min(steepest, rate);
+          worstDive = Math.max(worstDive, Math.abs(rate));
+        } else {
+          worstRate = Math.max(worstRate, Math.abs(rate));
+        }
+      }
       was.set(p.id, p.y);
     }
   }
@@ -4226,6 +4260,15 @@ check('an aeroplane has a height, and gravity has her', () => {
   // forty-odd metre dive; anything past that is a marker being dragged.
   assert.ok(worstRate < 60,
     `something changed height at ${worstRate.toFixed(0)} m/s`);
+  // A dive bomber does come down fast, because that is what she is: a real
+  // dive, not a bomb dropped out of the window on the way past. She used to
+  // fly flat at nine hundred metres and let go from there, and the bomb had to
+  // be thrown thirty degrees above the horizontal to reach the ship at all.
+  assert.ok(steepest < -55,
+    `the dive bombers never came down faster than ${(-steepest).toFixed(0)} m/s`);
+  // And she does not come down faster than the airframe will stand either.
+  assert.ok(worstDive < 150,
+    `a dive bomber changed height at ${worstDive.toFixed(0)} m/s`);
   // And the three kinds do different things in the vertical, because they are
   // doing different jobs: the torpedo bombers come right down on the water to
   // drop, and the dive bombers go up over the top to push down on her.
@@ -4281,6 +4324,195 @@ check("the Admiral Hipper flies her Arados off her catapult", () => {
   assert.ok(car() > at0 + 8, 'her trolley never left the breech');
   built.group.userData.step(deck.run + 0.5);
   assert.equal(deck.cat.plane.visible, false, 'her scout is still on the girder');
+});
+
+check('a shell takes the plating it went through, and only that', () => {
+  // The destruction model used to be six pieces of ship. Each compartment was
+  // one welded buffer and it was switched off when the simulation said the
+  // compartment had gone: forty metres of hull, deck, guardrails and boats
+  // stopped existing between two frames, and nothing else could ever be
+  // damaged at all. Every ship is now every triangle she is drawn out of, and
+  // any of them can be taken out on its own -- so what goes is what the shell
+  // arrived at, wherever that was.
+  const built = buildShip('cleveland');
+  const plating = new Plating(built.group);
+  assert.ok(plating.total > 4000,
+    `she is made of ${plating.total} pieces, which is not many`);
+  assert.equal(plating.torn, 0, 'she starts the battle already holed');
+
+  // A six-inch shell into her side, abreast the bridge, four metres up.
+  const beam = SHIP_CLASSES.cleveland.hull.beam;
+  const went = plating.punch(beam * 0.5, 4, 10, 2.0, 0);
+  assert.ok(went > 0, 'a shell into her side took nothing off her');
+  // And it is local. The stern is a hundred and eighty feet away and is not
+  // anybody's business.
+  const half = SHIP_CLASSES.cleveland.hull.length / 2;
+  let far = 0;
+  for (const part of plating.parts) {
+    for (let t = 0; t < part.count; t++) {
+      if (!part.dead[t]) continue;
+      const cz = part.cent[t * 3 + 2];
+      if (Math.abs(cz - 10) > 6) far++;
+    }
+  }
+  assert.equal(far, 0, `${far} pieces went from somewhere the shell was not`);
+  assert.ok(plating.torn / plating.total < 0.02,
+    'one six-inch shell opened up a fiftieth of the ship');
+
+  // Below the waterline it works the same way, which is what makes a hole you
+  // can see from under her.
+  // She tucks in below the waterline and narrows aft, so a shell arriving on
+  // that bearing meets her side a couple of metres inboard of her extreme
+  // beam. The burst reaches it either way.
+  const before = plating.torn;
+  plating.punch(beam * 0.5, -3, -30, 3.2, 0);
+  assert.ok(plating.torn > before, 'a hit under her waterline took nothing off her');
+
+  // A whole compartment, when one is blown out: torn out a slice at a time,
+  // still as triangles, so it can be watched going rather than switched off.
+  const gone = plating.strip(half * 0.2, half * 0.6);
+  assert.ok(gone > 200, `a compartment blown out of her took ${gone} pieces`);
+});
+
+check('only a round that got through takes any of her with it', () => {
+  // The rule the guns were designed round, and the one the simulation already
+  // works to: a shell that bounced off the belt, shattered on the plate or went
+  // clean through without bursting leaves a scar and a great deal of noise, and
+  // the ship is the same shape afterwards.
+  for (const kind of ['ricochet', 'shatter', 'splash']) {
+    assert.equal(holeRadius(kind, 406), 0, `a ${kind} opened her plating`);
+    assert.ok(!PENETRATING.has(kind), `${kind} counts as a penetration`);
+  }
+  // And one that did get through takes a piece of her about its own bore
+  // across, or several times that where the burst blew the side in.
+  for (const kind of ['pen', 'he', 'citadel', 'bomb', 'torpedo']) {
+    assert.ok(holeRadius(kind, 406) > 0, `a ${kind} left her watertight`);
+    assert.ok(PENETRATING.has(kind), `${kind} is not counted as a penetration`);
+  }
+  assert.ok(holeRadius('citadel', 406) > holeRadius('pen', 406),
+    'a magazine hit opens no more of her than a clean penetration');
+  assert.ok(holeRadius('pen', 406) > holeRadius('pen', 127),
+    'a sixteen-inch shell makes the same hole as a five-inch');
+  // The tear in the plating and the orifice the sea comes through are not the
+  // same number -- the edges fold in -- but they have to be proportional, or
+  // the hole a captain can see and the hole he is flooding through are
+  // different holes. Roughly two to one on the radius.
+  for (const kind of ['pen', 'citadel', 'he']) {
+    const blown = { citadel: 9, he: 3.5, pen: 2.2 }[kind];
+    const orifice = Math.sqrt((Math.PI * (0.406 * blown * 0.5) ** 2) / Math.PI);
+    const ratio = holeRadius(kind, 406) / orifice;
+    assert.ok(ratio > 1.7 && ratio < 2.3,
+      `a ${kind} tears ${ratio.toFixed(1)} times the hole it floods through`);
+  }
+});
+
+check('a big explosion throws the ship into the air', () => {
+  // A magazine or a torpedo used to produce a flash, a cloud of sprites and a
+  // number in the damage panel. What it produces is several tons of the ship:
+  // plating, deck beams and ready-use rounds thrown up and out, tumbling, and
+  // falling back into the sea.
+  const sea = { heightAt: () => 0 };
+  const debris = new Debris({ add() {} }, sea, 400);
+  debris.burst(0, 20, 0, 6, 1);
+  assert.ok(debris.items.length > 40,
+    `a magazine threw ${debris.items.length} pieces out of her`);
+  // Up first, and out.
+  assert.ok(debris.items.some((d) => d.vy > 20), 'nothing was thrown upward');
+  assert.ok(debris.items.some((d) => Math.hypot(d.vx, d.vz) > 15),
+    'nothing was thrown outward');
+  // Then gravity has it, and it goes into the sea.
+  let splashes = 0;
+  debris.onSplash = () => { splashes++; };
+  let highest = 0;
+  for (let i = 0; i < 60 * 20; i++) {
+    debris.update(1 / 60);
+    for (const d of debris.items) highest = Math.max(highest, d.y);
+  }
+  assert.ok(highest > 30, `the wreckage never got above ${highest.toFixed(0)} m`);
+  assert.ok(splashes > 0, 'none of it went into the water');
+  assert.equal(debris.items.length, 0, 'the wreckage is still in the air');
+  assert.equal(debris.mesh.count, 0, 'and it is still being drawn');
+
+  // A shell bursting inside her throws a great deal less than a magazine does.
+  const small = new Debris({ add() {} }, sea, 400);
+  small.burst(0, 8, 0, 1, 1);
+  const big = new Debris({ add() {} }, sea, 400);
+  big.burst(0, 8, 0, 9, 1);
+  assert.ok(big.items.length > small.items.length * 2,
+    'a magazine and a shell throw out the same wreckage');
+});
+
+check('a dive bomber climbs to the perch and dives on her target', () => {
+  // She used to fly flat at nine hundred metres and let the bomb go from
+  // there. The bomb had to be thrown thirty degrees above the horizontal to
+  // reach the ship at all, and nothing about it looked like an attack. A dive
+  // bomber climbs on the way in, comes over the top of her target and goes
+  // down a straight line at fifty-odd degrees until she is close enough to be
+  // sure of her aim.
+  const st = createState(generateWorld(707, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 11000;
+  foe.speed = 0; foe.throttle = 0;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  launchStrike(st, cv);
+
+  // Her whole run in, sampled: how high she is and how far off the ship.
+  const run = [];
+  let dropped = null;
+  for (let i = 0; i < 30 * 300 && dropped === null; i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    for (const ev of step(st, DT)) {
+      if (ev.e === 'airDrop' && ev.r === 'dive') dropped = run[run.length - 1];
+    }
+    const p = st.planes.find((q) => q.role === 'dive' && !q.dead
+      && q.phase === 'outbound');
+    if (p) run.push({ d: dist(p.x, p.z, foe.x, foe.z), y: p.y, vy: p.vy || 0 });
+  }
+  assert.ok(run.length > 60, 'no dive bomber ever ran in');
+
+  // The perch: she is higher over the target than she was on passage.
+  const perch = Math.max(...run.filter((r) => r.d < 5000 && r.d > 850).map((r) => r.y));
+  const far = Math.max(...run.filter((r) => r.d > 6000).map((r) => r.y), 0);
+  assert.ok(perch > far + 300,
+    `she cruised at ${far.toFixed(0)} m and pushed over from ${perch.toFixed(0)}`);
+
+  // The dive itself, measured as an angle: how much height she gives up
+  // against how much ground she covers between the pushover and the release.
+  const inside = run.filter((r) => r.d < 850 && r.d > 300);
+  assert.ok(inside.length > 3, 'she was never inside the pushover');
+  const top = inside[0];
+  const bottom = inside[inside.length - 1];
+  const angle = Math.atan2(top.y - bottom.y, Math.max(1, top.d - bottom.d)) * 57.3;
+  assert.ok(angle > 35,
+    `she came down at ${angle.toFixed(0)} degrees, which is not a dive`);
+
+  // And she lets go low, out of the dive, rather than lobbing it from height.
+  assert.ok(dropped, 'she never dropped anything');
+  assert.ok(dropped.y < 700,
+    `she let the bomb go from ${dropped.y.toFixed(0)} m`);
+  assert.ok(dropped.vy < -25,
+    `she was going down at ${(-dropped.vy).toFixed(0)} m/s when she let go`);
+});
+
+check('the wire says how many compartments are flooding and how she is floating', () => {
+  // Two different things, and they used to be sent under the same name. The
+  // count of her flooded compartments was written first and the triple that
+  // says how she is floating -- deeper, over, down by the head -- was written
+  // second in the same object, so the count never left the ship at all. What
+  // a captain read on the ship plate was "FLOODING x0,0,0".
+  const st = createState(generateWorld(31, 'open_ocean'), { mode: 'deathmatch' });
+  const sh = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  sh.flooding = 3;
+  sh.sink = 1.4; sh.heel = 0.21; sh.trim = -0.05;
+  const s = shipSnapshot(sh, true);
+  assert.equal(s.fl, 3, `the wire says ${JSON.stringify(s.fl)} compartments are flooding`);
+  assert.ok(Array.isArray(s.fo) && s.fo.length === 3, 'how she is floating is not on the wire');
+  assert.ok(Math.abs(s.fo[0] - 1.4) < 0.1 && Math.abs(s.fo[1] - 0.21) < 0.01,
+    `she is floating at ${JSON.stringify(s.fo)}`);
+  // And the water in each compartment, which is what the hologram draws.
+  assert.ok(Array.isArray(s.wt) && s.wt.length === SECTIONS.length,
+    'the wire does not say where the water is');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
