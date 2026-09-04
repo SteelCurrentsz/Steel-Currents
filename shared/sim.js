@@ -22,7 +22,6 @@ const THROTTLE_NOTCHES = [-1, 0, 0.25, 0.5, 0.75, 1]; // index 0 is astern
 export const MIN_NOTCH = 0;
 export const MAX_NOTCH = THROTTLE_NOTCHES.length - 1;
 
-export const CAP_TO_WIN = 1000;
 
 let nextEntityId = 1;
 function eid() { return nextEntityId++; }
@@ -40,10 +39,7 @@ export function createState(world, opts = {}) {
     planes: [],
     events: [],
     rng: makeRng((world.seed ^ 0x9e3779b9) >>> 0),
-    score: [0, 0],
-    caps: world.caps.map((c) => ({ id: c.id, x: c.x, z: c.z, r: c.r, owner: -1, progress: 0, contest: -1 })),
     mode: opts.mode || 'domination',
-    timeLimit: opts.timeLimit || 900,
     over: false,
     winner: -1,
     reason: '',
@@ -2237,38 +2233,17 @@ export function torpedoVisible(state, tp, team) {
 }
 
 // ---------------------------------------------------------------------------
-// Objectives
+// How a battle ends
 // ---------------------------------------------------------------------------
-
-function stepCaps(state, dt) {
-  if (state.mode !== 'domination') return;
-  for (const cap of state.caps) {
-    const counts = [0, 0];
-    for (const s of state.ships) {
-      if (!s.alive) continue;
-      if (dist(s.x, s.z, cap.x, cap.z) < cap.r) counts[s.team]++;
-    }
-    cap.contest = counts[0] > 0 && counts[1] > 0 ? 2 : counts[0] > 0 ? 0 : counts[1] > 0 ? 1 : -1;
-    if (cap.contest === 0 || cap.contest === 1) {
-      const team = cap.contest;
-      if (cap.owner === team) { cap.progress = 100; }
-      else {
-        cap.progress += dt * (9 + counts[team] * 3.5);
-        if (cap.progress >= 100) {
-          cap.progress = 100;
-          cap.owner = team;
-          state.events.push({ e: 'capture', cap: cap.id, team });
-        }
-      }
-    } else if (cap.contest === -1 && cap.owner === -1) {
-      cap.progress = Math.max(0, cap.progress - dt * 6);
-    }
-    if (cap.owner >= 0) state.score[cap.owner] += dt * 4.2;
-  }
-  for (let team = 0; team < 2; team++) {
-    if (state.score[team] >= CAP_TO_WIN) finish(state, team, 'points');
-  }
-}
+//
+// One way, and it is the only way: when one side has nothing left afloat.
+//
+// She used to be able to end on points -- a running score off three circles on
+// the chart, with a clock counting down to whoever was ahead when it stopped.
+// Which meant a battle could be won by steaming round an empty patch of sea
+// while the enemy was still afloat and shooting, and lost with half a division
+// in action because the clock ran out. It is a fleet action: it ends when one
+// fleet is on the bottom.
 
 function checkElimination(state) {
   const aliveByTeam = [0, 0];
@@ -2307,14 +2282,7 @@ export function step(state, dt = DT) {
   stepTorpedoes(state, dt);
   stepPlanes(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);
-  stepCaps(state, dt);
-  if (!state.over) {
-    checkElimination(state);
-    if (state.t > state.timeLimit) {
-      const w = state.score[0] === state.score[1] ? -1 : state.score[0] > state.score[1] ? 0 : 1;
-      finish(state, w, 'timeout');
-    }
-  }
+  if (!state.over) checkElimination(state);
   const ev = state.events;
   state.events = [];
   return ev;

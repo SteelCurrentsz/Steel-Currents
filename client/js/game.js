@@ -99,6 +99,10 @@ export class Battle {
     this.selected = shipId;
     // An aeroplane on the approach, coming back aboard after her sortie.
     this.landing = null;
+    // Where the camera is standing when it has been walked off its ship: a
+    // point on the sea it orbits instead. Null means it is on whatever it is
+    // following -- your own hull, or a mark picked off the chart.
+    this.roam = null;
     // What is left of the ones that were shot down, on their way into the sea.
     this.wrecks = [];
     this.watchYaw = 0;
@@ -145,7 +149,7 @@ export class Battle {
       },
     });
     this.hud.onToggleMap = () => this.toggleMap();
-    document.getElementById('watch-back')?.addEventListener('click', () => this.lookAt(null));
+    document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
@@ -194,13 +198,43 @@ export class Battle {
     }
   }
 
+  /**
+   * Your own ship has gone down. The battle has not.
+   *
+   * It used to put a full-screen curtain over everything with a button on it
+   * to go back to port -- which is the battle ending because the flagship
+   * sank, with half a division still in action. A fleet action ends when one
+   * fleet is on the bottom. So the notice is a notice, the screen stays yours,
+   * and the camera goes to whatever is left of your side: you still have the
+   * chart, you still have the con, and you fight her out with what is afloat.
+   */
   onOwnSunk() {
     this.sunk = true;
     this.hud.setSunk(true);
     this.hud.alert('Abandon ship');
     audio.explosion(2, 0);
     this.input.releaseLock();
-    this.camMode = 'tactical';
+    const next = this.nextAfloat();
+    if (next) {
+      this.workPlot({ kind: 'ship', id: next.i, team: next.tm, name: next.n }, null);
+      this.hud.alert(`Flag transferred to ${next.n}`);
+    } else {
+      this.camMode = 'tactical';
+    }
+  }
+
+  /** The nearest of your side still afloat, for the flag to shift to. */
+  nextAfloat() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap) return null;
+    let best = null;
+    let near = Infinity;
+    for (const s of snap.ships) {
+      if (s.tm !== this.team || !s.a || s.i === this.shipId) continue;
+      const d = dist(this.localShip.x, this.localShip.z, s.x, s.z);
+      if (d < near) { near = d; best = s; }
+    }
+    return best;
   }
 
   onEvents(events) {
@@ -275,9 +309,6 @@ export class Battle {
           if (ev.by === this.shipId) this.hud.ribbon('SHIP DESTROYED', 'cit');
           break;
         }
-        case 'capture':
-          this.hud.alert(ev.team === this.team ? `Point ${ev.cap} captured` : `Point ${ev.cap} lost`);
-          break;
         case 'ram': fx.explosion(ev.x, 4, ev.z, 1.2); break;
         case 'airDrop': {
           // The fish going into the sea: a short row of splashes across the
@@ -403,8 +434,10 @@ export class Battle {
       case 'Tab': this.showScores = !this.showScores; this.hud.showScoreboard(this.roster, this.shipId, this.showScores); break;
       // Out of somebody else's view first, out of the battle second.
       case 'Escape':
-        if (this.watching) this.lookAt(null); else this.leave();
+        if (this.watching || this.roam) this.cameraHome(); else this.leave();
         break;
+      // Back to your own bridge from wherever the camera has been walked to.
+      case 'KeyH': this.cameraHome(); break;
       default: break;
     }
   }
@@ -504,6 +537,9 @@ export class Battle {
       this.watchSent = eyes;
       this.net.send({ t: 'watch', ship: eyes });
     }
+    // Picking a mark off the chart recentres on it: whatever the camera had
+    // been walked to, it is on this now.
+    if (hit) this.roam = null;
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
     // Picked one of your own flights off the plot: offer to take her. This is
@@ -547,7 +583,10 @@ export class Battle {
       // where it is and never anything else. Two sources for one aeroplane is
       // what made this jump: the model was interpolated and the camera was
       // reading raw snapshots, so they disagreed ten times a second.
-      if (this.watching.carrier != null) {
+      // And only while the carrier's model really is flying her: struck below
+      // in the hangar she is not an aeroplane to ride, she is a parked one.
+      if (this.watching.carrier != null
+        && this.flying && this.flying.id === this.watching.id) {
         const v = this.scene.shipViews.get(this.watching.carrier);
         const g = v && v.group.userData.deckPlane;
         if (g) {
@@ -711,19 +750,35 @@ export class Battle {
    * launch and out to the target. Press it again to come back to your ship.
    */
   togglePilotView() {
-    if (this.watching && this.watching.kind === 'plane' && this.watching.carrier != null) {
+    if (this.watching && this.watching.kind === 'plane') {
       this.watching = null;
       this.hud.setWatching(null);
       this.hud.setWatchBanner(null);
+      this.hud.setFlyOffer(false);
       return;
     }
-    const v = this.scene.shipViews.get(this.shipId);
-    if (!v || !v.group.userData.deckPlane) {
-      this.hud.alert('No aircraft to ride');
+    // Ride an aeroplane that is actually flying.
+    //
+    // It used to put the camera on the carrier's own deck model whatever that
+    // model happened to be doing -- and between sorties she is struck below in
+    // the hangar with her wings folded, so what a captain got for "pilot view"
+    // was a close-up of a parked aeroplane apparently levitating in the dark.
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const mine = ((snap && snap.planes) || []).filter((p) => p.o === this.shipId);
+    if (!mine.length) {
+      this.hud.alert('No aircraft in the air');
       return;
     }
-    this.watching = { kind: 'plane', carrier: this.shipId, id: null,
-      name: 'the ready aircraft — drag to look round her' };
+    // The one the carrier's own model is flying if she is up -- that is the
+    // aeroplane drawn in full rather than as one of a formation -- and failing
+    // that, the youngest flight she has put up.
+    const hero = this.flying && mine.find((p) => p.i === this.flying.id);
+    const pick = hero || mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
+    this.roam = null;
+    this.watching = {
+      kind: 'plane', carrier: hero ? this.shipId : null, id: pick.i,
+      name: `${pick.r === 'fighter' ? 'her fighters' : pick.r === 'dive' ? 'her dive bombers' : 'her torpedo bombers'} — drag to look round them`,
+    };
     this.watchPov = false;
     this.watchYaw = 2.5;              // over her port quarter, looking forward
     this.watchEl = 0.24;              // a little above her, not edge-on
@@ -733,6 +788,7 @@ export class Battle {
     this.watchDistNow = 1.55;
     this.hud.setWatching?.(this.watching);
     this.hud.setWatchBanner?.(this.watching, false);
+    this.hud.setFlyOffer(this.canTake());
   }
 
   /**
@@ -754,6 +810,55 @@ export class Battle {
     if (this.localShip.notch === want) return;
     this.localShip.notch = want;
     this.net.send({ t: 'input', notch: want });
+  }
+
+  /**
+   * Walk the camera over the battlefield.
+   *
+   * The view is not nailed to a hull. A drag with two fingers -- or shift and
+   * the mouse -- takes it off whatever it was on and moves it across the sea,
+   * as far as you like, and it stays where it is put. Tapping any mark on the
+   * chart brings it back and recentres it on that.
+   */
+  panCamera(dx, dy, dt) {
+    if (!dx && !dy) return;
+    const here = this.focusPoint();
+    if (!this.roam) this.roam = { x: here.x, z: here.z };
+    // In the camera's own frame, and scaled by how far off it is standing:
+    // panning a mile out has to move a mile, and panning alongside a ship has
+    // to move a few metres.
+    const reach = Math.max(60, this.camDistance) * 0.0022;
+    const sn = Math.sin(this.yaw);
+    const cs = Math.cos(this.yaw);
+    // Screen right is the camera's starboard beam; screen up is away from it.
+    this.roam.x += (-dx * cs - dy * sn) * reach;
+    this.roam.z += (dx * sn - dy * cs) * reach;
+    const H = (this.scene.world && this.scene.world.half) || 20000;
+    this.roam.x = clamp(this.roam.x, -H, H);
+    this.roam.z = clamp(this.roam.z, -H, H);
+    // Walking away from a contact is letting go of it: the camera is yours now.
+    if (this.watching) this.lookAt(null);
+    else this.hud.setWatchBanner({ name: 'the battlefield' }, false);
+  }
+
+  /** Where the camera is looking: a mark, a point it was walked to, or you. */
+  focusPoint() {
+    const w = this.watchPoint();
+    if (w) return w;
+    if (this.roam) {
+      return { x: this.roam.x, y: this.scene.ocean.heightAt(this.roam.x, this.roam.z) * 0.5,
+        z: this.roam.z, span: 200, eye: 12, roaming: true };
+    }
+    const ls = this.localShip;
+    return { x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5, z: ls.z,
+      span: this.cls.hull.length, eye: 14 + this.cls.hull.superstructure * 12 };
+  }
+
+  /** Bring the camera home to your own bridge. */
+  cameraHome() {
+    this.roam = null;
+    if (this.watching) this.lookAt(null);
+    else this.hud.setWatchBanner(null);
   }
 
   /** Whose bridge the controls answer: the ship being watched, else your own. */
@@ -812,6 +917,17 @@ export class Battle {
       this.pitch = clamp(this.pitch + m.y * zoom, -0.87, 1.16);
       this.updateAimPoint();
     }
+
+    // And the pan, which walks the whole view across the battlefield. It works
+    // whether you are on your own bridge or watching somebody else -- walking
+    // away from a contact is how you let go of it.
+    const pan = this.input.takePan();
+    this.panCamera(pan.x, pan.y, dt);
+    // The arrow keys do the same for anyone who would rather not hold shift.
+    const ARROW = 340 * dt;
+    const kx = (this.input.down('ArrowRight') ? 1 : 0) - (this.input.down('ArrowLeft') ? 1 : 0);
+    const ky = (this.input.down('ArrowDown') ? 1 : 0) - (this.input.down('ArrowUp') ? 1 : 0);
+    if (kx || ky) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
 
     // Predict our own hull, then ease toward the server's version of it.
     predictShip(this.local, ls, dt);
@@ -1541,12 +1657,16 @@ export class Battle {
     // The thing being watched has sunk or been silenced: come home.
     if (this.watching) { this.watching = null; this.hud.setWatching(null); this.hud.setWatchBanner(null); }
 
-    const wave = this.scene.ocean.heightAt(ls.x, ls.z);
+    // Where the camera is standing. Your own hull unless it has been walked
+    // off her, in which case it is wherever it was left.
+    const fx = this.roam ? this.roam.x : ls.x;
+    const fz = this.roam ? this.roam.z : ls.z;
+    const wave = this.scene.ocean.heightAt(fx, fz);
     if (this.camMode === 'tactical') {
       const h = 2200;
-      cam.position.set(ls.x - Math.sin(this.yaw) * 300, h, ls.z - Math.cos(this.yaw) * 300);
-      cam.lookAt(ls.x, 0, ls.z);
-    } else if (this.camMode === 'bridge') {
+      cam.position.set(fx - Math.sin(this.yaw) * 300, h, fz - Math.cos(this.yaw) * 300);
+      cam.lookAt(fx, 0, fz);
+    } else if (this.camMode === 'bridge' && !this.roam) {
       const fwd = this.cls.hull.length * 0.16;
       const eye = 14 + this.cls.hull.superstructure * 12;
       cam.position.set(
@@ -1570,13 +1690,13 @@ export class Battle {
       const d = this.scoped ? this.camDistance * 0.55 : this.camDistance;
       const el = clamp(0.38 - this.pitch, -0.78, 1.25);
       const flat = Math.cos(el);
-      const aim = wave * 0.5 + this.cls.hull.superstructure * 5 + 6;
+      const aim = wave * 0.5 + (this.roam ? 0 : this.cls.hull.superstructure * 5 + 6);
       cam.position.set(
-        ls.x - Math.sin(this.yaw) * d * flat,
+        fx - Math.sin(this.yaw) * d * flat,
         wave * 0.5 + 6 + d * Math.sin(el),
-        ls.z - Math.cos(this.yaw) * d * flat,
+        fz - Math.cos(this.yaw) * d * flat,
       );
-      cam.lookAt(ls.x, aim, ls.z);
+      cam.lookAt(fx, aim, fz);
     }
 
     // Nothing puts the camera inside the ground.

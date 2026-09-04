@@ -182,10 +182,24 @@ function pickTarget(state, ship) {
   return best;
 }
 
+/**
+ * Nothing in sight: go and look for the enemy.
+ *
+ * She used to steer for whichever circle on the chart her side did not own,
+ * which is what a captain does in a game about circles. There are no circles
+ * now, so she does what a captain in a fleet action does: closes the enemy's
+ * last known position, or the middle of the sea if nobody has reported one.
+ */
 function patrol(state, ship, brain, dt) {
   ship.notch = 4;
-  const cap = state.caps.find((c) => c.owner !== ship.team) || state.caps[0];
-  const goal = cap ? { x: cap.x, z: cap.z } : { x: 0, z: 0 };
+  let goal = null;
+  let near = Infinity;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === ship.team) continue;
+    const d = dist(ship.x, ship.z, s.x, s.z);
+    if (d < near) { near = d; goal = { x: s.x, z: s.z }; }
+  }
+  if (!goal) goal = { x: 0, z: 0 };
   steerToward(state, ship, headingTo(ship.x, ship.z, goal.x, goal.z));
   layAhead(ship);
 }

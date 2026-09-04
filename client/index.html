@@ -232,7 +232,7 @@
        a running total, and the zones his side happens to be standing in are
        not something the bridge windows show him. -->
   <div class="hud-top">
-    <div class="battle-timer" id="battle-timer">15:00</div>
+    <div class="battle-timer" id="battle-timer">0:00</div>
   </div>
 
   <div class="hud-left" id="hud-left">
@@ -394,9 +394,12 @@
 
   <div class="scoreboard" id="scoreboard"><table id="scoreboard-table"></table></div>
 
+  <!-- Your ship is gone; the battle is not. A notice, not a curtain: the chart
+       and the conn keys stay live, because the flag shifts to whatever is left
+       of your division and you fight her out from there. -->
   <div class="sink-overlay" id="sink-overlay">
     <h2>Your ship has gone down</h2>
-    <p>Stay with the battle as an observer, or return to port.</p>
+    <p>The flag shifts to your next ship. Con your division from the chart.</p>
     <button class="btn ghost" id="btn-leave">Return to port</button>
   </div>
 </section>

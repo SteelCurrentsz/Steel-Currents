@@ -866,8 +866,12 @@ export class Hud {
     if (this.panel) this.paintPanel(own);
 
     if (snap) {
-      const left = Math.max(0, 900 - snap.time);
-      this.el.timer.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+      // Time in action, counting up. It used to count down to a hooter that
+      // ended the battle on points; there is no hooter and there are no
+      // points, so what a clock is for now is telling you how long you have
+      // been at it.
+      const t = Math.max(0, snap.time);
+      this.el.timer.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     }
   }
 

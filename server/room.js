@@ -221,7 +221,6 @@ export class Room {
         t: 'result',
         winner: this.state.winner,
         reason: this.state.reason,
-        score: this.state.score.map((s) => Math.round(s)),
         roster: scoreboard(this.state),
       });
     }
@@ -229,11 +228,12 @@ export class Room {
   }
 
   dispatchEvents(events) {
-    // Sinkings and captures go to everyone; the rest are effects filtered by team.
+    // A sinking and the end of the battle go to everyone; the rest are effects
+    // filtered by team.
     const global = [];
     const perTeam = [[], []];
     for (const ev of events) {
-      if (ev.e === 'sink' || ev.e === 'capture' || ev.e === 'over') global.push(ev);
+      if (ev.e === 'sink' || ev.e === 'over') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);

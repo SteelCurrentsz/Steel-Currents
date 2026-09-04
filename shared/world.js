@@ -328,36 +328,22 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     });
   }
 
-  // The capture zones sit a fixed fraction out from the centre, so they spread
-  // with the battlefield instead of huddling in the middle of a big one.
-  const k = HALF / MAP_HALF;
-  const caps = [
-    { id: 'A', x: 0, z: 0, r: 950 * Math.min(1.6, k) },
-    { id: 'B', x: -2600 * k, z: 1900 * k, r: 800 * Math.min(1.6, k) },
-    { id: 'C', x: 2600 * k, z: -1900 * k, r: 800 * Math.min(1.6, k) },
-  ].filter((c) => !islands.some((i) => dist(i.x, i.z, c.x, c.z) < i.r + c.r * 0.4));
-
   const wx = WEATHERS.includes(weather) ? weather : 'sunny';
   const world = {
-    seed, preset: preset.id, islands, land, caps, half: HALF,
+    seed, preset: preset.id, islands, land, half: HALF,
     time: TIMES.includes(time) ? time : preset.time,
     weather: wx,
     // The theatre's own sea, plus whatever the weather is adding to it.
     sea: Math.max(0, Math.min(6, preset.sea + WEATHER[wx].sea)),
   };
-  // A zone the fleets cannot reach is not a zone. Anything that has come down
-  // on a headland is moved to the nearest water, and dropped if there is none.
-  world.caps = caps
-    .map((c) => afloat(world, c, c.r * 0.5))
-    .filter(Boolean);
   return world;
 }
 
 /**
  * Nudge a point until it is clear of the land, searching outward in rings.
  * Returns a copy of `at` moved to water, or null if there is none within the
- * search. Used for the capture zones and for the spawn line: a fleet that
- * forms up inside a peninsula is not a fleet.
+ * search. Used for the spawn line: a fleet that forms up inside a peninsula is
+ * not a fleet.
  */
 function afloat(world, at, pad = 0) {
   if (!landAt(world, at.x, at.z, pad)) return at;

@@ -8,6 +8,10 @@ export class Input {
     this.keys = new Set();
     this.mouseDX = 0;
     this.mouseDY = 0;
+    // A drag that walks the camera over the sea rather than turning it: shift
+    // and drag with a mouse, two fingers together on a touchscreen.
+    this.panDX = 0;
+    this.panDY = 0;
     // Set by the bridge while the camera is watching something other than your
     // own ship: the pointer stays free and a drag walks the orbit.
     this.orbiting = false;
@@ -35,6 +39,11 @@ export class Input {
     this._onMove = (e) => {
       if (!this.enabled || this.touch) return;
       const s = getSettings().sensitivity;
+      // Shift, or the middle button, walks the camera instead of turning it.
+      if (e.shiftKey || (e.buttons & 4)) {
+        if (this.locked || e.buttons) this.addPan(e.movementX, e.movementY);
+        return;
+      }
       if (this.locked) {
         this.mouseDX += e.movementX * 0.0016 * s;
         this.mouseDY += e.movementY * 0.0016 * s;
@@ -99,6 +108,12 @@ export class Input {
     this.mouseDY += dy * 0.0016 * s;
   }
 
+  /** Feed a pan gesture in screen pixels. */
+  addPan(dx, dy) {
+    this.panDX += dx;
+    this.panDY += dy;
+  }
+
   /** Consume accumulated mouse movement for this frame. */
   takeMouse() {
     const d = { x: this.mouseDX, y: this.mouseDY };
@@ -106,9 +121,17 @@ export class Input {
     return d;
   }
 
+  /** And the pan, in screen pixels, for this frame. */
+  takePan() {
+    const d = { x: this.panDX, y: this.panDY };
+    this.panDX = 0; this.panDY = 0;
+    return d;
+  }
+
   reset() {
     this.keys.clear();
     this.mouseDX = this.mouseDY = 0;
+    this.panDX = this.panDY = 0;
     this.firing = false;
     this.scoped = false;
     this.axis.rudder = null;

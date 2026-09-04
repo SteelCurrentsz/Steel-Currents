@@ -49,12 +49,18 @@ export class TouchControls {
       if (active.size >= 2) {
         const [a, b] = [...active.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        // How far apart the fingers are, as notches of a wheel: doubling the
-        // spread is about five notches in, which is the rate a mouse gives for
-        // the same amount of work.
-        if (pinch > 8 && d > 8 && Math.abs(d - pinch) > 1.5) {
+        // Two fingers do two things and they are told apart by what the
+        // fingers are doing to each other. Spreading or closing is a pinch and
+        // works the zoom; moving together, with the gap between them holding
+        // steady, walks the camera over the sea.
+        const spread = d - pinch;
+        if (pinch > 8 && d > 8 && Math.abs(spread) > 1.5) {
           this.input.emit('wheel', Math.log(pinch / d) / Math.log(1.15));
           pinch = d;
+        } else {
+          // Halved, because both fingers report the same movement and this is
+          // called once for each of them.
+          this.input.addPan(dx * 0.5, dy * 0.5);
         }
         return;
       }

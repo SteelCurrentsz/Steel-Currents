@@ -131,8 +131,6 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     tick: state.tick,
     time: r1(state.t),
     ships, contacts, shells, torps, planes, batteries,
-    caps: state.caps.map((c) => ({ id: c.id, o: c.owner, p: Math.round(c.progress), k: c.contest })),
-    score: [Math.round(state.score[0]), Math.round(state.score[1])],
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

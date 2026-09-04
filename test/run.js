@@ -394,6 +394,48 @@ check('a ship picked off the plot is conned from it, whichever side she is on', 
   room.close();
 });
 
+check('a battle is fought out to the last ship', () => {
+  // It used to be able to end three other ways: on points, off a running
+  // score from three circles on the chart; on a clock, with whoever was ahead
+  // when it stopped; and, from the captain's side of it, the moment his own
+  // ship went down, because a curtain came over the screen with a button on
+  // it to go back to port. A fleet action ends when one fleet is on the
+  // bottom, and nothing else ends it.
+  const st = createState(generateWorld(19, 'open_ocean'), { mode: 'domination' });
+  const a1 = addShip(st, { name: 'Flag', classId: 'iowa', team: 0, index: 0 });
+  const a2 = addShip(st, { name: 'Mate', classId: 'cleveland', team: 0, index: 1 });
+  const b1 = addShip(st, { name: 'Foe', classId: 'hipper', team: 1, index: 0 });
+  // Well apart, so nothing is shooting at anything and the only thing that can
+  // end this is the arithmetic under test.
+  a1.x = 0; a1.z = 0; a2.x = 800; a2.z = 0; b1.x = 0; b1.z = 30000;
+  assert.ok(!('caps' in st), 'she still has capture zones');
+  assert.ok(!('score' in st), 'she still keeps a score');
+
+  // Half an hour of it: twice what the old clock allowed.
+  for (let i = 0; i < 30 * 1800 && !st.over; i++) step(st, DT);
+  assert.equal(st.over, false, `the battle ended on its own: ${st.reason}`);
+
+  // The flagship goes down and the battle goes on, because her division has
+  // not.
+  damageShip(st, a1, b1, a1.maxHp + 1, 'test');
+  step(st, DT);
+  assert.equal(a1.alive, false, 'the flagship did not sink');
+  assert.equal(st.over, false, 'the battle ended with the flagship');
+
+  // The last of her side goes and it is over.
+  damageShip(st, a2, b1, a2.maxHp + 1, 'test');
+  const evs = step(st, DT);
+  assert.equal(st.over, true, 'a side was wiped out and the battle went on');
+  assert.equal(st.winner, 1, 'the wrong side won');
+  assert.equal(st.reason, 'elimination', `she ended on ${st.reason}`);
+  assert.ok(evs.some((e) => e.e === 'over'), 'nobody was told it was over');
+
+  // And nothing anywhere still reports points.
+  const snap = buildSnapshot(st, 0, a2.id);
+  assert.ok(!('caps' in snap) && !('score' in snap),
+    'the wire still carries the points system');
+});
+
 check('a sinking is credited to the shooter', () => {
   const { state, a, b } = duel('iowa', 'fletcher');
   damageShip(state, b, a, b.maxHp + 1, 'test');
@@ -496,9 +538,6 @@ check('fleets form up on water, not on a headland', () => {
       assert.ok(!landAt(w, p.x, p.z, 200),
         `team ${team} ship ${i} spawned ashore at ${Math.round(p.x)},${Math.round(p.z)}`);
     }
-  }
-  for (const c of w.caps) {
-    assert.ok(!landAt(w, c.x, c.z), `capture zone ${c.id} is ashore`);
   }
 });
 
@@ -1696,6 +1735,54 @@ check('nothing on the Hipper is standing in mid-air', () => {
   assert.ok(girder && girder.max[0] - girder.min[0] > 18,
     'her catapult does not reach across her');
   assert.ok(floats.length >= 2, 'her Arados are not standing on floats');
+});
+
+check("the Hipper's bridge is a tower and her funnel is a boiler room's", () => {
+  // The two things you look at on a German heavy cruiser. The bridge is a
+  // tower built in levels -- block, admiral's bridge, navigating bridge,
+  // trunk, foretop -- and each of them has a deck of its own; the foretop
+  // carries the seven-metre rangefinder that is the reason the tower is that
+  // tall. The funnel is the top of three boiler rooms: uptakes inside a
+  // casing, the fire rooms' air cowls outside it, and the flat cap on struts
+  // over the mouth that tells her from Prinz Eugen.
+  const parts = hipperParts();
+  const bridge = parts.filter((p) => p.from === 'bridge');
+  assert.ok(bridge.length > 90, `her bridge is only ${bridge.length} pieces`);
+
+  // Levels: flat plates, wide, at rising heights up the tower.
+  const decks = bridge
+    .filter((p) => p.size[1] < 0.4 && p.max[0] - p.min[0] > 4 && p.max[2] - p.min[2] > 4)
+    .map((p) => p.min[1])
+    .sort((a, b) => a - b);
+  const levels = [];
+  for (const y of decks) if (!levels.length || y - levels[levels.length - 1] > 1.5) levels.push(y);
+  assert.ok(levels.length >= 4,
+    `her bridge is ${levels.length} level(s), not a tower`);
+  assert.ok(levels[levels.length - 1] - levels[0] > 12,
+    'her tower is not tall enough to be a tower');
+
+  // The rangefinder across the top of it: seven metres of base.
+  const wide = bridge.reduce((a, p) => ((p.max[0] - p.min[0]) > (a ? a.max[0] - a.min[0] : 0)
+    && p.min[1] > levels[levels.length - 1] - 1 ? p : a), null);
+  assert.ok(wide && wide.max[0] - wide.min[0] > 6.5,
+    'there is no rangefinder across her foretop');
+
+  // The funnel: a cap standing clear over the mouth on struts.
+  const fun = parts.filter((p) => p.from === 'funnel');
+  assert.ok(fun.length > 70, `her funnel and casing are only ${fun.length} pieces`);
+  const top = fun.reduce((a, p) => (p.max[1] > (a ? a.max[1] : 0) ? p : a), null);
+  const capY = top.max[1];
+  // Something wide right at the top -- the cap -- and a gap under it.
+  const cap = fun.filter((p) => p.max[1] > capY - 0.8 && p.max[0] - p.min[0] > 6);
+  assert.ok(cap.length, 'her funnel has no cap on it');
+  const mouth = fun.filter((p) => p.max[1] < capY - 1.0 && p.max[1] > capY - 3.5
+    && p.max[0] - p.min[0] > 4);
+  assert.ok(mouth.length, 'the cap is sitting straight on the funnel');
+
+  // And the fire rooms breathe: big cowls outboard of the casing, two a side.
+  const cowls = fun.filter((p) => Math.abs((p.min[0] + p.max[0]) / 2) > 4
+    && p.max[0] - p.min[0] > 1.4 && p.size[1] > 0.9 && p.size[1] < 1.6);
+  assert.ok(cowls.length >= 4, `she has ${cowls.length} boiler-room cowls, not four`);
 });
 
 check('the Hipper mounts what her datasheet says she mounts', () => {

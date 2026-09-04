@@ -647,13 +647,21 @@ input[type="range"] { accent-color: var(--red); }
 .scoreboard tr.dead { opacity: 0.42; text-decoration: line-through; }
 .scoreboard tr.you { background: rgba(230, 207, 156, 0.1); }
 
+/* A panel over the sea, not a curtain over the screen: the plot, the conn keys
+   and the camera all stay live under it, because the battle goes on. */
 .sink-overlay {
-  position: absolute; inset: 0; display: none; flex-direction: column;
-  align-items: center; justify-content: center; gap: 1rem;
-  background: rgba(4, 9, 15, 0.55); text-align: center;
+  position: absolute; left: 50%; top: 8vh; transform: translateX(-50%);
+  display: none; flex-direction: column; align-items: center; gap: 0.5rem;
+  padding: 0.9rem 1.6rem; max-width: min(90vw, 30rem);
+  background: rgba(8, 19, 31, 0.9); border: 1px solid var(--panel-line);
+  border-top: 3px solid var(--red); text-align: center; z-index: 8;
 }
 .sink-overlay.show { display: flex; }
-.sink-overlay h2 { font-family: var(--stencil); font-size: 3rem; color: var(--red); margin: 0; letter-spacing: 0.05em; }
+.sink-overlay h2 {
+  font-family: var(--stencil); font-size: 1.5rem; color: var(--red);
+  margin: 0; letter-spacing: 0.05em;
+}
+.sink-overlay p { margin: 0; font-size: 0.8rem; color: var(--steel); }
 
 .result-table, .scoreboard table { width: 100%; }
 .result-table td, .result-table th { padding: 0.35rem 0.7rem; border-bottom: 1px solid rgba(154, 166, 178, 0.12); }
