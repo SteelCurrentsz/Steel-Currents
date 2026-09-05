@@ -18,8 +18,10 @@ import { buildInterior, bySection } from './interior.js';
 export const LOA = 270;
 export const BEAM = 33;
 export const DRAFT = 11;
-// Main deck height amidships. She has a good deal of sheer forward.
-const DECK = 9.6;
+// Main deck edge amidships, over the waterline: twenty-four and a half feet,
+// which is what the drawing's scale bar reads there. Everything built on her
+// is stepped off this, and `sheerAt(0)` has to agree with it.
+const DECK = 7.54;
 // Where the bow section parts from the rest when the magazines go.
 const SPLIT_Z = 44;
 
@@ -64,148 +66,513 @@ const tube = (r, len, color, seg = 8) => {
 };
 
 // ---------------------------------------------------------------- the hull --
+//
+// Her lines are read off the Navy recognition drawing rather than drawn by
+// eye: the plan view gives the half-breadth at every station, the profile
+// gives the sheer, the rake of the stem at each height and the overhang of the
+// counter, and the drawing's own scale bar -- 0 to 165 feet in fifteen-foot
+// steps, with the waterline at 0 -- gives the heights. Read at 0.7212 pixels
+// to the foot, her length between the stem head and the after end of the
+// quarterdeck comes out at 631 pixels, and the waterline she floats on runs
+// from t = -0.987 to t = +0.959 of that, which is 862 feet: her real load
+// waterline is 859. That agreement is the check that the reading is right.
+//
+// t runs -1 at the after end of the quarterdeck to +1 at the stem head.
+
+/** Straight-line interpolation through a table of [t, value] pairs. */
+function lerpTable(tab, t) {
+  if (t <= tab[0][0]) return tab[0][1];
+  for (let i = 1; i < tab.length; i++) {
+    if (t <= tab[i][0]) {
+      const [t0, v0] = tab[i - 1];
+      const [t1, v1] = tab[i];
+      return v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
+    }
+  }
+  return tab[tab.length - 1][1];
+}
+
+const clamp01 = (u) => Math.min(1, Math.max(0, u));
+const smooth = (u) => { const c = clamp01(u); return c * c * (3 - 2 * c); };
 
 /**
- * Half-beam at a station. t runs -1 at the transom to +1 at the stem.
+ * Half-breadth at the deck edge, as a fraction of her half-beam.
  *
- * An Iowa is a very fine hull: the forward third narrows to almost nothing to
- * carry 33 knots, and the stern is cut off square above the screws. Getting
- * that fineness right is most of what makes the shape read as her and not as a
- * generic battleship.
+ * Straight off the plan view. What it says about an Iowa is that she has
+ * hardly any parallel middle body at all -- full breadth only from a third
+ * abaft amidships to amidships itself -- and then a very long, very fine run
+ * forward. Two thirds of the way to the stem she is already down to half her
+ * beam. That fineness is the whole reason she made 33 knots, and it is what
+ * makes the shape read as her rather than as a generic battleship.
  */
-function halfBeam(t) {
-  const b = BEAM / 2;
-  if (t > 0.30) {
-    // Forebody: a long, hollow entry running out to the stem.
-    const u = (t - 0.30) / 0.70;
-    return b * Math.pow(1 - u, 0.72) * (1 - u * 0.10);
+const DECK_HALF = [
+  [-1.000, 0.050], [-0.985, 0.300], [-0.970, 0.400], [-0.950, 0.440],
+  [-0.920, 0.506], [-0.885, 0.593], [-0.845, 0.679], [-0.810, 0.753],
+  [-0.770, 0.802], [-0.735, 0.852], [-0.695, 0.901], [-0.655, 0.926],
+  [-0.620, 0.951], [-0.580, 0.963], [-0.545, 0.975], [-0.485, 0.988],
+  [-0.400, 0.996], [-0.320, 1.000], [-0.030, 1.000], [0.030, 0.988],
+  [0.120, 0.975], [0.180, 0.951], [0.220, 0.926], [0.255, 0.901],
+  [0.295, 0.877], [0.330, 0.827], [0.370, 0.802], [0.405, 0.753],
+  [0.445, 0.704], [0.485, 0.654], [0.540, 0.556], [0.578, 0.506],
+  [0.615, 0.457], [0.655, 0.432], [0.690, 0.383], [0.730, 0.358],
+  [0.770, 0.333], [0.805, 0.309], [0.845, 0.272], [0.880, 0.247],
+  [0.920, 0.216], [0.955, 0.180], [0.985, 0.090], [1.000, 0.020],
+];
+
+/**
+ * Where the main deck edge is, in metres over the waterline.
+ *
+ * Twenty-three feet at the after end, dipping to a shade under twenty-three
+ * amidships and then lifting the whole forward third: thirty-six feet abreast
+ * the anchors and forty-three at the stem head, which is the dry forecastle
+ * she was famous for. Measured at the top of the shell plating.
+ */
+const SHEER = [
+  [-1.00, 7.05], [-0.90, 6.98], [-0.75, 6.91], [-0.60, 6.89],
+  [-0.45, 6.94], [-0.30, 7.06], [-0.15, 7.27], [0.00, 7.54],
+  [0.15, 7.88], [0.30, 8.22], [0.45, 8.56], [0.58, 8.84],
+  [0.70, 9.05], [0.78, 9.35], [0.85, 9.95], [0.90, 10.60],
+  [0.94, 11.15], [0.97, 12.05], [1.00, 13.15],
+];
+
+/**
+ * The bottom of her at each station.
+ *
+ * Flat at her load draft over the middle half. Aft she keeps her depth a long
+ * way -- her inboard shafts run in skegs that carry the bottom down almost to
+ * the screws -- and then the counter sweeps up in the last tenth. Forward the
+ * forefoot rises over the last quarter to meet the stem.
+ *
+ * These are stations, not points in space: the counter and the stem carry the
+ * top of each end past the bottom of it. These are stations, not
+ * points in space: the counter and the stem carry the top of each end past
+ * the bottom of it, so the waterline she actually floats on runs 260 metres
+ * of her 270, which is what the drawing measures.
+ */
+const KEEL = [
+  [-1.0000, 0.00], [-0.9750, -2.20], [-0.9450, -4.60], [-0.9100, -6.60],
+  [-0.8700, -8.20], [-0.8250, -9.30], [-0.7750, -10.00], [-0.7150, -10.40],
+  [-0.6550, -10.70], [-0.5900, -10.95], [-0.5300, -11.00], [0.4000, -11.00],
+  [0.4800, -10.83], [0.5600, -10.40], [0.6400, -9.70], [0.7150, -8.70],
+  [0.7800, -7.50], [0.8400, -6.05], [0.8900, -4.55], [0.9300, -3.05],
+  [0.9650, -1.55], [0.9975, 0.00], [1.0000, 0.05],
+];
+
+/**
+ * How much wider she is at the deck edge than at the waterline.
+ *
+ * Wall-sided over the middle of her -- an armoured belt wants a flat side to
+ * sit behind -- and then a great deal of flare in the forward quarter, which
+ * is how a hull this fine at the waterline still has a forecastle wide enough
+ * to work an anchor on.
+ */
+const FLARE = [
+  [-1.00, 1.30], [-0.92, 1.14], [-0.85, 1.07], [-0.70, 1.02],
+  [-0.40, 1.00], [0.10, 1.00], [0.25, 1.03], [0.40, 1.10],
+  [0.52, 1.22], [0.62, 1.36], [0.72, 1.55], [0.80, 1.80],
+  [0.87, 2.15], [0.92, 2.60], [0.96, 3.20], [1.00, 4.00],
+];
+
+/** Her half-breadth at the deck edge, in metres. */
+const deckHalf = (t) => lerpTable(DECK_HALF, t) * (BEAM / 2);
+/** And at the waterline, which forward is a very different figure. */
+export function halfBeam(t) { return deckHalf(t) / lerpTable(FLARE, t); }
+/** The height of the main deck edge at a station. */
+export function sheerAt(t) { return lerpTable(SHEER, t); }
+/** The bottom of her at a station. */
+export function keelAt(t) { return lerpTable(KEEL, t); }
+/** Deck breadth over waterline breadth, kept for what is built on her. */
+export function flareAt(t) { return lerpTable(FLARE, t); }
+
+/**
+ * Her half-breadth at a station and a height: the shape of the section.
+ *
+ * Below the water, a battleship's section and not a yacht's -- wall sides, a
+ * hard turn of bilge and a flat bottom she can be docked on, narrowing to a
+ * proper deadrise at the ends where there is no room for a flat. Above it,
+ * the flare, all of which is in the forward quarter.
+ */
+export function shellAt(t, y) {
+  const k = keelAt(t);
+  if (y <= k) return 0;
+  const bw = halfBeam(t);
+  if (y >= 0) {
+    const u = Math.min(1, y / Math.max(0.4, sheerAt(t)));
+    return Math.max(0.03, bw + (deckHalf(t) - bw) * Math.pow(u, 1.6));
   }
-  if (t > -0.42) return b;                                  // parallel midbody
-  const u = (-0.42 - t) / 0.58;                             // run aft
-  return b * (1 - Math.pow(u, 1.6) * 0.52);
+  const d = Math.min(1, -y / Math.max(0.4, -k));
+  const flat = bw * 0.30 * clamp01(bw / (BEAM / 2));
+  return Math.max(0.03, flat + (bw - flat) * Math.pow(1 - Math.pow(d, 3.4), 0.42));
 }
 
-/** Depth of the keel below the waterline at a station. */
-function keelAt(t) {
-  if (t > 0.55) return -DRAFT * (1 - Math.pow((t - 0.55) / 0.45, 1.7) * 0.55);
-  if (t < -0.72) return -DRAFT * (1 - Math.pow((-0.72 - t) / 0.28, 1.5) * 0.45);
-  return -DRAFT;
+// The stem is raked and the counter overhangs, so where the shell is fore and
+// aft depends on how high up you look. Both curves are read off the profile,
+// the leading edge of the stem and the trailing edge of the counter at each
+// height in turn.
+//
+// Her stem stands very nearly plumb for the first seven feet out of the water
+// and then rakes twenty-one feet forward in the next thirty-one, which is
+// where her length over all comes from: the stem head overhangs the forefoot
+// by six and a half metres.
+const STEM = 6.40;
+const COUNTER = 2.57;
+function stemAt(y) { return STEM * smooth((y - 2.2) / 9.3); }
+function counterAt(y) { return COUNTER * Math.pow(clamp01(y / 6.9), 0.62); }
+
+/** Where a station actually is fore and aft, at this height. */
+export function zAt(t, y) {
+  let z = (t * LOA) / 2;
+  if (t > 0.55) z += smooth((t - 0.55) / 0.45) * (stemAt(y) - STEM);
+  else if (t < -0.86) z -= smooth((-t - 0.86) / 0.14) * (counterAt(y) - COUNTER);
+  return z;
 }
 
-/** Height of the main deck at a station: sheer rising toward the bow. */
-function sheerAt(t) {
-  return DECK + Math.pow(Math.max(0, t), 2.2) * 4.2 + Math.pow(Math.max(0, -t), 3) * 0.6;
+/** Her deck edge at a station, in metres from amidships. */
+export function deckAt(z) {
+  const t = Math.max(-1, Math.min(1, z / (LOA / 2)));
+  return sheerAt(t) + 0.30;
 }
 
-/** Flare: how much wider she is at deck level than at the waterline. */
-function flareAt(t) {
-  return 1 + Math.pow(Math.max(0, t), 2.4) * 0.85;
+/** And how far outboard the deck edge is there. */
+export function halfDeck(z) {
+  const t = Math.max(-1, Math.min(1, z / (LOA / 2)));
+  return deckHalf(t);
+}
+
+// ------------------------------------------------------------ her plating --
+
+const BOOT_LO = -1.35;
+const BOOT_HI = 1.35;
+const STATIONS = 160;
+
+/**
+ * Where station `i` falls, as a fraction of her length.
+ *
+ * Cosine spacing, not even spacing. Two thirds of her is parallel middle body
+ * where one station every four metres says everything there is to say, and
+ * the last two metres of the counter change breadth faster than the middle
+ * hundred put together. Spaced evenly at this station count her stern came
+ * out two metres inside her own lines; spaced by the cosine the stations
+ * crowd into both ends where the shape is and thin out where it is not.
+ */
+function stationT(i) { return Math.sin((Math.PI / 2) * ((2 * i) / STATIONS - 1)); }
+
+// Where the bow section parts from the rest when the magazines go: a station
+// index rather than a metre mark, so both halves share the one station and
+// meet along it without a seam.
+const SPLIT_I = Math.round(
+  (STATIONS * (1 + (2 / Math.PI) * Math.asin(SPLIT_Z / (LOA / 2)))) / 2);
+
+/**
+ * The three strakes: red lead below the boot top, black boot topping through
+ * the waterline, and Measure 22's navy blue from there up to the deck edge.
+ */
+function strakeBands() {
+  return [
+    [(t) => keelAt(t) - 0.02, BOOT_LO, P.antifoul, 20, 1.75],
+    [BOOT_LO, BOOT_HI, P.boot, 2, 1],
+    [BOOT_HI, sheerAt, P.hull, 5, 1],
+  ];
+}
+
+/** The same three, evaluated at one station, for capping the ends. */
+function strakes(t) {
+  const kb = keelAt(t);
+  return [
+    [kb, Math.max(kb, BOOT_LO), P.antifoul],
+    [Math.max(kb, BOOT_LO), Math.max(kb, BOOT_HI), P.boot],
+    [Math.max(kb, BOOT_HI), sheerAt(t), P.hull],
+  ];
+}
+
+/**
+ * One band of shell plating, lofted between two heights the whole way round.
+ *
+ * Either height may be a number or a function of the station. Every band runs
+ * the full length of the piece it belongs to and shares its edges with its
+ * neighbours, which is what keeps her watertight: a hull built as separate
+ * pieces has a seam you can see daylight through wherever two of them
+ * disagree by a millimetre. The two pieces she breaks into share the station
+ * they part at for the same reason.
+ *
+ * `rows` is how many times the band is cut between its two edges. A band
+ * lofted from its edges alone is a ruled surface -- a straight line between
+ * them -- and a straight line from the keel to the boot topping is a punt,
+ * not a battleship: it cuts eight metres inside her turn of bilge, and her
+ * own boiler rooms stand out through the bottom of her.
+ */
+function loftBand(g, color, lo, hi, i0, i1, rows, bias = 1) {
+  const loAt = typeof lo === 'function' ? lo : () => lo;
+  const hiAt = typeof hi === 'function' ? hi : () => hi;
+  const pos = [];
+  const idx = [];
+  for (let i = i0; i <= i1; i++) {
+    const t = stationT(i);
+    const kb = keelAt(t);
+    const a = Math.max(loAt(t), kb);
+    const b = Math.max(hiAt(t), kb);
+    for (let r = 0; r <= rows; r++) {
+      // Cuts crowded towards the keel, where the section turns fastest.
+      const y = a + (b - a) * Math.pow(r / rows, bias);
+      const w = shellAt(t, y);
+      pos.push(-w, y, zAt(t, y), w, y, zAt(t, y));
+    }
+  }
+  const stride = (rows + 1) * 2;
+  for (let i = 0; i < i1 - i0; i++) {
+    for (let r = 0; r < rows; r++) {
+      const a = i * stride + r * 2;
+      const b = (i + 1) * stride + r * 2;
+      // Port side, normals to port; starboard side, normals to starboard.
+      idx.push(a, b, a + 2, a + 2, b, b + 2);
+      idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, mat(color)));
+}
+
+/**
+ * Close an end of the shell, painted in the same three strakes.
+ *
+ * `out` says which way the face looks: +1 forward, -1 aft. Used at the stem
+ * and the after end, and at the station the bow parts along -- both sides of
+ * that one, so that when the bow does go there is a bulkhead standing at each
+ * of the two new ends rather than a hole into the inside of her.
+ */
+function capEnd(g, t, out, color) {
+  for (const [lo, hi, c] of strakes(t)) {
+    if (hi - lo < 0.02) continue;
+    const N = 16;
+    const pos = [];
+    const idx = [];
+    for (let i = 0; i <= N; i++) {
+      const y = lo + ((hi - lo) * i) / N;
+      const w = shellAt(t, y);
+      const z = zAt(t, y);
+      pos.push(-w, y, z, w, y, z);
+    }
+    for (let i = 0; i < N; i++) {
+      const a = i * 2;
+      if (out > 0) idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, mat(color || c)));
+  }
+}
+
+/**
+ * Her main deck: one cambered sheet from the stem head to the after end.
+ *
+ * Laid as a steel waterway at the edge with teak inboard of it, which is how
+ * she was planked, and cut from one grid of points so the two cannot part
+ * company. The camber is a foot in her half-breadth -- enough to throw water
+ * over the side, not enough to see from a mile off.
+ */
+function weatherDeck(g, i0, i1) {
+  const CAM = 7;
+  const across = CAM * 2 + 1;
+  const MARGIN = 1.7;                  // the steel waterway at the deck edge
+  const pos = [];
+  const inner = [];
+  const outer = [];
+  for (let i = i0; i <= i1; i++) {
+    const t = stationT(i);
+    const sh = sheerAt(t);
+    const w = deckHalf(t);
+    const z = zAt(t, sh);
+    for (let j = 0; j < across; j++) {
+      const u = (j - CAM) / CAM;
+      pos.push(u * w, sh + (1 - u * u) * 0.30, z);
+    }
+  }
+  for (let i = 0; i < i1 - i0; i++) {
+    for (let j = 0; j < across - 1; j++) {
+      const a = i * across + j;
+      const b = (i + 1) * across + j;
+      const t = stationT(i0 + i);
+      const w = deckHalf(t);
+      // Which sheet this strip belongs to: the margin plate at the edge, or
+      // the planking inboard of it.
+      const u = Math.abs((j + 0.5 - CAM) / CAM) * w;
+      (u > w - MARGIN ? outer : inner).push(a, b, b + 1, a, b + 1, a + 1);
+    }
+  }
+  for (const [idx, color] of [[inner, P.wood], [outer, P.deck]]) {
+    if (!idx.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, mat(color)));
+  }
+}
+
+/**
+ * The sheer strake standing above the deck edge: a low coaming the whole way
+ * round, which is what stops the deck reading as a sheet of paper laid on top
+ * of the hull.
+ */
+function sheerStrake(g, i0, i1) {
+  const pos = [];
+  const idx = [];
+  for (let i = i0; i <= i1; i++) {
+    const t = stationT(i);
+    const sh = sheerAt(t);
+    const w = deckHalf(t);
+    const z = zAt(t, sh);
+    pos.push(-w, sh, z, w, sh, z, -w, sh + 0.22, z, w, sh + 0.22, z);
+  }
+  for (let i = 0; i < i1 - i0; i++) {
+    const a = i * 4;
+    const b = (i + 1) * 4;
+    idx.push(a, b, a + 2, a + 2, b, b + 2);
+    idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);
+    idx.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, mat(P.hull)));
+}
+
+/**
+ * Bilge keels: a plate on edge each side, down on the turn of the bilge over
+ * the middle third of her. They are hull, they are always in the water, and
+ * without them the underwater body is a bare shape with nothing to read scale
+ * from.
+ */
+function bilgeKeels(g) {
+  for (const s of [-1, 1]) {
+    const pos = [];
+    const idx = [];
+    const N = 22;
+    for (let i = 0; i <= N; i++) {
+      const t = -0.42 + (0.78 * i) / N;
+      const y = keelAt(t) * 0.62;
+      const w = shellAt(t, y);
+      const z = zAt(t, y);
+      const taper = Math.sin((Math.PI * i) / N);
+      pos.push(s * w, y, z, s * (w + 0.9 * taper), y - 0.25 * taper, z);
+    }
+    for (let i = 0; i < N; i++) {
+      const a = i * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, mat(P.antifoul)));
+  }
+}
+
+/**
+ * What hangs under her counter: four shafts, the two outboard ones on struts,
+ * four screws and the two rudders.
+ *
+ * Part of the hull rather than part of the fit-out -- an Iowa's stern without
+ * them is a shape with nothing coming out of it -- and the arrangement is her
+ * own: inboard shafts in skegs, outboard shafts on A-brackets, and the
+ * rudders abaft the inboard screws rather than on the centreline.
+ */
+function sternGear(g) {
+  for (const s of [-1, 1]) {
+    // The outboard shaft, on its bracket, and its screw.
+    const shaft = tube(0.42, 26, P.gunDark, 10);
+    shaft.position.set(s * 9.4, -9.2, -84);
+    shaft.rotation.x = Math.PI / 2 - 0.055;
+    g.add(shaft);
+    for (const [zz, len] of [[-88, 5.2], [-78, 4.4]]) {
+      const strut = box(0.5, len, 0.9, P.gunDark, s * 9.4, -9.2 + len / 2 - 1.6, zz);
+      strut.rotation.z = s * 0.42;
+      g.add(strut);
+    }
+    const hubO = cyl(0.5, 0.7, 1.5, P.brass, 10);
+    hubO.rotation.x = Math.PI / 2;
+    hubO.position.set(s * 9.4, -9.8, -96.5);
+    g.add(hubO);
+    for (let b = 0; b < 4; b++) {
+      const holder = new THREE.Group();
+      holder.position.set(s * 9.4, -9.8, -97.4);
+      holder.rotation.z = (b * Math.PI) / 2 + 0.3;
+      holder.add(box(0.26, 2.9, 1.5, P.brass, 0, 1.35, 0));
+      g.add(holder);
+    }
+    // The inboard shaft comes out of a skeg, so it needs no bracket.
+    const skeg = box(1.9, 4.4, 30, P.antifoul, s * 4.4, -10.4, -76);
+    g.add(skeg);
+    const shIn = tube(0.44, 12, P.gunDark, 10);
+    shIn.position.set(s * 4.4, -10.7, -86);
+    shIn.rotation.x = Math.PI / 2 - 0.03;
+    g.add(shIn);
+    const hubI = cyl(0.5, 0.7, 1.5, P.brass, 10);
+    hubI.rotation.x = Math.PI / 2;
+    hubI.position.set(s * 4.4, -10.9, -91.6);
+    g.add(hubI);
+    for (let b = 0; b < 4; b++) {
+      const holder = new THREE.Group();
+      holder.position.set(s * 4.4, -10.9, -92.4);
+      holder.rotation.z = (b * Math.PI) / 2 + 0.3;
+      holder.add(box(0.26, 2.7, 1.4, P.brass, 0, 1.25, 0));
+      g.add(holder);
+    }
+    // The rudder, abaft the inboard screw.
+    const rud = box(0.7, 6.4, 4.6, P.antifoul, s * 4.4, -8.6, -99);
+    g.add(rud);
+    g.add(cyl(0.35, 0.35, 2.2, P.gunDark, 10).translateX(s * 4.4)
+      .translateY(-5.0).translateZ(-98.4));
+  }
 }
 
 /**
  * The hull, in two pieces: everything abaft the forward barbettes, and the bow
  * section forward of them. She is drawn that way so that when her forward
  * magazines go the bow can be heaved up out of the water as a unit, the way it
- * happens to a ship that loses them.
+ * happens to a ship that loses them. The two share the station they part
+ * along, and each is capped there, so neither the whole ship nor the wreck of
+ * her has a hole in it.
  */
-function buildHull() {
+function buildHull(breakaway) {
   const g = new THREE.Group();
-  const fwd = new THREE.Group();
-  g.add(fwd);
-  const N = 60;
-  const rings = [];
-  for (let i = 0; i <= N; i++) {
-    const t = -1 + (2 * i) / N;
-    rings.push({
-      t,
-      z: (t * LOA) / 2,
-      w: halfBeam(t),
-      wDeck: halfBeam(t) * flareAt(t),
-      deckY: sheerAt(t),
-      keelY: keelAt(t),
-    });
+  // With the break switched off she is one group, and the two halves of every
+  // band weld together into one piece of plating.
+  const fwd = breakaway ? new THREE.Group() : g;
+  if (breakaway) g.add(fwd);
+
+  for (const [lo, hi, color, rows, bias] of strakeBands()) {
+    loftBand(g, color, lo, hi, 0, SPLIT_I, rows, bias);
+    loftBand(fwd, color, lo, hi, SPLIT_I, STATIONS, rows, bias);
+  }
+  weatherDeck(g, 0, SPLIT_I);
+  weatherDeck(fwd, SPLIT_I, STATIONS);
+  sheerStrake(g, 0, SPLIT_I);
+  sheerStrake(fwd, SPLIT_I, STATIONS);
+  capEnd(g, -1, -1);
+  capEnd(fwd, 1, 1);
+  // The bulkheads the break would leave standing, one each side of it: torn
+  // plating rather than painted shell, and cut to the station's own section so
+  // that no corner of either stands out through her sides while she is still
+  // in one piece.
+  if (breakaway) {
+    const tSplit = stationT(SPLIT_I);
+    capEnd(g, tSplit, 1, P.gunDark);
+    capEnd(fwd, tSplit, -1, P.gunDark);
   }
 
-  // A band of the hull between two heights, taking its width from either the
-  // waterline beam or the flared deck beam, over a range of stations.
-  const band = (yTop, yBot, wTop, wBot, color, i0, i1) => {
-    const pos = [];
-    for (let i = i0; i < i1; i++) {
-      const a = rings[i], b = rings[i + 1];
-      for (const s of [1, -1]) {
-        const at = wTop(a) * s, bt = wTop(b) * s;
-        const ab = wBot(a) * s, bb = wBot(b) * s;
-        const ay = yTop(a), by = yTop(b), ay2 = yBot(a), by2 = yBot(b);
-        if (s === 1) {
-          pos.push(at, ay, a.z, ab, ay2, a.z, bb, by2, b.z);
-          pos.push(at, ay, a.z, bb, by2, b.z, bt, by, b.z);
-        } else {
-          pos.push(at, ay, a.z, bb, by2, b.z, ab, ay2, a.z);
-          pos.push(at, ay, a.z, bt, by, b.z, bb, by2, b.z);
-        }
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.computeVertexNormals();
-    return new THREE.Mesh(geo, mat(color));
-  };
+  bilgeKeels(g);
+  sternGear(g);
 
-  const W = (r) => r.w, WD = (r) => r.wDeck;
-  // The station the bow section breaks at: just forward of the barbettes.
-  const split = rings.findIndex((r) => r.z >= SPLIT_Z);
-
-  const bands = (into, i0, i1) => {
-    into.add(band((r) => r.deckY, () => 5.4, WD, W, P.hullUpper, i0, i1));
-    into.add(band(() => 5.4, () => 1.1, W, W, P.hull, i0, i1));
-    into.add(band(() => 1.1, () => -1.1, W, W, P.boot, i0, i1));
-    into.add(band(() => -1.1, (r) => r.keelY, W, (r) => Math.max(0.6, r.w * 0.18),
-      P.antifoul, i0, i1));
-
-    const deck = [];
-    for (let i = i0; i < i1; i++) {
-      const a = rings[i], b = rings[i + 1];
-      deck.push(-a.wDeck, a.deckY, a.z, a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z);
-      deck.push(-a.wDeck, a.deckY, a.z, b.wDeck, b.deckY, b.z, -b.wDeck, b.deckY, b.z);
-    }
-    const dGeo = new THREE.BufferGeometry();
-    dGeo.setAttribute('position', new THREE.Float32BufferAttribute(deck, 3));
-    dGeo.computeVertexNormals();
-    into.add(new THREE.Mesh(dGeo, mat(P.deck)));
-  };
-  bands(g, 0, split);
-  bands(fwd, split, N);
-
-  // The bulkhead the break leaves standing: torn plating where she parted. Cut
-  // to the station's own section rather than boxed, or its corners stand out
-  // through her sides as a fin while she is still in one piece.
-  const b = rings[split];
-  const kw = Math.max(0.6, b.w * 0.18);
-  const sect = [
-    -b.w, b.deckY, b.z, b.w, b.deckY, b.z, kw, b.keelY, b.z,
-    -b.w, b.deckY, b.z, kw, b.keelY, b.z, -kw, b.keelY, b.z,
-  ];
-  const sGeo = new THREE.BufferGeometry();
-  sGeo.setAttribute('position', new THREE.Float32BufferAttribute(sect, 3));
-  sGeo.computeVertexNormals();
-  g.add(new THREE.Mesh(sGeo, mat(P.gunDark)));
-
-  // Transom: she is cut off square aft, which is the one flat face on her.
-  const st = rings[0];
-  const transom = box(st.wDeck * 2, st.deckY + DRAFT, 0.6, P.hull, 0,
-    (st.deckY - DRAFT) / 2, st.z - 0.3);
-  g.add(transom);
-
-  // Teak laid over the steel forward and aft of the superstructure. The
-  // forecastle patch goes on the bow section, or it stays hanging in the air
-  // when the bow goes.
-  for (const [z, len, w] of [[86, 60, 13], [-46, 64, 15]]) {
-    const planks = box(w * 2, 0.25, len, P.wood, 0, DECK + 2.0, z);
-    planks.position.y = sheerAt(z / (LOA / 2)) + 0.14;
-    (z >= SPLIT_Z ? fwd : g).add(planks);
-  }
-
-  return { group: g, forward: fwd, rings };
+  return { group: g, forward: fwd };
 }
 
 // ------------------------------------------------------------- the batteries --
@@ -402,14 +769,32 @@ function kingfisher() {
  * @returns {{group: THREE.Group, turrets: THREE.Group[], length: number,
  *            beam: number, deckY: number}}
  */
-export function buildIowa() {
+export function buildIowa(opts = {}) {
+  // Whether her bow is built as a piece that can be blown off.
+  //
+  // The title screen wants it: a battleship at her moorings losing her forward
+  // magazines and settling is the shot the menu is built round. A battle does
+  // not -- there her plating is welded one buffer per compartment and torn
+  // triangle by triangle where she is actually hit, and a bow held out of that
+  // weld as one rigid lump is a third of her that no shell can touch.
+  const breakaway = opts.breakaway !== false;
   const root = new THREE.Group();
-  const { group: hull, forward } = buildHull();
+  const { group: hull, forward } = buildHull(breakaway);
   root.add(hull);
 
   // Anything standing forward of the break goes with the bow section, so that
   // when it lifts it takes A and B turrets and the forecastle with it.
-  const place = (obj, z) => (z >= SPLIT_Z ? forward : root).add(obj);
+  const place = (obj, z) => (breakaway && z >= SPLIT_Z ? forward : root).add(obj);
+
+  // Nothing bolted to a deck may stand outboard of that deck's own edge. She
+  // is a very fine hull forward -- six metres of half-breadth abreast the
+  // anchors where she has sixteen and a half amidships -- so a mounting laid
+  // out on a fixed offset is over the side long before it reaches the bow.
+  const inboard = (x, z, clear) => {
+    const room = halfDeck(z) - clear;
+    return Math.sign(x) * Math.min(Math.abs(x), Math.max(1.2, room));
+  };
+
 
   const turrets = [];
   // Everything else aboard that trains: the secondary mountings and the light
@@ -512,7 +897,7 @@ export function buildIowa() {
   for (const z of [46, 24, -2, -26, -50]) {
     for (const s of [-1, 1]) {
       const m = mount5();
-      m.position.set(s * 12.2, S + 4.2, z);
+      m.position.set(inboard(s * 12.2, z, 1.4), S + 4.2, z);
       m.rotation.y = s > 0 ? 1.35 : -1.35;
       trains(m, m.rotation.y, secMounts);
       root.add(m);
@@ -535,7 +920,9 @@ export function buildIowa() {
   ];
   for (const [x, y, z] of bofPlaces) {
     const b = bofors();
-    b.position.set(x, y, z);
+    // Those on the main deck are held inside her deck edge; those up on the
+    // 01 and 02 decks stand on houses narrower again.
+    b.position.set(inboard(x, z, y > DECK + 2 ? 6.4 : 2.6), y, z);
     b.rotation.y = x < 0 ? -0.7 : 0.7;
     trains(b, b.rotation.y, aaMounts);
     place(b, z);
@@ -559,11 +946,12 @@ export function buildIowa() {
   // -- quarterdeck ---------------------------------------------------------
   // Two catapults over the transom, a Kingfisher on each.
   for (const s of [-1, 1]) {
-    const cat = box(2.6, 0.7, 22, P.gunDark, s * 8.5, DECK + 1.2, -114);
+    const cat = box(2.6, 0.7, 22, P.gunDark, inboard(s * 8.5, -114, 1.8),
+      DECK + 1.2, -114);
     cat.rotation.y = s * 0.10;
     root.add(cat);
     const p = kingfisher();
-    p.position.set(s * 8.5, DECK + 3.2, -112);
+    p.position.set(inboard(s * 8.5, -114, 1.8), DECK + 3.2, -112);
     p.rotation.y = s * 0.10 + Math.PI;
     root.add(p);
   }
@@ -594,12 +982,14 @@ export function buildIowa() {
 
   // -- forecastle ----------------------------------------------------------
   // Breakwater, anchors in their hawsepipes, capstans and the jackstaff.
-  const bw = box(24, 1.6, 0.5, P.hullUpper, 0, sheerAt(0.78) + 0.8, 106);
+  const bw = box(halfDeck(106) * 1.8, 1.6, 0.5, P.hullUpper, 0,
+    sheerAt(0.78) + 0.8, 106);
   forward.add(bw);
   for (const s of [-1, 1]) {
-    forward.add(box(2.6, 2.2, 0.6, P.gunDark, s * 6.5, sheerAt(0.90) - 1.2, 122));
+    forward.add(box(2.0, 2.2, 0.6, P.gunDark,
+      inboard(s * 6.5, 122, 1.3), sheerAt(0.90) - 1.2, 122));
     const cap = cyl(1.1, 1.1, 1.0, P.gunDark, 12);
-    cap.position.set(s * 5.0, sheerAt(0.80) + 0.5, 110);
+    cap.position.set(inboard(s * 5.0, 110, 1.5), sheerAt(0.80) + 0.5, 110);
     forward.add(cap);
   }
   const jack = cyl(0.12, 0.16, 7, P.rail, 6);
@@ -635,8 +1025,12 @@ export function buildIowa() {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
     return new THREE.LineSegments(geo, railMat);
   };
-  root.add(rails(-LOA, SPLIT_Z));
-  forward.add(rails(SPLIT_Z, LOA));
+  if (breakaway) {
+    root.add(rails(-LOA, SPLIT_Z));
+    forward.add(rails(SPLIT_Z, LOA));
+  } else {
+    root.add(rails(-LOA, LOA));
+  }
 
   // Weld her down. The turrets train and the bow section can be blown off, so
   // those are baked on their own and left as separate objects; everything else
@@ -644,28 +1038,23 @@ export function buildIowa() {
   for (const t of turrets) { t.userData.dynamic = true; mergeStatic(t); }
   // The bow section stays marked dynamic throughout, so welding the rest of her
   // down leaves it a separate object that can still be blown off.
-  forward.userData.dynamic = true;
-  mergeStatic(forward);
+  if (breakaway) {
+    forward.userData.dynamic = true;
+    mergeStatic(forward);
+  }
   // And what is inside her, fitted to the same lines her plating was lofted
   // through, welded one buffer per compartment so a compartment blown out of
   // her shows what is behind the plating. Her bow section is already its own
   // object -- it can be blown off whole -- so it is left alone.
   buildInterior(root, {
-    loa: LOA,
-    sheer: sheerAt,
-    keelY: keelAt,
-    shellAt: (t, y) => {
-      const w = halfBeam(t);
-      const k = keelAt(t);
-      if (y <= k) return 0;
-      const up = Math.min(1, Math.max(0, (y - k) / Math.max(0.6, -k)));
-      const belly = Math.pow(up, 0.40);
-      return Math.max(0.05, w * belly * (y > 0 ? flareAt(t) : 1));
-    },
+    loa: LOA, sheer: sheerAt, keelY: keelAt, shellAt, zAt,
   });
   mergeStatic(root, bySection(LOA));
 
-  root.userData = { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK };
+  // Assigned into, not over: buildInterior has already hung the lines she was
+  // lofted through on her, and the interior audit reads them back off her.
+  Object.assign(root.userData,
+    { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK });
   return {
     group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK,
     secMounts, aaMounts,

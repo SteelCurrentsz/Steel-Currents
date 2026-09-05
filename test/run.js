@@ -138,6 +138,11 @@ import {
   sheer as hipperSheer, shellAt as hipperShellAt, zAt as hipperZAt,
   sdeck as hipperSDeck, sHalf as hipperSHalf, LOW_TIER as HIPPER_LOW_TIER,
 } from '../client/js/render/hipper.js';
+import {
+  buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM,
+  sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
+  zAt as iowaZAt, halfDeck as iowaHalfDeck,
+} from '../client/js/render/iowa.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
@@ -1948,6 +1953,144 @@ check("the Hipper's beam mountings are bracketed down to the house", () => {
   assert.ok(beam.length >= 16, `only ${beam.length} mountings stand on her beam`);
   assert.equal(unheld.length, 0,
     `${unheld.length} beam mounting(s) on nothing, first at ${unheld[0]}`);
+});
+
+check("the Iowa's shell has no holes in it", () => {
+  // The one thing a hull has to be is closed, and hers is lofted rather than
+  // boxed, so a mistake in the lofting is a hole rather than a wrong number.
+  // Every station of her plating is fired at from abeam at the height and the
+  // fore-and-aft position her own lines put it at -- her stem is raked six and
+  // a half metres and her counter overhangs, so where the shell is depends on
+  // how high up you look -- and there has to be steel there. A ray dropped
+  // anywhere on her deck has to land on something, and a ray sent up from
+  // under her keel has to hit her bottom.
+  const built = buildIowa();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const half = IOWA_LOA / 2;
+
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.99; t <= 0.99; t += 0.01) {
+    const top = iowaSheer(t);
+    for (let y = iowaKeel(t) + 0.3; y <= top - 0.25; y += 0.6) {
+      if (iowaShell(t, y) < 0.35) continue;
+      tested++;
+      ray.set(new THREE.Vector3(-70, y, iowaZAt(t, y)), new THREE.Vector3(1, 0, 0));
+      if (!ray.intersectObjects(meshes, false).length) {
+        holes.push(`t ${t.toFixed(2)} y ${y.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(tested > 3000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+
+  // A deck over the whole of her, stem to stern.
+  const bare = [];
+  for (let i = 1; i < 240; i++) {
+    const t = -1 + (2 * i) / 240;
+    const w = iowaHalfDeck(t * half);
+    const z = iowaZAt(t, iowaSheer(t));
+    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
+      if (Math.abs(u) * w < 0.1) continue;
+      ray.set(new THREE.Vector3(u * w * 0.9, 140, z), new THREE.Vector3(0, -1, 0));
+      if (!ray.intersectObjects(meshes, false).length) {
+        bare.push(`${(u * w).toFixed(1)}, ${z.toFixed(0)}`);
+      }
+    }
+  }
+  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
+
+  // And a bottom under the whole of her.
+  const open = [];
+  for (let t = -0.96; t <= 0.96; t += 0.01) {
+    const k = iowaKeel(t);
+    if (k > -0.8) continue;
+    const w = iowaShell(t, k * 0.4);
+    for (const u of [0, 0.5, -0.5, 0.85, -0.85]) {
+      ray.set(new THREE.Vector3(u * w, -70, iowaZAt(t, k)), new THREE.Vector3(0, 1, 0));
+      if (!ray.intersectObjects(meshes, false).length) open.push(`t ${t.toFixed(2)}`);
+    }
+  }
+  assert.equal(open.length, 0, `${open.length} hole(s) in her bottom: ${open[0]}`);
+});
+
+check('the Iowa is the ship her own drawing shows', () => {
+  // Read off the Navy recognition drawing at 0.7212 pixels to the foot, with
+  // the waterline at the scale bar's zero. Every one of these came off that
+  // sheet, and the load waterline is the check on the reading: the drawing
+  // puts her afloat over 862 feet of her 887, and she was built to 859.
+  const stemHead = iowaZAt(1, iowaSheer(1));
+  const sternEnd = iowaZAt(-1, iowaSheer(-1));
+  assert.ok(Math.abs(stemHead - sternEnd - 270.4) < 1.0,
+    `she is ${(stemHead - sternEnd).toFixed(1)} m over all, and was 270.4`);
+  const lwl = iowaZAt(0.9975, 0) - iowaZAt(-1, 0);
+  assert.ok(Math.abs(lwl - 262.0) < 3.0,
+    `her load waterline is ${lwl.toFixed(1)} m, and was 262.0`);
+  let beam = 0;
+  for (let t = -1; t <= 1; t += 0.002) beam = Math.max(beam, 2 * iowaHalfDeck(t * IOWA_LOA / 2));
+  assert.ok(Math.abs(beam - IOWA_BEAM) < 0.1, `she is ${beam.toFixed(2)} m in the beam`);
+
+  // The stem rakes forward as it rises and the counter overhangs aft, which is
+  // where the last thirteen metres of her length over all come from.
+  const rake = iowaZAt(1, iowaSheer(1)) - iowaZAt(1, 0);
+  assert.ok(rake > 5.8 && rake < 7.0, `her stem rakes ${rake.toFixed(2)} m`);
+  const over = iowaZAt(-1, 0) - iowaZAt(-1, iowaSheer(-1));
+  assert.ok(over > 2.0 && over < 3.2, `her counter overhangs ${over.toFixed(2)} m`);
+
+  // Her sheer: twenty-three feet at the after end, lifting to forty-three at
+  // the stem head. Drawn flat she is a barge; drawn with a battleship's sheer
+  // she carries her forecastle turrets ten feet too high.
+  assert.ok(Math.abs(iowaSheer(-1) - 7.05) < 0.2, 'her quarterdeck is the wrong height');
+  assert.ok(Math.abs(iowaSheer(0) - 7.54) < 0.2, 'her deck edge amidships is wrong');
+  assert.ok(iowaSheer(1) > iowaSheer(0) + 5,
+    `she lifts only ${(iowaSheer(1) - iowaSheer(0)).toFixed(1)} m from amidships to the stem`);
+
+  // And the fineness the drawing's plan view is really about: two thirds of
+  // the way from amidships to the stem she is down to half her beam.
+  const frac = (t) => iowaHalfDeck((t * IOWA_LOA) / 2) / (IOWA_BEAM / 2);
+  assert.ok(Math.abs(frac(0.615) - 0.457) < 0.05, `she is ${frac(0.615).toFixed(3)} of beam at t=0.615`);
+  assert.ok(Math.abs(frac(-0.320) - 1.000) < 0.02, 'she is not full amidships');
+  assert.ok(Math.abs(frac(-0.845) - 0.679) < 0.05, `she is ${frac(-0.845).toFixed(3)} of beam at t=-0.845`);
+});
+
+check("you cannot see through the Iowa's side", () => {
+  // A ray fired at her from abeam, anywhere along her and at any height from
+  // the keel to the deck edge, has to stop in the near half of her. What this
+  // catches is plating wound the wrong way round: a triangle whose normal
+  // points inboard is culled from outside and drawn from inside, so the near
+  // side of the ship disappears and you look straight through her at her own
+  // boiler rooms and the far side's bottom paint.
+  const built = buildIowa();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const through = [];
+  for (let t = -0.97; t <= 0.97; t += 0.01) {
+    for (let y = iowaKeel(t) + 0.4; y <= iowaSheer(t) - 0.3; y += 0.5) {
+      const want = iowaShell(t, y);
+      if (want < 0.6) continue;
+      tested++;
+      const z = iowaZAt(t, y);
+      for (const s of [1, -1]) {
+        ray.set(new THREE.Vector3(s * 70, y, z), new THREE.Vector3(-s, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        // Half her breadth at that point: a ray that gets past the centreline
+        // of the near half has gone through plating that is not being drawn.
+        if (!hit || hit.point.x * s < want * 0.5) {
+          through.push(`t ${t.toFixed(2)} y ${y.toFixed(1)} -> `
+            + `${hit ? hit.point.x.toFixed(2) : 'nothing'}`);
+        }
+      }
+    }
+  }
+  assert.ok(tested > 2000, `only ${tested} points of her side were fired at`);
+  assert.equal(through.length, 0,
+    `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
 check('the Hipper is built the same on both sides', () => {

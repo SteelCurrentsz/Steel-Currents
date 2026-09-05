@@ -8,6 +8,7 @@ import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
 import { buildHipper } from './hipper.js';
 import { buildCleveland } from './cleveland.js';
+import { buildIowa } from './iowa.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
 import { mergeStatic } from './merge.js';
@@ -417,6 +418,25 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Iowa, whose hull is lofted through her own lines rather than
+  // through a length and a beam: no procedural curve gets a forebody that
+  // fine, a stem that raked, or a counter that overhangs. She was built here
+  // from the start and used only on the shipyard's turntable; a battle
+  // rendered the generic hull instead, so none of it was ever seen where it
+  // mattered.
+  if (cls.id === 'iowa') {
+    const built = buildIowa({ breakaway: false });
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      torpMounts: [],
     };
   }
 
