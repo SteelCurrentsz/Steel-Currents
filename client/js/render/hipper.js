@@ -730,67 +730,79 @@ function superstructureDeck(g) {
   // Her side does not stop four metres inboard of the deck edge and leave a
   // trench down the length of her -- which is what a single house set to the
   // boat deck's own breadth did, and what you could see straight into from
-  // abeam. She is plated out to within a foot of the deck edge up to the upper
-  // deck at nine metres, with the scuttles in it; the boat deck above that is
+  // abeam. She is plated out to the deck edge itself, up to the upper deck at
+  // nine metres, with the scuttles in it; the boat deck above that is
   // narrower, and the step between the two is the walkway her tubes, her boats
   // and her ready-use lockers stand on.
   const rings = [];
   for (const [z, hw] of SUPER_HALF) rings.push([z, hw]);
-  const pos = [];
-  const idx = [];
   const H = 4.4;
   const LOW = 3.1;              // upper deck: the top of the lower tier
-  // -- the lower tier, carried out to her side ------------------------------
-  {
-    const lp = [];
-    const li = [];
+
+  // A tier of it: a box of four corners a station, wound so that its faces
+  // look outwards.
+  //
+  // Which way round the triangles go is not a detail. A face wound the wrong
+  // way is culled from outside and drawn from inside, so the near side of the
+  // ship disappears and you see the far side's inner face through the gap --
+  // which is exactly what she was doing: three metres of missing side from
+  // abreast Bruno to abaft the after tower, the sea showing through it, and
+  // the whole superstructure hanging over a hull that was not there.
+  const tier = (yBot, yTop, halfAt) => {
+    const pos = [];
+    const idx = [];
     for (let i = 0; i < rings.length; i++) {
       const z = rings[i][0];
-      const hw = Math.max(rings[i][1], halfDeck(z) - 0.35);
-      const y0 = deckAt(z);
-      lp.push(-hw, y0, z, hw, y0, z, -hw, y0 + LOW, z, hw, y0 + LOW, z);
+      const hw = halfAt(i);
+      pos.push(-hw, yBot(z), z, hw, yBot(z), z, -hw, yTop(z), z, hw, yTop(z), z);
     }
     for (let i = 0; i < rings.length - 1; i++) {
       const a = i * 4;
       const b = (i + 1) * 4;
-      li.push(a, a + 2, b, a + 2, b + 2, b);
-      li.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
-      // The walkway on top of it, between her side and the boat deck.
-      li.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+      // Port side, normals to port; starboard side, normals to starboard.
+      idx.push(a, b, a + 2, a + 2, b, b + 2);
+      idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);
     }
+    // The two ends: the after one facing aft, the forward one facing forward.
     const e0 = 0;
     const e1 = (rings.length - 1) * 4;
-    li.push(e0, e0 + 1, e0 + 2, e0 + 1, e0 + 3, e0 + 2);
-    li.push(e1, e1 + 2, e1 + 1, e1 + 1, e1 + 2, e1 + 3);
+    idx.push(e0, e0 + 2, e0 + 1, e0 + 1, e0 + 2, e0 + 3);
+    idx.push(e1, e1 + 1, e1 + 2, e1 + 2, e1 + 1, e1 + 3);
+    return { pos, idx };
+  };
+
+  // -- the lower tier, carried out to her side ------------------------------
+  //
+  // Out to the deck edge itself, and down to the top of the shell plating
+  // rather than to the deck a foot above it, so that her side is one surface
+  // from the boot topping to the upper deck: hull and superstructure are the
+  // same piece of steel amidships, which is what she was built as.
+  {
+    const lowHalf = (i) => Math.max(rings[i][1], halfDeck(rings[i][0]));
+    const { pos, idx } = tier(
+      (z) => deckAt(z) - 0.30, (z) => deckAt(z) + LOW, lowHalf);
+    // The walkway on top of it, between her side and the boat deck.
+    for (let i = 0; i < rings.length - 1; i++) {
+      const a = i * 4;
+      const b = (i + 1) * 4;
+      idx.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+    }
     const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
-    lg.setIndex(li);
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    lg.setIndex(idx);
     lg.computeVertexNormals();
     g.add(new THREE.Mesh(lg, M.steel));
   }
   // -- and the boat deck above it -------------------------------------------
-  for (let i = 0; i < rings.length; i++) {
-    const [z, hw] = rings[i];
-    const y0 = deckAt(z) + LOW;
-    pos.push(-hw, y0, z, hw, y0, z, -hw, deckAt(z) + H, z, hw, deckAt(z) + H, z);
+  {
+    const { pos, idx } = tier(
+      (z) => deckAt(z) + LOW, (z) => deckAt(z) + H, (i) => rings[i][1]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, M.steel));
   }
-  for (let i = 0; i < rings.length - 1; i++) {
-    const a = i * 4;
-    const b = (i + 1) * 4;
-    // Port side, starboard side.
-    idx.push(a, a + 2, b, a + 2, b + 2, b);
-    idx.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
-  }
-  // The two ends.
-  const e0 = 0;
-  const e1 = (rings.length - 1) * 4;
-  idx.push(e0, e0 + 1, e0 + 2, e0 + 1, e0 + 3, e0 + 2);
-  idx.push(e1, e1 + 2, e1 + 1, e1 + 1, e1 + 2, e1 + 3);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, M.steel));
   // Its deck, which is where everything above stands.
   const dp = [];
   const di = [];
@@ -809,10 +821,12 @@ function superstructureDeck(g) {
   dg.computeVertexNormals();
   g.add(new THREE.Mesh(dg, M.deckSteel));
   // The scuttles down her side, in the tier that has a side to put them in.
+  // Set a few centimetres proud of the plating they are cut in, or the rims
+  // stand inside it and there is nothing to see.
   for (let i = 0; i < 22; i++) {
     const z = -42 + (i * 82) / 21;
-    ports(g, halfDeck(z) - 0.32, deckAt(z) + 1.5, z - 0.2, z + 0.2, 1);
-    ports(g, halfDeck(z) - 0.32, deckAt(z) + 2.5, z - 0.2, z + 0.2, 1);
+    ports(g, halfDeck(z) + 0.03, deckAt(z) + 1.5, z - 0.2, z + 0.2, 1);
+    ports(g, halfDeck(z) + 0.03, deckAt(z) + 2.5, z - 0.2, z + 0.2, 1);
   }
   return Y + H;
 }
@@ -1612,34 +1626,6 @@ function fittings(g) {
   }
 }
 
-/** Railings along every open edge she has. */
-function railings(g) {
-  const pts = [];
-  const run = (from, to, y) => {
-    const N = Math.max(2, Math.round(Math.abs(to - from) / 3));
-    for (const sgn of [-1, 1]) {
-      for (let i = 0; i < N; i++) {
-        const z0 = from + ((to - from) * i) / N;
-        const z1 = from + ((to - from) * (i + 1)) / N;
-        const x0 = sgn * (halfDeck(z0) - 0.25);
-        const x1 = sgn * (halfDeck(z1) - 0.25);
-        const y0 = y(z0);
-        const y1 = y(z1);
-        for (const h of [0.45, 0.9, 1.25]) {
-          pts.push(x0, y0 + h, z0, x1, y1 + h, z1);
-        }
-        pts.push(x0, y0, z0, x0, y0 + 1.25, z0);
-      }
-    }
-  };
-  // The weather deck abaft the bulwark, and the quarterdeck.
-  run(-96, 56, deckAt);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  g.add(new THREE.LineSegments(geo,
-    new THREE.LineBasicMaterial({ color: 0xb9c1c8, transparent: true, opacity: 0.45 })));
-}
-
 // ------------------------------------------------------------------ build --
 
 /** Everything that does not move, in the order it is built. */
@@ -1652,7 +1638,6 @@ const STATIC = [
   ['afterTower', afterTower],
   ['sponsons', sponsons],
   ['fittings', fittings],
-  ['railings', railings],
 ];
 
 /** Her main battery: four twin eight-inch, Cäsar with the rangefinder. */

@@ -1747,6 +1747,48 @@ check("the Hipper's shell has no holes in it", () => {
   assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
 });
 
+check("you cannot see through the Hipper's topsides", () => {
+  // Her shell plating and her superstructure are one surface amidships: the
+  // side runs from the boot topping up past the weather deck to the upper
+  // deck without a break, and the boat deck and the bridge stand on top of
+  // that. Fire at the near side of her from abeam anywhere along it and the
+  // first steel the ray meets has to be the near side's own plating.
+  //
+  // The failure this catches is not a missing piece: it is plating wound the
+  // wrong way round. A triangle whose normal points inboard is culled from
+  // outside and drawn from inside, so the near side is invisible, the far
+  // side's inner face shows through the gap, and the whole superstructure
+  // reads as hanging in the air over a hull that is not there.
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const inward = new THREE.Vector3(-1, 0, 0);
+
+  let tested = 0;
+  const through = [];
+  for (let z = -44; z <= 40; z += 1.5) {
+    const t = z / (HIPPER_LOA / 2);
+    // From just above the top of the shell plating to just under the walkway
+    // between the two tiers: the band her side has to fill.
+    for (let y = hipperSheer(t) + 0.15; y <= hipperDeckAt(z) + 2.9; y += 0.25) {
+      tested++;
+      ray.set(new THREE.Vector3(60, y, z), inward);
+      const hit = ray.intersectObjects(meshes, false)[0];
+      // Within a metre of the deck edge: the scuttle rims stand a little
+      // proud of it and the plating tucks in a little at her ends.
+      if (!hit || hit.point.x < hipperHalfDeck(z) - 0.9) {
+        through.push(`z ${z.toFixed(0)} y ${y.toFixed(1)} -> `
+          + `${hit ? hit.point.x.toFixed(2) : 'nothing'}`);
+      }
+    }
+  }
+  assert.ok(tested > 400, `only ${tested} points of her side were fired at`);
+  assert.equal(through.length, 0,
+    `${through.length} shot(s) went through her near side, first ${through[0]}`);
+});
+
 check('nothing on the Hipper is standing in mid-air', () => {
   // A sponson under every beam mounting, a boat deck under every boat, a
   // platform under every searchlight. Anything with its feet above the deck
