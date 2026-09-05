@@ -1821,7 +1821,9 @@ check('nothing on the Hipper is standing in mid-air', () => {
   const air = parts.filter((p) => p.from === 'aircraft');
   assert.ok(air.length > 40, 'she has no aircraft aboard at all');
   const floats = air.filter((p) => p.min[1] < 15 && p.size[2] > 6 && p.size[0] < 2);
-  assert.ok(air.some((p) => p.min[1] < hipperDeckAt(-24) + 4),
+  // One of them is struck down on the boat deck rather than up on the
+  // catapult, which is where the spare aeroplane lives.
+  assert.ok(air.some((p) => p.min[1] < hipperSDeck(-2) + 1.2),
     'nothing of hers is anywhere near the deck');
   // The catapult girder reaches across her, which is the whole point of an
   // athwartships catapult.

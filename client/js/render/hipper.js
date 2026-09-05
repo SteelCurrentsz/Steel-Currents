@@ -95,13 +95,19 @@ const KEEL = [
   [1.00, 2.40],
 ];
 
-// One deck, flush, from stem to transom. Her sheer rises hard forward -- the
-// Atlantic bow is a metre and a half of extra freeboard at the stem over what
-// she had when she was built -- and falls a little aft.
+// One deck, flush, from stem to transom.
+//
+// Read off her own profile at the deck edge -- the top of the plating, under
+// the guardrail -- rather than drawn by eye. What it says is that she has
+// almost no sheer at all over four fifths of her length: five metres eighty
+// from the transom to about forty metres from the stem, and then the Atlantic
+// bow lifts her two metres in the last thirty. Drawn with the sheer of an
+// older ship she stood nearly four metres too high at the stem and carried her
+// forecastle turrets up there with her.
 const SHEER = [
-  [-1.00, 5.40], [-0.82, 5.56], [-0.62, 5.76], [-0.40, 6.00], [-0.18, 6.26],
-  [0.04, 6.54], [0.26, 6.94], [0.46, 7.58], [0.64, 8.52], [0.80, 9.72],
-  [0.92, 10.85], [1.00, 11.70],
+  [-1.00, 5.80], [-0.55, 5.80], [0.00, 5.80], [0.42, 5.82], [0.61, 5.85],
+  [0.71, 6.06], [0.79, 6.40], [0.845, 6.65], [0.883, 6.82], [0.922, 7.24],
+  [0.961, 7.50], [1.00, 7.90],
 ];
 
 const halfBeam = (t) => lerpTable(HALF_BEAM, t);
@@ -131,13 +137,22 @@ function shellAt(t, y) {
   return Math.max(0.03, Math.min(half, w * 1.62));
 }
 
-// The stem is raked hard and the counter overhangs, so where the shell is fore
-// and aft depends on how high up you look. The Atlantic bow throws the stem
-// eight metres forward between the waterline and the deck edge.
-const STEM = 8.6;
-const COUNTER = 2.6;
-function stemAt(y) { return STEM * Math.pow(Math.max(0, y + 2.6) / 15.7, 1.25); }
-function counterAt(y) { return COUNTER * Math.pow(Math.max(0, y + 2.6) / 9.2, 1.1); }
+// The stem is raked and the counter overhangs, so where the shell is fore and
+// aft depends on how high up you look.
+//
+// Both curves are read off her own profile: the leading edge of the stem at
+// each height, and the trailing edge of the counter. Her Atlantic bow is a
+// clipper stem with three metres of rake between the waterline and the deck
+// edge -- not eight, which is what she had here and which threw her stem head
+// out over the sea like a battleship's ram.
+const STEM = 4.5;
+const COUNTER = 3.4;
+function stemAt(y) {
+  return STEM * Math.pow(Math.min(1, Math.max(0, y + 7.1) / 15.0), 1.51);
+}
+function counterAt(y) {
+  return COUNTER * Math.pow(Math.min(1, Math.max(0, y + 2.0) / 7.8), 1.5);
+}
 
 function zAt(t, y) {
   let z = (t * LOA) / 2;
@@ -632,18 +647,30 @@ function torpedoBank(g, x, y, z, ry) {
 
 // Where everything lives along her. Read once, here, rather than typed into
 // half a dozen builders that then drift apart.
-const A_Z = 66;                 // Anton
-const B_Z = 52;                 // Bruno, superfiring over her
-const BRIDGE = [22, 47];        // the tower, foot to fore end
-const FUNNEL_Z = 6;
+// Stations off her own profile, in metres from amidships. Forty-five and a
+// half metres abaft the stem for Anton, fifty-six for Bruno; the after pair
+// mirror them about the same distance from the transom.
+const A_Z = 56.6;               // Anton
+const B_Z = 46.3;               // Bruno, superfiring over her
+// The bridge structure, foot to fore end, and the tower that stands on its
+// after half. The two are separate numbers because they are separate things:
+// the block runs from abreast Bruno to the boat deck abaft it, and the tower
+// -- trunk, foretop and mast -- is stepped well aft in it, over the conning
+// tower rather than over the bridge front. Built on the middle of the block
+// the whole of her fighting top stood fourteen metres too far forward.
+const BRIDGE = [15.8, 41.4];
+const TOWER_Z = 21.2;           // the trunk and the foretop
+const MAST_Z = 16.7;            // and the pole mast abaft them
+const FUNNEL_Z = 8.3;
 const CAT_Z = -12;              // the catapult, athwartships
 // Her catapult's stroke. The trolley sits inboard of the ring and is thrown
 // out along the girder; she is off the end of it in about seventy feet.
 const CAT_A = -8.0;             // the trolley at rest, inboard end of the track
 const CAT_STROKE = 20.0;        // and how much track she has to be thrown down
 const CAT_TRAIN = 0.30;         // how far the ring swings round to shoot
-const HANGAR = [-32, -18];      // the aircraft house
-const AFT_TOWER = [-46, -34];   // the after control position
+const HANGAR = [-5.0, 4.0];     // the aircraft house, abaft the funnel
+const AFT_TOWER = [-44.6, -29.1];  // the after control position
+const MAIN_MAST_Z = -18.8;      // and the mainmast, abaft the catapult
 
 /**
  * Her superstructure deck, station by station: how far out its edge is.
@@ -655,11 +682,11 @@ const AFT_TOWER = [-46, -34];   // the after control position
  * superstructure everywhere in between.
  */
 const SUPER_HALF = [
-  [-50, 4.6], [-44, 5.5], [-36, 6.2], [-24, 6.8], [-10, 7.0],
-  [4, 7.0], [16, 6.8], [28, 6.4], [40, 5.4], [46, 4.3],
+  [-45, 4.6], [-40, 5.5], [-32, 6.2], [-22, 6.8], [-10, 7.0],
+  [4, 7.0], [16, 6.8], [28, 6.4], [36, 5.6], [41, 4.4],
 ];
-const X_Z = -48;                // Cäsar
-const Y_Z = -62;                // Dora
+const X_Z = -48.9;              // Cäsar
+const Y_Z = -62.2;              // Dora
 
 /** A deckhouse: a rounded-corner box standing on the deck at this station. */
 function house(g, m, hw, z0, z1, y0, h, opts = {}) {
@@ -703,7 +730,7 @@ function superstructureDeck(g) {
   for (const [z, hw] of SUPER_HALF) rings.push([z, hw]);
   const pos = [];
   const idx = [];
-  const H = 3.1;
+  const H = 4.4;
   for (let i = 0; i < rings.length; i++) {
     const [z, hw] = rings[i];
     const y0 = deckAt(z);
@@ -748,7 +775,12 @@ function superstructureDeck(g) {
 }
 
 /** How high the superstructure deck is at a station. */
-function sdeck(z) { return deckAt(z) + 3.1; }
+/**
+ * Her superstructure deck -- the boat deck -- which stands ten and a half
+ * metres over the water amidships and is what the bridge, the funnel casing,
+ * the crane and the after tower are all stepped on.
+ */
+function sdeck(z) { return deckAt(z) + 4.4; }
 
 /** And how far outboard its edge is there. */
 function sHalf(z) { return lerpTable(SUPER_HALF, z); }
@@ -810,9 +842,16 @@ function bridge(g) {
   const at = (pts) => pts.map(([x, z]) => [x, z + zc]);
 
   // -- 0. the bridge block, and the conning tower inside it ------------------
+  // Her decks, off her own profile: the boat deck at ten and a half metres,
+  // then twelve seven, fourteen six, and the bridge roof at seventeen. Built
+  // to three-metre decks the bridge roof stood at nineteen and a half and
+  // carried the tower and the foretop up with it.
+  const D1 = 2.2;               // boat deck to the deck over it
+  const D2 = 4.1;
+  const D3 = 6.5;               // and the bridge roof
   const p0 = at(planHouse({ hw: 6.4, zBack: BRIDGE[0] - zc, zFront: BRIDGE[1] - zc - 2, nose: 5.4, arc: 11 }));
-  loftShape(g, M.steel, [{ pts: p0, y: foot }, { pts: p0, y: foot + 3.0 }]);
-  box(g, M.deckSteel, 12.6, 0.16, 22.0, 0, foot + 3.05, zc - 1);
+  loftShape(g, M.steel, [{ pts: p0, y: foot }, { pts: p0, y: foot + D1 }]);
+  box(g, M.deckSteel, 12.6, 0.16, 24.0, 0, foot + D1 + 0.05, zc - 1);
   // Doors and portholes down both sides of it, and the ladders up to the deck
   // above at the after corners.
   for (const sgn of [-1, 1]) {
@@ -824,11 +863,11 @@ function bridge(g) {
       cyl(g, M.steel, 0.22, 0.22, 0.06, sgn * 6.44, foot + 1.9, zc + pz, 10)
         .rotation.z = Math.PI / 2;
     }
-    ladder(g, M.steelDark, sgn * 5.4, foot, foot + 3.0, zc - 9.5, zc - 7.6);
+    ladder(g, M.steelDark, sgn * 5.4, foot, foot + D1, zc - 9.5, zc - 7.6);
     // The 10.5 cm director on its pedestal: a stabilised drum with the
     // rangefinder through it, which is what lays her heavy flak.
     const dir = new THREE.Group();
-    dir.position.set(sgn * 5.9, foot + 3.15, zc - 7.5);
+    dir.position.set(sgn * 5.9, foot + D1 + 0.15, zc + 1.5);
     dir.userData.dynamic = true;
     g.add(dir);
     cyl(dir, M.steelDark, 0.8, 0.95, 1.1, 0, 0.55, 0, 14);
@@ -841,98 +880,108 @@ function bridge(g) {
   // vision slit all the way round, and the tube down to the transmitting
   // station under it.
   loftRings(g, M.steelDark, [
-    [2.6, 2.8, zc + 5.5, foot],
-    [2.6, 2.8, zc + 5.5, foot + 2.2],
-    [2.4, 2.6, zc + 5.5, foot + 3.4],
+    [2.6, 2.8, zc + 3.0, foot],
+    [2.6, 2.8, zc + 3.0, foot + 2.2],
+    [2.4, 2.6, zc + 3.0, foot + 3.4],
   ], { n: 16, px: 0.8, pz: 0.8 });
   loftRings(g, M.cave, [
-    [2.63, 2.83, zc + 5.5, foot + 2.35],
-    [2.63, 2.83, zc + 5.5, foot + 2.72],
+    [2.63, 2.83, zc + 3.0, foot + 2.35],
+    [2.63, 2.83, zc + 3.0, foot + 2.72],
   ], { n: 16, px: 0.8, pz: 0.8, cap: false });
 
   // -- 1. the admiral's bridge ----------------------------------------------
-  const p1 = at(planHouse({ hw: 5.4, zBack: -9, zFront: 10, nose: 4.6, arc: 11 }).map(([x, z]) => [x, z + 1]));
-  loftShape(g, M.steel, [{ pts: p1, y: foot + 3.2 }, { pts: p1, y: foot + 6.0 }]);
-  box(g, M.deckSteel, 14.4, 0.16, 20.0, 0, foot + 6.05, zc + 0.5);
+  const p1 = at(planHouse({ hw: 5.4, zBack: -2.5, zFront: 12.4, nose: 4.6, arc: 11 }));
+  loftShape(g, M.steel, [{ pts: p1, y: foot + D1 + 0.2 }, { pts: p1, y: foot + D2 }]);
+  box(g, M.deckSteel, 14.4, 0.16, 16.0, 0, foot + D2 + 0.05, zc + 5.0);
   // Her window band, carried round the bullnose in one run.
-  for (const [zz, hw] of [[zc + 8.5, 5.0], [zc + 5, 5.35], [zc, 5.4], [zc - 4, 5.2]]) {
-    box(g, M.glass, hw * 2 - 0.3, 0.95, 1.7, 0, foot + 4.9, zz);
-    box(g, M.steel, hw * 2 - 0.2, 0.12, 1.75, 0, foot + 5.44, zz);
+  for (const [zz, hw] of [[zc + 11.0, 5.0], [zc + 8, 5.35], [zc + 4, 5.4], [zc, 5.2]]) {
+    box(g, M.glass, hw * 2 - 0.3, 0.95, 1.4, 0, foot + D1 + 1.0, zz);
+    box(g, M.steel, hw * 2 - 0.2, 0.12, 1.45, 0, foot + D1 + 1.55, zz);
   }
   // The wings, and what stands on them: a pelorus, a signal lamp, and the
   // splinter mattresses lashed to the rail.
   for (const sgn of [-1, 1]) {
-    box(g, M.deckSteel, 2.6, 0.14, 4.4, sgn * 6.6, foot + 6.05, zc + 3);
-    cyl(g, M.brass, 0.16, 0.16, 1.0, sgn * 6.9, foot + 6.6, zc + 3.4, 10);
-    cyl(g, M.gun, 0.3, 0.3, 0.28, sgn * 6.9, foot + 7.15, zc + 3.4, 12);
-    searchlight(g, sgn * 6.4, foot + 6.15, zc + 1.4, sgn * 1.4);
-    railRing(g, sgn * 6.6, foot + 6.1, zc + 3, 1.3, 2.2);
-    for (const mz of [zc + 1.6, zc + 3.0, zc + 4.4]) {
-      box(g, M.canvas, 0.22, 0.62, 1.1, sgn * 7.7, foot + 6.5, mz);
+    box(g, M.deckSteel, 2.6, 0.14, 4.4, sgn * 6.6, foot + D2 + 0.05, zc + 7.5);
+    cyl(g, M.brass, 0.16, 0.16, 1.0, sgn * 6.9, foot + D2 + 0.6, zc + 7.9, 10);
+    cyl(g, M.gun, 0.3, 0.3, 0.28, sgn * 6.9, foot + D2 + 1.15, zc + 7.9, 12);
+    searchlight(g, sgn * 6.4, foot + D2 + 0.15, zc + 5.9, sgn * 1.4);
+    railRing(g, sgn * 6.6, foot + D2 + 0.1, zc + 7.5, 1.3, 2.2);
+    for (const mz of [zc + 6.1, zc + 7.5, zc + 8.9]) {
+      box(g, M.canvas, 0.22, 0.62, 1.1, sgn * 7.7, foot + D2 + 0.5, mz);
     }
     // Voice pipes down the after face of her, and the flag locker.
-    cyl(g, M.brass, 0.075, 0.075, 2.7, sgn * 3.4, foot + 4.6, zc - 8.4, 8);
-    box(g, M.steelDark, 1.5, 0.75, 0.6, sgn * 3.6, foot + 6.45, zc - 8.2);
-    ladder(g, M.steelDark, sgn * 4.6, foot + 3.2, foot + 6.0, zc - 9.2, zc - 7.5);
+    cyl(g, M.brass, 0.075, 0.075, 2.0, sgn * 3.4, foot + D1 + 1.0, zc - 1.9);
+    box(g, M.steelDark, 1.5, 0.75, 0.6, sgn * 3.6, foot + D2 + 0.45, zc - 1.7);
+    ladder(g, M.steelDark, sgn * 4.6, foot + D1 + 0.2, foot + D2, zc - 2.7, zc - 1.0);
   }
 
   // -- 2. the navigating bridge and the chart house --------------------------
-  const p2 = at(planHouse({ hw: 4.3, zBack: -7, zFront: 8, nose: 3.7, arc: 10 }).map(([x, z]) => [x, z + 1]));
-  loftShape(g, M.steel, [{ pts: p2, y: foot + 6.2 }, { pts: p2, y: foot + 9.0 }]);
-  for (const [zz, hw] of [[zc + 7, 3.9], [zc + 3, 4.25], [zc - 1, 4.2]]) {
-    box(g, M.glass, hw * 2 - 0.3, 0.9, 1.5, 0, foot + 7.9, zz);
-    box(g, M.steel, hw * 2 - 0.2, 0.1, 1.55, 0, foot + 8.38, zz);
+  const p2 = at(planHouse({ hw: 4.3, zBack: -0.5, zFront: 11.0, nose: 3.7, arc: 10 }));
+  loftShape(g, M.steel, [{ pts: p2, y: foot + D2 + 0.2 }, { pts: p2, y: foot + D3 }]);
+  for (const [zz, hw] of [[zc + 9.5, 3.9], [zc + 6, 4.25], [zc + 2, 4.2]]) {
+    box(g, M.glass, hw * 2 - 0.3, 0.9, 1.2, 0, foot + D2 + 1.0, zz);
+    box(g, M.steel, hw * 2 - 0.2, 0.1, 1.25, 0, foot + D2 + 1.5, zz);
   }
-  box(g, M.deckSteel, 10.0, 0.16, 13.0, 0, foot + 9.05, zc + 0.5);
+  box(g, M.deckSteel, 10.0, 0.16, 12.0, 0, foot + D3 + 0.05, zc + 5.5);
   // The chart house abaft it, with its own door and skylight.
-  house(g, M.steel, 3.1, zc - 7.5, zc - 2.5, foot + 6.2, 2.5, { n: 16 });
-  box(g, M.steelDark, 0.1, 1.8, 0.8, 3.15, foot + 7.1, zc - 5);
-  box(g, M.glass, 1.6, 0.1, 2.0, 0, foot + 8.78, zc - 5);
+  house(g, M.steel, 3.1, zc - 1.0, zc + 3.5, foot + D2 + 0.2, 2.1, { n: 16 });
+  box(g, M.steelDark, 0.1, 1.8, 0.8, 3.15, foot + D2 + 1.1, zc + 1.2);
+  box(g, M.glass, 1.6, 0.1, 2.0, 0, foot + D3 - 0.2, zc + 1.2);
   for (const sgn of [-1, 1]) {
-    ladder(g, M.steelDark, sgn * 3.6, foot + 6.2, foot + 9.0, zc - 8.6, zc - 7.2);
+    ladder(g, M.steelDark, sgn * 3.6, foot + D2 + 0.2, foot + D3, zc - 2.0, zc - 0.6);
   }
 
   // -- 3. the trunk, and the lights round it --------------------------------
+  //
+  // Stepped on its own station, not on the middle of the block. Her tower
+  // stands abaft the bridge, over the conning tower, and the bridge decks
+  // step down forward of it -- which is why the foretop is nearly amidships
+  // of the forward superstructure rather than out over the bridge front.
+  // Built on the middle of the block the whole fighting top -- foretop,
+  // rangefinder, mast and all -- stood fourteen metres too far forward.
+  const tz = TOWER_Z;
   loftRings(g, M.steel, [
-    [3.3, 3.6, zc, foot + 9.2],
-    [2.9, 3.1, zc, foot + 13.5],
-    [2.6, 2.8, zc, foot + 17.0],
+    [3.3, 3.6, tz, foot + D1],
+    [3.0, 3.3, tz, foot + 9.0],
+    [2.6, 2.8, tz, foot + 17.5],
   ], { n: 18, px: 0.78, pz: 0.78 });
   // A door into it and the ladder up its after face, in a cage.
-  box(g, M.steelDark, 1.0, 1.9, 0.1, 0, foot + 10.2, zc - 3.5);
-  ladder(g, M.steelDark, 0, foot + 9.2, foot + 17.0, zc - 3.4, zc - 3.4);
-  for (let i = 0; i < 7; i++) {
-    const y = foot + 10.4 + i * 0.95;
+  box(g, M.steelDark, 1.0, 1.9, 0.1, 0, foot + 8.0, tz - 3.5);
+  ladder(g, M.steelDark, 0, foot + D1, foot + 17.5, tz - 3.4, tz - 3.4);
+  for (let i = 0; i < 9; i++) {
+    const y = foot + 8.0 + i * 0.95;
     const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 10), M.steelDark);
-    hoop.position.set(0, y, zc - 3.75);
+    hoop.position.set(0, y, tz - 3.75);
     hoop.rotation.x = Math.PI / 2;
     g.add(hoop);
   }
+  // The searchlight platform out of the face of the tower, which on her is a
+  // wide gallery rather than two brackets: thirteen metres up, and the widest
+  // thing on the tower between the bridge roof and the foretop.
   for (const sgn of [-1, 1]) {
-    box(g, M.deckSteel, 2.4, 0.14, 3.0, sgn * 3.6, foot + 12.5, zc);
-    searchlight(g, sgn * 3.9, foot + 12.6, zc, sgn * 1.3);
-    railRing(g, sgn * 3.6, foot + 12.55, zc, 1.4, 1.7);
-    // The brackets carrying the platform out from the trunk.
-    const br = box(g, M.steel, 1.9, 0.12, 1.2, sgn * 3.5, foot + 11.9, zc);
+    box(g, M.deckSteel, 4.2, 0.16, 3.2, sgn * 3.6, foot + 13.0, tz + 1.2);
+    railRing(g, sgn * 3.6, foot + 13.05, tz + 1.2, 2.1, 1.7);
+    searchlight(g, sgn * 4.4, foot + 13.15, tz + 1.2, sgn * 1.3);
+    const br = box(g, M.steel, 2.6, 0.12, 1.2, sgn * 3.6, foot + 12.4, tz + 1.2);
     br.rotation.z = sgn * 0.5;
   }
 
   // -- 4. the foretop ---------------------------------------------------------
-  box(g, M.deckSteel, 8.4, 0.16, 7.0, 0, foot + 17.0, zc);
-  railRing(g, 0, foot + 17.05, zc, 4.1, 3.4);
+  box(g, M.deckSteel, 8.4, 0.16, 7.0, 0, foot + 17.5, tz);
+  railRing(g, 0, foot + 17.55, tz, 4.1, 3.4);
   loftRings(g, M.steel, [
-    [3.5, 3.0, zc, foot + 17.1],
-    [3.5, 3.0, zc, foot + 19.6],
+    [3.5, 3.0, tz, foot + 17.6],
+    [3.5, 3.0, tz, foot + 20.0],
   ], { n: 18, px: 0.72, pz: 0.7 });
   // The fire-control position's own vision slits, fore and aft.
-  for (const zz of [zc + 2.6, zc - 2.6]) {
-    box(g, M.glass, 6.2, 0.7, 0.16, 0, foot + 18.6, zz);
-    box(g, M.steel, 6.35, 0.1, 0.2, 0, foot + 19.1, zz);
+  for (const zz of [tz + 2.6, tz - 2.6]) {
+    box(g, M.glass, 6.2, 0.7, 0.16, 0, foot + 19.0, zz);
+    box(g, M.steel, 6.35, 0.1, 0.2, 0, foot + 19.5, zz);
   }
   // The hood, which trains: a squat drum with the seven-metre rangefinder out
   // of it either side, and the sighting hoods on top.
   const top = new THREE.Group();
-  top.position.set(0, foot + 19.7, zc);
+  top.position.set(0, foot + 20.1, tz);
   top.userData.dynamic = true;
   g.add(top);
   loftRings(top, M.gun, [[2.5, 2.1, 0, 0], [2.5, 2.1, 0, 1.5], [2.1, 1.8, 0, 2.0]],
@@ -955,11 +1004,11 @@ function bridge(g) {
 
   // The pole mast abaft the tower, stepped on the admiral's bridge roof, with
   // her yards and the wireless aerials off it.
-  const mz = zc - 7.5;
-  const mFoot = foot + 6.2;
-  cyl(g, M.steel, 0.26, 0.42, 18.0, 0, mFoot + 9.0, mz, 10);
-  cyl(g, M.steel, 0.14, 0.22, 6.0, 0, mFoot + 20.5, mz, 8);
-  for (const [yy, half] of [[mFoot + 14.0, 5.4], [mFoot + 19.4, 3.2]]) {
+  const mz = MAST_Z;
+  const mFoot = foot;
+  cyl(g, M.steel, 0.26, 0.46, 21.0, 0, mFoot + 10.5, mz, 10);
+  cyl(g, M.steel, 0.13, 0.22, 10.6, 0, mFoot + 24.5, mz, 8);
+  for (const [yy, half] of [[mFoot + 14.4, 5.4], [mFoot + 22.6, 3.2]]) {
     tubeX(g, M.steel, 0.11, half * 2, 0, yy, mz, 8);
     // The lifts and halyards hanging off each yardarm.
     for (const sgn of [-1, 1]) {
@@ -968,7 +1017,7 @@ function bridge(g) {
   }
   // The starfish that carries the after control position's aerials.
   for (const sgn of [-1, 1]) {
-    const arm = box(g, M.steel, 2.6, 0.1, 0.1, sgn * 1.3, mFoot + 8.0, mz);
+    const arm = box(g, M.steel, 2.6, 0.1, 0.1, sgn * 1.3, mFoot + 18.0, mz);
     arm.rotation.z = sgn * 0.22;
   }
   return foot;
@@ -1029,8 +1078,8 @@ function funnel(g) {
   const Z0 = FUNNEL_Z - 8;
   const Z1 = FUNNEL_Z + 8;
   // -- the casing over the fire rooms ---------------------------------------
-  house(g, M.steel, 5.6, Z0, Z1, foot, 3.4);
-  const base = foot + 3.4;
+  house(g, M.steel, 5.6, Z0, Z1, foot, 2.6);
+  const base = foot + 2.6;
   // Its doors, and the ash hoist trunks at the after corners.
   for (const sgn of [-1, 1]) {
     box(g, M.steelDark, 0.1, 1.9, 0.85, sgn * 5.62, foot + 0.95, FUNNEL_Z - 4.5);
@@ -1072,6 +1121,10 @@ function funnel(g) {
   const f = new THREE.Group();
   f.position.set(0, base, FUNNEL_Z);
   f.rotation.x = -0.12;
+  // Nine metres of trunk and a cap over it, which puts the top of her at
+  // twenty-four and a half metres over the water -- eight metres below the
+  // foretop, which is the whole reason the cap was fitted.
+  f.scale.set(1, 0.895, 1);
   g.add(f);
   loftRings(f, M.steel, [
     [3.5, 4.5, 0, 0],
@@ -1129,12 +1182,7 @@ function funnel(g) {
     box(f, M.steelDark, 0.5, 0.05, 0.05, 3.1, 1.4 + i * 1.3, 0);
   }
 
-  // The mainmast: a light pole abaft the funnel carrying the after yard and
-  // the wireless aerials down to the foremast.
-  cyl(g, M.steel, 0.16, 0.28, 17.0, 0, foot + 8.5, FUNNEL_Z - 11.5, 8);
-  tubeX(g, M.steel, 0.09, 8.0, 0, foot + 13.0, FUNNEL_Z - 11.5, 8);
-  const aerial = box(g, M.wire, 0.05, 0.05, 30.0, 0, foot + 15.6, FUNNEL_Z + 3.5);
-  aerial.rotation.x = -0.09;
+
   // The searchlight platform round her, which is where the big lights live.
   box(g, M.deckSteel, 13.0, 0.16, 4.4, 0, base + 4.6, FUNNEL_Z + 1);
   for (const sgn of [-1, 1]) {
@@ -1206,11 +1254,13 @@ function boat(g, x, y, z, len) {
  * a heavy crane on the starboard side to fish them out of the water again.
  */
 function aircraft(g) {
-  const foot = sdeck(-24);
-  // The hangar: a house with a big roller door in its after face.
-  house(g, M.steel, 6.2, HANGAR[0], HANGAR[1], foot, 4.2);
-  box(g, M.steelDark, 7.0, 3.4, 0.2, 0, foot + 1.8, HANGAR[0] - 0.05);
-  for (let i = 0; i < 7; i++) {
+  const foot = sdeck(0);
+  // The hangar: a house with a big roller door in its after face. Between the
+  // funnel and the catapult, which is where her drawing puts it -- thirteen
+  // metres over the water and a hundred and five abaft the stem.
+  house(g, M.steel, 6.2, HANGAR[0], HANGAR[1], foot, 2.5);
+  box(g, M.steelDark, 7.0, 2.1, 0.2, 0, foot + 1.15, HANGAR[0] - 0.05);
+  for (let i = 0; i < 4; i++) {
     box(g, M.steel, 6.6, 0.08, 0.24, 0, foot + 0.5 + i * 0.5, HANGAR[0] - 0.14);
   }
   // The catapult: a long girder across her on a training ring, with the
@@ -1221,10 +1271,10 @@ function aircraft(g) {
   // the weld and driven by stepCatapult below, the same way the carrier's
   // lifts and the Cleveland's catapults are.
   const cat = new THREE.Group();
-  cat.position.set(0, sdeck(CAT_Z) + 1.4, CAT_Z);
+  cat.position.set(0, sdeck(CAT_Z) + 4.0, CAT_Z);
   cat.userData.dynamic = true;
   g.add(cat);
-  cyl(cat, M.steelDark, 2.0, 2.3, 0.9, 0, -0.75, 0, 18);
+  cyl(cat, M.steelDark, 2.0, 2.5, 3.5, 0, -2.05, 0, 18);
   // The girder itself, athwartships, twenty-two metres of it. Her stroke runs
   // out along its own +z, so the group is turned to lie across her and the
   // trolley runs to starboard.
@@ -1247,17 +1297,17 @@ function aircraft(g) {
   const p2 = arado(plane, 0, 0, 0, 0);
   g.userData.catapult = { cat, girder, car, plane, prop: p2.userData.prop };
   // And a second one struck down beside the hangar, wings folded back.
-  arado(g, S * 5.6, foot + 0.35, HANGAR[0] + 4.5, S * 0.25, true);
+  arado(g, S * 5.6, foot + 0.35, HANGAR[0] - 6.0, S * 0.25, true);
   // The crane: a pedestal, a lattice jib, and the whip hanging off it.
   const crane = new THREE.Group();
-  crane.position.set(S * 6.6, sdeck(-30), -30);
+  crane.position.set(S * 6.6, sdeck(5.5), 5.5);
   crane.rotation.y = Math.PI * 0.94;
   g.add(crane);
   cyl(crane, M.steel, 0.85, 1.05, 3.2, 0, 1.6, 0, 14);
   cyl(crane, M.steelDark, 1.0, 1.0, 0.3, 0, 3.3, 0, 14);
   const jib = new THREE.Group();
   jib.position.set(0, 3.5, 0);
-  jib.rotation.x = -0.55;
+  jib.rotation.x = 0.42;
   crane.add(jib);
   for (const sgn of [-1, 1]) {
     box(jib, M.steel, 0.14, 0.14, 15.0, sgn * 0.42, 0.42, 7.2);
@@ -1368,19 +1418,51 @@ function arado(g, x, y, z, ry, folded = false) {
 
 /** The after control position: a short tower with its own director on top. */
 function afterTower(g) {
-  const foot = sdeck(-40);
-  house(g, M.steel, 5.0, AFT_TOWER[0], AFT_TOWER[1], foot, 3.4);
-  const zc = (AFT_TOWER[0] + AFT_TOWER[1]) / 2;
+  const foot = sdeck(-37);
+  // The block, roofed at fourteen metres eight -- her own profile -- rather
+  // than at whatever three metres of deckhouse came to.
+  house(g, M.steel, 5.0, AFT_TOWER[0], AFT_TOWER[1], foot, 4.3);
+  const zc = (AFT_TOWER[0] + AFT_TOWER[1]) / 2 + 3.0;
   loftRings(g, M.steel, [
-    [3.2, 3.4, zc, foot + 3.5],
-    [3.0, 3.2, zc, foot + 6.2],
+    [3.2, 3.4, zc, foot + 4.4],
+    [3.0, 3.2, zc, foot + 5.1],
   ], { n: 16, px: 0.72, pz: 0.7 });
-  box(g, M.deckSteel, 7.4, 0.16, 8.0, 0, foot + 6.25, zc);
-  // The after director, with its own rangefinder through it.
+  box(g, M.deckSteel, 7.4, 0.16, 8.0, 0, foot + 5.15, zc);
+  railRing(g, 0, foot + 5.2, zc, 3.6, 3.9);
+
+  // The mainmast: a pole stepped abaft the catapult, raked with the funnel,
+  // carrying the after yard and the wireless aerials forward to the foretop.
+  // Her truck stands forty metres and a half over the water -- the highest
+  // thing in the ship after the foremast, and it was a seventeen-metre stub
+  // behind the funnel before.
+  {
+    const mFoot = sdeck(MAIN_MAST_Z);
+    const lower = cyl(g, M.steel, 0.30, 0.46, 20.0, 0, mFoot + 10.0, MAIN_MAST_Z, 10);
+    lower.rotation.x = -0.05;
+    const upper = cyl(g, M.steel, 0.15, 0.26, 11.5, 0, mFoot + 24.6, MAIN_MAST_Z + 0.9, 8);
+    upper.rotation.x = -0.05;
+    for (const [yy, half] of [[mFoot + 13.6, 4.6], [mFoot + 22.0, 2.6]]) {
+      tubeX(g, M.steel, 0.10, half * 2, 0, yy, MAIN_MAST_Z + 0.5, 8);
+      for (const sgn of [-1, 1]) {
+        box(g, M.wire, 0.04, 1.2, 0.04, sgn * half * 0.9, yy - 0.6, MAIN_MAST_Z + 0.5);
+      }
+    }
+    // The starfish and the shrouds that stay a pole this tall.
+    for (const sgn of [-1, 1]) {
+      const sh = box(g, M.wire, 0.05, 13.0, 0.05, sgn * 2.0, mFoot + 6.5, MAIN_MAST_Z - 1.0);
+      sh.rotation.z = sgn * 0.30;
+      sh.rotation.x = 0.16;
+    }
+  }
+
+  // The after director, with its own rangefinder through it, and the short
+  // pole over it that carries her after aerials.
   const dir = new THREE.Group();
-  dir.position.set(0, foot + 6.4, zc);
+  dir.position.set(0, foot + 5.3, zc);
   dir.userData.dynamic = true;
   g.add(dir);
+  cyl(dir, M.steel, 0.24, 0.30, 7.0, 0, 5.4, -0.2, 8);
+  tubeX(dir, M.steel, 0.08, 3.2, 0, 7.4, -0.2, 8);
   loftRings(dir, M.gun, [[2.0, 1.8, 0, 0], [2.0, 1.8, 0, 1.4], [1.7, 1.55, 0, 1.9]],
     { n: 16, px: 0.7, pz: 0.68 });
   tubeX(dir, M.gun, 0.3, 6.2, 0, 0.95, 0.3, 12);
@@ -1388,19 +1470,23 @@ function afterTower(g) {
     box(dir, M.gun, 0.5, 0.55, 0.7, sgn * 2.95, 0.95, 0.3);
     box(dir, M.glass, 0.09, 0.24, 0.4, sgn * 3.2, 0.97, 0.3);
   }
-  // And the bandstand over Cäsar that the after Flakvierling stands on: it has
-  // to be carried out over the turret, because there is no deck left aft of
-  // here that a barbette is not already using.
-  for (const sgn of [-1, 1]) {
-    const leg = cyl(g, M.steel, 0.2, 0.2, 5.0, sgn * 2.2, foot + 2.5, -49.5, 8);
-    leg.rotation.x = 0.12;
-  }
-  box(g, M.deckSteel, 5.6, 0.18, 4.6, 0, foot + 5.0, -50);
-  railRing(g, 0, foot + 5.1, -50, 2.8, 2.3);
+  // There is no bandstand over Cäsar. She had none: her after Flakvierling
+  // stood on the after superstructure with the rest of the light battery, and
+  // a platform carried out over the turret put a metre and a half of nothing
+  // above her roof in a silhouette that has nothing there.
+  box(g, M.deckSteel, 5.6, 0.18, 4.6, 0, foot + 4.42, AFT_TOWER[0] + 3.0);
+  railRing(g, 0, foot + 4.52, AFT_TOWER[0] + 3.0, 2.8, 2.3);
 }
 
 /** Depth charge rails, paravanes and the other things bolted to her quarter. */
 function fittings(g) {
+  // The wireless aerial, slung between the mastheads over the funnel. Rigging
+  // rather than funnel: hung off the funnel it was the highest thing the
+  // funnel owned, which made the cap look as though it were not there.
+  {
+    const aerial = box(g, M.wire, 0.05, 0.05, 34.0, 0, sdeck(0) + 15.6, -1.0);
+    aerial.rotation.x = -0.06;
+  }
   // Capstans and the cable holders on the forecastle.
   for (const sgn of [-1, 1]) {
     cyl(g, M.steelDark, 0.62, 0.7, 0.8, sgn * 3.2, deckAt(80) + 0.4, 80, 12);
@@ -1432,7 +1518,7 @@ function fittings(g) {
   for (const rz of [36, 12, -8, -36]) {
     for (const sgn of [-1, 1]) {
       const r = new THREE.Group();
-      r.position.set(sgn * (sHalf(rz) - 0.15), sdeck(rz) + 1.15, rz);
+      r.position.set(sgn * (sHalf(rz) - 0.15), sdeck(rz) + 0.9, rz);
       r.rotation.z = sgn * 0.16;
       g.add(r);
       const t = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.2, 7, 14), M.raft);
@@ -1499,24 +1585,38 @@ function mainBattery(g) {
   const turrets = [];
   // Anton and Bruno stand on the weather deck and on a barbette above it;
   // Cäsar and Dora the same the other way round.
-  turrets.push(eightInch(g, 0, deckAt(A_Z) + 0.1, A_Z, false));
-  turrets.push(eightInch(g, 0, deckAt(B_Z) + 4.0, B_Z, false));
-  turrets.push(eightInch(g, 0, deckAt(X_Z) + 4.0, X_Z, true, true));
-  turrets.push(eightInch(g, 0, deckAt(Y_Z) + 0.1, Y_Z, true));
+  // Set so each roof stands where her own profile puts it: Anton at nine and a
+  // half metres over the water, Bruno at twelve and a half, Cäsar at thirteen
+  // and Dora at nine and a half again. They were three to five metres high
+  // before, which put Anton's roof level with the bridge windows.
+  turrets.push(eightInch(g, 0, deckAt(A_Z) - 0.27, A_Z, false));
+  turrets.push(eightInch(g, 0, deckAt(B_Z) + 2.85, B_Z, false, true));
+  turrets.push(eightInch(g, 0, deckAt(X_Z) + 3.57, X_Z, true, true));
+  turrets.push(eightInch(g, 0, deckAt(Y_Z) - 0.43, Y_Z, true));
   g.userData.turrets = turrets;
   return turrets;
 }
 
 /** The barbettes B and C stand on, which are part of the ship, not the guns. */
 function barbettes(g) {
-  for (const [z, h] of [[B_Z, 4.0], [X_Z, 4.0]]) {
-    house(g, M.steel, 6.4, z - 7.5, z + 7.5, deckAt(z), h, { px: 0.85, pz: 0.8 });
+  // A barbette is a barbette: an armoured cylinder a little wider than the ring
+  // the turret trains on, standing out of the deck. It used to be a
+  // fifteen-metre deckhouse the full breadth of the superstructure, which
+  // buried Bruno and Cäsar in it -- from abeam you could not tell there was a
+  // turret there at all, only a long grey block with a gun sticking out.
+  for (const [z, h] of [[B_Z, 2.85], [X_Z, 3.57]]) {
+    const y = deckAt(z);
+    cyl(g, M.steel, 4.55, 4.7, h, 0, y + h / 2, z, 24);
+    cyl(g, M.deckSteel, 4.7, 4.7, 0.16, 0, y + h + 0.06, z, 24);
+    // The trunk it stands on runs out fore and aft into the deck round it.
+    house(g, M.steel, 3.9, z - 6.6, z + 6.6, y, h * 0.62, { px: 0.9, pz: 0.9 });
   }
   // The breakwater forward of Anton, which every ship with an Atlantic bow has.
-  const bw = box(g, M.steel, 13.0, 1.3, 0.3, 0, deckAt(76) + 0.65, 76);
+  // Thirty-two metres abaft the stem, where her drawing puts it.
+  const bw = box(g, M.steel, 13.0, 1.3, 0.3, 0, deckAt(70) + 0.65, 70);
   bw.rotation.x = -0.22;
   for (const sgn of [-1, 1]) {
-    const w = box(g, M.steel, 0.3, 1.3, 4.0, sgn * 6.4, deckAt(78) + 0.65, 78);
+    const w = box(g, M.steel, 0.3, 1.3, 4.0, sgn * 6.4, deckAt(68) + 0.65, 68);
     w.rotation.y = sgn * 0.22;
   }
 }
@@ -1548,7 +1648,10 @@ function mountings(g) {
     for (const m of gun.mounts) {
       // The one on the centreline right aft is on the bandstand carried over
       // Cäsar; the rest stand on the superstructure deck or on a sponson.
-      const y = m.x === 0 ? sdeck(-40) + 5.2 : sdeck(m.z) + 0.16;
+      // The one on the centreline stands on the after superstructure's roof
+      // with the rest of her after light battery; everything else is on the
+      // superstructure deck or on a sponson off it.
+      const y = m.x === 0 ? sdeck(-37) + 4.46 : sdeck(m.z) + 0.16;
       aa.push(gun.caliber === 37
         ? threeSeven(g, m.x, y, m.z, m.angle)
         : twoCm(g, m.x, y, m.z, m.angle));

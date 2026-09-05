@@ -275,10 +275,13 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 178, deck: 76, citadel: 178, bow: 30, superstructure: 20 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 66, angle: 0, arc: 2.44, guns: 2 },
-      { id: 1, name: 'B', x: 0, z: 52, angle: 0, arc: 2.36, guns: 2 },
-      { id: 2, name: 'X', x: 0, z: -48, angle: Math.PI, arc: 2.36, guns: 2 },
-      { id: 3, name: 'Y', x: 0, z: -62, angle: Math.PI, arc: 2.27, guns: 2 },
+      // Stations off her own profile: Anton forty-five and a half metres abaft
+      // the stem, Bruno ten metres behind her, and the after pair the same
+      // spacing from the transom.
+      { id: 0, name: 'A', x: 0, z: 56.6, angle: 0, arc: 2.44, guns: 2 },
+      { id: 1, name: 'B', x: 0, z: 46.3, angle: 0, arc: 2.36, guns: 2 },
+      { id: 2, name: 'X', x: 0, z: -48.9, angle: Math.PI, arc: 2.36, guns: 2 },
+      { id: 3, name: 'Y', x: 0, z: -62.2, angle: Math.PI, arc: 2.27, guns: 2 },
     ],
     gun: {
       name: '20.3 cm SK C/34', role: 'surface',
@@ -301,13 +304,15 @@ export const SHIP_CLASSES = {
       name: '10.5 cm SK C/33', role: 'dp',
       caliber: 105, reload: 4.6, traverse: 0.40, range: 7600, sigma: 1.05,
       shells: shells(105, 1500, 1300, 62, 900, 0.06),
+      // Abreast the bridge, abreast the funnel and abreast the after tower,
+      // which is where her drawing puts the three pairs.
       mounts: [
-        { x: -8.4, z: 22, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 8.4, z: 22, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -8.6, z: 2, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: 8.6, z: 2, angle: Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: -8.2, z: -20, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 8.2, z: -20, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -8.4, z: 32, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 8.4, z: 32, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -8.6, z: 0, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: 8.6, z: 0, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: -8.2, z: -40, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 8.2, z: -40, angle: Math.PI / 2, arc: 1.40, guns: 2 },
       ],
     },
     aa: {
@@ -330,7 +335,7 @@ export const SHIP_CLASSES = {
             { x: 7.2, z: 14, angle: 1.5, arc: 1.83, guns: 4 },
             { x: -6.8, z: -26, angle: -1.9, arc: 1.83, guns: 4 },
             { x: 6.8, z: -26, angle: 1.9, arc: 1.83, guns: 4 },
-            { x: 0, z: -50, angle: Math.PI, arc: 2.27, guns: 4 },
+            { x: 0, z: -34, angle: Math.PI, arc: 2.27, guns: 4 },
           ] },
       ],
     },
