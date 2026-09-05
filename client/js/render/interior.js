@@ -70,6 +70,7 @@ function platform(g, m, hull, y, t0, t1, inset = 0.10, steps = 26) {
   const idx = [];
   let n = 0;
   let prev = null;
+  const span = (tb - ta) / steps;
   for (let i = 0; i <= steps; i++) {
     const t = ta + ((tb - ta) * i) / steps;
     const z = hull.zAt ? hull.zAt(t, y) : (t * hull.loa) / 2;
@@ -77,7 +78,13 @@ function platform(g, m, hull, y, t0, t1, inset = 0.10, steps = 26) {
     // margin, so a deck reads as a deck at any scale -- and so that looking in
     // through a hole in her side you can see the layers of her rather than one
     // solid slab with the edges of the plates flush to the plating.
-    const w = hull.shellAt(t, y);
+    //
+    // And cut to the narrowest the hull gets between this vertex and the next
+    // rather than to the width at the vertex itself. The edge of the plate is
+    // a straight line from one vertex to the next, and her waterline aft is
+    // hollow: a straight line between two points on a hollow curve lies
+    // outside it, which puts the corner of the deck through her quarter.
+    const w = narrowBetween(hull, t, y, span);
     const half = Math.max(0, w * (1 - inset));
     const a = n;
     pos.push(-half, y, z, half, y, z);
@@ -111,13 +118,48 @@ function platform(g, m, hull, y, t0, t1, inset = 0.10, steps = 26) {
 function bulkhead(g, m, hull, t, yTop, steps = 14) {
   const z = hull.zAt ? hull.zAt(t, 0) : (t * hull.loa) / 2;
   const keel = hull.keelY(t);
+  // A transverse bulkhead is a flat plane at one distance along her, but a
+  // station is not: her stem and her counter are raked, so the station that
+  // stands at this z near the keel is not the one that stands here at the
+  // waterline. Each row of the bulkhead is measured at the station its own
+  // height belongs to, or the bottom of a bulkhead well aft is cut to the
+  // breadth of a part of the ship several metres further forward -- which is
+  // wider, and shows through her quarter.
+  const stationFor = hull.zAt
+    ? (y) => stationAt(hull, z, y)
+    : () => t;
   const pos = [];
   const idx = [];
   let prev = null;
   let n = 0;
+  const rise = (yTop - keel) / steps;
+  const ys = [];
+  const halves = [];
   for (let i = 0; i <= steps; i++) {
     const y = keel + ((yTop - keel) * i) / steps;
-    const half = Math.max(0, hull.shellAt(t, y) - 0.2);
+    // The narrowest she gets between this row of the bulkhead and the next,
+    // for the same reason a deck is cut to the narrowest along it: the edge
+    // between two rows is a straight line, and her section is not.
+    let w = Infinity;
+    for (let k = -1; k <= 1; k++) {
+      const q = y + (rise * k) / 2;
+      w = Math.min(w, hull.shellAt(stationFor(q), q));
+    }
+    ys.push(y);
+    halves.push(Math.max(0, w - 0.2));
+  }
+  // Below the waterline a hull only widens as it goes up -- that is what a
+  // keel is -- so no row down there may be wider than the one above it. It is
+  // a last check on the measurement rather than on the ship: right down in the
+  // skeg there is so little plating that a ray can miss it altogether, and a
+  // guess made where nothing was measured has no business being wider than the
+  // place just above where something was.
+  for (let i = halves.length - 2; i >= 0; i--) {
+    if (ys[i] < 0) halves[i] = Math.min(halves[i], halves[i + 1]);
+  }
+  for (let i = 0; i < halves.length; i++) {
+    const y = ys[i];
+    const half = halves[i];
     const a = n;
     pos.push(-half, y, z, half, y, z);
     n += 2;
@@ -132,6 +174,23 @@ function bulkhead(g, m, hull, t, yTop, steps = 14) {
   o.material.side = THREE.DoubleSide;
   g.add(o);
   return o;
+}
+
+/**
+ * The narrowest the hull gets within half a step either side of a station.
+ *
+ * Anything drawn as a strip of quads has straight edges between its vertices,
+ * and a straight line between two points on a hollow curve -- which is what
+ * her run aft is -- lies outside the curve. Cutting each vertex to the
+ * narrowest section it is responsible for keeps the whole edge inside her.
+ */
+function narrowBetween(hull, t, y, span) {
+  let w = Infinity;
+  for (let k = -2; k <= 2; k++) {
+    const q = Math.max(-1, Math.min(1, t + (span * k) / 4));
+    w = Math.min(w, hull.shellAt(q, y));
+  }
+  return Math.max(0, w);
 }
 
 /** Where amidships is at a station, in metres, for placing things by eye. */
@@ -167,7 +226,12 @@ function stationAt(hull, z, y) {
  */
 function roomAt(hull, z, dz, y0, y1) {
   let w = Infinity;
-  for (const y of [y0, (y0 + y1) / 2, y1]) {
+  // Seven heights rather than three. A frame three metres tall checked at its
+  // top, middle and bottom clears the plating at all three and still comes out
+  // through the turn of the bilge in between, because that is where the hull
+  // stops being a straight line.
+  for (let i = 0; i <= 6; i++) {
+    const y = y0 + ((y1 - y0) * i) / 6;
     for (const dd of [-dz, 0, dz]) {
       const t = stationAt(hull, z + dd, y);
       if (y < hull.keelY(t) + 0.2 || y > hull.sheer(t) - 0.2) return 0;
@@ -385,9 +449,17 @@ function steering(g, hull, sole) {
 
 /** Chain lockers: the cable flaked down in the eyes of her. */
 function cableLockers(g, hull, sole) {
-  const t = Math.min(0.86, reachAt(hull, sole + 0.4, 1) - 0.05);
-  const z = zOf(hull, t);
-  const half = Math.max(0.6, fits(hull, t - 0.06, t + 0.06, sole, sole + 2.4));
+  // The lockers are three metres long, so the station they are centred on has
+  // to be far enough back that their forward end is still inside her. Put at
+  // the last station that has depth under it -- which is what the reach is --
+  // the front six feet of the locker hangs out through her stem, because her
+  // forefoot rises that fast. And they are sized over the whole of their own
+  // length rather than at their middle, for the same reason.
+  const reach = Math.min(0.86, reachAt(hull, sole + 0.4, 1) - 0.05);
+  const z = zOf(hull, reach) - 1.9;
+  const t = stationAt(hull, z, sole + 0.4);
+  const half = Math.max(0.35, fits(hull, stationAt(hull, z - 1.7, sole),
+    stationAt(hull, z + 1.7, sole), sole, sole + 2.4));
   for (const s of [-1, 1]) {
     const x = s * half * 0.45;
     box(g, M.frame, half * 0.5, 0.2, 3.2, x, sole + 0.3, z);
@@ -398,6 +470,206 @@ function cableLockers(g, hull, sole) {
   }
 }
 
+// How finely the drawn plating is measured, in metres. Fine enough that the
+// tuck under the bilge is followed rather than averaged over, coarse enough
+// that most cells have a vertex in them.
+const ENV_DZ = 0.6;
+const ENV_DY = 0.15;
+// And how far inboard of the plating her insides are held. A bulkhead exactly
+// flush with the shell shows through it wherever the two disagree by a
+// millimetre, which -- with the plating and the frame drawn as separate
+// surfaces at the same place -- is everywhere.
+const ENV_MARGIN = 0.55;
+
+/**
+ * Measure the plating that is actually drawn, and hold the lines to it.
+ *
+ * Returns the same lines interface with `shellAt` clamped to how wide the real
+ * plating is at that point. Everything inside her -- platforms, bulkheads,
+ * machinery, the reach of a shaft, the frames -- goes through `shellAt`, so
+ * clamping it once fits the whole interior to the real ship.
+ *
+ * Measured by shooting a ray out from the centreline at each point of a grid
+ * and taking the outermost plating it goes through. That is the only
+ * instrument that answers the question being asked -- how far out is her side
+ * here -- without assuming anything about how she was drawn. Reading the
+ * corners of the plating does not: a hull is lofted through station rows many
+ * metres apart, and between two rows there is no corner at all, so the corners
+ * say the ship does not exist exactly where her shape is changing fastest.
+ * Nor does sampling the faces into cells: a cell holds the widest thing that
+ * crossed it, and a mast or a rail crossing an empty cell makes the ship look
+ * a metre wide there.
+ */
+function heldToPlating(g, hull) {
+  const tris = platingTriangles(g);
+  if (!tris.length) return hull;
+
+  // Bucketed along her, so a ray only has to try the plating near it.
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < tris.length; i += 9) {
+    for (let k = 0; k < 3; k++) {
+      const z = tris[i + k * 3 + 2];
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+  const nz = Math.max(1, Math.ceil((maxZ - minZ) / ENV_DZ) + 1);
+  const bucket = new Array(nz);
+  for (let i = 0; i < tris.length; i += 9) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const z = tris[i + k * 3 + 2];
+      if (z < lo) lo = z;
+      if (z > hi) hi = z;
+    }
+    const b0 = Math.max(0, Math.floor((lo - minZ) / ENV_DZ));
+    const b1 = Math.min(nz - 1, Math.floor((hi - minZ) / ENV_DZ));
+    for (let b = b0; b <= b1; b++) (bucket[b] || (bucket[b] = [])).push(i);
+  }
+
+  // The grid: how far out her plating is, at every station and height she has.
+  const keelLow = Math.min(hull.keelY(-0.98), hull.keelY(0), hull.keelY(0.98)) - 1;
+  const deckHigh = Math.max(hull.sheer(-0.98), hull.sheer(0), hull.sheer(0.98)) + 1;
+  const y0 = Math.floor(keelLow / ENV_DY);
+  const ny = Math.max(1, Math.ceil((deckHigh - keelLow) / ENV_DY) + 1);
+  const grid = new Float32Array(nz * ny).fill(-1);
+  for (let zi = 0; zi < nz; zi++) {
+    const list = bucket[zi];
+    if (!list) continue;
+    const z = minZ + zi * ENV_DZ;
+    for (let yi = 0; yi < ny; yi++) {
+      grid[zi * ny + yi] = beamAt(tris, list, (y0 + yi) * ENV_DY, z);
+    }
+  }
+
+  const zOfT = hull.zAt ? (t, y) => hull.zAt(t, y) : (t) => (t * hull.loa) / 2;
+  const at = (z, y) => {
+    // The narrowest of the four rays around the point.
+    //
+    // Not an interpolation between them. Her sections are not all curves: a
+    // Cleveland's bottom leaves her topsides at a hard chine, a destroyer's
+    // skeg tapers to nothing in a couple of feet, and reading between two rays
+    // either side of a step says she is wider there than she is -- which is a
+    // frame standing out through her bilge. Taking the narrowest costs a few
+    // inches of clearance inside her, which nobody can see.
+    const zi = Math.floor((z - minZ) / ENV_DZ);
+    const yi = Math.floor(y / ENV_DY - y0);
+    if (zi < 0 || zi + 1 >= nz || yi < 0 || yi + 1 >= ny) return -1;
+    let best = -1;
+    for (let dz = 0; dz <= 1; dz++) {
+      for (let dy = 0; dy <= 1; dy++) {
+        const v = grid[(zi + dz) * ny + (yi + dy)];
+        if (v >= 0 && (best < 0 || v < best)) best = v;
+      }
+    }
+    if (best >= 0) return best;
+    // Nothing there at all -- past her stem, under her keel, or in the gap
+    // between her counter and her rudder. Nothing of hers belongs there, so
+    // she is held to the narrowest plating anywhere near rather than letting
+    // the lines have their way.
+    for (let r = 1; r <= 3; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dy = -r; dy <= r; dy++) {
+          const az = zi + dz;
+          const ay = yi + dy;
+          if (az < 0 || az >= nz || ay < 0 || ay >= ny) continue;
+          const v = grid[az * ny + ay];
+          if (v >= 0 && (best < 0 || v < best)) best = v;
+        }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  };
+  return {
+    ...hull,
+    shellAt: (t, y) => {
+      const said = hull.shellAt(t, y);
+      const drawn = at(zOfT(t, y), y);
+      if (drawn < 0) return said;
+      return Math.max(0, Math.min(said, drawn - ENV_MARGIN));
+    },
+  };
+}
+
+/**
+ * How far out her plating is at one point, either side, in metres.
+ *
+ * A ray out from the centreline at that height and station, and the farthest
+ * thing it goes through. Both sides, because she is not always symmetrical and
+ * the wider of the two is the one an interior fitted to her has to clear.
+ */
+function beamAt(tris, list, y, z) {
+  let best = -1;
+  for (let n = 0; n < list.length; n++) {
+    const i = list[n];
+    const hit = rayX(tris, i, y, z);
+    if (hit > best) best = hit;
+  }
+  return best;
+}
+
+/**
+ * Where a ray along the beam, at (y, z), crosses one triangle -- as a distance
+ * off the centreline, either side, or -1 if it misses.
+ *
+ * The ray runs in x, so the crossing is a two-dimensional question in the
+ * (y, z) plane: is the point inside the triangle's shadow there, and if it is,
+ * what is x on the triangle's plane above it.
+ */
+function rayX(tris, i, y, z) {
+  const ay = tris[i + 1], az = tris[i + 2];
+  const by = tris[i + 4], bz = tris[i + 5];
+  const cy = tris[i + 7], cz = tris[i + 8];
+  // Barycentric in the (y, z) plane.
+  const d = (bz - cz) * (ay - cy) + (cy - by) * (az - cz);
+  if (d === 0 || (d < 1e-9 && d > -1e-9)) return -1;
+  const l1 = ((bz - cz) * (y - cy) + (cy - by) * (z - cz)) / d;
+  if (l1 < 0 || l1 > 1) return -1;
+  const l2 = ((cz - az) * (y - cy) + (ay - cy) * (z - cz)) / d;
+  if (l2 < 0 || l1 + l2 > 1) return -1;
+  const l3 = 1 - l1 - l2;
+  return Math.abs(tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * l3);
+}
+
+/**
+ * Every triangle of plating in the group, in her own frame, as a flat array of
+ * nine numbers apiece.
+ *
+ * Everything already built is plating: this runs before her insides exist and
+ * before her guns go on, so what is in the group is her hull, her decks and
+ * her upperworks and nothing else.
+ */
+function platingTriangles(g) {
+  g.updateMatrixWorld(true);
+  const inv = g.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const out = [];
+  const walk = (node) => {
+    for (const child of node.children) {
+      const geo = child.isMesh ? child.geometry : null;
+      if (geo?.attributes?.position) {
+        const pos = geo.attributes.position;
+        const idx = geo.index;
+        m.multiplyMatrices(inv, child.matrixWorld);
+        const n = idx ? idx.count : pos.count;
+        for (let i = 0; i + 2 < n; i += 3) {
+          for (let k = 0; k < 3; k++) {
+            v.fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(m);
+            out.push(v.x, v.y, v.z);
+          }
+        }
+      }
+      if (child.children.length) walk(child);
+    }
+  };
+  walk(g);
+  return out;
+}
+
 /**
  * Build the whole of the inside of a hull.
  *
@@ -406,6 +678,26 @@ function cableLockers(g, hull, sole) {
  * every hull in the yard already has for building her plating.
  */
 export function buildInterior(g, hull) {
+  // Fitted to the plating she is actually drawn with, not to the lines alone.
+  //
+  // Every hull carries a set of lines -- shellAt, keelY, sheer -- and the
+  // plating is lofted through them. But a warship is not her lines: she is
+  // built out of the lines plus everything the yard did on top of them, and
+  // the two do not agree everywhere. A hull that tucks in under the waterline
+  // faster than shellAt says, a counter that narrows towards the sternpost, a
+  // forefoot that is finer than the curve it was drawn from -- the lines are
+  // generous there by a metre in a cruiser and by six in the Hipper, and an
+  // interior built to the generous number stands outside the plating.
+  //
+  // That is the bulkhead you can see from alongside, and it is worst below the
+  // waterline because that is where the difference is worst.
+  //
+  // So the plating already in the group is measured -- it is all built before
+  // this runs -- and the lines are held to it: never wider than the ship
+  // actually is at that point, less a hand's breadth so nothing is flush with
+  // the shell.
+  hull = heldToPlating(g, hull);
+
   const inside = new THREE.Group();
   inside.userData.inside = true;
   g.add(inside);
@@ -414,6 +706,8 @@ export function buildInterior(g, hull) {
   // the flooding, the way she settles -- asks her rather than working it out
   // again from a copy of the numbers.
   g.userData.lines = hull;
+
+  if (globalThis.__INSIDE_TRACE) globalThis.__INSIDE_TRACE(inside, hull);
 
   const keel = hull.keelY(0);
   const deck = hull.sheer(0);
@@ -521,7 +815,11 @@ export function buildInterior(g, hull) {
       const half = roomAt(hull, z, 0.16, ya, yb);
       if (half < 0.5) continue;
       for (const s of [-1, 1]) {
-        box(inside, M.frame, 0.14, yb - ya, 0.3, s * (half - 0.2), (ya + yb) / 2, z);
+        // Set in far enough that the frame is behind the plating rather than
+        // flush with it. Flush, the two surfaces are at the same place and
+        // which one is drawn is down to the last decimal place of the depth
+        // buffer -- so the frame shows through her side in patches.
+        box(inside, M.frame, 0.14, yb - ya, 0.3, s * (half - 0.4), (ya + yb) / 2, z);
       }
     }
   }

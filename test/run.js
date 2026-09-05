@@ -34,6 +34,86 @@ import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
 import { Debris } from '../client/js/render/debris.js';
 import { buildShip } from '../client/js/render/ships.js';
+
+/**
+ * How far off the centreline a ship's plating is, at a height and a station.
+ *
+ * A ray out along the beam through every triangle she is drawn with, and the
+ * farthest one it goes through. The only instrument that answers the question
+ * without assuming anything about how she was drawn -- reading her corners
+ * misses everything between two station rows, and reading her lines is reading
+ * a curve she was lofted through rather than the ship that came out.
+ *
+ * `-1` where she has no plating on that line at all, which is past her stem,
+ * under her keel, or on the centreline itself.
+ */
+function shellRuler(group) {
+  const SLAB = 1.0;
+  group.updateMatrixWorld(true);
+  const inv = group.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const tris = [];
+  const walk = (node) => {
+    for (const ch of node.children) {
+      const geo = ch.isMesh ? ch.geometry : null;
+      // Her insides are what is being checked; everything else is plating.
+      if (geo?.attributes?.position && ch.userData.mergeKey !== 'in') {
+        const pos = geo.attributes.position;
+        const idx = geo.index;
+        m.multiplyMatrices(inv, ch.matrixWorld);
+        const n = idx ? idx.count : pos.count;
+        for (let i = 0; i + 2 < n; i += 3) {
+          for (let k = 0; k < 3; k++) {
+            v.fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(m);
+            tris.push(v.x, v.y, v.z);
+          }
+        }
+      }
+      if (ch.children.length) walk(ch);
+    }
+  };
+  walk(group);
+  const bucket = new Map();
+  for (let i = 0; i < tris.length; i += 9) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const z = tris[i + k * 3 + 2];
+      if (z < lo) lo = z;
+      if (z > hi) hi = z;
+    }
+    for (let b = Math.floor(lo / SLAB); b <= Math.floor(hi / SLAB); b++) {
+      let l = bucket.get(b);
+      if (!l) bucket.set(b, l = []);
+      l.push(i);
+    }
+  }
+  // Where the ray crosses one triangle, as a distance off the centreline: a
+  // two-dimensional question in the plane the ray is normal to.
+  const rayX = (i, y, z) => {
+    const ay = tris[i + 1], az = tris[i + 2];
+    const by = tris[i + 4], bz = tris[i + 5];
+    const cy = tris[i + 7], cz = tris[i + 8];
+    const d = (bz - cz) * (ay - cy) + (cy - by) * (az - cz);
+    if (d < 1e-9 && d > -1e-9) return -1;
+    const l1 = ((bz - cz) * (y - cy) + (cy - by) * (z - cz)) / d;
+    if (l1 < 0 || l1 > 1) return -1;
+    const l2 = ((cz - az) * (y - cy) + (ay - cy) * (z - cz)) / d;
+    if (l2 < 0 || l1 + l2 > 1) return -1;
+    return Math.abs(tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * (1 - l1 - l2));
+  };
+  return (y, z) => {
+    const l = bucket.get(Math.floor(z / SLAB));
+    if (!l) return -1;
+    let best = -1;
+    for (let n = 0; n < l.length; n++) {
+      const h = rayX(l[n], y, z);
+      if (h > best) best = h;
+    }
+    return best;
+  };
+}
 import { angleDelta, dist } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
@@ -3811,50 +3891,47 @@ check('every ship has an inside, and it is inside her', () => {
     assert.ok(bb.max.z <= cls.hull.length / 2 + 1 && bb.min.z >= -cls.hull.length / 2 - 1,
       `${id}'s insides run past her own ends`);
 
-    // And not a point of it outside her plating -- tested against the very
-    // lines the plating was lofted through, at the station each point really
-    // belongs to. Her stem and her counter are raked, so the station a point
-    // is at is not its distance along her over her half-length: it is solved
-    // for, the same way the shell was.
+    // And not a point of it outside her plating -- tested against the plating
+    // she is actually drawn with, by shooting a ray out from her centreline at
+    // the point's own height and station and asking where her side really is.
     //
-    // A box has thickness and height, so it stands at several stations at
-    // once. Fitted to the station at its middle -- which is how this was
-    // written first -- its corners come out through the plating wherever the
-    // hull is curving, which at the ends is everywhere: pale ticks of bulkhead
-    // and frame showing along the waterline of an undamaged ship.
+    // It used to be tested against her lines: the curve her plating was lofted
+    // through. That is not the same thing and it never was. A warship is her
+    // lines plus everything the yard did on top of them, and where the two
+    // disagree -- a bottom that tucks in faster than the curve, a counter that
+    // narrows to the sternpost, a hard chine four metres down -- the lines are
+    // generous. On the Hipper they are generous by six metres. So an interior
+    // built to them passed this check with hundreds of points of bulkhead,
+    // frame and boiler standing outside her, which is exactly what you could
+    // see from alongside, and worst under the waterline because that is where
+    // the difference is worst.
     const L = built.group.userData.lines;
     assert.ok(L, `${id} does not carry the lines she was built to`);
-    const halfLen = cls.hull.length / 2;
-    const stationOf = (z, y) => {
-      if (!L.zAt) return Math.max(-1, Math.min(1, z / halfLen));
-      let lo = -1.02;
-      let hi = 1.02;
-      for (let k = 0; k < 26; k++) {
-        const mid = (lo + hi) / 2;
-        if (L.zAt(mid, y) < z) lo = mid; else hi = mid;
-      }
-      return Math.max(-1, Math.min(1, (lo + hi) / 2));
-    };
+    const outboard = shellRuler(built.group);
     let proud = 0;
+    let sunkenProud = 0;
     let worst = 0;
     let mark = null;
+    const halfLen = cls.hull.length / 2;
     for (const m of inside) {
       const pos = m.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         const px = Math.abs(pos.getX(i));
         const py = pos.getY(i);
         const pz = pos.getZ(i);
-        const t = stationOf(pz, py);
-        const over = Math.max(px - L.shellAt(t, py), py - L.sheer(t), L.keelY(t) - py);
-        if (over > 0.30) {
-          proud++;
-          if (over > worst) { worst = over; mark = [px, py, pz]; }
-        }
+        if (Math.abs(pz) > halfLen) continue;
+        const side = outboard(py, pz);
+        if (side < 0) continue;              // no plating at all on that line
+        const over = px - side;
+        if (over > 0.15) { proud++; if (py < 0) sunkenProud++; }
+        if (over > worst) { worst = over; mark = [px, py, pz]; }
       }
     }
     assert.equal(proud, 0,
-      `${id} has ${proud} points of her insides outside her plating, worst `
-      + `${worst.toFixed(2)} m at ${mark && mark.map((v) => v.toFixed(0)).join(',')}`);
+      `${id} has ${proud} points of her insides outside her plating `
+      + `(${sunkenProud} of them under the waterline), worst ${worst.toFixed(2)} m at `
+      + `${mark && mark.map((v) => v.toFixed(0)).join(',')}`);
+
     // And there is enough of it to be worth looking at: decks, bulkheads,
     // boilers, turbines, magazines and the steering gear.
     assert.ok(tris > 900, `${id} has only ${tris | 0} triangles inside her`);
