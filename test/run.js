@@ -136,7 +136,7 @@ import {
   buildHipper, hipperParts, LOA as HIPPER_LOA,
   deckAt as hipperDeckAt, halfDeck as hipperHalfDeck,
   sheer as hipperSheer, shellAt as hipperShellAt, zAt as hipperZAt,
-  sdeck as hipperSDeck, sHalf as hipperSHalf,
+  sdeck as hipperSDeck, sHalf as hipperSHalf, LOW_TIER as HIPPER_LOW_TIER,
 } from '../client/js/render/hipper.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -1748,11 +1748,10 @@ check("the Hipper's shell has no holes in it", () => {
 });
 
 check("you cannot see through the Hipper's topsides", () => {
-  // Her shell plating and her superstructure are one surface amidships: the
-  // side runs from the boot topping up past the weather deck to the upper
-  // deck without a break, and the boat deck and the bridge stand on top of
-  // that. Fire at the near side of her from abeam anywhere along it and the
-  // first steel the ray meets has to be the near side's own plating.
+  // Fire at the near side of her from abeam, anywhere along the
+  // superstructure and at any height from the boot topping to the boat deck,
+  // and the first steel the ray meets has to be on the near side of her: her
+  // own shell plating below the deck edge, her deckhouse side above it.
   //
   // The failure this catches is not a missing piece: it is plating wound the
   // wrong way round. A triangle whose normal points inboard is culled from
@@ -1770,21 +1769,25 @@ check("you cannot see through the Hipper's topsides", () => {
   const through = [];
   for (let z = -44; z <= 40; z += 1.5) {
     const t = z / (HIPPER_LOA / 2);
-    // From just above the top of the shell plating to just under the walkway
-    // between the two tiers: the band her side has to fill.
-    for (let y = hipperSheer(t) + 0.15; y <= hipperDeckAt(z) + 2.9; y += 0.25) {
+    for (let y = -3; y <= hipperDeckAt(z) + 2.9; y += 0.35) {
       tested++;
       ray.set(new THREE.Vector3(60, y, z), inward);
       const hit = ray.intersectObjects(meshes, false)[0];
-      // Within a metre of the deck edge: the scuttle rims stand a little
-      // proud of it and the plating tucks in a little at her ends.
-      if (!hit || hit.point.x < hipperHalfDeck(z) - 0.9) {
+      // The ray is fired at a fixed station rather than along her rake, so
+      // how far out the shell is at that exact point is only approximate:
+      // what is asked is that the ray stops in the near half of her. Above
+      // the deck edge, anything to starboard of the centreline will do -- the
+      // deckhouse stands inboard of the edge and the walkway between them is
+      // meant to be open. Where the plating itself has to be is asked, station
+      // by station and to the centimetre, by the check above.
+      const want = y < hipperSheer(t) ? hipperShellAt(t, y) * 0.5 : 1.0;
+      if (!hit || hit.point.x < want) {
         through.push(`z ${z.toFixed(0)} y ${y.toFixed(1)} -> `
           + `${hit ? hit.point.x.toFixed(2) : 'nothing'}`);
       }
     }
   }
-  assert.ok(tested > 400, `only ${tested} points of her side were fired at`);
+  assert.ok(tested > 700, `only ${tested} points of her side were fired at`);
   assert.equal(through.length, 0,
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
@@ -1921,6 +1924,73 @@ check("the Hipper's bridge is a tower and her funnel is a boiler room's", () => 
   const cowls = fun.filter((p) => Math.abs((p.min[0] + p.max[0]) / 2) > 4
     && p.max[0] - p.min[0] > 1.4 && p.size[1] > 0.9 && p.size[1] < 1.6);
   assert.ok(cowls.length >= 4, `she has ${cowls.length} boiler-room cowls, not four`);
+});
+
+check("the Hipper's beam mountings are bracketed down to the house", () => {
+  // A sponson is a platform carried outboard of the deckhouse on knees, and a
+  // knee has to stand on something. Hung under the platform at a lean, as they
+  // were, their inboard ends stopped half a metre clear of the house they were
+  // meant to be bolted to: every gun on her beam was held up by brackets
+  // standing in the air.
+  const cls = SHIP_CLASSES.hipper;
+  const parts = hipperParts().filter((p) => p.from === 'sponsons');
+  const beam = [...cls.secondary.mounts, ...cls.aa.guns.flatMap((g) => g.mounts)]
+    .filter((m) => m.x !== 0);
+  const unheld = [];
+  for (const m of beam) {
+    const house = hipperDeckAt(m.z) + HIPPER_LOW_TIER;
+    const side = parts.filter((p) => Math.abs((p.min[2] + p.max[2]) / 2 - m.z) < 3.2
+      && Math.sign((p.min[0] + p.max[0]) / 2) === Math.sign(m.x));
+    if (!side.some((p) => Math.abs(p.min[1] - house) < 0.06)) {
+      unheld.push(`${m.x.toFixed(1)}, ${m.z}`);
+    }
+  }
+  assert.ok(beam.length >= 16, `only ${beam.length} mountings stand on her beam`);
+  assert.equal(unheld.length, 0,
+    `${unheld.length} beam mounting(s) on nothing, first at ${unheld[0]}`);
+});
+
+check('the Hipper is built the same on both sides', () => {
+  // Her structure stands in pairs about the centreline. What she carries need
+  // not -- one crane, one Arado struck down beside the hangar, one ladder up
+  // the funnel casing are all as she was -- but a deckhouse cut back on one
+  // side and not the other, a sponson bracketed to port and hung in the air to
+  // starboard, or a row of cowls staggered down alternate sides is the sort of
+  // thing you only see from right ahead, and then cannot stop seeing.
+  //
+  // Handled gear is left out, and so is anything small enough to be a fitting
+  // -- a door, a rung, a stay -- rather than a piece of the ship.
+  const parts = hipperParts().filter((p) => {
+    if (p.from === 'aircraft') return false;                 // crane, catapult, Arados
+    // Measured on the piece itself rather than on its box in the ship: a
+    // ladder raked up the funnel casing has a box a metre deep and is still a
+    // ladder.
+    const [w, h, d] = p.size;
+    if (w * h * d < 0.5) return false;                       // doors, cleats, eyeplates
+    return [w, h, d].filter((v) => v < 0.5).length < 2;      // ladders, rails, rigging
+  });
+  // Two pieces are a pair if they stand at the same height and station, the
+  // same size, and the same distance out on opposite sides.
+  const shelf = new Map();
+  const key = (p) => `${p.from}|${p.min[1].toFixed(2)}|${p.min[2].toFixed(2)}|`
+    + `${p.max[2].toFixed(2)}|${(p.max[0] - p.min[0]).toFixed(2)}`;
+  for (const p of parts) {
+    const k = key(p);
+    if (!shelf.has(k)) shelf.set(k, []);
+    shelf.get(k).push((p.min[0] + p.max[0]) / 2);
+  }
+  const lone = [];
+  for (const p of parts) {
+    const cx = (p.min[0] + p.max[0]) / 2;
+    if (Math.abs(cx) < 0.25) continue;                       // on the centreline
+    if (!shelf.get(key(p)).some((x) => Math.abs(x + cx) < 0.12)) {
+      lone.push(`${p.from} at ${cx.toFixed(1)}, ${p.min[1].toFixed(1)}, `
+        + `${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
+    }
+  }
+  assert.ok(parts.length > 250, `only ${parts.length} pieces of her were compared`);
+  assert.equal(lone.length, 0,
+    `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
 });
 
 check('the Hipper mounts what her datasheet says she mounts', () => {

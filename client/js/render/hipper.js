@@ -419,6 +419,15 @@ function hull(g) {
   const sh = sheer(t);
   const w = shellAt(t, sh);
   box(g, M.hull, w * 2, 0.5, 0.4, 0, sh - 0.25, zAt(t, sh) - 0.1);
+  // The scuttles down her topsides: a row in the strake between the knuckle
+  // and the deck edge, which is where a cruiser's are. They used to be cut in
+  // the deckhouse side, on the reading that the deckhouse was her side.
+  for (let i = 0; i < 30; i++) {
+    const z = -66 + (i * 132) / 29;
+    const t2 = z / (LOA / 2);
+    const y = sheer(t2) - 0.95;
+    ports(g, shellAt(t2, y) + 0.03, y, z - 0.2, z + 0.2, 1);
+  }
   // Anchors, hawse pipes and the cable running to the capstans.
   for (const sgn of [-1, 1]) {
     const az = 88;
@@ -681,6 +690,10 @@ const MAIN_MAST_Z = -18.8;      // and the mainmast, abaft the catapult
  * has no deck left at all: planking at the bow, planking at the stern, and
  * superstructure everywhere in between.
  */
+// The two decks of the superstructure, and how much open weather deck she is
+// left each side of the lower one.
+export const LOW_TIER = 3.1;    // upper deck, over the weather deck
+const WALKWAY = 3.0;            // deck edge to the house side
 const SUPER_HALF = [
   [-45, 4.6], [-40, 5.5], [-32, 6.2], [-22, 6.8], [-10, 7.0],
   [4, 7.0], [16, 6.8], [28, 6.4], [36, 5.6], [41, 4.4],
@@ -725,19 +738,16 @@ function ports(g, x, y, z0, z1, n) {
  */
 function superstructureDeck(g) {
   const Y = deckAt(0);
-  // Two tiers, because that is what she has.
-  //
-  // Her side does not stop four metres inboard of the deck edge and leave a
-  // trench down the length of her -- which is what a single house set to the
-  // boat deck's own breadth did, and what you could see straight into from
-  // abeam. She is plated out to the deck edge itself, up to the upper deck at
-  // nine metres, with the scuttles in it; the boat deck above that is
-  // narrower, and the step between the two is the walkway her tubes, her boats
-  // and her ready-use lockers stand on.
+  // Two tiers, because that is what she has: the upper-deck house standing on
+  // the weather deck, and the boat deck above it, narrower again. Neither
+  // reaches her side. Three metres of open weather deck are left each side of
+  // the lower one -- the walkway her torpedo tubes stand in and fire over --
+  // and half a metre of the lower one is left outside the upper, which is the
+  // ledge the brackets under her beam mountings stand on.
   const rings = [];
   for (const [z, hw] of SUPER_HALF) rings.push([z, hw]);
   const H = 4.4;
-  const LOW = 3.1;              // upper deck: the top of the lower tier
+  const LOW = LOW_TIER;         // upper deck: the top of the lower tier
 
   // A tier of it: a box of four corners a station, wound so that its faces
   // look outwards.
@@ -771,16 +781,16 @@ function superstructureDeck(g) {
     return { pos, idx };
   };
 
-  // -- the lower tier, carried out to her side ------------------------------
+  // -- the lower tier ------------------------------------------------------
   //
-  // Out to the deck edge itself, and down to the top of the shell plating
-  // rather than to the deck a foot above it, so that her side is one surface
-  // from the boot topping to the upper deck: hull and superstructure are the
-  // same piece of steel amidships, which is what she was built as.
+  // Down to the top of the shell plating rather than to the deck a foot above
+  // it, so there is no slot between the house and the hull, but stopping
+  // WALKWAY short of the deck edge. Carried right out to her side it left her
+  // tubes nowhere to stand: a cruiser's above-water tubes go on the open
+  // weather deck at her side, and the deck has to be there for them.
   {
-    const lowHalf = (i) => Math.max(rings[i][1], halfDeck(rings[i][0]));
     const { pos, idx } = tier(
-      (z) => deckAt(z) - 0.30, (z) => deckAt(z) + LOW, lowHalf);
+      (z) => deckAt(z) - 0.30, (z) => deckAt(z) + LOW, (i) => lowHalf(rings[i][0]));
     // The walkway on top of it, between her side and the boat deck.
     for (let i = 0; i < rings.length - 1; i++) {
       const a = i * 4;
@@ -820,16 +830,24 @@ function superstructureDeck(g) {
   dg.setIndex(di);
   dg.computeVertexNormals();
   g.add(new THREE.Mesh(dg, M.deckSteel));
-  // The scuttles down her side, in the tier that has a side to put them in.
-  // Set a few centimetres proud of the plating they are cut in, or the rims
-  // stand inside it and there is nothing to see.
+  // The scuttles down the house side, a few centimetres proud of the plating
+  // they are cut in, or the rims stand inside it and there is nothing to see.
   for (let i = 0; i < 22; i++) {
     const z = -42 + (i * 82) / 21;
-    ports(g, halfDeck(z) + 0.03, deckAt(z) + 1.5, z - 0.2, z + 0.2, 1);
-    ports(g, halfDeck(z) + 0.03, deckAt(z) + 2.5, z - 0.2, z + 0.2, 1);
+    ports(g, lowHalf(z) + 0.03, deckAt(z) + 1.6, z - 0.2, z + 0.2, 1);
   }
   return Y + H;
 }
+
+/**
+ * How far outboard the upper-deck house goes: the lower of the two tiers.
+ *
+ * Not to the deck edge. She keeps three and a half metres of open weather deck
+ * each side -- the walkway her torpedo tubes stand in and fire over, and the
+ * deck her boats and her ready-use lockers are handed down to. Never inside
+ * the boat deck above it, which has to have something under it.
+ */
+export function lowHalf(z) { return Math.max(sHalf(z) + 0.55, halfDeck(z) - WALKWAY); }
 
 /** How high the superstructure deck is at a station. */
 /**
@@ -853,25 +871,37 @@ function sHalf(z) { return lerpTable(SUPER_HALF, z); }
 function sponson(g, x, z, hw, hd) {
   const y = sdeck(z);
   const sgn = Math.sign(x) || 1;
-  const inner = sHalf(z) - 0.3;
+  const inner = lowHalf(z);
   const outer = Math.abs(x) + hw;
-  if (outer <= inner) return;
+  if (outer <= inner + 0.3) return;
   const mid = (inner + outer) / 2;
   const w = outer - inner;
   box(g, M.deckSteel, w, 0.18, hd * 2, sgn * mid, y + 0.08, z);
-  // The brackets: a knee at each corner, hung under the platform and running
-  // in to the ship's side, which is what carries a sponson. Set so its top
-  // edge meets the underside of what it is holding up -- a bracket with a gap
-  // over it is holding up nothing at all.
-  const LEAN = 0.46;
-  const bw = w * 0.95;
-  const rise = (bw * Math.sin(LEAN) + 0.14 * Math.cos(LEAN)) / 2;
-  for (const dz of [-hd * 0.8, hd * 0.8]) {
-    const k = box(g, M.steel, bw, 0.14, 1.4, sgn * mid, y + 0.02 - rise, z + dz);
-    k.rotation.z = sgn * LEAN;
-  }
+  // The brackets. A knee is a stanchion standing on the house below and a
+  // raking stay from the outboard corner of the platform down to its foot --
+  // two members that each touch something at both ends.
+  //
+  // They used to be single plates hung under the platform at a lean, which
+  // put their inboard ends half a metre clear of the house they were supposed
+  // to be bolted to: brackets holding up a platform and standing on nothing.
+  const foot = deckAt(z) + LOW_TIER;
+  for (const dz of [-hd * 0.8, hd * 0.8]) knee(g, sgn, inner, outer, foot, y - 0.01, z + dz);
   // And a low coaming round the outboard edge of it.
   box(g, M.steel, 0.16, 0.85, hd * 2, sgn * outer, y + 0.5, z);
+}
+
+/**
+ * One bracket knee: a stanchion on the house side at `inner` carrying `top`,
+ * and the raking stay from the platform's outboard edge down to its heel.
+ */
+function knee(g, sgn, inner, outer, foot, top, z) {
+  const h = top - foot;
+  if (h < 0.2) return;
+  box(g, M.steel, 0.18, h, 0.16, sgn * (inner - 0.10), foot + h / 2, z);
+  const run = outer - inner;
+  const stay = box(g, M.steel, Math.hypot(run, h), 0.15, 0.14,
+    sgn * (inner + run / 2), foot + h / 2, z);
+  stay.rotation.z = Math.atan2(h, sgn * run);
 }
 
 /**
@@ -1591,10 +1621,12 @@ function fittings(g) {
       }
     }
   }
-  // Ventilator cowls along the superstructure deck, turned to the wind.
-  for (const [vz, sgn] of [[30, -1], [30, 1], [18, -1], [-2, 1], [-16, -1], [-38, 1]]) {
+  // Ventilator cowls along the superstructure deck, turned to the wind. In
+  // pairs, one each side at every station: they used to be staggered down
+  // alternate sides, which from ahead made her look built lopsided.
+  for (const vz of [30, 18, -2, -16, -38]) for (const sgn of [-1, 1]) {
     const v = new THREE.Group();
-    v.position.set(sgn * 7.6, sdeck(vz), vz);
+    v.position.set(sgn * (sHalf(vz) + 0.6), sdeck(vz), vz);
     g.add(v);
     cyl(v, M.steel, 0.3, 0.36, 1.9, 0, 0.95, 0, 10);
     const bell = cyl(v, M.steel, 0.55, 0.32, 0.7, 0, 2.1, 0.22, 12);
@@ -1693,7 +1725,6 @@ function sponsons(g) {
       sponson(g, m.x, m.z, gun.caliber === 37 ? 1.5 : 1.2, gun.caliber === 37 ? 1.7 : 1.4);
     }
   }
-  for (const m of CLS.torpedoes.mounts) sponson(g, m.x, m.z, 2.0, 2.6);
 }
 
 /** The secondary battery, the light battery and the tubes, off the datasheet. */
@@ -1717,12 +1748,13 @@ function mountings(g) {
         : twoCm(g, m.x, y, m.z, m.angle));
     }
   }
-  // The tubes are on the upper deck at her side, which is where a cruiser's
+  // The tubes stand on the open weather deck at her side, in the walkway
+  // between the house and the deck edge, which is where a cruiser's
   // above-water tubes are: they have to fire over the rail, and a bank up on
   // the boat deck fires over the boats and the funnel casing instead.
   for (const m of CLS.torpedoes.mounts) {
-    const x = Math.sign(m.x) * (halfDeck(m.z) - 2.4);
-    torp.push(torpedoBank(g, x, sdeck(m.z) - 1.3 + 0.16, m.z, m.angle));
+    const x = Math.sign(m.x) * (halfDeck(m.z) - 1.95);
+    torp.push(torpedoBank(g, x, deckAt(m.z) + 0.02, m.z, m.angle));
   }
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
