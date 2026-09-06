@@ -87,8 +87,8 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 const HALF_BEAM = [
   [-1.00, 4.35], [-0.94, 5.42], [-0.86, 6.62], [-0.74, 7.98], [-0.60, 9.05],
   [-0.44, 9.80], [-0.26, 10.24], [-0.08, 10.42], [0.10, 10.36], [0.26, 10.06],
-  [0.42, 9.44], [0.56, 8.50], [0.68, 7.26], [0.79, 5.72], [0.88, 3.94],
-  [0.95, 2.02], [1.00, 0.26],
+  [0.42, 9.44], [0.56, 8.46], [0.68, 7.06], [0.79, 5.34], [0.88, 3.42],
+  [0.95, 1.62], [1.00, 0.22],
 ];
 
 const KEEL = [
@@ -107,9 +107,9 @@ const KEEL = [
 // older ship she stood nearly four metres too high at the stem and carried her
 // forecastle turrets up there with her.
 const SHEER = [
-  [-1.00, 5.80], [-0.55, 5.80], [0.00, 5.80], [0.42, 5.82], [0.61, 5.85],
-  [0.71, 6.06], [0.79, 6.40], [0.845, 6.65], [0.883, 6.82], [0.922, 7.24],
-  [0.961, 7.50], [1.00, 7.90],
+  [-1.00, 5.80], [-0.55, 5.80], [0.00, 5.80], [0.42, 5.84], [0.61, 5.95],
+  [0.71, 6.26], [0.79, 6.72], [0.845, 7.14], [0.883, 7.48], [0.922, 8.06],
+  [0.961, 8.62], [1.00, 9.30],
 ];
 
 const halfBeam = (t) => lerpTable(HALF_BEAM, t);
@@ -123,7 +123,10 @@ const sheer = (t) => lerpTable(SHEER, t);
  * great deal in the last fifth, which is the Atlantic bow.
  */
 function flare(t) {
-  return 0.06 + smooth((t - 0.42) / 0.58) * 0.86;
+  // Hard forward, which is what an Atlantic bow is for: the waterline stays
+  // fine and the deck edge is carried well outboard of it, so she lifts to a
+  // head sea instead of burying herself in it.
+  return 0.06 + smooth((t - 0.42) / 0.58) * 1.18;
 }
 
 /** Her half-breadth at this station and this height. */
@@ -147,10 +150,14 @@ function shellAt(t, y) {
 // clipper stem with three metres of rake between the waterline and the deck
 // edge -- not eight, which is what she had here and which threw her stem head
 // out over the sea like a battleship's ram.
-const STEM = 4.5;
+const STEM = 6.8;
 const COUNTER = 3.4;
 function stemAt(y) {
-  return STEM * Math.pow(Math.min(1, Math.max(0, y + 7.1) / 15.0), 1.51);
+  // Nearly a straight rake above the water, rounding into the forefoot below
+  // it. Drawn with a hard exponent the curve was flat for the bottom half of
+  // its height and then bent sharply, so her stem met her forefoot in a corner
+  // -- a chin under the bow rather than the sweep an Atlantic bow has.
+  return STEM * Math.pow(Math.min(1, Math.max(0, y + 8.0) / 17.3), 1.28);
 }
 function counterAt(y) {
   return COUNTER * Math.pow(Math.min(1, Math.max(0, y + 2.0) / 7.8), 1.5);
@@ -646,30 +653,103 @@ function shieldPlan(hw, front, back) {
   return pts;
 }
 
-/** A twin 3.7 cm SK C/30 on its stabilised pedestal. */
+/**
+ * A twin 3.7 cm SK C/30 in its Dopp. L. C/30 mounting.
+ *
+ * The mounting is the point of it. The gun was a single-shot 3.7 cm that fired
+ * about as fast as a man could feed it, and what made the Kriegsmarine buy it
+ * by the hundred was the carriage: triaxially stabilised, so the guns stayed
+ * laid while the ship rolled under them. That is a big gimballed frame between
+ * two heavy trunnion arms, and it is the whole shape of the thing -- wide, low
+ * and open, with the barrels standing well out in front of it and the layer's
+ * and trainer's seats out on either side.
+ *
+ * What was here was a drum, a box and two tubes.
+ */
 function threeSeven(g, x, y, z, ry) {
   const m = new THREE.Group();
   m.position.set(x, y, z);
   m.rotation.y = ry;
   m.userData.dynamic = true;
   g.add(m);
-  cyl(m, M.steelDark, 0.62, 0.78, 1.0, 0, 0.5, 0, 14);
-  cyl(m, M.gunDark, 0.7, 0.7, 0.18, 0, 1.05, 0, 14);
+  // The pedestal, the roller path it trains on, and the toothed rack.
+  cyl(m, M.steelDark, 0.60, 0.76, 0.85, 0, 0.42, 0, 14);
+  cyl(m, M.gunDark, 0.72, 0.72, 0.16, 0, 0.92, 0, 14);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    box(m, M.gunDark, 0.08, 0.12, 0.12, Math.sin(a) * 0.74, 0.92, Math.cos(a) * 0.74, a);
+  }
+  cyl(m, M.steelDark, 0.56, 0.56, 0.3, 0, 1.14, 0, 14);
+
+  // The two trunnion arms the stabilised cradle hangs between: the heaviest
+  // members on the mounting and the thing you see first from any angle.
+  for (const sgn of [-1, 1]) {
+    const armY = box(m, M.gun, 0.24, 1.05, 0.62, sgn * 0.82, 1.75, -0.05);
+    armY.rotation.z = -sgn * 0.10;
+    // The trunnion bearing itself, and its cap.
+    cyl(m, M.gunDark, 0.22, 0.22, 0.3, sgn * 0.9, 2.2, -0.05, 12)
+      .rotation.z = Math.PI / 2;
+    cyl(m, M.steelDark, 0.13, 0.13, 0.38, sgn * 1.02, 2.2, -0.05, 8)
+      .rotation.z = Math.PI / 2;
+  }
+  // The base of the frame, spanning between the arms under the guns.
+  box(m, M.gun, 1.75, 0.42, 0.9, 0, 1.32, -0.15);
+
+  // The elevating cradle: the frame the two guns sit in, on the trunnions.
   const cradle = new THREE.Group();
-  cradle.position.set(0, 1.35, 0);
+  cradle.position.set(0, 2.2, -0.05);
   m.add(cradle);
-  // The trunnion frame, the two guns, and the pair of ready-use racks.
-  box(cradle, M.gunDark, 1.35, 0.5, 0.7, 0, 0.1, -0.2);
   const guns = new THREE.Group();
   guns.rotation.x = -0.30;
   cradle.add(guns);
+  // The frame: two side plates with the cross members between them.
   for (const sgn of [-1, 1]) {
-    tubeZ(guns, M.gunDark, 0.075, 2.6, sgn * 0.32, 0.22, 1.35, 8);
-    box(guns, M.gunDark, 0.2, 0.24, 0.7, sgn * 0.32, 0.22, 0.1);
+    box(guns, M.gun, 0.14, 0.5, 1.5, sgn * 0.62, 0, 0.35);
+  }
+  box(guns, M.gunDark, 1.4, 0.22, 1.4, 0, -0.2, 0.3);
+  box(guns, M.gunDark, 1.4, 0.16, 0.3, 0, 0.2, -0.35);
+
+  for (const sgn of [-1, 1]) {
+    const bx = sgn * 0.34;
+    // The breech and its casing, which is the bulk of a 3.7 cm gun.
+    box(guns, M.gunDark, 0.34, 0.4, 1.05, bx, 0.06, -0.05);
+    // The jacket over the chamber end, then the barrel proper, then the
+    // muzzle brake: the barrel is nearly three metres of it and it stands
+    // right out in front of the carriage.
+    tubeZ(guns, M.gunDark, 0.115, 0.55, bx, 0.06, 0.72, 10);
+    tubeZ(guns, M.gunDark, 0.062, 1.85, bx, 0.06, 1.9, 10);
+    cyl(guns, M.gunDark, 0.085, 0.085, 0.3, bx, 0.06, 2.92, 10)
+      .rotation.x = Math.PI / 2;
+    cyl(guns, M.cave, 0.04, 0.04, 0.16, bx, 0.06, 3.02, 8).rotation.x = Math.PI / 2;
+    // The loading tray on top and the spent-case chute under it: a C/30 is
+    // hand-fed a round at a time and the tray is where the loader stands.
+    box(guns, M.steelDark, 0.24, 0.07, 0.7, bx, 0.3, -0.15);
+    const chute = box(guns, M.steelDark, 0.22, 0.5, 0.22, bx, -0.34, -0.5);
+    chute.rotation.x = 0.32;
   }
   m.userData.trainRate = 1.5;      // a stabilised 3.7 cm twin, deliberate
-  arm(m, guns, [[-0.32, 0.22, 2.65], [0.32, 0.22, 2.65]]);
-  for (const sgn of [-1, 1]) box(m, M.steelDark, 0.3, 0.5, 0.5, sgn * 0.85, 1.3, -0.6);
+  arm(m, guns, [[-0.34, 0.06, 3.08], [0.34, 0.06, 3.08]]);
+
+  // The layer to starboard and the trainer to port, each on his own seat out
+  // on the end of an arm, with the handwheel in front of him. This is what
+  // makes a C/30 read as a manned mounting rather than as a gun on a post.
+  for (const sgn of [-1, 1]) {
+    box(m, M.steelDark, 0.5, 0.09, 0.44, sgn * 1.3, 1.62, -0.5);
+    box(m, M.steelDark, 0.09, 0.42, 0.09, sgn * 1.3, 1.4, -0.5);
+    cyl(m, M.gunDark, 0.24, 0.24, 0.06, sgn * 1.12, 1.95, -0.05, 12)
+      .rotation.z = Math.PI / 2;
+    // The bracket that carries the seat out from the frame.
+    const br = box(m, M.gun, 0.62, 0.12, 0.3, sgn * 1.05, 1.55, -0.5);
+    br.rotation.z = -sgn * 0.1;
+  }
+  // The splinter plate across the front of the carriage, low, which is all the
+  // shield a C/30 has.
+  const plate = box(m, M.gun, 1.9, 0.62, 0.09, 0, 1.62, 0.75);
+  plate.rotation.x = -0.20;
+  // And the ready-use clips in their racks on the after end of the mounting.
+  for (const sgn of [-1, 1]) {
+    box(m, M.steelDark, 0.26, 0.5, 0.36, sgn * 0.55, 1.62, -0.85);
+  }
   return m;
 }
 
@@ -771,7 +851,11 @@ const MAIN_MAST_Z = -18.8;      // and the mainmast, abaft the catapult
  */
 // The two decks of the superstructure, and how much open weather deck she is
 // left each side of the lower one.
-export const LOW_TIER = 3.1;    // upper deck, over the weather deck
+// How high the lower tier of her superstructure stands over the weather deck:
+// the long grey band that runs from the bridge aft past the funnel and reads
+// as a second hull. Drawn at three metres she looked slab-sided from abeam,
+// with the deckhouse standing as tall as the freeboard under it.
+export const LOW_TIER = 2.5;    // upper deck, over the weather deck
 const WALKWAY = 3.0;            // deck edge to the house side
 const SUPER_HALF = [
   [-45, 4.6], [-40, 5.5], [-32, 6.2], [-22, 6.8], [-10, 7.0],
@@ -1775,8 +1859,27 @@ function aircraft(g) {
   car.add(plane);
   const p2 = arado(plane, 0, 0, 0, 0);
   g.userData.catapult = { cat, girder, car, plane, prop: p2.userData.prop };
-  // And a second one struck down beside the hangar, wings folded back.
-  arado(g, S * 5.6, foot + 0.35, HANGAR[0] - 6.0, S * 0.25, true);
+  // And the other two struck down either side of the hangar, wings folded
+  // back. She carried three: one on the catapult and one a side.
+  //
+  // Only the starboard one was here, so her port side had bare deck where her
+  // starboard side had an aeroplane, a dolly and the gear to handle it -- and
+  // she was one aircraft short of the three on her own datasheet.
+  for (const sgn of [-1, 1]) {
+    arado(g, sgn * 5.6, foot + 0.35, HANGAR[0] - 6.0, sgn * 0.25, true);
+    // The dolly she is chocked on and the tracks it runs on into the hangar.
+    box(g, M.steelDark, 2.6, 0.3, 1.1, sgn * 5.6, foot + 0.18, HANGAR[0] - 6.0);
+    for (const tx of [-1.0, 1.0]) {
+      box(g, M.gunDark, 0.14, 0.1, 9.0, sgn * 5.6 + tx, foot + 0.05, HANGAR[0] - 3.4);
+    }
+    // The trestle her tail sits on, and the tie-down rings.
+    box(g, M.steelDark, 0.7, 0.5, 0.5, sgn * 5.6, foot + 0.25, HANGAR[0] - 9.6);
+    for (const rz of [HANGAR[0] - 8.4, HANGAR[0] - 3.6]) {
+      for (const tx of [-1.5, 1.5]) {
+        cyl(g, M.gunDark, 0.11, 0.11, 0.1, sgn * 5.6 + tx, foot + 0.06, rz, 8);
+      }
+    }
+  }
   // ------------------------------------------------------------- the crane --
   //
   // The heavy crane on her starboard side, which is how a scout gets back

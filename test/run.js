@@ -2707,6 +2707,117 @@ check("you cannot see through the Iowa's side", () => {
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
+check('the Hipper has an Atlantic bow', () => {
+  // The bow the class was rebuilt with after the first winter in the North
+  // Sea, and the reason she could keep the sea in weather her original straight
+  // stem could not: the sheer lifts hard forward, the stem rakes well out over
+  // the forefoot, and the waterline stays fine under a deck edge carried well
+  // outboard of it -- so she rises to a head sea instead of burying herself.
+  //
+  // What she had was a wall-sided wedge: two metres of lift over her whole
+  // length, a stem that met the forefoot in a corner, and a deck edge barely
+  // wider than the waterline under it.
+  const rise = hipperSheer(1) - hipperSheer(0);
+  assert.ok(rise > 3.0,
+    `her deck edge lifts ${rise.toFixed(2)} m from amidships to the stem`);
+
+  // Raked: her stem head stands well forward of where her stem cuts the water.
+  const rake = hipperZAt(1, hipperSheer(1)) - hipperZAt(1, 0);
+  assert.ok(rake > 3.5,
+    `her stem rakes ${rake.toFixed(2)} m between the waterline and the deck`);
+  // And it is a sweep, not a corner: the rake grows smoothly all the way down
+  // rather than being flat for the bottom half of its height and then bending.
+  const steps = [];
+  for (let i = 0; i <= 8; i++) {
+    const y = -6 + (i / 8) * (hipperSheer(1) + 6);
+    steps.push(hipperZAt(1, y));
+  }
+  let worst = 0;
+  for (let i = 2; i < steps.length; i++) {
+    const a = steps[i - 1] - steps[i - 2];
+    const b = steps[i] - steps[i - 1];
+    worst = Math.max(worst, Math.abs(b - a));
+  }
+  // A proper sweep changes its rake by under a tenth of a metre a step over
+  // this height; a curve that lies flat and then bends changes it by half.
+  assert.ok(worst < 0.25,
+    `her stem changes rake by ${worst.toFixed(2)} m in one step: it has a `
+    + 'corner in it rather than a sweep');
+
+  // Flared: the deck edge stands well outboard of the waterline forward, and
+  // more so the closer to the stem you look.
+  const flareAt = (t) => hipperShellAt(t, hipperSheer(t))
+    / Math.max(0.01, hipperShellAt(t, 0));
+  const fwd = flareAt(0.88);
+  const mid = flareAt(0.0);
+  assert.ok(fwd > 1.30,
+    `her deck edge is only ${fwd.toFixed(2)} times her waterline breadth `
+    + 'thirty metres from the stem: she has no flare forward');
+  assert.ok(fwd > mid * 1.15,
+    `she flares ${fwd.toFixed(2)} forward against ${mid.toFixed(2)} amidships, `
+    + 'which is a wall-sided hull and not an Atlantic bow');
+  assert.ok(flareAt(0.95) > fwd,
+    'her flare does not go on opening toward the stem');
+});
+
+check("everything on the Hipper's sides is on both of them", () => {
+  // She is a ship and not half a ship. Anything substantial off her centreline
+  // has a twin to match it, because a fitting drawn on one side only is a hole
+  // in her from the other -- and the two sides of her are seen one at a time.
+  //
+  // Two things are hers alone and stay that way: the aircraft crane, which
+  // stood on her starboard side and of which she had one, and the trolley on
+  // her catapult, which is likewise one trolley on one track. Everything else
+  // pairs off.
+  const parts = hipperParts().filter((p) => p.size[0] * p.size[1] * p.size[2] > 0.5);
+  const r = (v) => Math.round(v * 2) / 2;
+  const key = (p) => [r(Math.abs((p.min[0] + p.max[0]) / 2)),
+    r((p.min[1] + p.max[1]) / 2), r((p.min[2] + p.max[2]) / 2)].join('|');
+  // The two that are hers alone, and nothing else: her crane, which stands a
+  // metre abaft amidships up on the superstructure deck, and the trolley on
+  // her catapult, which is up on the track twelve metres further aft. The
+  // aeroplanes struck down beside the hangar are on the deck below both and
+  // are not exempt -- there is one a side and they have to pair.
+  const singular = (p) => {
+    if (p.from !== 'aircraft') return false;
+    const cz = (p.min[2] + p.max[2]) / 2;
+    const cy = (p.min[1] + p.max[1]) / 2;
+    if (cz > -4 && cz < 6) return true;                  // the crane
+    return cz > -18 && cz < -7 && cy > 13.8;             // the catapult trolley
+  };
+  const side = { p: [], s: [] };
+  for (const p of parts) {
+    const cx = (p.min[0] + p.max[0]) / 2;
+    if (Math.abs(cx) < 1.0) continue;
+    side[cx < 0 ? 's' : 'p'].push(p);
+  }
+  const lone = [];
+  for (const [here, there] of [[side.s, side.p], [side.p, side.s]]) {
+    const keys = new Set(there.map(key));
+    for (const p of here) {
+      if (keys.has(key(p)) || singular(p)) continue;
+      lone.push(`${p.from} at ${((p.min[0] + p.max[0]) / 2).toFixed(1)}, `
+        + `${((p.min[1] + p.max[1]) / 2).toFixed(1)}, `
+        + `${((p.min[2] + p.max[2]) / 2).toFixed(1)}`);
+    }
+  }
+  assert.deepEqual(lone, [],
+    `${lone.length} thing(s) on one side of her and not the other: `
+    + lone.slice(0, 6).join('; '));
+
+  // And she stows the three aircraft her datasheet gives her: one on the
+  // catapult and one struck down each side of the hangar, on the deck below.
+  const stowed = parts.filter((p) => p.from === 'aircraft'
+    && (p.min[1] + p.max[1]) / 2 < 13
+    && (p.min[2] + p.max[2]) / 2 < -6 && (p.min[2] + p.max[2]) / 2 > -18);
+  const onSide = (sign) => stowed.some((p) =>
+    Math.sign((p.min[0] + p.max[0]) / 2) === sign
+    && Math.abs((p.min[0] + p.max[0]) / 2) > 3);
+  assert.ok(onSide(-1) && onSide(1),
+    'she has an aeroplane struck down beside her hangar on one side only, '
+    + `and her datasheet gives her ${SHIP_CLASSES.hipper.datasheet.aircraft}`);
+});
+
 check("the Hipper's boats and her crane are on deck, not inside it", () => {
   // Both were modelled and neither could be seen, because both were built
   // inside her deckhouse.
