@@ -1236,13 +1236,17 @@ function funnel(g) {
   // -- the funnel -----------------------------------------------------------
   const f = new THREE.Group();
   f.position.set(0, base, FUNNEL_Z);
-  f.rotation.x = -0.14;
   g.add(f);
   // Nine metres of trunk, oval in section and tapering, which puts the top of
   // her at twenty-four and a half metres over the water -- eight below the
   // foretop, which is the whole reason the cap was fitted. Drawn at its own
   // height rather than built to eleven and squashed: a squashed funnel is a
   // squashed oval, and hers is a tall one.
+  //
+  // And upright. She used to be raked eight degrees aft, which is a
+  // destroyer's funnel and not hers: on her own profile both sides of the
+  // trunk are plumb from the casing to the mouth, and everything that is
+  // angled about her funnel is in the cap on top of it.
   loftRings(f, M.steel, [
     [3.75, 4.9, 0, 0],
     [3.55, 4.6, 0, 3.6],
@@ -1270,17 +1274,39 @@ function funnel(g) {
       [3.77 * k, 4.92 * k, 0, by + 0.11],
     ], { n: 24, px: 0.84, pz: 0.84, cap: false });
   }
-  // The cap, on four struts over the mouth, with the lip turned down round it.
+  // The cap.
+  //
+  // Hers is not a lid. It is a raked hood -- the Kappe fitted in 1940 -- and
+  // the rake is the whole of it: the forward edge stands high and the after
+  // edge comes down over the mouth, so the smoke is thrown up and aft and
+  // kept out of the foretop and the rangefinders. Measured off her profile it
+  // rises about three metres over eleven, which is sixteen degrees.
+  //
+  // It used to be a flat plate, with the rake put into the trunk underneath
+  // instead and the wrong way round at that: the funnel leant aft and the cap
+  // sat square on it, which is the arrangement of neither ship.
+  const RAKE = 0.28;
+  // Four struts over the mouth, each cut to the height of the tilted cap over
+  // its own corner: struts of one length under a raked cap either hold it up
+  // at one end and hang short at the other, or go through it.
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    cyl(f, M.steelDark, 0.16, 0.16, 1.6, Math.sin(a) * 2.4, 11.0, Math.cos(a) * 3.0, 8);
+    const sz = Math.cos(a) * 3.0;
+    const top = 11.35 + sz * Math.sin(RAKE);
+    cyl(f, M.steelDark, 0.16, 0.16, top - 10.35, Math.sin(a) * 2.4,
+      (top + 10.35) / 2, sz, 8);
   }
-  // The cap: wider than the mouth and standing clear of it on the struts, so
-  // there is daylight under it. That gap is the whole of what it is for.
-  loftRings(f, M.steel, [
-    [4.05, 5.10, 0, 11.35],
-    [4.20, 5.28, 0, 11.65],
-    [4.10, 5.16, 0, 11.90],
+  // The hood itself: wider than the mouth and standing clear of it on the
+  // struts, so there is daylight under it. That gap is the whole of what it
+  // is for.
+  const cap = new THREE.Group();
+  cap.position.set(0, 11.35, 0);
+  cap.rotation.x = -RAKE;
+  f.add(cap);
+  loftRings(cap, M.steel, [
+    [4.05, 5.10, 0, 0],
+    [4.20, 5.28, 0, 0.30],
+    [4.10, 5.16, 0, 0.55],
   ], { n: 24, px: 0.90, pz: 0.90 });
   // The steam pipes up her after face, the siren, and the ladder in its cage.
   for (const sgn of [-1, 1]) {

@@ -476,7 +476,9 @@ export const SHIP_CLASSES = {
     },
     planes: null,
     datasheet: {
-      displacement: Math.round(45000 * BIG ** 3),
+      // Her tonnage is the ship's own, not the model's: she is drawn larger
+      // than she was built, and 45,000 tons is what she displaced.
+      displacement: 45000,
       aircraft: 3,
       mainRounds: 1170,
       secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 9000 },

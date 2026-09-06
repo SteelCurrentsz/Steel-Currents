@@ -8,7 +8,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
-import { rollPeriod, rollHeed, pitchPeriod, pitchHeed } from './render/seakeeping.js';
+import { Seakeeping } from './render/seakeeping.js';
 import { buildShip } from './render/ships.js';
 import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
@@ -255,23 +255,33 @@ export class ShipyardScene {
     this.time += dt;
     if (!this.ship) return;
 
-    // She rides the swell rather than standing still on it, and how much she
-    // rides it is a matter of how big she is -- the same beam and length that
-    // decide her roll at sea decide it in her berth. A Fletcher is never still;
-    // an Iowa alongside barely moves.
+    // She floats on the water she is actually in.
+    //
+    // She used to move on three sine waves of her own -- a roll, a pitch and a
+    // heave, each on her own period -- with no reference at all to the sea
+    // under her. That is the wrong kind of wrong: the swell here is the better
+    // part of half a kilometre long, so a hull sits on a face of it that is
+    // tilted for tens of seconds at a stretch, and a ship that stays level
+    // while the water round her lies over reads as a ship trimmed by the
+    // stern. In flat calm, which is what a berth is, she looked as though she
+    // were down by the head or the stern for no reason at all.
+    //
+    // So she takes the same water the battle gives her, through the same
+    // spring: her attitude is measured off the sea under her ends, and how
+    // much of it reaches her is a matter of her size, exactly as at sea.
     const g = this.ship.group;
-    const hull = SHIP_CLASSES[this.classId]?.hull;
-    const T = rollPeriod(hull ? hull.beam : 20);
-    const heed = rollHeed(hull ? hull.length : 180);
-    const w = (Math.PI * 2) / T;
-    g.rotation.z = (Math.sin(this.time * w) * 0.030
-      + Math.sin(this.time * w * 2.3 + 1.1) * 0.010) * heed;
-    // And she pitches on her own period too, which for anything above a
-    // destroyer is barely at all.
-    const pw = (Math.PI * 2) / pitchPeriod(hull ? hull.length : 180);
-    g.rotation.x = Math.sin(this.time * pw + 0.8) * 0.026
-      * pitchHeed(hull ? hull.length : 180);
-    g.position.y = Math.sin(this.time * 0.55) * 0.55;
+    const hull = SHIP_CLASSES[this.classId]?.hull
+      || { length: 180, beam: 20 };
+    if (!this.sea || this.seaFor !== this.classId) {
+      this.sea = new Seakeeping(hull);
+      this.seaFor = this.classId;
+    }
+    const att = this.ocean.attitude(0, 0, 0, hull.length, hull.beam);
+    const m = this.sea.step(att, dt);
+    g.rotation.order = 'YXZ';
+    g.rotation.z = m.roll;
+    g.rotation.x = m.pitch;
+    g.position.y = m.heave;
     // Her lifts work while she is being looked at, which is the only way to see
     // the hangar under the flight deck. On wall time, so they run at the same
     // speed however fast the yard happens to be drawing.

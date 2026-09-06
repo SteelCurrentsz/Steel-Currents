@@ -2145,6 +2145,78 @@ check("you cannot see through the Iowa's side", () => {
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
+check("the Hipper's funnel stands plumb under a cap raked aft", () => {
+  // Her funnel is upright and her cap is not, and it is that way round.
+  //
+  // The Kappe fitted in 1940 is a raked hood: its forward edge stands high and
+  // its after edge comes down over the mouth, so the smoke is thrown up and
+  // aft, clear of the foretop and the rangefinders eight metres above it. What
+  // she had here was the opposite of both halves -- the trunk leant eight
+  // degrees aft, which is a destroyer's funnel, and the cap sat square on top
+  // of it -- so from abeam her funnel raked the wrong way and her cap did not
+  // rake at all.
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+
+  // Plumb: every band and ring round the trunk is a ring of the same funnel,
+  // so they all have to stand over one another. A raked trunk walks them aft.
+  // Flat rings only: measured on the piece as it stands in her, so the stays
+  // and the raked cap -- which are not level and are not meant to be -- do not
+  // come into it.
+  const rings = hipperParts().filter((p) => p.from === 'funnel'
+    && p.max[1] - p.min[1] < 0.7 && p.size[2] > 6 && p.max[1] > 12);
+  assert.ok(rings.length >= 3, `only ${rings.length} rings round her funnel`);
+  const zc = (p) => (p.min[2] + p.max[2]) / 2;
+  const base = zc(rings.reduce((a, b) => (a.min[1] < b.min[1] ? a : b)));
+  const span = rings.reduce((w, p) => Math.max(w, Math.abs(zc(p) - base)), 0);
+  assert.ok(span < 0.25,
+    `her funnel leans: its rings are spread ${span.toFixed(2)} m fore and aft`);
+
+  // And raked: the cap is measurably higher forward than aft. Read off the
+  // quarters rather than the centreline, which has rigging over it.
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const capAt = (z) => {
+    ray.set(new THREE.Vector3(2.8, 90, z), down);
+    const hit = ray.intersectObjects(meshes, false)
+      .find((i) => i.point.y > 20 && i.point.y < 27);
+    return hit ? hit.point.y : null;
+  };
+  const aft = capAt(4.9);
+  const fwd = capAt(11.7);
+  assert.ok(aft != null && fwd != null, 'her cap is not over her funnel');
+  assert.ok(fwd > aft + 1.2,
+    `her cap stands ${fwd.toFixed(2)} m forward against ${aft.toFixed(2)} aft`);
+});
+
+check('a hull on flat water settles level', () => {
+  // Every hull in the game takes her attitude from the water under her, through
+  // one spring. Given water that is not doing anything -- a berth, a flat calm
+  // -- she has to come to rest upright and level and stay there, from whatever
+  // she was doing when the calm arrived.
+  //
+  // The shipyard used to move her on three sine waves of its own instead, with
+  // no reference to the sea she was floating in. The swell here is the better
+  // part of half a kilometre long, so a hull sits on one face of it for tens of
+  // seconds at a stretch; a ship that stays level while the water round her
+  // lies over reads as a ship trimmed by the stern, and that is what she looked
+  // like in a flat calm.
+  for (const id of ['fletcher', 'hipper', 'iowa', 'enterprise']) {
+    const sea = new Seakeeping(SHIP_CLASSES[id].hull);
+    sea.pitch = 0.09; sea.roll = -0.12; sea.heave = 2.4;
+    const flat = { pitch: 0, roll: 0, heave: 0 };
+    for (let t = 0; t < 90; t += 1 / 30) sea.step(flat, 1 / 30);
+    assert.ok(Math.abs(sea.pitch) < 0.002,
+      `${id} still sits ${(sea.pitch * 57.3).toFixed(2)}deg by the stern on flat water`);
+    assert.ok(Math.abs(sea.roll) < 0.002,
+      `${id} still lies ${(sea.roll * 57.3).toFixed(2)}deg over on flat water`);
+    assert.ok(Math.abs(sea.heave) < 0.02,
+      `${id} still floats ${sea.heave.toFixed(2)} m off her marks on flat water`);
+  }
+});
+
 check('the Hipper is built the same on both sides', () => {
   // Her structure stands in pairs about the centreline. What she carries need
   // not -- one crane, one Arado struck down beside the hangar, one ladder up
