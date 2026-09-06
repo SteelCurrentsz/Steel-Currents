@@ -9,7 +9,7 @@ import { Effects } from './effects.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
-import { Wake } from './wake.js';
+import { Wake, WakeField } from './wakefield.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection } from './interior.js';
 import { Plating } from './plating.js';
@@ -549,7 +549,8 @@ function weld(parts) {
 const TMP = new THREE.Vector3();
 
 export class ShipView {
-  constructor(scene, classId, team, isSelf, ocean = null, quality = undefined) {
+  constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
+    wakes = null) {
     const built = buildShip(classId);
     this.group = built.group;
     this.turrets = built.turrets;
@@ -575,9 +576,9 @@ export class ShipView {
     const len = this.cls.hull.length;
     // The wake is laid in the world rather than towed behind her, so it stays
     // where she has been and curves when she does.
-    this.wake = new Wake(scene, {
-      length: len, beam: this.cls.hull.beam, ocean,
-    });
+    this.wake = new Wake({ length: len, beam: this.cls.hull.beam });
+    if (wakes) wakes.add(this.wake);
+    this.wakes = wakes;
 
     // A marker so friend and foe are readable at a glance from the bridge.
     const ringGeo = new THREE.RingGeometry(len * 0.62, len * 0.68, 28);
@@ -895,6 +896,7 @@ export class ShipView {
 
   dispose(scene) {
     scene.remove(this.group);
+    if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();
   }
 }
@@ -937,6 +939,10 @@ export class BattleScene {
 
     this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
     this.ocean.setSeaState(world.sea ?? 2);
+    // What the ships have done to that water. Nothing of it is in the scene:
+    // it is drawn into a map of its own and the ocean reads it, so a wake is
+    // the sea being displaced rather than a shape drawn on top of it.
+    this.wakes = new WakeField({ size: q.wakeMap || 1024 });
     // Water under cloud is not blue: it takes its colour off the sky, and the
     // sky has gone grey. Everything the sea reads its colour from is pulled the
     // same way, so the two go on agreeing.
@@ -1073,7 +1079,8 @@ export class BattleScene {
   getShipView(id, classId, team, isSelf) {
     let v = this.shipViews.get(id);
     if (!v) {
-      v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating);
+      v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
+        this.wakes);
       this.shipViews.set(id, v);
     }
     return v;
@@ -1155,6 +1162,10 @@ export class BattleScene {
   }
 
   render() {
+    // The wake map first: the water is about to be displaced by it, so it has
+    // to describe this frame rather than the last one.
+    this.wakes.render(this.renderer, this.camera);
+    this.wakes.bind(this.ocean.material.uniforms);
     this.renderer.render(this.scene, this.camera);
   }
 }

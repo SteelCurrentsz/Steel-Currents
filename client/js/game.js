@@ -1174,7 +1174,7 @@ export class Battle {
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
 
-      view.wake.update(dt, x, z, h, speed, this.scene.ocean);
+      view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
       // A ship that has stopped floating is not simply switched off. She is
       // still there, going down the way her water and her wreckage make her

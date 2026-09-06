@@ -39,8 +39,12 @@ export function setSettings(patch) {
 // how small a hole a shell can make in her. It costs vertices: a fleet carrier
 // cut to a metre and a half is a quarter of a million triangles, which is
 // nothing on a desktop and a great deal on a telephone.
+// `wakeMap` is how many texels square each of the two wake patches gets. The
+// near one is a kilometre across, so 1024 is a metre a texel -- fine enough to
+// draw the shoulder of a bow wave. It is the one number that decides how
+// detailed a wake can be, because a wake is a picture of the water now.
 export const QUALITY = {
-  low: { oceanSegments: 140, oceanSize: 22000, pixelRatio: 1, shadows: false, particles: 0.5, drawDistance: 26000, plating: 8 },
-  medium: { oceanSegments: 260, oceanSize: 26000, pixelRatio: 1.25, shadows: true, particles: 1, drawDistance: 30000, plating: 3 },
-  high: { oceanSegments: 420, oceanSize: 30000, pixelRatio: 1.6, shadows: true, particles: 1.7, drawDistance: 34000, plating: 1.6 },
+  low: { oceanSegments: 140, oceanSize: 22000, pixelRatio: 1, shadows: false, particles: 0.5, drawDistance: 26000, plating: 8, wakeMap: 512 },
+  medium: { oceanSegments: 260, oceanSize: 26000, pixelRatio: 1.25, shadows: true, particles: 1, drawDistance: 30000, plating: 3, wakeMap: 1024 },
+  high: { oceanSegments: 420, oceanSize: 30000, pixelRatio: 1.6, shadows: true, particles: 1.7, drawDistance: 34000, plating: 1.6, wakeMap: 2048 },
 };

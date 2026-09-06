@@ -116,8 +116,8 @@ function shellRuler(group) {
 }
 import { angleDelta, dist, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
-import { Wake } from '../client/js/render/wake.js';
+import { Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL } from '../client/js/render/ocean.js';
+import { Wake, WakeField } from '../client/js/render/wakefield.js';
 import { ShipView } from '../client/js/render/scene.js';
 import { torpedoGeometry } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
@@ -3546,6 +3546,176 @@ check('nothing but the launching aircraft is ever on the runway', () => {
     `the lifts have aircraft welded into them: ${JSON.stringify(carried)}`);
 });
 
+check('her white water opens from the cutwater, it does not start full width', () => {
+  // A wake is a wedge. It begins at the stem, where it is as wide as the stem
+  // is, and opens from there -- down her side, past her quarter, and slowly
+  // outward astern for as long as the water stays broken. Drawn at a fixed
+  // multiple of her beam instead, it arrives at full width along one straight
+  // line ruled across the sea at her bow, and the ship sails inside a band of
+  // white two and a half beams across that never gets any wider.
+  //
+  // Two halves to it, and they are in different languages.
+  //
+  // The strip the map is drawn through is laid out in Javascript, so its width
+  // can simply be measured: it must never narrow going aft.
+  const cls = SHIP_CLASSES.iowa;
+  const wake = new Wake({ length: cls.hull.length, beam: cls.hull.beam });
+  let z = 0;
+  for (let i = 0; i < 60 * 30; i++) { z += 15 / 30; wake.update(1 / 30, 0, z, 0, 15); }
+  const halfs = wake.geo.attributes.aHalf;
+  const cols = wake.geo.attributes.position.count / 64;
+  const rows = wake.pts.length;
+  let narrowed = 0;
+  for (let i = 1; i < rows; i++) {
+    if (halfs.getX(i * cols) < halfs.getX((i - 1) * cols) - 1e-3) narrowed++;
+  }
+  assert.equal(narrowed, 0, `the strip narrows going aft at ${narrowed} of ${rows} rows`);
+  assert.ok(halfs.getX((rows - 1) * cols) > halfs.getX(0) * 1.5,
+    'the strip is no wider at the far end of her wake than it is at her stem');
+
+  // And what is drawn into the map is worked out per texel in the fragment
+  // stage, so what can be checked there is that every piece of white water is
+  // measured against the opening -- `spread`, which grows with the distance
+  // astern of her stem -- rather than against her beam, which does not.
+  const src = wake.mesh.material.fragmentShader;
+  assert.ok(/float\s+spread\s*=/.test(src),
+    'there is no opening curve in the wake shader at all');
+  // Each named term, from its `float <name> =` to the semicolon that ends it.
+  const statement = (name) => {
+    const at = src.search(new RegExp(`float\\s+${name}\\s*=`));
+    assert.ok(at >= 0, `the wake shader has no ${name} term`);
+    return src.slice(at, src.indexOf(';', at));
+  };
+  for (const term of ['stem', 'band', 'coreW']) {
+    assert.ok(/spread|hullHalf/.test(statement(term)),
+      `${term} is laid at a fixed width instead of following her opening`);
+  }
+  // The opening itself has to be a function of how far astern this water is.
+  assert.ok(/run|alongHull|runS/.test(statement('spread')),
+    'the opening does not widen with the distance astern of her stem');
+});
+
+check('a ship lays her wake from her stem, and it ends in nothing', () => {
+  // Two things about the strip the wake is written into.
+  //
+  // Its head is her stem. Every wave a ship makes is made at the bow -- the
+  // diverging feathers start there and run out and back past her side -- so a
+  // strip that begins at her transom has no water in it where the bow wave
+  // actually is, which is the brightest thing in the whole wake.
+  //
+  // And its far end fades. Age alone will not do it: a ship working up from
+  // rest has a short track whose oldest water is only seconds old, so the wake
+  // stopped dead in a straight line ruled across the sea.
+  const cls = SHIP_CLASSES.iowa;
+  const wake = new Wake({ length: cls.hull.length, beam: cls.hull.beam });
+  const dt = 1 / 30;
+  const v = 15;
+  let z = 0;
+  for (let i = 0; i < 60 / dt; i++) { z += v * dt; wake.update(dt, 0, z, 0, v); }
+  assert.ok(wake.pts.length > 8, `she laid only ${wake.pts.length} pieces of track`);
+
+  // The head of the track is her stem, half her length ahead of her middle.
+  const ahead = wake.pts[0].z - z;
+  assert.ok(Math.abs(ahead - cls.hull.length * 0.5) < 1,
+    `her wake starts ${ahead.toFixed(0)} m from her middle, not at her stem `
+    + `${(cls.hull.length * 0.5).toFixed(0)} m ahead of it`);
+
+  // And the strip runs aft from there, never forward.
+  const pos = wake.geo.attributes.position;
+  let furthest = -Infinity;
+  for (let i = 0; i < pos.count; i++) furthest = Math.max(furthest, pos.getZ(i));
+  assert.ok(furthest <= wake.pts[0].z + 0.01,
+    `the strip reaches ${(furthest - wake.pts[0].z).toFixed(0)} m ahead of her stem`);
+
+  // The last rows of it are faded right out.
+  const tail = wake.geo.attributes.aTail;
+  const last = wake.pts.length - 1;
+  const cols = pos.count / 64;
+  assert.equal(tail.getX(0), 1, 'the head of her wake is faded');
+  assert.equal(tail.getX(last * cols), 0, 'the far end of her wake stops dead');
+  assert.ok(tail.getX((last - 3) * cols) < 0.7,
+    'her wake does not fade out over its last few pieces');
+});
+
+check("a ship's wake is written into the water, not laid on top of it", () => {
+  // The wake used to be its own mesh with its own shading, floating a hand's
+  // breadth over the sea so it would win the depth test. Now it is a map the
+  // ocean reads in its own two stages, and that is the whole difference: there
+  // is nothing in the scene to see, and the surface is displaced by it.
+  const field = new WakeField({ size: 64 });
+  const wake = new Wake({ length: 200, beam: 20 });
+  field.add(wake);
+  assert.equal(field.wakes.size, 1, 'the field did not take her wake');
+  // Her strip lives in the field's own scene and in no other.
+  assert.equal(wake.mesh.parent, field.scene, 'her wake is in the world scene');
+  assert.equal(wake.mesh.material.depthWrite, false, 'her wake writes depth');
+  // Added where two wakes cross, which is what water does.
+  assert.equal(wake.mesh.material.blendSrc, THREE.OneFactor,
+    'her wake is faded into the map instead of added to it');
+  assert.equal(wake.mesh.material.blendDst, THREE.OneFactor,
+    'her wake paints over another ship\'s instead of adding to it');
+
+  // And the ocean is the only thing that reads it: the map goes into her
+  // uniforms and nowhere else.
+  const uniforms = {
+    uWakeNear: { value: null }, uWakeFar: { value: null },
+    uWakeNearAt: { value: new THREE.Vector4() },
+    uWakeFarAt: { value: new THREE.Vector4() },
+    uWakeScale: { value: 0 }, uWakeStep: { value: 0 },
+  };
+  field.cascades[0].centre.set(120, -340);
+  field.bind(uniforms);
+  assert.equal(uniforms.uWakeNear.value, field.cascades[0].rt.texture);
+  assert.equal(uniforms.uWakeFar.value, field.cascades[1].rt.texture);
+  assert.deepEqual(
+    [uniforms.uWakeNearAt.value.x, uniforms.uWakeNearAt.value.y], [120, -340],
+    'the ocean was not told where the map is');
+  assert.ok(uniforms.uWakeScale.value > 0, 'the ocean was not told the map scale');
+
+  field.remove(wake);
+  assert.equal(field.wakes.size, 0, 'the field kept a wake it was told to drop');
+  assert.equal(wake.mesh.parent, null, 'her strip is still in the field scene');
+});
+
+check("the sea reads the wake map the way the wake map is drawn", () => {
+  // The map is drawn by a camera looking straight down, and a camera looking
+  // down has its own up: the patch's V axis runs the opposite way to world Z.
+  // Sampled without that flip the whole wake comes back mirrored about the
+  // ship -- laid ahead of her instead of astern, offset to one side, with a
+  // hole in the water where the bow wave should be. It looked plausible
+  // enough in a still to survive a good many of them.
+  //
+  // The two ends of it have to agree, so both are read out of the source: the
+  // camera the field renders with, and the sampler the ocean reads with.
+  const field = new WakeField({ size: 8 });
+  field.render({
+    getRenderTarget: () => null,
+    getClearColor: (c) => c,
+    getClearAlpha: () => 1,
+    setClearColor() {}, setRenderTarget() {}, render() {},
+  }, { position: { x: 0, y: 300, z: 0 }, quaternion: new THREE.Quaternion() });
+  // Which way the map's own camera has its up: straight down, and its screen
+  // up is world -Z.
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(field.cam.quaternion);
+  assert.ok(up.z < -0.99,
+    `the map camera's up is ${up.z.toFixed(2)} in Z, so the flip below is wrong`);
+
+  // And the sampler in the ocean's shader flips Z to match it.
+  //
+  // Both of the ocean's samplers read the near patch -- `wakeAt` for the
+  // colour and the foam, `wakeLift` for the displacement -- so counting the
+  // flip rather than looking for one catches a sampler that has lost it while
+  // the other still has it. Those two disagreeing is worse than neither
+  // flipping: the surface would be lifted in one place and painted in another.
+  const src = OCEAN_WAKE_GLSL.replace(/\s+/g, ' ');
+  const near = src.split('uWakeNearAt.y - p.y').length - 1;
+  const reads = src.split('texture2D(uWakeNear').length - 1;
+  assert.equal(near, reads,
+    `${reads} sampler(s) read the near wake map and only ${near} flip Z`);
+  assert.ok(src.includes('uWakeFarAt.y - p.y'),
+    'the ocean samples the far wake map without flipping Z');
+});
+
 check('a ship that is placed does not rule a line across the sea', () => {
   // The wake is laid in the world: each piece of it stays where she made it.
   // That is right while she is sailing and wrong the moment she is put
@@ -3553,8 +3723,7 @@ check('a ship that is placed does not rule a line across the sea', () => {
   // fresh. Joining the piece she laid before to where she now is drew a dead
   // straight ribbon across the map, and a ribbon four kilometres long and
   // eighty metres wide comes out as a hard bright line ruled over the water.
-  const scene = new THREE.Scene();
-  const wake = new Wake(scene, { length: 262, beam: 26, ocean: null });
+  const wake = new Wake({ length: 262, beam: 26 });
   const spread = () => {
     const p = wake.pts;
     let most = 0;
@@ -3565,18 +3734,18 @@ check('a ship that is placed does not rule a line across the sea', () => {
   };
   // Steaming north at a fair clip, laying a proper trail.
   let z = 0;
-  for (let i = 0; i < 400; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 0, z, 0, 15, null); }
+  for (let i = 0; i < 400; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 0, z, 0, 15); }
   assert.ok(wake.pts.length > 4, 'she laid no trail at all');
   const sailed = spread();
   assert.ok(sailed < 40, `sailing, her trail steps ${sailed.toFixed(0)} m at a time`);
 
   // Now put her four kilometres away, the way a battle start does.
-  wake.update(1 / 30, 4000, 4000, 0, 15, null);
+  wake.update(1 / 30, 4000, 4000, 0, 15);
   const after = spread();
   assert.ok(after < 40,
     `placed, her trail spans ${after.toFixed(0)} m between two pieces -- that is the line`);
   // And she picks up laying a normal trail again from where she was put.
-  for (let i = 0; i < 200; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 4000, 4000 + z, 0, 15, null); }
+  for (let i = 0; i < 200; i++) { z += 15 * (1 / 30); wake.update(1 / 30, 4000, 4000 + z, 0, 15); }
   assert.ok(wake.pts.length > 4, 'she never started a new trail');
   assert.ok(spread() < 40, 'her new trail is broken too');
 });

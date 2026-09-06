@@ -8,6 +8,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
+import { Wake, WakeField } from './render/wakefield.js';
 import { Seakeeping } from './render/seakeeping.js';
 import { buildShip } from './render/ships.js';
 import { buildIowa } from './render/iowa.js';
@@ -66,6 +67,17 @@ export class ShipyardScene {
     this.seaFog = new THREE.FogExp2(0x0d3348, 0.0013);
     this.scene.fog = this.airFog;
 
+    // What she is doing to that water. She is making way, so she has a wake,
+    // and it is the ocean's own surface being moved rather than anything laid
+    // on top of it -- exactly as in a battle.
+    this.wakes = new WakeField({ size: 1024 });
+    this.wake = null;
+    this.wakeSpeed = 0;
+    // How far she has run since her hull was put on the water. She is drawn
+    // where she actually is rather than at the origin, because her wake is
+    // laid in the world and has to stay under her.
+    this.way = 0;
+
     this.ship = null;
     this.classId = null;
     this.time = 0;
@@ -105,58 +117,33 @@ export class ShipyardScene {
     this.orbit.pitch = 0.22;
   }
 
-  /** The white water that says she is making way rather than lying stopped.
-   *  The texture fades on every edge, so the quads carrying it never show as
-   *  the rectangles they are. */
+  /**
+   * The white water that says she is making way rather than lying stopped.
+   *
+   * The same wake the battle draws, and for the same reason: it is not a sheet
+   * of painted foam laid over the sea but the sea itself, displaced. She is
+   * shown at a steady cruising speed with a track already behind her, so the
+   * bow wave is up and the wash astern is settled before anyone looks at her.
+   */
   addWake() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(64, 128);
-    for (let y = 0; y < 128; y++) {
-      // The quads are laid with their forward edge where the foam is made — at
-      // the stem, or at the transom — so the density has to peak at v = 0 and
-      // thin out astern of it.
-      const v = 1 - y / 127;
-      // Eased in over the first few rows: a sheet that starts at full strength
-      // draws a hard line across the water where its leading edge is.
-      const along = Math.min(1, v / 0.09) * Math.pow(1 - v, 1.7);
-      for (let x = 0; x < 64; x++) {
-        const across = 1 - Math.abs(x / 63 - 0.5) * 2;
-        const a = along * Math.pow(Math.max(0, across), 1.5);
-        const i = (y * 64 + x) * 4;
-        img.data[i] = 255; img.data[i + 1] = 253; img.data[i + 2] = 248;
-        img.data[i + 3] = Math.round(a * 255);
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    const tex = new THREE.CanvasTexture(canvas);
+    if (this.wake) this.wakes.remove(this.wake);
+    const cls = SHIP_CLASSES[this.classId];
+    this.wake = new Wake({ length: this.ship.length, beam: this.ship.beam });
+    this.wakes.add(this.wake);
+    // Two thirds of her best speed: enough for a proper bow wave, short of the
+    // great flat-out wash that would fill the frame behind a destroyer.
+    this.wakeSpeed = (cls?.maxSpeed || 15) * 0.66;
+    // Steam her far enough for the wake to have reached its full length before
+    // the screen is drawn once, rather than growing out behind her while she
+    // is being looked over.
+    this.way = 0;
+    for (let i = 0; i < 900; i++) this.stepWake(1 / 6);
+  }
 
-    const L = this.ship.length, B = this.ship.beam;
-    // Enough segments to be laid over the swell rather than through it: a flat
-    // sheet at a fixed height cuts the crests and leaves hard edges on the sea.
-    this.foams = [];
-    const foam = (w, d, opacity) => {
-      const geo = new THREE.PlaneGeometry(w, d, 6, 14);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, depthWrite: false, opacity,
-      }));
-      this.foams.push(mesh);
-      return mesh;
-    };
-
-    // A bow wave running out and aft from either side of the stem.
-    for (const side of [-1, 1]) {
-      const m = foam(B * 0.8, L * 0.5, 0.5);
-      m.position.set(side * B * 0.52, 0.4, L * 0.25);
-      m.rotation.y = side * 0.15;
-      this.ship.group.add(m);
-    }
-    // And the wake astern, wider than she is and fading out well behind her.
-    const wake = foam(B * 1.7, L * 1.2, 0.42);
-    wake.position.set(0, 0.35, -L * 1.1);
-    this.ship.group.add(wake);
+  /** Carry her forward and lay another piece of her track. */
+  stepWake(dt) {
+    this.way += this.wakeSpeed * dt;
+    this.wake.update(dt, 0, this.way, 0, this.wakeSpeed);
   }
 
   // ------------------------------------------------------------- camera --
@@ -276,18 +263,22 @@ export class ShipyardScene {
       this.sea = new Seakeeping(hull);
       this.seaFor = this.classId;
     }
-    const att = this.ocean.attitude(0, 0, 0, hull.length, hull.beam);
+    // Another few metres of her track, and the water she is now in.
+    this.stepWake(dt);
+    const att = this.ocean.attitude(0, 0, this.way, hull.length, hull.beam);
     const m = this.sea.step(att, dt);
     g.rotation.order = 'YXZ';
     g.rotation.z = m.roll;
     g.rotation.x = m.pitch;
-    g.position.y = m.heave;
+    g.position.set(0, m.heave, this.way);
+    // The sea and the sky are carried along with her, so she never runs out
+    // from under either of them however long the screen is left open.
+    this.ocean.mesh.position.z = this.way;
+    this.sky.position.z = this.way;
     // Her lifts work while she is being looked at, which is the only way to see
     // the hangar under the flight deck. On wall time, so they run at the same
     // speed however fast the yard happens to be drawing.
     g.userData.step?.(performance.now() / 1000);
-
-    this.floatFoam();
 
     const o = this.orbit;
     o.range += (o.target - o.range) * Math.min(1, dt * 6);
@@ -299,9 +290,9 @@ export class ShipyardScene {
     this.camera.position.set(
       Math.sin(o.yaw) * cp * o.range,
       focusY + sp * o.range,
-      Math.cos(o.yaw) * cp * o.range,
+      this.way + Math.cos(o.yaw) * cp * o.range,
     );
-    this.camera.lookAt(0, focusY, 0);
+    this.camera.lookAt(0, focusY, this.way);
 
     // Under the surface the water closes in and the light off the sky goes with
     // it, so the hull is lit from above by what is left of it.
@@ -317,21 +308,11 @@ export class ShipyardScene {
     this.ocean.update(dt, null);
   }
 
-  /** Lay the wake over the swell instead of through it. */
-  floatFoam() {
-    for (const m of this.foams || []) {
-      const pos = m.geometry.attributes.position;
-      const clear = m.userData.clear ?? (m.userData.clear = m.position.y);
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i) + m.position.x;
-        const z = pos.getZ(i) + m.position.z;
-        pos.setY(i, this.ocean.heightAt(x, z) - this.ship.group.position.y + clear - m.position.y);
-      }
-      pos.needsUpdate = true;
-    }
-  }
-
   render() {
+    // The wake map before the water that reads it, so the surface is displaced
+    // by where she is now rather than by where she was last frame.
+    this.wakes.render(this.renderer, this.camera);
+    this.wakes.bind(this.ocean.material.uniforms);
     this.renderer.render(this.scene, this.camera);
   }
 }
