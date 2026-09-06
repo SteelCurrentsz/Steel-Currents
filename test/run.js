@@ -138,6 +138,7 @@ import {
   deckAt as hipperDeckAt, halfDeck as hipperHalfDeck,
   sheer as hipperSheer, shellAt as hipperShellAt, zAt as hipperZAt,
   sdeck as hipperSDeck, sHalf as hipperSHalf, LOW_TIER as HIPPER_LOW_TIER,
+  lowHalf as hipperLowHalf,
 } from '../client/js/render/hipper.js';
 import {
   buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM, SCALE as IOWA_SCALE,
@@ -2706,6 +2707,72 @@ check("you cannot see through the Iowa's side", () => {
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
+check("the Hipper's boats and her crane are on deck, not inside it", () => {
+  // Both were modelled and neither could be seen, because both were built
+  // inside her deckhouse.
+  //
+  // Her boats were stowed at six and a half metres of half-breadth on a
+  // casing seven and a half wide, so they were buried to their gunwales in
+  // the funnel casing. Her crane -- eighteen metres of lattice jib, the
+  // biggest single thing on her upper deck and the whole of how a scout gets
+  // back aboard -- stood on a pedestal at the same station, entirely inside
+  // the same house.
+  const parts = hipperParts();
+
+  // The boats: seven metres and up, and every one of them clear of the house
+  // it is stowed beside.
+  // Boat-shaped: seven metres and up, a couple across, and with depth in her.
+  // The deck she is chocked down on is the same length and breadth and is a
+  // sheet of plate two hundred millimetres thick.
+  const boats = parts.filter((p) => p.from === 'funnel'
+    && p.size[2] > 6 && p.size[2] < 11
+    && p.size[0] > 1.5 && p.size[0] < 3.5 && p.size[1] > 0.5);
+  assert.ok(boats.length, 'nothing boat-sized anywhere on her boat deck');
+  // Counted as boats and not as pieces: a hull, her gunwales and her cabin top
+  // are all boat-sized and all the same boat, so they are grouped by where
+  // along her they lie.
+  const countSide = (side) => {
+    const zs = boats.filter((p) => (side < 0 ? p.max[0] < 0 : p.min[0] > 0))
+      .map((p) => (p.min[2] + p.max[2]) / 2).sort((a, b) => a - b);
+    let n = 0;
+    let last = -Infinity;
+    for (const z of zs) if (z - last > 3) { n++; last = z; }
+    return n;
+  };
+  const port = countSide(-1);
+  const stbd = countSide(1);
+  assert.ok(port >= 2 && stbd >= 2,
+    `${port} boats to port and ${stbd} to starboard, and she stows two a side`);
+  for (const b of boats) {
+    const cz = (b.min[2] + b.max[2]) / 2;
+    const inboard = Math.min(Math.abs(b.min[0]), Math.abs(b.max[0]));
+    assert.ok(inboard > hipperLowHalf(cz) - 0.4,
+      `a boat reaches in to ${inboard.toFixed(1)} m of the centreline where `
+      + `the deckhouse is ${hipperLowHalf(cz).toFixed(1)} m wide: she is inside it`);
+  }
+
+  // The crane: a jib of real length, out on the beam, standing above the deck.
+  //
+  // Measured in her own frame rather than off the piece's own geometry: her
+  // catapult is a twenty-two metre girder too, and it lies across the ship.
+  const jib = parts.filter((p) => p.from === 'aircraft'
+    && p.max[2] - p.min[2] > 12 && p.max[0] - p.min[0] < 4
+    && p.min[1] > 14);
+  assert.ok(jib.length, 'she has no crane jib at all');
+  const arm = jib.reduce((a, b) =>
+    (a.max[2] - a.min[2] > b.max[2] - b.min[2] ? a : b));
+  const reach = arm.max[2] - arm.min[2];
+  assert.ok(reach > 14,
+    `her crane jib is ${reach.toFixed(1)} m long, which will not reach the water`);
+  const cx = (arm.min[0] + arm.max[0]) / 2;
+  const cz = (arm.min[2] + arm.max[2]) / 2;
+  assert.ok(Math.abs(cx) > hipperLowHalf(cz) - 0.5,
+    `her crane stands at ${Math.abs(cx).toFixed(1)} m of half-breadth inside a `
+    + `house ${hipperLowHalf(cz).toFixed(1)} m wide: it is built in the deckhouse`);
+  // And it is on her starboard side, which is the side she had it.
+  assert.ok(cx < 0, 'her crane is stepped to port, and she carried it to starboard');
+});
+
 check("the Hipper shows her bridge windows from straight ahead", () => {
   // A German cruiser's bridge is a band of glass carried unbroken round the
   // bullnose and back down both sides, and it is the single thing that says
@@ -2835,8 +2902,13 @@ check("the Hipper's funnel stands plumb under a cap raked aft", () => {
   // Flat rings only: measured on the piece as it stands in her, so the stays
   // and the raked cap -- which are not level and are not meant to be -- do not
   // come into it.
+  // A ring of her funnel, and nothing else built in the same breath: as wide
+  // across as the trunk is and deeper fore and aft, which the boat deck
+  // alongside her -- eighteen metres long and under four across -- is not.
   const rings = hipperParts().filter((p) => p.from === 'funnel'
-    && p.max[1] - p.min[1] < 0.7 && p.size[2] > 6 && p.max[1] > 12);
+    && p.max[1] - p.min[1] < 0.7 && p.max[1] > 12
+    && p.max[0] - p.min[0] > 6 && p.max[0] - p.min[0] < 9
+    && p.max[2] - p.min[2] > 7 && p.max[2] - p.min[2] < 11);
   assert.ok(rings.length >= 3, `only ${rings.length} rings round her funnel`);
   const zc = (p) => (p.min[2] + p.max[2]) / 2;
   const base = zc(rings.reduce((a, b) => (a.min[1] < b.min[1] ? a : b)));
