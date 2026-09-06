@@ -642,22 +642,40 @@ const D = (z) => sheerAt(Math.max(-1, Math.min(1, z / HALF))) / SCALE + 0.30;
 /** And how far out her deck edge is there. */
 const HB = (z) => halfDeck(z * SCALE) / SCALE;
 
-// Her deckhouses, in the order they stand: each one is a run of stations with
-// a half-breadth, and a level above the main deck. Everything on her is
-// perched on one of them by `perch` below, which is what stops a mounting
-// standing in the air.
+// The raised deck forward, which is what turret two stands on.
+//
+// She does not superfire off a drum standing up out of the forecastle: the
+// deck itself steps up abaft turret one, turret two is set into that, and
+// what shows above the planking round it is the ring it trains on and
+// nothing else. Her barbette is inside the ship, where the armour is.
+const RAISED = { aft: 42, fwd: 65.5, half: 11.4, lift: 4.55 };
+
+/**
+ * How far out the raised deck reaches at a station.
+ *
+ * Drawn in at both ends -- round the barbette forward, and squared off aft
+ * where the superstructure will stand -- and never nearer her side than the
+ * walkway that has to run past it.
+ */
+function raisedHalf(z) {
+  const nose = smooth((RAISED.fwd - z) / 6.0);
+  const tail = smooth((z - RAISED.aft) / 2.5);
+  return Math.min(RAISED.half * (0.63 + 0.37 * Math.min(nose, tail)), HB(z) - 1.9);
+}
+
+// The two decks she has: the weather deck, and that.
 const LEVEL = [
-  // The weather deck is the only one of them with camber, and it is a third
-  // of a metre of it: a fitting laid on the crown height stands that far off
-  // the planking at the deck edge, which is exactly the daylight you see.
+  // The weather deck is the one with camber, and it is a third of a metre of
+  // it: a fitting laid on the crown height stands that far off the planking
+  // at the deck edge, which is exactly the daylight you see.
   { y: 0.00, a: -HALF, f: HALF, hw: (z) => HB(z) - 0.4, cam: 0.30 },
-  { y: 3.30, a: -58, f: 50, hw: taper(13.0, -58, 50, 15) },      // the 01
-  { y: 6.30, a: -46, f: 41, hw: taper(10.2, -46, 41, 13) },      // the 02
-  { y: 9.30, a: -34, f: 24, hw: taper(7.6, -34, 24, 10) },       // the boat deck
+  { top: 0, a: RAISED.aft, f: RAISED.fwd, hw: raisedHalf },
 ];
+LEVEL[1].top = D(58) + RAISED.lift;            // flat, as a deckhouse roof is
 
 /** The deck of a level at a station, out at x: the crown, less her camber. */
 function deckOf(L, x, z) {
+  if (L.top) return L.top;
   const u = L.cam ? Math.min(1, Math.abs(x) / Math.max(HB(z), 0.1)) : 0;
   return D(z) + L.y - (L.cam || 0) * u * u;
 }
@@ -666,26 +684,43 @@ function deckOf(L, x, z) {
 const MD = (x, z) => deckOf(LEVEL[0], x, z);
 
 /**
- * Where a thing bolted to her actually stands.
+ * A closed box lofted along her length, from a table of stations.
  *
- * Given roughly where it wants to be, this finds the highest deck at that
- * station that reaches out that far, and hauls it inboard if none of them
- * does. It is the whole of how she is kept honest: a mounting laid out on a
- * fixed offset is over the side or hanging off the end of a deckhouse long
- * before you notice, and there is nothing to see from most angles.
+ * Every row is [station, half-breadth, sole, roof]. Each of the four faces
+ * and both ends get vertices of their own rather than sharing the corners,
+ * because averaged corner normals turn a gunhouse into a bar of soap. `lean`
+ * is how far the side plating comes in at the top.
  */
-function perch(x, z, clear = 1.6) {
-  let best = null;
-  for (const L of LEVEL) {
-    if (z < L.a || z > L.f) continue;
-    const room = L.hw(z) - clear;
-    if (room < 0.6) continue;
-    const at = Math.sign(x || 1) * Math.min(Math.abs(x), room);
-    if (!best || L.y > best.lift) {
-      best = { x: at, y: deckOf(L, at, z), lift: L.y };
+function loftBox(g, rows, color, lean = 0) {
+  const corner = (r, j) => {
+    const t = Math.max(0.15, r[1] - lean);
+    return [[-r[1], r[2]], [-t, r[3]], [t, r[3]], [r[1], r[2]]][j];
+  };
+  const pos = [];
+  const idx = [];
+  const push = (r, j) => { const c = corner(r, j); pos.push(c[0], c[1], r[0]); };
+  for (let j = 0; j < 4; j++) {
+    const n = (j + 1) % 4;
+    let a = null;
+    for (const r of rows) {
+      const i = pos.length / 3;
+      push(r, j);
+      push(r, n);
+      if (a !== null) idx.push(a, i, a + 1, a + 1, i, i + 1);
+      a = i;
     }
   }
-  return best || { x: Math.sign(x || 1) * 0.6, y: deckOf(LEVEL[0], x, z), lift: 0 };
+  for (const [r, fwd] of [[rows[0], false], [rows[rows.length - 1], true]]) {
+    const i = pos.length / 3;
+    for (let j = 0; j < 4; j++) push(r, j);
+    if (fwd) idx.push(i, i + 2, i + 1, i, i + 3, i + 2);
+    else idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, mat(color)));
 }
 
 /** A mesh into a group, in one line. */
@@ -709,170 +744,139 @@ function ladder(g, x, y0, y1, z, sgn = 1) {
   }
 }
 
-/** Splinter screen round an open platform. */
-function tub(g, r, y, z, x = 0, h = 1.1, c = P.gun) {
-  const N = 12;
-  for (let i = 0; i < N; i++) {
-    const a = (i / N) * Math.PI * 2;
-    const b = ((i + 1) / N) * Math.PI * 2;
-    const mx = x + ((Math.sin(a) + Math.sin(b)) / 2) * r;
-    const mz = z + ((Math.cos(a) + Math.cos(b)) / 2) * r;
-    const len = Math.hypot(Math.sin(b) - Math.sin(a), Math.cos(b) - Math.cos(a)) * r;
-    bx(g, 0.14, h, len + 0.06, c, mx, y + h / 2, mz, Math.atan2(
-      (Math.sin(b) - Math.sin(a)) * r, (Math.cos(b) - Math.cos(a)) * r));
-  }
-  cy(g, r + 0.1, r + 0.1, 0.16, P.deck, x, y + 0.08, z, 18);
-}
-
 // ------------------------------------------------------------ the battery --
+//
+// The 16"/50 calibre Mark 7 and the three-gun turret it sits in: the heaviest
+// gun the United States ever put to sea, and the whole reason the ship is the
+// shape she is. Everything here is the mounting's own dimensions.
+//
+//   bore                     16 in                    0.406 m
+//   barrel, overall          816 in                  20.73 m
+//   gun axes apart           122 in                   3.10 m
+//   barbette, inside         37 ft 3 in              11.35 m
+//   elevation               -5 to +45 degrees
+//   armour        face 17 in, sides 9.5 in, rear 12 in, roof 7.25 in
+//
+// The face is one inclined plate and the reason the front of the gunhouse
+// falls away so fast; the sides lean in a little; the roof overhangs the rear
+// plate. Turrets two and three carry a forty-six-foot rangefinder, whose
+// housings are the ears through the after corners of the sides. Turret one
+// has none.
+
+const RIFLE = {
+  SPACE: 3.10,      // gun axes, 122 inches apart
+  AXIS: 2.55,       // the trunnions, above the turret floor
+  PORT: 5.10,       // where that axis crosses the sloped face
+  MUZZLE: 17.80,    // and where the gun ends, from the axis of the barbette
+};
+
+// The gunhouse in section, from the rear plate forward and over the face:
+// station, half-breadth, and the height of the roof there.
+const HOUSE = [
+  [-6.40, 5.55, 4.30],
+  [-6.15, 6.02, 4.55],
+  [-5.30, 6.18, 4.60],
+  [-1.00, 6.20, 4.60],
+  [1.80, 6.20, 4.60],
+  [3.20, 6.18, 4.58],
+  [3.90, 6.10, 4.28],
+  [4.60, 6.00, 3.44],
+  [5.10, 5.92, 2.62],
+  [5.70, 5.74, 1.68],
+  [6.10, 5.45, 0.80],
+  [6.30, 5.02, 0.14],
+];
+
+/** The barbette: thirty-seven feet three inches inside, and the ring on it. */
+const BARB_R = 5.95;
 
 /**
- * One 16"/50 triple: the barbette she trains on, the gunhouse, and the three
- * rifles in their slides.
+ * One rifle, from the slide it runs out on to the muzzle.
  *
- * An Iowa's turret is not a box. The face is a single steep plate seventeen
- * inches thick, the sides tumble home a little, the roof overhangs at the
- * back, and the whole of it is nearly twelve metres across and ten deep --
- * which at this scale is a small building that trains.
+ * Sixty-eight feet of gun, of which rather more than half is inside the
+ * gunhouse. What shows is the chase, tapering the whole way: a foot of steel
+ * round the bore where it comes through the face and four inches of it at the
+ * muzzle. No brake, no bell -- a Mark 7 muzzle is a plain cut.
+ */
+function rifle(g, dx) {
+  const y = RIFLE.AXIS;
+  // The slide, which is what there is to see through the port behind the bag.
+  bx(g, 1.86, 1.72, 4.6, P.gunDark, dx, y - 0.06, 2.3);
+  // The bloomer: the canvas boot round the gun where it comes through the
+  // face, and the reason a battleship's gun ports do not show daylight.
+  const boot = cy(g, 0.74, 1.14, 2.1, P.canvas, dx, y, RIFLE.PORT + 0.75, 14);
+  boot.rotation.x = Math.PI / 2;
+  // The chase, in three tapers, laid out from where the gun ends rather than
+  // by adding up lengths: the muzzle is the figure that is known, and a
+  // barrel built forwards from the breech drifts away from it.
+  let z = RIFLE.PORT + 1.5;
+  const run = RIFLE.MUZZLE - 0.40 - z;
+  for (const [fwd, aft, share] of [[0.50, 0.62, 0.35], [0.40, 0.50, 0.38],
+    [0.315, 0.40, 0.27]]) {
+    const len = run * share;
+    const seg = cy(g, fwd, aft, len, P.barrel, dx, y, z + len / 2, 16);
+    seg.rotation.x = Math.PI / 2;
+    z += len;
+  }
+  // The muzzle: a short reinforce, and the bore itself, which is dark.
+  cy(g, 0.335, 0.335, 0.40, P.barrel, dx, y, RIFLE.MUZZLE - 0.20, 16)
+    .rotation.x = Math.PI / 2;
+  cy(g, 0.203, 0.203, 0.5, P.boot, dx, y, RIFLE.MUZZLE - 0.16, 12)
+    .rotation.x = Math.PI / 2;
+}
+
+/**
+ * One 16"/50 Mark 7 triple.
+ *
+ * Nearly thirteen metres across, ten from the face plate to the rear, and
+ * seventeen hundred tons of it with the guns in. `range` fits the forty-six
+ * foot rangefinder, which turrets two and three had and turret one did not.
  */
 function turret16(range = false) {
   const g = new THREE.Group();
-  // The ring above the barbette, which is the only part of her that does not
-  // move with the guns.
-  cy(g, 6.6, 6.8, 1.1, P.gunDark, 0, -0.55, 0, 24);
-  // The gunhouse: sloped face, straight sides, overhanging roof.
-  const H = 4.6;
-  bx(g, 11.6, H, 8.4, P.gun, 0, H / 2, -0.6);
-  const face = bx(g, 11.6, 4.2, 0.9, P.gun, 0, H / 2 + 0.1, 3.9);
-  face.rotation.x = -0.30;
-  bx(g, 12.2, 0.30, 10.4, P.gunDark, 0, H + 0.15, -0.5);
-  bx(g, 12.4, 0.14, 10.6, P.gun, 0, H + 0.02, -0.5);
-  // The after face, where the ejection ports and the ladder are.
-  bx(g, 10.4, 2.0, 0.3, P.gunDark, 0, 1.6, -4.9);
-  ladder(g, 3.4, 0, H, -4.85, -1);
-  // Sighting hoods either side, and the periscopes through the roof.
+  // The armoured box: sides leaning in, the roof over them, the sole, and the
+  // one inclined plate that is the face.
+  loftBox(g, HOUSE.map(([z, hw, top]) => [z, hw, 0, top]), P.gun, 0.18);
+  // The roof plate proper, standing a little proud of the box under it: seven
+  // and a quarter inches of it, and the edge is what you see from above.
+  bx(g, 12.10, 0.20, 9.90, P.gunDark, 0, 4.68, -1.55);
+
+  for (const dx of [-RIFLE.SPACE, 0, RIFLE.SPACE]) rifle(g, dx);
+
+  // The turret officer's hood aft on the roof, his hatch behind it, and the
+  // periscopes for the two men who lay her.
+  bx(g, 1.80, 0.60, 1.60, P.gun, 0, 5.06, -3.30);
+  bx(g, 1.30, 0.16, 1.30, P.gunDark, 0, 4.86, -5.20);
   for (const s of [-1, 1]) {
-    cy(g, 0.62, 0.72, 0.9, P.gun, s * 4.3, H + 0.55, 1.1, 12);
-    bx(g, 0.7, 0.26, 0.16, P.glass, s * 4.3, H + 0.72, 1.55);
-    cy(g, 0.22, 0.22, 0.5, P.gunDark, s * 2.2, H + 0.4, -3.2, 8);
+    cy(g, 0.22, 0.22, 0.62, P.gunDark, s * 2.30, 5.07, 1.30, 10);
+    // Mushroom vents, which every armoured box needs and every model forgets.
+    cy(g, 0.46, 0.40, 0.34, P.gunDark, s * 3.70, 4.92, -4.70, 12);
+    cy(g, 0.62, 0.62, 0.14, P.gunDark, s * 3.70, 5.14, -4.70, 12);
+    // The pointer's and trainer's sighting hoods, out through the shoulders.
+    bx(g, 0.85, 0.95, 1.65, P.gun, s * 6.05, 3.55, 2.35);
+    bx(g, 0.16, 0.34, 1.10, P.glass, s * 6.48, 3.62, 2.55);
+    // And the sight ports in the face itself, beside the wing guns.
+    bx(g, 0.44, 0.30, 0.16, P.glass, s * 4.60, 3.35, 4.62);
   }
-  // The big rangefinder in turrets 2 and 3, sticking out either side of her.
+  // The rangefinder: forty-six feet of base inside her, and the housings out
+  // through the after corners of the sides, which are the ears.
   if (range) {
-    const t = tube(0.52, 13.6, P.gun, 12);
+    const t = tube(0.30, 13.10, P.gun, 12);
     t.rotation.z = Math.PI / 2;
-    put(g, t, 0, H + 0.55, -2.6);
+    put(g, t, 0, 3.55, -3.80);
     for (const s of [-1, 1]) {
-      bx(g, 0.8, 0.9, 1.1, P.gun, s * 6.6, H + 0.55, -2.6);
-      bx(g, 0.14, 0.4, 0.6, P.glass, s * 7.05, H + 0.58, -2.6);
+      bx(g, 0.95, 1.15, 2.00, P.gun, s * 6.30, 3.55, -3.80);
+      bx(g, 0.16, 0.42, 1.20, P.glass, s * 6.76, 3.60, -3.80);
     }
   }
-  // Three rifles, twenty metres of barrel apiece, in their blast bags.
-  for (const dx of [-3.05, 0, 3.05]) {
-    const slide = bx(g, 1.9, 1.7, 3.2, P.gunDark, dx, 2.5, 4.2);
-    slide.rotation.x = -0.02;
-    // The bag: a short fat cone where the barrel comes through the face.
-    cy(g, 0.95, 1.25, 1.8, P.canvas, dx, 2.6, 5.4, 12).rotation.x = Math.PI / 2;
-    const bar = tube(0.52, 20.5, P.barrel, 14);
-    put(g, bar, dx, 2.66, 15.6);
-    // The chase is thinner than the breech end, which is what a built-up gun
-    // looks like: a step, not a taper.
-    put(g, tube(0.62, 7.0, P.barrel, 14), dx, 2.62, 9.4);
+  // Rungs up the rear plate, which is how the crew get in, and the training
+  // gear's hand-hold rail round the after end of the roof.
+  ladder(g, 3.60, 0, 4.30, -6.45, -1);
+  for (const s of [-1, 1]) {
+    bx(g, 0.10, 0.62, 3.40, P.rail, s * 5.30, 5.09, -4.40);
+    bx(g, 0.10, 0.10, 3.40, P.rail, s * 5.30, 5.40, -4.40);
   }
-  return g;
-}
-
-/** One twin 5"/38 in its Mk 28 mount: the gunhouse and two barrels. */
-function mount5() {
-  const g = new THREE.Group();
-  cy(g, 2.5, 2.7, 0.5, P.gunDark, 0, -0.25, 0, 18);
-  bx(g, 4.5, 2.5, 4.6, P.gun, 0, 1.25, -0.35);
-  const face = bx(g, 4.5, 1.9, 0.5, P.gun, 0, 1.35, 2.0);
-  face.rotation.x = -0.26;
-  bx(g, 4.7, 0.16, 5.0, P.gunDark, 0, 2.55, -0.35);
-  bx(g, 0.6, 0.5, 0.16, P.glass, -1.2, 1.9, 2.2);
-  for (const dx of [-0.95, 0.95]) {
-    cy(g, 0.42, 0.55, 0.7, P.canvas, dx, 1.5, 2.4, 10).rotation.x = Math.PI / 2;
-    put(g, tube(0.19, 5.6, P.barrel, 10), dx, 1.52, 5.1);
-  }
-  return g;
-}
-
-/** A quad 40 mm Bofors on its Mk 4 mounting, with the director beside it. */
-function bofors() {
-  const g = new THREE.Group();
-  cy(g, 1.35, 1.5, 0.45, P.gunDark, 0, -0.2, 0, 14);
-  bx(g, 2.5, 1.05, 2.4, P.gun, 0, 0.55, -0.35);
-  bx(g, 2.7, 1.5, 0.35, P.gun, 0, 1.0, 0.75);
-  for (const dx of [-0.72, -0.24, 0.24, 0.72]) {
-    put(g, tube(0.10, 3.4, P.barrel, 8), dx, 1.35, 2.1);
-    bx(g, 0.2, 0.34, 0.5, P.gunDark, dx, 1.35, 0.35);
-  }
-  // The loaders' platforms either side, which is most of what a quad looks
-  // like from any distance at all.
-  for (const s of [-1, 1]) bx(g, 1.0, 0.1, 2.2, P.deck, s * 1.7, 0.1, -0.7);
-  return g;
-}
-
-/** A single 20 mm Oerlikon on its pedestal, behind its splinter shield. */
-function oerlikon() {
-  const g = new THREE.Group();
-  cy(g, 0.24, 0.34, 1.0, P.gunDark, 0, 0.5, 0, 10);
-  bx(g, 0.95, 0.85, 0.14, P.gun, 0, 1.35, 0.42);
-  const b = put(g, tube(0.055, 1.9, P.barrel, 8), 0, 1.45, 1.3);
-  b.rotation.x = Math.PI / 2 - 0.30;
-  cy(g, 0.26, 0.26, 0.2, P.gunDark, 0, 1.72, 0.9, 10);
-  return g;
-}
-
-// ------------------------------------------------------- fire control --
-
-/** A Mk 37 director: the box, the rangefinder through it, and its radar. */
-function mk37() {
-  const g = new THREE.Group();
-  cy(g, 1.5, 1.7, 0.6, P.gunDark, 0, -0.3, 0, 14);
-  bx(g, 3.0, 2.2, 3.6, P.gun, 0, 1.1, -0.2);
-  const t = tube(0.24, 4.6, P.gun, 10);
-  t.rotation.z = Math.PI / 2;
-  put(g, t, 0, 1.5, 0.6);
-  bx(g, 1.6, 1.1, 0.14, P.radar, 0, 2.9, 0.5);
-  bx(g, 0.12, 1.1, 0.5, P.gunDark, 0, 2.35, 0.2);
-  return g;
-}
-
-/** A Mk 38 main-battery director, with its Mk 8 antenna over the hood. */
-function mk38() {
-  const g = new THREE.Group();
-  cy(g, 2.1, 2.3, 0.7, P.gunDark, 0, -0.35, 0, 16);
-  bx(g, 4.2, 2.6, 4.4, P.gun, 0, 1.3, -0.2);
-  const t = tube(0.30, 8.0, P.gun, 12);
-  t.rotation.z = Math.PI / 2;
-  put(g, t, 0, 1.7, 0.9);
-  for (const s of [-1, 1]) bx(g, 0.6, 0.8, 0.9, P.gun, s * 3.9, 1.7, 0.9);
-  // The Mk 8: a long flat box of dipoles, which is the thing that makes her
-  // silhouette after 1943 different from her silhouette before it.
-  bx(g, 5.0, 1.5, 0.3, P.radar, 0, 3.6, 0.4);
-  bx(g, 5.2, 0.16, 0.5, P.gunDark, 0, 2.75, 0.4);
-  return g;
-}
-
-/** The SK air-search antenna: the bedspring, on its own pedestal. */
-function radarSK() {
-  const g = new THREE.Group();
-  bx(g, 5.2, 5.2, 0.24, P.radar, 0, 2.6, 0);
-  for (let i = 1; i < 5; i++) {
-    bx(g, 5.2, 0.08, 0.08, P.gunDark, 0, i * 1.04, 0.16);
-    bx(g, 0.08, 5.2, 0.08, P.gunDark, i * 1.04 - 2.6, 2.6, 0.16);
-  }
-  cy(g, 0.3, 0.34, 1.0, P.gunDark, 0, -0.5, 0, 10);
-  return g;
-}
-
-/** An SG surface-search antenna: a small dish in a cheese-shaped housing. */
-function radarSG() {
-  const g = new THREE.Group();
-  bx(g, 2.6, 0.9, 0.4, P.radar, 0, 0.45, 0);
-  bx(g, 2.7, 0.16, 0.5, P.gunDark, 0, 0.94, 0);
-  cy(g, 0.22, 0.26, 0.8, P.gunDark, 0, -0.4, 0, 10);
+  bx(g, 10.60, 0.10, 0.10, P.rail, 0, 5.40, -6.10);
   return g;
 }
 
@@ -921,402 +925,78 @@ function kingfisher(parent, x, y, z, ry) {
 // ------------------------------------------------------ her upperworks --
 
 /**
- * A deckhouse, with a lip round its roof.
+ * The raised deck forward.
  *
- * Its half-breadth is a function of the station rather than a number, because
- * a deckhouse is not a brick: the ends are drawn in, and amidships it runs out
- * to within a couple of metres of the ship's side. Lofted from that function
- * so the drawing-in is a shape and not a step.
+ * All that is left standing on her: the step up in the deck abaft turret one
+ * that turret two is set into. It is hull, not superstructure -- plated down
+ * to the weather deck the whole way round, drawn in forward round the
+ * barbette, and squared off aft where the rest of her will go.
  */
-function house(g, hw, za, zf, sole, roof, color = P.hullUpper, lip = true) {
-  const f = typeof hw === 'function' ? hw : () => hw;
-  const N = Math.max(2, Math.round((zf - za) / 2.5));
-  const pos = [];
-  const idx = [];
-  const row = (z) => {
-    const w = Math.max(0.4, f(z));
-    const i = pos.length / 3;
-    pos.push(-w, sole, z, w, sole, z, -w, roof, z, w, roof, z);
-    return i;
-  };
-  // The end walls get rows of their own rather than sharing the first and last
-  // rows of the sides. Averaged vertex normals are what make a lofted surface
-  // read as a curve, and a corner where the end wall and the side share a
-  // vertex gets an average of the two -- a bright wedge across the front of
-  // every deckhouse on her.
-  const aft = row(za);
-  idx.push(aft, aft + 2, aft + 1, aft + 1, aft + 2, aft + 3);
-  let a = row(za);
-  for (let k = 1; k <= N; k++) {
-    const b = row(za + ((zf - za) * k) / N);
-    idx.push(a, b, a + 2, a + 2, b, b + 2);                    // port side
-    idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);        // starboard
-    idx.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);        // the roof
-    a = b;
+function forwardDeck(g) {
+  const rows = [];
+  const N = 24;
+  for (let i = 0; i <= N; i++) {
+    const z = RAISED.aft + ((RAISED.fwd - RAISED.aft) * i) / N;
+    const hw = Math.max(0.8, raisedHalf(z));
+    // Carried down past her planking rather than sat on top of it: the deck
+    // under it has camber and sheer, and a flat sole leaves daylight.
+    rows.push([z, hw, MD(hw, z) - 0.9, LEVEL[1].top]);
   }
-  const fwd = row(zf);
-  idx.push(fwd, fwd + 1, fwd + 2, fwd + 1, fwd + 3, fwd + 2);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, mat(color)));
-  // The lip: the same shape a quarter of a metre proud, which is the coaming
-  // round the edge of the deck above and what makes the level read as a deck.
-  if (lip) {
-    house(g, (z) => f(z) + 0.28, za - 0.28, zf + 0.28, roof, roof + 0.18,
-      P.deck, false);
-  }
-  return roof;
-}
-
-/**
- * A half-breadth that draws in at both ends of a run.
- *
- * `hw` amidships, eased down to a little over half that at each end over the
- * last `run` metres, and never further out than the hull is wide there.
- */
-function taper(hw, za, zf, run = 12, keep = 0.58) {
-  return (z) => {
-    const e = smooth(Math.min(z - za, zf - z) / run);
-    return Math.min(hw * (keep + (1 - keep) * e), HB(z) - 1.2);
-  };
-}
-
-/**
- * The two long deckhouses and the boat deck over them.
- *
- * An Iowa's superstructure is not a tower on a flat deck: it is a hundred and
- * ten metres of house, three storeys of it, stepped in as it goes up, with the
- * five-inch battery standing on the first roof and the boats and the funnels
- * on the third. Everything else on her is bolted to one of these.
- */
-function deckhouses(g) {
-  const L = LEVEL;
-  for (let i = 1; i < L.length; i++) {
-    const lv = L[i];
-    const y = D((lv.a + lv.f) / 2);
-    // Carried down past the lowest deck it stands on rather than sat on top
-    // of one height of it: the deck under her has sheer, so a house with a
-    // flat sole has daylight under one end of it.
-    const sole = Math.min(D(lv.a), D(lv.f), y) + L[i - 1].y - 1.4;
-    house(g, lv.hw, lv.a, lv.f, sole, y + lv.y);
-    // Scuttles and doors down the side of each storey.
-    for (let z = lv.a + 4; z < lv.f - 4; z += 6) {
-      for (const s of [-1, 1]) {
-        cy(g, 0.22, 0.22, 0.1, P.gunDark, s * lv.hw(z), y + lv.y - 1.4, z, 10)
-          .rotation.z = Math.PI / 2;
-      }
-    }
-    // A ladder from the deck below at each end of her.
+  loftBox(g, rows, P.hullUpper);
+  // The coaming round the edge of it, and the deck itself: a steel waterway
+  // at the edge and planking inboard, the same as her weather deck.
+  loftBox(g, rows.map(([z, hw, , top]) => [z, hw + 0.26, top, top + 0.20]), P.deck);
+  loftBox(g, rows.map(([z, hw, , top]) =>
+    [z, Math.max(0.4, hw - 0.95), top + 0.16, top + 0.24]), P.wood);
+  // Scuttles down each side of it, and a ladder up from the weather deck.
+  for (let z = RAISED.aft + 4; z < RAISED.fwd - 5; z += 5.5) {
     for (const s of [-1, 1]) {
-      ladder(g, s * (lv.hw(lv.a + 2.0) - 1.2), y + lv.y - 3.0, y + lv.y,
-        lv.a + 2.0);
+      cy(g, 0.24, 0.24, 0.12, P.gunDark, s * raisedHalf(z), LEVEL[1].top - 1.9,
+        z, 10).rotation.z = Math.PI / 2;
     }
   }
-}
-
-/**
- * The forward tower: conning tower, pilot house, navigating bridge, the fire
- * control tower over them and the main battery director on top of that.
- *
- * Read off her profile. It is a stack, not a slab: each level steps in on the
- * one under it and carries a walkway round the step, and the director is
- * thirty-three metres over the water, with the foremast and its air-search
- * bedspring going on up to a hundred and thirty-five feet -- which is the
- * line the drawing itself marks across her.
- */
-function bridgeTower(g) {
-  const base = D(12) + LEVEL[3].y;               // the boat deck
-  // The pilot house and the bridge over it, each stepped in.
-  let y = house(g, 6.4, 4, 20, base - 1.0, base + 3.0);
-  // Windows: the band round the front of the pilot house is the one thing
-  // that says which way a bridge is facing.
-  bx(g, 11.0, 1.0, 0.2, P.glass, 0, base + 1.9, 20.05);
-  for (const s of [-1, 1]) bx(g, 0.2, 1.0, 7.0, P.glass, s * 6.45, base + 1.9, 16.0);
-  y = house(g, 5.4, 5, 18, y - 0.4, y + 2.8);
-  bx(g, 9.2, 0.9, 0.2, P.glass, 0, y - 1.4, 18.05);
-  // The open bridge wings, which is where she is actually conned from.
   for (const s of [-1, 1]) {
-    bx(g, 2.6, 0.16, 4.4, P.deck, s * 6.4, y + 0.08, 15.0);
-    tub(g, 1.5, y, 15.0, s * 6.6, 1.05, P.hullUpper);
-  }
-  // The armoured conning tower standing through the middle of the lot.
-  cy(g, 4.2, 4.5, base + 8.2 - D(14), P.gun, 0, (base + 8.2 + D(14)) / 2, 14, 18);
-  cy(g, 3.4, 3.4, 0.4, P.gunDark, 0, base + 8.4, 14, 18);
-  bx(g, 6.0, 0.5, 0.3, P.glass, 0, base + 6.4, 18.0);
-
-  // The tower above the bridge: five levels of it, each stepped in on the one
-  // under it, which is what an Iowa's forward tower actually is. A slab reads
-  // as a wall; the steps are what make it read as a ship.
-  //
-  //   05  sky lookout and the after range-finder
-  //   06  the fire control tower proper
-  //   07  its top, with the main battery director standing on it
-  const TIERS = [
-    [4, 16, 4.6, 3.0],
-    [5, 13.5, 3.8, 3.4],
-    [6, 12.5, 3.2, 3.0],
-  ];
-  let ly = y;
-  let lhw = 5.4;
-  for (const [za, zf, hw, h] of TIERS) {
-    // A skirt of platform round each step, which is the walkway that goes
-    // round a tower level and the reason the steps read from a distance.
-    bx(g, lhw * 2, 0.16, (zf - za) + 2.6, P.deck, 0, ly + 0.08, (za + zf) / 2);
-    for (const s of [-1, 1]) {
-      bx(g, 0.12, 1.0, (zf - za) + 2.6, P.rail, s * lhw, ly + 0.6, (za + zf) / 2);
-    }
-    ly = house(g, hw, za, zf, ly - 0.6, ly + h);
-    lhw = hw;
-    ladder(g, lhw - 0.9, ly - h, ly, za + 0.4, -1);
-  }
-  const top = ly;
-  const tz = 9.0;
-  // The director platform: the one level that oversails the tower under it,
-  // because the director itself is wider than the top of the tower.
-  bx(g, 8.4, 0.22, 9.6, P.deck, 0, top + 0.11, tz);
-  for (const s of [-1, 1]) bx(g, 0.14, 1.0, 9.6, P.rail, s * 4.2, top + 0.7, tz);
-  // Struts under the overhang, so it is carried rather than floating.
-  for (const s of [-1, 1]) {
-    for (const sz of [tz - 3.2, tz + 3.2]) {
-      const st = bx(g, 2.2, 0.16, 0.16, P.gun, s * 3.0, top - 0.9, sz);
-      st.rotation.z = -s * 0.62;
-    }
-  }
-  // The main battery director on the tower top, and the SG set beside it.
-  const dir = mk38();
-  dir.position.set(0, top + 0.22, tz + 1.4);
-  dir.userData.dynamic = true;
-  dir.userData.rest = 0;
-  g.add(dir);
-  put(g, radarSG(), 0, top + 0.22, tz - 3.6);
-
-  // The foremast: a stump on the tower top carrying the air-search antenna,
-  // her highest point and the one the drawing measures to.
-  const mz = tz - 2.6;
-  cy(g, 0.34, 0.46, 41.5 - top, P.rail, 0, (41.5 + top) / 2, mz, 10);
-  for (const s of [-1, 1]) {
-    const stay = bx(g, 0.14, 5.4, 0.14, P.rail, s * 1.4, top + 2.6, mz);
-    stay.rotation.z = -s * 0.24;
-  }
-  bx(g, 9.0, 0.14, 0.14, P.rail, 0, 36.2, mz);          // the yard
-  put(g, radarSK(), 0, 36.6, mz + 0.5);
-  // The topmast and her wireless aerials, which is what the top of a mast is.
-  cy(g, 0.10, 0.16, 3.0, P.rail, 0, 43.0, mz, 8);
-  return dir;
-}
-
-/**
- * Her two funnels.
- *
- * Iowa's are oval, tapered and raked a little aft, capped flat, and the after
- * one is grown into the after superstructure rather than standing free. Both
- * come up off the boat deck.
- */
-function funnels(g) {
-  for (const [z, h] of [[-14, 30.0], [-36, 29.0]]) {
-    const foot = D(z) + LEVEL[3].y;
-    const f = new THREE.Group();
-    f.position.set(0, foot, z);
-    f.rotation.x = -0.06;
-    g.add(f);
-    const H = h - foot;
-    // The trunk: a tapering oval, drawn as a squashed cylinder so the section
-    // is right rather than round.
-    const trunk = cy(f, 2.9, 3.7, H, P.hullUpper, 0, H / 2, 0, 20);
-    trunk.scale.set(1, 1, 0.78);
-    const cap = cy(f, 3.0, 3.0, 0.5, P.gunDark, 0, H + 0.2, 0, 20);
-    cap.scale.set(1, 1, 0.78);
-    cy(f, 2.4, 2.4, 0.2, P.boot, 0, H + 0.34, 0, 18).scale.set(1, 1, 0.78);
-    // The bands round her, and the steam pipes up the after side.
-    for (const by of [H * 0.35, H * 0.7]) {
-      cy(f, 3.45 - by * 0.02, 3.45 - by * 0.02, 0.26, P.gunDark, 0, by, 0, 20)
-        .scale.set(1, 1, 0.78);
-    }
-    for (const s of [-1, 1]) {
-      cy(f, 0.16, 0.16, H * 0.92, P.rail, s * 0.9, H * 0.46, -2.6, 8);
-    }
-    ladder(f, 1.2, 0, H - 1.0, -2.9, -1);
-    // The uptake casing round her foot, which is what she stands on.
-    bx(g, 8.6, 2.2, 9.0, P.hullUpper, 0, foot + 1.1, z);
-    bx(g, 9.2, 0.18, 9.6, P.deck, 0, foot + 2.2, z);
-  }
-}
-
-/**
- * The after superstructure: the tower carrying the after main-battery
- * director, the mainmast on top of it, and the after five-inch director.
- *
- * Stepped the same way the forward tower is, because it is the same kind of
- * structure -- a shorter one with no bridge in it.
- */
-function afterTower(g) {
-  const TIERS = [
-    [-60, -38, 5.6, 3.2],
-    [-56, -41, 4.4, 3.2],
-    [-53, -43, 3.4, 3.0],
-  ];
-  const sole = D(-48) + LEVEL[2].y;              // up off the 02 roof
-  // Where the mainmast stands and where the after five-inch director does:
-  // the roofs of the first two steps.
-  const firstRoof = sole + TIERS[0][3];
-  const secondRoof = firstRoof + TIERS[1][3];
-  let ly = sole;
-  let lhw = 7.4;
-  for (const [za, zf, hw, h] of TIERS) {
-    bx(g, lhw * 2, 0.16, (zf - za) + 2.4, P.deck, 0, ly + 0.08, (za + zf) / 2);
-    for (const s of [-1, 1]) {
-      bx(g, 0.12, 1.0, (zf - za) + 2.4, P.rail, s * lhw, ly + 0.6, (za + zf) / 2);
-    }
-    ly = house(g, hw, za, zf, ly - 0.6, ly + h);
-    lhw = hw;
-    ladder(g, lhw - 0.8, ly - h, ly, zf - 0.4, 1);
-  }
-  const top = ly;
-  // The after main-battery director, on a platform that oversails the tower.
-  bx(g, 8.0, 0.22, 8.4, P.deck, 0, top + 0.11, -47.5);
-  for (const s of [-1, 1]) bx(g, 0.14, 1.0, 8.4, P.rail, s * 4.0, top + 0.7, -47.5);
-  for (const s of [-1, 1]) {
-    for (const sz of [-50.5, -44.5]) {
-      const st = bx(g, 2.0, 0.16, 0.16, P.gun, s * 2.8, top - 0.9, sz);
-      st.rotation.z = -s * 0.62;
-    }
-  }
-  const dir = mk38();
-  dir.position.set(0, top + 0.22, -46.5);
-  dir.rotation.y = Math.PI;
-  dir.userData.dynamic = true;
-  dir.userData.rest = Math.PI;
-  g.add(dir);
-  // The after five-inch director, a level down and looking the same way.
-  const sec = mk37();
-  sec.position.set(0, secondRoof + 0.2, -42.0);
-  sec.rotation.y = Math.PI;
-  g.add(sec);
-  // The mainmast: a pole off the after end of the lowest step, carrying the
-  // surface-search set, with the after yard on it.
-  const mz = -58.0;
-  cy(g, 0.30, 0.42, 34.0 - firstRoof, P.rail, 0, (34.0 + firstRoof) / 2, mz, 10);
-  bx(g, 7.6, 0.14, 0.14, P.rail, 0, 29.6, mz);
-  put(g, radarSG(), 0, 30.0, mz + 0.5);
-  for (const s of [-1, 1]) {
-    const stay = bx(g, 0.14, 4.6, 0.14, P.rail, s * 1.2, firstRoof + 2.2, mz);
-    stay.rotation.z = -s * 0.22;
-  }
-  return dir;
-}
-
-/**
- * The four Mark 37 secondary directors, and her searchlights.
- *
- * A five-inch battery is only as good as what is telling it where to shoot,
- * and she carried four of these: one over the bridge, two abreast the funnels
- * on the boat deck, one on the after tower. The after one goes up with the
- * tower; these are the other three, and the pair of thirty-six-inch lights
- * that stand between the funnels.
- */
-function secondaryDirectors(g) {
-  // Forward, on the platform over the pilot house, looking ahead.
-  const fwd = mk37();
-  const at = perch(0, 20.0, 3.0);
-  fwd.position.set(0, at.y + 3.2, 20.5);
-  g.add(fwd);
-  // Abreast the funnels, on the boat deck, one each side.
-  for (const s of [-1, 1]) {
-    const on = perch(s * 6.4, -25.0, 2.4);
-    const d = mk37();
-    d.position.set(on.x, on.y, -25.0);
-    d.rotation.y = s * 1.2;
-    g.add(d);
-    // And a searchlight on its own tower abaft it.
-    const lt = perch(s * 6.2, -30.0, 1.8);
-    cy(g, 0.5, 0.6, 2.4, P.hullUpper, lt.x, lt.y + 1.2, -30.0, 12);
-    const drum = cy(g, 0.95, 0.95, 1.1, P.gunDark, lt.x, lt.y + 3.0, -30.0, 16);
-    drum.rotation.z = Math.PI / 2;
-    cy(g, 0.88, 0.88, 0.12, P.glass, lt.x + s * 0.58, lt.y + 3.0, -30.0, 16)
-      .rotation.z = Math.PI / 2;
+    const x = s * (raisedHalf(RAISED.aft + 2.2) - 1.0);
+    ladder(g, x, MD(x, RAISED.aft + 2.2), LEVEL[1].top, RAISED.aft + 2.4);
   }
 }
 
 // ---------------------------------------------------------- her armament --
 
 /**
- * The main battery: three 16"/50 triples, on their barbettes.
+ * Her nine 16-inch guns: A and B forward, B superfiring, Y right aft.
  *
- * A and B forward, B superfiring over her, and Y right aft. Where they stand
- * is her datasheet's, not this file's -- the simulation fires from those
- * stations and the model has to agree with it or her broadsides come out of
- * points in the air beside her.
+ * Where they stand is her datasheet's, not this file's -- the simulation
+ * fires from those stations and the model has to agree with it or her
+ * broadsides come out of points in the air beside her.
+ *
+ * None of the three stands on a drum. An Iowa's barbette is inside the ship,
+ * under the deck, where the armour is; what shows above the planking is the
+ * ring the turret trains on and a foot of coaming round it. Turret two is not
+ * lifted on a tower either -- the deck under it steps up, and the turret is
+ * set into that deck, which is what the photograph shows.
  */
 function mainBattery(g) {
   const out = [];
-  const spec = SHIP_CLASSES.iowa.turrets;
-  for (const t of spec) {
+  for (const t of SHIP_CLASSES.iowa.turrets) {
     const z = t.z / SCALE;
-    const deck = D(z);
-    const lift = t.name === 'B' ? 4.6 : 1.2;
-    // The barbette: an armoured cylinder standing out of the deck, and the
-    // ring the turret trains on.
-    cy(g, 7.0, 7.3, lift + 1.4, P.hull, 0, deck + (lift - 1.4) / 2, z, 24);
-    cy(g, 7.2, 7.2, 0.3, P.gunDark, 0, deck + lift - 0.15, z, 24);
+    const raised = t.name === 'B';
+    const sole = raised ? LEVEL[1].top : MD(0, z);
+    // A foot of ring where the deck itself is doing the lifting; a metre on
+    // the weather deck, which is what her forward and after turrets show.
+    const lift = raised ? 0.34 : 1.02;
+    const h = lift + 1.6;
+    cy(g, BARB_R + 0.06, BARB_R + 0.06, h, P.hull, 0, sole + lift - h / 2, z, 32);
+    // The roller path the turret runs on, just under the gunhouse.
+    cy(g, BARB_R - 0.20, BARB_R - 0.20, 0.30, P.gunDark, 0, sole + lift - 0.15,
+      z, 32);
     const house = turret16(t.name !== 'A');
-    house.position.set(0, deck + lift, z);
+    house.position.set(0, sole + lift, z);
     if (t.angle) house.rotation.y = t.angle;
     house.userData.dynamic = true;
     house.userData.rest = t.angle || 0;
     g.add(house);
     out.push(house);
-  }
-  return out;
-}
-
-/** The secondary battery: ten twin five-inch, five a side, on the 01 roof. */
-function secondaries(g) {
-  const out = [];
-  for (const m of SHIP_CLASSES.iowa.secondary.mounts) {
-    const z = m.z / SCALE;
-    const at = perch(m.x / SCALE, z, 2.6);
-    const mt = mount5();
-    mt.position.set(at.x, at.y, z);
-    mt.rotation.y = m.angle;
-    mt.userData.dynamic = true;
-    mt.userData.rest = m.angle;
-    g.add(mt);
-    out.push(mt);
-    // The handling room under her, which is what a mount stands on.
-    cy(g, 2.9, 3.1, 1.0, P.hullUpper, at.x, at.y - 0.5, z, 16);
-  }
-  return out;
-}
-
-/**
- * The light battery: twenty quad Bofors and the Oerlikons along her edges.
- *
- * Every one of them is put on the highest deck at its own station that
- * actually reaches out that far, and hauled inboard if none of them does.
- * She is very fine forward -- six metres of half-breadth abreast the anchors
- * -- so a gun laid out on a fixed offset is over the side long before the bow.
- */
-function lightBattery(g) {
-  const out = [];
-  for (const gun of SHIP_CLASSES.iowa.aa.guns) {
-    for (const m of gun.mounts) {
-      const z = m.z / SCALE;
-      const quad = gun.caliber === 40;
-      const at = perch(m.x / SCALE, z, quad ? 2.6 : 1.4);
-      const mt = quad ? bofors() : oerlikon();
-      mt.position.set(at.x, at.y + (quad ? 0.55 : 0.16), z);
-      mt.rotation.y = m.angle;
-      mt.userData.dynamic = true;
-      mt.userData.rest = m.angle;
-      g.add(mt);
-      out.push(mt);
-      // Every quad stands in a splinter tub, which is both what held the
-      // crew in and what makes the gun read at any distance.
-      if (quad) tub(g, 2.9, at.y, z, at.x, 1.15);
-      else bx(g, 1.5, 0.16, 1.5, P.deck, at.x, at.y + 0.08, z);
-    }
   }
   return out;
 }
@@ -1405,38 +1085,14 @@ function aviation(g) {
 // ---------------------------------------------------------- her fittings --
 
 /**
- * Boats, ground tackle, ventilators, staffs and the rest of it.
+ * Her ground tackle, her staffs and her deck clutter.
  *
- * Nothing here does anything. It is all there because a warship with a bare
- * deckhouse roof reads as a model of a warship, and one with boats in chocks,
- * cowls, ready-use lockers and a jackstaff reads as a ship.
+ * Nothing here does anything. It is all there because a bare deck reads as a
+ * model of a warship, and one with a breakwater, anchors, capstans and a
+ * jackstaff reads as a ship. Her boats and her cowls went with the deckhouse
+ * roofs they stood on.
  */
 function fittings(g) {
-  // The boats, on the 02 roof under their davits.
-  const by = D(-26) + LEVEL[2].y;
-  for (const s of [-1, 1]) {
-    for (const z of [-20, -30]) {
-      const hull = cy(g, 1.15, 0.8, 11.0, P.wood, s * 8.0, by + 1.4, z, 10);
-      hull.rotation.x = Math.PI / 2;
-      hull.scale.set(1, 0.55, 1);
-      bx(g, 2.6, 0.5, 2.2, P.wood, s * 8.0, by + 1.9, z - 3.0);
-      for (const dz of [-4.4, 4.4]) {
-        cy(g, 0.16, 0.20, 4.0, P.rail, s * 8.9, by + 2.0, z + dz, 8);
-        bx(g, 0.9, 0.16, 0.16, P.rail, s * 8.5, by + 3.9, z + dz);
-      }
-      bx(g, 3.0, 0.6, 1.2, P.gunDark, s * 8.0, by + 0.3, z);
-    }
-  }
-  // Ventilator cowls in pairs down the 01 roof, and ready-use lockers.
-  const vy = D(0) + LEVEL[1].y;
-  for (const z of [34, 14, -6, -26, -46]) {
-    for (const s of [-1, 1]) {
-      cy(g, 0.42, 0.5, 2.2, P.hullUpper, s * 12.0, vy + 1.1, z, 12);
-      const bell = cy(g, 0.75, 0.45, 0.9, P.hullUpper, s * 12.0, vy + 2.5, z + 0.3, 14);
-      bell.rotation.x = -1.05;
-      bx(g, 1.4, 1.0, 2.4, P.hullUpper, s * 12.0, vy + 0.5, z + 5.0);
-    }
-  }
   // Her ground tackle: the breakwater, two anchors in their hawses, capstans.
   const fz = 104;
   const bwx = HB(fz) * 0.85;
@@ -1483,7 +1139,7 @@ function railings(g) {
     }
   };
   run(-132, 100, LEVEL[0], (z) => HB(z) - 0.5);
-  run(-56, 48, LEVEL[1], () => 12.6);
+  run(RAISED.aft + 1.5, RAISED.fwd - 2.5, LEVEL[1], (z) => raisedHalf(z) - 0.3);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   g.add(new THREE.LineSegments(geo,
@@ -1523,26 +1179,18 @@ export function buildIowa(opts = {}) {
   up.scale.setScalar(SCALE);
   root.add(up);
 
-  deckhouses(up);
-  const directors = [bridgeTower(up), afterTower(up)];
-  funnels(up);
-  secondaryDirectors(up);
+  forwardDeck(up);
   fittings(up);
   railings(up);
   const turrets = mainBattery(up);
-  const secMounts = secondaries(up);
-  const aaMounts = lightBattery(up);
   const cats = aviation(up);
 
   // Everything that trains comes out of the scaled group and on to the ship
   // herself. The scene walks her top level to find what belongs to which
   // compartment and what has to be laid on a bearing, and `attach` moves a
   // piece without moving it: the scale ends up in the piece's own matrix.
-  for (const o of [...turrets, ...secMounts, ...aaMounts, ...directors,
-    ...cats.map((c) => c.group)]) {
-    root.attach(o);
-  }
-  for (const o of [...turrets, ...secMounts, ...aaMounts, ...directors]) mergeStatic(o);
+  for (const o of [...turrets, ...cats.map((c) => c.group)]) root.attach(o);
+  for (const o of turrets) mergeStatic(o);
 
   // Her catapults. The scene only tells her when the order was given; what a
   // launch looks like is in catapult.js, and a cruiser does the same thing.
@@ -1574,9 +1222,12 @@ export function buildIowa(opts = {}) {
   // lofted through on her, and the interior audit reads them back off her.
   Object.assign(root.userData,
     { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK });
+  // Her secondary and light batteries went with the superstructure they stood
+  // on. The simulation still has them on her datasheet -- she fires them --
+  // but there is nothing yet to show for it, and the scene wants the lists.
   return {
     group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK,
-    secMounts, aaMounts, directors,
+    secMounts: [], aaMounts: [],
   };
 }
 
@@ -1594,11 +1245,8 @@ export function buildIowa(opts = {}) {
 export function iowaParts() {
   const parts = [];
   const builders = [
-    ['deckhouses', deckhouses], ['bridge', bridgeTower], ['funnels', funnels],
-    ['afterTower', afterTower], ['directors', secondaryDirectors],
-    ['fittings', fittings],
-    ['mainBattery', mainBattery], ['secondaries', secondaries],
-    ['lightBattery', lightBattery], ['aviation', aviation],
+    ['forwardDeck', forwardDeck], ['fittings', fittings],
+    ['mainBattery', mainBattery], ['aviation', aviation],
   ];
   for (const [name, build] of builders) {
     const g = new THREE.Group();

@@ -2124,8 +2124,13 @@ check('nothing on the Iowa stands in mid-air', () => {
     }
     return false;
   };
+  // Only what is bolted down. A gun barrel is carried at its trunnions and
+  // stands twelve metres out over the sea by design; so does a catapult
+  // girder trained out over the quarter. Anything that moves with a mounting
+  // is that mounting's business, and the mounting itself is checked where it
+  // sits by the barbette check below.
   const air = [];
-  const structure = iowaStructure();
+  const structure = iowaStructure().filter((p) => !p.moving);
   for (const p of structure) {
     if (landed(p)) continue;
     const carried = parts.some((q) => q !== p
@@ -2136,7 +2141,7 @@ check('nothing on the Iowa stands in mid-air', () => {
         + `${p.min[1].toFixed(1)}, ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
     }
   }
-  assert.ok(structure.length > 300,
+  assert.ok(structure.length > 10,
     `only ${structure.length} pieces of her were looked at`);
   assert.equal(air.length, 0,
     `${air.length} piece(s) of her stand in the air, first ${air[0]}`);
@@ -2199,7 +2204,7 @@ check('the Iowa is built the same on both sides', () => {
         + `${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
     }
   }
-  assert.ok(parts.length > 300, `only ${parts.length} pieces of her were compared`);
+  assert.ok(parts.length > 80, `only ${parts.length} pieces of her were compared`);
   assert.equal(lone.length, 0,
     `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
 });
@@ -2208,37 +2213,40 @@ check('the Iowa mounts what her datasheet says she mounts', () => {
   // The model and the simulation have to agree about her battery. She fires
   // from the stations on the datasheet, so a gunhouse drawn anywhere else is
   // a broadside coming out of a point in the air beside her -- and every
-  // mounting has to be its own object, or laying one lays the lot.
+  // turret has to be its own object, or laying one lays the lot.
+  //
+  // Her secondary and light batteries are on the sheet and are not on the
+  // model: they went with the superstructure they stood on, and go back when
+  // it does. That is stated here rather than left to be discovered.
   const cls = SHIP_CLASSES.iowa;
   const built = buildIowa({ breakaway: false });
   built.group.updateMatrixWorld(true);
   assert.equal(built.turrets.length, cls.turrets.length,
     `${built.turrets.length} turrets against ${cls.turrets.length} on the sheet`);
-  const guns = cls.aa.guns.reduce((n, g) => n + g.mounts.length, 0);
-  assert.equal(built.aaMounts.length, guns,
-    `${built.aaMounts.length} light mountings against ${guns} on the sheet`);
-  assert.equal(built.secMounts.length, cls.secondary.mounts.length,
-    `${built.secMounts.length} five-inch against ${cls.secondary.mounts.length}`);
+  assert.equal(built.secMounts.length + built.aaMounts.length, 0,
+    'she has secondary or light mountings on her again');
 
-  // Each one where the sheet puts it, and each one on the ship herself rather
-  // than inside the group her upperworks are drawn in: the scene walks her top
-  // level to find what has to be laid on a bearing.
   const off = [];
   const at = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
-  for (const [mounts, models, what] of [
-    [cls.turrets, built.turrets, 'turret'],
-    [cls.secondary.mounts, built.secMounts, 'five-inch'],
-  ]) {
-    for (let i = 0; i < mounts.length; i++) {
-      const p = at(models[i]);
-      const dz = Math.abs(p.z - mounts[i].z);
-      if (dz > 1.0) off.push(`${what} ${i} at z ${p.z.toFixed(1)} for ${mounts[i].z}`);
-      assert.equal(models[i].parent, built.group,
-        `${what} ${i} is not laid on the ship herself`);
-      assert.ok(models[i].userData.dynamic, `${what} ${i} would be welded down`);
+  for (let i = 0; i < cls.turrets.length; i++) {
+    const p = at(built.turrets[i]);
+    if (Math.abs(p.z - cls.turrets[i].z) > 1.0) {
+      off.push(`turret ${i} at z ${p.z.toFixed(1)} for ${cls.turrets[i].z}`);
     }
+    if (Math.abs(p.x) > 0.01) off.push(`turret ${i} off the centreline`);
+    assert.equal(built.turrets[i].parent, built.group,
+      `turret ${i} is not laid on the ship herself`);
+    assert.ok(built.turrets[i].userData.dynamic, `turret ${i} would be welded down`);
+    // Welded on its own -- one mesh per material it is made of, against the
+    // thirty-odd pieces it was drawn from. If a turret ends up inside the
+    // static weld it becomes part of the hull mesh and stops training, and
+    // the first anyone knows is a battleship whose guns are painted on.
+    let meshes = 0;
+    built.turrets[i].traverse((o) => { if (o.isMesh) meshes++; });
+    assert.ok(meshes > 0 && meshes <= 8,
+      `turret ${i} is ${meshes} meshes, so it did not weld`);
   }
-  assert.equal(off.length, 0, `${off.length} mounting(s) adrift, first ${off[0]}`);
+  assert.equal(off.length, 0, `${off.length} turret(s) adrift, first ${off[0]}`);
 
   // And they lay independently: putting one turret on a bearing leaves the
   // others where they were.
@@ -2252,30 +2260,104 @@ check('the Iowa mounts what her datasheet says she mounts', () => {
   assert.ok(Math.abs(rests[2] - Math.PI) < 1e-6, 'Y turret does not rest aft');
 });
 
-check("the Iowa's guns and directors are hers, not the deck's", () => {
-  // Everything that trains is welded on its own so it can be laid; everything
-  // that does not is welded into the ship. If a mounting ends up inside the
-  // static weld it becomes part of the hull mesh and stops moving, and the
-  // first anyone knows is a battleship whose turrets are painted on.
+check('the Iowa\'s guns are 16"/50 Mark 7s, at the size they were built', () => {
+  // The mounting's own dimensions, measured off the built model and divided
+  // back out of the factor she is drawn large by. Every one of these is a
+  // published figure for the gun and the turret it sits in, and a model that
+  // misses them is a battleship-shaped object rather than an Iowa.
+  //
+  //   gun axes apart          122 in                  3.10 m
+  //   barrel beyond the face   43 ft                 13.1 m
+  //   muzzle, outside         about 24 in            0.61 m
+  //   barbette, inside        37 ft 3 in            11.35 m
+  const parts = iowaParts().filter((p) => p.from === 'mainBattery');
   const built = buildIowa({ breakaway: false });
-  const movers = [...built.turrets, ...built.secMounts, ...built.aaMounts,
-    ...built.directors];
-  for (const m of movers) {
-    assert.ok(m.userData.dynamic, 'a mounting was left to be welded down');
-    assert.equal(m.parent, built.group, 'a mounting is not on the ship herself');
-    // Welded on its own: one mesh per material it is made of, against the
-    // twenty or thirty boxes it was drawn from.
-    let meshes = 0;
-    m.traverse((o) => { if (o.isMesh) meshes++; });
-    assert.ok(meshes > 0 && meshes <= 8,
-      `a mounting is ${meshes} meshes, so it did not weld`);
+  built.group.updateMatrixWorld(true);
+
+  // The barrels: found as the long thin runs of steel, three to a turret.
+  const wide = (p) => p.max[0] - p.min[0];
+  const round = parts.filter((p) => p.max[2] - p.min[2] > 0.3
+    && wide(p) > 0.3 && wide(p) < 3.0
+    && Math.abs(wide(p) - (p.max[1] - p.min[1])) < 0.05);
+  const guns = round.filter((p) => p.max[2] - p.min[2] > 1.5);
+  assert.ok(guns.length >= 27,
+    `only ${guns.length} lengths of gun barrel on her nine guns`);
+  // Three axes to a turret, a hundred and twenty-two inches apart.
+  const axes = [...new Set(guns.map((p) => ((p.min[0] + p.max[0]) / 2).toFixed(2)))]
+    .map(Number).sort((a, b) => a - b);
+  assert.deepEqual(axes.map((x) => x.toFixed(2)), ['-3.10', '0.00', '3.10'],
+    `her gun axes are at ${axes.join(', ')} rather than -3.10, 0, 3.10`);
+  // The bore is sixteen inches of it, and the steel round the bore at the
+  // muzzle brings the gun to about two feet outside.
+  const bores = [...new Set(round.map((p) => wide(p).toFixed(3)))]
+    .map(Number).sort((a, b) => a - b);
+  assert.ok(Math.abs(bores[0] - 0.406) < 0.02,
+    `her bore is ${bores[0].toFixed(3)} m, not the 0.406 m sixteen inches is`);
+  assert.ok(bores[1] > 0.58 && bores[1] < 0.74,
+    `her muzzles are ${bores[1].toFixed(2)} m across, not the 0.61 m a Mark 7 is`);
+
+  // How far the guns stand out of the gunhouse, and how big the gunhouse is,
+  // measured on the whole turret as it is built into the ship.
+  const S = IOWA_SCALE;
+  const t = built.turrets[0];
+  const box = new THREE.Box3().setFromObject(t);
+  const width = (box.max.x - box.min.x) / S;
+  assert.ok(width > 12.2 && width < 13.6,
+    `her gunhouse is ${width.toFixed(2)} m across, not the 12.5 m a Mark 7 is`);
+  const reach = (box.max.z / S) - SHIP_CLASSES.iowa.turrets[0].z / S;
+  assert.ok(reach > 16.5 && reach < 19.0,
+    `her muzzles are ${reach.toFixed(1)} m from the barbette axis, not the 17.8 m `
+    + 'sixty-eight feet of gun on those trunnions comes to');
+  const high = (box.max.y - box.min.y) / S;
+  assert.ok(high > 4.4 && high < 6.2, `her gunhouse stands ${high.toFixed(1)} m`);
+});
+
+check('the Iowa superfires off her deck, not off a barbette', () => {
+  // An Iowa's barbettes are inside the ship, under the armour. Turret two does
+  // not stand on a drum above the forecastle: the deck itself steps up abaft
+  // turret one and the turret is set into it, which is what the photograph
+  // shows and what she was built as.
+  const built = buildIowa({ breakaway: false });
+  built.group.updateMatrixWorld(true);
+  const S = IOWA_SCALE;
+  const sole = (t) => new THREE.Box3().setFromObject(t).min.y / S;
+  const [a, b] = built.turrets;
+  assert.ok(sole(b) - sole(a) > 3.2,
+    `turret two stands only ${(sole(b) - sole(a)).toFixed(2)} m over turret one`);
+
+  // Nothing shows above the deck any of them stands on but its own ring: a
+  // foot of coaming, not four metres of drum.
+  const decks = iowaDecks();
+  for (let i = 0; i < 3; i++) {
+    const z = SHIP_CLASSES.iowa.turrets[i].z / S;
+    const on = decks[i === 1 ? 1 : 0].deck(0, z);
+    const show = sole(built.turrets[i]) - on;
+    assert.ok(show >= 0 && show < 1.3,
+      `turret ${i} stands on ${show.toFixed(2)} m of barbette above her deck`);
   }
-  // Both main-battery directors train, forward and aft, and they come back to
-  // opposite bearings.
-  assert.equal(built.directors.length, 2,
-    `${built.directors.length} directors on her`);
-  assert.ok(Math.abs(built.directors[1].userData.rest - Math.PI) < 1e-6,
-    'her after director does not rest trained aft');
+
+  // And what carries turret two is a deck, not a drum. Fired straight down
+  // from just under her sole, well outboard of any barbette, at her own
+  // station: there has to be ship there, right under her, on both sides. A
+  // turret on a drum has nothing under it out there but the forecastle, four
+  // and a half metres down.
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const bz = SHIP_CLASSES.iowa.turrets[1].z;
+  const from = sole(b) * S + 0.4;
+  const drops = [];
+  for (const x of [-8.0 * S, -6.6 * S, 6.6 * S, 8.0 * S]) {
+    ray.set(new THREE.Vector3(x, from, bz), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObjects(meshes, false)[0];
+    const fell = hit ? (from - hit.point.y) / S : Infinity;
+    if (!(fell < 1.0)) {
+      drops.push(`${(x / S).toFixed(1)} m out: ${hit ? `${fell.toFixed(1)} m` : 'nothing'}`);
+    }
+  }
+  assert.equal(drops.length, 0,
+    'there is no deck under turret two, only a drum -- '
+    + `${drops.length} of four soundings fell away, first ${drops[0]}`);
 });
 
 check("the Iowa trains her catapults out and shoots on the simulation's clock", () => {
