@@ -2659,6 +2659,115 @@ check("you cannot see through the Iowa's side", () => {
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
+check("the Hipper shows her bridge windows from straight ahead", () => {
+  // A German cruiser's bridge is a band of glass carried unbroken round the
+  // bullnose and back down both sides, and it is the single thing that says
+  // "bridge" at any range you can see a ship at.
+  //
+  // Hers were drawn as flat boxes laid across the centreline. The plan of the
+  // house is a rounded bullnose, so a box across it is inside the plating
+  // everywhere except right amidships -- and from ahead, which is the only
+  // angle anybody looks at a bridge from, she had no windows at all.
+  //
+  // So it is asked the way it is looked at: sightlines from right ahead,
+  // swept up her bridge front from the roof of B turret to the foot of her
+  // foretop, and what has to come back is glass.
+  const GLASS = 0x1f252b;      // her window colour, off her own palette
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+
+  const ray = new THREE.Raycaster();
+  const fwd = new THREE.Vector3(0, 0, -1);
+  const isGlass = (h) => h && h.object.material && h.object.material.color
+    && h.object.material.color.getHex() === GLASS;
+  const look = (x, y) => {
+    ray.set(new THREE.Vector3(x, y, 140), fwd);
+    return ray.intersectObjects(meshes, false)[0];
+  };
+  const hits = [];
+  const shots = 56;
+  for (let i = 0; i < shots; i++) {
+    const y = 12 + ((i + 0.5) / shots) * 14;
+    if (isGlass(look(0, y))) hits.push(y);
+  }
+  assert.ok(hits.length >= 4,
+    `looking at her bows on, only ${hits.length} of ${shots} sightlines up her `
+    + 'bridge front found glass: her windows are buried inside her plating');
+
+  // Two decks of them, not one: the admiral's bridge and the navigating bridge
+  // over it, with a deck between.
+  const decks = hits.filter((y, i) => i === 0 || y - hits[i - 1] > 0.8).length;
+  assert.ok(decks >= 2,
+    `her bridge windows are all in one band ${hits.length} sightlines deep, `
+    + 'and she has two decks of them');
+
+  // And they wrap: the band is carried round on to her bridge wings, so it is
+  // still there when you look at the corner of the house rather than the nose.
+  const y0 = hits[0];
+  let wide = 0;
+  for (const x of [-4.2, -2.6, 2.6, 4.2]) {
+    for (const dy of [-0.3, 0, 0.3]) if (isGlass(look(x, y0 + dy))) { wide++; break; }
+  }
+  assert.ok(wide >= 3,
+    `her window band is only there on ${wide} of 4 sightlines off the `
+    + 'centreline: it is a pane across her front, not a band round her');
+});
+
+check("the Hipper's funnel wears a hood and not a lid", () => {
+  // The Kappe is a hood a metre deep with a skirt hanging down round it,
+  // standing clear of the mouth on struts so there is daylight under it --
+  // that gap is the whole of what it is for. Drawn as a plate a few inches
+  // thick and half as wide again as the funnel, what she carried amidships
+  // was a mushroom.
+  // Everything that goes right round her funnel: a ring of it is as wide as
+  // she is across and a good deal deeper fore and aft, which is what tells the
+  // trunk and the cap from the platforms and the ladders bolted to them.
+  const rings = hipperParts().filter((p) => p.from === 'funnel'
+    && p.max[0] - p.min[0] > 6 && p.max[0] - p.min[0] < 9
+    && p.max[2] - p.min[2] > 7 && p.max[2] - p.min[2] < 11);
+  assert.ok(rings.length >= 4, `only ${rings.length} rings round her funnel`);
+  const topY = Math.max(...rings.map((r) => r.max[1]));
+  const cap = rings.filter((r) => r.max[1] > topY - 1.2);
+  const trunk = rings.filter((r) => r.max[1] <= topY - 1.2);
+  assert.ok(trunk.length, 'she has a cap and no funnel under it');
+
+  // A hood is made of pieces -- a skirt hanging down and a crown over it --
+  // and a lid is one plate.
+  assert.ok(cap.length >= 2,
+    `her cap is ${cap.length} piece, so it is a plate rather than a hood`);
+
+  // And it does not overhang like a mushroom: it stands proud of the funnel
+  // under it by a sixth, not by a third.
+  // Against the ring immediately under it, not against the widest ring on the
+  // funnel: her trunk narrows as it goes up, and a cap the width of her
+  // casing at deck level would be a mushroom over the mouth.
+  const capW = Math.max(...cap.map((r) => r.max[0] - r.min[0]));
+  const under = trunk.reduce((a, b) => (a.max[1] > b.max[1] ? a : b));
+  const tubeW = under.max[0] - under.min[0];
+  const over = capW / tubeW;
+  assert.ok(over > 1.005 && over < 1.25,
+    `her cap is ${over.toFixed(2)} times the width of the funnel under it`);
+
+  // There is daylight under it, which is the whole of what it is for: over the
+  // rim of the mouth the cap is the only thing there, with a long drop under
+  // it to the casing.
+  // And it stands clear of the mouth, which is the whole of what a Kappe is
+  // for: the smoke goes up through the gap and away aft instead of lying down
+  // over the after rangefinders. So there are struts, and they have length in
+  // them -- a hood set down on the rim has struts a hand's breadth long and is
+  // a lid with a gap painted on.
+  const struts = hipperParts().filter((p) => p.from === 'funnel'
+    && p.max[0] - p.min[0] < 0.5 && p.max[2] - p.min[2] < 0.5 && p.min[1] > 23.5);
+  assert.ok(struts.length >= 3,
+    `${struts.length} struts under her cap: it is sitting on the mouth`);
+  const stand = Math.max(...struts.map((p) => p.max[1] - p.min[1]));
+  assert.ok(stand > 1.0,
+    `her cap stands ${stand.toFixed(2)} m clear of the funnel mouth at its `
+    + 'highest corner, which is a lid with a gap painted under it');
+});
+
 check("the Hipper's funnel stands plumb under a cap raked aft", () => {
   // Her funnel is upright and her cap is not, and it is that way round.
   //

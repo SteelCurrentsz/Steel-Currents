@@ -939,6 +939,65 @@ function knee(g, sgn, inner, outer, foot, top, z) {
  * With the ladders between them, the voice pipes, the flag lockers and the
  * splinter mattresses that were lashed round every open bridge in the war.
  */
+/**
+ * Push a plan outline out by `d` metres, everywhere.
+ *
+ * Each point goes along its own outward normal -- worked out from its two
+ * neighbours and turned away from the middle of the shape -- rather than by
+ * scaling the whole outline about its centre, which on a long thin bridge deck
+ * moves the ends four times as far as the sides.
+ */
+function grow(pts, d) {
+  const N = pts.length;
+  let cx = 0;
+  let cz = 0;
+  for (const [x, z] of pts) { cx += x; cz += z; }
+  cx /= N; cz /= N;
+  return pts.map(([x, z], i) => {
+    const [px, pz] = pts[(i - 1 + N) % N];
+    const [nx, nz] = pts[(i + 1) % N];
+    let ex = nx - px;
+    let ez = nz - pz;
+    const L = Math.hypot(ex, ez) || 1;
+    ex /= L; ez /= L;
+    // Either normal to the edge; take the one facing away from the middle.
+    let ox = ez;
+    let oz = -ex;
+    if (ox * (x - cx) + oz * (z - cz) < 0) { ox = -ox; oz = -oz; }
+    return [x + ox * d, z + oz * d];
+  });
+}
+
+/**
+ * The windows round a bridge front.
+ *
+ * A German cruiser's bridge is a band of glass carried unbroken round the
+ * bullnose and back down both sides, with a sill under it and the eyebrow over
+ * it, and it is the single thing that says "bridge" at any range you can see a
+ * ship at. Hers were drawn as flat boxes across the centreline: the plan of
+ * the house is a rounded bullnose and a box laid across it is inside the
+ * plating everywhere except amidships, so from ahead -- which is the only
+ * angle anybody looks at a bridge from -- she had no windows at all.
+ *
+ * So it is lofted off the house's own outline, a few centimetres proud of it,
+ * and it goes exactly where the plating goes.
+ */
+function windowBand(g, pts, y0, h) {
+  loftShape(g, M.glass, [
+    { pts: grow(pts, 0.05), y: y0 },
+    { pts: grow(pts, 0.05), y: y0 + h },
+  ], { cap: false });
+  // The sill under it and the eyebrow over it, both standing further proud --
+  // which is what puts a shadow on the glass and stops it reading as a stripe
+  // of paint.
+  for (const [yy, t] of [[y0 - 0.16, 0.18], [y0 + h, 0.2]]) {
+    loftShape(g, M.steel, [
+      { pts: grow(pts, 0.16), y: yy },
+      { pts: grow(pts, 0.16), y: yy + t },
+    ], { cap: false });
+  }
+}
+
 function bridge(g) {
   const foot = sdeck(BRIDGE[0]);
   const zc = (BRIDGE[0] + BRIDGE[1]) / 2;
@@ -1002,10 +1061,7 @@ function bridge(g) {
   loftShape(g, M.steel, [{ pts: p1, y: foot + D1 + 0.2 }, { pts: p1, y: foot + D2 }]);
   box(g, M.deckSteel, 14.4, 0.16, 25.0, 0, foot + D2 + 0.05, zc + 0.5);
   // Her window band, carried round the bullnose in one run.
-  for (const [zz, hw] of [[zc + 11.0, 5.0], [zc + 8, 5.35], [zc + 4, 5.4], [zc, 5.2]]) {
-    box(g, M.glass, hw * 2 - 0.3, 0.95, 1.4, 0, foot + D1 + 1.0, zz);
-    box(g, M.steel, hw * 2 - 0.2, 0.12, 1.45, 0, foot + D1 + 1.55, zz);
-  }
+  windowBand(g, p1, foot + D1 + 0.85, 1.05);
   // The wings, and what stands on them: a pelorus, a signal lamp, and the
   // splinter mattresses lashed to the rail.
   for (const sgn of [-1, 1]) {
@@ -1026,10 +1082,7 @@ function bridge(g) {
   // -- 2. the navigating bridge and the chart house --------------------------
   const p2 = at(planHouse({ hw: 4.6, zBack: TOWER_Z - zc - 2.4, zFront: 11.0, nose: 4.0, arc: 10 }));
   loftShape(g, M.steel, [{ pts: p2, y: foot + D2 + 0.2 }, { pts: p2, y: foot + D3 }]);
-  for (const [zz, hw] of [[zc + 9.5, 3.9], [zc + 6, 4.25], [zc + 2, 4.2]]) {
-    box(g, M.glass, hw * 2 - 0.3, 0.9, 1.2, 0, foot + D2 + 1.0, zz);
-    box(g, M.steel, hw * 2 - 0.2, 0.1, 1.25, 0, foot + D2 + 1.5, zz);
-  }
+  windowBand(g, p2, foot + D2 + 0.85, 0.95);
   box(g, M.deckSteel, 10.4, 0.16, 20.0, 0, foot + D3 + 0.05, zc + 2.0);
   // The chart house abaft it, with its own door and skylight.
   house(g, M.steel, 3.1, zc - 1.0, zc + 3.5, foot + D2 + 0.2, 2.1, { n: 16 });
@@ -1119,17 +1172,32 @@ function bridge(g) {
     { n: 18, px: 0.7, pz: 0.68 });
   tubeX(top, M.gun, 0.36, 7.2, 0, 1.0, 0.4, 12);
   for (const sgn of [-1, 1]) {
-    box(top, M.gun, 0.55, 0.62, 0.8, sgn * 3.4, 1.0, 0.4);
-    box(top, M.glass, 0.1, 0.28, 0.44, sgn * 3.68, 1.02, 0.4);
+    // The end hood over each object glass, standing clear of the cupola: it is
+    // the pair of them a mile apart that tells you the base is seven metres
+    // and not four.
+    box(top, M.gun, 0.72, 0.78, 0.95, sgn * 3.35, 1.0, 0.4);
+    box(top, M.gunDark, 0.16, 0.4, 0.56, sgn * 3.72, 1.02, 0.4);
+    box(top, M.glass, 0.06, 0.3, 0.42, sgn * 3.80, 1.02, 0.4);
     cyl(top, M.gun, 0.26, 0.3, 0.34, sgn * 1.0, 2.1, 0.2, 10);
   }
-  // Her radar: a mattress on the face of the hood by 1941, and it trains with
-  // it. The dipoles are what make it read as an aerial and not as a board.
-  const mattress = box(top, M.steelDark, 5.0, 2.2, 0.22, 0, 2.5, 2.0);
-  mattress.rotation.x = -0.06;
-  for (let i = -3; i <= 3; i++) {
-    for (const yy of [1.9, 2.5, 3.1]) {
-      box(top, M.gunDark, 0.05, 0.05, 0.5, i * 0.7, yy, 2.24);
+  // Her radar: the FuMO 27 mattress on the face of the hood, and it trains with
+  // it. Six metres by two, carried on a frame bolted to the front of the
+  // cupola and standing only a little proud of it -- a board of that size held
+  // out on its own in front of a fire-control top is a billboard, and hers was
+  // part of the structure.
+  const frame = new THREE.Group();
+  frame.position.set(0, 1.85, 1.75);
+  top.add(frame);
+  // The frame itself, then the reflector screen inside it.
+  for (const sgn of [-1, 1]) box(frame, M.gun, 0.14, 2.2, 0.14, sgn * 3.0, 0, 0);
+  for (const sgn of [-1, 1]) box(frame, M.gun, 6.1, 0.14, 0.14, 0, sgn * 1.03, 0);
+  box(frame, M.gunDark, 5.9, 1.95, 0.07, 0, 0, -0.02);
+  // The dipoles across it, which are what make it read as an aerial rather
+  // than as a board: four rows of eight, on their standoffs.
+  for (let i = -3.5; i <= 3.5; i++) {
+    for (const yy of [-0.72, -0.24, 0.24, 0.72]) {
+      box(frame, M.steel, 0.05, 0.05, 0.34, i * 0.76, yy, 0.19);
+      box(frame, M.steel, 0.30, 0.04, 0.04, i * 0.76, yy, 0.34);
     }
   }
 
@@ -1262,31 +1330,35 @@ function funnel(g) {
   // destroyer's funnel and not hers: on her own profile both sides of the
   // trunk are plumb from the casing to the mouth, and everything that is
   // angled about her funnel is in the cap on top of it.
+  // Nearly parallel, not a cone. On her profile the trunk narrows by about a
+  // sixth over its whole height -- her funnel is a great oval box standing on
+  // the casing, and drawn with a proper taper on it she came out with a
+  // lighthouse amidships instead.
   loftRings(f, M.steel, [
-    [3.75, 4.9, 0, 0],
-    [3.55, 4.6, 0, 3.6],
-    [3.25, 4.1, 0, 7.4],
-    [3.05, 3.8, 0, 10.2],
+    [3.80, 4.95, 0, 0],
+    [3.70, 4.82, 0, 3.8],
+    [3.55, 4.62, 0, 7.8],
+    [3.42, 4.45, 0, 11.4],
   ], { n: 24, px: 0.84, pz: 0.84, cap: false });
   // The mouth, and the black inside it.
   loftRings(f, M.gunDark, [
-    [3.05, 3.8, 0, 10.2],
-    [2.9, 3.62, 0, 10.6],
+    [3.42, 4.45, 0, 11.4],
+    [3.26, 4.25, 0, 11.8],
   ], { n: 24, px: 0.84, pz: 0.84, cap: false });
-  cyl(f, M.cave, 2.8, 2.8, 0.2, 0, 10.4, 0, 20).scale.set(1, 1, 1.26);
+  cyl(f, M.cave, 3.15, 3.15, 0.2, 0, 11.6, 0, 20).scale.set(1, 1, 1.26);
   // The uptake trunks standing inside the mouth: three fire rooms, three
   // trunks, and you can see the tops of them down the funnel.
   for (const uz of [-1.8, 0, 1.8]) {
-    loftRings(f, M.gunDark, [[1.0, 0.7, uz, 8.6], [1.0, 0.7, uz, 10.05]],
+    loftRings(f, M.gunDark, [[1.05, 0.75, uz, 9.8], [1.05, 0.75, uz, 11.25]],
       { n: 12, px: 0.8, pz: 0.8 });
   }
   // The bands round her, which is how a funnel is stiffened.
-  for (const by of [1.7, 5.0, 8.2]) {
-    const k = 1 - by * 0.021;
+  for (const by of [1.8, 5.6, 9.2]) {
+    const k = 1 - by * 0.009;
     loftRings(f, M.steelDark, [
-      [3.77 * k, 4.92 * k, 0, by - 0.11],
-      [3.85 * k, 5.02 * k, 0, by],
-      [3.77 * k, 4.92 * k, 0, by + 0.11],
+      [3.82 * k, 4.97 * k, 0, by - 0.11],
+      [3.90 * k, 5.07 * k, 0, by],
+      [3.82 * k, 4.97 * k, 0, by + 0.11],
     ], { n: 24, px: 0.84, pz: 0.84, cap: false });
   }
   // The cap.
@@ -1300,46 +1372,70 @@ function funnel(g) {
   // It used to be a flat plate, with the rake put into the trunk underneath
   // instead and the wrong way round at that: the funnel leant aft and the cap
   // sat square on it, which is the arrangement of neither ship.
-  const RAKE = 0.28;
+  // The rake. Her profile puts the forward edge of the hood the better part of
+  // two metres over the after edge across ten, which is a shade under twelve
+  // degrees. Drawn at fifteen and overhanging the mouth by a third it read as
+  // a hat sitting on the funnel at an angle rather than a cap built on to it;
+  // taken all the way down to seven it stopped reading as raked at all.
+  const RAKE = 0.20;
   // Four struts over the mouth, each cut to the height of the tilted cap over
   // its own corner: struts of one length under a raked cap either hold it up
   // at one end and hang short at the other, or go through it.
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const sz = Math.cos(a) * 3.0;
-    const top = 11.35 + sz * Math.sin(RAKE);
-    cyl(f, M.steelDark, 0.16, 0.16, top - 10.35, Math.sin(a) * 2.4,
-      (top + 10.35) / 2, sz, 8);
+    const sz = Math.cos(a) * 3.4;
+    const top = 12.55 + sz * Math.sin(RAKE);
+    cyl(f, M.steelDark, 0.17, 0.17, top - 11.6, Math.sin(a) * 2.8,
+      (top + 11.6) / 2, sz, 8);
   }
-  // The hood itself: wider than the mouth and standing clear of it on the
-  // struts, so there is daylight under it. That gap is the whole of what it
-  // is for.
+  // The hood itself.
+  //
+  // A hood and not a lid. It is a metre deep, with a skirt hanging down all
+  // round it, and it stands clear of the mouth on its struts so there is
+  // daylight under it -- that gap is the whole of what it is for, because what
+  // it does is throw the smoke up and aft instead of letting it lie down over
+  // the after rangefinders. Drawn as a plate a few inches thick and half as
+  // wide again as the funnel, what she carried amidships was a mushroom.
+  //
+  // So it overhangs by a sixth rather than a third, and it has a rim.
   const cap = new THREE.Group();
-  cap.position.set(0, 11.35, 0);
+  cap.position.set(0, 12.55, 0);
   cap.rotation.x = -RAKE;
   f.add(cap);
+  // The skirt: the band you actually see, hanging below the crown.
   loftRings(cap, M.steel, [
-    [4.05, 5.10, 0, 0],
-    [4.20, 5.28, 0, 0.30],
-    [4.10, 5.16, 0, 0.55],
-  ], { n: 24, px: 0.90, pz: 0.90 });
+    [3.72, 4.84, 0, -0.85],
+    [3.80, 4.94, 0, -0.50],
+    [3.80, 4.94, 0, 0.10],
+  ], { n: 24, px: 0.86, pz: 0.86, cap: false });
+  // And the crown over it, domed a little.
+  loftRings(cap, M.steel, [
+    [3.80, 4.94, 0, 0.10],
+    [3.60, 4.68, 0, 0.50],
+    [3.05, 3.98, 0, 0.74],
+  ], { n: 24, px: 0.86, pz: 0.86 });
+  // Its underside is black: it is the inside of a hood over a funnel mouth.
+  loftRings(cap, M.cave, [
+    [3.68, 4.80, 0, -0.82],
+    [3.68, 4.80, 0, -0.76],
+  ], { n: 24, px: 0.86, pz: 0.86 });
   // The steam pipes up her after face, the siren, and the ladder in its cage.
   for (const sgn of [-1, 1]) {
-    cyl(f, M.steelDark, 0.16, 0.16, 9.8, sgn * 1.6, 5.2, -3.7, 8);
-    cyl(f, M.steelDark, 0.2, 0.2, 0.4, sgn * 1.6, 10.2, -3.7, 8);
+    cyl(f, M.steelDark, 0.16, 0.16, 11.0, sgn * 1.6, 5.8, -4.0, 8);
+    cyl(f, M.steelDark, 0.2, 0.2, 0.4, sgn * 1.6, 11.4, -4.0, 8);
   }
-  cyl(f, M.brass, 0.2, 0.2, 0.7, 0, 8.4, -3.8, 10);
-  box(f, M.steelDark, 0.9, 0.5, 0.5, 0, 8.0, -3.9);
-  ladder(f, M.steelDark, 0.95, 0.6, 9.8, -3.8, -3.6);
-  for (let i = 0; i < 7; i++) {
+  cyl(f, M.brass, 0.2, 0.2, 0.7, 0, 9.0, -4.1, 10);
+  box(f, M.steelDark, 0.9, 0.5, 0.5, 0, 8.6, -4.2);
+  ladder(f, M.steelDark, 0.95, 0.6, 11.0, -4.1, -3.9);
+  for (let i = 0; i < 8; i++) {
     const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.03, 5, 10), M.steelDark);
-    hoop.position.set(0.95, 1.4 + i * 1.2, -4.05);
+    hoop.position.set(0.95, 1.4 + i * 1.2, -4.35);
     hoop.rotation.x = Math.PI / 2;
     f.add(hoop);
   }
   // The grab rails round her, the rungs everybody paints over.
-  for (let i = 0; i < 6; i++) {
-    box(f, M.steelDark, 0.5, 0.05, 0.05, 3.2, 1.3 + i * 1.2, 0);
+  for (let i = 0; i < 7; i++) {
+    box(f, M.steelDark, 0.5, 0.05, 0.05, 3.3, 1.3 + i * 1.2, 0);
   }
 
 
