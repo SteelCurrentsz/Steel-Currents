@@ -31,7 +31,7 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 }
 
 // How much bigger than her real self the Iowa is drawn and fought.
-const BIG = 1.30;
+const BIG = 1.55;
 
 export const SHIP_CLASSES = {
   fletcher: {

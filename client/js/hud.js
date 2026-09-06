@@ -6,7 +6,7 @@
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
-import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta } from '../../shared/math.js';
+import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
 import { SECTIONS, torpedoClear } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
@@ -112,6 +112,36 @@ export function arsenal(cls) {
   return rows;
 }
 
+/**
+ * What the bridge you are standing on has its guns laid on.
+ *
+ * `shown` is the ship the camera is on -- your own, or whoever you have picked
+ * off the plot and are watching. She picks her own target: her gunnery officer
+ * does, whoever has the con, and she carries who it is in her snapshot. All
+ * this does is find that ship on the plot and read her off it.
+ *
+ * The range is from `own` -- your own hull -- rather than from the bridge the
+ * camera happens to be standing on. The plot in the corner is your chart table
+ * and the mark in the middle of it is you; this is that same range written
+ * out. Her speed is only there when your side has actually sighted her: a ship
+ * that is a mark on the plot has a position and a heading and no more, and
+ * guessing at her speed off those would be inventing it.
+ *
+ * Null when she is not shooting at anything, or when what she picked has since
+ * gone down.
+ */
+export function readTarget(shown, snap, own) {
+  if (!shown || !snap || !own || !shown.tg) return null;
+  const her = snap.ships.find((s) => s.i === shown.tg)
+    || (snap.contacts || []).find((s) => s.i === shown.tg);
+  if (!her) return null;
+  return {
+    name: her.n || 'Contact',
+    range: dist(own.x, own.z, her.x, her.z),
+    speed: her.v === undefined ? null : Math.abs(her.v) * MPS_TO_KNOTS,
+  };
+}
+
 export class Hud {
   constructor({ team, world, onLeave }) {
     this.team = team;
@@ -119,6 +149,8 @@ export class Hud {
     this.el = {
       ownName: $('own-name'), condRow: $('cond-row'),
       status: $('status-row'),
+      targetPlate: $('target-plate'), targetName: $('target-name'),
+      targetLine: $('target-line'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
       flyTake: $('fly-take'), cockpit: $('cockpit'), hudLeft: $('hud-left'),
@@ -841,6 +873,30 @@ export class Hud {
 
   formatRange(m) {
     return getSettings().metric ? `${(m / 1000).toFixed(1)} km` : `${(m / 1852).toFixed(1)} nm`;
+  }
+
+  /**
+   * What the bridge you are standing on is shooting at.
+   *
+   * Her name, and under it how far she is from your own hull and how fast she
+   * is going. The range is yours rather than the spectated ship's on purpose:
+   * the plot in the corner is your chart table and the mark in the middle of
+   * it is you, and this is that same range written out.
+   *
+   * Her speed is only there when your side can actually see her. A ship
+   * nobody has sighted is a mark on the plot with a position and a heading,
+   * and guessing at her speed off two of those would be inventing it.
+   */
+  setTarget(t) {
+    const el = this.el.targetPlate;
+    if (!el) return;
+    el.classList.toggle('idle', !t);
+    this.el.targetName.textContent = t ? t.name : 'NO TARGET';
+    if (!t) { this.el.targetLine.textContent = ''; return; }
+    const kn = t.speed === null ? null : `${t.speed.toFixed(0)} KN`;
+    this.el.targetLine.textContent = kn
+      ? `${this.formatRange(t.range)} · ${kn}`
+      : this.formatRange(t.range);
   }
 
   update(own, snap) {

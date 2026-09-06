@@ -3,7 +3,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
-import { Hud } from './hud.js';
+import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, stallSpeed, Pilot } from './render/aero.js';
@@ -1038,6 +1038,7 @@ export class Battle {
       : ownForHud;
     if (shown) this.hud.setShown(shown.c);
     this.hud.update(shown, snap);
+    this.hud.setTarget(readTarget(shown, snap, ls));
     // The board only turns while it is being looked at.
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);

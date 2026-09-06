@@ -66,6 +66,11 @@ export function shipSnapshot(ship, full) {
     s.smk = ship.smoke;
     s.st = ship.shellType;
     s.ax = Math.round(ship.aimX); s.az = Math.round(ship.aimZ);
+    // Who her main battery is laid on, so the bridge you are standing on can
+    // name her. It goes to her own side, and to whoever has picked her off
+    // the plot and is watching her -- which is the same rule as everything
+    // else in here, and is the whole of spectating.
+    s.tg = ship.targetId || 0;
     s.eng = ship.engineDamage > 0 ? 1 : 0;
     s.str = ship.steeringDamage > 0 ? 1 : 0;
     s.kills = ship.kills;

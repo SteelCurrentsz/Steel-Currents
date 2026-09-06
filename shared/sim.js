@@ -155,6 +155,12 @@ export function addShip(state, {
     engineDamage: 0,
     steeringDamage: 0,
     shellType: 'ap',
+    // Which ship her main battery is laid on, or 0. Her gunnery officer picks
+    // it (see stepBot) whoever has the con, and it is the one thing about a
+    // ship's fire that the bridge you are standing on cannot work out from
+    // looking: an aim point is a patch of sea ahead of a ship making twenty
+    // knots, not the ship.
+    targetId: 0,
     aimX: sp.x + Math.sin(sp.heading) * 6000,
     aimZ: sp.z + Math.cos(sp.heading) * 6000,
     turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, cooldown: 0, disabled: 0 })),

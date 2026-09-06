@@ -27,7 +27,7 @@ import { Pilot, AERO } from '../client/js/render/aero.js';
 const STRIKE_RUN = DECK_RUN * 3 + 1;
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
-import { arsenal } from '../client/js/hud.js';
+import { arsenal, readTarget } from '../client/js/hud.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels } from '../client/js/render/planes.js';
 import { meshSection } from '../client/js/render/interior.js';
@@ -114,7 +114,7 @@ function shellRuler(group) {
     return best;
   };
 }
-import { angleDelta, dist } from '../shared/math.js';
+import { angleDelta, dist, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE } from '../client/js/render/ocean.js';
 import { Wake } from '../client/js/render/wake.js';
@@ -2360,6 +2360,32 @@ check('the Iowa superfires off her deck, not off a barbette', () => {
     + `${drops.length} of four soundings fell away, first ${drops[0]}`);
 });
 
+check('the Iowa and the aeroplane on her catapult are drawn to one scale', () => {
+  // She is drawn larger than she was built, and the whole point of doing that
+  // with one factor is that everything on her goes up with her. The aeroplane
+  // on the catapult is the thing that gives it away: a Kingfisher is thirty-
+  // six feet across, and if she grows and the scout does not, a battleship
+  // ends up flying off a toy -- or a model aeroplane the size of a turret.
+  const built = buildIowa({ breakaway: false });
+  built.group.updateMatrixWorld(true);
+  const cats = built.group.userData.catapults || [];
+  assert.equal(cats.length, 2, `she has ${cats.length} catapults`);
+  const S = IOWA_SCALE;
+  for (const c of cats) {
+    const box = new THREE.Box3().setFromObject(c.plane);
+    // Her span, back in the metres the aeroplane was built to.
+    const span = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / S;
+    assert.ok(span > 9.5 && span < 12.0,
+      `the scout on her catapult spans ${span.toFixed(1)} m at her scale, `
+      + 'not the 10.9 m an OS2U does');
+  }
+  // And she is in proportion to the ship: about a quarter of her beam.
+  const box = new THREE.Box3().setFromObject(cats[0].plane);
+  const across = (box.max.x - box.min.x) / IOWA_BEAM;
+  assert.ok(across > 0.15 && across < 0.35,
+    `the scout is ${(across * 100).toFixed(0)}% of her beam across`);
+});
+
 check("the Iowa trains her catapults out and shoots on the simulation's clock", () => {
   // Two Mark 6 catapults on the quarterdeck, and a captain who orders a
   // squadron up has to see them work: both train out over the quarter, the
@@ -2524,10 +2550,18 @@ check('a hull on flat water settles level', () => {
   // lies over reads as a ship trimmed by the stern, and that is what she looked
   // like in a flat calm.
   for (const id of ['fletcher', 'hipper', 'iowa', 'enterprise']) {
-    const sea = new Seakeeping(SHIP_CLASSES[id].hull);
+    const hull = SHIP_CLASSES[id].hull;
+    const sea = new Seakeeping(hull);
     sea.pitch = 0.09; sea.roll = -0.12; sea.heave = 2.4;
     const flat = { pitch: 0, roll: 0, heave: 0 };
-    for (let t = 0; t < 90; t += 1 / 30) sea.step(flat, 1 / 30);
+    // Ten of her own roll periods rather than a fixed ninety seconds. Roll is
+    // the slowest thing she does and the period goes with her beam, so a fixed
+    // window asks a wide ship to settle in fewer swings than a narrow one --
+    // and the widest hull in the game was squeaking through it with a
+    // hundredth of a degree to spare. What is being checked is that the spring
+    // pulls her back to nothing, not how many seconds it takes.
+    const span = Math.max(90, rollPeriod(hull.beam) * 10);
+    for (let t = 0; t < span; t += 1 / 30) sea.step(flat, 1 / 30);
     assert.ok(Math.abs(sea.pitch) < 0.002,
       `${id} still sits ${(sea.pitch * 57.3).toFixed(2)}deg by the stern on flat water`);
     assert.ok(Math.abs(sea.roll) < 0.002,
@@ -4555,6 +4589,114 @@ check('the deck says which flight the aeroplane that just left it became', () =>
   assert.equal(ids.size, 3, 'the same flight was named twice');
   for (const p of st.planes) {
     assert.ok(ids.has(p.id), `flight ${p.id} got up without being named`);
+  }
+});
+
+check('a ship tells her own side what she is shooting at', () => {
+  // A captain watching one of his ships work up a target wants to know which
+  // ship she has picked. Nothing on the wire said so: an aim point is a patch
+  // of sea a few hundred metres ahead of a ship making twenty knots, and you
+  // cannot name a ship from it. Her gunnery officer knows, and now she carries
+  // it.
+  const state = createState(generateWorld(2291, 'open_ocean'), { mode: 'deathmatch' });
+  const mine = addShip(state, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
+  const mate = addShip(state, { name: 'Hipper', classId: 'hipper', team: 0, index: 1 });
+  const foe = addShip(state, { name: 'Kirishima', classId: 'iowa', team: 1, index: 0 });
+  const foe2 = addShip(state, { name: 'Yudachi', classId: 'fletcher', team: 1, index: 1 });
+  // Inside gun range of each other, and where each can be seen.
+  foe.x = mine.x + 9000; foe.z = mine.z;
+  foe2.x = mate.x + 8000; foe2.z = mate.z + 1200;
+  const brains = new Map();
+  for (const s of state.ships) brains.set(s.id, createBotBrain('veteran'));
+  pinned(() => {
+    for (let i = 0; i < Math.ceil(20 / DT); i++) {
+      for (const s of state.ships) stepBot(state, s, brains.get(s.id), DT);
+      step(state, DT);
+    }
+  });
+  assert.ok(mine.targetId, 'she never picked anything to shoot at');
+  const picked = state.ships.find((s) => s.id === mine.targetId);
+  assert.ok(picked, 'she is laid on a ship that is not in the battle');
+  assert.notEqual(picked.team, mine.team, 'she has her guns on one of her own');
+
+  // And it comes through on the wire, to her own side.
+  const snap = buildSnapshot(state, 0, mine.id, 0);
+  const her = snap.ships.find((s) => s.i === mine.id);
+  assert.equal(her.tg, mine.targetId, 'what she is shooting at did not go out');
+  // Not to the other side, who cannot read it through binoculars.
+  const theirs = buildSnapshot(state, 1, foe.id, 0);
+  const seen = theirs.ships.find((s) => s.i === mine.id);
+  if (seen) assert.equal(seen.tg, undefined, 'the enemy was told who she is engaging');
+  // Unless they are watching her, which is the whole of spectating.
+  const watched = buildSnapshot(state, 1, foe.id, mine.id).ships.find((s) => s.i === mine.id);
+  assert.equal(watched.tg, mine.targetId, 'a watched ship kept her target to herself');
+});
+
+check("the target readout is the spectated ship's, and the range is yours", () => {
+  // Two things it has to get right and neither is obvious from looking at it:
+  // the target is whoever the ship you are watching has picked, not whoever
+  // your own ship has -- and the range is from your own hull, not from hers,
+  // because the plot in the corner is your chart table.
+  const own = { x: 0, z: 0 };
+  const snap = {
+    ships: [
+      { i: 1, n: 'Iowa', x: 0, z: 0, v: 12 },
+      { i: 2, n: 'Somerville', x: 20000, z: 0, v: 15 },
+      { i: 3, n: 'Mikawa', x: 3000, z: 4000, v: 10.2889 },
+      { i: 4, n: 'Yudachi', x: 24000, z: 0, v: 17 },
+    ],
+    contacts: [{ i: 5, n: 'Shadow', x: 0, z: 30000 }],
+  };
+  // Both carry their own position, as a snapshot entry does: the ship you are
+  // watching is twenty kilometres away and four from what she is engaging, so
+  // the two ranges are nothing like each other.
+  const mine = { i: 1, tg: 3, x: 0, z: 0 };
+  const hers = { i: 2, tg: 4, x: 20000, z: 0 };
+  assert.equal(readTarget(mine, snap, own).name, 'Mikawa');
+  const t = readTarget(hers, snap, own);
+  assert.equal(t.name, 'Yudachi', 'the readout followed your own ship, not hers');
+  // Twenty-four kilometres from you, not four from the ship you are watching.
+  assert.ok(Math.abs(t.range - 24000) < 1,
+    `the range read ${t.range.toFixed(0)} m rather than from your own hull`);
+  assert.ok(Math.abs(t.speed - 17 * MPS_TO_KNOTS) < 0.01, 'her speed came out wrong');
+
+  // Nothing laid on, a target that has gone down, and one nobody has sighted.
+  assert.equal(readTarget({ i: 1, tg: 0 }, snap, own), null);
+  assert.equal(readTarget({ i: 1, tg: 99 }, snap, own), null);
+  const dark = readTarget({ i: 1, tg: 5 }, snap, own);
+  assert.equal(dark.name, 'Shadow');
+  assert.equal(dark.speed, null, 'a ship nobody has sighted was given a speed');
+});
+
+check("cutting a ship's plating up leaves her still painted", () => {
+  // Battle is the only place her plating is subdivided: before anybody shoots
+  // at her, every piece bigger than a couple of square metres is cut down so
+  // a shell can take a hole out of it. The subdivision rebuilds her position
+  // and normal buffers -- and used to leave her texture coordinates behind
+  // exactly as they were.
+  //
+  // A `uv` attribute shorter than the `position` it belongs to does not throw.
+  // It draws black. So every ship in every battle was a black silhouette with
+  // her own decks, frames and machinery showing through where her plating
+  // should have been -- and in the shipyard, where nothing refines her, she
+  // was perfect.
+  for (const id of Object.keys(SHIP_CLASSES)) {
+    const built = buildShip(id);
+    // Plating's constructor is what does the cutting.
+    const plating = new Plating(built.group, 2.6);
+    assert.ok(plating.total > 0, `${id} has no plating to cut up`);
+    const off = [];
+    for (const c of built.group.children) {
+      if (!c.isMesh || !c.geometry) continue;
+      const pos = c.geometry.attributes.position;
+      const uv = c.geometry.attributes.uv;
+      if (!pos || !uv) continue;
+      if (uv.count !== pos.count) {
+        off.push(`${c.userData.mergeKey}: ${uv.count} uv for ${pos.count} vertices`);
+      }
+    }
+    assert.equal(off.length, 0,
+      `${id} would draw black: ${off.length} buffer(s) out of step, first ${off[0]}`);
   }
 });
 

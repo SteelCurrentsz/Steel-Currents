@@ -56,6 +56,10 @@ export function stepBot(state, ship, brain, dt, conned = false) {
     brain.targetId = pickTarget(state, ship);
   }
   const target = state.ships.find((s) => s.id === brain.targetId);
+  // On the ship as well as in the brain, so it goes out with her snapshot: a
+  // captain watching one of his ships work wants to know what she is shooting
+  // at, and the brain is the server's alone.
+  ship.targetId = target ? target.id : 0;
 
   // Damage control: put fires out once a couple are burning, or when badly hurt.
   if ((ship.fires >= 2 || ship.flooding >= 1 || ship.hp < ship.maxHp * 0.4) && ship.repairCd <= 0) {

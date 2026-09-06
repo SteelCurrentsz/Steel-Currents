@@ -29,7 +29,7 @@ import { RIG, fitCatapults } from './catapult.js';
  * she is simply larger. Change this one number and she changes size, model and
  * datasheet together; nothing else needs touching.
  */
-export const SCALE = 1.30;
+export const SCALE = 1.55;
 
 export const LOA = 270 * SCALE;
 export const BEAM = 33 * SCALE;

@@ -330,10 +330,19 @@ function buildPart(mesh, key, piece = PIECE_AREA) {
 function refine(geo, area, cap) {
   const p0 = geo.attributes.position;
   const n0 = geo.attributes.normal;
+  // Her texture coordinates go through this as well. They were an
+  // afterthought once, and the cost of forgetting them was the whole ship:
+  // every vertex the subdivision added had no `uv`, so the attribute came out
+  // shorter than the position it belongs to, and a plated mesh drawn with a
+  // short buffer is drawn black. In battle -- and only in battle, because
+  // nothing else refines her -- a ship was a black outline with her own decks
+  // and frames showing through where the plating should have been.
+  const u0 = geo.attributes.uv;
   const i0 = geo.index;
   if (!i0 || !p0) return;
   const pos = Array.from(p0.array);
   const nor = n0 ? Array.from(n0.array) : null;
+  const uvs = u0 ? Array.from(u0.array) : null;
   let tris = [];
   for (let i = 0; i < i0.count; i += 3) {
     tris.push(i0.array[i], i0.array[i + 1], i0.array[i + 2]);
@@ -354,6 +363,10 @@ function refine(geo, area, cap) {
       const z = (nor[a * 3 + 2] + nor[b * 3 + 2]) / 2;
       const l = Math.hypot(x, y, z) || 1;
       nor.push(x / l, y / l, z / l);
+    }
+    if (uvs) {
+      uvs.push((uvs[a * 2] + uvs[b * 2]) / 2,
+        (uvs[a * 2 + 1] + uvs[b * 2 + 1]) / 2);
     }
     mid.set(k, m);
     return m;
@@ -395,6 +408,7 @@ function refine(geo, area, cap) {
 
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   if (nor) geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  if (uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   const n = pos.length / 3;
   geo.setIndex(n > 65535
     ? new THREE.Uint32BufferAttribute(tris, 1)

@@ -266,15 +266,24 @@ function narrowest(hull, t, y0, y1) {
  * through the bottom of her at the ends, where the keel is rising towards the
  * counter and the forefoot. Everything long asks this instead.
  */
-function reachAt(hull, y, dir, needHalf = 0) {
+function reachAt(hull, y, dir, needHalf = 0, thick = 0) {
   let t = 0;
   for (let i = 0; i <= 200; i++) {
     const q = dir * (i / 200);
-    if (hull.keelY(q) > y - 0.35) break;
+    if (hull.keelY(q) > y - thick - 0.35) break;
     // And enough breadth for whatever is being run out there. A shaft has
     // depth under it a long way aft and no room beside it, so the keel alone
     // is not the question.
-    if (needHalf && hull.shellAt(q, y) < needHalf + 0.4) break;
+    //
+    // `thick` is how deep the thing is, top to bottom: a shaft is a metre and
+    // a half through, and her quarter tucks in so fast down there that the
+    // bottom of the tube is out through the plating while its axis is still
+    // half a metre inside. Measured over its own depth, the way anything else
+    // drawn as a solid is.
+    const room = thick
+      ? narrowest(hull, q, y - thick, y + thick)
+      : hull.shellAt(q, y);
+    if (needHalf && room < needHalf + 0.4) break;
     t = q;
   }
   return t;
@@ -369,7 +378,13 @@ function machinery(g, hull, sole, top) {
     // sternpost: the keel is coming up to meet the counter back there.
     const shaftY = sole + 0.55;
     const rad = Math.max(0.16, beam * 0.022);
-    const zEnd = zOf(hull, reachAt(hull, shaftY, -1, Math.abs(x) + rad * 1.2));
+    // At the shaft's own height, not at the waterline. Her counter overhangs
+    // aft up top and tucks in hard below it, so the station where she still
+    // has the depth for a shaft is a long way forward of the z that station
+    // sits at on the waterline -- and a shaft run to the second one comes out
+    // through her quarter under water, where you only see it from below.
+    const stop = reachAt(hull, shaftY, -1, Math.abs(x) + rad * 1.2, rad);
+    const zEnd = hull.zAt ? hull.zAt(stop, shaftY) : zOf(hull, stop);
     const tail = Math.max(2, (ez0 + L + 2.2) - zEnd);
     tubeZ(g, M.frame, rad, tail, x, shaftY, ez0 + L + 2.2 - tail / 2, 8);
   }

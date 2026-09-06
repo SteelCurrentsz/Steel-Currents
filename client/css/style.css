@@ -402,6 +402,33 @@ input[type="range"] { accent-color: var(--red); }
 /* A ship with no aircraft aboard has no air key, and the other two close up. */
 .conn-key[hidden] { display: none; }
 
+/* The target plate, standing beside the keys.
+ *
+ * Fixed width and never taken away: a readout that appears when a ship opens
+ * fire and vanishes when she checks fire would slide the whole row of keys
+ * sideways under the thumb that was reaching for one. It says NO TARGET
+ * instead, and stays where it is. */
+.target-plate {
+  pointer-events: none;
+  width: 132px; min-height: 50px; padding: 0.3rem 0.5rem 0.25rem;
+  display: flex; flex-direction: column; justify-content: center; gap: 0.1rem;
+  background: rgba(8, 19, 31, 0.78); border: 1px solid var(--panel-line);
+  font-family: var(--ui); text-align: left; overflow: hidden;
+}
+.target-label {
+  font-size: 0.5rem; letter-spacing: 0.2em; color: var(--steel); opacity: 0.62;
+}
+.target-name {
+  font-size: 0.72rem; letter-spacing: 0.04em; color: var(--sand);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.target-line {
+  font-size: 0.6rem; letter-spacing: 0.08em; color: var(--steel);
+  white-space: nowrap;
+}
+/* Nothing laid on: the name goes quiet and the line under it is empty. */
+.target-plate.idle .target-name { color: var(--steel); opacity: 0.5; }
+
 /* The panel the keys raise, standing on top of them in the lower middle. */
 .conn-panel {
   position: absolute; left: 50%; transform: translateX(-50%);
