@@ -474,7 +474,21 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    planes: null,
+    // Three Kingfishers off the two catapults on her quarterdeck. She is a
+    // battleship rather than a carrier: they are her eyes, and the only thing
+    // a captain does with them is throw them off and get them back.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9600,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
+      // Off a catapult, not down a flight deck: the whole evolution is the
+      // catapult training out, the engine running up and the shot itself.
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      runHeight: 22,
+      runOut: 141, runBearing: 1.16,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
     datasheet: {
       // Her tonnage is the ship's own, not the model's: she is drawn larger
       // than she was built, and 45,000 tons is what she displaced.

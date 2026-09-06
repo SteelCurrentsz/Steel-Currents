@@ -18,7 +18,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
-import { AERO, catapultProfile } from './aero.js';
+import { RIG, fitCatapults } from './catapult.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
@@ -630,14 +630,13 @@ const CAT_X = 5.9;                           // and how far off the centreline
 // not in the middle of it: a catapult swings its muzzle out over the water and
 // hardly moves its breech, which is the only way it can train out at all
 // without the after end of it sweeping across her quarterdeck.
-const CAT_BACK = -5.0;
-const CAT_FRONT = 14.0;
-const CAT_A = CAT_BACK + 1.6;                // the car, at rest at the breech
-const CAT_STROKE = 17.0;                     // how much track she has ahead
-const CAT_REST = 0.10;                       // trained fore and aft
-const CAT_OUT = 1.16;                        // and trained out to shoot
-const PLANE_Y = 1.95;                        // the aeroplane, on her cradle
-const PLANE_Z = 0.2;
+const CAT_BACK = RIG.BACK;
+const CAT_FRONT = RIG.FRONT;
+const CAT_A = RIG.A;                         // the car, at rest at the breech
+const CAT_STROKE = RIG.STROKE;               // how much track she has ahead
+const CAT_REST = RIG.REST;                   // trained fore and aft
+const PLANE_Y = RIG.PLANE_Y;                 // the aeroplane, on her cradle
+const PLANE_Z = RIG.PLANE_Z;
 // How long the simulation gives the whole evolution. The model is paced to it,
 // so the aeroplane leaves the track on the tick her flight goes on the plot.
 const DECK_RUN = SHIP_CLASSES.cleveland.planes.deckRun;
@@ -1213,110 +1212,6 @@ function aviation(g) {
   box(g, M.canvas, 5.0, 0.14, 9.0, S * 6.4, qd + 0.1, -66);
 }
 
-/**
- * Her launch, from the order to the aeroplane leaving the end of the track.
- *
- * A cruiser does not have a deck to run down: the catapult trains out on its
- * turntable until it is pointing off the quarter, the pilot winds the engine
- * right up against the holdback, and then a powder charge throws the whole
- * cradle down eighteen metres of girder. The whole thing is played on the same
- * clock the simulation launches on, so what the eye sees leave the ship and
- * what the plot says is in the air are the same event.
- */
-const TRAIN = 3.4;                     // trained out and pointing off the bow
-const RUNUP = 5.0;                     // engine wound up, waiting for the flag
-const HOME = 4.0;                      // and trained back in afterwards
-
-function stepCatapults(deck, t) {
-  const pr = deck.profile;
-  const shot = pr.rows.length * pr.dt;
-  // Paced so the aeroplane leaves the track at exactly the moment the
-  // simulation puts her squadron up, however long the integrated shot takes.
-  const pace = (RUNUP + shot) / deck.run;
-  const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
-  // Both catapults train out on the order and both come back in afterwards --
-  // she is flying off aircraft, and that is a quarterdeck evolution, not one
-  // man's job on one girder.
-  let out = 0;
-  if (run >= 0) {
-    if (run < TRAIN) out = smooth(run / TRAIN);
-    else if (run < RUNUP + shot) out = 1;
-    else out = 1 - smooth((run - RUNUP - shot) / HOME);
-  }
-  for (const c of deck.cats) {
-    c.group.rotation.y = c.sgn * (CAT_REST + (CAT_OUT - CAT_REST) * out);
-    if (deck.live !== c || run < 0) {
-      // Sitting on her cradle with the engine ticking over, waiting her turn.
-      c.car.position.z = CAT_A;
-      if (!c.gone) {
-        c.plane.position.set(0, PLANE_Y, PLANE_Z);
-        c.plane.rotation.set(0, 0, 0);
-        if (c.prop) c.prop.rotation.z += 0.04;
-      }
-      continue;
-    }
-    let along = CAT_A;
-    let y = 0;
-    let pitch = 0;
-    let turning = 30;
-    if (run < TRAIN) {
-      // Trained out on the turntable, engine coming up as she goes round.
-      turning = 3 + 14 * out;
-    } else if (run < RUNUP) {
-      // Held on the holdback with the engine wound right up: she shakes.
-      pitch = 0.005 * Math.sin((run - TRAIN) * 26);
-    } else if (run < RUNUP + shot) {
-      // The shot itself, read off the integrated profile.
-      turning = 34;
-      const i = Math.min(pr.rows.length - 1,
-        Math.max(0, Math.round((run - RUNUP) / pr.dt)));
-      const [s2, h, th] = pr.rows[i];
-      along = CAT_A + s2;
-      y = h;
-      // Nose up: she is climbing away off the end of the girder.
-      pitch = th;
-      // Off the end of the girder and climbing away. She is handed over at the
-      // end of the profile, which the pacing above puts on the same tick the
-      // simulation puts her flight on the plot.
-      if (s2 > CAT_STROKE + 34 && run >= RUNUP + shot - pr.dt) {
-        deck.airborne = true;
-        // Where the shot left her, latched at the moment it did. Whatever
-        // flies her next reads this rather than trying to catch the model at
-        // that instant -- see startFlyoff.
-        c.plane.updateMatrixWorld(true);
-        deck.endMatrix = c.plane.matrixWorld.clone();
-        c.gone = true;
-      }
-    } else {
-      // Gone. A frame can step clean over the last row of the profile, so the
-      // hand-over is latched here as well: past the end of the shot she is
-      // away, whether or not a frame landed on the moment she left the track.
-      deck.airborne = true;
-      c.gone = true;
-      turning = 0;
-    }
-    c.car.position.z = Math.min(CAT_A + CAT_STROKE, along);
-    if (!c.gone) {
-      // Past the end of the girder there is no car under her: she carries on
-      // along the line of the track on her own.
-      c.plane.position.set(0, PLANE_Y + y,
-        PLANE_Z + Math.max(0, along - (CAT_A + CAT_STROKE)));
-      c.plane.rotation.set(pitch, 0, 0);
-      c.plane.visible = true;
-      if (c.prop) c.prop.rotation.z += turning * 0.05;
-    } else {
-      // She is away, and her flight is being drawn out where the shot left
-      // her. The model on the cradle is not a second aeroplane: it is put out
-      // of sight until she is craned back aboard.
-      //
-      // It used simply to stop being positioned, which left it hanging in the
-      // air over the quarterdeck exactly where the shot ended -- a scout that
-      // took off and then paused, levitating, for the rest of the battle.
-      c.plane.visible = false;
-    }
-  }
-}
-
 /** Boats: two motor launches and two whaleboats, on davits on the boat deck. */
 function boats(g) {
   const deckY = L01();
@@ -1610,59 +1505,10 @@ export function buildCleveland() {
   // Her catapults. Like the carrier, she carries her own launch: the scene only
   // tells her when the order was given, and she knows what a launch looks like.
   const cats = g.userData.catapults || [];
-  const deck = {
-    cats, live: null, launchAt: null, airborne: false, plane: null,
-    // Which flight in the air the aeroplane off the catapult is. See the
-    // 'airborne' event and flyLaunched.
-    flightId: 0,
-    // Flights whose wheels have left the track and are waiting for a model to
-    // be handed to them. A queue, because the order can arrive a frame either
-    // side of the evolution ending.
-    pending: [],
-    endMatrix: null,
-    aero: 'kingfisher', run: DECK_RUN,
-    profile: catapultProfile(AERO.kingfisher, CAT_STROKE),
-  };
-  g.userData.deck = deck;
-  g.userData.deckPlane = cats.length ? cats[0].plane : null;
-  g.userData.step = (t) => stepCatapults(deck, t);
-  g.userData.launch = (t) => {
-    // The two catapults are used turn and turn about, which is what keeps one
-    // of them free while the other is being reloaded by the crane.
-    const next = cats.find((c) => !c.gone && c !== deck.live) || deck.live;
-    deck.live = next;
-    deck.launchAt = t;
-    deck.airborne = false;
-    if (next) {
-      next.gone = false;
-      next.plane.visible = true;
-      g.userData.deckPlane = next.plane;
-      g.userData.deckPlaneOwner = next;
-      deck.plane = { group: next.plane, prop: next.prop };
-      // Where she comes back to: her own cradle, not a spot on the deck.
-      g.userData.landingSpot = [next.sgn * CAT_X, deckAt(CAT_Z) + PLANE_Y + 0.6,
-        CAT_Z + CAT_A];
-    }
-  };
-  // Whatever was flying her is finished with her: she is back on her cradle,
-  // craned aboard and bolted down for the next shot.
-  g.userData.recover = () => {
-    const c = g.userData.deckPlaneOwner || deck.live;
-    deck.airborne = false;
-    deck.launchAt = null;
-    if (!c) return;
-    c.gone = false;
-    if (c.plane.parent !== c.car) c.car.add(c.plane);
-    c.plane.position.set(0, PLANE_Y, PLANE_Z);
-    c.plane.rotation.set(0, 0, 0);
-    c.plane.visible = true;
-    c.car.position.z = CAT_A;
-    c.group.rotation.y = c.sgn * CAT_REST;
-  };
-  // A cruiser has no hangar and no lift: there is nowhere for a scout to go
-  // but back on her cradle, so being struck below and being craned aboard are
-  // the same evolution. The carrier tells the two apart; she does not.
-  g.userData.stow = g.userData.recover;
+  fitCatapults(g, {
+    cats, deckY: deckAt(CAT_Z), catX: CAT_X, catZ: CAT_Z,
+    run: DECK_RUN, aero: 'kingfisher',
+  });
   // Steel where she is plated and planking where she is decked: the maps go
   // on after the weld, when she is a handful of meshes rather than a few
   // hundred, and the weld is what gave her the coordinates to put them on.

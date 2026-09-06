@@ -141,7 +141,7 @@ import {
 import {
   buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM, SCALE as IOWA_SCALE,
   sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
-  zAt as iowaZAt, halfDeck as iowaHalfDeck,
+  zAt as iowaZAt, halfDeck as iowaHalfDeck, iowaParts, iowaDecks,
 } from '../client/js/render/iowa.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -150,7 +150,14 @@ import { crewBattle } from '../server/setup.js';
 import { buildSnapshot } from '../shared/protocol.js';
 
 let failures = 0;
+// Run one check rather than all of them: `ONLY='the Iowa' npm test`. The
+// whole suite takes a couple of minutes, and proving a new check by putting
+// the bug back means running it a dozen times.
+const ONLY = process.env.ONLY || '';
+if (ONLY) console.log(`  (only checks matching ${JSON.stringify(ONLY)})`);
+
 function check(name, fn) {
+  if (ONLY && !name.includes(ONLY)) return;
   try { fn(); console.log(`  ok   ${name}`); }
   catch (err) { failures++; console.log(`  FAIL ${name}\n       ${err.message}`); }
 }
@@ -2073,39 +2080,270 @@ check('the Iowa is the ship her own drawing shows', () => {
     `her datasheet is scaled ${(sheet.length / 270).toFixed(3)} and her model ${K}`);
 });
 
-check("nothing stands on the Iowa's deck", () => {
-  // Her hull and her deck are read off her own drawing; everything that used
-  // to stand on them belonged to the proportional model she replaced. Until
-  // her upperworks are drawn off the same sheet she is a bare hull, and a bare
-  // hull is what she has to be -- a turret or a funnel left behind from the
-  // old layout is a piece of a different ship standing on this one.
+/**
+ * Her upperworks, unwelded, in the metres the ship was built to.
+ *
+ * `iowaParts` builds each of her builders on its own so a check can say which
+ * one a bad piece came out of, and reports every mesh's box. Fittings -- a
+ * door, a rung, a stay, an aerial -- are not structure, so the checks that
+ * are about structure ask for a piece with a metre of footprint each way and
+ * a cubic metre of it.
+ */
+function iowaStructure() {
+  return iowaParts().filter((p) => {
+    const w = p.max[0] - p.min[0];
+    const h = p.max[1] - p.min[1];
+    const d = p.max[2] - p.min[2];
+    return w >= 1.0 && d >= 1.0 && w * h * d >= 1.0;
+  });
+}
+
+check('nothing on the Iowa stands in mid-air', () => {
+  // The one thing that gives a model away at any range is a piece of it with
+  // daylight underneath. Every deckhouse, tub, barbette, funnel casing and
+  // director platform on her has to be carried by something: either it comes
+  // down to her weather deck -- or through it, which is what a barbette does
+  // -- or another piece of her reaches up to meet it.
+  //
+  // The layout is kept honest by `perch`, which puts each mounting on the
+  // highest deck at its own station that actually reaches out that far. This
+  // is the check that says so from the outside, off the built geometry, with
+  // no knowledge of how she was laid out.
+  const parts = iowaParts();
+  const main = iowaDecks()[0];
+  const over = (a, b, i) => Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]);
+  // Down to the deck, or into it: a piece whose sole is below her planking is
+  // standing through it, not hanging over it.
+  const landed = (p) => {
+    const sx = Math.max(0.5, (p.max[0] - p.min[0]) / 4);
+    const sz = Math.max(0.5, (p.max[2] - p.min[2]) / 4);
+    for (let x = p.min[0]; x <= p.max[0] + 0.01; x += sx) {
+      for (let z = p.min[2]; z <= p.max[2] + 0.01; z += sz) {
+        if (p.min[1] <= main.deck(x, z) + 0.45) return true;
+      }
+    }
+    return false;
+  };
+  const air = [];
+  const structure = iowaStructure();
+  for (const p of structure) {
+    if (landed(p)) continue;
+    const carried = parts.some((q) => q !== p
+      && over(p, q, 0) > 0.05 && over(p, q, 2) > 0.05
+      && q.max[1] >= p.min[1] - 0.45 && q.min[1] < p.min[1] - 0.02);
+    if (!carried) {
+      air.push(`${p.from} at ${((p.min[0] + p.max[0]) / 2).toFixed(1)}, `
+        + `${p.min[1].toFixed(1)}, ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
+    }
+  }
+  assert.ok(structure.length > 300,
+    `only ${structure.length} pieces of her were looked at`);
+  assert.equal(air.length, 0,
+    `${air.length} piece(s) of her stand in the air, first ${air[0]}`);
+});
+
+check('nothing on the Iowa stands out over her side', () => {
+  // She is very fine forward and finer still aft -- six metres of half-breadth
+  // abreast the anchors against sixteen and a half amidships -- so a gun or a
+  // tub laid out on a fixed offset is over the water long before the bow, and
+  // from any angle but dead abeam you cannot tell.
+  //
+  // Her aircraft are the exception, and were: a Kingfisher sat on a catapult
+  // trained out over the quarter has her wing out past the deck edge, which is
+  // why the catapult is there and not further in.
+  const HALF = IOWA_LOA / 2 / IOWA_SCALE;
+  const room = (z) => iowaHalfDeck(Math.max(-HALF, Math.min(HALF, z)) * IOWA_SCALE)
+    / IOWA_SCALE;
+  const out = [];
+  for (const p of iowaParts()) {
+    if (p.moving) continue;
+    let wide = 0;
+    for (let z = p.min[2]; z <= p.max[2] + 0.01; z += 1) wide = Math.max(wide, room(z));
+    const x = Math.max(-p.min[0], p.max[0]);
+    if (x > wide + 0.05) {
+      out.push(`${p.from} out to ${x.toFixed(1)} m at station `
+        + `${((p.min[2] + p.max[2]) / 2).toFixed(0)}, where she is `
+        + `${wide.toFixed(1)} m wide`);
+    }
+  }
+  assert.equal(out.length, 0,
+    `${out.length} piece(s) of her hang over the water, first ${out[0]}`);
+});
+
+check('the Iowa is built the same on both sides', () => {
+  // Same test as the Hipper's, and it catches the same thing: a tub bracketed
+  // to port and hung in the air to starboard, or a row of mountings hauled
+  // inboard down one side by a taper and not the other. Only the crane is
+  // hers alone -- it stands on the centreline abaft the catapults -- and
+  // fittings small enough to be a door or a rung are left out.
+  const parts = iowaParts().filter((p) => {
+    if (p.from === 'aviation' && Math.abs((p.min[0] + p.max[0]) / 2) < 4) return false;
+    const [w, h, d] = p.size;
+    if (w * h * d < 0.5) return false;
+    return [w, h, d].filter((v) => v < 0.5).length < 2;
+  });
+  const key = (p) => `${p.from}|${p.min[1].toFixed(2)}|${p.min[2].toFixed(2)}|`
+    + `${p.max[2].toFixed(2)}|${(p.max[0] - p.min[0]).toFixed(2)}`;
+  const shelf = new Map();
+  for (const p of parts) {
+    const k = key(p);
+    if (!shelf.has(k)) shelf.set(k, []);
+    shelf.get(k).push((p.min[0] + p.max[0]) / 2);
+  }
+  const lone = [];
+  for (const p of parts) {
+    const cx = (p.min[0] + p.max[0]) / 2;
+    if (Math.abs(cx) < 0.25) continue;                       // on the centreline
+    if (!shelf.get(key(p)).some((x) => Math.abs(x + cx) < 0.12)) {
+      lone.push(`${p.from} at ${cx.toFixed(1)}, ${p.min[1].toFixed(1)}, `
+        + `${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
+    }
+  }
+  assert.ok(parts.length > 300, `only ${parts.length} pieces of her were compared`);
+  assert.equal(lone.length, 0,
+    `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
+});
+
+check('the Iowa mounts what her datasheet says she mounts', () => {
+  // The model and the simulation have to agree about her battery. She fires
+  // from the stations on the datasheet, so a gunhouse drawn anywhere else is
+  // a broadside coming out of a point in the air beside her -- and every
+  // mounting has to be its own object, or laying one lays the lot.
+  const cls = SHIP_CLASSES.iowa;
   const built = buildIowa({ breakaway: false });
   built.group.updateMatrixWorld(true);
-  assert.equal(built.turrets.length, 0, 'she still has turrets on her');
-  assert.equal(built.secMounts.length + built.aaMounts.length, 0,
-    'she still has mountings on her');
-  const above = [];
-  built.group.traverse((o) => {
-    if (!o.isMesh || !o.geometry) return;
-    if (o.userData.mergeKey === 'in') return;          // her insides
-    o.geometry.computeBoundingBox();
-    const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
-    // Against the highest her deck gets anywhere under the piece, not under
-    // its middle: her plating is welded a compartment at a time and the bow
-    // piece reaches the stem head, where her deck is four metres higher than
-    // it is at that piece's centre.
-    const half = IOWA_LOA / 2;
-    let roof = 0;
-    for (let z = bb.min.z; z <= bb.max.z + 1; z += 2) {
-      roof = Math.max(roof, iowaSheer(Math.max(-1, Math.min(1, z / half))));
+  assert.equal(built.turrets.length, cls.turrets.length,
+    `${built.turrets.length} turrets against ${cls.turrets.length} on the sheet`);
+  const guns = cls.aa.guns.reduce((n, g) => n + g.mounts.length, 0);
+  assert.equal(built.aaMounts.length, guns,
+    `${built.aaMounts.length} light mountings against ${guns} on the sheet`);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length,
+    `${built.secMounts.length} five-inch against ${cls.secondary.mounts.length}`);
+
+  // Each one where the sheet puts it, and each one on the ship herself rather
+  // than inside the group her upperworks are drawn in: the scene walks her top
+  // level to find what has to be laid on a bearing.
+  const off = [];
+  const at = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+  for (const [mounts, models, what] of [
+    [cls.turrets, built.turrets, 'turret'],
+    [cls.secondary.mounts, built.secMounts, 'five-inch'],
+  ]) {
+    for (let i = 0; i < mounts.length; i++) {
+      const p = at(models[i]);
+      const dz = Math.abs(p.z - mounts[i].z);
+      if (dz > 1.0) off.push(`${what} ${i} at z ${p.z.toFixed(1)} for ${mounts[i].z}`);
+      assert.equal(models[i].parent, built.group,
+        `${what} ${i} is not laid on the ship herself`);
+      assert.ok(models[i].userData.dynamic, `${what} ${i} would be welded down`);
     }
-    // A hand's breadth over the deck edge covers the sheer strake and the
-    // camber of the deck itself; anything higher is standing on her.
-    roof += 0.8 * IOWA_SCALE;
-    if (bb.max.y > roof) above.push(`${bb.max.y.toFixed(1)} m over a ${roof.toFixed(1)} m deck`);
+  }
+  assert.equal(off.length, 0, `${off.length} mounting(s) adrift, first ${off[0]}`);
+
+  // And they lay independently: putting one turret on a bearing leaves the
+  // others where they were.
+  const before = built.turrets.map((t) => t.rotation.y);
+  built.turrets[0].rotation.y = 1.1;
+  assert.ok(built.turrets.slice(1).every((t, i) => t.rotation.y === before[i + 1]),
+    'training one turret trained the others with it');
+  const rests = built.turrets.map((t) => t.userData.rest);
+  assert.ok(rests.every((r) => typeof r === 'number'),
+    'a turret has no bearing to come back to');
+  assert.ok(Math.abs(rests[2] - Math.PI) < 1e-6, 'Y turret does not rest aft');
+});
+
+check("the Iowa's guns and directors are hers, not the deck's", () => {
+  // Everything that trains is welded on its own so it can be laid; everything
+  // that does not is welded into the ship. If a mounting ends up inside the
+  // static weld it becomes part of the hull mesh and stops moving, and the
+  // first anyone knows is a battleship whose turrets are painted on.
+  const built = buildIowa({ breakaway: false });
+  const movers = [...built.turrets, ...built.secMounts, ...built.aaMounts,
+    ...built.directors];
+  for (const m of movers) {
+    assert.ok(m.userData.dynamic, 'a mounting was left to be welded down');
+    assert.equal(m.parent, built.group, 'a mounting is not on the ship herself');
+    // Welded on its own: one mesh per material it is made of, against the
+    // twenty or thirty boxes it was drawn from.
+    let meshes = 0;
+    m.traverse((o) => { if (o.isMesh) meshes++; });
+    assert.ok(meshes > 0 && meshes <= 8,
+      `a mounting is ${meshes} meshes, so it did not weld`);
+  }
+  // Both main-battery directors train, forward and aft, and they come back to
+  // opposite bearings.
+  assert.equal(built.directors.length, 2,
+    `${built.directors.length} directors on her`);
+  assert.ok(Math.abs(built.directors[1].userData.rest - Math.PI) < 1e-6,
+    'her after director does not rest trained aft');
+});
+
+check("the Iowa trains her catapults out and shoots on the simulation's clock", () => {
+  // Two Mark 6 catapults on the quarterdeck, and a captain who orders a
+  // squadron up has to see them work: both train out over the quarter, the
+  // charge throws the cradle down the girder, and the aeroplane leaves the
+  // end of the track on the tick her flight goes on the plot.
+  const built = buildIowa({ breakaway: false });
+  const deck = built.group.userData.deck;
+  assert.ok(deck, 'she has no catapults at all');
+  assert.equal(deck.cats.length, 2, `she has ${deck.cats.length} catapults`);
+  const trained = () => deck.cats.map((c) => Math.abs(c.group.rotation.y));
+  built.group.userData.step(0);
+  assert.ok(trained().every((a) => a < 0.2), 'she stows her catapults trained out');
+
+  built.group.userData.launch(0);
+  let away = null;
+  let widest = 0;
+  for (let t = 0; t <= 20; t += 1 / 60) {
+    built.group.userData.step(t);
+    widest = Math.max(widest, Math.min(...trained()));
+    if (deck.airborne && away === null) away = t;
+  }
+  assert.ok(widest > 1.0, `her catapults only trained to ${widest.toFixed(2)} rad`);
+  assert.ok(trained().every((a) => a < 0.2),
+    'her catapults were still trained out long after the shot');
+  const want = SHIP_CLASSES.iowa.planes.deckRun;
+  assert.ok(away !== null && Math.abs(away - want) < 0.2,
+    `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s `
+    + `against ${want}s on the plot`);
+
+  // Where she comes back to is her own cradle, and a ship drawn larger than
+  // she was built has her girders scaled with her, so that spot is too.
+  const spot = built.group.userData.landingSpot;
+  assert.ok(spot, 'there is nowhere for her scout to be craned back to');
+  const qd = iowaSheer(Math.max(-1, Math.min(1, spot[2] / (IOWA_LOA / 2))));
+  assert.ok(spot[1] > qd && spot[1] < qd + 6 * IOWA_SCALE,
+    `her cradle is ${(spot[1] - qd).toFixed(1)} m off her quarterdeck`);
+  assert.ok(Math.abs(spot[2]) > IOWA_LOA * 0.3,
+    'her cradle is not on the quarterdeck at all');
+
+  built.group.userData.recover();
+  built.group.userData.step(30);
+  for (const c of deck.cats) {
+    assert.ok(!c.gone && c.plane.visible, 'she never got her scout back');
+  }
+});
+
+check('the Iowa launches her scouts, and nothing flies before she has shot it off', () => {
+  // The same evolution driven from the simulation rather than the model: she
+  // is a catapult ship with an air group, and a flight must not appear on the
+  // plot until the shot that put it there has been played.
+  const state = createState(generateWorld(4471, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, {
+    name: 'Iowa', classId: 'iowa', team: 0, index: 0,
   });
-  assert.equal(above.length, 0,
-    `${above.length} piece(s) still standing on her deck, first ${above[0]}`);
+  ship.aimX = ship.x + 5000;
+  ship.aimZ = ship.z + 5000;
+  assert.ok(SHIP_CLASSES.iowa.planes.catapult, 'she is not a catapult ship');
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.iowa.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left her catapult at all');
+  assert.ok(state.planes.every((p) => p.torp === 0),
+    'her floatplanes went off carrying torpedoes');
 });
 
 check("you cannot see through the Iowa's side", () => {
