@@ -1191,7 +1191,9 @@ export class Battle {
       if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
       // And everything else that trains: her secondary mountings and her
       // tubes off the snapshot, her light battery off the aircraft overhead.
-      view.layMounts(s.se, s.tt, this.planesNow, dt);
+      view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
+      // And her screws, at the rate her speed sets.
+      view.spinScrews(s.v, dt);
 
       // What is left of her, compartment by compartment. A compartment blown
       // out of her has its plating taken off and you see into the ship: the

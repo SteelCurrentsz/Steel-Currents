@@ -432,6 +432,77 @@ check('a shell leaves the muzzle it was fired from', () => {
   }
 });
 
+check('her screws turn, and each shaft the way it is handed', () => {
+  // Every ship in the game had her screws modelled and every one of them was
+  // welded into the hull: four bronze propellers standing dead still under a
+  // battleship making thirty-three knots.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const cls = SHIP_CLASSES[id];
+    const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
+    assert.ok(view.screws.length >= 2,
+      `${id} has ${view.screws.length} screws that can turn`);
+    for (const sc of view.screws) {
+      assert.ok(sc.userData.dynamic,
+        `${id} has a screw welded into her hull`);
+      assert.ok(sc.children.length >= 2,
+        `${id} has a screw with no blades on it`);
+    }
+    // Stopped, they stop.
+    const at = view.screws.map((sc) => sc.rotation.z);
+    for (let i = 0; i < 60; i++) view.spinScrews(0, 1 / 30);
+    for (let i = 0; i < view.screws.length; i++) {
+      assert.equal(view.screws[i].rotation.z, at[i],
+        `${id} turns her screws lying stopped`);
+    }
+    // Under way they turn, and faster the faster she goes. Measured as a total
+    // rather than off the angle, which wraps.
+    const spun = (v, secs) => {
+      const start = view.screws.map((sc) => sc.rotation.z);
+      let sum = 0;
+      for (let i = 0; i < secs * 30; i++) {
+        const was = view.screws.map((sc) => sc.rotation.z);
+        view.spinScrews(v, 1 / 30);
+        for (let k = 0; k < was.length; k++) {
+          let d = view.screws[k].rotation.z - was[k];
+          while (d > Math.PI) d -= Math.PI * 2;
+          while (d < -Math.PI) d += Math.PI * 2;
+          if (k === 0) sum += Math.abs(d);
+        }
+      }
+      void start;
+      return sum;
+    };
+    const slow = spun(cls.maxSpeed * 0.3, 1);
+    const fast = spun(cls.maxSpeed, 1);
+    assert.ok(slow > 0.5, `${id} barely turns her screws at a third of her speed`);
+    assert.ok(fast > slow * 2.4,
+      `${id} turns her screws at ${fast.toFixed(1)} rad/s flat out and `
+      + `${slow.toFixed(1)} at a third of it, which is not proportional`);
+    // A shaft turning at a plausible rate: a screw doing more than about ten
+    // revolutions a second is a strobe rather than a propeller.
+    assert.ok(fast / (Math.PI * 2) < 10,
+      `${id} turns her screws ${(fast / (Math.PI * 2)).toFixed(1)} times a second`);
+
+    // And handed: a ship whose shafts all turn the same way walks sideways.
+    const hands = view.screws.map((sc) => sc.userData.screw.hand);
+    assert.ok(hands.some((h) => h > 0) && hands.some((h) => h < 0),
+      `${id}'s shafts all turn the same way: ${hands.join(',')}`);
+    // And going astern they turn the other way, which is the point of it.
+    const back = view.screws[0];
+    const before = back.rotation.z;
+    view.spinScrews(-cls.maxSpeed * 0.5, 1 / 30);
+    let d = back.rotation.z - before;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const fwdBefore = back.rotation.z;
+    view.spinScrews(cls.maxSpeed * 0.5, 1 / 30);
+    let f = back.rotation.z - fwdBefore;
+    while (f > Math.PI) f -= Math.PI * 2;
+    while (f < -Math.PI) f += Math.PI * 2;
+    assert.ok(d * f < 0, `${id} turns the same way going astern as going ahead`);
+  }
+});
+
 check('a torpedo is a torpedo, and it leaves a track behind it', () => {
   // The fish: seven metres long and half a metre across, which is what a
   // Mk 15 is. It used to be a box.

@@ -496,11 +496,16 @@ function buildHull(g) {
       arm.rotation.z = -s * 0.35;
       const boss = cyl(g, M.antifoul, 0.75, 0.85, 2.0, bx, -DRAFT * 0.66, -LOA * 0.40, 12);
       boss.rotation.x = Math.PI / 2;
-      // Screw: hub and four blades.
-      cyl(g, M.hullDark, 0.4, 0.4, 0.7, bx, -DRAFT * 0.68, -LOA * 0.435, 10)
-        .rotation.x = Math.PI / 2;
+      // Screw: hub and four blades, in a group of their own so they turn.
+      // The wing pair and the inboard pair are handed opposite ways.
+      const scr = new THREE.Group();
+      scr.position.set(bx, -DRAFT * 0.68, -LOA * 0.435);
+      scr.userData.dynamic = true;
+      scr.userData.screw = { hand: o > 0.5 ? s : -s };
+      g.add(scr);
+      cyl(scr, M.hullDark, 0.4, 0.4, 0.7, 0, 0, 0, 10).rotation.x = Math.PI / 2;
       for (let k = 0; k < 4; k++) {
-        const bl = box(g, M.hullDark, 0.3, 3.0, 0.14, bx, -DRAFT * 0.68, -LOA * 0.435);
+        const bl = box(scr, M.hullDark, 0.3, 3.0, 0.14, 0, 0, 0);
         bl.rotation.z = (k / 4) * Math.PI * 2 + 0.3;
         bl.rotation.y = 0.35;
       }

@@ -387,6 +387,10 @@ function sternGear(g) {
     // The screw itself: a boss and three broad blades.
     const hub = new THREE.Group();
     hub.position.set(sx, y, sz - len / 2 - 0.4);
+    hub.userData.dynamic = true;
+    // The wing screws turn outward and the centre one is right-handed, which
+    // is how a three-shaft German cruiser was arranged.
+    hub.userData.screw = { hand: sx === 0 ? 1 : Math.sign(sx) };
     g.add(hub);
     cyl(hub, M.brass, 0.5, 0.66, 1.1, 0, 0, 0, 12).rotation.x = Math.PI / 2;
     for (let i = 0; i < 3; i++) {

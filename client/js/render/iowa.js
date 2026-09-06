@@ -524,16 +524,21 @@ function sternGear(g) {
       strut.rotation.z = s * 0.42;
       g.add(strut);
     }
-    const hubO = cyl(0.5, 0.7, 1.5, P.brass, 10);
-    hubO.rotation.x = Math.PI / 2;
-    hubO.position.set(s * 9.4, -9.8, -96.5);
-    g.add(hubO);
+    // The outboard screw, in a group of its own so it can turn. It used to be
+    // a hub and four loose blades welded into the hull, which is a ship whose
+    // screws stand still at thirty-three knots.
+    const scrO = new THREE.Group();
+    scrO.position.set(s * 9.4, -9.8, -96.5);
+    scrO.userData.dynamic = true;
+    scrO.userData.screw = { hand: s };
+    g.add(scrO);
+    scrO.add(cyl(0.5, 0.7, 1.5, P.brass, 10).rotateX(Math.PI / 2));
     for (let b = 0; b < 4; b++) {
       const holder = new THREE.Group();
-      holder.position.set(s * 9.4, -9.8, -97.4);
+      holder.position.z = -0.9;
       holder.rotation.z = (b * Math.PI) / 2 + 0.3;
       holder.add(box(0.26, 2.9, 1.5, P.brass, 0, 1.35, 0));
-      g.add(holder);
+      scrO.add(holder);
     }
     // The inboard shaft comes out of a skeg, so it needs no bracket.
     const skeg = box(1.9, 4.4, 30, P.antifoul, s * 4.4, -10.4, -76);
@@ -542,16 +547,20 @@ function sternGear(g) {
     shIn.position.set(s * 4.4, -10.7, -86);
     shIn.rotation.x = Math.PI / 2 - 0.03;
     g.add(shIn);
-    const hubI = cyl(0.5, 0.7, 1.5, P.brass, 10);
-    hubI.rotation.x = Math.PI / 2;
-    hubI.position.set(s * 4.4, -10.9, -91.6);
-    g.add(hubI);
+    // And the inboard one, turning the other way: on a four-shaft ship the
+    // inboard pair are handed opposite to the wing pair.
+    const scrI = new THREE.Group();
+    scrI.position.set(s * 4.4, -10.9, -91.6);
+    scrI.userData.dynamic = true;
+    scrI.userData.screw = { hand: -s };
+    g.add(scrI);
+    scrI.add(cyl(0.5, 0.7, 1.5, P.brass, 10).rotateX(Math.PI / 2));
     for (let b = 0; b < 4; b++) {
       const holder = new THREE.Group();
-      holder.position.set(s * 4.4, -10.9, -92.4);
+      holder.position.z = -0.8;
       holder.rotation.z = (b * Math.PI) / 2 + 0.3;
       holder.add(box(0.26, 2.7, 1.4, P.brass, 0, 1.25, 0));
-      g.add(holder);
+      scrI.add(holder);
     }
     // The rudder, abaft the inboard screw.
     const rud = box(0.7, 6.4, 4.6, P.antifoul, s * 4.4, -8.6, -99);

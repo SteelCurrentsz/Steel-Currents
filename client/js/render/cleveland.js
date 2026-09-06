@@ -336,6 +336,8 @@ function underwater(g) {
         .rotation.x = Math.PI / 2;
       const hub = new THREE.Group();
       hub.position.set(x, -5.3, sz - tail * 0.5 - 0.9);
+      hub.userData.dynamic = true;
+      hub.userData.screw = { hand: sgn };
       g.add(hub);
       cyl(hub, M.brass, 0.36, 0.56, 0.7, 0, 0, 0, 12).rotation.x = Math.PI / 2;
       for (let b = 0; b < 4; b++) {

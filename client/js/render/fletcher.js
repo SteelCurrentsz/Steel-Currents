@@ -375,6 +375,10 @@ function underwater(g) {
     // The screw itself: a hub and three broad blades, twisted.
     const hub = new THREE.Group();
     hub.position.set(x, -4.5, -41.1);
+    hub.userData.dynamic = true;
+    // Outward-turning, which is what a twin-screw destroyer has: seen from
+    // astern the tops of the blades go outboard.
+    hub.userData.screw = { hand: sgn };
     g.add(hub);
     cyl(hub, M.brass, 0.26, 0.4, 0.5, 0, 0, 0, 10).rotation.x = Math.PI / 2;
     for (let b = 0; b < 3; b++) {

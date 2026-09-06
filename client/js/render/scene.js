@@ -578,6 +578,12 @@ export class ShipView {
     const len = this.cls.hull.length;
     // The wake is laid in the world rather than towed behind her, so it stays
     // where she has been and curves when she does.
+    // Her screws. They are tagged in the model rather than returned by it,
+    // so a hull can be given as many shafts as she actually had without every
+    // builder having to hand them back up through three signatures.
+    this.screws = [];
+    this.group.traverse((o) => { if (o.userData.screw) this.screws.push(o); });
+
     this.wake = new Wake({ length: len, beam: this.cls.hull.beam });
     if (wakes) wakes.add(this.wake);
     this.wakes = wakes;
@@ -840,6 +846,32 @@ export class ShipView {
     return { z, y: this.cls.hull.draft * 0.4 };
   }
 
+
+  /**
+   * Turn her screws.
+   *
+   * At the rate her speed sets, near enough: a ship's shaft revolutions and
+   * her speed are very nearly proportional over the working range, so a hull
+   * making thirty knots turns them at about twice the rate she does at
+   * fifteen, and a ship stopped stops them. Going astern they turn the other
+   * way, which is the whole point of going astern.
+   *
+   * Wound rather than set, so a screw keeps whatever angle it was at from one
+   * frame to the next; and wrapped, or the angle grows until a float cannot
+   * hold the difference between one frame and the next and the blades judder.
+   */
+  spinScrews(speed, dt) {
+    if (!this.screws.length) return;
+    // Revolutions per second at her full speed, off her own size: a destroyer
+    // turns small screws fast and a battleship turns great slow ones.
+    const top = Math.max(1, this.cls.maxSpeed);
+    const rpsMax = 6.4 - Math.min(3.6, this.cls.hull.length / 90);
+    const rate = (speed / top) * rpsMax * Math.PI * 2;
+    for (const sc of this.screws) {
+      sc.rotation.z = (sc.rotation.z + rate * (sc.userData.screw.hand || 1) * dt)
+        % (Math.PI * 2);
+    }
+  }
 
   /**
    * Lay everything on her that trains, in both axes.
