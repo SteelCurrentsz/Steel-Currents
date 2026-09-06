@@ -17,6 +17,7 @@
 // therefore starboard is -X. y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { arm as armMount } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -515,6 +516,7 @@ function fiveInch(g, x, y, z, aft) {
   tubeZ(arm, M.gunDark, 0.128, 4.9, 0, 0, 2.9, 14);         // and the tube
   cyl(arm, M.gunDark, 0.145, 0.155, 0.28, 0, 0, 5.25, 14).rotation.x = Math.PI / 2;
   cyl(arm, M.cave, 0.1, 0.1, 0.1, 0, 0, 5.36, 12).rotation.x = Math.PI / 2;
+  armMount(mount, arm, [[0, 0, 5.44]]);
 
   // Ready-service lockers round the barbette: the rounds she can fire before
   // the hoist has to catch up.
@@ -565,6 +567,9 @@ function torpedoBank(g, z) {
   box(rack, M.gunDark, 0.5, 0.12, 0.5, S * 2.1, 0.05, -1.9);
   box(rack, M.gunDark, 0.16, 0.7, 0.16, S * 2.1, 0.42, -1.9);
   box(rack, M.gun, 3.9, 0.22, 0.5, 0, 0.02, -3.3);
+  // The five muzzle doors, which is where a fish leaves her.
+  armMount(rack, rack, [0, 1, 2, 3, 4].map((i) =>
+    [(i - 2) * 0.78, 0.62 - Math.abs(i - 2) * 0.09, 3.82]));
   return rack;
 }
 
@@ -594,13 +599,22 @@ function bofors(g, x, y, z, ry) {
   tub.add(gunG);
   cyl(gunG, M.gunDark, 0.42, 0.55, 0.5, 0, 0.25, 0, 12);
   box(gunG, M.gun, 1.15, 0.62, 1.0, 0, 0.75, -0.1);
+  // The barrels in their own cradle, so they lift off the trunnion instead of
+  // being welded flat to the mounting: a Bofors following an aeroplane is
+  // mostly elevation, and it is the part you notice.
+  const cradle = new THREE.Group();
+  cradle.position.set(0, 1.0, 0);
+  cradle.rotation.x = -0.16;
+  gunG.add(cradle);
   for (const sgn of [-1, 1]) {
-    tubeZ(gunG, M.gunDark, 0.075, 2.3, sgn * 0.28, 1.0, 1.15, 10);
-    cyl(gunG, M.gunDark, 0.11, 0.11, 0.34, sgn * 0.28, 1.0, 2.2, 10)
+    tubeZ(cradle, M.gunDark, 0.075, 2.3, sgn * 0.28, 0, 1.15, 10);
+    cyl(cradle, M.gunDark, 0.11, 0.11, 0.34, sgn * 0.28, 0, 2.2, 10)
       .rotation.x = Math.PI / 2;
     // Magazine feeding from above, which is what makes a Bofors look busy.
-    box(gunG, M.gunDark, 0.16, 0.55, 0.2, sgn * 0.28, 1.34, 0.5);
+    box(cradle, M.gunDark, 0.16, 0.55, 0.2, sgn * 0.28, 0.34, 0.5);
   }
+  gunG.userData.trainRate = 1.7;   // a twin Bofors, power-worked
+  armMount(gunG, cradle, [[-0.28, 0, 2.4], [0.28, 0, 2.4]]);
   // Layer's and trainer's seats either side.
   for (const sgn of [-1, 1]) {
     box(gunG, M.gunDark, 0.34, 0.1, 0.34, sgn * 0.85, 0.72, -0.5);
@@ -632,11 +646,18 @@ function oerlikon(g, x, y, z, ry) {
   g2.userData.rest = ry;
   o.add(g2);
   // The gun: barrel, the big drum magazine on top, and the shoulder rests.
-  const bar = tubeZ(g2, M.gunDark, 0.05, 1.9, 0, 0.1, 0.9, 8);
-  bar.rotation.x = Math.PI / 2 - 0.22;
-  cyl(g2, M.gunDark, 0.28, 0.28, 0.16, 0, 0.42, 0.1, 12);
-  box(g2, M.gunDark, 0.16, 0.3, 0.5, 0, 0.1, -0.2);
-  for (const sgn of [-1, 1]) box(g2, M.gunDark, 0.06, 0.24, 0.06, sgn * 0.2, -0.05, -0.45);
+  // It is shoulder-controlled, so the whole gun swings up with the barrel --
+  // the drum and the rests go round with it, because they are bolted to it.
+  const cradle = new THREE.Group();
+  cradle.position.set(0, 0.1, 0);
+  cradle.rotation.x = -0.22;
+  g2.add(cradle);
+  tubeZ(cradle, M.gunDark, 0.05, 1.9, 0, 0, 0.9, 8);
+  cyl(cradle, M.gunDark, 0.28, 0.28, 0.16, 0, 0.32, 0.1, 12);
+  box(cradle, M.gunDark, 0.16, 0.3, 0.5, 0, 0, -0.2);
+  for (const sgn of [-1, 1]) box(cradle, M.gunDark, 0.06, 0.24, 0.06, sgn * 0.2, -0.15, -0.45);
+  g2.userData.trainRate = 2.9;     // an Oerlikon, swung by a man's shoulders
+  armMount(g2, cradle, [[0, 0, 1.9]]);
   return g2;
 }
 

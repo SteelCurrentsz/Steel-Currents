@@ -256,13 +256,36 @@ export class Battle {
     for (const ev of events) {
       const d = this.distanceFade(ev.x, ev.z);
       switch (ev.e) {
-        case 'muzzle':
-          // A coast gun's muzzle is where its own ground is, which for a
-          // battery on a headland is a long way above a ship's.
-          fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
+        case 'muzzle': {
+          // On the muzzles, one flash a barrel.
+          //
+          // The simulation says which ship fired and which mounting; where the
+          // barrels of that mounting are is the model's business, and it is
+          // the only thing that knows -- with the turret trained, the guns
+          // elevated, and the ship herself rolling and down by the head. It
+          // used to be put at the middle of the barbette at a height guessed
+          // from her superstructure, so a battleship's salvo went off inside
+          // her own turret roof.
+          const view = this.scene.shipViews.get(ev.ship);
+          let lit = false;
+          if (view) {
+            const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : null;
+            const which = ev.t != null ? ev.t : ev.s;
+            if (kind) {
+              for (const p of view.muzzles(kind, which)) {
+                fx.muzzle(p.x, p.y, p.z, ev.b, ev.cal);
+                lit = true;
+              }
+            }
+          }
+          // A coast gun has no ship and no model to ask; so has a mounting the
+          // scene has not built. Both fall back on where the simulation says
+          // the muzzle is, which is the same point, less the roll.
+          if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, d);
           if (ev.ship === this.shipId && getSettings().shake) this.shake = Math.min(1, ev.cal / 320);
           break;
+        }
         case 'aa': {
           // The light battery opening up: tracer reaching out to the squadron
           // and, from the heavy mountings, the black puffs bursting round it.
@@ -273,8 +296,36 @@ export class Battle {
             Math.abs(q.x - ev.tx) < 260 && Math.abs(q.z - ev.tz) < 260);
           const ty = pl ? this.planeHeight(pl) : 220;
           const view = this.scene.shipViews.get(ev.ship);
+          // Out of the guns that are actually pointing at her.
+          //
+          // The simulation counts the barrels that bear and works out what
+          // they do to the squadron; the model knows which mountings those
+          // are, because they are the ones it has just laid on her. So the
+          // tracer leaves those muzzles -- a stream from each -- instead of
+          // one stream from a point in the middle of the ship fourteen metres
+          // up, which is where it used to come from and looked it.
+          let fired = 0;
+          if (view) {
+            const bearing = Math.atan2(ev.tx - view.group.position.x,
+              ev.tz - view.group.position.z);
+            const mounts = view.bearingOn('aa', bearing, 0.85);
+            // How much of the burst each barrel is responsible for, so a ship
+            // with eighty guns bearing does not send eighty times the tracer
+            // of one with four -- the simulation has already decided how much
+            // fire there is, and this only decides where it comes out.
+            let bores = 0;
+            for (const m of mounts) bores += (m.userData.muzzles || []).length;
+            const share = Math.max(3, Math.round((ev.n * 3) / Math.max(1, bores)));
+            for (const m of mounts) {
+              for (const p of view.muzzles('aa', view.aaMounts.indexOf(m))) {
+                this.scene.flak.fire(p.x, p.y, p.z, ev.tx, ty, ev.tz,
+                  ev.cal, share, fx);
+                fired++;
+              }
+            }
+          }
           const gy = view ? view.group.position.y + 14 : 16;
-          this.scene.flak.fire(ev.x, gy, ev.z, ev.tx, ty, ev.tz, ev.cal, ev.n, fx);
+          if (!fired) this.scene.flak.fire(ev.x, gy, ev.z, ev.tx, ty, ev.tz, ev.cal, ev.n, fx);
           if (d < 0.6) audio.gun(Math.min(75, ev.cal), Math.max(d, 0.35));
           break;
         }

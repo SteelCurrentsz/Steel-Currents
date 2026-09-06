@@ -163,7 +163,7 @@ export function addShip(state, {
     targetId: 0,
     aimX: sp.x + Math.sin(sp.heading) * 6000,
     aimZ: sp.z + Math.cos(sp.heading) * 6000,
-    turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, cooldown: 0, disabled: 0 })),
+    turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, elev: 0, cooldown: 0, disabled: 0 })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
     // The secondary battery, mount by mount. It is not laid by her captain --
     // a secondary mounting is in local control, and the gun captain shoots at
@@ -171,7 +171,7 @@ export function addShip(state, {
     // its own training and its own loading.
     secMounts: cls.secondary
       ? cls.secondary.mounts.map((m, i) => ({
-        id: i, angle: m.angle, cooldown: 0, disabled: 0, target: 0,
+        id: i, angle: m.angle, elev: 0, cooldown: 0, disabled: 0, target: 0,
       }))
       : [],
     // How long since her light battery last opened up, per aircraft, so the
@@ -401,6 +401,35 @@ function turretWorldPos(ship, cls, t) {
   return { x: ship.x + w.x, z: ship.z + w.z };
 }
 
+/**
+ * Where a gun's muzzle is: the point the shell leaves the ship from.
+ *
+ * A mounting stands at (x, z) on the deck and trains about that point, and the
+ * muzzle is `reach` metres out along whatever bearing it is laid on, `my`
+ * metres above the water. Both numbers are measured off the built model and
+ * checked against it, so a shell starts where the flash does rather than at
+ * the middle of the barbette at a height guessed from how tall her
+ * superstructure is -- which on a heavy cruiser put it six metres above her
+ * own gun, and on a battleship a hundred feet short of the muzzle.
+ *
+ * `gun` is the barrel's index in the mounting and `guns` how many it has, so
+ * the shells of a salvo leave the three bores of a triple turret rather than
+ * all three leaving the middle one.
+ */
+export function muzzlePos(ship, cls, mount, battery, bearing, gun = 0, guns = 1) {
+  const w = localToWorld(mount.x, mount.z, ship.heading);
+  const reach = battery.reach || 8;
+  // Across the face of the mounting, so a wing gun is offset from the centre
+  // one. A hair over a metre a barrel is right for everything from a 2 cm to
+  // a 16 inch, because what sets it is the recoil gear and not the bore.
+  const across = (gun - (guns - 1) / 2) * 1.4;
+  return {
+    x: ship.x + w.x + Math.sin(bearing) * reach + Math.cos(bearing) * across,
+    z: ship.z + w.z + Math.cos(bearing) * reach - Math.sin(bearing) * across,
+    y: mount.my != null ? mount.my : 11 + cls.hull.superstructure * 5,
+  };
+}
+
 /** Bearing a turret wants, clamped into its firing arc; null when it cannot bear. */
 function turretDesired(ship, cls, t) {
   const spec = cls.turrets[t.id];
@@ -414,10 +443,22 @@ function turretDesired(ship, cls, t) {
 
 function stepTurrets(state, ship, dt) {
   const cls = shipClass(ship);
+  // How far up the guns are, which is the same solution she fires on: at eight
+  // hundred yards a battleship's guns are almost flat, and at her extreme
+  // range they are up at twenty degrees. It is on the wire because it is the
+  // most visible thing a turret does and nothing else can work it out -- a
+  // ship on the horizon shows you her elevation and not her fire-control
+  // problem.
+  const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, cls.gun.range);
+  const elev = solveBallistic(cls.gun, d, 12).elev;
   for (const t of ship.turrets) {
     if (t.disabled > 0) { t.disabled -= dt; continue; }
     const want = turretDesired(ship, cls, t);
     t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
+    // A gun that cannot bear comes down to the loading angle rather than
+    // standing there pointing at the sky over her own bridge.
+    const aim = want.blocked ? 0.03 : elev;
+    t.elev += clamp(aim - t.elev, -0.5 * dt, 0.5 * dt);
     if (t.cooldown > 0) t.cooldown -= dt;
   }
 }
@@ -434,7 +475,6 @@ export function fireGuns(state, ship) {
   const gun = cls.gun;
   const spec = gun.shells[ship.shellType] || gun.shells.ap;
   const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, gun.range);
-  const muzzleHeight = 11 + cls.hull.superstructure * 5;
   let fired = 0;
 
   for (const t of ship.turrets) {
@@ -444,7 +484,6 @@ export function fireGuns(state, ship) {
     if (want.blocked) continue;
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
 
-    const pos = turretWorldPos(ship, cls, t);
     const bearing = wrapAngle(ship.heading + t.angle);
     // Dispersion: a cone that widens with range, tightened by the gun's sigma.
     const spreadBase = (d * 0.0125) / gun.sigma;
@@ -452,14 +491,16 @@ export function fireGuns(state, ship) {
       const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
       const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
       const aimDist = clamp(d + rng, 300, gun.range);
-      const s2 = solveBallistic(gun, aimDist, muzzleHeight);
+      // Each barrel from its own muzzle: the three shells of a salvo leave
+      // three bores a yard apart, not one point in the middle of the turret.
+      const mz = muzzlePos(ship, cls, tSpec, gun, bearing, g, tSpec.guns);
+      const s2 = solveBallistic(gun, aimDist, mz.y);
       const b = bearing + Math.atan2(lat, Math.max(600, d));
       const vh = s2.v * Math.cos(s2.elev);
       state.shells.push({
         id: eid(),
         owner: ship.id, team: ship.team,
-        x: pos.x + Math.sin(b) * 12, z: pos.z + Math.cos(b) * 12,
-        y: muzzleHeight,
+        x: mz.x, z: mz.z, y: mz.y,
         vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
         g: s2.g,
         spec, caliber: gun.caliber,
@@ -469,7 +510,13 @@ export function fireGuns(state, ship) {
       fired++;
     }
     t.cooldown = gun.reload;
-    state.events.push({ e: 'muzzle', x: pos.x, z: pos.z, b: bearing, cal: gun.caliber, ship: ship.id });
+    // Which mounting it was, so the client can put the flash on the muzzles of
+    // that turret -- it has the model and knows exactly where they are.
+    const mz0 = muzzlePos(ship, cls, tSpec, gun, bearing);
+    state.events.push({
+      e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b: bearing,
+      cal: gun.caliber, ship: ship.id, t: t.id,
+    });
   }
   if (fired > 0) ship.lastFiredAt = state.t;
   return fired;
@@ -771,7 +818,6 @@ function stepSecondary(state, ship, dt) {
   const S = cls.secondary;
   if (!S || !ship.secMounts.length) return;
   const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
-  const muzzleHeight = 9 + cls.hull.superstructure * 4;
   for (const m of ship.secMounts) {
     if (m.disabled > 0) { m.disabled -= dt; continue; }
     if (m.cooldown > 0) m.cooldown -= dt;
@@ -780,6 +826,7 @@ function stepSecondary(state, ship, dt) {
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on.
       m.angle = approachAngle(m.angle, spec.angle, S.traverse * dt);
+      m.elev += clamp(-m.elev, -0.9 * dt, 0.9 * dt);
       m.target = 0;
       continue;
     }
@@ -797,6 +844,9 @@ function stepSecondary(state, ship, dt) {
       ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
       : local;
     m.angle = approachAngle(m.angle, want, S.traverse * dt);
+    // And how far up the gun captain has his guns, on the same solution.
+    const wantEl = solveBallistic(S, clamp(d, 400, S.range), 10).elev;
+    m.elev += clamp(wantEl - m.elev, -0.9 * dt, 0.9 * dt);
     if (m.cooldown > 0) continue;
     if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
     if (Math.abs(off) > spec.arc) continue;
@@ -809,14 +859,14 @@ function stepSecondary(state, ship, dt) {
       const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
       const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
       const shotD = clamp(aimD + rng, 300, S.range);
-      const s2 = solveBallistic(S, shotD, muzzleHeight);
+      const mz = muzzlePos(ship, cls, spec, S, bearing, g, spec.guns);
+      const s2 = solveBallistic(S, shotD, mz.y);
       const b = bearing + Math.atan2(lat, Math.max(600, aimD));
       const vh = s2.v * Math.cos(s2.elev);
       state.shells.push({
         id: eid(),
         owner: ship.id, team: ship.team,
-        x: pos.x + Math.sin(b) * 8, z: pos.z + Math.cos(b) * 8,
-        y: muzzleHeight,
+        x: mz.x, z: mz.z, y: mz.y,
         vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
         g: s2.g,
         spec: spec0, caliber: S.caliber,
@@ -825,9 +875,13 @@ function stepSecondary(state, ship, dt) {
       });
     }
     m.cooldown = S.reload;
+    // `s` is which mounting fired, so the flash goes on that mounting's own
+    // barrels: a battery in local control is a dozen guns each doing its own
+    // thing, and they have to look like it.
+    const mz0 = muzzlePos(ship, cls, spec, S, bearing);
     state.events.push({
-      e: 'muzzle', x: pos.x, z: pos.z, y: muzzleHeight, b: bearing,
-      cal: S.caliber, ship: ship.id,
+      e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b: bearing,
+      cal: S.caliber, ship: ship.id, s: m.id,
     });
     ship.lastFiredAt = state.t;
   }

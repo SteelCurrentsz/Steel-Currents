@@ -12,6 +12,7 @@
 // y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { arm } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -766,6 +767,7 @@ function ladder(g, x, y0, y1, z, sgn = 1) {
 const RIFLE = {
   SPACE: 3.10,      // gun axes, 122 inches apart
   AXIS: 2.55,       // the trunnions, above the turret floor
+  TRUNNION: 3.20,   // and how far forward of the barbette axis they are
   PORT: 5.10,       // where that axis crosses the sloped face
   MUZZLE: 17.80,    // and where the gun ends, from the axis of the barbette
 };
@@ -799,18 +801,22 @@ const BARB_R = 5.95;
  * muzzle. No brake, no bell -- a Mark 7 muzzle is a plain cut.
  */
 function rifle(g, dx) {
-  const y = RIFLE.AXIS;
+  // Built in the cradle's frame: the trunnion is the origin, because that is
+  // what the gun turns about when it is laid. Everything below is the station
+  // it stands at on the ship, less the trunnion's own.
+  const y = 0;
+  const T = RIFLE.TRUNNION;
   // The slide, which is what there is to see through the port behind the bag.
-  bx(g, 1.86, 1.72, 4.6, P.gunDark, dx, y - 0.06, 2.3);
+  bx(g, 1.86, 1.72, 4.6, P.gunDark, dx, y - 0.06, 2.3 - T);
   // The bloomer: the canvas boot round the gun where it comes through the
   // face, and the reason a battleship's gun ports do not show daylight.
-  const boot = cy(g, 0.74, 1.14, 2.1, P.canvas, dx, y, RIFLE.PORT + 0.75, 14);
+  const boot = cy(g, 0.74, 1.14, 2.1, P.canvas, dx, y, RIFLE.PORT + 0.75 - T, 14);
   boot.rotation.x = Math.PI / 2;
   // The chase, in three tapers, laid out from where the gun ends rather than
   // by adding up lengths: the muzzle is the figure that is known, and a
   // barrel built forwards from the breech drifts away from it.
-  let z = RIFLE.PORT + 1.5;
-  const run = RIFLE.MUZZLE - 0.40 - z;
+  let z = RIFLE.PORT + 1.5 - T;
+  const run = RIFLE.MUZZLE - T - 0.40 - z;
   for (const [fwd, aft, share] of [[0.50, 0.62, 0.35], [0.40, 0.50, 0.38],
     [0.315, 0.40, 0.27]]) {
     const len = run * share;
@@ -819,9 +825,9 @@ function rifle(g, dx) {
     z += len;
   }
   // The muzzle: a short reinforce, and the bore itself, which is dark.
-  cy(g, 0.335, 0.335, 0.40, P.barrel, dx, y, RIFLE.MUZZLE - 0.20, 16)
+  cy(g, 0.335, 0.335, 0.40, P.barrel, dx, y, RIFLE.MUZZLE - T - 0.20, 16)
     .rotation.x = Math.PI / 2;
-  cy(g, 0.203, 0.203, 0.5, P.boot, dx, y, RIFLE.MUZZLE - 0.16, 12)
+  cy(g, 0.203, 0.203, 0.5, P.boot, dx, y, RIFLE.MUZZLE - T - 0.16, 12)
     .rotation.x = Math.PI / 2;
 }
 
@@ -841,7 +847,14 @@ function turret16(range = false) {
   // and a quarter inches of it, and the edge is what you see from above.
   bx(g, 12.10, 0.20, 9.90, P.gunDark, 0, 4.68, -1.55);
 
-  for (const dx of [-RIFLE.SPACE, 0, RIFLE.SPACE]) rifle(g, dx);
+  // The three guns, in the cradle that elevates them. They lay together --
+  // one turret, one elevation -- so it is one group with three rifles in it.
+  const guns = new THREE.Group();
+  guns.position.set(0, RIFLE.AXIS, RIFLE.TRUNNION);
+  g.add(guns);
+  for (const dx of [-RIFLE.SPACE, 0, RIFLE.SPACE]) rifle(guns, dx);
+  arm(g, guns, [-RIFLE.SPACE, 0, RIFLE.SPACE].map(
+    (dx) => [dx, 0, RIFLE.MUZZLE - RIFLE.TRUNNION]));
 
   // The turret officer's hood aft on the roof, his hatch behind it, and the
   // periscopes for the two men who lay her.

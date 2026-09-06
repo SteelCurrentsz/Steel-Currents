@@ -19,6 +19,7 @@
 // therefore starboard is -X. y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { arm } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -516,6 +517,9 @@ function eightInch(g, x, y, z, aft, range = false) {
     tubeZ(guns, M.gunDark, 0.33, 0.5, bx, 0.16, 8.6, 12);
     cyl(guns, M.cave, 0.19, 0.19, 0.3, bx, 0.16, 8.8, 10).rotation.x = Math.PI / 2;
   }
+  // Where the two bores come out, in the cradle's own frame: the same numbers
+  // that put the muzzle swell there, a hand's breadth further out.
+  arm(mount, guns, [[-1.28, 0.16, 8.95], [1.28, 0.16, 8.95]]);
   return mount;
 }
 
@@ -558,6 +562,8 @@ function tenFive(g, x, y, z, ry) {
     tubeZ(guns, M.gunDark, 0.115, 4.4, bx, 0, 2.3, 10);
     cyl(guns, M.cave, 0.07, 0.07, 0.2, bx, 0, 4.45, 8).rotation.x = Math.PI / 2;
   }
+  m.userData.trainRate = 0.9;      // a triaxially stabilised 10.5 cm twin
+  arm(m, guns, [[-0.52, 0, 4.55], [0.52, 0, 4.55]]);
   // The layers' seats and the fuse-setting gear hanging off the back.
   box(m, M.steelDark, 2.0, 0.16, 0.7, 0, 1.9, -1.35);
   for (const sgn of [-1, 1]) box(m, M.gunDark, 0.34, 0.5, 0.34, sgn * 0.75, 2.2, -1.2);
@@ -597,6 +603,8 @@ function threeSeven(g, x, y, z, ry) {
     tubeZ(guns, M.gunDark, 0.075, 2.6, sgn * 0.32, 0.22, 1.35, 8);
     box(guns, M.gunDark, 0.2, 0.24, 0.7, sgn * 0.32, 0.22, 0.1);
   }
+  m.userData.trainRate = 1.5;      // a stabilised 3.7 cm twin, deliberate
+  arm(m, guns, [[-0.32, 0.22, 2.65], [0.32, 0.22, 2.65]]);
   for (const sgn of [-1, 1]) box(m, M.steelDark, 0.3, 0.5, 0.5, sgn * 0.85, 1.3, -0.6);
   return m;
 }
@@ -625,6 +633,8 @@ function twoCm(g, x, y, z, ry, quad = true) {
     // The drum magazine standing up beside each barrel.
     cyl(guns, M.gunDark, 0.13, 0.13, 0.12, bx, by + 0.2, 0.2, 8);
   }
+  m.userData.trainRate = quad ? 2.1 : 2.8;   // the Vierling, and the single
+  arm(m, guns, spots.map(([bx, by]) => [bx, by, 1.62]));
   return m;
 }
 
@@ -650,6 +660,7 @@ function torpedoBank(g, x, y, z, ry) {
     box(cradle, M.steelDark, 0.16, 0.4, 1.0, tx, -0.42, -3.9);
   }
   box(cradle, M.gun, 1.5, 1.15, 0.14, 0, 0.35, -4.5);
+  arm(bank, cradle, [[-0.82, 0, 4.5], [0, 0, 4.5], [0.82, 0, 4.5]]);
   return bank;
 }
 

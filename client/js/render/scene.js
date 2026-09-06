@@ -10,6 +10,7 @@ import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
 import { Wake, WakeField } from './wakefield.js';
+import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection } from './interior.js';
 import { Plating } from './plating.js';
@@ -547,6 +548,7 @@ function weld(parts) {
 
 // Scratch, so a shell hit does not allocate.
 const TMP = new THREE.Vector3();
+const TMP_AIM = new THREE.Vector3();
 
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
@@ -840,35 +842,58 @@ export class ShipView {
 
 
   /**
-   * Lay everything on her that trains.
+   * Lay everything on her that trains, in both axes.
    *
-   * `sec` and `torp` are the bearings the simulation has her mountings on, in
-   * her own frame. The light battery has no such list -- it follows whatever
-   * aircraft is nearest and inside its own sector, and goes back to its rest
-   * bearing when the sky is empty, which is what a gun crew does.
+   * Three batteries and three different kinds of fire control, which is what
+   * they were:
+   *
+   *   the main battery   laid by her gunnery officer on the target she is
+   *                      engaging, all turrets together, bearing and elevation
+   *                      both off the wire because the simulation solves the
+   *                      ballistics and nothing else can;
+   *   the secondaries    in local control, each mounting on its own target,
+   *                      likewise off the wire;
+   *   the light battery  no control at all worth the name -- each mounting
+   *                      follows the nearest aeroplane it can see and bear on,
+   *                      and elevates to it, which the client works out for
+   *                      itself because it is the client that knows where in
+   *                      the sky the aeroplane actually is.
+   *
+   * Every one of them lays independently. A quadruple 2 cm follows an
+   * aeroplane across the sky in a second and a half; a twin 10.5 cm takes four
+   * to do the same; an eight-inch turret takes fifteen and does not elevate
+   * past its loading angle unless it has something to shoot at. That is the
+   * difference you watch, so the rates are the guns' own.
    */
-  layMounts(sec, torp, planes, dt) {
-    const lay = (node, want, rate) => {
-      const rest = node.userData.rest || 0;
-      const target = want - rest;
-      let d = target - node.rotation.y;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      node.rotation.y += Math.max(-rate, Math.min(rate, d));
-    };
+  layMounts(sec, secElev, torp, planes, dt, turretElev) {
+    // The main battery's elevation. Her bearings are set from the wire in the
+    // caller -- they always were -- and this is the other half of the same lay.
+    if (turretElev) {
+      for (let i = 0; i < this.turrets.length && i < turretElev.length; i++) {
+        const t = this.turrets[i];
+        const node = t.userData.gunNode;
+        if (!node || node === t) continue;
+        // Barrels run out along +Z of the cradle, so raising them is a
+        // negative rotation about X.
+        const wantEl = -turretElev[i];
+        node.rotation.x += clamp(wantEl - node.rotation.x, -0.35 * dt, 0.35 * dt);
+      }
+    }
     if (sec) {
       for (let i = 0; i < this.secMounts.length && i < sec.length; i++) {
-        lay(this.secMounts[i], sec[i], 1);
+        layMount(this.secMounts[i], sec[i],
+          secElev ? secElev[i] : null, 0.9 * dt, 0.7 * dt);
       }
     }
     if (torp) {
       for (let i = 0; i < this.torpMounts.length && i < torp.length; i++) {
-        lay(this.torpMounts[i], torp[i], 1);
+        layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt);
       }
     }
     if (!this.aaMounts.length) return;
-    // The nearest squadron, in her own frame.
+    // The nearest aeroplane, in her own frame -- bearing, and how far up.
     let want = null;
+    let up = null;
     let best = Infinity;
     for (const p of planes || []) {
       if (p.tm === this.team) continue;
@@ -878,20 +903,72 @@ export class ShipView {
       if (d2 > best || d2 > 36e6) continue;
       best = d2;
       want = Math.atan2(dx, dz) - this.group.rotation.y;
+      // Straight at her, near enough: a light gun is laid over open sights and
+      // its layer is not solving anything.
+      up = Math.atan2((p.y ?? 220) - this.group.position.y, Math.sqrt(d2) || 1);
     }
-    const rate = 1.6 * dt;
+    // A light gun swings fast, and the smaller it is the faster it swings.
     for (const m of this.aaMounts) {
       const rest = m.userData.rest || 0;
-      let aim = rest;
+      let aim = null;
       if (want !== null) {
         let off = want - rest;
         while (off > Math.PI) off -= Math.PI * 2;
         while (off < -Math.PI) off += Math.PI * 2;
-        // Round as far as her own structure lets her, and no further.
+        // Round as far as her own structure lets her, and no further; a gun
+        // that cannot reach the aeroplane stays where it is pointing.
         aim = rest + Math.max(-1.9, Math.min(1.9, off));
       }
-      lay(m, aim, rate);
+      const rate = m.userData.trainRate || 1.6;
+      layMount(m, aim, aim === null ? null : up, rate * dt, rate * 0.8 * dt);
     }
+  }
+
+  /**
+   * The world points the barrels of one of her batteries are pointing from.
+   *
+   * `kind` is 'turret', 'sec', 'aa' or 'torp'; `which` picks one mounting out
+   * of the battery, or every mounting laid within `spread` radians of a world
+   * bearing when a bearing is given instead. This is what puts a muzzle flash
+   * on the muzzle and tracer at the end of a barrel -- straight off the scene
+   * graph, so it is where the gun actually is with the ship rolling under it.
+   */
+  muzzles(kind, which, out = []) {
+    const list = kind === 'turret' ? this.turrets
+      : kind === 'sec' ? this.secMounts
+        : kind === 'torp' ? this.torpMounts : this.aaMounts;
+    out.length = 0;
+    if (!list || !list.length) return out;
+    const take = (m) => {
+      if (!m || !m.userData.muzzles) return;
+      for (let i = 0; i < m.userData.muzzles.length; i++) {
+        out.push(muzzleWorld(m, i, new THREE.Vector3()));
+      }
+    };
+    if (typeof which === 'number') take(list[which]);
+    else for (const m of list) take(m);
+    return out;
+  }
+
+  /**
+   * The mountings of a battery that are laid within `spread` of a world
+   * bearing -- the ones actually shooting at the thing on that bearing.
+   */
+  bearingOn(kind, bearing, spread = 0.5) {
+    const list = kind === 'turret' ? this.turrets
+      : kind === 'sec' ? this.secMounts
+        : kind === 'torp' ? this.torpMounts : this.aaMounts;
+    const hit = [];
+    if (!list) return hit;
+    for (const m of list) {
+      if (!m.userData.muzzles) continue;
+      muzzleAim(m, TMP_AIM);
+      let d = Math.atan2(TMP_AIM.x, TMP_AIM.z) - bearing;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      if (Math.abs(d) <= spread) hit.push(m);
+    }
+    return hit;
   }
 
   dispose(scene) {

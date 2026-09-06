@@ -30,6 +30,17 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
   };
 }
 
+// Where a gun's muzzle is.
+//
+// `reach` is how far the muzzle stands out from the axis the mounting trains
+// about, and each mounting's `my` is the height of its own muzzle above the
+// waterline. Both are measured off the built model -- there is a check that
+// walks every ship and compares the two -- because the simulation has no model
+// and has to put the shell somewhere. It used to put it at the middle of the
+// mounting, eleven metres up plus a fudge for how tall her superstructure is,
+// which on a heavy cruiser was six metres above the gun and on a destroyer a
+// good deal forward of it. A shell now leaves the muzzle it was fired from.
+
 // How much bigger than her real self the Iowa is drawn and fought.
 const BIG = 1.55;
 
@@ -60,23 +71,25 @@ export const SHIP_CLASSES = {
     smokeCharges: 3,
     armor: { belt: 19, deck: 13, citadel: 19, bow: 13, superstructure: 13 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 32, angle: 0, arc: 2.46, guns: 1 },
-      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: 2.39, guns: 1 },
-      { id: 2, name: 'X', x: 0, z: -28, angle: Math.PI, arc: 2.44, guns: 1 },
-      { id: 3, name: 'Y', x: 0, z: -37, angle: Math.PI, arc: 2.36, guns: 1 },
-      { id: 4, name: 'Z', x: 0, z: -45, angle: Math.PI, arc: 2.27, guns: 1 },
+      { id: 0, name: 'A', x: 0, z: 32, angle: 0, arc: 2.46, guns: 1, my: 7.36 },
+      { id: 1, name: 'B', x: 0, z: 24, angle: 0, arc: 2.39, guns: 1, my: 9.64 },
+      { id: 2, name: 'X', x: 0, z: -28, angle: Math.PI, arc: 2.44, guns: 1, my: 8.55 },
+      { id: 3, name: 'Y', x: 0, z: -37, angle: Math.PI, arc: 2.36, guns: 1, my: 9.40 },
+      { id: 4, name: 'Z', x: 0, z: -45, angle: Math.PI, arc: 2.27, guns: 1, my: 5.93 },
     ],
     gun: {
       name: '5"/38 Mk 30', role: 'dp',
+      reach: 6.87,
       caliber: 127, reload: 3.4, traverse: 0.52, range: 11800, sigma: 1.9,
       shells: shells(127, 2100, 1800, 80, 792, 0.08),
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: 0, z: -3, angle: 0, arc: 2.44, tubes: 5 },
-        { id: 1, x: 0, z: -19, angle: 0, arc: 2.44, tubes: 5 },
+        { id: 0, x: 0, z: -3, angle: 0, arc: 2.44, tubes: 5, my: 5.99 },
+        { id: 1, x: 0, z: -19, angle: 0, arc: 2.44, tubes: 5, my: 5.81 },
       ],
       name: 'Mk 15 torpedo', role: 'surface', caliber: 533,
+      reach: 3.97,
       // How fast the bank comes round on its training gear. A quintuple mount
       // is fifteen tons of tubes and it does not swing quickly.
       traverse: 0.30,
@@ -158,13 +171,14 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 127, deck: 51, citadel: 127, bow: 25, superstructure: 16 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 58, angle: 0, arc: 2.62, guns: 3 },
-      { id: 1, name: 'B', x: 0, z: 44, angle: 0, arc: 2.62, guns: 3 },
-      { id: 2, name: 'X', x: 0, z: -42, angle: Math.PI, arc: 2.53, guns: 3 },
-      { id: 3, name: 'Y', x: 0, z: -56, angle: Math.PI, arc: 2.44, guns: 3 },
+      { id: 0, name: 'A', x: 0, z: 58, angle: 0, arc: 2.62, guns: 3, my: 12.46 },
+      { id: 1, name: 'B', x: 0, z: 44, angle: 0, arc: 2.62, guns: 3, my: 15.56 },
+      { id: 2, name: 'X', x: 0, z: -42, angle: Math.PI, arc: 2.53, guns: 3, my: 14.16 },
+      { id: 3, name: 'Y', x: 0, z: -56, angle: Math.PI, arc: 2.44, guns: 3, my: 10.36 },
     ],
     gun: {
       name: '6"/47 Mk 16', role: 'surface',
+      reach: 11.43,
       caliber: 152, reload: 6.4, traverse: 0.31, range: 15400, sigma: 1.7,
       shells: shells(152, 3300, 2500, 165, 812, 0.12),
     },
@@ -173,15 +187,16 @@ export const SHIP_CLASSES = {
     // and four in the waist that can only fire on their own side.
     secondary: {
       name: '5"/38 Mk 32', role: 'dp',
+      reach: 7.34,
       caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
       shells: shells(127, 1900, 1650, 76, 792, 0.07),
       mounts: [
-        { x: 0, z: 32.5, angle: 0, arc: 2.44, guns: 2 },
-        { x: 0, z: -27.0, angle: Math.PI, arc: 2.36, guns: 2 },
-        { x: -6.7, z: 6.0, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 6.7, z: 6.0, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -6.7, z: -8.5, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 6.7, z: -8.5, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 0, z: 32.5, angle: 0, arc: 2.44, guns: 2, my: 15.05 },
+        { x: 0, z: -27.0, angle: Math.PI, arc: 2.36, guns: 2, my: 17.95 },
+        { x: -6.7, z: 6.0, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 15.05 },
+        { x: 6.7, z: 6.0, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 15.05 },
+        { x: -6.7, z: -8.5, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 15.05 },
+        { x: 6.7, z: -8.5, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 15.05 },
       ],
     },
     aa: {
@@ -281,22 +296,24 @@ export const SHIP_CLASSES = {
       // Stations off her own profile: Anton forty-five and a half metres abaft
       // the stem, Bruno ten metres behind her, and the after pair the same
       // spacing from the transom.
-      { id: 0, name: 'A', x: 0, z: 56.6, angle: 0, arc: 2.44, guns: 2 },
-      { id: 1, name: 'B', x: 0, z: 46.3, angle: 0, arc: 2.36, guns: 2 },
-      { id: 2, name: 'X', x: 0, z: -48.9, angle: Math.PI, arc: 2.36, guns: 2 },
-      { id: 3, name: 'Y', x: 0, z: -62.2, angle: Math.PI, arc: 2.27, guns: 2 },
+      { id: 0, name: 'A', x: 0, z: 56.6, angle: 0, arc: 2.44, guns: 2, my: 7.98 },
+      { id: 1, name: 'B', x: 0, z: 46.3, angle: 0, arc: 2.36, guns: 2, my: 11.08 },
+      { id: 2, name: 'X', x: 0, z: -48.9, angle: Math.PI, arc: 2.36, guns: 2, my: 11.78 },
+      { id: 3, name: 'Y', x: 0, z: -62.2, angle: Math.PI, arc: 2.27, guns: 2, my: 7.78 },
     ],
     gun: {
       name: '20.3 cm SK C/34', role: 'surface',
+      reach: 13.06,
       caliber: 203, reload: 11.2, traverse: 0.24, range: 17200, sigma: 1.6,
       shells: shells(203, 5100, 3300, 265, 925, 0.14),
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: -8, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3 },
-        { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3 },
+        { id: 0, x: -8, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
+        { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
+      reach: 4.55,
       traverse: 0.26,
       reload: 78, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
@@ -305,17 +322,18 @@ export const SHIP_CLASSES = {
     // across her.
     secondary: {
       name: '10.5 cm SK C/33', role: 'dp',
+      reach: 5.38,
       caliber: 105, reload: 4.6, traverse: 0.40, range: 7600, sigma: 1.05,
       shells: shells(105, 1500, 1300, 62, 900, 0.06),
       // Abreast the bridge, abreast the funnel and abreast the after tower,
       // which is where her drawing puts the three pairs.
       mounts: [
-        { x: -8.4, z: 32, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 8.4, z: 32, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -8.6, z: 0, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: 8.6, z: 0, angle: Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: -8.2, z: -40, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 8.2, z: -40, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -8.4, z: 32, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 14.35 },
+        { x: 8.4, z: 32, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 14.35 },
+        { x: -8.6, z: 0, angle: -Math.PI / 2, arc: 1.31, guns: 2, my: 14.33 },
+        { x: 8.6, z: 0, angle: Math.PI / 2, arc: 1.31, guns: 2, my: 14.33 },
+        { x: -8.2, z: -40, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 14.33 },
+        { x: 8.2, z: -40, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 14.33 },
       ],
     },
     aa: {
@@ -407,12 +425,13 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 307, deck: 152, citadel: 307, bow: 38, superstructure: 38 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3 },
-      { id: 1, name: 'B', x: 0, z: 58 * BIG, angle: 0, arc: 2.27, guns: 3 },
-      { id: 2, name: 'Y', x: 0, z: -74 * BIG, angle: Math.PI, arc: 2.36, guns: 3 },
+      { id: 0, name: 'A', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 19.69 },
+      { id: 1, name: 'B', x: 0, z: 58 * BIG, angle: 0, arc: 2.27, guns: 3, my: 25.19 },
+      { id: 2, name: 'Y', x: 0, z: -74 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 16.70 },
     ],
     gun: {
       name: '16"/50 Mk 7', role: 'surface',
+      reach: 27.87,
       caliber: 406, reload: 26, traverse: 0.09, range: 21600, sigma: 1.35,
       shells: shells(406, 13500, 6300, 640, 762, 0.28),
     },
@@ -421,6 +440,7 @@ export const SHIP_CLASSES = {
     // secondary battery is a destroyer's main one, and it fires on its own.
     secondary: {
       name: '5"/38 Mk 28', role: 'dp',
+      reach: 7.0,
       caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
       mounts: [
@@ -544,17 +564,18 @@ export const SHIP_CLASSES = {
     // centreline, which is why a Yorktown was always short of guns on the
     // engaged side and had to turn to bring the other four to bear.
     turrets: [
-      { id: 0, name: 'S1', x: -15.4, z: 82.0, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 1, name: 'S2', x: -15.4, z: 75.2, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 2, name: 'S3', x: -15.4, z: -59.5, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 3, name: 'S4', x: -15.4, z: -66.3, angle: -Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 4, name: 'P1', x: 15.4, z: 71.5, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 5, name: 'P2', x: 15.4, z: 64.7, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 6, name: 'P3', x: 15.4, z: -70.0, angle: Math.PI / 2, arc: 1.32, guns: 1 },
-      { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 1.32, guns: 1 },
+      { id: 0, name: 'S1', x: -15.4, z: 82.0, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 1, name: 'S2', x: -15.4, z: 75.2, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 2, name: 'S3', x: -15.4, z: -59.5, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 3, name: 'S4', x: -15.4, z: -66.3, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 4, name: 'P1', x: 15.4, z: 71.5, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 5, name: 'P2', x: 15.4, z: 64.7, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 6, name: 'P3', x: 15.4, z: -70.0, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
     ],
     gun: {
       name: '5"/38 Mk 21', role: 'dp',
+      reach: 4.88,
       caliber: 127, reload: 4.2, traverse: 0.44, range: 10600, sigma: 2.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
     },

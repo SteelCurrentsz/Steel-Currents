@@ -15,6 +15,7 @@
 // therefore starboard is -X. y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { arm as armMount } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -463,6 +464,7 @@ function sixInch(g, x, y, z, aft) {
     cyl(arm, M.gunDark, 0.185, 0.20, 0.4, dx, 0, 7.9, 14).rotation.x = Math.PI / 2;
     cyl(arm, M.cave, 0.12, 0.12, 0.12, dx, 0, 8.06, 12).rotation.x = Math.PI / 2;
   }
+  armMount(mount, arm, [-1.72, 0, 1.72].map((dx) => [dx, 0, 8.15]));
   return mount;
 }
 
@@ -507,6 +509,7 @@ function fiveInch(g, x, y, z, ry) {
     tubeZ(arm, M.gunDark, 0.125, 4.8, dx, 0, 2.85, 12);
     cyl(arm, M.gunDark, 0.14, 0.15, 0.26, dx, 0, 5.2, 12).rotation.x = Math.PI / 2;
   }
+  armMount(mount, arm, [-0.72, 0.72].map((dx) => [dx, 0, 5.36]));
   return mount;
 }
 
@@ -536,11 +539,17 @@ function quadBofors(g, x, y, z, ry) {
   cyl(m, M.gunDark, 0.66, 0.86, 0.6, 0, 0.3, 0, 14);
   box(m, M.gun, 2.5, 0.8, 1.3, 0, 0.95, -0.15);
   box(m, M.gun, 2.1, 0.5, 0.6, 0, 1.5, -0.5);
+  const cradle = new THREE.Group();
+  cradle.position.set(0, 1.25, 0);
+  cradle.rotation.x = -0.14;
+  m.add(cradle);
   for (const dx of [-0.95, -0.32, 0.32, 0.95]) {
-    tubeZ(m, M.gunDark, 0.085, 2.9, dx, 1.25, 1.5, 10);
-    cyl(m, M.gunDark, 0.12, 0.12, 0.4, dx, 1.25, 2.9, 10).rotation.x = Math.PI / 2;
-    box(m, M.gunDark, 0.2, 0.5, 0.5, dx, 1.55, -0.2);   // the clip loader
+    tubeZ(cradle, M.gunDark, 0.085, 2.9, dx, 0, 1.5, 10);
+    cyl(cradle, M.gunDark, 0.12, 0.12, 0.4, dx, 0, 2.9, 10).rotation.x = Math.PI / 2;
+    box(cradle, M.gunDark, 0.2, 0.5, 0.5, dx, 0.3, -0.2);   // the clip loader
   }
+  m.userData.trainRate = 1.4;      // a quad Bofors is a heavy thing to swing
+  armMount(m, cradle, [-0.95, -0.32, 0.32, 0.95].map((dx) => [dx, 0, 3.1]));
   for (const sgn of [-1, 1]) {
     box(m, M.gunDark, 0.4, 0.5, 0.4, sgn * 1.5, 1.15, -0.5);
     box(m, M.steelDark, 0.5, 0.1, 0.5, sgn * 1.5, 0.9, -0.5);
@@ -570,10 +579,16 @@ function twinBofors(g, x, y, z, ry) {
   t.add(m);
   cyl(m, M.gunDark, 0.44, 0.58, 0.5, 0, 0.25, 0, 12);
   box(m, M.gun, 1.2, 0.66, 1.05, 0, 0.78, -0.1);
+  const cradle = new THREE.Group();
+  cradle.position.set(0, 1.05, 0);
+  cradle.rotation.x = -0.14;
+  m.add(cradle);
   for (const dx of [-0.3, 0.3]) {
-    tubeZ(m, M.gunDark, 0.08, 2.4, dx, 1.05, 1.2, 10);
-    cyl(m, M.gunDark, 0.11, 0.11, 0.34, dx, 1.05, 2.3, 10).rotation.x = Math.PI / 2;
+    tubeZ(cradle, M.gunDark, 0.08, 2.4, dx, 0, 1.2, 10);
+    cyl(cradle, M.gunDark, 0.11, 0.11, 0.34, dx, 0, 2.3, 10).rotation.x = Math.PI / 2;
   }
+  m.userData.trainRate = 1.7;
+  armMount(m, cradle, [-0.3, 0.3].map((dx) => [dx, 0, 2.5]));
   for (const sgn of [-1, 1]) box(m, M.steelDark, 0.44, 0.1, 0.44, sgn * 1.0, 0.55, -0.45);
   return m;
 }
@@ -596,6 +611,8 @@ function oerlikon(g, x, y, z, ry) {
   cyl(g2, M.gunDark, 0.32, 0.32, 0.16, 0, 0.3, -0.05, 12).rotation.z = Math.PI / 2;
   box(g2, M.gun, 0.5, 0.16, 0.5, 0, -0.2, -0.45);
   for (const sgn of [-1, 1]) box(g2, M.gunDark, 0.1, 0.34, 0.1, sgn * 0.22, -0.28, -0.6);
+  o.userData.trainRate = 2.9;
+  armMount(o, g2, [[0, 0, 1.9]]);
   return o;
 }
 

@@ -34,6 +34,7 @@ import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
 import { Debris } from '../client/js/render/debris.js';
 import { buildShip } from '../client/js/render/ships.js';
+import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
  * How far off the centreline a ship's plating is, at a height and a station.
@@ -322,16 +323,112 @@ check('the guns and the tubes on the models actually train', () => {
   // And laying one puts it where it was asked to go, in the ship's own frame.
   const view = new ShipView({ add() {}, remove() {} }, 'fletcher', 0, false);
   const want = Math.PI / 2;
-  for (let i = 0; i < 200; i++) view.layMounts(null, [want, want], [], 1 / 30);
+  for (let i = 0; i < 200; i++) view.layMounts(null, null, [want, want], [], 1 / 30);
   for (const m of view.torpMounts) {
     const laid = m.rotation.y + (m.userData.rest || 0);
     assert.ok(Math.abs(angleDelta(laid, want)) < 0.02,
       `a bank was laid on ${laid.toFixed(2)} rad instead of ${want.toFixed(2)}`);
   }
   // With nothing in the air the light battery comes back to its rest bearing.
-  for (let i = 0; i < 400; i++) view.layMounts(null, null, [], 1 / 30);
+  for (let i = 0; i < 400; i++) view.layMounts(null, null, null, [], 1 / 30);
   for (const m of view.aaMounts) {
     assert.ok(Math.abs(m.rotation.y) < 0.02, 'a gun did not come back to its rest bearing');
+  }
+});
+
+check('every gun aboard lays in both axes, and each one on its own', () => {
+  // A mounting is a thing that trains, a cradle in it that elevates, and
+  // barrels in the cradle. Only the first of those existed: everything on
+  // every ship swung in bearing and nothing ever looked up, so a light battery
+  // engaging a dive bomber directly overhead pointed its guns at the horizon
+  // and the aeroplane fell out of a clear sky.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const b = buildShip(id);
+    const all = [...(b.turrets || []), ...(b.secMounts || []), ...(b.aaMounts || [])];
+    assert.ok(all.length, `${id} has nothing aboard that trains`);
+    for (const m of all) {
+      assert.ok(m.userData.muzzles && m.userData.muzzles.length,
+        `${id} has a mounting that does not know where its own muzzles are`);
+      assert.ok(m.userData.gunNode && m.userData.gunNode !== m,
+        `${id} has a mounting whose barrels are welded to it and cannot elevate`);
+    }
+  }
+
+  // Laid on an aeroplane overhead, the light battery goes up after it -- and
+  // the little guns get there before the big ones, because they swing faster.
+  const view = new ShipView({ add() {}, remove() {} }, 'hipper', 0, false);
+  view.group.position.set(0, 0, 0);
+  const high = [{ tm: 1, x: 260, z: 0, y: 900 }];
+  for (let i = 0; i < 240; i++) view.layMounts(null, null, null, high, 1 / 30);
+  let lifted = 0;
+  for (const m of view.aaMounts) {
+    // Barrels run out along +Z of the cradle, so raising them is negative X.
+    if (m.userData.gunNode.rotation.x < -0.5) lifted++;
+  }
+  assert.ok(lifted >= view.aaMounts.length * 0.5,
+    `only ${lifted} of ${view.aaMounts.length} light guns looked up at an `
+    + 'aeroplane seventy degrees above the horizon');
+
+  // And the main battery elevates to the solution the wire carries, not to
+  // wherever the model happened to be built.
+  const el = view.turrets.map(() => 0.31);
+  for (let i = 0; i < 200; i++) view.layMounts(null, null, null, [], 1 / 30, el);
+  for (const t of view.turrets) {
+    assert.ok(Math.abs(t.userData.gunNode.rotation.x + 0.31) < 0.02,
+      `a turret laid at ${(-t.userData.gunNode.rotation.x).toFixed(2)} rad `
+      + 'instead of the 0.31 it was given');
+  }
+});
+
+check('a shell leaves the muzzle it was fired from', () => {
+  // The simulation has no model, so it carries the geometry it needs on the
+  // datasheet: how far a muzzle stands out from the axis its mounting trains
+  // about, and how high above the water each one is. Those two numbers decide
+  // where a shell appears and where the flash goes, and if they drift from the
+  // model the shells come out of the middle of the ship.
+  //
+  // So they are checked against it. The model is the authority -- it is what
+  // put the barrel there -- and this walks every mounting on every ship and
+  // compares.
+  const V = new THREE.Vector3();
+  const O = new THREE.Vector3();
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const cls = SHIP_CLASSES[id];
+    const b = buildShip(id);
+    b.group.updateMatrixWorld(true);
+    for (const [list, specs, battery, what] of [
+      [b.turrets, cls.turrets, cls.gun, 'turret'],
+      [b.secMounts, cls.secondary ? cls.secondary.mounts : [], cls.secondary, 'secondary'],
+      [b.torpMounts, cls.torpedoes ? cls.torpedoes.mounts : [], cls.torpedoes, 'tubes'],
+    ]) {
+      if (!list || !list.length || !battery) continue;
+      assert.equal(list.length, specs.length,
+        `${id}: ${list.length} ${what} mountings modelled, ${specs.length} on her datasheet`);
+      assert.ok(battery.reach > 0, `${id}: her ${what} has no muzzle reach on the datasheet`);
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i];
+        O.setFromMatrixPosition(m.matrixWorld);
+        // Averaged over the barrels, because `reach` is along the bore and the
+        // wing guns of a triple sit a little to either side of it.
+        let out = 0;
+        let up = 0;
+        for (let g = 0; g < m.userData.muzzles.length; g++) {
+          muzzleWorld(m, g, V);
+          out += Math.hypot(V.x - O.x, V.z - O.z);
+          up += V.y;
+        }
+        out /= m.userData.muzzles.length;
+        up /= m.userData.muzzles.length;
+        assert.ok(Math.abs(out - battery.reach) < 1.2,
+          `${id} ${what} ${i}: her muzzle is ${out.toFixed(2)} m out and the `
+          + `datasheet says ${battery.reach}`);
+        assert.ok(specs[i].my != null,
+          `${id} ${what} ${i}: no muzzle height on her datasheet`);
+        assert.ok(Math.abs(up - specs[i].my) < 1.0,
+          `${id} ${what} ${i}: her muzzle is ${up.toFixed(2)} m up and the `
+          + `datasheet says ${specs[i].my}`);
+      }
+    }
   }
 });
 

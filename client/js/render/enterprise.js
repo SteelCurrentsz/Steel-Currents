@@ -22,6 +22,7 @@
 // the spectator view and a painted-on detail is a smear at that range.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { arm as armMount } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -1985,6 +1986,8 @@ function fiveInch(g, root, x, y, z, ry) {
   box(arm, M.gunDark, 0.75, 0.7, 1.6, 0, 0, -0.4);
   tubeZ(arm, M.gun, 0.135, 4.6, 0, 0, 2.4, 12);
   tubeZ(arm, M.gunDark, 0.19, 0.5, 0, 0, 0.75, 12);
+  m.userData.trainRate = 0.9;      // a 5"/38 single, worked by its crew
+  armMount(m, arm, [[0, 0, 4.8]]);
   // Loader's platform and the ready-service racks round the base.
   cyl(m, M.steelDark, 2.1, 2.1, 0.1, 0, 0.05, -0.6, 16);
   for (let i = 0; i < 8; i++) {
@@ -2024,6 +2027,8 @@ function bofors(g, x, y, z, ry) {
     tubeZ(arm, M.gun, 0.055, 2.5, dx, 0.12, 1.3, 8);
     box(arm, M.gunDark, 0.16, 0.16, 0.5, dx, 0.12, -0.5);
   }
+  m.userData.trainRate = 1.4;
+  armMount(m, arm, [-0.45, -0.15, 0.15, 0.45].map((dx) => [dx, 0.12, 2.65]));
   // The two loaders' seats and the sight between them.
   for (const s of [-1, 1]) box(m, M.gunDark, 0.4, 0.1, 0.4, s * 0.85, 1.35, -1.0);
   box(m, M.gun, 0.3, 0.5, 0.3, 0, 1.6, -0.5);
@@ -2047,6 +2052,8 @@ function oerlikon(g, x, y, z, ry) {
   m.add(arm);
   tubeZ(arm, M.gun, 0.05, 1.9, 0, 0, 0.75, 8);
   box(arm, M.gunDark, 0.3, 0.34, 0.7, 0, 0, -0.2);
+  m.userData.trainRate = 2.9;
+  armMount(m, arm, [[0, 0, 1.78]]);
   cyl(arm, M.gunDark, 0.24, 0.24, 0.18, 0, 0.3, -0.05, 12);
   for (const s of [-1, 1]) box(arm, M.gunDark, 0.1, 0.42, 0.1, s * 0.22, -0.3, -0.5);
   // The splinter shield round the pedestal.

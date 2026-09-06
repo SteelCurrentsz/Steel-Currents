@@ -14,6 +14,10 @@ export function shipSnapshot(ship, full) {
     c: ship.classId, n: ship.name, tm: ship.team,
     f: ship.fires, fl: ship.flooding,
     tu: ship.turrets.map((t) => r3(t.angle)),
+    // How far up the guns are. It is what a turret most obviously does and
+    // nothing on the far side of the wire can work it out: a ship hull-down on
+    // the horizon shows you her elevation, not her fire-control problem.
+    te: ship.turrets.map((t) => r3(t.elev || 0)),
     sm: ship.smokeActive > 0 ? 1 : 0,
     // What is left of each of her compartments, in tenths, for everybody.
     //
@@ -53,7 +57,10 @@ export function shipSnapshot(ship, full) {
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam
   // is the most important thing on the horizon, and it is visible through a
   // pair of binoculars.
-  if (ship.secMounts.length) s.se = ship.secMounts.map((m) => r3(m.angle));
+  if (ship.secMounts.length) {
+    s.se = ship.secMounts.map((m) => r3(m.angle));
+    s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
+  }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
   if (full) {
     s.notch = ship.notch;
