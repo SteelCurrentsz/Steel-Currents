@@ -30,6 +30,9 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
   };
 }
 
+// How much bigger than her real self the Iowa is drawn and fought.
+const BIG = 1.30;
+
 export const SHIP_CLASSES = {
   fletcher: {
     // Five single 5"/38 dual-purpose mounts, quick-training and unobstructed on a
@@ -371,6 +374,11 @@ export const SHIP_CLASSES = {
     },
   },
 
+  // She is drawn a third again as big as the ship that was built, and the
+  // simulation has to agree with the model about how big that is: her lines,
+  // her stations and every mounting on her carry the same factor. It lives in
+  // one place here and one in her renderer, and the two are checked against
+  // each other.
   iowa: {
     // Three 16"/50 triples. A turret this size is blast-limited as much as it is
     // structurally limited, so the heaviest guns on the list have the least of
@@ -381,7 +389,9 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'usa',
     blurb: 'Nine sixteen-inch guns behind a citadel that laughs at cruisers. Turns like a continent.',
-    hull: { length: 270, beam: 33, draft: 11, superstructure: 1.35 },
+    hull: {
+      length: 270 * BIG, beam: 33 * BIG, draft: 11 * BIG, superstructure: 1.35,
+    },
     hp: 76200,
     maxSpeed: 30 * KNOTS,
     reverseSpeed: 7 * KNOTS,
@@ -397,9 +407,9 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 307, deck: 152, citadel: 307, bow: 38, superstructure: 38 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 78, angle: 0, arc: 2.36, guns: 3 },
-      { id: 1, name: 'B', x: 0, z: 58, angle: 0, arc: 2.27, guns: 3 },
-      { id: 2, name: 'Y', x: 0, z: -74, angle: Math.PI, arc: 2.36, guns: 3 },
+      { id: 0, name: 'A', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3 },
+      { id: 1, name: 'B', x: 0, z: 58 * BIG, angle: 0, arc: 2.27, guns: 3 },
+      { id: 2, name: 'Y', x: 0, z: -74 * BIG, angle: Math.PI, arc: 2.36, guns: 3 },
     ],
     gun: {
       name: '16"/50 Mk 7', role: 'surface',
@@ -414,16 +424,16 @@ export const SHIP_CLASSES = {
       caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
       mounts: [
-        { x: -11.2, z: 42, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: 11.2, z: 42, angle: Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: -11.6, z: 24, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 11.6, z: 24, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -11.6, z: 4, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: 11.6, z: 4, angle: Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: -11.4, z: -16, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 11.4, z: -16, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -10.8, z: -38, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: 10.8, z: -38, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: -11.2 * BIG, z: 42 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: 11.2 * BIG, z: 42 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: -11.6 * BIG, z: 24 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 11.6 * BIG, z: 24 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -11.6 * BIG, z: 4 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: 11.6 * BIG, z: 4 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+        { x: -11.4 * BIG, z: -16 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: 11.4 * BIG, z: -16 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+        { x: -10.8 * BIG, z: -38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: 10.8 * BIG, z: -38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
       ],
     },
     aa: {
@@ -431,42 +441,42 @@ export const SHIP_CLASSES = {
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
           mounts: [
-            { x: -13.0, z: 62, angle: -1.0, arc: 2.09, guns: 4 },
-            { x: 13.0, z: 62, angle: 1.0, arc: 2.09, guns: 4 },
-            { x: -14.0, z: 34, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.0, z: 34, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -14.2, z: 12, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.2, z: 12, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -14.0, z: -10, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.0, z: -10, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -13.4, z: -30, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 13.4, z: -30, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -12.0, z: -52, angle: -2.1, arc: 2.09, guns: 4 },
-            { x: 12.0, z: -52, angle: 2.1, arc: 2.09, guns: 4 },
-            { x: -9.0, z: -84, angle: -2.4, arc: 2.09, guns: 4 },
-            { x: 9.0, z: -84, angle: 2.4, arc: 2.09, guns: 4 },
-            { x: 0, z: 92, angle: 0, arc: 2.36, guns: 4 },
-            { x: 0, z: -96, angle: Math.PI, arc: 2.36, guns: 4 },
-            { x: -6.0, z: 74, angle: -0.7, arc: 2.09, guns: 4 },
-            { x: 6.0, z: 74, angle: 0.7, arc: 2.09, guns: 4 },
-            { x: -6.0, z: -68, angle: -2.4, arc: 2.09, guns: 4 },
-            { x: 6.0, z: -68, angle: 2.4, arc: 2.09, guns: 4 },
+            { x: -13.0 * BIG, z: 62 * BIG, angle: -1.0, arc: 2.09, guns: 4 },
+            { x: 13.0 * BIG, z: 62 * BIG, angle: 1.0, arc: 2.09, guns: 4 },
+            { x: -14.0 * BIG, z: 34 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.0 * BIG, z: 34 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -14.2 * BIG, z: 12 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.2 * BIG, z: 12 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -14.0 * BIG, z: -10 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 14.0 * BIG, z: -10 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -13.4 * BIG, z: -30 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 13.4 * BIG, z: -30 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -12.0 * BIG, z: -52 * BIG, angle: -2.1, arc: 2.09, guns: 4 },
+            { x: 12.0 * BIG, z: -52 * BIG, angle: 2.1, arc: 2.09, guns: 4 },
+            { x: -9.0 * BIG, z: -84 * BIG, angle: -2.4, arc: 2.09, guns: 4 },
+            { x: 9.0 * BIG, z: -84 * BIG, angle: 2.4, arc: 2.09, guns: 4 },
+            { x: 0, z: 92 * BIG, angle: 0, arc: 2.36, guns: 4 },
+            { x: 0, z: -96 * BIG, angle: Math.PI, arc: 2.36, guns: 4 },
+            { x: -6.0 * BIG, z: 74 * BIG, angle: -0.7, arc: 2.09, guns: 4 },
+            { x: 6.0 * BIG, z: 74 * BIG, angle: 0.7, arc: 2.09, guns: 4 },
+            { x: -6.0 * BIG, z: -68 * BIG, angle: -2.4, arc: 2.09, guns: 4 },
+            { x: 6.0 * BIG, z: -68 * BIG, angle: 2.4, arc: 2.09, guns: 4 },
           ] },
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800,
           mounts: [
-            { x: -14.6, z: 50, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 14.6, z: 50, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: -15.0, z: 20, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 15.0, z: 20, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: -14.8, z: -12, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 14.8, z: -12, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 0, z: -78, angle: Math.PI, arc: 2.27, guns: 7 },
+            { x: -14.6 * BIG, z: 50 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 14.6 * BIG, z: 50 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -15.0 * BIG, z: 20 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 15.0 * BIG, z: 20 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -14.8 * BIG, z: -12 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 14.8 * BIG, z: -12 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 0, z: -78 * BIG, angle: Math.PI, arc: 2.27, guns: 7 },
           ] },
       ],
     },
     planes: null,
     datasheet: {
-      displacement: 45000,
+      displacement: Math.round(45000 * BIG ** 3),
       aircraft: 3,
       mainRounds: 1170,
       secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 9000 },

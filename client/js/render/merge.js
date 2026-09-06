@@ -21,6 +21,14 @@ import * as THREE from '../../../vendor/three.module.js';
  * to weld one buffer per compartment, which is what lets a compartment's
  * plating be taken off her when it is blown out -- see interior.js. The cost
  * is a handful of extra draw calls per ship.
+ *
+ * The weld also lays down texture coordinates, because a ship built out of
+ * primitives and lofted bands has no coherent set of its own -- a box knows
+ * how to wrap a texture round itself and a hull band does not, and the two
+ * end up in the same buffer. They are box-projected in metres off the face's
+ * own normal, so plating runs along a ship's side and planking runs fore and
+ * aft on her deck whatever the surface underneath was built out of, and a
+ * plate is the same size on a destroyer as on a battleship.
  */
 export function mergeStatic(group, keyOf = null) {
   group.updateMatrixWorld(true);
@@ -52,9 +60,13 @@ export function mergeStatic(group, keyOf = null) {
     // the draw call went away.
     const geo = mesh.geometry;
     const pos = geo.attributes.position;
-    const nor = geo.attributes.normal;
+    let nor = geo.attributes.normal;
     m.multiplyMatrices(inv, mesh.matrixWorld);
     nm.getNormalMatrix(m);
+
+    // Normals do the projecting, so a face that has none needs them worked out
+    // before it can be welded.
+    if (!nor) { geo.computeVertexNormals(); nor = geo.attributes.normal; }
 
     let key = null;
     if (keyOf) {
@@ -66,15 +78,26 @@ export function mergeStatic(group, keyOf = null) {
     }
     const slot = key === null ? mesh.material : `${key}\u0000${mesh.material.uuid}`;
     let bucket = byMat.get(slot);
-    if (!bucket) byMat.set(slot, (bucket = { pos: [], nor: [], idx: [], key, material: mesh.material }));
+    if (!bucket) {
+      byMat.set(slot, (bucket = {
+        pos: [], nor: [], uv: [], idx: [], key, material: mesh.material,
+      }));
+    }
     const base = bucket.pos.length / 3;
 
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m);
-      bucket.pos.push(v.x, v.y, v.z);
+      const px = v.x, py = v.y, pz = v.z;
+      bucket.pos.push(px, py, pz);
       if (nor) {
         v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
         bucket.nor.push(v.x, v.y, v.z);
+        // Box projection off whichever way the face mostly looks: flat up for
+        // a deck, athwartships for a ship's side, fore and aft for a bulkhead.
+        const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+        if (ay >= ax && ay >= az) bucket.uv.push(px, pz);
+        else if (ax >= az) bucket.uv.push(pz, py);
+        else bucket.uv.push(px, py);
       }
     }
     if (geo.index) {
@@ -93,6 +116,7 @@ export function mergeStatic(group, keyOf = null) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
     if (bucket.nor.length === bucket.pos.length) {
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.nor, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
     }
     const n = bucket.pos.length / 3;
     geo.setIndex(n > 65535

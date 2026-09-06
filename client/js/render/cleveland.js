@@ -16,6 +16,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
@@ -1662,6 +1663,10 @@ export function buildCleveland() {
   // but back on her cradle, so being struck below and being craned aboard are
   // the same evolution. The carrier tells the two apart; she does not.
   g.userData.stow = g.userData.recover;
+  // Steel where she is plated and planking where she is decked: the maps go
+  // on after the weld, when she is a handful of meshes rather than a few
+  // hundred, and the weld is what gave her the coordinates to put them on.
+  dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
     secMounts, aaMounts,

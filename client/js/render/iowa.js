@@ -13,17 +13,31 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
+import { SECTIONS } from '../../../shared/sim.js';
 
-export const LOA = 270;
-export const BEAM = 33;
-export const DRAFT = 11;
+/**
+ * How much bigger than the ship that was built.
+ *
+ * Every length in here is her real one, read off the drawing, and then
+ * multiplied by this. Multiplying all of them by the same figure is the whole
+ * point: her lines are untouched, so the raked stem, the hollow entry, the
+ * sheer and the turn of the bilge are exactly the ship the drawing shows --
+ * she is simply larger. Change this one number and she changes size, model and
+ * datasheet together; nothing else needs touching.
+ */
+export const SCALE = 1.30;
+
+export const LOA = 270 * SCALE;
+export const BEAM = 33 * SCALE;
+export const DRAFT = 11 * SCALE;
 // Main deck edge amidships, over the waterline: twenty-four and a half feet,
 // which is what the drawing's scale bar reads there. Everything built on her
 // is stepped off this, and `sheerAt(0)` has to agree with it.
-const DECK = 7.54;
+const DECK = 7.54 * SCALE;
 // Where the bow section parts from the rest when the magazines go.
-const SPLIT_Z = 44;
+const SPLIT_Z = 44 * SCALE;
 
 const P = {
   hull: 0x5b6875,        // measure 22: navy blue up to the sheer strake
@@ -150,8 +164,8 @@ const SHEER = [
  * of her 270, which is what the drawing measures.
  */
 const KEEL = [
-  [-1.0000, 0.00], [-0.9750, -2.20], [-0.9450, -4.60], [-0.9100, -6.60],
-  [-0.8700, -8.20], [-0.8250, -9.30], [-0.7750, -10.00], [-0.7150, -10.40],
+  [-1.0000, 0.00], [-0.9750, -2.40], [-0.9450, -4.90], [-0.9100, -7.10],
+  [-0.8700, -8.80], [-0.8250, -9.90], [-0.7750, -10.35], [-0.7150, -10.60],
   [-0.6550, -10.70], [-0.5900, -10.95], [-0.5300, -11.00], [0.4000, -11.00],
   [0.4800, -10.83], [0.5600, -10.40], [0.6400, -9.70], [0.7150, -8.70],
   [0.7800, -7.50], [0.8400, -6.05], [0.8900, -4.55], [0.9300, -3.05],
@@ -178,9 +192,9 @@ const deckHalf = (t) => lerpTable(DECK_HALF, t) * (BEAM / 2);
 /** And at the waterline, which forward is a very different figure. */
 export function halfBeam(t) { return deckHalf(t) / lerpTable(FLARE, t); }
 /** The height of the main deck edge at a station. */
-export function sheerAt(t) { return lerpTable(SHEER, t); }
+export function sheerAt(t) { return lerpTable(SHEER, t) * SCALE; }
 /** The bottom of her at a station. */
-export function keelAt(t) { return lerpTable(KEEL, t); }
+export function keelAt(t) { return lerpTable(KEEL, t) * SCALE; }
 /** Deck breadth over waterline breadth, kept for what is built on her. */
 export function flareAt(t) { return lerpTable(FLARE, t); }
 
@@ -197,10 +211,10 @@ export function shellAt(t, y) {
   if (y <= k) return 0;
   const bw = halfBeam(t);
   if (y >= 0) {
-    const u = Math.min(1, y / Math.max(0.4, sheerAt(t)));
+    const u = Math.min(1, y / Math.max(0.4 * SCALE, sheerAt(t)));
     return Math.max(0.03, bw + (deckHalf(t) - bw) * Math.pow(u, 1.6));
   }
-  const d = Math.min(1, -y / Math.max(0.4, -k));
+  const d = Math.min(1, -y / Math.max(0.4 * SCALE, -k));
   const flat = bw * 0.30 * clamp01(bw / (BEAM / 2));
   return Math.max(0.03, flat + (bw - flat) * Math.pow(1 - Math.pow(d, 3.4), 0.42));
 }
@@ -214,10 +228,10 @@ export function shellAt(t, y) {
 // and then rakes twenty-one feet forward in the next thirty-one, which is
 // where her length over all comes from: the stem head overhangs the forefoot
 // by six and a half metres.
-const STEM = 6.40;
-const COUNTER = 2.57;
-function stemAt(y) { return STEM * smooth((y - 2.2) / 9.3); }
-function counterAt(y) { return COUNTER * Math.pow(clamp01(y / 6.9), 0.62); }
+const STEM = 6.40 * SCALE;
+const COUNTER = 2.57 * SCALE;
+function stemAt(y) { return STEM * smooth((y - 2.2 * SCALE) / (9.3 * SCALE)); }
+function counterAt(y) { return COUNTER * Math.pow(clamp01(y / (6.9 * SCALE)), 0.62); }
 
 /** Where a station actually is fore and aft, at this height. */
 export function zAt(t, y) {
@@ -230,7 +244,7 @@ export function zAt(t, y) {
 /** Her deck edge at a station, in metres from amidships. */
 export function deckAt(z) {
   const t = Math.max(-1, Math.min(1, z / (LOA / 2)));
-  return sheerAt(t) + 0.30;
+  return sheerAt(t) + 0.30 * SCALE;
 }
 
 /** And how far outboard the deck edge is there. */
@@ -241,8 +255,8 @@ export function halfDeck(z) {
 
 // ------------------------------------------------------------ her plating --
 
-const BOOT_LO = -1.35;
-const BOOT_HI = 1.35;
+const BOOT_LO = -1.35 * SCALE;
+const BOOT_HI = 1.35 * SCALE;
 const STATIONS = 160;
 
 /**
@@ -269,7 +283,7 @@ const SPLIT_I = Math.round(
  */
 function strakeBands() {
   return [
-    [(t) => keelAt(t) - 0.02, BOOT_LO, P.antifoul, 20, 1.75],
+    [(t) => keelAt(t) - 0.02 * SCALE, BOOT_LO, P.antifoul, 20, 1.75],
     [BOOT_LO, BOOT_HI, P.boot, 2, 1],
     [BOOT_HI, sheerAt, P.hull, 5, 1],
   ];
@@ -379,7 +393,7 @@ function capEnd(g, t, out, color) {
 function weatherDeck(g, i0, i1) {
   const CAM = 7;
   const across = CAM * 2 + 1;
-  const MARGIN = 1.7;                  // the steel waterway at the deck edge
+  const MARGIN = 1.7 * SCALE;          // the steel waterway at the deck edge
   const pos = [];
   const inner = [];
   const outer = [];
@@ -390,7 +404,7 @@ function weatherDeck(g, i0, i1) {
     const z = zAt(t, sh);
     for (let j = 0; j < across; j++) {
       const u = (j - CAM) / CAM;
-      pos.push(u * w, sh + (1 - u * u) * 0.30, z);
+      pos.push(u * w, sh + (1 - u * u) * 0.30 * SCALE, z);
     }
   }
   for (let i = 0; i < i1 - i0; i++) {
@@ -428,7 +442,8 @@ function sheerStrake(g, i0, i1) {
     const sh = sheerAt(t);
     const w = deckHalf(t);
     const z = zAt(t, sh);
-    pos.push(-w, sh, z, w, sh, z, -w, sh + 0.22, z, w, sh + 0.22, z);
+    const c = 0.22 * SCALE;
+    pos.push(-w, sh, z, w, sh, z, -w, sh + c, z, w, sh + c, z);
   }
   for (let i = 0; i < i1 - i0; i++) {
     const a = i * 4;
@@ -461,7 +476,8 @@ function bilgeKeels(g) {
       const w = shellAt(t, y);
       const z = zAt(t, y);
       const taper = Math.sin((Math.PI * i) / N);
-      pos.push(s * w, y, z, s * (w + 0.9 * taper), y - 0.25 * taper, z);
+      pos.push(s * w, y, z,
+        s * (w + 0.9 * SCALE * taper), y - 0.25 * SCALE * taper, z);
     }
     for (let i = 0; i < N; i++) {
       const a = i * 2;
@@ -486,6 +502,13 @@ function bilgeKeels(g) {
  * rudders abaft the inboard screws rather than on the centreline.
  */
 function sternGear(g) {
+  // Written at her real size and scaled bodily, so the thirty-odd figures in
+  // here stay readable as the ship's own rather than as her size times a
+  // number.
+  const gear = new THREE.Group();
+  gear.scale.setScalar(SCALE);
+  g.add(gear);
+  g = gear;
   for (const s of [-1, 1]) {
     // The outboard shaft, on its bracket, and its screw.
     const shaft = tube(0.42, 26, P.gunDark, 10);
@@ -535,6 +558,33 @@ function sternGear(g) {
 }
 
 /**
+ * The station indices her plating is cut at, in pairs.
+ *
+ * Her shell and her deck are lofted one piece per compartment rather than one
+ * piece from end to end. That is how the damage model takes them off her: a
+ * compartment blown out has its own plating hidden, and what is behind it --
+ * her frames, her decks, her machinery -- is already there to be seen. Welded
+ * end to end the whole shell belongs to whichever compartment its middle
+ * happens to fall in, and the other four have no plating at all, which was
+ * fine while a superstructure stood over them and gave each one something,
+ * and is not fine now her deck is bare.
+ *
+ * Adjacent pieces share the station they part at, so no seam opens between
+ * them; so does the break the bow parts along, when she has one.
+ */
+function seams(breakaway) {
+  const at = (t) => Math.round((STATIONS * (1 + (2 / Math.PI) * Math.asin(t))) / 2);
+  const cuts = new Set([0, STATIONS]);
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    for (const t of [s.from, s.to]) if (t > -1 && t < 1) cuts.add(at(t));
+  }
+  if (breakaway) cuts.add(SPLIT_I);
+  const sorted = [...cuts].sort((a, b) => a - b);
+  return sorted.slice(0, -1).map((i, n) => [i, sorted[n + 1]]);
+}
+
+/**
  * The hull, in two pieces: everything abaft the forward barbettes, and the bow
  * section forward of them. She is drawn that way so that when her forward
  * magazines go the bow can be heaved up out of the water as a unit, the way it
@@ -549,14 +599,14 @@ function buildHull(breakaway) {
   const fwd = breakaway ? new THREE.Group() : g;
   if (breakaway) g.add(fwd);
 
-  for (const [lo, hi, color, rows, bias] of strakeBands()) {
-    loftBand(g, color, lo, hi, 0, SPLIT_I, rows, bias);
-    loftBand(fwd, color, lo, hi, SPLIT_I, STATIONS, rows, bias);
+  for (const cut of seams(breakaway)) {
+    const into = breakaway && cut[0] >= SPLIT_I ? fwd : g;
+    for (const [lo, hi, color, rows, bias] of strakeBands()) {
+      loftBand(into, color, lo, hi, cut[0], cut[1], rows, bias);
+    }
+    weatherDeck(into, cut[0], cut[1]);
+    sheerStrake(into, cut[0], cut[1]);
   }
-  weatherDeck(g, 0, SPLIT_I);
-  weatherDeck(fwd, SPLIT_I, STATIONS);
-  sheerStrake(g, 0, SPLIT_I);
-  sheerStrake(fwd, SPLIT_I, STATIONS);
   capEnd(g, -1, -1);
   capEnd(fwd, 1, 1);
   // The bulkheads the break would leave standing, one each side of it: torn
@@ -574,198 +624,19 @@ function buildHull(breakaway) {
 
   return { group: g, forward: fwd };
 }
-
-// ------------------------------------------------------------- the batteries --
-
-/** One 16"/50 triple: barbette, house, blast bags and three rifles. */
-function turret16() {
-  const g = new THREE.Group();
-
-  // Barbette: 11.6 m across, standing proud of the deck.
-  const barbette = cyl(5.8, 5.9, 3.0, P.hull, 20);
-  barbette.position.y = 1.5;
-  g.add(barbette);
-
-  // Gunhouse: sloped face, flat roof, overhanging rear.
-  const house = box(12.4, 4.4, 10.4, P.gun, 0, 5.2, -0.6);
-  g.add(house);
-  const face = new THREE.Mesh(new THREE.BoxGeometry(12.4, 4.4, 3.6), mat(P.gun));
-  face.position.set(0, 5.0, 5.4);
-  face.rotation.x = -0.30;
-  g.add(face);
-  g.add(box(11.6, 0.35, 10.0, P.gunDark, 0, 7.5, -0.8));
-  // Rangefinder ears out either side of the house.
-  for (const s of [-1, 1]) g.add(box(1.5, 1.1, 3.4, P.gunDark, s * 6.6, 6.4, -3.4));
-  // The sighting hoods and the roof-mounted 20 mm tub.
-  g.add(box(1.6, 0.9, 1.6, P.gunDark, 0, 7.9, 2.2));
-
-  // Three rifles: 20.7 m of barrel outside the house, tapering to the muzzle.
-  for (const off of [-3.9, 0, 3.9]) {
-    const bag = cyl(1.35, 1.6, 2.6, P.canvas, 10);
-    bag.rotation.x = Math.PI / 2;
-    bag.position.set(off, 5.0, 6.6);
-    g.add(bag);
-
-    const chase = cyl(0.42, 0.62, 20.7, P.gunDark, 10);
-    chase.rotation.x = Math.PI / 2;
-    chase.position.set(off, 5.0, 17.6);
-    g.add(chase);
-    // Muzzle swell.
-    const muzzle = cyl(0.5, 0.45, 1.4, P.gunDark, 10);
-    muzzle.rotation.x = Math.PI / 2;
-    muzzle.position.set(off, 5.0, 28.4);
-    g.add(muzzle);
-  }
-  return g;
-}
-
-/** A twin 5"/38 in its Mk28 enclosed mount. */
-function mount5() {
-  const g = new THREE.Group();
-  const ring = cyl(2.2, 2.3, 1.2, P.gun, 14);
-  ring.position.y = 0.6;
-  g.add(ring);
-  const house = box(4.4, 2.6, 5.0, P.gun, 0, 2.5, -0.2);
-  g.add(house);
-  const face = new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.4, 1.6), mat(P.gun));
-  face.position.set(0, 2.4, 2.5);
-  face.rotation.x = -0.35;
-  g.add(face);
-  for (const off of [-1.0, 1.0]) {
-    const bag = cyl(0.55, 0.65, 1.1, P.canvas, 8);
-    bag.rotation.x = Math.PI / 2;
-    bag.position.set(off, 2.4, 3.2);
-    g.add(bag);
-    const brl = cyl(0.16, 0.22, 5.6, P.gunDark, 8);
-    brl.rotation.x = Math.PI / 2;
-    brl.position.set(off, 2.4, 6.2);
-    g.add(brl);
-  }
-  return g;
-}
-
-/** A quad 40 mm Bofors in its tub, with the director alongside. */
-function bofors() {
-  const g = new THREE.Group();
-  const tub = cyl(2.6, 2.6, 1.5, P.gun, 14);
-  tub.position.y = 0.75;
-  g.add(tub);
-  g.add(box(2.4, 1.1, 2.6, P.gunDark, 0, 1.9, -0.3));
-  for (const s of [-0.55, 0.55]) {
-    for (const t of [-0.35, 0.35]) {
-      const brl = cyl(0.11, 0.13, 3.6, P.gunDark, 6);
-      brl.rotation.x = Math.PI / 2;
-      brl.position.set(s, 2.4 + t * 0.25, 2.2);
-      g.add(brl);
-    }
-  }
-  return g;
-}
-
-/** A single 20 mm Oerlikon behind its splinter shield. */
-function oerlikon() {
-  const g = new THREE.Group();
-  const shield = cyl(0.95, 0.95, 1.2, P.gun, 10);
-  shield.position.y = 0.6;
-  g.add(shield);
-  const brl = cyl(0.07, 0.09, 2.1, P.gunDark, 6);
-  brl.rotation.x = Math.PI / 2 - 0.5;
-  brl.position.set(0, 1.7, 0.9);
-  g.add(brl);
-  return g;
-}
-
-// ------------------------------------------------------- fire control & masts --
-
-/** Mk37 secondary director, with its Mk12/22 radar aerials on the roof. */
-function mk37() {
-  const g = new THREE.Group();
-  g.add(box(3.4, 2.4, 4.2, P.gun, 0, 1.2, 0));
-  for (const s of [-1, 1]) g.add(box(0.8, 0.8, 1.6, P.gunDark, s * 1.9, 1.6, -0.6));
-  // The rectangular Mk12 antenna and the orange-peel Mk22 beside it.
-  const mk12 = box(2.6, 1.4, 0.25, P.radar, 0, 3.0, 0.4);
-  g.add(mk12);
-  const mk22 = cyl(0.7, 0.7, 0.2, P.radar, 12);
-  mk22.rotation.x = Math.PI / 2;
-  mk22.position.set(1.6, 3.1, 0.4);
-  mk22.scale.set(0.5, 1, 1);
-  g.add(mk22);
-  return g;
-}
-
-/** Mk38 main battery director: the tower top with the Mk8 "bedspring". */
-function mk38() {
-  const g = new THREE.Group();
-  g.add(box(4.6, 3.0, 5.0, P.gun, 0, 1.5, 0));
-  for (const s of [-1, 1]) g.add(box(1.2, 1.0, 2.2, P.gunDark, s * 2.6, 1.9, -0.4));
-  // Mk8 fire-control radar: a flat rectangular array.
-  const array = box(4.6, 1.8, 0.3, P.radar, 0, 4.0, 0.6);
-  g.add(array);
-  for (let i = -2; i <= 2; i++) g.add(box(0.12, 1.6, 0.5, P.gunDark, i * 0.9, 4.0, 0.8));
-  return g;
-}
-
-/** The tower foremast, its platforms and the air-search aerials. */
-function foremast() {
-  const g = new THREE.Group();
-  const leg = cyl(0.9, 1.3, 26, P.gun, 8);
-  leg.position.y = 13;
-  g.add(leg);
-  for (const [y, r] of [[8, 3.2], [15, 2.6], [21, 2.0]]) {
-    const plat = cyl(r, r, 0.3, P.gunDark, 14);
-    plat.position.y = y;
-    g.add(plat);
-  }
-  // SK air-search: the big flat mattress that identifies her at a distance.
-  const sk = box(5.4, 5.4, 0.3, P.radar, 0, 27.5, 0);
-  sk.rotation.x = -0.25;
-  g.add(sk);
-  for (let i = -2; i <= 2; i++) g.add(box(0.1, 5.0, 0.4, P.gunDark, i * 1.1, 27.5, 0.3));
-  // Yardarms with their signal halyards.
-  const yard = tube(0.14, 13, P.rail, 6);
-  yard.rotation.z = Math.PI / 2;
-  yard.rotation.x = 0;
-  yard.position.y = 22.5;
-  g.add(yard);
-  const topmast = cyl(0.18, 0.32, 8, P.rail, 6);
-  topmast.position.y = 32;
-  g.add(topmast);
-  return g;
-}
-
-// ------------------------------------------------------------ the aeroplanes --
-
-/** An OS2U Kingfisher on the quarterdeck catapult. */
-function kingfisher() {
-  const g = new THREE.Group();
-  const body = cyl(0.55, 0.35, 10.2, P.plane, 8);
-  body.rotation.x = Math.PI / 2;
-  g.add(body);
-  g.add(box(11.0, 0.25, 1.9, P.plane, 0, 0.3, 0.6));
-  g.add(box(3.6, 0.2, 1.1, P.plane, 0, 0.9, -4.2));
-  g.add(box(0.2, 1.8, 1.3, P.plane, 0, 1.5, -4.4));
-  // The great central float and the wingtip floats that go with it.
-  const float = cyl(0.5, 0.35, 8.4, P.plane, 8);
-  float.rotation.x = Math.PI / 2;
-  float.position.set(0, -1.5, 0.4);
-  g.add(float);
-  for (const s of [-1, 1]) {
-    const wf = cyl(0.2, 0.16, 2.0, P.plane, 6);
-    wf.rotation.x = Math.PI / 2;
-    wf.position.set(s * 4.8, -0.7, 0.6);
-    g.add(wf);
-  }
-  const prop = new THREE.Mesh(new THREE.CircleGeometry(1.6, 10),
-    new THREE.MeshBasicMaterial({ color: 0x9aa6b2, transparent: true, opacity: 0.2, side: THREE.DoubleSide }));
-  prop.position.z = 5.3;
-  g.add(prop);
-  return g;
-}
-
 // ------------------------------------------------------------------ assembly --
 
 /**
- * The whole ship.
+ * The whole ship: her hull, her deck, and what is inside her.
+ *
+ * Nothing stands on that deck. Her turrets, her secondary battery, her light
+ * battery, her towers, her funnels, her masts, her catapults, her aeroplanes,
+ * her boats and her rails are all gone, and the barbette, gunhouse, director
+ * and airframe builders that drew them have gone with them. They were the
+ * old proportional model's, laid out to a hull that no longer exists; her
+ * lines are read off her own drawing now and everything above them will be
+ * read off the same sheet rather than carried over.
+ *
  * @returns {{group: THREE.Group, turrets: THREE.Group[], length: number,
  *            beam: number, deckY: number}}
  */
@@ -782,270 +653,15 @@ export function buildIowa(opts = {}) {
   const { group: hull, forward } = buildHull(breakaway);
   root.add(hull);
 
-  // Anything standing forward of the break goes with the bow section, so that
-  // when it lifts it takes A and B turrets and the forecastle with it.
-  const place = (obj, z) => (breakaway && z >= SPLIT_Z ? forward : root).add(obj);
-
-  // Nothing bolted to a deck may stand outboard of that deck's own edge. She
-  // is a very fine hull forward -- six metres of half-breadth abreast the
-  // anchors where she has sixteen and a half amidships -- so a mounting laid
-  // out on a fixed offset is over the side long before it reaches the bow.
-  const inboard = (x, z, clear) => {
-    const room = halfDeck(z) - clear;
-    return Math.sign(x) * Math.min(Math.abs(x), Math.max(1.2, room));
-  };
-
-
-  const turrets = [];
-  // Everything else aboard that trains: the secondary mountings and the light
-  // battery. Each is marked so the welder leaves it alone, and each remembers
-  // the bearing it rests on so the scene can lay it in the ship's own frame.
-  const secMounts = [];
-  const aaMounts = [];
-  const trains = (obj, rest, into) => {
-    obj.userData.dynamic = true;
-    obj.userData.rest = rest;
-    into.push(obj);
-    return obj;
-  };
-
-  // -- main battery --------------------------------------------------------
-  // A and B forward, superfiring; Y aft. The barbette heights step up.
-  for (const [z, lift, aft] of [[76, 0, false], [58, 4.2, false], [-70, 0, true]]) {
-    const t = turret16();
-    t.position.set(0, sheerAt(z / (LOA / 2)) + lift, z);
-    if (aft) t.rotation.y = Math.PI;
-    place(t, z);
-    turrets.push(t);
-    // The deckhouse the superfiring turret stands on.
-    if (lift) place(box(15, lift, 15, P.hullUpper, 0, sheerAt(z / (LOA / 2)) + lift / 2, z), z);
-  }
-
-  // -- superstructure ------------------------------------------------------
-  const S = DECK + 0.4;
-
-  // 01 deck: the long deckhouse the secondary battery stands on. It stops at
-  // the break, so nothing of it is left overhanging when the bow goes.
-  root.add(box(26, 4.2, 96, P.hullUpper, 0, S + 2.1, -5));
-  // 02 deck, narrower, carrying the funnels and the boat deck.
-  root.add(box(20, 3.8, 86, P.hullUpper, 0, S + 6.1, 6));
-
-  // Conning tower and bridge: the armoured citadel with the pilot house round it.
-  const conning = cyl(4.6, 5.0, 7.0, P.gun, 16);
-  conning.position.set(0, S + 11.5, 40);
-  root.add(conning);
-  root.add(box(15, 3.0, 12, P.hullUpper, 0, S + 9.5, 38));
-  root.add(box(12.5, 2.8, 9.5, P.hullUpper, 0, S + 12.4, 37));
-  root.add(box(10.0, 2.6, 8.0, P.hullUpper, 0, S + 15.1, 36));
-  // Bridge wings and their windows.
-  for (const s of [-1, 1]) root.add(box(3.0, 0.4, 7.0, P.gunDark, s * 7.4, S + 11.1, 38));
-  root.add(box(11.4, 1.3, 0.3, P.glass, 0, S + 12.8, 41.6));
-  root.add(box(9.2, 1.2, 0.3, P.glass, 0, S + 15.4, 39.8));
-
-  // Main battery director over the bridge, and the foremast behind it.
-  const fwdDir = mk38();
-  fwdDir.position.set(0, S + 17.4, 35);
-  root.add(fwdDir);
-  const fm = foremast();
-  fm.position.set(0, S + 16, 28);
-  root.add(fm);
-
-  // Secondary directors: one either side forward, one aft.
-  for (const [x, y, z] of [[-8.5, S + 13.6, 30], [8.5, S + 13.6, 30], [0, S + 12.0, -44]]) {
-    const d = mk37();
-    d.position.set(x, y, z);
-    root.add(d);
-  }
-
-  // Funnels: raked, capped, with the steam pipes up the after side.
-  for (const z of [14, -16]) {
-    const f = cyl(3.1, 3.6, 11.0, P.hullUpper, 14);
-    f.position.set(0, S + 13.5, z);
-    f.rotation.x = -0.06;
-    root.add(f);
-    const cap = cyl(3.5, 3.2, 0.8, P.gunDark, 14);
-    cap.position.set(0, S + 19.2, z - 0.3);
-    root.add(cap);
-    for (const s of [-1, 1]) {
-      const pipe = cyl(0.28, 0.28, 12, P.gunDark, 6);
-      pipe.position.set(s * 2.4, S + 14, z - 2.9);
-      root.add(pipe);
-    }
-    // A gallery of Oerlikons round the base of each funnel.
-    for (const s of [-1, 1]) {
-      const o = oerlikon();
-      o.position.set(s * 5.0, S + 8.0, z);
-      trains(o, 0, aaMounts);
-      root.add(o);
-    }
-  }
-
-  // Mainmast aft, with its own yard and the aft director on the deckhouse.
-  const mm = cyl(0.55, 0.8, 20, P.rail, 8);
-  mm.position.set(0, S + 16, -30);
-  root.add(mm);
-  const mYard = tube(0.12, 10, P.rail, 6);
-  mYard.rotation.z = Math.PI / 2;
-  mYard.position.set(0, S + 22, -30);
-  root.add(mYard);
-  const aftDir = mk38();
-  aftDir.position.set(0, S + 9.9, -50);
-  root.add(aftDir);
-
-  // -- secondary battery ---------------------------------------------------
-  // Five twin 5"/38 a side, standing on the 01 deck.
-  for (const z of [46, 24, -2, -26, -50]) {
-    for (const s of [-1, 1]) {
-      const m = mount5();
-      m.position.set(inboard(s * 12.2, z, 1.4), S + 4.2, z);
-      m.rotation.y = s > 0 ? 1.35 : -1.35;
-      trains(m, m.rotation.y, secMounts);
-      root.add(m);
-    }
-  }
-
-  // -- light AA ------------------------------------------------------------
-  // Twenty quad Bofors: round the turrets, along the 02 deck, and on the fantail.
-  const bofPlaces = [
-    [-14, DECK + 0.2, 96], [14, DECK + 0.2, 96],
-    [-17, S + 4.4, 62], [17, S + 4.4, 62],
-    [-13, S + 8.2, 44], [13, S + 8.2, 44],
-    [-11.5, S + 10.0, 22], [11.5, S + 10.0, 22],
-    [-11.5, S + 10.0, 2], [11.5, S + 10.0, 2],
-    [-11.5, S + 8.2, -22], [11.5, S + 8.2, -22],
-    [-15, S + 4.4, -40], [15, S + 4.4, -40],
-    [-16, S + 4.4, -58], [16, S + 4.4, -58],
-    [-11, DECK + 0.2, -92], [11, DECK + 0.2, -92],
-    [0, DECK + 0.2, -104], [0, DECK + 4.4, 86],
-  ];
-  for (const [x, y, z] of bofPlaces) {
-    const b = bofors();
-    // Those on the main deck are held inside her deck edge; those up on the
-    // 01 and 02 decks stand on houses narrower again.
-    b.position.set(inboard(x, z, y > DECK + 2 ? 6.4 : 2.6), y, z);
-    b.rotation.y = x < 0 ? -0.7 : 0.7;
-    trains(b, b.rotation.y, aaMounts);
-    place(b, z);
-  }
-
-  // Oerlikons down both deck edges, wherever there is room for a man to stand.
-  for (let z = -110; z <= 110; z += 11) {
-    if (Math.abs(z) < 20) continue;
-    const t = z / (LOA / 2);
-    const edge = halfBeam(t) * flareAt(t) - 1.6;
-    if (edge < 4) continue;
-    for (const s of [-1, 1]) {
-      const o = oerlikon();
-      o.position.set(s * edge, sheerAt(t), z);
-      o.rotation.y = s * 0.9;
-      trains(o, o.rotation.y, aaMounts);
-      place(o, z);
-    }
-  }
-
-  // -- quarterdeck ---------------------------------------------------------
-  // Two catapults over the transom, a Kingfisher on each.
-  for (const s of [-1, 1]) {
-    const cat = box(2.6, 0.7, 22, P.gunDark, inboard(s * 8.5, -114, 1.8),
-      DECK + 1.2, -114);
-    cat.rotation.y = s * 0.10;
-    root.add(cat);
-    const p = kingfisher();
-    p.position.set(inboard(s * 8.5, -114, 1.8), DECK + 3.2, -112);
-    p.rotation.y = s * 0.10 + Math.PI;
-    root.add(p);
-  }
-  // The aircraft crane between them.
-  const crane = cyl(0.7, 0.9, 9, P.gun, 8);
-  crane.position.set(0, DECK + 4.5, -98);
-  root.add(crane);
-  const jib = tube(0.35, 16, P.gun, 6);
-  jib.rotation.x = 1.2;
-  jib.position.set(0, DECK + 10, -103);
-  root.add(jib);
-
-  // Boats on the 02 deck under their davits.
-  for (const s of [-1, 1]) {
-    for (const z of [-4, -14]) {
-      const boat = cyl(1.0, 0.7, 8.0, P.wood, 8);
-      boat.rotation.x = Math.PI / 2;
-      boat.scale.set(1, 0.5, 1);
-      boat.position.set(s * 11.5, S + 8.6, z);
-      root.add(boat);
-      for (const dz of [-3, 3]) {
-        const dav = cyl(0.16, 0.16, 3.4, P.rail, 6);
-        dav.position.set(s * 11.5, S + 9.8, z + dz);
-        root.add(dav);
-      }
-    }
-  }
-
-  // -- forecastle ----------------------------------------------------------
-  // Breakwater, anchors in their hawsepipes, capstans and the jackstaff.
-  const bw = box(halfDeck(106) * 1.8, 1.6, 0.5, P.hullUpper, 0,
-    sheerAt(0.78) + 0.8, 106);
-  forward.add(bw);
-  for (const s of [-1, 1]) {
-    forward.add(box(2.0, 2.2, 0.6, P.gunDark,
-      inboard(s * 6.5, 122, 1.3), sheerAt(0.90) - 1.2, 122));
-    const cap = cyl(1.1, 1.1, 1.0, P.gunDark, 12);
-    cap.position.set(inboard(s * 5.0, 110, 1.5), sheerAt(0.80) + 0.5, 110);
-    forward.add(cap);
-  }
-  const jack = cyl(0.12, 0.16, 7, P.rail, 6);
-  jack.position.set(0, sheerAt(0.97) + 3.5, 132);
-  forward.add(jack);
-  const ensign = cyl(0.12, 0.16, 7, P.rail, 6);
-  ensign.position.set(0, DECK + 3.5, -131);
-  root.add(ensign);
-
-  // -- railings ------------------------------------------------------------
-  // Three courses of wire down each side: at this scale they are what stops the
-  // deck edge from reading as a cliff. Run in two pieces, parting where the
-  // hull does — one length of wire drawn over the break leaves the outline of
-  // a bow standing in the air after the bow itself has gone.
-  const railMat = new THREE.LineBasicMaterial({ color: P.rail });
-  const rails = (z0, z1) => {
-    const pts = [];
-    for (let i = 0; i <= 40; i++) {
-      const t = -1 + (2 * i) / 40;
-      const z = (t * LOA) / 2;
-      if (z < z0 || z > z1) continue;
-      const w = halfBeam(t) * flareAt(t) - 0.4;
-      for (const h of [0.5, 1.0, 1.4]) pts.push({ z, w, y: sheerAt(t) + h });
-    }
-    const linePos = [];
-    for (let i = 0; i < pts.length - 3; i += 3) {
-      for (let k = 0; k < 3; k++) {
-        const a = pts[i + k], b = pts[i + 3 + k];
-        for (const s of [-1, 1]) linePos.push(s * a.w, a.y, a.z, s * b.w, b.y, b.z);
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
-    return new THREE.LineSegments(geo, railMat);
-  };
-  if (breakaway) {
-    root.add(rails(-LOA, SPLIT_Z));
-    forward.add(rails(SPLIT_Z, LOA));
-  } else {
-    root.add(rails(-LOA, LOA));
-  }
-
-  // Weld her down. The turrets train and the bow section can be blown off, so
-  // those are baked on their own and left as separate objects; everything else
-  // becomes one mesh per colour.
-  for (const t of turrets) { t.userData.dynamic = true; mergeStatic(t); }
-  // The bow section stays marked dynamic throughout, so welding the rest of her
-  // down leaves it a separate object that can still be blown off.
+  // The bow section stays marked dynamic throughout, so welding the rest of
+  // her down leaves it a separate object that can still be blown off.
   if (breakaway) {
     forward.userData.dynamic = true;
     mergeStatic(forward);
   }
   // And what is inside her, fitted to the same lines her plating was lofted
   // through, welded one buffer per compartment so a compartment blown out of
-  // her shows what is behind the plating. Her bow section is already its own
-  // object -- it can be blown off whole -- so it is left alone.
+  // her shows what is behind the plating.
   buildInterior(root, {
     loa: LOA, sheer: sheerAt, keelY: keelAt, shellAt, zAt,
   });
@@ -1055,8 +671,12 @@ export function buildIowa(opts = {}) {
   // lofted through on her, and the interior audit reads them back off her.
   Object.assign(root.userData,
     { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK });
+  // Steel where she is plated and planking where she is decked: the maps go
+  // on after the weld, when she is a handful of meshes rather than a few
+  // hundred, and the weld is what gave her the coordinates to put them on.
+  dressShip(root);
   return {
-    group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK,
-    secMounts, aaMounts,
+    group: root, turrets: [], forward, length: LOA, beam: BEAM, deckY: DECK,
+    secMounts: [], aaMounts: [],
   };
 }

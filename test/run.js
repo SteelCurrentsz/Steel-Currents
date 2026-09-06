@@ -139,7 +139,7 @@ import {
   sdeck as hipperSDeck, sHalf as hipperSHalf, LOW_TIER as HIPPER_LOW_TIER,
 } from '../client/js/render/hipper.js';
 import {
-  buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM,
+  buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM, SCALE as IOWA_SCALE,
   sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
   zAt as iowaZAt, halfDeck as iowaHalfDeck,
 } from '../client/js/render/iowa.js';
@@ -2022,30 +2022,36 @@ check('the Iowa is the ship her own drawing shows', () => {
   // the waterline at the scale bar's zero. Every one of these came off that
   // sheet, and the load waterline is the check on the reading: the drawing
   // puts her afloat over 862 feet of her 887, and she was built to 859.
+  //
+  // She is drawn larger than the ship that was built, so every figure here is
+  // the drawing's times that factor. Which is the point of measuring her this
+  // way: one number changes her size and not one line of her shape.
+  const K = IOWA_SCALE;
   const stemHead = iowaZAt(1, iowaSheer(1));
   const sternEnd = iowaZAt(-1, iowaSheer(-1));
-  assert.ok(Math.abs(stemHead - sternEnd - 270.4) < 1.0,
-    `she is ${(stemHead - sternEnd).toFixed(1)} m over all, and was 270.4`);
+  assert.ok(Math.abs(stemHead - sternEnd - 270.4 * K) < 1.0 * K,
+    `she is ${((stemHead - sternEnd) / K).toFixed(1)} m over all at her own `
+    + 'scale, and was 270.4');
   const lwl = iowaZAt(0.9975, 0) - iowaZAt(-1, 0);
-  assert.ok(Math.abs(lwl - 262.0) < 3.0,
-    `her load waterline is ${lwl.toFixed(1)} m, and was 262.0`);
+  assert.ok(Math.abs(lwl - 262.0 * K) < 3.0 * K,
+    `her load waterline is ${(lwl / K).toFixed(1)} m at her own scale, and was 262.0`);
   let beam = 0;
   for (let t = -1; t <= 1; t += 0.002) beam = Math.max(beam, 2 * iowaHalfDeck(t * IOWA_LOA / 2));
   assert.ok(Math.abs(beam - IOWA_BEAM) < 0.1, `she is ${beam.toFixed(2)} m in the beam`);
 
   // The stem rakes forward as it rises and the counter overhangs aft, which is
   // where the last thirteen metres of her length over all come from.
-  const rake = iowaZAt(1, iowaSheer(1)) - iowaZAt(1, 0);
+  const rake = (iowaZAt(1, iowaSheer(1)) - iowaZAt(1, 0)) / K;
   assert.ok(rake > 5.8 && rake < 7.0, `her stem rakes ${rake.toFixed(2)} m`);
-  const over = iowaZAt(-1, 0) - iowaZAt(-1, iowaSheer(-1));
+  const over = (iowaZAt(-1, 0) - iowaZAt(-1, iowaSheer(-1))) / K;
   assert.ok(over > 2.0 && over < 3.2, `her counter overhangs ${over.toFixed(2)} m`);
 
   // Her sheer: twenty-three feet at the after end, lifting to forty-three at
   // the stem head. Drawn flat she is a barge; drawn with a battleship's sheer
   // she carries her forecastle turrets ten feet too high.
-  assert.ok(Math.abs(iowaSheer(-1) - 7.05) < 0.2, 'her quarterdeck is the wrong height');
-  assert.ok(Math.abs(iowaSheer(0) - 7.54) < 0.2, 'her deck edge amidships is wrong');
-  assert.ok(iowaSheer(1) > iowaSheer(0) + 5,
+  assert.ok(Math.abs(iowaSheer(-1) / K - 7.05) < 0.2, 'her quarterdeck is the wrong height');
+  assert.ok(Math.abs(iowaSheer(0) / K - 7.54) < 0.2, 'her deck edge amidships is wrong');
+  assert.ok(iowaSheer(1) > iowaSheer(0) + 5 * K,
     `she lifts only ${(iowaSheer(1) - iowaSheer(0)).toFixed(1)} m from amidships to the stem`);
 
   // And the fineness the drawing's plan view is really about: two thirds of
@@ -2054,6 +2060,52 @@ check('the Iowa is the ship her own drawing shows', () => {
   assert.ok(Math.abs(frac(0.615) - 0.457) < 0.05, `she is ${frac(0.615).toFixed(3)} of beam at t=0.615`);
   assert.ok(Math.abs(frac(-0.320) - 1.000) < 0.02, 'she is not full amidships');
   assert.ok(Math.abs(frac(-0.845) - 0.679) < 0.05, `she is ${frac(-0.845).toFixed(3)} of beam at t=-0.845`);
+
+  // The model and the simulation have to agree about how big she is, or her
+  // guns fire from points in the air beside her and her hologram is a
+  // different ship. Both carry the factor; neither is allowed to drift.
+  const sheet = SHIP_CLASSES.iowa.hull;
+  assert.ok(Math.abs(sheet.length - IOWA_LOA) < 0.5,
+    `she is fought at ${sheet.length} m and drawn at ${IOWA_LOA.toFixed(1)}`);
+  assert.ok(Math.abs(sheet.beam - IOWA_BEAM) < 0.2,
+    `she is fought at ${sheet.beam} m in the beam and drawn at ${IOWA_BEAM.toFixed(1)}`);
+  assert.ok(Math.abs(sheet.length / 270 - K) < 0.005,
+    `her datasheet is scaled ${(sheet.length / 270).toFixed(3)} and her model ${K}`);
+});
+
+check("nothing stands on the Iowa's deck", () => {
+  // Her hull and her deck are read off her own drawing; everything that used
+  // to stand on them belonged to the proportional model she replaced. Until
+  // her upperworks are drawn off the same sheet she is a bare hull, and a bare
+  // hull is what she has to be -- a turret or a funnel left behind from the
+  // old layout is a piece of a different ship standing on this one.
+  const built = buildIowa({ breakaway: false });
+  built.group.updateMatrixWorld(true);
+  assert.equal(built.turrets.length, 0, 'she still has turrets on her');
+  assert.equal(built.secMounts.length + built.aaMounts.length, 0,
+    'she still has mountings on her');
+  const above = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    if (o.userData.mergeKey === 'in') return;          // her insides
+    o.geometry.computeBoundingBox();
+    const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    // Against the highest her deck gets anywhere under the piece, not under
+    // its middle: her plating is welded a compartment at a time and the bow
+    // piece reaches the stem head, where her deck is four metres higher than
+    // it is at that piece's centre.
+    const half = IOWA_LOA / 2;
+    let roof = 0;
+    for (let z = bb.min.z; z <= bb.max.z + 1; z += 2) {
+      roof = Math.max(roof, iowaSheer(Math.max(-1, Math.min(1, z / half))));
+    }
+    // A hand's breadth over the deck edge covers the sheer strake and the
+    // camber of the deck itself; anything higher is standing on her.
+    roof += 0.8 * IOWA_SCALE;
+    if (bb.max.y > roof) above.push(`${bb.max.y.toFixed(1)} m over a ${roof.toFixed(1)} m deck`);
+  });
+  assert.equal(above.length, 0,
+    `${above.length} piece(s) still standing on her deck, first ${above[0]}`);
 });
 
 check("you cannot see through the Iowa's side", () => {

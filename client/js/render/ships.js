@@ -12,6 +12,7 @@ import { buildIowa } from './iowa.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
 import { mergeStatic } from './merge.js';
+import { dressShip } from './textures.js';
 
 const PALETTE = {
   hull: 0x8e969d,
@@ -481,6 +482,9 @@ export function buildShip(classId) {
   // renderer reads them back.
   Object.assign(root.userData,
     { classId: cls.id, length: cls.hull.length, beam: cls.hull.beam, deckY });
+  // Steel where she is plated and planking where she is decked. The bespoke
+  // models dress themselves; this is the generated hull.
+  dressShip(root);
   return { group: root, turrets, length: cls.hull.length, beam: cls.hull.beam, deckY };
 }
 

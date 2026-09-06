@@ -23,6 +23,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, launchProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
@@ -3089,6 +3090,10 @@ export function buildEnterprise() {
     }
     plane.group.rotation.set(0, 0.08, 0);
   };
+  // Steel where she is plated and planking where she is decked: the maps go
+  // on after the weld, when she is a handful of meshes rather than a few
+  // hundred, and the weld is what gave her the coordinates to put them on.
+  dressShip(g);
   return {
     group: g,
     lifts,

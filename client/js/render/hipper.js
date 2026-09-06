@@ -20,6 +20,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic } from './merge.js';
+import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
@@ -1898,6 +1899,10 @@ export function buildHipper() {
   // Where she comes back to: her own trolley, out on the end of the girder.
   g.userData.landingSpot = [S * 9, sdeck(CAT_Z) + 2.4, CAT_Z];
 
+  // Steel where she is plated and planking where she is decked: the maps go
+  // on after the weld, when she is a handful of meshes rather than a few
+  // hundred, and the weld is what gave her the coordinates to put them on.
+  dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
     secMounts: g.userData.secMounts || [],
