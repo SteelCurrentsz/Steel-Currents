@@ -336,6 +336,53 @@ check('the guns and the tubes on the models actually train', () => {
   }
 });
 
+check('the elevation her guns are laid at goes over the wire', () => {
+  // Bearing was on the wire and elevation was not, so every gun in the game
+  // pointed at the horizon whatever it was shooting at. It is the most visible
+  // thing a turret does -- a ship hull-down on the horizon shows you her
+  // elevation and not her fire-control problem -- and nothing on the far side
+  // of the wire can work it out, so the simulation has to say.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(state, { name: 'Hipper', classId: 'hipper', team: 0, index: 0 });
+  // Stopped, heading north, laid on a fixed point dead ahead: a target under
+  // way opens the range while the layers are still getting on to it, and then
+  // what is being measured is where she went rather than what she is doing.
+  const lay = (range, secs) => {
+    for (let i = 0; i < secs * 30; i++) {
+      her.x = 0; her.z = 0; her.heading = 0; her.speed = 0; her.notch = 0;
+      her.aimX = 0; her.aimZ = range;
+      step(state, 1 / 30);
+    }
+    return shipSnapshot(her, true);
+  };
+  const near = lay(9000, 60);
+  assert.ok(Array.isArray(near.te) && near.te.length === her.turrets.length,
+    'her turret elevations are not on the wire at all');
+  // The forward pair bear and are up on the solution; the after pair cannot
+  // train through her own bridge and come down to the loading angle instead of
+  // standing there pointing at the sky over it.
+  const up = near.te.filter((e) => e > 0.1);
+  assert.equal(up.length, 2,
+    `${up.length} of her ${near.te.length} turrets are laid on a target nine `
+    + `kilometres dead ahead: ${near.te.join(', ')}`);
+  const down = near.te.filter((e) => e <= 0.1);
+  assert.ok(down.every((e) => e > 0),
+    'a turret that cannot bear has dropped its guns below the horizontal');
+
+  // And it is a solution, not a constant: further off, the guns go up.
+  const far = lay(16000, 60);
+  const lift = Math.max(...far.te) - Math.max(...near.te);
+  assert.ok(lift > 0.2,
+    `she lays her guns at ${Math.max(...near.te).toFixed(3)} rad at nine `
+    + `kilometres and ${Math.max(...far.te).toFixed(3)} at sixteen, which is `
+    + 'not a range solution');
+
+  // Her secondaries carry their own, mounting by mounting, because each one is
+  // in local control on its own target.
+  assert.ok(Array.isArray(far.sl) && far.sl.length === her.secMounts.length,
+    'her secondary mountings put their bearing on the wire and not their lay');
+});
+
 check('every gun aboard lays in both axes, and each one on its own', () => {
   // A mounting is a thing that trains, a cradle in it that elevates, and
   // barrels in the cradle. Only the first of those existed: everything on
