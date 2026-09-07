@@ -8,6 +8,10 @@ import {
 } from './math.js';
 import { getClass } from './ships.js';
 import {
+  freshAirframe, hitAirframe, stepAirframe, airframeState, flightState,
+  airframeHp, PARTS as AIR_PARTS,
+} from './airframe.js';
+import {
   BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa,
 } from './batteries.js';
 import {
@@ -535,7 +539,8 @@ function deliverOrdnance(state, p, best, P) {
   const base = headingTo(p.x, p.z, lead.x, lead.z);
   const torp = p.torp ?? p.count;
   for (let i = 0; i < torp; i++) {
-    const off = (i - (torp - 1) / 2) * P.dropSpread;
+    const spread = P.dropSpread / Math.max(0.3, (p.wear && p.wear.aim) || 1);
+    const off = (i - (torp - 1) / 2) * spread;
     state.torps.push({
       id: eid(), owner: p.owner, team: p.team,
       x: p.x, z: p.z, heading: wrapAngle(base + off),
@@ -549,8 +554,13 @@ function deliverOrdnance(state, p, best, P) {
   // what a captain sees is bombs coming down at his ship and bursting on her
   // or throwing water up alongside. They used to be settled in silence: the
   // damage arrived and nothing whatever happened on screen.
+  // How well she can still aim. A bomb released by an aeroplane that will not
+  // fly straight goes where the aeroplane was pointing, and that is not where
+  // the ship is -- so a flight shot about on the way in misses, which is most
+  // of what a close-range battery is actually for.
+  const aim = (p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1;
   for (let i = 0; i < (p.bomb || 0); i++) {
-    const hit = state.rng() <= (P.bombHit ?? 0.4);
+    const hit = state.rng() <= (P.bombHit ?? 0.4) * aim;
     // A miss is a miss you can see: it goes into the water short, over or off
     // her beam, which is where they went.
     const off = hit ? 0 : 45 + state.rng() * 130;
@@ -1068,7 +1078,7 @@ function stepBatteries(state, dt) {
       for (const p of state.planes) {
         if (p.team === bat.team) continue;
         const d = dist(bat.x, bat.z, p.x, p.z);
-        if (d < aa.range) p.hp -= aa.dps * dt * aaBite(d, aa.range);
+        if (d < aa.range) hurtFlight(state, p, aa.dps * dt * aaBite(d, aa.range));
       }
     }
 
@@ -1856,8 +1866,15 @@ function stepLaunch(state, ship, dt) {
       // right. She climbs away from there under her own power.
       y: cls.planes.runHeight ?? 41,
       vy: 4,
-      hp: cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
-        * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)),
+      hp: planeHp(cls, f, L),
+      // The aeroplanes themselves. A flight is not a hit-point bar with a
+      // number of aircraft written on it: it is that many machines, each with
+      // her own engine, tanks, wings, tail and crew, and each of them able to
+      // be hit, set on fire, crippled or shot down on her own. See
+      // airframe.js.
+      perHp: planeHp(cls, f, L) / Math.max(1, f.count),
+      machines: Array.from({ length: f.count },
+        () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count))),
       // She does not set off on her own. A strike forms up over the ship and
       // goes out together -- see stepFormation.
       phase: 'formup', dropped: false, life: 0, hunt: 0,
@@ -2286,8 +2303,7 @@ function stepPlanes(state, dt) {
       if (d >= scls.aa.range) continue;
       const bear = aaBearing(scls, s, p.x, p.z);
       if (bear.barrels === 0) continue;
-      const hurt = scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range);
-      p.hp -= hurt;
+      hurtFlight(state, p, scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range));
       // And the tracer that goes with it. One burst at a time per ship, on the
       // gun's own rhythm rather than every tick, or the wire carries a
       // thousand rounds a second nobody could see anyway.
@@ -2303,8 +2319,13 @@ function stepPlanes(state, dt) {
         });
       }
     }
-    if (p.hp <= 0) {
-      killFlight(state, p, 'flak');
+    // What the last second did to her: fires burning through, tanks running
+    // out, and the machines that can no longer keep station falling out of the
+    // formation. It is here rather than inside the guns because most of what
+    // brings an aeroplane down happens after the burst that did it.
+    stepFlightDamage(state, p, dt);
+    if (p.dead || p.hp <= 0) {
+      if (!p.dead) killFlight(state, p, 'flak');
       continue;
     }
 
@@ -2362,7 +2383,11 @@ function stepPlanes(state, dt) {
       // rate that depends on what she is, and she has to bank to get it and
       // roll level to come out: the rate itself is what is rate-limited, so
       // there are no corners anywhere in her track.
-      const rate = TURN_RATE[p.role] ?? 0.22;
+      // As fast as her worst aeroplane can be hauled round. A formation turns
+      // at the rate of the machine with the shot-up wing, because otherwise it
+      // is not a formation.
+      const wear = p.wear || { speed: 1, turn: 1, aim: 1 };
+      const rate = (TURN_RATE[p.role] ?? 0.22) * wear.turn;
       const asked = clamp(angleDelta(p.heading, want) * 1.5, -rate, rate);
       const was = p.turn ?? 0;
       p.turn = was + clamp(asked - was, -ROLL_RATE * dt, ROLL_RATE * dt);
@@ -2371,7 +2396,9 @@ function stepPlanes(state, dt) {
       // cannot ever catch her leader at the same cruise, so she opens up a
       // little to close and comes back to cruise once she is on -- which is
       // the whole of formation flying and costs one multiplication.
-      let speed = P.cruiseSpeed;
+      // And at the speed of her slowest. An engine shot about is an aeroplane
+      // that cannot make her cruise, and a flight that waits for her.
+      let speed = P.cruiseSpeed * wear.speed;
       if (station) {
         const off = dist(p.x, p.z, station.x, station.z);
         speed *= clamp(1 + (off - 120) / 900, 0.9, 1.22);
@@ -2392,7 +2419,8 @@ function stepPlanes(state, dt) {
       // were at cruising height while the torpedo bombers were still two
       // hundred metres below and climbing -- and climbing costs speed, so the
       // strike went out strung further and further apart the higher it got.
-      const best = station ? Math.min(frame.climb, slowestClimb(state, p)) : frame.climb;
+      const best = (station ? Math.min(frame.climb, slowestClimb(state, p)) : frame.climb)
+        * wear.speed;
       const rise = best * Math.max(0.15, 1 - p.y / frame.ceiling);
       // How hard she goes after the height she wants. A dive bomber pushing
       // over wants her nose down now, and she has the wing to do it with.
@@ -2443,8 +2471,9 @@ function stepPlanes(state, dt) {
         // better position does more of it. She wears them down rather than
         // deciding it in one pass.
         const bite = P.fighterGuns ?? FIGHTER_GUNS;
-        foe.hp -= bite * p.count * dt;
-        p.hp -= (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt;
+        hurtFlight(state, foe, bite * p.count * dt, 'fighters');
+        hurtFlight(state, p,
+          (foe.role === 'fighter' ? bite * 0.85 : bite * 0.3) * foe.count * dt, 'fighters');
         gunsSeen(state, p, foe.x, foe.z, true);
         gunsSeen(state, foe, p.x, p.z, true);
         if (foe.hp <= 0) killFlight(state, foe, 'fighters');
@@ -2550,6 +2579,124 @@ function stepPlanes(state, dt) {
   }
   state.planes = out;
   sweepSquadrons(state);
+}
+
+/**
+ * How much aeroplane a flight is worth.
+ *
+ * Fighters are harder to catch than a loaded bomber, and a strike with an
+ * escort over it is harder still, because the escort is what keeps the enemy's
+ * fighters off the machines carrying the weapons.
+ *
+ * Twice over, spread over her machines. A flight now dies one aeroplane
+ * at a time rather than all at once when a shared bar empties, and a single
+ * machine goes down when a part that matters is knocked out rather than when
+ * the last of her hit points is gone -- so the same weight of flak takes the
+ * same time to wipe out a formation only if each machine is given rather more
+ * than her share of the old bar.
+ */
+function planeHp(cls, f, L) {
+  return cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
+    * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)) * 2.0;
+}
+
+/**
+ * Damage into a flight, aeroplane by aeroplane.
+ *
+ * Fire is not shared out evenly over a formation. A gun lays on one machine
+ * and stays on her until she goes down or the layer loses her, which is why a
+ * flight comes out of the flak with three whole aeroplanes and one burning
+ * rather than with four each a quarter shot away. So the damage goes into
+ * whichever machine is being shot at, and it is the same machine from tick to
+ * tick until she is finished with.
+ *
+ * This is where a flight stopped being a hit-point bar. It used to be one
+ * number for the whole formation: flak took it down evenly, nothing about an
+ * aeroplane was in it anywhere, and when it reached nothing every machine in
+ * the flight vanished in the same instant.
+ */
+function hurtFlight(state, p, damage, why = 'flak') {
+  if (!p.machines || !p.machines.length) { p.hp -= damage; return; }
+  // What is shooting at her, so that when the last of her goes it is reported
+  // as what actually did it rather than as flak by default.
+  p.hurtBy = why;
+  const live = p.machines.filter((a) => a.alive && !a.left);
+  if (!live.length) return;
+  let a = live.includes(p.aimed) ? p.aimed : null;
+  if (!a) { a = live[Math.min(live.length - 1, Math.floor(state.rng() * live.length))]; }
+  p.aimed = a;
+  const hit = hitAirframe(a, damage, state.rng(), state.rng());
+  if (hit.lit) {
+    state.events.push({ e: 'planeFire', i: p.id, x: r(p.x), z: r(p.z), team: p.team });
+  }
+  if (hit.down) { losePlane(state, p, a, 'shot'); p.aimed = null; }
+  // The last of her, here and now: whatever is shooting has to be able to see
+  // that it killed her on the tick it did it.
+  if (!p.machines.some((m) => m.alive && !m.left)) { p.hp = 0; killFlight(state, p, why); }
+}
+
+/**
+ * One aeroplane out of a flight -- not the flight.
+ *
+ * She is reported on her own so that what a captain sees is one machine
+ * falling out of a formation that flies on, which is what it looked like.
+ * `why` is what did it: shot to pieces, burned, out of fuel, or crippled and
+ * turned back -- and over the sea, hundreds of miles from a deck, crippled is
+ * very rarely a machine that gets home.
+ */
+function losePlane(state, p, a, why) {
+  if (a.gone) return;
+  a.gone = true;
+  a.alive = false;
+  const slot = p.machines.indexOf(a);
+  state.events.push({
+    e: 'planeDown', i: p.id, team: p.team, x: r(p.x), z: r(p.z),
+    slot, h: r(p.heading), y: r(p.y ?? 220), why,
+  });
+}
+
+/**
+ * A second in the life of a damaged flight.
+ *
+ * Fire burns through what is holding a machine up and a holed tank runs her
+ * dry, and both take their time about it -- which is why very few aeroplanes
+ * are actually shot to pieces in the air and a great many of them simply do
+ * not come back.
+ */
+function stepFlightDamage(state, p, dt) {
+  if (!p.machines || !p.machines.length) return;
+  for (const a of p.machines) {
+    if (!a.alive || a.left) continue;
+    const end = stepAirframe(a, dt, state.rng());
+    if (end) losePlane(state, p, a, end);
+  }
+  // A machine that cannot keep station drops out of the formation and turns
+  // for home on her own. If she is the last of the flight there is no
+  // formation to drop out of: the flight gives up the attack and limps home,
+  // which is what a crippled aeroplane does rather than falling out of the
+  // sky. She can still be shot at all the way.
+  for (;;) {
+    const live = p.machines.filter((a) => a.alive && !a.left);
+    const bad = live.find((a) => airframeState(a).crippled);
+    if (!bad) break;
+    if (live.length > 1) { bad.left = true; losePlane(state, p, bad, 'crippled'); continue; }
+    if (p.phase !== 'return') {
+      p.phase = 'return';
+      state.events.push({ e: 'planeCrippled', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
+    }
+    break;
+  }
+  const fs = flightState(p.machines);
+  p.wear = fs;
+  p.count = fs.count;
+  // What is left of her, in the units the rest of the simulation counts in.
+  let hp = 0;
+  for (const a of p.machines) if (a.alive && !a.left) hp += airframeHp(a) * (p.perHp || 0);
+  p.hp = hp;
+  // She cannot drop what she has not got left to drop it with.
+  if (p.torp) p.torp = Math.min(p.torp, fs.count);
+  if (p.bomb) p.bomb = Math.min(p.bomb, fs.count);
+  if (!fs.count) killFlight(state, p, p.hurtBy || 'flak');
 }
 
 /**

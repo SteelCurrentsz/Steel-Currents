@@ -165,6 +165,23 @@ const SLOTS = [
   [0, -14, -46],
 ];
 
+/**
+ * Where one aeroplane of a flight is, relative to her leader.
+ *
+ * The same table the formation is drawn from, so a machine that is smoking or
+ * going down is smoking or going down in the place she is actually flying
+ * rather than at the leader's own position.
+ */
+export function slotAt(i, heading, out = { x: 0, y: 0, z: 0 }) {
+  const [sx, sy, sz] = SLOTS[i % SLOTS.length];
+  const sn = Math.sin(heading);
+  const cs = Math.cos(heading);
+  out.x = sn * sz + cs * sx;
+  out.y = sy;
+  out.z = cs * sz - sn * sx;
+  return out;
+}
+
 export class Flights {
   constructor(scene, max = 72) {
     this.max = max;
@@ -178,6 +195,16 @@ export class Flights {
       this.batches[key] = { mesh, n: 0 };
     }
     this.dummy = new THREE.Object3D();
+    // Yaw, then pitch, then roll -- which is how an aeroplane's attitude is
+    // built and the only order in which it means anything.
+    //
+    // Left at the default, the pitch was applied about the world's own X axis
+    // *before* the heading, so it only did anything at all to an aeroplane
+    // flying due north or due south. On any other heading it went into the
+    // yaw and vanished: a dive bomber going down at fifty degrees on an
+    // easterly heading was drawn dead level, and so was everything else in
+    // the game that was not pointed at the top of the chart.
+    this.dummy.rotation.order = 'YXZ';
     for (const key of Object.keys(this.batches)) this.parkFrom(key, 0);
   }
 
@@ -216,7 +243,11 @@ export class Flights {
         y + sy,
         z + cs * sz - sn * sx,
       );
-      d.rotation.set(pitch, heading, -bank);
+      // Nose up is a negative rotation about her own X axis, the same way a
+      // gun's muzzle is raised: passed straight through, every aeroplane in
+      // the game was drawn climbing when she was diving and diving when she
+      // was climbing.
+      d.rotation.set(-pitch, heading, -bank);
       d.scale.setScalar(1);
       d.updateMatrix();
       b.mesh.setMatrixAt(b.n++, d.matrix);
@@ -235,7 +266,7 @@ export class Flights {
     if (!b || b.n >= this.max) return;
     const d = this.dummy;
     d.position.set(x, y, z);
-    d.rotation.set(pitch, heading, -bank + roll);
+    d.rotation.set(-pitch, heading, -bank + roll);
     d.scale.setScalar(1);
     d.updateMatrix();
     b.mesh.setMatrixAt(b.n++, d.matrix);

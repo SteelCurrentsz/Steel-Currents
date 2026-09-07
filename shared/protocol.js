@@ -173,6 +173,14 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,
+      // How she has been knocked about: how many of her machines are trailing
+      // smoke, and how much aeroplane the flight has left. A formation coming
+      // out of the flak with one of its number burning is the whole of what a
+      // captain sees for his close-range battery, and there was no way to draw
+      // it because there was nothing behind it -- a flight was one hit-point
+      // bar and every machine in it was in identical condition by definition.
+      sm: p.wear && p.wear.smoking ? p.wear.smoking : undefined,
+      wr: p.wear && p.wear.speed < 0.995 ? r3(p.wear.speed) : undefined,
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

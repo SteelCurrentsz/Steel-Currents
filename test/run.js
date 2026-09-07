@@ -30,7 +30,11 @@ const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { arsenal, readTarget } from '../client/js/hud.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
-import { weld, flightModels, typeOf } from '../client/js/render/planes.js';
+import { weld, flightModels, typeOf, Flights } from '../client/js/render/planes.js';
+import {
+  PARTS as AIR_PARTS, freshAirframe, hitAirframe, stepAirframe, airframeState,
+  flightState, partHit,
+} from '../shared/airframe.js';
 import { arado, kingfisher, wildcat as pkWildcat } from '../client/js/render/planekit.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
@@ -5209,6 +5213,68 @@ check('every ship flies the aeroplane she actually carried', () => {
   }
 });
 
+check('an aeroplane is drawn at the attitude she is flying at', () => {
+  // Heading, then pitch, then roll, in that order and about her own axes --
+  // which is the only order in which an attitude means anything.
+  //
+  // Left at the default the pitch was applied about the world's X axis before
+  // the heading, so it survived only for an aeroplane flying due north or due
+  // south; on any other heading it went into the yaw and disappeared, and a
+  // dive bomber going down at fifty degrees on an easterly heading was drawn
+  // dead level. Its sign was inverted on top of that, so the ones that were
+  // drawn at all climbed when they were diving.
+  const scene = new THREE.Scene();
+  const flights = new Flights(scene, 8);
+  const m4 = new THREE.Matrix4();
+  const nose = new THREE.Vector3();
+  const wing = new THREE.Vector3();
+  const fly = (heading, bank, pitch) => {
+    flights.begin();
+    flights.add('fighter', 0, 500, 0, heading, bank, pitch, 1, -1, 'wildcat');
+    flights.end();
+    flights.batches.wildcat.mesh.getMatrixAt(0, m4);
+    const r = new THREE.Matrix4().extractRotation(m4);
+    nose.set(0, 0, 1).applyMatrix4(r);
+    wing.set(1, 0, 0).applyMatrix4(r);
+    return {
+      climb: Math.asin(Math.max(-1, Math.min(1, nose.y))),
+      track: Math.atan2(nose.x, nose.z),
+      wingY: wing.y,
+    };
+  };
+  // On every heading round the compass, climbing and diving alike.
+  for (let h = 0; h < 8; h++) {
+    const heading = (h / 8) * Math.PI * 2 - Math.PI;
+    for (const pitch of [0.52, -0.70, 0.18]) {
+      const a = fly(heading, 0, pitch);
+      assert.ok(Math.abs(a.climb - pitch) < 0.02,
+        `on heading ${(heading * 57.3).toFixed(0)} deg, asked for `
+        + `${(pitch * 57.3).toFixed(0)} deg of pitch and drawn at `
+        + `${(a.climb * 57.3).toFixed(0)}`);
+      let off = a.track - heading;
+      while (off > Math.PI) off -= Math.PI * 2;
+      while (off < -Math.PI) off += Math.PI * 2;
+      assert.ok(Math.abs(off) < 0.02,
+        `pitching her turned her ${(off * 57.3).toFixed(0)} degrees off her heading`);
+    }
+  }
+
+  // And she banks into her turn: the inside wing goes down. A flight turns
+  // toward +X as her heading increases, so that is the wing that drops.
+  const right = fly(1.2, 0.78, 0);
+  const left = fly(1.2, -0.78, 0);
+  assert.ok(right.wingY < -0.6,
+    `in a right-hand bank her inside wing is at ${right.wingY.toFixed(2)}`);
+  assert.ok(left.wingY > 0.6, 'she banks the same way whichever way she turns');
+  assert.ok(Math.abs(right.climb) < 0.02, 'banking her pitched her nose');
+
+  // All three at once, which is what she is doing most of the time.
+  const all = fly(2.27, 0.70, 0.35);
+  assert.ok(Math.abs(all.climb - 0.35) < 0.03,
+    `climbing in a bank she is drawn at ${(all.climb * 57.3).toFixed(0)} degrees`);
+  assert.ok(all.wingY < -0.5, 'she lost her bank as soon as she pitched');
+});
+
 check('an aeroplane points where she is going, and a little above it', () => {
   // What you see of an aeroplane is not the direction she is travelling. She
   // meets the air at an angle of attack, and how big it is depends on how hard
@@ -5338,6 +5404,198 @@ check('she holds the bank you put her in', () => {
   for (let i = 0; i < 60 * 12; i++) p.step(1 / 60);
   assert.ok(Math.abs(p.bank) < 0.05,
     `left alone she stays at ${p.bank.toFixed(2)} rad of bank for ever`);
+});
+
+check('an aeroplane is hit somewhere, and it matters where', () => {
+  // The same model the ships have, at an aeroplane's scale. A ship is a set of
+  // compartments each with its own consequence; an aeroplane is a set of parts
+  // -- engine, tanks, wings, tail, crew, structure -- and which one a round
+  // finds is what decides what the hit did.
+  //
+  // A flight used to be one hit-point bar shared by every machine in it. There
+  // was no engine to stop, no tank to set alight and no wing to shoot off, and
+  // when the bar emptied every aeroplane in the formation vanished at the same
+  // instant.
+  const a = freshAirframe(1000);
+  for (const p of AIR_PARTS) {
+    assert.ok(a.parts[p.k] && a.parts[p.k].max > 0, `she has no ${p.k}`);
+  }
+  // Rounds go where there is aeroplane to hit: most of them through a wing,
+  // very few into the pilot.
+  const tally = {};
+  for (let i = 0; i < 2000; i++) {
+    const k = partHit(a, (i + 0.5) / 2000);
+    tally[k] = (tally[k] || 0) + 1;
+  }
+  assert.ok(tally.wings > tally.crew * 3,
+    `a round is as likely to find the pilot (${tally.crew}) as the wing (${tally.wings})`);
+  assert.ok(tally.crew > 0, 'the crew are never hit at all');
+
+  // The pilot, and she stops flying there and then.
+  const shot = freshAirframe(1000);
+  shot.parts.crew.hp = 1;
+  hitAirframe(shot, 40, 0.99, 0.5);          // 0.99 lands in the last part
+  const dead = freshAirframe(1000);
+  dead.parts.crew.hp = 0.5;
+  hitAirframe(dead, 400, 0.985, 0.5);
+  assert.ok(!dead.alive || !shot.alive, 'a hit that killed the crew left her flying');
+
+  // A tank, and she leaks and very often burns.
+  let lit = 0;
+  let leaks = 0;
+  for (let i = 0; i < 400; i++) {
+    const m = freshAirframe(1000);
+    // Aim at the tanks by knocking out everything that comes before them.
+    m.parts.engine.hp = 0;
+    const before = m.parts.tanks.hp;
+    // A graze rather than a burst through the middle of it: how likely a fire
+    // is goes with how much of the tank was opened, so a light hit is the case
+    // where the answer is neither never nor always.
+    hitAirframe(m, 40, 0.02, (i + 0.5) / 400);
+    if (m.parts.tanks.hp < before) {
+      if (m.leak > 0) leaks++;
+      if (m.fire > 0) lit++;
+    }
+  }
+  assert.ok(leaks > 0, 'a round through her tanks does not make her leak');
+  assert.ok(lit > 0 && lit < leaks,
+    `${lit} of ${leaks} tank hits caught fire: it is either never or always`);
+
+  // A wing off is the end of her whatever else is sound.
+  const wing = freshAirframe(1000);
+  const before = wing.parts.wings.hp;
+  const hit = hitAirframe(wing, before + 10, 0.5, 0.5);
+  assert.ok(hit.part === 'wings', `that hit went into her ${hit.part}`);
+  assert.ok(hit.down && !wing.alive, 'she flew on with her wing shot off');
+});
+
+check('a damaged aeroplane flies and fights worse for it', () => {
+  // The part that has to reach the game. A machine with her engine shot about
+  // cannot keep station, one with her tail shot about cannot be aimed, and a
+  // formation goes at the speed of its slowest and turns at the rate of its
+  // worst -- because otherwise it is not a formation.
+  const whole = freshAirframe(1000);
+  const w = airframeState(whole);
+  assert.ok(w.speed > 0.99 && w.turn > 0.99 && w.aim > 0.99,
+    'a whole aeroplane is already flying badly');
+  assert.ok(!w.crippled, 'a whole aeroplane counts as crippled');
+
+  const engine = freshAirframe(1000);
+  engine.parts.engine.hp = 0;
+  assert.ok(airframeState(engine).speed < 0.5,
+    'an aeroplane with a dead engine makes the same speed as a whole one');
+  assert.ok(airframeState(engine).crippled,
+    'an aeroplane with a dead engine can still keep station');
+
+  const tail = freshAirframe(1000);
+  tail.parts.tail.hp = 0;
+  const ts = airframeState(tail);
+  assert.ok(ts.aim < 0.6, `she can still aim at ${ts.aim.toFixed(2)} with no tail`);
+  assert.ok(ts.speed > 0.95, 'a shot-up tail slowed her down, which it does not');
+
+  // A formation takes the worst of what is in it.
+  const flight = [freshAirframe(1000), freshAirframe(1000), freshAirframe(1000)];
+  flight[1].parts.engine.hp = flight[1].parts.engine.max * 0.3;
+  flight[2].parts.tail.hp = 0;
+  const fs = flightState(flight);
+  assert.equal(fs.count, 3, 'she has lost aeroplanes that are still flying');
+  assert.ok(fs.speed < 0.75,
+    `the formation still makes ${fs.speed.toFixed(2)} of her speed with a lame duck in it`);
+  assert.ok(fs.aim < 0.95 && fs.aim > 0.5,
+    'one machine that cannot aim ruined or did not touch the whole flight');
+});
+
+check('an aeroplane that flies out of the flak may not get home', () => {
+  // Very few aeroplanes are shot to pieces in the air. What brings them down
+  // is what the hit left behind: a fire burning through what is holding her up,
+  // and a holed tank running her dry a long way from a deck.
+  const burn = freshAirframe(1000);
+  burn.fire = 0.4;
+  let t = 0;
+  let end = null;
+  while (t < 120 && !end) { end = stepAirframe(burn, 1 / 20, 1); t += 1 / 20; }
+  assert.equal(end, 'fire', `a burning aeroplane ended '${end}'`);
+  assert.ok(t > 6 && t < 45,
+    `she burned for ${t.toFixed(0)} s: a fire is neither instant nor survivable`);
+
+  // And a fire is not certain death: a slipstream blows some of them out.
+  let out = 0;
+  let seed = 12345;
+  const roll = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  for (let i = 0; i < 400; i++) {
+    const m = freshAirframe(1000);
+    m.fire = 0.4;
+    for (let k = 0; k < 20 * 60 && m.alive; k++) {
+      stepAirframe(m, 1 / 20, roll());
+      if (m.fire === 0) break;
+    }
+    if (m.alive && m.fire === 0) out++;
+  }
+  assert.ok(out > 20 && out < 380,
+    `${out} of 400 fires went out: it is either never or always`);
+
+  // A holed tank gives her minutes, not seconds.
+  const leak = freshAirframe(1000);
+  leak.leak = 0.35;
+  let s2 = 0;
+  let gone = null;
+  while (s2 < 1200 && !gone) { gone = stepAirframe(leak, 1 / 20, 1); s2 += 1 / 20; }
+  assert.equal(gone, 'dry', 'a leaking aeroplane never runs out');
+  assert.ok(s2 > 120,
+    `her worst leak emptied her in ${s2.toFixed(0)} s, which is not a fuel tank`);
+});
+
+check('a strike pays for what it does', () => {
+  // The whole point of a close-range battery. A strike used to fly through
+  // anything at all without losing a single aeroplane -- the flight's shared
+  // bar came down and nothing whatever happened until it hit zero -- so there
+  // was no reason to have anti-aircraft guns and no decision in using aircraft.
+  //
+  // Now the machines are lost one at a time, and what it costs depends on what
+  // she is attacking.
+  const cost = (classId, seed) => {
+    const st = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const foe = addShip(st, { name: 'F', classId, team: 1, index: 0 });
+    cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6500;
+    cv.aimX = foe.x; cv.aimZ = foe.z;
+    cv.airGroup = { fighters: 0, dive: 6, torpedo: 6 };
+    launchStrike(st, cv);
+    let down = 0;
+    let parts = 0;
+    for (let i = 0; i < 20 * 500; i++) {
+      for (const s of st.ships) s.spottedBy = [true, true];
+      for (const e of step(st, 1 / 20)) if (e.e === 'planeDown') down++;
+      for (const p of st.planes) {
+        if (!p.machines) continue;
+        for (const m of p.machines) {
+          if (m.alive && (m.fire > 0 || m.leak > 0)) { parts++; break; }
+        }
+      }
+      if (st.t > 400 || !foe.alive) break;
+    }
+    return { down, hurt: parts > 0, hp: foe.alive ? foe.hp / foe.maxHp : 0 };
+  };
+  let light = 0;
+  let heavy = 0;
+  let hurtSeen = false;
+  for (let i = 0; i < 3; i++) {
+    const a = cost('fletcher', 400 + i * 53);
+    const b = cost('iowa', 400 + i * 53);
+    light += a.down;
+    heavy += b.down;
+    hurtSeen = hurtSeen || a.hurt || b.hurt;
+  }
+  assert.ok(heavy > 0, 'a strike on a battleship costs nothing at all');
+  assert.ok(heavy > light,
+    `a strike loses ${(heavy / 3).toFixed(1)} machines to a battleship and `
+    + `${(light / 3).toFixed(1)} to a destroyer: her battery makes no difference`);
+  assert.ok(hurtSeen,
+    'no aeroplane was ever seen burning or leaking and still flying: they are '
+    + 'all either whole or gone');
 });
 
 check('a squadron always comes back, however her flights end', () => {
@@ -6455,7 +6713,12 @@ check('a dive bomber climbs to the perch and dives on her target', () => {
   // sure of her aim.
   const st = createState(generateWorld(707, 'open_ocean'), { mode: 'deathmatch' });
   const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  // A destroyer, and not a battleship. What is under test here is the shape of
+  // the dive -- the climb to the perch, the pushover, the angle she holds down
+  // to the release -- and against an Iowa's close-range battery an unescorted
+  // dive bomber does not live long enough to fly it. That she does not is a
+  // separate matter, and the aircraft damage model is what settles it.
+  const foe = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 11000;
   foe.speed = 0; foe.throttle = 0;
   cv.aimX = foe.x; cv.aimZ = foe.z;

@@ -8,7 +8,7 @@ import { DamageBoard } from './render/damageboard.js';
 import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
-import { ROLE_TYPE, typeOf } from './render/planes.js';
+import { ROLE_TYPE, typeOf, slotAt } from './render/planes.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -117,6 +117,8 @@ export class Battle {
     // shot down rather than recovered. Between them they say which vanishing
     // flight is a squadron coming home -- see comingHome.
     this.lastFlights = new Map();
+    // When each damaged flight last put up a puff of smoke.
+    this.planeSmoke = new Map();
     this.lostFlights = new Set();
     // Where the camera is standing when it has been walked off its ship: a
     // point on the sea it orbits instead. Null means it is on whatever it is
@@ -478,6 +480,27 @@ export class Battle {
           if (ev.ship === this.shipId) this.hud.alert('Crash on deck — flight deck out');
           break;
         }
+        case 'planeDown': {
+          // One machine out of a formation that flies on. She goes down where
+          // she was actually flying rather than at her leader's position, and
+          // she goes down the way she was lost: shot to pieces, burning, out of
+          // fuel, or crippled and turning back with a dead engine.
+          const at = slotAt(ev.slot || 0, ev.h || 0);
+          const from = (this.planesNow || []).find((q) => q.i === ev.i);
+          this.oneDown({
+            x: ev.x + at.x, y: (ev.y || 220) + at.y, z: ev.z + at.z,
+            heading: ev.h || 0, why: ev.why,
+            role: (from && from.r) || 'torpedo', kind: typeOf(from && from.k, (from && from.r) || 'torpedo'),
+          });
+          if (ev.team === this.team && ev.why !== 'crippled') this.hud.alert('Aircraft down');
+          break;
+        }
+        case 'planeFire':
+          if (ev.team === this.team) this.hud.alert('Aircraft on fire');
+          break;
+        case 'planeCrippled':
+          if (ev.team === this.team) this.hud.alert('Aircraft hit — turning back');
+          break;
         case 'planesLost':
           // Not a recovery: she is not coming home, so nobody is to look for
           // her on the deck. See comingHome.
@@ -1434,6 +1457,14 @@ export class Battle {
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind);
       }
+      // The ones that have been hit and are still flying.
+      //
+      // A formation coming out of the flak with one of its number streaming
+      // smoke is the whole of what a close-range battery looks like from the
+      // ship that owns it, and there was nothing to draw before: a flight was
+      // one hit-point bar, so every machine in it was in identical condition
+      // by definition and none of them could be the one that had been hit.
+      if (pl.sm > 0) this.smokeFlight(pl, dt);
     }
     for (const w of this.wrecks) {
       this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
@@ -1442,7 +1473,10 @@ export class Battle {
     this.scene.flights.end();
     // Forget the flights that are no longer up, so the map does not grow.
     for (const id of [...this.planeTurn.keys()]) {
-      if (!planes.some((q) => q.i === id)) this.planeTurn.delete(id);
+      if (!planes.some((q) => q.i === id)) {
+        this.planeTurn.delete(id);
+        this.planeSmoke.delete(id);
+      }
     }
     // The ones that are not flying any more: the wrecks on their way down.
     this.stepWrecks(dt);
@@ -1499,6 +1533,68 @@ export class Battle {
   }
 
   /**
+   * Smoke off the machines of a flight that have been hit.
+   *
+   * Off the slots they are actually flying in, so what streams is the second
+   * aeroplane of the second section rather than a smudge at the leader's tail.
+   */
+  smokeFlight(pl, dt) {
+    const at = this.planeSmoke.get(pl.i) || 0;
+    const now = at - dt;
+    if (now > 0) { this.planeSmoke.set(pl.i, now); return; }
+    this.planeSmoke.set(pl.i, 0.09);
+    const y = this.planeHeight(pl);
+    const n = Math.min(pl.sm, Math.max(1, pl.n || 1));
+    for (let i = 0; i < n; i++) {
+      // The hurt ones are the last in the formation: a leader whose machine is
+      // shot about hands the lead over.
+      const s = slotAt(Math.max(0, (pl.n || 1) - 1 - i), pl.h || 0);
+      this.scene.effects.wreckSmoke(pl.x + s.x, y + s.y, pl.z + s.z);
+    }
+  }
+
+  /**
+   * One aeroplane out of a formation, on her way down.
+   *
+   * The flight goes on without her. Which of the four things happened to her
+   * decides what it looks like: a machine shot to pieces breaks up, one that
+   * is burning goes down trailing fire, one out of fuel glides down quietly,
+   * and one crippled turns away with a dead engine and smoke coming off her.
+   */
+  oneDown(o) {
+    const fx = this.scene.effects;
+    if (o.why === 'shot' && Math.random() < 0.4) {
+      // Blown apart in the air. There is nothing left to fall.
+      fx.explosion(o.x, o.y, o.z, 0.8);
+      fx.debris(o.x, o.y, o.z, 12);
+      const near = this.distanceFade(o.x, o.z);
+      if (near < 0.85) audio.explosion(0.65, near);
+      return;
+    }
+    if (this.wrecks.length > 14) this.wrecks.shift();
+    // A machine that has been crippled is still flying: she turns away and
+    // goes down slowly on what is left of her engine. One that has burned or
+    // been shot to pieces is not flying at all.
+    const limp = o.why === 'crippled' || o.why === 'dry';
+    const sp = limp ? 44 + Math.random() * 14 : 60 + Math.random() * 26;
+    this.wrecks.push({
+      role: o.role, kind: o.kind, x: o.x, y: o.y, z: o.z,
+      vx: Math.sin(o.heading) * sp, vz: Math.cos(o.heading) * sp,
+      vy: limp ? -3 - Math.random() * 3 : -5 - Math.random() * 9,
+      heading: o.heading, pitch: -0.12,
+      bank: (Math.random() < 0.5 ? -1 : 1) * (limp ? 0.2 + Math.random() * 0.4
+        : 0.5 + Math.random()),
+      spin: (Math.random() - 0.5) * (limp ? 0.5 : 2.6),
+      tumble: limp ? 0.1 + Math.random() * 0.3 : 0.5 + Math.random() * 1.4,
+      smoke: 0,
+      // How much of a trail she leaves: a burning aeroplane is seen a long way
+      // off, and one gliding down on an empty tank is very nearly not seen at
+      // all.
+      trail: o.why === 'fire' ? 1 : o.why === 'dry' ? 0.25 : 0.6,
+    });
+  }
+
+  /**
    * Fly the wrecks down.
    *
    * Nothing clever: what is left of her has a lot of drag and no lift, so she
@@ -1532,7 +1628,9 @@ export class Battle {
         : wrapAngle(w.heading + w.spin * dt);
       w.smoke -= dt;
       if (w.smoke <= 0) {
-        w.smoke = 0.055;
+        // As often as she is worth looking at: a burning machine leaves a
+        // column, one gliding down on an empty tank leaves almost nothing.
+        w.smoke = 0.055 / Math.max(0.2, w.trail === undefined ? 1 : w.trail);
         fx.wreckSmoke(w.x, w.y, w.z);
       }
       const sea = this.scene.ocean.heightAt(w.x, w.z);
