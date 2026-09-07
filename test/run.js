@@ -1995,7 +1995,11 @@ check("you cannot see through the Hipper's topsides", () => {
 
   let tested = 0;
   const through = [];
-  for (let z = -44; z <= 40; z += 1.5) {
+  // From the after end of the superstructure to its fore end. It stops at
+  // forty-one and a half abaft amidships so that Cäsar can train round inside
+  // her own circle; abaft that is open weather deck with a barbette on it,
+  // and open deck is meant to be open.
+  for (let z = -41; z <= 40; z += 1.5) {
     const t = z / (HIPPER_LOA / 2);
     for (let y = -3; y <= hipperDeckAt(z) + 2.9; y += 0.35) {
       tested++;
@@ -2758,6 +2762,170 @@ check('the Hipper has an Atlantic bow', () => {
     + 'which is a wall-sided hull and not an Atlantic bow');
   assert.ok(flareAt(0.95) > fwd,
     'her flare does not go on opening toward the stem');
+
+  // And fair. Her offsets are read as a curve through the stations, not as a
+  // chain of ramps between them: taken with a smoothstep the line stops dead
+  // at every offset in the table and hurries to the next one, so her deck edge
+  // came out scalloped -- a bulge at each station with a flat between, which
+  // is the one thing a shipwright will not pass.
+  //
+  // A fair entrance narrows faster the closer to the stem you get, and it does
+  // it smoothly: step along her deck edge and the amount she comes in each
+  // step must never grow again on the way forward.
+  const edge = [];
+  for (let d = 0; d <= 60; d += 2.5) edge.push(hipperHalfDeck(101.5 - d));
+  let lumpy = 0;
+  let lumpyAt = 0;
+  for (let i = 2; i < edge.length; i++) {
+    const a = edge[i - 1] - edge[i - 2];
+    const b = edge[i] - edge[i - 1];
+    // b is how much she gains going aft over this step, a over the one before.
+    // A fair entrance gains less each step aft, never more.
+    if (b - a > lumpy) { lumpy = b - a; lumpyAt = 101.5 - i * 2.5; }
+  }
+  assert.ok(lumpy < 0.12,
+    `her deck edge gains ${lumpy.toFixed(2)} m more in one step than in the `
+    + `one before it, ${lumpyAt.toFixed(0)} m from amidships: the line is `
+    + 'scalloped rather than fair');
+});
+
+check('every turret aboard the Hipper trains right round clear of her', () => {
+  // A gunhouse is nine metres long and swings about its barbette, so it needs
+  // a circle six metres across kept empty round every turret in the ship --
+  // and a turret superfiring over another one is up at the height of the
+  // deckhouses, which is exactly where that circle is hardest to keep.
+  //
+  // Cäsar's rear corners went a metre and a half into the after superstructure
+  // and Anton's went into the trunk under Bruno's barbette, so both of them
+  // ground through the ship as they trained.
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  // Everything that does not train: the ship she has to swing inside of.
+  const moving = new Set();
+  built.group.traverse((o) => {
+    if (o.userData && o.userData.dynamic) o.traverse((c) => moving.add(c));
+  });
+  const statics = [];
+  built.group.traverse((o) => { if (o.isMesh && !moving.has(o)) statics.push(o); });
+  const ray = new THREE.Raycaster();
+  const N = 72;
+  const v = new THREE.Vector3();
+  const names = ['Anton', 'Bruno', 'Cäsar', 'Dora'];
+  for (const [i, t] of built.turrets.entries()) {
+    // The gunhouse, which is the turret without her barrels -- a gun trains
+    // out over the deckhouses on purpose and is meant to.
+    const gunsGroup = t.userData.guns;
+    const house = [];
+    t.traverse((o) => {
+      if (!o.isMesh) return;
+      for (let n = o; n; n = n.parent) if (n === gunsGroup) return;
+      house.push(o);
+    });
+    const cz = t.position.z;
+    // Her own silhouette, bearing by bearing, off her own vertices. The skirt
+    // is left out: it comes down over the barbette at deck level, and the deck
+    // is meant to be there.
+    const rad = new Array(N).fill(0);
+    let ylo = 1e9;
+    let yhi = -1e9;
+    for (const o of house) {
+      const pa = o.geometry.getAttribute('position');
+      for (let k = 0; k < pa.count; k++) {
+        v.fromBufferAttribute(pa, k).applyMatrix4(o.matrixWorld);
+        if (v.y < t.position.y + 0.9) continue;
+        const b = Math.floor(
+          (((Math.atan2(v.x, v.z - cz) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * N) % N;
+        rad[b] = Math.max(rad[b], Math.hypot(v.x, v.z - cz));
+        ylo = Math.min(ylo, v.y);
+        yhi = Math.max(yhi, v.y);
+      }
+    }
+    assert.ok(yhi - ylo > 2.0, `${names[i]} has no gunhouse to swing`);
+    let foul = null;
+    for (let b = 0; b < N; b++) {
+      const a = ((b + 0.5) / N) * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
+      for (let k = 0; k <= 8; k++) {
+        const y = ylo + 0.1 + ((yhi - ylo - 0.2) * k) / 8;
+        ray.set(new THREE.Vector3(0, y, cz), dir);
+        ray.far = rad[b];
+        const hit = ray.intersectObjects(statics, false)[0];
+        if (!hit) continue;
+        const into = rad[b] - hit.distance;
+        if (!foul || into > foul.into) {
+          foul = { into, bearing: Math.round((a * 180) / Math.PI),
+            at: `${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)}` };
+        }
+      }
+    }
+    assert.ok(!foul,
+      foul && `${names[i]} goes ${foul.into.toFixed(2)} m into the ship at `
+        + `${foul.bearing} degrees of training, at ${foul.at}`);
+  }
+});
+
+check("the Hipper's 10.5 cm are guns in a shield, not tubes in a box", () => {
+  // A C/31 twin is a stabilised carriage with a splinter shield on it, open at
+  // the back: the plate covers the guns and the layers and nothing else, and
+  // the breeches, the fuse setter, the loading trays and the ready-use racks
+  // all stand out behind it in the weather. That open back is most of what the
+  // mounting looks like, and a shield closed all round is a little turret,
+  // which this is not.
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  assert.equal(built.secMounts.length, 6, 'she does not carry six 10.5 cm twins');
+  const m = built.secMounts[0];
+  m.updateWorldMatrix(true, false);
+  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  // How far she reaches, in her own frame.
+  let front = -1e9;
+  let backEnd = 1e9;
+  const v = new THREE.Vector3();
+  m.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    const pa = o.geometry.getAttribute('position');
+    for (let k = 0; k < pa.count; k++) {
+      v.fromBufferAttribute(pa, k).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+      front = Math.max(front, v.z);
+      backEnd = Math.min(backEnd, v.z);
+    }
+  });
+  // She is a gun: barrels well out in front of the carriage.
+  assert.ok(front > 5.0,
+    `her barrels reach only ${front.toFixed(2)} m out: a 10.5 cm L/65 is over `
+    + 'six metres of gun');
+  // And she has a working end behind the plate.
+  assert.ok(backEnd < -1.8,
+    `there is only ${(-backEnd).toFixed(2)} m of mounting abaft her trunnions: `
+    + 'the loading numbers have nowhere to stand');
+
+  // Open at the back. Look straight down on her, in her own frame: over the
+  // guns there is plate, and two metres abaft them there is not.
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const roofAt = (lx, lz) => {
+    const from = m.localToWorld(new THREE.Vector3(lx, 40, lz));
+    ray.set(from, down);
+    ray.far = 80;
+    const hit = ray.intersectObject(m, true)[0];
+    if (!hit) return null;
+    return hit.point.clone().applyMatrix4(inv).y;
+  };
+  const over = roofAt(0.9, 0.2);
+  const abaft = roofAt(0.9, -1.9);
+  assert.ok(over !== null && over > 3.0,
+    `there is nothing over her guns at ${over === null ? 'all' : over.toFixed(2)}: `
+    + 'she has no shield');
+  assert.ok(abaft === null || abaft < over - 0.9,
+    `her plating stands ${abaft && abaft.toFixed(2)} high two metres abaft the `
+    + `trunnions against ${over.toFixed(2)} over the guns: the shield is closed `
+    + 'at the back');
+
+  // The muzzles are published, and they are two, and they are apart.
+  const muz = m.userData.muzzles;
+  assert.ok(muz && muz.length === 2, 'she is not a twin');
+  assert.ok(Math.abs(muz[0].x - muz[1].x) > 0.7 && Math.abs(muz[0].x - muz[1].x) < 1.5,
+    `her two bores are ${Math.abs(muz[0].x - muz[1].x).toFixed(2)} m apart`);
 });
 
 check("everything on the Hipper's sides is on both of them", () => {
@@ -2940,57 +3108,82 @@ check("the Hipper shows her bridge windows from straight ahead", () => {
     + 'centreline: it is a pane across her front, not a band round her');
 });
 
-check("the Hipper's funnel wears a hood and not a lid", () => {
-  // The Kappe is a hood a metre deep with a skirt hanging down round it,
-  // standing clear of the mouth on struts so there is daylight under it --
-  // that gap is the whole of what it is for. Drawn as a plate a few inches
-  // thick and half as wide again as the funnel, what she carried amidships
-  // was a mushroom.
-  // Everything that goes right round her funnel: a ring of it is as wide as
-  // she is across and a good deal deeper fore and aft, which is what tells the
-  // trunk and the cap from the platforms and the ladders bolted to them.
-  const rings = hipperParts().filter((p) => p.from === 'funnel'
-    && p.max[0] - p.min[0] > 6 && p.max[0] - p.min[0] < 9
-    && p.max[2] - p.min[2] > 7 && p.max[2] - p.min[2] < 11);
-  assert.ok(rings.length >= 4, `only ${rings.length} rings round her funnel`);
-  const topY = Math.max(...rings.map((r) => r.max[1]));
-  const cap = rings.filter((r) => r.max[1] > topY - 1.2);
-  const trunk = rings.filter((r) => r.max[1] <= topY - 1.2);
-  assert.ok(trunk.length, 'she has a cap and no funnel under it');
+check("the Hipper's cap is built on to her funnel, not balanced over it", () => {
+  // The Kappe fitted in 1940 is part of the funnel. Her mouth is cut on a
+  // rake -- high forward, low aft, so the smoke goes up and away from the
+  // foretop -- and the cap is a band welded round the top of it.
+  //
+  // What was here was a lid on four legs, with the better part of a metre of
+  // daylight under its forward edge: from abeam you could see clean through
+  // the top of her funnel, which is neither what she carried nor what a smoke
+  // cap is. So: no gap anywhere between the casing and the rim, and a cap that
+  // still stands proud of the trunk it is built on.
+  const built = buildHipper();
+  built.group.updateMatrixWorld(true);
+  // Plating only. Her aerials are slung over the funnel from masthead to
+  // masthead and her grab rails are bolted to it, and a wire counts for
+  // nothing when the question is whether there is steel there.
+  const meshes = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    o.geometry.computeBoundingBox();
+    const b = o.geometry.boundingBox;
+    const d = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z];
+    if (d.filter((v) => v > 0.35).length < 2) return;
+    meshes.push(o);
+  });
+  const ray = new THREE.Raycaster();
+  const dir = new THREE.Vector3(1, 0, 0);
+  // Her funnel's own side, and nothing else: between a metre and a half and
+  // five and a half metres off the centreline at these stations. Inboard of
+  // that are the uptake trunks standing in her mouth and the aerials slung
+  // over her from masthead to masthead; outboard is her boat deck, which is
+  // wider than this and lower than anything looked at here.
+  const skin = (y, z) => {
+    ray.set(new THREE.Vector3(-60, y, z), dir);
+    let out = null;
+    for (const h of ray.intersectObjects(meshes, false)) {
+      const r = Math.abs(h.point.x);
+      if (r > 1.5 && r < 5.5) out = Math.max(out === null ? 0 : out, r);
+    }
+    return out;
+  };
+  const topAt = (z) => {
+    for (let y = 29; y > 18; y -= 0.05) if (skin(y, z) !== null) return y;
+    return null;
+  };
+  for (const z of [5.3, 6.8, 8.3, 9.8, 11.3]) {
+    const top = topAt(z);
+    assert.ok(top !== null, `no funnel at all at station ${z}`);
+    // Straight down through her from the rim: plating the whole way, no
+    // daylight anywhere between the cap and the casing under it.
+    let gap = 0;
+    let run = 0;
+    for (let y = top - 0.05; y > top - 4.0; y -= 0.05) {
+      if (skin(y, z) === null) { run += 0.05; gap = Math.max(gap, run); } else run = 0;
+    }
+    assert.ok(gap < 0.15,
+      `${gap.toFixed(2)} m of daylight under her cap at station ${z}: it is `
+      + 'standing over the mouth rather than built on to it');
+  }
 
-  // A hood is made of pieces -- a skirt hanging down and a crown over it --
-  // and a lid is one plate.
-  assert.ok(cap.length >= 2,
-    `her cap is ${cap.length} piece, so it is a plate rather than a hood`);
+  // Raked: the top of her funnel stands a good deal higher forward than aft.
+  const aft = topAt(5.3);
+  const fwd = topAt(11.3);
+  assert.ok(fwd > aft + 1.0,
+    `her mouth is ${fwd.toFixed(2)} forward against ${aft.toFixed(2)} aft: it is `
+    + 'cut off square rather than on the rake');
 
-  // And it does not overhang like a mushroom: it stands proud of the funnel
-  // under it by a sixth, not by a third.
-  // Against the ring immediately under it, not against the widest ring on the
-  // funnel: her trunk narrows as it goes up, and a cap the width of her
-  // casing at deck level would be a mushroom over the mouth.
-  const capW = Math.max(...cap.map((r) => r.max[0] - r.min[0]));
-  const under = trunk.reduce((a, b) => (a.max[1] > b.max[1] ? a : b));
-  const tubeW = under.max[0] - under.min[0];
-  const over = capW / tubeW;
-  assert.ok(over > 1.005 && over < 1.25,
-    `her cap is ${over.toFixed(2)} times the width of the funnel under it`);
-
-  // There is daylight under it, which is the whole of what it is for: over the
-  // rim of the mouth the cap is the only thing there, with a long drop under
-  // it to the casing.
-  // And it stands clear of the mouth, which is the whole of what a Kappe is
-  // for: the smoke goes up through the gap and away aft instead of lying down
-  // over the after rangefinders. So there are struts, and they have length in
-  // them -- a hood set down on the rim has struts a hand's breadth long and is
-  // a lid with a gap painted on.
-  const struts = hipperParts().filter((p) => p.from === 'funnel'
-    && p.max[0] - p.min[0] < 0.5 && p.max[2] - p.min[2] < 0.5 && p.min[1] > 23.5);
-  assert.ok(struts.length >= 3,
-    `${struts.length} struts under her cap: it is sitting on the mouth`);
-  const stand = Math.max(...struts.map((p) => p.max[1] - p.min[1]));
-  assert.ok(stand > 1.0,
-    `her cap stands ${stand.toFixed(2)} m clear of the funnel mouth at its `
-    + 'highest corner, which is a lid with a gap painted under it');
+  // And the cap is still a cap: a band standing proud of the trunk under it by
+  // a twentieth or so -- not flush, which is a plain pipe, and not half as
+  // wide again, which is a mushroom.
+  const mid = topAt(8.3);
+  const rim = skin(mid - 0.4, 8.3);
+  const trunk = skin(mid - 2.4, 8.3);
+  assert.ok(rim !== null && trunk !== null, 'her funnel has no side to measure');
+  const over = rim / trunk;
+  assert.ok(over > 1.01 && over < 1.25,
+    `her cap is ${over.toFixed(3)} times the width of the funnel under it`);
 });
 
 check("the Hipper's funnel stands plumb under a cap raked aft", () => {
