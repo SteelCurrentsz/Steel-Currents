@@ -58,6 +58,23 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+// The graphics card letting go of the page, which is the other way a battle
+// goes wrong and the likeliest one on a phone: the browser takes the WebGL
+// context back under memory pressure or when the tab has been in the
+// background, every draw call after that throws, and what the captain sees is
+// a frozen picture or the browser's own crash notice. Both events are caught:
+// the loss is stopped from becoming the browser's default "page is dead", and
+// the restore puts the picture back.
+canvas.addEventListener('webglcontextlost', (e) => {
+  // Without this the context is never restored and the game is finished.
+  e.preventDefault();
+  toast('The graphics card dropped the picture — putting it back.');
+}, false);
+canvas.addEventListener('webglcontextrestored', () => {
+  applyQuality();
+  toast('Picture restored.');
+}, false);
+
 // --------------------------------------------------------------- screens --
 
 const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'guns', 'map', 'lay', 'battle', 'result'];
@@ -580,9 +597,31 @@ async function refreshRooms() {
 // ------------------------------------------------------------------ loop --
 
 let last = performance.now();
+// How many frames have thrown, and whether the captain has been told. One bad
+// frame used to be the end of the game: the loop asked for the next frame on
+// its last line, so anything that threw anywhere in it stopped the loop dead
+// and the picture froze with no word about why. It is asked for in a `finally`
+// now, so a frame that goes wrong costs a frame.
+let frameErrors = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  try {
+    drawFrame(dt);
+  } catch (e) {
+    frameErrors++;
+    // Once in the console with the whole stack, so it can be fixed; once on
+    // the screen, so nobody is left wondering whether the game has hung.
+    if (frameErrors === 1) {
+      console.error('Steel Currents: a frame failed', e);
+      toast('Something went wrong drawing that frame — carrying on.');
+    }
+  } finally {
+    requestAnimationFrame(frame);
+  }
+}
+
+function drawFrame(dt) {
   if (battle && current === 'battle') {
     battle.update(dt);
     battle.render();
@@ -609,7 +648,6 @@ function frame(now) {
     title.update(dt);
     title.render();
   }
-  requestAnimationFrame(frame);
 }
 
 window.addEventListener('keydown', (e) => {

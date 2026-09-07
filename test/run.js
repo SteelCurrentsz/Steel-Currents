@@ -1,5 +1,6 @@
 // Headless checks for the simulation: ballistics, armour, torpedoes, bots.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   generateWorld, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance,
@@ -32,7 +33,7 @@ import { Hud, arsenal, readTarget } from '../client/js/hud.js';
 import { Battle } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
-import { weld, flightModels, typeOf, Flights } from '../client/js/render/planes.js';
+import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
 import {
   PARTS as AIR_PARTS, freshAirframe, hitAirframe, stepAirframe, airframeState,
   flightState, partHit,
@@ -158,6 +159,45 @@ import { createBotBrain, stepBot } from '../server/bots.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
 import { buildSnapshot } from '../shared/protocol.js';
+
+
+/**
+ * The handful of cockpit elements `bindCockpit` touches, as objects that
+ * remember the listeners hung on them. Enough to work the controls from a test
+ * without a browser round them.
+ */
+function flyDom() {
+  const make = () => {
+    const listeners = new Map();
+    return {
+      hidden: false, textContent: '', style: {},
+      classList: { add() {}, remove() {}, toggle() {} },
+      setPointerCapture() {},
+      addEventListener(k, fn) {
+        if (!listeners.has(k)) listeners.set(k, []);
+        listeners.get(k).push(fn);
+      },
+      fire(k, ev) {
+        for (const fn of listeners.get(k) || []) fn({ preventDefault() {}, ...ev });
+      },
+    };
+  };
+  return {
+    flySwipe: make(), flyHint: make(), flyReticle: make(),
+    flyThrottle: make(), flyThrottleFill: make(),
+    flyGuns: make(), flyDrop: make(), flyLeave: make(), flyTake: make(),
+    cockpit: make(), connKeys: make(), connPanel: make(),
+    hudLeft: make(), hudRight: make(), hudTop: make(),
+  };
+}
+
+/** What one machine has left, as a fraction, without importing the whole model. */
+function airframeHpOf(a) {
+  let hp = 0;
+  let max = 0;
+  for (const k of Object.keys(a.parts)) { hp += Math.max(0, a.parts[k].hp); max += a.parts[k].max; }
+  return max > 0 ? hp / max : 0;
+}
 
 let failures = 0;
 // Run one check rather than all of them: `ONLY='the Iowa' npm test`. The
@@ -6882,6 +6922,295 @@ check('the wire says how many compartments are flooding and how she is floating'
   // And the water in each compartment, which is what the hologram draws.
   assert.ok(Array.isArray(s.wt) && s.wt.length === SECTIONS.length,
     'the wire does not say where the water is');
+});
+
+
+check('an aeroplane fires the guns she actually has, where she has them', () => {
+  // Every aeroplane in the game used to fire one stream out of the middle of
+  // her nose, which is a weapon none of them carried: a Wildcat's four fifties
+  // are in her wings, two either side, and what a fighter's fire looks like is
+  // four lines leaving the wings and converging. The muzzles are read off the
+  // models themselves, so they cannot drift out of step with the aeroplanes.
+  flightModels();
+  const gs = {};
+  for (const k of ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher']) gs[k] = gunsOf(k);
+
+  // The fighter: four guns, two in each wing, none on the centreline.
+  const wc = gs.wildcat;
+  assert.equal(wc.length, 4, `a Wildcat fires from ${wc.length} places, not four`);
+  assert.equal(wc.filter((m) => m[0] < 0).length, 2, 'her port wing has not got two guns in it');
+  assert.equal(wc.filter((m) => m[0] > 0).length, 2, 'her starboard wing has not got two guns in it');
+  for (const m of wc) {
+    assert.ok(Math.abs(m[0]) > 1.2,
+      `a Wildcat gun sits ${m[0].toFixed(2)} m off the centreline, which is inside the fuselage`);
+  }
+  // Symmetrical, because they are the same guns in the same bays.
+  const port = wc.filter((m) => m[0] < 0).map((m) => -m[0]).sort();
+  const stbd = wc.filter((m) => m[0] > 0).map((m) => m[0]).sort();
+  for (let i = 0; i < 2; i++) {
+    assert.ok(Math.abs(port[i] - stbd[i]) < 0.02,
+      `her wings are armed differently: ${port[i].toFixed(2)} to port, ${stbd[i].toFixed(2)} to starboard`);
+  }
+  // The Avenger: one in each wing. The Arado: two in the wings and one over
+  // the engine, which is what an Ar 196 carried.
+  assert.equal(gs.avenger.length, 2, `an Avenger fires from ${gs.avenger.length} places`);
+  assert.ok(gs.avenger[0][0] < -1 && gs.avenger[1][0] > 1, 'an Avenger has no wing guns');
+  assert.equal(gs.arado.length, 3, `an Arado fires from ${gs.arado.length} places`);
+  assert.equal(gs.arado.filter((m) => Math.abs(m[0]) > 1.5).length, 2,
+    'the Arado has not got her twenty millimetre in her wings');
+  // The two with their guns in the cowling have them there, close in and high.
+  for (const k of ['dauntless', 'kingfisher']) {
+    for (const m of gs[k]) {
+      assert.ok(Math.abs(m[0]) < 0.6,
+        `a ${k}'s gun is ${m[0].toFixed(2)} m out, which is not in her cowling`);
+    }
+  }
+  // Nothing fires from behind the wing, or from below the aeroplane: these are
+  // muzzles, not breeches, and they are all forward and all above the keel.
+  for (const [k, list] of Object.entries(gs)) {
+    assert.ok(list.length > 0, `a ${k} has no guns at all`);
+    for (const m of list) {
+      assert.ok(m[2] > 0, `a ${k} fires from ${m[2].toFixed(2)} m, which is abaft her datum`);
+      assert.ok(m[1] > 0.3, `a ${k} fires from ${m[1].toFixed(2)} m up, which is under her`);
+    }
+  }
+  // And a type nobody has modelled still has somewhere to fire from rather
+  // than an empty list the game would draw nothing out of.
+  assert.equal(gunsOf('no-such-aeroplane').length, 1, 'an unknown machine has no fallback muzzle');
+});
+
+check('a fighter has no bombs, and what is on the rack is what goes', () => {
+  // The drop key used to do the same thing on every aeroplane in the air: it
+  // sent `drop`, the simulation marked her as having attacked and turned her
+  // for home, and on a fighter -- who carries nothing -- absolutely nothing
+  // left the aeroplane. Pressing it took her out of the fight for free.
+  const st = createState(generateWorld(77, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  launchStrike(st, cv);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const by = (r) => st.planes.find((q) => q.role === r && !q.dead);
+  const fighter = by('fighter');
+  const torpedo = by('torpedo');
+  assert.ok(fighter && torpedo, 'she did not put up a fighter and a torpedo bomber');
+
+  // Right alongside the target, so range is never the reason.
+  for (const p of [fighter, torpedo]) { p.x = foe.x + 120; p.z = foe.z + 120; }
+  assert.equal(dropOrdnance(st, cv, fighter.id), false,
+    'a fighter with nothing on her rack was allowed to drop it');
+  assert.ok(!fighter.dropped, 'a fighter was marked as having attacked without dropping anything');
+  assert.notEqual(fighter.phase, 'return', 'pressing drop sent a fighter home for nothing');
+
+  const torps = st.torps.length;
+  assert.equal(dropOrdnance(st, cv, torpedo.id), true, 'a torpedo bomber could not drop her fish');
+  assert.ok(st.torps.length > torps,
+    `she dropped and ${st.torps.length - torps} torpedoes went into the water`);
+  // And what went in is seen going in: an airDrop event, which is what draws
+  // the splashes. A drop the pilot made himself used to raise nothing at all,
+  // so a player who let his torpedoes go watched an empty patch of sea.
+  assert.ok(st.events.some((e) => e.e === 'airDrop'),
+    'torpedoes went into the sea with nothing to see');
+  // Once only.
+  assert.equal(dropOrdnance(st, cv, torpedo.id), false, 'she dropped the same fish twice');
+
+  // Too far off, and it is refused rather than thrown away from four thousand
+  // yards at a ship that will have moved before it arrives.
+  const dive = by('dive');
+  assert.ok(dive, 'she flew off no dive bombers');
+  dive.x = foe.x + 4000;
+  dive.z = foe.z + 4000;
+  assert.equal(dropOrdnance(st, cv, dive.id), false,
+    'a dive bomber lobbed her bombs from four kilometres');
+  assert.ok(!dive.dropped, 'a refused drop still emptied her');
+  // In from the dive, and the bombs go -- each one flown down on the wire so
+  // it can be seen coming and seen bursting.
+  dive.x = foe.x + 200;
+  dive.z = foe.z + 200;
+  st.events.length = 0;
+  assert.equal(dropOrdnance(st, cv, dive.id), true, 'a dive bomber over the ship could not drop');
+  const bombs = st.events.filter((e) => e.e === 'bomb');
+  assert.equal(bombs.length, dive.bomb,
+    `she is carrying ${dive.bomb} bombs and ${bombs.length} left the aeroplane`);
+  assert.ok(!st.events.some((e) => e.e === 'airDrop'),
+    'her bombs went into the water as a row of torpedo splashes');
+});
+
+check("a fighter's guns hurt the machine she is firing at", () => {
+  // Fighter fire used to come off a single pool of hit points shared by the
+  // whole flight -- the one thing in the game that could not hurt an aeroplane
+  // individually. Four machines came apart together or not at all, and no
+  // fighter ever shot an engine out, set a tank alight or took a wing off.
+  const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  launchStrike(st, cv);
+  launchStrike(st, foe);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const mine = st.planes.find((q) => q.team === 0 && q.role === 'fighter' && !q.dead);
+  const theirs = st.planes.find((q) => q.team === 1 && !q.dead);
+  assert.ok(mine && theirs, 'there is no fighter and no target');
+  // Right astern of her, inside the cone.
+  theirs.x = mine.x + Math.sin(mine.heading) * 200;
+  theirs.z = mine.z + Math.cos(mine.heading) * 200;
+  const whole = theirs.machines.map((a) => airframeHpOf(a));
+  let fired = 0;
+  for (let i = 0; i < 400 && theirs.machines.some((a) => a.alive); i++) {
+    if (strafe(st, cv, mine.id, DT)) fired++;
+  }
+  assert.ok(fired > 0, 'the fighter never got a burst off');
+  const now = theirs.machines.map((a) => airframeHpOf(a));
+  const hurt = now.filter((h, i) => h < whole[i] - 1e-6).length;
+  assert.ok(hurt > 0, 'a whole burst into her formation did nothing to any of it');
+  // Not evenly: she is firing at one machine at a time, not at four at once.
+  const untouched = now.filter((h, i) => Math.abs(h - whole[i]) < 1e-6).length;
+  assert.ok(untouched > 0 || theirs.machines.length === 1,
+    'her fire took the same off every machine in the formation at once');
+});
+
+check('there is no stick drawn on the glass, and a swipe flies her', () => {
+  // A joystick painted in the corner covers a fifth of the picture, has to be
+  // found before it can be used, and stops flying the aeroplane without saying
+  // so the moment a thumb slides off the edge of it. The whole screen is the
+  // stick now: a swipe started anywhere flies her, and a white ring in the
+  // middle marks where the guns point.
+  const markup = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(!/id="fly-stick"/.test(markup), 'there is still a joystick on the glass');
+  assert.ok(/id="fly-swipe"/.test(markup), 'there is nothing to swipe on');
+  assert.ok(/id="fly-reticle"/.test(markup), 'there is no sight in the middle of the screen');
+  const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
+  const ring = css.slice(css.indexOf('.fly-reticle {'), css.indexOf('.fly-reticle::before'));
+  assert.ok(/border:[^;]*255,\s*255,\s*255/.test(ring),
+    `the sight is not a white ring: ${ring.replace(/\s+/g, ' ').trim()}`);
+  assert.ok(/left:\s*50%/.test(ring) && /top:\s*50%/.test(ring),
+    'the sight is not in the middle of the screen');
+
+  // And the swipe itself: where the thumb goes down is the middle, how far it
+  // has moved is how hard she is being hauled round, and lifting it centres.
+  // How far a thumb has to travel is a share of the screen, so there has to be
+  // a screen for it to be a share of.
+  const hadWindow = 'window' in globalThis;
+  if (!hadWindow) globalThis.window = { innerWidth: 1280, innerHeight: 720 };
+  try {
+  const el = flyDom();
+  const hud = Object.create(Hud.prototype);
+  hud.el = el;
+  hud.bindCockpit({});
+  const down = (x, y) => el.flySwipe.fire('pointerdown', { pointerId: 1, clientX: x, clientY: y });
+  const move = (x, y) => el.flySwipe.fire('pointermove', { pointerId: 1, clientX: x, clientY: y });
+  down(400, 400);
+  assert.equal(hud.fly.roll, 0, 'putting a thumb down deflected the stick before it moved');
+  move(600, 400);
+  assert.ok(hud.fly.roll > 0.5, `swiping right rolled her ${hud.fly.roll.toFixed(2)}`);
+  assert.ok(Math.abs(hud.fly.pitch) < 0.01, 'a sideways swipe pitched her');
+  move(400, 200);
+  assert.ok(hud.fly.pitch > 0.5, `swiping up pitched her ${hud.fly.pitch.toFixed(2)}, nose down`);
+  // Never past the stops, however far the thumb travels.
+  move(9000, 9000);
+  assert.ok(Math.hypot(hud.fly.roll, hud.fly.pitch) <= 1.001,
+    'a long swipe asked for more than full deflection');
+  el.flySwipe.fire('pointerup', { pointerId: 1 });
+  assert.equal(hud.fly.roll, 0, 'she held the roll after the thumb came off');
+  assert.equal(hud.fly.pitch, 0, 'she held the pitch after the thumb came off');
+  // A second pointer that was never the flying one must not centre her.
+  down(300, 300);
+  move(500, 300);
+  el.flySwipe.fire('pointerup', { pointerId: 9 });
+  assert.ok(hud.fly.roll > 0.5, 'letting go of some other finger stopped flying her');
+
+  // The drop key says what is on the rack, and a fighter has not got one.
+  hud.setArmament('TORPEDO');
+  assert.equal(el.flyDrop.hidden, false, 'a torpedo bomber has no drop key');
+  assert.equal(el.flyDrop.textContent, 'TORPEDO', `her key reads ${el.flyDrop.textContent}`);
+  hud.setArmament(null);
+  assert.equal(el.flyDrop.hidden, true, 'a fighter is offered a drop key that does nothing');
+
+  // And the bridge's own instruments come off the screen while she is being
+  // flown. The plot owns the top right corner, and with the whole screen as
+  // the stick that is a corner of the sky the aeroplane cannot be flown from.
+  hud.panel = null;
+  hud.keys = {};
+  hud.setCockpit(true);
+  assert.equal(el.hudRight.style.display, 'none', 'the plot is still over the cockpit');
+  assert.equal(el.hudTop.style.display, 'none', 'the battle clock is still over the cockpit');
+  assert.equal(el.hudLeft.style.display, 'none', 'the ship plate is still over the cockpit');
+  hud.setCockpit(false);
+  assert.equal(el.hudRight.style.display, '', 'the plot did not come back on the bridge');
+  } finally { if (!hadWindow) delete globalThis.window; }
+});
+
+check('the cockpit says what happened, not what was hoped', () => {
+  // Pressing the key used to say "torpedoes away" there and then, whether or
+  // not anything left the aeroplane: the simulation holds the real position
+  // and what is on the rack, and it can refuse. So the key only asks, and the
+  // word comes when the answer does.
+  // The key clicks, and a click needs an audio context to refuse to open.
+  const hadWindow = 'window' in globalThis;
+  if (!hadWindow) globalThis.window = {};
+  try {
+  const said = [];
+  const sent = [];
+  const g = Object.create(Battle.prototype);
+  g.team = 0;
+  g.hud = { alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {}, fly: { pitch: 0, roll: 0, throttle: 1 } };
+  g.net = { send: (m) => sent.push(m) };
+  g.snapshots = [{ ships: [{ i: 9, a: 1, tm: 1, x: 100, z: 0 }], planes: [] }];
+  g.flight = {
+    id: 4, role: 'torpedo', kind: 'avenger', calibre: 12.7, armed: true, asked: 0,
+    load: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
+    pilot: { x: 0, z: 0 },
+  };
+  g.letGo();
+  assert.equal(sent.length, 1, 'the key did not ask the simulation for anything');
+  assert.deepEqual(said, [], `pressing the key said "${said[0]}" before anything had happened`);
+  // Pressed again while the answer is in flight: nothing goes twice.
+  g.letGo();
+  assert.equal(sent.length, 1, 'a fast thumb dropped the same torpedoes twice');
+  // The simulation says they are gone: now it is said.
+  g.flight.armed = true;
+  g.flight.asked = 0.5;
+  const pl = { i: 4, d: 1, r: 'torpedo' };
+  Battle.prototype.stepFlight.call({
+    ...g,
+    snapshots: [{ ships: [], planes: [pl] }],
+    scene: { ocean: { heightAt: () => 0 } },
+    leaveFlight() {},
+    sightOn: () => false,
+    wingGuns() {},
+    flight: Object.assign(g.flight, { pilot: {
+      x: 0, y: 200, z: 0, v: 60, g: 1, stall: 0, alive: true, heading: 0,
+      attitude: 0, bank: 0, step() {},
+    } }),
+  }, 0.016);
+  assert.deepEqual(said, ['Torpedoes away'],
+    `when the fish actually went the cockpit said ${JSON.stringify(said)}`);
+  } finally { if (!hadWindow) delete globalThis.window; }
+});
+
+check('a frame that goes wrong costs a frame, not the battle', () => {
+  // The loop asked for the next frame on its last line, so anything that threw
+  // anywhere in it stopped the loop dead: the picture froze, with no word about
+  // why, and the only way out was to reload the game. And on the server one
+  // tick that threw ended the Node process, which disconnected every player in
+  // every battle on it.
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  const loop = main.slice(main.indexOf('function frame(now)'), main.indexOf('function drawFrame'));
+  assert.ok(/try\s*{/.test(loop), 'a frame is not guarded at all');
+  assert.ok(/finally\s*{[^}]*requestAnimationFrame\(frame\)/.test(loop),
+    'the next frame is not asked for come what may');
+  const room = readFileSync(new URL('../server/room.js', import.meta.url), 'utf8');
+  const timer = room.slice(room.indexOf('this.timer = setInterval'),
+    room.indexOf('this.timer = setInterval') + 900);
+  assert.ok(/try\s*{[\s\S]*this\.tick\(\)/.test(timer),
+    'a tick that throws still takes the whole battle service down');
+  // And the other way a battle goes wrong, which is the likeliest one on a
+  // phone: the browser taking the graphics context back. Unless the loss is
+  // caught and cancelled it is never given back, and every draw after it
+  // throws -- so the picture freezes or the browser puts up its own notice.
+  assert.ok(/webglcontextlost/.test(main), 'losing the graphics context is not handled');
+  const lost = main.slice(main.indexOf("'webglcontextlost'"), main.indexOf("'webglcontextrestored'"));
+  assert.ok(/preventDefault\(\)/.test(lost),
+    'the lost context is not cancelled, so it is never restored');
+  assert.ok(/webglcontextrestored/.test(main), 'nothing puts the picture back');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -17,7 +17,7 @@
 // makes a strike look like a strike coming in.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { wildcat, dauntless, avenger, arado, kingfisher } from './planekit.js';
+import { wildcat, dauntless, avenger, arado, kingfisher, muzzlesOf } from './planekit.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -90,6 +90,28 @@ export function weld(group) {
   return { geo, mats };
 }
 
+/**
+ * Where each type's forward guns are, in her own frame.
+ *
+ * Filled in by `flightModels` from the models themselves, so it cannot drift
+ * out of step with them. Read with `gunsOf`.
+ */
+const MUZZLES = {};
+
+/**
+ * The muzzles of the guns an aeroplane of this type fires forward.
+ *
+ * A Wildcat answers with four, two in each wing, and a tracer drawn from them
+ * leaves the wings -- which is what a fighter's fire looks like and what a
+ * burst from the middle of a nose never did. A Kingfisher answers with the one
+ * she had. Nothing answers with an empty list: a machine with no gun modelled
+ * falls back to her nose so the game never has nowhere to fire from.
+ */
+export function gunsOf(kind) {
+  const m = MUZZLES[kind];
+  return (m && m.length) ? m : [[0, 0, 3.2]];
+}
+
 /** One of each type, in flight trim, welded and ready to instance. */
 export function flightModels() {
   const out = {};
@@ -113,6 +135,10 @@ export function flightModels() {
     // On the thrust line: the middle of the fuselage, not the middle of a box
     // that has a tall fin in it.
     disc.position.set(0, (bb.min.y + bb.max.y) * 0.42, bb.max.z - 0.25);
+    // Her guns, off the model, before the propeller disc is hung on it -- the
+    // disc is a sprite and has no muzzle, but reading them here rather than
+    // after welding is the point: welding throws the tree away.
+    MUZZLES[key] = muzzlesOf(p);
     p.add(disc);
     out[key] = weld(g);
   };

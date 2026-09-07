@@ -47,6 +47,54 @@ function cyl(g, m, rt, rb, h, x, y, z, seg = 10) {
 }
 
 /**
+ * Mark a mesh as the breech of a gun that fires forward.
+ *
+ * A fighter's guns are in her wings, and a tracer that leaves the middle of
+ * her nose is not a fighter's tracer -- it is a cannon in a fuselage nobody
+ * ever built. So the models say where their own muzzles are: whichever piece
+ * of the aeroplane is the gun gets tagged as it is placed, `ahead` is how far
+ * forward of that piece's centre the muzzle stands, and `muzzlesOf` reads them
+ * back out afterwards in the aeroplane's own frame. Nothing has to be kept in
+ * step by hand: move the wing and the guns go with it.
+ */
+function arm(mesh, ahead = 0.2) {
+  mesh.userData.muzzle = ahead;
+  return mesh;
+}
+
+/**
+ * Every forward-firing muzzle on a built aeroplane, in her own frame.
+ *
+ * x to starboard, y up, z forward, metres from her datum -- which is what the
+ * game needs to draw the tracer leaving the actual gun. Sorted port to
+ * starboard, so a pair alternates left, right, left, right and reads as two
+ * wings firing rather than one.
+ *
+ * Wings that are folded away are skipped: a model carries both sets and shows
+ * one, and the guns in the set that is not being shown are not there.
+ */
+export function muzzlesOf(g) {
+  g.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(g.matrixWorld).invert();
+  const out = [];
+  const shown = (o) => {
+    for (let n = o; n && n !== g.parent; n = n.parent) if (n.visible === false) return false;
+    return true;
+  };
+  g.traverse((o) => {
+    const ahead = o.userData && o.userData.muzzle;
+    if (ahead === undefined || !shown(o)) return;
+    const at = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
+    // Fixed guns are bore-sighted along her thrust line, whatever angle the
+    // panel they are buried in happens to sit at.
+    at.z += ahead;
+    out.push([at.x, at.y, at.z]);
+  });
+  out.sort((a, b) => a[0] - b[0]);
+  return out;
+}
+
+/**
  * The paint.
  *
  * Three schemes, because there are three navies flying here and they did not
@@ -732,7 +780,7 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
     // blister over each breech. They used to be a pair of cubes hung two
     // thirds of a metre ahead of the wing, in the air on their own.
     for (const gx of [1.3, 2.3]) {
-      cyl(w, M.gunDark, 0.05, 0.05, 0.42, s * gx, 0.035, 0.12, 6)
+      arm(cyl(w, M.gunDark, 0.05, 0.05, 0.42, s * gx, 0.035, 0.12, 6), 0.22)
         .rotation.x = Math.PI / 2;
       box(w, M.planeTop, 0.34, 0.13, 0.62, s * gx, 0.03, -0.24);
     }
@@ -789,6 +837,14 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
     { z: 3.80, w: 0.88, h: 1.24, y: cl(3.80) + 0.07 },
   ], { flat: 0.08, e: 0.95, mBot: M.planeBottom });
   radial(p, 0.72, cl(4.0) + 0.06, 3.95, 3.2);
+  // Her two fifties, in troughs through the top of the cowling and firing
+  // through the propeller disc. They are the guns she attacks with, and she
+  // had no others forward: the pair in the back are the gunner's.
+  for (const s of [-1, 1]) {
+    box(p, M.cave, 0.16, 0.10, 1.30, s * 0.20, cl(3.3) + 0.60, 3.20);
+    arm(cyl(p, M.gunDark, 0.048, 0.048, 0.60, s * 0.20, cl(3.7) + 0.60, 3.90, 6), 0.30)
+      .rotation.x = Math.PI / 2;
+  }
   // The greenhouse: pilot forward, gunner aft under a long open hood.
   greenhouse(p, 0.92, 0.70, cl(0.9) + 0.76, -1.0, 2.05, 4);
   box(p, M.cave, 0.84, 0.5, 1.4, 0, cl(-1.6) + 0.92, -1.7);
@@ -829,7 +885,9 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
       }
     }
     insignia(w, s * 2.5, 0.16, 0.55, 0.62);
-    // Her two thirties in the wing roots, and the pitot under the port panel.
+    // The landing light in the port leading edge and the pitot under it. Her
+    // guns are not here: an SBD's forward armament is the pair of fifties in
+    // the cowling, which is where they are.
     box(w, M.gunDark, 0.18, 0.18, 0.2, s * 0.5, -0.1, 1.82);
   }
   insignia(p, 0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
@@ -947,7 +1005,7 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     });
     box(w, M.planeTop, 2.1, 0.11, 0.62, s * 5.2, 0.06, -1.9);        // aileron
     box(w, M.planeTop, 2.9, 0.12, 0.8, s * 1.9, 0.02, -2.3);         // flap
-    box(w, M.gunDark, 0.22, 0.22, 0.24, s * 1.5, 0.1, 0.04);         // wing fifty
+    arm(box(w, M.gunDark, 0.22, 0.22, 0.24, s * 1.5, 0.1, 0.04), 0.24); // wing fifty
     insignia(w, s * 4.0, 0.16, -0.6, 0.72);
   }
   stowed.visible = folded;
@@ -1011,6 +1069,11 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
     { z: 3.70, w: 0.90, h: 1.24, y: cl(3.70) + 0.05 },
   ], { flat: 0.12, e: 0.92, mBot: BOT });
   radial(p, 0.74, cl(4.05) + 0.05, 4.00, 3.30, 3, !!opts.spin);
+  // The MG 17 over her cowling, offset to starboard of the centreline where
+  // it was, firing through the disc.
+  arm(cyl(p, P.gunDark, 0.042, 0.042, 0.56, 0.22, cl(3.4) + 0.62, 3.80, 6), 0.28)
+    .rotation.x = Math.PI / 2;
+  box(p, P.gunDark, 0.14, 0.10, 0.90, 0.22, cl(3.0) + 0.60, 3.10);
   // The exhaust collector ring and its stubs down her port side, which is the
   // one thing that breaks a clean cowling.
   for (let i = 0; i < 5; i++) {
@@ -1054,7 +1117,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
     box(w, TOP, 1.90, 0.10, 0.46, s * 4.10, 0.03, -0.92);      // aileron
     box(w, TOP, 2.00, 0.11, 0.60, s * 1.70, 0.00, -1.06);      // flap
     // Her 20 mm in the leading edge, and the blister over the drum behind it.
-    cyl(w, P.gunDark, 0.055, 0.055, 0.62, s * 2.05, 0.03, 0.16, 6)
+    arm(cyl(w, P.gunDark, 0.055, 0.055, 0.62, s * 2.05, 0.03, 0.16, 6), 0.32)
       .rotation.x = Math.PI / 2;
     box(w, TOP, 0.36, 0.16, 0.72, s * 2.05, 0.02, -0.28);
     // The bomb rack under her, and the fifty kilos on it.
@@ -1167,6 +1230,12 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
     { z: 3.00, w: 0.84, h: 1.16, y: cl(3.00) + 0.04 },
   ], { flat: 0.10, e: 0.93, mBot: BOT });
   radial(p, 0.62, cl(3.35) + 0.04, 3.30, 2.74, 2, !!opts.spin);
+  // Her one fixed thirty, in a trough along the top of the cowling to
+  // starboard. A Kingfisher is a spotter and this is the whole of what she
+  // could shoot back with, but it is what she shot with, so it is here.
+  box(p, P.cave, 0.13, 0.09, 1.00, 0.18, cl(2.8) + 0.56, 2.70);
+  arm(cyl(p, P.gunDark, 0.036, 0.036, 0.50, 0.18, cl(3.2) + 0.56, 3.24, 6), 0.26)
+    .rotation.x = Math.PI / 2;
   greenhouse(p, 0.84, 0.56, cl(0.2) + 0.64, -2.60, 1.90, 5);
   // The observer's ring and his thirty calibre, aft in the hood.
   const ringY = cl(-1.9) + 1.22;

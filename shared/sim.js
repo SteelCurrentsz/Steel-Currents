@@ -659,9 +659,14 @@ export function strafe(state, ship, id, dt) {
   for (const q of state.planes) {
     if (q.dead || q.team === p.team) continue;
     if (dist(p.x, p.z, q.x, q.z) > RANGE || bore(q.x, q.z) > CONE) continue;
-    q.hp -= (P.fighterGuns ?? FIGHTER_GUNS) * p.count * dt;
+    // Through the airframe model, the same way flak goes in: fifty calibre
+    // into one machine of the formation, which may take her engine, may set
+    // her tanks alight, and may do very little. This used to come off a single
+    // pool of hit points shared by the whole flight, so a fighter's fire was
+    // the one thing in the game an aeroplane could not be individually hurt
+    // by -- four machines came apart together or not at all.
+    hurtFlight(state, q, (P.fighterGuns ?? FIGHTER_GUNS) * p.count * dt, 'fighters');
     gunsSeen(state, p, q.x, q.z, true);
-    if (q.hp <= 0) killFlight(state, q, 'fighters');
     return true;
   }
   for (const s of state.ships) {
@@ -701,8 +706,17 @@ export function dropOrdnance(state, ship, id) {
   const cls = shipClass(ship);
   const P = cls.planes;
   if (!P) return false;
+  // What is on her rack. A fighter carries nothing to drop -- her guns are her
+  // weapon -- and letting her "drop" used to mark her as having attacked and
+  // turn her for home without anything whatever leaving the aeroplane.
+  const torp = p.torp ?? 0;
+  const bomb = p.bomb ?? 0;
+  if (torp <= 0 && bomb <= 0) return false;
+  // Near enough to be dropping at something, on the same terms the autopilot
+  // presses home on: a torpedo wants to be inside the distance the target
+  // cannot comb, a bomb wants to be released off a dive rather than lobbed.
   let best = null;
-  let bestD = 1600;
+  let bestD = torp > 0 ? 1600 : 1200;
   for (const s of state.ships) {
     if (!s.alive || s.team === p.team) continue;
     const d = dist(p.x, p.z, s.x, s.z);
@@ -711,6 +725,11 @@ export function dropOrdnance(state, ship, id) {
   if (!best) return false;
   p.dropped = true;
   deliverOrdnance(state, p, best, P);
+  // The fish going into the sea, which everybody within sight can see. The
+  // autopilot's drop has always raised this; a drop the pilot made himself
+  // raised nothing at all, so a player who let his torpedoes go watched an
+  // empty patch of water and had no way of knowing anything had happened.
+  if (torp > 0) state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
   p.phase = 'return';
   return true;
 }

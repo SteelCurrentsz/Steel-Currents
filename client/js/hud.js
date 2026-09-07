@@ -158,13 +158,15 @@ export class Hud {
       flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
       flyThr: $('fly-thr'), flyStall: $('fly-stall'),
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
-      flyStick: $('fly-stick'), flyKnob: $('fly-stick-knob'),
+      flySwipe: $('fly-swipe'), flyHint: $('fly-hint'),
+      flyReticle: $('fly-reticle'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
       ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
+      hudRight: $('hud-right'), hudTop: $('hud-top'),
       bigPlot: $('minimap-big'), plotTable: $('plot-table'),
       sink: $('sink-overlay'), reticle: $('reticle'),
       watchBanner: $('watch-banner'), watchWhat: $('watch-what'),
@@ -646,56 +648,66 @@ export class Hud {
   }
 
   /**
-   * The cockpit: the stick, the throttle and the two triggers.
+   * The cockpit: the whole screen is the stick, and the sight does not move.
    *
-   * Laid out the way a mobile flight game lays it out, because that is what
-   * thumbs already know: the stick under the left thumb with pitch on the
-   * vertical and roll on the horizontal, the throttle as a slider up the left
-   * edge beside it, guns and the drop under the right thumb. Everything is
-   * pointer events rather than touch events, so it works the same under a
-   * finger and under a mouse.
+   * There used to be a joystick drawn in the bottom left corner, and a stick
+   * drawn on the glass is the worst of both worlds -- it covers a fifth of the
+   * picture, it has to be found before it can be used, and a thumb that slides
+   * off the edge of it stops flying the aeroplane without saying so. So there
+   * is no stick. A white ring sits in the middle of the screen where the guns
+   * point, and a swipe started anywhere that is not a button flies her: where
+   * the thumb went down is the middle, and how far it has moved from there is
+   * how hard she is being hauled round. Lift it and she rolls level on her own.
+   *
+   * Everything is pointer events rather than touch events, so it works the
+   * same under a finger and under a mouse.
    */
   bindCockpit(fns) {
     this.fly = { pitch: 0, roll: 0, throttle: 1, firing: false };
     this.flyFns = fns || {};
     const el = this.el;
-    if (!el.flyStick) return;
+    if (!el.flySwipe) return;
 
-    // ---- the stick -------------------------------------------------------
-    let stickId = null;
-    const stickAt = (ev) => {
-      const r = el.flyStick.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const rad = r.width / 2;
-      let dx = (ev.clientX - cx) / rad;
-      let dy = (ev.clientY - cy) / rad;
+    // ---- the swipe -------------------------------------------------------
+    // How far the thumb has to travel for full deflection. A share of the
+    // smaller screen dimension rather than a number of pixels, so the same
+    // gesture flies her the same way on a phone and on a desktop.
+    const reach = () => Math.max(70, Math.min(window.innerWidth, window.innerHeight) * 0.20);
+    let swipeId = null;
+    let ox = 0;
+    let oy = 0;
+    const swipeAt = (ev) => {
+      const rad = reach();
+      let dx = (ev.clientX - ox) / rad;
+      let dy = (ev.clientY - oy) / rad;
       const len = Math.hypot(dx, dy);
       if (len > 1) { dx /= len; dy /= len; }
       this.fly.roll = dx;
       // Screen down is nose up, which is what a stick does.
       this.fly.pitch = -dy;
-      el.flyKnob.style.transform =
-        `translate(calc(-50% + ${dx * rad * 0.66}px), calc(-50% + ${dy * rad * 0.66}px))`;
     };
-    const stickOff = () => {
-      stickId = null;
+    const swipeOff = () => {
+      swipeId = null;
       this.fly.roll = 0;
       this.fly.pitch = 0;
-      el.flyKnob.style.transform = 'translate(-50%, -50%)';
+      el.flySwipe.classList.remove('held');
     };
-    el.flyStick.addEventListener('pointerdown', (ev) => {
-      stickId = ev.pointerId;
-      el.flyStick.setPointerCapture(ev.pointerId);
-      stickAt(ev);
+    el.flySwipe.addEventListener('pointerdown', (ev) => {
+      swipeId = ev.pointerId;
+      ox = ev.clientX;
+      oy = ev.clientY;
+      el.flySwipe.setPointerCapture(ev.pointerId);
+      el.flySwipe.classList.add('held');
+      // Said once, then out of the way.
+      if (el.flyHint) el.flyHint.classList.add('gone');
       ev.preventDefault();
     });
-    el.flyStick.addEventListener('pointermove', (ev) => {
-      if (ev.pointerId === stickId) stickAt(ev);
+    el.flySwipe.addEventListener('pointermove', (ev) => {
+      if (ev.pointerId === swipeId) swipeAt(ev);
     });
     for (const k of ['pointerup', 'pointercancel', 'pointerleave']) {
-      el.flyStick.addEventListener(k, (ev) => {
-        if (ev.pointerId === stickId) stickOff();
+      el.flySwipe.addEventListener(k, (ev) => {
+        if (ev.pointerId === swipeId) swipeOff();
       });
     }
 
@@ -744,13 +756,39 @@ export class Hud {
     if (this.el.flyTake) this.el.flyTake.hidden = !on;
   }
 
+  /**
+   * What this aeroplane fights with, on the buttons.
+   *
+   * A fighter has no bomb and no torpedo, and a DROP key that does nothing at
+   * all when it is pressed is worse than no key: it says she is carrying
+   * something. So the key carries the name of what is actually on the rack,
+   * and a fighter does not get one.
+   */
+  setArmament(what) {
+    const el = this.el;
+    if (!el.flyDrop) return;
+    if (!what) { el.flyDrop.hidden = true; return; }
+    el.flyDrop.hidden = false;
+    el.flyDrop.textContent = what;
+  }
+
+  /** The sight goes red when there is something under it. */
+  setSightHot(on) {
+    if (this.el.flyReticle) this.el.flyReticle.classList.toggle('hot', !!on);
+  }
+
   /** In the cockpit, or back on the bridge. */
   setCockpit(on) {
     if (this.el.cockpit) this.el.cockpit.hidden = !on;
     if (this.el.connKeys) this.el.connKeys.style.display = on ? 'none' : '';
-    // Her condition is a thing for her bridge, and it sits exactly where the
-    // stick goes.
+    // Her condition is a thing for her bridge, and it is not the pilot's.
     if (this.el.hudLeft) this.el.hudLeft.style.display = on ? 'none' : '';
+    // Nor is the plot, nor the clock. They are the fleet's instruments, and up
+    // there they take the top right corner of the sky and swallow every swipe
+    // that starts in it -- which, now that a swipe anywhere is the stick, is a
+    // corner of the screen the aeroplane cannot be flown from.
+    if (this.el.hudRight) this.el.hudRight.style.display = on ? 'none' : '';
+    if (this.el.hudTop) this.el.hudTop.style.display = on ? 'none' : '';
     if (on) {
       this.panel = null;
       if (this.el.connPanel) this.el.connPanel.hidden = true;
@@ -759,6 +797,14 @@ export class Hud {
       // Full throttle on the way in: nobody takes an aeroplane to idle it.
       this.fly.throttle = 1;
       if (this.el.flyThrottleFill) this.el.flyThrottleFill.style.height = '100%';
+      // And she starts with the stick central, whatever was left over from
+      // the last time somebody flew.
+      this.fly.pitch = 0;
+      this.fly.roll = 0;
+      this.fly.firing = false;
+      if (this.el.flySwipe) this.el.flySwipe.classList.remove('held');
+      if (this.el.flyHint) this.el.flyHint.classList.remove('gone');
+      this.setSightHot(false);
     }
   }
 

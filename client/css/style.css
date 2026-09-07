@@ -507,21 +507,26 @@ input[type="range"] { accent-color: var(--red); }
   letter-spacing: 0.2em; color: var(--sand); padding-bottom: 0.3rem;
 }
 
-/* The stick. Thumb down anywhere in the box takes it; pitch on the vertical,
-   roll on the horizontal; let go and she rolls level on her own. */
-.fly-stick {
-  position: absolute; left: calc(max(0.6rem, env(safe-area-inset-left)) + 58px);
-  bottom: 4vh; width: min(38vw, 190px); height: min(38vw, 190px);
-  border-radius: 50%; border: 1px solid rgba(154, 166, 178, 0.35);
-  background: radial-gradient(circle, rgba(8, 19, 31, 0.5), rgba(8, 19, 31, 0.16));
-  pointer-events: auto; touch-action: none;
+/* The flying surface: the whole screen. There is no stick drawn on the glass
+   -- put a thumb down wherever it happens to be and swipe, and that swipe is
+   the stick. It lies under everything else in the cockpit, so the throttle and
+   the triggers take their own drags first and whatever is left flies her. */
+.fly-swipe {
+  position: absolute; inset: 0;
+  pointer-events: auto; touch-action: none; cursor: grab;
 }
-.fly-stick-knob {
-  position: absolute; left: 50%; top: 50%; width: 30%; height: 30%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%; background: rgba(230, 207, 156, 0.24);
-  border: 1px solid var(--sand); pointer-events: none;
+.fly-swipe.held { cursor: grabbing; }
+
+/* What to do, said once. It fades out as soon as she has been flown, because
+   after that it is in the way of the sight. */
+.fly-hint {
+  position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%);
+  margin: 0; pointer-events: none;
+  font-family: var(--ui); font-size: 0.58rem; letter-spacing: 0.24em;
+  color: rgba(240, 244, 248, 0.62); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  transition: opacity 0.5s ease;
 }
+.fly-hint.gone { opacity: 0; }
 
 .fly-actions {
   position: absolute; right: max(0.8rem, env(safe-area-inset-right));
@@ -550,18 +555,30 @@ input[type="range"] { accent-color: var(--red); }
   letter-spacing: 0.2em;
 }
 
-/* The gunsight: a fixed reticle on the nose, which is where a fixed gun
-   points. */
+/* The gunsight: a white ring in the middle of the screen, on the nose, which
+   is where a fixed gun points. It is the one thing that does not move while
+   she is being flown -- the aeroplane comes round to it. */
 .fly-reticle {
   position: absolute; left: 50%; top: 50%; width: 76px; height: 76px;
   transform: translate(-50%, -50%); pointer-events: none;
-  border: 1px solid rgba(230, 207, 156, 0.5); border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 50%;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.55), inset 0 0 6px rgba(0, 0, 0, 0.35);
+}
+/* The pipper in the middle of it, so the eye has a point rather than a hole. */
+.fly-reticle > i {
+  position: absolute; left: 50%; top: 50%; width: 4px; height: 4px;
+  margin: -2px 0 0 -2px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
 }
 .fly-reticle::before, .fly-reticle::after {
-  content: ''; position: absolute; background: rgba(230, 207, 156, 0.65);
+  content: ''; position: absolute; background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
 }
-.fly-reticle::before { left: 50%; top: -14px; width: 1px; height: 14px; }
-.fly-reticle::after { top: 50%; left: -14px; height: 1px; width: 14px; }
+.fly-reticle::before { left: 50%; margin-left: -1px; top: -16px; width: 2px; height: 14px; }
+.fly-reticle::after { top: 50%; margin-top: -1px; left: -16px; height: 2px; width: 14px; }
+/* On a target: it goes red, which is the only colour it ever takes. */
+.fly-reticle.hot { border-color: rgba(226, 86, 79, 0.95); }
+.fly-reticle.hot > i { background: #e2564f; }
 
 /* The arsenal: every mounting aboard, grouped by battery. Scrolls, because a
    battleship carries more kinds of gun than fit above a row of keys. */

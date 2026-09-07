@@ -230,7 +230,7 @@
   <!-- The clock, and nothing else. A captain fighting his ship is not watching
        a running total, and the zones his side happens to be standing in are
        not something the bridge windows show him. -->
-  <div class="hud-top">
+  <div class="hud-top" id="hud-top">
     <div class="battle-timer" id="battle-timer">0:00</div>
   </div>
 
@@ -244,7 +244,7 @@
     </div>
   </div>
 
-  <div class="hud-right">
+  <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody
          shift-dragged, which meant the camera wandered off its ship by
          accident; now it is a thing you ask for and a thing you can see is on.
@@ -295,9 +295,14 @@
     <span>CONTROL</span>
   </button>
 
-  <!-- The cockpit. Left thumb flies her and works the throttle, right thumb
-       shoots and drops. Nothing else is on screen while you are up there. -->
+  <!-- The cockpit. There is no stick on the glass: the whole screen is the
+       stick, so a swipe anywhere flies her and the sight in the middle stays
+       put. The throttle is up the left edge and the weapons are under the
+       right thumb. Nothing else is on screen while you are up there. -->
   <div class="cockpit" id="cockpit" hidden>
+    <!-- The flying surface, under everything else in the cockpit: it takes any
+         drag that no button wanted. -->
+    <div class="fly-swipe" id="fly-swipe"></div>
     <div class="fly-readout" id="fly-readout">
       <div><b id="fly-speed">0</b><i>KN IAS</i></div>
       <div><b id="fly-alt">0</b><i>FT</i></div>
@@ -309,15 +314,15 @@
       <div class="fly-throttle-fill" id="fly-throttle-fill"></div>
       <span>THR</span>
     </div>
-    <div class="fly-stick" id="fly-stick">
-      <div class="fly-stick-knob" id="fly-stick-knob"></div>
-    </div>
     <div class="fly-actions">
       <button class="fly-btn drop" id="fly-drop" type="button">DROP</button>
       <button class="fly-btn guns" id="fly-guns" type="button">FIRE</button>
     </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
-    <div class="fly-reticle" id="fly-reticle"></div>
+    <!-- The sight: a white ring on the middle of the screen, where her guns
+         are pointed. -->
+    <div class="fly-reticle" id="fly-reticle"><i></i></div>
+    <p class="fly-hint" id="fly-hint">Swipe anywhere to fly her</p>
   </div>
 
   <div class="conn-keys" id="conn-keys">

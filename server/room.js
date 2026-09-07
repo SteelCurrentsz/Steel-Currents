@@ -36,7 +36,30 @@ export class Room {
     this.phase = 'lobby';         // lobby | battle | ended
     this.countdown = LOBBY_COUNTDOWN;
     this.teamIndex = [0, 0];
-    this.timer = setInterval(() => this.tick(), 1000 / TICK_RATE);
+    // One tick that throws used to take the whole battle service down with it
+    // -- an uncaught exception inside a bare interval callback ends the Node
+    // process, so a single bad frame in one battle disconnected every player
+    // in every battle on the server. A tick that goes wrong now costs that
+    // tick and says so.
+    this.tickErrors = 0;
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (e) {
+        this.tickErrors++;
+        if (this.tickErrors <= 3) {
+          console.error(`room ${this.id}: tick failed (${this.tickErrors})`, e);
+        }
+        // A room that cannot get through a tick at all is not a battle any
+        // more, and holding it open serves nobody: it is closed, and everybody
+        // in it is told rather than left watching a frozen sea.
+        if (this.tickErrors >= 30) {
+          console.error(`room ${this.id}: closing after repeated tick failures`);
+          this.broadcast({ t: 'error', msg: 'The battle service lost this action.' });
+          this.close();
+        }
+      }
+    }, 1000 / TICK_RATE);
     this.lastTick = Date.now();
     this.endedAt = 0;
     this.onEmpty = opts.onEmpty || (() => {});
@@ -341,7 +364,14 @@ export class Room {
       // aeroplane is now, `drop` lets go of what she is carrying, and `land`
       // hands her back to the autopilot.
       case 'fly': flyPlane(this.state, ship, msg); break;
-      case 'drop': dropOrdnance(this.state, ship, msg.i); break;
+      case 'drop':
+        // And say whether she actually got rid of it. The client cannot
+        // settle this on its own -- the simulation holds the aeroplane's real
+        // position and what is left on her rack -- and a pilot who presses the
+        // key and is told "torpedoes away" when nothing left the aeroplane has
+        // been lied to about the one thing he came for.
+        if (!dropOrdnance(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
+        break;
       case 'land': releasePlane(this.state, msg.i); break;
       // Her guns, held down. `dt` is how long the trigger has been down since
       // the last word, clamped so a client cannot claim a minute of it.

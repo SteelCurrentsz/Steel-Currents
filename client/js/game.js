@@ -8,7 +8,7 @@ import { DamageBoard } from './render/damageboard.js';
 import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
-import { ROLE_TYPE, typeOf, slotAt } from './render/planes.js';
+import { ROLE_TYPE, typeOf, slotAt, gunsOf } from './render/planes.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -37,6 +37,34 @@ const FLIGHT_NAME = {
   avenger: 'her torpedo bombers',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
+};
+
+/** What each machine's forward guns are, so the tracer is the right tracer. */
+const GUN_CALIBRE = {
+  wildcat: 12.7,      // four fifties in the wings
+  dauntless: 12.7,    // two in the cowling
+  avenger: 12.7,      // one in each wing
+  arado: 20,          // two MG FF in the wings and an MG 17 over the engine
+  kingfisher: 7.62,   // the one thirty she had
+};
+
+/**
+ * What each kind of aeroplane attacks with, and what the key says.
+ *
+ * The weapon a machine actually carried, rather than one key labelled DROP on
+ * everything in the air. A fighter is not on this table at all: she has
+ * nothing on a rack, her guns are her weapon, and a drop key that does nothing
+ * when it is pressed is worse than no drop key, because it says she is
+ * carrying something.
+ *
+ * `near` is how close she has to be before letting go is worth anything --
+ * a torpedo has to be dropped where the target cannot comb it, and a bomb has
+ * to be released from the dive rather than lobbed from four thousand yards.
+ */
+const LOAD = {
+  dive: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
+  scout: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
+  torpedo: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
 };
 
 export class Battle {
@@ -174,11 +202,7 @@ export class Battle {
     this.hud.bindCockpit({
       take: () => this.takeFlight(),
       leave: () => this.leaveFlight(),
-      drop: () => {
-        if (!this.flight || !this.flight.armed) return;
-        this.net.send({ t: 'drop', i: this.flight.id });
-        audio.click();
-      },
+      drop: () => this.letGo(),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
     // firing.
@@ -209,6 +233,15 @@ export class Battle {
       this.net.on('ev', (m) => this.onEvents(m.ev)),
       this.net.on('roster', (m) => { this.roster = m.roster; m.roster.forEach((r) => this.names.set(r.id, r.name)); }),
       this.net.on('result', (m) => this.onResult(m)),
+      // The simulation refusing a drop. She is still carrying it, so the key
+      // comes back live and the pilot is told why nothing happened rather than
+      // being left pressing a dead button.
+      this.net.on('nodrop', (m) => {
+        const f = this.flight;
+        if (!f || f.id !== m.i) return;
+        f.asked = 0;
+        this.hud.alert('She could not drop — press home');
+      }),
     ];
   }
 
@@ -903,16 +936,27 @@ export class Battle {
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
-    const aero = AERO[typeOf(pl.k, pl.r || 'torpedo')] || AERO.avenger;
+    const role = pl.r || 'torpedo';
+    const kind = typeOf(pl.k, role);
+    const aero = AERO[kind] || AERO.avenger;
     this.flight = {
       id: pl.i,
-      role: pl.r || 'torpedo',
+      role,
+      // Which machine she is, so the tracer leaves the guns this type has and
+      // leaves them at the right calibre.
+      kind,
+      calibre: GUN_CALIBRE[kind] ?? 12.7,
+      // And what is on her rack, which is what the drop key is for. A fighter
+      // has nothing on hers: her guns are her weapon.
+      load: LOAD[role] || null,
       pilot: new Pilot(aero, {
         x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h,
         speed: aero.vMax * 0.72,
       }),
       // What she is carrying, and how long since the last word to the server.
-      armed: (pl.r || 'torpedo') !== 'fighter',
+      armed: role !== 'fighter',
+      // How long since the drop was asked for and not yet answered.
+      asked: 0,
       sent: 0,
       guns: 0,
       tracer: 0,
@@ -923,7 +967,48 @@ export class Battle {
     this.hud.setWatchBanner(null);
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true);
+    this.hud.setArmament(this.flight.load && this.flight.load.key);
     if (this.mapBig) this.toggleMap(false);
+    audio.click();
+  }
+
+  /**
+   * Let go of what she is carrying.
+   *
+   * A torpedo bomber drops torpedoes and a dive bomber drops bombs, and which
+   * of those happens is settled by what the flight is carrying rather than by
+   * one key that means "do something". A fighter never gets here: she has no
+   * rack and no key, and her guns are her weapon.
+   *
+   * The reasons a drop can come to nothing are said out loud. Pressing a key
+   * and having the game do nothing at all, with no word about why, is the
+   * thing this is here to stop.
+   */
+  letGo() {
+    const f = this.flight;
+    if (!f) return;
+    if (!f.load) { this.hud.alert('No bombs or torpedoes aboard'); return; }
+    if (!f.armed) { this.hud.alert(`Her ${f.load.name} are gone`); return; }
+    // Near enough to be dropping at something. Worked out here rather than
+    // waited for from the server, so the answer is on the screen the instant
+    // the key goes down.
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const p = f.pilot;
+    let near = Infinity;
+    for (const s of ((snap && snap.ships) || [])) {
+      if (!s.a || s.tm === this.team) continue;
+      near = Math.min(near, Math.hypot(s.x - p.x, s.z - p.z));
+    }
+    if (near > f.load.near) { this.hud.alert('Nothing in range — press home'); return; }
+    // Asked for, not done. The key goes dead while the answer is in flight so
+    // a fast thumb cannot drop twice, and what is said afterwards is what
+    // actually happened: "torpedoes away" when the simulation says the fish
+    // are in the water, and the reason when it says they are not. Saying it on
+    // the key press told the pilot his torpedoes had gone whether or not
+    // anything had left the aeroplane.
+    if (f.asked > 0) return;
+    f.asked = 1.2;
+    this.net.send({ t: 'drop', i: f.id });
     audio.click();
   }
 
@@ -952,7 +1037,15 @@ export class Battle {
     const pl = snap && (snap.planes || []).find((q) => q.i === f.id);
     // She is gone: shot down, or her squadron was released under her.
     if (!pl) { this.leaveFlight(true); return; }
-    f.armed = !pl.d;
+    // What is left on her rack, off the simulation. The moment it says she is
+    // empty and she was not before, her ordnance is away and the pilot is told
+    // so -- which is the one word in the cockpit that has to be true.
+    if (pl.d && f.armed) {
+      f.armed = false;
+      f.asked = 0;
+      if (f.load) this.hud.alert(f.load.away);
+    }
+    f.asked = Math.max(0, f.asked - dt);
 
     const stick = this.hud.fly || { pitch: 0, roll: 0, throttle: 1 };
     const p = f.pilot;
@@ -971,25 +1064,18 @@ export class Battle {
       f.tracer -= dt;
       if (f.tracer <= 0) {
         f.tracer = 0.1;
-        // Down the bore, which lies along her nose -- not along her flight
-        // path. At low speed those are ten degrees apart, and a fighter hanging
-        // on her propeller shoots where she is pointed.
-        const aim = p.attitude;
-        const cp = Math.cos(aim);
-        const R = 620;
-        this.scene.flak.fire(
-          p.x, p.y - 0.6, p.z,
-          p.x + Math.sin(p.heading) * cp * R,
-          p.y + Math.sin(aim) * R,
-          p.z + Math.cos(p.heading) * cp * R,
-          12.7, 8, this.scene.effects,
-        );
+        this.wingGuns(f, p);
       }
       if (f.guns > 0.15) {
         this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
         f.guns = 0;
       }
     } else { f.guns = 0; f.tracer = 0; }
+
+    // The sight goes red when there is something under it, which is the whole
+    // use of a fixed ring: it says when the aeroplane is pointed at the thing
+    // rather than near it.
+    this.hud.setSightHot(this.sightOn(f, p, snap));
 
     f.sent -= dt;
     if (f.sent <= 0) {
@@ -1000,6 +1086,93 @@ export class Battle {
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
+  }
+
+  /**
+   * Is anything under the sight?
+   *
+   * Her own guns' cone, out to the range they reach: about nine degrees either
+   * side, the same figure the simulation uses to decide whether a burst hits
+   * anything. Aeroplanes first, because that is what a fighter is looking for.
+   */
+  sightOn(f, p, snap) {
+    if (!snap) return false;
+    const RANGE = 700;
+    const CONE = 0.16;
+    const sn = Math.sin(p.heading);
+    const cs = Math.cos(p.heading);
+    const under = (x, z) => {
+      const dx = x - p.x;
+      const dz = z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > RANGE || d < 1) return false;
+      // How far off the nose she lies, as the cosine of the angle between the
+      // bearing and where the aeroplane is pointed.
+      return (dx * sn + dz * cs) / d > Math.cos(CONE);
+    };
+    for (const q of (snap.planes || [])) {
+      if (q.tm === this.team || q.i === f.id) continue;
+      if (under(q.x, q.z)) return true;
+    }
+    for (const q of snap.ships) {
+      if (!q.a || q.tm === this.team) continue;
+      if (under(q.x, q.z)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A burst, out of the guns she actually has.
+   *
+   * A fighter's guns are in her wings -- four of them in a Wildcat, two either
+   * side of the fuselage -- and until now every aeroplane in the game fired one
+   * stream out of the middle of her nose, which is a weapon no naval aeroplane
+   * of the war carried. The muzzles come off her own model (see `gunsOf`), so
+   * a Wildcat's fire leaves four points spread six metres across her wings, a
+   * Dauntless's leaves the two troughs in her cowling, and an Arado's leaves
+   * her two twenty-millimetre and the MG 17 over her engine.
+   *
+   * They are harmonised: every barrel is laid to cross the sight line at the
+   * range the armourers set them to, which is why fire from a fighter's wings
+   * converges instead of running out in parallel lines.
+   */
+  wingGuns(f, p) {
+    // Down the bore, which lies along her nose -- not along her flight path.
+    // At low speed those are ten degrees apart, and a fighter hanging on her
+    // propeller shoots where she is pointed.
+    const aim = p.attitude;
+    const bank = p.bank || 0;
+    const cp = Math.cos(aim);
+    const R = 620;
+    // Where the guns are laid to cross: about 250 yards, which is what a
+    // fighter's were harmonised at.
+    const CONVERGE = 230;
+    const q = this.gunQuat || (this.gunQuat = new THREE.Quaternion());
+    const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
+    const v = this.gunVec || (this.gunVec = new THREE.Vector3());
+    e.set(-aim, p.heading, -bank);
+    q.setFromEuler(e);
+    // The point every barrel is pointed at, and the point they are all fired
+    // through at the far end.
+    const nose = {
+      x: p.x + Math.sin(p.heading) * cp * CONVERGE,
+      y: p.y + Math.sin(aim) * CONVERGE,
+      z: p.z + Math.cos(p.heading) * cp * CONVERGE,
+    };
+    // Through the harmonisation point and on: the line from the muzzle to
+    // where the guns cross, run out to where the tracer dies.
+    const k = R / CONVERGE;
+    for (const m of gunsOf(f.kind)) {
+      v.set(m[0], m[1], m[2]).applyQuaternion(q);
+      const mx = p.x + v.x;
+      const my = p.y + v.y;
+      const mz = p.z + v.z;
+      this.scene.flak.fire(
+        mx, my, mz,
+        mx + (nose.x - mx) * k, my + (nose.y - my) * k, mz + (nose.z - mz) * k,
+        f.calibre, 8, this.scene.effects,
+      );
+    }
   }
 
   /**
