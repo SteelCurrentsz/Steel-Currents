@@ -11,6 +11,18 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 
+// A number for each assembly, so two pieces welded into different buffers --
+// a funnel's steel and its black cap are different materials -- can still be
+// recognised as the same funnel.
+let PIECE_ID = 0;
+
+// The biggest a group may be and still count as one piece of a ship, in
+// metres. A funnel, a boat, a director, a mast: all under this. A deckhouse,
+// a hull band, or the wrapper the whole model happens to be built inside: not.
+const ASSEMBLY_MAX = 16;
+const nm2 = new THREE.Matrix3();
+const TMP_E = new THREE.Vector3();
+
 /**
  * Weld every static mesh under `group` into one mesh per material, in place.
  * Returns the number of draw calls saved, which is what this is for.
@@ -29,24 +41,62 @@ import * as THREE from '../../../vendor/three.module.js';
  * own normal, so plating runs along a ship's side and planking runs fore and
  * aft on her deck whatever the surface underneath was built out of, and a
  * plate is the same size on a destroyer as on a battleship.
+ *
+ * Welding does not throw the ship's parts away, it only stops drawing them
+ * separately. Every mesh that goes in leaves a note behind saying which
+ * vertices and which triangles of the welded buffer used to be it, and which
+ * assembly it belonged to -- so a funnel is still a funnel and a searchlight
+ * is still a searchlight after they have been baked into the same buffer as
+ * the rest of her. That register (`userData.pieces`) is what lets a piece of
+ * her be dented, scorched, or torn off and thrown into the sea on its own.
+ * See pieces.js.
  */
 export function mergeStatic(group, keyOf = null) {
   group.updateMatrixWorld(true);
   const inv = group.matrixWorld.clone().invert();
 
+  // Which assembly each mesh belongs to.
+  //
+  // A modeller writes a funnel as a group of a dozen bands and a davit as one
+  // box. The group is the natural piece: taken off her, a funnel should go
+  // over the side as a funnel rather than as twelve separate rings, and a box
+  // that nobody grouped is a piece in its own right.
+  //
+  // So an assembly is the outermost group that is still small enough to be a
+  // fitting. The size test is the whole of it: without it, a model built
+  // inside one scaled wrapper -- which is how the Iowa is drawn -- makes the
+  // entire battleship a single assembly, and she comes apart in three pieces
+  // instead of sixteen hundred. Anything bigger than a fitting is not one, so
+  // the search goes on down and the boxes inside it become pieces on their
+  // own account.
   const found = [];
-  const walk = (node) => {
+  const owners = new Map();
+  const box = new THREE.Box3();
+  const size = new THREE.Vector3();
+  const walk = (node, owner) => {
     for (const child of node.children) {
       if (child.userData.dynamic) continue;
       // An instanced mesh is already one draw call for all of its copies, and
       // welding it would keep exactly one of them. Points carry their own
       // attributes and are not geometry in this sense either.
       if (child.isInstancedMesh || child.isPoints) continue;
-      if (child.isMesh && child.geometry.attributes.position) found.push(child);
-      else if (child.isGroup || child.isObject3D) walk(child);
+      if (child.isMesh && child.geometry.attributes.position) {
+        found.push(child);
+        owners.set(child, owner || child);
+      } else if (child.isGroup || child.isObject3D) {
+        let take = owner;
+        if (!take) {
+          box.setFromObject(child);
+          if (!box.isEmpty()) {
+            box.getSize(size);
+            if (Math.max(size.x, size.y, size.z) <= ASSEMBLY_MAX) take = child;
+          }
+        }
+        walk(child, take);
+      }
     }
   };
-  walk(group);
+  walk(group, null);
   if (found.length < 2) return 0;
 
   const byMat = new Map();
@@ -80,10 +130,11 @@ export function mergeStatic(group, keyOf = null) {
     let bucket = byMat.get(slot);
     if (!bucket) {
       byMat.set(slot, (bucket = {
-        pos: [], nor: [], uv: [], idx: [], key, material: mesh.material,
+        pos: [], nor: [], uv: [], idx: [], pieces: [], key, material: mesh.material,
       }));
     }
     const base = bucket.pos.length / 3;
+    const idxFrom = bucket.idx.length;
 
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m);
@@ -106,6 +157,29 @@ export function mergeStatic(group, keyOf = null) {
     } else {
       for (let i = 0; i < pos.count; i++) bucket.idx.push(base + i);
     }
+    // What this mesh became, so it can be found again after the weld: which
+    // vertices are its, which triangles are its, where it sits and how big it
+    // is. The bounding sphere is in the ship's own frame, which is the frame
+    // every hit on her arrives in.
+    const owner = owners.get(mesh) || mesh;
+    if (!owner.userData.pieceId) owner.userData.pieceId = ++PIECE_ID;
+    const bb = geo.boundingBox || (geo.computeBoundingBox(), geo.boundingBox);
+    const c = bb.getCenter(new THREE.Vector3()).applyMatrix4(m);
+    const e = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    // Rotated into her frame, so a long thin thing lying fore and aft has the
+    // radius of a long thin thing however it was modelled.
+    nm2.setFromMatrix4(m);
+    const sx = TMP_E.set(e.x, 0, 0).applyMatrix3(nm2).length();
+    const sy = TMP_E.set(0, e.y, 0).applyMatrix3(nm2).length();
+    const sz = TMP_E.set(0, 0, e.z).applyMatrix3(nm2).length();
+    bucket.pieces.push({
+      owner: owner.userData.pieceId,
+      name: owner.name || mesh.name || '',
+      v0: base, vn: pos.count,
+      i0: idxFrom, ic: bucket.idx.length - idxFrom,
+      cx: c.x, cy: c.y, cz: c.z,
+      r: Math.hypot(sx, sy, sz),
+    });
     geo.dispose();
     mesh.removeFromParent();
   }
@@ -125,6 +199,7 @@ export function mergeStatic(group, keyOf = null) {
     if (bucket.nor.length !== bucket.pos.length) geo.computeVertexNormals();
     const welded = new THREE.Mesh(geo, material);
     if (bucket.key !== null) welded.userData.mergeKey = bucket.key;
+    welded.userData.pieces = bucket.pieces;
     group.add(welded);
   }
   return found.length - byMat.size;

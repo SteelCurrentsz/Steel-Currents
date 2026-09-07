@@ -42,6 +42,8 @@ import {
 import { arado, kingfisher, wildcat as pkWildcat } from '../client/js/render/planekit.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
+import { Fittings } from '../client/js/render/pieces.js';
+import { Wreckage } from '../client/js/render/wreckage.js';
 import { Debris } from '../client/js/render/debris.js';
 import { buildShip } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
@@ -216,6 +218,21 @@ function airframeHpOf(a) {
   let max = 0;
   for (const k of Object.keys(a.parts)) { hp += Math.max(0, a.parts[k].hp); max += a.parts[k].max; }
   return max > 0 ? hp / max : 0;
+}
+
+
+/** The welded buffers of a ship: the ones that carry her pieces. */
+function welded(group) {
+  const out = [];
+  const walk = (node) => {
+    for (const c of node.children) {
+      if (c.userData.dynamic) continue;
+      if (c.isMesh && c.userData.pieces) out.push(c);
+      walk(c);
+    }
+  };
+  walk(group);
+  return out;
 }
 
 let failures = 0;
@@ -7453,6 +7470,231 @@ check('a sound that cannot be worked out is not played', () => {
   a.ambience = { src: node(), g: node(), rumble: node(), rg: node() };
   a.setEngineLoad(NaN);
   assert.deepEqual(seen, [], `the sound card was handed ${seen.join(', ')}`);
+});
+
+
+check('every ship is built out of pieces that can be found again', () => {
+  // Welding a ship into one buffer per material is what makes her affordable
+  // to draw, and it used to be what made her indestructible above the
+  // waterline: once her funnel was in the same buffer as her deck there was
+  // no funnel any more, only triangles. She is still welded, and every mesh
+  // that went in now leaves a note saying which vertices and which triangles
+  // used to be it -- so a funnel is still a funnel afterwards.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const built = buildShip(id);
+    const f = new Fittings(built.group);
+    assert.ok(f.pieces.length > 400,
+      `a ${id} is made of ${f.pieces.length} pieces, which is not many for a warship`);
+    const fittings = f.pieces.filter((q) => q.fitting);
+    assert.ok(fittings.length > 200,
+      `a ${id} has ${fittings.length} pieces that could come off her`);
+    // Every piece has to point at real geometry, or none of the rest works.
+    for (const piece of f.pieces) {
+      assert.ok(piece.spans.length > 0, `a piece of the ${id} has no geometry`);
+      for (const s of piece.spans) {
+        const pos = s.mesh.geometry.attributes.position;
+        const idx = s.mesh.geometry.index;
+        assert.ok(s.v0 >= 0 && s.v0 + s.vn <= pos.count,
+          `a piece of the ${id} claims vertices ${s.v0}..${s.v0 + s.vn} of ${pos.count}`);
+        assert.ok(s.i0 >= 0 && s.i0 + s.ic <= idx.count,
+          `a piece of the ${id} claims triangles outside her index buffer`);
+      }
+      assert.ok(Number.isFinite(piece.cx + piece.cy + piece.cz + piece.r),
+        `a piece of the ${id} is nowhere: ${piece.cx},${piece.cy},${piece.cz} r${piece.r}`);
+    }
+    // And no piece is the whole ship. A model built inside one wrapper group
+    // made the entire hull a single assembly, and she came apart in three
+    // pieces; the piece count above is what catches that, and this is the
+    // shape of it -- a length of hull plating is allowed to be half a
+    // destroyer, and nothing is allowed to be all of her.
+    const loa = built.length;
+    for (const piece of f.pieces) {
+      assert.ok(piece.r < loa * 0.62,
+        `a piece of the ${id} is ${piece.r.toFixed(0)} m across, which is most of the ship`);
+      // And a thing that can be knocked off her whole is a fitting: a funnel,
+      // a boat, a director. Her deckhouses and her plating are dished and
+      // blackened where they are hit and stay on the ship.
+      if (piece.fitting) {
+        assert.ok(piece.r <= 9,
+          `a ${piece.r.toFixed(0)} m piece of the ${id} can be knocked off her whole`);
+        // And nothing invisible is one. A ship is modelled down to rail
+        // stanchions and deck bolts; thrown into the air they cannot be seen
+        // and they fill the wreckage batch that the boat and the funnel
+        // wanted. They are dented and blackened like everything else.
+        assert.ok(piece.r >= 0.35,
+          `a ${(piece.r * 100).toFixed(0)} cm piece of the ${id} can be thrown over the side`);
+      }
+    }
+  }
+});
+
+check('a burst dents what it does not take away', () => {
+  // The middle case, and the one that was missing: a shell that bursts near a
+  // fitting without carrying it away still pushes it in. She is no longer
+  // fair where she has been hit.
+  const built = buildShip('cleveland');
+  const f = new Fittings(built.group);
+  const fair = [];
+  for (const mesh of welded(built.group)) fair.push(new Float32Array(mesh.geometry.attributes.position.array));
+
+  const moved = () => {
+    let n = 0;
+    let worst = 0;
+    welded(built.group).forEach((mesh, i) => {
+      const a = mesh.geometry.attributes.position.array;
+      for (let k = 0; k < a.length; k += 3) {
+        const d = Math.hypot(a[k] - fair[i][k], a[k + 1] - fair[i][k + 1], a[k + 2] - fair[i][k + 2]);
+        if (d > 1e-4) n++;
+        if (d > worst) worst = d;
+      }
+    });
+    return { n, worst };
+  };
+  assert.equal(moved().n, 0, 'she was built dented');
+  f.blast(0, 12, 8, 7, 0.9);
+  const after = moved();
+  assert.ok(after.n > 20, `a burst alongside her moved ${after.n} vertices`);
+  assert.ok(after.worst > 0.02, `the deepest dent is ${after.worst.toFixed(3)} m, which is nothing`);
+
+  // And dent upon dent in the same place does not walk a piece off the ship:
+  // measured from the last dent rather than from the shape she was built
+  // with, twenty hits in the same spot would have pushed her side clean
+  // through her.
+  for (let i = 0; i < 40; i++) f.blast(0, 12, 8, 7, 0.9);
+  const hammered = moved();
+  assert.ok(hammered.worst < 1.2,
+    `forty bursts in one place moved her plating ${hammered.worst.toFixed(2)} m`);
+});
+
+check('a burst blackens her, and so does a fire', () => {
+  // Scorching is a byte of colour per vertex, so it costs nothing to draw and
+  // it stays: a ship that has burned looks like one for the rest of the
+  // action.
+  const built = buildShip('hipper');
+  const f = new Fittings(built.group);
+  const soot = () => {
+    let dark = 0;
+    for (const mesh of welded(built.group)) {
+      const c = mesh.geometry.attributes.color;
+      assert.ok(c, 'a welded buffer has nowhere to put soot');
+      for (let i = 0; i < c.array.length; i += 3) if (c.array[i] < 250) dark++;
+    }
+    return dark;
+  };
+  assert.equal(soot(), 0, 'she was launched already sooty');
+  // A fire amidships, burning for a while.
+  for (let i = 0; i < 50; i++) f.scorch(0, 12, 0, 18, 0.05);
+  const burned = soot();
+  assert.ok(burned > 100, `a fire amidships blackened ${burned} vertices`);
+  assert.ok(f.pieces.some((q) => q.burn > 0.5), 'nothing is properly black');
+  // A fire bends nothing and takes nothing off her.
+  assert.ok(f.pieces.every((q) => q.bent === 0), 'a fire dented her');
+  assert.ok(f.pieces.every((q) => q.on), 'a fire threw pieces of her into the sea');
+  // Soot does not wash off.
+  for (let i = 0; i < 5; i++) f.scorch(9000, 12, 9000, 18, 0.05);
+  assert.ok(soot() >= burned, 'she cleaned herself up');
+});
+
+check('a piece knocked off her stops being part of her', () => {
+  const built = buildShip('fletcher');
+  const f = new Fittings(built.group);
+  const live = () => {
+    let n = 0;
+    for (const mesh of welded(built.group)) {
+      const I = mesh.geometry.index.array;
+      for (let i = 0; i < I.length; i += 3) if (I[i] !== I[i + 1] || I[i + 1] !== I[i + 2]) n++;
+    }
+    return n;
+  };
+  const before = live();
+  const shed = f.blast(0, 9, 0, 14, 4.5);
+  assert.ok(shed && shed.length > 0, 'a torpedo alongside took nothing off her');
+  assert.ok(live() < before, 'the pieces that came off her are still being drawn');
+  for (const cut of shed) {
+    assert.ok(cut.pos.length > 0 && cut.idx.length > 0, 'a piece came off her with no geometry');
+    assert.equal(cut.pos.length, cut.col.length, 'a piece came off her with no colour');
+    for (let i = 0; i < cut.idx.length; i++) {
+      assert.ok(cut.idx[i] < cut.pos.length / 3,
+        `a piece came off her pointing at vertex ${cut.idx[i]} of ${cut.pos.length / 3}`);
+    }
+    assert.ok(Number.isFinite(cut.x + cut.y + cut.z), 'a piece came off her from nowhere');
+  }
+  // One burst cannot strip her. A ship is modelled down to rail stanchions,
+  // and a magazine going up reaches several hundred of them -- thrown, they
+  // are invisible and they fill the wreckage batch that the boat and the
+  // searchlight wanted. A burst takes the things nearest it and no more.
+  const g2 = buildShip('fletcher');
+  const f2 = new Fittings(g2.group);
+  const shell = f2.blast(0, 9, 20, 5, 1.1);
+  assert.ok(!shell || shell.length <= 7,
+    `a single shell took ${shell.length} separate pieces off her`);
+  const magazine = f2.blast(0, 6, -30, 34, 10);
+  assert.ok(magazine && magazine.length > 8, 'a magazine took almost nothing off her');
+  assert.ok(magazine.length <= 40,
+    `a magazine put ${magazine.length} separate pieces of her into the air at once`);
+  // And nothing invisible goes over the side: a deck bolt in the air is a
+  // wasted slot in a batch that has room for a funnel.
+  for (const cut of [...shell || [], ...magazine]) {
+    const r = Math.max(...Array.from({ length: cut.pos.length / 3 }, (_, i) =>
+      Math.hypot(cut.pos[i * 3], cut.pos[i * 3 + 1], cut.pos[i * 3 + 2])));
+    assert.ok(r >= 0.3, `a piece ${r.toFixed(2)} m across was thrown over the side`);
+  }
+  // And a compartment blown out of her takes everything standing on it.
+  const g3 = buildShip('fletcher');
+  const f3 = new Fittings(g3.group);
+  const all = f3.shedSection(-30, 30);
+  assert.ok(all && all.length > 30, 'a compartment blown out of her took nothing with it');
+  assert.ok(f3.intact() < 0.95, 'she is somehow still whole');
+});
+
+check('a piece of a ship falls, and goes in the water', () => {
+  // Gravity, a tumble, and a splash. It is her own geometry: a funnel
+  // knocked off a cruiser goes over the side as a funnel.
+  const sea = { heightAt: () => 0 };
+  const splashes = [];
+  const scene = { add() {}, remove() {} };
+  const w = new Wreckage(scene, sea, (x, y, z, speed) => splashes.push({ x, y, z, speed }));
+  const ship = new THREE.Object3D();
+  ship.position.set(100, 0, 200);
+  ship.updateMatrixWorld(true);
+  const cut = {
+    pos: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+    col: new Float32Array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+    idx: new Uint16Array([0, 1, 2]),
+    x: 0, y: 18, z: 0, from: { x: 0, y: 6, z: 0 }, force: 1.2,
+  };
+  w.add(cut, ship, 4, 0);
+  assert.equal(w.live.length, 1, 'the piece never left her');
+  const p = w.live[0];
+  assert.ok(Math.abs(p.x - 104) < 6 && Math.abs(p.z - 200) < 6,
+    `it started at ${p.x.toFixed(0)},${p.z.toFixed(0)} rather than where it was standing`);
+  assert.ok(p.vy > 0, 'a burst under a fitting did not lift it');
+
+  // Up, over, and down.
+  let top = p.y;
+  for (let i = 0; i < 600 && !p.sank; i++) {
+    w.update(1 / 30);
+    top = Math.max(top, p.y);
+  }
+  assert.ok(top > 18.5, `it rose to ${top.toFixed(1)} m, having started at 18`);
+  assert.ok(p.sank > 0, 'it never came down');
+  assert.equal(splashes.length, 1, `it made ${splashes.length} splashes going in`);
+  assert.ok(splashes[0].speed > 4, 'it went in without any way on it');
+  // And it is out of sight a few seconds later rather than sitting on the sea.
+  for (let i = 0; i < 200; i++) w.update(1 / 30);
+  assert.equal(w.live.length, 0, 'the wreckage is still floating about');
+
+  // It never writes past the end of the buffer it is drawn from, however much
+  // of a ship is in the air at once.
+  for (let i = 0; i < 400; i++) w.add(cut, ship, 0, 0);
+  for (let i = 0; i < 20; i++) w.update(1 / 30);
+  const geo = w.mesh.geometry;
+  assert.ok(geo.drawRange.count <= geo.index.count,
+    'the wreckage batch is drawing more than it holds');
+  for (let i = 0; i < geo.drawRange.count; i++) {
+    assert.ok(geo.index.array[i] < geo.attributes.position.count,
+      'the wreckage batch points past the end of itself');
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

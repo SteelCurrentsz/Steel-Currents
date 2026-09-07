@@ -14,6 +14,8 @@ import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection } from './interior.js';
 import { Plating } from './plating.js';
+import { Fittings } from './pieces.js';
+import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { SECTIONS, sectionAt } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
@@ -552,7 +554,7 @@ const TMP_AIM = new THREE.Vector3();
 
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
-    wakes = null) {
+    wakes = null, wreck = null) {
     const built = buildShip(classId);
     this.group = built.group;
     this.turrets = built.turrets;
@@ -606,6 +608,12 @@ export class ShipView {
     // her. See plating.js -- this is what makes a hole a hole rather than a
     // compartment disappearing.
     this.plating = new Plating(this.group, quality);
+    // And her as the pieces she is made of: her funnels, her masts, her boats,
+    // her lockers, every fitting bolted to her. The plating above is what a
+    // hole is cut in; this is what is bent, blackened and knocked off her.
+    // See pieces.js. `wreck` is where a piece goes when it parts from her.
+    this.fittings = new Fittings(this.group, { detail: quality > 4 ? 0.6 : 1 });
+    this.wreck = wreck;
     // Compartments the simulation has said are gone, being torn out of her a
     // slice at a time rather than switched off. See setCondition.
     this.tearing = [];
@@ -678,6 +686,11 @@ export class ShipView {
         mid: ((SECTIONS[i].from + SECTIONS[i].to) / 2) * half,
         span: Math.abs(SECTIONS[i].to - SECTIONS[i].from) * half * 0.5 + 3,
       });
+      // And everything that was bolted to that length of her goes into the
+      // sea with it. There is nothing left holding a boat whose davits, whose
+      // boat deck and whose ship's side have all gone.
+      this.shed(this.fittings.shedSection(
+        SECTIONS[i].from * half, SECTIONS[i].to * half));
       (lost || (lost = [])).push(SECTIONS[i]);
     }
     return lost;
@@ -806,12 +819,47 @@ export class ShipView {
    * Returns how much plating went, so the caller can tell a hit that opened
    * her up from one that burst against something already blown away.
    */
-  punch(wx, wy, wz, r, soft = 0.55) {
+  punch(wx, wy, wz, r, soft = 0.55, power = 0) {
     if (!this.plating) return 0;
     const p = TMP.set(wx, wy, wz);
     this.group.updateMatrixWorld(true);
     this.group.worldToLocal(p);
-    return this.plating.punch(p.x, p.y, p.z, r, soft);
+    const went = this.plating.punch(p.x, p.y, p.z, r, soft);
+    // The blast reaches further than the hole. What it finds standing there
+    // is dented and blackened, and what it finds standing close enough to it
+    // is taken off her and thrown -- see pieces.js and wreckage.js.
+    //
+    // How hard the burst was, off the hole it opened: the two are the same
+    // number in different units, so a five-inch shell shakes a searchlight
+    // and a torpedo takes the boat deck with it.
+    this.shed(this.fittings.blast(p.x, p.y, p.z, r * 2.4, power || r * 0.52));
+    return went;
+  }
+
+  /**
+   * Pieces that have parted from her, into the air.
+   *
+   * They leave with her way on them, because a funnel blown off a ship doing
+   * thirty knots does not stop dead where it was standing.
+   */
+  shed(pieces) {
+    if (!pieces || !this.wreck) return;
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    for (const cut of pieces) {
+      this.wreck.add(cut, this.group, Math.sin(h) * v, Math.cos(h) * v);
+    }
+  }
+
+  /**
+   * Fire on her: whatever is standing in it blackens, and goes on blackening.
+   *
+   * Called every frame a compartment is alight, with the heat, so a fire that
+   * has been burning for two minutes leaves a ship that is black there and a
+   * flash fire leaves a ship that is barely marked.
+   */
+  scorchAt(x, y, z, r, amount) {
+    if (this.fittings) this.fittings.scorch(x, y, z, r, amount);
   }
 
   /**
@@ -1138,6 +1186,11 @@ export class BattleScene {
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
     // sea. See debris.js.
+    // The pieces of a ship that can be named, in the air: a funnel knocked
+    // off a cruiser goes over the side as a funnel. See wreckage.js. The
+    // anonymous plating below is the rest of what comes off her.
+    this.wreck = new Wreckage(this.scene, this.ocean,
+      (x, y, z, speed) => this.effects.splashes.splash(x, z, 30 + speed * 4));
     this.debris = new Debris(this.scene, this.ocean,
       Math.max(120, Math.round(420 * q.particles)));
     this.debris.onSplash = (x, z, size) => this.effects.splashes.splash(x, z, 60 * size);
@@ -1189,7 +1242,7 @@ export class BattleScene {
     let v = this.shipViews.get(id);
     if (!v) {
       v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
-        this.wakes);
+        this.wakes, this.wreck);
       this.shipViews.set(id, v);
     }
     return v;
@@ -1263,6 +1316,7 @@ export class BattleScene {
     this.ocean.update(dt, eye);
     this.effects.update(dt);
     this.debris.update(dt);
+    this.wreck.update(dt);
     this.flak.update(dt);
     this.bombs.update(dt);
     this.torpedoes.update(dt, this.torpsNow || [],

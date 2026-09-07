@@ -1542,6 +1542,9 @@ export class Battle {
       view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
       // And her screws, at the rate her speed sets.
       view.spinScrews(s.v, dt);
+      // Her way, so anything blown off her leaves with it rather than
+      // stopping dead in the air where it was standing.
+      view.speedNow = speed;
 
       // What is left of her, compartment by compartment. A compartment blown
       // out of her has its plating taken off and you see into the ship: the
@@ -1616,6 +1619,11 @@ export class Battle {
             const up = sec.from === null ? 20 : 9;
             this.scene.effects.fire(x + Math.sin(h) * off + (Math.random() - 0.5) * 6,
               up, z + Math.cos(h) * off + (Math.random() - 0.5) * 6, heat);
+            // And it blackens what is standing in it. Slowly, and for as long
+            // as it burns, so a compartment that has been alight for two
+            // minutes leaves the ship black there when it is out -- and it
+            // stays black, because soot does.
+            view.scorchAt(0, up - 3, off, 9 + heat * 7, heat * dt * 0.16);
           }
         }
       }
