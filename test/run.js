@@ -28,7 +28,9 @@ import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
 const STRIKE_RUN = DECK_RUN * 3 + 1;
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
-import { arsenal, readTarget } from '../client/js/hud.js';
+import { Hud, arsenal, readTarget } from '../client/js/hud.js';
+import { Battle } from '../client/js/game.js';
+import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels, typeOf, Flights } from '../client/js/render/planes.js';
 import {
@@ -5596,6 +5598,106 @@ check('a strike pays for what it does', () => {
   assert.ok(hurtSeen,
     'no aeroplane was ever seen burning or leaking and still flying: they are '
     + 'all either whole or gone');
+});
+
+check('every range in the game is written in yards', () => {
+  // One unit, everywhere. The target plate used to read kilometres (or
+  // nautical miles, on a setting) while the chart scale under it read yards
+  // and the gun's own range card read both -- three different units in one
+  // battle, and none of them the one the guns are laid in.
+  const fmt = (m) => Hud.prototype.formatRange.call(null, m);
+  assert.equal(fmt(0), '0 yd', 'nothing is at no range');
+  // Twelve thousand yards, called to the nearest fifty the way a range is.
+  assert.equal(fmt(11000), '12,050 yd', `eleven thousand metres read ${fmt(11000)}`);
+  assert.equal(fmt(500), '550 yd', `five hundred metres read ${fmt(500)}`);
+  for (const m of [120, 900, 4300, 18000, 32000]) {
+    const out = fmt(m);
+    assert.ok(/ yd$/.test(out), `${m} m reads "${out}", which is not yards`);
+    const yd = Number(out.replace(/[^0-9]/g, ''));
+    assert.ok(Math.abs(yd - m * 1.09361) < 60,
+      `${m} m came out as ${yd} yd, which is ${(yd / (m * 1.09361)).toFixed(2)} of the right answer`);
+  }
+  // And the gun's own range card, which is the other place a distance is
+  // written out.
+  const rows = ordnanceSheet({ caliber: 150, shell: 45, muzzle: 800, reload: 20,
+    range: 23000, ceiling: 9000 });
+  for (const [k, v] of rows) {
+    if (k !== 'Range' && k !== 'Ceiling') continue;
+    assert.ok(/ yd$/.test(v) && !/km/.test(v), `the gun's ${k} reads "${v}"`);
+  }
+});
+
+check('the shell camera rides the rounds the ship it is watching fired', () => {
+  // Press it and the camera goes to the salvo: one round, followed the whole
+  // way down its arc, then the next round out of the same ship. It never
+  // follows anybody else's rounds, it holds on the splash rather than snapping
+  // away at the fall of shot, and it waits over the ship between salvoes
+  // instead of coming home and having to be pressed again.
+  const snap = { ships: [{ i: 7, n: 'Captain', c: 'iowa', a: 1, x: 0, z: 0 }] };
+  const hud = { setWatching() {}, setWatchBanner() {}, setShellCam() {} };
+  const g = {
+    shellCam: true, shellFrom: 7, shellRiding: 0, shellHold: null, shellWas: null,
+    watching: null, watchPov: true, snapshots: [snap], hud,
+    shellsNow: [
+      { i: 11, x: 100, y: 300, z: 40, o: 7 },
+      { i: 14, x: 130, y: 380, z: 55, o: 7 },
+      { i: 21, x: 900, y: 200, z: 10, o: 9 },   // somebody else's
+    ],
+    scene: { ocean: { heightAt: () => 0 } },
+    // The one thing she calls out to when the ship she is following is gone.
+    toggleShellCam() { this.shellCam = false; this.shellFrom = 0; this.watching = this.shellWas; },
+  };
+  const step = (dt) => Battle.prototype.stepShellCam.call(g, dt);
+  const point = () => Battle.prototype.watchPoint.call(g);
+
+  step(0.1);
+  assert.equal(g.watching && g.watching.kind, 'shell', 'the camera did not go to a round');
+  assert.equal(g.shellRiding, 14, 'she did not take the newest round out of her');
+  assert.equal(g.watchPov, false, 'she sat inside the shell instead of standing off it');
+  let at = point();
+  assert.ok(at && Math.abs(at.x - 130) < 0.01 && Math.abs(at.y - 380) < 0.01,
+    'the camera is not on the round it says it is riding');
+
+  // She stays with that round while it flies, rather than jumping to whichever
+  // is newest each frame.
+  g.shellsNow = [
+    { i: 11, x: 200, y: 250, z: 60, o: 7 },
+    { i: 14, x: 240, y: 300, z: 80, o: 7 },
+    { i: 30, x: 10, y: 500, z: 5, o: 7 },      // the next salvo, just fired
+  ];
+  step(0.1);
+  assert.equal(g.shellRiding, 14, 'she let go of her round for a newer one');
+  at = point();
+  assert.ok(Math.abs(at.x - 240) < 0.01, 'she is not following her round along');
+
+  // The round goes in. She holds on the spot -- that is where the splash is.
+  g.shellsNow = [{ i: 30, x: 20, y: 480, z: 8, o: 7 }];
+  step(0.1);
+  assert.equal(g.shellRiding, 30, 'after the fall of shot she did not take the next round');
+  // With the next round gone too there is nothing in the air, and she holds.
+  g.shellsNow = [];
+  step(0.1);
+  at = point();
+  assert.ok(at && Math.abs(at.x - 20) < 0.01,
+    'she snapped away from the fall of shot instead of holding on it');
+
+  // The hold runs out and she waits over the ship, still switched on.
+  step(2.0);
+  at = point();
+  assert.ok(g.shellCam, 'she switched herself off between salvoes');
+  assert.ok(at && Math.abs(at.x - 0) < 0.01 && at.span > 100,
+    'between salvoes the camera is not over the ship she is following');
+
+  // Nobody else's rounds, ever.
+  g.shellsNow = [{ i: 44, x: 5000, y: 100, z: 5000, o: 9 }];
+  g.shellRiding = 0;
+  step(0.1);
+  assert.notEqual(g.shellRiding, 44, 'she took a round fired by another ship');
+
+  // And her ship going down takes the camera off her.
+  g.snapshots = [{ ships: [{ i: 7, n: 'Captain', c: 'iowa', a: 0, x: 0, z: 0 }] }];
+  step(0.1);
+  assert.ok(!g.shellCam, 'her ship sank and the camera stayed on her guns');
 });
 
 check('a squadron always comes back, however her flights end', () => {

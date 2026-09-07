@@ -134,7 +134,13 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   const shells = [];
   for (const sh of state.shells) {
     if (sh.team !== team && !visibleOwners.has(sh.owner)) continue;
-    shells.push({ i: sh.id, x: r1(sh.x), y: r1(sh.y), z: r1(sh.z), c: sh.caliber, tm: sh.team });
+    // `o` is the ship that fired her. Without it there is no way to tell one
+    // ship's salvo from another's in the air, and the shell camera has to
+    // follow the rounds from the ship you are actually watching.
+    shells.push({
+      i: sh.id, x: r1(sh.x), y: r1(sh.y), z: r1(sh.z),
+      c: sh.caliber, tm: sh.team, o: sh.owner,
+    });
   }
   const torps = [];
   for (const tp of state.torps) {

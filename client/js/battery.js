@@ -558,10 +558,10 @@ function interval(s) {
   return `${m % 1 ? m.toFixed(1) : m} min`;
 }
 
-/** Metres as kilometres, and the yards beside them, which is how a gunner of
- *  1943 would have had it written on the range card. */
+/** A range in yards, which is what a gunner lays in and what every other
+ *  distance in the game is now written in. */
 function distance(m) {
-  return `${(m / 1000).toFixed(1)} km · ${num(Math.round(m / 0.9144 / 100) * 100)} yd`;
+  return `${num(Math.round(m / 0.9144 / 50) * 50)} yd`;
 }
 
 // What a gun is allowed to engage. Only the eighty-eight is both: it was built
@@ -596,7 +596,7 @@ export function ordnanceSheet(b) {
     ['Reload', interval(b.reload)],
     ['Range', distance(b.range)],
   ];
-  if (b.ceiling) rows.push(['Ceiling', `${(b.ceiling / 1000).toFixed(1)} km`]);
+  if (b.ceiling) rows.push(['Ceiling', distance(b.ceiling)]);
   return rows;
 }
 

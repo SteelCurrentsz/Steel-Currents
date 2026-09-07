@@ -150,6 +150,7 @@ export class Hud {
       ownName: $('own-name'), condRow: $('cond-row'),
       status: $('status-row'),
       targetPlate: $('target-plate'), targetName: $('target-name'),
+      shellCam: $('shell-cam'),
       targetLine: $('target-line'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
@@ -397,9 +398,15 @@ export class Hud {
     const el = this.el.watchBanner;
     if (!el) return;
     el.hidden = !watch;
-    if (watch) {
-      this.el.watchWhat.textContent = `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
-    }
+    if (!watch) return;
+    // Riding a round is neither being aboard something nor standing off it,
+    // and there is no bridge on a shell to swap to, so the swap goes away.
+    const shell = watch.kind === 'shell';
+    this.el.watchWhat.textContent = shell
+      ? `Riding ${watch.name}'s salvo`
+      : `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
+    const swap = document.getElementById('watch-swap');
+    if (swap) swap.hidden = shell;
   }
 
   buildFor(classId) {
@@ -871,8 +878,22 @@ export class Hud {
     }
   }
 
+  /**
+   * A range, in yards.
+   *
+   * Every distance in the game is in yards, because that is the unit the guns
+   * are laid in, the unit the rangefinders read in and the unit written on the
+   * chart scale -- and a readout that says 11.5 km beside a plot whose bar says
+   * 2,200 yd is two different ships in the same battle.
+   *
+   * Rounded the way a range is called: to the nearest ten close in, and to the
+   * nearest fifty once it is a gunnery range, because nobody calls a range to
+   * the yard at twelve thousand.
+   */
   formatRange(m) {
-    return getSettings().metric ? `${(m / 1000).toFixed(1)} km` : `${(m / 1852).toFixed(1)} nm`;
+    const yd = m * M_TO_YARDS;
+    const step = yd < 1000 ? 10 : 50;
+    return `${(Math.round(yd / step) * step).toLocaleString('en-US')} yd`;
   }
 
   /**
@@ -887,6 +908,25 @@ export class Hud {
    * nobody has sighted is a mark on the plot with a position and a heading,
    * and guessing at her speed off two of those would be inventing it.
    */
+  /**
+   * The shell camera key, beside the target plate.
+   *
+   * Shown only when the ship being watched has something in the air to
+   * follow: a key that does nothing when it is pressed is worse than no key.
+   * `on` lights it while the camera is riding a round.
+   */
+  setShellCam(available, on) {
+    const el = this.el.shellCam;
+    if (!el) return;
+    el.hidden = !available;
+    el.classList.toggle('on', !!on);
+  }
+
+  /** What the shell key does when it is pressed. */
+  bindShellCam(fn) {
+    if (this.el.shellCam) this.el.shellCam.onclick = () => fn();
+  }
+
   setTarget(t) {
     const el = this.el.targetPlate;
     if (!el) return;

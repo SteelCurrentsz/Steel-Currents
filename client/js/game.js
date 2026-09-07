@@ -158,6 +158,13 @@ export class Battle {
     this.showScores = false;
     this.lastInputSent = 0;
     this.result = null;
+    // The shell camera. `shellCam` is whether it is switched on, `shellFrom`
+    // is whose rounds it is following, and `shellWas` is where the camera was
+    // before it was pressed, so turning it off puts the view back.
+    this.shellCam = false;
+    this.shellFrom = 0;
+    this.shellWas = null;
+    this.shellsNow = [];
 
     // Tapping a hull or a gun on the plot puts the camera on it; tapping it
     // again, or tapping open water, brings the view back to your own bridge.
@@ -173,6 +180,9 @@ export class Battle {
         audio.click();
       },
     });
+    // The shell camera, beside the target plate: ride the rounds this ship is
+    // firing.
+    this.hud.bindShellCam(() => this.toggleShellCam());
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
@@ -657,6 +667,16 @@ export class Battle {
   }
 
   lookAt(hit) {
+    // Picking a mark off the chart takes the camera off the salvo it was
+    // riding: the two are the same camera, and the mark you just tapped is
+    // what you asked for.
+    if (this.shellCam) {
+      this.shellCam = false;
+      this.shellFrom = 0;
+      this.shellHold = null;
+      this.shellWas = null;
+      this.hud.setShellCam(true, false);
+    }
     const same = hit && this.watching
       && this.watching.kind === hit.kind && this.watching.id === hit.id;
     if (!hit || same || (hit.kind === 'ship' && hit.id === this.shipId)) {
@@ -725,6 +745,29 @@ export class Battle {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
       return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
     }
+    if (this.watching.kind === 'shell') {
+      // The round itself, wherever she has got to. Small and close, so the
+      // orbit sits right on her and the sea goes past underneath.
+      const sh = (this.shellsNow || []).find((x) => x.i === this.watching.id);
+      // Close enough to see a sixteen-inch round for what it is, and the
+      // wheel stands it off from there.
+      if (sh) return { x: sh.x, y: sh.y, z: sh.z, span: 12, eye: 1.4, close: true };
+      // She has gone in. Hold on the spot for a moment, which is where the
+      // splash is: a camera that snaps away at the instant of the fall of shot
+      // shows you everything except the thing you were watching for.
+      const hold = this.shellHold;
+      if (hold && hold.t > 0) {
+        return { x: hold.x, y: Math.max(hold.y, 4), z: hold.z, span: 50, eye: 3, close: true };
+      }
+      // Nothing in the air. Wait over the ship until she fires again.
+      const from = snap.ships.find((x) => x.i === this.watching.ship);
+      if (!from) return null;
+      const fc = getClass(from.c);
+      return {
+        x: from.x, y: this.scene.ocean.heightAt(from.x, from.z) * 0.5, z: from.z,
+        span: fc.hull.length, eye: 14 + fc.hull.superstructure * 12,
+      };
+    }
     if (this.watching.kind === 'plane') {
       // Riding one of your own. She is the carrier's own model for the whole
       // of it -- waiting in the hangar, riding the lift, down the deck, out to
@@ -751,6 +794,91 @@ export class Battle {
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
     };
+  }
+
+  /**
+   * Whose rounds the shell camera follows.
+   *
+   * The ship you are watching, if you are watching a ship; your own bridge
+   * otherwise. It is settled when the key is pressed and held after that, so
+   * the camera going off to ride a shell does not then decide it is following
+   * the shell's own shells.
+   */
+  shellSource() {
+    if (this.watching && this.watching.kind === 'ship') return this.watching.id;
+    return this.shipId;
+  }
+
+  /** Ride the salvo, or come back off it. */
+  toggleShellCam() {
+    if (this.shellCam) {
+      this.shellCam = false;
+      this.shellFrom = 0;
+      this.shellHold = null;
+      // Back to whatever the camera was looking at before.
+      this.watching = this.shellWas;
+      this.shellWas = null;
+      this.hud.setWatching(this.watching);
+      this.hud.setWatchBanner(this.watching, this.watchPov);
+      this.hud.setShellCam(true, false);
+      audio.click();
+      return;
+    }
+    const from = this.shellSource();
+    if (!from) return;
+    this.shellCam = true;
+    this.shellFrom = from;
+    this.shellWas = this.watching && this.watching.kind !== 'shell' ? this.watching : null;
+    this.shellRiding = 0;
+    this.shellHold = null;
+    // Standing off the round rather than sitting in her: the whole point is
+    // to watch her fly, and the drag walks the orbit round her as it does
+    // round anything else the camera is sent to.
+    this.watchPov = false;
+    audio.click();
+  }
+
+  /**
+   * Ride the rounds this ship is firing.
+   *
+   * She latches on to one shell and stays with it: down the whole arc, through
+   * the fall of shot, and then on to the next round out of the same ship. When
+   * there is nothing in the air she waits over the ship herself, so the camera
+   * never jumps home between salvoes and never has to be pressed again.
+   */
+  stepShellCam(dt) {
+    if (!this.shellCam) return;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const ship = snap && snap.ships.find((q) => q.i === this.shellFrom && q.a);
+    if (!ship) { this.toggleShellCam(); return; }
+    const mine = (this.shellsNow || []).filter((q) => q.o === this.shellFrom);
+    let riding = mine.find((q) => q.i === this.shellRiding);
+    if (!riding) {
+      // The one she has just fired: the highest id out of this ship is the
+      // newest round in the air.
+      riding = mine.reduce((best, q) => (!best || q.i > best.i ? q : best), null);
+      this.shellRiding = riding ? riding.i : 0;
+    }
+    if (riding) {
+      // Where she was, so that when she goes in the camera holds on the splash
+      // rather than snapping away from it.
+      this.shellHold = { x: riding.x, y: riding.y, z: riding.z, t: 1.5 };
+    } else if (this.shellHold) {
+      this.shellHold.t -= dt;
+      if (this.shellHold.t <= 0) this.shellHold = null;
+    }
+    const was = this.watching;
+    this.watching = {
+      kind: 'shell', id: this.shellRiding, ship: this.shellFrom,
+      // Named for the ship, not her captain: what you are riding is the
+      // Iowa's salvo, and `n` on a snapshot is the man on her bridge.
+      name: getClass(ship.c).name,
+    };
+    this.watchPov = false;
+    if (!was || was.kind !== 'shell') {
+      this.hud.setWatching(this.watching);
+      this.hud.setWatchBanner(this.watching, false);
+    }
   }
 
   /** Is the thing being watched a flight of ours that could be flown? */
@@ -1111,6 +1239,13 @@ export class Battle {
 
     this.stepFlight(dt);
     this.syncEntities(dt);
+    // After the entities, because the camera rides an interpolated round and
+    // syncEntities is what interpolates them.
+    this.stepShellCam(dt);
+    // The key is there whenever there is a ship whose guns you could follow,
+    // and lit while the camera is on a round. Offered only from the bridge --
+    // there is nothing to ride from inside an aeroplane.
+    this.hud.setShellCam(!this.flight && !!this.shellSource(), this.shellCam);
     this.updateCamera(dt);
     this.scene.update(dt);
 
@@ -1348,6 +1483,10 @@ export class Battle {
     // Shells, torpedoes and aircraft as instanced batches.
     const dummy = this.scene.dummy;
     let n = 0;
+    // Kept as well as drawn: the shell camera rides one of these, and it has
+    // to ride the same interpolated round the screen is showing rather than
+    // the raw snapshot position five times a second behind it.
+    const shells = [];
     // A shell is drawn nose-first along the line it is actually flying, so the
     // line between the last snapshot's position and this one is what points
     // her. That is her velocity to within a tick, which is near enough: a
@@ -1361,7 +1500,9 @@ export class Battle {
       const dy = prev ? prev.y - sh.y : 0.2;
       const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
       n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
+      shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm });
     }
+    this.shellsNow = shells;
     this.scene.shells.hideFrom(n);
     this.scene.shells.flush();
 

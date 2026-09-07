@@ -449,7 +449,6 @@ const optSkill = document.getElementById('opt-skill');
 const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
 const optShake = document.getElementById('opt-shake');
-const optMetric = document.getElementById('opt-metric');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -458,7 +457,6 @@ optSkill.value = settings.botSkill;
 optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
 optShake.checked = settings.shake;
-optMetric.checked = settings.metric;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -477,7 +475,6 @@ optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optShake.onchange = () => setSettings({ shake: optShake.checked });
-optMetric.onchange = () => setSettings({ metric: optMetric.checked });
 
 // ------------------------------------------------------------------- net --
 

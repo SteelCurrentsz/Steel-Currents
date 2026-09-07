@@ -205,7 +205,6 @@
         </label>
         <label class="check"><input type="checkbox" id="opt-shadows" checked /> <span>Shadows</span></label>
         <label class="check"><input type="checkbox" id="opt-shake" checked /> <span>Gunfire camera shake</span></label>
-        <label class="check"><input type="checkbox" id="opt-metric" checked /> <span>Ranges in kilometres (off = nautical miles)</span></label>
 
         <h3>Fighting the ship</h3>
         <p class="help">Shells take time to fly. Lead the target: the aim marker
@@ -381,6 +380,22 @@
       <div class="target-name" id="target-name">NO TARGET</div>
       <div class="target-line" id="target-line"></div>
     </div>
+    <!-- Ride the salvo. Beside the target plate because it is the same
+         question: that is what she is shooting at, and this is the shot. -->
+    <button class="conn-key" id="shell-cam" type="button" hidden>
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <!-- A shell in flight, nose up along its own arc, with the arc under
+             it: a camera icon here would say "camera", and what this does is
+             follow the round. -->
+        <path d="M3 25c6-13 15-19 25-20" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-dasharray="3 3"/>
+        <path d="M20.5 15.5c1.8-2 3-4.2 3.4-6.6-2.4.4-4.6 1.6-6.6 3.4l-2.6 2.4
+                 2.4 2.4z" fill="currentColor"/>
+        <path d="M14.2 17.5l-2.6 2.6 2.4 2.4 2.6-2.6" stroke="currentColor"
+              stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+      <span>SHELL</span>
+    </button>
   </div>
 
   <!-- The big plot: the chart table, in the middle of the screen where a

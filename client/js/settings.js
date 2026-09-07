@@ -11,7 +11,6 @@ const DEFAULTS = {
   botSkill: 'regular',
   shadows: true,
   shake: true,
-  metric: true,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
   // Null means she sails with what her datasheet says.
   airGroup: null,
