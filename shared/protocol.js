@@ -160,6 +160,16 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       b: r3(p.turn || 0),
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
+      // And which machine, where her ship flies one particular type. A
+      // cruiser's scout is a float plane and nothing else, and her role says
+      // only what she has been sent to do.
+      k: p.type || undefined,
+      // How fast she is going through the air. Her attitude is worked out
+      // from this and her rate of climb -- the angle of her own flight path --
+      // and without it the client had to guess a speed, so every aeroplane in
+      // the game was drawn at the pitch a seventy-eight metre a second
+      // aeroplane would have been at whatever she was actually doing.
+      s: r1(p.speed ?? 0),
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,

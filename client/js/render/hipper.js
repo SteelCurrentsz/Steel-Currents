@@ -20,6 +20,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { arm } from './mounts.js';
+import { arado } from './planekit.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -2202,7 +2203,7 @@ function aircraft(g) {
   const plane = new THREE.Group();
   plane.position.set(0, 0.33, 0);
   car.add(plane);
-  const p2 = arado(plane, 0, 0, 0, 0);
+  const p2 = arado(plane, 0, 0, 0, 0, false, { spin: true });
   g.userData.catapult = { cat, girder, car, plane, prop: p2.userData.prop };
   // And the other two struck down either side of the hangar, wings folded
   // back. She carried three: one on the catapult and one a side.
@@ -2316,94 +2317,6 @@ function aircraft(g) {
   lift.rotation.x = -0.20;
 }
 
-/**
- * An Arado 196: the shipboard floatplane every German cruiser flew.
- *
- * A low-wing monoplane on two big floats, with a radial engine and a long
- * greenhouse for the pilot and his observer. `folded` swings the wings back
- * along her sides, which is how she is struck down.
- */
-function arado(g, x, y, z, ry, folded = false) {
-  const p = new THREE.Group();
-  p.position.set(x, y, z);
-  p.rotation.y = ry;
-  g.add(p);
-  // The floats first: she sits on them, and they are half of what she looks
-  // like from anywhere but directly above.
-  for (const sgn of [-1, 1]) {
-    const fl = new THREE.Group();
-    fl.position.set(sgn * 1.55, 0, 0.2);
-    p.add(fl);
-    loftRings(fl, M.planeLow, [
-      [0.24, 0.30, -3.6, 0.0], [0.34, 0.42, -2.4, -0.05],
-      [0.40, 0.5, -0.6, -0.1], [0.40, 0.5, 1.2, -0.08],
-      [0.32, 0.4, 2.8, 0.1], [0.16, 0.2, 3.9, 0.35],
-    ].map(([hw, hd, zz, yy]) => [hw, hd, zz, yy]), { n: 12, px: 0.8, pz: 0.9 });
-    // The struts up to the fuselage and out to the wing.
-    for (const sz of [-1.4, 1.4]) {
-      const st = cyl(fl, M.planeTop, 0.07, 0.07, 1.5, 0, 0.8, sz, 6);
-      st.rotation.z = -sgn * 0.42;
-    }
-  }
-  // The fuselage: a slim body with the greenhouse most of the way along it.
-  loftRings(p, M.planeTop, [
-    [0.30, 0.34, -4.4, 1.62], [0.44, 0.5, -3.2, 1.62], [0.55, 0.6, -1.6, 1.62],
-    [0.60, 0.66, 0.0, 1.62], [0.62, 0.68, 1.4, 1.62], [0.58, 0.64, 2.6, 1.62],
-    [0.52, 0.58, 3.3, 1.62],
-  ], { n: 14, px: 0.85, pz: 0.85, cap: false });
-  // The cowling and the propeller.
-  cyl(p, M.gunDark, 0.62, 0.66, 1.1, 0, 1.62, 3.9, 14).rotation.x = Math.PI / 2;
-  cyl(p, M.planeTop, 0.16, 0.3, 0.5, 0, 1.62, 4.6, 10).rotation.x = Math.PI / 2;
-  // The blades in a group of their own, so they can be turned over.
-  const prop = new THREE.Group();
-  prop.position.set(0, 1.62, 4.75);
-  p.add(prop);
-  for (let i = 0; i < 3; i++) {
-    const bl = box(prop, M.gunDark, 0.16, 3.0, 0.06, 0, 0, 0);
-    bl.rotation.z = (i / 3) * Math.PI * 2;
-  }
-  p.userData.prop = prop;
-  // The greenhouse, which on an Arado runs almost to the fin.
-  loftRings(p, M.glass, [
-    [0.42, 0.5, -2.0, 2.1], [0.5, 0.55, 0.4, 2.16], [0.46, 0.5, 2.4, 2.12],
-  ], { n: 12, px: 0.8, pz: 0.85 });
-  for (const zz of [-1.4, 0.2, 1.8]) box(p, M.planeTop, 1.02, 0.62, 0.07, 0, 2.12, zz);
-  // The wings, spread or swung back along her.
-  const wing = (sgn, back) => {
-    const w = new THREE.Group();
-    w.position.set(sgn * 0.5, 1.35, 0.4);
-    if (back) w.rotation.y = sgn * 1.42;
-    p.add(w);
-    const pos = [];
-    const idx = [];
-    const N = 6;
-    for (let i = 0; i <= N; i++) {
-      const u = i / N;
-      const span = sgn * u * 5.3;
-      const chord = 1.85 - u * 0.55;
-      const th = 0.20 * (1 - u * 0.5);
-      pos.push(span, 0.0, chord * 0.5, span, th, chord * 0.16,
-        span, 0.0, -chord * 0.5, span, -th * 0.35, chord * 0.16);
-    }
-    for (let i = 0; i < N; i++) {
-      const a = i * 4;
-      const b = (i + 1) * 4;
-      for (const [p0, p1] of [[0, 1], [1, 2], [2, 3], [3, 0]]) {
-        idx.push(a + p0, b + p0, a + p1, a + p1, b + p0, b + p1);
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    w.add(new THREE.Mesh(geo, M.planeTop));
-  };
-  for (const sgn of [-1, 1]) wing(sgn, folded);
-  // Tailplane and fin.
-  box(p, M.planeTop, 3.4, 0.09, 0.9, 0, 1.72, -3.7);
-  box(p, M.planeTop, 0.10, 1.5, 1.3, 0, 2.4, -3.9);
-  return p;
-}
 
 // ------------------------------------------------------------ the after end --
 

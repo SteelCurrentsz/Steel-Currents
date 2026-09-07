@@ -6,8 +6,9 @@ import { BattleScene } from './render/scene.js';
 import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { holeRadius } from './render/plating.js';
-import { Airborne, AERO, stallSpeed, Pilot } from './render/aero.js';
-import { ROLE_TYPE } from './render/planes.js';
+import { Airborne, AERO, stallSpeed, Pilot, flightAttitude, weathercock }
+  from './render/aero.js';
+import { ROLE_TYPE, typeOf } from './render/planes.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -28,6 +29,15 @@ const CAMERAS = ['chase', 'bridge', 'tactical'];
 // under the water, and the only thing down there it must not get inside is the
 // ground.
 const SEABED = -34;
+
+/** What to call a flight on screen: the machine, not the job she is on. */
+const FLIGHT_NAME = {
+  wildcat: 'her fighters',
+  dauntless: 'her dive bombers',
+  avenger: 'her torpedo bombers',
+  arado: 'her Arados',
+  kingfisher: 'her Kingfishers',
+};
 
 export class Battle {
   constructor({ renderer, net, input, world, shipId, team, classId, roster, mode, onExit }) {
@@ -742,7 +752,7 @@ export class Battle {
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
-    const aero = AERO[ROLE_TYPE[pl.r || 'torpedo']] || AERO.avenger;
+    const aero = AERO[typeOf(pl.k, pl.r || 'torpedo')] || AERO.avenger;
     this.flight = {
       id: pl.i,
       role: pl.r || 'torpedo',
@@ -810,12 +820,16 @@ export class Battle {
       f.tracer -= dt;
       if (f.tracer <= 0) {
         f.tracer = 0.1;
-        const cp = Math.cos(p.pitch);
+        // Down the bore, which lies along her nose -- not along her flight
+        // path. At low speed those are ten degrees apart, and a fighter hanging
+        // on her propeller shoots where she is pointed.
+        const aim = p.attitude;
+        const cp = Math.cos(aim);
         const R = 620;
         this.scene.flak.fire(
           p.x, p.y - 0.6, p.z,
           p.x + Math.sin(p.heading) * cp * R,
-          p.y + Math.sin(p.pitch) * R,
+          p.y + Math.sin(aim) * R,
           p.z + Math.cos(p.heading) * cp * R,
           12.7, 8, this.scene.effects,
         );
@@ -869,7 +883,10 @@ export class Battle {
     this.freeCamera(false);
     this.watching = {
       kind: 'plane', carrier: null, id: pick.i,
-      name: `${pick.r === 'fighter' ? 'her fighters' : pick.r === 'dive' ? 'her dive bombers' : 'her torpedo bombers'} — drag to look round them`,
+      // What she is, not what she has been sent to do. A cruiser's Arado has
+      // the role of a dive bomber because that is the nearest job on the
+      // datasheet, and calling her one on the screen is wrong twice over.
+      name: `${FLIGHT_NAME[typeOf(pick.k, pick.r)] || 'her aircraft'} — drag to look round them`,
     };
     this.watchPov = false;
     this.watchYaw = 2.5;              // over her port quarter, looking forward
@@ -1353,6 +1370,12 @@ export class Battle {
         h: pl.h + angleDelta(pl.h, nx.h) * t,
         a: lerp(pl.a, nx.a, t),
         b: lerp(pl.b || 0, nx.b || 0, t),
+        // Her height and how she is going through the air, blended like the
+        // rest of her. They used not to be, so a squadron slid smoothly across
+        // the sea and stepped down the sky five times a second.
+        y: lerp(pl.y ?? 220, nx.y ?? 220, t),
+        vy: lerp(pl.vy || 0, nx.vy || 0, t),
+        s: lerp(pl.s || 0, nx.s || 0, t),
       };
     });
     this.planesNow = planes;
@@ -1370,15 +1393,30 @@ export class Battle {
       // is a coordinated one -- tan(bank) = v.omega / g -- so the angle is the
       // angle she would really be at. Eased so a rate quantised on the wire
       // still rolls rather than steps.
-      const want = clamp(Math.atan2(60 * (pl.b || 0), 9.81), -1.15, 1.15);
+      // Which machine she is, and what her wing is: a cruiser flies float
+      // planes and a carrier flies three types, and both her bank and her
+      // attitude depend on which.
+      const kind = typeOf(pl.k, pl.r || 'torpedo');
+      const a = AERO[kind] || AERO.avenger;
+      const gs = Math.max(12, pl.s || a.vMax * 0.7);
+      const want = clamp(Math.atan2(gs * (pl.b || 0), 9.81), -1.15, 1.15);
       const held = this.planeTurn.get(pl.i);
       const bank = held === undefined ? want
         : held + (want - held) * (1 - Math.pow(0.02, dt));
       this.planeTurn.set(pl.i, bank);
-      // Nose up when she is going up and nose down when she is going down, at
-      // the angle her own rate of climb over her speed works out to. A dive
-      // bomber pushed over is drawn pushed over, because she is.
-      const pitch = clamp(Math.atan2(pl.vy ?? 0, 78), -0.85, 0.5);
+      // Her attitude, which is not the direction she is travelling.
+      //
+      // The flight path is her rate of climb over her speed across the ground.
+      // What you see of her is that plus the angle of attack her wing is
+      // working at, which is several degrees at cruise and a good deal more
+      // heavy and slow -- so a loaded torpedo bomber climbing out hangs on her
+      // propeller and a dive bomber pushed over points straight down her own
+      // path, as they should.
+      //
+      // Both of those used to be guesses: the rate of climb over a fixed
+      // seventy-eight metres a second, and no angle of attack at all.
+      const pitch = flightAttitude(a, gs, pl.vy || 0,
+        1 / Math.max(0.35, Math.cos(bank)));
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
@@ -1391,14 +1429,15 @@ export class Battle {
       const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
       if (mine) {
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
-          mine.heading, mine.bank, mine.pitch, Math.max(1, pl.n || 1), skip);
+          mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip, kind);
       } else {
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
-          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip);
+          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind);
       }
     }
     for (const w of this.wrecks) {
-      this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch);
+      this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
+        0, w.kind);
     }
     this.scene.flights.end();
     // Forget the flights that are no longer up, so the map does not grow.
@@ -1446,7 +1485,7 @@ export class Battle {
       if (this.wrecks.length > 14) this.wrecks.shift();
       const sp = 62 + Math.random() * 28;
       this.wrecks.push({
-        role, x, y: y0, z,
+        role, kind: typeOf(pl && pl.k, role), x, y: y0, z,
         vx: Math.sin(heading) * sp, vy: -4 - Math.random() * 8, vz: Math.cos(heading) * sp,
         heading, pitch: -0.15, bank: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random()),
         // How fast she is going round as she falls. A wing off one side is a
@@ -1476,9 +1515,21 @@ export class Battle {
       w.x += w.vx * dt;
       w.y += w.vy * dt;
       w.z += w.vz * dt;
-      w.heading = wrapAngle(w.heading + w.spin * dt);
       w.bank = wrapAngle(w.bank + w.tumble * dt);
-      w.pitch = clamp(w.pitch - 0.55 * dt, -1.3, 0.4);
+      // Her nose follows where she is actually going.
+      //
+      // What is left of an aeroplane has no lift and a great deal of drag, so
+      // she weathercocks into her own path -- and that path steepens as she
+      // loses her way and keeps her fall, which is why she goes in nearly
+      // vertically however level she was when she was hit. Wound down at a
+      // fixed rate instead she pointed straight at the sea two seconds after
+      // being hit whatever she was actually doing, which is the one thing that
+      // makes a falling aeroplane read as a falling marker.
+      const track = Math.hypot(w.vx, w.vz);
+      w.pitch = weathercock(w.pitch, track, w.vy, dt);
+      w.yaw = (w.yaw || 0) + w.spin * dt;
+      w.heading = track > 2 ? wrapAngle(Math.atan2(w.vx, w.vz) + w.yaw * 0.35)
+        : wrapAngle(w.heading + w.spin * dt);
       w.smoke -= dt;
       if (w.smoke <= 0) {
         w.smoke = 0.055;

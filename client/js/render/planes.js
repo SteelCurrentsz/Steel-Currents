@@ -17,7 +17,7 @@
 // makes a strike look like a strike coming in.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { __aircraft } from './enterprise.js';
+import { wildcat, dauntless, avenger, arado, kingfisher } from './planekit.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -116,16 +116,36 @@ export function flightModels() {
     p.add(disc);
     out[key] = weld(g);
   };
-  make('wildcat', (g) => __aircraft.wildcat(g, 0, 0, 0, 0, false, { gear: false }));
-  make('dauntless', (g) => __aircraft.dauntless(g, 0, 0, 0, 0, false, { gear: false }));
-  make('avenger', (g) => __aircraft.avenger(g, 0, 0, 0, 0, false, true, { gear: false }));
+  make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
+  make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
+  make('avenger', (g) => avenger(g, 0, 0, 0, 0, false, true, { gear: false }));
+  // The two float planes fly as themselves. A cruiser's scout used to be
+  // drawn as whatever the carrier had in the same role -- which is `dive` --
+  // so a Dauntless dive bomber came off a battleship's quarterdeck, and the
+  // Arado and the Kingfisher existed only as models sitting on a catapult.
+  make('arado', (g) => arado(g, 0, 0, 0, 0, false, {}));
+  make('kingfisher', (g) => kingfisher(g, 0, 0, 0, 0, {}));
   return out;
 }
 
-/** Which machine flies which job. */
+/**
+ * Which machine flies which job, for a ship that flies more than one.
+ *
+ * A carrier's group is three types and the role says which; a cruiser flies
+ * one type whatever the job is, and says so on the wire instead -- see
+ * `typeOf`.
+ */
 export const ROLE_TYPE = {
   fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
+
+const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher']);
+
+/** The machine a flight is: what her ship flies, or what her job takes. */
+export function typeOf(type, role) {
+  if (type && TYPES.has(type)) return type;
+  return ROLE_TYPE[role] || 'avenger';
+}
 
 /**
  * Where each aeroplane of a flight sits relative to her leader.
@@ -180,8 +200,8 @@ export class Flights {
    * Put one flight in the air: `count` aircraft of her type, in formation on
    * the leader's position and course, banked into whatever turn she is in.
    */
-  add(role, x, y, z, heading, bank, pitch, count, skip = -1) {
-    const b = this.batches[ROLE_TYPE[role] || 'avenger'];
+  add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null) {
+    const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b) return;
     const d = this.dummy;
     const sn = Math.sin(heading);
@@ -210,8 +230,8 @@ export class Flights {
    * end over end, and she needs the whole attitude rather than a slot in
    * somebody's division. Drawn out of the same batch, so she costs nothing.
    */
-  one(role, x, y, z, heading, bank, pitch, roll = 0) {
-    const b = this.batches[ROLE_TYPE[role] || 'avenger'];
+  one(role, x, y, z, heading, bank, pitch, roll = 0, type = null) {
+    const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b || b.n >= this.max) return;
     const d = this.dummy;
     d.position.set(x, y, z);

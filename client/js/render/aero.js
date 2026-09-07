@@ -113,6 +113,60 @@ export function clFor(a, v, load = 1) {
 }
 
 /**
+ * The angle her nose sits at above her own flight path.
+ *
+ * A wing makes lift by meeting the air at an angle, and how big that angle has
+ * to be depends on how hard the wing is working: heavy and slow it is a great
+ * deal, fast and light it is almost nothing. That difference is the whole of
+ * why a loaded torpedo bomber climbing out looks as though she is hanging on
+ * her propeller while a fighter at speed looks level.
+ *
+ * Lift-curve slope of a thin aerofoil, corrected for the aspect ratio she
+ * actually has, plus the couple of degrees the wing is rigged at.
+ */
+export function alphaFor(a, v, load = 1) {
+  const cl = clFor(a, Math.max(1, v), load);
+  const AR = aspect(a);
+  const slope = (2 * Math.PI * AR) / (AR + 2);
+  return Math.min(0.32, (a.rig ?? 0.03) + cl / slope);
+}
+
+/**
+ * The attitude to draw a flight at, from what is known about her.
+ *
+ * Her flight path is her rate of climb over her speed across the ground, and
+ * her nose sits above it by the angle of attack her wing is working at. Both
+ * halves used to be missing: the path was her rate of climb over a fixed
+ * seventy-eight metres a second whatever she was actually doing, and there was
+ * no angle of attack at all -- so every aeroplane in the game was an arrow
+ * pointing exactly down its own track, and a torpedo bomber running in slow and
+ * level was drawn dead level instead of hanging on her propeller.
+ */
+export function flightAttitude(a, groundSpeed, climbRate, load = 1) {
+  const gs = Math.max(12, groundSpeed);
+  const gamma = Math.atan2(climbRate, gs);
+  const alpha = alphaFor(a, Math.hypot(gs, climbRate), load);
+  return Math.max(-1.25, Math.min(0.6, gamma + alpha));
+}
+
+/**
+ * Which way something falling out of the sky is pointing.
+ *
+ * What is left of an aeroplane has no lift and a great deal of drag, so she
+ * weathercocks into her own path -- and that path steepens as she loses her way
+ * and keeps her fall, which is why a wreck goes in nearly vertically however
+ * level she was when she was hit. Wound down at a fixed rate instead she
+ * pointed at the sea a second or two after being hit whatever she was doing,
+ * which is the one thing that makes a falling aeroplane read as a falling
+ * marker.
+ */
+export function weathercock(pitch, groundSpeed, climbRate, dt, rate = 2.0) {
+  const want = Math.atan2(climbRate, Math.max(4, groundSpeed));
+  const d = Math.max(-rate * dt, Math.min(rate * dt, want - pitch));
+  return Math.max(-1.45, Math.min(0.5, pitch + d));
+}
+
+/**
  * A take-off run, integrated properly.
  *
  * She starts stopped on the deck with the wind already over her wing, opens up,
@@ -303,6 +357,25 @@ export class Pilot {
   get vStall() { return stallSpeed(this.a); }
 
   /**
+   * The angle her nose is at, which is not the angle she is going.
+   *
+   * `pitch` is her flight path -- where the aeroplane is actually travelling.
+   * What you see of her is that plus the angle of attack her wing is working
+   * at, and the difference is several degrees at cruise and fifteen or more
+   * hanging on the stall. Drawn on the flight path alone she flew like a dart:
+   * nose exactly along the path at every speed, and level flight at the point
+   * of the stall drawn dead level.
+   */
+  get attitude() {
+    const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(this.g)));
+    // Past the stall the wing has let go, and she stops flying at an angle of
+    // attack and starts falling at one: the nose comes down toward her path
+    // rather than standing further and further above it.
+    const nose = this.pitch + a * (1 - 0.7 * this.stall);
+    return Math.max(-1.5, Math.min(1.5, nose));
+  }
+
+  /**
    * One step of flying.
    *
    * Sub-stepped, because a stick hard over at three hundred knots turns her
@@ -330,9 +403,18 @@ export class Pilot {
     // Roll. A fighter rolls fast; a loaded torpedo bomber does not.
     const rollRate = (a.rollRate ?? 2.6) * q;
     const wantBank = this.stickRoll * (a.bankMax ?? 1.35);
-    // The instructor: hands off, she rolls level on her own dihedral.
-    const target = Math.abs(this.stickRoll) > 0.03 ? wantBank : 0;
-    const dB = Math.max(-rollRate * s, Math.min(rollRate * s, target - this.bank));
+    const held = Math.abs(this.stickRoll) > 0.03;
+    // Hands off, she rolls level on her own dihedral -- but slowly. She used
+    // to come level as fast as the stick could put her over, so a turn ended
+    // the instant the stick was let go and there was no such thing as leaving
+    // her in a bank: what an aeroplane does is hold most of what you gave her
+    // and come out of it in her own time.
+    const target = held ? wantBank : 0;
+    // A tenth of it: she takes about three seconds to come out of a hard bank
+    // on her own, which is what dihedral does, rather than the third of a
+    // second the ailerons could do it in.
+    const rate = held ? rollRate : rollRate * 0.10;
+    const dB = Math.max(-rate * s, Math.min(rate * s, target - this.bank));
     this.bank += dB;
 
     // Pitch. The stick asks for g; the wing decides whether it gets it.
@@ -354,7 +436,12 @@ export class Pilot {
     // And the vertical part against gravity gives the climb rate.
     const gamma = (G * (this.g * Math.cos(this.bank) - Math.cos(this.pitch)))
       / Math.max(18, this.v);
-    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + gamma * s));
+    // Rate-limited, because an aeroplane has mass and a tailplane: she swings
+    // her nose as fast as her elevator will move it and no faster. The limit
+    // was worked out and then not used, so at speed she could snap from a
+    // vertical dive to a vertical climb inside a frame.
+    const dP = Math.max(-pitchRate * s, Math.min(pitchRate * s, gamma * s));
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dP));
 
     // Energy: thrust against drag and the component of weight along the path.
     const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));

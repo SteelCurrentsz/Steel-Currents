@@ -12,6 +12,7 @@
 // y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { kingfisher } from './planekit.js';
 import { arm } from './mounts.js';
 import { mergeStatic } from './merge.js';
 import { dressShip } from './textures.js';
@@ -904,45 +905,6 @@ function turret16(range = false) {
 
 // ------------------------------------------------------ the aeroplane --
 
-/** An OS2U Kingfisher on her float, which is what she flies off the girder. */
-function kingfisher(parent, x, y, z, ry) {
-  const g = new THREE.Group();
-  g.position.set(x, y, z);
-  g.rotation.y = ry;
-  parent.add(g);
-  const body = cy(g, 0.48, 0.30, 9.6, P.plane, 0, 0, 0.2, 10);
-  body.rotation.x = Math.PI / 2;
-  // The long greenhouse over two seats.
-  bx(g, 0.9, 0.7, 3.4, P.glass, 0, 0.55, 0.4);
-  // Wings, tail and fin.
-  bx(g, 10.9, 0.22, 1.8, P.plane, 0, 0.22, 0.5);
-  bx(g, 3.6, 0.18, 1.0, P.plane, 0, 0.75, -3.9);
-  bx(g, 0.18, 1.7, 1.2, P.plane, 0, 1.4, -4.1);
-  // The great central float on its struts, and the wingtip floats.
-  const fl = cy(g, 0.42, 0.30, 7.8, P.plane, 0, -1.5, 0.4, 10);
-  fl.rotation.x = Math.PI / 2;
-  for (const dz of [-1.6, 1.4]) {
-    for (const s of [-1, 1]) {
-      const st = bx(g, 0.1, 1.5, 0.1, P.plane, s * 0.5, -0.75, dz);
-      st.rotation.z = s * 0.24;
-    }
-  }
-  for (const s of [-1, 1]) {
-    const wf = cy(g, 0.17, 0.13, 1.9, P.plane, s * 4.6, -0.6, 0.5, 8);
-    wf.rotation.x = Math.PI / 2;
-    bx(g, 0.08, 0.8, 0.08, P.plane, s * 4.6, -0.2, 0.5);
-  }
-  // The engine, and the disc her propeller turns into.
-  cy(g, 0.55, 0.55, 1.2, P.gunDark, 0, 0.05, 4.4, 12).rotation.x = Math.PI / 2;
-  const prop = new THREE.Mesh(new THREE.CircleGeometry(1.55, 12),
-    new THREE.MeshBasicMaterial({
-      color: 0x9aa6b2, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
-    }));
-  prop.position.set(0, 0.05, 5.1);
-  g.add(prop);
-  g.userData.prop = prop;
-  return g;
-}
 
 // ------------------------------------------------------ her upperworks --
 
@@ -1073,7 +1035,7 @@ function aviation(g) {
     cat.add(car);
     bx(car, 2.0, 0.4, 2.0, P.gunDark, 0, 1.75, 0);
     bx(car, 2.1, 0.24, 0.5, P.gun, 0, 1.5, -0.9);
-    const plane = kingfisher(car, 0, RIG.PLANE_Y, RIG.PLANE_Z, 0);
+    const plane = kingfisher(car, 0, RIG.PLANE_Y, RIG.PLANE_Z, 0, { spin: true });
     cats.push({ group: cat, car, plane, prop: plane.userData.prop, sgn });
   }
 

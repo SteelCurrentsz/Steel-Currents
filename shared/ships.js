@@ -244,6 +244,11 @@ export const SHIP_CLASSES = {
       bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
       // Off a catapult, not down a flight deck: the whole evolution is the
       // catapult training out, the engine running up and the shot itself.
+      // What she actually flies. A cruiser's scout is a float plane on a
+      // catapult, and drawing her as whatever the carrier happens to have in
+      // the same role -- which is what happened, and the role is `dive` -- put
+      // a Dauntless dive bomber in the air off a battleship's quarterdeck.
+      type: 'kingfisher',
       catapult: true, deckRun: 8.6, deckCycle: 30,
       // The height the catapult shot leaves her at, off the integrated
       // profile: a scout is thrown off level and climbs from there.
@@ -371,6 +376,7 @@ export const SHIP_CLASSES = {
       rearm: 110, hp: 620, dropSpread: 0.07,
       torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
       bombDamage: 700, bombHit: 0.28, bombFire: 0.12,
+      type: 'arado',
       catapult: true, deckRun: 9.4, deckCycle: 34,
       runHeight: 20,
       // Where the shot leaves her. Her catapult lies across the ship, so her
@@ -504,6 +510,7 @@ export const SHIP_CLASSES = {
       bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
       // Off a catapult, not down a flight deck: the whole evolution is the
       // catapult training out, the engine running up and the shot itself.
+      type: 'kingfisher',
       catapult: true, deckRun: 8.6, deckCycle: 30,
       runHeight: 22,
       runOut: 141, runBearing: 1.16,

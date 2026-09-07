@@ -1837,6 +1837,12 @@ function stepLaunch(state, ship, dt) {
     const away = wrapAngle(ship.heading + off.bearing);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
+      // What she is, as against what she is for. A cruiser flies float planes
+      // and a carrier flies three different machines, and the role alone does
+      // not say which: a catapult scout's role is `dive`, so drawn off the
+      // role she came out as a Dauntless on a battleship's quarterdeck.
+      type: cls.planes.type || null,
+      speed: cls.planes.cruiseSpeed,
       x: ship.x + Math.sin(away) * off.out,
       z: ship.z + Math.cos(away) * off.out,
       heading: away,
@@ -2414,6 +2420,11 @@ function stepPlanes(state, dt) {
         speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
       }
 
+      // How fast she is crossing the ground. Kept on the flight because the
+      // client draws her attitude off it: the angle her nose is at is the
+      // angle of her own flight path, which is her rate of climb over this,
+      // and there is no other way to know it from outside.
+      p.speed = speed;
       p.x += Math.sin(p.heading) * speed * dt;
       p.z += Math.cos(p.heading) * speed * dt;
     } else {

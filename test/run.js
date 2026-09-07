@@ -20,7 +20,8 @@ import {
   flightDeckOut, resolveShellHit, buoyancy, launchOffset,
   flyPlane, releasePlane, dropOrdnance, strafe,
 } from '../shared/sim.js';
-import { Pilot, AERO } from '../client/js/render/aero.js';
+import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
+  from '../client/js/render/aero.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.
@@ -29,7 +30,8 @@ const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { arsenal, readTarget } from '../client/js/hud.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
-import { weld, flightModels } from '../client/js/render/planes.js';
+import { weld, flightModels, typeOf } from '../client/js/render/planes.js';
+import { arado, kingfisher, wildcat as pkWildcat } from '../client/js/render/planekit.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
 import { Debris } from '../client/js/render/debris.js';
@@ -5123,6 +5125,219 @@ check('an aeroplane flies on her wing, not on a cursor', () => {
   for (let i = 0; i < 60 * 4; i++) slow.step(1 / 60);
   assert.ok(slow.stall > 0.4, `she was asked for more than her wing had and gave ${slow.stall.toFixed(2)}`);
   assert.ok(slow.pitch < 0.25, 'she went on climbing through a stall');
+});
+
+check('every ship flies the aeroplane she actually carried', () => {
+  // A cruiser's aircraft is a float plane on a catapult, and a carrier's is
+  // whichever of three types the job takes. The wire used to say only the job
+  // -- and a catapult scout's job is `dive` -- so an Arado shot off the
+  // Hipper's catapult became a Dauntless the moment she was airborne, and the
+  // two float planes existed only as models sitting on a deck.
+  assert.equal(SHIP_CLASSES.hipper.planes.type, 'arado',
+    'the Hipper does not know what she flies');
+  assert.equal(SHIP_CLASSES.iowa.planes.type, 'kingfisher',
+    'the Iowa does not know what she flies');
+  assert.equal(SHIP_CLASSES.cleveland.planes.type, 'kingfisher',
+    'the Cleveland does not know what she flies');
+  assert.ok(!SHIP_CLASSES.enterprise.planes.type,
+    'the carrier flies one type, which she did not');
+
+  // And what the batch draws follows from it.
+  assert.equal(typeOf('arado', 'dive'), 'arado',
+    'a scout is still drawn as whatever her job would be');
+  assert.equal(typeOf(null, 'dive'), 'dauntless', 'a carrier dive bomber is not an SBD');
+  assert.equal(typeOf(null, 'fighter'), 'wildcat', 'a carrier fighter is not an F4F');
+  assert.equal(typeOf('nonsense', 'torpedo'), 'avenger', 'an unknown type is not fallen back on');
+
+  // There is a model for every one of them, and it is the right size.
+  const models = flightModels();
+  const span = (key) => {
+    const g = models[key];
+    assert.ok(g, `nothing is built to draw a ${key}`);
+    g.geo.computeBoundingBox();
+    const b = g.geo.boundingBox;
+    return [b.max.x - b.min.x, b.max.z - b.min.z];
+  };
+  // Span and length, in metres, against the real machines.
+  for (const [key, wantSpan, wantLen] of [
+    ['wildcat', 11.6, 8.8], ['dauntless', 12.7, 10.1], ['avenger', 16.5, 12.2],
+    ['arado', 12.4, 11.0], ['kingfisher', 11.0, 10.3],
+  ]) {
+    const [sp, len] = span(key);
+    assert.ok(Math.abs(sp - wantSpan) < 1.2,
+      `a ${key} spans ${sp.toFixed(1)} m against ${wantSpan}`);
+    assert.ok(Math.abs(len - wantLen) < 1.6,
+      `a ${key} is ${len.toFixed(1)} m long against ${wantLen}`);
+  }
+  // And the float planes are on floats: something under them, well below the
+  // wing, running most of the length of the aeroplane.
+  for (const [name, build] of [['Arado', arado], ['Kingfisher', kingfisher]]) {
+    const g = new THREE.Group();
+    build(g, 0, 0, 0, 0, false, {});
+    g.updateMatrixWorld(true);
+    let low = null;
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      const b = new THREE.Box3().setFromObject(o);
+      const len = b.max.z - b.min.z;
+      if (len < 5 || b.max.y > 1.4) return;      // a float is long and it is low
+      if (!low || b.min.y < low.min.y) low = b;
+    });
+    assert.ok(low, `the ${name} has nothing under her to float on`);
+    assert.ok(low.max.z - low.min.z > 5.5,
+      `the ${name}'s float is only ${(low.max.z - low.min.z).toFixed(1)} m long`);
+    // With a step in the planing bottom, which is what makes it a float and
+    // not a canoe: the keel breaks about amidships and jumps up aft of it.
+    const ray = new THREE.Raycaster();
+    const up = new THREE.Vector3(0, 1, 0);
+    const meshes = [];
+    g.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    const keelAt = (z) => {
+      ray.set(new THREE.Vector3((low.min.x + low.max.x) / 2, -6, z), up);
+      const hit = ray.intersectObjects(meshes, false)[0];
+      return hit ? hit.point.y : null;
+    };
+    let step = 0;
+    for (let z = low.min.z + 0.4; z < low.max.z - 0.8; z += 0.1) {
+      const a = keelAt(z);
+      const b = keelAt(z + 0.2);
+      if (a != null && b != null) step = Math.max(step, a - b);
+    }
+    assert.ok(step > 0.10,
+      `the ${name}'s planing bottom is fair the whole way: ${step.toFixed(2)} m of `
+      + 'step in it, and a float without a step never comes unstuck');
+  }
+});
+
+check('an aeroplane points where she is going, and a little above it', () => {
+  // What you see of an aeroplane is not the direction she is travelling. She
+  // meets the air at an angle of attack, and how big it is depends on how hard
+  // the wing is working: a few degrees fast and light, fifteen or more heavy
+  // and slow. That difference is the whole of why a loaded bomber climbing out
+  // hangs on her propeller and a fighter at speed looks level.
+  //
+  // Both were missing. Her attitude was her rate of climb over a fixed
+  // seventy-eight metres a second -- not her own speed, and no angle of attack
+  // at all -- so every aeroplane in the game was drawn as an arrow pointing
+  // exactly down its own track.
+  const fast = alphaFor(AERO.wildcat, 130);
+  const slow = alphaFor(AERO.avenger, 52);
+  assert.ok(fast < 0.09,
+    `a fighter at speed sits ${(fast * 57.3).toFixed(1)} degrees nose up`);
+  assert.ok(slow > 0.14,
+    `a loaded bomber at fifty metres a second sits only ${(slow * 57.3).toFixed(1)} `
+    + 'degrees nose up');
+  assert.ok(slow > fast * 2, 'her angle of attack barely changes with speed');
+
+  // In level flight her nose is above her path; in a dive it is below the
+  // horizon and near enough along her path.
+  const p = new Pilot(AERO.dauntless, { y: 2000, speed: 100 });
+  for (let i = 0; i < 60 * 4; i++) p.step(1 / 60);
+  assert.ok(p.attitude > p.pitch + 0.01,
+    'level, her nose is not above her flight path');
+  assert.ok(p.attitude > 0.02 && p.attitude < 0.20,
+    `level, she is drawn at ${(p.attitude * 57.3).toFixed(1)} degrees`);
+
+  const dive = new Pilot(AERO.dauntless, { y: 3000, speed: 100 });
+  dive.throttle = 0.3;
+  for (let i = 0; i < 60 * 8; i++) { dive.stickPitch = -0.6; dive.step(1 / 60); }
+  assert.ok(dive.pitch < -0.7,
+    `pushed over she only reached ${(dive.pitch * 57.3).toFixed(0)} degrees`);
+  assert.ok(dive.attitude < -0.6,
+    `going down at ${(dive.pitch * 57.3).toFixed(0)} degrees she is drawn at `
+    + `${(dive.attitude * 57.3).toFixed(0)}: she is falling without pointing down`);
+  assert.ok(Math.abs(dive.attitude - dive.pitch) < 0.2,
+    'in a dive her nose is a long way off her own path');
+
+  // And her nose never goes past the vertical, however she is thrown about.
+  const wild = new Pilot(AERO.wildcat, { y: 4000, speed: 120 });
+  for (let i = 0; i < 60 * 8; i++) { wild.stickPitch = 1; wild.step(1 / 60); }
+  assert.ok(Math.abs(wild.attitude) <= 1.5 + 1e-6,
+    `hauled right back she is drawn at ${(wild.attitude * 57.3).toFixed(0)} degrees`);
+
+  // The same for a flight the simulation is flying, which is drawn off her
+  // rate of climb and her speed over the ground rather than off a stick.
+  const runIn = flightAttitude(AERO.avenger, 55, 0);
+  assert.ok(runIn > 0.12,
+    `a torpedo bomber running in slow and level is drawn at `
+    + `${(runIn * 57.3).toFixed(1)} degrees: she is not hanging on her propeller`);
+  const pushed = flightAttitude(AERO.dauntless, 95, -55);
+  assert.ok(pushed < -0.35,
+    `a dive bomber going down at fifty-five metres a second is drawn at `
+    + `${(pushed * 57.3).toFixed(0)} degrees`);
+  // And her nose follows her speed, not a number somebody picked: the same
+  // rate of climb at half the speed is twice as steep.
+  const slowDive = flightAttitude(AERO.dauntless, 48, -55);
+  assert.ok(slowDive < pushed - 0.2,
+    'her attitude does not depend on how fast she is going');
+});
+
+check('a wreck goes in pointing where she is falling', () => {
+  // What is left of an aeroplane weathercocks into her own path, and that path
+  // steepens as she loses her way and keeps her fall -- so she goes in nearly
+  // vertically however level she was when she was hit, and she gets there in
+  // her own time rather than on a stopwatch.
+  //
+  // She used to be wound nose-down at a fixed rate: pointing at the sea two
+  // seconds after being hit whatever she was actually doing, which is the one
+  // thing that makes a falling aeroplane read as a falling marker.
+  let pitch = -0.15;
+  let vx = 70;
+  let vy = -6;
+  const dt = 1 / 60;
+  const track = [];
+  for (let i = 0; i < 60 * 5; i++) {
+    const drag = Math.pow(0.72, dt);
+    vx *= drag;
+    vy = vy * drag - 9.81 * dt;
+    pitch = weathercock(pitch, Math.abs(vx), vy, dt);
+    if (i === 30 || i === 90) track.push(pitch);
+  }
+  // Half a second in she is barely nose down: she has plenty of way on still
+  // and she is not falling fast, so her path is nearly flat and so is she.
+  assert.ok(track[0] > -0.30,
+    `half a second after being hit, still doing sixty knots, she is already at `
+    + `${(track[0] * 57.3).toFixed(0)} degrees`);
+  // A second and a half in she has lost most of her way and it is telling.
+  assert.ok(track[1] < -0.20 && track[1] > -0.65,
+    `a second and a half in she is at ${(track[1] * 57.3).toFixed(0)} degrees`);
+  // And she keeps steepening as she goes: by the end she is falling far more
+  // than she is travelling.
+  assert.ok(pitch < -0.9,
+    `five seconds down she is only at ${(pitch * 57.3).toFixed(0)} degrees`);
+  assert.ok(pitch < track[1] - 0.5, 'she stopped steepening');
+  // A wreck still travelling fast is not pointing straight down: her nose is
+  // on her path and her path is not vertical.
+  const fast = weathercock(-0.2, 120, -30, 0.5);
+  assert.ok(fast > -0.4 && fast < -0.1,
+    `still doing a hundred and twenty she is drawn at ${(fast * 57.3).toFixed(0)} degrees`);
+});
+
+check('she holds the bank you put her in', () => {
+  // A stick let go is not an aeroplane rolling level now. She has dihedral and
+  // she comes out of a turn in her own time, which is a good deal slower than
+  // she went into it -- and it is the difference between flying her and
+  // dragging a marker about. She used to roll out as fast as she rolled in, so
+  // a turn ended the instant the stick was released.
+  const p = new Pilot(AERO.wildcat, { y: 1500, speed: 120 });
+  p.stickRoll = 1;
+  for (let i = 0; i < 60; i++) p.step(1 / 60);
+  const over = Math.abs(p.bank);
+  assert.ok(over > 1.0, `a second of full stick got her ${over.toFixed(2)} rad of bank`);
+  // Let go, and one second later she is still well over.
+  p.stickRoll = 0;
+  const h0 = p.heading;
+  for (let i = 0; i < 60; i++) p.step(1 / 60);
+  assert.ok(Math.abs(p.bank) > over * 0.5,
+    `a second after letting go she is down to ${p.bank.toFixed(2)} from ${over.toFixed(2)}`);
+  assert.ok(Math.abs(p.heading - h0) > 0.15,
+    `she came round only ${((p.heading - h0) * 57.3).toFixed(0)} degrees in the `
+    + 'second after the stick came off: she stopped turning the moment she was '
+    + 'let go');
+  // But she does come out of it: hold off long enough and she is level.
+  for (let i = 0; i < 60 * 12; i++) p.step(1 / 60);
+  assert.ok(Math.abs(p.bank) < 0.05,
+    `left alone she stays at ${p.bank.toFixed(2)} rad of bank for ever`);
 });
 
 check('a squadron always comes back, however her flights end', () => {
