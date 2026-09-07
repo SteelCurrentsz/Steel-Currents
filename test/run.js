@@ -30,6 +30,7 @@ const STRIKE_RUN = DECK_RUN * 3 + 1;
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { Hud, arsenal, readTarget } from '../client/js/hud.js';
+import { Audio as AudioClass } from '../client/js/audio.js';
 import { Battle } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
@@ -124,7 +125,7 @@ function shellRuler(group) {
     return best;
   };
 }
-import { angleDelta, dist, MPS_TO_KNOTS } from '../shared/math.js';
+import { angleDelta, dist, clamp, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL } from '../client/js/render/ocean.js';
 import { Wake, WakeField } from '../client/js/render/wakefield.js';
@@ -160,6 +161,24 @@ import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
 import { buildSnapshot } from '../shared/protocol.js';
 
+
+/**
+ * Put a ship's secondary battery out of action for a check.
+ *
+ * A secondary mounting is in local control: it picks its own target and opens
+ * up on its own, with nobody ordering anything. That is the point of it, and
+ * it is exactly what makes it noise in a check about something else -- a
+ * destroyer's torpedo run, or whose hand is on the helm. Until the mountings
+ * were laid on a bearing that was a number they did nothing at all, so checks
+ * written in those days have premises that quietly assumed silence.
+ *
+ * `disabled` is the simulation's own word for a mounting that is out, so this
+ * is the state a wrecked battery is already in rather than a switch invented
+ * for the tests.
+ */
+function silenceSecondaries(...ships) {
+  for (const s of ships) for (const m of s.secMounts) m.disabled = 1e9;
+}
 
 /**
  * The handful of cockpit elements `bindCockpit` touches, as objects that
@@ -290,8 +309,14 @@ check('battleship AP citadels a cruiser but light AP bounces off a battleship', 
     light.a.aimX = light.b.x; light.a.aimZ = light.b.z;
     if (i > 60) fireGuns(light.state, light.a);
     for (const ev of step(light.state, DT)) {
-      if (ev.e === 'hit' && ev.kind === 'citadel') pens++;
-      if (ev.e === 'hit' && (ev.kind === 'shatter' || ev.kind === 'ricochet')) bounces++;
+      // By calibre, because both ships have a five-inch battery in local
+      // control and both of them are now firing. Counting every citadel in the
+      // action counted the Iowa's own secondaries plunging onto the
+      // Cleveland's deck -- which is a different gun hitting a different ship,
+      // and not what this check is about.
+      if (ev.e !== 'hit' || ev.cal !== 152) continue;
+      if (ev.kind === 'citadel') pens++;
+      if (ev.kind === 'shatter' || ev.kind === 'ricochet') bounces++;
     }
   }
   assert.equal(pens, 0, '152 mm AP must not citadel an Iowa belt');
@@ -300,6 +325,12 @@ check('battleship AP citadels a cruiser but light AP bounces off a battleship', 
 
 check('torpedoes run out to range and detonate on contact', () => {
   const { state, a, b } = duel('fletcher', 'iowa', 1600);
+  // What is under test is the fish: whether they train, run out to range and
+  // go off on contact. The battleship is the thing they are aimed at, not a
+  // combatant -- and at seventeen hundred yards her ten twin five-inch
+  // mountings would have the destroyer under water long before the tubes came
+  // round, which tells us nothing whatever about torpedoes.
+  silenceSecondaries(b);
   a.aimX = b.x; a.aimZ = b.z;
   // The bank has to come round first: fifteen tons of tubes on a training
   // ring do not swing onto a beam bearing the instant the button is pressed.
@@ -777,7 +808,19 @@ check('a battle is fought out to the last ship', () => {
   const b1 = addShip(st, { name: 'Foe', classId: 'hipper', team: 1, index: 0 });
   // Well apart, so nothing is shooting at anything and the only thing that can
   // end this is the arithmetic under test.
-  a1.x = 0; a1.z = 0; a2.x = 800; a2.z = 0; b1.x = 0; b1.z = 30000;
+  //
+  // Opposite corners of the map, and not thirty kilometres apart: the border
+  // holds a ship inside the world, so an enemy "put" out there was really
+  // sitting seven thousand metres away -- comfortably inside everybody's
+  // secondary battery. It made no difference while those mountings were laid
+  // on a bearing that was not a number and never fired; the moment they worked
+  // the two American ships shelled her under in six minutes, and the battle
+  // ended by elimination inside a check that says nothing should end it.
+  a1.x = -6000; a1.z = -6000; a2.x = -5200; a2.z = -6000;
+  b1.x = 6000; b1.z = 6000;
+  const apart = Math.hypot(b1.x - a2.x, b1.z - a2.z);
+  assert.ok(apart > 9000,
+    `the two sides are ${Math.round(apart)} m apart, which is inside a secondary battery`);
   assert.ok(!('caps' in st), 'she still has capture zones');
   assert.ok(!('score' in st), 'she still keeps a score');
 
@@ -4902,7 +4945,14 @@ check('a ship fights herself while her captain cons her', () => pinned(() => {
   // telegraph or her squadrons.
   const st = createState(generateWorld(7, 'open_ocean'), { mode: 'deathmatch' });
   const mine = addShip(st, { name: 'Mine', classId: 'cleveland', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'Foe', classId: 'hipper', team: 1, index: 0 });
+  // A destroyer, so that the ship under test is still afloat at the end of it.
+  // Against a heavy cruiser at six thousand metres she was sunk two thirds of
+  // the way through, and a sunk ship makes no ground -- so what the last
+  // assertion really measured was how long she lasted. It passed by about ten
+  // seconds, and stopped passing the moment her enemy's secondary battery
+  // joined in. The question is whose hand is on the helm; she has to be alive
+  // to answer it.
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
   mine.x = 0; mine.z = 0; foe.x = 6000; foe.z = 0;
   // Ordered north-about, away from the enemy she is engaging, and given way on.
   mine.notch = 4;
@@ -4927,7 +4977,9 @@ check('a ship fights herself while her captain cons her', () => pinned(() => {
   const away = Math.abs(angleDelta(mine.heading, Math.PI));
   assert.ok(away < 0.4,
     `she steered ${mine.heading.toFixed(2)} rad, not the course she was given`);
-  assert.ok(mine.z < -120, `she made good only ${Math.round(-mine.z)} m up her course`);
+  // Still afloat, or the rest of it means nothing.
+  assert.ok(mine.alive, 'she was sunk before the check was over');
+  assert.ok(mine.z < -400, `she made good only ${Math.round(-mine.z)} m up her course`);
 
   // A ship with nobody aboard still steers herself, and fights.
   const bot = addShip(st, { name: 'Bot', classId: 'cleveland', team: 0, index: 1, isBot: true });
@@ -7211,6 +7263,196 @@ check('a frame that goes wrong costs a frame, not the battle', () => {
   assert.ok(/preventDefault\(\)/.test(lost),
     'the lost context is not cancelled, so it is never restored');
   assert.ok(/webglcontextrestored/.test(main), 'nothing puts the picture back');
+
+  // And the offline build's boot screen, which is what a player of the shared
+  // page actually sees. Its error handler never came off, so a fault twenty
+  // minutes into an action pulled the boot screen back over a running battle
+  // and told the captain the game had failed to start -- which it had not.
+  const boot = readFileSync(new URL('../build/standalone.mjs', import.meta.url), 'utf8');
+  const shell = boot.slice(boot.indexOf("window.addEventListener('error'"),
+    boot.indexOf("window.addEventListener('load'"));
+  assert.ok(/if\s*\(started\)/.test(shell),
+    'the boot screen still covers a battle that is already running');
+  assert.ok(/started = true/.test(boot),
+    'nothing ever marks the game as started, so the boot screen never stands down');
+});
+
+
+check('a secondary mounting is laid on a bearing that is a number', () => {
+  // The one that stopped a battle. A secondary's lead was worked out as
+  // `d / (spec.velocity * 0.82)`, and `spec` is the mounting -- a position, an
+  // arc and a number of guns, with no muzzle velocity on it, ever. So the
+  // flight time was a division by undefined, and from the first moment a
+  // mounting saw anything to shoot at, its bearing stopped being a number and
+  // never became one again. It went on firing: shells with no position and no
+  // velocity, onto the wire, into the client, into the volume of the gun's own
+  // report -- where the browser refuses a value that is not a number and took
+  // the whole battle down with it.
+  const st = createState(generateWorld(1, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const b = addShip(st, { name: 'B', classId: 'iowa', team: 1, index: 0 });
+  // Alongside, on the beam, where a secondary battery has something to do.
+  a.x = 0; a.z = 0; a.heading = 0; a.speed = 8;
+  b.x = 3000; b.z = 400; b.heading = Math.PI; b.speed = 10;
+  b.spottedBy[0] = true; a.spottedBy[1] = true;
+  for (let i = 0; i < 60 * 30; i++) {
+    step(st, DT);
+    b.spottedBy[0] = true; a.spottedBy[1] = true;
+    for (const s of [a, b]) {
+      for (const m of s.secMounts) {
+        assert.ok(Number.isFinite(m.angle),
+          `a ${s.classId} mounting is trained on ${m.angle} after ${(i * DT).toFixed(1)} s`);
+        assert.ok(Number.isFinite(m.elev),
+          `a ${s.classId} mounting is elevated to ${m.elev}`);
+      }
+    }
+    for (const sh of st.shells) {
+      for (const k of ['x', 'y', 'z', 'vx', 'vy', 'vz', 'g']) {
+        assert.ok(Number.isFinite(sh[k]), `a shell in the air has ${k} = ${sh[k]}`);
+      }
+    }
+  }
+  // And she did actually fire her secondaries in that half minute, or the
+  // check has proved nothing.
+  const fired = st.shells.length + st.events.filter((e) => e.e === 'muzzle').length;
+  assert.ok(fired > 0, 'nobody fired at all, so nothing was checked');
+});
+
+check('nothing that is not a number reaches the wire', () => {
+  // The general form of it: fight two whole battles out with everything in
+  // them and check that no number anywhere in the simulation, or in any
+  // snapshot built from it, has stopped being one. A single NaN is not a
+  // wrong figure -- it spreads through everything it touches and comes out
+  // the far end as a browser refusing to make a noise.
+  const bad = [];
+  const scan = (v, path, depth = 0) => {
+    if (bad.length > 6 || depth > 5 || v == null) return;
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) bad.push(`${path} = ${v}`);
+      return;
+    }
+    if (Array.isArray(v)) { v.forEach((x, i) => scan(x, `${path}[${i}]`, depth + 1)); return; }
+    if (typeof v === 'object') {
+      for (const k of Object.keys(v)) {
+        if (k === 'world' || k === 'rng') continue;
+        scan(v[k], `${path}.${k}`, depth + 1);
+      }
+    }
+  };
+  for (const [seed, one, two] of [[1, 'cleveland', 'enterprise'], [7, 'iowa', 'hipper']]) {
+    const st = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch', timeLimit: 900 });
+    const ships = [];
+    for (let t = 0; t < 2; t++) {
+      for (let i = 0; i < 2; i++) {
+        ships.push(addShip(st, { name: `s${t}${i}`, classId: t ? two : one, team: t, index: i, isBot: true }));
+      }
+    }
+    const brains = new Map(ships.map((s) => [s.id, createBotBrain(s, 0.8)]));
+    for (let k = 0; k < 30 * 260 && !st.over && !bad.length; k++) {
+      for (const s of st.ships) if (s.alive) stepBot(st, s, brains.get(s.id), DT);
+      if (k % 150 === 0) for (const s of st.ships) if (s.alive) launchStrike(st, s);
+      step(st, DT);
+      if (k % 15 === 0) {
+        scan({ ships: st.ships, shells: st.shells, torps: st.torps, planes: st.planes }, 'state');
+        for (const s of st.ships) scan(shipSnapshot(s, true), `snap(${s.classId})`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], `the simulation produced ${bad.join(', ')}`);
+});
+
+check('a gun that cannot work out where to shoot does not shoot', () => {
+  // The rail behind the fix. A round whose position or velocity is not a
+  // number never lands, never misses, and divides every screen it reaches --
+  // so it is not put in the air at all. Nothing should ever reach this: it is
+  // here so that the next arithmetic slip costs a shot rather than a battle.
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const sh = addShip(st, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = sh.x + 6000; foe.z = sh.z; foe.spottedBy[0] = true;
+  sh.target = foe.id;
+  // Break one turret's bearing the way the secondary's was broken, and fire.
+  for (const t of sh.turrets) { t.cooldown = 0; t.angle = NaN; }
+  sh.aimX = NaN; sh.aimZ = NaN;
+  fireGuns(st, sh);
+  for (const s of st.shells) {
+    for (const k of ['x', 'y', 'z', 'vx', 'vy', 'vz']) {
+      assert.ok(Number.isFinite(s[k]), `a shell went into the air with ${k} = ${s[k]}`);
+    }
+  }
+});
+
+check('a clamp holds a value inside its own range, whatever it is given', () => {
+  // Every rail in the game is built out of this, and it had a hole in it
+  // exactly the width of the one thing it existed to stop: `NaN < lo` and
+  // `NaN > hi` are both false, so NaN went straight through a clamp and out
+  // the other side still NaN -- into a volume, into a bearing, into the wire.
+  assert.equal(clamp(NaN, 0, 1), 0, 'a clamp let NaN through');
+  assert.equal(clamp(Infinity, 0, 1), 1, 'a clamp let infinity through');
+  assert.equal(clamp(-Infinity, 0, 1), 0, 'a clamp let negative infinity through');
+  assert.equal(clamp(undefined, 0, 1), 0, 'a clamp let undefined through');
+  assert.equal(clamp(0.5, 0, 1), 0.5, 'a clamp moved a value that was already in range');
+  assert.equal(clamp(-3, 0, 1), 0, 'a clamp did not hold the bottom');
+  assert.equal(clamp(7, 0, 1), 1, 'a clamp did not hold the top');
+  assert.equal(clamp(5, -10, -2), -2, 'a clamp does not work on negative ranges');
+  for (const v of [NaN, Infinity, -Infinity, undefined, 0, -50, 50]) {
+    const out = clamp(v, -2, 9);
+    assert.ok(out >= -2 && out <= 9, `clamp(${v}) came out as ${out}`);
+  }
+});
+
+check('a sound that cannot be worked out is not played', () => {
+  // Web Audio refuses a value that is not a number -- it throws rather than
+  // ignoring it -- and a sound is on the same call stack as the frame that
+  // asked for it, so one bad figure anywhere upstream took the battle down.
+  // Everything is checked on the way in now; the gun still goes off silently
+  // rather than the game stopping.
+  const seen = [];
+  const finite = (label) => (...args) => {
+    for (const a of args) {
+      if (typeof a === 'number' && !Number.isFinite(a)) seen.push(`${label}(${a})`);
+    }
+  };
+  const param = () => {
+    const p = { _v: 0 };
+    Object.defineProperty(p, 'value', {
+      set(v) { finite('value')(v); p._v = v; }, get() { return p._v; },
+    });
+    p.setValueAtTime = finite('setValueAtTime');
+    p.exponentialRampToValueAtTime = finite('ramp');
+    p.linearRampToValueAtTime = finite('ramp');
+    return p;
+  };
+  const node = () => ({
+    gain: param(), frequency: param(), Q: param(), detune: param(),
+    connect(n) { return n; }, start: finite('start'), stop: finite('stop'),
+    buffer: null, loop: false, type: 'sine',
+  });
+  const ctx = {
+    currentTime: 12.5, sampleRate: 48000, state: 'running', destination: {},
+    createGain: node, createBiquadFilter: node, createOscillator: node,
+    createBufferSource: node,
+    createBuffer: (ch, len) => ({ getChannelData: () => new Float32Array(len) }),
+  };
+  const a = new AudioClass();
+  a.ctx = ctx;
+  a.master = node();
+  a.noiseBuffer = ctx.createBuffer(1, 16, 48000);
+  a.ensure = () => ctx;
+
+  // Every report the battle can ask for, handed the thing that broke it: a
+  // distance worked out from a shell that was nowhere.
+  a.gun(152, NaN);
+  a.gun(NaN, 0.4);
+  a.explosion(NaN, NaN);
+  a.splash(NaN);
+  a.hit('citadel');
+  a.tone(NaN, NaN, { f0: NaN, f1: NaN, gain: NaN });
+  a.noise(NaN, NaN, { freq: NaN, gain: NaN, q: NaN, sweep: NaN });
+  a.setVolume(NaN);
+  a.ambience = { src: node(), g: node(), rumble: node(), rg: node() };
+  a.setEngineLoad(NaN);
+  assert.deepEqual(seen, [], `the sound card was handed ${seen.join(', ')}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

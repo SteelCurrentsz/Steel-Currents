@@ -107,12 +107,31 @@ const shell = `
   } catch (e) {
     return fail('WebGL could not start, so the battle cannot be drawn.');
   }
+  // Only while she is starting.
+  //
+  // This handler never came off, so anything that threw anywhere -- twenty
+  // minutes into an action, in a click handler, in one frame out of a hundred
+  // thousand -- pulled the boot screen back over a running battle and told the
+  // captain the game had failed to start. It had not: it had started, and it
+  // was still running underneath. The curtain was worse than the fault, and
+  // the words on it were wrong.
+  //
+  // So it speaks only until the game is up. After that the game reports its
+  // own trouble, in a line along the bottom, and carries on: the frame loop
+  // asks for the next frame come what may.
+  var started = false;
   window.addEventListener('error', function (e) {
+    if (started) {
+      // Still worth having in the console for anyone looking for it.
+      if (window.console && console.error) console.error('Steel Currents:', e.message || e);
+      return;
+    }
     fail('The game failed to start: ' + (e.message || 'unknown error') + '.');
   });
   window.addEventListener('load', function () {
     setTimeout(function () {
       if (boot && !boot.querySelector('.fail')) {
+        started = true;
         boot.classList.add('gone');
         setTimeout(function () { boot.hidden = true; }, 650);
       }

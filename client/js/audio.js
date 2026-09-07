@@ -1,7 +1,26 @@
 // All sound is synthesised — no asset downloads. Gunfire is a filtered noise
 // burst over a pitch-dropping sine; the sea is filtered pink noise.
+//
+// Nothing here is allowed to stop the game. Web Audio refuses a value that is
+// not a number -- `AudioParam` and the schedulers all throw
+// "the provided value is non-finite" rather than ignoring it -- and every
+// figure in this file is worked out from something that happened in the
+// battle: how far away a gun was, how hard the engines are working. A single
+// bad number anywhere upstream used to arrive here and take the whole battle
+// down with it, because a sound is on the same call stack as the frame that
+// asked for it. So every number is checked on the way in, and a sound that
+// cannot be worked out is simply not played.
 
 import { getSettings } from './settings.js';
+
+/** A number, or the fallback -- so nothing that is not a number reaches the API. */
+function num(v, fallback = 0) { return Number.isFinite(v) ? v : fallback; }
+
+/** A number held between two others, with anything that is not a number at `lo`. */
+function span(v, lo, hi, fallback = lo) {
+  if (!Number.isFinite(v)) return fallback;
+  return v < lo ? lo : v > hi ? hi : v;
+}
 
 export class Audio {
   constructor() {
@@ -17,7 +36,7 @@ export class Audio {
     if (!Ctx) { this.enabled = false; return null; }
     this.ctx = new Ctx();
     this.master = this.ctx.createGain();
-    this.master.gain.value = getSettings().volume / 100;
+    this.master.gain.value = span(getSettings().volume / 100, 0, 1);
     this.master.connect(this.ctx.destination);
     this.noiseBuffer = this.makeNoise(2);
     return this.ctx;
@@ -25,7 +44,7 @@ export class Audio {
 
   resume() { const c = this.ensure(); if (c && c.state === 'suspended') c.resume(); }
 
-  setVolume(v) { if (this.master) this.master.gain.value = v / 100; }
+  setVolume(v) { if (this.master) this.master.gain.value = span(v / 100, 0, 1); }
 
   makeNoise(seconds) {
     const len = Math.floor(this.ctx.sampleRate * seconds);
@@ -42,7 +61,15 @@ export class Audio {
 
   noise(when, dur, { freq = 700, q = 0.7, gain = 0.5, type = 'lowpass', sweep = 0 } = {}) {
     const ctx = this.ensure(); if (!ctx) return;
-    gain = Math.max(0.0002, gain);
+    // Everything the API will refuse, made safe here rather than at each of
+    // the dozen places that call this. `Math.max(0.0002, NaN)` is NaN -- which
+    // is exactly how a bad gain used to get all the way to the hardware.
+    when = num(when, ctx.currentTime);
+    dur = span(dur, 0.01, 8, 0.3);
+    gain = span(gain, 0.0002, 1, 0.0002);
+    freq = span(freq, 20, 20000, 700);
+    q = span(q, 0.0001, 30, 0.7);
+    sweep = span(sweep, 0, 8, 0);
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     src.loop = true;
@@ -59,7 +86,11 @@ export class Audio {
 
   tone(when, dur, { f0 = 120, f1 = 40, gain = 0.4, type = 'sine' } = {}) {
     const ctx = this.ensure(); if (!ctx) return;
-    gain = Math.max(0.0002, gain);
+    when = num(when, ctx.currentTime);
+    dur = span(dur, 0.01, 8, 0.3);
+    gain = span(gain, 0.0002, 1, 0.0002);
+    f0 = span(f0, 12, 20000, 120);
+    f1 = span(f1, 12, 20000, 40);
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(f0, when);
@@ -76,8 +107,8 @@ export class Audio {
   gun(caliber = 152, distance = 0) {
     const ctx = this.ensure(); if (!ctx) return;
     const t = ctx.currentTime + 0.01;
-    const big = caliber / 406;
-    const near = 1 - distance;
+    const big = span(caliber, 20, 460, 152) / 406;
+    const near = 1 - span(distance, 0, 1, 1);
     this.noise(t, 0.45 + big * 0.9, { freq: 900 - big * 550, gain: 0.42 * near, sweep: 0.25 });
     this.tone(t, 0.5 + big * 1.1, { f0: 150 - big * 80, f1: 26, gain: 0.5 * near * (0.5 + big) });
   }
@@ -85,14 +116,15 @@ export class Audio {
   explosion(scale = 1, distance = 0) {
     const ctx = this.ensure(); if (!ctx) return;
     const t = ctx.currentTime + 0.01;
-    const near = 1 - distance;
+    scale = span(scale, 0.1, 4, 1);
+    const near = 1 - span(distance, 0, 1, 1);
     this.noise(t, 0.9 * scale, { freq: 480, gain: 0.5 * near, sweep: 0.12 });
     this.tone(t, 1.1 * scale, { f0: 90, f1: 18, gain: 0.55 * near });
   }
 
   splash(distance = 0) {
     const ctx = this.ensure(); if (!ctx) return;
-    this.noise(ctx.currentTime + 0.01, 0.5, { freq: 2400, gain: 0.16 * (1 - distance), sweep: 0.15, type: 'bandpass', q: 0.9 });
+    this.noise(ctx.currentTime + 0.01, 0.5, { freq: 2400, gain: 0.16 * (1 - span(distance, 0, 1, 1)), sweep: 0.15, type: 'bandpass', q: 0.9 });
   }
 
   torpedo() {
@@ -138,6 +170,7 @@ export class Audio {
 
   setEngineLoad(load) {
     if (!this.ambience) return;
+    load = span(load, 0, 1, 0);
     this.ambience.rg.gain.value = 0.014 + load * 0.05;
     this.ambience.rumble.frequency.value = 38 + load * 26;
   }

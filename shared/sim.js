@@ -233,6 +233,29 @@ export function solveBallistic(gunSpec, d, h = 0) {
   return { elev, tof, v, g };
 }
 
+/**
+ * Put a shell in the air -- unless it is not a shell.
+ *
+ * A round whose position or velocity is not a number is not a round: it never
+ * lands, it never misses, and every screen it reaches divides by it. One did
+ * get out once, from a secondary mounting laid on a bearing worked out by
+ * dividing by a muzzle velocity that mounting did not have, and what a player
+ * saw was the battle stopping with "the provided value is non-finite" -- the
+ * browser refusing a gun's report whose loudness had been worked out from the
+ * distance to a shell that was nowhere.
+ *
+ * So the last thing between a firing solution and the world checks that the
+ * solution is arithmetic. Nothing here should ever have to fire: this is the
+ * rail, not the road, and a shot thrown away by it is a bug upstream.
+ */
+function fireShell(state, shell) {
+  for (const k of ['x', 'y', 'z', 'vx', 'vy', 'vz', 'g']) {
+    if (!Number.isFinite(shell[k])) return false;
+  }
+  state.shells.push(shell);
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
@@ -501,7 +524,7 @@ export function fireGuns(state, ship) {
       const s2 = solveBallistic(gun, aimDist, mz.y);
       const b = bearing + Math.atan2(lat, Math.max(600, d));
       const vh = s2.v * Math.cos(s2.elev);
-      state.shells.push({
+      fireShell(state, {
         id: eid(),
         owner: ship.id, team: ship.team,
         x: mz.x, z: mz.z, y: mz.y,
@@ -510,8 +533,7 @@ export function fireGuns(state, ship) {
         spec, caliber: gun.caliber,
         classId: cls.id,
         life: 0,
-      });
-      fired++;
+      }) && fired++;
     }
     t.cooldown = gun.reload;
     // Which mounting it was, so the client can put the flash on the muzzles of
@@ -862,8 +884,19 @@ function stepSecondary(state, ship, dt) {
     m.target = foe.id;
     // Lead her: a five-inch shell takes seconds to get there and the target is
     // making twenty knots across the line of sight.
+    //
+    // How long it is in the air comes off the firing solution the guns are
+    // actually laid with, which is also what settles the elevation below. It
+    // used to be worked out from `spec.velocity` -- and `spec` is the
+    // mounting, which has a position, an arc and a number of guns and has
+    // never had a muzzle velocity. So the flight time was a division by
+    // undefined, and from the first moment a secondary mounting saw anything
+    // to shoot at, its bearing was not a number: it fired shells with no
+    // position and no velocity, and every one of them poisoned whatever it
+    // touched at the far end of the wire.
     const d = dist(ship.x, ship.z, foe.x, foe.z);
-    const flight = d / (spec.velocity * 0.82);
+    const aim = solveBallistic(S, clamp(d, 400, S.range), 10);
+    const flight = aim.tof;
     const lx = foe.x + Math.sin(foe.heading) * foe.speed * flight;
     const lz = foe.z + Math.cos(foe.heading) * foe.speed * flight;
     const world = headingTo(ship.x, ship.z, lx, lz);
@@ -874,8 +907,7 @@ function stepSecondary(state, ship, dt) {
       : local;
     m.angle = approachAngle(m.angle, want, S.traverse * dt);
     // And how far up the gun captain has his guns, on the same solution.
-    const wantEl = solveBallistic(S, clamp(d, 400, S.range), 10).elev;
-    m.elev += clamp(wantEl - m.elev, -0.9 * dt, 0.9 * dt);
+    m.elev += clamp(aim.elev - m.elev, -0.9 * dt, 0.9 * dt);
     if (m.cooldown > 0) continue;
     if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
     if (Math.abs(off) > spec.arc) continue;
@@ -892,7 +924,7 @@ function stepSecondary(state, ship, dt) {
       const s2 = solveBallistic(S, shotD, mz.y);
       const b = bearing + Math.atan2(lat, Math.max(600, aimD));
       const vh = s2.v * Math.cos(s2.elev);
-      state.shells.push({
+      fireShell(state, {
         id: eid(),
         owner: ship.id, team: ship.team,
         x: mz.x, z: mz.z, y: mz.y,
@@ -1212,7 +1244,7 @@ function fireBattery(state, bat, b, gun, target) {
     const sol = solveBallistic(arc, shotD, bat.y);
     const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
     const vh = sol.v * Math.cos(sol.elev);
-    state.shells.push({
+    fireShell(state, {
       id: eid(),
       owner: bat.id, team: bat.team, fromBattery: true,
       x: bat.x + Math.sin(bb) * 14, z: bat.z + Math.cos(bb) * 14,

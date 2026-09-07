@@ -3,7 +3,20 @@
 
 export const TAU = Math.PI * 2;
 
-export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+/**
+ * Hold a value between two others.
+ *
+ * Anything that is not a number -- NaN, undefined, a missing field -- comes
+ * back as `lo`. Written as the two comparisons alone this let all of them
+ * straight through, because `NaN < lo` and `NaN > hi` are both false, so every
+ * rail in the game built out of clamp had a hole in it exactly the width of
+ * the one thing it was there to stop. A clamp that can return a value outside
+ * its own range is not a clamp.
+ */
+export function clamp(v, lo, hi) {
+  if (typeof v !== 'number' || Number.isNaN(v)) return lo;
+  return v < lo ? lo : v > hi ? hi : v;
+}
 
 export function lerp(a, b, t) { return a + (b - a) * t; }
 
