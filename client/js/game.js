@@ -14,7 +14,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint, PENETRATING, SECTIONS,
+  steerToWaypoint, PENETRATING, HOLING, SECTIONS,
 } from '../../shared/sim.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, MPS_TO_KNOTS,
@@ -403,7 +403,7 @@ export class Battle {
             audio.hit(ev.kind);
             // A hole in our own hull goes on the damage board, at the place on
             // her the shell actually went in.
-            if (PENETRATING.has(ev.kind)) this.markHole(ev.x, ev.y, ev.z);
+            if (HOLING.has(ev.kind)) this.markHole(ev.x, ev.y, ev.z);
           }
           break;
         }
@@ -431,7 +431,12 @@ export class Battle {
         case 'fire': if (ev.ship === this.shipId) this.hud.alert('Fire on deck'); break;
         case 'flood': if (ev.ship === this.shipId) { this.hud.alert('Flooding'); audio.alarm(); } break;
         case 'smoke': fx.smokeScreen(ev.x, ev.z); break;
-        case 'repair': if (ev.ship === this.shipId) this.hud.ribbon('DAMAGE CONTROL'); break;
+        case 'repair':
+          if (ev.ship === this.shipId) {
+            // The first call-away shores; the second gets the pumps going.
+            this.hud.ribbon(ev.stage >= 2 ? 'PUMPS RUNNING' : 'SHORING UP');
+          }
+          break;
         case 'sink': {
           fx.explosion(ev.x, 6, ev.z, 3);
           const victim = this.names.get(ev.ship) || 'A ship';
@@ -1546,34 +1551,13 @@ export class Battle {
       // stopping dead in the air where it was standing.
       view.speedNow = speed;
 
-      // What is left of her, compartment by compartment. A compartment blown
-      // out of her has its plating taken off and you see into the ship: the
-      // bulkheads, the deck below, the boiler room or the magazine that was in
-      // there. When one goes it goes with a flash and a good deal of wreckage
-      // over the side, because that is what it is.
-      const lost = view.setCondition(s.sk);
-      if (lost) {
-        for (const sec of lost) {
-          const at = view.partCentre(sec);
-          const wx = x + Math.sin(h) * at.z;
-          const wz = z + Math.cos(h) * at.z;
-          this.scene.effects.explosion(wx, at.y + 6, wz, 2.2);
-          this.scene.effects.splash(wx, wz, 200);
-          // Forty metres of ship coming apart puts a great deal of the ship in
-          // the air. Real pieces, thrown and falling and going into the sea --
-          // not a puff of sprites.
-          this.scene.debris.burst(wx, at.y + 8, wz,
-            5.5 + cls.hull.length / 60, 1);
-          const near = this.distanceFade(wx, wz);
-          if (near < 0.95) audio.explosion(1.4, near);
-          if (s.i === this.shipId) this.hud.alert(`${sec.name} blown out`);
-        }
-      }
-
-      // The compartments that have gone, coming apart: a slice a frame from
-      // the middle of the section outwards, so a length of hull is seen to be
-      // torn out of her rather than switched off.
-      view.stepTearing(dt);
+      // What is left of her, compartment by compartment. Nothing is torn out
+      // of her here and there is no flash: a length of hull that has been shot
+      // to pieces looks that way because every shell that did it took a piece
+      // of her plating with it, one hit at a time -- see shellDamage. All this
+      // does now is let go of what was standing on a compartment that no
+      // longer has anything left holding it. See setCondition.
+      view.setCondition(s.sk);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
@@ -2101,7 +2085,7 @@ export class Battle {
   }
 
   shellDamage(ev) {
-    if (!PENETRATING.has(ev.kind)) return;
+    if (!HOLING.has(ev.kind)) return;
     const v = this.scene.shipViews.get(ev.victim);
     if (!v) return;
     const r = holeRadius(ev.kind, ev.cal);

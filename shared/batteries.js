@@ -264,7 +264,7 @@ export function batteryGun(id) {
       ap: {
         type: 'ap', caliber: mm,
         damage: apDamage(mm), pen: apPen(mm), velocity,
-        fuseArm: mm * 0.9, fireChance: 0.02, drag: 0.0022,
+        fuseArm: Math.round(mm / 6), fireChance: 0.02, drag: 0.0022,
       },
       he: {
         type: 'he', caliber: mm,

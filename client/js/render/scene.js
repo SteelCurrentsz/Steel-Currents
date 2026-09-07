@@ -600,9 +600,9 @@ export class ShipView {
     this.marker.position.y = 1.5;
     this.group.add(this.marker);
 
-    // Which of her compartments have been blown out of her. The plating of a
-    // compartment that has gone is taken off, and what was behind it -- her
-    // decks, her frames, her machinery -- is what you see. See setCondition.
+    // Which of her compartments have had the structure shot out of them, so
+    // that whatever was standing on one is only let go of once. See
+    // setCondition -- nothing is taken off her here.
     this.gone = new Set();
     // Her plating, triangle by triangle: what a shell actually takes out of
     // her. See plating.js -- this is what makes a hole a hole rather than a
@@ -614,9 +614,6 @@ export class ShipView {
     // See pieces.js. `wreck` is where a piece goes when it parts from her.
     this.fittings = new Fittings(this.group, { detail: quality > 4 ? 0.6 : 1 });
     this.wreck = wreck;
-    // Compartments the simulation has said are gone, being torn out of her a
-    // slice at a time rather than switched off. See setCondition.
-    this.tearing = [];
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
     this.heelBy = 0;
@@ -642,58 +639,46 @@ export class ShipView {
   }
 
   /**
-   * Open her up where she has been blown open.
+   * Let go of what a wrecked length of her can no longer hold up.
    *
    * `sk` is what the wire carries for every ship: what is left of each of her
-   * compartments, in tenths. A compartment at nothing is not damaged, it is
-   * gone -- so its plating comes off her, along with whatever was standing on
-   * it, and the inside of the ship at that station is left showing: the
-   * bulkhead the flooding stopped at, the deck below, the machinery or the
-   * magazine that was in there.
+   * compartments, in tenths.
    *
-   * Returns the compartments that have just gone, so whoever called can put a
-   * flash and some wreckage where they went. Nothing else in here has any
-   * effect, so it is safe to call every frame.
+   * There used to be a great deal more here. A compartment at nothing had its
+   * plating switched off, forty metres of hull was torn out of her in a
+   * second, and a flash and a shower of wreckage were put on top of it -- all
+   * of it triggered by a number reaching zero rather than by anything that
+   * actually happened to her, so every ship in the game came apart at the same
+   * point in her life and in the same way. That is gone. Her plating comes off
+   * where shells took it off and nowhere else; see shellDamage and
+   * plating.js.
+   *
+   * What is left is the one thing that is not a canned effect: a boat whose
+   * davits, whose boat deck and whose ship's side have all been shot away has
+   * nothing holding it, so it goes over the side -- as itself, under gravity,
+   * like every other piece of her. Safe to call every frame.
    */
   setCondition(sk) {
-    if (!sk) return null;
-    let lost = null;
+    if (!sk) return;
     for (let i = 0; i < SECTIONS.length; i++) {
       const k = SECTIONS[i].k;
       const gone = sk[i] <= 0;
       if (gone === this.gone.has(k)) continue;
       if (gone) this.gone.add(k); else this.gone.delete(k);
-      // The superstructure is not a length of hull: taking its plating off
-      // would take the bridge, the funnels and the masts with it, and a ship
-      // whose upperworks have been shot away still has a hull. It burns and
-      // it stops working -- which the simulation already does -- rather than
-      // disappearing.
+      // The superstructure is not a length of hull. A ship whose upperworks
+      // have been shot away still has a bridge, funnels and masts standing on
+      // her, burnt and bent about; she does not lose them all at once.
       if (k === 'works') continue;
-      // Her mountings and her boats are bolted to the piece of deck that has
-      // gone, so they go with it -- there is nothing left holding them.
+      // Her mountings are bolted to the piece of deck that has gone.
       for (const o of this.byPart.get(k) || []) {
         if (!o.userData.dynamic) continue;
         o.visible = !gone;
       }
       if (!gone) continue;
-      // And the structure itself is torn out, from the middle of the section
-      // outwards, over about a second. A forty-metre length of ship does not
-      // stop existing between two frames; it comes apart, and you can watch it
-      // go. See stepTearing.
       const half = this.cls.hull.length / 2;
-      this.tearing.push({
-        k, t: 0,
-        mid: ((SECTIONS[i].from + SECTIONS[i].to) / 2) * half,
-        span: Math.abs(SECTIONS[i].to - SECTIONS[i].from) * half * 0.5 + 3,
-      });
-      // And everything that was bolted to that length of her goes into the
-      // sea with it. There is nothing left holding a boat whose davits, whose
-      // boat deck and whose ship's side have all gone.
       this.shed(this.fittings.shedSection(
         SECTIONS[i].from * half, SECTIONS[i].to * half));
-      (lost || (lost = [])).push(SECTIONS[i]);
     }
-    return lost;
   }
 
   /**
@@ -745,6 +730,10 @@ export class ShipView {
     if (this.halves) return;
     const half = this.cls.hull.length / 2;
     const zc = at * half;
+    // Her plating at the break. She did not part along a clean line: a few
+    // metres of her either side of it is simply not there any more, which is
+    // what you are looking at when the two halves stand up out of the water.
+    this.plating.strip(zc - 3, zc + 3);
     const fore = new THREE.Group();
     const aft = new THREE.Group();
     fore.position.z = zc;
@@ -860,38 +849,6 @@ export class ShipView {
    */
   scorchAt(x, y, z, r, amount) {
     if (this.fittings) this.fittings.scorch(x, y, z, r, amount);
-  }
-
-  /**
-   * The compartments that have gone, coming apart.
-   *
-   * One slice a frame, widening from the middle of the section: the plating
-   * over the burst goes first and the tear runs forward and aft from it. It
-   * takes about a second, which is about how long it takes.
-   */
-  stepTearing(dt) {
-    if (!this.tearing.length) return;
-    let live = 0;
-    for (const t of this.tearing) {
-      const was = t.t;
-      t.t = Math.min(1, t.t + dt / 0.9);
-      const e = (x) => x * x * (3 - 2 * x);
-      const r0 = e(was) * t.span;
-      const r1 = e(t.t) * t.span;
-      if (r1 > r0) {
-        this.plating.strip(t.mid - r1, t.mid - r0);
-        this.plating.strip(t.mid + r0, t.mid + r1);
-      }
-      if (t.t < 1) this.tearing[live++] = t;
-    }
-    this.tearing.length = live;
-  }
-
-  /** Where a compartment is on her, in her own frame: for wreckage and flash. */
-  partCentre(sec) {
-    const half = this.cls.hull.length / 2;
-    const z = ((sec.from ?? -0.1) + (sec.to ?? 0.1)) / 2 * half;
-    return { z, y: this.cls.hull.draft * 0.4 };
   }
 
 

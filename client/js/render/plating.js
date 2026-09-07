@@ -240,10 +240,11 @@ export class Plating {
   /**
    * Everything of hers between two stations, gone.
    *
-   * This is a compartment being blown out of her rather than holed, and it is
-   * the only wholesale removal left. It is still done as triangles, so it can
-   * be run a slice at a time and read as the section coming apart instead of
-   * vanishing -- see ShipView.setCondition.
+   * Nothing in the game takes a compartment out of her wholesale any more --
+   * her plating comes off where shells took it off, a hit at a time. This is
+   * what is left of that: her back going. When she breaks, a few metres of her
+   * either side of the break are torn away with it, and there is no way to
+   * express that as a burst because it was not one.
    */
   strip(z0, z1, key = null) {
     let went = 0;

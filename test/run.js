@@ -19,7 +19,7 @@ import {
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset,
-  flyPlane, releasePlane, dropOrdnance, strafe,
+  flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -281,6 +281,65 @@ function duel(aClass, bClass, gap = 9000, opts = {}) {
   return { state, a, b };
 }
 
+/**
+ * Put a gun's shells on a ship's plate, and tally what happened to them.
+ *
+ * `present` is her aspect to the line of fire: ninety degrees is a full
+ * broadside and nought is bow on. `fall` is the descent of the shell, which is
+ * what decides whether it arrives on her side or on her deck. `station` is
+ * where along her it lands, nought amidships and one at her stem.
+ *
+ * Nothing here is left to a duel. What a plate is worth against a shell is a
+ * question about the plate and the shell, and the way to ask it is to put the
+ * shell on the plate a couple of thousand times and count. Asking it by
+ * letting two ships fight and waiting for the answer to turn up is a check on
+ * the dice.
+ *
+ * Returns each outcome as a fraction of the rounds fired.
+ */
+function strikes(gunClass, victimClass, type, present, fall, opts = {}) {
+  const n = opts.n || 2000;
+  const y = opts.y ?? 4;
+  const station = opts.station ?? 0;
+  // How long it has been in the air, which is how far it has come and so how
+  // much penetration it has left.
+  const life = opts.life ?? 20;
+  const world = generateWorld(11, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: victimClass, team: 1, index: 0 });
+  v.x = 0; v.z = 0;
+  v.heading = (90 - present) * Math.PI / 180;
+  const spec = SHIP_CLASSES[gunClass].gun.shells[type];
+  const desc = fall * Math.PI / 180;
+  const speed = 400;
+  const half = SHIP_CLASSES[victimClass].hull.length * 0.5;
+  // Where on her, in the world: her own station rotated onto her heading.
+  const wx = Math.sin(v.heading) * station * half;
+  const wz = Math.cos(v.heading) * station * half;
+  const tally = {};
+  for (let i = 0; i < n; i++) {
+    const sh = {
+      owner: 0, team: 0, caliber: spec.caliber, spec, life, g: 9.8,
+      x: wx, y, z: wz,
+      vx: Math.cos(desc) * speed, vy: -Math.sin(desc) * speed, vz: 0,
+    };
+    state.events.length = 0;
+    v.alive = true;
+    v.hp = v.maxHp;
+    for (const k of SECTIONS) {
+      const c = v.sections[k.k];
+      c.hp = c.max; c.pens = 0; c.fire = 0;
+      c.holeP = 0; c.holeS = 0; c.water = 0; c.wP = 0; c.wS = 0;
+      c.side = 0; c.holeY = undefined;
+    }
+    resolveShellHit(state, sh, v, wx, wz, y);
+    const e = state.events.find((q) => q.e === 'hit');
+    if (e) tally[e.kind] = (tally[e.kind] || 0) + 1 / n;
+  }
+  return tally;
+}
+
 console.log('\nSteel Currents simulation tests\n');
 
 check('ballistic solution stays inside gun range', () => {
@@ -309,35 +368,143 @@ check('shells fired at a stationary target land on it', () => {
 });
 
 check('battleship AP citadels a cruiser but light AP bounces off a battleship', () => {
-  const { state, a, b } = duel('iowa', 'cleveland', 8000);
-  a.shellType = 'ap';
-  let cits = 0;
-  for (let i = 0; i < 240 * 30 && cits === 0; i++) {
-    a.aimX = b.x; a.aimZ = b.z;
-    if (i > 60) fireGuns(state, a);
-    for (const ev of step(state, DT)) if (ev.kind === 'citadel') cits++;
-  }
-  assert.ok(cits > 0, '406 mm AP should citadel a light cruiser broadside');
+  // Sixteen-inch armour-piercing on a light cruiser's belt, and the same
+  // question the other way round. Both are settled by one comparison -- what
+  // the shell carries against what the plate is worth -- so both are asked
+  // directly rather than waited for in an action.
+  const big = strikes('iowa', 'cleveland', 'ap', 90, 10);
+  assert.ok(big.citadel > 0.9,
+    `406 mm AP should citadel a light cruiser broadside, got ${JSON.stringify(big)}`);
 
-  const light = duel('cleveland', 'iowa', 8000);
-  light.a.shellType = 'ap';
-  let pens = 0, bounces = 0;
-  for (let i = 0; i < 90 * 30; i++) {
-    light.a.aimX = light.b.x; light.a.aimZ = light.b.z;
-    if (i > 60) fireGuns(light.state, light.a);
-    for (const ev of step(light.state, DT)) {
-      // By calibre, because both ships have a five-inch battery in local
-      // control and both of them are now firing. Counting every citadel in the
-      // action counted the Iowa's own secondaries plunging onto the
-      // Cleveland's deck -- which is a different gun hitting a different ship,
-      // and not what this check is about.
-      if (ev.e !== 'hit' || ev.cal !== 152) continue;
-      if (ev.kind === 'citadel') pens++;
-      if (ev.kind === 'shatter' || ev.kind === 'ricochet') bounces++;
+  const light = strikes('cleveland', 'iowa', 'ap', 90, 10);
+  assert.ok(!light.citadel, '152 mm AP must not citadel an Iowa belt');
+  assert.ok(light.shatter > 0.9,
+    `152 mm AP should break up on 307 mm of belt, got ${JSON.stringify(light)}`);
+});
+
+check('what stops her engines is a shell in her engine room, and nothing else', () => {
+  // Her machinery does not stop because a total reached zero, and it does not
+  // stop because she has been badly knocked about somewhere else in the ship.
+  // It stops when a shell gets into her engine room and wrecks it, and the
+  // same shell into her bow does nothing to it whatever.
+  const st = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Her', classId: 'cleveland', team: 0, index: 0 });
+  her.x = 0; her.z = 0; her.heading = 0;
+  const spec = SHIP_CLASSES.hipper.gun.shells.ap;
+  const half = SHIP_CLASSES.cleveland.hull.length * 0.5;
+  const put = (station, n) => {
+    let stopped = 0;
+    for (let i = 0; i < n; i++) {
+      her.alive = true;
+      her.hp = her.maxHp;
+      her.engineDamage = 0;
+      for (const k of SECTIONS) { const c = her.sections[k.k]; c.hp = c.max; }
+      const z = station * half;
+      const sh = {
+        owner: 0, team: 1, caliber: spec.caliber, spec, life: 20, g: 9.8,
+        x: 0, y: 4, z, vx: 400, vy: -40, vz: 0,
+      };
+      resolveShellHit(st, sh, her, 0, z, 4);
+      if (her.engineDamage > 0) stopped++;
     }
-  }
-  assert.equal(pens, 0, '152 mm AP must not citadel an Iowa belt');
-  assert.ok(bounces > 0, 'expected bounces off the belt');
+    return stopped / n;
+  };
+  const amidships = put(0, 3000);
+  const forward = put(0.9, 3000);
+  assert.ok(amidships > 0.01,
+    'a shell bursting in her engine room never once stopped her');
+  assert.ok(amidships < 0.6,
+    `every other shell amidships stopped her: ${amidships.toFixed(2)}`);
+  assert.equal(forward, 0, 'a shell in her bow stopped her engines');
+});
+
+check('a shell that arrives too far off square glances off her', () => {
+  // The one thing that decides whether a shell gets in, before anything about
+  // how much penetration it is carrying: the angle it met the plate at. Square
+  // on it bites; far enough off square it turns on the face of the plate and
+  // goes away over the ship. Which is the whole reason a captain turns towards
+  // the enemy.
+  const square = strikes('hipper', 'cleveland', 'ap', 90, 10);
+  assert.ok(!square.ricochet, 'a broadside hit bounced off her');
+  // Twelve degrees of her side to the line of fire is seventy-eight from the
+  // normal of the plate, and nothing at all bites at seventy-eight.
+  const angled = strikes('hipper', 'cleveland', 'ap', 12, 10);
+  assert.ok(angled.ricochet > 0.99,
+    `a cruiser bows on should bounce them all, got ${JSON.stringify(angled)}`);
+  // And it comes on gradually rather than at a line: they begin to go at sixty
+  // degrees from the normal and by seventy-five there is nothing left.
+  const edge = strikes('hipper', 'cleveland', 'ap', 25, 10);
+  assert.ok(edge.ricochet > 0.15 && edge.ricochet < 0.75,
+    `the bounce should come on gradually, got ${JSON.stringify(edge)}`);
+
+  // Except against a plate too thin to turn a shell that size. The same
+  // destroyer, at the same twelve degrees of aspect, turns a cruiser's
+  // eight-inch shells and cannot turn a battleship's sixteen: there is not
+  // enough steel in nineteen millimetres of side to make a shell that size go
+  // anywhere but through it. That is overmatch, and it is why angling saves a
+  // ship from some guns and from no others.
+  const turned = strikes('hipper', 'fletcher', 'ap', 12, 10);
+  assert.ok(turned.ricochet > 0.99,
+    `a destroyer bows on should turn 203 mm shells: ${JSON.stringify(turned)}`);
+  const overmatched = strikes('iowa', 'fletcher', 'ap', 12, 10);
+  assert.ok(!overmatched.ricochet,
+    `a 406 mm shell glanced off 19 mm of side: ${JSON.stringify(overmatched)}`);
+});
+
+check('what a shell does to her is settled by the plate it met', () => {
+  // The same round against three ships. Nothing about the shell changes; what
+  // changes is what it arrived at, and that is the whole of the model.
+  const dd = strikes('iowa', 'fletcher', 'ap', 90, 10);
+  assert.ok(dd.overpen > 0.9,
+    `AP through a destroyer should pass clean through: ${JSON.stringify(dd)}`);
+  const cl = strikes('iowa', 'cleveland', 'ap', 90, 10);
+  assert.ok(cl.citadel > 0.9, `AP into a light cruiser: ${JSON.stringify(cl)}`);
+  // And a battleship's belt is beaten by a battleship's guns -- but only in
+  // close. A shell loses penetration the whole way out, so the belt that goes
+  // at eight thousand yards holds at thirty: that is the immune zone, and it
+  // is the reason range mattered as much as armour did.
+  const near = strikes('iowa', 'iowa', 'ap', 90, 10, { life: 20 });
+  const far = strikes('iowa', 'iowa', 'ap', 90, 10, { life: 75 });
+  assert.ok(near.citadel > 0.9,
+    `close in, her own guns should beat her belt: ${JSON.stringify(near)}`);
+  assert.ok(!far.citadel,
+    `at thirty thousand yards the same belt should hold: ${JSON.stringify(far)}`);
+
+  // High explosive is judged against the plate as it is drawn -- it bursts on
+  // the face of it and drives its hole through by blast, which does not care
+  // what angle it arrived at -- but it is judged against the plate all the
+  // same. A five-inch shell opens a destroyer and does nothing to a
+  // battleship.
+  const heDd = strikes('fletcher', 'fletcher', 'he', 90, 10);
+  assert.ok(heDd.he > 0.9, `127 mm HE on 19 mm of side: ${JSON.stringify(heDd)}`);
+  const heBb = strikes('fletcher', 'iowa', 'he', 90, 10);
+  assert.ok(heBb.splash > 0.9, `127 mm HE on 307 mm of belt: ${JSON.stringify(heBb)}`);
+
+  // And which plate it met is decided by how steeply it was falling. A
+  // destroyer's five-inch cannot touch a light cruiser's belt at any range at
+  // all; at extreme range the same shell comes down on her deck instead, which
+  // is half the thickness, and gets in. That is why range changed which gun
+  // was dangerous to you.
+  const onBelt = strikes('fletcher', 'cleveland', 'ap', 90, 10);
+  assert.ok(onBelt.shatter > 0.9,
+    `127 mm AP should break up on 127 mm of belt: ${JSON.stringify(onBelt)}`);
+  const onDeck = strikes('fletcher', 'cleveland', 'ap', 90, 55);
+  assert.ok((onDeck.citadel || 0) + (onDeck.pen || 0) > 0.9,
+    `plunging onto 51 mm of deck it should get in: ${JSON.stringify(onDeck)}`);
+
+  // Angling her does not only turn shells away, it thickens the plate for the
+  // ones that stay: the same shell that citadels her broadside cannot when she
+  // is bows on to it, because it has half as much plate again to get through.
+  const abeam = strikes('hipper', 'cleveland', 'ap', 90, 25);
+  const oblique = strikes('hipper', 'cleveland', 'ap', 35, 25);
+  assert.ok(abeam.citadel > 0.9,
+    `203 mm AP should beat a Cleveland's belt abeam: ${JSON.stringify(abeam)}`);
+  assert.ok(oblique.shatter > 0.9,
+    `angled, the same belt should break it up: ${JSON.stringify(oblique)}`);
+  // And that is the plate, not the angle turning it: at thirty-five degrees
+  // of aspect the shell is still meeting her well inside the angle anything
+  // glances off at.
+  assert.ok(!oblique.ricochet, `it bounced instead: ${JSON.stringify(oblique)}`);
 });
 
 check('torpedoes run out to range and detonate on contact', () => {
@@ -677,7 +844,77 @@ check('fires burn her down, the sea comes in, and repair fights both', () => {
   assert.ok(a.sink > 0, 'she is no deeper for all that water');
   useRepair(state, a);
   assert.equal(a.fires, 0, 'the fire is still burning after damage control');
-  assert.equal(a.sections.fwd.holeS, 0, 'the hole was not shored up');
+  // The hole is still a hole. A damage control party shores it -- timber,
+  // mattresses, a box built over it -- which slows the sea and does not shut
+  // it out, and it works loose again. It cannot make forty centimetres of
+  // her side grow back.
+  assert.equal(a.sections.fwd.holeS, 0.4, 'the hole was closed by pressing a button');
+  assert.ok(a.shored > 0.9, 'nothing was shored at all');
+});
+
+check('damage control shores her first and only pumps on the second call', () => {
+  // What a ship's damage control actually does, and the order it does it in.
+  // The first call-away gets the party to the bulkheads: the fires are fought
+  // and the holes are shored, which buys her time. It is the second that gets
+  // the pumps going, and only then does any water leave her.
+  const make = () => {
+    const { state, a } = duel('cleveland', 'iowa');
+    // A shell hole in her forward magazine space, three metres under water.
+    a.sections.fwd.holeS = 0.9;
+    a.sections.fwd.holeY = 3;
+    a.sections.fwd.side = 1;
+    return { state, a };
+  };
+  const wet = (s) => SECTIONS.reduce((n, k) => n + s.sections[k.k].water, 0);
+
+  // Left alone: the sea comes in and goes on coming in.
+  const alone = make();
+  for (let i = 0; i < 30 * 60; i++) step(alone.state, DT);
+  const free = wet(alone.a);
+  assert.ok(free > 1, 'the hole let nothing in at all');
+
+  // Shored: slower, but still rising. Damage control delays flooding; it does
+  // not cure it, and it does not take a drop out of her.
+  const shored = make();
+  useRepair(shored.state, shored.a);
+  assert.equal(shored.a.dcStage, 1, 'the first call-away did not count');
+  assert.equal(shored.a.pumping, 0, 'the pumps started on the first call-away');
+  for (let i = 0; i < 30 * 60; i++) step(shored.state, DT);
+  const held = wet(shored.a);
+  assert.ok(held > 1, 'shoring shut the sea out altogether');
+  assert.ok(held < free * 0.75,
+    `shoring bought her nothing: ${held.toFixed(0)} against ${free.toFixed(0)} m3`);
+
+  // And it works loose. Given long enough the sea is coming in as fast as it
+  // ever was, which is the whole of why the first call-away is not the answer.
+  const loose = shored.a.shored;
+  assert.ok(loose < 0.3, `the shoring is still ${loose.toFixed(2)} fresh after a minute`);
+
+  // The second call-away starts the pumps, and the water starts going out.
+  const pumped = make();
+  useRepair(pumped.state, pumped.a);
+  for (let i = 0; i < 30 * 60; i++) step(pumped.state, DT);
+  pumped.a.repairCd = 0;
+  const atCall = wet(pumped.a);
+  assert.ok(useRepair(pumped.state, pumped.a), 'she would not call them away again');
+  assert.equal(pumped.a.dcStage, 2, 'the second call-away did not count');
+  assert.ok(pumped.a.pumping > 0, 'two calls and the pumps are still stopped');
+  for (let i = 0; i < 30 * 120; i++) step(pumped.state, DT);
+  assert.ok(wet(pumped.a) < atCall,
+    `the pumps ran for two minutes and took nothing out of her: ${wet(pumped.a).toFixed(0)} against ${atCall.toFixed(0)} m3`);
+
+  // Slowly. They will hold a shell hole and they will not come near holding a
+  // torpedo -- which is the distinction that decides whether she lives.
+  const torpedoed = make();
+  torpedoed.a.sections.fwd.holeS = 40;
+  torpedoed.a.sections.fwd.holeY = 4;
+  useRepair(torpedoed.state, torpedoed.a);
+  torpedoed.a.repairCd = 0;
+  useRepair(torpedoed.state, torpedoed.a);
+  const w0 = wet(torpedoed.a);
+  for (let i = 0; i < 30 * 60; i++) step(torpedoed.state, DT);
+  assert.ok(wet(torpedoed.a) > w0 + 10,
+    'the pumps held a torpedo hole, which no ship\'s pumps ever did');
 });
 
 check('concealment: a destroyer is invisible before it opens fire', () => {
@@ -5055,13 +5292,16 @@ check('she is counted in compartments and holes, not in hit points', () => {
   assert.equal(her.sections.bow.hp, her.sections.bow.max, 'her bow paid for a hit amidships');
   assert.equal(her.hp, hullIntegrity(her), 'her condition is not what her compartments say');
 
-  // Wreck the machinery outright and she cannot steam; wreck her steering aft
-  // and she will not answer her helm. That is what the compartments are for.
-  damageShip(st, her, null, her.sections.mid.hp, 'pen', 'mid');
+  // And nothing aboard her breaks because a number reached zero. Burn her
+  // machinery space out entirely and she is still steaming: what stops her
+  // engines is a shell arriving in her engine room, not an accountancy total
+  // crossing a line. This used to be a threshold, and it meant every ship in
+  // the game broke down at exactly the same point in her life.
+  damageShip(st, her, null, her.sections.mid.hp, 'fire', 'mid');
   assert.equal(her.sections.mid.hp, 0);
-  assert.ok(her.engineDamage > 0, 'her machinery is gone and she is still steaming');
-  damageShip(st, her, null, her.sections.stern.hp, 'pen', 'stern');
-  assert.ok(her.steeringDamage > 0, 'her steering is gone and she still answers');
+  assert.equal(her.engineDamage, 0, 'a number reaching zero stopped her engines');
+  damageShip(st, her, null, her.sections.stern.hp, 'fire', 'stern');
+  assert.equal(her.steeringDamage, 0, 'a number reaching zero jammed her helm');
   assert.ok(her.alive, 'two compartments should not sink a cruiser');
 
   // Fire has no station: it eats the ship, so it is shared over what is left.
@@ -6520,6 +6760,122 @@ check('a shell that gets through opens her plating, and the sea comes in', () =>
   for (let i = 0; i < 30 * 20; i++) step(state, DT);
   assert.ok(wet() > w0 + 1, 'the hole is below her waterline and let nothing in');
   assert.ok(b.sink > 0, 'all that water has not put her any deeper');
+});
+
+check('the sea comes in at the deepest hole she has, not the highest', () => {
+  // A compartment holed under water and again up by the deck edge floods at
+  // the depth of the hole that is under water. The sea comes in where it has
+  // the most weight behind it and it does not care what else has since been
+  // shot through the same space -- so a ship torpedoed low and then hit high
+  // amidships goes on flooding through the torpedo hole.
+  //
+  // This ran the other way round for a long time, taking the shallowest hole
+  // of the two, and a ship hit above her waterline after being holed below it
+  // simply stopped making water.
+  const { state, a } = duel('cleveland', 'iowa');
+  const c = a.sections.mid;
+  openHull(state, a, 'mid', 1.2, 1, 4);      // four metres down
+  openHull(state, a, 'mid', 0.4, 1, -3);     // three metres up
+  assert.ok(c.holeY >= 4, `she is flooding at ${c.holeY} m, not at her deepest hole`);
+  for (let i = 0; i < 30 * 60; i++) step(state, DT);
+  assert.ok(c.water > 1, 'the hole four metres under water let nothing in');
+});
+
+check('the water starts where she has been hit hardest', () => {
+  // Two compartments open by the same area at the same depth, one of them shot
+  // to pieces round the hole and one of them sound. The wrecked one fills
+  // faster: the plating between one hole and the next has gone with them and
+  // what was three holes is one.
+  const { state, a } = duel('cleveland', 'iowa');
+  openHull(state, a, 'fwd', 0.8, 1, 3);
+  openHull(state, a, 'aft', 0.8, 1, 3);
+  a.sections.fwd.hp = a.sections.fwd.max * 0.1;
+  a.hp = hullIntegrity(a);
+  for (let i = 0; i < 30 * 90; i++) step(state, DT);
+  assert.ok(a.sections.fwd.water > a.sections.aft.water * 1.4,
+    `the wrecked space took ${a.sections.fwd.water.toFixed(0)} m3 against the sound one's ${a.sections.aft.water.toFixed(0)}`);
+  // And nothing floods a compartment that has not been holed. Flooding starts
+  // at the holes, wherever else she has been knocked about.
+  assert.equal(a.sections.stern.water, 0, 'a compartment with no hole in it filled with water');
+});
+
+check('a bomb is judged against the deck it landed on', () => {
+  // A bomb has no belt to beat: it comes down on top of her, so how much of
+  // the ship it reaches is settled by her deck and nothing else. The same
+  // thousand-pound bomb goes through a destroyer and out of her bottom, bursts
+  // inside a cruiser, and is stopped dead on a battleship's armoured deck --
+  // which is the whole story of dive bombing in one number.
+  const drop = (cls) => {
+    const { state, a } = duel(cls, 'iowa');
+    const before = a.hp;
+    // Whether a bomb hits is a die roll elsewhere. What is under test is what
+    // happens when one does, so one does.
+    bombHit(state, a, null, 'mid', 1, SHIP_CLASSES.enterprise.planes);
+    const holed = SECTIONS.reduce((n, k) => n + a.sections[k.k].holeP + a.sections[k.k].holeS, 0);
+    return { took: before - a.hp, holed, state, a };
+  };
+  const dd = drop('fletcher');
+  const cl = drop('cleveland');
+  const bb = drop('iowa');
+  assert.ok(bb.took < cl.took * 0.4,
+    `an armoured deck should stop it: ${Math.round(bb.took)} against ${Math.round(cl.took)}`);
+  assert.ok(cl.took > 1000, `a bomb through a cruiser's deck did ${Math.round(cl.took)}`);
+
+  // And a bomb that goes through every layer she has opens her bottom, which
+  // is a ship flooding from a bomb.
+  assert.ok(dd.holed > 0, 'a bomb clean through a destroyer left her watertight');
+  assert.equal(bb.holed, 0, 'a bomb stopped on the armoured deck holed her bottom');
+  const wet = () => SECTIONS.reduce((n, k) => n + dd.a.sections[k.k].water, 0);
+  for (let i = 0; i < 30 * 60; i++) step(dd.state, DT);
+  assert.ok(wet() > 1, 'the hole in her bottom let nothing in');
+});
+
+check('a torpedo opens her side rather than gutting her', () => {
+  // A torpedo does not break a ship in half and it does not take a compartment
+  // out of her. It opens her side, and the sea does the rest -- which is why a
+  // torpedoed ship goes down slowly, by the compartment, and why one hit puts
+  // a list on her.
+  const { state, a, b } = duel('fletcher', 'cleveland', 900);
+  // Nine hundred yards apart, so the fish has somewhere to run from. Neither
+  // ship is allowed to shoot: what is being measured is what one torpedo does
+  // to a cruiser, and a gun action at half a mile would drown that entirely.
+  silenceSecondaries(a, b);
+  for (const s of [a, b]) for (const t of s.turrets) t.disabled = 1e9;
+  const T = SHIP_CLASSES.fletcher.torpedoes;
+  state.torps.push({
+    id: 1, owner: a.id, team: a.team,
+    x: b.x - 60, z: b.z, heading: Math.PI / 2,
+    speed: T.speed, range: T.range, travelled: 400, arming: 200,
+    damage: T.damage, detection: 900, flood: T.floodChance,
+  });
+  const before = b.hp;
+  for (let i = 0; i < 30 * 4; i++) step(state, DT);
+  const took = before - b.hp;
+  assert.ok(took > 0, 'the torpedo did nothing at all');
+  // The warhead is worth a fraction of what it says on the sheet. It wrecks
+  // what is against the bulkhead it went off on, and that is all.
+  assert.ok(took < T.damage * 0.5,
+    `a torpedo took ${Math.round(took)} of ${T.damage} straight off her`);
+  // And it wrecked the space it went off against, not the ship. (Every
+  // compartment loses a sliver once she is making water, which is the sea
+  // working on her structure and not the warhead.)
+  const hurt = SECTIONS.filter((k) => b.sections[k.k].hp < b.sections[k.k].max * 0.9).length;
+  assert.ok(hurt > 0, 'the torpedo wrecked nothing');
+  assert.ok(hurt <= 2, `one torpedo wrecked ${hurt} of her compartments at once`);
+  // And what it really did is a room-sized hole in her side, under water, on
+  // the side it hit her.
+  const open = SECTIONS.reduce((n, k) => n + b.sections[k.k].holeP + b.sections[k.k].holeS, 0);
+  assert.ok(open > 15, `a torpedo opened only ${open.toFixed(1)} m2 of her side`);
+  // Which floods her, and lies her over on the side she was hit -- and then
+  // lets her come back up as the compartment presses full and the water in it
+  // finds its own level. That is what one torpedo does, and it is why two on
+  // the same side are a different thing entirely.
+  let peak = 0;
+  for (let i = 0; i < 30 * 120; i++) { step(state, DT); peak = Math.max(peak, Math.abs(b.heel)); }
+  const water = SECTIONS.reduce((n, k) => n + b.sections[k.k].water, 0);
+  assert.ok(water > 50, `only ${water.toFixed(0)} m3 came in through it`);
+  assert.ok(peak > 0.03, `a torpedo in one side put no list on her: ${peak.toFixed(3)} rad`);
+  assert.ok(b.sink > 0.3, `all that water put her only ${b.sink.toFixed(2)} m deeper`);
 });
 
 check('the sea decides how she sinks, and it is never the same twice', () => {

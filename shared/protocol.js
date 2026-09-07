@@ -70,6 +70,10 @@ export function shipSnapshot(ship, full) {
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
     s.sq = ship.squadrons.map((q) => (q.state === 'deck' ? Math.max(0, Math.round(q.cooldown)) : -1));
     s.rc = Math.max(0, Math.round(ship.repairCd * 10) / 10);
+    // How far her damage control has got: nothing yet, shored, or pumping.
+    // The bridge has to know, because the first call-away only buys her time
+    // and it is the second that starts taking the water out of her.
+    s.dc = Math.min(2, ship.dcStage || 0);
     s.smk = ship.smoke;
     s.st = ship.shellType;
     s.ax = Math.round(ship.aimX); s.az = Math.round(ship.aimZ);

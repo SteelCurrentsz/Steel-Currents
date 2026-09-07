@@ -154,6 +154,13 @@ export function addShip(state, {
     flooding: 0,
     repairCd: 0,
     repairActive: 0,
+    // How many times her damage control party has been called away. The first
+    // shores; the second gets the pumps going. See useRepair.
+    dcStage: 0,
+    // How fresh the shoring is, nought to one, and whether the pumps are
+    // running.
+    shored: 0,
+    pumping: 0,
     smoke: cls.smokeCharges,
     smokeActive: 0,
     engineDamage: 0,
@@ -596,12 +603,69 @@ function deliverOrdnance(state, p, best, P) {
     });
     if (!hit) continue;
     const owner = state.ships.find((s) => s.id === p.owner) || null;
+    const cls = getClass(best.classId);
     const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
-    const cell = sectionAt(clamp(lb.z / (getClass(best.classId).hull.length * 0.5), -1, 1), 'deck');
-    damageShip(state, best, owner, P.bombDamage ?? 4000, 'bomb', cell);
-    best.sections[cell].pens++;
-    if (state.rng() < (P.bombFire ?? 0.3)) startFire(state, best);
+    const cell = sectionAt(clamp(lb.z / (cls.hull.length * 0.5), -1, 1), 'deck');
+    bombHit(state, best, owner, cell, lb.x >= 0 ? 1 : -1, P);
   }
+}
+
+/**
+ * A bomb arriving on her deck, and how far into her it gets.
+ *
+ * A bomb has no belt to beat. It comes down on top of her, so the only armour
+ * in its way is her deck -- and how much of the ship it reaches is decided
+ * there and nowhere else. Three things can happen, and which one it is comes
+ * out of the arithmetic rather than off a list:
+ *
+ * It fails to beat the deck and bursts on top of it. That wrecks whatever is
+ * standing about up there and starts a fire, and the ship underneath is
+ * untouched: it is why a battleship's armoured deck was worth what it cost.
+ *
+ * It beats the deck and bursts inside her, in the compartment under it. That
+ * is the ordinary bomb hit, and it is bad.
+ *
+ * Or it is so far over the deck it was built to beat that it goes through
+ * everything -- deck, the deck below, her bottom -- and bursts low down in
+ * her or under her. Then she is not only wrecked, she is holed below the
+ * waterline, and she floods exactly as though she had been torpedoed there.
+ * That is what a thousand-pound bomb does to a destroyer.
+ */
+export function bombHit(state, ship, owner, cell, side, P) {
+  const cls = shipClass(ship);
+  const base = P.bombDamage ?? 4000;
+  const deck = Math.max(6, cls.armor.deck);
+  const through = (P.bombPen ?? 60) / deck;
+  const bore = P.bombBore ?? 0.36;
+  let dmg;
+  let kind = 'bomb';
+  if (through < 1) {
+    // Stopped by the deck. A great deal of noise and very little ship.
+    dmg = base * 0.22;
+    kind = 'bombDeck';
+  } else if (through < 2.2) {
+    dmg = base;
+  } else {
+    // Through the lot.
+    dmg = base * 1.15;
+  }
+  damageShip(state, ship, owner, dmg, 'bomb', cell);
+  ship.sections[cell].pens++;
+  // What the burst reached. Through the deck it is whatever was in the
+  // compartment under it; stopped on the deck it is everything standing about
+  // on top of her -- the mountings, the directors, the people working them --
+  // which is why an armoured deck saves the ship and not her upperworks.
+  wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb');
+  if (through >= 2.2) {
+    // Out through her bottom, or bursting against it. Either way the sea is
+    // inside her, and it is inside her a long way down.
+    openHull(state, ship, cell, 6 + state.rng() * 10, side,
+      cls.hull.draft * (0.6 + state.rng() * 0.3));
+  }
+  // Fire. A bomb stopped on the deck starts more of them than one that goes
+  // through, because everything it sets alight is in the open where the air is.
+  const fire = (P.bombFire ?? 0.3) * (kind === 'bombDeck' ? 1.4 : 1);
+  if (state.rng() < fire) startFire(state, ship, cell, 0.35);
 }
 
 /**
@@ -1369,12 +1433,119 @@ function hitSection(target, cls, lx, lz, y, descentAngle) {
   const halfLen = cls.hull.length * 0.5;
   const rel = Math.abs(lz) / halfLen;
   const plunging = descentAngle > 0.52; // ~30 degrees, a deck hit
+  // A citadel is a box of armour round her machinery and her magazines. A ship
+  // with a couple of centimetres of plating amidships has not got one -- a
+  // destroyer's machinery is behind her side and nothing else -- and calling
+  // that a citadel made a Fletcher explode to a battleship's shell that in
+  // fact goes in one side of her and out the other.
+  const boxed = cls.armor.citadel >= 25;
   if (rel > 0.74) return { part: lz > 0 ? 'bow' : 'stern', armor: cls.armor.bow, cit: false };
   if (y > 11 + cls.hull.superstructure * 6) return { part: 'superstructure', armor: cls.armor.superstructure, cit: false };
-  if (plunging) return { part: 'deck', armor: cls.armor.deck, cit: rel < 0.58 };
+  if (plunging) return { part: 'deck', armor: cls.armor.deck, cit: boxed && rel < 0.58 };
   // The citadel is the machinery and magazine box amidships, below the belt's
   // upper edge - the only place a shell can break a ship's back in one hit.
-  return { part: 'belt', armor: cls.armor.belt, cit: rel < 0.6 && y < 10 };
+  return { part: 'belt', armor: cls.armor.belt, cit: boxed && rel < 0.6 && y < 10 };
+}
+
+/**
+ * How square the shell met the plate.
+ *
+ * Everything about whether a shell gets in turns on this one number, and it is
+ * a geometry problem and nothing else: the angle between the shell's line of
+ * flight and the normal of the plate it arrived at. Nought is square on, which
+ * is a shell at its best; a right angle is a shell running along the face of
+ * the plate, which is a shell that never gets in whatever it is carrying.
+ *
+ * Her side is vertical and athwartships, so a belt hit is judged on how much
+ * of the shell's flight is across the ship -- which is the whole of why
+ * turning towards the enemy angles the belt, and why plunging fire meets it
+ * badly as well. Her decks are horizontal, so a deck hit is judged on how
+ * steeply the shell is falling. Her bow and her stern are neither: the plating
+ * there is raked, so a shell coming down her length meets it a great deal
+ * better than the same shell would meet the belt amidships.
+ */
+function strikeCos(sh, target, part) {
+  const v = worldToLocal(sh.vx, sh.vz, target.heading);
+  const speed = Math.hypot(v.x, sh.vy, v.z);
+  if (!(speed > 0)) return 1;
+  if (part === 'deck') return clamp(Math.abs(sh.vy) / speed, 0, 1);
+  if (part === 'bow' || part === 'stern') {
+    return clamp((Math.abs(v.x) + Math.abs(v.z) * 0.5) / speed, 0, 1);
+  }
+  return clamp(Math.abs(v.x) / speed, 0, 1);
+}
+
+/**
+ * Whether it glanced off her instead of going in.
+ *
+ * A shell that arrives far enough off square does not penetrate the plate
+ * however much penetration it is carrying: it turns on the face of it and goes
+ * away over the ship. Where that begins is well known -- about sixty degrees
+ * from the normal for an armour-piercing shell, and by about seventy-five
+ * there is nothing that will not bounce.
+ *
+ * Except for one thing. A shell whose calibre is a good deal greater than the
+ * plate is thick does not glance: it takes the plate with it, because there is
+ * not enough steel there to turn something that size. That is overmatch, and
+ * it is why a battleship's shells go through a cruiser's ends at any angle at
+ * all while the cruiser's bounce off her.
+ */
+function ricochets(state, theta, spec, armor) {
+  if (spec.caliber >= armor * 14.3) return false;
+  // High explosive is fused to burst on the plate rather than to go through
+  // it, so it only skips at angles where nothing whatever would bite.
+  const lo = spec.type === 'ap' ? 1.047 : 1.396;
+  const hi = spec.type === 'ap' ? 1.309 : 1.484;
+  if (theta < lo) return false;
+  if (theta >= hi) return true;
+  return state.rng() < (theta - lo) / (hi - lo);
+}
+
+/** How far into the compartment each kind of burst reaches. */
+const REACH = {
+  citadel: 8, pen: 3, he: 1.5, overpen: 0.4, torpedo: 5, bomb: 6,
+};
+
+/**
+ * What the burst found in the compartment it went off in.
+ *
+ * Nothing in a ship breaks because a number reached zero. Her machinery stops
+ * when a shell gets into her machinery space and wrecks it, her steering jams
+ * when one gets into the steering gear, and a mounting goes out when something
+ * bursts under it -- and none of those three follows from any of the others,
+ * or from how much damage she has taken elsewhere.
+ *
+ * The chance is the size of the burst against the size of the room it went off
+ * in, which is why a six-inch shell in a destroyer's engine room stops her and
+ * the same shell in a battleship's is a hole in a bulkhead. A shell that went
+ * clean through her without bursting found almost nothing.
+ */
+function wreckContents(state, ship, where, bore, kind) {
+  const cls = shipClass(ship);
+  const room = sectionVolume(cls, where);
+  // How much of the compartment the burst filled. The bursting charge goes as
+  // the cube of the bore, so that is what this goes as.
+  const reach = REACH[kind] ?? 1;
+  const odds = room > 0
+    ? clamp(bore * bore * bore * 9000 * reach / room, 0, 0.85)
+    : 0.35;
+  if (state.rng() >= odds) return;
+  if (where === 'mid') {
+    // Her machinery: steam everywhere, and none of it anywhere it is wanted.
+    ship.engineDamage = Math.max(ship.engineDamage, 9 + state.rng() * 16);
+  } else if (where === 'stern') {
+    ship.steeringDamage = Math.max(ship.steeringDamage, 9 + state.rng() * 16);
+  } else if (where === 'works' && ship.turrets.length) {
+    // The upperworks: the fire control, the mountings, and the people working
+    // them.
+    const t = ship.turrets[Math.floor(state.rng() * ship.turrets.length)];
+    t.disabled = Math.max(t.disabled, 10 + state.rng() * 14);
+  } else if (where === 'fwd' || where === 'aft') {
+    // A magazine. Not a canned detonation -- a shell that gets into one is
+    // already doing citadel damage -- but a fire in a handling room is the
+    // worst fire there is in a ship.
+    startFire(state, ship, where, 0.45);
+  }
 }
 
 export function resolveShellHit(state, sh, target, cx, cz, cy) {
@@ -1385,30 +1556,52 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const descent = Math.atan2(-sh.vy, Math.max(1, speed));
   const sec = hitSection(target, cls, l.x, l.z, cy, descent);
 
-  // Impact obliquity: 0 is a square broadside hit, 1 is a shell skidding along
-  // the length of the hull. A shell arriving down the ship's axis bounces.
-  const impactBearing = Math.atan2(sh.vx, sh.vz);
-  const relative = angleDelta(target.heading, impactBearing);
-  const obliq = sec.part === 'deck' ? 0 : Math.abs(Math.cos(relative));
+  // The geometry of the strike, and what her plate is worth against it. A
+  // plate met at an angle is thicker in the shell's path than it is on the
+  // drawing -- which is the whole of why a ship angles -- and the shell has
+  // lost some of its penetration on the way out to her.
+  const cosT = strikeCos(sh, target, sec.part);
+  const theta = Math.acos(cosT);
   const travelled = dist(0, 0, sh.vx * sh.life, sh.vz * sh.life);
   const penFall = clamp(1.12 - travelled / 30000, 0.5, 1);
-  const effArmor = sec.armor / Math.max(0.35, 1 - obliq * 0.55);
+  const effArmor = sec.armor / Math.max(0.18, cosT);
   const pen = spec.pen * penFall;
 
   let dmg = 0, kind = 'pen';
-  if (spec.type === 'ap') {
-    if (sec.part !== 'deck' && obliq > 0.92 && spec.pen < sec.armor * 2.2) {
-      kind = 'ricochet'; dmg = 0;
-    } else if (pen < effArmor) {
+  if (ricochets(state, theta, spec, sec.armor)) {
+    kind = 'ricochet'; dmg = 0;
+  } else if (spec.type === 'ap') {
+    if (pen < effArmor) {
+      // It broke up on the face of the plate. Some of the energy still gets
+      // in; the shell does not.
       kind = 'shatter'; dmg = spec.damage * 0.04;
-    } else if (pen > effArmor * 4.5 && !sec.cit) {
-      kind = 'overpen'; dmg = spec.damage * 0.1;
     } else if (sec.cit && pen > effArmor * 1.05) {
+      // Into the box: her machinery and her magazines. It got there by going
+      // through her armour, which is quite enough to start the fuse, and there
+      // is nothing behind the plate to stop the burst.
       kind = 'citadel'; dmg = spec.damage;
+    } else if (sec.armor < spec.fuseArm && pen > effArmor * 3) {
+      // Straight through her. An armour-piercing shell is fused to burst a set
+      // distance in, and it needs to meet a plate of a certain thickness to
+      // start the fuse at all -- so a battleship's shell through a destroyer's
+      // unarmoured side, or through a cruiser's bow, goes in one side and out
+      // the other and bursts in the sea beyond her. Two holes and very little
+      // else, which is why nobody fires armour-piercing at a destroyer.
+      kind = 'overpen'; dmg = spec.damage * 0.1;
     } else {
       kind = 'pen'; dmg = spec.damage * 0.33;
     }
   } else {
+    // High explosive does not have to get inside her to do its work, but it
+    // does have to beat the plate to do it anywhere that matters.
+    //
+    // Against the plate as it is drawn, not as the shell met it. A shell fused
+    // to burst on the face of the armour drives its hole through by blast, and
+    // blast does not care what angle it arrived at or how far it has come:
+    // there is no long shank of steel trying to stay pointed at anything.
+    // Putting high explosive through the same arithmetic as armour-piercing
+    // meant a five-inch shell could not open a destroyer's nineteen
+    // millimetres of side, which is what the gun was for.
     if (spec.pen >= sec.armor) { kind = 'he'; dmg = spec.damage * 0.4; }
     else { kind = 'splash'; dmg = spec.damage * 0.1; }
     const fireRoll = state.rng();
@@ -1416,13 +1609,6 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
       // Where the shell went, not somewhere on the ship in general.
       startFire(state, target,
         sectionAt(l.z / (cls.hull.length * 0.5), sec.part), 0.3);
-    }
-    // HE tends to wreck what is exposed: mounts and steering.
-    if (kind === 'he' && state.rng() < 0.06) {
-      if (sec.part === 'stern') target.steeringDamage = 14;
-      else if (sec.part === 'superstructure' && target.turrets.length) {
-        target.turrets[Math.floor(state.rng() * target.turrets.length)].disabled = 12;
-      }
     }
   }
 
@@ -1433,27 +1619,38 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const where = sectionAt(l.z / (cls.hull.length * 0.5), sec.part);
   if (dmg > 0) damageShip(state, target, owner, dmg, kind, where);
   // A penetration is a hole in her, and holes are what she is now counted in.
-  // A shell that bounced, shattered on the plate or went straight through
-  // without bursting has not opened a compartment.
-  if (PENETRATING.has(kind)) {
-    target.sections[where].pens++;
-    // And it is a hole in her plating, not only an entry in a book.
-    //
-    // A shell that goes through the side takes a piece of it with her: about
-    // her own calibre across for a clean penetration, several times that where
-    // the burst has blown the plating in. Below the waterline the sea comes
-    // straight in; above it, nothing happens until she has settled far enough
-    // for the sea to reach the hole -- which is how a ship hit high up in the
-    // forenoon founders in the afternoon.
+  // A shell that bounced or shattered on the plate has not opened anything.
+  if (PENETRATING.has(kind)) target.sections[where].pens++;
+  // And whatever was standing in the compartment the burst went off in. This
+  // is the only way anything aboard her breaks: no threshold anywhere brings
+  // her machinery to a stand, and no accumulation of damage somewhere else
+  // does either. A shell got into her engine room, or it did not.
+  if (kind !== 'ricochet' && kind !== 'shatter' && kind !== 'splash') {
+    wreckContents(state, target, where, sh.caliber / 1000, kind);
+  }
+  // And it is a hole in her plating, not only an entry in a book.
+  //
+  // A shell that goes through the side takes a piece of it with her: about her
+  // own calibre across for a clean penetration, several times that where the
+  // burst has blown the plating in. Below the waterline the sea comes straight
+  // in; above it, nothing happens until she has settled far enough for the sea
+  // to reach the hole -- which is how a ship hit high up in the forenoon
+  // founders in the afternoon.
+  if (HOLING.has(kind)
+    && sec.part !== 'deck' && sec.part !== 'superstructure') {
     const bore = sh.caliber / 1000;
-    const blown = kind === 'citadel' ? 9 : kind === 'he' ? 3.5 : 2.2;
+    const blown = kind === 'citadel' ? 9 : kind === 'he' ? 3.5
+      : kind === 'overpen' ? 1.6 : 2.2;
     const area = Math.PI * (bore * blown * 0.5) ** 2;
     // Where it went in, relative to her waterline, and which side of her.
     const depth = -(cy - 0.6);
     const side = l.x >= 0 ? 1 : -1;
-    if (sec.part !== 'deck' && sec.part !== 'superstructure') {
-      openHull(state, target, where, area, side, depth);
-    }
+    openHull(state, target, where, area, side, depth);
+    // A shell that went clean through her came out the other side, and the
+    // hole it came out by is as much use to the sea as the one it went in by.
+    // That is the whole of what an overpenetration is worth, and against a
+    // ship with no armour worth beating it is worth a good deal.
+    if (kind === 'overpen') openHull(state, target, where, area, -side, depth);
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
@@ -1620,22 +1817,34 @@ function stepTorpedoes(state, dt) {
         const cls = getClass(target.classId);
         if (!pointInBox(tp.x, tp.z, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 3)) continue;
         const owner = state.ships.find((s) => s.id === tp.owner);
-        // Torpedo protection scales with hull size.
-        const reduction = clamp((cls.hull.beam - 12) / 46, 0, 0.42);
+        // What she has between the warhead and the inside of the ship. A big
+        // hull carries her machinery well inboard of her side, with bulges,
+        // voids and the fuel tanks between -- so the charge spends itself on
+        // her protection rather than on her. A destroyer has her beam and
+        // nothing else, and her belt, such as it is, was never meant for this.
+        const reduction = clamp((cls.hull.beam - 12) / 46, 0, 0.42)
+          + clamp(cls.armor.belt / 900, 0, 0.15);
         const lt = worldToLocal(tp.x - target.x, tp.z - target.z, target.heading);
         const hole = sectionAt(lt.z / (cls.hull.length * 0.5), 'belt');
-        damageShip(state, target, owner, tp.damage * (1 - reduction), 'torpedo', hole);
+        // A torpedo does not break a ship in half. It opens her side, and the
+        // sea does the rest -- which is why a torpedoed ship goes down slowly,
+        // by the compartment, and not in a flash. What the warhead itself
+        // wrecks is local to where it went off: frames, the plating round it,
+        // whatever was standing against that bulkhead. The ship is killed by
+        // the water, and the water is what this is really for.
+        damageShip(state, target, owner, tp.damage * 0.28 * (1 - reduction), 'torpedo', hole);
         target.sections[hole].pens++;
-        // A torpedo does not make a hole, it makes a room. Twenty to forty
-        // square metres of her side is simply gone, four metres under water,
-        // on whichever side she was hit -- which is why one torpedo puts a
-        // list on a ship and two on the same side roll her over.
+        wreckContents(state, target, hole, 0.533, 'torpedo');
+        // Because it does not make a hole, it makes a room: thirty to sixty
+        // square metres of her side is simply gone, four metres under water, on
+        // whichever side she was hit -- which is why one torpedo puts a list on
+        // a ship and two on the same side roll her over.
         //
         // The anti-torpedo protection of a big hull cuts the opening down but
         // does not close it: that is what the bulges were for.
         const side = lt.x >= 0 ? 1 : -1;
         openHull(state, target, hole,
-          (18 + state.rng() * 16) * (1 - reduction), side, 3.5 + state.rng() * 2);
+          (34 + state.rng() * 30) * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
         hit = true;
@@ -2860,7 +3069,7 @@ function floodedCount(ship) {
  * sea to reach it, which is what makes a ship that has been hit high up
  * suddenly start flooding an hour later.
  */
-function openHull(state, ship, where, area, side, depth) {
+export function openHull(state, ship, where, area, side, depth) {
   const c = ship.sections[where];
   if (!c || area <= 0) return;
   const first = c.holeP + c.holeS < 0.01;
@@ -2875,7 +3084,15 @@ function openHull(state, ship, where, area, side, depth) {
   // How far below her waterline the hole is, so the head of water over it can
   // be worked out. Holes above the waterline are recorded at a negative depth
   // and only start drawing when she has settled onto them.
-  c.holeY = Math.min(c.holeY ?? 99, depth);
+  //
+  // The deepest hole is the one that governs. The sea comes in where it has
+  // the most weight of water behind it, and it does not care that there is
+  // another hole in the same compartment up by the deck edge -- so a
+  // compartment holed four metres down floods at four metres down, whatever
+  // else has since been shot through it. Taking the shallowest instead meant a
+  // ship torpedoed under water and then hit high up amidships stopped flooding
+  // altogether, which is the wrong way round in every particular.
+  c.holeY = Math.max(c.holeY ?? -99, depth);
   if (first) state.events.push({ e: 'flood', ship: ship.id, at: where });
   ship.flooding = floodedCount(ship);
 }
@@ -2934,12 +3151,26 @@ function splitWater(total, vol, side) {
 function stepFlooding(state, ship, dt) {
   const cls = shipClass(ship);
   const b = buoyancy(ship);
+  // What the damage control party has managed to do about it. Shoring is a
+  // box built over the hole and a stack of timber behind it: it cuts the sea
+  // down, it does not shut it out, and it works loose again as the sea keeps
+  // at it. So it buys her time and nothing else. See useRepair.
+  const shored = 1 - 0.72 * clamp(ship.shored || 0, 0, 1);
   let took = 0;
   for (const s of SECTIONS) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
-    const open = c.holeP + c.holeS;
     const vol = sectionVolume(cls, s.k);
+    // What she is open to the sea by here. The holes she has actually had made
+    // in her -- nothing floods a compartment that has not been holed -- worked
+    // up by how much of the structure round them has gone. A hole in plating
+    // that has been shot to pieces is not the neat orifice it was: the metal
+    // between one hole and the next has gone with them, the frames behind have
+    // gone, and what was three holes is one. So the compartment that has taken
+    // the most damage is the one the sea gets into fastest, which is where the
+    // water starts and where it stays worst.
+    const wrecked = 1 - clamp(c.hp / c.max, 0, 1);
+    const open = (c.holeP + c.holeS) * (1 + wrecked * 1.5) * shored;
     if (open > 0 && vol > 0) {
       // How much sea is standing over the hole now: what it was when it was
       // made, plus however much deeper she is sitting since.
@@ -2990,6 +3221,27 @@ function stepFlooding(state, ship, dt) {
       -cb.water, ca.water);
     ca.water -= move;
     cb.water += move;
+  }
+
+  // The pumps, if they have been got going -- which takes a second call-away;
+  // the first only gets the party to the bulkheads. They are slow. A ship's
+  // pumping will beat a shell hole and it will not beat a torpedo, and that is
+  // exactly the distinction it ought to be making. They take it out of
+  // whichever compartment has most in it, which is where the suctions are led
+  // first.
+  if (ship.pumping > 0) {
+    let left = pumpRate(cls) * dt;
+    const wet = SECTIONS
+      .filter((s) => s.from !== null && ship.sections[s.k].water > 0)
+      .sort((a, q) => ship.sections[q.k].water - ship.sections[a.k].water);
+    for (const s of wet) {
+      if (left <= 0) break;
+      const c = ship.sections[s.k];
+      const q = Math.min(c.water, left);
+      c.water -= q;
+      left -= q;
+    }
+    ship.flooding = floodedCount(ship);
   }
 
   // Where it all ends up, port and starboard: derived from how much there is
@@ -3190,6 +3442,17 @@ function founder(state, ship, kind) {
 /** The outcomes that actually put a hole in her and let the sea in. */
 export const PENETRATING = new Set(['pen', 'citadel', 'he', 'torpedo', 'bomb']);
 
+/**
+ * The hits that leave a hole in her side.
+ *
+ * The same list with the overpenetration added, because a shell that went
+ * clean through her without bursting did nothing to the ship and a great deal
+ * to her plating: two holes, one each side, and if they are under water she is
+ * flooding through both of them. It counts for nothing in her damage book and
+ * everything to the sea.
+ */
+export const HOLING = new Set([...PENETRATING, 'overpen']);
+
 export const SECTIONS = [
   { k: 'bow', name: 'Bow', from: 0.60, to: 1.01, share: 0.12 },
   { k: 'fwd', name: 'Forward magazine', from: 0.20, to: 0.60, share: 0.21 },
@@ -3248,6 +3511,19 @@ export function sectionVolume(cls, k) {
   if (!s || s.from === null) return 0;
   const box = cls.hull.length * cls.hull.beam * cls.hull.draft * 0.62;
   return box * s.share;
+}
+
+/**
+ * What her pumps can take out of her, in cubic metres a second.
+ *
+ * A warship's salvage pumping is not a great deal beside the sea. A few cubic
+ * metres a second in a big ship and less than half of that in a destroyer --
+ * enough to hold a shell hole, nothing like enough to hold a torpedo. That is
+ * the whole reason a torpedo sinks ships and a shell usually does not, so it
+ * is the one number this wants to get right.
+ */
+export function pumpRate(cls) {
+  return 0.4 + cls.hull.length * 0.012;
 }
 
 /**
@@ -3404,12 +3680,13 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
   ship.hp = hullIntegrity(ship);
   if (source && source.id !== ship.id) source.damageDealt += Math.min(amount, before);
 
-  // What the compartments actually do. Her machinery gone is a ship that will
-  // not steam; her steering gone is a ship that will not answer her helm.
-  const dead = (k) => ship.sections[k].hp <= 0;
-  if (dead('mid')) ship.engineDamage = Math.max(ship.engineDamage, 1);
-  if (dead('stern')) ship.steeringDamage = Math.max(ship.steeringDamage, 1);
-
+  // Nothing is broken here. Her machinery stops when something gets into her
+  // machinery space and wrecks it, and her steering jams when something gets
+  // into the steering gear -- see wreckContents, which is called from the hit
+  // that did it and from nowhere else. A compartment's hit points reaching
+  // zero used to stop her engines on its own, which meant a ship burned out
+  // amidships by fires she never took a shell in came to a stand, and meant
+  // every ship in the game broke down at exactly the same point in her life.
   if (ship.hp <= 0) {
     ship.hp = 0;
     ship.alive = false;
@@ -3437,26 +3714,60 @@ function spread(ship, amount) {
   }
 }
 
+/**
+ * Call away the damage control party.
+ *
+ * A ship's damage control is not a button that undoes what has happened to
+ * her, and it is emphatically not a pump that runs the moment somebody asks
+ * for one. It goes in two stages, because that is the order the work is
+ * actually done in.
+ *
+ * The first call-away gets the party to it: the fires are fought, the
+ * bulkheads are shored, and a box is built over what can be reached of the
+ * holes. That slows the sea down. It does not stop it -- shoring works loose,
+ * and the sea keeps at it -- so the first call-away buys her time and nothing
+ * more. Nothing is pumped: every cubic metre already inside her stays inside
+ * her, and so does the list it has put on her.
+ *
+ * The second gets the pumps going, and from then on they run. They are slow.
+ * They will hold a compartment holed by a shell and they will not come near
+ * holding one opened by a torpedo, which is exactly the distinction that ought
+ * to decide whether she lives.
+ */
+/** Damage control putting her structure back, into what is worst hurt first. */
+function mend(ship, amount) {
+  let left = amount;
+  for (let pass = 0; pass < 3 && left > 1e-6; pass++) {
+    const hurt = SECTIONS.map((s) => ship.sections[s.k]).filter((c) => c.hp < c.max);
+    if (!hurt.length) break;
+    const total = hurt.reduce((a, c) => a + (c.max - c.hp), 0);
+    const chunk = left;
+    left = 0;
+    for (const c of hurt) {
+      const want = chunk * ((c.max - c.hp) / total);
+      const put = Math.min(c.max - c.hp, want);
+      c.hp += put;
+      left += want - put;
+    }
+  }
+}
+
 export function useRepair(state, ship) {
   if (!ship.alive || ship.repairCd > 0) return false;
   const cls = shipClass(ship);
   ship.repairCd = cls.repairCooldown;
   ship.repairActive = 12;
-  // What a damage control party actually does: puts the fires out and shores
-  // up and plugs what it can reach. It cannot pump out what is already in her
-  // -- that water stays, and so does the list it has put on her -- but it
-  // stops any more coming in through the holes it has closed.
-  for (const sec of SECTIONS) {
-    const c = ship.sections[sec.k];
-    c.fire = 0;
-    c.holeP = 0;
-    c.holeS = 0;
-  }
-  ship.sink = buoyancy(ship).sink;
+  ship.dcStage = (ship.dcStage || 0) + 1;
+  // Fresh shoring on everything that is open. Full effect now; it works loose
+  // from here -- see stepDamageOverTime.
+  ship.shored = 1;
+  for (const sec of SECTIONS) ship.sections[sec.k].fire = 0;
   ship.fires = 0;
+  if (ship.dcStage >= 2) ship.pumping = 1;
+  ship.sink = buoyancy(ship).sink;
   ship.flooding = floodedCount(ship);
   ship.engineDamage = 0; ship.steeringDamage = 0;
-  state.events.push({ e: 'repair', ship: ship.id });
+  state.events.push({ e: 'repair', ship: ship.id, stage: ship.dcStage });
   return true;
 }
 
@@ -3474,9 +3785,19 @@ function stepDamageOverTime(state, ship, dt) {
   stepFlooding(state, ship, dt);
   if (ship.repairActive > 0) {
     ship.repairActive -= dt;
-    ship.hp = Math.min(ship.maxHp, ship.hp + ship.maxHp * (cls.repairHeal / 12) * dt);
+    // Into her compartments, where the damage actually is: plating over what
+    // can be got at, propping the bulkheads, shoring the deck. Putting it on
+    // her hit point total alone mended nothing whatever -- the total is added
+    // up out of her compartments, so the next shell to hit her recomputed it
+    // and the whole of the party's work went with it.
+    mend(ship, ship.maxHp * (cls.repairHeal / 12) * dt);
+    ship.hp = Math.min(ship.maxHp, hullIntegrity(ship));
   }
   if (ship.repairCd > 0) ship.repairCd -= dt;
+  // The shoring working loose. A minute and a quarter and the sea is coming in
+  // through it as fast as it ever was, which is why damage control delays
+  // flooding and does not cure it.
+  if (ship.shored > 0) ship.shored = Math.max(0, ship.shored - dt / 75);
   if (ship.smokeActive > 0) ship.smokeActive -= dt;
   if (ship.engineDamage > 0) ship.engineDamage -= dt;
   if (ship.steeringDamage > 0) ship.steeringDamage -= dt;

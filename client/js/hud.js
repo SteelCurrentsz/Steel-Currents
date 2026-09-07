@@ -16,6 +16,18 @@ const $ = (id) => document.getElementById(id);
 // speeds. The order is the lever's order, not an array's.
 const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
 
+/**
+ * What the next call-away will do, on the chip and on the button.
+ *
+ * Damage control goes in two stages and the difference matters a great deal:
+ * the first gets the party to the bulkheads and shores what it can reach,
+ * which slows the sea and does not stop it, and only the second gets the pumps
+ * going. A captain has to be able to see which of the two he is about to
+ * order, so the button says so.
+ */
+const DC_NEXT = ['SHORE', 'PUMPS', 'READY'];
+const DC_ORDER = ['Shore up', 'Start pumps', 'Damage control'];
+
 const PANEL_TITLES = {
   helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
   ship: 'DAMAGE CONTROL',
@@ -568,11 +580,21 @@ export class Hud {
       return;
     }
     if (this.panel === 'arms') { this.paintArsenal(own); return; }
-    set('repair', own.rc > 0 ? `${Math.ceil(own.rc)}s` : 'READY', own.rc <= 0 ? 'ready' : 'spent');
+    // What the next call-away will do, not what the last one did: the first
+    // shores the holes and buys her time, and it takes a second to get the
+    // pumps going. A captain has to be able to see which one he is about to
+    // order.
+    const stage = Math.min(2, own.dc || 0);
+    set('repair', own.rc > 0 ? `${Math.ceil(own.rc)}s` : DC_NEXT[stage],
+      own.rc <= 0 ? 'ready' : 'spent');
+    const rep = this.acts.repair && this.acts.repair.querySelector('span');
+    if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
     const hurt = (own.f || 0) + (own.fl || 0);
-    this.el.connSub.textContent = hurt ? `${hurt} to fight` : 'sound';
+    this.el.connSub.textContent = stage >= 2 && (own.fl || 0)
+      ? `pumping, ${own.fl} flooded`
+      : hurt ? `${hurt} to fight` : 'sound';
   }
 
   /**

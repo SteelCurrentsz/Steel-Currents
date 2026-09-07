@@ -25,7 +25,13 @@ const HE = 'he';
 // range; HE penetration follows the usual caliber/6 rule of thumb.
 function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
   return {
-    [AP]: { type: AP, caliber, damage: apDamage, pen, velocity, fuseArm: caliber * 0.9, fireChance: 0.02, drag: 0.0022 },
+    // `fuseArm` is the plate an armour-piercing shell has to meet to start its
+    // fuse at all. Anything thinner and the shell goes in one side and out the
+    // other with the fuse still asleep, and bursts in the sea beyond -- which
+    // is the overpenetration, and it is why a battleship firing armour-piercing
+    // at a destroyer does almost nothing to her. About a sixth of the bore is
+    // the figure the fuses were actually set to.
+    [AP]: { type: AP, caliber, damage: apDamage, pen, velocity, fuseArm: Math.round(caliber / 6), fireChance: 0.02, drag: 0.0022 },
     [HE]: { type: HE, caliber, damage: heDamage, pen: Math.round(caliber / 6), velocity: velocity * 0.96, fuseArm: 0, fireChance, drag: 0.0026 },
   };
 }
@@ -241,7 +247,9 @@ export const SHIP_CLASSES = {
       squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9000,
       rearm: 95, hp: 640, dropSpread: 0.06,
       torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
-      bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
+      // A scout carries a couple of hundred pounds under each wing. It will
+      // beat a destroyer's deck and it will not beat anything else's.
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
       // Off a catapult, not down a flight deck: the whole evolution is the
       // catapult training out, the engine running up and the shot itself.
       // What she actually flies. A cruiser's scout is a float plane on a
@@ -375,7 +383,7 @@ export const SHIP_CLASSES = {
       squadrons: 2, perSquadron: 2, cruiseSpeed: 54, strikeRange: 8500,
       rearm: 110, hp: 620, dropSpread: 0.07,
       torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
-      bombDamage: 700, bombHit: 0.28, bombFire: 0.12,
+      bombDamage: 700, bombHit: 0.28, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
       type: 'arado',
       catapult: true, deckRun: 9.4, deckCycle: 34,
       runHeight: 20,
@@ -507,7 +515,9 @@ export const SHIP_CLASSES = {
       squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9600,
       rearm: 95, hp: 640, dropSpread: 0.06,
       torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
-      bombDamage: 900, bombHit: 0.32, bombFire: 0.1,
+      // A scout carries a couple of hundred pounds under each wing. It will
+      // beat a destroyer's deck and it will not beat anything else's.
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
       // Off a catapult, not down a flight deck: the whole evolution is the
       // catapult training out, the engine running up and the shot itself.
       type: 'kingfisher',
@@ -626,10 +636,14 @@ export const SHIP_CLASSES = {
       runOut: 156, runHeight: 41,
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
-      // What a dive bomber does when it gets there: a thousand-pound bomb is
-      // not a torpedo -- less damage, no flooding, but it does not have to get
-      // down on the water to deliver it, and it starts fires.
-      bombDamage: 4200, bombHit: 0.42, bombFire: 0.34,
+      // What a dive bomber does when it gets there. A thousand-pound
+      // semi-armour-piercing bomb released at ten thousand feet beats about
+      // ninety millimetres of deck, and `bombPen` is the whole story of dive
+      // bombing in one number: through a destroyer and out of her bottom,
+      // which floods her as surely as a torpedo would; through a cruiser's
+      // deck to burst in the compartment below it; and stopped dead on a
+      // battleship's armoured deck, which is what the weight of it was for.
+      bombDamage: 4200, bombHit: 0.42, bombFire: 0.34, bombPen: 92, bombBore: 0.36,
       // The air group she sails with. A captain may re-balance it in the yard
       // between fighters, dive bombers and torpedo bombers, inside these
       // limits: twelve aircraft in all, and she must embark something that can
