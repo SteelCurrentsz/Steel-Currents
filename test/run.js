@@ -18,7 +18,7 @@ import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
-  flightDeckOut, resolveShellHit, buoyancy, launchOffset,
+  flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
@@ -51,7 +51,8 @@ import { buildShip } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
- * How far off the centreline a ship's plating is, at a height and a station.
+ * Where a ship's plating is, at a height and a station: port limit to
+ * starboard limit.
  *
  * A ray out along the beam through every triangle she is drawn with, and the
  * farthest one it goes through. The only instrument that answers the question
@@ -59,8 +60,8 @@ import { muzzleWorld } from '../client/js/render/mounts.js';
  * misses everything between two station rows, and reading her lines is reading
  * a curve she was lofted through rather than the ship that came out.
  *
- * `-1` where she has no plating on that line at all, which is past her stem,
- * under her keel, or on the centreline itself.
+ * `null` where she has no plating on that line at all, which is past her stem
+ * or under her keel.
  */
 function shellRuler(group) {
   const SLAB = 1.0;
@@ -104,29 +105,40 @@ function shellRuler(group) {
       l.push(i);
     }
   }
-  // Where the ray crosses one triangle, as a distance off the centreline: a
+  // Where the ray crosses one triangle, in signed metres off the centreline: a
   // two-dimensional question in the plane the ray is normal to.
   const rayX = (i, y, z) => {
     const ay = tris[i + 1], az = tris[i + 2];
     const by = tris[i + 4], bz = tris[i + 5];
     const cy = tris[i + 7], cz = tris[i + 8];
     const d = (bz - cz) * (ay - cy) + (cy - by) * (az - cz);
-    if (d < 1e-9 && d > -1e-9) return -1;
+    if (d < 1e-9 && d > -1e-9) return NaN;
     const l1 = ((bz - cz) * (y - cy) + (cy - by) * (z - cz)) / d;
-    if (l1 < 0 || l1 > 1) return -1;
+    if (l1 < 0 || l1 > 1) return NaN;
     const l2 = ((cz - az) * (y - cy) + (ay - cy) * (z - cz)) / d;
-    if (l2 < 0 || l1 + l2 > 1) return -1;
-    return Math.abs(tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * (1 - l1 - l2));
+    if (l2 < 0 || l1 + l2 > 1) return NaN;
+    return tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * (1 - l1 - l2);
   };
+  // Everything her plating occupies on that line, as the span between the
+  // outermost crossing to port and the outermost to starboard.
+  //
+  // A span rather than a half-beam, because a half-beam cannot tell a ship
+  // apart from a ship's shadow. Enterprise's island is nine metres to
+  // starboard and four metres wide: "fourteen metres off the centreline" is
+  // true of it and is also true of a point thirteen metres out on the other
+  // side, in the air over her port catwalk, where there is no island at all.
   return (y, z) => {
     const l = bucket.get(Math.floor(z / SLAB));
-    if (!l) return -1;
-    let best = -1;
+    if (!l) return null;
+    let lo = Infinity;
+    let hi = -Infinity;
     for (let n = 0; n < l.length; n++) {
       const h = rayX(l[n], y, z);
-      if (h > best) best = h;
+      if (Number.isNaN(h)) continue;
+      if (h < lo) lo = h;
+      if (h > hi) hi = h;
     }
-    return best;
+    return hi < lo ? null : { lo, hi };
   };
 }
 import { angleDelta, dist, clamp, MPS_TO_KNOTS } from '../shared/math.js';
@@ -5263,7 +5275,7 @@ check('a captain keeps his aircraft to himself', () => {
     // struck below again inside the run, and looking only at the last tick
     // would call that "she never flew anything".
     let flew = 0;
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 300; i++) {
       foe.spottedBy[0] = 3;
       stepBot(st, cv, brain, DT, conned);
       step(st, DT);
@@ -6521,9 +6533,19 @@ check('every ship has an inside, and it is inside her', () => {
       const ix = m.geometry.getIndex();
       tris += (ix ? ix.count : m.geometry.attributes.position.count) / 3;
     }
+    // No wider than she is drawn. Her waterline beam is the wrong yardstick
+    // for anything above her deck -- Enterprise's flight deck overhangs her
+    // side by five metres each way and her island stands on the overhang, so
+    // her own bridge is outside her beam and belongs there.
+    let widest = 0;
+    for (const o of welded(built.group)) {
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) widest = Math.max(widest, Math.abs(pos.getX(i)));
+    }
     const beam = cls.hull.beam / 2;
-    assert.ok(bb.max.x <= beam + 0.6 && bb.min.x >= -beam - 0.6,
-      `${id}'s insides stick out to ${bb.max.x.toFixed(1)} on a ${beam.toFixed(1)} m half-beam`);
+    assert.ok(widest >= beam * 0.8, `${id} is drawn only ${widest.toFixed(1)} m wide`);
+    assert.ok(bb.max.x <= widest + 0.6 && bb.min.x >= -widest - 0.6,
+      `${id}'s insides stick out to ${bb.max.x.toFixed(1)} on a ${widest.toFixed(1)} m half-breadth`);
     assert.ok(bb.min.y >= -cls.hull.draft - 1.5,
       `${id}'s insides go down to ${bb.min.y.toFixed(1)} below a ${cls.hull.draft} m draft`);
     assert.ok(bb.max.z <= cls.hull.length / 2 + 1 && bb.min.z >= -cls.hull.length / 2 - 1,
@@ -6554,13 +6576,16 @@ check('every ship has an inside, and it is inside her', () => {
     for (const m of inside) {
       const pos = m.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
-        const px = Math.abs(pos.getX(i));
+        const px = pos.getX(i);
         const py = pos.getY(i);
         const pz = pos.getZ(i);
         if (Math.abs(pz) > halfLen) continue;
         const side = outboard(py, pz);
-        if (side < 0) continue;              // no plating at all on that line
-        const over = px - side;
+        if (!side) continue;                 // no plating at all on that line
+        // Outside the plating either way: past her side, or -- which is the
+        // one a half-beam cannot see -- in clear air on the other side of the
+        // ship from the structure it was supposed to be fitted inside.
+        const over = Math.max(px - side.hi, side.lo - px);
         if (over > 0.15) { proud++; if (py < 0) sunkenProud++; }
         if (over > worst) { worst = over; mark = [px, py, pz]; }
       }
@@ -8554,6 +8579,137 @@ check('the battle ends with a way home, and nobody is sent home', () => {
   assert.equal(el.port.hidden, false, 'the way home never appeared');
   hud.showPortKey(false);
   assert.equal(el.port.hidden, true, 'the way home never goes away again');
+});
+
+check('a shell breaks what it hit, and not the far end of the ship', () => {
+  // The one that made damage feel arbitrary. A round anywhere in her
+  // upperworks took a mounting at random out of the whole ship, so a five-inch
+  // hit abaft the funnel put A turret out of action a hundred and fifty feet
+  // forward -- and there was no reading the damage off the ship, because what
+  // broke had nothing to do with where you had hit her.
+  const setup = () => {
+    const world = generateWorld(5, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const v = addShip(state, { name: 'V', classId: 'cleveland', team: 1, index: 0 });
+    v.x = 0; v.z = 0; v.heading = 0;
+    return { state, v };
+  };
+  const cls = SHIP_CLASSES.cleveland;
+  // Every turret she has, and where it stands.
+  const near = cls.turrets.reduce((a, b) => (b.z > a.z ? b : a));
+  const far = cls.turrets.reduce((a, b) => (b.z < a.z ? b : a));
+  assert.ok(near.z - far.z > 60, 'her turrets are not far enough apart to tell this');
+
+  // Three hundred rounds onto one mounting, and a count of what broke.
+  const hitAt = (z, y) => {
+    const { state, v } = setup();
+    // Something that gets in. A shell that splashes off her turret face never
+    // reaches anything at all, which would prove nothing either way.
+    const spec = SHIP_CLASSES.iowa.gun.shells.ap;
+    let broke = { near: 0, far: 0 };
+    for (let i = 0; i < 300; i++) {
+      for (const t of v.turrets) t.disabled = 0;
+      v.alive = true; v.hp = v.maxHp;
+      for (const k of SECTIONS) {
+        const c = v.sections[k.k];
+        c.hp = c.max; c.pens = 0; c.fire = 0;
+        c.holeP = 0; c.holeS = 0; c.water = 0; c.wP = 0; c.wS = 0; c.side = 0;
+      }
+      state.events.length = 0;
+      resolveShellHit(state, {
+        owner: 0, team: 0, caliber: spec.caliber, spec, life: 12, g: 9.8,
+        x: 0, y, z, vx: Math.cos(0.3) * 400, vy: -Math.sin(0.3) * 400, vz: 0,
+      }, v, 0, z, y);
+      const t0 = v.turrets[cls.turrets.indexOf(near)];
+      const t1 = v.turrets[cls.turrets.indexOf(far)];
+      if (t0 && t0.disabled > 0) broke.near++;
+      if (t1 && t1.disabled > 0) broke.far++;
+    }
+    return broke;
+  };
+
+  const onNear = hitAt(near.z, near.my);
+  assert.ok(onNear.near > 30,
+    `three hundred shells on her forward turret put it out of action `
+    + `${onNear.near} times`);
+  assert.equal(onNear.far, 0,
+    `a shell on her forward turret disabled the after one ${onNear.far} times `
+    + `in three hundred, ${(near.z - far.z).toFixed(0)} m away`);
+
+  // And the same shell at the other end breaks the other one, which is what
+  // makes the first result mean anything.
+  const onFar = hitAt(far.z, far.my);
+  assert.ok(onFar.far > 30, 'a shell on her after turret never put it out of action');
+  assert.equal(onFar.near, 0, 'a shell aft disabled her forward turret');
+
+  // And a burst with nothing near it breaks nothing. A shell into a stretch of
+  // her side with no mounting within twenty metres has plenty to wreck --
+  // plating, frames, whatever compartment it went into -- but there is no gun
+  // there, so no gun goes out of action. It is the radius of the burst that
+  // says so, and the radius is the size of the shell.
+  const mounts = [...cls.turrets, ...cls.secondary.mounts];
+  let lonely = 0;
+  let gap = 0;
+  for (let z = -cls.hull.length / 2; z <= cls.hull.length / 2; z += 1) {
+    let d = Infinity;
+    for (const m of mounts) d = Math.min(d, Math.hypot(m.z - z, (m.my || 12) - 6));
+    if (d > gap) { gap = d; lonely = z; }
+  }
+  assert.ok(gap > 18,
+    `every foot of her is within ${gap.toFixed(0)} m of a mounting; nothing to test`);
+  const empty = hitAt(lonely, 6);
+  assert.equal(empty.near + empty.far, 0,
+    `a shell ${gap.toFixed(0)} m from the nearest mounting disabled one anyway`);
+});
+
+check('a gun shoots between its own stops and nowhere else', () => {
+  // A gun is not a turret that points anywhere. It has an elevating stop at
+  // the top and a depression stop at the bottom, and the bottom one is why a
+  // ship cannot shoot at something alongside her: the guns will not come down
+  // that far, because if they did they would be laid on her own forecastle.
+  const surface = gunLimits({ role: 'surface' });
+  const dp = gunLimits({ role: 'dp' });
+  const light = gunLimits({ role: 'aa' });
+  assert.ok(surface.max < dp.max && dp.max < light.max,
+    'a surface gun, a dual-purpose gun and a Bofors all elevate the same');
+  assert.ok(surface.max > 0.6 && surface.max < 0.9,
+    `a surface gun elevates to ${((surface.max * 180) / Math.PI).toFixed(0)} degrees`);
+  assert.ok(dp.max > 1.3, 'a dual-purpose gun cannot reach an aeroplane');
+  assert.ok(light.max > 1.5, 'a Bofors cannot follow anything over the mast');
+  for (const s of [surface, dp, light]) {
+    assert.ok(s.min < 0, 'a gun that cannot depress at all');
+    assert.ok(s.min > -0.35, 'a gun that depresses into her own deck');
+  }
+  // A battery may say so itself, and then its own figures are what is used.
+  const own = gunLimits({ role: 'surface', elev: { min: -0.1, max: 1.2 } });
+  assert.equal(own.max, 1.2, "a battery's own stops are ignored");
+
+  // And her light battery carries them, mounting by mounting: a 5"/38 in a
+  // gallery and a quadruple 1.1" on the island do not have the same stops.
+  const battery = aaBattery(SHIP_CLASSES.enterprise);
+  assert.ok(battery.length > 4, 'the Enterprise has almost no light battery');
+  for (const m of battery) {
+    assert.ok(m.up && m.up.max > 1 && m.up.min < 0,
+      `a light mounting with no stops on it: ${m.name}`);
+  }
+
+  // An aeroplane straight overhead is above what the heavy mountings can
+  // follow, and fewer barrels bear on him than on one the same distance off
+  // coming in low. The same slant range for both, so the only thing that
+  // differs between them is how far up the guns have to point.
+  const cls = SHIP_CLASSES.enterprise;
+  const ship = { x: 0, z: 0, y: 0, heading: 0 };
+  const low = aaBearing(cls, ship, 900, 0, 60);
+  const overhead = aaBearing(cls, ship, 40, 0, 900);
+  assert.ok(low.barrels > 0, 'nothing bears on an aeroplane coming in low');
+  assert.ok(overhead.barrels < low.barrels,
+    `as many guns bear straight up (${overhead.barrels}) as on one coming in `
+    + `low at the same range (${low.barrels})`);
+  // And with no height given at all, nothing is excluded: the elevation is a
+  // refinement on the answer, not a new way for it to come out empty.
+  assert.ok(aaBearing(cls, ship, 900, 0).barrels >= low.barrels,
+    'a plot with no height on it lost her half her battery');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

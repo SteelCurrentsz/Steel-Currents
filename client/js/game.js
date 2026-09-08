@@ -2152,11 +2152,18 @@ export class Battle {
     const r = holeRadius(ev.kind, ev.cal);
     if (!r) return;
     const went = v.punch(ev.x, ev.y ?? 8, ev.z, r, 0.45);
-    // A citadel hit is a burst in the middle of her, and what it vents through
-    // the deck is the deck. Anything smaller throws splinters, not wreckage.
-    if (ev.kind === 'citadel' && went > 0) {
-      this.scene.debris.burst(ev.x, (ev.y ?? 8) + 3, ev.z,
-        2.2 + (ev.cal || 152) / 1000 * 3, 1);
+    // Whatever came out of her went somewhere.
+    //
+    // It used to be a citadel hit alone that threw anything. Every other kind
+    // of hole took a piece out of the ship and put nothing into the air, which
+    // is a hole that appears by magic -- and holes are most of what happens in
+    // an action. A citadel hit still throws the deck; a six-inch through the
+    // side throws splinters, which is the difference between them.
+    if (went > 0) {
+      const bore = (ev.cal || 152) / 1000;
+      const heavy = ev.kind === 'citadel';
+      this.scene.debris.burst(ev.x, (ev.y ?? 8) + (heavy ? 3 : 1.3), ev.z,
+        (heavy ? 2.2 : 0.8) + bore * (heavy ? 3 : 1.7), heavy ? 1 : 0.4);
     }
   }
 

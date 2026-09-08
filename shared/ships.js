@@ -580,15 +580,21 @@ export const SHIP_CLASSES = {
     // deck is in the way -- so each is laid abeam and stops well short of the
     // centreline, which is why a Yorktown was always short of guns on the
     // engaged side and had to turn to bring the other four to bear.
+    //
+    // Thirty degrees each way, which is what the gallery leaves them. It was
+    // seventy-six, and a gun swung that far came round into the flight deck
+    // over its own head and into the sponson coaming beside it: the mounting
+    // was training through the ship. The number is what her own model has room
+    // for, measured off it rather than guessed.
     turrets: [
-      { id: 0, name: 'S1', x: -15.4, z: 82.0, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 1, name: 'S2', x: -15.4, z: 75.2, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 2, name: 'S3', x: -15.4, z: -59.5, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 3, name: 'S4', x: -15.4, z: -66.3, angle: -Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 4, name: 'P1', x: 15.4, z: 71.5, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 5, name: 'P2', x: 15.4, z: 64.7, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 6, name: 'P3', x: 15.4, z: -70.0, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
-      { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 1.32, guns: 1, my: 16.10 },
+      { id: 0, name: 'S1', x: -15.4, z: 82.0, angle: -Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 1, name: 'S2', x: -15.4, z: 75.2, angle: -Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 2, name: 'S3', x: -15.4, z: -59.5, angle: -Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 3, name: 'S4', x: -15.4, z: -66.3, angle: -Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 4, name: 'P1', x: 15.4, z: 71.5, angle: Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 5, name: 'P2', x: 15.4, z: 64.7, angle: Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 6, name: 'P3', x: 15.4, z: -70.0, angle: Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
+      { id: 7, name: 'P4', x: 15.4, z: -76.8, angle: Math.PI / 2, arc: 0.52, guns: 1, my: 16.10 },
     ],
     gun: {
       name: '5"/38 Mk 21', role: 'dp',

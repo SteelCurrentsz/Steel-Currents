@@ -464,6 +464,30 @@ export function muzzlePos(ship, cls, mount, battery, bearing, gun = 0, guns = 1)
   };
 }
 
+/**
+ * How high and how low a mounting can point, in radians.
+ *
+ * A gun is not a turret that shoots anywhere. It has stops: a 16"/50 lifts to
+ * forty-five degrees and depresses to two below the horizontal, a 5"/38 goes
+ * to eighty-five because it was built to shoot at aeroplanes, and a Bofors
+ * goes past the vertical. And the depression stop is the reason a ship cannot
+ * shoot at something alongside her: the guns will not come down that far,
+ * because if they did they would be pointing at her own forecastle.
+ *
+ * A battery may say so itself. Where it does not, its role does: that is what
+ * `role` is for, and a dual-purpose gun is dual-purpose because of its stops.
+ */
+const ELEV_BY_ROLE = {
+  surface: { min: -0.035, max: 0.79 },
+  dp: { min: -0.09, max: 1.48 },
+  aa: { min: -0.17, max: 1.62 },
+};
+export function gunLimits(battery) {
+  if (!battery) return ELEV_BY_ROLE.surface;
+  if (battery.elev) return battery.elev;
+  return ELEV_BY_ROLE[battery.role] || ELEV_BY_ROLE.surface;
+}
+
 /** Bearing a turret wants, clamped into its firing arc; null when it cannot bear. */
 function turretDesired(ship, cls, t) {
   const spec = cls.turrets[t.id];
@@ -485,21 +509,28 @@ function stepTurrets(state, ship, dt) {
   // problem.
   const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, cls.gun.range);
   const elev = solveBallistic(cls.gun, d, 12).elev;
+  const stops = gunLimits(cls.gun);
   for (const t of ship.turrets) {
     if (t.disabled > 0) { t.disabled -= dt; continue; }
     const want = turretDesired(ship, cls, t);
     t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
     // A gun that cannot bear comes down to the loading angle rather than
-    // standing there pointing at the sky over her own bridge.
-    const aim = want.blocked ? 0.03 : elev;
+    // standing there pointing at the sky over her own bridge -- and one that
+    // can never goes past its own stops.
+    const aim = want.blocked ? 0.03 : clamp(elev, stops.min, stops.max);
     t.elev += clamp(aim - t.elev, -0.5 * dt, 0.5 * dt);
+    t.elev = clamp(t.elev, stops.min, stops.max);
+    // Off the target as well as off the arc: a solution her guns cannot reach
+    // is a solution she has not got, and she checks fire rather than shooting
+    // at the stop and missing by a mile every time.
+    t.laid = !want.blocked && elev <= stops.max && elev >= stops.min;
     if (t.cooldown > 0) t.cooldown -= dt;
   }
 }
 
 export function canFire(ship) {
   if (!ship.alive) return false;
-  return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0);
+  return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0 && t.laid !== false);
 }
 
 /** Fire every turret that is loaded and on target. Returns barrels fired. */
@@ -511,11 +542,17 @@ export function fireGuns(state, ship) {
   const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, gun.range);
   let fired = 0;
 
+  const stops = gunLimits(gun);
+  const solution = solveBallistic(gun, d, 12).elev;
   for (const t of ship.turrets) {
     if (t.cooldown > 0 || t.disabled > 0) continue;
     const tSpec = cls.turrets[t.id];
     const want = turretDesired(ship, cls, t);
     if (want.blocked) continue;
+    // Nor past her stops: a gun that will not come down that far does not
+    // shoot at something alongside her, and one that will not go up that far
+    // does not reach.
+    if (solution > stops.max || solution < stops.min) continue;
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
 
     const bearing = wrapAngle(ship.heading + t.angle);
@@ -606,7 +643,10 @@ function deliverOrdnance(state, p, best, P) {
     const cls = getClass(best.classId);
     const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
     const cell = sectionAt(clamp(lb.z / (cls.hull.length * 0.5), -1, 1), 'deck');
-    bombHit(state, best, owner, cell, lb.x >= 0 ? 1 : -1, P);
+    // Where on her it landed, so the burst breaks what it actually reached
+    // rather than something at the other end of the ship.
+    bombHit(state, best, owner, cell, lb.x >= 0 ? 1 : -1, P,
+      { x: lb.x, y: freeboardOf(cls), z: lb.z });
   }
 }
 
@@ -631,7 +671,7 @@ function deliverOrdnance(state, p, best, P) {
  * waterline, and she floods exactly as though she had been torpedoed there.
  * That is what a thousand-pound bomb does to a destroyer.
  */
-export function bombHit(state, ship, owner, cell, side, P) {
+export function bombHit(state, ship, owner, cell, side, P, at) {
   const cls = shipClass(ship);
   const base = P.bombDamage ?? 4000;
   const deck = Math.max(6, cls.armor.deck);
@@ -655,7 +695,7 @@ export function bombHit(state, ship, owner, cell, side, P) {
   // compartment under it; stopped on the deck it is everything standing about
   // on top of her -- the mountings, the directors, the people working them --
   // which is why an armoured deck saves the ship and not her upperworks.
-  wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb');
+  wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb', at);
   if (through >= 2.2) {
     // Out through her bottom, or bursting against it. Either way the sea is
     // inside her, and it is inside her a long way down.
@@ -841,21 +881,28 @@ export function aaBattery(cls) {
   const hit = AA_CACHE.get(cls.id);
   if (hit) return hit;
   const out = [];
-  const add = (m, range, caliber, name) => out.push({
+  const add = (m, range, caliber, name, battery) => out.push({
     x: m.x, z: m.z, angle: m.angle, arc: m.arc, guns: m.guns || 1,
+    // How far up and how far down that mounting will go, off the battery it
+    // belongs to. A quadruple 1.1" and a 5"/38 are both anti-aircraft guns and
+    // they do not have the same stops.
+    up: gunLimits(battery),
     range, caliber, name,
   });
   // The heavy dual-purpose mountings first: they are the ones that reach.
   if (cls.gun && cls.gun.role === 'dp') {
-    for (const t of cls.turrets) add(t, cls.aa ? cls.aa.range : 4000, cls.gun.caliber, cls.gun.name);
+    for (const t of cls.turrets) {
+      add(t, cls.aa ? cls.aa.range : 4000, cls.gun.caliber, cls.gun.name, cls.gun);
+    }
   }
   if (cls.secondary && cls.secondary.role === 'dp') {
     for (const m of cls.secondary.mounts) {
-      add(m, cls.aa ? cls.aa.range : 4000, cls.secondary.caliber, cls.secondary.name);
+      add(m, cls.aa ? cls.aa.range : 4000, cls.secondary.caliber, cls.secondary.name,
+        cls.secondary);
     }
   }
   for (const g of (cls.aa && cls.aa.guns) || []) {
-    for (const m of g.mounts) add(m, g.range, g.caliber, g.name);
+    for (const m of g.mounts) add(m, g.range, g.caliber, g.name, g);
   }
   AA_CACHE.set(cls.id, out);
   return out;
@@ -870,16 +917,24 @@ export function aaBarrels(cls) {
  * What she can actually bring to bear on an aeroplane on that bearing, as a
  * share of her whole battery, and how many barrels that is.
  */
-export function aaBearing(cls, ship, px, pz) {
+export function aaBearing(cls, ship, px, pz, py) {
   const battery = aaBattery(cls);
   const d = dist(ship.x, ship.z, px, pz);
   const bearing = headingTo(ship.x, ship.z, px, pz);
+  // How high she has to point to be on him. An aeroplane straight overhead is
+  // above a five-inch mounting's stops and the Bofors on the quarterdeck are
+  // the only things that can follow him up there; one coming in on the wave
+  // tops is below everything's, because the guns will not depress into her own
+  // upperworks. Both of those are why aircraft attacked the way they did.
+  const up = py == null ? null
+    : Math.atan2(py - (ship.y || 0), Math.max(1, Math.hypot(px - ship.x, pz - ship.z)));
   let all = 0;
   let on = 0;
   for (const m of battery) {
     all += m.guns;
     if (d > m.range) continue;
     if (!mountBears(ship, m, bearing)) continue;
+    if (up !== null && (up > m.up.max || up < m.up.min)) continue;
     on += m.guns;
   }
   return { share: all > 0 ? on / all : 0, barrels: on, of: all, bearing, range: d };
@@ -970,11 +1025,15 @@ function stepSecondary(state, ship, dt) {
       ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
       : local;
     m.angle = approachAngle(m.angle, want, S.traverse * dt);
-    // And how far up the gun captain has his guns, on the same solution.
-    m.elev += clamp(aim.elev - m.elev, -0.9 * dt, 0.9 * dt);
+    // And how far up the gun captain has his guns, on the same solution --
+    // never past the stops on the mounting.
+    const stops = gunLimits(S);
+    m.elev += clamp(clamp(aim.elev, stops.min, stops.max) - m.elev, -0.9 * dt, 0.9 * dt);
+    m.elev = clamp(m.elev, stops.min, stops.max);
     if (m.cooldown > 0) continue;
     if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
     if (Math.abs(off) > spec.arc) continue;
+    if (aim.elev > stops.max || aim.elev < stops.min) continue;
 
     const pos = mountWorldPos(ship, spec);
     const bearing = wrapAngle(ship.heading + m.angle);
@@ -1586,7 +1645,7 @@ function detonate(state, ship, where, owner) {
  * the same shell in a battleship's is a hole in a bulkhead. A shell that went
  * clean through her without bursting found almost nothing.
  */
-function wreckContents(state, ship, where, bore, kind) {
+function wreckContents(state, ship, where, bore, kind, at) {
   const cls = shipClass(ship);
   const room = sectionVolume(cls, where);
   // How much of the compartment the burst filled. The bursting charge goes as
@@ -1601,17 +1660,65 @@ function wreckContents(state, ship, where, bore, kind) {
     ship.engineDamage = Math.max(ship.engineDamage, 9 + state.rng() * 16);
   } else if (where === 'stern') {
     ship.steeringDamage = Math.max(ship.steeringDamage, 9 + state.rng() * 16);
-  } else if (where === 'works' && ship.turrets.length) {
-    // The upperworks: the fire control, the mountings, and the people working
-    // them.
-    const t = ship.turrets[Math.floor(state.rng() * ship.turrets.length)];
-    t.disabled = Math.max(t.disabled, 10 + state.rng() * 14);
   } else if (where === 'fwd' || where === 'aft') {
     // A magazine. Not a canned detonation -- a shell that gets into one is
     // already doing citadel damage -- but a fire in a handling room is the
     // worst fire there is in a ship.
     startFire(state, ship, where, 0.45);
   }
+  // And the one mounting the burst actually reached.
+  //
+  // It used to take a mounting at random out of the whole ship whenever a
+  // round got into her upperworks, so a five-inch hit abaft the funnel put A
+  // turret out of action a hundred and fifty feet away, and there was no
+  // knowing which one you had hit because it was not the one you had hit. A
+  // burst reaches as far as a burst reaches: the nearest mounting to it, and
+  // only if it is inside that.
+  const hurt = nearestMount(ship, cls, at);
+  if (hurt && hurt.d <= burstReach(kind, bore)) {
+    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 10 + state.rng() * 14);
+  }
+}
+
+/**
+ * How far a burst reaches, in metres, measured from where it went off.
+ *
+ * Scaled off a twelve-inch shell, because the bursting charge goes as the cube
+ * of the bore and the radius it wrecks things inside goes as the cube root of
+ * the charge -- which leaves the radius going as the bore. A five-inch shell
+ * on the boat deck is a two-metre event; a torpedo is a fifteen-metre one.
+ */
+const BURST_M = {
+  citadel: 11, pen: 7, he: 5, overpen: 2, shatter: 1.5, splash: 1.5,
+  torpedo: 15, bomb: 13, magazine: 30,
+};
+function burstReach(kind, bore) {
+  return (BURST_M[kind] ?? 4) * (bore / 0.3);
+}
+
+/**
+ * The mounting nearest a point in her own frame, and how far off it is.
+ *
+ * Every mounting in the yard carries where it stands -- `x`, `z` and the
+ * height of its muzzles -- because the guns are laid and fired from those
+ * numbers. So "what did this shell hit" is a question the simulation can
+ * answer properly rather than by drawing lots.
+ */
+function nearestMount(ship, cls, at) {
+  if (!at) return null;
+  let best = null;
+  let bd = Infinity;
+  const look = (live, spec) => {
+    if (!live || !spec) return;
+    for (let i = 0; i < live.length && i < spec.length; i++) {
+      const s = spec[i];
+      const d = Math.hypot((s.x || 0) - at.x, (s.my || 0) - at.y, s.z - at.z);
+      if (d < bd) { bd = d; best = live[i]; }
+    }
+  };
+  look(ship.turrets, cls.turrets);
+  look(ship.secMounts, cls.secondary ? cls.secondary.mounts : null);
+  return best ? { m: best, d: bd } : null;
 }
 
 export function resolveShellHit(state, sh, target, cx, cz, cy) {
@@ -1692,7 +1799,8 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // her machinery to a stand, and no accumulation of damage somewhere else
   // does either. A shell got into her engine room, or it did not.
   if (kind !== 'ricochet' && kind !== 'shatter' && kind !== 'splash') {
-    wreckContents(state, target, where, sh.caliber / 1000, kind);
+    wreckContents(state, target, where, sh.caliber / 1000, kind,
+      { x: l.x, y: cy, z: l.z });
   }
   // And whether it found the cordite.
   //
@@ -1917,7 +2025,10 @@ function stepTorpedoes(state, dt) {
         // the water, and the water is what this is really for.
         damageShip(state, target, owner, tp.damage * 0.28 * (1 - reduction), 'torpedo', hole);
         target.sections[hole].pens++;
-        wreckContents(state, target, hole, 0.533, 'torpedo');
+        // Four metres under water and against her side, which is where a
+        // torpedo goes off and a long way below anything that trains.
+        wreckContents(state, target, hole, 0.533, 'torpedo',
+          { x: lt.x, y: -4, z: lt.z });
         // Because it does not make a hole, it makes a room: thirty to sixty
         // square metres of her side is simply gone, four metres under water, on
         // whichever side she was hit -- which is why one torpedo puts a list on
@@ -2644,7 +2755,7 @@ function stepPlanes(state, dt) {
       if (!scls.aa) continue;
       const d = dist(p.x, p.z, s.x, s.z);
       if (d >= scls.aa.range) continue;
-      const bear = aaBearing(scls, s, p.x, p.z);
+      const bear = aaBearing(scls, s, p.x, p.z, p.y);
       if (bear.barrels === 0) continue;
       hurtFlight(state, p, scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range));
       // And the tracer that goes with it. One burst at a time per ship, on the

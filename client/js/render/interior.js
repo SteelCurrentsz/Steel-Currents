@@ -574,7 +574,16 @@ function heldToPlating(g, hull) {
     if (!list) continue;
     const z = minZ + zi * ENV_DZ;
     for (let yi = 0; yi < ny; yi++) {
-      grid[zi * ny + yi] = beamAt(tris, list, (y0 + yi) * ENV_DY, z);
+      // The widest she is on BOTH sides at once, not the widest she is on
+      // either. Her hull is symmetrical and everything fitted inside it is
+      // built symmetrical, but the things hung on her sides are not: a gun
+      // gallery four metres out on the starboard quarter is plating, and read
+      // as a half-beam it says the ship is four metres wider than she is --
+      // to port as well, where there is nothing at all.
+      const sp = spanAt(tris, list, (y0 + yi) * ENV_DY, z);
+      if (!sp) continue;
+      const sym = Math.min(-sp.lo, sp.hi);
+      grid[zi * ny + yi] = sym > 0 ? sym : -1;
     }
   }
 
@@ -632,18 +641,32 @@ function heldToPlating(g, hull) {
   const hy0 = Math.floor((deckHigh - 2) / HOUSE_DY);
   const hny = Math.max(1, Math.ceil((hTop - deckHigh + 2) / HOUSE_DY) + 1);
   const hnz = Math.max(1, Math.ceil((maxZ - minZ) / HOUSE_DZ) + 1);
-  const house = new Float32Array(hnz * hny).fill(-1);
+  // Two grids, port and starboard: where the deckhouse plating starts and
+  // where it stops, in signed metres off the centreline. A cell with nothing
+  // in it holds NaN.
+  const houseLo = new Float32Array(hnz * hny).fill(NaN);
+  const houseHi = new Float32Array(hnz * hny).fill(NaN);
   const halfL = hull.loa / 2;
-  // No wider than the deck it is standing on, ever.
+  // No wider than she is drawn at that station, ever. A sanity bound and no
+  // more: what actually keeps her insides inside her is the span below, which
+  // knows which side of the ship the plating was on.
   //
-  // Enterprise's flight deck overhangs her side by five metres each way on
-  // stanchions, with nothing under it but air and the sea going past. A ray at
-  // that height crosses thirty-six metres of her and says she has a deckhouse
-  // that wide, and what you get is a mess deck hanging out over the water. A
-  // deckhouse stands on a deck: the hull under it is the limit.
+  // It was the hull's own beam at the sheer, which is right for a ship whose
+  // deckhouses stand on her upper deck and wrong for a carrier: Enterprise's
+  // island stands on a flight deck that overhangs her side by five metres, so
+  // her own bridge measured as five metres of thin air.
+  const wideAt = new Float32Array(nz).fill(-1);
+  for (let i = 0; i < tris.length; i += 9) {
+    for (let k = 0; k < 3; k++) {
+      const zi = Math.floor((tris[i + k * 3 + 2] - minZ) / ENV_DZ);
+      if (zi < 0 || zi >= nz) continue;
+      const ax = Math.abs(tris[i + k * 3]);
+      if (ax > wideAt[zi]) wideAt[zi] = ax;
+    }
+  }
   const roof = (z) => {
-    const t = Math.max(-1, Math.min(1, z / halfL));
-    return at(z, hull.sheer(t) - 0.4);
+    const zi = Math.floor((z - minZ) / ENV_DZ);
+    return zi < 0 || zi >= nz ? -1 : wideAt[zi];
   };
   for (let zi = 0; zi < hnz; zi++) {
     const z = minZ + zi * HOUSE_DZ;
@@ -662,26 +685,38 @@ function heldToPlating(g, hull) {
     for (let yi = 0; yi < hny; yi++) {
       const y = (hy0 + yi) * HOUSE_DY;
       if (y < floor) continue;
-      const w = beamAt(tris, list, y, z);
-      house[zi * hny + yi] = cap >= 0 ? Math.min(w, cap) : w;
+      const sp = spanAt(tris, list, y, z);
+      if (!sp) continue;
+      houseLo[zi * hny + yi] = cap >= 0 ? Math.max(sp.lo, -cap) : sp.lo;
+      houseHi[zi * hny + yi] = cap >= 0 ? Math.min(sp.hi, cap) : sp.hi;
     }
   }
-  const houseAt = (z, y) => {
+  const houseSpan = (z, y) => {
     const zi = Math.floor((z - minZ) / HOUSE_DZ);
     const yi = Math.floor(y / HOUSE_DY - hy0);
-    if (zi < 0 || zi + 1 >= hnz || yi < 0 || yi + 1 >= hny) return -1;
+    if (zi < 0 || zi + 1 >= hnz || yi < 0 || yi + 1 >= hny) return null;
     // The narrowest of the four around it, for the same reason the hull grid
     // takes the narrowest: reading between two rays either side of a step in
-    // her deckhouse says it is wider there than it is.
-    let best = -1;
+    // her deckhouse says it is wider there than it is. Narrowest here means
+    // the span they all have in common -- the highest floor and the lowest
+    // ceiling -- because that is the only part of it every reading agrees is
+    // deckhouse.
+    let lo = -Infinity;
+    let hi = Infinity;
     for (let dz = 0; dz <= 1; dz++) {
       for (let dy = 0; dy <= 1; dy++) {
-        const v = house[(zi + dz) * hny + (yi + dy)];
-        if (v < 0) return -1;
-        if (best < 0 || v < best) best = v;
+        const a = houseLo[(zi + dz) * hny + (yi + dy)];
+        const b = houseHi[(zi + dz) * hny + (yi + dy)];
+        if (Number.isNaN(a)) return null;
+        if (a > lo) lo = a;
+        if (b < hi) hi = b;
       }
     }
-    return best;
+    return hi <= lo ? null : { lo, hi };
+  };
+  const houseAt = (z, y) => {
+    const sp = houseSpan(z, y);
+    return sp ? (sp.hi - sp.lo) / 2 : -1;
   };
 
   return {
@@ -695,6 +730,10 @@ function heldToPlating(g, hull) {
     // How far out her deckhouse plating is at a station and a height above her
     // main deck, or -1 where there is no deckhouse there at all.
     houseAt,
+    // Where it starts and where it stops, which is what anything actually
+    // fitted inside it needs: a deckhouse does not have to sit on the
+    // centreline, and a carrier's island does not.
+    houseSpan,
     // The same question asked exactly, off one ray rather than off the grid.
     //
     // The grid answers where a deckhouse is at all, which is what a sweep up
@@ -704,12 +743,16 @@ function heldToPlating(g, hull) {
     // that whether the rows are a foot apart or an inch. What fits a plate is
     // a ray at the plate.
     houseRay: (z, y) => {
-      if (y < hull.sheer(Math.max(-1, Math.min(1, z / halfL))) + HOUSE_FLOOR) return -1;
+      if (y < hull.sheer(Math.max(-1, Math.min(1, z / halfL))) + HOUSE_FLOOR) return null;
       const list = bucket[Math.floor((z - minZ) / ENV_DZ)];
-      if (!list) return -1;
-      const w = beamAt(tris, list, y, z);
+      if (!list) return null;
+      const sp = spanAt(tris, list, y, z);
+      if (!sp) return null;
       const cap = roof(z);
-      return cap >= 0 ? Math.min(w, cap) : w;
+      if (cap < 0) return sp;
+      const lo = Math.max(sp.lo, -cap);
+      const hi = Math.min(sp.hi, cap);
+      return hi <= lo ? null : { lo, hi };
     },
     houseTop: hTop,
   };
@@ -753,6 +796,50 @@ function rayX(tris, i, y, z) {
   if (l2 < 0 || l1 + l2 > 1) return -1;
   const l3 = 1 - l1 - l2;
   return Math.abs(tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * l3);
+}
+
+/**
+ * The same crossing, with the side it happened on kept.
+ *
+ * `rayX` throws the sign away, which is right for a hull: she is symmetrical
+ * about her keel and the question there is only how far out her side is. It is
+ * wrong for everything standing on her deck. Enterprise's island is nine
+ * metres to starboard of the centreline and four metres wide, and a reading
+ * that says "fourteen metres from the middle" describes a twenty-eight-metre
+ * deckhouse she does not have -- which is how her chart house came to be drawn
+ * hanging out over the port catwalk in mid-air.
+ */
+function rayXSigned(tris, i, y, z) {
+  const ay = tris[i + 1], az = tris[i + 2];
+  const by = tris[i + 4], bz = tris[i + 5];
+  const cy = tris[i + 7], cz = tris[i + 8];
+  const d = (bz - cz) * (ay - cy) + (cy - by) * (az - cz);
+  if (d === 0 || (d < 1e-9 && d > -1e-9)) return NaN;
+  const l1 = ((bz - cz) * (y - cy) + (cy - by) * (z - cz)) / d;
+  if (l1 < 0 || l1 > 1) return NaN;
+  const l2 = ((cz - az) * (y - cy) + (ay - cy) * (z - cz)) / d;
+  if (l2 < 0 || l1 + l2 > 1) return NaN;
+  const l3 = 1 - l1 - l2;
+  return tris[i] * l1 + tris[i + 3] * l2 + tris[i + 6] * l3;
+}
+
+/**
+ * How far a deckhouse reaches at one point, port side and starboard, in metres
+ * off the centreline -- or null if there is nothing there.
+ *
+ * Two numbers rather than one, because a deckhouse does not have to straddle
+ * the keel and a carrier's does not.
+ */
+function spanAt(tris, list, y, z) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let n = 0; n < list.length; n++) {
+    const x = rayXSigned(tris, list[n], y, z);
+    if (Number.isNaN(x)) continue;
+    if (x < lo) lo = x;
+    if (x > hi) hi = x;
+  }
+  return hi < lo ? null : { lo, hi };
 }
 
 /**
@@ -825,18 +912,27 @@ function upperworks(inside, hull) {
   // narrowest anywhere it passes through is the only figure that fits.
   const roomAt = (z, ylo, yhi, zTo) => {
     const z1 = zTo === undefined ? z : zTo;
+    // Finely enough that a plate's own faces are measured rather than stepped
+    // over. The gap between the underside of a flight deck and the deck plate
+    // itself is a couple of inches, and a sample spacing of a foot walks
+    // straight past it -- which is a mess deck hanging in that gap.
     const nz = Math.max(1, Math.round(Math.abs(z1 - z) / (ENV_DZ * 0.5)));
-    const ny = Math.max(4, Math.round((yhi - ylo) / 0.25));
-    let best = -1;
+    const ny = Math.max(4, Math.round((yhi - ylo) / 0.06));
+    let lo = -Infinity;
+    let hi = Infinity;
     for (let j = 0; j <= nz; j++) {
       const az = z + ((z1 - z) * j) / nz;
       for (let k = 0; k <= ny; k++) {
-        const w = hull.houseRay(az, ylo + ((yhi - ylo) * k) / ny);
-        if (w < 0) return -1;
-        if (best < 0 || w < best) best = w;
+        const sp = hull.houseRay(az, ylo + ((yhi - ylo) * k) / ny);
+        if (!sp) return null;
+        if (sp.lo > lo) lo = sp.lo;
+        if (sp.hi < hi) hi = sp.hi;
       }
     }
-    return best;
+    // Held in off the plating on both sides, and it has to leave a room.
+    const a = lo + HOUSE_MARGIN;
+    const b = hi - HOUSE_MARGIN;
+    return b - a < 0.8 ? null : { lo: a, hi: b, mid: (a + b) / 2, half: (b - a) / 2 };
   };
 
   // Where her deckhouse is, deck by deck: the run of stations that has plating
@@ -867,27 +963,32 @@ function upperworks(inside, hull) {
       const za = lv.z0 + ((lv.z1 - lv.z0) * i) / n;
       const zb = lv.z0 + ((lv.z1 - lv.z0) * (i + 1)) / n;
       const zm = (za + zb) / 2;
-      const w = roomAt(za, lv.y - 0.12, lv.y + step * 0.55, zb);
-      if (w < 1.4) continue;
-      const room = w - HOUSE_MARGIN;
-      if (room < 0.8) continue;
-      box(inside, M.deck, room * 2, 0.18, zb - za, 0, lv.y, zm);
+      // The plate's own band, and separately a room standing over it: a deck
+      // is cut to what fits where the deck is, and laid only where there is
+      // somewhere to stand on it.
+      const r = roomAt(za, lv.y - 0.12, lv.y + 0.12, zb);
+      if (!r || !roomAt(za, lv.y + 0.25, lv.y + step * 0.5, zb)) continue;
+      box(inside, M.deck, r.half * 2, 0.18, zb - za, r.mid, lv.y, zm);
     }
     // The bulkheads that make it cabins and offices instead of one long space.
     const bhStep = Math.max(5, loa / 26);
     for (let z = lv.z0 + bhStep * 0.5; z < lv.z1; z += bhStep) {
-      const w = roomAt(z - 0.1, lv.y, lv.y + step * 0.92, z + 0.1);
-      if (w < 1.6) continue;
-      const room = w - HOUSE_MARGIN;
-      box(inside, M.bulkhead, room * 2, step * 0.86, 0.14, 0, lv.y + step * 0.47, z);
+      const r = roomAt(z - 0.1, lv.y, lv.y + step * 0.92, z + 0.1);
+      if (!r || r.half < 1.2) continue;
+      box(inside, M.bulkhead, r.half * 2, step * 0.86, 0.14, r.mid, lv.y + step * 0.47, z);
       // A door through it.
-      box(inside, M.frame, room * 0.3, step * 0.55, 0.18,
-        room * 0.42, lv.y + step * 0.34, z);
+      box(inside, M.frame, r.half * 0.3, step * 0.55, 0.18,
+        r.mid + r.half * 0.42, lv.y + step * 0.34, z);
     }
-    // And the centreline passage, which is what a deckhouse is arranged round.
+    // And the fore-and-aft passage, which is what a deckhouse is arranged
+    // round. Down the middle of the house rather than down the middle of the
+    // ship: on a carrier those are nine metres apart.
     if (lv.z1 - lv.z0 > 10) {
-      box(inside, M.bulkhead, 0.14, step * 0.86, (lv.z1 - lv.z0) * 0.8,
-        0, lv.y + step * 0.47, (lv.z0 + lv.z1) / 2);
+      const r = roomAt(lv.z0, lv.y, lv.y + step * 0.9, lv.z1);
+      if (r) {
+        box(inside, M.bulkhead, 0.14, step * 0.86, (lv.z1 - lv.z0) * 0.8,
+          r.mid, lv.y + step * 0.47, (lv.z0 + lv.z1) / 2);
+      }
     }
   }
 
@@ -901,24 +1002,19 @@ function upperworks(inside, hull) {
   // The uptakes stop at the funnel, and above the funnel there is a mast,
   // which is not a room and has nothing inside it.
   let top = foot;
-  let room = mid.wide;
+  let room = null;
   for (const lv of levels) {
-    let here = -1;
-    for (const dz of [-1.2, 0, 1.2]) {
-      const w = roomAt(zc + dz * HOUSE_DZ, foot, lv.y + step * 0.4);
-      if (w < 0) { here = -1; break; }
-      if (here < 0 || w < here) here = w;
-    }
-    if (here < 0.9) break;
+    const here = roomAt(zc - HOUSE_DZ * 1.2, foot, lv.y + step * 0.4, zc + HOUSE_DZ * 1.2);
+    if (!here || here.half < 0.5) break;
     top = lv.y + step * 0.4;
     room = here;
   }
-  if (top > foot + step * 0.6) {
-    const trunk = Math.min(2.2, Math.max(0.4, (room - HOUSE_MARGIN) * 0.6));
-    box(inside, M.machine, trunk * 2, top - foot, trunk * 2.4, 0, (foot + top) / 2, zc);
+  if (room && top > foot + step * 0.6) {
+    const trunk = Math.min(2.2, Math.max(0.4, room.half * 0.6));
+    box(inside, M.machine, trunk * 2, top - foot, trunk * 2.4, room.mid, (foot + top) / 2, zc);
     for (let y = foot + 1.4; y < top; y += 2.2) {
-      cyl(inside, M.pipe, 0.16, 0.16, 2.0, trunk * 1.2, y, zc + trunk * 0.9, 6);
-      cyl(inside, M.pipe, 0.16, 0.16, 2.0, -trunk * 1.2, y, zc - trunk * 0.9, 6);
+      cyl(inside, M.pipe, 0.16, 0.16, 2.0, room.mid + trunk * 1.2, y, zc + trunk * 0.9, 6);
+      cyl(inside, M.pipe, 0.16, 0.16, 2.0, room.mid - trunk * 1.2, y, zc - trunk * 0.9, 6);
     }
   }
 
@@ -936,6 +1032,9 @@ function upperworks(inside, hull) {
   let bridge = null;
   let bz = 0;
   let bw = 0;
+  // Where athwartships the wheelhouse is. Nought on anything with her bridge
+  // on the centreline, and nine metres to starboard on a carrier.
+  let bx = 0;
   for (const lv of levels) {
     if (lv.wide < 2.2) continue;
     if (bridge && lv.y <= bridge.y) continue;
@@ -945,55 +1044,74 @@ function upperworks(inside, hull) {
     // forward of it, and a wheelhouse that only fits where the wheel is puts
     // the chart table out over her side.
     const back = Math.max(2.2, loa / 90);
-    let found = -1;
+    let found = null;
     let at = 0;
     for (let z = lv.z1 - back; z > lv.z0 + 1; z -= HOUSE_DZ) {
-      const w = roomAt(z - 2.4, lv.y, lv.y + step * 0.8, z + 1.9);
-      if (w < 2.0) continue;
-      found = w;
+      const r = roomAt(z - 2.4, lv.y, lv.y + step * 0.8, z + 1.9);
+      if (!r || r.half < 1.6) continue;
+      found = r;
       at = z;
       break;
     }
-    if (found < 0) continue;
+    if (!found) continue;
     bridge = lv;
     bz = at;
-    bw = Math.max(1.2, found - HOUSE_MARGIN);
+    bw = found.half;
+    bx = found.mid;
   }
   if (!bridge) return;
   const by = bridge.y + 0.12;
-  // The wheel, on the centreline, where the quartermaster stands.
-  cyl(inside, M.frame, 0.52, 0.52, 0.1, 0, by + 1.15, bz, 14);
+  // The wheel, amidships of the wheelhouse, where the quartermaster stands.
+  const wing = Math.min(1.6, bw * 0.6);
+  cyl(inside, M.frame, 0.52, 0.52, 0.1, bx, by + 1.15, bz, 14);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     cyl(inside, M.frame, 0.05, 0.05, 0.44,
-      Math.cos(a) * 0.28, by + 1.15 + Math.sin(a) * 0.28, bz, 5);
+      bx + Math.cos(a) * 0.28, by + 1.15 + Math.sin(a) * 0.28, bz, 5);
   }
-  cyl(inside, M.machine, 0.2, 0.28, 1.15, 0, by + 0.58, bz, 10);
+  cyl(inside, M.machine, 0.2, 0.28, 1.15, bx, by + 0.58, bz, 10);
   // The binnacle, right forward of it, and the two telegraphs either side.
-  cyl(inside, M.machine, 0.26, 0.3, 1.25, 0, by + 0.62, bz + 1.5, 12);
-  cyl(inside, M.frame, 0.3, 0.3, 0.24, 0, by + 1.3, bz + 1.5, 12);
+  cyl(inside, M.machine, 0.26, 0.3, 1.25, bx, by + 0.62, bz + 1.5, 12);
+  cyl(inside, M.frame, 0.3, 0.3, 0.24, bx, by + 1.3, bz + 1.5, 12);
   for (const sx of [-1, 1]) {
-    cyl(inside, M.machine, 0.2, 0.24, 1.1, sx * Math.min(1.6, bw * 0.6), by + 0.55, bz + 1.1, 10);
-    cyl(inside, M.shell, 0.26, 0.26, 0.12, sx * Math.min(1.6, bw * 0.6), by + 1.14, bz + 1.1, 12);
+    cyl(inside, M.machine, 0.2, 0.24, 1.1, bx + sx * wing, by + 0.55, bz + 1.1, 10);
+    cyl(inside, M.shell, 0.26, 0.26, 0.12, bx + sx * wing, by + 1.14, bz + 1.1, 12);
   }
   // The chart table, aft of the wheel against the after bulkhead, and the
   // captain's chair in the corner.
-  box(inside, M.frame, Math.min(2.4, bw * 1.2), 0.1, 1.1, 0, by + 0.92, bz - 1.9);
-  box(inside, M.machine, 0.5, 0.85, 0.5, Math.min(1.9, bw * 0.7), by + 0.45, bz - 1.2);
+  box(inside, M.frame, Math.min(2.4, bw * 1.2), 0.1, 1.1, bx, by + 0.92, bz - 1.9);
+  box(inside, M.machine, 0.5, 0.85, 0.5,
+    bx + Math.min(1.9, bw * 0.7) * 0.5, by + 0.45, bz - 1.2);
   // And the armoured conning tower under it: the one place on the bridge that
   // is not a shell, going down through the house to the deck.
+  //
   // Held to the house all the way down, not to the bridge alone: a tower steps
   // out as it comes down to the deck, but not always, and a conning tower
   // standing out through the front of the bridge structure is worse than none.
-  let shaft = bw;
-  for (const lv of levels) {
-    if (lv.y > by) break;
-    const w = roomAt(bz + 0.4, lv.y, lv.y + step * 0.5);
-    if (w >= 0 && w - HOUSE_MARGIN < shaft) shaft = w - HOUSE_MARGIN;
+  // It follows the house athwartships too, because on a carrier the deck it
+  // has to reach is nine metres off the ship's own centreline.
+  // And only as far down as the house goes. It used to run to her main deck
+  // whatever was in the way, which on a carrier is a tube from the island down
+  // through the flight deck and out through her side into the sea, because the
+  // island stands over the water and the main deck does not reach it.
+  let lo = bx - bw;
+  let hi = bx + bw;
+  let base = by;
+  for (let i = levels.length - 1; i >= 0; i--) {
+    const lv = levels[i];
+    if (lv.y > by) continue;
+    const r = roomAt(bz + 0.4, lv.y, lv.y + step * 0.5);
+    if (!r) break;
+    base = lv.y;
+    if (r.lo > lo) lo = r.lo;
+    if (r.hi < hi) hi = r.hi;
   }
-  const ct = Math.min(1.7, Math.max(0.4, shaft * 0.55));
-  cyl(inside, M.frame, ct, ct, by - deck, 0, (deck + by) / 2, bz + 0.4, 14);
-  cyl(inside, M.machine, ct * 0.62, ct * 0.62, by - deck + 0.6, 0, (deck + by) / 2, bz + 0.4, 12);
+  if (hi - lo < 0.8 || by - base < step * 0.5) return;
+  const cx = (lo + hi) / 2;
+  const ct = Math.min(1.7, Math.max(0.4, ((hi - lo) / 2) * 0.55));
+  cyl(inside, M.frame, ct, ct, by - base, cx, (base + by) / 2, bz + 0.4, 14);
+  cyl(inside, M.machine, ct * 0.62, ct * 0.62, (by - base) * 0.9, cx,
+    (base + by) / 2, bz + 0.4, 12);
 }
 
 /**

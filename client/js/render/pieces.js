@@ -42,6 +42,10 @@ import * as THREE from '../../../vendor/three.module.js';
  * and scorched and stays where it is, which is what most of them did.
  */
 const TEAR = 0.62;
+// And how far into a burst a thing has to be standing to be torn off it at
+// all, as a fraction of the blast radius. Outside that it is dented and
+// blackened and stays where it is.
+const TEAR_FRAC = 0.45;
 
 /** Below this, a burst only marks a piece: it bends it and blackens it. */
 const DENT = 0.12;
@@ -229,11 +233,19 @@ export class Fittings {
         const reach = 1 - gap / r;
         const hit = power * reach * reach;
         if (hit < DENT) continue;
-        // Big enough, and it comes off her -- if it is a thing that can come
-        // off her. Her plating and her deckhouses are dished and blackened by
-        // the same burst and stay where they are; a hole in them is
-        // plating.js's business, hole by hole.
-        if (hit > TEAR && piece.fitting && budget > 0) {
+        // Big enough, close enough, and it comes off her -- if it is a thing
+        // that can come off her. Her plating and her deckhouses are dished and
+        // blackened by the same burst and stay where they are; a hole in them
+        // is plating.js's business, hole by hole.
+        //
+        // Close enough as well as hard enough, because a burst blackens and
+        // dishes a long way further than it tears. A shell on the boat deck
+        // used to strip the searchlights, the ready-use lockers and the
+        // whaler's davits out to the full radius of the blast, so one hit
+        // cleared thirty feet of deck and the ship came apart at the edges
+        // rather than where she was being hit.
+        const near = gap <= r * TEAR_FRAC;
+        if (hit > TEAR && near && piece.fitting && budget > 0) {
           budget--;
           (shed || (shed = [])).push(this.shed(piece, x, y, z, hit));
           continue;
