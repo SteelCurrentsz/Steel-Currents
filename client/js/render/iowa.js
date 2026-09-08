@@ -20,6 +20,7 @@ import { buildInterior, bySection } from './interior.js';
 import { SECTIONS } from '../../../shared/sim.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { RIG, fitCatapults } from './catapult.js';
+import { fiveInch38, quadBofors, oerlikon } from './usnguns.js';
 
 /**
  * How much bigger than the ship that was built.
@@ -59,7 +60,13 @@ const P = {
   radar: 0x8e9299,
   plane: 0x33506f,
   brass: 0x8a7340,
+  steel: 0x6b747d,
+  steelDark: 0x525960,
+  deckDark: 0x353c46,
 };
+
+/** Her paint, addressed by name, for the builders she shares with other ships. */
+const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 
 const MATS = {};
 const mat = (color, opts) => {
@@ -1066,6 +1073,364 @@ function aviation(g) {
   return cats;
 }
 
+// ------------------------------------------------------- her upperworks --
+//
+// An Iowa's superstructure is a long, low block down the middle of her, two
+// levels of it, with the bridge tower standing out of the forward end and the
+// after tower out of the after end. Both towers carry a Mk 38 main-battery
+// director with its Mk 8 radar on top; between them stand two capped funnels
+// and the boat deck. Her twenty five-inch are on sponsons down both sides of
+// the 01 deck, five a side, and her light battery is on the weather deck
+// outboard of them.
+//
+// Everything here is in her own metres, the size the ship was built, because
+// the whole of this group is scaled bodily with the hull.
+
+const L01 = 11.55;              // the superstructure deck
+const L02 = 14.45;              // the 02 level: house roof and boat deck
+const L03 = 17.35;              // the 03 level, under the bridge
+const L04 = 20.25;              // the navigating bridge
+// Her house ends where the raised forecastle deck begins: turret two is set
+// into that deck and the superstructure starts abaft it.
+const SUP = { aft: -60, fwd: 44 };
+
+/**
+ * The half-breadth of the 01 deck at a station: drawn in at both ends.
+ *
+ * Nine metres amidships, not sixteen. What makes an Iowa look like an Iowa
+ * from the beam is how much weather deck there is outboard of her house --
+ * seven metres of it each side, which is where her forty-millimetre stand and
+ * where her boats and her cable are worked.
+ */
+function h01(z) {
+  const nose = smooth((SUP.fwd - z) / 8.0);
+  const tail = smooth((z - SUP.aft) / 7.0);
+  return 3.2 + 5.8 * Math.min(nose, tail);
+}
+
+/** The 02 house on top of it, narrower again, with the 01 deck round it. */
+function h02(z) {
+  const nose = smooth((40 - z) / 7.0);
+  const tail = smooth((z + 48) / 6.0);
+  return 2.6 + 4.0 * Math.min(nose, tail);
+}
+
+/**
+ * A house of one level: a lofted box whose sole is carried down past the deck
+ * under it so there is no daylight where the camber falls away, and whose
+ * roof is flat, as a deckhouse roof is.
+ */
+function house(g, z0, z1, hw, roof, sole, color = P.hullUpper) {
+  const rows = [];
+  const N = Math.max(6, Math.round((z1 - z0) / 3));
+  for (let i = 0; i <= N; i++) {
+    const z = z0 + ((z1 - z0) * i) / N;
+    const w = Math.max(0.6, hw(z));
+    rows.push([z, w, typeof sole === 'function' ? sole(w, z) : sole, roof]);
+  }
+  loftBox(g, rows, color);
+  // A steel waterway round the edge of the roof, so the level reads as a deck
+  // and not as the top of a crate.
+  loftBox(g, rows.map(([z, w, , r]) => [z, w + 0.22, r, r + 0.18]), P.deck);
+  return rows;
+}
+
+/** A splinter shield: a ring of plate open at the back, for a director. */
+function tubRing(g, r, h, x, y, z, ry = 0, n = 14) {
+  const t = new THREE.Group();
+  t.position.set(x, y, z);
+  t.rotation.y = ry;
+  g.add(t);
+  for (let i = 0; i < n; i++) {
+    const a = -1.4 + (i / (n - 1)) * 5.0;
+    bx(t, 0.14, h, (2 * Math.PI * r) / n + 0.12,
+      Math.sin(a) * r, h / 2, Math.cos(a) * r, a + Math.PI / 2);
+  }
+  cy(t, r * 1.03, r * 1.03, 0.14, P.deck, 0, 0.05, 0, n + 4);
+  return t;
+}
+
+/**
+ * A Mk 37 director: the box that lays her five-inch, with the Mk 12 dish and
+ * the Mk 22 orange-peel on its roof. It trains, so it comes out of the weld.
+ */
+function mk37(g, x, y, z, ry = 0) {
+  const t = tubRing(g, 2.6, 1.15, x, y, z, ry, 14);
+  const d = new THREE.Group();
+  d.position.y = 0.45;
+  d.userData.dynamic = true;
+  d.userData.rest = 0;
+  t.add(d);
+  cy(d, 1.5, 1.7, 0.5, P.gunDark, 0, 0.25, 0, 16);
+  bx(d, 3.2, 2.1, 3.6, P.gun, 0, 1.55, 0);
+  bx(d, 3.3, 0.7, 0.2, P.glass, 0, 1.9, 1.82);
+  // The rangefinder arms out to each side, which is what makes a Mk 37 a
+  // Mk 37 from a mile away.
+  for (const s of [-1, 1]) cy(d, 0.42, 0.42, 1.9, P.gunDark, s * 2.0, 1.7, 0, 12)
+    .rotation.z = Math.PI / 2;
+  bx(d, 2.4, 1.3, 0.14, P.radar, 0, 3.4, 0.1);        // Mk 12 dish
+  bx(d, 1.5, 0.9, 0.12, P.radar, 1.6, 3.4, 0.1);      // Mk 22 orange peel
+  cy(d, 0.1, 0.1, 1.1, P.rail, 0, 3.0, 0.1, 8);
+  return d;
+}
+
+/**
+ * A Mk 38 main-battery director with its Mk 8 radar: the wide flat antenna on
+ * top of both her towers, which is the thing you recognise an Iowa by.
+ */
+function mk38(g, x, y, z, ry = 0) {
+  const d = new THREE.Group();
+  d.position.set(x, y, z);
+  d.rotation.y = ry;
+  d.userData.dynamic = true;
+  d.userData.rest = ry;
+  g.add(d);
+  cy(d, 2.0, 2.2, 0.6, P.gunDark, 0, 0.3, 0, 18);
+  bx(d, 4.2, 2.4, 4.6, P.gun, 0, 1.8, 0);
+  bx(d, 4.3, 0.6, 0.2, P.glass, 0, 2.3, 2.32);
+  for (const s of [-1, 1]) cy(d, 0.5, 0.5, 2.4, P.gunDark, s * 2.6, 1.9, 0, 12)
+    .rotation.z = Math.PI / 2;
+  // The Mk 8: a flat rectangular array, wider than it is tall, on a yoke.
+  bx(d, 5.0, 1.35, 0.18, P.radar, 0, 4.0, 0.2);
+  for (const s of [-1, 1]) bx(d, 0.12, 1.0, 0.12, P.rail, s * 1.6, 3.4, 0.2);
+  return d;
+}
+
+/** The bridge tower, the conning tower inside it, and what stands on top. */
+function bridgeTower(g) {
+  // 03 level: the block the bridge stands on.
+  house(g, 18, 41, () => 5.4, L03, L02);
+  // 04 level: the navigating bridge, narrower, with its wings and windows.
+  house(g, 22, 39.5, (z) => (z > 35 ? 4.0 : 4.8), L04, L03);
+  for (const s of [-1, 1]) {                       // the bridge wings
+    bx(g, 1.9, 0.24, 4.4, P.deck, s * 5.4, L04 + 0.1, 32);
+    for (const b of [-1.6, 1.6]) {
+      const br = bx(g, 0.16, 2.0, 0.16, P.rail, s * 6.0, L04 - 1.0, 32 + b);
+      br.rotation.z = s * 0.5;
+    }
+  }
+  bx(g, 7.2, 0.85, 0.22, P.glass, 0, L04 - 1.0, 39.2);
+  for (const s of [-1, 1]) bx(g, 0.22, 0.85, 4.0, P.glass, s * 4.75, L04 - 1.0, 36.4);
+  // The armoured conning tower: seventeen inches of face, and it goes up
+  // through the bridge rather than standing on it.
+  cy(g, 2.5, 2.7, L04 + 2.2 - L02, P.gunDark, 0, (L02 + L04 + 2.2) / 2, 33.5, 20);
+  bx(g, 4.4, 0.7, 0.2, P.glass, 0, L04 + 1.1, 36.1);
+  // 05 level and the fire-control tower above it, tapering as it rises.
+  house(g, 24, 37, () => 4.0, 23.15, L04);
+  cy(g, 3.0, 3.6, 4.4, P.hullUpper, 0, 25.35, 31.0, 18);
+  cy(g, 2.5, 3.0, 3.2, P.hullUpper, 0, 29.15, 31.0, 16);
+  cy(g, 2.7, 2.7, 0.26, P.deck, 0, 30.85, 31.0, 18);
+  // The main-battery director on top of it, and the secondary director on the
+  // step below, both looking straight ahead.
+  mk38(g, 0, 30.98, 31.0);
+  mk37(g, 0, 23.25, 25.6);
+  // Her air-search radar on a platform abaft the tower, on a light pole mast.
+  cy(g, 0.34, 0.42, 12.0, P.rail, 0, 29.2, 25.0, 10);
+  const sk = bx(g, 5.4, 5.0, 0.2, P.radar, 0, 34.4, 25.0);
+  sk.rotation.x = -0.12;
+  for (const s of [-1, 1]) {
+    bx(g, 0.12, 0.12, 4.6, P.rail, s * 2.0, 32.4, 25.0);
+  }
+  // Yards, with the halyards she flies her signals from.
+  bx(g, 11.0, 0.14, 0.14, P.rail, 0, 27.4, 25.0);
+  ladder(g, 2.9, L04, 23.15, 24.0);
+  ladder(g, 2.9, L03, L04, 22.5);
+  ladder(g, 4.0, L02, L03, 19.5);
+}
+
+/** The after tower: the second Mk 38, the after Mk 37, and the mainmast. */
+function afterTower(g) {
+  house(g, -46, -22, (z) => (z < -42 ? 4.2 : 5.4), L03, L02);
+  house(g, -44, -28, () => 4.2, L04, L03);
+  cy(g, 3.0, 3.6, 3.6, P.hullUpper, 0, L04 + 1.8, -36.0, 18);
+  cy(g, 2.6, 2.6, 0.26, P.deck, 0, L04 + 3.7, -36.0, 18);
+  mk38(g, 0, L04 + 3.83, -36.0, Math.PI);
+  mk37(g, 0, L03 + 0.2, -25.0, Math.PI);
+  // The mainmast, a pole with a yard and the after air-search array.
+  cy(g, 0.3, 0.4, 14.0, P.rail, 0, L03 + 7.0, -44.0, 10);
+  bx(g, 9.0, 0.14, 0.14, P.rail, 0, L03 + 10.0, -44.0);
+  bx(g, 3.4, 3.2, 0.18, P.radar, 0, L03 + 12.6, -44.0).rotation.x = -0.12;
+  ladder(g, 2.6, L02, L03, -23.5);
+  ladder(g, 2.6, L03, L04, -29.5);
+}
+
+/** Her two funnels: oval, raked a little aft, and capped. */
+function funnels(g) {
+  for (const [fz, h] of [[13.0, 10.6], [-17.0, 10.2]]) {
+    const f = cy(g, 2.65, 3.05, h, P.hullUpper, 0, L02 + h / 2 - 0.4, fz, 20);
+    f.scale.z = 1.62;                       // oval: longer fore and aft
+    f.rotation.x = -0.045;
+    const cap = cy(g, 2.85, 2.85, 0.7, P.gunDark, 0, L02 + h - 0.15, fz, 22);
+    cap.scale.z = 1.62;
+    cap.rotation.x = -0.045;
+    cy(g, 2.35, 2.35, 0.3, P.boot, 0, L02 + h + 0.05, fz, 20).scale.z = 1.62;
+    // The steam pipes up the after face and the grab rails round it.
+    for (const s of [-1, 1]) {
+      cy(g, 0.16, 0.16, h - 1.0, P.gunDark, s * 1.5, L02 + h / 2 - 0.8, fz - 4.4, 8);
+    }
+    for (const y of [0.35, 0.75]) {
+      const r = cy(g, 2.95, 2.95, 0.1, P.rail, 0, L02 + h * y, fz, 22);
+      r.scale.z = 1.62;
+      r.rotation.x = -0.045;
+    }
+  }
+}
+
+/**
+ * The boat deck between the funnels: her motor whaleboats in their davits, the
+ * two boat cranes that swing them out, and the ventilator cowls.
+ */
+function boatDeck(g) {
+  for (const s of [-1, 1]) {
+    for (const bz of [2.0, -6.0]) {
+      // The boat, on chocks, with a pair of davits over her.
+      const hull = bx(g, 1.9, 1.5, 7.4, P.hullUpper, s * 6.4, L02 + 1.1, bz);
+      hull.rotation.z = s * 0.05;
+      bx(g, 1.5, 0.2, 6.4, P.wood, s * 6.4, L02 + 1.8, bz);
+      for (const d of [-2.6, 2.6]) {
+        const dav = cy(g, 0.14, 0.18, 3.6, P.rail, s * 7.5, L02 + 1.8, bz + d, 8);
+        dav.rotation.z = s * 0.22;
+      }
+    }
+    // The boat crane, on the after end of the boat deck.
+    const cr = new THREE.Group();
+    cr.position.set(s * 6.2, L02, -12.0);
+    g.add(cr);
+    cy(cr, 0.7, 0.9, 3.2, P.hullUpper, 0, 1.6, 0, 12);
+    const jib = new THREE.Group();
+    jib.position.set(0, 3.2, 0);
+    jib.rotation.x = -0.22;
+    jib.rotation.y = s * 0.6;
+    cr.add(jib);
+    for (const dx of [-0.3, 0.3]) bx(jib, 0.14, 0.14, 9.0, P.gun, dx, 0, 4.4);
+    bx(jib, 0.7, 0.12, 0.7, P.gunDark, 0, 0, 8.7);
+    // Ventilator cowls along the centreline between the funnels.
+    for (const vz of [-2.0, 6.0, -22.0]) {
+      cy(g, 0.55, 0.62, 2.1, P.hullUpper, s * 2.6, L02 + 1.05, vz, 10);
+      cy(g, 0.6, 0.6, 0.7, P.gunDark, s * 2.6, L02 + 2.2, vz, 10).rotation.x = -0.7;
+    }
+  }
+  // Life rafts stowed against the house sides, where they actually were.
+  for (const s of [-1, 1]) {
+    for (const rz of [18, -34, -40]) {
+      const r = bx(g, 0.36, 1.9, 3.0, P.wood, s * (h02(rz) + 0.3), L02 - 1.4, rz);
+      r.rotation.z = s * 0.06;
+    }
+  }
+}
+
+/** The 01 and 02 blocks themselves, and the ladders up them. */
+function superstructure(g) {
+  // The 01 deck, carried down past the weather deck's camber so there is no
+  // daylight under her, and its roof flat the whole length of the house.
+  house(g, SUP.aft, SUP.fwd, h01, L01, (w, z) => MD(w, z) - 1.0);
+  house(g, -48, 40, h02, L02, L01);
+  // Scuttles down both sides of both levels.
+  for (let z = SUP.aft + 6; z < SUP.fwd - 6; z += 5.0) {
+    for (const s of [-1, 1]) {
+      cy(g, 0.26, 0.26, 0.12, P.gunDark, s * h01(z), L01 - 1.7, z, 10)
+        .rotation.z = Math.PI / 2;
+      if (z > -44 && z < 36) {
+        cy(g, 0.26, 0.26, 0.12, P.gunDark, s * h02(z), L02 - 1.6, z, 10)
+          .rotation.z = Math.PI / 2;
+      }
+    }
+  }
+  // And the ladders a man actually gets up her by.
+  for (const s of [-1, 1]) {
+    ladder(g, s * (h01(-54) - 1.2), MD(h01(-54), -54), L01, -54.0);
+    ladder(g, s * (h01(40) - 1.2), MD(h01(40), 40), L01, 40.0);
+    ladder(g, s * (h02(-44) - 1.0), L01, L02, -44.0);
+    ladder(g, s * (h02(36) - 1.0), L01, L02, 36.0);
+  }
+}
+
+// --------------------------------------------------------- her batteries --
+//
+// Twenty five-inch in ten twin Mk 32 mounts, five a side on sponsons off the
+// 01 deck, and the light battery outboard of and below them on the weather
+// deck. Where each one stands is her datasheet's, not this file's: the
+// simulation fires them from those stations, the arsenal names them in that
+// order, and the gunlayer's camera goes to the model of the mounting the
+// arsenal named. The three have to agree or a captain presses a Bofors and is
+// put inside the funnel.
+
+/** The sponson a five-inch mount stands on, off the side of the 01 deck. */
+function sponson(g, x, z) {
+  const s = Math.sign(x);
+  const inb = s * h01(z);
+  cy(g, 2.75, 2.75, 0.9, P.hullUpper, x, L01 - 0.45, z, 20);
+  cy(g, 2.9, 2.9, 0.2, P.deck, x, L01 - 0.1, z, 22);
+  // Carried on brackets down to the house side, so it is not standing on air.
+  for (const dz of [-2.0, 0, 2.0]) {
+    const br = bx(g, Math.abs(x - inb) + 1.4, 1.9, 0.34, P.hullUpper,
+      (x + inb) / 2, L01 - 1.55, z + dz);
+    br.rotation.z = -s * 0.5;
+  }
+}
+
+/** Her ten twin 5"/38, five a side. */
+function secondaryBattery(g) {
+  const out = [];
+  for (const m of SHIP_CLASSES.iowa.secondary.mounts) {
+    const x = m.x / SCALE;
+    const z = m.z / SCALE;
+    sponson(g, x, z);
+    cy(g, 2.3, 2.5, 1.5, P.gun, x, L01 + 0.45, z, 20);
+    out.push(fiveInch38(g, M, x, L01 + 1.2, z, m.angle));
+  }
+  return out;
+}
+
+/**
+ * Her light battery: twenty quadruple Bofors and seven groups of Oerlikons.
+ *
+ * They stand on whatever deck is under them -- the weather deck outboard, the
+ * boat deck amidships -- and never inside the sweep of a sixteen-inch barrel,
+ * which is why none of them is on the centreline forward of turret A or abaft
+ * turret Y however tempting the space looks.
+ */
+function lightBattery(g) {
+  const out = [];
+  const cls = SHIP_CLASSES.iowa;
+  const stand = (x, z) => {
+    const a = Math.abs(x);
+    if (z > RAISED.aft && z < RAISED.fwd && a <= raisedHalf(z)) return LEVEL[1].top;
+    if (z > -48 && z < 40 && a <= h02(z)) return L02;
+    if (z > SUP.aft && z < SUP.fwd && a <= h01(z)) return L01;
+    return MD(a, z);
+  };
+  for (const gun of cls.aa.guns) {
+    for (const m of gun.mounts) {
+      const x = (m.x || 0) / SCALE;
+      const z = m.z / SCALE;
+      const y = stand(x, z);
+      if (gun.caliber === 40) {
+        out.push(quadBofors(g, M, x, y, z, m.angle));
+      } else {
+        // An Oerlikon "mounting" on the sheet is a nest of them: seven guns
+        // in a gallery, and a gallery is what she carried. They are drawn as
+        // the gallery, with the one the layer stands at in the middle.
+        const n = Math.min(3, Math.max(1, Math.round(m.guns / 3)));
+        const mid = oerlikon(g, M, x, y, z, m.angle);
+        for (let i = 1; i <= n; i++) {
+          for (const sgn of [-1, 1]) {
+            if (Math.abs(x) < 0.01) {
+              const ox = sgn * i * 2.7;          // a fantail gallery, athwart
+              oerlikon(g, M, ox, stand(ox, z), z, m.angle);
+            } else {
+              const oz = z + sgn * i * 2.7;      // a side gallery, fore and aft
+              oerlikon(g, M, x, stand(x, oz), oz, m.angle);
+            }
+          }
+        }
+        out.push(mid);
+      }
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------- her fittings --
 
 /**
@@ -1164,16 +1529,24 @@ export function buildIowa(opts = {}) {
   root.add(up);
 
   forwardDeck(up);
+  superstructure(up);
+  bridgeTower(up);
+  afterTower(up);
+  funnels(up);
+  boatDeck(up);
   fittings(up);
   railings(up);
   const turrets = mainBattery(up);
+  const secMounts = secondaryBattery(up);
+  const aaMounts = lightBattery(up);
   const cats = aviation(up);
 
   // Everything that trains comes out of the scaled group and on to the ship
   // herself. The scene walks her top level to find what belongs to which
   // compartment and what has to be laid on a bearing, and `attach` moves a
   // piece without moving it: the scale ends up in the piece's own matrix.
-  for (const o of [...turrets, ...cats.map((c) => c.group)]) root.attach(o);
+  for (const o of [...turrets, ...secMounts, ...aaMounts,
+    ...cats.map((c) => c.group)]) root.attach(o);
   for (const o of turrets) mergeStatic(o);
 
   // Her catapults. The scene only tells her when the order was given; what a
@@ -1210,12 +1583,9 @@ export function buildIowa(opts = {}) {
   // lofted through on her, and the interior audit reads them back off her.
   Object.assign(root.userData,
     { classId: 'iowa', length: LOA, beam: BEAM, deckY: DECK });
-  // Her secondary and light batteries went with the superstructure they stood
-  // on. The simulation still has them on her datasheet -- she fires them --
-  // but there is nothing yet to show for it, and the scene wants the lists.
   return {
     group: root, turrets, forward, length: LOA, beam: BEAM, deckY: DECK,
-    secMounts: [], aaMounts: [],
+    secMounts, aaMounts,
   };
 }
 
@@ -1233,8 +1603,11 @@ export function buildIowa(opts = {}) {
 export function iowaParts() {
   const parts = [];
   const builders = [
-    ['forwardDeck', forwardDeck], ['fittings', fittings],
-    ['mainBattery', mainBattery], ['aviation', aviation],
+    ['forwardDeck', forwardDeck], ['superstructure', superstructure],
+    ['bridgeTower', bridgeTower], ['afterTower', afterTower],
+    ['funnels', funnels], ['boatDeck', boatDeck], ['fittings', fittings],
+    ['mainBattery', mainBattery], ['secondaryBattery', secondaryBattery],
+    ['lightBattery', lightBattery], ['aviation', aviation],
   ];
   for (const [name, build] of builders) {
     const g = new THREE.Group();

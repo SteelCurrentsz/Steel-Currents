@@ -1616,7 +1616,10 @@ function island(g) {
     for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(6.75), Z + 6.2 + i * 1.6]);
     railing(g, pts, 1.0, 2);
   }
-  for (const dz of [6.8, 10.6]) oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
+  for (const dz of [6.8, 10.6]) {
+    oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
+    mate(g, ox(W / 2 + 1.3), D(6.75), Z + dz + 1.9, S * 1.4);
+  }
 
   // ------------------------------------------------------- the bridge decks --
   // Each stepped in from the one below it, with its window band and its wings.
@@ -1794,7 +1797,10 @@ function island(g) {
     for (let i = 0; i <= 5; i++) pts.push([ox(W / 2 + 2.4), D(FY0 + 0.3), FZ - 5.0 + i * 2.0]);
     railing(g, pts, 1.0, 2);
   }
-  for (const dz of [-3.2, 3.2]) oerlikon(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz, S * 1.4);
+  for (const dz of [-3.2, 3.2]) {
+    oerlikon(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz, S * 1.4);
+    mate(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz + 1.5, S * 1.4);
+  }
   // Searchlight platforms either side of the funnel, on their brackets.
   for (const s of [-1, 1]) {
     const px = cx + S * s * (W / 2 + 1.9);
@@ -2041,6 +2047,21 @@ function bofors(g, x, y, z, ry) {
   return m;
 }
 
+/**
+ * The second gun of a twenty-millimetre pair.
+ *
+ * Drawn exactly like the first and deliberately not registered as a mounting:
+ * the arsenal names the position, a captain presses the position, and the pair
+ * on it fires together. Registering both would make her arsenal twice as long
+ * as her gallery and put half its circles on a gun nobody thinks of as a
+ * separate weapon.
+ */
+function mate(g, x, y, z, ry) {
+  const m = oerlikon(g, x, y, z, ry);
+  AA_MOUNTS.pop();
+  return m;
+}
+
 /** A single 20 mm Oerlikon on its pedestal, with its shoulder rests. */
 function oerlikon(g, x, y, z, ry) {
   const m = new THREE.Group();
@@ -2127,7 +2148,11 @@ function armament(g) {
     }
   }
 
-  // Oerlikons down both catwalks, in their own shields.
+  // Oerlikons down both catwalks, in their own shields, two to a position.
+  // A twenty-millimetre gallery is a row of guns worked as one -- the layers
+  // stand shoulder to shoulder and the same gunner's mate runs the pair -- so
+  // the arsenal names the position and the pair goes on it. Her sheet's
+  // forty-six barrels are twenty-three of these.
   for (const s of [-1, 1]) {
     for (let i = 0; i < 15; i++) {
       const t = -1 + (2 * i) / 14;
@@ -2136,6 +2161,7 @@ function armament(g) {
       if (sponsons.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 8)) continue;
       if (forty.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 6)) continue;
       oerlikon(g, s * (fdHalf(z) + 1.4), FD - 1.83, z, s > 0 ? 1.5 : -1.5);
+      mate(g, s * (fdHalf(z + 2.4) + 1.4), FD - 1.83, z + 2.4, s > 0 ? 1.5 : -1.5);
     }
   }
 }

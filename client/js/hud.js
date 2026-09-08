@@ -95,8 +95,14 @@ export function arsenal(cls) {
       cond: 'sc',
     });
   }
+  // Where each light gun's mountings start in the flat close-range battery.
+  // The arsenal lists them gun type by gun type; the model builds them in the
+  // same order and the simulation names them in the same order, and this is
+  // what ties a row's third mounting to the ship's third mounting of that gun.
+  let lightAt = 0;
   for (const g of (cls.aa && cls.aa.guns) || []) {
     rows.push({
+      lightAt,
       name: g.name,
       caliber: g.caliber,
       barrels: barrels(g.mounts),
@@ -111,6 +117,7 @@ export function arsenal(cls) {
       band: 'Light battery',
       specs: g.mounts,
     });
+    lightAt += g.mounts.length;
   }
   if (cls.torpedoes) {
     const T = cls.torpedoes;
@@ -1029,22 +1036,22 @@ export class Hud {
     if (at.name) bits.unshift(at.name.toUpperCase());
     if (gun.auto) bits.push('AUTO');
     else if (own && own.cd && gun.kind === 'main') {
-      const cd = own.cd[gun.index];
+      const cd = own.cd[gun.id ?? gun.index];
       bits.push(cd > 0 ? `RELOAD ${cd.toFixed(1)}` : 'READY');
     } else if (own && own.sd && gun.kind === 'sec') {
-      const cd = own.sd[gun.index];
+      const cd = own.sd[gun.id ?? gun.index];
       bits.push(cd > 0 ? `RELOAD ${cd.toFixed(1)}` : 'READY');
     } else if (own && own.tp && gun.kind === 'torp') {
-      const cd = own.tp[gun.index];
+      const cd = own.tp[gun.id ?? gun.index];
       bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
     }
     if (beyond) bits.push('OUT OF RANGE');
     read.textContent = bits.join('   ');
     const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
     if (fire && !gun.auto) {
-      const cd = gun.kind === 'main' ? own?.cd?.[gun.index]
-        : gun.kind === 'sec' ? own?.sd?.[gun.index]
-          : own?.tp?.[gun.index];
+      const i = gun.id ?? gun.index;
+      const cd = gun.kind === 'main' ? own?.cd?.[i]
+        : gun.kind === 'sec' ? own?.sd?.[i] : own?.tp?.[i];
       fire.classList.toggle('spent', !!(cd > 0) || beyond);
     }
   }

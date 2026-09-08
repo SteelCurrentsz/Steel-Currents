@@ -22,9 +22,10 @@ import { buildInterior, bySection } from './interior.js';
 import { RIG, fitCatapults } from './catapult.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import {
-  box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
+  box, cyl, tubeZ, tubeX, smooth, lerpTable, loftRings, loftShape,
   planHouse, ladder,
 } from './shipkit.js';
+import { fiveInch38, quadBofors, twinBofors, oerlikon } from './usnguns.js';
 
 export const LOA = 185.9;
 export const BEAM = 20.2;
@@ -468,154 +469,6 @@ function sixInch(g, x, y, z, aft) {
   }
   armMount(mount, arm, [-1.72, 0, 1.72].map((dx) => [dx, 0, 8.15]));
   return mount;
-}
-
-/**
- * A twin 5"/38 in a Mk 32 enclosed mount: the dual-purpose gun that is half
- * the reason a Cleveland was worth building.
- */
-function fiveInch(g, x, y, z, ry) {
-  const mount = new THREE.Group();
-  mount.position.set(x, y, z);
-  mount.rotation.y = ry;
-  // A twin 5"/38 trains on its own barbette, so the whole gunhouse comes
-  // round: the welder leaves it alone and the scene lays it.
-  mount.userData.dynamic = true;
-  mount.userData.rest = ry;
-  g.add(mount);
-  cyl(mount, M.steelDark, 2.05, 2.15, 0.7, 0, -0.35, 0, 20);
-  cyl(mount, M.gunDark, 2.2, 2.2, 0.14, 0, 0.05, 0, 24);
-  loftRings(mount, M.gun, [
-    [1.95, 2.35, 0.00, 0.12],
-    [1.98, 2.38, 0.00, 0.65],
-    [1.95, 2.35, -0.05, 2.05],
-    [1.72, 2.12, -0.14, 2.65],
-    [1.30, 1.65, -0.22, 2.92],
-  ], { px: 0.66, pz: 0.66, n: 22 });
-  const face = box(mount, M.gun, 3.5, 2.3, 0.26, 0, 1.35, 2.10);
-  face.rotation.x = -0.20;
-  for (const dx of [-0.72, 0.72]) box(mount, M.gunDark, 0.9, 0.8, 0.2, dx, 1.4, 2.3);
-  box(mount, M.gunDark, 3.4, 0.1, 0.18, 0, 2.42, 1.94);
-  for (const sgn of [-1, 1]) {
-    box(mount, M.gun, 0.6, 0.58, 0.9, sgn * 1.42, 1.9, 1.1);
-    box(mount, M.glass, 0.24, 0.16, 0.1, sgn * 1.42, 1.95, 1.6);
-  }
-  box(mount, M.gunDark, 1.0, 1.7, 0.14, 0, 1.05, -2.4);
-  const arm = new THREE.Group();
-  arm.position.set(0, 1.4, 1.95);
-  arm.rotation.x = -0.05;
-  mount.add(arm);
-  for (const dx of [-0.72, 0.72]) {
-    cyl(arm, M.canvas, 0.4, 0.46, 0.5, dx, 0, 0.28, 12).rotation.x = Math.PI / 2;
-    tubeZ(arm, M.gunDark, 0.2, 1.6, dx, 0, 1.15, 12);
-    tubeZ(arm, M.gunDark, 0.125, 4.8, dx, 0, 2.85, 12);
-    cyl(arm, M.gunDark, 0.14, 0.15, 0.26, dx, 0, 5.2, 12).rotation.x = Math.PI / 2;
-  }
-  armMount(mount, arm, [-0.72, 0.72].map((dx) => [dx, 0, 5.36]));
-  return mount;
-}
-
-/** The splinter tub a light gun stands in: a ring of plate, open at the back. */
-function tub(g, r, h, x, y, z, ry, n = 16) {
-  const t = new THREE.Group();
-  t.position.set(x, y, z);
-  t.rotation.y = ry;
-  g.add(t);
-  for (let i = 0; i < n; i++) {
-    const a = -1.35 + (i / (n - 1)) * 4.9;
-    box(t, M.steel, 0.13, h, (2 * Math.PI * r) / n + 0.12,
-      Math.sin(a) * r, h / 2, Math.cos(a) * r, a + Math.PI / 2);
-  }
-  cyl(t, M.deckDark, r * 1.03, r * 1.03, 0.14, 0, 0.05, 0, n + 4);
-  return t;
-}
-
-/** A quadruple 40 mm Bofors, with its own director alongside. */
-function quadBofors(g, x, y, z, ry) {
-  const t = tub(g, 2.5, 1.25, x, y, z, ry, 18);
-  const m = new THREE.Group();
-  m.position.y = 0.4;
-  m.userData.dynamic = true;
-  m.userData.rest = ry;
-  t.add(m);
-  cyl(m, M.gunDark, 0.66, 0.86, 0.6, 0, 0.3, 0, 14);
-  box(m, M.gun, 2.5, 0.8, 1.3, 0, 0.95, -0.15);
-  box(m, M.gun, 2.1, 0.5, 0.6, 0, 1.5, -0.5);
-  const cradle = new THREE.Group();
-  cradle.position.set(0, 1.25, 0);
-  cradle.rotation.x = -0.14;
-  m.add(cradle);
-  for (const dx of [-0.95, -0.32, 0.32, 0.95]) {
-    tubeZ(cradle, M.gunDark, 0.085, 2.9, dx, 0, 1.5, 10);
-    cyl(cradle, M.gunDark, 0.12, 0.12, 0.4, dx, 0, 2.9, 10).rotation.x = Math.PI / 2;
-    box(cradle, M.gunDark, 0.2, 0.5, 0.5, dx, 0.3, -0.2);   // the clip loader
-  }
-  m.userData.trainRate = 1.4;      // a quad Bofors is a heavy thing to swing
-  armMount(m, cradle, [-0.95, -0.32, 0.32, 0.95].map((dx) => [dx, 0, 3.1]));
-  for (const sgn of [-1, 1]) {
-    box(m, M.gunDark, 0.4, 0.5, 0.4, sgn * 1.5, 1.15, -0.5);
-    box(m, M.steelDark, 0.5, 0.1, 0.5, sgn * 1.5, 0.9, -0.5);
-  }
-  // The Mk 51 director on the tub rim: a man, a sight and a joystick.
-  const d = new THREE.Group();
-  d.position.set(1.9, 0.5, -1.4);
-  t.add(d);
-  cyl(d, M.gunDark, 0.22, 0.3, 0.8, 0, 0.4, 0, 10);
-  box(d, M.gun, 0.5, 0.42, 0.6, 0, 0.95, 0);
-  box(d, M.glass, 0.2, 0.16, 0.08, 0, 1.0, 0.32);
-  // Ready-use lockers round the outside of the tub.
-  for (const a of [2.2, 2.8, 3.5, 4.1]) {
-    box(g, M.steelDark, 0.6, 0.85, 0.5,
-      x + Math.sin(a) * 3.0, y + 0.42, z + Math.cos(a) * 3.0, a);
-  }
-  return m;
-}
-
-/** A twin 40 mm, which is the same gun in a smaller tub. */
-function twinBofors(g, x, y, z, ry) {
-  const t = tub(g, 1.6, 1.15, x, y, z, ry, 14);
-  const m = new THREE.Group();
-  m.position.y = 0.35;
-  m.userData.dynamic = true;
-  m.userData.rest = ry;
-  t.add(m);
-  cyl(m, M.gunDark, 0.44, 0.58, 0.5, 0, 0.25, 0, 12);
-  box(m, M.gun, 1.2, 0.66, 1.05, 0, 0.78, -0.1);
-  const cradle = new THREE.Group();
-  cradle.position.set(0, 1.05, 0);
-  cradle.rotation.x = -0.14;
-  m.add(cradle);
-  for (const dx of [-0.3, 0.3]) {
-    tubeZ(cradle, M.gunDark, 0.08, 2.4, dx, 0, 1.2, 10);
-    cyl(cradle, M.gunDark, 0.11, 0.11, 0.34, dx, 0, 2.3, 10).rotation.x = Math.PI / 2;
-  }
-  m.userData.trainRate = 1.7;
-  armMount(m, cradle, [-0.3, 0.3].map((dx) => [dx, 0, 2.5]));
-  for (const sgn of [-1, 1]) box(m, M.steelDark, 0.44, 0.1, 0.44, sgn * 1.0, 0.55, -0.45);
-  return m;
-}
-
-/** A single 20 mm Oerlikon on its pedestal, in a small tub. */
-function oerlikon(g, x, y, z, ry) {
-  const t = tub(g, 1.0, 1.0, x, y, z, ry, 10);
-  const o = new THREE.Group();
-  o.position.y = 0.3;
-  o.userData.dynamic = true;
-  o.userData.rest = ry;
-  t.add(o);
-  cyl(o, M.gunDark, 0.17, 0.24, 0.95, 0, 0.48, 0, 10);
-  const g2 = new THREE.Group();
-  g2.position.y = 0.98;
-  g2.rotation.x = -0.34;
-  o.add(g2);
-  tubeZ(g2, M.gunDark, 0.058, 1.9, 0, 0, 0.95, 8);
-  cyl(g2, M.gunDark, 0.1, 0.1, 0.5, 0, 0, 0.5, 8).rotation.x = Math.PI / 2;
-  cyl(g2, M.gunDark, 0.32, 0.32, 0.16, 0, 0.3, -0.05, 12).rotation.z = Math.PI / 2;
-  box(g2, M.gun, 0.5, 0.16, 0.5, 0, -0.2, -0.45);
-  for (const sgn of [-1, 1]) box(g2, M.gunDark, 0.1, 0.34, 0.1, sgn * 0.22, -0.28, -0.6);
-  o.userData.trainRate = 2.9;
-  armMount(o, g2, [[0, 0, 1.9]]);
-  return o;
 }
 
 // -------------------------------------------------------- superstructure --
@@ -1430,19 +1283,19 @@ function secondary(g) {
   // barrels are inside turret 2, any further aft and the mount is inside the
   // navigating bridge, which is where it was.
   cyl(g, M.steel, 2.3, 2.5, 1.5, 0, L01() + 0.45, M51_Z, 20);
-  mounts.push(fiveInch(g, 0, L01() + 1.2, M51_Z, 0));
+  mounts.push(fiveInch38(g, M, 0, L01() + 1.2, M51_Z, 0));
   // Mount 52, aft, on the roof of the after superstructure.
   cyl(g, M.steel, 2.3, 2.5, 1.5, 0, L01() + 3.35, M52_Z, 20);
-  mounts.push(fiveInch(g, 0, L01() + 4.1, M52_Z, Math.PI));
+  mounts.push(fiveInch38(g, M, 0, L01() + 4.1, M52_Z, Math.PI));
   // And the four waist mounts, on sponsons at the edge of the 01 roof, two a
   // side, stowed fore and aft.
   for (const sgn of [-1, 1]) {
     cyl(g, M.steel, 2.3, 2.5, 1.2, 0, L01() + 0.6, 0, 20).position
       .set(sgn * WAIST_X, L01() + 0.6, WAIST_F);
-    mounts.push(fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_F, sgn * 0.26));
+    mounts.push(fiveInch38(g, M, sgn * WAIST_X, L01() + 1.2, WAIST_F, sgn * 0.26));
     cyl(g, M.steel, 2.3, 2.5, 1.2, 0, L01() + 0.6, 0, 20).position
       .set(sgn * WAIST_X, L01() + 0.6, WAIST_A);
-    mounts.push(fiveInch(g, sgn * WAIST_X, L01() + 1.2, WAIST_A, Math.PI - sgn * 0.26));
+    mounts.push(fiveInch38(g, M, sgn * WAIST_X, L01() + 1.2, WAIST_A, Math.PI - sgn * 0.26));
   }
 }
 
@@ -1461,16 +1314,16 @@ function lightAA(g) {
   // Four quads: two abreast the bridge on the 01 level, one on the after
   // superstructure, one on the quarterdeck abreast the crane.
   for (const sgn of [-1, 1]) {
-    keep(quadBofors(g, sgn * 6.6, L01() + 0.2, 33.5, sgn * 0.5));
+    keep(quadBofors(g, M, sgn * 6.6, L01() + 0.2, 33.5, sgn * 0.5));
   }
-  keep(quadBofors(g, 0, L01() + 3.05, -33.0, 0));
-  keep(quadBofors(g, 0, deckAt(-80) + 0.1, -80.0, 0));
+  keep(quadBofors(g, M, 0, L01() + 3.05, -33.0, 0));
+  keep(quadBofors(g, M, 0, deckAt(-80) + 0.1, -80.0, 0));
   // Six twins: abreast the funnels, on the forecastle abreast turret 2, and on
   // the quarterdeck abreast turret 4.
   for (const sgn of [-1, 1]) {
-    keep(twinBofors(g, sgn * 7.85, L01() + 0.15, 10.5, sgn * 0.7));
-    keep(twinBofors(g, sgn * (halfDeck(50) - 2.4), deckAt(50) + 0.1, 50.0, sgn * 0.8));
-    keep(twinBofors(g, sgn * (halfDeck(-50) - 2.4), deckAt(-50) + 0.1, -50.0, sgn * 0.8));
+    keep(twinBofors(g, M, sgn * 7.85, L01() + 0.15, 10.5, sgn * 0.7));
+    keep(twinBofors(g, M, sgn * (halfDeck(50) - 2.4), deckAt(50) + 0.1, 50.0, sgn * 0.8));
+    keep(twinBofors(g, M, sgn * (halfDeck(-50) - 2.4), deckAt(-50) + 0.1, -50.0, sgn * 0.8));
   }
   // Ten Oerlikons: round the bridge, along the boat deck and right forward.
   // Ten Oerlikons, in pairs. None of them on the centreline: her turrets stow
@@ -1483,7 +1336,7 @@ function lightAA(g) {
     [66.0, deckAt(66) + 0.1, 3.2],
     [-64.0, deckAt(-64) + 0.1, 3.6],
   ]) {
-    for (const sgn of [-1, 1]) keep(oerlikon(g, sgn * ox, oy, oz, sgn * 1.1));
+    for (const sgn of [-1, 1]) keep(oerlikon(g, M, sgn * ox, oy, oz, sgn * 1.1));
   }
 }
 

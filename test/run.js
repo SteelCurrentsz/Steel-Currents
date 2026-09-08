@@ -21,7 +21,7 @@ import {
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
-  sectionVolume, canFire, manGun, layGun, shootGun,
+  sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -34,6 +34,10 @@ const AERO_AVENGER = AERO.avenger;
 import { Hud, arsenal, readTarget } from '../client/js/hud.js';
 import { MARK_KIND, ROOMS } from '../client/js/render/damageboard.js';
 import { Flames } from '../client/js/render/flames.js';
+import {
+  buildSpee, speeParts, sheer as speeSheer, shellAt as speeShellAt,
+  zAt as speeZAt, keelY as speeKeelY,
+} from '../client/js/render/spee.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
 import { Battle } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -2799,19 +2803,33 @@ check('the Iowa mounts what her datasheet says she mounts', () => {
   // a broadside coming out of a point in the air beside her -- and every
   // turret has to be its own object, or laying one lays the lot.
   //
-  // Her secondary and light batteries are on the sheet and are not on the
-  // model: they went with the superstructure they stood on, and go back when
-  // it does. That is stated here rather than left to be discovered.
+  // Her secondary and light batteries count too: twenty five-inch in ten twin
+  // mounts and twenty-seven close-range mountings, every one of them where the
+  // sheet says. They used to be on the sheet and not on the ship, which meant
+  // a captain who pressed one in the arsenal was put at a point in the air.
   const cls = SHIP_CLASSES.iowa;
   const built = buildIowa({ breakaway: false });
   built.group.updateMatrixWorld(true);
   assert.equal(built.turrets.length, cls.turrets.length,
     `${built.turrets.length} turrets against ${cls.turrets.length} on the sheet`);
-  assert.equal(built.secMounts.length + built.aaMounts.length, 0,
-    'she has secondary or light mountings on her again');
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length,
+    `${built.secMounts.length} five-inch mounts against `
+    + `${cls.secondary.mounts.length} on the sheet`);
+  const light = cls.aa.guns.reduce((n, g) => n + g.mounts.length, 0);
+  assert.equal(built.aaMounts.length, light,
+    `${built.aaMounts.length} light mountings against ${light} on the sheet`);
+  const at = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+  for (let i = 0; i < cls.secondary.mounts.length; i++) {
+    const want = cls.secondary.mounts[i];
+    const p = at(built.secMounts[i]);
+    assert.ok(Math.abs(p.x - want.x) < 1.0 && Math.abs(p.z - want.z) < 1.0,
+      `five-inch mount ${i} is at ${p.x.toFixed(1)},${p.z.toFixed(1)} `
+      + `for ${want.x.toFixed(1)},${want.z}`);
+    assert.ok(built.secMounts[i].userData.dynamic,
+      `five-inch mount ${i} would be welded down`);
+  }
 
   const off = [];
-  const at = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
   for (let i = 0; i < cls.turrets.length; i++) {
     const p = at(built.turrets[i]);
     if (Math.abs(p.z - cls.turrets[i].z) > 1.0) {
@@ -9464,6 +9482,112 @@ check('a pool draws what is in it and not what it could hold', () => {
   for (const b of batches) assert.equal(b.mesh.count, 0, 'the sky did not empty');
 });
 
+check('you cannot see straight through a gunhouse', () => {
+  // A closed shell whose triangles are wound the wrong way round is not there.
+  // Back faces are not drawn, so a gunhouse built inside out shows you the
+  // inside of its far wall and nothing else: it reads as a solid turret from a
+  // mile off, as an open box from her own deck, and the gunlayer's camera
+  // stands in the middle of it looking at the back of the plating. Every face
+  // of the Graf Spee's two gunhouses -- roof, floor, both sides, face and rear
+  // plate -- was wound that way.
+  //
+  // What is checked is what a camera does. A ray dropped on the gunhouse has
+  // to meet her roof, not her turntable a gunhouse's height further down; and
+  // a ray fired at her from either beam has to meet the near side, not the
+  // inside of the far one.
+  for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'iowa']) {
+    const built = buildShip(id);
+    built.group.updateMatrixWorld(true);
+    const rc = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    built.turrets.forEach((m, k) => {
+      const targets = [];
+      m.traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
+      assert.ok(targets.length, `the ${id}'s turret ${k} has nothing in it`);
+      const O = new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
+      const box = new THREE.Box3().setFromObject(m);
+      // Dropped on her roof, from over the ring and a little either side of it.
+      for (const [dx, dz] of [[0, 0], [1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]]) {
+        rc.set(new THREE.Vector3(O.x + dx, box.max.y + 40, O.z + dz), down);
+        const hit = rc.intersectObjects(targets, false)[0];
+        assert.ok(hit, `nothing over the ${id}'s turret ${k} at ${dx},${dz}`);
+        assert.ok(hit.point.y - O.y > 1.5,
+          `a ray dropped on the ${id}'s turret ${k} goes `
+          + `${(hit.point.y - O.y).toFixed(2)} m down to the first plating it `
+          + 'meets, which is her turntable: her roof is wound inside out');
+      }
+      // And fired at her from both beams, at the height of her trunnions.
+      for (const sgn of [-1, 1]) {
+        const from = new THREE.Vector3(sgn * 400, O.y + 2.0, O.z);
+        rc.set(from, new THREE.Vector3(-sgn, 0, 0));
+        const hit = rc.intersectObjects(targets, false)[0];
+        if (!hit) continue;                 // clear over or under her, not a hole
+        assert.ok(hit.point.x * sgn > 0,
+          `a ray fired at the ${id}'s turret ${k} from ${sgn > 0 ? 'starboard' : 'port'} `
+          + 'passes through the near side and meets the far one: her plating faces inwards');
+      }
+    });
+  }
+});
+
+check('every deckhouse on the Graf Spee has sides and a roof', () => {
+  // Her houses are lofted boxes, and they were lofted inside out: the sides,
+  // the roof and the floor of every one of them faced inwards, so only the two
+  // end plates were ever drawn. Her superstructure, her bridge block, the
+  // trunk of her tower and every platform on it were open frames you looked
+  // straight through -- and it is not something a screenshot from a mile away
+  // shows you, because what you see is the inside of the far wall, correctly
+  // lit, standing where the near one ought to be.
+  //
+  // A back face is not drawn, so what is checked is exactly that: drop a ray
+  // on her twice, once as the renderer sees her and once with both faces of
+  // every surface turned on, and the two have to agree. Where the second finds
+  // something metres above what the first found, that something is on her and
+  // invisible.
+  const built = buildShip('spee');
+  built.group.updateMatrixWorld(true);
+  const targets = [];
+  const mats = new Set();
+  built.group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    targets.push(o);
+    for (const m of (Array.isArray(o.material) ? o.material : [o.material])) mats.add(m);
+  });
+  const rc = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  // Over her superstructure, her bridge block, her tower and her after works,
+  // and clear of her boats -- a boat is open at the top and you are meant to
+  // be able to see into her.
+  const spots = [
+    ['her superstructure abreast the funnel', 4, -10],
+    ['her superstructure deck forward', 4, 20],
+    ['the bridge block round her conning tower', 4, 36],
+    ['the trunk of her tower', 4, 24],
+    ['her after control position', 2, -30],
+    ['the bridge front', 0, 30],
+    ['her superstructure to port', -4, 18],
+    ['her superstructure abreast the boats', 5, 8],
+    ['the deck over her after works', 0, -25],
+  ];
+  const shoot = () => spots.map(([, x, z]) => {
+    rc.set(new THREE.Vector3(x, 60, z), down);
+    const hit = rc.intersectObjects(targets, false)[0];
+    return hit ? hit.point.y : -999;
+  });
+  const seen = shoot();
+  for (const m of mats) m.side = THREE.DoubleSide;
+  const there = shoot();
+  for (const m of mats) m.side = THREE.FrontSide;
+  spots.forEach(([what], i) => {
+    assert.ok(seen[i] > -900, `nothing at all over ${what}`);
+    assert.ok(there[i] - seen[i] < 0.5,
+      `${what} carries ${(there[i] - seen[i]).toFixed(2)} m of plating that is `
+      + `on her and not drawn: the roof is at ${there[i].toFixed(2)} m and the `
+      + `renderer's first surface is ${seen[i].toFixed(2)} m, so the house is `
+      + 'lofted inside out and only its end plates show');
+  });
+});
+
 check('a mounting is welded in its own frame and goes on training', () => {
   // mergeStatic stops at anything that moves, which is right -- a turret has to
   // be able to train -- but it left every mounting drawn exactly as it was
@@ -9488,9 +9612,22 @@ check('a mounting is welded in its own frame and goes on training', () => {
     // A whole ship in a few hundred draw calls rather than a couple of
     // thousand. The figure is generous: what is being checked is that the weld
     // ran at all, not a budget.
-    assert.ok(meshes < 700,
+    assert.ok(meshes < 900,
       `the ${id} is ${meshes} separate meshes; her mountings were not welded`);
     assert.ok(tris > 20000, `the ${id} came out of the weld with ${tris} triangles`);
+
+    // And the weld ran on the mountings themselves, which is the thing a
+    // whole-ship count can only hint at: a quad Bofors is thirty-odd boxes and
+    // cylinders as it is modelled and comes out of the weld as a handful --
+    // one buffer per material, per frame that moves.
+    for (const m of [...(built.turrets || []), ...(built.secMounts || []),
+      ...(built.aaMounts || [])]) {
+      if (!m) continue;
+      let n = 0;
+      m.traverse((o) => { if (o.isMesh && o.geometry) n++; });
+      assert.ok(n <= 10,
+        `a ${id} mounting is still ${n} separate meshes, so the weld missed it`);
+    }
 
     // And every mounting still has the two things that make it a mounting: a
     // group that trains and a group inside it that elevates. A cradle welded
@@ -9515,6 +9652,238 @@ check('a mounting is welded in its own frame and goes on training', () => {
       assert.ok(n < 40,
         `a ${id} mounting is still ${n} separate meshes; the weld did not reach it`);
     }
+  }
+});
+
+
+check("the Graf Spee's shell has no holes in it", () => {
+  // The one thing a hull has to be is closed, and hers is lofted rather than
+  // boxed, so a mistake in the lofting is a hole rather than a wrong number.
+  // Every station of her plating is fired at from abeam at the height and the
+  // fore-and-aft position her own lines put it at -- her stem is raked three
+  // and a half metres and her counter overhangs, so where the shell is depends
+  // on how high up you look -- and there has to be steel there. A ray dropped
+  // anywhere on her deck has to land on something, and one sent up from under
+  // her keel has to hit her bottom.
+  const built = buildSpee();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const inward = new THREE.Vector3(1, 0, 0);
+  const down = new THREE.Vector3(0, -1, 0);
+  const up = new THREE.Vector3(0, 1, 0);
+
+  let sides = 0;
+  const holes = [];
+  for (let t = -0.97; t <= 0.97; t += 0.04) {
+    const top = speeSheer(t);
+    for (let y = -6.5; y <= top - 0.4; y += 1.3) {
+      const half = speeShellAt(t, y);
+      if (half < 0.35) continue;
+      sides++;
+      ray.set(new THREE.Vector3(-40, y, speeZAt(t, y)), inward);
+      if (!ray.intersectObjects(meshes, false).length) {
+        holes.push(`side t ${t.toFixed(2)} y ${y.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(sides > 300, `only ${sides} points of her plating were tried`);
+
+  // Her deck. A ray dropped on it from above has to find her.
+  let decks = 0;
+  for (let t = -0.95; t <= 0.95; t += 0.04) {
+    const top = speeSheer(t);
+    const half = speeShellAt(t, top);
+    for (const f of [0, 0.4, 0.75]) {
+      const x = half * f;
+      if (half < 0.6) continue;
+      decks++;
+      ray.set(new THREE.Vector3(x, top + 40, speeZAt(t, top)), down);
+      if (!ray.intersectObjects(meshes, false).length) {
+        holes.push(`deck t ${t.toFixed(2)} x ${x.toFixed(1)}`);
+      }
+    }
+  }
+  assert.ok(decks > 100, `only ${decks} points of her deck were tried`);
+
+  // And her bottom, from below.
+  let bottoms = 0;
+  for (let t = -0.9; t <= 0.9; t += 0.05) {
+    const k = speeKeelY(t);
+    if (k > -1.5) continue;
+    bottoms++;
+    ray.set(new THREE.Vector3(0, k - 30, speeZAt(t, k)), up);
+    if (!ray.intersectObjects(meshes, false).length) {
+      holes.push(`keel t ${t.toFixed(2)}`);
+    }
+  }
+  assert.ok(bottoms > 20, `only ${bottoms} points of her bottom were tried`);
+
+  assert.equal(holes.length, 0,
+    `daylight through her in ${holes.length} places: ${holes.slice(0, 6).join(', ')}`);
+});
+
+check('the Graf Spee is built where her own plan puts everything', () => {
+  // Her December 1939 plan carries a metre scale along her length, so every
+  // station on this ship is a number read off a drawing rather than a guess.
+  // What is checked here is that the model and the datasheet agree with it and
+  // with each other -- a turret whose model is two metres from where the
+  // simulation fires her guns is a ship that shoots from the wrong place.
+  const cls = SHIP_CLASSES.spee;
+  const built = buildSpee();
+  built.group.updateMatrixWorld(true);
+
+  assert.equal(Math.round(built.length), 186, 'she is not 186 m overall');
+  assert.ok(Math.abs(built.beam - 21.6) < 0.3, `her beam is ${built.beam} m`);
+
+  // Every mounting on her, and every mounting is where her datasheet says.
+  const check1 = (list, specs, what) => {
+    assert.equal(list.length, specs.length, `she has the wrong number of ${what}`);
+    for (let i = 0; i < list.length; i++) {
+      const p = new THREE.Vector3();
+      list[i].getWorldPosition(p);
+      assert.ok(Math.abs(p.z - specs[i].z) < 0.6,
+        `${what} ${i} is at z ${p.z.toFixed(1)}, datasheet says ${specs[i].z}`);
+      assert.ok(Math.abs(p.x - (specs[i].x || 0)) < 0.6,
+        `${what} ${i} is at x ${p.x.toFixed(1)}, datasheet says ${specs[i].x}`);
+    }
+  };
+  check1(built.turrets, cls.turrets, 'main turrets');
+  check1(built.secMounts, cls.secondary.mounts, 'fifteens');
+  check1(built.torpMounts, cls.torpedoes.mounts, 'tube banks');
+  const light = [];
+  for (const g of cls.aa.guns) for (const m of g.mounts) light.push(m);
+  check1(built.aaMounts, light, 'light mountings');
+
+  // Her main battery: two triples, one at each end, both on the weather deck.
+  assert.equal(built.turrets.length, 2, 'she has the wrong number of turrets');
+  for (const t of built.turrets) {
+    assert.equal(t.userData.muzzles.length, 3, 'a turret of hers is not a triple');
+  }
+  const [a, y] = built.turrets;
+  assert.ok(a.position.z > 40 && y.position.z < -30, 'her turrets are not at her ends');
+  assert.ok(Math.abs(a.position.y - y.position.y) < 1.2,
+    'one of her turrets superfires over the other; neither does');
+  // Anton points forward and Bruno aft: a turret at the wrong end of the ship
+  // reads perfectly well standing still and fires through her own bridge.
+  assert.ok(Math.abs(a.rotation.y) < 0.1, 'Anton is not facing forward');
+  assert.ok(Math.abs(Math.abs(y.rotation.y) - Math.PI) < 0.1, 'Bruno is not facing aft');
+
+  // And the muzzles are where the simulation thinks they are. `reach` is what
+  // it puts a shell at; the model is what a captain watches fire.
+  // `reach` is measured from the axis the mounting trains about; the muzzles
+  // are recorded in the frame of the cradle that elevates, which stands
+  // forward of that axis. The two have to be added, or the simulation puts
+  // every shell four metres inside the gunhouse that fired it.
+  const reachOf = (m) => {
+    const node = m.userData.gunNode || m;
+    const off = node === m ? 0 : node.position.z;
+    return Math.max(...m.userData.muzzles.map((v) => v.z + off));
+  };
+  for (const t of built.turrets) {
+    assert.ok(Math.abs(reachOf(t) - cls.gun.reach) < 1.0,
+      `her muzzles stand ${reachOf(t).toFixed(1)} m out and the datasheet `
+      + `says ${cls.gun.reach}`);
+  }
+  for (const m of built.torpMounts) {
+    assert.ok(Math.abs(reachOf(m) - cls.torpedoes.reach) < 1.0,
+      `her tubes end ${reachOf(m).toFixed(1)} m out and the datasheet `
+      + `says ${cls.torpedoes.reach}`);
+  }
+});
+
+check('nothing on the Graf Spee stands in mid-air or over her side', () => {
+  // Two faults a built ship can have that no screenshot from one angle shows.
+  // A fitting with nothing under it hangs in the air; a fitting carried out
+  // past her plating hangs over the sea. Both are found the same way: take
+  // every piece of her, ask where its feet are, and ask what is under them.
+  const parts = speeParts();
+  assert.ok(parts.length > 200, `only ${parts.length} pieces were built`);
+  const half = 186 / 2;
+  const air = [];
+  const over = [];
+  for (const p of parts) {
+    const z = (p.min[2] + p.max[2]) / 2;
+    const t = Math.max(-1, Math.min(1, z / half));
+    // Outboard: her deck edge at that station, with an allowance for the
+    // sponsons and the boat davits that are meant to overhang.
+    const wide = speeShellAt(t, speeSheer(t));
+    const out = Math.max(Math.abs(p.min[0]), Math.abs(p.max[0]));
+    // A gun trained out over the side is a gun trained out over the side:
+    // that is what a beam mounting is for, and the muzzle of a fifteen abreast
+    // her funnel is six metres past her plating with the gun laid on the beam.
+    // Only what is bolted down has to stay aboard.
+    if (!p.moving && out > wide + 2.6) {
+      over.push(`${p.from} out to ${out.toFixed(1)} m where she is ${wide.toFixed(1)}`);
+    }
+    // In the air: nothing of hers should have its feet above the highest thing
+    // she carries, and nothing should float below her keel.
+    if (p.min[1] > 42) air.push(`${p.from} at ${p.min[1].toFixed(1)} m`);
+    if (p.max[1] < speeKeelY(t) - 1.5) {
+      air.push(`${p.from} under her keel at ${p.max[1].toFixed(1)} m`);
+    }
+  }
+  assert.equal(over.length, 0,
+    `${over.length} pieces stand out over her side: ${over.slice(0, 5).join(', ')}`);
+  assert.equal(air.length, 0,
+    `${air.length} pieces are in mid-air: ${air.slice(0, 5).join(', ')}`);
+});
+
+
+check('the ship and the arsenal call every mounting by the same name', () => {
+  // A row of the arsenal numbers its mountings from that row; the ship numbers
+  // her close-range mountings across the whole light battery. So the third
+  // Bofors in the arsenal is not the ship's third light gun, and pressing it
+  // used to hand a captain a five-inch mounting on the other side of her --
+  // with the camera put wherever that happened to be.
+  //
+  // Three lists have to agree, and they are built in three different places:
+  // the arsenal's rows, the model's mountings, and the simulation's. What ties
+  // them together is that all three flatten her light battery gun type by gun
+  // type in the order her datasheet lists them, and `lightAt` is where each
+  // row starts in that flattening.
+  for (const id of ['spee', 'hipper', 'cleveland', 'iowa', 'fletcher',
+    'enterprise']) {
+    const cls = SHIP_CLASSES[id];
+    const rows = arsenal(cls).filter((w) => w.band === 'Light battery');
+    const flat = lightMounts(cls);
+    const built = buildShip(id);
+    assert.equal(built.aaMounts.length, flat.length,
+      `the ${id}'s model hands back ${built.aaMounts.length} light mountings and her `
+      + `datasheet names ${flat.length}`);
+    built.group.updateMatrixWorld(true);
+    let n = 0;
+    let drawn = 0;
+    for (const w of rows) {
+      assert.equal(w.lightAt, n, `the ${id}'s ${w.name} row starts at the wrong mounting`);
+      for (let i = 0; i < w.specs.length; i++) {
+        const spec = flat[w.lightAt + i];
+        assert.ok(spec, `the ${id}'s ${w.name} mounting ${i} is off the end of her battery`);
+        assert.equal(spec, w.specs[i],
+          `the ${id}'s ${w.name} mounting ${i} is not the ship's mounting ${w.lightAt + i}`);
+        // And where the model does carry that mounting, it is standing where
+        // the datasheet puts it, because that is where the camera goes. Where
+        // it does not, the slot is empty rather than some other gun, and the
+        // sight falls back to the datasheet's own position.
+        const m = built.aaMounts[w.lightAt + i];
+        if (!m) continue;
+        drawn++;
+        const p = new THREE.Vector3();
+        m.getWorldPosition(p);
+        assert.ok(Math.abs(p.z - spec.z) < 1.0 && Math.abs(p.x - (spec.x || 0)) < 1.0,
+          `the ${id}'s light mounting ${w.lightAt + i} is modelled at `
+          + `${p.x.toFixed(1)},${p.z.toFixed(1)} and named at ${spec.x},${spec.z}`);
+      }
+      n += w.specs.length;
+    }
+    assert.equal(n, flat.length, `the ${id}'s arsenal lists ${n} light mountings of ${flat.length}`);
+    // And every one of them is on her. Three ships used to name mountings
+    // they did not carry -- the Iowa all twenty-seven of hers -- and pressing
+    // one of those in the arsenal put a captain at a point in the air.
+    assert.equal(drawn, flat.length,
+      `the ${id} is named with ${flat.length} light mountings and ${drawn} of them `
+      + 'are modelled where she says they are');
   }
 });
 

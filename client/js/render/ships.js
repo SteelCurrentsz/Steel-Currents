@@ -368,6 +368,48 @@ function addRailings(group, cls, rings, deckY) {
 /**
  * @returns {{group: THREE.Group, turrets: THREE.Group[], length:number, beam:number, deckY:number}}
  */
+/**
+ * Put a ship's close-range mountings in the order her datasheet names them.
+ *
+ * Everything that addresses one light mounting -- the arsenal panel, the sight
+ * a captain stands at, the simulation that decides whether it can bear --
+ * numbers them by flattening her datasheet's light battery, gun type by gun
+ * type. A model built from that datasheet comes out in the same order for
+ * nothing; a model whose light guns were placed by hand does not, and then
+ * pressing the third Bofors puts the camera on a mounting somewhere else on
+ * the ship.
+ *
+ * So the built mountings are matched to the named ones by where they actually
+ * stand, and handed back in the datasheet's order. Every ship carries every
+ * mounting her sheet names her with, and a check says so; where one did not,
+ * the slot would be left empty rather than filled with the nearest wrong gun,
+ * and the sight falls back to the datasheet's own position.
+ */
+function orderLightMounts(cls, built) {
+  const named = [];
+  for (const g of (cls.aa && cls.aa.guns) || []) for (const m of g.mounts) named.push(m);
+  if (!named.length || !built || !built.length) return built || [];
+  const at = new THREE.Vector3();
+  const where = built.map((m) => {
+    m.updateWorldMatrix(true, false);
+    at.setFromMatrixPosition(m.matrixWorld);
+    return { m, x: at.x, z: at.z };
+  });
+  const taken = new Set();
+  return named.map((spec) => {
+    let best = null;
+    let bestD = 3.0;
+    for (let i = 0; i < where.length; i++) {
+      if (taken.has(i)) continue;
+      const d = Math.hypot(where[i].x - (spec.x || 0), where[i].z - spec.z);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best === null) return null;
+    taken.add(best);
+    return where[best].m;
+  });
+}
+
 export function buildShip(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
   // The Big E is modelled rather than generated: a Yorktown's flight deck,
@@ -386,7 +428,7 @@ export function buildShip(classId) {
       group: built.group, turrets: built.turrets, lifts: built.lifts,
       deckPlane: built.deckPlane,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: [], aaMounts: built.aaMounts || [], torpMounts: [],
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
     };
   }
   // And the Fletcher, for the same reason: a flush-decker with five open
@@ -402,7 +444,7 @@ export function buildShip(classId) {
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
     };
   }
@@ -418,7 +460,7 @@ export function buildShip(classId) {
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
     };
   }
@@ -434,7 +476,7 @@ export function buildShip(classId) {
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
       deckPlane: built.deckPlane,
     };
@@ -454,7 +496,7 @@ export function buildShip(classId) {
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
     };
   }
@@ -466,7 +508,7 @@ export function buildShip(classId) {
     });
     return {
       group: built.group, turrets: built.turrets,
-      secMounts: [], aaMounts: built.aaMounts || [],
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
       length: built.length, beam: built.beam, deckY: built.deckY,
     };

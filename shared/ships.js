@@ -119,13 +119,19 @@ export const SHIP_CLASSES = {
             { x: 2.5, z: -32.2, angle: 2.6, arc: 2.09, guns: 2 },
             { x: 0, z: -54.8, angle: Math.PI, arc: 2.27, guns: 2 },
           ] },
+        // Seven single Oerlikons: four round the bridge on the 01 level, two
+        // in the waist at the deck edge, one right forward on the forecastle.
+        // Written one mounting to a gun, because that is how she carried them
+        // and how a captain picks one out of the arsenal.
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
           mounts: [
-            { x: -3.2, z: 14, angle: -1.3, arc: 1.92, guns: 2 },
-            { x: 3.2, z: 14, angle: 1.3, arc: 1.92, guns: 2 },
-            { x: -3.4, z: -24, angle: -1.5, arc: 1.83, guns: 1 },
-            { x: 3.4, z: -24, angle: 1.5, arc: 1.83, guns: 1 },
-            { x: 0, z: -41, angle: Math.PI, arc: 2.09, guns: 1 },
+            { x: -3.5, z: 19, angle: -1.1, arc: 1.92, guns: 1 },
+            { x: 3.5, z: 19, angle: 1.1, arc: 1.92, guns: 1 },
+            { x: -3.5, z: 7, angle: -1.1, arc: 1.92, guns: 1 },
+            { x: 3.5, z: 7, angle: 1.1, arc: 1.92, guns: 1 },
+            { x: -3.75, z: -24, angle: -1.1, arc: 1.83, guns: 1 },
+            { x: 3.75, z: -24, angle: 1.1, arc: 1.83, guns: 1 },
+            { x: 0, z: 28, angle: 0, arc: 2.09, guns: 1 },
           ] },
       ],
     },
@@ -216,10 +222,13 @@ export const SHIP_CLASSES = {
             { x: 0, z: -80.0, angle: Math.PI, arc: 2.27, guns: 4 },
             { x: -7.85, z: 10.5, angle: -Math.PI / 2, arc: 1.75, guns: 2 },
             { x: 7.85, z: 10.5, angle: Math.PI / 2, arc: 1.75, guns: 2 },
-            { x: -7.6, z: 50.0, angle: -0.8, arc: 1.92, guns: 2 },
-            { x: 7.6, z: 50.0, angle: 0.8, arc: 1.92, guns: 2 },
-            { x: -7.6, z: -50.0, angle: -2.3, arc: 1.92, guns: 2 },
-            { x: 7.6, z: -50.0, angle: 2.3, arc: 1.92, guns: 2 },
+            // Abreast turret 2 and abreast turret 4, both at the deck edge
+            // as it actually runs -- her quarterdeck is narrower than her
+            // forecastle, so the after pair stands further in.
+            { x: -6.98, z: 50.0, angle: -0.8, arc: 1.92, guns: 2 },
+            { x: 6.98, z: 50.0, angle: 0.8, arc: 1.92, guns: 2 },
+            { x: -6.28, z: -50.0, angle: -2.3, arc: 1.92, guns: 2 },
+            { x: 6.28, z: -50.0, angle: 2.3, arc: 1.92, guns: 2 },
           ] },
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
           mounts: [
@@ -444,12 +453,21 @@ export const SHIP_CLASSES = {
       // Two triples, one forward and one aft, both at upper deck level: there
       // is no superfiring turret on her, because there is no second turret at
       // either end to superfire over.
-      { id: 0, name: 'Anton', x: 0, z: 52.5, angle: 0, arc: 2.48, guns: 3, my: 9.42 },
-      { id: 1, name: 'Bruno', x: 0, z: -56.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.32 },
+      //
+      // Stations read off the profile in her plan rather than off a scale bar:
+      // Anton's roof runs from forty-five metres forward of amidships to
+      // fifty-one, her sloped face from fifty-two to fifty-five, and her rear
+      // plate stands at forty-three with a notch of open deck between it and
+      // the bridge block. That puts her roller path at forty-eight and a half,
+      // four metres abaft where a reading off the scale bar had put it, and it
+      // is what closed the strip of bare deck that used to show between her
+      // and the bridge. Bruno's roof runs from forty to forty-five abaft.
+      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.48, guns: 3, my: 10.49 },
+      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.86 },
     ],
     gun: {
       name: '28 cm SK C/34', role: 'surface',
-      reach: 15.4,
+      reach: 14.6,
       // Slow, because eleven-inch bag charges are slow, and the whole of her
       // tactics follow from it: she has to hit at a range where the answer
       // cannot reach her, because she cannot afford a gunnery duel.
@@ -460,11 +478,11 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on the quarterdeck, abaft the after turret. An
       // afterthought on a commerce raider and a real threat at close quarters.
       mounts: [
-        { id: 0, x: -4.6, z: -74, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.62 },
-        { id: 1, x: 4.6, z: -74, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.62 },
+        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.28 },
+        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.28 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
-      reach: 4.9,
+      reach: 4.6,
       traverse: 0.24,
       reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
@@ -478,15 +496,18 @@ export const SHIP_CLASSES = {
       reach: 6.6,
       caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
       shells: shells(150, 3100, 2400, 152, 875, 0.11),
+      // Four a side in the walkway at the deck edge, spread between the two
+      // turrets the way her plan spreads them: abreast the bridge, abreast the
+      // funnel, abreast the catapult and abreast the after works.
       mounts: [
-        { x: -8.8, z: 30, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
-        { x: 8.8, z: 30, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
-        { x: -9.1, z: 12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
-        { x: 9.1, z: 12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
-        { x: -9.1, z: -8, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
-        { x: 9.1, z: -8, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
-        { x: -8.7, z: -28, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
-        { x: 8.7, z: -28, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
+        { x: -9.0, z: 36, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 6.48 },
+        { x: 9.0, z: 36, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 6.48 },
+        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
+        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
+        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
+        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
+        { x: -9.2, z: -32, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 6.44 },
+        { x: 9.2, z: -32, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 6.44 },
       ],
     },
     aa: {
@@ -495,31 +516,39 @@ export const SHIP_CLASSES = {
         // Three twin 10.5 cm: one each side abreast the funnel and one right
         // aft. These are her long-range flak, because her fifteens will not
         // point up.
+        // Three twin 10.5 cm: one each side abreast the funnel, on sponsons
+        // off the superstructure deck, and one right aft on the roof of the
+        // after control position. These are her long-range flak, because her
+        // fifteens will not point up.
         { name: '10.5 cm SK C/33', caliber: 105, role: 'aa', reload: 4.2, range: 6000,
           mounts: [
-            { x: -7.6, z: 4, angle: -Math.PI / 2, arc: 1.66, guns: 2 },
-            { x: 7.6, z: 4, angle: Math.PI / 2, arc: 1.66, guns: 2 },
-            { x: 0, z: -40, angle: Math.PI, arc: 2.09, guns: 2 },
+            { x: -7.6, z: 5, angle: -Math.PI / 2, arc: 1.66, guns: 2 },
+            { x: 7.6, z: 5, angle: Math.PI / 2, arc: 1.66, guns: 2 },
+            { x: 0, z: -27, angle: Math.PI, arc: 2.09, guns: 2 },
           ] },
+        // Two on the funnel platform, where her profile stands them, and two
+        // on the after superstructure.
         { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
           mounts: [
-            { x: -6.9, z: 24, angle: -1.15, arc: 1.92, guns: 2 },
-            { x: 6.9, z: 24, angle: 1.15, arc: 1.92, guns: 2 },
-            { x: -7.1, z: -18, angle: -1.85, arc: 1.92, guns: 2 },
-            { x: 7.1, z: -18, angle: 1.85, arc: 1.92, guns: 2 },
+            { x: -3.9, z: 10, angle: -1.15, arc: 1.92, guns: 2 },
+            { x: 3.9, z: 10, angle: 1.15, arc: 1.92, guns: 2 },
+            { x: -5.4, z: -22, angle: -1.85, arc: 1.92, guns: 2 },
+            { x: 5.4, z: -22, angle: 1.85, arc: 1.92, guns: 2 },
           ] },
+        // Ten single 2 cm, spread from the forecastle to the quarterdeck the
+        // way the plan spreads them.
         { name: '2 cm Flak 30', caliber: 20, role: 'aa', reload: 0.1, range: 1700,
           mounts: [
-            { x: -5.8, z: 38, angle: -1.0, arc: 1.83, guns: 1 },
-            { x: 5.8, z: 38, angle: 1.0, arc: 1.83, guns: 1 },
-            { x: -6.6, z: 18, angle: -1.5, arc: 1.83, guns: 1 },
-            { x: 6.6, z: 18, angle: 1.5, arc: 1.83, guns: 1 },
-            { x: -6.6, z: -2, angle: -1.5, arc: 1.83, guns: 1 },
-            { x: 6.6, z: -2, angle: 1.5, arc: 1.83, guns: 1 },
-            { x: -6.2, z: -24, angle: -1.9, arc: 1.83, guns: 1 },
-            { x: 6.2, z: -24, angle: 1.9, arc: 1.83, guns: 1 },
-            { x: -4.4, z: -50, angle: -2.1, arc: 1.83, guns: 1 },
-            { x: 4.4, z: -50, angle: 2.1, arc: 1.83, guns: 1 },
+            { x: -5.4, z: 40, angle: -1.0, arc: 1.83, guns: 1 },
+            { x: 5.4, z: 40, angle: 1.0, arc: 1.83, guns: 1 },
+            { x: -6.2, z: 18, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 6.2, z: 18, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: -6.2, z: -6, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 6.2, z: -6, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: -5.8, z: -32, angle: -1.9, arc: 1.83, guns: 1 },
+            { x: 5.8, z: -32, angle: 1.9, arc: 1.83, guns: 1 },
+            { x: -4.0, z: -55, angle: -2.1, arc: 1.83, guns: 1 },
+            { x: 4.0, z: -55, angle: 2.1, arc: 1.83, guns: 1 },
           ] },
       ],
     },
@@ -598,57 +627,70 @@ export const SHIP_CLASSES = {
     // secondary battery is a destroyer's main one, and it fires on its own.
     secondary: {
       name: '5"/38 Mk 28', role: 'dp',
-      reach: 7.0,
+      // She is drawn a half again life size, hull and battery together, so a
+      // 5"/38's muzzle stands eleven and a third metres out from the trunnion
+      // rather than the seven and a third it did.
+      reach: 11.37,
       caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
+      // On sponsons off the 01 deck, five a side, spaced so no mount is
+      // inside the next one's blast and every one of them has the deck edge
+      // to itself. Her light battery goes between them, on the weather deck.
       mounts: [
-        { x: -11.2 * BIG, z: 42 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: 11.2 * BIG, z: 42 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: -11.6 * BIG, z: 24 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 11.6 * BIG, z: 24 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -11.6 * BIG, z: 4 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: 11.6 * BIG, z: 4 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2 },
-        { x: -11.4 * BIG, z: -16 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: 11.4 * BIG, z: -16 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
-        { x: -10.8 * BIG, z: -38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
-        { x: 10.8 * BIG, z: -38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+        { x: -11.2 * BIG, z: 38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
+        { x: 11.2 * BIG, z: 38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
+        { x: -11.6 * BIG, z: 22 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
+        { x: 11.6 * BIG, z: 22 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
+        { x: -11.6 * BIG, z: 2 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2, my: 22.35 },
+        { x: 11.6 * BIG, z: 2 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2, my: 22.35 },
+        { x: -11.6 * BIG, z: -18 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
+        { x: 11.6 * BIG, z: -18 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
+        { x: -11.4 * BIG, z: -40 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
+        { x: 11.4 * BIG, z: -40 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
       ],
     },
     aa: {
       range: 5600, dps: 100,
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
+          // Twenty quads. Two abreast turret two on the raised forecastle
+          // deck, seven pairs down the weather deck outboard of her house,
+          // and two on the centreline -- one on the forecastle clear of
+          // turret A's muzzles, one on the fantail clear of turret Y's.
           mounts: [
-            { x: -13.0 * BIG, z: 62 * BIG, angle: -1.0, arc: 2.09, guns: 4 },
-            { x: 13.0 * BIG, z: 62 * BIG, angle: 1.0, arc: 2.09, guns: 4 },
-            { x: -14.0 * BIG, z: 34 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.0 * BIG, z: 34 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -14.2 * BIG, z: 12 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.2 * BIG, z: 12 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -14.0 * BIG, z: -10 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 14.0 * BIG, z: -10 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -13.4 * BIG, z: -30 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 13.4 * BIG, z: -30 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -12.0 * BIG, z: -52 * BIG, angle: -2.1, arc: 2.09, guns: 4 },
-            { x: 12.0 * BIG, z: -52 * BIG, angle: 2.1, arc: 2.09, guns: 4 },
+            { x: -7.0 * BIG, z: 48 * BIG, angle: -1.0, arc: 2.09, guns: 4 },
+            { x: 7.0 * BIG, z: 48 * BIG, angle: 1.0, arc: 2.09, guns: 4 },
+            { x: -11.7 * BIG, z: 30 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 11.7 * BIG, z: 30 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -12.6 * BIG, z: 12 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 12.6 * BIG, z: 12 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -13.2 * BIG, z: -8 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 13.2 * BIG, z: -8 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -13.2 * BIG, z: -28 * BIG, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 13.2 * BIG, z: -28 * BIG, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: -12.5 * BIG, z: -50 * BIG, angle: -2.1, arc: 2.09, guns: 4 },
+            { x: 12.5 * BIG, z: -50 * BIG, angle: 2.1, arc: 2.09, guns: 4 },
             { x: -9.0 * BIG, z: -84 * BIG, angle: -2.4, arc: 2.09, guns: 4 },
             { x: 9.0 * BIG, z: -84 * BIG, angle: 2.4, arc: 2.09, guns: 4 },
-            { x: 0, z: 92 * BIG, angle: 0, arc: 2.36, guns: 4 },
-            { x: 0, z: -96 * BIG, angle: Math.PI, arc: 2.36, guns: 4 },
-            { x: -6.0 * BIG, z: 74 * BIG, angle: -0.7, arc: 2.09, guns: 4 },
-            { x: 6.0 * BIG, z: 74 * BIG, angle: 0.7, arc: 2.09, guns: 4 },
-            { x: -6.0 * BIG, z: -68 * BIG, angle: -2.4, arc: 2.09, guns: 4 },
-            { x: 6.0 * BIG, z: -68 * BIG, angle: 2.4, arc: 2.09, guns: 4 },
+            { x: 0, z: 100 * BIG, angle: 0, arc: 2.36, guns: 4 },
+            { x: 0, z: -104 * BIG, angle: Math.PI, arc: 2.36, guns: 4 },
+            { x: -5.7 * BIG, z: 69 * BIG, angle: -0.7, arc: 2.09, guns: 4 },
+            { x: 5.7 * BIG, z: 69 * BIG, angle: 0.7, arc: 2.09, guns: 4 },
+            { x: -6.0 * BIG, z: -64 * BIG, angle: -2.4, arc: 2.09, guns: 4 },
+            { x: 6.0 * BIG, z: -64 * BIG, angle: 2.4, arc: 2.09, guns: 4 },
           ] },
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800,
+          // Seven galleries of them: three a side along the 01 deck edge,
+          // between the five-inch mounts and the house, and one across the
+          // fantail. A gallery is a row of guns, and it is drawn as one.
           mounts: [
-            { x: -14.6 * BIG, z: 50 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 14.6 * BIG, z: 50 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: -15.0 * BIG, z: 20 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 15.0 * BIG, z: 20 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: -14.8 * BIG, z: -12 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 14.8 * BIG, z: -12 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
-            { x: 0, z: -78 * BIG, angle: Math.PI, arc: 2.27, guns: 7 },
+            { x: -7.8 * BIG, z: 30 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 7.8 * BIG, z: 30 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -7.8 * BIG, z: -4 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 7.8 * BIG, z: -4 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: -7.8 * BIG, z: -32 * BIG, angle: -Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 7.8 * BIG, z: -32 * BIG, angle: Math.PI / 2, arc: 1.83, guns: 7 },
+            { x: 0, z: -114 * BIG, angle: Math.PI, arc: 2.27, guns: 7 },
           ] },
       ],
     },
@@ -753,27 +795,53 @@ export const SHIP_CLASSES = {
     aa: {
       range: 5800, dps: 152,
       guns: [
+        // Eight quads in their own tubs on the gallery deck: a pair right
+        // forward on the bow gallery where a Yorktown was blindest, a pair
+        // behind them, two abaft the island on the starboard deck edge, and
+        // two aft. Where each stands is read off her model, because on a
+        // carrier what is possible is decided by where the flight deck ends
+        // and where the five-inch sponsons already are.
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600,
           mounts: [
-            { x: -14.0, z: 66, angle: -1.0, arc: 2.09, guns: 4 },
-            { x: 14.0, z: 66, angle: 1.0, arc: 2.09, guns: 4 },
-            { x: -15.6, z: 30, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 15.6, z: 30, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -15.8, z: 0, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 15.8, z: 0, angle: Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: -15.4, z: -34, angle: -Math.PI / 2, arc: 1.75, guns: 4 },
-            { x: 15.4, z: -34, angle: Math.PI / 2, arc: 1.75, guns: 4 },
+            { x: 8.0, z: 119.2, angle: 0.00, arc: 2.09, guns: 4 },
+            { x: -8.0, z: 119.2, angle: 0.00, arc: 2.09, guns: 4 },
+            { x: 11.1, z: 104.8, angle: 0.00, arc: 2.09, guns: 4 },
+            { x: -11.1, z: 104.8, angle: 0.00, arc: 2.09, guns: 4 },
+            { x: -13.4, z: -1.3, angle: 3.14, arc: 2.09, guns: 4 },
+            { x: -13.4, z: -14.4, angle: 3.14, arc: 2.09, guns: 4 },
+            { x: 11.6, z: -107.4, angle: 3.14, arc: 2.09, guns: 4 },
+            { x: -12.1, z: -104.8, angle: 3.14, arc: 2.09, guns: 4 },
           ] },
+        // Forty-six Oerlikons in twenty-three positions, two guns to a
+        // position: four positions in the island's own galleries and the rest
+        // down both catwalks, wherever the sponsons and the forty-millimetre
+        // tubs leave room. The two sides do not match, and on a Yorktown they
+        // did not -- the island takes the room out of the starboard catwalk.
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800,
           mounts: [
-            { x: -16.0, z: 78, angle: -0.9, arc: 1.92, guns: 6 },
-            { x: 16.0, z: 78, angle: 0.9, arc: 1.92, guns: 6 },
-            { x: -16.6, z: 46, angle: -Math.PI / 2, arc: 1.83, guns: 6 },
-            { x: 16.6, z: 46, angle: Math.PI / 2, arc: 1.83, guns: 6 },
-            { x: -16.8, z: -16, angle: -Math.PI / 2, arc: 1.83, guns: 6 },
-            { x: 16.8, z: -16, angle: Math.PI / 2, arc: 1.83, guns: 6 },
-            { x: -15.0, z: -70, angle: -2.3, arc: 1.92, guns: 5 },
-            { x: 15.0, z: -70, angle: 2.3, arc: 1.92, guns: 5 },
+            { x: -18.9, z: 22.5, angle: -1.40, arc: 1.92, guns: 2 },
+            { x: -18.9, z: 26.3, angle: -1.40, arc: 1.92, guns: 2 },
+            { x: -19.2, z: 5.9, angle: -1.40, arc: 1.92, guns: 2 },
+            { x: -19.2, z: 12.3, angle: -1.40, arc: 1.92, guns: 2 },
+            { x: -13.3, z: -112.1, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: -95.6, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: -79.2, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: -46.2, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: -29.8, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: 19.6, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: 36.1, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: 52.5, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: -14.4, z: 69.0, angle: -1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: -95.6, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: -62.7, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: -46.2, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: -29.8, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: -13.3, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: 3.1, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: 19.6, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: 36.1, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: 52.5, angle: 1.50, arc: 1.92, guns: 2 },
+            { x: 14.4, z: 85.5, angle: 1.50, arc: 1.92, guns: 2 },
           ] },
       ],
     },

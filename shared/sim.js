@@ -531,6 +531,29 @@ export function gunLimits(battery) {
 const MANNED = new Set(['main', 'sec', 'aa', 'torp']);
 
 /**
+ * Her close-range mountings, flattened in the order everything else uses.
+ *
+ * `aaBattery` is a different list and always has been: it is what she can put
+ * up against an aeroplane, so it starts with her dual-purpose turrets and
+ * secondaries and only then gets to the light guns. That is right for working
+ * out flak and wrong for naming one mounting, and the two were being used
+ * interchangeably -- so a captain pressing the third Bofors on the hologram
+ * was handed a five-inch mounting on the other side of the ship, and the
+ * camera was put wherever that happened to be.
+ *
+ * This is the light battery alone, gun type by gun type and mounting by
+ * mounting, which is exactly the order the arsenal lists them in and exactly
+ * the order the model builds them in. One index, one mounting, everywhere.
+ */
+export function lightMounts(cls) {
+  const out = [];
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    for (const m of g.mounts) out.push(m);
+  }
+  return out;
+}
+
+/**
  * Pull the trigger on the gun somebody is standing at.
  *
  * Her main battery, her secondaries and her tubes fire on this and on nothing
@@ -564,7 +587,7 @@ export function manGun(ship, msg) {
   const list = k === 'main' ? ship.turrets
     : k === 'sec' ? ship.secMounts
       : k === 'torp' ? ship.torpMounts
-        : aaBattery(cls);
+        : lightMounts(cls);
   const i = Math.round(msg.i || 0);
   if (!list || i < 0 || i >= list.length) { ship.manned = null; return; }
   ship.manned = { k, i };
