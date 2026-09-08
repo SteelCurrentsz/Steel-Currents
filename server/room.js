@@ -215,7 +215,16 @@ export class Room {
       if (this.countdown <= 0) this.start();
       return;
     }
-    if (this.phase !== 'battle') return;
+    // The battle goes on being drawn after it is over.
+    //
+    // It used to stop dead: the world stopped stepping the moment the last
+    // ship of a side went, so the wrecks stopped burning, the smoke froze
+    // where it was, and twenty-five seconds later the room closed under the
+    // player whether he had finished looking or not. An action ends with
+    // ships on fire and going down and that is worth watching, so the sea
+    // keeps running -- only the guns are finished, and they are finished
+    // because there is nobody left to fire them.
+    if (this.phase !== 'battle' && this.phase !== 'ended') return;
 
     let steps = 0;
     this.accum = (this.accum || 0) + elapsed;
@@ -247,7 +256,12 @@ export class Room {
         roster: scoreboard(this.state),
       });
     }
-    if (this.phase === 'ended' && now - this.endedAt > 25000) this.close();
+    // And it closes when the last player has left it rather than on a timer.
+    // The way home is a key in the corner now, and a room that shuts itself
+    // takes the ship out from under somebody still watching her burn. The long
+    // stop is there so an abandoned room is not kept for ever.
+    if (this.phase === 'ended'
+      && (this.players.size === 0 || now - this.endedAt > 1800000)) this.close();
   }
 
   dispatchEvents(events) {

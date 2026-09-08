@@ -592,6 +592,24 @@ input[type="range"] { accent-color: var(--red); }
   border: 1px solid var(--panel-line); border-left: 2px solid rgba(230, 207, 156, 0.5);
   padding: 0.34rem 0.5rem 0.4rem; margin-bottom: 0.3rem;
   background: rgba(12, 24, 38, 0.6);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+/* A weapon you can press to see where it is on the ship. */
+.arms-row.clickable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.arms-row.clickable:hover { border-color: rgba(230, 207, 156, 0.55); }
+.arms-row.on {
+  border-color: var(--sand); border-left-color: var(--sand);
+  background: rgba(22, 40, 60, 0.75);
+}
+.arms-row:focus-visible { outline: 2px solid var(--sand); outline-offset: 1px; }
+/* The hologram it opens, standing under the row it belongs to. */
+.arms-board {
+  margin: 0 0 0.35rem; aspect-ratio: 16 / 9;
+  animation: armsIn 0.22s ease both;
+}
+@keyframes armsIn {
+  from { opacity: 0; transform: scaleY(0.7); transform-origin: top; }
+  to { opacity: 1; transform: none; }
 }
 .arms-name {
   font-size: 0.92rem; letter-spacing: 0.06em; color: var(--sand-bright);

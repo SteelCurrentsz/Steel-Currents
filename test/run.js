@@ -47,6 +47,7 @@ import { measureLines, halfBeamAt, fillTo, waterTop }
 import { Fittings } from '../client/js/render/pieces.js';
 import { Wreckage } from '../client/js/render/wreckage.js';
 import { Debris } from '../client/js/render/debris.js';
+import { drift } from '../client/js/render/effects.js';
 import { buildShip } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
@@ -8710,6 +8711,170 @@ check('a gun shoots between its own stops and nowhere else', () => {
   // refinement on the answer, not a new way for it to come out empty.
   assert.ok(aaBearing(cls, ship, 900, 0).barrels >= low.barrels,
     'a plot with no height on it lost her half her battery');
+});
+
+check('a fire nobody goes to finds something', () => {
+  // A fire aboard a warship is not a slow leak of hit points. It is in a
+  // compartment with ready-use ammunition in it, or paint, or a fuel line, and
+  // left alone it gets into one of them. Three minutes was the figure: long
+  // enough that a damage control party sent to it in time deals with it, short
+  // enough that ignoring a fire is a decision with a bill attached.
+  const world = generateWorld(3, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'cleveland', team: 1, index: 0 });
+  const foe = addShip(state, { name: 'F', classId: 'cleveland', team: 0, index: 0 });
+  foe.x = 40000; foe.z = 40000;          // out of it, so nothing else happens
+  for (const s of [v, foe]) { s.speed = 0; for (const t of s.turrets) t.disabled = 1e9; }
+  v.sections.works.fire = 0.8;
+
+  let cooked = null;
+  let at = 0;
+  for (let i = 0; i < 260 / DT && !cooked; i++) {
+    const evs = step(state, DT);
+    at += DT;
+    cooked = evs.find((e) => e.e === 'cook');
+  }
+  assert.ok(cooked, 'a fire burned for four minutes and never found anything');
+  assert.ok(at > 150 && at < 230,
+    `it went off after ${at.toFixed(0)} s, which is not three minutes`);
+  assert.equal(cooked.ship, v.id, 'the wrong ship cooked off');
+  assert.ok(cooked.at, 'the burst happened in no compartment in particular');
+
+  // It is not a magazine: she is still there, and she is not half gone.
+  assert.equal(v.alive, true, 'a paint locker sank a cruiser');
+  assert.ok(v.hp > v.maxHp * 0.5,
+    `she lost ${(100 - (v.hp / v.maxHp) * 100).toFixed(0)}% to one ready-use rack`);
+  // But it did something: a hole, and the fire knocked about.
+  const c = v.sections[cooked.at];
+  assert.ok(c.holeP + c.holeS > 0, 'it went off and opened nothing');
+  assert.ok(v.sections.works.fire > 0, 'the blast put every fire on the ship out');
+
+  // And a fire that is put out never gets there. The clock is on the fire, not
+  // on the ship.
+  const dry = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const w = addShip(dry, { name: 'W', classId: 'cleveland', team: 1, index: 0 });
+  const other = addShip(dry, { name: 'X', classId: 'cleveland', team: 0, index: 0 });
+  other.x = 40000; other.z = 40000;
+  for (const s of [w, other]) { s.speed = 0; for (const t of s.turrets) t.disabled = 1e9; }
+  let sparked = false;
+  for (let i = 0; i < 260 / DT; i++) {
+    w.sections.works.fire = 0;            // damage control, every tick
+    const evs = step(dry, DT);
+    if (evs.some((e) => e.e === 'cook')) sparked = true;
+  }
+  assert.equal(sparked, false, 'a ship that was never alight cooked off anyway');
+});
+
+check('the battle being over does not take the sea away', () => {
+  // An action ends with ships on fire and going down, and that is the part
+  // worth looking at. It used to stop dead: the world stopped stepping the
+  // moment the last ship of a side went, and the room shut itself twenty-five
+  // seconds later whether anybody had finished watching or not.
+  const room = readFileSync(new URL('../server/room.js', import.meta.url), 'utf8');
+  const gate = room.match(/if \(this\.phase !== 'battle'[^\n]*\n/);
+  assert.ok(gate, 'the tick has no phase gate at all');
+  assert.ok(/'ended'/.test(gate[0]),
+    'the world stops stepping the moment the battle is over');
+  const close = room.match(/if \(this\.phase === 'ended'[\s\S]{0,220}?close\(\);/);
+  assert.ok(close, 'nothing ever closes an ended room');
+  assert.ok(/players\.size === 0/.test(close[0]),
+    'an ended room still shuts itself on a timer under whoever is watching');
+
+  // And once it is over there is nothing left to conceal: every hull is on the
+  // plot, sunk or afloat, either side, so there is something to click on.
+  const st = createState(generateWorld(7, 'open_ocean'), { mode: 'deathmatch' });
+  const mine = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'B', classId: 'hipper', team: 1, index: 0 });
+  foe.x = mine.x + 30000; foe.z = mine.z;      // hull down, nobody has seen her
+  foe.spottedBy = [false, false];
+  const before = buildSnapshot(st, 0, mine.id, 0);
+  assert.equal(before.ships.some((s) => s.i === foe.id), false,
+    'an unsighted enemy is in the snapshot while the battle is still on');
+  foe.alive = false;
+  st.over = true;
+  const after = buildSnapshot(st, 0, mine.id, 0);
+  const seen = after.ships.find((s) => s.i === foe.id);
+  assert.ok(seen, 'the wreck of the enemy is not on the plot after the battle');
+  assert.equal(seen.a, 0, 'she is drawn as afloat');
+});
+
+check('the arsenal says what the gun will go through, and shows where it is', () => {
+  // Two things a gunnery officer needs off a weapon list and could not get:
+  // what it will penetrate, and which lumps of the ship in front of him it is.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise']) {
+    const rows = arsenal(SHIP_CLASSES[id]);
+    assert.ok(rows.length, `${id} carries nothing at all`);
+    for (const w of rows) {
+      if (w.band === 'Torpedo tubes' || w.band === 'Depth charges') {
+        assert.equal(w.pen, null, `${w.name} claims to pierce armour`);
+        continue;
+      }
+      assert.ok(w.pen > 0, `${w.name} on the ${id} has no penetration figure`);
+      // Sane: a gun goes through rather more than its own bore and rather
+      // less than ten times it.
+      assert.ok(w.pen < w.caliber * 4,
+        `${w.name} claims ${w.pen} mm out of a ${w.caliber} mm bore`);
+    }
+    // The main battery pierces more than the light guns do, which is the whole
+    // reason a ship carries one.
+    const main = rows.find((w) => w.band === 'Main battery');
+    const light = rows.find((w) => w.band === 'Light battery');
+    if (main && light) {
+      assert.ok(main.pen > light.pen,
+        `${id}'s Bofors go through as much as her main battery`);
+    }
+  }
+
+  // And every row a captain can press carries the mountings it is drawn from,
+  // each with a place on the ship to put a marker at.
+  const cls = SHIP_CLASSES.cleveland;
+  for (const w of arsenal(cls)) {
+    if (!w.specs) continue;
+    assert.ok(w.specs.length > 0, `${w.name} has no mountings to point at`);
+    for (const m of w.specs) {
+      assert.ok(Number.isFinite(m.z), `${w.name} has a mounting at no station`);
+      assert.ok(Number.isFinite(m.x ?? 0), `${w.name} has a mounting nowhere athwartships`);
+      assert.ok(Math.abs(m.z) <= cls.hull.length, `${w.name} has a mounting off the ship`);
+    }
+  }
+});
+
+check('smoke goes up and burning wreckage comes down', () => {
+  // The difference between a column and a mushroom. Everything in the air used
+  // to fall: right for a lump of burning steel, wrong for smoke, which is
+  // lighter than the air it is in and climbs for as long as it stays hot. Held
+  // down by gravity, a ship on fire wore a grey cap on her funnel instead of
+  // standing under the thousand-foot black column that is the one thing you
+  // can see of a burning ship from over the horizon.
+  const run = (p, seconds) => {
+    let y = 0;
+    let top = 0;
+    for (let i = 0; i < seconds * 30; i++) {
+      drift(p, 1 / 30);
+      y += p.vy / 30;
+      top = Math.max(top, y);
+    }
+    return { y, top };
+  };
+  // Oily smoke off a bad fire, twelve seconds of it.
+  const smoke = run({ vx: 0, vy: 19, vz: 0, drag: 0.1, lift: 3.7 }, 12);
+  assert.ok(smoke.y > 150,
+    `smoke off a burning ship rose ${smoke.y.toFixed(0)} m in twelve seconds`);
+  assert.ok(smoke.y >= smoke.top - 0.01, 'the smoke topped out and came back down');
+
+  // A burning fragment thrown out of a magazine: up, over, and down.
+  const ember = run({ vx: 0, vy: 40, vz: 0, drag: 0.2, lift: -6 }, 12);
+  assert.ok(ember.top > 20, `wreckage barely left the deck: ${ember.top.toFixed(0)} m`);
+  assert.ok(ember.y < ember.top - 5,
+    'wreckage thrown out of a magazine is still going up twelve seconds later');
+
+  // And the drag term never turns a velocity into something that is not a
+  // number, whatever it is handed: a sprite at NaN silently disappears.
+  for (const d of [0, 0.5, 1]) {
+    const p = drift({ vx: 3, vy: 3, vz: 3, drag: d, lift: 2 }, 1 / 30);
+    assert.ok(Number.isFinite(p.vx + p.vy + p.vz), `drag ${d} made a velocity NaN`);
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

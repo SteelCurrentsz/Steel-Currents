@@ -3233,6 +3233,54 @@ function startFire(state, ship, where = 'works', strength = 0.35) {
   if (was < 0.05) state.events.push({ e: 'fire', ship: ship.id, at: where });
 }
 
+/**
+ * How long a fire has to be left before it gets into something, in seconds.
+ */
+const COOK_OFF = 180;
+
+/**
+ * A fire that has been left alone for three minutes finds something.
+ *
+ * Not a magazine -- that is a shell among the charges and it ends the ship
+ * (see detonate). This is the ready-use racks beside a mounting, a paint
+ * store, a torpedo warhead in its tube: enough to blow a hole in her, wreck
+ * whatever was standing over it and knock the fire down for a moment by
+ * blowing it out, and not enough to sink her by itself. It is what a fire
+ * costs when nobody goes to it.
+ */
+function cookOff(state, ship, where) {
+  const cls = shipClass(ship);
+  const c = ship.sections[where];
+  if (!c) return;
+  // The clock goes back, but not to nothing: a compartment that has already
+  // cooked off once has less left in it to go off again.
+  c.burnt = COOK_OFF * 0.45;
+  damageShip(state, ship, null, cls.hp * 0.05, 'cook', where);
+  if (!ship.alive) return;
+  // A hole, above the waterline where the fire was rather than below it.
+  openHull(state, ship, where, 3 + state.rng() * 5,
+    state.rng() < 0.5 ? 1 : -1, -cls.hull.draft * 0.2);
+  // And whatever was standing over it. The burst is small, so it reaches
+  // about as far as a six-inch shell does.
+  const at = SECTIONS.find((q) => q.k === where);
+  const half = cls.hull.length / 2;
+  const z = at && at.from !== null
+    ? ((Math.max(-1, at.from) + Math.min(1, at.to)) / 2) * half : 0;
+  const hurt = nearestMount(ship, cls, { x: 0, y: freeboardOf(cls), z });
+  if (hurt && hurt.d <= burstReach('he', 0.2)) {
+    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 14 + state.rng() * 18);
+  }
+  // The blast knocks the fire down where it happened and throws it about
+  // everywhere else, which is what a burst in a burning compartment does.
+  c.fire = Math.max(0, c.fire - 0.35);
+  startFire(state, ship, 'works', 0.2);
+  ship.fires = burningCount(ship);
+  state.events.push({
+    e: 'cook', ship: ship.id, at: where,
+    x: r(ship.x), z: r(ship.z), cls: ship.classId,
+  });
+}
+
 /** How many of her compartments are alight. */
 function burningCount(ship) {
   let n = 0;
@@ -3392,7 +3440,11 @@ function stepFlooding(state, ship, dt) {
     // came in and the level never got there.
     if (c.fire > 0 && vol > 0) {
       const depth = Math.min(1, c.water / (vol * 0.12));
-      if (depth > 0.02) c.fire = Math.max(0, c.fire - dt * 1.1 * depth);
+      if (depth > 0.02) {
+        c.fire = Math.max(0, c.fire - dt * 1.1 * depth);
+        // Under water it is out, and the clock on it goes back to nought.
+        if (c.fire <= 0) c.burnt = 0;
+      }
     }
   }
 
@@ -3526,6 +3578,16 @@ function stepFires(state, ship, dt) {
     const fuel = Math.max(0.15, c.hp / c.max);
     c.fire = clamp(c.fire + (0.012 * fuel - 0.005) * dt, 0, 1);
     damageShip(state, ship, null, cls.hp * 0.0012 * c.fire * dt, 'fire', k);
+    // And how long it has been left to burn.
+    //
+    // A fire aboard a warship is not a slow leak of hit points. It is in a
+    // compartment with ready-use ammunition in it, or paint, or a fuel line,
+    // and if nobody puts it out then sooner or later it gets into one of them.
+    // Three minutes is the figure: long enough that a damage control party
+    // sent to it in time deals with it, short enough that ignoring a fire is
+    // a decision with a bill attached.
+    c.burnt += dt * clamp(c.fire * 1.4, 0, 1);
+    if (c.burnt >= COOK_OFF && c.fire > 0.25 && ship.alive) cookOff(state, ship, k);
     // Into the compartments either side of it, through the bulkhead. A big
     // fire gets through faster than a small one -- but it is a steel bulkhead,
     // and it takes minutes, not seconds. Set too fast, one hit put the whole
@@ -3691,6 +3753,10 @@ export function freshSections(maxHp) {
       // lives in a compartment, spreads to the ones next to it, and is put out
       // by the water coming in -- rather than a number of fires on a ship.
       fire: 0,
+      // And how long it has been burning, in seconds. A fire left alone does
+      // not simply go on burning: it gets into something that goes off. See
+      // stepFires.
+      burnt: 0,
       // What the sea is doing here this second, in cubic metres: positive
       // coming in through her plating, negative going out through her pumps.
       // Not state -- it is worked out from the holes and the head every tick

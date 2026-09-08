@@ -51,6 +51,15 @@ const ROLE_LABEL = {
 export function arsenal(cls) {
   const rows = [];
   const barrels = (mounts) => mounts.reduce((n, m) => n + (m.guns || 1), 0);
+  // What the gun will go through, in millimetres of belt armour at a fighting
+  // range. The armour-piercing round where there is one, because that is the
+  // round the figure is about: high explosive is fused to burst on the plate
+  // and its "penetration" is a sixth of the bore whatever the gun.
+  const pierce = (battery) => {
+    if (!battery || !battery.shells) return null;
+    const ap = battery.shells.ap || battery.shells.he;
+    return ap ? ap.pen : null;
+  };
   if (cls.gun) {
     rows.push({
       name: cls.gun.name || `${cls.gun.caliber} mm`,
@@ -60,6 +69,7 @@ export function arsenal(cls) {
       reload: cls.gun.reload,
       range: cls.gun.range,
       role: cls.gun.role || 'surface',
+      pen: pierce(cls.gun),
       band: 'Main battery',
       specs: cls.turrets,
     });
@@ -73,6 +83,7 @@ export function arsenal(cls) {
       reload: cls.secondary.reload,
       range: cls.secondary.range,
       role: cls.secondary.role || 'dp',
+      pen: pierce(cls.secondary),
       band: 'Secondary battery',
       specs: cls.secondary.mounts,
     });
@@ -86,6 +97,10 @@ export function arsenal(cls) {
       reload: g.reload,
       range: g.range,
       role: g.role || 'aa',
+      // An automatic gun has no shell table of its own: what a 40 mm will go
+      // through is what any shell of that bore fused to burst on the plate
+      // will, which is about a sixth of it.
+      pen: Math.round(g.caliber / 6),
       band: 'Light battery',
       specs: g.mounts,
     });
@@ -100,6 +115,10 @@ export function arsenal(cls) {
       reload: T.reload,
       range: T.range,
       role: T.role || 'surface',
+      // A torpedo does not go through armour. It goes off against her side
+      // under the belt and opens thirty square metres of her to the sea, so
+      // there is no penetration figure to give.
+      pen: null,
       band: 'Torpedo tubes',
       specs: T.mounts.map((m) => ({ ...m, guns: m.tubes })),
       // Tubes have a second thing in their way besides their own training
@@ -117,6 +136,9 @@ export function arsenal(cls) {
       reload: null,
       range: null,
       role: D.role || 'sub',
+      // A depth charge does not pierce anything. It goes off under a boat and
+      // crushes her, which is a different question entirely.
+      pen: null,
       band: 'Depth charges',
       note: `${D.racks} racks, ${D.throwers} throwers, ${D.carried} carried`,
     });
@@ -893,6 +915,7 @@ export class Hud {
       if (w.range != null) {
         stats.push(['Range', `${Math.round(w.range * M_TO_YARDS).toLocaleString()} yd`]);
       }
+      if (w.pen != null) stats.push(['Penetration', `${w.pen} mm`]);
       stats.push(['Target', ROLE_LABEL[w.role] || w.role]);
       row.innerHTML = `<div class="arms-name">${w.name}</div>`
         + `<div class="arms-sub">${w.note || mounts}</div>`
@@ -900,10 +923,58 @@ export class Hud {
           .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
         + (w.specs ? '<div class="arms-bear"></div>' : '');
       list.appendChild(row);
-      this.armsRows.push({ w, el: row.querySelector('.arms-bear') });
+      const entry = { w, el: row.querySelector('.arms-bear'), row };
+      this.armsRows.push(entry);
+      // Press it and she appears underneath with that battery lit up on her.
+      //
+      // A list of guns tells you what she carries and not where any of it is,
+      // and "eight 5 inch in four sponsons" means nothing until you have seen
+      // which four lumps of the ship they are. Press it again and she goes
+      // away, because the list is what the panel is for.
+      if (w.specs) {
+        row.classList.add('clickable');
+        row.tabIndex = 0;
+        const show = () => this.showArsenalShip(entry);
+        row.addEventListener('click', show);
+        row.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
+        });
+      }
     }
     this.el.connBody.appendChild(list);
+    this.armsList = list;
   }
+
+  /**
+   * Show the ship under the weapon that was pressed, with it lit up on her.
+   *
+   * One hologram, moved from row to row rather than one per battery: it
+   * carries a renderer and a whole ship model, and there is no reason to have
+   * five of them when only one can be looked at.
+   */
+  showArsenalShip(entry) {
+    const open = this.armsShown === entry;
+    if (this.armsWrap && this.armsWrap.parentNode) {
+      this.armsWrap.parentNode.removeChild(this.armsWrap);
+    }
+    for (const r of this.armsRows) r.row.classList.toggle('on', false);
+    this.armsShown = open ? null : entry;
+    if (open) return;
+    entry.row.classList.add('on');
+    if (!this.armsWrap) {
+      this.armsWrap = document.createElement('div');
+      this.armsWrap.className = 'board-wrap arms-board';
+      const cv = document.createElement('canvas');
+      cv.className = 'board-canvas';
+      this.armsWrap.appendChild(cv);
+      this.armsCanvas = cv;
+    }
+    entry.row.insertAdjacentElement('afterend', this.armsWrap);
+    this.onArms?.(this.armsCanvas, entry.w.specs);
+  }
+
+  /** Say who builds the arsenal hologram, so the HUD need not import one. */
+  onArsenalBoard(fn) { this.onArms = fn; }
 
   /**
    * How much of each battery can be laid on where she is aiming.

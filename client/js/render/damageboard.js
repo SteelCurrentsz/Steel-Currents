@@ -40,7 +40,15 @@ const STATIONS = 64;
 const LEVELS = 12;
 
 export class DamageBoard {
-  constructor(canvas, classId) {
+  /**
+   * `plain` builds the hologram and nothing else: her shape, turnable, with
+   * no water, no fires and no flow on her. That is what the arsenal panel
+   * wants -- a ship to point at, not a damage board -- and it is the same
+   * hull, the same lighting and the same drag-to-turn, so the two panels look
+   * like two views of one ship rather than two different toys.
+   */
+  constructor(canvas, classId, { plain = false } = {}) {
+    this.plain = plain;
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setClearColor(0x000000, 0);
@@ -237,9 +245,20 @@ export class DamageBoard {
       this.rig.add(bh);
     }
 
+    // A plain hologram stops here: the rest of this is damage, and the
+    // arsenal panel is not about damage.
+    this.water = {};
+    this.fires = {};
+    this.flow = {};
+    if (this.plain) {
+      this.mounts = new THREE.Group();
+      this.rig.add(this.mounts);
+      this.frame(this.len);
+      return;
+    }
+
     // The sea in her: one body per compartment, cut to the inside of the ship
     // at that station, standing in the bottom of her and rising as she floods.
-    this.water = {};
     for (const sec of SECTIONS) {
       if (sec.from === null) continue;
       const { z0, z1 } = this.parts[sec.k];
@@ -347,6 +366,48 @@ export class DamageBoard {
   /** Stand off far enough to see the whole of her. */
   frame(len) {
     this.dist = len * 1.15;
+  }
+
+  /**
+   * Light up one battery on her, where it actually stands.
+   *
+   * `specs` are the mountings out of her datasheet -- the same numbers the
+   * guns are laid and fired from -- so a captain pressing a weapon in the
+   * arsenal sees which lumps of the ship in front of him are that weapon.
+   * A ring on the deck at each mounting and a spike out of it, because a
+   * marker flat on the deck is invisible from anywhere but straight above.
+   */
+  markMounts(specs) {
+    if (!this.mounts) return;
+    for (const o of [...this.mounts.children]) {
+      this.mounts.remove(o);
+      o.geometry?.dispose?.();
+    }
+    if (!specs || !specs.length) return;
+    const r = Math.max(1.4, this.beam * 0.1);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffc36a, transparent: true, opacity: 0.95, depthTest: false,
+    });
+    const halo = new THREE.MeshBasicMaterial({
+      color: 0xffc36a, transparent: true, opacity: 0.34,
+      side: THREE.DoubleSide, depthTest: false,
+    });
+    for (const m of specs) {
+      const x = m.x || 0;
+      const y = m.my != null ? m.my : this.deck;
+      const z = m.z || 0;
+      const pin = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat);
+      pin.position.set(x, y, z);
+      pin.renderOrder = 6;
+      this.mounts.add(pin);
+      // The ring it stands in, laid flat on her deck under it, so the eye is
+      // taken to the place on the ship rather than to a dot in the air.
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 1.6, r * 2.4, 20), halo);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, y - r * 0.6, z);
+      ring.renderOrder = 6;
+      this.mounts.add(ring);
+    }
   }
 
   /**
@@ -474,9 +535,15 @@ export class DamageBoard {
     if (!this.held) this.spin += dt * 0.24;
     this.rig.rotation.y = this.spin;
     this.rig.rotation.x = this.tilt;
-    this.setCondition(sec);
-    this.stepFires(dt);
-    this.stepFlow();
+    if (this.plain) {
+      // The markers breathe, so the eye finds them on a ship drawn in wire.
+      const pulse = 0.72 + Math.sin(this.time * 3.4) * 0.24;
+      for (const o of this.mounts.children) o.material.opacity = pulse * (o.geometry.type === 'RingGeometry' ? 0.45 : 1);
+    } else {
+      this.setCondition(sec);
+      this.stepFires(dt);
+      this.stepFlow();
+    }
     const w = this.canvas.clientWidth || 300;
     const h = this.canvas.clientHeight || 160;
     if (this.canvas.width !== w || this.canvas.height !== h) {

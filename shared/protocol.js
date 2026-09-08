@@ -134,8 +134,13 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   // her -- and a captain looking at a ship through his own periscope of a
   // camera is entitled to see her.
   const contacts = [];
+  // Once the action is over there is nothing left to conceal. Every hull comes
+  // through in full, sunk or afloat, either side: the guns are finished and
+  // what is left is a sea with wrecks burning on it, which is the one thing
+  // everybody wants to look at and used to be the one thing the wire dropped.
+  const ended = !!state.over;
   for (const s of state.ships) {
-    const friendly = s.team === team;
+    const friendly = s.team === team || ended;
     const watched = s.id === watchId;
     if (!s.alive && !friendly && !watched) continue;
     if (!friendly && !watched && !s.spottedBy[team]) {

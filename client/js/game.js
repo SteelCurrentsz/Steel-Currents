@@ -96,6 +96,13 @@ export class Battle {
       this.board = new DamageBoard(canvas, classId);
       for (const h of this.holes) this.board.hole(h[0], h[1], h[2]);
     });
+    // And the arsenal's own hologram: the same hull with no damage on it, and
+    // the battery that was pressed lit up where it stands on her.
+    this.hud.onArsenalBoard?.((canvas, specs) => {
+      if (!this.armsBoard) this.armsBoard = new DamageBoard(canvas, classId, { plain: true });
+      this.armsBoard.build(this.shownShip()?.c || classId);
+      this.armsBoard.markMounts(specs);
+    });
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
     this.holes = [];
@@ -438,7 +445,15 @@ export class Battle {
           }
           break;
         case 'sink': {
-          fx.explosion(ev.x, 6, ev.z, 3);
+          // A ship going down goes up. Her fuel, her ready-use ammunition and
+          // whatever is left in her magazines all go at once as the sea gets
+          // to them, and what is left over her is the same boiling column a
+          // magazine leaves -- smaller, because it is the end of a ship rather
+          // than the middle of one.
+          fx.magazine(ev.x, 5, ev.z, 0.62);
+          this.scene.debris.burst(ev.x, 10, ev.z, 7, 1);
+          fx.splash(ev.x, ev.z, 700);
+          audio.explosion(2.4, 0);
           const victim = this.names.get(ev.ship) || 'A ship';
           const killer = this.names.get(ev.by) || 'Someone';
           const vTeam = this.entities.get(ev.ship)?.team ?? 1;
@@ -477,6 +492,31 @@ export class Battle {
           const who = this.names.get(ev.ship) || 'A ship';
           this.hud.alert(ev.ship === this.shipId
             ? 'Magazine detonation' : `${who}: magazine`);
+          break;
+        }
+        case 'cook': {
+          // A fire nobody went to has found something. Not a magazine -- the
+          // ship is still there afterwards -- but it takes the deck out where
+          // it happened and throws the fire about.
+          const view = this.scene.shipViews.get(ev.ship);
+          const cls = getClass(ev.cls);
+          let wx = ev.x, wy = 10, wz = ev.z;
+          if (view) {
+            const sec = SECTIONS.find((q) => q.k === ev.at);
+            const half = cls.hull.length / 2;
+            const lz = sec && sec.from !== null
+              ? ((Math.max(-1, sec.from) + Math.min(1, sec.to)) / 2) * half : 0;
+            view.group.updateMatrixWorld(true);
+            const q = new THREE.Vector3(0, 8, lz);
+            view.group.localToWorld(q);
+            wx = q.x; wy = q.y; wz = q.z;
+            view.punch(wx, wy, wz, holeRadius('he', 200), 0.4, 1.4);
+          }
+          fx.explosion(wx, wy + 2, wz, 2.2);
+          this.scene.debris.burst(wx, wy + 3, wz, 4.5, 0.8);
+          audio.explosion(1.7, this.distanceFade(wx, wz));
+          this.shake = Math.max(this.shake, ev.ship === this.shipId ? 0.9 : 0.35);
+          if (ev.ship === this.shipId) this.hud.alert('Fire reached the ready-use');
           break;
         }
         case 'ram': fx.explosion(ev.x, 4, ev.z, 1.2); break;
@@ -1487,6 +1527,9 @@ export class Battle {
     this.hud.update(shown, snap);
     this.hud.setTarget(readTarget(shown, snap, ls));
     // The board only turns while it is being looked at.
+    if (this.armsBoard && this.hud.panel === 'arms' && this.hud.armsShown) {
+      this.armsBoard.update(null, dt);
+    }
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);
       this.board.setWater(shown?.wt);
@@ -1658,6 +1701,13 @@ export class Battle {
             const up = sec.from === null ? 20 : 9;
             this.scene.effects.fire(x + Math.sin(h) * off + (Math.random() - 0.5) * 6,
               up, z + Math.cos(h) * off + (Math.random() - 0.5) * 6, heat);
+            // And the flame itself, which is geometry rather than a picture:
+            // it stands on her deck over the compartment that is alight and
+            // stays where it is when the camera walks round her.
+            this.scene.flames.at(`${s.i}:${i}`,
+              x + Math.sin(h) * ((mid) * l * 0.5), up - 1,
+              z + Math.cos(h) * ((mid) * l * 0.5),
+              heat, Math.max(6, spread * l));
             // And it blackens what is standing in it. Slowly, and for as long
             // as it burns, so a compartment that has been alight for two
             // minutes leaves the ship black there when it is out -- and it
@@ -1693,6 +1743,7 @@ export class Battle {
           view.smokeTimer = 0.4 + Math.random() * 0.5;
           const off = (Math.random() - 0.5) * view.span * 0.6;
           this.scene.effects.fire(g.x + off, g.y + 4, g.z + (Math.random() - 0.5) * view.span * 0.6);
+          this.scene.flames.at(`bat:${g.i}`, g.x, g.y + 2, g.z, 0.6, view.span * 0.5);
         }
       }
     }

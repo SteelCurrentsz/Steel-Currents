@@ -18,7 +18,85 @@ function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255
   return new THREE.CanvasTexture(c);
 }
 
-const POOL_SIZE = 320;
+/**
+ * A puff with lumps in it.
+ *
+ * Smoke and fireballs are not soft round blobs, and a hundred soft round blobs
+ * do not add up to one either -- they add up to fog, which is what every
+ * explosion in this game used to look like. What a burning ship and a
+ * detonating magazine have in common is the cauliflower: a mass of rounded
+ * lobes, each one lit on the side the fire is on and dark on the other, packed
+ * together with hard edges between them.
+ *
+ * So the sprite carries the lobes rather than the drift. One texture, drawn
+ * once: a dozen overlapping circles inside the disc, each with its own soft
+ * falloff, the whole thing masked back to a circle so it still fades at the
+ * rim instead of ending on a square edge.
+ */
+function billowTexture(inner = 'rgba(255,255,255,0.95)') {
+  const size = 128;
+  const half = size / 2;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // A deterministic scatter, so every client draws the same smoke.
+  let seed = 20240617;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const lobe = (cx, cy, r, a) => {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, inner.replace(/[\d.]+\)$/, `${a})`));
+    g.addColorStop(0.55, inner.replace(/[\d.]+\)$/, `${a * 0.72})`));
+    g.addColorStop(1, inner.replace(/[\d.]+\)$/, '0)'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  lobe(half, half, half * 0.9, 0.55);
+  for (let i = 0; i < 14; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = Math.sqrt(rnd()) * half * 0.46;
+    lobe(half + Math.cos(a) * d, half + Math.sin(a) * d,
+      half * (0.2 + rnd() * 0.28), 0.4 + rnd() * 0.45);
+  }
+  // Back to a disc: a square-edged puff reads as a card, and a hundred cards
+  // read as a wall.
+  ctx.globalCompositeOperation = 'destination-in';
+  const mask = ctx.createRadialGradient(half, half, half * 0.42, half, half, half);
+  mask.addColorStop(0, 'rgba(0,0,0,1)');
+  mask.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = mask;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(c);
+}
+
+// Room for a magazine going up over a burning sea. A detonation alone puts a
+// hundred and sixty lumps of fire into the air, and it has to do it without
+// stealing every puff of smoke off the ships already alight.
+/**
+ * What the air does to one puff in one tick.
+ *
+ * Pulled out on its own because it is the whole difference between a column
+ * and a mushroom, and it is worth being able to check without a renderer.
+ *
+ * Everything used to fall. That is right for a lump of burning debris and
+ * wrong for smoke: hot smoke is lighter than the air it is in and it goes on
+ * climbing for as long as it stays hot, which is most of a minute. Pulled down
+ * by gravity instead, a burning ship had a grey mushroom sitting on her
+ * funnel rather than a column standing a thousand feet over her.
+ */
+export function drift(p, dt) {
+  const drag = Math.pow(1 - p.drag, dt);
+  p.vx *= drag;
+  p.vz *= drag;
+  p.vy = p.vy * drag + p.lift * dt;
+  return p;
+}
+
+const POOL_SIZE = 900;
 
 export class Effects {
   constructor(scene, intensity = 1) {
@@ -26,6 +104,9 @@ export class Effects {
     this.intensity = intensity;
     this.puffTex = softTexture('rgba(255,255,255,0.9)');
     this.glowTex = softTexture('rgba(255,236,190,1)');
+    // The lumpy ones, for anything that is meant to boil rather than drift.
+    this.billowTex = billowTexture('rgba(255,255,255,0.95)');
+    this.emberTex = billowTexture('rgba(255,240,205,1)');
 
     this.smokeMat = new THREE.SpriteMaterial({ map: this.puffTex, transparent: true, depthWrite: false, opacity: 0.8 });
     this.glowMat = new THREE.SpriteMaterial({ map: this.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -70,14 +151,33 @@ export class Effects {
       // raises a negative base to a fractional power. That is NaN, and a
       // sprite with a NaN position is one that silently disappears.
       drag: Math.min(1, Math.max(0, opts.drag ?? 0.6)),
+      // What the air does to it: -6 for anything with weight, positive for
+      // smoke, which is buoyant for as long as it is hot.
+      lift: opts.lift ?? -6,
     };
     s.position.set(opts.x, opts.y, opts.z);
     s.scale.setScalar(p.size);
-    s.material.map = opts.glow ? this.glowTex : this.puffTex;
+    s.material.map = opts.billow
+      ? (opts.glow ? this.emberTex : this.billowTex)
+      : (opts.glow ? this.glowTex : this.puffTex);
     s.material.blending = opts.glow ? THREE.AdditiveBlending : THREE.NormalBlending;
+    // Every puff hangs at its own angle and turns as it rises. Sprites all
+    // sharing one rotation is the tell that a cloud is a handful of copies of
+    // one picture, and it is the first thing the eye picks up.
+    s.material.rotation = opts.spin0 ?? Math.random() * Math.PI * 2;
+    p.spin = opts.spin ?? (Math.random() - 0.5) * 0.5;
     s.material.color.set(opts.color ?? 0xffffff);
     s.material.opacity = opts.opacity ?? 0.85;
     p.opacity0 = s.material.opacity;
+    // A colour to cool towards, if it is something burning rather than
+    // something drifting.
+    if (opts.cool != null) {
+      p.cool = true;
+      const a = s.material.color;
+      p.r0 = a.r; p.g0 = a.g; p.b0 = a.b;
+      const b = new THREE.Color(opts.cool);
+      p.r1 = b.r; p.g1 = b.g; p.b1 = b.b;
+    }
     this.active.push(p);
     return p;
   }
@@ -196,8 +296,8 @@ export class Effects {
     this.spawn({
       x, y, z,
       vx: (Math.random() - 0.5) * 5, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 5,
-      size: 5, grow: 13, ttl: 2.4 + Math.random() * 1.6,
-      drag: 0.5, color: 0x2f3339, opacity: 0.7,
+      size: 5, grow: 13, ttl: 5 + Math.random() * 3.5,
+      drag: 0.3, lift: 1.6, billow: true, color: 0x22252a, opacity: 0.7,
     });
     if (fire > 0 && Math.random() < 0.5) {
       this.spawn({
@@ -303,22 +403,30 @@ export class Effects {
    * ten miles off, long before you can see the ship.
    */
   fire(x, y, z, heat = 0.5) {
+    // A ship on fire is a black column, not an orange glow.
+    //
+    // What you see of a fuel fire from any distance at all is the smoke: an
+    // oily, near-black, boiling column that leaves the flame in a narrow neck
+    // and doubles its width every few seconds as it climbs, lit from below and
+    // black everywhere else. The flame itself is small, low, and almost all of
+    // it is at the bottom -- and it is where the light comes from.
     const h = Math.max(0.12, Math.min(1, heat));
-    // The core: short-lived, bright, and low down where the fuel is.
+    // The seat of it: bright, low, and short-lived, sitting in the fuel.
     this.spawn({
-      x: x + (Math.random() - 0.5) * 6 * h, y: y + 2,
-      z: z + (Math.random() - 0.5) * 6 * h,
-      vy: 7 + Math.random() * 6 * h, size: 4 + 7 * h, grow: 9 + 10 * h,
-      ttl: 0.75 + 0.5 * h, glow: true,
-      color: h > 0.6 ? 0xfff0b0 : 0xffb347, opacity: 0.95,
+      x: x + (Math.random() - 0.5) * 5 * h, y: y + 1.5,
+      z: z + (Math.random() - 0.5) * 5 * h,
+      vy: 6 + Math.random() * 5 * h, size: 3.5 + 6 * h, grow: 7 + 8 * h,
+      ttl: 0.6 + 0.4 * h, glow: true, billow: true,
+      color: h > 0.6 ? 0xfff2c8 : 0xffc061, cool: 0xd8451c, opacity: 0.95,
     });
-    // Flame rolling off the top of it, which is where the colour is.
+    // Flame rolling off the top of the seat, where the colour is.
     this.spawn({
-      x: x + (Math.random() - 0.5) * 8 * h, y: y + 6 + 5 * h,
-      z: z + (Math.random() - 0.5) * 8 * h,
-      vy: 10 + 8 * h, vx: (Math.random() - 0.5) * 4, vz: (Math.random() - 0.5) * 4,
-      size: 7 + 10 * h, grow: 16 + 14 * h, ttl: 1.1 + 0.8 * h, glow: true,
-      color: 0xd8451c, opacity: 0.5 + 0.35 * h,
+      x: x + (Math.random() - 0.5) * 7 * h, y: y + 5 + 4 * h,
+      z: z + (Math.random() - 0.5) * 7 * h,
+      vy: 9 + 7 * h, vx: (Math.random() - 0.5) * 3, vz: (Math.random() - 0.5) * 3,
+      size: 6 + 8 * h, grow: 13 + 12 * h, ttl: 0.9 + 0.7 * h,
+      glow: true, billow: true,
+      color: 0xff7a24, cool: 0x2a1a12, opacity: 0.55 + 0.3 * h,
     });
     // Embers, on the draught the fire makes itself.
     if (Math.random() < h) {
@@ -328,17 +436,30 @@ export class Effects {
         vy: 16 + Math.random() * 18, vx: (Math.random() - 0.5) * 9,
         vz: (Math.random() - 0.5) * 9,
         size: 1.1, grow: 0.4, ttl: 1.4 + Math.random(), glow: true,
-        color: 0xffbe5e, opacity: 0.9,
+        color: 0xffbe5e, cool: 0x30231a, opacity: 0.9,
       });
     }
-    // And the smoke, which is the part you see from over the horizon: oily
-    // and black over a bad fire, thin and grey over a small one.
-    this.spawn({
-      x, y: y + 9, z,
-      vy: 9 + 7 * h, vx: (Math.random() - 0.5) * 7, vz: (Math.random() - 0.5) * 7,
-      size: 10 + 12 * h, grow: 22 + 30 * h, ttl: 2.6 + 2.4 * h,
-      color: h > 0.5 ? 0x141618 : 0x3a4046, opacity: 0.35 + 0.35 * h,
-    });
+    // And the column. Two puffs a call rather than one, started narrow right
+    // over the flame and given a long life and a lot of growth, so what builds
+    // up over a burning ship is a tall boiling stack rather than a haze that
+    // has blown away by the time the next one is spawned.
+    for (let i = 0; i < 2; i++) {
+      const up = i * 0.5 + Math.random() * 0.5;
+      this.spawn({
+        x: x + (Math.random() - 0.5) * (3 + up * 10) * h,
+        y: y + 8 + up * 22 * h,
+        z: z + (Math.random() - 0.5) * (3 + up * 10) * h,
+        vy: 11 + 9 * h, vx: (Math.random() - 0.5) * 4, vz: (Math.random() - 0.5) * 4,
+        size: (5 + 7 * h) * (1 + up), grow: 13 + 22 * h,
+        ttl: 11 + 13 * h, drag: 0.1, billow: true, lift: 1.6 + 2.2 * h,
+        // Oily black over a bad fire, grey over a small one; and it darkens
+        // further as it rises and cools, which is why the top of a column is
+        // blacker than the bottom.
+        color: h > 0.5 ? 0x17181a : 0x3c4247,
+        cool: h > 0.5 ? 0x0a0b0c : 0x23272b,
+        opacity: 0.55 + 0.4 * h,
+      });
+    }
   }
 
   funnelSmoke(x, y, z, load) {
@@ -358,42 +479,83 @@ export class Effects {
    * bottom is almost incidental, and it is over in a second.
    */
   magazine(x, y, z, scale = 1) {
-    this.flash(x, y + 10, z, 4 * scale);
-    // The heart of it: burning cordite thrown straight up.
-    for (let i = 0; i < 14; i++) {
+    // Not a bigger explosion. What everybody who has seen one describes is the
+    // shape: a wall of fire that boils outwards faster than it climbs, made of
+    // hundreds of separate rounded lobes each lit from inside, white in the
+    // middle and going orange and then black at the edges -- and the whole of
+    // it throwing burning wreckage out on long flat trails that outrun it.
+    //
+    // So it is built as a boiling mass rather than a puff: a fireball of
+    // lobes thrown out on a sphere, the ones low down held down by the sea so
+    // it spreads along the water the way it really does, the streaks laid over
+    // it, and the column going up out of the middle afterwards.
+    const s = scale;
+    this.flash(x, y + 14 * s, z, 6 * s);
+    // The fireball. Thrown outwards on a sphere flattened by the sea, because
+    // the water will not let it expand downwards and it goes sideways instead.
+    const N = Math.round(96 * Math.min(1.4, this.intensity));
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const up = Math.random();
+      // Squashed: mostly out, a little up.
+      const out = 26 + Math.random() * 74;
+      const rise = up * up * 46;
+      const heat = 1 - Math.min(1, (out / 100) * 0.7 + Math.random() * 0.3);
       this.spawn({
-        x: x + (Math.random() - 0.5) * 18 * scale,
-        y: y + 4 + Math.random() * 14 * scale,
-        z: z + (Math.random() - 0.5) * 18 * scale,
-        vy: 26 + Math.random() * 44, vx: (Math.random() - 0.5) * 14,
-        vz: (Math.random() - 0.5) * 14,
-        size: 16 * scale, grow: 34 * scale, ttl: 0.9 + Math.random() * 0.8,
-        glow: true, color: i % 3 ? 0xffb43c : 0xff5a1e, opacity: 1, drag: 0.32,
+        x: x + Math.cos(a) * out * 0.5 * s,
+        y: y + 4 + rise * 0.5 * s,
+        z: z + Math.sin(a) * out * 0.5 * s,
+        vx: Math.cos(a) * (18 + Math.random() * 30) * s,
+        vy: 5 + rise * 0.5 + Math.random() * 12,
+        vz: Math.sin(a) * (18 + Math.random() * 30) * s,
+        size: (13 + Math.random() * 17) * s,
+        grow: (22 + Math.random() * 28) * s,
+        ttl: 1.5 + Math.random() * 2.4,
+        billow: true, glow: true, drag: 0.5, lift: -2,
+        // White-hot in the middle of it, orange at the edge, and every one of
+        // them cooling to soot as it goes.
+        color: heat > 0.62 ? 0xfff6e2 : heat > 0.3 ? 0xffc069 : 0xff7a22,
+        cool: 0x241d18, opacity: 0.72,
       });
     }
-    // And the column standing over her, which is the part that is remembered.
-    for (let i = 0; i < 26; i++) {
-      const up = i / 26;
+    // The burning wreckage going out on flat trails, which is what gives the
+    // thing its size: they leave the fireball behind and are still going.
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const flat = 0.25 + Math.random() * 0.9;
       this.spawn({
-        x: x + (Math.random() - 0.5) * (26 + up * 60) * scale,
-        y: y + 8 + up * 210 * scale,
-        z: z + (Math.random() - 0.5) * (26 + up * 60) * scale,
-        vy: 16 + (1 - up) * 26, vx: (Math.random() - 0.5) * 9,
-        vz: (Math.random() - 0.5) * 9,
-        size: (26 + up * 46) * scale, grow: 30 * scale,
-        ttl: 13 + up * 12, drag: 0.22,
-        color: up < 0.35 ? 0x1b1a19 : 0x3a3733,
-        opacity: 0.86 - up * 0.28,
+        x, y: y + 6 * s, z,
+        vx: Math.cos(a) * (120 + Math.random() * 190) * s,
+        vy: (40 + Math.random() * 130) * flat,
+        vz: Math.sin(a) * (120 + Math.random() * 190) * s,
+        size: 4 * s, grow: 5 * s, ttl: 2.4 + Math.random() * 2.2,
+        glow: true, drag: 0.06, color: 0xffd07a, cool: 0x3a2a1e, opacity: 1,
       });
     }
-    // The smoke standing on the water round her, from everything that came
-    // down again.
-    for (let i = 0; i < 8; i++) {
+    // And the column, standing over the place afterwards. It goes up out of
+    // the middle of the fireball and keeps going long after the fire is out,
+    // which is the part you see from the other end of the map.
+    for (let i = 0; i < 34; i++) {
+      const up = i / 34;
       this.spawn({
-        x: x + (Math.random() - 0.5) * 150 * scale, y: 5 + Math.random() * 16,
-        z: z + (Math.random() - 0.5) * 150 * scale,
-        vy: 2.5, size: 40 * scale, grow: 30, ttl: 16, drag: 0.25,
-        color: 0x2a2724, opacity: 0.6,
+        x: x + (Math.random() - 0.5) * (30 + up * 90) * s,
+        y: y + 10 + up * 230 * s,
+        z: z + (Math.random() - 0.5) * (30 + up * 90) * s,
+        vy: 20 + (1 - up) * 30, vx: (Math.random() - 0.5) * 10,
+        vz: (Math.random() - 0.5) * 10,
+        size: (30 + up * 54) * s, grow: 34 * s,
+        ttl: 22 + up * 18, drag: 0.12, billow: true, lift: 3.4,
+        color: up < 0.3 ? 0x151312 : 0x2c2724,
+        opacity: 0.9 - up * 0.25,
+      });
+    }
+    // Smoke lying on the water round her, from everything that came down.
+    for (let i = 0; i < 10; i++) {
+      this.spawn({
+        x: x + (Math.random() - 0.5) * 180 * s, y: 5 + Math.random() * 18,
+        z: z + (Math.random() - 0.5) * 180 * s,
+        vy: 3, size: 46 * s, grow: 34, ttl: 22, drag: 0.25, billow: true, lift: 0.8,
+        color: 0x231f1c, opacity: 0.62,
       });
     }
   }
@@ -419,14 +581,26 @@ export class Effects {
         this.active.splice(i, 1);
         continue;
       }
-      const drag = Math.pow(1 - p.drag, dt);
-      p.vx *= drag; p.vz *= drag;
-      p.vy = p.vy * drag - 6 * dt;
+      drift(p, dt);
       p.sprite.position.x += p.vx * dt;
       p.sprite.position.y = Math.max(0.5, p.sprite.position.y + p.vy * dt);
       p.sprite.position.z += p.vz * dt;
       p.sprite.scale.setScalar(p.size + p.grow * p.life);
-      p.sprite.material.opacity = p.opacity0 * (1 - k * k);
+      p.sprite.material.rotation += p.spin * dt;
+      // How it goes out. A puff of smoke thins evenly; a lump of burning fuel
+      // is at its brightest immediately and cools through orange to black,
+      // which is the whole difference between a fireball and a fog bank.
+      if (p.cool) {
+        const c = p.sprite.material.color;
+        c.setRGB(
+          p.r0 + (p.r1 - p.r0) * k,
+          p.g0 + (p.g1 - p.g0) * k,
+          p.b0 + (p.b1 - p.b0) * k,
+        );
+        p.sprite.material.opacity = p.opacity0 * Math.min(1, (1 - k) * 2.2);
+      } else {
+        p.sprite.material.opacity = p.opacity0 * (1 - k * k);
+      }
     }
     for (const l of this.lights) {
       if (l.life > 0) {

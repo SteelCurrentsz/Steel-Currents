@@ -6,6 +6,7 @@ import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
+import { Flames } from './flames.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
@@ -1326,6 +1327,8 @@ export class BattleScene {
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
+    // Flame is geometry, not a billboard: see flames.js.
+    this.flames = new Flames(this.scene, q.particles);
     this.weather = new Weather(this.scene, wx, { count: Math.round(9000 * q.particles) });
 
     this.camera = new THREE.PerspectiveCamera(58, 1, 2, q.drawDistance);
@@ -1488,6 +1491,7 @@ export class BattleScene {
     if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
     this.effects.update(dt);
+    this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);
     this.flak.update(dt);
