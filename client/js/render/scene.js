@@ -740,6 +740,10 @@ export class ShipView {
     aft.position.z = zc;
     for (const child of [...this.group.children]) {
       if (child === this.marker) continue;
+      // A batch that spans the whole of her belongs to neither half -- see
+      // Rims in plating.js -- so it stops being drawn rather than jumping to
+      // one end of her.
+      if (child.userData.noSplit) { child.visible = false; continue; }
       // Which side of the break it is on, by where it actually sits.
       let z = child.position.z;
       if (child.isMesh && child.geometry) {

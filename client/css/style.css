@@ -684,11 +684,28 @@ input[type="range"] { accent-color: var(--red); }
 /* A panel over the sea, not a curtain over the screen: the plot, the conn keys
    and the camera all stay live under it, because the battle goes on. */
 .sink-overlay {
-  position: absolute; left: 50%; top: 8vh; transform: translateX(-50%);
-  display: none; flex-direction: column; align-items: center; gap: 0.5rem;
-  padding: 0.9rem 1.6rem; max-width: min(90vw, 30rem);
+  position: absolute; left: 50%; top: max(3.4vh, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  display: none; flex-direction: column; align-items: center; gap: 0.45rem;
+  padding: 0.7rem 1.4rem; max-width: min(90vw, 30rem);
   background: rgba(8, 19, 31, 0.9); border: 1px solid var(--panel-line);
   border-top: 3px solid var(--red); text-align: center; z-index: 8;
+}
+/* Leaving the battle. It used to be a full-sized button under two lines of
+   text, at the bottom of the notice, which put the one control on the panel
+   furthest from the thumb and made it the biggest thing on it. It is a small
+   key at the top now: it is the way out, not the point of the panel. */
+.leave-key {
+  order: -1; align-self: center;
+  padding: 0.22rem 0.75rem; min-height: 26px;
+  background: rgba(6, 16, 28, 0.75); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.62rem;
+  font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer; pointer-events: auto;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.leave-key:hover, .leave-key:focus-visible {
+  color: var(--sand); border-color: rgba(230, 207, 156, 0.6); outline: none;
 }
 .sink-overlay.show { display: flex; }
 .sink-overlay h2 {

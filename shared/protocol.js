@@ -50,6 +50,19 @@ export function shipSnapshot(ship, full) {
       return v ? Math.round(Math.min(1, (c.wP + c.wS) / v) * 9) : 0;
     }),
     fr: SECTIONS.map((k) => Math.round(ship.sections[k.k].fire * 9)),
+    // Where the sea is running, and which way. Positive is water coming in
+    // through her plating and negative is water going out through her pumps,
+    // in ninths of a good hard inflow -- enough resolution to draw it with and
+    // not enough to be worth a float. A damage control officer reads where the
+    // water is getting in off this; how much of it is already inside her is
+    // `wt` above, and the two are different questions.
+    fw: SECTIONS.map((k) => {
+      const v = ship.sections[k.k].inflow || 0;
+      return Math.max(-9, Math.min(9, Math.round((v / 14) * 9)));
+    }),
+    // And which side of her each compartment was opened on, so the stream is
+    // drawn running in through the plating it actually came through.
+    fs: SECTIONS.map((k) => ship.sections[k.k].side || 0),
     // Where her back went, if it went.
     bk: ship.broke == null ? null : r3(ship.broke),
   };

@@ -1447,6 +1447,10 @@ export class Battle {
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);
       this.board.setWater(shown?.wt);
+      // What is burning, and where the sea is running -- in through her
+      // plating, or back out of it once the pumps are going.
+      this.board.setFires(shown?.fr);
+      this.board.setFlow(shown?.fw, shown?.fs);
       this.board.update(shown?.sec, dt);
     }
     // The plot is always drawn round your own hull, whoever the camera is on:
@@ -2109,7 +2113,13 @@ export class Battle {
   markHole(wx, wy, wz) {
     const ls = this.localShip;
     const l = worldToLocal(wx - ls.x, wz - ls.z, ls.heading);
-    const h = [l.x, (wy ?? 8) - 6, l.z];
+    // In her own frame, at the height it went in at: her waterline is nought,
+    // her deck is eight or nine metres up and her bridge is twenty. The board
+    // puts the mark on whichever of her plating is nearest that, so a hole in
+    // her quarterdeck is drawn in her quarterdeck. There used to be six metres
+    // taken off here to force everything down onto her side, which is where
+    // the board then drew all of them.
+    const h = [l.x, wy ?? 8, l.z];
     this.holes.push(h);
     if (this.holes.length > 90) this.holes.shift();
     this.board?.hole(h[0], h[1], h[2]);

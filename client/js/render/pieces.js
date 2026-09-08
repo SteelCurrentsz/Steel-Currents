@@ -71,6 +71,35 @@ const FITTING_MIN = 0.35;
 
 
 /**
+ * Get a welded mesh ready to be marked.
+ *
+ * Two things: a byte of colour per vertex, which is what scorching writes
+ * into, and her own copy of the material, because materials are shared between
+ * every ship of a class and a ship that has been burned would otherwise
+ * blacken her sisters.
+ *
+ * Shared with the plating, which scorches the same buffers round its holes --
+ * see plating.js. Idempotent, and either of them may get there first.
+ */
+export function markable(mesh) {
+  const geo = mesh.geometry;
+  if (!geo.userData.marked) {
+    geo.userData.marked = true;
+    const n = geo.attributes.position.count;
+    if (!geo.attributes.color) {
+      const c = new Uint8Array(n * 3).fill(255);
+      geo.setAttribute('color', new THREE.BufferAttribute(c, 3, true));
+    }
+  }
+  if (!mesh.material.userData.perShip) {
+    mesh.material = mesh.material.clone();
+    mesh.material.userData.perShip = true;
+    mesh.material.vertexColors = true;
+    mesh.material.needsUpdate = true;
+  }
+}
+
+/**
  * Every piece of one ship, and what has happened to each.
  *
  * Built from the welded meshes after the ship is assembled. It holds no
@@ -162,31 +191,8 @@ export class Fittings {
     }
   }
 
-  /**
-   * Get a welded mesh ready to be marked.
-   *
-   * Two things: a byte of colour per vertex, which is what scorching writes
-   * into, and a copy of the position buffer as it was built, so a dent is
-   * always measured from the fair shape rather than from the last dent.
-   */
-  prepare(mesh) {
-    const geo = mesh.geometry;
-    if (geo.userData.marked) return;
-    geo.userData.marked = true;
-    const n = geo.attributes.position.count;
-    if (!geo.attributes.color) {
-      const c = new Uint8Array(n * 3).fill(255);
-      geo.setAttribute('color', new THREE.BufferAttribute(c, 3, true));
-    }
-    // Her materials are shared between every ship of the class, so a ship
-    // that has been burned would blacken her sisters. Each hull gets her own.
-    if (!mesh.material.userData.perShip) {
-      mesh.material = mesh.material.clone();
-      mesh.material.userData.perShip = true;
-      mesh.material.vertexColors = true;
-      mesh.material.needsUpdate = true;
-    }
-  }
+  /** Get one of her welded buffers ready to be marked. See markable. */
+  prepare(mesh) { markable(mesh); }
 
   /**
    * A burst on her, in her own frame.

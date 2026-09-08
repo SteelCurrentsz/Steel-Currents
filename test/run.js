@@ -42,6 +42,8 @@ import {
 import { arado, kingfisher, wildcat as pkWildcat } from '../client/js/render/planekit.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
+import { measureLines, halfBeamAt, fillTo, waterTop }
+  from '../client/js/render/damageboard.js';
 import { Fittings } from '../client/js/render/pieces.js';
 import { Wreckage } from '../client/js/render/wreckage.js';
 import { Debris } from '../client/js/render/debris.js';
@@ -7153,6 +7155,168 @@ check("the Admiral Hipper flies her Arados off her catapult", () => {
   assert.ok(car() > at0 + 8, 'her trolley never left the breech');
   built.group.userData.step(deck.run + 0.5);
   assert.equal(deck.cat.plane.visible, false, 'her scout is still on the girder');
+});
+
+check('a hole has a torn edge, and she can be holed anywhere on her', () => {
+  // Taking the plating away leaves the right hole in the right place and it
+  // does not look like one. What makes a hole read as a hole is the plating
+  // round its mouth: a ragged collar of metal peeled back off the burst, and
+  // soot on her paint for a couple of times its width. Neither of those can
+  // come from the geometry that was removed.
+  //
+  // And she can be holed anywhere a round can reach. Her side, her decks and
+  // her upperworks are all plating and all in the same register, so all of
+  // them can have a hole cut in them -- there is nothing special about her
+  // waterline except that the sea is at it.
+  for (const id of ['fletcher', 'cleveland', 'hipper']) {
+    const built = buildShip(id);
+    const cls = SHIP_CLASSES[id];
+    const plating = new Plating(built.group);
+    const places = [
+      ['her side', cls.hull.beam * 0.5, 3, 0],
+      ['her side under water', cls.hull.beam * 0.5, -3, -20],
+      ['her deck', 0, 9, 10],
+      ['her upperworks', 0, 16, 0],
+    ];
+    for (const [where, x, y, z] of places) {
+      const was = plating.rims.at;
+      const went = plating.punch(x, y, z, 1.2, 0.45);
+      assert.ok(went > 0, `${id} lost nothing out of ${where}`);
+      assert.ok(plating.rims.at > was, `a hole in ${where} of the ${id} has no torn edge`);
+    }
+    assert.ok(plating.rims.geo.drawRange.count > 0, `${id} draws no torn edges at all`);
+  }
+
+  // The edges are folded through the plate rather than lying flat on it: a
+  // ring painted on her side is a target, not a hole.
+  const her = buildShip('cleveland');
+  const beam = SHIP_CLASSES.cleveland.hull.beam;
+  const plate = new Plating(her.group);
+  const at = plate.nearest(beam * 0.5, 4, 0, 8);
+  assert.ok(at && at.length === 6, 'her plating has no facing');
+  plate.punch(beam * 0.5, 4, 0, 1.6, 0);
+  const pos = plate.rims.geo.attributes.position.array;
+  const n = plate.rims.geo.drawRange.count;
+  let inboard = Infinity, outboard = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = pos[i * 3];
+    if (x < inboard) inboard = x;
+    if (x > outboard) outboard = x;
+  }
+  assert.ok(outboard - inboard > 0.4,
+    `the torn edge is flat on her side: ${(outboard - inboard).toFixed(2)} m of relief`);
+  assert.ok(inboard < at[0] - 0.1,
+    'the torn edges stand off her side instead of being folded through it');
+
+  // And her paint is blackened round the mouth of it, and nowhere else.
+  let near = 255, far = 255;
+  for (const part of plate.parts) {
+    const col = part.mesh.geometry.attributes.color;
+    if (!col) continue;
+    const vp = part.mesh.geometry.attributes.position.array;
+    for (let v = 0; v < col.count; v++) {
+      const d = Math.hypot(vp[v * 3] - beam * 0.5, vp[v * 3 + 1] - 4, vp[v * 3 + 2]);
+      if (d < 2.5) near = Math.min(near, col.array[v * 3]);
+      else if (d > 25) far = Math.min(far, col.array[v * 3]);
+    }
+  }
+  assert.ok(near < 200, `her plating at the hole is still ${near} bright, unscorched`);
+  assert.equal(far, 255, 'a shell in her waist blackened the far end of the ship');
+});
+
+check('the damage board is drawn on her own lines, not on a box', () => {
+  // The board used to be a row of coloured boxes standing inside the hull, one
+  // per compartment, each the full beam and a constant depth -- so the water
+  // in her was a rectangle in a ship and the colour of her damage had nothing
+  // to do with the shape of the part that was hit. Her lines are measured off
+  // the buffers she is drawn with instead, so the sea in her is the shape of
+  // the inside of the ship.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa']) {
+    const g = buildShip(id).group;
+    g.updateMatrixWorld(true);
+    const lines = measureLines(g);
+    const cls = SHIP_CLASSES[id];
+    const half = cls.hull.length / 2;
+    // Her keel is where her keel is, and the water is measured to her
+    // waterline: a compartment the wire calls full holds what the simulation
+    // says it holds, which is her underwater box.
+    assert.ok(lines.keel < 0, `${id} has her keel out of the water`);
+    assert.ok(Math.abs(lines.keel + cls.hull.draft) < cls.hull.draft * 0.4,
+      `${id} draws ${(-lines.keel).toFixed(1)} m against her stated ${cls.hull.draft}`);
+    assert.equal(lines.wl, 0);
+
+    const mid = halfBeamAt(lines, 0, -0.4);
+    const bow = halfBeamAt(lines, half * 0.9, -0.4);
+    const deep = halfBeamAt(lines, 0, lines.keel * 0.85);
+    assert.ok(mid > cls.hull.beam * 0.3,
+      `${id} is ${mid.toFixed(1)} m in the half-beam amidships`);
+    assert.ok(mid <= cls.hull.beam * 0.62,
+      `${id} measures wider than she is: ${mid.toFixed(1)}`);
+    assert.ok(bow < mid * 0.8, `${id} has a bow as wide as her waist`);
+    assert.ok(deep < mid * 0.92,
+      `${id} has no turn of bilge: her section is a box`);
+
+    // The water fills from her keel to her waterline, and stays inside her. A
+    // compartment the wire calls full is full of the volume the simulation
+    // gives it, and that volume is her underwater box -- so pressed full is
+    // full to her waterline and not to her deck.
+    assert.equal(waterTop(lines, 1), lines.wl, `${id}: full water is not at her waterline`);
+    assert.equal(waterTop(lines, 0), lines.keel, `${id}: empty water is not at her keel`);
+    assert.ok(Math.abs(waterTop(lines, 0.5) - (lines.keel + lines.wl) / 2) < 0.01,
+      `${id}: half full does not stand halfway up her`);
+    const geo = new THREE.BufferGeometry();
+    fillTo(geo, lines, -half * 0.2, half * 0.2, waterTop(lines, 1));
+    geo.computeBoundingBox();
+    const full = geo.boundingBox.clone();
+    assert.ok(Math.abs(full.max.y - lines.wl) < 0.02, `${id}: full water is not at her waterline`);
+    assert.ok(Math.abs(full.min.y - lines.keel) < 0.02, `${id}: full water does not reach her keel`);
+    // Never wider than the ship. (Not "no wider than she is amidships": the
+    // widest station in a compartment is not always the one in the middle of
+    // it.)
+    assert.ok(full.max.x <= cls.hull.beam * 0.62,
+      `${id}: the water in her is ${full.max.x.toFixed(1)} m out, wider than she is`);
+
+    // Half full stands halfway up her, and is narrower for it -- which is the
+    // whole point of cutting it to her section.
+    fillTo(geo, lines, -half * 0.2, half * 0.2, waterTop(lines, 0.5));
+    geo.computeBoundingBox();
+    assert.ok(Math.abs(geo.boundingBox.max.y - lines.keel * 0.5) < 0.05,
+      `${id}: half her water does not stand halfway up her`);
+    assert.ok(geo.boundingBox.max.x < full.max.x,
+      `${id}: half full is as wide as pressed full`);
+  }
+});
+
+check('the wire says where the water is running, and which way', () => {
+  // How much water is in her and whether she is still making it are different
+  // questions, and the second is the one a damage control officer is asking.
+  // So the compartment carries what the sea is doing this second -- in through
+  // her plating, or out through her pumps -- and it goes over the wire beside
+  // the water that is already in her.
+  const { state, a } = duel('cleveland', 'iowa');
+  const fwd = SECTIONS.findIndex((s) => s.k === 'fwd');
+  const aft = SECTIONS.findIndex((s) => s.k === 'aft');
+  a.sections.fwd.holeS = 2.5;
+  a.sections.fwd.holeY = 4;
+  a.sections.fwd.side = 1;
+  for (let i = 0; i < 30 * 10; i++) step(state, DT);
+  const making = shipSnapshot(a, true);
+  assert.ok(making.fw[fwd] > 0,
+    `she is making water forward and the wire says ${making.fw[fwd]}`);
+  assert.equal(making.fs[fwd], 1, 'the wire does not say which side she is open');
+  assert.equal(making.fw[aft], 0, 'a sound compartment is reported as flooding');
+
+  // Two call-aways and the pumps are going. With the hole shored down to
+  // almost nothing they beat it, and the stream on the board runs the other
+  // way -- which is the only visible difference the second call-away makes.
+  useRepair(state, a);
+  a.repairCd = 0;
+  useRepair(state, a);
+  a.sections.fwd.holeS = 0.02;
+  for (let i = 0; i < 30 * 5; i++) step(state, DT);
+  const pumped = shipSnapshot(a, true);
+  assert.ok(pumped.fw[fwd] < 0,
+    `the pumps are winning and the wire says ${pumped.fw[fwd]}`);
 });
 
 check('a shell takes the plating it went through, and only that', () => {

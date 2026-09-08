@@ -3175,6 +3175,7 @@ function stepFlooding(state, ship, dt) {
       // How much sea is standing over the hole now: what it was when it was
       // made, plus however much deeper she is sitting since.
       const head = (c.holeY ?? 1) + b.sink;
+      c.inflow = 0;
       if (head > 0.05) {
         // Torricelli, with the usual coefficient for a ragged hole in
         // plating -- and choked by the wreckage and the machinery the water
@@ -3183,8 +3184,10 @@ function stepFlooding(state, ship, dt) {
         const rate = 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16;
         const full = c.water / vol;
         const q = Math.min(vol - c.water, rate * (1 - full * 0.7) * dt);
-        if (q > 0) { c.water += q; took += q; }
+        if (q > 0) { c.water += q; took += q; c.inflow = q / dt; }
       }
+    } else {
+      c.inflow = 0;
     }
     // And it puts the fire out, which is the one good thing about it. The
     // water is in the bottom of the compartment, which is where the fire is,
@@ -3240,6 +3243,7 @@ function stepFlooding(state, ship, dt) {
       const q = Math.min(c.water, left);
       c.water -= q;
       left -= q;
+      c.inflow = (c.inflow || 0) - q / dt;
     }
     ship.flooding = floodedCount(ship);
   }
@@ -3493,6 +3497,12 @@ export function freshSections(maxHp) {
       // lives in a compartment, spreads to the ones next to it, and is put out
       // by the water coming in -- rather than a number of fires on a ship.
       fire: 0,
+      // What the sea is doing here this second, in cubic metres: positive
+      // coming in through her plating, negative going out through her pumps.
+      // Not state -- it is worked out from the holes and the head every tick
+      // -- but a damage control officer wants to see where the water is
+      // running as much as where it has got to, so it is kept and sent.
+      inflow: 0,
     };
   }
   return out;

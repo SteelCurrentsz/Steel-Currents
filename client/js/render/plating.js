@@ -27,6 +27,7 @@
 // opens her below the waterline shows it to anybody who puts the camera under.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { markable } from './pieces.js';
 
 // How the triangles are filed for lookup: one bucket per this many metres of
 // her length. A hit only ever tests the buckets its own radius reaches, so
@@ -88,6 +89,186 @@ export function holeRadius(kind, caliber) {
   return Math.max(0.35, (caliber || 152) / 1000 * blown);
 }
 
+/**
+ * The torn edge of a hole, and what makes one read as a hole at all.
+ *
+ * Taking the plating away leaves a clean-edged window into the ship. It is the
+ * right hole in the right place and it does not look like one: real plating is
+ * a quarter of an inch of steel, and a shell through it leaves a ragged mouth
+ * with the metal peeled back off the burst -- bright torn edges, soot round
+ * them, and blackness behind. Every one of those three is most of the effect,
+ * and the geometry that was removed cannot supply any of them.
+ *
+ * So each hole gets a collar: a ring of petals standing on her plating, folded
+ * inward, cut to no two the same. The soot is written into the plating's own
+ * vertex colours by Plating.scorch, and what is behind is her interior, which
+ * is already there.
+ *
+ * All of them on a ship are one batch and one draw call, flat shaded off the
+ * screen-space derivatives so the petals catch the light like bent steel
+ * without a normal being carried for any of them.
+ */
+const RIM_PETALS = 9;
+const RIM_MAX = 150;
+
+class Rims {
+  constructor(group) {
+    this.at = 0;
+    this.live = 0;
+    const n = RIM_MAX * RIM_PETALS * 6;
+    this.pos = new Float32Array(n * 3);
+    this.col = new Float32Array(n * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setDrawRange(0, 0);
+    // She is turned, heeled and sunk by her parent; the bounds of the batch
+    // never help and recomputing them every hit does not pay.
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      vertexColors: true, flatShading: true, side: THREE.DoubleSide,
+    }));
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    // Over the plating it stands on, never behind it.
+    this.mesh.renderOrder = 2;
+    // Her back going puts everything forward of the break in one group and
+    // everything abaft it in another; a batch that spans the whole ship
+    // belongs to neither. See ShipView.breakHer.
+    this.mesh.userData.noSplit = true;
+    group.add(this.mesh);
+    this.geo = geo;
+  }
+
+  /**
+   * A hole, at a point on her plating, facing the way that plating faces.
+   *
+   * `at` is what Plating.nearest handed back: the point and the normal. `r` is
+   * how far the burst actually reached, which is how big the mouth is.
+   */
+  add(at, r) {
+    const [x, y, z, nx, ny, nz] = at;
+    if (nx === undefined) return;
+    // A frame on the plate: the normal, and any two directions across it.
+    let ux = 0, uy = 0, uz = 1;
+    if (Math.abs(nz) > 0.9) { ux = 1; uy = 0; uz = 0; }
+    // Across the normal, then across both: an orthonormal pair lying in the
+    // plating whichever way the plating happens to face.
+    let ax = uy * nz - uz * ny, ay = uz * nx - ux * nz, az = ux * ny - uy * nx;
+    let l = Math.hypot(ax, ay, az) || 1;
+    ax /= l; ay /= l; az /= l;
+    const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
+
+    const slot = this.at % RIM_MAX;
+    this.at++;
+    this.live = Math.min(RIM_MAX, this.at);
+    let w = slot * RIM_PETALS * 6 * 3;
+    // Deterministic in the slot and the petal, so nothing here has to be
+    // remembered and two clients tear the same ship the same way.
+    const wob = (i, k) => {
+      const h = ((slot * 73856093) ^ (i * 19349663) ^ (k * 83492791)) >>> 0;
+      return (h % 1000) / 1000;
+    };
+    const put = (px, py, pz, c) => {
+      this.pos[w] = px; this.pos[w + 1] = py; this.pos[w + 2] = pz;
+      this.col[w] = c[0]; this.col[w + 1] = c[1]; this.col[w + 2] = c[2];
+      w += 3;
+    };
+    for (let i = 0; i < RIM_PETALS; i++) {
+      const a0 = (i / RIM_PETALS) * Math.PI * 2;
+      const a1 = ((i + 1) / RIM_PETALS) * Math.PI * 2;
+      // No two petals the same length and none of them square to the hole:
+      // that irregularity is the whole difference between torn steel and a
+      // washer.
+      const ro0 = r * (1.02 + wob(i, 0) * 0.42);
+      const ro1 = r * (1.02 + wob(i + 1, 0) * 0.42);
+      const ri = r * (0.46 + wob(i, 1) * 0.24);
+      const deep = r * (0.3 + wob(i, 2) * 0.55);
+      // Soot at the outer edge where it lies on her paint, torn steel at the
+      // lip where the metal has been opened up. Both dark: a shell hole is a
+      // dark thing, and plating peeled off a burst is scorched on both faces
+      // before it is anything else. Set light, the petals came out as white
+      // paper flowers stuck to the side of the ship.
+      const sootV = 0.045 + wob(i, 3) * 0.045;
+      const soot = [sootV, sootV, sootV * 1.06];
+      const tearV = 0.17 + wob(i, 4) * 0.13;
+      const tear = [tearV, tearV * 0.93, tearV * 0.84];
+      const on = (rad, ang, into) => {
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        return [
+          x + (ax * c + bx * sn) * rad + nx * into,
+          y + (ay * c + by * sn) * rad + ny * into,
+          z + (az * c + bz * sn) * rad + nz * into,
+        ];
+      };
+      // A hair proud of the plating outside, folded well inside it at the lip.
+      const o0 = on(ro0, a0, 0.04);
+      const o1 = on(ro1, a1, 0.04);
+      const i0 = on(ri, a0, -deep);
+      const i1 = on(ri, a1, -deep);
+      put(o0[0], o0[1], o0[2], soot);
+      put(o1[0], o1[1], o1[2], soot);
+      put(i1[0], i1[1], i1[2], tear);
+      put(o0[0], o0[1], o0[2], soot);
+      put(i1[0], i1[1], i1[2], tear);
+      put(i0[0], i0[1], i0[2], tear);
+    }
+    const from = slot * RIM_PETALS * 6 * 3;
+    const count = RIM_PETALS * 6 * 3;
+    for (const a of [this.geo.attributes.position, this.geo.attributes.color]) {
+      a.addUpdateRange(from, count);
+      a.needsUpdate = true;
+    }
+    this.geo.setDrawRange(0, this.live * RIM_PETALS * 6);
+  }
+
+  dispose() {
+    this.mesh.removeFromParent();
+    this.geo.dispose();
+    this.mesh.material.dispose();
+  }
+}
+
+/**
+ * Which way a piece of her plating faces.
+ *
+ * Off the normals she is drawn with, averaged over the triangle's three
+ * corners. Those are the ones the light is already worked out from, so they
+ * point out of the ship by construction -- which is the thing that matters
+ * here, because a hole with its torn edges folded the wrong side of the plate
+ * has them inside the ship where nobody can see them. Working the normal out
+ * from the winding instead means guessing which side is outside, and every
+ * guess that can be made from the geometry alone is wrong somewhere: her
+ * forecastle deck is below the average height of her plating, so a guess made
+ * off that folds the whole of her bow the wrong way.
+ */
+function faceNormal(part, t) {
+  const geo = part.mesh.geometry;
+  const ia = part.idx.array;
+  const o = t * 3;
+  const nrm = geo.attributes.normal;
+  if (nrm) {
+    const na = nrm.array;
+    const a = ia[o] * 3, b = ia[o + 1] * 3, c = ia[o + 2] * 3;
+    const nx = na[a] + na[b] + na[c];
+    const ny = na[a + 1] + na[b + 1] + na[c + 1];
+    const nz = na[a + 2] + na[b + 2] + na[c + 2];
+    const l = Math.hypot(nx, ny, nz);
+    if (l > 1e-4) return [nx / l, ny / l, nz / l];
+  }
+  // No normals on the buffer: fall back to the winding, which is right
+  // wherever the mesh was wound the usual way round.
+  const pa = geo.attributes.position.array;
+  const a = ia[o] * 3, b = ia[o + 1] * 3, c = ia[o + 2] * 3;
+  const ux = pa[b] - pa[a], uy = pa[b + 1] - pa[a + 1], uz = pa[b + 2] - pa[a + 2];
+  const vx = pa[c] - pa[a], vy = pa[c + 1] - pa[a + 1], vz = pa[c + 2] - pa[a + 2];
+  const nx = uy * vz - uz * vy;
+  const ny = uz * vx - ux * vz;
+  const nz = ux * vy - uy * vx;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  return [nx / l, ny / l, nz / l];
+}
+
 export class Plating {
   /**
    * `group` is the ship, already welded. Everything in her that is plating --
@@ -97,6 +278,8 @@ export class Plating {
    */
   constructor(group, piece = PIECE_AREA) {
     this.parts = [];
+    // Every hole's torn edge, in one batch on the ship herself.
+    this.rims = new Rims(group);
     // Every triangle that has been taken out of her, so the damage survives a
     // rebuild and so we can say how open she is.
     this.torn = 0;
@@ -153,8 +336,17 @@ export class Plating {
     // it has taken a patch out rather than a splinter, and no further: a
     // five-inch shell still does not open her like a torpedo does.
     let went = 0;
+    let cut = r;
     for (let pass = 0; pass < 3 && went < 3; pass++) {
-      went += this.sweep(near, r * (1 + pass * 0.55), pass === 0 ? soft : 0);
+      cut = r * (1 + pass * 0.55);
+      went += this.sweep(near, cut, pass === 0 ? soft : 0);
+    }
+    // And what a hole looks like: torn plating round the mouth of it and soot
+    // on her paint for a couple of times its width. Only if something actually
+    // came off her -- a burst that opened nothing leaves nothing.
+    if (went > 0) {
+      this.rims.add(near, cut);
+      this.scorch(near[0], near[1], near[2], cut * 2.6, 0.9);
     }
     return went;
   }
@@ -207,11 +399,14 @@ export class Plating {
    * The nearest piece of plating still on her to a point, or null.
    *
    * Returned as the triangle's own centre, so a burst is put on the plating
-   * rather than in the air beside it.
+   * rather than in the air beside it, and with the way that plating faces --
+   * which is what tells a hole whether it is in her side, her deck or the
+   * front of her bridge, and which way to fold its edges.
    */
   nearest(x, y, z, within) {
     let best = within * within;
     let at = null;
+    let won = null;
     for (const part of this.parts) {
       if (z + within < part.minZ || z - within > part.maxZ) continue;
       const lo = Math.max(0, Math.floor((z - within - part.minZ) / BUCKET));
@@ -231,10 +426,74 @@ export class Plating {
           if (d2 >= best) continue;
           best = d2;
           at = [part.cent[o], part.cent[o + 1], part.cent[o + 2]];
+          won = [part, t];
         }
       }
     }
+    if (at && won) {
+      const n = faceNormal(won[0], won[1]);
+      at.push(n[0], n[1], n[2]);
+    }
     return at;
+  }
+
+  /**
+   * Soot on the plating round a burst.
+   *
+   * A hole in a painted side is not a hole in a painted side for long: the
+   * burst blackens two or three times its own radius of her, and that ring of
+   * soot is most of what makes a hole read as damage rather than as a window.
+   * Written into the same byte of colour per vertex the fittings are scorched
+   * through -- see pieces.js -- so it costs a partial buffer upload and
+   * nothing else.
+   */
+  scorch(x, y, z, r, amount = 0.75) {
+    const r2 = r * r;
+    for (const part of this.parts) {
+      if (z + r < part.minZ || z - r > part.maxZ) continue;
+      markable(part.mesh);
+      const col = part.mesh.geometry.attributes.color;
+      if (!col) continue;
+      const pos = part.mesh.geometry.attributes.position.array;
+      const ca = col.array;
+      let from = Infinity, to = -1;
+      const lo = Math.max(0, Math.floor((z - r - part.minZ) / BUCKET));
+      const hi = Math.min(part.buckets.length - 1,
+        Math.floor((z + r - part.minZ) / BUCKET));
+      for (let b = lo; b <= hi; b++) {
+        const list = part.buckets[b];
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          const o = t * 3;
+          const dx = part.cent[o] - x;
+          const dy = part.cent[o + 1] - y;
+          const dz = part.cent[o + 2] - z;
+          if (dx * dx + dy * dy + dz * dz > r2) continue;
+          for (let k = 0; k < 3; k++) {
+            const v = part.idx.array[o + k];
+            const p = v * 3;
+            const d = Math.hypot(pos[p] - x, pos[p + 1] - y, pos[p + 2] - z);
+            // Darkest at the lip and fading out, so the ring has an edge to it
+            // rather than being a disc of grey.
+            const want = 1 - 0.82 * amount * Math.max(0, 1 - d / r) ** 1.4;
+            const q = v * 3;
+            for (let c = 0; c < 3; c++) {
+              const was = ca[q + c];
+              const now = Math.min(was, Math.round(255 * want));
+              if (now === was) continue;
+              ca[q + c] = now;
+              if (q < from) from = q;
+              if (q + 3 > to) to = q + 3;
+            }
+          }
+        }
+      }
+      if (to > 0) {
+        col.addUpdateRange(from, to - from);
+        col.needsUpdate = true;
+      }
+    }
   }
 
   /**
