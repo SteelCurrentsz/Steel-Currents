@@ -975,6 +975,12 @@ export class Hud {
       cv.className = 'board-canvas';
       this.armsWrap.appendChild(cv);
       this.armsCanvas = cv;
+      // A hologram of a gun is worth looking at; a hologram you can press to
+      // go and stand at that gun is worth knowing about.
+      const hint = document.createElement('p');
+      hint.className = 'arms-hint';
+      hint.textContent = 'Press a mounting to man it';
+      this.armsWrap.appendChild(hint);
     }
     entry.row.insertAdjacentElement('afterend', this.armsWrap);
     this.onArms?.(this.armsCanvas, entry.w.specs, entry.w);
@@ -982,6 +988,66 @@ export class Hud {
 
   /** Say who builds the arsenal hologram, so the HUD need not import one. */
   onArsenalBoard(fn) { this.onArms = fn; }
+
+  /**
+   * Put the gun sight up, or take it down.
+   *
+   * `gun` is the mounting being held. Her close-range battery gets no trigger,
+   * because it does not have one: an automatic gun fires for as long as it is
+   * laid, and the only decision its layer makes is when to stop.
+   */
+  setGunSight(gun) {
+    const el = this.el.gunSight || (this.el.gunSight = document.getElementById('gun-sight'));
+    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    if (!el) return;
+    el.hidden = !gun;
+    if (fire) fire.hidden = !gun || !!gun.auto;
+    if (!gun && this.el.gunRead) this.el.gunRead.textContent = '';
+  }
+
+  /**
+   * What the sight says: the range she is laid at and whether she can get
+   * there at all.
+   *
+   * Yards, like every other range in the game, because a gunnery officer works
+   * in yards. A mounting laid outside its own arc says so and the sight goes
+   * red -- a gun on the stops is still a gun, and the man on it has to be able
+   * to see that it is on them.
+   */
+  setGunReading(gun, at, own) {
+    const el = this.el.gunSight || (this.el.gunSight = document.getElementById('gun-sight'));
+    const read = this.el.gunRead || (this.el.gunRead = document.getElementById('gun-read'));
+    if (!el || !gun || !at) return;
+    const yards = Math.round((at.range || 0) * 1.0936);
+    const beyond = at.range > (gun.range || 0);
+    // Whether her own structure is in the way, which the ship works out and
+    // the wire reports as the mounting not being laid.
+    const masked = beyond || !at.onSea && !gun.auto;
+    el.classList.toggle('masked', !!masked);
+    const bits = [`${yards.toLocaleString()} yd`];
+    // Who she is laid on, when the sight is on a hull rather than on water.
+    if (at.name) bits.unshift(at.name.toUpperCase());
+    if (gun.auto) bits.push('AUTO');
+    else if (own && own.cd && gun.kind === 'main') {
+      const cd = own.cd[gun.index];
+      bits.push(cd > 0 ? `RELOAD ${cd.toFixed(1)}` : 'READY');
+    } else if (own && own.sd && gun.kind === 'sec') {
+      const cd = own.sd[gun.index];
+      bits.push(cd > 0 ? `RELOAD ${cd.toFixed(1)}` : 'READY');
+    } else if (own && own.tp && gun.kind === 'torp') {
+      const cd = own.tp[gun.index];
+      bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
+    }
+    if (beyond) bits.push('OUT OF RANGE');
+    read.textContent = bits.join('   ');
+    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    if (fire && !gun.auto) {
+      const cd = gun.kind === 'main' ? own?.cd?.[gun.index]
+        : gun.kind === 'sec' ? own?.sd?.[gun.index]
+          : own?.tp?.[gun.index];
+      fire.classList.toggle('spent', !!(cd > 0) || beyond);
+    }
+  }
 
   /**
    * How much of each battery can be laid on where she is aiming.

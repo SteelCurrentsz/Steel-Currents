@@ -406,6 +406,150 @@ export const SHIP_CLASSES = {
     },
   },
 
+  // The odd ship out, and she was built to be. A Panzerschiff is a cruiser
+  // hull carrying a battleship's guns, at a range no cruiser can answer: two
+  // triple eleven-inch turrets on twelve and a half thousand tons, diesel
+  // engines to give her the endurance to be a nuisance in the South Atlantic,
+  // and just enough belt to keep six-inch out. What she cannot do is take a
+  // hit. Anything that gets through her eighty millimetres is in her
+  // machinery, and the Exeter proved it.
+  spee: {
+    id: 'spee',
+    name: 'Admiral Graf Spee',
+    type: 'CA',
+    typeName: 'Panzerschiff',
+    nation: 'ger',
+    blurb: 'Eleven-inch guns on a cruiser hull: she outranges anything that can catch her and outruns anything that can hurt her.',
+    hull: { length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
+    hp: 31600,
+    maxSpeed: 28.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.7,
+    turnRate: 0.076,
+    rudderShift: 7.6,
+    speedLossInTurn: 0.21,
+    concealment: 12600,
+    fireDetectPenalty: 5200,
+    // She carried the first seagoing radar set in service, and it is the one
+    // thing she has that nothing else on this list does.
+    radarRange: 14000,
+    repairCooldown: 84,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Thin. Eighty millimetres keeps six-inch out at a decent range and does
+    // nothing whatever about eight-inch, which is the whole argument about the
+    // type -- and her turret faces are thicker than her belt.
+    armor: { belt: 80, deck: 40, citadel: 80, bow: 18, superstructure: 15 },
+    turrets: [
+      // Two triples, one forward and one aft, both at upper deck level: there
+      // is no superfiring turret on her, because there is no second turret at
+      // either end to superfire over.
+      { id: 0, name: 'Anton', x: 0, z: 52.5, angle: 0, arc: 2.48, guns: 3, my: 9.42 },
+      { id: 1, name: 'Bruno', x: 0, z: -56.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.32 },
+    ],
+    gun: {
+      name: '28 cm SK C/34', role: 'surface',
+      reach: 15.4,
+      // Slow, because eleven-inch bag charges are slow, and the whole of her
+      // tactics follow from it: she has to hit at a range where the answer
+      // cannot reach her, because she cannot afford a gunnery duel.
+      caliber: 283, reload: 16.5, traverse: 0.18, range: 19800, sigma: 1.72,
+      shells: shells(283, 8200, 5100, 372, 910, 0.16),
+    },
+    torpedoes: {
+      // Two quadruple banks on the quarterdeck, abaft the after turret. An
+      // afterthought on a commerce raider and a real threat at close quarters.
+      mounts: [
+        { id: 0, x: -4.6, z: -74, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.62 },
+        { id: 1, x: 4.6, z: -74, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.62 },
+      ],
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
+      reach: 4.9,
+      traverse: 0.24,
+      reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+    },
+    // Eight single 15 cm in open shielded mounts, four a side along her upper
+    // deck. They are surface guns and nothing else: the mounting will not
+    // elevate to an aeroplane, which is exactly why she carries a separate
+    // heavy anti-aircraft battery and the Hipper does not.
+    secondary: {
+      name: '15 cm SK C/28', role: 'surface',
+      reach: 6.6,
+      caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
+      shells: shells(150, 3100, 2400, 152, 875, 0.11),
+      mounts: [
+        { x: -8.8, z: 30, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
+        { x: 8.8, z: 30, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
+        { x: -9.1, z: 12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
+        { x: 9.1, z: 12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
+        { x: -9.1, z: -8, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
+        { x: 9.1, z: -8, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 10.22 },
+        { x: -8.7, z: -28, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
+        { x: 8.7, z: -28, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 10.24 },
+      ],
+    },
+    aa: {
+      range: 6000, dps: 46,
+      guns: [
+        // Three twin 10.5 cm: one each side abreast the funnel and one right
+        // aft. These are her long-range flak, because her fifteens will not
+        // point up.
+        { name: '10.5 cm SK C/33', caliber: 105, role: 'aa', reload: 4.2, range: 6000,
+          mounts: [
+            { x: -7.6, z: 4, angle: -Math.PI / 2, arc: 1.66, guns: 2 },
+            { x: 7.6, z: 4, angle: Math.PI / 2, arc: 1.66, guns: 2 },
+            { x: 0, z: -40, angle: Math.PI, arc: 2.09, guns: 2 },
+          ] },
+        { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
+          mounts: [
+            { x: -6.9, z: 24, angle: -1.15, arc: 1.92, guns: 2 },
+            { x: 6.9, z: 24, angle: 1.15, arc: 1.92, guns: 2 },
+            { x: -7.1, z: -18, angle: -1.85, arc: 1.92, guns: 2 },
+            { x: 7.1, z: -18, angle: 1.85, arc: 1.92, guns: 2 },
+          ] },
+        { name: '2 cm Flak 30', caliber: 20, role: 'aa', reload: 0.1, range: 1700,
+          mounts: [
+            { x: -5.8, z: 38, angle: -1.0, arc: 1.83, guns: 1 },
+            { x: 5.8, z: 38, angle: 1.0, arc: 1.83, guns: 1 },
+            { x: -6.6, z: 18, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 6.6, z: 18, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: -6.6, z: -2, angle: -1.5, arc: 1.83, guns: 1 },
+            { x: 6.6, z: -2, angle: 1.5, arc: 1.83, guns: 1 },
+            { x: -6.2, z: -24, angle: -1.9, arc: 1.83, guns: 1 },
+            { x: 6.2, z: -24, angle: 1.9, arc: 1.83, guns: 1 },
+            { x: -4.4, z: -50, angle: -2.1, arc: 1.83, guns: 1 },
+            { x: 4.4, z: -50, angle: 2.1, arc: 1.83, guns: 1 },
+          ] },
+      ],
+    },
+    // Two Arados off a single catapult abaft the funnel. A commerce raider
+    // lives by seeing further than she is seen, so they go out to look.
+    planes: {
+      squadrons: 1, perSquadron: 2, cruiseSpeed: 54, strikeRange: 9200,
+      rearm: 120, hp: 600, dropSpread: 0.07,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 700, bombHit: 0.26, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
+      type: 'arado',
+      catapult: true, deckRun: 9.4, deckCycle: 36,
+      runHeight: 19,
+      runOut: 122, runBearing: 1.42,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 16020,
+      aircraft: 2,
+      mainRounds: 600,
+      torpedoesCarried: 8,
+      secondary: { caliber: 150, label: '150mm', barrels: 8, rounds: 6400 },
+      tertiary: [
+        { caliber: 105, label: '105mm', barrels: 6, rounds: 12000 },
+        { caliber: 37, label: '37mm', barrels: 8, rounds: 16000 },
+        { caliber: 20, label: '20mm', barrels: 10, rounds: 12000 },
+      ],
+    },
+  },
+
   // She is drawn a third again as big as the ship that was built, and the
   // simulation has to agree with the model about how big that is: her lines,
   // her stations and every mounting on her carry the same factor. It lives in
@@ -677,7 +821,7 @@ export const SHIP_CLASSES = {
   },
 };
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'iowa', 'enterprise'];
+export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'iowa', 'enterprise'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

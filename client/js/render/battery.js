@@ -19,7 +19,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { BATTERIES } from '../../../shared/batteries.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
 
 // ------------------------------------------------------------- materials --
 
@@ -1343,6 +1343,10 @@ export function buildBattery(id) {
   // Nothing on these moves once it is built, so the whole gun welds down to one
   // mesh per material — several hundred pieces becoming a dozen draw calls.
   mergeStatic(group);
+  // And inside every part of her that moves. A mounting is welded in its own
+  // frame, so it goes on training and elevating exactly as it did and costs
+  // two draw calls instead of a hundred. See mergeMoving.
+  mergeMoving(group);
   group.updateMatrixWorld(true);
   let bb = new THREE.Box3().setFromObject(group);
   // Shift the whole gun so its middle is over the origin. The camera orbits

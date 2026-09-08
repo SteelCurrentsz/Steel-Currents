@@ -143,18 +143,20 @@ export class Shells {
   }
 
   /** Park every instance from `from` on out of sight. */
+  /**
+   * Nothing beyond `from` is in the air. Stop drawing it.
+   *
+   * An instanced batch draws every instance it is told it has, whatever the
+   * matrix says -- so a pool built for five hundred rounds drew five hundred
+   * of them on a frame with two shells up, four hundred and ninety-eight of
+   * them parked twenty kilometres under the sea where nothing could cull them.
+   * `count` is the batch's own word for how many are real.
+   */
   hideFrom(from) {
-    const d = this.dummy;
-    d.position.set(0, -20000, 0);
-    d.quaternion.identity();
-    d.scale.setScalar(0.001);
-    d.updateMatrix();
-    for (let i = from; i < this.max; i++) {
-      this.mesh.setMatrixAt(i, d.matrix);
-      this.glow.setMatrixAt(i, d.matrix);
-    }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.glow.instanceMatrix.needsUpdate = true;
+    this.mesh.count = from;
+    this.glow.count = from;
+    this.mesh.visible = from > 0;
+    this.glow.visible = from > 0;
   }
 
   flush() {
@@ -195,15 +197,11 @@ export class Flak {
     this.park(0);
   }
 
-  /** Park every instance from `from` on out of sight. */
+  /** Nothing beyond `from` is in the air. See Shells.hideFrom. */
   park(from) {
-    const d = this.dummy;
-    d.position.set(0, -20000, 0);
-    d.quaternion.identity();
-    d.scale.setScalar(0.001);
-    d.updateMatrix();
-    for (let i = from; i < this.max; i++) this.mesh.setMatrixAt(i, d.matrix);
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = from;
+    this.mesh.visible = from > 0;
+    if (from > 0) this.mesh.instanceMatrix.needsUpdate = true;
   }
 
   /**
@@ -433,13 +431,9 @@ export class Bombs {
   }
 
   park(from) {
-    const d = this.dummy;
-    d.position.set(0, -20000, 0);
-    d.quaternion.identity();
-    d.scale.setScalar(0.001);
-    d.updateMatrix();
-    for (let i = from; i < this.max; i++) this.mesh.setMatrixAt(i, d.matrix);
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = from;
+    this.mesh.visible = from > 0;
+    if (from > 0) this.mesh.instanceMatrix.needsUpdate = true;
   }
 
   /**

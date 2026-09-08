@@ -7,6 +7,7 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
 import { buildHipper } from './hipper.js';
+import { buildSpee } from './spee.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
 import { buildInterior, bySection } from './interior.js';
@@ -419,6 +420,23 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Graf Spee: a Panzerschiff is a cruiser hull with two triple
+  // eleven-inch turrets on it and an armoured tower foremast between them, and
+  // there is no length and beam that gets you that.
+  if (cls.id === 'spee') {
+    const built = buildSpee();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: built.aaMounts || [],
+      torpMounts: built.torpMounts || [],
+      deckPlane: built.deckPlane,
     };
   }
 

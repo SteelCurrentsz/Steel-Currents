@@ -231,7 +231,13 @@ export class Flights {
     // easterly heading was drawn dead level, and so was everything else in
     // the game that was not pointed at the top of the chart.
     this.dummy.rotation.order = 'YXZ';
-    for (const key of Object.keys(this.batches)) this.parkFrom(key, 0);
+    // Nothing in the air yet. An instanced mesh is born with identity matrices
+    // -- every aeroplane it can hold stacked at the origin at full size -- so
+    // the count goes to nought before it is ever drawn.
+    for (const key of Object.keys(this.batches)) {
+      this.batches[key].mesh.count = 0;
+      this.batches[key].mesh.visible = false;
+    }
   }
 
   parkFrom(key, from) {
@@ -298,9 +304,28 @@ export class Flights {
     b.mesh.setMatrixAt(b.n++, d.matrix);
   }
 
+  /**
+   * Close the frame: draw the aeroplanes that are in the air and no others.
+   *
+   * An instanced batch draws every instance it is told it has, whatever is in
+   * the matrix -- so a batch built to hold ninety-six machines drew ninety-six
+   * of them every frame for the whole action, ninety of them parked twenty
+   * kilometres under the sea at a thousandth of their size where nobody could
+   * see them and nothing could cull them. Five types of aeroplane, five or six
+   * thousand triangles apiece: two and a half million triangles a frame to
+   * draw an empty sky, which was three quarters of everything the card was
+   * being asked for.
+   *
+   * `count` is the instanced mesh's own word for how many are real. Setting it
+   * costs nothing, changes nothing anybody can see, and stops the batch at the
+   * last aeroplane actually flying.
+   */
   end() {
     for (const key of Object.keys(this.batches)) {
-      this.parkFrom(key, this.batches[key].n);
+      const b = this.batches[key];
+      b.mesh.count = b.n;
+      b.mesh.visible = b.n > 0;
+      if (b.n > 0) b.mesh.instanceMatrix.needsUpdate = true;
     }
   }
 }

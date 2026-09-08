@@ -128,6 +128,12 @@ export class DamageBoard {
   grabbed(canvas) {
     let last = null;
     let pinch = 0;
+    // Where a touch went down and how far it has been dragged since. A drag
+    // turns the ship; a tap that never became a drag is somebody pointing at
+    // one of the mountings on her, and those are two different things done
+    // with the same finger.
+    let down = null;
+    let moved = 0;
     const pts = new Map();
     // The panel scrolls and the chart pans; neither should happen because
     // somebody dragged the ship.
@@ -147,9 +153,14 @@ export class DamageBoard {
     };
 
     canvas.addEventListener('pointerdown', (e) => {
-      canvas.setPointerCapture?.(e.pointerId);
+      // Capture is a convenience, not a requirement: a pointer id the browser
+      // does not recognise as active throws, and losing the board to a stray
+      // event is worse than losing the capture.
+      try { canvas.setPointerCapture?.(e.pointerId); } catch { /* no capture */ }
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       last = { x: e.clientX, y: e.clientY };
+      down = { x: e.clientX, y: e.clientY };
+      moved = 0;
       if (pts.size === 2) pinch = gap();
       e.preventDefault();
     });
@@ -168,10 +179,17 @@ export class DamageBoard {
         return;
       }
       turn(e.clientX - was.x, e.clientY - was.y);
+      if (down) moved = Math.max(moved, Math.hypot(e.clientX - down.x, e.clientY - down.y));
       last = { x: e.clientX, y: e.clientY };
       e.preventDefault();
     });
     const up = (e) => {
+      // A tap, not a drag: whoever it was is pointing at a mounting.
+      if (down && moved < 6 && this.onMountPick) {
+        const hit = this.mountAt(e.clientX, e.clientY);
+        if (hit >= 0) this.onMountPick(hit);
+      }
+      down = null;
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = 0;
       if (!pts.size) last = null;
@@ -536,6 +554,40 @@ export class DamageBoard {
     }
     this.setMountCondition(cond);
   }
+
+  /**
+   * Which mounting is under this point on the canvas, or -1 for none.
+   *
+   * The markers are small on a panel this size, so the ray is given a
+   * generous threshold: a captain putting a finger on a turret is pointing at
+   * the turret, not at a sphere three pixels across, and asking him to hit it
+   * exactly would make the whole thing unusable on a telephone.
+   */
+  mountAt(clientX, clientY) {
+    if (!this.mountPins || !this.mountPins.length) return -1;
+    const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return -1;
+    const px = ((clientX - r.left) / r.width) * 2 - 1;
+    const py = -((clientY - r.top) / r.height) * 2 + 1;
+    this.camera.updateMatrixWorld();
+    this.rig.updateMatrixWorld(true);
+    // Project each marker to the screen and take the nearest one within reach,
+    // which is steadier than a ray against a sphere the size of a pea.
+    const v = new THREE.Vector3();
+    let best = -1;
+    let bestD = 0.17;
+    for (let i = 0; i < this.mountPins.length; i++) {
+      const pin = this.mountPins[i].pin;
+      v.setFromMatrixPosition(pin.matrixWorld).project(this.camera);
+      if (v.z > 1) continue;
+      const d = Math.hypot(v.x - px, v.y - py);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  /** Say who wants to know when a mounting is pointed at. */
+  onPick(fn) { this.onMountPick = fn; }
 
   /**
    * What condition each of those mountings is in, in its own colour.

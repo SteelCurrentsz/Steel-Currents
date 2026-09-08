@@ -51,6 +51,60 @@ const TMP_E = new THREE.Vector3();
  * her be dented, scorched, or torn off and thrown into the sea on its own.
  * See pieces.js.
  */
+/**
+ * Weld inside the parts that move.
+ *
+ * mergeStatic stops at anything marked `dynamic` and at everything under it,
+ * which is right -- a turret has to be able to train -- but it left every
+ * mounting on the ship drawn exactly as it was modelled. A twin 10.5 cm on the
+ * Hipper is a hundred and nineteen separate boxes and cylinders: a shield, a
+ * cradle, two barrels, a rangefinder, ready-use lockers, handrails and a
+ * ladder. Thirty-three mountings on that ship came to eighteen hundred and
+ * fifty draw calls carrying forty-five thousand triangles between them -- five
+ * and twenty triangles a call, which is the worst possible shape for a frame.
+ *
+ * A mounting moves as a unit, so everything in it that does not move
+ * separately can be one buffer: a turret's barbette and shield become one
+ * mesh, its cradle and barrels another, and the two go on training and
+ * elevating against each other exactly as before. Nothing is dropped, nothing
+ * is simplified, and no pixel changes.
+ *
+ * Gun mountings and nothing else, which is where the whole of the win is --
+ * thirty-three mountings against a handful of everything else. It matters that
+ * it is nothing else: her screws, her rudder, her lifts, her catapult and the
+ * aeroplane sitting on it are all moving parts too, and every one of them is a
+ * thing the game reaches into and addresses a piece of. An aeroplane welded
+ * into the trolley she is chocked on is an aeroplane that cannot be shot off
+ * it. A mounting is safe because a mounting is exactly two things that move --
+ * the part that trains and the part that elevates -- and `arm` has already
+ * said which is which.
+ */
+export function mergeMoving(group, keyOf = null) {
+  let saved = 0;
+  const weld = (node) => {
+    if (!node) return;
+    saved += mergeStatic(node, keyOf);
+  };
+  const walk = (node) => {
+    for (const child of node.children) {
+      const gun = child.userData && child.userData.gunNode;
+      if (gun) {
+        // The cradle first, in its own frame, then the mounting round it --
+        // welding the mounting first would find the cradle already marked as
+        // moving and leave it alone, which is what is wanted, but doing the
+        // cradle first means its own buffer is in place before the mounting is
+        // walked and there is nothing to go back for.
+        if (gun !== child) weld(gun);
+        weld(child);
+        continue;
+      }
+      walk(child);
+    }
+  };
+  walk(group);
+  return saved;
+}
+
 export function mergeStatic(group, keyOf = null) {
   group.updateMatrixWorld(true);
   const inv = group.matrixWorld.clone().invert();

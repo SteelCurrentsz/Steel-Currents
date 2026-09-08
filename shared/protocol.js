@@ -100,6 +100,13 @@ export function shipSnapshot(ship, full) {
       s.sc = ship.secMounts.map((m) => gunState(ship, cls, cls.secondary.mounts[m.id], m));
     }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    // Which mounting her captain has gone down to, and how long every
+    // secondary has to go. Both are his own business and nobody else's, so
+    // they ride in the block that only goes to her own bridge.
+    if (ship.manned) s.man = [ship.manned.k, ship.manned.i];
+    if (ship.secMounts.length) {
+      s.sd = ship.secMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    }
     s.sq = ship.squadrons.map((q) => (q.state === 'deck' ? Math.max(0, Math.round(q.cooldown)) : -1));
     s.rc = Math.max(0, Math.round(ship.repairCd * 10) / 10);
     // How far her damage control has got: nothing yet, shored, or pumping.

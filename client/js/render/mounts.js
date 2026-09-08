@@ -38,6 +38,20 @@ const V = new THREE.Vector3();
  */
 export function arm(mount, gunNode, muzzles) {
   mount.userData.gunNode = gunNode;
+  // The cradle moves, so it is marked as moving. Nothing used to say so --
+  // only the mounting that trains carried the mark -- and that was fine while
+  // nothing welded inside a mounting. It is not fine now: the weld bakes every
+  // static child into one buffer in its parent's frame, and a cradle baked
+  // into the barbette is a turret whose guns no longer elevate. See
+  // mergeMoving.
+  if (gunNode && gunNode !== mount) gunNode.userData.dynamic = true;
+  // And the mounting itself, which trains. Most models set this already; two
+  // did not, and got away with it only because they happen to be built after
+  // the hull is welded. A mounting the welder has not been told about is a
+  // mounting that gets baked into the ship the first time anybody reorders a
+  // builder, and a turret welded to the deck is a hard thing to notice --
+  // she looks perfectly correct until somebody watches her fail to train.
+  mount.userData.dynamic = true;
   mount.userData.muzzles = muzzles.map(([x, y, z]) => new THREE.Vector3(x, y, z));
   // Whatever elevation the model was built at is the mounting's rest: a gun
   // stowed at a few degrees above the horizontal goes back to a few degrees

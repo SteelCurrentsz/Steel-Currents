@@ -17,11 +17,15 @@ import {
   steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt,
 } from '../../shared/sim.js';
 import {
-  clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, MPS_TO_KNOTS,
+  clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
+  MPS_TO_KNOTS,
 } from '../../shared/math.js';
 import { groundHeight } from '../../shared/world.js';
 
 const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
+
+// Scratch for reading a mounting's place in the world off the scene graph.
+const GUN_EYE = new THREE.Vector3();
 const INPUT_HZ = 20;
 
 const CAMERAS = ['chase', 'bridge', 'tactical'];
@@ -67,6 +71,23 @@ const LOAD = {
   torpedo: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
 };
 
+
+/**
+ * Which of the ship's batteries a row of the arsenal belongs to.
+ *
+ * The simulation keeps state for her main and secondary mountings and her
+ * tubes one at a time; her close-range guns are a battery rather than a list
+ * of mountings, but a man can still stand at one of them.
+ */
+function batteryKind(row) {
+  if (!row) return null;
+  if (row.cond === 'gc') return 'main';
+  if (row.cond === 'sc') return 'sec';
+  if (row.band === 'Torpedo tubes') return 'torp';
+  if (row.band === 'Light battery') return 'aa';
+  return null;
+}
+
 export class Battle {
   constructor({ renderer, net, input, world, shipId, team, classId, roster, mode, onExit }) {
     this.renderer = renderer;
@@ -103,6 +124,8 @@ export class Battle {
       this.armsBoard.build(this.shownShip()?.c || classId);
       this.armsRow = row;
       this.armsBoard.markMounts(specs, this.mountCondition(row));
+      // Pressing one of the circles on her is asking to stand at that gun.
+      this.armsBoard.onPick((i) => this.manGun(batteryKind(row), i, row));
     });
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
@@ -173,6 +196,15 @@ export class Battle {
     // she turns and the view turns with her, so you go on looking at her
     // broadside on. See sideView.
     this.watchSide = 0;
+    // The mounting a captain has gone down to and is laying himself, and where
+    // he is looking. The sight is fixed in the middle of the screen and the
+    // gun comes round to it, which is the way round a gun sight works: a
+    // layer's eye is quicker than the training gear and the barrels follow him
+    // into the target. See manGun.
+    this.gun = null;              // { kind, index, name }
+    this.gunYaw = 0;
+    this.gunPitch = 0.02;
+    this.gunFire = false;
     // Aboard her, or standing off her. A captain who taps a contact wants to
     // see what she can see; a captain watching a strike go in wants to see the
     // ship it is going into. C swaps between the two.
@@ -224,6 +256,12 @@ export class Battle {
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
     document.getElementById('side-cam')?.addEventListener('click', () => this.sideView());
+    document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null));
+    const fireKey = document.getElementById('gun-fire');
+    if (fireKey) {
+      fireKey.addEventListener('pointerdown', (e) => { e.preventDefault(); this.pullTrigger(); });
+      fireKey.addEventListener('click', (e) => e.preventDefault());
+    }
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
@@ -279,6 +317,187 @@ export class Battle {
       if (!own.a && !this.sunk) this.onOwnSunk();
       this.ownSnap = own;
     }
+  }
+
+  /**
+   * Go down to one mounting and lay it yourself.
+   *
+   * Everything else aboard goes on being fought by her own fire control. This
+   * one gun comes off it: it trains where you look, and -- for anything but
+   * her close-range battery -- it fires when you say so and not before. An
+   * automatic gun has no trigger here because it does not have one aboard
+   * either: a Bofors gunner holds it down and lays, and the only decision he
+   * makes is when to stop.
+   *
+   * Called with no battery, or with the one already being held, it hands the
+   * gun back.
+   */
+  manGun(kind, index = 0, row = null) {
+    const off = !kind || (this.gun && this.gun.kind === kind && this.gun.index === index);
+    if (off) {
+      if (!this.gun) return;
+      this.gun = null;
+      this.gunFire = false;
+      this.net.send({ t: 'man', ship: this.conned(), k: null });
+      this.hud.setGunSight(null);
+      this.input.orbiting = false;
+      this.hud.alert('Gun handed back to the director');
+      audio.click();
+      return;
+    }
+    const cls = getClass(this.shownShip()?.c || this.cls.id);
+    const spec = row && row.specs ? row.specs[index] : null;
+    if (!spec) return;
+    // A mounting that is finished is not a mounting anybody can stand at.
+    const cond = this.mountCondition(row);
+    if (cond && cond[index] >= 3) {
+      this.hud.alert('That mounting is out of action');
+      return;
+    }
+    this.gun = {
+      kind, index, spec,
+      name: row.name || 'gun',
+      auto: kind === 'aa',
+      range: row.range || cls.gun.range,
+      guns: spec.guns || 1,
+    };
+    // She starts laid where the mounting is already pointing, so taking a gun
+    // does not swing the view.
+    const own = this.shownShip();
+    const head = own ? own.h : this.localShip.heading;
+    this.gunYaw = wrapAngle(head + (spec.angle || 0));
+    this.gunPitch = 0.02;
+    this.watching = null;
+    this.hud.setWatching(null);
+    this.hud.setWatchBanner(null);
+    this.freeCamera(false);
+    // The panel goes down. Standing at a gun is a view, and a list of guns
+    // over the middle of it is the one thing in the way of the one thing you
+    // came for.
+    if (this.hud.panel) this.hud.togglePanel(this.hud.panel);
+    this.hud.setGunSight(this.gun);
+    this.hud.alert(`${this.gun.name} — drag to lay, ${this.gun.auto ? 'she fires herself' : 'press FIRE'}`);
+    this.net.send({ t: 'man', ship: this.conned(), k: kind, i: index });
+    audio.click();
+  }
+
+  /**
+   * Where the layer is holding, in the world.
+   *
+   * A gun layer lays on a ship. He does not lay on a patch of water at a range
+   * he worked out from how far below the horizon his eye is -- which is what
+   * the sea intersection alone amounts to, and it is unusable: from ten metres
+   * up, a hundredth of a radian of depression is a thousand yards and a
+   * thousandth is ten thousand, so the whole useful band of the sight is
+   * half a degree wide and nothing can be held on.
+   *
+   * So the sight looks for a hull under it first, out to the gun's own
+   * maximum, and lays on her. That is what a layer does and it is what makes
+   * the sight hold: put the crosshair on a ship and you are on her, and she
+   * stays on her while both ships move.
+   *
+   * Failing that -- an empty horizon, or a close-range mounting pointed at the
+   * sky -- it falls back to where the line meets the sea, and to the gun's
+   * maximum when it never does.
+   */
+  gunAimPoint() {
+    if (!this.gun) return null;
+    const eye = this.gunEye();
+    if (!eye) return null;
+    const cp = Math.cos(this.gunPitch);
+    const dir = {
+      x: Math.sin(this.gunYaw) * cp,
+      y: -Math.sin(this.gunPitch),
+      z: Math.cos(this.gunYaw) * cp,
+    };
+    const reach = Math.max(600, this.gun.range || 12000);
+    const mine = this.conned();
+    // The nearest hull the sight is on. Generous, because a ship at fifteen
+    // thousand yards is a few pixels wide and a layer has a spotting glass:
+    // half a degree of tolerance, widening with range so it is a ship's
+    // breadth rather than a fixed angle.
+    let best = null;
+    let bestD = Infinity;
+    for (const sh of this.visibleShips()) {
+      if (!sh || sh.i === mine || !sh.a) continue;
+      const dx = sh.x - eye.x;
+      const dz = sh.z - eye.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 200 || d > reach) continue;
+      const off = Math.abs(angleDelta(Math.atan2(dx, dz), this.gunYaw));
+      // A hull's own half-breadth, seen from here, plus a layer's allowance.
+      const wide = Math.atan2(getClass(sh.c).hull.length * 0.32, d) + 0.006;
+      if (off > wide) continue;
+      if (d < bestD) { bestD = d; best = sh; }
+    }
+    if (best) {
+      return {
+        x: best.x, y: 4, z: best.z, range: bestD, onSea: true,
+        on: best.i, name: best.n,
+      };
+    }
+    // Nothing under the sight: where the line meets the water, and the gun's
+    // own maximum when it never does.
+    let t = reach;
+    if (dir.y < -1e-4) t = Math.min(reach, Math.max(400, eye.y / -dir.y));
+    return {
+      x: eye.x + dir.x * t,
+      y: eye.y + dir.y * t,
+      z: eye.z + dir.z * t,
+      range: t,
+      onSea: dir.y < -1e-4 && t < reach,
+      on: 0,
+    };
+  }
+
+  /**
+   * Where the layer's eye is: on his own mounting, in the world.
+   *
+   * Off the scene graph rather than off the datasheet, so it carries
+   * everything between the gun and the sea -- how far the mounting has
+   * trained, how deep the water in her has put her, and how far over she is
+   * lying. A sight that does not roll with the ship is not a sight.
+   */
+  gunEye() {
+    const id = this.conned();
+    const v = this.scene.shipViews.get(id);
+    if (!v) return null;
+    const list = this.gun.kind === 'main' ? v.turrets
+      : this.gun.kind === 'sec' ? v.secMounts
+        : this.gun.kind === 'torp' ? v.torpMounts : v.aaMounts;
+    const m = list && list[this.gun.index];
+    if (!m) {
+      // No model for that mounting: stand where her datasheet puts it.
+      const own = this.shownShip();
+      if (!own) return null;
+      const sp = this.gun.spec;
+      const w = localToWorld(sp.x || 0, sp.z || 0, own.h);
+      return { x: own.x + w.x, y: (sp.my ?? 12) + 1.6, z: own.z + w.z };
+    }
+    m.updateWorldMatrix(true, false);
+    GUN_EYE.setFromMatrixPosition(m.matrixWorld);
+    // Over the gunhouse and a little abaft the trunnions.
+    //
+    // A sight put at the mounting's own origin is inside the mounting: the
+    // roof is over it and the barrels are across it, and what a layer got was
+    // a screen full of the back of his own turret. So the eye is carried up
+    // clear of the roof and stepped back along the line of sight, which is
+    // where a director's eye is and what he can actually see the sea from.
+    const up = this.gun.kind === 'main' ? 4.4 : this.gun.kind === 'sec' ? 2.6 : 2.0;
+    const back = this.gun.kind === 'main' ? 7.0 : 4.0;
+    return {
+      x: GUN_EYE.x - Math.sin(this.gunYaw) * back,
+      y: GUN_EYE.y + up,
+      z: GUN_EYE.z - Math.cos(this.gunYaw) * back,
+    };
+  }
+
+  /** Pull the trigger on the gun being held. */
+  pullTrigger() {
+    if (!this.gun || this.gun.auto) return;
+    this.net.send({ t: 'shoot', ship: this.conned() });
+    this.gunFire = true;
+    audio.click();
   }
 
   /**
@@ -1629,6 +1848,23 @@ export class Battle {
     if (shown) this.hud.setShown(shown.c);
     this.hud.update(shown, snap);
     this.hud.setTarget(readTarget(shown, snap, ls));
+    // The gun being laid by hand, if there is one: where the layer is holding
+    // goes up the wire ten times a second, which is often enough for the
+    // training gear to follow him and rare enough not to be a stream.
+    if (this.gun) {
+      const at = this.gunAimPoint();
+      if (at) {
+        this.gunTell = (this.gunTell || 0) - dt;
+        if (this.gunTell <= 0) {
+          this.gunTell = 0.1;
+          this.net.send({
+            t: 'lay', ship: this.conned(),
+            x: Math.round(at.x), z: Math.round(at.z), y: Math.round(at.y),
+          });
+        }
+        this.hud.setGunReading(this.gun, at, ownForHud);
+      }
+    }
     // The board only turns while it is being looked at.
     if (this.armsBoard && this.hud.panel === 'arms' && this.hud.armsShown) {
       // Live, because a gun's condition is a thing that changes while you are
@@ -2504,6 +2740,36 @@ export class Battle {
     const targetFov = this.scoped ? 16 : 58;
     this.fov = lerp(this.fov, targetFov, 1 - Math.pow(0.002, dt));
     cam.fov = this.fov;
+
+    // Standing at a gun. The eye is on the mounting itself, the sight is fixed
+    // in the middle of the screen, and the drag turns the layer's head -- the
+    // gun follows him round, which is the way a gun sight works and not the
+    // other way about.
+    if (this.gun) {
+      const eye = this.gunEye();
+      if (eye) {
+        const m = this.input.takeMouse();
+        this.gunYaw = wrapAngle(this.gunYaw + m.x);
+        // Down to the water alongside and up past the vertical for a
+        // close-range mounting, which is where an aeroplane is.
+        this.gunPitch = clamp(this.gunPitch + m.y, -0.30, this.gun.auto ? 1.25 : 0.42);
+        this.input.orbiting = true;
+        cam.position.set(eye.x, eye.y, eye.z);
+        const cp = Math.cos(this.gunPitch);
+        cam.lookAt(
+          eye.x + Math.sin(this.gunYaw) * cp * 500,
+          eye.y - Math.sin(this.gunPitch) * 500,
+          eye.z + Math.cos(this.gunYaw) * cp * 500,
+        );
+        // A gun sight is a telescope. Narrow, so a ship at ten thousand yards
+        // is something you can lay on rather than a speck.
+        cam.fov = this.scoped ? 9 : 24;
+        cam.updateProjectionMatrix();
+        return;
+      }
+      // Her mounting has gone with the piece of ship it stood on.
+      this.manGun(null);
+    }
 
     // Watching something else. Either you are on her bridge looking out of her
     // windows, or you are standing off her watching her work; the drag turns

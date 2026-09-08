@@ -1722,3 +1722,85 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .force-cell .sil { height: clamp(34px, 6.5vh, 56px); }
   .turret-btn .turret-art { width: min(82px, 27.3vw); }
 }
+
+/* ---------------------------------------------------------- standing at a gun
+   The sight. A fixed crosshair in the middle of the screen with the range
+   under it: the gun trains to where you are looking, so what the crosshair
+   shows is where the next round is going, and watching the barrels swing up
+   into your own line is the whole of laying a gun by hand. */
+
+.gun-sight { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.gun-sight[hidden] { display: none; }
+.gun-sight button { pointer-events: auto; }
+
+.gun-cross {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+}
+/* The pipper: the point the gun is laid on. */
+.gun-cross .gp {
+  position: absolute; left: -3px; top: -3px; width: 6px; height: 6px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+}
+/* Four ticks standing off it, so the middle stays clear of the target. */
+.gun-cross .gt {
+  position: absolute; background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+.gun-cross .gt-u { left: -1px; top: -30px; width: 2px; height: 18px; }
+.gun-cross .gt-d { left: -1px; top: 12px; width: 2px; height: 18px; }
+.gun-cross .gt-l { left: -30px; top: -1px; width: 18px; height: 2px; }
+.gun-cross .gt-r { left: 12px; top: -1px; width: 18px; height: 2px; }
+/* And the ring the deflection is read off. */
+.gun-cross .gring {
+  position: absolute; left: -46px; top: -46px; width: 92px; height: 92px;
+  border: 1px solid rgba(255, 255, 255, 0.42); border-radius: 50%;
+}
+/* Laid on something her guns cannot reach: the sight goes red and stays put,
+   because a gun on the stops is still a gun and the layer has to see that it
+   is on them. */
+.gun-sight.masked .gun-cross .gp { background: var(--enemy); }
+.gun-sight.masked .gun-cross .gt { background: rgba(226, 86, 79, 0.92); }
+.gun-sight.masked .gun-cross .gring { border-color: rgba(226, 86, 79, 0.5); }
+
+.gun-read {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, 58px);
+  margin: 0; white-space: nowrap;
+  font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.18em;
+  color: var(--sand); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+.gun-fire {
+  position: absolute; right: max(1.2rem, env(safe-area-inset-right));
+  bottom: 16vh;
+  width: 96px; height: 96px; border-radius: 50%;
+  background: rgba(28, 10, 12, 0.82); border: 2px solid var(--enemy);
+  color: var(--enemy); font-family: var(--ui); font-size: 0.86rem;
+  font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  cursor: pointer; touch-action: none;
+}
+.gun-fire:active, .gun-fire.on { background: rgba(226, 86, 79, 0.3); }
+/* Nothing to press: her close-range mountings fire themselves, and a gun
+   still reloading is not a gun you can fire. */
+.gun-fire[hidden] { display: none; }
+.gun-fire.spent { opacity: 0.34; }
+
+.gun-leave {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: max(9vh, calc(env(safe-area-inset-bottom) + 4.6rem));
+  padding: 0.4rem 1.1rem; min-height: 38px;
+  background: rgba(8, 19, 31, 0.86); border: 1px solid var(--panel-line);
+  color: var(--sand); font-family: var(--ui); font-size: 0.68rem;
+  font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer;
+}
+.gun-leave:hover { color: #0b141d; background: var(--sand); }
+
+/* A row in the arsenal is a way into the gun as well as a way to look at it. */
+.arms-hint {
+  margin: 0.3rem 0 0; padding-top: 0.24rem;
+  border-top: 1px solid var(--panel-line);
+  font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--steel); opacity: 0.8; text-align: center;
+}

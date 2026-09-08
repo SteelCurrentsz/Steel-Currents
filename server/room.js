@@ -2,6 +2,7 @@
 
 import {
   createState, addShip, addBattery, applyInput, step, fireGuns, fireTorpedoes,
+  manGun, layGun, shootGun,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe,
@@ -373,6 +374,13 @@ export class Room {
       }
       case 'fire': fireGuns(this.state, ship); break;
       case 'torp': fireTorpedoes(this.state, ship); break;
+      // A captain gone down to one mounting to lay it himself. `man` takes it
+      // or hands it back, `lay` says where he is holding, and `shoot` is the
+      // trigger -- which her close-range battery does not need, because an
+      // automatic gun fires itself for as long as it is laid.
+      case 'man': manGun(this.conned(ship, msg), msg); break;
+      case 'lay': layGun(this.conned(ship, msg), msg); break;
+      case 'shoot': shootGun(this.state, this.conned(ship, msg)); break;
       // Damage control and smoke are given to whichever ship is being conned,
       // the same way a course is. A captain watching another ship from her own
       // bridge is on her bridge.

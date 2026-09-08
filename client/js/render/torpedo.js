@@ -333,18 +333,24 @@ export class Torpedoes {
     scene.add(this.track);
   }
 
+  /**
+   * Nothing beyond `from` is running. Stop drawing it.
+   *
+   * An instanced batch draws every instance it is told it has, wherever the
+   * matrix has put it -- so a pool built for forty-eight fish drew forty-eight
+   * of them on a frame with none in the water, parked under the sea bed at a
+   * thousandth of their size with frustum culling off. `count` is the batch's
+   * own word for how many are real.
+   */
   park(from) {
-    const d = this.dummy;
-    d.position.set(0, -20000, 0);
-    d.quaternion.identity();
-    d.scale.setScalar(0.001);
-    d.updateMatrix();
-    for (let i = from; i < this.max; i++) {
-      this.mesh.setMatrixAt(i, d.matrix);
-      this.screws.setMatrixAt(i, d.matrix);
+    this.mesh.count = from;
+    this.screws.count = from;
+    this.mesh.visible = from > 0;
+    this.screws.visible = from > 0;
+    if (from > 0) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+      this.screws.instanceMatrix.needsUpdate = true;
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.screws.instanceMatrix.needsUpdate = true;
   }
 
   /**

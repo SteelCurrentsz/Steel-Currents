@@ -436,6 +436,22 @@
        the conn keys along the bottom middle and the plot in the top right,
        and it does nothing until it is pressed: the battle goes on being drawn
        behind it for as long as anybody wants to look at it. -->
+  <!-- Standing at a gun. The sight is a fixed crosshair in the middle of the
+       screen -- the gun comes round to where you are looking, not the other
+       way about -- with the range under it and, for anything but the
+       close-range battery, a trigger. A Bofors has no trigger here because an
+       automatic gun fires itself for as long as it is laid. -->
+  <div class="gun-sight" id="gun-sight" hidden>
+    <div class="gun-cross" aria-hidden="true">
+      <i class="gp"></i>
+      <span class="gt gt-u"></span><span class="gt gt-d"></span>
+      <span class="gt gt-l"></span><span class="gt gt-r"></span>
+      <span class="gring"></span>
+    </div>
+    <p class="gun-read" id="gun-read"></p>
+    <button class="gun-fire" id="gun-fire" type="button">Fire</button>
+    <button class="gun-leave" id="gun-leave" type="button">Leave gun</button>
+  </div>
   <button class="port-key" id="btn-port" type="button" hidden>Back To Port</button>
 
   <!-- Your ship is gone; the battle is not. A notice, not a curtain: the chart

@@ -148,6 +148,14 @@ export function addShip(state, {
     fires: 0,
     // How long she has been burning in four places at once. See stepFires.
     blaze: 0,
+    // The mounting her captain has gone down to and is laying himself, and
+    // where he is holding it. Everything else aboard goes on being fought by
+    // her own fire control; this one gun answers a pair of hands. See manGun.
+    manned: null,
+    manX: 0, manZ: 0, manY: 0,
+    // Seconds of trigger held since the last tick, which is how a gun that
+    // fires as fast as its layer can work it is told about.
+    manFire: 0,
     // Where the sea is in her, how far over she is lying, and how far down.
     // All three come out of the water in her compartments; see buoyancy.
     sink: 0, heel: 0, trim: 0,
@@ -497,6 +505,126 @@ export function gunLimits(battery) {
 }
 
 // ---------------------------------------------------------------------------
+// A gun somebody is laying by hand
+// ---------------------------------------------------------------------------
+//
+// Every gun aboard is laid by her own fire control, which is what a gunnery
+// officer and a director are for and what makes a ship a ship rather than a
+// row of guns. But a captain may go down to any one mounting and lay it
+// himself, and while he has it, that mounting takes his bearing and nobody
+// else's.
+//
+// Three rules, and they are the difference between the batteries:
+//
+//   Her main battery, her secondaries and her tubes are laid AND fired by
+//   hand. Nothing goes off until the trigger is pulled, because a heavy gun
+//   fires a salvo and a salvo is a decision.
+//
+//   Her close-range battery is laid by hand and fires itself. A Bofors gunner
+//   holds the trigger down and walks the tracer onto the aeroplane; there is
+//   no moment at which he decides to fire, only the moment he stops.
+//
+//   Everything else on the ship carries on. Manning A turret does not stop B
+//   turret shooting, and it does not stop her steering.
+
+/** Which batteries a mounting can be taken from. */
+const MANNED = new Set(['main', 'sec', 'aa', 'torp']);
+
+/**
+ * Pull the trigger on the gun somebody is standing at.
+ *
+ * Her main battery, her secondaries and her tubes fire on this and on nothing
+ * else while they are manned -- a heavy gun fires a salvo, and a salvo is a
+ * decision. Her close-range battery is not here at all: it fires itself for as
+ * long as it is laid, which is what an automatic gun does.
+ *
+ * Returns what went: barrels for a gun, fish for a bank of tubes.
+ */
+export function shootGun(state, ship) {
+  if (!ship || !ship.alive || !ship.manned) return 0;
+  const { k, i } = ship.manned;
+  if (k === 'main') return fireGuns(state, ship, i);
+  if (k === 'sec') return fireSecondary(state, ship, i);
+  if (k === 'torp') return fireTorpedoes(state, ship, i);
+  return 0;
+}
+
+/**
+ * Take a mounting, or give it back.
+ *
+ * `k` is which battery and `i` which mounting of it; a null battery hands it
+ * back to her own fire control, which picks it up on the next tick as if
+ * nothing had happened.
+ */
+export function manGun(ship, msg) {
+  if (!ship) return;
+  const k = msg && msg.k;
+  if (!k || !MANNED.has(k)) { ship.manned = null; ship.manFire = 0; return; }
+  const cls = shipClass(ship);
+  const list = k === 'main' ? ship.turrets
+    : k === 'sec' ? ship.secMounts
+      : k === 'torp' ? ship.torpMounts
+        : aaBattery(cls);
+  const i = Math.round(msg.i || 0);
+  if (!list || i < 0 || i >= list.length) { ship.manned = null; return; }
+  ship.manned = { k, i };
+  ship.manFire = 0;
+  // She starts laid where she is pointing, so taking a gun does not swing it.
+  const at = mannedRest(ship, cls);
+  ship.manX = at.x; ship.manZ = at.z; ship.manY = at.y;
+}
+
+/** Where a mounting just taken over is already pointing, in the world. */
+function mannedRest(ship, cls) {
+  const range = 6000;
+  const b = ship.heading;
+  return {
+    x: ship.x + Math.sin(b) * range,
+    z: ship.z + Math.cos(b) * range,
+    y: 0,
+  };
+}
+
+/**
+ * Where the layer is holding his crosshair.
+ *
+ * A point in the world, because that is what a sight is: the gun is laid on a
+ * place, not on a pair of angles, and the ship rolling under it does not move
+ * the place. `y` is how high he is holding, which only a close-range mounting
+ * has any use for.
+ */
+export function layGun(ship, msg) {
+  if (!ship || !ship.manned) return;
+  if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) return;
+  ship.manX = msg.x;
+  ship.manZ = msg.z;
+  ship.manY = Number.isFinite(msg.y) ? msg.y : 0;
+}
+
+/** Is this mounting the one being laid by hand? */
+function isManned(ship, k, i) {
+  return !!(ship.manned && ship.manned.k === k && ship.manned.i === i);
+}
+
+/**
+ * The bearing a manned mounting wants, from where its layer is holding.
+ *
+ * Clamped into the mounting's own arc like any other: a pair of hands on the
+ * training gear does not move the stops, and a gun laid past them is a gun
+ * that cannot fire.
+ */
+function mannedDesired(ship, spec) {
+  const world = headingTo(ship.x, ship.z, ship.manX, ship.manZ);
+  const local = wrapAngle(world - ship.heading);
+  const off = angleDelta(spec.angle, local);
+  const limited = Math.abs(off) > spec.arc;
+  return {
+    angle: limited ? wrapAngle(spec.angle + Math.sign(off) * spec.arc) : local,
+    blocked: limited,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // What state a gun is in
 // ---------------------------------------------------------------------------
 //
@@ -643,18 +771,30 @@ function stepTurrets(state, ship, dt) {
     // it does not train, elevate or reload.
     if (cond >= 3) { t.laid = false; continue; }
     if (t.disabled > 0) { t.disabled -= dt; continue; }
-    const want = turretDesired(ship, cls, t);
+    // A turret somebody has gone down to takes his bearing and nobody else's.
+    // Every other turret aboard goes on being laid by her fire control, which
+    // is the whole point: manning A turret does not stop B turret shooting.
+    const held = isManned(ship, 'main', t.id);
+    const want = held ? mannedDesired(ship, cls.turrets[t.id])
+      : turretDesired(ship, cls, t);
     t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
     // A gun that cannot bear comes down to the loading angle rather than
     // standing there pointing at the sky over her own bridge -- and one that
     // can never goes past its own stops.
-    const aim = want.blocked ? 0.03 : clamp(elev, stops.min, stops.max);
+    // How far up, on the range the layer is holding rather than the range her
+    // fire control is working -- a man at a gun is shooting at what is in his
+    // sight, not at the plot's solution.
+    const sol = held
+      ? solveBallistic(cls.gun,
+        clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, cls.gun.range), 12).elev
+      : elev;
+    const aim = want.blocked ? 0.03 : clamp(sol, stops.min, stops.max);
     t.elev += clamp(aim - t.elev, -0.5 * dt, 0.5 * dt);
     t.elev = clamp(t.elev, stops.min, stops.max);
     // Off the target as well as off the arc: a solution her guns cannot reach
     // is a solution she has not got, and she checks fire rather than shooting
     // at the stop and missing by a mile every time.
-    t.laid = !want.blocked && elev <= stops.max && elev >= stops.min;
+    t.laid = !want.blocked && sol <= stops.max && sol >= stops.min;
     if (t.cooldown > 0) t.cooldown -= dt;
   }
 }
@@ -666,23 +806,38 @@ export function canFire(ship) {
     && t.laid !== false && gunState(ship, cls, cls.turrets[t.id], t) < 3);
 }
 
-/** Fire every turret that is loaded and on target. Returns barrels fired. */
-export function fireGuns(state, ship) {
+/**
+ * Fire every turret that is loaded and on target. Returns barrels fired.
+ *
+ * `only` fires one mounting and no others, which is what a trigger under a
+ * captain's hand does. Without it her fire control fires the battery and
+ * leaves out whichever mounting somebody has gone down to -- a manned gun
+ * fires when its layer says so and not when the plot says so.
+ */
+export function fireGuns(state, ship, only = null) {
   if (!ship.alive) return 0;
   const cls = shipClass(ship);
   const gun = cls.gun;
   const spec = gun.shells[ship.shellType] || gun.shells.ap;
-  const d = clamp(dist(ship.x, ship.z, ship.aimX, ship.aimZ), 400, gun.range);
+  const held = only === null && ship.manned && ship.manned.k === 'main'
+    ? ship.manned.i : -1;
+  // A gun laid by hand shoots at the range its layer is holding.
+  const aimAt = only !== null && ship.manned && ship.manned.k === 'main'
+    ? { x: ship.manX, z: ship.manZ } : { x: ship.aimX, z: ship.aimZ };
+  const d = clamp(dist(ship.x, ship.z, aimAt.x, aimAt.z), 400, gun.range);
   let fired = 0;
 
   const stops = gunLimits(gun);
   const solution = solveBallistic(gun, d, 12).elev;
   for (const t of ship.turrets) {
+    if (only !== null && t.id !== only) continue;
+    if (t.id === held) continue;
     if (t.cooldown > 0 || t.disabled > 0) continue;
     const tSpec = cls.turrets[t.id];
     const cond = gunState(ship, cls, tSpec, t);
     if (cond >= 3) continue;
-    const want = turretDesired(ship, cls, t);
+    const want = only !== null && ship.manned && ship.manned.k === 'main'
+      ? mannedDesired(ship, tSpec) : turretDesired(ship, cls, t);
     if (want.blocked) continue;
     // Nor past her stops: a gun that will not come down that far does not
     // shoot at something alongside her, and one that will not go up that far
@@ -1137,6 +1292,20 @@ function stepSecondary(state, ship, dt) {
     if (cond >= 3) continue;
     if (m.disabled > 0) { m.disabled -= dt; continue; }
     if (m.cooldown > 0) m.cooldown -= dt;
+    // A mounting somebody has gone down to comes off local control: it trains
+    // where he is holding, elevates on his range, and waits for his trigger.
+    if (isManned(ship, 'sec', m.id)) {
+      const want = mannedDesired(ship, spec);
+      m.angle = approachAngle(m.angle, want.angle, S.traverse * dt);
+      const stops = gunLimits(S);
+      const aim = solveBallistic(S,
+        clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
+      const up = want.blocked ? 0 : clamp(aim.elev, stops.min, stops.max);
+      m.elev += clamp(up - m.elev, -0.9 * dt, 0.9 * dt);
+      m.elev = clamp(m.elev, stops.min, stops.max);
+      m.target = 0;
+      continue;
+    }
     const foe = secondaryTarget(state, ship, spec, S);
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on.
@@ -1180,40 +1349,83 @@ function stepSecondary(state, ship, dt) {
     if (Math.abs(off) > spec.arc) continue;
     if (aim.elev > stops.max || aim.elev < stops.min) continue;
 
-    const pos = mountWorldPos(ship, spec);
-    const bearing = wrapAngle(ship.heading + m.angle);
-    const aimD = clamp(dist(pos.x, pos.z, lx, lz), 400, S.range);
-    const spreadBase = (aimD * 0.0125) / S.sigma;
-    for (let g = 0; g < spec.guns; g++) {
-      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
-      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
-      const shotD = clamp(aimD + rng, 300, S.range);
-      const mz = muzzlePos(ship, cls, spec, S, bearing, g, spec.guns);
-      const s2 = solveBallistic(S, shotD, mz.y);
-      const b = bearing + Math.atan2(lat, Math.max(600, aimD));
-      const vh = s2.v * Math.cos(s2.elev);
-      fireShell(state, {
-        id: eid(),
-        owner: ship.id, team: ship.team,
-        x: mz.x, z: mz.z, y: mz.y,
-        vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
-        g: s2.g,
-        spec: spec0, caliber: S.caliber,
-        classId: cls.id,
-        life: 0,
-      });
-    }
-    m.cooldown = S.reload + gunPenalty(cond);
-    // `s` is which mounting fired, so the flash goes on that mounting's own
-    // barrels: a battery in local control is a dozen guns each doing its own
-    // thing, and they have to look like it.
-    const mz0 = muzzlePos(ship, cls, spec, S, bearing);
-    state.events.push({
-      e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b: bearing,
-      cal: S.caliber, ship: ship.id, s: m.id,
-    });
-    ship.lastFiredAt = state.t;
+    secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond);
   }
+}
+
+/**
+ * One secondary mounting's salvo, at a point in the world.
+ *
+ * Its own function because two things fire a secondary mounting now: her gun
+ * captain in local control, who has picked his own target and led it, and a
+ * captain standing at the mounting with his hand on the trigger. What comes
+ * out of the muzzle is the same either way.
+ */
+function secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond) {
+  const cls = shipClass(ship);
+  const S = cls.secondary;
+  const pos = mountWorldPos(ship, spec);
+  const bearing = wrapAngle(ship.heading + m.angle);
+  const aimD = clamp(dist(pos.x, pos.z, lx, lz), 400, S.range);
+  const spreadBase = (aimD * 0.0125) / S.sigma;
+  for (let g = 0; g < spec.guns; g++) {
+    const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
+    const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+    const shotD = clamp(aimD + rng, 300, S.range);
+    const mz = muzzlePos(ship, cls, spec, S, bearing, g, spec.guns);
+    const s2 = solveBallistic(S, shotD, mz.y);
+    const b = bearing + Math.atan2(lat, Math.max(600, aimD));
+    const vh = s2.v * Math.cos(s2.elev);
+    fireShell(state, {
+      id: eid(),
+      owner: ship.id, team: ship.team,
+      x: mz.x, z: mz.z, y: mz.y,
+      vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
+      g: s2.g,
+      spec: spec0, caliber: S.caliber,
+      classId: cls.id,
+      life: 0,
+    });
+  }
+  m.cooldown = S.reload + gunPenalty(cond);
+  // `s` is which mounting fired, so the flash goes on that mounting's own
+  // barrels: a battery in local control is a dozen guns each doing its own
+  // thing, and they have to look like it.
+  const mz0 = muzzlePos(ship, cls, spec, S, bearing);
+  state.events.push({
+    e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b: bearing,
+    cal: S.caliber, ship: ship.id, s: m.id,
+  });
+  ship.lastFiredAt = state.t;
+}
+
+/**
+ * Fire one secondary mounting, on the order of the man standing at it.
+ *
+ * Everything the mounting itself would check still applies: it has to be
+ * loaded, it has to be sound, it has to have trained to where he is holding,
+ * and the bearing has to be inside its own arc. A gun laid on her own bridge
+ * does not go off because somebody pressed a button.
+ */
+export function fireSecondary(state, ship, id) {
+  const cls = shipClass(ship);
+  const S = cls.secondary;
+  if (!S || !ship.alive) return 0;
+  const m = ship.secMounts.find((q) => q.id === id);
+  if (!m || m.cooldown > 0 || m.disabled > 0) return 0;
+  const spec = S.mounts[m.id];
+  const cond = gunState(ship, cls, spec, m);
+  if (cond >= 3) return 0;
+  const want = mannedDesired(ship, spec);
+  if (want.blocked) return 0;
+  if (Math.abs(angleDelta(m.angle, want.angle)) > 0.05) return 0;
+  const stops = gunLimits(S);
+  const aim = solveBallistic(S,
+    clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
+  if (aim.elev > stops.max || aim.elev < stops.min) return 0;
+  const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
+  secondarySalvo(state, ship, m, spec, spec0, ship.manX, ship.manZ, cond);
+  return spec.guns;
 }
 
 // ---------------------------------------------------------------------------
@@ -2098,20 +2310,35 @@ function stepTorpMounts(state, ship, dt) {
   const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
   const local = wrapAngle(world - ship.heading);
   const rate = (T.traverse ?? 0.3) * dt;
+  // Where a bank being trained by hand is wanted, which is not where the plot
+  // wants the rest of them.
+  const manWorld = headingTo(ship.x, ship.z, ship.manX, ship.manZ);
+  const manLocal = wrapAngle(manWorld - ship.heading);
   for (const m of ship.torpMounts) {
-    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], local, cls), rate);
+    const want = isManned(ship, 'torp', m.id) ? manLocal : local;
+    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], want, cls), rate);
   }
 }
 
-export function fireTorpedoes(state, ship) {
+export function fireTorpedoes(state, ship, only = null) {
   const cls = shipClass(ship);
   if (!cls.torpedoes || !ship.alive) return 0;
   const T = cls.torpedoes;
+  // A bank somebody is standing at fires on his order and on nobody else's:
+  // her own fire control leaves it alone, and pressing the ship's torpedo key
+  // does not empty it over the side.
+  const held = only === null && ship.manned && ship.manned.k === 'torp'
+    ? ship.manned.i : -1;
+  const manned = only !== null && ship.manned && ship.manned.k === 'torp';
   let launched = 0;
   for (const m of ship.torpMounts) {
+    if (only !== null && m.id !== only) continue;
+    if (m.id === held) continue;
     if (m.cooldown > 0) continue;
     const spec = T.mounts[m.id];
-    const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+    const world = manned
+      ? headingTo(ship.x, ship.z, ship.manX, ship.manZ)
+      : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
     if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
     // Her own hull is not something to fire a torpedo through. The bank trains
@@ -2913,6 +3140,26 @@ function stepPlanes(state, dt) {
       const bear = aaBearing(scls, s, p.x, p.z, p.y);
       if (bear.barrels === 0) continue;
       hurtFlight(state, p, scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range));
+      // And what a pair of hands on one mounting is worth.
+      //
+      // A close-range mounting fires itself: there is no moment at which a
+      // Bofors gunner decides to shoot, only the moment he stops. What he does
+      // is lay it -- and a gunner walking his own tracer onto an aeroplane
+      // hits it far more often than a director firing a barrage does, which is
+      // exactly why they were hand-worked to the end of the war. So a mounting
+      // somebody has gone down to is worth this much again, and only against
+      // whatever he is actually holding it on.
+      if (s.manned && s.manned.k === 'aa') {
+        const off = Math.abs(angleDelta(
+          headingTo(s.x, s.z, p.x, p.z), headingTo(s.x, s.z, s.manX, s.manZ)));
+        // Within a few degrees of his line, and inside the range of the
+        // mounting he is standing at.
+        if (off < 0.10) {
+          hurtFlight(state, p,
+            scls.aa.dps * MANNED_AA * dt * aaBite(d, scls.aa.range), 'flak');
+          s.aaFire = Math.min(s.aaFire, 0.02);
+        }
+      }
       // And the tracer that goes with it. One burst at a time per ship, on the
       // gun's own rhythm rather than every tick, or the wire carries a
       // thousand rounds a second nobody could see anyway.
@@ -3439,6 +3686,13 @@ function cookOff(state, ship, where) {
     x: r(ship.x), z: r(ship.z), cls: ship.classId,
   });
 }
+
+/**
+ * What one hand-laid close-range mounting adds, as a share of her whole
+ * battery's output. A fifth: enough that a gunner who lays well is worth
+ * having, not so much that one man outshoots the ship.
+ */
+const MANNED_AA = 0.2;
 
 /** How many of her compartments are alight. */
 function burningCount(ship) {

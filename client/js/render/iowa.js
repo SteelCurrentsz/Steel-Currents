@@ -14,7 +14,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { kingfisher } from './planekit.js';
 import { arm } from './mounts.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SECTIONS } from '../../../shared/sim.js';
@@ -1197,6 +1197,10 @@ export function buildIowa(opts = {}) {
     loa: LOA, sheer: sheerAt, keelY: keelAt, shellAt, zAt,
   });
   mergeStatic(root, bySection(LOA));
+  // And inside every part of her that moves. A mounting is welded in its own
+  // frame, so it goes on training and elevating exactly as it did and costs
+  // two draw calls instead of a hundred. See mergeMoving.
+  mergeMoving(root);
   // Steel where she is plated and planking where she is decked: the maps go
   // on after the weld, when she is a handful of meshes rather than a few
   // hundred, and the weld is what gave her the coordinates to put them on.

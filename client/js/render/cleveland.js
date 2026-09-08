@@ -16,7 +16,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { arm as armMount } from './mounts.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { RIG, fitCatapults } from './catapult.js';
@@ -1517,6 +1517,12 @@ export function buildCleveland() {
   buildInterior(g, { loa: LOA, shellAt, keelY, sheer, zAt });
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
+  // And inside every part of her that moves -- after her batteries are on her,
+  // because they are put on after the hull is welded and a weld run before
+  // them finds nothing to do. A mounting is welded in its own frame, so it
+  // goes on training and elevating exactly as it did and costs two draw calls
+  // instead of a hundred. See mergeMoving.
+  mergeMoving(g);
   g.userData.classId = 'cleveland';
   const secMounts = g.userData.secMounts || [];
   const aaMounts = g.userData.aaMounts || [];

@@ -12,7 +12,7 @@ import {
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
-import { SHIP_CLASSES } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot } from '../shared/protocol.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
@@ -21,7 +21,7 @@ import {
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
-  sectionVolume, canFire,
+  sectionVolume, canFire, manGun, layGun, shootGun,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -9208,6 +9208,314 @@ check('a ship going down leaves no wake, and nothing burns once she is under', (
   for (let i = 0; i < 400; i++) flames.update(1 / 30);
   assert.equal(flames.fires.size, 0, 'a fire nobody is feeding is still burning on the open sea');
   flames.dispose();
+});
+
+
+check('a gun somebody is standing at answers him and nobody else', () => {
+  // Every gun aboard is laid by her own fire control, which is what a gunnery
+  // officer and a director are for. But a captain may go down to one mounting
+  // and lay it himself -- and while he has it, that mounting takes his bearing
+  // and waits for his trigger, and every other gun on the ship carries on
+  // exactly as it was.
+  const world = generateWorld(83, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'F', classId: 'iowa', team: 1, index: 0 });
+  const cls = SHIP_CLASSES.iowa;
+  v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
+  foe.x = 0; foe.z = 14000; foe.speed = 0;
+  foe.spottedBy[0] = 1;
+  // Her fire control is on the enemy right ahead.
+  v.aimX = foe.x; v.aimZ = foe.z;
+  for (const t of foe.turrets) t.disabled = 1e9;
+
+  assert.equal(v.manned, null, 'she starts with somebody already at a gun');
+
+  // Take A turret and lay it out on the beam, which is nowhere near where her
+  // fire control has the rest of them.
+  manGun(v, { k: 'main', i: 0 });
+  assert.deepEqual(v.manned, { k: 'main', i: 0 }, 'the mounting was not taken');
+  layGun(v, { x: 14000, z: 0 });
+  for (let i = 0; i < 40 / DT; i++) step(state, DT);
+
+  const beam = Math.PI / 2;
+  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, beam)) < 0.05,
+    `the manned turret trained to ${v.turrets[0].angle.toFixed(2)} rad, not to the beam`);
+  // And the rest of the battery is still on her fire control's bearing.
+  for (let i = 1; i < v.turrets.length; i++) {
+    assert.ok(Math.abs(angleDelta(v.turrets[i].angle, beam)) > 0.6,
+      `turret ${i} followed the manned one round; it is not his to lay`);
+  }
+
+  // Now put her fire control on the same bearing he is holding -- her beam,
+  // where every turret she has can bear, unlike right ahead, where the after
+  // turrets are hard against their stops. That is the only condition under
+  // which the next two answers mean anything: with his gun pointing somewhere
+  // else, it would not fire whatever the rule was, and the rule would never be
+  // tested at all.
+  v.aimX = 14000; v.aimZ = 0;
+  layGun(v, { x: 14000, z: 0 });
+  for (let i = 0; i < 90 / DT; i++) step(state, DT);
+  for (const t of v.turrets) {
+    assert.ok(Math.abs(angleDelta(t.angle, beam)) < 0.05,
+      `the battery is not all on one bearing (${t.angle.toFixed(2)} against `
+      + `${beam.toFixed(2)}); nothing after this proves anything`);
+  }
+
+  // Her fire control does not fire the gun he is holding. It fires every other
+  // turret in the battery and leaves his loaded.
+  for (const t of v.turrets) t.cooldown = 0;
+  const before = state.shells.length;
+  fireGuns(state, v);
+  assert.equal(v.turrets[0].cooldown, 0,
+    'her fire control fired the mounting somebody was standing at');
+  let rest = 0;
+  for (let i = 1; i < v.turrets.length; i++) if (v.turrets[i].cooldown > 0) rest++;
+  assert.equal(rest, v.turrets.length - 1,
+    `her fire control fired ${rest} of her other ${v.turrets.length - 1} turrets`);
+  assert.ok(state.shells.length > before, 'the rest of the battery did not fire');
+
+  // His trigger fires it, and it alone.
+  for (const t of v.turrets) t.cooldown = 0;
+  const n0 = state.shells.length;
+  const went = shootGun(state, v);
+  assert.equal(went, cls.turrets[0].guns,
+    `the trigger sent ${went} rounds from a ${cls.turrets[0].guns}-gun turret`);
+  assert.equal(state.shells.length - n0, cls.turrets[0].guns,
+    'the trigger fired more than the one mounting');
+  assert.ok(v.turrets[0].cooldown > 0, 'the manned turret did not reload after firing');
+  for (let i = 1; i < v.turrets.length; i++) {
+    assert.equal(v.turrets[i].cooldown, 0, `the trigger fired turret ${i} as well`);
+  }
+
+  // And handing it back puts it under her fire control again: shift her
+  // solution back to the enemy right ahead and the turret follows it round
+  // with the rest of the battery, which is the only proof that it is hers
+  // again rather than simply sitting where it was left.
+  manGun(v, { k: null });
+  assert.equal(v.manned, null, 'the mounting was not handed back');
+  v.aimX = foe.x; v.aimZ = foe.z;
+  for (let i = 0; i < 120 / DT; i++) step(state, DT);
+  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, 0)) < 0.1,
+    `the turret stayed at ${v.turrets[0].angle.toFixed(2)} rad after he handed `
+    + 'it back; it is not under her fire control again');
+});
+
+check('a close-range mounting is laid by hand and fires itself', () => {
+  // Three rules, and they are the difference between the batteries. A heavy
+  // gun fires a salvo and a salvo is a decision, so it waits for a trigger. An
+  // automatic gun fires for as long as it is laid: there is no moment at which
+  // a Bofors gunner decides to shoot, only the moment he stops. So there is no
+  // trigger for one here, and laying it is the whole of working it.
+  const world = generateWorld(89, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'F', classId: 'enterprise', team: 1, index: 0 });
+  v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
+  foe.x = 0; foe.z = 9000; foe.speed = 0;
+  const cls = SHIP_CLASSES.cleveland;
+
+  // Her main battery loaded and laid, so that a trigger wired to the wrong
+  // battery would have something to fire and would be seen doing it.
+  v.aimX = foe.x; v.aimZ = foe.z;
+  foe.spottedBy[0] = 1;
+  for (let i = 0; i < 40 / DT; i++) step(state, DT);
+  for (const t of v.turrets) t.cooldown = 0;
+  const loaded = state.shells.length;
+  assert.ok(fireGuns(state, v) > 0, 'her main battery cannot fire; nothing to test');
+  state.shells.length = loaded;
+  for (const t of v.turrets) t.cooldown = 0;
+
+  manGun(v, { k: 'aa', i: 0 });
+  assert.deepEqual(v.manned, { k: 'aa', i: 0 }, 'a light mounting cannot be manned');
+  // There is nothing to pull. An automatic gun has no trigger here because it
+  // has none aboard either, and the order has to go nowhere at all -- not to
+  // some other mounting that happens to share the number.
+  const n0 = state.shells.length;
+  assert.equal(shootGun(state, v), 0,
+    'an automatic gun answered a trigger it has not got');
+  assert.equal(state.shells.length, n0,
+    'a trigger pulled at a light mounting fired something else on the ship');
+  for (const t of v.turrets) {
+    assert.equal(t.cooldown, 0, 'pulling at a light mounting fired her main battery');
+  }
+
+  // What laying it is worth. One flight, held on the same bearing for the same
+  // time, with the mounting laid on her and then laid somewhere else.
+  const run = (onHer) => {
+    const w2 = generateWorld(89, 'open_ocean');
+    w2.islands = [];
+    const st = createState(w2, { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'V', classId: 'cleveland', team: 0, index: 0 });
+    const e = addShip(st, { name: 'F', classId: 'enterprise', team: 1, index: 0 });
+    s.x = 0; s.z = 0; s.heading = 0; s.speed = 0;
+    e.x = 0; e.z = 9000; e.speed = 0;
+    // A flight coming in on her starboard bow, inside her light battery.
+    const p = {
+      id: 900, owner: e.id, team: 1, x: 1400, z: 1400, y: 900,
+      heading: Math.PI, speed: 78, count: 4, hp: 400 * 4, life: 20,
+      role: 'torpedo', state: 'out', cooldown: 0, wear: null,
+    };
+    st.planes.push(p);
+    manGun(s, { k: 'aa', i: 0 });
+    // On her, or ninety degrees off her.
+    layGun(s, onHer ? { x: p.x, z: p.z, y: p.y } : { x: -p.z, z: p.x, y: p.y });
+    const hp0 = p.hp;
+    for (let i = 0; i < 6 / DT; i++) {
+      // Held where she is: what is being measured is the laying, not the
+      // aeroplane flying out of the arc.
+      p.x = 1400; p.z = 1400; p.y = 900;
+      layGun(s, onHer ? { x: p.x, z: p.z, y: p.y } : { x: -p.z, z: p.x, y: p.y });
+      step(st, DT);
+    }
+    return hp0 - p.hp;
+  };
+  const on = run(true);
+  const off = run(false);
+  assert.ok(off > 0, 'her light battery put nothing up at all');
+  assert.ok(on > off * 1.05,
+    `laying the mounting on her was worth ${(on - off).toFixed(0)} against `
+    + `${off.toFixed(0)} from the battery, which is not worth a man`);
+  void cls;
+});
+
+check('the Graf Spee is the ship she was, and she is in the yard', () => {
+  // A Panzerschiff: a cruiser hull carrying a battleship's guns. Two triple
+  // eleven-inch turrets, both on the weather deck because there is no second
+  // turret at either end to superfire over; eight single fifteens that will
+  // not point up; and the first seagoing radar set in service.
+  const c = SHIP_CLASSES.spee;
+  assert.ok(c, 'she is not on the list at all');
+  assert.equal(SHIP_ORDER.indexOf('spee'), SHIP_ORDER.indexOf('hipper') + 1,
+    'she does not come after the Admiral Hipper in the yard');
+  assert.equal(c.turrets.length, 2, 'she has the wrong number of main turrets');
+  for (const t of c.turrets) {
+    assert.equal(t.guns, 3, 'her main turrets are not triples');
+  }
+  // One forward, one aft, and neither superfiring over the other: they stand
+  // at very nearly the same height.
+  const [a, y] = c.turrets;
+  assert.ok(a.z > 0 && y.z < 0, 'both her turrets are at the same end');
+  assert.ok(Math.abs(a.my - y.my) < 1.5,
+    `one of her turrets superfires over the other: ${a.my} m against ${y.my} m`);
+  assert.equal(c.gun.caliber, 283, 'her main battery is not eleven-inch');
+  // Her fifteens are surface guns and nothing else, which is why she carries a
+  // separate heavy anti-aircraft battery and the Hipper does not.
+  assert.equal(c.secondary.role, 'surface', 'her 15 cm mountings elevate to aircraft');
+  assert.equal(c.secondary.mounts.length, 8, 'she does not carry eight fifteens');
+  for (const m of c.secondary.mounts) {
+    assert.equal(m.guns, 1, 'her fifteens are in twin mountings');
+  }
+  assert.ok((c.aa.guns || []).some((g) => g.caliber === 105),
+    'she has no heavy anti-aircraft battery, and her fifteens will not point up');
+  // Thin. Eighty millimetres is the whole argument about the type.
+  assert.ok(c.armor.belt <= 100,
+    `a Panzerschiff with a ${c.armor.belt} mm belt is a battleship`);
+  assert.ok(c.armor.belt < SHIP_CLASSES.hipper.armor.belt,
+    'she is better armoured than a heavy cruiser');
+  // And she outranges the cruiser that has to catch her.
+  assert.ok(c.gun.range > SHIP_CLASSES.hipper.gun.range,
+    'a commerce raider that cannot outrange a heavy cruiser has no trade');
+  assert.ok(c.radarRange > SHIP_CLASSES.hipper.radarRange,
+    'she carried the first radar set to sea and it does nothing for her');
+  // Eight tubes in two quadruple banks on the quarterdeck.
+  assert.equal(c.torpedoes.mounts.length, 2, 'she has the wrong number of tube banks');
+  for (const m of c.torpedoes.mounts) {
+    assert.equal(m.tubes, 4, 'her tube banks are not quadruples');
+    assert.ok(m.z < -40, 'her tubes are not on the quarterdeck');
+  }
+});
+
+check('a pool draws what is in it and not what it could hold', () => {
+  // An instanced batch draws every instance it is told it has, wherever the
+  // matrix has put it. Every pool in the game used to park what it was not
+  // using twenty kilometres under the sea at a thousandth of its size, with
+  // frustum culling off -- and then draw all of it. Five types of aeroplane,
+  // ninety-six machines apiece, five or six thousand triangles each: two and a
+  // half million triangles a frame to draw an empty sky, which was three
+  // quarters of everything the card was being asked for.
+  //
+  // `count` is the batch's own word for how many are real.
+  const scene = new THREE.Scene();
+  const flights = new Flights(scene, 96);
+  const batches = Object.values(flights.batches);
+  assert.ok(batches.length > 1, 'there is only one kind of aeroplane to test');
+  for (const b of batches) {
+    assert.equal(b.mesh.count, 0, 'an empty sky is drawing aeroplanes');
+  }
+  // Two flights up, of one type.
+  flights.begin();
+  flights.add('torpedo', 0, 300, 0, 0, 0, 0, 3);
+  flights.end();
+  let live = 0;
+  for (const b of batches) live += b.mesh.count;
+  assert.equal(live, 3, `three aeroplanes in the air drew ${live} of them`);
+  // And a batch with nothing in it is not drawn at all.
+  const empty = batches.filter((b) => b.mesh.count === 0);
+  assert.ok(empty.length > 0, 'every type has an aeroplane up; nothing to test');
+  for (const b of empty) {
+    assert.equal(b.mesh.visible, false, 'a batch with nothing in it is still drawn');
+  }
+  // They go away again.
+  flights.begin();
+  flights.end();
+  for (const b of batches) assert.equal(b.mesh.count, 0, 'the sky did not empty');
+});
+
+check('a mounting is welded in its own frame and goes on training', () => {
+  // mergeStatic stops at anything that moves, which is right -- a turret has to
+  // be able to train -- but it left every mounting drawn exactly as it was
+  // modelled. A twin 10.5 cm on the Hipper is a hundred and nineteen separate
+  // boxes and cylinders; thirty-three mountings came to eighteen hundred and
+  // fifty draw calls carrying forty-five thousand triangles between them, which
+  // is five and twenty triangles a call and the worst possible shape for a
+  // frame.
+  //
+  // A mounting moves as a unit, so everything in it that does not move
+  // separately is one buffer. Nothing is dropped and no pixel changes.
+  for (const id of ['hipper', 'cleveland', 'fletcher', 'iowa', 'spee']) {
+    const built = buildShip(id);
+    let meshes = 0;
+    let tris = 0;
+    built.group.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      meshes++;
+      const g = o.geometry;
+      tris += Math.round((g.index ? g.index.count : (g.attributes.position?.count || 0)) / 3);
+    });
+    // A whole ship in a few hundred draw calls rather than a couple of
+    // thousand. The figure is generous: what is being checked is that the weld
+    // ran at all, not a budget.
+    assert.ok(meshes < 700,
+      `the ${id} is ${meshes} separate meshes; her mountings were not welded`);
+    assert.ok(tris > 20000, `the ${id} came out of the weld with ${tris} triangles`);
+
+    // And every mounting still has the two things that make it a mounting: a
+    // group that trains and a group inside it that elevates. A cradle welded
+    // into its own barbette is a turret whose guns no longer elevate, and it
+    // would look perfectly correct standing still.
+    const mounts = [...(built.turrets || []), ...(built.secMounts || [])];
+    assert.ok(mounts.length > 0, `the ${id} has no mountings`);
+    for (const m of mounts) {
+      assert.ok(m.userData.dynamic, `a ${id} mounting is not marked as moving`);
+      const node = m.userData.gunNode;
+      assert.ok(node, `a ${id} mounting has nothing that elevates`);
+      if (node !== m) {
+        assert.ok(node.userData.dynamic,
+          `a ${id} mounting's cradle is not marked as moving, so the weld took it`);
+        let inside = false;
+        for (let q = node; q; q = q.parent) if (q === m) { inside = true; break; }
+        assert.ok(inside, `a ${id} mounting's cradle is not part of the mounting`);
+      }
+      let n = 0;
+      m.traverse((o) => { if (o.isMesh) n++; });
+      assert.ok(n > 0, `a ${id} mounting has no geometry left after the weld`);
+      assert.ok(n < 40,
+        `a ${id} mounting is still ${n} separate meshes; the weld did not reach it`);
+    }
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

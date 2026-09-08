@@ -255,7 +255,74 @@ function ladder(g, m, x, y0, y1, z0, z1) {
   }
 }
 
+
+// ------------------------------------------------------- fairing a table --
+//
+// Reading a table of offsets as a fair line.
+//
+// A smoothstep between two entries is flat at both ends of every span, which
+// on a deckhouse nobody can see and on a hull is the difference between a line
+// and a flight of steps: the curve stops dead at every station and then
+// hurries to the next one, so a deck edge comes out scalloped -- a bulge at
+// each offset with a flat between. A shipwright would call that an unfair line
+// and send it back to the loft floor.
+//
+// This is the monotone cubic through the same offsets: it passes through every
+// one of them, takes its slope at each from the two spans either side, and is
+// held back where that would make it overshoot -- so a table that only narrows
+// gives a line that only narrows, and there is no hollow between stations that
+// was never drawn.
+const FAIR_SLOPES = new Map();
+function fairSlopes(tab) {
+  let m = FAIR_SLOPES.get(tab);
+  if (m) return m;
+  const n = tab.length;
+  const d = [];
+  for (let i = 0; i < n - 1; i++) {
+    d.push((tab[i + 1][1] - tab[i][1]) / (tab[i + 1][0] - tab[i][0]));
+  }
+  m = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = (d[i - 1] + d[i]) / 2;
+  // Fritsch-Carlson: pull the slopes in wherever the cubic would otherwise
+  // bulge past the offsets it is drawn through.
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    if (a < 0) m[i] = 0;
+    if (b < 0) m[i + 1] = 0;
+    const s = a * a + b * b;
+    if (s > 9) {
+      const k = 3 / Math.sqrt(s);
+      m[i] = k * a * d[i];
+      m[i + 1] = k * b * d[i];
+    }
+  }
+  FAIR_SLOPES.set(tab, m);
+  return m;
+}
+
+/** Read a table of offsets at `t`, as a fair curve through them. */
+function fairTable(tab, t) {
+  const n = tab.length;
+  if (t <= tab[0][0]) return tab[0][1];
+  if (t >= tab[n - 1][0]) return tab[n - 1][1];
+  const m = fairSlopes(tab);
+  let i = 0;
+  while (i < n - 2 && t > tab[i + 1][0]) i++;
+  const h = tab[i + 1][0] - tab[i][0];
+  const u = (t - tab[i][0]) / h;
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * tab[i][1]
+    + (u3 - 2 * u2 + u) * h * m[i]
+    + (-2 * u3 + 3 * u2) * tab[i + 1][1]
+    + (u3 - u2) * h * m[i + 1];
+}
+
 export {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
-  planHouse, ladder,
+  planHouse, ladder, fairTable,
 };

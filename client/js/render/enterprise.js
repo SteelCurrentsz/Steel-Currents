@@ -24,7 +24,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { wildcat, dauntless, avenger } from './planekit.js';
 import { arm as armMount } from './mounts.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, launchProfile } from './aero.js';
@@ -2276,6 +2276,10 @@ export function buildEnterprise() {
     sheer: () => HANGAR,
   });
   mergeStatic(g, bySection(LOA));
+  // And inside every part of her that moves. A mounting is welded in its own
+  // frame, so it goes on training and elevating exactly as it did and costs
+  // two draw calls instead of a hundred. See mergeMoving.
+  mergeMoving(g);
   // The deck runs whenever anything is drawing her -- the shipyard and the
   // battle both -- so the ship carries her own animation rather than each scene
   // having to know she has elevators. `launch` starts the evolution; the

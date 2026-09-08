@@ -21,7 +21,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { arm } from './mounts.js';
 import { arado } from './planekit.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
@@ -2717,6 +2717,12 @@ export function buildHipper() {
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);
+  // And inside every part of her that moves -- after her batteries are on her,
+  // because they are put on after the hull is welded and a weld run before
+  // them finds nothing to do. A mounting is welded in its own frame, so it
+  // goes on training and elevating exactly as it did and costs two draw calls
+  // instead of a hundred and nineteen. See mergeMoving.
+  mergeMoving(g);
   g.userData.classId = 'hipper';
 
   // Her catapult, and the handful of calls the scene works it with. She flies
