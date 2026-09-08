@@ -146,6 +146,8 @@ export function addShip(state, {
     sections: freshSections(cls.hp),
     alive: true,
     fires: 0,
+    // How long she has been burning in four places at once. See stepFires.
+    blaze: 0,
     // Where the sea is in her, how far over she is lying, and how far down.
     // All three come out of the water in her compartments; see buoyancy.
     sink: 0, heel: 0, trim: 0,
@@ -174,7 +176,13 @@ export function addShip(state, {
     targetId: 0,
     aimX: sp.x + Math.sin(sp.heading) * 6000,
     aimZ: sp.z + Math.cos(sp.heading) * 6000,
-    turrets: cls.turrets.map((t) => ({ id: t.id, angle: t.angle, elev: 0, cooldown: 0, disabled: 0 })),
+    // `hurt` is what state the mounting is in and it lasts: 0 sound, 1
+    // damaged, 2 badly damaged, 3 gone. `disabled` is a countdown in seconds
+    // -- knocked out for a moment by a near miss or a shock. The two are
+    // different things and a gunnery officer needs both.
+    turrets: cls.turrets.map((t) => ({
+      id: t.id, angle: t.angle, elev: 0, cooldown: 0, disabled: 0, hurt: 0,
+    })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
     // The secondary battery, mount by mount. It is not laid by her captain --
     // a secondary mounting is in local control, and the gun captain shoots at
@@ -182,7 +190,7 @@ export function addShip(state, {
     // its own training and its own loading.
     secMounts: cls.secondary
       ? cls.secondary.mounts.map((m, i) => ({
-        id: i, angle: m.angle, elev: 0, cooldown: 0, disabled: 0, target: 0,
+        id: i, angle: m.angle, elev: 0, cooldown: 0, disabled: 0, target: 0, hurt: 0,
       }))
       : [],
     // How long since her light battery last opened up, per aircraft, so the
@@ -488,6 +496,121 @@ export function gunLimits(battery) {
   return ELEV_BY_ROLE[battery.role] || ELEV_BY_ROLE.surface;
 }
 
+// ---------------------------------------------------------------------------
+// What state a gun is in
+// ---------------------------------------------------------------------------
+//
+// A mounting is not a switch. It is knocked about by splinters, its training
+// gear jams, its hoists stop, its crew are killed and replaced -- and all of
+// that is degrees rather than on and off. Four of them:
+//
+//   0  sound      -- fires as designed
+//   1  damaged    -- two seconds more on the reload
+//   2  bad        -- ten seconds between rounds; barely in action
+//   3  disabled   -- finished, and it does not come back
+//
+// The first three mend themselves. Nobody has to be sent to a gun: the
+// mounting's own crew clear it, and they get on with it while the ship fights.
+// The fourth does not mend, because there is nothing left to mend.
+//
+// And a gun with the sea in its magazine is disabled whatever state the gun
+// itself is in, for as long as the sea is there. There is nothing to fire.
+
+/** How much of her magazine has to be under for the hoists to stop. */
+const MAG_DROWNED = 0.5;
+
+/** How fast a mounting's own crew put it right, in condition per second. */
+const GUN_MEND = 1 / 70;
+
+/**
+ * Which of her compartments holds this mounting's magazine.
+ *
+ * Under the gun, which is where it was: the magazines are below the turrets
+ * because the hoists run straight up, and that is the whole reason a turret
+ * is where it is.
+ */
+export function magazineOf(cls, spec) {
+  return sectionAt(clamp((spec.z || 0) / (cls.hull.length * 0.5), -1, 1));
+}
+
+/** Is this mounting's magazine under water? */
+export function magazineDrowned(ship, cls, spec) {
+  const c = ship.sections[magazineOf(cls, spec)];
+  if (!c) return false;
+  const vol = sectionVolume(cls, magazineOf(cls, spec));
+  return vol > 0 && (c.wP + c.wS) / vol >= MAG_DROWNED;
+}
+
+/**
+ * What state a mounting is in: 0 sound, 1 damaged, 2 bad, 3 disabled.
+ */
+export function gunState(ship, cls, spec, m) {
+  if (!m) return 3;
+  if (m.hurt >= 3) return 3;
+  if (spec && magazineDrowned(ship, cls, spec)) return 3;
+  // Rounded up, not down. `hurt` is continuous because the mounting's crew
+  // work it back down continuously, and taking the floor of it meant a turret
+  // knocked into the damaged state read as sound again one tick later -- the
+  // first second of mending took it from 1.0 to 0.98 and the floor of that is
+  // nought. A mounting stays in the state it is in until its crew have worked
+  // it the whole way out of it.
+  return Math.max(0, Math.min(2, Math.ceil(m.hurt)));
+}
+
+/**
+ * The condition of a mounting the simulation keeps no state for.
+ *
+ * Her close-range battery is dozens of small guns and there is no reload, no
+ * training gear and no crew modelled for any one of them -- flak is worked out
+ * as a share of a whole battery. But a 40 mm mounting is still bolted to a
+ * particular piece of the ship with a particular locker under it, and when
+ * that piece of the ship is gone or that locker is under water, that mounting
+ * is out of it whatever the rest of the battery is doing.
+ */
+export function lightGunState(ship, cls, spec) {
+  // aaBearing is asked this question by the arsenal panel and by the tests
+  // with a bare hull -- a position, a heading and nothing else. A ship with no
+  // compartments has no flooded ones.
+  if (!ship || !ship.sections) return 0;
+  const c = ship.sections[magazineOf(cls, spec)];
+  if (!c) return 0;
+  if (c.hp <= 0) return 3;
+  if (magazineDrowned(ship, cls, spec)) return 3;
+  const f = c.hp / c.max;
+  return f < 0.3 ? 2 : f < 0.62 ? 1 : 0;
+}
+
+/** The seconds this state adds to a reload. */
+export function gunPenalty(state) {
+  return state === 1 ? 2 : state === 2 ? 10 : 0;
+}
+
+/**
+ * Hurt a mounting, by however much the burst was worth.
+ *
+ * A big enough burst finishes it outright; anything less puts it a step or two
+ * down and it works its way back up. Nothing here is a countdown: the mounting
+ * is in the state it is in until its crew have had time to do something about
+ * it.
+ */
+function hurtMount(state, m, amount) {
+  if (!m || m.hurt >= 3) return;
+  m.hurt = Math.min(3, (m.hurt || 0) + amount);
+}
+
+/**
+ * The mounting's own crew, getting on with it.
+ *
+ * There is nothing to call away and nothing to spend: a gun's crew clear their
+ * own mounting while the ship is fighting, and they do it whether the bridge
+ * knows about it or not. What they cannot do is put back a mounting that is
+ * gone -- three is where it stops.
+ */
+function mendMount(m, dt) {
+  if (!m || !m.hurt || m.hurt >= 3) return;
+  m.hurt = Math.max(0, m.hurt - GUN_MEND * dt);
+}
+
 /** Bearing a turret wants, clamped into its firing arc; null when it cannot bear. */
 function turretDesired(ship, cls, t) {
   const spec = cls.turrets[t.id];
@@ -511,6 +634,14 @@ function stepTurrets(state, ship, dt) {
   const elev = solveBallistic(cls.gun, d, 12).elev;
   const stops = gunLimits(cls.gun);
   for (const t of ship.turrets) {
+    // Her own turret crew putting it right, and they do it while she fights.
+    // Nobody is sent to a gun and no repair is called away: the mounting's
+    // people clear the jam, get the casualties out and go on.
+    mendMount(t, dt);
+    const cond = gunState(ship, cls, cls.turrets[t.id], t);
+    // Finished, or her magazine is under. Either way the mounting is done and
+    // it does not train, elevate or reload.
+    if (cond >= 3) { t.laid = false; continue; }
     if (t.disabled > 0) { t.disabled -= dt; continue; }
     const want = turretDesired(ship, cls, t);
     t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
@@ -530,7 +661,9 @@ function stepTurrets(state, ship, dt) {
 
 export function canFire(ship) {
   if (!ship.alive) return false;
-  return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0 && t.laid !== false);
+  const cls = shipClass(ship);
+  return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0
+    && t.laid !== false && gunState(ship, cls, cls.turrets[t.id], t) < 3);
 }
 
 /** Fire every turret that is loaded and on target. Returns barrels fired. */
@@ -547,6 +680,8 @@ export function fireGuns(state, ship) {
   for (const t of ship.turrets) {
     if (t.cooldown > 0 || t.disabled > 0) continue;
     const tSpec = cls.turrets[t.id];
+    const cond = gunState(ship, cls, tSpec, t);
+    if (cond >= 3) continue;
     const want = turretDesired(ship, cls, t);
     if (want.blocked) continue;
     // Nor past her stops: a gun that will not come down that far does not
@@ -579,7 +714,9 @@ export function fireGuns(state, ship) {
         life: 0,
       }) && fired++;
     }
-    t.cooldown = gun.reload;
+    // A knocked-about mounting is slower between rounds: two seconds on a
+    // damaged one, ten on one barely in action.
+    t.cooldown = gun.reload + gunPenalty(cond);
     // Which mounting it was, so the client can put the flash on the muzzles of
     // that turret -- it has the model and knows exactly where they are.
     const mz0 = muzzlePos(ship, cls, tSpec, gun, bearing);
@@ -935,6 +1072,11 @@ export function aaBearing(cls, ship, px, pz, py) {
     if (d > m.range) continue;
     if (!mountBears(ship, m, bearing)) continue;
     if (up !== null && (up > m.up.max || up < m.up.min)) continue;
+    // A close-range mounting has a ready-use locker under it like everything
+    // else aboard, and when that is under water the mounting has nothing to
+    // fire. So does a mounting standing on a compartment that has been shot
+    // out of her.
+    if (lightGunState(ship, cls, m) >= 3) continue;
     on += m.guns;
   }
   return { share: all > 0 ? on / all : 0, barrels: on, of: all, bearing, range: d };
@@ -989,9 +1131,12 @@ function stepSecondary(state, ship, dt) {
   if (!S || !ship.secMounts.length) return;
   const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
   for (const m of ship.secMounts) {
+    mendMount(m, dt);
+    const spec = S.mounts[m.id];
+    const cond = gunState(ship, cls, spec, m);
+    if (cond >= 3) continue;
     if (m.disabled > 0) { m.disabled -= dt; continue; }
     if (m.cooldown > 0) m.cooldown -= dt;
-    const spec = S.mounts[m.id];
     const foe = secondaryTarget(state, ship, spec, S);
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on.
@@ -1058,7 +1203,7 @@ function stepSecondary(state, ship, dt) {
         life: 0,
       });
     }
-    m.cooldown = S.reload;
+    m.cooldown = S.reload + gunPenalty(cond);
     // `s` is which mounting fired, so the flash goes on that mounting's own
     // barrels: a battery in local control is a dozen guns each doing its own
     // thing, and they have to look like it.
@@ -1620,8 +1765,14 @@ function detonate(state, ship, where, owner) {
   }
   startFire(state, ship, 'works', 0.5);
   // The shock. Nothing aboard is laying a gun for a while.
-  for (const t of ship.turrets) t.disabled = Math.max(t.disabled, 26 + state.rng() * 20);
-  for (const m of ship.secMounts) m.disabled = Math.max(m.disabled || 0, 20 + state.rng() * 16);
+  for (const t of ship.turrets) {
+    t.disabled = Math.max(t.disabled, 26 + state.rng() * 20);
+    hurtMount(state, t, 1.4 + state.rng() * 1.9);
+  }
+  for (const m of ship.secMounts) {
+    m.disabled = Math.max(m.disabled || 0, 20 + state.rng() * 16);
+    hurtMount(state, m, 1.1 + state.rng() * 2.1);
+  }
   ship.engineDamage = Math.max(ship.engineDamage, 18 + state.rng() * 20);
   ship.steeringDamage = Math.max(ship.steeringDamage, 18 + state.rng() * 20);
   ship.flooding = floodedCount(ship);
@@ -1676,7 +1827,11 @@ function wreckContents(state, ship, where, bore, kind, at) {
   // only if it is inside that.
   const hurt = nearestMount(ship, cls, at);
   if (hurt && hurt.d <= burstReach(kind, bore)) {
-    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 10 + state.rng() * 14);
+    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 3 + state.rng() * 5);
+    // And it leaves the mounting in whatever state it leaves it in. A heavy
+    // shell into a turret finishes it; a splinter on the mounting jams the
+    // training gear and slows it down, and the gun's crew work at it.
+    hurtMount(state, hurt.m, (BURST_M[kind] ?? 4) / 9 + state.rng() * 1.4);
   }
 }
 
@@ -3238,6 +3393,9 @@ function startFire(state, ship, where = 'works', strength = 0.35) {
  */
 const COOK_OFF = 180;
 
+/** How many compartments alight at once is a ship that is burning. */
+const FIRE_STORM = 4;
+
 /**
  * A fire that has been left alone for three minutes finds something.
  *
@@ -3268,7 +3426,8 @@ function cookOff(state, ship, where) {
     ? ((Math.max(-1, at.from) + Math.min(1, at.to)) / 2) * half : 0;
   const hurt = nearestMount(ship, cls, { x: 0, y: freeboardOf(cls), z });
   if (hurt && hurt.d <= burstReach('he', 0.2)) {
-    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 14 + state.rng() * 18);
+    hurt.m.disabled = Math.max(hurt.m.disabled || 0, 4 + state.rng() * 6);
+    hurtMount(state, hurt.m, 0.6 + state.rng() * 1.5);
   }
   // The blast knocks the fire down where it happened and throws it about
   // everywhere else, which is what a burst in a burning compartment does.
@@ -3559,6 +3718,26 @@ function stepFires(state, ship, dt) {
   const cls = shipClass(ship);
   let any = false;
   const spread = [];
+  // A ship with four compartments alight at once is not four fires. It is a
+  // ship that is burning, and her damage control is beaten: there are not
+  // enough parties to go round and the ones there are get driven back by the
+  // ones next door. Give that three minutes and something aboard goes off.
+  //
+  // It is the same three minutes as a single fire's, but it is one clock for
+  // the whole ship rather than one for each compartment, so four fires that
+  // caught a minute apart still bring it on -- which is exactly the case the
+  // per-compartment clocks let through.
+  //
+  // Four of them is the three minutes. More than four is less than three
+  // minutes, and it goes as the number alight: a ship burning in six places
+  // has twice as many ways for a fire to reach something that will go off as
+  // one burning in four, and she has not got the parties to be anywhere. It
+  // matters that it comes down, because a ship that far gone is being killed
+  // by the fires themselves inside three minutes and a rule that never has
+  // time to run is not a rule.
+  const alight = burningCount(ship);
+  if (alight >= FIRE_STORM) ship.blaze = (ship.blaze || 0) + dt * (alight - FIRE_STORM + 1);
+  else ship.blaze = Math.max(0, (ship.blaze || 0) - dt * 0.5);
   for (let i = 0; i < SECTIONS.length; i++) {
     const k = SECTIONS[i].k;
     const c = ship.sections[k];
@@ -3616,6 +3795,18 @@ function stepFires(state, ship, dt) {
     if (n.fire < 0.9) startFire(state, ship, k, amt);
   }
   if (any) ship.fires = burningCount(ship);
+  // And the ship-wide clock, if it has run out. It goes off in whichever
+  // compartment is burning hardest, because that is where the fire has had
+  // most to get into.
+  if (ship.alive && (ship.blaze || 0) >= COOK_OFF) {
+    let worst = null;
+    for (const k of SECTIONS) {
+      const c = ship.sections[k.k];
+      if (c.fire > 0 && (!worst || c.fire > ship.sections[worst].fire)) worst = k.k;
+    }
+    ship.blaze = COOK_OFF * 0.4;
+    if (worst) cookOff(state, ship, worst);
+  }
 }
 
 /**

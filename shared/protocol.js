@@ -2,12 +2,13 @@
 // receive the enemies your side can actually see.
 
 import { getClass } from './ships.js';
-import { torpedoVisible, SECTIONS, sectionVolume } from './sim.js';
+import { torpedoVisible, SECTIONS, sectionVolume, gunState } from './sim.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
 export function shipSnapshot(ship, full) {
+  const cls = getClass(ship.classId);
   const s = {
     i: ship.id, x: r1(ship.x), z: r1(ship.z), h: r3(ship.heading),
     v: r1(ship.speed), hp: Math.round(ship.hp), a: ship.alive ? 1 : 0,
@@ -46,8 +47,12 @@ export function shipSnapshot(ship, full) {
     // so the fire and the water can be drawn where they actually are.
     wt: SECTIONS.map((k) => {
       const c = ship.sections[k.k];
-      const v = sectionVolume(getClass(ship.classId), k.k);
-      return v ? Math.round(Math.min(1, (c.wP + c.wS) / v) * 9) : 0;
+      const v = sectionVolume(cls, k.k);
+      // In hundredths, not ninths. The board draws the water standing in her
+      // at this level, and a ninth of a compartment is most of a metre of
+      // freeboard: she flooded in visible steps, one jump per ninth, when what
+      // is wanted is the sea creeping up her frames while you watch it.
+      return v ? Math.round(Math.min(1, (c.wP + c.wS) / v) * 100) : 0;
     }),
     fr: SECTIONS.map((k) => Math.round(ship.sections[k.k].fire * 9)),
     // Where the sea is running, and which way. Positive is water coming in
@@ -79,7 +84,21 @@ export function shipSnapshot(ship, full) {
     s.notch = ship.notch;
     s.rud = r3(ship.rudder);
     s.cd = ship.turrets.map((t) => Math.max(0, Math.round(t.cooldown * 10) / 10));
-    s.dis = ship.turrets.map((t) => (t.disabled > 0 ? 1 : 0));
+    // Whether the mounting is laying at this instant. A turret shaken up by a
+    // burst alongside is out for a few seconds and comes back; one that is
+    // finished, or that is standing over a magazine with the sea in it, is out
+    // and stays out. Both read as out here, and `gc` below says which.
+    s.dis = ship.turrets.map(
+      (t) => (t.disabled > 0 || gunState(ship, cls, cls.turrets[t.id], t) >= 3 ? 1 : 0));
+    // What condition each mounting is in: 0 sound, 1 damaged, 2 barely in
+    // action, 3 finished. It is not the same question as `dis` above, which is
+    // only whether the gun is laying at this instant -- a mounting can be
+    // shaken up and still sound, or standing there with nothing wrong with it
+    // and its magazine three feet under water.
+    s.gc = ship.turrets.map((t) => gunState(ship, cls, cls.turrets[t.id], t));
+    if (ship.secMounts.length && cls.secondary) {
+      s.sc = ship.secMounts.map((m) => gunState(ship, cls, cls.secondary.mounts[m.id], m));
+    }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
     s.sq = ship.squadrons.map((q) => (q.state === 'deck' ? Math.max(0, Math.round(q.cooldown)) : -1));
     s.rc = Math.max(0, Math.round(ship.repairCd * 10) / 10);

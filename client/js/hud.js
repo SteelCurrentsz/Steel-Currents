@@ -72,6 +72,12 @@ export function arsenal(cls) {
       pen: pierce(cls.gun),
       band: 'Main battery',
       specs: cls.turrets,
+      // Which array on the wire says what condition each of these mountings
+      // is in. Her main and secondary batteries are laid and fired mounting by
+      // mounting and the simulation keeps state for each; her close-range guns
+      // are not, so their condition is worked out from the piece of ship they
+      // stand on.
+      cond: 'gc',
     });
   }
   if (cls.secondary) {
@@ -86,6 +92,7 @@ export function arsenal(cls) {
       pen: pierce(cls.secondary),
       band: 'Secondary battery',
       specs: cls.secondary.mounts,
+      cond: 'sc',
     });
   }
   for (const g of (cls.aa && cls.aa.guns) || []) {
@@ -970,7 +977,7 @@ export class Hud {
       this.armsCanvas = cv;
     }
     entry.row.insertAdjacentElement('afterend', this.armsWrap);
-    this.onArms?.(this.armsCanvas, entry.w.specs);
+    this.onArms?.(this.armsCanvas, entry.w.specs, entry.w);
   }
 
   /** Say who builds the arsenal hologram, so the HUD need not import one. */

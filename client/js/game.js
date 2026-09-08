@@ -14,7 +14,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint, PENETRATING, HOLING, SECTIONS,
+  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt,
 } from '../../shared/sim.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, MPS_TO_KNOTS,
@@ -94,14 +94,15 @@ export class Battle {
     // wrench is pressed, and is fed her compartments every frame after.
     this.hud.onDamageBoard?.((canvas) => {
       this.board = new DamageBoard(canvas, classId);
-      for (const h of this.holes) this.board.hole(h[0], h[1], h[2]);
+      for (const h of this.holes) this.board.hole(h[0], h[1], h[2], h[3]);
     });
     // And the arsenal's own hologram: the same hull with no damage on it, and
     // the battery that was pressed lit up where it stands on her.
-    this.hud.onArsenalBoard?.((canvas, specs) => {
+    this.hud.onArsenalBoard?.((canvas, specs, row) => {
       if (!this.armsBoard) this.armsBoard = new DamageBoard(canvas, classId, { plain: true });
       this.armsBoard.build(this.shownShip()?.c || classId);
-      this.armsBoard.markMounts(specs);
+      this.armsRow = row;
+      this.armsBoard.markMounts(specs, this.mountCondition(row));
     });
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
@@ -167,6 +168,11 @@ export class Battle {
     this.wrecks = [];
     this.watchYaw = 0;
     this.watchPitch = 0.06;
+    // Standing on her beam: 0 off, -1 to port of her, +1 to starboard. When
+    // it is on, the camera keeps station abeam of whatever it is watching --
+    // she turns and the view turns with her, so you go on looking at her
+    // broadside on. See sideView.
+    this.watchSide = 0;
     // Aboard her, or standing off her. A captain who taps a contact wants to
     // see what she can see; a captain watching a strike go in wants to see the
     // ship it is going into. C swaps between the two.
@@ -217,6 +223,7 @@ export class Battle {
     this.hud.onToggleMap = () => this.toggleMap();
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
+    document.getElementById('side-cam')?.addEventListener('click', () => this.sideView());
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
@@ -272,6 +279,38 @@ export class Battle {
       if (!own.a && !this.sunk) this.onOwnSunk();
       this.ownSnap = own;
     }
+  }
+
+  /**
+   * What condition each mounting of one battery is in, as the wire has it.
+   *
+   * Her main and secondary batteries come through mounting by mounting,
+   * because the simulation lays and fires each of them separately and knows
+   * exactly what state each is in. Her close-range guns do not: flak is a
+   * share of a whole battery and there is no state for any one 40 mm mounting
+   * -- so their condition is read off the piece of the ship each one stands
+   * on, which is the same thing the simulation itself does when it decides
+   * whether a mounting can still put anything up.
+   */
+  mountCondition(row) {
+    if (!row || !row.specs) return null;
+    const snap = this.shownShip();
+    if (!snap) return null;
+    if (row.cond) return snap[row.cond] || null;
+    if (!snap.wt || !snap.sk) return null;
+    const cls = getClass(snap.c);
+    const half = Math.max(1, cls.hull.length * 0.5);
+    return row.specs.map((m) => {
+      const k = sectionAt(Math.max(-1, Math.min(1, (m.z || 0) / half)));
+      const i = SECTIONS.findIndex((q) => q.k === k);
+      if (i < 0) return 0;
+      // Half her magazine under is the hoists stopped, and the wire carries
+      // the water in ninths.
+      if ((snap.wt[i] || 0) >= 50) return 3;
+      const hp = (snap.sk[i] || 0) / 9;
+      if (hp <= 0) return 3;
+      return hp < 0.3 ? 2 : hp < 0.62 ? 1 : 0;
+    });
   }
 
   /**
@@ -410,7 +449,12 @@ export class Battle {
             audio.hit(ev.kind);
             // A hole in our own hull goes on the damage board, at the place on
             // her the shell actually went in.
-            if (HOLING.has(ev.kind)) this.markHole(ev.x, ev.y, ev.z);
+            // Every round that struck her goes on the board, not only the
+            // ones that got in. What her armour turned away is the other half
+            // of the story -- a captain wants to see the white rings down her
+            // belt as much as the red ones through it -- and only a splash
+            // alongside leaves no mark, because it did not touch her.
+            if (ev.kind !== 'splash') this.markHole(ev.x, ev.y, ev.z, ev.kind);
           }
           break;
         }
@@ -433,7 +477,12 @@ export class Battle {
           fx.splash(ev.x, ev.z, 620);
           audio.explosion(1.5, d);
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
-          if (ev.victim === this.shipId) this.hud.alert('Torpedo hit');
+          if (ev.victim === this.shipId) {
+            this.hud.alert('Torpedo hit');
+            // Under her belt and through it: on the board it is a red ring
+            // below her waterline, with the sea running in through it.
+            this.markHole(ev.x, ev.y ?? -2, ev.z, 'torpedo');
+          }
           break;
         case 'fire': if (ev.ship === this.shipId) this.hud.alert('Fire on deck'); break;
         case 'flood': if (ev.ship === this.shipId) { this.hud.alert('Flooding'); audio.alarm(); } break;
@@ -708,6 +757,10 @@ export class Battle {
       // The plot is a control as well as a picture, and a pointer locked to the
       // sea has no cursor to put on it. Opening the plot gives the mouse back;
       // the next click on the water takes it again.
+      // Broadside on. Every recognition photograph ever taken of a warship is
+      // this view, and it is the one the camera could not be put in: the orbit
+      // walked round her but she kept turning underneath it.
+      case 'KeyV': this.sideView(); break;
       case 'KeyM': this.toggleMap(); break;
       case 'Tab': this.showScores = !this.showScores; this.hud.showScoreboard(this.roster, this.shipId, this.showScores); break;
       // Out of somebody else's view first, out of the battle second.
@@ -914,6 +967,10 @@ export class Battle {
       x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5, z: s.z,
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
+      // Which way she is heading, so the camera can be held on her beam while
+      // she manoeuvres rather than being walked round by hand every time she
+      // puts the wheel over. See sideView.
+      h: s.h,
     };
   }
 
@@ -1370,12 +1427,58 @@ export class Battle {
     audio.click();
   }
 
+  /**
+   * Stand off her beam, and stay there.
+   *
+   * The orbit walks round whatever it is watching, which is fine until she
+   * turns: her heading changes underneath the camera and the broadside view
+   * you had set up becomes a bow-on one without anybody touching anything.
+   * This keeps station on her instead -- her beam, level with her -- so she is
+   * drawn the way every recognition photograph ever taken of a warship draws
+   * her, and she stays that way through a turn.
+   *
+   * Press it again for her other side, and a third time to let go and have the
+   * orbit back. Dragging the view lets go of it too, because a drag is a
+   * request to look somewhere else.
+   */
+  sideView() {
+    const watch = this.watchPoint();
+    if (!watch || watch.h == null) {
+      this.hud.alert('Pick a ship on the plot first');
+      return;
+    }
+    this.watchSide = this.watchSide === 0 ? 1 : this.watchSide === 1 ? -1 : 0;
+    this.watchPov = false;
+    const key = document.getElementById('side-cam');
+    if (key) key.setAttribute('aria-pressed', this.watchSide ? 'true' : 'false');
+    if (this.watchSide) {
+      // Far enough off that the whole of her is in the picture.
+      this.watchDist = Math.max(this.watchDist, 1.5);
+      this.hud.alert(this.watchSide > 0 ? 'Abeam to starboard' : 'Abeam to port');
+    } else {
+      this.hud.alert('Camera free to orbit');
+    }
+    audio.click();
+  }
+
   panCamera(dx, dy, dt) {
     // Only with the free camera up: it is the one way the camera leaves its
     // ship, and it has a key of its own. See freeCamera.
-    if (!this.freeCam) return;
+    //
+    // Except once the guns have stopped. There is no ship to be pinned to any
+    // more and nothing left to give away, so the whole battlefield is open:
+    // drag and the camera walks over it, from one burning wreck to the next,
+    // with no key to find first.
+    if (!this.freeCam && !this.result) return;
     if (!dx && !dy) return;
     const here = this.focusPoint();
+    // Walking the view off a wreck is how you let go of it, once the action is
+    // over and there is no longer any reason to be pinned to a hull. It starts
+    // from where the camera already was, so nothing jumps.
+    if (this.result && !this.freeCam && this.watching) {
+      this.roam = { x: here.x, z: here.z };
+      this.lookAt(null);
+    }
     if (!this.roam) this.roam = { x: here.x, z: here.z };
     // In the camera's own frame, and scaled by how far off it is standing:
     // panning a mile out has to move a mile, and panning alongside a ship has
@@ -1528,6 +1631,10 @@ export class Battle {
     this.hud.setTarget(readTarget(shown, snap, ls));
     // The board only turns while it is being looked at.
     if (this.armsBoard && this.hud.panel === 'arms' && this.hud.armsShown) {
+      // Live, because a gun's condition is a thing that changes while you are
+      // looking at it: a turret goes out under a shell and the marker for that
+      // turret and no other turns red where the captain is watching.
+      this.armsBoard.setMountCondition(this.mountCondition(this.armsRow));
       this.armsBoard.update(null, dt);
     }
     if (this.board && this.hud.panel === 'dmg') {
@@ -1660,7 +1767,14 @@ export class Battle {
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
 
-      view.wake.update(dt, x, z, h, speed);
+      // A ship going down does not leave a wake. She has stopped making way
+      // through the water and started settling into it, and a Kelvin pattern
+      // streaming away from a hull that is standing on end is nonsense -- so
+      // the moment she founders the track stops being laid and what she left
+      // behind her goes out of the water.
+      const foundering = !s.a || view.going;
+      if (foundering) view.wake.stop(dt);
+      else view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
       // A ship that has stopped floating is not simply switched off. She is
       // still there, going down the way her water and her wreckage make her
@@ -1684,7 +1798,11 @@ export class Battle {
       // now, and the wire says which compartments are alight and how hard, so
       // a hit forward puts a fire forward instead of somewhere on the ship in
       // general -- and a compartment that is well alight looks it.
-      if (s.fr) {
+      // And once she is under, nothing is burning. A fire needs a deck to
+      // stand on: a wreck still on the surface burns, and the instant the last
+      // of her goes down the flames go with her rather than being left alight
+      // on the open sea.
+      if (s.fr && (s.a || view.group.visible)) {
         view.fireTimer -= dt;
         if (view.fireTimer <= 0) {
           view.fireTimer = 0.10;
@@ -2178,11 +2296,12 @@ export class Battle {
    */
   bombThrough(x, y, z) {
     let hit = null;
+    let hitId = 0;
     let best = 70;
-    for (const [, v] of this.scene.shipViews) {
+    for (const [id, v] of this.scene.shipViews) {
       const d = Math.hypot(v.group.position.x - x, v.group.position.z - z);
       if (d < v.cls.hull.length * 0.6 && d < best + v.cls.hull.length * 0.6) {
-        hit = v; best = d;
+        hit = v; hitId = id; best = d;
       }
     }
     if (!hit) return;
@@ -2192,8 +2311,16 @@ export class Battle {
     // and carries the power to shed the fittings round it as well.
     const r = holeRadius('bomb', 454) * 1.6;
     const went = hit.punch(x, y, z, r, 0.35, 3.2);
-    this.scene.debris.burst(x, y + 4, z, 6.5, 1);
-    if (went > 0) this.scene.effects.explosion(x, y + 3, z, 1.5);
+    // What goes into the air is the deck it took, and nothing else. It used to
+    // throw a burst of wreckage whether or not the bomb found anything --
+    // through a part of her already blown away, or into the sea alongside --
+    // so a near miss put a shower of steel into the air over open water. If
+    // there was no deck there, there is nothing to throw.
+    if (went <= 0) return;
+    this.scene.debris.burst(x, y + 4, z, 3.2 + Math.min(5, went * 0.4), 1);
+    this.scene.effects.explosion(x, y + 3, z, 1.5);
+    // On our own deck it goes on the board, where the deck went.
+    if (hitId === this.shipId) this.markHole(x, y, z, 'bomb');
   }
 
   shellDamage(ev) {
@@ -2225,7 +2352,7 @@ export class Battle {
    * turned since, so it is put into her own coordinates at the moment it
    * happens and stays there.
    */
-  markHole(wx, wy, wz) {
+  markHole(wx, wy, wz, kind = 'pen') {
     const ls = this.localShip;
     const l = worldToLocal(wx - ls.x, wz - ls.z, ls.heading);
     // In her own frame, at the height it went in at: her waterline is nought,
@@ -2234,10 +2361,10 @@ export class Battle {
     // her quarterdeck is drawn in her quarterdeck. There used to be six metres
     // taken off here to force everything down onto her side, which is where
     // the board then drew all of them.
-    const h = [l.x, wy ?? 8, l.z];
+    const h = [l.x, wy ?? 8, l.z, kind];
     this.holes.push(h);
     if (this.holes.length > 90) this.holes.shift();
-    this.board?.hole(h[0], h[1], h[2]);
+    this.board?.hole(h[0], h[1], h[2], h[3]);
   }
 
   /**
@@ -2416,6 +2543,21 @@ export class Battle {
         // the water now, so you can come up under a hull and look at her
         // screws, or watch a torpedo run in from where it is running.
         this.watchEl = clamp(this.watchEl - m.y, -1.15, 1.28);
+        // Keeping station on her beam. Her heading is on the wire, so the
+        // bearing the camera stands on is worked out fresh every frame and she
+        // stays broadside on through a turn. A drag is a request to look
+        // somewhere else, so it lets go.
+        if (this.watchSide && watch.h != null) {
+          if (Math.abs(m.x) > 0.0008 || Math.abs(m.y) > 0.0008) {
+            this.watchSide = 0;
+            document.getElementById('side-cam')?.setAttribute('aria-pressed', 'false');
+          } else {
+            this.watchYaw = wrapAngle(watch.h + this.watchSide * Math.PI / 2);
+            // Level with her, near enough: a broadside view looked down on
+            // from above is a plan view, and that is not what this is for.
+            this.watchEl += (0.045 - this.watchEl) * (1 - Math.pow(0.02, dt));
+          }
+        }
         const near = !!watch.close;
         const d = Math.max(near ? 3 : 8, watch.span * this.watchDistNow);
         const rise = near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;

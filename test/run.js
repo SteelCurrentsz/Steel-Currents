@@ -20,6 +20,8 @@ import {
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
+  gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
+  sectionVolume, canFire,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -30,6 +32,8 @@ const STRIKE_RUN = DECK_RUN * 3 + 1;
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { Hud, arsenal, readTarget } from '../client/js/hud.js';
+import { MARK_KIND, ROOMS } from '../client/js/render/damageboard.js';
+import { Flames } from '../client/js/render/flames.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
 import { Battle } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -8875,6 +8879,335 @@ check('smoke goes up and burning wreckage comes down', () => {
     const p = drift({ vx: 3, vy: 3, vz: 3, drag: d, lift: 2 }, 1 / 30);
     assert.ok(Number.isFinite(p.vx + p.vy + p.vz), `drag ${d} made a velocity NaN`);
   }
+});
+
+
+check('a mounting knocked about is slower, and one that is finished never fires', () => {
+  // A gun is not a switch. It is knocked about by splinters, its training gear
+  // jams and its crew are killed and replaced, and every one of those is a
+  // degree rather than an on and an off -- so a turret that has been hit goes
+  // on firing, slower, and only the one that has been finished stops.
+  //
+  // Four states, and what each of them costs is the whole of it: sound fires
+  // on her own reload, damaged takes two seconds more, badly damaged takes
+  // ten, and disabled does not fire again.
+  const world = generateWorld(31, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.iowa;
+  v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
+  // Laid on her beam, where every turret she has can bear. The guns are put on
+  // the bearing rather than trained onto it: what is being measured is the
+  // reload, and a turret still coming round is a different question.
+  v.aimX = 14000; v.aimZ = 0;
+  const lay = () => {
+    for (const q of v.turrets) { q.angle = Math.PI / 2; q.laid = true; }
+  };
+  lay();
+
+  const t = v.turrets[0];
+  const spec = cls.turrets[t.id];
+  assert.equal(gunState(v, cls, spec, t), 0, 'a mounting nothing has happened to is not sound');
+  assert.equal(gunPenalty(gunState(v, cls, spec, t)), 0,
+    'a sound mounting is slower than her own reload');
+
+  // Knocked about: it still fires, and it takes two seconds longer over it.
+  const reloadAt = (hurt) => {
+    for (const q of v.turrets) { q.hurt = hurt; q.cooldown = 0; }
+    lay();
+    fireGuns(state, v);
+    return v.turrets.find((q) => q.cooldown > 0)?.cooldown ?? null;
+  };
+  const sound = reloadAt(0);
+  assert.ok(sound !== null, 'a sound turret did not fire at all');
+  assert.ok(Math.abs(sound - cls.gun.reload) < 1e-6,
+    `a sound turret takes ${sound} s to reload and her datasheet says ${cls.gun.reload}`);
+  const hurt1 = reloadAt(1);
+  assert.ok(hurt1 !== null, 'a damaged turret refused to fire; it is damaged, not finished');
+  assert.ok(Math.abs(hurt1 - (cls.gun.reload + 2)) < 1e-6,
+    `a damaged turret takes ${hurt1} s between rounds, not two seconds more than ${cls.gun.reload}`);
+  const hurt2 = reloadAt(2);
+  assert.ok(Math.abs(hurt2 - (cls.gun.reload + 10)) < 1e-6,
+    `a badly damaged turret takes ${hurt2} s between rounds, not ten more than ${cls.gun.reload}`);
+
+  // And finished is finished. Not a countdown, not a long reload: she does not
+  // fire again for the rest of the action.
+  for (const q of v.turrets) { q.hurt = 3; q.cooldown = 0; }
+  assert.equal(gunState(v, cls, spec, v.turrets[0]), 3, 'a wrecked mounting is not called wrecked');
+  const before = state.shells.length;
+  for (let i = 0; i < 60; i++) { lay(); fireGuns(state, v); }
+  assert.equal(state.shells.length - before, 0,
+    'a ship with every mounting wrecked went on firing');
+  assert.equal(canFire(v), false, 'she says she can fire with nothing left to fire');
+});
+
+check('a gun with the sea in its magazine has nothing to send up', () => {
+  // The hoists come up out of the magazine. Put the magazine under water and
+  // there is nothing to hoist: the gun is not damaged, its crew are not hurt
+  // and the training gear works perfectly, and it is out of the action for as
+  // long as the water is there.
+  const world = generateWorld(41, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.iowa;
+  v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
+
+  // Her forward turret, and the compartment its charges are in.
+  const fwd = cls.turrets.reduce((a, b) => (b.z > a.z ? b : a));
+  const k = magazineOf(cls, fwd);
+  const other = cls.turrets.reduce((a, b) => (b.z < a.z ? b : a));
+  assert.notEqual(k, magazineOf(cls, other),
+    'both ends of the ship draw on the same magazine; nothing to tell apart');
+  const t = v.turrets[cls.turrets.indexOf(fwd)];
+  const t2 = v.turrets[cls.turrets.indexOf(other)];
+  assert.equal(gunState(v, cls, fwd, t), 0, 'a dry ship has a drowned magazine');
+
+  // Fill it. Half of it under is the hoists stopped.
+  const vol = sectionVolume(cls, k);
+  assert.ok(vol > 0, 'her magazine has no volume to flood');
+  const c = v.sections[k];
+  c.wP = vol * 0.28; c.wS = vol * 0.28;
+  assert.equal(magazineDrowned(v, cls, fwd), true,
+    'a magazine more than half under is still passing charges');
+  assert.equal(gunState(v, cls, fwd, t), 3, 'a turret over a drowned magazine can still fire');
+  // And it is that turret and no other. The one at the far end of the ship has
+  // her own magazine and it is dry.
+  assert.equal(gunState(v, cls, other, t2), 0,
+    'flooding one magazine put the whole battery out of action');
+
+  // Pump her out and the gun is back: nothing was ever broken.
+  c.wP = 0; c.wS = 0;
+  assert.equal(gunState(v, cls, fwd, t), 0,
+    'a turret whose magazine has been pumped out is still counted disabled');
+
+  // Her close-range battery works the same way -- there is no state kept for a
+  // single Bofors mounting, but the locker under it is a real place on the
+  // ship and the sea can get into it.
+  const light = aaBattery(cls).find((m) => magazineOf(cls, m) === k);
+  if (light) {
+    assert.equal(lightGunState(v, cls, light), 0, 'a dry light mounting reads as out');
+    c.wP = vol * 0.3; c.wS = vol * 0.3;
+    assert.equal(lightGunState(v, cls, light), 3,
+      'a light mounting over a flooded locker goes on putting up flak');
+    const flooded = aaBearing(cls, v, 0, 900, 300);
+    c.wP = 0; c.wS = 0;
+    const dry = aaBearing(cls, v, 0, 900, 300);
+    assert.ok(dry.barrels > 0, 'she puts up no flak at all with nothing wrong with her');
+    assert.ok(dry.barrels > flooded.barrels,
+      `flooding a magazine took her flak from ${dry.barrels} barrels to ${flooded.barrels}`);
+  }
+});
+
+check("a gun's own crew put it right, and nobody has to be sent", () => {
+  // There is no damage control party for a gun. Its own crew clear the jam,
+  // get the casualties out and go on, and they do it while the ship is
+  // fighting -- so a mounting knocked about early in an action comes back into
+  // it without the bridge spending anything.
+  //
+  // What does not come back is one that is gone. Three is where it stops.
+  const world = generateWorld(51, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'cleveland', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.cleveland;
+  v.x = 0; v.z = 0; v.speed = 0;
+
+  for (const t of v.turrets) t.hurt = 2;
+  const gone = v.turrets[0];
+  gone.hurt = 3;
+
+  // And it takes them the whole way. A mounting knocked into a state stays in
+  // it until its crew have worked it out of that state -- five seconds of
+  // mending does not make a damaged turret sound, and reading the condition
+  // off the floor of the figure said it did: the first tick of mending took
+  // 1.0 to 0.998, and the floor of that is nought.
+  const slow = v.turrets[v.turrets.length - 1];
+  slow.hurt = 1;
+  for (let i = 0; i < 5 / DT; i++) step(state, DT);
+  assert.equal(gunState(v, cls, cls.turrets[slow.id], slow), 1,
+    'a turret was called sound again five seconds after being knocked about');
+  assert.ok(slow.hurt < 1, 'her crew have not started on it at all');
+  slow.hurt = 2;
+
+  // Five minutes of steaming about with nobody doing anything about it.
+  for (let i = 0; i < 300 / DT; i++) step(state, DT);
+
+  for (let i = 1; i < v.turrets.length; i++) {
+    assert.equal(gunState(v, cls, cls.turrets[i], v.turrets[i]), 0,
+      `turret ${i} was still out of action five minutes after being knocked about`);
+  }
+  assert.equal(gunState(v, cls, cls.turrets[0], gone), 3,
+    'a mounting that was blown off the ship mended itself');
+});
+
+check('four fires at once find something, and three of the same never do', () => {
+  // A ship with four compartments alight is not four fires. It is a ship that
+  // is burning: there are not enough parties to go round and the ones there
+  // are get driven back by the fire next door. Three minutes of that and
+  // something aboard goes off.
+  //
+  // The three minutes is the same three minutes a single fire gets. What is
+  // different is whose clock it is. A compartment's own clock runs at the rate
+  // that compartment is burning, so four small fires never reach it -- each
+  // one on its own would want the better part of ten minutes. The ship's clock
+  // does not care how hard any one of them is burning; it cares that there are
+  // four, and that is the whole of the rule.
+  const burn = (which, heat, seconds) => {
+    const world = generateWorld(61, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const v = addShip(state, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+    v.x = 0; v.z = 0; v.speed = 0;
+    let cooked = 0;
+    for (let i = 0; i < seconds / DT && v.alive; i++) {
+      // Exactly these compartments, burning at exactly this heat, with nobody
+      // going to them: what is being measured is the clock, and a fire that
+      // spreads to a fifth compartment is a different number of fires.
+      for (const k of SECTIONS) {
+        v.sections[k.k].fire = which.includes(k.k) ? heat : 0;
+      }
+      // step hands the tick's events back and clears its own; reading them off
+      // the state afterwards reads an array it has just emptied.
+      cooked += step(state, DT).filter((q) => q.e === 'cook').length;
+    }
+    return cooked;
+  };
+
+  // Small fires, the kind a compartment's own clock would take the better part
+  // of ten minutes over. Three of them, for seven minutes: nothing.
+  assert.equal(burn(['bow', 'fwd', 'mid'], 0.3, 400), 0,
+    'three small fires found something a compartment clock could not have reached');
+  // A fourth catches, and three minutes later she goes.
+  assert.ok(burn(['bow', 'fwd', 'mid', 'aft'], 0.3, 200) > 0,
+    'four compartments burning together for three minutes found nothing');
+  assert.equal(burn(['bow', 'fwd', 'mid', 'aft'], 0.3, 150), 0,
+    'four fires went off before the three minutes were up');
+
+  // And one fire, burning hard, still finds something on its own clock in the
+  // same three minutes -- which is the rule this one is added to, not one it
+  // replaces.
+  assert.ok(burn(['bow'], 0.8, 190) > 0,
+    'a fire left alone for three minutes never found anything at all');
+  assert.equal(burn(['bow'], 0.8, 150), 0,
+    'a fire found something inside two and a half minutes');
+});
+
+check('the wire says what condition every one of her mountings is in', () => {
+  // Her own captain gets it, mounting by mounting, because it is what the
+  // arsenal panel colours the hologram off: white for a gun with nothing wrong
+  // with it, yellow for one knocked about, orange for one barely in action and
+  // red for one that is finished.
+  const world = generateWorld(71, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const v = addShip(state, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.iowa;
+  v.turrets[0].hurt = 1;
+  v.turrets[1].hurt = 3;
+  const s = shipSnapshot(v, true);
+  assert.ok(Array.isArray(s.gc) && s.gc.length === v.turrets.length,
+    'the wire does not say what condition her turrets are in');
+  assert.equal(s.gc[0], 1, `her damaged turret came through as ${s.gc[0]}`);
+  assert.equal(s.gc[1], 3, `her wrecked turret came through as ${s.gc[1]}`);
+  assert.equal(s.gc[2], 0, 'a turret nothing happened to came through damaged');
+  if (v.secMounts.length) {
+    assert.ok(Array.isArray(s.sc) && s.sc.length === v.secMounts.length,
+      'the wire does not say what condition her secondary mountings are in');
+  }
+  // And a drowned magazine reads as disabled on the wire, without anything
+  // having been broken.
+  const k = magazineOf(cls, cls.turrets[2]);
+  const vol = sectionVolume(cls, k);
+  v.sections[k].wP = vol * 0.3;
+  v.sections[k].wS = vol * 0.3;
+  assert.equal(shipSnapshot(v, true).gc[2], 3,
+    'a turret over a drowned magazine reads as ready to fire');
+});
+
+
+check('the damage board says what the shell did, and where her rooms are', () => {
+  // Three colours, and what tells them apart is what the shell did rather than
+  // where it landed. It used to be the height of the hole that chose: below
+  // her waterline blue and above it orange, which told a captain something he
+  // could already see and nothing at all about whether his armour was doing
+  // its job.
+  const kinds = ['citadel', 'pen', 'overpen', 'he', 'shatter', 'ricochet', 'torpedo', 'bomb'];
+  for (const k of kinds) {
+    assert.ok(MARK_KIND[k], `the board has no mark for a ${k}`);
+  }
+  assert.equal(MARK_KIND.shatter, 'none', 'a shell that broke up on her armour is drawn as a hole');
+  assert.equal(MARK_KIND.ricochet, 'none', 'a shell that came off her belt is drawn as a hole');
+  assert.equal(MARK_KIND.he, 'dent', 'a burst on her plating is drawn as a penetration');
+  for (const k of PENETRATING) {
+    if (k === 'he') continue;
+    assert.equal(MARK_KIND[k], 'pen', `a ${k} is not drawn as a penetration`);
+  }
+  assert.equal(MARK_KIND.overpen, 'pen', 'a shell that went in one side and out the other did not get in');
+
+  // And the rooms inside her. Every one of them belongs to a length of hull
+  // the simulation actually keeps a figure for -- otherwise it takes its
+  // condition from nothing and never changes colour -- and every one of them
+  // is inside the ship.
+  const named = new Set();
+  for (const r of ROOMS) {
+    assert.ok(SECTIONS.some((q) => q.k === r.k),
+      `${r.name} is in a compartment "${r.k}" the simulation does not have`);
+    const sec = SECTIONS.find((q) => q.k === r.k);
+    assert.ok(sec.from !== null, `${r.name} is in her upperworks`);
+    assert.ok(r.t0 < r.t1, `${r.name} runs backwards`);
+    assert.ok(r.lo < r.hi, `${r.name} has no height`);
+    assert.ok(Math.abs(r.t0) <= 1 && Math.abs(r.t1) <= 1, `${r.name} is off the ends of the ship`);
+    // Inside the length of hull it belongs to, so a boiler room is drawn in
+    // her machinery spaces and not sticking out through the bulkhead into the
+    // magazine next door.
+    assert.ok(r.t0 >= Math.max(-1, sec.from) - 1e-9 && r.t1 <= Math.min(1, sec.to) + 1e-9,
+      `${r.name} runs from ${r.t0} to ${r.t1}, outside ${sec.name} (${sec.from} to ${sec.to})`);
+    assert.ok(!named.has(r.name), `there are two of ${r.name}`);
+    named.add(r.name);
+  }
+  // The ones a captain asks after by name.
+  for (const want of ['Engine room', 'Boiler room', 'Steering gear']) {
+    assert.ok(named.has(want), `she has no ${want.toLowerCase()}`);
+  }
+  assert.ok([...named].some((n) => /magazine/i.test(n)), 'she has no magazines');
+});
+
+
+check('a ship going down leaves no wake, and nothing burns once she is under', () => {
+  // Two things that used to go on happening to a ship that was no longer
+  // there. She laid a Kelvin pattern astern of a hull standing on end, and her
+  // fires went on burning on the open sea after the last of her had gone.
+  const scene = new THREE.Scene();
+  const wake = new Wake({ length: 200, beam: 20 });
+  scene.add(wake.mesh);
+  // Twelve knots up the chart, until she has laid a track worth looking at.
+  let z = 0;
+  for (let i = 0; i < 400; i++) { z += 12 / 30; wake.update(1 / 30, 0, z, 0, 12); }
+  assert.equal(wake.mesh.visible, true, 'a ship at twelve knots is laying no wake');
+  assert.ok(wake.pts.length > 3, `her track is ${wake.pts.length} points long`);
+  const laid = wake.pts.length;
+
+  // She founders. Nothing more is laid, and what is there goes out of the
+  // water rather than standing behind her while she sinks.
+  for (let i = 0; i < 30; i++) { z += 6 / 30; wake.stop(1 / 30); }
+  assert.ok(wake.opacity < 1, `her wake is still at ${wake.opacity} after a second of sinking`);
+  assert.ok(wake.pts.length <= laid, 'she went on laying wake while she was sinking');
+  for (let i = 0; i < 120; i++) wake.stop(1 / 30);
+  assert.equal(wake.mesh.visible, false, 'her wake is still in the water four seconds after she sank');
+  wake.dispose();
+
+  // And her fires. The flames are asked for by name every frame a compartment
+  // is alight; stop asking -- which is what happens the moment the last of her
+  // goes under -- and they die back and are let go of, rather than being left
+  // burning on the sea where she was.
+  const flames = new Flames(scene, 1);
+  for (let i = 0; i < 20; i++) { flames.at('a:mid', 0, 8, 0, 0.9, 20); flames.update(1 / 30); }
+  assert.equal(flames.fires.size, 1, 'a compartment well alight is not burning');
+  for (let i = 0; i < 400; i++) flames.update(1 / 30);
+  assert.equal(flames.fires.size, 0, 'a fire nobody is feeding is still burning on the open sea');
+  flames.dispose();
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

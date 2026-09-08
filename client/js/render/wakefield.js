@@ -467,6 +467,11 @@ export class Wake {
       this.pts[0] = cur;
     }
 
+    this.lay();
+  }
+
+  /** Write the track she has laid into the strip. */
+  lay() {
     if (this.pts.length < 3) { this.mesh.visible = false; return; }
     this.mesh.visible = true;
 
@@ -514,6 +519,24 @@ export class Wake {
     hlf.needsUpdate = true;
     rn.needsUpdate = true;
     tl.needsUpdate = true;
+  }
+
+  /**
+   * She has stopped making way and started going down.
+   *
+   * The track she has already laid is left to age out of the water on its own
+   * -- it is real water and it does not vanish because she has -- but nothing
+   * more is laid, and what is there is taken out quickly. A Kelvin pattern
+   * running away from a hull standing on end is nonsense.
+   */
+  stop(dt = 0) {
+    this.clock += dt;
+    if (this.pts.length) {
+      this.setOpacity(Math.max(0, this.opacity - dt * 0.8));
+      if (this.opacity <= 0) this.pts = [];
+      else { this.lay(); return; }
+    }
+    this.mesh.visible = false;
   }
 
   setOpacity(v) {

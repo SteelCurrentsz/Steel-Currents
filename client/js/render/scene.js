@@ -1060,6 +1060,12 @@ export class ShipView {
    */
   scorchAt(x, y, z, r, amount) {
     if (this.fittings) this.fittings.scorch(x, y, z, r, amount);
+    // And the deck itself, which is the thing the fire is actually standing
+    // on. Only her boats, her davits and her ready-use lockers used to
+    // blacken; the plating they were bolted to stayed the colour it was
+    // painted, so a compartment could burn for five minutes and leave a ship
+    // with a scorched searchlight on a clean grey deck.
+    if (this.plating) this.plating.scorch(x, y, z, r, amount);
   }
 
 

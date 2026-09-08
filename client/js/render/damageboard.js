@@ -31,6 +31,9 @@ const GONE = new THREE.Color(0xe2564f);
 // Anything of hers that is not a length of hull -- her masts, her boats, the
 // insides she is drawn with -- has no compartment to take a colour from.
 const NEUTRAL = new THREE.Color(0x2f6d84);
+// A compartment the sea has got into, and how a room drawn inside her goes as
+// the water comes up over it.
+const FLOODED = new THREE.Color(0x1b5fc4);
 
 // How finely her lines are measured for the water: stations along her, levels
 // up her side. Enough that the sea in her narrows into her bow and follows her
@@ -38,6 +41,49 @@ const NEUTRAL = new THREE.Color(0x2f6d84);
 // when the board is built.
 const STATIONS = 64;
 const LEVELS = 12;
+
+/**
+ * What the shell did, in one word, from the simulation's own name for the hit.
+ *
+ * `none` is a round that struck her and did not get in; `dent` opened her
+ * plating without defeating her armour; `pen` got in. See resolveShellHit.
+ */
+export const MARK_KIND = {
+  shatter: 'none', ricochet: 'none', splash: 'none',
+  he: 'dent',
+  pen: 'pen', citadel: 'pen', overpen: 'pen', torpedo: 'pen',
+  bomb: 'pen', magazine: 'pen', cook: 'pen',
+};
+
+/**
+ * The compartments inside her, as fractions of her half-length.
+ *
+ * A warship is not five boxes. She is boiler rooms and engine rooms in the
+ * middle of her, magazines under her turrets, shell rooms over the magazines
+ * and the steering gear right aft under the counter -- and which of those the
+ * sea has got into is the whole question when she is holed. `t0` and `t1` are
+ * stations, forward positive, in fractions of her half-length; `lo` and `hi`
+ * are heights as fractions of her depth from keel to main deck; `k` is the
+ * length of hull the compartment belongs to, so it takes its condition from
+ * the same figure the simulation keeps.
+ *
+ * These are the standard arrangement rather than any one ship's plans: engines
+ * abaft the boilers, magazines under the turrets they feed, steering gear aft
+ * of the after magazine. Every ship in the game is laid out that way, because
+ * every ship of the period was.
+ */
+export const ROOMS = [
+  { name: 'Forward magazine', k: 'fwd', t0: 0.26, t1: 0.50, lo: 0.0, hi: 0.34 },
+  { name: 'Forward shell room', k: 'fwd', t0: 0.28, t1: 0.48, lo: 0.34, hi: 0.58 },
+  { name: 'Boiler room', k: 'mid', t0: 0.02, t1: 0.19, lo: 0.0, hi: 0.62 },
+  { name: 'Engine room', k: 'mid', t0: -0.18, t1: 0.0, lo: 0.0, hi: 0.58 },
+  { name: 'After magazine', k: 'aft', t0: -0.52, t1: -0.30, lo: 0.0, hi: 0.34 },
+  { name: 'After shell room', k: 'aft', t0: -0.50, t1: -0.32, lo: 0.34, hi: 0.58 },
+  { name: 'Steering gear', k: 'stern', t0: -0.88, t1: -0.72, lo: 0.0, hi: 0.42 },
+];
+
+/** Sound, damaged, barely in action, finished. */
+const MOUNT_COLOUR = [0xffffff, 0xffe14a, 0xff8a2a, 0xff3a2a];
 
 export class DamageBoard {
   /**
@@ -344,20 +390,51 @@ export class DamageBoard {
       this.flow[sec.k] = { group: g, marks };
     }
 
+    // The rooms inside her.
+    this.buildRooms();
+
     // Where she has been holed. Marks are added as the hits come in.
     this.marks = new THREE.Group();
     this.rig.add(this.marks);
     // Big enough to read at this range, and drawn over the hull rather than
     // behind it: a hole you cannot see is not much of a damage board.
-    this.markGeo = new THREE.SphereGeometry(Math.max(2, this.beam * 0.11), 10, 8);
-    // Two kinds. A hole above her waterline is a hole; one below it is the way
-    // the sea is getting in, and a damage control officer needs to tell them
-    // apart at a glance.
-    this.markMat = new THREE.MeshBasicMaterial({
-      color: 0xffc07a, transparent: true, opacity: 0.95, depthTest: false,
-    });
+    // A circle on her plating where the round struck, because that is what a
+    // hit looks like on a damage report: a ring drawn round the place, not a
+    // bead stuck to her side.
+    const mr = Math.max(2, this.beam * 0.11);
+    this.markGeo = new THREE.RingGeometry(mr * 0.52, mr, 18);
+    // Three of them, and what tells them apart is what the shell did rather
+    // than where it landed.
+    //
+    //   white   struck her and did not get in -- shattered on the armour, or
+    //           came off it at too fine an angle to bite
+    //   orange  opened her plating and did not defeat her armour: she is
+    //           dented and holed there and her armour held
+    //   red     got in -- through the belt, through the deck, or under her
+    //
+    // It used to be the height of the hole that chose the colour, which told a
+    // captain something he could already see and nothing at all about whether
+    // his armour was doing its job.
+    this.markMat = {
+      none: new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false,
+        side: THREE.DoubleSide,
+      }),
+      dent: new THREE.MeshBasicMaterial({
+        color: 0xffa03a, transparent: true, opacity: 0.95, depthTest: false,
+        side: THREE.DoubleSide,
+      }),
+      pen: new THREE.MeshBasicMaterial({
+        color: 0xff3a2a, transparent: true, opacity: 0.97, depthTest: false,
+        side: THREE.DoubleSide,
+      }),
+    };
+    // And a ring round the ring for one below her waterline, because that is
+    // where the sea is getting in and it is a different problem.
+    this.wetGeo = new THREE.RingGeometry(mr * 1.25, mr * 1.55, 18);
     this.wetMat = new THREE.MeshBasicMaterial({
-      color: 0x4fd2ff, transparent: true, opacity: 0.95, depthTest: false,
+      color: 0x4fd2ff, transparent: true, opacity: 0.8, depthTest: false,
+      side: THREE.DoubleSide,
     });
 
     this.frame(this.len);
@@ -369,6 +446,51 @@ export class DamageBoard {
   }
 
   /**
+   * The rooms inside her, where they actually are.
+   *
+   * Each one is a box fitted to her own lines at its own stations -- a boiler
+   * room in a cruiser is the width of a cruiser at that frame, not a rectangle
+   * -- drawn in wire so you can see through her to the ones on the far side.
+   * They take their condition from the length of hull they are in, and they go
+   * under as the water comes up over their deckhead, which is the thing a
+   * damage control officer is watching for: not that a compartment is making
+   * water, but that the engine room is about to be lost.
+   */
+  buildRooms() {
+    this.rooms = [];
+    const half = this.len / 2;
+    const keel = this.lines.keel;
+    const depth = Math.max(1, this.deck - keel);
+    for (const r of ROOMS) {
+      const z0 = r.t0 * half;
+      const z1 = r.t1 * half;
+      const y0 = keel + r.lo * depth;
+      const y1 = keel + r.hi * depth;
+      // How wide she is where the room stands, taken at its own deckhead so a
+      // room in her bilges does not stick out through her turn of bilge.
+      const mid = (z0 + z1) / 2;
+      let wide = Infinity;
+      for (const z of [z0, mid, z1]) {
+        for (const y of [y0, (y0 + y1) / 2, y1]) {
+          wide = Math.min(wide, halfBeamAt(this.lines, z, Math.min(y, this.lines.wl)));
+        }
+      }
+      // Inboard of her plating: a compartment is inside the ship.
+      const w = Math.max(0.6, wide * 0.82) * 2;
+      const box = new THREE.BoxGeometry(w, y1 - y0, z1 - z0);
+      const mat = new THREE.MeshBasicMaterial({
+        color: SOUND.clone(), wireframe: true, transparent: true,
+        opacity: 0.42, depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(box, mat);
+      mesh.position.set(0, (y0 + y1) / 2, mid);
+      mesh.renderOrder = 1;
+      this.rig.add(mesh);
+      this.rooms.push({ mesh, mat, k: r.k, name: r.name, y0, y1 });
+    }
+  }
+
+  /**
    * Light up one battery on her, where it actually stands.
    *
    * `specs` are the mountings out of her datasheet -- the same numbers the
@@ -377,25 +499,28 @@ export class DamageBoard {
    * A ring on the deck at each mounting and a spike out of it, because a
    * marker flat on the deck is invisible from anywhere but straight above.
    */
-  markMounts(specs) {
+  markMounts(specs, cond) {
     if (!this.mounts) return;
     for (const o of [...this.mounts.children]) {
       this.mounts.remove(o);
       o.geometry?.dispose?.();
+      o.material?.dispose?.();
     }
+    this.mountPins = [];
     if (!specs || !specs.length) return;
     const r = Math.max(1.4, this.beam * 0.1);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffc36a, transparent: true, opacity: 0.95, depthTest: false,
-    });
-    const halo = new THREE.MeshBasicMaterial({
-      color: 0xffc36a, transparent: true, opacity: 0.34,
-      side: THREE.DoubleSide, depthTest: false,
-    });
-    for (const m of specs) {
+    for (let i = 0; i < specs.length; i++) {
+      const m = specs[i];
       const x = m.x || 0;
       const y = m.my != null ? m.my : this.deck;
       const z = m.z || 0;
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false,
+      });
+      const halo = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.34,
+        side: THREE.DoubleSide, depthTest: false,
+      });
       const pin = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat);
       pin.position.set(x, y, z);
       pin.renderOrder = 6;
@@ -407,6 +532,29 @@ export class DamageBoard {
       ring.position.set(x, y - r * 0.6, z);
       ring.renderOrder = 6;
       this.mounts.add(ring);
+      this.mountPins.push({ pin, ring });
+    }
+    this.setMountCondition(cond);
+  }
+
+  /**
+   * What condition each of those mountings is in, in its own colour.
+   *
+   * White is a gun with nothing wrong with it. Yellow is one knocked about --
+   * it still fires, slower. Orange is one barely in action. Red is one that is
+   * finished, or that is standing over a magazine with the sea in it, and it
+   * does not come back.
+   *
+   * Every mounting is coloured on its own. A turret shot out forward says
+   * nothing whatever about the one aft, and the marker for the one aft goes on
+   * being white -- which is the whole point of having a marker for each.
+   */
+  setMountCondition(cond) {
+    if (!this.mountPins) return;
+    for (let i = 0; i < this.mountPins.length; i++) {
+      const c = MOUNT_COLOUR[(cond && cond[i]) || 0] || MOUNT_COLOUR[0];
+      this.mountPins[i].pin.material.color.setHex(c);
+      this.mountPins[i].ring.material.color.setHex(c);
     }
   }
 
@@ -420,21 +568,33 @@ export class DamageBoard {
    * put on the plating nearest where the round stopped: her side, her deck or
    * her upperworks, as the case may be.
    */
-  hole(lx, ly, lz) {
-    if (this.marks.children.length > 90) {
+  hole(lx, ly, lz, kind = 'pen') {
+    while (this.marks.children.length > 90) {
       this.marks.remove(this.marks.children[0]);
     }
     const wet = ly < 0.4;
-    const m = new THREE.Mesh(this.markGeo, wet ? this.wetMat : this.markMat);
+    const m = new THREE.Mesh(this.markGeo, this.markMat[MARK_KIND[kind] || 'pen']);
     m.renderOrder = 3;
     const half = this.halfBeam(lz, ly);
     // Out onto her side only if it was in her side. A round that stopped near
     // her centreline was in her deck or her upperworks and the mark belongs
     // where it stopped.
     const out = Math.abs(lx) > half * 0.55;
-    m.position.set(out ? Math.sign(lx || 1) * half : lx,
-      Math.max(-this.draft * 1.1, Math.min(this.lines.top, ly)), lz);
-    this.marks.add(m);
+    const y = Math.max(-this.draft * 1.1, Math.min(this.lines.top, ly));
+    const g = new THREE.Group();
+    g.position.set(out ? Math.sign(lx || 1) * half : lx, y, lz);
+    // Lying on the plating it went through: on her side the circle faces
+    // outboard, on her deck it faces up. A ring drawn edge-on to the eye is a
+    // line, which is no mark at all.
+    if (out) g.rotation.y = Math.sign(lx || 1) * Math.PI / 2;
+    else g.rotation.x = -Math.PI / 2;
+    g.add(m);
+    if (wet) {
+      const w = new THREE.Mesh(this.wetGeo, this.wetMat);
+      w.renderOrder = 3;
+      g.add(w);
+    }
+    this.marks.add(g);
   }
 
   /** Her half-beam at a station and a height, off her own plating. */
@@ -452,10 +612,13 @@ export class DamageBoard {
    */
   setWater(wt) {
     if (!wt || !this.water) return;
+    // Kept, so the rooms inside her can be drowned off the same figures on the
+    // same frame rather than a frame behind. See drownRooms.
+    this.wt = wt;
     SECTIONS.forEach((sec, i) => {
       const w = this.water[sec.k];
       if (!w) return;
-      const f = Math.max(0, Math.min(1, (wt[i] || 0) / 9));
+      const f = Math.max(0, Math.min(1, (wt[i] || 0) / 100));
       w.level = f;
       const on = f > 0.01;
       w.body.visible = on;
@@ -464,7 +627,7 @@ export class DamageBoard {
       // Only when it has moved enough to see: the geometry is rebuilt from her
       // lines, and rebuilding it for a thousandth of a metre a frame is work
       // nobody is going to look at.
-      if (Math.abs(f - (w.drawn ?? -1)) < 0.004) return;
+      if (Math.abs(f - (w.drawn ?? -1)) < 0.0015) return;
       w.drawn = f;
       const y = waterTop(this.lines, f);
       fillTo(w.body.geometry, this.lines, w.z0, w.z1, y);
@@ -526,6 +689,41 @@ export class DamageBoard {
       // to miss on a ship turning slowly in the corner of the screen.
       p.mat.opacity = 0.2 + (1 - f) * 0.56;
     }
+    // And the rooms inside her, each off its own length of hull -- so a shell
+    // in her after magazine reddens her after magazine and leaves her engine
+    // room the blue it was. Nothing else on the board changes: one compartment
+    // being wrecked has never meant the ship is.
+    for (const r of this.rooms || []) {
+      const f = by[r.k];
+      if (f === undefined) continue;
+      const col = f > 0.6 ? SOUND.clone().lerp(HURT, (1 - f) / 0.4)
+        : HURT.clone().lerp(GONE, Math.min(1, (0.6 - f) / 0.6));
+      r.mat.color.copy(col);
+      r.mat.opacity = 0.26 + (1 - f) * 0.5;
+    }
+  }
+
+  /**
+   * The water, as far as the rooms inside her are concerned.
+   *
+   * A room is lost when the sea is over its deckhead, and it is worth seeing
+   * that happen: the engine room going under is the moment she stops, and it
+   * is not the same moment as the compartment around it starting to make
+   * water. Called with the same figures the water bodies are drawn from.
+   */
+  drownRooms(wt) {
+    if (!wt || !this.rooms) return;
+    for (const r of this.rooms) {
+      const i = SECTIONS.findIndex((q) => q.k === r.k);
+      if (i < 0) continue;
+      const level = waterTop(this.lines, Math.max(0, Math.min(1, (wt[i] || 0) / 100)));
+      // How much of the room is under, from its own deck to its own deckhead.
+      const wet = Math.max(0, Math.min(1, (level - r.y0) / Math.max(0.001, r.y1 - r.y0)));
+      r.wet = wet;
+      // Down into the blue the water is drawn in as she fills, so a room the
+      // sea has taken reads as flooded rather than as merely damaged.
+      if (wet > 0.02) r.mat.color.lerp(FLOODED, wet * 0.85);
+    }
   }
 
   /** `sec` is the wire's [integrity 0-100, penetrations] per compartment. */
@@ -541,6 +739,7 @@ export class DamageBoard {
       for (const o of this.mounts.children) o.material.opacity = pulse * (o.geometry.type === 'RingGeometry' ? 0.45 : 1);
     } else {
       this.setCondition(sec);
+      this.drownRooms(this.wt);
       this.stepFires(dt);
       this.stepFlow();
     }
