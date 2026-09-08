@@ -1507,6 +1507,72 @@ const REACH = {
 };
 
 /**
+ * Her magazine going up.
+ *
+ * The one thing that can end a capital ship in a second, and the reason her
+ * magazines are the deepest, best-protected boxes in her: a shell that beats
+ * every plate between the sea and the cordite and bursts among it does not
+ * damage the ship, it ends her. Hood was hit at six in the morning and was
+ * gone three minutes later, out of a company of fourteen hundred and nineteen.
+ *
+ * So it is not a large number of hit points. It is:
+ *
+ *   the compartment, gone -- not wrecked, gone, with the length of hull it was;
+ *   the sea into her through the hole where it was, on both sides, at the
+ *   depth of her keel, because there is no side left there to keep it out;
+ *   the fires it starts in whatever is next to it;
+ *   every mounting aboard out of action, because the shock does that;
+ *   and a column of smoke and a report that carries the length of the map.
+ *
+ * She usually goes. Sometimes she does not, and then she is a ship with a
+ * length of herself missing, which is its own kind of finish.
+ */
+function detonate(state, ship, where, owner) {
+  const cls = shipClass(ship);
+  const c = ship.sections[where];
+  if (!c) return;
+  // The compartment itself, and a great deal of what is either side of it.
+  const gone = c.hp;
+  c.hp = 0;
+  ship.hp = hullIntegrity(ship);
+  damageShip(state, ship, owner, gone + cls.hp * 0.34, 'magazine', where);
+  if (!ship.alive) {
+    state.events.push({
+      e: 'detonate', ship: ship.id, at: where,
+      x: r(ship.x), z: r(ship.z), cls: ship.classId,
+    });
+    return;
+  }
+  // Her side is not holed here, it is not there. Both sides, right down to
+  // her keel, which is as open to the sea as a ship gets.
+  const open = cls.hull.beam * cls.hull.draft * 0.55;
+  openHull(state, ship, where, open, 1, cls.hull.draft * 0.9);
+  openHull(state, ship, where, open, -1, cls.hull.draft * 0.9);
+  c.side = 0;
+  // And in the compartments either side of it, because a bulkhead next to a
+  // magazine that has gone is not a bulkhead any more.
+  const at = SECTIONS.findIndex((q) => q.k === where);
+  for (const j of [at - 1, at + 1]) {
+    const n = SECTIONS[j];
+    if (!n || n.from === null) continue;
+    damageShip(state, ship, owner, cls.hp * 0.09, 'magazine', n.k);
+    openHull(state, ship, n.k, open * 0.22, 1, cls.hull.draft * 0.6);
+    startFire(state, ship, n.k, 0.7);
+  }
+  startFire(state, ship, 'works', 0.5);
+  // The shock. Nothing aboard is laying a gun for a while.
+  for (const t of ship.turrets) t.disabled = Math.max(t.disabled, 26 + state.rng() * 20);
+  for (const m of ship.secMounts) m.disabled = Math.max(m.disabled || 0, 20 + state.rng() * 16);
+  ship.engineDamage = Math.max(ship.engineDamage, 18 + state.rng() * 20);
+  ship.steeringDamage = Math.max(ship.steeringDamage, 18 + state.rng() * 20);
+  ship.flooding = floodedCount(ship);
+  state.events.push({
+    e: 'detonate', ship: ship.id, at: where,
+    x: r(ship.x), z: r(ship.z), cls: ship.classId,
+  });
+}
+
+/**
  * What the burst found in the compartment it went off in.
  *
  * Nothing in a ship breaks because a number reached zero. Her machinery stops
@@ -1627,6 +1693,23 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // does either. A shell got into her engine room, or it did not.
   if (kind !== 'ricochet' && kind !== 'shatter' && kind !== 'splash') {
     wreckContents(state, target, where, sh.caliber / 1000, kind);
+  }
+  // And whether it found the cordite.
+  //
+  // A shell that beat every plate between the sea and her magazine and burst
+  // among the charges is the one hit that does not damage a ship. The three
+  // things all have to be true: it got into the box (which means it beat her
+  // belt or her deck), it beat it decisively rather than just squeezing
+  // through, and the box it got into was a magazine and not her machinery.
+  // Then it is the size of the burst against the size of the handling room,
+  // the same arithmetic as everything else that happens inside her.
+  if (kind === 'citadel' && (where === 'fwd' || where === 'aft')
+    && pen > effArmor * 1.5 && target.alive) {
+    const room = sectionVolume(cls, where) || 1;
+    const bore = sh.caliber / 1000;
+    if (state.rng() < clamp(bore * bore * bore * 27000 / room, 0, 0.3)) {
+      detonate(state, target, where, owner);
+    }
   }
   // And it is a hole in her plating, not only an entry in a book.
   //

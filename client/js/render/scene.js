@@ -552,6 +552,62 @@ function weld(parts) {
 const TMP = new THREE.Vector3();
 const TMP_AIM = new THREE.Vector3();
 
+/**
+ * A whole mounting, taken off her and handed to the wreckage batch.
+ *
+ * Fittings are shed out of the welded buffers they were merged into, one span
+ * at a time (see pieces.js); a mounting was never welded, because it trains,
+ * so it is still a live group of meshes with its own transforms. This walks
+ * that group, bakes every mesh into the mounting's own frame, and hands back
+ * the same shape of thing Fittings.shed does -- so a turret falls, tumbles and
+ * goes into the sea by exactly the code that drops a funnel.
+ *
+ * A vertex budget, because a battleship's turret is a detailed object and the
+ * batch has room for a few thousand vertices in all: past it the mounting is
+ * dropped rather than starving everything else out of the air.
+ */
+const WRECK_VERTS = 2200;
+
+function mountToWreck(m) {
+  m.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  const local = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const pos = [];
+  const col = [];
+  const idx = [];
+  let full = false;
+  m.traverse((o) => {
+    if (full || !o.isMesh || !o.geometry?.attributes?.position) return;
+    const geo = o.geometry;
+    const P = geo.attributes.position;
+    const I = geo.index;
+    if (pos.length / 3 + P.count > WRECK_VERTS) { full = true; return; }
+    local.multiplyMatrices(inv, o.matrixWorld);
+    const base = pos.length / 3;
+    // Her own paint, near enough: one colour per mesh off its material, taken
+    // down because everything that leaves a magazine explosion is burnt.
+    const first = Array.isArray(o.material) ? o.material[0] : o.material;
+    const c = first && first.color ? first.color : null;
+    for (let i = 0; i < P.count; i++) {
+      v.fromBufferAttribute(P, i).applyMatrix4(local);
+      pos.push(v.x, v.y, v.z);
+      col.push(c ? c.r * 0.42 : 0.24, c ? c.g * 0.42 : 0.24, c ? c.b * 0.42 : 0.25);
+    }
+    if (I) for (let i = 0; i < I.count; i++) idx.push(base + I.array[i]);
+    else for (let i = 0; i < P.count; i++) idx.push(base + i);
+  });
+  if (!idx.length) return null;
+  return {
+    pos: new Float32Array(pos), col: new Float32Array(col),
+    idx: new Uint32Array(idx),
+    // Where it stood on her, and where the blast came from: under it.
+    x: m.position.x, y: m.position.y, z: m.position.z,
+    from: { x: m.position.x, y: m.position.y - 12, z: m.position.z },
+    force: 4.4,
+  };
+}
+
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
     wakes = null, wreck = null) {
@@ -625,6 +681,12 @@ export class ShipView {
     // her up is a walk over one short list rather than the whole ship.
     this.byPart = new Map();
     const half = this.cls.hull.length / 2;
+    const file = (k, child) => {
+      if (!k) return;
+      if (!this.byPart.has(k)) this.byPart.set(k, []);
+      const list = this.byPart.get(k);
+      if (!list.includes(child)) list.push(child);
+    };
     for (const child of this.group.children) {
       let k = null;
       if (child.isMesh) k = meshSection(child);
@@ -632,9 +694,20 @@ export class ShipView {
       // it -- but it is bolted to a piece of deck like everything else, and it
       // goes when that piece of deck goes.
       if (!k && child.userData.dynamic) k = sectionAt(child.position.z / half);
-      if (!k) continue;
-      if (!this.byPart.has(k)) this.byPart.set(k, []);
-      this.byPart.get(k).push(child);
+      file(k, child);
+    }
+    // And every mounting she carries, whether or not the scene is the thing
+    // that lays it. A main turret is laid off the wire rather than off a
+    // `dynamic` flag, so it was in none of these lists and nothing that
+    // happened to the ship ever reached it: a Cleveland whose forward
+    // magazine had been blown out of her still had Turret One sitting on the
+    // hole, training and elevating, in her yard paint.
+    for (const m of [...this.turrets, ...this.secMounts, ...this.aaMounts,
+      ...this.torpMounts]) {
+      if (!m) continue;
+      m.userData.mounting = true;
+      m.userData.laid = true;
+      file(sectionAt(m.position.z / half), m);
     }
   }
 
@@ -669,16 +742,143 @@ export class ShipView {
       // have been shot away still has a bridge, funnels and masts standing on
       // her, burnt and bent about; she does not lose them all at once.
       if (k === 'works') continue;
-      // Her mountings are bolted to the piece of deck that has gone.
+      // Her mountings are bolted to the piece of deck that has gone -- so they
+      // are wrecked, not switched off. A turret whose barbette has been shot
+      // out of the ship does not vanish: it sits there burnt out, canted over,
+      // its guns down on the stops, and it is still fifty feet of steel on her
+      // deck. Nothing on this ship is ever taken away by being made invisible.
       for (const o of this.byPart.get(k) || []) {
-        if (!o.userData.dynamic) continue;
-        o.visible = !gone;
+        if (!o.userData.dynamic && !o.userData.mounting) continue;
+        if (gone) this.wreckMount(o); else this.mendMount(o);
       }
       if (!gone) continue;
       const half = this.cls.hull.length / 2;
       this.shed(this.fittings.shedSection(
         SECTIONS[i].from * half, SECTIONS[i].to * half));
     }
+  }
+
+  /**
+   * A mounting that is finished, still standing where it stood.
+   *
+   * Burnt through, canted off its roller path, and with its guns down on the
+   * stops -- which is what a wrecked turret looks like and is a great deal
+   * more use to somebody looking at the ship than an empty ring of deck. It
+   * stops training and stops elevating from here: `laid` is what the lay code
+   * checks before it moves anything.
+   */
+  wreckMount(m) {
+    if (m.userData.wrecked) return;
+    m.userData.wrecked = true;
+    m.userData.laid = false;
+    // Its own copy of every material, so a burnt-out turret does not blacken
+    // the same turret on every other ship of the class.
+    m.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      if (!o.userData.ownMat) {
+        o.material = Array.isArray(o.material)
+          ? o.material.map((q) => q.clone()) : o.material.clone();
+        o.userData.ownMat = true;
+      }
+      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (q.color) q.color.multiplyScalar(0.24);
+        // Her running lights and her gun flashes are out with everything else
+        // in it, and the colour they were is kept so damage control can put
+        // them back.
+        if (q.emissive) {
+          q.userData = q.userData || {};
+          if (q.userData.lit === undefined) q.userData.lit = q.emissive.getHex();
+          q.emissive.setHex(0x000000);
+        }
+      }
+    });
+    // Knocked off its bearings, and far enough off them to be seen from the
+    // bridge: a turret that has been through this is never square again.
+    // Deterministic in where it stands, so two clients wreck the same turret
+    // the same way.
+    const wob = ((Math.abs(m.position.z) * 37) % 100) / 100;
+    const way = wob < 0.5 ? 1 : -1;
+    m.userData.fair = { x: m.rotation.x, z: m.rotation.z };
+    m.rotation.x += way * (0.07 + wob * 0.1);
+    m.rotation.z += -way * (0.09 + wob * 0.13);
+    // And the guns down. There is nobody to hold them up.
+    const node = m.userData.gunNode;
+    if (node && node !== m) node.rotation.x = 0.16 + wob * 0.12;
+  }
+
+  /** Damage control got to it after all: it trains again. */
+  mendMount(m) {
+    if (!m.userData.wrecked) return;
+    m.userData.wrecked = false;
+    m.userData.laid = true;
+    m.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (q.color) q.color.multiplyScalar(1 / 0.24);
+        if (q.emissive && q.userData && q.userData.lit !== undefined) {
+          q.emissive.setHex(q.userData.lit);
+        }
+      }
+    });
+    if (m.userData.fair) {
+      m.rotation.x = m.userData.fair.x;
+      m.rotation.z = m.userData.fair.z;
+      // And the guns back up off the stops. The lay code takes them from here.
+      const node = m.userData.gunNode;
+      if (node && node !== m) node.rotation.x = m.userData.elevRest || 0;
+    }
+  }
+
+  /**
+   * Her magazine goes, and the turret over it goes with it.
+   *
+   * The one thing that does take a mounting off a ship, because it is the one
+   * thing that ever did: the charges under it let go and the whole turret --
+   * a thousand tons of it on a battleship -- is lifted off its roller path and
+   * thrown clear. It is not hidden, it is put into the air with everything
+   * else, and it comes down in the sea.
+   *
+   * `z0` and `z1` are the length of her that has gone, in her own frame.
+   */
+  blowOut(z0, z1) {
+    const mid = (z0 + z1) / 2;
+    // The mountings standing on it go first, before the plating and the deck
+    // fittings: they are the biggest things on that piece of her and the
+    // wreckage batch has room for a few of them, so they get it rather than
+    // the ready-use lockers.
+    const standing = [];
+    for (const o of this.group.children) {
+      if (!o.userData.dynamic && !o.userData.mounting) continue;
+      if (o.userData.gone) continue;
+      if (o.position.z < z0 || o.position.z > z1) continue;
+      standing.push(o);
+    }
+    let thrown = 0;
+    for (const o of standing) {
+      const was = this.wreck ? this.wreck.live.length : 0;
+      const cut = this.wreck ? mountToWreck(o) : null;
+      // Straight up and a little outboard, which is where they went.
+      if (cut) {
+        this.wreck.add(cut, this.group,
+          (this.speedNow || 0) * Math.sin(this.group.rotation.y),
+          (this.speedNow || 0) * Math.cos(this.group.rotation.y));
+      }
+      if (!this.wreck || this.wreck.live.length === was) {
+        // Nowhere to throw it -- no batch, or no room left in it. Then it
+        // stays where it stood, burnt out. Nothing on this ship is ever taken
+        // away by being made invisible.
+        this.wreckMount(o);
+        continue;
+      }
+      o.visible = false;
+      o.userData.gone = true;
+      o.userData.laid = false;
+      thrown++;
+    }
+    // Then the plating over it, and everything bolted to it.
+    this.plating.strip(z0, z1);
+    this.shed(this.fittings.shedSection(z0, z1));
+    return { mid, thrown };
   }
 
   /**
@@ -826,6 +1026,12 @@ export class ShipView {
     // number in different units, so a five-inch shell shakes a searchlight
     // and a torpedo takes the boat deck with it.
     this.shed(this.fittings.blast(p.x, p.y, p.z, r * 2.4, power || r * 0.52));
+    // And the soot. The plating blackens itself round the hole (see
+    // plating.js); this is everything standing near it -- and it is done here
+    // rather than by the caller because this is where the burst has already
+    // been put into her own frame, and a scorch mark worked out in world
+    // coordinates lands somewhere off her quarter.
+    if (went > 0) this.fittings.scorch(p.x, p.y, p.z, r * 3, 0.5);
     return went;
   }
 
@@ -912,6 +1118,9 @@ export class ShipView {
     if (turretElev) {
       for (let i = 0; i < this.turrets.length && i < turretElev.length; i++) {
         const t = this.turrets[i];
+        // Burnt out, or thrown off her by the magazine under it. Either way
+        // there is nobody in it and it does not move again.
+        if (t.userData.laid === false) continue;
         const node = t.userData.gunNode;
         if (!node || node === t) continue;
         // Barrels run out along +Z of the cradle, so raising them is a
@@ -922,12 +1131,14 @@ export class ShipView {
     }
     if (sec) {
       for (let i = 0; i < this.secMounts.length && i < sec.length; i++) {
+        if (this.secMounts[i].userData.laid === false) continue;
         layMount(this.secMounts[i], sec[i],
           secElev ? secElev[i] : null, 0.9 * dt, 0.7 * dt);
       }
     }
     if (torp) {
       for (let i = 0; i < this.torpMounts.length && i < torp.length; i++) {
+        if (this.torpMounts[i].userData.laid === false) continue;
         layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt);
       }
     }
@@ -950,6 +1161,7 @@ export class ShipView {
     }
     // A light gun swings fast, and the smaller it is the faster it swings.
     for (const m of this.aaMounts) {
+      if (m.userData.laid === false) continue;
       const rest = m.userData.rest || 0;
       let aim = null;
       if (want !== null) {

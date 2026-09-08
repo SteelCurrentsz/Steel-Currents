@@ -348,6 +348,56 @@ export class Effects {
     });
   }
 
+  /**
+   * A magazine going up.
+   *
+   * Not a bigger explosion. What everybody who ever saw one describes is the
+   * column: a mile of black smoke standing over the place where the ship was,
+   * going up far faster than smoke has any business going and hanging there
+   * long after the noise has gone. So that is what this is -- the flash at the
+   * bottom is almost incidental, and it is over in a second.
+   */
+  magazine(x, y, z, scale = 1) {
+    this.flash(x, y + 10, z, 4 * scale);
+    // The heart of it: burning cordite thrown straight up.
+    for (let i = 0; i < 14; i++) {
+      this.spawn({
+        x: x + (Math.random() - 0.5) * 18 * scale,
+        y: y + 4 + Math.random() * 14 * scale,
+        z: z + (Math.random() - 0.5) * 18 * scale,
+        vy: 26 + Math.random() * 44, vx: (Math.random() - 0.5) * 14,
+        vz: (Math.random() - 0.5) * 14,
+        size: 16 * scale, grow: 34 * scale, ttl: 0.9 + Math.random() * 0.8,
+        glow: true, color: i % 3 ? 0xffb43c : 0xff5a1e, opacity: 1, drag: 0.32,
+      });
+    }
+    // And the column standing over her, which is the part that is remembered.
+    for (let i = 0; i < 26; i++) {
+      const up = i / 26;
+      this.spawn({
+        x: x + (Math.random() - 0.5) * (26 + up * 60) * scale,
+        y: y + 8 + up * 210 * scale,
+        z: z + (Math.random() - 0.5) * (26 + up * 60) * scale,
+        vy: 16 + (1 - up) * 26, vx: (Math.random() - 0.5) * 9,
+        vz: (Math.random() - 0.5) * 9,
+        size: (26 + up * 46) * scale, grow: 30 * scale,
+        ttl: 13 + up * 12, drag: 0.22,
+        color: up < 0.35 ? 0x1b1a19 : 0x3a3733,
+        opacity: 0.86 - up * 0.28,
+      });
+    }
+    // The smoke standing on the water round her, from everything that came
+    // down again.
+    for (let i = 0; i < 8; i++) {
+      this.spawn({
+        x: x + (Math.random() - 0.5) * 150 * scale, y: 5 + Math.random() * 16,
+        z: z + (Math.random() - 0.5) * 150 * scale,
+        vy: 2.5, size: 40 * scale, grow: 30, ttl: 16, drag: 0.25,
+        color: 0x2a2724, opacity: 0.6,
+      });
+    }
+  }
+
   smokeScreen(x, z) {
     for (let i = 0; i < 3; i++) {
       this.spawn({

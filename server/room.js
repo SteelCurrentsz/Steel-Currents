@@ -256,7 +256,11 @@ export class Room {
     const global = [];
     const perTeam = [[], []];
     for (const ev of events) {
-      if (ev.e === 'sink' || ev.e === 'over') global.push(ev);
+      // A sinking, the end of the battle, and a magazine going up. The last of
+      // those is heard and seen from anywhere on the map whether or not the
+      // ship it happened to was in sight -- that is the whole of what makes a
+      // detonation different from every other explosion in the game.
+      if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);

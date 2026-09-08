@@ -217,6 +217,9 @@ export class Hud {
       if (e.target === this.el.plotTable) { e.preventDefault(); this.onToggleMap?.(); }
     });
     $('btn-leave').onclick = onLeave;
+    // The way home once the action is over. Hidden until there is one.
+    this.el.port = $('btn-port');
+    if (this.el.port) this.el.port.onclick = onLeave;
   }
 
   /**
@@ -604,6 +607,17 @@ export class Hud {
    * name for everything else -- 'air', 'plane', 'repair', 'smoke'.
    */
   onConn(fn) { this.connFn = fn; }
+
+  /**
+   * Put the way home in the corner, or take it away.
+   *
+   * Nothing else changes when it appears: the sea, the wrecks and the smoke go
+   * on being drawn, the plot still works and the camera still walks. It is a
+   * key, not a curtain.
+   */
+  showPortKey(on) {
+    if (this.el.port) this.el.port.hidden = !on;
+  }
 
   /** Raise a panel, or lower the one that is up. */
   togglePanel(which) {

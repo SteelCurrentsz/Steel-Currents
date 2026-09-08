@@ -446,6 +446,39 @@ export class Battle {
           if (ev.by === this.shipId) this.hud.ribbon('SHIP DESTROYED', 'cit');
           break;
         }
+        case 'detonate': {
+          // Her magazine has gone. The one event in the game that is heard
+          // wherever you happen to be standing: a ship blowing up is not a
+          // local noise, and the column over her is visible from the other
+          // end of the map.
+          const view = this.scene.shipViews.get(ev.ship);
+          const cls = getClass(ev.cls);
+          const half = cls.hull.length / 2;
+          const sec = SECTIONS.find((q) => q.k === ev.at);
+          const z0 = (sec && sec.from !== null ? Math.max(-1, sec.from) : -0.2) * half;
+          const z1 = (sec && sec.to !== null ? Math.min(1, sec.to) : 0.2) * half;
+          // Where on her it was, in the world.
+          let wx = ev.x, wz = ev.z;
+          if (view) {
+            const at = view.blowOut(z0, z1);
+            view.group.updateMatrixWorld(true);
+            const p = new THREE.Vector3(0, 6, at.mid);
+            view.group.localToWorld(p);
+            wx = p.x; wz = p.z;
+          }
+          const size = 0.7 + cls.hull.length / 200;
+          fx.magazine(wx, 8, wz, size);
+          this.scene.debris.burst(wx, 14, wz, 9 + cls.hull.length / 26, 1);
+          fx.splash(wx, wz, 900);
+          this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);
+          // Heard everywhere. Not faded with range like everything else --
+          // that is the point of it.
+          audio.explosion(3.4, 0);
+          const who = this.names.get(ev.ship) || 'A ship';
+          this.hud.alert(ev.ship === this.shipId
+            ? 'Magazine detonation' : `${who}: magazine`);
+          break;
+        }
         case 'ram': fx.explosion(ev.x, 4, ev.z, 1.2); break;
         case 'airDrop': {
           // The fish going into the sea: a short row of splashes across the
@@ -566,10 +599,20 @@ export class Battle {
     return clamp(dist(c.x, c.z, x, z) / 9000, 0, 1);
   }
 
+  /**
+   * The action is over.
+   *
+   * It used to take the player home three seconds later whether or not he had
+   * finished looking: a fleet action ends with a burning ship going down and
+   * that is worth watching, and a curtain that drops on its own is the one
+   * thing that cannot be waited out. So nothing happens now except that the
+   * key appears in the corner, and the battle goes on being drawn -- the sea,
+   * the wrecks, the smoke -- until it is pressed.
+   */
   onResult(msg) {
     this.result = msg;
     this.hud.alert(msg.winner === this.team ? 'Victory' : msg.winner < 0 ? 'Draw' : 'Defeat');
-    setTimeout(() => this.onExit(msg), 3200);
+    this.hud.showPortKey(true);
   }
 
   // -------------------------------------------------------------- input ----
@@ -1545,7 +1588,15 @@ export class Battle {
       // Every ship's guns are laid by her own gunnery officer now, ours
       // included, so the bearings all come off the wire.
       const turrets = s.tu;
-      if (turrets) turrets.forEach((ang, i) => { if (view.turrets[i]) view.turrets[i].rotation.y = ang; });
+      // A turret whose compartment has been shot out of the ship is finished:
+      // it sits there canted over on its roller path, and the bearing on the
+      // wire is nobody's any more.
+      if (turrets) {
+        turrets.forEach((ang, i) => {
+          const t = view.turrets[i];
+          if (t && t.userData.laid !== false) t.rotation.y = ang;
+        });
+      }
       // And everything else that trains: her secondary mountings and her
       // tubes off the snapshot, her light battery off the aircraft overhead.
       view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
@@ -2084,8 +2135,14 @@ export class Battle {
       }
     }
     if (!hit) return;
-    hit.punch(x, y, z, holeRadius('bomb', 454), 0.4);
-    this.scene.debris.burst(x, y + 4, z, 4.2, 1);
+    // A thousand pounds of bomb through a deck does not make a shell hole in
+    // it. It takes a piece of the deck away -- plating, beams, and whatever
+    // was standing on it -- so the burst is worked at the size it really is
+    // and carries the power to shed the fittings round it as well.
+    const r = holeRadius('bomb', 454) * 1.6;
+    const went = hit.punch(x, y, z, r, 0.35, 3.2);
+    this.scene.debris.burst(x, y + 4, z, 6.5, 1);
+    if (went > 0) this.scene.effects.explosion(x, y + 3, z, 1.5);
   }
 
   shellDamage(ev) {

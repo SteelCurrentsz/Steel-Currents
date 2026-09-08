@@ -497,6 +497,25 @@ const ENV_DY = 0.15;
 const ENV_MARGIN = 0.55;
 
 /**
+ * How far above her main deck the deckhouse grid reaches, and how finely.
+ *
+ * Thirty-four metres is over the top of anything in the yard, which is the
+ * Iowa's fire-control tower.
+ */
+const HOUSE_UP = 34;
+// As fine along her as the hull's, because a deckhouse is not one block: there
+// is a metre of open deck between a Cleveland's bridge and her forward funnel
+// with nothing in it but a mast, and a grid that steps over that gap says she
+// has a mess deck out in the open air there. Still a fraction of the hull's
+// work, because the grid over her house is a tenth as tall.
+const HOUSE_DZ = 0.6;
+const HOUSE_DY = 0.3;
+const HOUSE_MARGIN = 0.4;
+// And how far above the sheer at a station the deckhouse grid starts, so a
+// bulwark or a raised forecastle is never mistaken for one.
+const HOUSE_FLOOR = 0.9;
+
+/**
  * Measure the plating that is actually drawn, and hold the lines to it.
  *
  * Returns the same lines interface with `shellAt` clamped to how wide the real
@@ -598,6 +617,73 @@ function heldToPlating(g, hull) {
     }
     return -1;
   };
+  // And a second grid for everything standing above her main deck.
+  //
+  // Her deckhouses are plating too -- they are in the same walk -- but the
+  // grid above only reaches her sheer, because that is as high as an interior
+  // fitted to her hull ever needs to know about. A bridge tower has an inside
+  // as well, and the only way to fit one without every hull in the yard having
+  // to say where its bridge is, is to measure the tower that was drawn.
+  //
+  // Coarse in height and fine along her, which is the way a deckhouse is
+  // shaped: it steps in and out along the ship every few feet and hardly at
+  // all between one deck and the next.
+  const hTop = deckHigh + HOUSE_UP;
+  const hy0 = Math.floor((deckHigh - 2) / HOUSE_DY);
+  const hny = Math.max(1, Math.ceil((hTop - deckHigh + 2) / HOUSE_DY) + 1);
+  const hnz = Math.max(1, Math.ceil((maxZ - minZ) / HOUSE_DZ) + 1);
+  const house = new Float32Array(hnz * hny).fill(-1);
+  const halfL = hull.loa / 2;
+  // No wider than the deck it is standing on, ever.
+  //
+  // Enterprise's flight deck overhangs her side by five metres each way on
+  // stanchions, with nothing under it but air and the sea going past. A ray at
+  // that height crosses thirty-six metres of her and says she has a deckhouse
+  // that wide, and what you get is a mess deck hanging out over the water. A
+  // deckhouse stands on a deck: the hull under it is the limit.
+  const roof = (z) => {
+    const t = Math.max(-1, Math.min(1, z / halfL));
+    return at(z, hull.sheer(t) - 0.4);
+  };
+  for (let zi = 0; zi < hnz; zi++) {
+    const z = minZ + zi * HOUSE_DZ;
+    const list = bucket[Math.min(nz - 1, Math.max(0, Math.floor((z - minZ) / ENV_DZ)))];
+    if (!list) continue;
+    const cap = roof(z);
+    // Her sheer at this station, not amidships.
+    //
+    // A forecastle deck stands two or three metres above the waist, and the
+    // bulwark carrying it is hull plating, not a deckhouse. Read as one -- and
+    // a ray at that height goes straight through it -- it says the ship has a
+    // twelve-metre-wide deckhouse in the eyes of her, which is where the
+    // forward turret trains. So nothing below the sheer at this station
+    // counts, however wide the plating there is.
+    const floor = hull.sheer(Math.max(-1, Math.min(1, z / halfL))) + HOUSE_FLOOR;
+    for (let yi = 0; yi < hny; yi++) {
+      const y = (hy0 + yi) * HOUSE_DY;
+      if (y < floor) continue;
+      const w = beamAt(tris, list, y, z);
+      house[zi * hny + yi] = cap >= 0 ? Math.min(w, cap) : w;
+    }
+  }
+  const houseAt = (z, y) => {
+    const zi = Math.floor((z - minZ) / HOUSE_DZ);
+    const yi = Math.floor(y / HOUSE_DY - hy0);
+    if (zi < 0 || zi + 1 >= hnz || yi < 0 || yi + 1 >= hny) return -1;
+    // The narrowest of the four around it, for the same reason the hull grid
+    // takes the narrowest: reading between two rays either side of a step in
+    // her deckhouse says it is wider there than it is.
+    let best = -1;
+    for (let dz = 0; dz <= 1; dz++) {
+      for (let dy = 0; dy <= 1; dy++) {
+        const v = house[(zi + dz) * hny + (yi + dy)];
+        if (v < 0) return -1;
+        if (best < 0 || v < best) best = v;
+      }
+    }
+    return best;
+  };
+
   return {
     ...hull,
     shellAt: (t, y) => {
@@ -606,6 +692,26 @@ function heldToPlating(g, hull) {
       if (drawn < 0) return said;
       return Math.max(0, Math.min(said, drawn - ENV_MARGIN));
     },
+    // How far out her deckhouse plating is at a station and a height above her
+    // main deck, or -1 where there is no deckhouse there at all.
+    houseAt,
+    // The same question asked exactly, off one ray rather than off the grid.
+    //
+    // The grid answers where a deckhouse is at all, which is what a sweep up
+    // the ship wants. It cannot answer how wide it is at one plate's own
+    // faces: the Iowa's 01 deck edge tapers from thirteen metres to four in
+    // the last two inches of it, and a grid with rows a foot apart steps over
+    // that whether the rows are a foot apart or an inch. What fits a plate is
+    // a ray at the plate.
+    houseRay: (z, y) => {
+      if (y < hull.sheer(Math.max(-1, Math.min(1, z / halfL))) + HOUSE_FLOOR) return -1;
+      const list = bucket[Math.floor((z - minZ) / ENV_DZ)];
+      if (!list) return -1;
+      const w = beamAt(tris, list, y, z);
+      const cap = roof(z);
+      return cap >= 0 ? Math.min(w, cap) : w;
+    },
+    houseTop: hTop,
   };
 }
 
@@ -683,6 +789,211 @@ function platingTriangles(g) {
   };
   walk(g);
   return out;
+}
+
+/**
+ * The inside of her upperworks.
+ *
+ * A ship's bridge tower was a hollow shell in this game: shoot the front off a
+ * Cleveland's bridge and you were looking through her at the sky on the other
+ * side, which is worse than looking at an undamaged bridge. Her hull has had
+ * an inside for a while (see buildInterior); this is the other two-thirds of
+ * her, and it is built the same way -- measured off the deckhouse plating that
+ * was actually drawn, so the Fletcher's little deckhouse, the Hipper's tower
+ * and the Iowa's fire-control tower all get an inside that fits them without
+ * any of the five hulls in the yard saying a word about it.
+ *
+ * What goes in: a deck every eight feet, athwartships bulkheads making the
+ * cabins and offices a deckhouse is full of, a trunk of uptakes and cable runs
+ * going up through the middle of it, and -- at the highest, widest place
+ * forward, which is where every ship in history put it -- the bridge itself,
+ * with a wheel, a binnacle, a chart table and the telegraphs.
+ */
+function upperworks(inside, hull) {
+  if (!hull.houseAt) return;
+  const loa = hull.loa;
+  const half = loa / 2;
+  const deck = hull.sheer(0);
+  const step = Math.max(2.3, Math.min(3.2, loa / 70));
+
+  // How wide the house is at a station over a whole height, not at one height.
+  //
+  // Everything fitted in here has a height: a bulkhead is eight feet tall and
+  // a trunk is thirty. A tower steps in as it goes up, so the width at the
+  // middle of a bulkhead is not the width at the top of it, and the bulkhead
+  // measured at its middle stands out through the plating at its head. The
+  // narrowest anywhere it passes through is the only figure that fits.
+  const roomAt = (z, ylo, yhi, zTo) => {
+    const z1 = zTo === undefined ? z : zTo;
+    const nz = Math.max(1, Math.round(Math.abs(z1 - z) / (ENV_DZ * 0.5)));
+    const ny = Math.max(4, Math.round((yhi - ylo) / 0.25));
+    let best = -1;
+    for (let j = 0; j <= nz; j++) {
+      const az = z + ((z1 - z) * j) / nz;
+      for (let k = 0; k <= ny; k++) {
+        const w = hull.houseRay(az, ylo + ((yhi - ylo) * k) / ny);
+        if (w < 0) return -1;
+        if (best < 0 || w < best) best = w;
+      }
+    }
+    return best;
+  };
+
+  // Where her deckhouse is, deck by deck: the run of stations that has plating
+  // standing at that height, and how wide it is.
+  const levels = [];
+  for (let y = deck + step; y < hull.houseTop; y += step) {
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    let wide = 0;
+    for (let z = -half * 0.98; z <= half * 0.98; z += HOUSE_DZ) {
+      const w = hull.houseAt(z, y);
+      if (w < 1.4) continue;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+      if (w > wide) wide = w;
+    }
+    if (z1 - z0 < 4 || wide < 1.6) continue;
+    levels.push({ y, z0, z1, wide });
+  }
+  if (!levels.length) return;
+
+  for (const lv of levels) {
+    // A flat between the two, cut to the width of the house at each station.
+    // Built as a strip rather than one box, so a deckhouse that narrows as it
+    // goes aft gets a deck that narrows with it.
+    const n = Math.max(3, Math.round((lv.z1 - lv.z0) / 3));
+    for (let i = 0; i < n; i++) {
+      const za = lv.z0 + ((lv.z1 - lv.z0) * i) / n;
+      const zb = lv.z0 + ((lv.z1 - lv.z0) * (i + 1)) / n;
+      const zm = (za + zb) / 2;
+      const w = roomAt(za, lv.y - 0.12, lv.y + step * 0.55, zb);
+      if (w < 1.4) continue;
+      const room = w - HOUSE_MARGIN;
+      if (room < 0.8) continue;
+      box(inside, M.deck, room * 2, 0.18, zb - za, 0, lv.y, zm);
+    }
+    // The bulkheads that make it cabins and offices instead of one long space.
+    const bhStep = Math.max(5, loa / 26);
+    for (let z = lv.z0 + bhStep * 0.5; z < lv.z1; z += bhStep) {
+      const w = roomAt(z - 0.1, lv.y, lv.y + step * 0.92, z + 0.1);
+      if (w < 1.6) continue;
+      const room = w - HOUSE_MARGIN;
+      box(inside, M.bulkhead, room * 2, step * 0.86, 0.14, 0, lv.y + step * 0.47, z);
+      // A door through it.
+      box(inside, M.frame, room * 0.3, step * 0.55, 0.18,
+        room * 0.42, lv.y + step * 0.34, z);
+    }
+    // And the centreline passage, which is what a deckhouse is arranged round.
+    if (lv.z1 - lv.z0 > 10) {
+      box(inside, M.bulkhead, 0.14, step * 0.86, (lv.z1 - lv.z0) * 0.8,
+        0, lv.y + step * 0.47, (lv.z0 + lv.z1) / 2);
+    }
+  }
+
+  // The trunk: her uptakes and her cable runs, going up through the middle of
+  // the house from the boiler rooms to the funnel. It is the reason a
+  // deckhouse is the shape it is.
+  const mid = levels[0];
+  const zc = (mid.z0 + mid.z1) / 2;
+  const foot = mid.y - step * 0.6;
+  // As high as the house is still standing over this station, and no higher.
+  // The uptakes stop at the funnel, and above the funnel there is a mast,
+  // which is not a room and has nothing inside it.
+  let top = foot;
+  let room = mid.wide;
+  for (const lv of levels) {
+    let here = -1;
+    for (const dz of [-1.2, 0, 1.2]) {
+      const w = roomAt(zc + dz * HOUSE_DZ, foot, lv.y + step * 0.4);
+      if (w < 0) { here = -1; break; }
+      if (here < 0 || w < here) here = w;
+    }
+    if (here < 0.9) break;
+    top = lv.y + step * 0.4;
+    room = here;
+  }
+  if (top > foot + step * 0.6) {
+    const trunk = Math.min(2.2, Math.max(0.4, (room - HOUSE_MARGIN) * 0.6));
+    box(inside, M.machine, trunk * 2, top - foot, trunk * 2.4, 0, (foot + top) / 2, zc);
+    for (let y = foot + 1.4; y < top; y += 2.2) {
+      cyl(inside, M.pipe, 0.16, 0.16, 2.0, trunk * 1.2, y, zc + trunk * 0.9, 6);
+      cyl(inside, M.pipe, 0.16, 0.16, 2.0, -trunk * 1.2, y, zc - trunk * 0.9, 6);
+    }
+  }
+
+  // The bridge.
+  //
+  // The forward end of the highest deck that is still a room rather than a
+  // mast: that is where it was on every ship that ever had one, because it is
+  // the place a captain can see over his own bow from.
+  //
+  // A director platform and a topmast are up there too, and they are neither:
+  // a pillar a metre and a half across with a rangefinder on it is not a
+  // wheelhouse, and a wheel built into one stands out in the open air with the
+  // ship's plating nowhere near it. So the bridge has to be a level with a
+  // room's worth of house standing over the whole height of it.
+  let bridge = null;
+  let bz = 0;
+  let bw = 0;
+  for (const lv of levels) {
+    if (lv.wide < 2.2) continue;
+    if (bridge && lv.y <= bridge.y) continue;
+    // Walking aft from the forward end of the level for the first station
+    // with a room over the whole of the bridge -- not over the middle of it.
+    // The chart table is two metres abaft the wheel and the telegraphs a metre
+    // forward of it, and a wheelhouse that only fits where the wheel is puts
+    // the chart table out over her side.
+    const back = Math.max(2.2, loa / 90);
+    let found = -1;
+    let at = 0;
+    for (let z = lv.z1 - back; z > lv.z0 + 1; z -= HOUSE_DZ) {
+      const w = roomAt(z - 2.4, lv.y, lv.y + step * 0.8, z + 1.9);
+      if (w < 2.0) continue;
+      found = w;
+      at = z;
+      break;
+    }
+    if (found < 0) continue;
+    bridge = lv;
+    bz = at;
+    bw = Math.max(1.2, found - HOUSE_MARGIN);
+  }
+  if (!bridge) return;
+  const by = bridge.y + 0.12;
+  // The wheel, on the centreline, where the quartermaster stands.
+  cyl(inside, M.frame, 0.52, 0.52, 0.1, 0, by + 1.15, bz, 14);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    cyl(inside, M.frame, 0.05, 0.05, 0.44,
+      Math.cos(a) * 0.28, by + 1.15 + Math.sin(a) * 0.28, bz, 5);
+  }
+  cyl(inside, M.machine, 0.2, 0.28, 1.15, 0, by + 0.58, bz, 10);
+  // The binnacle, right forward of it, and the two telegraphs either side.
+  cyl(inside, M.machine, 0.26, 0.3, 1.25, 0, by + 0.62, bz + 1.5, 12);
+  cyl(inside, M.frame, 0.3, 0.3, 0.24, 0, by + 1.3, bz + 1.5, 12);
+  for (const sx of [-1, 1]) {
+    cyl(inside, M.machine, 0.2, 0.24, 1.1, sx * Math.min(1.6, bw * 0.6), by + 0.55, bz + 1.1, 10);
+    cyl(inside, M.shell, 0.26, 0.26, 0.12, sx * Math.min(1.6, bw * 0.6), by + 1.14, bz + 1.1, 12);
+  }
+  // The chart table, aft of the wheel against the after bulkhead, and the
+  // captain's chair in the corner.
+  box(inside, M.frame, Math.min(2.4, bw * 1.2), 0.1, 1.1, 0, by + 0.92, bz - 1.9);
+  box(inside, M.machine, 0.5, 0.85, 0.5, Math.min(1.9, bw * 0.7), by + 0.45, bz - 1.2);
+  // And the armoured conning tower under it: the one place on the bridge that
+  // is not a shell, going down through the house to the deck.
+  // Held to the house all the way down, not to the bridge alone: a tower steps
+  // out as it comes down to the deck, but not always, and a conning tower
+  // standing out through the front of the bridge structure is worse than none.
+  let shaft = bw;
+  for (const lv of levels) {
+    if (lv.y > by) break;
+    const w = roomAt(bz + 0.4, lv.y, lv.y + step * 0.5);
+    if (w >= 0 && w - HOUSE_MARGIN < shaft) shaft = w - HOUSE_MARGIN;
+  }
+  const ct = Math.min(1.7, Math.max(0.4, shaft * 0.55));
+  cyl(inside, M.frame, ct, ct, by - deck, 0, (deck + by) / 2, bz + 0.4, 14);
+  cyl(inside, M.machine, ct * 0.62, ct * 0.62, by - deck + 0.6, 0, (deck + by) / 2, bz + 0.4, 12);
 }
 
 /**
@@ -799,6 +1110,10 @@ export function buildInterior(g, hull) {
     lad.rotation.x = 0.45;
     inside.add(lad);
   }
+
+  // Her upperworks have an inside too. Built after the hull's, because it is
+  // measured off the same plating walk and wants the held lines.
+  upperworks(inside, hull);
 
   machinery(inside, hull, sole, machTop);
   // Magazines under where the turrets are: forward between the collision

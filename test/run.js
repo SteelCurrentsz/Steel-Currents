@@ -8217,5 +8217,344 @@ check('a piece of a ship falls, and goes in the water', () => {
   }
 });
 
+check('a shell among her charges blows the magazine, and nothing else does', () => {
+  // The one hit that finishes a ship in eight seconds. Hood, Barham, Arizona,
+  // Roma, Kirishima's turrets: a shell that beats the armour decisively and
+  // bursts among the charges rather than in a machinery space.
+  //
+  // All three things have to be true together, and the check is that each of
+  // them on its own is not enough -- a shell that gets in but bursts in her
+  // boiler rooms never does it, and one that only just squeezed through the
+  // belt never does it either.
+  const bang = (gun, victim, station, opts = {}) => {
+    const world = generateWorld(11, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const v = addShip(state, { name: 'V', classId: victim, team: 1, index: 0 });
+    v.x = 0; v.z = 0;
+    // Beam on, so the round meets her belt square and gets in: what is being
+    // measured here is what happens once it is inside her, and a shell that
+    // ricochets off her bow never gets that far.
+    v.heading = 0;
+    const spec = SHIP_CLASSES[gun].gun.shells[opts.type || 'ap'];
+    const half = SHIP_CLASSES[victim].hull.length * 0.5;
+    const wx = 0;
+    const wz = station * half;
+    const n = opts.n || 1500;
+    const kinds = {};
+    let went = 0;
+    let blown = null;
+    for (let i = 0; i < n; i++) {
+      state.events.length = 0;
+      v.alive = true;
+      v.hp = v.maxHp;
+      v.flooding = 0;
+      v.engineDamage = 0;
+      for (const t of v.turrets) t.disabled = 0;
+      for (const k of SECTIONS) {
+        const c = v.sections[k.k];
+        c.hp = c.max; c.pens = 0; c.fire = 0;
+        c.holeP = 0; c.holeS = 0; c.water = 0; c.wP = 0; c.wS = 0;
+        c.side = 0; c.holeY = undefined; c.inflow = 0;
+      }
+      resolveShellHit(state, {
+        owner: 0, team: 0, caliber: spec.caliber, spec, life: opts.life ?? 20, g: 9.8,
+        x: wx, y: 4, z: wz,
+        vx: Math.cos(0.35) * 400, vy: -Math.sin(0.35) * 400, vz: 0,
+      }, v, wx, wz, 4);
+      const hit = state.events.find((q) => q.e === 'hit');
+      if (hit) kinds[hit.kind] = (kinds[hit.kind] || 0) + 1;
+      const ev = state.events.find((q) => q.e === 'detonate');
+      if (!ev) continue;
+      went++;
+      if (!blown) blown = { ship: v, ev, state };
+      // The ship is put back together at the top of every pass, so what she
+      // looks like after one has to be read before the next one starts.
+      if (opts.keep) return { rate: went / (i + 1), kinds, blown };
+    }
+    return { rate: went / n, kinds, blown };
+  };
+
+  // Sixteen inch into a light cruiser's forward handling room: her belt is
+  // five inches and the shell has eight times what it needs.
+  const soft = bang('iowa', 'cleveland', 0.4).rate;
+  assert.ok(soft > 0.02,
+    "an Iowa's broadside never once found the Cleveland's magazine in 1500 hits");
+
+  // The same shell, the same ship, amidships. Her machinery spaces have no
+  // charges in them and never blow up, however many times they are hit.
+  assert.equal(bang('iowa', 'cleveland', 0).rate, 0,
+    'her boiler rooms went up like a magazine');
+
+  // A shell that cannot get into the citadel at all. Six-inch AP on the
+  // Hipper's belt shatters on it.
+  assert.equal(bang('cleveland', 'hipper', 0.4).rate, 0,
+    'a shell that never got through blew up her magazine anyway');
+
+  // And it has to beat the armour decisively rather than just squeeze through
+  // it. The same gun at the end of its flight still opens an Iowa's citadel --
+  // twelve hundred times out of twelve hundred -- and never once reaches her
+  // charges, because a shell that has spent itself on the belt has nothing
+  // left to burst with on the other side of it.
+  const spent = bang('iowa', 'iowa', 0.4, { life: 40, n: 1200 });
+  assert.ok((spent.kinds.citadel || 0) > 1100,
+    'a shell at the end of its flight no longer gets into her citadel at all, '
+    + `so this proves nothing: ${JSON.stringify(spent.kinds)}`);
+  assert.equal(spent.rate, 0, 'a shell that only just got through blew her magazine');
+
+  // And armour is the whole of the defence: the same gun against a ship built
+  // to take it gets in far less often, and detonates her far less often.
+  const hard = bang('iowa', 'iowa', 0.4).rate;
+  assert.ok(hard < soft * 0.5,
+    `an Iowa's own armour made no difference: ${(hard * 100).toFixed(1)}% `
+    + `against ${(soft * 100).toFixed(1)}%`);
+
+  // What it does to her, read off a battleship because she is the one ship in
+  // the yard that is still there to be looked at half a minute afterwards.
+  //
+  // That compartment is gone, she is open to the sea on both sides of it right
+  // down below her waterline, she is on fire, and nothing aboard is laying a
+  // gun.
+  const { ship, ev, state } = bang('iowa', 'iowa', 0.4, { keep: true }).blown;
+  assert.equal(ev.at, 'fwd', 'the magazine that went up was not the one that was hit');
+  assert.ok(Number.isFinite(ev.x) && Number.isFinite(ev.z) && ev.cls,
+    'the explosion happened nowhere in particular');
+  const c = ship.sections.fwd;
+  assert.equal(c.hp, 0, 'the compartment the charges were in is still standing');
+  assert.ok(ship.hp < ship.maxHp * 0.6,
+    `she lost only ${(100 - (ship.hp / ship.maxHp) * 100).toFixed(0)}% of her to a magazine`);
+  assert.ok(c.holeP > 0 && c.holeS > 0, 'her magazine went up and holed one side of her');
+  const draft = SHIP_CLASSES[ship.classId].hull.draft;
+  assert.ok(c.holeY >= draft * 0.5,
+    `the hole it left is ${c.holeY.toFixed(1)} m down on a ${draft} m draft`);
+  // Burning where the smoke everyone else can see comes from: her upperworks.
+  assert.ok(ship.sections.works.fire > 0, 'nothing is burning above her deck');
+  assert.ok(ship.turrets.every((t) => t.disabled > 0), 'her turrets went on shooting');
+  assert.ok(ship.engineDamage > 0, 'the shock did not reach her engine room');
+  // And it opened up what was next to it, not only the compartment itself: a
+  // bulkhead alongside a magazine that has gone is not a bulkhead any more.
+  assert.ok(ship.sections.mid.hp < ship.sections.mid.max,
+    'the bulkhead next to a magazine that has gone is still intact');
+  assert.ok(ship.sections.mid.holeS > 0,
+    'the compartment next door is dry and unopened');
+
+  // And the sea comes in. Not a leak -- her side is gone over the length of
+  // that compartment, and half a minute later there are thousands of tons in
+  // her and she is flooding in more compartments than the one that went up.
+  const held = c.wP + c.wS;
+  for (let i = 0; i < 30 / DT; i++) step(state, DT);
+  const took = c.wP + c.wS - held;
+  assert.ok(took > 2000, `she took ${took.toFixed(0)} tons in half a minute`);
+  assert.ok(ship.flooding > 1,
+    `only ${ship.flooding} compartment is flooding after a magazine went up`);
+
+  // A light cruiser does not live through it at all.
+  const cruiser = bang('iowa', 'cleveland', 0.4, { keep: true }).blown.ship;
+  assert.ok(cruiser.hp < cruiser.maxHp * 0.35,
+    `the Cleveland kept ${((cruiser.hp / cruiser.maxHp) * 100).toFixed(0)}% of herself`);
+});
+
+check('a magazine going up is heard by the whole battle', () => {
+  // A ship blowing up two miles away is the loudest thing anyone in a WW2
+  // action ever heard, and the point of it is that everybody sees it. The
+  // wire sends a sinking and the end of a battle to everyone; a detonation
+  // goes the same way, rather than only to whoever happened to be watching
+  // that ship.
+  const room = readFileSync(new URL('../server/room.js', import.meta.url), 'utf8');
+  const line = room.slice(room.indexOf('dispatchEvents'), room.indexOf('dispatchEvents') + 2200);
+  assert.ok(/detonate/.test(line), 'a magazine explosion is not sent to everybody');
+  const globals = line.match(/ev\.e === '[a-z]+'/g) || [];
+  assert.ok(globals.some((q) => q.includes('detonate')),
+    'a detonation is not on the list of things the whole battle is told about');
+});
+
+check('a wrecked turret stays on her deck', () => {
+  // Her mountings used to be switched off when the deck under them was shot
+  // away: fifty feet of turret gone from the picture between one frame and the
+  // next, leaving a bare ring of deck. Nothing on a ship disappears. A turret
+  // that is finished sits there burnt out and canted over, and the only thing
+  // that ever took one off a ship was the magazine under it letting go.
+  const view = new ShipView({ add() {}, remove() {} }, 'cleveland', 0, false);
+  const turret = view.turrets[0];
+  const paint = [];
+  turret.traverse((o) => { if (o.isMesh && o.material?.color) paint.push(o.material.color.getHex()); });
+  const fair = { x: turret.rotation.x, z: turret.rotation.z };
+
+  const under = sectionAt(turret.position.z / (SHIP_CLASSES.cleveland.hull.length / 2));
+  const whole = new Array(SECTIONS.length).fill(1);
+  const holed = whole.slice();
+  holed[SECTIONS.findIndex((q) => q.k === under)] = 0;
+  view.setCondition(holed);
+
+  assert.equal(turret.visible, true, 'her forward turret vanished with the deck under it');
+  assert.ok(turret.userData.wrecked, 'the turret is undamaged on a compartment that has gone');
+  assert.equal(turret.userData.laid, false, 'a burnt-out turret is still training');
+  let n = 0;
+  let burnt = 0;
+  turret.traverse((o) => {
+    if (!o.isMesh || !o.material?.color) return;
+    if (o.material.color.getHex() !== paint[n]) burnt++;
+    n++;
+  });
+  assert.ok(burnt > 0, 'a burnt-out turret is still in her paint');
+  assert.ok(Math.abs(turret.rotation.z - fair.z) > 0.05,
+    'a turret off its roller path is sitting perfectly square');
+
+  // And her paint is her own: burning one ship's turret out does not blacken
+  // the same turret on every other ship of the class.
+  const other = new ShipView({ add() {}, remove() {} }, 'cleveland', 0, false);
+  let same = 0;
+  let k = 0;
+  other.turrets[0].traverse((o) => {
+    if (!o.isMesh || !o.material?.color) return;
+    if (o.material.color.getHex() === paint[k]) same++;
+    k++;
+  });
+  assert.equal(same, k, `${k - same} pieces of another ship's turret went black with this one`);
+
+  // Damage control gets to it and it trains again, in her own colours.
+  view.setCondition(whole);
+  assert.equal(turret.userData.wrecked, false, 'she never got the turret back');
+  assert.equal(turret.userData.laid, true, 'a repaired turret still will not train');
+  let back = 0;
+  let j = 0;
+  turret.traverse((o) => {
+    if (!o.isMesh || !o.material?.color) return;
+    if (Math.abs(o.material.color.getHex() - paint[j]) <= 0x010101) back++;
+    j++;
+  });
+  assert.ok(back > j * 0.9, 'a repaired turret is still burnt');
+  assert.ok(Math.abs(turret.rotation.z - fair.z) < 1e-6, 'it is still canted over');
+});
+
+check('a magazine explosion throws the turret over it into the air', () => {
+  // The one thing that does take a mounting off a ship. It is not hidden: it
+  // is put into the wreckage batch with everything else and comes down in the
+  // sea, as itself, under gravity.
+  const sea = { heightAt: () => 0 };
+  const wreck = new Wreckage({ add() {}, remove() {} }, sea, () => {});
+  const view = new ShipView({ add() {}, remove() {} }, 'cleveland', 0, false,
+    null, undefined, null, wreck);
+  const half = SHIP_CLASSES.cleveland.hull.length / 2;
+  const fwd = SECTIONS.find((q) => q.k === 'fwd');
+  const before = wreck.live.length;
+  const out = view.blowOut(fwd.from * half, fwd.to * half);
+  assert.ok(out.thrown > 0, 'her forward magazine went up and took no mountings with it');
+  assert.ok(wreck.live.length > before,
+    'the turrets it lifted off her went nowhere -- they were just hidden');
+  const flying = wreck.live.slice(before).map((p) => ({ p, y0: p.y }));
+  for (const { p } of flying) {
+    assert.ok(p.vy > 0, 'a turret lifted off her roller path did not go up');
+    assert.ok(Number.isFinite(p.x + p.y + p.z), 'it went up from nowhere');
+  }
+  // A thousand tons of turret goes a long way up -- that is the whole of what
+  // a magazine explosion looks like from outside the ship -- and then it comes
+  // down. Nothing this game puts in the air stays there.
+  let rise = 0;
+  for (let i = 0; i < 900 && wreck.live.length; i++) {
+    wreck.update(1 / 30);
+    for (const q of flying) if (!q.p.sank) rise = Math.max(rise, q.p.y - q.y0);
+  }
+  assert.ok(rise > 15, `the highest of it reached ${rise.toFixed(1)} m above her deck`);
+  assert.equal(wreck.live.length, 0, 'a turret is still hanging in the air over the battle');
+});
+
+check('a bomb takes a piece of the deck it landed on', () => {
+  // A five-hundred-pounder through a wooden flight deck leaves a hole you can
+  // see from the bridge. The plating is cut where the bomb went, and the size
+  // of the cut is the size of the bomb -- not a scorch mark, a hole.
+  const built = buildShip('cleveland');
+  const plating = new Plating(built.group);
+  const deck = built.group.userData.lines.sheer(0);
+  const rims = plating.rims.at;
+  const went = plating.punch(0, deck, 10, holeRadius('bomb', 454) * 1.6, 0.35);
+  assert.ok(went > 0, 'a bomb burst on her deck and took nothing out of it');
+  assert.ok(plating.rims.at > rims, 'the hole it left in her deck has no torn edge');
+
+  // And it is a bomb's hole, not a shell's: a five-hundred-pounder through a
+  // deck takes a piece out of it you can see from the bridge.
+  const other = new Plating(buildShip('cleveland').group);
+  const shell = other.punch(0, deck, 10, holeRadius('pen', 152), 0.35);
+  assert.ok(went > shell * 2.5,
+    `a bomb took ${went.toFixed(1)} m2 of her deck against a six-inch shell's `
+    + `${shell.toFixed(1)}`);
+
+  // And the client cuts the deck rather than only playing an explosion over
+  // it: the bomb that got through her deck is punched through the ship it hit.
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const at = game.indexOf('  bombThrough(x, y, z) {');
+  const through = game.slice(at, at + 1600);
+  assert.ok(/\.punch\(/.test(through), 'a bomb through her deck never cuts it');
+  assert.ok(/holeRadius\('bomb'/.test(through),
+    "the hole a bomb leaves is not sized to the bomb");
+});
+
+check('her upperworks have an inside, with a bridge in it', () => {
+  // A bridge tower was a hollow shell: shoot the front off a Cleveland's
+  // bridge and you were looking through her at the sky beyond, which is worse
+  // than looking at an undamaged one. Two-thirds of what a shell hits on a
+  // cruiser is above her main deck.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa']) {
+    const built = buildShip(id);
+    const lines = built.group.userData.lines;
+    const deck = lines.sheer(0);
+    const inside = built.group.children.filter((c) => c.isMesh && c.userData.mergeKey === 'in');
+    let up = 0;
+    let high = deck;
+    for (const m of inside) {
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i);
+        if (y > deck + 1) { up++; high = Math.max(high, y); }
+      }
+    }
+    assert.ok(up > 300, `${id} has ${up} points of anything above her main deck`);
+    assert.ok(high > deck + 4,
+      `${id}'s upperworks are hollow more than ${(high - deck).toFixed(1)} m up`);
+  }
+});
+
+check('the battle ends with a way home, and nobody is sent home', () => {
+  // The action used to end with a three-second countdown and then the ship was
+  // taken off the player: the wrecks still burning, the smoke still going up,
+  // and the game back at the dockyard before anyone had looked at any of it.
+  // A battle that is over is a thing to look at. There is a key in the corner
+  // when you want it, and nothing happens until it is pressed.
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const end = game.slice(game.indexOf('onResult(msg)'), game.indexOf('onResult(msg)') + 700);
+  assert.ok(/showPortKey\(true\)/.test(end), 'the battle ends with no way out of it');
+  assert.ok(!/setTimeout/.test(end),
+    'the end of the battle still sends the player home on a timer');
+  assert.ok(!/onExit/.test(end), 'the end of the battle still leaves it by itself');
+
+  // The key itself: bottom left, out of the way of the three keys along the
+  // bottom of the glass, and it says where it goes.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const key = html.match(/<button[^>]*id="btn-port"[^>]*>([^<]*)</);
+  assert.ok(key, 'there is no way home on the glass at all');
+  assert.equal(key[1].trim(), 'Back To Port', `the key says "${key[1].trim()}"`);
+  assert.ok(/hidden/.test(key[0]), 'the way home is showing before the battle is over');
+  const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
+  const rule = css.slice(css.indexOf('.port-key'), css.indexOf('.port-key') + 700);
+  assert.ok(/left:/.test(rule) && /bottom:/.test(rule),
+    'the way home is not in the bottom left corner');
+  assert.ok(!/right:/.test(rule.split('}')[0]), 'the way home is pinned to both sides');
+
+  // And it is wired to the same door the sinking overlay uses, so pressing it
+  // is what takes her home -- nothing else does.
+  const hudSrc = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  assert.ok(/el\.port[\s\S]{0,120}onclick = onLeave/.test(hudSrc),
+    'the way home is not connected to anything');
+
+  // The switch itself, on a HUD with nothing else on it.
+  const el = { port: { hidden: true } };
+  const hud = Object.create(Hud.prototype);
+  hud.el = el;
+  hud.showPortKey(true);
+  assert.equal(el.port.hidden, false, 'the way home never appeared');
+  hud.showPortKey(false);
+  assert.equal(el.port.hidden, true, 'the way home never goes away again');
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

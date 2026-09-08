@@ -691,6 +691,37 @@ input[type="range"] { accent-color: var(--red); }
   background: rgba(8, 19, 31, 0.9); border: 1px solid var(--panel-line);
   border-top: 3px solid var(--red); text-align: center; z-index: 8;
 }
+/* The way home when the action is over.
+ *
+ * Bottom left: the conn keys own the bottom middle and the plot owns the top
+ * right, and this is the one control that is not part of fighting the ship, so
+ * it sits in the one corner nothing else wants. It appears when the last ship
+ * of a side has gone and it does nothing at all until it is pressed -- the
+ * battle used to take the player home on a timer three seconds after the
+ * result, which is the one thing about an ending that cannot be waited out. */
+.port-key {
+  position: absolute; z-index: 9; pointer-events: auto;
+  left: max(1.4vw, env(safe-area-inset-left));
+  bottom: max(1.4vh, calc(env(safe-area-inset-bottom) + 0.6rem));
+  padding: 0.6rem 1.3rem; min-height: 44px;
+  background: rgba(8, 19, 31, 0.92);
+  border: 1px solid var(--sand); border-left: 3px solid var(--red);
+  color: var(--sand); font-family: var(--ui); font-size: 0.86rem;
+  font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+  animation: portIn 0.5s ease both;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.port-key[hidden] { display: none; }
+.port-key:hover, .port-key:focus-visible {
+  color: #0b141d; background: var(--sand); outline: none;
+}
+@keyframes portIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Leaving the battle. It used to be a full-sized button under two lines of
    text, at the bottom of the notice, which put the one control on the panel
    furthest from the thumb and made it the biggest thing on it. It is a small
