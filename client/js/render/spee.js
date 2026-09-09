@@ -465,40 +465,243 @@ function house(g, m, half, z0, z1, y, h, opts = {}) {
   return mesh;
 }
 
+// ------------------------------------------------- fittings for the works --
+//
+// The small parts every level of her upperworks is made of. A tower is not a
+// stack of boxes: it is a stack of boxes with rails round every open deck,
+// windows right round every enclosed one, a door and a ladder on both sides of
+// each of them, and brackets under everything that overhangs. Drawn once here
+// so both sides of her get the same, and so a level is four lines rather than
+// forty.
+
+/**
+ * Guard rails round an open platform.
+ *
+ * A stanchion every metre and a half and three wires rove through them,
+ * following a list of [x, z] corners. `close` runs the last corner back to the
+ * first; leave it off where the run ends against a house side.
+ */
+function railLoop(g, pts, y, opts = {}) {
+  const { h = 1.02, close = true, step = 1.5 } = opts;
+  const n = pts.length;
+  if (n < 2) return;
+  const runs = close ? n : n - 1;
+  for (let i = 0; i < runs; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (len < 0.06) continue;
+    const k = Math.max(1, Math.round(len / step));
+    for (let j = 0; j < k; j++) {
+      const f = j / k;
+      box(g, M.steelDark, 0.07, h, 0.07, a[0] + dx * f, y + h / 2, a[1] + dz * f);
+    }
+    for (const wy of [0.38, 0.68, 0.97]) {
+      box(g, M.wire, 0.045, 0.045, len, a[0] + dx / 2, y + wy, a[1] + dz / 2,
+        Math.atan2(dx, dz));
+    }
+  }
+  const end = pts[close ? 0 : n - 1];
+  box(g, M.steelDark, 0.07, h, 0.07, end[0], y + h / 2, end[1]);
+}
+
+/** The same, round a rectangular platform. */
+function railRect(g, half, z0, z1, y, opts) {
+  railLoop(g, [[-half, z0], [-half, z1], [half, z1], [half, z0]], y, opts);
+}
+
+/**
+ * The knees under a platform that overhangs the level below it.
+ *
+ * A deck carried out past the house under it stands on brackets, and without
+ * them it reads as a shelf floating in the air -- which is exactly what the
+ * eye catches from the beam.
+ */
+function knees(g, from, to, y, zs) {
+  const span = Math.abs(to - from);
+  if (span < 0.3) return;
+  for (const z of zs) {
+    for (const sgn of [-1, 1]) {
+      const k = box(g, M.steel, span + 0.5, 0.85, 0.13,
+        sgn * (from + to) / 2, y - 0.42, z);
+      k.rotation.z = -sgn * 0.62;
+    }
+  }
+}
+
+/** A row of bridge windows across a face that looks fore or aft. */
+function winFwd(g, half, y, z, n, w = 1.2) {
+  for (let i = 0; i < n; i++) {
+    const f = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
+    box(g, M.glass, w, 0.98, 0.1, f * (half - w * 0.75), y, z);
+  }
+}
+
+/** And a row down one side, at a station either side of the middle of it. */
+function winSide(g, half, y, z0, z1, n, w = 1.2) {
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < n; i++) {
+      const f = n === 1 ? 0.5 : i / (n - 1);
+      box(g, M.glass, 0.1, 0.98, w, sgn * half, y, z0 + (z1 - z0) * f);
+    }
+  }
+}
+
+/** A watertight door in a side face, with the dogs down its shut edge. */
+function doorSide(g, half, y, z) {
+  for (const sgn of [-1, 1]) {
+    box(g, M.steelDark, 0.09, 1.85, 0.86, sgn * half, y + 0.93, z);
+    box(g, M.bright, 0.05, 0.09, 0.66, sgn * (half + 0.03), y + 0.93, z);
+    box(g, M.bright, 0.05, 0.55, 0.07, sgn * (half + 0.03), y + 0.93, z + 0.36);
+  }
+}
+
+/** Scuttles: a row of them at one height, both sides. */
+function scuttles(g, half, y, z0, z1, step = 1.7) {
+  for (let z = z0; z <= z1 + 1e-6; z += step) {
+    const w = typeof half === 'function' ? half(z) : half;
+    for (const sgn of [-1, 1]) {
+      cyl(g, M.glass, 0.18, 0.18, 0.09, sgn * (w + 0.02), y, z, 8)
+        .rotation.z = Math.PI / 2;
+      cyl(g, M.bright, 0.22, 0.22, 0.05, sgn * (w + 0.05), y, z, 8)
+        .rotation.z = Math.PI / 2;
+    }
+  }
+}
+
+/** A signal lamp on a pedestal: one on each bridge wing. */
+function signalLamp(g, x, y, z) {
+  cyl(g, M.steelDark, 0.09, 0.11, 1.15, x, y + 0.58, z, 8);
+  cyl(g, M.steel, 0.26, 0.26, 0.34, x, y + 1.3, z, 12).rotation.x = Math.PI / 2;
+  cyl(g, M.glass, 0.24, 0.24, 0.05, x, y + 1.3, z + 0.19, 12).rotation.x = Math.PI / 2;
+}
+
+/** A pelorus: the bearing repeater a navigating officer takes a fix on. */
+function pelorus(g, x, y, z) {
+  cyl(g, M.steelDark, 0.08, 0.11, 1.0, x, y + 0.5, z, 8);
+  cyl(g, M.brass, 0.21, 0.21, 0.14, x, y + 1.06, z, 12);
+  box(g, M.bright, 0.5, 0.04, 0.04, x, y + 1.14, z);
+}
+
+/** A ventilator cowl, turned to the wind. */
+function cowl(g, x, y, z, r = 0.3, h = 1.5) {
+  cyl(g, M.steel, r, r * 1.1, h, x, y + h / 2, z, 10);
+  const bell = cyl(g, M.steel, r * 1.5, r * 1.05, r * 1.5, x, y + h + r * 0.5, z, 10);
+  bell.rotation.x = -0.85;
+  cyl(g, M.cave, r * 1.35, r * 1.35, 0.06, x, y + h + r * 0.95, z + r * 0.9, 10)
+    .rotation.x = Math.PI / 2 - 0.85;
+}
+
+/** A life raft, lashed flat to a house side, as the Germans carried them. */
+function raft(g, x, y, z, len = 2.2) {
+  const r = box(g, M.raft, 0.3, 0.72, len, x, y, z);
+  r.rotation.z = 0.08 * Math.sign(x || 1);
+  box(g, M.steelDark, 0.34, 0.06, len * 0.9, x, y + 0.3, z);
+  box(g, M.steelDark, 0.34, 0.06, len * 0.9, x, y - 0.3, z);
+}
+
+// -------------------------------------------------------- her superstructure
+
 function superstructure(g) {
   const y = deckAt(0);
   house(g, M.steel, sHalf, SDECK_Z0, SDECK_Z1, y, SDECK_H);
   house(g, M.deckSteel, (z) => sHalf(z) + 0.06, SDECK_Z0, SDECK_Z1,
     y + SDECK_H, 0.16);
-  // Scuttles down her superstructure side, two rows, as the profile draws
-  // them.
-  for (let z = SDECK_Z0 + 3; z < SDECK_Z1 - 3; z += 3.2) {
-    for (const sgn of [-1, 1]) {
-      for (const dy of [1.05, 2.25]) {
-        cyl(g, M.glass, 0.19, 0.19, 0.08, sgn * (sHalf(z) + 0.02), y + dy, z, 8)
-          .rotation.z = Math.PI / 2;
-      }
-    }
-  }
+  // Two rows of scuttles down both sides of her, as the profile draws them,
+  // and a watertight door out on to the walkway at each end of each side.
+  scuttles(g, sHalf, y + 1.05, SDECK_Z0 + 3, SDECK_Z1 - 3, 1.8);
+  scuttles(g, sHalf, y + 2.25, SDECK_Z0 + 3, SDECK_Z1 - 3, 1.8);
+  for (const z of [34, 18, -6, -26]) doorSide(g, sHalf(z), y, z);
   // Ladders down to the weather deck at both ends, both sides.
   for (const sgn of [-1, 1]) {
     ladder(g, M.steelDark, sgn * (sHalf(36) - 0.4), y, y + SDECK_H, 36, 33.4);
     ladder(g, M.steelDark, sgn * (sHalf(-30) - 0.4), y, y + SDECK_H, -30, -27.4);
   }
+  // Guard rails down both edges of the superstructure deck. It is a three-metre
+  // fall from it to the weather deck and her people work along it all day, so
+  // the kit photograph shows a rail the whole length of both sides and so does
+  // she now.
+  const edge = [];
+  for (let z = SDECK_Z0 + 0.5; z <= SDECK_Z1 - 0.5; z += 3.0) edge.push(z);
+  edge.push(SDECK_Z1 - 0.5);
+  for (const sgn of [-1, 1]) {
+    railLoop(g, edge.map((z) => [sgn * (sHalf(z) - 0.35), z]), y + SDECK_H + 0.16,
+      { close: false, step: 3.0 });
+  }
+
+  // Life rafts on both sides of her, where a German ship stowed them: flat
+  // against the house, out of the way of the guns' crews.
+  for (const sgn of [-1, 1]) {
+    for (const z of [30, 26, -14, -18]) {
+      raft(g, sgn * (sHalf(z) + 0.2), y + 1.7, z);
+    }
+  }
+
   // The lower bridge block between Anton and the tower: a wide low house with
   // the conning tower buried in the front of it. The plan draws it as an
   // eight-sided grey mass a good deal broader than the tower above it.
   const b = y + SDECK_H;
-  house(g, M.steel, 6.8, 30, 41, b, 4.5);
-  // The armoured conning tower standing in it -- a cylinder with a slit, and
-  // the roof of it carried out over the bridge front. The profile puts the top
-  // of it sixteen metres over the water, a metre and a half clear of the
-  // bridge deck round its foot.
-  cyl(g, M.steel, 2.9, 3.1, 6.0, 0, b + 3.0, 38.5, 18);
-  cyl(g, M.gunDark, 3.05, 3.05, 0.34, 0, b + 5.85, 38.5, 18);
-  cyl(g, M.steelDark, 3.3, 3.3, 0.2, 0, b + 6.15, 38.5, 18);
-  // And the open deck round it, which the plan shows as a broad platform.
-  house(g, M.deckSteel, 5.6, 33.6, 41.4, b + 4.5, 0.16);
+  const BH = 4.5;
+  house(g, M.steel, 6.8, 29, 38.6, b, BH);
+  // And its forward end, one deck lower: the profile steps down a metre and a
+  // half over the last three metres before the notch of open deck abaft Anton,
+  // and a block carried out level to forty-one is a wall where she has a step.
+  house(g, M.steel, 6.2, 38.2, 41.2, b, 3.1);
+  scuttles(g, 6.2, b + 1.5, 39.0, 40.6, 1.6);
+  railRect(g, 6.2, 38.4, 41.0, b + 3.1 + 0.16, { close: false });
+  // Her people live and work in it, so it is not a blank box: scuttles down
+  // both sides, a door out on each beam, and the bridge messenger's ladder.
+  scuttles(g, 6.8, b + 1.5, 30.5, 39.5, 1.8);
+  scuttles(g, 6.8, b + 3.1, 30.5, 39.5, 1.8);
+  doorSide(g, 6.8, b, 33.5);
+  doorSide(g, 6.8, b, 38.0);
+  // The admiral's bridge looks out of the front of it: nine lights across,
+  // and a pair of them round each forward corner.
+  winFwd(g, 5.4, b + 1.9, 41.28, 8, 0.95);
+  for (const sgn of [-1, 1]) {
+    for (const dz of [40.4, 39.2]) {
+      box(g, M.glass, 0.1, 0.98, 1.0, sgn * 6.22, b + 1.9, dz);
+    }
+  }
+  for (const sgn of [-1, 1]) {
+    ladder(g, M.steelDark, sgn * 5.4, b, b + BH, 29.6, 32.2);
+    raft(g, sgn * 7.0, b + 2.3, 35.6, 2.6);
+  }
+  // The armoured conning tower standing in it -- a cylinder with a vision slit
+  // right round, and the roof of it carried out over the bridge front. The
+  // profile puts the top of it sixteen metres over the water, a metre and a
+  // half clear of the bridge deck round its foot.
+  // Set at thirty-seven and a half rather than out on the block's forward end:
+  // the profile has her front sloping up from thirteen metres at forty-one to
+  // sixteen at thirty-eight, and a drum carried right out to the front of the
+  // block flattens that into a wall.
+  // Four and a half metres across, not six: a conning tower is a place for
+  // four men and a wheel behind fifteen centimetres of Wotan, and drawn any
+  // fatter it flattens the whole front of her bridge into a wall. The profile
+  // has a narrow peak at thirty-eight and the bridge deck a metre and a half
+  // under it either side.
+  cyl(g, M.steel, 2.15, 2.30, 5.70, 0, b + 2.85, 36.8, 18);
+  cyl(g, M.cave, 2.32, 2.32, 0.30, 0, b + 4.35, 36.8, 18);      // the slit
+  cyl(g, M.gunDark, 2.45, 2.45, 0.30, 0, b + 5.85, 36.8, 20);
+  for (let i = 0; i < 8; i++) {                    // rungs up the after side
+    box(g, M.steelDark, 0.5, 0.05, 0.05, 0, b + 0.5 + i * 0.62, 34.4);
+  }
+  // And the open deck round it, which the plan shows as a broad platform:
+  // railed, bracketed where it stands out past the house, and carrying the
+  // pelorus and the ready-use lockers a navigating bridge works from.
+  const bd = b + BH;
+  house(g, M.deckSteel, 5.6, 32.6, 38.4, bd, 0.16);
+  railLoop(g, [[-5.6, 32.6], [-5.6, 38.4], [5.6, 38.4], [5.6, 32.6]], bd + 0.16,
+    { close: false });
+  knees(g, 5.6, 6.8, bd, [34.0, 37.2]);
+  railRect(g, 6.8, 29.2, 32.8, bd + 0.16, { close: false });
+  for (const sgn of [-1, 1]) {
+    pelorus(g, sgn * 4.4, bd + 0.16, 40.2);
+    box(g, M.steelDark, 0.9, 0.8, 1.5, sgn * 4.7, bd + 0.56, 34.4);
+    cowl(g, sgn * 5.9, bd + 0.16, 31.2, 0.26, 1.2);
+  }
 }
 
 // ------------------------------------------------------------ the tower --
@@ -512,6 +715,12 @@ function superstructure(g) {
 // control position, director platform, and the ten-and-a-half-metre base
 // rangefinder in its cupola on top, twenty-four metres over the deck.
 //
+// Every enclosed level is glazed right round, because that is what it is for:
+// a bridge is a place people look out of. Every open one is railed and stands
+// on knees where it overhangs. Both sides get the same, which is not a detail
+// -- a tower detailed to starboard and blank to port is the one fault you
+// cannot see from the side you built it on.
+//
 // The FuMO 22 mattress is bolted to the front of the cupola: a flat
 // rectangular aerial of dipoles on a frame, six metres by two, and the first
 // radar set anybody took to sea in a warship.
@@ -520,44 +729,94 @@ const TOWER_Z = 24;
 
 function tower(g) {
   const base = sdeck(TOWER_Z);
-  // The trunk. Broad and armoured, not a lattice: this is the whole point.
-  house(g, M.steel, 5.4, TOWER_Z - 5.4, TOWER_Z + 5.0, base, 4.4);
 
-  // The navigating bridge, wrapped round the trunk one deck up, with open
-  // wings carried out to either side.
-  const b1 = base + 4.4;
-  house(g, M.steel, 6.9, TOWER_Z - 4.6, TOWER_Z + 4.4, b1, 3.1);
-  house(g, M.deckSteel, 8.6, TOWER_Z - 3.4, TOWER_Z + 3.6, b1 + 3.1, 0.16);
-  // The bridge front, faced with windows, and the wing screens either side.
-  for (let i = 0; i < 7; i++) {
-    box(g, M.glass, 1.5, 1.2, 0.12, -5.1 + i * 1.7, b1 + 1.5, TOWER_Z + 4.48);
-  }
+  // ---- the trunk. Broad and armoured, not a lattice: this is the point.
+  const T0 = 5.4;
+  house(g, M.steel, T0, TOWER_Z - 5.4, TOWER_Z + 5.0, base, 4.4);
+  scuttles(g, T0, base + 1.4, TOWER_Z - 4.2, TOWER_Z + 3.8, 1.7);
+  scuttles(g, T0, base + 3.0, TOWER_Z - 4.2, TOWER_Z + 3.8, 1.7);
+  doorSide(g, T0, base, TOWER_Z - 3.4);
+  doorSide(g, T0, base, TOWER_Z + 2.6);
   for (const sgn of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      box(g, M.glass, 0.12, 1.2, 1.4, sgn * 6.96, b1 + 1.5, TOWER_Z + 2.8 - i * 1.6);
-    }
-    box(g, M.steelDark, 0.14, 1.05, 6.6, sgn * 8.5, b1 + 3.3, TOWER_Z + 0.2);
+    raft(g, sgn * (T0 + 0.2), base + 2.6, TOWER_Z - 1.2, 2.4);
+    cowl(g, sgn * (T0 - 1.2), base + 4.4, TOWER_Z - 4.6, 0.24, 1.0);
   }
 
-  // The chart house, narrower, above the bridge.
-  const b2 = b1 + 3.1;
-  house(g, M.steel, 4.7, TOWER_Z - 3.9, TOWER_Z + 3.5, b2, 3.0);
+  // ---- the navigating bridge, wrapped round the trunk one deck up, with
+  // open wings carried out to either side.
+  const b1 = base + 4.4;
+  const T1 = 6.9;
+  house(g, M.steel, T1, TOWER_Z - 4.6, TOWER_Z + 4.4, b1, 3.1);
+  // Glazed right round: eleven lights across the front, five down each side,
+  // and three in the after bulkhead where the chart table is.
+  winFwd(g, T1 - 0.5, b1 + 1.6, TOWER_Z + 4.48, 11, 1.0);
+  winSide(g, T1 + 0.02, b1 + 1.6, TOWER_Z - 3.6, TOWER_Z + 3.4, 5, 1.15);
+  winFwd(g, T1 - 2.2, b1 + 1.6, TOWER_Z - 4.68, 3, 1.0);
+  doorSide(g, T1, b1, TOWER_Z - 4.0);
+  // The wings: the bridge deck carried right out to the beam, on knees, with
+  // the lamp and the pelorus each side that make a wing a wing.
+  const WING = 9.6;
+  const CP = T1 + 1.4;                             // the compass platform round it
+  const b1r = b1 + 3.1;
+  house(g, M.deckSteel, WING, TOWER_Z - 1.9, TOWER_Z + 3.6, b1r, 0.16);
+  house(g, M.deckSteel, CP, TOWER_Z - 5.4, TOWER_Z + 4.9, b1r, 0.16);
+  knees(g, T1, WING, b1r, [TOWER_Z - 1.2, TOWER_Z + 1.0, TOWER_Z + 3.0]);
+  knees(g, T1, CP, b1r, [TOWER_Z - 4.4, TOWER_Z + 4.2]);
+  // Railed the whole way round, wings and all: the after edge of a compass
+  // platform is as far to fall off as the forward one.
+  railLoop(g, [
+    [-CP, TOWER_Z - 5.4], [-CP, TOWER_Z - 2.2], [-WING, TOWER_Z - 1.9],
+    [-WING, TOWER_Z + 3.6], [-CP, TOWER_Z + 4.9],
+    [CP, TOWER_Z + 4.9], [WING, TOWER_Z + 3.6],
+    [WING, TOWER_Z - 1.9], [CP, TOWER_Z - 2.2], [CP, TOWER_Z - 5.4],
+  ], b1r + 0.16);
+  for (const sgn of [-1, 1]) {
+    signalLamp(g, sgn * (WING - 0.9), b1r + 0.16, TOWER_Z + 2.6);
+    pelorus(g, sgn * (WING - 2.4), b1r + 0.16, TOWER_Z + 0.4);
+    // The engine-room telegraph on the wing, and the wing screen behind it.
+    cyl(g, M.brass, 0.24, 0.28, 0.95, sgn * (WING - 3.6), b1r + 0.64,
+      TOWER_Z - 0.9, 10);
+    box(g, M.steelDark, 0.14, 1.05, 5.2, sgn * (WING - 0.1), b1r + 0.7,
+      TOWER_Z + 0.6);
+  }
 
-  // The searchlight platform, carried out either side of it -- the profile
+  // ---- the chart house, narrower, above the bridge.
+  const b2 = b1r + 0.16;
+  const T2 = 4.7;
+  house(g, M.steel, T2, TOWER_Z - 3.9, TOWER_Z + 3.5, b2, 3.0);
+  winFwd(g, T2 - 0.4, b2 + 1.5, TOWER_Z + 3.58, 7, 0.95);
+  winSide(g, T2 + 0.02, b2 + 1.5, TOWER_Z - 3.0, TOWER_Z + 2.6, 4, 1.05);
+  doorSide(g, T2, b2, TOWER_Z - 3.2);
+  for (const sgn of [-1, 1]) ladder(g, M.steelDark, sgn * 3.4, b2, b2 + 3.0,
+    TOWER_Z - 4.0, TOWER_Z - 2.0);
+
+  // ---- the searchlight platform, carried out either side of it: the profile
   // shows a light on each wing at this level.
   const b3 = b2 + 3.0;
-  house(g, M.deckSteel, 6.5, TOWER_Z - 2.8, TOWER_Z + 2.6, b3, 0.16);
+  const T3 = 6.5;
+  house(g, M.deckSteel, T3, TOWER_Z - 2.8, TOWER_Z + 2.6, b3, 0.16);
+  knees(g, T2, T3, b3, [TOWER_Z - 2.0, TOWER_Z + 0.4, TOWER_Z + 2.0]);
+  railRect(g, T3, TOWER_Z - 2.8, TOWER_Z + 2.6, b3 + 0.16);
   for (const sgn of [-1, 1]) {
     box(g, M.steelDark, 2.2, 0.14, 2.2, sgn * 5.6, b3 + 0.08, TOWER_Z - 0.4);
     cyl(g, M.steelDark, 0.12, 0.12, 2.4, sgn * 5.6, b3 - 1.2, TOWER_Z - 0.4, 6);
     searchlight(g, sgn * 5.6, b3 + 0.95, TOWER_Z - 0.4);
   }
 
-  // The upper control position.
-  house(g, M.steel, 3.4, TOWER_Z - 3.0, TOWER_Z + 2.6, b3, 2.9);
+  // ---- the upper control position, glazed all round: it is a lookout, and
+  // the men in it are the ones who see the enemy first.
+  const T4 = 3.4;
+  house(g, M.steel, T4, TOWER_Z - 3.0, TOWER_Z + 2.6, b3, 2.9);
+  winFwd(g, T4 - 0.3, b3 + 1.6, TOWER_Z + 2.68, 5, 0.9);
+  winSide(g, T4 + 0.02, b3 + 1.6, TOWER_Z - 2.4, TOWER_Z + 2.0, 3, 1.0);
+  winFwd(g, T4 - 1.0, b3 + 1.6, TOWER_Z - 3.08, 3, 0.9);
   const b4 = b3 + 2.9;
-  // The platform the anti-aircraft directors stand on.
-  house(g, M.deckSteel, 4.4, TOWER_Z - 2.6, TOWER_Z + 2.4, b4, 0.16);
+
+  // ---- the platform the anti-aircraft directors stand on.
+  const T5 = 4.4;
+  house(g, M.deckSteel, T5, TOWER_Z - 2.6, TOWER_Z + 2.4, b4, 0.16);
+  knees(g, T4, T5, b4, [TOWER_Z - 1.8, TOWER_Z + 1.6]);
+  railRect(g, T5, TOWER_Z - 2.6, TOWER_Z + 2.4, b4 + 0.16);
   for (const sgn of [-1, 1]) {
     const d = new THREE.Group();
     d.position.set(sgn * 3.3, b4 + 0.16, TOWER_Z - 0.6);
@@ -568,21 +827,35 @@ function tower(g) {
     g.add(d);
   }
 
-  // The trunk carrying the fire-control top.
+  // ---- the trunk carrying the fire-control top, with its own little
+  // platform round the foot of it.
   const b5 = b4 + 0.16;
   cyl(g, M.steel, 1.9, 2.2, 3.6, 0, b5 + 1.8, TOWER_Z, 16);
+  for (let i = 0; i < 10; i++) {                     // the rungs up it
+    box(g, M.steelDark, 0.6, 0.06, 0.06, 0, b5 + 0.35 + i * 0.34, TOWER_Z - 2.16);
+  }
 
-  // The top itself, and the great rangefinder across it. Ten and a half
+  // ---- the top itself, and the great rangefinder across it. Ten and a half
   // metres of base length, which is very nearly half her beam.
   const dir = new THREE.Group();
   dir.position.set(0, b5 + 3.6, TOWER_Z);
   dir.userData.dynamic = true;
   house(dir, M.steel, 2.3, -2.4, 2.2, 0, 2.0);
+  // Sighting ports round it, both sides and ahead, so it reads as a thing men
+  // are looking out of rather than a block.
+  for (const sgn of [-1, 1]) {
+    for (const dz of [-1.4, 0, 1.4]) {
+      box(dir, M.glass, 0.1, 0.5, 0.8, sgn * 2.32, 1.35, dz);
+    }
+  }
+  box(dir, M.glass, 3.2, 0.5, 0.1, 0, 1.35, 2.22);
   cyl(dir, M.steel, 2.05, 2.15, 0.9, 0, 2.45, -0.1, 16);
   sphere(dir, M.steel, 2.05, 0, 2.9, -0.1, 14).scale.set(1, 0.5, 1);
   tubeX(dir, M.steel, 0.42, 10.5, 0, 2.95, 0.25, 12);
   for (const sgn of [-1, 1]) {
     box(dir, M.glass, 0.16, 0.44, 0.44, sgn * 5.2, 2.95, 0.5);
+    // The counterweight housings either side of the trunnions.
+    box(dir, M.steelDark, 0.7, 0.5, 0.7, sgn * 1.5, 2.95, -0.55);
   }
   // The radar. A flat mattress of dipoles on a rectangular frame, bolted to
   // the front of the cupola, and the first set anybody took to sea.
@@ -598,13 +871,25 @@ function tower(g) {
   dir.add(mattress);
   g.add(dir);
 
-  // The pole mast abaft the tower, carrying her wireless aerials, and the
-  // ladders up the front of the tower.
-  cyl(g, M.steelDark, 0.16, 0.26, 15.0, 0, b4 + 7.5, TOWER_Z - 4.4, 10);
-  box(g, M.steelDark, 5.4, 0.12, 0.12, 0, b4 + 12.4, TOWER_Z - 4.4);
-  ladder(g, M.steelDark, S * 3.0, base, b1, TOWER_Z + 3.8, TOWER_Z + 3.8);
-  ladder(g, M.steelDark, S * 2.5, b1, b2, TOWER_Z + 3.0, TOWER_Z + 3.0);
-  ladder(g, M.steelDark, S * 2.1, b2, b3, TOWER_Z + 2.6, TOWER_Z + 2.6);
+  // ---- the topmast abaft the tower, carrying her wireless aerials, with a
+  // yard and the spreaders the aerials are rove through. The profile puts her
+  // truck thirty-four metres over the water.
+  cyl(g, M.steelDark, 0.14, 0.24, 11.0, 0, b4 + 5.5, TOWER_Z - 4.4, 10);
+  box(g, M.steelDark, 5.4, 0.12, 0.12, 0, b4 + 8.4, TOWER_Z - 4.4);
+  box(g, M.steelDark, 3.4, 0.1, 0.1, 0, b4 + 10.2, TOWER_Z - 4.4);
+  for (const sgn of [-1, 1]) {
+    const stay = box(g, M.wire, 0.05, 0.05, 6.4, sgn * 1.4, b4 + 4.4, TOWER_Z - 2.6);
+    stay.rotation.x = -0.75;
+    stay.rotation.z = sgn * 0.2;
+  }
+
+  // ---- and the ladders a man actually gets up her by, on both sides.
+  for (const sgn of [-1, 1]) {
+    ladder(g, M.steelDark, sgn * 3.0, base, b1, TOWER_Z + 3.8, TOWER_Z + 3.8);
+    ladder(g, M.steelDark, sgn * 2.5, b1, b2, TOWER_Z + 3.0, TOWER_Z + 3.0);
+    ladder(g, M.steelDark, sgn * 2.1, b2, b3, TOWER_Z + 2.6, TOWER_Z + 2.6);
+    ladder(g, M.steelDark, sgn * 1.8, b3, b4, TOWER_Z + 2.2, TOWER_Z + 2.2);
+  }
 }
 
 function searchlight(g, x, y, z) {
@@ -615,6 +900,171 @@ function searchlight(g, x, y, z) {
   cyl(s, M.glass, 0.56, 0.56, 0.06, 0, 0, 0.41, 14).rotation.x = Math.PI / 2;
   g.add(s);
   return s;
+}
+
+// -------------------------------------------------- inside her upperworks --
+//
+// Her hull has an interior fitted to her own lines, and the tower gets decks
+// and bulkheads measured off its plating (see interior.js). What neither of
+// them puts in is what a bridge is actually full of: a wheel, two telegraphs,
+// a chart table, a compass and the men's chairs. A shell through the front of
+// a bridge that opens on to an empty box is worse than one that does not open
+// at all, and hers opens on to the room.
+//
+// Everything here hangs under a group marked `inside`, which is what the weld
+// keys off: it goes in the one buffer that is never taken away, so it is there
+// the moment the plating in front of it is.
+
+/** The wheel: a rim, a hub and eight spokes, on its pedestal. */
+function wheel(g, x, y, z, r = 0.62) {
+  cyl(g, M.steelDark, 0.16, 0.24, 1.05, x, y + 0.52, z, 10);
+  box(g, M.gunDark, 0.5, 0.34, 0.4, x, y + 1.16, z);
+  const rim = cyl(g, M.brass, r, r, 0.09, x, y + 1.34, z + 0.24, 20);
+  rim.rotation.x = Math.PI / 2;
+  cyl(g, M.brass, r * 0.82, r * 0.82, 0.11, x, y + 1.34, z + 0.24, 20)
+    .rotation.x = Math.PI / 2;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const sp = box(g, M.brass, 0.06, r * 1.7, 0.06, x, y + 1.34, z + 0.24);
+    sp.rotation.z = a;
+    box(g, M.brass, 0.07, 0.2, 0.07,
+      x + Math.sin(a) * r * 1.02, y + 1.34 + Math.cos(a) * r * 1.02, z + 0.26);
+  }
+}
+
+/** An engine-room telegraph: the brass dial a bridge rings her orders on. */
+function telegraph(g, x, y, z) {
+  cyl(g, M.steelDark, 0.15, 0.2, 0.95, x, y + 0.47, z, 10);
+  cyl(g, M.brass, 0.34, 0.34, 0.16, x, y + 1.05, z, 16).rotation.x = Math.PI / 2;
+  cyl(g, M.mark, 0.28, 0.28, 0.05, x, y + 1.05, z + 0.1, 16).rotation.x = Math.PI / 2;
+  box(g, M.gunDark, 0.05, 0.3, 0.05, x, y + 1.14, z + 0.14);
+  box(g, M.brass, 0.42, 0.06, 0.06, x, y + 1.05, z + 0.16);
+}
+
+/** A binnacle: the compass under its hood, on the centreline. */
+function binnacle(g, x, y, z) {
+  cyl(g, M.brass, 0.24, 0.3, 1.1, x, y + 0.55, z, 12);
+  sphere(g, M.brass, 0.3, x, y + 1.2, z, 12).scale.set(1, 0.8, 1);
+  cyl(g, M.glass, 0.22, 0.22, 0.06, x, y + 1.42, z, 12);
+  for (const sgn of [-1, 1]) sphere(g, M.gunDark, 0.16, x + sgn * 0.42, y + 1.1, z, 8);
+}
+
+/** A chart table with a chart on it and a light over it. */
+function chartTable(g, x, y, z, w = 2.4, d = 1.2) {
+  box(g, M.steelDark, w, 0.08, d, x, y + 0.92, z);
+  box(g, M.mark, w - 0.3, 0.02, d - 0.2, x, y + 0.97, z);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      box(g, M.steelDark, 0.07, 0.9, 0.07, x + sx * (w / 2 - 0.14), y + 0.45,
+        z + sz * (d / 2 - 0.12));
+    }
+  }
+  box(g, M.steelDark, 0.4, 0.06, 0.2, x, y + 1.85, z);
+  cyl(g, M.mark, 0.1, 0.1, 0.1, x, y + 1.76, z, 8);
+}
+
+/** A watchkeeper's chair, bolted down as they were. */
+function chair(g, x, y, z, ry = 0) {
+  cyl(g, M.steelDark, 0.13, 0.2, 0.62, x, y + 0.31, z, 8);
+  box(g, M.canvas, 0.5, 0.09, 0.48, x, y + 0.66, z, ry);
+  box(g, M.canvas, 0.5, 0.6, 0.08, x, y + 0.98, z - 0.22, ry);
+}
+
+/** A voice pipe: the brass mouth a bridge talks to the ship through. */
+function voicePipe(g, x, y, z, h = 1.3) {
+  cyl(g, M.brass, 0.055, 0.07, h, x, y + h / 2, z, 8);
+  const bell = cyl(g, M.brass, 0.13, 0.07, 0.2, x, y + h + 0.08, z, 10);
+  bell.rotation.x = -0.5;
+}
+
+/** A repeater or transmitter dial on a bulkhead. */
+function dial(g, x, y, z, r = 0.2, ry = 0) {
+  cyl(g, M.gunDark, r, r, 0.1, x, y, z, 12).rotation.set(Math.PI / 2, 0, ry);
+  cyl(g, M.mark, r * 0.8, r * 0.8, 0.04, x, y, z + 0.06, 12)
+    .rotation.set(Math.PI / 2, 0, ry);
+}
+
+/**
+ * What is inside her bridge, her chart house, her conning tower and her upper
+ * control position -- one level at a time, from the bottom up.
+ */
+function bridgeInside(g) {
+  const inside = new THREE.Group();
+  inside.userData.inside = true;
+  g.add(inside);
+  const i = inside;
+  const y0 = deckAt(0);
+  const b = y0 + SDECK_H;                          // the bridge block's sole
+  const base = sdeck(TOWER_Z);                     // the tower's
+
+  // ---- the admiral's bridge, in the block abaft Anton. A sea cabin, the
+  // table he takes his meals and his decisions at, and the chairs round it.
+  chartTable(i, 0, b, 39.2, 2.8, 1.4);
+  for (const sgn of [-1, 1]) chair(i, sgn * 1.9, b, 39.2, sgn * 1.2);
+  chair(i, 0, b, 37.4, Math.PI);
+  box(i, M.steelDark, 1.6, 1.9, 0.5, 0, b + 0.95, 35.0);      // chart lockers
+  for (const sgn of [-1, 1]) {
+    box(i, M.canvas, 0.9, 0.4, 2.0, sgn * 4.6, b + 0.6, 33.6);  // bunks
+    dial(i, sgn * 3.0, b + 1.7, 40.9, 0.22);
+  }
+
+  // ---- the conning tower: a wheel, a telegraph either side of it, and the
+  // armoured sight slit to look out of. Four men and fifteen centimetres of
+  // Wotan, which is the whole of what a conning tower is.
+  wheel(i, 0, b + 0.1, 36.0, 0.5);
+  for (const sgn of [-1, 1]) telegraph(i, sgn * 1.15, b + 0.1, 36.3);
+  binnacle(i, 0, b + 0.1, 37.9);
+  voicePipe(i, 0.75, b + 0.1, 35.4);
+  voicePipe(i, -0.75, b + 0.1, 35.4);
+
+  // ---- the wheelhouse, in the trunk of the tower under the bridge: the
+  // sea-going steering position, and the one she is actually conned from.
+  wheel(i, 0, base + 0.1, 27.0);
+  for (const sgn of [-1, 1]) {
+    telegraph(i, sgn * 1.5, base + 0.1, 27.4);
+    chair(i, sgn * 3.2, base + 0.1, 26.0, sgn * 0.6);
+    voicePipe(i, sgn * 2.2, base + 0.1, 28.0);
+    dial(i, sgn * 1.0, base + 1.9, 28.9, 0.2);
+  }
+  binnacle(i, 0, base + 0.1, 28.4);
+  chartTable(i, 0, base + 0.1, 22.0, 2.6, 1.3);
+  box(i, M.steelDark, 3.6, 2.0, 0.5, 0, base + 1.0, 19.0);     // the after bulkhead gear
+
+  // ---- the navigating bridge above it: the compass platform's own binnacle,
+  // the captain's chair, the plot, and the telegraphs repeated.
+  const b1 = base + 4.4;
+  binnacle(i, 0, b1 + 0.1, 27.6);
+  wheel(i, 0, b1 + 0.1, 26.2, 0.52);
+  for (const sgn of [-1, 1]) {
+    telegraph(i, sgn * 1.4, b1 + 0.1, 26.6);
+    chair(i, sgn * 4.2, b1 + 0.1, 26.4, sgn * 0.7);
+    voicePipe(i, sgn * 2.6, b1 + 0.1, 24.6);
+    dial(i, sgn * 3.4, b1 + 1.8, 28.3, 0.22);
+    dial(i, sgn * 5.0, b1 + 1.8, 28.3, 0.18);
+  }
+  chartTable(i, 0, b1 + 0.1, 21.4, 3.0, 1.4);
+  box(i, M.steelDark, 5.2, 2.2, 0.55, 0, b1 + 1.1, 19.9);      // signal lockers
+
+  // ---- the chart house over that: the plotting table she navigates on, the
+  // wireless office beside it, and the chart drawers under both.
+  const b2 = b1 + 3.1 + 0.16;
+  chartTable(i, 0, b2 + 0.1, 25.4, 3.2, 1.6);
+  box(i, M.steelDark, 2.2, 1.5, 0.6, 0, b2 + 0.75, 21.6);
+  for (const sgn of [-1, 1]) {
+    box(i, M.gunDark, 1.0, 1.3, 0.55, sgn * 2.8, b2 + 0.65, 21.8);
+    dial(i, sgn * 2.8, b2 + 1.5, 21.5, 0.16);
+    chair(i, sgn * 2.6, b2 + 0.1, 23.6, Math.PI);
+  }
+
+  // ---- the upper control position at the top: the gunnery officer's seat,
+  // his transmitting gear, and the ready plot of the range.
+  const b3 = b2 + 3.0;
+  for (const sgn of [-1, 1]) {
+    chair(i, sgn * 1.5, b3 + 0.1, 24.6, 0);
+    dial(i, sgn * 1.6, b3 + 1.6, 26.3, 0.2);
+  }
+  box(i, M.gunDark, 2.6, 1.2, 0.6, 0, b3 + 0.7, 22.2);
+  chartTable(i, 0, b3 + 0.1, 23.6, 2.0, 1.0);
 }
 
 // ------------------------------------------------------------ the funnel --
@@ -928,7 +1378,9 @@ function groundTackle(g) {
     cyl(g, M.steelDark, 0.55, 0.62, 0.8, sgn * 3.6, deckAt(68) + 0.4, 68, 10);
     cyl(g, M.steelDark, 0.55, 0.62, 0.8, sgn * 3.6, deckAt(-78) + 0.4, -78, 10);
   }
-  // Bollards down both sides.
+  // Bollards down both sides, with a mooring fairlead in the bulwark abreast
+  // of each pair: what the plan view draws all the way down both her sides,
+  // and what a ship is actually made fast by.
   for (let z = -80; z < 80; z += 14) {
     const y = deckAt(z);
     const w = halfDeck(z);
@@ -936,6 +1388,59 @@ function groundTackle(g) {
     for (const sgn of [-1, 1]) {
       cyl(g, M.steelDark, 0.2, 0.22, 0.62, sgn * (w - 1.0), y + 0.31, z, 8);
       cyl(g, M.steelDark, 0.2, 0.22, 0.62, sgn * (w - 1.0), y + 0.31, z + 0.9, 8);
+      box(g, M.steelDark, 0.34, 0.16, 1.1, sgn * (w - 1.0), y + 0.7, z + 0.45);
+      // The fairlead itself: a shoe at the deck edge with the mouth cut in it.
+      box(g, M.steelDark, 0.5, 0.5, 0.9, sgn * (w - 0.28), y + 0.25, z + 0.45);
+      box(g, M.cave, 0.56, 0.24, 0.5, sgn * (w - 0.28), y + 0.3, z + 0.45);
+    }
+  }
+
+  // Hatches: a raised coaming with the lid dogged down on it, where her plan
+  // puts the ammunition and store trunks fore and aft.
+  for (const [z, w, d] of [[70, 2.4, 2.0], [58, 2.0, 1.8], [-62, 2.2, 2.0],
+    [-74, 2.0, 1.8], [-84, 1.8, 1.6]]) {
+    const y = deckAt(z);
+    box(g, M.steelDark, w, 0.32, d, 0, y + 0.16, z);
+    box(g, M.gunDark, w - 0.3, 0.1, d - 0.3, 0, y + 0.36, z);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        box(g, M.bright, 0.1, 0.1, 0.1, sx * (w / 2 - 0.2), y + 0.36,
+          z + sz * (d / 2 - 0.2));
+      }
+    }
+  }
+
+  // Skylights over the messdecks, both sides, with the glass in them.
+  for (const z of [64, -70]) {
+    const y = deckAt(z);
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 1.3, 0.5, 1.3, sgn * 3.4, y + 0.25, z);
+      const lid = box(g, M.glass, 1.1, 0.08, 1.1, sgn * 3.4, y + 0.52, z);
+      lid.rotation.x = -0.16;
+    }
+  }
+
+  // The accommodation ladders, stowed fore and aft against her side where a
+  // ship carries them at sea, one on each beam.
+  for (const sgn of [-1, 1]) {
+    const z = -44;
+    const w = halfDeck(z);
+    const lad = box(g, M.steelDark, 0.16, 0.9, 8.5, sgn * (w + 0.22),
+      deckAt(z) - 0.9, z);
+    lad.rotation.x = 0.06;
+    for (let k = 0; k < 12; k++) {
+      box(g, M.steelDark, 0.7, 0.05, 0.16, sgn * (w + 0.5),
+        deckAt(z) - 0.9 + k * 0.04, z - 3.8 + k * 0.68);
+    }
+    box(g, M.steelDark, 0.9, 0.08, 0.9, sgn * (w + 0.5), deckAt(z) - 0.5, z + 4.6);
+  }
+
+  // Ready-use lockers by the fifteens and the close-range guns, both sides.
+  for (const [x, z] of [[9.0, 36], [9.6, 16], [9.6, -12], [9.2, -32]]) {
+    for (const sgn of [-1, 1]) {
+      const y = deckAt(z);
+      box(g, M.steelDark, 0.7, 0.9, 1.5, sgn * (x - 1.4), y + 0.45, z + 2.6);
+      box(g, M.gunDark, 0.74, 0.1, 1.54, sgn * (x - 1.4), y + 0.9, z + 2.6);
     }
   }
 }
@@ -1391,6 +1896,7 @@ const STATIC = [
   ['rails', rails],
   ['superstructure', superstructure],
   ['tower', tower],
+  ['bridgeInside', bridgeInside],
   ['funnel', funnel],
   ['afterWorks', afterWorks],
   ['mainmast', mainmast],

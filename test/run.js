@@ -8542,7 +8542,12 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // bridge and you were looking through her at the sky beyond, which is worse
   // than looking at an undamaged one. Two-thirds of what a shell hits on a
   // cruiser is above her main deck.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa']) {
+  // The Graf Spee is here for a second reason: her bridge is not only hollow
+  // no longer, it is furnished. A wheel, two telegraphs, a binnacle, the chart
+  // table and the watchkeepers' chairs are in every one of her steering and
+  // control positions, so a shell through the front of her bridge opens on to
+  // the room rather than on to a lit box. See bridgeInside.
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'spee']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;
     const deck = lines.sheer(0);
@@ -9528,6 +9533,51 @@ check('you cannot see straight through a gunhouse', () => {
       }
     });
   }
+});
+
+check('the Graf Spee is built the same on both sides', () => {
+  // The same test the Hipper and the Iowa get, and it catches the same thing:
+  // a bridge wing railed to port and bare to starboard, a door on one beam and
+  // a blank plate on the other, a ladder up one side of the tower only. It is
+  // the one fault you cannot see from the side you built it on.
+  //
+  // Two fittings on her are hers alone and are meant to be: the crane stands
+  // out on her starboard quarter, and the spare Arado is stowed on its trolley
+  // beside it. She carried one aeroplane in reserve, not two.
+  const parts = speeParts().filter((p) => {
+    if (p.from === 'crane' || p.from === 'sparePlane') return false;
+    // A mounting is wherever it is trained, and her two torpedo banks are
+    // stowed on opposite beams: a loader's platform off the centre of a bank
+    // lands at a different station on each side of her because the bank it is
+    // bolted to has been swung. What is checked here is what is bolted to the
+    // ship, and every one of those is compared.
+    if (p.moving) return false;
+    const [w, h, d] = p.size;
+    // Half a metre in its longest dimension is the cut, not half a cubic
+    // metre: a guard rail, a ladder stringer and a stanchion are all slivers
+    // by volume and all of them are exactly what gets left off one side.
+    return Math.max(w, h, d) >= 0.5 && w * h * d >= 0.0015;
+  });
+  const key = (p) => `${p.from}|${p.min[1].toFixed(2)}|${p.min[2].toFixed(2)}|`
+    + `${p.max[2].toFixed(2)}|${(p.max[0] - p.min[0]).toFixed(2)}`;
+  const shelf = new Map();
+  for (const p of parts) {
+    const k = key(p);
+    if (!shelf.has(k)) shelf.set(k, []);
+    shelf.get(k).push((p.min[0] + p.max[0]) / 2);
+  }
+  const lone = [];
+  for (const p of parts) {
+    const cx = (p.min[0] + p.max[0]) / 2;
+    if (Math.abs(cx) < 0.25) continue;                       // on the centreline
+    if (!shelf.get(key(p)).some((x) => Math.abs(x + cx) < 0.12)) {
+      lone.push(`${p.from} at x ${cx.toFixed(1)}, y ${p.min[1].toFixed(1)}, `
+        + `z ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
+    }
+  }
+  assert.ok(parts.length > 150, `only ${parts.length} pieces of her were compared`);
+  assert.equal(lone.length, 0,
+    `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
 });
 
 check('every deckhouse on the Graf Spee has sides and a roof', () => {
