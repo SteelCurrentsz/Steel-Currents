@@ -10,6 +10,9 @@ import { buildHipper } from './hipper.js';
 import { buildSpee } from './spee.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
+import { buildYamato } from './yamato.js';
+import { buildTakao } from './takao.js';
+import { buildShinano } from './shinano.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
 import { mergeStatic } from './merge.js';
@@ -498,6 +501,54 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+
+  // And the Yamato: the largest battleship ever built, and a shape no
+  // parametric hull gets near -- a bulbous forefoot, a sheer that sweeps three
+  // and a half metres over her forward third, and a pagoda bridge that is a
+  // stack of platforms rather than a tower.
+  if (cls.id === 'yamato') {
+    const built = buildYamato();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Takao, whose castle of a bridge and three superfiring turrets
+  // forward are the whole of what she looks like.
+  if (cls.id === 'takao') {
+    const built = buildTakao();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Shinano: an armoured flight deck on a battleship hull, with two
+  // lifts that run and a hangar under them.
+  if (cls.id === 'shinano') {
+    const built = buildShinano();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
     };
   }
 

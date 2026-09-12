@@ -126,6 +126,14 @@ export const P = {
   star: new THREE.MeshLambertMaterial({ color: 0xd9dde2 }),
   insignia: new THREE.MeshLambertMaterial({ color: 0x1d3866 }),
   red: new THREE.MeshLambertMaterial({ color: 0xa33a30 }),
+  // Imperial Japanese Navy, late war: D2 dark green above, a pale grey-green
+  // below, and the yellow leading-edge identification bands at the wing roots.
+  jpnTop: new THREE.MeshLambertMaterial({ color: 0x2f3b2c }),
+  jpnTop2: new THREE.MeshLambertMaterial({ color: 0x3a4736 }),
+  jpnBottom: new THREE.MeshLambertMaterial({ color: 0x9aa08f }),
+  // And the hinomaru, which is a plain disc of red with a white surround on
+  // the late-war machines.
+  hinomaru: new THREE.MeshLambertMaterial({ color: 0xa8241f }),
 };
 
 // The names the tools know these by. `planeTop` and `planeBottom` are the two
@@ -143,6 +151,8 @@ const SCHEMES = {
   luftwaffe: [P.gerTop, P.gerBottom],
   // What an OS2U was still wearing when the war started: grey all over.
   grey: [P.grey, P.greyDark],
+  // IJN carrier aircraft, 1944: dark green over grey-green.
+  ijn: [P.jpnTop, P.jpnBottom],
 };
 
 /**
@@ -636,6 +646,82 @@ function insignia(p, x, y, z, r, up = true) {
       Math.sin(a) * r * 0.42, 0, Math.cos(a) * r * 0.42, a);
   }
   cyl(m, M.star, r * 0.32, r * 0.32, 0.075, 0, 0, 0, 10);
+}
+
+/**
+ * The hinomaru: the Japanese national marking.
+ *
+ * A plain disc of red -- no star, no bars -- with the white surround the
+ * late-war machines carried. Cut through the skin rather than laid on it, for
+ * the same reason the star is: laid on, the marking shows on one face and the
+ * other face is a blank plate, so every aeroplane has a rising sun to port and
+ * a red plate to starboard.
+ */
+function hinomaru(p, x, y, z, r, up = true, surround = true) {
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  if (!up) m.rotation.z = Math.PI / 2;
+  p.add(m);
+  if (surround) cyl(m, M.star, r * 1.18, r * 1.18, 0.045, 0, 0, 0, 16);
+  cyl(m, P.hinomaru, r, r, 0.055, 0, 0, 0, 16);
+  return m;
+}
+
+/**
+ * An inline engine's nose: a long slim cowling round a vee-twelve, with the
+ * spinner on the end of it and the radiator scoop under.
+ *
+ * The Suisei is the one Japanese carrier aircraft with one, and it is the
+ * whole of why she looks like nothing else in the Pacific -- everything else
+ * out there has a radial and a blunt nose, and she has the profile of a
+ * fighter.
+ */
+function inline(p, r, y, z, span, blades = 3, spin = false) {
+  airframe(p, M.planeTop, [
+    { z: z - 1.95, w: r * 1.55, h: r * 1.70, y },
+    { z: z - 1.20, w: r * 1.62, h: r * 1.78, y: y + 0.02 },
+    { z: z - 0.50, w: r * 1.52, h: r * 1.66, y: y + 0.02 },
+    { z: z + 0.10, w: r * 1.22, h: r * 1.34, y },
+    { z: z + 0.44, w: r * 0.82, h: r * 0.90, y },
+  ], { flat: 0.05, e: 0.92, capF: false, capA: false, mBot: M.planeTop });
+  // The radiator bath under the nose, which is where a liquid-cooled engine
+  // puts its drag.
+  airframe(p, M.planeTop, [
+    { z: z - 1.10, w: r * 0.70, h: r * 0.40, y: y - r * 0.86 },
+    { z: z - 0.30, w: r * 0.86, h: r * 0.52, y: y - r * 0.92 },
+    { z: z + 0.40, w: r * 0.80, h: r * 0.48, y: y - r * 0.90 },
+  ], { flat: 0.2, e: 0.9, mBot: M.planeBottom });
+  cyl(p, M.cave, r * 0.32, r * 0.32, 0.06, 0, y - r * 0.90, z + 0.44, 10)
+    .rotation.x = Math.PI / 2;
+  // The exhaust stacks down both sides, six a side.
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      cyl(p, M.gunDark, 0.055, 0.055, 0.2, s * r * 0.80, y + r * 0.16,
+        z - 1.5 + i * 0.24, 6).rotation.z = Math.PI / 2;
+    }
+  }
+  // The spinner and the airscrew.
+  const hub = new THREE.Group();
+  hub.position.set(0, y, z + 0.52);
+  p.add(hub);
+  airframe(hub, M.planeTop, [
+    { z: -0.10, w: r * 0.78, h: r * 0.78, y: 0 },
+    { z: 0.24, w: r * 0.70, h: r * 0.70, y: 0 },
+    { z: 0.58, w: r * 0.40, h: r * 0.40, y: 0 },
+    { z: 0.76, w: r * 0.10, h: r * 0.10, y: 0 },
+  ], { flat: 0, e: 1, capA: false, mBot: M.planeTop });
+  const disc = new THREE.Group();
+  disc.position.set(0, 0, 0.12);
+  hub.add(disc);
+  for (let i = 0; i < blades; i++) {
+    const b = new THREE.Group();
+    b.rotation.z = (i / blades) * Math.PI * 2;
+    disc.add(b);
+    const bl = box(b, M.prop, 0.16, span * 0.5, 0.05, 0, span * 0.25, 0);
+    bl.rotation.y = 0.32;
+  }
+  if (spin) p.userData.prop = disc;
+  return disc;
 }
 
 /** A main leg: oleo, scissors, wheel and the door on its side. */
@@ -1325,7 +1411,419 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
 }
 
 
-// The five machines, so they can be looked at and measured without a ship
+
+// ----------------------------------------------------- the Japanese ones --
+
+/**
+ * An A6M5 Zero: the fighter.
+ *
+ * Everything about her is the same decision taken over and over -- take the
+ * weight out. No armour, no self-sealing tanks, a wing built in one piece with
+ * the fuselage centre section, and flush rivets everywhere. What you get is an
+ * aeroplane that climbs and turns like nothing else and comes apart when
+ * anybody hits her. The Model 52 has the shorter square-tipped wing, which is
+ * the version that was still flying in 1944.
+ */
+function zero(g, x, y, z, ry, folded = false, opts = {}) {
+  paint('ijn');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = sitline(1.18, 0.13);
+  // A very slim body: the Zero's fuselage is barely wider than the engine.
+  airframe(p, M.planeTop, [
+    { z: -4.30, w: 0.16, h: 0.46, y: cl(-4.30) + 0.30 },
+    { z: -3.70, w: 0.34, h: 0.68, y: cl(-3.70) + 0.22 },
+    { z: -2.90, w: 0.54, h: 0.90, y: cl(-2.90) + 0.14 },
+    { z: -2.00, w: 0.72, h: 1.08, y: cl(-2.00) + 0.08 },
+    { z: -1.00, w: 0.88, h: 1.24, y: cl(-1.00) + 0.03 },
+    { z: 0.00, w: 0.96, h: 1.32, y: cl(0.00) },
+    { z: 0.90, w: 0.98, h: 1.34, y: cl(0.90) },
+    { z: 1.80, w: 0.94, h: 1.30, y: cl(1.80) + 0.01 },
+    { z: 2.60, w: 0.86, h: 1.20, y: cl(2.60) + 0.03 },
+    { z: 3.30, w: 0.76, h: 1.06, y: cl(3.30) + 0.05 },
+  ], { flat: 0.08, e: 0.96, mBot: M.planeBottom });
+  radial(p, 0.62, cl(3.6) + 0.06, 3.55, 3.0, 3, opts.spin);
+  // The long greenhouse, which on a Zero runs most of the way to the fin.
+  greenhouse(p, 0.80, 0.56, cl(0.4) + 0.66, -0.55, 1.45, 4);
+  airframe(p, M.planeTop, [
+    { z: -3.80, w: 0.26, h: 0.26, y: cl(-3.80) + 0.34 },
+    { z: -2.40, w: 0.52, h: 0.42, y: cl(-2.40) + 0.42 },
+    { z: -1.10, w: 0.68, h: 0.52, y: cl(-1.10) + 0.50 },
+    { z: -0.55, w: 0.74, h: 0.55, y: cl(-0.55) + 0.53 },
+  ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
+
+  // Her wing. The Model 52's tips are square-cut rather than folding -- only
+  // the outer half-metre came up, which is not enough to be worth drawing --
+  // so she is built spread and the folded set is the same panel with the tips
+  // turned up.
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
+  for (const s of [-1, 1]) {
+    for (const [holder, tipUp] of [[spread, false], [stowed, true]]) {
+      const w = new THREE.Group();
+      w.position.set(s * 0.48, cl(0.7) - 0.34, 0.55);
+      w.rotation.z = -s * 0.055;
+      holder.add(w);
+      wing(w, M.planeTop, M.planeBottom, {
+        side: s, x: 0, y: 0, z: 0, span: 5.5, rootC: 2.30, tipC: 1.20,
+        sweep: 0.52, thick: 0.105, camber: 0.024, twist: -0.03, rootCap: false,
+      });
+      box(w, M.planeTop, 1.5, 0.09, 0.40, s * 4.2, 0.04, -0.92);     // aileron
+      box(w, M.planeTop, 1.9, 0.10, 0.52, s * 1.7, 0.02, -1.06);     // flap
+      // Her 20 mm cannon in the leading edge, and the 13 mm beside it.
+      arm(cyl(w, M.gunDark, 0.055, 0.055, 0.62, s * 2.1, 0.03, 0.30, 6), 0.32)
+        .rotation.x = Math.PI / 2;
+      arm(cyl(w, M.gunDark, 0.038, 0.038, 0.34, s * 2.9, 0.03, 0.22, 6), 0.18)
+        .rotation.x = Math.PI / 2;
+      // The yellow identification band on the leading edge at the root, which
+      // every Japanese aircraft after 1942 carried.
+      box(w, P.yellow, 1.6, 0.11, 0.30, s * 1.5, 0.02, 0.90);
+      hinomaru(w, s * 3.4, 0.10, -0.55, 0.52);
+      hinomaru(w, s * 3.4, -0.10, -0.55, 0.52);
+      if (tipUp) w.rotation.z = -s * 1.42;      // see below
+      // The root fillet.
+      box(w, M.planeTop, 0.45, 0.26, 2.0, s * 0.14, 0.04, -0.60);
+    }
+  }
+  // Folded, the whole panel comes up on the root hinge and stands on edge
+  // alongside her, which is what gets a fighter down a lift well: spread she
+  // is eleven metres across and a hangar is not.
+  stowed.visible = !!folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+
+  hinomaru(p, 0.36, cl(-1.6) + 0.06, -1.6, 0.40, false);
+  hinomaru(p, -0.36, cl(-1.6) + 0.06, -1.6, 0.40, false);
+  empennage(p, 1.16, 1.02, 3.30, 0.80, cl(-3.5) + 0.30, -3.2);
+  if (opts.gear !== false) {
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.30, 0.9, 0.96, 0.30, 0.06);
+    tailGear(p, -3.95, 0.15, 0.9, 0.30);
+  }
+  box(p, M.planeTop, 0.06, 0.52, 0.06, 0, cl(0.2) + 1.06, 0.2);
+  const wire = box(p, M.wire, 0.03, 0.03, 3.5, 0, cl(-1.5) + 1.02, -1.5);
+  wire.rotation.x = -0.2;
+  return p;
+}
+
+/**
+ * A D4Y Suisei: the dive bomber.
+ *
+ * The one Japanese carrier aircraft with an inline engine, and it shows -- she
+ * has the nose of a fighter and she was faster than most of them. Built round
+ * an internal bomb bay, which nothing else in the Pacific had, with the dive
+ * brakes under the wing rather than on the trailing edge.
+ */
+function suisei(g, x, y, z, ry, folded = false, opts = {}) {
+  paint('ijn');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = sitline(1.30, 0.11);
+  airframe(p, M.planeTop, [
+    { z: -4.90, w: 0.16, h: 0.44, y: cl(-4.90) + 0.30 },
+    { z: -4.20, w: 0.32, h: 0.66, y: cl(-4.20) + 0.22 },
+    { z: -3.30, w: 0.52, h: 0.88, y: cl(-3.30) + 0.14 },
+    { z: -2.30, w: 0.70, h: 1.06, y: cl(-2.30) + 0.08 },
+    { z: -1.20, w: 0.84, h: 1.20, y: cl(-1.20) + 0.03 },
+    { z: -0.10, w: 0.92, h: 1.28, y: cl(-0.10) },
+    { z: 1.00, w: 0.92, h: 1.28, y: cl(1.00) },
+    { z: 2.00, w: 0.86, h: 1.18, y: cl(2.00) + 0.02 },
+    { z: 2.85, w: 0.76, h: 1.02, y: cl(2.85) + 0.04 },
+  ], { flat: 0.08, e: 0.96, mBot: M.planeBottom });
+  inline(p, 0.58, cl(3.5) + 0.05, 3.30, 3.2, 3, opts.spin);
+  // Two 7.7 mm in the cowl, firing through the airscrew: all the fixed
+  // armament she has, and close in on the thrust line where a cowl gun is.
+  for (const s of [-1, 1]) {
+    arm(cyl(p, M.gunDark, 0.035, 0.035, 0.30, s * 0.22, cl(3.0) + 0.44, 3.10, 6), 0.16)
+      .rotation.x = Math.PI / 2;
+  }
+  // Pilot and observer under one very long hood.
+  greenhouse(p, 0.78, 0.54, cl(0.4) + 0.64, -1.30, 1.70, 5);
+  airframe(p, M.planeTop, [
+    { z: -4.30, w: 0.24, h: 0.24, y: cl(-4.30) + 0.32 },
+    { z: -3.00, w: 0.48, h: 0.40, y: cl(-3.00) + 0.40 },
+    { z: -1.80, w: 0.64, h: 0.50, y: cl(-1.80) + 0.48 },
+    { z: -1.30, w: 0.70, h: 0.53, y: cl(-1.30) + 0.51 },
+  ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
+  // The bomb bay doors under her, which is what she was designed round.
+  box(p, M.planeBottom, 0.62, 0.1, 2.6, 0, cl(0.2) - 0.66, 0.2);
+  box(p, M.cave, 0.5, 0.06, 2.4, 0, cl(0.2) - 0.70, 0.2);
+
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
+  for (const s of [-1, 1]) {
+    for (const [holder, up] of [[spread, false], [stowed, true]]) {
+      const w = new THREE.Group();
+      w.position.set(s * 0.46, cl(0.5) - 0.30, 0.35);
+      w.rotation.z = -s * 0.05;
+      holder.add(w);
+      wing(w, M.planeTop, M.planeBottom, {
+        side: s, x: 0, y: 0, z: 0, span: 5.9, rootC: 2.40, tipC: 1.10,
+        sweep: 0.60, thick: 0.100, camber: 0.022, twist: -0.03, rootCap: false,
+      });
+      box(w, M.planeTop, 1.6, 0.09, 0.42, s * 4.5, 0.04, -0.98);
+      box(w, M.planeTop, 2.0, 0.10, 0.54, s * 1.8, 0.02, -1.12);
+      // The dive brakes: a slatted panel under the wing, standing down. This
+      // is the aeroplane's whole trade and nothing else here has one.
+      const br = box(w, M.gunDark, 1.9, 0.08, 0.62, s * 2.2, -0.22, -0.30);
+      br.rotation.x = -0.9;
+      for (let i = 0; i < 5; i++) {
+        box(w, M.gunDark, 0.1, 0.09, 0.6, s * (1.4 + i * 0.4), -0.24, -0.30)
+          .rotation.x = -0.9;
+      }
+      box(w, P.yellow, 1.6, 0.10, 0.30, s * 1.5, 0.02, 0.96);
+      hinomaru(w, s * 3.6, 0.10, -0.60, 0.54);
+      hinomaru(w, s * 3.6, -0.10, -0.60, 0.54);
+      if (up) w.rotation.z = -s * 1.44;
+      box(w, M.planeTop, 0.42, 0.24, 2.1, s * 0.14, 0.04, -0.66);
+    }
+  }
+  stowed.visible = !!folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+
+  hinomaru(p, 0.34, cl(-2.2) + 0.06, -2.2, 0.40, false);
+  hinomaru(p, -0.34, cl(-2.2) + 0.06, -2.2, 0.40, false);
+  empennage(p, 1.14, 1.00, 3.40, 0.82, cl(-4.1) + 0.28, -3.8);
+  if (opts.gear !== false) {
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.35, 0.7, 1.00, 0.30, 0.05);
+    tailGear(p, -4.55, 0.15, 0.95, 0.30);
+  }
+  // The rear gunner's 7.7 mm on its ring, which folds down into the decking.
+  const mg = cyl(p, M.gunDark, 0.035, 0.035, 0.7, 0, cl(-1.5) + 0.72, -1.75, 6);
+  mg.rotation.x = -0.5;
+  box(p, M.planeTop, 0.05, 0.46, 0.05, 0, cl(0.0) + 1.04, 0.0);
+  const wire = box(p, M.wire, 0.03, 0.03, 4.0, 0, cl(-2.0) + 1.0, -2.0);
+  wire.rotation.x = -0.18;
+  return p;
+}
+
+/**
+ * A B6N Tenzan: the torpedo bomber.
+ *
+ * Bigger than an Avenger and built round the same job -- a long-range machine
+ * carrying one eighteen-inch torpedo slung under her belly at an angle, which
+ * is the detail that gives her away: the Tenzan's fish hangs nose-down and
+ * offset to starboard, not in a bay. She has a forward-swept fin, which
+ * nothing else does, because the tail had to fold for the lift.
+ */
+function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
+  paint('ijn');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = sitline(1.62, 0.12);
+  airframe(p, M.planeTop, [
+    { z: -5.30, w: 0.20, h: 0.56, y: cl(-5.30) + 0.36 },
+    { z: -4.50, w: 0.42, h: 0.84, y: cl(-4.50) + 0.27 },
+    { z: -3.50, w: 0.68, h: 1.12, y: cl(-3.50) + 0.18 },
+    { z: -2.40, w: 0.92, h: 1.40, y: cl(-2.40) + 0.10 },
+    { z: -1.20, w: 1.10, h: 1.62, y: cl(-1.20) + 0.04 },
+    { z: 0.00, w: 1.20, h: 1.74, y: cl(0.00) },
+    { z: 1.20, w: 1.20, h: 1.74, y: cl(1.20) },
+    { z: 2.30, w: 1.12, h: 1.62, y: cl(2.30) + 0.02 },
+    { z: 3.20, w: 1.00, h: 1.42, y: cl(3.20) + 0.05 },
+  ], { flat: 0.10, e: 0.95, mBot: M.planeBottom });
+  radial(p, 0.78, cl(3.6) + 0.08, 3.55, 3.4, 4, spin);
+  // Three crew under one hood that runs nearly to the fin.
+  greenhouse(p, 1.00, 0.66, cl(0.4) + 0.88, -1.90, 1.90, 6);
+  airframe(p, M.planeTop, [
+    { z: -4.70, w: 0.28, h: 0.30, y: cl(-4.70) + 0.40 },
+    { z: -3.30, w: 0.60, h: 0.50, y: cl(-3.30) + 0.52 },
+    { z: -2.30, w: 0.80, h: 0.62, y: cl(-2.30) + 0.62 },
+    { z: -1.90, w: 0.88, h: 0.66, y: cl(-1.90) + 0.66 },
+  ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
+
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
+  for (const s of [-1, 1]) {
+    foldWing(stowed, s, {
+      at: [s * 0.70, cl(0.9) - 0.80, 1.1], skew: 0.12, lean: 0.06,
+      span: 5.6, rootC: 2.70, tipC: 1.30, sweep: 0.70, thick: 0.112,
+      star: 0.60, guns: [],
+    });
+    const w = new THREE.Group();
+    w.position.set(s * 0.74, cl(0.9) - 0.34, 0.95);
+    w.rotation.z = -s * 0.06;
+    spread.add(w);
+    wing(w, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: 0, z: 0, span: 6.7, rootC: 2.70, tipC: 1.30,
+      sweep: 0.70, thick: 0.112, camber: 0.024, twist: -0.03, rootCap: false,
+    });
+    box(w, M.planeTop, 1.8, 0.10, 0.48, s * 5.1, 0.05, -1.12);
+    box(w, M.planeTop, 2.2, 0.11, 0.60, s * 2.0, 0.02, -1.30);
+    box(w, P.yellow, 1.8, 0.11, 0.32, s * 1.6, 0.02, 1.12);
+    hinomaru(w, s * 4.0, 0.12, -0.70, 0.62);
+    hinomaru(w, s * 4.0, -0.12, -0.70, 0.62);
+    box(w, M.planeTop, 0.5, 0.28, 2.4, s * 0.16, 0.05, -0.76);
+  }
+  stowed.visible = !!folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+
+  // The torpedo, slung nose-down under her belly and offset to starboard,
+  // which is the way a Tenzan carried one.
+  if (opts.fish !== false) {
+    const fish = new THREE.Group();
+    fish.position.set(-0.30, cl(0.3) - 1.02, 0.30);
+    fish.rotation.x = 0.13;
+    p.add(fish);
+    airframe(fish, M.bright, [
+      { z: -2.55, w: 0.14, h: 0.14, y: 0 },
+      { z: -2.10, w: 0.34, h: 0.34, y: 0 },
+      { z: -1.20, w: 0.42, h: 0.42, y: 0 },
+      { z: 1.20, w: 0.42, h: 0.42, y: 0 },
+      { z: 2.05, w: 0.34, h: 0.34, y: 0 },
+      { z: 2.50, w: 0.12, h: 0.12, y: 0 },
+    ], { flat: 0, e: 1, mBot: M.bright });
+    for (let i = 0; i < 4; i++) {
+      const f = box(fish, M.gunDark, 0.5, 0.06, 0.5, 0, 0, -2.2);
+      f.rotation.z = (i / 4) * Math.PI * 2 + 0.78;
+    }
+    // The wooden tail box the IJN put on an air-dropped fish to keep it from
+    // broaching, which came off on entry.
+    box(fish, M.planeBottom, 0.46, 0.46, 0.5, 0, 0, -2.45);
+  }
+
+  hinomaru(p, 0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
+  hinomaru(p, -0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
+  // The forward-swept fin, which is the Tenzan's other signature: it is that
+  // shape so the tail could fold clear for the lift.
+  empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
+  if (opts.gear !== false) {
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 0.85, 1.16, 0.36, 0.05);
+    tailGear(p, -5.00, 0.18, 1.1, 0.34);
+  }
+  // The rear gunner's 7.92 mm, and the tunnel gun under the sternpost.
+  const mg = cyl(p, M.gunDark, 0.04, 0.04, 0.8, 0, cl(-2.1) + 0.94, -2.4, 6);
+  mg.rotation.x = -0.45;
+  cyl(p, M.gunDark, 0.035, 0.035, 0.6, 0, cl(-3.4) - 0.18, -3.6, 6)
+    .rotation.x = 0.4;
+  box(p, M.planeTop, 0.07, 0.58, 0.07, 0, cl(0.2) + 1.32, 0.2);
+  const wire = box(p, M.wire, 0.03, 0.03, 4.4, 0, cl(-2.2) + 1.26, -2.2);
+  wire.rotation.x = -0.18;
+  return p;
+}
+
+/**
+ * An E13A Jake: the battleship's and the cruiser's scout.
+ *
+ * A big three-seat float plane on two floats, shot off a catapult and picked
+ * out of the water again by crane. She is the Japanese equivalent of the
+ * Kingfisher and the Arado and a good deal larger than either -- fifteen hours
+ * of endurance, which is what an ocean-going scout actually needs.
+ */
+function jake(g, x, y, z, ry, folded = false, opts = {}) {
+  paint('ijn');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = (() => { const f = 2.30; return () => f; })();
+  airframe(p, M.planeTop, [
+    { z: -5.10, w: 0.16, h: 0.46, y: cl() + 0.26 },
+    { z: -4.40, w: 0.34, h: 0.70, y: cl() + 0.18 },
+    { z: -3.40, w: 0.56, h: 0.94, y: cl() + 0.10 },
+    { z: -2.20, w: 0.76, h: 1.14, y: cl() + 0.04 },
+    { z: -0.90, w: 0.90, h: 1.28, y: cl() },
+    { z: 0.40, w: 0.96, h: 1.34, y: cl() },
+    { z: 1.70, w: 0.92, h: 1.28, y: cl() + 0.02 },
+    { z: 2.70, w: 0.82, h: 1.12, y: cl() + 0.05 },
+  ], { flat: 0.08, e: 0.95, mBot: M.planeBottom });
+  radial(p, 0.66, cl() + 0.06, 3.20, 3.0, 3, opts.spin);
+  // A very long greenhouse: pilot, observer and wireless operator.
+  greenhouse(p, 0.82, 0.58, cl() + 0.70, -2.20, 1.60, 6);
+  airframe(p, M.planeTop, [
+    { z: -4.50, w: 0.24, h: 0.26, y: cl() + 0.30 },
+    { z: -3.20, w: 0.50, h: 0.44, y: cl() + 0.40 },
+    { z: -2.40, w: 0.66, h: 0.54, y: cl() + 0.50 },
+    { z: -2.20, w: 0.72, h: 0.56, y: cl() + 0.53 },
+  ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
+
+  // Her wing: a low monoplane, and the panels fold straight back along her
+  // sides for the hangar.
+  const stowed = new THREE.Group();
+  const spread = new THREE.Group();
+  p.add(stowed);
+  p.add(spread);
+  for (const s of [-1, 1]) {
+    foldWing(stowed, s, {
+      at: [s * 0.56, cl() - 0.52, 0.5], skew: 0.06, lean: 0.04,
+      span: 6.0, rootC: 2.30, tipC: 1.20, sweep: 0.30, thick: 0.108,
+      star: 0.56, guns: [],
+    });
+    const w = new THREE.Group();
+    w.position.set(s * 0.58, cl() - 0.52, 0.45);
+    w.rotation.z = -s * 0.04;
+    spread.add(w);
+    wing(w, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: 0, z: 0, span: 7.0, rootC: 2.30, tipC: 1.20,
+      sweep: 0.30, thick: 0.108, camber: 0.022, twist: -0.02, rootCap: false,
+    });
+    box(w, M.planeTop, 1.9, 0.09, 0.42, s * 5.4, 0.04, -0.96);
+    box(w, M.planeTop, 2.1, 0.10, 0.52, s * 2.0, 0.02, -1.08);
+    hinomaru(w, s * 4.2, 0.10, -0.56, 0.58);
+    hinomaru(w, s * 4.2, -0.10, -0.56, 0.58);
+  }
+  stowed.visible = !!folded;
+  spread.visible = !folded;
+  p.userData.wings = { stowed, spread };
+
+  // Two floats on their struts, which is what she stands on.
+  //
+  // Each is its own group standing where the float stands, and the stations
+  // are the float's own section aft to forward -- keel, chine, deck edge and
+  // the crown of the turtle deck -- with the step at about her middle, which
+  // is the one thing that makes a float a float rather than a canoe.
+  for (const s of [-1, 1]) {
+    const fl = new THREE.Group();
+    fl.position.set(s * 1.72, 0, 0.30);
+    p.add(fl);
+    seaFloat(fl, M.planeTop, M.planeBottom, [
+      [-3.60, 0.13, 0.62, 0.72, 0.92, 0.03],
+      [-2.90, 0.33, 0.44, 0.58, 0.90, 0.04],
+      [-1.40, 0.49, 0.20, 0.42, 0.88, 0.05],
+      [0.20, 0.51, 0.10, 0.36, 0.88, 0.05],
+      [1.00, 0.49, 0.42, 0.52, 0.90, 0.05],
+      [2.30, 0.39, 0.52, 0.62, 0.94, 0.04],
+      [3.30, 0.11, 0.70, 0.78, 1.00, 0.03],
+    ]);
+    // The mooring bollard on her deck, and the water rudder on her sternpost:
+    // a float plane has to be steered on the water as well as in the air.
+    cyl(fl, P.gunDark, 0.05, 0.06, 0.14, 0, 0.98, 2.40, 8);
+    const rud = box(fl, M.planeBottom, 0.05, 0.30, 0.34, 0, 0.48, -3.05);
+    rud.rotation.x = 0.12;
+    // Four struts a float: two to the body and two out to the wing.
+    strut(p, M.planeTop, [s * 1.72, 1.22, 1.90], [s * 0.40, cl() - 0.58, 1.20], 0.065);
+    strut(p, M.planeTop, [s * 1.72, 1.22, -0.50], [s * 0.40, cl() - 0.58, -0.40], 0.065);
+    strut(p, M.planeTop, [s * 1.72, 1.22, 1.90], [s * 1.60, cl() - 0.54, 1.00], 0.055);
+    strut(p, M.planeTop, [s * 1.72, 1.22, -0.50], [s * 1.60, cl() - 0.54, -0.30], 0.055);
+  }
+
+  hinomaru(p, 0.36, cl() - 0.10, -2.9, 0.42, false);
+  hinomaru(p, -0.36, cl() - 0.10, -2.9, 0.42, false);
+  empennage(p, 1.24, 1.06, 3.50, 0.86, cl() + 0.30, -4.0);
+  const mg = cyl(p, M.gunDark, 0.035, 0.035, 0.7, 0, cl() + 0.80, -2.6, 6);
+  mg.rotation.x = -0.45;
+  box(p, M.planeTop, 0.06, 0.50, 0.06, 0, cl() + 1.06, 0.3);
+  const wire = box(p, M.wire, 0.03, 0.03, 4.2, 0, cl() + 1.0, -1.9);
+  wire.rotation.x = -0.16;
+  return p;
+}
+
+// The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher };
-export { airframe, wing, radial, greenhouse, empennage, insignia, seaFloat };
+export { zero, suisei, tenzan, jake };
+export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
+  hinomaru, seaFloat };

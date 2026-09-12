@@ -2710,7 +2710,11 @@ function stepLaunch(state, ship, dt) {
       // and a carrier flies three different machines, and the role alone does
       // not say which: a catapult scout's role is `dive`, so drawn off the
       // role she came out as a Dauntless on a battleship's quarterdeck.
-      type: cls.planes.type || null,
+      // A carrier that flies her own nation's machines says so per role:
+      // `types` maps fighter, dive and torpedo to what she actually embarks,
+      // so a Japanese carrier's fighters are Zeros and an American carrier's
+      // are Wildcats without the renderer having to know whose deck it is.
+      type: (cls.planes.types && cls.planes.types[f.role]) || cls.planes.type || null,
       speed: cls.planes.cruiseSpeed,
       x: ship.x + Math.sin(away) * off.out,
       z: ship.z + Math.cos(away) * off.out,

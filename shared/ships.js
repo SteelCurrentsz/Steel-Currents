@@ -478,8 +478,8 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on the quarterdeck, abaft the after turret. An
       // afterthought on a commerce raider and a real threat at close quarters.
       mounts: [
-        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.28 },
-        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.28 },
+        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 7.49 },
+        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 7.49 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
       reach: 4.6,
@@ -493,21 +493,21 @@ export const SHIP_CLASSES = {
     // heavy anti-aircraft battery and the Hipper does not.
     secondary: {
       name: '15 cm SK C/28', role: 'surface',
-      reach: 6.6,
+      reach: 7.95,
       caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
       shells: shells(150, 3100, 2400, 152, 875, 0.11),
       // Four a side in the walkway at the deck edge, spread between the two
       // turrets the way her plan spreads them: abreast the bridge, abreast the
       // funnel, abreast the catapult and abreast the after works.
       mounts: [
-        { x: -9.0, z: 36, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 6.48 },
-        { x: 9.0, z: 36, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 6.48 },
-        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
-        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
-        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
-        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 6.42 },
-        { x: -9.2, z: -32, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 6.44 },
-        { x: 9.2, z: -32, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 6.44 },
+        { x: -9.0, z: 36, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 8.35 },
+        { x: 9.0, z: 36, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 8.35 },
+        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
+        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
+        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
+        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
+        { x: -9.2, z: -32, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 8.00 },
+        { x: 9.2, z: -32, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 8.00 },
       ],
     },
     aa: {
@@ -726,6 +726,448 @@ export const SHIP_CLASSES = {
     },
   },
 
+  yamato: {
+    // Nine 46 cm/45 Type 94 in three triples: the largest naval guns ever
+    // mounted, throwing a shell of a tonne and a half twenty-six miles. The
+    // turret alone weighs more than a destroyer, and it trains at two degrees
+    // a second, which is why the heaviest guns afloat have the least of the
+    // horizon to shoot at.
+    //
+    // She is the 1945 ship. The two beam 15.5 cm triples were landed in 1944
+    // to make room for anti-aircraft guns, so she carries two secondary
+    // turrets rather than four and is covered end to end in twenty-five
+    // millimetre.
+    id: 'yamato',
+    name: 'Yamato',
+    fullName: 'IJN Yamato',
+    className: 'Yamato',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'jpn',
+    blurb: 'Eighteen-inch guns behind sixteen inches of belt. Nothing afloat out-ranges her and nothing out-weighs her.',
+    // Drawn at the same factor the Iowa is, so the two of them read as the
+    // same kind of thing in the same water: her lines are her own, she is
+    // simply larger. 263 m over all, 38.9 m beam, 10.4 m draft.
+    hull: {
+      length: 263 * BIG, beam: 38.9 * BIG, draft: 10.4 * BIG, superstructure: 1.45,
+    },
+    hp: 92400,
+    maxSpeed: 27 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.047,
+    rudderShift: 15.5,
+    speedLossInTurn: 0.16,
+    concealment: 16800,
+    fireDetectPenalty: 7000,
+    radarRange: 9500,       // Type 21: a real set, and not a good one
+    repairCooldown: 105,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Four hundred and ten millimetres of belt at twenty degrees, two hundred
+    // of armoured deck, and six hundred and fifty on the turret faces. The
+    // ends are unarmoured, which is where she was actually hurt.
+    armor: { belt: 410, deck: 200, citadel: 410, bow: 50, superstructure: 50 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 23.22 },
+      { id: 1, name: 'No.2', x: 0, z: 55 * BIG, angle: 0, arc: 2.27, guns: 3, my: 31.43 },
+      { id: 2, name: 'No.3', x: 0, z: -68 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 24.79 },
+    ],
+    gun: {
+      name: '46 cm/45 Type 94', role: 'surface',
+      reach: 22.10,
+      caliber: 460, reload: 29, traverse: 0.06, range: 23800, sigma: 1.30,
+      shells: shells(460, 15800, 7400, 760, 780, 0.26),
+    },
+    torpedoes: null,
+    // Two 15.5 cm/60 triples on the centreline, fore and aft. These are
+    // Mogami's old main-battery turrets, taken off her when she was re-gunned
+    // with eight-inch -- which is how a sixty-five-thousand-tonne battleship
+    // comes to carry a light cruiser's turret, armoured like a biscuit tin.
+    secondary: {
+      name: '15.5 cm/60 Type 3', role: 'surface',
+      reach: 11.14,
+      caliber: 155, reload: 9.5, traverse: 0.10, range: 14600, sigma: 1.45,
+      shells: shells(155, 3100, 2500, 175, 920, 0.12),
+      mounts: [
+        { x: 0, z: 36 * BIG, angle: 0, arc: 1.92, guns: 3, my: 33.51 },
+        { x: 0, z: -48 * BIG, angle: Math.PI, arc: 1.92, guns: 3, my: 33.51 },
+      ],
+    },
+    aa: {
+      range: 6800, dps: 176,
+      guns: [
+        // Twelve 12.7 cm Type 89 twins along the superstructure deck edges,
+        // six a side. None can fire across her -- the pagoda and the funnel
+        // are in the way -- which is the whole reason there are twelve.
+        { name: '12.7 cm Type 89', caliber: 127, role: 'dp', reload: 4.0, range: 6800,
+          mounts: [
+            { x: -8.4 * BIG, z: 30 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+            { x: 8.4 * BIG, z: 30 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+            { x: -8.4 * BIG, z: 18 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+            { x: 8.4 * BIG, z: 18 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+            { x: -10.4 * BIG, z: 4 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+            { x: 10.4 * BIG, z: 4 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+            { x: -10.4 * BIG, z: -10 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2 },
+            { x: 10.4 * BIG, z: -10 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2 },
+            { x: -10.4 * BIG, z: -22 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2 },
+            { x: 10.4 * BIG, z: -22 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2 },
+            { x: -8.2 * BIG, z: -38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2 },
+            { x: 8.2 * BIG, z: -38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2 },
+          ] },
+        // And the twenty-five millimetre, which by Okinawa was on every
+        // platform and sponson she had. Thirty-six triples and four singles
+        // here, laid out where her own model has room for them.
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          mounts: [
+            { x: -7.8 * BIG, z: 23 * BIG, angle: -0.90, arc: 1.92, guns: 3 },
+            { x: 7.8 * BIG, z: 23 * BIG, angle: 0.90, arc: 1.92, guns: 3 },
+            { x: -7.8 * BIG, z: 17 * BIG, angle: -1.40, arc: 1.92, guns: 3 },
+            { x: 7.8 * BIG, z: 17 * BIG, angle: 1.40, arc: 1.92, guns: 3 },
+            { x: -7.6 * BIG, z: 11 * BIG, angle: -1.90, arc: 1.92, guns: 3 },
+            { x: 7.6 * BIG, z: 11 * BIG, angle: 1.90, arc: 1.92, guns: 3 },
+            { x: -10.2 * BIG, z: -6 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 10.2 * BIG, z: -6 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -10.2 * BIG, z: -12 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 10.2 * BIG, z: -12 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -10.2 * BIG, z: -18 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 10.2 * BIG, z: -18 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -10.2 * BIG, z: -24 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 10.2 * BIG, z: -24 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: 40 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: 40 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: 26 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: 26 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: 10 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: 10 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: -2 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: -2 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: -16 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: -16 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: -30 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: -30 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -12.4 * BIG, z: -44 * BIG, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 12.4 * BIG, z: -44 * BIG, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -13.006 * BIG, z: 92 * BIG, angle: -0.50, arc: 1.92, guns: 3 },
+            { x: 13.006 * BIG, z: 92 * BIG, angle: 0.50, arc: 1.92, guns: 3 },
+            { x: -12.058 * BIG, z: -84 * BIG, angle: -2.30, arc: 1.92, guns: 3 },
+            { x: 12.058 * BIG, z: -84 * BIG, angle: 2.30, arc: 1.92, guns: 3 },
+            { x: -6.329 * BIG, z: -112 * BIG, angle: -2.60, arc: 1.92, guns: 3 },
+            { x: 6.329 * BIG, z: -112 * BIG, angle: 2.60, arc: 1.92, guns: 3 },
+            { x: -3.2 * BIG, z: 52 * BIG, angle: -0.40, arc: 1.92, guns: 3 },
+            { x: 3.2 * BIG, z: 52 * BIG, angle: 0.40, arc: 1.92, guns: 3 },
+            { x: -6.0 * BIG, z: -32 * BIG, angle: -1.20, arc: 1.92, guns: 1 },
+            { x: 6.0 * BIG, z: -32 * BIG, angle: 1.20, arc: 1.92, guns: 1 },
+            { x: -6.0 * BIG, z: -38 * BIG, angle: -1.90, arc: 1.92, guns: 1 },
+            { x: 6.0 * BIG, z: -38 * BIG, angle: 1.90, arc: 1.92, guns: 1 },
+          ] },
+      ],
+    },
+    // Seven float planes off two catapults on the quarterdeck, struck below
+    // into a hangar under the aircraft deck. She is a battleship: they are her
+    // eyes, and the only thing a captain does with them is throw them off and
+    // get them back.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 56, strikeRange: 9800,
+      rearm: 95, hp: 660, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 950, bombHit: 0.32, bombFire: 0.1, bombPen: 26, bombBore: 0.2,
+      type: 'jake',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      runHeight: 22,
+      runOut: 141, runBearing: 1.16,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      // The ship's own tonnage, not the model's.
+      displacement: 65000,
+      aircraft: 7,
+      mainRounds: 900,
+      secondary: { caliber: 155, label: '15.5cm', barrels: 6, rounds: 1800 },
+      tertiary: [
+        { caliber: 127, label: '12.7cm', barrels: 24, rounds: 12000 },
+        { caliber: 25, label: '25mm', barrels: 112, rounds: 336000 },
+      ],
+    },
+  },
+
+  takao: {
+    // Ten 20.3 cm in five twin turrets -- three forward, two aft -- and
+    // sixteen Long Lance tubes. A Japanese heavy cruiser is a torpedo ship
+    // with a heavy gun armament bolted on, and the thing that makes her
+    // dangerous is not the guns.
+    //
+    // What you know her by is the bridge: Takao and Atago were given a
+    // superstructure so enormous that they were nicknamed after castles, and
+    // it is the single most recognisable thing about the class.
+    id: 'takao',
+    name: 'Takao',
+    fullName: 'IJN Takao',
+    className: 'Takao',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'jpn',
+    blurb: 'A castle of a bridge, ten eight-inch guns, and sixteen Long Lances that reach further than anything else afloat.',
+    hull: { length: 203.8, beam: 20.4, draft: 6.3, superstructure: 1.5 },
+    hp: 33100,
+    maxSpeed: 34.2 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.86,
+    turnRate: 0.084,
+    rudderShift: 6.8,
+    speedLossInTurn: 0.21,
+    concealment: 11400,
+    fireDetectPenalty: 4500,
+    radarRange: 8200,
+    repairCooldown: 78,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // A hundred and twenty-seven millimetres of belt over the machinery and
+    // thirty-five of deck. She is built for speed and torpedoes, and anything
+    // heavier than a six-inch goes through her.
+    armor: { belt: 127, deck: 35, citadel: 127, bow: 25, superstructure: 16 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 64, angle: 0, arc: 2.44, guns: 2, my: 11.40 },
+      { id: 1, name: 'No.2', x: 0, z: 53, angle: 0, arc: 2.36, guns: 2, my: 13.96 },
+      { id: 2, name: 'No.3', x: 0, z: 42, angle: 0, arc: 2.27, guns: 2, my: 16.31 },
+      { id: 3, name: 'No.4', x: 0, z: -56, angle: Math.PI, arc: 2.36, guns: 2, my: 14.53 },
+      { id: 4, name: 'No.5', x: 0, z: -68, angle: Math.PI, arc: 2.44, guns: 2, my: 8.27 },
+    ],
+    gun: {
+      name: '20.3 cm/50 Type 3 No.2', role: 'surface',
+      reach: 12.29,
+      caliber: 203, reload: 12.0, traverse: 0.21, range: 17600, sigma: 1.55,
+      shells: shells(203, 5000, 3250, 255, 840, 0.15),
+    },
+    // Four quadruple Type 92 mounts, two a side on the upper deck, with the
+    // reload racks alongside. The Type 93 is oxygen-driven: forty knots,
+    // twenty kilometres, and no wake to see it coming.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: -8.4, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 4, my: 13.55 },
+        { id: 1, x: 8.4, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 4, my: 13.55 },
+        { id: 2, x: -8.4, z: -20, angle: -Math.PI / 2, arc: 1.22, tubes: 4, my: 13.55 },
+        { id: 3, x: 8.4, z: -20, angle: Math.PI / 2, arc: 1.22, tubes: 4, my: 13.55 },
+      ],
+      name: 'Type 93 torpedo', role: 'surface', caliber: 610,
+      reach: 4.42,
+      traverse: 0.28,
+      reload: 84, damage: 17600, speed: 40 * KNOTS, range: 11000,
+      // No wake at all, which is the whole point of running one on oxygen:
+      // the first anybody knew about a Long Lance was the hit.
+      detection: 900, arming: 450, spread: 0.06, floodChance: 0.40,
+    },
+    secondary: {
+      name: '12.7 cm Type 89', role: 'dp',
+      reach: 5.62,
+      caliber: 127, reload: 4.0, traverse: 0.40, range: 6800, sigma: 1.1,
+      shells: shells(127, 1700, 1450, 55, 720, 0.07),
+      mounts: [
+        { x: -7.6, z: 14, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 14.65 },
+        { x: 7.6, z: 14, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 14.65 },
+        { x: -7.6, z: 2, angle: -Math.PI / 2, arc: 1.31, guns: 2, my: 14.65 },
+        { x: 7.6, z: 2, angle: Math.PI / 2, arc: 1.31, guns: 2, my: 14.65 },
+      ],
+    },
+    aa: {
+      range: 3400, dps: 62,
+      guns: [
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          mounts: [
+            { x: -6.4, z: 26, angle: -1.10, arc: 1.92, guns: 3 },
+            { x: 6.4, z: 26, angle: 1.10, arc: 1.92, guns: 3 },
+            { x: -6.4, z: 20, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 6.4, z: 20, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -7.2, z: -8, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 7.2, z: -8, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -7.2, z: -24, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 7.2, z: -24, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -5.6, z: -36, angle: -2.00, arc: 1.92, guns: 3 },
+            { x: 5.6, z: -36, angle: 2.00, arc: 1.92, guns: 3 },
+            { x: -4.4, z: 34, angle: -0.70, arc: 1.92, guns: 2 },
+            { x: 4.4, z: 34, angle: 0.70, arc: 1.92, guns: 2 },
+            { x: -5.0, z: -44, angle: -2.40, arc: 1.92, guns: 2 },
+            { x: 5.0, z: -44, angle: 2.40, arc: 1.92, guns: 2 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 1, perSquadron: 2, cruiseSpeed: 56, strikeRange: 8600,
+      rearm: 100, hp: 620, dropSpread: 0.07,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 820, bombHit: 0.30, bombFire: 0.1, bombPen: 24, bombBore: 0.2,
+      type: 'jake',
+      catapult: true, deckRun: 8.0, deckCycle: 32,
+      runHeight: 18,
+      runOut: 120, runBearing: 1.20,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 15875,
+      aircraft: 3,
+      mainRounds: 1200,
+      torpedoesCarried: 24,
+      secondary: { caliber: 127, label: '12.7cm', barrels: 8, rounds: 1600 },
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 38, rounds: 114000 },
+      ],
+    },
+  },
+
+  shinano: {
+    // The third Yamato hull, converted on the slip into an armoured carrier
+    // and the largest warship ever built to carry aircraft until the nuclear
+    // ones. A seventy-five millimetre armoured flight deck over a hundred and
+    // ninety of main deck: she was meant to be a floating supply base that
+    // could take a hit nothing else could and go on flying aircraft.
+    //
+    // She was sunk by a submarine ten days after commissioning, on her first
+    // voyage, with the watertight doors untested and half her crew aboard for
+    // the first time.
+    id: 'shinano',
+    name: 'Shinano',
+    fullName: 'IJN Shinano',
+    className: 'Shinano',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'jpn',
+    blurb: 'An armoured flight deck on a battleship hull. Slow to hurt, slow to turn, and she carries a strike nothing this side of the horizon can answer.',
+    hull: { length: 266, beam: 36.3, draft: 10.3, superstructure: 0.6, flightDeck: true },
+    hp: 66400,
+    maxSpeed: 27 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.40,
+    turnRate: 0.048,
+    rudderShift: 14.0,
+    speedLossInTurn: 0.16,
+    concealment: 15600,
+    fireDetectPenalty: 5600,
+    radarRange: 9500,
+    repairCooldown: 95,
+    repairHeal: 0.12,
+    smokeCharges: 0,
+    // Thinner in the belt than a Yamato -- it was cut to 160 mm to pay for the
+    // deck -- and the thickest flight deck ever put to sea over it.
+    armor: { belt: 160, deck: 190, citadel: 160, bow: 30, superstructure: 25 },
+    // Sixteen 12.7 cm Type 89 in eight twin sponsons, four a side, below the
+    // flight-deck edge. None can fire across the ship: the deck is in the way,
+    // which is why a carrier is always short of guns on the engaged side.
+    turrets: [
+      { id: 0, name: 'S1', x: -20.4, z: 84, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 1, name: 'S2', x: -21.2, z: 34, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 2, name: 'S3', x: -21.2, z: -34, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 3, name: 'S4', x: -20.4, z: -84, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 4, name: 'P1', x: 20.4, z: 84, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 5, name: 'P2', x: 21.2, z: 34, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 6, name: 'P3', x: 21.2, z: -34, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 7, name: 'P4', x: 20.4, z: -84, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+    ],
+    gun: {
+      name: '12.7 cm Type 89', role: 'dp',
+      reach: 5.62,
+      caliber: 127, reload: 4.2, traverse: 0.40, range: 6800, sigma: 2.1,
+      shells: shells(127, 1700, 1450, 55, 720, 0.07),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 6400, dps: 190,
+      guns: [
+        // Thirty-five 25 mm triples in the galleries down both deck edges and
+        // round the island.
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          mounts: [
+            { x: -22.0, z: 104, angle: -1.30, arc: 1.92, guns: 3 },
+            { x: 22.0, z: 104, angle: 1.30, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 92, angle: -1.45, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 92, angle: 1.45, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 70, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 70, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 58, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 58, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 46, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 46, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 22, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 22, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: 10, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: 10, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: -2, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: -2, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: -14, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: -14, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: -46, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: -46, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: -58, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: -58, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.4, z: -70, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 22.4, z: -70, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -22.0, z: -96, angle: -1.75, arc: 1.92, guns: 3 },
+            { x: 22.0, z: -96, angle: 1.75, arc: 1.92, guns: 3 },
+            { x: -21.2, z: -110, angle: -1.90, arc: 1.92, guns: 3 },
+            { x: 21.2, z: -110, angle: 1.90, arc: 1.92, guns: 3 },
+            { x: -16.4, z: 26, angle: -0.80, arc: 1.92, guns: 3 },
+            { x: -16.4, z: 8, angle: -2.40, arc: 1.92, guns: 3 },
+            { x: -13.2, z: 18, angle: -1.20, arc: 1.92, guns: 3 },
+            { x: 0, z: 118, angle: 0.00, arc: 1.92, guns: 3 },
+            { x: -6.0, z: 116, angle: -0.35, arc: 1.92, guns: 3 },
+            { x: 6.0, z: 116, angle: 0.35, arc: 1.92, guns: 3 },
+            { x: 0, z: -120, angle: Math.PI, arc: 1.92, guns: 3 },
+          ] },
+        // And the twelve 12 cm rocket launchers: twenty-eight tubes apiece,
+        // throwing a barrage of incendiary rockets up in front of an attacking
+        // formation. Loud, spectacular, and by every account it hit almost
+        // nothing.
+        { name: '12 cm AA rocket', caliber: 120, role: 'aa', reload: 3.2, range: 3000,
+          mounts: [
+            { x: -23.0, z: 80, angle: -1.35, arc: 1.75, guns: 28 },
+            { x: 23.0, z: 80, angle: 1.35, arc: 1.75, guns: 28 },
+            { x: -23.0, z: 34, angle: -1.57, arc: 1.75, guns: 28 },
+            { x: 23.0, z: 34, angle: 1.57, arc: 1.75, guns: 28 },
+            { x: -23.0, z: -26, angle: -1.57, arc: 1.75, guns: 28 },
+            { x: 23.0, z: -26, angle: 1.57, arc: 1.75, guns: 28 },
+            { x: -23.0, z: -82, angle: -1.75, arc: 1.75, guns: 28 },
+            { x: 23.0, z: -82, angle: 1.75, arc: 1.75, guns: 28 },
+            { x: -17.6, z: 32, angle: -0.60, arc: 1.75, guns: 28 },
+            { x: -17.6, z: 2, angle: -2.50, arc: 1.75, guns: 28 },
+            { x: -8.0, z: 120, angle: -0.20, arc: 1.75, guns: 28 },
+            { x: 8.0, z: 120, angle: 0.20, arc: 1.75, guns: 28 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 6, cruiseSpeed: 82, strikeRange: 15600,
+      // What she flies: her own nation's machines, one to a role.
+      types: { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' },
+      runOut: 158, runHeight: 43,
+      rearm: 40, torpDamage: 9400, torpSpeed: 27 * KNOTS, torpRange: 2800,
+      floodChance: 0.27, hp: 1300, dropSpread: 0.05,
+      // A Suisei's 500 kg semi-armour-piercing bomb beats about a hundred
+      // millimetres of deck: through a destroyer and out of her bottom,
+      // through a cruiser's deck to burst below it, and stopped dead on a
+      // battleship's armoured deck.
+      bombDamage: 4400, bombHit: 0.40, bombFire: 0.36, bombPen: 100, bombBore: 0.38,
+      group: {
+        total: 18,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 12, dive: 12, torpedo: 12 },
+        minStrike: 3,
+        // Her intended group: a squadron of each, fighters heaviest because
+        // by the end of 1944 that is what a Japanese carrier flew.
+        default: { fighters: 8, dive: 6, torpedo: 4 },
+      },
+    },
+    datasheet: {
+      displacement: 72000,
+      aircraft: 0,
+      mainRounds: 3200,
+      secondary: { caliber: 127, label: '12.7cm', barrels: 16, rounds: 4800 },
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 105, rounds: 315000 },
+        { caliber: 120, label: '12cm rocket', barrels: 336, rounds: 4032 },
+      ],
+    },
+  },
+
   enterprise: {
     // Five-inch singles in galleries down both sides of the flight deck, which
     // is why the two mountings here fire outboard and nowhere else: the deck is
@@ -889,7 +1331,8 @@ export const SHIP_CLASSES = {
   },
 };
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'iowa', 'enterprise'];
+export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'iowa',
+  'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

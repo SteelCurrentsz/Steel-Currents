@@ -82,6 +82,37 @@ export const AERO = {
     thrust: 9000, vMax: 74, name: 'OS2U-3',
     rollRate: 1.6, pitchRate: 0.95, bankMax: 1.15, gLimit: 4.0,
   },
+  // And the Japanese three. The Zero is the lightest fighter of the war and
+  // handles like it: she out-climbs and out-turns anything, and at four
+  // hundred kilos less than a Wildcat she has no armour and no self-sealing
+  // tanks to show for it. Anything that hits her, kills her.
+  zero: {
+    mass: 2733, wing: 21.3, span: 11.00, clMax: 1.60, cd0: 0.0215,
+    thrust: 13400, vMax: 155, name: 'A6M5',
+    rollRate: 2.6, pitchRate: 1.65, bankMax: 1.52, gLimit: 7.0,
+  },
+  // The Suisei: an inline-engined dive bomber, faster than most fighters of
+  // her generation, with an internal bomb bay and dive brakes under the wing.
+  suisei: {
+    mass: 3650, wing: 23.6, span: 11.50, clMax: 1.48, cd0: 0.0255,
+    thrust: 14800, vMax: 156, name: 'D4Y3',
+    rollRate: 2.0, pitchRate: 1.20, bankMax: 1.38, gLimit: 5.5,
+  },
+  // The Tenzan: bigger than an Avenger, carrying one eighteen-inch torpedo
+  // under her belly, and handling exactly the way a loaded torpedo bomber
+  // handles -- which is to say not much.
+  tenzan: {
+    mass: 5650, wing: 37.2, span: 14.89, clMax: 1.58, cd0: 0.0300,
+    thrust: 19600, vMax: 133, name: 'B6N2',
+    rollRate: 1.6, pitchRate: 0.90, bankMax: 1.18, gLimit: 4.2,
+  },
+  // The battleship's and the cruiser's scout: three seats, fifteen hours'
+  // endurance, and two great floats that cost her every knot she has.
+  jake: {
+    mass: 3640, wing: 36.0, span: 14.50, clMax: 1.50, cd0: 0.0395,
+    thrust: 11800, vMax: 80, name: 'E13A1',
+    rollRate: 1.5, pitchRate: 0.92, bankMax: 1.15, gLimit: 4.0,
+  },
 };
 
 /** Aspect ratio: span squared over wing area, which is where induced drag comes from. */

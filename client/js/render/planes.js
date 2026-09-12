@@ -17,7 +17,10 @@
 // makes a strike look like a strike coming in.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { wildcat, dauntless, avenger, arado, kingfisher, muzzlesOf } from './planekit.js';
+import {
+  wildcat, dauntless, avenger, arado, kingfisher, zero, suisei, tenzan, jake,
+  muzzlesOf,
+} from './planekit.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -151,6 +154,12 @@ export function flightModels() {
   // Arado and the Kingfisher existed only as models sitting on a catapult.
   make('arado', (g) => arado(g, 0, 0, 0, 0, false, {}));
   make('kingfisher', (g) => kingfisher(g, 0, 0, 0, 0, {}));
+  // And the Japanese four: a Zero, a Suisei, a Tenzan and the Jake the
+  // battleships and the cruisers work off their catapults.
+  make('zero', (g) => zero(g, 0, 0, 0, 0, false, { gear: false }));
+  make('suisei', (g) => suisei(g, 0, 0, 0, 0, false, { gear: false }));
+  make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, true, { gear: false }));
+  make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
   return out;
 }
 
@@ -165,7 +174,8 @@ export const ROLE_TYPE = {
   fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher']);
+const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
+  'zero', 'suisei', 'tenzan', 'jake']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {

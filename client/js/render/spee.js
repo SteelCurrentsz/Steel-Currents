@@ -1463,7 +1463,11 @@ function screws(g) {
     const scr = new THREE.Group();
     scr.position.set(x, -5.2, z);
     scr.userData.dynamic = true;
-    scr.userData.screw = true;
+    // A screw has a hand: the two shafts turn opposite ways so their torques
+    // cancel, or a ship at full power carries a permanent list and a rudder
+    // always over. It was written as a bare flag here, which the renderer
+    // reads as a right-handed screw -- so both of hers turned the same way.
+    scr.userData.screw = { hand: sgn };
     cyl(scr, M.brass, 0.32, 0.40, 0.7, 0, 0, 0, 10).rotation.x = Math.PI / 2;
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
