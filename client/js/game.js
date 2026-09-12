@@ -185,6 +185,10 @@ export class Battle {
     // point on the sea it orbits instead. Null means it is on whatever it is
     // following -- your own hull, or a mark picked off the chart.
     this.roam = null;
+    // Which of your division the flag has shifted to, once your own ship has
+    // gone. It is the ship the chart conns from then on, and it is not the
+    // same thing as the ship the camera is watching -- see `conned`.
+    this.flag = null;
     // Whether the free camera is up. It is the one way the camera comes off a
     // ship, it has a key of its own in the corner, and picking anything on the
     // plot puts it away again. See freeCamera.
@@ -556,13 +560,76 @@ export class Battle {
     this.hud.alert('Abandon ship');
     audio.explosion(2, 0);
     this.input.releaseLock();
+    // The camera stays with her.
+    //
+    // It used to be put straight onto whatever of the division was still
+    // afloat, and onto the chart two thousand metres up if nothing was -- so
+    // the one ship in the action a captain could not watch go down was his
+    // own, and the chart view answered a drag by sliding a map about. She is
+    // the thing worth watching at that moment, so the camera is put on her and
+    // left there; every other mark on the plot is still one tap away.
+    if (this.camMode === 'tactical') this.camMode = 'chase';
+    this.lookAt({ kind: 'ship', id: this.shipId, team: this.team, name: 'Your ship' });
+    // The flag shifts anyway, because the fight goes on -- but shifting the
+    // flag and moving the camera are two different things and used to be one.
+    // Her helm answers the chart from here; see `conned`.
     const next = this.nextAfloat();
     if (next) {
-      this.workPlot({ kind: 'ship', id: next.i, team: next.tm, name: next.n }, null);
+      this.flag = next.i;
+      this.selected = next.i;
+      this.hud.setSelected(this.selected);
       this.hud.alert(`Flag transferred to ${next.n}`);
-    } else {
-      this.camMode = 'tactical';
     }
+  }
+
+  /**
+   * What a ship does on the way down that the rest of the battle has to hear.
+   *
+   * The model works out what is happening to her -- her back going, the
+   * magazine the fire finally reached, the oil coming up out of her bunkers --
+   * because that follows from her damage and her attitude and nothing else
+   * knows those. What it cannot do is make a noise, throw wreckage, or put
+   * oil on the sea, because none of those belong to one ship. So it puts what
+   * happened into a list in its own frame and this empties it.
+   */
+  deathThroes(view, s, x, z, h) {
+    const fx = this.scene.effects;
+    const near = this.distanceFade(x, z);
+    view.group.updateMatrixWorld(true);
+    for (const t of view.throes) {
+      // Her own frame into the world: she is heeled, trimmed and half under,
+      // and a thing that happened forty metres abaft her bridge happened where
+      // her bridge actually is.
+      const p = new THREE.Vector3(0, 2, t.z || 0);
+      view.group.localToWorld(p);
+      const wx = Number.isFinite(p.x) ? p.x : x;
+      const wz = Number.isFinite(p.z) ? p.z : z;
+      if (t.kind === 'break') {
+        // Steel parting under its own weight: not an explosion, a tearing --
+        // and then a great deal of the ship falling into the sea at once.
+        this.scene.debris.burst(wx, 6, wz, 5 + (t.size || 0) * 5, 0.8);
+        fx.splash(wx, wz, 340);
+        audio.explosion(1.5 * near, 0);
+        this.shake = Math.max(this.shake, s.i === this.shipId ? 0.9 : 0.35 * near);
+        const who = this.names.get(s.i) || 'A ship';
+        this.hud.alert(`${who}: broken in two`);
+      } else if (t.kind === 'blast') {
+        // The fire got to what was left of her ammunition.
+        fx.magazine(wx, 8, wz, t.size || 1);
+        this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1);
+        fx.splash(wx, wz, 800);
+        // Heard everywhere, like any magazine.
+        audio.explosion(3.2, 0);
+        this.shake = Math.max(this.shake, s.i === this.shipId ? 1.5 : 0.8);
+        const who = this.names.get(s.i) || 'A ship';
+        this.hud.alert(`${who}: blown up`);
+        // And her oil goes up with her.
+        this.scene.oil.spill(wx, wz, 90 + (t.size || 1) * 120, true);
+      } else if (t.kind === 'oil') {
+        this.scene.oil.spill(wx, wz, t.volume || 30, !!t.burning);
+      }
+    }
+    view.throes.length = 0;
   }
 
   /** The nearest of your side still afloat, for the flag to shift to. */
@@ -1076,7 +1143,13 @@ export class Battle {
     }
     const same = hit && this.watching
       && this.watching.kind === hit.kind && this.watching.id === hit.id;
-    if (!hit || same || (hit.kind === 'ship' && hit.id === this.shipId)) {
+    // Your own ship, picked off the chart. While you are standing on her that
+    // is a request to come home -- the camera that follows her is the one you
+    // already have. Once she has foundered she is a wreck like any other and
+    // the orbit goes on her: it was refused outright before, which meant the
+    // only hull in the action a captain could not watch was his own.
+    const self = hit && hit.kind === 'ship' && hit.id === this.shipId;
+    if (!hit || same || (self && !this.sunk)) {
       this.watching = null;
     } else {
       this.watching = hit;
@@ -1179,6 +1252,19 @@ export class Battle {
         return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span: 14, eye: 2.2, close: true };
       }
       return null;
+    }
+    // Your own hull. She is drawn off the local prediction and not off the
+    // snapshot -- see update -- so the camera has to read the same thing, or
+    // it stands a boat's length astern of the ship it is watching and shakes
+    // every time a snapshot lands.
+    if (this.watching.id === this.shipId) {
+      const ls = this.localShip;
+      return {
+        x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5, z: ls.z,
+        span: this.cls.hull.length,
+        eye: 14 + this.cls.hull.superstructure * 12,
+        h: ls.heading,
+      };
     }
     // Sighted or only reported: the camera goes to either, because the plot
     // shows either and a mark you can tap has to be a mark you can watch.
@@ -1705,10 +1791,19 @@ export class Battle {
     else this.hud.setWatchBanner(null);
   }
 
-  /** Whose bridge the controls answer: the ship being watched, else your own. */
+  /**
+   * Whose bridge the controls answer.
+   *
+   * The ship being watched, if it is somebody else's; the ship your flag has
+   * shifted to, if your own has gone; your own otherwise. Watching your own
+   * wreck is watching, not conning -- the two used to be the same field, so
+   * looking at her took the con off the division still fighting.
+   */
   conned() {
-    return this.watching && this.watching.kind === 'ship'
-      ? this.watching.id : this.shipId;
+    if (this.watching && this.watching.kind === 'ship'
+      && this.watching.id !== this.shipId) return this.watching.id;
+    if (this.sunk && this.flag != null) return this.flag;
+    return this.shipId;
   }
 
   /** The snapshot of whoever is being read out at the bottom of the screen. */
@@ -1908,9 +2003,15 @@ export class Battle {
       const still = a.ships.some((s) => s.i === this.selected && s.a)
         || (a.contacts || []).some((s) => s.i === this.selected);
       if (!still) {
+        const gone = this.selected;
         this.selected = this.shipId;
         this.hud.setSelected(this.selected);
-        if (this.watching && this.watching.kind === 'ship') this.lookAt(null);
+        if (this.flag === gone) this.flag = null;
+        // Only the camera that was on her comes off her. It used to drop any
+        // watch at all, which took a captain who was watching his own ship go
+        // down off her the moment the ship his flag had shifted to sank too.
+        if (this.watching && this.watching.kind === 'ship'
+          && this.watching.id === gone) this.lookAt(null);
       }
     }
     const seen = new Set();
@@ -1987,12 +2088,35 @@ export class Battle {
       if (foundering) view.wake.stop(dt);
       else view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
+      // How hard she is burning, for the founder to read. A ship that goes
+      // down with fires still in her does not simply go down.
+      view.burning = s.fr ? Math.max(...s.fr) / 9 : 0;
       // A ship that has stopped floating is not simply switched off. She is
       // still there, going down the way her water and her wreckage make her
       // go, and she is drawn until she is well under.
-      if (!s.a && !view.going) view.founder({ heel: view.heelBy, trim: view.trimBy, broke: s.bk });
+      //
+      // What she is going down as comes off the same wire the damage panel
+      // reads: what is left of her structure compartment by compartment, and
+      // how much sea is in each of them. A hull shot to pieces goes quickly
+      // and a hull with one hole in her takes her time -- see founder.
+      if (!s.a && !view.going) {
+        let left = 0;
+        let wet = 0;
+        for (let i = 0; i < SECTIONS.length; i++) {
+          left += (s.sk && s.sk[i] != null ? s.sk[i] : 9) / 9;
+          wet += (s.wt && s.wt[i] != null ? s.wt[i] : 0) / 100;
+        }
+        view.founder({
+          heel: view.heelBy,
+          trim: view.trimBy,
+          broke: s.bk,
+          wrecked: 1 - left / SECTIONS.length,
+          water: wet / SECTIONS.length,
+        });
+      }
       if (view.going) {
         view.group.visible = view.stepFounder(dt);
+        if (view.throes.length) this.deathThroes(view, s, x, z, h);
       } else {
         view.group.visible = !!s.a;
       }

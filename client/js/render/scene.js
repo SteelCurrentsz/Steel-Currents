@@ -11,6 +11,7 @@ import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
 import { Wake, WakeField } from './wakefield.js';
+import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection } from './interior.js';
@@ -678,6 +679,16 @@ export class ShipView {
     // Set once she has stopped floating; see founder.
     this.going = null;
     this.halves = null;
+    // How hard she is burning, nought to one, put here off the wire every
+    // frame. The founder reads it: a ship that goes down with fires still in
+    // her does not simply go down.
+    this.burning = 0;
+    // What she does on the way down that somebody outside her has to hear.
+    // Her back going, the magazine that fire finally reached, the oil coming
+    // up out of her bunkers. Pushed here in her own frame and drained by the
+    // battle, which is the thing that owns the noise and the water. See
+    // stepFounder.
+    this.throes = [];
     // Everything on her, sorted by the compartment it belongs to, so opening
     // her up is a walk over one short list rather than the whole ship.
     this.byPart = new Map();
@@ -907,13 +918,52 @@ export class ShipView {
    * list she has runs on over, and she gathers way downwards as the last of
    * the air goes out of her.
    */
-  founder(ev) {
+  founder(ev = {}) {
     if (this.going) return;
+    const heel = ev.heel != null ? ev.heel : this.heelBy;
+    const trim = ev.trim != null ? ev.trim : this.trimBy;
+    // What she is going down as. Both come off the wire and both came out of
+    // the fight: `wrecked` is how much of her structure has been shot out of
+    // her, nought to one, and `water` is how full of sea her compartments are.
+    const wrecked = clamp(ev.wrecked != null ? ev.wrecked : 0.4, 0, 1);
+    const water = clamp(ev.water != null ? ev.water : 0.5, 0, 1);
+    // Over on her beam ends when she stopped floating. She is not going to
+    // settle with a list on: she is going to keep rolling, and finish upside
+    // down. Half the ships that did that floated bottom-up for hours.
+    const capsizing = Math.abs(heel) > 1.0;
     this.going = {
       t: 0,
-      heel: ev && ev.heel != null ? ev.heel : this.heelBy,
-      trim: ev && ev.trim != null ? ev.trim : this.trimBy,
-      broke: ev && ev.broke != null ? ev.broke : null,
+      heel,
+      trim,
+      broke: ev.broke != null ? ev.broke : null,
+      wrecked,
+      capsizing,
+      // How fast she goes down, in metres a second, and how fast that rate
+      // itself grows.
+      //
+      // A ship does not sink at a rate somebody picked: she sinks as fast as
+      // the sea can get into her, and that is entirely a matter of how much of
+      // her is open to it. A hull shot to pieces from end to end has nothing
+      // left holding air and is gone inside a minute; one that has settled
+      // through a single hole with the rest of her sound takes ten times as
+      // long about it, and there is a long while when only her deck edge is
+      // awash. This used to be one curve, and every ship in the game went down
+      // at the same speed however she had been fought.
+      //
+      // A ship rolling over is the exception: she goes over first and down
+      // afterwards, because the air trapped under her is still holding her up.
+      rate: (0.10 + wrecked * 1.45 + water * 0.40) * (capsizing ? 0.35 : 1),
+      accel: (0.015 + wrecked * 0.24) * (capsizing ? 0.55 : 1),
+      down: 0,
+      roll: 0,
+      // Still alight when she went. The sea reaches the fire before the fire
+      // is put out by it, and what the fire has been sitting next to for the
+      // last ten minutes is her magazines. The fuse is deliberately not the
+      // same twice.
+      fuse: 2.5 + Math.random() * 8,
+      blown: false,
+      // The clock on her oil. See stepFounder.
+      oil: 0.4,
     };
     if (this.going.broke != null) this.breakHer(this.going.broke);
   }
@@ -964,6 +1014,14 @@ export class ShipView {
 
   /**
    * One step of going down. Returns false once there is nothing left to draw.
+   *
+   * Everything in here follows from the three things the founder was handed --
+   * how she was lying, how much of her had been shot away, and how much water
+   * was in her -- plus one thing read live off the wire every frame, which is
+   * whether she is still burning. Nothing is scripted and nothing is timed:
+   * two ships never go down the same way because no two were fought the same
+   * way. What comes out of it goes into `throes`, which the battle drains and
+   * turns into noise, splash and wreckage; see game.js.
    */
   stepFounder(dt) {
     const g = this.going;
@@ -971,12 +1029,88 @@ export class ShipView {
     g.t += dt;
     const k = g.t;
     const len = this.cls.hull.length;
-    // She goes slowly at first and then quickly: the air is still coming out
-    // of her, and the deeper she gets the less there is left to hold her up.
-    const down = 0.55 * k + 0.16 * k * k;
-    // And whatever she was doing when she stopped floating, she goes on doing.
-    const heel = g.heel + Math.sign(g.heel || 1) * Math.min(1.1, k * 0.06);
-    const trim = g.trim + Math.sign(g.trim || 0.2) * Math.min(0.9, k * 0.05);
+    const half = len / 2;
+    // She goes at the rate her damage set, and gathers way downwards as the
+    // last of the air comes out of her.
+    g.down += (g.rate + g.accel * k) * dt;
+    const down = g.down;
+
+    // How far over. A ship that still has some stability left settles with the
+    // list she had and works a little further over as she goes; one that has
+    // lost it keeps going, past her beam ends, and finishes bottom up.
+    let heel;
+    if (g.capsizing) {
+      g.roll = Math.min(1, g.roll + dt * 0.055);
+      const e = g.roll * g.roll * (3 - 2 * g.roll);
+      const over = Math.PI - Math.abs(g.heel);
+      heel = g.heel + Math.sign(g.heel || 1) * over * e;
+    } else {
+      heel = g.heel + Math.sign(g.heel || 1) * Math.min(1.1, k * 0.06);
+    }
+    // And how far down by the head or the stern. The flooded end goes on
+    // getting heavier as the sea works aft through her, so the trim runs away:
+    // a ship that went down by the bow ends up standing on it.
+    const trim = g.trim + Math.sign(g.trim || 0.2)
+      * Math.min(1.35, k * 0.05 * (1 + g.wrecked * 0.8));
+
+    // Her back goes on the way down.
+    //
+    // A hull standing on end is a girder with a third of its length out of the
+    // water and nothing under it: whatever the shellfire left of her, the
+    // bending finishes the job. She parts at the waterline -- which is where
+    // everybody who watched the Titanic go down said she parted, and where the
+    // two pieces of her on the bottom say she parted -- so the station is not
+    // chosen, it is worked out: it is the point along her that the sea has
+    // reached at the trim she has taken up.
+    if (!this.halves && !g.capsizing && len > 90
+      && Math.abs(trim) > 0.62 && down > len * 0.05) {
+      const reach = Math.abs(Math.sin(trim)) * half;
+      const at = clamp(-Math.sign(trim) * Math.min(1, down / Math.max(1e-3, reach)),
+        -0.60, 0.60);
+      this.breakHer(at);
+      g.broke = at;
+      g.brokeAt = k;
+      // The break itself takes her lights, throws steel about and is heard
+      // across the anchorage.
+      this.throes.push({ kind: 'break', z: at * half, size: 0.5 + len / 320 });
+    }
+
+    // Still on fire when the sea got to her. She blows up.
+    //
+    // Ready-use ammunition, her own fuel, and in the end whatever the fire has
+    // been sitting alongside -- and a magazine going off in a hull with no
+    // structure left in it does not damage her, it ends her: she is opened
+    // from the middle, the pieces go up, and what is left drops.
+    if (!g.blown && k > g.fuse && (this.burning || 0) > 0.30) {
+      g.blown = true;
+      const at = clamp((Math.random() - 0.5) * 0.6, -0.32, 0.32);
+      const zc = at * half;
+      this.plating.strip(zc - len * 0.11, zc + len * 0.11);
+      this.shed(this.fittings.shedSection(zc - len * 0.15, zc + len * 0.15));
+      if (!this.halves) { this.breakHer(at); g.broke = at; g.brokeAt = k; }
+      g.rate += 1.5;
+      g.accel += 0.4;
+      this.throes.push({ kind: 'blast', z: zc, size: 0.8 + len / 190 });
+    }
+
+    // Her oil.
+    //
+    // Every bunker she has left is being opened by the sea as she goes down,
+    // and fuel oil is lighter than water: it comes straight up behind her.
+    // Hardest while she is actually going and then a long seep out of the
+    // wreck, which is why the water over a sinking is still black an hour
+    // later. Burning, if she was.
+    g.oil -= dt;
+    if (g.oil <= 0) {
+      g.oil = 1.1;
+      const gush = Math.max(0.12, 1 - k / 45);
+      this.throes.push({
+        kind: 'oil',
+        volume: len * len * 0.0075 * (0.35 + g.wrecked) * gush,
+        burning: (this.burning || 0) > 0.28,
+      });
+    }
+
     if (this.halves) {
       // Two halves, each hanging from its own broken end.
       //
@@ -986,17 +1120,27 @@ export class ShipView {
       // line she used to be, which is what a ship that has broken her back
       // looks like from the moment it happens to the moment the last of her
       // goes under.
+      // The clock the halves swing on starts when her back went, not when she
+      // stopped floating. She can break the moment she founders -- her keel
+      // was already cut -- or three-quarters of a minute later with her stern
+      // in the air, and a half that snapped to its full angle the instant it
+      // was made is not a ship breaking, it is a shape appearing.
+      const kb = Math.max(0, k - (g.brokeAt || 0));
       for (const [key, part] of Object.entries(this.halves)) {
         const way = key === 'fore' ? -1 : 1;
-        part.rotation.x = way * Math.min(1.15, k * 0.11);
-        part.position.y = -down * (1 + k * 0.04);
-        part.position.z = this.breakZ + way * -Math.min(len * 0.10, k * 1.1);
+        part.rotation.x = way * Math.min(1.15, kb * 0.11);
+        part.position.y = -down * (1 + kb * 0.04);
+        part.position.z = this.breakZ + way * -Math.min(len * 0.10, kb * 1.1);
       }
-      this.group.rotation.z = heel * 0.5;
+      this.group.rotation.z = -heel * 0.5;
     } else {
       this.group.position.y = -down;
       this.group.rotation.x = trim;
-      this.group.rotation.z = heel;
+      // The same sign her list is drawn with while she is still afloat -- see
+      // the update loop, which lays her over by minus her heel. The two used
+      // to disagree, so a ship listing hard to starboard flicked over to port
+      // at the instant she stopped floating.
+      this.group.rotation.z = -heel;
     }
     // Gone when the highest part of her is well under.
     return down < this.cls.hull.length * 0.5 + 20;
@@ -1280,6 +1424,11 @@ export class BattleScene {
     // it is drawn into a map of its own and the ocean reads it, so a wake is
     // the sea being displaced rather than a shape drawn on top of it.
     this.wakes = new WakeField({ size: q.wakeMap || 1024 });
+    // And what a wreck has done to it. Same scheme, its own map: fuel oil out
+    // of a hull that has been opened, spreading and thinning on the surface.
+    // The ocean reads this one too, so the slick is the water being oily
+    // rather than a shape drawn over it. See oil.js.
+    this.oil = new OilField({ size: Math.max(512, (q.wakeMap || 1024) / 2) });
     // Water under cloud is not blue: it takes its colour off the sky, and the
     // sky has gone grey. Everything the sea reads its colour from is pulled the
     // same way, so the two go on agreeing.
@@ -1505,6 +1654,37 @@ export class BattleScene {
     this.torpedoes.update(dt, this.torpsNow || [],
       (x, z) => this.ocean.heightAt(x, z));
     this.weather.update(dt, eye);
+    this.oil.update(dt);
+
+    // Burning oil, standing on the water rather than on any ship. She may have
+    // gone down a quarter of an hour ago and the sea over her still be alight,
+    // which is what the men in the water were actually afraid of.
+    //
+    // The sheet of light under it belongs to the ocean, which reads the oil
+    // map and glows where the oil is alight; this is the flame itself, and the
+    // smoke, which on burning fuel oil is thick, black and enormous.
+    this.oilSmoke = (this.oilSmoke || 0) - dt;
+    const puff = this.oilSmoke <= 0;
+    if (puff) this.oilSmoke = 0.22;
+    for (let i = 0; i < this.oil.slicks.length; i++) {
+      const sl = this.oil.slicks[i];
+      if (sl.burn < 0.06) continue;
+      const r = sl.radius;
+      const heat = Math.min(1, sl.burn * sl.fade * 1.15);
+      if (heat < 0.05) continue;
+      // Three patches burning across it rather than one column in the middle:
+      // oil burns where it lies thick enough to, which is in the windrows.
+      for (let j = 0; j < 3; j++) {
+        const a = (j / 3) * Math.PI * 2 + i * 1.7;
+        const d = r * (0.14 + 0.42 * (((j * 7 + i * 3) % 5) / 5));
+        this.flames.at(`oil${i}:${j}`, sl.x + Math.cos(a) * d, 0.5,
+          sl.z + Math.sin(a) * d, heat * 0.85, Math.max(9, r * 0.42));
+        if (puff) {
+          this.effects.fire(sl.x + Math.cos(a) * d, 1.5, sl.z + Math.sin(a) * d,
+            heat * 0.9);
+        }
+      }
+    }
   }
 
   render() {
@@ -1512,6 +1692,10 @@ export class BattleScene {
     // to describe this frame rather than the last one.
     this.wakes.render(this.renderer, this.camera);
     this.wakes.bind(this.ocean.material.uniforms);
+    // And the oil, which the water is about to be shaded by. Costs nothing at
+    // all until there is a wreck making some.
+    this.oil.render(this.renderer, this.camera);
+    this.oil.bind(this.ocean.material.uniforms);
     this.renderer.render(this.scene, this.camera);
   }
 }

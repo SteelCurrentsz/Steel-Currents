@@ -14,12 +14,21 @@ import { SHIP_CLASSES } from '../../shared/ships.js';
 import { getSettings, QUALITY } from './settings.js';
 
 // Framing, kept together so the composition is easy to nudge. The camera sits
-// on our own bridge front, above and abaft the forward turrets.
-// Just above the bridge roof and forward of the mast, so the foredeck and A
-// turret run away from the lens with nothing of our own rig in the way.
+// on our own bridge front, above and abaft the forward turrets, so the
+// foredeck and B turret run away from the lens and the burning port is beyond
+// them with nothing of our own rig in the way.
+//
+// It used to stand at (0, 46, 44), which was clear air when she was a hull
+// with three turrets on it and became the inside of her bridge the moment she
+// was given one: her 03 level runs from twenty-eight to sixty-four metres
+// along her and her fire-control tower stands forty-eight metres up, so the
+// lens was buried in her own tower and the top third of the title screen was
+// the unlit back of it. This stands three metres forward of her bridge front
+// and above her navigating bridge, which is where a man watching this would
+// actually be.
 const CAM = {
-  pos: new THREE.Vector3(0, 46, 44),
-  look: new THREE.Vector3(0, 58, 2000),
+  pos: new THREE.Vector3(0, 40, 66),
+  look: new THREE.Vector3(0, 48, 2000),
   fov: 46,
 };
 

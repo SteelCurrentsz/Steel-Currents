@@ -148,6 +148,25 @@ float wakeLift(vec2 p) {
   vec4 w = texture2D(uWakeNear, un) * (1.0 - smoothstep(0.86, 0.99, en));
   return (w.r - w.g) * uWakeScale;
 }
+
+/**
+ * And the oil, which is read exactly the same way.
+ *
+ * One patch rather than two: a slick is a few hundred metres of water round a
+ * wreck and there is no horizon-scale version of it. R is how much of the
+ * surface is covered, G how thick the film is, B whether it is alight. See
+ * oil.js. The w of uOilAt is nought when there is no oil anywhere, which is
+ * most of every battle, and the whole term is skipped on it.
+ */
+uniform sampler2D uOilMap;
+uniform vec4 uOilAt;         // xy centre, z half-extent, w on/off
+
+vec3 oilAt(vec2 p) {
+  if (uOilAt.w < 0.5) return vec3(0.0);
+  vec2 uv = vec2(p.x - uOilAt.x, uOilAt.y - p.y) / uOilAt.z * 0.5 + 0.5;
+  float e = max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0;
+  return texture2D(uOilMap, uv).rgb * (1.0 - smoothstep(0.88, 0.99, e));
+}
 `;
 
 const VERT = /* glsl */`
@@ -263,6 +282,11 @@ void main() {
   // the churn; the slope of the wake comes from four more below.
   vec4 wk = wakeAt(q);
   float churned = clamp(wk.a, 0.0, 1.0);
+  // And whether there is oil on this piece of water. Sampled here with the
+  // wake because it has to be in hand before the chop is worked out: the first
+  // thing oil does to a sea is stop it rippling.
+  vec3 oilS = oilAt(q);
+  float oilCov = clamp(oilS.r, 0.0, 1.0);
   vec2 slope = vec2(0.0);
   float wl = 62.0;          // wavelength of the first octave, in metres
   float ht = 0.75;          // and its height
@@ -292,6 +316,17 @@ void main() {
   vec2 rip = r1.yz + r2.yz * 0.5;
   float ripLod = clamp(240.0 / max(dcam, 1.0), 0.0, 1.0);
   slope = slope * (1.0 - 0.55 * churned) + rip * 0.35 * churned * ripLod;
+  // Oil flattens the sea, and this is the whole reason a slick can be seen at
+  // all from anywhere but straight overhead. The film damps out the capillary
+  // ripple that makes water matt, so where it lies the surface goes glassy
+  // while the sea round it goes on breaking -- and the two together are the
+  // shape of the slick. The map's own edge is soft, so the coverage is bitten
+  // into by a noise a few metres across: a slick has a ragged margin and a
+  // straight one would give the whole thing away as a texture.
+  float oilLace = onoise(q * 0.055 + 17.3) * 0.62 + onoise(q * 0.21 - 4.7) * 0.38;
+  oilCov *= mix(smoothstep(0.24, 0.66, oilLace), 1.0,
+                smoothstep(0.42, 0.92, oilCov));
+  slope *= 1.0 - 0.88 * oilCov;
   n = normalize(n + vec3(-slope.x, 0.0, -slope.y) * uChop);
 
   // And the wake's own shape. Read as the gradient of the height in the map
@@ -383,8 +418,55 @@ void main() {
   // day it is white. Painting it white either way puts snow on a night ocean.
   vec3 white = mix(uSkyTint * 1.35 + uLightColor * 0.20, vec3(0.95, 0.98, 1.0),
                    clamp(uSkyTint.r + uSkyTint.g + uSkyTint.b, 0.0, 1.0));
-  col = mix(col, white, foam * 0.6);
-  col = mix(col, white, wkFoam * 0.94);
+  // Foam will not form on oil. A whitecap running into a slick stops at the
+  // edge of it, and the wash off a ship steaming through one goes out the
+  // moment she is in it -- which is a thing anybody who has seen a photograph
+  // of a torpedoed tanker has seen and nobody ever draws.
+  float clean = 1.0 - oilCov * 0.95;
+  col = mix(col, white, foam * 0.6 * clean);
+  col = mix(col, white, wkFoam * 0.94 * clean);
+
+  // ---- oil -----------------------------------------------------------------
+  //
+  // Two materials in one, and which of them you are looking at is a matter of
+  // how far the slick has spread. Thick, it is black-brown and opaque and it
+  // takes the sky as a mirror, because a flat surface with no ripple on it is
+  // a mirror. Thin -- and the edge of any slick is thin -- it is a film only
+  // a few wavelengths of light deep, and light reflected off the top of a film
+  // that thin interferes with light reflected off the bottom of it. That is
+  // the rainbow round a wreck: it is not pigment and it is not a dye, it is
+  // the thickness of the film beating against the wavelength, which is why it
+  // moves as you move and runs in bands along the edges rather than lying in
+  // patches.
+  if (oilCov > 0.003) {
+    // The film, in units of a quarter wavelength or so, off the map's own
+    // thickness channel and the angle it is being looked at from.
+    float th = clamp(oilS.g / max(oilS.r, 1e-3), 0.0, 1.0);
+    float ph = th * 7.5 + (1.0 - ndv) * 2.6 + onoise(q * 0.13) * 1.3;
+    vec3 iri = 0.5 + 0.5 * cos(6.2831853 * (ph + vec3(0.0, 0.33, 0.67)));
+    // Heavy fuel oil: not black, but very nearly, and warm rather than cold.
+    vec3 heavy = vec3(0.028, 0.023, 0.018);
+    vec3 film = mix(iri * 0.26 + heavy, heavy, smoothstep(0.08, 0.52, th));
+    // Oil's index is higher than water's, so it reflects harder at every
+    // angle, and with no ripple to break it the reflection is a real one.
+    float ofres = 0.045 + 0.955 * pow(1.0 - ndv, 5.0);
+    vec3 oilCol = mix(film, sky, ofres * 0.88);
+    // And the sun in it, which on a glassy surface is a hard bright disc
+    // rather than the broad glitter path the sea gives.
+    oilCol += uLightColor * pow(ndh, 1400.0) * uSpecular * 2.2;
+    col = mix(col, oilCol, oilCov * 0.97);
+    // Burning oil. Not a fire drawn on top of the water -- the flames
+    // themselves are geometry standing on it (see flames.js) -- but the sheet
+    // of light under them, which is what a burning slick actually looks like
+    // from any distance: the sea itself glowing orange for a hundred yards.
+    float burn = clamp(oilS.b / max(oilS.r, 1e-3), 0.0, 1.0) * oilCov;
+    if (burn > 0.002) {
+      float flick = onoise(q * 0.09 + uTime * 0.55) * 0.6
+                  + onoise(q * 0.31 - uTime * 0.9) * 0.4;
+      col += vec3(1.0, 0.42, 0.11) * burn * (0.35 + 0.65 * flick) * 1.5;
+      col = mix(col, vec3(0.08, 0.03, 0.02), burn * 0.25);
+    }
+  }
 
   // ---- fires ashore --------------------------------------------------------
   // A reflection is a path, not a pool: widest at the source and narrowing to
@@ -547,6 +629,11 @@ export class Ocean {
         // harmless empty: a blank map is water nobody has been through.
         uWakeNear: { value: BLANK },
         uWakeFar: { value: BLANK },
+        // The oil map. Empty, and switched off by the w of uOilAt, until an
+        // OilField binds itself to these -- see oil.js.
+        uOilMap: { value: BLANK },
+        uOilBlank: { value: BLANK },
+        uOilAt: { value: new THREE.Vector4(0, 0, 2048, 0) },
         uWakeNearAt: { value: new THREE.Vector4(0, 0, 512, 0) },
         uWakeFarAt: { value: new THREE.Vector4(0, 0, 6144, 0) },
         uWakeScale: { value: 5 },

@@ -35,6 +35,11 @@ input.touch = isTouchDevice();
 if (input.touch) document.getElementById('touch-help')?.removeAttribute('hidden');
 const touchControls = input.touch ? new TouchControls(input) : null;
 let title = new TitleScene(renderer);
+// A handle on the title screen, the same as `window.__battle` gives one on a
+// battle. The menu is the heaviest scene in the game and the hardest to reason
+// about from the outside; being able to reach into it from the console is what
+// found the sky.
+window.__title = title;
 let battle = null;
 let yard = null;
 let guns = null;
