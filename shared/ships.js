@@ -769,13 +769,13 @@ export const SHIP_CLASSES = {
     // ends are unarmoured, which is where she was actually hurt.
     armor: { belt: 410, deck: 200, citadel: 410, bow: 50, superstructure: 50 },
     turrets: [
-      { id: 0, name: 'No.1', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 23.22 },
-      { id: 1, name: 'No.2', x: 0, z: 55 * BIG, angle: 0, arc: 2.27, guns: 3, my: 31.43 },
-      { id: 2, name: 'No.3', x: 0, z: -68 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 24.79 },
+      { id: 0, name: 'No.1', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 25.77 },
+      { id: 1, name: 'No.2', x: 0, z: 55 * BIG, angle: 0, arc: 2.27, guns: 3, my: 33.98 },
+      { id: 2, name: 'No.3', x: 0, z: -68 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 27.34 },
     ],
     gun: {
       name: '46 cm/45 Type 94', role: 'surface',
-      reach: 22.10,
+      reach: 34.25,
       caliber: 460, reload: 29, traverse: 0.06, range: 23800, sigma: 1.30,
       shells: shells(460, 15800, 7400, 760, 780, 0.26),
     },
@@ -786,12 +786,12 @@ export const SHIP_CLASSES = {
     // comes to carry a light cruiser's turret, armoured like a biscuit tin.
     secondary: {
       name: '15.5 cm/60 Type 3', role: 'surface',
-      reach: 11.14,
+      reach: 17.26,
       caliber: 155, reload: 9.5, traverse: 0.10, range: 14600, sigma: 1.45,
       shells: shells(155, 3100, 2500, 175, 920, 0.12),
       mounts: [
-        { x: 0, z: 36 * BIG, angle: 0, arc: 1.92, guns: 3, my: 33.51 },
-        { x: 0, z: -48 * BIG, angle: Math.PI, arc: 1.92, guns: 3, my: 33.51 },
+        { x: 0, z: 36 * BIG, angle: 0, arc: 1.92, guns: 3, my: 34.72 },
+        { x: 0, z: -48 * BIG, angle: Math.PI, arc: 1.92, guns: 3, my: 34.72 },
       ],
     },
     aa: {

@@ -60,6 +60,41 @@ function wrap(canvas, metres) {
  * over the whole of it that a flat-lit slab of hull does not read as a single
  * colour.
  */
+/**
+ * Bring a drawn tile to unit gain.
+ *
+ * These are multiply maps: three.js takes `map` times `color`, with no gain of
+ * its own, so whatever the tile's mean brightness is, that is the factor every
+ * ship's paint is multiplied by. Drawing plate at mid-grey and seams under it
+ * therefore does not give a grey hull with dark seams -- it gives a hull
+ * painted half as dark as her palette says, which at Kure grey is very nearly
+ * black.
+ *
+ * So the tile is drawn at whatever tones are convenient to draw it in, and
+ * then rescaled here about its own mean: the average pixel comes out at
+ * `target`, everything darker keeps its ratio to it, and everything brighter
+ * is pulled in over a soft knee so a weld bead lifts without blowing out. The
+ * scale is taken from luminance and applied to all three channels, so the warm
+ * cast of a rust streak survives it.
+ */
+function unitGain(g, N, target = 232, knee = 0.42) {
+  const img = g.getImageData(0, 0, N, N);
+  const d = img.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  }
+  const mean = sum / (d.length / 4) || 1;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const ratio = lum / mean;
+    const out = ratio <= 1 ? target * ratio : target * (1 + (ratio - 1) * knee);
+    const k = lum > 0.5 ? out / lum : out;
+    for (let c = 0; c < 3; c++) d[i + c] = Math.max(0, Math.min(255, d[i + c] * k));
+  }
+  g.putImageData(img, 0, 0);
+}
+
 function drawSteel(x) {
   const N = STEEL_SIZE;
   const g = x.getContext('2d');
@@ -182,6 +217,7 @@ function drawSteel(x) {
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   g.putImageData(img, 0, 0);
+  unitGain(g, N, 234, 0.40);
   return x;
 }
 
@@ -226,6 +262,7 @@ function drawWood(x) {
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   g.putImageData(img, 0, 0);
+  unitGain(g, SIZE, 238, 0.45);
   return x;
 }
 
@@ -271,11 +308,11 @@ const PLANKED = new Set([
   0x655f52,   // Hipper         planked weather deck
   0x7d7362,   // Enterprise     flight deck
   0x6d6350,   // Iowa           teak
-  0x6c6350,   // Yamato         teak forward
-  0x5a5244,   // Yamato         linoleum abaft the bridge
-  0x59503f,   // Takao          linoleum
-  0x4e4638,   // Shinano        flight deck
-  0x413a2e,   // Shinano        the darker planks in the lift platforms
+  0x968c72,   // Yamato         teak forward
+  0x6e6450,   // Yamato         linoleum abaft the bridge
+  0x8a6c48,   // Takao          linoleum
+  0x9a9179,   // Shinano        flight deck
+  0x7d7461,   // Shinano        the darker planks in the lift platforms
 ]);
 
 /**

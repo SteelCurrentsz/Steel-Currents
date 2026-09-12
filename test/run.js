@@ -9949,8 +9949,8 @@ check('the Japanese ships are built the same on both sides', () => {
   // on the other, a ladder up one side of a tower only. It is the one fault
   // you cannot see from the side you built it on.
   for (const [id, parts, floor, spare] of [
-    ['Yamato', yamatoParts, 150, new Set(['radar'])],
-    ['Takao', takaoParts, 120, new Set(['radar', 'aviation', 'fittings'])],
+    ['Yamato', yamatoParts, 150, new Set(['radar', 'airGroup'])],
+    ['Takao', takaoParts, 120, new Set(['radar', 'aviation', 'fittings', 'airGroup'])],
     ['Shinano', shinanoParts, 120, new Set(['island', 'airGroup', 'fittings'])],
   ]) {
     // The pieces that are hers alone and are meant to be: a crane on one

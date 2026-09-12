@@ -40,6 +40,7 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { box, cyl, tubeZ, sphere, ladder } from './shipkit.js';
+import { jake } from './planekit.js';
 import { hullForm, plateHull, weatherDeck, guardRail } from './hullform.js';
 import {
   fortySix, fifteenFive, typeEightNine, triple25, single25,
@@ -72,8 +73,8 @@ const P = {
   hullDark: 0x4c545c,
   boot: 0x1a1d21,
   antifoul: 0x6a2f26,
-  deck: 0x6c6350,          // teak
-  deckLino: 0x5a5244,      // linoleum, held down with brass strips
+  deck: 0x968c72,          // teak
+  deckLino: 0x6e6450,      // linoleum, held down with brass strips
   deckSteel: 0x50575f,
   deckDark: 0x424851,
   steel: 0x69717a,
@@ -597,7 +598,7 @@ function radar(g) {
  */
 function aviation(g) {
   const z = AIR_Z;
-  platform(g, 11.0 * SCALE, z - 16 * SCALE, z + 14 * SCALE, UPPER, { rail: false });
+  platform(g, 11.0 * SCALE, z - 16 * SCALE, z + 14 * SCALE, UPPER, { rail: true });
   // The hangar under the deck, with its door forward.
   block(g, M.steel, 8.4 * SCALE, z - 12 * SCALE, z + 10 * SCALE,
     UPPER - 4.2 * SCALE, 4.2 * SCALE);
@@ -636,6 +637,35 @@ function aviation(g) {
   g.add(cr);
 }
 
+/**
+ * Her floatplanes, on the catapults and ranged on the handling deck.
+ *
+ * Their own builder, as the carrier's are, because an aeroplane is not a piece
+ * of ship: two Jakes on opposite catapults are the same machine twice rather
+ * than a mirrored pair, and the airframe is not symmetrical about its own nose
+ * anyway. Built at the scale the hull is drawn at, or a fourteen-metre
+ * floatplane sits on the catapult of a four-hundred-metre ship looking like a
+ * gull that has landed on it.
+ */
+function airGroup(g) {
+  const z = AIR_Z;
+  for (const sgn of [-1, 1]) {
+    // On the catapult, facing out along it, wings spread and ready to go.
+    const a = jake(g, sgn * 7.4 * SCALE, UPPER + 1.6 * SCALE, z + 3 * SCALE,
+      sgn * 0.12, false, {});
+    a.scale.setScalar(SCALE);
+    a.userData.wings?.stowed?.removeFromParent();
+  }
+  // And two more struck down on the handling deck abaft the turntable, wings
+  // folded, waiting their turn at the catapult.
+  for (const sgn of [-1, 1]) {
+    const a = jake(g, sgn * 4.6 * SCALE, UPPER + 0.2 * SCALE, z - 13 * SCALE,
+      sgn < 0 ? 0.2 : Math.PI - 0.2, true, {});
+    a.scale.setScalar(SCALE);
+    a.userData.wings?.spread?.removeFromParent();
+  }
+}
+
 /** Her boats, her ground tackle, her ventilators and her paravanes. */
 function fittings(g) {
   // The cutters and launches on the boat deck, under the crane.
@@ -671,6 +701,26 @@ function fittings(g) {
   cyl(g, mat(P.chrys), 1.9 * SCALE, 1.9 * SCALE, 0.22 * SCALE,
     0, deckAt(LOA / 2) - 2.4 * SCALE, sz - 0.4 * SCALE, 20)
     .rotation.x = Math.PI / 2;
+  // The breakwater across the forecastle forward of No.1 turret: a chevron of
+  // plating set up to throw the green water she takes over the bow away from
+  // the turret face. Every ship with a low forecastle has one and it is the
+  // one piece of deck furniture you cannot miss from the air.
+  const bwZ = A_Z + 13.5 * SCALE;
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 7; i++) {
+      const u = i / 6;
+      const w = halfDeck(bwZ) * 0.93;
+      const x0 = sgn * (u * w);
+      const x1 = sgn * (((i + 1) / 6) * w);
+      const dz = -3.4 * SCALE * u * u;
+      const dz1 = -3.4 * SCALE * ((i + 1) / 6) ** 2;
+      const seg = box(g, M.steel, Math.abs(x1 - x0) + 0.2 * SCALE, 1.9 * SCALE,
+        0.32 * SCALE, (x0 + x1) / 2, deckAt(bwZ) + 0.95 * SCALE,
+        bwZ + (dz + dz1) / 2);
+      seg.rotation.y = Math.atan2(dz1 - dz, x1 - x0);
+    }
+  }
+
   // Paravane booms and the sweep gear on the forecastle.
   for (const sgn of [-1, 1]) {
     box(g, M.steelDark, 0.28 * SCALE, 0.28 * SCALE, 7 * SCALE,
@@ -723,11 +773,28 @@ function screws(g) {
 
 // ---------------------------------------------------------------- guns ----
 
+/**
+ * A mounting out of the gun shop, grown to the scale this hull is drawn at.
+ *
+ * She is built one and a half times life size, the way the Iowa is, so that a
+ * battleship reads as a battleship beside a destroyer at the ranges this game
+ * is fought at. Every other fitting aboard is given its size as an argument
+ * and gets the factor written into it; a gun mounting is not -- a Type 94
+ * turret is thirteen metres across the barbette and the builder knows it -- so
+ * the whole mounting is grown here instead. Without this her main battery is
+ * a turret off the real ship sitting on a hull half as big again, which is
+ * exactly as small as it sounds.
+ */
+function grown(m) {
+  m.scale.setScalar(SCALE);
+  return m;
+}
+
 function mainBattery(g) {
   const turrets = [];
-  turrets.push(fortySix(g, M, 0, deckAt(A_Z) - 0.3 * SCALE, A_Z, false, true));
-  turrets.push(fortySix(g, M, 0, deckAt(B_Z) + 6.2 * SCALE, B_Z, false, false));
-  turrets.push(fortySix(g, M, 0, UPPER + 0.4 * SCALE, Y_Z, true, true));
+  turrets.push(grown(fortySix(g, M, 0, deckAt(A_Z) - 0.3 * SCALE, A_Z, false, true)));
+  turrets.push(grown(fortySix(g, M, 0, deckAt(B_Z) + 6.2 * SCALE, B_Z, false, false)));
+  turrets.push(grown(fortySix(g, M, 0, UPPER + 0.4 * SCALE, Y_Z, true, true)));
   g.userData.turrets = turrets;
   return turrets;
 }
@@ -755,8 +822,8 @@ function mountings(g) {
   const sec = [];
   const aa = [];
   // The two 15.5 cm triples, fore and aft on the centreline.
-  sec.push(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_F_Z, 0));
-  sec.push(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_A_Z, Math.PI));
+  sec.push(grown(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_F_Z, 0)));
+  sec.push(grown(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_A_Z, Math.PI)));
 
   // Twelve 12.7 cm Type 89 twins: six a side along the 02 deck edge, laid
   // abeam. They cannot fire across her -- the pagoda and the funnel are in the
@@ -768,8 +835,8 @@ function mountings(g) {
     for (const sgn of [-1, 1]) {
       const z = z0 * SCALE;
       const half = z > TOWER_Z - 4 * SCALE ? 8.4 : z > MAST_Z ? 10.4 : 8.2;
-      aa.push(typeEightNine(g, M, sgn * half * SCALE, L02, z,
-        sgn < 0 ? -Math.PI / 2 : Math.PI / 2));
+      aa.push(grown(typeEightNine(g, M, sgn * half * SCALE, L02, z,
+        sgn < 0 ? -Math.PI / 2 : Math.PI / 2)));
     }
   }
 
@@ -777,7 +844,7 @@ function mountings(g) {
   // every platform and sponson she has: round the tower, round the funnel,
   // along both deck edges, on the turret roofs of B and Y, and right forward
   // and right aft.
-  const tri = (x, y, z, a) => aa.push(triple25(g, M, x, y, z, a));
+  const tri = (x, y, z, a) => aa.push(grown(triple25(g, M, x, y, z, a)));
   // Round the pagoda.
   for (const sgn of [-1, 1]) {
     tri(sgn * 7.8 * SCALE, L02 + 4.0 * SCALE, TOWER_Z + 7 * SCALE, sgn * 0.9);
@@ -811,10 +878,10 @@ function mountings(g) {
   }
   // And the singles, on the shelter deck round the after tower.
   for (const sgn of [-1, 1]) {
-    aa.push(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
-      MAST_Z + 2 * SCALE, sgn * 1.2));
-    aa.push(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
-      MAST_Z - 4 * SCALE, sgn * 1.9));
+    aa.push(grown(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
+      MAST_Z + 2 * SCALE, sgn * 1.2)));
+    aa.push(grown(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
+      MAST_Z - 4 * SCALE, sgn * 1.9)));
   }
 
   g.userData.secMounts = sec;
@@ -834,6 +901,7 @@ const STATIC = [
   ['mainmast', mainmast],
   ['radar', radar],
   ['aviation', aviation],
+  ['airGroup', airGroup],
   ['fittings', fittings],
   ['screws', screws],
 ];

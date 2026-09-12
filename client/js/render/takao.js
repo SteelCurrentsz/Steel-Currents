@@ -34,6 +34,7 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { box, cyl, tubeZ, ladder } from './shipkit.js';
+import { jake } from './planekit.js';
 import { hullForm, plateHull, weatherDeck, guardRail } from './hullform.js';
 import {
   eightInch, typeEightNine, triple25, twin25, quadTorp,
@@ -54,7 +55,7 @@ const P = {
   hullDark: 0x474e56,
   boot: 0x181b1f,
   antifoul: 0x662d24,
-  deck: 0x59503f,          // linoleum
+  deck: 0x8a6c48,          // linoleum
   deckSteel: 0x4b5259,
   deckDark: 0x3e444b,
   steel: 0x646c75,
@@ -505,7 +506,7 @@ function radar(g) {
  */
 function aviation(g) {
   const z = AIR_Z;
-  platform(g, 7.8, z - 8, z + 8, UPPER, { rail: false });
+  platform(g, 7.8, z - 8, z + 8, UPPER, { rail: true });
   for (const sgn of [-1, 1]) {
     const c = new THREE.Group();
     c.position.set(sgn * 5.4, UPPER + 0.4, z);
@@ -530,6 +531,25 @@ function aviation(g) {
   for (let i = 1; i < 6; i++) box(jib, M.steelDark, 0.8, 0.08, 0.08, 0, 0, i * 2.1);
   cr.add(jib);
   g.add(cr);
+}
+
+/**
+ * Her three floatplanes: two on the catapults, one struck down on the
+ * handling deck with her wings folded.
+ *
+ * Kept out of the ship's own builders for the reason the carrier's are -- an
+ * aeroplane on one catapult is not the mirror of the aeroplane on the other,
+ * it is the same machine parked twice, and nothing about how she was built
+ * should be judged on it.
+ */
+function airGroup(g) {
+  const z = AIR_Z;
+  for (const sgn of [-1, 1]) {
+    const a = jake(g, sgn * 5.4, UPPER + 1.3, z + 2.2, sgn * 0.14, false, {});
+    a.userData.wings?.stowed?.removeFromParent();
+  }
+  const a = jake(g, 0, UPPER + 0.2, z - 13, Math.PI - 0.18, true, {});
+  a.userData.wings?.spread?.removeFromParent();
 }
 
 /** Her boats, her ground tackle, her ventilators and her paravanes. */
@@ -672,6 +692,7 @@ const STATIC = [
   ['mainmast', mainmast],
   ['radar', radar],
   ['aviation', aviation],
+  ['airGroup', airGroup],
   ['fittings', fittings],
   ['screws', screws],
 ];

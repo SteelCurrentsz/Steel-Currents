@@ -58,8 +58,8 @@ const P = {
   hullDark: 0x4a525a,
   boot: 0x1a1d21,
   antifoul: 0x6a2f26,
-  deck: 0x4e4638,          // the flight deck: bare planking over the armour
-  deckDark: 0x413a2e,
+  deck: 0x9a9179,          // the flight deck: bare planking over the armour
+  deckDark: 0x7d7461,
   deckSteel: 0x4e555d,
   steel: 0x676f78,
   steelDark: 0x525961,
@@ -71,7 +71,8 @@ const P = {
   cave: 0x14181c,
   brass: 0x8a7340,
   boat: 0x6d6350,
-  stripe: 0xcfd4d8,        // the deck centreline and the landing marks
+  stripe: 0xd8dce0,        // the deck centreline and the landing marks
+  stripeRed: 0xa33029,     // the barred round-down at the forward end
   chrys: 0x9d8140,
 };
 
@@ -299,8 +300,41 @@ function flightDeck(g) {
   for (let z = FD_AFT + 20; z < FD_FWD - 16; z += 6) {
     box(g, M.stripe, 0.55, 0.06, 3.4, 0, y0(z), z);
   }
-  // The round-down warning bars at both ends.
-  for (const z of [FD_FWD - 10, FD_AFT + 12]) {
+  // The two long lines down either side, inboard of the deck edge: what a
+  // pilot lines up on and what keeps a wheel off the girder in a crosswind.
+  for (let z = FD_AFT + 16; z < FD_FWD - 14; z += 5) {
+    for (const sgn of [-1, 1]) {
+      const w = (fdHalf(z) + fdHalf(z + 5)) / 2 - 2.4;
+      box(g, M.stripe, 0.35, 0.06, 5.1, sgn * w, y0(z) + 0.005, z + 2.5);
+    }
+  }
+
+  // The landing area, marked out aft: a long box a pilot sets her down inside,
+  // with the aiming bar across the near end of it.
+  const la0 = FD_AFT + 18;
+  const la1 = FD_AFT + 96;
+  for (const sgn of [-1, 1]) {
+    for (let z = la0; z < la1; z += 6) {
+      const w = Math.min(fdHalf(z), fdHalf(z + 6)) - 6.2;
+      box(g, M.stripe, 0.5, 0.06, 6.1, sgn * w, y0(z) + 0.01, z + 3);
+    }
+  }
+  for (const z of [la0, la1]) {
+    box(g, M.stripe, (fdHalf(z) - 6.2) * 2, 0.06, 0.5, 0, y0(z) + 0.01, z);
+  }
+
+  // The round-down at the forward end, barred red and white across its whole
+  // width. It is the one piece of colour on a Japanese flight deck and it is
+  // there for the same reason a kerb is painted: the deck stops falling away
+  // under you here, and at a hundred knots you want to have seen it coming.
+  const rd0 = FD_FWD - 20;
+  for (let i = 0; i < 14; i++) {
+    const z = rd0 + (i * 20) / 14;
+    const w = fdHalf(z + 0.7);
+    box(g, i % 2 ? M.stripeRed : M.stripe, w * 2, 0.06, 20 / 14 + 0.04, 0, y0(z) + 0.01, z + 0.7);
+  }
+  // And the bar across the after round-down, which is plain white.
+  for (const z of [FD_AFT + 12]) {
     box(g, M.stripe, fdHalf(z) * 1.8, 0.06, 1.0, 0, y0(z), z);
   }
   // Arrestor wires across the after third, and the crash barrier.
@@ -414,6 +448,29 @@ function airGroup(g) {
     a.userData.wings?.spread?.removeFromParent();
     a.traverse((o) => { o.userData.inside = true; });
   });
+
+  // And the deck park: a strike ranged aft with wings spread, which is how a
+  // carrier actually looks from the air. They are staggered either side of the
+  // centreline in the order they would go off -- fighters first, because they
+  // need the least deck -- and angled a few degrees so a slipstream does not
+  // blow straight into the machine behind.
+  const ranged = [
+    [-6.2, -104, 'zero'], [6.6, -96, 'zero'], [-6.8, -86, 'zero'],
+    [6.4, -78, 'suisei'], [-7.0, -68, 'suisei'], [6.8, -58, 'suisei'],
+    [-7.2, -46, 'tenzan'], [7.0, -34, 'tenzan'],
+  ];
+  for (const [x, z, kind] of ranged) {
+    const y = FD - fdDrop(z) + 0.12;
+    const yaw = x < 0 ? 0.09 : -0.09;
+    const a = kind === 'tenzan'
+      ? tenzan(g, x, y, z, yaw, false, false, {})
+      : kind === 'suisei'
+        ? suisei(g, x, y, z, yaw, false, {})
+        : zero(g, x, y, z, yaw, false, {});
+    // The opposite of the hangar park: these are ranged for flying off, so it
+    // is the folded set that has to go or she carries both at once.
+    a.userData.wings?.stowed?.removeFromParent();
+  }
 }
 
 /** The lift wells, cut through the flight deck, with their guide rails. */
@@ -651,6 +708,58 @@ function fittings(g) {
   const sz = F.zAt(1, deckAt(LOA / 2) - 1.8);
   cyl(g, mat(P.chrys), 1.7, 1.7, 0.2, 0, deckAt(LOA / 2) - 2.2, sz - 0.4, 20)
     .rotation.x = Math.PI / 2;
+  // The two lattice radio masts standing on the port edge of the deck. They
+  // are hinged at the foot and lie flat outboard while she is flying off; up,
+  // which is how she spends most of her life, they carry her aerials.
+  for (const z of [34, -48]) {
+    const m = new THREE.Group();
+    m.position.set(-(fdHalf(z) - 1.1), FD - fdDrop(z), z);
+    for (const sgn of [-1, 1]) {
+      for (const dz of [-1, 1]) {
+        const leg = box(m, M.steelDark, 0.16, 17, 0.16, sgn * 0.85, 8.5, dz * 0.85);
+        leg.rotation.z = -sgn * 0.052;
+        leg.rotation.x = -dz * 0.052;
+      }
+    }
+    for (let i = 1; i < 9; i++) {
+      const y = i * 1.9;
+      const r = 0.85 * (1 - y / 34);
+      box(m, M.steelDark, r * 2, 0.1, 0.1, 0, y, r);
+      box(m, M.steelDark, r * 2, 0.1, 0.1, 0, y, -r);
+      box(m, M.steelDark, 0.1, 0.1, r * 2, r, y, 0);
+      box(m, M.steelDark, 0.1, 0.1, r * 2, -r, y, 0);
+    }
+    cyl(m, M.steelDark, 0.09, 0.12, 3.6, 0, 18.6, 0, 6);
+    box(m, M.steelDark, 3.4, 0.1, 0.1, 0, 17.2, 0);
+    g.add(m);
+  }
+
+  // The heavy crane on the port bow, which lifts a floatplane or a lighter
+  // aboard over the deck edge. It is the biggest single fitting she carries
+  // and it stands where the reference photographs put it.
+  const bc = new THREE.Group();
+  bc.position.set(-(fdHalf(96) - 1.4), FD - fdDrop(96), 96);
+  cyl(bc, M.steel, 0.95, 1.1, 4.2, 0, 2.1, 0, 12);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    box(bc, M.steelDark, 0.14, 4.0, 0.14, Math.sin(a) * 0.95, 2.0, Math.cos(a) * 0.95);
+  }
+  const bj = new THREE.Group();
+  bj.position.set(0, 4.2, 0);
+  bj.rotation.x = 0.44;
+  for (const sgn of [-1, 1]) {
+    box(bj, M.steelDark, 0.12, 0.12, 19, sgn * 0.45, 0.45, 9.2);
+    box(bj, M.steelDark, 0.12, 0.12, 19, sgn * 0.45, -0.45, 9.2);
+  }
+  for (let i = 1; i < 9; i++) {
+    box(bj, M.steelDark, 1.0, 0.09, 0.09, 0, 0.45, i * 2.1);
+    box(bj, M.steelDark, 1.0, 0.09, 0.09, 0, -0.45, i * 2.1);
+    box(bj, M.steelDark, 0.09, 1.0, 0.09, 0.45, 0, i * 2.1);
+  }
+  cyl(bj, M.steelDark, 0.06, 0.06, 6.2, 0, -3.1, 18.4, 6);
+  bc.add(bj);
+  g.add(bc);
+
   // Ventilator cowls along the gallery.
   for (let z = -90; z < 100; z += 16) {
     for (const sgn of [-1, 1]) {
