@@ -7875,6 +7875,46 @@ check('the cockpit says what happened, not what was hoped', () => {
   } finally { if (!hadWindow) delete globalThis.window; }
 });
 
+check('each side can order bombers, under the batteries', () => {
+  // The briefing screen is a column of controls down each half: the fleet, the
+  // coast batteries under it, and now the bombers under those. Each of the
+  // three is drawn as the thing it orders, faces outboard, and carries the
+  // count of what that side has under it.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const body = html.slice(html.indexOf('class="briefing-body"'),
+    html.indexOf('class="briefing-foot"'));
+  const rows = [...body.matchAll(/class="force-row([^"]*)"/g)].map((m) => m[1].trim());
+  assert.deepEqual(rows, ['', 'turret-row', 'bomber-row', ''],
+    `the rows came out ${JSON.stringify(rows)} rather than fleet, battery, bomber, fleet`);
+  for (const id of ['ally-bomber', 'enemy-bomber']) {
+    assert.ok(body.includes(`id="${id}"`), `there is no ${id} button`);
+  }
+
+  // The drawing is a B-29 in planform, which is the only view of her that says
+  // four engines -- from the beam the outer pair hide behind the inner and she
+  // comes out a blob with a fin on it.
+  const sil = readFileSync(new URL('../client/js/silhouette.js', import.meta.url), 'utf8');
+  assert.ok(/export function bomber\(/.test(sil), 'nothing draws a bomber');
+  const art = sil.slice(sil.indexOf('export function bomber('));
+  assert.equal((art.match(/<rect x="12[78]"/g) || []).length, 2,
+    'she does not carry two airscrews a side');
+  assert.ok(/scale\(1 -1\)/.test(art), 'only one of her wings is drawn');
+  assert.ok(/\$\{flip \? ' style="transform:scaleX\(-1\)"' : ''\}/.test(art),
+    'she cannot be turned round to face the other way');
+
+  // And the counter under her counts something real, which one press raises
+  // and a press at full strength stands down again.
+  const brief = readFileSync(new URL('../client/js/briefing.js', import.meta.url), 'utf8');
+  assert.ok(/allyBombers: 0/.test(brief) && /enemyBombers: 0/.test(brief),
+    'neither side starts with a bomber count');
+  assert.ok(/BOMBER_MAX/.test(brief), 'there is no limit on what a side may order');
+  const step = brief.slice(brief.indexOf('stepBombers(side) {'));
+  assert.ok(/>= BOMBER_MAX \? 0 :/.test(step),
+    'ordering past full strength does not stand the raid down again');
+  assert.ok(/allyBombers: s\.allyBombers/.test(brief),
+    'what was ordered on the briefing screen is not handed to the battle');
+});
+
 check('the game asks who is at the wheel once, and then never again', () => {
   // The gate is the first screen of all, over the burning harbour, and it is
   // put up only when this device has nobody signed in. An account written on

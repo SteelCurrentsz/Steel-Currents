@@ -174,3 +174,62 @@ export function turret({ flip = false } = {}) {
       stroke-linecap="square" stroke-linejoin="miter"/>
   </svg>`;
 }
+
+/**
+ * A B-29 Superfortress, drawn in planform: from above, nose to the right.
+ *
+ * The hulls and the turret on this screen are side on, and the first draft of
+ * this was too. It does not work. What identifies a B-29 is four engines and
+ * a wing of enormous span -- forty-three metres on thirty of length, the
+ * highest aspect ratio of any bomber of the war -- and from the beam none of
+ * that survives: the outer pair of engines hide behind the inner pair, the
+ * wing is edge on and invisible, and every part of her runs into every other
+ * part in one flat colour. It came out a blob with a fin on it.
+ *
+ * From above she is unmistakable, and there is nothing else she could be: a
+ * very slender spindle of a fuselage, the long tapered wing, and the four
+ * nacelles standing well forward of its leading edge with their airscrews
+ * ahead of them. The box is taller than the turret's because she is; the arrow
+ * off her nose is drawn to come out the same size on the glass, so the two
+ * rows of controls still read as one column.
+ *
+ * She flies to the right; `flip` turns her round.
+ */
+export function bomber({ flip = false } = {}) {
+  // One side of her, drawn for the port wing and mirrored for the starboard:
+  // the two nacelles and their airscrews and the tailplane half go with it, so
+  // the pair are the same aerofoil rather than two drawings that happen to
+  // look alike.
+  //
+  // Proportioned off the aeroplane. Span 43.05 m, length 30.18, root chord
+  // about 6.1 and tip 2.1, engines at three-tenths and a half of the
+  // semi-span, airscrews 5.05 m across. That root chord is a seventh of the
+  // span, which is the number that matters: drawn any fatter she stops being
+  // the highest-aspect-ratio bomber of the war and becomes a delta.
+  const side = `
+      <path d="M103 71 L109 12 L116 12 L122 71 Z"/>
+      <path d="M111 42.5 L127 42.5 L127 47.5 L111 47.5 Z"/>
+      <rect x="127" y="37" width="4" height="16" rx="2"/>
+      <path d="M110 54.5 L128 54.5 L128 59.5 L110 59.5 Z"/>
+      <rect x="128" y="49" width="4" height="16" rx="2"/>
+      <path d="M54 78 L58 55 L64 55 L67 78 Z"/>`;
+  return `<svg class="bomber-art" viewBox="0 0 200 150" role="img" aria-hidden="true"
+    preserveAspectRatio="xMidYMid meet"${flip ? ' style="transform:scaleX(-1)"' : ''}>
+    <g fill="currentColor">
+      <!-- the port side, and the same again mirrored about her centre line -->
+      <g>${side}</g>
+      <g transform="translate(0 150) scale(1 -1)">${side}</g>
+      <!-- the fin, which from above is only the sliver of it you can see -->
+      <path d="M49 75 L58 71.5 L70 73.2 L70 76.8 L58 78.5 Z"/>
+      <!-- and the fuselage over all of it: a spindle running out to the glazed
+           bubble nose, which has no step in front of the pilots and is the one
+           thing about her nobody else in the war had -->
+      <path d="M52 75 L62 70.5 L124 70.5 Q140 71.5 146 75 Q140 78.5 124 79.5 L62 79.5 Z"/>
+      <!-- the dorsal turret abaft the cockpit -->
+      <circle cx="104" cy="75" r="4.6"/>
+    </g>
+    <path d="M160 75 L194 75 M177 58 L194 75 L177 92" fill="none"
+      stroke="currentColor" stroke-width="8.5"
+      stroke-linecap="square" stroke-linejoin="miter"/>
+  </svg>`;
+}

@@ -9,7 +9,7 @@ import { BATTERIES } from '../../shared/batteries.js';
 import {
   TIMES, WEATHERS, WEATHER, theatreFor, battlefieldSeed, battlefieldHalf,
 } from '../../shared/world.js';
-import { silhouette, turret } from './silhouette.js';
+import { silhouette, turret, bomber } from './silhouette.js';
 import { getSettings } from './settings.js';
 import { drawWorld } from './worldmap.js';
 
@@ -19,6 +19,8 @@ const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 // says what he is taking to sea rather than being handed a squadron — and
 // neither may grow past this.
 export const FLEET_MAX = 25;
+/** How many bomber squadrons a side may have on call. */
+export const BOMBER_MAX = 8;
 
 const cycle = (arr, cur, step = 1) => {
   const i = arr.indexOf(cur);
@@ -51,6 +53,12 @@ export class Briefing {
       // way the hulls are, off the turret button under each fleet.
       allyGuns: [],
       enemyGuns: [],
+      // And the bomber squadrons each side has on call, ordered off the
+      // aeroplane under the batteries. A number rather than a list: one heavy
+      // squadron is like another, and what a captain is choosing is weight of
+      // bombs rather than which aircraft carry them.
+      allyBombers: 0,
+      enemyBombers: 0,
       time: 'dawn',
       weather: 'sunny',
       // Where the battle is fought. The chart sets this — four corners and the
@@ -70,6 +78,8 @@ export class Briefing {
       enemyDel: document.getElementById('enemy-del-cell'),
       allyTurret: document.getElementById('ally-turret'),
       enemyTurret: document.getElementById('enemy-turret'),
+      allyBomber: document.getElementById('ally-bomber'),
+      enemyBomber: document.getElementById('enemy-bomber'),
       allyList: document.getElementById('ally-fleet-list'),
       enemyList: document.getElementById('enemy-fleet-list'),
       allyGunList: document.getElementById('ally-gun-list'),
@@ -126,6 +136,12 @@ export class Briefing {
     on('ally-turret', () => this.onOpenGuns?.('ally'));
     on('enemy-turret', () => this.onOpenGuns?.('enemy'));
 
+    // The aeroplane under the battery orders a squadron onto the roster; a
+    // press when that side is at full strength stands the whole raid down
+    // again, so one control both raises and lowers the number under it.
+    on('ally-bomber', () => this.stepBombers('ally'));
+    on('enemy-bomber', () => this.stepBombers('enemy'));
+
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
@@ -170,6 +186,22 @@ export class Briefing {
   /** One of the two battery buttons: the turret, and how many are ashore. */
   turretCell(side, flip) {
     return `${turret({ flip })}<b class="count">${this.guns(side).length}</b>`;
+  }
+
+  /** The bomber squadrons one side has on call. */
+  bombers(side) {
+    return side === 'ally' ? this.state.allyBombers : this.state.enemyBombers;
+  }
+
+  bomberCell(side, flip) {
+    return `${bomber({ flip })}<b class="count">${this.bombers(side)}</b>`;
+  }
+
+  /** One more squadron, or none at all once that side is at full strength. */
+  stepBombers(side) {
+    const key = side === 'ally' ? 'allyBombers' : 'enemyBombers';
+    this.state[key] = this.state[key] >= BOMBER_MAX ? 0 : this.state[key] + 1;
+    this.render();
   }
 
   /**
@@ -282,6 +314,8 @@ export class Briefing {
     // way the hull counts above and below it do.
     if (this.el.allyTurret) this.el.allyTurret.innerHTML = this.turretCell('ally', true);
     if (this.el.enemyTurret) this.el.enemyTurret.innerHTML = this.turretCell('enemy', false);
+    if (this.el.allyBomber) this.el.allyBomber.innerHTML = this.bomberCell('ally', true);
+    if (this.el.enemyBomber) this.el.enemyBomber.innerHTML = this.bomberCell('enemy', false);
     if (this.el.allyList) this.el.allyList.innerHTML = this.fleetList('ally');
     if (this.el.enemyList) this.el.enemyList.innerHTML = this.fleetList('enemy');
     if (this.el.allyGunList) this.el.allyGunList.innerHTML = this.gunList('ally');
@@ -363,6 +397,10 @@ export class Briefing {
       // a token on the ground for each of them.
       allyGuns: s.allyGuns.slice(),
       enemyGuns: s.enemyGuns.slice(),
+      // The bombers go with it too, so what was ordered on the briefing screen
+      // is what the battle is handed.
+      allyBombers: s.allyBombers,
+      enemyBombers: s.enemyBombers,
       // How her carriers are stored: fighters, dive bombers and torpedo
       // bombers, as the captain balanced them in the yard.
       airGroup: getSettings().airGroup,
