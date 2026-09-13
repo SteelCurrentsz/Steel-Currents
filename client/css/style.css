@@ -1250,66 +1250,6 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .yard-commission:hover, .yard-commission:focus-visible { color: var(--sand-bright); }
 .yard-commission.done { color: var(--ally); }
 
-/* The fleet rail across the top of the yard: every hull she can commission,
-   in the order they are laid out, with the one on show lit. It is the whole
-   answer to "what else is there" and it has to be readable over open sea, so
-   each name carries its own scrim rather than relying on a shadow. */
-.yard-rail {
-  position: absolute;
-  /* Along the bottom, between the two datasheets. The top of this screen is
-     the ship's name and her commission key on the left and the way out on the
-     right; the middle of the bottom edge is the one band of it nothing else
-     wants. */
-  bottom: max(1.2rem, env(safe-area-inset-bottom));
-  left: 50%; transform: translateX(-50%);
-  z-index: 6;
-  display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 0.28rem;
-  max-width: min(58vw, 62rem);
-  padding: 0 0.5rem;
-}
-.yard-rail button {
-  min-height: 32px;
-  padding: 0.22rem 0.6rem;
-  background: rgba(6, 16, 28, 0.72);
-  border: 1px solid var(--panel-line);
-  color: var(--steel);
-  font-family: var(--ui);
-  font-size: clamp(0.66rem, 1.15vw, 0.86rem);
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
-}
-.yard-rail button:hover, .yard-rail button:focus-visible {
-  color: var(--sand); border-color: rgba(230, 207, 156, 0.6); outline: none;
-}
-.yard-rail button.on {
-  color: #0b141d; background: var(--sand); border-color: var(--sand);
-}
-/* Her type code, in front of the name, so a fleet reads as a fleet. */
-.yard-rail button i {
-  font-style: normal; opacity: 0.62; margin-right: 0.4em; letter-spacing: 0.08em;
-}
-.yard-rail button.on i { opacity: 0.75; }
-/* On a phone the yard's own name block owns the top left, so the rail drops
-   under it and scrolls sideways rather than wrapping into four rows. */
-/* On a phone the datasheets run the width of the screen, so the rail goes
-   above them and scrolls sideways rather than wrapping into four rows. */
-@media (max-width: 760px) {
-  .yard-rail {
-    left: 0; right: 0; transform: none;
-    max-width: none;
-    flex-wrap: nowrap; justify-content: flex-start;
-    overflow-x: auto; overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    bottom: max(4.6rem, calc(env(safe-area-inset-bottom) + 4rem));
-  }
-  .yard-rail::-webkit-scrollbar { display: none; }
-}
-
 .yard-arrows {
   display: flex; align-items: center;
   gap: clamp(1rem, 3vw, 2.4rem);
@@ -1929,3 +1869,108 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 }
 /* A boot that has plainly stopped says so rather than sitting there. */
 .boot.stuck .boot-say { color: var(--enemy); }
+
+/* ---------------------------------------------------------------- gate --
+   The first screen of all: the burning harbour behind, and three ships to
+   press. A hull reads as a choice faster than a row of words does, and this
+   is the one screen in the game where the player has not yet seen a ship. */
+.gate-screen { display: none; }
+.gate-screen.active {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(1.2rem, 4vh, 2.6rem);
+  padding: max(1rem, env(safe-area-inset-top)) 1rem
+           max(1rem, env(safe-area-inset-bottom));
+}
+.gate-head { text-align: center; max-width: min(46ch, 92vw); }
+.gate-head h2 {
+  margin: 0; font-family: var(--stencil);
+  font-size: clamp(1.6rem, 4.2vw, 2.8rem); letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--sand-bright);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.9);
+}
+.gate-head p {
+  margin: 0.3rem 0 0;
+  font-size: clamp(0.82rem, 1.6vw, 1.02rem);
+  letter-spacing: 0.12em; color: var(--steel);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.9);
+}
+
+/* The three of them, a little below the middle of the screen. */
+.gate-ships {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch;
+  gap: clamp(0.6rem, 2.2vw, 1.6rem);
+  width: min(96vw, 72rem);
+  margin-top: clamp(0.5rem, 5vh, 3rem);
+}
+.gate-ship {
+  flex: 1 1 16rem; max-width: 22rem; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
+  padding: clamp(0.7rem, 1.6vw, 1.1rem) 0.8rem clamp(0.6rem, 1.4vw, 0.9rem);
+  background: rgba(8, 19, 31, 0.74);
+  border: 1px solid var(--panel-line);
+  border-bottom: 2px solid rgba(154, 166, 178, 0.4);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.gate-ship:hover, .gate-ship:focus-visible {
+  transform: translateY(-4px);
+  background: rgba(14, 30, 46, 0.86);
+  border-color: rgba(230, 207, 156, 0.55);
+  border-bottom-color: var(--sand);
+  outline: none;
+}
+.gate-ship:disabled { opacity: 0.5; cursor: progress; transform: none; }
+
+/* The hull itself. One flat silhouette in the ship's own grey, with her
+   island picked out a shade lighter and a bow wave under her: enough to tell
+   three carriers apart at a glance, which is all a button has to do. */
+.gate-ship .hull { display: block; width: 100%; height: auto; }
+.gate-ship .deck { fill: #7d858e; }
+.gate-ship .hull-body { fill: #4e565f; }
+.gate-ship .isle { fill: #99a1aa; }
+.gate-ship .wash { fill: rgba(219, 228, 236, 0.5); }
+.gate-ship:hover .deck, .gate-ship:focus-visible .deck { fill: #9aa2ab; }
+.gate-ship:hover .isle, .gate-ship:focus-visible .isle { fill: #c3cbd3; }
+
+.gate-name {
+  font-family: var(--ui); font-weight: 700;
+  font-size: clamp(0.95rem, 1.9vw, 1.3rem);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--sand-bright);
+}
+.gate-what {
+  font-size: clamp(0.62rem, 1.2vw, 0.8rem);
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--steel); text-align: center;
+}
+.gate-ship:hover .gate-what, .gate-ship:focus-visible .gate-what { color: var(--sand); }
+
+.gate-note {
+  margin: 0; max-width: min(62ch, 92vw); text-align: center;
+  font-size: clamp(0.66rem, 1.25vw, 0.84rem);
+  line-height: 1.6; letter-spacing: 0.04em;
+  color: rgba(154, 166, 178, 0.85);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+
+/* On a phone three hulls side by side are three slivers, so they stack and
+   turn on their sides: the silhouette beside the name rather than over it. */
+@media (max-width: 720px) {
+  .gate-ships { flex-direction: column; width: min(26rem, 94vw); margin-top: 1rem; }
+  .gate-ship {
+    flex: none; max-width: none;
+    display: grid; grid-template-columns: 44% 1fr;
+    grid-template-rows: auto auto;
+    align-items: center; gap: 0.1rem 0.8rem;
+    text-align: left;
+  }
+  .gate-ship .hull { grid-row: 1 / 3; width: 100%; }
+  .gate-ship .gate-name, .gate-ship .gate-what { text-align: left; }
+}
+
+/* The account id, which is long and is not meant to be read so much as seen. */
+.acc-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82em; letter-spacing: 0; word-break: break-all;
+  color: var(--steel);
+}

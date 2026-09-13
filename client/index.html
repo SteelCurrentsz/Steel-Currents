@@ -56,11 +56,105 @@
     </nav>
     <nav class="menu menu-right">
       <button class="menu-item" data-action="options">Options / Help</button>
-      <button class="menu-item" data-action="quit">Quit</button>
+      <button class="menu-item" data-action="account">Account Settings</button>
     </nav>
   </div>
   <div class="version">1.25</div>
   <div class="net-state" id="net-state">connecting…</div>
+</section>
+
+<!-- ============================ GATE ============================= -->
+<!-- The first screen of all, over the burning harbour. Three ways in, and
+     each one is the ship it is: press a hull, not a word. -->
+<section id="screen-gate" class="screen gate-screen">
+  <div class="gate-head">
+    <h2>Take command</h2>
+    <p>Sign in once. The fleet is remembered on this device from then on.</p>
+  </div>
+
+  <div class="gate-ships">
+    <button class="gate-ship" id="gate-apple" type="button" data-provider="apple">
+      <!-- USS Enterprise CV-6, facing right: flush flight deck, small island
+           and tripod mast well forward of amidships on the starboard side. -->
+      <svg class="hull" viewBox="0 0 300 96" aria-hidden="true" focusable="false">
+        <path class="deck" d="M4 47 L272 47 L294 53 L272 59 L4 59 Z" />
+        <path class="hull-body" d="M34 59 L258 59 L278 64 L248 77 L58 77 L38 69 Z" />
+        <g class="isle">
+          <rect x="178" y="32" width="30" height="15" />
+          <rect x="184" y="23" width="12" height="10" />
+          <rect x="200" y="17" width="8" height="16" />
+          <path d="M187 23 L189 2 L192 2 L190 23 Z" />
+          <path d="M179 23 L181 12 L183 12 L182 23 Z" />
+          <path d="M195 23 L197 12 L199 12 L198 23 Z" />
+        </g>
+        <g class="wash"><path d="M40 78 L250 78 L244 82 L48 82 Z" /></g>
+      </svg>
+      <span class="gate-name">USS Enterprise</span>
+      <span class="gate-what">Sign in with Apple</span>
+    </button>
+
+    <button class="gate-ship" id="gate-guest" type="button" data-provider="guest">
+      <!-- KMS Graf Zeppelin, facing right: the long Atlantic clipper bow, a
+           big island well forward with a broad capped funnel. -->
+      <svg class="hull" viewBox="0 0 300 96" aria-hidden="true" focusable="false">
+        <path class="deck" d="M10 46 L252 46 L252 58 L10 58 Z" />
+        <path class="hull-body" d="M20 58 L250 58 L250 46 L296 36 L292 62 L246 78 L48 78 L24 68 Z" />
+        <g class="isle">
+          <rect x="168" y="28" width="40" height="18" />
+          <rect x="174" y="16" width="16" height="14" />
+          <path d="M193 12 L211 12 L213 16 L211 30 L193 30 Z" />
+          <path d="M178 16 L180 2 L183 2 L181 16 Z" />
+        </g>
+        <g class="wash"><path d="M42 79 L248 79 L242 83 L50 83 Z" /></g>
+      </svg>
+      <span class="gate-name">Graf Zeppelin</span>
+      <span class="gate-what">Play as guest</span>
+    </button>
+
+    <button class="gate-ship" id="gate-google" type="button" data-provider="google">
+      <!-- IJN Shinano, facing right: a flight deck that curves down at both
+           ends, a small island with the funnel canted outboard. -->
+      <svg class="hull" viewBox="0 0 300 96" aria-hidden="true" focusable="false">
+        <path class="deck" d="M4 54 Q14 44 34 44 L258 44 Q282 44 292 54 L288 58 Q278 50 258 50 L34 50 Q16 50 8 58 Z" />
+        <path class="hull-body" d="M14 50 L276 50 L294 56 L258 78 L54 78 L22 66 Z" />
+        <g class="isle">
+          <rect x="182" y="30" width="26" height="14" />
+          <rect x="188" y="22" width="11" height="10" />
+          <path d="M208 30 L222 18 L228 24 L214 36 Z" />
+          <path d="M191 22 L193 6 L196 6 L194 22 Z" />
+        </g>
+        <g class="wash"><path d="M48 80 L256 80 L250 84 L56 84 Z" /></g>
+      </svg>
+      <span class="gate-name">IJN Shinano</span>
+      <span class="gate-what">Sign in with Google Play</span>
+    </button>
+  </div>
+
+  <p class="gate-note" id="gate-note"></p>
+</section>
+
+<!-- ======================= ACCOUNT SETTINGS ====================== -->
+<section id="screen-account" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Account</h2>
+      <p>Who this device is signed in as, and what that is worth.</p>
+    </header>
+    <div class="panel-body">
+      <div class="grid-2">
+        <label class="field"><span>Signed in with</span><b id="acc-provider">&mdash;</b></label>
+        <label class="field"><span>Since</span><b id="acc-since">&mdash;</b></label>
+      </div>
+      <label class="field"><span>Captain</span>
+        <input type="text" id="acc-name" maxlength="24" /></label>
+      <label class="field"><span>Account</span><b id="acc-id" class="acc-id">&mdash;</b></label>
+      <p class="help" id="acc-note"></p>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
+      <button class="btn" id="acc-signout">Sign out</button>
+    </footer>
+  </div>
 </section>
 
 <!-- ========================= FLEET BATTLE ========================= -->
@@ -532,13 +626,6 @@
 
 <section id="screen-yard" class="screen yard-screen">
   <div class="yard-grab" id="yard-grab"></div>
-
-  <!-- The whole fleet, along the top. The yard shows one hull at a time and
-       used to say so with nothing but two arrows, which gives a captain no
-       reason to believe there is anything behind them: the ships he has not
-       met are invisible until he happens to press the same key nine times.
-       This is the list, always up, with the hull on show lit. -->
-  <nav class="yard-rail" id="yard-rail" aria-label="Ships in the yard"></nav>
 
   <div class="yard-head">
     <h2 id="yard-name">Iowa</h2>

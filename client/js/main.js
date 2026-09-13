@@ -16,6 +16,7 @@ import { Briefing, FLEET_MAX } from './briefing.js';
 import { LayoutMap } from './layout.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
+import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS } from '../../shared/world.js';
@@ -125,7 +126,8 @@ canvas.addEventListener('webglcontextrestored', () => {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['title', 'pvp', 'custom', 'options', 'fleet', 'yard', 'guns', 'map', 'lay', 'battle', 'result'];
+const screens = ['gate', 'account', 'title', 'pvp', 'custom', 'options', 'fleet',
+  'yard', 'guns', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -136,7 +138,8 @@ function show(name) {
   document.body.classList.toggle('in-battle', name === 'battle');
   // Panel screens put their own buttons in the corners; the fullscreen toggle
   // stands down rather than sitting on top of them.
-  document.body.classList.toggle('on-panel', name !== 'title' && name !== 'battle');
+  document.body.classList.toggle('on-panel',
+    name !== 'title' && name !== 'battle' && name !== 'gate');
   if (name === 'battle') touchControls?.show();
   else touchControls?.hide();
   if (name !== 'battle') input.enabled = false;
@@ -179,18 +182,97 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'custom': show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
       case 'back': show('title'); break;
-      case 'quit': quit(); break;
+      case 'account': openAccount(); break;
       default: break;
     }
   });
 });
 
-function quit() {
-  // A browser cannot close a tab it did not open, so say goodbye instead.
-  document.body.innerHTML =
-    '<div style="display:grid;place-items:center;height:100%;font-family:var(--ui);color:#e6cf9c;letter-spacing:.2em;text-transform:uppercase">Signal ends — fair winds, captain.</div>';
-  document.body.style.background = '#04090f';
-  try { renderer.dispose(); } catch { /* nothing to dispose */ }
+// ---------------------------------------------------------- the account --
+//
+// The game asks once, on the first run, and never again: whoever is at the
+// wheel is written to this device and read back at every later start.
+
+/** The three hulls on the gate, and the way in each of them is. */
+for (const btn of document.querySelectorAll('.gate-ship')) {
+  btn.addEventListener('click', async () => {
+    audio.resume();
+    audio.click();
+    const which = btn.dataset.provider;
+    // Every hull is held while one of them is being pressed: a second tap on
+    // another of them mid-sign-in would make two accounts and keep the last.
+    for (const b of document.querySelectorAll('.gate-ship')) b.disabled = true;
+    const note = document.getElementById('gate-note');
+    if (note) note.textContent = 'Signing in…';
+    try {
+      await account.signIn(which);
+    } finally {
+      for (const b of document.querySelectorAll('.gate-ship')) b.disabled = false;
+    }
+    gateNote();
+    show('title');
+  });
+}
+
+/**
+ * What the gate says under the ships.
+ *
+ * It says what is actually true of this device rather than what a sign-in
+ * screen usually claims. A browser that will not keep anything -- a private
+ * window, site data refused -- cannot remember an account at all, and a player
+ * is better told that before he signs in than after he loses his fleet.
+ */
+function gateNote() {
+  const note = document.getElementById('gate-note');
+  if (!note) return;
+  note.textContent = account.persists()
+    ? 'Apple and Google Play sign-in need a developer account and a server to '
+      + 'verify the token they hand back; until those are wired in, all three '
+      + 'buttons make an account on this device. It is kept, and you will not '
+      + 'be asked again.'
+    : 'This browser is refusing to keep site data, so an account cannot be '
+      + 'remembered here — you will be asked again next time. A normal window, '
+      + 'or allowing site data for this page, fixes it.';
+}
+
+/** The account screen, off the title menu. */
+function openAccount() {
+  const acc = account.current();
+  const provider = acc ? (account.PROVIDERS[acc.provider]?.label || acc.provider) : '—';
+  document.getElementById('acc-provider').textContent = provider;
+  document.getElementById('acc-since').textContent = acc?.since
+    ? new Date(acc.since).toLocaleDateString() : '—';
+  document.getElementById('acc-id').textContent = acc?.id || '—';
+  const nameEl = document.getElementById('acc-name');
+  nameEl.value = acc?.name || getSettings().name || 'Captain';
+  nameEl.oninput = () => {
+    const nm = nameEl.value || 'Captain';
+    setSettings({ name: nm });
+    const cur = account.current();
+    if (cur) account.remember({ ...cur, name: nm });
+  };
+  const note = document.getElementById('acc-note');
+  if (!acc) {
+    note.textContent = 'Nobody is signed in on this device.';
+  } else if (acc.local) {
+    note.textContent = acc.provider === 'guest'
+      ? 'A guest account lives on this device and nowhere else. Clear this '
+        + 'page\u2019s site data and it is gone; there is nothing to restore it from.'
+      : `${provider} sign-in is not wired up in this build \u2014 it needs a `
+        + 'developer account and a server to verify the token. This account was '
+        + 'made locally instead, so it is kept on this device but cannot be '
+        + 'carried to another one.';
+  } else {
+    note.textContent = `Signed in with ${provider}. Signing in again on another `
+      + 'device, or after a reinstall, finds this same account.';
+  }
+  document.getElementById('acc-signout').onclick = () => {
+    audio.click();
+    account.signOut();
+    gateNote();
+    show('gate');
+  };
+  show('account');
 }
 
 // ------------------------------------------------------------ ship picker --
@@ -362,40 +444,6 @@ function stepAirGroup(kind, d) {
   renderAirGroup();
 }
 
-/**
- * The fleet rail across the top of the yard.
- *
- * Built once. The yard shows one hull at a time, and with nothing but a pair
- * of arrows to step it there is no way to know what else is in the list --
- * a captain who never presses the arrow nine times never learns there are
- * Japanese ships in it at all. This is every hull she can commission, always
- * on show, and pressing one goes straight to her.
- */
-function buildYardRail() {
-  const rail = document.getElementById('yard-rail');
-  if (!rail) return;
-  rail.innerHTML = '';
-  SHIP_ORDER.forEach((id, i) => {
-    const c = SHIP_CLASSES[id];
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.dataset.ship = id;
-    // Short names on the rail. It is a row of nine and it has one line of the
-    // screen to do it in: "Admiral Graf Spee" is three times the width of
-    // "Iowa" and nobody has ever had to be told which Graf Spee is meant.
-    const short = c.name.replace(/^(Admiral|USS|HMS|IJN)\s+/, '').replace(/\s+CV-\d+$/, '');
-    el.innerHTML = `<i>${c.type}</i>${short}`;
-    el.onclick = () => {
-      audio.click();
-      yardUi.index = i;
-      closeAirGroup();
-      renderYard();
-    };
-    rail.appendChild(el);
-  });
-}
-buildYardRail();
-
 function renderYard() {
   const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
   const cls = SHIP_CLASSES[id];
@@ -407,10 +455,6 @@ function renderYard() {
   // and a datasheet that called her an Enterprise-class carrier would be wrong.
   document.getElementById('yard-class').textContent =
     `${cls.className || cls.name} Class ${cls.typeName}`;
-  for (const b of document.querySelectorAll('#yard-rail button')) {
-    b.classList.toggle('on', b.dataset.ship === id);
-    if (b.dataset.ship === id) b.scrollIntoView({ block: 'nearest', inline: 'center' });
-  }
   // The arrows say which ship they go to, so the list can be walked without
   // pressing a chevron nine times to find out what is on the other side of it.
   const at = (d) => SHIP_CLASSES[
@@ -766,7 +810,14 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 
 applyQuality();
-show('title');
+
+// Who is at the wheel. An account already on this device goes straight to the
+// menu; nobody signed in gets the gate, once, over the burning harbour.
+const signedIn = account.current();
+if (signedIn?.name) setSettings({ name: signedIn.name });
+gateNote();
+show(signedIn ? 'title' : 'gate');
+
 net.connect();
 requestAnimationFrame(frame);
 

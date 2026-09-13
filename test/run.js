@@ -7875,6 +7875,53 @@ check('the cockpit says what happened, not what was hoped', () => {
   } finally { if (!hadWindow) delete globalThis.window; }
 });
 
+check('the game asks who is at the wheel once, and then never again', () => {
+  // The gate is the first screen of all, over the burning harbour, and it is
+  // put up only when this device has nobody signed in. An account written on
+  // the first run is read back at every later start -- which is the whole of
+  // the promise, and the thing that breaks if the read is ever dropped.
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/account\.current\(\)/.test(main), 'nothing ever looks for an account');
+  const start = main.slice(main.indexOf('const signedIn = account.current()'));
+  assert.ok(/show\(signedIn \? 'title' : 'gate'\)/.test(start),
+    'a device that has signed in before is still asked again');
+
+  // Three ways in, and each of them is a ship.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const gate = html.slice(html.indexOf('id="screen-gate"'), html.indexOf('id="screen-account"'));
+  for (const [id, provider, name] of [
+    ['gate-apple', 'apple', 'USS Enterprise'],
+    ['gate-guest', 'guest', 'Graf Zeppelin'],
+    ['gate-google', 'google', 'IJN Shinano'],
+  ]) {
+    assert.ok(gate.includes(`id="${id}"`), `the gate has no ${id} button`);
+    assert.ok(gate.includes(`data-provider="${provider}"`),
+      `${id} is not wired to the ${provider} provider`);
+    assert.ok(gate.includes(name), `${id} is not drawn as the ${name}`);
+  }
+  // Left to right: Enterprise, Graf Zeppelin, Shinano.
+  assert.ok(gate.indexOf('gate-apple') < gate.indexOf('gate-guest')
+    && gate.indexOf('gate-guest') < gate.indexOf('gate-google'),
+    'the three hulls are not in the order they were asked for');
+  // Each is a silhouette rather than a word on a rectangle.
+  assert.equal((gate.match(/class="hull"/g) || []).length, 3,
+    'not every way in is drawn as a hull');
+
+  // And the title menu offers the account rather than a way to quit -- which a
+  // browser cannot do anyway, since it cannot close a tab it did not open.
+  assert.ok(/data-action="account"[^<]*Account Settings/.test(html),
+    'the title menu has no Account Settings');
+  assert.ok(!/data-action="quit"/.test(html), 'the Quit button is still there');
+  assert.ok(!/case 'quit'/.test(main), 'the quit action is still wired up');
+
+  // The yard steps with its arrows and nothing else: the rail that used to run
+  // along the bottom of it is gone.
+  assert.ok(!/yard-rail/.test(html), 'the yard still carries its fleet rail');
+  assert.ok(!/yard-rail/.test(main), 'the fleet rail is still built');
+  assert.ok(/id="yard-prev"/.test(html) && /id="yard-next"/.test(html),
+    'the yard has lost the arrows it is now stepped with');
+});
+
 check('a frame that goes wrong costs a frame, not the battle', () => {
   // The loop asked for the next frame on its last line, so anything that threw
   // anywhere in it stopped the loop dead: the picture froze, with no word about
