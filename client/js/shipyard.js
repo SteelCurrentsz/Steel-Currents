@@ -32,7 +32,18 @@ export class ShipyardScene {
   constructor(renderer) {
     this.renderer = renderer;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.6, 40000);
+    // A long lens, not a wide one.
+    //
+    // Every photograph of a warship that reads as a warship was taken from a
+    // long way off through a long lens: the perspective is nearly flat, the
+    // bow and the stern are the same size, and the eye gets her length. A
+    // forty-two degree field is a wide-angle lens held a ship's length away,
+    // which foreshortens her hard -- the near quarter swells, the far end
+    // falls away, and a two-hundred-and-sixty-metre battleship comes out
+    // looking like a launch. `fitRange` takes the field into account, so
+    // narrowing it simply stands the camera further off and she fills the
+    // frame exactly as before, with her proportions intact.
+    this.camera = new THREE.PerspectiveCamera(27, 1, 0.6, 60000);
 
     this.sky = skyDome('day');
     this.scene.add(this.sky);

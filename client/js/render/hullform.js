@@ -37,7 +37,7 @@ import { fairTable, smooth, box, cyl } from './shipkit.js';
  * forecastle is raised, if she has one at all.
  */
 export function hullForm({
-  loa, half, keel, sheer, flare,
+  loa, half, keel, sheer, flare, tumble = null,
   stem = 3.0, stemLo = -7.0, stemUp = 15.0, stemPow = 1.16,
   counter = 3.0, counterLo = -1.4, counterUp = 6.7, counterPow = 1.45,
   // How hard the bilge turns: the exponent the half-breadth is taken to as it
@@ -50,6 +50,13 @@ export function hullForm({
   const keelY = (t) => fairTable(keel, t);
   const sheerY = (t) => fairTable(sheer, t);
   const flareAt = (t) => fairTable(flare, t);
+  // Tumblehome: how far the deck edge is pulled inboard of her waterline beam.
+  // Most of these ships have none worth drawing and get none. A ship that does
+  // -- a Yamato, whose maximum beam is at the water and whose upper deck is a
+  // couple of metres narrower than it -- is a completely different thing in
+  // section from one whose side is vertical, and looks it from any angle
+  // forward of the beam: without it she is a slab with a deck on top.
+  const tumbleAt = tumble ? (t) => fairTable(tumble, t) : () => 0;
 
   /** Her half-breadth at this station and this height. */
   function shellAt(t, y) {
@@ -62,7 +69,11 @@ export function hullForm({
     let hb = w * belly;
     if (y > 0) {
       const h = Math.min(1, y / Math.max(1, sh));
-      hb += flareAt(t) * h * h;
+      // The flare comes in as the square of the height, because a flared bow
+      // section is a curve that starts vertical at the water and opens as it
+      // rises; the tumblehome comes in straight, because a tumbled side is a
+      // straight slope from the water to the deck edge.
+      hb += flareAt(t) * h * h - tumbleAt(t) * h;
     }
     return Math.max(0.03, hb);
   }

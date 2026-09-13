@@ -1244,6 +1244,60 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .yard-commission:hover, .yard-commission:focus-visible { color: var(--sand-bright); }
 .yard-commission.done { color: var(--ally); }
 
+/* The fleet rail across the top of the yard: every hull she can commission,
+   in the order they are laid out, with the one on show lit. It is the whole
+   answer to "what else is there" and it has to be readable over open sea, so
+   each name carries its own scrim rather than relying on a shadow. */
+.yard-rail {
+  position: absolute;
+  top: max(0.8rem, env(safe-area-inset-top));
+  left: 50%; transform: translateX(-50%);
+  z-index: 6;
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 0.3rem;
+  max-width: min(92vw, 70rem);
+  padding: 0 0.5rem;
+}
+.yard-rail button {
+  min-height: 34px;
+  padding: 0.25rem 0.7rem;
+  background: rgba(6, 16, 28, 0.72);
+  border: 1px solid var(--panel-line);
+  color: var(--steel);
+  font-family: var(--ui);
+  font-size: clamp(0.66rem, 1.15vw, 0.86rem);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.yard-rail button:hover, .yard-rail button:focus-visible {
+  color: var(--sand); border-color: rgba(230, 207, 156, 0.6); outline: none;
+}
+.yard-rail button.on {
+  color: #0b141d; background: var(--sand); border-color: var(--sand);
+}
+/* Her type code, in front of the name, so a fleet reads as a fleet. */
+.yard-rail button i {
+  font-style: normal; opacity: 0.62; margin-right: 0.4em; letter-spacing: 0.08em;
+}
+.yard-rail button.on i { opacity: 0.75; }
+/* On a phone the yard's own name block owns the top left, so the rail drops
+   under it and scrolls sideways rather than wrapping into four rows. */
+@media (max-width: 760px) {
+  .yard-rail {
+    left: 0; right: 0; transform: none;
+    max-width: none;
+    flex-wrap: nowrap; justify-content: flex-start;
+    overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    top: auto; bottom: max(4.6rem, calc(env(safe-area-inset-bottom) + 4rem));
+  }
+  .yard-rail::-webkit-scrollbar { display: none; }
+}
+
 .yard-arrows { display: flex; gap: clamp(2rem, 8vw, 5.5rem); margin-top: 0.4rem; }
 .yard-arrow {
   min-width: 56px; min-height: 44px;

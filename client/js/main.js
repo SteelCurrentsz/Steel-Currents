@@ -319,6 +319,36 @@ function stepAirGroup(kind, d) {
   renderAirGroup();
 }
 
+/**
+ * The fleet rail across the top of the yard.
+ *
+ * Built once. The yard shows one hull at a time, and with nothing but a pair
+ * of arrows to step it there is no way to know what else is in the list --
+ * a captain who never presses the arrow nine times never learns there are
+ * Japanese ships in it at all. This is every hull she can commission, always
+ * on show, and pressing one goes straight to her.
+ */
+function buildYardRail() {
+  const rail = document.getElementById('yard-rail');
+  if (!rail) return;
+  rail.innerHTML = '';
+  SHIP_ORDER.forEach((id, i) => {
+    const c = SHIP_CLASSES[id];
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.dataset.ship = id;
+    el.innerHTML = `<i>${c.type}</i>${c.name}`;
+    el.onclick = () => {
+      audio.click();
+      yardUi.index = i;
+      closeAirGroup();
+      renderYard();
+    };
+    rail.appendChild(el);
+  });
+}
+buildYardRail();
+
 function renderYard() {
   const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
   const cls = SHIP_CLASSES[id];
@@ -330,6 +360,10 @@ function renderYard() {
   // and a datasheet that called her an Enterprise-class carrier would be wrong.
   document.getElementById('yard-class').textContent =
     `${cls.className || cls.name} Class ${cls.typeName}`;
+  for (const b of document.querySelectorAll('#yard-rail button')) {
+    b.classList.toggle('on', b.dataset.ship === id);
+    if (b.dataset.ship === id) b.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
   const group = currentAirGroup(cls);
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
   sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));

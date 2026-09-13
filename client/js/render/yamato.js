@@ -126,12 +126,13 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 // block of 0.61, which is what a hull designed for maximum beam on minimum
 // length looks like, and it is why she was so steady a gun platform.
 const HALF_BEAM = [
-  [-1.000, 1.95], [-0.950, 4.28], [-0.900, 6.22], [-0.800, 9.14],
-  [-0.700, 11.67], [-0.600, 13.81], [-0.500, 15.56], [-0.400, 17.02],
-  [-0.300, 18.09], [-0.200, 18.83], [-0.100, 19.26], [0.000, 19.45],
-  [0.100, 19.41], [0.200, 19.16], [0.300, 18.57], [0.400, 17.60],
-  [0.500, 16.24], [0.600, 14.49], [0.700, 12.35], [0.800, 9.63],
-  [0.880, 6.71], [0.940, 3.79], [0.980, 1.46], [1.000, 0.23],
+  [-1.000, 2.90], [-0.960, 4.90], [-0.920, 6.60], [-0.860, 8.70],
+  [-0.800, 10.60], [-0.720, 12.80], [-0.630, 14.80], [-0.530, 16.45],
+  [-0.420, 17.80], [-0.310, 18.75], [-0.200, 19.25], [-0.100, 19.43],
+  [0.000, 19.45], [0.100, 19.41], [0.200, 19.14], [0.300, 18.52],
+  [0.400, 17.50], [0.500, 16.10], [0.600, 14.30], [0.700, 12.10],
+  [0.800, 9.35], [0.880, 6.45], [0.940, 3.60], [0.980, 1.40],
+  [1.000, 0.22],
 ].map(([t, w]) => [t, w * SCALE]);
 
 // Her keel line, and the forefoot.
@@ -152,34 +153,49 @@ const KEEL = [
 // eleven and a half at the stem, in one curve with no break and no knuckle
 // anywhere in it.
 const SHEER = [
-  [-1.000, 7.10], [-0.880, 7.15], [-0.720, 7.25], [-0.560, 7.40],
-  [-0.400, 7.60], [-0.240, 7.85], [-0.080, 8.15], [0.080, 8.50],
-  [0.240, 8.95], [0.380, 9.40], [0.500, 9.85], [0.620, 10.30],
-  [0.720, 10.75], [0.800, 11.15], [0.870, 11.55], [0.930, 11.88],
-  [0.970, 12.10], [1.000, 12.22],
+  [-1.000, 7.00], [-0.880, 7.06], [-0.720, 7.18], [-0.560, 7.34],
+  [-0.400, 7.56], [-0.240, 7.82], [-0.080, 8.12], [0.080, 8.48],
+  [0.240, 8.94], [0.380, 9.42], [0.500, 9.90], [0.620, 10.40],
+  [0.720, 10.86], [0.800, 11.28], [0.870, 11.66], [0.920, 11.90],
+  [0.955, 11.98], [0.980, 11.72], [1.000, 11.18],
 ].map(([t, y]) => [t, y * SCALE]);
 
 // And the flare: how far her deck edge stands outboard of her waterline beam.
 // Almost nothing amidships, where her side is very nearly vertical; better
 // than three metres over the forward quarter, which is the bow.
 const FLARE = [
-  [-1.000, 2.20], [-0.900, 1.55], [-0.750, 0.85], [-0.550, 0.45],
-  [-0.300, 0.28], [0.000, 0.28], [0.250, 0.46], [0.420, 0.92],
-  [0.550, 1.52], [0.660, 2.18], [0.740, 2.68], [0.800, 2.92],
-  [0.850, 2.92], [0.900, 2.66], [0.945, 2.02], [0.975, 1.24],
-  [1.000, 0.55],
+  [-1.000, 2.60], [-0.930, 2.10], [-0.850, 1.45], [-0.720, 0.78],
+  [-0.550, 0.40], [-0.300, 0.22], [0.000, 0.22], [0.250, 0.42],
+  [0.420, 0.95], [0.550, 1.62], [0.660, 2.35], [0.740, 2.88],
+  [0.800, 3.15], [0.850, 3.12], [0.900, 2.78], [0.945, 2.02],
+  [0.975, 1.18], [1.000, 0.50],
 ].map(([t, w]) => [t, w * SCALE]);
+
+// Her tumblehome: how far the deck edge is pulled inboard of her waterline
+// beam. This is the thing about a Yamato section that a table of half-breadths
+// alone will not give you -- her maximum beam is at the water, at the crown of
+// the anti-torpedo bulge, and her upper deck is better than two metres
+// narrower than it. Amidships her side leans in the whole way from the
+// waterline to the deck edge; forward it goes the other way and becomes the
+// flare. Without it she is a slab with a deck on top of it, and from anywhere
+// forward of the beam that is exactly what she looks like.
+const TUMBLE = [
+  [-1.000, 0.00], [-0.900, 0.30], [-0.800, 0.62], [-0.650, 0.92],
+  [-0.450, 1.12], [-0.200, 1.22], [0.100, 1.22], [0.300, 1.02],
+  [0.480, 0.62], [0.620, 0.26], [0.760, 0.00], [1.000, 0.00],
+].map(([t, w]) => [t, w * SCALE]);
+
 
 const F = hullForm({
   loa: LOA,
-  half: HALF_BEAM, keel: KEEL, sheer: SHEER, flare: FLARE,
+  half: HALF_BEAM, keel: KEEL, sheer: SHEER, flare: FLARE, tumble: TUMBLE,
   // A stem that rakes four metres forward over her whole freeboard, curved
   // rather than straight -- she has a trace of clipper in her.
   stem: 4.2 * SCALE, stemLo: -4.2 * SCALE, stemUp: 16.0 * SCALE, stemPow: 1.28,
   // And a counter that overhangs five, which is what makes the stern of a
   // Japanese capital ship look as long as it does.
-  counter: 5.0 * SCALE, counterLo: -2.2 * SCALE, counterUp: 9.4 * SCALE,
-  counterPow: 1.35,
+  counter: 6.4 * SCALE, counterLo: -2.6 * SCALE, counterUp: 9.6 * SCALE,
+  counterPow: 1.22,
   // A very full bilge: she is nearly rectangular in section amidships, which
   // is where the stability for all that topweight came from.
   bilge: 0.28,
@@ -226,7 +242,7 @@ const WOOD_A = -0.740;
 function hull(g) {
   // Six strakes: four of them under the boot topping, so the turn of her
   // bilge is a curve rather than the flat V a single band gives.
-  plateHull(g, F, M, { bootLo: -3.2 * SCALE, bootHi: 1.15 * SCALE, bands: 9 });
+  plateHull(g, F, M, { bootLo: -2.6 * SCALE, bootHi: 1.65 * SCALE, bands: 9 });
   bulb(g);
   bulge(g);
   bilgeKeels(g);
@@ -346,6 +362,41 @@ function bilgeKeels(g) {
  * hawse recesses her anchors house in, the sea chests, the accommodation
  * ladders stowed against the plating, and the boat booms.
  */
+/**
+ * A strake run along her side: a knuckle, a seam, a rubbing band.
+ *
+ * Lofted rather than laid as a run of boxes, for the reason the deck edge is:
+ * a straight box on a curving side stands proud of the curve at both its ends,
+ * and forty of them give her a side like a file. `yOf` is the height of the
+ * line at a station; `out` how far it stands off the plating and `h` how deep
+ * it is.
+ */
+function sideStrake(g, m, t0, t1, yOf, out, h) {
+  const N = 64;
+  for (const sgn of [-1, 1]) {
+    const pos = [];
+    const idx = [];
+    for (let i = 0; i <= N; i++) {
+      const t = t0 + ((t1 - t0) * i) / N;
+      const y = yOf(t);
+      const w = F.shellAt(t, y) + out;
+      const z = F.zAt(t, y);
+      pos.push(sgn * w, y + h / 2, z, sgn * w, y - h / 2, z);
+    }
+    for (let i = 0; i < N; i++) {
+      const a = i * 2;
+      const b = (i + 1) * 2;
+      if (sgn < 0) idx.push(a, b, a + 1, a + 1, b, b + 1);
+      else idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, m));
+  }
+}
+
 function sideDetail(g) {
   // Scuttles. She has one row forward of the citadel and none along it --
   // there is 410 mm of armour behind that plating and you do not put a
@@ -430,6 +481,17 @@ function sideDetail(g) {
         sgn * (w + 0.2 * SCALE), y, z0 - 6.6 * SCALE, 8).rotation.z = Math.PI / 2;
     }
   }
+
+  // The knuckle in her bow flare.
+  //
+  // Yamato's forward sections do not open in one smooth curve from the water
+  // to the deck edge: there is a hard chine in them, a line running from about
+  // amidships up to the stem, and above it the flare opens fast. It is what
+  // throws her bow wave clear instead of letting it climb the side, and in any
+  // photograph taken from ahead it is the strongest line on her.
+  sideStrake(g, M.hullDark, 0.46, 0.995,
+    (t) => sheer(t) - 3.1 * SCALE + 1.4 * SCALE * Math.max(0, t - 0.46) / 0.535,
+    0.30 * SCALE, 0.30 * SCALE);
 
   // The top edge of the belt, which shows on her side as one faint step the
   // whole length of the citadel: the armour is inboard of the plating, but the
@@ -749,6 +811,34 @@ function decks(g) {
   // The king plank down her centreline, the length of the teak: the one plank
   // the others are laid off, and the line a deck is judged by.
   kingPlank(g, WOOD_A, WOOD_F);
+
+  // The angled fore-deck.
+  //
+  // Her sheer does not run up to the stem head and stop there: it tops out a
+  // few metres abaft it and the plating forward of that is laid as one flat
+  // panel canted down and forward to the stem. You can see it in any bow
+  // photograph of her -- the deck falls away ahead of the break, and the
+  // bullring sits at the bottom of the fall. The deck itself comes out of the
+  // sheer table; what is drawn here is the seam across the break and the
+  // heavier plating forward of it, which is what makes it read as a panel
+  // rather than as a dip.
+  deckBand(g, M.deckDark, 0.9520, 0.9565, WATERWAY + COVER, 0.03 * SCALE);
+  deckBand(g, M.steelDark, 0.9565, 1.000, WATERWAY + COVER, 0.035 * SCALE);
+  // The two strengthening strakes laid down the panel, which is the only thing
+  // on it: the plating there takes the whole weight of the sea coming aboard.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 10; i++) {
+      const t = 0.958 + (0.038 * i) / 10;
+      const t2 = 0.958 + (0.038 * (i + 1)) / 10;
+      const y = sheer(t) + 0.05 * SCALE;
+      const w = F.shellAt(t, sheer(t)) - 2.6 * SCALE;
+      if (w < 0.6 * SCALE) continue;
+      const z = F.zAt(t, sheer(t));
+      const z2 = F.zAt(t2, sheer(t2));
+      box(g, M.deckDark, 0.26 * SCALE, 0.07 * SCALE, Math.abs(z2 - z) + 0.05 * SCALE,
+        sgn * w * 0.55, y, (z + z2) / 2);
+    }
+  }
 }
 
 /** The centreline plank, lofted so it rides the sheer instead of stepping. */
@@ -1017,6 +1107,43 @@ function fittings(g) {
         sgn * 5.6 * SCALE, dy(z) + 0.2 * SCALE, z);
       lk.rotation.z = i % 2 ? Math.PI / 2 : 0;
     }
+  }
+
+  // The stern anchor, housed in its own recess in the quarterdeck plating on
+  // the starboard quarter, with the slip and the cable leading to it. She
+  // carried one aft as well as the two bowers, for anchoring by the stern in
+  // a tideway.
+  for (const sgn of [-1, 1]) {
+    const t = -0.905;
+    const y = sheer(t) - 2.6 * SCALE;
+    const w = F.shellAt(t, y);
+    const z = F.zAt(t, y);
+    box(g, M.hullDark, 0.26 * SCALE, 2.6 * SCALE, 3.0 * SCALE,
+      sgn * (w - 0.12 * SCALE), y, z);
+    const a = new THREE.Group();
+    a.position.set(sgn * (w - 0.02 * SCALE), y, z);
+    box(a, M.gunDark, 0.20 * SCALE, 0.42 * SCALE, 2.4 * SCALE, 0, 0, 0);
+    for (const dy of [-1, 1]) {
+      const fl = box(a, M.gunDark, 0.22 * SCALE, 1.00 * SCALE, 0.95 * SCALE,
+        0, dy * 0.70 * SCALE, 0.85 * SCALE);
+      fl.rotation.x = dy * 0.22;
+    }
+    g.add(a);
+    // The slip and the deck sheave the cable runs over.
+    cyl(g, M.steelDark, 0.42 * SCALE, 0.42 * SCALE, 0.5 * SCALE,
+      sgn * 4.2 * SCALE, dy(-0.885 * HALF) + 0.24 * SCALE, -0.885 * HALF, 12);
+    box(g, M.steelDark, 0.8 * SCALE, 0.6 * SCALE, 1.4 * SCALE,
+      sgn * 4.2 * SCALE, dy(-0.865 * HALF) + 0.3 * SCALE, -0.865 * HALF);
+  }
+
+  // The towing slip right aft, and the after fairleads either side of it.
+  for (const sgn of [-1, 1]) {
+    const z = -0.935 * HALF;
+    const w = halfDeck(z);
+    box(g, M.steelDark, 0.7 * SCALE, 0.5 * SCALE, 1.5 * SCALE,
+      sgn * (w - 1.1 * SCALE), dy(z) + 0.25 * SCALE, z);
+    box(g, M.cave, 0.8 * SCALE, 0.24 * SCALE, 0.8 * SCALE,
+      sgn * (w - 1.1 * SCALE), dy(z) + 0.34 * SCALE, z);
   }
 
   // The ensign staff right aft, and the after bullring.
