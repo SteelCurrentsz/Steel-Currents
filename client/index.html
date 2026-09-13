@@ -12,6 +12,24 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a1a2e'/><path d='M4 21h24l-3 5H7z' fill='%238e969d'/><rect x='13' y='9' width='6' height='9' fill='%238e969d'/><rect x='15' y='4' width='2' height='6' fill='%23c02a34'/></svg>" />
 </head>
 <body>
+<!-- ========================= LOADING ============================= -->
+<!-- Up from the moment the markup is parsed, before a line of the game has
+     run, and taken down once the harbour has drawn its first frame. There was
+     nothing here before: the browser got the page, painted a black rectangle,
+     and held it while two megabytes of game was parsed and a burning harbour
+     was built out of nothing — which on a phone is several seconds of a screen
+     that gives a player no reason to believe anything is happening at all. -->
+<div id="boot" class="boot">
+  <div class="boot-inner">
+    <svg class="boot-mark" viewBox="0 0 525 181" aria-hidden="true" focusable="false">
+      <use href="#wordmark" x="10" y="10" fill="#04050a" />
+      <use href="#wordmark" fill="#be133b" />
+    </svg>
+    <div class="boot-bar"><i id="boot-fill"></i></div>
+    <p class="boot-say" id="boot-say">Casting off</p>
+  </div>
+</div>
+
 <canvas id="stage"></canvas>
 
 <!-- ============================ TITLE ============================ -->
@@ -526,9 +544,16 @@
     <h2 id="yard-name">Iowa</h2>
     <p class="yard-class" id="yard-class">Iowa Class Battleship</p>
     <button class="yard-commission" id="yard-commission" type="button">Commission Vessel</button>
+    <!-- The arrows say where they go. Two rows of chevrons told a captain
+         nothing about what was behind them, so nobody pressed them nine times
+         and half the fleet went unseen. -->
     <div class="yard-arrows">
-      <button class="yard-arrow" id="yard-prev" type="button" aria-label="Previous ship">&lt;&lt;&lt;</button>
-      <button class="yard-arrow" id="yard-next" type="button" aria-label="Next ship">&gt;&gt;&gt;</button>
+      <button class="yard-arrow" id="yard-prev" type="button" aria-label="Previous ship">
+        <span class="chev">&lt;&lt;&lt;</span><span class="peek" id="yard-prev-name"></span>
+      </button>
+      <button class="yard-arrow" id="yard-next" type="button" aria-label="Next ship">
+        <span class="peek" id="yard-next-name"></span><span class="chev">&gt;&gt;&gt;</span>
+      </button>
     </div>
   </div>
 

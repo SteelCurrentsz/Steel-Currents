@@ -7901,17 +7901,34 @@ check('a frame that goes wrong costs a frame, not the battle', () => {
     'the lost context is not cancelled, so it is never restored');
   assert.ok(/webglcontextrestored/.test(main), 'nothing puts the picture back');
 
-  // And the offline build's boot screen, which is what a player of the shared
-  // page actually sees. Its error handler never came off, so a fault twenty
-  // minutes into an action pulled the boot screen back over a running battle
-  // and told the captain the game had failed to start -- which it had not.
+  // And the loading screen, which is what a player of the shared page actually
+  // sees first. Two faults have lived in it.
+  //
+  // The first: its error handler never came off, so a fault twenty minutes
+  // into an action pulled the screen back over a running battle and told the
+  // captain the game had failed to start -- which it had not. It now speaks
+  // only until the game is up, and the game itself is the mark of that.
   const boot = readFileSync(new URL('../build/standalone.mjs', import.meta.url), 'utf8');
-  const shell = boot.slice(boot.indexOf("window.addEventListener('error'"),
-    boot.indexOf("window.addEventListener('load'"));
-  assert.ok(/if\s*\(started\)/.test(shell),
+  const shell = boot.slice(boot.indexOf("window.addEventListener('error'"));
+  assert.ok(/if\s*\(window\.__title\)/.test(shell),
     'the boot screen still covers a battle that is already running');
-  assert.ok(/started = true/.test(boot),
-    'nothing ever marks the game as started, so the boot screen never stands down');
+
+  // The second: it hid itself on a timer a fraction of a second after `load`,
+  // with no idea whether the game was up. On anything slower than a desktop
+  // the curtain came down while the harbour was still being built and left the
+  // player looking at a black canvas. Nothing may take it down but the game.
+  assert.ok(!/addEventListener\('load'/.test(boot),
+    'the loading screen still hides itself on a timer rather than when the game is ready');
+  assert.ok(/boot\.done\(\)/.test(main),
+    'nothing in the game takes the loading screen down');
+  const raise = main.slice(main.indexOf("boot.say('Raising the harbour'"));
+  assert.ok(/new TitleScene\(renderer\)/.test(raise),
+    'the harbour is not built behind the loading screen');
+  // And it has to be painted before the work starts, or it is never seen at
+  // all: a browser does not repaint between a style change and the blocking
+  // work that follows it on the same task.
+  assert.ok(/requestAnimationFrame\(\(\) => requestAnimationFrame\(/.test(raise),
+    'the loading screen is not given a frame to paint in before the build');
 });
 
 

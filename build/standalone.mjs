@@ -45,43 +45,19 @@ html = html
   .replace('<button class="btn" id="pvp-quick">Quick Match</button>',
     '<button class="btn" id="pvp-quick">Put to sea</button>');
 
-// Boot overlay and failure reporting, in the game's own visual language: the
-// night-sea ground, the stencil red of the wordmark, the sand of the menu.
-// Deliberately single-theme — this is a night sea, so it paints its own ground
-// on either host theme rather than borrowing one.
-const boot = `
-<style>
-html, body { background: #05080f; }
-#boot {
-  position: fixed; inset: 0; z-index: 9999;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1.25rem; background: #05080f; color: #e6cf9c;
-  font-family: "Oswald", "Haettenschweiler", "Arial Narrow", sans-serif;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  transition: opacity .6s ease;
-}
-#boot[hidden] { display: none; }
-#boot.gone { opacity: 0; pointer-events: none; }
-#boot .mark { font-size: clamp(1.6rem, 5vw, 2.6rem); color: #c0212c; font-weight: 700; }
-#boot .sub  { font-size: .78rem; color: #9aa6b2; letter-spacing: .3em; }
-#boot .bar  { width: min(260px, 60vw); height: 2px; background: #16202e; overflow: hidden; }
-#boot .bar i { display: block; height: 100%; width: 40%; background: #e2c14f;
-  animation: sweep 1.15s ease-in-out infinite; }
-@keyframes sweep { 0% { transform: translateX(-105%); } 100% { transform: translateX(305%); } }
-@media (prefers-reduced-motion: reduce) {
-  #boot .bar i { animation: none; width: 100%; }
-  #boot { transition: none; }
-}
-#boot .fail { max-width: 36ch; text-align: center; text-transform: none;
-  letter-spacing: normal; line-height: 1.55; color: #dbe4ec;
-  font-family: ui-sans-serif, system-ui, sans-serif; font-size: .9rem; }
-</style>
-<div id="boot">
-  <div class="mark">Steel Currents</div>
-  <div class="bar"><i></i></div>
-  <div class="sub">Raising steam</div>
-</div>
-`;
+// The loading screen lives in the page itself now, styled by the game's own
+// stylesheet and taken down by the game when the harbour has actually been
+// built. What is left here is the part a standalone build alone needs: a check
+// that this browser can draw at all, and somewhere for a failure to be said
+// before there is any game to say it.
+//
+// It used to carry its own screen, and that screen hid itself three hundred
+// and fifty milliseconds after `load` -- on a timer, with no idea whether the
+// game was up. On anything slower than a desktop the curtain came down while
+// the harbour was still being built, and the player was left looking at a
+// black canvas wondering what had broken. A loading screen that lies about
+// being finished is worse than none.
+const boot = '<style>html, body { background: #05080f; }</style>';
 
 // Set before the bundle runs: ESM import hoisting would otherwise lift the
 // client above an assignment made inside a module.
@@ -90,22 +66,23 @@ const flag = '<script>globalThis.STEEL_CURRENTS_OFFLINE = true;</script>';
 const shell = `
 <script>
 (function () {
-  var boot = document.getElementById('boot');
   function fail(msg) {
-    if (!boot) return;
-    boot.hidden = false;
-    boot.classList.remove('gone');
-    boot.innerHTML = '<div class="mark">Steel Currents</div><p class="fail">' + msg + '</p>';
+    var el = document.getElementById('boot');
+    if (!el) return;
+    el.classList.remove('gone', 'done');
+    el.classList.add('stuck');
+    var say = document.getElementById('boot-say');
+    if (say) say.textContent = msg;
+    var fill = document.getElementById('boot-fill');
+    if (fill) fill.style.width = '100%';
   }
   try {
     var c = document.createElement('canvas');
     if (!(c.getContext('webgl2') || c.getContext('webgl'))) {
-      return fail('This browser has no WebGL, which the sea and the ships are drawn with. ' +
-        'Chrome, Firefox, Edge and Safari all support it \\u2014 if you are on one of those, ' +
-        'hardware acceleration may be switched off in its settings.');
+      return fail('This browser has no WebGL \\u2014 hardware acceleration may be off');
     }
   } catch (e) {
-    return fail('WebGL could not start, so the battle cannot be drawn.');
+    return fail('WebGL could not start, so the battle cannot be drawn');
   }
   // Only while she is starting.
   //
@@ -113,29 +90,18 @@ const shell = `
   // minutes into an action, in a click handler, in one frame out of a hundred
   // thousand -- pulled the boot screen back over a running battle and told the
   // captain the game had failed to start. It had not: it had started, and it
-  // was still running underneath. The curtain was worse than the fault, and
-  // the words on it were wrong.
+  // was still running underneath. The curtain was worse than the fault.
   //
   // So it speaks only until the game is up. After that the game reports its
   // own trouble, in a line along the bottom, and carries on: the frame loop
-  // asks for the next frame come what may.
-  var started = false;
+  // asks for the next frame come what may. And the screen itself is taken down
+  // by the game when the harbour has been built, never on a timer.
   window.addEventListener('error', function (e) {
-    if (started) {
-      // Still worth having in the console for anyone looking for it.
+    if (window.__title) {
       if (window.console && console.error) console.error('Steel Currents:', e.message || e);
       return;
     }
-    fail('The game failed to start: ' + (e.message || 'unknown error') + '.');
-  });
-  window.addEventListener('load', function () {
-    setTimeout(function () {
-      if (boot && !boot.querySelector('.fail')) {
-        started = true;
-        boot.classList.add('gone');
-        setTimeout(function () { boot.hidden = true; }, 650);
-      }
-    }, 350);
+    fail('Failed to start: ' + (e.message || 'unknown error'));
   });
 })();
 </script>

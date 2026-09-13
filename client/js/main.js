@@ -21,6 +21,50 @@ import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
 import { MAP_PRESETS } from '../../shared/world.js';
 import { normaliseAirGroup } from '../../shared/sim.js';
 
+/**
+ * The loading screen.
+ *
+ * It is in the markup and up from the moment the page is parsed, so it is on
+ * the screen before any of this module has run. Everything that takes visible
+ * time -- building the harbour at start-up, building a fleet on sortie --
+ * reports through here, and the bar moves because the game has reached a
+ * stage rather than because a timer said so.
+ *
+ * `hold` is the part that matters and the part that is easy to get wrong: a
+ * browser will not repaint between a style change and the blocking work that
+ * follows it on the same task, so showing this and then building a fleet in
+ * the next statement shows nothing at all. Two frames are waited for -- one to
+ * get the change into a paint, one to be sure that paint happened -- and only
+ * then is the work done.
+ */
+const boot = {
+  el: document.getElementById('boot'),
+  fill: document.getElementById('boot-fill'),
+  line: document.getElementById('boot-say'),
+  say(text, at) {
+    if (this.line) this.line.textContent = text;
+    if (this.fill && at != null) this.fill.style.width = `${Math.round(at * 100)}%`;
+  },
+  show(text) {
+    if (!this.el) return;
+    this.el.classList.remove('gone', 'done', 'stuck');
+    this.say(text, 0.06);
+  },
+  done() {
+    if (!this.el) return;
+    this.say('Ready', 1);
+    this.el.classList.add('gone');
+    setTimeout(() => this.el.classList.add('done'), 500);
+  },
+  /** Paint, then do the work, then take the screen down. */
+  hold(text, work) {
+    this.show(text);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try { work(); } finally { this.done(); }
+    }));
+  },
+};
+
 const canvas = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0x050c16);
@@ -34,12 +78,11 @@ const input = new Input(canvas);
 input.touch = isTouchDevice();
 if (input.touch) document.getElementById('touch-help')?.removeAttribute('hidden');
 const touchControls = input.touch ? new TouchControls(input) : null;
-let title = new TitleScene(renderer);
-// A handle on the title screen, the same as `window.__battle` gives one on a
-// battle. The menu is the heaviest scene in the game and the hardest to reason
-// about from the outside; being able to reach into it from the console is what
-// found the sky.
-window.__title = title;
+// The harbour is built after the first paint rather than on this line, so the
+// loading screen is actually on the glass while it is being built. It is the
+// heaviest scene in the game -- a burning port, a sea and a ship -- and on a
+// phone it is most of the wait.
+let title = null;
 let battle = null;
 let yard = null;
 let guns = null;
@@ -56,7 +99,7 @@ function applyQuality() {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
-  title.resize(w, h);
+  title?.resize(w, h);
   if (battle) battle.resize(w, h);
   if (yard) yard.resize(w, h);
   if (guns) guns.resize(w, h);
@@ -337,7 +380,11 @@ function buildYardRail() {
     const el = document.createElement('button');
     el.type = 'button';
     el.dataset.ship = id;
-    el.innerHTML = `<i>${c.type}</i>${c.name}`;
+    // Short names on the rail. It is a row of nine and it has one line of the
+    // screen to do it in: "Admiral Graf Spee" is three times the width of
+    // "Iowa" and nobody has ever had to be told which Graf Spee is meant.
+    const short = c.name.replace(/^(Admiral|USS|HMS|IJN)\s+/, '').replace(/\s+CV-\d+$/, '');
+    el.innerHTML = `<i>${c.type}</i>${short}`;
     el.onclick = () => {
       audio.click();
       yardUi.index = i;
@@ -364,6 +411,14 @@ function renderYard() {
     b.classList.toggle('on', b.dataset.ship === id);
     if (b.dataset.ship === id) b.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
+  // The arrows say which ship they go to, so the list can be walked without
+  // pressing a chevron nine times to find out what is on the other side of it.
+  const at = (d) => SHIP_CLASSES[
+    SHIP_ORDER[(yardUi.index + d + SHIP_ORDER.length * 2) % SHIP_ORDER.length]].name;
+  const prevName = document.getElementById('yard-prev-name');
+  const nextName = document.getElementById('yard-next-name');
+  if (prevName) prevName.textContent = at(-1);
+  if (nextName) nextName.textContent = at(1);
   const group = currentAirGroup(cls);
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
   sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));
@@ -554,6 +609,13 @@ net.on('lobby', (m) => renderRooms(m.rooms));
 net.on('error', (m) => toast(m.msg || 'The signal was refused.'));
 
 net.on('joined', (m) => {
+  // Building a fleet is the other place the game stops dead for a second or
+  // two: every hull in the battle is lofted, plated, welded and dressed here.
+  // It goes up behind the loading screen for the same reason the harbour does.
+  boot.hold('Building the fleet', () => joinBattle(m));
+});
+
+function joinBattle(m) {
   if (battle) { battle.dispose(); battle = null; }
   battle = new Battle({
     renderer, net, input,
@@ -571,7 +633,7 @@ net.on('joined', (m) => {
   resize();
   audio.resume();
   toast('Battle stations');
-});
+}
 
 net.on('start', () => toast('Enemy fleet sighted'));
 net.on('countdown', (m) => { if (m.s > 0 && m.s <= 10) toast(`Battle begins in ${m.s}…`); });
@@ -683,7 +745,7 @@ function drawFrame(dt) {
     // standing between a captain and the chart when he opens it -- the scene
     // is queued several frames deep, and the chart waits for all of them.
     // Nothing here is drawn at less detail; it is simply not drawn twice.
-  } else {
+  } else if (title) {
     title.update(dt);
     title.render();
   }
@@ -707,3 +769,27 @@ applyQuality();
 show('title');
 net.connect();
 requestAnimationFrame(frame);
+
+// The harbour, built behind the loading screen. Two frames of waiting first,
+// so the screen the player is looking at is one the browser has actually
+// painted rather than one it has merely been told about.
+boot.say('Raising the harbour', 0.35);
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  try {
+    title = new TitleScene(renderer);
+    // A handle on the title screen, the same as `window.__battle` gives one on
+    // a battle. The menu is the heaviest scene in the game and the hardest to
+    // reason about from the outside; being able to reach into it from the
+    // console is what found the sky.
+    window.__title = title;
+    resize();
+    boot.say('Lighting the fires', 0.8);
+    // One more frame so the harbour is drawn under the screen before it lifts,
+    // rather than the player watching it appear.
+    requestAnimationFrame(() => requestAnimationFrame(() => boot.done()));
+  } catch (e) {
+    console.error('Steel Currents: the harbour would not build', e);
+    boot.el?.classList.add('stuck');
+    boot.say('Could not raise the harbour — reload to try again', 1);
+  }
+}));

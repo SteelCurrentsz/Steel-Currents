@@ -1192,6 +1192,12 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   left: max(1.8rem, env(safe-area-inset-left));
   max-width: min(46ch, 52vw);
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+  /* Above the fleet rail. The rail is centred across the top and wraps to as
+     many rows as the width needs; at some widths those rows reach down over
+     this corner, and if it wins the stacking order it is lying across the
+     arrows -- which are then unpressable for no visible reason. The name
+     block and its controls come first. */
+  z-index: 7;
 }
 .yard-head h2 {
   margin: 0;
@@ -1250,17 +1256,21 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
    each name carries its own scrim rather than relying on a shadow. */
 .yard-rail {
   position: absolute;
-  top: max(0.8rem, env(safe-area-inset-top));
+  /* Along the bottom, between the two datasheets. The top of this screen is
+     the ship's name and her commission key on the left and the way out on the
+     right; the middle of the bottom edge is the one band of it nothing else
+     wants. */
+  bottom: max(1.2rem, env(safe-area-inset-bottom));
   left: 50%; transform: translateX(-50%);
   z-index: 6;
   display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 0.3rem;
-  max-width: min(92vw, 70rem);
+  gap: 0.28rem;
+  max-width: min(58vw, 62rem);
   padding: 0 0.5rem;
 }
 .yard-rail button {
-  min-height: 34px;
-  padding: 0.25rem 0.7rem;
+  min-height: 32px;
+  padding: 0.22rem 0.6rem;
   background: rgba(6, 16, 28, 0.72);
   border: 1px solid var(--panel-line);
   color: var(--steel);
@@ -1286,6 +1296,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .yard-rail button.on i { opacity: 0.75; }
 /* On a phone the yard's own name block owns the top left, so the rail drops
    under it and scrolls sideways rather than wrapping into four rows. */
+/* On a phone the datasheets run the width of the screen, so the rail goes
+   above them and scrolls sideways rather than wrapping into four rows. */
 @media (max-width: 760px) {
   .yard-rail {
     left: 0; right: 0; transform: none;
@@ -1293,24 +1305,37 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
     flex-wrap: nowrap; justify-content: flex-start;
     overflow-x: auto; overscroll-behavior-x: contain;
     scrollbar-width: none;
-    top: auto; bottom: max(4.6rem, calc(env(safe-area-inset-bottom) + 4rem));
+    bottom: max(4.6rem, calc(env(safe-area-inset-bottom) + 4rem));
   }
   .yard-rail::-webkit-scrollbar { display: none; }
 }
 
-.yard-arrows { display: flex; gap: clamp(2rem, 8vw, 5.5rem); margin-top: 0.4rem; }
+.yard-arrows {
+  display: flex; align-items: center;
+  gap: clamp(1rem, 3vw, 2.4rem);
+  margin-top: 0.4rem;
+}
 .yard-arrow {
+  display: flex; align-items: baseline; gap: 0.5rem;
   min-width: 56px; min-height: 44px;
   padding: 0 0.2rem;
   background: none; border: 0;
   font-family: var(--ui);
-  font-size: clamp(1.2rem, 2.4vw, 1.9rem);
   letter-spacing: 0.12em;
   color: var(--sand);
-  opacity: 0.8;
+  opacity: 0.85;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.yard-arrow .chev { font-size: clamp(1.05rem, 2.1vw, 1.6rem); }
+/* The ship the arrow goes to, said on the arrow. */
+.yard-arrow .peek {
+  font-size: clamp(0.66rem, 1.25vw, 0.92rem);
+  letter-spacing: 0.18em; text-transform: uppercase;
+  opacity: 0.72; white-space: nowrap;
 }
 .yard-arrow:hover, .yard-arrow:focus-visible { opacity: 1; color: var(--sand-bright); }
+.yard-arrow:hover .peek, .yard-arrow:focus-visible .peek { opacity: 1; }
 
 /* The two datasheets, in the bottom corners. ------------------------------ */
 .yard-sheet {
@@ -1858,3 +1883,49 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--steel); opacity: 0.8; text-align: center;
 }
+
+/* ------------------------------------------------------------- loading --
+   The screen a player sees first, and the only one that is up before any of
+   the game has run. It is styled here rather than inline because the whole
+   sheet is in the document head and is therefore applied on the same parse
+   that creates the div: there is no frame in which this is unstyled. */
+.boot {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 90% at 50% 42%, #14202f 0%, #070c14 62%, #04070c 100%);
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+/* Taken down rather than hidden, so the harbour fades up through it. */
+.boot.gone { opacity: 0; pointer-events: none; }
+.boot.done { display: none; }
+
+.boot-inner {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1.4rem;
+  width: min(80vw, 34rem);
+  padding: 0 1rem;
+}
+.boot-mark { width: 100%; height: auto; overflow: visible; }
+
+/* One bar, and it means what it says: it is moved by the game reaching each
+   stage of its own start-up, not by a timer pretending to. */
+.boot-bar {
+  width: 100%; height: 3px;
+  background: rgba(154, 166, 178, 0.18);
+  overflow: hidden;
+}
+.boot-bar i {
+  display: block; height: 100%; width: 4%;
+  background: linear-gradient(90deg, var(--red-dark), var(--red));
+  transition: width 0.35s ease;
+}
+.boot-say {
+  margin: 0;
+  font-family: var(--ui);
+  font-size: clamp(0.7rem, 1.6vw, 0.92rem);
+  letter-spacing: 0.28em; text-transform: uppercase;
+  color: var(--steel);
+}
+/* A boot that has plainly stopped says so rather than sitting there. */
+.boot.stuck .boot-say { color: var(--enemy); }
