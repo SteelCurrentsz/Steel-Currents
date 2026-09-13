@@ -158,16 +158,42 @@ export function cap(g, f, strakes, t, facing) {
  * Her whole shell, in three strakes: antifouling below the waterline, the boot
  * topping at it, and painted freeboard above -- closed at both ends.
  */
-export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55 } = {}) {
+export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55, bands = 1 } = {}) {
+  // How many strakes the bottom is plated in, between the keel and the boot
+  // topping. One is a single band from the keel to the waterline, and a single
+  // band is a flat sheet: however round the offsets say the bilge is, the
+  // plating between those two heights is a straight line in section, so her
+  // whole bottom comes out as a V and everything fitted inside the turn of the
+  // bilge -- armour, tanks, the shaft tunnels -- stands outside the plating
+  // that is actually drawn. More strakes follow the curve, at the cost of one
+  // band each, which is how a bottom is plated in any case.
+  //
+  // The strake heights are taken as fractions of the keel depth rather than as
+  // absolute heights, so they stay parallel to the bottom as it rises at both
+  // ends instead of running out through it.
+  const cuts = [];
+  for (let i = bands - 1; i >= 1; i--) cuts.push(i / bands);
   const strakes = (t) => {
     const kb = f.keelY(t);
-    return [
-      [kb, Math.max(kb, bootLo), M.antifoul],
-      [Math.max(kb, bootLo), Math.max(kb, bootHi), M.boot],
-      [Math.max(kb, bootHi), f.sheer(t), M.hull],
-    ];
+    const out = [];
+    let lo = kb;
+    for (const frac of cuts) {
+      const hi = Math.max(lo, Math.min(bootLo, kb * frac));
+      out.push([lo, hi, M.antifoul]);
+      lo = hi;
+    }
+    out.push([lo, Math.max(lo, bootLo), M.antifoul]);
+    out.push([Math.max(kb, bootLo), Math.max(kb, bootHi), M.boot]);
+    out.push([Math.max(kb, bootHi), f.sheer(t), M.hull]);
+    return out;
   };
-  loftBand(g, M.antifoul, f, (t) => f.keelY(t) - 0.02, bootLo);
+  let lo = (t) => f.keelY(t) - 0.02;
+  for (const frac of cuts) {
+    const hi = (t) => Math.min(bootLo, f.keelY(t) * frac);
+    loftBand(g, M.antifoul, f, lo, hi);
+    lo = hi;
+  }
+  loftBand(g, M.antifoul, f, lo, bootLo);
   loftBand(g, M.boot, f, bootLo, bootHi);
   loftBand(g, M.hull, f, bootHi, (t) => f.sheer(t));
   cap(g, f, strakes, -1, -1);

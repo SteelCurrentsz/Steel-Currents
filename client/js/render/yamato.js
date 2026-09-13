@@ -1,35 +1,47 @@
-// IJN Yamato, built out of her own lines.
+// IJN Yamato -- her hull, and nothing else yet.
 //
 // Sixty-five thousand tonnes and nine eighteen-inch guns: the largest
-// battleship ever built, and the last. Everything about her shape follows from
-// one decision -- that she had to be shorter than her displacement wanted so
-// she would fit the docks and the Panamax-beam assumptions of everybody else's
-// navy -- so she is enormously broad for her length, with a bulbous forefoot,
-// a very full midbody and a fine run aft.
+// battleship ever built, and the last. She is being built here from the keel
+// up, and at this stage she is a bare hull -- plating, armour, weather deck
+// and ground tackle. No turrets, no barbettes, no pagoda, no funnel. Those
+// come back on top of this once the hull under them is right, because a
+// superstructure hides most of a hull and it is very easy to make a bad hull
+// look acceptable by covering it in gun mountings.
 //
-// Four things have to be right or she is not her.
+// Everything about her shape follows from one decision -- that she had to be
+// shorter than her displacement wanted, so she would fit the docks -- so she
+// is enormously broad for her length: 263 metres over all on 38.9 of beam,
+// where the Iowa is 270 on 33. That gives her a very full midbody, fine ends,
+// and a block coefficient of about 0.61.
 //
-// The first is the sheer. Yamato's forecastle deck runs unbroken from the stem
-// to the after end of the bridge tower, and it sweeps -- a long continuous
-// curve, highest at the stem, with a deck edge that flares hard forward. No
-// other battleship of the war has a bow line like it and it is what you
-// recognise her by from the beam.
+// Five things have to be right or the hull is not hers.
 //
-// The second is the pagoda. The Japanese tower bridge is not a tower with
-// platforms on it; it is a stack of platforms with a tower somewhere inside,
-// each level smaller than the one below, capped by the main director and the
-// fifteen-and-a-half-metre rangefinder -- the longest base length ever put to
-// sea -- with the Type 21 radar mattress on top of that.
+// The first is the sheer. Yamato is flush-decked: one unbroken weather deck
+// from the transom to the stem, rising four and a half metres over the forward
+// half in a single fair curve. There is no forecastle break anywhere in her.
+// That long sweep is what you recognise her by from the beam.
 //
-// The third is the single funnel, raked aft, capped, and enormous: one uptake
-// for twelve boilers, offset very slightly to starboard, standing on its own
-// between the tower and the mainmast.
+// The second is the flare. Her deck edge forward stands better than three
+// metres outboard of her waterline beam, and the sections there are hollow --
+// which is what kept eleven metres of freeboard dry at twenty-seven knots and
+// what gives her that knife-and-shoulder look from ahead.
 //
-// The fourth is that she is a 1945 ship. The two beam 15.5 cm triples were
-// landed in 1944 to make room for anti-aircraft guns, so she carries two
-// secondary turrets rather than four and is covered from end to end in
-// twenty-five millimetre triples -- fifty of them by the time she sailed for
-// Okinawa.
+// The third is the bulbous forefoot. One of the first in a capital ship: a
+// great rounded blister under the stem, projecting forward of it, worth some
+// eight per cent of her resistance. In profile the keel line does not sweep up
+// into the stem the way a 1916 battleship's does; it runs forward and ends in
+// the bulb.
+//
+// The fourth is the stern. A long fine run to a rounded cruiser counter that
+// overhangs five metres, with four shafts on two pairs of bossings and two
+// rudders in line on the centreline -- the after one small, and the reason she
+// could be turned at all with the main rudder jammed.
+//
+// The fifth is the armour, which is not decoration: an inclined 410 mm belt
+// closing on a 200 mm armoured deck over a citadel that covers only her
+// magazines and machinery, with everything outside it unarmoured. It is built
+// here inside the plating, because that is where it was and because a shell
+// that gets through her side ought to find it.
 //
 // Local frame, as everywhere else in the renderer: +Z is the bow, +Y is up,
 // therefore starboard is -X, and y = 0 is the waterline.
@@ -40,12 +52,7 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { box, cyl, tubeZ, sphere, ladder } from './shipkit.js';
-import { jake } from './planekit.js';
-import { hullForm, plateHull, weatherDeck, guardRail } from './hullform.js';
-import {
-  fortySix, fifteenFive, typeEightNine, triple25, single25,
-  rangefinder, director, typeTwentyOne, typeThirteen, searchlight, cowl, boat,
-} from './ijnguns.js';
+import { hullForm, plateHull, guardRail } from './hullform.js';
 
 const CLS = SHIP_CLASSES.yamato;
 
@@ -65,18 +72,19 @@ export const DRAFT = CLS.hull.draft;
 /** Starboard, in this frame. */
 const S = -1;
 
-// Kure Naval Arsenal grey, which is a warmer and slightly darker grey than the
-// German ships carry, over a linoleum-brown weather deck. Her decks were teak
-// forward and linoleum over steel abaft the bridge.
+// Kure Naval Arsenal grey over a teak weather deck, with the red lead of her
+// bottom below a black boot topping. These are the colours of the ship as
+// completed and as she was photographed: a warmer, slightly darker grey than
+// the German ships carry, and a deck that is holystoned wood forward and
+// amidships with steel plating at both ends.
 const P = {
-  hull: 0x5c646d,
-  hullDark: 0x4c545c,
-  boot: 0x1a1d21,
-  antifoul: 0x6a2f26,
-  deck: 0x968c72,          // teak
-  deckLino: 0x6e6450,      // linoleum, held down with brass strips
-  deckSteel: 0x50575f,
-  deckDark: 0x424851,
+  hull: 0x6a727c,
+  hullDark: 0x59606a,
+  boot: 0x191c20,
+  antifoul: 0x8c3a2c,
+  deck: 0x9a8f74,          // teak, holystoned
+  deckSteel: 0x5a626b,     // the plated deck at both ends
+  deckDark: 0x474e57,
   steel: 0x69717a,
   steelDark: 0x545b63,
   bright: 0x848c95,
@@ -86,9 +94,14 @@ const P = {
   glass: 0x2a3742,
   cave: 0x14181c,
   brass: 0x8a7340,
-  boat: 0x6d6350,
+  // The armour, which is a different steel and shows as one: Vickers
+  // hardened face plate, darker and colder than her paint.
+  armour: 0x4a5158,
+  armourDark: 0x3a4046,
   // The Imperial chrysanthemum on her stem was gilded bronze.
-  chrys: 0x9d8140,
+  chrys: 0xb08b3c,
+  // Her cables were black, and they are the one strong line on the forecastle.
+  chain: 0x25282c,
 };
 
 const MATS = {};
@@ -103,61 +116,74 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 
 // ------------------------------------------------------------- her lines --
 
-// Half-breadth, station by station, off her body plan and scaled.
+// Half-breadth at the design waterline, station by station off her body plan,
+// with station -1 at the transom and +1 at the stem.
 //
-// The thing to notice is how long the parallel middle body is and how quickly
-// she narrows at both ends: she carries her full 38.9 m from a quarter of her
-// length abaft the stem to a quarter forward of the transom, and then comes to
-// a fine point at each. That is what a hull designed for maximum beam on
-// minimum length looks like, and it is why she was so steady a gun platform.
+// The shape to notice is the waterplane: she carries very nearly her full
+// 38.9 m from a fifth of her length abaft amidships to a tenth forward of it,
+// and then falls away -- faster forward than aft, because the entrance is fine
+// and the run is long. That is a waterplane coefficient of about 0.71 on a
+// block of 0.61, which is what a hull designed for maximum beam on minimum
+// length looks like, and it is why she was so steady a gun platform.
 const HALF_BEAM = [
-  [-1.00, 2.60], [-0.96, 4.20], [-0.90, 6.90], [-0.84, 9.20], [-0.76, 11.80],
-  [-0.66, 14.40], [-0.54, 16.70], [-0.40, 18.40], [-0.24, 19.35], [-0.08, 19.45],
-  [0.08, 19.45], [0.22, 19.30], [0.36, 18.70], [0.48, 17.60], [0.60, 15.80],
-  [0.70, 13.70], [0.79, 11.20], [0.87, 8.30], [0.93, 5.40], [0.97, 2.90],
-  [1.00, 0.30],
+  [-1.000, 1.95], [-0.950, 4.28], [-0.900, 6.22], [-0.800, 9.14],
+  [-0.700, 11.67], [-0.600, 13.81], [-0.500, 15.56], [-0.400, 17.02],
+  [-0.300, 18.09], [-0.200, 18.83], [-0.100, 19.26], [0.000, 19.45],
+  [0.100, 19.41], [0.200, 19.16], [0.300, 18.57], [0.400, 17.60],
+  [0.500, 16.24], [0.600, 14.49], [0.700, 12.35], [0.800, 9.63],
+  [0.880, 6.71], [0.940, 3.79], [0.980, 1.46], [1.000, 0.23],
 ].map(([t, w]) => [t, w * SCALE]);
 
-// Her keel, and the bulbous bow.
+// Her keel line, and the forefoot.
 //
-// Yamato had one of the first full bulbous forefoots in a capital ship -- a
-// great rounded blister under the stem that cut her wave-making resistance by
-// something like eight per cent, which is a knot and a half for nothing. It
-// shows in the profile as a keel line that does not sweep up into the stem but
-// runs forward and then stops.
+// Flat keel at 10.5 m over better than half her length. Aft it lifts into the
+// counter; forward it holds its depth almost to the stem and then turns up
+// into the bulb, which is built on afterwards -- the lofted shell only gets
+// her as far as the forefoot.
 const KEEL = [
-  [-1.00, -2.60], [-0.94, -7.40], [-0.86, -9.60], [-0.76, -10.25], [-0.60, -10.45],
-  [-0.20, -10.50], [0.24, -10.50], [0.52, -10.40], [0.70, -10.05], [0.82, -9.30],
-  [0.90, -8.40], [0.95, -7.60], [0.98, -6.20], [1.00, -2.20],
+  [-1.000, -2.10], [-0.960, -4.80], [-0.920, -7.20], [-0.880, -8.60],
+  [-0.820, -9.60], [-0.740, -10.15], [-0.620, -10.42], [-0.400, -10.50],
+  [0.000, -10.50], [0.300, -10.50], [0.500, -10.47], [0.620, -10.38],
+  [0.720, -10.20], [0.800, -9.95], [0.860, -9.55], [0.900, -9.05],
+  [0.940, -8.20], [0.970, -6.90], [0.990, -5.20], [1.000, -3.60],
 ].map(([t, y]) => [t, y * SCALE]);
 
-// Her sheer: a long unbroken sweep from the transom to the stem, rising three
-// and a half metres over the forward third. This is the line.
+// Her sheer: the line. Seven metres of freeboard at the transom rising to
+// eleven and a half at the stem, in one curve with no break and no knuckle
+// anywhere in it.
 const SHEER = [
-  [-1.00, 7.10], [-0.80, 7.15], [-0.56, 7.35], [-0.34, 7.70], [-0.14, 8.20],
-  [0.04, 8.85], [0.22, 9.70], [0.38, 10.65], [0.52, 11.60], [0.65, 12.50],
-  [0.76, 13.30], [0.85, 13.95], [0.92, 14.45], [0.97, 14.85], [1.00, 15.10],
+  [-1.000, 7.10], [-0.880, 7.15], [-0.720, 7.25], [-0.560, 7.40],
+  [-0.400, 7.60], [-0.240, 7.85], [-0.080, 8.15], [0.080, 8.50],
+  [0.240, 8.95], [0.380, 9.40], [0.500, 9.85], [0.620, 10.30],
+  [0.720, 10.75], [0.800, 11.15], [0.870, 11.55], [0.930, 11.88],
+  [0.970, 12.10], [1.000, 12.22],
 ].map(([t, y]) => [t, y * SCALE]);
 
-// And the flare, which forward is very pronounced indeed: her deck edge stands
-// nearly three metres outboard of her waterline beam at the forecastle, which
-// is what kept a ship with that much freeboard dry at twenty-seven knots.
+// And the flare: how far her deck edge stands outboard of her waterline beam.
+// Almost nothing amidships, where her side is very nearly vertical; better
+// than three metres over the forward quarter, which is the bow.
 const FLARE = [
-  [-1.00, 0.12], [-0.70, 0.18], [-0.34, 0.26], [0.00, 0.40], [0.26, 0.72],
-  [0.44, 1.15], [0.58, 1.70], [0.70, 2.30], [0.79, 2.72], [0.86, 2.80],
-  [0.92, 2.45], [0.96, 1.60], [1.00, 0.30],
+  [-1.000, 2.20], [-0.900, 1.55], [-0.750, 0.85], [-0.550, 0.45],
+  [-0.300, 0.28], [0.000, 0.28], [0.250, 0.46], [0.420, 0.92],
+  [0.550, 1.52], [0.660, 2.18], [0.740, 2.68], [0.800, 2.92],
+  [0.850, 2.92], [0.900, 2.66], [0.945, 2.02], [0.975, 1.24],
+  [1.000, 0.55],
 ].map(([t, w]) => [t, w * SCALE]);
 
 const F = hullForm({
   loa: LOA,
   half: HALF_BEAM, keel: KEEL, sheer: SHEER, flare: FLARE,
-  // A stem with very little rake above water -- five metres over eighteen of
-  // freeboard -- and a counter stern that overhangs four.
-  stem: 5.0 * SCALE, stemLo: -10.5 * SCALE, stemUp: 25.6 * SCALE, stemPow: 1.10,
-  counter: 4.2 * SCALE, counterLo: -2.0 * SCALE, counterUp: 9.1 * SCALE, counterPow: 1.40,
-  // A very full bilge: she is nearly rectangular in section amidships.
-  bilge: 0.26,
-  stations: 120,
+  // A stem that rakes four metres forward over her whole freeboard, curved
+  // rather than straight -- she has a trace of clipper in her.
+  stem: 4.2 * SCALE, stemLo: -4.2 * SCALE, stemUp: 16.0 * SCALE, stemPow: 1.28,
+  // And a counter that overhangs five, which is what makes the stern of a
+  // Japanese capital ship look as long as it does.
+  counter: 5.0 * SCALE, counterLo: -2.2 * SCALE, counterUp: 9.4 * SCALE,
+  counterPow: 1.35,
+  // A very full bilge: she is nearly rectangular in section amidships, which
+  // is where the stability for all that topweight came from.
+  bilge: 0.28,
+  stations: 144,
 });
 
 export const { deckAt, halfDeck } = F;
@@ -165,59 +191,416 @@ export const { deckAt, halfDeck } = F;
 export const LINES = F;
 const sheer = F.sheer;
 
-// Where everything stands, in her own frame. Read off her 1945 general
-// arrangement and scaled.
-const A_Z = 78 * SCALE;          // No. 1 turret
-const B_Z = 55 * SCALE;          // No. 2, superfiring
-const SEC_F_Z = 36 * SCALE;      // the forward 15.5 cm triple
-const TOWER_Z = 16 * SCALE;      // the pagoda
-const FUNNEL_Z = -13 * SCALE;
-const MAST_Z = -34 * SCALE;
-const SEC_A_Z = -48 * SCALE;     // the after 15.5 cm triple
-const Y_Z = -68 * SCALE;         // No. 3 turret
-const AIR_Z = -100 * SCALE;      // the aircraft deck and the catapults
+const HALF = LOA / 2;
+/** A station as a fraction, from a distance along her. */
+const T = (z) => Math.max(-1, Math.min(1, z / HALF));
 
-// The heights of her three built-up levels abaft the forecastle break. The
-// forecastle deck runs unbroken to about here, and everything above it is
-// superstructure.
-const UPPER = 12.6 * SCALE;      // upper deck abaft the break
-const L01 = UPPER + 4.4 * SCALE;
-const L02 = L01 + 4.2 * SCALE;
-const BREAK_Z = -6 * SCALE;      // where the forecastle deck steps down
+// Where the armoured citadel begins and ends. It covers her magazines and her
+// machinery and nothing else: 54 per cent of her length, which is the shortest
+// citadel of any battleship of the war and the whole of the Yamato bargain --
+// armour that thick over a box that short, and the ends left bare.
+const CIT_F = 0.345 * LOA;
+const CIT_A = -0.285 * LOA;
+
+// The three stations her barbettes stand on. No turret is built at this stage,
+// but the armoured rings are part of the hull and the deck is laid round them.
+const A_Z = 78 * SCALE;
+const B_Z = 55 * SCALE;
+const Y_Z = -68 * SCALE;
+
+// Where the plated deck at each end gives way to teak.
+const WOOD_F = 0.930;
+const WOOD_A = -0.740;
 
 // ------------------------------------------------------------------ hull --
 
+/**
+ * Her shell.
+ *
+ * Plated by the common lofting machinery -- red lead below the boot topping,
+ * black at it, Kure grey above -- and then given the four things that are hers
+ * and that no table of offsets will produce: the bulbous forefoot, the knuckle
+ * of the anti-torpedo bulge, the bilge keels, and the bossings her shafts come
+ * out of.
+ */
 function hull(g) {
-  plateHull(g, F, M, { bootLo: -3.4 * SCALE, bootHi: 0.9 * SCALE });
-  // The bulbous bow itself, which the lofted shell only hints at: a rounded
-  // blister standing out ahead of the stem, right down on the keel.
-  const bz = F.zAt(1, -8.2 * SCALE);
-  sphere(g, M.antifoul, 3.3 * SCALE, 0, -8.1 * SCALE, bz + 1.2 * SCALE, 14)
-    .scale.set(0.72, 0.82, 2.1);
-  // And the anti-torpedo bulge along her middle body, which on a Yamato is
-  // built into the shell rather than bolted on -- a long shallow swelling at
-  // the turn of the bilge.
+  // Six strakes: four of them under the boot topping, so the turn of her
+  // bilge is a curve rather than the flat V a single band gives.
+  plateHull(g, F, M, { bootLo: -3.2 * SCALE, bootHi: 1.15 * SCALE, bands: 9 });
+  bulb(g);
+  bulge(g);
+  bilgeKeels(g);
+  sideDetail(g);
+}
+
+/**
+ * The bulbous bow.
+ *
+ * A rounded blister on the forefoot, its nose about three metres forward of
+ * where the stem cuts the water and its crown some four metres below it. It is
+ * lofted rather than dropped in as a sphere, so it fairs into the stem instead
+ * of sitting on it: rings of decreasing radius run aft from the nose and die
+ * into the plating.
+ */
+function bulb(g) {
+  const nose = F.zAt(1, -6.0 * SCALE) + 3.4 * SCALE;
+  const root = F.zAt(1, -7.2 * SCALE) - 9.0 * SCALE;
+  const axis = -6.9 * SCALE;                 // the height of its own centreline
+  const N = 18;                              // rings from the nose aft
+  const SEG = 18;                            // and points round each ring
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    // A blunt half-ellipsoid forward, tapering into nothing at the root: the
+    // radius comes off a quarter sine so the nose is round and the tail is
+    // fine.
+    const r = 3.25 * SCALE * Math.sin(Math.acos(Math.max(-1, Math.min(1, 2 * u - 1))));
+    const z = nose + (root - nose) * u;
+    for (let k = 0; k < SEG; k++) {
+      const a = (k / SEG) * Math.PI * 2;
+      // Flattened a little in the vertical, as a bulb is, and carried up
+      // toward the stem at the after end so it dies into the plating.
+      const lift = 1.6 * SCALE * u * u;
+      pos.push(Math.sin(a) * r * 0.86, axis + Math.cos(a) * r * 0.74 + lift, z);
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    for (let k = 0; k < SEG; k++) {
+      const a = i * SEG + k;
+      const b = i * SEG + ((k + 1) % SEG);
+      idx.push(a, b, a + SEG, a + SEG, b, b + SEG);
+    }
+  }
+  // Close the nose and the root, so she holds water at both ends of it.
+  const noseC = pos.length / 3;
+  pos.push(0, axis, nose);
+  for (let k = 0; k < SEG; k++) idx.push(noseC, (k + 1) % SEG, k);
+  const rootC = pos.length / 3;
+  pos.push(0, axis + 1.6 * SCALE, root);
+  for (let k = 0; k < SEG; k++) {
+    idx.push(rootC, N * SEG + k, N * SEG + ((k + 1) % SEG));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, M.antifoul));
+}
+
+/**
+ * The anti-torpedo bulge.
+ *
+ * On a Yamato it is not bolted on the way a refitted 1916 ship's is -- it is
+ * built into the shell, and what you see of it from outside is a long shallow
+ * knuckle running the length of the citadel at the turn of the bilge, where
+ * the bulge plating meets the side plating. It shows in a photograph as one
+ * hard line of shadow under the belt and nowhere else.
+ */
+function bulge(g) {
+  const y = -5.4 * SCALE;
+  const N = 40;
   for (const sgn of [-1, 1]) {
-    for (let t = -0.62; t <= 0.5; t += 0.08) {
-      const y = -6.2 * SCALE;
-      const w = F.shellAt(t, y);
-      box(g, M.antifoul, 0.5 * SCALE, 2.6 * SCALE, 11 * SCALE,
-        sgn * (w - 0.1 * SCALE), y, F.zAt(t, y));
+    for (let i = 0; i < N; i++) {
+      const t0 = -0.70 + (1.44 * i) / N;
+      const t1 = -0.70 + (1.44 * (i + 1)) / N;
+      const w0 = F.shellAt(t0, y);
+      const w1 = F.shellAt(t1, y);
+      const z0 = F.zAt(t0, y);
+      const z1 = F.zAt(t1, y);
+      const seg = box(g, M.antifoul, 0.34 * SCALE, 1.30 * SCALE,
+        Math.abs(z1 - z0) + 0.06 * SCALE,
+        sgn * ((w0 + w1) / 2 - 0.12 * SCALE), y, (z0 + z1) / 2);
+      // Canted with the plating, so the knuckle is a knuckle and not a rail.
+      seg.rotation.z = sgn * 0.34;
     }
   }
 }
 
-function decks(g) {
-  weatherDeck(g, F, M);
-  // The upper deck abaft the forecastle break, which is one step down and is
-  // the deck her after turret and her boat stowage stand on.
+/**
+ * Her bilge keels: two long shallow fins at the turn of the bilge, set at the
+ * angle the flow leaves her there so they damp her roll without adding
+ * resistance. Sixty metres of them a side on a ship this size.
+ */
+function bilgeKeels(g) {
+  const N = 26;
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < N; i++) {
+      const t0 = -0.40 + (0.86 * i) / N;
+      const t1 = -0.40 + (0.86 * (i + 1)) / N;
+      const y = -7.9 * SCALE;
+      const w0 = F.shellAt(t0, y);
+      const w1 = F.shellAt(t1, y);
+      const z0 = F.zAt(t0, y);
+      const z1 = F.zAt(t1, y);
+      const fin = box(g, M.antifoul, 1.55 * SCALE, 0.16 * SCALE,
+        Math.abs(z1 - z0) + 0.04 * SCALE,
+        sgn * ((w0 + w1) / 2 + 0.55 * SCALE), y - 0.5 * SCALE, (z0 + z1) / 2);
+      fin.rotation.z = sgn * 0.72;
+    }
+  }
+}
+
+/**
+ * What is on her side above water: the scuttles along the forecastle, the
+ * hawse recesses her anchors house in, the sea chests, the accommodation
+ * ladders stowed against the plating, and the boat booms.
+ */
+function sideDetail(g) {
+  // Scuttles. She has one row forward of the citadel and none along it --
+  // there is 410 mm of armour behind that plating and you do not put a
+  // sixteen-inch hole in it for the light.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 16; i++) {
+      const z = CIT_F + 4.0 * SCALE + i * 4.4 * SCALE;
+      const t = T(z);
+      if (t > 0.955) break;
+      const y = sheer(t) - 2.4 * SCALE;
+      const w = F.shellAt(t, y);
+      cyl(g, M.cave, 0.30 * SCALE, 0.30 * SCALE, 0.16 * SCALE,
+        sgn * (w - 0.02 * SCALE), y, F.zAt(t, y), 10).rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.40 * SCALE, 0.40 * SCALE, 0.10 * SCALE,
+        sgn * (w - 0.10 * SCALE), y, F.zAt(t, y), 10).rotation.z = Math.PI / 2;
+    }
+    // And a shorter row right aft, over the steering gear.
+    for (let i = 0; i < 7; i++) {
+      const z = CIT_A - 6.0 * SCALE - i * 4.4 * SCALE;
+      const t = T(z);
+      if (t < -0.93) break;
+      const y = sheer(t) - 2.4 * SCALE;
+      const w = F.shellAt(t, y);
+      cyl(g, M.cave, 0.30 * SCALE, 0.30 * SCALE, 0.16 * SCALE,
+        sgn * (w - 0.02 * SCALE), y, F.zAt(t, y), 10).rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.40 * SCALE, 0.40 * SCALE, 0.10 * SCALE,
+        sgn * (w - 0.10 * SCALE), y, F.zAt(t, y), 10).rotation.z = Math.PI / 2;
+    }
+  }
+
+  // The hawse pipes, and the recess in the plating each anchor houses in.
+  for (const sgn of [-1, 1]) {
+    const t = 0.915;
+    const y = sheer(t) - 3.2 * SCALE;
+    const w = F.shellAt(t, y);
+    const z = F.zAt(t, y);
+    // The recess: a shallow plated pocket the fluke sits in.
+    box(g, M.hullDark, 0.30 * SCALE, 3.6 * SCALE, 4.2 * SCALE,
+      sgn * (w - 0.14 * SCALE), y, z);
+    // The anchor itself, housed flush -- a stockless bower, which from
+    // outboard is a flat shank between two flukes and nothing more.
+    const a = new THREE.Group();
+    a.position.set(sgn * (w - 0.02 * SCALE), y, z);
+    box(a, M.gunDark, 0.22 * SCALE, 0.55 * SCALE, 3.4 * SCALE, 0, 0, 0);
+    for (const dy of [-1, 1]) {
+      const fl = box(a, M.gunDark, 0.26 * SCALE, 1.35 * SCALE, 1.30 * SCALE,
+        0, dy * 0.95 * SCALE, 1.15 * SCALE);
+      fl.rotation.x = dy * 0.22;
+    }
+    cyl(a, M.gunDark, 0.30 * SCALE, 0.30 * SCALE, 0.50 * SCALE, 0, 0, -1.7 * SCALE, 8)
+      .rotation.z = Math.PI / 2;
+    g.add(a);
+    // The pipe itself, running up through the deck.
+    const dz = F.zAt(0.905, sheer(0.905));
+    cyl(g, M.steelDark, 0.62 * SCALE, 0.62 * SCALE, 4.4 * SCALE,
+      sgn * 6.4 * SCALE, sheer(0.905) - 1.6 * SCALE, dz, 12).rotation.x = 0.62;
+  }
+
+  // Two accommodation ladders a side, stowed fore and aft against the plating
+  // at the break of the citadel, where the gangway came alongside.
+  for (const sgn of [-1, 1]) {
+    for (const z0 of [0.16 * LOA, -0.10 * LOA]) {
+      const t = T(z0);
+      const y = sheer(t);
+      const w = F.shellAt(t, y - 1.0 * SCALE);
+      ladder(g, M.steelDark, sgn * (w + 0.35 * SCALE),
+        y - 4.6 * SCALE, y - 0.7 * SCALE, z0 - 5.2 * SCALE, z0 + 1.4 * SCALE);
+      box(g, M.steelDark, 0.30 * SCALE, 0.22 * SCALE, 2.2 * SCALE,
+        sgn * (w + 0.3 * SCALE), y - 0.5 * SCALE, z0 + 2.2 * SCALE);
+    }
+  }
+
+  // The boat booms, swung in against her side and lashed.
+  for (const sgn of [-1, 1]) {
+    for (const z0 of [0.05 * LOA, -0.18 * LOA]) {
+      const t = T(z0);
+      const y = sheer(t) - 1.5 * SCALE;
+      const w = F.shellAt(t, y);
+      tubeZ(g, M.steelDark, 0.20 * SCALE, 13 * SCALE,
+        sgn * (w + 0.45 * SCALE), y, z0, 8);
+      cyl(g, M.steelDark, 0.26 * SCALE, 0.30 * SCALE, 0.8 * SCALE,
+        sgn * (w + 0.2 * SCALE), y, z0 - 6.6 * SCALE, 8).rotation.z = Math.PI / 2;
+    }
+  }
+
+  // The top edge of the belt, which shows on her side as one faint step the
+  // whole length of the citadel: the armour is inboard of the plating, but the
+  // shell is landed on to it there and the seam is visible in any photograph
+  // taken from a boat.
+  for (const sgn of [-1, 1]) {
+    const N = 46;
+    for (let i = 0; i < N; i++) {
+      const t0 = T(CIT_A) + ((T(CIT_F) - T(CIT_A)) * i) / N;
+      const t1 = T(CIT_A) + ((T(CIT_F) - T(CIT_A)) * (i + 1)) / N;
+      const y = 4.9 * SCALE;
+      const w0 = F.shellAt(t0, y);
+      const w1 = F.shellAt(t1, y);
+      const z0 = F.zAt(t0, y);
+      const z1 = F.zAt(t1, y);
+      box(g, M.hullDark, 0.12 * SCALE, 0.22 * SCALE,
+        Math.abs(z1 - z0) + 0.04 * SCALE,
+        sgn * ((w0 + w1) / 2 + 0.02 * SCALE), y, (z0 + z1) / 2);
+    }
+  }
+
+  // Scuppers: the drains cut through the waterway that take the sea off her
+  // deck, one every few frames the whole length of her.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 30; i++) {
+      const t = -0.93 + (1.85 * i) / 29;
+      const y = sheer(t);
+      const w = F.shellAt(t, y);
+      box(g, M.cave, 0.10 * SCALE, 0.26 * SCALE, 0.55 * SCALE,
+        sgn * (w + 0.01 * SCALE), y - 0.34 * SCALE, F.zAt(t, y));
+    }
+  }
+
+  // Sea chests: the gratings her condensers draw through, low down on the
+  // side under the citadel.
+  for (const sgn of [-1, 1]) {
+    for (const z0 of [0.10 * LOA, -0.02 * LOA, -0.14 * LOA]) {
+      const t = T(z0);
+      const y = -4.6 * SCALE;
+      const w = F.shellAt(t, y);
+      box(g, M.antifoul, 0.16 * SCALE, 1.5 * SCALE, 3.2 * SCALE,
+        sgn * (w - 0.06 * SCALE), y, F.zAt(t, y));
+      for (let i = 0; i < 5; i++) {
+        box(g, M.armourDark, 0.20 * SCALE, 0.10 * SCALE, 3.0 * SCALE,
+          sgn * (w - 0.02 * SCALE), y - 0.6 * SCALE + i * 0.3 * SCALE, F.zAt(t, y));
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- armour --
+
+/**
+ * The citadel.
+ *
+ * Everything that matters about Yamato's protection is that the box is short:
+ * 410 mm of belt inclined twenty degrees, 200 mm of armoured deck over it,
+ * 300 mm bulkheads closing it at both ends, and beyond those bulkheads nothing
+ * at all -- bare plating over her bow and her steering gear. It was a
+ * deliberate trade and it is how she was actually hurt, both times.
+ *
+ * It is built inside the plating and marked as her insides, so the weld keeps
+ * it when her side is shot away: a shell that opens her up ought to find
+ * armour behind the hole rather than daylight.
+ */
+/**
+ * A plate standing inside her plating, lofted so it follows it.
+ *
+ * Armour is fitted to the shell: it is landed on the frames a fixed distance
+ * inboard of the side and it follows the side wherever the side goes. A slab
+ * will not do -- a flat plate hung down a hull that is narrowing under it puts
+ * its own bottom corner straight out through her bottom, which is an armour
+ * belt you can see from outside the ship and eight metres of it in the water.
+ *
+ * So every plate here is built the way the shell is: two heights, an inset,
+ * and the half-breadth read off the hull at each of them, station by station.
+ */
+function armourBand(g, m, t0, t1, yLo, yHi, inLo, inHi) {
+  const N = 40;
+  for (const sgn of [-1, 1]) {
+    const pos = [];
+    const idx = [];
+    for (let i = 0; i <= N; i++) {
+      const t = t0 + ((t1 - t0) * i) / N;
+      const lo = Math.max(yLo, F.keelY(t) + 0.8 * SCALE);
+      const hi = Math.max(lo + 0.2, yHi);
+      const wl = Math.max(0.4, F.shellAt(t, lo) - inLo);
+      const wh = Math.max(0.4, F.shellAt(t, hi) - inHi);
+      const zl = F.zAt(t, lo);
+      const zh = F.zAt(t, hi);
+      // Outer face and inner face, so the plate has a thickness you can see
+      // where a shell has opened her up.
+      pos.push(sgn * wl, lo, zl, sgn * wh, hi, zh,
+        sgn * (wl - 0.45 * SCALE), lo, zl, sgn * (wh - 0.45 * SCALE), hi, zh);
+    }
+    for (let i = 0; i < N; i++) {
+      const a = i * 4;
+      const b = (i + 1) * 4;
+      if (sgn < 0) {
+        idx.push(a, b, a + 1, a + 1, b, b + 1);
+        idx.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+      } else {
+        idx.push(a, a + 1, b, a + 1, b + 1, b);
+        idx.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.userData.inside = true;
+    g.add(mesh);
+  }
+}
+
+/** A transverse bulkhead, cut to her own section at that station. */
+function bulkhead(g, m, t, yLo, yHi, inset) {
+  const N = 14;
   const pos = [];
   const idx = [];
-  const N = 28;
   for (let i = 0; i <= N; i++) {
-    const z = BREAK_Z - ((BREAK_Z - (-0.97 * LOA / 2)) * i) / N;
-    const w = Math.max(0.4, halfDeck(z) - 0.3 * SCALE);
-    pos.push(-w, UPPER, z, w, UPPER, z);
+    const y = yLo + ((yHi - yLo) * i) / N;
+    const w = Math.max(0.2, F.shellAt(t, Math.max(y, F.keelY(t) + 0.5)) - inset);
+    const z = F.zAt(t, y);
+    pos.push(-w, y, z, w, y, z, -w, y, z + 0.34 * SCALE, w, y, z + 0.34 * SCALE);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 4;
+    const b = (i + 1) * 4;
+    idx.push(a, a + 1, b + 1, a, b + 1, b);
+    idx.push(a + 2, b + 3, a + 3, a + 2, b + 2, b + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.userData.inside = true;
+  g.add(mesh);
+}
+
+function armour(g) {
+  const inside = (o) => { o.userData.inside = true; return o; };
+  const BELT_LO = -3.4 * SCALE;
+  const BELT_HI = 4.9 * SCALE;
+  const DECK_Y = 5.1 * SCALE;
+  const N = 34;
+  const tA = T(CIT_A);
+  const tF = T(CIT_F);
+
+  // The main belt: inclined twenty degrees with its head outboard, which is
+  // what an inclined belt is and why it is worth so much more than its
+  // thickness against a flat trajectory. The lean is got by insetting the
+  // bottom edge further than the top rather than by tilting a slab, so the
+  // plate stays inside her however her sections change under it.
+  armourBand(g, M.armour, tA, tF, BELT_LO, BELT_HI, 3.55 * SCALE, 0.55 * SCALE);
+
+  // The torpedo bulkhead under it, leaning the other way and carried down to
+  // the double bottom: the lower edge of the belt is the top of it, so a
+  // diving shell that gets under the belt still has this to go through.
+  armourBand(g, M.armourDark, tA, tF, -8.5 * SCALE, BELT_LO,
+    2.40 * SCALE, 3.55 * SCALE);
+
+  // The armoured deck, one flat over the whole citadel, cut to her beam there.
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i <= N; i++) {
+    const z = CIT_A + ((CIT_F - CIT_A) * i) / N;
+    const w = Math.max(0.5, F.shellAt(T(z), DECK_Y) - 1.5 * SCALE);
+    pos.push(-w, DECK_Y, z, w, DECK_Y, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;
@@ -228,43 +611,67 @@ function decks(g) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, M.deckLino));
+  const armDeck = new THREE.Mesh(geo, M.armour);
+  armDeck.userData.inside = true;
+  g.add(armDeck);
+
+  // And the two transverse bulkheads that close the box, each cut to her own
+  // section where it stands.
+  bulkhead(g, M.armour, tF, -8.6 * SCALE, BELT_HI + 0.6 * SCALE, 0.9 * SCALE);
+  bulkhead(g, M.armour, tA, -8.6 * SCALE, BELT_HI + 0.6 * SCALE, 0.9 * SCALE);
+
+  // The armoured barbette rings. No turret stands on them yet, but the rings
+  // themselves are hull: 560 mm of face plate carried from the armoured deck
+  // up through the weather deck, and the reason the deck is laid round them
+  // rather than over them.
+  for (const [z, r] of [[A_Z, 7.0], [B_Z, 7.0], [Y_Z, 7.0]]) {
+    const top = sheer(T(z));
+    inside(cyl(g, M.armour, r * SCALE, r * SCALE, top - DECK_Y,
+      0, (top + DECK_Y) / 2, z, 30));
+    // The ring flush with the deck, which is what you actually see of it, and
+    // the roller path inside it. With no turret shipped yet the well is closed
+    // with a plated cover -- a barbette left open is a hole straight down into
+    // her magazine, which is the one thing it never is.
+    cyl(g, M.armourDark, (r + 0.55) * SCALE, (r + 0.55) * SCALE, 0.26 * SCALE,
+      0, top + 0.02 * SCALE, z, 32);
+    cyl(g, M.steelDark, (r - 0.30) * SCALE, (r - 0.30) * SCALE, 0.20 * SCALE,
+      0, top + 0.06 * SCALE, z, 32);
+    cyl(g, M.steel, (r - 0.75) * SCALE, (r - 0.75) * SCALE, 0.22 * SCALE,
+      0, top + 0.10 * SCALE, z, 32);
+    // The rollers she would train on, round the path.
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      cyl(g, M.gunDark, 0.26 * SCALE, 0.26 * SCALE, 0.34 * SCALE,
+        Math.sin(a) * (r - 0.52) * SCALE, top + 0.20 * SCALE,
+        z + Math.cos(a) * (r - 0.52) * SCALE, 8).rotation.z = Math.PI / 2;
+    }
+  }
 }
 
-function rails(g) {
-  guardRail(g, F, M, {
-    from: -0.95 * LOA / 2, to: 0.96 * LOA / 2,
-    bulwarkFrom: 0.70 * LOA / 2, step: 3.4 * SCALE,
-  });
-}
-
-// --------------------------------------------------------- deckhouse kit --
+// ----------------------------------------------------------------- decks --
 
 /**
- * A deckhouse: a closed box with a chamfered top, lofted so that every face
- * looks out of it.
+ * One band of weather deck between two stations.
  *
- * `rows` are [dz, half-breadth] from aft forward; `y` is the deck it stands on
- * and `h` how tall it is.
+ * Every band is generated from the same offsets at the same stations, so two
+ * that meet share their edge vertex for vertex: the teak and the plating butt
+ * against each other without a seam you can see daylight through.
  */
-function house(g, m, rows, y, h, opts = {}) {
-  const taper = opts.taper ?? 0.94;
+function deckBand(g, m, t0, t1, inset = 0, rise = 0) {
+  const N = Math.max(8, Math.round((t1 - t0) * 140));
   const pos = [];
   const idx = [];
-  for (const [dz, w] of rows) {
-    pos.push(-w, y, dz, w, y, dz, -w * taper, y + h, dz, w * taper, y + h, dz);
+  for (let i = 0; i <= N; i++) {
+    const t = t0 + ((t1 - t0) * i) / N;
+    const y = sheer(t);
+    const w = Math.max(0.05, F.shellAt(t, y) - inset);
+    pos.push(-w, y + rise, F.zAt(t, y), w, y + rise, F.zAt(t, y));
   }
-  for (let i = 0; i < rows.length - 1; i++) {
-    const a = i * 4;
-    const b = (i + 1) * 4;
-    idx.push(a, b + 2, a + 2, a, b, b + 2);
-    idx.push(a + 1, b + 3, b + 1, a + 1, a + 3, b + 3);
-    idx.push(a + 2, b + 3, a + 3, a + 2, b + 2, b + 3);
-    idx.push(a, b + 1, b, a, a + 1, b + 1);
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    const b = (i + 1) * 2;
+    idx.push(a, b + 1, a + 1, a, b, b + 1);
   }
-  const n = (rows.length - 1) * 4;
-  idx.push(0, 3, 1, 0, 2, 3);
-  idx.push(n, n + 1, n + 3, n, n + 3, n + 2);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
@@ -272,636 +679,436 @@ function house(g, m, rows, y, h, opts = {}) {
   g.add(new THREE.Mesh(geo, m));
 }
 
-/** A rectangular deckhouse, which is most of them. */
-function block(g, m, half, z0, z1, y, h, taper = 0.95) {
-  house(g, m, [[z0, half], [z1, half]], y, h, { taper });
-}
-
-/** A row of scuttles down a side. */
-function scuttles(g, half, y, z0, z1, step) {
-  for (let z = z0; z <= z1; z += step) {
-    for (const sgn of [-1, 1]) {
-      cyl(g, M.cave, 0.24 * SCALE, 0.24 * SCALE, 0.08, sgn * half, y, z, 8)
-        .rotation.z = Math.PI / 2;
-    }
-  }
-}
-
-/** A band of bridge windows across a front. */
-function winFwd(g, half, y, z, n, w = 1.1) {
-  for (let i = 0; i < n; i++) {
-    const x = (i - (n - 1) / 2) * (half * 2) / n;
-    box(g, M.glass, w * SCALE, 0.85 * SCALE, 0.1, x, y, z);
-  }
-}
-
-/** And down a side. */
-function winSide(g, half, y, z0, z1, n, w = 1.1) {
-  for (let i = 0; i < n; i++) {
-    const z = z0 + ((z1 - z0) * (i + 0.5)) / n;
-    for (const sgn of [-1, 1]) {
-      box(g, M.glass, 0.1, 0.85 * SCALE, w * SCALE, sgn * half, y, z);
-    }
-  }
-}
-
-/** A railed platform: the deck plate and the three wires round it. */
-function platform(g, half, z0, z1, y, opts = {}) {
-  const m = opts.mat || M.steel;
-  block(g, m, half, z0, z1, y - 0.22 * SCALE, 0.22 * SCALE, 1);
-  if (opts.rail === false) return;
-  const zs = [z0, z1];
-  for (const h of [0.42, 0.8, 1.18]) {
-    for (const sgn of [-1, 1]) {
-      box(g, M.steelDark, 0.06, 0.06, z1 - z0, sgn * half, y + h * SCALE, (z0 + z1) / 2);
-    }
-    for (const z of zs) {
-      box(g, M.steelDark, half * 2, 0.06, 0.06, 0, y + h * SCALE, z);
-    }
-  }
-  for (let z = z0; z <= z1 + 0.01; z += 2.0 * SCALE) {
-    for (const sgn of [-1, 1]) {
-      cyl(g, M.steelDark, 0.05, 0.05, 1.24 * SCALE, sgn * half, y + 0.62 * SCALE, z, 5);
-    }
-  }
-}
-
-// --------------------------------------------------------- superstructure --
-
 /**
- * The superstructure deck and the deckhouses on it.
+ * A strip of deck between two distances in from the deck edge, lofted the
+ * whole length so it follows the sheer and the flare without a step in it.
  *
- * From forward: the barbette of No. 2 turret, then the raised platform the
- * forward 15.5 cm triple stands on, then the pagoda's own base block, the
- * boiler casing with the funnel on it, the mainmast house, and the after
- * 15.5 cm triple's platform.
+ * The waterway and the covering board are drawn with this rather than with a
+ * run of boxes. A box laid along a curving deck edge cannot follow it: each
+ * one is straight, so every one of them stands a little proud of the curve at
+ * its ends, and two hundred of them round a battleship give her a deck edge
+ * like a bandsaw blade. This gives her the edge she actually has.
  */
-function superstructure(g) {
-  // The 01 deckhouse, running from just abaft B's barbette to the mainmast.
-  house(g, M.steel, [
-    [MAST_Z - 10 * SCALE, 11.0 * SCALE],
-    [FUNNEL_Z - 6 * SCALE, 12.4 * SCALE],
-    [TOWER_Z - 4 * SCALE, 13.2 * SCALE],
-    [SEC_F_Z - 2 * SCALE, 12.0 * SCALE],
-    [SEC_F_Z + 9 * SCALE, 9.4 * SCALE],
-  ], UPPER, L01 - UPPER);
-  scuttles(g, 12.0 * SCALE, UPPER + 2.2 * SCALE,
-    MAST_Z - 8 * SCALE, SEC_F_Z + 6 * SCALE, 3.2 * SCALE);
-  // Doors out on to the upper deck, port and starboard.
-  for (const z of [SEC_F_Z, TOWER_Z - 8 * SCALE, FUNNEL_Z, MAST_Z - 4 * SCALE]) {
-    for (const sgn of [-1, 1]) {
-      box(g, M.steelDark, 0.1, 2.0 * SCALE, 0.95 * SCALE,
-        sgn * 12.2 * SCALE, UPPER + 1.05 * SCALE, z);
-    }
-  }
-  // The 02 deck, narrower, carrying the twelve-seven twins on its edge.
-  house(g, M.steel, [
-    [MAST_Z - 6 * SCALE, 8.6 * SCALE],
-    [FUNNEL_Z - 4 * SCALE, 9.6 * SCALE],
-    [TOWER_Z - 2 * SCALE, 10.2 * SCALE],
-    [SEC_F_Z + 4 * SCALE, 8.0 * SCALE],
-  ], L01, L02 - L01);
-  winSide(g, 8.8 * SCALE, L01 + 2.4 * SCALE,
-    FUNNEL_Z - 2 * SCALE, TOWER_Z - 4 * SCALE, 5);
-  // The raised platforms the two 15.5 cm secondaries stand on: each is a short
-  // round barbette on its own deckhouse, one forward of the tower and one
-  // abaft the mainmast.
-  for (const z of [SEC_F_Z, SEC_A_Z]) {
-    cyl(g, M.steel, 4.2 * SCALE, 4.4 * SCALE, 3.2 * SCALE, 0, L01 + 1.6 * SCALE, z, 20);
-  }
-  block(g, M.steel, 7.6 * SCALE, SEC_A_Z - 7 * SCALE, SEC_A_Z + 7 * SCALE,
-    UPPER, L01 - UPPER);
-  // The boat deck amidships, between the funnel and the mainmast, where her
-  // cutters and launches were stowed under the crane.
-  platform(g, 10.4 * SCALE, FUNNEL_Z - 16 * SCALE, FUNNEL_Z - 4 * SCALE, L02);
-}
-
-/**
- * The pagoda.
- *
- * Eleven levels and a director on top, each smaller than the one under it, the
- * whole of it hung on a single armoured trunk a little over a metre and a half
- * of plate thick. Reading up: the admiral's quarters, the flag bridge, the
- * compass platform with its windows all round, the air defence platform, the
- * main battery director with its fifteen-and-a-half-metre rangefinder, and the
- * Type 21 radar mattress bolted to the face of it.
- */
-function tower(g) {
-  const z = TOWER_Z;
-  const lv = (y, half, len, h, taper = 0.94) =>
-    block(g, M.steel, half, z - len * 0.5, z + len * 0.5, y, h, taper);
-
-  // The trunk, which runs the whole height and is what everything hangs on.
-  cyl(g, M.steel, 3.4 * SCALE, 3.4 * SCALE, 30 * SCALE, 0, L02 + 14 * SCALE, z, 16);
-
-  // 03: the base of the tower, and the secondary directors on its wings.
-  const T3 = L02;
-  lv(T3, 7.2 * SCALE, 22 * SCALE, 4.0 * SCALE);
-  winSide(g, 7.3 * SCALE, T3 + 2.3 * SCALE, z - 8 * SCALE, z + 8 * SCALE, 6);
-  for (const sgn of [-1, 1]) {
-    platform(g, 2.0 * SCALE, z + 5 * SCALE, z + 9 * SCALE, T3 + 4.0 * SCALE,
-      { rail: true });
-    director(g, M, sgn * 7.6 * SCALE, T3 + 4.0 * SCALE, z + 7 * SCALE,
-      1.6 * SCALE, 2.0 * SCALE);
-  }
-
-  // 04: the admiral's bridge.
-  const T4 = T3 + 4.0 * SCALE;
-  lv(T4, 6.2 * SCALE, 17 * SCALE, 3.6 * SCALE);
-  winFwd(g, 5.4 * SCALE, T4 + 2.1 * SCALE, z + 8.6 * SCALE, 7);
-  winSide(g, 6.3 * SCALE, T4 + 2.1 * SCALE, z - 6 * SCALE, z + 6 * SCALE, 5);
-
-  // 05: the operations level, with the 4.5 m rangefinder out on the wings.
-  const T5 = T4 + 3.6 * SCALE;
-  lv(T5, 5.4 * SCALE, 14 * SCALE, 3.4 * SCALE);
-  winFwd(g, 4.7 * SCALE, T5 + 2.0 * SCALE, z + 7.1 * SCALE, 6);
-  for (const sgn of [-1, 1]) {
-    platform(g, 1.8 * SCALE, z - 1 * SCALE, z + 4 * SCALE, T5 + 3.4 * SCALE);
-    searchlight(g, M, sgn * 6.6 * SCALE, T5 + 5.0 * SCALE, z + 1.5 * SCALE,
-      0.9 * SCALE);
-  }
-
-  // 06: the compass platform -- the bridge she was conned from, glazed all
-  // round, with wings out to either side.
-  const T6 = T5 + 3.4 * SCALE;
-  lv(T6, 4.8 * SCALE, 12 * SCALE, 3.2 * SCALE);
-  winFwd(g, 4.2 * SCALE, T6 + 1.9 * SCALE, z + 6.1 * SCALE, 6);
-  winSide(g, 4.9 * SCALE, T6 + 1.9 * SCALE, z - 5 * SCALE, z + 5 * SCALE, 5);
-  for (const sgn of [-1, 1]) {
-    platform(g, 1.6 * SCALE, z + 1 * SCALE, z + 5.5 * SCALE, T6 + 3.2 * SCALE);
-  }
-  rangefinder(g, M, 0, T6 + 4.2 * SCALE, z - 4.5 * SCALE, 10.0 * SCALE);
-
-  // 07: the anti-aircraft command position, ringed with 25 mm triples.
-  const T7 = T6 + 3.2 * SCALE;
-  lv(T7, 4.0 * SCALE, 10 * SCALE, 3.0 * SCALE);
-  winFwd(g, 3.5 * SCALE, T7 + 1.8 * SCALE, z + 5.1 * SCALE, 5);
-
-  // 08: the air defence platform, open, with the Type 94 high-angle directors.
-  const T8 = T7 + 3.0 * SCALE;
-  platform(g, 4.6 * SCALE, z - 5.5 * SCALE, z + 5.5 * SCALE, T8);
-  for (const sgn of [-1, 1]) {
-    director(g, M, sgn * 3.4 * SCALE, T8, z + 3.4 * SCALE, 1.5 * SCALE, 1.9 * SCALE);
-    rangefinder(g, M, sgn * 3.4 * SCALE, T8 + 2.2 * SCALE, z + 3.4 * SCALE,
-      4.5 * SCALE);
-  }
-
-  // 09: the fire control tower proper.
-  const T9 = T8 + 2.6 * SCALE;
-  cyl(g, M.steel, 3.0 * SCALE, 3.2 * SCALE, 5.6 * SCALE, 0, T9 + 2.8 * SCALE, z, 16);
-  for (let i = -2; i <= 2; i++) {
-    const a = i * 0.3;
-    box(g, M.cave, 0.9 * SCALE, 0.5 * SCALE, 0.08,
-      Math.sin(a) * 3.05 * SCALE, T9 + 3.6 * SCALE, z + Math.cos(a) * 3.05 * SCALE)
-      .rotation.y = a;
-  }
-
-  // 10: the main battery director and the great rangefinder.
-  const T10 = T9 + 5.6 * SCALE;
-  const dir = director(g, M, 0, T10, z, 2.8 * SCALE, 3.0 * SCALE);
-  rangefinder(dir, M, 0, 3.4 * SCALE, 0, 15.5 * SCALE);
-  // And the Type 21 on the face of it, which is the aerial she went to
-  // Okinawa with.
-  typeTwentyOne(dir, M, 0, 5.6 * SCALE, 0.4 * SCALE, 0, 5.2 * SCALE, 3.0 * SCALE);
-
-  // The ladders up the after face of the tower, which is how anybody actually
-  // got to the top of it. Both sides: a pagoda this tall is climbed by a great
-  // many men at once and it had a ladder each side of the trunk all the way up.
-  for (const sx of [-1, 1]) {
-    for (let i = 0; i < 6; i++) {
-      const y0 = L02 + i * 3.4 * SCALE;
-      ladder(g, M.steelDark, sx * 2.2 * SCALE, y0, y0 + 3.4 * SCALE,
-        z - 5.6 * SCALE, z - 5.6 * SCALE);
-    }
-  }
-}
-
-/**
- * The funnel: one uptake for twelve boilers, raked aft and capped.
- *
- * A Yamato funnel is unmistakable -- vast in section, strongly raked, and with
- * a curved rain cap over a honeycomb grating that was there to keep bomb
- * splinters out of the boiler rooms. It stands on the centreline: all twelve
- * boilers trunk into the one uptake, which is why it is the size it is.
- */
-function funnel(g) {
-  const m = new THREE.Group();
-  m.position.set(0, L02, FUNNEL_Z);
-  m.rotation.x = -0.30;
-  const H = 16 * SCALE;
-  // An oval section, lofted so it narrows going up.
-  const rows = [[0, 1.0], [0.55, 0.93], [1.0, 0.84]];
+function deckStrip(g, m, t0, t1, in0, in1, rise = 0) {
+  const N = Math.max(10, Math.round((t1 - t0) * 160));
   const pos = [];
   const idx = [];
-  const N = 20;
-  for (const [k, s] of rows) {
-    for (let i = 0; i < N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      pos.push(Math.sin(a) * 6.4 * SCALE * s, k * H, Math.cos(a) * 4.5 * SCALE * s);
-    }
+  for (let i = 0; i <= N; i++) {
+    const t = t0 + ((t1 - t0) * i) / N;
+    const y = sheer(t);
+    const z = F.zAt(t, y);
+    const w = F.shellAt(t, y);
+    const a = Math.max(0.04, w - in0);
+    const b = Math.max(0.02, w - in1);
+    pos.push(-a, y + rise, z, -b, y + rise, z, b, y + rise, z, a, y + rise, z);
   }
-  for (let r = 0; r < rows.length - 1; r++) {
-    for (let i = 0; i < N; i++) {
-      const a = r * N + i;
-      const b = r * N + ((i + 1) % N);
-      idx.push(a, b, a + N, a + N, b, b + N);
-    }
+  for (let i = 0; i < N; i++) {
+    const p = i * 4;
+    const q = (i + 1) * 4;
+    // Port strip, then starboard, each wound so it faces the sky.
+    idx.push(p, q + 1, p + 1, p, q, q + 1);
+    idx.push(p + 3, p + 2, q + 2, p + 3, q + 2, q + 3);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  m.add(new THREE.Mesh(geo, M.steel));
-  // The cap, and the grating under it.
-  cyl(m, M.gunDark, 5.6 * SCALE, 5.6 * SCALE, 0.3 * SCALE, 0, H + 0.1 * SCALE, 0, 20)
-    .scale.set(1, 1, 0.72);
-  for (let i = -3; i <= 3; i++) {
-    box(m, M.gunDark, 10.2 * SCALE, 0.2 * SCALE, 0.3 * SCALE,
-      0, H - 0.5 * SCALE, i * 0.9 * SCALE);
-  }
-  // The steam pipes up the after face and the siren platform.
-  for (const sgn of [-1, 1]) {
-    cyl(m, M.steelDark, 0.35 * SCALE, 0.35 * SCALE, H * 0.9,
-      sgn * 3.0 * SCALE, H * 0.45, -4.2 * SCALE, 8);
-  }
-  box(m, M.steelDark, 3.0 * SCALE, 0.2 * SCALE, 1.6 * SCALE,
-    0, H * 0.62, -4.8 * SCALE);
-  g.add(m);
-  // The casing the funnel stands on, which is the boiler-room trunking.
-  block(g, M.steel, 8.0 * SCALE, FUNNEL_Z - 8 * SCALE, FUNNEL_Z + 7 * SCALE,
-    L02, 3.4 * SCALE);
-  // And the 25 mm gun galleries round the base of it, which is where a third
-  // of her light battery lived.
-  for (const sgn of [-1, 1]) {
-    platform(g, 2.6 * SCALE, FUNNEL_Z - 7 * SCALE, FUNNEL_Z + 6 * SCALE,
-      L02 + 3.4 * SCALE);
-  }
+  g.add(new THREE.Mesh(geo, m));
 }
 
 /**
- * The mainmast and the after control position.
+ * Her weather deck: flush from the transom to the stem, plated at both ends
+ * and laid in teak between them, with the steel waterway at the edge and the
+ * covering board inboard of it.
  *
- * A tripod carrying the after main-battery director with its own ten-metre
- * rangefinder, the Type 13 radar on the starboard leg, and the wireless yards.
+ * The wood is not decoration. A Japanese capital ship's upper deck is planked
+ * over her armour everywhere a man has to work or a gun has to be fought from,
+ * and bare plate at the ends where the ground tackle and the aircraft handling
+ * gear are -- so the line between them runs where the work changes, not where
+ * a draughtsman found it convenient.
  */
-function mainmast(g) {
-  const z = MAST_Z;
-  block(g, M.steel, 6.4 * SCALE, z - 8 * SCALE, z + 6 * SCALE, L01, L02 - L01);
-  platform(g, 5.0 * SCALE, z - 6 * SCALE, z + 4 * SCALE, L02);
-  // The tripod: one heavy leg forward and two spread aft.
-  const legs = [[0, z + 2.2 * SCALE], [-3.2 * SCALE, z - 4.0 * SCALE],
-    [3.2 * SCALE, z - 4.0 * SCALE]];
-  const topY = L02 + 16 * SCALE;
-  for (const [x, lz] of legs) {
-    const h = topY - L02;
-    const dx = -x;
-    const dz = (z + 0.5 * SCALE) - lz;
-    const len = Math.hypot(h, dx, dz);
-    const leg = cyl(g, M.steel, 0.55 * SCALE, 0.7 * SCALE, len,
-      x + dx / 2, L02 + h / 2, lz + dz / 2, 10);
-    leg.rotation.order = 'ZYX';
-    leg.rotation.z = Math.atan2(-dx, h);
-    leg.rotation.x = Math.atan2(dz, h);
-  }
-  // The after director platform on top, and the director on it.
-  platform(g, 3.2 * SCALE, z - 2.6 * SCALE, z + 3.4 * SCALE, topY);
-  const dir = director(g, M, 0, topY, z + 0.5 * SCALE, 2.2 * SCALE, 2.4 * SCALE);
-  rangefinder(dir, M, 0, 2.8 * SCALE, 0, 10.0 * SCALE);
-  // The topmast and her wireless yards.
-  cyl(g, M.steelDark, 0.22 * SCALE, 0.3 * SCALE, 12 * SCALE,
-    0, topY + 6.4 * SCALE, z + 0.5 * SCALE, 8);
-  for (const dy of [3.0, 7.2]) {
-    box(g, M.steelDark, 11 * SCALE, 0.16 * SCALE, 0.16 * SCALE,
-      0, topY + dy * SCALE, z + 0.5 * SCALE);
-  }
+const WATERWAY = 1.55 * SCALE;     // the plated margin at the deck edge
+const COVER = 0.42 * SCALE;        // and the caulked board inboard of it
+
+function decks(g) {
+  // The deck itself, laid inside the waterway: plated at both ends, teak
+  // between them, and every band generated from the same offsets at the same
+  // stations so two that meet share their edge vertex for vertex.
+  const IN = WATERWAY + COVER;
+  deckBand(g, M.deckSteel, -1.000, WOOD_A, IN);
+  deckBand(g, M.deck, WOOD_A, WOOD_F, IN);
+  deckBand(g, M.deckSteel, WOOD_F, 1.000, IN);
+
+  // The steel waterway round the whole deck edge -- the plated margin a man
+  // walks on and a wire is shackled to -- and the dark caulked covering board
+  // the planking is finished against inboard of it, which is what draws the
+  // line of her deck from the air.
+  deckStrip(g, M.deckSteel, -1.000, 1.000, 0, WATERWAY, 0.012 * SCALE);
+  deckStrip(g, M.deckDark, -1.000, 1.000, WATERWAY, IN, 0.016 * SCALE);
+
+  // The king plank down her centreline, the length of the teak: the one plank
+  // the others are laid off, and the line a deck is judged by.
+  kingPlank(g, WOOD_A, WOOD_F);
 }
+
+/** The centreline plank, lofted so it rides the sheer instead of stepping. */
+function kingPlank(g, t0, t1) {
+  const N = 160;
+  const pos = [];
+  const idx = [];
+  const hw = 0.34 * SCALE;
+  for (let i = 0; i <= N; i++) {
+    const t = t0 + ((t1 - t0) * i) / N;
+    const y = sheer(t) + 0.022 * SCALE;
+    const z = F.zAt(t, sheer(t));
+    pos.push(-hw, y, z, hw, y, z);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    const b = (i + 1) * 2;
+    idx.push(a, b + 1, a + 1, a, b, b + 1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, M.deckDark));
+}
+
+/** The guardrail round her, and the plated bulwark over the forecastle. */
+function rails(g) {
+  guardRail(g, F, M, {
+    from: -0.955 * HALF * 2 / 2, to: 0.965 * HALF,
+    bulwarkFrom: 0.760 * HALF, step: 3.2 * SCALE,
+  });
+}
+
+// -------------------------------------------------------------- fittings --
 
 /**
- * The Type 13 air-search aerial, lashed up the starboard leg of the mainmast.
+ * Everything on her deck that is not a gun.
  *
- * Its own builder because it is the one thing aboard her that has no opposite
- * number: a Type 13 is a ladder of dipoles wired to whatever mast leg was
- * handy, and every photograph of her in 1945 shows exactly one, on the
- * starboard side.
+ * A battleship's forecastle is the busiest flat surface she has: two bower
+ * cables running from the hawse pipes to the navel pipes through their
+ * stoppers, the capstans that heave them, the breakwater set up to throw the
+ * sea off, bollards and fairleads all round the edge, the paravane gear, and
+ * the chrysanthemum on the stem. Aft she is emptier -- the after capstans, the
+ * warping gear and the ensign staff -- and amidships she carries her hatches,
+ * her ventilators and her ready-use lockers.
  */
-function radar(g) {
-  typeThirteen(g, M, S * 3.4 * SCALE, L02 + 9 * SCALE, MAST_Z - 4.0 * SCALE, 0,
-    5.0 * SCALE);
-}
-
-/**
- * The aircraft deck right aft: two catapults, the handling rails and the crane.
- *
- * Yamato worked seven float planes off a deck abaft Y turret with the aircraft
- * struck below into a hangar under it. The catapults train out over the
- * quarters and the crane picks the aircraft out of the water again.
- */
-function aviation(g) {
-  const z = AIR_Z;
-  platform(g, 11.0 * SCALE, z - 16 * SCALE, z + 14 * SCALE, UPPER, { rail: true });
-  // The hangar under the deck, with its door forward.
-  block(g, M.steel, 8.4 * SCALE, z - 12 * SCALE, z + 10 * SCALE,
-    UPPER - 4.2 * SCALE, 4.2 * SCALE);
-  box(g, M.steelDark, 7.0 * SCALE, 3.4 * SCALE, 0.2,
-    0, UPPER - 2.1 * SCALE, z + 10.1 * SCALE);
-  // Two catapults on the quarters, trained fore and aft at rest.
-  for (const sgn of [-1, 1]) {
-    const c = new THREE.Group();
-    c.position.set(sgn * 7.4 * SCALE, UPPER + 0.4 * SCALE, z);
-    c.rotation.y = sgn * 0.12;
-    box(c, M.steelDark, 1.9 * SCALE, 0.8 * SCALE, 19 * SCALE, 0, 0.4 * SCALE, 0);
-    box(c, M.steel, 2.4 * SCALE, 0.3 * SCALE, 2.6 * SCALE, 0, 0.9 * SCALE, 8 * SCALE);
-    cyl(c, M.steelDark, 1.1 * SCALE, 1.3 * SCALE, 0.8 * SCALE, 0, 0, -9 * SCALE, 12);
-    g.add(c);
-  }
-  // The handling rails on the deck between them, and the turntable.
-  for (const sgn of [-1, 1]) {
-    box(g, M.steelDark, 0.3 * SCALE, 0.14 * SCALE, 24 * SCALE,
-      sgn * 3.0 * SCALE, UPPER + 0.14 * SCALE, z - 2 * SCALE);
-  }
-  cyl(g, M.steelDark, 3.4 * SCALE, 3.4 * SCALE, 0.16 * SCALE,
-    0, UPPER + 0.12 * SCALE, z - 10 * SCALE, 20);
-  // The crane on the centreline abaft the catapults.
-  const cr = new THREE.Group();
-  cr.position.set(0, UPPER, z - 17 * SCALE);
-  cyl(cr, M.steel, 1.1 * SCALE, 1.3 * SCALE, 4.0 * SCALE, 0, 2.0 * SCALE, 0, 12);
-  const jib = new THREE.Group();
-  jib.position.set(0, 4.0 * SCALE, 0);
-  jib.rotation.x = 0.42;
-  box(jib, M.steelDark, 0.9 * SCALE, 0.9 * SCALE, 17 * SCALE, 0, 0, 8 * SCALE);
-  for (let i = 1; i < 7; i++) {
-    box(jib, M.steelDark, 1.0 * SCALE, 0.1 * SCALE, 0.1 * SCALE,
-      0, 0, i * 2.3 * SCALE);
-  }
-  cr.add(jib);
-  g.add(cr);
-}
-
-/**
- * Her floatplanes, on the catapults and ranged on the handling deck.
- *
- * Their own builder, as the carrier's are, because an aeroplane is not a piece
- * of ship: two Jakes on opposite catapults are the same machine twice rather
- * than a mirrored pair, and the airframe is not symmetrical about its own nose
- * anyway. Built at the scale the hull is drawn at, or a fourteen-metre
- * floatplane sits on the catapult of a four-hundred-metre ship looking like a
- * gull that has landed on it.
- */
-function airGroup(g) {
-  const z = AIR_Z;
-  for (const sgn of [-1, 1]) {
-    // On the catapult, facing out along it, wings spread and ready to go.
-    const a = jake(g, sgn * 7.4 * SCALE, UPPER + 1.6 * SCALE, z + 3 * SCALE,
-      sgn * 0.12, false, {});
-    a.scale.setScalar(SCALE);
-    a.userData.wings?.stowed?.removeFromParent();
-  }
-  // And two more struck down on the handling deck abaft the turntable, wings
-  // folded, waiting their turn at the catapult.
-  for (const sgn of [-1, 1]) {
-    const a = jake(g, sgn * 4.6 * SCALE, UPPER + 0.2 * SCALE, z - 13 * SCALE,
-      sgn < 0 ? 0.2 : Math.PI - 0.2, true, {});
-    a.scale.setScalar(SCALE);
-    a.userData.wings?.spread?.removeFromParent();
-  }
-}
-
-/** Her boats, her ground tackle, her ventilators and her paravanes. */
 function fittings(g) {
-  // The cutters and launches on the boat deck, under the crane.
+  const dy = (z) => sheer(T(z));
+
+  // ---- the forecastle ----------------------------------------------------
+
+  // The two bower cables. Each runs from its hawse pipe aft along the deck,
+  // through a chain stopper, round the capstan and down the navel pipe to the
+  // locker. They are the strongest line on the forecastle and they are what
+  // the plan view of any battleship is recognised by.
   for (const sgn of [-1, 1]) {
-    boat(g, M, sgn * 8.2 * SCALE, L02 + 1.4 * SCALE, FUNNEL_Z - 8 * SCALE,
-      11 * SCALE);
-    boat(g, M, sgn * 8.2 * SCALE, L02 + 1.4 * SCALE, FUNNEL_Z - 14 * SCALE,
-      9 * SCALE);
-  }
-  // Ventilator cowls along the deckhouse, which a Japanese superstructure is
-  // covered in.
-  for (let z = FUNNEL_Z - 20 * SCALE; z < TOWER_Z + 6 * SCALE; z += 5 * SCALE) {
-    for (const sgn of [-1, 1]) {
-      cowl(g, M, sgn * 11.0 * SCALE, UPPER, z, 0.42 * SCALE, 2.0 * SCALE);
+    const x = sgn * 6.4 * SCALE;
+    const z0 = F.zAt(0.905, sheer(0.905)) - 1.0 * SCALE;
+    const z1 = z0 - 26 * SCALE;
+    const links = 34;
+    for (let i = 0; i < links; i++) {
+      const z = z0 - ((z0 - z1) * i) / links;
+      const y = dy(z) + 0.22 * SCALE;
+      const lk = box(g, M.chain, 0.34 * SCALE, 0.30 * SCALE, 0.62 * SCALE, x, y, z);
+      lk.rotation.z = i % 2 ? Math.PI / 2 : 0;
     }
-  }
-  // The forecastle: two anchors in their hawse pipes, the capstans, the
-  // bullring, and the chrysanthemum on the stem.
-  const bow = 0.93 * LOA / 2;
-  for (const sgn of [-1, 1]) {
-    box(g, M.gunDark, 0.3 * SCALE, 2.6 * SCALE, 3.4 * SCALE,
-      sgn * (halfDeck(bow) - 0.4 * SCALE), deckAt(bow) - 3.4 * SCALE, bow);
-    cyl(g, M.steelDark, 1.3 * SCALE, 1.3 * SCALE, 1.7 * SCALE,
-      sgn * 4.4 * SCALE, deckAt(bow - 10 * SCALE) + 0.85 * SCALE, bow - 10 * SCALE, 14);
-    // The cable running forward to the hawse.
-    box(g, M.gunDark, 0.5 * SCALE, 0.22 * SCALE, 9 * SCALE,
-      sgn * 4.4 * SCALE, deckAt(bow - 5 * SCALE) + 0.14 * SCALE, bow - 5 * SCALE);
-  }
-  cyl(g, M.steelDark, 1.5 * SCALE, 1.5 * SCALE, 0.5 * SCALE,
-    0, deckAt(0.965 * LOA / 2) + 0.3 * SCALE, 0.965 * LOA / 2, 14);
-  // The chrysanthemum crest, gilded, on the stem below the bullring.
-  const sz = F.zAt(1, deckAt(LOA / 2) - 2.0 * SCALE);
-  cyl(g, mat(P.chrys), 1.9 * SCALE, 1.9 * SCALE, 0.22 * SCALE,
-    0, deckAt(LOA / 2) - 2.4 * SCALE, sz - 0.4 * SCALE, 20)
-    .rotation.x = Math.PI / 2;
-  // The breakwater across the forecastle forward of No.1 turret: a chevron of
-  // plating set up to throw the green water she takes over the bow away from
-  // the turret face. Every ship with a low forecastle has one and it is the
-  // one piece of deck furniture you cannot miss from the air.
-  const bwZ = A_Z + 13.5 * SCALE;
-  for (const sgn of [-1, 1]) {
-    for (let i = 0; i < 7; i++) {
-      const u = i / 6;
-      const w = halfDeck(bwZ) * 0.93;
-      const x0 = sgn * (u * w);
-      const x1 = sgn * (((i + 1) / 6) * w);
-      const dz = -3.4 * SCALE * u * u;
-      const dz1 = -3.4 * SCALE * ((i + 1) / 6) ** 2;
-      const seg = box(g, M.steel, Math.abs(x1 - x0) + 0.2 * SCALE, 1.9 * SCALE,
-        0.32 * SCALE, (x0 + x1) / 2, deckAt(bwZ) + 0.95 * SCALE,
-        bwZ + (dz + dz1) / 2);
-      seg.rotation.y = Math.atan2(dz1 - dz, x1 - x0);
+    // The chain stopper, which is what actually holds her when she is at anchor.
+    box(g, M.steelDark, 1.1 * SCALE, 0.75 * SCALE, 1.6 * SCALE,
+      x, dy(z0 - 9 * SCALE) + 0.38 * SCALE, z0 - 9 * SCALE);
+    box(g, M.gunDark, 0.42 * SCALE, 1.1 * SCALE, 0.36 * SCALE,
+      x, dy(z0 - 9 * SCALE) + 0.9 * SCALE, z0 - 9 * SCALE);
+    // The navel pipe the cable drops through.
+    cyl(g, M.steelDark, 0.55 * SCALE, 0.55 * SCALE, 0.5 * SCALE,
+      x, dy(z1) + 0.2 * SCALE, z1 - 1.0 * SCALE, 12);
+    // And the capstan that heaves it: a drum with a whelped barrel.
+    const cz = z1 + 2.4 * SCALE;
+    cyl(g, M.steelDark, 1.30 * SCALE, 1.45 * SCALE, 1.55 * SCALE,
+      x, dy(cz) + 0.78 * SCALE, cz, 16);
+    cyl(g, M.steel, 1.55 * SCALE, 1.55 * SCALE, 0.24 * SCALE,
+      x, dy(cz) + 1.62 * SCALE, cz, 16);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      box(g, M.steelDark, 0.16 * SCALE, 1.5 * SCALE, 0.30 * SCALE,
+        x + Math.sin(a) * 1.34 * SCALE, dy(cz) + 0.78 * SCALE,
+        cz + Math.cos(a) * 1.34 * SCALE, a);
     }
   }
 
-  // Paravane booms and the sweep gear on the forecastle.
+  // The breakwater: a chevron of plating set up across the forecastle abaft the
+  // cables, to throw the green water she takes over the bow outboard instead of
+  // down the deck. Every ship with a low forecastle carries one and it is the
+  // one piece of deck furniture you cannot miss from the air.
+  const bwZ = A_Z + 15.0 * SCALE;
   for (const sgn of [-1, 1]) {
-    box(g, M.steelDark, 0.28 * SCALE, 0.28 * SCALE, 7 * SCALE,
-      sgn * 7.0 * SCALE, deckAt(bow - 22 * SCALE) + 0.5 * SCALE, bow - 22 * SCALE);
+    const wEdge = halfDeck(bwZ) * 0.94;
+    for (let i = 0; i < 8; i++) {
+      const u = i / 8;
+      const u1 = (i + 1) / 8;
+      const x0 = sgn * u * wEdge;
+      const x1 = sgn * u1 * wEdge;
+      const dz0 = -4.2 * SCALE * u * u;
+      const dz1 = -4.2 * SCALE * u1 * u1;
+      const seg = box(g, M.steel, Math.abs(x1 - x0) + 0.22 * SCALE,
+        2.05 * SCALE, 0.34 * SCALE, (x0 + x1) / 2,
+        dy(bwZ) + 1.02 * SCALE, bwZ + (dz0 + dz1) / 2);
+      seg.rotation.y = Math.atan2(dz1 - dz0, x1 - x0);
+      // The knee bracketing it to the deck.
+      const kn = box(g, M.steelDark, 0.18 * SCALE, 1.0 * SCALE, 1.2 * SCALE,
+        (x0 + x1) / 2, dy(bwZ) + 0.5 * SCALE,
+        bwZ + (dz0 + dz1) / 2 - 0.7 * SCALE);
+      kn.rotation.y = Math.atan2(dz1 - dz0, x1 - x0);
+    }
   }
-  // The stern: her ensign staff and the depth-charge-free quarterdeck.
-  cyl(g, M.steelDark, 0.16 * SCALE, 0.2 * SCALE, 6 * SCALE,
-    0, UPPER + 3 * SCALE, -0.955 * LOA / 2, 8);
+
+  // The paravane booms, stowed fore and aft on the forecastle with their
+  // chains, and the towing points on the stem below them.
+  for (const sgn of [-1, 1]) {
+    const pz = A_Z + 30 * SCALE;
+    tubeZ(g, M.steelDark, 0.26 * SCALE, 11 * SCALE,
+      sgn * 8.2 * SCALE, dy(pz) + 0.9 * SCALE, pz, 8);
+    cyl(g, M.steelDark, 0.34 * SCALE, 0.40 * SCALE, 1.2 * SCALE,
+      sgn * 8.2 * SCALE, dy(pz) + 0.5 * SCALE, pz - 5.2 * SCALE, 8);
+  }
+
+  // The bullring on the stem head, which every cable she passes goes through.
+  const brZ = F.zAt(0.985, sheer(0.985));
+  cyl(g, M.steelDark, 1.35 * SCALE, 1.35 * SCALE, 0.55 * SCALE,
+    0, dy(brZ) + 0.3 * SCALE, brZ, 16);
+  cyl(g, M.cave, 0.80 * SCALE, 0.80 * SCALE, 0.70 * SCALE,
+    0, dy(brZ) + 0.3 * SCALE, brZ, 16);
+
+  // The chrysanthemum crest, gilded bronze, on the stem below the bullring.
+  // Sixteen petals, one and a half metres across, and the only bright thing on
+  // a ship painted entirely grey.
+  const crestY = sheer(1) - 2.9 * SCALE;
+  const crestZ = F.zAt(1, crestY);
+  const crest = new THREE.Group();
+  crest.position.set(0, crestY, crestZ - 0.20 * SCALE);
+  crest.rotation.x = Math.PI / 2;
+  cyl(crest, mat(P.chrys), 0.78 * SCALE, 0.78 * SCALE, 0.22 * SCALE, 0, 0, 0, 20);
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    const pet = box(crest, mat(P.chrys), 0.34 * SCALE, 0.20 * SCALE, 0.95 * SCALE,
+      Math.sin(a) * 1.06 * SCALE, 0, Math.cos(a) * 1.06 * SCALE);
+    pet.rotation.y = a;
+  }
+  g.add(crest);
+
+  // The jackstaff right forward, struck down at sea and up in harbour.
+  cyl(g, M.steelDark, 0.11 * SCALE, 0.15 * SCALE, 5.2 * SCALE,
+    0, dy(brZ) + 2.6 * SCALE, brZ - 2.6 * SCALE, 8);
+
+  // ---- bollards, fairleads and cleats, all round -------------------------
+
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 16; i++) {
+      const t = -0.90 + (1.80 * i) / 15;
+      const z = F.zAt(t, sheer(t));
+      const y = sheer(t);
+      const w = F.shellAt(t, y) - 1.5 * SCALE;
+      if (w < 1.0 * SCALE) continue;
+      // A pair of bitts on a common base.
+      box(g, M.steelDark, 1.10 * SCALE, 0.22 * SCALE, 0.62 * SCALE,
+        sgn * w, y + 0.11 * SCALE, z);
+      for (const dx of [-0.32, 0.32]) {
+        cyl(g, M.steelDark, 0.19 * SCALE, 0.21 * SCALE, 0.80 * SCALE,
+          sgn * w + dx * SCALE, y + 0.58 * SCALE, z, 10);
+        cyl(g, M.steelDark, 0.25 * SCALE, 0.25 * SCALE, 0.12 * SCALE,
+          sgn * w + dx * SCALE, y + 1.02 * SCALE, z, 10);
+      }
+      // And the fairlead in the waterway outboard of it.
+      const we = F.shellAt(t, y);
+      box(g, M.deckSteel, 0.55 * SCALE, 0.34 * SCALE, 0.95 * SCALE,
+        sgn * (we - 0.62 * SCALE), y + 0.19 * SCALE, z);
+      box(g, M.cave, 0.62 * SCALE, 0.17 * SCALE, 0.50 * SCALE,
+        sgn * (we - 0.62 * SCALE), y + 0.25 * SCALE, z);
+    }
+  }
+
+  // ---- amidships ---------------------------------------------------------
+
+  // Hatches, with their coamings: the way down to everything under the
+  // armoured deck, and each one a raised box with a hinged lid on it.
+  for (const sgn of [-1, 1]) {
+    for (const z of [0.30 * LOA, 0.21 * LOA, 0.07 * LOA,
+      -0.06 * LOA, -0.17 * LOA, -0.24 * LOA]) {
+      const y = dy(z);
+      const x = sgn * Math.min(9.5 * SCALE, halfDeck(z) - 5.5 * SCALE);
+      if (x === 0) continue;
+      box(g, M.steelDark, 2.4 * SCALE, 0.55 * SCALE, 3.2 * SCALE, x, y + 0.28 * SCALE, z);
+      box(g, M.steel, 2.0 * SCALE, 0.16 * SCALE, 2.8 * SCALE, x, y + 0.62 * SCALE, z);
+      for (const dz of [-1, 1]) {
+        cyl(g, M.gunDark, 0.10 * SCALE, 0.10 * SCALE, 0.4 * SCALE,
+          x, y + 0.68 * SCALE, z + dz * 1.2 * SCALE, 6);
+      }
+    }
+  }
+
+  // Mushroom ventilators and cowls down both sides -- a Japanese weather deck
+  // is covered in them, and they are what stops the whole of her reading as an
+  // empty plate from above.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 14; i++) {
+      const z = 0.36 * LOA - i * 0.052 * LOA;
+      const y = dy(z);
+      const w = halfDeck(z);
+      const x = sgn * Math.min(12.5 * SCALE, w - 2.8 * SCALE);
+      if (i % 3 === 0) {
+        // A cowl, turned to face forward.
+        cyl(g, M.steel, 0.42 * SCALE, 0.48 * SCALE, 2.1 * SCALE, x, y + 1.05 * SCALE, z, 12);
+        const bell = cyl(g, M.steel, 0.78 * SCALE, 0.44 * SCALE, 1.0 * SCALE,
+          x, y + 2.35 * SCALE, z + 0.45 * SCALE, 12);
+        bell.rotation.x = 1.05;
+        cyl(g, M.cave, 0.66 * SCALE, 0.66 * SCALE, 0.12 * SCALE,
+          x, y + 2.72 * SCALE, z + 0.80 * SCALE, 12).rotation.x = 1.05;
+      } else {
+        // A mushroom head, which is what most of them are.
+        cyl(g, M.steel, 0.46 * SCALE, 0.52 * SCALE, 1.15 * SCALE, x, y + 0.58 * SCALE, z, 12);
+        cyl(g, M.steelDark, 0.72 * SCALE, 0.60 * SCALE, 0.34 * SCALE,
+          x, y + 1.30 * SCALE, z, 12);
+      }
+    }
+  }
+
+  // The sockets an awning's stanchions step into, all down the waterway. Every
+  // Japanese ship spent half her life under awnings in the tropics and the
+  // sockets are there whether the awning is spread or not.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 34; i++) {
+      const t = -0.90 + (1.80 * i) / 33;
+      const y = sheer(t);
+      const w = F.shellAt(t, y);
+      if (w < 3.0 * SCALE) continue;
+      cyl(g, M.steelDark, 0.13 * SCALE, 0.13 * SCALE, 0.30 * SCALE,
+        sgn * (w - 0.75 * SCALE), y + 0.16 * SCALE, F.zAt(t, y), 8);
+    }
+  }
+
+  // Ready-use lockers and the fire main risers along the deck edge.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 8; i++) {
+      const z = 0.28 * LOA - i * 0.075 * LOA;
+      const y = dy(z);
+      const w = halfDeck(z);
+      box(g, M.steel, 1.0 * SCALE, 1.15 * SCALE, 1.8 * SCALE,
+        sgn * (w - 2.0 * SCALE), y + 0.6 * SCALE, z);
+      cyl(g, M.steelDark, 0.14 * SCALE, 0.14 * SCALE, 1.0 * SCALE,
+        sgn * (w - 1.25 * SCALE), y + 0.5 * SCALE, z + 2.6 * SCALE, 8);
+    }
+  }
+
+  // ---- the quarterdeck ---------------------------------------------------
+
+  // The after capstans and the warping gear.
+  for (const sgn of [-1, 1]) {
+    const cz = -0.395 * LOA;
+    cyl(g, M.steelDark, 1.15 * SCALE, 1.30 * SCALE, 1.35 * SCALE,
+      sgn * 5.6 * SCALE, dy(cz) + 0.68 * SCALE, cz, 14);
+    cyl(g, M.steel, 1.40 * SCALE, 1.40 * SCALE, 0.22 * SCALE,
+      sgn * 5.6 * SCALE, dy(cz) + 1.42 * SCALE, cz, 14);
+    // The stern cable, flaked down on deck.
+    for (let i = 0; i < 12; i++) {
+      const z = cz - 1.8 * SCALE - i * 0.62 * SCALE;
+      const lk = box(g, M.chain, 0.30 * SCALE, 0.26 * SCALE, 0.55 * SCALE,
+        sgn * 5.6 * SCALE, dy(z) + 0.2 * SCALE, z);
+      lk.rotation.z = i % 2 ? Math.PI / 2 : 0;
+    }
+  }
+
+  // The ensign staff right aft, and the after bullring.
+  const stZ = -0.955 * HALF;
+  cyl(g, M.steelDark, 0.13 * SCALE, 0.18 * SCALE, 6.0 * SCALE,
+    0, dy(stZ) + 3.0 * SCALE, stZ, 8);
+  cyl(g, M.steelDark, 1.0 * SCALE, 1.0 * SCALE, 0.45 * SCALE,
+    0, dy(stZ + 4 * SCALE) + 0.24 * SCALE, stZ + 4 * SCALE, 14);
+  cyl(g, M.cave, 0.58 * SCALE, 0.58 * SCALE, 0.60 * SCALE,
+    0, dy(stZ + 4 * SCALE) + 0.24 * SCALE, stZ + 4 * SCALE, 14);
 }
 
-/** Four screws and two rudders, which is what she turned on. */
+// ------------------------------------------------------- shafts and helm --
+
+/**
+ * Four screws on two pairs of shafts, and two rudders in line.
+ *
+ * The inner pair come out of the hull on bossings faired into the run; the
+ * outer pair stand off on A-brackets. The rudders are on the centreline one
+ * behind the other -- a big main rudder and a small auxiliary well forward of
+ * it -- which is a Japanese arrangement and the reason a torpedo aft could
+ * take her steering away in one hit.
+ */
 function screws(g) {
-  for (const [x, z, r, hand] of [
-    [-9.0 * SCALE, -0.845 * LOA / 2, 3.0 * SCALE, -1],
-    [9.0 * SCALE, -0.845 * LOA / 2, 3.0 * SCALE, 1],
-    [-4.4 * SCALE, -0.885 * LOA / 2, 2.9 * SCALE, 1],
-    [4.4 * SCALE, -0.885 * LOA / 2, 2.9 * SCALE, -1],
-  ]) {
-    // The shaft and its A-bracket.
-    tubeZ(g, M.gunDark, 0.6 * SCALE, 14 * SCALE, x, -7.6 * SCALE, z + 7 * SCALE, 10);
+  const SHAFT = [
+    [-9.0 * SCALE, -0.845 * HALF * 2 / 2, 3.05 * SCALE, -1, true],
+    [9.0 * SCALE, -0.845 * HALF * 2 / 2, 3.05 * SCALE, 1, true],
+    [-4.4 * SCALE, -0.885 * HALF * 2 / 2, 2.95 * SCALE, 1, false],
+    [4.4 * SCALE, -0.885 * HALF * 2 / 2, 2.95 * SCALE, -1, false],
+  ];
+  for (const [x, z, r, hand, outer] of SHAFT) {
+    const y = -7.6 * SCALE;
+    // The bossing: a faired swelling on the hull that the shaft runs out of,
+    // tapering to nothing forward.
+    const bo = cyl(g, M.antifoul, 1.35 * SCALE, 0.30 * SCALE, 20 * SCALE,
+      x, y + 0.9 * SCALE, z + 14 * SCALE, 14);
+    bo.rotation.x = Math.PI / 2;
+    // The shaft itself.
+    tubeZ(g, M.gunDark, 0.60 * SCALE, 12 * SCALE, x, y, z + 6.2 * SCALE, 10);
+    if (outer) {
+      // The A-bracket: two legs to the hull, which is what carries an outer
+      // shaft where there is no bossing to run it in.
+      for (const dx of [-1, 1]) {
+        const leg = box(g, M.antifoul, 0.34 * SCALE, 4.6 * SCALE, 1.25 * SCALE,
+          x + dx * 1.5 * SCALE, y + 2.3 * SCALE, z + 3.4 * SCALE);
+        leg.rotation.z = dx * 0.36;
+      }
+    }
     const hub = new THREE.Group();
-    hub.position.set(x, -7.6 * SCALE, z);
+    hub.position.set(x, y, z);
     // She turns, so the welder is told to leave her alone: a screw baked into
     // the hull is a propeller standing dead still under a ship at full speed.
     hub.userData.dynamic = true;
-    // A screw has a hand. The two shafts of a pair turn opposite ways so
-    // their torques cancel, or a ship at full power carries a permanent list
-    // and a rudder always over -- and the outer pair are handed against the
-    // inner for the same reason.
+    // A screw has a hand. The two shafts of a pair turn opposite ways so their
+    // torques cancel, or a ship at full power carries a permanent list and a
+    // rudder always over -- and the outer pair are handed against the inner
+    // for the same reason.
     hub.userData.screw = { hand };
-    cyl(hub, M.brass, 0.85 * SCALE, 0.6 * SCALE, 1.1 * SCALE, 0, 0, 0, 12)
+    cyl(hub, M.brass, 0.88 * SCALE, 0.60 * SCALE, 1.05 * SCALE, 0, 0, 0, 12)
+      .rotation.x = Math.PI / 2;
+    cyl(hub, M.brass, 0.30 * SCALE, 0.12 * SCALE, 0.9 * SCALE, 0, 0, -0.9 * SCALE, 10)
       .rotation.x = Math.PI / 2;
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2;
-      const bl = box(hub, M.brass, r * 0.58, 0.16 * SCALE, r * 1.5,
-        Math.sin(a) * r * 0.55, Math.cos(a) * r * 0.55, 0);
+      const bl = box(hub, M.brass, r * 0.60, 0.16 * SCALE, r * 1.55,
+        Math.sin(a) * r * 0.56, Math.cos(a) * r * 0.56, 0);
       bl.rotation.z = a;
-      bl.rotation.x = 0.42;
+      bl.rotation.x = 0.44;
     }
     g.add(hub);
   }
-  // Two rudders in line, one behind the other, which is the arrangement that
-  // let a Yamato turn in her own length and also the arrangement that made
-  // her uncontrollable when the after one jammed.
-  for (const z of [-0.90, -0.945]) {
-    box(g, M.gunDark, 0.5 * SCALE, 6.5 * SCALE, 4.4 * SCALE,
-      0, -6.0 * SCALE, z * LOA / 2);
-  }
-}
 
-// ---------------------------------------------------------------- guns ----
-
-/**
- * A mounting out of the gun shop, grown to the scale this hull is drawn at.
- *
- * She is built one and a half times life size, the way the Iowa is, so that a
- * battleship reads as a battleship beside a destroyer at the ranges this game
- * is fought at. Every other fitting aboard is given its size as an argument
- * and gets the factor written into it; a gun mounting is not -- a Type 94
- * turret is thirteen metres across the barbette and the builder knows it -- so
- * the whole mounting is grown here instead. Without this her main battery is
- * a turret off the real ship sitting on a hull half as big again, which is
- * exactly as small as it sounds.
- */
-function grown(m) {
-  m.scale.setScalar(SCALE);
-  return m;
-}
-
-function mainBattery(g) {
-  const turrets = [];
-  turrets.push(grown(fortySix(g, M, 0, deckAt(A_Z) - 0.3 * SCALE, A_Z, false, true)));
-  turrets.push(grown(fortySix(g, M, 0, deckAt(B_Z) + 6.2 * SCALE, B_Z, false, false)));
-  turrets.push(grown(fortySix(g, M, 0, UPPER + 0.4 * SCALE, Y_Z, true, true)));
-  g.userData.turrets = turrets;
-  return turrets;
-}
-
-/** The barbettes her three turrets train on. */
-function barbettes(g) {
-  const at = (z, y, h) => {
-    cyl(g, M.steel, 6.9 * SCALE, 7.0 * SCALE, h, 0, y + h / 2, z, 28);
-    cyl(g, M.deckSteel, 7.3 * SCALE, 7.3 * SCALE, 0.2 * SCALE,
-      0, y + h + 0.1 * SCALE, z, 28);
-  };
-  at(A_Z, deckAt(A_Z) - 0.9 * SCALE, 0.6 * SCALE);
-  at(B_Z, deckAt(B_Z) - 0.4 * SCALE, 6.6 * SCALE);
-  at(Y_Z, UPPER - 0.5 * SCALE, 0.9 * SCALE);
-}
-
-/**
- * Her secondary and light batteries.
- *
- * Two 15.5 cm triples on the centreline, twelve 12.7 cm twins along the
- * superstructure deck edges, and the twenty-five millimetre everywhere there
- * is room for it.
- */
-function mountings(g) {
-  const sec = [];
-  const aa = [];
-  // The two 15.5 cm triples, fore and aft on the centreline.
-  sec.push(grown(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_F_Z, 0)));
-  sec.push(grown(fifteenFive(g, M, 0, L01 + 3.2 * SCALE, SEC_A_Z, Math.PI)));
-
-  // Twelve 12.7 cm Type 89 twins: six a side along the 02 deck edge, laid
-  // abeam. They cannot fire across her -- the pagoda and the funnel are in the
-  // way -- which is the whole reason there are twelve of them. They are
-  // dual-purpose, so they belong to her anti-aircraft battery and not to her
-  // secondary, which on a Yamato is the two 15.5 cm triples and nothing else.
-  const secZ = [30, 18, 4, -10, -22, -38];
-  for (const z0 of secZ) {
-    for (const sgn of [-1, 1]) {
-      const z = z0 * SCALE;
-      const half = z > TOWER_Z - 4 * SCALE ? 8.4 : z > MAST_Z ? 10.4 : 8.2;
-      aa.push(grown(typeEightNine(g, M, sgn * half * SCALE, L02, z,
-        sgn < 0 ? -Math.PI / 2 : Math.PI / 2)));
-    }
+  // The two rudders, one behind the other on the centreline, each hung on its
+  // own stock. Both are balanced -- part of the blade stands forward of the
+  // stock -- which is how a rudder that size is turned at all.
+  for (const [z, hgt, chord] of [[-0.900 * HALF, 7.2, 5.6], [-0.946 * HALF, 5.6, 3.9]]) {
+    cyl(g, M.gunDark, 0.52 * SCALE, 0.52 * SCALE, 3.0 * SCALE,
+      0, -3.6 * SCALE, z, 10);
+    box(g, M.gunDark, 0.55 * SCALE, hgt * SCALE, chord * SCALE,
+      0, -6.4 * SCALE, z);
+    box(g, M.gunDark, 0.40 * SCALE, hgt * 0.55 * SCALE, chord * 0.42 * SCALE,
+      0, -6.4 * SCALE, z + chord * 0.56 * SCALE);
   }
-
-  // The twenty-five millimetre. Fifty triples and a scattering of singles, on
-  // every platform and sponson she has: round the tower, round the funnel,
-  // along both deck edges, on the turret roofs of B and Y, and right forward
-  // and right aft.
-  const tri = (x, y, z, a) => aa.push(grown(triple25(g, M, x, y, z, a)));
-  // Round the pagoda.
-  for (const sgn of [-1, 1]) {
-    tri(sgn * 7.8 * SCALE, L02 + 4.0 * SCALE, TOWER_Z + 7 * SCALE, sgn * 0.9);
-    tri(sgn * 7.8 * SCALE, L02 + 4.0 * SCALE, TOWER_Z + 1 * SCALE, sgn * 1.4);
-    tri(sgn * 7.6 * SCALE, L02 + 4.0 * SCALE, TOWER_Z - 5 * SCALE, sgn * 1.9);
-  }
-  // Round the funnel and along the boat deck.
-  for (const sgn of [-1, 1]) {
-    for (const z0 of [-6, -12, -18, -24]) {
-      tri(sgn * 10.2 * SCALE, L02 + 3.6 * SCALE, z0 * SCALE, sgn * 1.57);
-    }
-  }
-  // Along the 01 deck edge, port and starboard.
-  for (const sgn of [-1, 1]) {
-    for (const z0 of [40, 26, 10, -2, -16, -30, -44]) {
-      tri(sgn * 12.4 * SCALE, L01 + 0.3 * SCALE, z0 * SCALE, sgn * 1.57);
-    }
-  }
-  // On the forecastle either side of A and B, and on the quarterdeck.
-  for (const sgn of [-1, 1]) {
-    const fz = 92 * SCALE;
-    tri(sgn * (halfDeck(fz) - 3.0 * SCALE), deckAt(fz) + 0.3 * SCALE, fz, sgn * 0.5);
-    const az = -84 * SCALE;
-    tri(sgn * (halfDeck(az) - 3.0 * SCALE), UPPER + 0.3 * SCALE, az, sgn * 2.3);
-    const qz = -112 * SCALE;
-    tri(sgn * (halfDeck(qz) - 2.6 * SCALE), UPPER + 0.3 * SCALE, qz, sgn * 2.6);
-  }
-  // Two on the roof of B turret, where she actually carried a pair.
-  for (const sgn of [-1, 1]) {
-    tri(sgn * 3.2 * SCALE, deckAt(B_Z) + 12.0 * SCALE, B_Z - 3 * SCALE, sgn * 0.4);
-  }
-  // And the singles, on the shelter deck round the after tower.
-  for (const sgn of [-1, 1]) {
-    aa.push(grown(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
-      MAST_Z + 2 * SCALE, sgn * 1.2)));
-    aa.push(grown(single25(g, M, sgn * 6.0 * SCALE, L02 + 0.3 * SCALE,
-      MAST_Z - 4 * SCALE, sgn * 1.9)));
-  }
-
-  g.userData.secMounts = sec;
-  g.userData.aaMounts = aa;
-  return { sec, aa };
 }
 
 // ---------------------------------------------------------------- build ----
 
 const STATIC = [
   ['hull', hull],
+  ['armour', armour],
   ['decks', decks],
   ['rails', rails],
-  ['superstructure', superstructure],
-  ['tower', tower],
-  ['funnel', funnel],
-  ['mainmast', mainmast],
-  ['radar', radar],
-  ['aviation', aviation],
-  ['airGroup', airGroup],
   ['fittings', fittings],
   ['screws', screws],
 ];
@@ -909,7 +1116,6 @@ const STATIC = [
 export function buildYamato() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
-  barbettes(g);
   // Her insides are built to her own lines, with the deck they stop under a
   // quarter of a metre below her deck edge: a bulkhead lands under the deck it
   // holds up, not flush with the edge of it, and a frame built exactly level
@@ -922,25 +1128,22 @@ export function buildYamato() {
     zAt: F.zAt,
   });
   mergeStatic(g, bySection(LOA));
-  const turrets = mainBattery(g);
-  mountings(g);
   mergeMoving(g);
   g.userData.classId = 'yamato';
   dressShip(g);
   return {
-    group: g, turrets, length: LOA, beam: BEAM, deckY: sheer(0),
-    secMounts: g.userData.secMounts || [],
-    aaMounts: g.userData.aaMounts || [],
-    torpMounts: [],
+    group: g,
+    // She is a bare hull at this stage: her battery is not built, so there is
+    // nothing here to lay or to fire from. Every consumer of these takes an
+    // empty list -- the guns come back when the hull under them is right.
+    turrets: [], length: LOA, beam: BEAM, deckY: sheer(0),
+    secMounts: [], aaMounts: [], torpMounts: [],
   };
 }
 
-/** Every piece of her and where it sits, for the tests. */
 export function yamatoParts() {
   const parts = [];
-  const builders = [...STATIC, ['barbettes', barbettes],
-    ['mainBattery', mainBattery], ['mountings', mountings]];
-  for (const [name, build] of builders) {
+  for (const [name, build] of STATIC) {
     const g = new THREE.Group();
     build(g);
     g.updateMatrixWorld(true);
