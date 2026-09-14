@@ -546,8 +546,12 @@ input[type="range"] { accent-color: var(--red); }
 .fly-btn.drop:active { background: rgba(226, 86, 79, 0.24); }
 .fly-btn.drop.spent { opacity: 0.35; }
 
+/* Out of the top right corner, because the pilot's chart is up there now and
+   a key sitting on the middle of it hides whatever is under it. Along the top
+   in the middle, which is the one part of the sky with nothing in it: the
+   flight instruments have the left, the chart has the right. */
 .fly-leave {
-  position: absolute; right: max(0.8rem, env(safe-area-inset-right));
+  position: absolute; left: 50%; transform: translateX(-50%);
   top: max(0.8rem, env(safe-area-inset-top));
   padding: 0.35rem 0.8rem; pointer-events: auto; cursor: pointer;
   background: rgba(8, 19, 31, 0.8); border: 1px solid var(--panel-line);
@@ -1605,6 +1609,21 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
    has to be one of those. Above the touch look-layer, which covers the screen
    edge to edge and would otherwise eat every tap on it. */
 .hud-right { z-index: 7; }
+/* The pilot's chart.
+ *
+ * The same plot the bridge reads, in the same corner, while somebody is flying
+ * an aeroplane. A swipe anywhere on the glass is the stick now, so the corner
+ * must not take the finger: the whole of it goes out of reach and the plot
+ * carries on drawing. What goes with it is everything on that corner that
+ * belongs to a ship and not to an aeroplane -- the free-camera key, the
+ * magnifier on to the chart table, the tap-a-ship hint and the watch banner.
+ * None of them mean anything at eight thousand feet. */
+.hud-right.flying { pointer-events: none; opacity: 0.9; }
+.hud-right.flying #minimap { pointer-events: none; cursor: default; }
+.hud-right.flying .free-cam-key,
+.hud-right.flying .plot-zoom-key,
+.hud-right.flying .minimap-hint,
+.hud-right.flying .watch-banner { display: none; }
 #minimap {
   cursor: pointer;
   touch-action: manipulation;

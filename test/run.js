@@ -26,6 +26,7 @@ import {
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
+import { twoFingerGesture } from '../client/js/touch.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.
@@ -235,9 +236,19 @@ function silenceSecondaries(...ships) {
 function flyDom() {
   const make = () => {
     const listeners = new Map();
+    // A classList that actually remembers, because some of what the HUD does
+    // to an element it does by naming a class rather than by hiding it -- the
+    // pilot's chart, for one -- and a no-op cannot be checked.
+    const cls = new Set();
     return {
       hidden: false, textContent: '', style: {},
-      classList: { add() {}, remove() {}, toggle() {} },
+      classList: {
+        add: (k) => cls.add(k),
+        remove: (k) => cls.delete(k),
+        contains: (k) => cls.has(k),
+        toggle: (k, on) => (on === undefined ? (cls.has(k) ? cls.delete(k) : cls.add(k))
+          : on ? cls.add(k) : cls.delete(k)),
+      },
       setPointerCapture() {},
       addEventListener(k, fn) {
         if (!listeners.has(k)) listeners.set(k, []);
@@ -7829,16 +7840,27 @@ check('there is no stick drawn on the glass, and a swipe flies her', () => {
   assert.equal(el.flyDrop.hidden, true, 'a fighter is offered a drop key that does nothing');
 
   // And the bridge's own instruments come off the screen while she is being
-  // flown. The plot owns the top right corner, and with the whole screen as
-  // the stick that is a corner of the sky the aeroplane cannot be flown from.
+  // flown. The ship plate and the battle clock are the fleet's, not the
+  // pilot's, and neither means anything at eight thousand feet.
   hud.panel = null;
   hud.keys = {};
-  hud.setCockpit(true);
-  assert.equal(el.hudRight.style.display, 'none', 'the plot is still over the cockpit');
+  hud.setCockpit(true, 7);
   assert.equal(el.hudTop.style.display, 'none', 'the battle clock is still over the cockpit');
   assert.equal(el.hudLeft.style.display, 'none', 'the ship plate is still over the cockpit');
+  // The plot stays. It owns the top right corner and, with the whole screen as
+  // the stick, that used to be a corner of the sky the aeroplane could not be
+  // flown from -- so it went with the rest. But a pilot with no chart cannot
+  // find the fleet he took off from. The answer is to keep the chart and stop
+  // it taking the swipe: the corner goes out of reach of a finger instead of
+  // off the screen. See the .hud-right.flying rule.
+  assert.ok(el.hudRight.classList.contains('flying'),
+    'the plot is not put out of the way of the stick in the cockpit');
+  assert.notEqual(el.hudRight.style.display, 'none', 'the pilot has had his chart taken away');
+  assert.equal(hud.flying, 7, 'the chart was never told which flight is being flown');
   hud.setCockpit(false);
-  assert.equal(el.hudRight.style.display, '', 'the plot did not come back on the bridge');
+  assert.ok(!el.hudRight.classList.contains('flying'),
+    'the plot is still out of reach back on the bridge');
+  assert.equal(hud.flying, 0, 'the chart still thinks somebody is flying');
   } finally { if (!hadWindow) delete globalThis.window; }
 });
 
@@ -10799,6 +10821,95 @@ check('a raked mounting stops firing, and its crew get it back', () => {
   const later = aaBearing(cls, bb, at.x, at.z, at.y);
   assert.equal(later.barrels, before.barrels,
     'three quarters of a minute on and her mountings are still not back');
+});
+
+check('zooming while you are watching somebody does not let go of her', () => {
+  // The bug: pinch to look closer at a ship you are spectating and the camera
+  // dropped you into the free camera instead. Two fingers do two things and
+  // which one was being done was decided fresh on every pointer event, from
+  // the change in the gap between the fingers in that one event. But a pinch
+  // is not a smooth spread -- there are frames at the start, at the turn, and
+  // whenever a finger pauses where the gap barely moves -- and every one of
+  // those came out as "walk the camera", which is how you let go of a ship.
+  //
+  // So the gesture is decided once and then held. Fed a real pinch, with all
+  // the wobble in it, it must never once say walk.
+  const pinch = [
+    // [spread this event, how far the finger moved]
+    [0.4, 1.1], [12, 6], [0.8, 2.1], [14, 7], [-0.3, 1.6], [16, 8],
+    [1.2, 2.4], [15, 7.5], [0.2, 0.9], [11, 5.5],
+  ];
+  let was = null;
+  const said = [];
+  for (const [spread, travel] of pinch) {
+    was = twoFingerGesture(was, spread, travel);
+    said.push(was);
+  }
+  assert.ok(!said.includes('walk'),
+    `a pinch was read as walking the camera on ${said.filter((x) => x === 'walk').length} frames`);
+  assert.equal(said[said.length - 1], 'zoom', 'a pinch was never read as a zoom at all');
+
+  // And the other way round: two fingers moving together with the gap steady
+  // is a walk, and stays one even when the gap wobbles later.
+  const drag = [[0.3, 1.0], [0.6, 9], [4.0, 8], [0.2, 7], [6.0, 6]];
+  let w2 = null;
+  const said2 = [];
+  for (const [spread, travel] of drag) {
+    w2 = twoFingerGesture(w2, spread, travel);
+    said2.push(w2);
+  }
+  assert.equal(said2[said2.length - 1], 'walk', 'a two-fingered drag never became a walk');
+  assert.ok(!said2.includes('zoom'), 'a two-fingered drag was read as a zoom partway through');
+
+  // Nothing at all until the fingers have actually done something: a hand
+  // resting on the glass is neither.
+  assert.equal(twoFingerGesture(null, 0.2, 0.4), null, 'a still hand was read as a gesture');
+
+  // And the camera itself: the wheel works the spectator's distance and does
+  // not touch the free camera. That is the other half of the same complaint.
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const wheel = game.slice(game.indexOf("this.input.on('wheel'"),
+    game.indexOf("this.input.on('wheel'") + 900);
+  assert.ok(/if \(this\.watching\)/.test(wheel) && /return;/.test(wheel),
+    'the wheel no longer leaves the spectator camera alone');
+  assert.ok(!/roam/.test(wheel), 'the wheel touches the free camera');
+
+  // A twitch does not let go of her either. Walking the view off a ship is
+  // still how you let go, but it has to be a walk.
+  assert.ok(/PAN_TO_LET_GO/.test(game), 'any pan at all still drops the ship being watched');
+  const slip = game.slice(game.indexOf('panCamera(dx, dy, dt)'),
+    game.indexOf('panCamera(dx, dy, dt)') + 1400);
+  assert.ok(/panSlip[\s\S]{0,80}PAN_TO_LET_GO/.test(slip),
+    'the pan has to add up before it lets go, and it does not');
+});
+
+check("a pilot has the same chart the bridge has", () => {
+  // The plot used to be taken away the moment anybody took an aeroplane, on
+  // the grounds that it owns the top right corner of the sky and swallows
+  // every swipe that starts there -- and a swipe anywhere is the stick. Which
+  // left a pilot with no way of knowing where the fleet he took off from was.
+  const hud = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  const cockpit = hud.slice(hud.indexOf('setCockpit(on'), hud.indexOf('setCockpit(on') + 1800);
+  assert.ok(!/hudRight[\s\S]{0,40}display = on \? 'none'/.test(cockpit),
+    'the plot is still taken away from the pilot');
+  assert.ok(/hudRight[\s\S]{0,80}classList\.toggle\('flying'/.test(cockpit),
+    'the plot is not put into its flying state in the cockpit');
+  // The things on that corner that belong to a ship still go: a pilot has no
+  // free camera to turn on and nothing to tap a chart table open with.
+  const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
+  const rule = css.slice(css.indexOf('.hud-right.flying'), css.indexOf('.hud-right.flying') + 500);
+  assert.ok(/pointer-events: none/.test(rule),
+    'the plot still takes the swipe that was meant to fly the aeroplane');
+  for (const gone of ['free-cam-key', 'plot-zoom-key', 'minimap-hint', 'watch-banner']) {
+    assert.ok(rule.includes(gone), `the ${gone} is still on the pilot's corner`);
+  }
+  // And he is on it. A green wing among a dozen green wings does not tell a
+  // pilot where he is.
+  assert.ok(/this\.flying && pl\.i === this\.flying/.test(hud),
+    "the flight being flown is not picked out on the pilot's chart");
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  assert.ok(/setCockpit\(true, this\.flight\.id\)/.test(game),
+    'the chart is never told which flight is being flown');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -880,18 +880,29 @@ export class Hud {
     if (this.el.flyReticle) this.el.flyReticle.classList.toggle('hot', !!on);
   }
 
-  /** In the cockpit, or back on the bridge. */
-  setCockpit(on) {
+  /**
+   * In the cockpit, or back on the bridge.
+   *
+   * `flightId` is the flight being flown, so the plot can ring her: a pilot
+   * wants the same corner chart everybody else has and wants himself on it.
+   */
+  setCockpit(on, flightId = 0) {
+    this.flying = on ? flightId : 0;
     if (this.el.cockpit) this.el.cockpit.hidden = !on;
     if (this.el.connKeys) this.el.connKeys.style.display = on ? 'none' : '';
     // Her condition is a thing for her bridge, and it is not the pilot's.
     if (this.el.hudLeft) this.el.hudLeft.style.display = on ? 'none' : '';
-    // Nor is the plot, nor the clock. They are the fleet's instruments, and up
-    // there they take the top right corner of the sky and swallow every swipe
-    // that starts in it -- which, now that a swipe anywhere is the stick, is a
-    // corner of the screen the aeroplane cannot be flown from.
-    if (this.el.hudRight) this.el.hudRight.style.display = on ? 'none' : '';
+    // The clock is the fleet's and not the pilot's.
     if (this.el.hudTop) this.el.hudTop.style.display = on ? 'none' : '';
+    // The plot stays. It used to be taken away with everything else, on the
+    // grounds that it owns the top right corner of the sky and swallows every
+    // swipe that starts there -- and now that a swipe anywhere is the stick,
+    // that was a corner of the screen the aeroplane could not be flown from.
+    // But a pilot with no chart cannot find the fleet he took off from, so the
+    // answer is to leave the chart and stop it taking the swipe: `flying` puts
+    // the whole corner out of reach of a finger and takes the bridge's own
+    // keys off it, leaving the plot itself, which is all he needs.
+    if (this.el.hudRight) this.el.hudRight.classList.toggle('flying', !!on);
     if (on) {
       this.panel = null;
       if (this.el.connPanel) this.el.connPanel.hidden = true;
@@ -1485,8 +1496,12 @@ export class Hud {
     // see a strike go in from anywhere but underneath it.
     for (const pl of (snap && snap.planes) || []) {
       const x = toX(pl.x), y = toY(pl.z);
-      ctx.strokeStyle = pl.tm === this.team ? '#6fd3a0' : '#e2564f';
-      ctx.lineWidth = 1.6;
+      // The one being flown is picked out in the same yellow the camera's own
+      // mark uses: a pilot reads this chart to find out where he is, and a
+      // green wing among a dozen green wings does not tell him.
+      const mine = this.flying && pl.i === this.flying;
+      ctx.strokeStyle = mine ? '#e6cf9c' : pl.tm === this.team ? '#6fd3a0' : '#e2564f';
+      ctx.lineWidth = mine ? 2.2 : 1.6;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(-pl.h);
@@ -1494,6 +1509,11 @@ export class Hud {
       ctx.beginPath();
       ctx.moveTo(-6.5 * k, 3.8 * k); ctx.lineTo(0, -5 * k); ctx.lineTo(6.5 * k, 3.8 * k);
       ctx.stroke();
+      if (mine) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 11 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
       marks.push({
         kind: 'plane', id: pl.i, x, y,

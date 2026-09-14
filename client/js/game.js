@@ -23,6 +23,9 @@ import {
 import { groundHeight, applyCrater } from '../../shared/world.js';
 
 const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
+// How far the view has to be walked before it lets go of the ship it is
+// watching. Screen pixels, and about a fingertip's width.
+const PAN_TO_LET_GO = 26;
 
 // Scratch for reading a mounting's place in the world off the scene graph.
 const GUN_EYE = new THREE.Vector3();
@@ -1505,7 +1508,7 @@ export class Battle {
     this.hud.setWatching(null);
     this.hud.setWatchBanner(null);
     this.hud.setFlyOffer(false);
-    this.hud.setCockpit(true);
+    this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
     if (this.mapBig) this.toggleMap(false);
     audio.click();
@@ -1842,10 +1845,19 @@ export class Battle {
     // Walking the view off a ship is how you let go of her: the camera starts
     // from where it already was, so nothing jumps, and from then on it is
     // yours rather than hers.
+    //
+    // But it has to be a walk and not a twitch. Letting go on the first pixel
+    // meant anything that produced a stray pan -- a pinch that wobbled, a
+    // finger settling, a trackpad's inertia -- dropped whoever was being
+    // watched and put the camera in free cam. So a little travel has to
+    // accumulate first, and it is thrown away as soon as the hand stops.
     if (this.watching) {
+      this.panSlip = (this.panSlip || 0) + Math.hypot(dx, dy);
+      if (this.panSlip < PAN_TO_LET_GO) return;
       this.roam = { x: here.x, z: here.z };
       this.lookAt(null);
     }
+    this.panSlip = 0;
     if (!this.roam) this.roam = { x: here.x, z: here.z };
     // In the camera's own frame, and scaled by how far off it is standing:
     // panning a mile out has to move a mile, and panning alongside a ship has
@@ -1956,6 +1968,10 @@ export class Battle {
     // whether you are on your own bridge or watching somebody else -- walking
     // away from a contact is how you let go of it.
     const pan = this.input.takePan();
+    // The moment the hand stops, whatever it had walked so far is forgotten.
+    // Otherwise a twitch here and a twitch a minute later eventually add up to
+    // a walk and let go of a ship nobody meant to let go of.
+    if (!pan.x && !pan.y) this.panSlip = 0;
     this.panCamera(pan.x, pan.y, dt);
     // The arrow keys do the same for anyone who would rather not hold shift.
     const ARROW = 340 * dt;
