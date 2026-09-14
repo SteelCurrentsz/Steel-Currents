@@ -16,7 +16,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight,
+  groundHeight, soilAt, addCrater, craterWire, landCeiling,
 } from './world.js';
 
 export const TICK_RATE = 30;
@@ -40,6 +40,9 @@ export function createState(world, opts = {}) {
     batteries: [],
     shells: [],
     torps: [],
+    // Rounds from aircraft guns, in flight. Small, short-lived and real:
+    // see stepBullets.
+    bullets: [],
     planes: [],
     events: [],
     rng: makeRng((world.seed ^ 0x9e3779b9) >>> 0),
@@ -1148,6 +1151,15 @@ export function flyPlane(state, ship, msg) {
   p.x = msg.x;
   p.z = msg.z;
   p.heading = wrapAngle(msg.h);
+  // And how high she is, which matters now that flying into things is a thing
+  // an aeroplane can do. Held to what an airframe could actually have done
+  // since the last word from her, the same way her position is: nobody drops a
+  // flight from cruising height into somebody's boat deck in one message.
+  if (Number.isFinite(msg.p)) p.pitch = clamp(msg.p, -1.5, 1.5);
+  if (Number.isFinite(msg.y)) {
+    const climb = 140 * since + 60;
+    p.y = clamp(msg.y, Math.max(-4, (p.y ?? 220) - climb), Math.min(9000, (p.y ?? 220) + climb));
+  }
   p.flown = true;
   p.flownAt = state.t;
   // Under a pilot she is not hunting on her own account any more.
@@ -1164,40 +1176,310 @@ export function flyPlane(state, ship, msg) {
  * narrow cone ahead of her and inside gun range takes it: another flight, or
  * a ship's upperworks.
  */
+// ---------------------------------------------------------------------------
+// Aircraft guns that actually fire somewhere
+// ---------------------------------------------------------------------------
+//
+// A flight's guns used to be a cone and a die roll: anything inside nine
+// degrees of the nose and inside seven hundred metres took damage, and nothing
+// ever left the aeroplane. So the sight was a decoration -- putting the ring
+// exactly on a ship and putting it nearly on a ship were the same thing, and
+// there was no such thing as a miss.
+//
+// Now the rounds are real. They leave the muzzle down the line the sight is
+// on, they take a little under a second to get out to where they are going,
+// and they hit whatever is on that line when they get there. Which means the
+// sight is a sight: aiming off misses, leading a crossing target is something
+// a pilot has to do, and firing at a ship at extreme range puts the burst in
+// the sea short of her.
+//
+// One tracer stands for the stream rather than one round for each round: a
+// fighter's six guns are better than seventy rounds a second between them and
+// nobody needs seventy objects a second to see a burst. Each one carries the
+// damage of the rounds it stands for, so the arithmetic is the same and the
+// arrays are not.
+
+/** Bursts a second. Each one is a tracer and the rounds that go with it. */
+const BURST_RATE = 11;
+/** Muzzle velocity of a rifle-calibre aircraft gun, near enough. */
+const BULLET_V = 810;
+/** And how long the rounds are worth anything: about nine hundred metres. */
+const BULLET_LIFE = 1.15;
+/**
+ * How tight the pattern is, in radians.
+ *
+ * Fixed guns harmonised on a point a few hundred yards ahead put their rounds
+ * inside a couple of milliradians. The rest of the spread here is the
+ * formation: four machines in loose line abreast are not all pointed at
+ * precisely the same piece of sky, so a flight's pattern opens with its
+ * strength rather than being one aeroplane's.
+ */
+function burstSpread(p) {
+  return 0.0035 + 0.0022 * Math.max(0, (p.count || 1) - 1);
+}
+
+/**
+ * The pilot's guns.
+ *
+ * Called while the trigger is down. Fires on the guns' own rhythm rather than
+ * every tick, and puts the rounds down the bore -- her heading and her pitch,
+ * which is what the client is sending now precisely so this can be done.
+ *
+ * Returns true while she is shooting, which is what the caller shows on the
+ * cockpit glass.
+ */
 export function strafe(state, ship, id, dt) {
   const p = state.planes.find((q) => q.id === id);
   if (!p || p.dead || !ship || p.owner !== ship.id) return false;
   const cls = shipClass(ship);
   const P = cls.planes;
   if (!P) return false;
-  const RANGE = 700;
-  const CONE = 0.16;                       // about nine degrees either side
-  const bore = (x, z) => Math.abs(angleDelta(p.heading, headingTo(p.x, p.z, x, z)));
-  // Another flight first: that is what a fighter is for.
-  for (const q of state.planes) {
-    if (q.dead || q.team === p.team) continue;
-    if (dist(p.x, p.z, q.x, q.z) > RANGE || bore(q.x, q.z) > CONE) continue;
-    // Through the airframe model, the same way flak goes in: fifty calibre
-    // into one machine of the formation, which may take her engine, may set
-    // her tanks alight, and may do very little. This used to come off a single
-    // pool of hit points shared by the whole flight, so a fighter's fire was
-    // the one thing in the game an aeroplane could not be individually hurt
-    // by -- four machines came apart together or not at all.
-    hurtFlight(state, q, (P.fighterGuns ?? FIGHTER_GUNS) * p.count * dt, 'fighters');
-    gunsSeen(state, p, q.x, q.z, true);
-    return true;
+  if (!p.count) return false;
+
+  p.gunAt = (p.gunAt ?? 0) + dt;
+  if (p.gunAt < 1 / BURST_RATE) return true;
+  const rounds = Math.min(4, Math.floor(p.gunAt * BURST_RATE));
+  p.gunAt = 0;
+
+  // What the flight's guns are worth for the time this burst stands for, and
+  // it is two different numbers. Rifle calibre into another aeroplane is
+  // lethal; the same rounds into a warship's plating are nothing, and what
+  // they are actually for is the people standing in the open on her.
+  const air = (P.fighterGuns ?? FIGHTER_GUNS) * (p.count || 1) / BURST_RATE;
+  const ship2 = (P.strafeDamage ?? 260) * (p.count || 1) / BURST_RATE;
+  const spread = burstSpread(p);
+  for (let i = 0; i < rounds; i++) {
+    fireBullet(state, p, air, ship2, spread);
   }
-  for (const s of state.ships) {
-    if (!s.alive || s.team === p.team) continue;
-    if (dist(p.x, p.z, s.x, s.z) > RANGE || bore(s.x, s.z) > CONE) continue;
-    const owner = state.ships.find((q) => q.id === p.owner) || null;
-    damageShip(state, s, owner, (P.strafeDamage ?? 260) * p.count * dt, 'he', 'works');
-    gunsSeen(state, p, s.x, s.z, false);
-    return true;
-  }
-  return false;
+  return true;
 }
 
+/** One tracer and the rounds it stands for, down the bore and off she goes. */
+function fireBullet(state, p, dmg, hurt, spread) {
+  const pitch = p.pitch || 0;
+  // Gaussian-ish, from two uniforms: a pattern with a dense middle and a few
+  // wide ones, which is what a burst looks like on a butt.
+  const sx = (state.rng() + state.rng() - 1) * spread;
+  const sy = (state.rng() + state.rng() - 1) * spread;
+  const h = wrapAngle(p.heading + sx);
+  const el = pitch + sy;
+  const cp = Math.cos(el);
+  const b = {
+    id: eid(),
+    team: p.team, owner: p.owner, plane: p.id,
+    x: p.x, y: (p.y ?? 220) - 1.2, z: p.z,
+    vx: Math.sin(h) * cp * BULLET_V,
+    vy: Math.sin(el) * BULLET_V,
+    vz: Math.cos(h) * cp * BULLET_V,
+    life: 0, dmg, hurt,
+  };
+  state.bullets.push(b);
+  // The tracer. One message for the burst rather than one for every round,
+  // and it carries where the rounds are actually going rather than what they
+  // are going to hit -- because they may well hit nothing.
+  if (state.t - (p.tracerAt ?? -9) >= 0.1) {
+    p.tracerAt = state.t;
+    const reach = BULLET_V * BULLET_LIFE;
+    state.events.push({
+      e: 'airGuns', i: p.id, team: p.team,
+      x: r(b.x), y: r(b.y), z: r(b.z),
+      tx: r(b.x + b.vx * BULLET_LIFE), ty: r(b.y + b.vy * BULLET_LIFE),
+      tz: r(b.z + b.vz * BULLET_LIFE),
+      air: 0, reach: Math.round(reach),
+    });
+  }
+}
+
+/**
+ * The rounds, in flight.
+ *
+ * Gravity is in here because at nine hundred metres a rifle-calibre round has
+ * dropped a couple of metres, which is the difference between the waterline
+ * and the boot topping. Everything is tested along the segment the round
+ * covered this tick rather than at the point it ended at: a round doing eight
+ * hundred metres a second moves twenty-seven metres in a tick, and an
+ * aeroplane is nine metres long.
+ */
+function stepBullets(state, dt) {
+  if (!state.bullets.length) return;
+  const out = [];
+  for (const b of state.bullets) {
+    const px = b.x, py = b.y, pz = b.z;
+    b.vy -= G * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.z += b.vz * dt;
+    b.life += dt;
+    if (b.life > BULLET_LIFE) continue;
+
+    let done = false;
+    // Aeroplanes first: that is what a fighter's guns are for, and a flight is
+    // a small target that a coarse test walks straight past.
+    for (const q of state.planes) {
+      if (q.dead || q.team === b.team || q.id === b.plane) continue;
+      if (!segNear(px, py, pz, b.x, b.y, b.z, q.x, q.y ?? 220, q.z, 26)) continue;
+      hurtFlight(state, q, b.dmg, 'fighters');
+      state.events.push({
+        e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 1, i: q.id,
+      });
+      done = true;
+      break;
+    }
+    if (done) continue;
+
+    // Ships. Her box and her air draft, in four steps along the segment.
+    for (const s of state.ships) {
+      if (!s.alive || s.team === b.team) continue;
+      const cls = getClass(s.classId);
+      if (dist2(b.x, b.z, s.x, s.z) > 4e6) continue;
+      const halfLen = cls.hull.length * 0.5;
+      const halfBeam = cls.hull.beam * 0.5;
+      const top = 16 + cls.hull.superstructure * 14;
+      for (let i = 1; i <= 4 && !done; i++) {
+        const f = i / 4;
+        const cx = lerp(px, b.x, f), cy = lerp(py, b.y, f), cz = lerp(pz, b.z, f);
+        if (cy > top || cy < -1) continue;
+        if (!pointInBox(cx, cz, s.x, s.z, s.heading, halfLen, halfBeam)) continue;
+        bulletIntoShip(state, b, s, cls, cx, cy, cz);
+        done = true;
+      }
+      if (done) break;
+    }
+    if (done) continue;
+
+    // The guns ashore, which are a low wide target.
+    for (const bat of state.batteries) {
+      if (!bat.alive || bat.team === b.team) continue;
+      const spec = BATTERIES[bat.batteryId];
+      const reach = spec.span * 0.5 + 4;
+      if (dist2(b.x, b.z, bat.x, bat.z) > (reach + 60) * (reach + 60)) continue;
+      if (b.y > bat.y + 12 || b.y < bat.y - 2) continue;
+      if (dist2(b.x, b.z, bat.x, bat.z) > reach * reach) continue;
+      // Rifle calibre against a gun in an emplacement does very little, and
+      // that is right: it is what strafing a coast battery was actually like.
+      bat.hp -= b.hurt * 0.25;
+      state.events.push({ e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 0 });
+      if (bat.hp <= 0 && bat.alive) {
+        bat.hp = 0;
+        bat.alive = false;
+        state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
+      }
+      done = true;
+      break;
+    }
+    if (done) continue;
+
+    // The sea, or the ground -- and the ground only asked about when she is
+    // low enough to have met any.
+    const g = b.y <= landCeiling(state.world) ? groundHeight(state.world, b.x, b.z) : 0;
+    if (b.y <= Math.max(0, g)) {
+      state.events.push({
+        e: 'airHit', x: r(b.x), y: r(Math.max(0, g)), z: r(b.z), air: 0,
+        land: g > 0.5 ? 1 : 0,
+      });
+      continue;
+    }
+    out.push(b);
+  }
+  state.bullets = out;
+}
+
+/** How near a point a segment passes, cheaply. */
+function segNear(ax, ay, az, bx, by, bz, px, py, pz, rad) {
+  const dx = bx - ax, dy = by - ay, dz = bz - az;
+  const len2 = dx * dx + dy * dy + dz * dz;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / len2 : 0;
+  t = clamp(t, 0, 1);
+  const qx = ax + dx * t - px;
+  const qy = ay + dy * t - py;
+  const qz = az + dz * t - pz;
+  return qx * qx + qy * qy + qz * qz <= rad * rad;
+}
+
+/**
+ * A burst into a ship.
+ *
+ * Rifle calibre does not hurt a warship and is not meant to: it does not get
+ * through anything, and against her plating it is noise. What it does do --
+ * and what strafing was for -- is kill the people standing in the open, which
+ * means her close-range battery. An open 20 mm or 40 mm mounting caught by a
+ * fighter's guns stops firing, and it stops firing because its crew are down
+ * rather than because the gun is broken, which is why it comes back.
+ */
+function bulletIntoShip(state, b, s, cls, cx, cy, cz) {
+  const owner = state.ships.find((q) => q.id === b.owner) || null;
+  const l = worldToLocal(cx - s.x, cz - s.z, s.heading);
+  const where = sectionAt(l.z / (cls.hull.length * 0.5),
+    cy > 12 ? 'superstructure' : 'belt');
+  damageShip(state, s, owner, b.hurt, 'he', where);
+  hurtFlak(state, s, cls, { x: l.x, y: cy, z: l.z }, b.hurt);
+  state.events.push({
+    e: 'airHit', x: r(cx), y: r(cy), z: r(cz), air: 0, ship: s.id,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Her close-range battery, mounting by mounting
+// ---------------------------------------------------------------------------
+//
+// Flak used to be one number for the whole ship, worked out as a share of her
+// battery and reduced only by compartments being shot away or flooded. So the
+// one thing a fighter could not do to a ship was the one thing fighters
+// actually did: go along her boat deck and empty the close-range mountings.
+//
+// Every mounting in `aaBattery` now has a state of its own. It is knocked out
+// by a burst near it and it comes back when its crew have sorted it out --
+// unless the burst was big enough to wreck the mounting rather than the men.
+
+/** Seconds a mounting is out of it after being raked. */
+const FLAK_OUT = 26;
+
+/** Her flak's condition, made on demand so nothing has to build it up front. */
+function flakState(ship, cls) {
+  const n = aaBattery(cls).length;
+  if (!ship.flak || ship.flak.length !== n) {
+    ship.flak = Array.from({ length: n }, () => ({ out: 0, dead: false }));
+  }
+  return ship.flak;
+}
+
+/** Is that mounting in action? */
+export function flakUp(ship, i) {
+  const f = ship && ship.flak && ship.flak[i];
+  return !f || (!f.dead && f.out <= 0);
+}
+
+/**
+ * Rake the nearest close-range mounting to a burst.
+ *
+ * The nearest one and only if the burst actually reached it: a fighter's
+ * rounds along the starboard waist do not empty the port quarter's guns.
+ */
+export function hurtFlak(state, ship, cls, at, power) {
+  const battery = aaBattery(cls);
+  const flak = flakState(ship, cls);
+  let best = -1;
+  let bd = Infinity;
+  for (let i = 0; i < battery.length; i++) {
+    const m = battery[i];
+    const d = Math.hypot((m.x || 0) - at.x, (m.my ?? 12) - at.y, m.z - at.z);
+    if (d < bd) { bd = d; best = i; }
+  }
+  if (best < 0 || bd > 14) return false;
+  const f = flak[best];
+  if (f.dead) return false;
+  f.out = Math.max(f.out, FLAK_OUT * clamp(power / 220, 0.35, 1.6));
+  // Enough of it and the mounting itself is finished, not just its crew.
+  if (power > 900 && state.rng() < 0.35) f.dead = true;
+  state.events.push({ e: 'flakOut', ship: ship.id, m: best, dead: f.dead ? 1 : 0 });
+  return true;
+}
+
+/** The crews getting their mountings back into action. */
+function stepFlak(state, ship, dt) {
+  if (!ship.flak) return;
+  for (const f of ship.flak) if (f.out > 0) f.out -= dt;
+}
 /**
  * Let go of a flight: the pilot has left her, or been shot out of her.
  *
@@ -1322,7 +1604,8 @@ export function aaBearing(cls, ship, px, pz, py) {
     : Math.atan2(py - (ship.y || 0), Math.max(1, Math.hypot(px - ship.x, pz - ship.z)));
   let all = 0;
   let on = 0;
-  for (const m of battery) {
+  for (let mi = 0; mi < battery.length; mi++) {
+    const m = battery[mi];
     all += m.guns;
     if (d > m.range) continue;
     if (!mountBears(ship, m, bearing)) continue;
@@ -1332,6 +1615,9 @@ export function aaBearing(cls, ship, px, pz, py) {
     // fire. So does a mounting standing on a compartment that has been shot
     // out of her.
     if (lightGunState(ship, cls, m) >= 3) continue;
+    // And a mounting a fighter has been along: its crew are down or its gun
+    // is wrecked, and either way it is not shooting at anybody.
+    if (!flakUp(ship, mi)) continue;
     on += m.guns;
   }
   return { share: all > 0 ? on / all : 0, barrels: on, of: all, bearing, range: d };
@@ -1878,6 +2164,116 @@ function resolveBatteryHit(state, sh, bat) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ground under fire
+// ---------------------------------------------------------------------------
+//
+// Land was scenery. A sixteen-inch shell into a hillside raised a puff of dust
+// and the hillside was exactly as it had been, which is the one place in this
+// game where something was hit and nothing happened.
+//
+// Now it is not. Every round that falls ashore digs a crater, the crater is in
+// the height field everything else reads, and ground that has taken more than
+// it can stand gives way -- which takes whatever was standing on it down with
+// it. Soft ground -- a beach, the flat behind it, spoil -- goes quickly; the
+// rock a headland is made of barely marks. That is also the answer to why
+// coast batteries are always on the high ground.
+
+/** How much punishment a patch of ground stands before it lets go, by softness. */
+function groundStrength(soft) {
+  // Sand goes in a handful of heavy rounds. Rock takes a bombardment and is
+  // still rock. The figures are in metres of crater depth accumulated, which
+  // is what a shell contributes, so they scale with the gun that is firing
+  // without anything having to know what gun it was.
+  return 16 + 210 * (1 - soft) * (1 - soft);
+}
+
+/**
+ * A round, a bomb or an aeroplane into the ground.
+ *
+ * `bore` is the calibre in metres -- the same number the burst code uses --
+ * because what a shell throws out of a hillside goes as its bursting charge
+ * and the charge goes as the cube of the bore. Returns the crater it made, or
+ * null if whatever it was fell in the sea.
+ */
+export function landStrike(state, x, z, bore, kind = 'shell') {
+  const world = state.world;
+  if (!world) return null;
+  if (groundHeight(world, x, z) <= 0.5) return null;     // that was the sea
+  const soft = soilAt(world, x, z);
+  // A 15-inch shell digs a hole about eight metres across in firm ground and
+  // half as much again in sand; a thousand-pound bomb rather more than that.
+  const heave = kind === 'bomb' ? 1.7 : kind === 'crash' ? 1.25 : 1;
+  const r = clamp((5 + bore * 46) * heave * (0.72 + soft * 0.55), 3, 46);
+  const depth = r * (0.13 + soft * 0.20);
+  // And never more than half the hill: a battlefield where the guns can dig
+  // an island down to sea level is a battlefield where the coastline is a
+  // suggestion, and nothing else here knows that.
+  const c = addCrater(world, x, z, r, depth, Math.max(2, groundHeight(world, x, z) * 0.55));
+  if (!c) return null;
+  state.events.push({ e: 'crater', c: craterWire(c), soft: Math.round(soft * 100) / 100 });
+  // What the ground has taken here, and whether that is more than it will
+  // stand. Held on the crater itself, so the patch that is giving way is the
+  // patch that has been hit rather than a grid square near it.
+  if (c.wear > groundStrength(soft) && !c.gone) collapseGround(state, c, soft);
+  return c;
+}
+
+/**
+ * Ground giving way.
+ *
+ * Not another crater: a subsidence. The lip of the old hole falls into it and
+ * takes a slice of the hillside with it, and what comes out is a much wider,
+ * much deeper hollow than anything a single shell digs. It happens once per
+ * patch -- ground that has already gone cannot go again, it is a hole -- and
+ * it is the only thing in the game that moves a gun that is not on a ship.
+ */
+function collapseGround(state, c, soft) {
+  c.gone = true;
+  const before = groundHeight(state.world, c.x, c.z);
+  // Widened and deepened together. A slip is shallow for its width -- it is
+  // ground running downhill, not a shaft -- so the radius goes up harder than
+  // the depth does.
+  c.r = Math.min(c.r * 2.0, 90);
+  c.depth = Math.min(c.depth * 1.35 + 2.5 + soft * 4, before * 0.40 + 5);
+  state.world.groundRev = (state.world.groundRev || 0) + 1;
+  const after = groundHeight(state.world, c.x, c.z);
+  const drop = Math.max(0, before - after);
+  state.events.push({
+    e: 'collapse', c: craterWire(c), x: r(c.x), z: r(c.z),
+    r: r(c.r), drop: r(drop),
+  });
+
+  // And anything standing on it goes down with it.
+  //
+  // A gun in an emplacement is not bolted to the world: it is a platform dug
+  // into the ground, and when the ground under it goes the platform goes. It
+  // is re-seated on what is left -- which may be a long way down -- and it
+  // takes the fall as damage, because a gun that has dropped four metres on
+  // one side is a gun off its roller path and out of the action.
+  for (const bat of state.batteries) {
+    if (!bat.alive) continue;
+    if (dist(bat.x, bat.z, c.x, c.z) > c.r) continue;
+    const b = BATTERIES[bat.batteryId];
+    const was = bat.y;
+    bat.y = batteryPad(state.world, bat.x, bat.z, b.span);
+    const fell = Math.max(0, was - bat.y);
+    if (fell < 0.4) continue;
+    state.events.push({
+      e: 'batteryFell', id: bat.id, x: r(bat.x), y: r(bat.y), z: r(bat.z), fell: r(fell),
+    });
+    // Half her strength for every two metres she has dropped. Four metres and
+    // the mounting is finished whatever her plating was worth: nothing is
+    // proof against the ground going out from under it.
+    bat.hp -= bat.maxHp * clamp(fell / 4, 0.12, 1);
+    if (bat.hp <= 0) {
+      bat.hp = 0;
+      bat.alive = false;
+      state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
+    }
+  }
+}
+
 function stepShells(state, dt) {
   const out = [];
   for (const sh of state.shells) {
@@ -1931,10 +2327,22 @@ function stepShells(state, dt) {
     }
     if (consumed) continue;
 
-    if (sh.y <= 0) {
-      const isle = islandAt(state.world, sh.x, sh.z, 0);
-      state.events.push({ e: isle ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber });
-      continue;
+    // Down. Either in the sea, or into the ground -- and into the ground it
+    // takes a piece of the ground with it.
+    // Above the highest land on the battlefield she cannot have hit any of
+    // it, and that is the usual case: asking the height field about every
+    // shell on every tick is the expensive way to find out she is still four
+    // thousand feet over open water.
+    if (sh.y <= 0 || sh.y <= landCeiling(state.world)) {
+      const g = groundHeight(state.world, sh.x, sh.z);
+      if (sh.y <= Math.max(0, g)) {
+        const ashore = g > 0.5;
+        state.events.push({
+          e: ashore ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber,
+        });
+        if (ashore) landStrike(state, sh.x, sh.z, sh.caliber / 1000, 'shell');
+        continue;
+      }
     }
     // A shell always ends on the water or on something, so this is only a net
     // under the arithmetic. It has to clear the longest flight on the largest
@@ -3243,6 +3651,161 @@ export function pickAirTarget(state, p) {
   return best ? { ship: best } : null;
 }
 
+// ---------------------------------------------------------------------------
+// Flying an aeroplane into a ship
+// ---------------------------------------------------------------------------
+//
+// A loaded strike aircraft is four or five tons doing a hundred and thirty
+// metres a second, and what that does to a ship is not nothing: it is roughly
+// a very large shell that arrives sideways, spreads its fuel over whatever it
+// lands on and sets fire to it. If she still has her bomb or her fish on the
+// rack, that goes off with her.
+//
+// So the rule is simply that an aeroplane in the same piece of air as a ship
+// has hit her. There is no special key for it and there does not need to be:
+// the pilot flies into the ship, and the reason it was not possible before is
+// that nothing ever asked the question.
+
+/** What the airframe alone is worth, by what sort of aeroplane it is. */
+const RAM_MASS = { fighter: 2600, dive: 3900, torpedo: 4600, scout: 3000 };
+
+/**
+ * Is this flight inside that ship?
+ *
+ * Her box, and her air draft -- from a little under the waterline, so a machine
+ * that goes in at wave height hits her side rather than passing under her, up
+ * to the top of her upperworks.
+ */
+function planeInShip(p, s, cls) {
+  const halfLen = cls.hull.length * 0.5;
+  const halfBeam = cls.hull.beam * 0.5;
+  if (!pointInBox(p.x, p.z, s.x, s.z, s.heading, halfLen + 6, halfBeam + 5)) return false;
+  const top = 16 + cls.hull.superstructure * 14;
+  return (p.y ?? 220) <= top && (p.y ?? 220) >= -3;
+}
+
+/**
+ * One machine of a flight into a ship.
+ *
+ * What she does is decided by three things and they are all physical: how much
+ * aeroplane arrived and how fast, whether she was still carrying anything, and
+ * where on the ship she hit. High on the upperworks is a fire and a wrecked
+ * mounting; low on the side at the waterline is a hole in her and the sea
+ * coming in.
+ */
+function ramShip(state, p, s, cls) {
+  const owner = state.ships.find((q) => q.id === p.owner) || null;
+  // Where she hit, in the ship's own frame.
+  const l = worldToLocal(p.x - s.x, p.z - s.z, s.heading);
+  const where = sectionAt(l.z / (cls.hull.length * 0.5),
+    (p.y ?? 0) > 12 ? 'superstructure' : 'belt');
+  const side = l.x >= 0 ? 1 : -1;
+  const speed = Math.max(40, p.speed || 110);
+
+  // The airframe. Energy goes as the square of the speed, and this is scaled
+  // so that a torpedo bomber at cruise is worth about a heavy shell.
+  const mass = RAM_MASS[p.role] || RAM_MASS.scout;
+  let dmg = mass * (speed / 110) * (speed / 110);
+  let kind = 'ram';
+
+  // And what she still had on the rack. A machine that has dropped is an
+  // empty airframe and a fire; one that has not is a bomb with a pilot.
+  const P = shipClass(owner || s).planes;
+  const armed = !p.dropped && ((p.bomb ?? 0) > 0 || (p.torp ?? 0) > 0);
+  if (armed && P) {
+    if ((p.torp ?? 0) > 0) {
+      dmg += (P.torpDamage ?? 9000) * 0.8;
+      kind = 'ramTorp';
+    } else {
+      dmg += (P.bombDamage ?? 4000) * 0.9;
+      kind = 'ramBomb';
+    }
+  }
+
+  damageShip(state, s, owner, dmg, armed ? 'bomb' : 'he', where);
+  s.sections[where].pens++;
+  // Everything standing about where she came in. A burst this size on a boat
+  // deck takes the mountings with it.
+  wreckContents(state, s, (p.y ?? 0) > 12 ? 'works' : where,
+    armed ? 0.42 : 0.26, armed ? 'bomb' : 'he',
+    { x: l.x, y: p.y ?? 0, z: l.z });
+
+  // The sea. A strike at or below her waterline opens her, and an armed one
+  // opens her a long way down -- which is the difference between a fire to put
+  // out and a compartment to counterflood.
+  const y = p.y ?? 0;
+  if (y < 9) {
+    const area = (armed ? 9 : 3) + state.rng() * (armed ? 9 : 5);
+    const deep = y < 1
+      ? cls.hull.draft * (0.35 + state.rng() * 0.45)
+      : Math.max(0.5, cls.hull.draft * 0.2 * state.rng());
+    openHull(state, s, where, area, side, deep);
+  }
+  // And the fuel. There is always a fire: that is what an aeroplane is mostly
+  // made of once the tanks go.
+  startFire(state, s, where, armed ? 0.9 : 0.6);
+
+  state.events.push({
+    e: 'ram', ship: s.id, team: p.team, i: p.id,
+    x: r(p.x), y: r(y), z: r(p.z), h: r(p.heading),
+    armed: armed ? 1 : 0, dmg: Math.round(dmg),
+  });
+
+  // The machine that did it. One aeroplane, not the flight -- the rest of the
+  // formation flies on, which is what happened.
+  const live = (p.machines || []).filter((a) => a.alive && !a.left);
+  if (live.length) losePlane(state, p, live[0], 'rammed');
+  if (!live.length || live.length === 1) {
+    p.hp = 0;
+    killFlight(state, p, 'rammed');
+  } else {
+    // She was carrying it and she is gone: what is left of the flight has
+    // nothing to drop either, because the one that hit is the one that had it.
+    p.dropped = p.dropped || armed;
+    const fs = flightState(p.machines);
+    p.wear = fs;
+    p.count = fs.count;
+  }
+  return true;
+}
+
+/**
+ * Anything flown into anything, this tick.
+ *
+ * Only a flight that is actually low enough to be inside a hull, and only
+ * against the other side -- a pilot cannot ram his own fleet, which is the one
+ * piece of protection this needs. Ships first, then the ground: an aeroplane
+ * flown into a hillside is a hole in the hillside.
+ */
+function stepRam(state, p) {
+  if (p.dead) return false;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === p.team) continue;
+    const cls = getClass(s.classId);
+    if (!planeInShip(p, s, cls)) continue;
+    return ramShip(state, p, s, cls);
+  }
+  // Into the ground, or into the sea. A flight flown into a hillside digs a
+  // crater in it the same way a bomb does.
+  const y = p.y ?? 220;
+  const g = y <= landCeiling(state.world) ? groundHeight(state.world, p.x, p.z) : 0;
+  if (y <= Math.max(0, g)) {
+    if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
+    state.events.push({
+      e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
+    });
+    const live = (p.machines || []).filter((a) => a.alive && !a.left);
+    if (live.length) losePlane(state, p, live[0], 'crashed');
+    if (live.length <= 1) { p.hp = 0; killFlight(state, p, 'crashed'); } else {
+      const fs = flightState(p.machines);
+      p.wear = fs;
+      p.count = fs.count;
+    }
+    return true;
+  }
+  return false;
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -3448,6 +4011,11 @@ function stepPlanes(state, dt) {
       // draws it off his own stick rather than off this.
       p.turn = 0;
     }
+
+    // And whether she has flown into anything. This is after the movement and
+    // before everything else she might do this tick, because an aeroplane
+    // inside a ship has finished doing things.
+    if (stepRam(state, p)) { if (!p.dead) out.push(p); continue; }
 
     if (p.flown) { out.push(p); continue; }
 
@@ -4749,10 +5317,12 @@ export function step(state, dt = DT) {
     stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
+    stepFlak(state, ship, dt);
   }
   stepCollisions(state, dt);
   stepBatteries(state, dt);
   stepShells(state, dt);
+  stepBullets(state, dt);
   stepTorpedoes(state, dt);
   stepPlanes(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);

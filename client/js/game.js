@@ -20,7 +20,7 @@ import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
-import { groundHeight } from '../../shared/world.js';
+import { groundHeight, applyCrater } from '../../shared/world.js';
 
 const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
 
@@ -745,7 +745,37 @@ export class Battle {
           break;
         }
         case 'splash': fx.splash(ev.x, ev.z, ev.cal); if (d < 0.75) audio.splash(d); break;
-        case 'landhit': fx.hit(ev.x, 12, ev.z, 'he', ev.cal); break;
+        case 'landhit': {
+          const g = groundHeight(this.scene.world, ev.x, ev.z);
+          fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
+          fx.debris(ev.x, g + 3, ev.z, Math.max(6, ev.cal / 12));
+          break;
+        }
+        case 'crater':
+          // The hole it made. By its own number, so a standalone build -- where
+          // the client is handed the very world the simulation is digging into
+          // -- does not dig it a second time. See applyCrater.
+          applyCrater(this.scene.world, ev.c);
+          break;
+        case 'collapse': {
+          // Ground giving way. Not a burst: a slide, with the dust of it going
+          // up where the hillside was.
+          applyCrater(this.scene.world, ev.c);
+          const g = groundHeight(this.scene.world, ev.x, ev.z);
+          fx.debris(ev.x, g + 6, ev.z, Math.min(60, ev.r));
+          if (d < 1.2) audio.explosion(1.1, d);
+          if (this.hud) this.hud.ribbon('GROUND GAVE WAY', 'miss');
+          break;
+        }
+        case 'batteryFell':
+          // A gun going down with the ground it was standing on. The mounting
+          // itself follows the snapshot every frame and needs nothing here --
+          // but the earthwork round it was cut to fit a hill that is no longer
+          // that shape, so the view is thrown away and built again against the
+          // ground as it is now.
+          this.scene.removeBatteryView(ev.id);
+          fx.debris(ev.x, ev.y + 4, ev.z, 14);
+          break;
         case 'batterySilenced':
           fx.explosion(ev.x, (ev.y || 0) + 6, ev.z, 1.6);
           if (d < 1) audio.explosion(1.6, d);
@@ -948,9 +978,14 @@ export class Battle {
           // aeroplane the player is flying draws her own, off the stick,
           // without waiting for the wire to tell her she fired.
           if (this.flight && this.flight.id === ev.i) break;
+          // Where the rounds are actually going. A burst from a flight
+          // somebody is flying carries its own height and its own end point,
+          // because the rounds are real and they go where they were pointed;
+          // one from a flight on the autopilot still comes as a flat line
+          // between two ships and is drawn the old way.
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
-          const y = from ? this.planeHeight(from) : 200;
-          const ty = ev.air ? y - 8 : 22;
+          const y = Number.isFinite(ev.y) ? ev.y : (from ? this.planeHeight(from) : 200);
+          const ty = Number.isFinite(ev.ty) ? ev.ty : (ev.air ? y - 8 : 22);
           this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
           break;
         }
@@ -964,6 +999,37 @@ export class Battle {
           if (ev.ship === this.shipId) this.hud.alert('Crash on deck — flight deck out');
           break;
         }
+        case 'ram': {
+          // An aeroplane into a ship. A bigger event than a bomb, because it
+          // is an aeroplane and everything in her tanks arriving at once.
+          const big = ev.armed ? 2.4 : 1.5;
+          fx.explosion(ev.x, ev.y, ev.z, big);
+          fx.debris(ev.x, ev.y, ev.z, ev.armed ? 34 : 22);
+          if (d < 1.4) audio.explosion(big, d);
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.armed ? 'Aircraft into the ship — she was carrying'
+              : 'Aircraft into the ship');
+          } else if (ev.team === this.team) {
+            this.hud.ribbon(`RAM  ${ev.dmg}`, 'cit');
+          }
+          break;
+        }
+        case 'planeCrash':
+          fx.explosion(ev.x, ev.y + 3, ev.z, 1.5);
+          fx.debris(ev.x, ev.y + 3, ev.z, 20);
+          if (d < 1.2) audio.explosion(1.3, d);
+          break;
+        case 'airHit':
+          // Where a burst from an aeroplane's guns actually arrived. Small, and
+          // there are a lot of them, so it is sparks and nothing else.
+          fx.hit(ev.x, ev.y, ev.z, 'splash', ev.air ? 8 : 13);
+          break;
+        case 'flakOut':
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.dead ? 'Close-range mounting wrecked'
+              : 'Close-range mounting out — crew down');
+          }
+          break;
         case 'planeDown': {
           // One machine out of a formation that flies on. She goes down where
           // she was actually flying rather than at her leader's position, and
@@ -1556,6 +1622,11 @@ export class Battle {
       this.net.send({
         t: 'fly', i: f.id,
         x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+        // How high she is and which way her nose is pointed in the vertical.
+        // Both are the pilot's, not the autopilot's, and the simulation needs
+        // them: her height decides whether she has flown into anything, and
+        // her pitch is half of where her guns are pointing.
+        y: Math.round(p.y * 10) / 10, p: Math.round((p.pitch || 0) * 1000) / 1000,
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
@@ -1920,6 +1991,10 @@ export class Battle {
     // there is nothing to ride from inside an aeroplane.
     this.hud.setShellCam(!this.flight && !!this.shellSource(), this.shellCam);
     this.updateCamera(dt);
+    // And the ground, if anything has taken a piece out of it since the last
+    // frame. Held off for a moment after the last hit rather than done on the
+    // hit, because a salvo of nine lands in under a second.
+    this.scene.syncGround(dt);
     this.scene.update(dt);
 
     audio.setEngineLoad(clamp(Math.abs(ls.speed) / this.cls.maxSpeed, 0, 1));

@@ -238,7 +238,8 @@ function isleShade(h, slope = 0, grain = 0) {
   return [clamp(c[0] * g, 0, 1), clamp(c[1] * g, 0, 1), clamp(c[2] * g, 0, 1)];
 }
 
-function buildIslands(islands) {
+function buildIslands(world) {
+  const islands = world.islands || [];
   if (!islands.length) return null;
   const g = new THREE.Group();
   const pos = [];
@@ -274,7 +275,10 @@ function buildIslands(islands) {
           // Straight off the shared height field and nothing added: the hill
           // on the screen has to be the hill the shells and the gun platforms
           // are working from, or a battery cut to one stands in the other.
-          y = islandHeight(isle, x, z);
+          // Which now includes what has been blown out of it -- craters are in
+          // that field, so they are in the mesh without anything here knowing
+          // what a crater is.
+          y = groundHeight(world, x, z);
         }
         const k = i * nr + j;
         px[k] = x; py[k] = y; pz[k] = z;
@@ -1509,14 +1513,20 @@ export class BattleScene {
       (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light),
     ));
 
-    const isles = buildIslands(world.islands);
+    const isles = buildIslands(world);
     if (isles) this.scene.add(isles);
+    this.isleMesh = isles;
     // A battlefield has either a real coastline or invented islands, never
     // both, and the islands raise themselves above at their own detail. Running
     // the mask terrain over them as well would lay a hundred-and-fifty-metre
     // staircase on top of a three-hundred-metre island.
     const coast = world.land?.length ? buildCoast(world) : null;
     if (coast) this.scene.add(coast);
+    this.coastMesh = coast;
+    // What the ground looked like when it was last drawn. The simulation bumps
+    // this every time a shell takes a piece out of it; see syncGround.
+    this.groundRev = world.groundRev || 0;
+    this.groundWait = 0;
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
@@ -1723,6 +1733,36 @@ export class BattleScene {
         }
       }
     }
+  }
+
+  /**
+   * Redraw the ground if anything has taken a piece out of it.
+   *
+   * The height field carries craters now, and the terrain mesh is lofted
+   * through that field -- so a crater appears by rebuilding the mesh and in no
+   * other way. That is not free: a coastal battlefield is fifty thousand
+   * quads. So it is done on a revision number rather than on every frame, and
+   * held off for a moment after the last change, because a salvo of nine puts
+   * nine holes in the same hillside inside a second and there is no sense
+   * rebuilding the island nine times.
+   */
+  syncGround(dt) {
+    const rev = this.world.groundRev || 0;
+    if (rev === this.groundRev) return false;
+    this.groundWait -= dt;
+    if (this.groundWait > 0) return false;
+    this.groundRev = rev;
+    this.groundWait = 0.45;
+    for (const [old, add] of [[this.isleMesh, () => buildIslands(this.world)],
+      [this.coastMesh, () => (this.world.land?.length ? buildCoast(this.world) : null)]]) {
+      if (!old) continue;
+      this.scene.remove(old);
+      old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      const made = add();
+      if (made) this.scene.add(made);
+      if (old === this.isleMesh) this.isleMesh = made; else this.coastMesh = made;
+    }
+    return true;
   }
 
   render() {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   generateWorld, landAt, landMask, blockedByLand, islandAt, groundHeight,
-  spawnPoint, islandRadius, islandHeight, shoreDistance,
+  spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt,
 } from '../shared/world.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
@@ -22,7 +22,7 @@ import {
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
-  applyInput, submerged, gunsDrowned,
+  applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -7742,13 +7742,24 @@ check("a fighter's guns hurt the machine she is firing at", () => {
   const mine = st.planes.find((q) => q.team === 0 && q.role === 'fighter' && !q.dead);
   const theirs = st.planes.find((q) => q.team === 1 && !q.dead);
   assert.ok(mine && theirs, 'there is no fighter and no target');
-  // Right astern of her, inside the cone.
-  theirs.x = mine.x + Math.sin(mine.heading) * 200;
-  theirs.z = mine.z + Math.cos(mine.heading) * 200;
+  // Dead ahead of her, at her own height and inside gun range. The rounds are
+  // real now -- they leave the muzzle down the bore and take a quarter of a
+  // second to get out there -- so holding the trigger down is not enough on
+  // its own: the simulation has to be stepped for them to arrive.
+  mine.pitch = 0;
+  theirs.x = mine.x + Math.sin(mine.heading) * 260;
+  theirs.z = mine.z + Math.cos(mine.heading) * 260;
+  theirs.y = mine.y;
   const whole = theirs.machines.map((a) => airframeHpOf(a));
   let fired = 0;
   for (let i = 0; i < 400 && theirs.machines.some((a) => a.alive); i++) {
+    // Held there: she is closing at a hundred metres a second and the point of
+    // this check is her guns, not her navigation.
+    theirs.x = mine.x + Math.sin(mine.heading) * 260;
+    theirs.z = mine.z + Math.cos(mine.heading) * 260;
+    theirs.y = mine.y;
     if (strafe(st, cv, mine.id, DT)) fired++;
+    step(st, DT);
   }
   assert.ok(fired > 0, 'the fighter never got a burst off');
   const now = theirs.machines.map((a) => airframeHpOf(a));
@@ -10543,6 +10554,251 @@ check('the boat is plated the way her plans are drawn', () => {
   // And the gallery is up by the bridge, not out over the stern.
   assert.ok(gun.z > -6.5 && gun.z < -1.5,
     `her 2 cm is at z=${gun.z.toFixed(1)}, which is not abaft the tower`);
+});
+
+check('the ground is ground, and it can be knocked about', () => {
+  // Land used to be the one thing in this game that could be hit and not
+  // change. A sixteen-inch shell into a hillside raised a puff of dust and the
+  // hillside was exactly as it had been.
+  const world = generateWorld(4242, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const isle = world.islands[0];
+  assert.ok(isle, 'the battlefield has no land on it to shoot at');
+
+  // Soft ground and hard ground are different things, and the difference is
+  // the shape of the land: low and gentle is soil, high or steep is the rock
+  // the island is made of. Which is also the answer to why the guns are always
+  // on the high ground.
+  const low = { x: isle.x, z: isle.z + isle.r * 0.80 };
+  const high = { x: isle.x, z: isle.z + isle.r * 0.10 };
+  assert.ok(groundHeight(world, high.x, high.z) > groundHeight(world, low.x, low.z),
+    'the two places picked for this check are the same height');
+  assert.ok(soilAt(world, low.x, low.z) > soilAt(world, high.x, high.z),
+    'the high ground is softer than the low ground');
+
+  // A shell ashore digs a hole; a shell in the sea does not.
+  const was = groundHeight(world, low.x, low.z);
+  const c = landStrike(st, low.x, low.z, 0.356, 'shell');
+  assert.ok(c, 'a heavy shell into a hillside did nothing to the hillside');
+  const now = groundHeight(world, low.x, low.z);
+  assert.ok(now < was - 1, `the ground went from ${was.toFixed(1)} to ${now.toFixed(1)}`);
+  // And the lip of it is still standing: a crater is a bowl, not a shaft.
+  assert.ok(groundHeight(world, low.x + c.r * 1.2, low.z) > now,
+    'the crater has no lip -- it is a cylinder cut out of the hill');
+  assert.equal(landStrike(st, 0, 0, 0.356, 'shell'), null,
+    'a shell that fell in the sea dug a crater in it');
+
+  // The second shell into the same hole deepens that hole rather than adding
+  // another beside it, or a long action fills the battlefield with craters.
+  const n = world.craters.length;
+  landStrike(st, low.x + 2, low.z + 2, 0.356, 'shell');
+  assert.equal(world.craters.length, n, 'two shells in one spot made two craters');
+
+  // But it cannot go on for ever: a crater is about two fifths as deep as it
+  // is wide however long it is shelled, and the island is still an island.
+  for (let i = 0; i < 120; i++) landStrike(st, low.x, low.z, 0.356, 'shell');
+  const floor = groundHeight(world, low.x, low.z);
+  assert.ok(floor > 0.1, 'the guns dug the island through to the sea');
+  assert.ok(landAt(world, low.x, low.z), 'the guns turned a hill into navigable water');
+});
+
+check('weak ground gives way, and takes the gun on it down', () => {
+  // The other half of it. Ground that has been hit more than it will stand
+  // does not go on being ground with holes in it -- it slides. And a gun in an
+  // emplacement is not bolted to the world: it is a platform dug into whatever
+  // is there, and when that goes the platform goes.
+  const world = generateWorld(4242, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const isle = world.islands[0];
+  const at = { x: isle.x, z: isle.z + isle.r * 0.80 };
+  const id = Object.keys(BATTERIES)[0];
+  const bat = addBattery(st, { batteryId: id, team: 1, x: at.x, z: at.z });
+  assert.ok(bat && bat.alive, 'there is no gun ashore to drop');
+  const stood = bat.y;
+
+  let collapse = null;
+  let fell = null;
+  let rounds = 0;
+  for (let i = 0; i < 200 && !collapse; i++) {
+    st.events.length = 0;
+    landStrike(st, at.x, at.z, 0.356, 'shell');
+    rounds++;
+    collapse = st.events.find((e) => e.e === 'collapse');
+    fell = fell || st.events.find((e) => e.e === 'batteryFell');
+  }
+  assert.ok(collapse, 'two hundred heavy rounds into one piece of soft ground and it held');
+  // Not on the first round either: this is ground that has been worked on.
+  assert.ok(rounds > 4, `the ground gave way after ${rounds} rounds, which is not a bombardment`);
+  assert.ok(fell, 'the ground went and the gun standing on it did not');
+  assert.ok(bat.y < stood - 1,
+    `the gun stood at ${stood.toFixed(1)} and is at ${bat.y.toFixed(1)}`);
+  assert.ok(!bat.alive, 'the gun rode the ground down four metres and is still in action');
+
+  // Ground that has already gone cannot go again -- it is a hole.
+  st.events.length = 0;
+  for (let i = 0; i < 40; i++) landStrike(st, at.x, at.z, 0.356, 'shell');
+  assert.ok(!st.events.some((e) => e.e === 'collapse'),
+    'the same piece of ground gave way twice');
+
+  // And rock does not do any of this in a hurry.
+  const world2 = generateWorld(4242, 'open_ocean');
+  const st2 = createState(world2, { mode: 'deathmatch' });
+  const rock = { x: world2.islands[0].x, z: world2.islands[0].z + world2.islands[0].r * 0.10 };
+  let hardRounds = 0;
+  let gone = false;
+  for (let i = 0; i < 200 && !gone; i++) {
+    st2.events.length = 0;
+    if (!landStrike(st2, rock.x, rock.z, 0.356, 'shell')) break;
+    hardRounds++;
+    gone = st2.events.some((e) => e.e === 'collapse');
+  }
+  assert.ok(hardRounds > rounds * 1.3,
+    `rock took ${hardRounds} rounds and soil took ${rounds}, which is not a difference`);
+});
+
+check('an aeroplane flown into a ship is an aeroplane into a ship', () => {
+  // Five tons at a hundred and thirty metres a second, and everything in her
+  // tanks arriving with it. If she has not dropped what she was carrying, that
+  // goes off as well -- which is the difference between a fire to put out and
+  // a compartment to counterflood.
+  const runs = {};
+  for (const [label, group, high] of [
+    ['empty', { fighters: 4, dive: 0, torpedo: 0 }, true],
+    ['armed', { fighters: 0, dive: 0, torpedo: 4 }, true],
+    ['low', { fighters: 0, dive: 0, torpedo: 4 }, false],
+  ]) {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+    cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
+    bb.x = 0; bb.z = 0; bb.heading = 0; bb.notch = 1;
+    cv.airGroup = group;
+    cv.aimX = bb.x; cv.aimZ = bb.z;
+    for (let i = 0; i < 40; i++) step(st, DT);
+    cv.aimX = bb.x; cv.aimZ = bb.z;
+    launchStrike(st, cv);
+    for (let i = 0; i < 1600 && !st.planes.length; i++) {
+      cv.aimX = bb.x; cv.aimZ = bb.z;
+      step(st, DT);
+    }
+    const p = st.planes[0];
+    assert.ok(p, `no aircraft got up for the ${label} run`);
+    const hp0 = bb.hp;
+    let ram = null;
+    for (let k = 0; k < 900 && !ram && !p.dead; k++) {
+      const h = Math.atan2(bb.x - p.x, bb.z - p.z);
+      const d = dist(p.x, p.z, bb.x, bb.z);
+      flyPlane(st, cv, {
+        i: p.id, x: p.x + Math.sin(h) * 22, z: p.z + Math.cos(h) * 22, h,
+        y: high ? Math.max(4, Math.min(p.y, d * 0.22)) : Math.max(2, Math.min(p.y, 4 + d * 0.02)),
+        p: -0.2,
+      });
+      ram = step(st, DT).find((e) => e.e === 'ram');
+    }
+    assert.ok(ram, `the ${label} run flew through the ship without touching her`);
+    for (let i = 0; i < 900; i++) step(st, DT);
+    runs[label] = {
+      dmg: ram.dmg, armed: ram.armed, y: ram.y,
+      took: hp0 - bb.hp, fires: bb.fires,
+      water: Object.values(bb.sections).reduce((a, c) => a + (c.water || 0), 0),
+    };
+  }
+  // The airframe on its own does real damage, and there is always a fire,
+  // because an aeroplane is mostly fuel once the tanks go.
+  assert.ok(runs.empty.dmg > 500, `an aeroplane into a battleship was worth ${runs.empty.dmg}`);
+  assert.ok(runs.empty.fires > 0, 'an aeroplane went into her and nothing caught light');
+  // And what she was carrying goes off with her.
+  assert.equal(runs.empty.armed, 0, 'a fighter was carrying something to drop');
+  assert.equal(runs.armed.armed, 1, 'a loaded torpedo bomber had nothing on the rack');
+  assert.ok(runs.armed.dmg > runs.empty.dmg * 2.5,
+    `loaded ${runs.armed.dmg} against empty ${runs.empty.dmg}: the payload did nothing`);
+  // Where she hit decides whether the sea comes in. High on the upperworks is
+  // a fire; at the waterline is a hole.
+  assert.ok(runs.armed.y > 12, 'the high run did not go in high');
+  assert.ok(runs.low.y < 12, 'the low run did not go in low');
+  assert.ok(runs.low.water > 0.01, 'an aeroplane into her side at the waterline let no water in');
+  assert.ok(runs.armed.water < runs.low.water,
+    'a strike on her upperworks flooded her as badly as one on the waterline');
+});
+
+check("a fighter's rounds go where she is pointed", () => {
+  // Her guns used to be a cone and a die roll: anything inside nine degrees of
+  // the nose took damage and nothing ever left the aeroplane, so putting the
+  // ring exactly on a ship and putting it nearly on one were the same thing.
+  // Now the rounds are real, and the sight is a sight.
+  const fire = (offset) => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+    cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
+    dd.x = 0; dd.z = 0; dd.heading = 0; dd.notch = 1;
+    cv.airGroup = { fighters: 4, dive: 0, torpedo: 0 };
+    cv.aimX = dd.x; cv.aimZ = dd.z;
+    for (let i = 0; i < 40; i++) step(st, DT);
+    cv.aimX = dd.x; cv.aimZ = dd.z;
+    launchStrike(st, cv);
+    for (let i = 0; i < 1600 && !st.planes.length; i++) {
+      cv.aimX = dd.x; cv.aimZ = dd.z;
+      step(st, DT);
+    }
+    const p = st.planes[0];
+    assert.ok(p, 'no fighter got up');
+    let hits = 0;
+    const hp0 = dd.hp;
+    for (let k = 0; k < 90; k++) {
+      // Held six hundred metres off her bow, pointed at her plus the offset.
+      p.x = dd.x; p.z = dd.z - 600; p.y = 14; p.heading = offset; p.pitch = 0;
+      strafe(st, cv, p.id, DT);
+      hits += step(st, DT).filter((e) => e.e === 'airHit' && e.ship === dd.id).length;
+    }
+    return { hits, took: hp0 - dd.hp, flak: (dd.flak || []).filter((f) => f.out > 0 || f.dead).length };
+  };
+  const on = fire(0);
+  const off = fire(0.26);          // fifteen degrees, which at 600 m is 150 m
+  assert.ok(on.hits > 4, `the sight was on her and ${on.hits} bursts arrived`);
+  assert.ok(on.took > 0, 'a burst into a destroyer did her no harm at all');
+  assert.equal(off.hits, 0, `the sight was fifteen degrees off her and ${off.hits} bursts hit`);
+  assert.equal(off.took, 0, 'rounds fired well away from a ship still damaged her');
+  // And what strafing was actually for: the people standing in the open on
+  // her, which means her close-range battery.
+  assert.ok(on.flak > 0, 'a fighter went down her deck and every flak mounting kept firing');
+});
+
+check('a raked mounting stops firing, and its crew get it back', () => {
+  // Flak was one number for the whole ship. So the one thing a fighter could
+  // not do to a ship was the one thing fighters actually did.
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  bb.x = 0; bb.z = 0; bb.heading = 0;
+  const cls = SHIP_CLASSES.iowa;
+  const at = { x: 900, z: 1200, y: 400 };
+  const before = aaBearing(cls, bb, at.x, at.z, at.y);
+  assert.ok(before.barrels > 10, 'she has no flak to knock out');
+
+  // Along her starboard waist, which is one side of one ship and not all of it.
+  let raked = 0;
+  for (let z = -60; z <= 60; z += 6) {
+    if (hurtFlak(st, bb, cls, { x: 12, y: 16, z }, 300)) raked++;
+  }
+  assert.ok(raked > 3, `a run down her waist emptied ${raked} mountings`);
+  const after = aaBearing(cls, bb, at.x, at.z, at.y);
+  assert.ok(after.barrels < before.barrels,
+    `she had ${before.barrels} barrels bearing and still has ${after.barrels}`);
+  assert.ok(after.barrels > 0, 'raking one side of her silenced the whole ship');
+  assert.equal(after.of, before.of, 'knocking a mounting out took it off her books');
+
+  // The crews sort them out. A gun whose men are down is not a gun that is
+  // gone -- which is why a strafing run has to be repeated.
+  for (let i = 0; i < 30 * 45; i++) step(st, DT);
+  const later = aaBearing(cls, bb, at.x, at.z, at.y);
+  assert.equal(later.barrels, before.barrels,
+    'three quarters of a minute on and her mountings are still not back');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

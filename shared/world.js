@@ -535,7 +535,229 @@ export function landBlocks(world, ax, az, bx, bz) {
  * rather than standing off it as a wall, and the middle of an island is high
  * ground. Negative offshore, which is what the renderer runs the beach down.
  */
-export function groundHeight(world, x, z) {
+// ---------------------------------------------------------------------------
+// Ground that can be knocked about
+// ---------------------------------------------------------------------------
+//
+// Land in this game used to be a function: ask it for the height at a point
+// and it worked one out of the island's shape. That makes a coastline that
+// cannot be touched, which is wrong twice over -- a sixteen-inch shell into a
+// hillside moves a great deal of hillside, and a gun emplacement is not a
+// fitting bolted to bedrock, it is a hole dug in whatever is there.
+//
+// So the height field carries a second term: a list of craters, each a bowl
+// taken out of the ground. Every shell that falls ashore digs one, a shell
+// that falls in an existing one deepens it rather than adding a second, and
+// ground that has taken more than it can stand gives way altogether.
+//
+// The cost has to be nothing when nothing has been hit, because groundHeight
+// is asked for every corner of the terrain mesh and by every shell in flight.
+// So an empty crater list is one array-length test, and a full one is a
+// lookup in a coarse hash of the battlefield rather than a walk of the lot.
+
+/** The side of a crater bucket, in metres. Bigger than any single crater. */
+const CRATER_CELL = 220;
+/** How many craters a battlefield keeps. The oldest shallow one is recycled. */
+const CRATER_MAX = 320;
+
+function craterKey(x, z) {
+  return `${Math.floor(x / CRATER_CELL)},${Math.floor(z / CRATER_CELL)}`;
+}
+
+function craterIndex(world) {
+  // Built lazily, and rebuilt from the craters themselves if it is missing.
+  // A world that has crossed a socket arrives with its craters -- they are
+  // plain data on it -- and without the index, which is a Map and does not
+  // survive being turned into JSON. Without this a client joining a battle in
+  // progress would have every hole in the list and none of them in the ground.
+  // A Map, and it has to be tested for as one: a world that has been through
+  // JSON carries `_craterIdx` as an empty object rather than not carrying it,
+  // and an empty object answers to neither `get` nor being falsy.
+  if (!(world._craterIdx instanceof Map)) {
+    world._craterIdx = new Map();
+    for (const c of world.craters || []) fileCrater(world, c);
+  }
+  return world._craterIdx;
+}
+
+/** File a crater in the buckets its bowl reaches into. */
+function fileCrater(world, c) {
+  const idx = craterIndex(world);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      const k = craterKey(c.x + dx * CRATER_CELL, c.z + dz * CRATER_CELL);
+      let list = idx.get(k);
+      if (!list) { list = []; idx.set(k, list); }
+      if (!list.includes(c)) list.push(c);
+    }
+  }
+}
+
+function refileAll(world) {
+  world._craterIdx = new Map();
+  for (const c of world.craters) fileCrater(world, c);
+}
+
+/**
+ * How soft the ground is at a point, from nought (rock) to one (spoil).
+ *
+ * It is worked out of the shape of the land and nothing else, because that is
+ * what actually decides it: a beach and the flat ground behind it are sand and
+ * soil and a shell throws them about; a steep flank high up is the rock the
+ * island is made of and a shell chips it. Which is also why the guns are
+ * always on the high ground and why digging them in there is worth doing.
+ */
+export function soilAt(world, x, z) {
+  const h = baseGround(world, x, z);
+  if (h <= 0) return 0.9;                 // the beach and the shoal off it
+  // The slope, from two samples either side. Steep is rock.
+  const d = 18;
+  const gx = (baseGround(world, x + d, z) - baseGround(world, x - d, z)) / (2 * d);
+  const gz = (baseGround(world, x, z + d) - baseGround(world, x, z - d)) / (2 * d);
+  const slope = Math.hypot(gx, gz);
+  // Low ground is soft ground and high ground is what the island is made of,
+  // and steep is rock wherever it is -- a slope that stands up is standing up
+  // because it is rock. The two multiply rather than adding: a flat summit is
+  // not soft just because it is flat, which is what adding them made it.
+  const byHeight = Math.max(0, 1 - h / 200);
+  const bySlope = 1 - Math.min(1, slope / 0.7);
+  return Math.max(0.06, Math.min(1, byHeight * (0.35 + 0.65 * bySlope)));
+}
+
+/**
+ * How far the ground has been knocked down at a point.
+ *
+ * Each crater is a smooth bowl -- deepest in the middle, nothing at the lip --
+ * and where two overlap the deeper one wins rather than the two adding, which
+ * is what happens on the ground: a shell into an existing crater makes it a
+ * bigger crater, not a hole twice as deep.
+ */
+export function craterDrop(world, x, z) {
+  if (!world.craters || !world.craters.length) return 0;
+  const list = craterIndex(world).get(craterKey(x, z));
+  if (!list) return 0;
+  let worst = 0;
+  for (const c of list) {
+    const dx = x - c.x;
+    const dz = z - c.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= c.r * c.r) continue;
+    const u = 1 - Math.sqrt(d2) / c.r;
+    // Smoothstep in from the lip, so a crater has a rim and not a kerb.
+    const drop = c.depth * u * u * (3 - 2 * u);
+    if (drop > worst) worst = drop;
+  }
+  return worst;
+}
+
+/**
+ * Take a bite out of the ground.
+ *
+ * A strike inside an existing crater widens and deepens that one instead of
+ * stacking a second on top of it, which is both what happens and what keeps
+ * the list short enough to be worth indexing.
+ */
+export function addCrater(world, x, z, r, depth, cap = Infinity) {
+  if (!world.craters) world.craters = [];
+  if (!(r > 0) || !(depth > 0)) return null;
+  // The deepest this hole may ever go.
+  //
+  // A crater is a shallow bowl: about two fifths as deep as it is wide, and no
+  // amount of shelling makes it deeper than that, because what a burst does is
+  // throw the lip further out rather than sink a shaft. Without this the
+  // merge below just added a little every round for ever, and forty rounds
+  // into one hillside dug through it to the waterline.
+  const lim = (c2) => Math.min(cap, Math.max(c2, r) * 0.42);
+  const list = craterIndex(world).get(craterKey(x, z));
+  if (list) {
+    for (const c of list) {
+      if (dist(x, z, c.x, c.z) > Math.max(c.r, r) * 0.6) continue;
+      // Deepen, and widen a little: the second shell throws out the lip of
+      // the first. The widening is what actually carries on happening once the
+      // hole is as deep as a hole of that width gets.
+      c.r = Math.min(Math.max(c.r, r) * 1.16, Math.max(c.r, r) + 14);
+      c.depth = Math.min(c.depth + depth * 0.45, lim(c.r));
+      // What the ground here has taken, which carries on counting after the
+      // hole has stopped getting deeper -- that is the whole point of it.
+      c.wear += depth;
+      world.groundRev = (world.groundRev || 0) + 1;
+      refileAll(world);
+      return c;
+    }
+  }
+  const c = {
+    id: (world.craterSeq = (world.craterSeq || 0) + 1),
+    x, z, r, depth: Math.min(depth, lim(r)), wear: depth,
+  };
+  if (world.craters.length >= CRATER_MAX) {
+    // Recycle the shallowest: the oldest scrapes matter least and something
+    // has to give, or a long action grows the list without bound.
+    let worstI = 0;
+    for (let i = 1; i < world.craters.length; i++) {
+      if (world.craters[i].depth < world.craters[worstI].depth) worstI = i;
+    }
+    world.craters[worstI] = c;
+  } else {
+    world.craters.push(c);
+  }
+  world.groundRev = (world.groundRev || 0) + 1;
+  refileAll(world);
+  return c;
+}
+
+/** A crater as it goes on the wire. */
+export function craterWire(c) {
+  return {
+    i: c.id, x: Math.round(c.x), z: Math.round(c.z),
+    r: Math.round(c.r * 10) / 10, d: Math.round(c.depth * 10) / 10,
+  };
+}
+
+/** Every crater, for a client joining a battle already in progress. */
+export function craterList(world) {
+  return (world.craters || []).map(craterWire);
+}
+
+/**
+ * Put a crater on to a battlefield, from the wire.
+ *
+ * By its own number, and that is the point: a standalone build hands the
+ * client the very same world object the simulation is digging into, so the
+ * crater is already there by the time the message about it arrives. Keyed by
+ * number this is a no-op in that case and a dig in every other -- rather than
+ * a second hole beside the first one every time anybody fires ashore.
+ */
+export function applyCrater(world, c) {
+  if (!world.craters) world.craters = [];
+  const had = world.craters.find((q) => q.id === c.i);
+  if (had) {
+    if (had.r === c.r && had.depth === c.d) return false;
+    had.x = c.x; had.z = c.z; had.r = c.r; had.depth = c.d;
+  } else {
+    world.craters.push({ id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d });
+    world.craterSeq = Math.max(world.craterSeq || 0, c.i);
+  }
+  world.groundRev = (world.groundRev || 0) + 1;
+  refileAll(world);
+  return true;
+}
+
+/** And a whole battlefield's worth of them at once. */
+export function setCraters(world, list) {
+  world.craters = [];
+  world._craterIdx = new Map();
+  for (const c of list || []) applyCrater(world, c);
+}
+
+/**
+ * The shape of the land as it was made, before anything was fired at it.
+ *
+ * Everything that decides where the land IS reads this; everything that draws
+ * it or stands on it reads groundHeight, which is this less whatever has been
+ * blown out of it. Keeping them apart matters: a crater must not move the
+ * coastline or turn a hill into a lagoon that ships can sail into.
+ */
+function baseGround(world, x, z) {
   // An island's own relief, which is a shape rather than a distance field: a
   // three-hundred-metre island is four mask cells across, and a chamfer over
   // four cells is a pyramid, not a hill.
@@ -562,6 +784,41 @@ export function groundHeight(world, x, z) {
   // does. Four hundred and fifty metres of relief a couple of miles inland is
   // about right for the sort of water a fleet action is fought in.
   return 450 * (1 - Math.exp(-d / 2600));
+}
+
+/**
+ * The highest the land gets anywhere on this battlefield.
+ *
+ * Worked out once and kept, because it is the cheap way past a question that
+ * is otherwise asked of every shell and every round in the air on every tick:
+ * is this thing low enough to have hit the ground? Above this it cannot have,
+ * whatever is under it, and the whole of groundHeight -- which walks the
+ * islands -- can be skipped.
+ */
+export function landCeiling(world) {
+  if (world._ceiling !== undefined) return world._ceiling;
+  let top = 0;
+  for (const i of world.islands || []) top = Math.max(top, i.height * 1.05);
+  // A real coastline has no island list to read: it climbs off the shore
+  // distance field, and groundHeight tops out at four hundred and fifty.
+  if (world.land && world.land.length) top = Math.max(top, 460);
+  world._ceiling = top;
+  return top;
+}
+
+/**
+ * The height of the ground as it is now: the shape it was made with, less
+ * whatever has been blown out of it.
+ *
+ * Craters only ever take ground away and never below the waterline -- a hole
+ * in a beach fills with sea and stops being a hole, and a crater that dug
+ * through an island would open a channel through it that the collision field
+ * knows nothing about, so ships would sail into a hill.
+ */
+export function groundHeight(world, x, z) {
+  const base = baseGround(world, x, z);
+  if (base <= 0) return base;
+  return Math.max(0.2, base - craterDrop(world, x, z));
 }
 
 /** Signed distance to the shore in metres: positive inland, negative at sea.
