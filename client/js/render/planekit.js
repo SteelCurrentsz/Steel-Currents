@@ -29,6 +29,248 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 
+// ---------------------------------------------------------------------------
+// The skin of an aeroplane
+// ---------------------------------------------------------------------------
+//
+// A warship's side is butt-jointed plate with a weld every few metres, and it
+// is drawn that way in textures.js. An aeroplane is not that. She is flush
+// -riveted stressed alloy: the panels are small -- half a metre, not four --
+// the joints are lines of rivets rather than welds, and the whole of it is
+// under a coat of paint that goes chalky in the sun and streaks with oil and
+// exhaust behind every opening on her.
+//
+// Which is why the ships' plating map cannot be borrowed for them. A sixteen
+// -metre tile on an eleven-metre aeroplane puts one weld seam across the whole
+// span and nothing else, so she reads as a flat shape with a line on it.
+//
+// Drawn rather than loaded, the same as everything else here: the game is one
+// file that has to work offline.
+
+/** How many metres of aeroplane one tile covers. */
+const SKIN_TILE = 2.6;
+const SKIN_SIZE = 512;
+
+function skinTile() {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = SKIN_SIZE;
+  c.height = SKIN_SIZE;
+  return c;
+}
+
+/**
+ * Flush-riveted alloy under a coat of paint.
+ *
+ * A luminance map averaging one, so it multiplies the machine's own paint
+ * rather than replacing it: every scheme in SCHEMES keeps its own colour and
+ * gains the surface.
+ */
+function drawSkin(c) {
+  const g = c.getContext('2d');
+  const N = SKIN_SIZE;
+  g.fillStyle = '#b4b4b4';
+  g.fillRect(0, 0, N, N);
+
+  // The panel joints. Half a metre of aeroplane, so five to a tile, and they
+  // are a shade either side rather than a black line: a flush joint catches
+  // the light on one lip and shades on the other, which is the whole of why
+  // you can see them at all.
+  const step = N / 5;
+  for (let i = 0; i < 5; i++) {
+    const at = Math.round(i * step);
+    // Drawn wide enough to survive being looked at from a hundred metres.
+    // A real flush joint is a millimetre and at that width it averages away in
+    // the mip chain and the aeroplane is a flat tint again -- which is what
+    // happened the first time this was drawn.
+    for (const [dx, w, col] of [[0, 2.5, 'rgba(64,64,64,0.55)'],
+      [2.5, 1.5, 'rgba(232,232,232,0.42)']]) {
+      g.fillStyle = col;
+      g.fillRect(at + dx, 0, w, N);
+      g.fillRect(0, at + dx, N, w);
+    }
+  }
+  // And a few panels that are a shade off the rest. No two panels off an
+  // aeroplane are quite the same colour -- they are sprayed at different times
+  // and they weather at different rates -- and it is the single thing that
+  // stops a painted surface reading as one flat sheet.
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+      // The single thing that reads at range: no two panels off an aeroplane
+      // are quite the same shade, and the eye picks that up long after the
+      // joints themselves have gone.
+      const v = 178 + Math.round((Math.random() - 0.5) * 26);
+      g.fillStyle = `rgba(${v},${v},${v},0.5)`;
+      g.fillRect(i * step + 1.5, j * step + 1.5, step - 3, step - 3);
+    }
+  }
+
+  // Rivet lines down every joint. Flush rivets, so a dot a shade dark with a
+  // highlight on the sunward side of it -- not a bump.
+  const pitch = 7;
+  const rivet = (x, y) => {
+    g.fillStyle = 'rgba(88,88,88,0.46)';
+    g.fillRect(x, y, 2, 2);
+    g.fillStyle = 'rgba(230,230,230,0.30)';
+    g.fillRect(x, y - 1, 1.8, 1);
+  };
+  for (let i = 0; i < 5; i++) {
+    const at = i * step;
+    for (let k = 0; k < N; k += pitch) { rivet(at - 2.2, k); rivet(k, at - 2.2); }
+  }
+  // A couple of inspection panels a tile, with fasteners round them.
+  for (let k = 0; k < 3; k++) {
+    const x = Math.random() * (N - 70) + 10;
+    const y = Math.random() * (N - 50) + 10;
+    const w = 34 + Math.random() * 30;
+    const h = 22 + Math.random() * 18;
+    g.strokeStyle = 'rgba(74,74,74,0.42)';
+    g.lineWidth = 1;
+    g.strokeRect(x, y, w, h);
+    g.fillStyle = 'rgba(186,186,186,0.30)';
+    g.fillRect(x + 1, y + 1, w - 2, h - 2);
+    for (let f = 4; f < w - 2; f += 11) { rivet(x + f, y + 1.5); rivet(x + f, y + h - 2.5); }
+  }
+
+  // Paint. Chalky in patches and streaked fore and aft where the airflow
+  // carries oil and exhaust back over her.
+  for (let k = 0; k < 26; k++) {
+    const x = Math.random() * N;
+    const y = Math.random() * N;
+    const r = 16 + Math.random() * 52;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    const up = Math.random() < 0.5;
+    grad.addColorStop(0, up ? 'rgba(232,232,232,0.16)' : 'rgba(84,84,84,0.15)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  for (let k = 0; k < 10; k++) {
+    const y = Math.random() * N;
+    const h = 1 + Math.random() * 2.5;
+    g.fillStyle = `rgba(72,72,72,${0.05 + Math.random() * 0.07})`;
+    g.fillRect(0, y, N, h);
+  }
+
+  // A little grain over the lot, and then normalised so the map multiplies to
+  // unity: the machine keeps her own paint and gains the surface.
+  const img = g.getImageData(0, 0, N, N);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 9;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+  gainToOne(g, N, 232, 0.42);
+  return c;
+}
+
+/**
+ * Pull a drawn map's average up to `target` without clipping the bright end.
+ *
+ * A multiply map that averages far below white darkens everything it is put
+ * on, which is how a fleet of grey ships came to be painted half their own
+ * colour. Everything below the knee is scaled; everything above it is eased
+ * into white, so the highlights stay highlights.
+ */
+function gainToOne(g, n, target = 232, knee = 0.42) {
+  const img = g.getImageData(0, 0, n, n);
+  const d = img.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += d[i];
+  const mean = sum / (d.length / 4);
+  if (mean <= 1) return;
+  const k = target / mean;
+  const cut = 255 * knee;
+  for (let i = 0; i < d.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const v = d[i + c];
+      const s = v * k;
+      d[i + c] = s <= cut ? s : cut + (255 - cut) * (1 - Math.exp(-(s - cut) / (255 - cut)));
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+let skin = null;
+/** The alloy map, drawn once and shared by every machine in the game. */
+function skinMap() {
+  if (skin === undefined) return null;
+  if (!skin) {
+    const c = skinTile();
+    if (!c) { skin = undefined; return null; }
+    const t = new THREE.CanvasTexture(drawSkin(c));
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1 / SKIN_TILE, 1 / SKIN_TILE);
+    t.anisotropy = 4;
+    skin = t;
+  }
+  return skin;
+}
+
+/**
+ * Which of her materials are painted skin, and which are something else.
+ *
+ * Everything on an aeroplane that is dope or alloy under paint gets the
+ * surface. Her glass, her propeller, her tyres, her gun barrels and her
+ * markings do not: a rivet line across a national insignia or down a
+ * propeller blade is worse than no surface at all.
+ */
+const BARE = new Set([
+  0x24282c,   // the propeller
+  0x1b2229,   // glass
+  0x171c21,   // the dark inside an opening
+  0x232a31,   // wire and aerials
+  0xd9dde2,   // the star
+  0x1d3866,   // and the disc it is on
+  0xa8241f,   // the hinomaru
+  0xd4d8dc,   // white
+  0x1d2126,   // black -- tyres, walkways, anti-glare
+]);
+
+/**
+ * Give a built aeroplane her skin.
+ *
+ * Called once per material rather than once per mesh, and the results are
+ * shared, so nine machines cost nine schemes' worth of materials and not nine
+ * aeroplanes' worth. Runs after the model is built and before it is welded.
+ */
+const DRESSED = new Map();
+export function dressPlane(root) {
+  const map = skinMap();
+  if (!map) return root;                    // no canvas: flat colours, as before
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = [].concat(o.material);
+    const out = mats.map((m) => {
+      if (!m || !m.color || m.transparent || m.map) return m;
+      const hex = m.color.getHex();
+      if (BARE.has(hex)) return m;
+      let made = DRESSED.get(hex);
+      if (made) return made;
+      made = new THREE.MeshPhongMaterial({
+        color: hex,
+        map,
+        // Painted alloy is a rough dielectric with a coat on it: a broad weak
+        // lobe, and more of one than a ship has, because an aeroplane is
+        // washed and waxed and a ship is a fortnight of salt.
+        specular: 0x3a4046,
+        shininess: 34,
+        specularMap: map,
+        flatShading: m.flatShading === true,
+        side: m.side,
+      });
+      DRESSED.set(hex, made);
+      return made;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
+  });
+  return root;
+}
+
 // ------------------------------------------------------------ primitives --
 
 function box(g, m, w, h, d, x, y, z, ry = 0) {
@@ -134,6 +376,13 @@ export const P = {
   // And the hinomaru, which is a plain disc of red with a white surround on
   // the late-war machines.
   hinomaru: new THREE.MeshLambertMaterial({ color: 0xa8241f }),
+  // What she carries. A torpedo is a polished steel case with a dull grey
+  // warhead on the end of it; a bomb is olive drab with a bright band round
+  // the nose that says it is filled.
+  steel: new THREE.MeshLambertMaterial({ color: 0x6e757c }),
+  warhead: new THREE.MeshLambertMaterial({ color: 0x4a5058 }),
+  bombBody: new THREE.MeshLambertMaterial({ color: 0x3d4438 }),
+  bombBand: new THREE.MeshLambertMaterial({ color: 0xb0a253 }),
 };
 
 // The names the tools know these by. `planeTop` and `planeBottom` are the two
@@ -142,6 +391,9 @@ const M = {
   planeTop: P.top, planeBottom: P.bottom, prop: P.prop, gunDark: P.gunDark,
   bright: P.bright, glass: P.glass, cave: P.cave, wire: P.wire,
   star: P.star, insignia: P.insignia,
+  // `steelDark` was written at four call sites and never defined, so the
+  // Avenger flew with a torpedo drawn in Three's default white.
+  steelDark: P.steel,
 };
 
 const SCHEMES = {
@@ -178,6 +430,16 @@ function paint(scheme) {
  * at a guessed angle is the thing that makes a model look like a toy. Given
  * both ends it works out its own length and lies along the line between them.
  */
+/** A body of revolution: a profile turned about the vertical, for a dome. */
+function lathe(p, m, pts, x, y, z, seg = 18) {
+  const g = new THREE.LatheGeometry(
+    pts.map(([r, h]) => new THREE.Vector2(Math.max(0.001, r), h)), seg);
+  const o = new THREE.Mesh(g, m);
+  o.position.set(x, y, z);
+  p.add(o);
+  return o;
+}
+
 function strut(p, m, a, b, r = 0.05, seg = 6) {
   const v = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   const len = v.length();
@@ -268,14 +530,166 @@ function seaFloat(p, mTop, mBot, stations) {
  * black cross over them -- because at any range you see one of these from it is
  * the shape and nothing else.
  */
-function balkenkreuz(p, x, y, z, r, up = true) {
+function balkenkreuz(p, x, y, z, r, up = true, fit = null) {
+  // Laid on the skin the same way the star and the hinomaru are -- see decal.
   const m = new THREE.Group();
-  m.position.set(x, y, z);
-  if (!up) m.rotation.z = Math.PI / 2;
+  const pose = skinPose(p, x, y, z, faceDir(up, x), fit);
+  if (pose) {
+    m.position.copy(pose.pt);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pose.n);
+  } else {
+    m.position.set(x, y, z);
+    if (!up) m.rotation.z = Math.PI / 2;
+  }
   p.add(m);
-  box(m, P.white, r * 2, 0.05, r * 2, 0, 0, 0);
-  box(m, P.black, r * 2.02, 0.075, r * 0.72, 0, 0, 0);
-  box(m, P.black, r * 0.72, 0.075, r * 2.02, 0, 0, 0);
+  box(m, P.white, r * 2, 0.03, r * 2, 0, 0, 0);
+  box(m, P.black, r * 2.02, 0.036, r * 0.72, 0, 0.004, 0);
+  box(m, P.black, r * 0.72, 0.036, r * 2.02, 0, 0.004, 0);
+  return m;
+}
+
+/**
+ * A piece of an aeroplane that moves.
+ *
+ * The squadrons in the air are drawn as one instanced batch per type: the
+ * whole machine is welded into a single geometry and stamped out sixty times,
+ * which is the only way to have ninety aeroplanes up without the frame falling
+ * over. Nothing welded can move, so anything that has to -- a bomb bay door, a
+ * displacing trapeze, the weapon itself leaving the rack -- is registered here
+ * instead, and `flightModels` pulls it out of the body and gives it a batch of
+ * its own. See `Flights.add`.
+ *
+ * `node` is a group at the hinge. `axis` and `open` say how far it swings when
+ * the bay is open; `fall` says it is a weapon, which drops away when released.
+ */
+function animPart(p, name, node, o = {}) {
+  const list = p.userData.parts || (p.userData.parts = []);
+  list.push({ name, node, axis: o.axis || 'z', open: o.open || 0, fall: !!o.fall });
+  return node;
+}
+
+/** An aerial torpedo on its rack: case, warhead, tail cone, fins and screws. */
+function torpedo(p, len = 4.2, r = 0.26) {
+  const g = new THREE.Group();
+  p.add(g);
+  // The case, in three lengths the way a real one is built: warhead, air
+  // flask, afterbody.
+  airframe(g, P.warhead, [
+    { z: len * 0.30, w: r * 2, h: r * 2, y: 0 },
+    { z: len * 0.42, w: r * 2, h: r * 2, y: 0 },
+    { z: len * 0.48, w: r * 1.5, h: r * 1.5, y: 0 },
+    { z: len * 0.50, w: r * 0.5, h: r * 0.5, y: 0 },
+  ], { flat: 0, e: 1, capF: false, mBot: P.warhead, seg: 14 });
+  cyl(g, P.steel, r, r, len * 0.60, 0, 0, 0, 14).rotation.x = Math.PI / 2;
+  airframe(g, P.steel, [
+    { z: -len * 0.50, w: r * 0.9, h: r * 0.9, y: 0 },
+    { z: -len * 0.38, w: r * 1.8, h: r * 1.8, y: 0 },
+    { z: -len * 0.30, w: r * 2, h: r * 2, y: 0 },
+  ], { flat: 0, e: 1, capA: false, mBot: P.steel, seg: 14 });
+  // Contra-rotating screws on the tail, and the four fins round them.
+  for (const at of [-len * 0.47, -len * 0.52]) {
+    for (let i = 0; i < 4; i++) {
+      const b = box(g, P.steel, 0.05, r * 0.9, 0.12, 0, 0, at);
+      b.rotation.z = (i / 4) * Math.PI * 2;
+      b.position.set(Math.sin(b.rotation.z) * r * 0.45,
+        Math.cos(b.rotation.z) * r * 0.45, at);
+      b.rotation.y = 0.4;
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const f = box(g, P.steel, 0.035, r * 1.0, 0.7, 0, 0, -len * 0.42);
+    f.position.set(Math.sin(a) * r * 1.3, Math.cos(a) * r * 1.3, -len * 0.42);
+    f.rotation.z = a;
+  }
+  // The wooden air tail the Japanese and the Americans both fitted for the
+  // drop, which is what stops a torpedo diving when it hits the water: four
+  // boards in a box round the fins, shed on entry.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const f = box(g, M.planeBottom, r * 2.7, 0.03, 0.5, 0, 0, -len * 0.56);
+    f.position.set(Math.sin(a) * r * 1.65, Math.cos(a) * r * 1.65, -len * 0.56);
+    f.rotation.z = a;
+  }
+  return g;
+}
+
+/** A general-purpose bomb on its crutch: ogive nose, body, cone and box tail. */
+function bomb(p, len = 1.9, r = 0.23) {
+  const g = new THREE.Group();
+  p.add(g);
+  airframe(g, P.bombBody, [
+    { z: -len * 0.50, w: r * 0.7, h: r * 0.7, y: 0 },
+    { z: -len * 0.34, w: r * 1.5, h: r * 1.5, y: 0 },
+    { z: -len * 0.18, w: r * 2, h: r * 2, y: 0 },
+    { z: len * 0.16, w: r * 2, h: r * 2, y: 0 },
+    { z: len * 0.34, w: r * 1.7, h: r * 1.7, y: 0 },
+    { z: len * 0.46, w: r * 1.1, h: r * 1.1, y: 0 },
+    { z: len * 0.50, w: r * 0.45, h: r * 0.45, y: 0 },
+  ], { flat: 0, e: 1, mBot: P.bombBody, seg: 12 });
+  // The yellow band round the nose that says she is filled, and the fuse in
+  // the end of her.
+  cyl(g, P.bombBand, r * 1.02, r * 1.02, 0.09, 0, 0, len * 0.26, 14)
+    .rotation.x = Math.PI / 2;
+  cyl(g, P.bright, r * 0.2, r * 0.2, 0.14, 0, 0, len * 0.53, 8)
+    .rotation.x = Math.PI / 2;
+  // The box tail: four fins in a square shroud, the way a general-purpose
+  // bomb of the war was finned.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const f = box(g, P.bombBody, 0.03, r * 0.9, len * 0.3, 0, 0, -len * 0.36);
+    f.position.set(Math.sin(a) * r * 0.95, Math.cos(a) * r * 0.95, -len * 0.36);
+    f.rotation.z = a;
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const f = box(g, P.bombBody, r * 2.0, 0.025, len * 0.2, 0, 0, -len * 0.40);
+    f.position.set(Math.sin(a) * r * 1.35, Math.cos(a) * r * 1.35, -len * 0.40);
+    f.rotation.z = a;
+  }
+  // The suspension lugs on her back.
+  for (const z of [-len * 0.12, len * 0.12]) {
+    box(g, M.gunDark, 0.1, 0.09, 0.07, 0, r * 1.02, z);
+  }
+  return g;
+}
+
+/**
+ * A bomb bay: a well up inside the belly with a door either side of it.
+ *
+ * `y` is the belly line the doors lie in, `z` the middle of the bay, and the
+ * well runs `len` fore and aft, `wide` across and `deep` up into her. The
+ * doors are registered as moving parts, so the batch that draws the squadron
+ * can open them on the run in and shut them again afterwards.
+ */
+function bombBay(p, o) {
+  const { y, z, len, wide, deep } = o;
+  // The well itself: a roof and four walls, open at the bottom. Built as one
+  // solid block the doors opened on a flat dark panel with the weapon sealed
+  // inside it, because a box has a floor and a bomb bay has not.
+  box(p, M.cave, wide, 0.06, len, 0, y + deep, z);
+  box(p, M.cave, wide, deep, 0.06, 0, y + deep / 2, z - len / 2);
+  box(p, M.cave, wide, deep, 0.06, 0, y + deep / 2, z + len / 2);
+  // The frames across the roof of it, which is what you see looking up in.
+  for (let i = 0; i <= 4; i++) {
+    box(p, M.gunDark, wide - 0.04, 0.07, 0.07, 0,
+      y + deep - 0.07, z - len / 2 + (i / 4) * len);
+  }
+  for (const s of [-1, 1]) {
+    box(p, M.cave, 0.06, deep, len, s * (wide / 2), y + deep / 2, z);
+    box(p, M.gunDark, 0.05, 0.07, len, s * (wide / 2 - 0.05), y + deep * 0.5, z);
+    const h = new THREE.Group();
+    h.position.set(s * wide / 2, y, z);
+    p.add(h);
+    // The door, in the hinge's own frame: it reaches inboard to the centreline
+    // and lies flush in the belly when it is shut.
+    box(h, M.planeBottom, wide / 2, 0.055, len, -s * wide / 4, 0, 0);
+    box(h, M.gunDark, wide / 2 - 0.06, 0.05, 0.07, -s * wide / 4, 0.05, 0);
+    for (const zz of [-len * 0.3, 0, len * 0.3]) {
+      box(h, M.gunDark, wide / 2 - 0.08, 0.05, 0.06, -s * wide / 4, 0.05, zz);
+    }
+    animPart(p, s < 0 ? 'bayPort' : 'bayStbd', h, { axis: 'z', open: s * 1.55 });
+  }
 }
 
 // ------------------------------------------------------------ her aircraft --
@@ -319,7 +733,13 @@ function airframe(p, m, stations, opt = {}) {
   const flat = opt.flat || 0;                     // flatten the underside by this much
   const pos = [];
   const idx = [];
+  // Texture coordinates in metres, the same as everything else: round the
+  // section for one and along her length for the other. Without them the skin
+  // map samples one texel for the whole fuselage and a lofted body is a flat
+  // tint -- which is what every aeroplane in this game was.
+  const uv = [];
   for (const st of stations) {
+    const girth = Math.PI * (st.w + st.h) * 0.5;
     for (let j = 0; j < seg; j++) {
       const a = (j / seg) * Math.PI * 2;
       const c = Math.cos(a);
@@ -328,6 +748,7 @@ function airframe(p, m, stations, opt = {}) {
       let y = (st.h / 2) * Math.sign(s) * Math.pow(Math.abs(s), e);
       if (y < 0) y *= 1 - flat;
       pos.push(x, st.y + y, st.z);
+      uv.push((j / seg) * girth, st.z);
     }
   }
   // Blue-grey over light grey, and the line between them runs along the widest
@@ -350,6 +771,7 @@ function airframe(p, m, stations, opt = {}) {
     const st = stations[i];
     const hub = pos.length / 3;
     pos.push(0, st.y, st.z + out * st.w * 0.14);
+    uv.push(0, st.z);
     for (let j = 0; j < seg; j++) {
       const j1 = (j + 1) % seg;
       const a = i * seg + j;
@@ -363,6 +785,7 @@ function airframe(p, m, stations, opt = {}) {
   const skin = (list, mat) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(list);
     g.computeVertexNormals();
     const o = new THREE.Mesh(g, mat);
@@ -400,6 +823,12 @@ function wing(p, mTop, mBot, o) {
   const round = o.round !== false;
   const up = [];
   const dn = [];
+  // And the texture coordinates that go with them, in metres: how far out the
+  // span and how far back the chord. The skin map is laid on in metres (see
+  // SKIN_TILE), so a panel joint is the same size on a wing as it is on a
+  // fuselage and the rivets do not stretch on the surfaces that taper.
+  const uvUp = [];
+  const uvDn = [];
   for (let k = 0; k <= S; k++) {
     const f = k / S;
     // Ease the last station in so the tip is rounded off, not sheared square.
@@ -417,9 +846,11 @@ function wing(p, mTop, mBot, o) {
       const z = zle - u * c;
       up.push(x, y + yc + ht + lift, z);
       dn.push(x, y + yc - ht + lift, z);
+      uvUp.push(o.span * f, u * c);
+      uvDn.push(o.span * f, u * c);
     }
   }
-  const skin = (arr, mat, flip) => {
+  const skin = (arr, uv, mat, flip) => {
     const idx = [];
     for (let k = 0; k < S; k++) {
       for (let i = 0; i < C; i++) {
@@ -431,18 +862,22 @@ function wing(p, mTop, mBot, o) {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
     p.add(new THREE.Mesh(g, mat));
   };
-  skin(up, mTop, side < 0);
-  skin(dn, mBot, side > 0);
+  skin(up, uvUp, mTop, side < 0);
+  skin(dn, uvDn, mBot, side > 0);
   // Tip and root, closed between the two skins.
   const shut = (k, mat, flip) => {
     const pos = [];
+    const uv = [];
     for (let i = 0; i <= C; i++) {
       const a = (k * (C + 1) + i) * 3;
       pos.push(up[a], up[a + 1], up[a + 2], dn[a], dn[a + 1], dn[a + 2]);
+      const cu = uvUp[(k * (C + 1) + i) * 2 + 1];
+      uv.push(cu, up[a + 1], cu, dn[a + 1]);
     }
     const idx = [];
     for (let i = 0; i < C; i++) {
@@ -452,12 +887,299 @@ function wing(p, mTop, mBot, o) {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
     p.add(new THREE.Mesh(g, mat));
   };
   shut(S, mTop, side < 0);
   if (o.rootCap !== false) shut(0, mBot, side > 0);
+  // And a sampler, so anything that has to sit on this panel can ask where the
+  // skin is instead of being given a number. `f` is the fraction of the span
+  // out from the root, `u` the fraction of the chord back from the leading
+  // edge; `top` picks the surface. See `leBand` and `wingGun`.
+  const at = (f, u, top) => {
+    const tipR = round ? Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (f - 0.88) / 0.12), 2))) : 1;
+    const c = rootC + (tipC - rootC) * f;
+    const ht = foil(u, t) * c * tipR;
+    const yc = camber * 4 * u * (1 - u) * c;
+    const lift = (o.twist || 0) * f * (u - 0.25) * c;
+    return [
+      o.x + side * o.span * f,
+      o.y + Math.sin(o.dihedral || 0) * o.span * f + yc + (top ? ht : -ht) + lift,
+      o.z - (o.sweep || 0) * f - u * c,
+    ];
+  };
+  return { at, o, side };
+}
+
+/**
+ * The identification band round a leading edge.
+ *
+ * Every Japanese naval aircraft after 1942 carried a yellow band along the
+ * leading edge of the wing from the root out to about mid-span, and it is the
+ * one marking that says at a glance whose side an aeroplane is on.
+ *
+ * It is built off the panel's own surface rather than as a plank laid near it:
+ * a strip of the wing's own skin, wrapped round the leading edge from a little
+ * way back on top to a little way back underneath, and stood a centimetre
+ * proud so it reads as paint. Drawn as a box it floated in front of a wing
+ * that is a knife edge at the leading edge and has no thickness to hold it.
+ */
+function leBand(p, mat, surf, f0, f1, uMax = 0.105, lift = 0.005) {
+  const U = 7;
+  const S = 4;
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+  // How far round the section each point is, in metres, for the skin map.
+  const runs = [];
+  const ring = (f) => {
+    const pts = [];
+    for (let i = U; i >= 1; i--) pts.push(surf.at(f, (i / U) * uMax, true));
+    pts.push(surf.at(f, 0, true));
+    for (let i = 1; i <= U; i++) pts.push(surf.at(f, (i / U) * uMax, false));
+    // Outward, in the section plane: perpendicular to the way the outline runs.
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[Math.max(0, i - 1)];
+      const b = pts[Math.min(pts.length - 1, i + 1)];
+      const ty = b[1] - a[1];
+      const tz = b[2] - a[2];
+      const L = Math.hypot(ty, tz) || 1;
+      out.push([pts[i][0], pts[i][1] + (tz / L) * lift, pts[i][2] - (ty / L) * lift]);
+    }
+    return { pts, out };
+  };
+  const N = U * 2 + 1;
+  const rows = [];
+  for (let k = 0; k <= S; k++) rows.push(ring(f0 + (f1 - f0) * (k / S)));
+  for (const r of rows) {
+    let run = 0;
+    runs.push([0]);
+    for (let i = 1; i < N; i++) {
+      run += Math.hypot(r.pts[i][1] - r.pts[i - 1][1], r.pts[i][2] - r.pts[i - 1][2]);
+      runs[runs.length - 1].push(run);
+    }
+  }
+  // Two shells: the paint itself, and the lip at either end of the band where
+  // it steps down onto the skin.
+  for (const [k, r] of rows.entries()) {
+    for (const [i, v] of r.out.entries()) { pos.push(v[0], v[1], v[2]); uvs.push(v[0], runs[k][i]); }
+  }
+  for (const [k, r] of rows.entries()) {
+    for (const [i, v] of r.pts.entries()) { pos.push(v[0], v[1], v[2]); uvs.push(v[0], runs[k][i]); }
+  }
+  // Wound so the paint faces out of the wing. Taken the same way round as the
+  // panel's own upper skin it came out inside out, and the band showed only
+  // where it wrapped under the leading edge.
+  const flip = surf.side > 0;
+  for (let k = 0; k < S; k++) {
+    for (let i = 0; i < N - 1; i++) {
+      const a = k * N + i;
+      const b = (k + 1) * N + i;
+      if (flip) idx.push(a, a + 1, b, b, a + 1, b + 1);
+      else idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const base = rows.length * N;
+  for (const [k, f2] of [[0, !flip], [S, flip]]) {
+    for (let i = 0; i < N - 1; i++) {
+      const a = k * N + i;
+      const c = base + k * N + i;
+      if (f2) idx.push(a, a + 1, c, c, a + 1, c + 1);
+      else idx.push(a, c, a + 1, c, c + 1, a + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, mat);
+  p.add(mesh);
+  return mesh;
+}
+
+/**
+ * A patch of a panel's own skin, lifted a few millimetres off it.
+ *
+ * What a flap or a dive brake is: not a plank laid across a wing, which is
+ * what they were, but a piece of the wing that moves. Built off the sampler,
+ * it has the panel's own curve, taper, twist and dihedral in it, and closed it
+ * shows as a joint line rather than as a shelf.
+ */
+function surfPatch(p, mat, surf, f0, f1, u0, u1, top, lift = 0.006, S = 5, C = 4) {
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+  for (let k = 0; k <= S; k++) {
+    const f = f0 + (f1 - f0) * (k / S);
+    for (let i = 0; i <= C; i++) {
+      const u = u0 + (u1 - u0) * (i / C);
+      const a = surf.at(f, u, top);
+      pos.push(a[0], a[1] + (top ? lift : -lift), a[2]);
+      uvs.push(surf.o.span * f, u * surf.o.rootC);
+    }
+  }
+  const flip = top ? surf.side < 0 : surf.side > 0;
+  for (let k = 0; k < S; k++) {
+    for (let i = 0; i < C; i++) {
+      const a = k * (C + 1) + i;
+      const b = (k + 1) * (C + 1) + i;
+      if (flip) idx.push(a, a + 1, b, b, a + 1, b + 1);
+      else idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, mat);
+  p.add(mesh);
+  return mesh;
+}
+
+/**
+ * The fairing where a wing meets a body.
+ *
+ * A wing does not join a fuselage at a step: there is a fillet there, long and
+ * shallow, that carries the air round the corner. Drawn as a box -- which is
+ * what every one of these was -- it stands at the root as a slab with square
+ * corners, and on the Wildcat it was three quarters of a metre deep and read
+ * as a crate bolted to the wing root.
+ *
+ * `len` is how far it runs fore and aft, `w` and `h` how wide and deep it is
+ * at its fullest.
+ */
+function rootFillet(p, m, x, y, z, len, w, h) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  p.add(g);
+  airframe(g, m, [
+    { z: -len * 0.50, w: w * 0.16, h: h * 0.26, y: 0 },
+    { z: -len * 0.26, w: w * 0.80, h: h * 0.84, y: 0 },
+    { z: len * 0.04, w, h, y: 0 },
+    { z: len * 0.32, w: w * 0.78, h: h * 0.84, y: 0 },
+    { z: len * 0.50, w: w * 0.14, h: h * 0.24, y: 0 },
+  ], { flat: 0.15, e: 0.9, mBot: m });
+  return g;
+}
+
+/**
+ * A control surface built out of the panel it hinges on.
+ *
+ * An aileron, a flap, a slot: the aft fifth of the wing between two stations,
+ * standing a few millimetres proud so the hinge line and the gap either side
+ * of it read. Drawn as a box laid across the panel -- which is what they all
+ * were -- they float behind the trailing edge of any wing whose outer panel
+ * does not have its chord datum at zero, and on the Dauntless the aileron
+ * stood clear of the wing altogether.
+ */
+function ctrlSurface(p, mat, surf, f0, f1, u0 = 0.72, u1 = 0.995, lift = 0.007) {
+  // Painted the way the panel round it is painted: blue-grey over light grey,
+  // green over grey-green. Given one material for both faces, the underside of
+  // every flap and aileron in the game came out in the upper-surface colour
+  // and read from below as a black stripe down the trailing edge.
+  surfPatch(p, mat, surf, f0, f1, u0, u1, true, lift, 5, 3);
+  surfPatch(p, M.planeBottom, surf, f0, f1, u0, u1, false, lift, 5, 3);
+  // The step where the surface stands off the panel is the hinge line, and it
+  // is all of it that should show: a bar laid across the gap at either end
+  // stood out behind the trailing edge as a black tab.
+}
+
+/**
+ * A gun in a wing: the barrel standing out of the leading edge with its breech
+ * inside the panel where a breech belongs.
+ *
+ * The station is asked for on the panel's own surface, so the barrel comes out
+ * of the leading edge at that station rather than out of a point in the air
+ * level with the root -- which on a swept wing is a foot in front of her.
+ */
+function wingGun(p, surf, f, r, out, len, m = M.gunDark) {
+  const le = surf.at(f, 0.06, true);
+  const lo = surf.at(f, 0.06, false);
+  const y = (le[1] + lo[1]) / 2;
+  const z = surf.at(f, 0, true)[2];
+  // The blister the barrel comes out of. A leading edge is a knife edge, so a
+  // barrel laid on the chord line at that station shows half its diameter
+  // above it and half below and reads as a rod hung under the wing. On the
+  // aeroplane there is a fairing there, moulded round the gun and faired back
+  // into the panel, and that is what makes it part of the wing.
+  const fr = cyl(p, M.planeTop, r * 1.5, r * 2.2, 0.52, le[0], y, z - 0.19, 10);
+  fr.rotation.x = Math.PI / 2;
+  const b = cyl(p, m, r, r, len, le[0], y, z + out - len / 2, 8);
+  b.rotation.x = Math.PI / 2;
+  arm(b, len / 2);
+  return b;
+}
+
+/**
+ * One blade of an airscrew.
+ *
+ * A propeller blade is a wing: an aerofoil section that starts nearly square
+ * to the disc at the root, where the air comes at it slowly, and washes out to
+ * a fine angle at the tip where the blade is doing four hundred miles an hour
+ * through it. It is also the piece of an aeroplane that catches the light from
+ * the most angles, so it is the last thing that should be a plank.
+ *
+ * Built in its own frame: the blade runs out along +y, the chord lies along z,
+ * and the section is turned about the radial axis by the twist at that radius.
+ */
+function propBlade(p, m, len, rootC, tipC, rootA, tipA, thick = 0.13) {
+  const S = 8;
+  const C = 8;
+  const N = C * 2;
+  const pos = [];
+  const idx = [];
+  for (let k = 0; k <= S; k++) {
+    const f = k / S;
+    // Narrow at the shank, widest a little outboard of half radius, and eased
+    // off to a rounded tip.
+    const shape = Math.sin(Math.PI * Math.min(1, 0.22 + f * 0.78)) ** 0.55;
+    const c = (rootC + (tipC - rootC) * f) * (0.62 + 0.38 * shape)
+      * (f > 0.93 ? Math.sqrt(Math.max(0, 1 - ((f - 0.93) / 0.07) ** 2)) : 1);
+    const a = rootA + (tipA - rootA) * f;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const y = 0.06 + (len - 0.06) * f;
+    for (let i = 0; i < N; i++) {
+      const top = i <= C;
+      const u = top ? i / C : (N - i) / C;
+      const ht = foil(u, thick) * c * (top ? 1 : -1);
+      // A little camber, the way a blade has a face and a back.
+      const z0 = (0.28 - u) * c;
+      const x0 = ht + 0.018 * c * 4 * u * (1 - u);
+      pos.push(x0 * ca - z0 * sa, y, x0 * sa + z0 * ca);
+    }
+  }
+  for (let k = 0; k < S; k++) {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      const a = k * N + i;
+      const b = k * N + j;
+      const c2 = (k + 1) * N + i;
+      const d = (k + 1) * N + j;
+      idx.push(a, c2, b, b, c2, d);
+    }
+  }
+  // Closed at the root and at the tip, so there is nothing to look up.
+  for (const [k, flip] of [[0, true], [S, false]]) {
+    for (let i = 1; i < N - 1; i++) {
+      const a = k * N;
+      const b = k * N + i;
+      const c2 = k * N + i + 1;
+      if (flip) idx.push(a, c2, b); else idx.push(a, b, c2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, m);
+  p.add(mesh);
+  return mesh;
 }
 
 /** A radial in its cowling: gills, cowl ring, spinner, blades, exhaust stubs. */
@@ -507,20 +1229,11 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
     disc.userData.isProp = true;
   }
   for (let i = 0; i < blades; i++) {
-    // A blade is not a plank: wide at the root, narrow and twisted at the tip,
-    // and it is the twist that catches the light going round.
     const bl = new THREE.Group();
     bl.position.set(0, spin ? 0 : y, spin ? 0 : z + 1.02);
     bl.rotation.z = (i / blades) * Math.PI * 2 + 0.4;
     disc.add(bl);
-    const N = 5;
-    const L = span / 2;
-    for (let k = 0; k < N; k++) {
-      const f = (k + 0.5) / N;
-      const seg2 = box(bl, M.prop, 0.30 - 0.19 * f, L * 0.9 / N + 0.02, 0.07,
-        0, L * (0.10 + 0.9 * f), 0);
-      seg2.rotation.y = 0.56 - 0.42 * f;
-    }
+    propBlade(bl, M.prop, span / 2, 0.30, 0.17, 0.62, 0.16);
   }
   // Exhaust stubs out of the cowl's lower flanks.
   for (const sgn of [-1, 1]) {
@@ -623,59 +1336,103 @@ function empennage(p, finH, finC, span, chord, y, z) {
 }
 
 /**
- * The star on its blue disc: upper surfaces of the wings and both sides of the
- * fuselage, which is where the 1942 marking went.
+ * Where the skin actually is, and which way it faces, at a marking's station.
  *
- * The star is built out of five arms rather than drawn as a five-sided disc: a
- * pentagon at this range is a blob, and the shape is the only thing on the
- * aeroplane that says whose it is.
+ * A marking is paint: it lies on the surface, follows its curve, and is the
+ * same size whatever the surface is doing underneath it. Drawn at a typed-in
+ * height it does neither -- on a fuselage that tapers, half of a roundel sank
+ * inside and came out as a half-moon; on a wing with dihedral and a section,
+ * the whole disc stood clear of the skin like a dinner plate resting on it.
+ *
+ * So the marking asks. A ray fired in along its own axis from well outside her
+ * gives the point on the skin and the way that piece of skin is facing, and
+ * both come back in the frame of whatever the marking is being added to.
  */
-function insignia(p, x, y, z, r, up = true) {
+const NRM_M = new THREE.Matrix3();
+function skinPose(p, x, y, z, dir, fit = null) {
+  const d = new THREE.Vector3(dir[0], dir[1], dir[2]).normalize();
+  const hit = castLocal(p, [x - d.x * 6, y - d.y * 6, z - d.z * 6],
+    [d.x, d.y, d.z], fit);
+  if (!hit) return null;
+  d.transformDirection(p.matrixWorld).normalize();
+  const n = hit.face
+    ? hit.face.normal.clone().applyNormalMatrix(NRM_M.getNormalMatrix(hit.object.matrixWorld)).normalize()
+    : d.clone().negate();
+  // Facing out of her, not into her: a loft can be wound either way and a
+  // marking on the inside of the skin is no marking at all.
+  if (n.dot(d) > 0) n.negate();
+  const pt = p.worldToLocal(hit.point.clone());
+  const nl = n.clone().transformDirection(
+    new THREE.Matrix4().copy(p.matrixWorld).invert()).normalize();
+  return { pt, n: nl };
+}
+
+/**
+ * A marking laid on the skin: a stack of thin discs, sunk in half their depth
+ * and turned to face the way the skin faces.
+ *
+ * `layers` is outward-first radius and material, and each one stands a
+ * fraction of a millimetre further out than the last so the red of a hinomaru
+ * never fights with the white round it.
+ */
+function decal(p, x, y, z, dir, layers, fit = null) {
   const m = new THREE.Group();
-  m.position.set(x, y, z);
-  if (!up) m.rotation.z = Math.PI / 2;    // stand it on the fuselage side
+  const pose = skinPose(p, x, y, z, dir, fit);
+  if (pose) {
+    m.position.copy(pose.pt);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pose.n);
+  } else {
+    // Nothing under it -- keep the old behaviour rather than losing the
+    // marking altogether.
+    m.position.set(x, y, z);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(-dir[0], -dir[1], -dir[2]).normalize());
+  }
   p.add(m);
-  // Through the skin, not laid on top of it. Laid on, the star showed on one
-  // face and the other face was a plain blue disc -- which on a fuselage, where
-  // the marking is seen from both sides, meant every aeroplane in the game had
-  // a star to port and a blue plate to starboard.
-  cyl(m, M.insignia, r, r, 0.05, 0, 0, 0, 16);
+  layers.forEach(([r, mat], i) => {
+    // Half in, half out: the buried half is inside the skin where nothing can
+    // see it, and what shows is a disc of paint a few millimetres proud.
+    cyl(m, mat, r, r, 0.022 + i * 0.004, 0, i * 0.002, 0, 16);
+  });
+  return m;
+}
+
+/** Which way a marking is looking at her: down at a deck, up at an underside,
+ * or in at a side. `true` is the upper surface, `'down'` the lower, `false`
+ * the fuselage side on whichever beam the marking is on. */
+function faceDir(up, x) {
+  if (up === 'down') return [0, 1, 0];
+  if (up) return [0, -1, 0];
+  return [x >= 0 ? -1 : 1, 0, 0];
+}
+
+function insignia(p, x, y, z, r, up = true, fit = null) {
+  const dir = faceDir(up, x);
+  const m = decal(p, x, y, z, dir, [[r, M.insignia]], fit);
+  // The star is built out of five arms rather than drawn as a five-sided disc:
+  // a pentagon at this range is a blob, and the shape is the only thing on the
+  // aeroplane that says whose it is. It stands on the blue, not in it.
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + 0.2;
-    box(m, M.star, r * 0.36, 0.075, r * 0.95,
-      Math.sin(a) * r * 0.42, 0, Math.cos(a) * r * 0.42, a);
+    box(m, M.star, r * 0.36, 0.042, r * 0.95,
+      Math.sin(a) * r * 0.42, 0.019, Math.cos(a) * r * 0.42, a);
   }
-  cyl(m, M.star, r * 0.32, r * 0.32, 0.075, 0, 0, 0, 10);
+  cyl(m, M.star, r * 0.32, r * 0.32, 0.042, 0, 0.019, 0, 10);
+  return m;
 }
 
 /**
  * The hinomaru: the Japanese national marking.
  *
  * A plain disc of red -- no star, no bars -- with the white surround the
- * late-war machines carried. Cut through the skin rather than laid on it, for
- * the same reason the star is: laid on, the marking shows on one face and the
- * other face is a blank plate, so every aeroplane has a rising sun to port and
- * a red plate to starboard.
+ * late-war machines carried.
  */
-function hinomaru(p, x, y, z, r, up = true, surround = true) {
-  const m = new THREE.Group();
-  m.position.set(x, y, z);
-  if (!up) m.rotation.z = Math.PI / 2;
-  p.add(m);
-  if (surround) cyl(m, M.star, r * 1.18, r * 1.18, 0.045, 0, 0, 0, 16);
-  cyl(m, P.hinomaru, r, r, 0.055, 0, 0, 0, 16);
-  return m;
+function hinomaru(p, x, y, z, r, up = true, surround = true, fit = null) {
+  const dir = faceDir(up, x);
+  const layers = surround ? [[r * 1.18, M.star], [r, P.hinomaru]] : [[r, P.hinomaru]];
+  return decal(p, x, y, z, dir, layers, fit);
 }
 
-/**
- * An inline engine's nose: a long slim cowling round a vee-twelve, with the
- * spinner on the end of it and the radiator scoop under.
- *
- * The Suisei is the one Japanese carrier aircraft with one, and it is the
- * whole of why she looks like nothing else in the Pacific -- everything else
- * out there has a radial and a blunt nose, and she has the profile of a
- * fighter.
- */
 function inline(p, r, y, z, span, blades = 3, spin = false) {
   airframe(p, M.planeTop, [
     { z: z - 1.95, w: r * 1.55, h: r * 1.70, y },
@@ -717,18 +1474,129 @@ function inline(p, r, y, z, span, blades = 3, spin = false) {
     const b = new THREE.Group();
     b.rotation.z = (i / blades) * Math.PI * 2;
     disc.add(b);
-    const bl = box(b, M.prop, 0.16, span * 0.5, 0.05, 0, span * 0.25, 0);
-    bl.rotation.y = 0.32;
+    propBlade(b, M.prop, span * 0.5, 0.26, 0.15, 0.60, 0.14);
   }
   if (spin) p.userData.prop = disc;
   return disc;
 }
 
 /** A main leg: oleo, scissors, wheel and the door on its side. */
+/**
+ * Where a leg or a strut meets the aeroplane, by looking rather than guessing.
+ *
+ * A ray fired straight up from under her at that point: the first thing it
+ * meets is the underside of whatever is there -- wing, fuselage, fairing --
+ * and that is where the leg has to start. Guessing it was how six of the nine
+ * machines came to have undercarriages hanging in the air under them with
+ * nothing joining them to the aeroplane at all.
+ *
+ * Null if there is nothing overhead, which means the caller is putting a leg
+ * somewhere there is no aeroplane.
+ */
+const RAY_UP = new THREE.Raycaster();
+const RAY_O = new THREE.Vector3();
+const RAY_D = new THREE.Vector3();
+
+/**
+ * Fire a ray through the model in the model's own frame.
+ *
+ * The frame matters. These machines are built twice: once at the origin, for
+ * the squadrons in the air, and once in place -- on a flight deck, on a
+ * catapult on a battleship's quarterdeck, which is thirty metres from the
+ * origin and drawn at the ship's own scale. A ray set up in world coordinates
+ * from numbers that are the aeroplane's own left the aeroplane entirely and
+ * struck the ship she was standing on, and whatever asked for it then put its
+ * piece a hundred metres away.
+ */
+function castLocal(p, from, dir, only = null) {
+  // Her own matrices, and her ancestors', brought up to date first.
+  //
+  // `updateMatrixWorld` walks down, not up: called on a wing panel it composes
+  // that panel with whatever its parent's world matrix happened to be left at,
+  // and until something updates the aeroplane herself that is the identity.
+  // So the first ray fired on a machine built in place on a ship ran in one
+  // frame and the ones after it ran in another, and the marking it placed
+  // ended up thirty metres from the aeroplane. Walk the chain up, then the
+  // subtree down, and every ray runs in the frame the model is actually in.
+  const chain = [];
+  for (let n = p; n; n = n.parent) chain.push(n);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const n = chain[i];
+    if (n.matrixAutoUpdate) n.updateMatrix();
+    if (n.parent) n.matrixWorld.multiplyMatrices(n.parent.matrixWorld, n.matrix);
+    else n.matrixWorld.copy(n.matrix);
+  }
+  p.updateMatrixWorld(true);
+  RAY_O.set(from[0], from[1], from[2]).applyMatrix4(p.matrixWorld);
+  RAY_D.set(dir[0], dir[1], dir[2]).transformDirection(p.matrixWorld).normalize();
+  RAY_UP.set(RAY_O, RAY_D);
+  const targets = [];
+  (only || p).traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
+  return RAY_UP.intersectObjects(targets, false)[0] || null;
+}
+
+function underside(p, x, z, from = -3) {
+  const hit = castLocal(p, [x, from, z], [0, 1, 0]);
+  return hit ? p.worldToLocal(hit.point.clone()).y : null;
+}
+
+/**
+ * Where a ray fired through the model first meets it.
+ *
+ * The general form of `underside`, for the struts on a float plane: they have
+ * to land on the deck of a float at one end and on the side of a fuselage at
+ * the other, and neither of those is a number anybody should be typing in.
+ */
+function hitPoint(p, from, dir, only = null) {
+  const hit = castLocal(p, from, dir, only);
+  if (!hit) return null;
+  const v = p.worldToLocal(hit.point.clone());
+  return [v.x, v.y, v.z];
+}
+
+/**
+ * A strut that finds both of its own ends.
+ *
+ * Given roughly where it runs, it fires a ray each way and lands on whatever
+ * is actually there. A float plane drawn with struts at typed-in heights has
+ * struts that reach neither the float nor the fuselage -- which is how the
+ * Jake came to have her whole undercarriage, both floats and all eight struts,
+ * floating under her joined to nothing.
+ */
+function bridgeStrut(p, from, to, r, onlyA = null, onlyB = null) {
+  const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+  const a = hitPoint(p, to, [-d[0], -d[1], -d[2]], onlyA) || from;
+  const b = hitPoint(p, from, d, onlyB) || to;
+  return strut(p, M.planeTop, a, b, r);
+}
+
+/**
+ * A fairing from a leg's top up to the aeroplane over it.
+ *
+ * Short and tapered: on a real machine it is the oleo housing standing out of
+ * the wheel well, and it is the piece that was missing.
+ */
+function legRoot(p, x, z, topOfLeg, m = M.planeBottom, w = 0.26) {
+  // Fired from just above the top of the leg, not from under the aeroplane:
+  // started underneath, the first thing the ray meets is the tyre the leg is
+  // standing on, and the answer comes back below where it started.
+  const y = underside(p, x, z, topOfLeg + 0.03);
+  if (y === null || y <= topOfLeg + 0.02) return null;
+  return box(p, m, w, y - topOfLeg + 0.06, w * 1.5, x, (y + topOfLeg) / 2, z);
+}
+
 function mainGear(p, s, x, z, len, r, rake = 0.12) {
+  // Where the wing's underside is, asked before the leg exists: fired from the
+  // top of the leg it found the panel's *upper* skin instead on every machine
+  // whose leg is long enough to reach up inside the wing, and the wheel well
+  // came out as a black box standing on top of her mainplane.
+  const skin = underside(p, x, z, 0.02);
   const leg = new THREE.Group();
   leg.position.set(x, len, z);
   leg.rotation.z = -s * rake;
+  // What the leg found over it, for the check that every undercarriage on
+  // every machine is bolted to an aeroplane rather than hanging under one.
+  leg.userData.legFoot = { x, z, top: len, skin };
   p.add(leg);
   cyl(leg, M.planeBottom, 0.12, 0.14, len * 0.62, 0, -len * 0.3, 0, 8);
   cyl(leg, M.bright, 0.085, 0.085, len * 0.44, 0, -len * 0.72, 0, 8);
@@ -737,7 +1605,11 @@ function mainGear(p, s, x, z, len, r, rake = 0.12) {
   tyre.rotation.z = Math.PI / 2;
   cyl(leg, M.bright, r * 0.42, r * 0.42, 0.3, s * 0.16, -len * 0.93, 0, 10)
     .rotation.z = Math.PI / 2;
-  box(p, M.cave, 0.5, 0.16, 0.66, x - s * 0.1, len * 0.1, z);
+  // The wheel well, in the underside of the wing where a wheel well is -- not
+  // down by the tyre, which is where it used to be drawn.
+  if (skin !== null) box(p, M.cave, 0.5, 0.14, 0.66, x - s * 0.1, skin - 0.07, z);
+  // And the oleo housing joining the leg to her.
+  legRoot(p, x, z, len - 0.02);
   return leg;
 }
 
@@ -748,12 +1620,27 @@ function tailGear(p, z, r, hookLen, len = 0.42) {
   // up with the wheel is a hook that cannot catch a wire.
   const leg = new THREE.Group();
   leg.position.set(0, r + len, z);
+  leg.userData.legFoot = { x: 0, z, top: r + len, skin: underside(p, 0, z, 0.02) };
   p.add(leg);
   cyl(leg, M.planeBottom, 0.09, 0.11, len, 0, -len * 0.52, 0, 8);
   cyl(leg, M.prop, r, r, 0.16, 0, -len, 0, 10).rotation.z = Math.PI / 2;
-  const hook = box(p, M.gunDark, 0.09, 0.09, hookLen, 0, r + 0.75, z - hookLen * 0.42);
-  hook.rotation.x = -0.34;
-  box(p, M.gunDark, 0.2, 0.16, 0.3, 0, r + 0.4, z - hookLen * 0.86);
+  const HOOK_RAKE = -0.34;
+  const hookY = r + 0.75;
+  const hookZ = z - hookLen * 0.42;
+  const hook = box(p, M.gunDark, 0.09, 0.09, hookLen, 0, hookY, hookZ);
+  hook.rotation.x = HOOK_RAKE;
+  // The head, on the end of the arm rather than at a guessed height under it.
+  // A hook drawn at a rake and a head placed flat leave a gap between the two,
+  // and the head is then an object hanging under the aeroplane on nothing.
+  const half = hookLen * 0.5;
+  box(p, M.gunDark, 0.2, 0.16, 0.3,
+    0, hookY - Math.sin(-HOOK_RAKE) * half, hookZ - Math.cos(HOOK_RAKE) * half);
+  // The sternpost the leg retracts into, from the wheel up to the tail itself.
+  // Without it the whole tail unit -- wheel, leg and hook -- hung under her
+  // with a hand's breadth of air between it and the aeroplane.
+  legRoot(p, 0, z, r + len - 0.02, M.planeBottom, 0.2);
+  // And the hook's own root, for the same reason.
+  legRoot(p, 0, z - hookLen * 0.42, r + 0.75, M.gunDark, 0.12);
   return leg;
 }
 
@@ -856,23 +1743,24 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
     w.position.set(s * 0.66, cl(1.05) - 0.30, 1.45);
     w.rotation.z = -s * 0.05;
     spread.add(w);
-    wing(w, M.planeTop, M.planeBottom, {
+    const sw = wing(w, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: 0, z: 0, span: 4.98, rootC: 1.80, tipC: 1.26,
       sweep: 0.30, thick: 0.112, camber: 0.022, twist: -0.02, rootCap: false,
     });
-    box(w, M.planeTop, 1.5, 0.10, 0.44, s * 3.6, 0.05, -0.72);       // aileron
-    box(w, M.planeTop, 1.7, 0.11, 0.56, s * 1.5, 0.02, -0.86);       // flap
-    // Her fifties: the muzzles standing out of the leading edge, and the
-    // blister over each breech. They used to be a pair of cubes hung two
-    // thirds of a metre ahead of the wing, in the air on their own.
-    for (const gx of [1.3, 2.3]) {
-      arm(cyl(w, M.gunDark, 0.05, 0.05, 0.42, s * gx, 0.035, 0.12, 6), 0.22)
-        .rotation.x = Math.PI / 2;
-      box(w, M.planeTop, 0.34, 0.13, 0.62, s * gx, 0.03, -0.24);
+    ctrlSurface(w, M.planeTop, sw, 0.57, 0.92);                      // aileron
+    ctrlSurface(w, M.planeTop, sw, 0.12, 0.48, 0.70);                // flap
+    // Her fifties: the muzzles standing out of the leading edge at the station
+    // they are in, with the breech inside the panel. Placed by hand they were
+    // a pair of cubes hung two thirds of a metre ahead of the wing, in the air
+    // on their own; asked of the panel, they come out of it.
+    for (const gf of [1.3 / 4.98, 2.3 / 4.98]) {
+      wingGun(w, sw, gf, 0.05, 0.30, 0.66);
+      // The ammunition-bay access panel over the breech, lying in the skin.
+      surfPatch(w, M.planeTop, sw, gf - 0.045, gf + 0.045, 0.14, 0.40, true, 0.006, 2, 2);
     }
     insignia(w, s * 2.7, 0.14, -0.42, 0.56);
     // The root fillet: the wing does not meet the body at a step.
-    box(w, M.planeTop, 0.5, 0.30, 1.55, s * 0.16, 0.05, -0.72);
+    rootFillet(w, M.planeTop, s * 0.16, 0.02, -0.70, 2.3, 0.48, 0.30);
   }
   stowed.visible = !!folded;
   spread.visible = !folded;
@@ -882,7 +1770,7 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
   // folded back along her: spread, it stood out at the root as a pale slab
   // half a metre thick on top of a wing.
   for (const s of [-1, 1]) {
-    box(p, M.planeTop, 0.56, 0.78, 1.5, s * 0.68, cl(1.1) - 0.14, 1.25);
+    rootFillet(p, M.planeTop, s * 0.66, cl(1.05) - 0.24, 1.15, 2.7, 0.66, 0.62);
     const hinge = box(stowed, M.planeBottom, 0.86, 0.34, 1.0,
       s * 0.98, cl(1.1) - 0.12, 1.3);
     hinge.rotation.z = s * 0.22;
@@ -933,14 +1821,27 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   }
   // The greenhouse: pilot forward, gunner aft under a long open hood.
   greenhouse(p, 0.92, 0.70, cl(0.9) + 0.76, -1.0, 2.05, 4);
-  box(p, M.cave, 0.84, 0.5, 1.4, 0, cl(-1.6) + 0.92, -1.7);
-  // His twin thirties on their ring, and the ring itself.
-  cyl(p, M.planeTop, 0.46, 0.48, 0.14, 0, cl(-2.0) + 0.98, -2.0, 14);
+  // The gunner's cockpit: the well he sits in cut into the turtledeck, the
+  // coaming round the opening, his seat and his back armour, and the ring the
+  // twin thirties swing on. It was a plain dark box standing on her spine,
+  // which from any angle read as a crate strapped to the aeroplane.
+  const GZ = -1.75;
+  const spine = (hitPoint(p, [0, 6, GZ], [0, -1, 0]) || [0, cl(GZ) + 0.92, GZ])[1];
+  box(p, M.cave, 0.74, 0.40, 1.55, 0, spine - 0.16, GZ);
   for (const s of [-1, 1]) {
-    const gun = cyl(p, M.gunDark, 0.055, 0.055, 1.5, s * 0.16, cl(-2.1) + 1.22, -2.1, 6);
-    gun.rotation.x = -0.5;
+    box(p, M.planeTop, 0.07, 0.13, 1.58, s * 0.40, spine + 0.03, GZ);
   }
-  box(p, M.gunDark, 0.5, 0.12, 0.4, 0, cl(-1.9) + 1.04, -1.9);
+  box(p, M.planeTop, 0.86, 0.13, 0.08, 0, spine + 0.03, GZ + 0.79);
+  box(p, M.planeTop, 0.86, 0.13, 0.08, 0, spine + 0.03, GZ - 0.79);
+  box(p, M.gunDark, 0.44, 0.06, 0.40, 0, spine - 0.22, GZ - 0.05);   // his seat
+  box(p, M.gunDark, 0.46, 0.44, 0.06, 0, spine - 0.02, GZ - 0.42);   // back armour
+  // His twin thirties on their ring, stowed forward over the coaming.
+  cyl(p, M.planeTop, 0.44, 0.46, 0.1, 0, spine + 0.06, GZ - 0.25, 16);
+  for (const s of [-1, 1]) {
+    const gun = cyl(p, M.gunDark, 0.05, 0.05, 1.4, s * 0.15, spine + 0.34, GZ - 0.1, 6);
+    gun.rotation.x = -0.42;
+  }
+  box(p, M.gunDark, 0.46, 0.1, 0.34, 0, spine + 0.18, GZ + 0.05);
   // Wings: a flat centre section with dihedral outboard of it, the ailerons,
   // and the split flaps -- perforated above and below -- that are her mark.
   const WY = cl(0.9) - 0.52;
@@ -954,20 +1855,26 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
     w.position.set(s * 1.9, WY, 0);
     w.rotation.z = -s * 0.175;
     p.add(w);
-    wing(w, M.planeTop, M.planeBottom, {
+    const sw = wing(w, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: 0, z: 1.84, span: 4.35, rootC: 2.20, tipC: 1.18,
       sweep: 0.62, thick: 0.112, camber: 0.024, twist: -0.03, rootCap: false,
     });
-    box(w, M.planeTop, 1.66, 0.11, 0.5, s * 3.5, 0.06, -0.28);         // aileron
-    box(w, M.gunDark, 1.5, 0.09, 0.14, s * 3.5, 0.02, 1.66);           // leading-edge slot
-    // The split flaps, closed: two thin perforated panels lying along the
-    // trailing edge, upper and lower, not the pair of shelves standing off it
-    // they were. Open, they are the whole reason an SBD can put a bomb where
-    // she puts one; closed, they should hardly show.
-    for (const dy of [0.075, -0.075]) {
-      box(w, M.gunDark, 4.0, 0.05, 0.42, s * 2.1, dy, -0.34);
-      for (let i = 0; i < 9; i++) {
-        cyl(w, M.cave, 0.055, 0.055, 0.07, s * (0.45 + i * 0.4), dy, -0.34, 6);
+    ctrlSurface(w, M.planeTop, sw, 0.61, 0.97);                        // aileron
+    leBand(w, M.gunDark, sw, 0.62, 0.97, 0.05, 0.006);                 // slot
+    // The split flaps, closed: the aft fifth of her own skin above and below,
+    // perforated, which is the whole reason an SBD can put a bomb where she
+    // puts one. They were a pair of planks lying across the panel; built off
+    // the panel's own surface they have its curve and taper and closed they
+    // show as a joint line, which is all they should.
+    for (const top of [true, false]) {
+      surfPatch(w, top ? M.planeTop : M.planeBottom, sw,
+        0.03, 0.92, 0.80, 0.995, top, 0.007, 8, 3);
+      // The holes: the perforation that killed the buffeting and made her the
+      // one dive bomber that could be held in a dive.
+      for (let i = 0; i < 10; i++) {
+        const f = 0.07 + (i / 9) * 0.82;
+        const a = sw.at(f, 0.89, top);
+        cyl(w, M.cave, 0.05, 0.05, 0.05, a[0], a[1] + (top ? 0.008 : -0.008), a[2], 6);
       }
     }
     insignia(w, s * 2.5, 0.16, 0.55, 0.62);
@@ -979,14 +1886,38 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   insignia(p, 0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
   insignia(p, -0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
   empennage(p, 1.5, 1.32, 3.9, 1.02, cl(-4.3) + 0.4, -4.0);
-  // The crutch that swung her bomb clear of the propeller, and the bomb on it.
-  const cr = box(p, M.gunDark, 0.14, 0.55, 1.5, 0, cl(1.2) - 1.05, 1.3);
-  cr.rotation.x = 0.1;
-  cyl(p, M.gunDark, 0.17, 0.17, 1.7, 0, cl(1.0) - 1.35, 1.2, 10).rotation.x = Math.PI / 2;
-  cyl(p, M.gunDark, 0.17, 0.02, 0.5, 0, cl(1.9) - 1.35, 2.2, 10).rotation.x = Math.PI / 2;
+  // The displacing trapeze, and the thousand-pounder on it.
+  //
+  // A dive bomber has no bomb bay. A bomb released from the belly of a machine
+  // standing on her nose goes through her own airscrew, so the SBD carries
+  // hers on a yoke that swings down and forward on the release and throws her
+  // clear of the disc before she is let go. The yoke is a moving part -- see
+  // animPart -- and so is the bomb, hung on the same pivot so the two swing
+  // together and the bomb alone falls away at the bottom of the stroke.
+  const belly = underside(p, 0, 1.3, -4) ?? (cl(1.3) - 1.05);
+  const PIV = [0, belly + 0.04, 1.15];
+  // The fittings the yoke hangs on, which stay put.
   for (const s of [-1, 1]) {
-    box(p, M.gunDark, 0.02, 0.3, 0.3, s * 0.1, cl(0.3) - 1.35, 0.45);
+    box(p, M.gunDark, 0.1, 0.22, 0.5, s * 0.24, belly - 0.06, 1.15);
   }
+  const yoke = new THREE.Group();
+  yoke.position.set(PIV[0], PIV[1], PIV[2]);
+  p.add(yoke);
+  for (const s of [-1, 1]) {
+    // The two arms, reaching down and a little forward to the bomb's band.
+    strut(yoke, M.gunDark, [s * 0.22, -0.04, 0], [s * 0.13, -0.62, 0.30], 0.055);
+    strut(yoke, M.gunDark, [s * 0.22, -0.04, 0], [s * 0.13, -0.62, -0.26], 0.045);
+  }
+  box(yoke, M.gunDark, 0.34, 0.07, 0.9, 0, -0.64, 0.02);
+  animPart(p, 'trapeze', yoke, { axis: 'x', open: -0.92 });
+  const store = new THREE.Group();
+  store.position.set(PIV[0], PIV[1], PIV[2]);
+  p.add(store);
+  const shell = new THREE.Group();
+  shell.position.set(0, -0.82, 0.02);
+  store.add(shell);
+  bomb(shell, 2.2, 0.24);
+  animPart(p, 'store', store, { axis: 'x', open: -0.92, fall: true });
   if (opts.gear !== false) {
     for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
     tailGear(p, -4.45, 0.19, 1.2, 0.34);
@@ -1022,34 +1953,45 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     { z: 4.95, w: 1.02, h: 1.48, y: cl(4.95) + 0.11 },
   ], { flat: 0.06, e: 0.95, mBot: M.planeBottom });
   radial(p, 0.95, cl(5.2) + 0.1, 5.1, 3.9, 3, spin);
-  // The bay, its doors, and the fish inside them.
-  for (const s of [-1, 1]) {
-    box(p, M.planeBottom, 0.1, 0.34, 4.3, s * 0.5, cl(1.2) - 1.02, 1.2);
-  }
-  box(p, M.cave, 0.86, 0.16, 4.1, 0, cl(1.2) - 1.1, 1.2);
-  // The fish itself, up in the bay where she carries it.
-  cyl(p, M.steelDark, 0.26, 0.26, 4.0, 0, cl(1.1) - 0.96, 1.1, 12).rotation.x = Math.PI / 2;
-  cyl(p, M.steelDark, 0.26, 0.06, 0.8, 0, cl(3.2) - 0.96, 3.3, 12).rotation.x = Math.PI / 2;
-  for (const s of [-1, 1]) {
-    box(p, M.steelDark, 0.03, 0.46, 0.46, s * 0.15, cl(-0.9) - 0.96, -0.9);
-    box(p, M.steelDark, 0.46, 0.03, 0.46, 0, cl(-0.9) - 0.96 + s * 0.23, -0.9);
-  }
+  // Her bomb bay, and the Mark 13 in it. An Avenger is built round this: she
+  // is the only carrier aeroplane in the game that carries her weapon inside
+  // her, and the bay door either side is a third of her belly. The belly line
+  // is asked of the model rather than typed in, so the doors lie in the skin
+  // instead of a hand's breadth under it.
+  const belly = underside(p, 0, 1.2, -4) ?? (cl(1.2) - 1.04);
+  bombBay(p, { y: belly + 0.01, z: 1.2, len: 4.6, wide: 0.98, deep: 0.56 });
+  const fish = new THREE.Group();
+  fish.position.set(0, belly + 0.33, 1.15);
+  p.add(fish);
+  torpedo(fish, 4.3, 0.24);
+  animPart(p, 'store', fish, { fall: true });
   greenhouse(p, 1.14, 0.80, cl(2.3) + 1.0, 1.05, 3.55, 4);
-  // The turret: a glazed ball on its ring with the fifty out of the side.
-  cyl(p, M.planeTop, 0.72, 0.74, 0.3, 0, cl(-0.5) + 0.96, -0.5, 14);
-  cyl(p, M.glass, 0.66, 0.68, 0.9, 0, cl(-0.5) + 1.5, -0.5, 14);
-  cyl(p, M.planeTop, 0.62, 0.42, 0.34, 0, cl(-0.5) + 2.02, -0.5, 14);
-  // The frames of it, which are what you actually see of a turret at range.
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI;
-    box(p, M.planeTop, 0.07, 0.94, 0.07, Math.sin(a) * 0.66, cl(-0.5) + 1.5,
-      -0.5 + Math.cos(a) * 0.66, a);
-    box(p, M.planeTop, 0.07, 0.94, 0.07, -Math.sin(a) * 0.66, cl(-0.5) + 1.5,
-      -0.5 - Math.cos(a) * 0.66, a);
+  // The turret: a glazed ball on its ring with the fifty out of the side, and
+  // the one thing that names a TBF at any range. It was a drum with a dozen
+  // heavy bars round it; a ball turret is a dome, so it is turned as one.
+  const TY = cl(-0.5) + 0.86;
+  lathe(p, M.planeTop, [[0.74, 0], [0.76, 0.1], [0.74, 0.2]], 0, TY, -0.5, 18);
+  lathe(p, M.glass, [
+    [0.70, 0.18], [0.72, 0.36], [0.70, 0.62], [0.62, 0.86],
+    [0.48, 1.04], [0.28, 1.16], [0, 1.20],
+  ], 0, TY, -0.5, 18);
+  // Four frames over the dome and a hoop round its waist -- what you actually
+  // see of a turret, and no more of them than there were.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const f = box(p, M.planeTop, 0.05, 1.06, 0.05,
+      Math.sin(a) * 0.66, TY + 0.66, -0.5 + Math.cos(a) * 0.66);
+    f.rotation.x = Math.cos(a) * 0.36;
+    f.rotation.z = -Math.sin(a) * 0.36;
   }
-  cyl(p, M.planeTop, 0.68, 0.68, 0.07, 0, cl(-0.5) + 1.94, -0.5, 14);
-  const fifty = cyl(p, M.gunDark, 0.06, 0.06, 1.5, 0.3, cl(-0.4) + 1.6, 0.1, 6);
-  fifty.rotation.x = -0.35;
+  lathe(p, M.planeTop, [[0.71, 0.60], [0.735, 0.64], [0.71, 0.68]], 0, TY, -0.5, 18);
+  lathe(p, M.planeTop, [[0.2, 1.17], [0.16, 1.24], [0, 1.26]], 0, TY, -0.5, 14);
+  const fifty = cyl(p, M.gunDark, 0.055, 0.055, 1.5, 0.34, TY + 0.66, 0.1, 6);
+  fifty.rotation.x = -0.32;
+  // The slot it traverses in, and the collar round the breech.
+  box(p, M.cave, 0.16, 0.5, 0.34, 0.62, TY + 0.62, -0.42);
+  cyl(p, M.planeTop, 0.13, 0.13, 0.26, 0.34, TY + 0.56, -0.20, 10)
+    .rotation.x = -0.32;
   // The spine aft of her, and the tunnel gun under the tail.
   airframe(p, M.planeTop, [
     { z: -4.60, w: 0.30, h: 0.30, y: cl(-4.60) + 0.5 },
@@ -1085,13 +2027,13 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     w.position.set(s * 0.95, WY, 2.9);
     w.rotation.z = -s * 0.06;
     spread.add(w);
-    wing(w, M.planeTop, M.planeBottom, {
+    const sw = wing(w, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: 0, z: 0, span: 7.25, rootC: 2.9, tipC: 1.5,
       sweep: 0.85, thick: 0.112, camber: 0.024, twist: -0.03, rootCap: false,
     });
-    box(w, M.planeTop, 2.1, 0.11, 0.62, s * 5.2, 0.06, -1.9);        // aileron
-    box(w, M.planeTop, 2.9, 0.12, 0.8, s * 1.9, 0.02, -2.3);         // flap
-    arm(box(w, M.gunDark, 0.22, 0.22, 0.24, s * 1.5, 0.1, 0.04), 0.24); // wing fifty
+    ctrlSurface(w, M.planeTop, sw, 0.57, 0.88);                      // aileron
+    ctrlSurface(w, M.planeTop, sw, 0.06, 0.47, 0.70);                // flap
+    wingGun(w, sw, 1.5 / 7.25, 0.05, 0.28, 0.70);                    // wing fifty
     insignia(w, s * 4.0, 0.16, -0.6, 0.72);
   }
   stowed.visible = folded;
@@ -1196,12 +2138,12 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
     w.position.set(s * ROOT[0], ROOT[1], ROOT[2]);
     w.rotation.z = -s * 0.055;                       // a little dihedral
     spread.add(w);
-    wing(w, TOP, BOT, {
+    const sw = wing(w, TOP, BOT, {
       side: s, x: 0, y: 0, z: 0, span: 5.70, rootC: 2.30, tipC: 1.30,
       sweep: 0.34, thick: 0.125, camber: 0.024, twist: -0.025, rootCap: false,
     });
-    box(w, TOP, 1.90, 0.10, 0.46, s * 4.10, 0.03, -0.92);      // aileron
-    box(w, TOP, 2.00, 0.11, 0.60, s * 1.70, 0.00, -1.06);      // flap
+    ctrlSurface(w, TOP, sw, 0.57, 0.93);                       // aileron
+    ctrlSurface(w, TOP, sw, 0.12, 0.50, 0.70);                 // flap
     // Her 20 mm in the leading edge, and the blister over the drum behind it.
     arm(cyl(w, P.gunDark, 0.055, 0.055, 0.62, s * 2.05, 0.03, 0.16, 6), 0.32)
       .rotation.x = Math.PI / 2;
@@ -1212,7 +2154,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
       .rotation.x = Math.PI / 2;
     balkenkreuz(w, s * 3.30, 0.13, -0.62, 0.52);
     // The root fillet, so the wing does not meet the body at a step.
-    box(w, TOP, 0.42, 0.30, 1.90, s * 0.14, 0.03, -0.90);
+    rootFillet(w, TOP, s * 0.14, 0.01, -0.90, 2.5, 0.42, 0.30);
     // Folded: the same panel swung aft about the root, lying along her side.
     const f = new THREE.Group();
     f.position.set(s * ROOT[0], ROOT[1] + 0.28, ROOT[2]);
@@ -1341,17 +2283,17 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
     w.position.set(s * 0.46, cl(0.3) + 0.10, 0.70);
     w.rotation.z = -s * 0.045;
     p.add(w);
-    wing(w, TOP, BOT, {
+    const sw = wing(w, TOP, BOT, {
       side: s, x: 0, y: 0, z: 0, span: 5.02, rootC: 2.05, tipC: 1.32,
       sweep: 0.10, thick: 0.135, camber: 0.030, twist: -0.03, rootCap: false,
     });
-    box(w, TOP, 1.62, 0.09, 0.42, s * 3.70, 0.02, -0.82);       // aileron
-    box(w, TOP, 1.80, 0.10, 0.56, s * 1.50, -0.01, -0.96);      // flap
+    ctrlSurface(w, TOP, sw, 0.58, 0.92);                        // aileron
+    ctrlSurface(w, TOP, sw, 0.12, 0.48, 0.70);                  // flap
     // The full-span leading-edge slot, which is the one thing on her that a
     // carrier aeroplane has not got.
     box(w, TOP, 4.40, 0.07, 0.16, s * 2.60, 0.07, 0.03);
     insignia(w, s * 2.90, 0.13, -0.44, 0.50);
-    box(w, TOP, 0.40, 0.28, 1.70, s * 0.14, 0.02, -0.78);       // root fillet
+    rootFillet(w, TOP, s * 0.14, 0.00, -0.78, 2.3, 0.40, 0.28);  // root fillet
     // The wingtip float on its little pylon and its brace.
     const ft = new THREE.Group();
     ft.position.set(s * 5.05, -0.86, -0.10);
@@ -1468,25 +2410,21 @@ function zero(g, x, y, z, ry, folded = false, opts = {}) {
       w.position.set(s * 0.48, cl(0.7) - 0.34, 0.55);
       w.rotation.z = -s * 0.055;
       holder.add(w);
-      wing(w, M.planeTop, M.planeBottom, {
+      const sw = wing(w, M.planeTop, M.planeBottom, {
         side: s, x: 0, y: 0, z: 0, span: 5.5, rootC: 2.30, tipC: 1.20,
         sweep: 0.52, thick: 0.105, camber: 0.024, twist: -0.03, rootCap: false,
       });
-      box(w, M.planeTop, 1.5, 0.09, 0.40, s * 4.2, 0.04, -0.92);     // aileron
-      box(w, M.planeTop, 1.9, 0.10, 0.52, s * 1.7, 0.02, -1.06);     // flap
+      ctrlSurface(w, M.planeTop, sw, 0.63, 0.92);                    // aileron
+      ctrlSurface(w, M.planeTop, sw, 0.14, 0.48, 0.70);              // flap
       // Her 20 mm cannon in the leading edge, and the 13 mm beside it.
-      arm(cyl(w, M.gunDark, 0.055, 0.055, 0.62, s * 2.1, 0.03, 0.30, 6), 0.32)
-        .rotation.x = Math.PI / 2;
-      arm(cyl(w, M.gunDark, 0.038, 0.038, 0.34, s * 2.9, 0.03, 0.22, 6), 0.18)
-        .rotation.x = Math.PI / 2;
-      // The yellow identification band on the leading edge at the root, which
-      // every Japanese aircraft after 1942 carried.
-      box(w, P.yellow, 1.6, 0.11, 0.30, s * 1.5, 0.02, 0.90);
+      wingGun(w, sw, 2.1 / 5.5, 0.055, 0.34, 0.92);
+      wingGun(w, sw, 2.9 / 5.5, 0.038, 0.19, 0.58);
+      leBand(w, P.yellow, sw, 0.12, 0.48);
       hinomaru(w, s * 3.4, 0.10, -0.55, 0.52);
-      hinomaru(w, s * 3.4, -0.10, -0.55, 0.52);
+      hinomaru(w, s * 3.4, -0.10, -0.55, 0.52, 'down');
       if (tipUp) w.rotation.z = -s * 1.42;      // see below
       // The root fillet.
-      box(w, M.planeTop, 0.45, 0.26, 2.0, s * 0.14, 0.04, -0.60);
+      rootFillet(w, M.planeTop, s * 0.14, 0.02, -0.60, 2.6, 0.44, 0.27);
     }
   }
   // Folded, the whole panel comes up on the root hinge and stands on edge
@@ -1500,7 +2438,7 @@ function zero(g, x, y, z, ry, folded = false, opts = {}) {
   hinomaru(p, -0.36, cl(-1.6) + 0.06, -1.6, 0.40, false);
   empennage(p, 1.16, 1.02, 3.30, 0.80, cl(-3.5) + 0.30, -3.2);
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 1.30, 0.9, 0.96, 0.30, 0.06);
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.30, 0.0, 0.96, 0.30, 0.06);
     tailGear(p, -3.95, 0.15, 0.9, 0.30);
   }
   box(p, M.planeTop, 0.06, 0.52, 0.06, 0, cl(0.2) + 1.06, 0.2);
@@ -1550,9 +2488,16 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
     { z: -1.80, w: 0.64, h: 0.50, y: cl(-1.80) + 0.48 },
     { z: -1.30, w: 0.70, h: 0.53, y: cl(-1.30) + 0.51 },
   ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
-  // The bomb bay doors under her, which is what she was designed round.
-  box(p, M.planeBottom, 0.62, 0.1, 2.6, 0, cl(0.2) - 0.66, 0.2);
-  box(p, M.cave, 0.5, 0.06, 2.4, 0, cl(0.2) - 0.70, 0.2);
+  // The bomb bay she was designed round. The Suisei is the one dive bomber of
+  // the four that has one: everything else in the Pacific swung its bomb out
+  // on a crutch to clear the airscrew, and she carried hers inside.
+  const belly = underside(p, 0, 0.2, -4) ?? (cl(0.2) - 0.66);
+  bombBay(p, { y: belly + 0.01, z: 0.2, len: 2.5, wide: 0.66, deep: 0.44 });
+  const store = new THREE.Group();
+  store.position.set(0, belly + 0.27, 0.2);
+  p.add(store);
+  bomb(store, 2.1, 0.21);
+  animPart(p, 'store', store, { fall: true });
 
   const stowed = new THREE.Group();
   const spread = new THREE.Group();
@@ -1564,25 +2509,32 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
       w.position.set(s * 0.46, cl(0.5) - 0.30, 0.35);
       w.rotation.z = -s * 0.05;
       holder.add(w);
-      wing(w, M.planeTop, M.planeBottom, {
+      const sw = wing(w, M.planeTop, M.planeBottom, {
         side: s, x: 0, y: 0, z: 0, span: 5.9, rootC: 2.40, tipC: 1.10,
         sweep: 0.60, thick: 0.100, camber: 0.022, twist: -0.03, rootCap: false,
       });
-      box(w, M.planeTop, 1.6, 0.09, 0.42, s * 4.5, 0.04, -0.98);
-      box(w, M.planeTop, 2.0, 0.10, 0.54, s * 1.8, 0.02, -1.12);
-      // The dive brakes: a slatted panel under the wing, standing down. This
-      // is the aeroplane's whole trade and nothing else here has one.
-      const br = box(w, M.gunDark, 1.9, 0.08, 0.62, s * 2.2, -0.22, -0.30);
-      br.rotation.x = -0.9;
+      ctrlSurface(w, M.planeTop, sw, 0.63, 0.92);                    // aileron
+      ctrlSurface(w, M.planeTop, sw, 0.14, 0.47, 0.70);              // flap
+      // The dive brakes: a slatted panel under the wing, which is the
+      // aeroplane's whole trade and nothing else in the Pacific has one.
+      // Stowed they lie in her own skin -- so they are a piece of it -- with
+      // the slats and the arms that swing them showing under the panel.
+      surfPatch(w, M.gunDark, sw, 0.20, 0.62, 0.42, 0.74, false, 0.008, 5, 3);
       for (let i = 0; i < 5; i++) {
-        box(w, M.gunDark, 0.1, 0.09, 0.6, s * (1.4 + i * 0.4), -0.24, -0.30)
-          .rotation.x = -0.9;
+        const f = 0.22 + (i / 4) * 0.38;
+        const a = sw.at(f, 0.58, false);
+        box(w, M.gunDark, 0.05, 0.06, 0.55, a[0], a[1] - 0.016, a[2]);
       }
-      box(w, P.yellow, 1.6, 0.10, 0.30, s * 1.5, 0.02, 0.96);
+      for (const f of [0.21, 0.61]) {
+        const a = sw.at(f, 0.44, false);
+        const b = sw.at(f, 0.72, false);
+        strut(w, M.gunDark, [a[0], a[1] - 0.02, a[2]], [b[0], b[1] - 0.03, b[2]], 0.03);
+      }
+      leBand(w, P.yellow, sw, 0.12, 0.46);
       hinomaru(w, s * 3.6, 0.10, -0.60, 0.54);
-      hinomaru(w, s * 3.6, -0.10, -0.60, 0.54);
+      hinomaru(w, s * 3.6, -0.10, -0.60, 0.54, 'down');
       if (up) w.rotation.z = -s * 1.44;
-      box(w, M.planeTop, 0.42, 0.24, 2.1, s * 0.14, 0.04, -0.66);
+      rootFillet(w, M.planeTop, s * 0.14, 0.02, -0.66, 2.7, 0.42, 0.25);
     }
   }
   stowed.visible = !!folded;
@@ -1593,7 +2545,7 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
   hinomaru(p, -0.34, cl(-2.2) + 0.06, -2.2, 0.40, false);
   empennage(p, 1.14, 1.00, 3.40, 0.82, cl(-4.1) + 0.28, -3.8);
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 1.35, 0.7, 1.00, 0.30, 0.05);
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.35, -0.22, 1.00, 0.30, 0.05);
     tailGear(p, -4.55, 0.15, 0.95, 0.30);
   }
   // The rear gunner's 7.7 mm on its ring, which folds down into the decking.
@@ -1656,16 +2608,16 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     w.position.set(s * 0.74, cl(0.9) - 0.34, 0.95);
     w.rotation.z = -s * 0.06;
     spread.add(w);
-    wing(w, M.planeTop, M.planeBottom, {
+    const sw = wing(w, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: 0, z: 0, span: 6.7, rootC: 2.70, tipC: 1.30,
       sweep: 0.70, thick: 0.112, camber: 0.024, twist: -0.03, rootCap: false,
     });
-    box(w, M.planeTop, 1.8, 0.10, 0.48, s * 5.1, 0.05, -1.12);
-    box(w, M.planeTop, 2.2, 0.11, 0.60, s * 2.0, 0.02, -1.30);
-    box(w, P.yellow, 1.8, 0.11, 0.32, s * 1.6, 0.02, 1.12);
+    ctrlSurface(w, M.planeTop, sw, 0.63, 0.91);                      // aileron
+    ctrlSurface(w, M.planeTop, sw, 0.13, 0.46, 0.70);                // flap
+    leBand(w, P.yellow, sw, 0.11, 0.44);
     hinomaru(w, s * 4.0, 0.12, -0.70, 0.62);
-    hinomaru(w, s * 4.0, -0.12, -0.70, 0.62);
-    box(w, M.planeTop, 0.5, 0.28, 2.4, s * 0.16, 0.05, -0.76);
+    hinomaru(w, s * 4.0, -0.12, -0.70, 0.62, 'down');
+    rootFillet(w, M.planeTop, s * 0.16, 0.02, -0.76, 3.0, 0.50, 0.29);
   }
   stowed.visible = !!folded;
   spread.visible = !folded;
@@ -1674,25 +2626,23 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   // The torpedo, slung nose-down under her belly and offset to starboard,
   // which is the way a Tenzan carried one.
   if (opts.fish !== false) {
+    // The crutch and its sway braces, on the belly where the fish hangs: a
+    // torpedo carried outside is carried on something, and hers used to hang
+    // in the air under her with nothing joining the two.
+    const belly = underside(p, -0.30, 0.30, -4) ?? (cl(0.3) - 0.86);
+    for (const zz of [-0.85, 0.85]) {
+      box(p, M.gunDark, 0.34, 0.22, 0.16, -0.30, belly - 0.08, 0.30 + zz);
+      for (const sx of [-1, 1]) {
+        strut(p, M.gunDark, [-0.30 + sx * 0.02, belly - 0.02, 0.30 + zz],
+          [-0.30 + sx * 0.30, belly - 0.20, 0.30 + zz], 0.03);
+      }
+    }
     const fish = new THREE.Group();
-    fish.position.set(-0.30, cl(0.3) - 1.02, 0.30);
+    fish.position.set(-0.30, belly - 0.33, 0.30);
     fish.rotation.x = 0.13;
     p.add(fish);
-    airframe(fish, M.bright, [
-      { z: -2.55, w: 0.14, h: 0.14, y: 0 },
-      { z: -2.10, w: 0.34, h: 0.34, y: 0 },
-      { z: -1.20, w: 0.42, h: 0.42, y: 0 },
-      { z: 1.20, w: 0.42, h: 0.42, y: 0 },
-      { z: 2.05, w: 0.34, h: 0.34, y: 0 },
-      { z: 2.50, w: 0.12, h: 0.12, y: 0 },
-    ], { flat: 0, e: 1, mBot: M.bright });
-    for (let i = 0; i < 4; i++) {
-      const f = box(fish, M.gunDark, 0.5, 0.06, 0.5, 0, 0, -2.2);
-      f.rotation.z = (i / 4) * Math.PI * 2 + 0.78;
-    }
-    // The wooden tail box the IJN put on an air-dropped fish to keep it from
-    // broaching, which came off on entry.
-    box(fish, M.planeBottom, 0.46, 0.46, 0.5, 0, 0, -2.45);
+    torpedo(fish, 5.1, 0.23);
+    animPart(p, 'store', fish, { fall: true });
   }
 
   hinomaru(p, 0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
@@ -1701,7 +2651,7 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   // shape so the tail could fold clear for the lift.
   empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 0.85, 1.16, 0.36, 0.05);
+    for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 0.31, 1.30, 0.36, 0.05);
     tailGear(p, -5.00, 0.18, 1.1, 0.34);
   }
   // The rear gunner's 7.92 mm, and the tunnel gun under the sternpost.
@@ -1766,14 +2716,14 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
     w.position.set(s * 0.58, cl() - 0.52, 0.45);
     w.rotation.z = -s * 0.04;
     spread.add(w);
-    wing(w, M.planeTop, M.planeBottom, {
+    const sw = wing(w, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: 0, z: 0, span: 7.0, rootC: 2.30, tipC: 1.20,
       sweep: 0.30, thick: 0.108, camber: 0.022, twist: -0.02, rootCap: false,
     });
-    box(w, M.planeTop, 1.9, 0.09, 0.42, s * 5.4, 0.04, -0.96);
-    box(w, M.planeTop, 2.1, 0.10, 0.52, s * 2.0, 0.02, -1.08);
+    ctrlSurface(w, M.planeTop, sw, 0.63, 0.92);                      // aileron
+    ctrlSurface(w, M.planeTop, sw, 0.13, 0.47, 0.70);                // flap
     hinomaru(w, s * 4.2, 0.10, -0.56, 0.58);
-    hinomaru(w, s * 4.2, -0.10, -0.56, 0.58);
+    hinomaru(w, s * 4.2, -0.10, -0.56, 0.58, 'down');
   }
   stowed.visible = !!folded;
   spread.visible = !folded;
@@ -1803,11 +2753,22 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
     cyl(fl, P.gunDark, 0.05, 0.06, 0.14, 0, 0.98, 2.40, 8);
     const rud = box(fl, M.planeBottom, 0.05, 0.30, 0.34, 0, 0.48, -3.05);
     rud.rotation.x = 0.12;
-    // Four struts a float: two to the body and two out to the wing.
-    strut(p, M.planeTop, [s * 1.72, 1.22, 1.90], [s * 0.40, cl() - 0.58, 1.20], 0.065);
-    strut(p, M.planeTop, [s * 1.72, 1.22, -0.50], [s * 0.40, cl() - 0.58, -0.40], 0.065);
-    strut(p, M.planeTop, [s * 1.72, 1.22, 1.90], [s * 1.60, cl() - 0.54, 1.00], 0.055);
-    strut(p, M.planeTop, [s * 1.72, 1.22, -0.50], [s * 1.60, cl() - 0.54, -0.30], 0.055);
+    // Four struts a float: two to the body and two out to the wing. Each of
+    // them finds its own two ends -- the deck of the float below and the skin
+    // of the aeroplane above -- rather than being drawn between two guessed
+    // heights, which left every one of them touching nothing at either end.
+    for (const [fz, tx, ty, tz, r] of [
+      [1.90, 0.40, -0.34, 1.20, 0.065], [-0.50, 0.40, -0.34, -0.40, 0.065],
+      [1.90, 1.60, -0.30, 1.00, 0.055], [-0.50, 1.60, -0.30, -0.30, 0.055],
+    ]) {
+      // The foot on the deck of the float itself, found by looking down on it,
+      // and the head on the skin of the aeroplane. Typed-in heights left every
+      // strut short at both ends and the whole undercarriage joined to nothing.
+      const deck = hitPoint(p, [s * 1.72, 3.2, fz], [0, -1, 0], fl)
+        || [s * 1.72, 1.0, fz];
+      deck[1] -= 0.05;
+      strut(p, M.planeTop, deck, [s * tx, cl() + ty, tz], r);
+    }
   }
 
   hinomaru(p, 0.36, cl() - 0.10, -2.9, 0.42, false);

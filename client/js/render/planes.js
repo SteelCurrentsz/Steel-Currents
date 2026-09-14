@@ -19,7 +19,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, zero, suisei, tenzan, jake,
-  muzzlesOf,
+  muzzlesOf, dressPlane,
 } from './planekit.js';
 
 /**
@@ -28,7 +28,7 @@ import {
  * The models are written as a few hundred boxes and cylinders because that is
  * how you write a readable aeroplane. This is what makes them affordable.
  */
-export function weld(group) {
+export function weld(group, about = null) {
   group.updateMatrixWorld(true);
   const mats = [];
   const buckets = new Map();
@@ -58,6 +58,9 @@ export function weld(group) {
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
     m.copy(o.matrixWorld);
+    // A moving part is welded about its own hinge rather than about the
+    // aeroplane's datum, so the batch that draws it can turn it.
+    if (about) m.premultiply(about);
     nm.getNormalMatrix(m);
     const base = b.pos.length / 3;
     for (let i = 0; i < pos.count; i++) {
@@ -143,7 +146,29 @@ export function flightModels() {
     // after welding is the point: welding throws the tree away.
     MUZZLES[key] = muzzlesOf(p);
     p.add(disc);
-    out[key] = weld(g);
+    // Her skin, before the weld: flush-riveted alloy under paint, with the
+    // panel joints and the streaking that go with it. After the weld there is
+    // no tree left to walk. See dressPlane.
+    dressPlane(g);
+    // The pieces of her that move -- bay doors, a displacing trapeze, the
+    // weapon on the rack -- come out of the body before it is welded and are
+    // welded on their own about their hinges. Welded into the body they would
+    // be as fixed as the wings. See planekit's animPart.
+    const parts = [];
+    for (const spec of (p.userData.parts || [])) {
+      const node = spec.node;
+      node.updateMatrixWorld(true);
+      const at = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+      const rot = new THREE.Quaternion().setFromRotationMatrix(node.matrixWorld);
+      const base = new THREE.Matrix4().copy(node.matrixWorld).invert();
+      const { geo, mats } = weld(node, base);
+      node.parent.remove(node);
+      parts.push({
+        name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
+        at, rot, geo, mats,
+      });
+    }
+    out[key] = { ...weld(g), parts };
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
   make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
@@ -223,13 +248,28 @@ export class Flights {
     this.max = max;
     this.models = flightModels();
     this.batches = {};
-    for (const [key, { geo, mats }] of Object.entries(this.models)) {
+    for (const [key, { geo, mats, parts }] of Object.entries(this.models)) {
       const mesh = new THREE.InstancedMesh(geo, mats, max);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       scene.add(mesh);
-      this.batches[key] = { mesh, n: 0 };
+      // One batch per moving part as well, drawn at whatever angle that part
+      // is at on each aeroplane: a squadron with her bays open is the same
+      // number of draw calls as a squadron with them shut.
+      const moving = (parts || []).map((sp) => {
+        const pm = new THREE.InstancedMesh(sp.geo, sp.mats, max);
+        pm.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        pm.frustumCulled = false;
+        scene.add(pm);
+        return { spec: sp, mesh: pm, n: 0 };
+      });
+      this.batches[key] = { mesh, n: 0, parts: moving };
     }
+    this.part = new THREE.Matrix4();
+    this.hinge = new THREE.Matrix4();
+    this.slide = new THREE.Matrix4();
+    this.spin = new THREE.Quaternion();
+    this.axis = new THREE.Vector3();
     this.dummy = new THREE.Object3D();
     // Yaw, then pitch, then roll -- which is how an aeroplane's attitude is
     // built and the only order in which it means anything.
@@ -247,6 +287,38 @@ export class Flights {
     for (const key of Object.keys(this.batches)) {
       this.batches[key].mesh.count = 0;
       this.batches[key].mesh.visible = false;
+      for (const q of this.batches[key].parts) { q.mesh.count = 0; q.mesh.visible = false; }
+    }
+  }
+
+  /**
+   * Draw one aeroplane's moving parts at the attitude her trim says they are
+   * in: `bay` is how far the doors are open, 0 shut to 1 wide; `fall` is how
+   * far the weapon has dropped clear of her, or null while it is still on the
+   * rack.
+   */
+  trimParts(b, body, trim) {
+    if (!b.parts.length) return;
+    const bay = trim && trim.bay ? Math.max(0, Math.min(1, trim.bay)) : 0;
+    const fall = trim && trim.fall !== undefined && trim.fall !== null ? trim.fall : null;
+    for (const q of b.parts) {
+      if (q.n >= this.max) continue;
+      // A weapon that has gone is not drawn at all, and once it is clear of
+      // her the simulation's own bomb or torpedo has taken it over.
+      if (q.spec.fall && fall !== null && fall > 3.5) continue;
+      this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
+        q.spec.axis === 'z' ? 1 : 0);
+      this.spin.setFromAxisAngle(this.axis, q.spec.open * bay);
+      this.hinge.makeRotationFromQuaternion(this.spin);
+      this.part.makeRotationFromQuaternion(q.spec.rot).multiply(this.hinge);
+      this.part.setPosition(q.spec.at);
+      if (q.spec.fall && fall !== null) {
+        // Straight down and a little astern, the way a weapon leaves.
+        this.slide.makeTranslation(0, -fall, -fall * 0.18);
+        this.part.premultiply(this.slide);
+      }
+      this.part.premultiply(body);
+      q.mesh.setMatrixAt(q.n++, this.part);
     }
   }
 
@@ -262,14 +334,17 @@ export class Flights {
   }
 
   begin() {
-    for (const b of Object.values(this.batches)) b.n = 0;
+    for (const b of Object.values(this.batches)) {
+      b.n = 0;
+      for (const q of b.parts) q.n = 0;
+    }
   }
 
   /**
    * Put one flight in the air: `count` aircraft of her type, in formation on
    * the leader's position and course, banked into whatever turn she is in.
    */
-  add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null) {
+  add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null) {
     const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b) return;
     const d = this.dummy;
@@ -293,6 +368,7 @@ export class Flights {
       d.scale.setScalar(1);
       d.updateMatrix();
       b.mesh.setMatrixAt(b.n++, d.matrix);
+      this.trimParts(b, d.matrix, trim);
     }
   }
 
@@ -303,7 +379,7 @@ export class Flights {
    * end over end, and she needs the whole attitude rather than a slot in
    * somebody's division. Drawn out of the same batch, so she costs nothing.
    */
-  one(role, x, y, z, heading, bank, pitch, roll = 0, type = null) {
+  one(role, x, y, z, heading, bank, pitch, roll = 0, type = null, trim = null) {
     const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b || b.n >= this.max) return;
     const d = this.dummy;
@@ -312,6 +388,7 @@ export class Flights {
     d.scale.setScalar(1);
     d.updateMatrix();
     b.mesh.setMatrixAt(b.n++, d.matrix);
+    this.trimParts(b, d.matrix, trim);
   }
 
   /**
@@ -336,6 +413,11 @@ export class Flights {
       b.mesh.count = b.n;
       b.mesh.visible = b.n > 0;
       if (b.n > 0) b.mesh.instanceMatrix.needsUpdate = true;
+      for (const q of b.parts) {
+        q.mesh.count = q.n;
+        q.mesh.visible = q.n > 0;
+        if (q.n > 0) q.mesh.instanceMatrix.needsUpdate = true;
+      }
     }
   }
 }

@@ -177,6 +177,9 @@ export class Battle {
     this.snapshots = [];
     // Last heading seen for each flight, so a turn can be read off as bank.
     this.planeTurn = new Map();
+    // How far each flight's bomb bay is open and how far her weapon has
+    // fallen clear of her. See `bayTrim`.
+    this.planeTrim = new Map();
     this.snapTime = 0;
     this.serverTime = 0;
     this.shellTrails = new Map();
@@ -915,7 +918,6 @@ export class Battle {
           if (ev.ship === this.shipId) this.hud.alert('Fire reached the ready-use');
           break;
         }
-        case 'ram': fx.explosion(ev.x, 4, ev.z, 1.2); break;
         case 'airDrop': {
           // The fish going into the sea: a short row of splashes across the
           // squadron's line, small ones, because a torpedo enters nose first.
@@ -990,6 +992,20 @@ export class Battle {
           const y = Number.isFinite(ev.y) ? ev.y : (from ? this.planeHeight(from) : 200);
           const ty = Number.isFinite(ev.ty) ? ev.ty : (ev.air ? y - 8 : 22);
           this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          // The flicker at her muzzles, off her own model: a strike coming in
+          // has guns going on the wings of the machines flying it.
+          if (from && this.distanceFade(ev.x, ev.z) > 0.2) {
+            const d = Math.hypot(ev.tx - ev.x, ty - y, ev.tz - ev.z) || 1;
+            const ux = (ev.tx - ev.x) / d;
+            const uy = (ty - y) / d;
+            const uz = (ev.tz - ev.z) / d;
+            const sn = Math.sin(from.h || 0);
+            const cs = Math.cos(from.h || 0);
+            for (const m of gunsOf(typeOf(from.k, from.r || 'fighter'))) {
+              fx.wingGun(ev.x + cs * m[0] + sn * m[2], y + m[1],
+                ev.z - sn * m[0] + cs * m[2], ux, uy, uz, 12.7);
+            }
+          }
           break;
         }
         case 'deckCrash': {
@@ -1636,6 +1652,41 @@ export class Battle {
   }
 
   /**
+   * How far a flight's bay is open and how far her weapon has fallen.
+   *
+   * The squadrons in the air are drawn as instanced batches -- one geometry
+   * per type, stamped out once per aeroplane -- so nothing on a welded model
+   * can move. The doors, the Dauntless's displacing trapeze and the weapon on
+   * the rack are drawn as batches of their own (see `Flights.trimParts`), and
+   * this is the state they are drawn at.
+   *
+   * The bay opens when the drop is asked for and shuts a couple of seconds
+   * after the weapon has gone, which is what a bay does. For the aeroplane the
+   * player is flying it opens on the key rather than on the answer coming
+   * back, because a pilot who presses the drop and sees nothing happen for a
+   * fifth of a second thinks the key is broken.
+   */
+  bayTrim(pl, dt) {
+    let t = this.planeTrim.get(pl.i);
+    if (!t) {
+      t = { bay: 0, fall: null, gone: false, hold: 0 };
+      this.planeTrim.set(pl.i, t);
+    }
+    if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
+    const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
+    if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
+    t.hold = Math.max(0, t.hold - dt);
+    // A bomb bay takes about a second and a half either way.
+    const want = t.hold > 0 ? 1 : 0;
+    const step = dt / 1.4;
+    t.bay = want > t.bay ? Math.min(want, t.bay + step) : Math.max(want, t.bay - step);
+    // And the weapon, once it is let go: away under gravity, and out of the
+    // picture entirely by the time the simulation's own bomb has taken over.
+    if (t.fall !== null && t.fall <= 4) t.fall += dt * (2.6 + t.fall * 7.5);
+    return t;
+  }
+
+  /**
    * Is anything under the sight?
    *
    * Her own guns' cone, out to the range they reach: about nine degrees either
@@ -1714,11 +1765,16 @@ export class Battle {
       const mx = p.x + v.x;
       const my = p.y + v.y;
       const mz = p.z + v.z;
-      this.scene.flak.fire(
-        mx, my, mz,
-        mx + (nose.x - mx) * k, my + (nose.y - my) * k, mz + (nose.z - mz) * k,
-        f.calibre, 8, this.scene.effects,
-      );
+      const ex = mx + (nose.x - mx) * k;
+      const ey = my + (nose.y - my) * k;
+      const ez = mz + (nose.z - mz) * k;
+      this.scene.flak.fire(mx, my, mz, ex, ey, ez, f.calibre, 8, this.scene.effects);
+      // And the flicker at the muzzle itself, down the bore, so a burst is
+      // something happening on her wings rather than tracer appearing in mid
+      // air a little way in front of them.
+      const d = Math.hypot(ex - mx, ey - my, ez - mz) || 1;
+      this.scene.effects.wingGun(mx, my, mz, (ex - mx) / d, (ey - my) / d,
+        (ez - mz) / d, f.calibre);
     }
   }
 
@@ -2436,12 +2492,14 @@ export class Battle {
       // is, at the attitude the stick has her in -- not at the position the
       // last snapshot happened to carry.
       const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
+      const trim = this.bayTrim(pl, dt);
       if (mine) {
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
-          mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip, kind);
+          mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
+          kind, trim);
       } else {
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
-          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind);
+          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim);
       }
       // The ones that have been hit and are still flying.
       //
@@ -2460,6 +2518,7 @@ export class Battle {
     // Forget the flights that are no longer up, so the map does not grow.
     for (const id of [...this.planeTurn.keys()]) {
       if (!planes.some((q) => q.i === id)) {
+        this.planeTrim.delete(id);
         this.planeTurn.delete(id);
         this.planeSmoke.delete(id);
       }

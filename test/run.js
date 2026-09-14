@@ -70,7 +70,11 @@ import {
   PARTS as AIR_PARTS, freshAirframe, hitAirframe, stepAirframe, airframeState,
   flightState, partHit,
 } from '../shared/airframe.js';
-import { arado, kingfisher, wildcat as pkWildcat } from '../client/js/render/planekit.js';
+import {
+  arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  tenzan as pkTenzan, jake as pkJake, dauntless as pkDauntless,
+  avenger as pkAvenger,
+} from '../client/js/render/planekit.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
 import { measureLines, halfBeamAt, fillTo, waterTop }
@@ -4313,6 +4317,247 @@ check('her aircraft are the size the real ones were', () => {
   assert.ok(stowed.span < LIFT_HW * 2, 'she does not fit on her own lift folded');
 });
 
+/**
+ * Every aeroplane in the game, in flight trim and on her wheels.
+ *
+ * Nine machines with four different signatures between them, which is why this
+ * is written once here rather than nine times below.
+ */
+function buildPlane(kind, opts = {}) {
+  const g = new THREE.Group();
+  const f = {
+    wildcat: pkWildcat, dauntless: pkDauntless, avenger: pkAvenger, arado,
+    kingfisher, zero: pkZero, suisei: pkSuisei, tenzan: pkTenzan, jake: pkJake,
+  }[kind];
+  if (kind === 'avenger' || kind === 'tenzan') f(g, 0, 0, 0, 0, false, false, opts);
+  else if (kind === 'kingfisher') f(g, 0, 0, 0, 0, opts);
+  else f(g, 0, 0, 0, 0, false, opts);
+  g.updateMatrixWorld(true);
+  return g;
+}
+
+const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
+  'zero', 'suisei', 'tenzan', 'jake'];
+
+check('nothing on an aeroplane is hanging in the air on its own', () => {
+  // An aeroplane is drawn as a couple of hundred separate pieces, and a piece
+  // whose numbers were typed in rather than asked of the model beside it ends
+  // up floating: undercarriage legs under wings that are not over them, float
+  // struts that reach neither the float nor the fuselage, guns a foot in front
+  // of a leading edge, national markings standing off the skin like plates.
+  //
+  // So: every piece of every machine, and whether it actually touches another
+  // one. Union-find over the pieces' boxes, grown by half a hand's breadth of
+  // slack -- a machine that is all one aeroplane comes out as one lump, and
+  // anything adrift comes out as a lump of its own.
+  const GAP = 0.05;
+  for (const kind of PLANE_KINDS) {
+    const g = buildPlane(kind, { gear: true });
+    const boxes = [];
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      // A folded wing that is not being shown is not a floating piece: every
+      // machine carries both sets and shows one.
+      for (let n = o; n; n = n.parent) if (n.visible === false) return;
+      const bb = new THREE.Box3().setFromObject(o);
+      bb.expandByScalar(GAP / 2);
+      boxes.push(bb);
+    });
+    assert.ok(boxes.length > 60, `${kind} is drawn with only ${boxes.length} pieces`);
+    const up = boxes.map((_, i) => i);
+    const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (!boxes[i].intersectsBox(boxes[j])) continue;
+        const a = find(i);
+        const b = find(j);
+        if (a !== b) up[a] = b;
+      }
+    }
+    const lumps = new Set(boxes.map((_, i) => find(i)));
+    assert.equal(lumps.size, 1,
+      `the ${kind} comes apart into ${lumps.size} pieces that do not touch each other`);
+  }
+});
+
+check('an aeroplane built on a catapult is the same aeroplane as one at the origin', () => {
+  // These machines are built twice: once at the origin for the squadrons in
+  // the air, and once in place -- on a flight deck, on a catapult on a
+  // battleship's quarterdeck thirty metres out, turned out over the quarter
+  // and drawn at the ship's own scale. Everything on them that finds its own
+  // position by looking (the markings on the skin, the undercarriage legs, the
+  // float struts) fires a ray to do it, and a ray fired in the wrong frame
+  // leaves the aeroplane altogether: it struck the ship she was standing on
+  // instead, and took the marking a hundred metres away with it.
+  //
+  // So she is built both ways and measured in her own frame both times. She
+  // has to come out the same aeroplane to the centimetre.
+  const own = (holder) => {
+    holder.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(holder.matrixWorld).invert();
+    const b2 = new THREE.Box3();
+    const m = new THREE.Matrix4();
+    holder.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      for (let n = o; n; n = n.parent) if (n.visible === false) return;
+      o.geometry.computeBoundingBox();
+      m.multiplyMatrices(inv, o.matrixWorld);
+      b2.union(o.geometry.boundingBox.clone().applyMatrix4(m));
+    });
+    return b2;
+  };
+  for (const kind of PLANE_KINDS) {
+    const here = own(buildPlane(kind, { gear: true }));
+    const root = new THREE.Group();
+    const holder = new THREE.Group();
+    holder.position.set(11, 19, -31);
+    holder.rotation.y = 0.7;
+    holder.scale.setScalar(1.19);
+    root.add(holder);
+    holder.add(buildPlane(kind, { gear: true }));
+    root.updateMatrixWorld(true);
+    const away = own(holder);
+    for (const end of ['min', 'max']) {
+      for (const k of ['x', 'y', 'z']) {
+        assert.ok(Math.abs(here[end][k] - away[end][k]) < 0.05,
+          `the ${kind} on a catapult reaches ${away[end][k].toFixed(2)} in ${k} `
+          + `where at the origin she reaches ${here[end][k].toFixed(2)}`);
+      }
+    }
+  }
+});
+
+check('every undercarriage leg has aeroplane over it', () => {
+  // A leg is bolted to the underside of a wing or to the keel of a fuselage.
+  // Four of the nine had theirs at a station where there is no aeroplane at
+  // all -- the Zero's main legs stood forty centimetres ahead of her own
+  // leading edge -- so the whole undercarriage hung under her joined to
+  // nothing. Each leg records what it found overhead when it was placed (see
+  // planekit's mainGear), and this is that record.
+  let legs = 0;
+  for (const kind of PLANE_KINDS) {
+    const g = buildPlane(kind, { gear: true });
+    g.traverse((o) => {
+      const d = o.userData && o.userData.legFoot;
+      if (!d) return;
+      legs++;
+      assert.ok(d.skin !== null,
+        `the ${kind}'s leg at x ${d.x.toFixed(2)} z ${d.z.toFixed(2)} `
+        + 'has no aeroplane over it at all');
+      // And what is over it is close enough that the oleo housing joins the
+      // two: more than a metre of air and there is nothing bridging it.
+      assert.ok(d.skin - d.top < 0.95,
+        `the ${kind}'s leg at z ${d.z.toFixed(2)} stops `
+        + `${(d.skin - d.top).toFixed(2)} m short of her`);
+    });
+  }
+  assert.ok(legs >= 18, `only ${legs} undercarriage legs were checked`);
+});
+
+check('a bomber carries her weapon, and it comes out of her when she drops', () => {
+  // The squadrons are drawn as instanced batches -- one welded geometry per
+  // type, stamped out once per aeroplane -- so nothing welded into the body
+  // can move. The bay doors, the Dauntless's displacing trapeze and the weapon
+  // on the rack are pulled out of the body before the weld and drawn as
+  // batches of their own. If that extraction stops working the doors are
+  // welded shut for ever and the weapon can never leave.
+  const models = flightModels();
+  const want = {
+    // Two doors and the fish inside them.
+    avenger: ['bayPort', 'bayStbd', 'store'],
+    // The Suisei is the one dive bomber of the four with an internal bay.
+    suisei: ['bayPort', 'bayStbd', 'store'],
+    // A Dauntless has no bay: a bomb let go from the belly of a machine
+    // standing on her nose goes through her own airscrew, so it swings clear
+    // on a trapeze first.
+    dauntless: ['trapeze', 'store'],
+    // A Tenzan's torpedo hangs outside, on a crutch under her belly.
+    tenzan: ['store'],
+  };
+  for (const [kind, names] of Object.entries(want)) {
+    const parts = (models[kind].parts || []).map((q) => q.name).sort();
+    assert.deepEqual(parts, [...names].sort(),
+      `the ${kind} has moving parts ${parts.join(', ') || '(none)'}`);
+    for (const q of models[kind].parts) {
+      const n = q.geo.index ? q.geo.index.count : q.geo.attributes.position.count;
+      assert.ok(n > 30, `the ${kind}'s ${q.name} is drawn with nothing in it`);
+      assert.ok(Number.isFinite(q.at.x) && Number.isFinite(q.at.y),
+        `the ${kind}'s ${q.name} has no hinge`);
+      // A door swings; the weapon falls away. Neither may be inert.
+      assert.ok(q.open !== 0 || q.fall, `the ${kind}'s ${q.name} cannot move`);
+    }
+  }
+  // A fighter has no bay and carries nothing, so she has nothing to pull out.
+  assert.equal((models.wildcat.parts || []).length, 0,
+    'a Wildcat has been given a bomb bay');
+});
+
+check('the doors actually swing and the weapon actually leaves', () => {
+  // The trim says how far open she is; this is whether the batch draws her
+  // that way. One flight of Avengers, drawn twice -- bay shut and bay wide --
+  // and the door's own instance matrix read back both times.
+  const scene = { add() {} };
+  const fl = new Flights(scene, 8);
+  const bat = fl.batches.avenger;
+  assert.ok(bat.parts.length === 3, `an Avenger has ${bat.parts.length} moving parts`);
+  const readAt = (trim) => {
+    fl.begin();
+    fl.add('torpedo', 0, 100, 0, 0, 0, 0, 1, -1, 'avenger', trim);
+    fl.end();
+    const out = {};
+    for (const q of bat.parts) {
+      if (!q.n) { out[q.spec.name] = null; continue; }
+      const m = new THREE.Matrix4().fromArray(q.mesh.instanceMatrix.array, 0);
+      const pos = new THREE.Vector3().setFromMatrixPosition(m);
+      const e = new THREE.Euler().setFromRotationMatrix(m);
+      out[q.spec.name] = { pos, e };
+    }
+    return out;
+  };
+  const shut = readAt({ bay: 0, fall: null });
+  const open = readAt({ bay: 1, fall: null });
+  for (const side of ['bayPort', 'bayStbd']) {
+    assert.ok(shut[side] && open[side], `her ${side} door is not drawn`);
+    // The hinge does not move; the door swings about it.
+    assert.ok(shut[side].pos.distanceTo(open[side].pos) < 0.01,
+      `her ${side} hinge moved when the bay opened`);
+    const turn = Math.abs(open[side].e.z - shut[side].e.z);
+    assert.ok(turn > 1.2, `her ${side} door swings ${turn.toFixed(2)} rad, which is shut`);
+  }
+  // The weapon sits still on the rack, and goes when it is let go.
+  const carried = readAt({ bay: 1, fall: null });
+  const falling = readAt({ bay: 1, fall: 1.5 });
+  assert.ok(carried.store.pos.y - falling.store.pos.y > 1.4,
+    'her torpedo does not drop when she lets it go');
+  const long = readAt({ bay: 1, fall: 9 });
+  assert.equal(long.store, null, 'her torpedo is still being drawn under her a long way down');
+  // And a fighter, who has none of this, still draws.
+  fl.begin();
+  fl.add('fighter', 0, 100, 0, 0, 0, 0, 4, -1, 'wildcat', null);
+  fl.end();
+  assert.equal(fl.batches.wildcat.mesh.count, 4, 'a flight of four Wildcats is not four');
+});
+
+check("a flight's bay opens when she asks for the drop and shuts afterwards", () => {
+  // The state the parts are drawn at, over a run in and away again.
+  const b = Object.create(Battle.prototype);
+  b.planeTrim = new Map();
+  b.flight = null;
+  const pl = { i: 7, d: 0 };
+  let t = b.bayTrim(pl, 0.1);
+  assert.equal(t.bay, 0, 'her bay is open before she has asked for anything');
+  assert.equal(t.fall, null, 'her weapon has left before she dropped it');
+  // The drop: the doors run open and the weapon starts away.
+  pl.d = 1;
+  for (let i = 0; i < 16; i++) t = b.bayTrim(pl, 0.1);
+  assert.ok(t.bay > 0.9, `her bay is only ${t.bay.toFixed(2)} open at the drop`);
+  assert.ok(t.fall > 1, 'her weapon is still on the rack a second and a half after the drop');
+  // And afterwards they shut again.
+  for (let i = 0; i < 40; i++) t = b.bayTrim(pl, 0.1);
+  assert.ok(t.bay < 0.05, `her bay is still ${t.bay.toFixed(2)} open long after the drop`);
+  assert.ok(t.fall > 3.5, 'her weapon is still being drawn under her');
+});
+
 check('the whole flight deck is flush while she is launching', () => {
   // A lift down the well is a hole in the flight deck the width of the deck,
   // and an aeroplane taking off across one is an aeroplane in the hangar. The
@@ -5082,9 +5327,19 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     const R = cls.aa.range * 0.4;
     const ahead = aaBearing(cls, ship, 0, R);
     const beam = aaBearing(cls, ship, R, 0);
-    assert.ok(ahead.share < 1 && beam.share < 1,
+    // A boat that carries one mounting is the exception, and she has to be:
+    // the U-48's whole anti-aircraft battery is a single 2 cm on the
+    // Wintergarten abaft the tower, and one gun that can train to a bearing is
+    // by definition all of her. Everything with more than one has arcs.
+    const only = aaBattery(cls).length < 2;
+    assert.ok(only || (ahead.share < 1 && beam.share < 1),
       `${cls.id} brings her whole light battery to bear on one bearing`);
-    assert.ok(ahead.barrels > 0 && beam.barrels > 0,
+    // And she can fight an aeroplane somewhere. A ship with galleries down
+    // both sides fights one on either bearing; the U-boat's one gun stands on
+    // the Wintergarten abaft her tower and cannot fire through it, so she
+    // fights on the beam and not over the bow, which is right.
+    assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
+      : (ahead.barrels > 0 && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
     assert.ok(aaBarrels(cls) === aaBattery(cls).reduce((n, m) => n + m.guns, 0));
   }

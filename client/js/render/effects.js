@@ -361,6 +361,33 @@ export class Effects {
   }
 
   /**
+   * A burst out of an aircraft's gun: the flicker at the muzzle and the thread
+   * of smoke that goes astern with it.
+   *
+   * Not `muzzle`, which is scaled for a naval mounting and would hang a bank
+   * of propellant smoke the size of a destroyer off a fighter's wing. What you
+   * see of a fifty firing is a small hot flicker on the leading edge, gone in
+   * a twentieth of a second, and a grey thread streaming back over the panel.
+   *
+   * `dx, dy, dz` is the way the bore is pointing, which is her nose rather
+   * than her flight path.
+   */
+  wingGun(x, y, z, dx, dy, dz, calibre = 12.7) {
+    const k = 0.55 + calibre / 26;
+    this.spawn({
+      x: x + dx * 0.5, y: y + dy * 0.5, z: z + dz * 0.5,
+      size: 0.45 * k, grow: 2.0 * k, ttl: 0.06, glow: true,
+      color: 0xffe9b4, opacity: 1,
+    });
+    this.spawn({
+      x: x + dx * 1.4, y: y + dy * 1.4, z: z + dz * 1.4,
+      vx: -dx * 16, vy: -dy * 16, vz: -dz * 16,
+      size: 0.5 * k, grow: 4.2 * k, ttl: 0.55,
+      color: 0x9b9a92, opacity: 0.18, drag: 0.9,
+    });
+  }
+
+  /**
    * A heavy anti-aircraft round bursting: the flash, and the black puff that
    * hangs there afterwards.
    *
