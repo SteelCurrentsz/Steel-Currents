@@ -145,6 +145,26 @@ export class Battle {
       audio.click();
     });
 
+    // The dive, which only a boat has.
+    //
+    // One key and three states, cycled: on the surface, at periscope depth
+    // where she can still see and still shoot, and deep where she cannot do
+    // either. The order goes to the server and to our own local hull at the
+    // same moment, so the needle starts moving on the press rather than on the
+    // next snapshot -- a dive takes the better part of half a minute and a
+    // captain who cannot see it start does not know he gave the order.
+    this.hud.onDiveOrder?.(() => {
+      const ls = this.localShip;
+      const cls = getClass(ls.classId);
+      if (!cls.dive) return;
+      const D = cls.dive;
+      const at = ls.depthCmd;
+      const next = at < 0.5 ? D.periscope : at < D.periscope + 0.5 ? D.max : 0;
+      applyInput(ls, { depth: next });
+      this.net.send({ t: 'input', ship: this.shipId, depth: next });
+      audio.click();
+    });
+
     // Local mirror of our own hull, stepped with the shared simulation.
     this.local = createState(world, {});
     this.localShip = addShip(this.local, { id: shipId, name: 'You', classId, team, index: 0 });
@@ -2043,7 +2063,13 @@ export class Battle {
       // one end of her down. All three come off the wire and none of them is
       // an animation -- they are what her flooding works out to.
       view.setFloating(s.fo);
-      view.group.position.y = sea.heave - 1.0 - view.sinkY;
+      // And how deep, if she is a boat. Her own bridge predicts it locally so
+      // the order answers at once; everyone else takes it off the wire.
+      if (cls.dive) {
+        view.setDive(isSelf ? this.localShip.depth : (s.d || 0), s.to || 0);
+        view.stepDive(dt);
+      }
+      view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0);
       view.group.rotation.x = sea.pitch + view.trimBy;
       view.group.rotation.z = sea.roll - view.heelBy;
 
@@ -2084,7 +2110,11 @@ export class Battle {
       // streaming away from a hull that is standing on end is nonsense -- so
       // the moment she founders the track stops being laid and what she left
       // behind her goes out of the water.
-      const foundering = !s.a || view.going;
+      // And neither does a boat that is under it. A Kelvin pattern is made by
+      // a hull pushing the surface aside, and a submarine at thirty metres is
+      // not touching the surface at all -- the wake she left on the way down
+      // washes out behind her and there is nothing to see.
+      const foundering = !s.a || view.going || (view.depth || 0) > 1.2;
       if (foundering) view.wake.stop(dt);
       else view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);

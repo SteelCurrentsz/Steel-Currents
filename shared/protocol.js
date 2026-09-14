@@ -43,6 +43,13 @@ export function shipSnapshot(ship, full) {
     // plate reported "FLOODING x0,0,0" at a captain who wanted to know how
     // many compartments were making water.
     fo: [r1(ship.sink), r3(ship.heel), r3(ship.trim)],
+    // A submarine, and nothing else, carries these: how deep she is and how
+    // long her tubes' outer doors have been open. Everybody who can see her
+    // gets them -- a boat's depth is not private information to anyone close
+    // enough to be reading her at all, and the renderer has to put her where
+    // she actually is. Her air is hers alone and goes with the private block.
+    d: cls.dive ? r1(ship.depth) : 0,
+    to: cls.dive ? r1(ship.tubeOpen) : 0,
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.
     wt: SECTIONS.map((k) => {
@@ -83,6 +90,16 @@ export function shipSnapshot(ship, full) {
   if (full) {
     s.notch = ship.notch;
     s.rud = r3(ship.rudder);
+    // Her air, and where her captain has ordered her to. Both are her own
+    // bridge's business: a boat's remaining oxygen is the one number that
+    // decides everything she does next, and it is nobody else's.
+    if (cls.dive) {
+      s.ox = Math.round(ship.oxygen);
+      // `dq` and not `dc`: damage-control stage got that key first, and a
+      // boat ordered to thirty metres reading as damage-control stage 30 is
+      // the kind of collision that is invisible until something is wrong.
+      s.dq = r1(ship.depthCmd);
+    }
     s.cd = ship.turrets.map((t) => Math.max(0, Math.round(t.cooldown * 10) / 10));
     // Whether the mounting is laying at this instant. A turret shaken up by a
     // burst alongside is out for a few seconds and comes back; one that is

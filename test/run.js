@@ -22,6 +22,7 @@ import {
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
+  applyInput, submerged, gunsDrowned,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -709,7 +710,7 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // every ship swung in bearing and nothing ever looked up, so a light battery
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
@@ -762,7 +763,7 @@ check('a shell leaves the muzzle it was fired from', () => {
   // compares.
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
@@ -807,7 +808,7 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // Every ship in the game had her screws modelled and every one of them was
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
@@ -3669,7 +3670,7 @@ check('a hull on flat water settles level', () => {
   // seconds at a stretch; a ship that stays level while the water round her
   // lies over reads as a ship trimmed by the stern, and that is what she looked
   // like in a flat calm.
-  for (const id of ['fletcher', 'hipper', 'iowa', 'enterprise']) {
+  for (const id of ['fletcher', 'u48', 'hipper', 'iowa', 'enterprise']) {
     const hull = SHIP_CLASSES[id].hull;
     const sea = new Seakeeping(hull);
     sea.pitch = 0.09; sea.roll = -0.12; sea.heave = 2.4;
@@ -4978,7 +4979,10 @@ check('a destroyer works in a sea her betters walk through', () => {
   // four hundred metres are both simply steady and the difference between them
   // is below what this measures at all -- hence the hair of tolerance rather
   // than a strict inequality, which at that size is a coin toss.
-  const order = ['fletcher', 'cleveland', 'spee', 'takao', 'hipper',
+  // The U-boat comes first because she is the smallest thing afloat here:
+  // sixty-six metres and six of beam, and she works in a sea a destroyer
+  // rides through.
+  const order = ['u48', 'fletcher', 'cleveland', 'spee', 'takao', 'hipper',
     'enterprise', 'shinano', 'iowa', 'yamato'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(roll[order[i]] <= roll[order[i - 1]] + 0.02,
@@ -6590,7 +6594,7 @@ check('every ship has an inside, and it is inside her', () => {
   // Fitted to her own lines is the thing that has to be checked: an interior
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
@@ -7331,7 +7335,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
   // to do with the shape of the part that was hit. Her lines are measured off
   // the buffers she is drawn with instead, so the sea in her is the shape of
   // the inside of the ship.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao']) {
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao']) {
     const g = buildShip(id).group;
     g.updateMatrixWorld(true);
     const lines = measureLines(g);
@@ -8204,7 +8208,7 @@ check('every ship is built out of pieces that can be found again', () => {
   // no funnel any more, only triangles. She is still welded, and every mesh
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
@@ -8704,7 +8708,7 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // table and the watchkeepers' chairs are in every one of her steering and
   // control positions, so a shell through the front of her bridge opens on to
   // the room rather than on to a lit box. See bridgeInside.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'iowa', 'spee', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee', 'yamato',
     'takao']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;
@@ -8987,7 +8991,7 @@ check('the battle being over does not take the sea away', () => {
 check('the arsenal says what the gun will go through, and shows where it is', () => {
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
     'enterprise', 'shinano']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
@@ -9659,13 +9663,19 @@ check('you cannot see straight through a gunhouse', () => {
   // to meet her roof, not her turntable a gunhouse's height further down; and
   // a ray fired at her from either beam has to meet the near side, not the
   // inside of the far one.
-  for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'iowa', 'yamato',
+  for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
     'takao', 'shinano']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const rc = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
     built.turrets.forEach((m, k) => {
+      // An open mounting has no roof to meet, and saying it has is the wrong
+      // fault to fix: the U-boat's 8.8 cm is a pedestal on the casing with the
+      // crew standing round it in the open, and a gunhouse drawn over it to
+      // satisfy a test would be a gunhouse she never had. The class says which
+      // of her mountings are open, and those are let alone.
+      if (SHIP_CLASSES[id].turrets[k] && SHIP_CLASSES[id].turrets[k].open) return;
       const targets = [];
       m.traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
       assert.ok(targets.length, `the ${id}'s turret ${k} has nothing in it`);
@@ -10313,6 +10323,159 @@ check('the ship and the arsenal call every mounting by the same name', () => {
       `the ${id} is named with ${flat.length} light mountings and ${drawn} of them `
       + 'are modelled where she says they are');
   }
+});
+
+check('she dives, and the sea decides how long she stays down', () => {
+  // The whole of the U-boat is this: on the surface she is a slow, visible
+  // torpedo boat with a popgun; under it she is nearly invisible, half as
+  // fast, blind, and on a clock. Every one of those is checked here on the
+  // simulation itself, because every one of them is a decision the player
+  // makes with an eye on the air gauge.
+  const D = SHIP_CLASSES.u48.dive;
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const boat = addShip(state, { name: 'U-48', classId: 'u48', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  boat.x = 0; boat.z = -1500; boat.heading = 0;
+  // Well over the horizon: this is a check on the boat, not a gunnery duel.
+  foe.x = 0; foe.z = 28000; foe.heading = 0;
+  boat.aimX = 0; boat.aimZ = 28000;
+  boat.notch = 5;
+  foe.notch = 1;
+
+  // On the roof with a full charge, and every gun aboard able to fire.
+  assert.equal(boat.depth, 0, 'she starts the battle already under');
+  assert.equal(boat.oxygen, D.oxygen, `she starts with ${boat.oxygen}s of air, not ${D.oxygen}`);
+  assert.ok(!submerged(boat) && !gunsDrowned(boat), 'she is under before she has dived');
+
+  // Take her down. She goes at her flooding rate, not instantly.
+  applyInput(boat, { depth: D.max });
+  let t = 0;
+  while (boat.depth < D.max - 0.05 && t < 120) { step(state, DT); t += DT; }
+  assert.ok(t > D.max / D.rate - 2 && t < D.max / D.rate + 4,
+    `she took ${t.toFixed(1)}s to reach ${D.max} m, and her rate says `
+    + `${(D.max / D.rate).toFixed(1)}s`);
+  assert.ok(submerged(boat) && gunsDrowned(boat),
+    `she is at ${boat.depth.toFixed(1)} m and her guns are not drowned`);
+
+  // Down there: the gun and the flak are in the sea and will not fire, the
+  // tubes will, and she is held to her submerged speed.
+  assert.ok(!canFire(state, boat), 'she fights her deck gun from under the sea');
+  assert.ok(fireTorpedoes(state, boat, 0) > 0, 'her tubes will not fire submerged');
+  assert.ok(boat.tubeOpen > 0, 'the tube door never opened to let the fish out');
+  for (let i = 0; i < 400; i++) step(state, DT);
+  assert.ok(boat.speed <= D.speed + 0.2,
+    `she makes ${boat.speed.toFixed(1)} m/s under, against a submerged limit `
+    + `of ${D.speed.toFixed(1)}`);
+  assert.ok(boat.speed > D.speed * 0.8, 'she is stopped under, not slowed');
+
+  // And she is much harder to find down there than she is on the surface.
+  assert.ok(D.concealment < SHIP_CLASSES.u48.concealment * 0.6,
+    'she is no harder to see under the sea than on it');
+
+  // The air. Hold her down and it runs out, and when it does she comes up
+  // whatever her captain ordered. She is stopped for it, so that twelve
+  // minutes of running does not put her over the edge of the chart.
+  boat.notch = 1;
+  const air0 = boat.oxygen;
+  for (let i = 0; i < 600; i++) step(state, DT);
+  assert.ok(boat.oxygen < air0 - 5, 'the air does not go while she is under');
+  let guard = 0;
+  while (boat.oxygen > 0 && guard < 60000) { step(state, DT); guard++; }
+  assert.ok(guard < 60000, 'her air never runs out at all');
+  // The order is overruled on the next tick, not on the one the gauge hit zero.
+  step(state, DT);
+  assert.equal(boat.depthCmd, 0, 'out of air and still ordered to stay down');
+  while (boat.depth > 0.05 && guard < 90000) { step(state, DT); guard++; }
+  assert.ok(boat.depth <= 0.05, 'out of air and she never came up');
+
+  // Up, the charge comes back -- and faster than it went, because the diesels
+  // are running and the hatch is open.
+  const up = boat.oxygen;
+  for (let i = 0; i < Math.round(D.recharge / DT) + 40; i++) step(state, DT);
+  assert.ok(boat.oxygen > up + 10, 'the air does not come back on the surface');
+  assert.ok(boat.oxygen <= D.oxygen + 1e-6, 'she recharges past her own tanks');
+  assert.ok(D.recharge < D.oxygen, 'filling the tanks takes longer than emptying them');
+
+  // And on the surface she has her guns back and her surface speed with them.
+  assert.ok(!gunsDrowned(boat), 'her guns are still drowned on the surface');
+  boat.notch = 5;
+  for (let i = 0; i < 1400; i++) step(state, DT);
+  assert.ok(boat.speed > D.speed * 1.4,
+    `surfaced she makes ${boat.speed.toFixed(1)}, which is no better than submerged`);
+
+  // Nothing that cannot dive is touched by any of it: an order to go deep is
+  // refused outright rather than quietly sinking a destroyer.
+  applyInput(foe, { depth: 30 });
+  assert.equal(foe.depthCmd, 0, 'a destroyer took the order to dive');
+  step(state, DT);
+  assert.equal(foe.depth, 0, 'a destroyer is under the sea');
+  assert.ok(!gunsDrowned(foe), "a destroyer's guns drowned");
+});
+
+check('the wire carries her depth, and the doors swing on it', () => {
+  // Depth and the tube doors are not something the client can work out for
+  // itself: another player's boat is whatever the server says she is. Both go
+  // over the wire, and the door goes in the public part of the snapshot
+  // because anyone who can see her can see her doors open.
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const boat = addShip(state, { name: 'U-48', classId: 'u48', team: 0, index: 0 });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  boat.x = 0; boat.z = -1500;
+  dd.x = 0; dd.z = 1500;
+  boat.heading = 0; boat.aimX = 0; boat.aimZ = 3000;
+  applyInput(boat, { depth: 12 });
+  for (let i = 0; i < 200; i++) step(state, DT);
+  assert.ok(fireTorpedoes(state, boat, 0) > 0, 'her bow tubes never fired');
+
+  const pub = shipSnapshot(boat, false);
+  assert.ok(Math.abs(pub.d - boat.depth) < 0.15, 'her depth is not on the wire');
+  assert.ok(pub.to > 0, 'an open tube door is not on the wire');
+  const full = shipSnapshot(boat, true);
+  assert.ok(Math.abs(full.ox - boat.oxygen) < 1.5, 'her air is not sent to her own captain');
+  assert.ok(Math.abs(full.dq - boat.depthCmd) < 0.15, 'the depth she was ordered to is not sent');
+  // And it does not collide with damage-control stage, which had `dc` first.
+  assert.ok(full.dc <= 2, `her depth order is being sent as damage-control stage ${full.dc}`);
+  // And a ship that cannot dive carries none of it, so nine hulls do not pay
+  // for the tenth on every frame.
+  const other = shipSnapshot(dd, true);
+  assert.equal(other.d, 0, 'a destroyer reports a depth');
+  assert.equal(other.ox, undefined, 'a destroyer reports an oxygen charge');
+
+  // The view eases both rather than snapping: fifteen snapshots a second is a
+  // sampling of a fifteen-second dive, not the dive itself.
+  const view = new ShipView({ add() {}, remove() {} }, 'u48', 0, false);
+  assert.ok(view.tubeCaps && view.tubeCaps.bow.length === 4 && view.tubeCaps.stern.length === 1,
+    'her five tubes do not have five doors');
+  const shut = view.tubeCaps.bow.map((c) => c.node.rotation.y);
+  view.setDive(20, 3.0);
+  view.stepDive(0.016);
+  assert.ok(view.depth > 0 && view.depth < 20,
+    `the view went to ${view.depth} m in one frame instead of easing there`);
+  for (let i = 0; i < 400; i++) view.stepDive(0.016);
+  assert.ok(Math.abs(view.depth - 20) < 0.2, 'the view never arrives at the ordered depth');
+  const open = view.tubeCaps.bow.map((c) => c.node.rotation.y);
+  for (let i = 0; i < 4; i++) {
+    assert.ok(Math.abs(open[i] - shut[i]) > 0.8,
+      `bow door ${i} did not swing when the tube fired`);
+  }
+  // The two sides swing opposite ways, because they hinge outboard.
+  assert.ok(open[0] * open[1] < 0, 'both bow doors swing to the same side');
+  // And they shut again once the tube has been quiet for a moment.
+  view.setDive(20, 0);
+  for (let i = 0; i < 400; i++) view.stepDive(0.016);
+  for (let i = 0; i < 4; i++) {
+    assert.ok(Math.abs(view.tubeCaps.bow[i].node.rotation.y - shut[i]) < 0.02,
+      `bow door ${i} never shut again`);
+  }
+  // Nothing that cannot dive is stepped at all.
+  const ddView = new ShipView({ add() {}, remove() {} }, 'fletcher', 0, false);
+  ddView.setDive(30, 5);
+  ddView.stepDive(0.016);
+  assert.equal(ddView.depth, 0, 'a destroyer dived');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

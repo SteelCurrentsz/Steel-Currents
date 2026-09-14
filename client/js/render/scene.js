@@ -624,6 +624,16 @@ export class ShipView {
     this.secMounts = built.secMounts || [];
     this.aaMounts = built.aaMounts || [];
     this.torpMounts = built.torpMounts || [];
+    // The outer doors of a submarine's tubes, if she has any. Nothing else in
+    // the game has them.
+    this.tubeCaps = built.tubeCaps || null;
+    // How deep she is, and how far her doors are open: both come off the wire
+    // and both are eased toward rather than snapped to, so a boat rises and
+    // falls instead of teleporting between snapshots.
+    this.depth = 0;
+    this.depthWant = 0;
+    this.capOpen = 0;
+    this.capWant = 0;
     this.classId = classId;
     this.cls = SHIP_CLASSES[classId];
     this.team = team;
@@ -1379,6 +1389,34 @@ export class ShipView {
     scene.remove(this.group);
     if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();
+  }
+
+  /**
+   * How deep a boat is, and what her tubes are doing.
+   *
+   * Both are eased rather than set: the wire arrives fifteen times a second and
+   * a door that snapped from shut to open between two of them is a door nobody
+   * ever sees move. The depth is eased for the same reason and because a boat
+   * going down takes fifteen seconds to do it -- the snapshots are a sampling of
+   * that, not the thing itself.
+   */
+  setDive(depth, tubeOpen) {
+    this.depthWant = depth || 0;
+    this.capWant = (tubeOpen || 0) > 0 ? 1 : 0;
+  }
+
+  /** Ease her toward it, and swing the doors. Called once a frame. */
+  stepDive(dt) {
+    if (!this.cls.dive) return;
+    const k = Math.min(1, dt * 3.2);
+    this.depth += (this.depthWant - this.depth) * k;
+    this.capOpen += (this.capWant - this.capOpen) * Math.min(1, dt * 4.5);
+    if (!this.tubeCaps) return;
+    // Ninety degrees is a door standing straight out of the bow, which is where
+    // a bow cap goes: they hinge outboard so the mouth of the tube is clear.
+    const a = this.capOpen * 1.48;
+    for (const c of this.tubeCaps.bow) c.node.rotation.y = -c.hand * a;
+    for (const c of this.tubeCaps.stern) c.node.rotation.y = c.hand * a;
   }
 }
 

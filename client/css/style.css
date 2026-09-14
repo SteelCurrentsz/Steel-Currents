@@ -2005,3 +2005,23 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-size: 0.82em; letter-spacing: 0; word-break: break-all;
   color: var(--steel);
 }
+
+/* ------------------------------------------------------------ the dive --
+   The submarine's key, and the air she has left. A boat under water is on a
+   clock and the clock is the only thing her captain is really steering by, so
+   it is drawn on the key itself rather than hidden behind it. */
+.dive-key { position: relative; }
+.dive-key.under { color: var(--sand); border-color: var(--sand); }
+/* Air getting short: the whole key goes to the colour the ship uses for
+   things that are about to go wrong. */
+.dive-key.gasping { color: var(--enemy); border-color: rgba(226, 86, 79, 0.75); }
+.air-bar {
+  position: absolute; left: 4px; right: 4px; bottom: 3px;
+  height: 3px; background: rgba(154, 166, 178, 0.22); display: block;
+}
+.air-bar b {
+  display: block; height: 100%; width: 100%;
+  background: var(--ally);
+  transition: width 0.25s linear, background 0.3s ease;
+}
+.dive-key.gasping .air-bar b { background: var(--enemy); }

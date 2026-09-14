@@ -489,6 +489,20 @@
       </svg>
       <span>AIR</span>
     </button>
+    <!-- The one key nothing but a submarine has. It takes her down and brings
+         her up, and the ring round it is the air she has left. -->
+    <button class="conn-key dive-key" id="key-dive" type="button" data-panel="dive"
+            aria-label="Dive and surface" hidden>
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M3 11.5c2.6 0 2.6 2 5.2 2s2.6-2 5.2-2 2.6 2 5.2 2 2.6-2 5.2-2 2.6 2 5.2 2"
+              fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M6.5 21.5h14a4 4 0 0 0 0-7h-14a3.5 3.5 0 0 0 0 7z" fill="currentColor"/>
+        <rect x="12" y="9.5" width="4.5" height="5.5" rx="1" fill="currentColor"/>
+        <path d="M22 18l5 2.5-5 2.5z" fill="currentColor"/>
+      </svg>
+      <span id="dive-label">DIVE</span>
+      <i class="air-bar" aria-hidden="true"><b id="air-fill"></b></i>
+    </button>
     <button class="conn-key" id="key-ship" type="button" data-panel="ship"
             aria-label="Damage control">
       <svg viewBox="0 0 32 32" aria-hidden="true">

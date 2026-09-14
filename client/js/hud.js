@@ -473,6 +473,9 @@ export class Hud {
     this.keys = {};
     for (const el of this.el.connKeys.querySelectorAll('.conn-key')) {
       this.keys[el.dataset.panel] = el;
+      // The dive key is not a panel. It is an order, and it is given by
+      // pressing it: surfaced, periscope depth, deep, and round again.
+      if (el.dataset.panel === 'dive') { el.onclick = () => this.onDive?.(); continue; }
       el.onclick = () => this.togglePanel(el.dataset.panel);
     }
     this.panel = null;
@@ -488,8 +491,14 @@ export class Hud {
    * be a carrier.
    */
   showKeys(cls) {
-    if (this.keys && this.keys.air) this.keys.air.hidden = !cls.planes;
+    if (!this.keys) return;
+    if (this.keys.air) this.keys.air.hidden = !cls.planes;
+    // And the dive key, which only a boat has at all.
+    if (this.keys.dive) this.keys.dive.hidden = !cls.dive;
   }
+
+  /** What pressing the dive key does. Set by the battle. */
+  onDiveOrder(fn) { this.onDive = fn; }
 
   /**
    * Read out somebody else's ship.
@@ -533,6 +542,28 @@ export class Hud {
     if (this.keys.ship) {
       const hurt = (own.f || 0) + (own.fl || 0) > 0;
       this.keys.ship.classList.toggle('due', hurt && own.rc <= 0);
+    }
+    // The boat's air, on the key that spends it. A bar rather than a number,
+    // because what a captain needs off it is how much is left and not how many
+    // seconds -- and the colour when there is not much, because at that point
+    // it is the only thing that matters.
+    if (this.keys.dive && !this.keys.dive.hidden) {
+      const D = this.shown.dive;
+      const air = own.ox == null ? D.oxygen : own.ox;
+      const frac = Math.max(0, Math.min(1, air / D.oxygen));
+      const fill = document.getElementById('air-fill');
+      if (fill) fill.style.width = `${(frac * 100).toFixed(1)}%`;
+      const depth = own.d || 0;
+      const label = document.getElementById('dive-label');
+      // What she is doing, not what the next press will do: an order already
+      // given is the thing a captain is reading the key for.
+      if (label) {
+        label.textContent = depth < 0.6 ? 'SURFACE'
+          : Math.abs(depth - D.periscope) < 1.5 ? 'SCOPE'
+            : `${depth.toFixed(0)} M`;
+      }
+      this.keys.dive.classList.toggle('under', depth >= 0.6);
+      this.keys.dive.classList.toggle('gasping', depth >= 0.6 && frac < 0.25);
     }
   }
 

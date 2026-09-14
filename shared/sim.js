@@ -159,6 +159,18 @@ export function addShip(state, {
     // Where the sea is in her, how far over she is lying, and how far down.
     // All three come out of the water in her compartments; see buoyancy.
     sink: 0, heel: 0, trim: 0,
+    // A submarine, and only a submarine, has these.
+    //
+    // `depth` is metres of water over her, `depthCmd` where her captain has
+    // ordered her to, and `oxygen` how many seconds of air are left in her
+    // with the hatches shut. A surface ship carries them all at nought and
+    // nothing ever touches them. See stepDive.
+    depth: 0, depthCmd: 0, oxygen: cls.dive ? cls.dive.oxygen : 0,
+    // The tubes, for the picture: how long the bow caps have been open. The
+    // simulation does not need it -- a torpedo leaves the tube the moment the
+    // order is obeyed -- but the boat on screen has doors that swing, and they
+    // swing because the wire says a tube fired.
+    tubeOpen: 0,
     // The station her back went at, if it went. See breakStation.
     broke: null,
     flooding: 0,
@@ -343,6 +355,62 @@ export function applyInput(ship, input) {
     ship.aimX = input.aimX; ship.aimZ = input.aimZ;
   }
   if (input.shellType === 'ap' || input.shellType === 'he') ship.shellType = input.shellType;
+  // Where her captain has ordered her to. Refused outright by anything that
+  // cannot dive, so a stray key on a battleship does not sink her.
+  if (typeof input.depth === 'number' && shipClass(ship).dive) {
+    ship.depthCmd = clamp(input.depth, 0, shipClass(ship).dive.max);
+  }
+}
+
+/** Whether she is under enough of the sea to matter. */
+export function submerged(ship) { return ship.depth > 0.6; }
+
+/**
+ * Deep enough that everything on her casing is under water.
+ *
+ * The line is drawn at the top of the tower rather than at the waterline: a
+ * boat trimmed down with her deck awash can still fight the gun on her
+ * conning tower, and did. Once the tower is under, nothing outside the
+ * pressure hull is any use to anybody.
+ */
+export function gunsDrowned(ship) {
+  const cls = shipClass(ship);
+  return !!cls.dive && ship.depth > 1.2;
+}
+
+/**
+ * Diving, surfacing, and the air.
+ *
+ * She goes down at her flooding rate and comes up faster than that, because
+ * blowing the tanks with compressed air is quicker than letting the sea into
+ * them. Under, the air goes; on the surface it comes back, faster than it
+ * went, because the diesels are running and the hatch is open.
+ *
+ * When it is gone she surfaces whether her captain likes it or not. That is
+ * not a game rule invented to be kind -- it is what the boat does, because at
+ * that point the alternative is the crew, and every commander who ever held a
+ * boat down past that point came up anyway.
+ */
+function stepDive(state, ship, dt) {
+  const cls = shipClass(ship);
+  if (!cls.dive) return;
+  const D = cls.dive;
+  if (!ship.alive) { ship.depthCmd = 0; }
+  // Out of air: the order to stay down is overruled.
+  if (ship.oxygen <= 0) ship.depthCmd = 0;
+  const rate = ship.depthCmd > ship.depth ? D.rate : D.blow;
+  ship.depth = approach(ship.depth, ship.depthCmd, rate * dt);
+  if (submerged(ship)) {
+    ship.oxygen = Math.max(0, ship.oxygen - dt);
+    // A boat that has run herself out of air is in real trouble even once she
+    // is up: the men are done. She comes up slower than she went down.
+    if (ship.oxygen <= 0) ship.depth = approach(ship.depth, 0, D.blow * 0.55 * dt);
+  } else {
+    ship.oxygen = Math.min(D.oxygen, ship.oxygen + (D.oxygen / D.recharge) * dt);
+  }
+  // A torpedo tube's outer door, once a fish has gone through it, takes a few
+  // seconds to shut again.
+  if (ship.tubeOpen > 0) ship.tubeOpen -= dt;
 }
 
 // ---------------------------------------------------------------------------
@@ -352,11 +420,16 @@ export function applyInput(ship, input) {
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
   const engine = ship.engineDamage > 0 ? 0.45 : 1;
+  // A submarine under water is on her motors and her battery, and a Type VII
+  // makes eight knots on them against eighteen on the diesels. The diesels
+  // cannot be run under -- they need air the boat has not got.
+  const maxSpeed = submerged(ship) && cls.dive
+    ? Math.min(cls.maxSpeed, cls.dive.speed) : cls.maxSpeed;
   // Rudder swings toward its commanded angle at the hull's rudder-shift rate.
   const shift = (ship.steeringDamage > 0 ? 2.4 : 1) * cls.rudderShift;
   ship.rudder = approach(ship.rudder, ship.rudderCmd, (2 / shift) * dt);
 
-  const speedFrac = clamp(Math.abs(ship.speed) / cls.maxSpeed, 0, 1);
+  const speedFrac = clamp(Math.abs(ship.speed) / maxSpeed, 0, 1);
   // A hull barely answers the helm below steerage way, and bites hardest near
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
   const helm = Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
@@ -373,7 +446,7 @@ function stepMovement(state, ship, dt) {
   // not make thirty-six knots.
   const flood = 1 - Math.min(0.75, ship.sink / Math.max(1, cls.hull.draft * 0.9) * 0.8
     + Math.abs(ship.heel) * 0.9);
-  const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : cls.maxSpeed) * engine;
+  const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : maxSpeed) * engine;
   const target = ordered * bleed * flood;
   const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
   ship.speed = approach(ship.speed, target, accel * dt);
@@ -824,6 +897,9 @@ function stepTurrets(state, ship, dt) {
 
 export function canFire(ship) {
   if (!ship.alive) return false;
+  // Everything on a submarine's casing is outside the pressure hull and full
+  // of water the moment she is down. Only the tubes work under.
+  if (gunsDrowned(ship)) return false;
   const cls = shipClass(ship);
   return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0
     && t.laid !== false && gunState(ship, cls, cls.turrets[t.id], t) < 3);
@@ -839,6 +915,7 @@ export function canFire(ship) {
  */
 export function fireGuns(state, ship, only = null) {
   if (!ship.alive) return 0;
+  if (gunsDrowned(ship)) return 0;
   const cls = shipClass(ship);
   const gun = cls.gun;
   const spec = gun.shells[ship.shellType] || gun.shells.ap;
@@ -1307,6 +1384,7 @@ function stepSecondary(state, ship, dt) {
   const cls = shipClass(ship);
   const S = cls.secondary;
   if (!S || !ship.secMounts.length) return;
+  if (gunsDrowned(ship)) return;
   const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
   for (const m of ship.secMounts) {
     mendMount(m, dt);
@@ -1431,6 +1509,7 @@ function secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond) {
  * does not go off because somebody pressed a button.
  */
 export function fireSecondary(state, ship, id) {
+  if (gunsDrowned(ship)) return 0;
   const cls = shipClass(ship);
   const S = cls.secondary;
   if (!S || !ship.alive) return 0;
@@ -2276,6 +2355,22 @@ export function torpedoClear(cls, spec, local) {
   const hz = cls.hull.length * 0.5;
   const dx = Math.sin(local);
   const dz = Math.cos(local);
+  // A tube built into the hull is the other problem entirely. A submarine's
+  // fish does not go over the side: it is blown out of a door in the stem or
+  // the stern and it is already in the water, so what has to be clear is the
+  // end of the boat rather than the beam. Pointed anywhere but out of its own
+  // end it is shooting down the length of her, which is exactly what the
+  // side-launched test is there to stop -- so the geometry is the same test
+  // with the two walls swapped.
+  if (cls.torpedoes && cls.torpedoes.inHull) {
+    if (Math.abs(dz) < 1e-6) return false;
+    const wallZ = dz > 0 ? hz : -hz;
+    const along = wallZ - spec.z;
+    if (Math.sign(dz) !== Math.sign(along)) return false;
+    const out = along / dz;
+    const beam = Math.abs(dx) < 1e-6 ? Infinity : ((dx > 0 ? hx : -hx) - spec.x) / dx;
+    return out <= beam;
+  }
   // Which side she has to go out over. A mount on the centreline may use
   // either; one on the beam has to use its own, because the other one is
   // across the whole ship.
@@ -2390,7 +2485,14 @@ export function fireTorpedoes(state, ship, only = null) {
       launched++;
     }
     m.cooldown = T.reload;
-    state.events.push({ e: 'torpLaunch', x: ship.x + pos.x, z: ship.z + pos.z, ship: ship.id });
+    // The outer doors are open now, and stay open for a few seconds while the
+    // tube is blown through and shut again.
+    ship.tubeOpen = 4.5;
+    state.events.push({
+      e: 'torpLaunch', x: ship.x + pos.x, z: ship.z + pos.z, ship: ship.id,
+      // Which bank went, so the boat on screen opens the right doors.
+      mount: m.id,
+    });
   }
   return launched;
 }
@@ -3160,6 +3262,9 @@ function stepPlanes(state, dt) {
     // different proposition from crossing her beam.
     for (const s of state.ships) {
       if (!s.alive || s.team === p.team) continue;
+      // A boat that is down has her flak under water with everything else, and
+      // an aeroplane overhead has nothing whatever to fear from her.
+      if (gunsDrowned(s)) continue;
       const scls = getClass(s.classId);
       if (!scls.aa) continue;
       const d = dist(p.x, p.z, s.x, s.z);
@@ -4560,6 +4665,10 @@ function stepDetection(state) {
     const tc = getClass(target.classId);
     let conceal = tc.concealment;
     if (state.t - target.lastFiredAt < 12) conceal += tc.fireDetectPenalty;
+    // A boat that is down is a periscope feather at best, and below periscope
+    // depth she is nothing at all until somebody runs over her. Radar does not
+    // help either: there is nothing above the water to return an echo.
+    if (tc.dive && submerged(target)) conceal = tc.dive.concealment;
     // Weather shortens the range a lookout can pick her up at. Radar below is
     // left alone, which is the whole point of radar: in a rain squall a set is
     // worth more than every pair of eyes on the ship.
@@ -4571,7 +4680,8 @@ function stepDetection(state) {
       if (!observer.alive || observer.team === target.team) continue;
       const oc = getClass(observer.classId);
       const d = dist(observer.x, observer.z, target.x, target.z);
-      const radar = d < oc.radarRange * 0.55 && target.smokeActive <= 0;
+      const radar = d < oc.radarRange * 0.55 && target.smokeActive <= 0
+        && !(tc.dive && submerged(target));
       if (d > conceal && !radar) continue;
       if (d > 900 && blockedByLand(state.world, observer.x, observer.z, target.x, target.z)) continue;
       target.spottedBy[observer.team] = true;
@@ -4633,6 +4743,7 @@ export function step(state, dt = DT) {
   state.tick++;
   for (const ship of state.ships) {
     if (!ship.alive) continue;
+    stepDive(state, ship, dt);
     stepMovement(state, ship, dt);
     stepTurrets(state, ship, dt);
     stepTorpMounts(state, ship, dt);
@@ -4654,6 +4765,11 @@ export function step(state, dt = DT) {
 /** Client-side prediction: advance only the local hull, no weapons or damage. */
 export function predictShip(state, ship, dt) {
   if (!ship.alive) return;
+  // The dive is predicted too. A boat's depth is the one thing about her that
+  // answers a key and takes half a minute to happen, and a captain who has to
+  // wait for a snapshot to see the needle move has no idea whether the order
+  // was heard.
+  stepDive(state, ship, dt);
   stepMovement(state, ship, dt);
   stepTurrets(state, ship, dt);
 }

@@ -584,6 +584,137 @@ export const SHIP_CLASSES = {
   // her stations and every mounting on her carry the same factor. It lives in
   // one place here and one in her renderer, and the two are checked against
   // each other.
+  u48: {
+    // U-48: a Type VIIB, and the most successful submarine of the war --
+    // fifty-five ships in twelve patrols, and she survived to be scuttled by
+    // her own crew in 1945.
+    //
+    // Nothing else in this game is like her, and the reason is not the
+    // torpedoes. A Type VII is a torpedo boat that can hide under the sea for
+    // a while: seven hundred and fifty tonnes, an eighteen-millimetre pressure
+    // hull that anything at all goes through, and on the surface she is faster
+    // than she is under it by better than two to one. Under it she is nearly
+    // blind, nearly deaf, and running out of air the whole time.
+    //
+    // So she is played the other way round from every other hull here. On the
+    // surface she has her guns, her speed and her endurance and can be seen
+    // for miles. Under it she has four bow tubes and one stern tube, eight
+    // knots, and as long as her air lasts.
+    id: 'u48',
+    name: 'U-48',
+    fullName: 'U-48',
+    className: 'Type VIIB',
+    type: 'SS',
+    typeName: 'Submarine',
+    nation: 'ger',
+    blurb: 'Fifty-five ships in twelve patrols. Four bow tubes, one aft, and eighteen millimetres of pressure hull between her crew and the sea.',
+    hull: { length: 66.5, beam: 6.2, draft: 4.74, superstructure: 0.8 },
+    // A boat, not a ship. She has no armour, no subdivision worth the name and
+    // seven hundred tonnes of her; one destroyer shell in the pressure hull
+    // ends the patrol and very often the boat.
+    hp: 6900,
+    maxSpeed: 17.9 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.62,
+    turnRate: 0.105,
+    rudderShift: 3.4,
+    speedLossInTurn: 0.18,
+    // Low, small and grey, and she trims down until there is nothing of her
+    // above water but the tower. Submerged she is not seen at all beyond a
+    // mile, which is the whole of what she is for.
+    concealment: 3100,
+    fireDetectPenalty: 4200,
+    radarRange: 0,
+    repairCooldown: 96,
+    repairHeal: 0.07,
+    smokeCharges: 0,
+    // Eighteen and a half millimetres of pressure hull, five of free-flooding
+    // casing over it. Every one of these numbers is what it actually was, and
+    // the consequence is that literally every gun in this game penetrates her
+    // everywhere -- which is correct, and is why a boat that is seen is a boat
+    // that is finished.
+    armor: { belt: 18, deck: 5, citadel: 18, bow: 5, superstructure: 5 },
+    // The dive.
+    //
+    // `depth` is metres below the surface: 0 on the roof, `periscope` with the
+    // tower awash and nothing but the attack scope up, `max` with the boat
+    // properly down. `rate` is how fast she goes down and `blow` how fast the
+    // tanks bring her up, which is quicker -- compressed air is faster than
+    // flooding.
+    //
+    // `oxygen` is how many seconds of it she has below with the hatches shut.
+    // Twelve minutes is not the real figure -- a Type VII could stay under for
+    // the better part of a day at creeping speed -- it is the figure that makes
+    // the decision a decision at the timescale a battle is fought on.
+    dive: {
+      periscope: 9, max: 34,
+      rate: 2.4, blow: 3.6,
+      oxygen: 720, recharge: 90,
+      // What she can do down there: eight knots flat out, and every mounting
+      // on her casing is under water and cannot be fought.
+      speed: 8 * KNOTS,
+      // And how much harder she is to find once she is under.
+      concealment: 1250,
+    },
+    // The 8.8 cm SK C/35 on the casing forward of the tower. It is a deck gun
+    // on a wet mounting with no shield and no director: it is for finishing a
+    // merchantman that is not worth a torpedo, and against a warship it is an
+    // embarrassment. It cannot be fought at all with the boat under.
+    turrets: [
+      { id: 0, name: 'Deck gun', x: 0, z: 9.0, angle: 0, arc: 2.79, guns: 1, my: 3.30,
+        // No shield, no roof and no gunhouse: an open pedestal on a wet
+        // casing, worked by hand by men standing in the sea's way.
+        open: true },
+    ],
+    gun: {
+      name: '8.8 cm SK C/35', role: 'surface',
+      reach: 4.85,
+      caliber: 88, reload: 4.4, traverse: 0.46, range: 11000, sigma: 1.30,
+      shells: shells(88, 950, 820, 9, 700, 0.05),
+    },
+    // Five 53.3 cm tubes: four in the bow and one in the stern, with the
+    // reloads in the racks under the deck plates of the fore-ends. They do not
+    // train. A Type VII is aimed by pointing the boat.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.55 },
+        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -1.55 },
+      ],
+      name: 'G7e torpedo', role: 'surface', caliber: 533,
+      reach: 0.55,
+      // The tubes are in the hull. There is nothing to train, and the fish
+      // goes out of the stem or the stern rather than over the side -- which
+      // is a different clearance problem, and torpedoClear is told so here.
+      inHull: true,
+      traverse: 0.0,
+      reload: 96, damage: 14200, speed: 30 * KNOTS, range: 5000,
+      // Electric, so no wake at all -- which is why she is fired from under.
+      detection: 700, arming: 300, spread: 0.035, floodChance: 0.38,
+    },
+    // The 2 cm C/30 on the Wintergarten abaft the tower. One barrel, and like
+    // the deck gun it is on the outside of the pressure hull and drowns.
+    secondary: null,
+    aa: {
+      range: 2200, dps: 9,
+      guns: [
+        { name: '2 cm C/30', caliber: 20, role: 'aa', reload: 0.30, range: 2200,
+          mounts: [
+            { x: 0, z: -5.6, angle: Math.PI, arc: 2.79, guns: 1, my: 4.75 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 753,
+      aircraft: 0,
+      mainRounds: 220,
+      torpedoesCarried: 14,
+      tertiary: [
+        { caliber: 20, label: '2cm', barrels: 1, rounds: 4380 },
+      ],
+    },
+  },
+
   iowa: {
     // Three 16"/50 triples. A turret this size is blast-limited as much as it is
     // structurally limited, so the heaviest guns on the list have the least of
@@ -1331,8 +1462,8 @@ export const SHIP_CLASSES = {
   },
 };
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'iowa',
-  'yamato', 'enterprise', 'shinano'];
+export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'u48',
+  'iowa', 'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;
