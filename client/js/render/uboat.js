@@ -47,27 +47,35 @@ export const BEAM = CLS.hull.beam;       // 6.2 m
 export const DRAFT = CLS.hull.draft;
 const HALF = LOA / 2;
 
-// Kriegsmarine grey, and a great deal of it: a boat is one colour from end to
-// end, with the wooden deck grating on the casing the only break in it.
+// Kriegsmarine grey, and it is two greys and not one.
+//
+// A Type VII went to sea in Hellgrau 50 on everything above the top of her
+// saddle tanks -- the casing side, the tower, the gun -- and Dunkelgrau 51 on
+// the tank sides below it, with a black boot topping at the surfaced waterline
+// and the casing itself darker than either. The line between the two greys is
+// the top of the saddle tanks and it runs the whole length of her, which is
+// why she reads as a low dark hull with a light tower on it in every
+// photograph and is the single most useful thing about her colouring.
 const P = {
-  hull: 0x5b626a,
-  hullDark: 0x474e56,
-  boot: 0x191c20,
-  antifoul: 0x46433c,
-  deck: 0x5a564b,          // the wooden grating on the casing
-  deckSteel: 0x525960,
-  steel: 0x656d76,
+  light: 0x8b929a,         // Hellgrau 50: topsides, tower, everything above
+  hull: 0x6b727a,          // Dunkelgrau 51: the saddle tanks
+  hullDark: 0x4c535b,      // the pressure hull, seen only in a cutaway
+  boot: 0x1a1d21,          // the boot topping at the waterline
+  antifoul: 0x3d423e,      // and the dull green-black under it
+  deck: 0x4c4d48,          // the wooden grating on the casing
+  deckSteel: 0x4a5057,
+  steel: 0x7d858d,
   steelDark: 0x4a5159,
-  bright: 0x7f878f,
-  gun: 0x5e666e,
+  bright: 0x99a1a9,
+  gun: 0x757d85,
   gunDark: 0x3a4046,
   canvas: 0x7d7d72,
   glass: 0x24303a,
-  cave: 0x11151a,
+  cave: 0x0e1116,
   brass: 0x8a7340,
   // The boat's number, painted white on the tower early in the war and
   // painted out later. Hers was there in 1940.
-  mark: 0xc9cdd2,
+  mark: 0xd2d6da,
 };
 
 const MATS = {};
@@ -144,7 +152,7 @@ const HALFB = [
 const SECTION = [
   [0.00, 0.055], [0.06, 0.30], [0.14, 0.53], [0.24, 0.73], [0.36, 0.88],
   [0.48, 0.965], [0.58, 1.000], [0.68, 0.995], [0.78, 0.960], [0.86, 0.905],
-  [0.93, 0.842], [1.00, 0.770],
+  [0.93, 0.812], [1.00, 0.706],
 ];
 
 /**
@@ -320,44 +328,87 @@ function shell(g, m, v0, v1, t0 = -0.995, t1 = 0.995, N = 96, K = 7, swell = 1) 
  * None of it is watertight and none of it ever was -- the sea is inside it the
  * whole time she is under -- which is why her sides are cut with limber holes
  * and why a shell through it does nothing at all.
+ *
+ * She is plated in strakes rather than lofted in one piece, and the strakes
+ * are where her colours change: anti-fouling to the boot topping, the boot to
+ * Dunkelgrau 51 over the tanks, and Dunkelgrau to Hellgrau 50 at the top of
+ * the tanks, which is the line that runs the whole length of her.
  */
 function outerHull(g) {
-  // The body, in three strakes: the bottom in anti-fouling, the boot topping
-  // at the surfaced waterline, and the topsides up to the casing.
-  shell(g, M.antifoul, 0.00, 0.655, -0.995, 0.995, 100, 8);
-  shell(g, M.boot, 0.645, 0.760, -0.995, 0.995, 100, 3, 1.002);
-  shell(g, M.hull, 0.750, 1.000, -0.995, 0.995, 100, 6, 1.002);
+  shell(g, M.antifoul, 0.000, 0.656, -0.995, 0.995, 104, 8);
+  shell(g, M.boot, 0.646, 0.762, -0.995, 0.995, 104, 3, 1.003);
+  shell(g, M.hull, 0.752, 0.880, -0.995, 0.995, 104, 4, 1.003);
+  shell(g, M.light, 0.872, 1.000, -0.995, 0.995, 104, 5, 1.004);
+
+  // The strake along the top of the saddle tanks: a raised welt of plating,
+  // and the line the two greys meet on.
+  shell(g, M.steelDark, 0.868, 0.886, -0.985, 0.985, 104, 2, 1.017);
+  // And two plating seams down the tank side, which is what tells you at a
+  // glance that she is a riveted-and-welded hull and not a moulding.
+  shell(g, M.hullDark, 0.786, 0.794, -0.96, 0.96, 96, 2, 1.010);
+  shell(g, M.hullDark, 0.700, 0.707, -0.94, 0.94, 96, 2, 1.008);
+
   limberHoles(g);
 }
 
 /**
- * The limber holes.
+ * The limber holes, which after the tower are the most recognisable thing
+ * about a U-boat's outline.
  *
- * A row of slots down each side under the edge of the casing, and the single
- * most recognisable thing about a U-boat's outline after the tower. They are
- * what let the outer hull flood and drain, and a Type VII's pattern -- a long
- * run of them from the bow to the tower and a shorter run aft -- is on every
- * photograph of her.
+ * They are not decoration. The whole of the outer hull floods, and it has to
+ * do it fast enough that she is under in half a minute and drain fast enough
+ * that she is not carrying tons of the North Atlantic around on the surface.
+ * So she is cut with three separate runs of them, and the plans show all
+ * three: a dense row of small slots immediately under the edge of the casing
+ * from the bow to the stern, a row of larger free-flooding vents along the top
+ * of the saddle tanks, and the flood ports low down that the tanks breathe
+ * through.
  */
 function limberHoles(g) {
   for (const sgn of [-1, 1]) {
-    for (let i = 0; i < 38; i++) {
-      const t = -0.86 + (1.70 * i) / 37;
+    // The run under the casing edge. Broken abreast the tower, because there
+    // is tower fairing there and not casing.
+    for (let i = 0; i < 62; i++) {
+      const t = -0.885 + (1.77 * i) / 61;
       const z = t * HALF;
-      const y = deckAt(z) - 0.62;
+      if (z > -2.4 && z < 4.6) continue;      // under the tower fairing
+      const y = deckAt(z) - 0.52;
       const w = shellAt(t, y);
-      if (w < 0.45) continue;
-      box(g, M.cave, 0.12, 0.34, 0.58, sgn * (w - 0.03), y, z);
+      if (w < 0.62) continue;
+      box(g, M.cave, 0.13, 0.28, 0.44, sgn * (w - 0.05), y, z);
     }
-    // And the drain slots low down on the saddle tanks, at the turn of bilge.
-    for (let i = 0; i < 16; i++) {
-      const t = -0.56 + (1.10 * i) / 15;
-      const y = -2.55;
+    // The free-flooding vents along the top of the tanks: fewer, longer, and
+    // lower -- right under the strake.
+    for (let i = 0; i < 22; i++) {
+      const t = -0.72 + (1.42 * i) / 21;
+      const z = t * HALF;
+      const y = deckAt(z) - 1.32;
       const w = shellAt(t, y);
-      if (w < 0.5) continue;
-      box(g, M.cave, 0.10, 0.24, 0.44, sgn * (w - 0.03), y, t * HALF);
+      if (w < 1.1) continue;
+      box(g, M.cave, 0.12, 0.26, 0.82, sgn * (w - 0.03), y, z);
+    }
+    // And the flood ports the tanks breathe through, at the turn of bilge.
+    for (let i = 0; i < 12; i++) {
+      const t = -0.54 + (1.06 * i) / 11;
+      const y = -2.70;
+      const w = shellAt(t, y);
+      if (w < 1.4) continue;
+      box(g, M.cave, 0.11, 0.34, 0.56, sgn * (w - 0.03), y, t * HALF);
     }
   }
+  // The four bow tube doors show on the stem as rings of plating round the
+  // mouths; the tubes themselves are built with the mountings.
+  // The anchor, recessed into the starboard bow with its hawse: a Type VII
+  // carried one, on that side, and it is the only break in her port-starboard
+  // symmetry above water.
+  const at = 0.905;
+  const az = at * HALF;
+  const ay = deckAt(az) - 1.05;
+  const aw = shellAt(at, ay);
+  box(g, M.cave, 0.16, 0.62, 0.92, aw - 0.05, ay, az);
+  box(g, M.steelDark, 0.11, 0.44, 0.66, aw - 0.02, ay, az);
+  cyl(g, M.cave, 0.13, 0.13, 0.30, aw - 0.10, deckAt(az) - 0.30, az + 0.30, 10)
+    .rotation.z = Math.PI / 2;
 }
 
 /**
@@ -415,86 +466,354 @@ function casing(g) {
 
 
 // ----------------------------------------------------------------- tower --
+//
+// Where the tower is, and how high, in one place: the flak stands on the
+// Wintergarten and the tower's inside is fitted to the same figures, so none
+// of them may be guessed twice.
+const TZ = 1.0;                  // she sits a little abaft amidships
+const T_BASE = deckAt(TZ);       // the casing the fairing stands on
+const T_FAIR = 1.62;             // and the height of the free-flooding skirt
+const T_BRIDGE = T_BASE + 2.48;  // the bridge deck: nine metres over her keel
+const T_WG = T_BRIDGE - 0.54;    // the Wintergarten, one step down abaft it
 
 /**
- * The conning tower and the bridge on top of it, with the Wintergarten abaft.
+ * The plan of the tower, station by station, as it is drawn on her plans: the
+ * free-flooding fairing, the pressure tower standing inside it, the bridge
+ * coaming on top of that, and the Wintergarten abaft.
  *
- * The tower is a pressure-tight cylinder with a hatch down into the control
- * room; the bridge is the open platform on its roof, with the UZO pedestal on
- * the front of it. The Wintergarten is the railed gallery aft carrying the
- * flak. Above it all: the attack periscope, the sky periscope and the DF loop.
+ * Rows are [dz from the tower's centre, half-breadth]. The first and last row
+ * of each give only a station: the ends close on the centreline there, which
+ * is what makes the shape a rounded one in plan rather than a box.
+ */
+const FAIR_PLAN = [
+  [-3.20, 0], [-2.88, 0.64], [-2.38, 1.16], [-1.62, 1.53], [-0.70, 1.70],
+  [0.30, 1.72], [1.20, 1.64], [1.96, 1.44], [2.56, 1.10], [3.06, 0.62], [3.42, 0],
+];
+const TOWER_PLAN = [
+  [-2.48, 0], [-2.18, 0.54], [-1.72, 0.98], [-1.06, 1.26], [-0.26, 1.37],
+  [0.56, 1.37], [1.26, 1.27], [1.82, 1.05], [2.22, 0.66], [2.52, 0],
+];
+const BRIDGE_PLAN = [
+  [-2.34, 0], [-2.04, 0.51], [-1.62, 0.93], [-1.02, 1.21], [-0.22, 1.32],
+  [0.54, 1.32], [1.20, 1.22], [1.72, 1.01], [2.10, 0.65], [2.38, 0],
+];
+const WG_PLAN = [
+  [-1.62, 0], [-1.40, 0.58], [-0.96, 0.98], [-0.36, 1.16], [0.34, 1.16],
+  [0.96, 1.06], [1.60, 0.92], [2.30, 0],
+];
+
+/**
+ * A closed plan outline from a half-breadth table.
+ *
+ * The table describes one side of something symmetrical about the centreline,
+ * which is how a tower is drawn. This walks up the starboard side and back
+ * down the port one and hands back the closed curve everything below is swept
+ * along.
+ */
+function outlinePts(rows, z0) {
+  const pts = [[0, z0 + rows[0][0]]];
+  for (let i = 1; i < rows.length - 1; i++) pts.push([rows[i][1], z0 + rows[i][0]]);
+  pts.push([0, z0 + rows[rows.length - 1][0]]);
+  for (let i = rows.length - 2; i > 0; i--) pts.push([-rows[i][1], z0 + rows[i][0]]);
+  return pts;
+}
+
+/** The outward normal of a closed outline at each of its points. */
+function outNormals(pts) {
+  const n = pts.length;
+  const cz = pts.reduce((s, p) => s + p[1], 0) / n;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i - 1 + n) % n];
+    const b = pts[(i + 1) % n];
+    let nx = b[1] - a[1];
+    let nz = -(b[0] - a[0]);
+    const len = Math.hypot(nx, nz) || 1;
+    nx /= len; nz /= len;
+    if (nx * pts[i][0] + nz * (pts[i][1] - cz) < 0) { nx = -nx; nz = -nz; }
+    out.push([nx, nz]);
+  }
+  return out;
+}
+
+/**
+ * A bulwark: a wall of plating following a closed outline.
+ *
+ * This is the thing a bridge coaming actually is, and the reason it matters is
+ * that a bridge is an open platform. Drawn as a solid box it reads as a
+ * deckhouse with a lid; drawn as a wall you can see over it and see the men
+ * and the gear standing inside it, which is what a conning tower looks like.
+ *
+ * `flare` pushes the top of the outer face outboard -- the spray deflector
+ * round the front of a Type VII's bridge, which is the single most
+ * recognisable thing about her above the casing.
+ */
+function bulwark(g, m, pts, y, h, thick, flare = 0) {
+  const n = pts.length;
+  const nn = outNormals(pts);
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i < n; i++) {
+    const [x, z] = pts[i];
+    const [nx, nz] = nn[i];
+    // Only the forward half gets the deflector: it is there to throw a head
+    // sea over the men, and abaft the beam there is no head sea.
+    const f = flare * Math.max(0, Math.min(1, (nz + 0.15) / 0.85));
+    pos.push(x, y, z);                                       // outer foot
+    pos.push(x - nx * thick, y, z - nz * thick);             // inner foot
+    pos.push(x - nx * thick, y + h, z - nz * thick);         // inner head
+    pos.push(x + nx * f, y + h + f * 0.25, z + nz * f);      // outer head
+  }
+  for (let i = 0; i < n; i++) {
+    const a = i * 4;
+    const b = ((i + 1) % n) * 4;
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      idx.push(a + k, a + k2, b + k, a + k2, b + k2, b + k);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, m));
+}
+
+/** A platform: a slab of deck filling a closed outline. */
+function platformSlab(g, m, pts, y, thick) {
+  const n = pts.length;
+  const cz = pts.reduce((s, p) => s + p[1], 0) / n;
+  const pos = [];
+  const idx = [];
+  for (const [x, z] of pts) pos.push(x, y + thick, z);
+  for (const [x, z] of pts) pos.push(x, y, z);
+  const ct = pos.length / 3; pos.push(0, y + thick, cz);
+  const cb = pos.length / 3; pos.push(0, y, cz);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    idx.push(ct, j, i);
+    idx.push(cb, n + i, n + j);
+    idx.push(i, j, n + i, j, n + j, n + i);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, m);
+  g.add(mesh);
+  return mesh;
+}
+
+/**
+ * A closed body lofted between two heights from a plan outline, tapering as it
+ * goes up. The fairing and the pressure tower are both this.
+ */
+function loftTower(g, m, rows, z0, y, h, taper = 0.95) {
+  const lo = outlinePts(rows, z0);
+  const n = lo.length;
+  const pos = [];
+  const idx = [];
+  for (const [x, z] of lo) pos.push(x, y, z);
+  for (const [x, z] of lo) pos.push(x * taper, y + h, z0 + (z - z0) * taper);
+  const cb = pos.length / 3; pos.push(0, y, z0);
+  const ct = pos.length / 3; pos.push(0, y + h, z0);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    // Wound so the outside faces out. Wound the other way the tower is a
+    // closed shape you can see straight into: from astern a ray goes through
+    // the after plating, past the brass in the tower compartment, and meets
+    // the inside of the forward face -- which reads as solid until something
+    // is standing in there, and then it is a hole.
+    idx.push(i, n + i, j, j, n + i, n + j);
+    idx.push(cb, i, j);
+    idx.push(ct, n + j, n + i);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, m));
+}
+
+/**
+ * The conning tower.
+ *
+ * Four things stacked, and the plans show all four. The bottom is the fairing:
+ * free-flooding plating wrapped round the foot of the tower, slotted along its
+ * base, and it is what makes a Type VII's tower wider at the bottom than the
+ * top. Inside it stands the pressure tower, a second pressure vessel with a
+ * hatch down into the control room and another up on to the bridge. On top of
+ * that is the bridge itself -- an open platform inside a coaming, with the
+ * spray deflector flared round the front of it, the UZO on the centreline, the
+ * compass, the voicepipes and the upper hatch. And abaft it, one step down,
+ * the Wintergarten: the railed gallery the flak stands on.
+ *
+ * Above it all the periscope shears, the DF loop and the jumping wire.
  */
 function tower(g) {
-  const TZ = 1.0;                 // she sits a little abaft amidships
-  const base = deckAt(TZ);
-  // The fairing round the foot of the tower, which is free-flooding like the
-  // rest of the casing and is what makes a Type VII's tower look wider at the
-  // bottom than it is.
-  const fair = [[-4.6, 1.35], [-2.6, 1.62], [0, 1.72], [2.4, 1.62], [4.2, 1.28], [5.2, 0.75]];
-  loftHouse(g, M.hull, fair, base, 1.40, TZ, 0.88);
-  // The pressure-tight tower itself, standing inside the fairing.
-  loftHouse(g, M.hull, [[-2.2, 1.18], [0, 1.30], [2.0, 1.22], [3.0, 0.86]],
-    base + 1.40, 0.90, TZ, 0.93);
+  const base = T_BASE;
 
-  const bridge = base + 2.30;
-  // The bridge coaming: an open platform with the spray deflector round its
-  // forward face.
-  loftHouse(g, M.steel, [[-2.4, 1.22], [0, 1.34], [2.2, 1.26], [3.2, 0.90]],
-    bridge, 0.88, TZ, 1.0);
-  box(g, M.cave, 2.0, 0.70, 2.0, 0, bridge + 0.40, TZ + 0.3);
+  // The fairing, and the free-flooding slots round the foot of it. The sea is
+  // inside this the moment she dives and it has to get in and out.
+  loftTower(g, M.light, FAIR_PLAN, TZ, base, T_FAIR, 0.90);
+  const fairPts = outlinePts(FAIR_PLAN, TZ);
+  const fairN = outNormals(fairPts);
+  for (let i = 0; i < fairPts.length; i++) {
+    const [x, z] = fairPts[i];
+    const [nx, nz] = fairN[i];
+    if (Math.abs(x) < 0.55) continue;                    // not on the ends
+    for (const dy of [0.26, 0.68]) {
+      const slot = box(g, M.cave, 0.07, 0.18, 0.38,
+        x - nx * 0.045, base + dy, z - nz * 0.045);
+      // Turned so the slot lies ALONG the plating and its thin face is the
+      // one pointing out of it. Turned to the normal instead -- which is the
+      // easy mistake -- every slot stands a third of a metre off her side.
+      slot.rotation.y = Math.atan2(nz, -nx);
+    }
+  }
 
-  // The UZO pedestal on the forward rail -- the surface attack sight, which is
-  // what she actually aims with on the surface.
-  cyl(g, M.steelDark, 0.10, 0.12, 0.75, 0, bridge + 1.2, TZ + 3.0, 8);
-  box(g, M.gunDark, 0.46, 0.20, 0.22, 0, bridge + 1.62, TZ + 3.0);
+  // The pressure tower inside it, and the step of plating where the fairing
+  // ends and it carries on up.
+  loftTower(g, M.light, TOWER_PLAN, TZ, base + T_FAIR, T_BRIDGE - base - T_FAIR, 0.96);
 
-  // The two periscopes and the DF loop, standing out of the bridge.
-  //
-  // The attack scope is the thin one and stands further forward; the sky
-  // scope, for searching, is fatter and abaft it. The loop is the round
-  // direction-finding aerial on the after rail.
+  // The bridge deck, and the coaming round it with the spray deflector flared
+  // over the forward half.
+  platformSlab(g, M.deckSteel, outlinePts(BRIDGE_PLAN, TZ), T_BRIDGE - 0.10, 0.10);
+  bulwark(g, M.light, outlinePts(BRIDGE_PLAN, TZ), T_BRIDGE, 0.92, 0.13, 0.20);
+  // And the grating the watch stands on, which is not the deck: a Type VII's
+  // bridge floor is slatted so the sea goes through it.
+  platformSlab(g, M.steelDark, outlinePts(BRIDGE_PLAN.map(([dz, w]) => [dz * 0.86, w * 0.80]), TZ),
+    T_BRIDGE + 0.02, 0.04);
+
+  // What is on the bridge. The upper hatch first, because it is the reason
+  // there is a bridge at all: it is the only way in or out of the boat at sea.
+  cyl(g, M.steelDark, 0.42, 0.45, 0.16, 0, T_BRIDGE + 0.10, TZ - 0.30, 14);
+  cyl(g, M.bright, 0.36, 0.36, 0.09, 0.10, T_BRIDGE + 0.21, TZ - 0.30, 14);
+  box(g, M.steelDark, 0.10, 0.09, 0.26, -0.34, T_BRIDGE + 0.21, TZ - 0.30);
+
+  // The UZO on the forward coaming: a pair of big ship's binoculars on a
+  // pedestal with a bearing ring under them, and it is what she actually aims
+  // a surface attack with. The tubes do not train; the boat does.
+  cyl(g, M.steelDark, 0.11, 0.15, 0.86, 0, T_BRIDGE + 0.45, TZ + 1.62, 10);
+  cyl(g, M.gunDark, 0.20, 0.20, 0.07, 0, T_BRIDGE + 0.90, TZ + 1.62, 14);
+  box(g, M.gunDark, 0.40, 0.16, 0.14, 0, T_BRIDGE + 1.00, TZ + 1.62);
+  for (const sgn of [-1, 1]) {
+    tubeZ(g, M.gunDark, 0.055, 0.34, sgn * 0.11, T_BRIDGE + 1.06, TZ + 1.70, 8);
+  }
+
+  // The magnetic compass in its binnacle, and the two voicepipes down to the
+  // control room -- the tube she is conned through.
+  cyl(g, M.steelDark, 0.13, 0.15, 0.52, -0.62, T_BRIDGE + 0.28, TZ + 0.90, 10);
+  sphere(g, M.bright, 0.15, -0.62, T_BRIDGE + 0.58, TZ + 0.90, 10);
+  for (const sgn of [-1, 1]) {
+    cyl(g, M.steelDark, 0.055, 0.055, 0.70, sgn * 0.80, T_BRIDGE + 0.37, TZ + 0.30, 8);
+    const bell = cyl(g, M.steelDark, 0.10, 0.055, 0.14, sgn * 0.80, T_BRIDGE + 0.78, TZ + 0.30, 8);
+    bell.rotation.z = sgn * 0.35;
+  }
+  // Navigation lights, port and starboard on the coaming, in their screens.
+  for (const [sgn, col] of [[-1, 0x2a5d33], [1, 0x6d2a2a]]) {
+    box(g, M.steelDark, 0.14, 0.24, 0.20, sgn * 1.22, T_BRIDGE + 0.58, TZ + 0.72);
+    box(g, mat(col), 0.05, 0.16, 0.13, sgn * 1.31, T_BRIDGE + 0.58, TZ + 0.72);
+  }
+
+  // The periscope shears: the housing abaft the bridge that the two scopes
+  // come up through, and the scopes themselves. The sky periscope is the
+  // fatter one and is used from the bridge; the attack scope is the thin one
+  // and is used from inside the tower, which is why it stands further aft.
+  loftTower(g, M.light, [
+    [-1.30, 0], [-1.05, 0.42], [-0.60, 0.60], [0.20, 0.62], [0.70, 0.46], [1.00, 0],
+  ], TZ - 1.55, T_BRIDGE, 1.15, 0.88);
   const scopes = new THREE.Group();
-  scopes.position.set(0, bridge, TZ);
-  cyl(scopes, M.steelDark, 0.075, 0.085, 3.9, 0.42, 1.95, 0.55, 8);
-  box(scopes, M.steelDark, 0.20, 0.30, 0.14, 0.42, 3.72, 0.62);
-  cyl(scopes, M.steelDark, 0.125, 0.14, 3.2, -0.45, 1.60, -0.35, 8);
-  box(scopes, M.steelDark, 0.28, 0.34, 0.18, -0.45, 3.05, -0.28);
+  scopes.position.set(0, T_BRIDGE + 1.15, TZ - 1.55);
+  cyl(scopes, M.steelDark, 0.125, 0.135, 2.90, -0.26, 1.45, -0.42, 10);
+  box(scopes, M.steelDark, 0.28, 0.32, 0.19, -0.26, 3.02, -0.34);
+  cyl(scopes, M.steelDark, 0.075, 0.082, 3.60, 0.28, 1.80, 0.28, 8);
+  box(scopes, M.steelDark, 0.20, 0.28, 0.14, 0.28, 3.72, 0.34);
   g.add(scopes);
-  // The DF loop on its stub mast.
-  cyl(g, M.steelDark, 0.06, 0.06, 0.85, 0, bridge + 1.25, TZ - 1.5, 6);
-  const loop = cyl(g, M.steelDark, 0.42, 0.42, 0.07, 0, bridge + 1.72, TZ - 1.5, 16);
-  loop.rotation.x = Math.PI / 2;
 
-  // The Wintergarten: the open gallery abaft the tower that the flak stands
-  // on, with its rail and the plating round the bottom of it.
-  const wz = TZ - 4.4;
-  const plat = box(g, M.steel, 2.55, 0.16, 3.0, 0, bridge - 0.55, wz);
+  // The direction-finding loop, on its short folding mast on the fore part of
+  // the bridge: the aerial she takes a bearing on a convoy's radio with, and
+  // it folds flat into the casing of the bridge when she dives.
+  cyl(g, M.steelDark, 0.055, 0.065, 0.92, 0, T_BRIDGE + 0.52, TZ + 0.98, 8);
+  const loop = cyl(g, M.steelDark, 0.40, 0.40, 0.06, 0, T_BRIDGE + 1.06, TZ + 0.98, 18);
+  loop.rotation.x = Math.PI / 2;
+  cyl(g, M.steelDark, 0.34, 0.34, 0.05, 0, T_BRIDGE + 1.06, TZ + 0.98, 18)
+    .rotation.x = Math.PI / 2;
+
+  // The Wintergarten abaft the bridge, one step down: the deck, the bulwark
+  // round it, and the rail on top of that. The flak stands in the middle of it
+  // and is built with the other mountings.
+  const wgPts = outlinePts(WG_PLAN, TZ - 4.60);
+  const plat = platformSlab(g, M.deckSteel, wgPts, T_WG - 0.10, 0.10);
   plat.userData.name = 'wintergarten';
-  for (const [dx, dz, w, d] of [[0, -1.55, 2.55, 0.14], [-1.28, 0, 0.14, 3.0], [1.28, 0, 0.14, 3.0]]) {
-    box(g, M.steel, w, 0.62, d, dx, bridge - 0.24, wz + dz);
+  bulwark(g, M.light, wgPts, T_WG, 0.62, 0.11);
+  const wgN = outNormals(wgPts);
+  for (let i = 0; i < wgPts.length; i++) {
+    const j = (i + 1) % wgPts.length;
+    const [x, z] = wgPts[i];
+    const [x2, z2] = wgPts[j];
+    if (z > TZ - 3.4 && z2 > TZ - 3.4) continue;          // open into the bridge
+    const len = Math.hypot(x2 - x, z2 - z);
+    for (const h of [0.28, 0.56]) {
+      const rail = box(g, M.steelDark, 0.04, 0.04, len + 0.02,
+        (x + x2) / 2, T_WG + 0.62 + h, (z + z2) / 2);
+      rail.rotation.y = Math.atan2(x2 - x, z2 - z);
+    }
+    const [nx, nz] = wgN[i];
+    box(g, M.steelDark, 0.045, 0.60, 0.045, x - nx * 0.05, T_WG + 0.92, z - nz * 0.05);
   }
-  for (const h of [0.30, 0.58, 0.86]) {
-    box(g, M.steelDark, 2.55, 0.045, 0.045, 0, bridge - 0.47 + h, wz - 1.5);
-    for (const sgn of [-1, 1]) box(g, M.steelDark, 0.045, 0.045, 3.0, sgn * 1.28, bridge - 0.47 + h, wz);
+
+  // The ladder up the after face of the fairing to the Wintergarten, and the
+  // step rungs up the tower side from the casing.
+  ladder(g, M.steelDark, 0, base + 0.25, T_WG - 0.05, TZ - 3.55, TZ - 4.15);
+  for (let i = 0; i < 5; i++) {
+    box(g, M.steelDark, 0.34, 0.045, 0.045, 0, base + 0.34 + i * 0.27, TZ + 3.02);
   }
-  // The ladder up the after face of the tower to it.
-  ladder(g, M.steelDark, 0, base + 0.3, bridge - 0.6, TZ - 2.6, TZ - 3.4);
+
+  // Her number on the fairing, painted white: three strokes a side, and they
+  // were painted out once the boats started being hunted by aircraft.
+  // Segments of a digit, as [dz, dy, long-ways?]: top, upper two uprights,
+  // middle, lower two uprights, bottom -- the shape a stencil cuts.
+  // A four has no top bar, which is the whole of what tells it from a nine.
+  const SEG = {
+    4: [[0.26, 0.17, 1], [-0.26, 0.17, 1], [0, 0.00], [-0.26, -0.17, 1]],
+    8: [[0, 0.34], [0.26, 0.17, 1], [-0.26, 0.17, 1], [0, 0.00],
+      [0.26, -0.17, 1], [-0.26, -0.17, 1], [0, -0.34]],
+  };
+  for (const sgn of [-1, 1]) {
+    // Mirrored on the starboard side, or the number reads backwards from the
+    // one beam and right from the other.
+    const flip = sgn;
+    for (const [digit, dz0] of [[4, 0.44], [8, -0.40]]) {
+      for (const [dz, dy, up] of SEG[digit]) {
+        box(g, mat(P.mark), 0.04, up ? 0.34 : 0.07, up ? 0.07 : 0.50,
+          sgn * 1.66, base + 0.92 + dy, TZ + flip * (dz0 + dz));
+      }
+    }
+  }
 
   // The jumping wires: the aerial running from the stem over the tower to the
-  // stern, which every boat carried and which is the only thing about her
-  // outline above the casing besides the tower itself.
-  for (const [z0, z1, y0, y1] of [
-    [TZ + 1.3, 0.965 * HALF, bridge + 1.1, deckAt(0.965 * HALF) + 0.35],
-    [TZ - 2.0, -0.955 * HALF, bridge + 0.4, deckAt(-0.955 * HALF) + 0.30],
+  // stern. They are the boat's radio aerial and a net-deflector both, and they
+  // are the only thing about her outline above the casing besides the tower.
+  // Each one runs over an insulator on the tower and down to a fitting on the
+  // casing at either end.
+  for (const sgn of [-1, 1]) {
+    cyl(g, M.bright, 0.07, 0.07, 0.22, sgn * 0.55, T_BRIDGE + 1.00, TZ - 2.25, 8);
+  }
+  for (const [z0, z1, y0, y1, x] of [
+    [TZ - 2.25, 0.965 * HALF, T_BRIDGE + 1.12, deckAt(0.965 * HALF) + 0.34, 0.55],
+    [TZ - 2.25, 0.965 * HALF, T_BRIDGE + 1.12, deckAt(0.965 * HALF) + 0.34, -0.55],
+    [TZ - 2.25, -0.955 * HALF, T_BRIDGE + 1.12, deckAt(-0.955 * HALF) + 0.28, 0],
   ]) {
-    const n = 12;
+    const n = 14;
     for (let i = 0; i < n; i++) {
       const za = z0 + ((z1 - z0) * i) / n;
       const zb = z0 + ((z1 - z0) * (i + 1)) / n;
-      const ya = y0 + (y1 - y0) * Math.pow(i / n, 0.72);
-      const yb = y0 + (y1 - y0) * Math.pow((i + 1) / n, 0.72);
-      const seg = box(g, M.steelDark, 0.05, 0.05, Math.hypot(zb - za, yb - ya),
-        0, (ya + yb) / 2, (za + zb) / 2);
+      const ya = y0 + (y1 - y0) * Math.pow(i / n, 0.75);
+      const yb = y0 + (y1 - y0) * Math.pow((i + 1) / n, 0.75);
+      const xa = x * (1 - i / n);
+      const seg = box(g, M.steelDark, 0.045, 0.045, Math.hypot(zb - za, yb - ya),
+        xa, (ya + yb) / 2, (za + zb) / 2);
       seg.rotation.x = -Math.atan2(yb - ya, zb - za);
     }
   }
@@ -512,11 +831,10 @@ function tower(g) {
  * open on to the room, not on to a lit box.
  */
 function towerInside(g) {
-  const TZ = 1.0;
   const inside = new THREE.Group();
   inside.userData.inside = true;
-  const FLOOR = 2.05;
-  const ROOF = 4.12;
+  const FLOOR = T_BASE + 0.18;
+  const ROOF = T_BRIDGE - 0.16;
 
   // The deck of the tower compartment, with the lower hatch through it, and
   // the underside of the bridge deck over it.
@@ -552,41 +870,20 @@ function towerInside(g) {
   box(inside, M.steelDark, 0.24, 0.50, 0.70, 0.74, FLOOR + 0.33, TZ - 0.70);
 
   // The ladder between the two hatches, and the voicepipe beside it.
-  ladder(inside, M.steelDark, -0.55, FLOOR + 0.10, ROOF - 0.12, TZ - 0.80, TZ - 0.62);
+  for (let i = 0; i < 7; i++) {
+    box(inside, M.steelDark, 0.44, 0.045, 0.045, -0.55,
+      FLOOR + 0.18 + i * ((ROOF - FLOOR - 0.30) / 6), TZ - 0.72);
+  }
+  for (const sgn of [-1, 1]) {
+    box(inside, M.steelDark, 0.05, ROOF - FLOOR - 0.20, 0.05,
+      -0.55 + sgn * 0.22, (FLOOR + ROOF) / 2, TZ - 0.72);
+  }
   cyl(inside, M.steelDark, 0.07, 0.07, ROOF - FLOOR - 0.2, -0.80, (FLOOR + ROOF) / 2, TZ - 1.05, 8);
 
   // The bench the watch below sits on, and the lamp over the chart shelf.
   box(inside, M.steelDark, 0.60, 0.09, 0.90, -0.30, FLOOR + 0.46, TZ - 1.05);
   box(inside, M.canvas, 0.18, 0.10, 0.18, 0.40, ROOF - 0.20, TZ - 0.10);
   g.add(inside);
-}
-
-/** A lofted deckhouse: `rows` are [dz, half-breadth] from aft forward. */
-function loftHouse(g, m, rows, y, h, z0, taper = 0.94) {
-  const pos = [];
-  const idx = [];
-  for (const [dz, w] of rows) {
-    const z = z0 + dz;
-    pos.push(-w, y, z, w, y, z, -w * taper, y + h, z, w * taper, y + h, z);
-  }
-  for (let i = 0; i < rows.length - 1; i++) {
-    const a = i * 4;
-    const b = (i + 1) * 4;
-    idx.push(a, b + 2, a + 2, a, b, b + 2);
-    idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);
-    idx.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
-    idx.push(a, a + 1, b, a + 1, b + 1, b);
-  }
-  // The two ends, so a deckhouse is a box and not a tunnel.
-  const n = rows.length;
-  idx.push(0, 2, 3, 0, 3, 1);
-  const e = (n - 1) * 4;
-  idx.push(e, e + 3, e + 2, e, e + 1, e + 3);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, m));
 }
 
 // ------------------------------------------------------------------ guns --
@@ -642,8 +939,8 @@ function deckGun(g) {
  * the pressure hull and it drowns.
  */
 function flak(g) {
-  const z = -5.6;
-  const y = deckAt(1.0) + 2.30 - 0.47;
+  const z = -3.9;
+  const y = T_WG + 0.12;
   const m = new THREE.Group();
   m.position.set(0, y, z);
   m.userData.dynamic = true;
@@ -790,17 +1087,12 @@ function fittings(g) {
 
   // The ready-use locker for the deck gun, which is the only thing on the
   // casing forward of the tower besides the gun itself.
-  box(g, M.steel, 0.55, 0.34, 0.85, -0.72, deckAt(4.2) + 0.17, 4.2);
-  box(g, M.steel, 0.55, 0.34, 0.85, 0.72, deckAt(4.2) + 0.17, 4.2);
-
-  // Her number on the tower, painted white. Hers was up in 1940 and painted
-  // out later in the war; this is the boat of the twelve patrols.
   for (const sgn of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      box(g, mat(P.mark), 0.04, 0.34, 0.16,
-        sgn * 1.66, deckAt(1.0) + 1.72, 1.0 + 0.9 - i * 0.32);
-    }
+    box(g, M.deckSteel, 0.48, 0.30, 0.78, sgn * 0.86, deckAt(6.6) + 0.15, 6.6);
+    box(g, M.steelDark, 0.40, 0.05, 0.70, sgn * 0.86, deckAt(6.6) + 0.32, 6.6);
   }
+
+  // Her number goes on the tower, and it is painted there -- see tower().
 }
 
 /** Twin screws on twin shafts, twin rudders, and the after planes' guards. */

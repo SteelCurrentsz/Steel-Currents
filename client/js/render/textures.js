@@ -313,6 +313,7 @@ const PLANKED = new Set([
   0x8a6c48,   // Takao          linoleum
   0x9a9179,   // Shinano        flight deck
   0x7d7461,   // Shinano        the darker planks in the lift platforms
+  0x4c4d48,   // U-48           the wooden grating on her casing
 ]);
 
 /**

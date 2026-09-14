@@ -699,7 +699,7 @@ export const SHIP_CLASSES = {
       guns: [
         { name: '2 cm C/30', caliber: 20, role: 'aa', reload: 0.30, range: 2200,
           mounts: [
-            { x: 0, z: -5.6, angle: Math.PI, arc: 2.79, guns: 1, my: 4.75 },
+            { x: 0, z: -3.9, angle: Math.PI, arc: 2.79, guns: 1, my: 4.98 },
           ] },
       ],
     },

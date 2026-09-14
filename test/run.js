@@ -10478,5 +10478,72 @@ check('the wire carries her depth, and the doors swing on it', () => {
   assert.equal(ddView.depth, 0, 'a destroyer dived');
 });
 
+check('the boat is plated the way her plans are drawn', () => {
+  // Three things off the drawings, and one of them is a fault nothing else in
+  // this file would have caught.
+  const built = buildShip('u48');
+  built.group.updateMatrixWorld(true);
+  const targets = [];
+  built.group.traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
+
+  // One. The conning tower is a closed body, and a closed body whose triangles
+  // are wound the wrong way round is not there: back faces are not drawn, so
+  // from outside you see the inside of the far wall and it reads as solid --
+  // right up until something is standing in there, and then it is a hole. Hers
+  // was wound that way and the brass in the tower compartment showed through
+  // her after plating. What is checked is what a camera does: a ray fired at
+  // the tower from any bearing has to meet the near side first.
+  const rc = new THREE.Raycaster();
+  const TOWER_Z = 1.0;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const from = new THREE.Vector3(Math.sin(a) * 60, 3.2, TOWER_Z + Math.cos(a) * 60);
+    const dir = new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a));
+    rc.set(from, dir);
+    const hit = rc.intersectObjects(targets, false)[0];
+    assert.ok(hit, `nothing at all on the U-48's tower from ${Math.round((a * 180) / Math.PI)}deg`);
+    // The near side of a tower 3.4 m across is met well before the middle of
+    // it. Meeting the far side means the plating is facing inwards.
+    const along = hit.point.clone().sub(from).dot(dir);
+    const toMid = from.distanceTo(new THREE.Vector3(0, 3.2, TOWER_Z));
+    assert.ok(along < toMid,
+      `a ray at the U-48's tower from ${Math.round((a * 180) / Math.PI)}deg passes the `
+      + 'middle of her before it meets any plating: the tower is wound inside out');
+  }
+
+  // Two. She is two greys, and the line between them is the top of the saddle
+  // tanks: Hellgrau 50 above it and Dunkelgrau 51 below, which is what she
+  // actually went to sea in and what makes her read as a low dark hull with a
+  // light tower on it. One grey is a toy.
+  const hues = new Set();
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) if (m && m.color) hues.add(m.color.getHex());
+  });
+  assert.ok(hues.has(0x8b929a) && hues.has(0x6b727a),
+    'the U-48 is painted one grey from her keel to her bridge');
+
+  // Three. The flak stands in the Wintergarten and not off the back of it.
+  // The gallery is the only deck there is up there; a mounting an arm's length
+  // abaft its after rail is a mounting standing on the sea.
+  const gun = new THREE.Vector3();
+  built.aaMounts[0].getWorldPosition(gun);
+  const own = new Set();
+  built.aaMounts[0].traverse((o) => own.add(o));
+  const ground = targets.filter((o) => !own.has(o));
+  // Started just over the mounting rather than high above it: the jumping wire
+  // passes over the Wintergarten, as it did on the boat, and a ray from the
+  // sky meets the aerial first.
+  rc.set(new THREE.Vector3(gun.x, gun.y + 0.35, gun.z), new THREE.Vector3(0, -1, 0));
+  const under = rc.intersectObjects(ground, false)[0];
+  assert.ok(under, 'her 2 cm has nothing at all under it: the gun is over the side');
+  assert.ok(gun.y - under.point.y < 0.45 && gun.y - under.point.y > -0.05,
+    `her 2 cm sits ${(gun.y - under.point.y).toFixed(2)} m above the first deck under `
+    + 'it: the mounting is not standing on the Wintergarten');
+  // And the gallery is up by the bridge, not out over the stern.
+  assert.ok(gun.z > -6.5 && gun.z < -1.5,
+    `her 2 cm is at z=${gun.z.toFixed(1)}, which is not abaft the tower`);
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);
