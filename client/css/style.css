@@ -520,7 +520,7 @@ input[type="range"] { accent-color: var(--red); }
 /* What to do, said once. It fades out as soon as she has been flown, because
    after that it is in the way of the sight. */
 .fly-hint {
-  position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: 26vh; transform: translateX(-50%);
   margin: 0; pointer-events: none;
   font-family: var(--ui); font-size: 0.58rem; letter-spacing: 0.24em;
   color: rgba(240, 244, 248, 0.62); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
@@ -2044,3 +2044,60 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   transition: width 0.25s linear, background 0.3s ease;
 }
 .dive-key.gasping .air-bar b { background: var(--enemy); }
+
+/* ------------------------------------------------------- the pilot's board --
+   Who she is and how much of her is left.
+ 
+   The bridge's keys are put away while somebody is flying, so the bottom of
+   the screen belongs to the pilot: her name in the left-hand corner, and her
+   condition across the middle -- the aeroplane herself, turning in the air,
+   with whatever has been shot about lit up on the place it actually is. It is
+   the same board the ships have, at an aeroplane's scale. */
+
+.fly-ident {
+  position: absolute; pointer-events: none;
+  left: max(0.9rem, env(safe-area-inset-left));
+  bottom: max(0.8rem, calc(env(safe-area-inset-bottom) + 0.4rem));
+  display: flex; flex-direction: column; gap: 0.05rem;
+  font-family: var(--ui); text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+.fly-ident-type {
+  font-size: 1.15rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--sand-bright);
+}
+.fly-ident-sub {
+  font-size: 0.58rem; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--steel);
+}
+
+.fly-damage {
+  position: absolute; pointer-events: none;
+  left: 50%; transform: translateX(-50%);
+  bottom: max(0.9rem, calc(env(safe-area-inset-bottom) + 0.6rem));
+  width: min(320px, 44vw);
+  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
+}
+/* The hologram itself takes a finger, so she can be turned over to look at
+   the wing on the far side. Nothing else on the panel does. */
+.fly-damage-board {
+  display: block; width: 100%; aspect-ratio: 16 / 6;
+  pointer-events: auto; touch-action: none;
+  background: radial-gradient(ellipse at 50% 62%, rgba(46, 128, 158, 0.18), transparent 70%);
+}
+.fly-damage-parts {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 0.15rem 0.4rem;
+  font-family: var(--ui); font-size: 0.52rem; letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.fly-damage-parts span { color: var(--steel); opacity: 0.55; }
+.fly-damage-parts span.hurt { color: #e2c14f; opacity: 1; }
+.fly-damage-parts span.gone { color: var(--enemy); opacity: 1; }
+.fly-damage-parts span.fire { color: #ff9a3c; opacity: 1; }
+
+/* On a phone held sideways there is no room for a hologram and a stick and a
+   throttle all at once: the board shrinks and the parts line does the work. */
+@media (max-height: 520px) {
+  .fly-damage { width: min(230px, 34vw); }
+  .fly-ident-type { font-size: 0.95rem; }
+  .fly-damage-parts { font-size: 0.46rem; }
+}

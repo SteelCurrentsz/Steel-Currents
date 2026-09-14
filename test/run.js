@@ -23,6 +23,7 @@ import {
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
+  mayFly, PILOT_HOLD,
 } from '../shared/sim.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
@@ -4462,17 +4463,19 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
   // batches of their own. If that extraction stops working the doors are
   // welded shut for ever and the weapon can never leave.
   const models = flightModels();
+  // Every machine's airscrew is a moving part too -- it has to turn -- so it
+  // is on all of these.
   const want = {
     // Two doors and the fish inside them.
-    avenger: ['bayPort', 'bayStbd', 'store'],
+    avenger: ['prop', 'bayPort', 'bayStbd', 'store'],
     // The Suisei is the one dive bomber of the four with an internal bay.
-    suisei: ['bayPort', 'bayStbd', 'store'],
+    suisei: ['prop', 'bayPort', 'bayStbd', 'store'],
     // A Dauntless has no bay: a bomb let go from the belly of a machine
     // standing on her nose goes through her own airscrew, so it swings clear
     // on a trapeze first.
-    dauntless: ['trapeze', 'store'],
+    dauntless: ['prop', 'trapeze', 'store'],
     // A Tenzan's torpedo hangs outside, on a crutch under her belly.
-    tenzan: ['store'],
+    tenzan: ['prop', 'store'],
   };
   for (const [kind, names] of Object.entries(want)) {
     const parts = (models[kind].parts || []).map((q) => q.name).sort();
@@ -4483,13 +4486,141 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
       assert.ok(n > 30, `the ${kind}'s ${q.name} is drawn with nothing in it`);
       assert.ok(Number.isFinite(q.at.x) && Number.isFinite(q.at.y),
         `the ${kind}'s ${q.name} has no hinge`);
-      // A door swings; the weapon falls away. Neither may be inert.
-      assert.ok(q.open !== 0 || q.fall, `the ${kind}'s ${q.name} cannot move`);
+      // A door swings, the weapon falls away, the airscrew turns. Nothing
+      // registered as a moving part may be inert.
+      assert.ok(q.open !== 0 || q.fall || q.spin,
+        `the ${kind}'s ${q.name} cannot move`);
     }
   }
-  // A fighter has no bay and carries nothing, so she has nothing to pull out.
-  assert.equal((models.wildcat.parts || []).length, 0,
-    'a Wildcat has been given a bomb bay');
+  // A fighter has no bay and carries nothing, so all she has that moves is
+  // her airscrew.
+  assert.deepEqual((models.wildcat.parts || []).map((q) => q.name), ['prop'],
+    'a Wildcat has been given something to drop');
+});
+
+check('the airscrew turns, and faster the faster she is going', () => {
+  // A propeller drawn standing still is the one thing that says an aeroplane
+  // is a model rather than a machine. It is a moving part like the bay doors,
+  // so the batch can turn it, and the rate comes off her airspeed: idling on
+  // the deck and a blur at full throttle.
+  const b = Object.create(Battle.prototype);
+  b.planeTrim = new Map();
+  b.flight = null;
+  const slow = { i: 1, d: 0 };
+  const fast = { i: 2, d: 0 };
+  let a = 0;
+  let c = 0;
+  for (let i = 0; i < 20; i++) {
+    a = b.bayTrim(slow, 0.05, 0).prop;
+    c = b.bayTrim(fast, 0.05, 150).prop;
+  }
+  // Both have gone round; the fast one a good deal further. They wrap, so the
+  // comparison is on how far each has been wound on in total rather than on
+  // where each has ended up.
+  const wound = (speed) => (7 + Math.min(1, speed / 150) * 20) * 1.0;
+  assert.ok(wound(150) > wound(0) * 2.5,
+    'her airscrew turns at much the same rate whatever she is doing');
+  assert.ok(Number.isFinite(a) && Number.isFinite(c), 'her airscrew is nowhere');
+  assert.ok(a >= 0 && a < Math.PI * 2 && c >= 0 && c < Math.PI * 2,
+    'her airscrew angle has run away instead of wrapping');
+  // And the batch turns the part it is given rather than leaving it.
+  const fl = new Flights({ add() {} }, 4);
+  const prop = fl.batches.wildcat.parts.find((q) => q.spec.name === 'prop');
+  assert.ok(prop, 'a Wildcat has no airscrew registered as a moving part');
+  const angleAt = (t) => {
+    fl.begin();
+    fl.add('fighter', 0, 100, 0, 0, 0, 0, 1, -1, 'wildcat', { prop: t });
+    fl.end();
+    const m = new THREE.Matrix4().fromArray(prop.mesh.instanceMatrix.array, 0);
+    return new THREE.Euler().setFromRotationMatrix(m).z;
+  };
+  assert.ok(Math.abs(angleAt(1.2) - angleAt(0)) > 1,
+    'her airscrew is drawn at the same angle however far it has turned');
+});
+
+check('a captain can fly any of the fleet\'s aircraft, but only one man at a time', () => {
+  // A squadron in the air belongs to the fleet, not to the deck it came off:
+  // a destroyer with no aircraft of her own can take one of the carrier's,
+  // which is most of the point of having a carrier in company. It used to be
+  // her own ship's flights and nothing else.
+  const st = createState(generateWorld(4471, 'open_ocean'), { mode: 'deathmatch' });
+  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0 });
+  const escort = addShip(st, { name: 'Fletcher', classId: 'fletcher', team: 0, index: 1 });
+  const enemy = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+  carrier.aimX = enemy.x;
+  carrier.aimZ = enemy.z;
+  assert.ok(launchStrike(st, carrier), 'she would not launch at all');
+  // She runs the whole evolution -- lift, spot, deck run -- before anything
+  // is in the air, so step until it is rather than guessing how long.
+  for (let i = 0; i < 3000 && !st.planes.length; i++) step(st, DT);
+  const p = st.planes.find((q) => q.team === 0);
+  assert.ok(p, 'she never put anything in the air');
+  // The escort may have her, and the claim sticks.
+  const at = { i: p.id, x: p.x, z: p.z, h: p.heading };
+  assert.ok(flyPlane(st, escort, at), 'a consort cannot fly the carrier\'s aircraft');
+  assert.equal(p.pilot, escort.id, 'nobody is recorded as flying her');
+  // And the carrier cannot take her back out from under him while he has her.
+  assert.ok(!mayFly(st, carrier, p), 'two captains can fly the same flight at once');
+  // Her own guns and her own rack answer to whoever is flying her.
+  assert.ok(strafe(st, escort, p.id, 0.2), 'the man flying her cannot fire her guns');
+  // A claim lapses when the man flying her stops talking, so a flight is not
+  // held for the rest of the action by somebody who has gone.
+  st.t += PILOT_HOLD + 1;
+  assert.ok(mayFly(st, carrier, p), 'a flight is held for ever by a pilot who left');
+  // And giving her back to the autopilot drops it at once.
+  flyPlane(st, escort, at);
+  releasePlane(st, p.id);
+  assert.equal(p.pilot, 0, 'she is still claimed after being handed back');
+  // Nothing of the other side's, ever.
+  assert.ok(!mayFly(st, enemy, p), 'the enemy can fly our aircraft');
+});
+
+check('the pilot is told which aeroplane she is and how much of her is left', () => {
+  // The bottom of the screen is the pilot's: her name in the left-hand corner
+  // and her condition across the middle. The simulation has kept the damage
+  // part by part since the flak became real; this is it reaching him.
+  const st = createState(generateWorld(4471, 'open_ocean'), { mode: 'deathmatch' });
+  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0 });
+  const enemy = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+  carrier.aimX = enemy.x;
+  carrier.aimZ = enemy.z;
+  assert.ok(launchStrike(st, carrier), 'she would not launch at all');
+  // She runs the whole evolution -- lift, spot, deck run -- before anything
+  // is in the air, so step until it is rather than guessing how long.
+  for (let i = 0; i < 3000 && !st.planes.length; i++) step(st, DT);
+  const p = st.planes.find((q) => q.team === 0);
+  assert.ok(p && p.machines && p.machines.length, 'her flight has no aeroplanes in it');
+  const snap = (team) => {
+    const s2 = buildSnapshot(st, team, carrier.id);
+    return (s2.planes || []).find((q) => q.i === p.id);
+  };
+  const whole = snap(0);
+  assert.ok(Array.isArray(whole.dm) && whole.dm.length === 9,
+    'her damage is not reported to her own side at all');
+  for (let i = 0; i < 6; i++) {
+    assert.ok(Math.abs(whole.dm[i] - 1) < 0.02,
+      `an undamaged aeroplane reports part ${i} at ${whole.dm[i]}`);
+  }
+  // Shoot her wing off and it shows on the report and in what she will do.
+  const a = p.machines[0];
+  a.parts.wings.hp = 0;
+  a.parts.engine.hp = a.parts.engine.max * 0.4;
+  const hurt = snap(0);
+  assert.equal(hurt.dm[2], 0, 'her wing is shot away and the board says she is whole');
+  assert.ok(Math.abs(hurt.dm[0] - 0.4) < 0.03, 'her engine is misreported');
+  // And a pilot flying her feels it.
+  const b = Object.create(Battle.prototype);
+  const worn = b.flyWear({ dm: hurt.dm, wear: { speed: 1, turn: 1, pull: 0 } });
+  const sound = b.flyWear({ dm: whole.dm, wear: { speed: 1, turn: 1, pull: 0 } });
+  assert.ok(worn.speed < sound.speed * 0.8,
+    'an aeroplane with her engine half shot away flies as fast as a whole one');
+  assert.ok(worn.turn < sound.turn * 0.75,
+    'an aeroplane with no wing turns as well as a whole one');
+  assert.ok(worn.pull > 0.1, 'she flies straight with a wing panel shot off');
+  // The enemy is told nothing of it.
+  const theirs = snap(1);
+  assert.ok(!theirs || theirs.dm === undefined,
+    'the enemy is sent our aircrafts\' damage reports');
 });
 
 check('the doors actually swing and the weapon actually leaves', () => {
@@ -4499,7 +4630,7 @@ check('the doors actually swing and the weapon actually leaves', () => {
   const scene = { add() {} };
   const fl = new Flights(scene, 8);
   const bat = fl.batches.avenger;
-  assert.ok(bat.parts.length === 3, `an Avenger has ${bat.parts.length} moving parts`);
+  assert.ok(bat.parts.length === 4, `an Avenger has ${bat.parts.length} moving parts`);
   const readAt = (trim) => {
     fl.begin();
     fl.add('torpedo', 0, 100, 0, 0, 0, 0, 1, -1, 'avenger', trim);
@@ -8132,7 +8263,10 @@ check('the cockpit says what happened, not what was hoped', () => {
   const sent = [];
   const g = Object.create(Battle.prototype);
   g.team = 0;
-  g.hud = { alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {}, fly: { pitch: 0, roll: 0, throttle: 1 } };
+  g.hud = {
+    alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
+    paintFlightDamage() {}, fly: { pitch: 0, roll: 0, throttle: 1 },
+  };
   g.net = { send: (m) => sent.push(m) };
   g.snapshots = [{ ships: [{ i: 9, a: 1, tm: 1, x: 100, z: 0 }], planes: [] }];
   g.flight = {
@@ -8157,7 +8291,9 @@ check('the cockpit says what happened, not what was hoped', () => {
     leaveFlight() {},
     sightOn: () => false,
     wingGuns() {},
-    flight: Object.assign(g.flight, { pilot: {
+    flyWear: Battle.prototype.flyWear,
+    planeBoard: null,
+    flight: Object.assign(g.flight, { wear: { speed: 1, turn: 1, pull: 0 }, pilot: {
       x: 0, y: 200, z: 0, v: 60, g: 1, stall: 0, alive: true, heading: 0,
       attitude: 0, bank: 0, step() {},
     } }),

@@ -398,7 +398,7 @@ export class Room {
         // been lied to about the one thing he came for.
         if (!dropOrdnance(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
         break;
-      case 'land': releasePlane(this.state, msg.i); break;
+      case 'land': releasePlane(this.state, msg.i, ship); break;
       // Her guns, held down. `dt` is how long the trigger has been down since
       // the last word, clamped so a client cannot claim a minute of it.
       case 'gun': strafe(this.state, ship, msg.i, Math.min(0.3, Math.max(0, msg.dt || 0))); break;

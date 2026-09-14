@@ -424,11 +424,15 @@ function hangar(g) {
 function airGroup(g) {
   const z0 = FD_AFT + 26;
   const z1 = FD_FWD - 30;
+  // Far enough inside the hangar that her airscrew is not through the forward
+  // bulkhead: an aeroplane is four and a half metres of nose ahead of where
+  // she is parked, and the forward pair used to stand with their spinners in
+  // the plating.
   const park = [
-    [-8.0, 92], [8.0, 92], [-8.0, 74], [8.0, 74],
+    [-8.0, 86], [8.0, 86], [-8.0, 70], [8.0, 70],
     [-8.6, 40], [8.6, 40], [-8.6, 24], [8.6, 24],
     [-8.6, -8], [8.6, -8], [-8.6, -24], [8.6, -24],
-    [-8.0, -74], [8.0, -74], [-8.0, -92], [8.0, -92],
+    [-8.0, -70], [8.0, -70], [-8.0, -86], [8.0, -86],
   ];
   park.forEach(([x, z], i) => {
     if (z > z1 || z < z0) return;

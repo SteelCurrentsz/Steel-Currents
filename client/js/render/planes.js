@@ -165,7 +165,7 @@ export function flightModels() {
       node.parent.remove(node);
       parts.push({
         name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
-        at, rot, geo, mats,
+        spin: spec.spin, at, rot, geo, mats,
       });
     }
     out[key] = { ...weld(g), parts };
@@ -301,6 +301,7 @@ export class Flights {
     if (!b.parts.length) return;
     const bay = trim && trim.bay ? Math.max(0, Math.min(1, trim.bay)) : 0;
     const fall = trim && trim.fall !== undefined && trim.fall !== null ? trim.fall : null;
+    const turn = trim && trim.prop ? trim.prop : 0;
     for (const q of b.parts) {
       if (q.n >= this.max) continue;
       // A weapon that has gone is not drawn at all, and once it is clear of
@@ -308,7 +309,9 @@ export class Flights {
       if (q.spec.fall && fall !== null && fall > 3.5) continue;
       this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
         q.spec.axis === 'z' ? 1 : 0);
-      this.spin.setFromAxisAngle(this.axis, q.spec.open * bay);
+      // An airscrew is wound on rather than swung open: the angle is where it
+      // has got to, and it goes round faster the faster she is going.
+      this.spin.setFromAxisAngle(this.axis, q.spec.spin ? turn : q.spec.open * bay);
       this.hinge.makeRotationFromQuaternion(this.spin);
       this.part.makeRotationFromQuaternion(q.spec.rot).multiply(this.hinge);
       this.part.setPosition(q.spec.at);

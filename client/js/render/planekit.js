@@ -542,9 +542,11 @@ function balkenkreuz(p, x, y, z, r, up = true, fit = null) {
     if (!up) m.rotation.z = Math.PI / 2;
   }
   p.add(m);
-  box(m, P.white, r * 2, 0.03, r * 2, 0, 0, 0);
-  box(m, P.black, r * 2.02, 0.036, r * 0.72, 0, 0.004, 0);
-  box(m, P.black, r * 0.72, 0.036, r * 2.02, 0, 0.004, 0);
+  m.userData.sag = pose ? skinSag(m, r, fit || p) : [0, 0];
+  m.userData.radius = r;
+  // The white ground and the black cross on it, both laid over her curve.
+  conformPoly(m, P.white, squarePts(r), 0.006, m.userData.sag, r);
+  conformPoly(m, P.black, crossPts(r * 1.02, 0.32), 0.011, m.userData.sag, r);
   return m;
 }
 
@@ -564,7 +566,10 @@ function balkenkreuz(p, x, y, z, r, up = true, fit = null) {
  */
 function animPart(p, name, node, o = {}) {
   const list = p.userData.parts || (p.userData.parts = []);
-  list.push({ name, node, axis: o.axis || 'z', open: o.open || 0, fall: !!o.fall });
+  list.push({
+    name, node, axis: o.axis || 'z', open: o.open || 0,
+    fall: !!o.fall, spin: !!o.spin,
+  });
   return node;
 }
 
@@ -1133,6 +1138,13 @@ function propBlade(p, m, len, rootC, tipC, rootA, tipA, thick = 0.13) {
   const N = C * 2;
   const pos = [];
   const idx = [];
+  // `rootA` and `tipA` are how much of the chord lies in the plane of the
+  // disc, as an angle: nought is a blade feathered edge-on to the airflow and
+  // a right angle is one lying flat in the disc. A real blade is coarse at the
+  // root and fine at the tip, and fine means *more* of it in the disc plane,
+  // not less -- written the other way round the tips came out all but
+  // feathered, and what every propeller in the game looked like head-on was
+  // three black spears.
   for (let k = 0; k <= S; k++) {
     const f = k / S;
     // Narrow at the shank, widest a little outboard of half radius, and eased
@@ -1213,27 +1225,42 @@ function radial(p, r, y, z, span, blades = 3, spin = false) {
     { z: z - 1.16, w: r * 2.02, h: r * 2.02, y },
   ], { seg: SEG, e: 1, capF: false, capA: false, mBot: M.planeTop });
   cyl(p, M.cave, r * 1.03, r * 1.03, 0.1, 0, y, z - 1.46, SEG).rotation.x = Math.PI / 2;
+  // The inner lip of the cowl, rolled back into the mouth, and the front of
+  // the engine behind it.
+  //
+  // A NACA cowl is a ring aerofoil: seen head on there is a lip that turns
+  // inward, the crankcase filling the middle of the opening, and the spinner
+  // on the end of the shaft. Without them the mouth was a plain dark hole with
+  // a propeller apparently growing out of nothing in the middle of it.
+  airframe(p, M.planeTop, [
+    { z: z + 0.60, w: r * 1.52, h: r * 1.52, y },
+    { z: z + 0.44, w: r * 1.28, h: r * 1.28, y },
+    { z: z + 0.16, w: r * 1.20, h: r * 1.20, y },
+  ], { seg: SEG, e: 1, capF: false, capA: false, mBot: M.planeTop });
+  cyl(p, M.gunDark, r * 0.40, r * 0.70, 0.52, 0, y, z + 0.33, SEG)
+    .rotation.x = Math.PI / 2;
   // Spinner, hub and blades. On an aeroplane that is going to run her engine
   // the blades go in a group of their own so the welder leaves them.
-  const spinner = cyl(p, M.prop, 0.06, 0.30, 0.74, 0, y, z + 0.86, 14);
+  const spinner = cyl(p, M.prop, 0.05, r * 0.44, 0.80, 0, y, z + 0.92, 16);
   spinner.rotation.x = Math.PI / 2;
-  let disc = p;
-  if (spin) {
-    disc = new THREE.Group();
-    disc.position.set(0, y, z + 1.02);
-    disc.userData.dynamic = true;
-    p.add(disc);
-    p.userData.prop = disc;
-    // Marked on the disc itself, so a copy of this model can find its own
-    // propeller rather than the one still aboard. See startFlyoff.
-    disc.userData.isProp = true;
-  }
+  // The airscrew turns, on the deck and in the air, and it is registered as a
+  // moving part so that a squadron drawn as one welded geometry can still turn
+  // hers -- see animPart, and Flights.trimParts, which winds it on at a rate
+  // her own airspeed decides.
+  const disc = new THREE.Group();
+  disc.position.set(0, y, z + 1.02);
+  disc.userData.dynamic = true;
+  p.add(disc);
+  p.userData.prop = disc;
+  // Marked on the disc itself, so a copy of this model can find its own
+  // propeller rather than the one still aboard. See startFlyoff.
+  disc.userData.isProp = true;
+  animPart(p, 'prop', disc, { axis: 'z', spin: true });
   for (let i = 0; i < blades; i++) {
     const bl = new THREE.Group();
-    bl.position.set(0, spin ? 0 : y, spin ? 0 : z + 1.02);
     bl.rotation.z = (i / blades) * Math.PI * 2 + 0.4;
     disc.add(bl);
-    propBlade(bl, M.prop, span / 2, 0.30, 0.17, 0.62, 0.16);
+    propBlade(bl, M.prop, span / 2, 0.30, 0.19, 0.60, 1.26);
   }
   // Exhaust stubs out of the cowl's lower flanks.
   for (const sgn of [-1, 1]) {
@@ -1333,6 +1360,23 @@ function empennage(p, finH, finC, span, chord, y, z) {
     box(p, M.planeTop, span / 2 - 0.16, 0.05, 0.06, s * span / 4, y + 0.055,
       z - chord * 0.18);
   }
+  // Where the head of the fin is, for the aerial to be run to. Nothing else
+  // knows: the fin is a wing panel stood on edge and swept, so its tip is not
+  // over its root.
+  return { finTop: [0, y + finH - 0.05, z + finC * 0.12] };
+}
+
+/**
+ * The aerial: a mast on her spine and the wire aft to the head of the fin.
+ *
+ * Both ends measured rather than typed. The wire was a box of a guessed length
+ * at a guessed rake, and on every machine in the game it stopped short of the
+ * mast at one end and short of the fin at the other -- a stick of wire lying
+ * in the air a foot above her back, attached to nothing.
+ */
+function aerial(p, x, y, z, h, finTop, m = M.planeTop) {
+  box(p, m, 0.06, h, 0.06, x, y + h / 2, z);
+  strut(p, M.wire, [x, y + h, z], finTop, 0.016, 4);
 }
 
 /**
@@ -1375,6 +1419,115 @@ function skinPose(p, x, y, z, dir, fit = null) {
  * fraction of a millimetre further out than the last so the red of a hinomaru
  * never fights with the white round it.
  */
+/**
+ * How far the skin falls away from the tangent plane at a marking.
+ *
+ * A national marking is nearly as wide as the body it is painted on -- a
+ * hinomaru a metre across on a fuselage a metre and a bit round -- so a flat
+ * disc laid on the tangent plane has its centre on the skin and its rim
+ * standing a hand's breadth clear of it. Two rays either side of the marking
+ * give the sag at its own radius, which to second order is all the curvature
+ * there is, and every point of the marking is then dropped onto the body by
+ * the paraboloid those two numbers describe.
+ *
+ * Returned in the marking's own frame: how far down at `+r` along its X, and
+ * how far down at `+r` along its Z.
+ */
+function skinSag(m, r, fit) {
+  const at = (u, v) => {
+    const hit = castLocal(m, [u, 3, v], [0, -1, 0], fit);
+    return hit ? m.worldToLocal(hit.point.clone()).y : null;
+  };
+  const one = (u, v) => {
+    const a = at(u, v);
+    const b = at(-u, -v);
+    // Both sides, so a marking a little off the crown of a body still comes
+    // out symmetric about itself rather than sliding round it.
+    const vals = [a, b].filter((q) => q !== null);
+    if (!vals.length) return 0;
+    const sag = vals.reduce((t, q) => t + q, 0) / vals.length;
+    // Only ever a fall away from the plane, and never more than the marking's
+    // own radius: a ray that found something else entirely must not bend the
+    // marking round it.
+    return Math.max(-r * 0.9, Math.min(0, sag));
+  };
+  return [one(r, 0), one(0, r)];
+}
+
+/**
+ * A shape painted on the skin: a polygon in the marking's own plane, laid over
+ * the body's curve.
+ *
+ * `pts` are [across, along] in metres about the marking's centre, in order
+ * round the outline. They are triangulated as a fan from the middle, which is
+ * all that is wanted: every marking here is convex or a star, and a star fans
+ * correctly from its own centre.
+ */
+function conformPoly(m, mat, pts, lift, sag, r) {
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+  const drop = (u, v) => sag[0] * (u / r) ** 2 + sag[1] * (v / r) ** 2;
+  pos.push(0, lift, 0);
+  uvs.push(0, 0);
+  for (const [u, v] of pts) {
+    pos.push(u, lift + drop(u, v), v);
+    uvs.push(u, v);
+  }
+  for (let i = 0; i < pts.length; i++) {
+    idx.push(0, 1 + ((i + 1) % pts.length), 1 + i);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, mat);
+  m.add(mesh);
+  return mesh;
+}
+
+/** The outline of a circle, as a polygon. */
+function ringPts(r, seg = 20) {
+  const pts = [];
+  for (let i = 0; i < seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  return pts;
+}
+
+/** The outline of a five-pointed star, point up. */
+function starPts(r, inner = 0.382) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    const rr = i % 2 ? r * inner : r;
+    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+  }
+  return pts;
+}
+
+/**
+ * The outline of a straight-armed cross, as one polygon.
+ *
+ * Wound the same way round as `ringPts` and `starPts`: a polygon taken the
+ * other way comes out facing into the aeroplane, and what showed of the
+ * balkenkreuz was the white ground with nothing on it.
+ */
+function crossPts(r, arm = 0.34) {
+  const a = r * arm;
+  return [
+    [a, a], [a, r], [-a, r], [-a, a], [-r, a], [-r, -a], [-a, -a],
+    [-a, -r], [a, -r], [a, -a], [r, -a], [r, a],
+  ];
+}
+
+/** The outline of a square, corner-on rather than edge-on. */
+function squarePts(r) {
+  return [[r, r], [-r, r], [-r, -r], [r, -r]];
+}
+
 function decal(p, x, y, z, dir, layers, fit = null) {
   const m = new THREE.Group();
   const pose = skinPose(p, x, y, z, dir, fit);
@@ -1389,10 +1542,11 @@ function decal(p, x, y, z, dir, layers, fit = null) {
       new THREE.Vector3(-dir[0], -dir[1], -dir[2]).normalize());
   }
   p.add(m);
+  const big = layers.reduce((t, [r]) => Math.max(t, r), 0.1);
+  m.userData.sag = pose ? skinSag(m, big, fit || p) : [0, 0];
+  m.userData.radius = big;
   layers.forEach(([r, mat], i) => {
-    // Half in, half out: the buried half is inside the skin where nothing can
-    // see it, and what shows is a disc of paint a few millimetres proud.
-    cyl(m, mat, r, r, 0.022 + i * 0.004, 0, i * 0.002, 0, 16);
+    conformPoly(m, mat, ringPts(r), 0.006 + i * 0.004, m.userData.sag, big);
   });
   return m;
 }
@@ -1407,17 +1561,12 @@ function faceDir(up, x) {
 }
 
 function insignia(p, x, y, z, r, up = true, fit = null) {
-  const dir = faceDir(up, x);
-  const m = decal(p, x, y, z, dir, [[r, M.insignia]], fit);
-  // The star is built out of five arms rather than drawn as a five-sided disc:
-  // a pentagon at this range is a blob, and the shape is the only thing on the
-  // aeroplane that says whose it is. It stands on the blue, not in it.
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2 + 0.2;
-    box(m, M.star, r * 0.36, 0.042, r * 0.95,
-      Math.sin(a) * r * 0.42, 0.019, Math.cos(a) * r * 0.42, a);
-  }
-  cyl(m, M.star, r * 0.32, r * 0.32, 0.042, 0, 0.019, 0, 10);
+  const m = decal(p, x, y, z, faceDir(up, x), [[r, M.insignia]], fit);
+  // The star, as one five-pointed outline laid over the same curve the disc
+  // is laid over. It was five boxes standing on the blue: on a fuselage, where
+  // the marking is nearly as wide as the body is round, the tips of those
+  // boxes stood a hand's breadth clear of the skin.
+  conformPoly(m, M.star, starPts(r * 0.92), 0.011, m.userData.sag, m.userData.radius);
   return m;
 }
 
@@ -1470,13 +1619,15 @@ function inline(p, r, y, z, span, blades = 3, spin = false) {
   const disc = new THREE.Group();
   disc.position.set(0, 0, 0.12);
   hub.add(disc);
+  disc.userData.isProp = true;
   for (let i = 0; i < blades; i++) {
     const b = new THREE.Group();
     b.rotation.z = (i / blades) * Math.PI * 2;
     disc.add(b);
-    propBlade(b, M.prop, span * 0.5, 0.26, 0.15, 0.60, 0.14);
+    propBlade(b, M.prop, span * 0.5, 0.26, 0.17, 0.58, 1.24);
   }
-  if (spin) p.userData.prop = disc;
+  p.userData.prop = disc;
+  animPart(p, 'prop', disc, { axis: 'z', spin: true });
   return disc;
 }
 
@@ -1777,7 +1928,7 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
   }
   insignia(p, 0.40, cl(-1.5) + 0.08, -1.5, 0.38, false);
   insignia(p, -0.40, cl(-1.5) + 0.08, -1.5, 0.38, false);
-  empennage(p, 1.34, 1.16, 3.75, 0.92, cl(-3.5) + 0.34, -3.3);
+  const tail = empennage(p, 1.34, 1.16, 3.75, 0.92, cl(-3.5) + 0.34, -3.3);
   // Her narrow-track gear cranks up into the fuselage sides, so it stands close
   // in under her and the wheels are half buried when it is down.
   if (opts.gear !== false) {
@@ -1785,9 +1936,7 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
     tailGear(p, -3.85, 0.17, 1.0, 0.3);
   }
   // Aerial mast and the wire back to the fin.
-  box(p, M.planeTop, 0.07, 0.62, 0.07, 0, cl(0.5) + 1.32, 0.5);
-  const wire = box(p, M.wire, 0.03, 0.03, 3.9, 0, cl(-1.4) + 1.28, -1.4);
-  wire.rotation.x = -0.2;
+  aerial(p, 0, cl(0.5) + 1.01, 0.5, 0.62, tail.finTop);
   return p;
 }
 
@@ -1885,7 +2034,7 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   }
   insignia(p, 0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
   insignia(p, -0.35, cl(-2.3) + 0.11, -2.3, 0.34, false);
-  empennage(p, 1.5, 1.32, 3.9, 1.02, cl(-4.3) + 0.4, -4.0);
+  const tail = empennage(p, 1.5, 1.32, 3.9, 1.02, cl(-4.3) + 0.4, -4.0);
   // The displacing trapeze, and the thousand-pounder on it.
   //
   // A dive bomber has no bomb bay. A bomb released from the belly of a machine
@@ -1922,9 +2071,7 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
     for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
     tailGear(p, -4.45, 0.19, 1.2, 0.34);
   }
-  box(p, M.planeTop, 0.07, 0.7, 0.07, 0, cl(0.6) + 1.4, 0.6);
-  const wire = box(p, M.wire, 0.03, 0.03, 4.6, 0, cl(-1.8) + 1.4, -1.8);
-  wire.rotation.x = -0.16;
+  aerial(p, 0, cl(0.6) + 1.05, 0.6, 0.7, tail.finTop);
   if (folded) p.scale.set(0.995, 1, 1);
   return p;
 }
@@ -2041,7 +2188,7 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   p.userData.wings = { stowed, spread };
   insignia(p, 0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
   insignia(p, -0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
-  empennage(p, 2.05, 1.7, 5.8, 1.3, cl(-5.2) + 0.46, -4.8);
+  const tail = empennage(p, 2.05, 1.7, 5.8, 1.3, cl(-5.2) + 0.46, -4.8);
   const legs = opts.gear === false ? []
     : [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
   const tailLeg = opts.gear === false ? null : tailGear(p, -5.5, 0.21, 1.1, 0.36);
@@ -2053,9 +2200,7 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     legs.forEach((l, i) => { l.g.rotation.z = down[i] + l.s * 1.5 * e; });
     tailLeg.rotation.x = 1.6 * e;
   };
-  box(p, M.planeTop, 0.08, 0.8, 0.08, 0, cl(1.4) + 1.9, 1.4);
-  const wire = box(p, M.wire, 0.03, 0.03, 5.4, 0, cl(-1.6) + 1.86, -1.6);
-  wire.rotation.x = -0.14;
+  aerial(p, 0, cl(1.4) + 1.50, 1.4, 0.8, tail.finTop);
   return p;
 }
 /**
@@ -2152,7 +2297,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
     box(w, P.gunDark, 0.24, 0.16, 0.50, s * 2.60, -0.14, -0.20);
     cyl(w, P.gunDark, 0.16, 0.16, 0.90, s * 2.60, -0.32, -0.20, 10)
       .rotation.x = Math.PI / 2;
-    balkenkreuz(w, s * 3.30, 0.13, -0.62, 0.52);
+    balkenkreuz(w, s * 3.30, 0.13, -0.50, 0.38);
     // The root fillet, so the wing does not meet the body at a step.
     rootFillet(w, TOP, s * 0.14, 0.01, -0.90, 2.5, 0.42, 0.30);
     // Folded: the same panel swung aft about the root, lying along her side.
@@ -2171,7 +2316,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
   p.userData.wings = { stowed, spread };
   balkenkreuz(p, 0.52, cl(-2.7) + 0.06, -2.70, 0.30, false);
   balkenkreuz(p, -0.52, cl(-2.7) + 0.06, -2.70, 0.30, false);
-  empennage(p, 1.42, 1.26, 4.00, 1.00, cl(-4.6) + 0.30, -4.30);
+  const tail = empennage(p, 1.42, 1.26, 4.00, 1.00, cl(-4.6) + 0.30, -4.30);
   // The tailplane struts, which she has and a carrier fighter does not.
   for (const s of [-1, 1]) {
     strut(p, TOP, [s * 0.22, cl(-4.4) - 0.10, -4.10],
@@ -2204,15 +2349,24 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
       rud.rotation.x = 0.12;
       // Struts up to the body and out to the wing: an N each side, braced
       // fore and aft, which is the whole of how a float is hung on.
-      const top = (zz) => [s * 0.42, cl(zz) - 0.62, zz];
-      const wingAt = (zz) => [s * 1.75, ROOT[1] - 0.05, zz];
-      strut(p, TOP, [s * 1.66, 0.86, 1.60], top(1.30), 0.065);
-      strut(p, TOP, [s * 1.66, 0.86, -0.60], top(-0.90), 0.065);
-      strut(p, TOP, [s * 1.66, 0.86, 1.60], wingAt(1.15), 0.055);
-      strut(p, TOP, [s * 1.66, 0.86, -0.60], wingAt(-0.55), 0.055);
-      // And the cross-brace between them, which is what stops the pair
-      // walking fore and aft.
-      strut(p, TOP, [s * 1.66, 0.90, 1.40], [s * 1.66, 1.34, -0.40], 0.04);
+      // Struts up to the body and out to the wing: an N each side, braced
+      // fore and aft. Both ends of each are found by looking -- the forward
+      // pair used to start at a height on the float's deck that the deck is
+      // not at, so they stood in the air with the float under them and the
+      // aeroplane over them and touched neither.
+      // Both feet on the float's own deck, and the brace between them running
+      // foot to foot. It used to run between two points a hand's breadth off
+      // both of them, so the forward pair of struts were joined to nothing at
+      // either end and stood in the air between the float and the aeroplane.
+      const fwd = [s * 1.66, 0.84, 1.55];
+      const aft = [s * 1.66, 0.84, -0.60];
+      const top = (zz) => [s * 0.36, cl(zz) - 0.58, zz];
+      const wingAt = (zz) => [s * 1.72, ROOT[1] - 0.10, zz];
+      strut(p, TOP, fwd, top(1.30), 0.065);
+      strut(p, TOP, aft, top(-0.90), 0.065);
+      strut(p, TOP, fwd, wingAt(1.20), 0.055);
+      strut(p, TOP, aft, wingAt(-0.50), 0.055);
+      strut(p, TOP, fwd, aft, 0.04);
       // The catapult spool under her, which is what the trolley picks her up
       // by and the one fitting that says she is a shipboard aeroplane.
       cyl(fl, P.gunDark, 0.08, 0.08, 0.26, 0, 0.10, 0.40, 8)
@@ -2222,9 +2376,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
     strut(p, TOP, [-1.66, 0.90, 0.60], [1.66, 0.90, 0.60], 0.05);
   }
   // The aerial mast and the wire aft to the fin.
-  box(p, TOP, 0.06, 0.52, 0.06, 0, cl(1.4) + 1.36, 1.40);
-  const wire = box(p, P.wire, 0.03, 0.03, 5.6, 0, cl(-1.5) + 1.42, -1.50);
-  wire.rotation.x = -0.16;
+  aerial(p, 0, cl(1.4) + 1.10, 1.40, 0.52, tail.finTop, TOP);
   return p;
 }
 
@@ -2310,7 +2462,7 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
   }
   insignia(p, 0.50, cl(-3.0) + 0.06, -3.00, 0.36, false);
   insignia(p, -0.50, cl(-3.0) + 0.06, -3.00, 0.36, false);
-  empennage(p, 1.36, 1.20, 3.66, 0.94, cl(-4.3) + 0.28, -4.05);
+  const tail = empennage(p, 1.36, 1.20, 3.66, 0.94, cl(-4.3) + 0.28, -4.05);
 
   // The main float: hung under her on a single heavy pylon with a pair of
   // struts either side, which is how an OS2U carries hers.
@@ -2346,9 +2498,7 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
       strut(p, TOP, [0, 1.02, -1.00], [s * 0.44, cl(-1.1) - 0.62, -1.10], 0.055);
     }
   }
-  box(p, TOP, 0.06, 0.48, 0.06, 0, cl(1.0) + 1.28, 1.00);
-  const wire = box(p, P.wire, 0.03, 0.03, 5.0, 0, cl(-1.6) + 1.34, -1.60);
-  wire.rotation.x = -0.15;
+  aerial(p, 0, cl(1.0) + 1.04, 1.00, 0.48, tail.finTop, TOP);
   return p;
 }
 
@@ -2436,14 +2586,12 @@ function zero(g, x, y, z, ry, folded = false, opts = {}) {
 
   hinomaru(p, 0.36, cl(-1.6) + 0.06, -1.6, 0.40, false);
   hinomaru(p, -0.36, cl(-1.6) + 0.06, -1.6, 0.40, false);
-  empennage(p, 1.16, 1.02, 3.30, 0.80, cl(-3.5) + 0.30, -3.2);
+  const tail = empennage(p, 1.16, 1.02, 3.30, 0.80, cl(-3.5) + 0.30, -3.2);
   if (opts.gear !== false) {
     for (const s of [-1, 1]) mainGear(p, s, s * 1.30, 0.0, 0.96, 0.30, 0.06);
     tailGear(p, -3.95, 0.15, 0.9, 0.30);
   }
-  box(p, M.planeTop, 0.06, 0.52, 0.06, 0, cl(0.2) + 1.06, 0.2);
-  const wire = box(p, M.wire, 0.03, 0.03, 3.5, 0, cl(-1.5) + 1.02, -1.5);
-  wire.rotation.x = -0.2;
+  aerial(p, 0, cl(0.2) + 0.80, 0.2, 0.52, tail.finTop);
   return p;
 }
 
@@ -2543,7 +2691,7 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
 
   hinomaru(p, 0.34, cl(-2.2) + 0.06, -2.2, 0.40, false);
   hinomaru(p, -0.34, cl(-2.2) + 0.06, -2.2, 0.40, false);
-  empennage(p, 1.14, 1.00, 3.40, 0.82, cl(-4.1) + 0.28, -3.8);
+  const tail = empennage(p, 1.14, 1.00, 3.40, 0.82, cl(-4.1) + 0.28, -3.8);
   if (opts.gear !== false) {
     for (const s of [-1, 1]) mainGear(p, s, s * 1.35, -0.22, 1.00, 0.30, 0.05);
     tailGear(p, -4.55, 0.15, 0.95, 0.30);
@@ -2551,9 +2699,7 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
   // The rear gunner's 7.7 mm on its ring, which folds down into the decking.
   const mg = cyl(p, M.gunDark, 0.035, 0.035, 0.7, 0, cl(-1.5) + 0.72, -1.75, 6);
   mg.rotation.x = -0.5;
-  box(p, M.planeTop, 0.05, 0.46, 0.05, 0, cl(0.0) + 1.04, 0.0);
-  const wire = box(p, M.wire, 0.03, 0.03, 4.0, 0, cl(-2.0) + 1.0, -2.0);
-  wire.rotation.x = -0.18;
+  aerial(p, 0, cl(0.0) + 0.81, 0.0, 0.46, tail.finTop);
   return p;
 }
 
@@ -2604,6 +2750,14 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
       span: 5.6, rootC: 2.70, tipC: 1.30, sweep: 0.70, thick: 0.112,
       star: 0.60, guns: [],
     });
+    // The centre section: the piece of wing between the fuselage sides and
+    // the root of the panel, level and untapered, the way the Avenger's is.
+    // Without it both panels hung a hand's breadth off her sides.
+    wing(p, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: cl(0.9) - 0.34, z: 0.95, span: 0.80, rootC: 2.70,
+      tipC: 2.70, sweep: 0, thick: 0.112, camber: 0.024, stations: 2,
+      round: false, rootCap: false,
+    });
     const w = new THREE.Group();
     w.position.set(s * 0.74, cl(0.9) - 0.34, 0.95);
     w.rotation.z = -s * 0.06;
@@ -2649,7 +2803,7 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   hinomaru(p, -0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
   // The forward-swept fin, which is the Tenzan's other signature: it is that
   // shape so the tail could fold clear for the lift.
-  empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
+  const tail = empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
   if (opts.gear !== false) {
     for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 0.31, 1.30, 0.36, 0.05);
     tailGear(p, -5.00, 0.18, 1.1, 0.34);
@@ -2659,9 +2813,7 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   mg.rotation.x = -0.45;
   cyl(p, M.gunDark, 0.035, 0.035, 0.6, 0, cl(-3.4) - 0.18, -3.6, 6)
     .rotation.x = 0.4;
-  box(p, M.planeTop, 0.07, 0.58, 0.07, 0, cl(0.2) + 1.32, 0.2);
-  const wire = box(p, M.wire, 0.03, 0.03, 4.4, 0, cl(-2.2) + 1.26, -2.2);
-  wire.rotation.x = -0.18;
+  aerial(p, 0, cl(0.2) + 1.03, 0.2, 0.58, tail.finTop);
   return p;
 }
 
@@ -2711,6 +2863,11 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
       at: [s * 0.56, cl() - 0.52, 0.5], skew: 0.06, lean: 0.04,
       span: 6.0, rootC: 2.30, tipC: 1.20, sweep: 0.30, thick: 0.108,
       star: 0.56, guns: [],
+    });
+    wing(p, M.planeTop, M.planeBottom, {
+      side: s, x: 0, y: cl() - 0.52, z: 0.45, span: 0.64, rootC: 2.30,
+      tipC: 2.30, sweep: 0, thick: 0.108, camber: 0.022, stations: 2,
+      round: false, rootCap: false,
     });
     const w = new THREE.Group();
     w.position.set(s * 0.58, cl() - 0.52, 0.45);
@@ -2773,12 +2930,10 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
 
   hinomaru(p, 0.36, cl() - 0.10, -2.9, 0.42, false);
   hinomaru(p, -0.36, cl() - 0.10, -2.9, 0.42, false);
-  empennage(p, 1.24, 1.06, 3.50, 0.86, cl() + 0.30, -4.0);
+  const tail = empennage(p, 1.24, 1.06, 3.50, 0.86, cl() + 0.30, -4.0);
   const mg = cyl(p, M.gunDark, 0.035, 0.035, 0.7, 0, cl() + 0.80, -2.6, 6);
   mg.rotation.x = -0.45;
-  box(p, M.planeTop, 0.06, 0.50, 0.06, 0, cl() + 1.06, 0.3);
-  const wire = box(p, M.wire, 0.03, 0.03, 4.2, 0, cl() + 1.0, -1.9);
-  wire.rotation.x = -0.16;
+  aerial(p, 0, cl() + 0.81, 0.3, 0.5, tail.finTop);
   return p;
 }
 

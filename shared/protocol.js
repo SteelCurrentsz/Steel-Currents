@@ -6,6 +6,7 @@ import { torpedoVisible, SECTIONS, sectionVolume, gunState } from './sim.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const r2 = (v) => Math.round(v * 100) / 100;
 
 export function shipSnapshot(ship, full) {
   const cls = getClass(ship.classId);
@@ -212,6 +213,21 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     if (!torpedoVisible(state, tp, team)) continue;
     torps.push({ i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team });
   }
+  /**
+   * How the leading aeroplane of a flight has been knocked about.
+   *
+   * The one the player is in when he takes the flight, so it is the one his
+   * damage board draws. Six parts as fractions of whole, then how hard she is
+   * burning, how fast she is losing fuel, and how much of it is left.
+   */
+  const machineReport = (p) => {
+    const a = (p.machines || []).find((m) => m.alive && !m.left) || (p.machines || [])[0];
+    if (!a || !a.parts) return undefined;
+    const f = (k) => r2(Math.max(0, a.parts[k].hp) / a.parts[k].max);
+    return [f('engine'), f('tanks'), f('wings'), f('tail'), f('crew'), f('body'),
+      r2(a.fire || 0), r2(a.leak || 0), r2(a.fuel ?? 1)];
+  };
+
   const planes = state.planes
     .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
     // `o` is the carrier she flew off and `a` is how long she has been up:
@@ -252,6 +268,15 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // bar and every machine in it was in identical condition by definition.
       sm: p.wear && p.wear.smoking ? p.wear.smoking : undefined,
       wr: p.wear && p.wear.speed < 0.995 ? r3(p.wear.speed) : undefined,
+      // Which ship is flying her by hand, if anybody is. A flight has one
+      // pilot: without this the plot could offer a squadron to two captains
+      // at once and neither would know why she would not answer.
+      pi: p.pilot || undefined,
+      // And how she has been knocked about, part by part, for the pilot's own
+      // damage board -- her leader's, which is the aeroplane he is in. Only
+      // her own side is told: it is what a squadron reports, not what the
+      // enemy can see.
+      dm: p.team === team ? machineReport(p) : undefined,
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

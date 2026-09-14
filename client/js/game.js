@@ -5,6 +5,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { BattleScene } from './render/scene.js';
 import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
+import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
@@ -44,6 +45,16 @@ const FLIGHT_NAME = {
   avenger: 'her torpedo bombers',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
+};
+
+/** The order the parts come in on the wire and on the pilot's board. */
+const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
+
+/** What the aeroplane herself is called, for the pilot's own corner. */
+const PLANE_NAME = {
+  wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
+  arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', zero: 'A6M Zero',
+  suisei: 'D4Y Suisei', tenzan: 'B6N Tenzan', jake: 'E13A Jake',
 };
 
 /** What each machine's forward guns are, so the tracer is the right tracer. */
@@ -1478,7 +1489,13 @@ export class Battle {
     if (!w || w.kind !== 'plane' || w.id == null || this.flight) return false;
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = snap && (snap.planes || []).find((q) => q.i === w.id);
-    return !!pl && pl.tm === this.team && pl.o === this.shipId;
+    // Anything on her own side. A squadron in the air belongs to the fleet
+    // rather than to the deck it came off: a destroyer captain with no
+    // aircraft of his own can take one of the carrier's, which is most of the
+    // point of having a carrier in company. What he cannot do is take one
+    // somebody else is already flying.
+    if (!pl || pl.tm !== this.team) return false;
+    return !pl.pi || pl.pi === this.shipId;
   }
 
   /**
@@ -1511,6 +1528,14 @@ export class Battle {
         x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h,
         speed: aero.vMax * 0.72,
       }),
+      // Which ship she came off, for the pilot's own corner: a captain may be
+      // flying one of another ship's aircraft now.
+      from: pl.o,
+      // How she has been knocked about, off the wire: six parts, then how hard
+      // she is burning, how fast she is leaking and what fuel she has left.
+      dm: pl.dm || null,
+      // What she can still do, worked out from that -- see `flyWear`.
+      wear: { speed: 1, turn: 1, pull: 0 },
       // What she is carrying, and how long since the last word to the server.
       armed: role !== 'fighter',
       // How long since the drop was asked for and not yet answered.
@@ -1526,6 +1551,17 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
+    // Who she is, in the bottom left corner, and her own damage board across
+    // the bottom of the screen.
+    const ship = (snap.ships || []).find((q) => q.i === pl.o);
+    this.hud.setFlightIdent(PLANE_NAME[kind] || 'Aircraft',
+      ship ? `off ${ship.n || 'the fleet'}` : 'off the fleet');
+    if (!this.planeBoard) {
+      const cv = document.getElementById('fly-damage-board');
+      if (cv) this.planeBoard = new PlaneBoard(cv);
+    }
+    if (this.planeBoard) this.planeBoard.build(kind);
+    this.hud.paintFlightDamage(null, PART_ORDER.map((k) => PART_NAME[k]));
     if (this.mapBig) this.toggleMap(false);
     audio.click();
   }
@@ -1573,6 +1609,8 @@ export class Battle {
   /** Hand her back to the autopilot and go back to the bridge. */
   leaveFlight(lost = false) {
     if (!this.flight) return;
+    // `land` gives her back to the autopilot and drops the claim on her, so
+    // somebody else can take her afterwards.
     this.net.send({ t: 'land', i: this.flight.id });
     this.flight = null;
     this.hud.setCockpit(false);
@@ -1595,6 +1633,8 @@ export class Battle {
     const pl = snap && (snap.planes || []).find((q) => q.i === f.id);
     // She is gone: shot down, or her squadron was released under her.
     if (!pl) { this.leaveFlight(true); return; }
+    // How she has been knocked about, part by part, for her own damage board.
+    if (pl.dm) f.dm = pl.dm;
     // What is left on her rack, off the simulation. The moment it says she is
     // empty and she was not before, her ordnance is away and the pilot is told
     // so -- which is the one word in the cockpit that has to be true.
@@ -1607,9 +1647,15 @@ export class Battle {
 
     const stick = this.hud.fly || { pitch: 0, roll: 0, throttle: 1 };
     const p = f.pilot;
-    p.stickPitch = stick.pitch;
-    p.stickRoll = stick.roll;
-    p.throttle = stick.throttle;
+    // What a shot-about aeroplane can still be made to do. An engine at half
+    // will not hold full power, a wing panel shot through will not be hauled
+    // round, and a machine with one wing worse than the other flies one wing
+    // low whatever the stick is doing. The simulation has been keeping this
+    // per part since the flak became real; the pilot now feels it.
+    const wear = this.flyWear(f);
+    p.stickPitch = stick.pitch * wear.turn;
+    p.stickRoll = stick.roll * wear.turn + wear.pull;
+    p.throttle = stick.throttle * wear.speed;
     const sea = this.scene.ocean.heightAt(p.x, p.z);
     p.step(dt, sea);
     if (!p.alive) { this.leaveFlight(true); return; }
@@ -1649,6 +1695,34 @@ export class Battle {
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
+    // Her condition, on the board along the bottom and on the line under it.
+    if (this.planeBoard) this.planeBoard.update(f.dm, dt);
+    this.hud.paintFlightDamage(f.dm, PART_ORDER.map((k) => PART_NAME[k]));
+  }
+
+  /**
+   * What a damaged aeroplane will still do, from the report off the wire.
+   *
+   * The same three numbers the simulation applies to a flight on the autopilot
+   * (see airframeState) put where a pilot can feel them: what she will still
+   * make, what she can still be hauled round at, and how hard she pulls off
+   * straight with her structure shot about. A machine with her tail gone is
+   * the one a pilot notices first, because she will not be aimed.
+   */
+  flyWear(f) {
+    const w = f.wear;
+    const dm = f.dm;
+    if (!dm) { w.speed = 1; w.turn = 1; w.pull = 0; return w; }
+    const eng = dm[0] ?? 1;
+    const wing = dm[2] ?? 1;
+    const tail = dm[3] ?? 1;
+    const fire = dm[6] || 0;
+    w.speed = 0.35 + 0.65 * eng;
+    w.turn = Math.max(0.15, 0.25 + 0.45 * wing + 0.30 * tail);
+    // A burning aeroplane is a going concern until she is not: the fire eats
+    // her, and what the pilot feels of it is her wanting to roll off.
+    w.pull = (1 - wing) * 0.22 + fire * 0.10;
+    return w;
   }
 
   /**
@@ -1666,12 +1740,18 @@ export class Battle {
    * back, because a pilot who presses the drop and sees nothing happen for a
    * fifth of a second thinks the key is broken.
    */
-  bayTrim(pl, dt) {
+  bayTrim(pl, dt, speed = 0) {
     let t = this.planeTrim.get(pl.i);
     if (!t) {
-      t = { bay: 0, fall: null, gone: false, hold: 0 };
+      t = { bay: 0, fall: null, gone: false, hold: 0, prop: Math.random() * 6.28 };
       this.planeTrim.set(pl.i, t);
     }
+    // The airscrew, wound on at a rate her airspeed decides. Not her real
+    // revolutions -- two thousand a minute at sixty frames a second is a
+    // strobe and nothing else -- but a rate that reads as turning, idling on
+    // the deck and a blur at full throttle, and one that visibly picks up as
+    // she accelerates down the deck.
+    t.prop = (t.prop + dt * (7 + Math.min(1, speed / 150) * 20)) % (Math.PI * 2);
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
@@ -1800,13 +1880,23 @@ export class Battle {
     // the hangar with her wings folded, so what a captain got for "pilot view"
     // was a close-up of a parked aeroplane apparently levitating in the dark.
     const snap = this.snapshots[this.snapshots.length - 1];
-    const mine = ((snap && snap.planes) || []).filter((p) => p.o === this.shipId);
-    if (!mine.length) {
+    // Any of the fleet's, not only her own: see canTake.
+    const ours = ((snap && snap.planes) || [])
+      .filter((p) => p.tm === this.team && (!p.pi || p.pi === this.shipId));
+    if (!ours.length) {
       this.hud.alert('No aircraft in the air');
       return;
     }
-    // The youngest flight she has put up: the one that has just gone.
-    const pick = mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null);
+    // Her own first if she has any up, and the youngest of those: the one
+    // that has just gone. Otherwise whatever the fleet has nearest to her,
+    // which is the flight a captain would be given.
+    const mine = ours.filter((p) => p.o === this.shipId);
+    const here = (snap && snap.ships.find((q) => q.i === this.shipId)) || { x: 0, z: 0 };
+    const pick = mine.length
+      ? mine.reduce((a, q) => (a === null || q.a < a.a ? q : a), null)
+      : ours.reduce((a, q) => (a === null
+        || Math.hypot(q.x - here.x, q.z - here.z)
+         < Math.hypot(a.x - here.x, a.z - here.z) ? q : a), null);
     this.freeCamera(false);
     this.watching = {
       kind: 'plane', carrier: null, id: pick.i,
@@ -2492,7 +2582,7 @@ export class Battle {
       // is, at the attitude the stick has her in -- not at the position the
       // last snapshot happened to carry.
       const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
-      const trim = this.bayTrim(pl, dt);
+      const trim = this.bayTrim(pl, dt, mine ? mine.v : gs);
       if (mine) {
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,

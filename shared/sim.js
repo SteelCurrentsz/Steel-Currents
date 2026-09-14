@@ -1121,6 +1121,25 @@ function gunsSeen(state, p, tx, tz, air) {
 }
 
 /**
+ * Whether this ship may fly that flight.
+ *
+ * Anything on her own side. A squadron in the air belongs to the fleet, not to
+ * the deck it came off: a destroyer captain with no aircraft of his own can
+ * take one of the carrier's, which is the whole point of having a carrier in
+ * company. What she may not do is take one somebody else is already flying --
+ * a flight has one pilot -- and a claim lapses a few seconds after the last
+ * word from him, so a pilot who drops out does not hold her for the rest of
+ * the action.
+ */
+export const PILOT_HOLD = 4;
+export function mayFly(state, ship, p) {
+  if (!ship || !ship.alive || !p || p.dead) return false;
+  if (p.team !== ship.team) return false;
+  if (!p.pilot || p.pilot === ship.id) return true;
+  return (state.t - (p.flownAt ?? -1e9)) > PILOT_HOLD;
+}
+
+/**
  * A flight somebody is flying by hand.
  *
  * The simulation owns everything that matters about a flight -- what shoots at
@@ -1138,13 +1157,17 @@ export function flyPlane(state, ship, msg) {
   if (!ship || !ship.alive) return false;
   const p = state.planes.find((q) => q.id === msg.i);
   if (!p || p.dead) return false;
-  if (p.team !== ship.team || p.owner !== ship.id) return false;
+  if (!mayFly(state, ship, p)) return false;
   if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z) || !Number.isFinite(msg.h)) return false;
   // No further than she could have flown since the last word from her, with a
   // good margin for a slow connection. A flight doing three hundred knots
-  // covers a hundred and fifty metres a second.
-  const cls = shipClass(ship);
-  const top = (cls.planes ? cls.planes.cruiseSpeed : 80) * 3.2;
+  // covers a hundred and fifty metres a second. Off the aeroplane's own ship,
+  // not the one flying her: a destroyer's captain flying a carrier's Avenger
+  // was held to a destroyer's cruising speed, which is eighty knots slower
+  // than the aeroplane, so every correction he made was thrown away.
+  const owner = state.ships.find((q) => q.id === p.owner);
+  const cls = shipClass(owner || ship);
+  const top = (cls.planes ? cls.planes.cruiseSpeed : 90) * 3.2;
   const since = Math.max(0.05, Math.min(2, state.t - (p.flownAt ?? state.t)));
   const reach = top * since + 80;
   if (dist(p.x, p.z, msg.x, msg.z) > reach) return false;
@@ -1162,6 +1185,7 @@ export function flyPlane(state, ship, msg) {
   }
   p.flown = true;
   p.flownAt = state.t;
+  p.pilot = ship.id;
   // Under a pilot she is not hunting on her own account any more.
   p.targetAir = 0;
   return true;
@@ -1230,8 +1254,11 @@ function burstSpread(p) {
  */
 export function strafe(state, ship, id, dt) {
   const p = state.planes.find((q) => q.id === id);
-  if (!p || p.dead || !ship || p.owner !== ship.id) return false;
-  const cls = shipClass(ship);
+  if (!p || p.dead || !ship) return false;
+  if (p.owner !== ship.id && p.pilot !== ship.id) return false;
+  // Her own ship's aircraft, whichever ship is flying her.
+  const owner = state.ships.find((q) => q.id === p.owner);
+  const cls = shipClass(owner || ship);
   const P = cls.planes;
   if (!P) return false;
   if (!p.count) return false;
@@ -1486,11 +1513,17 @@ function stepFlak(state, ship, dt) {
  * She goes back on the autopilot where she is, heading for whatever she was
  * sent after -- not back to the beginning of her sortie.
  */
-export function releasePlane(state, id) {
+export function releasePlane(state, id, ship = null) {
   const p = state.planes.find((q) => q.id === id);
   if (!p) return;
+  // Hers to give back: the man flying her, or the ship she came off. Now that
+  // a flight can be flown from another ship's bridge, anybody could otherwise
+  // take a squadron off a consort's pilot in the middle of his run.
+  if (ship && p.pilot && p.pilot !== ship.id && p.owner !== ship.id) return;
   p.flown = false;
   p.hunt = 0;
+  // And she is nobody's now, so the next man who wants her can have her.
+  p.pilot = 0;
 }
 
 /**
@@ -1501,9 +1534,11 @@ export function releasePlane(state, id) {
  */
 export function dropOrdnance(state, ship, id) {
   const p = state.planes.find((q) => q.id === id);
-  if (!p || p.dead || !ship || p.owner !== ship.id) return false;
+  if (!p || p.dead || !ship) return false;
+  if (p.owner !== ship.id && p.pilot !== ship.id) return false;
   if (p.dropped) return false;
-  const cls = shipClass(ship);
+  const owner = state.ships.find((q) => q.id === p.owner);
+  const cls = shipClass(owner || ship);
   const P = cls.planes;
   if (!P) return false;
   // What is on her rack. A fighter carries nothing to drop -- her guns are her

@@ -208,6 +208,9 @@ export class Hud {
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
       flySwipe: $('fly-swipe'), flyHint: $('fly-hint'),
       flyReticle: $('fly-reticle'),
+      flyIdentType: $('fly-ident-type'), flyIdentSub: $('fly-ident-sub'),
+      flyDamage: $('fly-damage'), flyDamageBoard: $('fly-damage-board'),
+      flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
@@ -873,6 +876,51 @@ export class Hud {
     if (!what) { el.flyDrop.hidden = true; return; }
     el.flyDrop.hidden = false;
     el.flyDrop.textContent = what;
+  }
+
+  /**
+   * Who she is: her type in the bottom left corner, and the ship she came off
+   * under it. A pilot flying one of the carrier's Avengers from a destroyer's
+   * bridge has to be told which aeroplane he has.
+   */
+  setFlightIdent(type, from) {
+    if (this.el.flyIdentType) this.el.flyIdentType.textContent = type || '';
+    if (this.el.flyIdentSub) this.el.flyIdentSub.textContent = from || '';
+  }
+
+  /**
+   * Her condition, along the bottom: a line of her parts, each lit by what
+   * has happened to it, under the hologram.
+   *
+   * `dm` is the report off the wire -- six part fractions, then fire, leak and
+   * fuel. Nothing at all while she is whole except the names, held right back,
+   * because a pilot with an undamaged aeroplane does not want six labels
+   * shouting at him.
+   */
+  paintFlightDamage(dm, names) {
+    const box = this.el.flyDamageParts;
+    if (!box) return;
+    if (!this.dmgChips || this.dmgChips.length !== names.length) {
+      box.textContent = '';
+      this.dmgChips = names.map((n) => {
+        const el = document.createElement('span');
+        el.textContent = n;
+        box.appendChild(el);
+        return el;
+      });
+    }
+    const fire = dm ? (dm[6] || 0) : 0;
+    this.dmgChips.forEach((el, i) => {
+      const f = dm ? (dm[i] ?? 1) : 1;
+      el.classList.toggle('gone', f <= 0);
+      el.classList.toggle('hurt', f > 0 && f < 0.66);
+    });
+    if (this.dmgChips.length) {
+      // A machine alight says so on every part of her that is burning, which
+      // in practice is the one the fire is in.
+      const seat = fire > 0.02 ? this.dmgChips[1] : null;
+      for (const el of this.dmgChips) el.classList.toggle('fire', el === seat);
+    }
   }
 
   /** The sight goes red when there is something under it. */
