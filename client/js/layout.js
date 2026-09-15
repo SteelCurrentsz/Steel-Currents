@@ -15,6 +15,7 @@ import {
 import { shipClearance } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
+import { BOMBERS } from '../../shared/bombers.js';
 
 // The counter a ship or a gun is drawn as when the chart is zoomed right out,
 // and the peg beside it you turn her by. Generous, because this has to work
@@ -114,6 +115,8 @@ export class LayoutMap {
     (req.enemyClasses || []).forEach((id, i) => this.tokens.push(this.shipToken(id, 1, i, false)));
     (req.allyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 0, i)));
     (req.enemyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 1, i)));
+    (req.allyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 0, i)));
+    (req.enemyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 1, i)));
 
     this.auto();
 
@@ -162,10 +165,13 @@ export class LayoutMap {
       const mine = ships.filter((t) => t.team === 0).length;
       const theirs = ships.length - mine;
       const myGuns = guns.filter((t) => t.team === 0).length;
+      const air = this.tokens.filter((t) => t.kind === 'air');
+      const myAir = air.filter((t) => t.team === 0).length;
       const across = Math.round((this.half * 2) / 0.9144 / 1000);
       const html = `<b>${this.req?.place || 'Open sea'}</b>`
         + `<span>${mine} of yours against ${theirs}`
-        + `${guns.length ? ` &middot; ${myGuns} of ${guns.length} batteries yours` : ''}</span>`
+        + `${guns.length ? ` &middot; ${myGuns} of ${guns.length} batteries yours` : ''}`
+        + `${air.length ? ` &middot; ${myAir} of ${air.length} squadrons yours` : ''}</span>`
         + `<span>${across}k yards across`
         + `${this.view.zoom > 1.01 ? ` &middot; &times;${this.view.zoom.toFixed(1)}` : ''}</span>`;
       // Only when it has actually changed. This runs on every repaint and a
@@ -212,6 +218,25 @@ export class LayoutMap {
       // What the piece will reach, in metres. The chart draws its field of fire
       // to this and writes it under the counter, so the two agree.
       range: b.range,
+      x: 0, z: 0, heading: team === 0 ? 0 : Math.PI, ok: true,
+    };
+  }
+
+  /**
+   * A squadron of heavies, and the course she comes in on.
+   *
+   * She is neither a hull nor a gun: there is nothing under her to be right or
+   * wrong, because she is at four thousand feet. What her counter says is
+   * where she crosses the coast and which way she is heading, and that heading
+   * is the run-in -- so a commander who turns her towards the anchorage is
+   * doing the one thing that actually decides where her bombs go.
+   */
+  airToken(bomberId, team, index) {
+    const b = BOMBERS[bomberId] || BOMBERS.lancaster;
+    return {
+      kind: 'air', classId: bomberId, team, mine: team === 0, index,
+      name: b.name, type: `${(b.payload / 1000).toFixed(0)}k lb`,
+      payload: b.payload,
       x: 0, z: 0, heading: team === 0 ? 0 : Math.PI, ok: true,
     };
   }
@@ -271,6 +296,17 @@ export class LayoutMap {
         t.heading = Math.atan2(-t.x, -t.z);
       }
     }
+    // The heavies come on to the battlefield from behind their own side, in
+    // line abreast and well back: they are on passage at this point, and where
+    // a commander wants them is a decision he makes by dragging them.
+    const air = this.tokens.filter((t) => t.kind === 'air');
+    const airGap = clamp(this.half / 5, 1200, 5200);
+    air.forEach((t, i) => {
+      const sign = t.team === 0 ? -1 : 1;
+      t.x = (i - (air.length - 1) / 2) * airGap;
+      t.z = sign * (this.half - 400);
+      t.heading = t.team === 0 ? 0 : Math.PI;
+    });
     for (const t of this.tokens) this.check(t);
   }
 
@@ -424,6 +460,10 @@ export class LayoutMap {
       // and the real shore are both land here -- a hull does not care which
       // kind of ground she is on when she is on it.
       t.ok = inside && !islandAt(this.world, t.x, t.z, t.clearance);
+    } else if (t.kind === 'air') {
+      // Nothing under a bomber is wrong: she is four thousand feet over it.
+      // All the chart asks of her is that she starts on the battlefield.
+      t.ok = inside;
     } else {
       t.ok = inside && !!islandAt(this.world, t.x, t.z, 0);
     }
@@ -436,6 +476,8 @@ export class LayoutMap {
     if (!bad.length) return '';
     const ship = bad.find((t) => t.kind === 'ship');
     if (ship) return `${ship.name} is aground. Ships go on the water.`;
+    const air = bad.find((t) => t.kind === 'air');
+    if (air) return `${air.name} is off the battlefield. Bring her inside it.`;
     return `${bad[0].name} has no ground under it. Batteries go ashore.`;
   }
 
@@ -501,6 +543,7 @@ export class LayoutMap {
    * yards to the inch is smaller than the ink.
    */
   bodyR(t) {
+    if (t.kind === 'air') return BODY_R * 0.86;
     if (t.kind !== 'ship') return BODY_R * 0.72;
     return clamp((t.length * this.scale) / 2, BODY_R, BODY_R * 3.2);
   }
@@ -1070,6 +1113,28 @@ export class LayoutMap {
       ctx.lineTo(-beam * 0.92, r * 0.88);
       ctx.lineTo(-beam, -r * 0.45);
       ctx.closePath();
+    } else if (t.kind === 'air') {
+      // A bomber, from above: a long wing, a slim body and a tailplane. Drawn
+      // rather than a circle with a letter in it, because a commander reading
+      // a chart with three kinds of counter on it should be able to tell them
+      // apart at a glance and without a key.
+      const sp = r * 1.35;
+      ctx.moveTo(0, -r * 0.95);                       // nose
+      ctx.lineTo(r * 0.17, -r * 0.30);
+      ctx.lineTo(sp, r * 0.02);                       // starboard tip
+      ctx.lineTo(sp * 0.94, r * 0.26);
+      ctx.lineTo(r * 0.17, r * 0.24);
+      ctx.lineTo(r * 0.15, r * 0.62);
+      ctx.lineTo(r * 0.62, r * 0.80);                 // tailplane
+      ctx.lineTo(r * 0.60, r * 0.98);
+      ctx.lineTo(-r * 0.60, r * 0.98);
+      ctx.lineTo(-r * 0.62, r * 0.80);
+      ctx.lineTo(-r * 0.15, r * 0.62);
+      ctx.lineTo(-r * 0.17, r * 0.24);
+      ctx.lineTo(-sp * 0.94, r * 0.26);
+      ctx.lineTo(-sp, r * 0.02);
+      ctx.lineTo(-r * 0.17, -r * 0.30);
+      ctx.closePath();
     } else {
       // A gun: a drum with a barrel out of it.
       ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -1156,6 +1221,8 @@ export class LayoutMap {
       enemies: pick('ship', 1),
       allyGuns: pick('gun', 0),
       enemyGuns: pick('gun', 1),
+      allyBombers: pick('air', 0),
+      enemyBombers: pick('air', 1),
     };
   }
 }

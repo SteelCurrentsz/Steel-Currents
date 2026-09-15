@@ -6,6 +6,7 @@
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
+import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
 import { SECTIONS, torpedoClear } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
@@ -411,7 +412,8 @@ export class Hud {
     // landing on yourself — which is the one answer that does nothing. Ranked
     // instead: a gun ashore, then somebody else's hull, then your own, and the
     // nearest inside each rank.
-    const rank = (m) => (m.kind === 'battery' || m.kind === 'plane' ? 0
+    const rank = (m) => (m.kind === 'battery' || m.kind === 'plane'
+      || m.kind === 'bomber' ? 0
       : m.id === this.selfId ? 2 : 1);
     let best = null;
     for (const mark of plot.marks) {
@@ -1566,6 +1568,59 @@ export class Hud {
       marks.push({
         kind: 'plane', id: pl.i, x, y,
         name: `${pl.n} aircraft`,
+      });
+    }
+
+    // The heavy squadrons. They are not carrier aircraft and they are not
+    // plotted as any: a fighter is a swept vee a few pixels across, a heavy is
+    // a straight-winged cross with her four engines on it, because the two
+    // things mean entirely different orders. She is drawn a good deal larger
+    // than a flight for the same reason a bomber counter on a real plot was
+    // larger -- there are three of her in the mark and she is the slowest and
+    // most predictable thing over the battlefield, so a captain wants to see
+    // her coming from the far side of the chart.
+    for (const bm of (snap && snap.bombers) || []) {
+      const x = toX(bm.x), y = toY(bm.z);
+      const tint = bm.tm === this.team ? '#6fd3a0' : '#e2564f';
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-bm.h);
+      ctx.strokeStyle = tint;
+      ctx.lineWidth = 1.7;
+      // Fuselage, nose to tail.
+      ctx.beginPath();
+      ctx.moveTo(0, -7 * k); ctx.lineTo(0, 6.5 * k);
+      // The mainplane, straight and long.
+      ctx.moveTo(-9 * k, -0.6 * k); ctx.lineTo(9 * k, -0.6 * k);
+      // And the tailplane, which is what tells her apart from a cross.
+      ctx.moveTo(-4 * k, 5.4 * k); ctx.lineTo(4 * k, 5.4 * k);
+      ctx.stroke();
+      // Her engines, as many pips a side as she actually turns airscrews. A
+      // Betty is a twin and reads as one; a Lancaster is a four and reads as
+      // one, without a word of text on the chart.
+      const eng = (BOMBERS[bm.b] && BOMBERS[bm.b].engines || '').match(/^(\d+)/);
+      const pairs = Math.max(1, Math.min(2, Math.round((eng ? +eng[1] : 4) / 2)));
+      ctx.fillStyle = tint;
+      for (let i = 1; i <= pairs; i++) {
+        const ex = (3.2 + i * 2.9) * k;
+        ctx.fillRect(-ex - 1.1 * k, -1.9 * k, 2.2 * k, 2.6 * k);
+        ctx.fillRect(ex - 1.1 * k, -1.9 * k, 2.2 * k, 2.6 * k);
+      }
+      ctx.restore();
+      // How many of her are left, right beside the mark: a squadron that has
+      // lost two over the target is a different proposition from a full one,
+      // and the mark itself cannot say so.
+      if ((bm.n || 1) > 1) {
+        ctx.fillStyle = tint;
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`x${bm.n}`, x + 11 * k, y - 7 * k);
+      }
+      marks.push({
+        kind: 'bomber', id: bm.i, x, y,
+        name: `${bm.n} ${(BOMBERS[bm.b] && BOMBERS[bm.b].name) || 'bombers'}`,
+        team: bm.tm,
       });
     }
 

@@ -10,6 +10,7 @@ import { Flames } from './flames.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { Flights } from './planes.js';
+import { Heavies } from './heavies.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
@@ -1561,6 +1562,9 @@ export class BattleScene {
     // deck, in flight trim, as many of them as the flight actually has. See
     // planes.js.
     this.flights = new Flights(this.scene, 96);
+    // And the heavy squadrons, which are nobody's carrier aircraft: their own
+    // batch, their own models and their own spacing. See heavies.js.
+    this.heavies = new Heavies(this.scene, 27);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the

@@ -1280,6 +1280,16 @@ export class Battle {
       this.watchDistNow = 3.2;
       this.watchFov = 52;
       this.watchFovNow = 52;
+      // A squadron of heavies is watched from outside it, not from inside one
+      // of them. The point-of-view camera stands where a lookout on the thing
+      // would have his head, and a formation has no bridge to stand on: the
+      // eye came out four metres inside the leader's fuselage, so a captain
+      // who picked the heavies off the plot was shown the inside of a
+      // mid-upper turret. The wheel still puts him in her if he wants it.
+      if (hit.kind === 'bomber') {
+        this.watchPov = false;
+        this.watchEl = 0.18;
+      }
     }
     // And the server is told, because it decides what this client is shown:
     // a ship nobody aboard has sighted is not in the snapshot at all, and
@@ -1312,7 +1322,8 @@ export class Battle {
     if (!snap || !hit) return null;
     const from = hit.kind === 'battery' ? snap.batteries
       : hit.kind === 'plane' ? snap.planes
-        : [...snap.ships, ...(snap.contacts || [])];
+        : hit.kind === 'bomber' ? snap.bombers
+          : [...snap.ships, ...(snap.contacts || [])];
     const e = (from || []).find((x) => x.i === hit.id);
     if (!e) return null;
     // A battery is laid on a bearing and then trained off it.
@@ -1353,6 +1364,18 @@ export class Battle {
         x: from.x, y: this.scene.ocean.heightAt(from.x, from.z) * 0.5, z: from.z,
         span: fc.hull.length, eye: 14 + fc.hull.superstructure * 12,
       };
+    }
+    if (this.watching.kind === 'bomber') {
+      // A formation, watched from outside it. Her leader is the mark, but what
+      // is being watched is the whole vic: two hundred metres across and as
+      // much again from the leader to the last machine. So the span is the
+      // formation's and not one aeroplane's, and it is not flagged `close` --
+      // that is the tight orbit a shell and a single flight want, and on a
+      // thirty-metre bomber it put the camera inside her fuselage, where all
+      // there is to see is the inside of a mid-upper turret.
+      const bm = (this.bombersNow || []).find((x) => x.i === this.watching.id);
+      if (!bm) return null;
+      return { x: bm.x, y: bm.y, z: bm.z, span: 80, eye: 4 };
     }
     if (this.watching.kind === 'plane') {
       // Riding one of your own. She is the carrier's own model for the whole
@@ -2605,6 +2628,39 @@ export class Battle {
         0, w.kind);
     }
     this.scene.flights.end();
+
+    // The heavy squadrons, four thousand feet over the lot of them. They are
+    // not anybody's carrier aircraft and they are not drawn as any: their own
+    // models, their own batch, their own spacing. Interpolated between
+    // snapshots the same way the flights are, because a formation stepping
+    // five times a second reads as a slide show.
+    this.scene.heavies.begin(dt);
+    // Kept as well as drawn, for the same reason the shells are: a captain can
+    // watch a squadron off the plot, and the camera has to ride the formation
+    // the screen is showing rather than a snapshot position five times a
+    // second behind it.
+    const heavies = [];
+    for (const bm of (a.bombers || [])) {
+      const nx = b ? (b.bombers || []).find((q) => q.i === bm.i) : null;
+      const x = nx ? lerp(bm.x, nx.x, t) : bm.x;
+      const y = nx ? lerp(bm.y, nx.y, t) : bm.y;
+      const z = nx ? lerp(bm.z, nx.z, t) : bm.z;
+      const h = nx ? bm.h + angleDelta(bm.h, nx.h) * t : bm.h;
+      // A coordinated turn, the same way a flight is banked: tan(bank) is the
+      // speed times the rate of turn over g. A heavy in formation does not
+      // throw herself about, so she is held to a good deal less than a
+      // fighter. Three degrees nose-up is the attitude a loaded bomber cruises
+      // at, and she holds it the whole way in.
+      const gs = Math.max(20, bm.s || 80);
+      const bank = clamp(Math.atan2(gs * (bm.tn || 0), 9.81), -0.45, 0.45);
+      this.scene.heavies.add(
+        bm.b || 'lancaster', x, y, z, h, bank, 0.05,
+        Math.max(1, bm.n || 1),
+      );
+      heavies.push({ ...bm, x, y, z, h, bank });
+    }
+    this.bombersNow = heavies;
+    this.scene.heavies.end();
     // Forget the flights that are no longer up, so the map does not grow.
     for (const id of [...this.planeTurn.keys()]) {
       if (!planes.some((q) => q.i === id)) {

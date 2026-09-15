@@ -23,8 +23,9 @@ import {
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
-  mayFly, PILOT_HOLD,
+  mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
 } from '../shared/sim.js';
+import { createStaff, stepStaff } from '../server/command.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
   from '../client/js/render/aero.js';
 import { twoFingerGesture } from '../client/js/touch.js';
@@ -11621,6 +11622,303 @@ check("a pilot has the same chart the bridge has", () => {
   assert.ok(/setCockpit\(true, this\.flight\.id\)/.test(game),
     'the chart is never told which flight is being flown');
 });
+
+
+check("a squadron of heavies is in the battle, and flies her own bombing height", () => {
+  const world = generateWorld(4102, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -world.half * 0.9 });
+  assert.equal(st.bombers.length, 1, 'a commissioned squadron is not in the battle');
+  assert.equal(bm.count, HEAVY_VIC, 'a squadron is not a vic');
+
+  // The height is the whole of what a strategic bomber is: she is up there to
+  // be above the flak and she pays for it in accuracy. Fifteen thousand feet
+  // for a Lancaster, and a Fortress higher again, off their own ceilings.
+  assert.ok(bm.y > 4000 && bm.y < 5600,
+    `a Lancaster is bombing from ${Math.round(bm.y)} m, which is not her height`);
+  assert.ok(bombAlt(BOMBERS.fortress) > bombAlt(BOMBERS.lancaster),
+    'a Fortress does not work higher than a Lancaster, and she did');
+  for (const k of BOMBER_ORDER) {
+    const h = bombAlt(BOMBERS[k]);
+    assert.ok(Number.isFinite(h) && h >= 2400 && h <= 7200,
+      `${k} is bombing from ${h} m`);
+  }
+
+  // And she flies: out to the target, down the run, and away.
+  const seen = new Set();
+  let sticks = 0;
+  for (let i = 0; i < 4000 && st.bombers.length; i++) {
+    const ev = step(st, DT);
+    for (const e of ev) if (e.e === 'sticksAway') sticks += 1;
+    if (st.bombers[0]) seen.add(st.bombers[0].phase);
+  }
+  assert.ok(seen.has('inbound'), 'she never ran in');
+  assert.ok(sticks > 0 || seen.has('run'),
+    'she never made a bombing run on anything');
+});
+
+check("a heavy squadron wrecks a gun position and cannot touch a ship under helm", () => {
+  // The two halves of level bombing, and they are the same mechanism: the
+  // aimer's error grows with height and with how fast the target is moving.
+  // A battery cannot move at all, so the stick is laid on it every second or
+  // third run. A cruiser working up to thirty knots is simply not there when
+  // the bombs arrive, and no amount of bombers changes that.
+  const world = generateWorld(991, 'coastal');
+
+  // Ashore.
+  let silenced = 0;
+  const RUNS = 6;
+  for (let r = 0; r < RUNS; r++) {
+    const st = createState(world, { mode: 'deathmatch' });
+    let spot = null;
+    for (let rad = 0; rad < 40000 && !spot; rad += 500) {
+      for (let a = 0; a < 6.28; a += 0.2) {
+        const x = Math.cos(a) * rad;
+        const z = world.half * 0.5 + Math.sin(a) * rad;
+        if (groundHeight(world, x, z) > 4) { spot = { x, z }; break; }
+      }
+    }
+    assert.ok(spot, 'no land on a coastal map to put a battery on');
+    const bat = addBattery(st, { batteryId: 'longues', team: 1, x: spot.x, z: spot.z });
+    addBomber(st, { bomberId: 'lancaster', team: 0, x: spot.x + (r - 3) * 400,
+      z: -world.half * 0.9 });
+    for (let i = 0; i < 6000 && st.bombers.length; i++) step(st, DT);
+    if (!bat.alive) silenced += 1;
+  }
+  assert.ok(silenced > 0,
+    `${RUNS} raids on a gun position and not one of them silenced it`);
+
+  // Afloat: the same four squadrons, the same cruiser, the same sixty-four
+  // bombs, and the only difference is whether she is lying stopped or steaming
+  // at thirty knots with her helm going over.
+  const raid = (moving) => {
+    const sea = createState(generateWorld(4103, 'open_ocean'), { mode: 'deathmatch' });
+    const ship = addShip(sea, { name: 'Takao', classId: 'takao', team: 1, index: 0 });
+    ship.notch = moving ? MAX_NOTCH : 1;
+    for (let i = 0; i < 4; i++) {
+      addBomber(sea, { bomberId: 'lancaster', team: 0, x: (i - 1.5) * 1200,
+        z: -sea.world.half * 0.9 });
+    }
+    let hits = 0;
+    for (let i = 0; i < 9000 && sea.bombers.length; i++) {
+      // She keeps her helm going, which is the whole defence.
+      if (moving) ship.rudderCmd = Math.sin(sea.t * 0.035) > 0 ? 1 : -1;
+      for (const e of step(sea, DT)) if (e.e === 'bombhit') hits += 1;
+    }
+    return { hits, alive: ship.alive, speed: ship.speed };
+  };
+  const moored = raid(false);
+  const helm = raid(true);
+  assert.ok(helm.speed > 10, 'the ship under way never got under way');
+  assert.ok(moored.hits > 0, 'sixty-four bombs on a stopped cruiser and not one of them found her');
+  assert.ok(!moored.alive, 'a heavy cruiser lying stopped survived a squadron of Lancasters');
+  assert.ok(helm.hits < moored.hits,
+    `a cruiser at thirty knots with her helm going took ${helm.hits} bombs `
+    + `against ${moored.hits} lying stopped -- keeping her speed on bought her nothing`);
+  assert.ok(helm.alive, 'a cruiser under helm was sunk by level bombing from fifteen thousand feet');
+});
+
+check("a heavy is safe from a ship's flak and not from a flak battery", () => {
+  // Why she is up there at all. A ship's close-range battery is laid for
+  // something diving at her from three thousand feet and cannot reach a
+  // formation four times that high; an eighty-eight can, and is the one thing
+  // on the battlefield that brings these down.
+  const world = generateWorld(4104, 'open_ocean');
+  const afloat = createState(world, { mode: 'deathmatch' });
+  addShip(afloat, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
+  const over = addBomber(afloat, { bomberId: 'fortress', team: 0, x: 0, z: -600 });
+  for (let i = 0; i < 300; i++) step(afloat, DT);
+  assert.ok(over.alive && over.count === HEAVY_VIC,
+    "a ship's flak reached a Fortress at her bombing height");
+
+  // And the gun ashore that can.
+  const coast = generateWorld(991, 'coastal');
+  const land = createState(coast, { mode: 'deathmatch' });
+  let spot = null;
+  for (let rad = 0; rad < 40000 && !spot; rad += 500) {
+    for (let a = 0; a < 6.28; a += 0.2) {
+      const x = Math.cos(a) * rad;
+      const z = coast.half * 0.5 + Math.sin(a) * rad;
+      if (groundHeight(coast, x, z) > 4) { spot = { x, z }; break; }
+    }
+  }
+  addBattery(land, { batteryId: 'flak88', team: 1, x: spot.x, z: spot.z });
+  const run = addBomber(land, { bomberId: 'lancaster', team: 0, x: spot.x, z: spot.z - 400 });
+  const was = run.hp;
+  for (let i = 0; i < 300; i++) step(land, DT);
+  assert.ok(run.hp < was, 'an eighty-eight battery did nothing to a formation over it');
+
+  // But it is not an execution: a vic flying through one expects to lose one
+  // of its three, not all of them.
+  assert.ok(run.count >= 2,
+    `a vic lost ${HEAVY_VIC - run.count} of three in thirty seconds over one battery`);
+  hurtBomber(land, run, run.hp + 1);
+  assert.ok(!run.alive && run.count === 0, 'a formation shot to pieces is still flying');
+});
+
+check("everything that fights reports to one staff, and its plans stay off the wire", () => {
+  // The whole point of the command net: a side's ships, aircraft, guns ashore
+  // and heavy squadrons all report what they can see to one plot, the staff
+  // writes one appreciation off it, and every unit takes its orders from that.
+  // What none of them do is put any of it on the wire, because a plan the
+  // enemy can read is not a plan.
+  const world = generateWorld(4105, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const brains = new Map();
+  const mk = (team, classId, index) => {
+    const s = addShip(st, { name: `${classId}${team}${index}`, classId, team, index });
+    s.isBot = true;
+    brains.set(s.id, createBotBrain(0.8));
+    return s;
+  };
+  mk(0, 'enterprise', 0); mk(0, 'iowa', 1); mk(0, 'fletcher', 2);
+  mk(1, 'shinano', 0); mk(1, 'yamato', 1); mk(1, 'takao', 2);
+  addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -world.half * 0.9 });
+  const staff = [createStaff(0, 0.85), createStaff(1, 0.85)];
+
+  let air = 0;
+  for (let i = 0; i < 3000; i++) {
+    for (const s of staff) stepStaff(st, s, DT);
+    for (const ship of st.ships) {
+      if (!ship.alive) continue;
+      const brain = brains.get(ship.id);
+      if (brain) stepBot(st, ship, brain, DT, false, staff[ship.team]);
+    }
+    step(st, DT);
+    air = Math.max(air, st.planes.length);
+  }
+
+  // The staff has a plot, and it is built out of what its own side saw.
+  assert.ok(staff[0].contacts.size > 0, 'the staff never heard from anybody');
+  const kinds = new Set([...staff[0].contacts.values()].map((c) => c.kind));
+  assert.ok(kinds.has('ship'), 'nobody reported a ship');
+
+  // It has written orders for every kind of unit.
+  assert.ok(staff[0].stations.size > 0, 'nobody was given a station in the line');
+  assert.ok(staff[0].fireAt.size > 0, 'nobody was told what to shoot at');
+  assert.ok(air > 0, 'the staff never sent a strike');
+
+  // And none of it is on the wire, for either side.
+  for (const team of [0, 1]) {
+    const wire = JSON.stringify(buildSnapshot(st, team, {}));
+    for (const secret of ['orderTarget', 'orderEscort', 'aimX', 'aimZ',
+      'targetId', 'posture', 'guideId', 'strikeAt', 'batteryAt', 'bomberAt',
+      'stations']) {
+      assert.ok(!wire.includes(`"${secret}"`),
+        `the staff's ${secret} is on the wire for team ${team} to read`);
+    }
+  }
+});
+
+check("a strike goes out together and its escort stays with it", () => {
+  // A strike is not a hundred sorties. Every flight is given the same target
+  // by the staff, they form up before they go, and the fighters told off to
+  // escort hunt from the strike rather than from themselves -- which is the
+  // whole difference between an escort and a sweep that happened to take off
+  // at the same time.
+  const world = generateWorld(4106, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const brains = new Map();
+  const mk = (team, classId, index) => {
+    const s = addShip(st, { name: `${classId}${team}${index}`, classId, team, index });
+    s.isBot = true;
+    brains.set(s.id, createBotBrain(0.85));
+    return s;
+  };
+  mk(0, 'enterprise', 0); mk(0, 'iowa', 1);
+  mk(1, 'shinano', 0); mk(1, 'yamato', 1);
+  const staff = [createStaff(0, 0.9), createStaff(1, 0.9)];
+  const spread = [];
+  const standoff = [];
+  for (let i = 0; i < 7000; i++) {
+    for (const s of staff) stepStaff(st, s, DT);
+    for (const ship of st.ships) {
+      if (!ship.alive) continue;
+      const brain = brains.get(ship.id);
+      if (brain) stepBot(st, ship, brain, DT, false, staff[ship.team]);
+    }
+    step(st, DT);
+    if (i % 50) continue;
+    for (const team of [0, 1]) {
+      const loaded = st.planes.filter((p) => !p.dead && p.team === team
+        && p.role !== 'fighter' && p.phase === 'outbound');
+      if (loaded.length < 2) continue;
+      const cx = loaded.reduce((a, p) => a + p.x, 0) / loaded.length;
+      const cz = loaded.reduce((a, p) => a + p.z, 0) / loaded.length;
+      spread.push(Math.max(...loaded.map((p) => Math.hypot(p.x - cx, p.z - cz))));
+      for (const f of st.planes) {
+        if (f.dead || f.team !== team || f.role !== 'fighter') continue;
+        if (!f.orderEscort || f.phase !== 'outbound') continue;
+        standoff.push(Math.hypot(f.x - cx, f.z - cz));
+      }
+    }
+  }
+  const median = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
+  assert.ok(spread.length > 10, 'no strike ever went out to measure');
+  assert.ok(median(spread) < 3000,
+    `a strike is spread over ${Math.round(median(spread))} m, which is not a strike`);
+  assert.ok(standoff.length > 10, 'no fighter was ever told off to escort');
+  assert.ok(median(standoff) < 3000,
+    `the escort is ${Math.round(median(standoff))} m from the strike it is escorting`);
+
+  // And they were all sent after the same thing, which is what makes it a
+  // strike rather than a hundred sorties: the staff names one ship and every
+  // flight in the air is told it.
+  const sent = new Map();
+  for (const p of st.planes) {
+    if (p.dead || p.role === 'fighter' || !p.orderTarget) continue;
+    sent.set(p.team, (sent.get(p.team) || new Set()).add(p.orderTarget));
+  }
+  for (const [team, marks] of sent) {
+    assert.equal(marks.size, 1,
+      `team ${team} has ${marks.size} strikes going for ${marks.size} different ships`);
+  }
+});
+
+check("a heavy squadron is drawn over the battle and plotted on the chart", () => {
+  const heavies = readFileSync(new URL('../client/js/render/heavies.js', import.meta.url), 'utf8');
+  assert.ok(/new THREE\.InstancedMesh/.test(heavies),
+    'a formation is not drawn as a batch');
+  assert.ok(/userData\.props/.test(heavies), 'her airscrews are welded solid');
+
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const block = game.slice(game.indexOf('this.scene.heavies.begin('),
+    game.indexOf('this.scene.heavies.end()') + 40);
+  assert.ok(block.length > 100, 'nothing draws the heavies');
+  // Interpolated between snapshots like everything else: a formation stepping
+  // five times a second reads as a slide show.
+  assert.ok(/lerp\(bm\.x, nx\.x, t\)/.test(block), 'a formation is not interpolated');
+  assert.ok(/angleDelta\(bm\.h, nx\.h, /.test(block) || /angleDelta\(bm\.h, nx\.h\)/.test(block),
+    'her heading is not interpolated');
+  // And nothing in that block is made up: every name it uses has to exist.
+  for (const name of ['lerpAngle', 'this.blend', 'this.next']) {
+    assert.ok(!block.includes(name), `the draw block uses ${name}, which does not exist`);
+  }
+
+  // Her own mark on the plot: a straight-winged cross with her engines on it,
+  // which is not the swept vee a carrier flight is drawn as.
+  const hud = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  const plot = hud.slice(hud.indexOf('for (const bm of (snap && snap.bombers)'),
+    hud.indexOf("kind: 'bomber'") + 200);
+  assert.ok(plot.length > 200, 'the heavies are not on the plot');
+  assert.ok(/BOMBERS\[bm\.b\]/.test(plot), 'the mark does not know which bomber she is');
+  assert.ok(/kind: 'bomber'/.test(plot), 'a formation cannot be picked off the chart');
+  assert.ok(/m\.kind === 'bomber'/.test(hud),
+    'a bomber is not ranked above a hull when a finger lands between them');
+  assert.ok(/this\.watching\.kind === 'bomber'/.test(game),
+    'a formation picked off the plot cannot be watched');
+});
+
+check("a bomber squadron is laid out on the plotting board like everything else", () => {
+  const layout = readFileSync(new URL('../client/js/layout.js', import.meta.url), 'utf8');
+  assert.ok(/airToken\(/.test(layout), 'a squadron has no counter to move');
+  assert.ok(/allyBombers/.test(layout) && /enemyBombers/.test(layout),
+    'where a squadron was put never leaves the chart');
+  const setup = readFileSync(new URL('../server/setup.js', import.meta.url), 'utf8');
+  assert.ok(/layout\.allyBombers/.test(setup),
+    'the battle ignores where the squadrons were laid out');
+});
+
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1,7 +1,7 @@
 // A room is one battle: its own world, simulation and player list.
 
 import {
-  createState, addShip, addBattery, applyInput, step, fireGuns, fireTorpedoes,
+  createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
   manGun, layGun, shootGun,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
@@ -11,6 +11,11 @@ import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
 import { getClass, SHIP_ORDER } from '../shared/ships.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
+import { createStaff, stepStaff } from './command.js';
+
+// How hard a side fights, as a number. The same three words the briefing
+// offers, and the staff is as good as its captains are.
+const SKILL_OF = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
 const SNAPSHOT_EVERY = 2;       // ticks -> 15 snapshots per second
 const LOBBY_COUNTDOWN = 12;     // seconds a public lobby holds open for others
@@ -26,6 +31,11 @@ export class Room {
     this.maxPlayers = opts.maxPlayers || 12;
     this.botCount = opts.botCount ?? 0;
     this.botSkill = opts.botSkill || 'regular';
+    // One command net per side. Everything that fights reports to it and takes
+    // its orders from it, and none of what it thinks ever leaves this process
+    // -- see command.js.
+    this.staff = [createStaff(0, SKILL_OF[this.botSkill] ?? 0.7),
+      createStaff(1, SKILL_OF[this.botSkill] ?? 0.7)];
     this.private = !!opts.private;
     this.autoStart = opts.autoStart !== false;
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
@@ -164,6 +174,18 @@ export class Room {
     });
   }
 
+  /**
+   * A squadron of heavies on to the battlefield, on the course her commander
+   * gave her on the order-of-battle chart.
+   */
+  addBomberOnTeam(team, bomberId, at = null) {
+    const half = this.state.world.half;
+    const x = at && Number.isFinite(at.x) ? at.x : 0;
+    const z = at && Number.isFinite(at.z) ? at.z : (team === 0 ? -half : half) * 0.92;
+    const h = at && Number.isFinite(at.h) ? at.h : (team === 0 ? 0 : Math.PI);
+    return addBomber(this.state, { bomberId, team, x, z, heading: h });
+  }
+
   addBotOnTeam(team, skill = this.botSkill, classId = null, at = null) {
     const cls = classId || SHIP_ORDER[Math.floor(Math.random() * SHIP_ORDER.length)];
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -232,13 +254,16 @@ export class Room {
     while (this.accum >= DT && steps < 6) {
       this.accum -= DT;
       steps++;
+      // Both staffs first: the orders a captain acts on this tick are written
+      // off the reports of the last one, which is what a signal is.
+      for (const st of this.staff) stepStaff(this.state, st, DT);
       for (const ship of this.state.ships) {
         if (!ship.alive) continue;
         // Everything afloat fights itself. A ship with a captain aboard is
         // conned by him -- her helm and her aircraft are his -- and fights
         // herself round that.
         const brain = this.brains.get(ship.id);
-        if (brain) stepBot(this.state, ship, brain, DT, !ship.isBot);
+        if (brain) stepBot(this.state, ship, brain, DT, !ship.isBot, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
         if (!ship.isBot) steerToWaypoint(this.state, ship);
       }

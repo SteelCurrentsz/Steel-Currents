@@ -44,7 +44,7 @@ export function gunsFrom(v, cap) {
  * chart draws them in and the order the fleet is built in below.
  */
 export function crewBattle(room, req, seat, limits = {}) {
-  const { allies: maxA = 24, enemies: maxE = 25, guns: maxG = 12 } = limits;
+  const { allies: maxA = 24, enemies: maxE = 25, guns: maxG = 12, bombers: maxB = 8 } = limits;
   const layout = req.layout || {};
   const allyAt = berthsFrom(layout.allies, maxA + 1);
   const enemyAt = berthsFrom(layout.enemies, maxE);
@@ -84,6 +84,19 @@ export function crewBattle(room, req, seat, limits = {}) {
   });
   gunsFrom(req.enemyGuns, maxG).forEach((id, i) => {
     room.addBatteryOnTeam(1 - team, id, enemyGunAt?.[i] ?? null);
+  });
+
+  // And the heavies, on the courses their commanders gave them. They are
+  // ordered by type in the bomber yard and laid out on the chart the same way
+  // a hull or a gun is, so the one thing that arrives here is a list of types
+  // and a list of berths -- the same shape as everything else.
+  const allyAir = berthsFrom(layout.allyBombers, maxB);
+  const enemyAir = berthsFrom(layout.enemyBombers, maxB);
+  gunsFrom(req.allyBombers, maxB).forEach((id, i) => {
+    room.addBomberOnTeam(team, id, allyAir?.[i] ?? null);
+  });
+  gunsFrom(req.enemyBombers, maxB).forEach((id, i) => {
+    room.addBomberOnTeam(1 - team, id, enemyAir?.[i] ?? null);
   });
   return res;
 }

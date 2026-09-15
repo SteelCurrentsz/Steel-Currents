@@ -279,6 +279,25 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       dm: p.team === team ? machineReport(p) : undefined,
     }));
 
+  // The heavy squadrons, to whoever can see them -- which at four thousand
+  // feet is very nearly everybody.
+  //
+  // Where she is, what she is, how many of her are left and what she is doing
+  // with her doors. Her orders are not here and never will be: which ship her
+  // side's staff has sent her after is the plan, and a plan the other side can
+  // read off the wire is not a plan. See `stepBombers`.
+  const bombers = (state.bombers || [])
+    .filter((b) => b.team === team || b.spottedBy[team] || ended)
+    .map((b) => ({
+      i: b.id, b: b.bomberId, tm: b.team,
+      x: r1(b.x), y: r1(b.y), z: r1(b.z), h: r3(b.heading),
+      n: b.count, tn: r3(b.turn || 0), s: r1(b.speed),
+      // Open on the run and shut everywhere else, which is the one thing about
+      // her that anybody watching can actually see.
+      d: b.phase === 'run' ? 1 : 0,
+      hp: Math.round(b.hp), mx: b.maxHp,
+    }));
+
   // The guns ashore. Both sides put them on the chart before the battle, so
   // neither is being told anything it did not already know -- what changes is
   // where each one is trained and whether it is still in action.
@@ -294,7 +313,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, planes, batteries,
+    ships, contacts, shells, torps, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

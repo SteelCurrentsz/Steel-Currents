@@ -1,6 +1,24 @@
-// Bot captains. Each bot picks a target it can actually see, opens the range
-// or closes it depending on what it is driving, and fires when a firing
-// solution is good enough — the same public sim API a human player drives.
+// Ship captains.
+//
+// Each of these fights one hull, and each of them has a mind of his own: his
+// gunnery, his torpedoes, his damage control and his smoke are his, and he
+// works them off what he can see out of his own bridge windows. What he is not
+// is a free agent. He belongs to a fleet, and the fleet has a staff -- see
+// command.js -- which holds the plot, decides the fighting course, gives him
+// his station in the line and tells him who to concentrate on.
+//
+// The difference that makes is the whole of this file's history. A captain
+// left to himself steers to hold his own preferred range from his own chosen
+// target, and what a dozen captains doing that produces is a dozen ships
+// sailing away from each other in a dozen directions with the enemy somewhere
+// astern of all of them. A captain under orders holds his station on the guide,
+// turns when the line turns, and puts his shells into the ship the staff wants
+// down. That is a fleet action.
+//
+// He may still disobey, and there is one thing he disobeys for: a ship that is
+// being beaten to pieces hauls out of the line. That is not running away, it
+// is what a wrecked ship is supposed to do, and it is the only case in here
+// where a captain's own judgement overrules his orders.
 
 import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js';
 import { getClass } from '../shared/ships.js';
@@ -9,6 +27,7 @@ import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
   useSmoke, canFire, steerToward,
 } from '../shared/sim.js';
+import { stationPoint } from './command.js';
 
 const SKILL = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
@@ -44,14 +63,21 @@ function preferredRange(cls) {
  * are still hers and still do their jobs; what she will not do is steer herself
  * or fly off her own aircraft. Those two belong to whoever is conning her.
  */
-export function stepBot(state, ship, brain, dt, conned = false) {
+export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
   const cls = getClass(ship.classId);
   brain.retarget -= dt;
   brain.fireTimer -= dt;
   brain.torpTimer -= dt;
 
-  if (brain.retarget <= 0 || !isValidTarget(state, ship, brain.targetId)) {
+  // What the fleet wants of him, and what he can see for himself. The order
+  // wins on who to shoot at -- that is the concentration, and it is the whole
+  // point of having a staff -- and his own eyes win on whether he can actually
+  // see her.
+  const ordered = staff ? staff.fireAt.get(ship.id) : 0;
+  if (ordered && isValidTarget(state, ship, ordered)) {
+    brain.targetId = ordered;
+  } else if (brain.retarget <= 0 || !isValidTarget(state, ship, brain.targetId)) {
     brain.retarget = 2.5;
     brain.targetId = pickTarget(state, ship);
   }
@@ -66,18 +92,22 @@ export function stepBot(state, ship, brain, dt, conned = false) {
     useRepair(state, ship);
   }
 
+  // Is he in a fit state to be in the line at all? Below a third of her and
+  // making water she falls out of it, turns away behind smoke and tries to
+  // live. Everything above that fights.
+  const beaten = ship.hp < ship.maxHp * 0.3 && (ship.flooding >= 2 || ship.fires >= 3);
+
   if (!target) {
-    // Nothing afloat to fight. If a shore battery is inside the guns as she
-    // goes past, she puts a few rounds into it -- but she does not stop to do
-    // it: an emplacement is not going anywhere and the capture zones are.
+    // Nothing afloat to fight. He keeps his station and the fleet keeps
+    // looking -- which is a great deal better than a dozen hulls each going
+    // off to look on their own.
     if (conned) layAhead(ship);
-    else patrol(state, ship, brain, dt);
+    else if (!keepStation(state, ship, brain, staff, dt)) patrol(state, ship, brain, dt);
     shellShore(state, ship, brain, cls);
     return;
   }
 
   const d = dist(ship.x, ship.z, target.x, target.z);
-  const want = preferredRange(cls) * cls.gun.range;
   const bearingToTarget = headingTo(ship.x, ship.z, target.x, target.z);
 
   // Aim with lead, degraded by skill so rookies miss ahead of the bow wave.
@@ -87,19 +117,36 @@ export function stepBot(state, ship, brain, dt, conned = false) {
   ship.aimX = lead.x + (Math.random() * 2 - 1) * err;
   ship.aimZ = lead.z + (Math.random() * 2 - 1) * err;
 
-  // Manoeuvre: hold the preferred band and keep the broadside working.
-  let desired;
-  if (d > want * 1.12) desired = bearingToTarget;
-  else if (d < want * 0.62) desired = wrapAngle(bearingToTarget + Math.PI);
-  else desired = wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.42);
-
-  // Angle the bow at incoming fire when hurt, to bounce shells.
-  if (ship.hp < ship.maxHp * 0.3 && cls.type !== 'DD') {
-    desired = wrapAngle(bearingToTarget + brain.kite * 0.6);
-  }
   if (!conned) {
-    steerToward(state, ship, desired);
-    ship.notch = d > want * 1.3 ? 5 : ship.hp < ship.maxHp * 0.35 ? 5 : 4;
+    if (beaten) {
+      // Out of the line. Away from the enemy, behind smoke, at everything she
+      // has left -- and still shooting, because a ship hauling out is not a
+      // ship that has struck.
+      steerToward(state, ship, wrapAngle(bearingToTarget + Math.PI * 0.82));
+      ship.notch = 5;
+      brain.hauled = true;
+    } else if (staff && staff.torpRun.has(ship.id) && cls.torpedoes) {
+      // The flotilla is going in. Straight at her until the fish are away,
+      // then out on the disengaged bow -- which is a torpedo attack, and it is
+      // the one time a destroyer closes a battleship on purpose.
+      const run = brain.torpTimer > 8
+        ? wrapAngle(bearingToTarget + brain.kite * 2.2)
+        : wrapAngle(bearingToTarget + brain.kite * 0.30);
+      steerToward(state, ship, run);
+      ship.notch = 5;
+    } else {
+      // In the line. He steers the fleet course and holds his station on the
+      // guide, and the only thing that moves him off it is the guide herself
+      // turning.
+      if (!keepStation(state, ship, brain, staff, dt)) {
+        // No staff, or he is the guide: the fighting course, which keeps the
+        // broadside bearing and the range where it is wanted. Never away.
+        const want = staff ? staff.course
+          : wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.45);
+        steerToward(state, ship, want);
+        ship.notch = d > cls.gun.range * 0.9 ? 5 : 4;
+      }
+    }
   }
 
   // Destroyers duck into smoke when caught in the open.
@@ -123,13 +170,55 @@ export function stepBot(state, ship, brain, dt, conned = false) {
   }
 
   // A conned ship's aircraft are her captain's to send, and nobody else's.
-  if (!conned && cls.planes && canSee && d < cls.planes.strikeRange) {
-    const p = leadPoint(ship.x, ship.z, target, cls.planes.cruiseSpeed);
-    const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
-    ship.aimX = p.x; ship.aimZ = p.z;
-    launchStrike(state, ship);
-    ship.aimX = saveAimX; ship.aimZ = saveAimZ;
+  // Under a staff she flies them when the strike goes, not whenever she
+  // happens to have a target in range -- which is what turns a trickle of
+  // flights into a strike.
+  if (!conned && cls.planes && canSee) {
+    const go = staff ? staff.strikeReady : d < cls.planes.strikeRange;
+    const mark = staff && staff.strikeAt
+      ? state.ships.find((q) => q.id === staff.strikeAt && q.alive) : target;
+    if (go && mark && dist(ship.x, ship.z, mark.x, mark.z) < cls.planes.strikeRange) {
+      const p = leadPoint(ship.x, ship.z, mark, cls.planes.cruiseSpeed);
+      const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
+      ship.aimX = p.x; ship.aimZ = p.z;
+      launchStrike(state, ship);
+      ship.aimX = saveAimX; ship.aimZ = saveAimZ;
+    }
   }
+}
+
+/**
+ * Keeping station.
+ *
+ * The one behaviour that turns a collection of hulls into a fleet. His station
+ * is a bearing and a distance from the guide, so it moves and turns with her;
+ * he steers for it, and once he is on it he steers the fleet course like
+ * everybody else. Out of station he uses the difference in speed to get back
+ * -- ahead of station he eases, astern of it he cracks on.
+ *
+ * Returns false when he has no station to keep, which is the guide's case and
+ * the submarine's, and they steer for themselves.
+ */
+function keepStation(state, ship, brain, staff, dt) {
+  if (!staff) return false;
+  const at = stationPoint(state, staff, ship);
+  if (!at) return false;
+  const d = dist(ship.x, ship.z, at.x, at.z);
+  const cls = getClass(ship.classId);
+  if (d > 260) {
+    // Not on it. Steer for it, and put on whatever she needs to close the
+    // gap -- a ship two miles out of station is no use to anybody.
+    steerToward(state, ship, headingTo(ship.x, ship.z, at.x, at.z));
+    ship.notch = d > 1200 ? 5 : 4;
+  } else {
+    // On it. Steer the fleet course, and hold the guide's speed.
+    steerToward(state, ship, staff.course);
+    ship.notch = 4;
+  }
+  void brain;
+  void dt;
+  void cls;
+  return true;
 }
 
 /**
