@@ -213,7 +213,7 @@ export class Hud {
       flyDamage: $('fly-damage'), flyDamageBoard: $('fly-damage-board'),
       flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
-      flyArms: $('fly-arms'),
+      flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -861,6 +861,7 @@ export class Hud {
     // ARSENAL key, listing what this aeroplane carries instead of what the
     // ship carries -- and pressing a turret in it puts you in that turret.
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
+    if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
   }
 
@@ -1289,10 +1290,18 @@ export class Hud {
    * `on` lights it while the camera is riding a round.
    */
   setShellCam(available, on) {
+    // The bridge's key, and the pilot's. They do the same thing and are in two
+    // places because the bridge's keys are not on screen while he is flying.
     const el = this.el.shellCam;
-    if (!el) return;
-    el.hidden = !available;
-    el.classList.toggle('on', !!on);
+    if (el) {
+      el.hidden = !available;
+      el.classList.toggle('on', !!on);
+    }
+    const fly = this.el.flyBombCam;
+    if (fly) {
+      fly.hidden = !available;
+      fly.classList.toggle('on', !!on);
+    }
   }
 
   /** What the shell key does when it is pressed. */

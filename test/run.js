@@ -27,8 +27,10 @@ import {
   flyBomber, dropStick, gunTurret,
 } from '../shared/sim.js';
 import { createStaff, stepStaff } from '../server/command.js';
-import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
-  from '../client/js/render/aero.js';
+import {
+  Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
+  rollRate, rollTau, pitchTau,
+} from '../client/js/render/aero.js';
 import { twoFingerGesture } from '../client/js/touch.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
@@ -12160,6 +12162,91 @@ check("a bomb can be followed down the way a salvo can", () => {
     for (const sh of buildSnapshot(st, 0, {}).shells) if (sh.bm === bm.id) seen += 1;
   }
   assert.ok(seen > 0, 'no bomb ever reached the wire with her squadron on it');
+
+  // And the camera actually leaves the aeroplane for it. The cockpit and the
+  // turret both belong to her and both used to be settled before anything
+  // consulted what was being watched, so a pilot who pressed the key stayed
+  // where he was looking at his own tailplane.
+  const camAt = game.indexOf('updateCamera(dt) {');
+  const cam = game.slice(camAt, camAt + 4200);
+  assert.ok(/const riding = this\.shellCam/.test(cam),
+    'the camera does not know it is riding a round');
+  assert.ok(/this\.turret && !riding/.test(cam),
+    'the turret camera still wins over the bomb camera');
+  assert.ok(/this\.flight && !riding/.test(cam),
+    'the cockpit camera still wins over the bomb camera');
+  // With nothing in the air it waits over the squadron, not over a ship that
+  // was never there: a bomb has no gun and no ship behind it.
+  assert.ok(/this\.shellIsBomb[\s\S]{0,160}bombersNow/.test(game),
+    'with the stick gone the camera looks for a ship that does not exist');
+  // And a pilot has his own key for it, because the bridge's keys are not on
+  // screen while he is flying.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/id="fly-bombcam"/.test(html), 'there is no bomb-camera key in the cockpit');
+  const hud2 = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  assert.ok(/flyBombCam[\s\S]{0,80}bombCam/.test(hud2), 'the cockpit key is not wired up');
+});
+
+check("an aeroplane answers her controls the way her size and weight say", () => {
+  // The rates used to be two numbers per type that somebody chose. They are
+  // worked out now: roll rate is the helix angle her ailerons wind up, over
+  // her own span at her own speed, and how long she takes to get there is her
+  // mass against the damping her wing gives at that speed.
+  const kn = (v) => v * 1.94384;
+  const deg = (r) => (r * 180) / Math.PI;
+  const fighter = AERO.wildcat;
+  const heavy = HEAVY_AERO.lancaster;
+
+  // A fighter rolls at about ninety degrees a second; a four-engined bomber
+  // at about thirteen. Neither number is written down anywhere.
+  const fr = deg(rollRate(fighter, 110));
+  const hr = deg(rollRate(heavy, 90));
+  assert.ok(fr > 70 && fr < 110, `a Wildcat rolls at ${fr.toFixed(0)}°/s`);
+  assert.ok(hr > 8 && hr < 20, `a Lancaster rolls at ${hr.toFixed(0)}°/s`);
+  assert.ok(fr > hr * 5, 'a heavy rolls very nearly as fast as a fighter');
+
+  // And she rolls faster the faster she is going, which is what a helix angle
+  // means and what a constant rate could never say.
+  assert.ok(rollRate(fighter, 160) > rollRate(fighter, 80) * 1.8,
+    'her roll rate does not depend on her airspeed');
+
+  // She does not get there at once, and the heavier she is the longer it
+  // takes -- in roll and on the elevator both.
+  assert.ok(rollTau(heavy, 90) > rollTau(fighter, 110) * 1.5,
+    'a thirty-tonne bomber winds up to her roll rate as quickly as a fighter');
+  assert.ok(pitchTau(heavy, 90) > pitchTau(fighter, 110) * 1.5,
+    'a thirty-tonne bomber answers her elevator as quickly as a fighter');
+
+  // Flown: full back stick, and what she actually does with it.
+  const haul = (a) => {
+    const p = new Pilot(a, { y: 3048, speed: a.vMax * 0.7 });
+    p.throttle = 1;
+    p.stickPitch = 1;
+    const y0 = p.y;
+    let peak = 0;
+    for (let i = 0; i < 60 * 3; i++) { p.step(1 / 60, 0); peak = Math.max(peak, p.g); }
+    return { peak, climbed: p.y - y0 };
+  };
+  const f = haul(fighter);
+  const h = haul(heavy);
+  // A fighter pulls what her wing and her spar will give; a bomber pulls what
+  // her spar will give, which is a great deal less, and that is the whole
+  // difference between hauling one about and hauling the other about.
+  assert.ok(f.peak > 4.5, `a Wildcat only reached ${f.peak.toFixed(1)} g on full back stick`);
+  assert.ok(h.peak <= heavy.gLimit + 0.05,
+    `a Lancaster pulled ${h.peak.toFixed(2)} g, past her limit load factor`);
+  assert.ok(h.peak > 2, `a Lancaster would only pull ${h.peak.toFixed(2)} g`);
+  assert.ok(f.climbed > h.climbed * 2,
+    'a heavy answers full back stick as sharply as a fighter does');
+
+  // Nothing is left of the hand-set numbers.
+  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  assert.ok(!/rollRate: |pitchRate: /.test(aero),
+    'a per-type roll or pitch rate is still written down');
+  for (const a of [...Object.values(AERO), ...Object.values(HEAVY_AERO)]) {
+    assert.ok(a.helix > 0.02 && a.helix < 0.12, `a helix angle of ${a.helix}`);
+    assert.ok(a.gLimit >= 2 && a.gLimit <= 8, `a limit load factor of ${a.gLimit}`);
+  }
 });
 
 check("each side's squadrons are laid out on its own centre line", () => {
@@ -12175,6 +12262,12 @@ check("each side's squadrons are laid out on its own centre line", () => {
     "each side's squadrons are not centred on their own middle");
   assert.ok(/t\.kind === 'air' && t\.team === team/.test(block),
     'the layout does not pick out one side at a time');
+  // And they belong in the middle of the chart rather than against its edge.
+  // Four hundred metres from the border put them half a counter off the paper.
+  assert.ok(/this\.half \* 0\.55/.test(block),
+    'the squadrons are still laid out hard against the edge of the board');
+  assert.ok(!/this\.half - 400/.test(block),
+    'a squadron is still four hundred metres from the border');
 });
 
 

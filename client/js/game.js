@@ -381,6 +381,7 @@ export class Battle {
       take: () => this.takeFlight(),
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
+      bombCam: () => this.toggleShellCam(),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
     // firing.
@@ -1451,7 +1452,14 @@ export class Battle {
       if (hold && hold.t > 0) {
         return { x: hold.x, y: Math.max(hold.y, 4), z: hold.z, span: 50, eye: 3, close: true };
       }
-      // Nothing in the air. Wait over the ship until she fires again.
+      // Nothing in the air. Wait over whatever let it go until it lets go
+      // again -- which for a stick is the squadron and not a ship: a bomb has
+      // no gun and no ship behind it, so looking for one found nothing and
+      // the camera came back with no answer at all.
+      if (this.shellIsBomb) {
+        const bm = (this.bombersNow || []).find((x) => x.i === this.watching.ship);
+        return bm ? { x: bm.x, y: bm.y, z: bm.z, span: 80, eye: 4 } : null;
+      }
       const from = snap.ships.find((x) => x.i === this.watching.ship);
       if (!from) return null;
       const fc = getClass(from.c);
@@ -3554,13 +3562,22 @@ export class Battle {
   updateCamera(dt) {
     const cam = this.scene.camera;
     const ls = this.localShip;
-    // In one of her turrets. The eye is on the mounting, the drag turns the
-    // gunner's head, and the head does not go outside the cone the mounting
-    // has -- so a tail gunner cannot look forward past his own fins and a
-    // mid-upper cannot look down through his own wing. That clamp is what
-    // makes a turret a turret rather than a free camera bolted to an
-    // aeroplane, and it is the model's own arc, not a number chosen here.
-    if (this.turret) {
+    // Riding your own bombs down.
+    //
+    // The camera has to leave the aeroplane for this, and both the turret and
+    // the cockpit below belong to her: a pilot who presses the bomb key and
+    // stays in the cockpit watching his own tailplane has been given a key
+    // that does nothing. She goes on flying herself down the wire while it is
+    // up -- the stick is still read and still sent, see stepFlight -- so
+    // coming off the camera puts you straight back at the controls.
+    const riding = this.shellCam && this.watching && this.watching.kind === 'shell';
+    if (this.turret && !riding) {
+      // In one of her turrets. The eye is on the mounting, the drag turns the
+      // gunner's head, and the head does not go outside the cone the mounting
+      // has -- so a tail gunner cannot look forward past his own fins and a
+      // mid-upper cannot look down through his own wing. That clamp is what
+      // makes a turret a turret rather than a free camera bolted to an
+      // aeroplane, and it is the model's own arc, not a number chosen here.
       const eye = this.turretEye();
       if (!eye) { this.turret = null; this.hud.setAirGun(null); } else {
         const m = this.input.takeMouse();
@@ -3590,7 +3607,7 @@ export class Battle {
     }
     // In the cockpit, the camera belongs to the aeroplane and to nothing else:
     // over her shoulder, banking with her, looking where her nose is looking.
-    if (this.flight) {
+    if (this.flight && !riding) {
       const p = this.flight.pilot;
       cam.fov = 62;
       cam.updateProjectionMatrix();
@@ -3631,10 +3648,14 @@ export class Battle {
       // Looking down the rig's nose rather than hers, so a hard pull does not
       // whip the view -- but through a point on the aeroplane, so however far
       // the rig is lagging she stays in the middle of the picture.
-      const look = 70;
+      const look = 40 + span * 2.6;
       cam.lookAt(
         p.x + Math.sin(r.heading) * cp * look,
-        p.y + Math.sin(r.pitch) * look + 2,
+        // Raised with the camera, not a fixed two metres above her. The lens
+        // stands higher off a big aeroplane than off a small one, and aiming
+        // it at the same two metres tipped it down thirteen degrees and left
+        // a Lancaster sitting in the bottom third of the frame.
+        p.y + Math.sin(r.pitch) * look + up * 0.55,
         p.z + Math.cos(r.heading) * cp * look,
       );
       this.input.orbiting = false;

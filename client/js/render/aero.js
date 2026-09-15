@@ -48,23 +48,25 @@ export const AERO = {
   wildcat: {
     mass: 3610, wing: 24.2, span: 11.58, clMax: 1.55, cd0: 0.0250,
     thrust: 15600, vMax: 143, name: 'F4F-4',
-    // How she handles: roll and pitch rates in radians a second at fighting
-    // speed, and what the airframe will take. There is no limit on how far
-    // over she will go, because an aeroplane has not got one -- the stick
-    // asks the ailerons for a rate and she keeps rolling while it is held.
-    rollRate: 2.9, pitchRate: 1.35, gLimit: 6.0,
+    // How she handles, as two numbers about the aeroplane rather than two
+    // numbers about how she ought to feel. `helix` is the helix angle her
+    // ailerons will wind up -- pb/2V, the standard measure of roll power, and
+    // about 0.09 for a good fighter and half that for a bomber -- which turns
+    // into a roll rate out of her own span and her own speed. `gLimit` is the
+    // limit load factor her structure was stressed to.
+    helix: 0.085, gLimit: 6.0,
   },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
-    rollRate: 2.1, pitchRate: 1.15, gLimit: 5.0,
+    helix: 0.062, gLimit: 5.0,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',
     // A loaded torpedo bomber is a bus. She rolls slowly and she will not be
     // hauled about, which is exactly why she needs the fighters.
-    rollRate: 1.5, pitchRate: 0.85, gLimit: 4.0,
+    helix: 0.050, gLimit: 4.0,
   },
   // The German cruiser's scout: an Arado 196, a low-wing monoplane on two big
   // floats with a nine-hundred-horsepower radial. Faster and a good deal
@@ -74,7 +76,7 @@ export const AERO = {
   arado: {
     mass: 3300, wing: 28.4, span: 12.44, clMax: 1.48, cd0: 0.0390,
     thrust: 12600, vMax: 86, name: 'Ar 196A-3',
-    rollRate: 1.7, pitchRate: 1.0, gLimit: 4.5,
+    helix: 0.058, gLimit: 4.5,
   },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
@@ -82,7 +84,7 @@ export const AERO = {
   kingfisher: {
     mass: 2600, wing: 24.3, span: 10.95, clMax: 1.50, cd0: 0.0410,
     thrust: 9000, vMax: 74, name: 'OS2U-3',
-    rollRate: 1.6, pitchRate: 0.95, gLimit: 4.0,
+    helix: 0.054, gLimit: 4.0,
   },
   // And the Japanese three. The Zero is the lightest fighter of the war and
   // handles like it: she out-climbs and out-turns anything, and at four
@@ -91,14 +93,14 @@ export const AERO = {
   zero: {
     mass: 2733, wing: 21.3, span: 11.00, clMax: 1.60, cd0: 0.0215,
     thrust: 13400, vMax: 155, name: 'A6M5',
-    rollRate: 2.6, pitchRate: 1.65, gLimit: 7.0,
+    helix: 0.080, gLimit: 7.0,
   },
   // The Suisei: an inline-engined dive bomber, faster than most fighters of
   // her generation, with an internal bomb bay and dive brakes under the wing.
   suisei: {
     mass: 3650, wing: 23.6, span: 11.50, clMax: 1.48, cd0: 0.0255,
     thrust: 14800, vMax: 156, name: 'D4Y3',
-    rollRate: 2.0, pitchRate: 1.20, gLimit: 5.5,
+    helix: 0.060, gLimit: 5.5,
   },
   // The Tenzan: bigger than an Avenger, carrying one eighteen-inch torpedo
   // under her belly, and handling exactly the way a loaded torpedo bomber
@@ -106,14 +108,14 @@ export const AERO = {
   tenzan: {
     mass: 5650, wing: 37.2, span: 14.89, clMax: 1.58, cd0: 0.0300,
     thrust: 19600, vMax: 133, name: 'B6N2',
-    rollRate: 1.6, pitchRate: 0.90, gLimit: 4.2,
+    helix: 0.050, gLimit: 4.2,
   },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.
   jake: {
     mass: 3640, wing: 36.0, span: 14.50, clMax: 1.50, cd0: 0.0395,
     thrust: 11800, vMax: 80, name: 'E13A1',
-    rollRate: 1.5, pitchRate: 0.92, gLimit: 4.0,
+    helix: 0.052, gLimit: 4.0,
   },
 };
 
@@ -127,39 +129,107 @@ export const AERO = {
  * at ninety knots, turns like a barn and cannot be hauled about, and a pilot
  * who tries to throw one around finds that out in the first turn.
  *
- * `rollRate` and `pitchRate` are what four big control surfaces on long arms
- * will actually do -- a third of a fighter's -- and `gLimit` is what the spar
- * will take with fourteen thousand pounds of bombs in the bay. She will roll
- * right over if you hold the stick there long enough. It takes about eight
- * seconds and it is a bad idea.
+ * The same two handling numbers everything else has, and they do the rest on
+ * their own: a helix angle about half a fighter's, wound up over thirty-one
+ * metres of span instead of eleven, comes out at a roll rate of thirteen
+ * degrees a second. And `gLimit` is the limit load factor she was stressed to
+ * with fourteen thousand pounds of bombs in the bay -- two and a half, not the
+ * six a fighter will take -- so full back stick on a Lancaster is a good deal
+ * less than full back stick on a Wildcat, which is the whole difference.
+ *
+ * She will roll right over if you hold the stick there long enough. It takes
+ * about twenty-five seconds and it is a bad idea.
  */
 export const HEAVY_AERO = {
   lancaster: {
     mass: 30000, wing: 120.5, span: 31.09, clMax: 1.55, cd0: 0.0270,
     thrust: 52000, vMax: 128, name: 'Lancaster B.I',
-    rollRate: 0.78, pitchRate: 0.46, gLimit: 3.0,
+    helix: 0.040, gLimit: 2.5,
   },
   fortress: {
     mass: 29700, wing: 131.9, span: 31.62, clMax: 1.58, cd0: 0.0255,
     thrust: 50000, vMax: 128, name: 'B-17G',
-    rollRate: 0.72, pitchRate: 0.44, gLimit: 3.2,
+    helix: 0.038, gLimit: 2.7,
   },
   heinkel: {
     mass: 14000, wing: 87.6, span: 22.60, clMax: 1.52, cd0: 0.0285,
     thrust: 26000, vMax: 120, name: 'He 111H-6',
-    rollRate: 0.95, pitchRate: 0.58, gLimit: 3.4,
+    helix: 0.046, gLimit: 3.0,
   },
   junkers: {
     mass: 14000, wing: 54.5, span: 20.08, clMax: 1.48, cd0: 0.0250,
     thrust: 28000, vMax: 142, name: 'Ju 88A-4',
-    rollRate: 1.15, pitchRate: 0.70, gLimit: 4.0,
+    helix: 0.055, gLimit: 4.0,
   },
   betty: {
     mass: 12500, wing: 78.1, span: 24.88, clMax: 1.50, cd0: 0.0265,
     thrust: 24000, vMax: 119, name: 'G4M1',
-    rollRate: 0.88, pitchRate: 0.54, gLimit: 3.0,
+    helix: 0.044, gLimit: 2.6,
   },
 };
+
+/**
+ * The roll rate she will settle at with the stick hard over, in radians a
+ * second.
+ *
+ * `pb/2V` is the helix angle the wing tip describes as she rolls, and it is
+ * the standard measure of how much roll an aeroplane has: it is very nearly
+ * constant for a given set of ailerons, so the rate itself is the helix angle
+ * times twice the airspeed over the span.
+ *
+ * Which is the whole answer to why a bomber does not roll like a fighter. It
+ * is not that somebody decided she should be slow: it is that the same helix
+ * angle wound up over thirty-one metres of wing instead of eleven gives a
+ * third of the rate, and she is slower as well, which takes another third
+ * off. A Wildcat at cruise comes round at ninety degrees a second and a
+ * Lancaster at thirteen, and neither number was chosen.
+ *
+ * It also means she rolls faster the faster she is going, which is what
+ * killed people in dives: the rate used to be a constant and she rolled the
+ * same at fifty knots as at three hundred.
+ */
+export function rollRate(a, v) {
+  return (2 * Math.max(8, v) * (a.helix ?? 0.06)) / Math.max(1, a.span);
+}
+
+/**
+ * How long she takes to get there, and to answer the elevator, in seconds.
+ *
+ * An aeroplane has mass and it is spread out along her wing and her fuselage,
+ * so a control does not put her where you want it -- it starts her moving and
+ * the air damps her into a steady rate. That time is the roll mode and the
+ * short period, and both of them come out of inertia over aerodynamic
+ * damping: mass over dynamic pressure times wing area, to within the constant.
+ *
+ * This is what "she should not react so suddenly" is: the stick used to be the
+ * rate, so a fighter and a thirty-tonne bomber both snapped to full deflection
+ * inside one frame. Now a Wildcat takes about a sixth of a second to wind up
+ * to her roll rate and a Lancaster the better part of a third of a second, and
+ * both of them take longer again when they are slow -- because that is where
+ * the damping comes from.
+ */
+export function rollTau(a, v) {
+  return Math.min(1.3, Math.max(0.08,
+    a.mass / (7.2 * RHO * Math.max(12, v) * a.wing)));
+}
+
+/** And the same for the elevator, which is slower: a longer arm, more inertia. */
+export function pitchTau(a, v) {
+  return Math.min(1.6, Math.max(0.10,
+    a.mass / (5.4 * RHO * Math.max(12, v) * a.wing)));
+}
+
+/**
+ * How fast her nose will swing in the vertical, in radians a second.
+ *
+ * A long aeroplane swings her nose more slowly than a short one for the same
+ * reason a long ship answers her helm more slowly: there is more of her, and
+ * it is further from the middle. Off her span, so it is one number about the
+ * aeroplane rather than a number per type that somebody had to choose.
+ */
+export function pitchRate(a) {
+  return 26.4 / (12 + a.span);
+}
 
 /** Aspect ratio: span squared over wing area, which is where induced drag comes from. */
 export function aspect(a) { return (a.span * a.span) / a.wing; }
@@ -423,6 +493,11 @@ export class Pilot {
     // positive.
     this.stickPitch = 0;
     this.stickRoll = 0;
+    // How fast she is actually rolling, in radians a second. A rate rather
+    // than an angle, because that is what an aileron commands -- and a state
+    // rather than a number worked out each frame, because she has inertia and
+    // takes a moment to wind up to it and a moment to stop.
+    this.roll = 0;
     // How hard the wing is being asked to work, in g, and how close that is to
     // letting go. The HUD reads both.
     this.g = 1;
@@ -485,32 +560,36 @@ export class Pilot {
     // simply flying her upside down for a moment were not things the aeroplane
     // could be made to do at all. That is not what an aileron does. It asks
     // for a rate, and she keeps going round for as long as it is held.
-    const rollRate = (a.rollRate ?? 2.6) * q;
+    //
+    // The rate is hers: her helix angle wound up over her own span at her own
+    // speed. And she does not get to it at once -- there is an aeroplane's
+    // worth of inertia to start turning and the air has to damp her into a
+    // steady roll, which is the roll mode and takes a sixth of a second on a
+    // fighter and a third on a heavy.
     const held = Math.abs(this.stickRoll) > 0.03;
-    if (held) {
-      this.bank = wrapAngle(this.bank + this.stickRoll * rollRate * s);
-    } else {
+    // No `q` on this one. The helix angle already carries the whole of the
+    // speed dependence -- that is what makes it the right number to store --
+    // and multiplying by dynamic pressure on top of it counted her airspeed
+    // twice and had a Wildcat rolling at a hundred and fifty degrees a second.
+    const want = held
+      ? this.stickRoll * rollRate(a, this.v)
       // Hands off she rolls level on her own dihedral, and slowly. Nine degrees
       // a second: a hard bank takes eight or nine seconds to come out of on its
       // own, which is what dihedral does -- it is a weak righting moment out of
       // sideslip, not a second pair of ailerons.
       //
-      // It used to be a tenth of the aileron rate, which made it twenty-seven
-      // degrees a second and faster still the faster she went, so a turn very
-      // nearly ended the moment the stick came off.
-      //
       // And only from the right way up. An aeroplane on her back does not
       // right herself: she hangs there until the pilot rolls her out, which is
       // exactly why inverted flight is something a pilot holds rather than
       // something that happens to him.
-      if (Math.abs(this.bank) < Math.PI * 0.55) {
-        const rate = 0.16 * s;
-        this.bank += Math.max(-rate, Math.min(rate, -this.bank));
-      }
-    }
+      : (Math.abs(this.bank) < Math.PI * 0.55
+        ? Math.max(-0.16, Math.min(0.16, -this.bank * 0.6)) : 0);
+    const kr = 1 - Math.exp(-s / rollTau(a, this.v));
+    this.roll += (want - this.roll) * kr;
+    this.bank = wrapAngle(this.bank + this.roll * s);
 
     // Pitch. The stick asks for g; the wing decides whether it gets it.
-    const pitchRate = (a.pitchRate ?? 1.15) * q;
+    const rate = pitchRate(a) * q;
     // In a turn she needs more than one g just to hold her height, and the
     // instructor feeds that in so she does not fall out of every turn.
     //
@@ -528,17 +607,33 @@ export class Pilot {
     const HOLD_MAX = 4.5;
     const hold = Math.max(-HOLD_MAX, Math.min(HOLD_MAX,
       Math.abs(c) < 1e-3 ? Math.sign(c || 1) * HOLD_MAX : 1 / c));
-    const askG = hold + this.stickPitch * (a.gLimit ?? 5.5);
-    // The most this wing can pull at this speed.
-    const maxG = Math.max(0.15, (this.v * this.v) / (vs * vs));
+    // Full back stick asks for everything the structure was stressed to and
+    // not a pound more. It used to add the limit load factor on top of
+    // whatever the bank was already asking for, so a Lancaster in a turn was
+    // being asked for four g -- half as much again as her spar would take, on
+    // an aeroplane with fourteen thousand pounds of bombs in the bay.
+    const limit = a.gLimit ?? 5.5;
+    const askG = hold + this.stickPitch * (limit - 1);
+    // The most this wing can pull at this speed, which is a different question
+    // from the most the structure will stand: near the stall the wing runs out
+    // first and at speed the spar does.
+    const wingG = Math.max(0.15, (this.v * this.v) / (vs * vs));
+    const maxG = Math.min(wingG, limit);
     // And the most it will take the other way. A wing is built to be loaded
     // one way up: the negative limit on these airframes was around two fifths
     // of the positive one, which is why a pilot rolls and pulls rather than
     // pushing through.
-    const minG = -Math.min(maxG, (a.gLimit ?? 5.5) * 0.45);
-    this.g = Math.max(minG, Math.min(askG, maxG));
-    // Buffet and departure: asking for more than the wing has.
-    this.stall = Math.max(0, Math.min(1, (askG - maxG) / Math.max(1, maxG * 0.5)));
+    const minG = -Math.min(wingG, limit * 0.45);
+    // She does not get it at once either. An elevator starts her pitching and
+    // the tail damps her into a steady g, and on a heavy that is the better
+    // part of half a second -- which is most of what "she should not react so
+    // suddenly" means.
+    const kp = 1 - Math.exp(-s / pitchTau(a, this.v));
+    this.g += (Math.max(minG, Math.min(askG, maxG)) - this.g) * kp;
+    // Buffet and departure: asking the wing for more than it has. The spar is
+    // not the wing -- over-stressing her is not stalling her -- so this is
+    // against what the wing will give and nothing else.
+    this.stall = Math.max(0, Math.min(1, (askG - wingG) / Math.max(1, wingG * 0.5)));
 
     // The turn. The horizontal part of the lift pulls her round -- which is
     // why a turn costs speed and why she cannot turn at all inverted at low g.
@@ -551,7 +646,7 @@ export class Pilot {
     // her nose as fast as her elevator will move it and no faster. The limit
     // was worked out and then not used, so at speed she could snap from a
     // vertical dive to a vertical climb inside a frame.
-    const dP = Math.max(-pitchRate * s, Math.min(pitchRate * s, gamma * s));
+    const dP = Math.max(-rate * s, Math.min(rate * s, gamma * s));
     this.pitch += dP;
     // Over the top.
     //

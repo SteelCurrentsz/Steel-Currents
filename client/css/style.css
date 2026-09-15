@@ -548,6 +548,12 @@ input[type="range"] { accent-color: var(--red); }
 /* Her armament. Smaller than the trigger and the drop, because it is a thing
    you press once to go to a gun rather than a thing you hold. */
 .fly-btn.arms { width: 66px; height: 66px; font-size: 0.6rem; }
+/* Riding the stick down. Lit while the camera is on it. */
+.fly-btn.bombcam { width: 66px; height: 66px; font-size: 0.54rem; line-height: 1.25; }
+.fly-btn.bombcam:active, .fly-btn.bombcam.on {
+  background: rgba(230, 207, 156, 0.24); border-color: rgba(230, 207, 156, 0.75);
+  color: var(--sand);
+}
 /* The arsenal panel, standing over the cockpit rather than over the bridge.
    Up the left side: the right belongs to the chart and to the keys under the
    thumb, and a panel that covers the trigger is a panel that gets you shot

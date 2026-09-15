@@ -296,22 +296,24 @@ export class LayoutMap {
         t.heading = Math.atan2(-t.x, -t.z);
       }
     }
-    // The heavies come on to the battlefield from behind their own side, in
-    // line abreast and well back: they are on passage at this point, and where
-    // a commander wants them is a decision he makes by dragging them.
+    // The heavies, in line abreast on their own side's centre line, about
+    // halfway between their fleet and the middle of the battlefield: they are
+    // a stream on its way across, and that is where one is.
     //
-    // Each side's squadrons are centred on its own middle, which is where a
-    // stream crossing in would be. They used to be spread with one running
+    // Both halves of that are fixes. They used to be spread with one running
     // index across both sides at once, so with three squadrons each the first
-    // three went to the left-hand corner of the chart and the last three to
-    // the right-hand one, and neither group was over its own fleet.
-    const airGap = clamp(this.half / 6, 900, 3600);
+    // three went to one corner of the chart and the last three to the other
+    // and neither group was over its own fleet. And they used to sit four
+    // hundred metres from the border, which is hard against the top and bottom
+    // edges of the chart -- half a counter off the paper, and nothing a
+    // commander could see at a glance or get a finger on.
+    const airGap = clamp(this.half / 9, 700, 2400);
     for (const team of [0, 1]) {
       const air = this.tokens.filter((t) => t.kind === 'air' && t.team === team);
       const sign = team === 0 ? -1 : 1;
       air.forEach((t, i) => {
         t.x = (i - (air.length - 1) / 2) * airGap;
-        t.z = sign * (this.half - 400);
+        t.z = sign * this.half * 0.55;
         t.heading = team === 0 ? 0 : Math.PI;
       });
     }
