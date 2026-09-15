@@ -15,7 +15,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { skyDome } from './render/scene.js';
-import { heavyBomber, HEAVY } from './render/planekit.js';
+import { heavyBomber, HEAVY, layTurret } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
 
 // How far under her the city is. A heavy bombed from eighteen thousand feet --
@@ -437,6 +437,8 @@ export class BomberScene {
     // It is night, but this is a screen a commander is choosing an aeroplane
     // off: she has to be legible. So it is a clear night with the moon up,
     // which is the night Bomber Command hated and flew in anyway.
+    // How far up the cutaway has lifted the scene, nought to one.
+    this.hemiLift = 0;
     this.hemi = new THREE.HemisphereLight(0x8098b8, 0x3a3026, 1.50);
     this.scene.add(this.hemi);
     // The last of the daylight, low and off the beam, so she has a lit side
@@ -444,9 +446,22 @@ export class BomberScene {
     this.moon = new THREE.DirectionalLight(0xffd9ac, 2.10);
     this.moon.position.set(-520, 200, -300);
     this.scene.add(this.moon);
-    this.burn = new THREE.DirectionalLight(0xff8b3a, 0.5);
+    this.burn = new THREE.DirectionalLight(0xff8b3a, 0.95);
     this.burn.position.set(40, -300, 60);
     this.scene.add(this.burn);
+    // The lamp in the bay. A night bomber is matt black underneath -- that is
+    // the whole point of her -- so from below she is a silhouette and the work
+    // going on in her bay is a shadow inside one. The armourers had an
+    // inspection lamp on a lead for exactly this reason, and it is the only
+    // thing that makes a bombing-up something you can watch.
+    this.lamp = new THREE.PointLight(0xffd7a0, 0, 14, 2);
+    this.scene.add(this.lamp);
+    // And the draughtsman's lamp: a light over the viewer's shoulder, on only
+    // while her skin is off. Lit by the scene alone the inside of her is back
+    // to front -- the sun is on the far side of the fuselage and every frame,
+    // seat and man in there shows as a silhouette against a bright sky.
+    this.draw = new THREE.DirectionalLight(0xfff0dc, 0);
+    this.scene.add(this.draw);
 
     this.flak = new Flak(this.scene);
 
@@ -461,7 +476,11 @@ export class BomberScene {
     this.doors = [];
     this.rack = [];
     this.props = [];
+    this.turrets = [];
+    this.lays = [];
+    this.hoist = [];
     this.hits = [];
+    this.cut = false;
     // Looking down on her a little more than the shipyard looks down on a hull:
     // the target has to be in the frame as well, and at fourteen degrees the
     // city is edge-on and reads as a dark field rather than as a town.
@@ -491,16 +510,45 @@ export class BomberScene {
       .filter((q) => q.name === 'bayPort' || q.name === 'bayStbd');
     this.rack = this.plane.userData.rack || [];
     this.props = this.plane.userData.props || [];
+    this.turrets = this.plane.userData.turrets || [];
+    this.cut = false;
     this.clearBombs();
     this.flak.clear();
     this.phase = 'in';
     this.clock = 2.5;
     this.bay = 0;
+    // The winch tackle over every station in her bay: two cables off the
+    // carrier, which is how a four-thousand-pound cookie got up there. They
+    // are only rigged while she is being bombed up.
+    this.hoist = this.rack.map((cr) => {
+      const home = cr.position.clone();
+      const tack = new THREE.Group();
+      tack.position.copy(home);
+      tack.visible = false;
+      this.plane.add(tack);
+      for (const sd of [-1, 1]) {
+        const c = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.012, 1, 5),
+          new THREE.MeshLambertMaterial({ color: 0x8c8477 }),
+        );
+        c.position.set(sd * 0.13, 0, 0);
+        tack.add(c);
+      }
+      return { cr, home, tack };
+    });
+    // And what each gunner is doing with his turret, which is his own to
+    // decide: they do not all point the same way.
+    this.lays = this.turrets.map((t, i) => ({ t, az: 0, el: 0, phase: i * 1.7 }));
+    // Where the lamp hangs: just under the open bay, on the centreline.
+    this.bayAt = this.hoist.length
+      ? new THREE.Vector3(0, this.hoist[0].home.y - 0.9, spec.bay.z)
+      : null;
     for (const cr of this.rack) cr.visible = true;
     this.orbit.range = this.orbit.target = this.fitRange();
     this.orbit.yaw = 2.35;
     this.orbit.pitch = 0.42;
     this.ranged = false;
+    this.touched = false;
   }
 
   clearBombs() {
@@ -525,9 +573,11 @@ export class BomberScene {
       const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size === 1) {
+        this.touched = true;
         o.yaw -= dx * 0.006;
         o.pitch = clamp(o.pitch + dy * 0.005, PITCH_MIN, PITCH_MAX);
       } else if (this.pointers.size === 2 && this.pinch > 0) {
+        this.touched = true;
         const now = this.spread();
         o.target = clamp(o.target * (this.pinch / Math.max(1, now)),
           this.minRange(), this.maxRange());
@@ -542,6 +592,7 @@ export class BomberScene {
     };
     const wheel = (e) => {
       e.preventDefault();
+      this.touched = true;
       o.target = clamp(o.target * (1 + Math.sign(e.deltaY) * 0.12),
         this.minRange(), this.maxRange());
       this.ranged = true;
@@ -581,8 +632,9 @@ export class BomberScene {
   minRange() { return this.span * 0.34; }
   maxRange() { return Math.max(this.span * 3.4, this.fitRange() * 1.8); }
 
-  nudge(dir) { this.orbit.yaw += dir * 0.35; }
+  nudge(dir) { this.touched = true; this.orbit.yaw += dir * 0.35; }
   zoom(dir) {
+    this.touched = true;
     this.orbit.target = clamp(this.orbit.target * (1 + dir * 0.12),
       this.minRange(), this.maxRange());
     this.ranged = true;
@@ -617,11 +669,44 @@ export class BomberScene {
       b.pivot.rotation.z = Math.sin(this.time * b.rate + b.phase) * b.lean;
       b.pivot.rotation.x = Math.cos(this.time * b.rate * 0.7 + b.phase) * b.lean * 0.6;
     }
+    // A cutaway is a drawing, and a drawing is lit. With her skin off the
+    // scene comes up a stop and a half, because the structure and the crew
+    // inside her are grey-green in a fuselage at dusk and there is nothing in
+    // there for the target to light.
+    const lift = this.cut ? 1 : 0;
+    this.hemiLift += (lift - this.hemiLift) * Math.min(1, dt * 3);
+    this.hemi.intensity = 1.50 + this.hemiLift * 1.1;
+    this.moon.intensity = 2.10 + this.hemiLift * 0.6;
+    this.draw.intensity = this.hemiLift * 2.0;
+    this.draw.position.copy(this.camera.position);
+
     // And the fires' light on her underside comes and goes with them.
-    this.burn.intensity = 0.42 + 0.14 * Math.sin(this.time * 1.7);
+    // Her belly is lit by the target and by nothing else, so it has to be lit
+    // properly: from below she is otherwise a black shape against the dusk and
+    // the open bay is a hole in it.
+    this.burn.intensity = 0.88 + 0.18 * Math.sin(this.time * 1.7);
 
     this.runIn(dt);
     this.flak.update(dt, this.span);
+    this.manTurrets(dt);
+    // On while she is being bombed up, off the moment the doors start to shut.
+    const want = this.phase === 'load' ? 5.5 : 0;
+    this.lamp.intensity += (want - this.lamp.intensity) * Math.min(1, dt * 2.2);
+    if (this.bayAt) this.lamp.position.copy(this.bayAt);
+
+    // Bombing up happens under her belly, and the view she is shown from is
+    // over her shoulder: from up there the whole evolution is behind the wing.
+    // So if nobody has taken hold of the camera, it goes where the work is and
+    // comes back afterwards. A captain who has moved it keeps it where he put
+    // it -- being dragged somewhere else while you are looking at something is
+    // worse than missing the loading.
+    if (!this.touched) {
+      // Low on the quarter rather than straight underneath: from dead below
+      // she is a silhouette against the sky and the work in the bay is a
+      // shadow inside a shadow.
+      const want = this.phase === 'load' || this.phase === 'shutup' ? -0.24 : 0.42;
+      o.pitch += (want - o.pitch) * Math.min(1, dt * 1.1);
+    }
 
     // The camera walks round her, always looking at the aeroplane.
     const focusY = this.cl || 2.4;
@@ -645,11 +730,12 @@ export class BomberScene {
     const turn = dt * (9 + ((b?.cruise || 200) / 300) * 22);
     for (const disc of this.props) disc.rotation.z += turn;
 
-    // The run, as a loop of four states: in (doors shut), doors open, the stick
-    // going down one at a time, doors shut again -- and then round for another
-    // target. Written as states rather than as one clock counting through
-    // negative numbers, because the only thing that has to be true is that the
-    // doors are open before a bomb leaves and shut after the last one has.
+    // The run, as a loop of states: in (doors shut), doors open, the stick
+    // going down one at a time, doors shut, home, bombed up again, and round
+    // for another target. Written as states rather than as one clock counting
+    // through negative numbers, because the only thing that has to be true is
+    // that the doors are open before a bomb moves and shut after the last one
+    // has stopped.
     this.clock -= dt;
     if (this.clock <= 0) {
       if (this.phase === 'in') { this.phase = 'open'; this.clock = 1.5; }
@@ -658,17 +744,61 @@ export class BomberScene {
         const cr = this.rack.find((c) => c.visible);
         if (cr) { cr.visible = false; this.release(cr); this.clock = 0.55; }
         else { this.phase = 'shut'; this.clock = 1.8; }
-      } else {
-        this.phase = 'in';
-        this.clock = 8;
-        for (const cr of this.rack) cr.visible = true;
-      }
+      } else if (this.phase === 'shut') { this.phase = 'home'; this.clock = 3.5; }
+      else if (this.phase === 'home') {
+        // Bombed up again. The armourers load from the after station forward,
+        // because that is the end the trolley comes up to.
+        this.phase = 'load';
+        this.clock = 1.2;
+        this.next = this.rack.length - 1;
+        this.lift = 0;
+      } else if (this.phase === 'load') {
+        if (this.next >= 0) {
+          this.rack[this.next].visible = true;
+          this.next -= 1;
+          this.lift = 0;
+          this.clock = 1.2;
+        } else { this.phase = 'shutup'; this.clock = 1.6; }
+      } else { this.phase = 'in'; this.clock = 8; }
     }
     // Her doors, swung about their own hinges -- which is what `bombBay`
-    // registered them as moving parts for.
-    const open = this.phase === 'open' || this.phase === 'drop' ? 1 : 0;
-    this.bay += (open - this.bay) * Math.min(1, dt * 2.4);
+    // registered them as moving parts for. Open for the drop and open for the
+    // loading, because a bomb goes in the same way it comes out.
+    const working = this.phase === 'open' || this.phase === 'drop'
+      || this.phase === 'load' || this.phase === 'shutup';
+    this.bay += ((working ? 1 : 0) - this.bay) * Math.min(1, dt * 2.4);
     for (const d of this.doors) d.node.rotation.z = d.open * this.bay;
+
+    // The bombing-up. Each one rises out of the dark under her on its winch,
+    // swinging a little as it comes, and stops when its lugs meet the carrier.
+    this.lift = Math.min(1.2, (this.lift || 0) + dt);
+    for (const [i, h] of this.hoist.entries()) {
+      const loading = this.phase === 'load';
+      const rising = loading && i === this.next + 1;
+      if (!loading) {
+        h.cr.position.copy(h.home);
+        h.cr.rotation.z = 0;
+        h.tack.visible = false;
+        continue;
+      }
+      if (rising) {
+        // Three metres up, easing to a stop the way a hand winch does.
+        const k = Math.min(1, this.lift / 1.1);
+        const e = k * k * (3 - 2 * k);
+        const fall = 3.0 * (1 - e);
+        h.cr.position.set(h.home.x, h.home.y - fall, h.home.z);
+        h.cr.rotation.z = Math.sin(this.time * 3.4) * 0.05 * (1 - e);
+        h.tack.visible = true;
+        for (const c of h.tack.children) {
+          c.scale.y = Math.max(0.01, fall);
+          c.position.y = -fall / 2;
+        }
+      } else {
+        h.cr.position.copy(h.home);
+        h.cr.rotation.z = 0;
+        h.tack.visible = false;
+      }
+    }
 
     // And the bombs themselves: released with her speed, so in her own frame
     // they fall almost straight down and only slowly drift aft, nosing over as
@@ -692,6 +822,56 @@ export class BomberScene {
       }
     }
     this.burstUpdate(dt);
+  }
+
+  /**
+   * The gunners, laying their own turrets.
+   *
+   * Each of them takes the nearest burst and tries to put his guns on it, and
+   * each of them is stopped by his own arcs: a mid-upper can follow one all
+   * the way round but cannot depress into his own fuselage, and a Cheyenne
+   * tail turret with forty-five degrees either side gives up on anything off
+   * the beam. Nothing on any of these aeroplanes trains through her own tail.
+   */
+  manTurrets(dt) {
+    const at = new THREE.Vector3();
+    for (const q of this.lays) {
+      const t = q.t;
+      // The nearest thing worth looking at, or a slow search if there is not
+      // one: a gunner does not sit still.
+      let best = null;
+      let near = Infinity;
+      for (const b of this.flak.live) {
+        const d = b.puff.position.lengthSq();
+        if (d < near) { near = d; best = b.puff.position; }
+      }
+      let wantAz;
+      let wantEl;
+      if (best) {
+        at.copy(best).sub(new THREE.Vector3(t.at[0], t.at[1], t.at[2]));
+        wantAz = Math.atan2(at.x, at.z);
+        wantEl = Math.atan2(at.y, Math.hypot(at.x, at.z));
+      } else {
+        q.phase += dt * 0.5;
+        wantAz = t.home + Math.sin(q.phase) * t.arc * 0.7;
+        wantEl = (t.up - t.down) * 0.5 + Math.sin(q.phase * 0.7) * (t.up + t.down) * 0.2;
+      }
+      // A turret is a heavy thing on a hydraulic motor: it swings at about a
+      // right angle a second, not instantly.
+      const RATE = 1.6;
+      let d = wantAz - q.az;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      q.az += Math.max(-RATE * dt, Math.min(RATE * dt, d));
+      q.el += Math.max(-RATE * dt, Math.min(RATE * dt, wantEl - q.el));
+      layTurret(t, q.az, q.el);
+    }
+  }
+
+  /** Her skin off, so what is inside her reads. */
+  setCutaway(on) {
+    this.cut = !!on;
+    this.plane?.userData.cutaway?.(this.cut);
   }
 
   /** A bomb, copied off the crutch it was hanging on and let go. */

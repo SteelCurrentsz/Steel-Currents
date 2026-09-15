@@ -46,6 +46,7 @@ export const BOMBER_MAX = 8;
  * @property {string} stations  where those turrets are
  * @property {number} guns      barrels, all told
  * @property {string} calibre   what those barrels are
+ * @property {string} arcs      how far each mounting trains, in degrees
  * @property {string} blurb     one line, for the roster
  */
 
@@ -73,6 +74,7 @@ export const BOMBERS = {
     stations: 'Nose, dorsal, tail',
     guns: 8,
     calibre: '.303 in Browning',
+    arcs: 'Nose 190°, dorsal 360°, tail 188°',
     blurb: 'Thirty-three feet of bomb bay, and nothing in it.',
   },
 
@@ -98,6 +100,7 @@ export const BOMBERS = {
     stations: 'Chin, dorsal, ball, tail',
     guns: 13,
     calibre: '.50 in Browning M2',
+    arcs: 'Chin 174°, dorsal 360°, ball 360°, tail 90°',
     blurb: 'Thirteen fifties, and she flew in daylight.',
   },
 
@@ -122,6 +125,7 @@ export const BOMBERS = {
     stations: 'Dorsal',
     guns: 6,
     calibre: '20 mm MG FF, 7.92 mm MG 15',
+    arcs: 'Dorsal 200°, nose 80°, gondola 70°',
     blurb: 'A glazed nose with no step, and a torpedo under each wing.',
   },
 
@@ -146,6 +150,7 @@ export const BOMBERS = {
     stations: 'Flexible mountings only',
     guns: 5,
     calibre: '13 mm MG 131, 7.92 mm MG 81',
+    arcs: 'Dorsal 110°, gondola 70° — hand-held',
     blurb: 'Fast enough that the fighters sent up could not catch her.',
   },
 
@@ -171,6 +176,7 @@ export const BOMBERS = {
     stations: 'Dorsal, tail',
     guns: 5,
     calibre: '20 mm Type 99, 7.7 mm Type 92',
+    arcs: 'Dorsal 360°, tail 60°',
     blurb: 'Two thousand miles of legs, and not an ounce of armour.',
   },
 };
@@ -208,5 +214,9 @@ export function payloadSheet(b) {
     ['Stations', b.stations],
     ['Guns', `${b.guns} barrels`],
     ['Calibre', b.calibre],
+    // How far each mounting trains. It is the figure that decides where a
+    // fighter attacks from: a Fortress was taken from dead astern because the
+    // Cheyenne in her tail had ninety degrees and nothing either side of it.
+    ['Arcs', b.arcs],
   ];
 }

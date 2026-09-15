@@ -577,6 +577,10 @@ function openBombers(side) {
     bombers.resize(window.innerWidth, window.innerHeight);
   }
   bombers.attach(document.getElementById('bomber-grab'));
+  // A handle on the scene, so the run can be looked at from outside while it
+  // is going on -- which is the only way to check that the doors are open
+  // before a bomb moves.
+  window.__bomberScene = bombers;
   show('bombers');
   renderBombers();
 }
@@ -604,6 +608,11 @@ function renderBombers() {
   if (nextName) nextName.textContent = peek(1);
   sheet(document.getElementById('bomber-airframe'), 'Airframe', airframeSheet(b));
   sheet(document.getElementById('bomber-payload'), 'Payload', payloadSheet(b));
+  // A new machine is a new model, so her skin goes back on: the key says what
+  // is actually on the glass rather than what the last one was showing.
+  const cut = document.getElementById('bomber-cutaway');
+  cut.setAttribute('aria-pressed', 'false');
+  bombers.setCutaway(false);
 }
 
 function stepBombers(dir) {
@@ -614,6 +623,12 @@ function stepBombers(dir) {
 document.getElementById('bomber-prev').onclick = () => { audio.click(); stepBombers(-1); };
 document.getElementById('bomber-next').onclick = () => { audio.click(); stepBombers(1); };
 document.getElementById('bomber-back').onclick = () => { audio.click(); closeBombers(); };
+document.getElementById('bomber-cutaway').onclick = (e) => {
+  audio.click();
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  e.currentTarget.setAttribute('aria-pressed', on ? 'true' : 'false');
+  bombers?.setCutaway(on);
+};
 document.getElementById('bomber-commission').onclick = () => {
   audio.click();
   const id = bomberAt(bomberUi.index);

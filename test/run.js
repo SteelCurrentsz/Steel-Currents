@@ -74,7 +74,7 @@ import {
 import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   tenzan as pkTenzan, jake as pkJake, dauntless as pkDauntless,
-  avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS,
+  avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
 } from '../client/js/render/planekit.js';
 import {
   BOMBERS, BOMBER_ORDER, BOMBER_MAX as CATALOGUE_MAX, airframeSheet, payloadSheet,
@@ -8514,6 +8514,134 @@ check('a bomber has airscrews that turn, doors that swing and a stick in the bay
         `a bomb in the ${kind}'s bay is at ${at.y.toFixed(2)}, outside her belly`);
     }
   }
+});
+
+check('a turret trains inside its own arcs, and never through her own tail', () => {
+  // Every mounting on every one of these has the traverse and the elevation
+  // the real one had, and they are not decoration: a mid-upper swings the
+  // whole way round but cannot depress into her own spine, a nose turret has
+  // ninety-five degrees either side, and the Cheyenne in a Fortress's tail has
+  // a cone so tight it is why she was attacked from dead astern.
+  for (const kind of HEAVY_KINDS) {
+    const g = heavyBomber(kind);
+    const turrets = g.userData.turrets;
+    assert.ok(turrets.length > 0, `${kind} has no turrets at all`);
+    const named = turrets.map((t) => t.name).join(',');
+    for (const t of turrets) {
+      assert.ok(t.arc > 0.1 && t.arc <= Math.PI + 1e-6,
+        `${kind}'s ${t.name} trains ${(t.arc * 360 / Math.PI).toFixed(0)} degrees`);
+      assert.ok(t.up >= 0 && t.up <= Math.PI / 2 + 1e-6, `${kind}'s ${t.name} elevates absurdly`);
+      assert.ok(t.down >= 0 && t.down <= Math.PI / 2 + 1e-6, `${kind}'s ${t.name} depresses absurdly`);
+      // Asked for something inside the arc, it gets there exactly.
+      const inside = t.home + t.arc * 0.5;
+      const el = (t.up - t.down) * 0.5;
+      assert.equal(layTurret(t, inside, el).toFixed(4), '0.0000',
+        `${kind}'s ${t.name} cannot reach a bearing well inside its own arc`);
+      assert.ok(Math.abs(t.ring.rotation.y - inside) < 1e-6,
+        `${kind}'s ${t.name} did not go where it was laid`);
+      assert.ok(Math.abs(t.cradle.rotation.x - el) < 1e-6,
+        `${kind}'s ${t.name} did not elevate where it was laid`);
+      // Asked for something outside it, it stops at the stop -- and says how
+      // far short it had to stop, which is what a gunner shouts.
+      if (t.arc < Math.PI - 1e-6) {
+        const short = layTurret(t, t.home + Math.PI, 0);
+        assert.ok(short > 0.1,
+          `${kind}'s ${t.name} thinks it can train through the aeroplane`);
+        const laid = Math.abs(t.ring.rotation.y - t.home);
+        assert.ok(laid <= t.arc + 1e-6,
+          `${kind}'s ${t.name} trained ${laid.toFixed(2)} past its ${t.arc.toFixed(2)} stop`);
+      }
+      // And it cannot look further up or down than the mounting allowed.
+      layTurret(t, t.home, Math.PI / 2);
+      assert.ok(t.cradle.rotation.x <= t.up + 1e-6, `${kind}'s ${t.name} elevates past its stop`);
+      layTurret(t, t.home, -Math.PI / 2);
+      assert.ok(t.cradle.rotation.x >= -t.down - 1e-6, `${kind}'s ${t.name} depresses past its stop`);
+    }
+    // The ones that matter, machine by machine.
+    if (kind === 'lancaster') {
+      assert.ok(named.includes('nose') && named.includes('dorsal') && named.includes('tail'),
+        `the Lancaster has ${named} rather than nose, dorsal and tail`);
+      const mid = turrets.find((t) => t.name === 'dorsal');
+      assert.ok(mid.arc > Math.PI - 1e-6, 'her mid-upper cannot swing all the way round');
+      assert.ok(mid.down < 0.1, 'her mid-upper can fire into her own fuselage');
+    }
+    if (kind === 'fortress') {
+      const ball = turrets.find((t) => t.name === 'ball');
+      assert.ok(ball && ball.up < 0.01 && ball.down > 1.5,
+        'the ball turret does not look straight down, or looks up through the aeroplane');
+      const tail = turrets.find((t) => t.name === 'tail');
+      assert.ok(tail.arc < 0.9, 'the Cheyenne tail turret has a wider cone than it had');
+    }
+  }
+  // And the figures on the datasheet are the figures the model is built to.
+  for (const id of BOMBER_ORDER) {
+    assert.ok(/\d+°/.test(BOMBERS[id].arcs), `${id}'s sheet does not say how far her guns train`);
+  }
+});
+
+check('the inside of her is modelled, and drawn only when her skin is off', () => {
+  // Frames, stringers, a floor, the spars, a flight deck, the crew stations,
+  // the carriers in the bay and seven men at their places. None of it shows
+  // through opaque plating, so it is held out of the frame until the cutaway
+  // asks for it -- three hundred draw calls a second nobody can see is three
+  // hundred draw calls wasted.
+  for (const kind of HEAVY_KINDS) {
+    const g = heavyBomber(kind);
+    const p = g.userData.plane;
+    const IN = p.userData.insideGroup;
+    assert.ok(IN, `${kind} has nothing inside her`);
+    let pieces = 0;
+    IN.traverse((o) => { if (o.isMesh) pieces += 1; });
+    assert.ok(pieces > 100, `the inside of the ${kind} is ${pieces} pieces`);
+    assert.equal(IN.visible, false, `the ${kind} draws her insides with her skin on`);
+    // The cutaway raises the structure and ghosts the plating, and putting her
+    // skin back on undoes both.
+    const skin = g.userData.skin;
+    assert.ok(skin.length > 150, `the ${kind} has only ${skin.length} pieces of plating`);
+    const before = skin[0].o.material;
+    g.userData.cutaway(true);
+    assert.equal(IN.visible, true, `the ${kind}'s cutaway does not show her structure`);
+    assert.notEqual(skin[0].o.material, before, 'her plating did not go to a ghost');
+    assert.equal(skin[0].o.material.transparent, true, 'her ghost plating is not see-through');
+    g.userData.cutaway(false);
+    assert.equal(IN.visible, false, 'her structure stayed up with her skin back on');
+    assert.equal(skin[0].o.material, before, 'her plating did not come back');
+    // A man at every station that had one, and every one of them inside her.
+    const body = new THREE.Box3().setFromObject(p);
+    let men = 0;
+    IN.traverse((o) => {
+      if (!o.isMesh || !o.material || !o.material.color) return;
+      if (o.material.color.getHex() !== 0xb59234) return;     // a Mae West
+      men += 1;
+      const at = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+      assert.ok(body.containsPoint(at), `a man aboard the ${kind} is outside her`);
+    });
+    assert.ok(men >= 2, `the ${kind} is crewed by ${men} men at her stations`);
+  }
+});
+
+check('she is bombed up before she is flown, and the doors are open for both', () => {
+  // A bomb goes into a bay the same way it comes out of it, and the one thing
+  // that has to be true of either is that the doors are open first.
+  const yard = readFileSync(new URL('../client/js/bomberyard.js', import.meta.url), 'utf8');
+  for (const phase of ['open', 'drop', 'shut', 'home', 'load', 'shutup']) {
+    assert.ok(yard.includes(`'${phase}'`), `the run has no ${phase} in it`);
+  }
+  const doors = yard.slice(yard.indexOf('const working ='), yard.indexOf('const working =') + 260);
+  for (const phase of ['open', 'drop', 'load', 'shutup']) {
+    assert.ok(doors.includes(`'${phase}'`), `her doors are shut during ${phase}`);
+  }
+  // The winch, and the cables that shorten as the store comes up.
+  assert.ok(/this\.hoist = this\.rack\.map/.test(yard), 'there is no winch over the bay');
+  assert.ok(/c\.scale\.y = Math\.max\(0\.01, fall\)/.test(yard),
+    'the winch cables do not shorten as the bomb comes up');
+  assert.ok(/h\.cr\.position\.set\(h\.home\.x, h\.home\.y - fall, h\.home\.z\)/.test(yard),
+    'nothing rises into the bay');
+  // And a lamp to see it by, because she is matt black underneath.
+  assert.ok(/PointLight/.test(yard), 'there is no lamp in the bay to load by');
+  // The gunners lay their own turrets, inside their own arcs.
+  assert.ok(/layTurret\(t, q\.az, q\.el\)/.test(yard), 'nobody lays the turrets');
+  assert.ok(/manTurrets\(dt\)/.test(yard), 'the gunners are never given a turn');
 });
 
 check('the yard flies her over a city, with the flak up and the stick going down', () => {

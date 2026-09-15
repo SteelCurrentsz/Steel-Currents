@@ -1484,6 +1484,19 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   top: max(1.6rem, env(safe-area-inset-top));
   right: max(1.8rem, env(safe-area-inset-right));
 }
+/* A second key in the same corner, under the first: the cutaway. Held back so
+   the way out still leads, and lit while her skin is off. */
+.yard-extra {
+  top: calc(max(1.6rem, env(safe-area-inset-top)) + 3.2rem);
+  right: max(1.8rem, env(safe-area-inset-right));
+  padding: 0.5rem 1.1rem;
+  font-size: 0.95rem;
+  opacity: 0.8;
+}
+.yard-extra:hover { opacity: 1; }
+.yard-extra[aria-pressed="true"] {
+  background: var(--sand); border-color: var(--sand); color: #0b141d; opacity: 1;
+}
 
 /* On a phone in portrait the two corner sheets would meet in the middle, so
    they stack under one another and the hull keeps the upper half of the frame. */

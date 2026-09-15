@@ -404,6 +404,23 @@ export const P = {
   // her comes out as a black cone stuck on the front. Lighter, so it reads as
   // glazing catching the sky rather than as a hole.
   glazing: new THREE.MeshLambertMaterial({ color: 0x3f5060 }),
+  // Inside her. A wartime bomber was painted grey-green from the bomb aimer's
+  // window to the tail turret door, over bare alloy frames, with black boxes
+  // bolted to both -- and the only bright things aboard were the dials, the
+  // brass of a shell case and a man's Mae West.
+  inner: new THREE.MeshLambertMaterial({ color: 0x46503f }),
+  innerLo: new THREE.MeshLambertMaterial({ color: 0x323a2f }),
+  frame: new THREE.MeshLambertMaterial({ color: 0x6d757b }),
+  panelBlack: new THREE.MeshLambertMaterial({ color: 0x191c1e }),
+  dial: new THREE.MeshLambertMaterial({ color: 0x8b969d }),
+  seat: new THREE.MeshLambertMaterial({ color: 0x33291f }),
+  webbing: new THREE.MeshLambertMaterial({ color: 0x6b6350 }),
+  brass: new THREE.MeshLambertMaterial({ color: 0x8c7139 }),
+  // And the men. Sheepskin over a flying suit, a leather helmet, and the
+  // yellow life jacket every one of them wore over the North Sea.
+  suit: new THREE.MeshLambertMaterial({ color: 0x4a3f33 }),
+  helmet: new THREE.MeshLambertMaterial({ color: 0x2d2620 }),
+  maewest: new THREE.MeshLambertMaterial({ color: 0xb59234 }),
 };
 
 // The names the tools know these by. `planeTop` and `planeBottom` are the two
@@ -3047,80 +3064,193 @@ function roundel(p, x, y, z, r, up = true, fit = null) {
  * A powered turret: the ring it turns on, the glazed dome over it, the frames
  * that hold the glass, and the guns out of the front of it.
  *
- * `guns` barrels of `cal` radius, spread `spread` apart and raked up by
- * `rake`. Every turret on every one of these is this object at a different
- * size, which is the truth about them: a Frazer-Nash and a Sperry differ in
- * how many guns are in them and in nothing else you can see from outside.
+ * Built as a mounting rather than as a shape. The cupola, the frames and the
+ * guns all hang off a ring that turns in azimuth, and the guns hang off a
+ * cradle inside that which moves in elevation -- which is what a turret is,
+ * and what lets one be laid instead of merely drawn.
+ *
+ * Every one of them has its own arcs, and they are not decoration: a mid-upper
+ * could swing all the way round but not depress below her own fuselage, a
+ * nose turret had ninety-five degrees either side and no more, and a Cheyenne
+ * tail turret had a cone so tight that the gunner traversed the whole
+ * aeroplane to bring it to bear. `arc` is the half-angle either side of the
+ * way the mounting faces, `up` and `down` the elevation limits, all in
+ * radians. See `layTurret`.
  */
 function turretDome(p, o) {
   const { x = 0, y, z, r, guns = 2, cal = 0.05 } = o;
   const len = o.len || r * 2.6;
-  const rake = o.rake || 0.10;
   const spread = o.spread === undefined ? r * 0.48 : o.spread;
-  // The ring. A turret stands on a bearing let into the skin, and without the
-  // ring the dome is a bubble resting on her back.
+  const open = !!o.open;
+  // The ring the turret stands on. This piece does not turn: it is let into
+  // her skin, and without it the cupola is a bubble resting on her back.
   lathe(p, M.planeTop, [
     [r * 1.10, -0.10], [r * 1.14, -0.02], [r * 1.10, 0.06],
   ], x, y, z, 18);
-  // The dark of the inside of it, then the glass over that. Same shell twice,
-  // the way the greenhouses are done, so the gunner's turret is not a bubble
-  // with daylight through it.
-  const shell = (k) => [
-    [r * 0.99 * k, 0.02], [r * 1.00 * k, r * 0.34], [r * 0.93 * k, r * 0.70],
-    [r * 0.79 * k, r * 1.00], [r * 0.57 * k, r * 1.22], [r * 0.30 * k, r * 1.34],
-    [0, r * 1.38],
-  ];
-  lathe(p, M.cave, shell(0.86), x, y, z, 16);
-  lathe(p, P.glazing, shell(1), x, y, z, 18);
-  // Four frames over the dome, the way a Frazer-Nash was framed, built as
-  // hoops that follow it rather than as cubes laid on it.
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.4;
-    const f = box(p, M.planeTop, 0.045, r * 2.5, 0.045,
-      x + Math.sin(a) * r * 0.62, y + r * 0.66, z + Math.cos(a) * r * 0.62);
-    f.rotation.x = Math.cos(a) * 0.40;
-    f.rotation.z = -Math.sin(a) * 0.40;
+
+  // Everything above the ring turns with the gunner. A rear turret is the same
+  // mounting facing the other way, so it is turned round here once rather than
+  // having every piece in it carry a sign.
+  const ring = new THREE.Group();
+  ring.position.set(x, y, z);
+  ring.rotation.y = o.back ? Math.PI : 0;
+  p.add(ring);
+
+  if (!open) {
+    // The dark of the inside of it, then the glass over that. Same shell
+    // twice, the way the greenhouses are done, so the gunner's turret is not
+    // a bubble with daylight through it.
+    const shell = (k) => [
+      [r * 0.99 * k, 0.02], [r * 1.00 * k, r * 0.34], [r * 0.93 * k, r * 0.70],
+      [r * 0.79 * k, r * 1.00], [r * 0.57 * k, r * 1.22], [r * 0.30 * k, r * 1.34],
+      [0, r * 1.38],
+    ];
+    lathe(ring, M.cave, shell(0.86), 0, 0, 0, 16);
+    lathe(ring, P.glazing, shell(1), 0, 0, 0, 18);
+    // Four frames over the dome, the way a Frazer-Nash was framed, built as
+    // hoops that follow it rather than as cubes laid on it.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + 0.4;
+      const f = box(ring, M.planeTop, 0.045, r * 2.5, 0.045,
+        Math.sin(a) * r * 0.62, r * 0.66, Math.cos(a) * r * 0.62);
+      f.rotation.x = Math.cos(a) * 0.40;
+      f.rotation.z = -Math.sin(a) * 0.40;
+    }
+    // The hoop round its waist and the cap on top.
+    lathe(ring, M.planeTop, [[r * 0.95, r * 0.66], [r * 0.98, r * 0.72], [r * 0.95, r * 0.78]],
+      0, 0, 0, 18);
+    lathe(ring, M.planeTop, [[r * 0.30, r * 1.33], [r * 0.24, r * 1.40], [0, r * 1.42]],
+      0, 0, 0, 14);
+  } else {
+    // An open mounting: a hand-held gun on a ring behind a windscreen, which
+    // is what the Germans put in a cupola and what the beam hatches carried.
+    // No cupola over it, so the gunner and his gun are the whole of it.
+    lathe(ring, M.planeTop, [
+      [r * 0.92, r * 0.10], [r * 0.96, r * 0.42], [r * 0.90, r * 0.70],
+    ], 0, 0, 0, 16);
+    const scr = box(ring, P.glazing, r * 1.5, r * 0.9, 0.04, 0, r * 0.95, r * 0.55);
+    scr.rotation.x = -0.5;
   }
-  // The hoop round its waist and the cap on top.
-  lathe(p, M.planeTop, [[r * 0.95, r * 0.66], [r * 0.98, r * 0.72], [r * 0.95, r * 0.78]],
-    x, y, z, 18);
-  lathe(p, M.planeTop, [[r * 0.30, r * 1.33], [r * 0.24, r * 1.40], [0, r * 1.42]],
-    x, y, z, 14);
-  // The guns. Out of the face of the dome, raked up, with the slot they
-  // traverse in behind them and a collar over each breech.
-  const front = o.back ? -1 : 1;
-  const gy = y + r * 0.62;
+
+  // The cradle: the guns and the mask they come through, moving in elevation
+  // inside the turret that moves in azimuth.
+  const cradle = new THREE.Group();
+  cradle.position.set(0, r * 0.62, 0);
+  ring.add(cradle);
   for (let i = 0; i < guns; i++) {
-    const gx = x + (i - (guns - 1) / 2) * spread;
-    const b = cyl(p, M.gunDark, cal, cal, len, gx, gy, z + front * (r * 0.5 + len * 0.42), 6);
-    b.rotation.x = Math.PI / 2 - front * rake;
-    const c = cyl(p, M.planeTop, cal * 2.4, cal * 2.4, r * 0.5, gx, gy, z + front * r * 0.55, 8);
-    c.rotation.x = Math.PI / 2 - front * rake;
+    const gx = (i - (guns - 1) / 2) * spread;
+    cyl(cradle, M.gunDark, cal, cal, len, gx, 0, r * 0.5 + len * 0.42, 6)
+      .rotation.x = Math.PI / 2;
+    // The jacket over the breech, and the flash eliminator on the muzzle.
+    cyl(cradle, M.planeTop, cal * 2.4, cal * 2.4, r * 0.5, gx, 0, r * 0.55, 8)
+      .rotation.x = Math.PI / 2;
+    cyl(cradle, M.gunDark, cal * 1.5, cal * 1.5, cal * 3, gx, 0,
+      r * 0.5 + len * 0.86, 6).rotation.x = Math.PI / 2;
   }
-  box(p, M.cave, spread * Math.max(1, guns - 1) + cal * 8, r * 0.52, r * 0.3,
-    x, gy, z + front * r * 0.86);
-  return { at: [x, y + r * 0.7, z], r };
+  // The mask the guns come through, which is the piece that says a turret has
+  // a slot in it rather than a hole.
+  box(cradle, M.cave, spread * Math.max(1, guns - 1) + cal * 8, r * 0.52, r * 0.3,
+    0, 0, r * 0.86);
+  // The ammunition boxes either side of the gunner, and the belts off them.
+  if (!open) {
+    for (const sd of [-1, 1]) {
+      box(ring, M.gunDark, r * 0.3, r * 0.5, r * 0.44, sd * r * 0.62, r * 0.4, -r * 0.3);
+    }
+  }
+
+  const t = {
+    name: o.name || 'turret',
+    ring,
+    cradle,
+    home: ring.rotation.y,
+    // Written down in radians because that is what a rotation is in; the
+    // degrees they were quoted in are in the catalogue, for the datasheet.
+    arc: ((o.arc === undefined ? 180 : o.arc) * Math.PI) / 180,
+    up: ((o.up === undefined ? 60 : o.up) * Math.PI) / 180,
+    down: ((o.down === undefined ? 30 : o.down) * Math.PI) / 180,
+    at: [x, y + r * 0.62, z],
+    r,
+    guns,
+  };
+  (p.userData.turrets = p.userData.turrets || []).push(t);
+  return t;
 }
 
 /**
  * A ball turret: a sphere hung under the belly with two guns out of the
  * bottom of it, which is the one thing that names a Fortress from below.
+ *
+ * The gunner is inside the ball and the ball is the mounting: it swings all
+ * the way round in azimuth and from the horizon down to straight beneath her,
+ * and it cannot look up at all -- there is aeroplane in the way.
  */
-function ballTurret(p, x, y, z, r) {
+function ballTurret(p, o) {
+  const { x = 0, y, z, r } = o;
   lathe(p, M.planeBottom, [[r * 1.08, 0.12], [r * 1.12, 0.02], [r * 1.06, -0.06]],
     x, y, z, 16);
+  const ring = new THREE.Group();
+  ring.position.set(x, y, z);
+  p.add(ring);
+  // The whole ball rolls: the gunner goes round with his guns, which is why a
+  // ball turret gunner could not wear a parachute.
+  const cradle = new THREE.Group();
+  cradle.position.set(0, -r * 0.82, 0);
+  ring.add(cradle);
   const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), M.planeBottom);
-  ball.position.set(x, y - r * 0.82, z);
-  p.add(ball);
+  cradle.add(ball);
   const eye = new THREE.Mesh(new THREE.SphereGeometry(r * 0.52, 12, 10), P.glazing);
-  eye.position.set(x, y - r * 1.10, z + r * 0.62);
-  p.add(eye);
+  eye.position.set(0, -r * 0.28, r * 0.62);
+  cradle.add(eye);
+  // The armoured band round her middle, and the two fifties out of the bottom.
+  lathe(cradle, M.gunDark, [[r * 1.01, -r * 0.1], [r * 1.03, 0], [r * 1.01, r * 0.1]],
+    0, 0, 0, 16);
   for (const sd of [-1, 1]) {
-    const b = cyl(p, M.gunDark, 0.045, 0.045, r * 3.4,
-      x + sd * r * 0.36, y - r * 1.30, z + r * 1.5, 6);
-    b.rotation.x = Math.PI / 2 - 0.30;
+    cyl(cradle, M.gunDark, 0.045, 0.045, r * 3.4, sd * r * 0.36, -r * 0.48, r * 0.68, 6)
+      .rotation.x = Math.PI / 2;
+    cyl(cradle, M.planeBottom, 0.09, 0.09, r * 0.6, sd * r * 0.36, -r * 0.48, r * 0.1, 8)
+      .rotation.x = Math.PI / 2;
   }
-  return ball;
+  const t = {
+    name: o.name || 'ball',
+    ring,
+    cradle,
+    home: 0,
+    arc: Math.PI,
+    up: ((o.up === undefined ? 0 : o.up) * Math.PI) / 180,
+    down: ((o.down === undefined ? 90 : o.down) * Math.PI) / 180,
+    at: [x, y - r * 0.82, z],
+    r,
+    guns: 2,
+  };
+  (p.userData.turrets = p.userData.turrets || []).push(t);
+  return t;
+}
+
+/** An angle brought into the half-turn either side of nought. */
+function wrapPi(a) {
+  let v = a;
+  while (v > Math.PI) v -= Math.PI * 2;
+  while (v < -Math.PI) v += Math.PI * 2;
+  return v;
+}
+
+/**
+ * Lay a turret on a bearing and an elevation, inside its own arcs.
+ *
+ * `az` is measured from her nose and positive to starboard, `el` up from the
+ * horizontal, both in radians and both in the aeroplane's frame. What comes
+ * back is how far short of the ask the mounting had to stop -- nought when it
+ * bore, and how many radians out when the target was behind the tail, or
+ * under the belly, or anywhere else that turret could not reach. Nothing
+ * trains through its own fin.
+ */
+function layTurret(t, az, el) {
+  const want = wrapPi(az - t.home);
+  const got = Math.max(-t.arc, Math.min(t.arc, want));
+  t.ring.rotation.y = t.home + got;
+  const wantEl = Math.max(-t.down, Math.min(t.up, el));
+  t.cradle.rotation.x = wantEl;
+  return Math.abs(want - got) + Math.abs(el - wantEl);
 }
 
 /**
@@ -3169,6 +3299,468 @@ function nacelle(nac, o) {
 }
 
 /**
+ * A man, and the one thing he is doing.
+ *
+ * Seven of these are the difference between a fuselage with furniture in it
+ * and an aeroplane with a crew aboard. They are built at the scale a man is:
+ * about 1.75 m standing, 1.30 m from the seat pan to the top of the helmet
+ * sitting down. `ry` turns him, `pose` is what he is at.
+ */
+function crewman(p, o) {
+  const g = new THREE.Group();
+  g.position.set(o.x, o.y, o.z);
+  g.rotation.y = o.ry || 0;
+  p.add(g);
+  const pose = o.pose || 'seated';
+  const S = o.scale || 1;
+  const suit = P.suit;
+  // Torso, and the Mae West over it. A box with the corners eased off rather
+  // than a box: at this size an unrounded chest reads as a crate in a chair.
+  const torso = (lean) => {
+    const t = new THREE.Group();
+    t.rotation.x = lean;
+    g.add(t);
+    airframe(t, suit, [
+      { z: -0.16 * S, w: 0.44 * S, h: 0.30 * S, y: 0 },
+      { z: 0.10 * S, w: 0.48 * S, h: 0.34 * S, y: 0.02 * S },
+      { z: 0.34 * S, w: 0.46 * S, h: 0.32 * S, y: 0.02 * S },
+      { z: 0.52 * S, w: 0.36 * S, h: 0.26 * S, y: 0 },
+    ], { seg: 10, e: 0.86, mBot: suit });
+    // The life jacket, over his chest and round his neck.
+    airframe(t, P.maewest, [
+      { z: 0.26 * S, w: 0.40 * S, h: 0.30 * S, y: 0.02 * S },
+      { z: 0.44 * S, w: 0.38 * S, h: 0.28 * S, y: 0.02 * S },
+      { z: 0.52 * S, w: 0.30 * S, h: 0.22 * S, y: 0 },
+    ], { seg: 10, e: 0.86, capF: false, capA: false, mBot: P.maewest });
+    return t;
+  };
+  const head = (t, at) => {
+    const h = new THREE.Mesh(new THREE.SphereGeometry(0.115 * S, 10, 8), P.helmet);
+    h.position.set(0, at[0], at[1]);
+    h.scale.set(1, 1.1, 1.18);
+    t.add(h);
+    // The oxygen mask, which is what you actually see of a bomber crew's face.
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.062 * S, 8, 6), P.panelBlack);
+    m.position.set(0, at[0] - 0.03 * S, at[1] + 0.09 * S);
+    t.add(m);
+    return h;
+  };
+  const limb = (t, x, y, z, len, rx, r = 0.055) => {
+    const a = cyl(t, suit, r * S, r * 0.92 * S, len * S, x * S, y * S, z * S, 7);
+    a.rotation.x = rx;
+    return a;
+  };
+  if (pose === 'prone') {
+    // The bomb aimer, flat on his front over the sight with his head up.
+    const t = torso(Math.PI / 2);
+    t.position.y = 0.16 * S;
+    head(t, [0.10 * S, 0.60 * S]);
+    for (const sd of [-1, 1]) {
+      limb(t, sd * 0.22, -0.02 * S, -0.34 * S, 0.5, 0.1, 0.06);   // legs aft
+      limb(t, sd * 0.24, -0.06 * S, 0.38 * S, 0.42, 0.5, 0.05);   // arms forward
+    }
+  } else if (pose === 'standing') {
+    const t = torso(0);
+    t.position.y = 0.92 * S;
+    t.rotation.x = -Math.PI / 2;
+    head(t, [0.02 * S, 0.60 * S]);
+    for (const sd of [-1, 1]) {
+      const l = cyl(g, suit, 0.075 * S, 0.065 * S, 0.88 * S, sd * 0.11 * S, 0.46 * S, 0, 7);
+      l.rotation.x = 0;
+      limb(t, sd * 0.27, 0, 0.18 * S, 0.5, 0.2, 0.055);
+    }
+  } else {
+    // Seated: hips at the origin, thighs forward, back against the seat.
+    const t = torso(-Math.PI / 2 + (o.lean || 0.12));
+    t.position.y = 0.06 * S;
+    head(t, [0.02 * S, 0.62 * S]);
+    for (const sd of [-1, 1]) {
+      const th = cyl(g, suit, 0.085 * S, 0.075 * S, 0.44 * S,
+        sd * 0.12 * S, 0.02 * S, 0.22 * S, 7);
+      th.rotation.x = Math.PI / 2;
+      const sh = cyl(g, suit, 0.068 * S, 0.06 * S, 0.44 * S,
+        sd * 0.12 * S, -0.20 * S, 0.40 * S, 7);
+      sh.rotation.x = 0.12;
+      // Boots on the floor.
+      box(g, P.helmet, 0.11 * S, 0.09 * S, 0.24 * S,
+        sd * 0.12 * S, -0.40 * S, 0.46 * S);
+      // Arms forward to whatever he is holding.
+      limb(t, sd * 0.26, 0.02 * S, 0.30 * S, 0.46, 0.55, 0.055);
+    }
+  }
+  return g;
+}
+
+/** A seat: pan, back, side frames and the straps over it. */
+function crewSeat(p, o) {
+  const g = new THREE.Group();
+  g.position.set(o.x, o.y, o.z);
+  g.rotation.y = o.ry || 0;
+  p.add(g);
+  const w = o.w || 0.46;
+  const back = o.back === undefined ? 0.56 : o.back;
+  box(g, P.seat, w, 0.07, 0.46, 0, 0, 0.08);
+  if (back > 0) {
+    const b = box(g, P.seat, w, back, 0.07, 0, back * 0.46, -0.18);
+    b.rotation.x = 0.13;
+    // The armour behind a pilot's back, which is the only armour aboard.
+    if (o.armour) box(g, P.frame, w * 0.96, back * 0.9, 0.035, 0, back * 0.46, -0.25);
+  }
+  // The frame it stands on, down to the floor.
+  for (const sd of [-1, 1]) {
+    box(g, P.frame, 0.045, o.legs || 0.34, 0.045, sd * (w / 2 - 0.04), -(o.legs || 0.34) / 2, 0.20);
+    box(g, P.frame, 0.045, o.legs || 0.34, 0.045, sd * (w / 2 - 0.04), -(o.legs || 0.34) / 2, -0.10);
+  }
+  box(g, P.frame, w, 0.04, 0.42, 0, -(o.legs || 0.34), 0.06);
+  // Sutton harness: two straps over the back of it.
+  if (back > 0) {
+    for (const sd of [-1, 1]) {
+      const st = box(g, P.webbing, 0.07, back * 0.8, 0.02, sd * 0.13, back * 0.48, -0.13);
+      st.rotation.x = 0.13;
+    }
+  }
+  return g;
+}
+
+/**
+ * The inside of a heavy bomber.
+ *
+ * Everything a crew touched, from the bomb aimer's window to the tail turret
+ * door: the frames and stringers her skin is stretched over, the floor they
+ * walked on, the two spars they climbed over, the flight deck, the four crew
+ * stations, the bay with its carriers, the ammunition tracks running aft, and
+ * seven men at their places.
+ *
+ * It is all built inside the skin, so nothing of it shows unless the skin is
+ * taken off her -- see the cutaway on the bomber yard. Which is the point:
+ * this is what a cutaway drawing of one of these is a drawing of.
+ */
+/** The section of a lofted body at a station, interpolated between stations. */
+function sectionAt(loft, z) {
+  let a = loft[0];
+  let b = loft[loft.length - 1];
+  for (let i = 0; i < loft.length - 1; i++) {
+    if (loft[i].z <= z && loft[i + 1].z >= z) { a = loft[i]; b = loft[i + 1]; }
+  }
+  const t = b.z === a.z ? 0 : (z - a.z) / (b.z - a.z);
+  return {
+    w: a.w + (b.w - a.w) * t,
+    h: a.h + (b.h - a.h) * t,
+    y: a.y + (b.y - a.y) * t,
+  };
+}
+
+function bomberInside(p, s, CL, belly) {
+  // What was already there is her outside; whatever this function adds is her
+  // inside. Marking them here is what lets the yard take her skin off without
+  // anything having to keep a list of pieces in step by hand.
+  const already = new Set();
+  p.traverse((o) => { if (o.isMesh) already.add(o); });
+  // Her structure and her crew stations go into a group of their own. Three
+  // hundred pieces of frame, floor and furniture behind an opaque skin is
+  // three hundred draw calls a second nobody can see, so the group is left out
+  // of the frame until the cutaway asks for it. What a captain can see through
+  // her glass and her open doors -- the gunners in their turrets, the carriers
+  // and the stick on them -- stays on the aeroplane and is always drawn.
+  const IN = new THREE.Group();
+  IN.visible = false;
+  p.add(IN);
+  p.userData.insideGroup = IN;
+  const B = s.body;
+  const I = s.inside || {};
+  const FL = CL + (I.floor === undefined ? -B.h * 0.30 : I.floor);
+  const CROWN = CL + B.h * 0.5;
+  const z0 = I.z0 === undefined ? B.z0 * 0.86 : I.z0;
+  const z1 = I.z1 === undefined ? B.z1 * 0.90 : I.z1;
+  const loft = bodyLoft({ ...B, y: CL });
+
+  // ---- frames and stringers ----------------------------------------------
+  // Her skin is a stressed sheet over rings and stringers, and from inside
+  // that is all there is to see of the structure. The rings are the same loft
+  // the skin is, a shade under it, so they follow her rather than being a
+  // stack of hoops of one size in a body that tapers.
+  const pitch = I.ribs || 1.15;
+  for (let z = z0; z <= z1; z += pitch) {
+    // The section here, read off the loft rather than guessed.
+    const sec = sectionAt(loft, z);
+    const w = sec.w * 0.965;
+    const h = sec.h * 0.965;
+    const y = sec.y;
+    if (w < 0.4) continue;
+    airframe(IN, P.frame, [
+      { z: z - 0.035, w, h, y },
+      { z: z + 0.035, w, h, y },
+    ], { seg: 18, e: 0.94, flat: s.flat || 0.03, capA: false, capF: false, mBot: P.frame });
+  }
+  // The longerons, over the parallel middle of her where they are straight.
+  const pw = B.w * 0.965;
+  const ph = B.h * 0.965;
+  const fz0 = B.z0 + (B.z1 - B.z0) * B.full0;
+  const fz1 = B.z0 + (B.z1 - B.z0) * B.full1;
+  for (const [ax, ay] of [[0.80, 0.52], [0.96, 0.02], [0.80, -0.50], [0.36, -0.86]]) {
+    for (const sd of [-1, 1]) {
+      if (ax === 0 && sd > 0) continue;
+      box(IN, P.frame, 0.05, 0.05, fz1 - fz0,
+        sd * (pw / 2) * ax, CL + (ph / 2) * ay, (fz0 + fz1) / 2);
+    }
+  }
+
+  // ---- the floor, the catwalk and the spars ------------------------------
+  const bay = s.bay;
+  const fw = B.w * 0.62;
+  const bayF = bay.z + bay.len / 2;
+  const bayA = bay.z - bay.len / 2;
+  // Where the floor actually is at a station: the height it would like to be,
+  // or the skin under her if the body has closed up above that. A plank laid
+  // at one height from the nose to the tail comes out through her underside at
+  // both ends, which is where the bomb aimer ended up as well.
+  const floorAt = (z) => {
+    const sec = sectionAt(loft, z);
+    return Math.max(FL, sec.y - sec.h * 0.5 * (1 - (s.flat || 0.03)) + 0.06);
+  };
+  const floorW = (z) => Math.min(fw, sectionAt(loft, z).w * 0.80);
+  // Forward of the bay and aft of it she has a floor; through it there is a
+  // catwalk a foot wide over the bomb bay roof, which is the piece of a heavy
+  // bomber every crewman who ever wrote a memoir remembers.
+  const floorRun = (a, b) => {
+    const STEP = 0.5;
+    for (let z = a; z < b - 0.01; z += STEP) {
+      const len = Math.min(STEP, b - z);
+      const mid = z + len / 2;
+      const w = floorW(mid);
+      if (w < 0.25) continue;
+      box(IN, P.innerLo, w, 0.05, len + 0.02, 0, floorAt(mid), mid);
+    }
+  };
+  if (z1 > bayF) floorRun(bayF, z1);
+  if (bayA > z0) floorRun(z0, bayA);
+  const walk = belly + bay.deep + 0.04;
+  box(IN, P.frame, I.catwalk || 0.34, 0.05, bay.len, 0, walk, bay.z);
+  for (const sd of [-1, 1]) {
+    box(IN, P.frame, 0.04, 0.16, bay.len, sd * (I.catwalk || 0.34) / 2, walk + 0.08, bay.z);
+  }
+  // The steps down onto it at each end, so the floor and the catwalk meet.
+  for (const zz of [bayF, bayA]) {
+    box(IN, P.innerLo, fw, Math.max(0.05, Math.abs(walk - FL)), 0.10,
+      0, (walk + FL) / 2, zz);
+  }
+  // The spars. Two of them, right through the cabin at the height of the wing,
+  // and on a Lancaster the forward one is chest high: every man aft of it who
+  // had to get out went over it first.
+  const WY = CL + s.wingY;
+  for (const [i, sz] of (I.spars || [s.wingZ - s.rootC * 0.22, s.wingZ - s.rootC * 0.78]).entries()) {
+    const sh = i === 0 ? 0.58 : 0.44;
+    box(IN, P.frame, B.w * 0.92, sh, 0.12, 0, WY + sh * 0.1, sz);
+    box(IN, P.frame, B.w * 0.92, 0.09, 0.30, 0, WY + sh * 0.1 + sh / 2, sz);
+    box(IN, P.frame, B.w * 0.92, 0.09, 0.30, 0, WY + sh * 0.1 - sh / 2, sz);
+  }
+
+  // ---- the flight deck ----------------------------------------------------
+  const deckZ = I.deckZ === undefined ? (s.hoodZ0 + s.hoodZ1) / 2 - 0.3 : I.deckZ;
+  const deckY = I.deckY === undefined ? FL + 0.30 : CL + I.deckY;
+  const sideways = I.pilotX || 0;
+  // The pilot, on the port side with his engineer beside him on the machines
+  // that carried one.
+  crewSeat(IN, { x: sideways, y: deckY, z: deckZ, armour: true, legs: deckY - FL });
+  crewman(IN, { x: sideways, y: deckY + 0.10, z: deckZ + 0.04, pose: 'seated' });
+  // The column: a post out of the floor with the spectacle grip on top of it.
+  const col = new THREE.Group();
+  col.position.set(sideways, FL, deckZ + 0.62);
+  col.rotation.x = -0.16;
+  p.add(col);
+  cyl(col, P.panelBlack, 0.05, 0.06, 0.74, 0, 0.37, 0, 8);
+  box(col, P.panelBlack, 0.30, 0.05, 0.07, 0, 0.74, 0);
+  for (const sd of [-1, 1]) box(col, P.panelBlack, 0.06, 0.16, 0.06, sd * 0.15, 0.80, 0);
+  // Rudder pedals.
+  for (const sd of [-1, 1]) {
+    const pd = box(IN, P.frame, 0.10, 0.16, 0.05, sideways + sd * 0.14, FL + 0.10, deckZ + 0.96);
+    pd.rotation.x = 0.5;
+  }
+  // The instrument panel, and the dials on it. A blind-flying panel in the
+  // middle with the engine gauges round it, which is what a 1943 panel was.
+  const ip = new THREE.Group();
+  ip.position.set(sideways, deckY + 0.32, deckZ + 1.15);
+  ip.rotation.x = 0.22;
+  p.add(ip);
+  box(ip, P.panelBlack, 0.86, 0.50, 0.05, 0, 0, 0);
+  for (let i = 0; i < 12; i++) {
+    const cx = -0.32 + (i % 4) * 0.21;
+    const cy = 0.15 - Math.floor(i / 4) * 0.15;
+    cyl(ip, P.dial, 0.055, 0.055, 0.035, cx, cy, 0.04, 10).rotation.x = Math.PI / 2;
+  }
+  // The throttle pedestal: one lever per engine, and the pitch levers behind.
+  const ped = new THREE.Group();
+  ped.position.set(sideways + (I.pedX || 0.34), deckY + 0.06, deckZ + 0.52);
+  p.add(ped);
+  box(ped, P.panelBlack, 0.26, 0.14, 0.42, 0, 0, 0);
+  const engines = (s.nacelles || []).length * 2;
+  for (let i = 0; i < engines; i++) {
+    const lx = -0.09 + (i / Math.max(1, engines - 1)) * 0.18;
+    const lv = cyl(ped, P.frame, 0.014, 0.014, 0.26, lx, 0.15, 0.06, 6);
+    lv.rotation.x = -0.35;
+    cyl(ped, P.brass, 0.028, 0.028, 0.05, lx, 0.27, 0.11, 8);
+  }
+  // The engineer, on the machines that carried one, on a folding seat facing
+  // his own panel across the gangway.
+  if (I.engineer) {
+    crewSeat(IN, { x: -sideways + I.engineer, y: deckY - 0.06, z: deckZ - 0.22,
+      ry: -0.9, back: 0.3, legs: deckY - FL - 0.06 });
+    crewman(IN, { x: -sideways + I.engineer, y: deckY + 0.04, z: deckZ - 0.22,
+      ry: -0.9, pose: 'seated' });
+    const ep = box(IN, P.panelBlack, 0.06, 0.52, 0.56,
+      -sideways + I.engineer + 0.34, deckY + 0.34, deckZ - 0.22);
+    ep.rotation.y = 0.1;
+    for (let i = 0; i < 6; i++) {
+      cyl(IN, P.dial, 0.042, 0.042, 0.03,
+        -sideways + I.engineer + 0.38, deckY + 0.5 - (i % 3) * 0.16,
+        deckZ - 0.40 + Math.floor(i / 3) * 0.3, 8).rotation.z = Math.PI / 2;
+    }
+  }
+
+  // ---- the bomb aimer ----------------------------------------------------
+  const aimZ = I.aimerZ === undefined ? B.z1 - 1.6 : I.aimerZ;
+  // On the floor of the nose, wherever that has turned out to be. He lies
+  // flat on it over the sight, which on a Lancaster is the lowest and the
+  // furthest forward any of the seven of them got.
+  const aimY = floorAt(aimZ) + 0.05;
+  box(IN, P.seat, Math.min(0.56, floorW(aimZ) * 0.9), 0.09, 1.10, 0, aimY, aimZ - 0.2);
+  crewman(IN, { x: 0, y: aimY + 0.12, z: aimZ - 0.1, pose: 'prone' });
+  // The sight on its mount, and the panel of selector switches beside him:
+  // which station to release from, and in what order.
+  const sight = new THREE.Group();
+  sight.position.set(0, aimY + 0.20, aimZ + 0.72);
+  p.add(sight);
+  box(sight, P.panelBlack, 0.16, 0.30, 0.20, 0, 0.14, 0);
+  cyl(sight, P.frame, 0.035, 0.035, 0.26, 0, 0.02, 0, 8);
+  cyl(sight, P.dial, 0.05, 0.05, 0.04, 0, 0.28, 0.09, 10).rotation.x = Math.PI / 2;
+  const sel = box(IN, P.panelBlack, 0.34, 0.26, 0.04, 0.32, aimY + 0.34, aimZ + 0.30);
+  sel.rotation.y = -0.4;
+  for (let i = 0; i < 6; i++) {
+    cyl(IN, P.brass, 0.014, 0.014, 0.05,
+      0.26 + (i % 3) * 0.06, aimY + 0.30 + Math.floor(i / 3) * 0.10, aimZ + 0.33, 6)
+      .rotation.x = Math.PI / 2;
+  }
+
+  // ---- the navigator and the wireless operator ---------------------------
+  if (I.navZ !== undefined) {
+    const nz = I.navZ;
+    const nx = I.navX || -0.42;
+    box(IN, P.innerLo, 0.72, 0.05, 0.54, nx, FL + 0.58, nz);
+    for (const zz of [-0.2, 0.2]) {
+      box(IN, P.frame, 0.05, 0.58, 0.05, nx - 0.3, FL + 0.29, nz + zz);
+    }
+    // The chart on it, the lamp over it, and the Gee set on the shelf above.
+    box(IN, P.dial, 0.5, 0.01, 0.38, nx, FL + 0.61, nz);
+    const lamp = cyl(IN, P.panelBlack, 0.05, 0.03, 0.10, nx + 0.2, FL + 0.90, nz + 0.16, 8);
+    lamp.rotation.x = 0.5;
+    box(IN, P.panelBlack, 0.36, 0.26, 0.30, nx - 0.06, FL + 1.06, nz - 0.1);
+    cyl(IN, P.dial, 0.07, 0.07, 0.03, nx - 0.06, FL + 1.06, nz + 0.06, 10)
+      .rotation.x = Math.PI / 2;
+    crewSeat(IN, { x: nx + 0.10, y: FL + 0.44, z: nz - 0.52, ry: Math.PI,
+      back: 0.34, legs: 0.44 });
+    crewman(IN, { x: nx + 0.10, y: FL + 0.54, z: nz - 0.52, ry: Math.PI, pose: 'seated' });
+  }
+  if (I.radioZ !== undefined) {
+    const rz = I.radioZ;
+    const rx = I.radioX || -0.40;
+    // The transmitter and the receiver, one over the other on their rack.
+    for (let i = 0; i < 2; i++) {
+      box(IN, P.panelBlack, 0.34, 0.30, 0.46, rx - 0.14, FL + 0.70 + i * 0.34, rz);
+      for (let k = 0; k < 2; k++) {
+        cyl(IN, P.dial, 0.05, 0.05, 0.03, rx + 0.02, FL + 0.70 + i * 0.34,
+          rz - 0.14 + k * 0.28, 10).rotation.z = Math.PI / 2;
+      }
+    }
+    box(IN, P.innerLo, 0.5, 0.05, 0.44, rx + 0.28, FL + 0.56, rz);
+    crewSeat(IN, { x: rx + 0.30, y: FL + 0.40, z: rz - 0.46, ry: Math.PI,
+      back: 0.32, legs: 0.40 });
+    crewman(IN, { x: rx + 0.30, y: FL + 0.50, z: rz - 0.46, ry: Math.PI, pose: 'seated' });
+  }
+
+  // ---- the bay: carriers, crutches and the release units -----------------
+  // A bomb does not rest on the floor of a bay; it hangs from a carrier on the
+  // roof of it, held against two sway braces so it cannot swing. Every station
+  // gets one, whether or not there is a bomb on it at the moment.
+  const roof = belly + bay.deep;
+  for (let i = 0; i < bay.n; i++) {
+    const stz = bay.z - bay.len * 0.42 + (bay.len * 0.84)
+      * (bay.n === 1 ? 0.5 : i / (bay.n - 1));
+    const stx = bay.n > 4 ? (i % 2 ? bay.wide * 0.22 : -bay.wide * 0.22) : 0;
+    box(p, P.frame, 0.16, 0.12, 0.30, stx, roof - 0.07, stz);
+    // The two hooks, and the sway braces either side that steady the store.
+    for (const zz of [-0.11, 0.11]) {
+      box(p, P.brass, 0.05, 0.10, 0.04, stx, roof - 0.16, stz + zz);
+    }
+    for (const sd of [-1, 1]) {
+      const br = cyl(p, P.frame, 0.016, 0.016, 0.22, stx + sd * 0.11, roof - 0.19, stz, 6);
+      br.rotation.z = sd * 0.5;
+    }
+    // The release unit, and the arming wire running off it.
+    box(p, P.panelBlack, 0.09, 0.08, 0.13, stx + 0.11, roof - 0.05, stz);
+  }
+
+  // ---- the turrets, from the inside --------------------------------------
+  // A seat sling in each cupola, and the ammunition tracks feeding it. On a
+  // Lancaster the tail turret's belts ran the whole length of the fuselage
+  // from boxes amidships, in two ducts along the floor -- and that duct is
+  // most of what there is to see aft of the rear spar.
+  for (const t of (p.userData.turrets || [])) {
+    if (t.name === 'ball') continue;
+    // A tail gunner knelt in about a yard of turret, and the smaller the
+    // mounting the less of him fitted in it: the man is sized to the cupola he
+    // is in rather than drawn full size in every one and hung out the back of
+    // the tight ones.
+    const sc = Math.max(0.58, Math.min(1, t.r / 0.62));
+    box(t.ring, P.seat, t.r * 0.62, 0.06, t.r * 0.5, 0, -t.r * 0.10, -t.r * 0.18);
+    box(t.ring, P.seat, t.r * 0.62, t.r * 0.5, 0.05, 0, t.r * 0.14, -t.r * 0.40);
+    crewman(t.ring, { x: 0, y: -t.r * 0.04, z: -t.r * 0.16, scale: sc, lean: 0.02 });
+  }
+  const tail = (p.userData.turrets || []).find((t) => t.name === 'tail');
+  if (tail && I.tracks !== false) {
+    for (const sd of [-1, 1]) {
+      const from = I.trackZ === undefined ? bay.z : I.trackZ;
+      const to = tail.at[2] + 0.8;
+      box(IN, P.innerLo, 0.13, 0.10, from - to, sd * B.w * 0.30, FL + 0.08, (from + to) / 2);
+      box(IN, P.brass, 0.09, 0.03, from - to, sd * B.w * 0.30, FL + 0.13, (from + to) / 2);
+    }
+  }
+
+  // ---- bulkheads and the doors through them ------------------------------
+  for (const bz of (I.bulkheads || [])) {
+    const sec = sectionAt(loft, bz);
+    const w = sec.w * 0.94;
+    const h = sec.h * 0.94;
+    const y = sec.y;
+    // A bulkhead is a plate with a doorway through it, and a crew had to get
+    // through that doorway in a hurry wearing a parachute. Built as the four
+    // panels round the hole rather than as a wall with a dark patch on it --
+    // one of those is a bulkhead and the other is a painted door.
+    const dw = Math.min(w * 0.46, 0.64);
+    const dh = Math.min(h * 0.60, 1.10);
+    const sill = floorAt(bz) + 0.06;
+    const head = sill + dh;
+    for (const sd of [-1, 1]) {
+      box(IN, P.inner, (w - dw) / 2, h, 0.05, sd * (dw + (w - dw) / 2) / 2, y, bz);
+    }
+    box(IN, P.inner, dw, Math.max(0.05, y + h / 2 - head), 0.05,
+      0, (head + y + h / 2) / 2, bz);
+    box(IN, P.inner, dw, Math.max(0.05, sill - (y - h / 2)), 0.05,
+      0, (sill + y - h / 2) / 2, bz);
+    // The frame round the hole, which is the piece a man grabs going through.
+    box(IN, P.frame, dw + 0.08, 0.05, 0.09, 0, head, bz);
+    for (const sd of [-1, 1]) box(IN, P.frame, 0.05, dh, 0.09, sd * dw / 2, sill + dh / 2, bz);
+  }
+  void CROWN;
+  p.traverse((o) => { if (o.isMesh && !already.has(o)) o.userData.inside = true; });
+  // The stick and whatever hangs under her wings are not plating: they were
+  // built before this ran, but a cutaway that fades the bombs out shows an
+  // empty aeroplane, which is the one thing a bomb bay is not.
+  for (const cr of (p.userData.rack || []).concat(p.userData.stores || [])) {
+    cr.traverse((o) => { if (o.isMesh) o.userData.inside = true; });
+  }
+}
+
+/**
  * A heavy bomber, from a spec.
  *
  * One function for all five, because they are one aeroplane at five sets of
@@ -3186,6 +3778,11 @@ function heavy(g, x, y, z, ry, s) {
   // doors, and the bombs on the crutches inside the bay.
   p.userData.props = [];
   p.userData.rack = [];
+  p.userData.stores = [];
+  p.userData.turrets = [];
+  // Where her belly is at the bay, which the bay, the stick and the whole of
+  // the inside of her are measured from.
+  let bellyAt = null;
   const CL = s.cl;
 
   // ---- the body ----------------------------------------------------------
@@ -3351,7 +3948,7 @@ function heavy(g, x, y, z, ry, s) {
 
   // ---- the turrets -------------------------------------------------------
   for (const t of (s.turrets || [])) {
-    if (t.kind === 'ball') ballTurret(p, 0, CL + t.y, t.z, t.r);
+    if (t.kind === 'ball') ballTurret(p, { ...t, y: CL + t.y });
     else turretDome(p, { ...t, y: CL + t.y });
   }
 
@@ -3361,6 +3958,7 @@ function heavy(g, x, y, z, ry, s) {
     // The belly line asked of the body rather than typed, so the doors lie in
     // her skin instead of a hand's breadth under it.
     const belly = underside(p, 0, b.z, CL - s.body.h) ?? (CL - s.body.h * 0.5);
+    bellyAt = belly;
     bombBay(p, { y: belly + 0.01, z: b.z, len: b.len, wide: b.wide, deep: b.deep });
     // The stick on the crutches: as many as she carried, spaced down the bay,
     // hung from the roof of it so the open doors show a loaded aeroplane.
@@ -3391,8 +3989,15 @@ function heavy(g, x, y, z, ry, s) {
       }
       if (u.kind === 'torpedo') torpedo(cr, u.len || 5.2, u.r || 0.28);
       else bomb(cr, u.len || 2.3, u.r || 0.27);
+      p.userData.stores.push(cr);
     }
   }
+
+  // ---- and everything inside her -----------------------------------------
+  // Last, because it is measured off the skin, the floor, the bay and the
+  // turrets, and every one of those has to exist before it can be asked where
+  // it is. See bomberInside.
+  if (s.bay && bellyAt !== null) bomberInside(p, s, CL, bellyAt);
 
   // ---- the markings and the aerial ---------------------------------------
   const MY = CL + s.body.h * 0.04;
@@ -3458,10 +4063,28 @@ const HEAVY = {
     hoodW: 1.34, hoodH: 0.64, hoodY: 1.06, hoodZ0: 4.80, hoodZ1: 8.30, hoodBays: 5,
     blister: { z: 9.30, len: 2.60, w: 1.30, h: 0.92, y: -0.86 },
     turrets: [
-      { z: 10.05, y: 0.52, r: 0.58, guns: 2, cal: 0.040, len: 1.05, spread: 0.26 },
-      { z: 1.20, y: 1.14, r: 0.62, guns: 2, cal: 0.040, len: 1.05, spread: 0.28 },
-      { z: -9.55, y: -0.02, r: 0.70, guns: 4, cal: 0.040, len: 1.15, spread: 0.22, back: true },
+      // FN5 in the nose, FN50 amidships and the FN20 in the tail. The
+      // mid-upper swung the whole way round and could not depress below her
+      // own spine; the other two had a ninety-five degree cone either side.
+      { name: 'nose', z: 10.05, y: 0.52, r: 0.58, guns: 2, cal: 0.040, len: 1.05,
+        spread: 0.26, arc: 95, up: 60, down: 45 },
+      { name: 'dorsal', z: 1.20, y: 1.14, r: 0.62, guns: 2, cal: 0.040, len: 1.05,
+        spread: 0.28, arc: 180, up: 80, down: 2 },
+      { name: 'tail', z: -9.55, y: -0.02, r: 0.70, guns: 4, cal: 0.040, len: 1.15,
+        spread: 0.22, back: true, arc: 94, up: 60, down: 45 },
     ],
+    // Her inside, station by station. The flight deck is on the port side with
+    // the engineer's folding seat to starboard; the navigator sits behind the
+    // pilot with the wireless operator behind him; the two spars cross the
+    // cabin at the wing, and the forward one is chest high.
+    inside: {
+      floor: -0.44, z0: -8.60, z1: 9.60, ribs: 1.15, catwalk: 0.34,
+      deckZ: 6.30, pilotX: -0.30, pedX: 0.30, engineer: 0.66,
+      aimerZ: 8.80, aimerY: -1.02,
+      navZ: 4.40, navX: -0.44, radioZ: 2.70, radioX: -0.42,
+      spars: [4.30, -0.90], trackZ: 1.20,
+      bulkheads: [5.60, -4.40],
+    },
     bay: { z: 1.40, len: 10.05, wide: 1.50, deep: 0.86, n: 5, bombLen: 2.20, bombR: 0.26 },
     mastH: 1.00,
   },
@@ -3488,15 +4111,33 @@ const HEAVY = {
     hoodW: 1.48, hoodH: 0.60, hoodY: 1.02, hoodZ0: 4.90, hoodZ1: 8.10, hoodBays: 4,
     glazeNose: 8.40,
     turrets: [
-      { z: 9.00, y: -1.02, r: 0.44, guns: 2, cal: 0.050, len: 1.05, spread: 0.24 },
-      { z: 4.40, y: 1.10, r: 0.58, guns: 2, cal: 0.050, len: 1.10, spread: 0.26 },
-      { kind: 'ball', z: -0.90, y: -1.00, r: 0.62 },
-      { z: -10.70, y: -0.26, r: 0.54, guns: 2, cal: 0.050, len: 1.20, spread: 0.24, back: true },
+      // The Bendix chin under the bomb aimer, the Sperry upper, the Sperry
+      // ball, and the Cheyenne in the tail -- which had the tightest cone of
+      // any turret on this list and is why a Fortress was attacked from dead
+      // astern and a little high.
+      { name: 'chin', z: 9.00, y: -1.02, r: 0.44, guns: 2, cal: 0.050, len: 1.05,
+        spread: 0.24, arc: 87, up: 26, down: 46 },
+      { name: 'dorsal', z: 4.40, y: 1.10, r: 0.58, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.26, arc: 180, up: 85, down: 2 },
+      { kind: 'ball', name: 'ball', z: -0.90, y: -1.00, r: 0.62, up: 0, down: 90 },
+      { name: 'tail', z: -10.70, y: -0.26, r: 0.54, guns: 2, cal: 0.050, len: 1.20,
+        spread: 0.24, back: true, arc: 45, up: 30, down: 30 },
     ],
     bulges: [
       { x: 1.12, y: 0.10, z: -2.60, r: 0.30, pair: true, sy: 0.7, sz: 1.2 },
       { x: 1.10, y: 0.24, z: 7.60, r: 0.26, pair: true, sy: 0.7, sz: 1.4 },
     ],
+    // A Fortress is a catwalk with an aeroplane round it: the bay is deep, the
+    // walk through it is a foot wide, and the radio room is aft of that with
+    // the waist beyond.
+    inside: {
+      floor: -0.72, z0: -9.80, z1: 9.60, ribs: 1.20, catwalk: 0.30,
+      deckZ: 6.10, pilotX: -0.44, pedX: 0.44, engineer: 0.00,
+      aimerZ: 8.60, aimerY: -1.20,
+      navZ: 7.30, navX: -0.48, radioZ: -2.70, radioX: -0.44,
+      spars: [3.60, -0.60], trackZ: -1.60,
+      bulkheads: [4.90, -2.00, -6.60],
+    },
     bay: { z: 1.20, len: 4.80, wide: 1.20, deep: 1.50, n: 4, bombLen: 1.90, bombR: 0.22 },
     mastH: 0.90,
   },
@@ -3519,8 +4160,25 @@ const HEAVY = {
     tpY: -0.05, tpZ: -6.30, tpSpan: 8.60, tpC: 2.20,
     glazeNose: 5.40,
     blister: { z: 3.00, len: 3.40, w: 1.00, h: 0.78, y: -1.10 },
-    turrets: [{ z: 1.10, y: 0.98, r: 0.44, guns: 1, cal: 0.045, len: 0.95 }],
+    // The dorsal MG 15 on its open ring, the MG FF in the nose ball mount, and
+    // the rear gun out of the back of the gondola under her.
+    turrets: [
+      { name: 'dorsal', z: 1.10, y: 0.98, r: 0.44, guns: 1, cal: 0.045, len: 0.95,
+        arc: 100, up: 75, down: 8 },
+      { name: 'nose', z: 6.90, y: 0.10, r: 0.30, guns: 1, cal: 0.055, len: 0.85,
+        open: true, arc: 40, up: 35, down: 30 },
+      { name: 'gondola', z: 1.80, y: -1.30, r: 0.30, guns: 1, cal: 0.045, len: 0.85,
+        open: true, back: true, arc: 35, up: 8, down: 55 },
+    ],
     bulges: [{ x: 0.52, y: 0.86, z: 6.10, r: 0.34, sy: 0.7, sz: 1.3 }],
+    inside: {
+      floor: -0.52, z0: -6.60, z1: 6.60, ribs: 1.05, catwalk: 0.30,
+      deckZ: 5.10, pilotX: -0.28, pedX: 0.28,
+      aimerZ: 5.90, aimerY: -0.96,
+      navZ: 3.10, navX: -0.40, radioZ: 1.40, radioX: -0.38,
+      spars: [2.60, -0.60], tracks: false,
+      bulkheads: [-2.60],
+    },
     bay: { z: 0.60, len: 3.20, wide: 0.92, deep: 0.72, n: 4, bombLen: 1.50, bombR: 0.19 },
     mastZ: 3.60, mastH: 0.95,
   },
@@ -3544,6 +4202,25 @@ const HEAVY = {
     glazeNose: 4.60,
     blister: { z: 2.40, len: 2.80, w: 0.84, h: 0.64, y: -1.04 },
     bulges: [{ x: 0, y: 0.94, z: 4.30, r: 0.34, sy: 0.7, sz: 1.5 }],
+    // No powered turret aboard her: an MG 81Z in the cupola over the crew and
+    // another out of the back of the ventral gondola, both hand-held, both
+    // with the arcs a man on a ring can reach.
+    turrets: [
+      { name: 'dorsal', z: 3.40, y: 0.92, r: 0.28, guns: 2, cal: 0.040, len: 0.8,
+        spread: 0.10, open: true, back: true, arc: 55, up: 70, down: 5 },
+      { name: 'gondola', z: 1.20, y: -1.22, r: 0.26, guns: 1, cal: 0.040, len: 0.8,
+        open: true, back: true, arc: 35, up: 8, down: 55 },
+    ],
+    // Four men in one cabin, all of them forward of the wing and all within
+    // arm's reach of each other -- which is exactly how a Ju 88 was crewed.
+    inside: {
+      floor: -0.48, z0: -5.90, z1: 5.80, ribs: 1.00, catwalk: 0.28,
+      deckZ: 4.20, pilotX: -0.26, pedX: 0.26,
+      aimerZ: 5.00, aimerY: -0.90,
+      navZ: 2.60, navX: -0.38, tracks: false,
+      spars: [2.20, -0.60],
+      bulkheads: [-2.20],
+    },
     bay: { z: 0.30, len: 2.60, wide: 0.78, deep: 0.60, n: 3, bombLen: 1.30, bombR: 0.16 },
     underwing: [{ x: 2.30, y: -0.92, z: 0.60, len: 2.20, r: 0.25 }],
     mastZ: 2.80, mastH: 0.85,
@@ -3568,10 +4245,22 @@ const HEAVY = {
     glazeNose: 7.80,
     hoodW: 1.30, hoodH: 0.56, hoodY: 0.98, hoodZ0: 4.40, hoodZ1: 7.40, hoodBays: 4,
     turrets: [
-      { z: -1.80, y: 1.02, r: 0.54, guns: 1, cal: 0.055, len: 0.95 },
-      { z: -9.40, y: 0.06, r: 0.58, guns: 1, cal: 0.060, len: 1.10, back: true },
+      // The dorsal blister swung the whole way round; the tail cannon sat in
+      // a cone about as tight as the Cheyenne's.
+      { name: 'dorsal', z: -1.80, y: 1.02, r: 0.54, guns: 1, cal: 0.055, len: 0.95,
+        arc: 180, up: 80, down: 2 },
+      { name: 'tail', z: -9.40, y: 0.06, r: 0.58, guns: 1, cal: 0.060, len: 1.10,
+        back: true, arc: 30, up: 30, down: 30 },
     ],
     bulges: [{ x: 1.06, y: 0.16, z: -4.90, r: 0.40, pair: true, sy: 0.9, sz: 1.2 }],
+    inside: {
+      floor: -0.56, z0: -8.30, z1: 8.40, ribs: 1.10, catwalk: 0.32,
+      deckZ: 5.20, pilotX: -0.30, pedX: 0.30, engineer: 0.60,
+      aimerZ: 7.20, aimerY: -1.00,
+      navZ: 3.20, navX: -0.42, radioZ: 1.40, radioX: -0.40,
+      spars: [2.90, -0.80], trackZ: 0.60,
+      bulkheads: [-4.20],
+    },
     bay: { z: 1.00, len: 4.60, wide: 1.10, deep: 0.56, n: 4, bombLen: 1.60, bombR: 0.20 },
     mastH: 0.90,
   },
@@ -3594,10 +4283,49 @@ function heavyBomber(kind) {
   // never welded into a squadron the way the carrier aircraft are: she is one
   // model, looked at on her own.
   dressPlane(g);
+  // Her skin, off. A cutaway drawing is the only way anybody ever saw the
+  // inside of one of these, and it is a drawing rather than a hole: the
+  // structure and the crew stay solid and the plating over them goes to a
+  // ghost of itself. Built after `dressPlane`, because that is what settles
+  // which material each piece of her is actually wearing.
+  const ghosts = new Map();
+  const skin = [];
+  g.traverse((o) => {
+    if (!o.isMesh || o.userData.inside || Array.isArray(o.material)) return;
+    const solid = o.material;
+    let ghost = ghosts.get(solid);
+    if (!ghost) {
+      // Additive, and unlit. A ghost that works the usual way multiplies what
+      // is behind it, and the eye looks through six or eight layers of her to
+      // see the inside -- two sides of the fuselage, a wing, a nacelle, a
+      // fin -- so the structure ends up at a third of its brightness with a
+      // dark green cast over it, which is a silhouette rather than a cutaway.
+      // Adding light never darkens anything: the plating reads as a pale film
+      // over her and what is inside keeps its own colour.
+      ghost = new THREE.MeshBasicMaterial({
+        color: (solid.color ? solid.color.clone() : new THREE.Color(0x8a939b))
+          .lerp(new THREE.Color(0xffffff), 0.55),
+        transparent: true,
+        opacity: 0.065,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      ghosts.set(solid, ghost);
+    }
+    skin.push({ o, solid, ghost });
+  });
+  g.userData.skin = skin;
+  const structure = p.userData.insideGroup || null;
+  g.userData.cutaway = (on) => {
+    for (const q of skin) q.o.material = on ? q.ghost : q.solid;
+    if (structure) structure.visible = !!on;
+  };
   g.userData.plane = p;
   g.userData.props = p.userData.props;
   g.userData.rack = p.userData.rack;
   g.userData.parts = p.userData.parts || [];
+  g.userData.turrets = p.userData.turrets || [];
   return g;
 }
 
@@ -3609,4 +4337,4 @@ export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked
 // for by name rather than by role.
-export { heavyBomber, HEAVY, HEAVY_KINDS, bomb };
+export { heavyBomber, HEAVY, HEAVY_KINDS, bomb, layTurret };
