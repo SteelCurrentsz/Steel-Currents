@@ -505,18 +505,23 @@ function orderTorpedoes(state, staff, line, seen, want) {
 function orderAir(state, staff, seen) {
   const marks = seen.filter((c) => c.kind === 'ship').sort((a, b) => b.worth - a.worth);
   staff.strikeAt = marks.length ? marks[0].id : 0;
-  // How many decks are ready. The staff holds the strike until at least half
-  // of what it has can go together.
+  // Whether anything can go. Anything at all.
+  //
+  // The staff used to hold the whole strike until half the decks in the fleet
+  // could fly off together -- which is the right way to sink a battleship and
+  // the wrong way to fight this battle. With one carrier a side that is half of
+  // one deck, so it never bound; with two it meant a carrier with a squadron
+  // ranged, fuelled and turning sat on it waiting for her consort's lift, and a
+  // squadron on a deck is a squadron doing nothing. Aircraft are of no use
+  // aboard: she flies off whatever is ready the moment it is ready.
   let ready = 0;
-  let decks = 0;
   for (const s of state.ships) {
     if (!s.alive || s.team !== staff.team) continue;
     const cls = getClass(s.classId);
     if (!cls.planes || !s.squadrons || !s.squadrons.length) continue;
-    decks += 1;
     if (s.squadrons.some((q) => q.state === 'deck' && q.cooldown <= 0)) ready += 1;
   }
-  staff.strikeReady = decks > 0 && ready >= Math.max(1, Math.ceil(decks / 2)) ? 1 : 0;
+  staff.strikeReady = ready > 0 ? 1 : 0;
   // Every flight in the air is told what the strike is after, and every
   // fighter is told to stay with it.
   for (const p of state.planes) {

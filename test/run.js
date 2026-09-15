@@ -13,7 +13,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
-import { shipSnapshot } from '../shared/protocol.js';
+import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
@@ -24,7 +24,7 @@ import {
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
-  flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery,
+  flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -73,6 +73,7 @@ import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/rende
 import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
 import {
   PARTS as AIR_PARTS, freshAirframe, hitAirframe, stepAirframe, airframeState,
+  PART_BOX, HOLE_COST, MAX_HOLES,
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
@@ -217,9 +218,9 @@ import {
 } from '../client/js/render/iowa.js';
 import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
+import { unpackHoles, HoleField } from '../client/js/render/planes.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
-import { buildSnapshot } from '../shared/protocol.js';
 
 
 /**
@@ -12824,6 +12825,261 @@ check('the staff signals one course an appreciation, not two', () => {
   assert.ok(sweep > 0 && fight > sweep, 'the two courses are not the sweep and the fight');
   assert.ok(body.slice(sweep, fight).includes('return'),
     'a fleet that has lost contact falls through into the fighting course');
+});
+
+
+check('a round that finds her leaves a hole in her', () => {
+  // An aeroplane used to be a set of numbers going down. She is shot through
+  // now: every burst that finds her tears a hole, the hole is somewhere on the
+  // part it went through, and that is what the model carries.
+  const a = freshAirframe(420);
+  assert.equal(a.holes.length, 0, 'a fresh aeroplane has been shot at');
+  // One hit, one hole. A shell that arrives is a hole, not four of them.
+  hitAirframe(a, HOLE_COST * 3.2, 0.5, 0.5);
+  assert.equal(a.holes.length, 1,
+    `one shell made ${a.holes.length} holes`);
+  const h = a.holes[0];
+  assert.ok(PART_BOX[h.k], `a hole in ${h.k}, which is not part of an aeroplane`);
+  const box = PART_BOX[h.k];
+  assert.ok(h.x >= box.x[0] - 1e-9 && h.x <= box.x[1] + 1e-9, 'a hole is off her wingtip');
+  assert.ok(h.z >= box.z[0] - 1e-9 && h.z <= box.z[1] + 1e-9, 'a hole is off her nose');
+  assert.ok(h.r > 0.05 && h.r < 1, `a hole ${h.r.toFixed(2)} m across`);
+  // And the size comes off what arrived. A stream of rifle calibre leaves
+  // small holes; one Bofors shell leaves one you can see from the next
+  // aeroplane.
+  const small = freshAirframe(1e7);
+  for (let i = 0; i < 40; i++) hitAirframe(small, HOLE_COST / 8, 0.5, 0.5);
+  const big = freshAirframe(1e7);
+  hitAirframe(big, HOLE_COST * 10, 0.5, 0.5);
+  assert.ok(big.holes[0].r > small.holes[0].r * 1.6,
+    `a Bofors shell tore ${big.holes[0].r.toFixed(2)} m and a burst of `
+    + `rifle calibre ${small.holes[0].r.toFixed(2)} m`);
+
+  // The rate of holes follows the rate of fire, not the tick rate. This is the
+  // whole reason it is a till rather than a threshold on the single hit: flak
+  // arrives thirty times a second in slivers of four or five, and a per-hit
+  // test either fires every tick or never fires at all.
+  const drip = freshAirframe(1e7);
+  for (let i = 0; i < 300; i++) hitAirframe(drip, HOLE_COST / 10, 0.5, 0.5);
+  const lump = freshAirframe(1e7);
+  for (let i = 0; i < 30; i++) hitAirframe(lump, HOLE_COST, 0.5, 0.5);
+  assert.equal(drip.holes.length, lump.holes.length,
+    `the same damage in slivers made ${drip.holes.length} holes and in bursts `
+    + `${lump.holes.length}`);
+
+  // And a wing is a finite amount of wing.
+  const riddled = freshAirframe(1e7);
+  for (let i = 0; i < 400; i++) hitAirframe(riddled, HOLE_COST, Math.random(), Math.random());
+  assert.equal(riddled.holes.length, MAX_HOLES,
+    `an aeroplane is carrying ${riddled.holes.length} holes`);
+});
+
+check("a squadron's holes go out on the wire and come back", () => {
+  const world = generateWorld(9101, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = 0;
+  launchStrike(st, cv);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const p = st.planes.find((q) => !q.dead);
+  assert.ok(p, 'nothing got off the deck');
+  // Nothing has hit her yet, so there is nothing to send.
+  {
+    const snap = buildSnapshot(st, 0, cv.id);
+    const mine = (snap.planes || []).find((q) => q.i === p.id);
+    assert.ok(mine && mine.hl === undefined,
+      'an aeroplane nobody has fired at is carrying a hole report');
+  }
+  // Now she has been shot at: four separate bursts, four holes.
+  for (let i = 0; i < 4; i++) hurtFlight(st, p, HOLE_COST * 1.1);
+  const snap = buildSnapshot(st, 0, cv.id);
+  const mine = (snap.planes || []).find((q) => q.i === p.id);
+  assert.ok(mine && mine.hl && mine.hl.length >= 20,
+    `a shot-about aeroplane carries ${mine && mine.hl ? mine.hl.length / 5 : 0} holes`);
+  assert.equal(mine.hl.length % 5, 0, 'a hole report is not five numbers a hole');
+  // And the enemy can see them: a gunner walking his tracer onto her has to be
+  // able to see what it is doing.
+  const theirs = buildSnapshot(st, 1, 0);
+  const seen = (theirs.planes || []).find((q) => q.i === p.id);
+  if (seen) assert.ok(seen.hl, 'the other side cannot see what it has shot through');
+
+  // Back off the wire the same way it went on.
+  const back = unpackHoles(mine.hl);
+  assert.ok(back && back.length === mine.hl.length / 5, 'a hole report will not unpack');
+  for (const h of back) {
+    assert.ok(PART_BOX[h.k], `unpacked a hole in ${h.k}`);
+    assert.ok(Math.abs(h.x) <= 1.02 && Math.abs(h.z) <= 1.02, 'an unpacked hole is off her');
+    assert.ok(h.r > 0, 'an unpacked hole has no size');
+  }
+
+  // And onto the aeroplane. One instanced batch for the whole sky, each hole
+  // placed in her own frame and carried by her matrix -- the same way her
+  // airscrew and her bay doors are drawn.
+  const field = new HoleField(new THREE.Scene(), 64);
+  assert.equal(field.mesh.geometry.groups.length, 2,
+    'a hole is not the dark of her inside and a torn lip of metal');
+  field.begin();
+  const at = new THREE.Matrix4().makeTranslation(100, 200, 300);
+  // Out on the starboard wing of an eleven-and-a-half-metre fighter.
+  const one = unpackHoles([2, 30, 0, 5, 6]);
+  field.on(at, one, 11.58, 0);
+  field.end();
+  assert.equal(field.mesh.count, 1, 'a hole was not drawn');
+  assert.ok(field.mesh.visible, 'the hole batch is not being drawn at all');
+  const put = new THREE.Matrix4();
+  field.mesh.getMatrixAt(0, put);
+  const where = new THREE.Vector3().setFromMatrixPosition(put);
+  assert.ok(Math.abs(where.x - 100 - 0.6 * 11.58 * 0.5) < 0.2,
+    `a hole six tenths out the wing landed ${(where.x - 100).toFixed(2)} m from her centreline`);
+  assert.ok(Math.abs(where.y - 200) < 1 && Math.abs(where.z - 300) < 1,
+    'the hole is not on the aeroplane it belongs to');
+  // Nothing to draw when nothing has hit her.
+  field.begin();
+  field.on(at, null, 11.58, 0);
+  field.end();
+  assert.equal(field.mesh.count, 0, 'an untouched aeroplane is carrying holes');
+});
+
+check('a pilot with nothing left to drop and no way home goes into the ship', () => {
+  const world = generateWorld(6102, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = -6000; cv.heading = 0;
+  const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+  foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
+  launchStrike(st, cv);
+  for (let i = 0; i < Math.ceil(DECK_RUN * 3 / DT); i++) {
+    cv.spottedBy = [true, true]; foe.spottedBy = [true, true];
+    step(st, DT);
+  }
+  const p = st.planes.find((q) => !q.dead && q.role === 'dive');
+  assert.ok(p, 'no dive bomber got off the deck');
+  // Her bombs are gone, she is the last of her flight, and she is burning
+  // hard enough that she is not getting home.
+  p.dropped = true; p.bomb = 0; p.torp = 0;
+  p.phase = 'outbound';
+  for (let k = 1; k < p.machines.length; k++) {
+    p.machines[k].alive = false; p.machines[k].left = true;
+  }
+  const a = p.machines[0];
+  a.fire = 0.7;
+  const was = foe.hp;
+  let goingIn = 0;
+  let ram = null;
+  for (let i = 0; i < 20000 && !p.dead; i++) {
+    cv.spottedBy = [true, true]; foe.spottedBy = [true, true];
+    // Doomed, but kept from burning to pieces on the way in: what is being
+    // measured is the decision, not how long a fire takes.
+    a.fire = Math.max(a.fire, 0.7);
+    for (const k of Object.keys(a.parts)) {
+      a.parts[k].hp = Math.max(a.parts[k].hp, a.parts[k].max * 0.5);
+    }
+    for (const e of step(st, DT)) {
+      if (e.e === 'goingIn') goingIn += 1;
+      if (e.e === 'ram') ram = e;
+    }
+  }
+  assert.ok(goingIn > 0, 'she never decided to go in');
+  assert.ok(ram, 'she decided to go in and never arrived');
+  // And she hurts the ship she went into. An airframe at two hundred knots is
+  // four tons of aeroplane and whatever is left in her tanks.
+  assert.ok(foe.hp < was,
+    `an aeroplane went into a cruiser and left her at ${Math.round(foe.hp)} of ${Math.round(was)}`);
+  assert.ok(foe.fires > 0 || foe.flooding > 0 || was - foe.hp > 500,
+    'the ram did nothing a damage control party would notice');
+});
+
+check('a pilot with nothing left to drop and a whole aeroplane goes home', () => {
+  // The other half of the same decision, and by far the commoner one: empty
+  // and undamaged, she turns for her deck to be struck below and rearmed.
+  const world = generateWorld(6104, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = -6000; cv.heading = 0;
+  const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+  foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
+  launchStrike(st, cv);
+  for (let i = 0; i < Math.ceil(DECK_RUN * 3 / DT); i++) step(st, DT);
+  const p = st.planes.find((q) => !q.dead && q.role === 'dive');
+  assert.ok(p, 'no dive bomber got off the deck');
+  p.dropped = true; p.bomb = 0; p.torp = 0;
+  p.phase = 'return';
+  const start = dist(p.x, p.z, cv.x, cv.z);
+  let closest = start;
+  let sawRam = false;
+  for (let i = 0; i < 9000 && !p.dead; i++) {
+    for (const e of step(st, DT)) if (e.e === 'goingIn') sawRam = true;
+    closest = Math.min(closest, dist(p.x, p.z, cv.x, cv.z));
+  }
+  assert.ok(!sawRam, 'a whole aeroplane with her bombs gone went for the enemy');
+  assert.ok(closest < 320,
+    `she got to ${Math.round(closest)} m of her deck and no closer`);
+});
+
+check('a carrier flies off whatever is ready the moment it is ready', () => {
+  // The staff used to hold the whole strike until half the decks in the fleet
+  // could go together. With one carrier a side that never bound; with two it
+  // meant a deck with a squadron ranged, fuelled and turning sat on it waiting
+  // for her consort's lift.
+  const world = generateWorld(9103, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const b = addShip(st, { name: 'Shinano', classId: 'shinano', team: 0, index: 1 });
+  a.x = -2000; a.z = -9000; b.x = 2000; b.z = -9000;
+  const foe = addShip(st, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
+  foe.x = 0; foe.z = 4000; foe.spottedBy = [true, true];
+  // One deck has a squadron ready; the other has nothing on it at all.
+  for (const q of b.squadrons) { q.state = 'below'; q.cooldown = 600; }
+  const staff = createStaff(0, 0.9);
+  for (let i = 0; i < 90; i++) {
+    foe.spottedBy = [true, true];
+    stepStaff(st, staff, DT);
+    step(st, DT);
+  }
+  assert.equal(staff.strikeReady, 1,
+    'one deck ready out of two and the staff is holding the strike');
+
+  // And she actually flies them off.
+  const brainA = createBotBrain(0.85);
+  let flew = 0;
+  for (let i = 0; i < 3000; i++) {
+    foe.spottedBy = [true, true];
+    stepStaff(st, staff, DT);
+    stepBot(st, a, brainA, DT, false, staff);
+    step(st, DT);
+    flew = Math.max(flew, st.planes.filter((p) => !p.dead && p.team === 0).length);
+  }
+  assert.ok(flew > 0, 'a carrier with a ready deck and an enemy in front of her flew nothing off');
+});
+
+check('the pilot gets out when she hits the sea, and not before', () => {
+  // A pilot used to be thrown out of the cockpit the instant the simulation
+  // stopped carrying his flight, which is a different moment from the one he
+  // lives through. He rides her down now.
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const step = src.slice(src.indexOf('stepFlight(dt) {'),
+    src.indexOf('stepFlight(dt) {') + 4200);
+  assert.ok(/if \(!pl\) \{\s*\n\s*if \(!f\.orphan\)/.test(step),
+    'the cockpit is still abandoned the moment the flight goes off the wire');
+  assert.ok(/f\.orphan = true/.test(step), 'there is no going-down state');
+  assert.ok(/if \(!f\.pilot\.alive\)/.test(step),
+    'nothing checks whether she has arrived in the sea');
+  // The only ways out: the water, an explosion against a ship, or the backstop.
+  assert.ok(/leaveFlight\(true\)/.test(step), 'she never leaves at all');
+  // And the sea is the thing that ends a Pilot, which is what the above turns on.
+  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  assert.ok(/The sea is hard\.[\s\S]{0,200}this\.alive = false/.test(aero),
+    'the flight model no longer ends an aeroplane at the water');
+  // An aeroplane the player is riding down is still drawn: she is off the wire,
+  // so nothing else in the frame would draw her.
+  assert.ok(/this\.flight\.orphan && !this\.flight\.heavy/.test(src),
+    'the aeroplane the player is riding down is not drawn');
+  // And going into a ship is the other way out.
+  assert.ok(/if \(this\.flight && this\.flight\.id === ev\.i\) this\.leaveFlight\(true\);/.test(src),
+    'a pilot who flies into a ship stays in the cockpit afterwards');
 });
 
 

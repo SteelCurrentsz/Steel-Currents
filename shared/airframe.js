@@ -44,12 +44,98 @@ export const PARTS = [
 /** The parts that, knocked out, put her in the sea there and then. */
 export const FATAL = new Set(['wings', 'crew']);
 
+/**
+ * Where each part sits on an aeroplane, as a box in her own frame.
+ *
+ * Normalised: x across her from wingtip to wingtip, y up from the thrust line,
+ * z along her from tail to spinner, each running -1 to 1. The client scales
+ * the box by the span and length of whichever machine she actually is, so one
+ * table does for a Wildcat and for a Lancaster.
+ *
+ * This exists so that a hole is somewhere rather than nowhere. A round that
+ * finds her wing makes a hole out on the wing; one that finds her engine makes
+ * it in the nose. Without it the damage was a set of numbers falling and there
+ * was nothing on the aeroplane to see.
+ */
+export const PART_BOX = {
+  engine: { x: [-0.10, 0.10], y: [-0.06, 0.10], z: [0.62, 0.95] },
+  tanks: { x: [-0.42, 0.42], y: [-0.05, 0.05], z: [0.02, 0.34] },
+  wings: { x: [-1.00, 1.00], y: [-0.04, 0.04], z: [-0.10, 0.30] },
+  tail: { x: [-0.34, 0.34], y: [-0.02, 0.22], z: [-1.00, -0.62] },
+  crew: { x: [-0.09, 0.09], y: [0.04, 0.16], z: [0.16, 0.46] },
+  body: { x: [-0.11, 0.11], y: [-0.09, 0.09], z: [-0.55, 0.55] },
+};
+
+/** How many holes are kept on one airframe before the oldest is written over. */
+export const MAX_HOLES = 14;
+
+/**
+ * How much damage buys one hole.
+ *
+ * Not a threshold on the single hit, which is what this was first written as
+ * and which does not work: fire arrives here thirty times a second in slivers
+ * of four or five, so a per-hit test either fires on every tick and fills her
+ * skin in two seconds or -- with a number big enough to stop that -- never
+ * fires at all and she is shot down without a mark on her.
+ *
+ * So it is a till. Every hit puts its damage in, and a hole comes out each
+ * time there is enough in there to have made one. The rate of holes then
+ * follows the rate of fire rather than the tick rate, which is the only way
+ * it means anything: a burst that takes a tenth of her puts the same number
+ * of holes in her whether the simulation runs at thirty ticks or at three.
+ */
+export const HOLE_COST = 14;
+
+/**
+ * How big a hole a burst of this size tears, in metres.
+ *
+ * A rifle-calibre round makes a hole you have to look for and a 40 mm shell
+ * makes one you can see from the next aeroplane. The damage number a hit
+ * arrives with already carries the calibre -- twenty rounds of .303 in a
+ * second is a smaller number than one Bofors shell -- so the size comes off
+ * that rather than off a calibre nobody passes down here.
+ */
+export function holeSize(damage) {
+  return Math.min(0.85, 0.06 + Math.sqrt(Math.max(0, damage)) * 0.055);
+}
+
+/**
+ * Record where a round went through her.
+ *
+ * Kept on the airframe, in her own frame, so the hole is a fact about the
+ * aeroplane rather than something the client invents to have something to
+ * draw: the same list goes on her damage board, out on the wire, and onto the
+ * model, and a test can ask how many holes are in her wing.
+ */
+export function punchAirframe(a, part, damage, roll, roll2, roll3) {
+  const box = PART_BOX[part] || PART_BOX.body;
+  const lerp = (r, u) => r[0] + (r[1] - r[0]) * u;
+  const hole = {
+    k: part,
+    x: lerp(box.x, roll),
+    y: lerp(box.y, roll2),
+    z: lerp(box.z, roll3),
+    r: holeSize(damage),
+  };
+  if (!a.holes) a.holes = [];
+  // A wing is a finite amount of wing. Past a certain number of them the holes
+  // stop being separate holes and start being one piece of missing aeroplane,
+  // and the oldest is written over rather than the list growing without end.
+  if (a.holes.length >= MAX_HOLES) a.holes.shift();
+  a.holes.push(hole);
+  return hole;
+}
+
 /** One aeroplane, whole. `hp` is what the class datasheet gives a machine. */
 export function freshAirframe(hp) {
   const parts = {};
   for (const p of PARTS) parts[p.k] = { hp: hp * p.share, max: hp * p.share };
   return {
     parts,
+    // Every round that has been through her, where it went and how big a hole
+    // it left, and the damage taken since the last one. See punchAirframe.
+    holes: [],
+    pend: 0,
     // How hard she is burning, 0 to 1, and how much of her fuel is running out
     // over the side a second. Both of them are what a hit leaves behind rather
     // than what it does at the time, and both of them are what actually brings
@@ -105,11 +191,28 @@ export function partHit(a, roll) {
  * the same battle takes the same aeroplanes down in the same order.
  */
 export function hitAirframe(a, damage, roll, roll2) {
-  const out = { part: null, knocked: false, lit: false, leaking: false, down: false };
+  const out = {
+    part: null, knocked: false, lit: false, leaking: false, down: false, hole: null,
+  };
   if (!a.alive) return out;
   const k = partHit(a, roll);
   const c = a.parts[k];
   out.part = k;
+  // The holes it made, where it made them. Everything below is what the damage
+  // does to her; this is the holes themselves, and they stay in her skin.
+  a.pend = (a.pend || 0) + damage;
+  if (a.pend >= HOLE_COST) {
+    // One hit, one hole, and its size comes off what actually arrived. A
+    // stream of rifle calibre fills the till a sliver at a time and leaves
+    // small holes; one Bofors shell fills it at a stroke and leaves a hole you
+    // can see from the next aeroplane.
+    const bite = Math.min(a.pend, Math.max(HOLE_COST, damage));
+    a.pend -= bite;
+    out.hole = punchAirframe(a, k, bite,
+      (roll * 7.31 + a.holes.length * 0.37) % 1,
+      (roll2 * 5.17 + a.holes.length * 0.61) % 1,
+      (roll * roll2 * 11.7 + a.holes.length * 0.23) % 1);
+  }
   const had = c.hp;
   c.hp -= damage;
   if (c.hp <= 0) {
@@ -215,6 +318,17 @@ export function airframeState(a) {
     // the moment it started meant a single tank hit took a machine out of the
     // sky instantly.
     crippled: eng <= 0 || wing < 0.34,
+    // And whether she is finished: not hurt, not crippled, but going down.
+    //
+    // A pilot knows the difference. A machine with an engine out and half a
+    // wing gone is one he turns for home in and very often gets there; one
+    // that is burning hard with her structure open and her tanks running out
+    // is one he has a minute in, and what he does with that minute is the
+    // whole of why this is a separate question from `crippled`.
+    doomed: a.fire > 0.55
+      || frac('body') <= 0.1
+      || (eng <= 0 && wing < 0.2)
+      || (a.leak > 0.2 && (a.fuel ?? 1) < 0.08),
   };
 }
 

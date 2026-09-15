@@ -183,14 +183,22 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   }
 
   // A conned ship's aircraft are her captain's to send, and nobody else's.
-  // Under a staff she flies them when the strike goes, not whenever she
-  // happens to have a target in range -- which is what turns a trickle of
-  // flights into a strike.
-  if (!conned && cls.planes && canSee) {
-    const go = staff ? staff.strikeReady : d < cls.planes.strikeRange;
+  //
+  // Everybody else's go the moment they can go. A squadron ranged on a deck is
+  // a squadron doing nothing, and a carrier with her aircraft aboard is a
+  // target rather than a warship -- so she flies them off as soon as they are
+  // fuelled and the lift is clear, and they close the last of the distance
+  // themselves.
+  //
+  // The range she launches at is half again what a flight can reach, because
+  // the target is coming towards her and the strike takes several minutes to
+  // form up and get out. Holding them on deck until the enemy was inside the
+  // radius of action meant a carrier waited to be attacked before answering.
+  if (!conned && cls.planes) {
     const mark = staff && staff.strikeAt
       ? state.ships.find((q) => q.id === staff.strikeAt && q.alive) : target;
-    if (go && mark && dist(ship.x, ship.z, mark.x, mark.z) < cls.planes.strikeRange) {
+    const reach = cls.planes.strikeRange * 1.5;
+    if (mark && dist(ship.x, ship.z, mark.x, mark.z) < reach) {
       const p = leadPoint(ship.x, ship.z, mark, cls.planes.cruiseSpeed);
       const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
       ship.aimX = p.x; ship.aimZ = p.z;

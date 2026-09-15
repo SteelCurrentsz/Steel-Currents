@@ -28,6 +28,36 @@ import {
  * The models are written as a few hundred boxes and cylinders because that is
  * how you write a readable aeroplane. This is what makes them affordable.
  */
+/**
+ * How many holes are drawn in the whole sky at once.
+ *
+ * Seventy-two aeroplanes with ten holes apiece is seven hundred and twenty,
+ * and most of a sky is undamaged. This is generous and it is one draw call.
+ */
+export const HOLE_MAX = 640;
+
+/**
+ * Unpack a hole report off the wire.
+ *
+ * Five integers a hole, packed in `protocol.js`: which part, where on it in
+ * fiftieths, and how big in twentieths of a metre.
+ */
+export function unpackHoles(hl) {
+  if (!hl || !hl.length) return null;
+  const out = [];
+  for (let i = 0; i + 4 < hl.length; i += 5) {
+    out.push({
+      k: HOLE_PARTS[hl[i]] || 'body',
+      x: hl[i + 1] / 50, y: hl[i + 2] / 50, z: hl[i + 3] / 50,
+      r: hl[i + 4] / 20,
+    });
+  }
+  return out.length ? out : null;
+}
+
+/** The part keys in the order the wire packs them; see shared/airframe.js. */
+const HOLE_PARTS = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
+
 export function weld(group, about = null) {
   group.updateMatrixWorld(true);
   const mats = [];
@@ -262,6 +292,165 @@ export function slotAt(i, heading, out = { x: 0, y: 0, z: 0 }) {
   return out;
 }
 
+/**
+ * A hole in an aeroplane's skin.
+ *
+ * Two pieces, because that is what makes it read as a hole rather than as a
+ * black sticker: the dark of the inside of her, and a torn lip of bare metal
+ * standing proud of the paint round it. The lip is a ring of short petals at
+ * irregular lengths -- a clean circle reads as a porthole and a ragged one
+ * reads as something a shell did.
+ *
+ * Built once at unit size and scaled per hole, and drawn as one instanced
+ * batch for every aeroplane in the sky: a squadron shot to pieces costs one
+ * draw call more than a fresh one.
+ */
+function holeGeometry() {
+  const parts = [];
+  // The inside of her, a shade under the lip so the lip always reads.
+  const dark = new THREE.CircleGeometry(0.5, 10);
+  parts.push({ geo: dark, group: 0 });
+  // The torn edge. Eight petals, none the same, each folded a little out of
+  // the skin -- which is what the metal actually does when a round goes
+  // through it.
+  const petals = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const len = 0.13 + ((i * 7919) % 11) / 11 * 0.17;
+    const g = new THREE.PlaneGeometry(0.30, len);
+    const m = new THREE.Matrix4();
+    m.makeRotationX(-0.55 - ((i * 104729) % 7) / 7 * 0.5);
+    m.setPosition(0, 0.5 + len * 0.36, 0.02);
+    const r = new THREE.Matrix4().makeRotationZ(a);
+    g.applyMatrix4(m);
+    g.applyMatrix4(r);
+    petals.push(g);
+  }
+  const lip = mergeGeometries(petals);
+  parts.push({ geo: lip, group: 1 });
+  return mergeGroups(parts);
+}
+
+/** Merge a list of geometries into one, all in the same material group. */
+function mergeGeometries(list) {
+  const pos = [];
+  const nor = [];
+  for (const g of list) {
+    const p = g.attributes.position;
+    const n = g.attributes.normal;
+    const idx = g.index ? g.index.array : null;
+    const put = (i) => {
+      pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      nor.push(n.getX(i), n.getY(i), n.getZ(i));
+    };
+    if (idx) for (let i = 0; i < idx.length; i++) put(idx[i]);
+    else for (let i = 0; i < p.count; i++) put(i);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  return out;
+}
+
+/** Two geometries into one, each keeping its own material group. */
+function mergeGroups(parts) {
+  const flat = parts.map((q) => (q.geo.index ? q.geo.toNonIndexed() : q.geo));
+  const merged = mergeGeometries(flat);
+  let at = 0;
+  flat.forEach((g, i) => {
+    const n = g.attributes.position.count;
+    merged.addGroup(at, n, i);
+    at += n;
+  });
+  return merged;
+}
+
+/**
+ * Every hole in every aeroplane a renderer is drawing, in one instanced batch.
+ *
+ * Holes look the same whatever they are in, so there is no reason for a
+ * Wildcat's to be a different draw call from a Lancaster's. A renderer owns one
+ * of these, clears it at the top of the frame, stamps a hole for each round
+ * that has been through each machine it draws, and publishes the count at the
+ * end -- exactly the way the aeroplanes themselves are drawn.
+ */
+export class HoleField {
+  constructor(scene, max = HOLE_MAX) {
+    this.max = max;
+    const mats = [
+      // The inside of her: not black, because nothing is, but dark enough that
+      // the eye reads it as a way through.
+      new THREE.MeshBasicMaterial({ color: 0x0a0b0d, side: THREE.DoubleSide }),
+      // Torn metal, bright where the paint has gone off it.
+      new THREE.MeshStandardMaterial({
+        color: 0x8d9299, roughness: 0.55, metalness: 0.75, side: THREE.DoubleSide,
+      }),
+    ];
+    this.mesh = new THREE.InstancedMesh(holeGeometry(), mats, max);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.n = 0;
+    this.dummy = new THREE.Object3D();
+    this.m = new THREE.Matrix4();
+  }
+
+  begin() { this.n = 0; }
+
+  /**
+   * Put one aeroplane's holes on her.
+   *
+   * `holes` is the unpacked list off the wire: which part, where on it, and how
+   * big. `turn` rotates the list, so the second machine of a formation carries
+   * a different set from the leader's rather than the same aeroplane drawn
+   * three times.
+   *
+   * The position comes out of the part box and her span, so a hole in a wing is
+   * out on the wing of whatever she happens to be -- one normalised box does
+   * for an eleven-metre fighter and a thirty-one-metre bomber.
+   */
+  on(body, holes, span, turn = 0) {
+    if (!holes || !holes.length) return;
+    const d = this.dummy;
+    const len = span * 0.72;
+    for (let i = 0; i < holes.length; i++) {
+      if (this.n >= this.max) return;
+      const h = holes[(i + turn) % holes.length];
+      // y is a small fraction of span, because an aeroplane is a good deal
+      // thinner than she is wide.
+      const hx = h.x * span * 0.5;
+      const hy = h.y * span * 0.30;
+      const hz = h.z * len * 0.5;
+      // Which way the hole faces. A wing and a tailplane are horizontal
+      // surfaces and their holes lie flat in them; a fuselage is a vertical one
+      // and its holes face out sideways. Getting this wrong puts a disc edge-on
+      // to the eye and it disappears.
+      const flat = h.k === 'wings' || h.k === 'tail';
+      d.position.set(hx, hy, hz);
+      if (flat) {
+        d.rotation.set(-Math.PI / 2, 0, 0);
+        // Proud of the skin, on whichever side of it the round came out.
+        d.position.y += hy >= 0 ? 0.06 : -0.06;
+      } else {
+        d.rotation.set(0, hx >= 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+        d.position.x += hx >= 0 ? 0.06 : -0.06;
+      }
+      d.scale.setScalar(Math.max(0.12, h.r));
+      d.updateMatrix();
+      this.m.copy(d.matrix).premultiply(body);
+      this.mesh.setMatrixAt(this.n++, this.m);
+    }
+  }
+
+  end() {
+    this.mesh.count = this.n;
+    this.mesh.visible = this.n > 0;
+    if (this.n > 0) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 export class Flights {
   constructor(scene, max = 72) {
     this.max = max;
@@ -284,6 +473,8 @@ export class Flights {
       });
       this.batches[key] = { mesh, n: 0, parts: moving };
     }
+    // Every hole in every aeroplane in the sky, in one batch.
+    this.holes = new HoleField(scene);
     this.part = new THREE.Matrix4();
     this.hinge = new THREE.Matrix4();
     this.slide = new THREE.Matrix4();
@@ -360,13 +551,20 @@ export class Flights {
       b.n = 0;
       for (const q of b.parts) q.n = 0;
     }
+    this.holes.begin();
+  }
+
+  /** Put one aeroplane's holes on her; see HoleField. */
+  holesOn(body, holes, span, turn = 0) {
+    this.holes.on(body, holes, span, turn);
   }
 
   /**
    * Put one flight in the air: `count` aircraft of her type, in formation on
    * the leader's position and course, banked into whatever turn she is in.
    */
-  add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null) {
+  add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null,
+    holes = null, span = 12) {
     const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b) return;
     const d = this.dummy;
@@ -391,6 +589,9 @@ export class Flights {
       d.updateMatrix();
       b.mesh.setMatrixAt(b.n++, d.matrix);
       this.trimParts(b, d.matrix, trim);
+      // And what has been shot through her. The list is turned one place for
+      // each machine, so the wingman is not the leader's holes drawn twice.
+      this.holesOn(d.matrix, holes, span, i);
     }
   }
 
@@ -401,7 +602,8 @@ export class Flights {
    * end over end, and she needs the whole attitude rather than a slot in
    * somebody's division. Drawn out of the same batch, so she costs nothing.
    */
-  one(role, x, y, z, heading, bank, pitch, roll = 0, type = null, trim = null) {
+  one(role, x, y, z, heading, bank, pitch, roll = 0, type = null, trim = null,
+    holes = null, span = 12) {
     const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
     if (!b || b.n >= this.max) return;
     const d = this.dummy;
@@ -411,6 +613,7 @@ export class Flights {
     d.updateMatrix();
     b.mesh.setMatrixAt(b.n++, d.matrix);
     this.trimParts(b, d.matrix, trim);
+    this.holesOn(d.matrix, holes, span, 0);
   }
 
   /**
@@ -430,6 +633,7 @@ export class Flights {
    * last aeroplane actually flying.
    */
   end() {
+    this.holes.end();
     for (const key of Object.keys(this.batches)) {
       const b = this.batches[key];
       b.mesh.count = b.n;

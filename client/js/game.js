@@ -9,7 +9,7 @@ import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
-import { ROLE_TYPE, typeOf, slotAt, gunsOf } from './render/planes.js';
+import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles } from './render/planes.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
@@ -1143,6 +1143,9 @@ export class Battle {
           } else if (ev.team === this.team) {
             this.hud.ribbon(`RAM  ${ev.dmg}`, 'cit');
           }
+          // And if it was the aeroplane under the player, that is the end of
+          // the ride: she has arrived, and there is nothing left of her to fly.
+          if (this.flight && this.flight.id === ev.i) this.leaveFlight(true);
           break;
         }
         case 'planeCrash':
@@ -1168,10 +1171,16 @@ export class Battle {
           // fuel, or crippled and turning back with a dead engine.
           const at = slotAt(ev.slot || 0, ev.h || 0);
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
+          const wreckKind = typeOf(from && from.k, (from && from.r) || 'torpedo');
           this.oneDown({
             x: ev.x + at.x, y: (ev.y || 220) + at.y, z: ev.z + at.z,
             heading: ev.h || 0, why: ev.why,
-            role: (from && from.r) || 'torpedo', kind: typeOf(from && from.k, (from && from.r) || 'torpedo'),
+            role: (from && from.r) || 'torpedo', kind: wreckKind,
+            // What was done to her, so she goes down with it in her. The
+            // flight's last report is the nearest thing there is to this one
+            // machine's, and it is what the gunner who hit her was looking at.
+            holes: unpackHoles(from && from.hl),
+            span: (AERO[wreckKind] || AERO.avenger).span,
           });
           if (ev.team === this.team && ev.why !== 'crippled') this.hud.alert('Aircraft down');
           break;
@@ -2007,10 +2016,48 @@ export class Battle {
     const pl = f.heavy
       ? snap && (snap.bombers || []).find((q) => q.i === f.id)
       : snap && (snap.planes || []).find((q) => q.i === f.id);
-    // She is gone: shot down, or her squadron was released under her.
-    if (!pl) { this.leaveFlight(true); return; }
+    // She is gone off the wire: shot down, rammed, out of fuel, or her
+    // squadron was released under her.
+    //
+    // This is not where the pilot gets out. Being killed in the simulation and
+    // arriving in the sea are two different moments, and the second one is the
+    // one a pilot lives through -- so the cockpit stays where it is and the
+    // aeroplane under him becomes a falling one. He rides her down and leaves
+    // when she hits the water or blows up, which is the only way out of an
+    // aeroplane there has ever been.
+    if (!pl) {
+      if (!f.orphan) {
+        f.orphan = true;
+        f.orphanAt = 0;
+        this.hud.alert('Going down');
+      }
+      f.orphanAt += dt;
+      // Nothing is driving her any more. Power off, and enough nose-down bias
+      // that she comes down rather than gliding to the horizon: this is a
+      // machine that has been shot out of the sky, not one being ditched.
+      f.pilot.throttle = 0;
+      if (f.pilot.pitch > -0.22) f.pilot.pitch -= dt * 0.25;
+      // The one backstop. If she has been falling for three minutes and has
+      // still not arrived, something is wrong with her and the pilot is not
+      // spending the rest of the battle in her.
+      if (f.orphanAt > 180) { this.leaveFlight(true); return; }
+      const sea = this.scene.ocean.heightAt(f.pilot.x, f.pilot.z);
+      f.pilot.step(dt, sea);
+      if (!f.pilot.alive) {
+        // The sea. She goes in where she went in.
+        const fx = this.scene.effects;
+        fx.splash(f.pilot.x, f.pilot.z, 90);
+        fx.debris(f.pilot.x, Math.max(2, f.pilot.y), f.pilot.z, 10);
+        this.leaveFlight(true);
+      }
+      return;
+    }
+    f.orphan = false;
     // How she has been knocked about, part by part, for her own damage board.
     if (pl.dm) f.dm = pl.dm;
+    // And where she has been shot through, so an aeroplane the player rides
+    // down goes down with the holes that put her there in her.
+    f.holes = unpackHoles(pl.hl);
     // And how many of her are left in the air beside you.
     if (f.heavy) {
       f.count = Math.max(1, pl.n || 1);
@@ -3042,13 +3089,17 @@ export class Battle {
       // last snapshot happened to carry.
       const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
       const trim = this.bayTrim(pl, dt, mine ? mine.v : gs);
+      // What has been shot through her, off the wire. Both sides get this:
+      // a gunner walking his tracer onto a torpedo bomber has to be able to
+      // see what it is doing to her.
+      const holes = unpackHoles(pl.hl);
       if (mine) {
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
-          kind, trim);
+          kind, trim, holes, a.span);
       } else {
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
-          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim);
+          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span);
       }
       // The ones that have been hit and are still flying.
       //
@@ -3061,7 +3112,19 @@ export class Battle {
     }
     for (const w of this.wrecks) {
       this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
-        0, w.kind);
+        0, w.kind, null, w.holes, w.span || 12);
+    }
+    // And the one the player is riding down after the simulation has finished
+    // with her. She is off the wire, so nothing above draws her -- and a pilot
+    // watching his own aeroplane vanish out from under him while he is still
+    // in it is the one thing worse than being thrown out of the cockpit.
+    const ride = this.flight && this.flight.orphan && !this.flight.heavy
+      ? this.flight : null;
+    if (ride) {
+      const rp = ride.pilot;
+      this.scene.flights.one(ride.role || 'torpedo', rp.x, rp.y, rp.z,
+        rp.heading, rp.bank, rp.attitude, 0, ride.kind, null,
+        ride.holes, (AERO[ride.kind] || AERO.avenger).span);
     }
     this.scene.flights.end();
 
@@ -3096,11 +3159,13 @@ export class Battle {
       // snapshots, and they disagree ten times a second.
       const mine = this.flight && this.flight.heavy && this.flight.id === bm.i
         ? this.flight.pilot : null;
+      const holes = unpackHoles(bm.hl);
+      const hspan = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span;
       if (mine) {
         this.scene.heavies.add(
           bm.b || 'lancaster', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude,
-          Math.max(1, this.flight.count || bm.n || 1),
+          Math.max(1, this.flight.count || bm.n || 1), holes, hspan,
         );
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
@@ -3109,7 +3174,7 @@ export class Battle {
       }
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
-        Math.max(1, bm.n || 1),
+        Math.max(1, bm.n || 1), holes, hspan,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
     }
@@ -3173,6 +3238,11 @@ export class Battle {
         spin: (Math.random() - 0.5) * 2.6,
         tumble: 0.5 + Math.random() * 1.4,
         smoke: 0,
+        // The holes that put her there, which go down with her. A machine that
+        // comes out of the flak and falls out of the sky whole and unmarked is
+        // the one thing a squadron never looked like.
+        holes: unpackHoles(pl && pl.hl),
+        span: (AERO[typeOf(pl && pl.k, role)] || AERO.avenger).span,
       });
     }
   }
@@ -3236,6 +3306,8 @@ export class Battle {
       // off, and one gliding down on an empty tank is very nearly not seen at
       // all.
       trail: o.why === 'fire' ? 1 : o.why === 'dry' ? 0.25 : 0.6,
+      holes: o.holes || null,
+      span: o.span || 12,
     });
   }
 

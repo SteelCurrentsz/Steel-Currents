@@ -3652,6 +3652,18 @@ function slowestClimb(state, p) {
  * top to push down on her target. Coming home she lets down onto her deck.
  */
 function wantedHeight(state, p, carrier, inCompany) {
+  // Going in. The one profile with no pull-out in it: she is aimed at the
+  // ship's own upperworks and the height she wants is the height of the thing
+  // she is going to hit.
+  if (p.phase === 'ram') {
+    const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
+    if (mark) {
+      const d = dist(p.x, p.z, mark.x, mark.z);
+      // Held up until she is close, then down the last of it in a dive, so
+      // she comes in out of the sky rather than skimming the sea for a mile.
+      return d > 2400 ? 320 : Math.max(8, 8 + (d - 200) * 0.14);
+    }
+  }
   // Going up after a bomber stream comes before everything else, including
   // keeping station: the whole of an interception is getting to their height,
   // and a flight that holds her leader's instead arrives underneath them.
@@ -4007,6 +4019,32 @@ function ramShip(state, p, s, cls) {
 }
 
 /**
+ * Is this flight finished?
+ *
+ * The last machine of her, and that machine going down: burning through,
+ * structure open, or an engine and a wing both gone. Not merely hurt -- a
+ * flight with two machines left has somebody to get home, and a crippled
+ * aeroplane very often does get home.
+ */
+function dyingFlight(p) {
+  const live = (p.machines || []).filter((a) => a.alive && !a.left);
+  if (live.length !== 1) return false;
+  return airframeState(live[0]).doomed;
+}
+
+/** The nearest enemy hull, for a pilot with one decision left to make. */
+function nearestEnemyShip(state, p) {
+  let best = null;
+  let bestD = 14000;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === p.team) continue;
+    const d = dist(p.x, p.z, s.x, s.z);
+    if (d < bestD) { best = s; bestD = d; }
+  }
+  return best;
+}
+
+/**
  * Anything flown into anything, this tick.
  *
  * Only a flight that is actually low enough to be inside a hull, and only
@@ -4115,6 +4153,44 @@ function stepPlanes(state, dt) {
     if (p.dead || p.hp <= 0) {
       if (!p.dead) killFlight(state, p, 'flak');
       continue;
+    }
+
+    // The last thing a pilot who is not getting home does with his aeroplane.
+    //
+    // Empty, shot to pieces and going down anyway: there is nothing left to
+    // fly her back for and the airframe is still four tons at two hundred
+    // knots. She picks the nearest enemy hull and goes into it.
+    //
+    // The other half of the same decision is the one that happens far more
+    // often, and it was always here: empty and whole, she turns for her deck
+    // to be struck below and rearmed. What was missing is that a machine with
+    // nothing left to drop and no future used to fly home to a carrier she was
+    // never going to reach, and go in the sea halfway.
+    //
+    // Before she is steered rather than after, because the phase is what
+    // decides where she is pointed and how high she wants to be.
+    if (!p.flown && p.phase !== 'ram' && p.dropped && dyingFlight(p)) {
+      const mark = nearestEnemyShip(state, p);
+      if (mark) {
+        p.phase = 'ram';
+        p.targetId = mark.id;
+        p.targetAir = 0; p.targetHeavy = 0; p.targetBat = 0;
+        state.events.push({
+          e: 'goingIn', i: p.id, team: p.team, ship: mark.id,
+          x: r(p.x), z: r(p.z),
+        });
+      }
+    }
+    if (p.phase === 'ram') {
+      const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
+      // She went down before the aeroplane got there. Nothing else to do with
+      // what is left but look for another.
+      if (!mark) { p.targetId = 0; p.phase = 'return'; } else {
+        // Straight at her, and she flies herself: she is not keeping station,
+        // not forming up and not going home.
+        p.tx = mark.x; p.tz = mark.z;
+        p.lead = p.id;
+      }
     }
 
     // Where she is trying to be while the strike is forming up over the ship,
@@ -4508,7 +4584,7 @@ function planeHp(cls, f, L) {
  * aeroplane was in it anywhere, and when it reached nothing every machine in
  * the flight vanished in the same instant.
  */
-function hurtFlight(state, p, damage, why = 'flak') {
+export function hurtFlight(state, p, damage, why = 'flak') {
   if (!p.machines || !p.machines.length) { p.hp -= damage; return; }
   // What is shooting at her, so that when the last of her goes it is reported
   // as what actually did it rather than as flak by default.
@@ -4573,7 +4649,11 @@ function stepFlightDamage(state, p, dt) {
     const bad = live.find((a) => airframeState(a).crippled);
     if (!bad) break;
     if (live.length > 1) { bad.left = true; losePlane(state, p, bad, 'crippled'); continue; }
-    if (p.phase !== 'return') {
+    // A flight that has already decided to go into a ship is not turned for
+    // home here. This runs every tick, so without the second test it put her
+    // back on `return` a hundred times a second and she flew a sawtooth
+    // between the enemy and a deck she was not going to reach.
+    if (p.phase !== 'return' && p.phase !== 'ram') {
       p.phase = 'return';
       state.events.push({ e: 'planeCrippled', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
     }

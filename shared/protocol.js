@@ -3,6 +3,13 @@
 
 import { getClass } from './ships.js';
 import { torpedoVisible, SECTIONS, sectionVolume, gunState } from './sim.js';
+import { PARTS } from './airframe.js';
+
+/** The part keys, in the order a hole report packs them. */
+const PART_KEYS = PARTS.map((p) => p.k);
+
+/** How many of an aeroplane's holes go on the wire: the most recent this many. */
+const HOLES_SENT = 10;
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -233,6 +240,35 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       r2(a.fire || 0), r2(a.leak || 0), r2(a.fuel ?? 1)];
   };
 
+  /**
+   * Where she has been shot through, for whoever can see her.
+   *
+   * Flat and small on purpose: five numbers a hole, packed as integers, and
+   * nothing at all until something has hit her. A flight is drawn as up to
+   * four machines and this is the leader's skin -- the client turns the list
+   * a different way for each of the others, so no two aeroplanes in a
+   * formation carry the same holes.
+   *
+   * Unlike the damage report above, this goes to both sides. A gunner walking
+   * his tracer onto a torpedo bomber is entitled to see what he is doing to
+   * her; that is the whole of what he has to go on.
+   */
+  const holeReport = (p) => {
+    const a = (p.machines || []).find((m) => m.alive && !m.left) || (p.machines || [])[0];
+    if (!a || !a.holes || !a.holes.length) return undefined;
+    const out = [];
+    const from = Math.max(0, a.holes.length - HOLES_SENT);
+    for (let i = from; i < a.holes.length; i++) {
+      const h = a.holes[i];
+      out.push(
+        Math.max(0, PART_KEYS.indexOf(h.k)),
+        Math.round(h.x * 50), Math.round(h.y * 50), Math.round(h.z * 50),
+        Math.round(h.r * 20),
+      );
+    }
+    return out;
+  };
+
   const planes = state.planes
     .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
     // `o` is the carrier she flew off and `a` is how long she has been up:
@@ -282,6 +318,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // her own side is told: it is what a squadron reports, not what the
       // enemy can see.
       dm: p.team === team ? machineReport(p) : undefined,
+      // And where she has been shot through, which both sides can see.
+      hl: holeReport(p),
     }));
 
   // The heavy squadrons, to whoever can see them -- which at four thousand
@@ -310,6 +348,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // nine numbers a flight sends, out of the same airframe model. Her own
       // side only: what a formation reports is not what the enemy can see.
       dm: b.team === team ? machineReport(b) : undefined,
+      hl: holeReport(b),
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

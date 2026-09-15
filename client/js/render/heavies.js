@@ -14,7 +14,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { heavyBomber } from './planekit.js';
-import { weld } from './planes.js';
+import { weld, HoleField } from './planes.js';
 
 /**
  * Where each machine of a vic flies, in her leader's own frame.
@@ -49,6 +49,8 @@ export class Heavies {
     this.pm = new THREE.Matrix4();
     this.sp = new THREE.Matrix4();
     this.axis = new THREE.Vector3(0, 0, 1);
+    // What the fighters and the flak have made of her skin, in one batch.
+    this.holes = new HoleField(scene);
   }
 
   /**
@@ -102,6 +104,7 @@ export class Heavies {
       b.n = 0;
       for (const q of b.props) q.n = 0;
     }
+    this.holes.begin();
   }
 
   /**
@@ -110,7 +113,7 @@ export class Heavies {
    * `count` machines are drawn, each at her own station on the leader, so a
    * squadron that has lost two comes through as a vic with two gaps in it.
    */
-  add(kind, x, y, z, heading, bank, pitch, count) {
+  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31) {
     const b = this.batch(kind);
     const d = this.dummy;
     const n = Math.max(1, Math.min(VIC.length, count | 0));
@@ -128,6 +131,11 @@ export class Heavies {
       d.rotation.set(-(pitch || 0), heading, -(bank || 0));
       d.updateMatrix();
       b.mesh.setMatrixAt(b.n++, d.matrix);
+      // What the fighters and the flak have made of her skin. A heavy is
+      // thirty metres across and flies straight and level through everything
+      // the fleet can put up, so she is the aeroplane in this battle that ends
+      // a sortie looking most like a colander.
+      this.holes.on(d.matrix, holes, span, i);
       // Her airscrews, turning about their own shafts wherever the engine
       // mounted them, and then carried round by whatever the aeroplane herself
       // is doing. Each machine of the formation gets her own, so all four
@@ -156,5 +164,6 @@ export class Heavies {
         q.mesh.instanceMatrix.needsUpdate = true;
       }
     }
+    this.holes.end();
   }
 }
