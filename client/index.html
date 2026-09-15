@@ -215,10 +215,12 @@
     <div class="roster ally">
       <ul class="fleet-list" id="ally-fleet-list" aria-label="Your fleet"></ul>
       <ul class="gun-list" id="ally-gun-list" aria-label="Your coast batteries"></ul>
+      <ul class="bomber-list" id="ally-bomber-list" aria-label="Your bomber squadrons"></ul>
     </div>
     <div class="roster axis">
       <ul class="fleet-list" id="enemy-fleet-list" aria-label="Enemy fleet"></ul>
       <ul class="gun-list" id="enemy-gun-list" aria-label="Enemy coast batteries"></ul>
+      <ul class="bomber-list" id="enemy-bomber-list" aria-label="Enemy bomber squadrons"></ul>
     </div>
 
     <div class="force-row">
@@ -738,6 +740,36 @@
   <div class="yard-sheet yard-arms" id="battery-guns"></div>
 
   <button class="btn ghost yard-back" id="battery-back" type="button">Back</button>
+</section>
+
+<!-- ======================= THE BOMBER YARD ======================= -->
+<!-- The third of the same screen. Name, arrows and the commission control in
+     the upper left; what she weighs, does and is armoured with in the lower
+     left; the back button in the upper right; what she carries and what she
+     defends herself with in the lower right; and the aeroplane herself over a
+     burning city behind all of them. -->
+<section id="screen-bombers" class="screen yard-screen">
+  <div class="yard-grab" id="bomber-grab"></div>
+
+  <div class="yard-head">
+    <h2 id="bomber-name">Avro Lancaster</h2>
+    <p class="yard-class" id="bomber-mark">Avro Lancaster B.I</p>
+    <p class="yard-class bomber-role" id="bomber-role">Heavy night bomber</p>
+    <button class="yard-commission" id="bomber-commission" type="button">Commission Bomber</button>
+    <div class="yard-arrows">
+      <button class="yard-arrow" id="bomber-prev" type="button" aria-label="Previous bomber">
+        <span class="chev">&lt;&lt;&lt;</span><span class="peek" id="bomber-prev-name"></span>
+      </button>
+      <button class="yard-arrow" id="bomber-next" type="button" aria-label="Next bomber">
+        <span class="peek" id="bomber-next-name"></span><span class="chev">&gt;&gt;&gt;</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="yard-sheet yard-hull" id="bomber-airframe"></div>
+  <div class="yard-sheet yard-arms" id="bomber-payload"></div>
+
+  <button class="btn ghost yard-back" id="bomber-back" type="button">Back</button>
 </section>
 
 <section id="screen-fleet" class="screen panel-screen">

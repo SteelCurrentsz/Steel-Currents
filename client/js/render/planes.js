@@ -124,28 +124,47 @@ export function flightModels() {
   const make = (key, build) => {
     const g = new THREE.Group();
     const p = build(g);
-    // A turning propeller is a disc, not blades: at any range you would see one
-    // of these from, the blades are gone and the disc is all there is. Put on
-    // the nose the model actually has rather than a guessed offset -- the three
-    // machines sit at different heights and have noses of different lengths.
     g.updateMatrixWorld(true);
-    const bb = new THREE.Box3().setFromObject(g);
-    const span = bb.max.x - bb.min.x;
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(span * 0.135, 18),
-      new THREE.MeshBasicMaterial({
-        color: 0xdfe6ee, transparent: true, opacity: 0.17,
-        side: THREE.DoubleSide, depthWrite: false,
-      }),
-    );
-    // On the thrust line: the middle of the fuselage, not the middle of a box
-    // that has a tall fin in it.
-    disc.position.set(0, (bb.min.y + bb.max.y) * 0.42, bb.max.z - 0.25);
-    // Her guns, off the model, before the propeller disc is hung on it -- the
-    // disc is a sprite and has no muzzle, but reading them here rather than
-    // after welding is the point: welding throws the tree away.
+    // Her guns, off the model, before anything else is hung on it: reading
+    // them here rather than after welding is the point, because welding throws
+    // the tree away.
     MUZZLES[key] = muzzlesOf(p);
-    p.add(disc);
+    // A turning airscrew is a disc as much as it is blades: past a few hundred
+    // yards the blades smear and what is left is a faint smoky ring. It goes
+    // on the hub the model actually has, at the radius her own blades actually
+    // reach, so it turns with them and sits on the thrust line. Hung off the
+    // model's bounding box instead -- which is what it used to be -- it came
+    // out low and behind the spinner, and read as a pale white plate under the
+    // nose that no propeller has.
+    const hub = p.userData.prop;
+    if (hub) {
+      hub.updateMatrixWorld(true);
+      const at = new THREE.Vector3().setFromMatrixPosition(hub.matrixWorld);
+      const v = new THREE.Vector3();
+      let rad = 0;
+      hub.traverse((n) => {
+        if (!n.isMesh || !n.geometry || !n.geometry.attributes.position) return;
+        const pos = n.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(n.matrixWorld).sub(at);
+          rad = Math.max(rad, Math.hypot(v.x, v.y));
+        }
+      });
+      if (rad > 0.2) {
+        // A ring, not a plate. The middle of a propeller disc is spinner and
+        // crankcase -- solid metal you can see -- and a filled circle laid
+        // over it is exactly the white thing that had no business being there.
+        const blur = new THREE.Mesh(
+          new THREE.RingGeometry(rad * 0.34, rad * 0.99, 28, 1),
+          new THREE.MeshBasicMaterial({
+            color: 0x6f7a86, transparent: true, opacity: 0.085,
+            side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        blur.position.set(0, 0, 0.03);
+        hub.add(blur);
+      }
+    }
     // Her skin, before the weld: flush-riveted alloy under paint, with the
     // panel joints and the streaking that go with it. After the weld there is
     // no tree left to walk. See dressPlane.

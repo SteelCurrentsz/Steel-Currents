@@ -6,6 +6,7 @@
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
+import { BOMBERS, BOMBER_MAX } from '../../shared/bombers.js';
 import {
   TIMES, WEATHERS, WEATHER, theatreFor, battlefieldSeed, battlefieldHalf,
 } from '../../shared/world.js';
@@ -19,8 +20,10 @@ const TIME_NAMES = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
 // says what he is taking to sea rather than being handed a squadron — and
 // neither may grow past this.
 export const FLEET_MAX = 25;
-/** How many bomber squadrons a side may have on call. */
-export const BOMBER_MAX = 8;
+// How many bomber squadrons a side may have on call. It lives in the bomber
+// catalogue with the machines it counts; re-exported here because the briefing
+// is where everything else this screen is bounded by is written down.
+export { BOMBER_MAX };
 
 const cycle = (arr, cur, step = 1) => {
   const i = arr.indexOf(cur);
@@ -29,7 +32,7 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, getSkill, onShipChange, onOpenPicker, onClosePicker,
-    onOpenYard, onOpenChart, onOpenGuns }) {
+    onOpenYard, onOpenChart, onOpenGuns, onOpenBombers }) {
     this.onStart = onStart;
     this.getName = getName;
     // How hard the other side fights is a preference rather than a property of
@@ -41,6 +44,7 @@ export class Briefing {
     this.onOpenYard = onOpenYard;
     this.onOpenChart = onOpenChart;
     this.onOpenGuns = onOpenGuns;
+    this.onOpenBombers = onOpenBombers;
     this.state = {
       // Both sides start with nothing. Your fleet's first hull is the one you
       // take the bridge of; the rest sail under AI captains, and the enemy
@@ -53,12 +57,13 @@ export class Briefing {
       // way the hulls are, off the turret button under each fleet.
       allyGuns: [],
       enemyGuns: [],
-      // And the bomber squadrons each side has on call, ordered off the
-      // aeroplane under the batteries. A number rather than a list: one heavy
-      // squadron is like another, and what a captain is choosing is weight of
-      // bombs rather than which aircraft carry them.
-      allyBombers: 0,
-      enemyBombers: 0,
+      // And the bomber squadrons each side has on call, commissioned off the
+      // aeroplane under the batteries. A list rather than a number: a
+      // Lancaster with fourteen thousand pounds in a thirty-three foot bay is
+      // not a Betty with a torpedo, and which machine goes over the target is
+      // the whole of what a commander is choosing.
+      allyBombers: [],
+      enemyBombers: [],
       time: 'dawn',
       weather: 'sunny',
       // Where the battle is fought. The chart sets this — four corners and the
@@ -84,6 +89,8 @@ export class Briefing {
       enemyList: document.getElementById('enemy-fleet-list'),
       allyGunList: document.getElementById('ally-gun-list'),
       enemyGunList: document.getElementById('enemy-gun-list'),
+      allyBomberList: document.getElementById('ally-bomber-list'),
+      enemyBomberList: document.getElementById('enemy-bomber-list'),
       time: document.getElementById('time-val'),
       weather: document.getElementById('weather-val'),
       theatre: document.getElementById('theatre-name'),
@@ -136,11 +143,11 @@ export class Briefing {
     on('ally-turret', () => this.onOpenGuns?.('ally'));
     on('enemy-turret', () => this.onOpenGuns?.('enemy'));
 
-    // The aeroplane under the battery orders a squadron onto the roster; a
-    // press when that side is at full strength stands the whole raid down
-    // again, so one control both raises and lowers the number under it.
-    on('ally-bomber', () => this.stepBombers('ally'));
-    on('enemy-bomber', () => this.stepBombers('enemy'));
+    // The aeroplane under the battery opens the bomber yard, the way the
+    // battery over it opens the gun park and the hull over that opens the
+    // shipyard. Three controls, three screens, one idea.
+    on('ally-bomber', () => this.onOpenBombers?.('ally'));
+    on('enemy-bomber', () => this.onOpenBombers?.('enemy'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
     on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
@@ -188,20 +195,41 @@ export class Briefing {
     return `${turret({ flip })}<b class="count">${this.guns(side).length}</b>`;
   }
 
-  /** The bomber squadrons one side has on call. */
+  /** The bomber squadrons one side has on call, in the order they were ordered. */
   bombers(side) {
     return side === 'ally' ? this.state.allyBombers : this.state.enemyBombers;
   }
 
   bomberCell(side, flip) {
-    return `${bomber({ flip })}<b class="count">${this.bombers(side)}</b>`;
+    return `${bomber({ flip })}<b class="count">${this.bombers(side).length}</b>`;
   }
 
-  /** One more squadron, or none at all once that side is at full strength. */
-  stepBombers(side) {
-    const key = side === 'ally' ? 'allyBombers' : 'enemyBombers';
-    this.state[key] = this.state[key] >= BOMBER_MAX ? 0 : this.state[key] + 1;
+  /**
+   * The squadrons one side has on call, listed under its batteries.
+   *
+   * Counted rather than repeated: a commander who orders three Lancasters has
+   * ordered one thing three times, and three identical lines down the edge of
+   * the screen say that worse than one line with a three on it does.
+   */
+  bomberList(side) {
+    const tally = new Map();
+    for (const id of this.bombers(side)) tally.set(id, (tally.get(id) || 0) + 1);
+    return [...tally].map(([id, n]) => {
+      const b = BOMBERS[id];
+      const name = b ? b.name : id;
+      return `<li class="bomber-sqn" title="${name}">`
+        + `<span class="sqn-n">&times;${n}</span>${name}</li>`;
+    }).join('');
+  }
+
+  /** Order a squadron onto one side's roster. The bomber yard calls this once a
+   *  commander has looked her over. False if that side is already at strength. */
+  commissionBomber(side, bomberId) {
+    const list = this.bombers(side);
+    if (list.length >= BOMBER_MAX) return false;
+    list.push(bomberId);
     this.render();
+    return true;
   }
 
   /**
@@ -252,16 +280,18 @@ export class Briefing {
     this.picker = { side, mode };
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
     const guns = this.guns(side);
+    const air = this.bombers(side);
     const yours = side === 'ally';
     document.getElementById('fleet-title').textContent = 'Stand something down';
     document.getElementById('fleet-sub').textContent =
-      `Pick a ship or a battery to take out of ${yours ? 'your' : 'the enemy'} order of battle.`;
+      `Pick a ship, a battery or a squadron to take out of `
+      + `${yours ? 'your' : 'the enemy'} order of battle.`;
 
     const list = document.getElementById('fleet-list');
     list.innerHTML = '';
     this.onOpenPicker?.();
 
-    if (!fleet.length && !guns.length) {
+    if (!fleet.length && !guns.length && !air.length) {
       const p = document.createElement('p');
       p.className = 'muted';
       p.textContent = 'There is nothing on this side yet.';
@@ -299,6 +329,13 @@ export class Briefing {
       if (!b) return;
       card(`Coast battery · ${b.bore}`, b.name, b.place, () => { guns.splice(index, 1); });
     });
+    // And the squadrons, off the same list again.
+    air.forEach((id, index) => {
+      const b = BOMBERS[id];
+      if (!b) return;
+      card(`Bomber squadron · ${b.payload.toLocaleString('en-US')} lb`,
+        b.name, b.role, () => { air.splice(index, 1); });
+    });
   }
 
   render() {
@@ -320,6 +357,8 @@ export class Briefing {
     if (this.el.enemyList) this.el.enemyList.innerHTML = this.fleetList('enemy');
     if (this.el.allyGunList) this.el.allyGunList.innerHTML = this.gunList('ally');
     if (this.el.enemyGunList) this.el.enemyGunList.innerHTML = this.gunList('enemy');
+    if (this.el.allyBomberList) this.el.allyBomberList.innerHTML = this.bomberList('ally');
+    if (this.el.enemyBomberList) this.el.enemyBomberList.innerHTML = this.bomberList('enemy');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
     this.el.theatre.textContent = s.deploy.name;
@@ -397,10 +436,10 @@ export class Briefing {
       // a token on the ground for each of them.
       allyGuns: s.allyGuns.slice(),
       enemyGuns: s.enemyGuns.slice(),
-      // The bombers go with it too, so what was ordered on the briefing screen
-      // is what the battle is handed.
-      allyBombers: s.allyBombers,
-      enemyBombers: s.enemyBombers,
+      // The bombers go with it too, by type, so what was ordered on the
+      // briefing screen is what the battle is handed.
+      allyBombers: s.allyBombers.slice(),
+      enemyBombers: s.enemyBombers.slice(),
       // How her carriers are stored: fighters, dive bombers and torpedo
       // bombers, as the captain balanced them in the yard.
       airGroup: getSettings().airGroup,

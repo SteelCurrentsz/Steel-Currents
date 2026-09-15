@@ -74,8 +74,11 @@ import {
 import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   tenzan as pkTenzan, jake as pkJake, dauntless as pkDauntless,
-  avenger as pkAvenger,
+  avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS,
 } from '../client/js/render/planekit.js';
+import {
+  BOMBERS, BOMBER_ORDER, BOMBER_MAX as CATALOGUE_MAX, airframeSheet, payloadSheet,
+} from '../shared/bombers.js';
 import { meshSection } from '../client/js/render/interior.js';
 import { Plating, holeRadius } from '../client/js/render/plating.js';
 import { measureLines, halfBeamAt, fillTo, waterTop }
@@ -4498,6 +4501,38 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
     'a Wildcat has been given something to drop');
 });
 
+check('the airscrew reads as a disc without a plate under her nose', () => {
+  // A turning airscrew is a disc as much as it is blades, so there is a faint
+  // ring drawn in it. It used to be a filled circle hung off the model's
+  // bounding box -- low, behind the spinner and sized off her span -- and with
+  // real blades turning in front of it what a captain saw was a pale white
+  // plate under the nose of every aeroplane in the game.
+  //
+  // It belongs on the airscrew: welded into the part that spins, concentric
+  // with the blades and square to the shaft.
+  const models = flightModels();
+  for (const [kind, m] of Object.entries(models)) {
+    const prop = (m.parts || []).find((q) => q.name === 'prop');
+    assert.ok(prop, `the ${kind} has no airscrew`);
+    prop.geo.computeBoundingBox();
+    const bb = prop.geo.boundingBox;
+    const rx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
+    const ry = Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y));
+    assert.ok(rx > 0.8, `the ${kind}'s airscrew is only ${rx.toFixed(2)} m in the radius`);
+    assert.ok(Math.abs(rx - ry) < rx * 0.3,
+      `the ${kind}'s airscrew is ${rx.toFixed(2)} by ${ry.toFixed(2)} -- not round`);
+    assert.ok(bb.max.z - bb.min.z < rx,
+      `the ${kind}'s airscrew is ${(bb.max.z - bb.min.z).toFixed(2)} m deep`);
+    // The blur is in there, and it is the only translucent thing on her.
+    const blur = prop.mats.filter((mat) => mat.transparent);
+    assert.equal(blur.length, 1, `the ${kind}'s airscrew has ${blur.length} blurs on it`);
+    assert.ok(blur[0].opacity < 0.2,
+      `the ${kind}'s airscrew blur is ${blur[0].opacity} opaque -- that is a plate`);
+    assert.ok(!m.mats.some((mat) => mat.transparent),
+      `the ${kind} still has something translucent welded into her body`);
+  }
+});
+
 check('the airscrew turns, and faster the faster she is going', () => {
   // A propeller drawn standing still is the one thing that says an aeroplane
   // is a model rather than a machine. It is a moving part like the bay doors,
@@ -8330,17 +8365,173 @@ check('each side can order bombers, under the batteries', () => {
   assert.ok(/\$\{flip \? ' style="transform:scaleX\(-1\)"' : ''\}/.test(art),
     'she cannot be turned round to face the other way');
 
-  // And the counter under her counts something real, which one press raises
-  // and a press at full strength stands down again.
+  // And the aeroplane under the battery opens a yard of its own, the way the
+  // battery over it opens the gun park -- it does not step a counter.
   const brief = readFileSync(new URL('../client/js/briefing.js', import.meta.url), 'utf8');
-  assert.ok(/allyBombers: 0/.test(brief) && /enemyBombers: 0/.test(brief),
-    'neither side starts with a bomber count');
+  assert.ok(/allyBombers: \[\]/.test(brief) && /enemyBombers: \[\]/.test(brief),
+    'a side starts with something other than an empty bomber roster');
+  assert.ok(/onOpenBombers\?\.\('ally'\)/.test(brief),
+    'the bomber button does not open the bomber yard');
   assert.ok(/BOMBER_MAX/.test(brief), 'there is no limit on what a side may order');
-  const step = brief.slice(brief.indexOf('stepBombers(side) {'));
-  assert.ok(/>= BOMBER_MAX \? 0 :/.test(step),
-    'ordering past full strength does not stand the raid down again');
-  assert.ok(/allyBombers: s\.allyBombers/.test(brief),
+  assert.ok(/allyBombers: s\.allyBombers\.slice\(\)/.test(brief),
     'what was ordered on the briefing screen is not handed to the battle');
+  assert.ok(/class="bomber-sqn"/.test(brief),
+    'the squadrons a side has on call are on no roster');
+});
+
+check('the bomber yard is laid out the way the shipyard and the gun park are', () => {
+  // Three screens, one shape: the name, the arrows and the commission control
+  // in the upper left, a datasheet in each of the bottom corners, the back
+  // button in the upper right, and the thing itself behind all of them. What
+  // is in the two sheets is the difference -- a hull's tonnage and guns, a
+  // battery's mounting and ordnance, a bomber's airframe and payload.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const yard = html.slice(html.indexOf('id="screen-bombers"'),
+    html.indexOf('id="screen-fleet"'));
+  assert.ok(yard.length > 400, 'there is no bomber yard screen');
+  assert.ok(/<section id="screen-bombers" class="screen yard-screen">/.test(html),
+    'the bomber yard is not built on the same screen the other two yards are');
+  // Upper left: what she is called, then the commission control, then the two
+  // arrows -- and each arrow says which machine is behind it.
+  const head = yard.slice(yard.indexOf('class="yard-head"'), yard.indexOf('yard-sheet'));
+  for (const id of ['bomber-name', 'bomber-mark', 'bomber-role', 'bomber-commission',
+    'bomber-prev', 'bomber-next', 'bomber-prev-name', 'bomber-next-name']) {
+    assert.ok(head.includes(`id="${id}"`), `the head of the yard has no ${id}`);
+  }
+  assert.ok(head.indexOf('bomber-commission') < head.indexOf('yard-arrows'),
+    'the commission control is not where the shipyard puts it');
+  // Lower left and lower right, and the back button in the fourth corner.
+  assert.ok(/class="yard-sheet yard-hull" id="bomber-airframe"/.test(yard),
+    'her weight, speed and armour are not in the lower left');
+  assert.ok(/class="yard-sheet yard-arms" id="bomber-payload"/.test(yard),
+    'her payload and guns are not in the lower right');
+  assert.ok(/class="btn ghost yard-back" id="bomber-back"/.test(yard),
+    'there is no way back out of the bomber yard');
+
+  // And the two sheets say what the corners were asked for.
+  const air = airframeSheet(BOMBERS.lancaster).map(([k]) => k);
+  assert.deepEqual(air.slice(0, 3), ['Weight', 'Speed', 'Armour'],
+    `the lower left leads with ${JSON.stringify(air.slice(0, 3))}`);
+  const pay = payloadSheet(BOMBERS.lancaster).map(([k]) => k);
+  for (const want of ['Payload', 'Turrets', 'Calibre']) {
+    assert.ok(pay.includes(want), `the lower right never says ${want}`);
+  }
+
+  // The main screen list has to carry it, or the screen can never come up.
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/'yard', 'guns', 'bombers'/.test(main),
+    'the bomber yard is not one of the screens the game can show');
+  assert.ok(/onOpenBombers: \(side\) => openBombers\(side\)/.test(main),
+    'nothing opens the bomber yard');
+  assert.ok(/briefing\.commissionBomber\(bomberUi\.side, id\)/.test(main),
+    'the commission control commissions nothing');
+});
+
+check('the first bomber in the catalogue is the Lancaster, and every one of them flies', () => {
+  // The order matters: the yard opens on the first of them, and the first of
+  // them is the Avro Lancaster.
+  assert.equal(BOMBER_ORDER[0], 'lancaster',
+    `the yard opens on the ${BOMBER_ORDER[0]} rather than the Lancaster`);
+  assert.equal(BOMBERS.lancaster.name, 'Avro Lancaster');
+  assert.ok(CATALOGUE_MAX > 0, 'a side may order no bombers at all');
+  // Every machine in the catalogue is one the toolkit can actually build, and
+  // every machine the toolkit can build is in the catalogue.
+  assert.deepEqual([...BOMBER_ORDER].sort(), [...HEAVY_KINDS].sort(),
+    'the catalogue and the models have drifted apart');
+  for (const id of BOMBER_ORDER) {
+    const b = BOMBERS[id];
+    for (const k of ['name', 'fullName', 'role', 'weight', 'speed', 'armour',
+      'payload', 'turrets', 'calibre', 'span']) {
+      assert.ok(b[k] !== undefined, `${id} has no ${k}`);
+    }
+    // The figure on the sheet is the figure the model is built to.
+    assert.ok(Math.abs(HEAVY[id].span - b.span) < 0.02,
+      `the ${id} is drawn ${HEAVY[id].span} m across and her sheet says ${b.span}`);
+  }
+});
+
+check('nothing on a bomber is hanging in the air on its own', () => {
+  // The same test the carrier aircraft get, on machines four times the size
+  // with four engines hung off the wing, three turrets let into the skin and a
+  // bay a third of the length of her. Every one of those is a piece whose
+  // position was asked of the model rather than typed in, and the way to know
+  // it worked is that she comes out as one lump.
+  const GAP = 0.06;
+  for (const kind of HEAVY_KINDS) {
+    const g = heavyBomber(kind);
+    g.updateMatrixWorld(true);
+    const boxes = [];
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      for (let n = o; n; n = n.parent) if (n.visible === false) return;
+      const bb = new THREE.Box3().setFromObject(o);
+      bb.expandByScalar(GAP / 2);
+      boxes.push(bb);
+    });
+    assert.ok(boxes.length > 120, `${kind} is drawn with only ${boxes.length} pieces`);
+    const up = boxes.map((_, i) => i);
+    const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (!boxes[i].intersectsBox(boxes[j])) continue;
+        const a = find(i);
+        const b = find(j);
+        if (a !== b) up[a] = b;
+      }
+    }
+    const lumps = new Set(boxes.map((_, i) => find(i)));
+    assert.equal(lumps.size, 1,
+      `the ${kind} comes apart into ${lumps.size} pieces that do not touch each other`);
+  }
+});
+
+check('a bomber has airscrews that turn, doors that swing and a stick in the bay', () => {
+  // What the yard animates has to be on the model: one turning group per
+  // engine, the two bay doors as moving parts about their own hinges, and a
+  // bomb on every crutch in the bay.
+  for (const kind of HEAVY_KINDS) {
+    const g = heavyBomber(kind);
+    const spec = HEAVY[kind];
+    const engines = spec.nacelles.length * 2;
+    assert.equal(g.userData.props.length, engines,
+      `the ${kind} has ${g.userData.props.length} airscrews and ${engines} engines`);
+    const doors = (g.userData.parts || [])
+      .filter((q) => q.name === 'bayPort' || q.name === 'bayStbd');
+    assert.equal(doors.length, 2, `the ${kind}'s bay has ${doors.length} doors`);
+    for (const d of doors) {
+      assert.equal(d.axis, 'z', 'a bay door hinges about the wrong axis');
+      assert.ok(Math.abs(d.open) > 1, 'a bay door barely opens');
+    }
+    assert.equal(g.userData.rack.length, spec.bay.n,
+      `the ${kind} carries ${g.userData.rack.length} of the ${spec.bay.n} she should`);
+    // And the stick is inside her, not hanging under her: every bomb on a
+    // crutch has aeroplane over it and the bay's own roof above that.
+    const body = new THREE.Box3().setFromObject(g);
+    for (const cr of g.userData.rack) {
+      cr.updateMatrixWorld(true);
+      const at = new THREE.Vector3().setFromMatrixPosition(cr.matrixWorld);
+      assert.ok(at.y > body.min.y && at.y < spec.cl,
+        `a bomb in the ${kind}'s bay is at ${at.y.toFixed(2)}, outside her belly`);
+    }
+  }
+});
+
+check('the yard flies her over a city, with the flak up and the stick going down', () => {
+  // The middle of the screen is the thing being chosen, and what a heavy
+  // bomber is chosen for is this: the target underneath, the bay open, the
+  // bombs on their way and the guns firing at her.
+  const yard = readFileSync(new URL('../client/js/bomberyard.js', import.meta.url), 'utf8');
+  assert.ok(/function buildCity\(/.test(yard), 'there is no city under her');
+  assert.ok(/function buildFires\(/.test(yard), 'nothing down there is burning');
+  assert.ok(/class Flak/.test(yard), 'nobody is shooting at her');
+  // The doors are her own, and a bomb leaves the crutch it was hanging on.
+  assert.ok(/'bayPort' \|\| q\.name === 'bayStbd'/.test(yard),
+    'the yard does not open the bay doors the model registered');
+  assert.ok(/release\(cr\)/.test(yard), 'nothing ever leaves the bay');
+  // And the bursts are round her rather than on her.
+  const flak = yard.slice(yard.indexOf('burst(span) {'));
+  assert.ok(/span \* \(0\.9\d \+ r\(\) \* 1\.\d\)/.test(flak),
+    'the flak bursts at a fixed range, or inside the aeroplane');
 });
 
 check('the game asks who is at the wheel once, and then never again', () => {

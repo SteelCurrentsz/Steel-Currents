@@ -383,6 +383,27 @@ export const P = {
   warhead: new THREE.MeshLambertMaterial({ color: 0x4a5058 }),
   bombBody: new THREE.MeshLambertMaterial({ color: 0x3d4438 }),
   bombBand: new THREE.MeshLambertMaterial({ color: 0xb0a253 }),
+  // Bomber Command, 1943: dark green and dark earth above, and the matt black
+  // underneath that is the whole point of a night bomber. It is the darkest
+  // paint in the game and it has to stay readable against a burning city, so
+  // the black is a very dark blue-grey rather than nought.
+  rafTop: new THREE.MeshLambertMaterial({ color: 0x3c4636 }),
+  rafEarth: new THREE.MeshLambertMaterial({ color: 0x544531 }),
+  night: new THREE.MeshLambertMaterial({ color: 0x191c21 }),
+  // And the Eighth Air Force by 1944: no paint at all. A B-17G came off the
+  // line in bare alloy, because the weight of the dope was worth more than the
+  // concealment on a daylight raid.
+  alloy: new THREE.MeshLambertMaterial({ color: 0xa4acb4 }),
+  alloyLo: new THREE.MeshLambertMaterial({ color: 0x939ba3 }),
+  // The roundel: three rings, and the only marking on this list that is three.
+  rafBlue: new THREE.MeshLambertMaterial({ color: 0x1d3a6d }),
+  rafRed: new THREE.MeshLambertMaterial({ color: 0xa8322c }),
+  // A bomber's nose is four square metres of glass, and painted the shade a
+  // fighter's sliding hood is painted -- which is right, because a hood is a
+  // hand's breadth of glass with a dark cockpit behind it -- the whole nose of
+  // her comes out as a black cone stuck on the front. Lighter, so it reads as
+  // glazing catching the sky rather than as a hole.
+  glazing: new THREE.MeshLambertMaterial({ color: 0x3f5060 }),
 };
 
 // The names the tools know these by. `planeTop` and `planeBottom` are the two
@@ -405,6 +426,11 @@ const SCHEMES = {
   grey: [P.grey, P.greyDark],
   // IJN carrier aircraft, 1944: dark green over grey-green.
   ijn: [P.jpnTop, P.jpnBottom],
+  // Bomber Command: camouflage above, night black below.
+  raf: [P.rafTop, P.night],
+  // The Eighth Air Force: bare metal, top and bottom, with the underside a
+  // shade down on the upper so she still reads as having two sides to her.
+  usaaf: [P.alloy, P.alloyLo],
 };
 
 /**
@@ -1545,8 +1571,13 @@ function decal(p, x, y, z, dir, layers, fit = null) {
   const big = layers.reduce((t, [r]) => Math.max(t, r), 0.1);
   m.userData.sag = pose ? skinSag(m, big, fit || p) : [0, 0];
   m.userData.radius = big;
+  // Lifted more than it was. The drop is a paraboloid fitted to the fall at the
+  // marking's own radius, and a real surface -- a wing near its leading edge,
+  // a fuselage where it starts to close -- falls away faster than that. At six
+  // millimetres the forward quarter of a roundel sank into the panel and what
+  // showed was a crescent with a bite out of it.
   layers.forEach(([r, mat], i) => {
-    conformPoly(m, mat, ringPts(r), 0.006 + i * 0.004, m.userData.sag, big);
+    conformPoly(m, mat, ringPts(r), 0.013 + i * 0.006, m.userData.sag, big);
   });
   return m;
 }
@@ -1566,7 +1597,7 @@ function insignia(p, x, y, z, r, up = true, fit = null) {
   // is laid over. It was five boxes standing on the blue: on a fuselage, where
   // the marking is nearly as wide as the body is round, the tips of those
   // boxes stood a hand's breadth clear of the skin.
-  conformPoly(m, M.star, starPts(r * 0.92), 0.011, m.userData.sag, m.userData.radius);
+  conformPoly(m, M.star, starPts(r * 0.92), 0.026, m.userData.sag, m.userData.radius);
   return m;
 }
 
@@ -2937,9 +2968,645 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
   return p;
 }
 
+// ------------------------------------------------------ the heavy squadrons --
+//
+// The bombers: the aircraft nobody flies off a deck.
+//
+// They are ten times the aeroplane a Wildcat is and they are built out of the
+// same toolkit, because the parts are the same parts -- a lofted monocoque, a
+// wing with a real section on it, a nacelle round an engine, a turret that is
+// a glazed dome on a ring. What is different is that there are four engines
+// instead of one, that the bomb bay is most of the length of her, and that
+// what identifies a heavy at any range is the planform and the tail: two fins
+// on booms off the tailplane tips is an Avro and nothing else, and one fin the
+// size of a barn door is a Boeing.
+//
+// Their real dimensions, since these are the ones the datasheets quote:
+//
+//   Avro Lancaster B.I   21.18 m long   31.09 m span   4 × Merlin XX
+//   B-17G Fortress       22.66 m long   31.62 m span   4 × Cyclone radials
+//   He 111 H-6           16.40 m long   22.60 m span   2 × Jumo 211F
+//   Ju 88 A-4            14.36 m long   20.08 m span   2 × Jumo 211J
+//   G4M1 Betty           20.00 m long   24.89 m span   2 × Kasei radials
+//
+// As with every other machine in this file the origin is on the ground under
+// her, the nose points along +z, and every piece is measured off her own skin
+// rather than placed at a guessed height.
+
+/**
+ * A fuselage, generated rather than typed station by station.
+ *
+ * A bomber's body is a long parallel middle with a cone at each end, and
+ * writing fifteen stations by hand for five of them would be fifteen chances
+ * to put a kink in one. So the shape is described instead: where the parallel
+ * body starts and stops, how far the section is closed down at the sternpost
+ * and at the nose, and how sharply each cone runs in. The loft comes out of
+ * that, and a body built this way cannot have a step in it.
+ */
+function bodyLoft(o) {
+  const N = o.n || 16;
+  const st = [];
+  for (let i = 0; i <= N; i++) {
+    const f = i / N;                        // 0 at the sternpost, 1 at the nose
+    const z = o.z0 + (o.z1 - o.z0) * f;
+    let kw;
+    let kh;
+    let y = o.y;
+    if (f < o.full0) {
+      // The tail cone. Eased, so it leaves the parallel body tangentially
+      // rather than at a corner.
+      const t = f / o.full0;
+      const e = 1 - (1 - t) ** (o.tailP || 1.9);
+      kw = o.tailW + (1 - o.tailW) * e;
+      kh = o.tailH + (1 - o.tailH) * e;
+      // A tail cone rises as it closes: the underside sweeps up to the
+      // sternpost and the spine stays where it is.
+      y += (1 - e) * (o.tailUp || 0);
+    } else if (f <= o.full1) {
+      kw = 1;
+      kh = 1;
+    } else {
+      const t = (f - o.full1) / (1 - o.full1);
+      const e = t ** (o.noseP || 1.9);
+      kw = 1 - (1 - o.noseW) * e;
+      kh = 1 - (1 - o.noseH) * e;
+      y += e * (o.noseDrop || 0);
+    }
+    st.push({ z, w: o.w * kw, h: o.h * kh, y });
+  }
+  return st;
+}
+
+/** The RAF roundel: blue, white and red, laid on the skin like any other. */
+function roundel(p, x, y, z, r, up = true, fit = null) {
+  return decal(p, x, y, z, faceDir(up, x),
+    [[r, P.rafBlue], [r * 0.60, P.star], [r * 0.28, P.rafRed]], fit);
+}
+
+/**
+ * A powered turret: the ring it turns on, the glazed dome over it, the frames
+ * that hold the glass, and the guns out of the front of it.
+ *
+ * `guns` barrels of `cal` radius, spread `spread` apart and raked up by
+ * `rake`. Every turret on every one of these is this object at a different
+ * size, which is the truth about them: a Frazer-Nash and a Sperry differ in
+ * how many guns are in them and in nothing else you can see from outside.
+ */
+function turretDome(p, o) {
+  const { x = 0, y, z, r, guns = 2, cal = 0.05 } = o;
+  const len = o.len || r * 2.6;
+  const rake = o.rake || 0.10;
+  const spread = o.spread === undefined ? r * 0.48 : o.spread;
+  // The ring. A turret stands on a bearing let into the skin, and without the
+  // ring the dome is a bubble resting on her back.
+  lathe(p, M.planeTop, [
+    [r * 1.10, -0.10], [r * 1.14, -0.02], [r * 1.10, 0.06],
+  ], x, y, z, 18);
+  // The dark of the inside of it, then the glass over that. Same shell twice,
+  // the way the greenhouses are done, so the gunner's turret is not a bubble
+  // with daylight through it.
+  const shell = (k) => [
+    [r * 0.99 * k, 0.02], [r * 1.00 * k, r * 0.34], [r * 0.93 * k, r * 0.70],
+    [r * 0.79 * k, r * 1.00], [r * 0.57 * k, r * 1.22], [r * 0.30 * k, r * 1.34],
+    [0, r * 1.38],
+  ];
+  lathe(p, M.cave, shell(0.86), x, y, z, 16);
+  lathe(p, P.glazing, shell(1), x, y, z, 18);
+  // Four frames over the dome, the way a Frazer-Nash was framed, built as
+  // hoops that follow it rather than as cubes laid on it.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const f = box(p, M.planeTop, 0.045, r * 2.5, 0.045,
+      x + Math.sin(a) * r * 0.62, y + r * 0.66, z + Math.cos(a) * r * 0.62);
+    f.rotation.x = Math.cos(a) * 0.40;
+    f.rotation.z = -Math.sin(a) * 0.40;
+  }
+  // The hoop round its waist and the cap on top.
+  lathe(p, M.planeTop, [[r * 0.95, r * 0.66], [r * 0.98, r * 0.72], [r * 0.95, r * 0.78]],
+    x, y, z, 18);
+  lathe(p, M.planeTop, [[r * 0.30, r * 1.33], [r * 0.24, r * 1.40], [0, r * 1.42]],
+    x, y, z, 14);
+  // The guns. Out of the face of the dome, raked up, with the slot they
+  // traverse in behind them and a collar over each breech.
+  const front = o.back ? -1 : 1;
+  const gy = y + r * 0.62;
+  for (let i = 0; i < guns; i++) {
+    const gx = x + (i - (guns - 1) / 2) * spread;
+    const b = cyl(p, M.gunDark, cal, cal, len, gx, gy, z + front * (r * 0.5 + len * 0.42), 6);
+    b.rotation.x = Math.PI / 2 - front * rake;
+    const c = cyl(p, M.planeTop, cal * 2.4, cal * 2.4, r * 0.5, gx, gy, z + front * r * 0.55, 8);
+    c.rotation.x = Math.PI / 2 - front * rake;
+  }
+  box(p, M.cave, spread * Math.max(1, guns - 1) + cal * 8, r * 0.52, r * 0.3,
+    x, gy, z + front * r * 0.86);
+  return { at: [x, y + r * 0.7, z], r };
+}
+
+/**
+ * A ball turret: a sphere hung under the belly with two guns out of the
+ * bottom of it, which is the one thing that names a Fortress from below.
+ */
+function ballTurret(p, x, y, z, r) {
+  lathe(p, M.planeBottom, [[r * 1.08, 0.12], [r * 1.12, 0.02], [r * 1.06, -0.06]],
+    x, y, z, 16);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), M.planeBottom);
+  ball.position.set(x, y - r * 0.82, z);
+  p.add(ball);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(r * 0.52, 12, 10), P.glazing);
+  eye.position.set(x, y - r * 1.10, z + r * 0.62);
+  p.add(eye);
+  for (const sd of [-1, 1]) {
+    const b = cyl(p, M.gunDark, 0.045, 0.045, r * 3.4,
+      x + sd * r * 0.36, y - r * 1.30, z + r * 1.5, 6);
+    b.rotation.x = Math.PI / 2 - 0.30;
+  }
+  return ball;
+}
+
+/**
+ * An engine on a wing: the nacelle fairing, the engine in the front of it and
+ * the airscrew on the end of that.
+ *
+ * Built into a group of its own so the cowl the toolkit draws -- which is
+ * drawn about x = 0, because a fighter has one engine and it is on her
+ * centreline -- can be put out on a wing four times over. The fairing aft
+ * picks up the cowl's own after lip so there is no step between the two, and
+ * runs back past the trailing edge the way a Lancaster's nacelles do.
+ */
+function nacelle(nac, o) {
+  const r = o.r;
+  const kind = o.kind || 'radial';
+  const back = o.back || r * 5.2;
+  // The cowl, and where its after lip is: a NACA cowl closes on r * 2.02 and a
+  // faired inline one on r * 1.55 by r * 1.70, and the fairing starts there.
+  let lipW;
+  let lipH;
+  let lipZ;
+  if (kind === 'radial') {
+    radial(nac, r, 0, 0, o.prop, o.blades || 3, false);
+    lipW = r * 2.02; lipH = r * 2.02; lipZ = -1.16;
+  } else {
+    inline(nac, r, 0, 0, o.prop, o.blades || 3, false);
+    lipW = r * 1.55; lipH = r * 1.70; lipZ = -1.95;
+  }
+  // The fairing aft of the engine, closing to a fine tail behind the wing.
+  airframe(nac, M.planeTop, [
+    { z: lipZ - back, w: lipW * 0.24, h: lipH * 0.30, y: o.tailUp || 0 },
+    { z: lipZ - back * 0.72, w: lipW * 0.62, h: lipH * 0.66, y: (o.tailUp || 0) * 0.5 },
+    { z: lipZ - back * 0.40, w: lipW * 0.92, h: lipH * 0.94, y: 0 },
+    { z: lipZ - back * 0.14, w: lipW * 1.00, h: lipH * 1.00, y: 0 },
+    { z: lipZ + 0.02, w: lipW, h: lipH, y: 0 },
+  ], { seg: 18, e: 0.95, capF: false, mBot: M.planeBottom });
+  // The exhaust down the flank of it, and the intake on top.
+  for (const sd of [-1, 1]) {
+    cyl(nac, M.gunDark, r * 0.14, r * 0.14, r * 1.1,
+      sd * lipW * 0.46, lipH * 0.10, lipZ - back * 0.16, 6).rotation.x = Math.PI / 2;
+  }
+  if (kind === 'inline') {
+    box(nac, M.gunDark, r * 0.44, r * 0.26, r * 0.8, 0, lipH * 0.56, lipZ - back * 0.10);
+  }
+  return nac.userData.prop || null;
+}
+
+/**
+ * A heavy bomber, from a spec.
+ *
+ * One function for all five, because they are one aeroplane at five sets of
+ * dimensions: a body, a wing with two or four engines on it, a tail with one
+ * fin or two, turrets where that machine had turrets, and a bay with a stick
+ * in it. What each of them actually is lives in HEAVY, below.
+ */
+function heavy(g, x, y, z, ry, s) {
+  const [TOP, BOT] = paint(s.paint);
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  // What moves on her, for whatever is drawing her: the airscrews, the bay
+  // doors, and the bombs on the crutches inside the bay.
+  p.userData.props = [];
+  p.userData.rack = [];
+  const CL = s.cl;
+
+  // ---- the body ----------------------------------------------------------
+  airframe(p, TOP, bodyLoft({ ...s.body, y: CL }), {
+    seg: 22, e: s.e === undefined ? 0.94 : s.e, flat: s.flat || 0.03, mBot: BOT,
+  });
+
+  // ---- the mainplane, and the engines on it ------------------------------
+  const WY = CL + s.wingY;
+  const semi = s.span / 2;
+  for (const sd of [-1, 1]) {
+    const w = new THREE.Group();
+    w.position.set(0, WY, s.wingZ);
+    w.rotation.z = -sd * (s.dihedral === undefined ? 0.05 : s.dihedral);
+    p.add(w);
+    const sw = wing(w, TOP, BOT, {
+      side: sd, x: 0, y: 0, z: 0, span: semi, rootC: s.rootC, tipC: s.tipC,
+      sweep: s.sweep, thick: s.thick || 0.145, camber: 0.021, twist: -0.035,
+      stations: 9, chordwise: 16, rootCap: false, round: s.round !== false,
+    });
+    ctrlSurface(w, TOP, sw, 0.62, 0.93);                    // aileron
+    ctrlSurface(w, TOP, sw, 0.10, 0.58, 0.76);              // flap
+    if (s.leBand) leBand(w, P.yellow, sw, 0.04, 0.40);
+    for (const nc of (s.nacelles || [])) {
+      const f = nc.x / semi;
+      // Where the wing actually is at that station, asked of the panel rather
+      // than guessed: a nacelle hung at a typed height is the thing that ends
+      // up floating under a swept, tapered, dihedral wing.
+      const le = sw.at(f, 0.0, true);
+      const lo = sw.at(f, 0.34, false);
+      const nac = new THREE.Group();
+      nac.position.set(le[0], (le[1] + lo[1]) * 0.5 + (nc.dy || 0), le[2] + (nc.fwd || 1.9));
+      w.add(nac);
+      const disc = nacelle(nac, { ...s.engine, ...nc });
+      if (disc) p.userData.props.push(disc);
+    }
+    // The fairing where the panel comes out of the body, so the wing root is a
+    // joint and not a slot.
+    rootFillet(p, TOP, sd * s.body.w * 0.46, WY - 0.06,
+      s.wingZ - s.rootC * 0.45, s.rootC * 1.1, 0.5, 0.42);
+    // Outboard of the outer engine, where a marking on a four-engined wing has
+    // to go: painted at mid-semi-span it lands on top of a nacelle. And on the
+    // panel's own surface at that station, not at a typed-in z -- a swept,
+    // tapered wing has its leading edge two metres further aft out there than
+    // it has at the root, and a roundel put at the root's chord hangs in the
+    // air in front of the wing it is supposed to be painted on.
+    // How far out, and how far back: a marking has to be clear of the engines
+    // and small enough against the chord at that station. A hinomaru with its
+    // white surround is nearly a fifth wider than the disc, so the Betty's
+    // goes further inboard where there is more wing under it.
+    const mAt = sw.at(s.markF || 0.74, s.markU || 0.50, true);
+    const [mx, my, mz] = mAt;
+    if (s.mark === 'roundel') roundel(w, mx, my, mz, s.markR, true, w);
+    if (s.mark === 'star') insignia(w, mx, my, mz, s.markR, true, w);
+    if (s.mark === 'cross') balkenkreuz(w, mx, my, mz, s.markR, true, w);
+    if (s.mark === 'hinomaru') hinomaru(w, mx, my, mz, s.markR, true, true, w);
+  }
+
+  // ---- the tail ----------------------------------------------------------
+  const TY = CL + s.tpY;
+  let finTop = null;
+  let twinTop = null;
+  if (s.fins === 2) {
+    // A tailplane with a fin on each tip. The fins stand on the tips rather
+    // than near them, so there is nothing between the two to be a gap.
+    for (const sd of [-1, 1]) {
+      wing(p, TOP, BOT, {
+        side: sd, x: 0, y: TY, z: s.tpZ, span: s.tpSpan / 2, rootC: s.tpC,
+        tipC: s.tpC * 0.74, sweep: s.tpC * 0.16, thick: 0.10, camber: 0,
+        stations: 5, chordwise: 11, rootCap: false, round: false,
+      });
+      box(p, TOP, s.tpSpan / 2 - 0.2, 0.05, 0.07,
+        sd * s.tpSpan / 4, TY + 0.06, s.tpZ - s.tpC * 0.72);
+      const fin = new THREE.Group();
+      fin.position.set(sd * (s.tpSpan / 2 - s.finC * 0.06), TY, s.tpZ);
+      fin.rotation.z = Math.PI / 2;
+      p.add(fin);
+      // Built down as well as up, so the fin passes through the tailplane it
+      // stands on instead of balancing on the skin of it.
+      wing(fin, TOP, TOP, {
+        side: 1, x: -s.finH * 0.16, y: 0, z: -s.finC * 0.42,
+        span: s.finH * 1.16, rootC: s.finC, tipC: s.finC * 0.70,
+        sweep: s.finC * 0.10, thick: 0.10, camber: 0, stations: 5, chordwise: 11,
+        round: false,
+      });
+      box(p, TOP, 0.05, s.finH * 0.80, 0.06,
+        sd * (s.tpSpan / 2 - s.finC * 0.06), TY + s.finH * 0.50, s.tpZ - s.finC * 0.60);
+    }
+    // Both fin heads, for the aerial: an Avro's wire is a Y off the mast to the
+    // top of each fin, and one run to a point on the centreline between them
+    // ends in mid air.
+    finTop = [-(s.tpSpan / 2 - s.finC * 0.06), TY + s.finH * 0.94, s.tpZ - s.finC * 0.34];
+    twinTop = [s.tpSpan / 2 - s.finC * 0.06, TY + s.finH * 0.94, s.tpZ - s.finC * 0.34];
+  } else {
+    const tail = empennage(p, s.finH, s.finC, s.tpSpan, s.tpC, TY, s.tpZ);
+    finTop = tail.finTop;
+    // The dorsal fillet running forward along her spine off the root of the
+    // fin. On a Fortress it is two thirds of the way to the wing and it is
+    // most of what you recognise her by.
+    if (s.fillet) {
+      airframe(p, TOP, [
+        { z: s.tpZ + s.fillet, w: 0.10, h: 0.08, y: CL + s.body.h * 0.44 },
+        { z: s.tpZ + s.fillet * 0.62, w: 0.20, h: 0.34, y: CL + s.body.h * 0.50 },
+        { z: s.tpZ + s.fillet * 0.30, w: 0.26, h: 0.86, y: CL + s.body.h * 0.62 },
+        { z: s.tpZ + s.finC * 0.30, w: 0.28, h: 1.5, y: CL + s.body.h * 0.74 },
+      ], { seg: 12, e: 0.9, capF: false, capA: false, mBot: TOP });
+    }
+  }
+
+  // ---- the flight deck ---------------------------------------------------
+  // A machine whose flight deck is inside her glazed nose -- the two Germans --
+  // has no hood of her own, and asking for one puts a fighter's sliding hood on
+  // top of a nose that is already glass.
+  if (s.hoodW) {
+    greenhouse(p, s.hoodW, s.hoodH, CL + s.hoodY, s.hoodZ0, s.hoodZ1, s.hoodBays || 5);
+  }
+
+  // ---- the nose ----------------------------------------------------------
+  // The glazed nose, built as the same loft the body's nose is built from and
+  // a hair outside it, so the glass is her skin rather than a cone parked in
+  // front of her.
+  if (s.glazeNose) {
+    const gn = bodyLoft({ ...s.body, y: CL });
+    const keep = gn.filter((st) => st.z >= s.glazeNose);
+    if (keep.length >= 2) {
+      airframe(p, M.cave, keep.map((st) => ({ ...st, w: st.w * 0.82, h: st.h * 0.82 })),
+        { seg: 20, e: 0.94, flat: s.flat || 0.03, capA: false, mBot: M.cave });
+      airframe(p, P.glazing, keep.map((st) => ({ ...st, w: st.w * 1.005, h: st.h * 1.005 })),
+        { seg: 20, e: 0.94, flat: s.flat || 0.03, capA: false, mBot: P.glazing });
+      // The frames across it: rings of the same loft, a shade proud again.
+      for (let i = 1; i < keep.length - 1; i += 2) {
+        const st = keep[i];
+        airframe(p, TOP, [
+          { z: st.z - 0.03, w: st.w * 1.02, h: st.h * 1.02, y: st.y },
+          { z: st.z + 0.03, w: st.w * 1.02, h: st.h * 1.02, y: st.y },
+        ], { seg: 20, e: 0.94, flat: s.flat || 0.03, capA: false, capF: false, mBot: TOP });
+      }
+    }
+  }
+  // The bomb aimer's blister under the nose, where he lay to use the sight --
+  // and on the two Germans the ventral gondola, which is the same shape doing
+  // the same job with a gun in the back of it.
+  for (const b of (s.blister ? [s.blister] : [])) {
+    airframe(p, P.glazing, [
+      { z: b.z - b.len * 0.5, w: b.w * 0.3, h: b.h * 0.4, y: CL + b.y },
+      { z: b.z - b.len * 0.2, w: b.w * 0.9, h: b.h * 0.9, y: CL + b.y },
+      { z: b.z + b.len * 0.2, w: b.w, h: b.h, y: CL + b.y },
+      { z: b.z + b.len * 0.5, w: b.w * 0.5, h: b.h * 0.6, y: CL + b.y },
+    ], { seg: 14, e: 0.9, flat: 0.1, mBot: P.glazing });
+  }
+  // The blisters: a beam gun's bubble, a pilot's bulged side window, a dorsal
+  // cupola with no turret in it. A glass bump on the skin, and nothing more.
+  for (const b of (s.bulges || [])) {
+    for (const sd of (b.pair ? [-1, 1] : [0])) {
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(b.r, 12, 10), P.glazing);
+      dome.position.set(sd * b.x + (b.pair ? 0 : b.x), CL + b.y, b.z);
+      dome.scale.set(b.sx || 1, b.sy || 0.8, b.sz || 1.5);
+      p.add(dome);
+      lathe(p, M.planeTop, [[b.r * 1.02, -b.r * 0.1], [b.r * 1.06, 0], [b.r * 1.02, b.r * 0.1]],
+        sd * b.x + (b.pair ? 0 : b.x), CL + b.y, b.z, 14);
+    }
+  }
+
+  // ---- the turrets -------------------------------------------------------
+  for (const t of (s.turrets || [])) {
+    if (t.kind === 'ball') ballTurret(p, 0, CL + t.y, t.z, t.r);
+    else turretDome(p, { ...t, y: CL + t.y });
+  }
+
+  // ---- the bay, the doors and the stick inside ---------------------------
+  if (s.bay) {
+    const b = s.bay;
+    // The belly line asked of the body rather than typed, so the doors lie in
+    // her skin instead of a hand's breadth under it.
+    const belly = underside(p, 0, b.z, CL - s.body.h) ?? (CL - s.body.h * 0.5);
+    bombBay(p, { y: belly + 0.01, z: b.z, len: b.len, wide: b.wide, deep: b.deep });
+    // The stick on the crutches: as many as she carried, spaced down the bay,
+    // hung from the roof of it so the open doors show a loaded aeroplane.
+    for (let i = 0; i < b.n; i++) {
+      const cr = new THREE.Group();
+      cr.position.set(
+        b.n > 4 && i % 2 ? b.wide * 0.22 : (b.n > 4 ? -b.wide * 0.22 : 0),
+        belly + b.deep * 0.52,
+        b.z - b.len * 0.42 + (b.len * 0.84) * (b.n === 1 ? 0.5 : i / (b.n - 1)),
+      );
+      p.add(cr);
+      bomb(cr, b.bombLen || 1.9, b.bombR || 0.23);
+      p.userData.rack.push(cr);
+    }
+  }
+  // What she carries under the wing instead of, or as well as, inside her.
+  for (const u of (s.underwing || [])) {
+    for (const sd of [-1, 1]) {
+      const cr = new THREE.Group();
+      cr.position.set(sd * u.x, CL + u.y, u.z);
+      p.add(cr);
+      // The crutch it hangs on, so nothing under a wing is in the air on its
+      // own, and then the weapon on it.
+      const over = underside(p, sd * u.x, u.z, CL + u.y + 0.1);
+      if (over !== null) {
+        box(p, BOT, 0.14, Math.max(0.08, over - (CL + u.y) - (u.r || 0.26)), 0.5,
+          sd * u.x, (over + CL + u.y + (u.r || 0.26)) * 0.5, u.z);
+      }
+      if (u.kind === 'torpedo') torpedo(cr, u.len || 5.2, u.r || 0.28);
+      else bomb(cr, u.len || 2.3, u.r || 0.27);
+    }
+  }
+
+  // ---- the markings and the aerial ---------------------------------------
+  const MY = CL + s.body.h * 0.04;
+  for (const sd of [-1, 1]) {
+    if (s.mark === 'roundel') roundel(p, sd * s.body.w * 0.5, MY, s.markZ, s.markR, false);
+    if (s.mark === 'star') insignia(p, sd * s.body.w * 0.5, MY, s.markZ, s.markR, false);
+    if (s.mark === 'cross') balkenkreuz(p, sd * s.body.w * 0.5, MY, s.markZ, s.markR, false);
+    if (s.mark === 'hinomaru') hinomaru(p, sd * s.body.w * 0.5, MY, s.markZ, s.markR, false);
+  }
+  // The mast, abaft the flight deck. Measured off the hood where there is one
+  // and off her own spec where there is not -- the two Germans fly their crew
+  // inside the glazed nose and have no hood at all, and `s.hoodZ0 - 0.4` on
+  // one of those is a mast at NaN with the aerial run to it.
+  const mastZ = s.mastZ === undefined ? s.hoodZ0 - 0.4 : s.mastZ;
+  const mastY = CL + s.body.h * 0.5;
+  aerial(p, 0, mastY, mastZ, s.mastH || 1.1, finTop);
+  if (twinTop) {
+    strut(p, M.wire, [0, mastY + (s.mastH || 1.1), mastZ], twinTop, 0.016, 4);
+  }
+
+  // No undercarriage. Every one of these is drawn in the air -- over a city in
+  // the bomber yard, over the fleet on a raid -- and there is no screen in the
+  // game that puts a heavy on the ground. A retracted leg is a wheel well and
+  // a closed door, which is what the belly loft already is, and half an
+  // undercarriage that nothing ever looks at is only somewhere for a wheel to
+  // end up hanging in the air.
+
+  // What she is, so anything holding one can ask.
+  p.userData.kind = s.id;
+  p.userData.span = s.span;
+  p.userData.length = s.body.z1 - s.body.z0;
+  return p;
+}
+
+/**
+ * What each of the five actually is.
+ *
+ * Every figure here is off the real machine: span and length to the
+ * centimetre, the engines where they were on the wing, the turrets where they
+ * were on the body, and the bay as long as the bay was. The Lancaster's is
+ * 10.05 m, which is the whole reason there was a Lancaster.
+ */
+const HEAVY = {
+  // Twin fins on the tips of the tailplane, four Merlins in long nacelles, and
+  // a bomb bay running a third of her length. Nothing else looks like her.
+  lancaster: {
+    id: 'lancaster', paint: 'raf', mark: 'roundel', markR: 0.62, markZ: -3.4,
+    cl: 2.50, e: 0.90, flat: 0.06,
+    body: {
+      z0: -9.90, z1: 10.60, w: 2.00, h: 2.55, n: 18,
+      full0: 0.30, full1: 0.78, tailW: 0.24, tailH: 0.34,
+      noseW: 0.50, noseH: 0.46, noseP: 2.2, tailUp: 0.42, noseDrop: -0.06,
+    },
+    span: 31.09, wingY: -0.30, wingZ: 4.20, rootC: 6.10, tipC: 2.10,
+    sweep: 3.00, dihedral: 0.055, thick: 0.160,
+    engine: { kind: 'inline', r: 0.60, prop: 3.99, blades: 3, back: 3.8 },
+    nacelles: [
+      { x: 5.00, fwd: 2.70, dy: -0.10, leg: true },
+      { x: 9.70, fwd: 2.20, dy: -0.06, back: 2.6 },
+    ],
+    fins: 2, finH: 2.05, finC: 2.30,
+    tpY: -0.05, tpZ: -8.10, tpSpan: 10.00, tpC: 2.60,
+    hoodW: 1.34, hoodH: 0.64, hoodY: 1.06, hoodZ0: 4.80, hoodZ1: 8.30, hoodBays: 5,
+    blister: { z: 9.30, len: 2.60, w: 1.30, h: 0.92, y: -0.86 },
+    turrets: [
+      { z: 10.05, y: 0.52, r: 0.58, guns: 2, cal: 0.040, len: 1.05, spread: 0.26 },
+      { z: 1.20, y: 1.14, r: 0.62, guns: 2, cal: 0.040, len: 1.05, spread: 0.28 },
+      { z: -9.55, y: -0.02, r: 0.70, guns: 4, cal: 0.040, len: 1.15, spread: 0.22, back: true },
+    ],
+    bay: { z: 1.40, len: 10.05, wide: 1.50, deep: 0.86, n: 5, bombLen: 2.20, bombR: 0.26 },
+    mastH: 1.00,
+  },
+
+  // One fin like a barn door with the fillet running two thirds of the way
+  // forward off it, four radials, and a turret on every face of her.
+  fortress: {
+    id: 'fortress', paint: 'usaaf', mark: 'star', markR: 0.70, markZ: -4.40,
+    cl: 2.90, e: 0.96, flat: 0.02,
+    body: {
+      z0: -11.10, z1: 11.10, w: 2.28, h: 2.50, n: 18,
+      full0: 0.34, full1: 0.74, tailW: 0.24, tailH: 0.38,
+      noseW: 0.34, noseH: 0.36, noseP: 2.0, tailUp: 0.60,
+    },
+    span: 31.62, wingY: -0.22, wingZ: 3.40, rootC: 5.20, tipC: 1.80,
+    sweep: 3.60, dihedral: 0.075, thick: 0.150,
+    engine: { kind: 'radial', r: 0.66, prop: 3.54, blades: 3, back: 3.4 },
+    nacelles: [
+      { x: 4.60, fwd: 2.50, dy: -0.10, leg: true },
+      { x: 8.50, fwd: 2.10, dy: -0.06, back: 2.6 },
+    ],
+    fins: 1, finH: 3.40, finC: 4.80, fillet: 7.20,
+    tpY: 0.00, tpZ: -8.60, tpSpan: 13.00, tpC: 3.20,
+    hoodW: 1.48, hoodH: 0.60, hoodY: 1.02, hoodZ0: 4.90, hoodZ1: 8.10, hoodBays: 4,
+    glazeNose: 8.40,
+    turrets: [
+      { z: 9.00, y: -1.02, r: 0.44, guns: 2, cal: 0.050, len: 1.05, spread: 0.24 },
+      { z: 4.40, y: 1.10, r: 0.58, guns: 2, cal: 0.050, len: 1.10, spread: 0.26 },
+      { kind: 'ball', z: -0.90, y: -1.00, r: 0.62 },
+      { z: -10.70, y: -0.26, r: 0.54, guns: 2, cal: 0.050, len: 1.20, spread: 0.24, back: true },
+    ],
+    bulges: [
+      { x: 1.12, y: 0.10, z: -2.60, r: 0.30, pair: true, sy: 0.7, sz: 1.2 },
+      { x: 1.10, y: 0.24, z: 7.60, r: 0.26, pair: true, sy: 0.7, sz: 1.4 },
+    ],
+    bay: { z: 1.20, len: 4.80, wide: 1.20, deep: 1.50, n: 4, bombLen: 1.90, bombR: 0.22 },
+    mastH: 0.90,
+  },
+
+  // The one with no step in front of the pilots: the whole nose is glass, and
+  // the gondola under it is where the ventral gunner lay.
+  heinkel: {
+    id: 'heinkel', paint: 'luftwaffe', mark: 'cross', markR: 0.58, markZ: -3.20,
+    cl: 2.20, e: 0.94, flat: 0.04,
+    body: {
+      z0: -8.10, z1: 8.30, w: 1.72, h: 2.00, n: 16,
+      full0: 0.32, full1: 0.70, tailW: 0.22, tailH: 0.34,
+      noseW: 0.74, noseH: 0.70, noseP: 2.4, tailUp: 0.34, noseDrop: -0.10,
+    },
+    span: 22.60, wingY: -0.28, wingZ: 2.40, rootC: 4.60, tipC: 1.50,
+    sweep: 1.40, dihedral: 0.065, thick: 0.150,
+    engine: { kind: 'inline', r: 0.58, prop: 3.50, blades: 3, back: 3.0 },
+    nacelles: [{ x: 3.40, fwd: 2.40, dy: -0.10, leg: true }],
+    fins: 1, finH: 2.30, finC: 2.70,
+    tpY: -0.05, tpZ: -6.30, tpSpan: 8.60, tpC: 2.20,
+    glazeNose: 5.40,
+    blister: { z: 3.00, len: 3.40, w: 1.00, h: 0.78, y: -1.10 },
+    turrets: [{ z: 1.10, y: 0.98, r: 0.44, guns: 1, cal: 0.045, len: 0.95 }],
+    bulges: [{ x: 0.52, y: 0.86, z: 6.10, r: 0.34, sy: 0.7, sz: 1.3 }],
+    bay: { z: 0.60, len: 3.20, wide: 0.92, deep: 0.72, n: 4, bombLen: 1.50, bombR: 0.19 },
+    mastZ: 3.60, mastH: 0.95,
+  },
+
+  // The fast one: a short slender body, a beetle-eye nose and the bombs hung
+  // outside on the racks, which is how she got them there in a hurry.
+  junkers: {
+    id: 'junkers', paint: 'luftwaffe', mark: 'cross', markR: 0.52, markZ: -2.60,
+    cl: 2.10, e: 0.94, flat: 0.04,
+    body: {
+      z0: -7.10, z1: 7.30, w: 1.58, h: 1.90, n: 16,
+      full0: 0.32, full1: 0.66, tailW: 0.22, tailH: 0.34,
+      noseW: 0.80, noseH: 0.76, noseP: 2.6, tailUp: 0.28, noseDrop: -0.08,
+    },
+    span: 20.08, wingY: -0.26, wingZ: 2.00, rootC: 4.00, tipC: 1.40,
+    sweep: 1.20, dihedral: 0.060, thick: 0.145,
+    engine: { kind: 'radial', r: 0.52, prop: 3.50, blades: 3, back: 3.0 },
+    nacelles: [{ x: 2.90, fwd: 2.50, dy: -0.10, leg: true }],
+    fins: 1, finH: 2.10, finC: 2.40,
+    tpY: -0.05, tpZ: -5.60, tpSpan: 6.70, tpC: 1.90,
+    glazeNose: 4.60,
+    blister: { z: 2.40, len: 2.80, w: 0.84, h: 0.64, y: -1.04 },
+    bulges: [{ x: 0, y: 0.94, z: 4.30, r: 0.34, sy: 0.7, sz: 1.5 }],
+    bay: { z: 0.30, len: 2.60, wide: 0.78, deep: 0.60, n: 3, bombLen: 1.30, bombR: 0.16 },
+    underwing: [{ x: 2.30, y: -0.92, z: 0.60, len: 2.20, r: 0.25 }],
+    mastZ: 2.80, mastH: 0.85,
+  },
+
+  // A cigar with a wing through it: no armour, no sealing in her tanks, and
+  // the legs to fly a thousand miles out and a thousand back.
+  betty: {
+    id: 'betty', paint: 'ijn', mark: 'hinomaru', markR: 0.58, markF: 0.62,
+    markZ: -3.20, cl: 2.40, e: 1.00, flat: 0.00, leBand: true,
+    body: {
+      z0: -9.70, z1: 10.30, w: 2.20, h: 2.30, n: 18,
+      full0: 0.28, full1: 0.72, tailW: 0.34, tailH: 0.42,
+      noseW: 0.44, noseH: 0.44, noseP: 2.0, tailUp: 0.30,
+    },
+    span: 24.89, wingY: 0.42, wingZ: 2.60, rootC: 4.40, tipC: 1.40,
+    sweep: 1.60, dihedral: 0.055, thick: 0.150,
+    engine: { kind: 'radial', r: 0.72, prop: 3.40, blades: 3, back: 3.2 },
+    nacelles: [{ x: 3.60, fwd: 2.50, dy: -0.34, leg: true }],
+    fins: 1, finH: 2.60, finC: 3.00,
+    tpY: -0.10, tpZ: -7.60, tpSpan: 9.00, tpC: 2.20,
+    glazeNose: 7.80,
+    hoodW: 1.30, hoodH: 0.56, hoodY: 0.98, hoodZ0: 4.40, hoodZ1: 7.40, hoodBays: 4,
+    turrets: [
+      { z: -1.80, y: 1.02, r: 0.54, guns: 1, cal: 0.055, len: 0.95 },
+      { z: -9.40, y: 0.06, r: 0.58, guns: 1, cal: 0.060, len: 1.10, back: true },
+    ],
+    bulges: [{ x: 1.06, y: 0.16, z: -4.90, r: 0.40, pair: true, sy: 0.9, sz: 1.2 }],
+    bay: { z: 1.00, len: 4.60, wide: 1.10, deep: 0.56, n: 4, bombLen: 1.60, bombR: 0.20 },
+    mastH: 0.90,
+  },
+};
+
+/** The kinds this file can build, in the order the bomber yard steps them. */
+const HEAVY_KINDS = ['lancaster', 'fortress', 'heinkel', 'junkers', 'betty'];
+
+/**
+ * One heavy bomber, by name, in her own group with the origin under her.
+ *
+ * She comes in flight trim, which is the only trim there is for one of these.
+ */
+function heavyBomber(kind) {
+  const g = new THREE.Group();
+  const s = HEAVY[kind] || HEAVY.lancaster;
+  const p = heavy(g, 0, 0, 0, 0, s);
+  // Her skin, the same flush-riveted alloy under paint every other machine in
+  // this file wears. Done here rather than by the caller because a bomber is
+  // never welded into a squadron the way the carrier aircraft are: she is one
+  // model, looked at on her own.
+  dressPlane(g);
+  g.userData.plane = p;
+  g.userData.props = p.userData.props;
+  g.userData.rack = p.userData.rack;
+  g.userData.parts = p.userData.parts || [];
+  return g;
+}
+
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher };
 export { zero, suisei, tenzan, jake };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
+// And the heavy squadrons, which are not flown off anything and so are asked
+// for by name rather than by role.
+export { heavyBomber, HEAVY, HEAVY_KINDS, bomb };

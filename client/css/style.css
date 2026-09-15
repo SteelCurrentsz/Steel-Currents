@@ -960,16 +960,18 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .roster.ally { left: max(0.6rem, env(safe-area-inset-left)); }
 .roster.axis { right: max(0.6rem, env(safe-area-inset-right)); }
 
-.fleet-list, .gun-list {
+.fleet-list, .gun-list, .bomber-list {
   flex: none;
   margin: 0; padding: 0; list-style: none;
   display: flex; flex-direction: column; gap: 0.16rem;
 }
-/* A hairline between the ships and the guns, so the two halves of the column
-   read as two lists without either of them needing a heading. */
-.gun-list:not(:empty) { padding-top: 0.42rem; }
-.roster.ally .gun-list:not(:empty) { border-top: 1px solid rgba(126, 178, 236, 0.35); }
-.roster.axis .gun-list:not(:empty) { border-top: 1px solid rgba(232, 138, 132, 0.35); }
+/* A hairline between the ships, the guns and the squadrons, so the three parts
+   of the column read as three lists without any of them needing a heading. */
+.gun-list:not(:empty), .bomber-list:not(:empty) { padding-top: 0.42rem; }
+.roster.ally .gun-list:not(:empty),
+.roster.ally .bomber-list:not(:empty) { border-top: 1px solid rgba(126, 178, 236, 0.35); }
+.roster.axis .gun-list:not(:empty),
+.roster.axis .bomber-list:not(:empty) { border-top: 1px solid rgba(232, 138, 132, 0.35); }
 
 .fleet-ship {
   flex: none;
@@ -1012,7 +1014,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 /* A battery carries its name and nothing else. There is no type code on it
    because there is nothing to abbreviate: a coast gun is known by the place it
    stands, and "Longues-sur-Mer" is the whole of what a captain needs. */
-.gun-emp {
+.gun-emp, .bomber-sqn {
   flex: none;
   box-sizing: border-box; width: 100%; min-width: 0;
   padding: 0.12rem 0.4rem;
@@ -1025,16 +1027,27 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border: 1px solid transparent;
 }
-.roster.ally .gun-emp {
+.roster.ally .gun-emp, .roster.ally .bomber-sqn {
   background: linear-gradient(90deg, rgba(31, 72, 128, 0.92), rgba(24, 54, 96, 0.72));
   border-color: rgba(126, 178, 236, 0.30);
   border-left: 2px solid #4f8ede;
 }
-.roster.axis .gun-emp {
+.roster.axis .gun-emp, .roster.axis .bomber-sqn {
   background: linear-gradient(270deg, rgba(126, 34, 34, 0.92), rgba(94, 26, 26, 0.72));
   border-color: rgba(232, 138, 132, 0.30);
   border-right: 2px solid #c8443c;
 }
+
+/* A squadron on the roster: what she is, and how many of her are on call. The
+   count goes on the entry rather than on a line of its own, because three
+   Lancasters is one order and not three. */
+.bomber-sqn .sqn-n {
+  float: right;
+  margin-left: 0.4rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.roster.axis .bomber-sqn .sqn-n { float: left; margin: 0 0.4rem 0 0; }
 
 /* Fleets ----------------------------------------------------------------- */
 .briefing-body {
@@ -1260,6 +1273,17 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 16px rgba(0, 0, 0, 0.9);
 }
 #screen-guns .yard-head h2 { font-size: clamp(1.5rem, 3.1vw, 2.5rem); line-height: 1.02; }
+/* And the bomber yard, which is a night scene: the same tight shadow under the
+   type, because sand over a burning city needs it as much as sand over a
+   bright horizon does. */
+#screen-bombers .yard-head {
+  max-width: min(38ch, 46vw);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 16px rgba(0, 0, 0, 0.9);
+}
+#screen-bombers .yard-head h2 { font-size: clamp(1.6rem, 3.4vw, 2.7rem); line-height: 1.02; }
+/* What she was built to do, under what she is called: held back the way a
+   battery's place is, so her designation still leads. */
+.bomber-role { opacity: 0.6; font-size: clamp(0.8rem, 1.35vw, 1.05rem); }
 /* Where it stands, under what it is: a second line of the same kind, held back
    so the gun's own designation still leads. */
 .battery-place { opacity: 0.6; font-size: clamp(0.8rem, 1.35vw, 1.05rem); }
@@ -1782,11 +1806,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   }
   .roster.ally { grid-column: 1; }
   .roster.axis { grid-column: 2; }
-  .fleet-list, .gun-list { gap: 0.2rem; }
-  .gun-list:not(:empty) { padding-top: 0.3rem; }
+  .fleet-list, .gun-list, .bomber-list { gap: 0.2rem; }
+  .gun-list:not(:empty), .bomber-list:not(:empty) { padding-top: 0.3rem; }
   .fleet-ship { min-height: 1.15rem; font-size: 0.64rem; grid-template-columns: 1.7rem 1fr; }
   .roster.axis .fleet-ship { grid-template-columns: 1.7rem 1fr; }
-  .gun-emp { font-size: 0.6rem; line-height: 0.95rem; }
+  .gun-emp, .bomber-sqn { font-size: 0.6rem; line-height: 0.95rem; }
   .force-cell .sil { height: clamp(34px, 6.5vh, 56px); }
   .turret-btn .turret-art { width: min(82px, 27.3vw); }
   .bomber-btn .bomber-art { width: min(82px, 27.3vw); }

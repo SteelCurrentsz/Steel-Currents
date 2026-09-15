@@ -5,14 +5,16 @@ import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
 import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
+import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
+import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
-import { Briefing, FLEET_MAX } from './briefing.js';
+import { Briefing, FLEET_MAX, BOMBER_MAX } from './briefing.js';
 import { LayoutMap } from './layout.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
@@ -87,6 +89,7 @@ let title = null;
 let battle = null;
 let yard = null;
 let guns = null;
+let bombers = null;
 let current = 'title';
 
 // ------------------------------------------------------------------ view --
@@ -104,6 +107,7 @@ function resize() {
   if (battle) battle.resize(w, h);
   if (yard) yard.resize(w, h);
   if (guns) guns.resize(w, h);
+  if (bombers) bombers.resize(w, h);
 }
 window.addEventListener('resize', resize);
 
@@ -127,7 +131,7 @@ canvas.addEventListener('webglcontextrestored', () => {
 // --------------------------------------------------------------- screens --
 
 const screens = ['gate', 'account', 'title', 'pvp', 'custom', 'options', 'fleet',
-  'yard', 'guns', 'map', 'lay', 'battle', 'result'];
+  'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
   current = name;
@@ -312,6 +316,7 @@ const briefing = new Briefing({
   onOpenYard: (side) => openYard(side),
   onOpenChart: (at) => openChart(at),
   onOpenGuns: (side) => openGuns(side),
+  onOpenBombers: (side) => openBombers(side),
 });
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
@@ -557,6 +562,70 @@ document.getElementById('battery-emplace').onclick = () => {
   closeGuns();
 };
 
+// ------------------------------------------------------------ bomber yard --
+// The third of the same screen, and built the same way: one scene, made the
+// first time it is asked for, with plain DOM panels over it. What is behind
+// them is a heavy over a burning city with her bay open and the flak up --
+// which is the only place anybody ever saw one of these from.
+
+const bomberUi = { side: 'ally', index: 0 };
+
+function openBombers(side) {
+  bomberUi.side = side;
+  if (!bombers) {
+    bombers = new BomberScene(renderer);
+    bombers.resize(window.innerWidth, window.innerHeight);
+  }
+  bombers.attach(document.getElementById('bomber-grab'));
+  show('bombers');
+  renderBombers();
+}
+
+function closeBombers() {
+  bombers?.detach();
+  show('custom');
+}
+
+const bomberAt = (i) => BOMBER_ORDER[(i + BOMBER_ORDER.length * 2) % BOMBER_ORDER.length];
+
+function renderBombers() {
+  const id = bomberAt(bomberUi.index);
+  const b = BOMBERS[id];
+  bombers.setBomber(id);
+  document.getElementById('bomber-name').textContent = b.name;
+  document.getElementById('bomber-mark').textContent = b.fullName;
+  document.getElementById('bomber-role').textContent = b.role;
+  // Which machine each arrow goes to, said on the arrow, the way the
+  // shipyard's arrows say which hull is behind them.
+  const peek = (d) => BOMBERS[bomberAt(bomberUi.index + d)].name;
+  const prevName = document.getElementById('bomber-prev-name');
+  const nextName = document.getElementById('bomber-next-name');
+  if (prevName) prevName.textContent = peek(-1);
+  if (nextName) nextName.textContent = peek(1);
+  sheet(document.getElementById('bomber-airframe'), 'Airframe', airframeSheet(b));
+  sheet(document.getElementById('bomber-payload'), 'Payload', payloadSheet(b));
+}
+
+function stepBombers(dir) {
+  bomberUi.index = (bomberUi.index + dir + BOMBER_ORDER.length) % BOMBER_ORDER.length;
+  renderBombers();
+}
+
+document.getElementById('bomber-prev').onclick = () => { audio.click(); stepBombers(-1); };
+document.getElementById('bomber-next').onclick = () => { audio.click(); stepBombers(1); };
+document.getElementById('bomber-back').onclick = () => { audio.click(); closeBombers(); };
+document.getElementById('bomber-commission').onclick = () => {
+  audio.click();
+  const id = bomberAt(bomberUi.index);
+  const whose = bomberUi.side === 'ally' ? 'your' : 'the enemy';
+  if (!briefing.commissionBomber(bomberUi.side, id)) {
+    toast(`${BOMBER_MAX} squadrons is all ${whose} command will find crews for.`);
+    return;
+  }
+  toast(`A squadron of ${BOMBERS[id].name} comes on call for ${whose} side.`);
+  closeBombers();
+};
+
 // ---------------------------------------------------- the order of battle --
 
 // Sortie no longer sends the fleets straight to sea: it opens a plan of the
@@ -782,6 +851,9 @@ function drawFrame(dt) {
   } else if (guns && current === 'guns') {
     guns.update(dt);
     guns.render();
+  } else if (bombers && current === 'bombers') {
+    bombers.update(dt);
+    bombers.render();
   } else if (current === 'custom') {
     // Nothing of the harbour shows through the briefing: its chart covers the
     // screen edge to edge and the fleets are laid over that. Rendering the sea
@@ -797,15 +869,23 @@ function drawFrame(dt) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
+  // The gun park and the bomber yard back out to the briefing the same way the
+  // shipyard does: a commander who has just looked a battery over wants the
+  // order of battle back, not the title screen.
+  if (e.code === 'Escape' && current === 'guns') { closeGuns(); return; }
+  if (e.code === 'Escape' && current === 'bombers') { closeBombers(); return; }
   // Backing out of the plan goes to the briefing, not to the title screen: the
   // fleets are still there and the captain is one keystroke from another try.
   if (e.code === 'Escape' && current === 'lay') { show('custom'); return; }
   if (e.code === 'Escape' && current !== 'title' && current !== 'battle') show('title');
-  if (current !== 'yard') return;
-  if (e.code === 'ArrowLeft') stepYard(-1);
-  else if (e.code === 'ArrowRight') stepYard(1);
-  else if (e.code === 'Equal' || e.code === 'NumpadAdd') yard.zoom(-1);
-  else if (e.code === 'Minus' || e.code === 'NumpadSubtract') yard.zoom(1);
+  // The arrows and the zoom work on whichever of the three yards is up.
+  const step = { yard: stepYard, guns: stepGuns, bombers: stepBombers }[current];
+  const scene = { yard, guns, bombers }[current];
+  if (!step) return;
+  if (e.code === 'ArrowLeft') step(-1);
+  else if (e.code === 'ArrowRight') step(1);
+  else if (e.code === 'Equal' || e.code === 'NumpadAdd') scene?.zoom(-1);
+  else if (e.code === 'Minus' || e.code === 'NumpadSubtract') scene?.zoom(1);
 });
 window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 
