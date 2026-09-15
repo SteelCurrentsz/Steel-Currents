@@ -55,6 +55,9 @@ export function createStaff(team, skill = 0.7) {
     strikeAt: 0,
     strikeReady: 0,
     bomberAt: null,
+    // Which end of the enemy's line this side has decided to fall on, and how
+    // his line lies. Null until there is more than one of him on the plot.
+    plan: null,
     // What this side has signalled lately, for the one line of it a captain is
     // allowed to see. The content is never sent anywhere.
     lastSignal: '',
@@ -202,9 +205,18 @@ function appreciate(state, staff) {
     return;
   }
 
+  // What the whole side is going to do about him. With one ship in front of
+  // us the centre of gravity is the ship; with several it is a point between
+  // them that nobody is at, and steering for it is how a fleet arrives in the
+  // middle of an enemy line with his whole force able to fire and its own
+  // split. The plan names one end of him instead.
+  const plan = pointOfAttack(seen.filter((c) => c.kind === 'ship'), guide);
+  staff.plan = plan;
+  const mark = plan || staff.centre;
+
   const gcls = getClass(guide.classId);
-  const range = dist(guide.x, guide.z, staff.centre.x, staff.centre.z);
-  staff.axis = headingTo(guide.x, guide.z, staff.centre.x, staff.centre.z);
+  const range = dist(guide.x, guide.z, mark.x, mark.z);
+  staff.axis = headingTo(guide.x, guide.z, mark.x, mark.z);
 
   // The fighting range: far enough out that her belt is doing its job, close
   // enough in that her guns are. A cruiser wants to be closer than a
@@ -214,38 +226,108 @@ function appreciate(state, staff) {
 
   // And the course. This is the whole of the difference between a fleet that
   // fights and a fleet that runs away: she is never steered *from* the enemy,
-  // she is steered so that her broadside bears and the range is what her
-  // captain wants it to be. Ninety degrees off the bearing keeps every gun in
-  // action and holds the range; angling in or out from there closes or opens
-  // it without ever putting the enemy astern.
+  // she is steered so that her broadside bears and the range closes or holds.
+  //
+  // Ninety degrees off the bearing is the beam -- every gun in action, range
+  // steady -- and that is now the limit. Anything past it puts the enemy
+  // abaft the beam, which is the geometry of running away whatever it is
+  // called on the signal pad, and the fleet used to be sent to a hundred and
+  // thirty degrees any time it found itself inside two thirds of its own
+  // fighting range. Inside that range it stays on the beam and fights there.
   const sideOf = staff.side || (staff.side = Math.random() < 0.5 ? 1 : -1);
   let off = Math.PI * 0.5;
-  if (range > want * 1.15) off = Math.PI * 0.26;         // angle in to close
-  else if (range < want * 0.66) off = Math.PI * 0.72;    // fall off to open
+  if (range > want * 1.15) off = Math.PI * 0.16;         // bows on, closing
+  else if (range > want * 0.9) off = Math.PI * 0.34;     // angling in
   staff.posture = range > want * 1.2 ? 'close' : 'engage';
-  setCourse(staff, wrapAngle(staff.axis + sideOf * off));
+  let aim = wrapAngle(staff.axis + sideOf * off);
+  staff.lastSignal = '';
 
   // Crossing the T. If the enemy's main body is steering across our front and
   // we are up on his bow, the line turns to bring every gun to bear down the
   // length of his -- which is the manoeuvre the whole of a battle line exists
   // to perform, and it is worth the risk of a few minutes end-on.
-  const lead = seen.find((c) => c.id === (prize && prize.id));
-  if (lead && range < want * 1.1) {
+  //
+  // One course goes on the signal pad, not two. This used to work out the
+  // fighting course, order it, and then order the crossing course on top of it
+  // in the same appreciation -- and because a course is altered rather than
+  // jumped to, the fleet got half a turn one way and half a turn back, every
+  // second, for the whole action. Yamato sat a hundred and sixty degrees off
+  // the enemy the entire way in, steaming away from a battle nobody had told
+  // her to leave, because the two orders cancelled exactly.
+  const lead = seen.find((c) => c.id === (plan ? plan.id : (prize && prize.id)));
+  if (lead && range < want * 0.9) {
     const theirCourse = lead.heading;
     const bearingFromThem = headingTo(lead.x, lead.z, guide.x, guide.z);
     const onTheirBow = Math.abs(angleDelta(theirCourse, bearingFromThem)) < 0.7;
     if (onTheirBow) {
-      setCourse(staff, wrapAngle(theirCourse + sideOf * Math.PI * 0.5));
+      // Across his bow on whichever hand still closes him. Taken off our own
+      // side of the line regardless, the manoeuvre was as likely to be the one
+      // that opens the range as the one that shuts it.
+      const a = wrapAngle(theirCourse + Math.PI * 0.5);
+      const b = wrapAngle(theirCourse - Math.PI * 0.5);
+      aim = Math.abs(angleDelta(staff.axis, a)) <= Math.abs(angleDelta(staff.axis, b)) ? a : b;
       staff.lastSignal = 'crossing';
     }
   }
+  setCourse(staff, aim);
 
-  stationTheLine(staff, line, guide);
-  distributeFire(state, staff, line, seen);
+  if (staff.lastSignal !== 'crossing') {
+    staff.lastSignal = plan ? 'concentrate' : 'engage';
+  }
+  stationTheLine(staff, line, guide, plan);
+  distributeFire(state, staff, line, seen, plan);
   orderTorpedoes(state, staff, line, seen, want);
   orderAir(state, staff, seen);
   orderBatteries(state, staff);
   orderHeavies(state, staff, seen);
+}
+
+/**
+ * Which end of him to fall on.
+ *
+ * Against one ship there is nothing to decide: you go for her. Against two or
+ * more there is, and it is the oldest decision in a fleet action -- because a
+ * line is not a thing you fight all at once. You pick an end, you put your
+ * whole force onto it, and you are on top of that end before the rest of him
+ * can come round and support it. Two ships on one is how ships are sunk; four
+ * ships on four is how an afternoon is spent.
+ *
+ * So with more than one contact on the plot the staff works out his line --
+ * the axis through the two contacts furthest apart, which is what his
+ * formation looks like on a plot however he thinks he is steaming -- and names
+ * the near end of it as the point of attack. Everything else in the
+ * appreciation is aimed there instead of at his centre of gravity: the fleet
+ * course, the divisions, and the concentration of fire.
+ *
+ * None of this is signalled anywhere the other side can read it. It lives on
+ * the staff object, which no snapshot builder has ever heard of.
+ */
+function pointOfAttack(ships, guide) {
+  if (ships.length < 2) return null;
+  let a = null;
+  let b = null;
+  let spread = -1;
+  for (let i = 0; i < ships.length; i++) {
+    for (let j = i + 1; j < ships.length; j++) {
+      const d = dist(ships[i].x, ships[i].z, ships[j].x, ships[j].z);
+      if (d > spread) { spread = d; a = ships[i]; b = ships[j]; }
+    }
+  }
+  if (!a || !b) return null;
+  // The end nearer to us, because that is the end we reach first and the one
+  // his far wing has furthest to come to help.
+  const near = dist(guide.x, guide.z, a.x, a.z) <= dist(guide.x, guide.z, b.x, b.z) ? a : b;
+  const far = near === a ? b : a;
+  return {
+    id: near.id,
+    x: near.x,
+    z: near.z,
+    n: ships.length,
+    spread,
+    // The bearing his line lies along, from the end we are falling on toward
+    // the rest of him. The second division comes up across it.
+    line: headingTo(near.x, near.z, far.x, far.z),
+  };
 }
 
 /**
@@ -257,8 +339,23 @@ function appreciate(state, staff) {
  * come and go -- and every ship in the line spends the whole action chasing a
  * station that has already moved somewhere else.
  */
-function setCourse(staff, want) {
-  const d = angleDelta(staff.course, want);
+export function setCourse(staff, want) {
+  // The one thing a course in this battle may never be, whatever manoeuvre
+  // asked for it: away.
+  //
+  // Every signal here is worked out from something other than the bearing to
+  // the enemy -- the fighting course is an offset from it, crossing the T is
+  // worked off *his* course, and a sweep is worked off the chart -- so any of
+  // them can come out pointing the wrong way as the geometry changes under
+  // them. Rather than remembering that at four call sites, the limit lives
+  // here: a course more than ninety degrees off the bearing to him is pulled
+  // back to the beam on the side it was already leaning, which keeps which way
+  // round the turn goes and throws away only the part of it that was retreat.
+  const away = angleDelta(staff.axis, want);
+  const BEAM = Math.PI * 0.5;
+  const aimed = Math.abs(away) <= BEAM ? want
+    : wrapAngle(staff.axis + Math.sign(away) * BEAM);
+  const d = angleDelta(staff.course, aimed);
   const MOST = 0.22;                                   // per appreciation
   staff.course = wrapAngle(staff.course + clamp(d, -MOST, MOST));
 }
@@ -276,9 +373,10 @@ function setCourse(staff, want) {
  * chart: the formation moves with her and turns with her, which is what makes
  * it a formation rather than a set of waypoints.
  */
-function stationTheLine(staff, line, guide) {
+function stationTheLine(staff, line, guide, plan = null) {
   staff.stations.clear();
   let heavy = 0;
+  let wing = 0;
   let screen = 0;
   const disengaged = -(staff.side || 1);
   for (const s of line) {
@@ -299,6 +397,22 @@ function stationTheLine(staff, line, guide) {
       // A submarine does not keep station with anybody. She is told where the
       // enemy is and left to it.
       staff.stations.set(s.id, { bearing: 0, range: 0, role: 'free' });
+    } else if (plan && (heavy + wing) % 2 === 1) {
+      // The second division, told off when there is a line to fall on rather
+      // than a single ship to chase. She comes up on the engaged bow and a
+      // little wide of the guide, so the same end of his line is under fire
+      // from two bearings at once and no single fire-control solution of his
+      // answers both of us.
+      //
+      // Forward of the guide's beam, never astern of her: a division sent to
+      // work round a flank that drops back to do it is not working round
+      // anything, and the whole side has to keep going forward.
+      wing += 1;
+      staff.stations.set(s.id, {
+        bearing: (staff.side || 1) * 0.46,
+        range: 1500 + (wing - 1) * 900,
+        role: 'wing',
+      });
     } else {
       // Line ahead, astern of the guide at seven hundred yards.
       heavy += 1;
@@ -316,7 +430,7 @@ function stationTheLine(staff, line, guide) {
  * targets sinks nothing. Every enemy worth shooting at gets one ship, and then
  * the rest of the line doubles up on the most valuable of them.
  */
-function distributeFire(state, staff, line, seen) {
+function distributeFire(state, staff, line, seen, plan = null) {
   staff.fireAt.clear();
   const shooters = line.filter((s) => {
     const cls = getClass(s.classId);
@@ -334,10 +448,17 @@ function distributeFire(state, staff, line, seen) {
     for (const m of marks) {
       const d = dist(s.x, s.z, m.x, m.z);
       if (d > cls.gun.range * 1.05) continue;
-      // Worth, less the range, less how many are already on her. The last
-      // term is the concentration: the second ship on a target is welcome,
-      // the fourth is wasted.
-      const sc = m.worth * 1.6 - d * 0.004 - (load.get(m.id) || 0) * 26;
+      // Worth, less the range, less how many are already on her, plus a great
+      // deal if she is the end of his line the side has decided to fall on.
+      //
+      // That last term is what makes the plan an attack rather than a course.
+      // Falling on one end of him means the guns fall on it too: without it the
+      // line steers for the near end and then shares its fire out across the
+      // whole of him by worth, which is the thing the manoeuvre exists to
+      // avoid. The concentration term still applies on top, so the fifth ship
+      // on her looks elsewhere.
+      const onPlan = plan && m.id === plan.id ? 44 : 0;
+      const sc = m.worth * 1.6 + onPlan - d * 0.004 - (load.get(m.id) || 0) * 26;
       if (sc > bestScore) { bestScore = sc; best = m; }
     }
     if (!best) continue;

@@ -26,7 +26,7 @@ import {
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery,
 } from '../shared/sim.js';
-import { createStaff, stepStaff } from '../server/command.js';
+import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
   rollRate, rollTau, pitchTau,
@@ -185,7 +185,7 @@ function shellRuler(group) {
     return hi < lo ? null : { lo, hi };
   };
 }
-import { angleDelta, dist, clamp, MPS_TO_KNOTS } from '../shared/math.js';
+import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL } from '../client/js/render/ocean.js';
 import { Wake, WakeField } from '../client/js/render/wakefield.js';
@@ -12529,6 +12529,301 @@ check('a fighter cannot reach a formation she is nowhere near', () => {
   step(st, DT);
   assert.ok(bm.hp < was,
     'a fighter a hundred metres under a formation could not reach it');
+});
+
+
+check('a formation drops the wing she is turning toward', () => {
+  // Every aeroplane in this game is drawn at an attitude passed as pitch and
+  // bank, and both are negative rotations about the model's own axes -- nose
+  // up is negative about X, starboard wing down is negative about Z. The
+  // heavies were the one batch passing both straight through, so a formation
+  // turning right dropped her left wing and cruised nose-down while she did
+  // it.
+  const heavies = readFileSync(
+    new URL('../client/js/render/heavies.js', import.meta.url), 'utf8');
+  const planes = readFileSync(
+    new URL('../client/js/render/planes.js', import.meta.url), 'utf8');
+  assert.ok(/rotation\.set\(-\(pitch \|\| 0\), heading, -\(bank \|\| 0\)\)/.test(heavies),
+    'a heavy squadron is not drawn at the attitude every other aeroplane is');
+  assert.ok(/rotation\.set\(-pitch, heading, -bank\)/.test(planes),
+    'the flights have stopped negating their attitude');
+  // Both put the nose on the same axis, or the sign means different things in
+  // the two files and matching them proves nothing.
+  for (const src of [heavies, planes]) {
+    assert.ok(/rotation\.order = 'YXZ'/.test(src),
+      'the two aeroplane batches no longer share an Euler order');
+  }
+
+  // And the sign chain itself, end to end, in the geometry rather than in the
+  // renderer.
+  //
+  // A ship or an aeroplane advances along (sin h, cos h), so heading zero is
+  // +z and heading +90 is +x. Her own starboard is therefore -x -- and a turn
+  // to starboard is a *negative* change of heading.
+  const world = generateWorld(8801, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  bm.heading = 0;
+  bm.hold = 0;
+  // Put her aim point out on her starboard bow so she has to come right.
+  bm.aimX = -9000; bm.aimZ = 4000;
+  bm.targetId = 0;
+  // The hardest she turns on the way round, not what is left of it once she
+  // has arrived on the new heading and stopped turning.
+  let turn = 0;
+  for (let i = 0; i < 60; i++) {
+    step(st, DT);
+    if (Math.abs(bm.turn) > Math.abs(turn)) turn = bm.turn;
+  }
+  assert.ok(turn < 0, `a starboard turn reported a turn rate of ${turn.toFixed(3)}`);
+  assert.ok(angleDelta(0, bm.heading) < 0,
+    'she came round to port when the aim point was on her starboard bow');
+
+  // The client makes the bank out of that rate, and the renderer puts her at
+  // it -- through the same Euler order and the same sign the batch uses, so
+  // this is the attitude that goes on the screen rather than a restatement of
+  // the arithmetic.
+  const bank = Math.atan2(80 * turn, 9.81);
+  assert.ok(bank < 0, 'a starboard turn did not give a starboard bank');
+  const d = new THREE.Object3D();
+  d.rotation.order = 'YXZ';
+  d.rotation.set(-0.05, bm.heading, -bank);
+  d.updateMatrix();
+  // Her wingtips, in her own frame. She advances along (sin h, cos h), so her
+  // nose is +z and her starboard side is -x.
+  const stbd = new THREE.Vector3(-1, 0, 0).applyMatrix4(d.matrix);
+  const port = new THREE.Vector3(1, 0, 0).applyMatrix4(d.matrix);
+  assert.ok(stbd.y < port.y,
+    'she raised her starboard wing in a turn to starboard');
+  // And three degrees nose-up at cruise, not nose-down.
+  const level = new THREE.Object3D();
+  level.rotation.order = 'YXZ';
+  level.rotation.set(-0.05, 0, 0);
+  level.updateMatrix();
+  assert.ok(new THREE.Vector3(0, 0, 1).applyMatrix4(level.matrix).y > 0,
+    'a heavy cruises nose-down');
+});
+
+check('a ship that is being beaten closes instead of running', () => {
+  // She used to put her helm over a hundred and fifty degrees and run the
+  // moment she was badly hurt, which took the heaviest hull on the board out
+  // of the action as soon as anything happened to her.
+  const bots = readFileSync(new URL('../server/bots.js', import.meta.url), 'utf8');
+  assert.ok(!/bearingToTarget \+ Math\.PI \* 0\.82/.test(bots),
+    'a hurt ship is still steered a hundred and fifty degrees away');
+
+  const world = generateWorld(8802, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Hipper', classId: 'hipper', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
+  her.x = 0; her.z = 0; her.heading = 0; her.isBot = true;
+  foe.x = 0; foe.z = 14000; foe.heading = Math.PI;
+  her.spottedBy = [true, true]; foe.spottedBy = [true, true];
+  // On her last legs: a third of her gone, burning and making water.
+  her.hp = her.maxHp * 0.2;
+  her.flooding = 3; her.fires = 4;
+  const brain = createBotBrain(0.8);
+  const was = dist(her.x, her.z, foe.x, foe.z);
+  for (let i = 0; i < 2400; i++) {
+    her.hp = her.maxHp * 0.2;
+    her.flooding = 3; her.fires = 4;
+    foe.spottedBy = [true, true];
+    stepBot(st, her, brain, DT, false, null);
+    step(st, DT);
+  }
+  const now = dist(her.x, her.z, foe.x, foe.z);
+  assert.ok(now < was,
+    `a ship on her last legs opened the range from ${Math.round(was)} to ${Math.round(now)}`);
+  // And her broadside still bears: straight at him is one turret, not a
+  // broadside.
+  const off = Math.abs(angleDelta(her.heading, headingTo(her.x, her.z, foe.x, foe.z)));
+  assert.ok(off > 0.12 && off < Math.PI * 0.5,
+    `she is ${Math.round(off * 180 / Math.PI)} degrees off the bearing`);
+});
+
+check('a fleet is never signalled a course that puts the enemy astern', () => {
+  // The whole of the difference between a fleet that fights and one that runs
+  // away, and it is now a property of the one function that writes a course
+  // rather than something four call sites have to remember.
+  const world = generateWorld(8803, 'open_ocean');
+  const staff = createStaff(0, 0.85);
+  const st = createState(world, { mode: 'deathmatch' });
+  for (const axis of [0, 1.1, -2.4, 3.0]) {
+    staff.axis = axis;
+    // Every course anybody could ask for, including straight astern.
+    for (let k = 0; k < 24; k++) {
+      const want = wrapAngle(axis + Math.PI * 2 * (k / 24));
+      // Run it home: a course is altered rather than jumped to, so it takes a
+      // few appreciations to arrive wherever it is going to arrive.
+      for (let i = 0; i < 60; i++) setCourse(staff, want);
+      const off = Math.abs(angleDelta(staff.axis, staff.course));
+      assert.ok(off <= Math.PI * 0.5 + 1e-6,
+        `asked for ${Math.round(want * 180 / Math.PI)} off an axis of `
+        + `${Math.round(axis * 180 / Math.PI)}, the fleet steers `
+        + `${Math.round(off * 180 / Math.PI)} degrees off him`);
+    }
+  }
+  void st;
+});
+
+check('two fleets close the range and neither turns out of the action', () => {
+  const world = generateWorld(7311, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const brains = new Map();
+  const mk = (team, classId, i, x, z) => {
+    const s = addShip(st, { name: `${classId}${team}${i}`, classId, team, index: i });
+    s.x = x; s.z = z; s.heading = team ? Math.PI : 0; s.isBot = true; s.notch = 4;
+    brains.set(s.id, createBotBrain(0.85));
+    return s;
+  };
+  mk(0, 'iowa', 0, -1200, -16000);
+  mk(0, 'hipper', 1, 0, -16800);
+  mk(0, 'fletcher', 2, 1200, -15400);
+  mk(1, 'yamato', 0, -1000, 16000);
+  mk(1, 'takao', 1, 600, 16900);
+  mk(1, 'fletcher', 2, 1800, 15500);
+  const staff = [createStaff(0, 0.85), createStaff(1, 0.85)];
+  const gap = () => {
+    let d = Infinity;
+    for (const a of st.ships) {
+      if (!a.alive || a.team !== 0) continue;
+      for (const b of st.ships) {
+        if (!b.alive || b.team !== 1) continue;
+        d = Math.min(d, dist(a.x, a.z, b.x, b.z));
+      }
+    }
+    return d;
+  };
+  const start = gap();
+  let worst = 0;
+  let closed = start;
+  for (let i = 0; i < 9000; i++) {
+    for (const sf of staff) stepStaff(st, sf, DT);
+    for (const s of st.ships) {
+      if (!s.alive) continue;
+      const br = brains.get(s.id);
+      if (br) stepBot(st, s, br, DT, false, staff[s.team]);
+    }
+    step(st, DT);
+    if (i % 300) continue;
+    const both = [0, 1].every((t) => st.ships.some((s) => s.alive && s.team === t));
+    if (!both) break;
+    closed = Math.min(closed, gap());
+    // Nobody with the enemy abaft the beam. A ship fights beam-on and turns
+    // through the beam getting there, so the bar is set where running starts
+    // rather than at ninety degrees exactly.
+    for (const s of st.ships) {
+      if (!s.alive) continue;
+      let near = null;
+      let nd = Infinity;
+      for (const f of st.ships) {
+        if (!f.alive || f.team === s.team) continue;
+        const d = dist(s.x, s.z, f.x, f.z);
+        if (d < nd) { nd = d; near = f; }
+      }
+      if (!near) continue;
+      const off = Math.abs(angleDelta(s.heading, headingTo(s.x, s.z, near.x, near.z)));
+      if (off > worst) worst = off;
+    }
+  }
+  assert.ok(closed < start * 0.35,
+    `the fleets started ${Math.round(start)} apart and only got to ${Math.round(closed)}`);
+  assert.ok(worst < Math.PI * 0.62,
+    `somebody put the enemy ${Math.round(worst * 180 / Math.PI)} degrees off her bow`);
+});
+
+check('a side with a line in front of it picks an end and splits to take it', () => {
+  const world = generateWorld(8804, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const mine = [];
+  for (let i = 0; i < 4; i++) {
+    const s = addShip(st, {
+      name: `mine${i}`, classId: i ? 'hipper' : 'iowa', team: 0, index: i,
+    });
+    s.x = i * 700; s.z = -9000; s.heading = 0; s.spottedBy = [true, true];
+    mine.push(s);
+  }
+  // His line, strung out across our front, near end to port.
+  const his = [];
+  for (let i = 0; i < 3; i++) {
+    const s = addShip(st, { name: `his${i}`, classId: 'takao', team: 1, index: i });
+    s.x = -2000 + i * 5000; s.z = 4000 + i * 2500;
+    s.heading = Math.PI / 2; s.spottedBy = [true, true];
+    his.push(s);
+  }
+  const staff = createStaff(0, 0.9);
+  for (let i = 0; i < 90; i++) { stepStaff(st, staff, DT); step(st, DT); }
+
+  assert.ok(staff.plan, 'three ships in front of her and the staff made no plan');
+  // The near end of his line, not the middle of it.
+  const near = his.reduce((a, b) => (
+    dist(mine[0].x, mine[0].z, a.x, a.z) < dist(mine[0].x, mine[0].z, b.x, b.z) ? a : b));
+  assert.equal(staff.plan.id, near.id,
+    'the staff fell on the far end of his line');
+  assert.equal(staff.plan.n, 3, 'the plan does not know how many of him there are');
+  // And the fleet is aimed at that end rather than at his centre of gravity.
+  const toPlan = headingTo(mine[0].x, mine[0].z, staff.plan.x, staff.plan.z);
+  assert.ok(Math.abs(angleDelta(staff.axis, toPlan)) < 0.2,
+    'the axis of advance is not the point of attack');
+
+  // Two divisions: the line astern of the guide, and a wing up on her bow.
+  const roles = [...staff.stations.values()].map((v) => v.role);
+  assert.ok(roles.includes('line'), 'nobody is in the line');
+  assert.ok(roles.includes('wing'), 'the staff told nobody off to the second division');
+  // And the wing is forward of the guide's beam, not falling back to flank.
+  for (const st2 of staff.stations.values()) {
+    if (st2.role !== 'wing') continue;
+    assert.ok(Math.abs(st2.bearing) < Math.PI * 0.5,
+      `a flanking division stationed ${Math.round(st2.bearing * 180 / Math.PI)} `
+      + 'degrees off the guide, which is abaft her beam');
+  }
+
+  // And the guns fall on the same end the helm does. A plan that steers for
+  // one end of him and then shares its fire out across the whole of him by
+  // worth is not an attack on anything.
+  {
+    const onPlan = [...staff.fireAt.values()].filter((id) => id === staff.plan.id);
+    assert.ok(onPlan.length >= 2,
+      `only ${onPlan.length} of the line was told off onto the point of attack`);
+  }
+
+  // One ship in front of her is not a line and needs no plan.
+  {
+    const solo = createState(world, { mode: 'deathmatch' });
+    const me = addShip(solo, { name: 'me', classId: 'iowa', team: 0, index: 0 });
+    me.x = 0; me.z = -9000; me.spottedBy = [true, true];
+    const him = addShip(solo, { name: 'him', classId: 'takao', team: 1, index: 0 });
+    him.x = 0; him.z = 4000; him.spottedBy = [true, true];
+    const one = createStaff(0, 0.9);
+    for (let i = 0; i < 90; i++) { stepStaff(solo, one, DT); step(solo, DT); }
+    assert.ok(!one.plan, 'the staff made a plan about which end of one ship to attack');
+  }
+});
+
+check('the staff signals one course an appreciation, not two', () => {
+  // It used to work out the fighting course, order it, and then order the
+  // crossing-the-T course on top of it in the same breath. A course is altered
+  // rather than jumped to, so the fleet got half a turn one way and half a turn
+  // back every second and never went anywhere: the course froze a hundred and
+  // sixty degrees off the enemy and the whole line steamed away from a battle
+  // nobody had ordered it to leave.
+  const src = readFileSync(new URL('../server/command.js', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('function appreciate'),
+    src.indexOf('function pointOfAttack'));
+  const calls = body.match(/setCourse\(/g) || [];
+  assert.equal(calls.length, 2,
+    `appreciate calls setCourse ${calls.length} times; it wants one for the sweep `
+    + 'and one for the fighting course');
+  // And the two are in different branches: the sweep returns before the
+  // fighting course is reached.
+  const sweep = body.indexOf('setCourse(staff, staff.axis)');
+  const fight = body.indexOf('setCourse(staff, aim)');
+  assert.ok(sweep > 0 && fight > sweep, 'the two courses are not the sweep and the fight');
+  assert.ok(body.slice(sweep, fight).includes('return'),
+    'a fleet that has lost contact falls through into the fighting course');
 });
 
 

@@ -119,7 +119,13 @@ export class Heavies {
     for (let i = 0; i < n && b.n < this.max; i++) {
       const [ox, oy, oz] = VIC[i];
       d.position.set(x + cs * ox + sn * oz, y + oy, z - sn * ox + cs * oz);
-      d.rotation.set(pitch || 0, heading, bank || 0);
+      // Nose up is a negative rotation about her own X axis, and a bank to
+      // starboard is a negative one about her Z -- the same convention every
+      // other aeroplane in the game is drawn with, and the heavies were the
+      // one batch passing both straight through. A formation turning right
+      // dropped her left wing, and cruised three degrees nose-down while she
+      // was at it.
+      d.rotation.set(-(pitch || 0), heading, -(bank || 0));
       d.updateMatrix();
       b.mesh.setMatrixAt(b.n++, d.matrix);
       // Her airscrews, turning about their own shafts wherever the engine

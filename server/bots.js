@@ -92,10 +92,16 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     useRepair(state, ship);
   }
 
-  // Is he in a fit state to be in the line at all? Below a third of her and
-  // making water she falls out of it, turns away behind smoke and tries to
-  // live. Everything above that fights.
-  const beaten = ship.hp < ship.maxHp * 0.3 && (ship.flooding >= 2 || ship.fires >= 3);
+  // Badly hurt: below a third of her and making water. She used to fall out of
+  // the line here, put her helm over a hundred and fifty degrees and run, which
+  // is the one thing a ship in this battle must never do -- it took the heaviest
+  // hull on the board out of the action the moment she was hurt, and it looked
+  // like cowardice because it was.
+  //
+  // She stays in. What being hurt changes is how she fights it: she closes,
+  // because a ship this far gone has a short time left and the only use she can
+  // put it to is getting her remaining guns close enough to tell.
+  const hurt = ship.hp < ship.maxHp * 0.3 && (ship.flooding >= 2 || ship.fires >= 3);
 
   if (!target) {
     // Nothing afloat to fight. He keeps his station and the fleet keeps
@@ -118,19 +124,21 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   ship.aimZ = lead.z + (Math.random() * 2 - 1) * err;
 
   if (!conned) {
-    if (beaten) {
-      // Out of the line. Away from the enemy, behind smoke, at everything she
-      // has left -- and still shooting, because a ship hauling out is not a
-      // ship that has struck.
-      steerToward(state, ship, wrapAngle(bearingToTarget + Math.PI * 0.82));
+    if (hurt) {
+      // Going down fighting, and going down closer. Twenty degrees off the
+      // bearing so her broadside still bears rather than only her forward
+      // turret, and everything the engine room has left.
+      steerToward(state, ship, wrapAngle(bearingToTarget + brain.kite * 0.35));
       ship.notch = 5;
-      brain.hauled = true;
+      brain.pressing = true;
     } else if (staff && staff.torpRun.has(ship.id) && cls.torpedoes) {
-      // The flotilla is going in. Straight at her until the fish are away,
-      // then out on the disengaged bow -- which is a torpedo attack, and it is
-      // the one time a destroyer closes a battleship on purpose.
+      // The flotilla is going in. Straight at her until the fish are away and
+      // then out on the disengaged bow -- but only to the beam, never past it:
+      // the retirement used to be a hundred and twenty-six degrees, which put
+      // the enemy astern and the destroyer out of the battle for as long as it
+      // took her to come round again.
       const run = brain.torpTimer > 8
-        ? wrapAngle(bearingToTarget + brain.kite * 2.2)
+        ? wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.5)
         : wrapAngle(bearingToTarget + brain.kite * 0.30);
       steerToward(state, ship, run);
       ship.notch = 5;
@@ -140,11 +148,16 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
       // turning.
       if (!keepStation(state, ship, brain, staff, dt)) {
         // No staff, or he is the guide: the fighting course, which keeps the
-        // broadside bearing and the range where it is wanted. Never away.
+        // broadside bearing and the range where it is wanted. Never away --
+        // and without a staff to work it out for him, never more than the beam
+        // either, so a ship fighting on her own account still ends the minute
+        // closer to the enemy than she started it.
         const want = staff ? staff.course
-          : wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.45);
+          : wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.42);
         steerToward(state, ship, want);
-        ship.notch = d > cls.gun.range * 0.9 ? 5 : 4;
+        // Closing is done at everything she has. A fleet that ambles up to the
+        // action at three-quarter speed arrives after it.
+        ship.notch = 5;
       }
     }
   }
@@ -211,9 +224,14 @@ function keepStation(state, ship, brain, staff, dt) {
     steerToward(state, ship, headingTo(ship.x, ship.z, at.x, at.z));
     ship.notch = d > 1200 ? 5 : 4;
   } else {
-    // On it. Steer the fleet course, and hold the guide's speed.
+    // On it. Steer the fleet course, and hold the guide's speed -- hers, not a
+    // number written down here. The guide cracks on at everything she has now,
+    // so a line holding three-quarters could never stay with her: every ship in
+    // it fell out of station, worked up to full to catch her, eased back, and
+    // dropped astern again for the whole action.
     steerToward(state, ship, staff.course);
-    ship.notch = 4;
+    const guide = state.ships.find((q) => q.id === staff.guideId && q.alive);
+    ship.notch = guide ? guide.notch : 5;
   }
   void brain;
   void dt;
