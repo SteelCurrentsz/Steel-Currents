@@ -24,6 +24,7 @@ import {
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
+  flyBomber, dropStick, gunTurret,
 } from '../shared/sim.js';
 import { createStaff, stepStaff } from '../server/command.js';
 import { Pilot, AERO, alphaFor, flightAttitude, weathercock }
@@ -64,7 +65,7 @@ import { buildTakao, takaoParts, LINES as takaoLines }
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
-import { Battle } from '../client/js/game.js';
+import { Battle, airArsenal } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
@@ -5991,10 +5992,16 @@ check('an aeroplane flies on her wing, not on a cursor', () => {
   assert.ok(Math.abs(level.y - 900) < 25, `hands off she wandered to ${level.y.toFixed(0)} m`);
 
   const turn = new Pilot(AERO_WILDCAT, { y: 900, speed: 130 });
-  turn.stickRoll = -1;
-  turn.stickPitch = 0.6;
   const v0 = turn.v;
-  for (let i = 0; i < 60 * 8; i++) turn.step(1 / 60);
+  // Rolled in and then held, which is how a turn is flown now that the stick
+  // asks the ailerons for a rate rather than naming an angle of bank. Holding
+  // it over is no longer a turn at all -- it is a roll, and she goes round and
+  // round, which is the whole point of the change.
+  for (let i = 0; i < 60 * 8; i++) {
+    turn.stickRoll = Math.abs(turn.bank) < 1.15 ? -1 : 0;
+    turn.stickPitch = 0.6;
+    turn.step(1 / 60);
+  }
   assert.ok(Math.abs(turn.bank) > 1.0, `she only reached ${turn.bank.toFixed(2)} rad of bank`);
   assert.ok(turn.v < v0 - 20, `a hard turn cost her only ${(v0 - turn.v).toFixed(0)} m/s`);
   assert.ok(Math.abs(turn.heading) > 0.6, 'hauling her round did not turn her');
@@ -6262,10 +6269,16 @@ check('she holds the bank you put her in', () => {
   // dragging a marker about. She used to roll out as fast as she rolled in, so
   // a turn ended the instant the stick was released.
   const p = new Pilot(AERO.wildcat, { y: 1500, speed: 120 });
-  p.stickRoll = 1;
-  for (let i = 0; i < 60; i++) p.step(1 / 60);
+  // Rolled in to a good hard bank and the ailerons centred there. The stick
+  // asks for a rate of roll, so holding it over does not stop at sixty degrees
+  // -- she keeps going round -- and a pilot rolling into a turn takes it off
+  // when she is where he wants her.
+  for (let i = 0; i < 60 * 2; i++) {
+    p.stickRoll = Math.abs(p.bank) < 1.4 ? 1 : 0;
+    p.step(1 / 60);
+  }
   const over = Math.abs(p.bank);
-  assert.ok(over > 1.0, `a second of full stick got her ${over.toFixed(2)} rad of bank`);
+  assert.ok(over > 1.0, `rolling in got her ${over.toFixed(2)} rad of bank`);
   // Let go, and one second later she is still well over.
   p.stickRoll = 0;
   const h0 = p.heading;
@@ -11631,18 +11644,20 @@ check("a squadron of heavies is in the battle, and flies her own bombing height"
   assert.equal(st.bombers.length, 1, 'a commissioned squadron is not in the battle');
   assert.equal(bm.count, HEAVY_VIC, 'a squadron is not a vic');
 
-  // The height is the whole of what a strategic bomber is: she is up there to
-  // be above the flak and she pays for it in accuracy. Fifteen thousand feet
-  // for a Lancaster, and a Fortress higher again, off their own ceilings.
-  assert.ok(bm.y > 4000 && bm.y < 5600,
-    `a Lancaster is bombing from ${Math.round(bm.y)} m, which is not her height`);
-  assert.ok(bombAlt(BOMBERS.fortress) > bombAlt(BOMBERS.lancaster),
-    'a Fortress does not work higher than a Lancaster, and she did');
+  // Ten thousand feet, for all of them. Not the height they really bombed
+  // from -- that was fifteen to twenty-five thousand, to be above the flak --
+  // but the height at which a fleet's own fighters can climb up and reach
+  // them, which is what puts the bomber, her escort and the interception all
+  // in the same piece of sky.
+  const TEN = 10000 * 0.3048;
+  assert.ok(Math.abs(bm.y - TEN) < 1,
+    `a Lancaster is bombing from ${Math.round(bm.y)} m, not ten thousand feet`);
   for (const k of BOMBER_ORDER) {
-    const h = bombAlt(BOMBERS[k]);
-    assert.ok(Number.isFinite(h) && h >= 2400 && h <= 7200,
-      `${k} is bombing from ${h} m`);
+    assert.ok(Math.abs(bombAlt(BOMBERS[k]) - TEN) < 1, `${k} is not at ten thousand`);
   }
+  // And that height is inside what a carrier fighter's airframe will do, or
+  // the whole point of lowering it is lost.
+  assert.ok(TEN < 3800, 'a fighter cannot climb to the height the heavies work at');
 
   // And she flies: out to the target, down the run, and away.
   const seen = new Set();
@@ -11752,7 +11767,9 @@ check("a heavy is safe from a ship's flak and not from a flak battery", () => {
   // of its three, not all of them.
   assert.ok(run.count >= 2,
     `a vic lost ${HEAVY_VIC - run.count} of three in thirty seconds over one battery`);
-  hurtBomber(land, run, run.hp + 1);
+  // And shot to pieces she does stop flying -- but it takes shooting all three
+  // of them down, one at a time, because that is what she is.
+  for (let i = 0; i < 40 && run.alive; i++) hurtBomber(land, run, HEAVY_VIC * 420);
   assert.ok(!run.alive && run.count === 0, 'a formation shot to pieces is still flying');
 });
 
@@ -11917,6 +11934,247 @@ check("a bomber squadron is laid out on the plotting board like everything else"
   const setup = readFileSync(new URL('../server/setup.js', import.meta.url), 'utf8');
   assert.ok(/layout\.allyBombers/.test(setup),
     'the battle ignores where the squadrons were laid out');
+});
+
+
+
+check("an aeroplane rolls right over, flies on her back and goes over the top", () => {
+  // The stick used to ask the ailerons for an angle of bank, capped at
+  // eighty-three degrees, so there was no such thing as rolling past the
+  // vertical: an aileron roll, a barrel roll, a roll off the top and simply
+  // holding her upside down for a moment were none of them things the
+  // aeroplane could be made to do. An aileron asks for a rate.
+  const fly = (drive, secs) => {
+    const p = new Pilot(AERO.wildcat, { x: 0, y: 1500, z: 0, heading: 0 });
+    p.throttle = 1;
+    let rolled = 0;
+    let inverted = 0;
+    let lo = p.y;
+    let hi = p.y;
+    let last = p.bank;
+    for (let i = 0; i * (1 / 60) < secs; i++) {
+      drive(p, i / 60);
+      p.step(1 / 60, 0);
+      let d = p.bank - last;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      rolled += d;
+      last = p.bank;
+      if (Math.abs(p.bank) > Math.PI * 0.6) inverted += 1 / 60;
+      lo = Math.min(lo, p.y);
+      hi = Math.max(hi, p.y);
+      if (!p.alive) break;
+    }
+    return { rolled, inverted, lo, hi, p };
+  };
+
+  // Stick hard over and held: she keeps going round.
+  const roll = fly((p) => { p.stickRoll = 1; p.stickPitch = 0; }, 6);
+  assert.ok(Math.abs(roll.rolled) > Math.PI * 2,
+    `stick hard over for six seconds rolled her ${Math.round((roll.rolled * 180) / Math.PI)}°`);
+  assert.ok(roll.p.alive, 'she fell out of an aileron roll');
+
+  // Rolled on to her back and left there: she stays there. Dihedral rights an
+  // aeroplane that is the right way up and does nothing at all for one that
+  // is not, which is why inverted flight is something a pilot holds.
+  const over = fly((p) => {
+    if (Math.abs(p.bank) < Math.PI * 0.94 && !p.over) { p.stickRoll = 1; } else { p.over = 1; p.stickRoll = 0; }
+    p.stickPitch = 0;
+  }, 10);
+  assert.ok(over.inverted > 6,
+    `she would only stay on her back for ${over.inverted.toFixed(1)} s`);
+  assert.ok(over.hi - over.lo < 260,
+    'holding her inverted cost her more height than level flight should');
+
+  // And over the top: full back stick, wings level, all the way round.
+  const loop = fly((p) => { p.stickRoll = 0; p.stickPitch = 1; }, 14);
+  assert.ok(loop.hi - loop.lo > 200,
+    `a loop only took her through ${Math.round(loop.hi - loop.lo)} m of sky`);
+  assert.ok(loop.inverted > 0.5, 'she never got over the top of the loop');
+
+  // Hands off she still flies straight and level, which is the thing all of
+  // the above must not have broken.
+  const hands = fly((p) => { p.stickRoll = 0; p.stickPitch = 0; }, 20);
+  assert.ok(Math.abs(hands.rolled) < 0.05, 'she rolls off on her own hands off');
+  assert.ok(hands.hi - hands.lo < 30, 'she will not hold her height hands off');
+
+  // No aeroplane has a bank limit any more, because no aeroplane has one.
+  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  assert.ok(!/bankMax/.test(aero), 'a bank limit is still in the flight model');
+});
+
+check("a heavy squadron is flown by hand, and lets her stick go when told", () => {
+  const world = generateWorld(4201, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const ship = addShip(st, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -4000 });
+
+  // Her own side only, and only from somewhere she could have got to.
+  const foe = addShip(st, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
+  assert.ok(!flyBomber(st, foe, { i: bm.id, x: bm.x, z: bm.z, h: 0 }),
+    'the other side flew her');
+  assert.ok(!flyBomber(st, ship, { i: bm.id, x: bm.x + 90000, z: bm.z, h: 0 }),
+    'she was teleported ninety kilometres in one message');
+
+  const was = { x: bm.x, z: bm.z };
+  assert.ok(flyBomber(st, ship, { i: bm.id, x: bm.x + 40, z: bm.z + 40, h: 0.3, y: bm.y }),
+    'her own side could not fly her');
+  assert.ok(bm.flown && bm.pilot === ship.id, 'nobody has the controls');
+  assert.ok(bm.x !== was.x || bm.z !== was.z, 'she did not move to where she was flown');
+
+  // Under a hand on the stick she stops running her own bombing problem, and
+  // the simulation leaves her where the pilot put her.
+  const at = { x: bm.x, z: bm.z };
+  step(st, DT);
+  assert.ok(Math.abs(bm.x - at.x) < 1 && Math.abs(bm.z - at.z) < 1,
+    'the autopilot steered her while somebody was flying her');
+  assert.equal(bm.targetId, 0, 'she is still running her own bombing problem');
+
+  // The stick goes when the man in the nose says so, and not twice.
+  const loads = bm.loads;
+  assert.ok(dropStick(st, ship, bm.id), 'she would not drop');
+  assert.equal(bm.phase, 'run', 'the doors did not open');
+  assert.ok(!dropStick(st, ship, bm.id), 'she dropped twice on one press');
+  let bombs = 0;
+  for (let i = 0; i < 200; i++) {
+    flyBomber(st, ship, { i: bm.id, x: bm.x, z: bm.z, h: bm.heading, y: bm.y });
+    for (const e of step(st, DT)) if (e.e === 'sticksAway') bombs += 1;
+  }
+  assert.equal(bombs, 1, 'the stick never finished going down');
+  assert.equal(bm.loads, loads - 1, 'she is carrying what she just dropped');
+
+  // And she is handed back when the word from the pilot stops coming.
+  for (let i = 0; i < 120; i++) step(st, DT);
+  assert.ok(!bm.flown, 'she is still being flown by a client that went away');
+});
+
+check("a formation is machines, and a gunner in one of her turrets fires it", () => {
+  const world = generateWorld(4202, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  // The same airframe model a carrier flight is built out of: each machine has
+  // her own engine, tanks, wings, tail, crew and body, so a burst breaks
+  // something on one bomber and the rest fly on.
+  assert.equal(bm.machines.length, HEAVY_VIC, 'a formation is still a hit-point bar');
+  assert.ok(bm.machines[0].parts.engine, 'her machines have no parts');
+  const whole = bm.hp;
+  hurtBomber(st, bm, 40);
+  assert.ok(bm.hp < whole, 'a burst did nothing');
+  assert.equal(bm.count, HEAVY_VIC, 'one burst took a whole aeroplane out of her');
+
+  // A turret laid on a fighter inside its own cone does something to her; the
+  // same turret laid the other way does not, because her guns will not train
+  // through her own tail.
+  const ship = addShip(st, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Shinano', classId: 'shinano', team: 1, index: 0 });
+  cv.x = 0; cv.z = 400;
+  launchStrike(st, cv);
+  for (let i = 0; i < 2400 && !st.planes.length; i++) step(st, DT);
+  const foe = st.planes.find((q) => q.team === 1);
+  assert.ok(foe, 'nothing of theirs got into the air to shoot at');
+  // Put her right on the tail gunner's line -- three hundred metres astern of
+  // the bomber's own nose, which is not the same as three hundred metres south
+  // of her: she has been flying while the strike was ranged and is on her own
+  // heading now.
+  foe.x = bm.x - Math.sin(bm.heading) * 300;
+  foe.z = bm.z - Math.cos(bm.heading) * 300;
+  foe.y = bm.y;
+  // What is left of her airframes, which is where the damage actually lands:
+  // `hp` on the flight is only added up again when the simulation steps, and
+  // nothing here is stepping it.
+  const left = () => foe.machines.reduce(
+    (n, a) => n + Object.values(a.parts).reduce((m, q) => m + Math.max(0, q.hp), 0), 0);
+  const was = left();
+  // Dead astern, which is where a tail turret bears.
+  for (let i = 0; i < 12; i++) gunTurret(st, ship, bm.id, Math.PI, 0.8, 0.1);
+  assert.ok(left() < was, 'a tail gunner on a fighter dead astern did nothing');
+  // And forward through her own fins, which is nothing at all.
+  const then = left();
+  for (let i = 0; i < 12; i++) gunTurret(st, ship, bm.id, 0, 0.8, 0.1);
+  assert.equal(left(), then, 'a tail gunner shot forward through his own aeroplane');
+});
+
+check("the arsenal panel lists what an aeroplane carries, and her turrets", () => {
+  // A heavy's rows are her powered turrets, off the same table that builds the
+  // cupolas on the model -- so what the panel says a mounting will do is what
+  // the mounting does.
+  for (const kind of BOMBER_ORDER) {
+    const rows = airArsenal(kind);
+    assert.ok(rows.length >= 2, `${kind} has ${rows.length} turrets in her arsenal`);
+    for (const w of rows) {
+      assert.ok(w.turret, `${kind}: a row with no mounting behind it`);
+      assert.ok(w.caliber >= 7 && w.caliber <= 60, `${kind}: ${w.caliber} mm guns`);
+      assert.ok(/traverse/.test(w.note), `${kind}: a turret with no arc quoted`);
+    }
+    const names = rows.map((w) => w.turret);
+    assert.equal(new Set(names).size, names.length, `${kind} lists a turret twice`);
+  }
+  // A carrier machine has her fixed guns and nothing to choose between: they
+  // are bolted to her wings and aimed by pointing the aeroplane.
+  const fighter = airArsenal('wildcat');
+  assert.equal(fighter.length, 1, 'a Wildcat has more than one mounting');
+  assert.ok(!fighter[0].turret, "a fighter's wing guns are a mounting you sit in");
+  assert.ok(fighter[0].barrels >= 2, 'a Wildcat answers with fewer than two guns');
+
+  // The panel takes them, the cockpit can raise it, and pressing a turret goes
+  // to that turret rather than raising a hologram of a ship.
+  const hud = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  assert.ok(/this\.airArms \|\| arsenal\(this\.shown\)/.test(hud),
+    "the panel cannot be given an aeroplane's armament");
+  assert.ok(/w\.turret[\s\S]{0,120}onAirGun/.test(hud),
+    'pressing a turret does not man it');
+  assert.ok(/flyArms[\s\S]{0,80}togglePanel\('arms'\)/.test(hud),
+    'there is no way to raise the arsenal from the cockpit');
+
+  // And the camera in one is held to that mounting's own cone.
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const at = game.indexOf("const m = this.input.takeMouse();\n        const t = this.turret;");
+  const block = game.slice(at, at + 1400);
+  assert.ok(/t\.spec\.arc/.test(block) && /t\.spec\.up/.test(block) && /t\.spec\.down/.test(block),
+    "a turret gunner's view is not held to his own arc");
+  assert.ok(/clamp\(wrapAngle\(t\.yaw/.test(block),
+    'a turret gunner can look outside his traverse');
+});
+
+check("a bomb can be followed down the way a salvo can", () => {
+  // A bomb is a shell with `bomb` written on it and flies down the same
+  // pipeline, so the camera that rides a sixteen-inch round rides a
+  // four-thousand-pounder. What it needs is to be told which formation let it
+  // go: a bomb has no gun and no ship behind it, so the owner is nothing.
+  const proto = readFileSync(new URL('../shared/protocol.js', import.meta.url), 'utf8');
+  assert.ok(/bm: sh\.bomber/.test(proto), 'a bomb does not say which squadron dropped it');
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  assert.ok(/bombSource\(\)/.test(game), 'nothing picks the squadron to follow');
+  assert.ok(/q\.bm === this\.shellFrom/.test(game),
+    'the camera cannot match a bomb to the formation that dropped it');
+  assert.ok(/shellIsBomb/.test(game), 'the camera cannot tell a stick from a salvo');
+
+  // And the bombs are on the wire with the right squadron on them.
+  const world = generateWorld(4203, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  addShip(st, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -6000 });
+  let seen = 0;
+  for (let i = 0; i < 4000 && st.bombers.length; i++) {
+    step(st, DT);
+    for (const sh of buildSnapshot(st, 0, {}).shells) if (sh.bm === bm.id) seen += 1;
+  }
+  assert.ok(seen > 0, 'no bomb ever reached the wire with her squadron on it');
+});
+
+check("each side's squadrons are laid out on its own centre line", () => {
+  // The auto-layout used to run one index across both sides at once, so with
+  // three squadrons each the first three went to one corner of the chart and
+  // the last three to the other, and neither group was over its own fleet.
+  const layout = readFileSync(new URL('../client/js/layout.js', import.meta.url), 'utf8');
+  const block = layout.slice(layout.indexOf('const airGap'),
+    layout.indexOf('const airGap') + 700);
+  assert.ok(/for \(const team of \[0, 1\]\)/.test(block),
+    'the squadrons are still laid out with one index across both sides');
+  assert.ok(/air\.length - 1\) \/ 2/.test(block),
+    "each side's squadrons are not centred on their own middle");
+  assert.ok(/t\.kind === 'air' && t\.team === team/.test(block),
+    'the layout does not pick out one side at a time');
 });
 
 

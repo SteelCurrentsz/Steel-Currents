@@ -206,6 +206,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     shells.push({
       i: sh.id, x: r1(sh.x), y: r1(sh.y), z: r1(sh.z),
       c: sh.caliber, tm: sh.team, o: sh.owner,
+      // And the formation that let her go, when she is a bomb rather than a
+      // round of gunfire. A bomb has no gun and no ship behind it, so `o` is
+      // nothing: without this there is no way to tell one squadron's stick
+      // from another's, and no way for a camera to follow one down.
+      bm: sh.bomber || undefined,
     });
   }
   const torps = [];
@@ -296,6 +301,15 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // her that anybody watching can actually see.
       d: b.phase === 'run' ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
+      // What she has left to drop, so a captain flying her can see whether
+      // there is another run in her.
+      ld: b.loads || 0,
+      // Who has her, so nobody takes a formation somebody else is flying.
+      pi: b.pilot || 0,
+      // And her leading machine's condition, for the damage board -- the same
+      // nine numbers a flight sends, out of the same airframe model. Her own
+      // side only: what a formation reports is not what the enemy can see.
+      dm: b.team === team ? machineReport(b) : undefined,
     }));
 
   // The guns ashore. Both sides put them on the chart before the battle, so

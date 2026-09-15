@@ -5,7 +5,7 @@ import {
   manGun, layGun, shootGun,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
-  releasePlane, strafe,
+  releasePlane, strafe, flyBomber, dropStick, gunTurret,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
@@ -424,6 +424,27 @@ export class Room {
         if (!dropOrdnance(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
         break;
       case 'land': releasePlane(this.state, msg.i, ship); break;
+      // And the same three for a heavy squadron, which is flown by hand the
+      // same way a flight is: where she is, let the stick go, and hand her
+      // back to her own navigator.
+      case 'flyb': flyBomber(this.state, ship, msg); break;
+      case 'dropb':
+        if (!dropStick(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
+        break;
+      // One of her turrets, laid and fired by the man in it.
+      case 'gunb':
+        gunTurret(this.state, ship, msg.i, Number(msg.y) || 0,
+          Math.min(Math.PI, Math.max(0, Number(msg.a) || Math.PI)),
+          Math.min(0.3, Math.max(0, msg.dt || 0)));
+        break;
+      case 'landb': {
+        const bm = (this.state.bombers || []).find((q) => q.id === msg.i);
+        if (bm && bm.team === ship.team && bm.pilot === ship.id) {
+          bm.flown = false;
+          bm.pilot = 0;
+        }
+        break;
+      }
       // Her guns, held down. `dt` is how long the trigger has been down since
       // the last word, clamped so a client cannot claim a minute of it.
       case 'gun': strafe(this.state, ship, msg.i, Math.min(0.3, Math.max(0, msg.dt || 0))); break;

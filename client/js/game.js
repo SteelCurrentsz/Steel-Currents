@@ -7,9 +7,11 @@ import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
-import { Airborne, AERO, stallSpeed, Pilot, flightAttitude, weathercock }
+import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
 import { ROLE_TYPE, typeOf, slotAt, gunsOf } from './render/planes.js';
+import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
+import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
@@ -67,6 +69,21 @@ const GUN_CALIBRE = {
 };
 
 /**
+ * And how many of them she fires forward.
+ *
+ * Written down rather than counted off the model, because the arsenal panel
+ * can be asked what she carries before anything of her has been built: the
+ * muzzles are read out of the welded geometry (see `gunsOf`) and until that has
+ * happened every aeroplane in the game answers with the one fallback muzzle at
+ * her nose. What she carries is a fact about the aeroplane, not about whether
+ * we have got round to drawing her.
+ */
+const GUN_COUNT = {
+  wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1,
+  zero: 4, suisei: 2, tenzan: 1, jake: 1,
+};
+
+/**
  * What each kind of aeroplane attacks with, and what the key says.
  *
  * The weapon a machine actually carried, rather than one key labelled DROP on
@@ -85,6 +102,74 @@ const LOAD = {
   torpedo: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
 };
 
+
+/**
+ * Everything an aeroplane carries, in the shape the arsenal panel wants.
+ *
+ * A carrier machine has her forward guns and nothing else to choose between,
+ * so she gets one row and it is not a mounting anybody sits in -- a fighter's
+ * guns are bolted to her wings and aimed by pointing the aeroplane. A heavy
+ * has three or four powered turrets, each with its own cone, and those are
+ * rows you can press: press one and you are in it.
+ *
+ * The turret figures are the model's own -- the same table that builds the
+ * cupolas and clamps them when they train, so what the panel says a turret
+ * will do is what the turret does.
+ */
+const AIR_ARMS = new Map();
+
+export function airArsenal(kind) {
+  // Worked out once per type and kept. What an aeroplane carries does not
+  // change during an action -- it is her armament, not her state -- and this
+  // is asked for on every frame that anything is being watched or flown.
+  const had = AIR_ARMS.get(kind);
+  if (had) return had;
+  const rows = buildAirArsenal(kind);
+  AIR_ARMS.set(kind, rows);
+  return rows;
+}
+
+function buildAirArsenal(kind) {
+  if (HEAVY_KINDS.includes(kind)) {
+    const spec = HEAVY[kind] || HEAVY.lancaster;
+    const book = BOMBERS[kind] || BOMBERS.lancaster;
+    const deg = (r) => Math.round(r);
+    return (spec.turrets || []).map((t) => ({
+      name: `${TURRET_NAME[t.name] || t.name} turret`,
+      // Her guns are quoted in metres across the bore on the model, which is
+      // how everything else in the toolkit is measured; the panel wants
+      // millimetres, like a ship's.
+      caliber: Math.round((t.cal || 0.04) * 1000),
+      barrels: t.guns || 1,
+      mounts: 1,
+      role: 'aa',
+      band: 'Defensive armament',
+      // What she will bear on, which is the whole of what a turret is: a cone
+      // either side of her line, and how far up and down inside it.
+      note: `${t.guns || 1} ${(t.guns || 1) === 1 ? 'gun' : 'guns'} · `
+        + `${deg(t.arc ?? 180) * 2}° traverse · +${deg(t.up ?? 60)}/-${deg(t.down ?? 30)}°`,
+      arcs: book.arcs,
+      turret: t.name,
+    }));
+  }
+  const n = GUN_COUNT[kind] ?? gunsOf(kind).length;
+  const cal = GUN_CALIBRE[kind] ?? 12.7;
+  return [{
+    name: `${cal} mm forward guns`,
+    caliber: cal,
+    barrels: n,
+    mounts: n,
+    role: 'aa',
+    band: 'Fixed armament',
+    note: `${n} ${n === 1 ? 'gun' : 'guns'} · fired by pointing her`,
+  }];
+}
+
+/** What a turret is called, rather than where the model puts it. */
+const TURRET_NAME = {
+  nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
+  tail: 'Tail', gondola: 'Ventral', beam: 'Beam', waist: 'Waist',
+};
 
 /**
  * Which of the ship's batteries a row of the arsenal belongs to.
@@ -143,6 +228,9 @@ export class Battle {
       // close-range mountings across the whole battery. See lightMounts.
       this.armsBoard.onPick((i) => this.manGun(batteryKind(row), i, row));
     });
+    // And an aeroplane's own armament: pressing a turret puts you in it, and
+    // pressing the one you are in gets you out again.
+    this.hud.onAirArsenal?.((row) => this.manTurret(row));
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
     this.holes = [];
@@ -198,6 +286,9 @@ export class Battle {
     this.camMode = 'chase';
     // The aeroplane the player has taken, if any: see takeFlight.
     this.flight = null;
+    // And the turret on her he is sitting in, if any: see manTurret. Null is
+    // the pilot's own seat, which is where everybody starts.
+    this.turret = null;
     // What the camera is looking at, when it is not looking at your own hull:
     // {kind:'ship'|'battery', id, name}, set by tapping a contact on the plot.
     // You still have the con while you are watching — the helm and the
@@ -275,6 +366,9 @@ export class Battle {
     // before it was pressed, so turning it off puts the view back.
     this.shellCam = false;
     this.shellFrom = 0;
+    // Whether what it is following is a ship's salvo or a squadron's stick:
+    // a bomb has no gun and no ship behind it, so it is matched differently.
+    this.shellIsBomb = false;
     this.shellWas = null;
     this.shellsNow = [];
 
@@ -1253,6 +1347,7 @@ export class Battle {
     if (this.shellCam) {
       this.shellCam = false;
       this.shellFrom = 0;
+      this.shellIsBomb = false;
       this.shellHold = null;
       this.shellWas = null;
       this.hud.setShellCam(true, false);
@@ -1434,11 +1529,26 @@ export class Battle {
     return this.shipId;
   }
 
-  /** Ride the salvo, or come back off it. */
+  /**
+   * The squadron whose stick the bomb camera would follow.
+   *
+   * The one being flown, or the one being watched. A bomb is a shell with
+   * `bomb` written on it and flies down the same pipeline, so the camera that
+   * rides a sixteen-inch round rides a four-thousand-pounder without knowing
+   * the difference -- all it needs is to be told which formation let it go.
+   */
+  bombSource() {
+    if (this.flight && this.flight.heavy) return this.flight.id;
+    if (this.watching && this.watching.kind === 'bomber') return this.watching.id;
+    return 0;
+  }
+
+  /** Ride the salvo or the stick, or come back off it. */
   toggleShellCam() {
     if (this.shellCam) {
       this.shellCam = false;
       this.shellFrom = 0;
+      this.shellIsBomb = false;
       this.shellHold = null;
       // Back to whatever the camera was looking at before.
       this.watching = this.shellWas;
@@ -1449,9 +1559,14 @@ export class Battle {
       audio.click();
       return;
     }
-    const from = this.shellSource();
+    // A stick first, when there is one to ride. Somebody watching a squadron
+    // of heavies, or flying one, wants to see where the bombs went, and that
+    // is the only question the camera can usefully answer up there.
+    const bomb = this.bombSource();
+    const from = bomb || this.shellSource();
     if (!from) return;
     this.shellCam = true;
+    this.shellIsBomb = !!bomb;
     this.shellFrom = from;
     this.shellWas = this.watching && this.watching.kind !== 'shell' ? this.watching : null;
     this.shellRiding = 0;
@@ -1474,9 +1589,16 @@ export class Battle {
   stepShellCam(dt) {
     if (!this.shellCam) return;
     const snap = this.snapshots[this.snapshots.length - 1];
-    const ship = snap && snap.ships.find((q) => q.i === this.shellFrom && q.a);
-    if (!ship) { this.toggleShellCam(); return; }
-    const mine = (this.shellsNow || []).filter((q) => q.o === this.shellFrom);
+    // Whose rounds these are: a ship's salvo, or a squadron's stick. A bomb
+    // has no gun and no ship behind it, so it is matched on the formation that
+    // let it go rather than on an owner that is not there.
+    const heavy = this.shellIsBomb
+      ? snap && (snap.bombers || []).find((q) => q.i === this.shellFrom) : null;
+    const ship = this.shellIsBomb
+      ? null : snap && snap.ships.find((q) => q.i === this.shellFrom && q.a);
+    if (!heavy && !ship) { this.toggleShellCam(); return; }
+    const mine = (this.shellsNow || []).filter((q) => (this.shellIsBomb
+      ? q.bm === this.shellFrom : q.o === this.shellFrom));
     let riding = mine.find((q) => q.i === this.shellRiding);
     if (!riding) {
       // The one she has just fired: the highest id out of this ship is the
@@ -1495,9 +1617,12 @@ export class Battle {
     const was = this.watching;
     this.watching = {
       kind: 'shell', id: this.shellRiding, ship: this.shellFrom,
-      // Named for the ship, not her captain: what you are riding is the
-      // Iowa's salvo, and `n` on a snapshot is the man on her bridge.
-      name: getClass(ship.c).name,
+      // Named for the thing that fired it, not for her captain: what you are
+      // riding is the Iowa's salvo or the Lancasters' stick, and `n` on a
+      // snapshot is the man on the bridge.
+      name: heavy
+        ? `${(BOMBERS[heavy.b] || BOMBERS.lancaster).name} stick`
+        : getClass(ship.c).name,
     };
     this.watchPov = false;
     if (!was || was.kind !== 'shell') {
@@ -1506,11 +1631,137 @@ export class Battle {
     }
   }
 
-  /** Is the thing being watched a flight of ours that could be flown? */
+  /**
+   * The aeroplane whose armament the arsenal panel is showing.
+   *
+   * The one being flown, or the one being watched off the plot -- so a captain
+   * who has sent a squadron out and is watching it go in can look through the
+   * same list the pilot has, and sit in a turret without taking the aeroplane.
+   */
+  airInHand() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap) return null;
+    if (this.flight) {
+      return this.flight.heavy
+        ? { kind: this.flight.kind, id: this.flight.id, heavy: true }
+        : { kind: this.flight.kind, id: this.flight.id, heavy: false };
+    }
+    const w = this.watching;
+    if (!w) return null;
+    if (w.kind === 'bomber') {
+      const bm = (snap.bombers || []).find((q) => q.i === w.id);
+      return bm ? { kind: bm.b || 'lancaster', id: bm.i, heavy: true } : null;
+    }
+    if (w.kind === 'plane') {
+      const pl = (snap.planes || []).find((q) => q.i === w.id);
+      return pl ? { kind: typeOf(pl.k, pl.r || 'torpedo'), id: pl.i, heavy: false } : null;
+    }
+    return null;
+  }
+
+  /**
+   * Go and sit in one of her turrets, or come out of it.
+   *
+   * The same idea as manning a gun on a ship: the camera goes to the mounting
+   * itself and the drag turns the gunner's head, with the turret following him
+   * round inside whatever cone it actually has. A mid-upper swings the whole
+   * way round and cannot look below her own spine; a ball turret sees
+   * everything under her and nothing above; a tail turret has a narrow cone
+   * dead astern -- which is why a Fortress was attacked from ahead.
+   */
+  manTurret(row) {
+    const air = this.airInHand();
+    if (!air || !row || !row.turret) return;
+    if (this.turret && this.turret.name === row.turret) {
+      this.turret = null;
+      this.hud.setAirGun(null);
+      audio.click();
+      return;
+    }
+    const spec = (HEAVY[air.kind] || HEAVY.lancaster).turrets
+      .find((t) => t.name === row.turret);
+    if (!spec) return;
+    this.turret = {
+      id: air.id,
+      heavy: air.heavy,
+      name: row.turret,
+      spec,
+      // Where the gunner is looking, in the aeroplane's own frame. He starts
+      // looking down his mounting's own centreline, which for a tail turret is
+      // astern and for everything else is ahead.
+      yaw: spec.name === 'tail' || spec.name === 'gondola' ? Math.PI : 0,
+      pitch: 0,
+    };
+    this.hud.setAirGun(row.turret);
+    audio.click();
+  }
+
+  /**
+   * Where a turret gunner's head is, and which way he may point it.
+   *
+   * The mounting's place on the aeroplane is the model's own -- the same three
+   * numbers that put the cupola on her -- carried into the world by whatever
+   * she is doing at the time. The cone is the model's too, so the view a
+   * gunner has is exactly the arc his guns have and he cannot look through his
+   * own tail.
+   */
+  turretEye() {
+    const t = this.turret;
+    if (!t) return null;
+    let at = null;
+    if (t.heavy) {
+      const bm = (this.bombersNow || []).find((q) => q.i === t.id);
+      if (bm) at = { x: bm.x, y: bm.y, z: bm.z, heading: bm.h, bank: bm.bank || 0, pitch: 0.05 };
+      const mine = this.flight && this.flight.heavy && this.flight.id === t.id
+        ? this.flight.pilot : null;
+      if (mine) {
+        at = { x: mine.x, y: mine.y, z: mine.z, heading: mine.heading,
+          bank: mine.bank, pitch: mine.pitch };
+      }
+    } else {
+      const pl = (this.planesNow || []).find((q) => q.i === t.id);
+      if (pl) at = { x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h, bank: 0, pitch: 0 };
+      const mine = this.flight && !this.flight.heavy && this.flight.id === t.id
+        ? this.flight.pilot : null;
+      if (mine) {
+        at = { x: mine.x, y: mine.y, z: mine.z, heading: mine.heading,
+          bank: mine.bank, pitch: mine.pitch };
+      }
+    }
+    if (!at) return null;
+    // The mounting, in her frame and then in the world. Rolled and pitched
+    // with her, because a gunner in a banked aeroplane is banked.
+    const [lx, ly, lz] = t.spec ? [t.spec.x || 0, t.spec.y || 0, t.spec.z || 0] : [0, 0, 0];
+    const cb = Math.cos(at.bank), sb = Math.sin(at.bank);
+    const rx = lx * cb - ly * sb;
+    const ry = lx * sb + ly * cb;
+    const cp = Math.cos(at.pitch), sp = Math.sin(at.pitch);
+    const rz = lz * cp - ry * sp;
+    const y2 = lz * sp + ry * cp;
+    const ch = Math.cos(at.heading), sh = Math.sin(at.heading);
+    return {
+      x: at.x + rx * ch + rz * sh,
+      y: at.y + y2,
+      z: at.z - rx * sh + rz * ch,
+      heading: at.heading,
+      bank: at.bank,
+      pitch: at.pitch,
+    };
+  }
+
+  /** Is the thing being watched a flight or a squadron of ours we could fly? */
   canTake() {
     const w = this.watching;
-    if (!w || w.kind !== 'plane' || w.id == null || this.flight) return false;
+    if (!w || w.id == null || this.flight) return false;
     const snap = this.snapshots[this.snapshots.length - 1];
+    // A heavy squadron is taken the same way and on the same terms: her own
+    // side, and nobody else already at the controls.
+    if (w.kind === 'bomber') {
+      const bm = snap && (snap.bombers || []).find((q) => q.i === w.id);
+      if (!bm || bm.tm !== this.team) return false;
+      return !bm.pi || bm.pi === this.shipId;
+    }
+    if (w.kind !== 'plane') return false;
     const pl = snap && (snap.planes || []).find((q) => q.i === w.id);
     // Anything on her own side. A squadron in the air belongs to the fleet
     // rather than to the deck it came off: a destroyer captain with no
@@ -1531,6 +1782,7 @@ export class Battle {
    */
   takeFlight() {
     if (!this.canTake()) return;
+    if (this.watching.kind === 'bomber') { this.takeHeavy(); return; }
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
@@ -1590,6 +1842,74 @@ export class Battle {
   }
 
   /**
+   * Take a heavy squadron.
+   *
+   * The same bargain the carrier flights get, and deliberately the same
+   * cockpit: the swipe is the stick, the throttle is the throttle, the damage
+   * board across the bottom is hers, and the button that says BOMBS is where
+   * the button that says BOMBS has always been. What is different is what is
+   * under it -- thirty tonnes on a hundred and twenty square metres of wing,
+   * which rolls in its own time and will not be hauled about.
+   *
+   * She is still the simulation's: still shot at by the flak, still hunted by
+   * fighters, still burning where she was hit. All that changes is who is
+   * steering.
+   */
+  takeHeavy() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const bm = (snap.bombers || []).find((q) => q.i === this.watching.id);
+    if (!bm) return;
+    const kind = bm.b || 'lancaster';
+    const aero = HEAVY_AERO[kind] || HEAVY_AERO.lancaster;
+    const spec = BOMBERS[kind] || BOMBERS.lancaster;
+    this.flight = {
+      id: bm.i,
+      heavy: true,
+      role: 'heavy',
+      kind,
+      // Her own defensive guns, so the tracer off a turret is her calibre.
+      calibre: /12\.7|0\.5|\.50/.test(spec.calibre || '') ? 12.7 : 7.7,
+      load: {
+        key: 'BOMBS', name: 'bombs', away: 'Sticks away',
+        // A level bomber drops from wherever her sight says, and that is a
+        // very long way from the target: the whole of level bombing is that
+        // the bombs are let go miles short and thrown the rest of the way.
+        near: 26000,
+      },
+      pilot: new Pilot(aero, {
+        x: bm.x, y: bm.y, z: bm.z, heading: bm.h, speed: aero.vMax * 0.70,
+      }),
+      from: 0,
+      dm: bm.dm || null,
+      wear: { speed: 1, turn: 1, pull: 0 },
+      armed: (bm.ld || 0) > 0,
+      loads: bm.ld || 0,
+      asked: 0,
+      sent: 0,
+      guns: 0,
+      tracer: 0,
+      // How many of her are left, so the formation is drawn with its gaps.
+      count: Math.max(1, bm.n || 1),
+    };
+    this.watching = null;
+    this.hud.setWatching(null);
+    this.hud.setWatchBanner(null);
+    this.hud.setFlyOffer(false);
+    this.hud.setCockpit(true, this.flight.id);
+    this.hud.setArmament('BOMBS');
+    this.hud.setFlightIdent(spec.name || 'Heavy bomber',
+      `${this.flight.count} of ${spec.crew ? 'the squadron' : 'her'}`);
+    if (!this.planeBoard) {
+      const cv = document.getElementById('fly-damage-board');
+      if (cv) this.planeBoard = new PlaneBoard(cv);
+    }
+    if (this.planeBoard) this.planeBoard.build(kind);
+    this.hud.paintFlightDamage(null, PART_ORDER.map((k) => PART_NAME[k]));
+    if (this.mapBig) this.toggleMap(false);
+    audio.click();
+  }
+
+  /**
    * Let go of what she is carrying.
    *
    * A torpedo bomber drops torpedoes and a dive bomber drops bombs, and which
@@ -1606,6 +1926,18 @@ export class Battle {
     if (!f) return;
     if (!f.load) { this.hud.alert('No bombs or torpedoes aboard'); return; }
     if (!f.armed) { this.hud.alert(`Her ${f.load.name} are gone`); return; }
+    // A heavy lets the whole stick go on the run, wherever she is: the sight
+    // has already been run and the bombs are thrown two miles forward of the
+    // aeroplane. There is no "press home" to be told about, and no range test
+    // to pass -- what there is instead is the aimer's error, which is the
+    // whole of why she misses.
+    if (f.heavy) {
+      if (f.asked > 0) return;
+      f.asked = 1.2;
+      this.net.send({ t: 'dropb', i: f.id });
+      audio.click();
+      return;
+    }
     // Near enough to be dropping at something. Worked out here rather than
     // waited for from the server, so the answer is on the screen the instant
     // the key goes down.
@@ -1633,11 +1965,16 @@ export class Battle {
   leaveFlight(lost = false) {
     if (!this.flight) return;
     // `land` gives her back to the autopilot and drops the claim on her, so
-    // somebody else can take her afterwards.
-    this.net.send({ t: 'land', i: this.flight.id });
+    // somebody else can take her afterwards. A heavy has no deck to land on
+    // and is handed back to her own navigator instead, which is the same
+    // thing said differently.
+    this.net.send({ t: this.flight.heavy ? 'landb' : 'land', i: this.flight.id });
+    const heavy = this.flight.heavy;
     this.flight = null;
+    this.turret = null;
+    this.hud.setAirGun(null);
     this.hud.setCockpit(false);
-    if (lost) this.hud.alert('Aircraft down');
+    if (lost) this.hud.alert(heavy ? 'The squadron is gone' : 'Aircraft down');
   }
 
   /**
@@ -1653,15 +1990,32 @@ export class Battle {
     const f = this.flight;
     if (!f) return;
     const snap = this.snapshots[this.snapshots.length - 1];
-    const pl = snap && (snap.planes || []).find((q) => q.i === f.id);
+    const pl = f.heavy
+      ? snap && (snap.bombers || []).find((q) => q.i === f.id)
+      : snap && (snap.planes || []).find((q) => q.i === f.id);
     // She is gone: shot down, or her squadron was released under her.
     if (!pl) { this.leaveFlight(true); return; }
     // How she has been knocked about, part by part, for her own damage board.
     if (pl.dm) f.dm = pl.dm;
+    // And how many of her are left in the air beside you.
+    if (f.heavy) {
+      f.count = Math.max(1, pl.n || 1);
+      const left = pl.ld || 0;
+      if (left !== f.loads) {
+        // A load has gone. The pilot is told once, and the key comes back
+        // alive only if there is another run in her.
+        if (left < f.loads) this.hud.alert(left > 0 ? 'Sticks away — one load left' : 'Sticks away');
+        f.loads = left;
+      }
+      f.armed = left > 0;
+    }
     // What is left on her rack, off the simulation. The moment it says she is
     // empty and she was not before, her ordnance is away and the pilot is told
     // so -- which is the one word in the cockpit that has to be true.
-    if (pl.d && f.armed) {
+    // A heavy's `d` is her bay doors standing open on the run, which is the
+    // start of the drop and not the end of it: what tells her pilot the stick
+    // has gone is her load count coming down, above.
+    if (pl.d && f.armed && !f.heavy) {
       f.armed = false;
       f.asked = 0;
       if (f.load) this.hud.alert(f.load.away);
@@ -1691,10 +2045,27 @@ export class Battle {
       f.tracer -= dt;
       if (f.tracer <= 0) {
         f.tracer = 0.1;
-        this.wingGuns(f, p);
+        // Out of the turret he is sitting in, when he is sitting in one, and
+        // out of her wings when he is not. A heavy has no forward guns worth
+        // the name: her whole armament is the turrets, and a trigger pressed
+        // from the pilot's seat of one does nothing, which is correct.
+        if (this.turret) this.turretGuns(f, p);
+        else if (!f.heavy) this.wingGuns(f, p);
       }
       if (f.guns > 0.15) {
-        this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
+        if (f.heavy) {
+          if (this.turret) {
+            const t = this.turret;
+            this.net.send({
+              t: 'gunb', i: f.id,
+              y: Math.round(t.yaw * 1000) / 1000,
+              a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
+              dt: Math.round(f.guns * 100) / 100,
+            });
+          }
+        } else {
+          this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
+        }
         f.guns = 0;
       }
     } else { f.guns = 0; f.tracer = 0; }
@@ -1707,7 +2078,15 @@ export class Battle {
     f.sent -= dt;
     if (f.sent <= 0) {
       f.sent = 0.1;
-      this.net.send({
+      this.net.send(f.heavy ? {
+        t: 'flyb', i: f.id,
+        x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+        y: Math.round(p.y * 10) / 10,
+        // How hard she is turning, so that everybody else's screen banks the
+        // formation the way the pilot has her. `tn` and not `t`, because `t`
+        // is the name of the message.
+        tn: Math.round(Math.sin(p.bank) * 1000) / 1000,
+      } : {
         t: 'fly', i: f.id,
         x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
         // How high she is and which way her nose is pointed in the vertical.
@@ -1879,6 +2258,33 @@ export class Battle {
       this.scene.effects.wingGun(mx, my, mz, (ex - mx) / d, (ey - my) / d,
         (ez - mz) / d, f.calibre);
     }
+  }
+
+  /**
+   * The tracer out of the turret somebody is sitting in.
+   *
+   * Down the line the gunner is actually looking, from the mounting he is
+   * actually in, so a burst from the tail turret leaves the tail and a burst
+   * from the mid-upper leaves her spine. The wing guns are harmonised on a
+   * point a couple of hundred yards out and converge there; a turret is not --
+   * it is a pair of guns on a ring, pointed where the man points them.
+   */
+  turretGuns(f, p) {
+    const eye = this.turretEye();
+    if (!eye) return;
+    const t = this.turret;
+    const look = wrapAngle(eye.heading + t.yaw);
+    const cp = Math.cos(t.pitch);
+    const R = 620;
+    const dx = Math.sin(look) * cp;
+    const dy = -Math.sin(t.pitch);
+    const dz = Math.cos(look) * cp;
+    const ex = eye.x + dx * R;
+    const ey = eye.y + dy * R;
+    const ez = eye.z + dz * R;
+    this.scene.flak.fire(eye.x, eye.y, eye.z, ex, ey, ez, f.calibre, 8,
+      this.scene.effects);
+    this.scene.effects.wingGun(eye.x, eye.y, eye.z, dx, dy, dz, f.calibre);
   }
 
   /**
@@ -2174,7 +2580,23 @@ export class Battle {
     // The key is there whenever there is a ship whose guns you could follow,
     // and lit while the camera is on a round. Offered only from the bridge --
     // there is nothing to ride from inside an aeroplane.
-    this.hud.setShellCam(!this.flight && !!this.shellSource(), this.shellCam);
+    // Whose armament the arsenal panel is listing. An aeroplane in hand -- hers
+    // if one is being flown, hers if one is being watched -- and the ship's
+    // when there is neither.
+    const air = this.airInHand();
+    this.hud.setAirArsenal?.(air ? airArsenal(air.kind) : null);
+    // A turret on an aeroplane that has gone is a turret nobody is in.
+    if (this.turret && (!air || air.id !== this.turret.id)) {
+      this.turret = null;
+      this.hud.setAirGun(null);
+    }
+    // The key is offered for a salvo from the bridge, and for a stick whenever
+    // a squadron is being watched or flown -- a pilot in a Lancaster has as
+    // much reason to watch his own bombs down as a gunnery officer has.
+    this.hud.setShellCam(
+      !!this.bombSource() || (!this.flight && !!this.shellSource()),
+      this.shellCam,
+    );
     this.updateCamera(dt);
     // And the ground, if anything has taken a piece out of it since the last
     // frame. Held off for a moment after the last hit rather than done on the
@@ -2514,7 +2936,7 @@ export class Battle {
       const dy = prev ? prev.y - sh.y : 0.2;
       const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
       n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
-      shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm });
+      shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm, bm: sh.bm });
     }
     this.shellsNow = shells;
     this.scene.shells.hideFrom(n);
@@ -2653,6 +3075,24 @@ export class Battle {
       // at, and she holds it the whole way in.
       const gs = Math.max(20, bm.s || 80);
       const bank = clamp(Math.atan2(gs * (bm.tn || 0), 9.81), -0.45, 0.45);
+      // The one the player is flying is drawn where his own flight model has
+      // her, at the attitude the stick has her in -- not at the position the
+      // last snapshot happened to carry. Two sources for one aeroplane is what
+      // makes her jump: the model is interpolated and the camera reads raw
+      // snapshots, and they disagree ten times a second.
+      const mine = this.flight && this.flight.heavy && this.flight.id === bm.i
+        ? this.flight.pilot : null;
+      if (mine) {
+        this.scene.heavies.add(
+          bm.b || 'lancaster', mine.x, mine.y, mine.z,
+          mine.heading, mine.bank, mine.attitude,
+          Math.max(1, this.flight.count || bm.n || 1),
+        );
+        heavies.push({
+          ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
+        });
+        continue;
+      }
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
         Math.max(1, bm.n || 1),
@@ -3114,6 +3554,40 @@ export class Battle {
   updateCamera(dt) {
     const cam = this.scene.camera;
     const ls = this.localShip;
+    // In one of her turrets. The eye is on the mounting, the drag turns the
+    // gunner's head, and the head does not go outside the cone the mounting
+    // has -- so a tail gunner cannot look forward past his own fins and a
+    // mid-upper cannot look down through his own wing. That clamp is what
+    // makes a turret a turret rather than a free camera bolted to an
+    // aeroplane, and it is the model's own arc, not a number chosen here.
+    if (this.turret) {
+      const eye = this.turretEye();
+      if (!eye) { this.turret = null; this.hud.setAirGun(null); } else {
+        const m = this.input.takeMouse();
+        const t = this.turret;
+        const arc = t.spec.arc === undefined ? Math.PI : (t.spec.arc * Math.PI) / 180;
+        const up = ((t.spec.up === undefined ? 60 : t.spec.up) * Math.PI) / 180;
+        const down = ((t.spec.down === undefined ? 30 : t.spec.down) * Math.PI) / 180;
+        // Her own centreline for this mounting: a tail turret's cone is about
+        // dead astern, everything else's is about dead ahead.
+        const home = t.name === 'tail' || t.name === 'gondola' ? Math.PI : 0;
+        t.yaw = home + clamp(wrapAngle(t.yaw + m.x - home), -arc, arc);
+        t.pitch = clamp(t.pitch + m.y, -up, down);
+        cam.fov = 58;
+        cam.updateProjectionMatrix();
+        cam.up.set(0, 1, 0);
+        cam.position.set(eye.x, Math.max(eye.y, 2), eye.z);
+        const look = wrapAngle(eye.heading + t.yaw);
+        const cp2 = Math.cos(t.pitch);
+        cam.lookAt(
+          eye.x + Math.sin(look) * cp2 * 600,
+          eye.y - Math.sin(t.pitch) * 600,
+          eye.z + Math.cos(look) * cp2 * 600,
+        );
+        this.input.orbiting = true;
+        return;
+      }
+    }
     // In the cockpit, the camera belongs to the aeroplane and to nothing else:
     // over her shoulder, banking with her, looking where her nose is looking.
     if (this.flight) {
@@ -3140,8 +3614,13 @@ export class Battle {
       // Far enough back and high enough that she is in the frame with the sea
       // under her: a chase camera that cannot see its own aeroplane is a
       // camera pointed at nothing.
-      const back = 34;
-      const up = 9;
+      // Off her own span, so the camera stands where she can be seen. A fixed
+      // thirty-four metres frames a Wildcat and puts the lens inside a
+      // Lancaster's port wing: a heavy is three times the aeroplane and wants
+      // three times the room.
+      const span = (p.a && p.a.span) || 11;
+      const back = 20 + span * 1.25;
+      const up = 5 + span * 0.36;
       const cp = Math.cos(r.pitch);
       const bx = -Math.sin(r.heading) * cp * back - Math.sin(r.bank) * Math.cos(r.heading) * up;
       const bz = -Math.cos(r.heading) * cp * back + Math.sin(r.bank) * Math.sin(r.heading) * up;

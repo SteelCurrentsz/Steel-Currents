@@ -24,11 +24,15 @@ import * as THREE from '../../../vendor/three.module.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, zero, suisei, tenzan, jake,
+  heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {
   wildcat, dauntless, avenger, arado, kingfisher, zero, suisei, tenzan, jake,
 };
+
+/** Whether this is one of the heavy squadrons rather than a carrier machine. */
+const isHeavy = (kind) => HEAVY_KINDS.includes(kind);
 
 /** Sound, knocked about, gone -- the same three the ship's board uses. */
 const SOUND = new THREE.Color(0x58c8e8);
@@ -155,11 +159,19 @@ export class PlaneBoard {
     this.scene.add(this.rig);
 
     const holder = new THREE.Group();
-    const f = BUILD[kind] || BUILD.wildcat;
-    // In flight trim: wheels up, wings spread, nothing hanging off her.
-    if (kind === 'avenger' || kind === 'tenzan') f(holder, 0, 0, 0, 0, false, false, { gear: false });
-    else if (kind === 'kingfisher') f(holder, 0, 0, 0, 0, {});
-    else f(holder, 0, 0, 0, 0, false, { gear: false });
+    if (isHeavy(kind)) {
+      // A heavy is asked for by name and comes back whole, already in flight
+      // trim -- she has no undercarriage to raise, because she is only ever
+      // drawn in the air. Her interior is a group the cutaway raises and is
+      // left down here: a damage board is her outline, not her insides.
+      holder.add(heavyBomber(kind));
+    } else {
+      const f = BUILD[kind] || BUILD.wildcat;
+      // In flight trim: wheels up, wings spread, nothing hanging off her.
+      if (kind === 'avenger' || kind === 'tenzan') f(holder, 0, 0, 0, 0, false, false, { gear: false });
+      else if (kind === 'kingfisher') f(holder, 0, 0, 0, 0, {});
+      else f(holder, 0, 0, 0, 0, false, { gear: false });
+    }
     holder.updateMatrixWorld(true);
 
     // Her whole extent, so the parts can be told apart in fractions of her.

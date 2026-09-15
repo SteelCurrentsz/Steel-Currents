@@ -49,20 +49,22 @@ export const AERO = {
     mass: 3610, wing: 24.2, span: 11.58, clMax: 1.55, cd0: 0.0250,
     thrust: 15600, vMax: 143, name: 'F4F-4',
     // How she handles: roll and pitch rates in radians a second at fighting
-    // speed, how far over she will go, and what the airframe will take.
-    rollRate: 2.9, pitchRate: 1.35, bankMax: 1.45, gLimit: 6.0,
+    // speed, and what the airframe will take. There is no limit on how far
+    // over she will go, because an aeroplane has not got one -- the stick
+    // asks the ailerons for a rate and she keeps rolling while it is held.
+    rollRate: 2.9, pitchRate: 1.35, gLimit: 6.0,
   },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
-    rollRate: 2.1, pitchRate: 1.15, bankMax: 1.35, gLimit: 5.0,
+    rollRate: 2.1, pitchRate: 1.15, gLimit: 5.0,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',
     // A loaded torpedo bomber is a bus. She rolls slowly and she will not be
     // hauled about, which is exactly why she needs the fighters.
-    rollRate: 1.5, pitchRate: 0.85, bankMax: 1.15, gLimit: 4.0,
+    rollRate: 1.5, pitchRate: 0.85, gLimit: 4.0,
   },
   // The German cruiser's scout: an Arado 196, a low-wing monoplane on two big
   // floats with a nine-hundred-horsepower radial. Faster and a good deal
@@ -72,7 +74,7 @@ export const AERO = {
   arado: {
     mass: 3300, wing: 28.4, span: 12.44, clMax: 1.48, cd0: 0.0390,
     thrust: 12600, vMax: 86, name: 'Ar 196A-3',
-    rollRate: 1.7, pitchRate: 1.0, bankMax: 1.2, gLimit: 4.5,
+    rollRate: 1.7, pitchRate: 1.0, gLimit: 4.5,
   },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
@@ -80,7 +82,7 @@ export const AERO = {
   kingfisher: {
     mass: 2600, wing: 24.3, span: 10.95, clMax: 1.50, cd0: 0.0410,
     thrust: 9000, vMax: 74, name: 'OS2U-3',
-    rollRate: 1.6, pitchRate: 0.95, bankMax: 1.15, gLimit: 4.0,
+    rollRate: 1.6, pitchRate: 0.95, gLimit: 4.0,
   },
   // And the Japanese three. The Zero is the lightest fighter of the war and
   // handles like it: she out-climbs and out-turns anything, and at four
@@ -89,14 +91,14 @@ export const AERO = {
   zero: {
     mass: 2733, wing: 21.3, span: 11.00, clMax: 1.60, cd0: 0.0215,
     thrust: 13400, vMax: 155, name: 'A6M5',
-    rollRate: 2.6, pitchRate: 1.65, bankMax: 1.52, gLimit: 7.0,
+    rollRate: 2.6, pitchRate: 1.65, gLimit: 7.0,
   },
   // The Suisei: an inline-engined dive bomber, faster than most fighters of
   // her generation, with an internal bomb bay and dive brakes under the wing.
   suisei: {
     mass: 3650, wing: 23.6, span: 11.50, clMax: 1.48, cd0: 0.0255,
     thrust: 14800, vMax: 156, name: 'D4Y3',
-    rollRate: 2.0, pitchRate: 1.20, bankMax: 1.38, gLimit: 5.5,
+    rollRate: 2.0, pitchRate: 1.20, gLimit: 5.5,
   },
   // The Tenzan: bigger than an Avenger, carrying one eighteen-inch torpedo
   // under her belly, and handling exactly the way a loaded torpedo bomber
@@ -104,14 +106,58 @@ export const AERO = {
   tenzan: {
     mass: 5650, wing: 37.2, span: 14.89, clMax: 1.58, cd0: 0.0300,
     thrust: 19600, vMax: 133, name: 'B6N2',
-    rollRate: 1.6, pitchRate: 0.90, bankMax: 1.18, gLimit: 4.2,
+    rollRate: 1.6, pitchRate: 0.90, gLimit: 4.2,
   },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.
   jake: {
     mass: 3640, wing: 36.0, span: 14.50, clMax: 1.50, cd0: 0.0395,
     thrust: 11800, vMax: 80, name: 'E13A1',
-    rollRate: 1.5, pitchRate: 0.92, bankMax: 1.15, gLimit: 4.0,
+    rollRate: 1.5, pitchRate: 0.92, gLimit: 4.0,
+  },
+};
+
+/**
+ * And the heavy squadrons, which are flown by the same wing and the same
+ * engine and are simply a great deal bigger.
+ *
+ * Loaded weights, wing areas and spans off the machines themselves. What they
+ * fly like falls out of those three numbers and needs no separate rules: a
+ * thirty-tonne aeroplane on a hundred and twenty square metres of wing stalls
+ * at ninety knots, turns like a barn and cannot be hauled about, and a pilot
+ * who tries to throw one around finds that out in the first turn.
+ *
+ * `rollRate` and `pitchRate` are what four big control surfaces on long arms
+ * will actually do -- a third of a fighter's -- and `gLimit` is what the spar
+ * will take with fourteen thousand pounds of bombs in the bay. She will roll
+ * right over if you hold the stick there long enough. It takes about eight
+ * seconds and it is a bad idea.
+ */
+export const HEAVY_AERO = {
+  lancaster: {
+    mass: 30000, wing: 120.5, span: 31.09, clMax: 1.55, cd0: 0.0270,
+    thrust: 52000, vMax: 128, name: 'Lancaster B.I',
+    rollRate: 0.78, pitchRate: 0.46, gLimit: 3.0,
+  },
+  fortress: {
+    mass: 29700, wing: 131.9, span: 31.62, clMax: 1.58, cd0: 0.0255,
+    thrust: 50000, vMax: 128, name: 'B-17G',
+    rollRate: 0.72, pitchRate: 0.44, gLimit: 3.2,
+  },
+  heinkel: {
+    mass: 14000, wing: 87.6, span: 22.60, clMax: 1.52, cd0: 0.0285,
+    thrust: 26000, vMax: 120, name: 'He 111H-6',
+    rollRate: 0.95, pitchRate: 0.58, gLimit: 3.4,
+  },
+  junkers: {
+    mass: 14000, wing: 54.5, span: 20.08, clMax: 1.48, cd0: 0.0250,
+    thrust: 28000, vMax: 142, name: 'Ju 88A-4',
+    rollRate: 1.15, pitchRate: 0.70, gLimit: 4.0,
+  },
+  betty: {
+    mass: 12500, wing: 78.1, span: 24.88, clMax: 1.50, cd0: 0.0265,
+    thrust: 24000, vMax: 119, name: 'G4M1',
+    rollRate: 0.88, pitchRate: 0.54, gLimit: 3.0,
   },
 };
 
@@ -431,32 +477,66 @@ export class Pilot {
     // vicious. Below the stall she has almost nothing.
     const q = Math.min(1.6, Math.max(0.12, (this.v / (vs * 1.7)) ** 2));
 
-    // Roll. A fighter rolls fast; a loaded torpedo bomber does not.
+    // Roll: the stick asks for a rate of roll, not an angle of bank.
+    //
+    // It used to ask for an angle. Stick hard over meant eighty-three degrees
+    // and not one degree more, so there was no such thing as rolling past the
+    // vertical -- and an aileron roll, a barrel roll, a roll off the top, or
+    // simply flying her upside down for a moment were not things the aeroplane
+    // could be made to do at all. That is not what an aileron does. It asks
+    // for a rate, and she keeps going round for as long as it is held.
     const rollRate = (a.rollRate ?? 2.6) * q;
-    const wantBank = this.stickRoll * (a.bankMax ?? 1.35);
     const held = Math.abs(this.stickRoll) > 0.03;
-    // Hands off, she rolls level on her own dihedral -- but slowly. She used
-    // to come level as fast as the stick could put her over, so a turn ended
-    // the instant the stick was let go and there was no such thing as leaving
-    // her in a bank: what an aeroplane does is hold most of what you gave her
-    // and come out of it in her own time.
-    const target = held ? wantBank : 0;
-    // A tenth of it: she takes about three seconds to come out of a hard bank
-    // on her own, which is what dihedral does, rather than the third of a
-    // second the ailerons could do it in.
-    const rate = held ? rollRate : rollRate * 0.10;
-    const dB = Math.max(-rate * s, Math.min(rate * s, target - this.bank));
-    this.bank += dB;
+    if (held) {
+      this.bank = wrapAngle(this.bank + this.stickRoll * rollRate * s);
+    } else {
+      // Hands off she rolls level on her own dihedral, and slowly. Nine degrees
+      // a second: a hard bank takes eight or nine seconds to come out of on its
+      // own, which is what dihedral does -- it is a weak righting moment out of
+      // sideslip, not a second pair of ailerons.
+      //
+      // It used to be a tenth of the aileron rate, which made it twenty-seven
+      // degrees a second and faster still the faster she went, so a turn very
+      // nearly ended the moment the stick came off.
+      //
+      // And only from the right way up. An aeroplane on her back does not
+      // right herself: she hangs there until the pilot rolls her out, which is
+      // exactly why inverted flight is something a pilot holds rather than
+      // something that happens to him.
+      if (Math.abs(this.bank) < Math.PI * 0.55) {
+        const rate = 0.16 * s;
+        this.bank += Math.max(-rate, Math.min(rate, -this.bank));
+      }
+    }
 
     // Pitch. The stick asks for g; the wing decides whether it gets it.
     const pitchRate = (a.pitchRate ?? 1.15) * q;
-    // In a bank she needs more than one g just to hold her height, and the
+    // In a turn she needs more than one g just to hold her height, and the
     // instructor feeds that in so she does not fall out of every turn.
-    const hold = 1 / Math.max(0.25, Math.cos(this.bank));
+    //
+    // Which way that g has to go depends on which way up she is. On her back
+    // the lift points at the ground, so holding her level means pushing: a
+    // negative g, not a bigger positive one.
+    //
+    // And there is a limit to how much the instructor will feed in. Past about
+    // seventy degrees of bank the g needed to hold height runs away -- at
+    // eighty-two it is seven and at ninety it is infinite -- and what a pilot
+    // actually does there is pull as hard as he is going to and accept that he
+    // is going downhill. That is what a hard turn costs, and it is why one
+    // ends lower than it began.
+    const c = Math.cos(this.bank);
+    const HOLD_MAX = 4.5;
+    const hold = Math.max(-HOLD_MAX, Math.min(HOLD_MAX,
+      Math.abs(c) < 1e-3 ? Math.sign(c || 1) * HOLD_MAX : 1 / c));
     const askG = hold + this.stickPitch * (a.gLimit ?? 5.5);
     // The most this wing can pull at this speed.
     const maxG = Math.max(0.15, (this.v * this.v) / (vs * vs));
-    this.g = Math.max(-1.5, Math.min(askG, maxG));
+    // And the most it will take the other way. A wing is built to be loaded
+    // one way up: the negative limit on these airframes was around two fifths
+    // of the positive one, which is why a pilot rolls and pulls rather than
+    // pushing through.
+    const minG = -Math.min(maxG, (a.gLimit ?? 5.5) * 0.45);
+    this.g = Math.max(minG, Math.min(askG, maxG));
     // Buffet and departure: asking for more than the wing has.
     this.stall = Math.max(0, Math.min(1, (askG - maxG) / Math.max(1, maxG * 0.5)));
 
@@ -472,7 +552,26 @@ export class Pilot {
     // was worked out and then not used, so at speed she could snap from a
     // vertical dive to a vertical climb inside a frame.
     const dP = Math.max(-pitchRate * s, Math.min(pitchRate * s, gamma * s));
-    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dP));
+    this.pitch += dP;
+    // Over the top.
+    //
+    // A loop, an Immelmann and a split-S all take her through the vertical,
+    // and in a heading-pitch-bank frame that is where the arithmetic folds:
+    // past ninety degrees of pitch she is going the other way round and upside
+    // down. It used to be handled by clamping her a few degrees short of the
+    // vertical, which is why she could be stood on her tail and no further and
+    // why none of those manoeuvres was flyable. Fold the frame the way it
+    // actually folds instead, and she goes over the top and comes out the
+    // other side inverted, as she should.
+    if (this.pitch > Math.PI / 2) {
+      this.pitch = Math.PI - this.pitch;
+      this.heading = wrapAngle(this.heading + Math.PI);
+      this.bank = wrapAngle(this.bank + Math.PI);
+    } else if (this.pitch < -Math.PI / 2) {
+      this.pitch = -Math.PI - this.pitch;
+      this.heading = wrapAngle(this.heading + Math.PI);
+      this.bank = wrapAngle(this.bank + Math.PI);
+    }
 
     // Energy: thrust against drag and the component of weight along the path.
     const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));
@@ -485,7 +584,9 @@ export class Pilot {
 
     // A stalled wing drops the nose whether the pilot likes it or not.
     if (this.stall > 0.35 && this.v < vs * 1.05) {
-      this.pitch -= 1.1 * this.stall * s;
+      // Downwards, which on her back is towards her own canopy: the nose drops
+      // relative to the earth and not relative to her.
+      this.pitch -= 1.1 * this.stall * s * Math.sign(Math.cos(this.bank) || 1);
       this.bank += (this.bank >= 0 ? 1 : -1) * 0.5 * this.stall * s;
     }
 

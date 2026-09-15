@@ -299,14 +299,22 @@ export class LayoutMap {
     // The heavies come on to the battlefield from behind their own side, in
     // line abreast and well back: they are on passage at this point, and where
     // a commander wants them is a decision he makes by dragging them.
-    const air = this.tokens.filter((t) => t.kind === 'air');
-    const airGap = clamp(this.half / 5, 1200, 5200);
-    air.forEach((t, i) => {
-      const sign = t.team === 0 ? -1 : 1;
-      t.x = (i - (air.length - 1) / 2) * airGap;
-      t.z = sign * (this.half - 400);
-      t.heading = t.team === 0 ? 0 : Math.PI;
-    });
+    //
+    // Each side's squadrons are centred on its own middle, which is where a
+    // stream crossing in would be. They used to be spread with one running
+    // index across both sides at once, so with three squadrons each the first
+    // three went to the left-hand corner of the chart and the last three to
+    // the right-hand one, and neither group was over its own fleet.
+    const airGap = clamp(this.half / 6, 900, 3600);
+    for (const team of [0, 1]) {
+      const air = this.tokens.filter((t) => t.kind === 'air' && t.team === team);
+      const sign = team === 0 ? -1 : 1;
+      air.forEach((t, i) => {
+        t.x = (i - (air.length - 1) / 2) * airGap;
+        t.z = sign * (this.half - 400);
+        t.heading = team === 0 ? 0 : Math.PI;
+      });
+    }
     for (const t of this.tokens) this.check(t);
   }
 

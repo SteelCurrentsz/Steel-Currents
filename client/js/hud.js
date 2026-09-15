@@ -213,6 +213,7 @@ export class Hud {
       flyDamage: $('fly-damage'), flyDamageBoard: $('fly-damage-board'),
       flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
+      flyArms: $('fly-arms'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -856,6 +857,10 @@ export class Hud {
       () => { this.fly.firing = false; el.flyGuns.classList.remove('on'); });
     el.flyDrop.onclick = () => this.flyFns.drop?.();
     el.flyLeave.onclick = () => this.flyFns.leave?.();
+    // Her armament, in the cockpit. The same panel the bridge raises with the
+    // ARSENAL key, listing what this aeroplane carries instead of what the
+    // ship carries -- and pressing a turret in it puts you in that turret.
+    if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     el.flyTake.onclick = () => this.flyFns.take?.();
   }
 
@@ -953,6 +958,9 @@ export class Hud {
     // the whole corner out of reach of a finger and takes the bridge's own
     // keys off it, leaving the plot itself, which is all he needs.
     if (this.el.hudRight) this.el.hudRight.classList.toggle('flying', !!on);
+    // The arsenal panel is the one thing from the bridge a pilot keeps, because
+    // it is the only way to get from one of his own turrets to another.
+    if (this.el.connPanel) this.el.connPanel.classList.toggle('in-cockpit', !!on);
     if (on) {
       this.panel = null;
       if (this.el.connPanel) this.el.connPanel.hidden = true;
@@ -1000,7 +1008,11 @@ export class Hud {
     const list = document.createElement('div');
     list.className = 'arms-list';
     let band = null;
-    for (const w of arsenal(this.shown)) {
+    // An aeroplane's armament when there is an aeroplane in hand -- flown or
+    // watched -- and the ship's otherwise. The rows are the same shape either
+    // way, so the panel does not care which it has been given: what changes is
+    // what pressing one of them does. See `setAirArsenal`.
+    for (const w of (this.airArms || arsenal(this.shown))) {
       if (w.band !== band) {
         band = w.band;
         const h = document.createElement('div');
@@ -1037,10 +1049,15 @@ export class Hud {
       // and "eight 5 inch in four sponsons" means nothing until you have seen
       // which four lumps of the ship they are. Press it again and she goes
       // away, because the list is what the panel is for.
-      if (w.specs) {
+      if (w.specs || w.turret) {
         row.classList.add('clickable');
         row.tabIndex = 0;
-        const show = () => this.showArsenalShip(entry);
+        // A ship's battery raises her hologram with that battery lit up on it;
+        // an aeroplane's turret is gone to directly, because there are four of
+        // them and a picture of a Lancaster would not tell you which.
+        const show = () => (w.turret
+          ? this.onAirGun?.(w)
+          : this.showArsenalShip(entry));
         row.addEventListener('click', show);
         row.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
@@ -1087,6 +1104,37 @@ export class Hud {
 
   /** Say who builds the arsenal hologram, so the HUD need not import one. */
   onArsenalBoard(fn) { this.onArms = fn; }
+
+  /**
+   * List an aeroplane's armament instead of a ship's, or go back to the ship.
+   *
+   * `rows` are the same shape the ship's arsenal produces, so everything the
+   * panel does with them is unchanged; a row with a `turret` on it is a
+   * mounting somebody can go and sit in, and pressing it says so.
+   */
+  setAirArsenal(rows) {
+    const was = this.airArms;
+    this.airArms = rows && rows.length ? rows : null;
+    // Only rebuild when it has actually changed, or the panel flickers and
+    // loses whatever the finger was on every frame.
+    const key = (r) => (r ? r.map((w) => w.name).join('|') : '');
+    if (key(was) === key(this.airArms)) return;
+    if (this.panel === 'arms') {
+      this.el.connBody.innerHTML = '';
+      this.buildArsenalPanel();
+    }
+  }
+
+  /** Say what happens when a gun on an aeroplane is pressed. */
+  onAirArsenal(fn) { this.onAirGun = fn; }
+
+  /** Light the turret that is being manned, so the list says where you are. */
+  setAirGun(name) {
+    this.airGunAt = name || null;
+    for (const r of this.armsRows || []) {
+      r.row.classList.toggle('manned', !!name && r.w.turret === name);
+    }
+  }
 
   /**
    * Put the gun sight up, or take it down.
@@ -1581,12 +1629,16 @@ export class Hud {
     // her coming from the far side of the chart.
     for (const bm of (snap && snap.bombers) || []) {
       const x = toX(bm.x), y = toY(bm.z);
-      const tint = bm.tm === this.team ? '#6fd3a0' : '#e2564f';
+      // The one being flown is picked out in the same yellow the camera's own
+      // mark uses, for the same reason a pilot needs it: one green cross among
+      // six green crosses does not tell him which one he is in.
+      const mine = this.flying && bm.i === this.flying;
+      const tint = mine ? '#e6cf9c' : bm.tm === this.team ? '#6fd3a0' : '#e2564f';
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(-bm.h);
       ctx.strokeStyle = tint;
-      ctx.lineWidth = 1.7;
+      ctx.lineWidth = mine ? 2.3 : 1.7;
       // Fuselage, nose to tail.
       ctx.beginPath();
       ctx.moveTo(0, -7 * k); ctx.lineTo(0, 6.5 * k);
@@ -1605,6 +1657,11 @@ export class Hud {
         const ex = (3.2 + i * 2.9) * k;
         ctx.fillRect(-ex - 1.1 * k, -1.9 * k, 2.2 * k, 2.6 * k);
         ctx.fillRect(ex - 1.1 * k, -1.9 * k, 2.2 * k, 2.6 * k);
+      }
+      if (mine) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 14 * k, 0, Math.PI * 2);
+        ctx.stroke();
       }
       ctx.restore();
       // How many of her are left, right beside the mark: a squadron that has

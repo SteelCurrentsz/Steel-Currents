@@ -3566,10 +3566,19 @@ const AIRFRAME = {
   // half a minute to get her nose down, which is not a dive -- she arrived
   // over the target still flying level and dropped her bomb out of the
   // window, which is exactly what it looked like.
-  fighter: { climb: 11.5, ceiling: 3800, dive: 34, g: 1.3 },
-  dive: { climb: 9.0, ceiling: 3600, dive: 118, g: 2.7 },
-  scout: { climb: 5.5, ceiling: 3000, dive: 26, g: 0.4 },
-  torpedo: { climb: 6.0, ceiling: 2900, dive: 30, g: 0.55 },
+  //
+  // `ceiling` is her service ceiling, and it is now roughly the real one --
+  // thirty-odd thousand feet for a fighter, twenty-two for a loaded torpedo
+  // bomber. It used to be three thousand metres or so for everybody, which was
+  // harmless while the whole battle was flown at two and a half thousand feet
+  // and became the reason a fighter could not intercept anything: the climb
+  // rate is scaled by how much of her ceiling she has left, so an aeroplane
+  // whose ceiling is barely above the height she is trying to reach spends the
+  // last thousand metres of the climb crawling and never arrives.
+  fighter: { climb: 12.5, ceiling: 9800, dive: 34, g: 1.3 },
+  dive: { climb: 9.0, ceiling: 7600, dive: 118, g: 2.7 },
+  scout: { climb: 5.5, ceiling: 5500, dive: 26, g: 0.4 },
+  torpedo: { climb: 6.0, ceiling: 6800, dive: 30, g: 0.55 },
 };
 
 /** What a strike cruises at, and what it comes down to in order to attack. */
@@ -3677,6 +3686,21 @@ function wantedHeight(state, p, carrier, inCompany) {
   if (p.targetAir) {
     const foe = state.planes.find((q) => q.id === p.targetAir && !q.dead);
     if (foe) return Math.max(60, foe.y || CRUISE_ALT);
+  }
+  // And that includes a bomber stream, which is the one target in this battle
+  // that is not at a fighter's own cruising height. A fighter sent after the
+  // heavies used to be sent after them in plan only: she flew to underneath
+  // them at seven hundred and fifty metres and stayed there, because nothing
+  // ever told her to climb. She goes up after them now -- as high as her own
+  // airframe will take her, which for a Wildcat is not quite as high as a
+  // Fortress can get, and is exactly the sort of thing that decided whether an
+  // interception happened at all.
+  if (p.targetHeavy) {
+    const heavy = (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive);
+    if (heavy) {
+      const f = AIRFRAME[p.role] || AIRFRAME.fighter;
+      return Math.max(60, Math.min(heavy.y, f.ceiling));
+    }
   }
   const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
   if (!mark) return CRUISE_ALT;
@@ -4238,13 +4262,20 @@ function stepPlanes(state, dt) {
         p.gunAt = -9;
         gunsSeen(state, p, mark.x, mark.z, false);
         p.phase = 'return';
-      } else if (p.life > (p.orderEscort && strikeMark(state, p) ? 420 : 260)) {
+      } else if (p.life > (p.orderEscort && strikeMark(state, p)
+        ? 420 : p.targetHeavy ? 480 : 260)) {
         // Out of patrol endurance. It used to be a hundred and fifty seconds,
         // which was most of a sortie once a strike started spending a minute
         // forming up over the ship: the escort turned for home about the time
         // it found anything to fight. An escort with a strike still out stays
         // with it longer again -- the one thing an escort must not do is turn
         // for home while the thing it is escorting is still over the target.
+        //
+        // And a fighter climbing to a bomber stream is given longer still,
+        // because that climb is most of the sortie: ten thousand feet from the
+        // deck is four or five minutes of it, and on patrol endurance she
+        // turned for home at two thousand metres having never got within reach
+        // of the thing she was sent up for.
         p.phase = 'return';
       }
       out.push(p);
@@ -4513,31 +4544,31 @@ function sweepSquadrons(state) {
 // a shell with `bomb` written on it.
 
 /**
- * The height a heavy squadron works at, in metres, off her own service
- * ceiling.
+ * The height a heavy squadron works at: ten thousand feet, for everybody.
  *
- * This is the single most important number about a strategic bomber and it was
- * chosen for exactly one reason: to be above the flak. A Lancaster bombed from
- * fifteen to twenty thousand feet and a Fortress from twenty-five, not because
- * the sight was better up there -- it was a great deal worse -- but because a
- * hundred and five millimetre gun laid on a formation at that height has
- * twenty seconds of flight time to fuse for and nothing under five inches
- * reaches at all.
+ * It used to be three quarters of each machine's own service ceiling, which
+ * put a Lancaster at fifteen thousand and a Fortress at twenty-three -- the
+ * heights they really bombed from, and chosen for the one reason that mattered
+ * at the time: to be above the flak.
  *
- * Three quarters of her service ceiling is where a loaded one actually
- * cruised: the ceiling on the datasheet is what she could stagger to empty.
- * The whole level-bombing trade-off falls out of it -- she is nearly safe up
- * there and she cannot hit a moving ship from it -- and neither half of that
- * is a tuning knob, it is the height.
+ * The trouble with being right about that is that nothing else in this battle
+ * can get up there. A Wildcat's useful ceiling with a squadron's climb rate is
+ * under thirteen thousand feet, so a bomber stream at twenty-three was not
+ * being intercepted, it was being watched. Ten thousand is the height at which
+ * a fleet's fighters can actually reach her -- which is what makes her worth
+ * escorting, worth intercepting, and worth putting in the battle at all.
+ *
+ * She pays for it, and that is the point: at ten thousand a ship's long-range
+ * mountings do reach her, so she can no longer stroll over a fleet, and the
+ * aimer's error is smaller so her bombs are better. A bomber and her escort
+ * and the fighters sent up after her are now all in the same piece of sky.
  */
-export function bombAlt(b) {
-  const spec = typeof b === 'string' ? BOMBERS[b] : b;
-  const ceiling = (spec && spec.ceiling) || 21400;
-  return clamp(ceiling * 0.3048 * 0.75, 2400, 7200);
+export function bombAlt() {
+  return 10000 * 0.3048;
 }
 
-/** The height a Lancaster works at, which is what the yard scene is drawn at. */
-export const BOMB_ALT = 4900;
+/** The same height as a number, for the yard scene and anything measuring. */
+export const BOMB_ALT = 3048;
 
 /** What one machine of a heavy formation can absorb before she goes down. */
 const HEAVY_HP = 420;
@@ -4587,6 +4618,16 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     loads: 2,
     stick: 0,
     stickT: 0,
+    // The aeroplanes themselves, each with her own engine, tanks, wings, tail,
+    // crew and body -- the same airframe model a carrier flight is built out
+    // of, so a formation is not a hit-point bar with a number written on it
+    // and a captain flying one gets the same damage board a pilot gets. See
+    // airframe.js.
+    perHp: HEAVY_HP,
+    machines: Array.from({ length: n }, () => freshAirframe(HEAVY_HP)),
+    wear: { speed: 1, turn: 1, aim: 1, count: n },
+    // Set while somebody is flying her by hand; see flyBomber.
+    flown: false, flownAt: 0, pilot: 0,
     phase: 'inbound',
     // Her orders. The staff writes these and nothing else reads them: they are
     // never put in a snapshot, because a plan the enemy can read is not a plan.
@@ -4699,6 +4740,44 @@ function dropBomb(state, bm, L) {
  * the long-range mountings and the coast guns laid for aircraft can, and the
  * higher she is the worse their answer is.
  */
+/**
+ * How much of a ship's anti-aircraft fire can reach a formation up here.
+ *
+ * At ten thousand feet the close-range battery is out of it entirely. A Bofors
+ * reaches three and a half thousand metres and an Oerlikon under two, and
+ * those are the guns that make up nearly all of a ship's barrels and nearly
+ * all of the one `dps` figure that used to stand for the whole of her flak --
+ * so multiplying that figure by a height factor had a hundred and fifty
+ * twenty-millimetre barrels shooting at something none of them could see the
+ * point of. What is left up there is the dual-purpose battery: an Iowa's
+ * five-inch, a Yamato's twelve-seven, firing time-fused shell at a formation
+ * flying straight and level.
+ *
+ * The share is worked out in barrels, off each gun's own reach against the
+ * slant range, so it falls away on its own as the formation moves off the
+ * beam and is nothing at all for a destroyer with no heavy mountings aboard.
+ */
+function highBattery(cls, slant) {
+  const count = (mounts) => (mounts || []).reduce((n, m) => n + (m.guns || 1), 0);
+  let reach = 0;
+  let all = 0;
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    const n = count(g.mounts);
+    all += n;
+    if (g.range >= slant) reach += n;
+  }
+  // Her secondary, when it is a dual-purpose battery. It is not in the
+  // close-range guns at all and on most of these ships it is the only thing
+  // aboard that can be laid this high.
+  const sec = cls.secondary;
+  if (sec && (sec.role === 'dp' || sec.role === 'aa')) {
+    const n = count(sec.mounts);
+    all += n;
+    if (sec.range >= slant) reach += n;
+  }
+  return all > 0 ? reach / all : 0;
+}
+
 function heavyFlak(state, bm, dt) {
   let taken = 0;
   for (const s of state.ships) {
@@ -4709,17 +4788,16 @@ function heavyFlak(state, bm, dt) {
     // Slant range, and only the long-range mountings reach this high.
     const slant = Math.hypot(d, bm.y);
     if (slant > cls.aa.range) continue;
-    // And how little of it is any use at a bomber's height. A ship's flak was
-    // built to stop something diving at her from three thousand feet; laid
-    // near the vertical at a formation four times that high it is firing at
-    // the limit of its fuse settings and its tracking. Above about twenty
-    // thousand feet nothing she has reaches at all -- which is precisely why a
-    // Fortress bombed from up there and wore the miss distance that came with
-    // it. Together with the slant check above, the geometry does the work: a
-    // heavy is only ever in danger from a ship she is nearly on top of.
-    const high = clamp(1 - (bm.y - 900) / 5200, 0, 1);
-    if (high <= 0) continue;
-    taken += cls.aa.dps * 0.42 * high * aaBite(slant, cls.aa.range) * dt;
+    // And how much of her battery that actually is.
+    const share = highBattery(cls, slant);
+    if (share <= 0) continue;
+    // What is left of her fire once the guns that cannot reach are taken out
+    // of it, and then a good deal off that again: this is time-fused shell
+    // burst by a director solution against a formation holding course, which
+    // is the fire that historically took thousands of rounds for every
+    // aeroplane it brought down. It is a real threat over a run and it is not
+    // an execution.
+    taken += cls.aa.dps * share * 0.35 * aaBite(slant, cls.aa.range) * dt;
     s.spottedBy[bm.team] = true;
   }
   for (const bat of state.batteries) {
@@ -4744,11 +4822,193 @@ function heavyFlak(state, bm, dt) {
   if (taken > 0) hurtBomber(state, bm, taken, 'flak');
 }
 
+/**
+ * What the last second did to a formation: fires burning through, tanks
+ * running out, and the machines that can no longer keep station falling out.
+ *
+ * The same pass a flight gets, and for the same reason: most of what brings a
+ * bomber down happens after the burst that did it. What is different is what
+ * a cripple does. A carrier aeroplane turns for her deck; a heavy has no deck
+ * within reach, so she falls out of the formation and goes home on her own,
+ * and the formation flies on without her -- which is exactly the picture of a
+ * bomber stream that anybody who watched one remembers.
+ */
+function heavyDamage(state, bm, dt) {
+  if (!bm.machines || !bm.machines.length) return;
+  for (const a of bm.machines) {
+    if (!a.alive || a.left) continue;
+    const end = stepAirframe(a, dt, state.rng());
+    if (end) {
+      a.alive = false;
+      a.gone = true;
+      state.events.push({
+        e: 'bomberDown', i: bm.id, tm: bm.team, x: r(bm.x), y: r(bm.y), z: r(bm.z), why: end,
+      });
+    }
+  }
+  for (;;) {
+    const live = bm.machines.filter((a) => a.alive && !a.left);
+    const bad = live.find((a) => airframeState(a).crippled);
+    if (!bad) break;
+    bad.left = true;
+    state.events.push({
+      e: 'bomberDown', i: bm.id, tm: bm.team, x: r(bm.x), y: r(bm.y), z: r(bm.z),
+      why: 'crippled',
+    });
+    // The last of her cannot fall out of a formation of one: she turns for
+    // home with whatever she has left, and can still be shot at all the way.
+    if (live.length === 1) { bad.left = false; bm.phase = 'home'; bm.loads = 0; break; }
+  }
+  const fs = flightState(bm.machines);
+  bm.wear = fs;
+  bm.count = fs.count;
+  let hp = 0;
+  for (const a of bm.machines) if (a.alive && !a.left) hp += airframeHp(a) * HEAVY_HP;
+  bm.hp = hp;
+  if (bm.count <= 0) {
+    bm.alive = false;
+    bm.hp = 0;
+    state.events.push({ e: 'bomberOut', i: bm.id, tm: bm.team, x: r(bm.x), z: r(bm.z) });
+  }
+}
+
+/**
+ * A formation somebody is flying by hand.
+ *
+ * The same bargain a flight's pilot gets, for the same reason: nobody flies an
+ * aeroplane through fifteen snapshots a second of somebody else's autopilot.
+ * The client that has taken her says where she is and the simulation stops
+ * steering her -- and goes on doing everything else to her, because the flak,
+ * the fighters, her fires and her fuel are none of the pilot's business.
+ *
+ * The checks are the point. Her own side only, only while she is up, and only
+ * from somewhere she could actually have got to since the last word.
+ */
+export function flyBomber(state, ship, msg) {
+  if (!ship || !ship.alive) return false;
+  const bm = (state.bombers || []).find((q) => q.id === msg.i && q.alive);
+  if (!bm) return false;
+  if (bm.team !== ship.team) return false;
+  if (bm.pilot && bm.pilot !== ship.id
+    && state.t - (bm.flownAt ?? -1e9) <= PILOT_HOLD) return false;
+  if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z) || !Number.isFinite(msg.h)) return false;
+  const since = Math.max(0.05, Math.min(2, state.t - (bm.flownAt ?? state.t)));
+  // A heavy at her best speed in a dive, with room for a slow line.
+  const reach = bm.speed * 2.4 * since + 80;
+  if (dist(bm.x, bm.z, msg.x, msg.z) > reach) return false;
+  bm.x = msg.x;
+  bm.z = msg.z;
+  bm.heading = wrapAngle(msg.h);
+  if (Number.isFinite(msg.tn)) bm.turn = clamp(msg.tn, -1, 1);
+  if (Number.isFinite(msg.y)) {
+    const climb = 120 * since + 60;
+    bm.y = clamp(msg.y, Math.max(20, bm.y - climb), Math.min(12000, bm.y + climb));
+  }
+  bm.flown = true;
+  bm.flownAt = state.t;
+  bm.pilot = ship.id;
+  // Under a hand on the stick she is not running her own bombing problem.
+  bm.targetId = 0;
+  return true;
+}
+
+/**
+ * Let the stick go, because the man in the nose said so.
+ *
+ * The aimer's error is the same error the squadron would have had: a captain
+ * who flies her over the target himself gets a better run than a staff order
+ * because he can see what he is doing, not because the bombsight got better.
+ * Returns false, with a reason, when there was nothing to drop.
+ */
+export function dropStick(state, ship, id) {
+  const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
+  if (!bm || !ship || bm.team !== ship.team) return false;
+  if (bm.loads <= 0) return false;
+  if (bm.phase === 'run' || bm.stick > 0) return false;
+  const L = heavyLoad(bm);
+  bm.phase = 'run';
+  bm.stick = L.n;
+  bm.stickT = 0;
+  bm.err = aimError(state, bm);
+  return true;
+}
+
+/**
+ * A turret on a heavy, fired by the man sitting in it.
+ *
+ * Her defensive fire is otherwise worked out in the aggregate -- so many guns
+ * times so many machines, poured into whatever fighter is pressing the attack
+ * -- and that is the right answer for a formation nobody is in. A gunner who
+ * has gone to a mounting himself is laying one turret at one flight, so this
+ * is one turret's worth of fire, in the direction he is actually pointing, and
+ * it only reaches what his mounting could actually have borne on.
+ *
+ * `yaw` is where he is looking relative to her nose and `arc` is his cone, so
+ * a tail gunner firing forward through his own fins does nothing at all --
+ * which is the point of giving a turret an arc in the first place.
+ */
+export function gunTurret(state, ship, id, yaw, arc, dt) {
+  const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
+  if (!bm || !ship || bm.team !== ship.team) return false;
+  const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+  // Her own accumulator, not `gunAt` -- that one is a timestamp `gunsSeen`
+  // uses to space the tracer out, and sharing it makes each of them eat the
+  // other's state.
+  bm.turretAt = (bm.turretAt ?? 0) + dt;
+  if (bm.turretAt < 0.25) return true;
+  const burst = bm.turretAt;
+  bm.turretAt = 0;
+  // What one mounting of hers is worth: her whole battery over the number of
+  // turrets she carries, for one aeroplane rather than the formation.
+  const perTurret = (b.guns || 8) / Math.max(1, b.turrets || 3);
+  let best = null;
+  let bestD = 900;
+  for (const q of state.planes) {
+    if (q.dead || q.team === bm.team) continue;
+    const d = dist(bm.x, bm.z, q.x, q.z);
+    if (d > bestD) continue;
+    if (Math.abs((q.y ?? 0) - bm.y) > 500) continue;
+    // Inside his cone, and inside it off her nose rather than off the world.
+    const bear = wrapAngle(headingTo(bm.x, bm.z, q.x, q.z) - bm.heading);
+    if (Math.abs(wrapAngle(bear - yaw)) > 0.35) continue;
+    if (Math.abs(wrapAngle(bear - (yaw < -1.5 || yaw > 1.5 ? Math.PI : 0))) > arc) continue;
+    best = q;
+    bestD = d;
+  }
+  if (!best) return true;
+  hurtFlight(state, best, perTurret * 3.4 * burst, 'gunners');
+  if (best.hp <= 0) killFlight(state, best, 'gunners');
+  gunsSeen(state, bm, best.x, best.z, true);
+  return true;
+}
+
 /** A formation losing aeroplanes, one at a time, as it is shot about. */
 export function hurtBomber(state, bm, damage, why = 'flak') {
   if (!bm.alive) return;
-  bm.hp -= damage;
-  const left = Math.max(0, Math.ceil(bm.hp / HEAVY_HP));
+  // Into one machine of the formation rather than into the formation, so that
+  // what a burst of flak does is break an engine or start a fire on one
+  // bomber, and the rest fly on. The same routine a flight's damage goes
+  // through; the only difference is that a heavy has more of everything and
+  // takes longer to kill.
+  const live = (bm.machines || []).filter((a) => a.alive && !a.left);
+  if (live.length) {
+    let a = live.includes(bm.aimed) ? bm.aimed : null;
+    if (!a) a = live[Math.min(live.length - 1, Math.floor(state.rng() * live.length))];
+    bm.aimed = a;
+    const hit = hitAirframe(a, damage, state.rng(), state.rng());
+    if (hit.lit) {
+      state.events.push({ e: 'planeFire', i: bm.id, x: r(bm.x), z: r(bm.z), team: bm.team });
+    }
+    if (hit.down) { a.alive = false; a.gone = true; bm.aimed = null; }
+    let hp = 0;
+    for (const m of bm.machines) if (m.alive && !m.left) hp += airframeHp(m) * HEAVY_HP;
+    bm.hp = hp;
+  } else {
+    bm.hp -= damage;
+  }
+  const left = (bm.machines || []).length
+    ? bm.machines.filter((a) => a.alive && !a.left).length
+    : Math.max(0, Math.ceil(bm.hp / HEAVY_HP));
   if (left < bm.count) {
     // One of them has gone. It is worth an event: a heavy going down out of a
     // formation is the most visible thing that happens over a fleet.
@@ -4771,6 +5031,30 @@ export function hurtBomber(state, bm, damage, why = 'flak') {
  * time she is worth shooting at -- laying the stick, and away. She comes round
  * for a second run if she has bombs left, and goes home when she has not.
  */
+/**
+ * Who can see her.
+ *
+ * A formation of heavies at ten thousand feet is visible a very long way,
+ * which is the one advantage the defence has against level bombing.
+ */
+function heavySeen(state, bm) {
+  for (let team = 0; team < 2; team++) {
+    if (team === bm.team) { bm.spottedBy[team] = true; continue; }
+    let seen = false;
+    for (const s of state.ships) {
+      if (!s.alive || s.team !== team) continue;
+      if (dist(bm.x, bm.z, s.x, s.z) < 26000) { seen = true; break; }
+    }
+    if (!seen) {
+      for (const b of state.batteries) {
+        if (!b.alive || b.team !== team) continue;
+        if (dist(bm.x, bm.z, b.x, b.z) < 26000) { seen = true; break; }
+      }
+    }
+    bm.spottedBy[team] = seen;
+  }
+}
+
 function stepBombers(state, dt) {
   const out = [];
   for (const bm of state.bombers) {
@@ -4779,6 +5063,35 @@ function stepBombers(state, dt) {
     if (bm.hold > 0) bm.hold -= dt;
 
     const L = heavyLoad(bm);
+    // Somebody is flying her.
+    //
+    // Then she is not running her own bombing problem: where she goes and when
+    // the doors open are his, and the only thing left here is the stick going
+    // down once he has called for it. If the word from his client stops coming
+    // she is picked up again on the next tick and carries on to wherever the
+    // staff had sent her -- the same handover a carrier flight gets.
+    if (bm.flown && state.t - (bm.flownAt ?? 0) > 1.5) { bm.flown = false; bm.pilot = 0; }
+    if (bm.flown) {
+      if (bm.stick > 0) {
+        if (bm.stickT <= 0) {
+          dropBomb(state, bm, L);
+          bm.stick -= 1;
+          bm.stickT = 0.28;
+          if (bm.stick === 0) {
+            bm.loads -= 1;
+            bm.phase = 'inbound';
+            state.events.push({ e: 'sticksAway', i: bm.id, tm: bm.team });
+          }
+        }
+        bm.stickT -= dt;
+      }
+      heavyFlak(state, bm, dt);
+      heavyDamage(state, bm, dt);
+      if (!bm.alive) continue;
+      heavySeen(state, bm);
+      out.push(bm);
+      continue;
+    }
     // Where she is going. Her orders if she has any, her own judgement if not.
     if (!bm.aimX && !bm.aimZ) {
       const pick = heavyPicksTarget(state, bm);
@@ -4851,24 +5164,10 @@ function stepBombers(state, dt) {
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
 
     heavyFlak(state, bm, dt);
+    heavyDamage(state, bm, dt);
+    if (!bm.alive) continue;
 
-    // Who can see her. A formation of heavies at four thousand feet is visible
-    // a very long way, which is the one advantage the defence has.
-    for (let team = 0; team < 2; team++) {
-      if (team === bm.team) { bm.spottedBy[team] = true; continue; }
-      let seen = false;
-      for (const s of state.ships) {
-        if (!s.alive || s.team !== team) continue;
-        if (dist(bm.x, bm.z, s.x, s.z) < 26000) { seen = true; break; }
-      }
-      if (!seen) {
-        for (const b of state.batteries) {
-          if (!b.alive || b.team !== team) continue;
-          if (dist(bm.x, bm.z, b.x, b.z) < 26000) { seen = true; break; }
-        }
-      }
-      bm.spottedBy[team] = seen;
-    }
+    heavySeen(state, bm);
 
     if (bm.alive) out.push(bm);
   }
