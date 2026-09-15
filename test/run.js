@@ -24,7 +24,7 @@ import {
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
-  flyBomber, dropStick, gunTurret,
+  flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery,
 } from '../shared/sim.js';
 import { createStaff, stepStaff } from '../server/command.js';
 import {
@@ -11646,20 +11646,21 @@ check("a squadron of heavies is in the battle, and flies her own bombing height"
   assert.equal(st.bombers.length, 1, 'a commissioned squadron is not in the battle');
   assert.equal(bm.count, HEAVY_VIC, 'a squadron is not a vic');
 
-  // Ten thousand feet, for all of them. Not the height they really bombed
-  // from -- that was fifteen to twenty-five thousand, to be above the flak --
-  // but the height at which a fleet's own fighters can climb up and reach
-  // them, which is what puts the bomber, her escort and the interception all
-  // in the same piece of sky.
-  const TEN = 10000 * 0.3048;
-  assert.ok(Math.abs(bm.y - TEN) < 1,
-    `a Lancaster is bombing from ${Math.round(bm.y)} m, not ten thousand feet`);
+  // Five thousand feet, for all of them. Nothing like the height they really
+  // bombed from -- fifteen to twenty-five thousand, to be above the flak --
+  // but the height at which everything in this battle can reach her: a ship's
+  // whole close-range battery bears, and a fleet's fighters are up there
+  // within a few minutes of leaving the deck rather than spending the whole
+  // sortie climbing.
+  const FIVE = 5000 * 0.3048;
+  assert.ok(Math.abs(bm.y - FIVE) < 1,
+    `a Lancaster is bombing from ${Math.round(bm.y)} m, not five thousand feet`);
   for (const k of BOMBER_ORDER) {
-    assert.ok(Math.abs(bombAlt(BOMBERS[k]) - TEN) < 1, `${k} is not at ten thousand`);
+    assert.ok(Math.abs(bombAlt(BOMBERS[k]) - FIVE) < 1, `${k} is not at five thousand`);
   }
-  // And that height is inside what a carrier fighter's airframe will do, or
-  // the whole point of lowering it is lost.
-  assert.ok(TEN < 3800, 'a fighter cannot climb to the height the heavies work at');
+  // And that height is well inside what a carrier fighter's airframe will do,
+  // or the whole point of lowering it is lost.
+  assert.ok(FIVE < 3800, 'a fighter cannot climb to the height the heavies work at');
 
   // And she flies: out to the target, down the run, and away.
   const seen = new Set();
@@ -11735,18 +11736,25 @@ check("a heavy squadron wrecks a gun position and cannot touch a ship under helm
   assert.ok(helm.alive, 'a cruiser under helm was sunk by level bombing from fifteen thousand feet');
 });
 
-check("a heavy is safe from a ship's flak and not from a flak battery", () => {
-  // Why she is up there at all. A ship's close-range battery is laid for
-  // something diving at her from three thousand feet and cannot reach a
-  // formation four times that high; an eighty-eight can, and is the one thing
-  // on the battlefield that brings these down.
+check("a heavy is hurt by a ship's flak and wrecked by a flak battery", () => {
+  // What five thousand feet costs her. It used to be ten, where a ship's
+  // close-range battery could not be laid high enough to touch her and only
+  // the heavy mountings reached; down here the whole battery bears and she is
+  // under fire the moment she crosses a fleet. It is still slow -- flak took
+  // thousands of rounds for every aeroplane it brought down -- and a gun
+  // ashore laid for exactly this job is a good deal quicker about it.
   const world = generateWorld(4104, 'open_ocean');
   const afloat = createState(world, { mode: 'deathmatch' });
   addShip(afloat, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
   const over = addBomber(afloat, { bomberId: 'fortress', team: 0, x: 0, z: -600 });
-  for (let i = 0; i < 300; i++) step(afloat, DT);
+  const held = over.hp;
+  for (let i = 0; i < 300; i++) { over.spottedBy = [true, true]; step(afloat, DT); }
+  assert.ok(over.hp < held,
+    "a battleship's flak never reached a Fortress at five thousand feet");
+  // But it is not an execution either: ten seconds over one ship is not the
+  // end of a squadron, or nobody would ever have flown one over a fleet.
   assert.ok(over.alive && over.count === HEAVY_VIC,
-    "a ship's flak reached a Fortress at her bombing height");
+    `a vic lost ${HEAVY_VIC - over.count} of three in ten seconds over one ship`);
 
   // And the gun ashore that can.
   const coast = generateWorld(991, 'coastal');
@@ -12268,6 +12276,259 @@ check("each side's squadrons are laid out on its own centre line", () => {
     'the squadrons are still laid out hard against the edge of the board');
   assert.ok(!/this\.half - 400/.test(block),
     'a squadron is still four hundred metres from the border');
+});
+
+
+check('a bomber stream comes over at five thousand feet', () => {
+  // Ten thousand put her above everything: a ship's close-range battery could
+  // not be laid that high, and a fighter off a deck spent her whole sortie
+  // climbing and turned for home short of the stream. Five thousand is a
+  // height at which she is in the battle rather than over it.
+  assert.equal(BOMB_ALT, 1524, 'the bombing height is not five thousand feet');
+  assert.ok(Math.abs(bombAlt() - 5000 * 0.3048) < 0.5,
+    'bombAlt does not agree with five thousand feet');
+
+  const world = generateWorld(701, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 1, x: 0, z: 7000 });
+  // She is put there when she is raised, not flown up to it over a minute.
+  assert.ok(Math.abs(bm.y - 1524) < 1,
+    `a formation was raised at ${Math.round(bm.y)} m`);
+  for (let i = 0; i < 400; i++) step(st, DT);
+  assert.ok(Math.abs(bm.y - 1524) < 60,
+    `she drifted to ${Math.round(bm.y)} m on the run in`);
+});
+
+check("a formation is shot at by the fleet's flak and by a battery ashore", () => {
+  const world = generateWorld(4407, 'islands');
+  // A ship, on her own, with the formation coming over her.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    const bb = addShip(st, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
+    bb.x = 0; bb.z = 0;
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 1400 });
+    bm.hold = 0;
+    const before = bm.hp;
+    for (let i = 0; i < 600; i++) { bm.spottedBy = [true, true]; step(st, DT); }
+    assert.ok(bm.hp < before,
+      'a battleship never touched a formation crossing right over her');
+    // And she knows she is being shot at from somewhere, which is what puts
+    // the ship on the formation's plot.
+    assert.ok(bb.spottedBy[1], 'the ship firing at her was never seen');
+  }
+  // How much of the battery can be laid that high: at five thousand feet very
+  // nearly all of it, where at ten it was the long-range mountings alone.
+  {
+    const cls = SHIP_CLASSES.iowa;
+    const low = highBattery(cls, 1600);
+    const high = highBattery(cls, 4400);
+    assert.ok(low > 0.8, `only ${(low * 100) | 0}% of a battleship bears at 1600 m`);
+    assert.ok(high < low,
+      'the same share of the battery bears at ten thousand feet as at five');
+  }
+  // A heavy flak battery ashore, which is the thing that actually brings
+  // these down.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    const bat = addBattery(st, { batteryId: 'flak88', team: 0, x: 0, z: 0 });
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 900 });
+    bm.hold = 0;
+    const before = bm.hp;
+    for (let i = 0; i < 900; i++) { bm.spottedBy = [true, true]; step(st, DT); }
+    assert.ok(bm.hp < before, 'an eighty-eight never fired on a formation overhead');
+    assert.ok(bat.firingAt > 0, 'the battery was never recorded as firing');
+  }
+  // A pair of hands on one mounting, laid on the formation, is worth more
+  // again -- the same thing a gunner is worth against a torpedo bomber coming
+  // in low, and for the same reason.
+  {
+    const run = (man) => {
+      const st = createState(world, { mode: 'deathmatch' });
+      const bb = addShip(st, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
+      bb.x = 0; bb.z = 0; bb.heading = 0;
+      const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 1200 });
+      bm.hold = 0;
+      if (man) {
+        manGun(bb, { k: 'aa', i: 0 });
+        // Holding it on her, which is the whole of what a layer contributes.
+        bb.manX = bm.x; bb.manZ = bm.z;
+      }
+      for (let i = 0; i < 400; i++) {
+        bm.spottedBy = [true, true];
+        if (man) { bb.manX = bm.x; bb.manZ = bm.z; }
+        step(st, DT);
+      }
+      return bm.maxHp - bm.hp;
+    };
+    const alone = run(false);
+    const laid = run(true);
+    assert.ok(laid > alone,
+      `a gunner laid on a formation added nothing (${Math.round(alone)} either way)`);
+  }
+  // And a gun that cannot be laid upward does nothing at all, however big.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    addBattery(st, { batteryId: 'gustav', team: 0, x: 0, z: 0 });
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 900 });
+    bm.hold = 0;
+    const before = bm.hp;
+    for (let i = 0; i < 900; i++) { bm.spottedBy = [true, true]; step(st, DT); }
+    assert.equal(bm.hp, before, 'a railway gun shot at an aeroplane');
+  }
+});
+
+check('a squadron goes for a gun position when there is nothing afloat', () => {
+  const world = generateWorld(5120, 'islands');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = 0;
+  const bat = addBattery(st, { batteryId: 'todt', team: 1, x: 0, z: 5200 });
+  bat.spottedBy = [true, true];
+
+  // A gun position is on the chart before the battle starts, so she is picked
+  // from further out than a ship would be found from.
+  const want = pickAirTarget(st, { team: 0, x: 0, z: 0, role: 'dive', y: 260 });
+  assert.ok(want && want.battery && want.battery.id === bat.id,
+    'a squadron with an empty sea in front of her found nothing to do');
+  // A torpedo has nothing useful to put on a concrete casemate.
+  const tor = pickAirTarget(st, { team: 0, x: 0, z: 0, role: 'torpedo', y: 260 });
+  assert.ok(!tor || !tor.battery,
+    'a torpedo bomber was sent against a gun position');
+
+  const before = bat.hp;
+  for (let i = 0; i < 9000; i++) {
+    bat.spottedBy = [true, true];
+    if (i % 2400 === 0) launchStrike(st, cv);
+    step(st, DT);
+  }
+  assert.ok(bat.hp < before,
+    `a gun position was bombed for ten minutes and is still at ${Math.round(bat.hp)}`);
+});
+
+check('with nothing else to fight, every kind goes up after the heavies', () => {
+  const world = generateWorld(4021, 'open_ocean');
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    const st = createState(world, { mode: 'deathmatch' });
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 9000 });
+    // Nothing afloat and nothing ashore: the stream is all there is.
+    const want = pickAirTarget(st, { team: 0, x: 0, z: 0, role, y: 260 });
+    assert.ok(want && want.heavy && want.heavy.id === bm.id,
+      `a ${role} flight found nothing when a bomber stream was in front of her`);
+  }
+  // A ship comes first for the ones that carry something to sink her with. A
+  // strike does not climb five thousand feet past a cruiser to get at a
+  // bomber it can only shoot at.
+  for (const role of ['dive', 'torpedo']) {
+    const st = createState(world, { mode: 'deathmatch' });
+    addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 3000 });
+    const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+    foe.x = 0; foe.z = 3000; foe.spottedBy = [true, true];
+    const want = pickAirTarget(st, { team: 0, x: 0, z: 0, role, y: 260 });
+    assert.ok(want && want.ship && want.ship.id === foe.id,
+      `a ${role} flight went past a cruiser to get at a bomber`);
+  }
+  // A fighter is the exception, and always was: she carries nothing that will
+  // sink anything, and a squadron that breaks up a bomber stream has done more
+  // for the fleet than one that strafed a cruiser's bridge wing.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 3000 });
+    const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+    foe.x = 0; foe.z = 3000; foe.spottedBy = [true, true];
+    const want = pickAirTarget(st, { team: 0, x: 0, z: 0, role: 'fighter', y: 260 });
+    assert.ok(want && want.heavy && want.heavy.id === bm.id,
+      'a fighter strafed a cruiser with a bomber stream overhead');
+  }
+});
+
+check("a ship's aircraft climb to the stream and shoot it down", () => pinned(() => {
+  const world = generateWorld(4021, 'open_ocean');
+  // How high she actually gets, measured against a formation that cannot be
+  // shot down. A stream that dies at four thousand feet tells you nothing
+  // about whether she could have gone to five.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    cv.x = 0; cv.z = 0;
+    const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 9000 });
+    let peak = 0;
+    for (let i = 0; i < 12000; i++) {
+      bm.spottedBy = [true, true];
+      bm.hp = bm.maxHp;
+      for (const m of bm.machines) {
+        for (const k of Object.keys(m.parts)) m.parts[k].hp = m.parts[k].max;
+      }
+      if (i % 2400 === 0) launchStrike(st, cv);
+      step(st, DT);
+      for (const p of st.planes) {
+        if (!p.dead && p.team === 0) peak = Math.max(peak, p.y || 0);
+      }
+    }
+    // She used to level off around nine hundred metres and trade with thirteen
+    // turrets from two thousand feet below, which is a range at which she could
+    // not hit anything and they could.
+    assert.ok(peak > 1450,
+      `the highest aeroplane off the deck reached ${Math.round(peak)} m of 1524`);
+  }
+  // And a formation that can be shot down, is.
+  {
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    cv.x = 0; cv.z = 0;
+    for (let k = 0; k < 3; k++) {
+      addBomber(st, { bomberId: 'fortress', team: 1, x: k * 900 - 900, z: 11000 });
+    }
+    const machines = st.bombers.reduce((n, b) => n + b.machines.length, 0);
+    for (let i = 0; i < 26000; i++) {
+      for (const b of st.bombers) b.spottedBy = [true, true];
+      if (i % 2400 === 0) launchStrike(st, cv);
+      step(st, DT);
+    }
+    const left = st.bombers.reduce(
+      (n, b) => n + b.machines.filter((m) => m.alive && !m.left).length, 0);
+    assert.ok(left < machines,
+      'nine heavies flew over a carrier for eleven minutes and lost nobody');
+  }
+}));
+
+check('a fighter cannot reach a formation she is nowhere near', () => {
+  // Gun range is measured along the line of sight. Five hundred metres across
+  // the water and seven hundred up and down let her open fire from two
+  // thousand feet below the stream -- and let it answer her.
+  const sim = readFileSync(new URL('../shared/sim.js', import.meta.url), 'utf8');
+  const i = sim.indexOf("if (p.phase === 'outbound' && p.targetHeavy) {",
+    sim.indexOf('function stepPlanes'));
+  assert.ok(i > 0, 'the heavy attack pass is gone');
+  const block = sim.slice(i, i + 900);
+  assert.ok(/Math\.hypot\(/.test(block),
+    'the attack on a formation is not gated on a slant range');
+  assert.ok(!/Math\.abs\(\(p\.y \?\? 0\) - heavy\.y\) < 700/.test(block),
+    'the seven-hundred-metre vertical window is still there');
+
+  const world = generateWorld(881, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = 0;
+  const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 0 });
+  bm.spottedBy = [true, true];
+  launchStrike(st, cv);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const p = st.planes.find((q) => !q.dead && q.team === 0);
+  assert.ok(p, 'nothing got off the deck');
+  // Right underneath her, six hundred metres down: out of reach both ways.
+  p.targetHeavy = bm.id; p.targetId = 0; p.targetAir = 0; p.targetBat = 0;
+  p.phase = 'outbound';
+  p.x = bm.x; p.z = bm.z; p.y = bm.y - 600;
+  const was = bm.hp;
+  step(st, DT);
+  assert.equal(bm.hp, was,
+    'a fighter six hundred metres below a formation shot at it');
+  // And from a hundred metres under her she is well inside it.
+  p.y = bm.y - 100;
+  p.x = bm.x; p.z = bm.z;
+  step(st, DT);
+  assert.ok(bm.hp < was,
+    'a fighter a hundred metres under a formation could not reach it');
 });
 
 

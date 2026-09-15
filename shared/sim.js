@@ -1387,13 +1387,8 @@ function stepBullets(state, dt) {
       if (dist2(b.x, b.z, bat.x, bat.z) > reach * reach) continue;
       // Rifle calibre against a gun in an emplacement does very little, and
       // that is right: it is what strafing a coast battery was actually like.
-      bat.hp -= b.hurt * 0.25;
+      hurtBattery(state, bat, b.hurt * 0.25);
       state.events.push({ e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 0 });
-      if (bat.hp <= 0 && bat.alive) {
-        bat.hp = 0;
-        bat.alive = false;
-        state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
-      }
       done = true;
       break;
     }
@@ -2322,12 +2317,7 @@ function collapseGround(state, c, soft) {
     // Half her strength for every two metres she has dropped. Four metres and
     // the mounting is finished whatever her plating was worth: nothing is
     // proof against the ground going out from under it.
-    bat.hp -= bat.maxHp * clamp(fell / 4, 0.12, 1);
-    if (bat.hp <= 0) {
-      bat.hp = 0;
-      bat.alive = false;
-      state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
-    }
+    hurtBattery(state, bat, bat.maxHp * clamp(fell / 4, 0.12, 1));
   }
 }
 
@@ -2434,12 +2424,7 @@ function stepShells(state, dt) {
               const d = dist(sh.x, sh.z, bat.x, bat.z);
               if (d > reach) continue;
               const bite = Math.pow(1 - d / reach, 1.4);
-              bat.hp -= (sh.bomb.bombDamage || 3000) * 0.55 * bite;
-              if (bat.hp <= 0) {
-                bat.hp = 0;
-                bat.alive = false;
-                state.events.push({ e: 'batteryOut', i: bat.id, x: bat.x, z: bat.z });
-              }
+              hurtBattery(state, bat, (sh.bomb.bombDamage || 3000) * 0.55 * bite);
             }
           }
         }
@@ -3356,7 +3341,7 @@ function stepLaunch(state, ship, dt) {
       lead: L.lead, slot: L.slot++,
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
-      targetId: 0, targetAir: 0, turn: 0,
+      targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0,
     };
     if (!L.lead) L.lead = p.id;
     state.planes.push(p);
@@ -3506,6 +3491,13 @@ function formationGoal(state, p, carrier) {
   // and they go in separately, from different bearings, so the flak cannot
   // concentrate on any one of them.
   if (p.phase !== 'formup') {
+    // And a flight that has been given a formation of heavies to go after
+    // breaks now, whatever the rest of the strike is doing. An interception is
+    // a climb, and a climb is the one thing that cannot be flown in cruise
+    // formation: she was holding her leader's height the whole way and
+    // arriving six hundred metres under the bombers she had been sent to
+    // attack.
+    if (p.targetHeavy) { p.lead = p.id; return null; }
     for (const s of state.ships) {
       if (!s.alive || s.team === p.team) continue;
       if (dist(lead.x, lead.z, s.x, s.z) < BREAK_RANGE) { p.lead = p.id; return null; }
@@ -3660,6 +3652,19 @@ function slowestClimb(state, p) {
  * top to push down on her target. Coming home she lets down onto her deck.
  */
 function wantedHeight(state, p, carrier, inCompany) {
+  // Going up after a bomber stream comes before everything else, including
+  // keeping station: the whole of an interception is getting to their height,
+  // and a flight that holds her leader's instead arrives underneath them.
+  if (p.phase === 'outbound' && p.targetHeavy) {
+    const heavy = (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive);
+    if (heavy) {
+      const f = AIRFRAME[p.role] || AIRFRAME.fighter;
+      // As high as her own airframe will take her, which for a loaded torpedo
+      // bomber is a good deal less than for a fighter -- and is what decides
+      // whether she can make the interception at all.
+      return Math.max(60, Math.min(heavy.y, f.ceiling));
+    }
+  }
   // In company she flies her leader's height. That is what keeping station
   // means, and without it the flights drift apart in the vertical and then in
   // the horizontal too, because height is speed: one climbing while another is
@@ -3687,22 +3692,13 @@ function wantedHeight(state, p, carrier, inCompany) {
     const foe = state.planes.find((q) => q.id === p.targetAir && !q.dead);
     if (foe) return Math.max(60, foe.y || CRUISE_ALT);
   }
-  // And that includes a bomber stream, which is the one target in this battle
-  // that is not at a fighter's own cruising height. A fighter sent after the
-  // heavies used to be sent after them in plan only: she flew to underneath
-  // them at seven hundred and fifty metres and stayed there, because nothing
-  // ever told her to climb. She goes up after them now -- as high as her own
-  // airframe will take her, which for a Wildcat is not quite as high as a
-  // Fortress can get, and is exactly the sort of thing that decided whether an
-  // interception happened at all.
-  if (p.targetHeavy) {
-    const heavy = (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive);
-    if (heavy) {
-      const f = AIRFRAME[p.role] || AIRFRAME.fighter;
-      return Math.max(60, Math.min(heavy.y, f.ceiling));
-    }
-  }
-  const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
+  // What she is going in on, which may be a hull or may be a gun position:
+  // the profile is the same either way -- a dive bomber goes over the top of a
+  // battery and a torpedo bomber cannot do anything with one, so the only
+  // thing that changes is what is underneath her.
+  const mark = p.targetBat
+    ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
+    : state.ships.find((q) => q.id === p.targetId && q.alive);
   if (!mark) return CRUISE_ALT;
   const d = dist(p.x, p.z, mark.x, mark.z);
   const from = RUN_IN_FROM[p.role] ?? 3600;
@@ -3724,14 +3720,14 @@ function wantedHeight(state, p, carrier, inCompany) {
     // Straight in the ground range, which is what makes it a constant angle
     // all the way to the release.
     const k = clamp((d - DIVE_AT) / (DIVE_PUSH - DIVE_AT), 0, 1);
-    return DIVE_DROP + (p.perch - DIVE_DROP) * k;
+    return (mark.y || 0) + DIVE_DROP + (p.perch - DIVE_DROP) * k;
   }
   const at = RUN_IN_ALT[p.role] ?? 260;
   const by = RUN_IN_BY[p.role] ?? 700;
   // Eased into over the run-in, so she is at her attack height before she gets
   // there rather than diving for it at the last moment.
   const k = clamp((d - by) / Math.max(1, from - by), 0, 1);
-  return at + (CRUISE_ALT - at) * k;
+  return (mark.y || 0) + at + (CRUISE_ALT - at) * k;
 }
 
 /**
@@ -3830,7 +3826,66 @@ export function pickAirTarget(state, p) {
     else v = d * 0.02;                                               // the nearest
     if (v < score) { best = s2; score = v; }
   }
-  return best ? { ship: best } : null;
+  if (best) return { ship: best };
+
+  // Nothing afloat within reach. The guns ashore are a target too.
+  //
+  // A battery is a hard one -- concrete, dug in, and a bomb has to be close --
+  // but it is the one target that cannot steam out of the way, and a squadron
+  // with nothing else to do is better employed working one over than flying
+  // home with its bombs. A torpedo bomber cannot do much about one, so she
+  // ranks it below everything; a fighter strafes it, which is worth very
+  // little and is still worth more than nothing.
+  let bat = null;
+  // Further than she will go for a ship. A gun position is on the chart before
+  // the battle starts -- both sides emplaced theirs in front of each other --
+  // so there is no finding involved: she knows where it is and flies there.
+  let batD = REACH * 1.4;
+  for (const b of state.batteries) {
+    if (!b.alive || b.team === p.team) continue;
+    const d = dist(p.x, p.z, b.x, b.z);
+    if (d < batD) { bat = b; batD = d; }
+  }
+  if (bat && p.role !== 'torpedo') return { battery: bat };
+
+  // And nothing ashore either: up after the heavies.
+  //
+  // Every kind goes, not just the fighters. A dive bomber with her bomb still
+  // on the rack has guns, and a formation of bombers crossing overhead with
+  // nothing else left on the board is what she has got -- which is how a
+  // strike that found an empty sea ended up in the middle of somebody else's
+  // bomber stream more than once.
+  let heavy = null;
+  let heavyD = 14000;
+  for (const q of (state.bombers || [])) {
+    if (!q.alive || q.team === p.team) continue;
+    const d = dist(p.x, p.z, q.x, q.z);
+    if (d < heavyD) { heavy = q; heavyD = d; }
+  }
+  if (heavy) return { heavy };
+  // A torpedo bomber with nothing left but a gun position is the one flight
+  // that comes home with its fish still on. She carries one weapon and it does
+  // not work on concrete, and sending her in to strafe an emplacement with two
+  // rifle-calibre guns is a way of losing a torpedo bomber for nothing.
+  return null;
+}
+
+/**
+ * A gun position taking damage from the air, and going quiet when it has had
+ * enough.
+ *
+ * The same two lines were written out in four places -- a strafing burst, a
+ * shell, a bomb in the ground beside it, a bomb on top of it -- and every one
+ * of them had to remember to raise the event that tells the battle a battery
+ * has stopped firing.
+ */
+function hurtBattery(state, bat, damage) {
+  if (!bat.alive) return;
+  bat.hp -= damage;
+  if (bat.hp > 0) return;
+  bat.hp = 0;
+  bat.alive = false;
+  state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
 }
 
 // ---------------------------------------------------------------------------
@@ -4078,21 +4133,25 @@ function stepPlanes(state, dt) {
     if (p.phase === 'outbound' && p.hunt <= 0) {
       p.hunt = 2;
       const want = pickAirTarget(state, p);
-      if (want && want.escort) {
+      if (want && want.battery) {
+        p.targetBat = want.battery.id;
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;
+        p.tx = want.battery.x; p.tz = want.battery.z;
+      } else if (want && want.escort) {
         // Her station on the strike: up-sun and astern of it, weaving, so she
         // has the height to come down on anything that comes at it.
-        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
         const w = Math.sin(p.life * 0.11) * 900;
         p.tx = want.escort.x + w;
         p.tz = want.escort.z + Math.cos(p.life * 0.11) * 900;
       } else if (want && want.air) {
-        p.targetAir = want.air.id; p.targetId = 0; p.targetHeavy = 0;
+        p.targetAir = want.air.id; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
         p.tx = want.air.x; p.tz = want.air.z;
       } else if (want && want.heavy) {
-        p.targetHeavy = want.heavy.id; p.targetAir = 0; p.targetId = 0;
+        p.targetHeavy = want.heavy.id; p.targetAir = 0; p.targetId = 0; p.targetBat = 0;
         p.tx = want.heavy.x; p.tz = want.heavy.z;
       } else if (want && want.ship) {
-        p.targetId = want.ship.id; p.targetAir = 0; p.targetHeavy = 0;
+        p.targetId = want.ship.id; p.targetAir = 0; p.targetHeavy = 0; p.targetBat = 0;
         p.tx = want.ship.x; p.tz = want.ship.z;
       }
     }
@@ -4102,10 +4161,13 @@ function stepPlanes(state, dt) {
         ? state.planes.find((q) => q.id === p.targetAir)
         : p.targetHeavy
           ? (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive)
-          : state.ships.find((q) => q.id === p.targetId && q.alive);
+          : p.targetBat
+            ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
+            : state.ships.find((q) => q.id === p.targetId && q.alive);
       if (mark) { p.tx = mark.x; p.tz = mark.z; }
-      else if (p.targetAir || p.targetId || p.targetHeavy) {
-        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.hunt = 0;
+      else if (p.targetAir || p.targetId || p.targetHeavy || p.targetBat) {
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
+        p.hunt = 0;
       }
     }
 
@@ -4215,6 +4277,76 @@ function stepPlanes(state, dt) {
 
     if (p.flown) { out.push(p); continue; }
 
+    // Going in on a formation of heavies. Any kind does this, not the fighters
+    // alone: it is a firing pass with whatever guns she has, and a dive bomber
+    // with her bomb still on the rack has guns. Her own side's staff sends the
+    // fighters after a bomber stream first, but a strike that found an empty
+    // sea and went up after one instead is a thing that happened.
+    if (p.phase === 'outbound' && p.targetHeavy) {
+      const heavy = (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive);
+      // Gun range is gun range, and it is measured along the line of sight.
+      // It used to be five hundred metres across the water and seven hundred
+      // up and down, which let a fighter still two thousand feet below the
+      // stream open fire on it -- and, worse, let thirteen turrets answer her
+      // from a range at which she could not have hit a barn. She now has to
+      // climb into the stream before either of them can do anything, which is
+      // the whole reason she was sent up.
+      const slant = heavy ? Math.hypot(
+        dist(p.x, p.z, heavy.x, heavy.z), (p.y ?? 0) - heavy.y,
+      ) : Infinity;
+      if (heavy && slant < 520) {
+        // What her guns are worth against an aeroplane, and what a fighter's
+        // are worth is a good deal more than a torpedo bomber's two.
+        const bite = (P.fighterGuns ?? FIGHTER_GUNS)
+          * (p.role === 'fighter' ? 0.9 : 0.35);
+        hurtBomber(state, heavy, bite * p.count * dt, 'fighters');
+        // And the formation shoots back, turret by turret. A Lancaster's eight
+        // guns and a Fortress's thirteen are the reason a bomber stream was
+        // attacked and not simply shot down.
+        const b = BOMBERS[heavy.bomberId] || BOMBERS.lancaster;
+        hurtFlight(state, p, b.guns * heavy.count * 3.4 * dt, 'gunners');
+        gunsSeen(state, p, heavy.x, heavy.z, true);
+        out.push(p);
+        continue;
+      }
+    }
+
+    // A gun position, worked over from the air.
+    //
+    // A battery cannot steam out of the way, which is the one thing that makes
+    // it worth a squadron's time -- and it is dug in behind concrete, which is
+    // why it takes a bomb to do anything to it and a burst of rifle calibre
+    // does very nearly nothing. A torpedo bomber has nothing useful at all to
+    // put on one and never picks one; if she ends up over one anyway she
+    // strafes it like everybody else.
+    if (p.phase === 'outbound' && p.targetBat) {
+      const bat = state.batteries.find((q) => q.id === p.targetBat && q.alive);
+      if (bat && dist(p.x, p.z, bat.x, bat.z) < 300) {
+        if (p.bomb > 0) {
+          // Her bombs, in the earth around the emplacement. Whether each one
+          // is near enough to matter is the same die roll a bomb on a ship
+          // goes through, and the damage is what a bomb does to works rather
+          // than what it does to a deck.
+          const each = (P.bombDamage ?? 3000) * 0.5;
+          for (let i = 0; i < p.bomb; i++) {
+            if (state.rng() > (P.bombHit ?? 0.4) * ((p.wear && p.wear.aim) ?? 1)) continue;
+            hurtBattery(state, bat, each);
+          }
+          state.events.push({
+            e: 'bomb', team: p.team, i: p.id, x: p.x, z: p.z,
+            tx: bat.x, tz: bat.z, hit: 1,
+          });
+        } else {
+          hurtBattery(state, bat, (P.strafeDamage ?? 260) * p.count * 0.25);
+        }
+        state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+        gunsSeen(state, p, bat.x, bat.z, false);
+        p.phase = 'return';
+        out.push(p);
+        continue;
+      }
+    }
+
     if (p.phase === 'outbound' && p.role === 'fighter') {
       // A fighter's attack: guns, in a turning fight or in a firing pass.
       const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir) : null;
@@ -4229,25 +4361,6 @@ function stepPlanes(state, dt) {
         gunsSeen(state, p, foe.x, foe.z, true);
         gunsSeen(state, foe, p.x, p.z, true);
         if (foe.hp <= 0) killFlight(state, foe, 'fighters');
-        out.push(p);
-        continue;
-      }
-      // A formation of heavies. She goes in on them and they shoot back: a
-      // Lancaster's eight guns and a Fortress's thirteen are the reason a
-      // bomber stream was attacked and not simply shot down, and a fighter
-      // squadron that presses one home pays for it.
-      const heavy = p.targetHeavy
-        ? (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive) : null;
-      if (heavy && dist(p.x, p.z, heavy.x, heavy.z) < 520
-        && Math.abs((p.y ?? 0) - heavy.y) < 700) {
-        const bite = P.fighterGuns ?? FIGHTER_GUNS;
-        hurtBomber(state, heavy, bite * 0.9 * p.count * dt, 'fighters');
-        // Her own guns, turret by turret. A formation puts up a great deal
-        // more fire than a single machine, which is the whole of why they
-        // flew in formation.
-        const b = BOMBERS[heavy.bomberId] || BOMBERS.lancaster;
-        hurtFlight(state, p, b.guns * heavy.count * 3.4 * dt, 'fighters');
-        gunsSeen(state, p, heavy.x, heavy.z, true);
         out.push(p);
         continue;
       }
@@ -4544,31 +4657,27 @@ function sweepSquadrons(state) {
 // a shell with `bomb` written on it.
 
 /**
- * The height a heavy squadron works at: ten thousand feet, for everybody.
+ * The height a heavy squadron works at: five thousand feet, for everybody.
  *
- * It used to be three quarters of each machine's own service ceiling, which
- * put a Lancaster at fifteen thousand and a Fortress at twenty-three -- the
- * heights they really bombed from, and chosen for the one reason that mattered
- * at the time: to be above the flak.
+ * This is a long way below where they really bombed from -- fifteen to
+ * twenty-five thousand, and chosen for the one reason that mattered at the
+ * time, to be above the flak. Five thousand is under it.
  *
- * The trouble with being right about that is that nothing else in this battle
- * can get up there. A Wildcat's useful ceiling with a squadron's climb rate is
- * under thirteen thousand feet, so a bomber stream at twenty-three was not
- * being intercepted, it was being watched. Ten thousand is the height at which
- * a fleet's fighters can actually reach her -- which is what makes her worth
- * escorting, worth intercepting, and worth putting in the battle at all.
+ * Which is the point. At this height everything can reach her: a ship's whole
+ * close-range battery bears, not just the heavy mountings, and a fleet's
+ * fighters are at her altitude within a minute of taking off instead of
+ * spending the whole sortie climbing. She is in the battle rather than over
+ * it, and her bombing is better for being lower -- the aimer's error grows
+ * with height, so a stick from five thousand feet is worth twice one from ten.
  *
- * She pays for it, and that is the point: at ten thousand a ship's long-range
- * mountings do reach her, so she can no longer stroll over a fleet, and the
- * aimer's error is smaller so her bombs are better. A bomber and her escort
- * and the fighters sent up after her are now all in the same piece of sky.
+ * She pays for all of it in the one currency a bomber has, which is losses.
  */
 export function bombAlt() {
-  return 10000 * 0.3048;
+  return 5000 * 0.3048;
 }
 
 /** The same height as a number, for the yard scene and anything measuring. */
-export const BOMB_ALT = 3048;
+export const BOMB_ALT = 1524;
 
 /** What one machine of a heavy formation can absorb before she goes down. */
 const HEAVY_HP = 420;
@@ -4757,7 +4866,7 @@ function dropBomb(state, bm, L) {
  * slant range, so it falls away on its own as the formation moves off the
  * beam and is nothing at all for a destroyer with no heavy mountings aboard.
  */
-function highBattery(cls, slant) {
+export function highBattery(cls, slant) {
   const count = (mounts) => (mounts || []).reduce((n, m) => n + (m.guns || 1), 0);
   let reach = 0;
   let all = 0;
@@ -4792,12 +4901,47 @@ function heavyFlak(state, bm, dt) {
     const share = highBattery(cls, slant);
     if (share <= 0) continue;
     // What is left of her fire once the guns that cannot reach are taken out
-    // of it, and then a good deal off that again: this is time-fused shell
-    // burst by a director solution against a formation holding course, which
-    // is the fire that historically took thousands of rounds for every
-    // aeroplane it brought down. It is a real threat over a run and it is not
-    // an execution.
-    taken += cls.aa.dps * share * 0.35 * aaBite(slant, cls.aa.range) * dt;
+    // of it, and then a good deal off that again: this is fire against a
+    // formation holding course through it, which historically took thousands
+    // of rounds for every aeroplane it brought down.
+    //
+    // The constant is what makes five thousand feet a place a squadron can
+    // work from at all. Up at ten only the heavy mountings could reach and the
+    // share did most of the work; down here the whole close-range battery
+    // bears, the share is very nearly one, and a third of a battleship's `dps`
+    // put a vic of three into the sea before it could open its doors. A
+    // fifteenth of it is a squadron that gets its bombs away over a single
+    // ship and expects to lose one of its three doing it, and is cut to pieces
+    // over a fleet -- which is exactly the arithmetic that made everybody bomb
+    // from twenty thousand instead.
+    taken += cls.aa.dps * share * 0.065 * aaBite(slant, cls.aa.range) * dt;
+    // And a pair of hands on one mounting, laid on the formation. The same
+    // thing a gunner is worth against a torpedo bomber coming in low: a man
+    // walking his own tracer onto something hits it far more often than a
+    // director firing a barrage does, and a formation holding straight and
+    // level through a run is the easiest thing he will ever be given.
+    if (s.manned && s.manned.k === 'aa' && !gunsDrowned(s)) {
+      const off = Math.abs(angleDelta(
+        headingTo(s.x, s.z, bm.x, bm.z), headingTo(s.x, s.z, s.manX, s.manZ)));
+      if (off < 0.10) {
+        taken += cls.aa.dps * MANNED_AA * share * 0.065
+          * aaBite(slant, cls.aa.range) * dt;
+        s.aaFire = Math.min(s.aaFire, 0.02);
+      }
+    }
+    // The tracer going up, on the gun's own rhythm rather than every tick.
+    s.aaFire -= dt;
+    if (s.aaFire <= 0) {
+      // A rough count of what is up: the share of the battery that reaches,
+      // over the whole of it. Far enough out that it is the heavy dual-purpose
+      // mountings doing the shooting, never the automatic guns.
+      s.aaFire = 0.30;
+      state.events.push({
+        e: 'aa', ship: s.id, x: r(s.x), z: r(s.z),
+        tx: r(bm.x), tz: r(bm.z), n: Math.max(1, Math.round(share * 12)),
+        cal: 127,
+      });
+    }
     s.spottedBy[bm.team] = true;
   }
   for (const bat of state.batteries) {
@@ -4850,14 +4994,22 @@ function heavyDamage(state, bm, dt) {
     const live = bm.machines.filter((a) => a.alive && !a.left);
     const bad = live.find((a) => airframeState(a).crippled);
     if (!bad) break;
+    // The last of her cannot fall out of a formation of one: she turns for
+    // home with whatever she has left, and can still be shot at all the way.
+    // She is not reported as lost, because she has not been lost -- and
+    // reporting her used to happen on every tick from here to the edge of the
+    // battlefield, because she was found crippled again the instant she was
+    // put back in the formation. One squadron of three sent a hundred and ten
+    // machines down.
+    if (live.length === 1) {
+      if (bm.phase !== 'home') { bm.phase = 'home'; bm.loads = 0; }
+      break;
+    }
     bad.left = true;
     state.events.push({
       e: 'bomberDown', i: bm.id, tm: bm.team, x: r(bm.x), y: r(bm.y), z: r(bm.z),
       why: 'crippled',
     });
-    // The last of her cannot fall out of a formation of one: she turns for
-    // home with whatever she has left, and can still be shot at all the way.
-    if (live.length === 1) { bad.left = false; bm.phase = 'home'; bm.loads = 0; break; }
   }
   const fs = flightState(bm.machines);
   bm.wear = fs;

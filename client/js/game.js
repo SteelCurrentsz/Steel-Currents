@@ -821,7 +821,13 @@ export class Battle {
           // comes off the aeroplane the scene is already drawing.
           const pl = (this.planesNow || []).find((q) =>
             Math.abs(q.x - ev.tx) < 260 && Math.abs(q.z - ev.tz) < 260);
-          const ty = pl ? this.planeHeight(pl) : 220;
+          // Or a formation of heavies, which does carry its own height. Five
+          // thousand feet of tracer looks nothing like the two hundred metres
+          // a torpedo bomber gets, and drawing the one for the other put every
+          // burst meant for a bomber stream into the sea alongside the ship.
+          const hv = pl ? null : (this.bombersNow || []).find((q) =>
+            Math.abs(q.x - ev.tx) < 400 && Math.abs(q.z - ev.tz) < 400);
+          const ty = pl ? this.planeHeight(pl) : (hv ? hv.y : 220);
           const view = this.scene.shipViews.get(ev.ship);
           // Out of the guns that are actually pointing at her.
           //
