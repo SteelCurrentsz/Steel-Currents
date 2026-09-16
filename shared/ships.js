@@ -924,7 +924,18 @@ export const SHIP_CLASSES = {
       // else. The fall-through put four torpedo bombers in the air off a boat
       // that carried one Besson and never flew her with a weapon at all.
       flight: { fighters: 1, dive: 0, torpedo: 0 },
-      cooldown: 190,
+      // How long between her coming back aboard and being fit to go again.
+      //
+      // `rearm` and not `cooldown`: nothing reads `cooldown`, which is what
+      // she had, so the moment her Besson came home her squadron's clock was
+      // set to undefined and stayed there. A NaN is not zero and is not
+      // greater than zero, so her air group read neither ready nor counting
+      // down for the rest of the battle -- nought ready, and a dash where the
+      // seconds should be. She could fly once and never again.
+      //
+      // Three minutes is the derrick both ways with the wings off and on. It
+      // was twenty at sea; this is the same scaling every other ship's is on.
+      rearm: 190,
       strikeRange: 11000,
       cruiseSpeed: 52,
       // She carries nothing. There were two 75 kg bombs in the drawings and

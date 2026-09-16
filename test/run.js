@@ -13642,6 +13642,53 @@ check('from outside her you never see her insides', () => {
   }
 });
 
+check('a ship that flies her aircraft can fly them twice', () => {
+  // Every squadron that goes out comes home, is rearmed and goes again, and
+  // the clock that says when is `planes.rearm`. The Surcouf was given
+  // `planes.cooldown` instead -- a key nothing in the simulation reads -- so
+  // the moment her Besson came back her squadron's clock was set to undefined.
+  //
+  // A NaN is not zero and it is not greater than zero, so her air group read
+  // neither ready nor counting down: nought ready and a dash where the seconds
+  // belong, for the rest of the battle. She could fly once and never again,
+  // and nothing anywhere said so.
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    if (!cls.planes) continue;
+    assert.ok(Number.isFinite(cls.planes.rearm) && cls.planes.rearm > 0,
+      `${id} has no rearming time, so her squadrons never come back on the board`);
+  }
+
+  // And the whole way round, on a ship whose evolution is the longest in the
+  // fleet: order her up, watch her go, let her come home, and she is ready
+  // again once her rearm has run.
+  const cls = SHIP_CLASSES.surcouf;
+  const st = createState(generateWorld(717, 'open_ocean'), { mode: 'deathmatch' });
+  const sub = addShip(st, { name: 'Surcouf', classId: 'surcouf', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = sub.x; foe.z = sub.z + 2200;
+  sub.aimX = foe.x; sub.aimZ = foe.z;
+  assert.ok(launchStrike(st, sub), 'she would not launch at all');
+  let flew = false;
+  let backAndReady = false;
+  // Long enough for the whole cycle: the evolution, out to the target and
+  // home, and three minutes on her trolley being made ready again.
+  for (let i = 0; i < Math.round(700 / DT); i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    step(st, DT);
+    if (st.planes.length) flew = true;
+    const sq = sub.squadrons[0];
+    if (flew && !st.planes.length && sq.state === 'deck') {
+      assert.ok(Number.isFinite(sq.cooldown),
+        'her squadron came home to a rearming time of ' + sq.cooldown);
+      if (sq.cooldown <= 0) { backAndReady = true; break; }
+    }
+  }
+  assert.ok(flew, 'her Besson never left');
+  assert.ok(backAndReady,
+    'her Besson never became ready again after coming home');
+  assert.ok(launchStrike(st, sub), 'she would not fly a second sortie');
+});
+
 check('the Surcouf puts her Besson in the water and flies her off it', () => {
   // She is the only thing in this fleet that does not fly her aeroplane off a
   // deck or off a catapult, and the whole of that evolution was missing: the
