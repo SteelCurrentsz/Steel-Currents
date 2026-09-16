@@ -3253,7 +3253,13 @@ export const DECK_RUN_OUT = 156;
 export function launchOffset(cls, side = 1) {
   const P = cls.planes || {};
   const out = P.runOut ?? DECK_RUN_OUT;
-  const bearing = (P.runBearing ?? 0) * (P.runBearing ? side : 1);
+  // A ship with a pair of catapults works them turn and turn about, so hers go
+  // off alternate sides. A ship with one derrick has one side to work it over,
+  // and says which: the Surcouf's boom tops over her port quarter, and a scout
+  // that appeared to starboard every other launch would be coming out of the
+  // sea on the side nothing had happened on.
+  const s = P.runSide ?? side;
+  const bearing = (P.runBearing ?? 0) * (P.runBearing ? s : 1);
   return { out, bearing };
 }
 

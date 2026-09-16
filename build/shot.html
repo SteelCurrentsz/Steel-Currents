@@ -13,8 +13,19 @@ try {
   const sun = new THREE.DirectionalLight(0xfff4e2, 1.3); sun.position.set(60, 55, 30); scene.add(sun);
   const s2 = new THREE.DirectionalLight(0xbfd4e6, 0.55); s2.position.set(-50, 25, -40); scene.add(s2);
   const g = new THREE.Group();
-  if (what.startsWith('ship:')) g.add(ships.buildShip(what.slice(5)).group);
-  else planekit[what](g, 0, 0, 0, 0, {});
+  if (what.startsWith('ship:')) {
+    const built = ships.buildShip(what.slice(5));
+    g.add(built.group);
+    // Part-way through a launch, if asked: 0 is the order and 1 is the moment
+    // her flight goes on the plot. A still of a ship that has an evolution to
+    // play is a still of the first frame of it.
+    const at = q.get('launch');
+    if (at !== null && built.group.userData.launch) {
+      const deck = built.group.userData.deck;
+      built.group.userData.launch(0);
+      built.group.userData.step(parseFloat(at) * (deck && deck.run ? deck.run : 1));
+    }
+  } else planekit[what](g, 0, 0, 0, 0, {});
   scene.add(g); g.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(g);
   const c = box.getCenter(new THREE.Vector3());

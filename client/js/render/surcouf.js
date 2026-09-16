@@ -282,7 +282,7 @@ export function casingHalf(z) {
  * material each, and the boundaries land exactly on the waterlines they are
  * supposed to land on instead of being interpolated across a row.
  */
-function hullBand(g, m, y0of, y1of, rows, capTop = false) {
+function hullBand(g, m, y0of, y1of, rows, capTop = false, capBot = false) {
   const STATIONS = 60;
   const pos = [];
   const idx = [];
@@ -326,6 +326,25 @@ function hullBand(g, m, y0of, y1of, rows, capTop = false) {
       idx.push(a, half + a, b, b, half + a, half + b);
     }
   }
+
+  // And the flat of her bottom between them, on the lowest band.
+  //
+  // A loft of two mirrored sheets is a pair of sheets, not a solid: it is
+  // closed at the stem, closed at the stern and -- with capTop -- closed
+  // across the tank tops, and open everywhere those three are not. Her
+  // garboard strake does not reach the centreline, so what was left was a slot
+  // half a metre wide running the whole hundred and ten metres of her keel,
+  // and from anywhere ahead or astern you looked straight up it into her
+  // insides. It is the thing you cannot see in profile and cannot miss bow-on.
+  if (capBot) {
+    for (let s = 0; s < STATIONS; s++) {
+      const a = at(s, 0);
+      const b = at(s + 1, 0);
+      // Wound the other way round from the tank tops, so these normals look
+      // down at the sea bed rather than up into her.
+      idx.push(a, b, half + a, b, half + b, half + a);
+    }
+  }
   // Both ends, closed.
   //
   // A loft is a tube: written without these it is open at the stem and the
@@ -359,7 +378,7 @@ function hullBand(g, m, y0of, y1of, rows, capTop = false) {
 const BOOT_LO = -0.62;
 const BOOT_HI = 0.34;
 function hull(g) {
-  hullBand(g, M.antifoul, keelAt, () => BOOT_LO, 6);
+  hullBand(g, M.antifoul, keelAt, () => BOOT_LO, 6, false, true);
   hullBand(g, M.boot, () => BOOT_LO, () => BOOT_HI, 1);
   hullBand(g, M.hull, () => BOOT_HI, (t) => sheerAt(t) - 0.30, 5);
   hullBand(g, M.deckSteel, (t) => sheerAt(t) - 0.30, sheerAt, 1, true);
@@ -720,33 +739,7 @@ function tower(g) {
     cyl(g, M.steel, 0.09, 0.09, 0.90, sgn * 0.95, base + 4.90, Z + 1.20, 8);
   }
 
-  // The periscope standards abaft the bridge: the attack periscope forward and
-  // the search periscope behind it, which is the order every boat has them in.
-  for (const [x, dz, h] of [[0.40, -0.70, 3.40], [-0.40, -1.70, 2.85]]) {
-    cyl(g, M.gunDark, 0.135, 0.135, h, x, base + 4.55 + h / 2, Z + dz, 10);
-    // The head, which is the only part of her that is ever above water when
-    // she is fighting properly.
-    box(g, M.gunDark, 0.24, 0.30, 0.34, x, base + 4.55 + h + 0.12, Z + dz);
-  }
-  // Her wireless mast, stepped on the after end of the bridge.
-  cyl(g, M.steel, 0.10, 0.13, 2.80, 0, base + 5.30 + 1.40, Z - 2.55, 8);
-
-  // The big rangefinder across the after end of the bridge, on its own pedestal
-  // and turning with it: eight metres of base, which is a light cruiser's.
-  const rf = new THREE.Group();
-  rf.position.set(0, base + 5.30, Z - 3.60);
-  g.add(rf);
-  cyl(rf, M.steelDark, 0.46, 0.54, 0.62, 0, 0.31, 0, 14);
-  loftRings(rf, M.steel, [
-    [0.70, 0.62, 0, 0.62],
-    [0.76, 0.68, 0, 0.80],
-    [0.66, 0.58, 0, 1.36],
-  ], { n: 14, px: 0.6, pz: 0.6 });
-  box(rf, M.steel, 5.40, 0.44, 0.48, 0, 1.18, 0);
-  for (const sgn of [-1, 1]) {
-    cyl(rf, M.gunDark, 0.25, 0.25, 0.30, sgn * 2.70, 1.18, 0, 12)
-      .rotation.z = Math.PI / 2;
-  }
+  masthead(g, base, Z);
 
   // The two machine-gun sponsons abaft the bridge are not built here: they are
   // built with the guns that stand in them, in `gunPositions`, so that the
@@ -770,6 +763,105 @@ function tower(g) {
   for (let i = 0; i < 3; i++) {
     box(g, mat(bands[i]), 0.03, 0.52, 0.30, 0.55, flagY + 0.92, flagZ - 0.17 - i * 0.30);
   }
+}
+
+
+/**
+ * Her masthead: the periscopes, the wireless and the rangefinder.
+ *
+ * This is the highest thing on her and therefore the thing the eye goes to,
+ * and it was three primitives -- two black posts with a brick on top of each,
+ * a bare rod, and a girder with a disc stuck on either end standing in for a
+ * five-metre rangefinder. Built as instruments here.
+ */
+function masthead(g, base, Z) {
+  const foot = base + 4.55;
+
+  // The two periscopes, in the order every boat has them: the thin attack
+  // glass forward and the fatter navigation glass abaft it. Each comes up out
+  // of a fairing over its own raising gear, and each has a head rather than a
+  // block -- a barrel with the search window in its forward face and the sky
+  // window above that.
+  for (const [x, dz, h, r] of [[0.42, -0.72, 3.60, 0.090], [-0.42, -1.76, 3.05, 0.105]]) {
+    const z = Z + dz;
+    cyl(g, M.steelDark, r * 2.3, r * 2.7, 0.46, x, foot + 0.23, z, 12);
+    cyl(g, M.gunDark, r, r, h, x, foot + 0.46 + h / 2, z, 12);
+    const hy = foot + 0.46 + h;
+    cyl(g, M.gunDark, r * 1.7, r * 1.7, 0.46, x, hy + 0.23, z, 12);
+    box(g, M.glass, r * 1.9, 0.17, 0.06, x, hy + 0.16, z + r * 1.72);
+    box(g, M.glass, r * 1.5, 0.05, 0.14, x, hy + 0.44, z + r * 1.30);
+    cyl(g, M.gunDark, r * 1.5, r * 0.6, 0.18, x, hy + 0.55, z, 10);
+    // The hand ring the officer of the watch swings her round on.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 2.4, 0.028, 5, 14), M.bright);
+    ring.position.set(x, foot + 0.86, z);
+    ring.rotation.x = Math.PI / 2;
+    g.add(ring);
+  }
+
+  // Her wireless mast, stepped on the after end of the bridge, with the yardarm
+  // the aerial is spread from and the direction-finding loop at the head of it.
+  // The loop is what a boat of 1934 carries where a later one carries an
+  // aerial array, and it is the top hamper in every photograph of her.
+  const mz = Z - 2.62;
+  cyl(g, M.steel, 0.075, 0.105, 3.10, 0, foot + 1.55, mz, 10);
+  const mh = foot + 3.10;
+  box(g, M.steel, 2.30, 0.06, 0.07, 0, mh - 0.58, mz);
+  for (const sgn of [-1, 1]) {
+    cyl(g, M.bright, 0.04, 0.04, 0.16, sgn * 1.10, mh - 0.48, mz, 6);
+  }
+  cyl(g, M.steelDark, 0.11, 0.13, 0.20, 0, mh + 0.10, mz, 10);
+  box(g, M.bright, 0.05, 0.40, 0.05, 0, mh + 0.32, mz);
+  const loop = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.032, 6, 18), M.bright);
+  loop.position.set(0, mh + 0.60, mz);
+  g.add(loop);
+
+  // The five-metre rangefinder across the after end of the bridge.
+  //
+  // She has to dive with it, so it is a sealed instrument in a pressure-tight
+  // housing lying fore and aft rather than the open girder a surface ship
+  // carries. Built as the instrument: a pedestal with its roller path, a
+  // shield round the operator, a body that tapers out to the two end housings,
+  // and a hood over each window.
+  const rf = new THREE.Group();
+  rf.position.set(0, base + 5.02, Z - 3.76);
+  g.add(rf);
+  cyl(rf, M.steelDark, 0.40, 0.50, 0.44, 0, 0.22, 0, 16);
+  cyl(rf, M.gunDark, 0.53, 0.53, 0.07, 0, 0.47, 0, 16);
+  loftRings(rf, M.light, [
+    [0.74, 0.66, 0, 0.50],
+    [0.82, 0.74, 0, 0.74],
+    [0.78, 0.70, 0, 1.04],
+  ], { n: 16, px: 0.6, pz: 0.6, cap: false, floor: true });
+  // The middle of the instrument, over the pedestal, and the two arms out of it.
+  cyl(rf, M.steel, 0.25, 0.25, 0.72, 0, 1.16, 0, 14).rotation.z = Math.PI / 2;
+  for (const sgn of [-1, 1]) {
+    cyl(rf, M.steel, 0.15, 0.21, 1.86, sgn * 1.29, 1.16, 0, 12)
+      .rotation.z = sgn * Math.PI / 2;
+    // The end housing, the rim round its window, the window itself set back
+    // inside the rim, and the cowl over the top of it that keeps the sun out
+    // of the eyepiece. A flat window the full width of the housing reads as an
+    // open pipe with the dark of the inside of her showing through it, which
+    // is what this was.
+    cyl(rf, M.steel, 0.22, 0.30, 0.46, sgn * 2.45, 1.16, 0, 14)
+      .rotation.z = sgn * Math.PI / 2;
+    cyl(rf, M.steelDark, 0.235, 0.235, 0.07, sgn * 2.66, 1.16, 0, 14)
+      .rotation.z = Math.PI / 2;
+    cyl(rf, M.glass, 0.155, 0.155, 0.04, sgn * 2.67, 1.16, 0, 14)
+      .rotation.z = Math.PI / 2;
+    const cowl = box(rf, M.steelDark, 0.30, 0.05, 0.34, sgn * 2.60, 1.36, 0.08);
+    cowl.rotation.x = -0.34;
+    box(rf, M.steelDark, 0.06, 0.20, 0.05, sgn * 2.60, 1.28, -0.10);
+    // The trunnion bracket under each arm.
+    box(rf, M.steelDark, 0.16, 0.22, 0.30, sgn * 0.52, 1.00, 0);
+  }
+  // The operator's handwheels, his seat, and the training rack under it all,
+  // which is what says which way round the instrument is meant to be read.
+  for (const sgn of [-1, 1]) {
+    cyl(rf, M.gunDark, 0.13, 0.13, 0.05, sgn * 0.46, 0.94, -0.34, 10)
+      .rotation.x = Math.PI / 2;
+  }
+  box(rf, M.steelDark, 0.36, 0.06, 0.30, 0, 0.74, -0.52);
+  cyl(rf, M.steelDark, 0.05, 0.05, 0.26, 0, 0.61, -0.52, 6);
 }
 
 // ------------------------------------------------------------- the hangar --
@@ -961,6 +1053,7 @@ function hangar(g) {
 function derrick(g) {
   const cz = -25.6;
   const cb = casingY(cz);
+  const piv = cb + 0.92;
   // The heel and the king post it tops against.
   cyl(g, M.steelDark, 0.34, 0.42, 0.90, 0, cb + 0.45, cz, 12);
   cyl(g, M.steel, 0.20, 0.24, 3.40, 0, cb + 2.60, cz - 0.55, 10);
@@ -971,27 +1064,38 @@ function derrick(g) {
     wire(g, M.gunDark, [0, cb + 4.15, cz - 0.55],
       [sgn * 2.00, casingY(cz - 4.2) + 0.10, cz - 4.2], 0.032);
   }
-  // The boom: swung out to port and topped up, which is where she stows it
-  // when the aeroplane is on deck.
+
+  // The boom, in a group of its own because it works: topped on its heel and
+  // trained round on the king post. Stowed it lies aft over the aeroplane,
+  // which is where a derrick is left when there is one on deck to lift.
   const boom = new THREE.Group();
-  boom.position.set(0, cb + 0.92, cz);
-  boom.rotation.set(0.58, -0.26, 0);
+  boom.position.set(0, piv, cz);
+  boom.rotation.set(DERRICK.LEAN_STOW, DERRICK.SW_STOW, 0);
+  boom.userData.dynamic = true;
   g.add(boom);
-  cyl(boom, M.steel, 0.15, 0.21, 7.60, 0, 3.70, 0, 10);
-  // The topping lift from the boom head back to the king post, and the runner
-  // from the head down to the block.
-  cyl(boom, M.gunDark, 0.03, 0.03, 0.34, 0, 7.36, 0, 6);
-  // The block and the hook, hanging where a block hangs: straight down from
-  // the boom head, not along the boom.
-  const hx = Math.sin(-0.26) * Math.sin(0.58) * 7.40;
-  const hy = cb + 0.92 + Math.cos(0.58) * 7.40;
-  const hz = cz + Math.cos(-0.26) * Math.sin(0.58) * 7.40;
-  wire(g, M.gunDark, [hx, hy, hz], [hx, hy - 2.20, hz], 0.028);
-  box(g, M.steelDark, 0.26, 0.42, 0.20, hx, hy - 2.34, hz);
+  cyl(boom, M.steel, 0.15, 0.21, DERRICK.L, 0, DERRICK.L / 2, 0, 10);
+  // The head fitting and the sheave the runner reeves through.
+  cyl(boom, M.gunDark, 0.10, 0.10, 0.34, 0, DERRICK.L + 0.08, 0, 8);
+  cyl(boom, M.gunDark, 0.14, 0.14, 0.07, 0, DERRICK.L - 0.12, 0, 10)
+    .rotation.z = Math.PI / 2;
+
+  // The fall: the runner, the block and the hook. In the ship's frame and not
+  // the boom's, because a fall hangs straight down whatever the boom is doing,
+  // and its length is what the winch is paying out.
+  const fall = new THREE.Group();
+  fall.userData.dynamic = true;
+  g.add(fall);
+  // Thick enough to be a wire rather than a rumour: a runner drawn at its real
+  // diameter is under a pixel wide at any distance you would look at the boat
+  // from, and an aeroplane hanging on nothing looks like an aeroplane flying.
+  const w2 = cyl(fall, M.gunDark, 0.050, 0.050, 1.0, 0, -0.5, 0, 6);
+  const block = box(fall, M.steelDark, 0.26, 0.42, 0.20, 0, -1.14, 0);
   const hook = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.045, 6, 12), M.steelDark);
-  hook.position.set(hx, hy - 2.70, hz);
+  hook.position.set(0, -1.46, 0);
   hook.rotation.y = Math.PI / 2;
-  g.add(hook);
+  fall.add(hook);
+
+  return { boom, fall, wire: w2, block, hook, piv, cz };
 }
 
 /**
@@ -1001,12 +1105,19 @@ function derrick(g) {
  * aeroplane struck below looks exactly like a submarine, and because this is
  * the state every photograph and every model of the Surcouf is in: the whole
  * point of her, sitting on the casing where it can be seen.
+ *
+ * The trolley and the aeroplane are separate groups and both of them move: the
+ * trolley runs forward along the rails to under the derrick, and the aeroplane
+ * comes off it on the hook. Welded to the casing, as she was, the whole
+ * evolution can only be a squadron appearing in the sky while the model of her
+ * sits bolted to the deck.
  */
 function deckPlane(g) {
   const z = -33.2;
   const deck = casingY(z);
   const cradle = new THREE.Group();
   cradle.position.set(0, deck, z);
+  cradle.userData.dynamic = true;
   g.add(cradle);
   // The trolley: a frame on four flanged wheels running on the rails.
   box(cradle, M.steelDark, 2.10, 0.22, 3.60, 0, 0.22, 0);
@@ -1018,9 +1129,240 @@ function deckPlane(g) {
   }
   // The chocks her float sits in.
   for (const sz of [-1.10, 1.10]) box(cradle, M.plankDark, 1.10, 0.30, 0.40, 0, 0.48, sz);
-  // And the aeroplane, sitting on them. She is built in her own frame with the
-  // float keel near zero, so she goes on top of the chocks.
-  besson(cradle, 0, 0.52, 0.10, Math.PI, { spin: false });
+
+  // And the aeroplane, in a group of her own in the ship's frame so she can be
+  // taken off the chocks and put in the sea. She is built with the float keel
+  // near zero, so the group sits on top of them.
+  const plane = new THREE.Group();
+  plane.position.set(0, deck + 0.52, z);
+  plane.rotation.y = Math.PI;
+  plane.userData.dynamic = true;
+  g.add(plane);
+  const p = besson(plane, 0, 0, 0.10, 0, { spin: true });
+  return { cradle, plane, prop: p.userData.prop, stowZ: z, deckY: deck + 0.52 };
+}
+
+// ------------------------------------------------------------ the derrick --
+
+/**
+ * The derrick, and the evolution it works.
+ *
+ * She is the only thing afloat in this fleet that does not fly her aeroplane
+ * off a deck or off a catapult. The Besson is wheeled forward along the rails
+ * until she is under the boom, hooked on, hoisted off her trolley, swung out
+ * over the port side, lowered into the sea, slipped, and then she takes off
+ * from the water like any other float plane. Four minutes alongside a depot
+ * ship. Twenty at sea -- and for the whole of that the boat is on the surface
+ * with a hole open in her, which is the reason the whole arrangement was a bad
+ * idea and the reason she is interesting.
+ *
+ * The numbers are fractions of `run`, which is her own launch time, so the
+ * moment she unsticks is the moment the simulation puts her flight on the plot
+ * however long that is set to.
+ */
+const DERRICK = {
+  L: 8.40,             // the boom
+  HANG: 2.35,          // and how far under the hook she rides
+  LEAN_STOW: 0.30,     // topped up over her trolley
+  LEAN_HOOK: 0.42,     // lowered a little to plumb her
+  LEAN_OUT: 1.08,      // and right down to swing her over the side
+  SW_STOW: Math.PI,    // trained aft
+  SW_OUT: 4.53,        // and round on to the port beam
+  WATER: 0.10,         // where her float sits when she is in the sea
+  TRAVEL: 0.12,        // wheeled forward to under the boom
+  HOIST: 0.26,         // hooked on and lifted off her chocks
+  SWING: 0.52,         // swung out over the side
+  LOWER: 0.70,         // and lowered into the water
+  SLIP: 0.76,          // the hook comes off and the boom goes home
+  RUN: 1.00,           // and she runs and unsticks
+};
+
+/** Where the boom head is, for a given topping angle and swing. */
+function boomHead(lean, sw, piv, cz) {
+  return [
+    Math.sin(sw) * Math.sin(lean) * DERRICK.L,
+    piv + Math.cos(lean) * DERRICK.L,
+    cz + Math.cos(sw) * Math.sin(lean) * DERRICK.L,
+  ];
+}
+
+const ease = (u) => { const c = Math.min(1, Math.max(0, u)); return c * c * (3 - 2 * c); };
+const span = (u, a, b) => Math.min(1, Math.max(0, (u - a) / (b - a)));
+const mix = (a, b, k) => a + (b - a) * k;
+
+/**
+ * Work the derrick.
+ *
+ * Everything is positioned in the ship's own frame from the clock, rather than
+ * parented to the boom: a fall hangs straight down whatever the boom is doing,
+ * and a boom that is both topped and trained is two rotations that a parented
+ * hook would have to undo again.
+ */
+function stepDerrick(deck, t) {
+  const D = DERRICK;
+  const u = deck.launchAt === null ? -1 : (t - deck.launchAt) / deck.run;
+  const piv = deck.piv;
+  const cz = deck.cz;
+
+  // Where the boom is, and where her trolley is under it.
+  let lean = D.LEAN_STOW;
+  let sw = D.SW_STOW;
+  let cradleZ = deck.stowZ;
+  if (u >= 0 && u < D.TRAVEL) {
+    const k = ease(span(u, 0, D.TRAVEL));
+    lean = mix(D.LEAN_STOW, D.LEAN_HOOK, k);
+    cradleZ = mix(deck.stowZ, deck.hookZ, k);
+  } else if (u >= D.TRAVEL) {
+    cradleZ = deck.hookZ;
+    if (u < D.HOIST) lean = D.LEAN_HOOK;
+    else if (u < D.SWING) {
+      const k = ease(span(u, D.HOIST, D.SWING));
+      lean = mix(D.LEAN_HOOK, D.LEAN_OUT, k);
+      sw = mix(D.SW_STOW, D.SW_OUT, k);
+    } else if (u < D.SLIP) { lean = D.LEAN_OUT; sw = D.SW_OUT; }
+    else {
+      // The hook is off her and the boom is coming home.
+      const k = ease(span(u, D.SLIP, 1));
+      lean = mix(D.LEAN_OUT, D.LEAN_STOW, k);
+      sw = mix(D.SW_OUT, D.SW_STOW, k);
+      cradleZ = mix(deck.hookZ, deck.stowZ, k);
+    }
+  }
+  deck.boom.rotation.set(lean, sw, 0);
+  deck.cradle.position.z = cradleZ;
+
+  const head = boomHead(lean, sw, piv, cz);
+  deck.fall.position.set(head[0], head[1], head[2]);
+
+  // Where she is, and how much fall there is between her and the hook.
+  const out = boomHead(D.LEAN_OUT, D.SW_OUT, piv, cz);
+  let px = 0;
+  let py = deck.deckY;
+  let pz = cradleZ;
+  let pry = Math.PI;
+  let pitch = 0;
+  let fallLen = 1.20;
+  let turning = 0;
+  if (u < 0 || u < D.TRAVEL) {
+    // On her chocks with the hook hanging over her.
+    fallLen = Math.max(0.6, head[1] - deck.deckY - 1.20);
+  } else if (u < D.HOIST) {
+    // Hooked on and coming up off the trolley.
+    const k = ease(span(u, D.TRAVEL, D.HOIST));
+    py = mix(deck.deckY, head[1] - D.HANG, k);
+    fallLen = head[1] - py - 0.62;
+    pry = mix(Math.PI, deck.runHeading + Math.PI * 2, k * 0.35);
+    turning = 6;
+  } else if (u < D.SWING) {
+    // Swung out over the side, turning on the fall as she goes.
+    const k = ease(span(u, D.HOIST, D.SWING));
+    px = head[0]; pz = head[2]; py = head[1] - D.HANG;
+    fallLen = D.HANG - 0.62;
+    pry = mix(Math.PI, deck.runHeading + Math.PI * 2, 0.35 + k * 0.65);
+    turning = 8;
+  } else if (u < D.LOWER) {
+    // Lowered away into the sea.
+    const k = ease(span(u, D.SWING, D.LOWER));
+    px = out[0]; pz = out[2];
+    py = mix(out[1] - D.HANG, D.WATER, k);
+    fallLen = out[1] - py - 0.62;
+    pry = deck.runHeading;
+    turning = 10 + 20 * k;
+  } else if (u < D.SLIP) {
+    // In the water on her own bottom, the hook coming off her.
+    px = out[0]; pz = out[2]; py = D.WATER;
+    fallLen = mix(out[1] - D.WATER - 0.62, 1.6, ease(span(u, D.LOWER, D.SLIP)));
+    pry = deck.runHeading;
+    turning = 34;
+  } else {
+    // The run: she opens up, the float unsticks and she climbs away. Squared
+    // rather than eased, because an aeroplane on the step is accelerating the
+    // whole way and the last second of the run is the fast one.
+    const k = span(u, D.SLIP, 1);
+    const a = k * k;
+    px = mix(out[0], deck.end[0], a);
+    pz = mix(out[2], deck.end[2], a);
+    py = mix(D.WATER, deck.end[1], Math.max(0, (k - 0.55) / 0.45) ** 2);
+    pry = deck.runHeading;
+    pitch = -0.30 * Math.max(0, (k - 0.55) / 0.45);
+    fallLen = mix(1.6, 1.20, k);
+    turning = 40;
+  }
+
+  deck.wire.scale.y = Math.max(0.05, fallLen);
+  deck.wire.position.y = -fallLen / 2;
+  deck.block.position.y = -fallLen - 0.14;
+  deck.hook.position.y = -fallLen - 0.46;
+
+  if (u >= 1) {
+    // Away. Latched here and not only on the frame the run ends, because a
+    // frame can step clean over it -- see the catapult, which learned this the
+    // hard way.
+    if (!deck.gone) {
+      deck.model.position.set(deck.end[0], deck.end[1], deck.end[2]);
+      deck.model.rotation.set(-0.30, deck.runHeading, 0);
+      deck.model.updateMatrixWorld(true);
+      deck.endMatrix = deck.model.matrixWorld.clone();
+      deck.gone = true;
+    }
+    deck.airborne = true;
+    deck.model.visible = false;
+    return;
+  }
+  deck.model.visible = true;
+  deck.model.position.set(px, py, pz);
+  deck.model.rotation.set(pitch, pry, 0);
+  if (deck.prop) deck.prop.rotation.z += turning * 0.05;
+}
+
+/**
+ * Wire her derrick up: what a launch is, and what comes after one.
+ *
+ * Same contract the catapult ships work to, so the scene does not have to know
+ * that this one puts her aeroplane in the water instead of throwing it off a
+ * girder: it says when the order was given and she plays the rest herself.
+ */
+function fitDerrick(g, parts) {
+  const piv = parts.piv;
+  const cz = parts.cz;
+  const deck = {
+    ...parts,
+    live: null, launchAt: null, airborne: false, gone: false,
+    flightId: 0, pending: [], endMatrix: null,
+    piv, cz,
+    hookZ: boomHead(DERRICK.LEAN_HOOK, DERRICK.SW_STOW, piv, cz)[2],
+    rig: DERRICK,
+  };
+  // Two names for the aeroplane on purpose. The scene hands the model about by
+  // `deckPlane`, and the approach spins the airscrew through `deck.plane.prop`
+  // -- which is the shape the catapult ships publish. `model` is the group this
+  // evolution positions.
+  deck.model = deck.plane;
+  deck.plane = { group: deck.model, prop: deck.prop };
+  g.userData.deck = deck;
+  g.userData.deckPlane = deck.model;
+  g.userData.landingSpot = [0, deck.deckY, deck.stowZ];
+  g.userData.step = (t) => stepDerrick(deck, t);
+  g.userData.launch = (t) => {
+    deck.launchAt = t;
+    deck.airborne = false;
+    deck.gone = false;
+    deck.endMatrix = null;
+    deck.model.visible = true;
+  };
+  // Craned aboard again and bolted down on her trolley. There is nowhere else
+  // for her to go: a submarine's hangar takes her in pieces and that is a
+  // day's work alongside, not something done between strikes.
+  g.userData.recover = () => {
+    deck.launchAt = null;
+    deck.airborne = false;
+    deck.gone = false;
+    deck.endMatrix = null;
+    deck.model.visible = true;
+    stepDerrick(deck, 0);
+  };
+  g.userData.stow = g.userData.recover;
+  return deck;
 }
 
 // --------------------------------------------------------- the gun decks --
@@ -1585,6 +1927,33 @@ function hullDetail(g) {
   // like -- a picket fence the length of the boat.
   const band = (y) => (y < BOOT_LO ? M.antifoul : y < BOOT_HI ? M.boot : M.hull);
 
+  /**
+   * Where to stand a fitting on the shell so that it stays on the shell.
+   *
+   * A box put at x = shellAt(t, y) is only seated if the plating is going the
+   * way the box is: at the turn of the bilge, at the stem and at the stern the
+   * shell falls away faster than the box is deep, and half of it ends up
+   * hanging in the water. A row of them all down a hull that is tapering reads
+   * as a fringe of tabs round the silhouette -- barnacles, or damage.
+   *
+   * So the seat is taken as the narrowest the shell gets anywhere the fitting
+   * touches, in y and in z both, and set inboard by half the fitting's own
+   * thickness. Where that comes out narrower than `min` there is no room for
+   * the thing at all and it is left off, which is what keeps the marks at her
+   * stem from stacking up on the centreline and reading as a slot.
+   */
+  const seat = (t, y0, y1, dz, thick, min) => {
+    let w = Infinity;
+    for (let i = 0; i <= 2; i++) {
+      const y = y0 + ((y1 - y0) * i) / 2;
+      for (const d of [-dz, 0, dz]) {
+        const tt = Math.max(-1, Math.min(1, t + d / HALF));
+        w = Math.min(w, shellAt(tt, y));
+      }
+    }
+    return w >= min ? w - thick / 2 : 0;
+  };
+
   // The transverse frame lines: a raised strap every four metres over the
   // whole of her middle body, standing a couple of centimetres proud and
   // following the round of the shell, so it goes round her rather than being
@@ -1594,13 +1963,12 @@ function hullDetail(g) {
     const y0 = keelAt(t) + 0.55;
     const y1 = sheerAt(t) - 0.20;
     const rows = 8;
+    const h = (y1 - y0) / rows;
     for (let r = 0; r <= rows; r++) {
-      const y = y0 + ((y1 - y0) * r) / rows;
-      const w = shellAt(t, y);
-      if (w < 0.4) continue;
-      for (const sgn of [-1, 1]) {
-        box(g, band(y), 0.045, (y1 - y0) / rows + 0.04, 0.13, sgn * w, y, z);
-      }
+      const y = y0 + h * r;
+      const w = seat(t, y - h / 2, y + h / 2, 0.07, 0.045, 0.55);
+      if (!w) continue;
+      for (const sgn of [-1, 1]) box(g, band(y), 0.045, h + 0.04, 0.13, sgn * w, y, z);
     }
   }
 
@@ -1611,11 +1979,9 @@ function hullDetail(g) {
     for (let z = -HALF + 8; z < HALF - 8; z += 1.4) {
       const t = z / HALF;
       const y = keelAt(t) + (sheerAt(t) - keelAt(t)) * frac;
-      const w = shellAt(t, y);
-      if (w < 0.5) continue;
-      for (const sgn of [-1, 1]) {
-        box(g, band(y), 0.04, 0.09, 1.50, sgn * w, y, z);
-      }
+      const w = seat(t, y - 0.05, y + 0.05, 0.75, 0.04, 0.60);
+      if (!w) continue;
+      for (const sgn of [-1, 1]) box(g, band(y), 0.04, 0.09, 1.50, sgn * w, y, z);
     }
   }
 
@@ -1625,59 +1991,68 @@ function hullDetail(g) {
   for (let z = -34; z < 34; z += 5.2) {
     const t = z / HALF;
     const y = sheerAt(t) - 0.34;
-    const w = shellAt(t, y);
-    if (w < 1.0) continue;
+    const w = seat(t, y - 0.26, y + 0.36, 0.16, 0.22, 1.10);
+    if (!w) continue;
     for (const sgn of [-1, 1]) {
-      cyl(g, M.steelDark, 0.11, 0.13, 0.52, sgn * (w - 0.06), y, z, 8);
-      cyl(g, M.steel, 0.16, 0.10, 0.12, sgn * (w - 0.06), y + 0.30, z, 8);
+      cyl(g, M.steelDark, 0.11, 0.13, 0.52, sgn * (w - 0.04), y, z, 8);
+      cyl(g, M.steel, 0.16, 0.10, 0.12, sgn * (w - 0.04), y + 0.30, z, 8);
     }
   }
 
   // The kingston fairings on the bottom of the tanks, which is where the water
-  // comes in, and the docking keel down the middle of her that she sits on in
-  // dry dock.
+  // comes in. Tucked almost flush: stood off the shell and canted, as these
+  // were, a row of them along the turn of the bilge catches the silhouette and
+  // she grows a set of teeth down both sides.
   for (let z = -30; z < 30; z += 6.4) {
     const t = z / HALF;
     const y = keelAt(t) + 0.95;
-    const w = shellAt(t, y);
-    if (w < 0.8) continue;
-    // Tucked almost flush. Stood off the shell and canted, as these were, a
-    // row of them along the turn of the bilge catches the silhouette and she
-    // grows a set of teeth down both sides.
-    for (const sgn of [-1, 1]) {
-      box(g, M.antifoul, 0.14, 0.42, 1.10, sgn * (w - 0.08), y, z);
-    }
+    const w = seat(t, y - 0.21, y + 0.21, 0.55, 0.14, 1.00);
+    if (!w) continue;
+    for (const sgn of [-1, 1]) box(g, M.antifoul, 0.14, 0.42, 1.10, sgn * (w - 0.04), y, z);
   }
-  for (let z = -HALF + 16; z < HALF - 18; z += 2.0) {
+
+  // The docking keel down the middle of her, which is what she sits on in dry
+  // dock. Only along the flat of her bottom: carried out to the ends it stands
+  // proud of a keel that is rising away under it and reads as a fin.
+  for (let z = -26; z < 26; z += 2.0) {
     const t = z / HALF;
-    box(g, M.antifoul, 0.34, 0.20, 1.90, 0, keelAt(t) + 0.06, z);
+    box(g, M.antifoul, 0.34, 0.20, 1.90, 0, keelAt(t) + 0.13, z);
   }
 
   // The zinc anodes abaft the tanks, near the screws, where the wear is.
   for (let z = -46; z < -36; z += 2.6) {
     const t = z / HALF;
     const y = Math.min(keelAt(t) + 1.30, BOOT_LO - 0.30);
-    const w = shellAt(t, y);
-    if (w < 0.5) continue;
-    for (const sgn of [-1, 1]) {
-      box(g, M.bright, 0.05, 0.26, 0.60, sgn * w, y, z);
-    }
+    const w = seat(t, y - 0.13, y + 0.13, 0.30, 0.05, 0.70);
+    if (!w) continue;
+    for (const sgn of [-1, 1]) box(g, M.bright, 0.05, 0.26, 0.60, sgn * w, y, z);
   }
 
   // Draught marks up the stem and up the stern post, in feet, which is what a
   // French boat of 1934 was marked in decimetres of -- but the marks read the
   // same either way from twenty yards, and without them a bow is a wedge.
-  for (const [z, up] of [[HALF - 3.2, 1], [-HALF + 4.0, -1]]) {
-    const t = z / HALF;
-    for (let i = 0; i < 9; i++) {
-      const y = keelAt(t) + 0.9 + i * 0.62;
-      if (y > sheerAt(t) - 0.6) break;
-      const w = shellAt(t, y);
-      if (w < 0.25) continue;
-      for (const sgn of [-1, 1]) {
-        box(g, M.mark, 0.03, 0.18, 0.16, sgn * w, y, z + up * 0.30);
-        box(g, M.mark, 0.03, 0.06, 0.34, sgn * w, y, z + up * 0.62);
+  //
+  // Stepped aft from the very end until the shell is broad enough to carry
+  // them. Painted at the stem itself, where her half-breadth is an inch, both
+  // sides land on the centreline and stack into a white stripe down the middle
+  // of her -- which is what it looked like, and what read as a slot.
+  for (const [z0, up] of [[HALF - 3.2, 1], [-HALF + 4.0, -1]]) {
+    for (let step = 0; step < 14; step++) {
+      const z = z0 - up * step * 0.8;
+      const t = z / HALF;
+      let any = 0;
+      for (let i = 0; i < 9; i++) {
+        const y = keelAt(t) + 0.9 + i * 0.62;
+        if (y > sheerAt(t) - 0.6) break;
+        const w = seat(t, y - 0.09, y + 0.09, 0.66, 0.03, 0.70);
+        if (!w) continue;
+        any = 1;
+        for (const sgn of [-1, 1]) {
+          box(g, M.mark, 0.03, 0.18, 0.16, sgn * w, y, z + up * 0.30);
+          box(g, M.mark, 0.03, 0.06, 0.34, sgn * w, y, z + up * 0.62);
+        }
       }
+      if (any) break;
     }
   }
 
@@ -1690,7 +2065,8 @@ function hullDetail(g) {
       const z = HALF - 9.0 - dz;
       const t = z / HALF;
       const y = sheerAt(t) - 1.55;
-      const w = shellAt(t, y);
+      const w = seat(t, y - 0.33, y + 0.33, w2 / 2, 0.03, 0.80);
+      if (!w) continue;
       box(g, M.mark, 0.03, 0.66, w2, sgn * w, y, z);
     }
   }
@@ -1707,9 +2083,9 @@ function hullDetail(g) {
   for (let z = -40; z < 40; z += 2.3) {
     const t = z / HALF;
     const y = keelAt(t) + 0.42;
-    const w = shellAt(t, y);
-    if (w < 0.6) continue;
-    for (const sgn of [-1, 1]) box(g, M.cave, 0.05, 0.16, 0.30, sgn * w, y, z);
+    const w = seat(t, y - 0.08, y + 0.08, 0.15, 0.05, 0.75);
+    if (!w) continue;
+    for (const sgn of [-1, 1]) box(g, M.cave, 0.05, 0.16, 0.30, sgn * (w - 0.01), y, z);
   }
 }
 
@@ -1823,24 +2199,34 @@ export function buildSurcouf() {
   // So her interior is built against the bare hull and nothing else. She is a
   // pressure hull with things bolted on top of it, and what is inside her is
   // inside that tube.
+  //
+  // And clamped inside her plating at every station, which the pressure hull's
+  // own table does not do for her. Her outer shell is an inch wide at the stem
+  // and at the stern post; the pressure hull table still has two feet of
+  // radius in it there, because a pressure hull is a cylinder with dished ends
+  // and it stops well short of both -- so taken at face value her insides come
+  // out through her bow, and what you see from dead ahead is a grey slab of
+  // compartment standing in front of the stem.
+  const inside = (t, y) => {
+    const r = hullR(t);
+    const dy = y - PY;
+    const tube = Math.abs(dy) >= r
+      ? 0.02 : Math.sqrt(Math.max(0, r * r - dy * dy)) * 0.94;
+    return Math.max(0.02, Math.min(tube, shellAt(t, y) - 0.12));
+  };
   buildInterior(g, {
     loa: LOA,
-    shellAt: (t, y) => {
-      const r = hullR(t);
-      const dy = y - PY;
-      if (Math.abs(dy) >= r) return 0.02;
-      return Math.sqrt(Math.max(0, r * r - dy * dy)) * 0.94;
-    },
-    keelY: (t) => PY - hullR(t) * 0.94,
-    sheer: (t) => PY + hullR(t) * 0.88,
+    shellAt: inside,
+    keelY: (t) => Math.max(PY - hullR(t) * 0.94, keelAt(t) + 0.12),
+    sheer: (t) => Math.min(PY + hullR(t) * 0.88, sheerAt(t) - 0.12),
     zAt: (t) => t * HALF,
   });
   casing(g);
   turretWell(g);
   tower(g);
   hangar(g);
-  derrick(g);
-  deckPlane(g);
+  const crane = derrick(g);
+  const air = deckPlane(g);
   fittings(g);
   stern(g);
   gunPositions(g);
@@ -1849,7 +2235,18 @@ export function buildSurcouf() {
   const turrets = mainTurret(g, casingY(CLS.turrets[0].z) + 0.62);
   const aaMounts = flak(g);
   const { mounts: torpMounts, caps } = tubes(g);
+  // Her derrick, and the evolution that puts the Besson in the water. Wired up
+  // after the weld, because everything it works has to have survived it.
+  const P = CLS.planes;
+  const bearing = (P.runBearing || 0) * (P.runSide ?? 1);
+  fitDerrick(g, {
+    ...crane, ...air,
+    run: P.deckRun,
+    runHeading: bearing,
+    end: [Math.sin(bearing) * P.runOut, P.runHeight, Math.cos(bearing) * P.runOut],
+  });
   mergeMoving(g);
+  g.userData.step(0);
   g.userData.classId = 'surcouf';
   dressShip(g);
   return {

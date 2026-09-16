@@ -13599,6 +13599,140 @@ check('the Surcouf fights with the battery she actually carried', () => {
   }
 });
 
+check('from outside her you never see her insides', () => {
+  // The one thing a hull has to do. Everything about a ship's interior is
+  // invisible if her plating is closed and glaring if it is not: a slab of
+  // bulkhead standing in front of her stem, a compartment showing through her
+  // keel, the whole of her machinery space visible up a seam.
+  //
+  // And it is not caught by measuring her insides against her lines. Two
+  // faults on the Surcouf passed that check and were plain in every picture of
+  // her bow. Her garboard strake did not reach the centreline and nothing
+  // closed the gap, so there was a slot half a metre wide running the whole
+  // hundred and ten metres of her keel; and her pressure hull, which is a
+  // cylinder with dished ends, was carried out to a stem an inch wide, so two
+  // feet of it stood out through her bow.
+  //
+  // So the test is the symptom: stand off her, look at her from every bearing
+  // and every height her hull occupies, and the first thing the eye meets must
+  // be the ship and not the inside of the ship.
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
+    const built = buildShip(id);
+    built.group.updateMatrixWorld(true);
+    const L = SHIP_CLASSES[id].hull.length;
+    const bb = new THREE.Box3().setFromObject(built.group);
+    const R = Math.max(bb.max.x, -bb.min.x) + L * 0.9;
+    const rc = new THREE.Raycaster();
+    const seen = [];
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 36) {
+      const sa = Math.sin(a);
+      const ca = Math.cos(a);
+      for (let y = bb.min.y + 0.4; y < Math.min(bb.min.y + 14, 3.2); y += 0.7) {
+        rc.set(new THREE.Vector3(sa * R, y, ca * R), new THREE.Vector3(-sa, 0, -ca));
+        rc.far = R * 2.2;
+        const h = rc.intersectObject(built.group, true)[0];
+        if (h && h.object.userData.mergeKey === 'in') {
+          seen.push(`${h.point.x.toFixed(1)},${h.point.y.toFixed(1)},${h.point.z.toFixed(1)}`);
+        }
+      }
+    }
+    assert.equal(seen.length, 0,
+      `${id} shows her insides from ${seen.length} bearings, first at ${seen[0]}`);
+  }
+});
+
+check('the Surcouf puts her Besson in the water and flies her off it', () => {
+  // She is the only thing in this fleet that does not fly her aeroplane off a
+  // deck or off a catapult, and the whole of that evolution was missing: the
+  // Besson was welded to the casing where she could not move, and the
+  // simulation put four torpedo-armed aircraft a hundred and fifty metres dead
+  // ahead at forty metres, off a boat that carried one scout and never flew
+  // her with a weapon at all.
+  const cls = SHIP_CLASSES.surcouf;
+  assert.equal(cls.planes.launcher, 'derrick', 'she has grown a catapult');
+  assert.ok(!cls.planes.catapult, 'no submarine ever carried one');
+
+  // One aeroplane, and she is a scout.
+  assert.equal(cls.planes.flight.dive + cls.planes.flight.torpedo, 0,
+    'her Besson has been given bombs or a torpedo');
+  assert.equal(cls.planes.flight.fighters, 1, 'she puts up more than the one she carries');
+
+  // Her flight starts alongside and low, on the side her boom tops over, and
+  // it starts there every time: one derrick has one side to work it over.
+  const port = launchOffset(cls, 1);
+  const stbd = launchOffset(cls, -1);
+  assert.equal(port.bearing, stbd.bearing, 'she works her one derrick over alternate sides');
+  assert.ok(port.bearing < 0, 'her boom tops over the starboard side, not the port');
+  assert.ok(port.out > 60 && port.out < 200, `her launch ends ${port.out} m out`);
+  assert.ok(cls.planes.runHeight < 25,
+    `her float plane starts ${cls.planes.runHeight} m up, which is a flight deck's height`);
+
+  // The simulation flies her: one Besson, at the end of the evolution, where
+  // the model leaves her.
+  const st = createState(generateWorld(5150, 'open_ocean'), { mode: 'deathmatch' });
+  const sub = addShip(st, { name: 'Surcouf', classId: 'surcouf', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = sub.x; foe.z = sub.z + 6000;
+  sub.aimX = foe.x; sub.aimZ = foe.z;
+  sub.heading = 0;
+  assert.ok(launchStrike(st, sub), 'she would not launch at all');
+  for (let i = 0; i < Math.round(cls.planes.deckRun / DT) + 4; i++) {
+    for (const s of st.ships) s.spottedBy = [true, true];
+    step(st, DT);
+  }
+  assert.equal(st.planes.length, 1, `${st.planes.length} aeroplanes off a boat that carries one`);
+  const p = st.planes[0];
+  assert.equal(p.count, 1, `${p.count} Bessons in a flight of one`);
+  assert.equal(p.type, 'besson', `she flew a ${p.type} off a submarine`);
+
+  // And the model plays the whole evolution on the same clock: trolley forward
+  // under the boom, hoisted off her chocks, swung out over the side, lowered
+  // into the sea, slipped, and away -- ending exactly where the flight starts,
+  // so the aeroplane you watched go and the counter on the plot are the same
+  // aeroplane in the same place.
+  const built = buildSurcouf();
+  const deck = built.group.userData.deck;
+  assert.ok(deck, 'her model has no derrick to work');
+  assert.equal(deck.run, cls.planes.deckRun,
+    'her derrick is paced to something other than her own launch');
+  const where = (u) => {
+    built.group.userData.step(u * deck.run);
+    built.group.updateMatrixWorld(true);
+    return new THREE.Vector3().setFromMatrixPosition(deck.model.matrixWorld);
+  };
+  built.group.userData.launch(0);
+  const onDeck = where(0);
+  assert.ok(Math.abs(onDeck.x) < 0.2 && onDeck.z < -30,
+    'she does not start on her trolley aft');
+  const hoisted = where(0.26);
+  assert.ok(hoisted.y > onDeck.y + 2.5, 'she never came off her chocks');
+  const swung = where(0.52);
+  assert.ok(swung.x < -4.5,
+    `she only swings ${swung.x.toFixed(1)} m out, which is still over her own casing`);
+  const afloat = where(0.70);
+  assert.ok(afloat.y < 1.0 && afloat.x < -4.5,
+    `she is ${afloat.y.toFixed(1)} m up when she should be in the water alongside`);
+  // Away, and the model put away with her rather than left hanging.
+  where(1.02);
+  assert.equal(deck.airborne, true, 'the evolution never handed her over');
+  assert.equal(deck.model.visible, false, 'her model is still hanging in the air');
+  assert.ok(deck.endMatrix, 'nothing latched where the launch left her');
+  const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+  assert.ok(Math.abs(end.x - Math.sin(port.bearing) * port.out) < 0.5
+    && Math.abs(end.z - Math.cos(port.bearing) * port.out) < 0.5,
+    `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+    + `${(Math.sin(port.bearing) * port.out).toFixed(0)},`
+    + `${(Math.cos(port.bearing) * port.out).toFixed(0)}`);
+
+  // And she is craned aboard again afterwards.
+  built.group.userData.recover();
+  built.group.updateMatrixWorld(true);
+  const home = new THREE.Vector3().setFromMatrixPosition(deck.model.matrixWorld);
+  assert.equal(deck.model.visible, true, 'she never came back aboard');
+  assert.ok(home.distanceTo(onDeck) < 0.3, 'she was craned aboard somewhere other than her trolley');
+});
+
 check('her hangar sits down on her casing, and her tubs do not train', () => {
   // Two faults with the same shape, and both of them were on her.
   //
@@ -13725,15 +13859,19 @@ check('the Surcouf is built the way her drawings have her', () => {
 
   // Her aeroplane is on the casing, abaft the hangar, where she is assembled
   // before the derrick picks her up.
-  const box = new THREE.Box3();
-  let plane = null;
-  built.group.traverse((o) => {
-    if (!o.isMesh || !o.geometry) return;
-    box.setFromObject(o);
-    // Twelve metres of span is the Besson and nothing else aboard.
-    if (box.max.x - box.min.x > 9 && box.max.z < -20) plane = box.clone();
-  });
-  assert.ok(plane, 'her aeroplane is not on her casing');
+  //
+  // Taken off the derrick's own model rather than by hunting the welded
+  // buffers for something twelve metres across. She is a moving part now --
+  // she has to be, or she cannot be hoisted -- so the welder leaves her as the
+  // dozen meshes she is built from and no single one of them has her span.
+  built.group.updateMatrixWorld(true);
+  const plane = new THREE.Box3().setFromObject(built.group.userData.deckPlane);
+  assert.ok(plane.max.x - plane.min.x > 9,
+    `her aeroplane is ${(plane.max.x - plane.min.x).toFixed(1)} m across, not twelve`);
+  assert.ok(plane.max.z < -20 && plane.min.z > -40,
+    'her aeroplane is not on the casing abaft the hangar');
+  assert.ok(plane.min.y > surcoufCasingY(-33.2) - 0.1,
+    'her aeroplane is standing in her casing rather than on it');
 });
 
 

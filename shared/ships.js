@@ -907,7 +907,23 @@ export const SHIP_CLASSES = {
       // And she goes over the side on a derrick, not off a catapult. No
       // submarine ever carried one.
       launcher: 'derrick',
-      launchTime: 26,
+      // The whole evolution, on the clock the model plays it on: the trolley
+      // wheeled forward under the boom, hooked on, hoisted off her chocks,
+      // swung out over the port side, lowered into the sea, slipped, and then
+      // the run. Two thirds of a minute, which is the fastest it was ever done
+      // and about a third of what it took her at sea.
+      deckRun: 38,
+      deckCycle: 74,
+      // And she does not go off a deck. She is a float plane that has just
+      // unstuck from the water alongside, so her flight starts close to the
+      // boat, low, and out on the bow she was lowered over -- not a hundred
+      // and fifty metres dead ahead at forty metres, which is where a carrier
+      // leaves hers and which is what the default put her.
+      runOut: 120, runBearing: 0.20, runSide: -1, runHeight: 15,
+      // One aeroplane, and she is a scout with two machine guns and nothing
+      // else. The fall-through put four torpedo bombers in the air off a boat
+      // that carried one Besson and never flew her with a weapon at all.
+      flight: { fighters: 1, dive: 0, torpedo: 0 },
       cooldown: 190,
       strikeRange: 11000,
       cruiseSpeed: 52,
