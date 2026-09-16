@@ -176,6 +176,10 @@ export function deckAt(z) { return sheerAt(Math.max(-1, Math.min(1, z / HALF)));
 // her.
 const CASE_FWD = 48.0;
 const CASE_AFT = -47.0;
+// Where the casing starts and stops, for anything outside that wants to walk
+// it -- the check that sweeps her for daylight, mostly.
+export const CASE_FWD_Z = CASE_FWD;
+export const CASE_AFT_Z = CASE_AFT;
 const CASE_RISE = 0.44;
 
 // The hangar, and the height of the two gun platforms on the tower. Both are
@@ -186,8 +190,23 @@ const HANGAR_Z = -13.2;
 const HANGAR_R = 1.98;
 const AA_BRIDGE = 3.55;
 
+/**
+ * How high the casing stands above the tanks at a station.
+ *
+ * Full height down the middle of her and faired away to nothing at both ends,
+ * because that is how a casing is built and because the alternative is what
+ * this was: a strip of deck a foot and a half high that ran out to a point and
+ * stopped dead, standing on edge in the air like a fin.
+ */
+export function casingRise(z) {
+  if (z > CASE_FWD || z < CASE_AFT) return 0;
+  const t = z >= 0 ? z / CASE_FWD : z / CASE_AFT;
+  const k = Math.min(1, Math.max(0, (1 - t) / 0.22));
+  return CASE_RISE * (k * k * (3 - 2 * k));
+}
+
 /** The top of the casing deck at a station, where there is casing. */
-export function casingY(z) { return deckAt(z) + CASE_RISE; }
+export function casingY(z) { return deckAt(z) + casingRise(z); }
 
 /** How wide the casing is at a station: widest amidships, drawn out at both ends. */
 export function casingHalf(z) {
@@ -361,6 +380,52 @@ function casing(g) {
     g.add(new THREE.Mesh(geo, m));
   }
 
+  // The waterway: a steel stringer down each edge of the deck, which is what
+  // the planking is laid against and what gives the casing an edge at all. A
+  // planked deck that runs straight over the side has no edge, and the eye
+  // reads it as a painted stripe rather than as something a man could fall
+  // off. Lofted along her with the deck so it follows every curve of it.
+  for (const sgn of [-1, 1]) {
+    const pos = [];
+    const idx = [];
+    for (let sN = 0; sN <= STATIONS; sN++) {
+      const z = CASE_AFT + ((CASE_FWD - CASE_AFT) * sN) / STATIONS;
+      const hw = casingHalf(z);
+      const y = casingY(z);
+      const w = Math.min(0.16, hw * 0.4);
+      // Outboard face, top, inboard face: four points a station.
+      pos.push(sgn * hw, y - 0.02, z, sgn * hw, y + 0.09, z,
+        sgn * (hw - w), y + 0.09, z, sgn * (hw - w), y - 0.02, z);
+    }
+    for (let sN = 0; sN < STATIONS; sN++) {
+      const a = sN * 4;
+      const b = (sN + 1) * 4;
+      // Wound so the outboard face looks outboard whichever side she is on.
+      const q = (p0, p1, p2, p3) => (sgn > 0
+        ? idx.push(a + p0, b + p1, a + p1, a + p0, b + p0, b + p1)
+        : idx.push(a + p0, a + p1, b + p1, a + p0, b + p1, b + p0));
+      q(0, 1);      // outboard
+      q(1, 2);      // top
+      q(2, 3);      // inboard
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, M.deckSteel));
+  }
+
+  // The freeing ports in the casing side. A casing is not watertight and is
+  // not meant to be: it floods and drains as she dives and surfaces, and the
+  // row of slots along it is the most recognisable thing about a submarine's
+  // side after the tower itself.
+  for (let z = CASE_AFT + 4; z < CASE_FWD - 6; z += 1.9) {
+    const hw = casingHalf(z);
+    if (hw < 1.2) continue;
+    const y = (casingY(z) + deckAt(z)) / 2 - 0.04;
+    for (const sgn of [-1, 1]) box(g, M.cave, 0.06, 0.20, 0.62, sgn * hw, y, z);
+  }
+
   // The seams a wooden deck is laid in: a king plank down the middle and the
   // butts across her. They are what give the eye something to measure a
   // hundred and ten metres against, and without them the casing is a ramp.
@@ -374,6 +439,50 @@ function casing(g) {
     if (hw < 0.5) continue;
     box(g, M.plankDark, 0.07, 0.02, 0.80, 0, casingY(z) + 0.012, z);
   }
+}
+
+// ---------------------------------------------------------- the gun well --
+
+/**
+ * What the turret is bolted to: the well it turns in, let into the casing.
+ *
+ * This is the part of her nothing else in the game has. Every other turret in
+ * this fleet stands on a barbette that rises out of a deck; hers is let into
+ * the pressure hull, because the whole mounting is part of the pressure
+ * envelope and has to be dived with. What you see on deck is a ring of plating
+ * where the planking stops, a coaming round the opening, the barbette coming
+ * up through it, and the roller path the mounting turns on with its holding-
+ * down clips round the outside.
+ *
+ * It is built here, with the casing, and not with the turret -- because a
+ * barbette does not train. Put it in the mounting's own group and the whole
+ * ring of clips goes round with the guns, which is what it used to do.
+ */
+const WELL_R = 2.45;
+function turretWell(g) {
+  const Z = CLS.turrets[0].z;
+  const deck = casingY(Z);
+  // The ring of plating the planking is cut back to, laid on the casing.
+  cyl(g, M.deckSteel, 3.12, 3.12, 0.06, 0, deck + 0.02, Z, 28);
+  // The coaming round the opening: a raised lip, which is what keeps the sea
+  // on the casing out of the well when she is running awash.
+  cyl(g, M.light, 2.74, 2.80, 0.26, 0, deck + 0.13, Z, 28);
+  // The barbette itself, up through the opening from well below the tank tops.
+  // It is one piece and it is solid: there is no line round the foot of this
+  // turret where you can see daylight under it.
+  cyl(g, M.light, WELL_R, WELL_R + 0.07, 1.98, 0, deck - 0.37, Z, 28);
+  // The roller path on top of it, which the mounting actually turns on.
+  cyl(g, M.steelDark, WELL_R + 0.02, WELL_R + 0.02, 0.14, 0, deck + 0.55, Z, 28);
+  // And the clips that hold the mounting down to it, all round.
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2;
+    box(g, M.steelDark, 0.17, 0.12, 0.17,
+      Math.sin(a) * (WELL_R + 0.06), deck + 0.44, Z + Math.cos(a) * (WELL_R + 0.06), a);
+  }
+  // The ladder up the side of it, and the grab rail round the coaming: a
+  // turret this size is climbed on, and the crew got into it from the casing.
+  ladder(g, M.bright, 0, deck + 0.06, deck + 0.56, Z - 2.62, Z - 2.90);
+  return deck + 0.62;
 }
 
 /**
@@ -414,63 +523,66 @@ function wire(g, m, a, b, r = 0.024, seg = 5) {
  * Minus five to plus thirty, and ninety degrees of train either side. Two and
  * a half minutes from the order to surface to the first round.
  */
-function mainTurret(g) {
+function mainTurret(g, ringY) {
   const Z = CLS.turrets[0].z;
-  const base = casingY(Z);
   const t = new THREE.Group();
-  t.position.set(0, base, Z);
+  // On the roller path, not on the deck. Everything below this turns with
+  // nothing: see turretWell.
+  t.position.set(0, ringY, Z);
   t.userData.dynamic = true;
 
-  // The barbette: pressure-tight, and it goes down into the hull rather than
-  // standing on it -- the turret is part of the pressure envelope.
-  cyl(t, M.steelDark, 2.42, 2.52, 1.40, 0, -0.62, 0, 22);
-  cyl(t, M.light, 2.36, 2.42, 0.42, 0, 0.20, 0, 22);
-  // The ring of clips that hold the mounting down to it.
-  for (let i = 0; i < 18; i++) {
-    const a = (i / 18) * Math.PI * 2;
-    box(t, M.steelDark, 0.16, 0.10, 0.16,
-      Math.sin(a) * 2.40, 0.42, Math.cos(a) * 2.40, a);
-  }
+  // The turntable, and the skirt that hangs off it over the barbette.
+  //
+  // A gunhouse is longer fore and aft than the ring it turns on, so it
+  // overhangs the barbette at both ends, and the overhang is plated down to
+  // within a hand's breadth of the roller path. Without that plating there is
+  // a finger of daylight all round the foot of the turret, which is exactly
+  // what she had: a gunhouse balanced on a drum with air under its ends.
+  loftRings(t, M.light, [
+    [2.24, 2.78, -0.60, -0.50],
+    [2.28, 2.82, -0.60, -0.16],
+    [2.26, 2.80, -0.60, 0.06],
+  ], { n: 24, px: 0.66, pz: 0.70, cap: false, floor: true });
 
   // The gunhouse. Rounded everywhere, because it has to be pushed through the
   // water at eighteen knots and then dived: a cruiser's slab-sided turret
   // would be a sea anchor and a pressure trap both.
   loftRings(t, M.light, [
-    [2.20, 2.74, -0.60, 0.40],
-    [2.34, 2.90, -0.55, 0.80],
-    [2.32, 2.88, -0.50, 2.00],
-    [2.18, 2.74, -0.46, 2.72],
-    [1.96, 2.48, -0.44, 3.00],
+    [2.20, 2.74, -0.60, 0.00],
+    [2.34, 2.90, -0.55, 0.40],
+    [2.32, 2.88, -0.50, 1.60],
+    [2.18, 2.74, -0.46, 2.32],
+    [1.96, 2.48, -0.44, 2.60],
   ], { n: 24, px: 0.66, pz: 0.70 });
   // The face: a flat plate the guns come through, sloped back a little. A
   // mounting that is round all over has nowhere for the guns to come out of,
   // and what you get is two barrels growing out of a pebble.
-  const face = box(t, M.light, 3.60, 2.30, 0.28, 0, 1.70, 2.26);
+  const face = box(t, M.light, 3.60, 2.30, 0.28, 0, 1.30, 2.26);
   face.rotation.x = -0.10;
-  box(t, M.steel, 3.72, 0.16, 0.34, 0, 2.86, 2.16);
-  box(t, M.steel, 0.20, 2.30, 0.36, 1.78, 1.70, 2.20);
-  box(t, M.steel, 0.20, 2.30, 0.36, -1.78, 1.70, 2.20);
+  box(t, M.steel, 3.72, 0.16, 0.34, 0, 2.46, 2.16);
+  box(t, M.steel, 0.20, 2.30, 0.36, 1.78, 1.30, 2.20);
+  box(t, M.steel, 0.20, 2.30, 0.36, -1.78, 1.30, 2.20);
 
   // The five-metre rangefinder, lying fore-and-aft in the roof with a hood at
   // each end: the thing that lets her shoot at twelve thousand metres instead
   // of at what a periscope can see.
-  box(t, M.steel, 0.62, 0.40, 4.90, 0, 3.16, -1.10);
+  box(t, M.steel, 0.62, 0.40, 4.90, 0, 2.76, -1.10);
   for (const dz of [1.70, -3.90]) {
-    const hood = cyl(t, M.gunDark, 0.26, 0.26, 0.34, 0, 3.16, dz, 12);
+    const hood = cyl(t, M.gunDark, 0.26, 0.26, 0.34, 0, 2.76, dz, 12);
     hood.rotation.x = Math.PI / 2;
   }
   // The trainer's and layer's sighting hoods either side of the face.
   for (const sgn of [-1, 1]) {
     loftRings(t, M.steel, [
-      [0.34, 0.40, 0.70, 2.50],
-      [0.36, 0.42, 0.70, 2.86],
-      [0.26, 0.32, 0.70, 3.02],
+      [0.34, 0.40, 0.70, 2.10],
+      [0.36, 0.42, 0.70, 2.46],
+      [0.26, 0.32, 0.70, 2.62],
     ], { n: 12, px: 0.6, pz: 0.6 });
-    box(t, M.glass, 0.12, 0.14, 0.34, sgn * 1.62, 2.74, 1.00);
+    box(t, M.glass, 0.12, 0.14, 0.34, sgn * 1.62, 2.34, 1.00);
   }
   // The access hatch in the roof and the ready-use lockers on the quarters.
-  cyl(t, M.steelDark, 0.44, 0.44, 0.10, 0.90, 3.10, -2.40, 14);
-  for (const sgn of [-1, 1]) box(t, M.steel, 0.30, 0.52, 0.80, sgn * 1.92, 1.00, -2.70);
+  cyl(t, M.steelDark, 0.44, 0.44, 0.10, 0.90, 2.70, -2.40, 14);
+  for (const sgn of [-1, 1]) box(t, M.steel, 0.30, 0.52, 0.80, sgn * 1.92, 0.60, -2.70);
 
   // The cradle, which elevates. Both guns on it, because they are not
   // separately sleeved: she lays them together or not at all.
@@ -482,7 +594,7 @@ function mainTurret(g) {
   // the reason she looks wrong on a submarine is that she is not out of scale:
   // the submarine is.
   const cradle = new THREE.Group();
-  cradle.position.set(0, 1.62, 0.10);
+  cradle.position.set(0, 1.22, 0.10);
   t.add(cradle);
   const muzzles = [];
   for (const x of [-1.30, 1.30]) {
@@ -1070,6 +1182,7 @@ export function buildSurcouf() {
     zAt: (t) => t * HALF,
   });
   casing(g);
+  turretWell(g);
   tower(g);
   hangar(g);
   derrick(g);
@@ -1077,7 +1190,7 @@ export function buildSurcouf() {
   fittings(g);
   stern(g);
   mergeStatic(g, bySection(LOA));
-  const turrets = mainTurret(g);
+  const turrets = mainTurret(g, casingY(CLS.turrets[0].z) + 0.62);
   const aaMounts = flak(g);
   const { mounts: torpMounts, caps } = tubes(g);
   mergeMoving(g);

@@ -222,9 +222,11 @@ import { createBotBrain, stepBot } from '../server/bots.js';
 import { unpackHoles, HoleField } from '../client/js/render/planes.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
 import {
-  buildSurcouf,
+  buildSurcouf, LOA as surcoufLOA,
   shellAt as surcoufShellAt, casingY as surcoufCasingY,
   casingHalf as surcoufCasingHalf, deckAt as surcoufDeckAt,
+  sheerAt as surcoufSheerAt, keelAt as surcoufKeelAt,
+  CASE_FWD_Z, CASE_AFT_Z,
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -10733,6 +10735,17 @@ check('no ship in the fleet has a hole in her shell', () => {
     ['Yamato', buildYamato, yamatoLines],
     ['Takao', buildTakao, takaoLines],
     ['Shinano', buildShinano, shinanoLines],
+    // And the Surcouf, whose lines are her own exports rather than a table on
+    // a module: a submarine's shell is the one in this fleet where a mistake
+    // shows worst, because there is no superstructure standing over it to hide
+    // anything and she is seen from alongside more than any other ship here.
+    ['Surcouf', buildSurcouf, {
+      loa: surcoufLOA,
+      sheer: surcoufSheerAt,
+      keelY: surcoufKeelAt,
+      shellAt: surcoufShellAt,
+      zAt: (t) => (t * surcoufLOA) / 2,
+    }],
   ]) {
     const built = build();
     built.group.updateMatrixWorld(true);
@@ -10745,8 +10758,14 @@ check('no ship in the fleet has a hole in her shell', () => {
     const holes = [];
     const reach = L.loa;
 
+    // How finely she is swept. The step used to be a flat one twenty-fifth of
+    // her length, which is two and a half metres of Yamato and one of a
+    // submarine -- so the smaller the ship the fewer points she was tried at,
+    // which is backwards: a small hull is not a coarser hull. It is a fixed
+    // distance along her now, so every ship is felt over at the same spacing.
+    const dt = 0.04 * Math.min(1, L.loa / 220);
     let sides = 0;
-    for (let t = -0.97; t <= 0.97; t += 0.04) {
+    for (let t = -0.97; t <= 0.97; t += dt) {
       const top = L.sheer(t);
       const keel = L.keelY(t);
       for (let y = keel + 1.2; y <= top - 0.4; y += Math.max(1.3, (top - keel) / 12)) {
@@ -10762,7 +10781,7 @@ check('no ship in the fleet has a hole in her shell', () => {
     assert.ok(sides > 300, `only ${sides} points of the ${id}'s plating were tried`);
 
     let decks = 0;
-    for (let t = -0.95; t <= 0.95; t += 0.04) {
+    for (let t = -0.95; t <= 0.95; t += dt) {
       const top = L.sheer(t);
       const half = L.shellAt(t, top);
       if (half < 0.6) continue;
@@ -10777,7 +10796,7 @@ check('no ship in the fleet has a hole in her shell', () => {
     assert.ok(decks > 100, `only ${decks} points of the ${id}'s deck were tried`);
 
     let bottoms = 0;
-    for (let t = -0.9; t <= 0.9; t += 0.05) {
+    for (let t = -0.9; t <= 0.9; t += dt * 1.25) {
       const k = L.keelY(t);
       if (k > -1.5) continue;
       bottoms++;
@@ -13367,6 +13386,139 @@ check('the FS Surcouf is in the yard after U-48, and she is a submarine', () => 
   assert.ok(built.aaMounts.length >= 2, 'she has no close-range battery');
   assert.ok(built.deckY > 0 && built.deckY < 4,
     `her casing is ${built.deckY.toFixed(1)} m above the water`);
+});
+
+check('the top of the Surcouf is closed, and her turret is bolted through it', () => {
+  // The casing is the part of her anybody ever sees. She floats with two
+  // metres of freeboard and eighty per cent of her under water, so the whole
+  // of what reads as "the ship" is a strip of deck the width of a lorry with a
+  // turret and a tower on it -- and a seam anywhere in that strip is a seam in
+  // the middle of the picture.
+  //
+  // So it is swept the way her shell is swept: dropped on from above at every
+  // station across the full width of the deck, fired at from abeam at three
+  // heights up the casing side, and looked at from underneath to catch a skirt
+  // that was never closed.
+  const built = buildSurcouf();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const up = new THREE.Vector3(0, 1, 0);
+  const inward = new THREE.Vector3(1, 0, 0);
+  const open = [];
+
+  // Dropped on from above, and the first thing the ray meets has to be at
+  // least as high as the casing. "Something stopped it" is not the question:
+  // her tower is eleven metres long and would answer for any hole cut in the
+  // deck underneath it. What is being asked is whether there is deck there.
+  let deck = 0;
+  for (let z = CASE_AFT_Z + 0.6; z <= CASE_FWD_Z - 0.6; z += 0.5) {
+    const hw = surcoufCasingHalf(z);
+    if (hw < 0.45) continue;
+    const want = surcoufCasingY(z) - 0.25;
+    for (const f of [0, 0.35, 0.7, 0.93, -0.35, -0.7, -0.93]) {
+      deck++;
+      ray.set(new THREE.Vector3(hw * f, 60, z), down);
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (!hit || hit.point.y < want) {
+        open.push(`deck z ${z.toFixed(1)} x ${(hw * f).toFixed(2)}`
+          + (hit ? ` fell through to ${hit.point.y.toFixed(2)}` : ' found nothing'));
+      }
+    }
+  }
+  assert.ok(deck > 800, `only ${deck} points of her casing were dropped on`);
+
+  let side = 0;
+  for (let z = CASE_AFT_Z + 0.6; z <= CASE_FWD_Z - 0.6; z += 0.5) {
+    const hw = surcoufCasingHalf(z);
+    if (hw < 0.45) continue;
+    const lo = surcoufDeckAt(z);
+    const hi = surcoufCasingY(z);
+    if (hi - lo < 0.12) continue;
+    for (const f of [0.25, 0.6, 0.85]) {
+      side++;
+      ray.set(new THREE.Vector3(-120, lo + (hi - lo) * f, z), inward);
+      if (!ray.intersectObjects(meshes, false).length) {
+        open.push(`side z ${z.toFixed(1)} up ${f}`);
+      }
+    }
+  }
+  assert.ok(side > 300, `only ${side} points of her casing side were tried`);
+
+  // And the casing sits down on the tanks with no daylight between the two.
+  // A ray fired up the line where the skirt meets the shell has to find the
+  // skirt before it finds anything else, or the casing is a table standing on
+  // her rather than a fairing built into her.
+  let under = 0;
+  for (let z = CASE_AFT_Z + 2; z <= CASE_FWD_Z - 2; z += 0.8) {
+    const hw = surcoufCasingHalf(z);
+    if (hw < 1.0) continue;
+    for (const sgn of [-1, 1]) {
+      under++;
+      const at = sgn * (hw - 0.02);
+      ray.set(new THREE.Vector3(at, surcoufDeckAt(z) - 3, z), up);
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (!hit || hit.point.y > surcoufCasingY(z) + 0.2) {
+        open.push(`skirt z ${z.toFixed(1)} side ${sgn}`);
+      }
+    }
+  }
+  assert.ok(under > 60, `only ${under} points under her casing were tried`);
+
+  assert.equal(open.length, 0,
+    `daylight through the top of her in ${open.length} places: ${open.slice(0, 6).join(', ')}`);
+
+  // And the casing fairs away at both ends rather than stopping in a blade.
+  // It used to stand a foot and a half proud right out to its last station,
+  // where it is an inch wide -- a fin on edge in the air.
+  assert.ok(surcoufCasingY(0) - surcoufDeckAt(0) > 0.35,
+    'her casing is flat on the tanks amidships');
+  assert.ok(surcoufCasingY(CASE_FWD_Z - 0.4) - surcoufDeckAt(CASE_FWD_Z - 0.4) < 0.08,
+    'her casing still stops dead at the forward end instead of running out');
+  assert.ok(surcoufCasingY(CASE_AFT_Z + 0.4) - surcoufDeckAt(CASE_AFT_Z + 0.4) < 0.08,
+    'her casing still stops dead at the after end instead of running out');
+
+  // The turret is bolted through the top of her, and the parts of it that do
+  // not train do not train.
+  //
+  // A barbette is fixed structure: it is the hole in the ship the mounting sits
+  // in. Built inside the mounting's own group -- which is what it was -- the
+  // whole ring of holding-down clips goes round with the guns, and the turret
+  // stands on a drum that spins with it.
+  const spec = SHIP_CLASSES.surcouf.turrets[0];
+  const turret = built.turrets[0];
+  const deckY = surcoufCasingY(spec.z);
+  const swept = new THREE.Box3();
+  turret.updateMatrixWorld(true);
+  turret.traverse((o) => {
+    if (o.isMesh && o.geometry) swept.union(new THREE.Box3().setFromObject(o));
+  });
+  assert.ok(swept.min.y > deckY,
+    `part of what trains with her guns is at ${swept.min.y.toFixed(2)} m, below her `
+    + `casing at ${deckY.toFixed(2)} -- a barbette does not train`);
+
+  // And there is no daylight round the foot of it: a ring of rays fired
+  // horizontally at the turret's own height, all round her, must all stop on
+  // something. This is the gap you could see under the gunhouse.
+  let feet = 0;
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    for (const h of [0.10, 0.30, 0.55, 0.80]) {
+      feet++;
+      const from = new THREE.Vector3(Math.sin(a) * 40, deckY + h, spec.z + Math.cos(a) * 40);
+      const dir = new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a));
+      ray.set(from, dir);
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (!hit || 40 - hit.distance < 1.2) {
+        open.push(`foot ${(a * 180 / Math.PI).toFixed(0)}\u00b0 at ${h}`);
+      }
+    }
+  }
+  assert.ok(feet > 150, 'the foot of her turret was barely tried');
+  assert.equal(open.length, 0,
+    `daylight under her turret in ${open.length} places: ${open.slice(0, 6).join(', ')}`);
 });
 
 check('the Surcouf fights with the battery she actually carried', () => {

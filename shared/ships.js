@@ -796,7 +796,7 @@ export const SHIP_CLASSES = {
       // photograph puts her: the barbette's after edge and the tower's forward
       // face are a yard apart, because a turret let into the pressure hull has
       // to be over the one part of her that is deep enough to take it.
-      { id: 0, name: 'Tourelle I', x: 0, z: 8.0, angle: 0, arc: 1.5708, guns: 2, my: 4.30 },
+      { id: 0, name: 'Tourelle I', x: 0, z: 8.0, angle: 0, arc: 1.5708, guns: 2, my: 4.50 },
     ],
     gun: {
       name: '203 mm/50 Mle 1924', role: 'surface',
