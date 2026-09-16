@@ -875,12 +875,12 @@ export const SHIP_CLASSES = {
       guns: [
         { name: '37 mm CA Mle 1925', caliber: 37, role: 'aa', reload: 0.9, range: 3000,
           mounts: [
-            { x: 0, z: -14.6, angle: Math.PI, arc: 2.00, guns: 2, my: 8.15 },
+            { x: 0, z: -14.6, angle: Math.PI, arc: 2.00, guns: 2, my: 8.23 },
           ] },
         { name: '13.2 mm Hotchkiss Mle 1929', caliber: 13, role: 'aa', reload: 0.2, range: 1500,
           mounts: [
-            { x: -2.15, z: -6.20, angle: -1.5708, arc: 1.75, guns: 2, my: 7.92 },
-            { x: 2.15, z: -6.20, angle: 1.5708, arc: 1.75, guns: 2, my: 7.92 },
+            { x: -2.15, z: -6.20, angle: -1.5708, arc: 1.75, guns: 2, my: 7.44 },
+            { x: 2.15, z: -6.20, angle: 1.5708, arc: 1.75, guns: 2, my: 7.44 },
           ] },
       ],
     },

@@ -226,7 +226,7 @@ import {
   shellAt as surcoufShellAt, casingY as surcoufCasingY,
   casingHalf as surcoufCasingHalf, deckAt as surcoufDeckAt,
   sheerAt as surcoufSheerAt, keelAt as surcoufKeelAt,
-  CASE_FWD_Z, CASE_AFT_Z,
+  CASE_FWD_Z, CASE_AFT_Z, hangarTopY as surcoufHangarTopY,
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
@@ -13597,6 +13597,83 @@ check('the Surcouf fights with the battery she actually carried', () => {
     assert.ok(AERO[k].vMax > AERO.besson.vMax,
       `the ${k} is slower than a Besson MB.411, which cannot be right`);
   }
+});
+
+check('her hangar sits down on her casing, and her tubs do not train', () => {
+  // Two faults with the same shape, and both of them were on her.
+  //
+  // The hangar was a cylinder laid on a flat deck. A cylinder touches a plane
+  // along one line, so there was a hand's breadth of daylight running the whole
+  // nine metres of it, either side of that line -- you could see the sea under
+  // the middle of the boat. A hangar is a D in section for exactly this reason:
+  // a round crown on straight sides that go down on to the deck.
+  //
+  // And the machine-gun tubs were built inside the mountings' own groups, so
+  // the bandstand swung round with the barrels like a skirt. The same mistake
+  // as a barbette that trains: structure put inside the thing that moves.
+  const built = buildSurcouf();
+  built.group.updateMatrixWorld(true);
+  const rc = new THREE.Raycaster();
+  rc.far = 40;
+
+  // Sweep athwartships just above the casing, through the whole length of the
+  // hangar. Every ray has to be stopped by something.
+  const through = [];
+  for (let z = -18.2; z <= -7.4; z += 0.25) {
+    for (const dy of [0.05, 0.12, 0.25, 0.5, 0.9]) {
+      const y = surcoufCasingY(z) + dy;
+      rc.set(new THREE.Vector3(9, y, z), new THREE.Vector3(-1, 0, 0));
+      if (rc.intersectObject(built.group, true).length === 0) {
+        through.push(`z ${z.toFixed(1)} at ${dy.toFixed(2)} m above the deck`);
+      }
+    }
+  }
+  assert.equal(through.length, 0,
+    `daylight under her hangar in ${through.length} places: ${through.slice(0, 5).join(', ')}`);
+
+  // And the crown of it is where the 37 mm says it is, so the bandstand and
+  // the gun on it agree about which height they are at.
+  const topY = surcoufHangarTopY();
+  // Dropped from just above the crown rather than from the sky, so the aerials
+  // and the derrick overhead cannot answer for it.
+  rc.far = 2.0;
+  rc.set(new THREE.Vector3(0, topY + 1.2, -16.9), new THREE.Vector3(0, -1, 0));
+  const crown = rc.intersectObject(built.group, true)[0];
+  rc.far = 40;
+  assert.ok(crown && Math.abs(crown.point.y - topY) < 0.12,
+    `the crown of her hangar draws at ${crown ? crown.point.y.toFixed(2) : 'nothing'} `
+    + `but the guns are stood on ${topY.toFixed(2)}`);
+
+  // Nothing structural inside a mounting that trains. The test is the swept
+  // volume: turn each mount right round and nothing may reach further from its
+  // own axis than its own barrels do.
+  const mounts = [];
+  for (const gun of SHIP_CLASSES.surcouf.aa.guns) {
+    for (const m of gun.mounts) mounts.push(m);
+  }
+  built.aaMounts.forEach((node, i) => {
+    const m = mounts[i];
+    let reach = 0;
+    for (const mz of node.userData.muzzles || []) {
+      reach = Math.max(reach, Math.hypot(mz.x, mz.z));
+    }
+    const swept = new THREE.Box3();
+    for (let a = 0; a < Math.PI * 2; a += 0.25) {
+      node.rotation.y = a;
+      node.updateMatrixWorld(true);
+      swept.union(new THREE.Box3().setFromObject(node));
+    }
+    node.rotation.y = 0;
+    node.updateMatrixWorld(true);
+    const out = Math.max(swept.max.x - m.x, m.x - swept.min.x,
+      swept.max.z - m.z, m.z - swept.min.z);
+    assert.ok(out < reach + 0.55,
+      `mount ${i} sweeps ${out.toFixed(2)} m round itself but its barrels only `
+      + `reach ${reach.toFixed(2)} -- its tub is turning with the gun`);
+    // And it stands on its platform rather than on the rim of it.
+    assert.ok(swept.min.y > (m.z < -10 ? surcoufHangarTopY() : 0) - 0.01,
+      `mount ${i} hangs below what it is standing on`);
+  });
 });
 
 check('the Surcouf is built the way her drawings have her', () => {
