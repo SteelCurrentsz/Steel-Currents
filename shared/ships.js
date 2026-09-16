@@ -715,6 +715,167 @@ export const SHIP_CLASSES = {
     },
   },
 
+  surcouf: {
+    // FS Surcouf: the croiseur sous-marin, and the largest submarine in the
+    // world from 1934 until the Japanese built the I-400s.
+    //
+    // She is here because she is the other answer to the question the U-48
+    // answers. A Type VII is a torpedo boat that can hide; the Surcouf was an
+    // attempt at a commerce raider that can hide -- three thousand tonnes, a
+    // pressure-tight twin turret of eight-inch guns forward of the tower, a
+    // hangar abaft it with a floatplane in it, and a cargo hold for the crews
+    // of the ships she was to sink.
+    //
+    // It did not work, and the reasons are all in the numbers below. The
+    // turret takes better than two minutes to bring into action from periscope
+    // depth and its rangefinder is five metres off the water, so her guns
+    // outrange her own ability to see; she takes a long time to dive and turns
+    // like a barn; and three thousand tonnes of submarine has the same
+    // eighteen millimetres between her crew and the sea that seven hundred
+    // tonnes has. She was lost with all hands in 1942, rammed in the dark.
+    //
+    // What she is worth in a battle: one submarine that can shoot at something
+    // bigger than a trawler, and the only one in the game that flies an
+    // aeroplane.
+    id: 'surcouf',
+    name: 'Surcouf',
+    fullName: 'FS Surcouf',
+    className: 'Surcouf',
+    type: 'SS',
+    typeName: 'Submarine',
+    nation: 'fra',
+    blurb: 'The cruiser-submarine: two 8-inch guns in a pressure-tight turret, a floatplane in a hangar abaft the tower, and three thousand tonnes of her.',
+    hull: { length: 110.0, beam: 9.0, draft: 7.25, superstructure: 1.5 },
+    // Four times the U-48's displacement and no better protected anywhere: a
+    // bigger boat is a bigger target and not a tougher one.
+    hp: 14800,
+    maxSpeed: 18.5 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.38,
+    // A hundred and ten metres of submarine on one rudder. She was notorious
+    // for it, and it is what killed her: she could not get out of the way.
+    turnRate: 0.062,
+    rudderShift: 5.2,
+    speedLossInTurn: 0.22,
+    // Bigger than a Type VII and a good deal easier to see, on the surface and
+    // under it: there is more of her to find and the turret stands up.
+    concealment: 4400,
+    fireDetectPenalty: 5200,
+    radarRange: 0,
+    repairCooldown: 104,
+    repairHeal: 0.06,
+    smokeCharges: 0,
+    armor: { belt: 18, deck: 6, citadel: 18, bow: 6, superstructure: 10 },
+    // The dive. Slower down than a Type VII and slower up: two minutes to get
+    // under was the figure that got her a reputation, and it is the one thing
+    // about her a captain has to plan around.
+    dive: {
+      periscope: 11, max: 78,
+      rate: 1.5, blow: 2.4,
+      oxygen: 900, recharge: 110,
+      speed: 8.5 * KNOTS,
+      concealment: 1700,
+    },
+    // The turret: two 20.3 cm M1924 in a pressure-tight mounting forward of
+    // the tower, with its own rangefinder on the roof.
+    //
+    // It is the whole point of her and it is a compromise everywhere. The
+    // guns are real eight-inch guns and they hit like a heavy cruiser's; the
+    // mounting trains slowly because it has to be watertight, the rangefinder
+    // is five metres up so she cannot see as far as she can shoot, and like
+    // every gun on a submarine it is outside the pressure hull and cannot be
+    // fought with the boat under.
+    turrets: [
+      { id: 0, name: 'Turret I', x: 0, z: 16.0, angle: 0, arc: 2.62, guns: 2, my: 5.60 },
+    ],
+    gun: {
+      name: '20.3 cm M1924', role: 'surface',
+      reach: 9.5,
+      caliber: 203, reload: 14.0, traverse: 0.16, range: 21000, sigma: 1.55,
+      shells: shells(203, 2870, 820, 118, 3100, 0.035),
+    },
+    // Eight 55 cm tubes in two trainable trainable mounts in the casing, and
+    // four 40 cm for the shorter-ranged fish. Simplified here to what they do:
+    // a heavy bow salvo and a lighter one that trains.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.2 },
+        { id: 1, x: 0, z: -14.0, angle: 0, arc: 1.75, tubes: 4, my: -1.2 },
+      ],
+      name: '550 mm 1924V', role: 'surface', caliber: 550,
+      reach: 0.6,
+      inHull: true,
+      traverse: 0.10,
+      reload: 104, damage: 15800, speed: 39 * KNOTS, range: 3000,
+      detection: 900, arming: 300, spread: 0.04, floodChance: 0.40,
+    },
+    secondary: null,
+    // Two 37 mm on the after end of the tower, and a pair of machine guns.
+    //
+    // Where they stand is what decides where she can fight. The 37 mm is on
+    // the platform abaft the bridge, looking aft and out over both beams, and
+    // the hangar cylinder and the crane behind it -- and eight inches of
+    // turret in front -- shut it off over the bow. The machine guns are on the
+    // forward end of the bridge, where they look over the turret and nowhere
+    // else. So an aeroplane coming in over the bow is met by the Hotchkiss and
+    // one on the beam by the 37 mm, and never by all four barrels at once,
+    // which is the ordinary condition of a submarine: she has one small island
+    // in the middle of a very long hull and everything is mounted on it.
+    aa: {
+      range: 3000, dps: 16,
+      guns: [
+        { name: '37 mm CA Mle 1925', caliber: 37, role: 'aa', reload: 0.9, range: 3000,
+          mounts: [
+            { x: 0, z: -9.5, angle: Math.PI, arc: 2.10, guns: 2, my: 6.10 },
+          ] },
+        { name: '13.2 mm Hotchkiss', caliber: 13, role: 'aa', reload: 0.2, range: 1500,
+          mounts: [
+            { x: 0, z: 2.40, angle: 0, arc: 1.40, guns: 2, my: 6.85 },
+          ] },
+      ],
+    },
+    // The hangar, and the Besson MB.411 in it.
+    //
+    // One aeroplane, and she is a pair of eyes rather than a weapon: the whole
+    // reason a commerce raider carried one is that the sea is very large and a
+    // periscope is a metre above it. She is craned out and craned back, which
+    // means the boat is on the surface and helpless for as long as it takes --
+    // so flying her off is a decision, not a free look.
+    planes: {
+      squadrons: 1,
+      perSquadron: 1,
+      roles: ['scout'],
+      // The Besson MB.411 she actually carried was a parasol float monoplane
+      // built for exactly this job and for no other; nine were made and two of
+      // them were hers. There is no model of one, so she flies the kit's float
+      // scout -- the same class of aeroplane doing the same work off the same
+      // crane, and wrong only in her markings.
+      type: 'arado',
+      launchTime: 26,
+      cooldown: 190,
+      strikeRange: 11000,
+      cruiseSpeed: 52,
+      // She carries nothing. There were two 75 kg bombs in the drawings and
+      // there is no record of her ever having flown with them.
+      bombDamage: 0,
+      bombHit: 0,
+      torpDamage: 0,
+      strafeDamage: 70,
+      fighterGuns: 18,
+      hp: 190,
+    },
+    datasheet: {
+      displacement: 3250,
+      aircraft: 1,
+      mainRounds: 600,
+      torpedoesCarried: 22,
+      tertiary: [
+        { caliber: 37, label: '37mm', barrels: 2, rounds: 2000 },
+        { caliber: 13, label: '13.2mm', barrels: 2, rounds: 6000 },
+      ],
+    },
+  },
+
   iowa: {
     // Three 16"/50 triples. A turret this size is blast-limited as much as it is
     // structurally limited, so the heaviest guns on the list have the least of
@@ -1463,7 +1624,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'u48',
-  'iowa', 'yamato', 'enterprise', 'shinano'];
+  'surcouf', 'iowa', 'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

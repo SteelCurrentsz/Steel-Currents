@@ -9,6 +9,9 @@ import {
 import { getClass } from './ships.js';
 import { BOMBERS } from './bombers.js';
 import {
+  airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
+} from './aero.js';
+import {
   freshAirframe, hitAirframe, stepAirframe, airframeState, flightState,
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
@@ -3341,7 +3344,7 @@ function stepLaunch(state, ship, dt) {
       lead: L.lead, slot: L.slot++,
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
-      targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0,
+      targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0, bank: 0, roll: 0,
     };
     if (!L.lead) L.lead = p.id;
     state.planes.push(p);
@@ -3477,8 +3480,21 @@ function formationGoal(state, p, carrier) {
     // ninety metres a second, so the point she is chasing is going round it a
     // shade slower than she is and she can sit on it instead of cutting the
     // corner every lap.
-    const R = 1500;
-    const a = p.life * 0.06;
+    // Flown at a radius she can actually hold, worked out of her own wing.
+    //
+    // It used to be a fixed fifteen hundred metres at a fixed six hundredths
+    // of a radian a second, and the comment said the point went round it a
+    // shade slower than she flies. It does not: that is ninety metres a second
+    // and she cruises at seventy-eight, so the point she was chasing outran
+    // her for the whole form-up and she never once got onto it. The circle is
+    // hers now -- her speed over the rate her wing will give her, opened out
+    // to twice that so she is turning gently rather than hanging on the edge
+    // of a sustained turn for two minutes.
+    const frm = airframeOf(p.type, p.role);
+    const v = Math.max(30, p.speed || frm.vMax * 0.7);
+    const rate = Math.max(0.02, turnFor(v, sustainBank(frm, v)));
+    const R = clamp((2 * v) / rate, 400, 2200);
+    const a = p.life * (v / R);
     return { x: carrier.x + Math.sin(a) * R, z: carrier.z + Math.cos(a) * R };
   }
   const lead = state.planes.find((q) => q.id === p.lead && !q.dead);
@@ -3527,9 +3543,6 @@ function formationGoal(state, p, carrier) {
  * action, it is an escort.
  */
 const FIGHTER_GUNS = 85;
-
-const TURN_RATE = { fighter: 0.28, dive: 0.22, scout: 0.22, torpedo: 0.17 };
-const ROLL_RATE = 0.5;
 
 /** Gravity, which everything in the air is subject to. */
 const G = 9.80665;
@@ -4272,10 +4285,60 @@ function stepPlanes(state, dt) {
       // at the rate of the machine with the shot-up wing, because otherwise it
       // is not a formation.
       const wear = p.wear || { speed: 1, turn: 1, aim: 1 };
-      const rate = (TURN_RATE[p.role] ?? 0.22) * wear.turn;
-      const asked = clamp(angleDelta(p.heading, want) * 1.5, -rate, rate);
-      const was = p.turn ?? 0;
-      p.turn = was + clamp(asked - was, -ROLL_RATE * dt, ROLL_RATE * dt);
+      // She banks, and the turn falls out of the bank.
+      //
+      // This used to be a flat rate per role -- a fighter came round at
+      // sixteen degrees a second and a torpedo bomber at ten, the same at a
+      // hundred knots as at three hundred, the same empty as with a fish slung
+      // under her, and the same in thin air at five thousand feet as on the
+      // deck. The aeroplane under the player's hands was flown on a wing the
+      // whole time; every other aeroplane in the battle was flown on a number
+      // somebody had chosen.
+      //
+      // It is the same wing now. The bank she can hold is what her spar and
+      // her wing will give at the speed she is doing, she rolls into it at her
+      // own helix rate with her own roll mode damping her, and the rate she
+      // comes round at is g tan(phi) over v -- which is the coordinated turn
+      // the cockpit flies and the turn the client already draws her banked for.
+      const frm = airframeOf(p.type, p.role);
+      // The speed her wing is working at, which is not the speed she is
+      // crossing the ground at: `p.speed` is over the ground and the vertical
+      // is the other side of the triangle. A dive bomber going down at fifty
+      // degrees is doing half as much again through the air as across it, and
+      // a turn rate goes as one over that -- which is exactly why she cannot
+      // be hauled about in a dive and can be at cruise.
+      const tas = Math.max(18, Math.hypot(p.speed || frm.vMax * 0.7, p.vy || 0));
+      // A shot-about wing will not be hauled round as far.
+      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1);
+      // What she asks for is a rate, and the bank is what it takes to get it.
+      //
+      // This is the right way round and the other way round does not work. A
+      // turn rate goes as the tangent of the bank, so a gain written straight
+      // into the bank is a gain of about a twelfth in the rate at cruise: a
+      // flight a few degrees off her station corrected five times slower than
+      // she used to and the whole strike came apart on passage. A pilot does
+      // not think in bank angles -- he thinks "come round onto that" and puts
+      // on whatever bank it takes, and stops when the wing runs out.
+      // Proportional to how far off she is, less a term for how fast she is
+      // already coming round. Without that second term she overshoots and
+      // hunts: the wing will now give her a good deal more rate than the flat
+      // number this was written against ever did, so a gain tuned for the old
+      // cap swung the whole strike from one side of its station to the other
+      // and strung it out over two miles on passage.
+      const err = angleDelta(p.heading, want);
+      const wantTurn = err * 1.5 - (p.turn ?? 0) * 0.55;
+      const askBank = clamp(Math.atan((wantTurn * tas) / G), -most, most);
+      // Rolling in and out of it, the same way the cockpit does: the aileron
+      // asks for a rate of roll, the roll mode damps her into it, and the bank
+      // is the integral of that. One lag, not two -- rate-limiting the bank and
+      // then putting an exponential on top of it is two poles in series behind
+      // a proportional controller, which is how you build an oscillator.
+      const mostRoll = rollRate(frm, tas);
+      const wantRoll = clamp((askBank - (p.bank ?? 0)) * 3, -mostRoll, mostRoll);
+      const kr = 1 - Math.exp(-dt / rollTau(frm, tas));
+      p.roll = (p.roll ?? 0) + (wantRoll - (p.roll ?? 0)) * kr;
+      p.bank = clamp((p.bank ?? 0) + p.roll * dt, -1.5, 1.5);
+      p.turn = turnFor(tas, p.bank);
       p.heading = wrapAngle(p.heading + p.turn * dt);
       // Joining up is done on the throttle. A flight astern of her station
       // cannot ever catch her leader at the same cruise, so she opens up a
@@ -4795,7 +4858,6 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     name: b.name,
     x, y: bombAlt(b), z,
     heading,
-    turn: 0,
     // Her cruising speed, off her own datasheet. Miles an hour is how a bomber
     // was quoted and metres a second is how the world is measured.
     speed: b.cruise * 0.44704,
@@ -4818,6 +4880,10 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     // Set while somebody is flying her by hand; see flyBomber.
     flown: false, flownAt: 0, pilot: 0,
     phase: 'inbound',
+    // How far over she is, and how fast she is coming round for it. A heavy
+    // banks a long way less than a fighter and comes round a long way slower
+    // for it; see stepBombers, where both fall out of her own wing.
+    bank: 0, roll: 0, turn: 0,
     // Her orders. The staff writes these and nothing else reads them: they are
     // never put in a snapshot, because a plan the enemy can read is not a plan.
     aimX: 0, aimZ: 0, targetId: 0, hold: 0,
@@ -5386,12 +5452,31 @@ function stepBombers(state, dt) {
       if (Math.abs(bm.x) > edge || Math.abs(bm.z) > edge) { bm.alive = false; continue; }
     }
 
-    // Her turn, at the rate a loaded heavy can hold one: about six degrees a
-    // second, which is why a formation takes a mile and a half to come round.
-    const RATE = bm.phase === 'run' ? 0.02 : 0.11;
-    const delta = clamp(angleDelta(bm.heading, want), -RATE * dt * 6, RATE * dt * 6);
-    bm.heading = wrapAngle(bm.heading + delta);
-    bm.turn = clamp(delta / Math.max(1e-6, dt) * 2.4, -1, 1);
+    // Her turn, flown on her own wing rather than at a number.
+    //
+    // A thirty-tonne bomber with fourteen thousand pounds in the bay banks a
+    // long way less than a fighter does and comes round a long way slower for
+    // it, and that falls out of her span, her wing area and the four g her
+    // spar was stressed to -- the same two lines the fighters turn on and the
+    // same two the cockpit flies. On the run she is not turning at all: a
+    // bombing run that jinks is a bombing run wasted.
+    const air = HEAVY_AERO[bm.bomberId] || HEAVY_AERO.lancaster;
+    const tas = Math.max(40, bm.speed || air.vMax * 0.75);
+    const most = bm.phase === 'run' ? 0.03
+      : sustainBank(air, tas) * clamp((bm.wear && bm.wear.turn) ?? 1, 0.2, 1);
+    const wantTurn = angleDelta(bm.heading, want) * 0.8 - (bm.turn ?? 0) * 0.55;
+    const askBank = clamp(Math.atan((wantTurn * tas) / G), -most, most);
+    // Rolled the same way a fighter is and the same way the cockpit does: the
+    // aileron asks for a rate, the roll mode damps her into it, and the bank is
+    // what that integrates to.
+    const mostRoll = rollRate(air, tas);
+    const wantRoll = clamp((askBank - (bm.bank ?? 0)) * 3, -mostRoll, mostRoll);
+    const kr = 1 - Math.exp(-dt / rollTau(air, tas));
+    bm.roll = (bm.roll ?? 0) + (wantRoll - (bm.roll ?? 0)) * kr;
+    bm.bank = clamp((bm.bank ?? 0) + bm.roll * dt, -0.9, 0.9);
+    const rate = turnFor(tas, bm.bank);
+    bm.heading = wrapAngle(bm.heading + rate * dt);
+    bm.turn = clamp(rate, -1, 1);
     bm.x += Math.sin(bm.heading) * bm.speed * dt;
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
 

@@ -13,6 +13,7 @@ import { buildIowa } from './iowa.js';
 import { buildYamato } from './yamato.js';
 import { buildTakao } from './takao.js';
 import { buildUboat } from './uboat.js';
+import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
@@ -526,6 +527,23 @@ export function buildShip(classId) {
   // watertight, a tower instead of a bridge, and five tubes that do not train.
   if (cls.id === 'u48') {
     const built = buildUboat();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      tubeCaps: built.tubeCaps,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+      tubeCaps: built.tubeCaps,
+    };
+  }
+
+  // And the Surcouf: the same two hulls the U-48 has, with a cruiser's turret
+  // standing on the casing forward of the tower and a hangar abaft it.
+  if (cls.id === 'surcouf') {
+    const built = buildSurcouf();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
       tubeCaps: built.tubeCaps,

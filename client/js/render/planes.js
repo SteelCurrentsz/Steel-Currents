@@ -377,6 +377,29 @@ function mergeGroups(parts) {
 export class HoleField {
   constructor(scene, max = HOLE_MAX) {
     this.max = max;
+    // Where each hole actually sits on each aeroplane, worked out once.
+    //
+    // The part boxes the simulation records a hole in are boxes: a wing runs
+    // from wingtip to wingtip and a fuselage is a tube, and a point taken
+    // inside one of those is very often not on the aeroplane at all. A hole
+    // three quarters of the way out a Wildcat's wing sat where the wing is,
+    // and the same number on a Lancaster sat in clear air two metres outboard
+    // of hers; a hole in the tail box sat behind the rudder. They floated.
+    //
+    // So the box says roughly where, and the model itself says exactly where:
+    // a ray is cast in at the point from outside her, and the hole is put on
+    // the first piece of aeroplane it finds and laid in that surface. A ray
+    // that finds nothing is a hole in fresh air and is not drawn.
+    //
+    // Cached, because a hole does not move about on the aeroplane it is in and
+    // the numbers come off the wire as fixed integers.
+    this.snapped = new Map();
+    this.probe = new THREE.Raycaster();
+    this.probeMesh = new Map();
+    this.from = new THREE.Vector3();
+    this.dir = new THREE.Vector3();
+    this.up = new THREE.Vector3(0, 0, 1);
+    this.q = new THREE.Quaternion();
     const mats = [
       // The inside of her: not black, because nothing is, but dark enough that
       // the eye reads it as a way through.
@@ -411,32 +434,86 @@ export class HoleField {
    * out on the wing of whatever she happens to be -- one normalised box does
    * for an eleven-metre fighter and a thirty-one-metre bomber.
    */
-  on(body, holes, span, turn = 0) {
+  /**
+   * Where a hole really is on this model, and which way that piece of her
+   * faces. Null when the ray finds no aeroplane there.
+   */
+  snap(key, geo, h, span) {
+    if (!geo) return null;
+    const id = `${key}|${h.k}|${h.x}|${h.y}|${h.z}`;
+    if (this.snapped.has(id)) return this.snapped.get(id);
+    let probe = this.probeMesh.get(geo);
+    if (!probe) {
+      // Never added to the scene and never drawn: it exists to be cast at.
+      probe = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+      probe.updateMatrixWorld(true);
+      this.probeMesh.set(geo, probe);
+    }
+    const len = span * 0.72;
+    const px = h.x * span * 0.5;
+    const py = h.y * span * 0.30;
+    const pz = h.z * len * 0.5;
+    // In at her from outside. A wing and a tailplane are found from above or
+    // below, a fuselage from the side -- which is also the direction the round
+    // came from, so the hole ends up on the side it went in.
+    const flat = h.k === 'wings' || h.k === 'tail';
+    const reach = span * 1.2;
+    if (flat) this.dir.set(0, py >= 0 ? -1 : 1, 0);
+    else this.dir.set(px >= 0 ? -1 : 1, 0, 0);
+    this.probe.far = reach * 2.4;
+    // The point itself first, and then round about it.
+    //
+    // A part box is a box: the wing box runs the whole span and a good deal of
+    // the length, and most of a box is not aeroplane -- a ray straight down at
+    // a point taken in one found nothing about four times in five, so four
+    // holes in five were thrown away and a machine that had been shot to
+    // pieces came out of the flak with two marks on her. Searching out from
+    // the intended point instead puts the hole on the nearest piece of her
+    // there actually is, which is what the box was always trying to say.
+    // Out to about a quarter of her span and no further. Past that the nearest
+    // piece of aeroplane is not the piece the round went through, and a hole
+    // half a span from where it belongs is worse than no hole at all.
+    const RINGS = [0, 0.05, 0.11, 0.18, 0.26];
+    for (const ring of RINGS) {
+      const tries = ring === 0 ? 1 : 8;
+      for (let t = 0; t < tries; t++) {
+        const a = (t / Math.max(1, tries)) * Math.PI * 2;
+        const ox = ring * span * Math.cos(a);
+        const oz = ring * span * Math.sin(a);
+        // Offset across the two axes the ray is not travelling along.
+        if (flat) this.from.set(px + ox, py >= 0 ? reach : -reach, pz + oz);
+        else this.from.set(px >= 0 ? reach : -reach, py + ox * 0.5, pz + oz);
+        this.probe.set(this.from, this.dir);
+        const hit = this.probe.intersectObject(probe, false)[0];
+        if (hit && hit.face) {
+          const out = { p: hit.point.clone(), n: hit.face.normal.clone() };
+          this.snapped.set(id, out);
+          return out;
+        }
+      }
+    }
+    this.snapped.set(id, null);
+    return null;
+  }
+
+  on(body, holes, span, turn = 0, geo = null, key = '') {
     if (!holes || !holes.length) return;
     const d = this.dummy;
-    const len = span * 0.72;
     for (let i = 0; i < holes.length; i++) {
       if (this.n >= this.max) return;
       const h = holes[(i + turn) % holes.length];
-      // y is a small fraction of span, because an aeroplane is a good deal
-      // thinner than she is wide.
-      const hx = h.x * span * 0.5;
-      const hy = h.y * span * 0.30;
-      const hz = h.z * len * 0.5;
-      // Which way the hole faces. A wing and a tailplane are horizontal
-      // surfaces and their holes lie flat in them; a fuselage is a vertical one
-      // and its holes face out sideways. Getting this wrong puts a disc edge-on
-      // to the eye and it disappears.
-      const flat = h.k === 'wings' || h.k === 'tail';
-      d.position.set(hx, hy, hz);
-      if (flat) {
-        d.rotation.set(-Math.PI / 2, 0, 0);
-        // Proud of the skin, on whichever side of it the round came out.
-        d.position.y += hy >= 0 ? 0.06 : -0.06;
-      } else {
-        d.rotation.set(0, hx >= 0 ? Math.PI / 2 : -Math.PI / 2, 0);
-        d.position.x += hx >= 0 ? 0.06 : -0.06;
-      }
+      const at = this.snap(key, geo, h, span);
+      // No aeroplane there. A hole in fresh air is worse than no hole.
+      if (!at) continue;
+      d.position.copy(at.p);
+      // Laid in the skin rather than squared to her axes: a hole in a wing
+      // that has dihedral lies at the dihedral, and one in the round of her
+      // fuselage lies on the round. The disc is built facing +z, so this is
+      // the rotation that takes +z to the surface normal.
+      this.q.setFromUnitVectors(this.up, at.n);
+      d.quaternion.copy(this.q);
+      // And a whisker proud of it, or it fights with the skin it is in.
+      d.position.addScaledVector(at.n, 0.03);
       d.scale.setScalar(Math.max(0.12, h.r));
       d.updateMatrix();
       this.m.copy(d.matrix).premultiply(body);
@@ -555,8 +632,8 @@ export class Flights {
   }
 
   /** Put one aeroplane's holes on her; see HoleField. */
-  holesOn(body, holes, span, turn = 0) {
-    this.holes.on(body, holes, span, turn);
+  holesOn(body, holes, span, turn = 0, b = null, key = '') {
+    this.holes.on(body, holes, span, turn, b && b.mesh.geometry, key);
   }
 
   /**
@@ -565,7 +642,8 @@ export class Flights {
    */
   add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null,
     holes = null, span = 12) {
-    const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
+    const key = type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger');
+    const b = this.batches[key];
     if (!b) return;
     const d = this.dummy;
     const sn = Math.sin(heading);
@@ -591,7 +669,7 @@ export class Flights {
       this.trimParts(b, d.matrix, trim);
       // And what has been shot through her. The list is turned one place for
       // each machine, so the wingman is not the leader's holes drawn twice.
-      this.holesOn(d.matrix, holes, span, i);
+      this.holesOn(d.matrix, holes, span, i, b, key);
     }
   }
 
@@ -604,7 +682,8 @@ export class Flights {
    */
   one(role, x, y, z, heading, bank, pitch, roll = 0, type = null, trim = null,
     holes = null, span = 12) {
-    const b = this.batches[type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger')];
+    const key = type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger');
+    const b = this.batches[key];
     if (!b || b.n >= this.max) return;
     const d = this.dummy;
     d.position.set(x, y, z);
@@ -613,7 +692,7 @@ export class Flights {
     d.updateMatrix();
     b.mesh.setMatrixAt(b.n++, d.matrix);
     this.trimParts(b, d.matrix, trim);
-    this.holesOn(d.matrix, holes, span, 0);
+    this.holesOn(d.matrix, holes, span, 0, b, key);
   }
 
   /**

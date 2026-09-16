@@ -135,7 +135,7 @@ export class Heavies {
       // thirty metres across and flies straight and level through everything
       // the fleet can put up, so she is the aeroplane in this battle that ends
       // a sortie looking most like a colander.
-      this.holes.on(d.matrix, holes, span, i);
+      this.holes.on(d.matrix, holes, span, i, b.mesh.geometry, kind);
       // Her airscrews, turning about their own shafts wherever the engine
       // mounted them, and then carried round by whatever the aeroplane herself
       // is doing. Each machine of the formation gets her own, so all four
