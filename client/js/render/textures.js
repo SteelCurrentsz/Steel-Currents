@@ -314,6 +314,8 @@ const PLANKED = new Set([
   0x9a9179,   // Shinano        flight deck
   0x7d7461,   // Shinano        the darker planks in the lift platforms
   0x4c4d48,   // U-48           the wooden grating on her casing
+  0x8b8272,   // Surcouf        the planked casing deck, salt-bleached
+  0x736b5d,   // Surcouf        her king plank and the gratings in it
 ]);
 
 /**

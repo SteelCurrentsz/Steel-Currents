@@ -39,6 +39,7 @@ const STRIKE_RUN = DECK_RUN * 3 + 1;
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { Hud, arsenal, readTarget } from '../client/js/hud.js';
+import { armsSheet } from '../client/js/shipyard.js';
 import { MARK_KIND, ROOMS } from '../client/js/render/damageboard.js';
 import { Flames } from '../client/js/render/flames.js';
 import {
@@ -220,7 +221,11 @@ import * as THREE from '../vendor/three.module.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { unpackHoles, HoleField } from '../client/js/render/planes.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
-import { buildSurcouf } from '../client/js/render/surcouf.js';
+import {
+  buildSurcouf,
+  shellAt as surcoufShellAt, casingY as surcoufCasingY,
+  casingHalf as surcoufCasingHalf, deckAt as surcoufDeckAt,
+} from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
 
@@ -736,8 +741,8 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // every ship swung in bearing and nothing ever looked up, so a light battery
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
     const b = buildShip(id);
@@ -789,8 +794,8 @@ check('a shell leaves the muzzle it was fired from', () => {
   // compares.
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
     b.group.updateMatrixWorld(true);
@@ -834,8 +839,8 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // Every ship in the game had her screws modelled and every one of them was
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
     assert.ok(view.screws.length >= 2,
@@ -7053,8 +7058,8 @@ check('every ship has an inside, and it is inside her', () => {
   // Fitted to her own lines is the thing that has to be checked: an interior
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const inside = built.group.children.filter((c) => c.isMesh
@@ -8978,8 +8983,8 @@ check('every ship is built out of pieces that can be found again', () => {
   // no funnel any more, only triangles. She is still welded, and every mesh
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
     assert.ok(f.pieces.length > 400,
@@ -9761,8 +9766,8 @@ check('the battle being over does not take the sea away', () => {
 check('the arsenal says what the gun will go through, and shows where it is', () => {
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'takao', 'spee', 'iowa', 'yamato',
-    'enterprise', 'shinano']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'spee',
+    'iowa', 'yamato', 'enterprise', 'shinano']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
     for (const w of rows) {
@@ -13343,7 +13348,8 @@ check('the FS Surcouf is in the yard after U-48, and she is a submarine', () => 
   const her = addShip(st, { name: 'Surcouf', classId: 'surcouf', team: 0, index: 0 });
   assert.equal(her.oxygen, cls.dive.oxygen, 'she went to sea with no air in her');
   assert.equal(her.turrets.length, 1);
-  assert.equal(her.torpMounts.length, 2);
+  // Four tubes in the bow and two trainable external triples abaft the tower.
+  assert.equal(her.torpMounts.length, 3, 'she has the wrong number of tube mountings');
   assert.ok((her.squadrons || []).length === 1, 'her aeroplane is not aboard');
   assert.ok(!submerged(her), 'she is under water alongside the wall');
   for (let k = 0; k < 600; k++) step(st, DT);
@@ -13361,6 +13367,144 @@ check('the FS Surcouf is in the yard after U-48, and she is a submarine', () => 
   assert.ok(built.aaMounts.length >= 2, 'she has no close-range battery');
   assert.ok(built.deckY > 0 && built.deckY < 4,
     `her casing is ${built.deckY.toFixed(1)} m above the water`);
+});
+
+check('the Surcouf fights with the battery she actually carried', () => {
+  // Her datasheet against the guns and the tubes she really had, because this
+  // is a ship nobody has a feel for: an eight-inch turret on a submarine looks
+  // like a typing error, and the numbers that make her worth building are the
+  // ones that make her absurd.
+  const cls = SHIP_CLASSES.surcouf;
+
+  // The Modele 1929 mounting: plus or minus ninety degrees of train, minus
+  // five to plus thirty of elevation, and two guns on one cradle.
+  assert.ok(Math.abs(cls.turrets[0].arc - Math.PI / 2) < 0.02,
+    `her turret trains ${(cls.turrets[0].arc * 180 / Math.PI).toFixed(0)} degrees either side, not ninety`);
+  const up = gunLimits(cls.gun);
+  assert.ok(Math.abs(up.max - (30 * Math.PI) / 180) < 0.02,
+    'her guns elevate to something other than thirty degrees');
+  assert.ok(up.min < 0 && up.min > -0.15, 'her guns depress the wrong way');
+  // Three rounds a minute, which is two thirds of what the same gun did in a
+  // cruiser: the hoists come up through a watertight trunk.
+  assert.ok(cls.gun.reload >= 18 && cls.gun.reload <= 22,
+    `she fires a round every ${cls.gun.reload} s, not every twenty`);
+  // Sixty rounds a gun and no more. A pressure hull has no magazine in it.
+  assert.ok(cls.datasheet.mainRounds <= 200,
+    'she is carrying a cruiser\'s outfit of eight-inch in a submarine');
+
+  // Ten tubes: four in the bow and two trainable triples aft, and the
+  // trainable ones are the whole point -- nothing else afloat in 1940 could
+  // put a torpedo on a bearing without putting the boat on it.
+  const mounts = cls.torpedoes.mounts;
+  assert.equal(mounts.length, 3, 'she has the wrong number of tube mountings');
+  assert.equal(mounts.reduce((n, m) => n + m.tubes, 0), 10, 'she has the wrong number of tubes');
+  const bow = mounts.filter((m) => m.z > 20);
+  assert.equal(bow.length, 1, 'her bow tubes are not one mounting');
+  assert.equal(bow[0].tubes, 4, 'she has the wrong number of bow tubes');
+  const wing = mounts.filter((m) => m.z < 0);
+  assert.equal(wing.length, 2, 'she has not got two trainable mountings');
+  assert.ok(wing[0].x * wing[1].x < 0, 'both her trainable mountings are on the same side');
+  for (const m of wing) {
+    assert.ok(m.tubes === 3, 'a trainable mounting is not a triple');
+    assert.ok(Math.abs(Math.abs(m.angle) - Math.PI / 2) < 0.01,
+      'a trainable mounting does not look out over her own beam');
+    assert.ok(m.arc > 0.9 && m.arc < 1.6,
+      'a trainable mounting trains further than a deck mounting can');
+    // And it fires over its own side, not across her.
+    assert.ok(torpedoClear(cls, m, Math.sign(m.x) * Math.PI / 2),
+      'a trainable mounting cannot fire on its own beam');
+    assert.ok(!torpedoClear(cls, m, -Math.sign(m.x) * Math.PI / 2),
+      'a trainable mounting fires a torpedo across her own casing');
+  }
+
+  // Six light barrels: a 37 mm twin and two 13.2 mm twins.
+  assert.equal(aaBarrels(cls), 6, 'her light battery is the wrong size');
+  const heavy = cls.aa.guns.find((g) => g.caliber >= 30);
+  const light = cls.aa.guns.find((g) => g.caliber < 30);
+  assert.equal(heavy.mounts.length, 1, 'she has more than one 37 mm mounting');
+  assert.equal(light.mounts.length, 2, 'she has not got two machine-gun mountings');
+
+  // Her yard sheet says what she has rather than what a cruiser has: a
+  // derrick and not a catapult, and two calibres of torpedo.
+  assert.equal(cls.planes.launcher, 'derrick',
+    'the yard is telling a captain she has a catapult, which no submarine had');
+  assert.ok(cls.torpedoes.tubeLabel && cls.torpedoes.tubeLabel !== '21"',
+    'her sheet calls her 40 cm fish twenty-one inch');
+  const sheet = armsSheet(cls);
+  assert.ok(sheet.some((r) => /derrick/.test(r[0])), 'her sheet does not mention the derrick');
+  assert.ok(!sheet.some((r) => /catapult/.test(r[0])), 'her sheet still says catapult');
+
+  // And her aeroplane is her own, not a stand-in off another ship.
+  assert.equal(cls.planes.type, 'besson', 'she is flying somebody else\'s scout');
+  assert.ok(AERO.besson, 'the Besson has no wing');
+  assert.ok(Math.abs(AERO.besson.span - 12) < 0.3, 'the Besson has the wrong span');
+  // A hundred and seventy-five horsepower: she is the slowest thing in the air
+  // in this game and she should stay that way.
+  for (const k of Object.keys(AERO)) {
+    if (k === 'besson') continue;
+    assert.ok(AERO[k].vMax > AERO.besson.vMax,
+      `the ${k} is slower than a Besson MB.411, which cannot be right`);
+  }
+});
+
+check('the Surcouf is built the way her drawings have her', () => {
+  // The model against the ship, mounting by mounting. `a shell leaves the
+  // muzzle it was fired from` already walks her batteries; this is the rest of
+  // her -- the things that are hers and nobody else's.
+  const built = buildSurcouf();
+  built.group.updateMatrixWorld(true);
+
+  // Her plating faces out.
+  //
+  // A lofted shell wound the wrong way still draws: what you see is the inside
+  // of her far side, and at a distance it passes for a hull. What gives it
+  // away is that her own insides draw in front of it wherever they come near
+  // the centreline -- which is exactly what she was doing -- and that a ray
+  // cast at her side goes straight through her. So: cast one in at every
+  // waterline amidships and check that something of her stops it, on the side
+  // it was cast from.
+  const rc = new THREE.Raycaster();
+  for (let y = -6.5; y <= 1.5; y += 0.5) {
+    rc.set(new THREE.Vector3(30, y, 0), new THREE.Vector3(-1, 0, 0));
+    const hit = rc.intersectObject(built.group, true)[0];
+    assert.ok(hit, `nothing of her is in the way at ${y.toFixed(1)} m`);
+    const at = 30 - hit.distance;
+    const want = surcoufShellAt(0, y);
+    assert.ok(at > 0, `her plating at ${y.toFixed(1)} m faces inboard: the ray `
+      + `went through her side and stopped at ${at.toFixed(2)} m`);
+    assert.ok(Math.abs(at - want) < 0.35,
+      `her side at ${y.toFixed(1)} m is ${at.toFixed(2)} m out and her lines say ${want.toFixed(2)}`);
+  }
+
+  // The casing: a planked deck standing proud of the tank tops, running most
+  // of her length, and a good deal narrower than she is.
+  assert.ok(surcoufCasingY(0) > surcoufDeckAt(0) + 0.2,
+    'her casing is not standing on her tanks');
+  assert.ok(surcoufCasingHalf(0) > 2.0 && surcoufCasingHalf(0) < 3.2,
+    `her casing is ${surcoufCasingHalf(0).toFixed(2)} m to the side, which is not a walkway`);
+  assert.equal(surcoufCasingHalf(54), 0, 'her casing runs right out to the stem');
+
+  // Two screws, handed opposite ways, and both of them turn.
+  const screws = [];
+  built.group.traverse((o) => { if (o.userData.screw) screws.push(o); });
+  assert.equal(screws.length, 2, 'she has the wrong number of screws');
+  assert.ok(screws[0].userData.screw.hand * screws[1].userData.screw.hand < 0,
+    'both her shafts are handed the same way, so she would walk sideways');
+
+  // Her tube doors, which the dive step swings: four in the bow.
+  assert.equal(built.tubeCaps.bow.length, 4, 'she has the wrong number of bow caps');
+
+  // Her aeroplane is on the casing, abaft the hangar, where she is assembled
+  // before the derrick picks her up.
+  const box = new THREE.Box3();
+  let plane = null;
+  built.group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    box.setFromObject(o);
+    // Twelve metres of span is the Besson and nothing else aboard.
+    if (box.max.x - box.min.x > 9 && box.max.z < -20) plane = box.clone();
+  });
+  assert.ok(plane, 'her aeroplane is not on her casing');
 });
 
 

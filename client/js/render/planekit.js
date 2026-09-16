@@ -376,6 +376,17 @@ export const P = {
   // And the hinomaru, which is a plain disc of red with a white surround on
   // the late-war machines.
   hinomaru: new THREE.MeshLambertMaterial({ color: 0xa8241f }),
+  // Aeronavale, 1940: the pale blue-grey a French shipboard aeroplane wore
+  // above, with the undersides in a light grey that is nearly silver. The
+  // Besson was a small wood-and-canvas machine and she was painted the colour
+  // of the sea from above rather than the colour of the sky from below.
+  fraTop: new THREE.MeshLambertMaterial({ color: 0x74879a }),
+  fraBottom: new THREE.MeshLambertMaterial({ color: 0xa8b0b6 }),
+  // The cockade: three rings, blue at the centre and red outside, with the
+  // white between them. It is the oldest national marking in the air and it
+  // is the one thing that says this aeroplane came off a French submarine.
+  cockadeBlue: new THREE.MeshLambertMaterial({ color: 0x1f3f7a }),
+  cockadeRed: new THREE.MeshLambertMaterial({ color: 0xaa2b28 }),
   // What she carries. A torpedo is a polished steel case with a dull grey
   // warhead on the end of it; a bomb is olive drab with a bright band round
   // the nose that says it is filled.
@@ -443,6 +454,8 @@ const SCHEMES = {
   grey: [P.grey, P.greyDark],
   // IJN carrier aircraft, 1944: dark green over grey-green.
   ijn: [P.jpnTop, P.jpnBottom],
+  // Aeronavale: blue-grey over light grey.
+  france: [P.fraTop, P.fraBottom],
   // Bomber Command: camouflage above, night black below.
   raf: [P.rafTop, P.night],
   // The Eighth Air Force: bare metal, top and bottom, with the underside a
@@ -1630,6 +1643,36 @@ function hinomaru(p, x, y, z, r, up = true, surround = true, fit = null) {
   return decal(p, x, y, z, dir, layers, fit);
 }
 
+/**
+ * The cockade: the French national marking.
+ *
+ * Three concentric rings and no device inside them -- blue at the centre,
+ * white round it, red outside -- which is why it is three layers where the
+ * American star is a disc with an outline laid on it. The rings go on
+ * outermost first, because each layer stands a shade prouder than the one
+ * before and the eye has to see the red under the white under the blue.
+ */
+function cockade(p, x, y, z, r, up = true, fit = null) {
+  return decal(p, x, y, z, faceDir(up, x), [
+    [r, P.cockadeRed], [r * 0.66, M.star], [r * 0.33, P.cockadeBlue],
+  ], fit);
+}
+
+/**
+ * The rudder stripes, which every French aeroplane of 1940 carried.
+ *
+ * Three vertical bands across the rudder, blue at the leading edge and red at
+ * the trailing one. Drawn as three thin slabs standing on the fin rather than
+ * as paint, because the fin is a lofted foil and there is nothing to paint on.
+ */
+function rudderStripes(p, y, z, h, c, t = 0.05) {
+  const w = c / 3;
+  const bands = [P.cockadeBlue, M.star, P.cockadeRed];
+  for (let i = 0; i < 3; i++) {
+    box(p, bands[i], t, h, w * 0.96, 0, y, z - (i - 1) * w);
+  }
+}
+
 function inline(p, r, y, z, span, blades = 3, spin = false) {
   airframe(p, M.planeTop, [
     { z: z - 1.95, w: r * 1.55, h: r * 1.70, y },
@@ -2551,6 +2594,168 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
 }
 
 
+
+/**
+ * A Besson MB.411: the aeroplane the Surcouf carried, and the only one there
+ * has ever been much point building for a single ship.
+ *
+ * Nine were made and two of them were hers, because she is the only thing they
+ * fit: everything about this machine is shaped by a cylindrical hangar a metre
+ * and three quarters across in the back of a submarine's tower. She is small
+ * -- twelve metres of span and eight and a quarter of length, a hundred and
+ * seventy-five horsepower, two men -- her wings come off at the root and fold
+ * alongside, her float unships, and the whole of her goes into the tube in
+ * pieces. Four minutes to put her together alongside, twenty at sea, and the
+ * boat lies on the surface with a hole in her the whole time.
+ *
+ * Wood and metal under canvas, which is why she looks softer than the metal
+ * aeroplanes she flies among: a low wing with a thick root, a single big float
+ * under her belly, a little one under each tip, and a Salmson nine-cylinder in
+ * a narrow-chord cowl that leaves the cylinder heads out in the air.
+ */
+function besson(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('france');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  // Her centreline, rising a little toward the nose the way a float plane's
+  // does: she sits nose-up on the water so the airscrew stays out of it.
+  const cl = (zz) => 1.78 + 0.034 * zz;
+
+  // The body. Eight and a quarter metres of her, slab-sided forward where the
+  // two cockpits are and drawn out to nothing at the sternpost.
+  airframe(p, TOP, [
+    { z: -4.15, w: 0.13, h: 0.40, y: cl(-4.15) + 0.24 },
+    { z: -3.58, w: 0.31, h: 0.60, y: cl(-3.58) + 0.19 },
+    { z: -2.85, w: 0.48, h: 0.78, y: cl(-2.85) + 0.13 },
+    { z: -2.05, w: 0.62, h: 0.92, y: cl(-2.05) + 0.07 },
+    { z: -1.00, w: 0.72, h: 1.02, y: cl(-1.00) + 0.02 },
+    { z: 0.10, w: 0.76, h: 1.06, y: cl(0.10) },
+    { z: 1.10, w: 0.76, h: 1.06, y: cl(1.10) },
+    { z: 2.05, w: 0.72, h: 1.00, y: cl(2.05) + 0.02 },
+    { z: 2.80, w: 0.62, h: 0.90, y: cl(2.80) + 0.04 },
+  ], { flat: 0.09, e: 0.93, mBot: BOT });
+  // The Salmson 9Nd: a hundred and seventy-five horsepower, which is less than
+  // a third of what any other aeroplane in this game has, on a two-bladed
+  // airscrew two and a third metres across.
+  radial(p, 0.50, cl(2.92) + 0.03, 2.88, 2.34, 2, !!opts.spin);
+  // Her exhaust collector ring, outside the cowl, which is what a Salmson
+  // wears and what makes her read as French from ahead.
+  cyl(p, M.gunDark, 0.52, 0.52, 0.10, 0, cl(2.92) + 0.03, 2.50, 18)
+    .rotation.x = Math.PI / 2;
+
+  // Two men in tandem under one long hood: the pilot over the wing and the
+  // observer behind him, which is the arrangement of every naval observation
+  // aeroplane of the period and the reason she is worth carrying at all.
+  greenhouse(p, 0.66, 0.46, cl(0.0) + 0.52, -2.35, 1.70, 5);
+  // The observer's ring and his Darne. She went to sea unarmed as often as
+  // not -- she is a pair of eyes and nothing else -- but the ring was fitted
+  // and this is what went on it when anything did.
+  const ringY = cl(-1.75) + 0.98;
+  cyl(p, M.gunDark, 0.31, 0.31, 0.05, 0, ringY, -1.85, 14);
+  const mg = cyl(p, M.gunDark, 0.034, 0.034, 0.78, 0.07, ringY + 0.18, -2.12, 6);
+  mg.rotation.x = -1.16;
+  // The turtle deck aft of the hood.
+  airframe(p, TOP, [
+    { z: -3.76, w: 0.18, h: 0.20, y: cl(-3.76) + 0.28 },
+    { z: -2.85, w: 0.40, h: 0.33, y: cl(-2.85) + 0.35 },
+    { z: -2.45, w: 0.50, h: 0.40, y: cl(-2.45) + 0.38 },
+  ], { flat: 0.3, e: 0.94, capF: false, mBot: TOP });
+
+  // The wing: low-set, thick at the root, and it comes off there -- the two
+  // panels unpin and fold back alongside her to go into the hangar, which is
+  // the whole design of the aeroplane in one joint.
+  for (const s of [-1, 1]) {
+    const w = new THREE.Group();
+    w.position.set(s * 0.40, cl(0.4) - 0.40, 0.55);
+    // Tips up, not down. A low wing on a float plane is given dihedral to get
+    // the tip floats out of the water when she rolls, and three degrees of it
+    // is what her drawings show.
+    w.rotation.z = s * 0.055;
+    p.add(w);
+    const sw = wing(w, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 5.58, rootC: 2.25, tipC: 1.36,
+      sweep: 0.08, thick: 0.145, camber: 0.032, twist: -0.03, rootCap: false,
+    });
+    ctrlSurface(w, TOP, sw, 0.60, 0.94);                        // aileron
+    ctrlSurface(w, TOP, sw, 0.10, 0.50, 0.72);                  // flap
+    // The root joint: a band of fittings where the panel pins to the centre
+    // section, which on this aeroplane is a thing you can see.
+    box(w, M.bright, 0.10, 0.20, 2.05, s * 0.10, 0.04, 0.02);
+    cockade(w, s * 3.30, 0.13, -0.40, 0.52);
+    cockade(w, s * 3.30, -0.13, -0.40, 0.52, 'down');
+    rootFillet(w, TOP, s * 0.12, 0.02, -0.66, 2.1, 0.36, 0.26);
+    // The wingtip float, on a short pylon under the tip with a brace forward
+    // and aft of it. They are what keep her upright on the water and they are
+    // a third the size of the one she floats on.
+    const ft = new THREE.Group();
+    ft.position.set(s * 5.52, -0.62, -0.06);
+    w.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.62, 0.05, 0.24, 0.28, 0.36, 0.02],
+      [-0.30, 0.13, 0.12, 0.19, 0.34, 0.03],
+      [0.26, 0.15, 0.05, 0.15, 0.34, 0.03],
+      [0.70, 0.11, 0.12, 0.20, 0.36, 0.03],
+      [0.96, 0.03, 0.24, 0.29, 0.38, 0.02],
+    ]);
+    strut(w, TOP, [s * 5.52, -0.32, 0.10], [s * 5.20, 0.00, 0.14], 0.035);
+    strut(w, TOP, [s * 5.52, -0.32, -0.28], [s * 5.20, 0.00, -0.36], 0.035);
+  }
+  cockade(p, 0.42, cl(-2.6) + 0.05, -2.60, 0.38, false);
+  cockade(p, -0.42, cl(-2.6) + 0.05, -2.60, 0.38, false);
+  const tail = empennage(p, 1.06, 1.00, 3.10, 0.82, cl(-3.58) + 0.24, -3.38);
+  // And the rudder in blue, white and red, which is where a French aeroplane
+  // carries her colours.
+  rudderStripes(p, cl(-3.58) + 0.86, -3.74, 0.92, 0.78);
+
+  // The main float: one, big, straight under her on a pair of faired pylons.
+  // She is a little aeroplane carrying a lot of float, which is most of why
+  // she does a hundred and eighteen miles an hour and no more.
+  if (opts.floats !== false) {
+    const fl = new THREE.Group();
+    fl.position.set(0, 0, 0.25);
+    p.add(fl);
+    seaFloat(fl, TOP, BOT, [
+      [-3.30, 0.14, 0.16, 0.62, 0.78, 0.03],
+      [-2.30, 0.33, 0.34, 0.50, 0.76, 0.04],
+      [-1.20, 0.45, 0.20, 0.38, 0.74, 0.05],
+      [-0.28, 0.48, 0.15, 0.34, 0.74, 0.06],
+      [-0.26, 0.48, 0.00, 0.31, 0.74, 0.06],
+      [0.82, 0.48, 0.02, 0.31, 0.76, 0.06],
+      [1.90, 0.42, 0.13, 0.36, 0.78, 0.05],
+      [2.75, 0.27, 0.31, 0.50, 0.80, 0.04],
+      [3.35, 0.07, 0.56, 0.64, 0.82, 0.03],
+    ]);
+    // The mooring bollard forward and the water rudder aft, which is how she
+    // is handled alongside a submarine with no boat in the water.
+    cyl(fl, P.gunDark, 0.045, 0.05, 0.14, 0, 0.90, 2.40, 8);
+    const rud = box(fl, BOT, 0.045, 0.30, 0.34, 0, 0.46, -3.16);
+    rud.rotation.x = 0.12;
+    // The two pylons: faired, because they are in the airstream and because
+    // the whole weight of her hangs on them when the derrick picks her up.
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4;
+      const yy = cl(0.4) - 0.52 - u * 0.44;
+      const c = 1.40 - u * 0.24;
+      box(p, TOP, 0.26 - u * 0.05, 0.14, c, 0, yy, 0.70 + u * 0.08);
+    }
+    for (const s of [-1, 1]) {
+      strut(p, TOP, [0, 0.86, 1.90], [s * 0.36, cl(1.7) - 0.52, 1.66], 0.045);
+      strut(p, TOP, [0, 0.86, -0.85], [s * 0.36, cl(-1.0) - 0.50, -0.95], 0.045);
+    }
+    // The lifting eye on her centre section: the derrick's hook goes here and
+    // nowhere else, and it is the fitting that makes her a submarine's
+    // aeroplane rather than a seaplane that happens to be small.
+    cyl(p, M.bright, 0.07, 0.07, 0.16, 0, cl(0.4) + 0.62, 0.55, 8);
+    const eye = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.028, 6, 12), M.bright);
+    eye.position.set(0, cl(0.4) + 0.78, 0.55);
+    eye.rotation.y = Math.PI / 2;
+    p.add(eye);
+  }
+  aerial(p, 0, cl(0.9) + 0.82, 0.90, 0.40, tail.finTop, TOP);
+  return p;
+}
 
 // ----------------------------------------------------- the Japanese ones --
 
@@ -4331,7 +4536,7 @@ function heavyBomber(kind) {
 
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
-export { wildcat, dauntless, avenger, arado, kingfisher };
+export { wildcat, dauntless, avenger, arado, kingfisher, besson };
 export { zero, suisei, tenzan, jake };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };

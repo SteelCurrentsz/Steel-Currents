@@ -85,6 +85,22 @@ export const AERO = {
     thrust: 12600, vMax: 86, name: 'Ar 196A-3',
     helix: 0.058, gLimit: 4.5,
   },
+  // The Surcouf's own aeroplane, and the smallest thing in the air in this
+  // game by a long way: two tonnes loaded, a hundred and seventy-five
+  // horsepower, and a hundred and eighteen miles an hour flat out.
+  //
+  // Everything about her is the hangar she folds into. She is light because
+  // two men have to handle the pieces on a wet casing, she is slow because a
+  // hundred and seventy-five horsepower is what a Salmson nine gives and
+  // because she is carrying a float half as long as she is, and she turns
+  // beautifully because a big thick wing on a very light aeroplane always
+  // does. What she cannot do is get away from anything: a Wildcat closes on
+  // her at twice her speed, and she has one flexible gun aft.
+  besson: {
+    mass: 2083, wing: 22.0, span: 12.00, clMax: 1.58, cd0: 0.0465,
+    thrust: 5200, vMax: 53, name: 'MB.411',
+    helix: 0.050, gLimit: 3.8,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

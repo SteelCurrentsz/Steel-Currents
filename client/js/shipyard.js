@@ -407,7 +407,10 @@ export function armsSheet(cls, group = null) {
     rows.push([`${count(t.barrels)} ${t.label} AA`, `${num(t.rounds)} rds`]);
   }
   if (cls.torpedoes) {
-    rows.push([`${count(tubes(cls))} 21" tubes`,
+    // Twenty-one inch unless she says otherwise. The Surcouf is the one boat
+    // that carries two calibres of fish -- six 55 cm and four 40 cm -- and
+    // calling all ten of them twenty-one inch is simply wrong.
+    rows.push([`${count(tubes(cls))} ${cls.torpedoes.tubeLabel || '21"'} tubes`,
       `${num(d.torpedoesCarried ?? tubes(cls))} fish`]);
   }
   if (cls.planes && cls.planes.group) {
@@ -419,7 +422,13 @@ export function armsSheet(cls, group = null) {
     rows.push(['Air group',
       `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T`, 'airgroup']);
   } else if (cls.planes) {
-    rows.push([`${cls.planes.squadrons} catapults`, `${d.aircraft} sea planes`]);
+    // How she gets them off. Every cruiser and battleship in the game shoots
+    // hers off a catapult; the Surcouf hasn't got one, and craning a floatplane
+    // over the side of a surfaced submarine is a different proposition
+    // entirely -- so a ship may say what she launches from.
+    const rig = cls.planes.launcher || 'catapult';
+    rows.push([`${cls.planes.squadrons} ${rig}${cls.planes.squadrons === 1 ? '' : 's'}`,
+      `${d.aircraft} sea planes`]);
   }
   return rows;
 }

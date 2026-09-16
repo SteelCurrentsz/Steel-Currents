@@ -2860,7 +2860,15 @@ export function torpedoClear(cls, spec, local) {
   // end it is shooting down the length of her, which is exactly what the
   // side-launched test is there to stop -- so the geometry is the same test
   // with the two walls swapped.
-  if (cls.torpedoes && cls.torpedoes.inHull) {
+  // Which kind of mounting this is. A boat's tubes are normally all of one
+  // kind and the battery says so; the Surcouf is the exception and has to be,
+  // because she carries both -- four inside the pressure hull firing out of
+  // the stem, and two trainable triples standing on the casing that go over
+  // the side like a destroyer's. A mounting may say for itself.
+  const inHull = spec.inHull === undefined
+    ? !!(cls.torpedoes && cls.torpedoes.inHull)
+    : !!spec.inHull;
+  if (inHull) {
     if (Math.abs(dz) < 1e-6) return false;
     const wallZ = dz > 0 ? hz : -hz;
     const along = wallZ - spec.z;

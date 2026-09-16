@@ -786,51 +786,101 @@ export const SHIP_CLASSES = {
     // every gun on a submarine it is outside the pressure hull and cannot be
     // fought with the boat under.
     turrets: [
-      { id: 0, name: 'Turret I', x: 0, z: 16.0, angle: 0, arc: 2.62, guns: 2, my: 5.60 },
+      // Plus or minus ninety degrees from the centreline, which is what the
+      // Modele 1929 mounting trained through and is a good deal less than a
+      // cruiser's turret: there is a tower immediately abaft it and a hundred
+      // and ten metres of casing ahead, and the mounting is let into the
+      // pressure hull rather than standing on a barbette that can turn through
+      // it. So she fights on the beam, and to shoot astern she comes round.
+      // Right up against the tower, which is where every drawing and every
+      // photograph puts her: the barbette's after edge and the tower's forward
+      // face are a yard apart, because a turret let into the pressure hull has
+      // to be over the one part of her that is deep enough to take it.
+      { id: 0, name: 'Tourelle I', x: 0, z: 8.0, angle: 0, arc: 1.5708, guns: 2, my: 4.30 },
     ],
     gun: {
-      name: '20.3 cm M1924', role: 'surface',
-      reach: 9.5,
-      caliber: 203, reload: 14.0, traverse: 0.16, range: 21000, sigma: 1.55,
-      shells: shells(203, 2870, 820, 118, 3100, 0.035),
+      name: '203 mm/50 Mle 1924', role: 'surface',
+      // Ten and a sixth metres of bore, of which about seven and a half stands
+      // out of the gunhouse face -- measured off the model, which is what
+      // `reach` is for.
+      reach: 7.6,
+      caliber: 203,
+      // Three rounds a minute, which is the figure recorded for this mounting
+      // and about two thirds of what the same gun did in a cruiser's turret:
+      // the hoists come up out of a pressure hull through a watertight trunk,
+      // and the guns are not separately sleeved so they load together or not
+      // at all.
+      reload: 20.0,
+      // And she trains slowly for the same reason she loads slowly.
+      traverse: 0.16,
+      // Five minutes' worth of gun at a range she can see to. The mounting
+      // reached twenty-six kilometres and the gun itself thirty-one at
+      // forty-five degrees, and neither number is any use to her: her own
+      // rangefinder is five metres off the water, so what she can actually
+      // shoot at is what she can see, which is this.
+      range: 21000,
+      // Minus five to plus thirty, as built. It is why she cannot reach the
+      // gun's own maximum range: that wants forty-five.
+      elev: { min: -0.087, max: 0.524 },
+      sigma: 1.55,
+      shells: shells(203, 2870, 820, 118, 850, 0.035),
     },
-    // Eight 55 cm tubes in two trainable trainable mounts in the casing, and
-    // four 40 cm for the shorter-ranged fish. Simplified here to what they do:
-    // a heavy bow salvo and a lighter one that trains.
+    // Her tubes, and there is no other submarine in the world with this many.
+    //
+    // Four 55 cm in the bow inside the pressure hull, and abaft the tower two
+    // trainable external mounts, each one carrying a 55 cm tube with a pair of
+    // 40 cm alongside it. The external mounts are the reason she can fire a
+    // torpedo on a bearing at all without pointing the whole boat: everything
+    // else afloat in 1940 aimed its fish by aiming the submarine.
     torpedoes: {
       mounts: [
-        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.2 },
-        { id: 1, x: 0, z: -14.0, angle: 0, arc: 1.75, tubes: 4, my: -1.2 },
+        // The bow four are inside the pressure hull and fire out of the stem.
+        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5 },
+        // The two aft are external mountings standing on the casing, and they
+        // go over the side the way a destroyer's bank does -- which is what
+        // `inHull: false` says, and why she needs to say it per mounting.
+        { id: 1, x: -1.55, z: -17.5, angle: -1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
+        { id: 2, x: 1.55, z: -17.5, angle: 1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
       ],
       name: '550 mm 1924V', role: 'surface', caliber: 550,
-      reach: 0.6,
+      // Six 55 cm and four 40 cm, which is why she does not say twenty-one inch.
+      tubeLabel: '55/40 cm',
+      // Nearly three metres from the axis the mount trains about to the mouth
+      // of the tube, because an external mount is six metres of tube lying on
+      // a ring: the fish leaves at the cap and not at the middle of it.
+      reach: 2.9,
       inHull: true,
       traverse: 0.10,
       reload: 104, damage: 15800, speed: 39 * KNOTS, range: 3000,
       detection: 900, arming: 300, spread: 0.04, floodChance: 0.40,
     },
     secondary: null,
-    // Two 37 mm on the after end of the tower, and a pair of machine guns.
+    // Her light battery: a 37 mm twin and four 13.2 mm in two twins.
     //
-    // Where they stand is what decides where she can fight. The 37 mm is on
-    // the platform abaft the bridge, looking aft and out over both beams, and
-    // the hangar cylinder and the crane behind it -- and eight inches of
-    // turret in front -- shut it off over the bow. The machine guns are on the
-    // forward end of the bridge, where they look over the turret and nowhere
-    // else. So an aeroplane coming in over the bow is met by the Hotchkiss and
-    // one on the beam by the 37 mm, and never by all four barrels at once,
-    // which is the ordinary condition of a submarine: she has one small island
-    // in the middle of a very long hull and everything is mounted on it.
+    // They stand on and about the hangar, which is the only flat thing on her
+    // above water abaft the tower -- and where they stand is what decides
+    // where she can fight. The 37 mm is on the hangar top looking aft and out
+    // over both beams; the hangar itself, the crane behind it and eight inches
+    // of turret in front shut it off over the bow. The machine guns are in
+    // their watertight housings on the after bridge platform, one each side,
+    // and each looks out over her own beam and no further across.
+    //
+    // So an aeroplane over the bow is met by the two Hotchkiss twins, one on
+    // the beam by the 37 mm and whichever twin is on that side, and never by
+    // the whole battery at once. That is the ordinary condition of a
+    // submarine: one small island in the middle of a very long hull, with
+    // everything mounted on it and everything in everything else's way.
     aa: {
       range: 3000, dps: 16,
       guns: [
         { name: '37 mm CA Mle 1925', caliber: 37, role: 'aa', reload: 0.9, range: 3000,
           mounts: [
-            { x: 0, z: -9.5, angle: Math.PI, arc: 2.10, guns: 2, my: 6.10 },
+            { x: 0, z: -14.6, angle: Math.PI, arc: 2.00, guns: 2, my: 8.15 },
           ] },
-        { name: '13.2 mm Hotchkiss', caliber: 13, role: 'aa', reload: 0.2, range: 1500,
+        { name: '13.2 mm Hotchkiss Mle 1929', caliber: 13, role: 'aa', reload: 0.2, range: 1500,
           mounts: [
-            { x: 0, z: 2.40, angle: 0, arc: 1.40, guns: 2, my: 6.85 },
+            { x: -2.15, z: -6.20, angle: -1.5708, arc: 1.75, guns: 2, my: 7.92 },
+            { x: 2.15, z: -6.20, angle: 1.5708, arc: 1.75, guns: 2, my: 7.92 },
           ] },
       ],
     },
@@ -841,16 +891,22 @@ export const SHIP_CLASSES = {
     // periscope is a metre above it. She is craned out and craned back, which
     // means the boat is on the surface and helpless for as long as it takes --
     // so flying her off is a decision, not a free look.
+    //
+    // Getting her into the air is a drill and not a button. The hangar door
+    // comes off, she is wheeled aft on her rails, her fuselage is raised, her
+    // wings are swung out and pinned, and then the derrick picks her up and
+    // puts her in the water: four minutes alongside and twenty at sea, and the
+    // whole of that time the boat is on the surface with a hole open in her.
     planes: {
       squadrons: 1,
       perSquadron: 1,
       roles: ['scout'],
-      // The Besson MB.411 she actually carried was a parasol float monoplane
-      // built for exactly this job and for no other; nine were made and two of
-      // them were hers. There is no model of one, so she flies the kit's float
-      // scout -- the same class of aeroplane doing the same work off the same
-      // crane, and wrong only in her markings.
-      type: 'arado',
+      // The Besson MB.411, built for this boat and for nothing else. Nine were
+      // made and two of them were hers.
+      type: 'besson',
+      // And she goes over the side on a derrick, not off a catapult. No
+      // submarine ever carried one.
+      launcher: 'derrick',
       launchTime: 26,
       cooldown: 190,
       strikeRange: 11000,
@@ -865,13 +921,17 @@ export const SHIP_CLASSES = {
       hp: 190,
     },
     datasheet: {
-      displacement: 3250,
+      displacement: 3304,
       aircraft: 1,
-      mainRounds: 600,
+      // Sixty rounds a gun, which is all a pressure hull has room for and is
+      // about a quarter of what a cruiser carries for the same gun.
+      mainRounds: 120,
+      // Fourteen tubes' worth in the racks: eight 55 cm and four 40 cm
+      // reloads on top of the ten she has in the tubes.
       torpedoesCarried: 22,
       tertiary: [
         { caliber: 37, label: '37mm', barrels: 2, rounds: 2000 },
-        { caliber: 13, label: '13.2mm', barrels: 2, rounds: 6000 },
+        { caliber: 13, label: '13.2mm', barrels: 4, rounds: 6000 },
       ],
     },
   },
