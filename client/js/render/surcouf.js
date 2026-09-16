@@ -1041,15 +1041,22 @@ function stern(g) {
 export function buildSurcouf() {
   const g = new THREE.Group();
   hull(g);
-  casing(g);
-  tower(g);
-  hangar(g);
-  derrick(g);
-  deckPlane(g);
-  fittings(g);
-  stern(g);
   // Her insides, on the pressure hull's lines -- the only part of her that has
-  // an inside at all.
+  // an inside at all -- and built before anything is put on top of her.
+  //
+  // The order matters, and it matters more for her than for any ship in the
+  // game. The interior builder measures the plating already in the group and
+  // fits her out inside it, and anything standing above her deck it takes for
+  // a deckhouse and fills with cabins. Everything above a submarine's tank
+  // tops is a deckhouse by that reckoning: the tower, the hangar, and -- the
+  // one that actually did it -- the casing, which is a foot and a half of
+  // fairing over the tanks with nothing inside it at all. She was being given
+  // a compartment in it, standing out through her own plating where the
+  // casing edge falls away.
+  //
+  // So her interior is built against the bare hull and nothing else. She is a
+  // pressure hull with things bolted on top of it, and what is inside her is
+  // inside that tube.
   buildInterior(g, {
     loa: LOA,
     shellAt: (t, y) => {
@@ -1062,6 +1069,13 @@ export function buildSurcouf() {
     sheer: (t) => PY + hullR(t) * 0.88,
     zAt: (t) => t * HALF,
   });
+  casing(g);
+  tower(g);
+  hangar(g);
+  derrick(g);
+  deckPlane(g);
+  fittings(g);
+  stern(g);
   mergeStatic(g, bySection(LOA));
   const turrets = mainTurret(g);
   const aaMounts = flak(g);
