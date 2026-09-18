@@ -145,6 +145,37 @@ const LIFT_HW = 7.4;
 const ISL_Z = 12;
 const ISL_X = S * 14.2;
 
+/**
+ * A sheet built up out of quads, each wound so its face looks the way it is
+ * told to. For anything that follows a curve in plan -- the flight deck's
+ * girder, the hangar sides -- because a curve drawn as a run of boxes steps
+ * sideways between one box and the next and a ray goes through the step.
+ */
+function strip() {
+  const pos = [];
+  const idx = [];
+  const quad = (a, b, c, d, out) => {
+    const n = pos.length / 3;
+    pos.push(...a, ...b, ...c, ...d);
+    const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+    const ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+    const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const flip = nx * out[0] + ny * out[1] + nz * out[2] < 0;
+    if (flip) idx.push(n, n + 2, n + 1, n, n + 3, n + 2);
+    else idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+  const mesh = (g, m) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const o = new THREE.Mesh(geo, m);
+    g.add(o);
+    return o;
+  };
+  return { quad, mesh };
+}
+
 // ------------------------------------------------------------------ hull --
 
 function hull(g) {
@@ -199,17 +230,24 @@ function fdDrop(z) {
  * lands in the sea.
  */
 function endDecks(g) {
-  const plate = (z0, z1) => {
-    const N = 16;
+  // Laid at the shell's own stations, so the deck edge is the top edge of the
+  // plating to the millimetre: sampled anywhere else the two disagree between
+  // stations and a ray from below slips up between them. Carried right to the
+  // caps, which lean with the stem and the counter and show their backs from
+  // above wherever the deck stops short of them.
+  const plate = (t0, t1) => {
+    const NS = F.stations;
+    const i0 = Math.max(0, Math.floor(((t0 + 1) / 2) * NS));
+    const i1 = Math.min(NS, Math.ceil(((t1 + 1) / 2) * NS));
     const pos = [];
     const idx = [];
-    for (let i = 0; i <= N; i++) {
-      const t = (z0 + ((z1 - z0) * i) / N) / (LOA / 2);
+    for (let i = i0; i <= i1; i++) {
+      const t = -1 + (2 * i) / NS;
       const y = sheer(t);
       const w = F.shellAt(t, y);
       pos.push(-w, y, F.zAt(t, y), w, y, F.zAt(t, y));
     }
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < i1 - i0; i++) {
       const a = i * 2;
       const b = (i + 1) * 2;
       idx.push(a, b + 1, a + 1, a, b, b + 1);
@@ -220,8 +258,8 @@ function endDecks(g) {
     geo.computeVertexNormals();
     g.add(new THREE.Mesh(geo, M.deckSteel));
   };
-  plate(FD_FWD - 30, 0.995 * LOA / 2);
-  plate(-0.995 * LOA / 2, FD_AFT + 26);
+  plate((FD_FWD - 30) / (LOA / 2), 1);
+  plate(-1, (FD_AFT + 26) / (LOA / 2));
   // And the breakwater across the forecastle, which every Japanese ship has.
   const bw = FD_FWD - 14;
   for (let i = -3; i <= 3; i++) {
@@ -275,16 +313,28 @@ function flightDeck(g) {
   ug.setIndex(uidx);
   ug.computeVertexNormals();
   g.add(new THREE.Mesh(ug, M.hullDark));
-  // The girder closing the two together down both edges.
-  for (const sgn of [-1, 1]) {
-    for (let i = 0; i < N; i++) {
-      const z0 = FD_AFT + ((FD_FWD - FD_AFT) * i) / N;
-      const z1 = FD_AFT + ((FD_FWD - FD_AFT) * (i + 1)) / N;
-      const w = (fdHalf(z0) + fdHalf(z1)) / 2;
-      const y = FD - (fdDrop(z0) + fdDrop(z1)) / 2 - 0.8;
-      box(g, M.hullDark, 0.3, 1.7, z1 - z0 + 0.05, sgn * w, y, (z0 + z1) / 2);
+  // The girder closing the two together down both edges, and the two end
+  // faces: one continuous ribbon following the deck's own outline, not a run
+  // of boxes stepping out one at a time -- where the deck draws in at the
+  // ends those step nearly a metre apart and a ray from ahead runs between
+  // them the length of the ship.
+  const { quad, mesh } = strip();
+  for (let i = 0; i < N; i++) {
+    const z0 = FD_AFT + ((FD_FWD - FD_AFT) * i) / N;
+    const z1 = FD_AFT + ((FD_FWD - FD_AFT) * (i + 1)) / N;
+    const w0 = fdHalf(z0), w1 = fdHalf(z1);
+    const t0 = FD - fdDrop(z0), t1 = FD - fdDrop(z1);
+    for (const sgn of [-1, 1]) {
+      quad([sgn * w0, t0, z0], [sgn * w0, t0 - 1.6, z0],
+        [sgn * w1, t1 - 1.6, z1], [sgn * w1, t1, z1], [sgn, 0, 0]);
     }
   }
+  for (const [z, out] of [[FD_AFT, -1], [FD_FWD, 1]]) {
+    const w = fdHalf(z);
+    const t = FD - fdDrop(z);
+    quad([-w, t, z], [w, t, z], [w, t - 1.6, z], [-w, t - 1.6, z], [0, 0, out]);
+  }
+  mesh(g, M.hullDark);
   // And the pillars that carry it, standing on the hangar deck.
   for (let z = FD_AFT + 14; z < FD_FWD - 12; z += 14) {
     for (const sgn of [-1, 1]) {
@@ -387,19 +437,45 @@ function hangar(g) {
 
   // The hangar sides: plating from the hangar deck up to the flight deck,
   // inboard of the deck edge, with the fire curtains across it.
+  // Aft of amidships her sheer runs below the hangar deck, so the plating is
+  // carried down to the shell's top edge there: stopped at the hangar deck it
+  // left a slot between the two the length of her after body, and the
+  // quarterdeck open to the hangar under its after bulkhead.
+  const foot = (z) => Math.min(HANGAR, sheer(z / (LOA / 2)) - 0.3);
+  const wall = (z) => Math.min(fdHalf(z) - 1.6, halfDeck(z) - 0.6);
+  const { quad, mesh } = strip();
   for (const sgn of [-1, 1]) {
     for (let i = 0; i < N; i++) {
       const za = z0 + ((z1 - z0) * i) / N;
       const zb = z0 + ((z1 - z0) * (i + 1)) / N;
-      const w = Math.min(fdHalf((za + zb) / 2) - 1.6, halfDeck((za + zb) / 2) - 0.6);
-      box(g, M.hull, 0.3, FD - 1.6 - HANGAR, zb - za + 0.05,
-        sgn * w, (FD - 1.6 + HANGAR) / 2, (za + zb) / 2);
+      quad([sgn * wall(za), foot(za), za], [sgn * wall(za), FD - 1.6, za],
+        [sgn * wall(zb), FD - 1.6, zb], [sgn * wall(zb), foot(zb), zb], [sgn, 0, 0]);
     }
   }
+  mesh(g, M.hull);
+  // The ledge between the hangar side and the shell's top edge, plated at the
+  // sheer: her upper deck, as much of it as shows. Cut at the shell's own
+  // stations so its outer edge is the top of the plating, and without it the
+  // trough between the two is open at its after end and a ray from astern
+  // runs up it the length of the hangar.
+  const ledge = strip();
+  const NS = F.stations;
+  for (let i = 0; i < NS; i++) {
+    const ta = -1 + (2 * i) / NS;
+    const tb = -1 + (2 * (i + 1)) / NS;
+    const za = F.zAt(ta, sheer(ta)), zb = F.zAt(tb, sheer(tb));
+    if (zb <= z0 || za >= z1) continue;
+    for (const sgn of [-1, 1]) {
+      ledge.quad([sgn * wall(za), sheer(ta), za], [sgn * F.shellAt(ta, sheer(ta)), sheer(ta), za],
+        [sgn * F.shellAt(tb, sheer(tb)), sheer(tb), zb], [sgn * wall(zb), sheer(tb), zb], [0, 1, 0]);
+    }
+  }
+  ledge.mesh(g, M.deckSteel);
   // The ends of it, which are what makes it a closed hangar.
-  for (const [z, facing] of [[z0, -1], [z1, 1]]) {
+  for (const z of [z0, z1]) {
     const w = Math.min(fdHalf(z) - 1.6, halfDeck(z) - 0.6);
-    box(g, M.hull, w * 2, FD - 1.6 - HANGAR, 0.3, 0, (FD - 1.6 + HANGAR) / 2, z);
+    const lo = foot(z);
+    box(g, M.hull, w * 2, FD - 1.6 - lo, 0.3, 0, (FD - 1.6 + lo) / 2, z);
   }
   // Three rolling fire curtains across her, which is what a closed hangar has
   // instead of the open sides.
@@ -622,13 +698,15 @@ function island(g) {
   // The gun tubs on the island's own galleries: three for the twenty-five
   // millimetre and two for the rocket launchers, hung off its inboard side
   // where they can fire across the deck and out over the starboard beam.
+  // Hung with their rims against the underside of the flight deck, which is
+  // what holds them up.
   for (const spec of CLS.aa.guns[0].mounts) {
     if (Math.abs(spec.x) >= 19) continue;
-    cyl(g, M.steel, 2.4, 2.6, 1.9, spec.x, FD - 2.8, spec.z, 14);
+    cyl(g, M.steel, 2.4, 2.6, 1.9, spec.x, FD - 1.6 - 0.9, spec.z, 14);
   }
   for (const spec of CLS.aa.guns[1].mounts) {
     if (Math.abs(spec.x) >= 19) continue;
-    cyl(g, M.steel, 2.2, 2.4, 1.7, spec.x, FD - 3.6, spec.z, 14);
+    cyl(g, M.steel, 2.2, 2.4, 1.7, spec.x, FD - 1.6 - 0.8, spec.z, 14);
   }
 
   // Ladders up the inboard face, and the signal yards on the mast.
@@ -652,6 +730,11 @@ function galleries(g) {
     for (let z = FD_AFT + 18; z < FD_FWD - 18; z += 6) {
       const w = Math.min(fdHalf(z) + 1.4, 23.2);
       box(g, M.steelDark, 2.4, 0.2, 6.05, sgn * w, y, z);
+      // The web it hangs from: a plate up from its inboard edge to the
+      // underside of the flight deck, which is what carries a catwalk that
+      // stands outboard of the hull.
+      box(g, M.steelDark, 0.5, FD - 1.6 - (y - 0.1), 6.05,
+        sgn * (w - 1.45), (FD - 1.6 + y - 0.1) / 2, z);
       for (const h of [0.4, 0.78, 1.16]) {
         box(g, M.steelDark, 0.06, 0.06, 6.05, sgn * (w + 1.1), y + h, z);
       }
@@ -689,17 +772,24 @@ function fittings(g) {
   // The crane on the port quarter, which is how she got a boat or a crashed
   // aircraft off the water.
   const cr = new THREE.Group();
-  cr.position.set(-19.0, FD - 3.0, -104);
+  // Standing on the gallery deck; the jib rises, since a positive turn about
+  // x puts a boom along +z nose-down into the sea.
+  cr.position.set(-19.0, FD - 2.5, -104);
   cyl(cr, M.steel, 0.8, 0.95, 3.4, 0, 1.7, 0, 12);
   const jib = new THREE.Group();
   jib.position.set(0, 3.4, 0);
-  jib.rotation.x = 0.5;
+  jib.rotation.x = -0.5;
   box(jib, M.steelDark, 0.7, 0.7, 14, 0, 0, 6.6);
   for (let i = 1; i < 6; i++) box(jib, M.steelDark, 0.8, 0.08, 0.08, 0, 0, i * 2.2);
   cr.add(jib);
   g.add(cr);
-  // Her boats, stowed on the gallery deck abreast the island.
+  // Her boats, stowed on a boat platform between the hangar side and the
+  // gallery abreast the island, on knees off the hangar plating.
   for (const sgn of [-1, 1]) {
+    box(g, M.steelDark, 4.2, 0.25, 26, sgn * 18.3, FD - 3.4 - 0.36, -13);
+    for (const z of [-24, -13, -2]) {
+      box(g, M.steelDark, 3.4, 1.2, 0.6, sgn * 18.3, FD - 3.4 - 0.48 - 0.6, z);
+    }
     boat(g, M, sgn * 18.4, FD - 3.4, -6, 10);
     boat(g, M, sgn * 18.4, FD - 3.4, -20, 9);
   }
@@ -750,7 +840,7 @@ function fittings(g) {
   }
   const bj = new THREE.Group();
   bj.position.set(0, 4.2, 0);
-  bj.rotation.x = 0.44;
+  bj.rotation.x = -0.44;
   for (const sgn of [-1, 1]) {
     box(bj, M.steelDark, 0.12, 0.12, 19, sgn * 0.45, 0.45, 9.2);
     box(bj, M.steelDark, 0.12, 0.12, 19, sgn * 0.45, -0.45, 9.2);
@@ -760,8 +850,10 @@ function fittings(g) {
     box(bj, M.steelDark, 1.0, 0.09, 0.09, 0, -0.45, i * 2.1);
     box(bj, M.steelDark, 0.09, 1.0, 0.09, 0.45, 0, i * 2.1);
   }
-  cyl(bj, M.steelDark, 0.06, 0.06, 6.2, 0, -3.1, 18.4, 6);
   bc.add(bj);
+  // The hook wire, hanging plumb from the jib head.
+  cyl(bc, M.steelDark, 0.06, 0.06, 6.2, 0, 4.2 + 18.4 * Math.sin(0.44) - 3.1,
+    18.4 * Math.cos(0.44), 6);
   g.add(bc);
 
   // Ventilator cowls along the gallery.

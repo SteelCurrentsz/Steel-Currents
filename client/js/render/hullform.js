@@ -139,13 +139,22 @@ export function loftBand(g, m, f, lo, hi) {
   g.add(new THREE.Mesh(geo, m));
 }
 
-/** The flat that closes her in at one end, cut to her own section there. */
+/**
+ * The flat that closes her in at one end, cut to her own section there.
+ *
+ * Cut with the same two points a strake has -- its lower edge and its upper --
+ * and nothing between, because the strake is one straight sheet between those
+ * and the cap has to share its edge exactly. Followed through the section in
+ * finer steps it bows inboard of the sheet through the middle heights by a
+ * hand's breadth, and that is a slot down the stem a ray from ahead goes
+ * through.
+ */
 export function cap(g, f, strakes, t, facing) {
   for (const [lo, hi, m] of strakes(t)) {
     if (hi - lo < 0.02) continue;
     const pos = [];
     const idx = [];
-    const N = 10;
+    const N = 1;
     for (let i = 0; i <= N; i++) {
       const y = lo + ((hi - lo) * i) / N;
       const w = f.shellAt(t, y);
