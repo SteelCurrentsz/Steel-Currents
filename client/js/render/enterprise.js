@@ -1,25 +1,65 @@
-// USS Enterprise, CV-6, as she looked in the middle of the Pacific war.
+// USS Enterprise, CV-6, built off her own drawings.
 //
 // The Big E: second of the three Yorktowns, laid down at Newport News in 1934,
 // at Midway, the Eastern Solomons, Santa Cruz and Guadalcanal, and by the end
 // of 1942 the only American carrier still in the fight. This is her in that
-// fit -- the 1942 refit, with the 1.1-inch quads gone for 40 mm Bofors and
-// Oerlikon galleries down both deck edges.
+// fit -- the 1942 refit, in Measure 21 navy blue, with the 1.1-inch quads gone
+// for 40 mm Bofors and Oerlikon galleries down both deck edges.
 //
-// Metres throughout, bow to +Z, up to +Y -- so starboard is -X, which is where
-// her island goes. Waterline at y = 0. Her real
-// figures, which everything below is measured off:
+// The numbers everything below is lofted to, off her own particulars:
 //
 //   length overall        262.0 m      flight deck      254.5 x 26 m
 //   waterline beam         25.4 m      extreme beam        34.8 m
-//   draft                   7.9 m      freeboard, hangar   ~14 m
-//   three centreline elevators, nine arresting wires, three barriers
-//   eight 5"/38 in four sponsons, four quad 40 mm, thirty 20 mm
+//   draft                   7.9 m      hangar deck          7.4 m
+//   hangar clear height     5.4 m      flight deck         17.0 m
+//   three centreline lifts, nine arresting wires, three barriers
+//   eight 5"/38 in four sponsons, eight quad 40 mm, forty-four 20 mm
 //   air group: 27 fighters, 38 dive bombers, 15 torpedo bombers
 //
+// Six things have to be right or she is not a Yorktown.
+//
+// The first is the hull under all of it. She is a cruiser: a hollow entrance
+// carried nearly the whole forebody, a long parallel middle, a fine run into a
+// small transom, and over all of it a stem that sweeps -- upright where it
+// leaves the water and further forward the higher it goes, with the flare of
+// the forecastle standing out over it. That single line is what says thirty-
+// three knots from a mile off, and it is why the shell here is pulled through
+// a table of offsets rather than out of a formula.
+//
+// The second is that the flight deck is not part of the hull. It is a
+// structure built on top of her, open at both ends, and what you see between
+// the waterline and the planking is the hangar side: one sheet of plating with
+// a row of large openings cut in it, and above that the gallery storey. Not a
+// trellis, not a wall -- a wall with holes in it, and a hangar to see through
+// them.
+//
+// The third is the deck's plan. It is a drawn shape: full breadth over the
+// middle two-thirds, drawing in hard forward to a narrow rounded nose and aft
+// to a broad rounded one, with a round-down at each end. A rectangle with the
+// corners knocked off is an escort carrier.
+//
+// The fourth is the hangar. It is the reason the ship exists and it is lit --
+// a working shed with its deck, its overhead girders, its pillars and its
+// aircraft ranged fore and aft along both sides with their wings folded. An
+// aeroplane parked athwartships in a hangar twenty-five metres wide has her
+// nose out through the plating, which is exactly where they used to be.
+//
+// The fifth is the lift wells. A well is a hole, and below the gallery deck it
+// opens into the hangar on all four sides -- there is no shaft down there to
+// plate. Boxed in, the lift ran down a grey chimney with nothing in it.
+//
+// The sixth is the island: one structure, not a bridge with a chimney beside
+// it. The uptakes come up through it and the funnel is its after half, canted
+// outboard so the smoke clears the deck, and the whole of it is cantilevered
+// out over the starboard deck edge so that not a square metre of landing area
+// is lost to it.
+//
 // Nothing here is a texture. Every plate, gallery, tub, boat, wire and aerial
-// is geometry, because the ship is looked at from a masthead at fifty metres in
-// the spectator view and a painted-on detail is a smear at that range.
+// is geometry, because the ship is looked at from a masthead at fifty metres
+// in the spectator view and a painted-on detail is a smear at that range.
+//
+// Local frame, as everywhere else in the renderer: +Z is the bow, +Y is up,
+// starboard is -X, and y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { wildcat, dauntless, avenger } from './planekit.js';
@@ -29,763 +69,1920 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, launchProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
+import {
+  box, cyl, tubeZ, tubeX, fairTable, ladder, sideLadder, loftShape, planHouse,
+  strip, sheet, rail,
+} from './shipkit.js';
+import { hullForm, plateHull } from './hullform.js';
+import { quadBofors, oerlikon as usnOerlikon } from './usnguns.js';
+
+/** Starboard, in this frame. */
+const S = -1;
 
 // ------------------------------------------------------------- materials --
+//
+// Measure 21: navy blue 5-N from the boot topping to the masthead, and deck
+// blue 20-B over every horizontal surface including the planking of the flight
+// deck, which from the middle of 1942 was stained rather than left bare fir.
+// It is a very dark scheme and it is meant to be -- she was painted to be hard
+// to see from the air.
 
-const M = {
-  // Measure 21, navy blue: what she wore from mid-1942.
-  hull: new THREE.MeshLambertMaterial({ color: 0x515d6b }),
-  hullDark: new THREE.MeshLambertMaterial({ color: 0x424d59 }),
-  boot: new THREE.MeshLambertMaterial({ color: 0x1a1e23 }),
-  antifoul: new THREE.MeshLambertMaterial({ color: 0x6d2b23 }),
-  // Douglas fir over the steel deck, weathered grey-brown.
-  deck: new THREE.MeshLambertMaterial({ color: 0x7d7362 }),
-  deckDark: new THREE.MeshLambertMaterial({ color: 0x6d6455 }),
-  steel: new THREE.MeshLambertMaterial({ color: 0x5d6874 }),
-  steelDark: new THREE.MeshLambertMaterial({ color: 0x46505b }),
-  bright: new THREE.MeshLambertMaterial({ color: 0x7f8993 }),
-  mark: new THREE.MeshLambertMaterial({ color: 0xd6d2c4 }),
-  gun: new THREE.MeshLambertMaterial({ color: 0x525d68 }),
-  gunDark: new THREE.MeshLambertMaterial({ color: 0x2b323a }),
-  glass: new THREE.MeshLambertMaterial({ color: 0x1b2229 }),
-  canvas: new THREE.MeshLambertMaterial({ color: 0x6e6a5c }),
-  raft: new THREE.MeshLambertMaterial({ color: 0x2a2f34 }),
-  // Inside the hangar, seen through the side openings: almost black.
-  cave: new THREE.MeshLambertMaterial({ color: 0x171c21 }),
-  // The hangar is lit, and no light in this scene reaches inside it, so its
-  // surfaces are drawn at a fixed tone rather than shaded. A Lambert surface
-  // with nothing shining on it is black, which is what made the openings read
-  // as holes cut in the side rather than as a space with a deck in it.
-  hangarDeck: new THREE.MeshBasicMaterial({ color: 0x474d55 }),
-  hangarSteel: new THREE.MeshBasicMaterial({ color: 0x565d66 }),
-  hangarDark: new THREE.MeshBasicMaterial({ color: 0x363c43 }),
-  lamp: new THREE.MeshBasicMaterial({ color: 0xd9d3bd }),
-  // Drawn flat for the same reason as the hangar behind them: a curtain in a
-  // shadowed opening that takes no light is indistinguishable from a hole.
-  curtain: new THREE.MeshBasicMaterial({ color: 0x3d454e }),
-  // Deck blue 20-B: what the open steel decks were painted under Measure 21.
-  deckBlue: new THREE.MeshLambertMaterial({ color: 0x39434f }),
-  // Signal bunting, which is the one place on a warship in Measure 21 where
-  // there is any colour at all -- and it is what you see first on her yardarm.
-  flagRed: new THREE.MeshLambertMaterial({ color: 0xb0392f }),
-  flagBlue: new THREE.MeshLambertMaterial({ color: 0x2f5c92 }),
-  flagGold: new THREE.MeshLambertMaterial({ color: 0xd8b452 }),
-  wire: new THREE.MeshLambertMaterial({ color: 0x232a31 }),
-  // Blue-grey over light grey: the 1942 scheme her aircraft wore.
-  planeTop: new THREE.MeshLambertMaterial({ color: 0x33475e }),
-  planeBottom: new THREE.MeshLambertMaterial({ color: 0x9aa4ad }),
-  prop: new THREE.MeshLambertMaterial({ color: 0x24282c }),
-  star: new THREE.MeshLambertMaterial({ color: 0xd9dde2 }),
-  // Insignia blue, which is the only other colour on a 1942 aeroplane.
-  insignia: new THREE.MeshLambertMaterial({ color: 0x1d3866 }),
+const P = {
+  hull: 0x47515e,
+  hullDark: 0x3b4551,
+  hullLight: 0x505b69,
+  boot: 0x191d22,
+  antifoul: 0x6b2c24,
+  // The flight deck: Douglas fir stained deck blue, with the darker runs the
+  // stain always went on unevenly over.
+  deck: 0x6d727a,
+  deckDark: 0x5d626a,
+  deckSteel: 0x49525e,
+  steel: 0x5b6572,
+  steelDark: 0x454e5a,
+  bright: 0x79838f,
+  mark: 0xd4d0c2,
+  gun: 0x4e5865,
+  gunDark: 0x2a3138,
+  glass: 0x1b2229,
+  canvas: 0x6b6759,
+  raft: 0x2a2f34,
+  cave: 0x14181c,
+  // Inside the hangar. It is a lit space with white-painted deckhead and
+  // frames over a grey deck, and it is looked into through the side openings
+  // from outside in daylight -- so it is drawn pale rather than dark, or every
+  // opening reads as a hole punched in a wall with nothing behind it.
+  hangarDeck: 0x5a626c,
+  hangarSide: 0x6e7783,
+  hangarHead: 0xa2acb8,
+  hangarSteel: 0x67707c,
+  hangarDark: 0x3c434c,
+  lamp: 0xdfd9c2,
+  // A rolled fire curtain in a hangar opening: dark grey duck, and set well
+  // back inside the frame so the opening keeps its depth.
+  curtain: 0x2f353c,
+  deckBlue: 0x39434f,
+  flagRed: 0xb0392f,
+  flagBlue: 0x2f5c92,
+  flagGold: 0xd8b452,
+  wire: 0x232a31,
 };
 
-// ------------------------------------------------------------ primitives --
+const MATS = {};
+function mat(color) {
+  if (!MATS[color]) MATS[color] = new THREE.MeshLambertMaterial({ color });
+  return MATS[color];
+}
+const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 
-function box(g, m, w, h, d, x, y, z, ry = 0) {
-  const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-  o.position.set(x, y, z);
-  o.rotation.y = ry;
-  g.add(o);
-  return o;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const ease = (k) => { const c = clamp(k, 0, 1); return c * c * (3 - 2 * c); };
+
+// ------------------------------------------------------------- her lines --
+//
+// A Yorktown's offsets, station by station: -1 at the transom, +1 at the stem,
+// against a half-breadth, a depth or a height in metres. Everything about the
+// shape of her comes out of these four tables and the rake of her ends.
+
+/**
+ * Half-breadths at the waterline.
+ *
+ * Twelve and three-quarter metres at her widest, held within a hand's breadth
+ * over the middle third, and then a long hollow entrance that takes the whole
+ * forward half of her to close. A carrier is a cruiser hull with a shed on it
+ * and this is the cruiser.
+ */
+const HALF_BEAM = [
+  [-1.000, 5.55], [-0.960, 6.62], [-0.920, 7.48], [-0.860, 8.68],
+  [-0.800, 9.62], [-0.720, 10.62], [-0.640, 11.30], [-0.540, 11.96],
+  [-0.440, 12.38], [-0.320, 12.64], [-0.200, 12.72], [-0.080, 12.75],
+  [0.000, 12.75], [0.100, 12.71], [0.200, 12.58], [0.300, 12.30],
+  [0.400, 11.80], [0.500, 11.02], [0.600, 9.92], [0.700, 8.40],
+  [0.780, 6.78], [0.850, 4.98], [0.910, 3.18], [0.960, 1.58],
+  [0.990, 0.54], [1.000, 0.15],
+];
+
+/**
+ * The keel line.
+ *
+ * Flat at her load draft over two-thirds of her, tucked up into the counter
+ * over the screws, and cut right away under the forefoot -- her stem leaves
+ * the water a good fifteen metres abaft the point the forecastle stands over.
+ */
+const KEEL = [
+  [-1.000, -1.95], [-0.960, -4.05], [-0.920, -5.55], [-0.870, -6.62],
+  [-0.820, -7.22], [-0.760, -7.62], [-0.680, -7.83], [-0.560, -7.90],
+  [-0.200, -7.90], [0.200, -7.90], [0.440, -7.90], [0.560, -7.87],
+  [0.660, -7.76], [0.740, -7.52], [0.800, -7.12], [0.850, -6.52],
+  [0.900, -5.50], [0.940, -4.20], [0.970, -2.86], [0.990, -1.62],
+  [1.000, -1.05],
+];
+
+/**
+ * The sheer: her deck edge, which on a carrier is the hangar deck.
+ *
+ * Dead flat at 7.40 m the whole length of the hangar, because a hangar deck is
+ * a hangar deck, and then rising hard forward of the hangar bulkhead into the
+ * forecastle. Six metres of rise in the last fifty is what gives a Yorktown
+ * her bow, and it is the single line that keeps the sea out of a hangar with
+ * no plating across the front of it.
+ */
+const SHEER = [
+  [-1.000, 8.30], [-0.970, 7.92], [-0.930, 7.58], [-0.880, 7.42],
+  [-0.800, 7.40], [-0.500, 7.40], [-0.200, 7.40], [0.200, 7.40],
+  [0.500, 7.40], [0.620, 7.46], [0.700, 7.96], [0.780, 8.96],
+  [0.850, 10.28], [0.905, 11.50], [0.950, 12.52], [0.980, 13.16],
+  [1.000, 13.50],
+];
+
+/**
+ * The flare: how far her deck edge stands outboard of her waterline beam.
+ *
+ * Almost nothing amidships, where the hangar side is very nearly vertical, and
+ * better than two and a half metres over the forward quarter, where the
+ * forecastle has to be wide enough to stand a windlass on and the sections
+ * have to throw green water clear at thirty knots. Carried right out to the
+ * stem: a flare that dies away two stations short leaves the last eight metres
+ * of bow as a wedge standing on a curve, and that wedge is the whole of what a
+ * camera sees from ahead.
+ */
+const FLARE = [
+  [-1.000, 1.05], [-0.930, 0.70], [-0.850, 0.42], [-0.700, 0.24],
+  [-0.400, 0.22], [0.000, 0.28], [0.250, 0.48], [0.420, 0.92],
+  [0.550, 1.48], [0.660, 2.06], [0.750, 2.50], [0.820, 2.68],
+  [0.880, 2.62], [0.930, 2.28], [0.965, 1.66], [0.988, 0.96],
+  [1.000, 0.52],
+];
+
+const LOA = 262.0;
+const WLB = 25.4;
+const FDW = 26.0;
+const FDL = 254.5;
+const DRAFT = 7.9;
+
+const F = hullForm({
+  loa: LOA,
+  half: HALF_BEAM, keel: KEEL, sheer: SHEER, flare: FLARE,
+  // Eight metres of rake between the forefoot and the forecastle, and hollow
+  // rather than straight: the higher the power the later the rake comes on, so
+  // the stem leaves the water nearly upright and sweeps forward as it rises.
+  stem: 8.0, stemLo: -2.4, stemUp: 15.9, stemPow: 1.52,
+  // And a counter that overhangs three and a half over the screws.
+  counter: 3.6, counterLo: -1.6, counterUp: 9.9, counterPow: 1.38,
+  // A cruiser's bilge: round, but nothing like as full as a battleship's.
+  bilge: 0.33,
+  // Her ends are where the offsets change fastest -- the half-breadth forward
+  // falls five metres in the last tenth of her -- so she is cut fine enough
+  // that no station spacing shows as a facet there.
+  stations: 190,
+});
+
+/** Her lines, for anything that has to know where her plating really is. */
+export const LINES = F;
+const sheerY = F.sheer;
+/** Half-breadth of the shell at the deck edge, at a station in metres. */
+const halfDeck = (z) => F.halfDeck(z);
+const tOf = (z) => clamp(z / (LOA / 2), -1, 1);
+
+// ------------------------------------------------------------- her decks --
+
+/** The hangar deck, which on a carrier is the upper deck of the hull. */
+const HANGAR = 7.40;
+/** Its overhead: five metres and a half of clear height, which is what she had. */
+const HTOP = 12.80;
+/** The gallery deck, slung under the flight deck with the ready rooms on it. */
+const GALLERY = 13.40;
+/** And the flight deck itself. */
+const FD = 17.00;
+
+/** Where the hangar begins and ends. */
+const HGR_F = 86.0;
+const HGR_A = -96.0;
+
+/**
+ * The ship's side at the hangar and gallery storeys.
+ *
+ * Over the hangar it is the hull's own deck edge carried straight up, because
+ * that is what it is -- one continuous surface from the boot topping to the
+ * flight deck. Beyond the hangar, where the hull narrows away under an
+ * overhanging deck, it follows the deck instead so the plating never stands
+ * outboard of the planking it is supposed to be holding up.
+ */
+function sideHalf(z) {
+  return Math.max(1.2, Math.min(halfDeck(z), fdHalf(z) - 0.15));
 }
 
-function cyl(g, m, rt, rb, h, x, y, z, seg = 10) {
-  const o = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m);
-  o.position.set(x, y, z);
-  g.add(o);
-  return o;
+/** The clear width of the hangar inside that plating. */
+function hangarHalf(z) {
+  if (z > HGR_F || z < HGR_A) return 0;
+  return Math.min(12.25, sideHalf(z) - 0.55);
 }
 
-/** A horizontal tube: a boom, a rail, a wire, a gun barrel lying fore and aft. */
-function tubeZ(g, m, r, len, x, y, z, seg = 8) {
-  const o = cyl(g, m, r, r, len, x, y, z, seg);
-  o.rotation.x = Math.PI / 2;
-  return o;
-}
+// -------------------------------------------------------- the flight deck --
 
-function tubeX(g, m, r, len, x, y, z, seg = 8) {
-  const o = cyl(g, m, r, r, len, x, y, z, seg);
-  o.rotation.z = Math.PI / 2;
-  return o;
+/** Where the deck's midpoint sits: a shade forward of the ship's own midships. */
+const FD_MID = LOA * 0.012;
+const FD_FWD = FD_MID + FDL / 2;        // +130.4
+const FD_AFT = FD_MID - FDL / 2;        // -124.1
+
+/**
+ * The flight deck in plan: 254.5 m long on a 262 m hull, 26 m across.
+ *
+ * Full breadth from a third of the way forward of the round-down to a third of
+ * the way aft of the bow, drawing in hard over the forward quarter -- the hull
+ * has no beam up there to stand on -- and more gently aft. The table is the
+ * deck edge; the last few metres at either end are rounded off it.
+ */
+const FD_PLAN = [
+  [-124.1, 9.30], [-119.0, 11.05], [-113.0, 12.15], [-106.0, 12.75],
+  [-98.0, 13.00], [-80.0, 13.00], [-40.0, 13.00], [0.0, 13.00],
+  [40.0, 13.00], [66.0, 13.00], [78.0, 12.94], [90.0, 12.62],
+  [100.0, 12.06], [109.0, 11.14], [116.0, 9.98], [121.5, 8.50],
+  [125.5, 6.80], [128.5, 4.90], [130.4, 3.20],
+];
+
+/**
+ * A flight deck ends in a nose, not a mitre: the deck edge comes round through
+ * a right angle in three or four metres and meets the end face square. Faired
+ * on to the table rather than tabulated, because a corner that tight wants
+ * stations closer together than anything else on her.
+ */
+const NOSE_F = 5.0;
+const NOSE_A = 8.0;
+const TIP_F = 1.60;
+const TIP_A = 5.60;
+
+/** Her half-breadth at the flight deck at a station. */
+export function fdHalf(z) {
+  if (z > FD_FWD || z < FD_AFT) return 0;
+  const w = fairTable(FD_PLAN, z);
+  if (z > FD_FWD - NOSE_F) {
+    const u = (z - (FD_FWD - NOSE_F)) / NOSE_F;
+    return TIP_F + (w - TIP_F) * Math.sqrt(Math.max(0, 1 - u * u));
+  }
+  if (z < FD_AFT + NOSE_A) {
+    const u = (FD_AFT + NOSE_A - z) / NOSE_A;
+    return TIP_A + (w - TIP_A) * Math.sqrt(Math.max(0, 1 - u * u));
+  }
+  return w;
 }
 
 /**
- * A railing: stanchions and three courses of wire, which is what the deck edge
- * of a carrier is made of for most of its length.
+ * The round-down at each end: the deck falls away over the last few metres so
+ * the air coming over it does not burble at the ramp. Aft it is the harder of
+ * the two, because that is the end a pilot comes over.
+ *
+ * Taken as a cube rather than a square. A square leaves the deck dead flat and
+ * then bends into the fall-away in one station, and however small the drop is
+ * that join is a crease running right across her -- which is the one thing a
+ * round-down exists for not having.
  */
-function railing(g, pts, h = 1.1, courses = 3) {
-  for (let i = 0; i < pts.length; i++) {
-    const [x, y, z] = pts[i];
-    box(g, M.steel, 0.06, h, 0.06, x, y + h / 2, z);
-    if (i === 0) continue;
-    const [px, py, pz] = pts[i - 1];
-    const dx = x - px; const dz = z - pz; const dy = y - py;
-    const len = Math.hypot(dx, dz, dy);
-    for (let c = 1; c <= courses; c++) {
-      const ry = (h * c) / courses;
-      const rail = box(g, M.steel, 0.04, 0.04, len,
-        (x + px) / 2, (y + py) / 2 + ry, (z + pz) / 2);
-      rail.rotation.y = Math.atan2(dx, dz);
-      rail.rotation.x = -Math.asin(dy / Math.max(0.001, len));
-    }
-  }
+const RD_FWD = 13.0;
+const RD_AFT = 15.0;
+function fdDrop(z) {
+  if (z > FD_FWD - RD_FWD) return Math.pow((z - (FD_FWD - RD_FWD)) / RD_FWD, 3) * 0.85;
+  if (z < FD_AFT + RD_AFT) return Math.pow((FD_AFT + RD_AFT - z) / RD_AFT, 3) * 1.30;
+  return 0;
 }
 
-/** A gun tub: a ring of plating with a deck in it, hung off the ship's side. */
-function tub(g, r, depth, x, y, z, seg = 14) {
-  cyl(g, M.steel, r, r * 0.92, 0.12, x, y, z, seg);
-  for (let i = 0; i < seg; i++) {
-    const a = (i / seg) * Math.PI * 2;
-    const w = (2 * Math.PI * r) / seg + 0.1;
-    box(g, M.steel, w, depth, 0.14, x + Math.sin(a) * r, y + depth / 2, z + Math.cos(a) * r, a);
+/** The height of the flight deck at a station. */
+export function fdY(z) { return FD - fdDrop(clamp(z, FD_AFT, FD_FWD)); }
+
+/**
+ * The other way about: how far forward, and aft, the deck reaches at a given
+ * breadth. Scanned rather than solved, because the outline is a table.
+ */
+function fdEndF(x) {
+  const w = Math.abs(x);
+  for (let z = FD_FWD; z > FD_MID; z -= 0.1) if (fdHalf(z) >= w) return z;
+  return FD_MID;
+}
+function fdEndA(x) {
+  const w = Math.abs(x);
+  for (let z = FD_AFT; z < FD_MID; z += 0.1) if (fdHalf(z) >= w) return z;
+  return FD_MID;
+}
+
+// ------------------------------------------------------------- the lifts --
+
+/**
+ * The three centreline lifts.
+ *
+ * Each is a hole through the flight deck and through the gallery deck under
+ * it, with a platform running up and down inside. Below the gallery deck there
+ * is nothing to run inside: the well opens straight into the hangar on all
+ * four sides, which is what a lift trunk on a Yorktown actually is and why a
+ * platform coming down arrives in a lit shed rather than at the bottom of a
+ * grey chimney.
+ */
+const LIFT_HW = 7.4;
+// Forward, amidships and aft, off her own deck plan: the forward one just
+// abaft the forward hangar bulkhead, the after one far enough forward of the
+// round-down to leave the whole of the arresting gear clear of it.
+const LIFT_Z = [74.0, 2.0, -70.0];
+function liftZs() { return LIFT_Z.slice(); }
+
+/** The parts of a fore-and-aft run that are not over a well. */
+function clearOfWells(z0, z1, pad = 0) {
+  let spans = [[z0, z1]];
+  for (const lz of liftZs()) {
+    const a = lz - LIFT_HW - pad;
+    const b = lz + LIFT_HW + pad;
+    const out = [];
+    for (const [s0, s1] of spans) {
+      if (b <= s0 || a >= s1) { out.push([s0, s1]); continue; }
+      if (s0 < a - 0.01) out.push([s0, a]);
+      if (s1 > b + 0.01) out.push([b, s1]);
+    }
+    spans = out;
   }
+  return spans;
+}
+
+/** Whether a station lies over a well at all. */
+function overWell(z) { return liftZs().some((lz) => Math.abs(z - lz) < LIFT_HW); }
+
+/** How far out the well reaches at a station, or nought where the deck is whole. */
+function wellHalf(z) {
+  for (const lz of liftZs()) {
+    if (Math.abs(z - lz) <= LIFT_HW) return LIFT_HW;
+  }
+  return 0;
 }
 
 // ------------------------------------------------------------------ hull --
 
 /**
- * The hull: a cruiser bow, a long parallel body, and a transom.
- *
- * Built as a ladder of stations rather than a box, because everything hung on
- * her -- sponsons, galleries, boat davits, the deck-edge catwalks -- is placed
- * off the shell at that station, and a box would put them all in a straight
- * line down a flat side.
+ * Her shell, and everything the yard did to it that no table of offsets will
+ * give you: the stem bar, the rubbing strake along the sheer, two rows of
+ * scuttles, the bilge keels, four shafts on their bossings and twin rudders.
  */
-const LOA = 262.0;
-const WLB = 25.4;              // waterline beam
-const FDW = 26.0;              // flight deck width
-const FDL = 254.5;             // flight deck length
-const DRAFT = 7.9;
-// A Yorktown floats a good deal lower than her flight deck suggests: the shell
-// plating stops at the hangar deck, about seven metres up, and the flight deck
-// stands another nine and a half above that on the gallery-deck structure. All
-// the daylight between the two is the open hangar side.
-const HANGAR = 7.4;            // hangar deck above the waterline
-const HTOP = 12.8;             // hangar overhead
-const GALLERY = 13.4;          // gallery deck, slung under the flight deck
-const FD = 17.0;               // flight deck above the waterline
-// Where the hangar begins and ends, as stations. Forward of it is the
-// forecastle, abaft it the quarterdeck: both open decks under the overhang.
-const HGR_F = 0.64;
-const HGR_A = -0.82;
-
-/**
- * The lines.
- *
- * A hull is not a box with a pointed end: it is a set of curves, and every one
- * of them does a job. The entrance forward is hollow, so she pushes the water
- * aside instead of shouldering into it. The midbody is nearly parallel with a
- * touch of swell. The run aft narrows into a transom about a third of the beam.
- * Under all of it the sections are round-bilged -- a flat of bottom, a quarter
- * turn out to the topsides -- and the topsides flare forward and fall in a
- * little aft. The keel is straight for two-thirds of her and rises at both ends,
- * cut away under the forefoot and tucked up into the counter.
- *
- * All four of those are separate functions of the station, and the shell is
- * lofted through them. That is what makes it a hull rather than a slab.
- */
-
-/** Half-beam of the shell at the waterline, station -1 (transom) to +1 (stem). */
-function halfBeam(t) {
-  const b = WLB / 2;
-  if (t > 0.32) {
-    // The entrance: hollow, so the waterlines are concave before they meet the
-    // stem rather than running straight into a wedge. It begins a third of the
-    // way forward of amidships and takes the rest of her to close, which is
-    // what a thirty-three knot hull wants and what makes her look like one.
-    // Clamped: a station exactly at the stem puts k a hair over one in floating
-    // point, and a negative number to a fractional power is not a number.
-    const k = Math.min(1, (t - 0.32) / 0.68);
-    return b * Math.max(0.007, Math.pow(Math.max(0, 1 - k * k), 0.72));
-  }
-  if (t < -0.52) {
-    // The run, drawn out over the after half and closing into a transom under
-    // a third of the beam across.
-    const k = (-t - 0.52) / 0.48;
-    return b * (1 - 0.71 * Math.pow(k, 1.5));
-  }
-  // Parallel midbody, with the small swell amidships that every hull has.
-  return b * (1 - 0.05 * t * t);
-}
-
-/** The keel line: straight amidships, rising at both ends. */
-function keelY(t) {
-  if (t > 0.70) {
-    // Cutaway forefoot: the stem is raked, so the keel leaves the water well
-    // aft of where the bow does.
-    const k = Math.min(1, (t - 0.70) / 0.30);
-    return -DRAFT * Math.max(0, 1 - Math.pow(Math.max(0, k), 1.45));
-  }
-  if (t < -0.76) {
-    // The tuck up into the counter, over the screws.
-    const k = (-t - 0.76) / 0.24;
-    return -DRAFT * (1 - 0.62 * Math.pow(k, 1.5));
-  }
-  return -DRAFT;
-}
-
-/** How high the sheer stands: the hangar deck, rising forward. */
-function sheer(t) {
-  if (t > 0.5) return HANGAR + 5.2 * Math.pow((t - 0.5) / 0.5, 1.7);
-  if (t < -0.85) return HANGAR + 1.1 * Math.pow((-t - 0.85) / 0.15, 1.5);
-  return HANGAR + 0.4 * t * t;
-}
-
-/** Flare at the sheer: outward forward, a little tumblehome aft. */
-function flare(t) {
-  if (t > 0.30) return 0.03 + 0.34 * Math.pow((t - 0.30) / 0.70, 1.6);
-  if (t < -0.55) return -0.04 * Math.min(1, (-t - 0.55) / 0.35);
-  return 0.03;
-}
-
-/**
- * Where a station stands fore and aft, at a given height.
- *
- * Neither end of her is plumb. The stem rakes forward, so the forecastle stands
- * a couple of metres ahead of the forefoot and the cutwater is a curve rather
- * than a wall; the counter rakes the other way over the screws. Nothing about a
- * hull is a straight extrusion, and this is the function that says so.
- */
-const STEM = 7.8;      // how far the forecastle stands ahead of the forefoot
-const COUNTER = 3.2;   // and how far the transom's head stands abaft its foot
-
-/**
- * The stem profile: not a rake, a curve.
- *
- * A straight raked stem is a line from the forefoot to the forecastle and it
- * looks like one. Hers sweeps: nearly upright where it leaves the water, then
- * curving further and further forward as it rises, so the forecastle stands
- * seven metres ahead of the point where the keel comes up. That curve is the
- * single line that says Yorktown from a mile off, and the flare over it is what
- * throws the sea aside when she is making thirty knots into a head swell.
- */
-function stemAt(y) { return STEM * Math.pow(Math.max(0, y) / 13.2, 1.45); }
-/** The counter: the same idea at the other end, gentler, over the screws. */
-function counterAt(y) { return COUNTER * Math.pow(Math.max(0, y) / 9.0, 1.25); }
-/** Ease a curve in without leaving a crease across the middle body. */
-function smooth(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
-
-function zAt(t, y) {
-  let z = (t * LOA) / 2;
-  // The stations take the profile's curve, and are pulled back as they take it
-  // so the stem head -- her extreme point, which is what length overall is
-  // measured to -- still lands where it should.
-  if (t > 0.46) z += smooth((t - 0.46) / 0.54) * (stemAt(y) - STEM);
-  else if (t < -0.70) z -= smooth((-t - 0.70) / 0.30) * (counterAt(y) - COUNTER);
-  return z;
-}
-
-/** Where the bilge turn finishes, as a fraction of the section's height. */
-const BILGE = 0.30;
-
-// Where the paint changes. Deep, because a carrier's draft moves a long way
-// between full bunkers and empty and because she is looked at from close aboard
-// in a seaway: a shallow boot topping puts bottom paint above the water on
-// every other wave.
-const BOOT_LO = -2.2;
-const BOOT_HI = 0.7;
-
-/** The three strakes, clamped to a station's keel so none runs below the hull. */
-function strakes(t) {
-  const kb = keelY(t);
-  const lo = Math.max(kb, BOOT_LO);
-  const hi = Math.max(kb, BOOT_HI);
-  return [[kb, lo, M.antifoul], [lo, hi, M.boot], [hi, sheer(t), M.hull]];
-}
-
-/**
- * The half-breadth of the shell at a station and a height.
- *
- * Below the bilge it is a quarter of an ellipse out from the keel; above it the
- * topside runs up nearly plumb, opening out by the flare. This one function is
- * the hull's whole shape, and the three paint strakes are lofted through it at
- * their own heights so they lie on the same surface.
- */
-function shellAt(t, y) {
-  const hb = halfBeam(t);
-  const kb = keelY(t);
-  const sh = sheer(t);
-  if (y <= kb) return 0;
-  if (y >= sh) return hb * (1 + flare(t));
-  const v = (y - kb) / (sh - kb);
-  if (v < BILGE) {
-    const k = v / BILGE;
-    return hb * Math.sqrt(Math.max(0, 1 - (1 - k) * (1 - k)));
-  }
-  const k = (v - BILGE) / (1 - BILGE);
-  return hb * (1 + flare(t) * k * k);
-}
-
-/**
- * Loft one strake of paint through the lines.
- *
- * Both shells and, where asked, the surface that closes the top of the band --
- * which for the topside strake is the hangar deck.
- */
-function loftBand(g, m, lo, hi, opts = {}) {
-  const { N = 84, M = 9, cap = false } = opts;
-  const pos = [];
-  const idx = [];
-  for (let i = 0; i <= N; i++) {
-    const t = -1 + (2 * i) / N;
-    const y0 = lo(t);
-    const y1 = hi(t);
-    for (let j = 0; j <= M; j++) {
-      const y = y0 + ((y1 - y0) * j) / M;
-      const w = shellAt(t, y);
-      pos.push(-w, y, zAt(t, y));
-    }
-    for (let j = M; j >= 0; j--) {
-      const y = y0 + ((y1 - y0) * j) / M;
-      const w = shellAt(t, y);
-      pos.push(w, y, zAt(t, y));
-    }
-  }
-  const row = (M + 1) * 2;
-  for (let i = 0; i < N; i++) {
-    for (let j = 0; j < row - 1; j++) {
-      const a = i * row + j;
-      const b = (i + 1) * row + j;
-      // Wound so the shell looks outboard. The ring runs up the port side and
-      // back down the starboard, so getting this the wrong way round turns the
-      // whole hull inside out at once: both sides get culled, and what you see
-      // of her is the inside of the far side showing through the near one --
-      // which reads as a ship with only one side to her.
-      idx.push(a, b + 1, a + 1, a, b, b + 1);
-    }
-  }
-  if (cap) {
-    // The deck: a fan across the section at every station, port to starboard.
-    const base = pos.length / 3;
-    for (let i = 0; i <= N; i++) {
-      const t = -1 + (2 * i) / N;
-      const y = hi(t);
-      const w = shellAt(t, y);
-      pos.push(-w, y, zAt(t, y));
-      pos.push(w, y, zAt(t, y));
-    }
-    for (let i = 0; i < N; i++) {
-      const a = base + i * 2;
-      // Wound so the deck faces up. Get this the other way round and the
-      // forecastle, the hangar deck and the quarterdeck are all invisible from
-      // above, and you see straight through the ship to the sea beyond.
-      idx.push(a, a + 3, a + 1, a, a + 2, a + 3);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, m));
-}
-
-/**
- * Close one end of the shell, in paint.
- *
- * `out` is +1 at the stem and -1 at the transom, and it decides the winding, so
- * whichever end this is the surface looks out of the ship rather than into it.
- */
-function capEnd(g, t, out) {
-  for (const [lo, hi, mat] of strakes(t)) {
-    if (hi - lo < 0.01) continue;
-    const pos = [];
-    const idx = [];
-    const S = 8;
-    for (let j = 0; j <= S; j++) {
-      const y = lo + ((hi - lo) * j) / S;
-      const w = shellAt(t, y);
-      pos.push(-w, y, zAt(t, y), w, y, zAt(t, y));
-    }
-    for (let j = 0; j < S; j++) {
-      const a = j * 2;
-      if (out > 0) idx.push(a, a + 3, a + 2, a, a + 1, a + 3);
-      else idx.push(a, a + 2, a + 3, a, a + 3, a + 1);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    g.add(new THREE.Mesh(geo, mat));
-  }
-}
-
 function buildHull(g) {
-  // Three strakes on one surface: antifouling from the keel to a foot below
-  // the waterline, the boot topping across it, and the topside above. A paint
-  // line is a waterline, not a line parallel to the keel -- so where the keel
-  // rises above a strake, at the forefoot and under the counter, that strake
-  // simply runs out. Clamping the bands to each other is what keeps the bottom
-  // paint in the water where it belongs.
-  const atLeast = (v) => (t) => Math.max(keelY(t), v);
-  loftBand(g, M.antifoul, keelY, atLeast(BOOT_LO), { M: 7 });
-  loftBand(g, M.boot, atLeast(BOOT_LO), atLeast(BOOT_HI), { M: 2 });
-  loftBand(g, M.hull, atLeast(BOOT_HI), sheer, { M: 7, cap: true });
+  // Three strakes on one surface -- antifouling from the keel, the boot
+  // topping across the waterline, navy blue above it -- and each of them
+  // plated in several bands so the section keeps its curve. A fifteen-metre
+  // freeboard drawn as one band is a straight line between two heights, and
+  // every bit of flare and hollow in the offsets is thrown away between them.
+  plateHull(g, F, M, { bootLo: -2.30, bootHi: 0.60, bands: 8, upper: 5 });
 
-  // Both ends closed, and closed in the same three strakes the sides carry.
-  //
-  // The shell is lofted as a ring from station to station, which leaves the
-  // first and last rings as open edges: the transom aft and, at the stem, a
-  // slot a third of a metre wide running the whole height of the bow. The
-  // transom used to be capped with one plate of topside grey -- no boot
-  // topping, no bottom paint, a different ship below the waterline from the one
-  // either side of it -- and the stem was not capped at all.
-  capEnd(g, -1, -1);
-  capEnd(g, 1, 1);
-  // The stem bar itself: a rounded cutwater laid up the profile, painted at
-  // each height with whatever the shell beside it is painted.
-  for (let i = 0; i < 26; i++) {
-    const y0 = keelY(1) + ((sheer(1) - keelY(1)) * i) / 26;
-    const y1 = keelY(1) + ((sheer(1) - keelY(1)) * (i + 1)) / 26;
-    const y = (y0 + y1) / 2;
-    const band = strakes(1).find(([lo, hi]) => y >= lo && y < hi);
-    const dz = zAt(1, y1) - zAt(1, y0);
-    const bar = cyl(g, band ? band[2] : M.hull, 0.3, 0.3,
-      Math.hypot(y1 - y0, dz) + 0.42, 0, y, zAt(1, y) + 0.05, 10);
-    bar.rotation.x = -Math.atan2(dz, y1 - y0);
-  }
+  // The hangar deck, which is the top of the hull: one sheet from the transom
+  // to the stem, cut to her own deck edge.
+  sheet(g, M.deckSteel, -LOA / 2 + 0.4, LOA / 2 - 0.4,
+    (z) => Math.max(0.12, halfDeck(z) - 0.05), (z) => sheerY(tOf(z)), 120);
 
-  // The knuckle: a rubbing strake along the sheer, which is the line that gives
-  // a hull its length when you look down it.
-  for (let i = 0; i < 60; i++) {
-    const t = -1 + (2 * i) / 60;
-    const t2 = -1 + (2 * (i + 1)) / 60;
-    const y = (sheer(t) + sheer(t2)) / 2 - 0.5;
-    const z = (zAt(t, y) + zAt(t2, y)) / 2;
-    const w = (shellAt(t, y) + shellAt(t2, y)) / 2;
-    const len = Math.abs(zAt(t2, y) - zAt(t, y)) + 0.3;
-    for (const s of [-1, 1]) {
-      const b = box(g, M.hullDark, 0.34, 0.4, len, s * (w + 0.1), y, z);
-      b.rotation.x = -(sheer(t2) - sheer(t)) / len * 0.5;
+  // The stem bar: a rounded cutwater laid up the profile, painted at each
+  // height with whatever the shell beside it is painted.
+  {
+    const k0 = F.keelY(1);
+    const NS = 64;
+    const NR = 10;
+    const R = 0.26;
+    const yOf = (i) => k0 + ((sheerY(1) - k0) * i) / NS;
+    // One swept surface per paint, so the three strakes still meet the shell
+    // beside them at the right heights.
+    for (const [lo, hi, m] of [[-Infinity, -2.30, M.antifoul], [-2.30, 0.60, M.boot],
+      [0.60, Infinity, M.hull]]) {
+      const sk = strip();
+      const ring = (y) => {
+        // The section is swept square to the stem's own slope, so the bar
+        // keeps its thickness where the profile turns hardest.
+        const dz = F.zAt(1, y + 0.05) - F.zAt(1, y - 0.05);
+        const a = Math.atan2(dz, 0.1);
+        const pts = [];
+        for (let k = 0; k < NR; k++) {
+          const th = (k / NR) * Math.PI * 2;
+          const cx = Math.cos(th) * R;
+          const cy = Math.sin(th) * R;
+          pts.push([cx, y - cy * Math.sin(a), F.zAt(1, y) + 0.04 + cy * Math.cos(a)]);
+        }
+        return pts;
+      };
+      for (let i = 0; i < NS; i++) {
+        const ya = yOf(i);
+        const yb = yOf(i + 1);
+        if (yb < lo || ya > hi) continue;
+        const A = ring(Math.max(ya, lo === -Infinity ? ya : lo));
+        const B = ring(Math.min(yb, hi === Infinity ? yb : hi));
+        for (let k = 0; k < NR; k++) {
+          const j = (k + 1) % NR;
+          sk.quad(A[k], B[k], B[j], A[j],
+            [A[k][0], 0, A[k][2] - F.zAt(1, ya)]);
+        }
+      }
+      sk.mesh(g, m);
     }
   }
 
-  // Portholes: two rows down the topside, in the parallel body where the
+  // The knuckle: a rubbing strake along the sheer, which is the line that
+  // gives a hull its length when you look down it.
+  for (let i = 0; i < 70; i++) {
+    const t = -1 + (2 * i) / 70;
+    const t2 = -1 + (2 * (i + 1)) / 70;
+    const y = (sheerY(t) + sheerY(t2)) / 2 - 0.52;
+    const z = (F.zAt(t, y) + F.zAt(t2, y)) / 2;
+    const w = (F.shellAt(t, y) + F.shellAt(t2, y)) / 2;
+    const len = Math.abs(F.zAt(t2, y) - F.zAt(t, y)) + 0.3;
+    for (const sgn of [-1, 1]) {
+      const b = box(g, M.hullDark, 0.30, 0.36, len, sgn * (w + 0.08), y, z);
+      b.rotation.x = -(sheerY(t2) - sheerY(t)) / len * 0.5;
+    }
+  }
+
+  // The degaussing cable, carried in its trough round her the whole way: a
+  // band the width of a hand about a metre under the deck edge, and on a ship
+  // painted one colour from stem to stern it is the one line down her side
+  // that anybody can actually see.
+  for (let i = 0; i < 70; i++) {
+    const t = -0.97 + (1.94 * i) / 70;
+    const t2 = -0.97 + (1.94 * (i + 1)) / 70;
+    const y = (sheerY(t) + sheerY(t2)) / 2 - 1.45;
+    const z = (F.zAt(t, y) + F.zAt(t2, y)) / 2;
+    const w = (F.shellAt(t, y) + F.shellAt(t2, y)) / 2;
+    const len = Math.abs(F.zAt(t2, y) - F.zAt(t, y)) + 0.25;
+    for (const sgn of [-1, 1]) {
+      const b = box(g, M.hullLight, 0.14, 0.18, len, sgn * (w + 0.04), y, z);
+      b.rotation.x = -(sheerY(t2) - sheerY(t)) / len * 0.5;
+    }
+  }
+
+  // Scuttles: two rows down the topside, in the parallel body where the
   // accommodation is. Small, and unmistakable at any range.
-  for (const row of [HANGAR - 2.4, HANGAR - 4.6]) {
-    for (let i = 0; i < 34; i++) {
-      const t = -0.62 + (i / 33) * 1.1;
-      const z = zAt(t, row);
-      const w = shellAt(t, row);
-      for (const s of [-1, 1]) {
-        cyl(g, M.steelDark, 0.28, 0.28, 0.16, s * (w + 0.02), row, z, 8)
+  for (const row of [HANGAR - 2.5, HANGAR - 4.7]) {
+    for (let i = 0; i < 38; i++) {
+      const t = -0.66 + (i / 37) * 1.18;
+      const z = F.zAt(t, row);
+      const w = F.shellAt(t, row);
+      if (w < 3) continue;
+      for (const sgn of [-1, 1]) {
+        cyl(g, M.steelDark, 0.26, 0.26, 0.14, sgn * (w + 0.02), row, z, 8)
           .rotation.z = Math.PI / 2;
       }
     }
   }
 
   // Bilge keels, laid along the turn of the bilge where they belong.
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 22; i++) {
-      const t = -0.42 + (i / 21) * 0.84;
-      const y = keelY(t) + (sheer(t) - keelY(t)) * BILGE * 0.62;
-      const z = zAt(t, y);
-      const w = shellAt(t, y);
-      const bk = box(g, M.antifoul, 0.3, 1.3, (0.84 * LOA) / 42 + 0.4, s * (w + 0.5), y, z);
-      bk.rotation.z = s * 0.9;
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 24; i++) {
+      const t = -0.44 + (i / 23) * 0.88;
+      const y = F.keelY(t) * 0.62;
+      const z = F.zAt(t, y);
+      const w = F.shellAt(t, y);
+      const bk = box(g, M.antifoul, 0.28, 1.25, (0.88 * LOA) / 46 + 0.4,
+        sgn * (w + 0.45), y, z);
+      bk.rotation.z = sgn * 0.92;
     }
   }
 
-  // Four shafts on their bossings, A-brackets, screws and twin rudders.
-  for (const s of [-1, 1]) {
+  // Four shafts on their bossings, A-brackets, screws and twin rudders. The
+  // wing pair and the inboard pair are handed opposite ways, which is what
+  // keeps a four-screw ship from walking her stern round at slow speed.
+  for (const sgn of [-1, 1]) {
     for (const o of [0.34, 0.72]) {
-      const bx = s * WLB * o * 0.5;
-      const sh = tubeZ(g, M.antifoul, 0.6, 26, bx, -DRAFT * 0.64, -LOA * 0.34, 10);
+      const bx = sgn * WLB * o * 0.5;
+      const sh = tubeZ(g, M.antifoul, 0.58, 26, bx, -DRAFT * 0.62, -LOA * 0.34, 10);
       sh.rotation.x = Math.PI / 2 + 0.055;
-      // The A-bracket carrying the tail shaft.
-      const arm = box(g, M.antifoul, 0.34, 3.0, 0.8, bx, -DRAFT * 0.5, -LOA * 0.415);
-      arm.rotation.z = -s * 0.35;
-      const boss = cyl(g, M.antifoul, 0.75, 0.85, 2.0, bx, -DRAFT * 0.66, -LOA * 0.40, 12);
+      const armBr = box(g, M.antifoul, 0.32, 3.0, 0.8, bx, -DRAFT * 0.48, -LOA * 0.415);
+      armBr.rotation.z = -sgn * 0.35;
+      const boss = cyl(g, M.antifoul, 0.72, 0.84, 2.0, bx, -DRAFT * 0.64, -LOA * 0.40, 12);
       boss.rotation.x = Math.PI / 2;
-      // Screw: hub and four blades, in a group of their own so they turn.
-      // The wing pair and the inboard pair are handed opposite ways.
       const scr = new THREE.Group();
-      scr.position.set(bx, -DRAFT * 0.68, -LOA * 0.435);
+      scr.position.set(bx, -DRAFT * 0.66, -LOA * 0.435);
       scr.userData.dynamic = true;
-      scr.userData.screw = { hand: o > 0.5 ? s : -s };
+      scr.userData.screw = { hand: o > 0.5 ? sgn : -sgn };
       g.add(scr);
-      cyl(scr, M.hullDark, 0.4, 0.4, 0.7, 0, 0, 0, 10).rotation.x = Math.PI / 2;
+      cyl(scr, M.hullDark, 0.38, 0.38, 0.7, 0, 0, 0, 10).rotation.x = Math.PI / 2;
       for (let k = 0; k < 4; k++) {
-        const bl = box(scr, M.hullDark, 0.3, 3.0, 0.14, 0, 0, 0);
+        const bl = box(scr, M.hullDark, 0.3, 2.9, 0.14, 0, 0, 0);
         bl.rotation.z = (k / 4) * Math.PI * 2 + 0.3;
         bl.rotation.y = 0.35;
       }
     }
-    box(g, M.antifoul, 0.42, 4.6, 3.6, s * 3.4, -DRAFT * 0.52, -LOA * 0.462);
+    // The rudder and its stock, under the counter.
+    box(g, M.antifoul, 0.40, 4.5, 3.5, sgn * 3.3, -DRAFT * 0.50, -LOA * 0.462);
+    cyl(g, M.antifoul, 0.32, 0.32, 1.6, sgn * 3.3, -DRAFT * 0.10, -LOA * 0.455, 8);
   }
 
   // The bow: hawse pipes with the chain leading through them, and the anchors
   // stowed home against the shell.
-  for (const s of [-1, 1]) {
-    const t = 0.855;
-    const y = sheer(t) - 2.6;
-    const w = shellAt(t, y);
-    const hz = zAt(t, y);
-    cyl(g, M.steelDark, 0.6, 0.6, 1.6, s * (w - 0.2), y, hz, 10)
+  for (const sgn of [-1, 1]) {
+    const t = 0.862;
+    const y = sheerY(t) - 2.7;
+    const w = F.shellAt(t, y);
+    const hz = F.zAt(t, y);
+    cyl(g, M.steelDark, 0.56, 0.56, 1.5, sgn * (w - 0.2), y, hz, 10)
       .rotation.z = Math.PI / 2;
-    const anc = box(g, M.steelDark, 0.4, 2.4, 1.6, s * (w + 0.2), y - 0.3, hz);
-    anc.rotation.z = s * 0.09;
-    box(g, M.steelDark, 0.3, 0.5, 2.4, s * (w + 0.2), y + 0.9, hz);
-    // The chain running aft along the forecastle to the wildcat.
-    for (let i = 0; i < 9; i++) {
-      const tz = t - 0.011 * i;
-      box(g, M.wire, 0.22, 0.22, 0.6, s * 2.2, sheer(tz) + 0.25, zAt(tz, sheer(tz)));
+    const anc = box(g, M.steelDark, 0.38, 2.3, 1.5, sgn * (w + 0.16), y - 0.3, hz);
+    anc.rotation.z = sgn * 0.09;
+    box(g, M.steelDark, 0.28, 0.48, 2.3, sgn * (w + 0.16), y + 0.85, hz);
+    for (let i = 0; i < 10; i++) {
+      const tz = t - 0.010 * i;
+      box(g, M.wire, 0.20, 0.20, 0.55, sgn * 2.2, sheerY(tz) + 0.24, F.zAt(tz, sheerY(tz)));
     }
   }
   // Jackstaff at the stem, ensign staff at the transom.
-  box(g, M.steel, 0.14, 3.4, 0.14, 0, sheer(0.99) + 1.7, zAt(0.99, sheer(0.99)));
-  box(g, M.steel, 0.14, 3.0, 0.14, 0, sheer(-0.99) + 1.5, zAt(-0.99, sheer(-0.99)));
+  box(g, M.steel, 0.13, 3.4, 0.13, 0, sheerY(0.985) + 1.7, F.zAt(0.985, sheerY(0.985)));
+  box(g, M.steel, 0.13, 3.0, 0.13, 0, sheerY(-0.985) + 1.5, F.zAt(-0.985, sheerY(-0.985)));
 }
 
-// ------------------------------------------------ hangar and gallery decks --
-
-/** Half-breadth of the ship's side at the sheer, where the hangar stands on it. */
-function sideX(t) { return shellAt(t, sheer(t)); }
+// ------------------------------------------ forecastle and quarterdeck --
 
 /**
- * The hangar and the gallery deck: the two storeys between the hull and the
- * flight deck.
+ * The open decks at either end, under the overhang of the flight deck.
  *
- * This is the part of a Yorktown that people get wrong. The flight deck does
- * not sit on stilts with daylight under it: the hangar sides are plated the
- * whole length of the hangar, broken by a run of large openings closed with
- * roller curtains, and above them the gallery deck is plated again right up to
- * the deck edge. What you see between the waterline and the flight deck is a
- * wall with two rows of holes in it, not a trellis -- and the openings are what
- * gave her crew light and air and let them run engines on the hangar deck.
+ * Forward: the ground tackle -- windlass, wildcats, chain pipes, bitts and a
+ * breakwater to keep a head sea out of it. Aft: the capstans and the towing
+ * fittings. Neither has anything to do with flying, and both are what makes
+ * the ends of her read as a ship rather than as the ends of a runway.
+ */
+function groundTackle(g) {
+  // Deck blue over the open decks at both ends. The hangar deck under them is
+  // one continuous sheet of plating, so the paint that belongs on a horizontal
+  // surface goes on as a thin plate over the top of it.
+  for (const [za, zb] of [[HGR_F - 1, LOA / 2 - 4.5], [-LOA / 2 + 4.5, HGR_A + 1]]) {
+    sheet(g, M.deckBlue, za, zb, (z) => Math.max(0.2, halfDeck(z) - 0.18),
+      (z) => sheerY(tOf(z)) + 0.10, 22);
+  }
+
+  // The breakwater, angled to throw the water outboard.
+  {
+    const t = 0.755;
+    const y = sheerY(t);
+    const z = F.zAt(t, y);
+    const w = halfDeck(z) - 1.1;
+    for (let i = 0; i < 9; i++) {
+      const x = -w + (2 * w * (i + 0.5)) / 9;
+      const b = box(g, M.hull, (2 * w) / 9 - 0.12, 1.9, 0.32, x, y + 1.05, z);
+      b.rotation.x = -0.22;
+    }
+  }
+  // The windlass amidships on the forecastle, a wildcat either side of it.
+  {
+    const t = 0.815;
+    const y = sheerY(t);
+    const z = F.zAt(t, y);
+    box(g, M.steelDark, 5.0, 1.4, 2.5, 0, y + 0.80, z);
+    for (const sgn of [-1, 1]) {
+      const w = cyl(g, M.steel, 0.82, 0.82, 0.95, sgn * 3.2, y + 0.92, z, 12);
+      w.rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.40, 0.40, 0.5, sgn * 2.1, y + 0.28, z - 3.3, 10);
+    }
+  }
+  // Bitts, chocks and fairleads down both sides of both open decks.
+  for (const [ta, tb, n] of [[0.700, 0.930, 5], [-0.955, HGR_A / (LOA / 2) - 0.01, 4]]) {
+    for (let i = 0; i < n; i++) {
+      const t = ta + ((tb - ta) * (i + 0.5)) / n;
+      const y = sheerY(t);
+      const z = F.zAt(t, y);
+      const x = F.shellAt(t, y) - 1.1;
+      if (x < 1) continue;
+      for (const sgn of [-1, 1]) {
+        for (const dz of [-0.65, 0.65]) {
+          cyl(g, M.steelDark, 0.22, 0.26, 0.95, sgn * x, y + 0.5, z + dz, 8);
+        }
+        box(g, M.steelDark, 0.85, 0.65, 1.8, sgn * (x + 0.66), y + 0.34, z);
+      }
+    }
+  }
+  // Two capstans on the quarterdeck, and the after towing bitts between them.
+  {
+    const t = -0.905;
+    const y = sheerY(t);
+    const z = F.zAt(t, y);
+    for (const sgn of [-1, 1]) cyl(g, M.steel, 0.68, 0.82, 1.05, sgn * 3.0, y + 0.58, z, 12);
+    box(g, M.steelDark, 2.9, 0.85, 1.3, 0, y + 0.48, z - 3.2);
+  }
+  // Guardrails round the open ends.
+  for (const [za, zb] of [[HGR_F + 1, LOA / 2 - 6.5], [-LOA / 2 + 6.5, HGR_A - 1]]) {
+    rail(g, M.steelDark, za, zb, (z) => Math.max(0.3, halfDeck(z) - 0.35),
+      (z) => sheerY(tOf(z)) + 0.14, 2.6);
+  }
+}
+
+// ------------------------------------------------------------ the hangar --
+
+/**
+ * The hangar sides: one sheet of plating a side, with a row of large openings
+ * cut in it.
+ *
+ * This is the part of a Yorktown that gets drawn wrong. The flight deck does
+ * not stand on stilts with daylight under it, and the hangar is not a shaded
+ * slot: the side is plated from the hangar deck right up to the flight deck
+ * edge, and cut in it is a run of openings four metres high that gave her crew
+ * light and air and let them run engines on the hangar deck. What you see
+ * between the waterline and the planking is a wall with holes in it.
+ *
+ * Both faces are drawn. The plating is single-sided, so a sheet wound outboard
+ * and nothing else leaves the man standing in the hangar looking out through
+ * his own ship's side at the sea.
  */
 function hangarSides(g) {
-  const BAYS = 26;
-  const mid = (HANGAR + HTOP) / 2;
-  for (let i = 0; i < BAYS; i++) {
-    const t0 = HGR_A + (HGR_F - HGR_A) * (i / BAYS);
-    const t1 = HGR_A + (HGR_F - HGR_A) * ((i + 1) / BAYS);
-    const tc = (t0 + t1) / 2;
-    const z0 = zAt(t0, HANGAR);
-    const z1 = zAt(t1, HANGAR);
-    const len = z1 - z0;
-    const zc = (z0 + z1) / 2;
-    const x = sideX(tc);
-    // Three bays in eight stand open; the rest carry their curtain rolled down.
-    const open = i % 4 === 1;
-    for (const s of [-1, 1]) {
-      // Sill and header: continuous plating top and bottom of the opening.
-      box(g, M.hull, 0.34, 1.0, len + 0.2, s * x, HANGAR + 0.45, zc);
-      box(g, M.hull, 0.34, 1.0, len + 0.2, s * x, HTOP - 0.5, zc);
-      // The frame between one bay and the next.
-      box(g, M.hull, 0.38, HTOP - HANGAR, 0.85, s * x, mid, z0);
-      // The opening itself. An open bay is left open -- there is a hangar
-      // behind it to see now -- and the rest carry their curtain rolled down.
-      if (!open) {
-        box(g, M.curtain, 0.2, HTOP - HANGAR - 2.0, len - 1.0,
-          s * (x - 0.16), mid + 0.05, zc);
+  const Z0 = HGR_A + 4.0;
+  const Z1 = HGR_F - 4.0;
+  const BAYS = 28;
+  const PITCH = (Z1 - Z0) / BAYS;
+  const PIER = 1.45;
+  const SILL = HANGAR + 0.95;
+  const HEAD = HTOP - 0.65;
+  const TOP = FD - 0.44;
+
+  for (const sgn of [-1, 1]) {
+    // Two skins: the ship's side, and the hangar wall a hand's breadth inside
+    // it. They are not the same colour and never were. The outboard skin is
+    // her paintwork; the inboard one is the inside of a lit working space,
+    // painted out pale so that a hangar looked at through her own openings
+    // reads as a shed with light in it rather than as the back of the plating
+    // -- which is what it was, and why every bay came out as a rectangle of
+    // the same grey as the hull around it.
+    for (const [inset, out, skin] of [[0, sgn, M.hull], [0.20, -sgn, M.hangarSide]]) {
+      const sk = strip();
+      const hx = (z) => sgn * (sideHalf(z) - inset);
+      const face = [out * sgn > 0 ? sgn : -sgn, 0, 0];
+      const n = [face[0], 0, 0];
+      const panel = (za, zb, y0, y1) => {
+        sk.quad([hx(za), y0, za], [hx(zb), y0, zb], [hx(zb), y1, zb], [hx(za), y1, za], n);
+      };
+      // Abaft and forward of the bays the side is plated solid the whole way
+      // up, in short lengths so it follows the curve of her.
+      const solid = (za, zb) => {
+        const steps = Math.max(1, Math.round(Math.abs(zb - za) / 3));
+        for (let i = 0; i < steps; i++) {
+          panel(za + ((zb - za) * i) / steps, za + ((zb - za) * (i + 1)) / steps,
+            HANGAR, TOP);
+        }
+      };
+      solid(HGR_A - 1.5, Z0);
+      solid(Z1, HGR_F + 1.5);
+      for (let i = 0; i < BAYS; i++) {
+        const za = Z0 + PITCH * i;
+        const zb = za + PITCH;
+        const oa = za + PIER;
+        // The pier between one bay and the next, full height.
+        panel(za, oa, HANGAR, TOP);
+        // Sill under the opening and header over it.
+        panel(oa, zb, HANGAR, SILL);
+        panel(oa, zb, HEAD, TOP);
       }
-      if (!open) {
-        // The roll the curtain winds onto, under the header.
-        const r = cyl(g, M.steelDark, 0.24, 0.24, len - 1.2, s * (x - 0.3), HTOP - 1.4, zc, 8);
-        r.rotation.x = Math.PI / 2;
-      }
+      sk.mesh(g, skin);
     }
-    // The hangar overhead, seen from outside as the strip above the openings.
-    if (overWell(zc)) {
-      for (const s of [-1, 1]) {
-        box(g, M.steelDark, x - 0.2 - LIFT_HW, 0.3, len,
-          s * (LIFT_HW + (x - 0.2 - LIFT_HW) / 2), HTOP + 0.15, zc);
+    // The reveal round every opening, which is what gives the plating its
+    // thickness and stops a hole in a sheet reading as a painted rectangle.
+    for (let i = 0; i < BAYS; i++) {
+      const oa = Z0 + PITCH * i + PIER;
+      const zb = Z0 + PITCH * (i + 1);
+      const zc = (oa + zb) / 2;
+      const x = sgn * (sideHalf(zc) - 0.10);
+      box(g, M.hullDark, 0.26, 0.16, zb - oa, x, SILL, zc);
+      box(g, M.hullDark, 0.26, 0.16, zb - oa, x, HEAD, zc);
+      for (const zz of [oa, zb]) {
+        box(g, M.hullDark, 0.26, HEAD - SILL, 0.16, sgn * (sideHalf(zz) - 0.10),
+          (SILL + HEAD) / 2, zz);
       }
-    } else {
-      box(g, M.steelDark, 2 * x - 0.4, 0.3, len, 0, HTOP + 0.15, zc);
+      // One bay in three carries its fire curtain, rolled down and set well
+      // back inside the frame. Rolled up, the roller is under the header.
+      const shut = i % 3 === 1;
+      const rz = zc;
+      const rx = sgn * (sideHalf(rz) - 0.95);
+      if (shut) {
+        box(g, M.curtain, 0.12, HEAD - SILL - 0.3, zb - oa - 0.45, rx, (SILL + HEAD) / 2, rz);
+        for (let k = 1; k <= 5; k++) {
+          box(g, M.gunDark, 0.16, 0.10, zb - oa - 0.45, rx,
+            SILL + ((HEAD - SILL) * k) / 6, rz);
+        }
+      }
+      const rl = cyl(g, M.steelDark, 0.22, 0.22, zb - oa - 0.5, rx, HEAD - 0.34, rz, 8);
+      rl.rotation.x = Math.PI / 2;
     }
   }
 
-  // Bulkheads closing the hangar fore and aft, with the big doors in them.
-  for (const t of [HGR_F, HGR_A]) {
-    const x = sideX(t);
-    const z = zAt(t, HANGAR);
-    box(g, M.hull, 2 * x, HTOP - HANGAR, 0.5, 0, mid, z);
-    box(g, M.steelDark, 9.0, 4.4, 0.24, 0, HANGAR + 2.4, z + (t > 0 ? -0.3 : 0.3));
-    for (const s of [-1, 1]) {
-      box(g, M.steelDark, 0.3, 2.2, 0.2, s * 5.6, HANGAR + 1.3, z + (t > 0 ? -0.3 : 0.3));
+  // The bulkheads that close the hangar at both ends, with the big rolling
+  // doors in them that a tractor takes an aeroplane through.
+  for (const [z, face] of [[HGR_F, 1], [HGR_A, -1]]) {
+    const w = sideHalf(z) - 0.2;
+    box(g, M.hull, 2 * w, HTOP - HANGAR, 0.42, 0, (HANGAR + HTOP) / 2, z);
+    // And its inboard face, painted out with the rest of the hangar.
+    box(g, M.hangarSide, 2 * w - 0.1, HTOP - HANGAR - 0.1, 0.10,
+      0, (HANGAR + HTOP) / 2, z - face * 0.24);
+    box(g, M.hangarDark, 9.6, 4.6, 0.22, 0, HANGAR + 2.45, z - face * 0.32);
+    for (let i = 1; i < 6; i++) {
+      box(g, M.hangarSteel, 0.14, 4.6, 0.16, -4.8 + (i * 9.6) / 6,
+        HANGAR + 2.45, z - face * 0.36);
     }
-  }
-
-  // The gallery deck: a plated storey carrying the ready rooms, the guns' crews
-  // and the twenty-millimetre galleries, right out to the deck edge.
-  // It follows the flight deck's own outline, drawing in at both ends with it.
-  // Run it out square and its plating stands proud of the deck edge where the
-  // deck has tapered away, and the pillars under the after overhang come out as
-  // a bare frame hanging in the air abaft the round-down.
-  const z0 = fdEndA(0) + 3;
-  const z1 = fdEndF(0) - 3;
-  const SEG = 34;
-  for (let i = 0; i < SEG; i++) {
-    const za = z0 + ((z1 - z0) * i) / SEG;
-    const zb = z0 + ((z1 - z0) * (i + 1)) / SEG;
-    const zc = (za + zb) / 2;
-    const len = zb - za;
-    const GW = fdHalf(zc) - 0.35;
-    const ang = Math.atan2(fdHalf(zb) - fdHalf(za), len);
-    // The deck under it, and the side plating up to the flight deck.
-    if (overWell(zc)) {
-      for (const s of [-1, 1]) {
-        box(g, M.steelDark, GW - LIFT_HW, 0.32, len + 0.1,
-          s * (LIFT_HW + (GW - LIFT_HW) / 2), GALLERY, zc);
-      }
-    } else {
-      box(g, M.steelDark, 2 * GW, 0.32, len + 0.1, 0, GALLERY, zc);
-    }
-    for (const s of [-1, 1]) {
-      box(g, M.hull, 0.3, FD - GALLERY - 0.85, len + 0.1, s * GW,
-        (GALLERY + FD - 0.85) / 2 + 0.15, zc, s * ang);
-      // Scuttles down the gallery, and a watertight door every fifth frame.
-      if (i % 2 === 0) {
-        cyl(g, M.glass, 0.3, 0.3, 0.14, s * (GW + 0.16), GALLERY + 1.5, zc, 8)
-          .rotation.z = Math.PI / 2;
-      }
-      if (i % 5 === 2) {
-        box(g, M.steelDark, 0.14, 1.9, 0.85, s * (GW + 0.18), GALLERY + 1.05, zc);
-      }
-    }
-  }
-
-  // Where the gallery deck runs past the ends of the hangar it stands on its own
-  // legs, down to the forecastle and the quarterdeck below.
-  for (const [ta, tb] of [[HGR_F, 0.955], [-0.955, HGR_A]]) {
-    for (let i = 0; i <= 4; i++) {
-      const t = ta + (tb - ta) * (i / 4);
-      const y = sheer(t);
-      const z = zAt(t, y);
-      const w = Math.min(fdHalf(z) - 1.2, sideX(t) - 0.4);
-      if (w <= 1) continue;
-      for (const s of [-1, 1]) {
-        box(g, M.steelDark, 0.44, GALLERY - y, 0.44, s * w, (GALLERY + y) / 2, z);
-      }
-      box(g, M.steelDark, 2 * w, 0.34, 0.44, 0, GALLERY - 0.3, z);
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 0.28, 2.1, 0.2, sgn * 6.2, HANGAR + 1.25, z - face * 0.3);
     }
   }
 }
 
-// ---------------------------------------------------- inside the hangar --
+/**
+ * A deck with holes in it: one sheet between a port and a starboard edge, cut
+ * open where a lift well goes through it.
+ *
+ * The wells have to be holes. Drawn as a platform laid on an unbroken deck,
+ * a lift on its way down simply vanishes under the planking and what it leaves
+ * behind is a painted rectangle -- and a lift down the well is the one thing
+ * on a carrier that everybody can see.
+ */
+function holedSheet(g, m, z0, z1, half, y, up, n = 120) {
+  const zs = [];
+  for (let i = 0; i <= n; i++) zs.push(z0 + ((z1 - z0) * i) / n);
+  for (const lz of liftZs()) {
+    for (const d of [-LIFT_HW - 0.02, -LIFT_HW, LIFT_HW, LIFT_HW + 0.02]) {
+      if (lz + d > z0 && lz + d < z1) zs.push(lz + d);
+    }
+  }
+  zs.sort((a, b) => a - b);
+  const pos = [];
+  const idx = [];
+  const P = (x, z) => { pos.push(x, y(z), z); return pos.length / 3 - 1; };
+  const quad = (a, b, c, d) => {
+    if (up) idx.push(a, c, b, a, d, c);
+    else idx.push(a, b, c, a, c, d);
+  };
+  for (let i = 0; i < zs.length - 1; i++) {
+    const za = zs[i];
+    const zb = zs[i + 1];
+    if (zb - za < 1e-4) continue;
+    const wa = Math.max(0.05, half(za));
+    const wb = Math.max(0.05, half(zb));
+    const ca = wellHalf(za);
+    const cb = wellHalf(zb);
+    if (ca <= 0 && cb <= 0) {
+      quad(P(-wa, za), P(wa, za), P(wb, zb), P(-wb, zb));
+    } else {
+      for (const sgn of [-1, 1]) {
+        const i0 = P(sgn * Math.min(ca, wa - 0.05), za);
+        const i1 = P(sgn * wa, za);
+        const i2 = P(sgn * wb, zb);
+        const i3 = P(sgn * Math.min(cb, wb - 0.05), zb);
+        if (sgn < 0) quad(i1, i0, i3, i2); else quad(i0, i1, i2, i3);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const o = new THREE.Mesh(geo, m);
+  g.add(o);
+  return o;
+}
 
 /**
  * The hangar deck, which is the reason the ship exists.
  *
- * A hundred and ninety metres of it, five and a half clear to the overhead, and
- * until now it was a black void behind the side openings. It is a working space:
- * plated deck with the tie-down strips let into it, transverse girders and
- * deckhead lights overhead, pillars taking the flight deck's weight down through
- * it, aircraft ranged along both sides with their wings folded, and the benches,
- * drums, crates and tractors of the people who kept them flying. All of it reads
- * through the side openings and, when a lift is down, straight up the well.
+ * A hundred and eighty metres of it, five and a half clear to the overhead. It
+ * is a working space and it is lit: plated deck with the tie-down strips let
+ * into it, transverse girders and deckhead lamps overhead, pillars taking the
+ * flight deck's weight down through it, aircraft ranged fore and aft along
+ * both sides with their wings folded, and the benches, drums, crates and
+ * tractors of the people who kept them flying. All of it reads through the
+ * side openings and, when a lift is down, straight up the well.
  */
 function hangarInterior(g) {
-  const zA = zAt(HGR_A, HANGAR) + 1.0;
-  const zF = zAt(HGR_F, HANGAR) - 1.0;
-  const at = (z) => Math.max(-1, Math.min(1, z / (LOA / 2)));
-  const half = (z) => Math.max(2, sideX(at(z)) - 0.45);
+  const zA = HGR_A + 0.4;
+  const zF = HGR_F - 0.4;
 
-  // The deck: plating with the tie-down strips down it fore and aft.
-  const N = 40;
-  for (let i = 0; i < N; i++) {
-    const z0 = zA + ((zF - zA) * i) / N;
-    const z1 = zA + ((zF - zA) * (i + 1)) / N;
-    const zc = (z0 + z1) / 2;
-    box(g, M.hangarDeck, 2 * half(zc), 0.3, z1 - z0 + 0.1, 0, HANGAR + 0.15, zc);
-  }
-  for (const dx of [-9.5, -5.5, -2.0, 2.0, 5.5, 9.5]) {
-    box(g, M.hangarDark, 0.34, 0.1, zF - zA, dx, HANGAR + 0.34, (zA + zF) / 2);
+  // The deck, and the overhead over it, both cut round the wells.
+  holedSheet(g, M.hangarDeck, zA, zF, hangarHalf, () => HANGAR + 0.08, true, 110);
+  holedSheet(g, M.hangarHead, zA, zF, hangarHalf, () => HTOP - 0.05, false, 110);
+  // Tie-down strips down the deck fore and aft, stopping either side of a well.
+  for (const dx of [-9.6, -6.4, -3.2, 3.2, 6.4, 9.6]) {
+    for (const [a, b] of clearOfWells(zA + 1, zF - 1)) {
+      if (b - a < 1) continue;
+      box(g, M.hangarDark, 0.30, 0.09, b - a, dx, HANGAR + 0.17, (a + b) / 2);
+    }
   }
 
-  // Overhead: transverse girders on their brackets, two longitudinal beams
-  // running the length, and the deckhead lights between them.
-  const bays = 26;
+  // The sides of the hangar as the man standing in it sees them: a run of
+  // frames with the shell between them, and the two longitudinal girders the
+  // deck over his head is carried on.
+  const bays = 30;
   for (let i = 0; i <= bays; i++) {
     const z = zA + ((zF - zA) * i) / bays;
-    const w = half(z) - 0.3;
-    if (overWell(z)) {
-      for (const s of [-1, 1]) {
-        box(g, M.hangarSteel, w - LIFT_HW, 0.55, 0.4,
-          s * (LIFT_HW + (w - LIFT_HW) / 2), HTOP - 0.5, z);
+    const w = hangarHalf(z);
+    if (w <= 1) continue;
+    for (const sgn of [-1, 1]) {
+      box(g, M.hangarSteel, 0.26, HTOP - HANGAR - 0.2, 0.34,
+        sgn * (w - 0.12), (HANGAR + HTOP) / 2, z);
+      // The bracket where the frame meets the deckhead.
+      const br = box(g, M.hangarSteel, 1.2, 0.26, 0.28, sgn * (w - 0.6), HTOP - 0.72, z);
+      br.rotation.z = -sgn * 0.62;
+    }
+    // Transverse girders overhead, cut round the wells.
+    if (i % 2 === 0) {
+      if (overWell(z)) {
+        for (const sgn of [-1, 1]) {
+          const inner = LIFT_HW + 0.25;
+          if (w - inner < 0.6) continue;
+          box(g, M.hangarSteel, w - inner, 0.5, 0.36,
+            sgn * (inner + (w - inner) / 2), HTOP - 0.42, z);
+        }
+      } else {
+        box(g, M.hangarSteel, 2 * w - 0.4, 0.5, 0.36, 0, HTOP - 0.42, z);
       }
-    } else {
-      box(g, M.hangarSteel, 2 * w, 0.55, 0.4, 0, HTOP - 0.5, z);
     }
-    for (const s of [-1, 1]) {
-      const br = box(g, M.hangarSteel, 1.4, 0.3, 0.3, s * (w - 0.5), HTOP - 1.1, z);
-      br.rotation.z = -s * 0.6;
-    }
+    // Deckhead lamps in pairs between the girders, which is what makes a
+    // hangar look like a lit shed and not a cave.
     if (i % 2 === 1 && !overWell(z)) {
-      for (const s of [-1, 1]) box(g, M.lamp, 0.7, 0.16, 0.5, s * 4.6, HTOP - 0.85, z);
+      for (const sgn of [-1, 1]) {
+        box(g, M.lamp, 0.62, 0.14, 0.44, sgn * 5.2, HTOP - 0.62, z);
+        box(g, M.lamp, 0.52, 0.12, 0.38, sgn * (w - 2.2), HTOP - 0.62, z);
+      }
     }
   }
-  for (const s of [-1, 1]) {
-    box(g, M.hangarSteel, 0.4, 0.5, zF - zA, s * 7.9, HTOP - 1.0, (zA + zF) / 2);
+  for (const sgn of [-1, 1]) {
+    for (const [a, b] of clearOfWells(zA, zF)) {
+      if (b - a < 1) continue;
+      box(g, M.hangarSteel, 0.38, 0.52, b - a, sgn * (LIFT_HW + 0.4),
+        HTOP - 0.55, (a + b) / 2);
+    }
   }
 
   // Pillars, carrying the flight deck down through the hangar, clear of the
   // wells and clear of the aircraft lanes.
-  for (let i = 0; i < 13; i++) {
-    const z = zA + 6 + ((zF - zA - 12) * i) / 12;
+  for (let i = 0; i < 15; i++) {
+    const z = zA + 7 + ((zF - zA - 14) * i) / 14;
     if (overWell(z)) continue;
-    for (const s of [-1, 1]) {
-      box(g, M.hangarSteel, 0.42, HTOP - HANGAR - 0.4, 0.42, s * 7.9, (HANGAR + HTOP) / 2, z);
+    for (const sgn of [-1, 1]) {
+      box(g, M.hangarSteel, 0.40, HTOP - HANGAR - 0.3, 0.40,
+        sgn * (LIFT_HW + 0.4), (HANGAR + HTOP) / 2, z);
     }
   }
 
   // The fire curtains: rolled divisions that shut the hangar into three.
-  for (const z of [zA + (zF - zA) * 0.34, zA + (zF - zA) * 0.68]) {
+  for (const z of [zA + (zF - zA) * 0.33, zA + (zF - zA) * 0.67]) {
     if (overWell(z)) continue;
-    const w = half(z) - 0.4;
-    box(g, M.hangarDark, 2 * w, 0.9, 0.28, 0, HTOP - 1.5, z);
-    for (const s of [-1, 1]) {
-      box(g, M.hangarSteel, 0.3, HTOP - HANGAR - 0.4, 0.3, s * w, (HANGAR + HTOP) / 2, z);
+    const w = hangarHalf(z) - 0.35;
+    box(g, M.hangarDark, 2 * w, 0.85, 0.26, 0, HTOP - 1.15, z);
+    for (const sgn of [-1, 1]) {
+      box(g, M.hangarSteel, 0.28, HTOP - HANGAR - 0.3, 0.28,
+        sgn * w, (HANGAR + HTOP) / 2, z);
     }
   }
 
-  // Aircraft struck below, wings folded, ranged along both sides.
-  const park = [-0.86, -0.72, -0.58, -0.44, -0.16, -0.02, 0.14, 0.30,
-    0.52, 0.64, 0.76, 0.88];
-  park.forEach((u, i) => {
-    const z = (zA + zF) / 2 + u * ((zF - zA) / 2);
-    if (overWell(z)) return;
-    const s = i % 2 ? 1 : -1;
-    const ry = s > 0 ? 1.5 : -1.5;
-    // Struck below in squadron order, aft to forward: the torpedo bombers on
-    // the after part of the deck where there is width for them, the dive
-    // bombers amidships, the fighters forward and nearest the lifts.
-    if (u < -0.4) avenger(g, s * (half(z) - 5.4), HANGAR + 0.55, z, ry);
-    else if (u < 0.35) dauntless(g, s * (half(z) - 4.6), HANGAR + 0.55, z, ry, true);
-    else wildcat(g, s * (half(z) - 4.0), HANGAR + 0.5, z, ry);
-  });
+  // Her air group, struck below: ranged fore and aft along the deck with their
+  // wings folded, three abreast where the hangar is wide enough for three.
+  //
+  // Every one of them is checked against the hangar she is actually standing
+  // in rather than against a single allowance for all three types. A Wildcat
+  // on the Grumman sto-wing is under four metres across the folded panels and
+  // an SBD does not fold at all -- she is twelve metres wing to wing in the
+  // hangar or nowhere -- so one number for both either wastes half the deck or
+  // puts a wing through the ship's side.
+  //
+  // The check is made at her nose and at her tail as well as amidships,
+  // because the hangar draws in three metres over the after quarter, and it
+  // takes in the yaw she is parked at: a thirteen-metre aeroplane stood six
+  // degrees off the fore-and-aft line reaches most of a metre and a half
+  // further outboard than her span alone says.
+  const TYPES = {
+    avenger: { half: 2.90, nose: 6.42, tail: -6.63, build: avenger },
+    dauntless: { half: 6.16, nose: 5.27, tail: -5.67, build: dauntless },
+    wildcat: { half: 1.88, nose: 5.17, tail: -4.89, build: wildcat },
+  };
+  const parked = [];
+  const spot = (kind, x, z, ry) => {
+    const T = TYPES[kind];
+    const len = T.nose - T.tail;
+    // Her ends, where they actually come in the ship.
+    const c = Math.cos(ry);
+    const sn = Math.abs(Math.sin(ry));
+    const z0 = z - len / 2 - 0.3;
+    const z1 = z + len / 2 + 0.3;
+    // Not over a well anywhere along her: a lift on its way down takes the
+    // deck out from under whatever is standing on it.
+    for (const lz of liftZs()) {
+      if (z1 > lz - LIFT_HW - 0.6 && z0 < lz + LIFT_HW + 0.6) return false;
+    }
+    // Inside the hangar sides at every station she occupies.
+    const reach = Math.abs(x) + T.half * Math.abs(c) + (len / 2) * sn;
+    for (let zz = z0; zz <= z1 + 1e-6; zz += 1.5) {
+      if (reach > hangarHalf(Math.min(z1, zz)) - 0.35) return false;
+    }
+    if (z0 < zA + 1.5 || z1 > zF - 1.5) return false;
+    // And clear of everything already ranged.
+    const halfW = T.half * Math.abs(c) + (len / 2) * sn + 0.45;
+    for (const p of parked) {
+      if (Math.abs(p.z - z) < (p.len + len) / 2 + 1.0
+        && Math.abs(p.x - x) < p.halfW + halfW) return false;
+    }
+    parked.push({ x, z, len, halfW });
+    T.build(g, x, HANGAR + 0.6, z, ry, true);
+    return true;
+  };
+  // Torpedo bombers right aft, three abreast where the beam is still there for
+  // three; dive bombers amidships, two abreast and staggered half a length so
+  // that the one pair of wings in the ship that will not fold has somewhere to
+  // go; fighters forward, nearest the lifts, three abreast with their panels
+  // swung back along their sides.
+  //
+  // Ranged in the bands the three wells leave between them, because those are
+  // the only parts of the hangar deck that are deck: right aft is the boats'
+  // and the last stretch forward is too short to stand anything in.
+  for (let i = 0; i < 4; i++) {
+    const z = -55.5 + i * 14.0;
+    for (const x of [-8.0, 0, 8.0]) {
+      spot('avenger', x, z, Math.PI + 0.05 * Math.sign(x || 1));
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    const sgn = i % 2 ? 1 : -1;
+    spot('dauntless', sgn * 5.85, 17.5 + i * 6.4, Math.PI + 0.03 * sgn);
+  }
+  for (let i = 0; i < 3; i++) {
+    const z = 42 + i * 9.0;
+    for (const x of [-8.4, 0, 8.4]) {
+      spot('wildcat', x, z, 0.05 * Math.sign(x || 1));
+    }
+  }
 
-  // The people's gear: benches and racks against the sides, drums, crates, and
-  // a pair of deck tractors.
-  for (let i = 0; i < 14; i++) {
-    const z = zA + 8 + ((zF - zA - 16) * i) / 13;
+  // The people's gear: work benches and racks against the sides, oil drums,
+  // crates, and a pair of the deck tractors that moved all of it about.
+  for (let i = 0; i < 16; i++) {
+    const z = zA + 9 + ((zF - zA - 18) * i) / 15;
     if (overWell(z)) continue;
-    const s = i % 2 ? 1 : -1;
-    const x = s * (half(z) - 0.9);
-    box(g, M.hangarDark, 1.3, 1.0, 3.0, x, HANGAR + 0.8, z);
+    const sgn = i % 2 ? 1 : -1;
+    const x = sgn * (hangarHalf(z) - 0.95);
+    box(g, M.hangarDark, 1.2, 0.95, 2.9, x, HANGAR + 0.62, z);
     if (i % 3 === 1) {
       for (const dz of [-0.7, 0.7]) {
-        cyl(g, M.gunDark, 0.32, 0.32, 0.9, x - s * 1.2, HANGAR + 0.75, z + dz, 10);
+        cyl(g, M.gunDark, 0.3, 0.3, 0.88, x - sgn * 1.15, HANGAR + 0.55, z + dz, 10);
       }
     }
-    if (i % 4 === 2) box(g, M.canvas, 1.1, 0.9, 1.6, x - s * 1.4, HANGAR + 0.75, z);
+    if (i % 4 === 2) box(g, M.canvas, 1.05, 0.85, 1.5, x - sgn * 1.35, HANGAR + 0.53, z);
+    if (i % 5 === 3) {
+      box(g, M.hangarSteel, 0.9, 2.1, 1.6, x, HANGAR + 1.15, z + 3.4);
+    }
   }
-  for (const [tz, ts] of [[zA + 22, -1], [zF - 30, 1]]) {
+  for (const [tz, ts] of [[zA + 26, -1], [zF - 34, 1]]) {
     if (overWell(tz)) continue;
-    const tx = ts * 3.2;
-    box(g, M.gunDark, 1.6, 0.9, 3.0, tx, HANGAR + 0.75, tz);
-    box(g, M.gunDark, 1.3, 0.7, 1.0, tx, HANGAR + 1.5, tz - 0.6);
-    for (const dz of [-1.0, 1.0]) {
-      for (const s of [-1, 1]) {
-        cyl(g, M.wire, 0.35, 0.35, 0.3, tx + s * 0.85, HANGAR + 0.5, tz + dz, 10)
+    const tx = ts * 3.4;
+    box(g, M.gunDark, 1.5, 0.85, 2.9, tx, HANGAR + 0.62, tz);
+    box(g, M.gunDark, 1.25, 0.65, 0.95, tx, HANGAR + 1.35, tz - 0.55);
+    for (const dz of [-0.95, 0.95]) {
+      for (const sgn of [-1, 1]) {
+        cyl(g, M.wire, 0.33, 0.33, 0.28, tx + sgn * 0.8, HANGAR + 0.4, tz + dz, 10)
           .rotation.z = Math.PI / 2;
       }
     }
   }
 }
 
+// ------------------------------------------------------ the gallery deck --
+
+/**
+ * The gallery deck: a plated storey slung under the flight deck, carrying the
+ * ready rooms, the guns' crews and the five-inch sponsons.
+ *
+ * It follows the flight deck's own outline and draws in with it at both ends.
+ * Run out square, its plating stands proud of the deck edge where the deck has
+ * tapered away, and the pillars under the after overhang come out as a bare
+ * frame hanging in the air abaft the round-down.
+ */
+function galleryDeck(g) {
+  const z0 = fdEndA(0) + 2.5;
+  const z1 = fdEndF(0) - 2.5;
+  const half = (z) => Math.max(0.6, Math.min(sideHalf(z), fdHalf(z) - 0.25));
+
+  holedSheet(g, M.deckSteel, z0, z1, half, () => GALLERY, true, 100);
+  holedSheet(g, M.steelDark, z0, z1, half, () => GALLERY - 0.28, false, 100);
+
+  // The side of the gallery storey, from the gallery deck up to the flight
+  // deck, wherever the hangar's own plating is not already carrying it.
+  for (const sgn of [-1, 1]) {
+    for (const [za, zb] of [[z0, HGR_A - 1.4], [HGR_F + 1.4, z1]]) {
+      if (zb - za < 2) continue;
+      const sk = strip();
+      const n = [sgn, 0, 0];
+      const steps = Math.max(2, Math.round((zb - za) / 3));
+      for (let i = 0; i < steps; i++) {
+        const a = za + ((zb - za) * i) / steps;
+        const b = za + ((zb - za) * (i + 1)) / steps;
+        sk.quad([sgn * half(a), GALLERY - 0.3, a], [sgn * half(b), GALLERY - 0.3, b],
+          [sgn * half(b), FD - 0.44, b], [sgn * half(a), FD - 0.44, a], n);
+      }
+      sk.mesh(g, M.hull);
+    }
+    // Scuttles down the gallery and a watertight door every few frames, the
+    // whole length of her -- this is where her people lived and worked.
+    for (let i = 0; i < 40; i++) {
+      const z = z0 + ((z1 - z0) * (i + 0.5)) / 40;
+      const x = sgn * (half(z) + 0.08);
+      if (i % 2 === 0) {
+        cyl(g, M.glass, 0.27, 0.27, 0.12, x, GALLERY + 1.55, z, 8).rotation.z = Math.PI / 2;
+      }
+      if (i % 5 === 2) box(g, M.steelDark, 0.12, 1.85, 0.8, x, GALLERY + 1.05, z);
+    }
+  }
+
+  // Where the gallery deck runs past the ends of the hangar it stands on its
+  // own legs, down to the forecastle and the quarterdeck below.
+  for (const [za, zb] of [[HGR_F + 2, z1 - 3], [z0 + 3, HGR_A - 2]]) {
+    const n = Math.max(2, Math.round(Math.abs(zb - za) / 9));
+    for (let i = 0; i <= n; i++) {
+      const z = za + ((zb - za) * i) / n;
+      const y = sheerY(tOf(z));
+      const w = Math.min(half(z) - 1.0, halfDeck(z) - 0.5);
+      if (w <= 1.2 || GALLERY - y < 1) continue;
+      for (const sgn of [-1, 1]) {
+        box(g, M.steelDark, 0.42, GALLERY - y - 0.3, 0.42, sgn * w, (GALLERY - 0.3 + y) / 2, z);
+      }
+      box(g, M.steelDark, 2 * w, 0.32, 0.42, 0, GALLERY - 0.45, z);
+    }
+  }
+}
+
+// ------------------------------------------------------- the flight deck --
+
+/**
+ * The flight deck: two hundred and fifty-four metres of planking on a steel
+ * deck, marked out, with three holes in it and a round-down at each end.
+ *
+ * Built as a slab rather than as a sheet -- a top, an underside and an edge
+ * band joining them -- because from a boat alongside the thing you look at is
+ * the edge of it, and a deck with no thickness reads as a sheet of paper.
+ */
+function flightDeck(g) {
+  const half = (z) => fdHalf(z);
+  const T = 0.42;
+
+  holedSheet(g, M.deck, FD_AFT, FD_FWD, half, fdY, true, 190);
+  holedSheet(g, M.deckSteel, FD_AFT, FD_FWD, half, (z) => fdY(z) - T, false, 190);
+
+  // The edge band round the whole outline, and round each well.
+  {
+    const sk = strip();
+    const N = 190;
+    for (let i = 0; i < N; i++) {
+      const za = FD_AFT + ((FD_FWD - FD_AFT) * i) / N;
+      const zb = FD_AFT + ((FD_FWD - FD_AFT) * (i + 1)) / N;
+      const wa = Math.max(0.05, half(za));
+      const wb = Math.max(0.05, half(zb));
+      for (const sgn of [-1, 1]) {
+        sk.quad([sgn * wa, fdY(za) - T, za], [sgn * wb, fdY(zb) - T, zb],
+          [sgn * wb, fdY(zb), zb], [sgn * wa, fdY(za), za], [sgn, 0, 0]);
+      }
+    }
+    // And the two end faces, which close the outline fore and aft.
+    for (const [z, face] of [[FD_FWD, 1], [FD_AFT, -1]]) {
+      const w = Math.max(0.05, half(z - face * 0.05));
+      sk.quad([-w, fdY(z) - T, z], [w, fdY(z) - T, z], [w, fdY(z), z], [-w, fdY(z), z],
+        [0, 0, face]);
+    }
+    sk.mesh(g, M.deckSteel);
+  }
+
+  // The planking: a run of darker seams laid fore and aft over the deck, every
+  // fourth plank, because that is the scale the eye picks the run of a deck up
+  // at from a masthead.
+  for (let i = 0; i < 26; i++) {
+    const x = -13.0 + (26.0 * (i + 0.5)) / 26;
+    const zf = fdEndF(Math.abs(x) + 0.5);
+    const za = fdEndA(Math.abs(x) + 0.5);
+    const runs = Math.abs(x) < LIFT_HW ? clearOfWells(za, zf) : [[za, zf]];
+    for (const [a, b] of runs) {
+      if (b - a < 1) continue;
+      const steps = Math.max(1, Math.round((b - a) / 14));
+      for (let k = 0; k < steps; k++) {
+        const p = a + ((b - a) * k) / steps;
+        const q = a + ((b - a) * (k + 1)) / steps;
+        const pl = box(g, M.deckDark, 0.22, 0.06, q - p, x, (fdY(p) + fdY(q)) / 2 + 0.03,
+          (p + q) / 2);
+        pl.rotation.x = -Math.atan2(fdY(q) - fdY(p), q - p);
+      }
+    }
+  }
+
+  // Deck edge coaming: a low curb the whole way round, which is what a pilot
+  // lines up on and what keeps a tyre out of the catwalk.
+  for (let i = 0; i < 90; i++) {
+    const za = FD_AFT + ((FD_FWD - FD_AFT) * i) / 90;
+    const zb = FD_AFT + ((FD_FWD - FD_AFT) * (i + 1)) / 90;
+    const xa = half(za);
+    const xb = half(zb);
+    const len = Math.hypot(zb - za, xb - xa);
+    for (const sgn of [-1, 1]) {
+      const c = box(g, M.steelDark, 0.24, 0.34, len + 0.08,
+        sgn * (xa + xb) / 2, (fdY(za) + fdY(zb)) / 2 + 0.16, (za + zb) / 2);
+      c.rotation.y = sgn * Math.atan2(xb - xa, zb - za);
+    }
+  }
+
+  // Markings. The centreline runs the whole deck and stops at every well: the
+  // line is painted on the deck, so where there is no deck there is no line.
+  for (const [a, b] of clearOfWells(FD_AFT + 7, FD_FWD - 7)) {
+    if (b - a < 1) continue;
+    const steps = Math.max(1, Math.round((b - a) / 12));
+    for (let k = 0; k < steps; k++) {
+      const p = a + ((b - a) * k) / steps;
+      const q = a + ((b - a) * (k + 1)) / steps;
+      const m = box(g, M.mark, 0.5, 0.05, q - p, 0, (fdY(p) + fdY(q)) / 2 + 0.06, (p + q) / 2);
+      m.rotation.x = -Math.atan2(fdY(q) - fdY(p), q - p);
+    }
+  }
+  // And the dashed lines marking the edges of the landing area, drawing in
+  // with the deck as it narrows.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 40; i++) {
+      const z = FD_AFT + 7 + i * 4.6;
+      if (z > FD_FWD - 12) break;
+      const x = sgn * (half(z) - 2.1);
+      const m = box(g, M.mark, 0.3, 0.05, 2.5, x, fdY(z) + 0.06, z);
+      m.rotation.y = sgn * Math.atan2(half(z + 2) - half(z - 2), 4);
+      m.rotation.x = -Math.atan2(fdY(z + 2) - fdY(z - 2), 4);
+    }
+  }
+
+  // The structure under the deck: transverse girders down on to the gallery
+  // deck, and the pillars they stand on.
+  for (let i = -15; i <= 15; i++) {
+    const z = FD_MID + (i / 15) * (FDL / 2 - 7);
+    const w = Math.min(fdHalf(z), sideHalf(z) + 0.3);
+    if (w < 2) continue;
+    if (overWell(z)) {
+      for (const sgn of [-1, 1]) {
+        if (w - LIFT_HW - 0.4 < 0.6) continue;
+        box(g, M.steelDark, w - LIFT_HW - 0.4, 0.62, 0.42,
+          sgn * (LIFT_HW + 0.4 + (w - LIFT_HW - 0.4) / 2), fdY(z) - T - 0.34, z);
+      }
+    } else {
+      box(g, M.steelDark, 2 * w, 0.62, 0.42, 0, fdY(z) - T - 0.34, z);
+    }
+    const foot = z > HGR_F || z < HGR_A ? GALLERY : HTOP;
+    for (const sgn of [-1, 1]) {
+      const x = sgn * (w - 0.7);
+      if (fdY(z) - T - 0.6 - foot < 0.4) continue;
+      box(g, M.steelDark, 0.34, fdY(z) - T - 0.6 - foot, 0.34, x,
+        (fdY(z) - T - 0.6 + foot) / 2, z);
+    }
+  }
+
+  // The three wells: a coaming round the opening in the flight deck, and the
+  // trunk that carries it down through the gallery storey.
+  //
+  // Down through the gallery storey and no further. Below the gallery deck
+  // there is nothing to plate: the well opens into the hangar on all four
+  // sides, which is what a lift trunk on a Yorktown actually is and why a
+  // platform on its way down arrives in a lit shed instead of at the bottom of
+  // a grey chimney. It was boxed in the whole way to the hangar deck, and what
+  // everybody saw down an open well was four grey walls.
+  for (const z of liftZs()) {
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 0.26, 0.40, 2 * LIFT_HW + 0.5, sgn * LIFT_HW, FD + 0.16, z);
+      box(g, M.steelDark, 2 * LIFT_HW + 0.5, 0.40, 0.26, 0, FD + 0.16, z + sgn * LIFT_HW);
+      box(g, M.hullDark, 0.28, FD - HTOP, 2 * LIFT_HW,
+        sgn * (LIFT_HW + 0.14), (FD + HTOP) / 2, z);
+      box(g, M.hullDark, 2 * LIFT_HW + 0.56, FD - HTOP, 0.28,
+        0, (FD + HTOP) / 2, z + sgn * (LIFT_HW + 0.14));
+      // Faced inboard with the hangar's own paint, because that is what you
+      // are looking at down an open well: the trunk is part of the hangar, and
+      // in the hull's dark grey a lift on its way down went into a chimney.
+      box(g, M.hangarSide, 0.10, FD - HTOP - 0.1, 2 * LIFT_HW - 0.1,
+        sgn * LIFT_HW, (FD + HTOP) / 2, z);
+      box(g, M.hangarSide, 2 * LIFT_HW - 0.1, FD - HTOP - 0.1, 0.10,
+        0, (FD + HTOP) / 2, z + sgn * LIFT_HW);
+      // The guide rails the platform runs on, which do go the whole way down.
+      for (const dz of [-LIFT_HW + 1.2, LIFT_HW - 1.2]) {
+        box(g, M.steel, 0.20, FD - HANGAR - 0.3, 0.30, sgn * (LIFT_HW - 0.10),
+          (FD + HANGAR) / 2, z + dz);
+      }
+      // And the sheaves over the head of the trunk that the falls run on.
+      const sh = cyl(g, M.steelDark, 0.46, 0.46, 0.28, sgn * (LIFT_HW - 0.5), FD - 0.9, z, 12);
+      sh.rotation.z = Math.PI / 2;
+    }
+  }
+
+  // Arresting gear: nine wires across the after third on their fairleads, all
+  // of them abaft the after lift -- a wire laid across a well has nothing
+  // under it for half its length the moment the platform drops.
+  for (let i = 0; i < 9; i++) {
+    const z = FD_AFT + 11 + i * 3.8;
+    const w = fdHalf(z) - 1.3;
+    tubeX(g, M.wire, 0.07, 2 * w, 0, fdY(z) + 0.40, z, 6);
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 0.46, 0.26, 0.46, sgn * w, fdY(z) + 0.26, z);
+    }
+  }
+  // Three crash barriers forward of the wires: stanchions and their cables.
+  for (let i = 0; i < 3; i++) {
+    const z = -61.0 + i * 6.0;
+    const w = fdHalf(z) - 1.0;
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 0.30, 1.45, 0.30, sgn * w, fdY(z) + 0.72, z);
+    }
+    tubeX(g, M.wire, 0.085, 2 * w, 0, FD + 1.45, z, 6);
+    tubeX(g, M.wire, 0.085, 2 * w, 0, FD + 0.88, z, 6);
+  }
+
+  // Palisades: the folding wind screens forward of the parking area, lying
+  // down, which is how they lie whenever there is no deck park behind them.
+  {
+    const z = 66.0;
+    const w = fdHalf(z) - 2;
+    for (let i = 0; i < 7; i++) {
+      const x = -w + i * ((2 * w) / 6);
+      const p = box(g, M.canvas, (2 * w) / 6 - 0.4, 1.9, 0.14, x, FD + 0.12, z - 0.85);
+      p.rotation.x = Math.PI / 2 - 0.06;
+    }
+  }
+}
+
+/**
+ * The catwalks: a gallery slung under the deck edge for the whole length of
+ * her, with the light guns in their tubs off it and the life rafts on its
+ * rails.
+ *
+ * This is the detail that reads at any range. A carrier without them is a
+ * plank on a hull; with them the deck edge has depth and the ship has a scale.
+ */
+function catwalks(g) {
+  const y = FD - 1.86;
+  for (const sgn of [-1, 1]) {
+    const pts = [];
+    for (let i = 0; i <= 46; i++) {
+      const z = FD_AFT + 6 + ((FDL - 16) * i) / 46;
+      const hw = sideHalf(z);
+      const x = sgn * (hw + 0.95);
+      const ang = sgn * Math.atan2(sideHalf(z + 3) - sideHalf(z - 3), 6);
+      box(g, M.steelDark, 2.0, 0.12, (FDL - 16) / 46 + 0.2, x, y, z, ang);
+      if (i % 2 === 0) {
+        const br = box(g, M.steelDark, 2.3, 0.2, 0.18, sgn * (hw + 0.25), y + 0.52, z);
+        br.rotation.z = sgn * 0.5;
+      }
+      pts.push([x + sgn * 0.9, y + 0.06, z]);
+      if (i % 3 === 1) {
+        const r = cyl(g, M.raft, 0.30, 0.30, 1.8, x + sgn * 0.72, y + 0.95, z, 8);
+        r.rotation.x = Math.PI / 2;
+      }
+    }
+    for (let i = 1; i < pts.length; i++) {
+      const [x, yy, z] = pts[i];
+      const [px, py, pz] = pts[i - 1];
+      box(g, M.steelDark, 0.055, 1.0, 0.055, x, yy + 0.5, z);
+      const len = Math.hypot(x - px, z - pz);
+      for (const f of [0.38, 0.70, 1.0]) {
+        const w = box(g, M.steelDark, 0.045, 0.045, len,
+          (x + px) / 2, (yy + py) / 2 + f, (z + pz) / 2);
+        w.rotation.y = Math.atan2(x - px, z - pz);
+      }
+    }
+    // Ladders down from the catwalk to the gallery deck, where her people
+    // actually went up and down.
+    for (const z of [-92, -44, 12, 58, 104]) {
+      if (Math.abs(z) > FDL / 2 - 12) continue;
+      ladder(g, M.steel, sgn * (sideHalf(z) + 0.4), GALLERY, y - 0.1, z + 2.4, z - 0.6);
+    }
+  }
+}
+
+// ------------------------------------------------------------- the island --
+
+/** Where she stands: starboard side, a little forward of amidships. */
+const ISL_Z = 16.0;
+const ISL_W = 5.6;
+const ISL_CX = S * 14.2;                // the centreline of the island itself
+const ISL_IN = S * (14.2 - ISL_W / 2);  // its inboard face, a metre and a half in from the deck edge
+
+/** Athwartships, in island terms: outboard is positive whichever side she is. */
+const ox = (d) => ISL_CX + S * d;
+/** A level's floor, as a height above the water. */
+const D = (h) => FD + h;
+
+/**
+ * The island: small, on the starboard side, with the funnel built into it.
+ *
+ * A Yorktown's island is about an eighth of the deck's length and six metres
+ * wide, and it is one structure -- the uptakes come up through it and the
+ * funnel is its after half, canted a few degrees outboard so the smoke clears
+ * the deck. Everything on it is stepped in from the level below, which is what
+ * gives it its profile, and everything stands on the level below: there is
+ * nothing on a warship that is not bolted to something.
+ *
+ * Only a metre or so of it is on the flight deck. The rest is cantilevered out
+ * past the deck edge on a sponson, which is the whole point -- every square
+ * metre of island kept inboard is a square metre taken off the landing area.
+ */
+function island(g) {
+  const Z = ISL_Z;
+  const cx = ISL_CX;
+
+  // ------------------------------------------------------------ the base --
+  // The sponson under it: a plated box off the gallery deck reaching out past
+  // the deck edge, with deep brackets under that down on to the ship's side.
+  {
+    const sxi = S * 9.4;
+    const sxo = ox(ISL_W / 2 + 1.3);
+    const sw = Math.abs(sxo - sxi);
+    const scx = (sxi + sxo) / 2;
+    box(g, M.steelDark, sw, 0.32, 31.0, scx, GALLERY, Z);
+    box(g, M.hull, 0.30, FD - GALLERY - 0.24, 31.0, sxo, (GALLERY + FD) / 2, Z);
+    for (const dz of [-15.4, 15.4]) {
+      box(g, M.hull, sw, FD - GALLERY - 0.24, 0.28, scx, (GALLERY + FD) / 2, Z + dz);
+    }
+    for (let i = 0; i < 8; i++) {
+      const z = Z - 14 + i * 4;
+      const br = box(g, M.steelDark, sw + 1.2, 0.26, 0.26, scx, GALLERY - 1.5, z);
+      br.rotation.z = -S * 0.42;
+      box(g, M.steelDark, 0.22, 3.3, 0.22, sxo, GALLERY - 1.6, z);
+    }
+    // The 20 mm gallery outboard of the sponson, under the island's own side.
+    box(g, M.steelDark, 2.4, 0.14, 26.0, sxo + S * 1.1, GALLERY + 0.08, Z);
+    rail(g, M.steelDark, Z - 12.5, Z + 12.5, () => Math.abs(sxo) + 2.2,
+      () => GALLERY + 0.15, 2.5, [S], 1.0);
+  }
+
+  // The island proper: three storeys of plating standing on the flight deck
+  // and overhanging the side, each drawn as a shape with a rounded forward end
+  // rather than as a box, because that is what the forward face of an island
+  // is and it is the whole of its profile from ahead.
+  const level = (m, y0, y1, hw, zF, zB, nose, tail) => loftShape(g, m, [
+    { pts: planHouse({ hw, nose, tail, zFront: zF, zBack: zB, arc: 7 })
+      .map(([x, z]) => [cx + x, z]), y: y0 },
+    { pts: planHouse({ hw, nose, tail, zFront: zF, zBack: zB, arc: 7 })
+      .map(([x, z]) => [cx + x, z]), y: y1 },
+  ], { cap: true, floor: true });
+
+  level(M.hull, D(0), D(4.2), ISL_W / 2, Z + 15.0, Z - 15.0, 3.2, 2.2);
+  box(g, M.steelDark, ISL_W + 0.6, 0.26, 30.4, cx, D(4.2), Z);
+  // The gallery round the foot of it, which is where her people walk.
+  for (const sgn of [-1, 1]) {
+    const gx = cx + S * sgn * (ISL_W / 2 + 0.85);
+    box(g, M.steelDark, 1.8, 0.14, 24.0, gx, D(4.3), Z);
+    for (const bz of [-9, -3, 3, 9]) {
+      const br = box(g, M.steelDark, 2.0, 0.15, 0.15, cx + S * sgn * (ISL_W / 2 + 0.55),
+        D(3.7), Z + bz);
+      br.rotation.z = -S * sgn * 0.5;
+    }
+    rail(g, M.steelDark, Z - 11.5, Z + 11.5,
+      () => Math.abs(cx) + sgn * S * S * (ISL_W / 2 + 1.7) * (sgn > 0 ? 1 : -1),
+      () => D(4.4), 2.6, [S], 1.0);
+  }
+  // Doors, ready lockers and ladders down the inboard face, where the deck
+  // crew reach it.
+  for (const dz of [-10.5, -4.5, 1.5, 7.5, 12.5]) {
+    box(g, M.steelDark, 0.14, 1.95, 0.85, ISL_IN - S * 0.02, D(0.98), Z + dz);
+  }
+  for (const dz of [-12.0, 9.0]) {
+    sideLadder(g, M.steel, {
+      out: -S, skin: () => ISL_IN, z: Z + dz, y0: D(0.02), y1: D(4.2), half: 0.3,
+    });
+  }
+  for (const dz of [-8.0, -2.0, 4.0]) {
+    box(g, M.steelDark, 1.0, 1.2, 2.4, ox(ISL_W / 2 + 0.5), D(0.6), Z + dz);
+  }
+  for (const dz of [-13.0, 10.5]) {
+    const r = cyl(g, M.raft, 0.32, 0.32, 2.3, ox(ISL_W / 2 + 0.32), D(2.5), Z + dz, 8);
+    r.rotation.x = Math.PI / 2;
+  }
+
+  // ------------------------------------------------- the second storey --
+  level(M.hull, D(4.2), D(6.8), ISL_W / 2 - 0.35, Z + 12.6, Z - 13.4, 2.9, 2.0);
+  box(g, M.steelDark, ISL_W + 0.2, 0.24, 26.6, cx, D(6.8), Z - 0.4);
+
+  // ----------------------------------------------------- the bridge decks --
+  // Lower and longer than a battleship's tower: a Yorktown's island is a
+  // wheelhouse on a box, not a pagoda, and the whole of it stands well under
+  // the height of her funnel.
+  const decks = [
+    ['pilot', 6.8, 2.60, 2.9, Z + 11.2, Z + 1.6, 2.7, 1.8],
+    ['flag', 9.7, 2.35, 2.6, Z + 9.8, Z + 2.4, 2.4, 1.6],
+    ['plot', 12.3, 2.05, 2.3, Z + 8.4, Z + 3.0, 2.1, 1.4],
+  ];
+  for (const [name, y, hw, h, zF, zB, nose, tail] of decks) {
+    level(M.hull, D(y), D(y + h), hw, zF, zB, nose, tail);
+    box(g, M.steelDark, hw * 2 + 0.5, 0.22, zF - zB + nose + tail + 0.5,
+      cx, D(y + h), (zF + zB) / 2 + (nose - tail) / 2);
+    // The window band, round the front and both sides of a pilot house.
+    box(g, M.glass, hw * 2 + 0.12, h * 0.34, (zF - zB) * 0.92, cx, D(y) + h * 0.66,
+      (zF + zB) / 2);
+    box(g, M.glass, hw * 1.7, h * 0.34, zF - zB + nose * 0.9, cx, D(y) + h * 0.66,
+      (zF + zB) / 2 + nose * 0.42);
+    // Wing bridges: a platform out each side on its brackets, with a rail.
+    for (const sgn of [-1, 1]) {
+      const wx = cx + S * sgn * (hw + 0.8);
+      const wz = (zF + zB) / 2 + 1.0;
+      box(g, M.steelDark, 1.7, 0.13, (zF - zB) * 0.8, wx, D(y) + 0.06, wz);
+      for (const bz of [-(zF - zB) * 0.3, (zF - zB) * 0.3]) {
+        const br = box(g, M.steelDark, 1.9, 0.14, 0.14, cx + S * sgn * (hw + 0.55),
+          D(y) - 0.5, wz + bz);
+        br.rotation.z = -S * sgn * 0.46;
+      }
+      const rx = Math.abs(cx + S * sgn * (hw + 1.55));
+      rail(g, M.steelDark, wz - (zF - zB) * 0.4, wz + (zF - zB) * 0.4,
+        () => rx, () => D(y) + 0.1, 2.0, [Math.sign(cx + S * sgn * (hw + 1.55)) || S], 1.0);
+    }
+  }
+
+  // ------------------------------------------------------- the open bridge --
+  // A Yorktown was conned from the open bridge, not from behind glass: a
+  // walkway wrapped round the front and both sides of the pilot house behind a
+  // splinter bulwark, with the pelorus on each wing and the engine telegraphs
+  // by the centreline. It is the shape that makes the forward end of the
+  // island read as a bridge rather than as another box on the pile.
+  for (const [y, hw, zc, od, bh] of [[6.8, 2.60, Z + 6.4, 6.6, 1.25],
+    [9.7, 2.35, Z + 6.1, 5.6, 1.15]]) {
+    const ow = hw + 1.6;
+    const N = 19;
+    for (let i = 0; i < N; i++) {
+      const a = -1.95 + (i / (N - 1)) * 3.9;
+      const px = cx + Math.sin(a) * ow;
+      const pz = zc + Math.cos(a) * od;
+      box(g, M.hull, 1.0, bh, 0.20, px, D(y) + bh / 2, pz, a);
+      box(g, M.steelDark, 1.0, 0.14, 1.8, px - Math.sin(a) * 0.8,
+        D(y) + 0.07, pz - Math.cos(a) * 0.8, a);
+      if (i % 3 === 0) {
+        const br = box(g, M.steelDark, 1.9, 0.15, 0.15,
+          cx + Math.sin(a) * (ow - 0.85), D(y) - 0.58, zc + Math.cos(a) * (od - 0.85));
+        br.rotation.y = -a;
+        br.rotation.z = Math.sin(a) > 0 ? 0.48 : -0.48;
+      }
+    }
+    // The pelorus on each wing, and the telegraphs by the centreline.
+    for (const sgn of [-1, 1]) {
+      const px = cx + sgn * (ow - 0.65);
+      cyl(g, M.steelDark, 0.15, 0.19, 0.95, px, D(y) + 0.48, zc + od * 0.3, 8);
+      cyl(g, M.bright, 0.32, 0.32, 0.15, px, D(y) + 1.0, zc + od * 0.3, 12);
+      cyl(g, M.steelDark, 0.19, 0.23, 1.05, cx + sgn * 1.05, D(y) + 0.53, zc + od - 0.85, 8);
+      box(g, M.bright, 0.34, 0.38, 0.2, cx + sgn * 1.05, D(y) + 1.15, zc + od - 0.85);
+    }
+    // The windscreen over the front of the bulwark.
+    for (let i = 0; i < 5; i++) {
+      const a = -0.5 + (i / 4) * 1.0;
+      const wv = box(g, M.glass, 0.95, 0.5, 0.1, cx + Math.sin(a) * (ow + 0.02),
+        D(y) + bh + 0.24, zc + Math.cos(a) * (od + 0.02), a);
+      wv.rotation.x = -0.22;
+    }
+  }
+  // The two 24-inch signal lamps on the pilot house wings, and the flag bags
+  // on the flag bridge.
+  for (const sgn of [-1, 1]) {
+    const wx = cx + S * sgn * 3.4;
+    box(g, M.steelDark, 0.28, 0.8, 0.28, wx, D(6.8) + 0.53, Z + 11.4);
+    cyl(g, M.bright, 0.42, 0.42, 0.56, wx, D(6.8) + 1.18, Z + 11.4, 12)
+      .rotation.x = Math.PI / 2;
+    box(g, M.canvas, 1.3, 0.75, 2.1, cx + S * sgn * 3.15, D(9.7) + 0.48, Z + 3.4);
+  }
+  // Sky control: an open platform over air plot behind a splinter bulwark.
+  {
+    const y = D(14.6);
+    box(g, M.steelDark, 4.4, 0.24, 6.2, cx, y, Z + 5.6);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      box(g, M.steel, 0.85, 1.05, 0.16, cx + Math.sin(a) * 2.1, y + 0.64,
+        Z + 5.6 + Math.cos(a) * 3.0, a);
+    }
+  }
+
+  // ------------------------------------------------------------ the funnel --
+  // The uptake casing is not a chimney stuck on the back of the bridge: it is
+  // the whole after half of the island, twelve metres of it fore and aft,
+  // canted a few degrees outboard so the smoke clears the deck, with the cap
+  // flaring off the top and a grille across the mouth.
+  const FZ = Z - 6.4;
+  const FY0 = 4.2;
+  const FY1 = 16.6;
+  const FH = FY1 - FY0;
+  const FL = 13.0;
+  const fun = new THREE.Group();
+  fun.position.set(ox(0.45), D((FY0 + FY1) / 2), FZ);
+  fun.rotation.z = -S * 0.06;
+  g.add(fun);
+  box(fun, M.hull, ISL_W + 0.5, FH, FL, 0, 0, 0);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      box(fun, M.hullDark, 0.3, FH, 0.3, sx * (ISL_W + 0.5) / 2, 0, sz * (FL / 2 - 0.2));
+    }
+  }
+  for (let i = 1; i <= 4; i++) {
+    const y = -FH / 2 + (i * FH) / 5;
+    box(fun, M.hullDark, ISL_W + 0.8, 0.2, FL + 0.26, 0, y, 0);
+  }
+  // The vertical strakes up her sides and her after face.
+  //
+  // A funnel this size is thirteen metres of flat plate with four bands round
+  // it, and from any distance at all that is a slab. What tells the eye it is
+  // a funnel is the stiffening: the standing seams up the faces, which are the
+  // only thing on it that runs the way its height does.
+  for (const sx of [-1, 1]) {
+    for (const dz of [-4.2, -1.4, 1.4, 4.2]) {
+      box(fun, M.hullDark, 0.22, FH - 0.5, 0.52, sx * (ISL_W + 0.62) / 2, 0, dz);
+    }
+  }
+  for (const dx of [-1.5, 0, 1.5]) {
+    box(fun, M.hullDark, 0.52, FH - 0.5, 0.22, dx, 0, -(FL + 0.24) / 2);
+  }
+  // The cap: a flared collar standing well proud of the casing, a black band
+  // round it, and the grille of bars across the mouth with the dark of the
+  // uptake behind them.
+  box(fun, M.steelDark, ISL_W + 2.1, 0.5, FL + 1.5, 0, FH / 2 + 0.25, 0);
+  box(fun, M.steelDark, ISL_W + 1.5, 0.34, FL + 1.0, 0, FH / 2 - 0.16, 0);
+  box(fun, M.boot, ISL_W + 1.2, 0.8, FL + 0.66, 0, FH / 2 + 0.90, 0);
+  box(fun, M.cave, ISL_W - 0.6, 0.28, FL - 1.2, 0, FH / 2 + 1.14, 0);
+  for (let i = 0; i < 7; i++) {
+    box(fun, M.steelDark, 0.15, 0.28, FL - 1.0,
+      -(ISL_W - 0.8) / 2 + (i * (ISL_W - 0.8)) / 6, FH / 2 + 1.26, 0);
+  }
+  for (let i = 0; i < 3; i++) {
+    box(fun, M.steelDark, ISL_W - 0.6, 0.28, 0.15, 0, FH / 2 + 1.26,
+      -(FL - 1.4) / 2 + (i * (FL - 1.4)) / 2);
+  }
+  // Steam pipes up the after face with their whistles, the siren forward, and
+  // a ladder up the outboard side.
+  for (const sgn of [-1, 1]) {
+    cyl(fun, M.steelDark, 0.24, 0.24, FH + 2.0, sgn * 1.5, 1.0, -FL / 2 - 0.28, 8);
+    box(fun, M.steelDark, 0.46, 0.42, 0.46, sgn * 1.5, FH / 2 + 1.4, -FL / 2 - 0.28);
+    cyl(fun, M.bright, 0.3, 0.4, 0.85, sgn * 0.85, FH / 2 - 2.0, FL / 2 + 0.3, 10)
+      .rotation.x = Math.PI / 2;
+  }
+  for (let i = 0; i < 12; i++) {
+    box(fun, M.steel, 0.1, 0.07, 0.46, -S * (ISL_W + 0.5) / 2 - S * 0.2,
+      -FH / 2 + 0.6 + i * (FH - 1.2) / 11, 1.2);
+  }
+  for (const dz of [0.95, 1.45]) {
+    box(fun, M.steel, 0.1, FH - 0.8, 0.1, -S * (ISL_W + 0.5) / 2 - S * 0.2, 0, dz);
+  }
+  // Searchlight platforms either side of the funnel, on their brackets.
+  for (const sgn of [-1, 1]) {
+    const px = cx + S * sgn * (ISL_W / 2 + 1.9);
+    box(g, M.steelDark, 3.2, 0.26, 4.2, px, D(11.6), FZ + 0.5);
+    for (const bz of [-1.3, 1.3]) {
+      const br = box(g, M.steelDark, 2.9, 0.17, 0.17, cx + S * sgn * (ISL_W / 2 + 1.05),
+        D(10.9), FZ + 0.5 + bz);
+      br.rotation.z = -S * sgn * 0.5;
+    }
+    cyl(g, M.bright, 0.74, 0.74, 1.1, px, D(12.45), FZ + 0.5, 14).rotation.x = Math.PI / 2;
+    box(g, M.steelDark, 0.46, 0.95, 0.46, px, D(12.05), FZ + 0.5);
+    rail(g, M.steelDark, FZ - 1.4, FZ + 2.4, () => Math.abs(px) + 1.5,
+      () => D(11.75), 1.4, [Math.sign(px) || S], 1.0);
+  }
+
+  // -------------------------------------------------------- the tripod mast --
+  // Stepped on the second storey between the bridge and the funnel, so its
+  // legs land on structure rather than on air. The legs are splayed at the
+  // foot and gather at the truck, which is what makes it a tripod rather than
+  // three posts standing side by side.
+  const mastZ = Z + 1.2;
+  const mastFoot = D(6.8);
+  const mastTop = D(25.8);
+  for (const [dx, dz] of [[0, 1.8], [-2.1, -1.8], [2.1, -1.8]]) {
+    const x0 = cx + S * dx;
+    const z0 = mastZ + dz;
+    const rise = mastTop - mastFoot;
+    const len = Math.hypot(cx - x0, rise, mastZ - z0);
+    const leg = cyl(g, M.steel, 0.18, 0.32, len,
+      (x0 + cx) / 2, (mastFoot + mastTop) / 2, (z0 + mastZ) / 2, 8);
+    leg.rotation.x = Math.atan2(mastZ - z0, rise);
+    leg.rotation.z = Math.atan2(x0 - cx, rise);
+  }
+  for (const h of [9.8, 13.0, 16.2, 19.4, 22.6]) {
+    const k = 1 - (h - 6.8) / (25.8 - 6.8);
+    box(g, M.steel, 4.2 * k + 0.5, 0.15, 0.15, cx, D(h), mastZ - 2.0 * k);
+    box(g, M.steel, 0.15, 0.15, 4.2 * k + 0.5, cx, D(h), mastZ + 0.4 * k);
+  }
+  // The lookout's platform, and the signal yard with its halyards.
+  box(g, M.steelDark, 3.2, 0.2, 2.8, cx, D(17.8), mastZ);
+  rail(g, M.steelDark, mastZ - 1.3, mastZ + 1.3, () => Math.abs(ox(1.4)),
+    () => D(17.9), 1.3, [Math.sign(ox(1.4)) || S], 1.0);
+  box(g, M.steel, 10.6, 0.17, 0.17, cx, D(21.4), mastZ);
+  for (const sgn of [-1, 1]) {
+    for (let i = 1; i <= 3; i++) {
+      const wr = box(g, M.wire, 0.05, 5.4, 0.05, cx + S * sgn * i * 1.65, D(18.7), mastZ);
+      wr.rotation.z = -S * sgn * 0.15 * i;
+    }
+  }
+  // A hoist of bunting on the outboard halyard. On a ship painted one colour
+  // from her boot topping to her masthead the signal flags are the only colour
+  // there is, and at any range they are the first thing the eye finds on her.
+  {
+    const bunting = [M.flagRed, M.mark, M.flagBlue, M.flagGold, M.flagRed, M.mark, M.flagBlue];
+    const hx = cx + S * 3 * 1.65;
+    const drop = 1.0;
+    const step = 0.23;
+    const rope = box(g, M.wire, 0.055, drop * bunting.length + 0.6, 0.055,
+      hx + S * (0.5 + step * (bunting.length - 1) / 2),
+      D(21.1) - (drop * (bunting.length - 1)) / 2 - 0.35, mastZ);
+    rope.rotation.z = -S * Math.atan2(step * (bunting.length - 1), drop * (bunting.length - 1));
+    for (let i = 0; i < bunting.length; i++) {
+      const y = D(21.1) - 0.35 - i * drop;
+      const f = box(g, bunting[i], 0.1, 0.82, 0.9, hx + S * (0.5 + i * step), y, mastZ);
+      f.rotation.z = -S * 0.45;
+      f.rotation.y = 0.12 * (i % 2 ? 1 : -1);
+    }
+  }
+  for (const sgn of [-1, 1]) {
+    const hw = box(g, M.wire, 0.05, 11.0, 0.05, cx + S * sgn * 2.8, D(15.6), mastZ + 1.2);
+    hw.rotation.x = -0.30;
+    hw.rotation.z = -S * sgn * 0.16;
+  }
+  // CXAM air search: a wide rectangular mattress of dipoles on a short topmast
+  // above the truck. It is the biggest single thing on her upperworks and the
+  // one that says 1942 rather than 1938, so it is built at the size it was.
+  box(g, M.steel, 2.5, 0.55, 2.7, cx, D(24.8), mastZ);
+  cyl(g, M.steel, 0.17, 0.23, 2.5, cx, D(26.2), mastZ, 8);
+  const sc = new THREE.Group();
+  sc.position.set(cx, D(27.3), mastZ);
+  sc.rotation.y = 1.15;
+  g.add(sc);
+  const SCW = 6.2;
+  const SCH = 2.6;
+  for (const y of [0, SCH]) box(sc, M.steel, SCW, 0.17, 0.32, 0, y, 0);
+  for (const sx of [-1, 1]) box(sc, M.steel, 0.17, SCH, 0.32, sx * SCW / 2, SCH / 2, 0);
+  for (let i = 0; i < 13; i++) {
+    const x = -SCW / 2 + 0.24 + (i * (SCW - 0.48)) / 12;
+    box(sc, M.steel, 0.1, SCH - 0.2, 0.1, x, SCH / 2, 0);
+    for (const y of [SCH * 0.3, SCH * 0.7]) box(sc, M.steel, 0.07, 0.07, 0.82, x, y, 0.4);
+  }
+  box(sc, M.steel, SCW - 0.6, 0.12, 0.12, 0, SCH / 2, -0.34);
+  for (const sx of [-1, 1]) box(sc, M.steel, 0.12, 0.12, 0.78, sx * 1.4, SCH / 2, -0.2);
+  cyl(sc, M.steelDark, 0.28, 0.28, 0.68, 0, -0.5, 0, 10);
+  // SG surface search in its cheese housing, on the starboard yardarm.
+  const sg = cyl(g, M.steel, 0.9, 0.9, 0.52, ox(2.3), D(22.9), mastZ, 14);
+  sg.rotation.x = Math.PI / 2;
+  box(g, M.steel, 0.3, 1.9, 0.2, ox(2.3), D(22.0), mastZ);
+  // Whip aerials down the outboard side of the island, hinged out.
+  for (const dz of [-13.0, -7.0, 6.0, 12.0]) {
+    const w = cyl(g, M.wire, 0.05, 0.08, 5.6, ox(ISL_W / 2 + 0.25), D(4.2), Z + dz, 6);
+    w.rotation.z = S * 0.35;
+  }
+
+  // -------------------------------------------------------- fire control --
+  // Two Mk 37 directors with their Mk 4 antennas: one over air plot looking
+  // forward, one on a platform carried off the island's after end.
+  for (const [y, z, fwd] of [[D(14.6), Z + 8.4, 1], [D(10.4), Z - 15.4, -1]]) {
+    if (fwd < 0) {
+      box(g, M.steelDark, 5.2, 0.28, 4.8, cx, y - 0.14, z);
+      for (const sgn of [-1, 1]) {
+        const br = box(g, M.steelDark, 2.5, 0.17, 0.17, cx + S * sgn * 1.5, y - 0.85, z);
+        br.rotation.z = -S * sgn * 0.5;
+      }
+      box(g, M.hull, 3.1, 3.5, 5.4, cx, y - 1.85, z + 1.9);
+    }
+    const d = new THREE.Group();
+    d.position.set(cx, y, z);
+    d.rotation.y = fwd > 0 ? 0 : Math.PI;
+    g.add(d);
+    cyl(d, M.gun, 1.5, 1.7, 0.95, 0, 0.48, 0, 14);
+    box(d, M.gun, 2.9, 1.85, 3.3, 0, 1.9, 0);
+    box(d, M.gunDark, 3.0, 0.48, 0.2, 0, 2.42, 1.65);
+    box(d, M.glass, 2.1, 0.38, 0.15, 0, 2.15, 1.7);
+    box(d, M.steel, 2.5, 1.85, 0.15, 0, 3.45, 0.2);
+    for (let i = 0; i < 5; i++) box(d, M.steel, 0.08, 0.08, 0.48, -1.0 + i * 0.5, 3.45, 0.44);
+    for (const sgn of [-1, 1]) {
+      cyl(d, M.gun, 0.19, 0.19, 0.48, sgn * 1.35, 2.88, 0.2, 8).rotation.z = Math.PI / 2;
+    }
+  }
+
+  // The short pole mast abaft the funnel with its yard and the after signal
+  // light on it: the second stick every photograph of her shows.
+  {
+    const pz = Z - 15.4;
+    const py = D(10.4);
+    cyl(g, M.steel, 0.15, 0.25, 10.6, cx, py + 5.3, pz, 8);
+    box(g, M.steel, 5.8, 0.13, 0.13, cx, py + 8.1, pz);
+    for (const sgn of [-1, 1]) {
+      cyl(g, M.bright, 0.25, 0.25, 0.38, cx + S * sgn * 2.5, py + 8.4, pz, 10)
+        .rotation.x = Math.PI / 2;
+      const st = box(g, M.wire, 0.05, 5.2, 0.05, cx + S * sgn * 2.1, py + 5.8, pz);
+      st.rotation.z = -S * sgn * 0.16;
+    }
+    cyl(g, M.steel, 0.1, 0.13, 2.9, cx, py + 11.8, pz, 6);
+  }
+  // The flag staff at the island's truck.
+  box(g, M.steel, 0.13, 3.3, 0.13, cx, D(16.2), Z + 8.4);
+}
+
+// ---------------------------------------------------------------- weapons --
+
+// The light guns built during the current pass, so the builder can hand them
+// to the scene. Reset when a build starts: two Enterprises in one action must
+// not end up sharing one another's mountings.
+let AA_MOUNTS = [];
+
+/**
+ * A 5"/38 single in an open mount with a shield: eight of them, in four
+ * sponsons at the corners of the flight deck.
+ *
+ * Marked dynamic and recorded, because these are the guns the simulation lays,
+ * and each one trains on its own pintle. Being dynamic also keeps the welder
+ * off it, which is what lets it turn at all.
+ */
+function fiveInch(g, root, x, y, z, ry) {
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  m.rotation.y = ry;
+  m.userData.dynamic = true;
+  m.userData.rest = ry;
+  (root.userData.turrets || (root.userData.turrets = [])).push(m);
+  g.add(m);
+  // The pintle and the roller path it turns on.
+  cyl(m, M.gunDark, 1.2, 1.32, 0.46, 0, 0.23, 0, 16);
+  cyl(m, M.steelDark, 1.46, 1.46, 0.12, 0, 0.06, 0, 18);
+  // The shield: a front plate with the gun port in it, two sides and a roof,
+  // open at the back, which is what a 5"/38 single wore on a carrier.
+  box(m, M.gun, 2.4, 2.0, 0.16, 0, 1.52, 1.12);
+  for (const sgn of [-1, 1]) box(m, M.gun, 0.16, 2.0, 2.2, sgn * 1.2, 1.52, 0.05);
+  box(m, M.gun, 2.5, 0.16, 2.3, 0, 2.6, 0.05);
+  box(m, M.gunDark, 0.9, 0.85, 0.12, 0, 1.55, 1.2);
+  for (const sgn of [-1, 1]) box(m, M.glass, 0.26, 0.2, 0.1, sgn * 0.72, 1.95, 1.21);
+  // Trunnions, cradle and the barrel through the shield.
+  for (const sgn of [-1, 1]) {
+    cyl(m, M.gunDark, 0.2, 0.2, 0.38, sgn * 0.58, 1.48, 0.18, 10).rotation.z = Math.PI / 2;
+  }
+  const arm = new THREE.Group();
+  arm.position.set(0, 1.48, 0.18);
+  arm.rotation.x = -0.2;
+  m.add(arm);
+  box(arm, M.gunDark, 0.72, 0.68, 1.5, 0, 0, -0.38);
+  cyl(arm, M.canvas, 0.34, 0.38, 0.4, 0, 0, 0.9, 12).rotation.x = Math.PI / 2;
+  tubeZ(arm, M.gun, 0.13, 4.5, 0, 0, 2.35, 12);
+  tubeZ(arm, M.gunDark, 0.175, 0.46, 0, 0, 0.75, 12);
+  cyl(arm, M.gunDark, 0.145, 0.15, 0.24, 0, 0, 4.5, 12).rotation.x = Math.PI / 2;
+  m.userData.trainRate = 0.9;      // a 5"/38 single, worked by its crew
+  armMount(m, arm, [[0, 0, 4.7]]);
+  // The loader's platform and the ready-service racks round the base, which is
+  // the whole after half of the mounting and where its crew of eleven stood.
+  cyl(m, M.steelDark, 2.0, 2.0, 0.09, 0, 0.045, -0.55, 16);
+  for (let i = 0; i < 9; i++) {
+    const a = -2.0 + i * 0.5;
+    box(m, M.steelDark, 0.26, 0.85, 0.26, Math.sin(a) * 1.85, 0.48, Math.cos(a) * 1.85 - 0.55);
+  }
+  for (const sgn of [-1, 1]) box(m, M.gunDark, 0.5, 0.4, 0.5, sgn * 0.85, 1.15, -1.5);
+  mergeStatic(m);
+  return m;
+}
+
+/** A quadruple 40 mm Bofors in its tub, with its own Mk 51 director alongside. */
+function bofors(g, x, y, z, ry) {
+  const m = quadBofors(g, M, x, y, z, ry);
+  AA_MOUNTS.push(m);
+  return m;
+}
+
+/** A single 20 mm Oerlikon in its splinter tub. */
+function oerlikon(g, x, y, z, ry) {
+  const m = usnOerlikon(g, M, x, y, z, ry);
+  AA_MOUNTS.push(m);
+  return m;
+}
+
+/**
+ * The second gun of a twenty-millimetre pair.
+ *
+ * Drawn exactly like the first and deliberately not registered as a mounting:
+ * the arsenal names the position, a captain presses the position, and the pair
+ * on it fires together. Registering both would make her arsenal twice as long
+ * as her gallery and put half its circles on a gun nobody thinks of as a
+ * separate weapon.
+ */
+function mate(g, x, y, z, ry) {
+  const m = oerlikon(g, x, y, z, ry);
+  AA_MOUNTS.pop();
+  return m;
+}
+
+// Where the light battery stands, read off the model as it is built so the
+// datasheet and the geometry cannot drift apart.
+const FORTY_AT = [
+  [1, 113.0], [-1, 113.0],
+  [1, 99.0], [-1, 99.0],
+  [-1, -3.0], [-1, -16.0],
+  [1, -104.0], [-1, -100.0],
+];
+const SPONSON_AT = [
+  [-1, 78.6], [-1, -62.9],       // starboard, forward and aft
+  [1, 68.1], [1, -73.4],         // port
+];
+
+/**
+ * Her guns: eight 5-inch in four sponsons at the corners of the flight deck,
+ * eight quadruple Bofors, and Oerlikons the whole length of both catwalks.
+ *
+ * The five-inch cannot fire across the deck -- the deck is in the way of
+ * everything -- which is why they are where they are, why each is laid abeam,
+ * and why a Yorktown was always short of guns on the engaged side and had to
+ * turn to bring the other four to bear.
+ */
+function armament(g) {
+  const gy = GALLERY;
+  for (const [sgn, z] of SPONSON_AT) {
+    const x = sgn * 14.2;
+    // The sponson: a platform on brackets off the gallery deck, with a
+    // splinter bulwark round its outboard edge.
+    box(g, M.steelDark, 6.6, 0.3, 13.6, x + sgn * 1.0, gy, z);
+    // The knees that carry it: from the ship's side below the hangar openings
+    // up and out to the sponson's outboard edge.
+    //
+    // They used to spring from a point halfway up the openings, which put a
+    // metre of each one inside the hangar and drew three diagonal braces
+    // straight across the bays from outside -- and they leaned the wrong way
+    // besides, high at the ship's side and low at the sponson, so the platform
+    // was hanging off them rather than standing on them.
+    for (const dz of [-5.0, 0, 5.0]) {
+      const foot = HANGAR + 0.2;
+      const head = gy - 0.28;
+      const xi = sgn * (sideHalf(z + dz) - 0.3);
+      const xo = x + sgn * 4.2;
+      const len = Math.hypot(xo - xi, head - foot);
+      const br = box(g, M.steelDark, len, 0.40, 0.40,
+        (xi + xo) / 2, (foot + head) / 2, z + dz);
+      br.rotation.z = Math.atan2(head - foot, xo - xi);
+      box(g, M.steelDark, 0.26, gy - foot - 0.3, 0.26, xo, (foot + head) / 2, z + dz);
+    }
+    for (let i = 0; i < 11; i++) {
+      const zz = z - 6.4 + (i * 12.8) / 10;
+      box(g, M.steel, 0.2, 1.1, 1.4, x + sgn * 4.2, gy + 0.55, zz);
+    }
+    box(g, M.steel, 1.4, 1.1, 0.2, x + sgn * 3.6, gy + 0.55, z);
+    // The two guns, the ammunition hoist between them, and the ready lockers.
+    fiveInch(g, g, x + sgn * 1.2, gy + 0.15, z + 3.4, sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
+    fiveInch(g, g, x + sgn * 1.2, gy + 0.15, z - 3.4, sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
+    box(g, M.steelDark, 1.5, 1.35, 2.1, x + sgn * 3.1, gy + 0.85, z);
+    box(g, M.steelDark, 1.1, 1.9, 1.5, x - sgn * 1.6, gy + 1.1, z);
+  }
+
+  // Eight quad Bofors in their tubs: two right forward on the bow gallery
+  // where a Yorktown was blindest and where they were the first thing added,
+  // two behind them, two abaft the island on the starboard deck edge, and two
+  // right aft.
+  const forty = [];
+  for (const [sgn, z] of FORTY_AT) {
+    const x = sgn * Math.min(fdHalf(z) + 1.1, sideHalf(z) + 1.4);
+    forty.push([sgn, z, x]);
+    box(g, M.steelDark, 6.6, 0.3, 6.6, x, gy + 0.55, z);
+    for (const dz of [-2.2, 2.2]) {
+      const br = box(g, M.steelDark, 3.4, 0.22, 0.22, x - sgn * 1.5, gy - 0.2, z + dz);
+      br.rotation.z = sgn * 0.5;
+    }
+    bofors(g, x, gy + 0.7, z, z > 0 ? 0 : Math.PI);
+    for (const dz of [-2.4, 2.4]) {
+      box(g, M.steelDark, 1.0, 0.95, 1.3, x - sgn * 2.8, gy + 1.05, z + dz);
+    }
+  }
+
+  // Four Oerlikon positions in the island's own galleries, and the rest down
+  // both catwalks wherever the sponsons and the forty-millimetre tubs leave
+  // room. The two sides do not match, and on a Yorktown they did not: the
+  // island takes the room out of the starboard catwalk.
+  const isleX = S * 19.3;
+  for (const z of [ISL_Z + 6.4, ISL_Z + 10.2, ISL_Z - 10.1, ISL_Z - 3.7]) {
+    oerlikon(g, isleX, GALLERY + 0.15, z, S * 1.45);
+    mate(g, isleX, GALLERY + 0.15, z + 2.0, S * 1.45);
+  }
+
+  const CAT_Y = FD - 1.80;
+  const taken = (sgn, z, d) => SPONSON_AT.some(([ss, sz]) => ss === sgn && Math.abs(sz - z) < d)
+    || forty.some(([ss, sz]) => ss === sgn && Math.abs(sz - z) < d);
+  for (const sgn of [-1, 1]) {
+    // Starboard carries one fewer, because the island's sponson is in the way
+    // of the middle of her catwalk.
+    const zs = sgn === S
+      ? [-112, -91, -79, -46, -30, 20, 36, 53, 69]
+      : [-96, -63, -46, -30, -13, 3, 20, 36, 53, 86];
+    for (const z of zs) {
+      if (taken(sgn, z, 7)) continue;
+      const x = sgn * (sideHalf(z) + 1.45);
+      oerlikon(g, x, CAT_Y, z, sgn > 0 ? 1.5 : -1.5);
+      const x2 = sgn * (sideHalf(z + 2.4) + 1.45);
+      mate(g, x2, CAT_Y, z + 2.4, sgn > 0 ? 1.5 : -1.5);
+    }
+  }
+}
+
+// -------------------------------------------------------- boats and cranes --
+
+function boatsAndCranes(g) {
+  // The aircraft crane on the starboard side abaft the island: a boom on a
+  // king post, which is how a wrecked aeroplane, a boat or a lighter's load
+  // came over the side. It stands on the gallery deck, not on the planking --
+  // nothing stands on a flight deck.
+  const kz = -32.0;
+  const kx = S * (sideHalf(kz) - 0.9);
+  box(g, M.steelDark, 3.4, 0.3, 4.6, kx, GALLERY, kz);
+  cyl(g, M.steel, 0.46, 0.56, 7.4, kx, GALLERY + 3.7, kz, 10);
+  box(g, M.steelDark, 2.6, 1.5, 2.6, kx, GALLERY + 0.75, kz);
+  const boom = cyl(g, M.steel, 0.26, 0.38, 13.5, kx - S * 4.2, GALLERY + 6.6, kz + 1.0, 10);
+  boom.rotation.z = S * 1.02;
+  boom.rotation.y = -S * 0.24;
+  // The fall hangs straight down off the boom head with the hook block on it.
+  const fx = kx - S * 8.0;
+  box(g, M.wire, 0.055, 6.4, 0.055, fx, GALLERY + 5.2, kz + 2.2);
+  box(g, M.steelDark, 0.55, 0.75, 0.55, fx, GALLERY + 1.6, kz + 2.2);
+  cyl(g, M.steelDark, 0.38, 0.38, 0.22, fx, GALLERY + 2.1, kz + 2.2, 10)
+    .rotation.z = Math.PI / 2;
+
+  // Her boats live in the hangar, on their chocks, and go over the side on
+  // that crane: two thirty-five foot motor launches and a motor whaleboat.
+  for (const [bz, bx] of [[-91, -7.6], [-91, 7.6], [-83, 0]]) {
+    if (overWell(bz)) continue;
+    const hull = box(g, M.bright, 2.3, 1.35, 9.0, bx, HANGAR + 1.15, bz);
+    hull.rotation.z = 0.04;
+    box(g, M.steelDark, 1.9, 0.22, 8.4, bx, HANGAR + 1.62, bz);
+    box(g, M.canvas, 1.8, 0.8, 3.0, bx, HANGAR + 2.05, bz - 2.0);
+    for (const dz of [-3.2, 3.2]) {
+      box(g, M.hangarSteel, 2.6, 0.55, 0.6, bx, HANGAR + 0.4, bz + dz);
+    }
+  }
+}
 // ------------------------------------------------------------ the lifts --
 
 /**
@@ -810,7 +2007,7 @@ function elevators(g) {
     box(lift, M.hullDark, 2 * LIFT_HW - 0.3, 0.5, 2 * LIFT_HW - 0.3, 0, -0.42, 0);
     for (let k = 0; k < 14; k++) {
       const w = (2 * LIFT_HW - 0.5) / 14;
-      box(lift, k % 3 === 1 ? M.deckDark : M.deck, w - 0.05, 0.3, 2 * LIFT_HW - 0.5,
+      box(lift, k % 3 === 1 ? M.deckDark : M.deck, w - 0.05, 0.28, 2 * LIFT_HW - 0.5,
         -LIFT_HW + 0.25 + w * (k + 0.5), -0.15, 0);
     }
     // Its edge coaming, and the guide shoes that ride the rails in the trunk.
@@ -860,8 +2057,6 @@ const LAND_ROLL = 3.0;  // up the deck from the round-down onto the lift
 const LAND_SINK = 3.4;  // and down the well into the hangar
 /** Where she picks up a wire: a little way up the deck from the round-down. */
 function landZ() { return fdEndA(0) + 14; }
-/** Ease a 0..1 run so machinery starts and stops rather than snapping. */
-function ease(k) { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); }
 
 /**
  * Her deck cycle: the lifts working, and the launch when one is called for.
@@ -1147,1088 +2342,34 @@ export function stepLifts(lifts, t) {
   stepDeck({ lifts, plane: null, launchAt: null, startY: FD, airborne: false }, t);
 }
 
-// --------------------------------------------- forecastle and quarterdeck --
-
-/**
- * The open decks at either end, under the overhang of the flight deck.
- *
- * Forward: the ground tackle -- windlass, wildcats, chain pipes, bitts and a
- * breakwater to keep a head sea out of it. Aft: the capstans and the towing
- * fittings. Neither has anything to do with flying, and both are what makes the
- * ends of her read as a ship rather than as the ends of a runway.
- */
-function groundTackle(g) {
-  // Deck blue over the open decks at both ends. The shell plating is lofted in
-  // one piece and its cap doubles as the deck, so the paint that belongs on a
-  // horizontal surface goes on as a thin plate over the top of it -- otherwise
-  // the forecastle comes out the colour of the ship's side, which it never was.
-  for (const [ta, tb] of [[HGR_F, 0.965], [-0.965, HGR_A]]) {
-    const N = 12;
-    for (let i = 0; i < N; i++) {
-      const t0 = ta + (tb - ta) * (i / N);
-      const t1 = ta + (tb - ta) * ((i + 1) / N);
-      const tc = (t0 + t1) / 2;
-      const y0 = sheer(t0);
-      const y1 = sheer(t1);
-      const z0 = zAt(t0, y0);
-      const z1 = zAt(t1, y1);
-      const w = shellAt(tc, sheer(tc)) - 0.12;
-      if (w <= 0.2) continue;
-      const d = box(g, M.deckBlue, 2 * w, 0.12, Math.hypot(z1 - z0, y1 - y0) + 0.1,
-        0, (y0 + y1) / 2 + 0.09, (z0 + z1) / 2);
-      d.rotation.x = -Math.atan2(y1 - y0, z1 - z0);
-    }
-  }
-
-  // The breakwater, angled to throw the water outboard.
-  {
-    const t = 0.74;
-    const y = sheer(t);
-    const z = zAt(t, y);
-    const w = sideX(t) - 1.0;
-    for (let i = 0; i < 7; i++) {
-      const x = -w + (2 * w * (i + 0.5)) / 7;
-      const b = box(g, M.hull, (2 * w) / 7 - 0.15, 2.0, 0.35, x, y + 1.0, z);
-      b.rotation.x = -0.22;
-    }
-  }
-  // The windlass amidships on the forecastle, a wildcat either side of it.
-  {
-    const t = 0.80;
-    const y = sheer(t);
-    const z = zAt(t, y);
-    box(g, M.steelDark, 5.2, 1.5, 2.6, 0, y + 0.75, z);
-    for (const s of [-1, 1]) {
-      const w = cyl(g, M.steel, 0.85, 0.85, 1.0, s * 3.3, y + 0.9, z, 12);
-      w.rotation.z = Math.PI / 2;
-      // The chain pipe it feeds, down into the locker.
-      cyl(g, M.steelDark, 0.42, 0.42, 0.5, s * 2.2, y + 0.25, z - 3.4, 10);
-    }
-  }
-  // Bitts, chocks and fairleads down both sides of both open decks.
-  for (const [ta, tb, n] of [[0.70, 0.93, 5], [-0.955, HGR_A - 0.01, 3]]) {
-    for (let i = 0; i < n; i++) {
-      const t = ta + ((tb - ta) * (i + 0.5)) / n;
-      const y = sheer(t);
-      const z = zAt(t, y);
-      const x = sideX(t) - 1.1;
-      if (x < 1) continue;
-      for (const s of [-1, 1]) {
-        for (const dz of [-0.7, 0.7]) {
-          cyl(g, M.steelDark, 0.24, 0.28, 1.0, s * x, y + 0.5, z + dz, 8);
-        }
-        box(g, M.steelDark, 0.9, 0.7, 1.9, s * (x + 0.7), y + 0.35, z);
-      }
-    }
-  }
-  // Two capstans on the quarterdeck, and the after towing bitts between them.
-  {
-    const t = -0.90;
-    const y = sheer(t);
-    const z = zAt(t, y);
-    for (const s of [-1, 1]) cyl(g, M.steel, 0.7, 0.85, 1.1, s * 3.0, y + 0.55, z, 12);
-    box(g, M.steelDark, 3.0, 0.9, 1.4, 0, y + 0.45, z - 3.4);
-  }
-  // Guardrails round the open ends.
-  for (const [ta, tb] of [[0.665, 0.94], [-0.945, HGR_A - 0.005]]) {
-    for (const s of [-1, 1]) {
-      const pts = [];
-      for (let i = 0; i <= 8; i++) {
-        const t = ta + (tb - ta) * (i / 8);
-        const y = sheer(t);
-        pts.push([s * (sideX(t) - 0.25), y, zAt(t, y)]);
-      }
-      railing(g, pts, 1.1, 3);
-    }
-  }
-}
-
-// --------------------------------------------------------- the flight deck --
-
-/** Where the deck's midpoint sits: a shade forward of the ship's own midships. */
-const FD_MID = LOA * 0.012;
-
-/**
- * The three centreline lifts.
- *
- * Each one is a hole through the ship: through the flight deck, through the
- * gallery deck under it and through the hangar overhead, with a platform
- * running up and down inside it. Everything laid across those decks has to be
- * cut round the wells, which is why they are declared here rather than inside
- * the deck that happens to draw them first.
- */
-const LIFT_HW = 7.4;                 // half the well, athwartships and fore-and-aft
-const LIFT_AT = [0.34, 0.0, -0.30];  // where they sit along the flight deck
-function liftZs() { return LIFT_AT.map((u) => u * FDL + FD_MID); }
-
-/** The parts of a fore-and-aft run that are not over a well. */
-function clearOfWells(z0, z1) {
-  let spans = [[z0, z1]];
-  for (const lz of liftZs()) {
-    const a = lz - LIFT_HW;
-    const b = lz + LIFT_HW;
-    const out = [];
-    for (const [s0, s1] of spans) {
-      if (b <= s0 || a >= s1) { out.push([s0, s1]); continue; }
-      if (s0 < a - 0.01) out.push([s0, a]);
-      if (s1 > b + 0.01) out.push([b, s1]);
-    }
-    spans = out;
-  }
-  return spans;
-}
-
-/** Whether a station lies over a well at all. */
-function overWell(z) { return liftZs().some((lz) => Math.abs(z - lz) < LIFT_HW); }
-/** Deck station, -1 at the round-down to +1 at the forward edge. */
-function fdU(z) { return (z - FD_MID) / (FDL / 2); }
-const FD_TAPER_F = 0.42;       // how much width the bow end loses
-const FD_TAPER_A = 0.30;       // and the after end
-
-/**
- * Half-width of the flight deck at a station.
- *
- * The deck is not a rectangle. It carries its full breadth over the middle
- * two-thirds and then draws in at both ends -- sharply forward, where the bow
- * has no beam to stand on, more gently aft round the round-down. That taper is
- * the shape you recognise a Yorktown by from the air, and everything laid on
- * the deck -- coaming, catwalks, gun galleries -- has to follow it.
- */
-function fdHalf(z) {
-  const HW = FDW / 2;
-  const u = fdU(z);
-  if (u > 0.78) { const k = Math.min(1, (u - 0.78) / 0.22); return HW * (1 - FD_TAPER_F * k * k); }
-  if (u < -0.80) { const k = Math.min(1, (-u - 0.80) / 0.20); return HW * (1 - FD_TAPER_A * k * k); }
-  return HW;
-}
-
-/** The other way about: how far forward, and aft, the deck reaches at a breadth. */
-function fdEndF(x) {
-  const HW = FDW / 2;
-  const r = Math.min(1, Math.abs(x) / HW);
-  const k = Math.min(1, Math.sqrt(Math.max(0, (1 - r) / FD_TAPER_F)));
-  return (0.78 + 0.22 * k) * (FDL / 2) + FD_MID;
-}
-function fdEndA(x) {
-  const HW = FDW / 2;
-  const r = Math.min(1, Math.abs(x) / HW);
-  const k = Math.min(1, Math.sqrt(Math.max(0, (1 - r) / FD_TAPER_A)));
-  return -(0.80 + 0.20 * k) * (FDL / 2) + FD_MID;
-}
-
-/**
- * The flight deck: planked, marked out, and standing on the gallery deck.
- *
- * A Yorktown's flight deck is not part of the hull -- it is a structure built
- * on top of it, open at the sides, with the hangar underneath and daylight
- * between the two. That is why the deck edge has catwalks slung under it and
- * why the bow is open: it is the one thing that makes an American carrier of
- * this generation look like what it is.
- */
-function flightDeck(g) {
-  const HW = FDW / 2;
-  // The deck itself, planked fore and aft in Douglas fir. Every plank is cut to
-  // the deck's outline, so the ends taper instead of running square off.
-  const planks = 42;
-  for (let i = 0; i < planks; i++) {
-    const x = -HW + (FDW * (i + 0.5)) / planks;
-    const zf = fdEndF(Math.abs(x) + FDW / planks / 2);
-    const za = fdEndA(Math.abs(x) + FDW / planks / 2);
-    const m = i % 3 === 1 ? M.deckDark : M.deck;
-    // Planks over a lift stop at the well and start again the far side of it:
-    // the hole has to be a hole, or the platform comes up through the deck.
-    const runs = Math.abs(x) < LIFT_HW ? clearOfWells(za, zf) : [[za, zf]];
-    for (const [a, b] of runs) {
-      box(g, m, FDW / planks - 0.04, 0.34, b - a, x, FD, (a + b) / 2);
-    }
-  }
-  // Deck edge coaming, following the outline round both ends.
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 46; i++) {
-      const u0 = -1 + (2 * i) / 46;
-      const u1 = -1 + (2 * (i + 1)) / 46;
-      const z0 = u0 * (FDL / 2) + FD_MID;
-      const z1 = u1 * (FDL / 2) + FD_MID;
-      const x0 = fdHalf(z0);
-      const x1 = fdHalf(z1);
-      const len = Math.hypot(z1 - z0, x1 - x0);
-      const c = box(g, M.steelDark, 0.3, 0.5, len + 0.1,
-        (s * (x0 + x1)) / 2, FD + 0.1, (z0 + z1) / 2);
-      c.rotation.y = s * Math.atan2(x1 - x0, z1 - z0);
-    }
-  }
-  // The transverse edges at either end, closing the outline.
-  for (const [z, w] of [[fdEndF(0), fdHalf(fdEndF(0) - 0.1)],
-    [fdEndA(0), fdHalf(fdEndA(0) + 0.1)]]) {
-    box(g, M.steelDark, 2 * w, 0.5, 0.3, 0, FD + 0.1, z);
-  }
-  // The round-down aft that stopped a burble over the ramp: the deck falls away
-  // over the last few metres.
-  const rampW = 2 * fdHalf(fdEndA(0) + 5);
-  const ramp = box(g, M.deck, rampW, 0.34, 9, 0, FD - 0.5, fdEndA(0) + 4);
-  ramp.rotation.x = 0.13;
-
-  // The supporting structure under it: transverse frames and stanchions down to
-  // the hangar roof, which is what the daylight between the decks shows.
-  for (let i = -13; i <= 13; i++) {
-    const z = (i / 13) * (FDL / 2 - 6) + LOA * 0.012;
-    const t = (z / (LOA / 2));
-    const w = Math.min(2 * fdHalf(z), halfBeam(t) * 2 + 4);
-    if (overWell(z)) {
-      // A frame across a well would be a girder through the middle of the hole.
-      for (const s of [-1, 1]) {
-        box(g, M.steelDark, w / 2 - LIFT_HW, 0.8, 0.5,
-          s * (LIFT_HW + (w / 2 - LIFT_HW) / 2), FD - 0.6, z);
-      }
-    } else {
-      box(g, M.steelDark, w, 0.8, 0.5, 0, FD - 0.6, z);
-    }
-    // The pillars stand on whatever deck is under them -- the gallery deck over
-    // the hangar, the open deck beyond its ends -- so none of them hangs free.
-    const foot = t > HGR_F || t < HGR_A ? sheer(Math.max(-1, Math.min(1, t))) : GALLERY;
-    for (const s of [-1, 1]) {
-      const x = s * (w / 2 - 0.6);
-      box(g, M.steelDark, 0.4, FD - 1.0 - foot, 0.4, x, (FD - 1.0 + foot) / 2, z);
-    }
-  }
-
-  // Markings: the centreline down the whole deck, and the dashed lines marking
-  // the landing area's edges, which draw in with the deck.
-  // The centreline is painted on the deck, so where there is no deck there is
-  // no line: it stops at each well and picks up the far side. Run it straight
-  // through and it hangs across the opening whenever a lift goes down.
-  for (const [a, b] of clearOfWells(FD_MID - FDL * 0.43, FD_MID + FDL * 0.43)) {
-    box(g, M.mark, 0.5, 0.06, b - a, 0, FD + 0.2, (a + b) / 2);
-  }
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 30; i++) {
-      const z = fdEndA(0) + 8 + i * 4.4;
-      if (z > fdEndF(0) - 8) break;
-      const x = s * (fdHalf(z) - 2.2);
-      const m = box(g, M.mark, 0.34, 0.06, 2.6, x, FD + 0.2, z);
-      m.rotation.y = s * Math.atan2(fdHalf(z + 2) - fdHalf(z - 2), 4);
-    }
-  }
-
-  // The three wells: coaming round the opening in the flight deck, and the
-  // trunk that runs down from it to the hangar for the platform to move in.
-  for (const z of liftZs()) {
-    for (const s of [-1, 1]) {
-      box(g, M.steelDark, 0.3, 0.45, 2 * LIFT_HW + 0.6, s * LIFT_HW, FD + 0.18, z);
-      box(g, M.steelDark, 2 * LIFT_HW + 0.6, 0.45, 0.3, 0, FD + 0.18, z + s * LIFT_HW);
-      // The trunk, and the guide rails the platform runs on.
-      box(g, M.hullDark, 0.3, FD - HANGAR, 2 * LIFT_HW,
-        s * (LIFT_HW + 0.15), (FD + HANGAR) / 2, z);
-      box(g, M.hullDark, 2 * LIFT_HW + 0.6, FD - HANGAR, 0.3,
-        0, (FD + HANGAR) / 2, z + s * (LIFT_HW + 0.15));
-      for (const dz of [-LIFT_HW + 1.2, LIFT_HW - 1.2]) {
-        box(g, M.steel, 0.22, FD - HANGAR - 0.4, 0.34, s * (LIFT_HW - 0.12),
-          (FD + HANGAR) / 2, z + dz);
-      }
-    }
-    // The lift's own machinery: the sheaves over the head of the trunk.
-    for (const s of [-1, 1]) {
-      const sh = cyl(g, M.steelDark, 0.5, 0.5, 0.3, s * (LIFT_HW - 0.5), FD - 1.0, z, 12);
-      sh.rotation.z = Math.PI / 2;
-    }
-  }
-
-  // Arresting gear: nine wires across the after third, raised on their fairleads.
-  // Nine of them, all abaft the after lift: a wire laid across a well has
-  // nothing under it for half its length the moment the platform drops.
-  for (let i = 0; i < 9; i++) {
-    const z = fdEndA(0) + 12 + i * 3.8;
-    const w = fdHalf(z) - 1.4;
-    tubeX(g, M.wire, 0.075, 2 * w, 0, FD + 0.42, z, 6);
-    for (const s of [-1, 1]) {
-      box(g, M.steelDark, 0.5, 0.3, 0.5, s * w, FD + 0.3, z);
-    }
-  }
-  // Three crash barriers, forward of the wires: stanchions and their cables.
-  for (let i = 0; i < 3; i++) {
-    const z = -FDL * 0.24 + i * 6.0 + FD_MID;
-    const w = fdHalf(z) - 1.0;
-    for (const s of [-1, 1]) {
-      box(g, M.steelDark, 0.34, 1.5, 0.34, s * w, FD + 0.9, z);
-    }
-    tubeX(g, M.wire, 0.09, 2 * w, 0, FD + 1.5, z, 6);
-    tubeX(g, M.wire, 0.09, 2 * w, 0, FD + 0.9, z, 6);
-  }
-
-  // Palisades: the folding wind screens forward of the parking area.
-  {
-    const z = FDL * 0.26 + FD_MID;
-    const w = fdHalf(z) - 2;
-    // Folded down, which is how they lie whenever the deck park is aft: raised,
-    // they stand across the deck like a row of hoardings.
-    for (let i = 0; i < 7; i++) {
-      const x = -w + i * ((2 * w) / 6);
-      const p = box(g, M.canvas, (2 * w) / 6 - 0.4, 2.0, 0.16, x, FD + 0.32, z - 0.9);
-      p.rotation.x = Math.PI / 2 - 0.06;
-    }
-  }
-}
-
-/**
- * The catwalks: a gallery slung under the deck edge for the whole length of
- * her, with the light guns in tubs off it and the life rafts on its rails.
- *
- * This is the detail that reads at any range. A carrier without them is a
- * plank on a hull; with them the deck edge has depth and the ship has a scale.
- */
-function catwalks(g) {
-  const y = FD - 1.9;
-  for (const s of [-1, 1]) {
-    const pts = [];
-    for (let i = 0; i <= 30; i++) {
-      const t = -1 + (2 * i) / 30;
-      const z = t * (FDL / 2 - 4) + FD_MID;
-      const hw = fdHalf(z);
-      const x = s * (hw + 0.9);
-      const ang = s * Math.atan2(fdHalf(z + 3) - fdHalf(z - 3), 6);
-      // Grating, and the brackets carrying it off the deck edge.
-      box(g, M.steelDark, 2.0, 0.14, (FDL - 8) / 30 + 0.2, x, y, z, ang);
-      if (i % 2 === 0) {
-        const br = box(g, M.steelDark, 2.4, 0.22, 0.2, s * (hw + 0.2), y + 0.55, z);
-        br.rotation.z = s * 0.5;
-      }
-      pts.push([x + s * 0.9, y + 0.07, z]);
-      // Life rafts stowed against the outboard rail.
-      if (i % 3 === 1) {
-        const r = cyl(g, M.raft, 0.32, 0.32, 1.9, x + s * 0.75, y + 1.0, z, 8);
-        r.rotation.x = Math.PI / 2;
-      }
-    }
-    railing(g, pts, 1.05, 2);
-  }
-}
-
-// ------------------------------------------------------------- the island --
-
-/**
- * The island: small, on the starboard side, with the funnel built into it.
- *
- * A Yorktown's island is about a tenth of the deck's length and five metres
- * wide, and it is one structure, not a bridge with a chimney beside it: the
- * uptakes come up through it and the funnel is its after end, canted a few
- * degrees outboard so the smoke clears the deck. Everything on it is stepped in
- * from the level below, which is what gives it its profile, and everything
- * stands on the level below -- there is nothing on a warship that is not bolted
- * to something.
- *
- * Bottom to top: the base at flight-deck level with its doors and ready
- * lockers, the pilot house, the flag bridge, air plot, sky control; the tripod
- * mast between the bridge and the funnel; the funnel with its cap, grille,
- * steam pipes and siren; searchlight platforms either side of it; Mk 37
- * directors fore and aft; and 20 mm galleries wherever there was room.
- */
-function island(g) {
-  // Starboard, which in this frame is negative x: the bow is +z and up is +y,
-  // so the right hand side of a ship facing her own bow is -x. It was on the
-  // wrong side of her, which on a carrier is not a detail -- the whole point of
-  // an island is that it is out of the way of the landing circuit, and the
-  // circuit is flown to port.
-  const S = -1;
-  // Her island hangs over the side. Only a metre of it stands on the flight
-  // deck; the rest is cantilevered out past the deck edge on a sponson, which
-  // is the whole point -- every square metre of it kept inboard is a square
-  // metre taken off the landing area.
-  const X = S * (FDW / 2 - 1.0);  // its inboard face, a metre in from the edge
-  const Z = LOA * 0.06;
-  const W = 5.6;
-  const cx = X + S * (W / 2);
-  /** Athwartships, in island terms: outboard is positive. */
-  const ox = (d) => cx + S * d;
-  /** A level's floor, as a height above the water. */
-  const D = (h) => FD + h;
-
-  // ------------------------------------------------------------ the base --
-  // The sponson under it: a plated box off the gallery deck reaching out past
-  // the deck edge, because the island's outboard four-fifths stand on nothing
-  // else. Deep brackets under that, down onto the ship's side.
-  {
-    const sxi = S * (FDW / 2 - 2.6);       // where it ties into the gallery deck
-    const sxo = ox(W / 2 + 0.7);           // and how far out it reaches
-    const sw = Math.abs(sxo - sxi);
-    const scx = (sxi + sxo) / 2;
-    box(g, M.steelDark, sw, 0.34, 27.4, scx, GALLERY, Z);
-    box(g, M.hull, 0.32, FD - GALLERY - 0.2, 27.4, sxo, (GALLERY + FD) / 2, Z);
-    for (const dz of [-13.5, 13.5]) {
-      box(g, M.hull, sw, FD - GALLERY - 0.2, 0.3, scx, (GALLERY + FD) / 2, Z + dz);
-    }
-    for (let i = 0; i < 7; i++) {
-      const z = Z - 12 + i * 4;
-      const br = box(g, M.steelDark, sw + 1.4, 0.28, 0.28, scx, GALLERY - 1.5, z);
-      br.rotation.z = -S * 0.42;
-      box(g, M.steelDark, 0.24, 3.4, 0.24, sxo, GALLERY - 1.6, z);
-    }
-    // A walkway outboard of the sponson, under the island's own gallery.
-    box(g, M.steelDark, 1.7, 0.14, 24.0, sxo + S * 1.0, GALLERY + 0.1, Z);
-    const pts = [];
-    for (let i = 0; i <= 9; i++) pts.push([sxo + S * 1.8, GALLERY + 0.2, Z - 11.5 + i * 2.55]);
-    railing(g, pts, 1.0, 2);
-  }
-
-  // The island proper, standing on the flight deck and overhanging the side.
-  box(g, M.hull, W, 4.0, 26.4, cx, D(2.0), Z);
-  box(g, M.steelDark, W + 0.5, 0.3, 26.8, cx, D(4.0), Z);
-  // The gallery round the foot of it, which is where her people actually walk.
-  for (const s of [-1, 1]) {
-    const gx = cx + S * s * (W / 2 + 0.9);
-    box(g, M.steelDark, 1.9, 0.16, 22.0, gx, D(4.1), Z);
-    for (const bz of [-8, -3, 2, 7]) {
-      const br = box(g, M.steelDark, 2.1, 0.16, 0.16, cx + S * s * (W / 2 + 0.6),
-        D(3.5), Z + bz);
-      br.rotation.z = -S * s * 0.5;
-    }
-    const pts = [];
-    for (let i = 0; i <= 8; i++) pts.push([cx + S * s * (W / 2 + 1.75), D(4.2), Z - 11 + i * 2.75]);
-    railing(g, pts, 1.0, 2);
-  }
-  // Doors and ladders down the inboard face, where the deck crew reach it.
-  for (const dz of [-9.0, -3.0, 3.0, 9.0]) {
-    box(g, M.steelDark, 0.16, 2.0, 0.9, ox(-W / 2 - 0.1), D(1.0), Z + dz);
-  }
-  for (const dz of [-10.5, 7.5]) {
-    for (let i = 0; i < 7; i++) {
-      box(g, M.steel, 0.5, 0.08, 0.1, ox(-W / 2 - 0.24), D(0.4 + i * 0.6), Z + dz);
-    }
-    for (const s of [-1, 1]) {
-      box(g, M.steel, 0.1, 4.4, 0.1, ox(-W / 2 - 0.24), D(2.2), Z + dz + s * 0.25);
-    }
-  }
-  // Ready-service lockers and life rafts stowed against the outboard face.
-  for (const dz of [-7.5, -1.5, 4.5]) {
-    box(g, M.steelDark, 1.1, 1.3, 2.6, ox(W / 2 + 0.55), D(0.65), Z + dz);
-  }
-  for (const dz of [-11.0, 8.5]) {
-    const r = cyl(g, M.raft, 0.34, 0.34, 2.4, ox(W / 2 + 0.35), D(2.6), Z + dz, 8);
-    r.rotation.x = Math.PI / 2;
-  }
-
-  // ------------------------------------------- the second deck and its guns --
-  // A platform round the island at the top of the base, carrying the 20 mm and
-  // the funnel's own uptake casing, which starts here and goes all the way up.
-  box(g, M.hull, W - 0.4, 2.6, 22.4, cx, D(5.3), Z - 0.5);
-  box(g, M.steelDark, W + 3.0, 0.3, 7.4, ox(0.8), D(6.6), Z + 9.4);
-  {
-    const pts = [];
-    for (let i = 0; i <= 4; i++) pts.push([ox(W / 2 + 2.0), D(6.75), Z + 6.2 + i * 1.6]);
-    railing(g, pts, 1.0, 2);
-  }
-  for (const dz of [6.8, 10.6]) {
-    oerlikon(g, ox(W / 2 + 1.3), D(6.75), Z + dz, S * 1.4);
-    mate(g, ox(W / 2 + 1.3), D(6.75), Z + dz + 1.9, S * 1.4);
-  }
-
-  // ------------------------------------------------------- the bridge decks --
-  // Each stepped in from the one below it, with its window band and its wings.
-  // Lower and longer than a battleship's tower: a Yorktown's island is a
-  // wheelhouse on a box, not a pagoda, and the whole of it stands well under
-  // the height of her funnel.
-  const decks = [
-    ['pilot', 6.6, 5.0, 9.8, 2.7, 8.0],    // floor, width, length, height, centre
-    ['flag', 9.3, 4.6, 8.6, 2.4, 7.8],
-    ['plot', 11.7, 4.0, 6.8, 2.2, 7.8],
-    ['sky', 13.9, 3.4, 5.0, 1.7, 8.0],
-  ];
-  for (const [name, y, w, d, h, dz] of decks) {
-    const z = Z + dz;
-    box(g, M.hull, w, h, d, cx, D(y) + h / 2, z);
-    box(g, M.steelDark, w + 0.5, 0.28, d + 0.5, cx, D(y + h) + 0.14, z);
-    if (name !== 'sky') {
-      // The window band runs round three sides of a pilot house.
-      box(g, M.glass, w + 0.14, h * 0.36, d * 0.9, cx, D(y) + h * 0.66, z);
-      box(g, M.glass, w * 0.86, h * 0.36, d + 0.14, cx, D(y) + h * 0.66, z);
-    } else {
-      // Sky control is open, behind a splinter bulwark.
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2;
-        box(g, M.steel, 0.9, 1.2, 0.18, cx + Math.sin(a) * (w / 2), D(y) + 0.6,
-          z + Math.cos(a) * (d / 2), a);
-      }
-    }
-    // Wing bridges: a platform out each side on its brackets, with a rail.
-    for (const s of [-1, 1]) {
-      const wx = cx + S * s * (w / 2 + 0.85);
-      box(g, M.steelDark, 1.8, 0.14, d * 0.72, wx, D(y) + 0.07, z);
-      for (const bz of [-d * 0.28, d * 0.28]) {
-        const br = box(g, M.steelDark, 2.0, 0.16, 0.16, cx + S * s * (w / 2 + 0.6),
-          D(y) - 0.5, z + bz);
-        br.rotation.z = -S * s * 0.45;
-      }
-      const pts = [];
-      for (let i = 0; i <= 4; i++) {
-        pts.push([cx + S * s * (w / 2 + 1.65), D(y) + 0.12, z - d * 0.36 + (i * d * 0.72) / 4]);
-      }
-      railing(g, pts, 1.0, 2);
-    }
-  }
-  // ------------------------------------------------- the open bridge --
-  // A Yorktown was conned from the open bridge, not from behind glass: a
-  // walkway wrapped round the front and both sides of the pilot house behind a
-  // splinter bulwark, with the pelorus on each wing and the engine telegraphs
-  // by the centreline. It is the shape that makes the forward end of the
-  // island read as a bridge rather than as another box on the pile.
-  for (const [y, w, d, dz, bh] of [[6.6, 5.0, 9.8, 8.0, 1.25], [9.3, 4.6, 8.6, 7.8, 1.15]]) {
-    const z = Z + dz;
-    const ow = w / 2 + 1.7;
-    const od = d / 2 + 1.5;
-    const N = 19;
-    for (let i = 0; i < N; i++) {
-      const a = -1.95 + (i / (N - 1)) * 3.9;
-      const px = cx + Math.sin(a) * ow;
-      const pz = z + Math.cos(a) * od;
-      // The bulwark, and the platform it stands on.
-      box(g, M.hull, 1.05, bh, 0.22, px, D(y) + bh / 2, pz, a);
-      box(g, M.steelDark, 1.05, 0.16, 1.9, px - Math.sin(a) * 0.85,
-        D(y) + 0.08, pz - Math.cos(a) * 0.85, a);
-      // A stiffener down the outside of it, and a bracket under the platform.
-      if (i % 3 === 0) {
-        box(g, M.hullDark, 0.18, bh, 0.18, cx + Math.sin(a) * (ow + 0.12),
-          D(y) + bh / 2, z + Math.cos(a) * (od + 0.12));
-        const br = box(g, M.steelDark, 2.0, 0.16, 0.16,
-          cx + Math.sin(a) * (ow - 0.9), D(y) - 0.6, z + Math.cos(a) * (od - 0.9));
-        br.rotation.y = -a;
-        br.rotation.z = Math.sin(a) > 0 ? 0.5 : -0.5;
-      }
-    }
-    // The pelorus on each wing, and the telegraphs by the centreline.
-    for (const sgn of [-1, 1]) {
-      const px = cx + sgn * (ow - 0.7);
-      cyl(g, M.steelDark, 0.16, 0.2, 1.0, px, D(y) + 0.5, z + od * 0.35, 8);
-      cyl(g, M.bright, 0.34, 0.34, 0.16, px, D(y) + 1.05, z + od * 0.35, 12);
-      cyl(g, M.steelDark, 0.2, 0.24, 1.1, cx + sgn * 1.1, D(y) + 0.55, z + od - 0.9, 8);
-      box(g, M.bright, 0.36, 0.4, 0.22, cx + sgn * 1.1, D(y) + 1.2, z + od - 0.9);
-    }
-    // The windscreen over the front of the bulwark.
-    for (let i = 0; i < 5; i++) {
-      const a = -0.5 + (i / 4) * 1.0;
-      const wv = box(g, M.glass, 1.0, 0.55, 0.1, cx + Math.sin(a) * (ow + 0.02),
-        D(y) + bh + 0.26, z + Math.cos(a) * (od + 0.02), a);
-      wv.rotation.x = -0.22;
-    }
-  }
-  // The chart house abaft the pilot house, and the ladder up its side.
-  box(g, M.hull, 4.2, 2.4, 3.2, cx, D(6.6) + 1.2, Z + 1.6);
-  box(g, M.glass, 4.34, 0.8, 2.6, cx, D(6.6) + 1.6, Z + 1.6);
-  box(g, M.steelDark, 4.7, 0.24, 3.6, cx, D(9.0), Z + 1.6);
-  for (let i = 0; i < 5; i++) {
-    box(g, M.steel, 0.5, 0.08, 0.1, ox(-4.2 / 2 - 0.2), D(4.4 + i * 0.55), Z + 1.6);
-  }
-  for (const sgn of [-1, 1]) {
-    box(g, M.steel, 0.1, 2.6, 0.1, ox(-4.2 / 2 - 0.2), D(5.6), Z + 1.6 + sgn * 0.25);
-  }
-
-  // The two 24-inch signal lamps, standing on the pilot house wings.
-  for (const s of [-1, 1]) {
-    const wx = cx + S * s * (5.0 / 2 + 0.85);
-    box(g, M.steelDark, 0.3, 0.85, 0.3, wx, D(6.6) + 0.57, Z + 10.6);
-    cyl(g, M.bright, 0.44, 0.44, 0.6, wx, D(6.6) + 1.25, Z + 10.6, 12)
-      .rotation.x = Math.PI / 2;
-  }
-  // Flag bags on the flag bridge wings, and the halyard cleats above them.
-  for (const s of [-1, 1]) {
-    const wx = cx + S * s * (4.6 / 2 + 0.85);
-    box(g, M.canvas, 1.4, 0.8, 2.2, wx, D(9.3) + 0.5, Z + 5.0);
-  }
-
-  // ------------------------------------------------------------ the funnel --
-  // The uptake casing, canted a few degrees outboard so the smoke clears the
-  // deck, with the cap flaring off the top of it and a grille across the mouth.
-  const FZ = Z - 6.6;
-  const FY0 = 6.6;
-  const FY1 = 16.4;
-  const FH = FY1 - FY0;
-  // Long. A Yorktown's uptake casing is not a chimney stuck on the back of the
-  // bridge, it is the whole after half of the island -- twelve metres of it
-  // fore and aft, which is most of the structure's length.
-  const FL = 12.4;
-  const fun = new THREE.Group();
-  fun.position.set(ox(0.35), D((FY0 + FY1) / 2), FZ);
-  fun.rotation.z = -S * 0.055;
-  g.add(fun);
-  box(fun, M.hull, W + 0.6, FH, FL, 0, 0, 0);
-  // Corner strakes and the horizontal ribs down it, so it reads as riveted
-  // plating rather than as one solid block of nothing.
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      box(fun, M.hullDark, 0.32, FH, 0.32, sx * (W + 0.6) / 2, 0, sz * (FL / 2 - 0.2));
-    }
-  }
-  for (let i = 1; i <= 3; i++) {
-    const y = -FH / 2 + (i * FH) / 4;
-    box(fun, M.hullDark, W + 0.9, 0.22, FL + 0.3, 0, y, 0);
-  }
-  // The cap: a flared collar, a black band round it, and the grille of bars
-  // across the mouth with the dark of the uptake behind them.
-  box(fun, M.steelDark, W + 1.6, 0.5, FL + 1.1, 0, FH / 2 + 0.25, 0);
-  box(fun, M.boot, W + 1.3, 0.85, FL + 0.7, 0, FH / 2 + 0.9, 0);
-  box(fun, M.cave, W - 0.5, 0.3, FL - 1.2, 0, FH / 2 + 1.2, 0);
-  for (let i = 0; i < 7; i++) {
-    box(fun, M.steelDark, 0.16, 0.3, FL - 1.0,
-      -(W - 0.7) / 2 + (i * (W - 0.7)) / 6, FH / 2 + 1.32, 0);
-  }
-  for (let i = 0; i < 3; i++) {
-    box(fun, M.steelDark, W - 0.5, 0.3, 0.16, 0, FH / 2 + 1.32,
-      -(FL - 1.4) / 2 + (i * (FL - 1.4)) / 2);
-  }
-  // Steam pipes up the after face, standing proud of it, with their whistles.
-  for (const s of [-1, 1]) {
-    cyl(fun, M.steelDark, 0.26, 0.26, FH + 2.2, s * 1.6, 1.1, -FL / 2 - 0.3, 8);
-    box(fun, M.steelDark, 0.5, 0.45, 0.5, s * 1.6, FH / 2 + 1.5, -FL / 2 - 0.3);
-  }
-  // The siren on the forward face, and a ladder up the outboard one.
-  for (const s of [-1, 1]) {
-    cyl(fun, M.bright, 0.34, 0.44, 0.9, s * 0.9, FH / 2 - 2.0, FL / 2 + 0.3, 10)
-      .rotation.x = Math.PI / 2;
-  }
-  for (let i = 0; i < 11; i++) {
-    box(fun, M.steel, 0.1, 0.08, 0.5, -S * (W + 0.6) / 2 - S * 0.22,
-      -FH / 2 + 0.6 + i * (FH - 1.2) / 10, 1.2);
-  }
-  for (const dz of [0.95, 1.45]) {
-    box(fun, M.steel, 0.1, FH - 0.8, 0.1, -S * (W + 0.6) / 2 - S * 0.22, 0, dz);
-  }
-  // A gallery round the foot of the casing, with a pair of 20 mm on it.
-  box(g, M.steelDark, W + 4.2, 0.3, FL + 1.6, ox(0.9), D(FY0 + 0.15), FZ);
-  {
-    const pts = [];
-    for (let i = 0; i <= 5; i++) pts.push([ox(W / 2 + 2.4), D(FY0 + 0.3), FZ - 5.0 + i * 2.0]);
-    railing(g, pts, 1.0, 2);
-  }
-  for (const dz of [-3.2, 3.2]) {
-    oerlikon(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz, S * 1.4);
-    mate(g, ox(W / 2 + 1.6), D(FY0 + 0.3), FZ + dz + 1.5, S * 1.4);
-  }
-  // Searchlight platforms either side of the funnel, on their brackets.
-  for (const s of [-1, 1]) {
-    const px = cx + S * s * (W / 2 + 1.9);
-    box(g, M.steelDark, 3.4, 0.28, 4.4, px, D(12.4), FZ + 0.6);
-    for (const bz of [-1.4, 1.4]) {
-      const br = box(g, M.steelDark, 3.0, 0.18, 0.18, cx + S * s * (W / 2 + 1.1),
-        D(11.7), FZ + 0.6 + bz);
-      br.rotation.z = -S * s * 0.5;
-    }
-    cyl(g, M.bright, 0.78, 0.78, 1.2, px, D(13.3), FZ + 0.6, 14).rotation.x = Math.PI / 2;
-    box(g, M.steelDark, 0.5, 1.0, 0.5, px, D(12.9), FZ + 0.6);
-    const pts = [];
-    for (let i = 0; i <= 3; i++) pts.push([px + S * s * 1.6, D(12.55), FZ - 1.4 + i * 1.4]);
-    railing(g, pts, 1.0, 2);
-  }
-
-  // -------------------------------------------------------- the tripod mast --
-  // Stepped on the second deck between the bridge and the funnel, so its legs
-  // land on structure rather than on air.
-  const mastZ = Z + 1.35;
-  const mastFoot = D(6.6);
-  const mastTop = D(25.6);
-  // The legs are splayed at the foot and gather at the truck -- that is what
-  // makes it a tripod rather than three posts standing side by side. Each is
-  // lofted between the two points it actually runs between, so it leans the
-  // way it should instead of leaning outwards as it rises.
-  for (const [dx, dz] of [[0, 1.7], [-2.3, -1.7], [2.3, -1.7]]) {
-    const x0 = cx + S * dx;
-    const z0 = mastZ + dz;
-    const rise = mastTop - mastFoot;
-    const len = Math.hypot(cx - x0, rise, mastZ - z0);
-    const leg = cyl(g, M.steel, 0.2, 0.34, len,
-      (x0 + cx) / 2, (mastFoot + mastTop) / 2, (z0 + mastZ) / 2, 8);
-    leg.rotation.x = Math.atan2(mastZ - z0, rise);
-    leg.rotation.z = Math.atan2(x0 - cx, rise);
-  }
-  // Cross bracing between the legs.
-  for (const h of [9.6, 12.8, 16.0, 19.2, 22.4]) {
-    const k = 1 - (h - 6.6) / (25.6 - 6.6);
-    box(g, M.steel, 4.6 * k + 0.5, 0.16, 0.16, cx, D(h), mastZ - 1.9 * k);
-    box(g, M.steel, 0.16, 0.16, 4.5 * k + 0.5, cx, D(h), mastZ + 0.35 * k);
-  }
-  // The lookout's platform, and the signal yard with its halyards.
-  box(g, M.steelDark, 3.4, 0.2, 3.0, cx, D(17.6), mastZ);
-  {
-    const pts = [];
-    for (let i = 0; i <= 4; i++) pts.push([ox(1.5), D(17.7), mastZ - 1.4 + i * 0.7]);
-    railing(g, pts, 1.0, 2);
-  }
-  box(g, M.steel, 11.0, 0.18, 0.18, cx, D(21.2), mastZ);
-  for (const s of [-1, 1]) {
-    for (let i = 1; i <= 3; i++) {
-      const wr = box(g, M.wire, 0.05, 5.6, 0.05, cx + S * s * i * 1.7, D(18.5), mastZ);
-      wr.rotation.z = -S * s * 0.15 * i;
-    }
-  }
-  // A hoist of bunting on the outboard halyard. On a ship painted one colour
-  // from her boot topping to her masthead, the signal flags are the only colour
-  // there is, and at any range they are the first thing the eye finds on her.
-  {
-    const bunting = [M.flagRed, M.mark, M.flagBlue, M.flagGold, M.flagRed, M.mark, M.flagBlue];
-    const hx = cx + S * 3 * 1.7;
-    const drop = 1.05;
-    const step = 0.24;
-    // The halyard the hoist is bent onto, led from the yardarm down and out.
-    const rope = box(g, M.wire, 0.06, drop * bunting.length + 0.6, 0.06,
-      hx + S * (0.5 + step * (bunting.length - 1) / 2),
-      D(20.9) - (drop * (bunting.length - 1)) / 2 - 0.35, mastZ);
-    rope.rotation.z = -S * Math.atan2(step * (bunting.length - 1), drop * (bunting.length - 1));
-    for (let i = 0; i < bunting.length; i++) {
-      const y = D(20.9) - 0.35 - i * drop;
-      const f = box(g, bunting[i], 0.1, 0.86, 0.95, hx + S * (0.5 + i * step), y, mastZ);
-      f.rotation.z = -S * 0.45;
-      f.rotation.y = 0.12 * (i % 2 ? 1 : -1);
-    }
-  }
-  // Two more halyards led down to the flag bags on the bridge wings.
-  for (const s of [-1, 1]) {
-    const hw = box(g, M.wire, 0.05, 11.4, 0.05, cx + S * s * 2.9, D(15.4), mastZ + 1.2);
-    hw.rotation.x = -0.30;
-    hw.rotation.z = -S * s * 0.16;
-  }
-  // The air-search bedspring: a wide rectangular mattress of dipoles on a short
-  // topmast above the truck. It is the biggest single thing on her upperworks
-  // and the one that says 1942 rather than 1938 -- so it is built at the size
-  // it was, not as a token on a stick.
-  box(g, M.steel, 2.6, 0.6, 2.8, cx, D(24.6), mastZ);
-  cyl(g, M.steel, 0.18, 0.24, 2.6, cx, D(26.1), mastZ, 8);
-  const sc = new THREE.Group();
-  sc.position.set(cx, D(27.2), mastZ);
-  // Trained round on its trunnion, so the mattress shows its face from the beam
-  // and from the bow rather than standing edge-on to both.
-  sc.rotation.y = 1.15;
-  g.add(sc);
-  const SCW = 6.4;
-  const SCH = 2.7;
-  for (const y of [0, SCH]) box(sc, M.steel, SCW, 0.18, 0.34, 0, y, 0);
-  for (const sx of [-1, 1]) box(sc, M.steel, 0.18, SCH, 0.34, sx * SCW / 2, SCH / 2, 0);
-  for (let i = 0; i < 13; i++) {
-    const x = -SCW / 2 + 0.25 + (i * (SCW - 0.5)) / 12;
-    box(sc, M.steel, 0.1, SCH - 0.2, 0.1, x, SCH / 2, 0);
-    for (const y of [SCH * 0.3, SCH * 0.7]) {
-      box(sc, M.steel, 0.07, 0.07, 0.85, x, y, 0.4);
-    }
-  }
-  // Its backing frame and the trunnion it turns on.
-  box(sc, M.steel, SCW - 0.6, 0.12, 0.12, 0, SCH / 2, -0.35);
-  for (const sx of [-1, 1]) box(sc, M.steel, 0.12, 0.12, 0.8, sx * 1.4, SCH / 2, -0.2);
-  cyl(sc, M.steelDark, 0.3, 0.3, 0.7, 0, -0.5, 0, 10);
-  // SG surface-search in its cheese housing, on the starboard yardarm.
-  const sg = cyl(g, M.steel, 0.95, 0.95, 0.55, ox(2.4), D(22.8), mastZ, 14);
-  sg.rotation.x = Math.PI / 2;
-  box(g, M.steel, 0.32, 2.0, 0.22, ox(2.4), D(21.9), mastZ);
-  // Whip aerials down the outboard side of the island, hinged out.
-  for (const dz of [-12.0, -6.0, 6.0, 11.0]) {
-    const w = cyl(g, M.wire, 0.05, 0.09, 6.0, ox(W / 2 + 0.3), D(6.6), Z + dz, 6);
-    w.rotation.z = S * 0.35;
-  }
-
-  // ------------------------------------------------------- fire control --
-  // Mk 37 directors with their Mk 4 antennas: one on the air plot's roof
-  // looking forward, one on a platform abaft the funnel.
-  const dirs = [[D(13.9), Z + 8.0, 1], [D(10.6), Z - 15.0, -1]];
-  for (const [y, z, fwd] of dirs) {
-    if (fwd < 0) {
-      // The after director's platform, carried off the island's after end.
-      box(g, M.steelDark, 5.4, 0.3, 5.0, cx, y - 0.15, z);
-      for (const s of [-1, 1]) {
-        const br = box(g, M.steelDark, 2.6, 0.18, 0.18, cx + S * s * 1.6, y - 0.9, z);
-        br.rotation.z = -S * s * 0.5;
-      }
-      box(g, M.hull, 3.2, 3.6, 5.6, cx, y - 1.9, z + 1.9);
-    }
-    const d = new THREE.Group();
-    d.position.set(cx, y, z);
-    d.rotation.y = fwd > 0 ? 0 : Math.PI;
-    g.add(d);
-    cyl(d, M.gun, 1.55, 1.75, 1.0, 0, 0.5, 0, 14);
-    box(d, M.gun, 3.0, 1.9, 3.4, 0, 1.95, 0);
-    box(d, M.gunDark, 3.1, 0.5, 0.2, 0, 2.5, 1.7);
-    box(d, M.glass, 2.2, 0.4, 0.16, 0, 2.2, 1.75);
-    // The Mk 4 mattress on its trunnions.
-    box(d, M.steel, 2.6, 1.9, 0.16, 0, 3.55, 0.2);
-    for (let i = 0; i < 5; i++) box(d, M.steel, 0.08, 0.08, 0.5, -1.0 + i * 0.5, 3.55, 0.45);
-    for (const s of [-1, 1]) cyl(d, M.gun, 0.2, 0.2, 0.5, s * 1.4, 2.95, 0.2, 8).rotation.z = Math.PI / 2;
-  }
-
-  // The short pole mast abaft the funnel, with its yard and the after signal
-  // light on it: the second stick every photograph of her shows.
-  {
-    const pz = Z - 15.0;
-    const py = D(10.9);
-    cyl(g, M.steel, 0.16, 0.26, 11.0, cx, py + 5.5, pz, 8);
-    box(g, M.steel, 6.0, 0.14, 0.14, cx, py + 8.4, pz);
-    for (const s of [-1, 1]) {
-      cyl(g, M.bright, 0.26, 0.26, 0.4, cx + S * s * 2.6, py + 8.7, pz, 10)
-        .rotation.x = Math.PI / 2;
-      const st = box(g, M.wire, 0.05, 5.4, 0.05, cx + S * s * 2.2, py + 6.0, pz);
-      st.rotation.z = -S * s * 0.16;
-    }
-    cyl(g, M.steel, 0.1, 0.14, 3.0, cx, py + 12.2, pz, 6);
-  }
-
-  // The flag staff at the island's truck.
-  box(g, M.steel, 0.14, 3.4, 0.14, cx, D(17.3), Z + 8.0);   // at the truck of the island
-}
-
-// ---------------------------------------------------------------- weapons --
-
-/**
- * A 5"/38 single mount, open-backed with its shield.
- *
- * Marked dynamic and recorded, because these are the guns the simulation lays:
- * eight of them, and each one trains on its own pintle. Being dynamic also
- * keeps the welder off them, which is what lets them turn at all.
- */
-function fiveInch(g, root, x, y, z, ry) {
-  const m = new THREE.Group();
-  m.position.set(x, y, z);
-  m.rotation.y = ry;
-  m.userData.dynamic = true;
-  (root.userData.turrets || (root.userData.turrets = [])).push(m);
-  g.add(m);
-  cyl(m, M.gunDark, 1.25, 1.35, 0.5, 0, 0.25, 0, 16);
-  // The shield: front plate, two sides, open at the back.
-  box(m, M.gun, 2.5, 2.1, 0.18, 0, 1.55, 1.15);
-  for (const s of [-1, 1]) box(m, M.gun, 0.18, 2.1, 2.3, s * 1.25, 1.55, 0);
-  box(m, M.gun, 2.6, 0.18, 2.4, 0, 2.6, 0);
-  // Trunnions, cradle and the barrel through the shield.
-  for (const s of [-1, 1]) cyl(m, M.gunDark, 0.22, 0.22, 0.4, s * 0.6, 1.5, 0.2, 10).rotation.z = Math.PI / 2;
-  const arm = new THREE.Group();
-  arm.position.set(0, 1.5, 0.2);
-  arm.rotation.x = -0.22;
-  m.add(arm);
-  box(arm, M.gunDark, 0.75, 0.7, 1.6, 0, 0, -0.4);
-  tubeZ(arm, M.gun, 0.135, 4.6, 0, 0, 2.4, 12);
-  tubeZ(arm, M.gunDark, 0.19, 0.5, 0, 0, 0.75, 12);
-  m.userData.trainRate = 0.9;      // a 5"/38 single, worked by its crew
-  armMount(m, arm, [[0, 0, 4.8]]);
-  // Loader's platform and the ready-service racks round the base.
-  cyl(m, M.steelDark, 2.1, 2.1, 0.1, 0, 0.05, -0.6, 16);
-  for (let i = 0; i < 8; i++) {
-    const a = -1.9 + i * 0.5;
-    box(m, M.steelDark, 0.3, 0.9, 0.3, Math.sin(a) * 1.9, 0.5, Math.cos(a) * 1.9 - 0.6);
-  }
-  // The mount turns as one thing, so everything on it welds down to one draw
-  // call. Left loose, eight of these cost a hundred and sixty.
-  mergeStatic(m);
-  return m;
-}
-
-/** A quadruple 40 mm Bofors on its power mount. */
-// The light guns built during the current pass, so the builder can hand them
-// to the scene. Reset when a build starts: two Enterprises in one action must
-// not end up sharing one another's mountings.
-let AA_MOUNTS = [];
-
-function bofors(g, x, y, z, ry) {
-  const m = new THREE.Group();
-  m.position.set(x, y, z);
-  m.rotation.y = ry;
-  // She trains: the welder leaves her alone and the scene lays her.
-  m.userData.dynamic = true;
-  m.userData.rest = ry;
-  g.add(m);
-  AA_MOUNTS.push(m);
-  cyl(m, M.gunDark, 1.0, 1.15, 0.45, 0, 0.22, 0, 14);
-  box(m, M.gun, 2.0, 0.9, 1.7, 0, 0.85, -0.3);
-  for (const s of [-1, 1]) box(m, M.gun, 0.5, 1.1, 1.0, s * 1.1, 1.0, -0.2);
-  const arm = new THREE.Group();
-  arm.position.set(0, 1.25, 0.2);
-  arm.rotation.x = -0.5;
-  m.add(arm);
-  box(arm, M.gunDark, 1.5, 0.55, 1.2, 0, 0, -0.3);
-  for (const dx of [-0.45, -0.15, 0.15, 0.45]) {
-    tubeZ(arm, M.gun, 0.055, 2.5, dx, 0.12, 1.3, 8);
-    box(arm, M.gunDark, 0.16, 0.16, 0.5, dx, 0.12, -0.5);
-  }
-  m.userData.trainRate = 1.4;
-  armMount(m, arm, [-0.45, -0.15, 0.15, 0.45].map((dx) => [dx, 0.12, 2.65]));
-  // The two loaders' seats and the sight between them.
-  for (const s of [-1, 1]) box(m, M.gunDark, 0.4, 0.1, 0.4, s * 0.85, 1.35, -1.0);
-  box(m, M.gun, 0.3, 0.5, 0.3, 0, 1.6, -0.5);
-  return m;
-}
-
-/**
- * The second gun of a twenty-millimetre pair.
- *
- * Drawn exactly like the first and deliberately not registered as a mounting:
- * the arsenal names the position, a captain presses the position, and the pair
- * on it fires together. Registering both would make her arsenal twice as long
- * as her gallery and put half its circles on a gun nobody thinks of as a
- * separate weapon.
- */
-function mate(g, x, y, z, ry) {
-  const m = oerlikon(g, x, y, z, ry);
-  AA_MOUNTS.pop();
-  return m;
-}
-
-/** A single 20 mm Oerlikon on its pedestal, with its shoulder rests. */
-function oerlikon(g, x, y, z, ry) {
-  const m = new THREE.Group();
-  m.position.set(x, y, z);
-  m.rotation.y = ry;
-  // She trains: the welder leaves her alone and the scene lays her.
-  m.userData.dynamic = true;
-  m.userData.rest = ry;
-  g.add(m);
-  AA_MOUNTS.push(m);
-  cyl(m, M.gunDark, 0.24, 0.34, 1.15, 0, 0.57, 0, 10);
-  const arm = new THREE.Group();
-  arm.position.set(0, 1.15, 0);
-  arm.rotation.x = -0.55;
-  m.add(arm);
-  tubeZ(arm, M.gun, 0.05, 1.9, 0, 0, 0.75, 8);
-  box(arm, M.gunDark, 0.3, 0.34, 0.7, 0, 0, -0.2);
-  m.userData.trainRate = 2.9;
-  armMount(m, arm, [[0, 0, 1.78]]);
-  cyl(arm, M.gunDark, 0.24, 0.24, 0.18, 0, 0.3, -0.05, 12);
-  for (const s of [-1, 1]) box(arm, M.gunDark, 0.1, 0.42, 0.1, s * 0.22, -0.3, -0.5);
-  // The splinter shield round the pedestal.
-  for (let i = 0; i < 9; i++) {
-    const a = -1.6 + (i / 8) * 3.2;
-    box(m, M.steel, 0.42, 1.0, 0.1, Math.sin(a) * 0.85, 0.5, Math.cos(a) * 0.85, a);
-  }
-  return m;
-}
-
-/**
- * Where her guns actually were: eight 5-inch in four sponsons at the corners of
- * the flight deck, four quad Bofors, and Oerlikons the whole length of both
- * catwalks. The five-inch could not fire across the deck, which is why they are
- * where they are and why she was always short of them forward.
- */
-function armament(g) {
-  const gy = GALLERY;                        // the gallery deck
-  // Starboard is -x, so the starboard pair come first to match the datasheet's
-  // order, which is the order the simulation lays them in.
-  const sponsons = [
-    [-1, LOA * 0.30], [-1, -LOA * 0.24],     // starboard, forward and aft
-    [1, LOA * 0.26], [1, -LOA * 0.28],       // port
-  ];
-  for (const [s, z] of sponsons) {
-    const x = s * (fdHalf(z) + 1.2);
-    // The sponson: a platform on brackets off the ship's side.
-    box(g, M.steel, 7.0, 0.3, 13.0, x + s * 1.2, gy, z);
-    for (const dz of [-4.5, 0, 4.5]) {
-      const br = box(g, M.steelDark, 6.6, 0.4, 0.4, x + s * 1.0, gy - 1.4, z + dz);
-      br.rotation.z = -s * 0.35;
-    }
-    const pts = [];
-    for (let i = 0; i <= 6; i++) pts.push([x + s * 4.4, gy + 0.15, z - 6 + i * 2]);
-    railing(g, pts, 1.0, 2);
-    fiveInch(g, g, x + s * 1.2, gy + 0.15, z + 3.4, s > 0 ? 1.2 : -1.2);
-    fiveInch(g, g, x + s * 1.2, gy + 0.15, z - 3.4, s > 0 ? 1.5 : -1.5);
-    // Ready-service lockers and the ammunition hoist between the two guns.
-    box(g, M.steelDark, 1.6, 1.4, 2.2, x + s * 3.2, gy + 0.85, z);
-  }
-
-  // Eight quad Bofors in their tubs: a pair right forward on the bow gallery,
-  // where a Yorktown was blindest and where they were the first thing added; a
-  // pair behind them; two on the starboard side abaft the island, hung out over
-  // the deck edge on their own sponsons; and two aft.
-  const forty = [
-    [1, LOA * 0.455], [-1, LOA * 0.455],
-    [1, LOA * 0.40], [-1, LOA * 0.40],
-    [-1, -LOA * 0.005], [-1, -LOA * 0.055],
-    [1, -LOA * 0.41], [-1, -LOA * 0.40],
-  ];
-  for (const [s, z] of forty) {
-    const x = s * (Math.min(fdHalf(z) + 0.4, halfBeam(z / (LOA / 2)) + 3.4));
-    // The sponson it stands on, carried off the gallery deck on brackets.
-    box(g, M.steelDark, 6.0, 0.3, 6.0, x, gy + 0.6, z);
-    for (const dz of [-2.0, 2.0]) {
-      const br = box(g, M.steelDark, 3.2, 0.2, 0.2, x - s * 1.4, gy - 0.1, z + dz);
-      br.rotation.z = s * 0.5;
-    }
-    tub(g, 3.0, 1.2, x, gy + 0.6, z, 14);
-    bofors(g, x, gy + 0.72, z, z > 0 ? 0 : Math.PI);
-    // Ready-service lockers round the inboard side of the tub.
-    for (const dz of [-2.2, 2.2]) {
-      box(g, M.steelDark, 1.1, 1.0, 1.4, x - s * 2.6, gy + 1.1, z + dz);
-    }
-  }
-
-  // Oerlikons down both catwalks, in their own shields, two to a position.
-  // A twenty-millimetre gallery is a row of guns worked as one -- the layers
-  // stand shoulder to shoulder and the same gunner's mate runs the pair -- so
-  // the arsenal names the position and the pair goes on it. Her sheet's
-  // forty-six barrels are twenty-three of these.
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 15; i++) {
-      const t = -1 + (2 * i) / 14;
-      const z = t * (FDL / 2 - 12) + LOA * 0.012;
-      // Not where the five-inch sponsons already are.
-      if (sponsons.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 8)) continue;
-      if (forty.some(([ss, sz]) => ss === s && Math.abs(sz - z) < 6)) continue;
-      oerlikon(g, s * (fdHalf(z) + 1.4), FD - 1.83, z, s > 0 ? 1.5 : -1.5);
-      mate(g, s * (fdHalf(z + 2.4) + 1.4), FD - 1.83, z + 2.4, s > 0 ? 1.5 : -1.5);
-    }
-  }
-}
-
-// ------------------------------------------------------- boats and cranes --
-
-function boatsAndCranes(g) {
-  const HW = FDW / 2;   // the crane stands just inboard of the deck edge
-  // The aircraft crane, on the starboard side abaft the island: a boom on a
-  // king post, which is how they got a floatplane or a wrecked aircraft over
-  // the side.
-  const kx = -(HW - 1.0);
-  const kz = -LOA * 0.10;
-  cyl(g, M.steel, 0.5, 0.6, 9.0, kx, HANGAR + 4.5, kz, 10);
-  const boom = cyl(g, M.steel, 0.3, 0.42, 15.0, kx - 4.5, HANGAR + 8.6, kz + 1.0, 10);
-  boom.rotation.z = 1.05;
-  boom.rotation.y = 0.25;
-  // The fall hangs straight down off the boom head, with the hook block on it.
-  box(g, M.wire, 0.06, 7.6, 0.06, kx - 8.6, HANGAR + 6.4, kz + 2.2);
-  box(g, M.steelDark, 0.6, 0.8, 0.6, kx - 8.6, HANGAR + 2.4, kz + 2.2);
-  cyl(g, M.steelDark, 0.42, 0.42, 0.24, kx - 8.6, HANGAR + 2.9, kz + 2.2, 10)
-    .rotation.z = Math.PI / 2;
-
-  // Boats in their davits under the flight deck overhang, both sides: two motor
-  // whaleboats and a pair of forty-foot utility boats.
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const z = -LOA * 0.04 - i * 13;
-      const x = s * (halfBeam(z / (LOA / 2)) + 1.6);
-      // Hull: a shallow wedge, with a canopy over the after half.
-      const hull = box(g, M.bright, 2.4, 1.5, 9.0, x, HANGAR + 1.9, z);
-      hull.rotation.z = s * 0.06;
-      box(g, M.steelDark, 2.0, 0.25, 8.4, x, HANGAR + 2.3, z);
-      box(g, M.canvas, 1.9, 0.9, 3.2, x, HANGAR + 2.8, z - 2.0);
-      // Davits, and the falls hanging from them.
-      for (const dz of [-4, 4]) {
-        const dav = cyl(g, M.steel, 0.16, 0.2, 5.4, x - s * 0.4, HANGAR + 4.4, z + dz, 8);
-        dav.rotation.z = s * 0.32;
-        box(g, M.wire, 0.06, 2.6, 0.06, x, HANGAR + 3.2, z + dz);
-      }
-    }
-  }
-
-}
-
 // ------------------------------------------------------------- the air group --
 
 // Her aircraft are built in planekit.js, with the same tools every other
-// aeroplane in the game is built with -- the lofted body, the wing with a
-// real section on it, the radial, the greenhouse and the gear. They used to
-// live here, which meant the cruisers' float planes could not have any of it.
-
-
-
+// aeroplane in the game is built with -- the lofted body, the wing with a real
+// section on it, the radial, the greenhouse and the gear.
+//
 // Nothing is ranged on the flight deck. A carrier lying in her berth with a
-// deck park is a carrier that cannot land an aircraft or work her lifts, and it
-// is not how one is found at the start of a watch: the group is struck below,
-// and what is coming up is on the lifts. The deck is a runway, and a runway
-// with aeroplanes parked on it is a car park.
+// deck park is a carrier that cannot land an aircraft or work her lifts, and
+// it is not how one is found at the start of a watch: the group is struck
+// below and what is coming up is on the lifts. The deck is a runway, and a
+// runway with aeroplanes parked on it is a car park.
 
 // ------------------------------------------------------------------ build --
 
-/**
- * The whole ship, welded down to one mesh per material.
- *
- * @returns {{group: THREE.Group, length: number, beam: number, deckY: number}}
- */
+/** Everything she is built from, before the weld, in the order it goes on. */
+function assemble(g) {
+  buildHull(g);
+  groundTackle(g);
+  hangarSides(g);
+  hangarInterior(g);
+  galleryDeck(g);
+  flightDeck(g);
+  catwalks(g);
+  island(g);
+  armament(g);
+  boatsAndCranes(g);
+}
+
 /**
  * Every piece she is built from, in world axis-aligned boxes, before the weld.
  *
@@ -2237,16 +2378,9 @@ function boatsAndCranes(g) {
  * stood on it.
  */
 export function enterpriseParts() {
+  AA_MOUNTS = [];
   const g = new THREE.Group();
-  buildHull(g);
-  hangarSides(g);
-  hangarInterior(g);
-  groundTackle(g);
-  flightDeck(g);
-  catwalks(g);
-  island(g);
-  armament(g);
-  boatsAndCranes(g);
+  assemble(g);
   elevators(g);
   deckAircraft(g);
   g.updateMatrixWorld(true);
@@ -2272,61 +2406,58 @@ export function enterpriseParts() {
   return parts;
 }
 
+/**
+ * The whole ship, welded down to one mesh per material.
+ *
+ * @returns {{group: THREE.Group, length: number, beam: number, deckY: number}}
+ */
 export function buildEnterprise() {
   AA_MOUNTS = [];
   const g = new THREE.Group();
-  buildHull(g);
-  hangarSides(g);
-  hangarInterior(g);
-  groundTackle(g);
-  flightDeck(g);
-  catwalks(g);
-  island(g);
-  armament(g);
-  boatsAndCranes(g);
+  assemble(g);
   const lifts = elevators(g);
   const plane = deckAircraft(g);
   // What is under her hangar deck. A carrier is a hull with a hangar and a
   // flight deck built on top of it, and everything that makes her steam --
-  // eight boilers and four sets of turbines, in her case -- is below the
-  // hangar, which is what the interior builder fits into her lines. The
-  // hangar itself is already modelled above it.
+  // nine boilers and four sets of turbines, in her case -- is below the
+  // hangar, which is what the interior builder fits into her lines. The hangar
+  // itself is already modelled above it.
   //
   // The weld is split one buffer per compartment so a compartment blown out of
-  // her can have its plating taken off. That is also what puts a hole in her
-  // flight deck when the machinery under it goes: see flightDeckOut.
+  // her can have its plating taken off.
   buildInterior(g, {
-    loa: LOA, shellAt, zAt, keelY,
+    loa: LOA,
+    shellAt: (t, y) => F.shellAt(t, y),
+    zAt: (t, y) => F.zAt(t, y),
+    keelY: (t) => F.keelY(t),
     // Her "deck" for this purpose is the hangar deck, not the flight deck:
     // there is nothing below the hangar but the hull.
     sheer: () => HANGAR,
+    // And nothing above it that the interior builder has any business
+    // furnishing. Left to itself it reads the top of the plating it can see,
+    // decides the space over it is a deckhouse and fills it with decks and
+    // bulkheads -- which on a carrier is the hangar and the runway. What that
+    // put on her was a mess deck laid nine centimetres above her own flight
+    // deck for sixty metres of her length, and grey compartment walls standing
+    // in the middle of the hangar.
+    hollow: true,
   });
   mergeStatic(g, bySection(LOA));
   // And inside every part of her that moves. A mounting is welded in its own
   // frame, so it goes on training and elevating exactly as it did and costs
   // two draw calls instead of a hundred. See mergeMoving.
   mergeMoving(g);
-  // The deck runs whenever anything is drawing her -- the shipyard and the
-  // battle both -- so the ship carries her own animation rather than each scene
-  // having to know she has elevators. `launch` starts the evolution; the
-  // simulation calls it when a squadron goes.
   // Her take-off, integrated once out of her own weight and wing so it can be
-  // read back the same way every time. The deck ahead of her is what is left
-  // between where she lines up and the bow.
-  // Right aft, at the round-down, with her tail wheel just inside the deck
-  // edge -- which is where a deck launch starts and why the deck is as long as
-  // it is.
+  // read back the same way every time. She is ranged right aft, at the
+  // round-down, with her tail wheel just inside the deck edge -- which is
+  // where a deck launch starts and why the deck is as long as it is.
   const spot = fdEndA(0) + 6.5;
   const deck = {
     lifts, plane, launchAt: null, startY: FD, airborne: false, spot,
-    // Which flight in the air she is, once she is off the deck. Set from
-    // the simulation's 'airborne' event and cleared when she is aboard
-    // again -- see flyLaunched.
+    // Which flight in the air she is, once she is off the deck.
     flightId: 0,
     // Flights whose wheels have left the planking and are waiting for a model
-    // to be handed to them. A queue, because the evolution is restarted for
-    // the next aeroplane on the same tick this one's wheels come up, and the
-    // order and the evolution can land a frame either side of each other.
+    // to be handed to them.
     pending: [],
     // Struck below between sorties, which is where a carrier keeps her
     // aircraft, and the reason the launch begins with the lift going down.
@@ -2338,9 +2469,7 @@ export function buildEnterprise() {
   // Where the deck run leaves her, in the ship's own frame: the last row of
   // the profile the launch was integrated into. Whatever takes her over flies
   // her from here, and it reads this rather than looking at where the model
-  // happens to be -- the evolution is restarted for the next aeroplane on the
-  // same tick this one's wheels come up, and a hand-over that depended on
-  // catching the model at that instant caught it about as often as not.
+  // happens to be.
   {
     const end = deck.profile.rows[deck.profile.rows.length - 1];
     deck.endPose = { x: 0, y: FD + end[1] + 0.34, z: spot + end[0], pitch: end[2] };
@@ -2379,9 +2508,6 @@ export function buildEnterprise() {
     deck.launchAt = null;
     deck.landAt = null;
     deck.stowed = true;
-    // Below now, not next frame. Between the order and the frame that draws it
-    // there is a window, and anything that read the model in that window read
-    // her at the end of her take-off run -- in the air, off the bow.
     below(deck, plane.group, lifts[lifts.length - 1]);
     if (plane.gear) plane.gear(0);
     if (plane.wings) {
@@ -2390,9 +2516,9 @@ export function buildEnterprise() {
     }
     plane.group.rotation.set(0, 0.08, 0);
   };
-  // Steel where she is plated and planking where she is decked: the maps go
-  // on after the weld, when she is a handful of meshes rather than a few
-  // hundred, and the weld is what gave her the coordinates to put them on.
+  // Steel where she is plated and planking where she is decked: the maps go on
+  // after the weld, when she is a handful of meshes rather than a few hundred,
+  // and the weld is what gave her the coordinates to put them on.
   dressShip(g);
   return {
     group: g,
@@ -2406,8 +2532,8 @@ export function buildEnterprise() {
   };
 }
 
-// The three types on their own, so they can be looked at and measured
-// without a ship round them.
+// The three types on their own, so they can be looked at and measured without
+// a ship round them.
 export const __aircraft = { wildcat, dauntless, avenger };
 
-export { LOA, FDW, FDL, HANGAR, FD, LIFT_HW, liftZs };
+export { LOA, FDW, FDL, HANGAR, HTOP, GALLERY, FD, LIFT_HW, liftZs };

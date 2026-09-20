@@ -317,6 +317,93 @@ function sideLadder(g, m, opts) {
   box(g, m, 0.07, 0.07, half * 2, out * xh, top, z);
 }
 
+// ---------------------------------------------------- sheets and railings --
+
+/**
+ * A sheet built up out of quads, each wound so its face looks the way it is
+ * told to. For anything that follows a curve in plan -- a flight deck's
+ * girder, a hangar side -- because a curve drawn as a run of boxes steps
+ * sideways between one box and the next and a ray goes through the step.
+ */
+function strip() {
+  const pos = [];
+  const idx = [];
+  const quad = (a, b, c, d, out) => {
+    const n = pos.length / 3;
+    pos.push(...a, ...b, ...c, ...d);
+    const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+    const ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+    const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const flip = nx * out[0] + ny * out[1] + nz * out[2] < 0;
+    if (flip) idx.push(n, n + 2, n + 1, n, n + 3, n + 2);
+    else idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+  const mesh = (g, m) => {
+    if (!pos.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const o = new THREE.Mesh(geo, m);
+    g.add(o);
+    return o;
+  };
+  return { quad, mesh };
+}
+
+/**
+ * A deck: one sheet between a port and a starboard edge given as functions of
+ * the station, wound to face the sky (or, with `up` false, the sea).
+ */
+function sheet(g, m, z0, z1, half, y, n = 96, up = true) {
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i <= n; i++) {
+    const z = z0 + ((z1 - z0) * i) / n;
+    const w = Math.max(0.05, half(z));
+    const h = y(z);
+    pos.push(-w, h, z, w, h, z);
+  }
+  for (let i = 0; i < n; i++) {
+    const a = i * 2;
+    const b = (i + 1) * 2;
+    if (up) idx.push(a, b + 1, a + 1, a, b, b + 1);
+    else idx.push(a, a + 1, b + 1, a, b + 1, b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const o = new THREE.Mesh(geo, m);
+  g.add(o);
+  return o;
+}
+
+/**
+ * A rail: stanchions and three courses of wire along a line in plan.
+ *
+ * Every catwalk and every gun platform on a ship carries one, and a warship
+ * without them reads as a model of a warship.
+ */
+function rail(g, m, z0, z1, half, y, step = 2.4, sides = [-1, 1], h = 1.05) {
+  for (const sgn of sides) {
+    const n = Math.max(1, Math.round(Math.abs(z1 - z0) / step));
+    for (let i = 0; i <= n; i++) {
+      const z = z0 + ((z1 - z0) * i) / n;
+      cyl(g, m, 0.045, 0.045, h, sgn * half(z), y(z) + h / 2, z, 5);
+    }
+    for (let i = 0; i < n; i++) {
+      const za = z0 + ((z1 - z0) * i) / n;
+      const zb = z0 + ((z1 - z0) * (i + 1)) / n;
+      for (const f of [0.38, 0.70, 1.0]) {
+        const wire = box(g, m, 0.05, 0.05, Math.hypot(zb - za, half(zb) - half(za)),
+          sgn * (half(za) + half(zb)) / 2, (y(za) + y(zb)) / 2 + h * f, (za + zb) / 2);
+        wire.rotation.y = sgn * Math.atan2(half(zb) - half(za), zb - za);
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------- fairing a table --
 //
 // Reading a table of offsets as a fair line.
@@ -385,5 +472,5 @@ function fairTable(tab, t) {
 
 export {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
-  planHouse, ladder, sideLadder, fairTable,
+  planHouse, ladder, sideLadder, fairTable, strip, sheet, rail,
 };

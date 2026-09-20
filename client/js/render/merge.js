@@ -130,6 +130,22 @@ export function mergeStatic(group, keyOf = null) {
   const walk = (node, owner) => {
     for (const child of node.children) {
       if (child.userData.dynamic) continue;
+      // What is switched off stays off.
+      //
+      // An aeroplane carries both sets of wings and hides one of them: an
+      // aircraft struck below in the hangar is built with her folded panels
+      // shown and her spread ones hidden, and the whole reason she fits in a
+      // hangar twenty-four metres wide is that the spread pair is not there.
+      // Welded regardless of that switch, every one of them came out of the
+      // weld with both pairs on and sixteen metres of wing through the ship's
+      // own side -- which from alongside is a squadron hanging out of her
+      // hangar openings over the sea.
+      //
+      // Nothing is lost by leaving them: a mesh that goes into the weld can
+      // never be shown or hidden again on its own account anyway, so anything
+      // still meant to be switched has to be marked dynamic and is skipped
+      // above.
+      if (child.visible === false) continue;
       // An instanced mesh is already one draw call for all of its copies, and
       // welding it would keep exactly one of them. Points carry their own
       // attributes and are not geometry in this sense either.

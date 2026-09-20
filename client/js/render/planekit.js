@@ -1914,8 +1914,16 @@ function foldWing(p, s, o) {
   for (const [gx, gy] of o.guns || []) {
     box(w, M.gunDark, 0.22, 0.22, 0.24, s * gx, gy, -0.16);
   }
-  // The star, on what is now the outboard face of her.
-  insignia(w, s * o.span * 0.54, 0.16, -o.rootC * 0.5, o.star);
+  // The marking, on what is now the outboard face of her.
+  //
+  // Whose it is has to be said: the sto-wing is Grumman's and two of the four
+  // aeroplanes that fold on it here are Japanese, so a star laid on every
+  // panel put a white star on a Tenzan's folded wings. It went unnoticed for
+  // as long as it did because a folded aeroplane used to be drawn with her
+  // spread panels showing through her folded ones, and the hinomaru on those
+  // was the marking the eye found.
+  const mark = o.mark === 'hinomaru' ? hinomaru : insignia;
+  mark(w, s * o.span * 0.54, 0.16, -o.rootC * 0.5, o.star);
   return w;
 }
 
@@ -3001,7 +3009,7 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     foldWing(stowed, s, {
       at: [s * 0.70, cl(0.9) - 0.80, 1.1], skew: 0.12, lean: 0.06,
       span: 5.6, rootC: 2.70, tipC: 1.30, sweep: 0.70, thick: 0.112,
-      star: 0.60, guns: [],
+      star: 0.60, guns: [], mark: 'hinomaru',
     });
     // The centre section: the piece of wing between the fuselage sides and
     // the root of the panel, level and untapered, the way the Avenger's is.
@@ -3115,7 +3123,7 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
     foldWing(stowed, s, {
       at: [s * 0.56, cl() - 0.52, 0.5], skew: 0.06, lean: 0.04,
       span: 6.0, rootC: 2.30, tipC: 1.20, sweep: 0.30, thick: 0.108,
-      star: 0.56, guns: [],
+      star: 0.56, guns: [], mark: 'hinomaru',
     });
     wing(p, M.planeTop, M.planeBottom, {
       side: s, x: 0, y: cl() - 0.52, z: 0.45, span: 0.64, rootC: 2.30,
