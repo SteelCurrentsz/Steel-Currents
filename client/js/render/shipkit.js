@@ -256,6 +256,67 @@ function ladder(g, m, x, y0, y1, z0, z1) {
 }
 
 
+/**
+ * A vertical ladder up the side of something, facing the way it is climbed.
+ *
+ * `ladder` above is an inclined companion ladder: it leans along z, its treads
+ * run athwartships, and it belongs on a bulkhead that faces forward or aft.
+ * Laid against a ship's side it is ninety degrees out -- the treads run into
+ * the plating instead of along it, half the ladder is buried and the other
+ * half hangs in the sea, and the man climbing it has his back to the thing he
+ * is holding on to.
+ *
+ * This is the other one: two stringers separated fore-and-aft, rungs between
+ * them, and the whole thing stood off a surface by its own brackets so a boot
+ * fits behind it. `out` is the outboard direction as a sign on x, `skin(y)` is
+ * how far out the surface is at that height -- a curved hangar, a tower, a
+ * barbette -- and the ladder follows it up. The stringers run on past the head
+ * to make the grab rails a man pulls himself up on, which is how every ladder
+ * to a gun platform is rigged.
+ */
+function sideLadder(g, m, opts) {
+  const {
+    out = 1, skin, z, y0, y1, half = 0.28, stand = 0.20,
+    rail = 0.95, rungs = null,
+  } = opts;
+  const at = (y) => (typeof skin === 'function' ? skin(y) : skin);
+  const top = y1 + rail;
+  // The two stringers, each one following the surface up. Drawn in short
+  // lengths rather than one tilted plank, so a curved side does not push the
+  // foot of the ladder through the plating to keep the head clear of it.
+  const N = Math.max(3, Math.round((top - y0) / 0.55));
+  for (const dz of [-half, half]) {
+    for (let i = 0; i < N; i++) {
+      const ya = y0 + ((top - y0) * i) / N;
+      const yb = y0 + ((top - y0) * (i + 1)) / N;
+      const xa = at(Math.min(ya, y1)) + stand;
+      const xb = at(Math.min(yb, y1)) + stand;
+      const h = yb - ya;
+      const s = box(g, m, 0.07, Math.hypot(h, xb - xa) + 0.02, 0.09,
+        out * (xa + xb) / 2, (ya + yb) / 2, z + dz);
+      s.rotation.z = -out * Math.atan2(xb - xa, h);
+    }
+  }
+  // The rungs, and the brackets that hold the stringers off the plating.
+  const n = rungs || Math.max(3, Math.round((y1 - y0) / 0.32));
+  for (let i = 1; i <= n; i++) {
+    const y = y0 + ((y1 - y0) * i) / (n + 1);
+    const x = at(y) + stand;
+    cyl(g, m, 0.028, 0.028, half * 2, out * x, y, z, 6).rotation.x = Math.PI / 2;
+  }
+  for (let i = 0; i <= 3; i++) {
+    const y = y0 + ((y1 - y0) * i) / 3;
+    const x = at(y);
+    for (const dz of [-half, half]) {
+      box(g, m, stand + 0.08, 0.06, 0.07, out * (x + stand / 2), y, z + dz);
+    }
+  }
+  // The head: the two rails carried over and joined, which is what a man's
+  // hand finds when the rungs run out.
+  const xh = at(y1) + stand;
+  box(g, m, 0.07, 0.07, half * 2, out * xh, top, z);
+}
+
 // ------------------------------------------------------- fairing a table --
 //
 // Reading a table of offsets as a fair line.
@@ -324,5 +385,5 @@ function fairTable(tab, t) {
 
 export {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
-  planHouse, ladder, fairTable,
+  planHouse, ladder, sideLadder, fairTable,
 };

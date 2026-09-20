@@ -45,7 +45,7 @@ import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
-import { box, cyl, tubeZ, sphere, ladder, loftRings } from './shipkit.js';
+import { box, cyl, tubeZ, sphere, ladder, sideLadder, loftRings } from './shipkit.js';
 import { arm } from './mounts.js';
 import { besson } from './planekit.js';
 
@@ -818,50 +818,83 @@ function masthead(g, base, Z) {
   // The five-metre rangefinder across the after end of the bridge.
   //
   // She has to dive with it, so it is a sealed instrument in a pressure-tight
-  // housing lying fore and aft rather than the open girder a surface ship
-  // carries. Built as the instrument: a pedestal with its roller path, a
-  // shield round the operator, a body that tapers out to the two end housings,
-  // and a hood over each window.
+  // housing rather than the open girder a surface ship carries. Two things
+  // about it were wrong and both of them showed from a mile off.
+  //
+  // It stood in the air. Her tower tops out at `base + 4.45` and the
+  // instrument was planted at `base + 5.02`, so there was more than half a
+  // metre of daylight under the pedestal and the whole thing floated abaft the
+  // bridge like a lamp on nothing. It is bedded on the tower top now, through
+  // a barbette that is part of the tower.
+  //
+  // And it looked the wrong way. The windows were let into the outboard ends
+  // of the two arms, which is a rangefinder aimed at the sea on either beam:
+  // the objectives of a coincidence instrument look along its line of sight,
+  // out of the forward face of each end hood, and what closes the outboard end
+  // is a fair cap. Built that way round, she reads as a slim bar with two
+  // small pods on it from ahead and as one compact instrument from abeam --
+  // which is what she is -- instead of a dark disc on a stalk.
+  const rfZ = Z - 3.80;
+  const rfFoot = base + 4.45;
+  // The barbette: the instrument turns on the tower's own structure, so it is
+  // lofted up out of the tower top rather than stood on it, and it is one
+  // piece -- a shell round the pedestal that finishes as the splinter coaming
+  // the operator works over. Two of them, a barbette inside a separate tub,
+  // read as a shield standing round the rangefinder, which is not what she
+  // carried and made the whole top of her look armoured.
+  loftRings(g, M.light, [
+    [0.94, 0.88, rfZ, rfFoot - 0.20],
+    [0.86, 0.80, rfZ, rfFoot + 0.30],
+    [0.84, 0.78, rfZ, rfFoot + 0.58],
+  ], { n: 18, px: 0.62, pz: 0.62, cap: false, floor: false });
+  // The pedestal inside it and the roller path the mounting runs on.
+  cyl(g, M.steelDark, 0.38, 0.46, 0.66, 0, rfFoot + 0.31, rfZ, 16);
+  cyl(g, M.gunDark, 0.50, 0.50, 0.07, 0, rfFoot + 0.67, rfZ, 16);
+
   const rf = new THREE.Group();
-  rf.position.set(0, base + 5.02, Z - 3.76);
+  rf.position.set(0, rfFoot + 0.70, rfZ);
   g.add(rf);
-  cyl(rf, M.steelDark, 0.40, 0.50, 0.44, 0, 0.22, 0, 16);
-  cyl(rf, M.gunDark, 0.53, 0.53, 0.07, 0, 0.47, 0, 16);
-  loftRings(rf, M.light, [
-    [0.74, 0.66, 0, 0.50],
-    [0.82, 0.74, 0, 0.74],
-    [0.78, 0.70, 0, 1.04],
-  ], { n: 16, px: 0.6, pz: 0.6, cap: false, floor: true });
-  // The middle of the instrument, over the pedestal, and the two arms out of it.
-  cyl(rf, M.steel, 0.25, 0.25, 0.72, 0, 1.16, 0, 14).rotation.z = Math.PI / 2;
+  // The training base, and the trunnion standards the body swings between.
+  cyl(rf, M.steel, 0.44, 0.48, 0.20, 0, 0.10, 0, 16);
   for (const sgn of [-1, 1]) {
-    cyl(rf, M.steel, 0.15, 0.21, 1.86, sgn * 1.29, 1.16, 0, 12)
-      .rotation.z = sgn * Math.PI / 2;
-    // The end housing, the rim round its window, the window itself set back
-    // inside the rim, and the cowl over the top of it that keeps the sun out
-    // of the eyepiece. A flat window the full width of the housing reads as an
-    // open pipe with the dark of the inside of her showing through it, which
-    // is what this was.
-    cyl(rf, M.steel, 0.22, 0.30, 0.46, sgn * 2.45, 1.16, 0, 14)
-      .rotation.z = sgn * Math.PI / 2;
-    cyl(rf, M.steelDark, 0.235, 0.235, 0.07, sgn * 2.66, 1.16, 0, 14)
-      .rotation.z = Math.PI / 2;
-    cyl(rf, M.glass, 0.155, 0.155, 0.04, sgn * 2.67, 1.16, 0, 14)
-      .rotation.z = Math.PI / 2;
-    const cowl = box(rf, M.steelDark, 0.30, 0.05, 0.34, sgn * 2.60, 1.36, 0.08);
-    cowl.rotation.x = -0.34;
-    box(rf, M.steelDark, 0.06, 0.20, 0.05, sgn * 2.60, 1.28, -0.10);
-    // The trunnion bracket under each arm.
-    box(rf, M.steelDark, 0.16, 0.22, 0.30, sgn * 0.52, 1.00, 0);
+    box(rf, M.steel, 0.16, 0.44, 0.34, sgn * 0.42, 0.38, 0);
   }
-  // The operator's handwheels, his seat, and the training rack under it all,
-  // which is what says which way round the instrument is meant to be read.
+  // The body: a centre drum over the pedestal with an arm tapering out of it
+  // each way to a hood, five metres between the objectives.
+  cyl(rf, M.steel, 0.29, 0.29, 1.16, 0, 0.60, 0, 16).rotation.z = Math.PI / 2;
+  box(rf, M.steelDark, 1.20, 0.10, 0.34, 0, 0.84, 0.06);
   for (const sgn of [-1, 1]) {
-    cyl(rf, M.gunDark, 0.13, 0.13, 0.05, sgn * 0.46, 0.94, -0.34, 10)
+    cyl(rf, M.steel, 0.21, 0.27, 1.56, sgn * 1.36, 0.60, 0, 14)
+      .rotation.z = sgn * Math.PI / 2;
+    // The end hood, with the objective looking forward out of its face, a
+    // brow over the window to keep the sun off it, and a fair cap closing the
+    // outboard end -- which is the end that goes under water.
+    cyl(rf, M.steel, 0.30, 0.30, 0.50, sgn * 2.39, 0.60, 0, 16)
+      .rotation.z = Math.PI / 2;
+    // The outboard end is closed by a fair cap, not a window: that end of the
+    // instrument goes under water and looks at nothing.
+    sphere(rf, M.steel, 0.29, sgn * 2.62, 0.60, 0, 14).scale.set(0.38, 1, 1);
+    box(rf, M.steelDark, 0.40, 0.30, 0.05, sgn * 2.39, 0.60, 0.29);
+    box(rf, M.glass, 0.30, 0.19, 0.04, sgn * 2.39, 0.60, 0.315);
+    const brow = box(rf, M.steelDark, 0.44, 0.05, 0.22, sgn * 2.39, 0.79, 0.37);
+    brow.rotation.x = -0.30;
+    // The strut off the trunnion standard that carries the arm's weight.
+    const stay = box(rf, M.steelDark, 1.10, 0.09, 0.09, sgn * 0.95, 0.34, 0);
+    stay.rotation.z = -sgn * 0.20;
+  }
+  // The operator's end: his eyepiece housing abaft the drum, the two
+  // handwheels he lays and ranges on, and the seat. It is the piece that says
+  // which way round the instrument is meant to be read.
+  box(rf, M.steel, 0.44, 0.34, 0.36, 0, 0.58, -0.36);
+  cyl(rf, M.gunDark, 0.09, 0.09, 0.14, 0, 0.62, -0.58, 10).rotation.x = Math.PI / 2;
+  for (const sgn of [-1, 1]) {
+    cyl(rf, M.gunDark, 0.14, 0.14, 0.05, sgn * 0.40, 0.44, -0.44, 12)
+      .rotation.x = Math.PI / 2;
+    cyl(rf, M.steelDark, 0.04, 0.04, 0.24, sgn * 0.40, 0.44, -0.33, 6)
       .rotation.x = Math.PI / 2;
   }
-  box(rf, M.steelDark, 0.36, 0.06, 0.30, 0, 0.74, -0.52);
-  cyl(rf, M.steelDark, 0.05, 0.05, 0.26, 0, 0.61, -0.52, 6);
+  box(rf, M.steelDark, 0.38, 0.06, 0.30, 0, 0.08, -0.62);
+  cyl(rf, M.steelDark, 0.05, 0.05, 0.22, 0, -0.03, -0.62, 6);
 }
 
 // ------------------------------------------------------------- the hangar --
@@ -1455,11 +1488,48 @@ function bandstand(g, x, z) {
     cyl(g, M.bright, 0.03, 0.03, 0.34,
       x + Math.sin(a) * 1.50, deck + 0.99, z + Math.cos(a) * 1.54, 6);
   }
-  // The ladder up the starboard side of the hangar to it, and the grab rail
-  // at the head of it.
-  ladder(g, M.bright, HANGAR_R + 0.10, casingY(z) + 0.10, deck + 0.10,
-    z + 1.30, z + 1.58);
-  cyl(g, M.bright, 0.035, 0.035, 0.66, HANGAR_R - 0.28, deck + 0.52, z + 1.44, 6);
+  // The ladder up the port side of the hangar to it.
+  //
+  // It was built with `ladder`, which is the inclined companion ladder: it
+  // leans along z and its treads run athwartships. Laid against the round side
+  // of the hangar that is ninety degrees out -- the treads ran straight into
+  // the plating, so half the ladder was buried in the cylinder and the other
+  // half stood in the air over the sea, and the man on it had his back to the
+  // thing he was holding on to. It is the vertical side ladder it should
+  // always have been now: stringers fore and aft of each other, rungs between
+  // them, bedded off the crown of the hangar on its own brackets so a boot
+  // fits behind it, and the stringers carried up past the head as the grab
+  // rails a man pulls himself into the tub on.
+  //
+  // The hangar is a half-round crown on straight sides, so where the ladder
+  // stands off is a different distance out at every rung: it is asked of the
+  // body rather than assumed, or the foot of it goes through the plating
+  // keeping the head clear.
+  //
+  // It stands abaft the tub rather than under it, and it stops coming inboard
+  // once the crown starts falling away from it: carried right round the curve
+  // the head of it ends up on the centreline of the hangar, which is inside
+  // the bandstand, and a ladder that finishes inside the thing it climbs to is
+  // no ladder. It finishes at the rim instead, with a landing plate across to
+  // the tub -- which is how a man actually gets into a gun platform on top of
+  // a round hangar: up the side, then one step in over the coaming.
+  const lz = z + 1.55;
+  const axis = hangarTopY() - HANGAR_R;
+  const side = (y) => Math.max(1.12, y >= axis
+    ? Math.sqrt(Math.max(0.01, HANGAR_R * HANGAR_R - Math.pow(y - axis, 2)))
+    : HANGAR_R);
+  sideLadder(g, M.bright, {
+    out: 1, skin: side, z: lz,
+    y0: casingY(lz) + 0.14, y1: deck + 0.02,
+    half: 0.26, stand: 0.16, rail: 0.62,
+  });
+  // The landing plate at the head of it, and the grab rail beside the step in.
+  box(g, M.steelDark, 0.62, 0.05, 0.58, 1.02, deck + 0.01, lz);
+  for (let i = -1; i <= 1; i++) {
+    box(g, M.steelDark, 0.56, 0.04, 0.06, 1.02, deck + 0.04, lz + i * 0.18);
+  }
+  cyl(g, M.bright, 0.032, 0.032, 0.86, 0.80, deck + 0.44, lz - 0.20, 6);
+  box(g, M.bright, 0.06, 0.06, 0.44, 0.80, deck + 0.86, lz - 0.02);
 }
 
 /**
