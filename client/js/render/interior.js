@@ -1231,7 +1231,17 @@ export function buildInterior(g, hull) {
 
   // Her upperworks have an inside too. Built after the hull's, because it is
   // measured off the same plating walk and wants the held lines.
-  upperworks(inside, hull);
+  //
+  // Unless she is a ship whose upperworks are not a deckhouse. This walk finds
+  // the plating standing above the deck it was given and furnishes it with
+  // mess decks, cabins and passages, which is right for a bridge tower and
+  // badly wrong for a carrier: the thing standing above a carrier's hangar
+  // deck is the hangar, and the thing standing above that is the flight deck.
+  // Furnished, she gets cabin bulkheads through the middle of the hangar and
+  // deck plates cutting up through the runway -- forty metres of accommodation
+  // in the one part of the ship that is deliberately empty. A hull that models
+  // that space itself says so with `hollow`.
+  if (!hull.hollow) upperworks(inside, hull);
 
   machinery(inside, hull, sole, machTop);
   // Magazines under where the turrets are: forward between the collision

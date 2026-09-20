@@ -1411,7 +1411,16 @@ export const SHIP_CLASSES = {
     typeName: 'Aircraft Carrier',
     nation: 'jpn',
     blurb: 'An armoured flight deck on a battleship hull. Slow to hurt, slow to turn, and she carries a strike nothing this side of the horizon can answer.',
-    hull: { length: 266, beam: 36.3, draft: 10.3, superstructure: 0.6, flightDeck: true },
+    // Two hundred and seventy-six metres on the waterline she is drawn to.
+    //
+    // Shinano's length overall is 265.8 m. She is drawn a little over it, for
+    // the reason her own sister is drawn a great deal over hers: Yamato is the
+    // same hull and this game draws her at 263 m x 1.55, so at her book length
+    // Shinano came out two-thirds the size of the ship she was built from. Ten
+    // metres does not close that, but it takes the worst of it out and it is
+    // what makes her read as the long fine-ended hull she was rather than a
+    // flight deck on a barge.
+    hull: { length: 276, beam: 36.3, draft: 10.3, superstructure: 0.6, flightDeck: true },
     hp: 66400,
     maxSpeed: 27 * KNOTS,
     reverseSpeed: 6 * KNOTS,
@@ -1431,15 +1440,20 @@ export const SHIP_CLASSES = {
     // Sixteen 12.7 cm Type 89 in eight twin sponsons, four a side, below the
     // flight-deck edge. None can fire across the ship: the deck is in the way,
     // which is why a carrier is always short of guns on the engaged side.
+    // Two at each corner, which is how her sixteen barrels were arranged, and
+    // every one of them well outboard of the deck edge. Set any closer in and
+    // two metres of the shield stands under the flight deck -- and for a
+    // mounting whose muzzles are level with the deck, that is a gun through
+    // her runway.
     turrets: [
-      { id: 0, name: 'S1', x: -20.4, z: 84, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 1, name: 'S2', x: -21.2, z: 34, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 2, name: 'S3', x: -21.2, z: -34, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 3, name: 'S4', x: -20.4, z: -84, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 4, name: 'P1', x: 20.4, z: 84, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 5, name: 'P2', x: 21.2, z: 34, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 6, name: 'P3', x: 21.2, z: -34, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
-      { id: 7, name: 'P4', x: 20.4, z: -84, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 0, name: 'S1', x: -20.1, z: 95, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 1, name: 'S2', x: -21.5, z: 77, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 2, name: 'S3', x: -22.2, z: -77, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 3, name: 'S4', x: -22.2, z: -95, angle: -Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 4, name: 'P1', x: 20.1, z: 95, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 5, name: 'P2', x: 21.5, z: 77, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 6, name: 'P3', x: 22.2, z: -77, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
+      { id: 7, name: 'P4', x: 22.2, z: -95, angle: Math.PI / 2, arc: 0.61, guns: 2, my: 19.35 },
     ],
     gun: {
       name: '12.7 cm Type 89', role: 'dp',
@@ -1463,47 +1477,55 @@ export const SHIP_CLASSES = {
           // nearest the bow and the stern ended up hanging four and six
           // metres outboard of any part of the ship, in tubs that reached
           // nothing.
+          //
+          // Every one of the deck-edge mountings stands at the edge of the
+          // flight deck at its own station, and not one of them stands on the
+          // deck itself. Shinano carried no gun anywhere on her runway: a tub
+          // in the middle of a flight deck is a tub an aeroplane taxis into.
+          // They are sponsons scalloped into her deck edge, the pair right
+          // forward and the pair right aft included, and their stations are
+          // laid clear of the eight 12.7 cm sponsons above.
           mounts: [
-            { x: -16.1, z: 104, angle: -1.30, arc: 1.92, guns: 3 },
-            { x: 16.1, z: 104, angle: 1.30, arc: 1.92, guns: 3 },
-            { x: -18.3, z: 92, angle: -1.45, arc: 1.92, guns: 3 },
-            { x: 18.3, z: 92, angle: 1.45, arc: 1.92, guns: 3 },
-            { x: -20.1, z: 70, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.1, z: 70, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.4, z: 58, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.4, z: 58, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.5, z: 46, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.5, z: 46, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: 22, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: 22, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: 10, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: 10, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: -2, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: -2, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: -14, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: -14, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: -46, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: -46, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: -58, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: -58, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.6, z: -70, angle: -1.57, arc: 1.92, guns: 3 },
-            { x: 20.6, z: -70, angle: 1.57, arc: 1.92, guns: 3 },
-            { x: -20.5, z: -96, angle: -1.75, arc: 1.92, guns: 3 },
-            { x: 20.5, z: -96, angle: 1.75, arc: 1.92, guns: 3 },
-            { x: -19.5, z: -110, angle: -1.90, arc: 1.92, guns: 3 },
-            { x: 19.5, z: -110, angle: 1.90, arc: 1.92, guns: 3 },
+            { x: -14.2, z: 115, angle: -1.3, arc: 1.92, guns: 3 },
+            { x: 14.2, z: 115, angle: 1.3, arc: 1.92, guns: 3 },
+            { x: -20.3, z: 68, angle: -1.45, arc: 1.92, guns: 3 },
+            { x: 20.3, z: 68, angle: 1.45, arc: 1.92, guns: 3 },
+            { x: -20.4, z: 60, angle: -1.45, arc: 1.92, guns: 3 },
+            { x: 20.4, z: 60, angle: 1.45, arc: 1.92, guns: 3 },
+            { x: -20.5, z: 43, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.5, z: 43, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.5, z: 34, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.5, z: 34, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.5, z: 26, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.5, z: 26, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: 17, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: 17, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: 0, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: 0, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -9, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -9, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -17, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -17, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -26, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -26, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -43, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -43, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -51, angle: -1.57, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -51, angle: 1.57, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -60, angle: -1.68, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -60, angle: 1.68, arc: 1.92, guns: 3 },
+            { x: -20.6, z: -68, angle: -1.68, arc: 1.92, guns: 3 },
+            { x: 20.6, z: -68, angle: 1.68, arc: 1.92, guns: 3 },
+            { x: -19.1, z: -120, angle: -1.85, arc: 1.92, guns: 3 },
+            { x: 19.1, z: -120, angle: 1.85, arc: 1.92, guns: 3 },
             // The three on the island's own galleries. `where` says so,
             // because their stations are inboard of the deck edge and nothing
-            // about the numbers alone distinguishes a gun on the island from
-            // a gun on the deck beside it -- and put on the deck they end up
-            // inside the island, which is where these three were.
-            { x: -19.4, z: 26, angle: -0.80, arc: 1.92, guns: 3, where: 'island' },
-            { x: -19.4, z: 8, angle: -2.40, arc: 1.92, guns: 3, where: 'island' },
-            { x: -10.0, z: 18, angle: -1.20, arc: 1.92, guns: 3, where: 'island' },
-            { x: 0, z: 118, angle: 0.00, arc: 1.92, guns: 3 },
-            { x: -6.0, z: 116, angle: -0.35, arc: 1.92, guns: 3 },
-            { x: 6.0, z: 116, angle: 0.35, arc: 1.92, guns: 3 },
-            { x: 0, z: -120, angle: Math.PI, arc: 1.92, guns: 3 },
+            // about the numbers alone tells a gun on the island from a gun on
+            // the deck beside it -- and put at the deck edge they end up inside
+            // the island, which is where these three were.
+            { x: -19.4, z: 27, angle: -0.80, arc: 1.92, guns: 3, where: 'island' },
+            { x: -19.4, z: 9, angle: -2.40, arc: 1.92, guns: 3, where: 'island' },
+            { x: -10.0, z: 19, angle: -1.20, arc: 1.92, guns: 3, where: 'island' },
           ] },
         // And the twelve 12 cm rocket launchers: twenty-eight tubes apiece,
         // throwing a barrage of incendiary rockets up in front of an attacking
@@ -1511,20 +1533,20 @@ export const SHIP_CLASSES = {
         // nothing.
         { name: '12 cm AA rocket', caliber: 120, role: 'aa', reload: 3.2, range: 3000,
           mounts: [
-            { x: -19.5, z: 80, angle: -1.35, arc: 1.75, guns: 28 },
-            { x: 19.5, z: 80, angle: 1.35, arc: 1.75, guns: 28 },
-            { x: -20.6, z: 34, angle: -1.57, arc: 1.75, guns: 28 },
-            { x: 20.6, z: 34, angle: 1.57, arc: 1.75, guns: 28 },
-            { x: -20.6, z: -26, angle: -1.57, arc: 1.75, guns: 28 },
-            { x: 20.6, z: -26, angle: 1.57, arc: 1.75, guns: 28 },
-            { x: -20.6, z: -82, angle: -1.75, arc: 1.75, guns: 28 },
-            { x: 20.6, z: -82, angle: 1.75, arc: 1.75, guns: 28 },
+            { x: -17.1, z: 104, angle: -1.35, arc: 1.75, guns: 28 },
+            { x: 17.1, z: 104, angle: 1.35, arc: 1.75, guns: 28 },
+            { x: -20.5, z: 51, angle: -1.57, arc: 1.75, guns: 28 },
+            { x: 20.5, z: 51, angle: 1.57, arc: 1.75, guns: 28 },
+            { x: -20.6, z: 9, angle: -1.57, arc: 1.75, guns: 28 },
+            { x: 20.6, z: 9, angle: 1.57, arc: 1.75, guns: 28 },
+            { x: -20.6, z: -34, angle: -1.57, arc: 1.75, guns: 28 },
+            { x: 20.6, z: -34, angle: 1.57, arc: 1.75, guns: 28 },
+            { x: -20.3, z: -104, angle: -1.78, arc: 1.75, guns: 28 },
+            { x: 20.3, z: -104, angle: 1.78, arc: 1.75, guns: 28 },
             // These two stand on the island's casing, forward of the bridge
             // and abaft the funnel.
-            { x: -17.6, z: 32, angle: -0.60, arc: 1.75, guns: 28, where: 'island' },
+            { x: -17.6, z: 33, angle: -0.60, arc: 1.75, guns: 28, where: 'island' },
             { x: -17.6, z: 2, angle: -2.50, arc: 1.75, guns: 28, where: 'island' },
-            { x: -5.5, z: 120, angle: -0.20, arc: 1.75, guns: 28 },
-            { x: 5.5, z: 120, angle: 0.20, arc: 1.75, guns: 28 },
           ] },
       ],
     },
