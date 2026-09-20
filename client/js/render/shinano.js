@@ -138,12 +138,12 @@ const ease = (k) => { const c = clamp(k, 0, 1); return c * c * (3 - 2 * c); };
  * driven at twenty-eight knots on a hundred and fifty thousand horsepower.
  */
 const HALF_BEAM = [
-  [-1.000, 2.58], [-0.960, 4.24], [-0.920, 5.92], [-0.860, 8.02],
-  [-0.800, 9.86], [-0.720, 11.92], [-0.630, 13.80], [-0.530, 15.32],
+  [-1.000, 3.10], [-0.960, 4.74], [-0.920, 6.34], [-0.860, 8.34],
+  [-0.800, 10.06], [-0.720, 12.02], [-0.630, 13.84], [-0.530, 15.34],
   [-0.420, 16.56], [-0.310, 17.48], [-0.200, 17.96], [-0.100, 18.13],
   [0.000, 18.15], [0.100, 18.11], [0.200, 17.84], [0.300, 17.20],
-  [0.400, 16.14], [0.500, 14.68], [0.600, 12.82], [0.700, 10.58],
-  [0.800, 7.88], [0.880, 5.04], [0.940, 2.54], [0.980, 0.88],
+  [0.400, 16.06], [0.500, 14.52], [0.600, 12.58], [0.700, 10.28],
+  [0.800, 7.52], [0.880, 4.72], [0.940, 2.30], [0.980, 0.80],
   [1.000, 0.17],
 ];
 
@@ -182,15 +182,21 @@ const SHEER = [
 
 /**
  * And the flare: how far her deck edge stands outboard of her waterline beam.
- * Almost nothing amidships, where her side is very nearly vertical; three
- * metres over the forward quarter, which is the bow.
+ * Almost nothing amidships, where her side is very nearly vertical; better
+ * than three metres over the forward quarter, which is the bow.
+ *
+ * Carried further forward and further aft than the first draft of this table
+ * had it, and taken out to the caps rather than pinched off short of them. A
+ * flare that dies away two stations from the stem leaves the last eight metres
+ * of her bow as a straight wedge standing on a curve, and that wedge is the
+ * whole of what a camera sees from ahead.
  */
 const FLARE = [
-  [-1.000, 2.62], [-0.930, 2.12], [-0.850, 1.46], [-0.720, 0.78],
-  [-0.550, 0.39], [-0.300, 0.21], [0.000, 0.21], [0.250, 0.42],
-  [0.420, 0.97], [0.550, 1.66], [0.660, 2.42], [0.740, 2.98],
-  [0.800, 3.26], [0.850, 3.22], [0.900, 2.86], [0.945, 2.08],
-  [0.975, 1.20], [1.000, 0.50],
+  [-1.000, 2.84], [-0.930, 2.30], [-0.850, 1.58], [-0.720, 0.84],
+  [-0.550, 0.42], [-0.300, 0.22], [0.000, 0.21], [0.250, 0.46],
+  [0.420, 1.16], [0.550, 1.96], [0.660, 2.78], [0.740, 3.36],
+  [0.800, 3.74], [0.850, 3.74], [0.900, 3.46], [0.945, 2.82],
+  [0.975, 2.06], [0.992, 1.38], [1.000, 0.92],
 ];
 
 /**
@@ -203,25 +209,34 @@ const FLARE = [
  * flare.
  */
 const TUMBLE = [
-  [-1.000, 0.00], [-0.900, 0.28], [-0.800, 0.58], [-0.650, 0.86],
-  [-0.450, 1.05], [-0.200, 1.14], [0.100, 1.14], [0.300, 0.95],
-  [0.480, 0.58], [0.620, 0.24], [0.760, 0.00], [1.000, 0.00],
+  [-1.000, 0.00], [-0.900, 0.30], [-0.800, 0.62], [-0.650, 0.92],
+  [-0.450, 1.12], [-0.200, 1.22], [0.100, 1.22], [0.300, 1.00],
+  [0.480, 0.60], [0.620, 0.24], [0.760, 0.00], [1.000, 0.00],
 ];
 
 const F = hullForm({
   loa: LOA,
   half: HALF_BEAM, keel: KEEL, sheer: SHEER, flare: FLARE, tumble: TUMBLE,
-  // A stem that rakes five and a half metres forward between the water and
-  // the deck edge, curved rather than straight -- she has a trace of clipper
-  // in her, and it is the whole of what makes her bow look fast.
-  stem: 6.2, stemLo: -4.2, stemUp: 21.0, stemPow: 1.30,
-  // And a counter that overhangs seven and a half, which is what makes the
-  // stern of a Japanese capital ship look as long as it does.
-  counter: 8.4, counterLo: -2.6, counterUp: 16.0, counterPow: 1.22,
+  // A stem that rakes six and a half metres forward between the water and the
+  // deck edge, and hollow rather than straight -- she has a trace of clipper
+  // in her, and it is the whole of what makes her bow look fast. The higher
+  // the power the later the rake comes on, so the stem leaves the water nearly
+  // upright and sweeps forward as it rises instead of leaning off the
+  // forefoot in one straight line.
+  stem: 7.0, stemLo: -4.2, stemUp: 21.5, stemPow: 1.58,
+  // And a counter that overhangs eight and a half, which is what makes the
+  // stern of a Japanese capital ship look as long as it does. Drawn the same
+  // way: a long flat run under the water and the whole of the overhang taken
+  // up in the last few metres of freeboard.
+  counter: 8.8, counterLo: -2.6, counterUp: 16.0, counterPow: 1.56,
   // A very full bilge: she is nearly rectangular in section amidships, which
   // is where the stability for all that topweight came from.
   bilge: 0.28,
-  stations: 150,
+  // Two hundred stations rather than a hundred and fifty. Her ends are where
+  // the offsets change fastest -- the half-breadth forward falls eleven metres
+  // in the last tenth of her length -- and a station spacing that is
+  // comfortable amidships is a visible facet there.
+  stations: 200,
 });
 
 export const { deckAt, halfDeck } = F;
@@ -273,15 +288,43 @@ const FD_FWD = 128;
 const FD_AFT = -138;
 const FDW = 20.0;
 const FD_PLAN = [
-  [-138.0, 7.2], [-136.0, 11.6], [-133.0, 14.6], [-128.0, 16.9],
-  [-120.0, 18.5], [-109.0, 19.5], [-94.0, 20.0], [-40.0, 20.0],
-  [22.0, 20.0], [56.0, 19.9], [76.0, 19.4], [92.0, 18.2],
-  [105.0, 16.3], [115.0, 13.6], [122.0, 10.2], [126.0, 7.2],
-  [128.0, 5.0],
+  [-138.0, 12.6], [-135.0, 13.2], [-132.0, 13.8], [-129.0, 14.4],
+  [-126.0, 15.0], [-123.0, 15.6], [-115.0, 16.9], [-105.0, 18.1],
+  [-94.0, 19.1], [-80.0, 19.8], [-60.0, 20.0], [-20.0, 20.0],
+  [22.0, 20.0], [56.0, 19.9], [74.0, 19.6], [88.0, 19.0],
+  [98.0, 18.2], [106.0, 17.2], [113.0, 15.9], [118.5, 14.3],
+  [122.5, 12.4], [125.3, 10.2], [127.0, 7.6], [128.0, 5.0],
 ];
 
+/**
+ * The last few metres at either end are rounded in plan rather than run out
+ * on the table's own slope.
+ *
+ * A flight deck ends in a nose. The deck edge comes round through a right
+ * angle in two or three metres and meets the end face square, so the corner
+ * is a radius and not a mitre -- forward a narrow rounded tip, aft the broad
+ * rounded transom a pilot comes over. Faired on to the table rather than
+ * tabulated, because a corner that tight wants stations closer together than
+ * anything else on her and a table would have to carry them the whole length.
+ */
+const NOSE_F = 7.0;
+const NOSE_A = 9.0;
+const TIP_F = 4.4;
+const TIP_A = 11.2;
+
 /** Her half-breadth at the flight deck at a station. */
-function fdHalf(z) { return fairTable(FD_PLAN, z); }
+export function fdHalf(z) {
+  const w = fairTable(FD_PLAN, z);
+  if (z > FD_FWD - NOSE_F) {
+    const u = (z - (FD_FWD - NOSE_F)) / NOSE_F;
+    return TIP_F + (w - TIP_F) * Math.sqrt(Math.max(0, 1 - u * u));
+  }
+  if (z < FD_AFT + NOSE_A) {
+    const u = (FD_AFT + NOSE_A - z) / NOSE_A;
+    return TIP_A + (w - TIP_A) * Math.sqrt(Math.max(0, 1 - u * u));
+  }
+  return w;
+}
 
 /**
  * And how far down the round-down has taken it there.
@@ -290,14 +333,23 @@ function fdHalf(z) { return fairTable(FD_PLAN, z); }
  * forward it is a round-up that is really a round-down the other way, and aft
  * it falls away far harder because that is the end a pilot comes over.
  */
+const RD_FWD = 25;
+const RD_AFT = 28;
 function fdDrop(z) {
-  if (z > FD_FWD - 18) return Math.pow((z - (FD_FWD - 18)) / 18, 2) * 2.9;
-  if (z < FD_AFT + 21) return Math.pow((FD_AFT + 21 - z) / 21, 2) * 3.5;
+  // Taken as a cube rather than a square, and begun further out.
+  //
+  // A square leaves the deck dead flat and then bends into the fall-away in
+  // one station, and however small the drop is that join is a hard crease
+  // running right across her -- which is the one thing a round-down is for
+  // not having. A cube comes away from the flat with no curvature at all and
+  // gathers it as it goes, so the deck rolls over instead of breaking.
+  if (z > FD_FWD - RD_FWD) return Math.pow((z - (FD_FWD - RD_FWD)) / RD_FWD, 3) * 3.0;
+  if (z < FD_AFT + RD_AFT) return Math.pow((FD_AFT + RD_AFT - z) / RD_AFT, 3) * 3.8;
   return 0;
 }
 
 /** The height of the flight deck at a station. */
-function fdY(z) { return FD - fdDrop(z); }
+export function fdY(z) { return FD - fdDrop(z); }
 
 /**
  * How far out the lift opening reaches at a station, or nought where the deck
@@ -338,6 +390,13 @@ function deckStations(n) {
     // flat edge rather than running out to a point on the centreline.
     zs.push(lz - WELL_HD - 0.02, lz + WELL_HD + 0.02);
   }
+  // And through the rounded noses at both ends, where the deck edge turns
+  // through a right angle in a couple of metres: stations spread evenly down
+  // her length are two metres apart there and cut the corner straight off.
+  for (let i = 1; i <= 16; i++) {
+    const u = (i * i) / 256;
+    zs.push(FD_FWD - NOSE_F * u, FD_AFT + NOSE_A * u);
+  }
   zs.sort((a, b) => a - b);
   return zs.filter((z, i) => z >= FD_AFT && z <= FD_FWD
     && (i === 0 || z - zs[i - 1] > 1e-4));
@@ -349,7 +408,7 @@ function deckStations(n) {
  * starboard piece where there is.
  */
 function deckSheet(g, m, y, up) {
-  const zs = deckStations(120);
+  const zs = deckStations(180);
   const pos = [];
   const idx = [];
   const P = (x, z) => { pos.push(x, y(z), z); return pos.length / 3 - 1; };
@@ -433,6 +492,26 @@ function liftOutline(hw = LIFT_HW, hd = LIFT_HD, chamfer = 2.3) {
 /** The island, on the starboard side, a little forward of amidships. */
 const ISL_Z = 19;
 const ISL_X = S * 14.6;
+
+/**
+ * Her island, level by level: how high the deck is above the flight deck, how
+ * far out its side stands, how far forward and aft it runs, and the radius of
+ * the bullnose at each end of it.
+ *
+ * Set out in one table rather than level by level in the builder, because the
+ * ladders, the flag deck and the searchlight platforms all have to land on the
+ * level they belong to. Worked out separately they stand off it by half a
+ * metre and hang in the air beside the bridge.
+ *
+ * Each level steps in hard on the one under it. A tower whose levels are all
+ * within a foot of each other reads as an office block with a rail round it;
+ * what makes a Japanese island look like one is the pyramid.
+ */
+const ISLE = [
+  { y: 0.80, h: 3.4, hw: 4.10, zF: 11.4, zB: -13.6, nose: 3.10, tail: 2.40, lip: 0.60 },
+  { y: 4.20, h: 3.2, hw: 3.62, zF: 9.40, zB: -10.8, nose: 2.80, tail: 2.10, lip: 0.55 },
+  { y: 7.40, h: 3.0, hw: 3.14, zF: 7.20, zB: -7.80, nose: 2.50, tail: 1.80, lip: 0.50 },
+];
 
 // ------------------------------------------------------------- machinery --
 //
@@ -548,7 +627,15 @@ function hull(g) {
   // inside the line the interior was fitted to -- which puts her frames
   // outside her own bottom plating at the very place a bulbous bow is most
   // closely looked at.
-  plateHull(g, F, M, { bootLo: -3.4, bootHi: 1.05, bands: 14 });
+  //
+  // And seven above it, for the same reason and a better one. The freeboard
+  // between the boot topping and the deck edge is fifteen metres, and all her
+  // flare and all her tumblehome are in it: plated as one band it is one
+  // straight sheet in section from the water to the sheer, so every bit of
+  // curve the offsets carry is thrown away and her bow comes out as a flat
+  // wedge. Seven strakes follow the section, and the difference is the whole
+  // look of her ends.
+  plateHull(g, F, M, { bootLo: -3.4, bootHi: 1.05, bands: 14, upper: 7 });
   bulb(g);
   bulge(g);
   bilgeKeels(g);
@@ -791,6 +878,126 @@ function bossings(g) {
  * and rudders laid out on the bare station all came out abaft the ship
  * entirely, turning in open water behind her.
  */
+/**
+ * One propeller blade, lofted the way a blade is actually shaped.
+ *
+ * A screw was four boxes: flat slabs a hand thick, all four set at the same
+ * angle, standing out of a cone. A propeller blade is none of those things.
+ * It is a wing wrapped round a helix: it has a chord that is widest about two
+ * thirds out and rounds away to nothing at the tip, a thickness that is
+ * greatest at mid-chord and goes to a knife edge fore and aft, and -- the
+ * whole point of it -- a pitch angle that falls off the whole way out, because
+ * the pitch of the helix is the same at every radius and the circumference
+ * is not. At the root a blade stands at better than forty degrees to the
+ * disc; at the tip it is barely twenty. That twist is what a propeller looks
+ * like and a slab set at one angle has none of it.
+ *
+ * Built in the hub's own frame: the shaft runs along z, the blade out along
+ * +y, and `hand` turns the helix the way the shaft turns.
+ */
+// The developed outline of one blade, as a fraction of its widest chord, from
+// the root to the tip in ten equal steps.
+//
+// A screw blade is narrow where it leaves the boss, widest a little outboard
+// of half radius, and comes back in to a tip that is rounded but still has
+// real width to it. Drawn off a sine, as this was, the root comes out nearly
+// as wide as the middle and the blade reads as a flower petal rather than a
+// propeller -- so the outline is tabulated instead, which is how it is faired
+// on the drawing.
+const BLADE_OUTLINE = [0.40, 0.58, 0.74, 0.86, 0.95, 1.00, 0.99, 0.93, 0.81, 0.60, 0.22];
+
+function bladeWidth(u) {
+  const x = clamp(u, 0, 1) * (BLADE_OUTLINE.length - 1);
+  const i = Math.min(BLADE_OUTLINE.length - 2, Math.floor(x));
+  const f = x - i;
+  return BLADE_OUTLINE[i] * (1 - f) + BLADE_OUTLINE[i + 1] * f;
+}
+
+function bladeGeo(rHub, rTip, hand, {
+  pitch = 1.02, chord = 0.35, thick = 0.048, skew = 0.30, rake = 0.10,
+} = {}) {
+  const NS = 12;
+  const NC = 9;
+  const pos = [];
+  const idx = [];
+  const D = rTip * 2;
+  const cMax = chord * D;
+  for (let i = 0; i <= NS; i++) {
+    const u = i / NS;
+    const R = rHub + (rTip - rHub) * u;
+    const c = cMax * bladeWidth(u);
+    // Constant pitch: the angle falls away as the radius grows. A pitch ratio
+    // near one is what a ship's screw is cut to -- at two the root stands
+    // nearly edge-on to the water and the blade looks folded over.
+    const phi = Math.atan2(pitch * D, 2 * Math.PI * R);
+    const cs = Math.cos(phi);
+    const sn = Math.sin(phi) * hand;
+    // Skew: the blade sweeps back against the turn as it goes out, so it
+    // enters the wake a little at a time instead of all at once. Measured off
+    // the widest chord, so the sweep does not die away with the tip.
+    const sk = -hand * skew * cMax * u * u;
+    const tMax = thick * D * (1 - 0.72 * u);
+    for (let side = 0; side < 2; side++) {
+      for (let k = 0; k < NC; k++) {
+        const j = side === 0 ? k : NC - 1 - k;
+        const s = 0.5 - j / (NC - 1);
+        const t = (tMax / 2) * Math.pow(1 - 4 * s * s, 0.55) * (side === 0 ? -1 : 1);
+        pos.push(sk + s * c * cs + t * Math.abs(sn),
+          R, -s * c * sn + t * cs + rake * R * u);
+      }
+    }
+  }
+  const ring = NC * 2;
+  for (let i = 0; i < NS; i++) {
+    for (let k = 0; k < ring; k++) {
+      const j = (k + 1) % ring;
+      const a = i * ring + k;
+      const b = i * ring + j;
+      const c2 = (i + 1) * ring + k;
+      const d = (i + 1) * ring + j;
+      idx.push(a, c2, d, a, d, b);
+    }
+  }
+  // The tip, closed over.
+  const top = NS * ring;
+  const hub = pos.length / 3;
+  let sx = 0;
+  let sy = 0;
+  let sz = 0;
+  for (let k = 0; k < ring; k++) {
+    sx += pos[(top + k) * 3];
+    sy += pos[(top + k) * 3 + 1];
+    sz += pos[(top + k) * 3 + 2];
+  }
+  pos.push(sx / ring, sy / ring, sz / ring);
+  for (let k = 0; k < ring; k++) idx.push(hub, top + k, top + ((k + 1) % ring));
+  // And wound the right way round whichever hand it is. A blade is a closed
+  // shell, so the test is whether its first face looks away from the middle of
+  // it; handed the other way every triangle in it comes out inside out and the
+  // screw is four holes in the water.
+  const A = [pos[0], pos[1], pos[2]];
+  const B = [pos[ring * 3], pos[ring * 3 + 1], pos[ring * 3 + 2]];
+  const C = [pos[(ring + 1) * 3], pos[(ring + 1) * 3 + 1], pos[(ring + 1) * 3 + 2]];
+  const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const e2 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+  const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2],
+    e1[0] * e2[1] - e1[1] * e2[0]];
+  // The middle of the section the face belongs to, on the blade's own axis.
+  const mid = [0, A[1], 0];
+  if (n[0] * (A[0] - mid[0]) + n[2] * (A[2] - mid[2]) < 0) {
+    for (let i = 0; i < idx.length; i += 3) {
+      const tmp = idx[i + 1];
+      idx[i + 1] = idx[i + 2];
+      idx[i + 2] = tmp;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function screws(g) {
   // Where the hull actually is, at a station and a depth.
   const at = (t, y) => F.zAt(t, y);
@@ -804,10 +1011,12 @@ function screws(g) {
     const z = at(t, y);
     tubeZ(g, M.gunDark, 0.58, 13, x, y, z + 6.5, 10);
     // The A-bracket that carries the tail shaft, which every shaft that comes
-    // out clear of the hull has and which nothing else holds up.
-    for (const lean of [-0.6, 0.6]) {
-      const arm = box(g, M.antifoul, 0.34, 3.4, 1.1,
-        x + Math.sin(lean) * 1.5, y + 1.6, z + 5.2);
+    // out clear of the hull has and which nothing else holds up. Two legs,
+    // splayed up and inboard to the plating rather than standing on nothing:
+    // one is a strut, two is a bracket, and a bracket is what she had.
+    for (const lean of [-0.52, 0.52]) {
+      const arm = box(g, M.antifoul, 0.30, 4.2, 1.05,
+        x + Math.sin(lean) * 1.9, y + 2.0, z + 5.4);
       arm.rotation.z = lean;
     }
     const hub = new THREE.Group();
@@ -820,32 +1029,88 @@ function screws(g) {
     // and a rudder always over -- and the outer pair are handed against the
     // inner for the same reason.
     hub.userData.screw = { hand };
-    cyl(hub, M.brass, 0.84, 0.58, 1.0, 0, 0, 0, 12).rotation.x = Math.PI / 2;
+    // The boss: a short barrel with the fairwater cone on the after end of it,
+    // which is what closes the shaft off behind the nut.
+    cyl(hub, M.brass, 0.58, 0.64, 1.25, 0, 0, 0.15, 16).rotation.x = Math.PI / 2;
+    cyl(hub, M.brass, 0.10, 0.58, 1.15, 0, 0, -1.05, 16).rotation.x = -Math.PI / 2;
     for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2;
-      const bl = box(hub, M.brass, r * 0.58, 0.15, r * 1.5,
-        Math.sin(a) * r * 0.55, Math.cos(a) * r * 0.55, 0);
-      bl.rotation.z = a;
-      bl.rotation.x = 0.42;
+      // The root starts inside the boss, so the blade grows out of it instead
+      // of being planted on the face of it.
+      const bl = new THREE.Mesh(bladeGeo(0.50, r, hand), M.brass);
+      bl.rotation.z = (i / 4) * Math.PI * 2;
+      hub.add(bl);
     }
     g.add(hub);
   }
   // The skeg on the centreline between the inner shafts, which is what the
   // sternpost and the forward rudder hang on.
-  for (let i = 0; i < 10; i++) {
-    const t = -0.80 - (i * 0.14) / 10;
-    const y = -8.4 + i * 0.16;
-    box(g, M.antifoul, 1.5, 2.6, (0.14 * 138) / 10 + 0.15, 0, y, at(t, y));
+  //
+  // Lofted rather than laid as a stack of boxes: a box is a straight sheet
+  // between two stations, and ten of them following a counter that rises a
+  // metre and a half over its length come out as a staircase under her.
+  {
+    const sk = strip();
+    const NK = 16;
+    const prof = (k) => {
+      const t = -0.80 - k * 0.145;
+      const y = -8.5 + k * 1.9;
+      return [Math.max(0.35, 0.78 - k * 0.22), y, at(t, y)];
+    };
+    for (let i = 0; i < NK; i++) {
+      const [wa, ya, za] = prof(i / NK);
+      const [wb, yb, zb] = prof((i + 1) / NK);
+      for (const sgn of [-1, 1]) {
+        sk.quad([sgn * wa, ya, za], [sgn * wa, ya + 2.7, za],
+          [sgn * wb, yb + 2.7, zb], [sgn * wb, yb, zb], [sgn, 0, 0]);
+        sk.quad([sgn * wa, ya, za], [0, ya - 0.25, za],
+          [0, yb - 0.25, zb], [sgn * wb, yb, zb], [sgn, -1, 0]);
+      }
+    }
+    sk.mesh(g, M.antifoul);
   }
   // Two rudders in tandem on the centreline, which is the Yamato arrangement
   // and the reason a hull this size turns as tightly as she does.
-  for (const [t, w, h] of [[-0.895, 6.4, 4.4], [-0.945, 4.4, 3.2]]) {
+  //
+  // Each is a plate with a nose on it rather than a slab: a rudder is an
+  // aerofoil, thickest a third of the way back from its leading edge, and part
+  // of its area stands forward of the stock so the water helps turn it. A
+  // rectangle does not read as a rudder from any angle at all.
+  for (const [t, hgt, chordLen] of [[-0.895, 6.4, 5.0], [-0.945, 4.4, 3.4]]) {
     const y = -6.0;
     const z = at(t, y);
-    const r = box(g, M.gunDark, 0.55, w, h, 0, y, z);
-    // The stock it turns on, carried up into the steering gear.
-    cyl(g, M.gunDark, 0.42, 0.42, 3.2, 0, y + w / 2 + 1.2, z, 12);
-    r.userData.rudder = true;
+    const rud = new THREE.Group();
+    rud.position.set(0, y, z);
+    // The section, as a fraction of the chord: the four-digit thickness line,
+    // which is the shape a rudder of this date was faired to. Seven boxes in a
+    // stack gave the right silhouette from abeam and a flight of steps from
+    // anywhere else, so the whole blade is lofted instead.
+    const NC = 16;
+    const NV = 5;
+    const TR = 0.17;
+    const half = (s, c) => 5 * TR * c * (0.2969 * Math.sqrt(s) - 0.1260 * s
+      - 0.3516 * s * s + 0.2843 * s ** 3 - 0.1015 * s ** 4);
+    const layers = [];
+    for (let k = 0; k <= NV; k++) {
+      const v = k / NV;                    // 0 at the head, 1 at the heel
+      const c = chordLen * (1 - 0.16 * v * v);
+      const loop = [];
+      for (let i = 0; i <= NC; i++) {
+        const sx = i / NC;
+        loop.push([half(sx, c), c * (0.5 - sx)]);
+      }
+      for (let i = NC - 1; i >= 1; i--) {
+        const sx = i / NC;
+        loop.push([-half(sx, c), c * (0.5 - sx)]);
+      }
+      // Heel first, so the loft runs bottom to top the way it wants to.
+      layers.unshift({ pts: loop, y: hgt * (0.5 - v) });
+    }
+    loftShape(rud, M.gunDark, layers, { cap: true, floor: true });
+    // The stock, a third of the chord back from the leading edge, carried up
+    // through the counter into the steering gear.
+    cyl(g, M.gunDark, 0.42, 0.42, 3.4, 0, y + hgt / 2 + 1.3, z + chordLen * 0.17, 12);
+    rud.userData.rudder = true;
+    g.add(rud);
   }
 }
 
@@ -863,6 +1128,102 @@ function sideTop(z) {
 }
 
 /**
+ * The station her deck edge is at a given point of her length.
+ *
+ * It is not z / (LOA / 2). Her stem rakes seven metres forward between the
+ * water and the deck edge, so the station whose deck edge is at the forward
+ * end of the flight deck is a good way abaft the one the ratio gives -- and
+ * built to the ratio the plating runs on ten metres past where the flight deck
+ * stops and then gets clamped, which leaves a triangular shelf standing out of
+ * her bow that is in no drawing of any ship.
+ */
+function tAtZ(z) {
+  let lo = -1;
+  let hi = 1;
+  for (let i = 0; i < 36; i++) {
+    const mid = (lo + hi) / 2;
+    if (F.zAt(mid, sheer(mid)) < z) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * The scallops: where her side is cut away to let a gun sponson into it.
+ *
+ * This is the thing that makes a carrier's deck edge look the way it does, and
+ * the thing that was missing. A sponson is not a drum bolted to the outside of
+ * the plating -- the plating is taken in round it, and the tub sits in the
+ * recess with its rim out level with the deck edge above. Built without the
+ * recess there is nowhere for a tub to go but outboard of the ship, so every
+ * one of them ends up standing two to five metres off her side in the air with
+ * a pair of struts under it, which from any angle forward of the beam is a row
+ * of dustbins hung on a wall.
+ *
+ * One entry per mounting at the deck edge, at the station it stands at, with
+ * how far the plating comes in for it and how far along her the cut runs.
+ */
+const SCALLOPS = [];
+/** What each battery stands in: the tub's radius, its floor, and the recess. */
+const TUBS = {
+  turret: { r: 3.20, deep: 2.20, wall: 0.85 },
+  aa: { r: 2.30, deep: 1.50, wall: 0.80 },
+  rocket: { r: 2.45, deep: 1.60, wall: 0.92 },
+};
+for (const [spec, tub] of [
+  ...CLS.turrets.map((s) => [s, TUBS.turret]),
+  ...CLS.aa.guns[0].mounts.map((s) => [s, TUBS.aa]),
+  ...CLS.aa.guns[1].mounts.map((s) => [s, TUBS.rocket]),
+]) {
+  if (spec.where && spec.where !== 'edge') continue;
+  SCALLOPS.push({ z: spec.z, deep: tub.deep, half: tub.r + 1.3 });
+}
+/** How deep her side is cut at a station, faired in and out of the recess. */
+function scallop(z) {
+  let cut = 0;
+  for (const s of SCALLOPS) {
+    const d = Math.abs(z - s.z);
+    if (d >= s.half) continue;
+    cut = Math.max(cut, s.deep * 0.5 * (1 + Math.cos((Math.PI * d) / s.half)));
+  }
+  return cut;
+}
+/**
+ * And the same cut at a height: full at the head of the plating, dying out a
+ * couple of metres under the gun floors.
+ *
+ * A recess carried all the way down is a hull with twenty-odd bites out of its
+ * side at the waterline. What she has is a gallery deck let into the top of
+ * the side, and nothing below it.
+ */
+const SCALLOP_LO = FD - 5.8;
+function scallopAt(z, y) {
+  const c = scallop(z);
+  if (c <= 0) return 0;
+  return c * ease((y - SCALLOP_LO) / (HANGAR_TOP - SCALLOP_LO));
+}
+
+/**
+ * How far out her plating is at a point of her length and a height -- below
+ * the sheer off her own offsets, and above it up the faired side that carries
+ * her to the flight deck, less whatever is cut out of it there.
+ *
+ * Everything hung on her side wants this and not `sideTop`. A gun floor is
+ * three metres under the deck edge, and the plating there is a good way inside
+ * where it is at the head of it: a sponson cut against the head hangs off the
+ * side of her with daylight behind it, which is exactly what every one of them
+ * was doing.
+ */
+function sideProfile(t, z, y) {
+  const y0 = sheer(t);
+  if (y <= y0) return F.shellAt(t, Math.max(y, F.keelY(t) + 0.05));
+  const w0 = F.shellAt(t, y0);
+  const w1 = sideTop(z);
+  const u = clamp((y - y0) / Math.max(0.5, HANGAR_TOP - y0), 0, 1);
+  return Math.max(1.0, w0 + (w1 - w0) * ease(u) - scallopAt(z, y));
+}
+export function sideAt(z, y) { return sideProfile(tAtZ(z), z, y); }
+
+/**
  * The side between the shell's top edge and the flight deck.
  *
  * This is what makes her read as one continuous slab from the beam, which is
@@ -877,41 +1238,66 @@ function sideTop(z) {
  * the length of her.
  */
 function upperSide(g) {
-  // The station her deck edge is at a given point of her length.
-  //
-  // It is not z / (LOA / 2). Her stem rakes four metres forward between the
-  // water and the deck edge, so the station whose deck edge is at the forward
-  // end of the flight deck is a good way abaft the one the ratio gives -- and
-  // built to the ratio the plating runs on ten metres past where the flight
-  // deck stops and then gets clamped, which leaves a triangular shelf standing
-  // out of her bow that is in no drawing of any ship.
-  const tAtZ = (z) => {
-    let lo = -1;
-    let hi = 1;
-    for (let i = 0; i < 36; i++) {
-      const mid = (lo + hi) / 2;
-      if (F.zAt(mid, sheer(mid)) < z) lo = mid; else hi = mid;
-    }
-    return (lo + hi) / 2;
-  };
   const tA = tAtZ(FD_AFT);
   const tF = tAtZ(FD_FWD);
-  const N = 120;
+  const N = 150;
+  // And it is plated in rows up the side rather than in one sheet from the
+  // sheer to the deck edge.
+  //
+  // Forward the head of this plating stands four metres outboard of the shell
+  // under it, because the flight deck is forty metres across where the hull is
+  // twenty-eight: run as a single quad that is one flat sheet leaning out at
+  // fifty degrees, and it reads from ahead as a shelf welded on to her bow.
+  // Taken up in rows on a faired profile it leaves the sheer very nearly
+  // upright and rolls out to meet the deck edge, which is the Taiho bow and
+  // the thing that makes her ends look drawn rather than cut.
+  //
+  // And it is the rows that carry her scallops: the recess a sponson sits in
+  // is a hollow in this plating and nothing else, so it has to be drawn by the
+  // same sheet that draws the side or the tub is let into a hole with no wall
+  // behind it.
+  const ROWS = 8;
   const { quad, mesh } = strip();
   const top = strip();
   const foot = (t) => [F.shellAt(t, sheer(t)), sheer(t), F.zAt(t, sheer(t))];
-  for (let i = 0; i < N; i++) {
-    const ta = tA + ((tF - tA) * i) / N;
-    const tb = tA + ((tF - tA) * (i + 1)) / N;
-    const [wa, ya, za] = foot(ta);
-    const [wb, yb, zb] = foot(tb);
+  // One station's profile, as [x, y] up the side.
+  const at = (t, z, y0, u) => {
+    const y = y0 + (HANGAR_TOP - y0) * u;
+    return [sideProfile(t, z, y), y];
+  };
+  // Finer along her length through the scallops than between them: the recess
+  // for a 25 mm tub is five metres of her length, and at the spacing the rest
+  // of the side wants it comes out as a dent with two corners in it.
+  const zs = [];
+  for (let i = 0; i <= N; i++) zs.push(tA + ((tF - tA) * i) / N);
+  for (const s of SCALLOPS) {
+    const t0 = tAtZ(s.z - s.half);
+    const t1 = tAtZ(s.z + s.half);
+    for (let k = 0; k <= 10; k++) zs.push(t0 + ((t1 - t0) * k) / 10);
+  }
+  zs.sort((a, b) => a - b);
+  const ts = zs.filter((t, i) => t >= tA && t <= tF && (i === 0 || t - zs[i - 1] > 1e-5));
+  for (let i = 0; i < ts.length - 1; i++) {
+    const ta = ts[i];
+    const tb = ts[i + 1];
+    const [, ya, za] = foot(ta);
+    const [, yb, zb] = foot(tb);
+    for (let r = 0; r < ROWS; r++) {
+      const [xa0, ya0] = at(ta, za, ya, r / ROWS);
+      const [xa1, ya1] = at(ta, za, ya, (r + 1) / ROWS);
+      const [xb0, yb0] = at(tb, zb, yb, r / ROWS);
+      const [xb1, yb1] = at(tb, zb, yb, (r + 1) / ROWS);
+      for (const sgn of [-1, 1]) {
+        quad([sgn * xa0, ya0, za], [sgn * xa1, ya1, za],
+          [sgn * xb1, yb1, zb], [sgn * xb0, yb0, zb], [sgn, 0, 0]);
+      }
+    }
     // The head of the plating follows the flight deck's own outline in, so
-    // where the deck draws in at the ends the side comes with it.
-    const ha = sideTop(za);
-    const hb = sideTop(zb);
+    // where the deck draws in at the ends the side comes with it -- and where
+    // a sponson is let into her, the soffit over it widens to suit.
+    const ha = at(ta, za, ya, 1)[0];
+    const hb = at(tb, zb, yb, 1)[0];
     for (const sgn of [-1, 1]) {
-      quad([sgn * wa, ya, za], [sgn * ha, HANGAR_TOP, za],
-        [sgn * hb, HANGAR_TOP, zb], [sgn * wb, yb, zb], [sgn, 0, 0]);
       // The narrow ledge between the head of the plating and the deck edge,
       // seen from below as the soffit the gun galleries hang from.
       top.quad([sgn * ha, HANGAR_TOP, za], [sgn * fdHalf(za), HANGAR_TOP, za],
@@ -923,12 +1309,19 @@ function upperSide(g) {
   // And the two end bulkheads, which close her in forward and aft: her bow is
   // plated right up to the flight deck the way Taiho's is, not left open the
   // way an American carrier's is.
+  //
+  // Cut in the same rows the sides are plated in, so the three sheets share
+  // their corners: a single quad across the end stands inboard of a curved
+  // side through the middle heights, and the gap between them is a slot up
+  // her stem that a ray from ahead goes straight through.
   for (const [t, z, out] of [[tF, FD_FWD, 1], [tA, FD_AFT, -1]]) {
-    const [w, y] = foot(t);
-    const h = sideTop(z);
+    const [, y] = foot(t);
     const end = strip();
-    end.quad([-w, y, z], [w, y, z], [h, HANGAR_TOP, z], [-h, HANGAR_TOP, z],
-      [0, 0, out]);
+    for (let r = 0; r < ROWS; r++) {
+      const [x0, y0] = at(t, z, y, r / ROWS);
+      const [x1, y1] = at(t, z, y, (r + 1) / ROWS);
+      end.quad([-x0, y0, z], [x0, y0, z], [x1, y1, z], [-x1, y1, z], [0, 0, out]);
+    }
     end.mesh(g, M.hull);
   }
   // Forward of the flight deck she is open: the forecastle, with a bulwark
@@ -1036,9 +1429,12 @@ function flightDeck(g) {
   // ends those step nearly a metre apart and a ray from ahead runs between
   // them the length of the ship.
   const { quad, mesh } = strip();
-  for (let i = 0; i < N; i++) {
-    const z0 = FD_AFT + ((FD_FWD - FD_AFT) * i) / N;
-    const z1 = FD_AFT + ((FD_FWD - FD_AFT) * (i + 1)) / N;
+  // Off the deck's own stations, so the girder is the sheet's edge to the
+  // millimetre and follows it round the noses at both ends.
+  const edge = deckStations(N * 2);
+  for (let i = 0; i < edge.length - 1; i++) {
+    const z0 = edge[i];
+    const z1 = edge[i + 1];
     const w0 = fdHalf(z0);
     const w1 = fdHalf(z1);
     const t0 = fdY(z0);
@@ -1088,6 +1484,9 @@ function flightDeck(g) {
   // that gives a flight deck its length when you look down it.
   for (let z = FD_AFT + 12; z < FD_FWD - 8; z += 12.4) {
     if (wellHalf(z) > 0) continue;
+    // Not over the round-downs: a flat strip a third of a metre long will not
+    // lie down on a deck that is falling away under it.
+    if (fdDrop(z) > 0.5) continue;
     box(g, M.deckDark, fdHalf(z) * 2, 0.07, 0.34, 0, fdY(z) + 0.035, z);
   }
   deckMarks(g);
@@ -1110,49 +1509,100 @@ function deckMarks(g) {
   const y0 = (z) => fdY(z) + 0.05;
   const line = (m, w, len, x, z, lift = 0) =>
     box(g, m, w, 0.06, len, x, y0(z) + 0.01 + lift, z);
+  // The narrowest the deck gets anywhere under a mark, which is what a mark
+  // has to be cut to.
+  //
+  // A bar laid to the half-breadth at its own centre is a bar that hangs over
+  // the deck edge at both its ends wherever the deck is drawing in -- and the
+  // deck draws in hardest over the round-down, which is exactly where the
+  // bars are. What it looks like is a row of red and white slivers floating
+  // off her quarters.
+  const narrow = (z, len) => {
+    let w = Infinity;
+    for (let k = -2; k <= 2; k++) w = Math.min(w, fdHalf(z + (k * len) / 4));
+    return w;
+  };
+  // A band painted right across her, laid on the deck rather than laid at one
+  // height across it.
+  //
+  // Every mark that runs athwartships is a box, and a box is flat. On the
+  // parallel middle of the deck that is right; over the round-down, where she
+  // falls away better than a third of a metre in every metre of her length, a
+  // flat bar two metres long is buried at one end and standing clear of the
+  // deck at the other -- and the last of them, where the deck has rounded
+  // away under it as well, is a red plank hanging in the air off her quarter.
+  // Drawn as a sheet that follows both, it stays paint.
+  const band = (m, z0, z1, lift = 0.02, inset = 0.10) => {
+    const n = Math.max(2, Math.round(Math.abs(z1 - z0) / 0.6));
+    const pos = [];
+    const idx = [];
+    for (let i = 0; i <= n; i++) {
+      const z = z0 + ((z1 - z0) * i) / n;
+      const w = Math.max(0.2, fdHalf(z) - inset);
+      const y = fdY(z) + 0.06 + lift;
+      pos.push(-w, y, z, w, y, z);
+    }
+    for (let i = 0; i < n; i++) {
+      const a2 = i * 2;
+      const b2 = (i + 1) * 2;
+      idx.push(a2, b2 + 1, a2 + 1, a2, b2, b2 + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, m));
+  };
 
   // The centreline, dashed, the whole length of the landing and range area --
   // and not across the two wells, because paint laid over a hole is paint
   // hanging in the air the moment the lift goes down.
-  for (let z = FD_AFT + 24; z < FD_FWD - 30; z += 6.2) {
+  for (let z = FD_AFT + RD_AFT; z < FD_FWD - 30; z += 6.2) {
     if (wellHalf(z) > 0 || wellHalf(z + 1.8) > 0 || wellHalf(z - 1.8) > 0) continue;
     line(M.stripe, 0.55, 3.6, 0, z);
   }
   // The two long lines down either side, inboard of the deck edge: what a
   // pilot lines up on and what keeps a wheel off the girder in a crosswind.
-  for (let z = FD_AFT + 18; z < FD_FWD - 18; z += 5) {
+  for (let z = FD_AFT + RD_AFT - 4; z < FD_FWD - 18; z += 5) {
     for (const sgn of [-1, 1]) {
-      const w = (fdHalf(z) + fdHalf(z + 5)) / 2 - 2.6;
+      const w = narrow(z + 2.5, 5.1) - 2.6;
       line(M.stripe, 0.35, 5.1, sgn * w, z + 2.5, 0.005);
     }
   }
   // The landing area, marked out aft: a long box a pilot sets her down inside,
   // with a bar across each end of it.
-  const la0 = FD_AFT + 22;
-  const la1 = FD_AFT + 104;
+  // The landing area begins where the round-down ends, because that is where
+  // there is deck to land on: laid over the fall-away it is a box painted on a
+  // slope a pilot cannot put a wheel on.
+  const la0 = FD_AFT + RD_AFT;
+  const la1 = la0 + 84;
   for (const sgn of [-1, 1]) {
     for (let z = la0; z < la1; z += 6) {
-      const w = Math.min(fdHalf(z), fdHalf(z + 6)) - 6.4;
+      const w = narrow(z + 3, 6.1) - 6.4;
       line(M.stripe, 0.5, 6.1, sgn * w, z + 3, 0.01);
     }
   }
   for (const z of [la0, la1]) {
-    line(M.stripe, (fdHalf(z) - 6.4) * 2, 0.5, 0, z, 0.01);
+    line(M.stripe, (narrow(z, 0.5) - 6.4) * 2, 0.5, 0, z, 0.01);
   }
 
   // The barred round-down aft: red and white across the whole width of the
-  // deck, from the after end forward over the whole of the fall-away.
-  const rd = FD_AFT + 21;
-  const bars = 13;
+  // deck, over the last twenty metres of it.
+  //
+  // Not over the whole fall-away. The round-down is a long gentle roll and
+  // the bars are a warning painted at the end of it -- carried the whole
+  // length of the curve they are an eighth of her flight deck in stripes,
+  // which is a good deal more of her in red than she ever wore.
+  const rd = FD_AFT + 17;
+  const bars = 9;
   for (let i = 0; i < bars; i++) {
-    const z = FD_AFT + (i * (rd - FD_AFT)) / bars;
-    const zm = z + (rd - FD_AFT) / (2 * bars);
-    line(i % 2 ? M.stripeRed : M.stripe, fdHalf(zm) * 2, (rd - FD_AFT) / bars + 0.05,
-      0, zm, 0.01);
+    const z0 = FD_AFT + (i * (rd - FD_AFT)) / bars;
+    const z1 = z0 + (rd - FD_AFT) / bars;
+    band(i % 2 ? M.stripeRed : M.stripe, z0, z1, 0.01);
   }
   // The white bar across the forward edge of the barred area, which is where
   // a pilot is told the deck begins to fall away.
-  line(M.stripe, fdHalf(rd) * 2, 0.7, 0, rd, 0.02);
+  band(M.stripe, rd, rd + 0.7, 0.02);
 
   // Forward: the take-off guide. Two lines converging on the centreline over
   // the last thirty metres of deck, with the centreline running out between
@@ -1205,7 +1655,7 @@ function deckMarks(g) {
  */
 function arrestorGear(g) {
   for (let i = 0; i < 15; i++) {
-    const z = FD_AFT + 26 + i * 5.2;
+    const z = FD_AFT + RD_AFT + 3 + i * 5.2;
     const w = fdHalf(z) - 3.2;
     // A wire is rove between two sheaves at the deck edge and it does not
     // cross a well: where one would, it is the deck that wins.
@@ -1237,7 +1687,7 @@ function arrestorGear(g) {
  * not a bare strip and a bare strip is what says "model".
  */
 function palisades(g) {
-  for (let z = FD_AFT + 34; z < FD_FWD - 30; z += 9.5) {
+  for (let z = FD_AFT + RD_AFT + 4; z < FD_FWD - 30; z += 9.5) {
     for (const sgn of [-1, 1]) {
       const w = fdHalf(z) - 1.3;
       box(g, M.deckDark, 1.9, 0.07, 8.6, sgn * w, fdY(z) + 0.035, z);
@@ -1248,7 +1698,7 @@ function palisades(g) {
   }
   // Tie-down rings, in the lines they were actually laid in: a grid over the
   // whole of the range and landing area.
-  for (let z = FD_AFT + 30; z < FD_FWD - 24; z += 7.5) {
+  for (let z = FD_AFT + RD_AFT + 2; z < FD_FWD - 24; z += 7.5) {
     for (let k = -2; k <= 2; k++) {
       const w = (fdHalf(z) - 3.4) * (k / 2);
       if (Math.abs(w) < wellHalf(z) + 0.4) continue;
@@ -1641,30 +2091,46 @@ function island(g) {
 
   // Level one: the air operations room and the flag office, with the ship's
   // office behind them. Her signal platform is the deck over it.
-  const I1 = FD + 0.8;
-  const R1 = isleLevel(g, I1, 3.4, 3.9, z + 10.4, z - 12.6, 2.9, 2.2, 0.60);
-  isleWindows(g, I1 + 2.15, 3.95, z + 10.2, z - 6.0, 6);
-  isleDoor(g, I1, z - 12.3, 3.9);
-  planRail(g, M.steelDark, R1, I1 + 3.62);
+  const L1 = ISLE[0];
+  const I1 = FD + L1.y;
+  const R1 = isleLevel(g, I1, L1.h, L1.hw, z + L1.zF, z + L1.zB, L1.nose, L1.tail,
+    L1.lip);
+  isleWindows(g, I1 + 2.15, L1.hw + 0.05, z + L1.zF - 0.2, z - 6.0, 6, L1.nose);
+  isleDoor(g, I1, z + L1.zB + 0.3, L1.hw);
+  planRail(g, M.steelDark, R1, I1 + L1.h + 0.22);
   // The flag lockers and the halyard cleats along the signal deck.
   for (let i = 0; i < 5; i++) {
-    box(g, M.steelDark, 0.9, 0.85, 1.05, x + 3.4, I1 + 4.06, z - 8.0 + i * 1.9);
+    box(g, M.steelDark, 0.9, 0.85, 1.05, x + L1.hw - 0.5, I1 + L1.h + 0.66,
+      z - 8.0 + i * 1.9);
   }
 
   // Level two: the navigating bridge and the chart house.
-  const I2 = I1 + 3.4;
-  const R2 = isleLevel(g, I2, 3.2, 3.5, z + 9.6, z - 11.8, 2.7, 2.0, 0.55);
-  isleWindows(g, I2 + 2.0, 3.55, z + 9.4, z - 5.0, 5);
-  isleDoor(g, I2, z - 11.5, 3.5);
-  planRail(g, M.steelDark, R2, I2 + 3.42);
+  const L2 = ISLE[1];
+  const I2 = FD + L2.y;
+  const R2 = isleLevel(g, I2, L2.h, L2.hw, z + L2.zF, z + L2.zB, L2.nose, L2.tail,
+    L2.lip);
+  isleWindows(g, I2 + 2.0, L2.hw + 0.05, z + L2.zF - 0.2, z - 5.0, 5, L2.nose);
+  isleDoor(g, I2, z + L2.zB + 0.3, L2.hw);
+  planRail(g, M.steelDark, R2, I2 + L2.h + 0.22);
 
   // Level three: the compass platform, with its wings out over the deck edge
   // and a pelorus on each of them. It is the level she is conned from and it
   // is the one that has to read as a bridge.
-  const I3 = I2 + 3.2;
-  const R3 = isleLevel(g, I3, 3.0, 3.1, z + 8.4, z - 10.8, 2.5, 1.8, 0.50);
-  isleWindows(g, I3 + 1.9, 3.15, z + 8.2, z - 4.0, 5);
-  planRail(g, M.steelDark, R3, I3 + 3.22);
+  const L3 = ISLE[2];
+  const I3 = FD + L3.y;
+  const R3 = isleLevel(g, I3, L3.h, L3.hw, z + L3.zF, z + L3.zB, L3.nose, L3.tail,
+    L3.lip);
+  isleWindows(g, I3 + 1.9, L3.hw + 0.05, z + L3.zF - 0.2, z - 4.0, 5, L3.nose);
+  // The windbreak round the front of the compass platform: a plated bulwark
+  // with the rail on top of it, not bare stanchions. She is conned from up
+  // here at thirty knots and a rail on its own would be nothing to stand
+  // behind.
+  const bul = islePlan(L3.hw + L3.lip, z + L3.zF + L3.lip, z - 2.0,
+    L3.nose + L3.lip * 0.6, 1.2);
+  loftShape(g, M.steel, [
+    { pts: bul, y: I3 + L3.h + 0.22 }, { pts: bul, y: I3 + L3.h + 1.32 },
+  ], { cap: false });
+  planRail(g, M.steelDark, R3, I3 + L3.h + 0.22);
   for (const dz of [z + 5.6, z - 4.6]) {
     const wing = [
       [x - 3.3, dz + 1.3], [x + 3.3, dz + 1.3], [x + 3.3, dz - 1.3], [x - 3.3, dz - 1.3],
@@ -1688,7 +2154,7 @@ function island(g) {
   // The air defence platform: the topmost deck of the island proper, with the
   // two Type 94 directors that lay her 12.7 cm, the 12 cm binoculars round the
   // rail, and the after director looking over the funnel.
-  const I4 = I3 + 3.0;
+  const I4 = I3 + L3.h;
   const ADP = islePlan(3.4, z + 7.0, z - 9.2, 2.8, 2.2);
   loftShape(g, M.steel, [
     { pts: ADP, y: I4 - 0.24 }, { pts: ADP, y: I4 },
@@ -1750,26 +2216,55 @@ function isleTub(g, x, z, r) {
 }
 
 /** A row of bridge windows down both sides of a level and across its face. */
-function isleWindows(g, y, hw, zFront, zBack, n) {
+function isleWindows(g, y, hw, zFront, zBack, n, nose = hw * 0.75) {
   // One strip of glass a side with the mullions across it, not a row of square
   // panes: a bridge window is a continuous band and a row of separate squares
   // is a wardroom.
+  //
+  // Let a hand's breadth into the face rather than laid on the outside of it.
+  // A band of glass standing at the house's own half-breadth is a band of
+  // glass standing a centimetre outside it, and where the plan turns -- which
+  // on a bullnose is the whole of the front -- the two corners of it come out
+  // through the plating and hang in the air either side of the bridge.
+  const IN = 0.13;
   for (const sgn of [-1, 1]) {
-    box(g, M.glass, 0.10, 0.95, zFront - zBack, ISL_X + sgn * hw, y,
+    box(g, M.glass, 0.10, 0.95, zFront - zBack, ISL_X + sgn * (hw - IN), y,
       (zFront + zBack) / 2);
     for (let i = 0; i <= n; i++) {
       const dz = zBack + ((zFront - zBack) * i) / n;
-      box(g, M.steel, 0.13, 1.05, 0.16, ISL_X + sgn * hw, y, dz);
+      box(g, M.steel, 0.13, 1.05, 0.16, ISL_X + sgn * (hw - IN + 0.02), y, dz);
     }
-    // The sill and the head of the band, which is what gives it an edge.
-    for (const dy of [-0.56, 0.56]) {
-      box(g, M.steel, 0.14, 0.18, zFront - zBack, ISL_X + sgn * hw, y + dy,
-        (zFront + zBack) / 2);
-    }
+    // The sill under the band and the eyebrow over it, which is what throws
+    // the weather and the sun off the glass and what gives a bridge front its
+    // line from a mile away.
+    box(g, M.steel, 0.16, 0.20, zFront - zBack, ISL_X + sgn * (hw - IN + 0.04),
+      y - 0.58, (zFront + zBack) / 2);
+    box(g, M.steelDark, 0.30, 0.16, zFront - zBack, ISL_X + sgn * (hw - IN + 0.10),
+      y + 0.62, (zFront + zBack) / 2);
   }
-  box(g, M.glass, hw * 1.7, 0.95, 0.10, ISL_X, y, zFront + 0.04);
-  for (let i = -2; i <= 2; i++) {
-    box(g, M.steel, 0.16, 1.05, 0.13, ISL_X + i * (hw * 0.82) / 2, y, zFront + 0.04);
+  // And across the face, following the bullnose round rather than laid flat
+  // across it: a run of lights set on the arc, which is how the front of a
+  // Japanese island is glazed. Laid flat, the middle of the pane is a foot
+  // inside the plating and its two ends a foot outside it.
+  const arc = 5;
+  const at = (k) => {
+    const a = (k / arc) * (Math.PI / 2) * 0.92;
+    return [Math.sin(a) * (hw - IN), (zFront - nose) + (nose - IN) * Math.cos(a)];
+  };
+  for (let i = -arc; i < arc; i++) {
+    const [px, pz] = at(i);
+    const [qx, qz] = at(i + 1);
+    const len = Math.hypot(qx - px, qz - pz) + 0.02;
+    const pane = box(g, M.glass, 0.10, 0.95, len,
+      ISL_X + (px + qx) / 2, y, (pz + qz) / 2);
+    pane.rotation.y = Math.atan2(qx - px, qz - pz);
+    const brow = box(g, M.steelDark, 0.30, 0.16, len,
+      ISL_X + (px + qx) / 2, y + 0.62, (pz + qz) / 2);
+    brow.rotation.y = pane.rotation.y;
+  }
+  for (let i = -arc; i <= arc; i++) {
+    const [px, pz] = at(i);
+    box(g, M.steel, 0.16, 1.05, 0.14, ISL_X + px, y, pz);
   }
 }
 
@@ -1782,56 +2277,180 @@ function isleWindows(g, y, hw, zFront, zBack, n) {
  * water so the smoke goes away from the deck instead of lying on it. It is the
  * single most recognisable thing about either ship.
  */
+/**
+ * The plan of a funnel casing: a rectangle with its four corners rounded off.
+ *
+ * Which is what a Japanese uptake casing is, and what an ellipse is not. Drawn
+ * as an oval her funnel has no flats on it at all, so the stiffeners, the
+ * ladder and the platform all sit on a curve and it reads as a piece of pipe;
+ * drawn as a rectangle it reads as a box. It is a rounded rectangle: flat
+ * sided fore and aft, flat athwartships, and a quarter circle at each corner.
+ */
+function boxPlan(hw, hd, rad, arc = 4) {
+  const r = Math.min(rad, hw, hd);
+  const pts = [];
+  for (const [sx, sz] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) {
+    for (let i = 0; i <= arc; i++) {
+      // Each corner swept from the side round to the end, so the four run on
+      // into one another without a repeated point.
+      const a = (i / arc) * (Math.PI / 2);
+      const ca = sx * sz > 0 ? a : Math.PI / 2 - a;
+      pts.push([sx * (hw - r + r * Math.cos(ca)), sz * (hd - r + r * Math.sin(ca))]);
+    }
+  }
+  return pts;
+}
+
 function funnel(g) {
   const f = new THREE.Group();
-  f.position.set(ISL_X, FD + 0.6, ISL_Z - 15.5);
+  // Hung off the flight deck rather than off the top of the casing, and with
+  // its foot carried down inside the island: the casing, the trunking and the
+  // funnel are one piece of structure on Taiho, and a stack that begins at the
+  // deck line is a chimney standing on a shed.
+  f.position.set(ISL_X, FD + 0.2, ISL_Z - 15.2);
   f.rotation.z = S * -0.454;   // twenty-six degrees outboard
-  const H = 13.6;
-  // The casing, oval in section with the long axis fore and aft.
-  cyl(f, M.steel, 3.0, 3.5, H, 0, H / 2, 0, 20).scale.set(1, 1, 0.76);
-  // The grating cap over the mouth, and the rain hood round it.
-  cyl(f, M.gunDark, 3.6, 3.6, 0.32, 0, H + 0.16, 0, 20).scale.set(1, 1, 0.78);
-  for (let i = -3; i <= 3; i++) {
-    box(f, M.gunDark, 6.4, 0.18, 0.30, 0, H - 0.45, i * 0.62);
+  const FOOT = -5.2;
+  const H = 15.4;
+  // The casing: a rounded rectangle in plan, half again as long fore and aft
+  // as it is across, drawn in five layers so the taper is a curve and not a
+  // cone. Twelve Kampon boilers trunk into this one uptake, and it has to look
+  // as though they could.
+  const SEC = [
+    [FOOT, 3.78, 5.24, 1.48],
+    [0.0, 3.50, 4.90, 1.40],
+    [5.0, 3.20, 4.50, 1.32],
+    [10.4, 2.90, 4.12, 1.24],
+    [H, 2.66, 3.80, 1.18],
+  ];
+  const at = (y) => {
+    let i = 0;
+    while (i < SEC.length - 2 && y > SEC[i + 1][0]) i++;
+    const [y0, w0, d0, r0] = SEC[i];
+    const [y1, w1, d1, r1] = SEC[i + 1];
+    const u = clamp((y - y0) / (y1 - y0), 0, 1);
+    const e = ease(u);
+    return [w0 + (w1 - w0) * e, d0 + (d1 - d0) * e, r0 + (r1 - r0) * e];
+  };
+  const plan = (y, out = 0) => {
+    const [w, d, r] = at(y);
+    return boxPlan(w + out, d + out, r + out * 0.5);
+  };
+  const HS = [FOOT, -2.6, 0, 2.5, 5.0, 7.7, 10.4, 12.9, H];
+  loftShape(f, M.steel, HS.map((y) => ({ pts: plan(y), y })), { cap: false });
+  // The vertical strakes up its corners and its flats, which is the whole of
+  // what gives a funnel this size any scale at all. Each is a short stack of
+  // plates following the taper, so it lies on the casing the whole way up
+  // instead of standing off it at the top.
+  for (const [ux, uz] of [[1, 0.62], [-1, 0.62], [1, -0.62], [-1, -0.62],
+    [0, 1], [0, -1]]) {
+    const NB = 8;
+    const y0 = -1.4;
+    const y1 = H - 1.0;
+    for (let i = 0; i < NB; i++) {
+      const ya = y0 + (y1 - y0) * (i / NB);
+      const yb = y0 + (y1 - y0) * ((i + 1) / NB);
+      const [wa, da] = at(ya);
+      const [wb, db] = at(yb);
+      // Standing a hand's breadth proud of the plating, not let into it: a
+      // strake flush with the casing is a seam, and a seam at this range is
+      // nothing at all.
+      box(f, M.steelDark, ux ? 0.22 : 0.64, yb - ya, ux ? 0.64 : 0.22,
+        (ux * (wa + 0.04) + ux * (wb + 0.04)) / 2, (ya + yb) / 2,
+        (uz * (da + 0.04) + uz * (db + 0.04)) / 2);
+    }
   }
-  // The steam pipes and the siren bracket up its after face, and the two
-  // hoops that stiffen it.
-  cyl(f, M.steelDark, 0.28, 0.28, H * 0.92, 0, H * 0.46, -2.55, 8);
-  cyl(f, M.steelDark, 0.20, 0.20, H * 0.80, 0.9, H * 0.42, -2.45, 8);
-  cyl(f, M.gunDark, 0.34, 0.34, 0.70, 0, H * 0.94, -2.55, 10);
-  for (const h of [H * 0.34, H * 0.68]) {
-    cyl(f, M.steelDark, 3.3, 3.3, 0.20, 0, h, 0, 20).scale.set(1, 1, 0.78);
+  // The hoops that stiffen it, which is what a funnel of this size is banded
+  // with and what gives the eye something to measure its height against.
+  for (const y of [-1.0, 3.4, 8.0, 12.4]) {
+    loftShape(f, M.steelDark, [
+      { pts: plan(y, 0.16), y: y - 0.17 }, { pts: plan(y, 0.16), y: y + 0.17 },
+    ], { cap: false });
   }
+  // The coaming round the mouth: a raised rim standing proud of the casing,
+  // flared out over the rain lip below it, which is the shape of the funnel
+  // head on every drawing of Taiho.
+  const rim = plan(H, 0.30);
+  loftShape(f, M.gunDark, [
+    { pts: plan(H, 0.46), y: H - 1.05 }, { pts: rim, y: H - 0.62 },
+  ], { cap: false });
+  loftShape(f, M.gunDark, [
+    { pts: rim, y: H - 0.62 }, { pts: rim, y: H + 0.52 },
+  ], { cap: false });
+  // The mouth itself: a hole, with the uptake going down out of sight in it.
+  //
+  // A funnel used to be capped with a flat disc a good deal wider than the
+  // casing, which from anywhere above her reads as a lid. What is up there is
+  // an opening: the coaming round it, the dark of the uptake inside it, and
+  // the grating across the top that stops anything falling down the boilers.
+  const mouth = strip();
+  const lo = plan(H, -0.42);
+  const hi = plan(H, -0.14);
+  for (let i = 0; i < lo.length; i++) {
+    const j = (i + 1) % lo.length;
+    mouth.quad([lo[i][0], H - 3.0, lo[i][1]], [hi[i][0], H + 0.44, hi[i][1]],
+      [hi[j][0], H + 0.44, hi[j][1]], [lo[j][0], H - 3.0, lo[j][1]],
+      [-(lo[i][0] + lo[j][0]) / 2, 0, -(lo[i][1] + lo[j][1]) / 2]);
+  }
+  mouth.mesh(f, M.cave);
+  loftShape(f, M.cave, [
+    { pts: lo, y: H - 3.2 }, { pts: lo, y: H - 3.0 },
+  ], { cap: true, floor: false });
+  // The grating over it: bars both ways, each cut to the mouth at its own
+  // place on it.
+  //
+  // Run to the full breadth of the funnel every one of them, the bars near
+  // the ends stand a metre and a half out past a casing that has already
+  // rounded away under them -- which from the air is four dark fins on the
+  // funnel head and is what this looked like.
+  const [MWf, MDf, MRf] = at(H);
+  const MW = MWf - 0.28;
+  const MD = MDf - 0.28;
+  const MR = MRf - 0.10;
+  const across = (u) => (Math.abs(u) <= MD - MR ? MW
+    : (MW - MR) + Math.sqrt(Math.max(0, MR * MR - (Math.abs(u) - (MD - MR)) ** 2)));
+  const along = (u) => (Math.abs(u) <= MW - MR ? MD
+    : (MD - MR) + Math.sqrt(Math.max(0, MR * MR - (Math.abs(u) - (MW - MR)) ** 2)));
+  for (let i = -4; i <= 4; i++) {
+    const dz = i * 0.84;
+    box(f, M.gunDark, across(dz) * 2, 0.13, 0.20, 0, H + 0.22, dz);
+  }
+  for (let i = -2; i <= 2; i++) {
+    const dx = i * 1.10;
+    box(f, M.gunDark, 0.16, 0.13, along(dx) * 2, dx, H + 0.35, 0);
+  }
+  // The steam pipes up its after face and the siren on its bracket.
+  cyl(f, M.steelDark, 0.28, 0.28, H + 2.0, 0, (H - 2.0) / 2, -4.15, 8);
+  cyl(f, M.steelDark, 0.20, 0.20, H + 0.4, 0.95, (H - 3.4) / 2, -4.00, 8);
+  cyl(f, M.gunDark, 0.34, 0.34, 0.70, 0, H * 0.98, -4.15, 10);
   // The platform round the funnel at two-thirds of its height, which is where
   // the sweeps get at it, with its rail.
   const PL = H * 0.62;
-  cyl(f, M.steelDark, 4.05, 4.05, 0.22, 0, PL, 0, 20).scale.set(1, 1, 0.80);
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2;
-    cyl(f, M.steelDark, 0.045, 0.045, 0.9,
-      Math.sin(a) * 3.85, PL + 0.56, Math.cos(a) * 3.0, 5);
+  const deck = plan(PL, 1.00);
+  loftShape(f, M.steelDark, [
+    { pts: deck, y: PL - 0.11 }, { pts: deck, y: PL + 0.11 },
+  ], { cap: true, floor: true });
+  for (let i = 0; i < deck.length; i += 2) {
+    cyl(f, M.steelDark, 0.045, 0.045, 0.9, deck[i][0], PL + 0.66, deck[i][1], 5);
+  }
+  for (const h of [0.40, 0.72, 1.0]) {
+    for (let i = 0; i < deck.length; i++) {
+      const j = (i + 1) % deck.length;
+      const len = Math.hypot(deck[j][0] - deck[i][0], deck[j][1] - deck[i][1]);
+      const w = box(f, M.steelDark, 0.05, 0.05, len, (deck[i][0] + deck[j][0]) / 2,
+        PL + 0.22 + 0.9 * h, (deck[i][1] + deck[j][1]) / 2);
+      w.rotation.y = Math.atan2(deck[j][0] - deck[i][0], deck[j][1] - deck[i][1]);
+    }
   }
   // And a vertical ladder up its after face from the casing to that platform.
-  for (let i = 0; i < Math.round(PL / 0.34); i++) {
-    cyl(f, M.bright, 0.03, 0.03, 0.56, 0, 0.7 + i * 0.34, -2.95, 5)
+  const LZ = -(at(0)[1] + 0.08);
+  for (let i = 0; i < Math.round((PL - 0.7) / 0.34); i++) {
+    cyl(f, M.bright, 0.03, 0.03, 0.56, 0, 0.7 + i * 0.34, LZ, 5)
       .rotation.z = Math.PI / 2;
   }
   for (const dx of [-0.28, 0.28]) {
-    box(f, M.bright, 0.07, PL - 0.4, 0.07, dx, PL / 2 + 0.5, -2.95);
+    box(f, M.bright, 0.07, PL - 0.4, 0.07, dx, PL / 2 + 0.5, LZ);
   }
   g.add(f);
-  // The fairing between the funnel and the island, which is what makes the two
-  // of them one structure rather than a chimney standing beside a bridge.
-  //
-  // Carried up to the height of the bridge levels rather than stopping at the
-  // casing: on Taiho and on Shinano the uptakes are trunked into the back of
-  // the island and the funnel grows out of it, and a fairing that dies away at
-  // deck level leaves a chimney standing in a gap behind a tower.
-  loftShape(g, M.steel, [
-    { pts: islePlan(3.9, ISL_Z - 8.0, ISL_Z - 19.0, 2.6, 2.2), y: FD + 0.8 },
-    { pts: islePlan(3.5, ISL_Z - 8.6, ISL_Z - 18.6, 2.4, 2.1), y: FD + 7.4 },
-    { pts: islePlan(3.0, ISL_Z - 9.2, ISL_Z - 17.6, 2.1, 1.9), y: FD + 10.6 },
-  ], { cap: true });
 }
 
 /**
@@ -1881,17 +2500,56 @@ function isleFittings(g) {
     if (mountKind(spec) !== 'island') continue;
     isleTub(g, spec.x, spec.z, 2.15);
   }
-  // Two 110 cm searchlights on brackets off the funnel casing.
-  for (const dz of [-8.0, -12.4]) {
-    searchlight(g, M, x + 4.2, FD + 7.4, z + dz, 0.78);
-    box(g, M.steelDark, 2.0, 0.18, 1.6, x + 3.4, FD + 6.6, z + dz);
+  // Two 110 cm searchlights on platforms bracketed off the uptake casing,
+  // standing out over the water.
+  //
+  // They were on the inboard side of it, which is the side the flight deck is
+  // on: a searchlight there looks along her own runway and is half buried in
+  // her own bridge. A carrier puts them outboard, where there is sea to point
+  // them at.
+  for (const dz of [-8.4, -13.0]) {
+    const px = x + S * 4.4;
+    const pad = [
+      [px - 1.5, z + dz + 1.6], [px + 1.5, z + dz + 1.6],
+      [px + 1.5, z + dz - 1.6], [px - 1.5, z + dz - 1.6],
+    ];
+    loftShape(g, M.steelDark, [
+      { pts: pad, y: FD + 6.5 }, { pts: pad, y: FD + 6.72 },
+    ], { cap: true, floor: true });
+    planRail(g, M.steelDark, pad, FD + 6.72, 0.95);
+    searchlight(g, M, px, FD + 6.8, z + dz, 0.78);
+    for (const d of [-1.1, 1.1]) {
+      const knee = box(g, M.steelDark, 2.2, 0.85, 0.22, x + S * 3.0, FD + 5.7, z + dz + d);
+      knee.rotation.z = -S * 0.5;
+    }
+  }
+  // The flag deck: halyard cleats and the two signal yards on the inboard
+  // side, where the bunting is worked from.
+  for (let i = 0; i < 6; i++) {
+    box(g, M.steelDark, 0.24, 0.5, 0.18, x + ISLE[0].hw + ISLE[0].lip - 0.2,
+      FD + ISLE[0].y + ISLE[0].h + 0.5, z - 4.0 + i * 1.5);
+  }
+  // Louvred vents down the after face of the island, which every deckhouse on
+  // a Japanese ship carries and which is most of what breaks the plating up.
+  for (const [dy, dz] of [[3.2, -11.6], [6.5, -10.9], [9.8, -10.2]]) {
+    for (const sgn of [-1, 1]) {
+      box(g, M.steelDark, 1.1, 1.3, 0.12, x + sgn * 1.9, FD + dy, dz + z);
+      for (let k = -2; k <= 2; k++) {
+        box(g, M.cave, 0.95, 0.11, 0.06, x + sgn * 1.9, FD + dy + k * 0.24,
+          dz + z - 0.07);
+      }
+    }
   }
   // Ladders up the inboard face of the island, level to level, which is how a
   // man gets from the flight deck to the bridge.
-  for (let i = 0; i < 4; i++) {
-    const y0 = FD + 0.8 + i * 3.2;
-    ladder(g, M.steelDark, x + 3.9, y0, y0 + 3.2, z - 9.6, z - 10.9);
+  for (const lv of ISLE) {
+    ladder(g, M.steelDark, x + lv.hw + 0.06, FD + lv.y, FD + lv.y + lv.h,
+      z - 9.6 - (4.10 - lv.hw), z - 10.9 - (4.10 - lv.hw));
   }
+  // And the last flight, from the compass platform up on to the air defence
+  // platform over it.
+  ladder(g, M.steelDark, x + ISLE[2].hw + 0.06, FD + ISLE[2].y + ISLE[2].h,
+    FD + ISLE[2].y + ISLE[2].h + 3.0, z - 5.6, z - 6.9);
   // And the vertical ladder up her outboard face, from the deck to the air
   // defence platform: the one a lookout goes up when there is no time to walk
   // round to the other side of the island.
@@ -1901,7 +2559,8 @@ function isleFittings(g) {
   });
   // The signal yards and the flag lockers on the flag deck.
   for (const dz of [z + 6.6, z + 4.0]) {
-    box(g, M.steelDark, 1.2, 0.9, 1.0, x + 3.2, FD + 4.9, dz);
+    box(g, M.steelDark, 1.2, 0.9, 1.0, x + ISLE[0].hw - 0.7,
+      FD + ISLE[0].y + ISLE[0].h + 0.9, dz);
   }
   // Her ensign staff and the jack on the island top.
   cyl(g, M.steelDark, 0.09, 0.11, 3.2, x + 2.6, FD + 11.8, z + 6.0, 8);
@@ -1935,7 +2594,10 @@ function inSponson(z) {
 
 function galleries(g) {
   const y = GALLERY;
-  const inner = (z) => sideTop(z) + 0.1;
+  // Against her plating at the height the walkway is actually at, not at the
+  // head of the side three metres above it: a catwalk laid to the head hangs a
+  // metre off her hull for the length of the ship.
+  const inner = (z) => sideAt(z, GALLERY) + 0.1;
   const outer = (z) => fdHalf(z) - 0.15;
   const z0 = FD_AFT + 22;
   const z1 = FD_FWD - 22;
@@ -1958,7 +2620,7 @@ function galleries(g) {
   // The knees that carry it off the ship's side.
   for (let z = z0 + 2; z < z1; z += 4.8) {
     for (const sgn of [-1, 1]) {
-      const br = box(g, M.steelDark, 2.0, 0.85, 0.22, sgn * (sideTop(z) + 0.95),
+      const br = box(g, M.steelDark, 2.0, 0.85, 0.22, sgn * (sideAt(z, GALLERY) + 0.95),
         y - 0.62, z);
       br.rotation.z = sgn * 0.42;
     }
@@ -1986,12 +2648,12 @@ function galleries(g) {
     }
   }
 
-  // The sponsons the 12.7 cm twins stand in: two at each corner, carried out
-  // from her side far enough that the shields clear the deck edge.
+  // The sponsons the 12.7 cm twins stand in: two at each corner, let into the
+  // recesses cut for them in her side.
   for (const spec of CLS.turrets) {
     const sgn = Math.sign(spec.x);
     const fy = TURRET_Y;
-    sponson(g, spec.x, spec.z, 3.6, fy, 0.85);
+    sponson(g, spec.x, spec.z, TUBS.turret.r, fy, TUBS.turret.wall);
     // The ready-use lockers round the back of it, where the loaders' hands
     // fall: a Type 89 is hand-loaded and it eats fourteen rounds a minute.
     for (const dz of [-2.4, 2.4]) {
@@ -2005,17 +2667,17 @@ function galleries(g) {
   // shows -- a continuous run of them in the shadow of the overhang.
   for (const spec of CLS.aa.guns[0].mounts) {
     if (mountKind(spec) !== 'edge') continue;
-    sponson(g, spec.x, spec.z, 2.30, AA_Y, 0.80);
+    sponson(g, spec.x, spec.z, TUBS.aa.r, AA_Y, TUBS.aa.wall);
   }
   for (const spec of CLS.aa.guns[1].mounts) {
     if (mountKind(spec) !== 'edge') continue;
-    sponson(g, spec.x, spec.z, 2.45, ROCKET_Y, 0.92);
+    sponson(g, spec.x, spec.z, TUBS.rocket.r, ROCKET_Y, TUBS.rocket.wall);
   }
 }
 
 /**
- * The plan of a sponson: a circle of radius `r` about (cx, z), cut off flat
- * wherever it would go inboard of the ship's side at `xin`.
+ * The plan of a sponson: a circle of radius `r` about (cx, z), carried back on
+ * to the ship's side at `xin` however far off it the gun happens to stand.
  *
  * This is the whole of what makes a sponson a sponson rather than a drum hung
  * on the ship. A gun tub at a carrier's deck edge is a piece of platform
@@ -2025,64 +2687,95 @@ function galleries(g) {
  * row of plating bulges standing in the middle of her own side, and from
  * inside a compartment the tub is a disc through the wall.
  *
- * Cut here instead. If the circle clears the plating on its own, it comes back
- * whole; if it does not, what comes back is the outboard arc, and the chord
- * that closes it lies along the ship's side.
+ * And drawn as a full circle that never reaches the hull at all -- which is
+ * what every one of them was, because a gun laid out at the flight deck's
+ * half-breadth stands two to five metres outboard of plating that is drawn to
+ * the hull's -- it is a bare drum floating alongside her with daylight all
+ * round it and two thin struts in the air under it. That is the one thing
+ * about her the eye goes to first.
+ *
+ * So there are two cases and both of them end on the plating. If the circle
+ * cuts the side, what comes back is the outboard arc and the chord that closes
+ * it lies along the ship. If it clears the side entirely, what comes back is
+ * the arc and a throat: two runs of plating from the back of the tub to the
+ * side, which is how a platform carried out on brackets is actually plated in.
  */
 function sponsonPlan(cx, z, r, xin, n = 16) {
   const sgn = Math.sign(cx) || 1;
   const out = Math.abs(cx);
-  const d = out - Math.abs(xin);
+  const inb = Math.abs(xin);
+  const d = out - inb;
   const pts = [];
-  if (d >= r - 0.05) {
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      pts.push([sgn * (out + Math.cos(a) * r), z + Math.sin(a) * r]);
-    }
-    return pts;
-  }
-  const A = Math.acos(clamp(-d / r, -1, 1));
+  // How far round the tub the plating runs before it turns for the ship. A
+  // tub that cuts the side is closed on the chord; one that stands clear of it
+  // keeps a little better than three-quarters of its circle and necks in.
+  const A = d >= r * 0.92 ? Math.PI * 0.80 : Math.acos(clamp(-d / r, -1, 1));
   for (let i = 0; i <= n; i++) {
     const a = -A + (2 * A * i) / n;
     pts.push([sgn * (out + Math.cos(a) * r), z + Math.sin(a) * r]);
   }
-  return pts;
+  if (d < r * 0.92) return pts;
+  // The throat. One point half way in, so the run from the tub to the side is
+  // a curve rather than a straight taper, and one on the plating itself.
+  const tail = Math.sin(A) * r;
+  for (const k of [1, -1]) {
+    pts.push([sgn * (inb + d * 0.42), z + k * tail * 0.74]);
+    pts.push([sgn * inb, z + k * tail * 0.40]);
+  }
+  // Wound as one loop: up the starboard side of the throat, round the arc, and
+  // back down the port side of it.
+  return [pts[pts.length - 1], pts[pts.length - 2],
+    ...pts.slice(0, n + 1), pts[n + 1], pts[n + 2]];
 }
 
 /**
  * One sponson, built: the floor, the splinter plating round its outboard edge,
- * and the knees that carry it off her side.
+ * the plated haunch under it and the knees that carry it off her side.
  *
  * `fy` is the floor the gun stands on, so the floor a gun is put on and the
  * floor the model draws are the same number.
  */
 function sponson(g, cx, z, r, fy, wall, m = M.steel) {
   const sgn = Math.sign(cx) || 1;
-  // Tucked a hand's breadth into the plating rather than flush with it: two
-  // surfaces at the same place fight for the depth buffer and the sponson
-  // shows through her side in patches.
-  const xin = sgn * (sideTop(z) - 0.15);
+  // Cut against the plating at the height of the gun floor, not at the head of
+  // the side three metres above it, and tucked a hand's breadth into it rather
+  // than flush: two surfaces at the same place fight for the depth buffer and
+  // the sponson shows through her side in patches.
+  const skin = sideAt(z, fy);
+  const xin = sgn * (skin - 0.15);
   const plan = sponsonPlan(cx, z, r, xin);
   // The floor, as a slab with a top and a bottom.
   loftShape(g, M.steelDark, [
     { pts: plan, y: fy - 0.26 },
     { pts: plan, y: fy },
   ], { cap: true, floor: true });
+  // The haunch under it: the floor drawn in to the ship's side as it falls, so
+  // the platform stands on plating that goes somewhere instead of on air. It
+  // is what is under every sponson on every carrier ever built, and it is what
+  // was missing.
+  const haunch = plan.map(([px, pz]) => [
+    sgn * (skin + (Math.abs(px) - skin) * 0.30), z + (pz - z) * 0.62,
+  ]);
+  loftShape(g, M.steelDark, [
+    { pts: haunch, y: fy - 1.75 },
+    { pts: plan, y: fy - 0.26 },
+  ], { cap: false });
   // The splinter plating round it, flaring a little as it rises the way a
   // plated tub does.
   const lip = plan.map(([px, pz]) => [
-    px + (px - sgn * sideTop(z)) * 0.05, z + (pz - z) * 1.05,
+    px + (px - sgn * skin) * 0.05, z + (pz - z) * 1.05,
   ]);
   loftShape(g, m, [
     { pts: plan, y: fy },
     { pts: lip, y: fy + wall },
   ], { cap: false });
-  // The knees under it, and the ready-use locker on the after side of the rim.
-  for (const dz of [-r * 0.62, r * 0.62]) {
-    const knee = box(g, M.steelDark, r * 1.5, 0.95, 0.26,
-      sgn * (Math.abs(cx) - r * 0.35), fy - 1.1, z + dz);
-    knee.rotation.z = sgn * 0.5;
-  }
+  // The ready-use locker against the inboard side of the rim, where the
+  // loading numbers' hands fall.
+  //
+  // And no knees. They were two boxes rotated half a radian and set under the
+  // floor, which is what you hang a platform on when there is nothing else
+  // under it -- and with the haunch there they are two slabs standing out of
+  // her plating below every gun on the ship.
   box(g, M.steelDark, 0.5, 0.55, 1.2, sgn * (Math.abs(cx) - r + 0.45), fy + 0.45, z);
   return plan;
 }
@@ -2169,25 +2862,111 @@ function groundTackle(g) {
   // The bullring on the stem, and the chrysanthemum crest above it, which
   // every ship of the Imperial Navy carries and which was gilded even on a
   // ship completed in the last year of the war.
-  const crestY = sheer(1) - 2.6;
+  const crestY = sheer(1) - 3.5;
   const sz = F.zAt(1, crestY);
   cyl(g, M.gunDark, 0.70, 0.70, 0.5, 0, sheer(1) - 1.0, F.zAt(1, sheer(1) - 1.0) - 0.45, 12)
     .rotation.x = Math.PI / 2;
-  // The chrysanthemum itself: sixteen petals round a boss, set flush on the
-  // stem a couple of metres under the forecastle deck edge, and gilded even on
-  // a ship completed in the last year of the war.
-  cyl(g, mat(P.chrys), 0.62, 0.62, 0.20, 0, crestY, sz - 0.18, 20)
-    .rotation.x = Math.PI / 2;
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const petal = box(g, mat(P.chrys), 0.30, 0.82, 0.14,
-      Math.sin(a) * 0.62, crestY + Math.cos(a) * 0.62, sz - 0.16);
-    petal.rotation.z = a;
-  }
+  chrysanthemum(g, crestY, 0.92);
   // The jackstaff right forward and the ensign staff right aft.
   cyl(g, M.steelDark, 0.11, 0.15, 4.4, 0, sheer(1) + 2.2, sz - 3.0, 8);
   const st = F.zAt(-1, sheer(-1));
   cyl(g, M.steelDark, 0.14, 0.19, 5.2, 0, sheer(-1) + 2.6, st + 2.0, 8);
+}
+
+/**
+ * The chrysanthemum: the imperial crest on her stem.
+ *
+ * Sixteen petals round a boss, gilded, and on a Yamato hull the best part of
+ * two metres across. It is the one piece of colour on the whole ship and the
+ * eye goes straight to it, so it is the one piece that cannot be approximated.
+ *
+ * It was sixteen boxes. A box is a slab with a thickness in every axis, and
+ * the eight of them that lay across the ship stood a good half-metre out
+ * through both sides of a stem that is a metre wide there -- so what showed
+ * from ahead was not a crest at all but two gold flaps, one on either bow,
+ * with nothing between them.
+ *
+ * Built here as what it is: a single shallow dish with a star cut round its
+ * rim, raised to a boss in the middle, lying on the stem and canted with it so
+ * its face looks the way the stem looks. Nothing of it stands out sideways
+ * because it has no sideways -- it is a disc, and a disc seen edge-on from
+ * abeam is a line.
+ */
+function chrysanthemum(g, y0, r) {
+  // Where her shell is, at a breadth and a height, forward of amidships.
+  //
+  // The crest is a casting bolted to the stem, and the stem at this height is
+  // a flat a metre and a half across that falls away fast on either side of
+  // it. Set a flat disc on that and its rim goes into the plating; set it
+  // clear of the plating and it floats. So every point of it is laid on the
+  // shell where that point actually is, and the crest curves round the bow
+  // with the stem the way the casting did.
+  //
+  // Taken off the stem profile with a fair falloff to either side of it rather
+  // than off the plating itself: the shell there is strakes and seams, and a
+  // crest laid on the plating point by point catches on every one of them.
+  const shellZ = (x, y) => F.zAt(1, y) - 0.17 * x * x;
+  const PETALS = 16;
+  const N = PETALS * 2;
+  const pos = [];
+  const idx = [];
+  const put = (x, y, relief) => {
+    pos.push(x, y, shellZ(x, y) + relief);
+    return pos.length / 3 - 1;
+  };
+  // The rim: a petal tip and a valley between every pair of them, the tips
+  // standing a little proud of the valleys beside them, which is what gives
+  // the crest its relief in a flat light.
+  const rim = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const rr = i % 2 === 0 ? r : r * 0.70;
+    rim.push(put(Math.sin(a) * rr, y0 + Math.cos(a) * rr, i % 2 === 0 ? 0.24 : 0.16));
+  }
+  // The inner ring the petals spring from, and the boss they spring round.
+  const inner = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    inner.push(put(Math.sin(a) * r * 0.34, y0 + Math.cos(a) * r * 0.34, 0.38));
+  }
+  const hub = put(0, y0, 0.44);
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    idx.push(rim[i], inner[i], inner[j], rim[i], inner[j], rim[j]);
+    idx.push(hub, inner[j], inner[i]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, mat(P.chrys)));
+  // The pad it is bolted to: a plate of the same shape a size larger, laid on
+  // the plating under it, so the crest has a landing and not a shadow.
+  const pp = [];
+  const pi = [];
+  const lay = (x, y, relief) => {
+    pp.push(x, y, shellZ(x, y) + relief);
+    return pp.length / 3 - 1;
+  };
+  const ring = [];
+  const skirt = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const rr = (i % 2 === 0 ? r : r * 0.70) * 1.12;
+    ring.push(lay(Math.sin(a) * rr, y0 + Math.cos(a) * rr, 0.13));
+    skirt.push(lay(Math.sin(a) * rr, y0 + Math.cos(a) * rr, 0.01));
+  }
+  const pHub = lay(0, y0, 0.15);
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    pi.push(pHub, ring[i], ring[j]);
+    pi.push(ring[i], skirt[i], skirt[j], ring[i], skirt[j], ring[j]);
+  }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(pp, 3));
+  pg.setIndex(pi);
+  pg.computeVertexNormals();
+  g.add(new THREE.Mesh(pg, M.steelDark));
 }
 
 /**
@@ -2207,7 +2986,7 @@ function cranes(g) {
   // is ever left there. It lives on the gallery under the deck edge, which is
   // where the photographs of her put it.
   const bc = new THREE.Group();
-  bc.position.set(sideTop(94) + 0.6, GALLERY, 94);
+  bc.position.set(sideAt(94, GALLERY) + 0.6, GALLERY, 94);
   bc.rotation.y = Math.PI;
   cyl(bc, M.steel, 1.0, 1.15, 4.0, 0, 2.0, 0, 12);
   for (let i = 0; i < 4; i++) {
@@ -2239,7 +3018,7 @@ function cranes(g) {
 
   // The boat crane on the port quarter, standing on the gallery.
   const cr = new THREE.Group();
-  cr.position.set(sideTop(-104) + 0.9, GALLERY, -104);
+  cr.position.set(sideAt(-104, GALLERY) + 0.9, GALLERY, -104);
   cyl(cr, M.steel, 0.85, 1.0, 3.6, 0, 1.8, 0, 12);
   const jib = new THREE.Group();
   jib.position.set(0, 3.6, 0);
@@ -2251,27 +3030,40 @@ function cranes(g) {
 }
 
 /**
- * Her boats, on a platform between the ship's side and the gallery.
+ * Her boats, ranged on the quarterdeck under the after end of the flight deck.
  *
  * A carrier carries a great many of them -- she is a floating supply base with
  * two and a half thousand men aboard -- and they live in the one place on her
- * that is out of the way of everything, which is under the flight deck aft.
+ * that is out of the way of everything.
+ *
+ * Which is not where they were. They were on a platform hung a metre and a
+ * fifth inboard of the gallery, and the gallery on this ship runs in the
+ * overhang between the plating and the deck edge -- so the platform, its
+ * chocks, its davits and three eleven-metre launches a side were all inside
+ * the hull, showing through her own gun sponsons whenever the light was
+ * behind them. Aft of the hangar she has an open weather deck with six metres
+ * of headroom under the flight deck and nothing on it at all, which is where
+ * a boat deck goes and where her own boat crane already stands.
  */
 function boats(g) {
+  const deck = (z) => sheer(clamp(z / (LOA / 2), -1, 1));
   for (const sgn of [-1, 1]) {
-    const x = sgn * (sideTop(-20) - 1.2);
-    box(g, M.steelDark, 4.6, 0.26, 30, x, GALLERY - 1.9, -20);
-    for (const z of [-33, -20, -7]) {
-      box(g, M.steelDark, 3.6, 1.3, 0.65, x, GALLERY - 2.7, z);
+    for (const [z, len, off] of [[-96, 11, 7.2], [-96, 9, 1.9],
+      [-108, 10, 6.0], [-108, 8, 1.6]]) {
+      const x = sgn * off;
+      const y = deck(z) + 0.55;
+      // The chocks she sits on, which is what keeps a boat out of the wet.
+      for (const dz of [-len * 0.3, len * 0.3]) {
+        box(g, M.steelDark, len * 0.26, 0.55, 0.5, x, deck(z) + 0.28, z + dz);
+      }
+      boat(g, M, x, y, z, len);
     }
-    boat(g, M, x, GALLERY - 1.7, -8, 11);
-    boat(g, M, x, GALLERY - 1.7, -21, 10);
-    boat(g, M, x, GALLERY - 1.7, -31, 8);
-    // The davits over them.
-    for (const z of [-8, -21, -31]) {
-      const d = cyl(g, M.steelDark, 0.16, 0.20, 3.4, x - sgn * 1.9,
-        GALLERY - 0.4, z, 8);
-      d.rotation.z = -sgn * 0.3;
+    // The davits over them, swung inboard and stowed.
+    for (const z of [-96, -108]) {
+      const w = F.shellAt(clamp(z / (LOA / 2), -1, 1), deck(z)) - 1.4;
+      const d = cyl(g, M.steelDark, 0.17, 0.22, 4.0, sgn * w, deck(z) + 2.0, z, 8);
+      d.rotation.z = sgn * 0.26;
+      box(g, M.steelDark, 2.4, 0.18, 0.22, sgn * (w - 1.0), deck(z) + 3.9, z);
     }
   }
   // Carley floats stowed flat against the hangar side on their own rails,
@@ -2280,7 +3072,7 @@ function boats(g) {
   for (const sgn of [-1, 1]) {
     for (let z = -70; z < 62; z += 11) {
       if (inSponson(z)) continue;
-      const x = sgn * (sideTop(z) + 0.34);
+      const x = sgn * (sideAt(z, GALLERY + 1.45) + 0.34);
       const r = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.20, 5, 14), M.canvas);
       r.position.set(x, GALLERY + 1.45, z);
       r.rotation.y = Math.PI / 2;
@@ -2288,7 +3080,7 @@ function boats(g) {
       g.add(r);
       // The rails it is triced to, and the slip that lets it go over the side.
       for (const dy of [-1.0, 1.0]) {
-        box(g, M.steelDark, 0.42, 0.10, 2.5, sgn * (sideTop(z) + 0.12),
+        box(g, M.steelDark, 0.42, 0.10, 2.5, sgn * (sideAt(z, GALLERY + 1.45) + 0.12),
           GALLERY + 1.45 + dy * 0.8, z);
       }
     }
@@ -2354,14 +3146,15 @@ function ventilation(g) {
   for (let z = -96; z < 100; z += 9) {
     if (inSponson(z)) continue;
     for (const sgn of [-1, 1]) {
-      cowl(g, M, sgn * (sideTop(z) - 0.5), GALLERY + 0.35, z, 0.34, 1.5);
+      cowl(g, M, sgn * (sideAt(z, GALLERY) - 0.5), GALLERY + 0.35, z, 0.34, 1.5);
     }
   }
   // The big intake trunks either side of the after lift.
   for (const sgn of [-1, 1]) {
     for (const z of [-50, -74]) {
-      box(g, M.steel, 1.6, 2.6, 3.2, sgn * (sideTop(z) - 1.0), GALLERY + 1.9, z);
-      box(g, M.cave, 1.2, 1.4, 0.1, sgn * (sideTop(z) - 1.0), GALLERY + 2.4, z + 1.65);
+      const w = sideAt(z, GALLERY + 1.9);
+      box(g, M.steel, 1.6, 2.6, 3.2, sgn * (w - 1.0), GALLERY + 1.9, z);
+      box(g, M.cave, 1.2, 1.4, 0.1, sgn * (w - 1.0), GALLERY + 2.4, z + 1.65);
     }
   }
 }
@@ -2501,7 +3294,7 @@ function armour(g) {
 const LIFT_DROP = FD - HANGAR - 0.6;
 const ROLL = 9.0;
 /** Where she picks up a wire: a little way up the deck from the round-down. */
-function landZ() { return FD_AFT + 26; }
+function landZ() { return FD_AFT + RD_AFT + 5; }
 
 /** The aircraft that flies when she launches, and where it waits. */
 function deckAircraft(g) {

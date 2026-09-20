@@ -178,7 +178,9 @@ export function cap(g, f, strakes, t, facing) {
  * Her whole shell, in three strakes: antifouling below the waterline, the boot
  * topping at it, and painted freeboard above -- closed at both ends.
  */
-export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55, bands = 1 } = {}) {
+export function plateHull(g, f, M, {
+  bootLo = -2.2, bootHi = 0.55, bands = 1, upper = 1,
+} = {}) {
   // How many strakes the bottom is plated in, between the keel and the boot
   // topping. One is a single band from the keel to the waterline, and a single
   // band is a flat sheet: however round the offsets say the bilge is, the
@@ -193,6 +195,23 @@ export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55, bands = 1 } =
   // ends instead of running out through it.
   const cuts = [];
   for (let i = bands - 1; i >= 1; i--) cuts.push(i / bands);
+  // And how many she is plated in above the boot topping.
+  //
+  // The same argument the second time, and it matters more, because above the
+  // water is the part anybody looks at. A hull's section between the waterline
+  // and the deck edge is a curve -- the flare opens as it rises forward, the
+  // tumblehome leans in amidships -- and drawn as one band it is a straight
+  // line between those two heights. Fifteen metres of freeboard as a single
+  // straight sheet is what makes a lofted bow read as a slab with a point on
+  // it: all the curve that is in the offsets is thrown away between the boot
+  // topping and the sheer.
+  //
+  // The cuts are taken as fractions of the freeboard at each station rather
+  // than as heights, so every seam runs parallel to the sheer the whole length
+  // of her instead of climbing out through the deck edge forward.
+  const ups = [];
+  for (let i = 1; i < upper; i++) ups.push(i / upper);
+  const upAt = (t, frac) => bootHi + (f.sheer(t) - bootHi) * frac;
   const strakes = (t) => {
     const kb = f.keelY(t);
     const out = [];
@@ -204,7 +223,13 @@ export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55, bands = 1 } =
     }
     out.push([lo, Math.max(lo, bootLo), M.antifoul]);
     out.push([Math.max(kb, bootLo), Math.max(kb, bootHi), M.boot]);
-    out.push([Math.max(kb, bootHi), f.sheer(t), M.hull]);
+    let up = Math.max(kb, bootHi);
+    for (const frac of ups) {
+      const hi = Math.max(up, upAt(t, frac));
+      out.push([up, hi, M.hull]);
+      up = hi;
+    }
+    out.push([up, Math.max(up, f.sheer(t)), M.hull]);
     return out;
   };
   let lo = (t) => f.keelY(t) - 0.02;
@@ -215,7 +240,13 @@ export function plateHull(g, f, M, { bootLo = -2.2, bootHi = 0.55, bands = 1 } =
   }
   loftBand(g, M.antifoul, f, lo, bootLo);
   loftBand(g, M.boot, f, bootLo, bootHi);
-  loftBand(g, M.hull, f, bootHi, (t) => f.sheer(t));
+  let up = (t) => Math.max(f.keelY(t), bootHi);
+  for (const frac of ups) {
+    const hi = (t) => upAt(t, frac);
+    loftBand(g, M.hull, f, up, hi);
+    up = hi;
+  }
+  loftBand(g, M.hull, f, up, (t) => f.sheer(t));
   cap(g, f, strakes, -1, -1);
   cap(g, f, strakes, 1, 1);
 }
