@@ -1,0 +1,59 @@
+<!doctype html>
+<!--
+  The yard: one ship on a patch of sea, photographed from wherever you put the
+  camera.
+
+  build/shot.html turns a ship on a turntable, which is the right tool for
+  looking at the whole of her and the wrong one for looking at a particular
+  fitting on her: there is no way to say "stand here and look at that". This
+  takes the camera's own position and the point it is aimed at, in metres in
+  the ship's frame, so a hangar bay or a funnel cap can be framed directly.
+
+    yard.html?ship=enterprise&x=78&y=11&z=30&tx=0&ty=10.5&tz=30&fov=30&t=3
+
+  `t` is the deck cycle's clock, for catching a lift on its way down.
+-->
+<html><head><meta charset="utf-8"><title>yard</title>
+<style>html,body{margin:0;background:#8fadc2;overflow:hidden}canvas{display:block}</style>
+</head><body>
+<script type="module">
+import * as THREE from '../vendor/three.module.js';
+import { buildShip } from '../client/js/render/ships.js';
+
+const q = new URLSearchParams(location.search);
+const id = q.get('ship') || 'enterprise';
+const W = +(q.get('w') || 1600);
+const H = +(q.get('h') || 900);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fadc2);
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.9);
+sun.position.set(0.4, 0.75, -0.5).multiplyScalar(3000);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xa8cee6, 0x2c5a72, 1.0));
+
+const built = buildShip(id);
+scene.add(built.group);
+if (built.group.userData.step) built.group.userData.step(+(q.get('t') || 3));
+built.group.updateMatrixWorld(true);
+
+// A patch of sea, so the waterline reads.
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000),
+  new THREE.MeshLambertMaterial({ color: 0x2a6c90 }));
+sea.rotation.x = -Math.PI / 2;
+sea.position.y = 0;
+scene.add(sea);
+
+const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 32), W / H, 0.5, 20000);
+const px = +(q.get('x') || 0), py = +(q.get('y') || 60), pz = +(q.get('z') || 420);
+const tx = +(q.get('tx') || 0), ty = +(q.get('ty') || 14), tz = +(q.get('tz') || 0);
+cam.position.set(px, py, pz);
+cam.lookAt(tx, ty, tz);
+renderer.render(scene, cam);
+window.__ready = true;
+</script>
+</body></html>
