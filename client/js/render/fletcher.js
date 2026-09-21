@@ -33,7 +33,7 @@ import {
 export const LOA = 114.7;
 export const BEAM = 12.1;
 export const DRAFT = 5.4;
-/** Starboard, in this frame. The whaleboat and the ladder go on this side. */
+/** Starboard, in this frame. The accommodation ladder goes on this side. */
 const S = -1;
 
 // Measure 21 -- navy blue overall -- which is what the Pacific destroyers wore
@@ -165,8 +165,13 @@ const TUBES_F = -3.0;
 const FUNNEL_A = -11.2;
 const CASING_A = [-15.0, -7.4];        // the after fire room casing
 const TUBES_A = -19.0;
-const HOUSE_A = [-26.0, -34.5];        // after deckhouse, mount 53 on it
-const HOUSE_B = [-35.5, -42.0];        // and the raised one, mount 54 on it
+// The after deckhouse. One structure in two steps -- the lower part with mount
+// 53 on it and the raised part with 54 -- and the two share a bulkhead at
+// z = -35. They used to stand a metre apart, which left a slot straight down
+// to the deck between the two after mounts that you could see daylight through
+// from abeam.
+const HOUSE_A = [-26.0, -35.0];        // after deckhouse, mount 53 on it
+const HOUSE_B = [-35.0, -42.0];        // and the raised one, mount 54 on it
 const HOUSE_A_W = 7.2;                 // wide enough for a pair of Bofors
 const HOUSE_B_W = 6.2;
 
@@ -263,6 +268,41 @@ function strakes(t) {
     [up(BOOT_HI), up(sheer(t) - 0.75), M.hull],
     [up(sheer(t) - 0.75), sheer(t), M.hullDark],
   ];
+}
+
+/**
+ * The camber closure at an end of her.
+ *
+ * Her deck is crowned -- a quarter of a metre higher on the centreline than at
+ * the deck edge, so water runs off it -- and the end caps below are lofted to
+ * the sheer line, which is the deck EDGE. Between the top of the transom plate
+ * and the underside of the deck there was therefore a crescent of nothing, the
+ * whole width of her and 0.26 m tall amidships, and from astern you looked
+ * straight through it into the ship. This is the plate that closes it.
+ */
+function capCamber(g, t, out) {
+  const sh = sheer(t);
+  const w = Math.max(0.05, shellAt(t, sh));
+  const z = zAt(t, sh);
+  const N = 14;
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i <= N; i++) {
+    const u = -1 + (2 * i) / N;
+    pos.push(u * w, sh, z);
+    pos.push(u * w, sh + (1 - u * u) * 0.26, z);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    const b = a + 2;
+    if (out > 0) idx.push(a, b, a + 1, a + 1, b, b + 1);
+    else idx.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  g.add(new THREE.Mesh(geo, M.hullDark));
 }
 
 /** Close an end of the shell, painted in the same strakes. */
@@ -516,6 +556,8 @@ function buildHull(g) {
   for (const [lo, hi, m] of strakeBands()) loftBand(g, m, lo, hi);
   capEnd(g, 1, 1);
   capEnd(g, -1, -1);
+  capCamber(g, 1, 1);
+  capCamber(g, -1, -1);
   weatherDeck(g);
   underwater(g);
   stemAndTransom(g);
@@ -528,6 +570,24 @@ function buildHull(g) {
 function deckAt(z) {
   const t = Math.max(-1, Math.min(1, (z / (LOA / 2))));
   return sheer(t) + 0.26;
+}
+
+/**
+ * The height of the deck under a point on it, camber and all.
+ *
+ * `deckAt` above is the crown -- the centreline, which is where a gun mounting
+ * stands and what her datasheet is written to. Everything off the centreline
+ * sits lower than that, by the full quarter-metre of camber out at the deck
+ * edge, so a locker or a depth charge thrower placed on `deckAt` out by the
+ * rail stands a hand's breadth clear of the plating it is supposed to be
+ * bolted to. On a cambered deck that is most of what "floating" looks like.
+ */
+function deckAtX(x, z) {
+  const t = Math.max(-1, Math.min(1, z / (LOA / 2)));
+  const sh = sheer(t);
+  const w = Math.max(0.05, shellAt(t, sh));
+  const u = Math.min(1, Math.abs(x) / w);
+  return sh + (1 - u * u) * 0.26;
 }
 
 /**
@@ -871,7 +931,7 @@ function bridge(g) {
   // The house sits on the deck, and the deck rises half a metre under it, so
   // its foot is taken from the low end: a house founded on the high end stands
   // clear of her own deck at the other.
-  const base = Math.min(deckAt(BRIDGE_A), deckAt(BRIDGE_F)) - 0.12;
+  const base = Math.min(deckAtX(4.70, BRIDGE_A), deckAtX(4.70, BRIDGE_F)) - 0.10;
   const L01 = bridgeDeck(1);       // the 01 level roof: the gun deck
   const L02 = bridgeDeck(2);       // the pilothouse roof
   const L03 = bridgeDeck(3);       // the open bridge deck
@@ -1198,8 +1258,10 @@ function funnels(g) {
   // unbroken casing the length of the waist and the tubes end up inside it.
   const cz = (CASING_A[0] + CASING_A[1]) / 2;
   const cd = Math.abs(CASING_A[1] - CASING_A[0]);
-  box(g, M.steel, 5.6, 2.7, cd, 0, deckAt(cz) + 1.35, cz);
-  box(g, M.deckDark, 5.8, 0.14, cd, 0, deckAt(cz) + 2.7, cz);
+  const cTop = deckAt(cz) + 2.7;
+  const cFoot = Math.min(deckAtX(2.8, CASING_A[0]), deckAtX(2.8, CASING_A[1])) - 0.06;
+  box(g, M.steel, 5.6, cTop - cFoot, cd, 0, (cTop + cFoot) / 2, cz);
+  box(g, M.deckDark, 5.8, 0.14, cd, 0, cTop, cz);
   // Doors and a ladder up the side of it.
   for (const sgn of [-1, 1]) {
     box(g, M.gunDark, 0.12, 1.7, 0.8, sgn * 2.76, deckAt(cz) + 0.9, cz + 2.2);
@@ -1227,7 +1289,7 @@ function funnels(g) {
   for (const [vz, inb, on] of cowls) for (const sgn of [-1, 1]) {
     const v = new THREE.Group();
     const x = on === null ? halfDeck(vz) - inb : 4.70 - inb;
-    v.position.set(sgn * x, (on === null ? deckAt(vz) : on) + 0.05, vz);
+    v.position.set(sgn * x, (on === null ? deckAtX(sgn * x, vz) : on) + 0.05, vz);
     g.add(v);
     cyl(v, M.steel, 0.34, 0.4, 2.2, 0, 1.1, 0, 10);
     const bell = cyl(v, M.steel, 0.62, 0.36, 0.8, 0, 2.4, 0.25, 12);
@@ -1238,8 +1300,8 @@ function funnels(g) {
   for (const [vz, inb] of [[22.5, 1.5], [-21.0, 1.5], [-43.5, 0.9]]) {
     for (const sgn of [-1, 1]) {
       const x = sgn * (halfDeck(vz) - inb);
-      cyl(g, M.steel, 0.24, 0.28, 0.6, x, deckAt(vz) + 0.3, vz, 10);
-      cyl(g, M.steelDark, 0.42, 0.34, 0.22, x, deckAt(vz) + 0.66, vz, 12);
+      cyl(g, M.steel, 0.24, 0.28, 0.6, x, deckAtX(x, vz) + 0.3, vz, 10);
+      cyl(g, M.steelDark, 0.42, 0.34, 0.22, x, deckAtX(x, vz) + 0.66, vz, 12);
     }
   }
 }
@@ -1250,8 +1312,15 @@ function afterHouse(g) {
   for (const [[z0, z1], wide, h] of [[HOUSE_A, HOUSE_A_W, 2.5], [HOUSE_B, HOUSE_B_W, 3.4]]) {
     const cz = (z0 + z1) / 2;
     const d = Math.abs(z1 - z0);
-    box(g, M.steel, wide, h, d, 0, deckAt(cz) + h / 2, cz);
-    box(g, M.deckDark, wide + 0.2, 0.14, d, 0, deckAt(cz) + h, cz);
+    // Her roof is where the mountings on it stand, so it is held to the crown
+    // and her foot is carried down to the lowest the deck gets under her --
+    // the outboard corner at the after end, because the deck is cambered and
+    // her sheer falls aft. A house founded on the crown alone stands clear of
+    // her own deck all along both sides.
+    const top = deckAt(cz) + h;
+    const foot = Math.min(deckAtX(wide / 2, z0), deckAtX(wide / 2, z1)) - 0.06;
+    box(g, M.steel, wide, top - foot, d, 0, (top + foot) / 2, cz);
+    box(g, M.deckDark, wide + 0.2, 0.14, d, 0, top, cz);
     // Doors, portholes and the ladder up, down both sides of each house.
     for (const sgn of [-1, 1]) {
       box(g, M.gunDark, 0.12, 1.7, 0.8, sgn * (wide / 2 - 0.02), deckAt(cz) + 0.9, cz + d * 0.3);
@@ -1303,12 +1372,13 @@ function depthCharges(g) {
       const len = Math.hypot(zb - za, xb - xa) + 0.05;
       for (const rail of [-0.3, 0.3]) {
         const r = box(g, M.steelDark, 0.11, 0.36, len,
-          sgn * ((xa + xb) / 2 + rail), deckAt((za + zb) / 2) + 0.34, (za + zb) / 2);
+          sgn * ((xa + xb) / 2 + rail),
+          deckAtX(sgn * (xa + xb) / 2, (za + zb) / 2) + 0.30, (za + zb) / 2);
         r.rotation.y = sgn * Math.atan2(xb - xa, zb - za);
       }
       // The sleepers the rails are bolted down to.
       if (i % 3 === 0) {
-        box(g, M.steelDark, 0.62, 0.12, 0.16, sgn * xa, deckAt(za) + 0.1, za);
+        box(g, M.steelDark, 0.62, 0.12, 0.16, sgn * xa, deckAtX(sgn * xa, za) + 0.06, za);
       }
     }
     // Seven Mk 6 charges on each rack, which is what a Fletcher stowed on the
@@ -1316,7 +1386,7 @@ function depthCharges(g) {
     for (let i = 0; i < 7; i++) {
       const z = -48.3 - i * 1.25;
       const x = sgn * rackX(z);
-      const y = deckAt(z) + 0.62;
+      const y = deckAtX(x, z) + 0.60;
       const c = cyl(g, M.gunDark, 0.235, 0.235, 0.71, x, y, z, 12);
       c.rotation.x = Math.PI / 2;
       // The rolled hoop at each end of the drum and the hydrostatic pistol in
@@ -1330,15 +1400,16 @@ function depthCharges(g) {
     // hand wheel that sets the interval, and the stop that holds the string.
     const rz = DC_RACK_Z - 0.6;
     const rx = sgn * rackX(rz);
-    box(g, M.steelDark, 0.92, 0.62, 0.7, rx, deckAt(rz) + 0.5, rz);
-    box(g, M.gunDark, 0.24, 0.72, 0.16, rx, deckAt(rz) + 0.95, rz + 0.3);
-    cyl(g, M.gunDark, 0.22, 0.22, 0.07, rx - sgn * 0.5, deckAt(rz) + 0.72, rz, 10)
+    const ry = deckAtX(rx, rz);
+    box(g, M.steelDark, 0.92, 0.62, 0.7, rx, ry + 0.31, rz);
+    box(g, M.gunDark, 0.24, 0.72, 0.16, rx, ry + 0.76, rz + 0.3);
+    cyl(g, M.gunDark, 0.22, 0.22, 0.07, rx - sgn * 0.5, ry + 0.53, rz, 10)
       .rotation.z = Math.PI / 2;
     // And the chute at the very end, over the transom, which is the last thing
     // a charge touches.
     const cz = -56.8;
     const chute = box(g, M.steelDark, 0.76, 0.16, 1.2,
-      sgn * rackX(cz), deckAt(cz) + 0.26, cz);
+      sgn * rackX(cz), deckAtX(sgn * rackX(cz), cz) + 0.22, cz);
     chute.rotation.x = 0.18;
   }
 
@@ -1347,7 +1418,7 @@ function depthCharges(g) {
   for (const [ax, az] of DC_THROWERS) {
     for (const sgn of [-1, 1]) {
       const k = new THREE.Group();
-      k.position.set(sgn * ax, deckAt(az), az);
+      k.position.set(sgn * ax, deckAtX(sgn * ax, az), az);
       k.rotation.z = -sgn * 0.35;
       g.add(k);
       // The bedplate, the trunnion block and the barrel itself.
@@ -1375,10 +1446,11 @@ function depthCharges(g) {
     for (const sgn of [-1, 1]) {
       for (const dz of [-0.55, 0.55]) {
         const x = sgn * 4.05;
-        const c = cyl(g, M.gunDark, 0.235, 0.235, 0.71, x, deckAt(cz) + 0.5, cz + dz, 12);
+        const c = cyl(g, M.gunDark, 0.235, 0.235, 0.71,
+          x, deckAtX(x, cz) + 0.46, cz + dz, 12);
         c.rotation.x = Math.PI / 2;
       }
-      box(g, M.steelDark, 0.62, 0.3, 1.9, sgn * 4.05, deckAt(cz) + 0.16, cz);
+      box(g, M.steelDark, 0.62, 0.3, 1.9, sgn * 4.05, deckAtX(sgn * 4.05, cz) + 0.15, cz);
     }
   }
 
@@ -1387,8 +1459,8 @@ function depthCharges(g) {
   for (let i = 0; i < 6; i++) {
     const z = -48.6 - (i % 3) * 1.5;
     const x = (i < 3 ? -1 : 1) * 0.9;
-    cyl(g, M.gunDark, 0.235, 0.235, 0.71, x, deckAt(z) + 0.4, z, 12);
-    box(g, M.steelDark, 0.62, 0.1, 0.62, x, deckAt(z) + 0.07, z);
+    cyl(g, M.gunDark, 0.235, 0.235, 0.71, x, deckAtX(x, z) + 0.41, z, 12);
+    box(g, M.steelDark, 0.62, 0.1, 0.62, x, deckAtX(x, z) + 0.05, z);
   }
 
   // The smoke generators right aft, which is the other half of a screen: a
@@ -1396,63 +1468,26 @@ function depthCharges(g) {
   for (const sgn of [-1, 1]) {
     const z = -50.5;
     const x = sgn * (halfDeck(z) - 0.95);
-    const t = cyl(g, M.gunDark, 0.42, 0.42, 1.5, x, deckAt(z) + 0.66, z, 12);
+    const t = cyl(g, M.gunDark, 0.42, 0.42, 1.5, x, deckAtX(x, z) + 0.63, z, 12);
     t.rotation.x = Math.PI / 2;
-    box(g, M.steelDark, 0.8, 0.3, 0.7, x, deckAt(z) + 0.18, z);
+    box(g, M.steelDark, 0.8, 0.3, 0.7, x, deckAtX(x, z) + 0.15, z);
   }
 }
 
 // ------------------------------------------------------- deck furnishings --
 
-/** The motor whaleboat on her davits, and the rafts along the deckhouse. */
+/**
+ * Her life rafts, stowed in their racks along the deckhouses.
+ *
+ * She carried a twenty-six foot motor whaleboat on davits abreast the after
+ * funnel as well, and it is not here: on the model it read as a boat hanging
+ * in the air off two sticks beside the uptakes, which is worse than no boat at
+ * all. The Carley floats are what a destroyer's crew actually went over the
+ * side into, and they are stowed where they were -- against the bridge
+ * deckhouse, the after fire room casing and the after deckhouse, lashed into
+ * racks a man can cut them out of in the dark.
+ */
 function boatsAndRafts(g) {
-  // One 26-foot motor whaleboat, starboard side amidships, swung inboard.
-  const x = S * (halfDeck(-14) - 1.3);
-  const z = -14;
-  const y = deckAt(z) + 2.4;
-  const hull = new THREE.Group();
-  hull.position.set(x, y, z);
-  hull.rotation.z = S * 0.05;
-  g.add(hull);
-  // A boat is a boat, not a box: pointed at both ends, with a sheer of her own.
-  const N = 9;
-  const pos = [];
-  const idx = [];
-  for (let i = 0; i <= N; i++) {
-    const u = (i / N) * 2 - 1;
-    const w = 1.0 * Math.pow(Math.max(0, 1 - u * u), 0.42);
-    const zz = u * 4.0;
-    const sh = 0.5 + 0.22 * u * u;
-    pos.push(-w, -0.45, zz, w, -0.45, zz, -w * 1.05, sh, zz, w * 1.05, sh, zz);
-  }
-  for (let i = 0; i < N; i++) {
-    const a = i * 4;
-    const b = (i + 1) * 4;
-    idx.push(a, b, a + 2, a + 2, b, b + 2);
-    idx.push(a + 1, a + 3, b + 1, a + 3, b + 3, b + 1);
-    idx.push(a, a + 1, b, a + 1, b + 1, b);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  hull.add(new THREE.Mesh(geo, M.steel));
-  // The cover, narrower than her gunwales so the sheer of her still shows.
-  box(hull, M.steelDark, 1.25, 0.12, 4.0, 0, 0.42, -0.2);
-  box(hull, M.steelDark, 0.8, 0.44, 1.4, 0, 0.32, -1.6);
-  // Davits, and the falls hanging down from them.
-  //
-  // Outboard of the boat, which is the only place a davit can be if it is to
-  // swing her over the side -- and, just as much to the point, the only place
-  // it is not standing in the way of the after bank of tubes. The after davit
-  // used to be inboard of her and two feet inside the arc the tubes swing
-  // through: train the bank to port and five twenty-one inch tubes went
-  // straight through it.
-  for (const dz of [z - 2.9, z + 2.9]) {
-    const dav = cyl(g, M.steel, 0.13, 0.17, 4.6, x + S * 0.55, deckAt(dz) + 2.3, dz, 8);
-    dav.rotation.z = S * 0.3;
-    box(g, M.wire, 0.05, 2.2, 0.05, x, deckAt(dz) + 3.6, dz);
-  }
   // Carley floats: the oval rafts stacked against the deckhouse and the
   // funnels. They go where a man can get at them and nowhere a torpedo bank
   // swings.
@@ -1534,14 +1569,15 @@ function groundTackle(g) {
     for (const sgn of [-1, 1]) {
       const w = halfDeck(bz) - 0.62;
       if (w < 0.8) continue;
+      const by = deckAtX(sgn * w, bz);
       for (const off of [-0.34, 0.34]) {
-        cyl(g, M.steelDark, 0.13, 0.15, 0.62, sgn * w, deckAt(bz) + 0.31, bz + off, 8);
-        cyl(g, M.steelDark, 0.16, 0.16, 0.08, sgn * w, deckAt(bz) + 0.6, bz + off, 8);
+        cyl(g, M.steelDark, 0.13, 0.15, 0.62, sgn * w, by + 0.31, bz + off, 8);
+        cyl(g, M.steelDark, 0.16, 0.16, 0.08, sgn * w, by + 0.6, bz + off, 8);
       }
-      box(g, M.steelDark, 0.5, 0.18, 1.02, sgn * w, deckAt(bz) + 0.09, bz);
+      box(g, M.steelDark, 0.5, 0.18, 1.02, sgn * w, by + 0.09, bz);
       // The chock in the bulwark beside them, which is what a line runs out of.
       box(g, M.steelDark, 0.4, 0.3, 0.44, sgn * (halfDeck(bz) - 0.12),
-        deckAt(bz) + 0.2, bz + 1.5);
+        deckAtX(halfDeck(bz), bz) + 0.2, bz + 1.5);
     }
   }
   // The jackstaff forward. There is no ensign staff aft to go with it: it is
@@ -1585,7 +1621,7 @@ function railings(g) {
   // And the rail round the after deckhouse roofs, where the depth charge
   // party works and where there is nothing at all between a man and the sea.
   for (const [[z0, z1], wide, h] of [[HOUSE_A, HOUSE_A_W, 2.5], [HOUSE_B, HOUSE_B_W, 3.4]]) {
-    rail(g, M.steelDark, z0 - 0.2, z1 + 0.2, () => wide / 2 - 0.12,
+    rail(g, M.steelDark, z0 - 0.5, z1 + 0.5, () => wide / 2 - 0.12,
       () => deckAt((z0 + z1) / 2) + h, 2.6, [-1, 1], 0.95);
   }
 }
@@ -1607,8 +1643,8 @@ function fittings(g) {
     [-36.0, -1], [-36.0, 1], [-46.6, -1], [-46.6, 1]]) {
     const w = halfDeck(lz) - 0.72;
     if (w < 1.2) continue;
-    box(g, M.steel, 0.7, 0.9, 1.4, sgn * w, deckAt(lz) + 0.45, lz);
-    box(g, M.steelDark, 0.74, 0.1, 1.44, sgn * w, deckAt(lz) + 0.92, lz);
+    box(g, M.steel, 0.7, 0.9, 1.4, sgn * w, deckAtX(sgn * w, lz) + 0.45, lz);
+    box(g, M.steelDark, 0.74, 0.1, 1.44, sgn * w, deckAtX(sgn * w, lz) + 0.92, lz);
   }
   // Life buoys on the bridge wings and the after deckhouse.
   for (const [bx, bz, by] of [
@@ -1634,9 +1670,10 @@ function fittings(g) {
     for (const hz of [14.0, -2.0, -28.0]) {
       const w = halfDeck(hz) - 0.95;
       if (w < 1.2) continue;
-      const reel = cyl(g, M.steelDark, 0.3, 0.3, 0.34, sgn * w, deckAt(hz) + 0.45, hz, 12);
+      const reel = cyl(g, M.steelDark, 0.3, 0.3, 0.34,
+        sgn * w, deckAtX(sgn * w, hz) + 0.42, hz, 12);
       reel.rotation.z = Math.PI / 2;
-      cyl(g, M.gunDark, 0.1, 0.1, 0.9, sgn * w, deckAt(hz) + 0.2, hz, 8);
+      cyl(g, M.gunDark, 0.1, 0.1, 0.9, sgn * w, deckAtX(sgn * w, hz) + 0.2, hz, 8);
     }
   }
 }
@@ -1663,7 +1700,8 @@ function lightAA(g) {
   // Two twin Bofors in tubs abreast the after funnel, bracketed off the fire
   // room casing and standing on the main deck.
   for (const sgn of [-1, 1]) {
-    keep(bofors(g, sgn * 4.28, deckAt(FUNNEL_A) + 0.05, FUNNEL_A, sgn * 0.45, 1.40));
+    keep(bofors(g, sgn * 4.28, deckAtX(sgn * 4.28, FUNNEL_A) + 0.03, FUNNEL_A,
+      sgn * 0.45, 1.40));
   }
   // Two side by side on the after deckhouse, under mount 53's barrel and
   // outboard of it.
@@ -1688,7 +1726,8 @@ function lightAA(g) {
   for (const sgn of [-1, 1]) {
     keep(oerlikon(g, sgn * 3.5, roof01, 8.2, sgn * 1.1));
     keep(oerlikon(g, sgn * 4.5, roof01, 19.2, sgn * 0.8));
-    keep(oerlikon(g, sgn * (halfDeck(-24) - 1.75), deckAt(-24) + 0.02, -24, sgn * 1.1));
+    keep(oerlikon(g, sgn * (halfDeck(-24) - 1.75),
+      deckAtX(halfDeck(-24) - 1.75, -24) + 0.02, -24, sgn * 1.1));
   }
   keep(oerlikon(g, 0, deckAt(28) + 0.02, 28, 0));
   // The two forward Oerlikons stand on sponsons bracketed off the side of the
@@ -1847,4 +1886,7 @@ export function fletcherCharges() {
   return out;
 }
 
-export { LOA as FLETCHER_LOA, BEAM as FLETCHER_BEAM, DRAFT as FLETCHER_DRAFT, deckAt, halfDeck };
+export {
+  LOA as FLETCHER_LOA, BEAM as FLETCHER_BEAM, DRAFT as FLETCHER_DRAFT,
+  deckAt, halfDeck, sheer,
+};

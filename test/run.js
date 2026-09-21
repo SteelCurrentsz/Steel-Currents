@@ -202,6 +202,7 @@ import {
 } from '../client/js/render/enterprise.js';
 import {
   fletcherParts, buildFletcher, fletcherCharges, deckAt as fletcherDeckAt,
+  halfDeck as fletcherHalfDeck, sheer as fletcherSheer,
 } from '../client/js/render/fletcher.js';
 import {
   clevelandParts, buildCleveland, deckAt as clevelandDeckAt,
@@ -2345,6 +2346,83 @@ check('nothing on the destroyer is swallowed by anything else', () => {
   }
   assert.equal(swallowed.length, 0,
     `${swallowed.length} piece(s) swallowed, first ${swallowed[0]}`);
+});
+
+check('you cannot see into the destroyer over her transom', () => {
+  // Her deck is crowned a quarter of a metre higher on the centreline than at
+  // the deck edge, and her end caps were lofted to the sheer line, which is
+  // the deck EDGE. So between the top of the transom plate and the underside
+  // of her deck there was a crescent of nothing the whole width of her, and
+  // from astern you looked straight through it into the ship. The same hole
+  // was in her stem, hidden by the bulwark and the stem bar.
+  //
+  // Fire down her centreline at exactly those heights: the first thing a ray
+  // finds has to be her own plating at the end it came in at, not a bulkhead
+  // twenty metres inside her.
+  const built = buildFletcher();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    o.material.side = THREE.DoubleSide;
+    meshes.push(o);
+  });
+  const ray = new THREE.Raycaster();
+  const deep = [];
+  for (const [end, dir] of [[1, -1], [-1, 1]]) {
+    const sh = end > 0 ? fletcherSheer(1) : fletcherSheer(-1);
+    const half = fletcherHalfDeck(end * 57);
+    for (let u = -0.8; u <= 0.8; u += 0.2) {
+      for (let f = 0.05; f <= 0.95; f += 0.15) {
+        // Between the sheer line and the crown of the deck at that offset.
+        const y = sh + f * (1 - u * u) * 0.26;
+        const from = new THREE.Vector3(u * half, y, end * 120);
+        ray.set(from, new THREE.Vector3(0, 0, dir));
+        const got = ray.intersectObjects(meshes, false);
+        // How far in from her own end plating the first surface is. Nothing,
+        // or something a long way inside her, both mean the ray went in.
+        const hitZ = got.length ? end * 120 + dir * got[0].distance : 0;
+        const into = got.length ? (end > 0 ? 57.35 - hitZ : hitZ + 57.35) : 999;
+        if (into > 3) {
+          deep.push(`${end > 0 ? 'stem' : 'transom'} at u ${u.toFixed(1)} `
+            + `y ${y.toFixed(2)} is open ${into.toFixed(1)} m in`);
+        }
+      }
+    }
+  }
+  assert.equal(deep.length, 0,
+    `${deep.length} ray(s) went in over her end plating, first ${deep[0]}`);
+});
+
+check('the destroyer\'s after deckhouse is one structure, not two', () => {
+  // Mount 53 stands on the lower part and 54 on the raised part, and the two
+  // are one deckhouse in two steps: they share a bulkhead. They used to be
+  // built a metre apart, which left a slot straight down to the weather deck
+  // between the two after mounts -- visible from abeam as a notch in her
+  // silhouette, and from above as a hole in her quarterdeck.
+  const built = buildFletcher();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const holes = [];
+  // Straight down, the length of the house, on and either side of the
+  // centreline: every one of these has to land on a roof well above her deck.
+  for (let z = -27; z >= -41; z -= 0.5) {
+    for (const x of [-2.4, 0, 2.4]) {
+      ray.set(new THREE.Vector3(x, 40, z), new THREE.Vector3(0, -1, 0));
+      const got = ray.intersectObjects(meshes, false);
+      if (!got.length) { holes.push(`nothing at all at ${x}, ${z}`); continue; }
+      const y = 40 - got[0].distance;
+      if (y < fletcherDeckAt(z) + 1.5) {
+        holes.push(`${x}, ${z} falls to ${y.toFixed(2)} and her deck is `
+          + `${fletcherDeckAt(z).toFixed(2)}`);
+      }
+    }
+  }
+  assert.equal(holes.length, 0,
+    `${holes.length} point(s) drop through the after deckhouse, first ${holes[0]}`);
 });
 
 check('the destroyer\'s depth charge gear stands where her datasheet says', () => {
