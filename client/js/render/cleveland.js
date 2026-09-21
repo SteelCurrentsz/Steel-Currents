@@ -33,18 +33,28 @@ export const DRAFT = 7.5;
 /** Starboard, in this frame. */
 const S = -1;
 
-// Measure 21, navy blue, the same as the rest of the fleet in the yard.
+// Measure 22: two colours and a straight line between them.
+//
+// 5-N navy blue on the hull from the boot top up to a horizontal line at the
+// height of the lowest point of her main deck edge, and 5-L light grey on
+// everything above it -- the whole superstructure, and the wedge of hull side
+// that rises above the line as her sheer sweeps up to the bow. The point of
+// the scheme is the contrast: from any distance the dark hull sits down into
+// the sea and the light upperworks stand against the sky, which is exactly
+// what it was designed to do. Painted one value from the boot top to the
+// masthead, as she was here, she is in no measure at all.
 const P = {
-  hull: 0x5b6878,
-  hullDark: 0x4e5a68,
-  boot: 0x20252b,
-  antifoul: 0x7c342a,
-  deck: 0x49535f,          // deck blue 20-B over the steel decks
-  deckDark: 0x3f4854,
-  steel: 0x6b7684,
-  steelDark: 0x545e6a,
-  bright: 0x8b95a1,
-  gun: 0x626d79,
+  hull: 0x323f56,          // 5-N navy blue, below the line
+  hullDark: 0x2a3549,
+  grey: 0x99a2ab,          // 5-L light grey, above it
+  boot: 0x15181c,
+  antifoul: 0x7a3228,
+  deck: 0x3e4856,          // deck blue 20-B over the steel decks
+  deckDark: 0x353e4a,
+  steel: 0x99a2ab,
+  steelDark: 0x848e98,
+  bright: 0xb2bac1,
+  gun: 0x929ba4,
   gunDark: 0x3a424c,
   glass: 0x232b34,
   canvas: 0x6a6e66,
@@ -75,14 +85,21 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 // at the deck edge, where the flare has added its share, so the moulded figure
 // here comes out a little under ten.
 const HALF_BEAM = [
-  [-1.00, 3.94], [-0.92, 5.11], [-0.82, 6.38], [-0.70, 7.50], [-0.55, 8.47],
+  [-1.00, 3.62], [-0.94, 4.58], [-0.86, 5.78], [-0.74, 7.08], [-0.58, 8.32],
   [-0.38, 9.20], [-0.20, 9.69], [0.00, 9.84], [0.18, 9.74], [0.35, 9.40],
   [0.52, 8.72], [0.66, 7.65], [0.78, 6.28], [0.88, 4.63], [0.95, 2.68],
   [1.00, 0.29],
 ];
 
+// The bottom, from the transom forward. A cruiser's run is the half of her
+// that decides what she looks like from astern: the sole of the keel lifts
+// away from the water under the after turrets and sweeps up so that what is
+// left at the transom is a plate a metre or so deep. She used to carry the
+// bottom aft almost flat and cut it off three metres under water, which made
+// a transom four storeys tall and gave her the stern of a car ferry.
 const KEEL = [
-  [-1.00, -3.10], [-0.90, -5.90], [-0.80, -7.05], [-0.60, -7.48], [0.00, -7.52],
+  [-1.00, -1.15], [-0.96, -2.55], [-0.92, -3.95], [-0.86, -5.55],
+  [-0.79, -6.72], [-0.70, -7.26], [-0.56, -7.48], [0.00, -7.52],
   [0.55, -7.42], [0.72, -6.95], [0.84, -5.45], [0.93, -2.70], [1.00, 1.90],
 ];
 
@@ -110,7 +127,13 @@ function shellAt(t, y) {
   const sh = sheer(t);
   if (y <= k) return 0;
   const up = Math.min(1, Math.max(0, (y - k) / Math.max(0.6, -k + 0.5)));
-  const belly = Math.pow(up, 0.36);
+  // How fast the section fills out from the keel up to the waterline. Round
+  // and full amidships and aft, where she has four shafts to feed and a flat
+  // run to give them; fine and V-shaped forward, because the entrance of a
+  // thirty-three knot cruiser is a wedge. One exponent for the whole of her
+  // gave her a forefoot like a harbour tug's, which from ahead was the first
+  // thing about her anybody saw.
+  const belly = Math.pow(up, 0.36 + 0.60 * Math.pow(Math.max(0, t), 1.6));
   let half = w * belly;
   if (y > 0) half += w * flare(t) * Math.min(1, y / Math.max(1, sh)) * 0.30;
   return Math.max(0.03, Math.min(half, w * 1.5));
@@ -123,11 +146,39 @@ const COUNTER = 3.4;
 function stemAt(y) { return STEM * Math.pow(Math.max(0, y + 2.5) / 14, 1.4); }
 function counterAt(y) { return COUNTER * Math.pow(Math.max(0, y + 3.2) / 8.4, 1.15); }
 
+// Her quarters are rounded into the transom rather than cut off square. The
+// shell is lofted as two panels at plus and minus the half-breadth, so a flat
+// plate across the end of them meets the sides at a right angle, and a right
+// angle a metre wide and eight metres tall is what makes a stern read as the
+// back of a lorry. So the station line at the transom is carried forward by
+// the corner radius, and the plate across it bulges aft to meet the sides on
+// a curve: flat over the middle of her, rounded at the quarters.
+const TRANSOM_R = 1.15;
+
+/** How much of the rounding applies at this station: 1 at the transom, 0 by frame 96. */
+function transomK(t) {
+  return smooth(Math.max(0, Math.min(1, (-t - 0.955) / 0.045)));
+}
+
+/**
+ * How far aft of the station line the shell stands, at `u` of the half-breadth.
+ *
+ * Zero at the deck edge, where the sides are, and a full radius on the
+ * centreline: a flattened round, which is what a transom is.
+ */
+function transomBulge(t, u) {
+  const k = transomK(t);
+  if (k <= 0) return 0;
+  const a = Math.min(1, Math.abs(u));
+  return -TRANSOM_R * k * Math.sqrt(Math.max(0, 1 - Math.pow(a, 6)));
+}
+
 function zAt(t, y) {
   let z = (t * LOA) / 2;
   if (t > 0.5) z += smooth((t - 0.5) / 0.5) * (stemAt(y) - STEM);
   else if (t < -0.74) z -= smooth((-t - 0.74) / 0.26) * (counterAt(y) - COUNTER);
-  return z;
+  // The corner line, carried forward so the round has somewhere to happen.
+  return z + TRANSOM_R * transomK(t);
 }
 
 /** Her deck edge at a station, in metres from the bow, whichever deck it is. */
@@ -149,25 +200,41 @@ const BOOT_HI = 0.7;
 const STATIONS = 108;
 
 /**
- * The three strakes, as functions of the station: red lead below the boot top,
- * the black boot topping through the waterline, and navy blue from there up to
- * whichever deck edge is above it.
+ * Where the navy blue stops and the light grey starts.
+ *
+ * A straight horizontal line, at the height of the lowest point of her main
+ * deck edge -- which on a flush-decked ship whose sheer rises the whole way
+ * forward is right aft, at the transom. It does not follow the sheer: that is
+ * the one thing about Measure 22 that is easy to get wrong and impossible to
+ * miss once it is wrong, because what the eye reads is a straight line running
+ * the length of her with a widening grey wedge above it.
+ */
+const M22 = 7.30;
+
+/**
+ * The four strakes, as functions of the station: red lead below the boot top,
+ * the black boot topping through the waterline, navy blue from there to the
+ * Measure 22 line, and light grey from the line to whichever deck edge is
+ * above it.
  */
 function strakeBands() {
   return [
     [(t) => keelY(t) - 0.02, BOOT_LO, M.antifoul],
     [BOOT_LO, BOOT_HI, M.boot],
-    [BOOT_HI, sheer, M.hull],
+    [BOOT_HI, M22, M.hull],
+    [M22, (t) => Math.max(M22, sheer(t)), M.grey],
   ];
 }
 
-/** The same three, evaluated at one station, for capping the ends. */
+/** The same four, evaluated at one station, for capping the ends. */
 function strakes(t) {
   const kb = keelY(t);
+  const up = (y) => Math.max(kb, y);
   return [
-    [kb, Math.max(kb, BOOT_LO), M.antifoul],
-    [Math.max(kb, BOOT_LO), Math.max(kb, BOOT_HI), M.boot],
-    [Math.max(kb, BOOT_HI), sheer(t), M.hull],
+    [kb, up(BOOT_LO), M.antifoul],
+    [up(BOOT_LO), up(BOOT_HI), M.boot],
+    [up(BOOT_HI), up(M22), M.hull],
+    [up(M22), Math.max(up(M22), sheer(t)), M.grey],
   ];
 }
 
@@ -204,8 +271,14 @@ function loftBand(g, m, lo, hi) {
   g.add(new THREE.Mesh(geo, m));
 }
 
-/** Close an end of the shell, painted in the same three strakes. */
+/**
+ * Close an end of the shell, painted in the same four strakes.
+ *
+ * Across the beam as well as up, so that the transom can be the rounded plate
+ * it is rather than a single quad meeting her sides at a right angle.
+ */
 function capEnd(g, t, out) {
+  const NX = 10;
   for (const [lo, hi, m] of strakes(t)) {
     if (hi - lo < 0.02) continue;
     const N = 12;
@@ -215,12 +288,19 @@ function capEnd(g, t, out) {
       const y = lo + ((hi - lo) * i) / N;
       const w = shellAt(t, y);
       const z = zAt(t, y);
-      pos.push(-w, y, z, w, y, z);
+      for (let j = 0; j <= NX; j++) {
+        const u = -1 + (2 * j) / NX;
+        pos.push(u * w, y, z + transomBulge(t, u));
+      }
     }
+    const per = NX + 1;
     for (let i = 0; i < N; i++) {
-      const a = i * 2;
-      if (out > 0) idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      for (let j = 0; j < NX; j++) {
+        const a = i * per + j;
+        const b = (i + 1) * per + j;
+        if (out > 0) idx.push(a, a + 1, b, a + 1, b + 1, b);
+        else idx.push(a, b, a + 1, a + 1, b, b + 1);
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -244,7 +324,7 @@ function weatherDeck(g) {
     for (let j = 0; j < across; j++) {
       const u = (j - CAM) / CAM;
       const crown = (1 - u * u) * 0.32;
-      pos.push(u * w, sh + crown, z);
+      pos.push(u * w, sh + crown, z + transomBulge(t, u));
     }
   }
   for (let i = 0; i < STATIONS; i++) {
@@ -309,7 +389,7 @@ function bulwark(g) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, M.hull));
+  g.add(new THREE.Mesh(geo, M.grey));
 }
 
 /** Bilge keels, four shafts on struts, four screws and twin rudders. */
@@ -322,21 +402,30 @@ function underwater(g) {
       const b = box(g, M.antifoul, 0.14, 0.9, LOA * 0.032, sgn * w * 1.01, y, zAt(t, y));
       b.rotation.z = sgn * 0.62;
     }
-    // Two shafts a side: the inboard pair short, the outboard pair long, which
-    // is what four screws on a cruiser look like from underneath.
-    for (const [dx, tail, sz] of [[2.9, 20, -56], [6.0, 30, -48]]) {
+    // Two shafts a side, and because the run now sweeps up under her quarters
+    // the whole of it shows from astern: the inboard pair come out of bossings
+    // well aft, the outboard pair run out on struts and are the longer for it.
+    // Their hubs are placed where the bottom has risen far enough to leave the
+    // discs clear of it, which is what four screws on a cruiser look like.
+    for (const [dx, tail, sz, hy] of [[3.0, 24, -58, -5.0], [6.3, 32, -48, -5.4]]) {
       const x = sgn * dx;
-      tubeZ(g, M.steelDark, 0.40, tail, x, -5.3, sz, 12);
+      tubeZ(g, M.steelDark, 0.40, tail, x, hy, sz, 12);
       for (const lean of [-0.5, 0.5]) {
-        const st = cyl(g, M.steelDark, 0.24, 0.24, 3.6, x + sgn * 0.3, -4.2,
+        const st = cyl(g, M.steelDark, 0.24, 0.24, 3.6, x + sgn * 0.3, hy + 1.1,
           sz - tail * 0.42, 8);
         st.rotation.z = lean * 0.55;
         st.rotation.x = 0.1;
       }
-      cyl(g, M.steelDark, 0.5, 0.5, 1.5, x, -5.3, sz - tail * 0.5, 12)
+      // The fairing where the shaft leaves the shell, faired into the bottom
+      // rather than stopping at it: a shaft that pierces plating and stops is
+      // a hole in her from every angle underneath.
+      const bo = cyl(g, M.antifoul, 0.55, 1.5, 5.0, x, hy + 0.35, sz + tail * 0.42, 12);
+      bo.rotation.x = Math.PI / 2;
+      bo.rotation.z = -sgn * 0.06;
+      cyl(g, M.steelDark, 0.5, 0.5, 1.5, x, hy, sz - tail * 0.5, 12)
         .rotation.x = Math.PI / 2;
       const hub = new THREE.Group();
-      hub.position.set(x, -5.3, sz - tail * 0.5 - 0.9);
+      hub.position.set(x, hy, sz - tail * 0.5 - 0.9);
       hub.userData.dynamic = true;
       hub.userData.screw = { hand: sgn };
       g.add(hub);
@@ -353,13 +442,27 @@ function underwater(g) {
         }
       }
     }
-    // Twin rudders, abaft the inboard screws.
-    const r = box(g, M.antifoul, 0.34, 4.4, 3.4, sgn * 2.9, -4.4, -72);
-    r.rotation.x = 0.03;
+    // Twin rudders, abaft the inboard screws and hung far enough aft that the
+    // risen bottom leaves their blades in the open where they belong.
+    const r = box(g, M.antifoul, 0.34, 4.2, 3.2, sgn * 3.0, -4.6, -79.0);
+    r.rotation.x = 0.04;
+    // The stock, up into the hull: a rudder that floats under her is worse
+    // than no rudder at all.
+    cyl(g, M.steelDark, 0.30, 0.30, 2.4, sgn * 3.0, -3.0, -78.4, 10);
   }
   // The skeg on the centreline and the sole of the keel.
   box(g, M.antifoul, 0.8, 1.4, 34, 0, -7.0, -50);
   box(g, M.antifoul, 1.0, 0.44, LOA * 0.70, 0, -7.55, -6);
+  // And the after sole, following the bottom up to the transom so the keel
+  // does not simply stop in mid-water under her quarters.
+  for (let i = 0; i < 8; i++) {
+    const t = -0.70 - (i / 8) * 0.26;
+    const t2 = -0.70 - ((i + 1) / 8) * 0.26;
+    const k = keelY(t);
+    const k2 = keelY(t2);
+    member(g, M.antifoul, 0.5,
+      [0, k + 0.2, zAt(t, k)], [0, k2 + 0.2, zAt(t2, k2)], 0.1);
+  }
 }
 
 function buildHull(g) {
@@ -377,14 +480,127 @@ function buildHull(g) {
     const y1 = foot + ((head - foot) * (i + 1)) / SEG;
     const z0 = zAt(1, y0);
     const z1 = zAt(1, y1);
-    const len = Math.hypot(y1 - y0, z1 - z0) + 0.05;
-    const b = box(g, M.hull, 0.36, 0.4, len, 0, (y0 + y1) / 2, (z0 + z1) / 2);
-    b.rotation.x = Math.atan2(y1 - y0, z1 - z0) - Math.PI / 2;
+    const mid = (y0 + y1) / 2;
+    member(g, mid < BOOT_LO ? M.antifoul : mid < BOOT_HI ? M.boot
+      : mid < M22 ? M.hull : M.grey, 0.38, [0, y0, z0], [0, y1, z1]);
   }
-  // The hangar doors in the transom, under the quarterdeck: her aircraft come
-  // out of the stern, which is the one thing everybody knows about a Cleveland.
-  box(g, M.gunDark, 6.4, 3.0, 0.3, 0, 2.2, zAt(-1, 2.2) + 0.15);
-  for (const sgn of [-1, 1]) box(g, M.steelDark, 0.2, 3.0, 0.34, sgn * 3.2, 2.2, zAt(-1, 2.2) + 0.15);
+  transom(g);
+  hullNumbers(g);
+}
+
+/**
+ * Her number, on both bows and both quarters: 55.
+ *
+ * A stencil in seven strokes, laid flat against the plating and standing a
+ * finger proud of it, dark on the light grey of the Measure 22 wedge forward
+ * and light on the navy blue aft. Both her digits are the same, which spares
+ * us the question of which end a number starts from on which side of a ship.
+ */
+function hullNumbers(g) {
+  const STROKE = {
+    // [u, v, along] -- along is true for a horizontal bar.
+    t: [0, 1, true], m: [0, 0, true], b: [0, -1, true],
+    tl: [-1, 0.5, false], tr: [1, 0.5, false],
+    bl: [-1, -0.5, false], br: [1, -0.5, false],
+  };
+  const GLYPH = { 5: ['t', 'tl', 'm', 'br', 'b'] };
+  const digit = (m, ch, sgn, z0, y0, h) => {
+    const w = h * 0.58;
+    const th = h * 0.18;
+    for (const key of GLYPH[ch]) {
+      const [u, v, along] = STROKE[key];
+      // The starboard side reads toward the bow, the port side away from it.
+      const z = z0 - sgn * u * (w / 2);
+      const y = y0 + v * (h / 2);
+      const t = Math.max(-1, Math.min(1, z / (LOA / 2)));
+      const x = shellAt(t, y);
+      box(g, m, 0.1, along ? th : h / 2 + th, along ? w + th : th,
+        sgn * (x + 0.05), y, zAt(t, y) + (z - (t * LOA) / 2));
+    }
+  };
+  for (const sgn of [-1, 1]) {
+    // On the bows, where her sheer has carried the deck edge well up above the
+    // Measure 22 line and there is light grey to paint on. Not further forward
+    // than this: her stem rakes six metres, the station line moves aft as it
+    // rises, and a stencil laid on plating that raked read as five strokes
+    // that had come apart from one another.
+    digit(M.gunDark, 5, sgn, 66.0, 8.8, 2.2);
+    digit(M.gunDark, 5, sgn, 63.7, 8.8, 2.2);
+    // And on the quarters, light on the navy.
+    digit(M.grey, 5, sgn, -69.1, 4.9, 1.8);
+    digit(M.grey, 5, sgn, -67.2, 4.9, 1.8);
+  }
+}
+
+/**
+ * The transom itself.
+ *
+ * Her aircraft hangar is under the fantail and it opens on to the fantail, not
+ * through her stern: there were doors here once, a flat plate across a raked
+ * transom, which stood out of the plating below and was buried in it above --
+ * a rectangle of daylight hanging off her stern from anywhere abeam. What is
+ * actually here is plating in athwartship strakes, the gunwale carried round
+ * the quarters, a knuckle where the deck edge overhangs, and the stern light
+ * and chocks a quarterdeck needs.
+ */
+function transom(g) {
+  const tY = sheer(-1);
+  const tW = shellAt(-1, tY);
+  const zOf = (y, u) => zAt(-1, y) + transomBulge(-1, u);
+  // The gunwale, carried round the stern. Her bulwark runs down both sides and
+  // used to stop dead at the quarters, which left the after end of the deck a
+  // bare edge; here it is the same strip and the same capping rail, laid in
+  // segments round the round of her.
+  const SEG = 14;
+  for (let i = 0; i < SEG; i++) {
+    const u0 = -1 + (2 * i) / SEG;
+    const u1 = -1 + (2 * (i + 1)) / SEG;
+    const x0 = u0 * tW;
+    const x1 = u1 * tW;
+    const z0 = zOf(tY, u0);
+    const z1 = zOf(tY, u1);
+    const len = Math.hypot(x1 - x0, z1 - z0) + 0.08;
+    const mx = (x0 + x1) / 2;
+    const mz = (z0 + z1) / 2;
+    const ry = Math.atan2(x1 - x0, z1 - z0);
+    // Inboard a little, so the plating is on the deck and not out past it.
+    const inx = mx * 0.985;
+    const inz = mz + 0.13;
+    box(g, M.grey, 0.26, 0.26, len, inx, tY + 0.13, inz, ry);
+    box(g, M.steelDark, 0.38, 0.12, len, inx, tY + 0.32, inz, ry);
+    // And the knuckle under the deck edge, a hand proud of the transom.
+    box(g, M.grey, 0.22, 0.3, len, mx * 0.99, tY - 0.22, mz + 0.06, ry);
+  }
+  // Plate seams across the transom, a finger proud of it: a transom is riveted
+  // strakes like the rest of her, not one smooth sheet -- but it is strakes,
+  // laid athwartships, and not the row of vertical ribs that was here before
+  // and read from astern as the fendering of a barge.
+  for (const y of [1.6, 3.4, 5.2, 6.9]) {
+    const w = shellAt(-1, y);
+    for (let i = 0; i < 10; i++) {
+      const u0 = -1 + (2 * i) / 10;
+      const u1 = -1 + (2 * (i + 1)) / 10;
+      const x0 = u0 * w;
+      const x1 = u1 * w;
+      const z0 = zOf(y, u0);
+      const z1 = zOf(y, u1);
+      box(g, y > BOOT_HI ? M.hullDark : M.boot,
+        Math.hypot(x1 - x0, z1 - z0) + 0.05, 0.10, 0.10,
+        (x0 + x1) / 2, y, (z0 + z1) / 2 - 0.06,
+        Math.atan2(-(z1 - z0), x1 - x0));
+    }
+  }
+  // The stern light on its bracket, and the two quarter chocks the towing
+  // hawser goes through.
+  cyl(g, M.steelDark, 0.16, 0.2, 0.5, 0, tY + 0.5, zOf(tY, 0) + 0.3, 8);
+  cyl(g, M.bright, 0.22, 0.22, 0.3, 0, tY + 0.9, zOf(tY, 0) + 0.3, 10);
+  for (const sgn of [-1, 1]) {
+    const u = sgn * 0.68;
+    const cx = u * tW;
+    const cz = zOf(tY, u) + 0.55;
+    box(g, M.steelDark, 0.85, 0.5, 0.85, cx, tY + 0.32, cz);
+    cyl(g, M.cave, 0.24, 0.24, 0.5, cx, tY + 0.36, cz, 10).rotation.x = Math.PI / 2;
+  }
 }
 
 // -------------------------------------------------------------- armament --
@@ -497,7 +713,12 @@ const AFTWORKS = [-36, -22];                 // the after superstructure, tier 2
 // The aviation arrangements, right aft: two catapults on the quarterdeck with
 // the crane between them and the hangar under it.
 const CAT_Z = -70;                           // where the turntables stand
-const CAT_X = 5.9;                           // and how far off the centreline
+// How far off the centreline the turntables stand -- far enough apart that
+// the two machines read as two machines. A Kingfisher is eleven metres across,
+// and at five point nine their inner wingtips came within seven centimetres of
+// each other, so from above the pair were one aeroplane with a twenty-three
+// metre wing lying across her quarterdeck.
+const CAT_X = 6.9;
 // The girder, in the turntable's own frame. The pivot is near its after end,
 // not in the middle of it: a catapult swings its muzzle out over the water and
 // hardly moves its breech, which is the only way it can train out at all
@@ -513,6 +734,26 @@ const PLANE_Z = RIG.PLANE_Z;
 // so the aeroplane leaves the track on the tick her flight goes on the plot.
 const DECK_RUN = SHIP_CLASSES.cleveland.planes.deckRun;
 const M52_Z = -27.0;                         // mount 52, on its roof
+
+/**
+ * A member between two points in the parent's own frame.
+ *
+ * Three's default Euler order is XYZ, so the yaw has to be taken against the
+ * length of the member in the y-z plane and not just its run in z -- get that
+ * wrong and a lattice jib ends up hanging in the sky off her quarter, which is
+ * exactly where this one was.
+ */
+function member(p, m, thick, a, b, extra = 0.05) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const dz = b[2] - a[2];
+  const len = Math.hypot(dx, dy, dz);
+  const o = box(p, m, thick, thick, len + extra,
+    (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  o.rotation.y = Math.atan2(dx, Math.hypot(dy, dz));
+  o.rotation.x = Math.atan2(-dy, dz);
+  return o;
+}
 
 /** A deck plate cut to a house's plan, with an edge to it you can see. */
 function plate(g, pts, y, t = 0.16) {
@@ -975,8 +1216,11 @@ function seaPlane(g, x, y, z, ry) {
   ], { px: 0.6, pz: 0.7, n: 12 });
   box(p, M.planeLow, 1.0, 0.7, 8.0, 0, 0.75, 0);
   // Wing, tailplane and fin.
-  box(p, M.planeTop, 11.6, 0.32, 2.1, 0, 1.72, 0.5);
-  box(p, M.planeLow, 11.4, 0.26, 2.0, 0, 1.5, 0.5);
+  // Ten point nine metres of wing, which is what an OS2U has: any more and the
+  // pair of them on her quarterdeck read from above as one aeroplane with a
+  // twenty-three metre span.
+  box(p, M.planeTop, 10.9, 0.32, 2.1, 0, 1.72, 0.5);
+  box(p, M.planeLow, 10.7, 0.26, 2.0, 0, 1.5, 0.5);
   box(p, M.planeTop, 4.2, 0.24, 1.2, 0, 1.15, -3.6);
   box(p, M.planeTop, 0.22, 1.9, 1.4, 0, 1.9, -3.9);
   // Cockpit, engine and propeller.
@@ -1001,8 +1245,8 @@ function seaPlane(g, x, y, z, ry) {
     st.rotation.z = sx > 0 ? 0.5 : -0.5;
   }
   for (const sgn of [-1, 1]) {
-    box(p, M.planeLow, 0.5, 0.5, 1.9, sgn * 4.3, 1.35, 0.6);
-    box(p, M.steelDark, 0.1, 0.9, 0.1, sgn * 4.3, 1.55, 0.6);
+    box(p, M.planeLow, 0.5, 0.5, 1.9, sgn * 4.05, 1.35, 0.6);
+    box(p, M.steelDark, 0.1, 0.9, 0.1, sgn * 4.05, 1.55, 0.6);
   }
   return p;
 }
@@ -1056,32 +1300,153 @@ function aviation(g) {
     cats.push({ group: cat, car, plane, prop: plane.userData.prop, sgn });
   }
   g.userData.catapults = cats;
-  // The aircraft crane on the centreline, with its jib stowed fore and aft.
+  aircraftCrane(g, qd);
+  fantail(g, qd);
+}
+
+/**
+ * The boat and aircraft crane, on the centreline abaft the catapults.
+ *
+ * A crane is a ring on the deck, a king post no thicker than a man is tall, a
+ * machinery house that trains with the jib, and a lattice jib on a luffing
+ * wire: the pedestal used to be a three-metre drum, which from any distance
+ * was a funnel standing on her quarterdeck.
+ */
+function aircraftCrane(g, qd) {
   const cr = new THREE.Group();
-  cr.position.set(0, qd, -86.0);
+  cr.position.set(0, qd, -86.2);
   g.add(cr);
-  cyl(cr, M.steel, 1.15, 1.35, 4.2, 0, 2.1, 0, 16);
-  cyl(cr, M.steelDark, 1.5, 1.5, 0.3, 0, 0.15, 0, 18);
-  const jib = new THREE.Group();
-  jib.position.set(0, 4.1, 0);
-  jib.rotation.x = -0.12;
-  cr.add(jib);
+  // The roller ring bolted to the deck, and the barbette under it.
+  cyl(cr, M.steelDark, 1.45, 1.55, 0.3, 0, 0.15, 0, 20);
+  cyl(cr, M.steel, 1.28, 1.38, 0.9, 0, 0.75, 0, 20);
+  // Everything above the ring trains together.
+  const house = new THREE.Group();
+  house.position.set(0, 1.2, 0);
+  cr.add(house);
+  // The machinery house, set back from the pivot, with its door and vents.
+  box(house, M.steel, 2.5, 2.0, 2.3, 0, 1.0, -1.15);
+  box(house, M.steelDark, 2.6, 0.16, 2.4, 0, 2.05, -1.15);
+  box(house, M.gunDark, 0.9, 1.5, 0.14, 0, 0.75, -2.32);
   for (const sgn of [-1, 1]) {
-    for (const dx of [-0.45, 0.45]) {
-      box(jib, M.steel, 0.16, 0.16, 15.0, dx, sgn * 0.42, 7.2);
+    cyl(house, M.steelDark, 0.2, 0.2, 0.5, sgn * 0.75, 2.3, -1.15, 8);
+  }
+  // The A-frame the jib is stepped in, and the heel pin across it.
+  for (const sgn of [-1, 1]) {
+    member(house, M.steel, 0.28, [sgn * 1.0, 0, 0.9], [sgn * 0.5, 2.5, 0.25]);
+  }
+  member(house, M.steelDark, 0.2, [-0.6, 2.5, 0.25], [0.6, 2.5, 0.25]);
+
+  // The jib: a lattice, four chords tapering to the head, laced between, on
+  // the heel pin at the top of the A-frame.
+  const A = 0.40;
+  const JL = 14.0;
+  const heel = [0, 2.5, 0.25];
+  const jib = new THREE.Group();
+  jib.position.set(heel[0], heel[1], heel[2]);
+  jib.rotation.x = -A;
+  house.add(jib);
+  const sAt = (f) => 0.44 - 0.22 * f;
+  for (let i = 0; i < 10; i++) {
+    const f0 = i / 10;
+    const f1 = (i + 1) / 10;
+    const s0 = sAt(f0);
+    const s1 = sAt(f1);
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        member(jib, M.steel, 0.13,
+          [sx * s0, sy * s0, f0 * JL], [sx * s1, sy * s1, f1 * JL]);
+      }
+    }
+    // Lacing: a strut across each face and a diagonal down each side.
+    for (const sy of [-1, 1]) {
+      member(jib, M.steel, 0.09, [-s1, sy * s1, f1 * JL], [s1, sy * s1, f1 * JL]);
+    }
+    for (const sx of [-1, 1]) {
+      member(jib, M.steel, 0.09, [sx * s0, -s0, f0 * JL], [sx * s1, s1, f1 * JL]);
     }
   }
-  for (let i = 0; i < 9; i++) {
-    box(jib, M.steel, 1.0, 0.1, 0.1, 0, 0, 0.8 + i * 1.7);
-    box(jib, M.steel, 0.1, 0.9, 0.1, 0.45, 0, 0.8 + i * 1.7);
-    box(jib, M.steel, 0.1, 0.9, 0.1, -0.45, 0, 0.8 + i * 1.7);
+  // The head sheaves, the luffing span back down to the house, and the whip
+  // with its hook hanging off the head.
+  cyl(jib, M.steelDark, 0.26, 0.26, 0.46, 0, 0, JL + 0.15, 10)
+    .rotation.z = Math.PI / 2;
+  const head = [0, heel[1] + JL * Math.sin(A), heel[2] + JL * Math.cos(A)];
+  for (const sgn of [-1, 1]) {
+    member(house, M.wire, 0.06, [sgn * 0.12, head[1], head[2]], [sgn * 0.5, 2.15, -2.2]);
   }
-  box(jib, M.wire, 0.05, 2.6, 0.05, 0, -1.4, 14.2);
-  box(jib, M.gunDark, 0.5, 0.4, 0.5, 0, -2.7, 14.2);
-  // Her other two aircraft are struck down in the hangar under the quarterdeck,
-  // which is what the doors in her transom are for.
-  // The recovery mat, stowed against the bulwark.
-  box(g, M.canvas, 5.0, 0.14, 9.0, S * 6.4, qd + 0.1, -66);
+  box(jib, M.wire, 0.05, 2.0, 0.05, 0, -1.0, JL + 0.1);
+  const hook = box(jib, M.gunDark, 0.4, 0.5, 0.4, 0, -2.2, JL + 0.1);
+  hook.rotation.y = 0.4;
+  // And the wire from the head down to the winch drum, so the fall is rove.
+  member(house, M.wire, 0.05, [0, head[1] - 0.2, head[2] - 0.2], [0, 1.6, -1.0]);
+}
+
+/**
+ * The fantail: what is actually on a Cleveland's quarterdeck abaft the
+ * catapults. It was bare planking for twenty metres, which on a ship whose
+ * whole after end is an aircraft installation is the one thing it cannot be.
+ */
+function fantail(g, qd) {
+  // The hangar hatch. Her spare aircraft are struck down through it into the
+  // hangar under the quarterdeck -- there are no doors in her transom, and
+  // this is what the crane on the centreline is actually for.
+  const HZ = -75.4;
+  const hy = deckAt(HZ);
+  box(g, M.steelDark, 6.2, 0.34, 6.4, 0, hy + 0.17, HZ);
+  box(g, M.deckDark, 5.7, 0.2, 5.9, 0, hy + 0.36, HZ);
+  for (const dz of [-1.5, 1.5]) box(g, M.steelDark, 5.8, 0.1, 0.22, 0, hy + 0.47, HZ + dz);
+  for (const sgn of [-1, 1]) {
+    // The hatch runners and the dogs round the coaming.
+    box(g, M.steel, 0.3, 0.3, 6.6, sgn * 3.2, hy + 0.5, HZ);
+    for (let i = 0; i < 5; i++) {
+      box(g, M.steelDark, 0.2, 0.2, 0.2, sgn * 3.25, hy + 0.2, HZ - 2.6 + i * 1.3);
+    }
+  }
+  // The handling track the aircraft dolly runs on, from the hatch to each
+  // catapult, which is why the crane and the catapults are where they are.
+  for (const sgn of [-1, 1]) {
+    for (const rail of [-0.5, 0.5]) {
+      box(g, M.steelDark, 0.16, 0.12, 12.0, sgn * CAT_X + rail, qd + 0.06, -76.0);
+    }
+    for (let i = 0; i < 7; i++) {
+      box(g, M.steelDark, 1.5, 0.08, 0.2, sgn * CAT_X, qd + 0.02, -81.4 + i * 1.8);
+    }
+  }
+  // The after capstan and its warping head, right aft where the stern line
+  // comes in, and the bollards either side of it.
+  const cz = -90.2;
+  const cy = deckAt(cz);
+  cyl(g, M.steelDark, 0.95, 1.1, 0.5, 0, cy + 0.25, cz, 16);
+  cyl(g, M.gunDark, 0.62, 0.7, 0.8, 0, cy + 0.85, cz, 14);
+  for (const sgn of [-1, 1]) {
+    for (const bz of [-82.0, -90.6]) {
+      const bw = halfDeck(bz) - 1.0;
+      for (const off of [-0.45, 0.45]) {
+        cyl(g, M.steelDark, 0.2, 0.24, 0.9, sgn * bw, deckAt(bz) + 0.45, bz + off, 8);
+      }
+      box(g, M.steelDark, 0.8, 0.22, 1.5, sgn * bw, deckAt(bz) + 0.11, bz);
+    }
+  }
+  // Aviation stores: the petrol drums in their rack against the after
+  // deckhouse coaming, and the ready lockers for the smoke floats.
+  for (const sgn of [-1, 1]) {
+    const rx = sgn * (halfDeck(-73) - 1.7);
+    box(g, M.steel, 1.5, 0.3, 4.2, rx, qd + 0.15, -73.0);
+    for (let i = 0; i < 4; i++) {
+      const d = cyl(g, M.gunDark, 0.42, 0.42, 1.2, rx, qd + 0.75, -74.6 + i * 1.1, 12);
+      d.rotation.z = Math.PI / 2;
+    }
+    box(g, M.steel, 1.1, 1.0, 2.2, sgn * (halfDeck(-83) - 1.4), deckAt(-83) + 0.5, -83.0);
+  }
+  // The recovery mat, rolled on its rack against the bulwark rather than lying
+  // over five metres of her quarterdeck like a carpet.
+  const mx = S * (halfDeck(-67) - 1.3);
+  box(g, M.steel, 1.6, 0.34, 7.2, mx, qd + 0.17, -67.0);
+  const roll = cyl(g, M.canvas, 0.72, 0.72, 6.8, mx, qd + 0.9, -67.0, 14);
+  roll.rotation.x = Math.PI / 2;
+  for (const dz of [-3.0, 0, 3.0]) {
+    box(g, M.steelDark, 1.9, 0.12, 0.12, mx, qd + 1.6, -67.0 + dz);
+    box(g, M.steelDark, 0.12, 1.6, 0.12, mx + S * 0.85, qd + 0.9, -67.0 + dz);
+  }
 }
 
 /** Boats: two motor launches and two whaleboats, on davits on the boat deck. */
@@ -1238,11 +1603,170 @@ function fittings(g) {
   for (const [lz, sgn] of [[41, -1], [41, 1], [-42, -1], [-42, 1], [-60, -1], [-60, 1]]) {
     box(g, M.steel, 1.0, 1.2, 2.0, sgn * (halfDeck(lz) - 1.6), deckAt(lz) + 0.6, lz);
   }
-  for (const [bx, bz] of [[S * 6.35, 20.6], [-S * 6.35, 20.6], [0, -90]]) {
+  // A Mk 51 director for each Bofors group: a little tub with a man in it and
+  // a Mk 14 gunsight on a pedestal. Without them her forty-millimetre is four
+  // mountings firing by eye, which after 1942 it was not.
+  const mk51 = (x, y, z, ry) => {
+    const d = new THREE.Group();
+    d.position.set(x, y, z);
+    d.rotation.y = ry;
+    g.add(d);
+    cyl(d, M.steel, 0.78, 0.86, 1.05, 0, 0.52, 0, 14);
+    cyl(d, M.steelDark, 0.88, 0.88, 0.12, 0, 1.08, 0, 14);
+    const h = new THREE.Group();
+    h.position.y = 1.1;
+    h.userData.dynamic = true;
+    h.userData.rest = ry;
+    d.add(h);
+    cyl(h, M.gunDark, 0.16, 0.2, 0.5, 0, 0.25, 0, 8);
+    box(h, M.gun, 0.5, 0.34, 0.66, 0, 0.62, 0.1);
+    box(h, M.glass, 0.3, 0.16, 0.08, 0, 0.66, 0.46);
+    for (const sgn of [-1, 1]) box(h, M.gunDark, 0.1, 0.1, 0.42, sgn * 0.3, 0.72, 0.2);
+  };
+  for (const sgn of [-1, 1]) {
+    mk51(sgn * 6.9, L01() + 0.2, 28.6, sgn * 0.5);
+    mk51(sgn * 4.6, L01() + 3.05, -25.0, Math.PI - sgn * 0.3);
+    mk51(sgn * 2.2, deckAt(-83.4) + 0.1, -83.4, Math.PI - sgn * 0.4);
+  }
+  // Flag bags on the open bridge wings, and the halyards off the yard.
+  for (const sgn of [-1, 1]) {
+    box(g, M.steel, 1.5, 0.75, 0.9, sgn * 5.2, L04() + 0.55, 19.4);
+    for (let i = 0; i < 4; i++) {
+      box(g, M.canvas, 0.3, 0.6, 0.8, sgn * 5.2 - 0.55 + i * 0.37, L04() + 0.6, 19.4);
+    }
+  }
+
+  // Life rings, each in the rack it hangs on.
+  //
+  // A ring is stowed in a bracket on a stanchion at the rail, where a hand can
+  // reach it and throw it over the side. The one right aft used to sit on the
+  // centreline a metre and a half above the quarterdeck with nothing at all
+  // under it -- it passed the weld only because the ensign staff happened to
+  // run up through the middle of it, and from anywhere abeam it was a ring
+  // hanging in the air off her stern.
+  for (const [bx, by, bz] of [
+    [S * 6.35, L04() + 0.7, 20.6], [-S * 6.35, L04() + 0.7, 20.6],
+    [halfDeck(-84) - 0.45, deckAt(-84) + 0.80, -84],
+    [-(halfDeck(-84) - 0.45), deckAt(-84) + 0.80, -84],
+  ]) {
     const t = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.12, 6, 12), M.mark);
-    t.position.set(bx, bz > 0 ? L04() + 0.7 : deckAt(bz) + 1.5, bz);
+    t.position.set(bx, by, bz);
     t.rotation.y = Math.PI / 2;
     g.add(t);
+    box(g, M.steelDark, 0.11, 0.80, 0.11, bx, by - 0.46, bz);
+    box(g, M.steelDark, 0.10, 0.10, 0.62, bx, by, bz);
+  }
+}
+
+/**
+ * What is on her weather deck between the deckhouse and the deck edge.
+ *
+ * A cruiser's waist is a working alleyway two metres wide and seventy long,
+ * and it is never empty: fire mains and hose reels, ready-service lockers at
+ * every mounting, ventilator mushrooms over the machinery spaces, hatches with
+ * coamings a foot high, and the splinter mattresses lashed along the rail.
+ * Left bare it reads as a promenade deck, which is what hers was.
+ */
+function deckGear(g) {
+  // The forecastle, from the windlass forward. A bullnose on the centreline at
+  // the stem for the towing hawser, chain stoppers on each cable between the
+  // wildcat and the hawse, and the deck hatches under the break.
+  const bz = 89.6;
+  const by = deckAt(bz);
+  box(g, M.grey, 2.2, 1.5, 1.4, 0, by + 0.6, bz);
+  cyl(g, M.cave, 0.5, 0.5, 1.6, 0, by + 0.7, bz, 12).rotation.x = Math.PI / 2;
+  box(g, M.steelDark, 2.3, 0.16, 1.5, 0, by + 1.38, bz);
+  for (const sgn of [-1, 1]) {
+    for (const sz of [79.5, 82.5]) {
+      box(g, M.steelDark, 0.9, 0.55, 0.7, sgn * 2.2, deckAt(sz) + 0.28, sz);
+      box(g, M.gunDark, 0.3, 0.7, 0.28, sgn * 2.2, deckAt(sz) + 0.6, sz);
+    }
+    // The deck-edge chocks the mooring lines run through, forward.
+    for (const cz of [71, 62]) {
+      const cw = halfDeck(cz) - 0.5;
+      box(g, M.steelDark, 0.8, 0.5, 1.0, sgn * cw, deckAt(cz) + 0.3, cz);
+      cyl(g, M.cave, 0.22, 0.22, 0.9, sgn * cw, deckAt(cz) + 0.34, cz, 8)
+        .rotation.z = Math.PI / 2;
+    }
+  }
+  // Escape and store hatches down the length of her, coaming and lid.
+  for (const [hz, hw, hl] of [[68, 1.7, 2.2], [52, 1.6, 2.0], [-46, 1.7, 2.2],
+    [-60, 1.6, 2.0]]) {
+    for (const sgn of [-1, 1]) {
+      const hx = sgn * (halfDeck(hz) - 2.6);
+      box(g, M.steelDark, hw, 0.28, hl, hx, deckAt(hz) + 0.14, hz);
+      const lid = box(g, M.steel, hw - 0.2, 0.12, hl - 0.2, hx, deckAt(hz) + 0.3, hz);
+      lid.rotation.z = sgn * 0.04;
+    }
+  }
+  // The waist. Everything here hangs on the deckhouse side at x = 8.1 or
+  // stands on the two metres of deck outboard of it.
+  for (const sgn of [-1, 1]) {
+    const side = sgn * 8.1;
+    // Fire mains up the deckhouse side with a reel on each.
+    for (const fz of [30, 16, 2, -14, -30]) {
+      const fy = deckAt(fz);
+      cyl(g, M.steelDark, 0.11, 0.11, 2.4, side - sgn * 0.22, fy + 1.2, fz, 8);
+      const reel = cyl(g, M.steel, 0.46, 0.46, 0.55, side - sgn * 0.5, fy + 0.85, fz + 0.9, 12);
+      reel.rotation.z = Math.PI / 2;
+      cyl(g, M.canvas, 0.34, 0.34, 0.6, side - sgn * 0.5, fy + 0.85, fz + 0.9, 12)
+        .rotation.z = Math.PI / 2;
+    }
+    // Ready-service lockers, shut up against the house where the deck is
+    // widest and nobody has to walk round them.
+    for (const lz of [34, 20, -6, -24]) {
+      box(g, M.steel, 0.8, 1.1, 1.8, side - sgn * 0.5, deckAt(lz) + 0.55, lz);
+      box(g, M.steelDark, 0.86, 0.1, 1.86, side - sgn * 0.5, deckAt(lz) + 1.12, lz);
+    }
+    // Mushroom ventilators over the machinery, on the deck outboard.
+    for (const vz of [33, 19, 6, -8, -25]) {
+      const vx = sgn * (halfDeck(vz) - 1.1);
+      cyl(g, M.steel, 0.36, 0.42, 0.9, vx, deckAt(vz) + 0.45, vz, 10);
+      cyl(g, M.steelDark, 0.62, 0.5, 0.34, vx, deckAt(vz) + 1.05, vz, 12);
+    }
+    // Splinter mattresses, rolled and lashed along the inside of the rail.
+    for (const mz of [27, 11, -18]) {
+      const mx = sgn * (halfDeck(mz) - 0.7);
+      const roll = cyl(g, M.canvas, 0.3, 0.3, 4.0, mx, deckAt(mz) + 0.4, mz, 10);
+      roll.rotation.x = Math.PI / 2;
+      for (const dz of [-1.5, 1.5]) {
+        box(g, M.steelDark, 0.8, 0.08, 0.08, mx, deckAt(mz) + 0.4, mz + dz);
+      }
+    }
+    // Paravanes, on their chocks abreast turret 2 where a cruiser stowed them.
+    const px = sgn * (halfDeck(46) - 1.8);
+    const pv = new THREE.Group();
+    pv.position.set(px, deckAt(46) + 0.9, 46);
+    pv.rotation.z = sgn * 0.1;
+    g.add(pv);
+    loftRings(pv, M.steel, [
+      [0.2, 0.9, 0, -1.7], [0.42, 1.0, 0, -0.9], [0.42, 1.0, 0, 0.9],
+      [0.12, 0.6, 0, 1.7],
+    ], { px: 0.7, pz: 0.8, n: 10 });
+    box(pv, M.steel, 1.5, 0.12, 0.7, 0, 0.1, -0.3);
+    box(pv, M.steel, 0.12, 1.1, 0.7, 0, 0.6, -1.1);
+    for (const dz of [-1.2, 1.2]) box(g, M.steelDark, 1.0, 0.7, 0.3, px, deckAt(46) + 0.35, 46 + dz);
+    // And the accommodation ladder, triced up against her side and stowed
+    // fore and aft on the deck, which is where it lives at sea.
+    const ax = sgn * (halfDeck(-36) - 0.8);
+    box(g, M.steel, 0.5, 0.2, 7.0, ax, deckAt(-36) + 0.75, -36);
+    for (let i = 0; i < 9; i++) {
+      box(g, M.steelDark, 0.9, 0.08, 0.3, ax, deckAt(-36) + 0.85, -39.2 + i * 0.8);
+    }
+    for (const dz of [-3.0, 3.0]) {
+      box(g, M.steelDark, 0.6, 0.7, 0.24, ax, deckAt(-36) + 0.35, -36 + dz);
+    }
+  }
+  // The 01 deck edge: a lip standing proud of the deckhouse side all the way
+  // along, which is what stops seventy metres of plating reading as a wall.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 24; i++) {
+      const z = BRIDGE_A + 1.5 + i * ((BRIDGE_F - BRIDGE_A - 3.0) / 23);
+      box(g, M.steelDark, 0.7, 0.16, 3.2, sgn * 8.3, L01() - 0.12, z);
+      // and the brackets under it.
+      const br = box(g, M.steel, 0.16, 0.7, 0.16, sgn * 8.4, L01() - 0.55, z);
+      br.rotation.z = sgn * 0.5;
+    }
   }
 }
 
@@ -1264,6 +1788,7 @@ const STATIC = [
   ['boats', boats],
   ['groundTackle', groundTackle],
   ['fittings', fittings],
+  ['deckGear', deckGear],
   ['lightAA', lightAA],
   ['secondary', secondary],
   ['railings', railings],
