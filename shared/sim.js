@@ -44,6 +44,8 @@ export function createState(world, opts = {}) {
     batteries: [],
     shells: [],
     torps: [],
+    // The depth charges in the water, sinking. See stepCharges.
+    charges: [],
     // Rounds from aircraft guns, in flight. Small, short-lived and real:
     // see stepBullets.
     bullets: [],
@@ -213,6 +215,22 @@ export function addShip(state, {
       id: t.id, angle: t.angle, elev: 0, cooldown: 0, disabled: 0, hurt: 0,
     })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
+    // The depth charge gear. `dcLeft` is how many charges are still in the
+    // stowage, `dcMounts` is a reload clock per rack and per thrower, `dcSet`
+    // is what the pistols are wound to, and `dcAuto` is whether her own
+    // anti-submarine officer is allowed to attack without being asked. See the
+    // depth charge section.
+    dcLeft: cls.depthCharges ? cls.depthCharges.carried : 0,
+    dcMounts: chargeMounts(cls).map((_, i) => ({ id: i, cooldown: 0 })),
+    dcSet: cls.depthCharges ? cls.depthCharges.set : 0,
+    dcAuto: 1,
+    dcHold: 0,
+    // How wrong her plot of the contact is, rolled once per attack, and the
+    // plot itself -- carried forward after the set loses her in the baffles,
+    // which is how every attack in the war was actually fired. See
+    // stepDepthAttack.
+    dcErr: null,
+    dcTrack: null,
     // The secondary battery, mount by mount. It is not laid by her captain --
     // a secondary mounting is in local control, and the gun captain shoots at
     // whatever he can see and bear on -- so each one carries its own target,
@@ -504,6 +522,17 @@ function stepCollisions(state, dt) {
     for (let j = i + 1; j < alive.length; j++) {
       const a = alive[i], b = alive[j];
       const ca = shipClass(a), cb = shipClass(b);
+      // A boat that is properly down is under everybody's keel and cannot be
+      // run into. This matters rather more than it sounds: the fending-off
+      // radius here is a quarter of the two ships' lengths added together,
+      // which for a destroyer and a Type VII is fifty metres -- so a boat
+      // thirty metres down was being shouldered aside, and rammed, by a ship
+      // that was nowhere near her, and no depth charge attack could ever be
+      // run home. She is clear once she has more water over her than the other
+      // ship draws; at periscope depth her tower is still up there, and ships
+      // did ram boats at periscope depth.
+      if (ca.dive && a.depth > cb.hull.draft) continue;
+      if (cb.dive && b.depth > ca.hull.draft) continue;
       const minD = (ca.hull.length + cb.hull.length) * 0.28;
       const d = dist(a.x, a.z, b.x, b.z);
       if (d > minD || d === 0) continue;
@@ -3061,6 +3090,340 @@ function stepTorpedoes(state, dt) {
     if (!hit) out.push(tp);
   }
   state.torps = out;
+}
+
+// ---------------------------------------------------------------------------
+// Depth charges
+// ---------------------------------------------------------------------------
+//
+// The other thing a destroyer is for, and the only weapon in the game that is
+// not aimed at anything.
+//
+// Everything else she carries is laid: a gun is put on a bearing, a torpedo is
+// run out on a course, and the answer arrives in seconds. A depth charge is
+// none of that. The boat is somewhere under the sea and cannot be seen at all;
+// what the ship has is a sonar bearing and a range that go quiet the moment
+// she is close enough to attack, because the beam looks ahead and down and the
+// boat is by then under her forefoot. So the pattern is put into the water
+// over where she was, and then everybody waits the eleven seconds it takes
+// three hundred pounds of TNT to sink thirty metres.
+//
+// Which means the whole of the weapon is in four numbers -- how fast a charge
+// sinks, how deep its pistol is set, how close it has to be, and how long the
+// racks take to reload -- and all four are on the datasheet.
+
+/**
+ * Every depth charge mounting she carries: the stern racks first, then the
+ * throwers.
+ *
+ * One flat list, numbered once, because that is what the arsenal shows, what
+ * the model builds, and what an order to drop names. Racks first because that
+ * is the order a captain thinks of them in -- the racks are the attack and the
+ * throwers widen it.
+ */
+export function chargeMounts(cls) {
+  const D = cls && cls.depthCharges;
+  if (!D) return [];
+  return [
+    ...(D.racks || []).map((m) => ({ ...m, rack: true })),
+    ...(D.throwers || []).map((m) => ({ ...m, rack: false })),
+  ];
+}
+
+/**
+ * Set the pistols.
+ *
+ * `set` is metres, and it is held to what the racks can actually be wound to:
+ * a Mk 6 pistol is a hydrostat with detents, not a dial.
+ */
+export function setChargeDepth(ship, set) {
+  const D = shipClass(ship).depthCharges;
+  if (!D) return 0;
+  const want = Number(set);
+  if (!Number.isFinite(want)) return ship.dcSet;
+  let best = D.settings[0];
+  for (const s of D.settings) if (Math.abs(s - want) < Math.abs(best - want)) best = s;
+  ship.dcSet = best;
+  return best;
+}
+
+/**
+ * The nearest submerged enemy her sonar has hold of, or null.
+ *
+ * A QC set is a searchlight: it looks forward and down through an arc of about
+ * a hundred and fifty degrees, it is deaf in the cone astern where her own
+ * screws are making all the noise in the ocean, and it hears nothing at all
+ * that is not under water -- a boat on the surface is a lookout's problem.
+ *
+ * Returns the boat, the range and the bearing relative to the ship's head,
+ * because those three are the whole of what a sonar operator has to report.
+ */
+export function sonarContact(state, ship) {
+  const D = shipClass(ship).depthCharges;
+  if (!D || !D.sonar || !ship.alive) return null;
+  // Her own flow noise. A hull-mounted set is a microphone bolted to the
+  // outside of a ship: above about twenty-four knots it hears nothing but the
+  // water going past it, which is why an escort holding contact goes slowly
+  // and why the run-in is the dangerous part.
+  if (D.sonarSpeed && Math.abs(ship.speed) > D.sonarSpeed) return null;
+  let best = null;
+  for (const boat of state.ships) {
+    if (!boat.alive || boat.team === ship.team) continue;
+    if (!getClass(boat.classId).dive || !submerged(boat)) continue;
+    const range = dist(ship.x, ship.z, boat.x, boat.z);
+    if (range > D.sonar) continue;
+    // And the near limit: the beam will not depress far enough to follow her
+    // under the forefoot. This is not a detail -- it is the reason every
+    // attack in the war ended blind, fired on a plot carried forward from the
+    // last good bearing.
+    if (range < (D.sonarMin || 0)) continue;
+    const bearing = wrapAngle(headingTo(ship.x, ship.z, boat.x, boat.z) - ship.heading);
+    // The baffles: her own wake and her own screws, and nothing is heard
+    // through them.
+    if (Math.abs(bearing) > 2.62) continue;
+    if (!best || range < best.range) best = { ship: boat, range, bearing };
+  }
+  return best;
+}
+
+/**
+ * Put a pattern in the water.
+ *
+ * `only` is one mounting by its number in `chargeMounts`, or null for
+ * everything that is loaded -- which is what a captain ordering a pattern
+ * means: both racks and all six throwers, eight charges across the boat's
+ * track at once.
+ *
+ * Returns how many charges went, which is what the caller wants to know:
+ * nothing goes if the racks are empty or still being reloaded, and a ship that
+ * pressed the key and got nothing has to be told so.
+ */
+export function dropCharges(state, ship, only = null) {
+  const cls = shipClass(ship);
+  const D = cls.depthCharges;
+  if (!D || !ship.alive || ship.dcLeft <= 0) return 0;
+  const mounts = chargeMounts(cls);
+  let dropped = 0;
+  for (const m of ship.dcMounts) {
+    if (only !== null && m.id !== only) continue;
+    if (m.cooldown > 0) continue;
+    if (ship.dcLeft <= 0) break;
+    const spec = mounts[m.id];
+    if (!spec) continue;
+    // Where it enters the water. A rack rolls its charge off the stern and it
+    // goes in where the stern is; a K-gun throws its arbor out on the beam, so
+    // the charge enters the sea the better part of sixty metres from the side
+    // of the ship. That difference is the whole reason for the throwers: a
+    // pattern from the racks alone is a line down her own wake, and a boat
+    // fifty yards off it never hears anything but the noise.
+    const out = spec.rack ? 0 : (spec.x < 0 ? -1 : 1) * (spec.throw || D.throw || 55);
+    const at = localToWorld(spec.x + out, spec.z, ship.heading);
+    state.charges.push({
+      id: eid(), owner: ship.id, team: ship.team,
+      x: ship.x + at.x, z: ship.z + at.z,
+      // It goes in at the surface and sinks from there.
+      y: 0,
+      set: ship.dcSet || D.set,
+      sink: D.sink, arming: D.arming,
+      damage: D.damage, lethal: D.lethal, hurt: D.hurt,
+      // How long it has been in the water, so a charge whose hydrostat never
+      // fires is not in the sea for the rest of the battle.
+      age: 0,
+    });
+    m.cooldown = D.reload;
+    ship.dcLeft--;
+    dropped++;
+  }
+  if (dropped) {
+    state.events.push({
+      e: 'dcDrop', ship: ship.id, x: ship.x, z: ship.z, n: dropped,
+    });
+  }
+  return dropped;
+}
+
+/**
+ * Her own fire control, working the racks.
+ *
+ * A depth charge attack is not something a captain has to press a key for any
+ * more than he lays the secondary battery himself: the sonar has the boat, the
+ * ship runs in over her, and the racks go at the moment the plot says she is
+ * under the quarterdeck. What the key is for is doing it earlier, or doing it
+ * when the operator has lost her and somebody has a better idea.
+ *
+ * So the attack goes in by itself unless it has been switched off, and the
+ * condition is exactly the one the real attack ran on: the contact is close,
+ * it is ahead, and it has gone quiet under the bow.
+ */
+function stepDepthAttack(state, ship, dt) {
+  const cls = shipClass(ship);
+  const D = cls.depthCharges;
+  if (!D) return;
+  for (const m of ship.dcMounts) if (m.cooldown > 0) m.cooldown -= dt;
+  if (ship.dcHold > 0) ship.dcHold -= dt;
+  // The plot, whether or not the set still has her.
+  //
+  // This is the whole of why an attack is hard, and it has to be modelled or
+  // the racks never miss. A QC set looks ahead and down; the last thing that
+  // happens on every attack in the war is that the contact walks into the
+  // baffles under the bow and is not heard again until the sea has stopped
+  // boiling. So the ship is always firing blind at the end of the run, on a
+  // position her plot has been carrying forward since the last good bearing --
+  // and the pattern goes where the plot says, not where the boat is.
+  const got = sonarContact(state, ship);
+  if (got) {
+    // The error in that bearing and range, rolled once per attack: it is a
+    // plot and not a dice throw, so the whole run shares one error, and it
+    // shrinks as she closes -- which is why an escort held contact and went in
+    // rather than dropping at the first ping.
+    if (!ship.dcErr) {
+      const a = state.rng() * TAU;
+      ship.dcErr = { a, r: Math.sqrt(state.rng()) };
+    }
+    const spread = 4 + got.range * 0.05;
+    const boat = got.ship;
+    const was = ship.dcTrack;
+    // How fast the plot says she is swinging. A recorder followed a target
+    // round a turn perfectly well, so a boat that simply holds her helm over
+    // is still being plotted; what breaks the plot is changing what she is
+    // doing after the set has lost her, which is exactly what a boat under
+    // attack was trying to do.
+    let turn = 0;
+    if (was && dt > 0) turn = clamp(wrapAngle(boat.heading - was.h) / dt, -0.2, 0.2);
+    ship.dcTrack = {
+      x: boat.x + Math.sin(ship.dcErr.a) * ship.dcErr.r * spread,
+      z: boat.z + Math.cos(ship.dcErr.a) * ship.dcErr.r * spread,
+      h: boat.heading,
+      v: boat.speed,
+      turn: was ? was.turn * 0.9 + turn * 0.1 : 0,
+      age: 0,
+    };
+  } else if (ship.dcTrack) {
+    // Carried forward round the last course and the last rate of turn, and
+    // thrown away when it is too old to be worth anything.
+    ship.dcTrack.h = wrapAngle(ship.dcTrack.h + ship.dcTrack.turn * dt);
+    ship.dcTrack.x += Math.sin(ship.dcTrack.h) * ship.dcTrack.v * dt;
+    ship.dcTrack.z += Math.cos(ship.dcTrack.h) * ship.dcTrack.v * dt;
+    ship.dcTrack.age += dt;
+    // Ninety seconds is a long time to be carrying a guess forward, and it is
+    // what the recorder actually did: a plot is dropped when it has become
+    // useless, not when it has become uncertain.
+    if (ship.dcTrack.age > 90) { ship.dcTrack = null; ship.dcErr = null; }
+  }
+  if (!ship.dcAuto || ship.dcLeft <= 0 || ship.dcHold > 0 || !ship.dcTrack) return;
+  // How long a charge takes to reach the depth the pistols are wound to, and
+  // where the plot says she will have got to by then.
+  const fall = (ship.dcSet || D.set) / D.sink;
+  // Run the plot forward over the fall, round the turn it is carrying.
+  let bx = ship.dcTrack.x;
+  let bz = ship.dcTrack.z;
+  let bh = ship.dcTrack.h;
+  const STEPS = 6;
+  for (let i = 0; i < STEPS; i++) {
+    bh = wrapAngle(bh + ship.dcTrack.turn * (fall / STEPS));
+    bx += Math.sin(bh) * ship.dcTrack.v * (fall / STEPS);
+    bz += Math.cos(bh) * ship.dcTrack.v * (fall / STEPS);
+  }
+  // And the moment: the aim point has come abaft the stern, which is where a
+  // rack is, and it is inside the width the throwers can cover. That is
+  // exactly how an attack was fired -- the recorder ran the estimated position
+  // down the ship's own track and the word was given as it passed under the
+  // quarterdeck -- and it is why the pattern goes where the plot is rather
+  // than where the boat is.
+  const aim = worldToLocal(bx - ship.x, bz - ship.z, ship.heading);
+  const stern = cls.hull.length * 0.46;
+  if (aim.z > -stern || aim.z < -stern * 3) return;
+  if (Math.abs(aim.x) > (D.throw || 55) * 0.7) return;
+  if (dropCharges(state, ship)) {
+    // Long enough for the pattern to go down, for the sea to stop boiling and
+    // for her to run out, turn and come back: nobody attacks the same contact
+    // twice inside twenty seconds, and the set is deaf in her own disturbance
+    // anyway.
+    ship.dcHold = 22;
+    ship.dcErr = null;
+    ship.dcTrack = null;
+    state.events.push({ e: 'dcAttack', ship: ship.id, x: ship.x, z: ship.z });
+  }
+}
+
+/**
+ * The charges in the water, sinking.
+ *
+ * Nothing is laid and nothing is guided: they go straight down at the rate the
+ * drum was ballasted for, and the pistol fires at the depth the rack was set
+ * to on the way out. Everything interesting happens in the instant it does.
+ */
+function stepCharges(state, dt) {
+  if (!state.charges.length) return;
+  const out = [];
+  for (const c of state.charges) {
+    c.age += dt;
+    c.y -= c.sink * dt;
+    // The sea has a bottom, and a charge that reaches it goes off against it.
+    const floor = -Math.max(30, c.set + 25);
+    if (-c.y < c.set && c.y > floor && c.age < 90) { out.push(c); continue; }
+    burstCharge(state, c);
+  }
+  state.charges = out;
+}
+
+/**
+ * One charge going off.
+ *
+ * Three hundred pounds of TNT in water, which is a very different thing from
+ * the same charge in air: water does not compress, so the shock goes out as a
+ * wall rather than a puff, and what it does to a pressure hull is not a hole
+ * but a crush. Inside the lethal radius a boat is opened; out to `hurt` she is
+ * sprung, her lights go, her gauges break and she starts leaking at every
+ * gland -- which is most of what depth charging actually achieved, and is why
+ * it worked: a boat does not have to be sunk, only made to come up.
+ */
+function burstCharge(state, c) {
+  state.events.push({ e: 'dcBurst', x: c.x, y: c.y, z: c.z, owner: c.owner });
+  const owner = state.ships.find((s) => s.id === c.owner);
+  // A pistol that has not armed is a drum of wet TNT and does nothing at all.
+  if (-c.y < c.arming) return;
+  for (const target of state.ships) {
+    if (!target.alive) continue;
+    const cls = getClass(target.classId);
+    // How far it is from the burst to the nearest piece of her. Her hull is a
+    // box: her length and beam in plan, and in the vertical from her keel to
+    // her deck -- which for a boat that is down is the whole of her, thirty
+    // metres under the surface.
+    const l = worldToLocal(c.x - target.x, c.z - target.z, target.heading);
+    const dx = Math.max(0, Math.abs(l.x) - cls.hull.beam * 0.5);
+    const dz = Math.max(0, Math.abs(l.z) - cls.hull.length * 0.5);
+    const top = -target.depth;
+    const keel = top - cls.hull.draft;
+    const dy = c.y > top ? c.y - top : (c.y < keel ? keel - c.y : 0);
+    const d = Math.hypot(dx, dz, dy);
+    if (d > c.hurt) continue;
+    // A submarine is a pressure hull and takes the shock as a pressure hull
+    // does. A surface ship takes it on her bottom plating, with the whole of
+    // her reserve buoyancy above it, and is shaken rather than crushed -- but
+    // she is not immune, which is why the pistols are set deep and why a ship
+    // attacking wants way on her.
+    const boat = !!cls.dive;
+    const near = clamp((c.hurt - d) / Math.max(0.5, c.hurt - c.lethal), 0, 1);
+    const share = boat ? near * near : near * near * 0.22;
+    if (share < 0.02) continue;
+    const where = sectionAt(clamp(l.z / (cls.hull.length * 0.5), -1, 1), 'belt');
+    damageShip(state, target, owner, c.damage * share, 'depthCharge', where);
+    if (target.sections[where]) target.sections[where].pens++;
+    // Inside the lethal radius her plating is opened and the sea comes in,
+    // which for a boat that is already under is the end of the argument.
+    if (d < c.lethal) {
+      const side = l.x >= 0 ? 1 : -1;
+      openHull(state, target, where, (14 + state.rng() * 20) * (boat ? 1 : 0.4),
+        side, Math.max(1, cls.hull.draft * 0.8));
+      wreckContents(state, target, where, 0.53, 'depthCharge',
+        { x: l.x, y: -cls.hull.draft * 0.6, z: l.z });
+    }
+    if (owner && owner.team !== target.team && boat) owner.ribbons.torps++;
+    state.events.push({
+      e: 'dcHit', x: c.x, y: c.y, z: c.z, victim: target.id, owner: c.owner,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -6543,12 +6906,14 @@ export function step(state, dt = DT) {
     stepSecondary(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
     stepFlak(state, ship, dt);
+    stepDepthAttack(state, ship, dt);
   }
   stepCollisions(state, dt);
   stepBatteries(state, dt);
   stepShells(state, dt);
   stepBullets(state, dt);
   stepTorpedoes(state, dt);
+  stepCharges(state, dt);
   stepPlanes(state, dt);
   stepBombers(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);

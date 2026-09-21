@@ -669,6 +669,38 @@ input[type="range"] { accent-color: var(--red); }
 .arms-bear.part { color: var(--sand); }
 .arms-bear.masked { color: var(--enemy); }
 
+/* The depth charge gear's controls. It is the one weapon aboard that is not
+   laid on anything, so its row carries the orders instead of a bearing: what
+   the pistols are wound to, the word to let go, and whether her own
+   anti-submarine officer may attack a contact without being asked. */
+.arms-dc { margin-top: 0.3rem; padding-top: 0.28rem; border-top: 1px solid var(--panel-line); }
+.arms-dc-sets { display: flex; gap: 0.25rem; margin-bottom: 0.3rem; }
+.arms-dc-set {
+  flex: 1; background: rgba(8, 19, 31, 0.6); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.66rem;
+  letter-spacing: 0.1em; padding: 0.24rem 0; cursor: pointer;
+}
+.arms-dc-set:hover { border-color: rgba(230, 207, 156, 0.5); color: var(--sand); }
+.arms-dc-set.on { border-color: var(--sand); color: var(--sand-bright); }
+.arms-dc-fire, .arms-dc-auto {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: rgba(8, 19, 31, 0.6); border: 1px solid var(--panel-line);
+  padding: 0.34rem 0.55rem; margin-bottom: 0.25rem; cursor: pointer;
+  color: var(--steel); font-family: var(--ui); font-size: 0.7rem;
+  letter-spacing: 0.12em;
+}
+.arms-dc-fire { border-left: 2px solid rgba(226, 86, 79, 0.65); }
+.arms-dc-fire:hover { border-color: rgba(230, 207, 156, 0.55); color: var(--sand); }
+.arms-dc-fire b, .arms-dc-auto b { color: var(--sand); font-size: 0.74rem; }
+.arms-dc-fire.spent { opacity: 0.42; cursor: default; }
+.arms-dc-auto.on { border-color: rgba(111, 211, 160, 0.5); color: var(--ally); }
+.arms-dc-auto.on b { color: var(--ally); }
+.arms-dc-sonar {
+  font-size: 0.62rem; letter-spacing: 0.14em; color: var(--steel);
+  opacity: 0.7; text-align: center; padding-top: 0.12rem;
+}
+.arms-dc-sonar.on { color: var(--enemy); opacity: 1; }
+
 /* The telegraph, laid out as the lever it is: astern at the bottom, flank at
    the top, and the notch she is ringing up lit. */
 .tele-rows { display: flex; flex-direction: column-reverse; gap: 4px; }

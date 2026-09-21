@@ -25,7 +25,7 @@ import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
-  useSmoke, canFire, steerToward,
+  useSmoke, canFire, steerToward, sonarContact,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 
@@ -63,6 +63,37 @@ function preferredRange(cls) {
  * are still hers and still do their jobs; what she will not do is steer herself
  * or fly off her own aircraft. Those two belong to whoever is conning her.
  */
+/**
+ * The anti-submarine hunt.
+ *
+ * Returns whether she is running an attack, in which case her steering and her
+ * telegraph belong to it and nothing else. Her guns go on firing at whatever
+ * they were on: a destroyer depth charging a boat is still in the battle.
+ *
+ * The whole of it is speed. The set is drowned by her own flow noise much
+ * above twenty knots, so she holds contact slowly; but a shallow pattern
+ * dropped by a ship that is not moving goes off under her own quarterdeck, so
+ * the moment the contact walks into the baffles she rings for everything she
+ * has and runs over the plot. And then she keeps going, opens out, and comes
+ * back round: a ship circling inside her own disturbance hears nothing at all.
+ */
+function hunt(state, ship, cls) {
+  if (!cls.depthCharges || ship.dcLeft <= 0) return false;
+  const got = sonarContact(state, ship);
+  const at = got ? got.ship
+    : (ship.dcTrack && ship.dcTrack.age < 70 ? ship.dcTrack : null);
+  if (!at) return false;
+  if (ship.dcHold > 0) {
+    // Running out after the attack, to get clear of her own boiling water.
+    steerToward(state, ship, headingTo(at.x, at.z, ship.x, ship.z));
+    ship.notch = 5;
+    return true;
+  }
+  steerToward(state, ship, headingTo(ship.x, ship.z, at.x, at.z));
+  ship.notch = got ? 3 : 5;
+  return true;
+}
+
 export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
   const cls = getClass(ship.classId);
@@ -124,7 +155,13 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   ship.aimZ = lead.z + (Math.random() * 2 - 1) * err;
 
   if (!conned) {
-    if (hurt) {
+    if (hunt(state, ship, cls)) {
+      // A boat under her, and she is the only ship on the board that can do
+      // anything about it. She comes off whatever else she was doing until the
+      // contact is dead or lost: the racks fire themselves -- see
+      // stepDepthAttack -- and the whole of the captain's part in an attack is
+      // putting his stern over the plot at the right moment.
+    } else if (hurt) {
       // Going down fighting, and going down closer. Twenty degrees off the
       // bearing so her broadside still bears rather than only her forward
       // turret, and everything the engine room has left.

@@ -113,10 +113,10 @@ export const SHIP_CLASSES = {
       guns: [
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200,
           mounts: [
-            { x: -3.9, z: -11.2, angle: -0.45, arc: 2.09, guns: 2 },
-            { x: 3.9, z: -11.2, angle: 0.45, arc: 2.09, guns: 2 },
-            { x: -2.5, z: -32.2, angle: -2.6, arc: 2.09, guns: 2 },
-            { x: 2.5, z: -32.2, angle: 2.6, arc: 2.09, guns: 2 },
+            { x: -4.28, z: -11.2, angle: -0.45, arc: 2.09, guns: 2 },
+            { x: 4.28, z: -11.2, angle: 0.45, arc: 2.09, guns: 2 },
+            { x: -2.15, z: -32.2, angle: -2.6, arc: 2.09, guns: 2 },
+            { x: 2.15, z: -32.2, angle: 2.6, arc: 2.09, guns: 2 },
             { x: 0, z: -54.8, angle: Math.PI, arc: 2.27, guns: 2 },
           ] },
         // Seven single Oerlikons: four round the bridge on the 01 level, two
@@ -125,20 +125,87 @@ export const SHIP_CLASSES = {
         // and how a captain picks one out of the arsenal.
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
           mounts: [
-            { x: -3.5, z: 19, angle: -1.1, arc: 1.92, guns: 1 },
-            { x: 3.5, z: 19, angle: 1.1, arc: 1.92, guns: 1 },
-            { x: -3.5, z: 7, angle: -1.1, arc: 1.92, guns: 1 },
-            { x: 3.5, z: 7, angle: 1.1, arc: 1.92, guns: 1 },
-            { x: -3.75, z: -24, angle: -1.1, arc: 1.83, guns: 1 },
-            { x: 3.75, z: -24, angle: 1.1, arc: 1.83, guns: 1 },
+            { x: -3.5, z: 8.2, angle: -1.1, arc: 1.92, guns: 1 },
+            { x: 3.5, z: 8.2, angle: 1.1, arc: 1.92, guns: 1 },
+            { x: -4.5, z: 19.2, angle: -0.8, arc: 1.92, guns: 1 },
+            { x: 4.5, z: 19.2, angle: 0.8, arc: 1.92, guns: 1 },
+            { x: -3.9, z: -24, angle: -1.1, arc: 1.83, guns: 1 },
+            { x: 3.9, z: -24, angle: 1.1, arc: 1.83, guns: 1 },
             { x: 0, z: 28, angle: 0, arc: 2.09, guns: 1 },
           ] },
       ],
     },
-    // Two stern racks and six K-guns. There is nothing under the sea in this
-    // war to drop them on, so they are listed and carried and never used.
+    // Two Mk 3 stern racks and six Mk 6 K-guns, with fifty-six Mk 6 charges
+    // between them. This is the other half of what a Fletcher is for, and it
+    // is fought quite unlike everything else on her: there is no laying and no
+    // trigger, because a depth charge is not aimed. A pattern is put in the
+    // water where the boat was a minute ago, it sinks at a known rate, and the
+    // pistols fire at whatever depth the racks were set to on the way out.
+    //
+    // Every number here is the real gear's.
     depthCharges: {
-      name: 'Mk 6 depth charge', role: 'sub', racks: 2, throwers: 6, carried: 56,
+      name: 'Mk 6 depth charge', role: 'sub',
+      // Fifty-six charges, which is eight complete patterns and a spare.
+      carried: 56,
+      // Three hundred pounds of TNT going off against a pressure hull. A
+      // submarine that takes one inside the lethal radius does not come up.
+      damage: 10400,
+      // How fast a Mk 6 sinks, in metres a second: the drum was ballasted for
+      // about eight and a half feet a second, and everything about the attack
+      // -- how far ahead of the boat to drop, how long to wait -- comes off it.
+      sink: 2.6,
+      // Metres of water before the pistol arms. It is what keeps a charge from
+      // going off under the quarterdeck that rolled it, and it is why a ship
+      // attacking wants steerage way: the arithmetic below is unforgiving of a
+      // destroyer sitting still over her own pattern.
+      arming: 9,
+      // What the racks can be set to, and where they sit unless somebody says
+      // otherwise. Shallow for a boat caught on the surface or diving, deep
+      // for one that has had time to get down.
+      settings: [15, 30, 55],
+      set: 30,
+      // Inside this the hull is opened; out to `hurt` she is shaken, sprung
+      // and started, which is most of what depth charging actually did.
+      lethal: 8.5,
+      hurt: 22,
+      // Seconds for a rack or a thrower to be reloaded by hand, which is what
+      // decides how often a pattern can be put down.
+      reload: 12,
+      // How far a K-gun throws a charge out on the beam. The arbor was fired
+      // by a powder cartridge and the charge went between fifty and a hundred
+      // and fifty yards; the six throwers are loaded to three different
+      // distances so the pattern comes down as a band across the boat's track
+      // rather than a line down the ship's own wake. This is the default; each
+      // thrower carries its own below.
+      throw: 58,
+      // What her QC sonar hears a submerged boat at. It is a searchlight and
+      // not a radar: it gives a bearing and a range and nothing else, and it
+      // is deaf astern where her own screws are.
+      sonar: 2400,
+      // And what it cannot do, which decides the whole of how an attack is
+      // fought. The beam will not depress far enough to follow a boat under
+      // the forefoot, so contact is lost at about a hundred and fifty metres
+      // and the last part of every run is made blind on the plot; and the set
+      // is drowned by her own flow noise above about twenty-four knots, so a
+      // ship holding contact cannot also be going fast -- while a ship
+      // dropping shallow charges had better be.
+      sonarMin: 150,
+      sonarSpeed: 24 * KNOTS,
+      // The gear itself, where it stands on her. The model is built to these
+      // stations and there is a check that walks both and compares, the same
+      // way her guns and her tubes are held to her datasheet.
+      racks: [
+        { id: 0, x: -2.0, z: -55.0, my: 5.06, angle: Math.PI, arc: 0.45 },
+        { id: 1, x: 2.0, z: -55.0, my: 5.06, angle: Math.PI, arc: 0.45 },
+      ],
+      throwers: [
+        { id: 0, x: -4.35, z: -29.0, my: 5.42, angle: -Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 1, x: 4.35, z: -29.0, my: 5.42, angle: Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 2, x: -4.05, z: -34.0, my: 5.40, angle: -Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 3, x: 4.05, z: -34.0, my: 5.40, angle: Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 4, x: -3.62, z: -39.0, my: 5.36, angle: -Math.PI / 2, arc: 0.45, throw: 34 },
+        { id: 5, x: 3.62, z: -39.0, my: 5.36, angle: Math.PI / 2, arc: 0.45, throw: 34 },
+      ],
     },
     secondary: null,
     planes: null,

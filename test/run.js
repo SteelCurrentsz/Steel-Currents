@@ -25,6 +25,7 @@ import {
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
+  chargeMounts, dropCharges, setChargeDepth, sonarContact,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -199,8 +200,9 @@ import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
   __aircraft, deckPhases,
 } from '../client/js/render/enterprise.js';
-import { fletcherParts, buildFletcher, deckAt as fletcherDeckAt }
-  from '../client/js/render/fletcher.js';
+import {
+  fletcherParts, buildFletcher, fletcherCharges, deckAt as fletcherDeckAt,
+} from '../client/js/render/fletcher.js';
 import {
   clevelandParts, buildCleveland, deckAt as clevelandDeckAt,
   halfDeck as clevelandHalfDeck,
@@ -2264,6 +2266,342 @@ check('the destroyer has the sheer of a flush-decker', () => {
   assert.ok(fwd > mid + 2.0, `her deck rises only ${(fwd - mid).toFixed(2)} m forward`);
   assert.ok(aft < mid && aft > mid - 1.2,
     `her deck edge aft is at ${aft.toFixed(2)} against ${mid.toFixed(2)} amidships`);
+});
+
+check('nothing on the destroyer is swallowed by anything else', () => {
+  // The other half of "no floating parts", and the half nothing was checking.
+  // A ship is welded together, so pieces are meant to overlap: a ladder
+  // bracket is let into the bulkhead it is bolted to, a funnel trunks down
+  // through the deckhouse it comes out of, a gun tub's floor is laid into the
+  // roof it stands on. All of that is how a ship is built.
+  //
+  // What is not is a thing with no part of it anywhere but inside somebody
+  // else -- a depth charge thrower whose barrel is inside the after
+  // deckhouse, a searchlight platform inside the fire room casing, a Carley
+  // float inside the funnel casing. Every one of those was true of her, and
+  // from outside you cannot see any of them: they look like pieces missing.
+  //
+  // So: a piece may pass through a structure, and it may stand on one. It may
+  // not be swallowed by one.
+  const parts = fletcherParts();
+  const vol = (q) => Math.max(1e-6,
+    (q.max[0] - q.min[0]) * (q.max[1] - q.min[1]) * (q.max[2] - q.min[2]));
+  const over = (a, b) => {
+    let v = 1;
+    for (let i = 0; i < 3; i++) {
+      const o = Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]);
+      if (o <= 0) return 0;
+      v *= o;
+    }
+    return v;
+  };
+  // A stick -- an aerial wire, a guy, a davit -- run on a diagonal casts an
+  // axis-aligned box the size of a house and is still a stick. Neither the
+  // thing buried nor the thing burying it can be one of those.
+  const stick = (q) => {
+    const d = [...q.size].sort((x, y) => y - x);
+    return d[0] > 3.5 * d[1];
+  };
+  // Her hull is one box from stem to stern and everything aboard is bolted
+  // through her deck, so she is nobody's intruder.
+  const byName = new Map();
+  for (const q of parts) {
+    if (q.from === 'hull') continue;
+    if (!byName.has(q.from)) byName.set(q.from, []);
+    byName.get(q.from).push(q);
+  }
+  const solid = [...byName.values()].flat().filter((q) => !stick(q));
+  /**
+   * Whether this piece's own assembly comes out of the far side.
+   *
+   * Half a metre clear, above or below. A hand's breadth is not enough: every
+   * tub, thrower and locker on a weather deck has its feet a centimetre or two
+   * below the box of the deckhouse beside it, and a test that took that for a
+   * foundation would pass a K-gun modelled inside the after deckhouse -- which
+   * is exactly what it did.
+   */
+  const emerges = (buried, host) => byName.get(buried.from).some((p) => {
+    if (p.min[0] > buried.max[0] || p.max[0] < buried.min[0]) return false;
+    if (p.min[2] > buried.max[2] || p.max[2] < buried.min[2]) return false;
+    return p.max[1] > host.max[1] + 0.5 || p.min[1] < host.min[1] - 0.5;
+  });
+  const swallowed = [];
+  for (let i = 0; i < solid.length; i++) {
+    for (let j = i + 1; j < solid.length; j++) {
+      const a = solid[i];
+      const b = solid[j];
+      if (a.from === b.from) continue;
+      // A quarter of a cubic metre: below that it is a fitting let into a
+      // bulkhead, which is right, and there are thousands of them.
+      const v = over(a, b);
+      if (v < 0.25) continue;
+      const small = vol(a) < vol(b) ? a : b;
+      const host = small === a ? b : a;
+      if (v <= 0.5 * vol(small)) continue;
+      if (emerges(small, host)) continue;
+      swallowed.push(`${small.from} inside ${host.from} at `
+        + `${JSON.stringify(small.min.map((q) => Math.round(q * 10) / 10))}`);
+    }
+  }
+  assert.equal(swallowed.length, 0,
+    `${swallowed.length} piece(s) swallowed, first ${swallowed[0]}`);
+});
+
+check('the destroyer\'s depth charge gear stands where her datasheet says', () => {
+  // The same rule her guns and her tubes are held to. The simulation drops a
+  // pattern from the stations on the sheet; the model builds the racks and the
+  // throwers from its own. Let them drift and the charges come off points in
+  // the air beside her -- and since a depth charge attack is fought entirely
+  // on where the pattern went in, that is the one thing that cannot drift.
+  const built = fletcherCharges();
+  const spec = chargeMounts(SHIP_CLASSES.fletcher);
+  assert.equal(built.length, spec.length,
+    `${built.length} pieces of gear modelled against ${spec.length} on the sheet`);
+  built.forEach((m, i) => {
+    assert.ok(Math.abs(m.x - spec[i].x) < 0.4 && Math.abs(m.z - spec[i].z) < 0.4,
+      `${spec[i].rack ? 'rack' : 'thrower'} ${i} is modelled at `
+      + `${m.x.toFixed(2)}, ${m.z.toFixed(1)} and laid at ${spec[i].x}, ${spec[i].z}`);
+  });
+  // Two racks at the transom and six throwers down the quarters, which is what
+  // a Fletcher carried.
+  assert.equal(spec.filter((m) => m.rack).length, 2, 'she has two stern racks');
+  assert.equal(spec.filter((m) => !m.rack).length, 6, 'she has six K-guns');
+  // And the throwers throw to three different distances, so a pattern comes
+  // down as a band across the boat's track rather than a line down her wake.
+  const throws = new Set(spec.filter((m) => !m.rack).map((m) => m.throw));
+  assert.ok(throws.size >= 3,
+    `her K-guns are all loaded to the same ${[...throws].join()} m`);
+});
+
+check('the racks put a pattern in the water and it sinks to its setting', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 0; dd.z = 0; dd.heading = 0; dd.dcAuto = 0;
+  const D = SHIP_CLASSES.fletcher.depthCharges;
+  assert.equal(dd.dcLeft, D.carried, 'she sails without her charges');
+  assert.equal(dd.dcMounts.length, 8, 'she has eight racks and throwers');
+  const n = dropCharges(state, dd);
+  assert.equal(n, 8, `${n} charges went over instead of eight`);
+  assert.equal(dd.dcLeft, D.carried - 8, 'the stowage did not come down');
+  assert.equal(state.charges.length, 8, 'the charges are not in the water');
+  // And the racks are being reloaded by hand, so nothing goes again until the
+  // party has finished: eight more charges on the next press would be the
+  // whole stowage over the side in ten seconds.
+  assert.equal(dropCharges(state, dd), 0, 'she dropped a second pattern at once');
+  // The racks roll theirs off the stern; the throwers put theirs out on the
+  // beam, which is what spreads the pattern across a boat's track.
+  const beam = state.charges.filter((c) => Math.abs(c.x) > 20);
+  assert.equal(beam.length, 6, `${beam.length} charges were thrown clear of her`);
+  // And they sink at the rate the drum was ballasted for, and go off at the
+  // depth the pistols were wound to.
+  let deepest = 0;
+  let burst = null;
+  for (let i = 0; i < 40 / DT; i++) {
+    for (const c of state.charges) deepest = Math.max(deepest, -c.y);
+    const ev = step(state, DT);
+    const b = ev.find((e) => e.e === 'dcBurst');
+    if (b && burst === null) burst = { at: state.t, y: b.y };
+  }
+  assert.ok(burst, 'nothing went off');
+  assert.ok(Math.abs(-burst.y - dd.dcSet) < 0.5,
+    `a charge set to ${dd.dcSet} m fired at ${(-burst.y).toFixed(1)}`);
+  assert.ok(Math.abs(burst.at - dd.dcSet / D.sink) < 1.0,
+    `it took ${burst.at.toFixed(1)} s to get there and should take `
+    + `${(dd.dcSet / D.sink).toFixed(1)}`);
+  assert.equal(state.charges.length, 0, 'charges are still in the water');
+  // Forty seconds later the party has reloaded and she can go again.
+  assert.equal(dropCharges(state, dd), 8, 'the racks never came back');
+});
+
+check('a charge close under a boat opens her, and a distant one shakes her', () => {
+  const run = (off) => {
+    const state = createState(generateWorld(77, 'open_ocean'), { mode: 'deathmatch' });
+    const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+    const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+    dd.x = 0; dd.z = 0; dd.heading = 0; dd.dcAuto = 0;
+    // Right over her, or a good way off her, and deep enough that the pistols
+    // have armed long before they get to her.
+    boat.x = off; boat.z = -55; boat.heading = 0;
+    const hp0 = boat.hp;
+    // One charge off the port rack, so what is being measured is one charge
+    // and not whichever of eight happened to land nearest.
+    dropCharges(state, dd, 0);
+    for (let i = 0; i < 40 / DT; i++) {
+      boat.depth = 30; boat.depthCmd = 30;
+      boat.x = off; boat.z = -55; boat.speed = 0; boat.notch = 0;
+      step(state, DT);
+    }
+    return { took: hp0 - boat.hp, alive: boat.alive, dd };
+  };
+  const on = run(2);
+  assert.ok(!on.alive, `a charge on top of her left her with ${Math.round(on.took)} taken`);
+  const near = run(18);
+  assert.ok(near.took > 0 && near.alive,
+    `eighteen metres off she took ${Math.round(near.took)}`);
+  const clear = run(40);
+  assert.equal(Math.round(clear.took), 0,
+    `forty metres off she still took ${Math.round(clear.took)}`);
+  // And nothing at all happens to the ship that dropped them, because by the
+  // time the pistols are down at thirty metres she is not over them any more
+  // -- which is the whole reason the pistols are set deep.
+  assert.equal(Math.round(on.dd.maxHp - on.dd.hp), 0,
+    'she blew her own stern off dropping a deep pattern');
+});
+
+check('a shallow pattern dropped by a ship lying stopped hurts her', () => {
+  // The lesson every escort learned, and the reason the book says fifteen
+  // knots: a charge set shallow is ten metres under the quarterdeck that
+  // dropped it, and water does not compress.
+  const set = (depth, speed) => {
+    const state = createState(generateWorld(78, 'open_ocean'), { mode: 'deathmatch' });
+    const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+    dd.x = 0; dd.z = 0; dd.heading = 0; dd.dcAuto = 0;
+    dd.speed = speed; dd.notch = speed > 0 ? 5 : 0;
+    setChargeDepth(dd, depth);
+    dropCharges(state, dd);
+    for (let i = 0; i < 40 / DT; i++) step(state, DT);
+    return dd.maxHp - dd.hp;
+  };
+  assert.ok(set(15, 0) > 500, 'she sat over her own shallow pattern and felt nothing');
+  assert.equal(Math.round(set(15, 16)), 0, 'she was hurt by a pattern she had run clear of');
+  assert.equal(Math.round(set(55, 0)), 0, 'a deep pattern reached back up to her');
+  // The pistols can only be wound to the settings the racks actually have.
+  const state = createState(generateWorld(79, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  assert.equal(setChargeDepth(dd, 33), 30, 'the hydrostat is a dial and not a detent');
+  assert.equal(setChargeDepth(dd, 900), 55, 'she set her pistols below the sea bed');
+});
+
+check('her sonar hears a boat ahead, and nothing else', () => {
+  const state = createState(generateWorld(4243, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  dd.x = 0; dd.z = 0; dd.heading = 0; dd.speed = 0;
+  const put = (x, z, depth, speed = 0) => {
+    boat.x = x; boat.z = z; boat.depth = depth; dd.speed = speed;
+    return sonarContact(state, dd);
+  };
+  const D = SHIP_CLASSES.fletcher.depthCharges;
+  const ahead = put(0, 800, 25);
+  assert.ok(ahead && Math.abs(ahead.range - 800) < 1, 'she cannot hear a boat right ahead');
+  assert.ok(Math.abs(ahead.bearing) < 0.01, `she puts it on ${ahead.bearing.toFixed(2)}`);
+  assert.ok(put(800, 0, 25), 'she cannot hear a boat on the beam');
+  // The baffles: her own screws, and nothing is heard through them.
+  assert.equal(put(0, -800, 25), null, 'she hears through her own wake');
+  // A boat on the surface is a lookout's problem, not the set's.
+  assert.equal(put(0, 800, 0), null, 'the set heard a boat on the surface');
+  // Beyond its range, under the forefoot, and drowned by her own flow noise.
+  assert.equal(put(0, D.sonar + 200, 25), null, 'the set reaches further than it should');
+  assert.equal(put(0, D.sonarMin - 40, 25), null,
+    'the beam followed a boat under her own forefoot');
+  assert.equal(put(0, 800, 25, D.sonarSpeed + 2), null,
+    'she held contact at thirty knots');
+});
+
+check('her own anti-submarine officer attacks a contact without being asked', () => {
+  // The racks are fought like her secondary battery: the captain is not asked.
+  // A boat that holds her course through an attack is dead; one that puts her
+  // helm over and keeps changing it breaks the plot and lives, which is
+  // exactly the fight that was fought over the Atlantic for six years.
+  const hunt = (jink) => {
+    const state = createState(generateWorld(4244, 'open_ocean'), { mode: 'deathmatch' });
+    const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+    const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+    dd.x = 0; dd.z = -900; dd.heading = 0; dd.notch = 3;
+    boat.x = 0; boat.z = 0; boat.heading = 0.6; boat.notch = 5; boat.depthCmd = 30;
+    let attacks = 0;
+    for (let i = 0; i < 600 / DT; i++) {
+      steerToward(state, dd, headingTo(dd.x, dd.z, boat.x, boat.z));
+      if (jink && dist(dd.x, dd.z, boat.x, boat.z) < 500) {
+        boat.rudderCmd = Math.sin(state.t / 9) > 0 ? 1 : -1;
+      }
+      for (const e of step(state, DT)) if (e.e === 'dcAttack') attacks++;
+      if (!boat.alive) break;
+    }
+    return { attacks, alive: boat.alive, left: dd.dcLeft };
+  };
+  const straight = hunt(false);
+  assert.ok(straight.attacks > 0, 'she ran over the boat and never dropped anything');
+  assert.ok(!straight.alive, 'a boat that held her course through an attack survived it');
+  assert.ok(straight.left < SHIP_CLASSES.fletcher.depthCharges.carried,
+    'the stowage never came down');
+  const jinking = hunt(true);
+  assert.ok(jinking.attacks > 1, 'she gave up on a boat that was still down there');
+  assert.ok(jinking.alive,
+    `a boat that kept her helm moving was still caught by ${jinking.attacks} attacks`);
+});
+
+check('the arsenal lists her depth charges as something that can be worked', () => {
+  const rows = arsenal(SHIP_CLASSES.fletcher);
+  const dc = rows.find((r) => r.band === 'Depth charges');
+  assert.ok(dc, 'her arsenal does not mention the racks');
+  assert.equal(dc.role, 'sub', 'the racks are listed against the wrong kind of target');
+  // It has to carry the gear as mountings, because that is what makes the row
+  // pressable: the panel raises her with the racks lit up on her and a captain
+  // orders one of them to let go by pressing it.
+  assert.ok(dc.specs && dc.specs.length === 8,
+    `${dc.specs ? dc.specs.length : 0} mountings on the row`);
+  assert.ok(dc.charges, 'the row does not say it is the depth charge gear');
+  for (const m of dc.specs) {
+    assert.ok(Number.isFinite(m.x) && Number.isFinite(m.z) && Number.isFinite(m.my),
+      'a rack has no place on the ship to light up');
+  }
+  // And the ship that has none does not get the row.
+  assert.ok(!arsenal(SHIP_CLASSES.iowa).some((r) => r.band === 'Depth charges'),
+    'a battleship is carrying depth charges');
+});
+
+check('the depth charge gear goes out on the wire and runs out of charges', () => {
+  const state = createState(generateWorld(4245, 'open_ocean'), { mode: 'deathmatch' });
+  const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  boat.x = 0; boat.z = 700; boat.depth = 25;
+  dd.x = 0; dd.z = 0; dd.heading = 0; dd.speed = 0;
+  const own = () => buildSnapshot(state, 0, dd.id).ships.find((s) => s.i === dd.id);
+  let s = own();
+  assert.equal(s.dcl, SHIP_CLASSES.fletcher.depthCharges.carried,
+    'the bridge is not told how many charges are left');
+  assert.equal(s.dcs, SHIP_CLASSES.fletcher.depthCharges.set, 'nor what the pistols are set to');
+  assert.equal(s.dca, 1, 'nor whether the racks are released to the sonar');
+  assert.ok(Array.isArray(s.dcm) && s.dcm.length === 8, 'nor which of them are loaded');
+  assert.ok(s.so && Math.abs(s.so[0] - 700) < 2, 'the sonar contact is not reported');
+  // Her charges in the water go to everybody: eight columns of white water is
+  // not private information.
+  dropCharges(state, dd);
+  const snap = buildSnapshot(state, 1, boat.id);
+  assert.equal(snap.charges.length, 8, 'the enemy cannot see a pattern going down');
+  // And the stowage is finite: fifty-six charges is seven full patterns.
+  let patterns = 1;
+  for (let i = 0; i < 400 / DT; i++) {
+    step(state, DT);
+    if (dropCharges(state, dd)) patterns++;
+  }
+  assert.equal(dd.dcLeft, 0, `she still has ${dd.dcLeft} charges aboard`);
+  assert.equal(patterns, 7, `${patterns} patterns out of fifty-six charges`);
+  assert.equal(dropCharges(state, dd), 0, 'she dropped a pattern with an empty stowage');
+});
+
+check('a boat that is properly down cannot be run into', () => {
+  // The fending-off radius is a quarter of the two ships' lengths added
+  // together, which for a destroyer and a Type VII is fifty metres. A boat
+  // thirty metres down was being shouldered aside by a ship that was nowhere
+  // near her, and rammed by her, so no depth charge attack could ever be run
+  // home at all.
+  const run = (depth) => {
+    const state = createState(generateWorld(4246, 'open_ocean'), { mode: 'deathmatch' });
+    const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+    const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+    dd.x = 0; dd.z = -60; dd.heading = 0; dd.notch = 5; dd.speed = 16; dd.dcAuto = 0;
+    boat.x = 0; boat.z = 0; boat.heading = 0; boat.depth = depth; boat.depthCmd = depth;
+    const hp0 = boat.hp;
+    for (let i = 0; i < 20 / DT; i++) {
+      boat.depth = depth; boat.depthCmd = depth;
+      step(state, DT);
+    }
+    return hp0 - boat.hp;
+  };
+  assert.equal(Math.round(run(30)), 0, 'she rammed a boat thirty metres under her keel');
+  assert.ok(run(0) > 0, 'a boat on the surface was steamed straight through');
 });
 
 check('the cruiser is the size the real Cleveland was', () => {

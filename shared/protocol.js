@@ -2,7 +2,9 @@
 // receive the enemies your side can actually see.
 
 import { getClass } from './ships.js';
-import { torpedoVisible, SECTIONS, sectionVolume, gunState } from './sim.js';
+import {
+  torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact,
+} from './sim.js';
 import { PARTS } from './airframe.js';
 
 /** The part keys, in the order a hole report packs them. */
@@ -15,7 +17,14 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const r2 = (v) => Math.round(v * 100) / 100;
 
-export function shipSnapshot(ship, full) {
+/**
+ * One ship on the wire.
+ *
+ * `state` is optional and is only there for the things a ship cannot answer
+ * about herself: what her sonar has hold of is a question about the rest of
+ * the sea, not about her.
+ */
+export function shipSnapshot(ship, full, state = null) {
   const cls = getClass(ship.classId);
   const s = {
     i: ship.id, x: r1(ship.x), z: r1(ship.z), h: r3(ship.heading),
@@ -138,6 +147,20 @@ export function shipSnapshot(ship, full) {
     // The bridge has to know, because the first call-away only buys her time
     // and it is the second that starts taking the water out of her.
     s.dc = Math.min(2, ship.dcStage || 0);
+    // The depth charge gear, for the bridge that works it: how many charges
+    // are left in the stowage, what the pistols are wound to, how long each
+    // rack and thrower has to go, and whether her own anti-submarine officer
+    // has been left to get on with it.
+    if (cls.depthCharges) {
+      s.dcl = ship.dcLeft;
+      s.dcs = ship.dcSet;
+      s.dcm = ship.dcMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+      s.dca = ship.dcAuto ? 1 : 0;
+      // And what the set has hold of: range in metres and bearing relative to
+      // her head. It is her own operator's report and goes nowhere else.
+      const ping = state ? sonarContact(state, ship) : null;
+      if (ping) s.so = [Math.round(ping.range), r3(ping.bearing)];
+    }
     s.smk = ship.smoke;
     s.st = ship.shellType;
     s.ax = Math.round(ship.aimX); s.az = Math.round(ship.aimZ);
@@ -201,7 +224,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       });
       continue;
     }
-    ships.push(shipSnapshot(s, friendly || s.id === viewerShipId || watched));
+    ships.push(shipSnapshot(s, friendly || s.id === viewerShipId || watched, state));
   }
   const visibleOwners = new Set(ships.map((s) => s.i));
   const shells = [];
@@ -225,6 +248,14 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     if (!torpedoVisible(state, tp, team)) continue;
     torps.push({ i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team });
   }
+  // The depth charges going down. Everybody gets them, whoever dropped them:
+  // eight charges going into the sea off a destroyer's quarter is eight
+  // columns of white water and then a noise that is heard from the far side of
+  // the action, and a boat that could not tell she was being attacked would be
+  // a boat with nothing to decide.
+  const charges = (state.charges || []).map((c) => ({
+    i: c.id, x: r1(c.x), y: r1(c.y), z: r1(c.z), tm: c.team,
+  }));
   /**
    * How the leading aeroplane of a flight has been knocked about.
    *
@@ -366,7 +397,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, planes, batteries, bombers,
+    ships, contacts, shells, torps, charges, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

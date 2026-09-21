@@ -191,6 +191,10 @@ function batteryKind(row) {
   if (row.cond === 'sc') return 'sec';
   if (row.band === 'Torpedo tubes') return 'torp';
   if (row.band === 'Light battery') return 'aa';
+  // The depth charge gear. Nobody stands at a rack: it is worked from the
+  // quarterdeck by a party with a pinch bar, and what the captain does is give
+  // the word. See dropCharges.
+  if (row.charges) return 'dc';
   return null;
 }
 
@@ -233,11 +237,29 @@ export class Battle {
       // Pressing one of the circles on her is asking to stand at that gun.
       // A row's mountings are numbered from that row; the ship numbers her
       // close-range mountings across the whole battery. See lightMounts.
-      this.armsBoard.onPick((i) => this.manGun(batteryKind(row), i, row));
+      this.armsBoard.onPick((i) => (batteryKind(row) === 'dc'
+        ? this.dropCharges(i)
+        : this.manGun(batteryKind(row), i, row)));
     });
     // And an aeroplane's own armament: pressing a turret puts you in it, and
     // pressing the one you are in gets you out again.
     this.hud.onAirArsenal?.((row) => this.manTurret(row));
+    // The depth charge gear, which is ordered rather than laid: the word to
+    // let go, what the pistols are wound to, and whether her own
+    // anti-submarine officer may attack a sonar contact without being asked.
+    this.hud.onDepthCharges?.((msg) => {
+      const ship = this.conned();
+      if (msg.k === 'drop') this.dropCharges(null);
+      else if (msg.k === 'set') {
+        this.net.send({ t: 'dcset', ship, d: msg.d });
+        this.hud.alert(`Charges set to ${msg.d} m`);
+        audio.click();
+      } else if (msg.k === 'auto') {
+        this.net.send({ t: 'dcauto', ship, on: msg.on ? 1 : 0 });
+        this.hud.alert(msg.on ? 'Racks released to the sonar' : 'Racks held');
+        audio.click();
+      }
+    });
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
     this.holes = [];
@@ -434,6 +456,14 @@ export class Battle {
         f.asked = 0;
         this.hud.alert('She could not drop — press home');
       }),
+      // And the racks refusing. Either there is nothing left in the stowage or
+      // the party has not finished reloading, and a captain who pressed the
+      // key and saw nothing go over the stern is entitled to be told which.
+      this.net.on('nodc', () => {
+        const own = this.ownSnap;
+        this.hud.alert(own && own.dcl <= 0 ? 'Depth charge stowage empty'
+          : 'Racks still reloading');
+      }),
     ];
   }
 
@@ -523,6 +553,27 @@ export class Battle {
     this.hud.setGunSight(this.gun);
     this.hud.alert(`${this.gun.name} — drag to lay, ${this.gun.auto ? 'she fires herself' : 'press FIRE'}`);
     this.net.send({ t: 'man', ship: this.conned(), k: kind, i: this.gun.id });
+    audio.click();
+  }
+
+  /**
+   * Put a pattern in the water.
+   *
+   * `only` is one rack or one thrower by its number in the arsenal, or null
+   * for the whole battery -- which is what a captain ordering a pattern means:
+   * both racks and all six throwers at once, eight charges across the boat's
+   * track.
+   *
+   * The order goes up the wire and nothing happens locally, because whether
+   * there is anything left in the stowage and whether the racks have been
+   * reloaded are the simulation's to answer. It says no by sending `nodc`.
+   */
+  dropCharges(only = null) {
+    const cls = getClass(this.shownShip()?.c || this.cls.id);
+    if (!cls.depthCharges) return;
+    const msg = { t: 'dc', ship: this.conned() };
+    if (Number.isInteger(only)) msg.i = only;
+    this.net.send(msg);
     audio.click();
   }
 
@@ -953,6 +1004,48 @@ export class Battle {
             this.markHole(ev.x, ev.y ?? -2, ev.z, 'torpedo');
           }
           break;
+        // The depth charge gear. A pattern going over is a row of splashes off
+        // her quarter and the arbors of the throwers going out on either beam;
+        // a charge firing is a great white dome of water standing up out of a
+        // flat sea a long way astern of whoever dropped it.
+        case 'dcDrop':
+          if (ev.ship === this.shipId) {
+            // And the one warning that matters. A charge set shallow goes off
+            // ten metres under a ship that has not got out from over it, and
+            // what that does to her own stern is the reason the book says
+            // fifteen knots.
+            const own = this.ownSnap;
+            const slow = own && Math.abs(own.v || 0) < 5;
+            const shallow = own && (own.dcs ?? 99) <= 20;
+            this.hud.alert(slow && shallow
+              ? `Pattern away — ${ev.n} charges. GET WAY ON HER`
+              : `Pattern away — ${ev.n} charges`);
+            audio.click();
+          }
+          break;
+        case 'dcAttack':
+          if (ev.ship === this.shipId) this.hud.ribbon('DEPTH CHARGE ATTACK');
+          break;
+        case 'dcBurst': {
+          // Water does not compress, so what a charge makes is not a fireball
+          // but a mound: the sea goes white over an acre of itself and then
+          // stands up in a column with the shock ring running out from under
+          // it. Bigger the shallower it went off, because that is how much of
+          // the energy reaches the surface at all.
+          const deep = Math.max(0, -(ev.y || 0));
+          const size = 780 * Math.max(0.28, 1 - deep / 70);
+          fx.splash(ev.x, ev.z, size);
+          audio.explosion(1.5 * Math.max(0.3, 1 - deep / 90), d);
+          this.shake = Math.max(this.shake, 0.3 * Math.max(0, 1 - d));
+          break;
+        }
+        case 'dcHit':
+          if (ev.owner === this.shipId) this.hud.ribbon('DEPTH CHARGE HIT', 'cit');
+          if (ev.victim === this.shipId) {
+            this.hud.alert('Depth charge alongside');
+            audio.alarm();
+          }
+          break;
         case 'fire': if (ev.ship === this.shipId) this.hud.alert('Fire on deck'); break;
         case 'flood': if (ev.ship === this.shipId) { this.hud.alert('Flooding'); audio.alarm(); } break;
         case 'smoke': fx.smokeScreen(ev.x, ev.z); break;
@@ -1270,6 +1363,8 @@ export class Battle {
       case 'KeyP': this.togglePilotView(); break;
       case 'KeyR': this.net.send({ t: 'repair' }); break;
       case 'KeyT': this.net.send({ t: 'smoke' }); break;
+      // The racks. One key, because there is one order: let go.
+      case 'KeyG': this.dropCharges(null); break;
       case 'KeyC': {
         if (this.watching) {
           this.watchPov = !this.watchPov;
@@ -3023,6 +3118,19 @@ export class Battle {
       };
     });
     this.scene.torpsNow = this.torpsNow;
+
+    // And the depth charges, sinking. Interpolated the same way, because a
+    // charge that stepped down five times a second would read as a thing
+    // falling in a lift rather than a thing falling through water.
+    this.scene.chargesNow = (a.charges || []).map((c) => {
+      const prev = b ? (b.charges || []).find((x) => x.i === c.i) : null;
+      return {
+        i: c.i,
+        x: prev ? lerp(c.x, prev.x, t) : c.x,
+        y: prev ? lerp(c.y, prev.y, t) : c.y,
+        z: prev ? lerp(c.z, prev.z, t) : c.z,
+      };
+    });
 
     // Squadrons are interpolated between snapshots like everything else. They
     // used not to be, and the aeroplane the camera rides was the one thing on

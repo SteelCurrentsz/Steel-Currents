@@ -6,6 +6,7 @@ import {
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret,
+  dropCharges, setChargeDepth,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
@@ -399,6 +400,22 @@ export class Room {
       }
       case 'fire': fireGuns(this.state, ship); break;
       case 'torp': fireTorpedoes(this.state, ship); break;
+      // The depth charge gear. `dc` puts a pattern in the water -- one
+      // mounting when `i` names one, the whole battery otherwise -- `dcset`
+      // winds the pistols, and `dcauto` says whether her own anti-submarine
+      // officer may attack a contact without being asked.
+      case 'dc': {
+        const from = this.conned(ship, msg);
+        const only = Number.isInteger(msg.i) ? msg.i : null;
+        if (!dropCharges(this.state, from, only)) player.send({ t: 'nodc' });
+        break;
+      }
+      case 'dcset': setChargeDepth(this.conned(ship, msg), msg.d); break;
+      case 'dcauto': {
+        const from = this.conned(ship, msg);
+        from.dcAuto = msg.on ? 1 : 0;
+        break;
+      }
       // A captain gone down to one mounting to lay it himself. `man` takes it
       // or hands it back, `lay` says where he is holding, and `shoot` is the
       // trigger -- which her close-range battery does not need, because an

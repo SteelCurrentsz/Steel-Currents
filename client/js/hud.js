@@ -143,19 +143,36 @@ export function arsenal(cls) {
   }
   if (cls.depthCharges) {
     const D = cls.depthCharges;
+    const racks = (D.racks || []).length;
+    const throwers = (D.throwers || []).length;
     rows.push({
       name: D.name,
       caliber: null,
-      barrels: D.racks + D.throwers,
-      mounts: D.racks + D.throwers,
-      reload: null,
+      barrels: racks + throwers,
+      mounts: racks + throwers,
+      reload: D.reload,
+      // A depth charge has no range in the sense a gun has one: it goes into
+      // the water where the ship is. What it has instead is a depth, and that
+      // is the number a captain actually sets -- so the row carries the
+      // hydrostat settings under it rather than a range. See
+      // buildChargeControls.
       range: null,
       role: D.role || 'sub',
       // A depth charge does not pierce anything. It goes off under a boat and
       // crushes her, which is a different question entirely.
       pen: null,
       band: 'Depth charges',
-      note: `${D.racks} racks, ${D.throwers} throwers, ${D.carried} carried`,
+      note: `${racks} racks, ${throwers} throwers, ${D.carried} carried`,
+      // The racks and the throwers where they stand on her, so pressing the
+      // row raises her with the gear lit up and one of them can be ordered to
+      // let go on its own. Racks first, which is the order everything else
+      // numbers them in. See chargeMounts.
+      specs: [
+        ...(D.racks || []).map((m) => ({ ...m, guns: 1 })),
+        ...(D.throwers || []).map((m) => ({ ...m, guns: 1 })),
+      ],
+      // Which array on the wire carries a reload clock for each of them.
+      charges: true,
     });
   }
   return rows;
@@ -1044,6 +1061,11 @@ export class Hud {
       list.appendChild(row);
       const entry = { w, el: row.querySelector('.arms-bear'), row };
       this.armsRows.push(entry);
+      // The depth charge gear is worked and not laid, so its row carries the
+      // controls rather than a bearing: what the pistols are wound to, the
+      // order to let go, and whether her own anti-submarine officer may attack
+      // a sonar contact without being asked.
+      if (w.charges) this.buildChargeControls(entry);
       // Press it and she appears underneath with that battery lit up on her.
       //
       // A list of guns tells you what she carries and not where any of it is,
@@ -1067,6 +1089,106 @@ export class Hud {
     }
     this.el.connBody.appendChild(list);
     this.armsList = list;
+  }
+
+  /**
+   * The depth charge gear's own controls, under its row in the arsenal.
+   *
+   * It is the one thing aboard that is not laid on anything, so it gets no
+   * bearing readout and no gun sight. What it gets is what a captain actually
+   * orders: the depth the pistols are wound to, the word to let go, and
+   * whether the racks may be fired on a sonar contact without him.
+   */
+  buildChargeControls(entry) {
+    const D = this.shown.depthCharges;
+    if (!D) return;
+    const box = document.createElement('div');
+    box.className = 'arms-dc';
+    // The hydrostats. Shallow for a boat caught diving, deep for one that has
+    // had time to get down -- and a charge set deeper takes longer to get
+    // there, which is the whole of the decision.
+    const sets = document.createElement('div');
+    sets.className = 'arms-dc-sets';
+    entry.setEls = [];
+    for (const d of D.settings) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'arms-dc-set';
+      b.textContent = `${d} m`;
+      b.onclick = (e) => { e.stopPropagation(); this.onCharges?.({ k: 'set', d }); };
+      sets.appendChild(b);
+      entry.setEls.push({ b, d });
+    }
+    box.appendChild(sets);
+    const fire = document.createElement('button');
+    fire.type = 'button';
+    fire.className = 'arms-dc-fire';
+    fire.innerHTML = '<span>RELEASE PATTERN</span><b></b>';
+    fire.onclick = (e) => { e.stopPropagation(); this.onCharges?.({ k: 'drop' }); };
+    box.appendChild(fire);
+    entry.fireEl = fire;
+    const auto = document.createElement('button');
+    auto.type = 'button';
+    auto.className = 'arms-dc-auto';
+    auto.innerHTML = '<span>ATTACK ON SONAR</span><b></b>';
+    auto.onclick = (e) => {
+      e.stopPropagation();
+      this.onCharges?.({ k: 'auto', on: !entry.autoOn });
+    };
+    box.appendChild(auto);
+    entry.autoEl = auto;
+    // And what the set has hold of, which is the only thing telling a captain
+    // there is anything down there at all.
+    const ping = document.createElement('div');
+    ping.className = 'arms-dc-sonar';
+    box.appendChild(ping);
+    entry.pingEl = ping;
+    entry.row.appendChild(box);
+  }
+
+  /** Say what pressing the depth charge controls does. */
+  onDepthCharges(fn) { this.onCharges = fn; }
+
+  /**
+   * The depth charge row, every frame: what is left in the stowage, what the
+   * pistols are wound to, whether anything is loaded, and the sonar.
+   */
+  paintCharges(entry, own) {
+    const { w } = entry;
+    const D = this.shown.depthCharges;
+    if (!D) return;
+    const left = own.dcl == null ? D.carried : own.dcl;
+    const cd = own.dcm || [];
+    const ready = w.specs.reduce((n, _, i) => n + ((cd[i] || 0) <= 0 ? 1 : 0), 0);
+    if (entry.el) {
+      entry.el.textContent = left <= 0
+        ? 'Stowage empty'
+        : ready === 0 ? 'Reloading' : `${ready} of ${w.barrels} loaded · ${left} charges`;
+      entry.el.classList.toggle('masked', left <= 0);
+      entry.el.classList.toggle('part', left > 0 && ready < w.barrels);
+    }
+    const set = own.dcs == null ? D.set : own.dcs;
+    for (const s of entry.setEls || []) s.b.classList.toggle('on', s.d === set);
+    if (entry.fireEl) {
+      entry.fireEl.classList.toggle('spent', left <= 0 || ready === 0);
+      entry.fireEl.querySelector('b').textContent = ready ? `${ready}` : '';
+    }
+    entry.autoOn = own.dca == null ? true : !!own.dca;
+    if (entry.autoEl) {
+      entry.autoEl.classList.toggle('on', entry.autoOn);
+      entry.autoEl.querySelector('b').textContent = entry.autoOn ? 'ON' : 'OFF';
+    }
+    if (entry.pingEl) {
+      if (own.so) {
+        const deg = ((own.so[1] * 180) / Math.PI + 360) % 360;
+        entry.pingEl.textContent = `SONAR CONTACT  ${this.formatRange(own.so[0])}  `
+          + `${Math.round(deg).toString().padStart(3, '0')}°`;
+        entry.pingEl.classList.add('on');
+      } else {
+        entry.pingEl.textContent = 'No contact';
+        entry.pingEl.classList.remove('on');
+      }
+    }
   }
 
   /**
@@ -1211,8 +1333,13 @@ export class Hud {
     const local = wrapAngle(world - own.h);
     let onMain = 0;
     let ofMain = 0;
-    for (const { w, el } of this.armsRows) {
-      if (!el || !w.specs) continue;
+    for (const entry of this.armsRows) {
+      const { w, el } = entry;
+      if (!w.specs) continue;
+      // The depth charge gear does not bear on anything: it is worked, not
+      // laid, and its row reads what is loaded and what the sonar has.
+      if (w.charges) { this.paintCharges(entry, own); continue; }
+      if (!el) continue;
       let on = 0;
       for (const m of w.specs) {
         if (Math.abs(angleDelta(m.angle, local)) > m.arc) continue;

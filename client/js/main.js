@@ -346,6 +346,10 @@ function openYard(side) {
   if (!yard) {
     yard = new ShipyardScene(renderer);
     yard.resize(window.innerWidth, window.innerHeight);
+    // A handle for the console, the same as `window.__battle` gives one on a
+    // battle: the yard is where a hull is looked at, and looking at one from a
+    // bearing you have chosen is most of what anybody does here.
+    window.__yard = yard;
   }
   yard.attach(document.getElementById('yard-grab'));
   show('yard');

@@ -9,6 +9,7 @@ import { Effects } from './effects.js';
 import { Flames } from './flames.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
+import { DepthCharges } from './depthcharge.js';
 import { Flights } from './planes.js';
 import { Heavies } from './heavies.js';
 import { Wake, WakeField } from './wakefield.js';
@@ -1557,6 +1558,10 @@ export class BattleScene {
     // See torpedo.js: the track is the weapon, as far as anybody conning a
     // ship is concerned.
     this.torpedoes = new Torpedoes(this.scene, this.ocean, 48);
+    // And the depth charges going down, which is the other half of the same
+    // fight: the fish is what a boat does to a ship and this is what the ship
+    // does back. See depthcharge.js.
+    this.charges = new DepthCharges(this.scene, 48);
 
     // The squadrons in the air: the same aircraft that sit on the Enterprise's
     // deck, in flight trim, as many of them as the flight actually has. See
@@ -1705,6 +1710,7 @@ export class BattleScene {
     this.bombs.update(dt);
     this.torpedoes.update(dt, this.torpsNow || [],
       (x, z) => this.ocean.heightAt(x, z));
+    this.charges.update(dt, this.chargesNow || []);
     this.weather.update(dt, eye);
     this.oil.update(dt);
 
