@@ -651,6 +651,78 @@ function groundTackle(g) {
     for (const sgn of [-1, 1]) cyl(g, M.steel, 0.68, 0.82, 1.05, sgn * 3.0, y + 0.58, z, 12);
     box(g, M.steelDark, 2.9, 0.85, 1.3, 0, y + 0.48, z - 3.2);
   }
+  // What else lives on the quarterdeck.
+  //
+  // Thirty metres of open deck under the round-down with two capstans on it is
+  // an empty plain, and it is the one part of her a boat coming alongside aft
+  // actually sees. Aft of the hangar bulkhead she carried her towing gear, her
+  // rafts, the after searchlight and the gear for handling a seaplane out of
+  // the water, and all of it stood on this deck.
+  {
+    const t = -0.935;
+    const y = sheerY(t);
+    const z = F.zAt(t, y);
+    // The towing bollards right aft, and the after chocks in the bulwark.
+    for (const sgn of [-1, 1]) {
+      for (const dz of [-0.8, 0.8]) {
+        cyl(g, M.steelDark, 0.26, 0.30, 1.1, sgn * 4.4, y + 0.58, z + dz, 8);
+      }
+      box(g, M.steelDark, 1.0, 0.7, 2.0, sgn * (F.shellAt(t, y) - 0.8), y + 0.36, z + 3.0);
+    }
+    // The after searchlight on its pedestal, on the centreline.
+    cyl(g, M.steelDark, 0.46, 0.56, 1.5, 0, y + 0.78, z + 6.0, 12);
+    cyl(g, M.bright, 0.62, 0.62, 0.9, 0, y + 1.9, z + 6.0, 14)
+      .rotation.x = Math.PI / 2;
+  }
+  // Life rafts stowed against the bulwark down both sides of both open decks,
+  // which is where every one of them was and what breaks up a bare deck.
+  for (const [ta, tb, n] of [[0.690, 0.925, 6], [-0.950, -0.760, 5]]) {
+    for (let i = 0; i < n; i++) {
+      const t = ta + ((tb - ta) * (i + 0.5)) / n;
+      const y = sheerY(t);
+      const z = F.zAt(t, y);
+      const x = F.shellAt(t, y) - 0.55;
+      if (x < 1.5) continue;
+      for (const sgn of [-1, 1]) {
+        const r = cyl(g, M.raft, 0.30, 0.30, 2.1, sgn * x, y + 0.95, z, 8);
+        r.rotation.x = Math.PI / 2;
+        box(g, M.steelDark, 0.20, 1.0, 0.18, sgn * (x - 0.28), y + 0.5, z);
+      }
+    }
+  }
+  // The stanchions that carry the overhang at both ends.
+  //
+  // Forward of the hangar bulkhead and abaft the after one the flight deck has
+  // no hangar under it to stand on: it is carried out over the open deck on
+  // columns, and without them fifty metres of deck at each end of her is a
+  // plank cantilevered off a bulkhead with daylight under it and nothing in
+  // the daylight.
+  for (const [za, zb] of [[HGR_F + 2.5, FD_FWD - 9], [FD_AFT + 9, HGR_A - 2.5]]) {
+    const n = Math.max(2, Math.round(Math.abs(zb - za) / 7.5));
+    for (let i = 0; i <= n; i++) {
+      const z = za + ((zb - za) * i) / n;
+      const t = tOf(z);
+      const foot = sheerY(t) + 0.1;
+      const head = fdY(z) - 0.42;
+      if (head - foot < 1.5) continue;
+      const w = Math.min(halfDeck(z) - 1.0, fdHalf(z) - 1.6);
+      if (w < 1.5) continue;
+      for (const sgn of [-1, 1]) {
+        cyl(g, M.steelDark, 0.26, 0.30, head - foot, sgn * w, (foot + head) / 2, z, 8);
+        // The knee at its head, into the deck girders.
+        const kn = box(g, M.steelDark, 1.5, 0.22, 0.22, sgn * (w - 0.55), head - 0.55, z);
+        kn.rotation.z = sgn * 0.62;
+      }
+      // And a pair inboard where the deck is widest, so the middle of it is
+      // carried too.
+      if (w > 7 && i % 2 === 0) {
+        for (const sgn of [-1, 1]) {
+          cyl(g, M.steelDark, 0.22, 0.26, head - foot, sgn * 3.4,
+            (foot + head) / 2, z, 8);
+        }
+      }
+    }
+  }
   // Guardrails round the open ends.
   for (const [za, zb] of [[HGR_F + 1, LOA / 2 - 6.5], [-LOA / 2 + 6.5, HGR_A - 1]]) {
     rail(g, M.steelDark, za, zb, (z) => Math.max(0.3, halfDeck(z) - 0.35),
@@ -1339,9 +1411,19 @@ function catwalks(g) {
 
 /** Where she stands: starboard side, a little forward of amidships. */
 const ISL_Z = 16.0;
-const ISL_W = 5.6;
-const ISL_CX = S * 14.2;                // the centreline of the island itself
-const ISL_IN = S * (14.2 - ISL_W / 2);  // its inboard face, a metre and a half in from the deck edge
+// Five metres and a fifth across, which is not a round number and is not
+// meant to be: it is the width the ship leaves her. The lift wells are
+// fourteen and four-fifths wide on a deck twenty-six wide, so between the
+// edge of a well and the edge of the deck there are five and three-fifths
+// metres, and the island has to stand inside that -- clear of the well,
+// because a well is a hole and nothing may overhang it, and clear of the deck
+// edge, because she stands on planking. That band is what set a Yorktown's
+// island width too.
+const ISL_W = 5.2;
+// Her outboard side a hand's breadth inside the deck edge, so every square
+// metre of her stands on planking. See the note on the base below.
+const ISL_CX = S * 10.2;                // the centreline of the island itself
+const ISL_IN = S * (10.2 - ISL_W / 2);  // its inboard face, just clear of the well
 
 /** Athwartships, in island terms: outboard is positive whichever side she is. */
 const ox = (d) => ISL_CX + S * d;
@@ -1358,37 +1440,55 @@ const D = (h) => FD + h;
  * gives it its profile, and everything stands on the level below: there is
  * nothing on a warship that is not bolted to something.
  *
- * Only a metre or so of it is on the flight deck. The rest is cantilevered out
- * past the deck edge on a sponson, which is the whole point -- every square
- * metre of island kept inboard is a square metre taken off the landing area.
+ * And it stands on the flight deck. All of it: her outboard side is a hand's
+ * breadth inside the deck edge and there is planking under every square metre
+ * of her. Carried out past the deck edge on a sponson instead -- which is
+ * where this was, with four of her five and a half metres over the water --
+ * the deck edge runs visibly underneath the bridge, and from anywhere ahead
+ * she reads as a tower floating alongside the ship rather than standing on
+ * her. A Yorktown's island is on the deck; what is cantilevered out past the
+ * edge is the gallery abreast of it and the guns on that, and nothing else.
  */
 function island(g) {
   const Z = ISL_Z;
   const cx = ISL_CX;
 
   // ------------------------------------------------------------ the base --
-  // The sponson under it: a plated box off the gallery deck reaching out past
-  // the deck edge, with deep brackets under that down on to the ship's side.
+  // What she lands on.
+  //
+  // A coaming round her foot, which is what a deckhouse is welded down to and
+  // what stops her reading as a box balanced on planking, and the gallery at
+  // the deck edge abreast of her carrying the guns that used to hang off the
+  // sponson she no longer has.
   {
-    const sxi = S * 9.4;
-    const sxo = ox(ISL_W / 2 + 1.3);
-    const sw = Math.abs(sxo - sxi);
-    const scx = (sxi + sxo) / 2;
-    box(g, M.steelDark, sw, 0.32, 31.0, scx, GALLERY, Z);
-    box(g, M.hull, 0.30, FD - GALLERY - 0.24, 31.0, sxo, (GALLERY + FD) / 2, Z);
-    for (const dz of [-15.4, 15.4]) {
-      box(g, M.hull, sw, FD - GALLERY - 0.24, 0.28, scx, (GALLERY + FD) / 2, Z + dz);
+    // Sized so that its outboard edge is still inboard of the deck edge: the
+    // point of moving the island in was to get all of her over planking, and a
+    // coaming that overhangs puts the one part of her that touches the deck
+    // out over the sea again.
+    // A lip, not a skirt. There is no room for a skirt: she has two tenths of
+    // a metre to spare on each side and both of them are spoken for.
+    const cw = ISL_W / 2 + 0.10;
+    const foot = (h) => planHouse({
+      hw: cw + h, nose: 3.3 + h, tail: 2.3 + h, zFront: Z + 15.4 + h, zBack: Z - 15.4 - h,
+      arc: 7,
+    }).map(([px, pz]) => [cx + px, pz]);
+    loftShape(g, M.steelDark, [
+      { pts: foot(0.06), y: FD - 0.04 }, { pts: foot(0), y: FD + 0.28 },
+    ], { cap: false });
+  }
+  {
+    // The gallery at the deck edge, on its knees off the gallery deck below.
+    const gx = S * (fdHalf(Z) + 1.35);
+    box(g, M.steelDark, 2.8, 0.16, 27.0, gx, GALLERY + 0.08, Z);
+    for (let i = 0; i < 9; i++) {
+      const z = Z - 12.8 + i * 3.2;
+      const br = box(g, M.steelDark, 3.1, 0.22, 0.22, S * (fdHalf(Z) - 0.25),
+        GALLERY - 0.78, z);
+      br.rotation.z = -S * 0.5;
+      box(g, M.steelDark, 0.2, 2.0, 0.2, S * (sideHalf(z) + 0.2), GALLERY - 1.0, z);
     }
-    for (let i = 0; i < 8; i++) {
-      const z = Z - 14 + i * 4;
-      const br = box(g, M.steelDark, sw + 1.2, 0.26, 0.26, scx, GALLERY - 1.5, z);
-      br.rotation.z = -S * 0.42;
-      box(g, M.steelDark, 0.22, 3.3, 0.22, sxo, GALLERY - 1.6, z);
-    }
-    // The 20 mm gallery outboard of the sponson, under the island's own side.
-    box(g, M.steelDark, 2.4, 0.14, 26.0, sxo + S * 1.1, GALLERY + 0.08, Z);
-    rail(g, M.steelDark, Z - 12.5, Z + 12.5, () => Math.abs(sxo) + 2.2,
-      () => GALLERY + 0.15, 2.5, [S], 1.0);
+    rail(g, M.steelDark, Z - 13.0, Z + 13.0, () => Math.abs(gx) + 1.3,
+      () => GALLERY + 0.16, 2.5, [S], 1.0);
   }
 
   // The island proper: three storeys of plating standing on the flight deck
@@ -1417,6 +1517,27 @@ function island(g) {
       () => Math.abs(cx) + sgn * S * S * (ISL_W / 2 + 1.7) * (sgn > 0 ? 1 : -1),
       () => D(4.4), 2.6, [S], 1.0);
   }
+  // Scuttles down both sides of her, in two rows.
+  //
+  // Thirty metres of plating four metres high is the largest single surface
+  // anywhere above her flight deck, and blank it reads as a shed rather than
+  // as the front of a ship's bridge. The offices and the ready rooms behind it
+  // were lit by these, and they are most of what gives the island its scale
+  // from down on the deck. Kept to the parallel part of her plan, because the
+  // ends of it round away and a scuttle set at the side's own breadth there
+  // stands off the plating in the air.
+  for (const sgn of [-1, 1]) {
+    const sx = cx + S * sgn * (ISL_W / 2 - 0.03);
+    for (const sy of [D(1.35), D(2.85)]) {
+      for (let dz = -12.4; dz <= 11.4; dz += 1.9) {
+        cyl(g, M.steelDark, 0.25, 0.25, 0.10, sx, sy, Z + dz, 10)
+          .rotation.z = Math.PI / 2;
+        cyl(g, M.glass, 0.18, 0.18, 0.13, sx + S * sgn * 0.04, sy, Z + dz, 10)
+          .rotation.z = Math.PI / 2;
+      }
+    }
+  }
+
   // Doors, ready lockers and ladders down the inboard face, where the deck
   // crew reach it.
   for (const dz of [-10.5, -4.5, 1.5, 7.5, 12.5]) {
@@ -1457,6 +1578,21 @@ function island(g) {
       (zF + zB) / 2);
     box(g, M.glass, hw * 1.7, h * 0.34, zF - zB + nose * 0.9, cx, D(y) + h * 0.66,
       (zF + zB) / 2 + nose * 0.42);
+    // The mullions across it. A band of glass with nothing dividing it is a
+    // dark stripe painted round a house; what says "windows" is the steel
+    // between them, and at this range it is the only thing that does.
+    for (const sgn of [-1, 1]) {
+      const mx = cx + S * sgn * (hw + 0.09);
+      const n = Math.max(3, Math.round((zF - zB) / 1.45));
+      for (let i = 0; i <= n; i++) {
+        box(g, M.steel, 0.16, h * 0.40, 0.14, mx, D(y) + h * 0.66,
+          zB + ((zF - zB) * i) / n);
+      }
+    }
+    for (const dx of [-0.9, 0, 0.9]) {
+      box(g, M.steel, 0.15, h * 0.40, 0.16, cx + dx,
+        D(y) + h * 0.66, (zF + zB) / 2 + nose * 0.42 + (zF - zB) / 2 + nose * 0.42);
+    }
     // Wing bridges: a platform out each side on its brackets, with a rail.
     for (const sgn of [-1, 1]) {
       const wx = cx + S * sgn * (hw + 0.8);
@@ -1544,10 +1680,10 @@ function island(g) {
   const FH = FY1 - FY0;
   const FL = 13.0;
   const fun = new THREE.Group();
-  fun.position.set(ox(0.45), D((FY0 + FY1) / 2), FZ);
+  fun.position.set(ox(0.15), D((FY0 + FY1) / 2), FZ);
   fun.rotation.z = -S * 0.06;
   g.add(fun);
-  box(fun, M.hull, ISL_W + 0.5, FH, FL, 0, 0, 0);
+  box(fun, M.hull, ISL_W + 0.35, FH, FL, 0, 0, 0);
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       box(fun, M.hullDark, 0.3, FH, 0.3, sx * (ISL_W + 0.5) / 2, 0, sz * (FL / 2 - 0.2));
@@ -1906,7 +2042,13 @@ function armament(g) {
   // right aft.
   const forty = [];
   for (const [sgn, z] of FORTY_AT) {
-    const x = sgn * Math.min(fdHalf(z) + 1.1, sideHalf(z) + 1.4);
+    // Far enough out that no part of the mounting is inside her skin. A quad
+    // Bofors carries its ready racks a metre and three-quarters off its own
+    // centre, and at the old offset those two boxes -- and the corners of the
+    // gun house with them -- were half a metre inside the ship's side on every
+    // one of the eight. Measured off her own plating rather than guessed, so
+    // it stays true if her lines change.
+    const x = sgn * Math.min(fdHalf(z) + 1.8, sideHalf(z) + 2.0);
     forty.push([sgn, z, x]);
     box(g, M.steelDark, 6.6, 0.3, 6.6, x, gy + 0.55, z);
     for (const dz of [-2.2, 2.2]) {
@@ -1922,11 +2064,18 @@ function armament(g) {
   // Four Oerlikon positions in the island's own galleries, and the rest down
   // both catwalks wherever the sponsons and the forty-millimetre tubs leave
   // room. The two sides do not match, and on a Yorktown they did not: the
-  // island takes the room out of the starboard catwalk.
-  const isleX = S * 19.3;
+  // starboard catwalk carries one fewer because the island's own guns and the
+  // ladders down to them take that stretch of it.
+  //
+  // Hers stand on her own gallery, out over the deck edge at the height of her
+  // first storey -- which is where a Yorktown carried them and where they can
+  // see past her. Left at the gallery deck they stood on a sponson that has
+  // gone with the island's move inboard, six metres out over the water.
+  const isleX = ISL_CX + S * (ISL_W / 2 + 0.95);
+  const isleY = FD + 4.45;
   for (const z of [ISL_Z + 6.4, ISL_Z + 10.2, ISL_Z - 10.1, ISL_Z - 3.7]) {
-    oerlikon(g, isleX, GALLERY + 0.15, z, S * 1.45);
-    mate(g, isleX, GALLERY + 0.15, z + 2.0, S * 1.45);
+    oerlikon(g, isleX, isleY, z, S * 1.45);
+    mate(g, isleX, isleY, z + 2.0, S * 1.45);
   }
 
   const CAT_Y = FD - 1.80;
