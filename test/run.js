@@ -10905,8 +10905,8 @@ check('the Graf Spee is built the same on both sides', () => {
   // the one fault you cannot see from the side you built it on.
   //
   // Two fittings on her are hers alone and are meant to be: the crane stands
-  // out on her starboard quarter, and the spare Arado is stowed on its trolley
-  // beside it. She carried one aeroplane in reserve, not two.
+  // out on her starboard quarter, and the reserve Arado's trolley, its track
+  // and her mainplanes under canvas are stowed on the deck beside it.
   const parts = speeParts().filter((p) => {
     if (p.from === 'crane' || p.from === 'sparePlane') return false;
     // A mounting is wherever it is trained, and her two torpedo banks are

@@ -546,7 +546,11 @@ function seaFloat(p, mTop, mBot, stations) {
       const d = i * N + j1;
       const b = (i + 1) * N + j;
       const c = (i + 1) * N + j1;
-      bin(j).push(a, c, b, a, d, c);
+      // Wound out of her. Her cross-section ring runs clockwise, so a quad
+      // taken in ring order faces into the float -- her whole skin was inside
+      // out, and from above an aeroplane on a catapult showed the pale blue of
+      // her bottom where the top of her float should be.
+      bin(j).push(a, b, c, a, c, d);
     }
   }
   const cap = (i, out, list) => {
@@ -559,8 +563,8 @@ function seaFloat(p, mTop, mBot, stations) {
       if (out > 0) list.push(hub, a, b); else list.push(hub, b, a);
     }
   };
-  cap(0, -1, low);
-  cap(stations.length - 1, 1, low);
+  cap(0, 1, low);
+  cap(stations.length - 1, -1, low);
   const skin = (list, m) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
