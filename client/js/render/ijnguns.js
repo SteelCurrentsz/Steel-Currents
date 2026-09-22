@@ -473,12 +473,18 @@ export function rocket(g, M, x, y, z, angle) {
 }
 
 /**
- * 61 cm Type 92 quadruple torpedo mount: Takao's broadside.
+ * A quadruple Type 92 torpedo mounting, in its armoured house.
  *
- * Four Type 93 Long Lances in a rotating shielded box on the upper deck, with
- * the reload rack alongside. The Long Lance is the reason a Japanese heavy
- * cruiser is dangerous well beyond her gun range -- oxygen-driven, forty knots,
- * twenty kilometres, and no wake to see it coming.
+ * Every other navy carried its tubes in the open on the upper deck and every
+ * other navy was right to be afraid of them: a splinter through a warhead
+ * takes the side out of the ship. The Japanese carried theirs anyway, because
+ * the Type 93 is what a Japanese cruiser is for, and they enclosed the whole
+ * mounting instead -- tubes, training gear, crew and all -- in a shield with
+ * a sloped face, blast doors over the muzzles and a hood for the layer.
+ *
+ * So it is a house that trains, not a bank of pipes: four tubes two over two
+ * inside plating, the muzzle doors in the raked front of it, the reload gear
+ * out through the back, and the layer's cupola on the roof.
  */
 export function quadTorp(g, M, x, y, z, angle) {
   const m = new THREE.Group();
@@ -487,22 +493,55 @@ export function quadTorp(g, M, x, y, z, angle) {
   m.userData.rest = angle;
   m.userData.dynamic = true;
   m.userData.mounting = true;
-  cyl(m, M.gunDark, 1.25, 1.35, 0.3, 0, -0.15, 0, 16);
+  // The roller path and the training rack it runs on.
+  cyl(m, M.gunDark, 1.45, 1.6, 0.34, 0, -0.17, 0, 18);
+  cyl(m, M.steelDark, 1.2, 1.2, 0.22, 0, 0.1, 0, 16);
   const guns = new THREE.Group();
   guns.position.set(0, 0.95, 0);
   const muzzles = [];
-  // Two over two, in the shielded box.
+  const HW = 1.04;                       // half the width of the house
+  const HH = 0.92;                       // half its height
+  const L = 8.9;
   for (const dy of [-0.38, 0.38]) {
-    for (const dx of [-0.4, 0.4]) {
-      tubeZ(guns, M.gun, 0.35, 8.6, dx, dy, 0, 12);
-      muzzles.push([dx, dy, 4.4]);
+    for (const dx of [-0.42, 0.42]) {
+      tubeZ(guns, M.gun, 0.33, L, dx, dy, 0.1, 12);
+      muzzles.push([dx, dy, 4.45]);
     }
   }
-  // The splinter box round the tubes, and the training gear under it.
-  box(guns, M.gunDark, 1.75, 0.18, 8.2, 0, 0.82, 0);
-  box(guns, M.gunDark, 0.14, 1.7, 8.2, -0.86, 0, 0);
-  box(guns, M.gunDark, 0.14, 1.7, 8.2, 0.86, 0, 0);
-  box(guns, M.gunDark, 1.75, 1.7, 0.16, 0, 0, -4.2);
+  // The house round them: sides, roof, floor and a back plate, with the face
+  // raked so a splinter coming in on the bow glances off it.
+  const HL = L / 2;
+  box(guns, M.gunDark, HW * 2, 0.16, L - 0.9, 0, HH, -0.3);
+  box(guns, M.gunDark, HW * 2, 0.16, L - 0.9, 0, -HH, -0.3);
+  for (const sgn of [-1, 1]) {
+    box(guns, M.gunDark, 0.15, HH * 2, L - 0.9, sgn * HW, 0, -0.3);
+    // The raked cheek forward of the sides.
+    const ch = box(guns, M.gunDark, 0.15, HH * 2, 1.5, sgn * (HW - 0.22), 0, HL - 0.6);
+    ch.rotation.y = -sgn * 0.3;
+  }
+  box(guns, M.gunDark, HW * 2, HH * 2, 0.18, 0, 0, -HL - 0.1);
+  // The face, raked back from its foot, with the muzzle doors in it.
+  const face = box(guns, M.gunDark, HW * 1.72, HH * 2.1, 0.2, 0, 0, HL - 0.44);
+  face.rotation.x = -0.22;
+  for (const [dx, dy] of [[-0.42, -0.38], [0.42, -0.38], [-0.42, 0.38], [0.42, 0.38]]) {
+    cyl(guns, M.steelDark, 0.44, 0.44, 0.12, dx, dy, HL - 0.3, 14)
+      .rotation.x = Math.PI / 2;
+  }
+  // The layer's cupola on the roof, the sight port in the side of it, and the
+  // rails the reload runs in out through the back.
+  cyl(guns, M.gunDark, 0.42, 0.46, 0.5, 0, HH + 0.33, -1.0, 12);
+  cyl(guns, M.steelDark, 0.46, 0.46, 0.1, 0, HH + 0.62, -1.0, 12);
+  for (const sgn of [-1, 1]) {
+    box(guns, M.cave, 0.06, 0.16, 0.5, sgn * 0.44, HH + 0.36, -1.0);
+    box(guns, M.steelDark, 0.12, 0.12, 1.4, sgn * 0.5, -HH - 0.12, -HL - 0.6);
+  }
+  // The stiffeners down the sides, which is most of what you see of one.
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      box(guns, M.steelDark, 0.06, HH * 1.9, 0.14,
+        sgn * (HW + 0.08), 0, -3.2 + i * 1.6);
+    }
+  }
   m.add(guns);
   arm(m, guns, muzzles);
   g.add(m);

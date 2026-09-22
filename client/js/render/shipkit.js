@@ -226,6 +226,118 @@ function planHouse(o) {
 }
 
 /**
+ * The plan of a bridge level: a bullnose forward, straight sides, square back.
+ *
+ * Her bridgework was not built out of boxes and it should not be drawn out of
+ * them. Every enclosed level of a German tower carries a rounded face forward
+ * -- the Rundbrucke -- and the sides run straight aft off the shoulders of it
+ * to a square transverse bulkhead. This lays that outline out as a closed ring
+ * of [x, z], taken from dead ahead round to starboard, aft, and back up the
+ * port side, which is the direction `loftShape` wants for outboard faces.
+ *
+ * The straight sides and the back are subdivided as well as the round, so
+ * there is a panel to hang a light or a door on wherever one belongs rather
+ * than one plate the length of the level.
+ */
+function bullnose(hw, zBack, zFront, nose, opts = {}) {
+  const { arc = 8, side = 4, back = 3 } = opts;
+  const zn = zFront - nose;
+  const pts = [];
+  const push = (x, z) => {
+    const last = pts[pts.length - 1];
+    if (last && Math.hypot(last[0] - x, last[1] - z) < 1e-6) return;
+    pts.push([x, z]);
+  };
+  for (let i = 0; i <= arc; i++) {
+    const th = (i / arc) * (Math.PI / 2);
+    push(hw * Math.sin(th), zn + nose * Math.cos(th));
+  }
+  for (let i = 1; i <= side; i++) push(hw, zn + (zBack - zn) * (i / side));
+  for (let i = 1; i <= back; i++) push(hw - (2 * hw * i) / back, zBack);
+  for (let i = 1; i <= side; i++) push(-hw, zBack + (zn - zBack) * (i / side));
+  for (let i = arc - 1; i >= 1; i--) {
+    const th = (i / arc) * (Math.PI / 2);
+    push(-hw * Math.sin(th), zn + nose * Math.cos(th));
+  }
+  return pts;
+}
+
+/**
+ * The plan of a long deckhouse that follows a half-breadth down its length
+ * and is rounded off at both ends.
+ *
+ * Her superstructure narrows with the ship it stands on and finishes in a
+ * radius at each end, the way a deckhouse plate is actually rolled. Built as a
+ * box it finishes in two square corners a man could cut himself on, which is
+ * the one thing that gives away a block of superstructure as a block.
+ */
+function planRun(half, z0, z1, nose, tail, opts = {}) {
+  const { n = 16, arc = 5 } = opts;
+  const hAt = (z) => (typeof half === 'function' ? half(z) : half);
+  const zn = z1 - nose;
+  const zt = z0 + tail;
+  const side = [];
+  for (let i = 0; i <= arc; i++) {
+    const th = (i / arc) * (Math.PI / 2);
+    const z = zn + nose * Math.cos(th);
+    side.push([hAt(z) * Math.sin(th), z]);
+  }
+  for (let i = 1; i < n; i++) {
+    const z = zn + (zt - zn) * (i / n);
+    side.push([hAt(z), z]);
+  }
+  for (let i = 0; i <= arc; i++) {
+    const th = (i / arc) * (Math.PI / 2);
+    const z = zt - tail * Math.sin(th);
+    side.push([hAt(z) * Math.cos(th), z]);
+  }
+  const pts = side.slice();
+  for (let i = side.length - 2; i >= 1; i--) pts.push([-side[i][0], side[i][1]]);
+  return pts;
+}
+
+/** The same plan, grown outboard by `d` -- an eave, a platform, a coaming. */
+function grow(pts, d) {
+  const n = pts.length;
+  return pts.map(([x, z], i) => {
+    const a = pts[(i - 1 + n) % n];
+    const b = pts[(i + 1) % n];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz) || 1;
+    return [x - (dz / len) * d, z + (dx / len) * d];
+  });
+}
+
+
+/**
+ * The plan of a deckhouse whose forward corners are cut off.
+ *
+ * Japanese bridgework is not a bullnose and it is not a box: it is a flat face
+ * with a chamfer each side of it, and the chamfers are what give a Japanese
+ * tower its faceted look from anywhere off the bow. `cut` is how much is taken
+ * off each corner, measured along both edges.
+ */
+function canted(hw, zBack, zFront, cut, opts = {}) {
+  const { side = 4, back = 3, face = 2 } = opts;
+  const c = Math.min(cut, hw * 0.9, (zFront - zBack) * 0.45);
+  const pts = [];
+  const push = (x, z) => {
+    const last = pts[pts.length - 1];
+    if (last && Math.hypot(last[0] - x, last[1] - z) < 1e-6) return;
+    pts.push([x, z]);
+  };
+  for (let i = 0; i <= face; i++) push(((hw - c) * i) / face, zFront);
+  push(hw, zFront - c);
+  for (let i = 1; i <= side; i++) push(hw, (zFront - c) + ((zBack - zFront + c) * i) / side);
+  for (let i = 1; i <= back; i++) push(hw - (2 * hw * i) / back, zBack);
+  for (let i = 1; i <= side; i++) push(-hw, zBack + ((zFront - c - zBack) * i) / side);
+  push(-(hw - c), zFront);
+  for (let i = face - 1; i >= 1; i--) push(-((hw - c) * i) / face, zFront);
+  return pts;
+}
+
+/**
  * An inclined ladder: two stringers, a run of treads and a handrail each side.
  *
  * A ship is covered in these and they are the first thing that gives away a
@@ -473,4 +585,5 @@ function fairTable(tab, t) {
 export {
   box, cyl, tubeZ, tubeX, sphere, smooth, lerpTable, loftRings, loftShape,
   planHouse, ladder, sideLadder, fairTable, strip, sheet, rail,
+  bullnose, planRun, grow, canted,
 };
