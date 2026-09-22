@@ -237,7 +237,10 @@ export function addShip(state, {
     // its own training and its own loading.
     secMounts: cls.secondary
       ? cls.secondary.mounts.map((m, i) => ({
-        id: i, angle: m.angle, elev: 0, cooldown: 0, disabled: 0, target: 0, hurt: 0,
+        // Trained where she stows it, which is not always the middle of its
+        // arc: a wing mounting rests fore and aft along her side.
+        id: i, angle: m.rest === undefined ? m.angle : m.rest,
+        elev: 0, cooldown: 0, disabled: 0, target: 0, hurt: 0,
       }))
       : [],
     // How long since her light battery last opened up, per aircraft, so the
@@ -1760,8 +1763,10 @@ function stepSecondary(state, ship, dt) {
     }
     const foe = secondaryTarget(state, ship, spec, S);
     if (!foe) {
-      // Nothing on her side: back to the bearing she rests on.
-      m.angle = approachAngle(m.angle, spec.angle, S.traverse * dt);
+      // Nothing on her side: back to the bearing she rests on, which is
+      // where she is stowed rather than the middle of her arc.
+      m.angle = approachAngle(m.angle,
+        spec.rest === undefined ? spec.angle : spec.rest, S.traverse * dt);
       m.elev += clamp(-m.elev, -0.9 * dt, 0.9 * dt);
       m.target = 0;
       continue;

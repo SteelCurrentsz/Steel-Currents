@@ -116,11 +116,11 @@ const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 // breadth half a station further, which is a longer parallel middle body and
 // a shorter, finer taper at each end: leaner across and longer along.
 const HALF_BEAM = [
-  [-1.00, 0.78], [-0.96, 1.48], [-0.90, 2.58], [-0.84, 3.55], [-0.78, 4.46],
-  [-0.68, 5.82], [-0.57, 7.06], [-0.46, 8.14], [-0.34, 9.10], [-0.20, 9.76],
-  [-0.06, 10.02], [0.06, 10.06], [0.20, 9.98], [0.34, 9.68], [0.46, 9.04],
-  [0.57, 8.04], [0.68, 6.64], [0.78, 4.94], [0.86, 3.34], [0.92, 1.98],
-  [0.96, 1.04], [1.00, 0.11],
+  [-1.00, 0.76], [-0.96, 1.44], [-0.90, 2.52], [-0.84, 3.46], [-0.78, 4.35],
+  [-0.68, 5.68], [-0.57, 6.89], [-0.46, 7.94], [-0.34, 8.88], [-0.20, 9.52],
+  [-0.06, 9.78], [0.06, 9.82], [0.20, 9.74], [0.34, 9.45], [0.46, 8.82],
+  [0.57, 7.85], [0.68, 6.48], [0.78, 4.82], [0.86, 3.26], [0.92, 1.93],
+  [0.96, 1.01], [1.00, 0.11],
 ];
 
 // Her keel and the rise of floor at both ends, off the profile: a flat
@@ -142,8 +142,21 @@ const KEEL = [
 // Montevideo in December 1939 with the stem she was launched with -- and the
 // difference is that rise and the flare that goes with it. It is most of what
 // her critics meant when they called her wet forward.
+// There is a break in it right aft.
+//
+// Her plan does not run one sheer line from the stem to the counter. The deck
+// carries aft at upper deck level as far as the after mooring space and then
+// steps down a metre to a short low quarterdeck, and the two quadruple tube
+// mountings and her after capstans are on that lower deck. It is the one thing
+// that tells her stern from a cruiser's at any distance, and it is drawn on
+// every profile of her.
+//
+// The step is put between two stations of the loft -- t = -0.715 and -0.696,
+// which are frames the shell is actually built at -- so it comes out as a
+// break rather than as a ramp smeared across three metres of her.
 const SHEER = [
-  [-1.00, 5.05], [-0.94, 5.42], [-0.86, 5.80], [-0.76, 6.08], [-0.64, 6.22],
+  [-1.00, 4.42], [-0.92, 4.62], [-0.84, 4.78], [-0.760, 4.90],
+  [-0.715, 4.95], [-0.696, 5.95], [-0.660, 6.12], [-0.600, 6.22],
   [-0.44, 6.30], [-0.20, 6.38], [0.00, 6.44], [0.22, 6.56], [0.40, 6.74],
   [0.55, 6.98], [0.68, 7.32], [0.78, 7.78], [0.86, 8.28], [0.92, 8.74],
   [0.96, 9.06], [1.00, 9.40],
@@ -2397,19 +2410,12 @@ function armour(g) {
         sgn * w, (BELT_LO + BELT_HI) / 2, zAt(t, 0.8) - sgnZ * 0.25);
     }
   }
-  for (let z = BELT_Z0 + 6; z < BELT_Z1 - 3; z += 6.4) {
-    const t = z / (LOA / 2);
-    for (const sgn of [-1, 1]) {
-      const w = shellAt(t, 1.4) + BELT_T;
-      box(g, M.hull, 0.09, BELT_HI - BELT_LO - 0.5, 0.34,
-        sgn * w, (BELT_LO + BELT_HI) / 2, zAt(t, 1.4));
-      // And the rivet line down each strap.
-      for (let k = 0; k < 6; k++) {
-        cyl(g, M.hullDark, 0.05, 0.05, 0.05, sgn * (w + 0.05),
-          BELT_LO + 0.6 + k * 0.85, zAt(t, 1.4), 6).rotation.z = Math.PI / 2;
-      }
-    }
-  }
+  // No butt straps down it. They were drawn in hull grey over the whole depth
+  // of the belt, and the belt runs a good deal further down her than her
+  // topside paint does: below the boot-topping line every one of them showed
+  // as a grey bar hanging down her black side, which is not what a butt strap
+  // looks like from anywhere. The belt reads as a plate from its chamfered
+  // edges, and that is enough.
 
   // The barbette armour: a hundred and twenty-five millimetres round each
   // trunk, standing proud of the deck it comes through, with the bolt heads
@@ -2441,26 +2447,72 @@ function armour(g) {
     }
   }
 
-  // The splinter plating round her open mountings: ten millimetres of nothing
-  // much, which is all an open gun deck ever had, and all a 15 cm's crew
-  // stood behind.
+}
+
+// ------------------------------------------------- her secondary stations --
+//
+// Eight single 15 cm in the waist, four a side, and the deck they stand on is
+// narrower than they are.
+//
+// The walkway between the superstructure and the deck edge is three metres
+// wide; a 15 cm SK C/28 on its pedestal wants four, and the plan puts the
+// mountings on the deck edge rather than inboard of it. So every one of them
+// stands out past her plating, and what carries that is a sponson: a plate
+// worked out from the shell, bracketed back to it underneath, with a splinter
+// screen round the outboard side of it and the ready-use lockers inboard.
+//
+// Without one the mounting hangs over the sea on nothing, which is exactly
+// what it was doing.
+function secondaryStations(g) {
+  const SP_R = 2.15;
   for (const m of CLS.secondary.mounts) {
-    const y = deckAtX(m.x, m.z);
     const sgn = Math.sign(m.x);
-    // The bandstand under the mounting, because the walkway is narrower than
-    // the mounting is and it stands out over her side without one.
-    cyl(g, M.deckSteel, 1.95, 1.95, 0.16, m.x, y + 0.08, m.z, 18);
-    for (const dz of [-1.5, 1.5]) {
-      const br = box(g, M.steelDark, 1.9, 0.12, 0.3,
-        m.x - sgn * 0.6, y - 0.55, m.z + dz);
-      br.rotation.z = sgn * 0.55;
+    const t = Math.max(-1, Math.min(1, m.z / (LOA / 2)));
+    const y = deckAtX(m.x, m.z);
+    const edge = halfDeck(m.z);
+    const over = Math.abs(m.x) + SP_R - edge;      // how far past her side
+
+    // The sponson plate and the coaming round its edge.
+    cyl(g, M.deckSteel, SP_R, SP_R, 0.2, m.x, y + 0.02, m.z, 22);
+    cyl(g, M.steelDark, SP_R + 0.06, SP_R + 0.06, 0.1, m.x, y - 0.08, m.z, 22);
+
+    // The splinter screen: a low bulwark round the outboard half of it, which
+    // is all an open gun deck on a Panzerschiff ever had.
+    for (let i = 0; i < 11; i++) {
+      const a = -Math.PI / 2 + (i / 10) * Math.PI;
+      const px = m.x + sgn * SP_R * Math.cos(a);
+      const pz = m.z + SP_R * Math.sin(a);
+      box(g, M.steel, 0.14, 1.0, (2 * Math.PI * SP_R) / 20 + 0.08,
+        px, y + 0.62, pz, sgn * a);
+      if (i % 2 === 0) {
+        box(g, M.steelDark, 0.2, 0.12, 0.42, px, y + 1.14, pz, sgn * a);
+      }
     }
-    // The ready-use lockers each side of it, and the coaming behind.
-    for (const dz of [-2.9, 2.9]) {
-      box(g, M.steelDark, 1.1, 0.85, 1.3, m.x, y + 0.42, m.z + dz);
-      box(g, M.steel, 1.16, 0.1, 1.36, m.x, y + 0.87, m.z + dz);
+
+    // What carries it: brackets from under the rim, raking down and inboard
+    // to her plating. Only where the plate actually overhangs -- a bracket
+    // under a sponson that is already on the deck is a bar across a walkway.
+    if (over > 0.25) {
+      for (const a of [-0.95, -0.35, 0.35, 0.95]) {
+        const px = m.x + sgn * SP_R * Math.cos(a) * 0.98;
+        const pz = m.z + SP_R * Math.sin(a) * 0.98;
+        const drop = 2.4;
+        const foot = shellAt(t, y - drop) * sgn;
+        member(g, M.steel, 0.17, [px, y - 0.12, pz],
+          [foot, y - drop, m.z + Math.sin(a) * 0.5], 0.1, 0.42);
+      }
+      // And the girder along the shell the brackets land on.
+      const foot = shellAt(t, y - 2.4) * sgn;
+      box(g, M.steelDark, 0.24, 0.34, SP_R * 1.9, foot, y - 2.4, m.z);
     }
-    box(g, M.steel, 0.14, 1.05, 4.6, m.x - sgn * 1.9, y + 0.52, m.z);
+
+    // The ready-use lockers each side of it, inboard of the screen, and the
+    // coaming that keeps the walkway dry behind the mounting.
+    for (const dz of [-3.1, 3.1]) {
+      box(g, M.steelDark, 1.1, 0.85, 1.3, m.x - sgn * 0.3, y + 0.44, m.z + dz);
+      box(g, M.steel, 1.16, 0.1, 1.36, m.x - sgn * 0.3, y + 0.89, m.z + dz);
+    }
+    box(g, M.steel, 0.14, 1.05, 4.8, m.x - sgn * (SP_R - 0.1), y + 0.54, m.z);
   }
 }
 
@@ -2831,7 +2883,9 @@ function mountings(g) {
   // superstructure, which is where a Panzerschiff's single mounts are and what
   // the plan draws.
   for (const m of CLS.secondary.mounts) {
-    sec.push(fifteen(g, m.x, deckAt(m.z) + 0.04, m.z, m.angle));
+    // Drawn where she stows the mounting, not on the middle of its arc.
+    sec.push(fifteen(g, m.x, deckAt(m.z) + 0.04, m.z,
+      m.rest === undefined ? m.angle : m.rest));
   }
   for (const gun of CLS.aa.guns) {
     for (const m of gun.mounts) {
@@ -2953,6 +3007,7 @@ const STATIC = [
   ['rails', rails],
   ['sideDetail', sideDetail],
   ['armour', armour],
+  ['secondaryStations', secondaryStations],
   ['superstructure', superstructure],
   ['tower', tower],
   ['bridgeInside', bridgeInside],

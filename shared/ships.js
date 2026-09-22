@@ -545,8 +545,11 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on the quarterdeck, abaft the after turret. An
       // afterthought on a commerce raider and a real threat at close quarters.
       mounts: [
-        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 7.49 },
-        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 7.49 },
+        // Six metres up, not seven and a half: the tube mountings are on the
+        // lower quarterdeck abaft the break, which is a deck below the one
+        // the after turret stands on.
+        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.08 },
+        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.08 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
       reach: 4.6,
@@ -566,15 +569,22 @@ export const SHIP_CLASSES = {
       // Four a side in the walkway at the deck edge, spread between the two
       // turrets the way her plan spreads them: abreast the bridge, abreast the
       // funnel, abreast the catapult and abreast the after works.
+      //
+      // `angle` is the middle of what a mounting can be laid through, which
+      // for a gun in the waist is the beam. `rest` is where it sits when it
+      // has nothing to shoot at, which is a different thing: a wing mounting
+      // is stowed trained fore and aft along her side, not out over it, and
+      // her plan draws the forward pair pointing ahead and the after pair
+      // astern. Left off, a mounting rests on the middle of its arc.
       mounts: [
-        { x: -9.0, z: 36, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 8.35 },
-        { x: 9.0, z: 36, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 8.35 },
+        { x: -9.0, z: 36, angle: -Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35 },
+        { x: 9.0, z: 36, angle: Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35 },
         { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
         { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
         { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
         { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
-        { x: -9.2, z: -32, angle: -Math.PI / 2, arc: 1.36, guns: 1, my: 8.00 },
-        { x: 9.2, z: -32, angle: Math.PI / 2, arc: 1.36, guns: 1, my: 8.00 },
+        { x: -9.2, z: -32, angle: -Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00 },
+        { x: 9.2, z: -32, angle: Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00 },
       ],
     },
     aa: {
