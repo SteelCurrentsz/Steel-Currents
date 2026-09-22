@@ -373,7 +373,7 @@ export function hullSheet(cls, group = null) {
   rows.push(
     ['Belt', `${cls.armor.belt} mm`],
     ['Deck', `${cls.armor.deck} mm`],
-    ['Turret face', `${cls.armor.citadel} mm`],
+    ['Citadel', `${cls.armor.citadel} mm`],
     ['Bow', `${cls.armor.bow} mm`],
   );
   return rows;
