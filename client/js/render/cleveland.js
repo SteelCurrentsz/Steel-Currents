@@ -782,6 +782,29 @@ function screen(g, pts, y, h) {
 }
 
 /**
+ * A stanchion-and-wire rail round a platform's own outline.
+ *
+ * `screen` puts plating round an edge, which is right for a bridge wing and
+ * wrong for a working platform: a platform with nothing round it reads as a
+ * hole in the structure, and a platform with a foot of plate round it reads as
+ * a tub.
+ */
+function planRailCl(g, pts, y, h = 0.95) {
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 0.08) continue;
+    const ry = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    cyl(g, M.steelDark, 0.05, 0.06, h, a[0], y + h / 2, a[1], 6);
+    for (const f of [0.42, 0.72, 1.0]) {
+      box(g, M.wire, 0.04, 0.04, len, (a[0] + b[0]) / 2, y + h * f,
+        (a[1] + b[1]) / 2, ry);
+    }
+  }
+}
+
+/**
  * The forward superstructure: a tower, which is what makes her look like a
  * cruiser and not a big destroyer.
  *
@@ -815,12 +838,19 @@ function bridge(g) {
 
   // 02: the bridge structure on the 01 roof, tumbling home as it rises, with
   // the pilothouse deck laid over it and a walkway all round its front.
+  //
+  // Narrower than it was by a metre and a half over all. A Cleveland's tower
+  // is tall for its breadth -- that is the whole look of her, and it is what
+  // she was rebuilt for. Drawn nearly twelve metres across at the 01 roof it
+  // came out as a stack of rounded loaves as wide as they were tall, and from
+  // right ahead she read as a ship with a blockhouse on her rather than a
+  // light cruiser with a tower.
   loftShape(g, M.steel, [
-    { pts: plan(5.90, TOWER[0], TOWER[1], 5.30), y: L01() },
-    { pts: plan(5.76, TOWER[0], TOWER[1] - 0.18, 5.20), y: L02() - 1.1 },
-    { pts: plan(5.58, TOWER[0], TOWER[1] - 0.40, 5.05), y: L02() },
+    { pts: plan(5.30, TOWER[0], TOWER[1], 4.80), y: L01() },
+    { pts: plan(5.16, TOWER[0], TOWER[1] - 0.18, 4.70), y: L02() - 1.1 },
+    { pts: plan(4.98, TOWER[0], TOWER[1] - 0.40, 4.55), y: L02() },
   ]);
-  const d02 = plan(5.72, TOWER[0], TOWER[1] - 0.26, 5.16);
+  const d02 = plan(5.12, TOWER[0], TOWER[1] - 0.26, 4.66);
   plate(g, d02, L02() + 0.14);
   screen(g, d02, L02() + 0.14, 1.02);
 
@@ -832,16 +862,79 @@ function bridge(g) {
   const PH_F = 27.4;
   const ph = (hw, nose) => plan(hw, PH_A, PH_F, nose);
   loftShape(g, M.steel, [
-    { pts: ph(4.30, 4.10), y: L02() + 0.14 },
-    { pts: ph(4.70, 4.50), y: L02() + 1.05 },
-    { pts: ph(4.70, 4.50), y: L02() + 2.55 },
-    { pts: ph(4.60, 4.40), y: L03() },
+    { pts: ph(3.90, 3.72), y: L02() + 0.14 },
+    { pts: ph(4.20, 4.02), y: L02() + 1.05 },
+    { pts: ph(4.20, 4.02), y: L02() + 2.55 },
+    { pts: ph(4.10, 3.92), y: L03() },
   ]);
-  plate(g, plan(5.05, PH_A, PH_F + 0.42, 4.86), L03() + 0.16);
+  plate(g, plan(4.55, PH_A, PH_F + 0.42, 4.36), L03() + 0.16);
+
+  // The chart house, on the 02 deck abaft the pilothouse.
+  //
+  // This is what was missing. Her tower was a stack of platforms with open air
+  // between them: abaft the pilothouse there was nothing at all from the 02
+  // deck to the 04, so from abeam you looked straight through the middle of
+  // her bridge and out at the sea on the far side. What belongs there is the
+  // chart house, the radio room over it and the house the foremast is stepped
+  // against -- so the tower is one mass from the boat deck to sky control,
+  // which is what a tower is.
+  const CH_A = TOWER[0] + 0.3;
+  const CH_F = PH_A + 0.1;
+  const chart = (hw, tail) =>
+    planHouse({ hw, zBack: CH_A, zFront: CH_F, nose: 0, tail, arc: ARC });
+  // Kept inboard of the 20 mm tubs on the 02 walkway either side of her.
+  loftShape(g, M.steel, [
+    { pts: chart(3.20, 1.50), y: L02() + 0.14 },
+    { pts: chart(3.12, 1.45), y: L03() },
+  ], { cap: false });
+  plate(g, chart(3.55, 1.65), L03() + 0.16);
+  // Its door aft, the scuttles down both sides and the ladder up to the radio
+  // room over it. The door goes on the after face, which -- because the tail
+  // of the plan rounds inboard -- is on the centreline at CH_A and not the
+  // metre and a half abaft it where it first went.
+  box(g, M.gunDark, 1.0, 1.95, 0.14, 0, L02() + 1.12, CH_A + 0.06);
+  for (const sgn of [-1, 1]) {
+    for (const dz of [0.4, 1.7]) {
+      cyl(g, M.glass, 0.2, 0.2, 0.1, sgn * 3.17, L02() + 1.6, CH_A + 1.2 + dz, 10)
+        .rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.26, 0.26, 0.07, sgn * 3.14, L02() + 1.6, CH_A + 1.2 + dz, 10)
+        .rotation.z = Math.PI / 2;
+    }
+    ladder(g, M.steelDark, sgn * 2.5, L02() + 0.3, L03(), CH_A + 0.3, CH_A + 2.9);
+  }
+
+  // The radio room over it, from the pilothouse roof up to sky control, with
+  // the foremast standing against its after face.
+  const RR_A = TOWER[0] + 1.1;
+  const RR_F = 16.4;
+  loftShape(g, M.steel, [
+    { pts: planHouse({ hw: 3.40, zBack: RR_A, zFront: RR_F, nose: 0, tail: 1.3, arc: ARC }),
+      y: L03() + 0.16 },
+    { pts: planHouse({ hw: 3.30, zBack: RR_A, zFront: RR_F, nose: 0, tail: 1.25, arc: ARC }),
+      y: L04() },
+  ], { cap: false });
+  plate(g, planHouse({ hw: 3.62, zBack: RR_A - 0.2, zFront: RR_F, nose: 0, tail: 1.45, arc: ARC }),
+    L04() + 0.14);
+  for (const sgn of [-1, 1]) {
+    for (const dz of [0.6, 2.4]) {
+      cyl(g, M.glass, 0.19, 0.19, 0.1, sgn * 3.37, L03() + 1.5, RR_A + dz, 10)
+        .rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.25, 0.25, 0.07, sgn * 3.34, L03() + 1.5, RR_A + dz, 10)
+        .rotation.z = Math.PI / 2;
+    }
+    box(g, M.steelDark, 0.07, L04() - L03() - 0.4, 0.1, sgn * 3.38,
+      (L03() + L04()) / 2, RR_A + 1.5);
+    ladder(g, M.steelDark, sgn * 2.6, L03() + 0.3, L04(), RR_A + 0.3, RR_A + 3.0);
+  }
+  box(g, M.gunDark, 0.95, 1.9, 0.14, 0, L03() + 1.11, RR_A + 0.06);
+  // And a rail round the roof of it: the platform abaft sky control that the
+  // foremast is stepped through, which read as a gap in her before.
+  planRailCl(g, planHouse({ hw: 3.62, zBack: RR_A - 0.2, zFront: RR_F - 0.3,
+    nose: 0, tail: 1.45, arc: ARC }), L04() + 0.14, 0.92);
 
   // The windows, laid along the pilothouse plan so they follow the bullnose
   // instead of being strung across a flat face.
-  const wall = ph(4.74, 4.54);
+  const wall = ph(4.24, 4.06);
   for (let i = 0; i < wall.length; i++) {
     const a = wall[i];
     const b = wall[(i + 1) % wall.length];
@@ -857,10 +950,10 @@ function bridge(g) {
 
   // 04: sky control, and the open bridge on its roof inside splinter plating.
   loftShape(g, M.steel, [
-    { pts: plan(3.80, 16.0, 26.2, 3.70), y: L03() + 0.16 },
-    { pts: plan(3.70, 16.0, 26.0, 3.60), y: L04() },
+    { pts: plan(3.45, 16.0, 26.2, 3.36), y: L03() + 0.16 },
+    { pts: plan(3.35, 16.0, 26.0, 3.26), y: L04() },
   ]);
-  const d04 = plan(4.00, 15.8, 26.4, 3.86);
+  const d04 = plan(3.62, 15.8, 26.4, 3.50);
   plate(g, d04, L04() + 0.14);
   screen(g, d04, L04() + 0.14, 1.24);
 
@@ -898,13 +991,66 @@ function bridge(g) {
       cyl(g, M.steelDark, 0.28, 0.28, 0.07, sgn * 8.13, deckAt(dz) + 2.0, dz, 10)
         .rotation.z = Math.PI / 2;
     }
+    // On the plating, not out past it: narrowing the tower by a metre and a
+    // half left these two doors standing in the air a foot off her side.
     for (const dz of [12.6, 21.0]) {
-      box(g, M.gunDark, 0.16, 1.9, 0.95, sgn * 5.6, L01() + 1.0, dz);
+      box(g, M.gunDark, 0.16, 1.9, 0.95, sgn * 5.19, L01() + 1.0, dz);
+      box(g, M.steel, 0.1, 0.1, 1.15, sgn * 5.24, L01() + 2.02, dz);
+    }
+    // The scuttles down the bridge structure's own sides, and the plate seams
+    // between them: seventy feet of unbroken plating is a wall, not a bridge.
+    for (const dz of [11.5, 15.5, 19.5, 23.5]) {
+      cyl(g, M.glass, 0.2, 0.2, 0.1, sgn * 5.16, L01() + 2.1, dz, 10)
+        .rotation.z = Math.PI / 2;
+      cyl(g, M.steelDark, 0.26, 0.26, 0.07, sgn * 5.13, L01() + 2.1, dz, 10)
+        .rotation.z = Math.PI / 2;
+    }
+    for (const dz of [13.6, 17.6, 21.6, 25.4]) {
+      box(g, M.steelDark, 0.07, L02() - L01() - 0.3, 0.1, sgn * 5.2,
+        (L01() + L02()) / 2, dz);
     }
     ladder(g, M.steelDark, sgn * 6.6, deckAt(35.9) + 0.1, L01(), 34.4, 37.4);
-    ladder(g, M.steelDark, sgn * 4.9, L01() + 0.1, L02(), 10.6, 13.8);
+    ladder(g, M.steelDark, sgn * 5.42, L01() + 0.1, L02(), 10.6, 13.8);
     ladder(g, M.steelDark, sgn * 3.6, L02() + 0.2, L03(), 13.4, 16.2);
     ladder(g, M.steelDark, sgn * 2.6, L03() + 0.24, L04(), 16.4, 19.0);
+  }
+
+  // A rail round the open part of the pilothouse roof.
+  //
+  // Every deck edge aboard has one, and this one had none: the widest
+  // platform on her tower was a bare shelf with the conning tower standing in
+  // the middle of it, which is what made the whole level read as a gap in the
+  // structure rather than as a deck somebody stands on.
+  planRailCl(g, plan(4.62, PH_A + 0.3, PH_F + 0.34, 4.42), L03() + 0.16, 0.95);
+  // The splinter mattresses lashed along it, and along the open bridge screen
+  // above: rolled kapok in canvas, which is what a 1943 bridge wears.
+  for (const sgn of [-1, 1]) {
+    for (const dz of [14.6, 17.4, 24.6, 26.6]) {
+      const roll = cyl(g, M.canvas, 0.26, 0.26, 2.3, sgn * 4.36, L03() + 0.62, dz, 8);
+      roll.rotation.x = Math.PI / 2;
+      for (const f of [-0.85, 0.85]) {
+        box(g, M.steelDark, 0.68, 0.07, 0.07, sgn * 4.36, L03() + 0.62, dz + f);
+      }
+    }
+    for (const dz of [18.4, 21.4]) {
+      const roll = cyl(g, M.canvas, 0.24, 0.24, 2.4, sgn * 3.28, L04() + 0.66, dz, 8);
+      roll.rotation.x = Math.PI / 2;
+    }
+    // Ready-use lockers on the 02 walkway, shut up against the pilothouse
+    // side forward, where the walkway is widest and clear of the 20 mm tubs.
+    box(g, M.steel, 0.7, 0.95, 1.5, sgn * 4.62, L02() + 0.62, 23.5);
+    box(g, M.steelDark, 0.76, 0.09, 1.56, sgn * 4.62, L02() + 1.12, 23.5);
+    // The whip aerials on the bridge wings, which is where a cruiser's are.
+    cyl(g, M.steelDark, 0.06, 0.09, 5.4, sgn * 6.5, L04() + 3.4, 19.2, 6);
+    cyl(g, M.steelDark, 0.11, 0.14, 0.5, sgn * 6.5, L04() + 0.85, 19.2, 8);
+  }
+  // The direction-finder loop on sky control's roof, abaft the director.
+  cyl(g, M.steelDark, 0.11, 0.13, 1.3, 0, L04() + 0.95, 16.6, 8);
+  {
+    const loop = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.055, 5, 16), M.steelDark);
+    loop.position.set(0, L04() + 2.1, 16.6);
+    g.add(loop);
+    box(g, M.steelDark, 0.28, 0.3, 0.28, 0, L04() + 1.6, 16.6);
   }
 
   // The open bridge itself: the pelorus on the centreline, the target
@@ -915,21 +1061,30 @@ function bridge(g) {
     cyl(g, M.gunDark, 0.3, 0.36, 1.05, sgn * 1.9, L04() + 0.66, 22.6, 10);
     box(g, M.gun, 0.55, 0.5, 0.42, sgn * 1.9, L04() + 1.4, 22.6);
     // The wings, on their brackets, with a signal lamp and a repeater on each.
-    box(g, M.deckDark, 3.2, 0.16, 3.6, sgn * 5.2, L04() + 0.14, 20.6);
+    // Carried in with the tower: the wing has to be bracketed off plating that
+    // is a metre and a half narrower than it was, so its inboard edge follows.
+    box(g, M.deckDark, 3.7, 0.16, 3.6, sgn * 4.95, L04() + 0.14, 20.6);
     for (const bz of [19.1, 22.1]) {
-      const br = box(g, M.steel, 3.0, 0.18, 0.24, sgn * 5.2, L04() - 0.5, bz);
+      const br = box(g, M.steel, 3.4, 0.18, 0.24, sgn * 4.85, L04() - 0.5, bz);
       br.rotation.z = sgn * 0.4;
     }
     box(g, M.steel, 0.16, 1.24, 3.6, sgn * 6.72, L04() + 0.76, 20.6);
     box(g, M.steelDark, 0.42, 0.12, 3.6, sgn * 6.68, L04() + 1.44, 20.6);
-    box(g, M.steel, 3.2, 1.24, 0.16, sgn * 5.2, L04() + 0.76, 18.86);
+    box(g, M.steel, 3.7, 1.24, 0.16, sgn * 4.95, L04() + 0.76, 18.86);
     cyl(g, M.gunDark, 0.3, 0.3, 0.5, sgn * 6.48, L04() + 0.9, 21.8, 10);
     box(g, M.glass, 0.36, 0.36, 0.07, sgn * 6.48, L04() + 0.9, 22.08);
   }
 
   // The two forward Mk 37s, abreast the tower one level down from the main
-  // director, which is where a Cleveland carries them.
+  // director, which is where a Cleveland carries them -- each on a sponson
+  // bracketed off the pilothouse roof, because the roof is narrower than the
+  // pair of them are apart.
   for (const sgn of [-1, 1]) {
+    box(g, M.deckDark, 2.4, 0.16, 4.2, sgn * 4.1, L03() + 1.32, 14.0);
+    for (const bz of [12.4, 15.6]) {
+      const br = box(g, M.steel, 2.2, 0.16, 0.22, sgn * 3.9, L03() + 0.82, bz);
+      br.rotation.z = sgn * 0.44;
+    }
     mk37(g, sgn * 3.4, L03() + 1.4, 14.0, sgn * 0.22);
   }
 

@@ -1336,11 +1336,30 @@ function afterHouse(g) {
       });
     }
   }
-  // The after conning position and the emergency steering gear on the lower
-  // house, which is what she is steered from when the bridge has gone.
-  box(g, M.steel, 1.6, 1.1, 1.4, 0, deckAt(-24.6) + 3.05, -24.6);
-  cyl(g, M.gunDark, 0.3, 0.3, 0.1, 0, deckAt(-24.6) + 3.66, -24.2, 12)
-    .rotation.x = Math.PI / 2;
+  // The after conning position, which is what she is steered from when the
+  // bridge has gone. It is a trunk standing on the weather deck against the
+  // forward face of the lower house and carried up to its roof, not the cube
+  // it used to be: that was put at the height of the roof but a metre and a
+  // half ahead of where the roof starts, so it hung in the air over her deck
+  // in front of mount 53 with nothing under it and nothing behind it.
+  const CZ0 = HOUSE_A[0];                 // the house's forward face
+  const CZ1 = CZ0 + 1.5;                  // and how far forward the trunk comes
+  const cz = (CZ0 + CZ1) / 2;
+  const roof = deckAt((HOUSE_A[0] + HOUSE_A[1]) / 2) + 2.5;
+  const foot = Math.min(deckAtX(0.9, CZ0), deckAtX(0.9, CZ1)) - 0.06;
+  box(g, M.steel, 1.8, roof - foot, CZ1 - CZ0, 0, (roof + foot) / 2, cz);
+  box(g, M.deckDark, 2.0, 0.14, CZ1 - CZ0 + 0.2, 0, roof, cz);
+  // The door into it forward, a scuttle either side, and the voice-pipe hood
+  // and the steering-gear vent on its roof.
+  box(g, M.gunDark, 0.8, 1.7, 0.12, 0, foot + 0.95, CZ1 - 0.02);
+  for (const sgn of [-1, 1]) {
+    cyl(g, M.glass, 0.17, 0.17, 0.1, sgn * 0.87, foot + 1.6, cz, 10)
+      .rotation.z = Math.PI / 2;
+    cyl(g, M.steelDark, 0.22, 0.22, 0.08, sgn * 0.85, foot + 1.6, cz, 10)
+      .rotation.z = Math.PI / 2;
+  }
+  cyl(g, M.gunDark, 0.3, 0.3, 0.45, 0, roof + 0.3, cz + 0.35, 12);
+  cyl(g, M.gunDark, 0.34, 0.26, 0.2, 0, roof + 0.6, cz + 0.35, 12);
 }
 
 // --------------------------------------------------------- depth charges --

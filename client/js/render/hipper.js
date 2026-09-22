@@ -247,11 +247,42 @@ function counterAt(y) {
   return COUNTER * Math.pow(Math.min(1, Math.max(0, y + 2.0) / 7.8), 1.5);
 }
 
+// Her quarters are rounded into the transom, not cut off square.
+//
+// The shell is lofted as two panels at plus and minus the half-breadth, so a
+// flat plate across the end of them meets her sides at a right angle -- and a
+// right angle nine metres wide and eight tall is what made her stern read as
+// the back of a lorry with a dark rectangle where her plating should be. So
+// the station line at the transom is carried forward by the corner radius and
+// the plate across it bulges aft to meet the sides on a curve: flat over the
+// middle of her, rounded hard at the quarters, which is what a German cruiser
+// stern looks like from astern.
+const TRANSOM_R = 1.30;
+
+/** How much of the rounding applies here: 1 at the transom, 0 by frame 190. */
+function transomK(t) {
+  return smooth(Math.max(0, Math.min(1, (-t - 0.952) / 0.048)));
+}
+
+/**
+ * How far aft of the station line the shell stands, at `u` of the half-breadth.
+ *
+ * Nothing at the deck edge, where her sides are, and a full radius on the
+ * centreline: a flattened round, which is what a transom is.
+ */
+function transomBulge(t, u) {
+  const k = transomK(t);
+  if (k <= 0) return 0;
+  const a = Math.min(1, Math.abs(u));
+  return -TRANSOM_R * k * Math.sqrt(Math.max(0, 1 - Math.pow(a, 6)));
+}
+
 function zAt(t, y) {
   let z = (t * LOA) / 2;
   if (t > 0.46) z += smooth((t - 0.46) / 0.54) * (stemAt(y) - STEM);
   else if (t < -0.80) z -= smooth((-t - 0.80) / 0.20) * (counterAt(y) - COUNTER);
-  return z;
+  // The corner line, carried forward so the round has somewhere to happen.
+  return z + TRANSOM_R * transomK(t);
 }
 
 /** Her deck edge at a station, in metres from amidships. */
@@ -337,6 +368,9 @@ function loftBand(g, m, lo, hi) {
 
 /** Close an end of the shell, painted in the same three strakes. */
 function capEnd(g, t, out) {
+  // Across the beam as well as up, so the transom can be the rounded plate it
+  // is instead of one quad meeting her sides at a right angle.
+  const NX = 12;
   for (const [lo, hi, m] of strakes(t)) {
     if (hi - lo < 0.02) continue;
     const N = 14;
@@ -346,12 +380,19 @@ function capEnd(g, t, out) {
       const y = lo + ((hi - lo) * i) / N;
       const w = shellAt(t, y);
       const z = zAt(t, y);
-      pos.push(-w, y, z, w, y, z);
+      for (let j = 0; j <= NX; j++) {
+        const u = -1 + (2 * j) / NX;
+        pos.push(u * w, y, z + transomBulge(t, u));
+      }
     }
+    const per = NX + 1;
     for (let i = 0; i < N; i++) {
-      const a = i * 2;
-      if (out > 0) idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      for (let j = 0; j < NX; j++) {
+        const a = i * per + j;
+        const b = (i + 1) * per + j;
+        if (out > 0) idx.push(a, a + 1, b, a + 1, b + 1, b);
+        else idx.push(a, b, a + 1, a + 1, b, b + 1);
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -375,7 +416,7 @@ function weatherDeck(g) {
     for (let j = 0; j < across; j++) {
       const u = (j - CAM) / CAM;
       const crown = (1 - u * u) * 0.30;
-      pos.push(u * w, sh + crown, z);
+      pos.push(u * w, sh + crown, z + transomBulge(t, u));
     }
   }
   for (let i = 0; i < STATIONS; i++) {
@@ -682,6 +723,80 @@ function sternGear(g) {
   for (const sgn of [-1, 1]) rudder(g, sgn * 2.9, -98.2, -3.4, -7.0);
 }
 
+/**
+ * The transom.
+ *
+ * What was here was one plate across the end of her and nothing else: from
+ * astern it read as a dark rectangle the size of a barn door, which is the one
+ * thing a stern must never look like. What is actually there is plating in
+ * athwartship strakes over a rounded counter, the gunwale and the knuckle
+ * carried round the quarters rather than stopping dead at them, the stern
+ * light, the quarter chocks the towing hawser leads through, and the drain
+ * scuppers out of the steering flat.
+ */
+function transom(g) {
+  const t = -1;
+  const tY = sheer(t);
+  const tW = shellAt(t, tY);
+  const zOf = (y, u) => zAt(t, y) + transomBulge(t, u);
+  const SEG = 16;
+
+  // The gunwale, carried round the stern in segments, with the capping rail
+  // on top of it and the knuckle a hand's breadth under the deck edge.
+  for (let i = 0; i < SEG; i++) {
+    const u0 = -1 + (2 * i) / SEG;
+    const u1 = -1 + (2 * (i + 1)) / SEG;
+    const x0 = u0 * tW;
+    const x1 = u1 * tW;
+    const z0 = zOf(tY, u0);
+    const z1 = zOf(tY, u1);
+    const len = Math.hypot(x1 - x0, z1 - z0) + 0.08;
+    const mx = (x0 + x1) / 2;
+    const mz = (z0 + z1) / 2;
+    const ry = Math.atan2(x1 - x0, z1 - z0);
+    // Inboard a touch, so the plating stands on her deck and not out past it.
+    box(g, M.hull, 0.26, 0.30, len, mx * 0.985, tY + 0.15, mz + 0.14, ry);
+    box(g, M.deckSteel, 0.40, 0.11, len, mx * 0.985, tY + 0.35, mz + 0.14, ry);
+    box(g, M.hullDark, 0.22, 0.34, len, mx * 0.99, tY - 0.26, mz + 0.05, ry);
+  }
+
+  // Plate seams across her, laid athwartships the way the strakes run: a
+  // finger proud of the plating, enough to catch the light and break the
+  // sheet up, and no more.
+  for (const y of [-1.4, 0.2, 1.7, 3.1, 4.4]) {
+    const w = shellAt(t, y);
+    if (w < 0.6) continue;
+    for (let i = 0; i < SEG; i++) {
+      const u0 = -1 + (2 * i) / SEG;
+      const u1 = -1 + (2 * (i + 1)) / SEG;
+      const x0 = u0 * w;
+      const x1 = u1 * w;
+      const z0 = zOf(y, u0);
+      const z1 = zOf(y, u1);
+      box(g, y > BOOT_HI ? M.hullDark : M.boot,
+        Math.hypot(x1 - x0, z1 - z0) + 0.05, 0.09, 0.09,
+        (x0 + x1) / 2, y, (z0 + z1) / 2 - 0.05,
+        Math.atan2(-(z1 - z0), x1 - x0));
+    }
+  }
+
+  // The stern light on its bracket over the ensign staff's step.
+  cyl(g, M.steelDark, 0.15, 0.19, 0.5, 0, tY + 0.62, zOf(tY, 0) + 0.3, 8);
+  cyl(g, M.bright, 0.21, 0.21, 0.3, 0, tY + 1.02, zOf(tY, 0) + 0.3, 10);
+  // The quarter chocks, and the scuppers out of the steering flat under them.
+  for (const sgn of [-1, 1]) {
+    const u = sgn * 0.66;
+    const cx = u * tW;
+    const cz = zOf(tY, u) + 0.6;
+    box(g, M.steelDark, 0.9, 0.5, 0.9, cx, tY + 0.35, cz);
+    cyl(g, M.cave, 0.25, 0.25, 0.5, cx, tY + 0.39, cz, 10)
+      .rotation.x = Math.PI / 2;
+    const su = sgn * 0.44;
+    cyl(g, M.cave, 0.17, 0.17, 0.3, su * shellAt(t, 3.6), 3.6,
+      zOf(3.6, su) - 0.1, 8).rotation.x = Math.PI / 2;
+  }
+}
+
 /** The whole shell: three strakes, both ends capped, the deck over the top. */
 function hull(g) {
   for (const [lo, hi, m] of strakeBands()) loftBand(g, m, lo, hi);
@@ -691,12 +806,7 @@ function hull(g) {
   deckEdge(g);
   knuckleAndBulwark(g);
   sternGear(g);
-  // The transom itself: a flat plate, which is what a transom is, rather than
-  // the pinched point the cap alone would leave.
-  const t = -1;
-  const sh = sheer(t);
-  const w = shellAt(t, sh);
-  box(g, M.hull, w * 2, 0.5, 0.4, 0, sh - 0.25, zAt(t, sh) - 0.1);
+  transom(g);
   // The scuttles down her topsides: a row in the strake between the knuckle
   // and the deck edge, which is where a cruiser's are. They used to be cut in
   // the deckhouse side, on the reading that the deckhouse was her side.
@@ -1795,8 +1905,35 @@ function bridge(g) {
   const D1 = 2.50;              // admiral's bridge
   const D2 = 5.00;              // navigating bridge
   const D3 = 7.50;              // the open bridge over it
-  const D4 = 10.30;             // the searchlight gallery up the tower
-  const D5 = 14.00;             // the foretop
+  const D4 = 13.00;             // the searchlight gallery up the tower
+  const D5 = 16.40;             // the foretop
+
+  // The trunk's section at a height, so the seams, the door, the ladder cage
+  // and the platform knees all land on the plating instead of near it.
+  //
+  // It is a tower, and a tower is tall and thin. Hers was eight and a half
+  // metres across the base and nine deep, and it barely tapered: from abeam
+  // that is wider than the five metres of it that show between the bridge roof
+  // and the foretop, so the tallest thing about her read as a stump with a
+  // fighting top balanced on it. Six and three quarters at the bridge roof
+  // drawing in to five at the foretop is the proportion the drawing gives.
+  const TRUNK = [
+    [D1, 3.35, 3.85],
+    [D3, 3.05, 3.50],
+    [D4, 2.75, 3.15],
+    [D5, 2.50, 2.85],
+  ];
+  const trunkAt = (d) => {
+    if (d <= TRUNK[0][0]) return [TRUNK[0][1], TRUNK[0][2]];
+    for (let i = 1; i < TRUNK.length; i++) {
+      if (d > TRUNK[i][0]) continue;
+      const [d0, w0, h0] = TRUNK[i - 1];
+      const [d1, w1, h1] = TRUNK[i];
+      const f = (d - d0) / (d1 - d0);
+      return [w0 + (w1 - w0) * f, h0 + (h1 - h0) * f];
+    }
+    return [TRUNK[TRUNK.length - 1][1], TRUNK[TRUNK.length - 1][2]];
+  };
 
   // -- 0. the bridge block, and the conning tower inside it ------------------
   //
@@ -1985,26 +2122,91 @@ function bridge(g) {
   // turned: a German tower is a rounded-corner box with the bridge decks
   // wrapped round its foot, which is why the foretop stands nearly amidships
   // of the forward superstructure and not out over the bridge front.
-  loftRings(g, M.steel, [
-    [4.25, 4.60, tz, foot + D1],
-    [4.20, 4.52, tz, foot + D3],
-    [4.10, 4.38, tz, foot + D4],
-    [3.95, 4.20, tz, foot + D5],
-  ], { n: 22, px: 0.44, pz: 0.44, cap: false });
-  // The plate seams up her, the door into the tower off the bridge deck, and
-  // the ladder up her after face in its cage.
+  loftRings(g, M.steel, TRUNK.map(([d, hw, hd]) => [hw, hd, tz, foot + d]),
+    { n: 24, px: 0.44, pz: 0.44, cap: false });
+  // A tower this slim is a stack of plates, and what says so is the horizontal
+  // butt strap at every strake and the vertical seam up the corners of it.
+  for (const d of [D1 + 2.1, D3 + 1.3, D4 + 1.5, D5 - 0.9]) {
+    const [hw, hd] = trunkAt(d);
+    loftRings(g, M.steelDark, [
+      [hw + 0.05, hd + 0.05, tz, foot + d - 0.06],
+      [hw + 0.05, hd + 0.05, tz, foot + d + 0.06],
+    ], { n: 24, px: 0.44, pz: 0.44, cap: false });
+  }
   for (const sgn of [-1, 1]) {
-    for (const yy of [D1 + 2.6, D3 + 1.4, D4 + 1.8]) {
-      box(g, M.steelDark, 0.07, 0.1, 6.8, sgn * 4.16, foot + yy, tz);
+    for (const dd of [-1.9, 1.9]) {
+      for (let i = 0; i < 9; i++) {
+        const d = D1 + 0.4 + (i * (D5 - D1 - 0.8)) / 8;
+        const [hw, hd] = trunkAt(d);
+        box(g, M.steelDark, 0.08, (D5 - D1 - 0.8) / 8 + 0.1, 0.1,
+          sgn * (hw + 0.02), foot + d, tz + dd);
+      }
     }
   }
-  box(g, M.steelDark, 1.05, 1.95, 0.1, 0, foot + D3 + 1.0, tz - 4.44);
-  ladder(g, M.steelDark, 0, foot + D3 + 0.16, foot + D5, tz - 4.34, tz - 4.34);
-  for (let i = 0; i < 7; i++) {
-    const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 10), M.steelDark);
-    hoop.position.set(0, foot + D3 + 1.4 + i * 0.95, tz - 4.70);
-    hoop.rotation.x = Math.PI / 2;
-    g.add(hoop);
+  // The scuttles in it, lighting the plot and the wireless office inside.
+  for (const sgn of [-1, 1]) {
+    for (const d of [D3 + 2.4, D4 + 1.0, D4 + 3.1]) {
+      const [hw] = trunkAt(d);
+      for (const dd of [-1.0, 1.0]) {
+        cyl(g, M.cave, 0.19, 0.19, 0.12, sgn * (hw - 0.02), foot + d, tz + dd, 10)
+          .rotation.z = Math.PI / 2;
+        cyl(g, M.steel, 0.25, 0.25, 0.07, sgn * (hw - 0.04), foot + d, tz + dd, 10)
+          .rotation.z = Math.PI / 2;
+      }
+    }
+  }
+  // The door into the tower off the open bridge, and the ladder up her after
+  // face in its cage: both on the plating, which is where the plating now is.
+  {
+    const [, hdDoor] = trunkAt(D3 + 1.0);
+    box(g, M.steelDark, 1.05, 1.95, 0.1, 0, foot + D3 + 1.0, tz - hdDoor + 0.06);
+    const [, hdLad] = trunkAt((D3 + D5) / 2);
+    ladder(g, M.steelDark, 0, foot + D3 + 0.16, foot + D5,
+      tz - hdLad - 0.12, tz - hdLad - 0.12);
+    for (let i = 0; i < 8; i++) {
+      const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 10), M.steelDark);
+      hoop.position.set(0, foot + D3 + 1.4 + i * 0.95, tz - hdLad - 0.45);
+      hoop.rotation.x = Math.PI / 2;
+      g.add(hoop);
+    }
+  }
+  // The signal deck, half way up her: a narrow gallery right round the trunk
+  // with the flag lockers on it, which is what fills the height between the
+  // bridge roof and the searchlight gallery instead of bare plating.
+  {
+    const dsig = D3 + 2.4;
+    const [hw, hd] = trunkAt(dsig);
+    const ring = [[hw + 1.25, hd + 1.25, tz, foot + dsig],
+      [hw + 1.25, hd + 1.25, tz, foot + dsig + 0.16]];
+    // Capped as well as floored. A platform lofted with its top left open is a
+    // ring of plating with nothing between: a ray dropped on it goes straight
+    // through and lands four metres lower, so from above the gallery is not
+    // there at all and the deck under it is.
+    loftRings(g, M.deckSteel, ring, { n: 24, px: 0.44, pz: 0.44, floor: true });
+    for (const sgn of [-1, 1]) {
+      for (const dd of [-2.0, 0, 2.0]) {
+        const kn = box(g, M.steel, 1.5, 0.13, 0.5, sgn * (hw + 0.55),
+          foot + dsig - 0.42, tz + dd);
+        kn.rotation.z = sgn * 0.5;
+      }
+      // The flag lockers against the trunk, and the halyard cleats over them.
+      box(g, M.steelDark, 0.55, 0.75, 1.9, sgn * (hw + 0.55), foot + dsig + 0.5, tz + 0.6);
+      for (let i = 0; i < 4; i++) {
+        box(g, M.canvas, 0.4, 0.5, 0.32, sgn * (hw + 0.6),
+          foot + dsig + 0.62, tz - 0.15 + i * 0.5);
+      }
+    }
+    // Its rail, and a twenty-inch signal projector on each quarter of it --
+    // her three hundred-and-fifties are up on the gallery above and this deck
+    // is for talking to the next ship in the line, not for finding her.
+    railRing(g, 0, foot + dsig + 0.16, tz, hw + 1.25, hd + 1.25);
+    for (const sgn of [-1, 1]) {
+      cyl(g, M.steel, 0.15, 0.18, 0.85, sgn * (hw + 0.85), foot + dsig + 0.58, tz - 2.3, 10);
+      cyl(g, M.gun, 0.32, 0.32, 0.34, sgn * (hw + 0.85), foot + dsig + 1.18, tz - 2.3, 12)
+        .rotation.z = Math.PI / 2;
+      cyl(g, M.glass, 0.28, 0.28, 0.06, sgn * (hw + 1.02), foot + dsig + 1.18, tz - 2.3, 12)
+        .rotation.z = Math.PI / 2;
+    }
   }
 
   // The searchlight gallery: a wide platform each side out of the face of the
@@ -2035,7 +2237,7 @@ function bridge(g) {
   planRail(g, grow(ftp, 0.1), foot + D5 + 0.18, 0, 1, 1.0);
   for (const sgn of [-1, 1]) {
     for (const dz of [-2.4, 2.4]) {
-      const br = box(g, M.steel, 2.4, 0.13, 0.9, sgn * 3.9, foot + D5 - 0.55, tz + dz);
+      const br = box(g, M.steel, 2.9, 0.13, 0.9, sgn * 3.7, foot + D5 - 0.55, tz + dz);
       br.rotation.z = sgn * 0.5;
     }
   }
