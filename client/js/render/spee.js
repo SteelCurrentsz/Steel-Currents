@@ -40,40 +40,11 @@ import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
-import { buildSpeeHull } from './speeHull.js';
+import { buildSpeeHull, speeSeatY, speeSurfaceY } from './speeHull.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, loftRings, loftShape, ladder,
   fairTable, bullnose, planRun, grow,
 } from './shipkit.js';
-
-/**
- * Her main and secondary armament is drawn by an owner-supplied reference
- * sculpt now (see speeHull.js), fused to the hull with no seam a turret could
- * be cut free along. So her guns are logical mounts only: the position, the
- * training arc and the muzzle reach the simulation aims and fires by, with
- * nothing drawn on them -- there is no barrel any more to point the wrong
- * way.
- *
- * Rather than touch the six weapon builders (elevenInch, fifteen, tenFive,
- * threeSeven, twoCm, torpedoBank) -- which still do everything else right:
- * the pivot, the elevation node, arm()'s muzzle bookkeeping -- a mount is
- * built completely normally and then stripped: every mesh it added, drawn
- * through the shared box/cyl helpers or (the turret gunhouse) built inline
- * with its own lofted geometry, is found by traversal and removed. What is
- * left behind is the same Group, at the same position, with the same
- * userData, and nothing left to draw.
- */
-function stripVisuals(root) {
-  const meshes = [];
-  root.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  for (const m of meshes) m.parent.remove(m);
-  // Flagged on the mounting itself, not just in her class data, so anything
-  // walking the built ship -- a test, a future tool -- can tell a ghost
-  // mounting from one the weld merely emptied by mistake without having to
-  // cross-reference back to SHIP_CLASSES by index.
-  root.userData.ghost = true;
-  return root;
-}
 
 const CLS = SHIP_CLASSES.spee;
 export const LOA = CLS.hull.length;      // 186 m
@@ -1852,24 +1823,38 @@ function mainmast(g) {
 
 // -------------------------------------------------- the catapult and crane --
 
-const CAT_Z = -11;
-const CAT_A = -8.0;
-const CAT_STROKE = 20.0;
+// On the sculpt's own turntable, between the funnel and the after control
+// position. The deck there is clear for seventeen and a half metres fore and
+// aft -- from the after control position at -22.4 to the funnel at -4.6 --
+// which is where the girder lies stowed, so it is that long and no longer,
+// and the trolley's run is what fits on it with the Arado's tail clear of
+// the control position at rest. The launch profile is worked out from the
+// stroke (see catapultProfile), so a shorter run is a harder shot, not a
+// wrong one.
+const CAT_Z = -13.5;
+const CAT_AFT = -8.6;
+const CAT_FWD = 8.9;
+const CAT_A = -3.4;
+const CAT_STROKE = 10.3;
 const CAT_TRAIN = 1.42;
+// The ring stands on the pedestal the sculpt already has, tall enough that the
+// girder swings out clear over the boats on either side of it.
+const CAT_RING = 0.9;
+const catBase = () => speeSeatY(0, CAT_Z, 1.5);
 
 function catapult(g) {
-  const y = sdeck(CAT_Z) + 0.14;
+  const y = catBase();
   const ring = new THREE.Group();
   ring.position.set(0, y, CAT_Z);
-  cyl(ring, M.steelDark, 2.0, 2.2, 0.5, 0, 0.25, 0, 16);
+  cyl(ring, M.steelDark, 1.9, 2.1, CAT_RING, 0, CAT_RING / 2, 0, 16);
   const cat = new THREE.Group();
-  cat.position.set(0, 0.5, 0);
+  cat.position.set(0, CAT_RING, 0);
   cat.userData.dynamic = true;
   // The girder, lying athwartships when trained out.
-  box(cat, M.steel, 2.0, 0.7, CAT_STROKE + 4.0, 0, 0.35, CAT_A + CAT_STROKE / 2);
-  box(cat, M.steelDark, 2.4, 0.16, 1.6, 0, 0.78, CAT_A + CAT_STROKE + 1.4);
-  for (let i = 0; i <= 6; i++) {
-    const z = CAT_A - 1.4 + i * ((CAT_STROKE + 3) / 6);
+  box(cat, M.steel, 2.0, 0.7, CAT_FWD - CAT_AFT, 0, 0.35, (CAT_FWD + CAT_AFT) / 2);
+  box(cat, M.steelDark, 2.4, 0.16, 1.2, 0, 0.78, CAT_A + CAT_STROKE + 1.2);
+  for (let i = 0; i <= 5; i++) {
+    const z = CAT_AFT + 0.6 + i * ((CAT_FWD - CAT_AFT - 1.2) / 5);
     box(cat, M.steelDark, 2.5, 0.5, 0.2, 0, 0.1, z);
   }
   const car = new THREE.Group();
@@ -2471,37 +2456,30 @@ function screws(g) {
   // Two shafts. A diesel ship, and the whole argument for her: she could steam
   // twenty thousand miles without refuelling, which is what made a commerce
   // raider out of a ship that could not fight a battleship.
+  //
+  // On the ends of the sculpt's own shaft bossings, at the size its screws are
+  // cast: the sculpt's blades are part of her hull and cannot turn, these can.
   for (const sgn of [-1, 1]) {
-    // Inboard, and far enough forward that the disc stays inside her own
-    // beam at the station it turns in: a propeller drawn out past her plating
-    // is a propeller that would have been ground off alongside a jetty.
-    const x = sgn * 3.0;
-    const z = -73;
-    // The shaft, in its bossing.
-    const sh = cyl(g, M.steelDark, 0.40, 0.40, 12.0, x, -5.2, z + 6.0, 10);
-    sh.rotation.x = Math.PI / 2;
     const scr = new THREE.Group();
-    scr.position.set(x, -5.2, z);
+    scr.position.set(sgn * 3.7, -5.2, -79.6);
     scr.userData.dynamic = true;
     // A screw has a hand: the two shafts turn opposite ways so their torques
     // cancel, or a ship at full power carries a permanent list and a rudder
-    // always over. It was written as a bare flag here, which the renderer
-    // reads as a right-handed screw -- so both of hers turned the same way.
+    // always over.
     scr.userData.screw = { hand: sgn };
-    cyl(scr, M.brass, 0.32, 0.40, 0.7, 0, 0, 0, 10).rotation.x = Math.PI / 2;
+    cyl(scr, M.brass, 0.36, 0.46, 0.8, 0, 0, 0, 10).rotation.x = Math.PI / 2;
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
-      const bl = box(scr, M.brass, 0.66, 2.0, 0.1, 0, 0, -0.1);
+      const bl = box(scr, M.brass, 0.8, 2.3, 0.12, 0, 0, -0.1);
       bl.rotation.z = a;
-      bl.position.set(Math.cos(a + Math.PI / 2) * 1.0, Math.sin(a + Math.PI / 2) * 1.0, -0.1);
+      bl.position.set(Math.cos(a + Math.PI / 2) * 1.2, Math.sin(a + Math.PI / 2) * 1.2, -0.1);
       bl.rotation.y = 0.4;
     }
     g.add(scr);
-    // And the rudder, on the centreline abaft them.
-    void scr;
   }
+  // And the rudder, on the centreline in the sculpt's skeg abaft them.
   const rud = new THREE.Group();
-  rud.position.set(0, -4.2, -84);
+  rud.position.set(0, -4.4, -86.2);
   rud.userData.dynamic = true;
   rud.userData.rudder = true;
   box(rud, M.hullDark, 0.34, 4.6, 3.2, 0, 0, 0);
@@ -2640,10 +2618,15 @@ function elevenInch(g, x, y, z, aft) {
   return m;
 }
 
+// Where a turret's roller path is: on her own forecastle or quarterdeck, read
+// off the sculpt, which stands two metres lower than the lines this file was
+// first lofted to.
+const turretDeck = (z) => speeSeatY(0, z, 2.5);
+
 function mainBattery(g) {
   const turrets = [];
-  turrets.push(stripVisuals(elevenInch(g, 0, deckAt(A_Z) - 0.24, A_Z, false)));
-  turrets.push(stripVisuals(elevenInch(g, 0, deckAt(Y_Z) - 0.24, Y_Z, true)));
+  turrets.push(elevenInch(g, 0, turretDeck(A_Z) - 0.24, A_Z, false));
+  turrets.push(elevenInch(g, 0, turretDeck(Y_Z) - 0.24, Y_Z, true));
   g.userData.turrets = turrets;
   return turrets;
 }
@@ -2824,43 +2807,38 @@ function torpedoBank(g, x, y, z, angle) {
   return m;
 }
 
+// Every mounting is stood on whatever of her is under its pivot -- deck,
+// sponson, platform or superstructure roof -- read off the sculpt, in the
+// place the sculpt had cast the gun into her before it was cut out.
+const seat = (m, r) => speeSeatY(m.x, m.z, r);
+// Drawn where she stows the mounting, not on the middle of its arc.
+const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
+
 function mountings(g) {
   const sec = [];
   const aa = [];
   const torp = [];
-  // The fifteens stand in the walkway at the deck edge, outboard of the
-  // superstructure, which is where a Panzerschiff's single mounts are and what
-  // the plan draws.
+  // The fifteens stand on the main deck at the deck edge, outboard of the
+  // superstructure: the forward pair laid ahead, the after pair astern.
   for (const m of CLS.secondary.mounts) {
-    // Drawn where she stows the mounting, not on the middle of its arc.
-    sec.push(stripVisuals(fifteen(g, m.x, deckAt(m.z) + 0.04, m.z,
-      m.rest === undefined ? m.angle : m.rest)));
+    sec.push(fifteen(g, m.x, seat(m, 1.6) + 0.04, m.z, stowed(m)));
   }
   for (const gun of CLS.aa.guns) {
     for (const m of gun.mounts) {
-      let y;
-      if (gun.caliber === 105) {
-        // Two on sponsons off the superstructure deck abreast the funnel, one
-        // right aft on the roof of the after control position.
-        y = m.x === 0 ? sdeck(-27) + 3.16 : sdeck(m.z) + 0.16;
-      } else if (gun.caliber === 37) {
-        // The forward pair stand on the funnel platform, well up the stack;
-        // the after pair on the superstructure deck.
-        y = m.z > 0 ? PLATFORM_Y + 0.2 : sdeck(m.z) + 0.16;
-      } else {
-        // The twenties are wherever there is a rail to bolt one to: on the
-        // superstructure where there is superstructure, on the weather deck
-        // forward and aft where there is not.
-        y = (m.z < SDECK_Z1 && m.z > SDECK_Z0)
-          ? sdeck(m.z) + 0.16 : deckAt(m.z) + 0.04;
-      }
-      aa.push(stripVisuals(gun.caliber === 105 ? tenFive(g, m.x, y, m.z, m.angle)
-        : gun.caliber === 37 ? threeSeven(g, m.x, y, m.z, m.angle)
-          : twoCm(g, m.x, y, m.z, m.angle)));
+      const a = gun.caliber === 105 ? tenFive(g, m.x, seat(m, 1.45) + 0.16, m.z, stowed(m))
+        : gun.caliber === 37 ? threeSeven(g, m.x, seat(m, 0.8) + 0.16, m.z, stowed(m))
+          : twoCm(g, m.x, seat(m, 0.4) + 0.04, m.z, stowed(m));
+      // The flak is laid by the scene rather than the simulation, so the
+      // mounting carries its own arc and stops off her datasheet: a 2 cm
+      // abaft the funnel follows an aeroplane round until the funnel is in
+      // the way, and no further. See ShipView.layMounts.
+      a.userData.sector = { angle: m.angle, arc: m.arc, stow: stowed(m) };
+      a.userData.stops = gun.elev;
+      aa.push(a);
     }
   }
   for (const m of CLS.torpedoes.mounts) {
-    torp.push(stripVisuals(torpedoBank(g, m.x, deckAt(m.z) + 0.04, m.z, m.angle)));
+    torp.push(torpedoBank(g, m.x, seat(m, 1.0) + 0.04, m.z, stowed(m)));
   }
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
@@ -2950,30 +2928,27 @@ function stepCatapult(deck, t) {
 
 // ------------------------------------------------------------- the whole ship
 
-// Her hull, weather deck, superstructure, tower, funnel, turrets and light
-// battery all come from the reference sculpt now (see the note at the top of
-// this file and speeHull.js): `hullModel` draws all of that in one pass, so
-// the builders that used to loft it -- hull, weatherDeck, sideDetail, armour,
-// secondaryStations, superstructure, tower, bridgeInside, funnel, machinery,
-// afterWorks, mainmast, sponsons -- are no longer called. Their code is left
-// in the file rather than deleted: it is what the sculpt is a substitute
-// for, and the fastest way back to a fully rigged, fully lofted Graf Spee if
-// that is ever wanted again is to put this list back the way it was.
+// Her hull, decks, superstructure, tower, funnel, boats and deck fittings all
+// come from the reference sculpt now (see speeHull.js): `hullModel` draws all
+// of that in one pass, so the builders that used to loft them -- hull,
+// weatherDeck, sideDetail, armour, secondaryStations, superstructure, tower,
+// bridgeInside, funnel, machinery, afterWorks, mainmast, sponsons, and the
+// boats, crane, rails, deck gear and ground tackle -- are not called. Their
+// code is left in the file: it is what the sculpt stands in for, and the way
+// back to a fully lofted Graf Spee is to put this list back the way it was.
 //
-// What is still built here is everything the sculpt did not supply: the
-// floatplane and her catapult, the crane, the ship's boats, deck gear and
-// ground tackle, and her screws -- none of which the reference model shows
-// in any detail, and all of which the simulation or the player can interact
-// with (a boat lowered, a plane launched, a screw turning astern).
+// The fittings went with the hull rather than being kept on top of it. They
+// were built to her old lines, which run two metres above this sculpt's decks,
+// so every one of them -- boats, davits, crane, rails, capstans, the reserve
+// Arado -- stood in the air over her; and the sculpt carries its own boats,
+// bollards and ground tackle in any case.
+//
+// What is still built is what has to move: her catapult and the Arado on it,
+// seated on the sculpt's own turntable, and her screws, which turn. Her guns
+// are built after the weld, below, in the places the sculpt had them.
 const STATIC = [
   ['hullModel', buildSpeeHull],
   ['catapult', catapult],
-  ['sparePlane', sparePlane],
-  ['crane', crane],
-  ['boats', boats],
-  ['groundTackle', groundTackle],
-  ['deckGear', deckGear],
-  ['rails', rails],
   ['screws', screws],
 ];
 
@@ -2985,18 +2960,53 @@ const STATIC = [
  * proud, with the training rack inside it.
  */
 function barbettes(g) {
-  // Drawn by the sculpt already, turret and barbette both -- a roller-path
-  // ring added here would either stand clear of her actual deck or sit
-  // half-buried in it, since it is no longer welded to a hull built to the
-  // same idealised offsets it is. Nothing is built at all now; the function
-  // stays only because speeParts() still lists it by name.
+  for (const z of [A_Z, Y_Z]) {
+    const y = turretDeck(z);
+    cyl(g, M.steel, 5.25, 5.4, 0.5, 0, y + 0.25, z, 24);
+    // The deck plate round it, a little wider than the patch the sculpt's own
+    // barbette was cut out of, so the join does not show.
+    cyl(g, M.deckSteel, 6.0, 6.0, 0.14, 0, y + 0.07, z, 32);
+  }
+}
+
+// Her quarterdeck, as the sculpt has it. `sheer` is the line she was lofted to
+// before her hull was the sculpt, and it steps down to her quarterdeck at
+// sixty-five metres abaft amidships; the sculpt's break is at fifty-seven, and
+// its quarterdeck is a metre and a half lower again than the loft's. An
+// interior fitted to the loft stands up through eight metres of her
+// quarterdeck abaft the break. So abaft the sculpt's break her interior is
+// fitted under the deck the sculpt has there instead -- the lowest of it
+// across each station, and the lowest of that within eight metres fore and
+// aft, so a fitting standing across her does not lift it. Forward of the
+// break it keeps to the loft, which her deckhouses are fitted to.
+const SCULPT_BREAK_Z = -56;
+let quarterdeck = null;
+function deckOver(t) {
+  const z = zAt(t, 0);
+  if (z > SCULPT_BREAK_Z) return sheer(t);
+  if (!quarterdeck) {
+    const low = [];
+    for (let zz = -LOA / 2; zz <= SCULPT_BREAK_Z + 8; zz += 1) {
+      const tz = (2 * zz) / LOA;
+      const h = shellAt(tz, sheer(tz)) * 0.8;
+      let y = Infinity;
+      for (let x = -h; x <= h; x += 0.5) {
+        const s = speeSurfaceY(x, zz);
+        if (s > -50) y = Math.min(y, s);
+      }
+      low.push(y);
+    }
+    quarterdeck = low.map((_, i) => Math.min(...low.slice(Math.max(0, i - 8), i + 9)));
+  }
+  const i = Math.max(0, Math.min(quarterdeck.length - 1, Math.round(z + LOA / 2)));
+  return Math.min(sheer(t), quarterdeck[i]);
 }
 
 export function buildSpee() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
   barbettes(g);
-  buildInterior(g, { loa: LOA, shellAt, keelY, sheer, zAt });
+  buildInterior(g, { loa: LOA, shellAt, keelY, sheer: deckOver, zAt });
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);
@@ -3034,7 +3044,8 @@ export function buildSpee() {
     deck.cat.cat.rotation.y = 0;
   };
   g.userData.stow = g.userData.recover;
-  g.userData.landingSpot = [S * 8, sdeck(CAT_Z) + 2.4, CAT_Z];
+  // Craned back aboard onto the trolley: over the catapult, where she rides.
+  g.userData.landingSpot = [S * 8, catBase() + CAT_RING + 1.76, CAT_Z];
 
   dressShip(g);
   return {

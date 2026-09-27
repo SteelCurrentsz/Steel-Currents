@@ -744,6 +744,28 @@ function isManned(ship, k, i) {
 }
 
 /**
+ * Train a mounting from bearing `a` toward bearing `b`, by at most `maxStep`,
+ * without ever passing through its stops.
+ *
+ * The short way round is the way to go only for a mounting that trains all
+ * round. Anything else has a dead arc -- her own bridge, her funnel, the
+ * turret behind it -- and a turret laid at a hundred and thirty degrees to
+ * port that is ordered to a hundred and thirty to starboard goes back round
+ * through her bow, the long way, because the short way is through the bridge.
+ * Both bearings are read as offsets from the middle of its arc, which is the
+ * frame its stops are fixed in, and it moves from one to the other without
+ * wrapping.
+ */
+export function trainWithin(a, b, maxStep, spec) {
+  if (!spec || !(spec.arc < Math.PI)) return approachAngle(a, b, maxStep);
+  const from = angleDelta(spec.angle, a);
+  const to = angleDelta(spec.angle, b);
+  const d = to - from;
+  if (Math.abs(d) <= maxStep) return wrapAngle(spec.angle + to);
+  return wrapAngle(spec.angle + from + Math.sign(d) * maxStep);
+}
+
+/**
  * The bearing a manned mounting wants, from where its layer is holding.
  *
  * Clamped into the mounting's own arc like any other: a pair of hands on the
@@ -914,7 +936,7 @@ function stepTurrets(state, ship, dt) {
     const held = isManned(ship, 'main', t.id);
     const want = held ? mannedDesired(ship, cls.turrets[t.id])
       : turretDesired(ship, cls, t);
-    t.angle = approachAngle(t.angle, want.angle, cls.gun.traverse * dt);
+    t.angle = trainWithin(t.angle, want.angle, cls.gun.traverse * dt, cls.turrets[t.id]);
     // A gun that cannot bear comes down to the loading angle rather than
     // standing there pointing at the sky over her own bridge -- and one that
     // can never goes past its own stops.
@@ -1751,7 +1773,7 @@ function stepSecondary(state, ship, dt) {
     // where he is holding, elevates on his range, and waits for his trigger.
     if (isManned(ship, 'sec', m.id)) {
       const want = mannedDesired(ship, spec);
-      m.angle = approachAngle(m.angle, want.angle, S.traverse * dt);
+      m.angle = trainWithin(m.angle, want.angle, S.traverse * dt, spec);
       const stops = gunLimits(S);
       const aim = solveBallistic(S,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
@@ -1765,8 +1787,8 @@ function stepSecondary(state, ship, dt) {
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on, which is
       // where she is stowed rather than the middle of her arc.
-      m.angle = approachAngle(m.angle,
-        spec.rest === undefined ? spec.angle : spec.rest, S.traverse * dt);
+      m.angle = trainWithin(m.angle,
+        spec.rest === undefined ? spec.angle : spec.rest, S.traverse * dt, spec);
       m.elev += clamp(-m.elev, -0.9 * dt, 0.9 * dt);
       m.target = 0;
       continue;
@@ -1795,7 +1817,7 @@ function stepSecondary(state, ship, dt) {
     const want = Math.abs(off) > spec.arc
       ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
       : local;
-    m.angle = approachAngle(m.angle, want, S.traverse * dt);
+    m.angle = trainWithin(m.angle, want, S.traverse * dt, spec);
     // And how far up the gun captain has his guns, on the same solution --
     // never past the stops on the mounting.
     const stops = gunLimits(S);
@@ -2974,7 +2996,7 @@ function stepTorpMounts(state, ship, dt) {
   const manLocal = wrapAngle(manWorld - ship.heading);
   for (const m of ship.torpMounts) {
     const want = isManned(ship, 'torp', m.id) ? manLocal : local;
-    m.angle = approachAngle(m.angle, torpDesired(ship, T.mounts[m.id], want, cls), rate);
+    m.angle = trainWithin(m.angle, torpDesired(ship, T.mounts[m.id], want, cls), rate, T.mounts[m.id]);
   }
 }
 

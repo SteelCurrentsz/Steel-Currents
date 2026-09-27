@@ -529,14 +529,13 @@ export const SHIP_CLASSES = {
       // four metres abaft where a reading off the scale bar had put it, and it
       // is what closed the strip of bare deck that used to show between her
       // and the bridge. Bruno's roof runs from forty to forty-five abaft.
-      // Fused into the hull sculpt that stands in for her whole superstructure
-      // now (see client/js/render/speeHull.js): there is no separate turret
-      // mesh left to train, so `ghost` marks her main battery, like every
-      // other mounting on her, as position and reach only -- the number the
-      // simulation aims and fires from, with nothing drawn on it to check for
-      // a hole or a wrong-way weld.
-      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.48, guns: 3, my: 10.49, ghost: true },
-      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.86, ghost: true },
+      //
+      // Each trains a hundred and forty degrees either side of her centreline
+      // and no further, the arc build/survey-spee-arcs.mjs finds clear of her
+      // own tower and after superstructure at the height of the barrels. `my`
+      // is the height of the muzzles over her waterline, off the same model.
+      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.44, guns: 3, my: 8.63 },
+      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 8.17 },
     ],
     gun: {
       name: '28 cm SK C/34', role: 'surface',
@@ -551,11 +550,17 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on the quarterdeck, abaft the after turret. An
       // afterthought on a commerce raider and a real threat at close quarters.
       mounts: [
-        // Six metres up, not seven and a half: the tube mountings are on the
-        // lower quarterdeck abaft the break, which is a deck below the one
-        // the after turret stands on.
-        { id: 0, x: -4.2, z: -68, angle: -Math.PI / 2, arc: 1.27, tubes: 4, my: 6.08 },
-        { id: 1, x: 4.2, z: -68, angle: Math.PI / 2, arc: 1.27, tubes: 4, my: 6.08 },
+        // On the lower quarterdeck abaft the break, a deck below the one the
+        // after turret stands on, stowed fore and aft where the sculpt has them.
+        //
+        // Each bank fires from twenty-two degrees abaft her bow round to
+        // twenty-two off her stern on its own side: forward, the break of her
+        // quarterdeck stops the tubes; aft, her own stern stops the fish,
+        // which would run into her counter laid any further round. Surveyed
+        // off her model by build/survey-spee-arcs.mjs, and stowed at the
+        // after end of it.
+        { id: 0, x: -3.65, z: -72.5, angle: -Math.PI / 2, rest: -2.76, arc: 1.19, tubes: 4, my: 4.21 },
+        { id: 1, x: 3.65, z: -72.5, angle: Math.PI / 2, rest: 2.76, arc: 1.19, tubes: 4, my: 4.18 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
       reach: 4.6,
@@ -572,68 +577,84 @@ export const SHIP_CLASSES = {
       reach: 7.95,
       caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
       shells: shells(150, 3100, 2400, 152, 875, 0.11),
-      // Four a side in the walkway at the deck edge, spread between the two
-      // turrets the way her plan spreads them: abreast the bridge, abreast the
-      // funnel, abreast the catapult and abreast the after works.
+      // Four a side on the main deck at the deck edge, outboard of the
+      // superstructure: a pair abreast the tower and a pair abreast the boats
+      // abaft the funnel, where the reference sculpt of her carries them.
       //
       // `angle` is the middle of what a mounting can be laid through, which
       // for a gun in the waist is the beam. `rest` is where it sits when it
       // has nothing to shoot at, which is a different thing: a wing mounting
-      // is stowed trained fore and aft along her side, not out over it, and
-      // her plan draws the forward pair pointing ahead and the after pair
-      // astern. Left off, a mounting rests on the middle of its arc.
-      // `ghost`: fused into the hull sculpt like her main battery (see the
-      // note on `turrets` above) -- position and reach only, nothing drawn.
+      // is stowed trained fore and aft along her side, not out over it -- the
+      // forward pair ahead and the after pair astern, as far round as her own
+      // structure and the next mounting along let each of them go.
+      //
+      // Those arcs are not guessed: build/survey-spee-arcs.mjs lays each gun
+      // round a degree at a time on the model she is drawn with and stops it
+      // two degrees short of the first bearing its barrel would meet her own
+      // steel. What stops each one is the next shield along her side, or the
+      // sponson of the waist 10.5 cm between the two pairs: the foremost gun
+      // each side trains from right ahead to eighteen degrees off her stern,
+      // the aftermost from right astern to sixteen off her bow, and the two
+      // between them cover the beam. Each pair port and starboard is given the
+      // tighter of its two arcs, mirrored.
       mounts: [
-        { x: -9.0, z: 36, angle: -Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35, ghost: true },
-        { x: 9.0, z: 36, angle: Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35, ghost: true },
-        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.14, ghost: true },
-        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.14, ghost: true },
-        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.04, ghost: true },
-        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.04, ghost: true },
-        { x: -9.2, z: -32, angle: -Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00, ghost: true },
-        { x: 9.2, z: -32, angle: Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00, ghost: true },
+        { x: -8.65, z: 18.75, angle: -1.42, rest: -0.02, arc: 1.4, guns: 1, my: 6.32 },
+        { x: 8.65, z: 18.75, angle: 1.42, rest: 0.02, arc: 1.4, guns: 1, my: 6.33 },
+        { x: -8.65, z: 11.75, angle: -1.3, rest: -0.26, arc: 1.04, guns: 1, my: 6.29 },
+        { x: 8.65, z: 11.75, angle: 1.3, rest: 0.26, arc: 1.04, guns: 1, my: 6.3 },
+        { x: -8.65, z: -8.6, angle: -1.54, rest: -2.84, arc: 1.3, guns: 1, my: 6.29 },
+        { x: 8.65, z: -8.6, angle: 1.54, rest: 2.84, arc: 1.3, guns: 1, my: 6.29 },
+        { x: -8.85, z: -15.55, angle: -1.73, rest: Math.PI, arc: 1.45, guns: 1, my: 6.29 },
+        { x: 8.85, z: -15.55, angle: 1.73, rest: Math.PI, arc: 1.45, guns: 1, my: 6.31 },
       ],
     },
     aa: {
       range: 6000, dps: 46,
       guns: [
-        // Three twin 10.5 cm: one each side abreast the funnel and one right
-        // aft. These are her long-range flak, because her fifteens will not
-        // point up.
-        // Three twin 10.5 cm: one each side abreast the funnel, on sponsons
-        // off the superstructure deck, and one right aft on the roof of the
-        // after control position. These are her long-range flak, because her
+        // Three twin 10.5 cm: one each side abreast the funnel, on the sponsons
+        // off the superstructure deck, and one on the after superstructure
+        // forward of Bruno. These are her long-range flak, because her
         // fifteens will not point up.
+        //
+        // Every flak arc on her is surveyed the way her fifteens' are, with the
+        // gun laid five degrees up -- a torpedo bomber low on the water, the
+        // lowest it will ever be laid -- so wherever in its arc it follows an
+        // aeroplane it is never laid through her own funnel or tower. The one
+        // on her centreline stands over Bruno and fires over his roof, laid
+        // fifteen up. `elev` is each gun's own stops.
         { name: '10.5 cm SK C/33', caliber: 105, role: 'aa', reload: 4.2, range: 6000,
+          elev: { min: -0.14, max: 1.40 },
           mounts: [
-            { x: -7.6, z: 5, angle: -Math.PI / 2, arc: 1.66, guns: 2 },
-            { x: 7.6, z: 5, angle: Math.PI / 2, arc: 1.66, guns: 2 },
-            { x: 0, z: -27, angle: Math.PI, arc: 2.09, guns: 2 },
+            { x: -8.85, z: 6.6, angle: -1.63, arc: 1.63, guns: 2 },
+            { x: 8.85, z: 6.6, angle: 1.63, arc: 1.63, guns: 2 },
+            // Stowed on the beam: trained astern, her barrels are into
+            // Bruno's rangefinder.
+            { x: 0, z: -33.3, angle: Math.PI, arc: 2.74, rest: Math.PI / 2, guns: 2 },
           ] },
         // Two on the funnel platform, where her profile stands them, and two
         // on the after superstructure.
         { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
+          elev: { min: -0.157, max: 1.48 },
           mounts: [
-            { x: -3.9, z: 10, angle: -1.15, arc: 1.92, guns: 2 },
-            { x: 3.9, z: 10, angle: 1.15, arc: 1.92, guns: 2 },
-            { x: -5.4, z: -22, angle: -1.85, arc: 1.92, guns: 2 },
-            { x: 5.4, z: -22, angle: 1.85, arc: 1.92, guns: 2 },
+            { x: -4.0, z: 4.0, angle: -1.72, arc: 1.74, guns: 2 },
+            { x: 4.0, z: 4.0, angle: 1.72, arc: 1.74, guns: 2 },
+            { x: -5.4, z: -22, angle: -2.03, arc: 1.4, guns: 2 },
+            { x: 5.4, z: -22, angle: 2.03, arc: 1.4, guns: 2 },
           ] },
-        // Ten single 2 cm, spread from the forecastle to the quarterdeck the
-        // way the plan spreads them.
+        // Ten single 2 cm, spread from the forecastle to the quarterdeck.
         { name: '2 cm Flak 30', caliber: 20, role: 'aa', reload: 0.1, range: 1700,
+          elev: { min: -0.19, max: 1.57 },
           mounts: [
-            { x: -5.4, z: 40, angle: -1.0, arc: 1.83, guns: 1 },
-            { x: 5.4, z: 40, angle: 1.0, arc: 1.83, guns: 1 },
-            { x: -6.2, z: 18, angle: -1.5, arc: 1.83, guns: 1 },
-            { x: 6.2, z: 18, angle: 1.5, arc: 1.83, guns: 1 },
-            { x: -6.2, z: -6, angle: -1.5, arc: 1.83, guns: 1 },
-            { x: 6.2, z: -6, angle: 1.5, arc: 1.83, guns: 1 },
-            { x: -5.8, z: -32, angle: -1.9, arc: 1.83, guns: 1 },
-            { x: 5.8, z: -32, angle: 1.9, arc: 1.83, guns: 1 },
-            { x: -4.0, z: -55, angle: -2.1, arc: 1.83, guns: 1 },
-            { x: 4.0, z: -55, angle: 2.1, arc: 1.83, guns: 1 },
+            { x: -5.4, z: 40, angle: -1.46, arc: 1.49, guns: 1 },
+            { x: 5.4, z: 40, angle: 1.46, arc: 1.49, guns: 1 },
+            { x: -7.2, z: 27, angle: -1.33, arc: 1.4, guns: 1 },
+            { x: 7.2, z: 27, angle: 1.33, arc: 1.4, guns: 1 },
+            { x: -6.2, z: -6, angle: -1.18, arc: 0.64, guns: 1 },
+            { x: 6.2, z: -6, angle: 1.18, arc: 0.64, guns: 1 },
+            { x: -5.8, z: -32, angle: -1.72, arc: 1.49, guns: 1 },
+            { x: 5.8, z: -32, angle: 1.72, arc: 1.49, guns: 1 },
+            { x: -4.0, z: -55, angle: -2.8, arc: 2.68, guns: 1 },
+            { x: 4.0, z: -55, angle: 2.8, arc: 2.68, guns: 1 },
           ] },
       ],
     },

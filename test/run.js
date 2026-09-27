@@ -47,6 +47,7 @@ import {
   buildSpee, speeParts, sheer as speeSheer, shellAt as speeShellAt,
   zAt as speeZAt, keelY as speeKeelY,
 } from '../client/js/render/spee.js';
+import { speeSurfaceY } from '../client/js/render/speeHull.js';
 import { buildYamato, yamatoParts, LINES as yamatoLines }
   from '../client/js/render/yamato.js';
 
@@ -691,6 +692,96 @@ check('the guns and the tubes on the models actually train', () => {
   for (const m of view.aaMounts) {
     assert.ok(Math.abs(m.rotation.y) < 0.02, 'a gun did not come back to its rest bearing');
   }
+});
+
+check('every gun on the Graf Spee trains inside its stops and fires across its arc', () => {
+  // Her arcs are surveyed off the model she is drawn with (see
+  // build/survey-spee-arcs.mjs), so each one is the whole of what that gun can
+  // be laid through and nothing it cannot. Taken over by hand and laid round
+  // her a bearing at a time, every turret, fifteen and bank of tubes fires on
+  // every bearing well inside its arc and on none outside it.
+  const cls = SHIP_CLASSES.spee;
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const fresh = () => {
+    const state = createState(world, { mode: 'deathmatch' });
+    const v = addShip(state, { name: 'V', classId: 'spee', team: 0, index: 0 });
+    const foe = addShip(state, { name: 'F', classId: 'hipper', team: 1, index: 0 });
+    v.x = 0; v.z = 0; v.heading = 0; v.notch = 1;
+    foe.x = 30000; foe.z = 30000;
+    return { state, v };
+  };
+  const RAD = Math.PI / 180;
+  const batteries = [
+    ['main', cls.turrets, 12000, (v) => v.turrets],
+    ['sec', cls.secondary.mounts, 7000, (v) => v.secMounts],
+    ['torp', cls.torpedoes.mounts, 3000, (v) => v.torpMounts],
+  ];
+  const wrong = [];
+  for (const [k, specs, range] of batteries) {
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      for (let b = -165; b <= 180; b += 15) {
+        const off = Math.abs(angleDelta(spec.angle, b * RAD));
+        // A few degrees either side of a stop is left alone: that is where a
+        // bearing is inside or out by rounding.
+        if (Math.abs(off - spec.arc) < 5 * RAD) continue;
+        const { state, v } = fresh();
+        manGun(v, { k, i });
+        layGun(v, { x: Math.sin(b * RAD) * range, z: Math.cos(b * RAD) * range });
+        for (let t = 0; t < 30 / DT; t++) step(state, DT);
+        const fired = shootGun(state, v) > 0;
+        if (fired !== off < spec.arc) {
+          wrong.push(`${k} ${i} ${fired ? 'fired' : 'would not fire'} on ${b} degrees`);
+        }
+      }
+    }
+  }
+  assert.equal(wrong.length, 0, `${wrong.length} wrong: ${wrong.slice(0, 6).join(', ')}`);
+
+  // A turret goes round the long way rather than through her own bridge.
+  // Anton laid a hundred and thirty degrees to port and then ordered to a
+  // hundred and thirty to starboard trains back through her bow.
+  const { state, v } = fresh();
+  manGun(v, { k: 'main', i: 0 });
+  layGun(v, { x: Math.sin(130 * RAD) * 12000, z: Math.cos(130 * RAD) * 12000 });
+  for (let t = 0; t < 30 / DT; t++) step(state, DT);
+  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, 130 * RAD)) < 0.02, 'Anton never got to port');
+  layGun(v, { x: Math.sin(-130 * RAD) * 12000, z: Math.cos(-130 * RAD) * 12000 });
+  let widest = 0;
+  let nearest = Infinity;
+  for (let t = 0; t < 40 / DT; t++) {
+    step(state, DT);
+    const off = Math.abs(angleDelta(cls.turrets[0].angle, v.turrets[0].angle));
+    widest = Math.max(widest, off);
+    nearest = Math.min(nearest, off);
+  }
+  assert.ok(widest <= cls.turrets[0].arc + 0.01,
+    `Anton trained ${(widest / RAD).toFixed(0)} degrees off her bow, through her stops`);
+  assert.ok(nearest < 0.1, 'Anton did not come back round through her bow');
+  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, -130 * RAD)) < 0.02,
+    'Anton never got to starboard');
+
+  // And her flak, which the scene lays rather than the simulation: whatever
+  // bearing the aeroplane is on, every mounting stays inside its own arc all
+  // the way there.
+  const view = new ShipView({ add() {}, remove() {} }, 'spee', 0, false);
+  const specs = lightMounts(cls);
+  let outside = null;
+  for (let b = 0; b < 360 && !outside; b += 30) {
+    const plane = [{ tm: 1, x: Math.sin(b * RAD) * 1500, y: 700, z: Math.cos(b * RAD) * 1500 }];
+    for (let t = 0; t < 120 && !outside; t++) {
+      view.layMounts(null, null, null, plane, 1 / 30);
+      view.aaMounts.forEach((m, i) => {
+        const off = Math.abs(angleDelta(specs[i].angle, m.rotation.y));
+        if (off > specs[i].arc + 1e-6 && !outside) {
+          outside = `flak mounting ${i} laid ${(off / RAD).toFixed(0)} degrees off the middle of `
+            + `a ${(specs[i].arc / RAD).toFixed(0)}-degree arc, following an aeroplane on ${b}`;
+        }
+      });
+    }
+  }
+  assert.equal(outside, null, outside);
 });
 
 check('the elevation her guns are laid at goes over the wire', () => {
@@ -7547,17 +7638,6 @@ check('every ship has an inside, and it is inside her', () => {
         // one a half-beam cannot see -- in clear air on the other side of the
         // ship from the structure it was supposed to be fitted inside.
         const over = Math.max(px - side.hi, side.lo - px);
-        // The Graf Spee's interior is still lofted through the old lines
-        // (`interior.js` never touched them), but forward of frame 0.5 her
-        // hull is not: it is the reference sculpt (see the note at the top
-        // of spee.js), and the sculpt's actual bow carries a flare those
-        // lines do not, fuller at the sheer line and finer below it. A
-        // handful of points of her forward compartments sit just proud of
-        // that finer real plating rather than of the generous line it was
-        // built to -- a few centimetres of bulkhead she would have had to
-        // lose to fit exactly, not the boiler-through-the-hull fault this
-        // check exists to catch.
-        if (id === 'spee' && pz > 60 && pz < 82 && over < 2.0) continue;
         if (over > 0.15) { proud++; if (py < 0) sunkenProud++; }
         if (over > worst) { worst = over; mark = [px, py, pz]; }
       }
@@ -10880,13 +10960,6 @@ check('you cannot see straight through a gunhouse', () => {
       // satisfy a test would be a gunhouse she never had. The class says which
       // of her mountings are open, and those are let alone.
       if (SHIP_CLASSES[id].turrets[k] && SHIP_CLASSES[id].turrets[k].open) return;
-      // A ghost mounting is a turret only in the sense that matters to the
-      // simulation: where she stands, what arc she trains through, how far
-      // her shells reach. The Graf Spee's are fused into her hull sculpt with
-      // no seam to cut a separate gunhouse free along (see speeHull.js), so
-      // there is no roof for a ray to meet and no plating to face the wrong
-      // way -- nothing here to wind inside out.
-      if (SHIP_CLASSES[id].turrets[k] && SHIP_CLASSES[id].turrets[k].ghost) return;
       const targets = [];
       m.traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
       assert.ok(targets.length, `the ${id}'s turret ${k} has nothing in it`);
@@ -10922,11 +10995,22 @@ check('the Graf Spee is built the same on both sides', () => {
   // a blank plate on the other, a ladder up one side of the tower only. It is
   // the one fault you cannot see from the side you built it on.
   //
-  // Two fittings on her are hers alone and are meant to be: the crane stands
-  // out on her starboard quarter, and the reserve Arado's trolley, its track
-  // and her mainplanes under canvas are stowed on the deck beside it.
+  // Most of what is bolted to her now is her hull itself -- the reference
+  // sculpt, in length-wise slices (see speeHull.js) -- and every slice stands
+  // on her centreline, so the pairing below has little of hers to pair. The
+  // sculpt is checked the way a sculpt can be: each slice of her is as wide to
+  // port as to starboard, to within a hand's breadth or so, which is what the
+  // flak sponsons and her hawse pipes leave between the two sides of a real
+  // ship and a great deal less than a hull built crooked or mirrored.
+  const slices = speeParts().filter((p) => p.from === 'hullModel');
+  assert.ok(slices.length >= 40, `only ${slices.length} slices of her hull were found`);
+  for (const p of slices) {
+    const off = (p.min[0] + p.max[0]) / 2;
+    assert.ok(Math.abs(off) < 0.3,
+      `her hull at station ${((p.min[2] + p.max[2]) / 2).toFixed(0)} is `
+      + `${Math.abs(off).toFixed(2)} m wider to ${off > 0 ? 'port' : 'starboard'}`);
+  }
   const parts = speeParts().filter((p) => {
-    if (p.from === 'crane' || p.from === 'sparePlane') return false;
     // A mounting is wherever it is trained, and her two torpedo banks are
     // stowed on opposite beams: a loader's platform off the centre of a bank
     // lands at a different station on each side of her because the bank it is
@@ -10956,7 +11040,7 @@ check('the Graf Spee is built the same on both sides', () => {
         + `z ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
     }
   }
-  assert.ok(parts.length > 150, `only ${parts.length} pieces of her were compared`);
+  assert.ok(parts.length > 50, `only ${parts.length} pieces of her were compared`);
   assert.equal(lone.length, 0,
     `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
 });
@@ -11079,13 +11163,7 @@ check('a mounting is welded in its own frame and goes on training', () => {
       }
       let n = 0;
       m.traverse((o) => { if (o.isMesh) n++; });
-      // A ghost mounting (the Graf Spee's: see stripVisuals in spee.js) was
-      // built, armed and then deliberately stripped bare, because what she
-      // carries there is fused into her hull sculpt with nothing left that is
-      // hers alone to weld. Nothing here for the weld to have dropped.
-      if (!m.userData.ghost) {
-        assert.ok(n > 0, `a ${id} mounting has no geometry left after the weld`);
-      }
+      assert.ok(n > 0, `a ${id} mounting has no geometry left after the weld`);
       assert.ok(n < 40,
         `a ${id} mounting is still ${n} separate meshes; the weld did not reach it`);
     }
@@ -11103,16 +11181,13 @@ check("the Graf Spee's shell has no holes in it", () => {
   // there. A ray dropped anywhere on her deck has to land on something, and
   // one sent up from under her keel has to hit her bottom.
   //
-  // Forward of frame 0.5 that stops being a fair test: her hull is the
-  // reference sculpt now (see the note at the top of spee.js), not a shape
-  // lofted through `sheer`/`shellAt` station by station, and her actual bow
-  // carries a flare those functions were never asked to describe -- fuller
-  // at the sheer line, finer below it, in a way a straight reading of
-  // `shellAt` at a fixed height does not follow. That is a real difference
-  // in her lines, not a gap in her plating: `from outside her you never see
-  // her insides`, which sweeps this same bow from every bearing against
-  // what the renderer actually draws rather than against these formulas, is
-  // the check that would catch an actual hole here, and it passes.
+  // Her hull is the reference sculpt now (see speeHull.js), not a shape lofted
+  // through `sheer`/`shellAt`, and its decks stand a metre and a half or two
+  // below the sheer those formulas give: a ray fired at the old sheer line
+  // goes over her deck, not through a hole in her. So her side is swept up to
+  // whichever is lower, the old sheer or the lowest of her own deck across
+  // her at that station -- her quarterdeck aft of the break, her main deck
+  // amidships, her forecastle forward -- the whole length of her.
   const built = buildSpee();
   built.group.updateMatrixWorld(true);
   const meshes = [];
@@ -11124,8 +11199,18 @@ check("the Graf Spee's shell has no holes in it", () => {
 
   let sides = 0;
   const holes = [];
-  for (let t = -0.97; t <= 0.5; t += 0.04) {
-    const top = speeSheer(t);
+  const ownDeck = (t) => {
+    const z = speeZAt(t, 0);
+    const h = speeShellAt(t, speeSheer(t)) * 0.8;
+    let low = Infinity;
+    for (let x = -h; x <= h; x += 0.5) {
+      const y = speeSurfaceY(x, z);
+      if (y > -50) low = Math.min(low, y);
+    }
+    return low;
+  };
+  for (let t = -0.97; t <= 0.97; t += 0.04) {
+    const top = Math.min(speeSheer(t), ownDeck(t));
     for (let y = -6.5; y <= top - 0.4; y += 1.3) {
       const half = speeShellAt(t, y);
       if (half < 0.35) continue;
@@ -11498,14 +11583,13 @@ check('nothing on the Graf Spee stands in mid-air or over her side', () => {
     // her funnel is six metres past her plating with the gun laid on the beam.
     // Only what is bolted down has to stay aboard.
     //
-    // `hullModel` is measured against `shellAt` everywhere else in this
-    // file, and that is right when `shellAt` is the formula the hull was
-    // lofted through -- here, aft of frame -0.69, it no longer is. The
-    // reference sculpt's own counter (see the note at the top of spee.js)
-    // rounds out wider at the sheer line than that formula's simple curve
-    // does, which is her actual hull carrying more flare than the line that
-    // used to stand in for it, not a piece of her built somewhere she isn't.
-    if (!p.moving && out > wide + 2.6 && !(p.from === 'hullModel' && t < -0.69)) {
+    // Bar one thing, and it is under water: the sculpt her hull is drawn
+    // from (see speeHull.js) carries her wing screws, and their blades stand
+    // six metres out from her centreline at frame -0.86, where the line
+    // `shellAt` tapers her run to three -- which is where a wing screw is on
+    // any ship, out past the narrow run of her stern and inside the counter
+    // over it.
+    if (!p.moving && out > wide + 2.6 && !(p.from === 'hullModel' && t < -0.8)) {
       over.push(`${p.from} out to ${out.toFixed(1)} m where she is ${wide.toFixed(1)}`);
     }
     // In the air: nothing of hers should have its feet above the highest thing

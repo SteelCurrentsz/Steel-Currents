@@ -1329,6 +1329,37 @@ export class ShipView {
     // A light gun swings fast, and the smaller it is the faster it swings.
     for (const m of this.aaMounts) {
       if (m.userData.laid === false) continue;
+      const rate = m.userData.trainRate || 1.6;
+      // A mounting that knows its own arc and stops -- surveyed off her
+      // structure, in her own frame -- is laid inside them: onto the aeroplane
+      // if it bears, onto the nearer end of the arc if it does not, and back
+      // to where it is stowed when there is nothing up. And it gets there
+      // without passing through its stops: bearings are read from the middle
+      // of its arc and it trains between them without wrapping, so a gun
+      // whose arc runs round her stern goes round her stern, not through her
+      // funnel because that way is shorter.
+      const sector = m.userData.sector;
+      if (sector) {
+        const fromMid = (b) => {
+          let o = b - sector.angle;
+          while (o > Math.PI) o -= Math.PI * 2;
+          while (o < -Math.PI) o += Math.PI * 2;
+          return o;
+        };
+        let to = fromMid(sector.stow);
+        let lift = null;
+        if (want !== null) {
+          to = Math.max(-sector.arc, Math.min(sector.arc, fromMid(want)));
+          const stops = m.userData.stops;
+          lift = stops ? Math.max(stops.min, Math.min(stops.max, up)) : up;
+        }
+        const from = fromMid(m.rotation.y);
+        const step = Math.max(-rate * dt, Math.min(rate * dt, to - from));
+        m.rotation.y = sector.angle + from + step;
+        // Elevation only: the bearing is already where it is going.
+        layMount(m, m.rotation.y, lift, 0, rate * 0.8 * dt);
+        continue;
+      }
       const rest = m.userData.rest || 0;
       let aim = null;
       if (want !== null) {
@@ -1339,7 +1370,6 @@ export class ShipView {
         // that cannot reach the aeroplane stays where it is pointing.
         aim = rest + Math.max(-1.9, Math.min(1.9, off));
       }
-      const rate = m.userData.trainRate || 1.6;
       layMount(m, aim, aim === null ? null : up, rate * dt, rate * 0.8 * dt);
     }
   }

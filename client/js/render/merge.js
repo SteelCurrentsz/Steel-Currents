@@ -273,7 +273,12 @@ export function mergeStatic(group, keyOf = null) {
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
     }
     if (bucket.col.length === bucket.pos.length) {
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(bucket.col, 3));
+      // Bytes, normalised: the same form pieces.js gives a buffer it paints,
+      // because Plating.scorch and the fittings write soot into it a byte at a
+      // time, and a float colour takes every one of those writes as a no-op.
+      const c = new Uint8Array(bucket.col.length);
+      for (let i = 0; i < c.length; i++) c[i] = Math.round(bucket.col[i] * 255);
+      geo.setAttribute('color', new THREE.BufferAttribute(c, 3, true));
     }
     const n = bucket.pos.length / 3;
     geo.setIndex(n > 65535

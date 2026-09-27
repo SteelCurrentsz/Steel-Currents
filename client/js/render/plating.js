@@ -598,11 +598,19 @@ function refine(geo, area, cap) {
   // nothing else refines her -- a ship was a black outline with her own decks
   // and frames showing through where the plating should have been.
   const u0 = geo.attributes.uv;
+  // And her paint, for the one hull in the fleet that carries it per vertex
+  // (the Graf Spee's sculpt: see speeHull.js). Left behind, it is the uv
+  // fault again in a different buffer -- shorter than the positions, so the
+  // whole of her plating was dropped from the draw and she went into battle
+  // as her frames and her machinery with nothing round them.
+  const c0 = geo.attributes.color;
   const i0 = geo.index;
   if (!i0 || !p0) return;
   const pos = Array.from(p0.array);
   const nor = n0 ? Array.from(n0.array) : null;
   const uvs = u0 ? Array.from(u0.array) : null;
+  const cols = c0 ? Array.from(c0.array) : null;
+  const cw = c0 ? c0.itemSize : 0;
   let tris = [];
   for (let i = 0; i < i0.count; i += 3) {
     tris.push(i0.array[i], i0.array[i + 1], i0.array[i + 2]);
@@ -627,6 +635,9 @@ function refine(geo, area, cap) {
     if (uvs) {
       uvs.push((uvs[a * 2] + uvs[b * 2]) / 2,
         (uvs[a * 2 + 1] + uvs[b * 2 + 1]) / 2);
+    }
+    if (cols) {
+      for (let j = 0; j < cw; j++) cols.push((cols[a * cw + j] + cols[b * cw + j]) / 2);
     }
     mid.set(k, m);
     return m;
@@ -669,6 +680,16 @@ function refine(geo, area, cap) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   if (nor) geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   if (uvs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  if (cols) {
+    // Same array type and the same normalisation it came in with: scorch
+    // writes bytes into it, and a colour that went in as bytes has to stay
+    // bytes. Midpoints of two bytes are rounded back to one.
+    const Arr = c0.array.constructor;
+    const out = new Arr(cols.length);
+    const whole = !(out instanceof Float32Array || out instanceof Float64Array);
+    for (let j = 0; j < cols.length; j++) out[j] = whole ? Math.round(cols[j]) : cols[j];
+    geo.setAttribute('color', new THREE.BufferAttribute(out, cw, c0.normalized));
+  }
   const n = pos.length / 3;
   geo.setIndex(n > 65535
     ? new THREE.Uint32BufferAttribute(tris, 1)
