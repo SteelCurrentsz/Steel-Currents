@@ -40,10 +40,40 @@ import { buildInterior, bySection } from './interior.js';
 import { AERO, catapultProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
+import { buildSpeeHull } from './speeHull.js';
 import {
   box, cyl, tubeZ, tubeX, sphere, smooth, loftRings, loftShape, ladder,
   fairTable, bullnose, planRun, grow,
 } from './shipkit.js';
+
+/**
+ * Her main and secondary armament is drawn by an owner-supplied reference
+ * sculpt now (see speeHull.js), fused to the hull with no seam a turret could
+ * be cut free along. So her guns are logical mounts only: the position, the
+ * training arc and the muzzle reach the simulation aims and fires by, with
+ * nothing drawn on them -- there is no barrel any more to point the wrong
+ * way.
+ *
+ * Rather than touch the six weapon builders (elevenInch, fifteen, tenFive,
+ * threeSeven, twoCm, torpedoBank) -- which still do everything else right:
+ * the pivot, the elevation node, arm()'s muzzle bookkeeping -- a mount is
+ * built completely normally and then stripped: every mesh it added, drawn
+ * through the shared box/cyl helpers or (the turret gunhouse) built inline
+ * with its own lofted geometry, is found by traversal and removed. What is
+ * left behind is the same Group, at the same position, with the same
+ * userData, and nothing left to draw.
+ */
+function stripVisuals(root) {
+  const meshes = [];
+  root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  for (const m of meshes) m.parent.remove(m);
+  // Flagged on the mounting itself, not just in her class data, so anything
+  // walking the built ship -- a test, a future tool -- can tell a ghost
+  // mounting from one the weld merely emptied by mistake without having to
+  // cross-reference back to SHIP_CLASSES by index.
+  root.userData.ghost = true;
+  return root;
+}
 
 const CLS = SHIP_CLASSES.spee;
 export const LOA = CLS.hull.length;      // 186 m
@@ -2612,8 +2642,8 @@ function elevenInch(g, x, y, z, aft) {
 
 function mainBattery(g) {
   const turrets = [];
-  turrets.push(elevenInch(g, 0, deckAt(A_Z) - 0.24, A_Z, false));
-  turrets.push(elevenInch(g, 0, deckAt(Y_Z) - 0.24, Y_Z, true));
+  turrets.push(stripVisuals(elevenInch(g, 0, deckAt(A_Z) - 0.24, A_Z, false)));
+  turrets.push(stripVisuals(elevenInch(g, 0, deckAt(Y_Z) - 0.24, Y_Z, true)));
   g.userData.turrets = turrets;
   return turrets;
 }
@@ -2803,8 +2833,8 @@ function mountings(g) {
   // the plan draws.
   for (const m of CLS.secondary.mounts) {
     // Drawn where she stows the mounting, not on the middle of its arc.
-    sec.push(fifteen(g, m.x, deckAt(m.z) + 0.04, m.z,
-      m.rest === undefined ? m.angle : m.rest));
+    sec.push(stripVisuals(fifteen(g, m.x, deckAt(m.z) + 0.04, m.z,
+      m.rest === undefined ? m.angle : m.rest)));
   }
   for (const gun of CLS.aa.guns) {
     for (const m of gun.mounts) {
@@ -2824,13 +2854,13 @@ function mountings(g) {
         y = (m.z < SDECK_Z1 && m.z > SDECK_Z0)
           ? sdeck(m.z) + 0.16 : deckAt(m.z) + 0.04;
       }
-      aa.push(gun.caliber === 105 ? tenFive(g, m.x, y, m.z, m.angle)
+      aa.push(stripVisuals(gun.caliber === 105 ? tenFive(g, m.x, y, m.z, m.angle)
         : gun.caliber === 37 ? threeSeven(g, m.x, y, m.z, m.angle)
-          : twoCm(g, m.x, y, m.z, m.angle));
+          : twoCm(g, m.x, y, m.z, m.angle)));
     }
   }
   for (const m of CLS.torpedoes.mounts) {
-    torp.push(torpedoBank(g, m.x, deckAt(m.z) + 0.04, m.z, m.angle));
+    torp.push(stripVisuals(torpedoBank(g, m.x, deckAt(m.z) + 0.04, m.z, m.angle)));
   }
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
@@ -2920,27 +2950,30 @@ function stepCatapult(deck, t) {
 
 // ------------------------------------------------------------- the whole ship
 
+// Her hull, weather deck, superstructure, tower, funnel, turrets and light
+// battery all come from the reference sculpt now (see the note at the top of
+// this file and speeHull.js): `hullModel` draws all of that in one pass, so
+// the builders that used to loft it -- hull, weatherDeck, sideDetail, armour,
+// secondaryStations, superstructure, tower, bridgeInside, funnel, machinery,
+// afterWorks, mainmast, sponsons -- are no longer called. Their code is left
+// in the file rather than deleted: it is what the sculpt is a substitute
+// for, and the fastest way back to a fully rigged, fully lofted Graf Spee if
+// that is ever wanted again is to put this list back the way it was.
+//
+// What is still built here is everything the sculpt did not supply: the
+// floatplane and her catapult, the crane, the ship's boats, deck gear and
+// ground tackle, and her screws -- none of which the reference model shows
+// in any detail, and all of which the simulation or the player can interact
+// with (a boat lowered, a plane launched, a screw turning astern).
 const STATIC = [
-  ['hull', hull],
-  ['weatherDeck', weatherDeck],
-  ['rails', rails],
-  ['sideDetail', sideDetail],
-  ['armour', armour],
-  ['secondaryStations', secondaryStations],
-  ['superstructure', superstructure],
-  ['tower', tower],
-  ['bridgeInside', bridgeInside],
-  ['funnel', funnel],
-  ['machinery', machinery],
-  ['afterWorks', afterWorks],
-  ['mainmast', mainmast],
+  ['hullModel', buildSpeeHull],
   ['catapult', catapult],
   ['sparePlane', sparePlane],
   ['crane', crane],
-  ['sponsons', sponsons],
   ['boats', boats],
   ['groundTackle', groundTackle],
   ['deckGear', deckGear],
+  ['rails', rails],
   ['screws', screws],
 ];
 
@@ -2952,11 +2985,11 @@ const STATIC = [
  * proud, with the training rack inside it.
  */
 function barbettes(g) {
-  for (const z of [A_Z, Y_Z]) {
-    const y = deckAt(z);
-    cyl(g, M.steel, 5.25, 5.4, 0.5, 0, y + 0.25, z, 24);
-    cyl(g, M.deckSteel, 5.6, 5.6, 0.14, 0, y + 0.07, z, 24);
-  }
+  // Drawn by the sculpt already, turret and barbette both -- a roller-path
+  // ring added here would either stand clear of her actual deck or sit
+  // half-buried in it, since it is no longer welded to a hull built to the
+  // same idealised offsets it is. Nothing is built at all now; the function
+  // stays only because speeParts() still lists it by name.
 }
 
 export function buildSpee() {

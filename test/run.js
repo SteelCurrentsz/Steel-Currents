@@ -10869,6 +10869,13 @@ check('you cannot see straight through a gunhouse', () => {
       // satisfy a test would be a gunhouse she never had. The class says which
       // of her mountings are open, and those are let alone.
       if (SHIP_CLASSES[id].turrets[k] && SHIP_CLASSES[id].turrets[k].open) return;
+      // A ghost mounting is a turret only in the sense that matters to the
+      // simulation: where she stands, what arc she trains through, how far
+      // her shells reach. The Graf Spee's are fused into her hull sculpt with
+      // no seam to cut a separate gunhouse free along (see speeHull.js), so
+      // there is no roof for a ray to meet and no plating to face the wrong
+      // way -- nothing here to wind inside out.
+      if (SHIP_CLASSES[id].turrets[k] && SHIP_CLASSES[id].turrets[k].ghost) return;
       const targets = [];
       m.traverse((o) => { if (o.isMesh && o.geometry) targets.push(o); });
       assert.ok(targets.length, `the ${id}'s turret ${k} has nothing in it`);
@@ -11061,7 +11068,13 @@ check('a mounting is welded in its own frame and goes on training', () => {
       }
       let n = 0;
       m.traverse((o) => { if (o.isMesh) n++; });
-      assert.ok(n > 0, `a ${id} mounting has no geometry left after the weld`);
+      // A ghost mounting (the Graf Spee's: see stripVisuals in spee.js) was
+      // built, armed and then deliberately stripped bare, because what she
+      // carries there is fused into her hull sculpt with nothing left that is
+      // hers alone to weld. Nothing here for the weld to have dropped.
+      if (!m.userData.ghost) {
+        assert.ok(n > 0, `a ${id} mounting has no geometry left after the weld`);
+      }
       assert.ok(n < 40,
         `a ${id} mounting is still ${n} separate meshes; the weld did not reach it`);
     }

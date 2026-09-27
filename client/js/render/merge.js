@@ -181,6 +181,7 @@ export function mergeStatic(group, keyOf = null) {
     const geo = mesh.geometry;
     const pos = geo.attributes.position;
     let nor = geo.attributes.normal;
+    const col = geo.attributes.color;
     m.multiplyMatrices(inv, mesh.matrixWorld);
     nm.getNormalMatrix(m);
 
@@ -200,7 +201,7 @@ export function mergeStatic(group, keyOf = null) {
     let bucket = byMat.get(slot);
     if (!bucket) {
       byMat.set(slot, (bucket = {
-        pos: [], nor: [], uv: [], idx: [], pieces: [], key, material: mesh.material,
+        pos: [], nor: [], uv: [], col: [], idx: [], pieces: [], key, material: mesh.material,
       }));
     }
     const base = bucket.pos.length / 3;
@@ -220,6 +221,15 @@ export function mergeStatic(group, keyOf = null) {
         else if (ax >= az) bucket.uv.push(pz, py);
         else bucket.uv.push(px, py);
       }
+      // A vertex-painted hull carries a colour attribute the weld has to
+      // carry too, or every welded mesh a material reads vertexColors from
+      // comes out of it multiplying by the zero the missing attribute
+      // defaults to -- painted black regardless of what colour it was
+      // actually given. A mesh with no paint of its own contributes white,
+      // which multiplies as no paint at all if it ever shares a bucket with
+      // one that has some.
+      if (col) bucket.col.push(col.getX(i), col.getY(i), col.getZ(i));
+      else if (bucket.col.length) bucket.col.push(1, 1, 1);
     }
     if (geo.index) {
       const ix = geo.index;
@@ -261,6 +271,9 @@ export function mergeStatic(group, keyOf = null) {
     if (bucket.nor.length === bucket.pos.length) {
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.nor, 3));
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+    }
+    if (bucket.col.length === bucket.pos.length) {
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(bucket.col, 3));
     }
     const n = bucket.pos.length / 3;
     geo.setIndex(n > 65535

@@ -529,8 +529,14 @@ export const SHIP_CLASSES = {
       // four metres abaft where a reading off the scale bar had put it, and it
       // is what closed the strip of bare deck that used to show between her
       // and the bridge. Bruno's roof runs from forty to forty-five abaft.
-      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.48, guns: 3, my: 10.49 },
-      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.86 },
+      // Fused into the hull sculpt that stands in for her whole superstructure
+      // now (see client/js/render/speeHull.js): there is no separate turret
+      // mesh left to train, so `ghost` marks her main battery, like every
+      // other mounting on her, as position and reach only -- the number the
+      // simulation aims and fires from, with nothing drawn on it to check for
+      // a hole or a wrong-way weld.
+      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.48, guns: 3, my: 10.49, ghost: true },
+      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 9.86, ghost: true },
     ],
     gun: {
       name: '28 cm SK C/34', role: 'surface',
@@ -576,15 +582,17 @@ export const SHIP_CLASSES = {
       // is stowed trained fore and aft along her side, not out over it, and
       // her plan draws the forward pair pointing ahead and the after pair
       // astern. Left off, a mounting rests on the middle of its arc.
+      // `ghost`: fused into the hull sculpt like her main battery (see the
+      // note on `turrets` above) -- position and reach only, nothing drawn.
       mounts: [
-        { x: -9.0, z: 36, angle: -Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35 },
-        { x: 9.0, z: 36, angle: Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35 },
-        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
-        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.14 },
-        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
-        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.04 },
-        { x: -9.2, z: -32, angle: -Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00 },
-        { x: 9.2, z: -32, angle: Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00 },
+        { x: -9.0, z: 36, angle: -Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35, ghost: true },
+        { x: 9.0, z: 36, angle: Math.PI / 2, rest: 0, arc: 1.36, guns: 1, my: 8.35, ghost: true },
+        { x: -9.6, z: 16, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.14, ghost: true },
+        { x: 9.6, z: 16, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.14, ghost: true },
+        { x: -9.6, z: -12, angle: -Math.PI / 2, arc: 1.29, guns: 1, my: 8.04, ghost: true },
+        { x: 9.6, z: -12, angle: Math.PI / 2, arc: 1.29, guns: 1, my: 8.04, ghost: true },
+        { x: -9.2, z: -32, angle: -Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00, ghost: true },
+        { x: 9.2, z: -32, angle: Math.PI / 2, rest: Math.PI, arc: 1.36, guns: 1, my: 8.00, ghost: true },
       ],
     },
     aa: {
