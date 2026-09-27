@@ -3,6 +3,9 @@ node_modules/
 .DS_Store
 .env
 dist/
+# Local MCP server config: carries API keys in plaintext (see the Meshy
+# server's MESHY_API_KEY). Never committed.
+.mcp.json
 # Build outputs, all regenerable with `node build/standalone.mjs`.
 # The build script itself is source and stays tracked.
 build/bundle.js
