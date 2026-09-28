@@ -12,6 +12,7 @@ import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
 import { buildYamato } from './yamato.js';
 import { buildTakao } from './takao.js';
+import { buildRodney } from './rodney.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -561,6 +562,20 @@ export function buildShip(classId) {
   // forward are the whole of what she looks like.
   if (cls.id === 'takao') {
     const built = buildTakao();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Rodney, whose nine 16-inch guns are all forward of her tower.
+  if (cls.id === 'rodney') {
+    const built = buildRodney();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

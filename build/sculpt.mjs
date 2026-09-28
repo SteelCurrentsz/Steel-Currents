@@ -74,10 +74,21 @@ export function readGlb(file) {
     }
     return out;
   };
+  // A sculpt that was painted on its way here (the Rodney's: see
+  // build/rodney-source.mjs) carries its paint per point, as a float.
+  const readScalar = (a) => {
+    const v = bv[a.bufferView];
+    const base = bin.byteOffset + v.byteOffset + (a.byteOffset || 0);
+    const dv = new DataView(bin.buffer);
+    const out = new Float32Array(a.count);
+    for (let i = 0; i < a.count; i++) out[i] = dv.getFloat32(base + i * (v.byteStride || 4), true);
+    return out;
+  };
   return {
     pos: readVec3(acc[prim.attributes.POSITION]),
     nrm: readVec3(acc[prim.attributes.NORMAL]),
     idx: readIdx(acc[prim.indices]),
+    paint: prim.attributes._PAINT !== undefined ? readScalar(acc[prim.attributes._PAINT]) : null,
   };
 }
 
@@ -284,15 +295,25 @@ export function earClip(m, loop, U = (v) => m.P[v * 3], V = (v) => m.P[v * 3 + 2
  *
  * With `open`, holes the mesh already had are closed too: an edge every one
  * of whose triangles is kept, but an odd number of them.
+ *
+ * A painted mesh (one carrying `m.C`, a paint per triangle) keeps its paint:
+ * each patch takes the paint most of its rim is, unless `patchPaint(box,
+ * rim)` says otherwise -- a hole in her deck where a gun stood is deck.
  */
-export function closeHoles(m, keep, boxFor, { open = false } = {}) {
+export function closeHoles(m, keep, boxFor, { open = false, patchPaint = null } = {}) {
   const { P, N, T } = m;
+  const C = m.C || null;
   const nTri = T.length / 3;
   const edges = new Map();
   const ek = (a, b) => (a < b ? a * 1048576 + b : b * 1048576 + a);
+  // A painted mesh has every point where two paints meet split in two, and
+  // an edge between two paints is not the rim of a hole: edges are matched
+  // by where their ends are, and a hole is walked round those points.
+  const canon = C ? weld(m) : null;
   for (let t = 0; t < nTri; t++) {
     for (let e = 0; e < 3; e++) {
-      const a = T[t * 3 + e], b = T[t * 3 + ((e + 1) % 3)];
+      let a = T[t * 3 + e], b = T[t * 3 + ((e + 1) % 3)];
+      if (canon) { a = canon[a]; b = canon[b]; }
       const k = ek(a, b);
       if (!edges.has(k)) edges.set(k, []);
       edges.get(k).push([t, a, b]);
@@ -300,6 +321,7 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
   }
   const adj = new Map();
   const dirOf = new Map();
+  const ownerOf = C ? new Map() : null;
   for (const [k, list] of edges) {
     let kept = 0;
     let first = null;
@@ -307,6 +329,7 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
     if (kept % 2 === 0 || (kept === list.length && !open)) continue;
     const [, a, b] = first;
     dirOf.set(k, [a, b]);
+    if (ownerOf) ownerOf.set(k, first[0]);
     if (!adj.has(a)) adj.set(a, []);
     if (!adj.has(b)) adj.set(b, []);
     adj.get(a).push([b, k]);
@@ -314,10 +337,20 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
   }
   const used = new Set();
   const T2 = [];
-  for (let t = 0; t < nTri; t++) if (keep[t]) T2.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+  const C2 = C ? [] : null;
+  for (let t = 0; t < nTri; t++) {
+    if (!keep[t]) continue;
+    T2.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    if (C2) C2.push(C[t]);
+  }
+  // Whatever the last hole was patched with takes the paint worked out for it.
+  let pending = 0;
+  let rimPaint = 0;
+  const fill = () => { if (C2) while (C2.length < T2.length / 3) C2.push(pending); };
   const stats = { loops: 0, capped: 0, fanned: 0, chains: 0, skirted: 0, own: 0 };
   for (const start of adj.keys()) {
     for (const [first, fk] of adj.get(start)) {
+      fill();
       if (used.has(fk)) continue;
       used.add(fk);
       const loop = [start];
@@ -346,6 +379,13 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
       for (const v of poly) { cx += P[v * 3]; cy += P[v * 3 + 1]; cz += P[v * 3 + 2]; }
       cx /= poly.length; cy /= poly.length; cz /= poly.length;
       const box = boxFor(cx, cz, cy);
+      if (C2) {
+        const votes = new Map();
+        for (const k of keys) { const p = C[ownerOf.get(k)]; votes.set(p, (votes.get(p) || 0) + 1); }
+        let best = -1;
+        for (const [p, n] of votes) if (n > best) { best = n; rimPaint = p; }
+        pending = patchPaint ? patchPaint(box, rimPaint, cx, cy, cz) : rimPaint;
+      }
       if (!box) {
         // In its own plane: the rim's own normal (Newell's), and two axes in
         // the plane square to it.
@@ -407,6 +447,9 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
         if (b2 !== b) { T2.push(a, b, b2); stats.capped++; }
         if (a2 !== a) { T2.push(a, b2, a2); stats.capped++; }
       }
+      // A skirt goes on down the wall it hangs from, in the wall's paint; the
+      // patch at the foot of it is what the hole is closed with.
+      if (C2) { const patch = pending; pending = rimPaint; fill(); pending = patch; }
       stats.skirted += low.some((w, i) => w !== poly[i]) ? 1 : 0;
       const tris = earClip(m, low);
       if (tris) {
@@ -427,7 +470,9 @@ export function closeHoles(m, keep, boxFor, { open = false } = {}) {
       }
     }
   }
+  fill();
   m.T = T2;
+  if (C2) m.C = C2;
   return stats;
 }
 
@@ -527,6 +572,9 @@ function crossings(P, T, x, y, z, d) {
 export function boxCut(m, box, { keep = 'outside' } = {}) {
   const { P, N } = m;
   const T = m.T;
+  // A painted mesh's paint, a triangle at a time: what a triangle is cut into
+  // keeps its paint, and a cap takes the paint of the rim round it.
+  const C = m.C || null;
   const refT = T;                    // her, before the cut, for inside tests
   const lo = [box.x0, box.y0, box.z0], hi = [box.x1, box.y1, box.z1];
   const planes = [[0, lo[0], true], [0, hi[0], false], [1, lo[1], true], [1, hi[1], false], [2, lo[2], true], [2, hi[2], false]];
@@ -573,6 +621,7 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
   // else with that segment as an edge takes the point too.
   const segPts = new Map();
   const pieces = [];
+  const pieceOf = [];
   for (const t of touched) {
     let polys = [[T[t * 3], T[t * 3 + 1], T[t * 3 + 2]]];
     const outside = [];
@@ -621,6 +670,7 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
       if (inBox(cx, cy, cz)) inner.push(poly); else outside.push(poly);
     }
     for (const poly of keepInside ? inner : outside) pieces.push(poly);
+    while (pieceOf.length < pieces.length) pieceOf.push(t);
   }
 
   const gather = (p, q, depth = 0) => {
@@ -635,7 +685,18 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
     return out;
   };
   const T2 = [];
+  const C2 = C ? [] : null;
+  let paintNow = 0;
   const emit = (poly) => {
+    if (C2) {
+      const n0 = T2.length;
+      emitPoly(poly);
+      for (let k = n0; k < T2.length; k += 3) C2.push(paintNow);
+      return;
+    }
+    emitPoly(poly);
+  };
+  const emitPoly = (poly) => {
     const ring = [];
     const runs = new Set();
     const extras = poly.map((p, k) => gather(p, poly[(k + 1) % poly.length]));
@@ -670,17 +731,24 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
   for (let t = 0; t < nTri; t++) {
     if (touchedSet.has(t)) continue;
     // Untouched: wholly outside the box, so kept only when the outside is.
+    if (C2) paintNow = C[t];
     if (!keepInside) emit([T[t * 3], T[t * 3 + 1], T[t * 3 + 2]]);
   }
-  for (const poly of pieces) emit(poly);
+  pieces.forEach((poly, i) => {
+    if (C2) paintNow = C[pieceOf[i]];
+    emit(poly);
+  });
   m.T = T2;
+  if (C2) m.C = C2;
 
   // ---- the caps ---------------------------------------------------------------
   const edges = new Map();
+  const edgePaint = C2 ? new Map() : null;
   for (let t = 0; t < T2.length; t += 3) {
     for (let e = 0; e < 3; e++) {
       const k = ek(T2[t + e], T2[t + (e + 1) % 3]);
       edges.set(k, (edges.get(k) || 0) + 1);
+      if (edgePaint) edgePaint.set(k, C2[t / 3]);
     }
   }
   const caps = [];
@@ -691,12 +759,20 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
     const W = uHi - uLo, H = vHi - vLo;
     const onFace = (v) => Math.abs(P[v * 3 + ax] - val) < 1e-5;
     const rim = [];
+    const votes = new Map();
     for (const [k, n] of edges) {
       if (n !== 1) continue;
       const [a, b] = k.split(',').map(Number);
-      if (onFace(a) && onFace(b)) rim.push([a, b]);
+      if (onFace(a) && onFace(b)) {
+        rim.push([a, b]);
+        if (edgePaint) { const p = edgePaint.get(k); votes.set(p, (votes.get(p) || 0) + 1); }
+      }
     }
     if (!rim.length) { caps.push(0); continue; }
+    if (C2) {
+      let best = -1;
+      for (const [p, n] of votes) if (n > best) { best = n; paintNow = p; }
+    }
     // The way each cap faces: into the box when it was taken out, out of it
     // when it was all that was kept.
     const want = [0, 0, 0];
@@ -838,6 +914,7 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
         const [p, q, r] = [tris[k], tris[k + 1], tris[k + 2]];
         const [fx, fy, fz] = faceNormal(m, p, q, r);
         if (fx * want[0] + fy * want[1] + fz * want[2] < 0) T2.push(p, r, q); else T2.push(p, q, r);
+        if (C2) C2.push(paintNow);
       }
       made += tris.length / 3;
     }
@@ -1496,7 +1573,9 @@ export function denoise(m, canon, {
     nbr[t] = [...s];
   }
   const inside = new Uint8Array(nf);
-  for (let t = 0; t < nf; t++) inside[t] = only(fc[t * 3], fc[t * 3 + 1], fc[t * 3 + 2]) ? 1 : 0;
+  // `only` is told the face as well as where it is, for a filter that goes by
+  // what the face is rather than where.
+  for (let t = 0; t < nf; t++) inside[t] = only(fc[t * 3], fc[t * 3 + 1], fc[t * 3 + 2], t) ? 1 : 0;
   const s2 = 2 * sigmaS * sigmaS, r2 = 2 * sigmaR * sigmaR;
   let n = Float64Array.from(fn);
   for (let it = 0; it < normalIters; it++) {
@@ -1635,7 +1714,7 @@ export function roundBarrels(m, axes, { from, bin = 0.25, reach = 1.35 }) {
  * Replaces the mesh's vertices; returns, for each new vertex, whether it is
  * her side plating.
  */
-export function hardEdges(m, canon, st, { crease, plateTilt, foot }) {
+export function hardEdges(m, canon, st, { crease, plateTilt, foot, smooth = null }) {
   const { P, N } = m;
   const T = m.T;
   const nvAll = P.length / 3;
@@ -1685,7 +1764,13 @@ export function hardEdges(m, canon, st, { crease, plateTilt, foot }) {
         for (let q = p + 1; q < list.length; q++) {
           const f = fs[list[p]], g = fs[list[q]];
           if (plate[f] !== plate[g]) continue;
-          if (fu[f * 3] * fu[g * 3] + fu[f * 3 + 1] * fu[g * 3 + 1] + fu[f * 3 + 2] * fu[g * 3 + 2] < cosC) continue;
+          // Nor two paints: a point where two paints meet is a point of each.
+          if (m.C && m.C[f] !== m.C[g]) continue;
+          // Round a spar or a wire -- `smooth` says which faces are -- every
+          // edge is sharper than a crease and none of them is one: it is a
+          // tube, and shaded as one.
+          const round = smooth && smooth[f] && smooth[g];
+          if (!round && fu[f * 3] * fu[g * 3] + fu[f * 3 + 1] * fu[g * 3 + 1] + fu[f * 3 + 2] * fu[g * 3 + 2] < cosC) continue;
           parent[find(list[p])] = find(list[q]);
         }
       }
@@ -1876,7 +1961,7 @@ export const heightBytes = (hm) => Buffer.from(Int16Array.from(hm, (v) => Math.r
  * Float32 uv[vertCount*2], Uint16 idx[triCount*3] (every bucket has well under
  * 65536 verts). With `buckets: 1` it is one piece -- a gunhouse, a barrel.
  */
-export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null }) {
+export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null, compact = false }) {
   const { P, N, T } = m;
   const half = length / 2;
   const bucketOf = (z) => Math.max(0, Math.min(nBuckets - 1,
@@ -1906,6 +1991,7 @@ export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null }
     }
   }
   const nonEmpty = buckets.filter((bk) => bk.idx.length > 0);
+  if (compact) return packCompact(nonEmpty, !!surfaceOf, T.length / 3);
   const parts = [];
   const head = Buffer.alloc(4);
   head.writeUInt32LE((nonEmpty.length | (surfaceOf ? 0x80000000 : 0)) >>> 0, 0);
@@ -1925,4 +2011,76 @@ export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null }
     parts.push(Buffer.from(Uint16Array.from(bk.idx).buffer));
   }
   return { blob: Buffer.concat(parts), buckets: nonEmpty.length, tris: T.length / 3 };
+}
+
+/** A position as the compact blob carries it: centimetres, as an Int16. */
+const cm = (v) => {
+  const c = Math.round(v * 100);
+  if (c < -32768 || c > 32767) throw new Error(`position ${v} m will not go in an Int16 of centimetres`);
+  return c;
+};
+/** A unit normal as three signed bytes. */
+const nByte = (v) => Math.max(-127, Math.min(127, Math.round(v * 127)));
+
+/**
+ * The same slices, a third the size: a ship drawn from a painted sculpt (the
+ * Rodney's) carries more of it than one painted by height, and a blob of
+ * floats for it is five megabytes of text in the page. Positions go as
+ * centimetres in an Int16 (a hull is a couple of hundred metres long, and a
+ * centimetre is well under what anyone can see), normals as three signed
+ * bytes (half a degree), and no UVs at all: they are the box projection off
+ * the position and the normal, and the decoder works them out again.
+ *
+ * Layout: u32 bucketCount | 0x40000000 (| 0x80000000 if surfaced); per bucket
+ * u32 vertCount, u32 triCount (, u32 surface), then Int16 pos[vertCount*3]
+ * in cm, Int8 nrm[vertCount*3], Uint8 col[vertCount*3], a byte of padding if
+ * that leaves the offset odd, Uint16 idx[triCount*3].
+ */
+function packCompact(buckets, surfaced, tris) {
+  const parts = [];
+  const head = Buffer.alloc(4);
+  head.writeUInt32LE((buckets.length | 0x40000000 | (surfaced ? 0x80000000 : 0)) >>> 0, 0);
+  parts.push(head);
+  let at = 4;
+  for (const bk of buckets) {
+    const nvb = bk.pos.length / 3, ntb = bk.idx.length / 3;
+    if (nvb >= 65536) throw new Error('bucket too big for Uint16 indices: ' + nvb);
+    const h = Buffer.alloc(surfaced ? 12 : 8);
+    h.writeUInt32LE(nvb, 0);
+    h.writeUInt32LE(ntb, 4);
+    if (surfaced) h.writeUInt32LE(bk.surface, 8);
+    const pos = Buffer.from(Int16Array.from(bk.pos, cm).buffer);
+    const nrm = Buffer.from(Int8Array.from(bk.nrm, nByte).buffer);
+    const col = Buffer.from(Uint8Array.from(bk.col).buffer);
+    at += h.length + pos.length + nrm.length + col.length;
+    const pad = Buffer.alloc(at % 2);
+    at += pad.length;
+    const idx = Buffer.from(Uint16Array.from(bk.idx).buffer);
+    at += idx.length;
+    parts.push(h, pos, nrm, col, pad, idx);
+  }
+  return { blob: Buffer.concat(parts), buckets: buckets.length, tris };
+}
+
+/**
+ * One piece -- a gunhouse, a set of barrels -- in the compact form: u32 vertCount
+ * | 0x40000000 (| 0x80000000 if it is painted), u32 triCount, Int16 pos in
+ * cm, Int8 nrm, Uint8 rgb if painted, a byte of padding to an even offset,
+ * Uint16 idx. `rgb(i)` gives point i's colour, for a painted piece.
+ */
+export function packPieceCompact(mesh, rgb = null) {
+  const nv = mesh.P.length / 3, nt = mesh.T.length / 3;
+  if (nv >= 65536) throw new Error('piece too big for Uint16 indices');
+  const h = Buffer.alloc(8);
+  h.writeUInt32LE((nv | 0x40000000 | (rgb ? 0x80000000 : 0)) >>> 0, 0);
+  h.writeUInt32LE(nt, 4);
+  const parts = [h, Buffer.from(Int16Array.from(mesh.P, cm).buffer), Buffer.from(Int8Array.from(mesh.N, nByte).buffer)];
+  if (rgb) {
+    const c = new Uint8Array(nv * 3);
+    for (let i = 0; i < nv; i++) c.set(rgb(i), i * 3);
+    parts.push(Buffer.from(c.buffer));
+  }
+  const at = parts.reduce((s, b) => s + b.length, 0);
+  parts.push(Buffer.alloc(at % 2), Buffer.from(Uint16Array.from(mesh.T).buffer));
+  return Buffer.concat(parts);
 }

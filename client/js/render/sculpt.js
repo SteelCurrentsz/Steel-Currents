@@ -30,13 +30,21 @@ export function decodeSlices(b64) {
   let p = 0;
   const head = dv.getUint32(p, true); p += 4;
   const surfaced = (head & 0x80000000) !== 0;
-  const nBuckets = head & 0x7fffffff;
+  const compact = (head & 0x40000000) !== 0;
+  const nBuckets = head & 0x3fffffff;
   const geoms = [];
   for (let i = 0; i < nBuckets; i++) {
     const nv = dv.getUint32(p, true); p += 4;
     const nt = dv.getUint32(p, true); p += 4;
     let surface = 0;
     if (surfaced) { surface = dv.getUint32(p, true); p += 4; }
+    if (compact) {
+      const g = compactGeometry(dv, p, nv, nt, true);
+      p = g.userData.end;
+      g.userData.surface = surface;
+      geoms.push(g);
+      continue;
+    }
 
     const pos = new Float32Array(nv * 3);
     for (let k = 0; k < nv * 3; k++, p += 4) pos[k] = dv.getFloat32(p, true);
@@ -62,14 +70,71 @@ export function decodeSlices(b64) {
 }
 
 /**
+ * Box-projected UVs in metres off whichever way each point faces, as the
+ * fleet's welded models have: so a texture drawn to a scale in metres lies on
+ * every face at that scale.
+ */
+function boxUvs(pos, nrm, nv) {
+  const uv = new Float32Array(nv * 2);
+  for (let i = 0; i < nv; i++) {
+    const ax = Math.abs(nrm[i * 3]), ay = Math.abs(nrm[i * 3 + 1]), az = Math.abs(nrm[i * 3 + 2]);
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    if (ay >= ax && ay >= az) { uv[i * 2] = x; uv[i * 2 + 1] = z; } else if (ax >= az) { uv[i * 2] = z; uv[i * 2 + 1] = y; } else { uv[i * 2] = x; uv[i * 2 + 1] = y; }
+  }
+  return uv;
+}
+
+/**
+ * The compact form build/sculpt.mjs packs a painted sculpt in (packCompact,
+ * packPieceCompact): positions in centimetres as Int16, normals as signed
+ * bytes, colours as bytes if there are any, a byte of padding to an even
+ * offset, Uint16 indices -- and no UVs, which are the box projection and are
+ * worked out here. Positions and normals come back as floats, which is what
+ * everything downstream of a hull (the weld, the plating, the damage) expects.
+ */
+function compactGeometry(dv, p, nv, nt, coloured) {
+  const pos = new Float32Array(nv * 3);
+  for (let k = 0; k < nv * 3; k++, p += 2) pos[k] = dv.getInt16(p, true) / 100;
+  const nrm = new Float32Array(nv * 3);
+  for (let i = 0; i < nv; i++) {
+    const x = dv.getInt8(p) / 127, y = dv.getInt8(p + 1) / 127, z = dv.getInt8(p + 2) / 127;
+    p += 3;
+    const l = Math.hypot(x, y, z) || 1;
+    nrm[i * 3] = x / l; nrm[i * 3 + 1] = y / l; nrm[i * 3 + 2] = z / l;
+  }
+  let col = null;
+  if (coloured) {
+    col = new Uint8Array(nv * 3);
+    for (let k = 0; k < nv * 3; k++, p += 1) col[k] = dv.getUint8(p);
+  }
+  if (p % 2) p += 1;
+  const idx = new Uint16Array(nt * 3);
+  for (let k = 0; k < nt * 3; k++, p += 2) idx[k] = dv.getUint16(p, true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  if (col) g.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
+  g.setAttribute('uv', new THREE.BufferAttribute(boxUvs(pos, nrm, nv), 2));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.userData.end = p;
+  return g;
+}
+
+/**
  * Decode one packed piece -- a gunhouse, a pair of barrels -- into a
  * BufferGeometry: u32 vertex count, u32 triangle count, then Float32
- * positions and normals and Uint16 indices.
+ * positions and normals and Uint16 indices. Or the compact form, which says
+ * so in the vertex count's second bit, and in its top bit that it is painted.
  */
 export function decodePiece(b64) {
   const dv = viewOf(b64);
   let p = 0;
-  const nv = dv.getUint32(p, true); p += 4;
+  const head = dv.getUint32(p, true); p += 4;
+  if (head & 0x40000000) {
+    const nt0 = dv.getUint32(p, true); p += 4;
+    return compactGeometry(dv, p, head & 0x3fffffff, nt0, (head & 0x80000000) !== 0);
+  }
+  const nv = head;
   const nt = dv.getUint32(p, true); p += 4;
   const pos = new Float32Array(nv * 3);
   for (let k = 0; k < nv * 3; k++, p += 4) pos[k] = dv.getFloat32(p, true);

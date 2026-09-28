@@ -1069,6 +1069,163 @@ export const SHIP_CLASSES = {
     },
   },
 
+  rodney: {
+    // HMS Rodney, the second of the two Nelsons: nine 16-inch in three
+    // triples, all of them forward of her bridge -- the whole of her main
+    // battery on the forecastle, so that the belt over her magazines and
+    // machinery could be short and thick inside the Washington limit. Her
+    // twelve 6-inch are all aft, in six twin turrets round her after
+    // superstructure, and she carries two 24.5-inch torpedo tubes in her bow,
+    // which is how she became the only battleship ever to torpedo another.
+    //
+    // She is drawn from the owner's sculpt of her in her 1942 Admiralty
+    // disruptive scheme (see rodney.js), at her own size: 216.4 m, 33.8 m
+    // across the sculpt's widest, floated on the waterline its paint draws.
+    id: 'rodney',
+    name: 'Rodney',
+    fullName: 'HMS Rodney',
+    className: 'Nelson',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'gbr',
+    blurb: 'Nine sixteen-inch guns, every one of them forward of her bridge. She closed Bismarck to three miles and took her apart.',
+    hull: { length: 216.4, beam: 33.8, draft: 8.6, superstructure: 1.45 },
+    hp: 66800,
+    // Twenty-three knots, and a tower like a sail on a short hull: she was a
+    // handful at low speed and in a wind, and she turned like a block of flats.
+    maxSpeed: 23 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.049,
+    rudderShift: 14.5,
+    speedLossInTurn: 0.17,
+    concealment: 15200,
+    fireDetectPenalty: 6800,
+    // Type 279 for aircraft and Type 284 for her main battery, by 1942.
+    radarRange: 12500,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // Fourteen inches of belt over her magazines and thirteen over her
+    // machinery, inclined eighteen degrees inside her plating, and six and a
+    // quarter of deck over the magazines -- an all-or-nothing scheme on a
+    // citadel short enough to afford it. Her ends are soft.
+    armor: { belt: 356, deck: 159, citadel: 356, bow: 25, superstructure: 25 },
+    turrets: [
+      // A low on her forecastle, B superfiring over it, and X low again abaft
+      // B and in front of her tower -- which could not fire past B's barbette
+      // over the bow, nor back into her own bridge. Arcs and sectors are
+      // measured off the model by build/survey-arcs.mjs (see layFloor in
+      // sim.js).
+      { id: 0, name: 'A', x: 0, z: 40.4, angle: 0, arc: 2.6, guns: 3, my: 11.8 },
+      { id: 1, name: 'B', x: 0, z: 21.9, angle: 0, arc: 2.7, guns: 3, my: 15.2 },
+      { id: 2, name: 'X', x: 0, z: -1.1, angle: 0, arc: 2.3, guns: 3, my: 11.9 },
+    ],
+    gun: {
+      name: '16"/45 Mk I', role: 'surface',
+      // Three below the horizontal to forty up.
+      elev: { min: -0.052, max: 0.70 },
+      // Pivot to muzzle, the three turrets' mean: A's barrels are longest out
+      // of her gunhouse and X's shortest, as the sculpt drew them.
+      reach: 17.5,
+      caliber: 406, reload: 30, traverse: 0.055, range: 20800, sigma: 1.45,
+      // The light, fast 2,048 lb shell the Nelsons were given: 823 m/s.
+      shells: shells(406, 13200, 6100, 610, 823, 0.26),
+    },
+    // Two 24.5-inch tubes under water in her bow, angled ten degrees off the
+    // stem either side and fired on the bearing she is pointing, with a few
+    // degrees of gyro angle. At the end against Bismarck she fired from both.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 2.4, z: 72.0, angle: 0.17, arc: 0.3, tubes: 1, my: -3.6 },
+        { id: 1, x: -2.4, z: 72.0, angle: -0.17, arc: 0.3, tubes: 1, my: -3.6 },
+      ],
+      name: '24.5" Mk I torpedo', role: 'surface', caliber: 622,
+      tubeLabel: '24.5"',
+      // Breech to the sluice door in her side the fish leaves by.
+      reach: 8.1,
+      inHull: true,
+      traverse: 0.0,
+      // Oxygen-enriched air: fifteen thousand yards at thirty-five knots, and
+      // much less of a wake than a cold-air fish.
+      reload: 150, damage: 15600, speed: 35 * KNOTS, range: 13700,
+      detection: 1300, arming: 450, spread: 0.05, floodChance: 0.40,
+    },
+    // Twelve 6-inch in six twin turrets, three a side round her after
+    // superstructure: the forward and after pair on her upper deck, the middle
+    // pair superfiring over them. The turret is the owner's own sculpt of it.
+    secondary: {
+      name: '6"/50 Mk XXII', role: 'surface',
+      // Five below the horizontal to sixty up, in the Mk XVIII turret.
+      elev: { min: -0.087, max: 1.05 },
+      reach: 8.4,
+      caliber: 152, reload: 7.5, traverse: 0.14, range: 14000, sigma: 1.35,
+      shells: shells(152, 2900, 2300, 150, 898, 0.10),
+      mounts: [
+        { x: 11.2, z: -60.4, angle: 1.0, arc: 1.9, rest: 0, guns: 2, my: 12.8 },
+        { x: -11.2, z: -60.4, angle: -1.0, arc: 1.9, rest: 0, guns: 2, my: 12.8 },
+        { x: 10.9, z: -69.7, angle: 1.0, arc: 1.9, rest: 0, guns: 2, my: 14.6 },
+        { x: -10.9, z: -69.7, angle: -1.0, arc: 1.9, rest: 0, guns: 2, my: 14.6 },
+        { x: 9.05, z: -78.1, angle: 2.2, arc: 1.9, rest: Math.PI, guns: 2, my: 11.3 },
+        { x: -9.05, z: -78.1, angle: -2.2, arc: 1.9, rest: Math.PI, guns: 2, my: 11.3 },
+      ],
+    },
+    aa: {
+      range: 5200, dps: 78,
+      guns: [
+        // Six 4.7-inch HA singles on her upper deck either side of her after
+        // superstructure, where the sculpt stands them.
+        { name: '4.7" QF Mk VIII', caliber: 120, role: 'dp', reload: 3.6, range: 5200,
+          elev: { min: -0.087, max: 1.57 },
+          mounts: [
+            { x: 10.5, z: -48.3, angle: 1.57, arc: 1.8, rest: Math.PI / 2, guns: 1 },
+            { x: -10.5, z: -48.3, angle: -1.57, arc: 1.8, rest: -Math.PI / 2, guns: 1 },
+            { x: 11.0, z: -39.3, angle: 1.57, arc: 1.8, rest: Math.PI / 2, guns: 1 },
+            { x: -11.0, z: -39.3, angle: -1.57, arc: 1.8, rest: -Math.PI / 2, guns: 1 },
+            { x: 10.0, z: -30.4, angle: 1.57, arc: 1.8, rest: Math.PI / 2, guns: 1 },
+            { x: -10.0, z: -30.4, angle: -1.57, arc: 1.8, rest: -Math.PI / 2, guns: 1 },
+          ] },
+        // Her pom-poms: an eight-barrelled Mk VI on each of the platforms
+        // either side of her funnel, and a four-barrelled Mk VII in each of
+        // the tubs abreast her mainmast.
+        { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.5, range: 3400,
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+            { x: 6.2, z: -43.3, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 8 },
+            { x: -6.2, z: -43.3, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 8 },
+            { x: 7.4, z: -72.8, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 4 },
+            { x: -7.4, z: -72.8, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 4 },
+          ] },
+        // And the Oerlikons she had by 1942: on her forecastle clear of A's
+        // muzzles, on the platforms either side of her tower, and on her
+        // quarterdeck.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: 5.5, z: 66.0, angle: 0.6, arc: 2.4, rest: 0.6, guns: 1 },
+            { x: -5.5, z: 66.0, angle: -0.6, arc: 2.4, rest: -0.6, guns: 1 },
+            { x: 6.3, z: -16.4, angle: 1.57, arc: 2.0, rest: Math.PI / 2, guns: 1 },
+            { x: -6.3, z: -16.4, angle: -1.57, arc: 2.0, rest: -Math.PI / 2, guns: 1 },
+            { x: 4.5, z: -93.0, angle: 2.4, arc: 2.2, rest: 2.4, guns: 1 },
+            { x: -4.5, z: -93.0, angle: -2.4, arc: 2.2, rest: -2.4, guns: 1 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 33900,
+      aircraft: 0,
+      mainRounds: 900,
+      torpedoesCarried: 12,
+      secondary: { caliber: 152, label: '6"', barrels: 12, rounds: 1800 },
+      tertiary: [
+        { caliber: 120, label: '4.7"', barrels: 6, rounds: 1200 },
+        { caliber: 40, label: '2-pdr', barrels: 24, rounds: 43200 },
+        { caliber: 20, label: '20mm', barrels: 6, rounds: 14400 },
+      ],
+    },
+  },
+
   iowa: {
     // Three 16"/50 triples. A turret this size is blast-limited as much as it is
     // structurally limited, so the heaviest guns on the list have the least of
@@ -2172,7 +2329,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'u48',
-  'surcouf', 'iowa', 'yamato', 'enterprise', 'shinano'];
+  'surcouf', 'rodney', 'iowa', 'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

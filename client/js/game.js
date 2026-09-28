@@ -689,7 +689,23 @@ export class Battle {
     // see is the backs of four tubes and the deckhead of the passage they
     // stand in.
     if (this.gun.kind === 'torp') {
-      const out = (this.gun.reach ?? 4) + 1.0;
+      const cls = getClass(v.group.userData.classId);
+      const sp = this.gun.spec || {};
+      const out = (this.gun.reach ?? (cls && cls.torpedoes && cls.torpedoes.reach) ?? 4) + 1.0;
+      // A battleship's tube is under her waterline, and a sight at its
+      // muzzle is a sight in the sea. Hers is laid from the deck over it --
+      // the torpedo officer stands on her forecastle and points the ship --
+      // so the eye is over the door the fish goes out of, a man's height and
+      // more above her deck. (A submarine's layer is at her periscope, and
+      // under water is where her tubes are meant to be looked out of.)
+      const inHull = sp.inHull ?? (cls && cls.torpedoes && cls.torpedoes.inHull);
+      if (inHull && cls && cls.type !== 'SS' && (sp.my ?? 0) < 0) {
+        const yaw = this.gunYaw - v.group.rotation.y;
+        GUN_EYE.set((sp.x || 0) + Math.sin(yaw) * out, (v.group.userData.deckY ?? 8) + 2.4,
+          (sp.z || 0) + Math.cos(yaw) * out);
+        v.group.localToWorld(GUN_EYE);
+        return { x: GUN_EYE.x, y: GUN_EYE.y, z: GUN_EYE.z };
+      }
       return { x: GUN_EYE.x + sx * out, y: GUN_EYE.y + 0.6, z: GUN_EYE.z + sz * out };
     }
     const { up, back } = this.eyeOffsets(v, m);
