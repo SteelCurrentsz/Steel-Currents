@@ -831,7 +831,13 @@ function surveyedArcsHold(id) {
           const { state, v } = fresh();
           manGun(v, { k, i });
           layGun(v, { x: Math.sin(b * RAD) * range, z: Math.cos(b * RAD) * range });
-          for (let t = 0; t < 25 / DT; t++) {
+          // Long enough to train there from where it is stowed and settle: a
+          // battleship's turret takes the best part of a minute to come round
+          // on to her quarter.
+          const from = spec.rest ?? spec.angle;
+          const rate = (battery || cls.torpedoes).traverse || 0;
+          const secs = Math.max(25, rate > 0 ? Math.abs(angleDelta(from, b * RAD)) / rate + 10 : 25);
+          for (let t = 0; t < secs / DT; t++) {
             step(state, DT);
             // Never laid through her on the way: where its barrels have to be
             // up to clear her, they are up.
@@ -6345,8 +6351,23 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // both sides fights one on either bearing; the U-boat's one gun stands on
     // the Wintergarten abaft her tower and cannot fire through it, so she
     // fights on the beam and not over the bow, which is right.
+    //
+    // The Rodney is the other exception, and it is her whole design: every
+    // light gun she has stands abaft a tower the size of a block of flats, so
+    // an aeroplane low down dead ahead two kilometres off is masked from all
+    // of them -- the torpedo bomber on her bow was what her sixteen-inch
+    // barrage was for. She is not blind over her bow: her forecastle
+    // Oerlikons take him inside their own reach, and everything aft of the
+    // tower that bears takes him once he is up off the water.
+    const blindAhead = cls.id === 'rodney';
+    if (blindAhead) {
+      assert.ok(aaBearing(cls, ship, 0, 1500, LOW).barrels > 0,
+        `${cls.id} cannot shoot at an aeroplane low over her bow even close in`);
+      assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= 8,
+        `${cls.id} cannot shoot at an aeroplane high over her bow`);
+    }
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
-      : (ahead.barrels > 0 && beam.barrels > 0),
+      : ((ahead.barrels > 0 || blindAhead) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
     assert.ok(aaBarrels(cls) === aaBattery(cls).reduce((n, m) => n + m.guns, 0));
   }

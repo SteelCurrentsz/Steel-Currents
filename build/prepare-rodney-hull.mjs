@@ -359,6 +359,51 @@ recomputeNormals(m);
   m.C = C;
 }
 
+// ---- the faces that face in ------------------------------------------------------
+// A face is turned the way its corners' normals say (fixWinding), and on a
+// knife edge -- the trailing edge of her rudder, the foot of her skeg -- the
+// normals of its two sides cancel and say nothing, so a few there face into
+// her: from astern you look through them into her. A face whose neighbours
+// all run their shared edges the other way from it is the wrong way round.
+{
+  const { T } = m;
+  const nf = T.length / 3;
+  const canon = weld(m);
+  let turned = 0;
+  for (let pass = 0; pass < 4; pass++) {
+    const edges = new Map();
+    for (let t = 0; t < nf; t++) {
+      for (let j = 0; j < 3; j++) {
+        const a = canon[T[t * 3 + j]], b = canon[T[t * 3 + (j + 1) % 3]];
+        const k = a < b ? `${a},${b}` : `${b},${a}`;
+        if (!edges.has(k)) edges.set(k, []);
+        edges.get(k).push([t, a < b]);
+      }
+    }
+    const flip = [];
+    for (let t = 0; t < nf; t++) {
+      let same = 0, other = 0;
+      for (let j = 0; j < 3; j++) {
+        const a = canon[T[t * 3 + j]], b = canon[T[t * 3 + (j + 1) % 3]];
+        const e = edges.get(a < b ? `${a},${b}` : `${b},${a}`);
+        if (e.length !== 2) continue;
+        const [u, dir] = e[0][0] === t ? e[1] : e[0];
+        if (u === t) continue;
+        if (dir === (a < b)) same++; else other++;
+      }
+      if (same >= 2 && other === 0) flip.push(t);
+    }
+    for (const t of flip) {
+      const b = T[t * 3 + 1];
+      T[t * 3 + 1] = T[t * 3 + 2];
+      T[t * 3 + 2] = b;
+    }
+    turned += flip.length;
+    if (!flip.length) break;
+  }
+  console.log(`faces facing in: ${turned} turned`);
+}
+
 // ---- her after deck, swept -------------------------------------------------------
 // The sculpt's texture painted her teak grey round the foot of every gun it
 // drew on her upper deck aft, as it bled the grey of her superstructure down
@@ -951,7 +996,7 @@ const LINES = { z0: -108, dz: 1, nz: 217, y0: -9, dy: 0.5, ny: 43 };
         if (Math.abs(xb) < 1.5) kl = Math.min(kl, yb);
       }
     }
-    keel.push(Number.isFinite(kl) ? kl : 99);
+    let foot = Infinity, body = Infinity;
     for (let j = 0; j < LINES.ny; j++) {
       const y = LINES.y0 + j * LINES.dy;
       let w = 0;
@@ -960,7 +1005,17 @@ const LINES = { z0: -108, dz: 1, nz: 217, y0: -9, dy: 0.5, ny: 43 };
         w = Math.max(w, Math.abs(xa + (xb - xa) * ((y - ya) / (yb - ya))));
       }
       half.push(w);
+      if (w > 0 && foot === Infinity) foot = y;
+      if (w >= 0.7 && body === Infinity) body = y;
     }
+    // Her keel is the bottom of her body, not of her skeg or her rudder: aft,
+    // where her run lifts to her screws, the lowest thing on her centreline is
+    // the foot of a plate standing metres down under her, and her insides are
+    // not fitted down into that. A plate is what stays under a metre and a
+    // half across for a metre and a half up. (Her stem is a plate too, and
+    // nothing is fitted into it either way.)
+    if (z < 0 && Number.isFinite(kl) && Number.isFinite(body) && body - foot >= 1.5) kl = Math.max(kl, body - 0.25);
+    keel.push(Number.isFinite(kl) ? kl : 99);
     const hw = st.halfB[st.zBin(z)];
     let lowest = Infinity;
     for (let x = -hw * 0.8; x <= hw * 0.8 + 1e-6; x += 0.5) {

@@ -289,6 +289,9 @@ function mountings(g) {
   for (const m of CLS.torpedoes.mounts) {
     const t = bowTube(g, M, m.x, m.my, m.z, m.angle, tubeLength(m));
     t.userData.rest = 0;
+    // Built into her bow: it stays on its own line whatever gyro angle the
+    // fish in it is set to, so the scene leaves it where it is.
+    t.userData.laid = false;
     torp.push(t);
   }
   g.userData.secMounts = sec;
@@ -387,12 +390,21 @@ function armour(g) {
     }
     inside(bh.mesh(g, M.armour));
   }
-  // The barbettes of her three turrets, down from their gunhouses through her
-  // decks to the armour deck: fifteen inches of it, and the trunk every shell
-  // and every charge comes up.
+  // The barbettes of her three turrets, from under her upper deck -- above
+  // it they are the sculpt's own -- down through her decks to the armour
+  // deck: fifteen inches of it, and the trunk every shell and every charge
+  // comes up. As round as the ring the sculpt stood each gunhouse on, and a
+  // hand inside it: the sculpt drew A's a little off her pivot.
   for (const t of TURRET_PIECES) {
-    const top = deckAt(t.z) - 0.4;
-    inside(cyl(g, M.armour, 5.6, 5.6, top - ARMOUR_DECK, 0, (top + ARMOUR_DECK) / 2, t.z, 28));
+    let ring = 5.6;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      let r = 0;
+      while (r < 8 && rodneySurfaceY(Math.sin(a) * r, t.z + Math.cos(a) * r) > t.seat - 0.5) r += 0.1;
+      ring = Math.min(ring, r - 0.35);
+    }
+    const top = deckOver((2 * t.z) / LOA) - 0.3;
+    inside(cyl(g, M.armour, ring, ring, top - ARMOUR_DECK, 0, (top + ARMOUR_DECK) / 2, t.z, 28));
   }
 }
 
