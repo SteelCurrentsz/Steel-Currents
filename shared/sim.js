@@ -766,6 +766,54 @@ export function trainWithin(a, b, maxStep, spec) {
 }
 
 /**
+ * The least a mounting can be laid at on a bearing in her own frame, off one
+ * of the lists of sectors its datasheet may carry:
+ *
+ *   lift  how high its barrels have to be to clear her there -- a bulwark
+ *         under the guns of a low turret trained on the beam, a boat, the
+ *         rail of the next tub -- so it is laid no lower;
+ *   mask  how high its fire has to go to clear her there -- over her stem,
+ *         over the turret in front -- so it does not fire any lower. A sector
+ *         with no elevation in it is one it cannot fire on at all.
+ *
+ * Each sector is [from, to, el], running from `from` round to `to` the
+ * positive way. They are measured off the model she is drawn with, by
+ * build/survey-arcs.mjs. -Infinity where the list says nothing, and for a
+ * mounting that has none -- which is every mounting on a ship nobody has
+ * surveyed.
+ */
+export function layFloor(list, local) {
+  let low = -Infinity;
+  if (!list) return low;
+  const TAU = Math.PI * 2;
+  for (const s of list) {
+    const span = (((s[1] - s[0]) % TAU) + TAU) % TAU;
+    const at = (((local - s[0]) % TAU) + TAU) % TAU;
+    if (at > span) continue;
+    const el = s.length > 2 ? s[2] : Infinity;
+    if (el > low) low = el;
+  }
+  return low;
+}
+
+/**
+ * Train a mounting a tick toward a bearing and lay it a tick toward an
+ * elevation: never through its stops, and never through her. Where its `lift`
+ * says its barrels have to be up to clear something of hers, they are laid
+ * that high whatever the solution wants, and they come up before it trains on
+ * -- a layer lifts his guns over the bulwark and then swings them, not the
+ * other way round.
+ */
+function layMounting(m, spec, bearing, elev, trainStep, elevStep, stops) {
+  const next = trainWithin(m.angle, bearing, trainStep, spec);
+  if (m.elev >= layFloor(spec.lift, next) - 0.005) m.angle = next;
+  const floor = Math.max(layFloor(spec.lift, m.angle), layFloor(spec.lift, next));
+  const up = clamp(Math.max(elev, floor), stops.min, stops.max);
+  m.elev += clamp(up - m.elev, -elevStep, elevStep);
+  m.elev = clamp(m.elev, stops.min, stops.max);
+}
+
+/**
  * The bearing a manned mounting wants, from where its layer is holding.
  *
  * Clamped into the mounting's own arc like any other: a pair of hands on the
@@ -934,9 +982,8 @@ function stepTurrets(state, ship, dt) {
     // Every other turret aboard goes on being laid by her fire control, which
     // is the whole point: manning A turret does not stop B turret shooting.
     const held = isManned(ship, 'main', t.id);
-    const want = held ? mannedDesired(ship, cls.turrets[t.id])
-      : turretDesired(ship, cls, t);
-    t.angle = trainWithin(t.angle, want.angle, cls.gun.traverse * dt, cls.turrets[t.id]);
+    const spec = cls.turrets[t.id];
+    const want = held ? mannedDesired(ship, spec) : turretDesired(ship, cls, t);
     // A gun that cannot bear comes down to the loading angle rather than
     // standing there pointing at the sky over her own bridge -- and one that
     // can never goes past its own stops.
@@ -948,12 +995,14 @@ function stepTurrets(state, ship, dt) {
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, cls.gun.range), 12).elev
       : elev;
     const aim = want.blocked ? 0.03 : clamp(sol, stops.min, stops.max);
-    t.elev += clamp(aim - t.elev, -0.5 * dt, 0.5 * dt);
-    t.elev = clamp(t.elev, stops.min, stops.max);
+    layMounting(t, spec, want.angle, aim, cls.gun.traverse * dt, 0.5 * dt, stops);
     // Off the target as well as off the arc: a solution her guns cannot reach
     // is a solution she has not got, and she checks fire rather than shooting
-    // at the stop and missing by a mile every time.
-    t.laid = !want.blocked && sol <= stops.max && sol >= stops.min;
+    // at the stop and missing by a mile every time. Nor one that would put
+    // her own shells into her: laid on a ship close aboard over her own stem,
+    // she holds fire until the range opens or the bearing does.
+    t.laid = !want.blocked && sol <= stops.max && sol >= stops.min
+      && sol >= layFloor(spec.mask, want.angle);
     if (t.cooldown > 0) t.cooldown -= dt;
   }
 }
@@ -1006,6 +1055,9 @@ export function fireGuns(state, ship, only = null) {
     // shoot at something alongside her, and one that will not go up that far
     // does not reach.
     if (solution > stops.max || solution < stops.min) continue;
+    // Nor through her. A turret laid over her stem, her bridge or the turret
+    // in front of it only fires once the solution has its shells clear.
+    if (solution < layFloor(tSpec.mask, want.angle)) continue;
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
 
     const bearing = wrapAngle(ship.heading + t.angle);
@@ -1651,6 +1703,9 @@ export function aaBattery(cls) {
     // belongs to. A quadruple 1.1" and a 5"/38 are both anti-aircraft guns and
     // they do not have the same stops.
     up: gunLimits(battery),
+    // And how high it has to be laid, bearing by bearing, to fire clear of
+    // her own funnels and bridge, where that has been measured.
+    mask: m.mask,
     range, caliber, name,
   });
   // The heavy dual-purpose mountings first: they are the ones that reach.
@@ -1670,6 +1725,28 @@ export function aaBattery(cls) {
   }
   AA_CACHE.set(cls.id, out);
   return out;
+}
+
+/**
+ * Is the light mounting somebody has gone down to laid on this aeroplane?
+ *
+ * Near enough on his line -- and on a bearing and at a height that mounting
+ * can reach and fire at clear of her. A man at a 25 mm on her starboard side
+ * is not shooting at something over her port quarter because he is looking
+ * at it.
+ */
+function mannedLightOn(ship, cls, px, pz, py) {
+  const b = headingTo(ship.x, ship.z, px, pz);
+  if (Math.abs(angleDelta(b, headingTo(ship.x, ship.z, ship.manX, ship.manZ))) >= 0.10) return false;
+  const battery = aaBattery(cls);
+  const n = lightMounts(cls).length;
+  const m = battery[battery.length - n + ship.manned.i];
+  if (!m) return false;
+  if (!mountBears(ship, m, b)) return false;
+  if (py == null) return true;
+  const up = Math.atan2(py - (ship.y || 0), Math.max(1, Math.hypot(px - ship.x, pz - ship.z)));
+  if (up > m.up.max || up < m.up.min) return false;
+  return !(m.mask && up < layFloor(m.mask, wrapAngle(b - ship.heading)));
 }
 
 /** Total barrels in her light battery, bearing or not. */
@@ -1700,6 +1777,9 @@ export function aaBearing(cls, ship, px, pz, py) {
     if (d > m.range) continue;
     if (!mountBears(ship, m, bearing)) continue;
     if (up !== null && (up > m.up.max || up < m.up.min)) continue;
+    // An aeroplane low down behind her own funnel is not one that mounting
+    // can shoot at, however well it bears.
+    if (up !== null && m.mask && up < layFloor(m.mask, wrapAngle(bearing - ship.heading))) continue;
     // A close-range mounting has a ready-use locker under it like everything
     // else aboard, and when that is under water the mounting has nothing to
     // fire. So does a mounting standing on a compartment that has been shot
@@ -1749,7 +1829,12 @@ function secondaryTarget(state, ship, spec, S) {
     if (!foe.spottedBy[ship.team]) continue;
     const d = dist(ship.x, ship.z, foe.x, foe.z);
     if (d > S.range || d >= bestD) continue;
-    if (!mountBears(ship, spec, headingTo(ship.x, ship.z, foe.x, foe.z))) continue;
+    const b = headingTo(ship.x, ship.z, foe.x, foe.z);
+    if (!mountBears(ship, spec, b)) continue;
+    // Nor one it would have to shoot through her to hit: her gun captain
+    // picks something he can fire at.
+    if (spec.mask && solveBallistic(S, clamp(d, 400, S.range), 10).elev
+      < layFloor(spec.mask, wrapAngle(b - ship.heading))) continue;
     best = foe;
     bestD = d;
   }
@@ -1771,15 +1856,13 @@ function stepSecondary(state, ship, dt) {
     if (m.cooldown > 0) m.cooldown -= dt;
     // A mounting somebody has gone down to comes off local control: it trains
     // where he is holding, elevates on his range, and waits for his trigger.
+    const stops = gunLimits(S);
     if (isManned(ship, 'sec', m.id)) {
       const want = mannedDesired(ship, spec);
-      m.angle = trainWithin(m.angle, want.angle, S.traverse * dt, spec);
-      const stops = gunLimits(S);
       const aim = solveBallistic(S,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
       const up = want.blocked ? 0 : clamp(aim.elev, stops.min, stops.max);
-      m.elev += clamp(up - m.elev, -0.9 * dt, 0.9 * dt);
-      m.elev = clamp(m.elev, stops.min, stops.max);
+      layMounting(m, spec, want.angle, up, S.traverse * dt, 0.9 * dt, stops);
       m.target = 0;
       continue;
     }
@@ -1787,9 +1870,8 @@ function stepSecondary(state, ship, dt) {
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on, which is
       // where she is stowed rather than the middle of her arc.
-      m.angle = trainWithin(m.angle,
-        spec.rest === undefined ? spec.angle : spec.rest, S.traverse * dt, spec);
-      m.elev += clamp(-m.elev, -0.9 * dt, 0.9 * dt);
+      layMounting(m, spec, spec.rest === undefined ? spec.angle : spec.rest, 0,
+        S.traverse * dt, 0.9 * dt, stops);
       m.target = 0;
       continue;
     }
@@ -1817,16 +1899,16 @@ function stepSecondary(state, ship, dt) {
     const want = Math.abs(off) > spec.arc
       ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
       : local;
-    m.angle = trainWithin(m.angle, want, S.traverse * dt, spec);
     // And how far up the gun captain has his guns, on the same solution --
     // never past the stops on the mounting.
-    const stops = gunLimits(S);
-    m.elev += clamp(clamp(aim.elev, stops.min, stops.max) - m.elev, -0.9 * dt, 0.9 * dt);
-    m.elev = clamp(m.elev, stops.min, stops.max);
+    layMounting(m, spec, want, clamp(aim.elev, stops.min, stops.max),
+      S.traverse * dt, 0.9 * dt, stops);
     if (m.cooldown > 0) continue;
     if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
     if (Math.abs(off) > spec.arc) continue;
     if (aim.elev > stops.max || aim.elev < stops.min) continue;
+    // Nor through her own funnel.
+    if (aim.elev < layFloor(spec.mask, want)) continue;
 
     secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond);
   }
@@ -1903,6 +1985,7 @@ export function fireSecondary(state, ship, id) {
   const aim = solveBallistic(S,
     clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
   if (aim.elev > stops.max || aim.elev < stops.min) return 0;
+  if (aim.elev < layFloor(spec.mask, want.angle)) return 0;
   const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
   secondarySalvo(state, ship, m, spec, spec0, ship.manX, ship.manZ, cond);
   return spec.guns;
@@ -2961,14 +3044,18 @@ function torpDesired(ship, spec, local, cls) {
   let want = Math.abs(off) > spec.arc
     ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
     : local;
-  if (!cls || torpedoClear(cls, spec, want)) return want;
+  if (!cls) return want;
+  // Clear of her hull, and not on a bearing its survey says the fish would
+  // go into her from (see layFloor).
+  const clear = (b) => torpedoClear(cls, spec, b) && !(layFloor(spec.mask, b) > 0);
+  if (clear(want)) return want;
   // Blocked. Walk out to either side of the wanted bearing and take the
   // nearest one that is both inside the arc and clear of her own hull.
   for (let step = 0.04; step <= Math.PI; step += 0.04) {
     for (const sgn of [1, -1]) {
       const t = wrapAngle(want + sgn * step);
       if (Math.abs(angleDelta(spec.angle, t)) > spec.arc) continue;
-      if (torpedoClear(cls, spec, t)) return t;
+      if (clear(t)) return t;
     }
   }
   return want;
@@ -3028,6 +3115,7 @@ export function fireTorpedoes(state, ship, only = null) {
     // button. The order is refused until the ship has come round.
     if (!torpedoClear(cls, spec, local)) continue;
     if (!torpedoClear(cls, spec, m.angle)) continue;
+    if (layFloor(spec.mask, local) > 0 || layFloor(spec.mask, m.angle) > 0) continue;
     // And she has to have come round. Fired before the bank has trained, the
     // fish go where the tubes were pointing, which is over her own bow.
     if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
@@ -4537,11 +4625,9 @@ function stepPlanes(state, dt) {
       // somebody has gone down to is worth this much again, and only against
       // whatever he is actually holding it on.
       if (s.manned && s.manned.k === 'aa') {
-        const off = Math.abs(angleDelta(
-          headingTo(s.x, s.z, p.x, p.z), headingTo(s.x, s.z, s.manX, s.manZ)));
         // Within a few degrees of his line, and inside the range of the
         // mounting he is standing at.
-        if (off < 0.10) {
+        if (mannedLightOn(s, scls, p.x, p.z, p.y)) {
           hurtFlight(state, p,
             scls.aa.dps * MANNED_AA * dt * aaBite(d, scls.aa.range), 'flak');
           s.aaFire = Math.min(s.aaFire, 0.02);
@@ -5471,9 +5557,7 @@ function heavyFlak(state, bm, dt) {
     // director firing a barrage does, and a formation holding straight and
     // level through a run is the easiest thing he will ever be given.
     if (s.manned && s.manned.k === 'aa' && !gunsDrowned(s)) {
-      const off = Math.abs(angleDelta(
-        headingTo(s.x, s.z, bm.x, bm.z), headingTo(s.x, s.z, s.manX, s.manZ)));
-      if (off < 0.10) {
+      if (mannedLightOn(s, cls, bm.x, bm.z, bm.y)) {
         taken += cls.aa.dps * MANNED_AA * share * 0.065
           * aaBite(slant, cls.aa.range) * dt;
         s.aaFire = Math.min(s.aaFire, 0.02);

@@ -17,7 +17,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt,
+  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor,
 } from '../../shared/sim.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
@@ -32,6 +32,11 @@ const PAN_TO_LET_GO = 26;
 
 // Scratch for reading a mounting's place in the world off the scene graph.
 const GUN_EYE = new THREE.Vector3();
+const EYE_UP = new THREE.Vector3();
+const EYE_TOP = new THREE.Vector3();
+const EYE_BACK = new THREE.Vector3();
+const EYE_RAY = new THREE.Raycaster();
+const EYE_HITS = [];
 const INPUT_HZ = 20;
 
 const CAMERAS = ['chase', 'bridge', 'tactical'];
@@ -524,6 +529,11 @@ export class Battle {
       this.hud.alert('That mounting is out of action');
       return;
     }
+    // The battery it belongs to, for its stops.
+    const battery = kind === 'main' ? cls.gun
+      : kind === 'sec' ? cls.secondary
+        : kind === 'aa' ? ((cls.aa && cls.aa.guns) || []).find((g) => g.mounts === row.specs)
+          : null;
     this.gun = {
       kind, index, spec,
       // What the ship calls this mounting. Her main and secondary batteries
@@ -535,12 +545,15 @@ export class Battle {
       auto: kind === 'aa',
       range: row.range || cls.gun.range,
       guns: spec.guns || 1,
+      stops: battery ? gunLimits(battery) : null,
+      // How far out a bank's muzzles are: its sight is past them.
+      reach: kind === 'torp' && cls.torpedoes ? cls.torpedoes.reach : undefined,
     };
     // She starts laid where the mounting is already pointing, so taking a gun
     // does not swing the view.
     const own = this.shownShip();
     const head = own ? own.h : this.localShip.heading;
-    this.gunYaw = wrapAngle(head + (spec.angle || 0));
+    this.gunYaw = wrapAngle(head + this.gunStartBearing());
     this.gunPitch = 0.02;
     this.watching = null;
     this.hud.setWatching(null);
@@ -658,10 +671,7 @@ export class Battle {
     const id = this.conned();
     const v = this.scene.shipViews.get(id);
     if (!v) return null;
-    const list = this.gun.kind === 'main' ? v.turrets
-      : this.gun.kind === 'sec' ? v.secMounts
-        : this.gun.kind === 'torp' ? v.torpMounts : v.aaMounts;
-    const m = list && list[this.gun.id];
+    const m = this.gunMount(v);
     if (!m) {
       // No model for that mounting: stand where her datasheet puts it.
       const own = this.shownShip();
@@ -672,6 +682,45 @@ export class Battle {
     }
     m.updateWorldMatrix(true, false);
     GUN_EYE.setFromMatrixPosition(m.matrixWorld);
+    const sx = Math.sin(this.gunYaw);
+    const sz = Math.cos(this.gunYaw);
+    // A bank of tubes is laid off a sight at its muzzles, out through the
+    // opening in her side it fires through. From abaft it, what there is to
+    // see is the backs of four tubes and the deckhead of the passage they
+    // stand in.
+    if (this.gun.kind === 'torp') {
+      const out = (this.gun.reach ?? 4) + 1.0;
+      return { x: GUN_EYE.x + sx * out, y: GUN_EYE.y + 0.6, z: GUN_EYE.z + sz * out };
+    }
+    const { up, back } = this.eyeOffsets(v, m);
+    return { x: GUN_EYE.x - sx * back, y: GUN_EYE.y + up, z: GUN_EYE.z - sz * back };
+  }
+
+  /** The model of the mounting being held, on her view. */
+  gunMount(v) {
+    const k = this.gun.kind;
+    const list = k === 'main' ? v.turrets
+      : k === 'sec' ? v.secMounts
+        : k === 'torp' ? v.torpMounts : v.aaMounts;
+    return (list && list[this.gun.id]) || null;
+  }
+
+  /**
+   * How far the layer's eye stands up off his mounting and back along his
+   * line of sight, on the bearing he is laid on.
+   *
+   * Worked out once a degree of bearing and kept, because it is a handful of
+   * rays through her whole model and the answer only changes as he trains.
+   */
+  eyeOffsets(v, m) {
+    const local = wrapAngle(this.gunYaw - v.group.rotation.y);
+    const key = Math.round(local / (Math.PI / 180));
+    const cache = this.gun.eyes || (this.gun.eyes = new Map());
+    const now = performance.now();
+    const hit = cache.get(key);
+    // Not for long, though: the turret in front trains too, and a sight clear
+    // of its barrels a moment ago need not be now.
+    if (hit && now - hit.t < 1000) return hit;
     // Over the gunhouse and a little abaft the trunnions.
     //
     // A sight put at the mounting's own origin is inside the mounting: the
@@ -685,13 +734,120 @@ export class Battle {
     // bracketed out over the side is seven metres of somebody else's
     // superstructure -- so a light gun gets a light gun's allowance.
     const k = this.gun.kind;
-    const up = k === 'main' ? 4.4 : k === 'sec' ? 2.4 : k === 'torp' ? 2.2 : 1.5;
-    const back = k === 'main' ? 7.0 : k === 'sec' ? 3.4 : k === 'torp' ? 3.0 : 1.8;
-    return {
-      x: GUN_EYE.x - Math.sin(this.gunYaw) * back,
-      y: GUN_EYE.y + up,
-      z: GUN_EYE.z - Math.cos(this.gunYaw) * back,
+    let up = k === 'main' ? 4.4 : k === 'sec' ? 2.4 : 1.5;
+    let back = k === 'main' ? 7.0 : k === 'sec' ? 3.4 : 1.8;
+    // And never through anything of hers. A turret low at the foot of her
+    // bridge, with another superfiring over it, had its layer's eye stepped
+    // back into the next gunhouse. So the eye goes up off the mounting only
+    // as far as whatever is over it, and back only as far as whatever is
+    // behind -- a few hands short of either.
+    // (Looked for from a metre up: the pivot a mounting trains about is down
+    // in the ring it stands on.)
+    const sx = Math.sin(this.gunYaw);
+    const sz = Math.cos(this.gunYaw);
+    EYE_UP.set(0, 1, 0);
+    const sill = Math.min(1.0, up);
+    EYE_TOP.copy(GUN_EYE).addScaledVector(EYE_UP, sill);
+    const over = this.structureAlong(v.group, m, EYE_TOP, EYE_UP, up - sill + 0.4);
+    if (over < up - sill + 0.4) up = Math.max(sill, sill + over - 0.4);
+    EYE_TOP.copy(GUN_EYE).addScaledVector(EYE_UP, up);
+    EYE_BACK.set(-sx, 0, -sz);
+    const behind = this.structureAlong(v.group, m, EYE_TOP, EYE_BACK, back + 0.6);
+    if (behind < back + 0.6) back = Math.max(0, behind - 0.6);
+    // And he can see down his line of sight. No.1 trained round on her
+    // quarter had the next turret's barrels, reaching out over her, right
+    // across the sight. Where something of hers stands in the way close
+    // aboard -- on the line of sight or a few degrees either side of it,
+    // which is the middle of what a sight's telescope shows -- the eye goes
+    // up, a metre at a time, until it sees over it. If only the line itself
+    // can be cleared, that; if not even that (a turret laid in to her own
+    // bridge), it stays where it was, looking at what is in the way.
+    EYE_TOP.addScaledVector(EYE_BACK, back);
+    const SIGHT = 40;
+    const clear = (turn) => {
+      EYE_BACK.set(Math.sin(this.gunYaw + turn), 0, Math.cos(this.gunYaw + turn));
+      return this.structureAlong(v.group, m, EYE_TOP, EYE_BACK, SIGHT) >= SIGHT;
     };
+    let lift = 0;
+    let line = -1;
+    for (let rise = 0; rise <= 5; rise++) {
+      if (rise > 0) {
+        if (this.structureAlong(v.group, m, EYE_TOP, EYE_UP, 1.4) < 1.4) break;
+        EYE_TOP.y += 1;
+      }
+      if (!clear(0)) continue;
+      if (line < 0) line = rise;
+      if (clear(0.07) && clear(-0.07)) { line = -1; lift = rise; break; }
+    }
+    if (line >= 0) lift = line;
+    const out = { up: up + lift, back, t: now };
+    cache.set(key, out);
+    return out;
+  }
+
+  /**
+   * Where a mounting just taken is laid: where it is already pointing -- or,
+   * if that is somewhere it cannot fire, the nearest bearing inside its arc
+   * that it can. No.3 on the Takao is stowed facing aft into her own bridge,
+   * and taking it put a telescope on the face of the bridge from a few metres
+   * off.
+   */
+  gunStartBearing() {
+    const { spec } = this.gun;
+    const mid = spec.angle || 0;
+    const arc = spec.arc ?? Math.PI;
+    const v = this.scene.shipViews.get(this.conned());
+    const m = v && this.gunMount(v);
+    const b = m ? wrapAngle(m.rotation.y + (m.userData.rest || 0)) : mid;
+    const fires = (x) => Math.abs(angleDelta(mid, x)) <= arc && layFloor(spec.mask, x) < 0.1;
+    if (fires(b)) return b;
+    for (let d = 1; d <= 180; d++) {
+      for (const s of [1, -1]) {
+        const x = wrapAngle(b + (s * d * Math.PI) / 180);
+        if (fires(x)) return x;
+      }
+    }
+    return b;
+  }
+
+  /**
+   * How far along a line from `from` the nearest of her own structure is --
+   * anything of the ship's but the mounting `own` -- out to `far`.
+   */
+  structureAlong(group, own, from, dir, far) {
+    EYE_RAY.set(from, dir);
+    EYE_RAY.far = far;
+    let best = far;
+    // Her meshes only, and only the ones that are there: not a line of her
+    // rigging a metre off, not a sprite of smoke, not a boat that has gone.
+    const walk = (o) => {
+      if (o === own || o.visible === false) return;
+      if (o.isMesh) {
+        EYE_HITS.length = 0;
+        o.raycast(EYE_RAY, EYE_HITS);
+        for (const h of EYE_HITS) if (h.distance < best) best = h.distance;
+      }
+      for (const c of o.children) walk(c);
+    };
+    walk(group);
+    return best;
+  }
+
+  /**
+   * A world bearing, brought inside the arc the mounting being held trains
+   * through. A pair of hands on the training gear does not move the stops:
+   * the layer's head turns as far as the gun does and no further, and as she
+   * turns under him the stops come round with her.
+   */
+  gunArcYaw(yaw) {
+    const spec = this.gun && this.gun.spec;
+    if (!spec || !(spec.arc < Math.PI)) return yaw;
+    const v = this.scene.shipViews.get(this.conned());
+    const own = this.shownShip();
+    const head = v ? v.group.rotation.y : own ? own.h : this.localShip.heading;
+    const mid = spec.angle || 0;
+    const off = angleDelta(mid, wrapAngle(yaw - head));
+    return wrapAngle(head + mid + clamp(off, -spec.arc, spec.arc));
   }
 
   /** Pull the trigger on the gun being held. */
@@ -3864,13 +4020,20 @@ export class Battle {
     // gun follows him round, which is the way a gun sight works and not the
     // other way about.
     if (this.gun) {
+      const m = this.input.takeMouse();
+      // Round as far as the mounting trains and no further -- and with the
+      // stops coming round with her as she turns under him.
+      this.gunYaw = this.gunArcYaw(wrapAngle(this.gunYaw + m.x));
+      // How far up and down the layer looks. A close-range mounting's sight is
+      // its barrels, laid over open sights on an aeroplane, so it goes from
+      // its depression stop to its elevation stop; a heavy gun's layer looks
+      // at the sea and the ships on it, from a little above the horizon down
+      // to the water alongside. (The sight's pitch is down-positive.)
+      const st = this.gun.stops;
+      const [hi, lo] = this.gun.auto && st ? [-st.max, -st.min] : [-0.30, 0.42];
+      this.gunPitch = clamp(this.gunPitch + m.y, hi, lo);
       const eye = this.gunEye();
       if (eye) {
-        const m = this.input.takeMouse();
-        this.gunYaw = wrapAngle(this.gunYaw + m.x);
-        // Down to the water alongside and up past the vertical for a
-        // close-range mounting, which is where an aeroplane is.
-        this.gunPitch = clamp(this.gunPitch + m.y, -0.30, this.gun.auto ? 1.25 : 0.42);
         this.input.orbiting = true;
         cam.position.set(eye.x, eye.y, eye.z);
         const cp = Math.cos(this.gunPitch);

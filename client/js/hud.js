@@ -8,7 +8,7 @@ import { MAP_HALF, islandRing } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
-import { SECTIONS, torpedoClear } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear, layFloor } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1345,6 +1345,9 @@ export class Hud {
         if (Math.abs(angleDelta(m.angle, local)) > m.arc) continue;
         // A bank of tubes trained down her own forecastle bears on nothing.
         if (w.hull && !torpedoClear(w.hull, m, local)) continue;
+        // Nor does a turret laid across her own bridge, however far round it
+        // trains.
+        if (layFloor(m.mask, local) === Infinity) continue;
         on += m.guns || 1;
       }
       if (w.band === 'Main battery') { onMain = on; ofMain = w.barrels; }

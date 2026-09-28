@@ -21,7 +21,7 @@ import { Plating } from './plating.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
-import { SECTIONS, sectionAt } from '../../../shared/sim.js';
+import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
   MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
@@ -1355,7 +1355,22 @@ export class ShipView {
         }
         const from = fromMid(m.rotation.y);
         const step = Math.max(-rate * dt, Math.min(rate * dt, to - from));
-        m.rotation.y = sector.angle + from + step;
+        const next = sector.angle + from + step;
+        // Where her structure is in the way of the barrels -- the rim of the
+        // next tub, a boat, a rail -- they are held up over it, and they come
+        // up before the mounting swings on over it rather than after.
+        const clear = m.userData.lift;
+        if (clear) {
+          const floor = Math.max(layFloor(clear, m.rotation.y), layFloor(clear, next));
+          const node = m.userData.gunNode;
+          const now = node && node !== m ? -node.rotation.x : 0;
+          if (now >= floor - 0.01) m.rotation.y = next;
+          if (floor > -Infinity) {
+            lift = Math.max(lift === null ? -(m.userData.elevRest || 0) : lift, floor);
+          }
+        } else {
+          m.rotation.y = next;
+        }
         // Elevation only: the bearing is already where it is going.
         layMount(m, m.rotation.y, lift, 0, rate * 0.8 * dt);
         continue;

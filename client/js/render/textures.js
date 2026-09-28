@@ -266,8 +266,84 @@ function drawWood(x) {
   return x;
 }
 
+/**
+ * Linoleum, the way a Japanese cruiser's weather decks were covered: sheets
+ * laid fore and aft and held down by brass strips across the ship every
+ * metre and a bit, which is the pattern you see on her deck from the air --
+ * transverse lines of bright metal on a dark brown ground. The U axis runs
+ * across her and the V axis along her, as her plan does.
+ */
+export const LINO_TILE = 4.8;
+function drawLinoleum(x) {
+  const g = x.getContext('2d');
+  const N = SIZE;
+  g.fillStyle = '#7a7a7a';
+  g.fillRect(0, 0, N, N);
+  // Three sheets across the tile, each its own shade: a sheet is cut off one
+  // roll and the next off another.
+  const sheets = 3;
+  const sw = N / sheets;
+  for (let s = 0; s < sheets; s++) {
+    const v = 118 + s * 5 + Math.random() * 6;
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.fillRect(s * sw, 0, sw, N);
+    // The butt seam between two sheets: fine and dark.
+    g.fillStyle = 'rgba(60,60,60,0.55)';
+    g.fillRect(s * sw, 0, 1.4, N);
+  }
+  // Mottle: linoleum is cork and linseed and it is never one flat colour.
+  for (let i = 0; i < 900; i++) {
+    const px = Math.random() * N, py = Math.random() * N;
+    const r = 2 + Math.random() * 10;
+    const v = Math.random() < 0.5 ? 90 : 170;
+    g.fillStyle = `rgba(${v},${v},${v},${0.03 + Math.random() * 0.05})`;
+    g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.fill();
+  }
+  // Wear: paler where the crew walk, along the middle of each sheet.
+  for (let s = 0; s < sheets; s++) {
+    const grad = g.createLinearGradient(s * sw, 0, (s + 1) * sw, 0);
+    grad.addColorStop(0, 'rgba(200,200,200,0)');
+    grad.addColorStop(0.5, 'rgba(200,200,200,0.06)');
+    grad.addColorStop(1, 'rgba(200,200,200,0)');
+    g.fillStyle = grad;
+    g.fillRect(s * sw, 0, sw, N);
+  }
+  // The brass strips across the ship, four to a tile: a bright line with a
+  // dark edge either side, where the strip stands a hair proud of the sheet.
+  const strips = 4;
+  for (let k = 0; k < strips; k++) {
+    const py = ((k + 0.5) * N) / strips;
+    g.fillStyle = 'rgba(52,52,52,0.45)';
+    g.fillRect(0, py - 2.2, N, 1.2);
+    g.fillRect(0, py + 1.6, N, 1.2);
+    g.fillStyle = 'rgba(236,222,170,0.55)';
+    g.fillRect(0, py - 1.0, N, 2.6);
+  }
+  const img = g.getImageData(0, 0, N, N);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 9;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+  unitGain(g, N, 236, 0.5);
+  return x;
+}
+
 let steel = null;
 let wood = null;
+let lino = null;
+
+/** The linoleum map, drawn once. */
+export function linoleumMap() {
+  if (lino === undefined) return null;
+  if (!lino) {
+    const c = tile();
+    if (!c) { lino = undefined; return null; }
+    lino = wrap(drawLinoleum(c), LINO_TILE);
+  }
+  return lino;
+}
 
 /** The steel plating map, drawn once. */
 export function steelMap() {

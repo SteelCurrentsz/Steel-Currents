@@ -21,7 +21,7 @@ import {
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
-  sectionVolume, canFire, manGun, layGun, shootGun, lightMounts,
+  sectionVolume, canFire, manGun, layGun, shootGun, lightMounts, layFloor,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
@@ -782,6 +782,238 @@ check('every gun on the Graf Spee trains inside its stops and fires across its a
     }
   }
   assert.equal(outside, null, outside);
+});
+
+check('every gun on the Takao trains inside its stops and fires only where her fire clears her', () => {
+  // Her arcs, and inside them the bearings where a gun has to be laid up to
+  // clear her or cannot fire through her at all, are surveyed off the model
+  // she is drawn with (build/survey-arcs.mjs). Taken over by hand and laid
+  // round her a bearing at a time, every turret, twin and bank of tubes fires
+  // on a bearing inside its arc where its fire clears her, and on no other.
+  const cls = SHIP_CLASSES.takao;
+  const RAD = Math.PI / 180;
+  // What is true of the ship whatever the survey makes of the model: the
+  // castle is abaft her forward turrets, so neither the superfiring No.2 nor
+  // No.3 at its foot can fire dead astern; No.1 cannot fire flat over her
+  // stem at a ship close aboard, though it can over the horizon; and her
+  // after turrets do not bear dead ahead.
+  const [no1, no2, no3, no4, no5] = cls.turrets;
+  const close = solveBallistic(cls.gun, 2500, 12).elev;
+  const distant = solveBallistic(cls.gun, 16000, 12).elev;
+  // Whether a turret can fire on a bearing at an elevation at all: inside its
+  // stops, and clear of her there.
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  assert.ok(!fires(no2, Math.PI, cls.gun.elev.max), 'No.2 fires dead astern through her bridge');
+  assert.ok(!fires(no3, Math.PI, cls.gun.elev.max), 'No.3 fires dead astern through her bridge');
+  assert.ok(layFloor(no1.mask, 0) > close, 'No.1 fires flat over her own stem');
+  assert.ok(layFloor(no1.mask, 0) < distant, 'No.1 cannot fire dead ahead at any range');
+  for (const t of [no4, no5]) {
+    assert.ok(Math.abs(angleDelta(t.angle, 0)) > t.arc, `${t.name} trains round to dead ahead`);
+  }
+  // And every one of them bears on either beam.
+  for (const t of cls.turrets) {
+    for (const b of [Math.PI / 2, -Math.PI / 2]) {
+      assert.ok(fires(t, b, close),
+        `${t.name} cannot fire on her ${b > 0 ? 'port' : 'starboard'} beam`);
+    }
+  }
+
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const fresh = () => {
+    const state = createState(world, { mode: 'deathmatch' });
+    const v = addShip(state, { name: 'V', classId: 'takao', team: 0, index: 0 });
+    const foe = addShip(state, { name: 'F', classId: 'hipper', team: 1, index: 0 });
+    v.x = 0; v.z = 0; v.heading = 0; v.notch = 1;
+    foe.x = 30000; foe.z = 30000;
+    return { state, v };
+  };
+  const batteries = [
+    ['main', cls.turrets, [3000, 12000], cls.gun, 12, (v) => v.turrets],
+    ['sec', cls.secondary.mounts, [5000], cls.secondary, 10, (v) => v.secMounts],
+    ['torp', cls.torpedoes.mounts, [3000], null, 0, (v) => v.torpMounts],
+  ];
+  const wrong = [];
+  const through = [];
+  for (const [k, specs, ranges, battery, h, of] of batteries) {
+    for (const range of ranges) {
+      const need = battery ? solveBallistic(battery, range, h).elev : 0;
+      for (let i = 0; i < specs.length; i++) {
+        const spec = specs[i];
+        for (let b = -165; b <= 180; b += 15) {
+          const off = Math.abs(angleDelta(spec.angle, b * RAD));
+          // A few degrees either side of a stop, or of the edge of a masked
+          // sector, is left alone: that is where a bearing is inside or out
+          // by rounding.
+          if (Math.abs(off - spec.arc) < 5 * RAD) continue;
+          const masked = (d) => layFloor(spec.mask, (b + d) * RAD) > need;
+          if (masked(-5) !== masked(0) || masked(5) !== masked(0)) continue;
+          const clear = off < spec.arc && !masked(0)
+            && (k !== 'torp' || torpedoClear(cls, spec, b * RAD));
+          const { state, v } = fresh();
+          manGun(v, { k, i });
+          layGun(v, { x: Math.sin(b * RAD) * range, z: Math.cos(b * RAD) * range });
+          for (let t = 0; t < 25 / DT; t++) {
+            step(state, DT);
+            // Never laid through her on the way: where its barrels have to be
+            // up to clear her, they are up.
+            const m = of(v)[i];
+            if (m.elev !== undefined && m.elev < layFloor(spec.lift, m.angle) - 0.01 && through.length < 4) {
+              through.push(`${k} ${i} at ${(m.angle / RAD).toFixed(0)} laid at `
+                + `${(m.elev / RAD).toFixed(1)} under ${(layFloor(spec.lift, m.angle) / RAD).toFixed(1)}`);
+            }
+          }
+          const fired = shootGun(state, v) > 0;
+          if (fired !== clear) {
+            wrong.push(`${k} ${i} ${fired ? 'fired' : 'would not fire'} on ${b} degrees at ${range} m`);
+          }
+        }
+      }
+    }
+  }
+  assert.equal(wrong.length, 0, `${wrong.length} wrong: ${wrong.slice(0, 6).join(', ')}`);
+  assert.equal(through.length, 0, `laid through her: ${through.join('; ')}`);
+
+  // Her flak, which the scene lays: whatever bearing the aeroplane is on,
+  // every mounting stays inside its own arc, and its barrels over whatever of
+  // her they have to clear.
+  const view = new ShipView({ add() {}, remove() {} }, 'takao', 0, false);
+  const specs = lightMounts(cls);
+  let outside = null;
+  for (let b = 0; b < 360 && !outside; b += 30) {
+    for (const y of [700, 30]) {
+      const plane = [{ tm: 1, x: Math.sin(b * RAD) * 1500, y, z: Math.cos(b * RAD) * 1500 }];
+      for (let t = 0; t < 120 && !outside; t++) {
+        view.layMounts(null, null, null, plane, 1 / 30);
+        view.aaMounts.forEach((m, i) => {
+          const off = Math.abs(angleDelta(specs[i].angle, m.rotation.y));
+          if (off > specs[i].arc + 1e-6 && !outside) {
+            outside = `flak mounting ${i} laid ${(off / RAD).toFixed(0)} degrees off the middle of `
+              + `a ${(specs[i].arc / RAD).toFixed(0)}-degree arc, following an aeroplane on ${b}`;
+          }
+          const el = -m.userData.gunNode.rotation.x;
+          const floor = layFloor(specs[i].lift, m.rotation.y);
+          if (el < floor - 0.02 && !outside) {
+            outside = `flak mounting ${i} laid at ${(el / RAD).toFixed(1)} degrees through her, `
+              + `on a bearing it has to be up ${(floor / RAD).toFixed(1)} to clear`;
+          }
+        });
+      }
+    }
+  }
+  assert.equal(outside, null, outside);
+});
+
+check('a layer standing at a Takao gun looks out over it, round its arc and nowhere else', () => {
+  // The gun camera is put up over the mounting and back along the line of
+  // sight. On a ship with a turret at the foot of her bridge under another
+  // superfiring over it, and tubes under her shelter deck, that put the eye
+  // inside the next gunhouse or up through the deck. And the layer's head
+  // turns as far as the mounting trains, which on a gun abreast her funnels is
+  // not round through her funnels.
+  const view = new ShipView({ add() {}, remove() {} }, 'takao', 0, false);
+  view.group.position.set(0, 0, 0);
+  view.group.rotation.y = 0;
+  view.group.updateMatrixWorld(true);
+  const b = Object.create(Battle.prototype);
+  b.shipId = 1;
+  b.watching = null;
+  b.sunk = false;
+  b.ownSnap = { i: 1, x: 0, z: 0, h: 0 };
+  b.localShip = { heading: 0 };
+  b.scene = { shipViews: new Map([[1, view]]) };
+  const cls = SHIP_CLASSES.takao;
+  // Each mounting's gunhouse or shield: what trains, less the cradle that
+  // elevates in it -- a turret's barrels run nine metres out past its face,
+  // and an eye over them is an eye in the open.
+  const houses = [...view.turrets, ...view.secMounts, ...view.torpMounts].map((m) => {
+    const box = new THREE.Box3();
+    const meshes = [];
+    const node = m.userData.gunNode;
+    m.traverse((o) => {
+      if (!o.isMesh) return;
+      for (let n = o; n && n !== m; n = n.parent) if (n === node && node !== m) return;
+      box.expandByObject(o);
+      meshes.push(o);
+    });
+    return { m, box, meshes };
+  });
+  // Inside it is shut in by it every way it looks: up, down and all round.
+  // (Both faces counted, since from inside a gunhouse it is the backs of its
+  // plates that are seen.)
+  const rc = new THREE.Raycaster();
+  const shutIn = (meshes, at) => {
+    const mats = new Set();
+    for (const o of meshes) for (const q of [].concat(o.material)) mats.add(q);
+    const was = [...mats].map((q) => q.side);
+    for (const q of mats) q.side = THREE.DoubleSide;
+    let all = true;
+    for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      rc.set(at, new THREE.Vector3(...d));
+      rc.far = 30;
+      if (!rc.intersectObjects(meshes, false).length) { all = false; break; }
+    }
+    [...mats].forEach((q, k) => { q.side = was[k]; });
+    return all;
+  };
+  const RAD = Math.PI / 180;
+  const batteries = [
+    ['main', cls.turrets, view.turrets],
+    ['sec', cls.secondary.mounts, view.secMounts],
+    ['torp', cls.torpedoes.mounts, view.torpMounts],
+    ['aa', lightMounts(cls), view.aaMounts],
+  ];
+  for (const [kind, specs, models] of batteries) {
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      b.gun = { kind, id: i, spec };
+      // Swung past either stop, the view stops at the stop. (Past it by less
+      // than half the way to the other one, which is where it would stop.)
+      if (spec.arc < Math.PI) {
+        for (const s of [-1, 1]) {
+          const past = b.gunArcYaw(spec.angle + s * (spec.arc + (Math.PI - spec.arc) * 0.8));
+          assert.ok(Math.abs(angleDelta(spec.angle + s * spec.arc, past)) < 1e-6,
+            `${kind} ${i}: the layer looks ${((angleDelta(spec.angle, past)) / RAD).toFixed(0)} `
+            + `degrees round a ${(spec.arc / RAD).toFixed(0)}-degree arc`);
+        }
+      }
+      for (let k = -4; k <= 4; k++) {
+        b.gunYaw = spec.angle + (k / 4) * Math.min(spec.arc, Math.PI) * 0.95;
+        const eye = b.gunEye();
+        const at = new THREE.Vector3(eye.x, eye.y, eye.z);
+        for (const { m, box, meshes } of houses) {
+          if (m === models[i]) continue;
+          assert.ok(!box.containsPoint(at) || !shutIn(meshes, at),
+            `${kind} ${i}: laid on ${((b.gunYaw) / RAD).toFixed(0)} degrees, the layer's eye `
+            + `is inside another mounting at (${eye.x.toFixed(1)}, ${eye.y.toFixed(1)}, ${eye.z.toFixed(1)})`);
+        }
+      }
+      // And on every bearing it can fire on, he can see down his line of
+      // sight: nothing of hers across it close aboard. No.1 trained round on
+      // her quarter had No.2's barrels, reaching out over it, filling the
+      // sight. (Not a bank of tubes, whose sight is out past its muzzles.)
+      if (kind === 'torp') continue;
+      for (let d = -180; d < 180; d += 5) {
+        const x = (d * Math.PI) / 180;
+        if (Math.abs(angleDelta(spec.angle, x)) > spec.arc || !(layFloor(spec.mask, x) < 0.1)) continue;
+        b.gunYaw = x;
+        const eye = b.gunEye();
+        const seen = b.structureAlong(view.group, b.gunMount(view), new THREE.Vector3(eye.x, eye.y, eye.z),
+          new THREE.Vector3(Math.sin(x), 0, Math.cos(x)), 40);
+        assert.ok(seen >= 40, `${kind} ${i}: laid on ${d} degrees, which it fires on, the layer's `
+          + `sight is blocked by her own structure ${seen.toFixed(1)} m off`);
+      }
+    }
+  }
+
+  // And a mounting taken over is laid where it can fire. No.3 is stowed
+  // facing her bridge, and taking it used to put a telescope on the face of
+  // the bridge from a few metres off.
+  b.gun = { kind: 'main', id: 2, spec: cls.turrets[2] };
+  const start = b.gunStartBearing();
+  assert.ok(Math.abs(angleDelta(cls.turrets[2].angle, start)) <= cls.turrets[2].arc
+    && layFloor(cls.turrets[2].mask, start) < 0.1,
+  `No.3 is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, into her own bridge`);
 });
 
 check('the elevation her guns are laid at goes over the wire', () => {
@@ -6009,11 +6241,19 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
   // The whole point of the arcs. A ship steering at her target has her after
   // guns masked by her own superstructure; put the wheel over and they come
   // into action. If that is not true the arcs are decorative.
+  //
+  // At an aeroplane coming in low, which is the one this is about. A ship
+  // whose arcs were surveyed off her model (the Takao) carries where her fire
+  // clears her as well as where her mountings train, and a light gun abaft her
+  // bridge will train round to the bow and fire over it -- at a dive bomber
+  // high overhead, which is right, and not at a torpedo bomber on the wave
+  // tops ahead of her.
+  const LOW = 60;
   for (const cls of Object.values(SHIP_CLASSES)) {
     const ship = { x: 0, z: 0, heading: 0 };
     const R = cls.aa.range * 0.4;
-    const ahead = aaBearing(cls, ship, 0, R);
-    const beam = aaBearing(cls, ship, R, 0);
+    const ahead = aaBearing(cls, ship, 0, R, LOW);
+    const beam = aaBearing(cls, ship, R, 0, LOW);
     // A boat that carries one mounting is the exception, and she has to be:
     // the U-48's whole anti-aircraft battery is a single 2 cm on the
     // Wintergarten abaft the tower, and one gun that can train to a bearing is
@@ -11411,13 +11651,30 @@ check('the Japanese ships are built the same on both sides', () => {
   // you cannot see from the side you built it on.
   for (const [id, parts, floor, spare] of [
     ['Yamato', yamatoParts, 150, new Set(['radar', 'airGroup'])],
-    ['Takao', takaoParts, 120, new Set(['radar', 'aviation', 'fittings', 'airGroup'])],
+    // (Her hull is the sculpt, checked slice by slice below, so what is
+    // paired is what is built on it.)
+    ['Takao', takaoParts, 25, new Set(['radar', 'aviation', 'fittings', 'airGroup'])],
     ['Shinano', shinanoParts, 120, new Set(['island', 'airGroup', 'fittings'])],
   ]) {
+    // A hull that is a sculpt (the Takao's, see takaoHull.js) is checked the
+    // way the Graf Spee's is: it comes in length-wise slices, each standing
+    // across her centreline, so there is nothing to pair a slice with -- each
+    // is as wide to port as to starboard, to within a hand's breadth, or it is
+    // a hull built crooked. Where a single long triangle of the decimated
+    // sculpt ends at her deck edge is not a fitting left off one side.
+    const slices = parts().filter((p) => p.from === 'hullModel');
+    assert.ok(slices.length === 0 || slices.length >= 40,
+      `only ${slices.length} slices of the ${id}'s hull were found`);
+    for (const p of slices) {
+      const off = (p.min[0] + p.max[0]) / 2;
+      assert.ok(Math.abs(off) < 0.3,
+        `the ${id}'s hull at station ${((p.min[2] + p.max[2]) / 2).toFixed(0)} is `
+        + `${Math.abs(off).toFixed(2)} m wider to ${off > 0 ? 'port' : 'starboard'}`);
+    }
     // The pieces that are hers alone and are meant to be: a crane on one
     // quarter, an island on one side, a catapult trained out over one beam.
     const list = parts().filter((p) => {
-      if (spare.has(p.from)) return false;
+      if (spare.has(p.from) || p.from === 'hullModel') return false;
       if (p.moving) return false;
       const [w, h, d] = p.size;
       return Math.max(w, h, d) >= 0.5 && w * h * d >= 0.0015;
