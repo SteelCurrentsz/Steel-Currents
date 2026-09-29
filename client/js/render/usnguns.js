@@ -83,9 +83,14 @@ export function fiveInch38(g, M, x, y, z, ry) {
   return mount;
 }
 
-/** A quadruple 40 mm Bofors, with its own Mk 51 director alongside. */
-export function quadBofors(g, M, x, y, z, ry) {
-  const t = tub(g, M, 2.5, 1.25, x, y, z, ry, 18);
+/**
+ * A quadruple 40 mm Bofors, with its own Mk 51 director alongside. `tubR` is
+ * the tub's radius, for a ship whose tubs stand closer to her funnels than
+ * the fleet's usual one allows, and `lockers` the bearings round the tub its
+ * ready-use lockers stand on, for one whose tubs are at the deck edge.
+ */
+export function quadBofors(g, M, x, y, z, ry, { tubR = 2.5, lockers = [2.2, 2.8, 3.5, 4.1] } = {}) {
+  const t = tub(g, M, tubR, 1.25, x, y, z, ry, 18);
   const m = new THREE.Group();
   m.position.y = 0.4;
   m.userData.dynamic = true;
@@ -111,15 +116,15 @@ export function quadBofors(g, M, x, y, z, ry) {
   }
   // The Mk 51 director on the tub rim: a man, a sight and a joystick.
   const d = new THREE.Group();
-  d.position.set(1.9, 0.5, -1.4);
+  d.position.set(1.9 * (tubR / 2.5), 0.5, -1.4 * (tubR / 2.5));
   t.add(d);
   cyl(d, M.gunDark, 0.22, 0.3, 0.8, 0, 0.4, 0, 10);
   box(d, M.gun, 0.5, 0.42, 0.6, 0, 0.95, 0);
   box(d, M.glass, 0.2, 0.16, 0.08, 0, 1.0, 0.32);
   // Ready-use lockers round the outside of the tub.
-  for (const a of [2.2, 2.8, 3.5, 4.1]) {
+  for (const a of lockers) {
     box(g, M.steelDark, 0.6, 0.85, 0.5,
-      x + Math.sin(a) * 3.0, y + 0.42, z + Math.cos(a) * 3.0, a);
+      x + Math.sin(a) * (tubR + 0.5), y + 0.42, z + Math.cos(a) * (tubR + 0.5), a);
   }
   return m;
 }

@@ -155,15 +155,17 @@ function turretBoxes(t) {
 // sculpt's gunhouses, which is 1.9 m abaft the foot of each face; the box is
 // what the sculpt drew there, gunhouse and barrels, no higher than it went,
 // and as far in as it went: each wing mount's stands against her
-// superstructure, and the box stops at the wall. `up` is where each is cut
-// off and closed flat, which is what the mount stands on: a hand over the
-// deck under it, so the cut never runs along the deck itself. Wing mounts
-// are given port side.
+// superstructure, and the box stops at the wall. Each is cut off at `cut`, a
+// hand over the deck under it so the cut never runs along the deck itself,
+// and what that leaves of the sculpt's gunhouse is then pressed down flat to
+// `up`, the deck, which is what the mount stands on: the owner's mount has
+// had its square base taken off, and it is not given the sculpt's back as a
+// plinth. Wing mounts are given port side.
 export const SECONDARY = [
-  { name: '5-inch 51', x: 0, z: 31.0, rest: 0, up: 8.45, box: { x: [-2.7, 2.7], z: [28.0, 35.8], top: 12.9 } },
-  { name: '5-inch 52', x: 7.3, z: 18.45, rest: 0, up: 8.15, box: { x: [5.3, 9.8], z: [16.1, 23.4], top: 12.0 } },
-  { name: '5-inch 54', x: 7.5, z: -27.45, rest: Math.PI, up: 8.3, box: { x: [4.75, 10.3], z: [-33.3, -24.9], top: 12.0 } },
-  { name: '5-inch 56', x: 0, z: -41.35, rest: Math.PI, up: 8.25, box: { x: [-2.6, 2.6], z: [-46.4, -38.7], top: 12.0 } },
+  { name: '5-inch 51', x: 0, z: 31.0, rest: 0, up: 8.22, cut: 8.45, box: { x: [-2.7, 2.7], z: [28.0, 35.8], top: 12.9 } },
+  { name: '5-inch 52', x: 7.3, z: 18.45, rest: 0, up: 8.02, cut: 8.15, box: { x: [5.3, 9.8], z: [16.1, 23.4], top: 12.0 } },
+  { name: '5-inch 54', x: 7.5, z: -27.45, rest: Math.PI, up: 8.06, cut: 8.3, box: { x: [4.75, 10.3], z: [-33.3, -24.9], top: 12.0 } },
+  { name: '5-inch 56', x: 0, z: -41.35, rest: Math.PI, up: 8.05, cut: 8.25, box: { x: [-2.6, 2.6], z: [-46.4, -38.7], top: 12.0 } },
 ];
 const WING = (e) => e.x !== 0;
 
@@ -179,11 +181,11 @@ const WING = (e) => e.x !== 0;
 // drew across her centreline, and are carved with the lumps, down to the deck
 // under it.
 const BOFORS_CUTS = [
-  { name: 'bofors abreast 51', x: [3.4, 7.5], z: [26.2, 31.0], y: [8.3, 10.4] },
-  { name: 'bofors fwd funnel', x: [5.35, 10.6], xs: [-10.6, -5.4], z: [5.1, 12.4], y: [8.3, 11.9] },
+  { name: 'bofors abreast 51', x: [3.4, 7.5], z: [26.2, 31.0], y: [8.3, 10.4], deck: 8.17 },
+  { name: 'bofors fwd funnel', x: [5.35, 10.6], xs: [-10.6, -5.4], z: [5.1, 12.4], y: [8.3, 11.9], deck: 8.05 },
   { name: 'bofors between funnels', x: [4.1, 8.9], z: [-6.9, -2.4], y: [10.9, 12.4] },
-  { name: 'bofors aft funnel', x: [6.45, 10.1], xs: [-10.1, -6.75], z: [-20.4, -13.2], y: [8.2, 11.9] },
-  { name: 'bofors abaft 54', x: [5.9, 9.3], xs: [-9.3, -5.4], z: [-38.3, -34.3], y: [5.75, 7.2] },
+  { name: 'bofors aft funnel', x: [6.45, 10.1], xs: [-10.1, -6.75], z: [-20.4, -13.2], y: [8.2, 11.9], deck: 8.05 },
+  { name: 'bofors abaft 54', x: [5.9, 9.3], xs: [-9.3, -5.4], z: [-38.3, -34.3], y: [5.75, 7.2], deck: 5.6 },
 ];
 
 // ---- her 20 mm ----------------------------------------------------------------------
@@ -191,9 +193,9 @@ const BOFORS_CUTS = [
 // edge of her 01 level, three pairs a side: they are cut off down to a hand
 // over the deck and baltimore.js mounts an Oerlikon for each of them.
 const OERLIKON_CUTS = [
-  { name: '20 mm abreast the after funnel', x: [7.3, 10.4], z: [-24.7, -21.6], y: [8.2, 10.5] },
-  { name: '20 mm abaft the forward funnel', x: [8.2, 10.9], z: [-12.4, -9.1], y: [8.4, 10.6] },
-  { name: '20 mm abreast the forward funnel', x: [6.9, 10.3], z: [0.1, 3.9], y: [8.35, 10.5] },
+  { name: '20 mm abreast the after funnel', x: [7.3, 10.4], z: [-24.7, -21.6], y: [8.2, 10.5], deck: 8.03 },
+  { name: '20 mm abaft the forward funnel', x: [8.2, 10.9], z: [-12.4, -9.1], y: [8.4, 10.6], deck: 8.03 },
+  { name: '20 mm abreast the forward funnel', x: [6.9, 10.3], z: [0.1, 3.9], y: [8.35, 10.5], deck: 8.1 },
 ];
 
 // ---- a shard on her waterline -----------------------------------------------------
@@ -225,11 +227,11 @@ const span = (lo, hi, s) => (s > 0 ? [lo, hi] : [-hi, -lo]);
 const SEC_BOXES = SECONDARY.flatMap((e) => (WING(e) ? [1, -1] : [1]).map((s) => {
   const [x0, x1] = span(e.box.x[0], e.box.x[1], s);
   return { name: `${e.name} ${WING(e) ? (s > 0 ? 'port' : 'stbd') : ''}`.trim(), x0, x1, z0: e.box.z[0], z1: e.box.z[1],
-    y0: e.up, y1: e.box.top };
+    y0: e.cut, y1: e.box.top, deck: e.up };
 }));
 const sideBoxes = (list) => both(list, (e, s) => {
   const [x0, x1] = s < 0 && e.xs ? e.xs : span(e.x[0], e.x[1], s);
-  return { name: `${e.name} ${s > 0 ? 'port' : 'stbd'}`, x0, x1, z0: e.z[0], z1: e.z[1], y0: e.y[0], y1: e.y[1] };
+  return { name: `${e.name} ${s > 0 ? 'port' : 'stbd'}`, x0, x1, z0: e.z[0], z1: e.z[1], y0: e.y[0], y1: e.y[1], deck: e.deck };
 });
 const BOFORS_BOXES = sideBoxes(BOFORS_CUTS);
 const OERLIKON_BOXES = sideBoxes(OERLIKON_CUTS);
@@ -312,6 +314,18 @@ if (!process.env.NOCARVE) {
   for (const b of CUT_BOXES) {
     const r = boxCut(m, b, { rescue: true });
     console.log(`cut ${b.name}: ${r.cut} triangles, caps ${r.caps.filter((n) => n).join('/') || 'none'}`);
+  }
+  // What the cut left of each gunhouse and tub, down on to the deck: the
+  // mounting that goes there stands on the deck, not on a stump.
+  for (const b of CUT_BOXES.filter((k) => k.deck !== undefined)) {
+    let n = 0;
+    for (let i = 0; i < m.P.length; i += 3) {
+      const x = m.P[i], y = m.P[i + 1], z = m.P[i + 2];
+      if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1 || y < b.deck - 0.05 || y > b.y0 + 1e-4) continue;
+      m.P[i + 1] = b.deck;
+      n++;
+    }
+    console.log(`${b.name}: ${n} points pressed down on to the deck at ${b.deck}`);
   }
   for (const t of TURRETS) {
     for (const b of turretBoxes(t)) {
@@ -425,6 +439,68 @@ if (!process.env.NOSMOOTH) {
     }
   }
   console.log(`deck blue: ${blue} faces, and ${flipped} faces of islands of one paint in the other`);
+}
+
+// ---- and the splinters ------------------------------------------------------------
+// Where a cut ran through a grey face at the foot of something, what was left
+// of the face on the deck side is a splinter of grey a hand wide and a metre
+// or two long, lying in her deck blue -- or standing a few centimetres up out
+// of it, where a patch met the deck round it a step down: to the eye a crack
+// in her deck. A face that thin and that flat, over the Measure 22 line, with
+// deck blue or another splinter along two of its three edges, is deck.
+{
+  const { P, T, C } = m;
+  const nf = T.length / 3;
+  const canon = weld(m);
+  const edgeKey = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
+  const faces = new Map();
+  for (let t = 0; t < nf; t++) {
+    for (let j = 0; j < 3; j++) {
+      const k = edgeKey(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]);
+      if (!faces.has(k)) faces.set(k, []);
+      faces.get(k).push(t);
+    }
+  }
+  const splinter = new Uint8Array(nf);
+  for (let t = 0; t < nf; t++) {
+    if (C[t] !== GREY) continue;
+    const [nx, ny, nz] = faceNormal(m, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    const n2 = Math.hypot(nx, ny, nz);
+    // Lying on the deck, or standing on it: the step of a patch is a wall a
+    // hand high, and its face can lean a little either way.
+    if (ny < -0.2 * n2) continue;
+    let cy = 0, longest = 0, lo = Infinity, hi = -Infinity;
+    for (let j = 0; j < 3; j++) {
+      const a = T[t * 3 + j], b = T[t * 3 + (j + 1) % 3];
+      cy += P[a * 3 + 1] / 3;
+      lo = Math.min(lo, P[a * 3 + 1]); hi = Math.max(hi, P[a * 3 + 1]);
+      longest = Math.max(longest, Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]));
+    }
+    if (cy < M22 - 0.3 || hi - lo > 0.4) continue;
+    // Its width across its longest edge.
+    if (n2 / (longest || 1) < 0.25) splinter[t] = 1;
+  }
+  let swept = 0;
+  for (let pass = 0; pass < 8; pass++) {
+    const now = [];
+    for (let t = 0; t < nf; t++) {
+      if (splinter[t] !== 1 || C[t] === DECK) continue;
+      // Along the deck, and from the deck inwards: a run of splinters is
+      // taken in from its end that lies against the deck.
+      let deck = 0, along = 0;
+      for (let j = 0; j < 3; j++) {
+        const k = edgeKey(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]);
+        const by = faces.get(k).filter((u) => u !== t);
+        if (by.some((u) => C[u] === DECK)) deck++;
+        if (by.some((u) => C[u] === DECK || splinter[u])) along++;
+      }
+      if (deck >= 1 && along >= 2) now.push(t);
+    }
+    for (const t of now) C[t] = DECK;
+    swept += now.length;
+    if (!now.length) break;
+  }
+  console.log(`splinters: ${swept} of grey in her deck blue`);
 }
 
 // ---- fair her sides, and split her normals at her creases ------------------------

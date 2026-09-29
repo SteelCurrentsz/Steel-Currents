@@ -2209,6 +2209,153 @@ export const SHIP_CLASSES = {
     },
   },
 
+  baltimore: {
+    // USS Baltimore, the name ship of the heavy cruisers the United States
+    // built once the treaties were gone: nine 8-inch/55 in three triple
+    // turrets, two forward and one aft, twelve 5-inch/38 in six twin mounts,
+    // and a light battery of forty-eight 40 mm barrels -- a Cleveland stretched
+    // by twenty metres and given the guns and the belt to fight a Takao.
+    //
+    // She is drawn from the owner's sculpt of her (see baltimore.js), at her
+    // own size -- 205.3 m -- floated at her 7.3 m draft, in Measure 22.
+    id: 'baltimore',
+    name: 'Baltimore',
+    fullName: 'USS Baltimore',
+    className: 'Baltimore',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'usa',
+    blurb: 'Nine eight-inch rifles with super-heavy shells, radar-directed, and more 40 mm than a battleship. The treaty cruisers\' answer.',
+    hull: { length: 205.3, beam: 21.6, draft: 7.3, superstructure: 1.25 },
+    hp: 35600,
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.08,
+    rudderShift: 7.0,
+    speedLossInTurn: 0.2,
+    concealment: 11700,
+    fireDetectPenalty: 4600,
+    // SG and SK search sets, and a Mk 13 on each main battery director.
+    radarRange: 13000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Six inches of belt over her machinery and magazines, tapering below, and
+    // two and a half of armoured deck: enough against eight-inch at the ranges
+    // she was meant to fight at, and eight inches on her turret faces.
+    armor: { belt: 152, deck: 64, citadel: 152, bow: 25, superstructure: 20 },
+    turrets: [
+      // No.1 low on her forecastle, No.2 superfiring over it, and No.3 on her
+      // quarterdeck facing astern -- where the sculpt has them, a hand or two
+      // off her centreline as it drew them.
+      { id: 0, name: 'No.1', x: 0.25, z: 57.8, angle: 0, arc: 2.62, guns: 3, my: 7.89 },
+      { id: 1, name: 'No.2', x: 0.05, z: 44.4, angle: 0, arc: 2.8, guns: 3, my: 10.97 },
+      { id: 2, name: 'No.3', x: -0.15, z: -55.5, angle: Math.PI, arc: 2.62, guns: 3, my: 7.53 },
+    ],
+    gun: {
+      name: '8"/55 Mk 15', role: 'surface',
+      // Five below the horizontal to forty-one up, in the Mk 14 turret.
+      elev: { min: -0.087, max: 0.72 },
+      reach: 10.0,
+      // The 335 lb super-heavy shell: slower than anyone else's eight-inch and
+      // a good deal harder to keep out.
+      caliber: 203, reload: 11.5, traverse: 0.22, range: 18200, sigma: 1.5,
+      shells: shells(203, 5400, 3200, 290, 762, 0.13),
+    },
+    torpedoes: null,
+    // Twelve 5-inch in six twin Mk 38 mounts: No.51 superfiring over No.2 and
+    // No.56 over No.3, on her centreline, and two a side -- abreast her bridge
+    // facing ahead and abreast her after superstructure facing astern. The
+    // mount is the owner's own sculpt of it.
+    secondary: {
+      name: '5"/38 Mk 12', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 4.3,
+      caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 0, z: 31.0, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 10.6 },
+        { x: 7.3, z: 18.45, angle: 1.2, arc: 1.6, rest: 0, guns: 2, my: 10.3 },
+        { x: -7.3, z: 18.45, angle: -1.2, arc: 1.6, rest: 0, guns: 2, my: 10.3 },
+        { x: 7.5, z: -27.45, angle: 1.95, arc: 1.6, rest: Math.PI, guns: 2, my: 10.45 },
+        { x: -7.5, z: -27.45, angle: -1.95, arc: 1.6, rest: Math.PI, guns: 2, my: 10.45 },
+        { x: 0, z: -41.35, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 10.4 },
+      ],
+    },
+    aa: {
+      range: 5400, dps: 70,
+      guns: [
+        // Twelve quads: a pair side by side on her forecastle, a pair abreast
+        // No.51, a pair abreast each funnel -- the pair between them up on
+        // bandstands over her boats -- and a pair on her main deck abreast her
+        // after superstructure.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: 2.5, z: 75.0, angle: 0.5, arc: 2.2, rest: 0, guns: 4 },
+            { x: -2.5, z: 75.0, angle: -0.5, arc: 2.2, rest: 0, guns: 4 },
+            { x: 5.2, z: 28.4, angle: 1.2, arc: 1.9, rest: Math.PI / 2, guns: 4 },
+            { x: -5.2, z: 28.4, angle: -1.2, arc: 1.9, rest: -Math.PI / 2, guns: 4 },
+            { x: 7.5, z: 7.8, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 4 },
+            { x: -7.5, z: 7.8, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 4 },
+            { x: 6.25, z: -4.65, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 4 },
+            { x: -6.25, z: -4.65, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 4 },
+            { x: 8.35, z: -15.3, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 4 },
+            { x: -8.35, z: -15.3, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 4 },
+            { x: 8.0, z: -36.3, angle: 2.0, arc: 1.7, rest: Math.PI / 2, guns: 4 },
+            { x: -8.0, z: -36.3, angle: -2.0, arc: 1.7, rest: -Math.PI / 2, guns: 4 },
+          ] },
+        // Her Oerlikons along the edge of her 01 level, in pairs, where the
+        // sculpt drew them.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: 8.9, z: 2.8, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: 2.8, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+            { x: 8.9, z: 1.1, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: 1.1, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+            { x: 8.9, z: -10.35, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: -10.35, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+            { x: 8.9, z: -11.75, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: -11.75, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+            { x: 8.9, z: -22.4, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: -22.4, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+            { x: 8.9, z: -23.8, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1 },
+            { x: -8.9, z: -23.8, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1 },
+          ] },
+      ],
+    },
+    // Her Kingfishers, off the two catapults on her fantail. Hers point aft
+    // and train out over her quarters, and a scout goes off the quarter the
+    // catapult is on; otherwise the evolution is the Cleveland's.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9000,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
+      type: 'kingfisher',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      // Where the shot leaves her, off the integrated shot from her own
+      // girders: trained out over her quarter, a hundred and eighty metres
+      // out and well abaft the beam, twenty-three metres up.
+      runHeight: 23,
+      runOut: 184, runBearing: 2.33,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 14472,
+      aircraft: 4,
+      mainRounds: 1200,
+      secondary: { caliber: 127, label: '5"', barrels: 12, rounds: 6000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 48, rounds: 57600 },
+        { caliber: 20, label: '20mm', barrels: 12, rounds: 28800 },
+      ],
+    },
+  },
+
   shinano: {
     // The third Yamato hull, converted on the slip into an armoured carrier
     // and the largest warship ever built to carry aircraft until the nuclear
@@ -2562,7 +2709,7 @@ export const SHIP_CLASSES = {
   },
 };
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'u48',
+export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'rodney', 'iowa', 'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {

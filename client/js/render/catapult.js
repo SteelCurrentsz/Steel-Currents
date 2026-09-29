@@ -9,6 +9,11 @@
 // A `rig` is the handful of figures that describe one ship's installation: how
 // far the car sits back at rest, how much track it has ahead of it, how far the
 // turntable trains out, and how long each part of the evolution takes.
+//
+// A catapult is stowed fore and aft pointing ahead, and trains out by `sgn`
+// times the rig's figures -- unless it carries a `base`, the bearing it is
+// stowed about instead: a Baltimore's point astern from turntables at their
+// forward ends, and train out over her quarters.
 
 import { AERO, catapultProfile } from './aero.js';
 
@@ -58,7 +63,7 @@ export function stepCatapults(deck, t) {
     else out = 1 - smooth((run - R.RUNUP - shot) / R.HOME);
   }
   for (const c of deck.cats) {
-    c.group.rotation.y = c.sgn * (R.REST + (R.OUT - R.REST) * out);
+    c.group.rotation.y = (c.base || 0) + c.sgn * (R.REST + (R.OUT - R.REST) * out);
     if (deck.live !== c || run < 0) {
       // Sitting on her cradle with the engine ticking over, waiting her turn.
       c.car.position.z = R.A;
@@ -173,8 +178,16 @@ export function fitCatapults(g, {
       // Where she comes back to: her own cradle, not a spot on the deck.
       // In the ship's own frame. A ship drawn larger than she was built has
       // her girders scaled with her, so the offsets along one are too.
-      g.userData.landingSpot = [next.sgn * catX,
-        deckY + (rig.PLANE_Y + 0.6) * scale, catZ + rig.A * scale];
+      if (next.base) {
+        // Along her own girder, from her own turntable, stowed.
+        const r = next.base + next.sgn * rig.REST;
+        const at = next.group.position;
+        g.userData.landingSpot = [at.x + Math.sin(r) * rig.A * scale,
+          deckY + (rig.PLANE_Y + 0.6) * scale, at.z + Math.cos(r) * rig.A * scale];
+      } else {
+        g.userData.landingSpot = [next.sgn * catX,
+          deckY + (rig.PLANE_Y + 0.6) * scale, catZ + rig.A * scale];
+      }
     }
   };
   // Whatever was flying her is finished with her: she is back on her cradle,
@@ -190,7 +203,7 @@ export function fitCatapults(g, {
     c.plane.rotation.set(0, 0, 0);
     c.plane.visible = true;
     c.car.position.z = rig.A;
-    c.group.rotation.y = c.sgn * rig.REST;
+    c.group.rotation.y = (c.base || 0) + c.sgn * rig.REST;
   };
   // A gun ship has no hangar and no lift: there is nowhere for a scout to go
   // but back on her cradle, so being struck below and being craned aboard are
