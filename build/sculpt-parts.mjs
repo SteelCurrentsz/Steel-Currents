@@ -126,6 +126,78 @@ export function thinFaces(mesh, r) {
 }
 
 
+// ---- flaps ------------------------------------------------------------------------
+/**
+ * The flaps a sculpt tears in its upperworks: a sheet thinner than `r`, two
+ * faces back to back, standing off a wall or a deck with a knife edge along
+ * its free rim -- where a decimated gunshield or a railing melted into the
+ * wall behind it, and was left sticking out of it like torn paper. A thin run
+ * of plate with no knife edge in it is a wall, not a flap; a long slender one
+ * is a spar, a rail or a wire, and none of those is touched. Only a flap no
+ * bigger than `maxArea` square metres (both sides) and `maxLen` metres
+ * across, and only where `only(x, y, z)` says, is marked.
+ *
+ * Returns one byte a triangle, set on the flaps.
+ */
+export function flaps(m, { r = 0.3, maxArea = 3, maxLen = 3, fold = 0.6, only = () => true } = {}) {
+  const { P, T } = m;
+  const nf = T.length / 3;
+  const thin = thinFaces(m, r);
+  const canon = weld(m);
+  const ek = (a, b) => (a < b ? a * 1e7 + b : b * 1e7 + a);
+  const byEdge = new Map();
+  for (let t = 0; t < nf; t++) {
+    for (let j = 0; j < 3; j++) {
+      const k = ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]);
+      if (!byEdge.has(k)) byEdge.set(k, []);
+      byEdge.get(k).push(t);
+    }
+  }
+  const unit = (t) => {
+    const n = faceNormal(m, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    const l = Math.hypot(n[0], n[1], n[2]) || 1;
+    return [n[0] / l, n[1] / l, n[2] / l];
+  };
+  const seen = new Uint8Array(nf);
+  const out = new Uint8Array(nf);
+  for (let t0 = 0; t0 < nf; t0++) {
+    if (!thin[t0] || seen[t0]) continue;
+    const list = [t0];
+    seen[t0] = 1;
+    for (let q = 0; q < list.length; q++) {
+      const t = list[q];
+      for (let j = 0; j < 3; j++) {
+        for (const u of byEdge.get(ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]))) {
+          if (thin[u] && !seen[u]) { seen[u] = 1; list.push(u); }
+        }
+      }
+    }
+    const inIt = new Set(list);
+    let area = 0, knife = 0;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const t of list) {
+      const n = faceNormal(m, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+      area += Math.hypot(n[0], n[1], n[2]) / 2;
+      const nt = unit(t);
+      for (let j = 0; j < 3; j++) {
+        const a = T[t * 3 + j], b = T[t * 3 + (j + 1) % 3];
+        for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], P[a * 3 + k]); hi[k] = Math.max(hi[k], P[a * 3 + k]); }
+        const back = byEdge.get(ek(canon[a], canon[b])).some((u) => {
+          if (u === t || !inIt.has(u)) return false;
+          const nu = unit(u);
+          return nt[0] * nu[0] + nt[1] * nu[1] + nt[2] * nu[2] < -0.3;
+        });
+        if (back) knife += Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]) / 2;
+      }
+    }
+    const d = [0, 1, 2].map((k) => hi[k] - lo[k]).sort((a, b) => b - a);
+    if (d[0] > maxLen || area > maxArea || knife < fold * Math.sqrt(area / 2)) continue;
+    if (!only((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2)) continue;
+    for (const t of list) out[t] = 1;
+  }
+  return out;
+}
+
 // ---- a turret, lifted out of her --------------------------------------------------
 /** The triangles of `mesh` selected by `pick(t)`, as a mesh of their own, paint and all. */
 export function subMesh(mesh, pick) {
