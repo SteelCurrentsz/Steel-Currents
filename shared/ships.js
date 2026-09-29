@@ -1460,6 +1460,168 @@ export const SHIP_CLASSES = {
     },
   },
 
+  massachusetts: {
+    // USS Massachusetts, the third of the four South Dakotas: nine 16-inch/45
+    // in three triple turrets on a hull thirty-five metres shorter than an
+    // Iowa's, with her belt inclined inside her so that twelve inches of it
+    // would do the work of more. Twenty 5-inch in ten twin mounts, five a
+    // side round her single funnel, and by 1945 a light battery of quad
+    // Bofors and Oerlikons on every deck that would take one.
+    //
+    // She is drawn from the owner's sculpt of her (see massachusetts.js), at
+    // her own length -- 207.26 m -- and across the sculpt's widest, floated at
+    // 9.0 m, in Measure 22.
+    id: 'massachusetts',
+    name: 'Massachusetts',
+    fullName: 'USS Massachusetts',
+    className: 'South Dakota',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Nine sixteen-inch guns and an inclined belt on a hull built short to carry them. Big Mamie fired the first and the last American sixteen-inch shells of the war.',
+    hull: { length: 207.26, beam: 28.1, draft: 9.0, superstructure: 1.4 },
+    hp: 66000,
+    // Twenty-seven and a half knots, and a short hull that turned tighter than
+    // anything else in the battle line.
+    maxSpeed: 27.5 * KNOTS,
+    reverseSpeed: 6.5 * KNOTS,
+    accel: 0.40,
+    turnRate: 0.056,
+    rudderShift: 13.0,
+    speedLossInTurn: 0.17,
+    concealment: 15300,
+    fireDetectPenalty: 6400,
+    // SK and SG search sets, and a Mk 8 on each main battery director.
+    radarRange: 13500,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // Twelve and a quarter inches of belt, inclined nineteen degrees inside
+    // her plating, over her magazines and machinery, and six inches of deck
+    // over it; seventeen and a quarter on her barbettes and eighteen on her
+    // turret faces. An all-or-nothing citadel: her ends are soft.
+    armor: { belt: 310, deck: 152, citadel: 310, bow: 38, superstructure: 38 },
+    turrets: [
+      // No.1 on her forecastle, No.2 superfiring over it, and No.3 on her
+      // quarterdeck facing astern -- each on the middle of the barbette the
+      // sculpt drew it on. Arcs and sectors are measured off the model by
+      // build/survey-arcs.mjs (see layFloor in sim.js).
+      { id: 0, name: 'No.1', x: 0.1, z: 44.75, angle: 0, arc: 2.6, guns: 3, my: 7.4 },
+      { id: 1, name: 'No.2', x: 0, z: 23.9, angle: 0, arc: 2.8, guns: 3, my: 9.6 },
+      { id: 2, name: 'No.3', x: 0, z: -49.75, angle: Math.PI, arc: 2.8, guns: 3, my: 7.8 },
+    ],
+    gun: {
+      name: '16"/45 Mk 6', role: 'surface',
+      // Two below the horizontal to forty-five up.
+      elev: { min: -0.035, max: 0.785 },
+      // Pivot to muzzle, the three turrets' mean, as the sculpt drew them.
+      reach: 17.0,
+      // The 2,700 lb super-heavy shell: slow, and very hard to keep out.
+      caliber: 406, reload: 30, traverse: 0.07, range: 21000, sigma: 1.4,
+      shells: shells(406, 13800, 6300, 620, 701, 0.28),
+    },
+    torpedoes: null,
+    // Twenty 5-inch in ten twin Mk 28 mounts, five a side: on each side one on
+    // her 01 level forward with one on the deck over it superfiring, one on
+    // her main deck amidships, and one on her main deck aft with one on the 01
+    // level forward of it superfiring. The mount is the owner's own sculpt of
+    // it, the Baltimore's, drawn to the gunhouses her sculpt drew for it.
+    secondary: {
+      name: '5"/38 Mk 12', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 3.6,
+      caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 11.5, z: 7.6, angle: 1.57, arc: 2.0, rest: 0, guns: 2, my: 9.0 },
+        { x: -11.45, z: 7.6, angle: -1.57, arc: 2.0, rest: 0, guns: 2, my: 9.0 },
+        { x: 7.6, z: -0.5, angle: 1.57, arc: 2.0, rest: 0, guns: 2, my: 10.7 },
+        { x: -7.55, z: -0.5, angle: -1.57, arc: 2.0, rest: 0, guns: 2, my: 10.7 },
+        { x: 12.25, z: -4.35, angle: 1.57, arc: 2.0, rest: 0, guns: 2, my: 7.2 },
+        { x: -12.15, z: -4.35, angle: -1.57, arc: 2.0, rest: 0, guns: 2, my: 7.2 },
+        { x: 9.55, z: -12.15, angle: 1.57, arc: 2.0, rest: Math.PI, guns: 2, my: 9.0 },
+        { x: -9.95, z: -12.15, angle: -1.57, arc: 2.0, rest: Math.PI, guns: 2, my: 9.0 },
+        { x: 12.45, z: -19.9, angle: 1.57, arc: 2.0, rest: Math.PI, guns: 2, my: 7.2 },
+        { x: -12.2, z: -19.9, angle: -1.57, arc: 2.0, rest: Math.PI, guns: 2, my: 7.2 },
+      ],
+    },
+    aa: {
+      range: 5600, dps: 95,
+      guns: [
+        // Seventeen quads besides the two on her turret roofs: a pair on her
+        // forecastle, a pair abreast No.2, four up on the platform round her
+        // tower, a pair on her 01 level and a pair on her main deck abreast
+        // her after superstructure, one on the end of it over No.3, and a
+        // pair on her quarterdeck and another on her fantail.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: 4.7, z: 73.85, angle: 0, arc: 3.0, rest: 0, guns: 4, my: 7.5 },
+            { x: -4.7, z: 73.85, angle: 0, arc: 3.0, rest: 0, guns: 4, my: 7.5 },
+            { x: 9.45, z: 27.7, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 6.4 },
+            { x: -9.45, z: 27.7, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 6.4 },
+            { x: 4.1, z: 8.1, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 17.6 },
+            { x: -4.1, z: 8.1, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 17.6 },
+            { x: 4.0, z: 4.4, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 17.6 },
+            { x: -4.0, z: 4.4, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 17.6 },
+            { x: 8.0, z: -26.7, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 9.4 },
+            { x: -8.0, z: -26.7, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 9.4 },
+            { x: 10.35, z: -33, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 6.4 },
+            { x: -10.35, z: -33, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 6.4 },
+            { x: 0.1, z: -35.7, angle: 3.14, arc: 2.5, rest: Math.PI, guns: 4, my: 11.8 },
+            { x: 7.1, z: -69.65, angle: 1.57, arc: 2.5, rest: Math.PI / 2, guns: 4, my: 6.4 },
+            { x: -7.1, z: -69.65, angle: -1.57, arc: 2.5, rest: -Math.PI / 2, guns: 4, my: 6.4 },
+            { x: 5.1, z: -100.45, angle: 3.14, arc: 2.5, rest: Math.PI, guns: 4, my: 6.4 },
+            { x: -5.1, z: -100.45, angle: 3.14, arc: 2.5, rest: Math.PI, guns: 4, my: 6.4 },
+          ] },
+        // Her Oerlikons on her quarterdeck, five a side, where the sculpt drew
+        // them -- the forward three of each five a tub's width apart.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: 7.9, z: -66, angle: 1.57, arc: 2.8, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -7.9, z: -66, angle: -1.57, arc: 2.8, rest: -Math.PI / 2, guns: 1, my: 5.9 },
+            { x: 7.6, z: -63.8, angle: 1.57, arc: 2.8, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -7.6, z: -63.8, angle: -1.57, arc: 2.8, rest: -Math.PI / 2, guns: 1, my: 5.9 },
+            { x: 7.7, z: -61.6, angle: 1.57, arc: 2.8, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -7.7, z: -61.6, angle: -1.57, arc: 2.8, rest: -Math.PI / 2, guns: 1, my: 5.9 },
+            { x: 8.7, z: -56.4, angle: 1.57, arc: 2.8, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -8.7, z: -56.4, angle: -1.57, arc: 2.8, rest: -Math.PI / 2, guns: 1, my: 5.9 },
+            { x: 8.1, z: -52.3, angle: 1.57, arc: 2.8, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -8.1, z: -52.3, angle: -1.57, arc: 2.8, rest: -Math.PI / 2, guns: 1, my: 5.9 },
+          ] },
+      ],
+    },
+    // Her Kingfishers, off the two catapults on her fantail either side of
+    // her crane; the evolution is the Cleveland's.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9600,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
+      type: 'kingfisher',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      // Where the shot leaves her, off the integrated shot from her own
+      // girders: trained out over her quarter from turntables right aft, a
+      // hundred and thirty-seven metres out and abaft her beam, twenty-two
+      // and a half metres up.
+      runHeight: 22.5,
+      runOut: 137.5, runBearing: 1.83,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 35000,
+      aircraft: 3,
+      mainRounds: 1170,
+      secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 9000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 68, rounds: 81600 },
+        { caliber: 20, label: '20mm', barrels: 10, rounds: 24000 },
+      ],
+    },
+  },
+
   iowa: {
     // Three 16"/50 triples. A turret this size is blast-limited as much as it is
     // structurally limited, so the heaviest guns on the list have the least of
@@ -3057,7 +3219,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'rodney', 'iowa', 'yamato', 'enterprise', 'shinano'];
+  'surcouf', 'rodney', 'massachusetts', 'iowa', 'yamato', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

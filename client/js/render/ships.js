@@ -14,6 +14,7 @@ import { buildYamato } from './yamato.js';
 import { buildTakao } from './takao.js';
 import { buildRodney } from './rodney.js';
 import { buildBaltimore } from './baltimore.js';
+import { buildMassachusetts } from './massachusetts.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -574,7 +575,22 @@ export function buildShip(classId) {
     };
   }
 
-  // And the Rodney, whose nine 16-inch guns are all forward of her tower.
+  // And the Massachusetts, the owner's sculpt of her with the Baltimore's
+  // 5-inch round her superstructure.
+  if (cls.id === 'massachusetts') {
+    const built = buildMassachusetts();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Baltimore, whose 5-inch is the owner's own sculpt of the mount.
   if (cls.id === 'baltimore') {
     const built = buildBaltimore();
     Object.assign(built.group.userData, {

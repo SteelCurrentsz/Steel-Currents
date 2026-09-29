@@ -121,6 +121,12 @@ function surveyAll() {
     const node = m.userData.gunNode;
     if (node && node !== m) node.traverse((o) => { if (o.isMesh) barrel.add(o); });
   }
+  // And a gun that is part of another mounting -- a quad Bofors on a turret
+  // roof -- whose barrels go round with it.
+  g.traverse((o) => {
+    const node = o.userData && o.userData.gunNode;
+    if (node && node !== o && !every.includes(o)) node.traverse((c) => { if (c.isMesh) barrel.add(c); });
+  });
   const planes = new Set();
   g.traverse((o) => { if (o.userData && (o.userData.wings || o.userData.aero)) o.traverse((c) => { if (c.isMesh) planes.add(c); }); });
   const sphereOf = new Map();
