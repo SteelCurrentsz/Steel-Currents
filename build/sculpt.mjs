@@ -568,8 +568,14 @@ function crossings(P, T, x, y, z, d) {
  * into the box; with `keep: 'inside'` only what is in the box is kept, closed
  * facing out of it. Returns how many triangles were cut and the caps made on
  * each face.
+ *
+ * A melted sculpt's shells run through each other, and where they do the
+ * outline a face cuts is not a simple polygon and cannot be clipped into
+ * triangles. With `rescue` such an outline is closed anyway: without the
+ * holes in it if that is what stopped it, and otherwise as a fan from its
+ * middle, which covers it -- rather than left open, to be seen through.
  */
-export function boxCut(m, box, { keep = 'outside' } = {}) {
+export function boxCut(m, box, { keep = 'outside', rescue = false } = {}) {
   const { P, N } = m;
   const T = m.T;
   // A painted mesh's paint, a triangle at a time: what a triangle is cut into
@@ -891,6 +897,16 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
       const host = outer.find((o) => contains(o.ring, U(r[0]), V(r[0])));
       if (host) host.holes.push(r); else outer.push({ ring: r, holes: [] });
     }
+    const fan = (r) => {
+      let mu = 0, mv = 0;
+      for (const v of r) { mu += U(v) / r.length; mv += V(v) / r.length; }
+      const pt = [0, 0, 0];
+      pt[ax] = val; pt[ua] = mu; pt[va] = mv;
+      const c = pointAt(pt[0], pt[1], pt[2]);
+      const out = [];
+      for (let i = 0; i < r.length; i++) out.push(c, r[i], r[(i + 1) % r.length]);
+      return out;
+    };
     let made = 0;
     for (const { ring, holes } of outer) {
       let poly = ring.slice();
@@ -908,7 +924,8 @@ export function boxCut(m, box, { keep = 'outside' } = {}) {
         if (Math.sign(area(h)) === Math.sign(area(poly))) hole.reverse();
         poly = [...poly.slice(0, best + 1), ...hole, poly[best], ...poly.slice(best + 1)];
       }
-      const tris = earClip(m, poly, U, V);
+      let tris = earClip(m, poly, U, V);
+      if (!tris && rescue) tris = (holes.length && earClip(m, ring, U, V)) || fan(ring);
       if (!tris) continue;
       for (let k = 0; k < tris.length; k += 3) {
         const [p, q, r] = [tris[k], tris[k + 1], tris[k + 2]];
