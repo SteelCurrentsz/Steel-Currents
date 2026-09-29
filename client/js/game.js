@@ -778,24 +778,40 @@ export class Battle {
     // up, a metre at a time, until it sees over it. If only the line itself
     // can be cleared, that; if not even that (a turret laid in to her own
     // bridge), it stays where it was, looking at what is in the way.
-    EYE_TOP.addScaledVector(EYE_BACK, back);
     const SIGHT = 40;
     const clear = (turn) => {
       EYE_BACK.set(Math.sin(this.gunYaw + turn), 0, Math.cos(this.gunYaw + turn));
       return this.structureAlong(v.group, m, EYE_TOP, EYE_BACK, SIGHT) >= SIGHT;
     };
-    let lift = 0;
-    let line = -1;
-    for (let rise = 0; rise <= 5; rise++) {
-      if (rise > 0) {
-        if (this.structureAlong(v.group, m, EYE_TOP, EYE_UP, 1.4) < 1.4) break;
-        EYE_TOP.y += 1;
+    // How far he has to go up, standing `aft` back along the line of sight,
+    // to see down it -- and whether he can at all from there.
+    const rising = (aft) => {
+      EYE_TOP.copy(GUN_EYE).addScaledVector(EYE_UP, up);
+      EYE_TOP.x -= sx * aft;
+      EYE_TOP.z -= sz * aft;
+      let lift = 0;
+      let line = -1;
+      for (let rise = 0; rise <= 5; rise++) {
+        if (rise > 0) {
+          if (this.structureAlong(v.group, m, EYE_TOP, EYE_UP, 1.4) < 1.4) break;
+          EYE_TOP.y += 1;
+        }
+        if (!clear(0)) continue;
+        if (line < 0) line = rise;
+        if (clear(0.07) && clear(-0.07)) return { lift: rise, sees: true };
       }
-      if (!clear(0)) continue;
-      if (line < 0) line = rise;
-      if (clear(0.07) && clear(-0.07)) { line = -1; lift = rise; break; }
+      return line >= 0 ? { lift: line, sees: true } : { lift, sees: false };
+    };
+    let { lift, sees } = rising(back);
+    // Stepped back under something of hers -- the overhang of the deck above
+    // a mounting at the foot of her superstructure -- he cannot go up to see
+    // over what is in the way. Nearer his own mounting there may be sky over
+    // him, so he tries there before he settles for the view he has.
+    for (const aft of [back * 0.5, 0]) {
+      if (sees || back <= 0) break;
+      const there = rising(aft);
+      if (there.sees) { ({ lift, sees } = there); back = aft; }
     }
-    if (line >= 0) lift = line;
     const out = { up: up + lift, back, t: now };
     cache.set(key, out);
     return out;
