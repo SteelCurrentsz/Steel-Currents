@@ -195,19 +195,22 @@ export const SECONDARY = [
   { name: '5-inch 51', x: -11.45, z: 7.6, rest: 0, up: 7.25, cut: 7.45,
     boxes: [{ x: [-13.35, -9.6], z: [5.5, 9.75], top: 9.8 }, { x: [-12.5, -10.4], z: [9.75, 12.5], top: 9.6 }] },
   // A block stands on the deck under the barrels of each of these two, and
-  // the front of each gunhouse and its barrels are cut off over it.
+  // the front of each gunhouse and its barrels are cut off over it -- the
+  // boxes overlapping a hand, so the face the first leaves goes with the
+  // second.
   { name: '5-inch 54', x: 7.6, z: -0.5, rest: 0, up: 8.95, cut: 9.3,
-    boxes: [{ x: [5.3, 9.7], z: [-2.7, 1.1], top: 12.2 }, { x: [5.3, 9.7], z: [1.1, 1.6], top: 12.2, y0: 9.85 },
+    boxes: [{ x: [5.3, 9.7], z: [-2.7, 1.1], top: 12.2 }, { x: [5.3, 9.7], z: [1.05, 1.6], top: 12.2, y0: 9.85 },
       { x: [6.6, 8.7], z: [1.6, 4.1], top: 11.2, y0: 10.0 }] },
   { name: '5-inch 53', x: -7.55, z: -0.5, rest: 0, up: 8.95, cut: 9.3,
-    boxes: [{ x: [-9.45, -5.65], z: [-2.45, 1.1], top: 12.2 }, { x: [-9.45, -5.65], z: [1.1, 1.6], top: 12.2, y0: 9.85 },
+    boxes: [{ x: [-9.45, -5.65], z: [-2.45, 1.1], top: 12.2 }, { x: [-9.45, -5.65], z: [1.05, 1.6], top: 12.2, y0: 9.85 },
       { x: [-8.7, -6.4], z: [1.6, 4.1], top: 11.2, y0: 10.0 }] },
   // These two stand on her main deck under the after end of her 01 level,
-  // and their barrels lay over it.
-  { name: '5-inch 56', x: 12.25, z: -4.35, rest: 0, up: 5.45, cut: 5.65,
-    boxes: [{ x: [10.35, 14.1], z: [-6.85, -2.45], top: 8.2 }, { x: [11.3, 13.2], z: [-2.45, 0.3], top: 8.5, y0: 7.38 }] },
-  { name: '5-inch 55', x: -12.15, z: -4.35, rest: 0, up: 5.45, cut: 5.65,
-    boxes: [{ x: [-13.85, -10.0], z: [-6.35, -2.45], top: 8.2 }, { x: [-13.1, -10.9], z: [-2.45, 0.55], top: 8.5, y0: 7.38 }] },
+  // and their barrels lay over it: they are stowed trained out on the beam,
+  // not with their muzzles on her 01 deck.
+  { name: '5-inch 56', x: 12.25, z: -4.35, rest: Math.PI / 2, up: 5.45, cut: 5.65,
+    boxes: [{ x: [10.35, 14.1], z: [-6.85, -2.45], top: 8.2 }, { x: [11.3, 13.2], z: [-2.5, 0.3], top: 8.5, y0: 7.38 }] },
+  { name: '5-inch 55', x: -12.15, z: -4.35, rest: -Math.PI / 2, up: 5.45, cut: 5.65,
+    boxes: [{ x: [-13.85, -10.0], z: [-6.35, -2.45], top: 8.2 }, { x: [-13.1, -10.9], z: [-2.5, 0.55], top: 8.5, y0: 7.38 }] },
   { name: '5-inch 58', x: 9.55, z: -12.15, rest: Math.PI, up: 7.25, cut: 7.45,
     boxes: [{ x: [7.6, 11.48], z: [-14.3, -10.35], top: 9.8 }, { x: [8.5, 10.6], z: [-17.0, -14.3], top: 9.2 }] },
   { name: '5-inch 57', x: -9.95, z: -12.15, rest: Math.PI, up: 7.3, cut: 7.5,

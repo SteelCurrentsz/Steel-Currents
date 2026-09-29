@@ -1243,8 +1243,11 @@ check('every gun on the Massachusetts trains inside its stops and fires only whe
   // What is true of her whatever the survey makes of the model. No.1 and No.2
   // are forward of her tower and No.3 abaft her after superstructure, so
   // neither end of her fires through the other, and all three bear on either
-  // beam. Her 5-inch are all in her wings, five a side, and none fires across
-  // her on to the other one.
+  // beam. Her 5-inch are all in her wings, five a side, and none fires flat
+  // across her on to the other one -- the ones on her main deck stand beside
+  // an 01 level low enough to train over, and up at their AA elevations fire
+  // over her is fire over her, but at a ship it would be into her own
+  // superstructure.
   const cls = SHIP_CLASSES.massachusetts;
   const close = solveBallistic(cls.gun, 2500, 12).elev;
   const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
@@ -1260,7 +1263,7 @@ check('every gun on the Massachusetts trains inside its stops and fires only whe
   for (const m of cls.secondary.mounts) {
     const beam = (Math.sign(m.x) * Math.PI) / 2;
     assert.ok(fires(m, beam, near), `the 5-inch at ${m.x}, ${m.z} cannot fire on her beam`);
-    assert.ok(!fires(m, -beam, cls.secondary.elev.max), `the 5-inch at ${m.x}, ${m.z} fires across her`);
+    assert.ok(!fires(m, -beam, near), `the 5-inch at ${m.x}, ${m.z} fires flat across her`);
   }
   surveyedArcsHold('massachusetts');
 });
