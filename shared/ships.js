@@ -2483,6 +2483,157 @@ export const SHIP_CLASSES = {
     },
   },
 
+  musashi: {
+    // IJN Musashi, Yamato's sister and the second of the class: nine 46 cm/45
+    // in three triples behind a 410 mm belt, and the only battleship of either
+    // side sunk by aircraft alone while under way at sea -- at Sibuyan Sea, on
+    // 24 October 1944, after nineteen torpedoes and seventeen bombs.
+    //
+    // She is drawn from the owner's sculpts of her (see musashi.js): her hull,
+    // her superstructure, her bridge and her guns, at her own length -- 263 m
+    // -- and floated at 10.4 m. She keeps all four 15.5 cm triples, the wing
+    // pair abreast her tower included, with a 25 mm battery round them as she
+    // carried it by 1944.
+    id: 'musashi',
+    name: 'Musashi',
+    fullName: 'IJN Musashi',
+    className: 'Yamato',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'jpn',
+    blurb: 'Yamato\'s sister, with all four of her 15.5 cm turrets. It took nineteen torpedoes and seventeen bombs to sink her.',
+    hull: { length: 263, beam: 38.9, draft: 10.4, superstructure: 1.45 },
+    hp: 92400,
+    maxSpeed: 27 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.05,
+    rudderShift: 15.5,
+    speedLossInTurn: 0.16,
+    concealment: 16800,
+    fireDetectPenalty: 7000,
+    radarRange: 9500,
+    repairCooldown: 105,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // As Yamato: 410 mm of belt inclined twenty degrees, 200 mm of deck, 650
+    // on the turret faces, and soft ends.
+    armor: { belt: 410, deck: 200, citadel: 410, bow: 50, superstructure: 50 },
+    turrets: [
+      // No.1 on her forecastle, No.2 superfiring over it, and No.3 on her
+      // quarterdeck facing astern, each on the middle of the barbette the
+      // sculpt drew it on.
+      { id: 0, name: 'No.1', x: 0, z: 53.9, angle: 0, arc: 2.36, guns: 3, my: 8.6 },
+      { id: 1, name: 'No.2', x: 0, z: 30.75, angle: 0, arc: 2.27, guns: 3, my: 11.4 },
+      { id: 2, name: 'No.3', x: 0, z: -64.25, angle: Math.PI, arc: 2.36, guns: 3, my: 10.4 },
+    ],
+    gun: {
+      name: '46 cm/45 Type 94', role: 'surface',
+      // Five below the horizontal to forty-five up.
+      elev: { min: -0.087, max: 0.785 },
+      reach: 18.2,
+      caliber: 460, reload: 29, traverse: 0.06, range: 23800, sigma: 1.30,
+      shells: shells(460, 15800, 7400, 760, 780, 0.26),
+    },
+    torpedoes: null,
+    // Four 15.5 cm/60 triples, Mogami's old main-battery turrets: one on her
+    // centreline forward of her tower, one at the after end of her
+    // superstructure, and one either side abreast her tower.
+    secondary: {
+      name: '15.5 cm/60 Type 3', role: 'surface',
+      elev: { min: -0.122, max: 1.309 },
+      reach: 8.7,
+      caliber: 155, reload: 9.5, traverse: 0.10, range: 14600, sigma: 1.45,
+      shells: shells(155, 3100, 2500, 175, 920, 0.12),
+      mounts: [
+        { x: 0, z: 14.6, angle: 0, arc: 2.2, rest: 0, guns: 3, my: 13.9 },
+        { x: 0, z: -50.0, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 3, my: 14.0 },
+        { x: -16.0, z: -0.9, angle: -1.57, arc: 1.6, rest: 0, guns: 3, my: 10.1 },
+        { x: 16.0, z: -0.9, angle: 1.57, arc: 1.6, rest: 0, guns: 3, my: 10.1 },
+      ],
+    },
+    aa: {
+      range: 6800, dps: 150,
+      guns: [
+        // Six 12.7 cm Type 89 twins in their shields, three a side abreast her
+        // funnel, the middle pair a deck higher.
+        { name: '12.7 cm Type 89', caliber: 127, role: 'dp', reload: 4.0, range: 6800,
+          elev: { min: -0.14, max: 1.57 },
+          mounts: [
+            { x: -8.23, z: -9.41, angle: -1.57, arc: 1.5, rest: -Math.PI / 2, guns: 2, my: 11.8 },
+            { x: 8.23, z: -9.41, angle: 1.57, arc: 1.5, rest: Math.PI / 2, guns: 2, my: 11.8 },
+            { x: -8.1, z: -18.4, angle: -1.57, arc: 1.5, rest: -Math.PI / 2, guns: 2, my: 13.0 },
+            { x: 8.1, z: -18.4, angle: 1.57, arc: 1.5, rest: Math.PI / 2, guns: 2, my: 13.0 },
+            { x: -8.58, z: -28.97, angle: -1.57, arc: 1.5, rest: -Math.PI / 2, guns: 2, my: 11.7 },
+            { x: 8.58, z: -28.97, angle: 1.57, arc: 1.5, rest: Math.PI / 2, guns: 2, my: 11.7 },
+          ] },
+        // Thirty triple 25 mm Type 96: round her superstructure and the four
+        // right aft in their shields, the rest -- on her forecastle, abreast
+        // No.2 and No.3 and on her quarterdeck -- open on their pedestals.
+        // Where the sculpts drew one each.
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: -11.73, z: 17.62, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.05, pod: true },
+            { x: 11.73, z: 17.62, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.05, pod: true },
+            { x: -13.16, z: 9.48, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.80, pod: true },
+            { x: 13.16, z: 9.48, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.80, pod: true },
+            { x: -18.39, z: -22.4, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.92, pod: true },
+            { x: 18.39, z: -22.4, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.92, pod: true },
+            { x: -12.63, z: -24.59, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 11.65, pod: true },
+            { x: 12.63, z: -24.59, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 11.65, pod: true },
+            { x: -14.27, z: -31.2, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 11.55, pod: true },
+            { x: 14.27, z: -31.2, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 11.55, pod: true },
+            { x: -9.7, z: -35.28, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 11.35, pod: true },
+            { x: 9.7, z: -35.28, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 11.35, pod: true },
+            { x: -12.05, z: -41.17, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.92, pod: true },
+            { x: 12.05, z: -41.17, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.92, pod: true },
+            { x: -18.81, z: -44.35, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.92, pod: true },
+            { x: 18.81, z: -44.35, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.92, pod: true },
+            { x: -12.67, z: -49.56, angle: -1.57, arc: 2.6, rest: -1.5708, guns: 3, my: 8.92, pod: true },
+            { x: 12.67, z: -49.56, angle: 1.57, arc: 2.6, rest: 1.5708, guns: 3, my: 8.92, pod: true },
+            { x: -13.16, z: -62.09, angle: -2.30, arc: 2.6, rest: -1.5708, guns: 3, my: 8.92 },
+            { x: 13.16, z: -62.09, angle: 2.30, arc: 2.6, rest: 1.5708, guns: 3, my: 8.92 },
+            { x: -15, z: -89.6, angle: -2.30, arc: 2.6, rest: -1.5708, guns: 3, my: 8.85 },
+            { x: 15, z: -89.6, angle: 2.30, arc: 2.6, rest: 1.5708, guns: 3, my: 8.85 },
+            { x: -16.45, z: -95.26, angle: -2.30, arc: 2.6, rest: -1.5708, guns: 3, my: 8.80, pod: true },
+            { x: 16.45, z: -95.26, angle: 2.30, arc: 2.6, rest: 1.5708, guns: 3, my: 8.80, pod: true },
+            { x: -14.25, z: -100.09, angle: -2.30, arc: 2.6, rest: -1.5708, guns: 3, my: 8.80, pod: true },
+            { x: 14.25, z: -100.09, angle: 2.30, arc: 2.6, rest: 1.5708, guns: 3, my: 8.80, pod: true },
+            { x: -8, z: 65.3, angle: -0.80, arc: 2.6, rest: -1.5708, guns: 3, my: 7.65 },
+            { x: 8, z: 65.3, angle: 0.80, arc: 2.6, rest: 1.5708, guns: 3, my: 7.65 },
+            { x: -8.1, z: 42.3, angle: -0.80, arc: 2.6, rest: -1.5708, guns: 3, my: 7.35 },
+            { x: 8.1, z: 42.3, angle: 0.80, arc: 2.6, rest: 1.5708, guns: 3, my: 7.35 },
+          ] },
+      ],
+    },
+    // Seven float planes off the two catapults on her aircraft deck, either
+    // side of her crane, which train out over her quarters to shoot.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 56, strikeRange: 9800,
+      rearm: 95, hp: 660, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 950, bombHit: 0.32, bombFire: 0.1, bombPen: 26, bombBore: 0.2,
+      type: 'jake',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      // Where the shot leaves her, off the integrated shot from her own
+      // girders: trained out over her quarter from turntables right aft.
+      runHeight: 27,
+      runOut: 152.5, runBearing: 2.03,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 65000,
+      aircraft: 7,
+      mainRounds: 900,
+      secondary: { caliber: 155, label: '15.5cm', barrels: 12, rounds: 3600 },
+      tertiary: [
+        { caliber: 127, label: '12.7cm', barrels: 12, rounds: 6000 },
+        { caliber: 25, label: '25mm', barrels: 90, rounds: 270000 },
+      ],
+    },
+  },
+
   takao: {
     // Ten 20.3 cm in five twin turrets -- three forward, two aft -- and
     // sixteen Long Lance tubes. A Japanese heavy cruiser is a torpedo ship
@@ -3773,7 +3924,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'rodney', 'massachusetts', 'iowa', 'yamato', 'enterprise', 'shinano'];
+  'surcouf', 'rodney', 'massachusetts', 'iowa', 'yamato', 'musashi', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

@@ -126,6 +126,135 @@ export function thinFaces(mesh, r) {
 }
 
 
+// ---- wires ------------------------------------------------------------------------
+/**
+ * The wires a sculpt was rigged with: every run of slender faces `minLen`
+ * long or more, no broader on average than `girth`, that runs out over her
+ * by `span` at least (a staff stands straight up, and is not rigging), and
+ * `share` of whose faces stand more than `air` over the solid of her under
+ * them -- a rail runs along a deck a hand over it, and a wire across the sky
+ * with nothing under it. A slender face is a thin one (see thinFaces), which
+ * is what a wire the decimator left round is made of, or a sliver narrower
+ * than `r`, which is what one it flattened into a ribbon is. The solid is the
+ * highest face in every `cell` of her plan that is not slender. A sculpt fuses
+ * its rigging into her as tubes, and where the mast a wire ran to is gone, or
+ * was never solid, what is left hangs in the air; and a wire a pixel wide in
+ * the distance draws as a row of dots. Only where `only(x, y, z)` says, at
+ * the middle of the run.
+ *
+ * Returns one byte a triangle, set on the wires.
+ */
+export function wires(m, {
+  r = 0.35, minLen = 2.5, girth = 1.6, span = 1.0, air = 1.8, share = 0.6, cell = 0.5, only = () => true,
+  loose = false, near = 1.0, crowd = 3, ground = null,
+} = {}) {
+  const { P, T } = m;
+  const nf = T.length / 3;
+  const thin = thinFaces(m, r);
+  const area = new Float64Array(nf);
+  for (let t = 0; t < nf; t++) {
+    const n = faceNormal(m, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    area[t] = Math.hypot(n[0], n[1], n[2]) / 2;
+    let longest = 0;
+    for (let j = 0; j < 3; j++) {
+      const a = T[t * 3 + j] * 3, b = T[t * 3 + (j + 1) % 3] * 3;
+      longest = Math.max(longest, Math.hypot(P[a] - P[b], P[a + 1] - P[b + 1], P[a + 2] - P[b + 2]));
+    }
+    if (longest > 0.5 && (2 * area[t]) / longest < r) thin[t] = 1;
+  }
+  const mid = (t) => [0, 1, 2].map((k) => (P[T[t * 3] * 3 + k] + P[T[t * 3 + 1] * 3 + k] + P[T[t * 3 + 2] * 3 + k]) / 3);
+  const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+  const top = new Map();
+  for (let t = 0; t < nf; t++) {
+    if (thin[t]) continue;
+    const [x, y, z] = mid(t);
+    const k = key(x, z);
+    if (!(top.get(k) >= y)) top.set(k, y);
+  }
+  // A piece of her standing on a deck that is not part of it stands on that
+  // deck: `ground(x, z)` is where it is.
+  const underAt = (x, z) => {
+    const v = top.get(key(x, z));
+    if (!ground) return v;
+    const g = ground(x, z);
+    return v === undefined ? g : Math.max(v, g);
+  };
+  const canon = weld(m);
+  const ek = (a, b) => (a < b ? a * 1e7 + b : b * 1e7 + a);
+  const byEdge = new Map();
+  for (let t = 0; t < nf; t++) {
+    if (!thin[t]) continue;
+    for (let j = 0; j < 3; j++) {
+      const k = ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]);
+      if (!byEdge.has(k)) byEdge.set(k, []);
+      byEdge.get(k).push(t);
+    }
+  }
+  const seen = new Uint8Array(nf);
+  const out = new Uint8Array(nf);
+  for (let t0 = 0; t0 < nf; t0++) {
+    if (!thin[t0] || seen[t0]) continue;
+    const list = [t0];
+    seen[t0] = 1;
+    for (let q = 0; q < list.length; q++) {
+      const t = list[q];
+      for (let j = 0; j < 3; j++) {
+        for (const u of byEdge.get(ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]))) {
+          if (!seen[u]) { seen[u] = 1; list.push(u); }
+        }
+      }
+    }
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    let aloft = 0, sum = 0;
+    for (const t of list) {
+      const c = mid(t);
+      sum += area[t];
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], c[k]); hi[k] = Math.max(hi[k], c[k]); }
+      const under = underAt(c[0], c[2]);
+      if (under === undefined || c[1] > under + air) aloft++;
+    }
+    const len = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    if (len < minLen || sum / len > girth || Math.hypot(hi[0] - lo[0], hi[2] - lo[2]) < span) continue;
+    if (aloft < share * list.length) continue;
+    if (!only((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2)) continue;
+    for (const t of list) out[t] = 1;
+  }
+  // Where the rigging is so much of her that its runs join her masts and rails
+  // into one, a face at a time: every slender face aloft with fewer than
+  // `crowd` faces of anything solid within `near` of it. What is left of a
+  // wire is a stub where it met a mast.
+  if (loose) {
+    const g = new Map();
+    const gk = (x, y, z) => `${Math.floor(x / near)},${Math.floor(y / near)},${Math.floor(z / near)}`;
+    const cs = new Float64Array(nf * 3);
+    for (let t = 0; t < nf; t++) {
+      const c = mid(t);
+      cs[t * 3] = c[0]; cs[t * 3 + 1] = c[1]; cs[t * 3 + 2] = c[2];
+      if (thin[t]) continue;
+      const k = gk(c[0], c[1], c[2]);
+      if (!g.has(k)) g.set(k, []);
+      g.get(k).push(t);
+    }
+    for (let t = 0; t < nf; t++) {
+      if (!thin[t] || out[t]) continue;
+      const x = cs[t * 3], y = cs[t * 3 + 1], z = cs[t * 3 + 2];
+      const under = underAt(x, z);
+      if (under !== undefined && y <= under + air) continue;
+      if (!only(x, y, z)) continue;
+      let n = 0;
+      const ix = Math.floor(x / near), iy = Math.floor(y / near), iz = Math.floor(z / near);
+      count: for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let d = -1; d <= 1; d++) {
+        for (const u of g.get(`${ix + a},${iy + b},${iz + d}`) || []) {
+          if (Math.hypot(cs[u * 3] - x, cs[u * 3 + 1] - y, cs[u * 3 + 2] - z) > near) continue;
+          if (++n >= crowd) break count;
+        }
+      }
+      if (n < crowd) out[t] = 1;
+    }
+  }
+  return out;
+}
+
 // ---- flaps ------------------------------------------------------------------------
 /**
  * The flaps a sculpt tears in its upperworks: a sheet thinner than `r`, two

@@ -15,6 +15,7 @@ import { buildTakao } from './takao.js';
 import { buildRodney } from './rodney.js';
 import { buildBaltimore } from './baltimore.js';
 import { buildMassachusetts } from './massachusetts.js';
+import { buildMusashi } from './musashi.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -515,6 +516,20 @@ export function buildShip(classId) {
   // stack of platforms rather than a tower.
   if (cls.id === 'yamato') {
     const built = buildYamato();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And her sister, the owner's sculpts of her with all four of her 15.5 cm.
+  if (cls.id === 'musashi') {
+    const built = buildMusashi();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
