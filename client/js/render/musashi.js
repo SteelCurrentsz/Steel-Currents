@@ -266,10 +266,10 @@ function mountings(g) {
 // the step up to her quarterdeck forward of it, stowed pointing forward and a
 // little outboard, as the sculpt drew them, and trained out over her quarter
 // to shoot. A Jake on the car of each.
-export const CAT_X = 9.8;
+export const CAT_X = 9.6;
 export const CAT_Z = -122.5;
 const CAT_Y = 8.0;
-export const CAT_RIG = { ...RIG, BACK: -4.2, FRONT: 18.6, A: 1.4, REST: 0.16 };
+export const CAT_RIG = { ...RIG, BACK: -4.2, FRONT: 18.6, A: 1.4, REST: 0.13 };
 const DECK_RUN = CLS.planes.deckRun;
 
 function aviation(g) {
