@@ -392,23 +392,33 @@ function turretBoxes(t, top) {
 // ---- her 15.5 cm ------------------------------------------------------------------
 // Four 15.5 cm/60 triples: one on her centreline forward of her tower over
 // No.2, one on her centreline at the after end of her superstructure over
-// No.3, and one either side of her abreast her tower -- the wing turrets, which
-// the superstructure sculpt does not have: it is Musashi after her 1944 refit,
-// when they were landed and two 25 mm in shields and a 25 mm in a tub stood
-// where each had been. Those are cut away down to her deck, and with them the
-// end of the 01 platform they stood on, as far in as the turret's gunhouse
-// swings when it is trained out on the beam. The centreline pair are the
+// No.3, and one either side of her between her tower and her funnel -- the
+// wing turrets. The superstructure sculpt is Musashi after her 1944 refit,
+// when the wing turrets were landed: the barbette each stood on is still
+// there, on the deckhouse that runs out to her deck edge abaft her tower, with
+// a 25 mm tub on it where the turret had been, a searchlight post beside the
+// tub and a shielded 25 mm at the deck edge outboard of it. Those come off --
+// everything over the top of the barbette within the turret's swing, and the
+// pod at the deck edge down to her deck -- and the turret stands on the
+// barbette again, the same either side. The centreline pair are the
 // superstructure sculpt's own, cut off at the top of the barbette each stands
-// on; the mounting that goes on every one of the four is the owner's own sculpt
-// of the turret. `seat` is what it stands on: the barbette, or for the wing
-// turrets the barbette musashi.js stands on her deck.
+// on. The mounting that goes on every one of the four is the owner's own
+// sculpt of the turret; `seat` is the top of the barbette it trains on.
+const WING = { x: 14.4, z: -2.0, seat: 10.65 };
+const wingCuts = (sgn) => {
+  const span = (a, b) => (sgn > 0 ? [a, b] : [-b, -a]);
+  return [
+    // Over the barbette, as far as the gunhouse swings.
+    { x: span(9.1, 19.7), z: [-7.3, 3.3], y: [WING.seat + 0.1, 30] },
+    // The pod at her deck edge outboard of it, down to her deck.
+    { x: span(17.2, 21.3), z: [-5.1, -0.3], y: [7.92, WING.seat + 0.1], deck: 7.72 },
+  ];
+};
 export const SECONDARY = [
-  { name: '15.5 fore', x: 0, z: 14.6, rest: 0, seat: 12.35, cut: { x: [-3.9, 3.9], z: [11.05, 22.0], y: [12.35, 17.6] } },
-  { name: '15.5 aft', x: 0, z: -50.0, rest: Math.PI, seat: 12.4, cut: { x: [-4.3, 4.3], z: [-55.7, -44.9], y: [12.4, 16.2] } },
-  { name: '15.5 wing stbd', x: -16.0, z: -0.9, rest: 0, seat: 8.5, deck: 7.72,
-    cut: { x: [-21.5, -11.2], z: [-6.0, 4.3], y: [7.92, 15.6] } },
-  { name: '15.5 wing port', x: 16.0, z: -0.9, rest: 0, seat: 8.5, deck: 7.72,
-    cut: { x: [11.2, 21.5], z: [-6.0, 4.3], y: [7.92, 15.6] } },
+  { name: '15.5 fore', x: 0, z: 14.6, rest: 0, seat: 12.35, cuts: [{ x: [-3.9, 3.9], z: [11.05, 22.0], y: [12.35, 17.6] }] },
+  { name: '15.5 aft', x: 0, z: -50.0, rest: Math.PI, seat: 12.4, cuts: [{ x: [-4.3, 4.3], z: [-55.7, -44.9], y: [12.4, 16.2] }] },
+  { name: '15.5 wing stbd', x: -WING.x, z: WING.z, rest: 0, seat: WING.seat, cuts: wingCuts(-1) },
+  { name: '15.5 wing port', x: WING.x, z: WING.z, rest: 0, seat: WING.seat, cuts: wingCuts(1) },
 ];
 
 // ---- her 12.7 cm ------------------------------------------------------------------
@@ -486,8 +496,8 @@ const CUT_BOXES = [
   ...SCREW_BOXES,
   ...AIRCRAFT_DECK.map((e) => ({ name: e.name, x0: e.x[0], x1: e.x[1], z0: e.z[0], z1: e.z[1],
     y0: e.y[0], y1: e.y[1], deck: e.deck })),
-  ...SECONDARY.map((e) => ({ name: e.name, x0: e.cut.x[0], x1: e.cut.x[1], z0: e.cut.z[0], z1: e.cut.z[1],
-    y0: e.cut.y[0], y1: e.cut.y[1], deck: e.deck })),
+  ...SECONDARY.flatMap((e) => e.cuts.map((c, k) => ({ name: `${e.name}${k ? ` ${k}` : ''}`, x0: c.x[0], x1: c.x[1],
+    z0: c.z[0], z1: c.z[1], y0: c.y[0], y1: c.y[1], deck: c.deck }))),
   ...DP.map((e) => ({ name: e.name, x0: e.cut.x[0], x1: e.cut.x[1], z0: e.cut.z[0], z1: e.cut.z[1],
     y0: e.cut.y[0], y1: e.cut.y[1] })),
   ...LIGHT.map((l) => ({ name: l.name, x0: l.x - l.r, x1: l.x + l.r, z0: l.z - l.r, z1: l.z + l.r,
@@ -895,7 +905,7 @@ const piece = (g) => ({
   house: packPiece(g.house).toString('base64'), guns: g.guns.T.length ? packPiece(g.guns).toString('base64') : null,
 });
 const mounts = {
-  secondary: SECONDARY.map(({ name, x, z, rest, seat, deck }) => ({ name, x, z, rest: +rest.toFixed(6), seat, deck: deck ?? null })),
+  secondary: SECONDARY.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   dp: DP.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   light: LIGHT.map(({ name, x, z, deck, pod }) => ({ name, x, z, deck, pod: !!pod })),
 };

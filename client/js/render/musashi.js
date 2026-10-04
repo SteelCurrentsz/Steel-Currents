@@ -18,8 +18,9 @@
 //     astern -- and the open 25 mm triples on their roofs, which train with
 //     them;
 //   * her four 15.5 cm triples, the owner's own sculpt of the turret, on the
-//     barbettes the superstructure sculpt drew for the centreline pair and on
-//     barbettes of their own on her deck for the wing pair;
+//     barbettes the superstructure sculpt drew for them -- the centreline
+//     pair, and the wing pair on the deckhouses either side between her tower
+//     and her funnel;
 //   * her six 12.7 cm twins, the owner's sculpt of the mount in its shield, on
 //     the columns the superstructure sculpt drew them on;
 //   * her 25 mm: in the shields the owner sculpted round her superstructure
@@ -213,11 +214,6 @@ function secondaries(g) {
   const sec = [];
   CLS.secondary.mounts.forEach((spec, i) => {
     const seat = MOUNT_SEATS.secondary[i];
-    // The wing turrets' barbettes, from her deck up to the foot of the turret.
-    if (seat.deck !== null) {
-      const h = seat.seat - seat.deck + 0.3;
-      cyl(g, M.steel, 2.75, 2.85, h, seat.x, seat.deck - 0.3 + h / 2, seat.z, 28);
-    }
     sec.push(sculpted(g, 'sec6', seat.x, seat.seat, seat.z, seat.rest, CLS.secondary.traverse));
   });
   g.userData.secMounts = sec;
