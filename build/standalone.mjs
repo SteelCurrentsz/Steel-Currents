@@ -5,6 +5,16 @@
 //
 // Nothing is fetched at runtime, so the page runs from a file:// path, a static
 // host, or anywhere else that will not let it open a socket.
+//
+//   node build/standalone.mjs --split   ->  build/split/index.html, and her hulls
+//
+// The same page with the hull data left out of it: the game is an ES module
+// that imports each `*Hull.data.js` from beside the page, and they are copied
+// there as they stand. Her hulls are most of her weight, and a host that caps
+// the size of one file -- an artifact page is held to sixteen megabytes --
+// takes the page and its hulls as separate files where it would refuse the
+// whole of her in one. It has to be served: a browser will not import a
+// module from a file:// path.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -12,11 +22,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SPLIT = process.argv.includes('--split');
 const out = (...p) => path.join(ROOT, 'build', ...p);
+const HULLS = path.join(ROOT, 'client/js/render');
 
 execFileSync('npx', [
   'esbuild', 'client/js/main.js',
-  '--bundle', '--format=iife', '--minify',
+  '--bundle', '--minify',
+  ...(SPLIT ? ['--format=esm', '--external:*.data.js'] : ['--format=iife']),
   `--outfile=${out('bundle.js')}`, '--log-level=warning',
 ], { cwd: ROOT, stdio: 'inherit' });
 
@@ -112,7 +125,21 @@ const shell = `
 // matched text and splice `</body>` into the middle of the bundle.
 html = html.replace('</head>', () => `<style>\n${css}\n</style>\n</head>`);
 html = html.replace('<body>', () => `<body>\n${boot}`);
-html = html.replace('</body>', () => `${shell}${flag}<script>\n${js}\n</script>\n</body>`);
+html = html.replace('</body>', () => `${shell}${flag}<script${SPLIT ? ' type="module"' : ''}>\n${js}\n</script>\n</body>`);
 
-fs.writeFileSync(out('steel-currents.html'), html);
-console.log(`build/steel-currents.html — ${Math.round(html.length / 1024)} KB`);
+if (!SPLIT) {
+  fs.writeFileSync(out('steel-currents.html'), html);
+  console.log(`build/steel-currents.html — ${Math.round(html.length / 1024)} KB`);
+} else {
+  // Every hull the module imports, and no other: a data file it does not
+  // name would be dead weight, and one it names that is missing a blank sea.
+  const named = [...new Set([...js.matchAll(/["']\.\/([A-Za-z]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
+  fs.rmSync(out('split'), { recursive: true, force: true });
+  fs.mkdirSync(out('split'));
+  fs.writeFileSync(out('split', 'index.html'), html);
+  console.log(`build/split/index.html — ${Math.round(html.length / 1024)} KB`);
+  for (const f of named) {
+    fs.copyFileSync(path.join(HULLS, f), out('split', f));
+    console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
+  }
+}
