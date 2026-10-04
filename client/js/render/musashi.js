@@ -224,6 +224,14 @@ function secondaries(g) {
 
 const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
 
+// Where a 25 mm stands: on her surface round it, unless that is the floor of
+// the well the sculpt sank its tub into -- then on the deck it was cut down to.
+function lightSeat(m, r) {
+  const y = musashiSeatY(m.x, m.z, r);
+  const cut = MOUNT_SEATS.light.find((l) => Math.abs(l.x - m.x) < 0.05 && Math.abs(l.z - m.z) < 0.05);
+  return cut && cut.deck - y > 0.5 ? cut.deck : y;
+}
+
 function mountings(g) {
   const sec = secondaries(g);
   const aa = [];
@@ -236,9 +244,9 @@ function mountings(g) {
         const seat = MOUNT_SEATS.dp[j];
         a = sculpted(g, 'sec5', m.x, seat.seat, m.z, stowed(m), 0.28, { r: 0.11, len: 3.6 });
       } else if (m.pod) {
-        a = sculpted(g, 'pod', m.x, musashiSeatY(m.x, m.z, 1.0), m.z, stowed(m), 0.9);
+        a = sculpted(g, 'pod', m.x, lightSeat(m, 1.0), m.z, stowed(m), 0.9);
       } else {
-        a = triple25(g, M, m.x, musashiSeatY(m.x, m.z, 0.8), m.z, stowed(m), false);
+        a = triple25(g, M, m.x, lightSeat(m, 0.8), m.z, stowed(m), false);
         a.rotation.y = stowed(m);
       }
       a.userData.rest = 0;

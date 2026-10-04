@@ -629,6 +629,18 @@ export class ShipView {
     // message and there are sixty of them on a battleship.
     this.secMounts = built.secMounts || [];
     this.aaMounts = built.aaMounts || [];
+    // Stowed clear of her: a mounting stowed on a bearing where its barrels
+    // have to be up to clear her sits with them up, and comes back to that.
+    for (const m of this.aaMounts) {
+      const node = m.userData.gunNode;
+      const sector = m.userData.sector;
+      if (!m.userData.lift || !sector || !node || node === m) continue;
+      const floor = layFloor(m.userData.lift, sector.stow);
+      if (-(m.userData.elevRest || 0) < floor) {
+        m.userData.elevRest = -floor;
+        node.rotation.x = -floor;
+      }
+    }
     this.torpMounts = built.torpMounts || [];
     // The outer doors of a submarine's tubes, if she has any. Nothing else in
     // the game has them.
