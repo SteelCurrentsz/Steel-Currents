@@ -13,12 +13,14 @@ import {
  * where the thing it closed went with the box, the stumps of her shaft
  * brackets where her screws came off. Nothing of hers is that small and apart,
  * so any piece but the main one with less than `maxArea` square metres of
- * surface and no more than `maxDiag` metres corner to corner is dropped.
+ * surface and no more than `maxDiag` metres corner to corner is dropped --
+ * unless `keep(t)` says one of its triangles is to be kept.
  */
-export function dropLoose(m, { maxArea = 8, maxDiag = 6 } = {}) {
+export function dropLoose(m, { maxArea = 8, maxDiag = 6, keep = null } = {}) {
   const parts = components(m);
   const drop = new Uint8Array(m.T.length / 3);
   for (const c of parts.slice(1)) {
+    if (keep && c.tris.some(keep)) continue;
     let area = 0;
     for (const t of c.tris) {
       const [x, y, z] = faceNormal(m, m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]);

@@ -85,6 +85,7 @@ import {
   buildMusashi, CAT_X as MUSASHI_CAT_X, CAT_Z as MUSASHI_CAT_Z,
   shellAt as musashiShellAt, LOA as MUSASHI_LOA,
 } from '../client/js/render/musashi.js';
+import { musashiSurfaceY } from '../client/js/render/musashiHull.js';
 
 /** How far out the Musashi's side is at her aircraft deck, at z. */
 const musashiHalfBeam = (z) => musashiShellAt((2 * z) / MUSASHI_LOA, 5.0);
@@ -1401,8 +1402,8 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   // are forward of her tower and No.3 abaft her after superstructure, so
   // neither end of her fires through the other, and all three bear on either
   // beam. She keeps all four 15.5 cm: one on her centreline either end of her
-  // superstructure, and the wing pair abreast her tower, which bear on their
-  // own beam and not across her.
+  // superstructure, and the wing pair abreast her funnel, on her deck, which
+  // bear on their own beam and not across her.
   const cls = SHIP_CLASSES.musashi;
   const close = solveBallistic(cls.gun, 2500, 12).elev;
   const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
@@ -1417,7 +1418,10 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   assert.equal(sec.length, 4, 'she carries four 15.5 cm triples');
   const near = solveBallistic(cls.secondary, 3000, 10).elev;
   const wings = sec.filter((m) => Math.abs(m.x) > 10);
-  assert.equal(wings.length, 2, 'she has no wing turrets abreast her tower');
+  assert.equal(wings.length, 2, 'she has no wing turrets abreast her funnel');
+  for (const m of wings) {
+    assert.ok(Math.abs(m.z - -18.6) < 4, `the wing 15.5 cm at ${m.x}, ${m.z} is not abreast her funnel`);
+  }
   for (const m of wings) {
     const beam = (Math.sign(m.x) * Math.PI) / 2;
     assert.ok(fires(m, beam, near), `the wing 15.5 cm at ${m.x} cannot fire on her beam`);
@@ -1425,8 +1429,8 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   }
   const [dp, light] = cls.aa.guns;
   assert.equal(dp.mounts.length, 6, 'she carries six 12.7 cm twins');
-  assert.equal(light.mounts.length, 28, 'she carries twenty-eight triple 25 mm');
-  assert.equal(light.mounts.filter((m) => m.pod).length, 20, 'she carries twenty 25 mm in their shields');
+  assert.equal(light.mounts.length, 34, 'she carries thirty-four triple 25 mm');
+  assert.equal(light.mounts.filter((m) => m.pod).length, 14, 'she carries fourteen 25 mm in their shields');
   // Three 12.7 cm twins a side, and none of them where a wing turret trains.
   for (const sgn of [-1, 1]) {
     const side = dp.mounts.filter((m) => Math.sign(m.x) === sgn);
@@ -1443,10 +1447,13 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   const stern = light.mounts.filter((m) => m.z < -94);
   assert.ok(stern.length === 4 && stern.every((m) => m.pod), 'the four 25 mm right aft are not in their shields');
   // And none of the 25 mm stands where a wing turret's gunhouse and barrels
-  // swing.
+  // swing: each is further off than its barrels reach, or on a bearing it
+  // never trains to.
   for (const w of wings) {
     for (const m of light.mounts) {
-      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > 14,
+      const b = Math.atan2(m.x - w.x, m.z - w.z);
+      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > cls.secondary.reach + 2.5
+        || Math.abs(angleDelta(w.angle, b)) > w.arc + 0.25,
         `a 25 mm at ${m.x}, ${m.z} stands in the way of the wing 15.5 cm at ${w.x}, ${w.z}`);
     }
   }
@@ -1501,6 +1508,12 @@ check('the Musashi trains her catapults out over her quarters and shoots on the 
     const p = c.group.position;
     assert.ok(Math.abs(Math.abs(p.x) - MUSASHI_CAT_X) < 0.01 && Math.abs(p.z - MUSASHI_CAT_Z) < 0.01,
       `a catapult stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    // On her aircraft deck: nowhere round the foot of its pedestal is off her.
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4;
+      const y = musashiSurfaceY(p.x + Math.sin(a) * 1.8, p.z + Math.cos(a) * 1.8);
+      assert.ok(Math.abs(y - 5.3) < 0.5, `a catapult's pedestal stands on ${y.toFixed(1)} m, not her aircraft deck`);
+    }
     const r = c.group.rotation.y;
     const end = [p.x + Math.sin(r) * deck.rig.FRONT, p.z + Math.cos(r) * deck.rig.FRONT];
     const beam = musashiHalfBeam(end[1]);

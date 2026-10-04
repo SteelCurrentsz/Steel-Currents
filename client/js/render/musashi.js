@@ -4,8 +4,8 @@
 // tonnes, nine 46 cm guns in three triples behind a belt of 410 mm, and the
 // pagoda of a bridge that the class is known by. She keeps all four of her
 // 15.5 cm triples -- the two on her centreline and the wing pair abreast her
-// tower -- with six 12.7 cm twins round her funnel and twenty-eight triple
-// 25 mm about her, clear of the wing turrets' barrels.
+// funnel -- with six 12.7 cm twins round her funnel and thirty triple 25 mm
+// about her, clear of the wing turrets' barrels.
 //
 // Her hull, her superstructure, her bridge, her funnel, her mainmast, her
 // catapults and her aircraft crane are the sculpts (see musashiHull.js and
@@ -17,14 +17,15 @@
 //     forecastle, No.2 superfiring over it, No.3 on her quarterdeck facing
 //     astern -- and the open 25 mm triples on their roofs, which train with
 //     them;
-//   * her four 15.5 cm triples, the owner's own sculpt of the turret, on the
-//     barbettes the superstructure sculpt drew for them -- the centreline
-//     pair, and the wing pair on the deckhouses either side between her tower
-//     and her funnel;
+//   * her four 15.5 cm triples, the owner's own sculpt of the turret: the
+//     centreline pair on the barbettes the superstructure sculpt drew for
+//     them, and the wing pair abreast her funnel, on her deck, in the well cut
+//     for each in the deckhouse there;
 //   * her six 12.7 cm twins, the owner's sculpt of the mount in its shield, on
-//     the columns the superstructure sculpt drew them on;
-//   * her 25 mm: in the shields the owner sculpted round her superstructure
-//     and right aft, and open on their pedestals forward and aft;
+//     the drums the superstructure sculpt drew them on;
+//   * her 25 mm: in the shields the owner sculpted on the pedestals round her
+//     superstructure and right aft, and open in their tubs round her
+//     superstructure and on their pedestals forward and aft;
 //   * her two catapults, which train out over her quarters and throw a Jake
 //     off on the simulation's clock;
 //   * her four screws, which turn;
@@ -269,10 +270,12 @@ function mountings(g) {
 // on a turntable at its after end, raised on a pedestal so its girder clears
 // the step up to her quarterdeck forward of it, stowed pointing forward and a
 // little outboard, as the sculpt drew them, and trained out over her quarter
-// to shoot. A Jake on the car of each.
-export const CAT_X = 9.6;
-export const CAT_Z = -122.5;
-const CAT_Y = 8.0;
+// to shoot. A Jake on the car of each. The pedestal stands on her aircraft
+// deck, inside her side and clear of the coaming of her hangar hatch; and the
+// girder lies along her quarterdeck, its trusses a hand over the planking.
+export const CAT_X = 6.0;
+export const CAT_Z = -119.5;
+const CAT_Y = 7.85;
 export const CAT_RIG = { ...RIG, BACK: -4.2, FRONT: 18.6, A: 1.4, REST: 0.13 };
 const DECK_RUN = CLS.planes.deckRun;
 

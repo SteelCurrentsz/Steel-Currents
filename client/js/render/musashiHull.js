@@ -7,13 +7,17 @@
 // her -- red lead, boot topping, Kure grey -- with every paint line cut
 // straight into her, and decimates her with those lines kept. Its
 // superstructure melted, so build/prepare-musashi-hull.mjs takes it off her
-// and stands in its place her superstructure as the sculpt of that drew it,
-// and in the middle of that her bridge tower as the sculpt of that drew it;
-// cuts every gun the sculpts had cast into her out down to the deck or
-// barbette it stood on and closes the holes; takes the dents out of her
-// without rounding her corners, lays her teak, fairs her topsides and splits
-// her normals at every crease and every paint edge. Her turrets come out of
-// the same cut, with their barrels turned true along the sculpt's own.
+// and stands in its place her superstructure as the sculpt of that drew it --
+// whole and closed, her tower, her funnel, her raked mainmast and her after
+// control station with it; draws the melted head of her stem afresh from her
+// own lines; cuts every gun the sculpts had cast into her out down to the
+// deck, drum or barbette it stood on and closes the holes; draws her gunwale
+// abreast her superstructure afresh and lays her deck afresh wherever the
+// cuts left it holed; takes the dents out of her without rounding her
+// corners, lays her teak, fairs her topsides and splits her normals at every
+// crease and every paint edge. Her turrets
+// come out of the same cut, with their barrels turned true along the sculpt's
+// own.
 //
 // She is drawn in two surfaces, each with the texture of what it is: her
 // plating in the fleet's steel plate and her weather deck in planking, both
