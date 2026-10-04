@@ -1425,15 +1425,28 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   }
   const [dp, light] = cls.aa.guns;
   assert.equal(dp.mounts.length, 6, 'she carries six 12.7 cm twins');
-  assert.equal(light.mounts.length, 30, 'she carries thirty triple 25 mm');
-  assert.equal(light.mounts.filter((m) => m.pod).length, 22, 'she carries twenty-two 25 mm in their shields');
+  assert.equal(light.mounts.length, 28, 'she carries twenty-eight triple 25 mm');
+  assert.equal(light.mounts.filter((m) => m.pod).length, 20, 'she carries twenty 25 mm in their shields');
+  // Three 12.7 cm twins a side, and none of them where a wing turret trains.
+  for (const sgn of [-1, 1]) {
+    const side = dp.mounts.filter((m) => Math.sign(m.x) === sgn);
+    assert.equal(side.length, 3, `she carries ${side.length} 12.7 cm twins on one side, not three`);
+    for (const w of wings) {
+      for (const m of side) {
+        const b = Math.atan2(m.x - w.x, m.z - w.z);
+        assert.ok(Math.abs(angleDelta(w.angle, b)) > w.arc || Math.hypot(m.x - w.x, m.z - w.z) > 14,
+          `the 12.7 cm at ${m.x}, ${m.z} stands where the wing 15.5 cm at ${w.x}, ${w.z} trains`);
+      }
+    }
+  }
   // The four right aft, two a side, are in their shields.
   const stern = light.mounts.filter((m) => m.z < -94);
   assert.ok(stern.length === 4 && stern.every((m) => m.pod), 'the four 25 mm right aft are not in their shields');
-  // And none of the 25 mm stands where a wing turret's gunhouse swings.
+  // And none of the 25 mm stands where a wing turret's gunhouse and barrels
+  // swing.
   for (const w of wings) {
     for (const m of light.mounts) {
-      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > 6.5,
+      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > 14,
         `a 25 mm at ${m.x}, ${m.z} stands in the way of the wing 15.5 cm at ${w.x}, ${w.z}`);
     }
   }

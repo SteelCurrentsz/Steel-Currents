@@ -4,8 +4,8 @@
 // tonnes, nine 46 cm guns in three triples behind a belt of 410 mm, and the
 // pagoda of a bridge that the class is known by. She keeps all four of her
 // 15.5 cm triples -- the two on her centreline and the wing pair abreast her
-// tower -- with six 12.7 cm twins round her funnel and thirty triple 25 mm
-// about her, as she carried them in 1944.
+// tower -- with six 12.7 cm twins round her funnel and twenty-eight triple
+// 25 mm about her, clear of the wing turrets' barrels.
 //
 // Her hull, her superstructure, her bridge, her funnel, her mainmast, her
 // catapults and her aircraft crane are the sculpts (see musashiHull.js and

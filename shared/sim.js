@@ -212,7 +212,7 @@ export function addShip(state, {
     // -- knocked out for a moment by a near miss or a shock. The two are
     // different things and a gunnery officer needs both.
     turrets: cls.turrets.map((t) => ({
-      id: t.id, angle: t.angle, elev: 0, cooldown: 0, disabled: 0, hurt: 0,
+      id: t.id, angle: t.angle, elev: Math.max(0, layFloor(t.lift, t.angle)), cooldown: 0, disabled: 0, hurt: 0,
     })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
     // The depth charge gear. `dcLeft` is how many charges are still in the
@@ -239,8 +239,11 @@ export function addShip(state, {
       ? cls.secondary.mounts.map((m, i) => ({
         // Trained where she stows it, which is not always the middle of its
         // arc: a wing mounting rests fore and aft along her side.
+        // Stowed clear of her: where its lift says the barrels have to be up
+        // on that bearing, they are up.
         id: i, angle: m.rest === undefined ? m.angle : m.rest,
-        elev: 0, cooldown: 0, disabled: 0, target: 0, hurt: 0,
+        elev: Math.max(0, layFloor(m.lift, m.rest === undefined ? m.angle : m.rest)),
+        cooldown: 0, disabled: 0, target: 0, hurt: 0,
       }))
       : [],
     // How long since her light battery last opened up, per aircraft, so the
