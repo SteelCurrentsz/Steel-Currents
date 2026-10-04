@@ -1398,10 +1398,33 @@ POD.trunnion = [0, 1.5, 0.3];
 // ---- her lines, as the sculpt has them --------------------------------------------
 const LINES = measureLines(m, st, { z0: -131, dz: 1, nz: 263, y0: -11, dy: 0.5, ny: 40 }, DECK_Y);
 // Under her quarterdeck the sculpt drew her hangar's floor, two metres up,
-// and the measure takes it for her deck: her insides go up to her deck there.
-for (let i = 0; i < LINES.deck.length; i++) {
-  const z = LINES.z0 + i * LINES.dz;
-  if (LINES.deck[i] < deckAt(z) - 1.5) LINES.deck[i] = +deckAt(z).toFixed(2);
+// and the measure takes it for her deck. Her insides go up under her deck
+// there as it is laid -- the lowest of it across her, at this station and the
+// ones either side, for her insides run straight from one to the next -- and
+// a deck plate short of it, or the top of every bulkhead stands through her
+// planking.
+{
+  const UNDER = 0.1;
+  const laid = (z) => {
+    let v = deckAt(z);
+    const row = Math.round((z - HM.z0) / HM.step) * HM.nx;
+    const hw = st.halfB[st.zBin(z)] * 0.8;
+    for (let i = 0; i < HM.nx; i++) {
+      const y = hm[row + i];
+      if (Math.abs(HM.x0 + i * HM.step) <= hw && y > deckAt(z) - 1.5) v = Math.min(v, y);
+    }
+    return v;
+  };
+  const low = LINES.deck.map((d, i) => {
+    const z = LINES.z0 + i * LINES.dz;
+    return d < deckAt(z) - 1.5 ? laid(z) : null;
+  });
+  for (let i = 0; i < low.length; i++) {
+    if (low[i] === null) continue;
+    let v = low[i];
+    for (const k of [i - 1, i + 1]) if (low[k] != null) v = Math.min(v, low[k]);
+    LINES.deck[i] = Math.floor((v - UNDER) * 100) / 100;
+  }
 }
 
 // ---- slice, pack and write ------------------------------------------------------------
