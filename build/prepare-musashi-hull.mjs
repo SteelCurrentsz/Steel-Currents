@@ -471,14 +471,25 @@ const AFT_AERIAL = { a: [-54.5, 32.6], b: [-118.0, 21.8], r: 0.9, x: 5.5 };
   // that is there only from inboard, with nothing behind it. Her own gunwale
   // is there.
   const RAIL = { in: 0.45, up: 1.6 };
-  let rail = 0;
+  // The sculpt drew No.2 trained a little to starboard, so where it was cut
+  // square to the barbette of her forward 15.5 cm (see musashi-source.mjs) the
+  // after corner of its gunhouse on that side was left behind: a curved plate
+  // standing on her deck by itself beside the 25 mm tub there. It goes; the
+  // tub (within `tub` of its middle) and the barbette (within `barbette` of
+  // hers) stay.
+  const STRAY = { x: [-10.8, -3.5], z: [15.3, 18.7], tub: [-7.12, 14.6, 2.5], barbette: [0, 14.55, 4.7] };
+  const stray = (x, y, z) => x > STRAY.x[0] && x < STRAY.x[1] && z > STRAY.z[0] && z < STRAY.z[1] && y > deckAt(z) + 0.1
+    && Math.hypot(x - STRAY.tub[0], z - STRAY.tub[1]) > STRAY.tub[2]
+    && Math.hypot(x - STRAY.barbette[0], z - STRAY.barbette[1]) > STRAY.barbette[2];
+  let rail = 0, strays = 0;
   const onDeck = subMesh(sup, (t) => {
     const [x, y, z] = middle(sup, t);
     if (Math.abs(x) >= her.side(z) + 0.1) return false;
     if (Math.abs(x) > her.side(z) - RAIL.in && y < deckAt(z) + RAIL.up) { rail++; return false; }
+    if (stray(x, y, z)) { strays++; return false; }
     return true;
   });
-  console.log(`superstructure: ${rail} faces of its deck edge taken off at hers`);
+  console.log(`superstructure: ${rail} faces of its deck edge taken off at hers, and ${strays} of No.2's left behind`);
   const scraps = new Uint8Array(onDeck.T.length / 3);
   let nScraps = 0;
   for (const c of components(onDeck)) {
@@ -1079,6 +1090,13 @@ const DECK_PATCHES = [
   // the hair between them.
   { name: 'where her bow was drawn afresh', x: [-6.45, 6.45], z: [106.0, 108.7] },
 ];
+// And standing on the new deck abaft No.3, either side of the hatch under
+// No.3's guns, what the sculpt melted her two ventilators into -- a twisted
+// ring to port, a crumple to starboard -- which comes off whole.
+const DECK_WRECKS = [
+  { name: 'ventilator port', x: [5.4, 9.8], z: [-80.2, -74.8], y: [7.3, 9.6] },
+  { name: 'ventilator stbd', x: [-9.2, -5.2], z: [-79.2, -75.0], y: [7.3, 9.6] },
+];
 {
   const D = { flake: 0.5, lap: 0.3, step: 0.5, across: 2.0, skirt: 0.15 };
   const patch = { P: [], N: [], T: [], C: [] };
@@ -1105,7 +1123,8 @@ const DECK_PATCHES = [
         grid.push(row);
       }
       // Its edge, turned down into the old deck: each side of it a strip
-      // from the edge of the new deck to a hand under it, facing out of it.
+      // from the edge of the new deck to a hand under it, facing out of it,
+      // and planked, since what shows of it is the edge of a plank.
       const skirt = (edge, out) => {
         for (let k = 0; k < edge.length - 1; k++) {
           const a = edge[k], b = edge[k + 1];
@@ -1113,7 +1132,7 @@ const DECK_PATCHES = [
           const a2 = vert([pa[0], pa[1] - D.skirt, pa[2]]), b2 = vert([pb[0], pb[1] - D.skirt, pb[2]]);
           const [nx0, , nz0] = faceNormal(patch, a, b, b2);
           patch.T.push(...(nx0 * out[0] + nz0 * out[1] < 0 ? [a, b2, b, a, a2, b2] : [a, b, b2, a, b2, a2]));
-          patch.C.push(GREY, GREY);
+          patch.C.push(DECK, DECK);
         }
       };
       skirt(grid[0], [0, -1]);
@@ -1133,7 +1152,20 @@ const DECK_PATCHES = [
   for (let t = 0; t < patch.T.length; t += 3) {
     if (faceNormal(patch, patch.T[t], patch.T[t + 1], patch.T[t + 2])[1] < -0.01) throw new Error('a deck patch faces down');
   }
+  let wrecks = 0;
+  for (const w of DECK_WRECKS) {
+    const inside = (v) => {
+      const x = m.P[v * 3], y = m.P[v * 3 + 1], z = m.P[v * 3 + 2];
+      return x > w.x[0] && x < w.x[1] && y > w.y[0] && y < w.y[1] && z > w.z[0] && z < w.z[1];
+    };
+    Object.assign(m, subMesh(m, (t) => {
+      if (isSuper(t) || !inside(m.T[t * 3]) || !inside(m.T[t * 3 + 1]) || !inside(m.T[t * 3 + 2])) return true;
+      wrecks++;
+      return false;
+    }));
+  }
   append(m, patch);
+  console.log(`deck abaft No.3: ${wrecks} faces of her melted ventilators taken off it`);
   console.log(`deck abaft No.3, abreast No.2, on her forecastle and at her bow: ${taken} faces of it taken up, `
     + `and laid afresh, ${patch.T.length / 3} triangles`);
 }
