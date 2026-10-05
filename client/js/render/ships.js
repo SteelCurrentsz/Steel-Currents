@@ -16,6 +16,7 @@ import { buildRodney } from './rodney.js';
 import { buildBaltimore } from './baltimore.js';
 import { buildMassachusetts } from './massachusetts.js';
 import { buildMusashi } from './musashi.js';
+import { buildBismarck } from './bismarck.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -516,6 +517,22 @@ export function buildShip(classId) {
   // stack of platforms rather than a tower.
   if (cls.id === 'yamato') {
     const built = buildYamato();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Bismarck: the owner's sculpts of her hull, her forward
+  // superstructure and her guns, with what stood abaft her funnel built to her
+  // plans.
+  if (cls.id === 'bismarck') {
+    const built = buildBismarck();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

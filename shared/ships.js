@@ -1069,6 +1069,181 @@ export const SHIP_CLASSES = {
     },
   },
 
+  bismarck: {
+    // KMS Bismarck, the first of the two: eight 38 cm in four twin turrets --
+    // Anton and Bruno forward, Caesar and Dora aft -- twelve 15 cm in six twin
+    // turrets on her beam, and sixteen 10.5 cm in eight twin mountings over
+    // them, on a hull as broad as any battleship of her day. She sank Hood in
+    // the Denmark Strait on 24 May 1941 and went down three days later, her
+    // rudders jammed by a Swordfish's torpedo and her guns silenced by Rodney
+    // and King George V.
+    //
+    // She is drawn from the owner's sculpts of her (see bismarck.js) as she
+    // was that May: 251 m over all, 36 across, floated at her 9.3 m draft.
+    id: 'bismarck',
+    name: 'Bismarck',
+    fullName: 'KMS Bismarck',
+    className: 'Bismarck',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'ger',
+    blurb: 'Eight 38 cm guns on the broadest, steadiest gun platform afloat. She sank Hood with her fifth salvo.',
+    hull: { length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
+    hp: 78400,
+    // Thirty knots on her trials, out of three shafts; a broad hull that
+    // rolled little and turned well for her size -- until her rudders jammed.
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.054,
+    rudderShift: 13.5,
+    speedLossInTurn: 0.17,
+    concealment: 15800,
+    fireDetectPenalty: 6600,
+    // Three FuMO 23 Seetakt sets: on her foretop, her forward main battery
+    // director and her after one.
+    radarRange: 12000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // 320 mm of belt from end to end of her citadel, 100 to 120 of armour
+    // deck sloped down behind it to meet its lower edge, and 50 of upper deck
+    // over all of it to start a shell's cap before it got there. Her ends had
+    // 60 mm of belt to keep splinters out of her waterline.
+    armor: { belt: 320, deck: 120, citadel: 320, bow: 60, superstructure: 30 },
+    turrets: [
+      // On the frames her plans give, a frame a metre from her after
+      // perpendicular: Anton 192.55, Bruno 174.35 superfiring over it, Caesar
+      // 64.35 superfiring over Dora 46.15. Arcs and sectors measured off the
+      // model by build/survey-arcs.mjs (see layFloor in sim.js).
+      { id: 0, name: 'Anton', x: 0, z: 70.05, angle: 0, arc: 2.5, guns: 2, my: 11 },
+      { id: 1, name: 'Bruno', x: 0, z: 51.85, angle: 0, arc: 2.6, guns: 2, my: 14 },
+      { id: 2, name: 'Caesar', x: 0, z: -58.15, angle: Math.PI, arc: 2.6, guns: 2, my: 14 },
+      { id: 3, name: 'Dora', x: 0, z: -76.35, angle: Math.PI, arc: 2.5, guns: 2, my: 11 },
+    ],
+    gun: {
+      name: '38 cm SK C/34', role: 'surface',
+      // Five and a half below the horizontal to thirty up, in the Drh LC/34.
+      elev: { min: -0.096, max: 0.524 },
+      reach: 17.6,
+      caliber: 380, reload: 26, traverse: 0.075, range: 21600, sigma: 1.35,
+      // The 800 kg shell at 820 m/s: flat, fast, and very good at going
+      // through what it hit.
+      shells: shells(380, 12400, 5700, 600, 820, 0.24),
+    },
+    torpedoes: null,
+    // Six 15 cm twin turrets, three a side on her upper deck: abreast her
+    // conning tower, abreast her funnel, and abreast her mainmast. None of
+    // them bears across her on to the other beam.
+    secondary: {
+      name: '15 cm SK C/28', role: 'surface',
+      // Ten below the horizontal to forty up, in the Drh LC/34.
+      elev: { min: -0.175, max: 0.698 },
+      reach: 6.9,
+      caliber: 150, reload: 7.5, traverse: 0.15, range: 14000, sigma: 1.35,
+      shells: shells(150, 2800, 2200, 140, 875, 0.10),
+      mounts: [
+        { x: -12.6, z: 27.5, angle: -Math.PI / 2, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 9 },
+        { x: 12.6, z: 27.5, angle: Math.PI / 2, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 9 },
+        { x: -14.4, z: 8.5, angle: -Math.PI / 2, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 9 },
+        { x: 14.4, z: 8.5, angle: Math.PI / 2, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 9 },
+        { x: -14.4, z: -25.2, angle: -Math.PI / 2, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 9 },
+        { x: 14.4, z: -25.2, angle: Math.PI / 2, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 9 },
+      ],
+    },
+    // And her flak, the same way: a high-angle gun has most of the sky, and is
+    // held up over her where its barrels would go into her.
+    aa: {
+      range: 6400, dps: 96,
+      guns: [
+        // Eight 10.5 cm twins, four a side on her superstructure deck: two
+        // abreast her funnel and two abreast her after control position.
+        { name: '10.5 cm SK C/33', caliber: 105, role: 'dp', reload: 4.2, range: 6400,
+          elev: { min: -0.140, max: 1.396 },
+          mounts: [
+            { x: -13.0, z: -0.4, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 13.0, z: -0.4, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -13.0, z: -7.6, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 13.0, z: -7.6, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -10.2, z: -36.6, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 10.2, z: -36.6, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -10.2, z: -44, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 10.2, z: -44, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+          ] },
+        // Eight 3.7 cm twins: either side of her bridge, either side of her
+        // tower on her lower mast deck, on the after corners of her hangar
+        // roof and either side of her after control position.
+        { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.75, range: 3200,
+          elev: { min: -0.157, max: 1.484 },
+          mounts: [
+            { x: -4.6, z: 29.8, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 4.6, z: 29.8, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -5, z: 13.7, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 5, z: 13.7, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -4.8, z: -32, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 4.8, z: -32, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+            { x: -4.9, z: -40.5, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 2 },
+            { x: 4.9, z: -40.5, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 2 },
+          ] },
+        // Ten 2 cm singles: in the tubs on her upper mast deck, on the
+        // platform abaft her funnel, on the after corners of her after
+        // superstructure, on her quarterdeck, and either side of her
+        // after control position's foot.
+        { name: '2 cm C/30', caliber: 20, role: 'aa', reload: 0.13, range: 1800,
+          elev: { min: -0.192, max: 1.571 },
+          mounts: [
+            { x: -4.35, z: 17.7, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1 },
+            { x: 4.35, z: 17.7, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1 },
+            { x: -5.2, z: -4.3, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1 },
+            { x: 5.2, z: -4.3, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1 },
+            { x: -7.6, z: -48.4, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1 },
+            { x: 7.6, z: -48.4, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1 },
+            { x: -6.5, z: -96.5, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1 },
+            { x: 6.5, z: -96.5, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1 },
+            { x: -4.6, z: -45.6, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1 },
+            { x: 4.6, z: -45.6, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1 },
+          ] },
+        // And the two Flakvierlings she had shipped by May 1941, on the
+        // forward corners of her hangar roof either side of her mainmast.
+        { name: '2 cm Flakvierling 38', caliber: 20, role: 'aa', reload: 0.1, range: 2000,
+          elev: { min: -0.175, max: 1.571 },
+          mounts: [
+            { x: -4.6, z: -24.8, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 4 },
+            { x: 4.6, z: -24.8, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 4 },
+          ] },
+      ],
+    },
+    // Four Arado 196s, worked off a fixed double catapult athwart her abaft
+    // her funnel, which throws one off either beam; her hangar is under her
+    // mainmast, and a crane either side fishes them out of the water again.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 54, strikeRange: 8500,
+      rearm: 110, hp: 620, dropSpread: 0.07,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 700, bombHit: 0.28, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
+      type: 'arado',
+      catapult: true, deckRun: 9.4, deckCycle: 34,
+      runHeight: 28.4,
+      // Where the shot leaves her: off whichever beam the car was thrown to,
+      // a little abaft it because her catapult is abaft her middle --
+      // measured off the same integrated shot the model on her catapult flies.
+      runOut: 137.3, runBearing: 1.694,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 41700,
+      aircraft: 4,
+      mainRounds: 960,
+      torpedoesCarried: 0,
+      secondary: { caliber: 150, label: '15 cm', barrels: 12, rounds: 1800 },
+      tertiary: [
+        { caliber: 105, label: '10.5 cm', barrels: 16, rounds: 6720 },
+        { caliber: 37, label: '3.7 cm', barrels: 16, rounds: 32000 },
+        { caliber: 20, label: '2 cm', barrels: 18, rounds: 36000 },
+      ],
+    },
+  },
+
   rodney: {
     // HMS Rodney, the second of the two Nelsons: nine 16-inch in three
     // triples, all of them forward of her bridge -- the whole of her main
@@ -4352,7 +4527,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'rodney', 'massachusetts', 'iowa', 'yamato', 'musashi', 'enterprise', 'shinano'];
+  'surcouf', 'bismarck', 'rodney', 'massachusetts', 'iowa', 'yamato', 'musashi', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;
