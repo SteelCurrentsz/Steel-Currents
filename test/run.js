@@ -90,8 +90,9 @@ import { musashiSurfaceY } from '../client/js/render/musashiHull.js';
 /** How far out the Musashi's side is at her aircraft deck, at z. */
 const musashiHalfBeam = (z) => musashiShellAt((2 * z) / MUSASHI_LOA, 5.0);
 import {
-  buildBismarck, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge,
+  buildBismarck, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge, builtDeckY as bismarckBuiltDeckY,
 } from '../client/js/render/bismarck.js';
+import { bismarckSurfaceY } from '../client/js/render/bismarckHull.js';
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
@@ -1628,6 +1629,73 @@ check('every gun on the Bismarck trains inside its stops and fires only where he
     assert.equal(barrels(row.caliber), row.barrels, `her datasheet lists ${row.barrels} ${row.label}`);
   }
   surveyedArcsHold('bismarck');
+});
+
+check('the Bismarck\'s gunhouses clear her superstructure wherever they train', () => {
+  // Her 15 cm turrets stand in wells cut back into her deckhouse and her
+  // 10.5 cm on platforms round her funnel and her after superstructure; the
+  // back of a gunhouse swings a circle as it trains, and anywhere inside its
+  // arc it must not go into her plating. A point of a gunhouse is inside her
+  // where the first face straight over it is the top of something seen from
+  // underneath -- which is also how an overhang over a well is told from a
+  // wall in it.
+  const built = buildBismarck();
+  const g = built.group;
+  g.updateMatrixWorld(true);
+  const solids = [];
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    for (let n = o; n; n = n.parent) if (n.userData && (n.userData.dynamic || n.userData.inside)) return;
+    solids.push(o);
+  });
+  const mats = new Set();
+  for (const o of solids) for (const q of [].concat(o.material)) mats.add(q);
+  const was = [...mats].map((q) => q.side);
+  for (const q of mats) q.side = THREE.DoubleSide;
+  const rc = new THREE.Raycaster();
+  const up = new THREE.Vector3(0, 1, 0);
+  const inside = (v) => {
+    rc.set(v, up);
+    rc.far = 60;
+    const hit = rc.intersectObjects(solids, false)[0];
+    return !!hit && hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.2;
+  };
+  const cls = SHIP_CLASSES.bismarck;
+  const mounts = [
+    ...cls.secondary.mounts.map((spec, i) => [spec, built.secMounts[i], '15 cm']),
+    ...cls.aa.guns[0].mounts.map((spec, i) => [spec, built.aaMounts[i], '10.5 cm']),
+  ];
+  const bad = [];
+  try {
+    for (const [spec, m, what] of mounts) {
+      const node = m.userData.gunNode;
+      const pts = [];
+      m.traverse((o) => {
+        if (!o.isMesh) return;
+        for (let n = o; n && n !== m; n = n.parent) if (n === node) return;
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i += 4) pts.push([o, new THREE.Vector3().fromBufferAttribute(pos, i)]);
+      });
+      const rest = m.rotation.y;
+      for (let k = -4; k <= 4; k++) {
+        m.rotation.y = spec.angle + (k / 4) * spec.arc;
+        m.updateMatrixWorld(true);
+        let n = 0;
+        for (const [o, p] of pts) {
+          const v = p.clone().applyMatrix4(o.matrixWorld);
+          if (v.y < m.position.y + 0.3) continue;
+          if (Math.max(bismarckSurfaceY(v.x, v.z), bismarckBuiltDeckY(v.x, v.z)) - v.y < 0.15) continue;
+          if (inside(v)) n++;
+        }
+        if (n > 3) bad.push(`the ${what} at ${spec.x}, ${spec.z} trained to ${((m.rotation.y * 180) / Math.PI).toFixed(0)} degrees`);
+      }
+      m.rotation.y = rest;
+      m.updateMatrixWorld(true);
+    }
+  } finally {
+    [...mats].forEach((q, k) => { q.side = was[k]; });
+  }
+  assert.equal(bad.length, 0, `${bad.length} gunhouse positions go into her: ${bad.slice(0, 4).join('; ')}`);
 });
 
 check('a layer standing at a Bismarck gun looks out over it, round its arc and nowhere else', () => {

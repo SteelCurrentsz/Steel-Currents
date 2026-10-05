@@ -332,14 +332,14 @@ function mainBattery(g) {
 /** The barbettes her turrets and her 15 cm train on, from her deck up. */
 function barbettes(g) {
   for (const t of MOUNT_SEATS.turrets) {
-    const foot = deckAt(t.z) - 0.3;
+    const foot = deckOver((2 * t.z) / LOA) - 0.3;
     const top = t.seat - 0.02;
     cyl(g, M.steel, BARBETTE_R, BARBETTE_R, top - foot, t.x, (top + foot) / 2, t.z, 40);
     // The coaming round its foot, where it goes through her deck.
     cyl(g, M.steelDark, BARBETTE_R + 0.18, BARBETTE_R + 0.18, 0.5, t.x, foot + 0.3, t.z, 40);
   }
   for (const s of MOUNT_SEATS.secondary) {
-    const foot = deckAt(s.z) - 0.3;
+    const foot = deckOver((2 * s.z) / LOA) - 0.3;
     const top = s.seat - 0.02;
     cyl(g, M.steel, 2.75, 2.75, top - foot, s.x, (top + foot) / 2, s.z, 28);
   }
