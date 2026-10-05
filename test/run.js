@@ -1604,7 +1604,7 @@ check('every gun on the Bismarck trains inside its stops and fires only where he
     assert.ok(fires(m, beam, near), `the 15 cm at ${m.x}, ${m.z} cannot fire on her beam`);
     assert.ok(!fires(m, -beam, near), `the 15 cm at ${m.x}, ${m.z} fires flat across her`);
   }
-  const [dp, twin, single, quad] = cls.aa.guns;
+  const [dp, twin, light] = cls.aa.guns;
   assert.equal(dp.caliber, 105);
   assert.equal(dp.role, 'dp', 'her 10.5 cm are not dual purpose');
   assert.equal(dp.mounts.length, 8, 'she carries eight 10.5 cm twins');
@@ -1618,10 +1618,10 @@ check('every gun on the Bismarck trains inside its stops and fires only where he
   }
   assert.ok(twin.caliber === 37 && twin.mounts.length === 8 && twin.mounts.every((m) => m.guns === 2),
     'she does not carry eight 3.7 cm twins');
-  assert.ok(single.caliber === 20 && single.mounts.length === 10 && single.mounts.every((m) => m.guns === 1),
-    'she does not carry ten 2 cm singles');
-  assert.ok(quad.caliber === 20 && quad.mounts.length === 2 && quad.mounts.every((m) => m.guns === 4),
-    'she does not carry her two Flakvierlings');
+  assert.equal(light.caliber, 20);
+  assert.equal(light.mounts.filter((m) => m.guns === 1).length, 10, 'she does not carry ten 2 cm singles');
+  assert.equal(light.mounts.filter((m) => m.guns === 4).length, 2, 'she does not carry her two Flakvierlings');
+  assert.equal(light.mounts.length, 12, 'she carries 2 cm mountings her plans do not');
   // And the barrels on her datasheet are the barrels she carries.
   const barrels = (cal) => cls.aa.guns.filter((g) => g.caliber === cal)
     .reduce((n, g) => n + g.mounts.reduce((k, m) => k + m.guns, 0), 0);
