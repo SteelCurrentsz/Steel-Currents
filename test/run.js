@@ -2176,6 +2176,36 @@ check('the open air between the Richelieu\'s tower and her mack is clear, and he
   assert.ok(top > 40, `her mainmast reaches only ${top.toFixed(1)} m`);
 });
 
+check('there is no daylight under the Richelieu\'s superstructure', () => {
+  // The sculpt melted the feet of her walls off, and her tower stood a metre
+  // clear of her superstructure deck with the sky under it; a gun abreast her
+  // tower could see, and shoot, straight across her through the slot. Wherever
+  // anything of hers stands over her superstructure deck, a line across her
+  // just above that deck meets her.
+  const g = new THREE.Group();
+  buildRichelieuHull(g);
+  g.updateMatrixWorld(true);
+  const meshes = [];
+  g.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const rc = new THREE.Raycaster();
+  const up = new THREE.Vector3(0, 1, 0);
+  const across = new THREE.Vector3(1, 0, 0);
+  // Her superstructure deck, which her forward 100 mm stand on.
+  const base = RICHELIEU_SEATS.dp.find((d) => d.name.startsWith('fwd')).seat;
+  const through = [];
+  for (let z = -60; z <= 8; z += 0.5) {
+    rc.set(new THREE.Vector3(0, base + 0.05, z), up);
+    rc.far = 3;
+    if (!rc.intersectObjects(meshes, false).length) continue;
+    for (const dy of [0.15, 0.5, 0.9]) {
+      rc.set(new THREE.Vector3(-17, base + dy, z), across);
+      rc.far = 34;
+      if (!rc.intersectObjects(meshes, false).length) through.push(`${dy} m up at ${z} m`);
+    }
+  }
+  assert.equal(through.length, 0, `daylight under her superstructure in ${through.length} places, first ${through[0]}`);
+});
+
 check('the elevation her guns are laid at goes over the wire', () => {
   // Bearing was on the wire and elevation was not, so every gun in the game
   // pointed at the horizon whatever it was shooting at. It is the most visible

@@ -639,7 +639,15 @@ export const MAST = { x: 0, z: -36.5 };
 // whole, and seen through her where she is not, as the plating of the far
 // side of a compartment. A platform or a deck, a sheet with open air either
 // side of it, encloses nothing and has no core.
-const CORE = { cell: 0.4, close: 2 };
+const CORE = { cell: 0.4, close: 2, skirt: 2.0 };
+/** The half breadth of the deckhouse under her upperworks at `z` (BASE_PLAN), or 0 off its ends. */
+function planHalf(z) {
+  for (let i = 0; i + 1 < BASE_PLAN.length; i++) {
+    const [za, ha] = BASE_PLAN[i], [zb, hb] = BASE_PLAN[i + 1];
+    if (z <= za && z >= zb) return za === zb ? Math.max(ha, hb) : ha + ((hb - ha) * (z - za)) / (zb - za);
+  }
+  return 0;
+}
 function solidCore(mesh) {
   const { P, T } = mesh;
   const { lo, hi } = bbox(mesh);
@@ -704,6 +712,22 @@ function solidCore(mesh) {
   }
   const enclosed = Uint8Array.from(out, (v) => (v ? 0 : 1));
   const core = grow(enclosed, CORE.close + 1, true);
+  // And under every wall and deck of hers whose foot the sculpt left short of
+  // her superstructure deck -- a skirt melted off, a cut a hand too high --
+  // and under the core itself, which the flood along the deck held off it,
+  // the core goes down to that deck, so that there is no daylight under her
+  // anywhere inside the plan of her deckhouse.
+  const reach = Math.round(CORE.skirt / c);
+  let skirt = 0;
+  for (let k = 0; k < nz; k++) {
+    const half = planHalf(z0 + (k + 0.5) * c) - c;
+    for (let i = 0; i < nx; i++) {
+      if (Math.abs(x0 + (i + 0.5) * c) > half) continue;
+      let foot = -1;
+      for (let j = 0; j <= reach && j < ny; j++) if (plate[id(i, j, k)] || core[id(i, j, k)]) { foot = j; break; }
+      for (let j = 0; j < foot; j++) if (!core[id(i, j, k)]) { core[id(i, j, k)] = 1; skirt++; }
+    }
+  }
   // Its faces: every side of a core cell that is not against another,
   // merged into rectangles a slice at a time.
   const C = [], Pc = [], Nc = [], Tc = [];
@@ -758,7 +782,7 @@ function solidCore(mesh) {
     }
   }
   console.log(`the core of her upperworks: ${cells} cells of ${CORE.cell} m inside her plating, `
-    + `${Tc.length / 3} triangles`);
+    + `${skirt} of them a skirt under walls that stop short of her deck, ${Tc.length / 3} triangles`);
   return { P: Pc, N: Nc, T: Tc, C };
 }
 
