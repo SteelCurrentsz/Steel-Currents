@@ -54,7 +54,7 @@ import {
   smoothFlats, denoise,
 } from './sculpt.mjs';
 import {
-  subMesh, dropLoose, turnInward, thinFaces, creased, measureLines, wires,
+  subMesh, dropLoose, turnInward, thinFaces, creased, measureLines, wires, slender,
 } from './sculpt-parts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -608,6 +608,23 @@ export const BASE_PLAN = [
   [-64.0, 7.2], [-64.6, 4.6], [-67.6, 4.6], [-68.2, 3.9], [-71.0, 3.9],
 ];
 
+// ---- her rigging -------------------------------------------------------------------
+// Between her tower and her mack, over her boats, the sculpt drew nothing of
+// hers but rigging -- aerials, a melted yard and the struts it hung off -- and
+// over the deck on top of her mack only her pole mast, so melted with its
+// yards and gaff that it is drawn afresh in richelieu.js, at MAST, on the roof
+// of the house it stood on. `thin` is how high on her mack the stumps of what
+// stood on it are taken off from: anything a plate thick standing up off its
+// deck. And abaft her mack's cowl the sculpt hung a boat derrick and a sail of
+// torn plate from it down to the deckhouse aft: every sheet of plate there
+// goes.
+export const RIGGED = {
+  gap: { z0: -33.8, z1: -22.6, y: 20.6 },
+  mack: { z0: -46.0, z1: -33.8, y: 29.3, thin: 27.7 },
+  cowl: { z0: -53.0, z1: -44.6, y: 19.5 },
+};
+export const MAST = { x: 0, z: -36.5 };
+
 // ---- the core of her upperworks --------------------------------------------------
 // The sculpt drew her tower, her mack and her deckhouses a sheet of plate
 // thick, and melted: there are holes in their walls a man could climb
@@ -826,16 +843,35 @@ export const LIGHT = [
   for (const l of LIGHT) n += cut(l.name, { ...l.cut, y0: l.floor + 0.02, y1: l.cut.top });
   console.log(`cut: ${n} triangles of melted guns out of her upperworks, ${SECONDARY.length + DP.length + LIGHT.length} places`);
   // Her rigging, which the sculpt fused into her as tubes that sag between
-  // her tower and her mack and hang off both into the air, comes off; and
-  // what is left of her upperworks is drawn toward the fair surface through
-  // it -- a few centimetres at most, flats kept flat and corners kept sharp.
-  // (Not the thin plate the sculpt tore: that is most of her walls, drawn a
-  // sheet thick, and taking it off opens her up.)
+  // her tower and her mack and hang off both into the air, comes off: all of
+  // what stands in the open between them over her boats (RIGGED.gap), her
+  // mack's masthead with its yards, gaff and the stumps they stood on
+  // (RIGGED.mack -- richelieu.js steps a pole mast there afresh), the
+  // derrick and torn sail abaft her cowl (RIGGED.cowl), and every spar or
+  // wire elsewhere aloft. Then what is left of her upperworks is
+  // drawn toward the fair surface through it -- a few centimetres at most,
+  // flats kept flat and corners kept sharp. (Not the thin plate the sculpt
+  // tore: that is most of her walls, drawn a sheet thick, and taking it off
+  // opens her up.)
   {
+    const spars = slender(sup, { only: (x, y) => y > BASE_TOP + 3 });
     const rigging = wires(sup, { only: (x, y) => y > BASE_TOP + 4 });
-    const nr = rigging.reduce((n, v) => n + v, 0);
-    Object.assign(sup, subMesh(sup, (t) => !rigging[t]));
-    console.log(`her upperworks: ${nr} faces of melted rigging taken off`);
+    const sheet = thinFaces(sup, 0.4);
+    const { gap, mack, cowl } = RIGGED;
+    const why = new Uint8Array(sup.T.length / 3);
+    for (let t = 0; t < why.length; t++) {
+      const [, y, z] = middle(sup, t);
+      const [nx, ny, nz] = faceNormal(sup, sup.T[t * 3], sup.T[t * 3 + 1], sup.T[t * 3 + 2]);
+      const onMack = z > mack.z0 && z < mack.z1;
+      if (z > gap.z0 && z < gap.z1 && y > gap.y) why[t] = 1;
+      else if (onMack && (y > mack.y || (y > mack.thin && sheet[t] && Math.abs(ny) < 0.5 * Math.hypot(nx, ny, nz)))) why[t] = 2;
+      else if (z > cowl.z0 && z < cowl.z1 && y > cowl.y && sheet[t]) why[t] = 3;
+      else if (spars[t] || rigging[t]) why[t] = 4;
+    }
+    const count = (k) => why.reduce((n, v) => n + (v === k ? 1 : 0), 0);
+    console.log(`her rigging: ${count(1)} faces between her tower and her mack, ${count(2)} of her masthead, `
+      + `${count(3)} abaft her cowl, ${count(4)} of spars and wires elsewhere, taken off`);
+    Object.assign(sup, subMesh(sup, (t) => !why[t]));
     const thin = thinFaces(sup, 0.4);
     const d = denoise(sup, weld(sup), {
       sigmaS: 0.8, sigmaR: 0.33, normalIters: 8, vertexIters: 18, max: 0.25, only: (x, y, z, t) => !thin[t],
@@ -843,20 +879,39 @@ export const LIGHT = [
     console.log(`her upperworks denoised: ${d.points} points, ${(d.movedMean * 100).toFixed(1)} cm on average`);
   }
   dropLoose(sup, { maxArea: 0.6, maxDiag: 1.2 });
+  // Her core is found while what hangs in the air is still there: a sheet
+  // that closed the front of a deckhouse, however torn, still says there was
+  // a deckhouse there, and where it comes off the core stands in its place as
+  // a plain wall.
+  const core = solidCore(sup);
+  // Less the crumbs of it that were the inside of a fold of that sheet.
+  {
+    const crumbs = components(core).filter((c) => c.lo[1] > BASE_TOP + 1.5
+      && Math.hypot(c.hi[0] - c.lo[0], c.hi[1] - c.lo[1], c.hi[2] - c.lo[2]) < 2.5);
+    const drop = new Set(crumbs.flatMap((c) => c.tris));
+    Object.assign(core, subMesh(core, (t) => !drop.has(t)));
+    console.log(`the core of her upperworks: ${crumbs.length} crumbs of it dropped`);
+  }
   // And what the cut at her superstructure deck left lying on it: the
   // stumps of the melted lockers, vents and plates that stood there, each a
-  // lump on its own, none of them two metres high.
+  // lump on its own, none of them two metres high; and what the sculpt and
+  // the cuts left hanging in the air about her tower and her mack -- shards
+  // and ribbons of plate, the stump of the yard, a sheet the forward cut left
+  // folded in front of her tower -- joined to nothing and its foot well clear
+  // of her superstructure deck.
   {
     const parts = components(sup);
     const drop = new Uint8Array(sup.T.length / 3);
-    let lumps = 0;
+    let lumps = 0, shards = 0;
     for (const c of parts.slice(1)) {
       const low = c.lo[1] < BASE_TOP + 0.3 && c.hi[1] < BASE_TOP + 2.0;
       const small = Math.hypot(c.hi[0] - c.lo[0], c.hi[2] - c.lo[2]) < 7;
-      if (!low || !small) continue;
+      const shard = c.lo[1] > BASE_TOP + 1.5 && Math.hypot(c.hi[0] - c.lo[0], c.hi[1] - c.lo[1], c.hi[2] - c.lo[2]) < 15;
+      if (!(low && small) && !shard) continue;
       for (const t of c.tris) drop[t] = 1;
-      lumps++;
+      if (shard) shards++; else lumps++;
     }
+    console.log(`her upperworks: ${shards} pieces hanging in the air taken off`);
     const T2 = [], C2 = [];
     for (let t = 0; t < sup.T.length / 3; t++) {
       if (drop[t]) continue;
@@ -869,7 +924,7 @@ export const LIGHT = [
   console.log(`her upperworks: ${sup.T.length / 3} triangles, from ${lo[2].toFixed(1)} to ${hi[2].toFixed(1)} m along her, `
     + `${lo[0].toFixed(1)} to ${hi[0].toFixed(1)} across, ${hi[1].toFixed(1)} m up`);
   append(m, sup);
-  append(m, solidCore(sup));
+  append(m, core);
 }
 {
   // The deckhouse under her upperworks: walls round its plan from a hand
@@ -1093,6 +1148,7 @@ const mounts = {
   dp: DP.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   light: LIGHT.map(({ name, x, z, floor }) => ({ name, x, z, floor: +floor.toFixed(3) })),
   breakZ: BREAK_Z, quarterdeck: +gunwaleAt(-100).y.toFixed(3), upperDeck: +DECK_AMIDSHIPS.toFixed(3),
+  mast: MAST,
 };
 writeFileSync(OUT_DATA,
   `// Generated by build/prepare-richelieu-hull.mjs from the owner's sculpts.\n`

@@ -24,6 +24,7 @@
 //     at the break of her upper deck, and the ladders up it;
 //   * what was on her weather deck: the breakwater on her forecastle, her
 //     anchor gear and her anchors, her bollards, her jack and ensign staffs;
+//   * the pole mast on top of her mack, which the sculpt melted;
 //   * her four screws, which turn;
 //
 // and, inside her, her armour and her interior, fitted to her own lines.
@@ -562,6 +563,28 @@ function weatherDeck(g) {
   }
 }
 
+// ----------------------------------------------------------- her mainmast --
+
+// The pole mast stepped on the deck on top of her mack, which the sculpt
+// melted together with its yards and gaff (see RIGGED in
+// prepare-richelieu-hull.mjs): a tapered pole, its yard athwartships with
+// a lamp at each arm, and the gaff her ensign flew from at sea, raking aft.
+function mainmast(g) {
+  const { x, z } = MOUNT_SEATS.mast;
+  const foot = richelieuSeatY(x, z);
+  const top = foot + 12.5;
+  cyl(g, M.steelDark, 0.55, 0.62, 0.5, x, foot + 0.25, z, 14);
+  spar(g, M.steel, [x, foot + 0.4, z], [x, top, z], 0.34, 0.11, 12);
+  cyl(g, M.steelDark, 0.4, 0.4, 0.25, x, foot + 7.5, z, 12);
+  const yardY = foot + 9.5;
+  for (const sgn of [-1, 1]) {
+    spar(g, M.steel, [x, yardY, z], [x + sgn * 4.8, yardY + 0.1, z], 0.13, 0.05);
+    cyl(g, M.steelDark, 0.11, 0.11, 0.3, x + sgn * 4.4, yardY + 0.25, z, 8);
+  }
+  spar(g, M.steel, [x, foot + 8.0, z - 0.25], [x, foot + 11.2, z - 4.6], 0.1, 0.05);
+  cyl(g, M.steelDark, 0.14, 0.16, 0.4, x, top + 0.2, z, 8);
+}
+
 // ------------------------------------------------------------ her armour --
 
 /**
@@ -654,6 +677,7 @@ const STATIC = [
   ['hangar', hangarAndCrane],
   ['break', theBreak],
   ['fittings', weatherDeck],
+  ['mast', mainmast],
   ['armour', armour],
   ['screws', screws],
 ];

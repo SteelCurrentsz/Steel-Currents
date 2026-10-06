@@ -257,6 +257,136 @@ export function wires(m, {
   return out;
 }
 
+// ---- spars a sculpt melted --------------------------------------------------------
+/**
+ * The spars, yards and aerials a sculpt fused into her and the decimator then
+ * left as fat bars -- too thick for `wires`, which looks for faces back to
+ * back. Her surface is sampled into cells `cell` across, and round each face
+ * the cells within `r` of it are taken: a spar's run out along one line, a
+ * wall's or a deck's spread over a sheet, so where the second spread of them
+ * is less than `lin` of the first the face is on a spar. A run of such faces
+ * `minLen` long or more is marked -- but not one running within `vert` of
+ * straight up, which is a mast or a staff, and only where `only(x, y, z)`
+ * says, at each face.
+ *
+ * Returns one byte a triangle, set on the spars.
+ */
+export function slender(m, {
+  r = 2, cell = 0.2, lin = 0.2, minLen = 3, vert = 0.94, only = () => true,
+} = {}) {
+  const { P, T } = m;
+  const nf = T.length / 3;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < P.length; i += 3) {
+    for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], P[i + k]); hi[k] = Math.max(hi[k], P[i + k]); }
+  }
+  const pad = r + cell;
+  const gx = Math.ceil((hi[0] - lo[0] + 2 * pad) / cell), gy = Math.ceil((hi[1] - lo[1] + 2 * pad) / cell);
+  const gz = Math.ceil((hi[2] - lo[2] + 2 * pad) / cell);
+  const occ = new Uint8Array(gx * gy * gz);
+  const cellOf = (x, y, z) => [
+    Math.floor((x - lo[0] + pad) / cell), Math.floor((y - lo[1] + pad) / cell), Math.floor((z - lo[2] + pad) / cell)];
+  for (let t = 0; t < nf; t++) {
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, d = T[t * 3 + 2] * 3;
+    const len = Math.max(Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]),
+      Math.hypot(P[d] - P[a], P[d + 1] - P[a + 1], P[d + 2] - P[a + 2]),
+      Math.hypot(P[d] - P[b], P[d + 1] - P[b + 1], P[d + 2] - P[b + 2]));
+    const n = Math.max(1, Math.ceil(len / (cell / 2)));
+    for (let u = 0; u <= n; u++) {
+      for (let v = 0; v <= n - u; v++) {
+        const fu = u / n, fv = v / n;
+        const [i, j, k] = cellOf(P[a] + (P[b] - P[a]) * fu + (P[d] - P[a]) * fv,
+          P[a + 1] + (P[b + 1] - P[a + 1]) * fu + (P[d + 1] - P[a + 1]) * fv,
+          P[a + 2] + (P[b + 2] - P[a + 2]) * fu + (P[d + 2] - P[a + 2]) * fv);
+        occ[(k * gy + j) * gx + i] = 1;
+      }
+    }
+  }
+  const mid = (t) => [0, 1, 2].map((k) => (P[T[t * 3] * 3 + k] + P[T[t * 3 + 1] * 3 + k] + P[T[t * 3 + 2] * 3 + k]) / 3);
+  const reach = Math.ceil(r / cell);
+  const seen = new Map();
+  /** [second spread over first, how near straight up the first runs] about cell (i, j, k). */
+  const spread = (i0, j0, k0) => {
+    const key = (k0 * gy + j0) * gx + i0;
+    if (seen.has(key)) return seen.get(key);
+    let n = 0, sx = 0, sy = 0, sz = 0, xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+    for (let i = -reach; i <= reach; i++) {
+      for (let j = -reach; j <= reach; j++) {
+        for (let k = -reach; k <= reach; k++) {
+          if (i * i + j * j + k * k > reach * reach || !occ[((k0 + k) * gy + j0 + j) * gx + i0 + i]) continue;
+          n++; sx += i; sy += j; sz += k;
+          xx += i * i; xy += i * j; xz += i * k; yy += j * j; yz += j * k; zz += k * k;
+        }
+      }
+    }
+    sx /= n; sy /= n; sz /= n;
+    const e = eigen3([xx / n - sx * sx, xy / n - sx * sy, xz / n - sx * sz, yy / n - sy * sy, yz / n - sy * sz, zz / n - sz * sz]);
+    const out = [e[1].value / Math.max(1e-9, e[0].value), Math.abs(e[0].vector[1])];
+    seen.set(key, out);
+    return out;
+  };
+  const thin = new Uint8Array(nf);
+  for (let t = 0; t < nf; t++) {
+    const c = mid(t);
+    if (!only(c[0], c[1], c[2])) continue;
+    const [ratio, up] = spread(...cellOf(c[0], c[1], c[2]));
+    if (ratio < lin && up < vert) thin[t] = 1;
+  }
+  const canon = weld(m);
+  const ek = (a, b) => (a < b ? a * 1e7 + b : b * 1e7 + a);
+  const byEdge = new Map();
+  for (let t = 0; t < nf; t++) {
+    if (!thin[t]) continue;
+    for (let j = 0; j < 3; j++) {
+      const k = ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]);
+      if (!byEdge.has(k)) byEdge.set(k, []);
+      byEdge.get(k).push(t);
+    }
+  }
+  const done = new Uint8Array(nf);
+  const out = new Uint8Array(nf);
+  for (let t0 = 0; t0 < nf; t0++) {
+    if (!thin[t0] || done[t0]) continue;
+    const run = [t0];
+    done[t0] = 1;
+    for (let q = 0; q < run.length; q++) {
+      const t = run[q];
+      for (let j = 0; j < 3; j++) {
+        for (const u of byEdge.get(ek(canon[T[t * 3 + j]], canon[T[t * 3 + (j + 1) % 3]]))) {
+          if (!done[u]) { done[u] = 1; run.push(u); }
+        }
+      }
+    }
+    const a = [Infinity, Infinity, Infinity], b = [-Infinity, -Infinity, -Infinity];
+    for (const t of run) {
+      const c = mid(t);
+      for (let k = 0; k < 3; k++) { a[k] = Math.min(a[k], c[k]); b[k] = Math.max(b[k], c[k]); }
+    }
+    if (Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) < minLen) continue;
+    for (const t of run) out[t] = 1;
+  }
+  return out;
+}
+
+/** The eigenvalues of a symmetric 3x3 [xx, xy, xz, yy, yz, zz], largest first, each with its vector. */
+function eigen3([xx, xy, xz, yy, yz, zz]) {
+  const a = [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]];
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 30; sweep++) {
+    let p = 0, q = 1;
+    if (Math.abs(a[0][2]) > Math.abs(a[p][q])) { p = 0; q = 2; }
+    if (Math.abs(a[1][2]) > Math.abs(a[p][q])) { p = 1; q = 2; }
+    if (Math.abs(a[p][q]) < 1e-12) break;
+    const th = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p]);
+    const c = Math.cos(th), s = Math.sin(th);
+    for (const row of a) { const ap = row[p], aq = row[q]; row[p] = c * ap - s * aq; row[q] = s * ap + c * aq; }
+    for (let k = 0; k < 3; k++) { const ap = a[p][k], aq = a[q][k]; a[p][k] = c * ap - s * aq; a[q][k] = s * ap + c * aq; }
+    for (const row of v) { const vp = row[p], vq = row[q]; row[p] = c * vp - s * vq; row[q] = s * vp + c * vq; }
+  }
+  return [0, 1, 2].map((i) => ({ value: a[i][i], vector: [v[0][i], v[1][i], v[2][i]] }))
+    .sort((p, q) => q.value - p.value);
+}
+
 // ---- flaps ------------------------------------------------------------------------
 /**
  * The flaps a sculpt tears in its upperworks: a sheet thinner than `r`, two

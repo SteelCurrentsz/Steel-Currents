@@ -96,7 +96,9 @@ import { bismarckSurfaceY } from '../client/js/render/bismarckHull.js';
 import {
   buildRichelieu, richelieuParts, CAT_Z as RICHELIEU_CAT_Z, deckEdge as richelieuDeckEdge, BREAK_Z as RICHELIEU_BREAK_Z,
 } from '../client/js/render/richelieu.js';
-import { richelieuSurfaceY, MOUNT_SEATS as RICHELIEU_SEATS } from '../client/js/render/richelieuHull.js';
+import {
+  richelieuSurfaceY, MOUNT_SEATS as RICHELIEU_SEATS, buildRichelieuHull,
+} from '../client/js/render/richelieuHull.js';
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
@@ -2135,6 +2137,43 @@ check('the Richelieu is built the same on both sides', () => {
   }
   assert.ok(list.length > 100, `only ${list.length} pieces of her were compared`);
   assert.equal(lone.length, 0, `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
+});
+
+check('the open air between the Richelieu\'s tower and her mack is clear, and her mainmast stands on her mack', () => {
+  // The upperworks sculpt fused her aerials, a yard and the struts it hung off
+  // into her as bars a metre thick slung between her tower and her mack, and
+  // melted the pole mast on her mack together with its yards. They come off
+  // (RIGGED in build/prepare-richelieu-hull.mjs), and the mast is stepped
+  // afresh. The gap is taken half a metre inside where they were cut.
+  const g = new THREE.Group();
+  buildRichelieuHull(g);
+  g.updateMatrixWorld(true);
+  const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  let left = 0;
+  let first = '';
+  g.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position;
+    const idx = o.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i += 3) {
+      v.forEach((p, k) => p.fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(o.matrixWorld));
+      const y = (v[0].y + v[1].y + v[2].y) / 3;
+      const z = (v[0].z + v[1].z + v[2].z) / 3;
+      if (z > -33.3 && z < -23.1 && y > 21.1) {
+        if (!left) first = `${y.toFixed(1)} m up at ${z.toFixed(1)} m`;
+        left++;
+      }
+    }
+  });
+  assert.equal(left, 0, `${left} triangles of rigging are left between her tower and her mack, first ${first}`);
+  const mast = richelieuParts().filter((p) => p.from === 'mast');
+  assert.ok(mast.length > 0, 'she has no mainmast');
+  const foot = Math.min(...mast.map((p) => p.min[1]));
+  const top = Math.max(...mast.map((p) => p.max[1]));
+  const roof = richelieuSurfaceY(RICHELIEU_SEATS.mast.x, RICHELIEU_SEATS.mast.z);
+  assert.ok(Math.abs(foot - roof) < 0.4, `her mainmast stands at ${foot.toFixed(2)} m on a roof at ${roof.toFixed(2)} m`);
+  assert.ok(top > 40, `her mainmast reaches only ${top.toFixed(1)} m`);
 });
 
 check('the elevation her guns are laid at goes over the wire', () => {
