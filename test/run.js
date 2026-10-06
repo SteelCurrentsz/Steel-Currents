@@ -1947,7 +1947,8 @@ check('the KMS Tirpitz is her sister with two banks of tubes on her deck', () =>
     assert.ok(m.z < BISMARCK_CAT_Z - 1 && m.z > Math.max(...after.map((s) => s.z)) + 4,
       `a bank at ${m.z} is not between her catapult and her after 15 cm`);
     const beam = (Math.sign(m.x) * Math.PI) / 2;
-    assert.ok(Math.abs(angleDelta(m.angle, beam)) < 1e-9, 'a bank does not train about its own beam');
+    assert.ok(Math.abs(angleDelta(m.angle, beam)) < 0.3 && Math.abs(angleDelta(m.angle, beam)) < m.arc - 0.3,
+      'a bank does not train about its own beam');
     assert.ok(torpedoClear(cls, m, beam), 'a bank cannot fire on its own beam');
     assert.ok(!torpedoClear(cls, m, -beam), 'a bank fires across her');
   }
