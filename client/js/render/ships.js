@@ -16,7 +16,7 @@ import { buildRodney } from './rodney.js';
 import { buildBaltimore } from './baltimore.js';
 import { buildMassachusetts } from './massachusetts.js';
 import { buildMusashi } from './musashi.js';
-import { buildBismarck } from './bismarck.js';
+import { buildBismarck, buildTirpitz } from './bismarck.js';
 import { buildRichelieu } from './richelieu.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
@@ -557,6 +557,20 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+
+  // And her sister, drawn off her model with her tubes on her deck.
+  if (cls.id === 'tirpitz') {
+    const built = buildTirpitz();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
     };
   }
 

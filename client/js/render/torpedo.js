@@ -366,6 +366,8 @@ export class Torpedoes {
     const live = new Set();
     let n = 0;
     for (const tp of list) {
+      // Not in the water yet: her model is drawing it leaving the tube.
+      if (tp.a) continue;
       live.add(tp.i);
       let tr = this.tracks.get(tp.i);
       if (!tr) {

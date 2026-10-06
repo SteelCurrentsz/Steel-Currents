@@ -90,7 +90,8 @@ import { musashiSurfaceY } from '../client/js/render/musashiHull.js';
 /** How far out the Musashi's side is at her aircraft deck, at z. */
 const musashiHalfBeam = (z) => musashiShellAt((2 * z) / MUSASHI_LOA, 5.0);
 import {
-  buildBismarck, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge, builtDeckY as bismarckBuiltDeckY,
+  buildBismarck, buildTirpitz, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge,
+  builtDeckY as bismarckBuiltDeckY,
 } from '../client/js/render/bismarck.js';
 import {
   bismarckSurfaceY, buildBismarckHull, MOUNT_SEATS as BISMARCK_SEATS,
@@ -1570,12 +1571,14 @@ check('the Musashi is commissioned after her sister', () => {
   assert.equal(SHIP_ORDER[i + 1], 'musashi', `after the Yamato comes ${SHIP_ORDER[i + 1]}`);
 });
 
-check('the KMS Bismarck is commissioned before the Rodney', () => {
-  // The two met on the morning of 27 May 1941. She comes into the yard
-  // immediately ahead of the battleship that closed her to three miles.
+check('the KMS Bismarck is commissioned before her sister, and her sister before the Rodney', () => {
+  // The two met on the morning of 27 May 1941. She comes into the yard with
+  // her sister Tirpitz immediately behind her, and then the battleship that
+  // closed her to three miles.
   const i = SHIP_ORDER.indexOf('bismarck');
   assert.ok(i >= 0, 'the Bismarck is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'rodney', `after the Bismarck comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'tirpitz', `after the Bismarck comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'rodney', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.bismarck;
   assert.equal(cls.fullName, 'KMS Bismarck');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -1583,14 +1586,17 @@ check('the KMS Bismarck is commissioned before the Rodney', () => {
   assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8, 'she does not carry eight 38 cm');
 });
 
-check('every gun on the Bismarck trains inside its stops and fires only where her fire clears her', () => {
-  // What is true of her whatever the survey makes of the model. Anton and
-  // Bruno are forward of her tower and Caesar and Dora abaft her after
-  // superstructure, so neither pair fires flat through her, and all four bear
-  // on either beam. Her six 15 cm are three a side on her upper deck, and none
-  // of them bears across her; her sixteen 10.5 cm are in eight twins, four a
-  // side, each of which fires flat on its own beam and up at an aeroplane.
-  const cls = SHIP_CLASSES.bismarck;
+/**
+ * What is true of the Bismarck, and of her sister, whatever the survey makes
+ * of the model. Anton and Bruno are forward of her tower and Caesar and Dora
+ * abaft her after superstructure, so neither pair fires flat through her, and
+ * all four bear on either beam. Her six 15 cm are three a side on her upper
+ * deck, and none of them bears across her; her sixteen 10.5 cm are in eight
+ * twins, four a side, each of which fires flat on its own beam and up at an
+ * aeroplane.
+ */
+function bismarckGunsHold(id) {
+  const cls = SHIP_CLASSES[id];
   const close = solveBallistic(cls.gun, 2500, 12).elev;
   const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
   assert.deepEqual(cls.turrets.map((t) => t.name), ['Anton', 'Bruno', 'Caesar', 'Dora']);
@@ -1636,18 +1642,24 @@ check('every gun on the Bismarck trains inside its stops and fires only where he
   for (const row of cls.datasheet.tertiary) {
     assert.equal(barrels(row.caliber), row.barrels, `her datasheet lists ${row.barrels} ${row.label}`);
   }
-  surveyedArcsHold('bismarck');
+  surveyedArcsHold(id);
+}
+
+check('every gun on the Bismarck trains inside its stops and fires only where her fire clears her', () => {
+  bismarckGunsHold('bismarck');
 });
 
-check('the Bismarck\'s gunhouses clear her superstructure wherever they train', () => {
-  // Her 15 cm turrets stand in wells cut back into her deckhouse and her
-  // 10.5 cm on platforms round her funnel and her after superstructure; the
-  // back of a gunhouse swings a circle as it trains, and anywhere inside its
-  // arc it must not go into her plating. A point of a gunhouse is inside her
-  // where the first face straight over it is the top of something seen from
-  // underneath -- which is also how an overhang over a well is told from a
-  // wall in it.
-  const built = buildBismarck();
+/**
+ * Her 15 cm turrets stand in wells cut back into her deckhouse and her 10.5 cm
+ * on platforms round her funnel and her after superstructure; the back of a
+ * gunhouse swings a circle as it trains, and anywhere inside its arc it must
+ * not go into her plating. A point of a gunhouse is inside her where the first
+ * face straight over it is the top of something seen from underneath -- which
+ * is also how an overhang over a well is told from a wall in it. Her sister's
+ * banks of tubes, which swing the same way, likewise.
+ */
+function bismarckHousesClear(id) {
+  const built = id === 'tirpitz' ? buildTirpitz() : buildBismarck();
   const g = built.group;
   g.updateMatrixWorld(true);
   const solids = [];
@@ -1668,10 +1680,11 @@ check('the Bismarck\'s gunhouses clear her superstructure wherever they train', 
     const hit = rc.intersectObjects(solids, false)[0];
     return !!hit && hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.2;
   };
-  const cls = SHIP_CLASSES.bismarck;
+  const cls = SHIP_CLASSES[id];
   const mounts = [
     ...cls.secondary.mounts.map((spec, i) => [spec, built.secMounts[i], '15 cm']),
     ...cls.aa.guns[0].mounts.map((spec, i) => [spec, built.aaMounts[i], '10.5 cm']),
+    ...(cls.torpedoes ? cls.torpedoes.mounts : []).map((spec, i) => [spec, built.torpMounts[i], 'bank of tubes']),
   ];
   const bad = [];
   try {
@@ -1704,6 +1717,10 @@ check('the Bismarck\'s gunhouses clear her superstructure wherever they train', 
     [...mats].forEach((q, k) => { q.side = was[k]; });
   }
   assert.equal(bad.length, 0, `${bad.length} gunhouse positions go into her: ${bad.slice(0, 4).join('; ')}`);
+}
+
+check('the Bismarck\'s gunhouses clear her superstructure wherever they train', () => {
+  bismarckHousesClear('bismarck');
 });
 
 check('a layer standing at a Bismarck gun looks out over it, round its arc and nowhere else', () => {
@@ -1718,12 +1735,16 @@ check('a layer standing at a Bismarck gun looks out over it, round its arc and n
   }
 });
 
-check('the Bismarck throws an Arado off either beam from her double catapult, on the simulation\'s clock', () => {
+/**
+ * The Bismarck -- or her sister, whose catapult shares its clock with her
+ * tubes -- throws an Arado off either beam from her double catapult.
+ */
+function bismarckThrowsArados(id) {
   // One girder athwart her abaft her funnel, fixed: a car either side of her
   // centreline with an Arado on it facing out over her side, each thrown off
   // its own end. Nothing trains. The Arado leaves the beam her car was on, on
   // the tick the simulation puts her flight on the plot, where it puts it.
-  const built = buildBismarck();
+  const built = id === 'tirpitz' ? buildTirpitz() : buildBismarck();
   const g = built.group;
   const deck = g.userData.deck;
   const cats = deck.cats;
@@ -1757,19 +1778,19 @@ check('the Bismarck throws an Arado off either beam from her double catapult, on
       assert.ok(athwart(), 'her catapult trained, and it is a fixed one');
       if (deck.airborne && away === null) away = t - t0;
     }
-    const want = SHIP_CLASSES.bismarck.planes.deckRun;
+    const want = SHIP_CLASSES[id].planes.deckRun;
     assert.ok(away !== null && Math.abs(away - want) < 0.2,
       `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${want}s on the plot`);
     assert.ok(deck.endMatrix, 'nothing latched where the shot left her');
     const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
-    const off = launchOffset(SHIP_CLASSES.bismarck, n === 0 ? -1 : 1);
+    const off = launchOffset(SHIP_CLASSES[id], n === 0 ? -1 : 1);
     const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
     assert.ok(Math.sign(end.x) === Math.sign(Math.sin(live.group.rotation.y)),
       'the Arado went off the other beam from the one her car faced');
     assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
       `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
       + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
-    assert.ok(Math.abs(end.y - SHIP_CLASSES.bismarck.planes.runHeight) < 3,
+    assert.ok(Math.abs(end.y - SHIP_CLASSES[id].planes.runHeight) < 3,
       `the shot leaves her ${end.y.toFixed(1)} m up`);
     shots.push(live);
     g.userData.recover();
@@ -1777,6 +1798,10 @@ check('the Bismarck throws an Arado off either beam from her double catapult, on
     for (const c of cats) assert.ok(!c.gone && c.plane.visible, 'she never got her Arado back');
   }
   assert.notEqual(shots[0], shots[1], 'she shot both Arados off the same end of her catapult');
+}
+
+check('the Bismarck throws an Arado off either beam from her double catapult, on the simulation\'s clock', () => {
+  bismarckThrowsArados('bismarck');
 });
 
 check('the Bismarck launches her scouts, and nothing flies before she has shot it off', () => {
@@ -1794,10 +1819,13 @@ check('the Bismarck launches her scouts, and nothing flies before she has shot i
   assert.ok(state.planes.every((p) => p.torp === 0), 'her Arados went off carrying torpedoes');
 });
 
-check('the Bismarck is built the same on both sides', () => {
-  // Her hull and forward superstructure are the sculpts, checked slice by
-  // slice; everything built on her is paired with its opposite number.
-  const parts = bismarckParts();
+/**
+ * Her hull and forward superstructure are the sculpts, checked slice by
+ * slice; everything built on her is paired with its opposite number. And her
+ * sister's.
+ */
+function bismarckBuiltAlike(id) {
+  const parts = bismarckParts(id);
   const slices = parts.filter((p) => p.from === 'hullModel');
   assert.ok(slices.length >= 40, `only ${slices.length} slices of her hull were found`);
   for (const p of slices) {
@@ -1829,6 +1857,10 @@ check('the Bismarck is built the same on both sides', () => {
   }
   assert.ok(list.length > 150, `only ${list.length} pieces of her were compared`);
   assert.equal(lone.length, 0, `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
+}
+
+check('the Bismarck is built the same on both sides', () => {
+  bismarckBuiltAlike('bismarck');
 });
 
 check('the deck runs in under the Bismarck\'s forward 15 cm, planked and whole', () => {
@@ -1874,6 +1906,242 @@ check('the deck runs in under the Bismarck\'s forward 15 cm, planked and whole',
   }
   assert.ok(n > 200, `only ${n} points round her 15 cm were looked at`);
   assert.equal(bad.length, 0, `${bad.length} of ${n} points round her 15 cm are not her deck: ${bad.slice(0, 4).join('; ')}`);
+});
+
+check('the KMS Tirpitz is her sister with two banks of tubes on her deck', () => {
+  // Commissioned straight after her, and the same ship in every respect but
+  // the quadruple tubes she was given in 1942 and her after 15 cm, which stand
+  // further aft to make room for them -- a little, not out of her.
+  const cls = SHIP_CLASSES.tirpitz;
+  const her = SHIP_CLASSES.bismarck;
+  assert.equal(cls.fullName, 'KMS Tirpitz');
+  assert.equal(cls.className, her.className, 'she is not a Bismarck');
+  assert.equal(cls.type, 'BB');
+  assert.equal(cls.nation, 'ger');
+  for (const k of ['hull', 'hp', 'maxSpeed', 'reverseSpeed', 'accel', 'turnRate', 'rudderShift', 'armor', 'concealment',
+    'radarRange', 'planes']) {
+    assert.deepEqual(cls[k], her[k], `her ${k} is not her sister's`);
+  }
+  assert.deepEqual(cls.turrets.map((t) => [t.name, t.x, t.z, t.guns]), her.turrets.map((t) => [t.name, t.x, t.z, t.guns]),
+    'her main battery is not her sister\'s');
+  assert.deepEqual(cls.gun, her.gun, 'her 38 cm are not her sister\'s');
+  for (const [i, g] of cls.aa.guns.entries()) {
+    assert.deepEqual(g.mounts.map((m) => [m.x, m.z, m.guns]), her.aa.guns[i].mounts.map((m) => [m.x, m.z, m.guns]),
+      `her ${g.name} do not stand where her sister's do`);
+  }
+  const moved = cls.secondary.mounts.map((m, i) => [m, her.secondary.mounts[i]]).filter(([a, b]) => a.z !== b.z);
+  assert.equal(moved.length, 2, `${moved.length} of her 15 cm are not where her sister's are`);
+  for (const [a, b] of moved) {
+    assert.equal(a.x, b.x, 'her after 15 cm moved across her');
+    assert.ok(b.z < 0 && a.z < b.z && b.z - a.z < 7, `her after 15 cm went from ${b.z} to ${a.z}, not a little aft`);
+  }
+  // Her tubes: two banks of four, one either side between her catapult and
+  // her after 15 cm, each training out over its own beam.
+  const T = cls.torpedoes;
+  assert.ok(T && T.mounts.length === 2 && T.mounts.every((m) => m.tubes === 4), 'she has not two banks of four tubes');
+  assert.equal(T.caliber, 533);
+  assert.equal(cls.datasheet.torpedoesCarried, 24);
+  assert.equal(her.torpedoes, null, 'her sister has been given tubes too');
+  const after = cls.secondary.mounts.filter((m) => m.z < 0);
+  for (const m of T.mounts) {
+    assert.ok(m.z < BISMARCK_CAT_Z - 1 && m.z > Math.max(...after.map((s) => s.z)) + 4,
+      `a bank at ${m.z} is not between her catapult and her after 15 cm`);
+    const beam = (Math.sign(m.x) * Math.PI) / 2;
+    assert.ok(Math.abs(angleDelta(m.angle, beam)) < 1e-9, 'a bank does not train about its own beam');
+    assert.ok(torpedoClear(cls, m, beam), 'a bank cannot fire on its own beam');
+    assert.ok(!torpedoClear(cls, m, -beam), 'a bank fires across her');
+  }
+});
+
+check('every gun and bank of tubes on the Tirpitz trains inside its stops and fires only where her fire clears her', () => {
+  bismarckGunsHold('tirpitz');
+});
+
+check('the Tirpitz\'s gunhouses and her banks of tubes clear her wherever they train', () => {
+  bismarckHousesClear('tirpitz');
+  // And each other: a bank swings its breech in towards her after 15 cm as it
+  // trains forward, and the gunhouse swings its back past the bank.
+  const built = buildTirpitz();
+  const cls = SHIP_CLASSES.tirpitz;
+  const cloud = (m) => {
+    const node = m.userData.gunNode;
+    const pts = [];
+    m.traverse((o) => {
+      if (!o.isMesh) return;
+      for (let q = o; q && q !== m; q = q.parent) if (q === node && node !== m) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 3) pts.push([o, new THREE.Vector3().fromBufferAttribute(pos, i)]);
+    });
+    return pts;
+  };
+  const RAD = Math.PI / 180;
+  for (const [i, spec] of cls.torpedoes.mounts.entries()) {
+    const bank = built.torpMounts[i];
+    const k = cls.secondary.mounts.findIndex((s) => Math.sign(s.x) === Math.sign(spec.x) && s.z < 0);
+    const gun = built.secMounts[k];
+    const sspec = cls.secondary.mounts[k];
+    const A = cloud(bank);
+    const B = cloud(gun);
+    let best = Infinity;
+    for (let a = -spec.arc; a <= spec.arc + 1e-9; a += 10 * RAD) {
+      bank.rotation.y = spec.angle + a;
+      bank.updateMatrixWorld(true);
+      const pa = A.map(([o, p]) => p.clone().applyMatrix4(o.matrixWorld));
+      for (let b = -sspec.arc; b <= sspec.arc + 1e-9; b += 10 * RAD) {
+        gun.rotation.y = sspec.angle + b;
+        gun.updateMatrixWorld(true);
+        for (const [o, p] of B) {
+          const v = p.clone().applyMatrix4(o.matrixWorld);
+          for (const u of pa) best = Math.min(best, u.distanceTo(v));
+        }
+      }
+    }
+    assert.ok(best > 0.15, `bank ${i} comes within ${best.toFixed(2)} m of the 15 cm abaft it`);
+  }
+});
+
+check('a layer standing at a Tirpitz gun or bank of tubes looks out over it, round its arc and nowhere else', () => {
+  const { b, cls } = layerLooksOut('tirpitz');
+  for (const [kind, specs] of [['main', cls.turrets], ['sec', cls.secondary.mounts], ['torp', cls.torpedoes.mounts]]) {
+    specs.forEach((spec, i) => {
+      b.gun = { kind, id: i, spec };
+      const start = b.gunStartBearing();
+      assert.ok(Math.abs(angleDelta(spec.angle, start)) <= spec.arc && layFloor(spec.mask, start) < 0.1,
+        `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
+    });
+  }
+});
+
+/**
+ * A Tirpitz on her own on an empty sea, heading north, with her port bank
+ * trained round on a target on her beam and fired. What her fish did, step by
+ * step, in her own frame: where each was, and whether it was still aboard.
+ */
+function tirpitzFires() {
+  const world = generateWorld(4243, 'open_ocean');
+  world.islands = [];
+  const state = createState(world, { mode: 'deathmatch' });
+  const t = addShip(state, { name: 'T', classId: 'tirpitz', team: 0, index: 0 });
+  t.x = 0; t.z = 0; t.heading = 0;
+  t.aimX = 5000; t.aimZ = 0;
+  for (let i = 0; i < 30 * 15; i++) step(state, DT);
+  const before = state.torps.length;
+  const launched = fireTorpedoes(state, t);
+  const fish = state.torps.slice(before);
+  const local = (tp) => {
+    const dx = tp.x - t.x, dz = tp.z - t.z;
+    const c = Math.cos(t.heading), sn = Math.sin(t.heading);
+    return { x: dx * c - dz * sn, z: dx * sn + dz * c };
+  };
+  const track = fish.map((tp) => [{ ...local(tp), aboard: !!tp.aboard, t: 0 }]);
+  const events = [];
+  const snaps = [buildSnapshot(state, 0, t.id)];
+  for (let k = 1; k <= 30 * 6; k++) {
+    events.push(...step(state, DT));
+    fish.forEach((tp, i) => track[i].push({ ...local(tp), aboard: !!tp.aboard, t: k * DT }));
+    if (k === 45) snaps.push(buildSnapshot(state, 0, t.id));
+  }
+  return { state, t, launched, fish, track, events, snaps, bank: t.torpMounts[1] };
+}
+
+check('a Tirpitz torpedo is blown out of its tube and over her side before it runs', () => {
+  const cls = SHIP_CLASSES.tirpitz;
+  const T = cls.torpedoes;
+  const L = T.launch;
+  const spec = T.mounts[1];
+  const { launched, fish, track, events, snaps, bank } = tirpitzFires();
+  assert.equal(launched, 4, `her port bank fired ${launched} fish at a target on her port beam`);
+  assert.ok(Math.abs(angleDelta(bank.angle, Math.PI / 2)) < 0.06, 'her port bank did not come round on her beam');
+  fish.forEach((tp, i) => {
+    const path = track[i];
+    // It starts in its own tube: on the line of the tube, the bank's reach
+    // from its training ring at most, and aboard.
+    const p0 = path[0];
+    assert.ok(p0.aboard, `fish ${i} was put straight into the sea`);
+    assert.ok(Math.hypot(p0.x - spec.x, p0.z - spec.z) < T.reach, `fish ${i} started outside her tubes`);
+    const off = (p0.x - spec.x) * Math.cos(bank.angle) - (p0.z - spec.z) * Math.sin(bank.angle);
+    assert.ok(Math.abs(off - L.lanes[i]) < 0.05, `fish ${i} is ${off.toFixed(2)} across the bank, not in tube ${i}`);
+    // Then it goes out along it, a tube after the one before, and while it is
+    // aboard it is carried with her and nothing else.
+    const out = path.findIndex((q) => !q.aboard);
+    assert.ok(out > 0, `fish ${i} never went into the sea`);
+    const want = i * L.stagger + (L.muzzle - L.lie) / L.eject + Math.sqrt((2 * L.height) / 9.80665);
+    assert.ok(Math.abs(path[out].t - want) < 2 * DT, `fish ${i} went in at ${path[out].t.toFixed(2)}s, not ${want.toFixed(2)}s`);
+    // Into the sea clear of her side, and on out from there on its own course.
+    const edge = bismarckDeckEdge(path[out].z);
+    assert.ok(path[out].x > edge + 8, `fish ${i} went in ${(path[out].x - edge).toFixed(1)} m off her side`);
+    const last = path[path.length - 1];
+    assert.ok(!last.aboard && last.x > path[out].x + 30, `fish ${i} did not run on from where it went in`);
+  });
+  // None of it in the water on the plot until it is: a fish aboard is
+  // flagged, and is drawn by her model rather than on the sea.
+  assert.equal(snaps[0].torps.filter((x) => x.a).length, 4, 'a fish in its tube is on the plot as running');
+  const wet = snaps[1].torps.filter((x) => !x.a).length;
+  assert.ok(wet >= 1 && wet < 4, `${wet} of her fish were in the sea a second and a half on`);
+  assert.ok(!events.some((e) => e.e === 'torpHit'), 'a fish of hers hit something');
+});
+
+check('the fish her model throws out of her tubes go into the sea where the simulation\'s go in', () => {
+  // The torpedoes the simulation launches are drawn by her model until they
+  // are in the water -- out of each tube in turn and over her side -- so the
+  // model has to put each one in where the simulation does, when it does.
+  const cls = SHIP_CLASSES.tirpitz;
+  const T = cls.torpedoes;
+  const L = T.launch;
+  const built = buildTirpitz();
+  const g = built.group;
+  assert.equal(built.torpMounts.length, 2, 'her model has not two banks of tubes');
+  built.torpMounts.forEach((m, i) => {
+    assert.ok(Math.abs(m.position.x - T.mounts[i].x) < 1e-6 && Math.abs(m.position.z - T.mounts[i].z) < 1e-6,
+      `bank ${i} is drawn away from where her datasheet puts it`);
+    const bores = m.userData.bores;
+    assert.deepEqual(bores.map((b) => +b[0].toFixed(3)), L.lanes, `bank ${i}'s tubes are not where her launch says`);
+    for (const [, y, breech, muzzle] of bores) {
+      assert.ok(Math.abs(muzzle - L.muzzle) < 0.01, `a muzzle of bank ${i} is at ${muzzle}, not ${L.muzzle}`);
+      assert.ok(breech < L.lie - 2.5, 'a fish does not lie inside its tube');
+      assert.ok(Math.abs(m.position.y + y - L.height) < 0.05,
+        `bank ${i}'s tubes are ${(m.position.y + y).toFixed(2)} m up, and the simulation drops its fish from ${L.height}`);
+    }
+  });
+  const { fish, track, bank } = tirpitzFires();
+  const port = built.torpMounts[1];
+  port.rotation.y = bank.angle;
+  g.updateMatrixWorld(true);
+  g.userData.step(0);
+  g.userData.fireTubes(1, 0);
+  const drops = [];
+  const box = new THREE.Box3().setFromObject(port);
+  const seen = [];
+  for (let k = 0; k <= 600 && drops.length < 4; k++) {
+    const t = k / 120;
+    g.userData.step(t);
+    for (const p of g.userData.dropped.splice(0)) drops.push({ p, t });
+    // Each comes out of the bank: it is first seen inside it, and leaves it.
+    port.userData.fish.forEach((f, i) => {
+      if (f.visible && seen[i] === undefined) seen[i] = box.containsPoint(f.position);
+    });
+  }
+  assert.equal(drops.length, 4, `${drops.length} of her fish went into the sea off her model`);
+  assert.deepEqual(seen, [true, true, true, true], 'a fish was first seen outside the tubes it was fired from');
+  fish.forEach((tp, i) => {
+    const path = track[i];
+    const out = path.find((q) => !q.aboard);
+    const d = drops[i];
+    assert.ok(Math.hypot(d.p.x - out.x, d.p.z - out.z) < 0.8,
+      `fish ${i} goes in at ${d.p.x.toFixed(1)}, ${d.p.z.toFixed(1)} on her model and `
+      + `${out.x.toFixed(1)}, ${out.z.toFixed(1)} in the simulation`);
+    assert.ok(Math.abs(d.t - out.t) < 2 * DT, `fish ${i} goes in at ${d.t.toFixed(2)}s on her model and ${out.t.toFixed(2)}s`);
+  });
+  // And the catapult that shares her clock still works.
+  assert.equal(typeof g.userData.launch, 'function', 'her catapult has no launch on it');
+});
+
+check('the Tirpitz throws an Arado off either beam from her double catapult, on the simulation\'s clock', () => {
+  bismarckThrowsArados('tirpitz');
+});
+
+check('the Tirpitz is built the same on both sides', () => {
+  bismarckBuiltAlike('tirpitz');
 });
 
 check('the FS Richelieu is commissioned before the Bismarck', () => {
@@ -2307,7 +2575,8 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
     const b = buildShip(id);
@@ -2360,7 +2629,8 @@ check('a shell leaves the muzzle it was fired from', () => {
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
     b.group.updateMatrixWorld(true);
@@ -2405,7 +2675,8 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
     assert.ok(view.screws.length >= 2,
@@ -7395,7 +7666,7 @@ check('a destroyer works in a sea her betters walk through', () => {
   // sixty-six metres and six of beam, and she works in a sea a destroyer
   // rides through.
   const order = ['u48', 'fletcher', 'cleveland', 'spee', 'takao', 'hipper', 'baltimore', 'massachusetts',
-    'rodney', 'enterprise', 'bismarck', 'musashi', 'shinano', 'iowa', 'yamato'];
+    'rodney', 'enterprise', 'bismarck', 'tirpitz', 'musashi', 'shinano', 'iowa', 'yamato'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(roll[order[i]] <= roll[order[i - 1]] + 0.02,
       `${order[i]} rolls ${roll[order[i]].toFixed(2)}deg against `
@@ -9060,7 +9331,8 @@ check('every ship has an inside, and it is inside her', () => {
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const inside = built.group.children.filter((c) => c.isMesh
@@ -9738,7 +10010,7 @@ check('a hole has a torn edge, and she can be holed anywhere on her', () => {
   // them can have a hole cut in them -- there is nothing special about her
   // waterline except that the sea is at it.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi',
-    'bismarck', 'richelieu']) {
+    'bismarck', 'tirpitz', 'richelieu']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const plating = new Plating(built.group);
@@ -9802,7 +10074,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
   // the buffers she is drawn with instead, so the sea in her is the shape of
   // the inside of the ship.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao', 'rodney',
-    'baltimore', 'massachusetts', 'musashi', 'bismarck', 'richelieu']) {
+    'baltimore', 'massachusetts', 'musashi', 'bismarck', 'tirpitz', 'richelieu']) {
     const g = buildShip(id).group;
     g.updateMatrixWorld(true);
     const lines = measureLines(g);
@@ -9837,7 +10109,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // And the Richelieu's sculpt is drawn nearly as full as the Musashi's: a
     // long parallel middle body with her side plumb down to a hard bilge a
     // metre and a half off her keel.
-    const box = id === 'musashi' ? 0.97 : id === 'bismarck' ? 0.995 : id === 'richelieu' ? 0.975 : 0.92;
+    const box = id === 'musashi' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995 : id === 'richelieu' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
 
@@ -9872,7 +10144,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // stands where she is widest, and is wider than at her waterline. It is
     // held to her side at the height it stands to instead. The Richelieu's
     // bulge is widest three metres under her waterline, and the same goes.)
-    if (id === 'bismarck' || id === 'richelieu') {
+    if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));
@@ -11014,7 +11286,8 @@ check('every ship is built out of pieces that can be found again', () => {
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
     assert.ok(f.pieces.length > 400,
@@ -11514,7 +11787,7 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // control positions, so a shell through the front of her bridge opens on to
   // the room rather than on to a lit box. See bridgeInside.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee', 'yamato',
-    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'bismarck', 'richelieu']) {
+    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'bismarck', 'tirpitz', 'richelieu']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;
     const deck = lines.sheer(0);
@@ -11797,7 +12070,8 @@ check('the arsenal says what the gun will go through, and shows where it is', ()
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
     for (const w of rows) {
@@ -12469,7 +12743,8 @@ check('you cannot see straight through a gunhouse', () => {
   // a ray fired at her from either beam has to meet the near side, not the
   // inside of the far one.
   for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
-    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'bismarck', 'richelieu', 'shinano']) {
+    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'bismarck', 'tirpitz', 'richelieu',
+    'shinano']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const rc = new THREE.Raycaster();
@@ -12881,7 +13156,8 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // answers -- as the renderer sees her, and with both faces of everything
   // turned on -- have to agree.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore', 'massachusetts', 'spee',
-    'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const targets = [];
@@ -15698,7 +15974,8 @@ check('from outside her you never see her insides', () => {
   // and every height her hull occupies, and the first thing the eye meets must
   // be the ship and not the inside of the ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'richelieu', 'enterprise', 'shinano']) {
+    'massachusetts', 'spee', 'iowa', 'yamato', 'musashi', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'shinano']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const L = SHIP_CLASSES[id].hull.length;

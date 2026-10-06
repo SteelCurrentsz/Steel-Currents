@@ -3127,14 +3127,34 @@ export function fireTorpedoes(state, ship, only = null) {
     const base = wrapAngle(ship.heading + m.angle);
     for (let i = 0; i < spec.tubes; i++) {
       const off = (i - (spec.tubes - 1) / 2) * (T.spread / Math.max(1, spec.tubes - 1)) * 2;
-      state.torps.push({
+      const tp = {
         id: eid(), owner: ship.id, team: ship.team,
         x: ship.x + pos.x, z: ship.z + pos.z,
         heading: wrapAngle(base + off),
         speed: T.speed, range: T.range, travelled: 0,
         damage: T.damage, detection: T.detection, arming: T.arming,
         flood: T.floodChance,
-      });
+      };
+      if (T.launch) {
+        // A bank standing high on a battleship's deck does not put its fish
+        // in the water where it stands: each one is blown out of its own tube
+        // in turn and goes over her side, and runs from where it falls in.
+        // Until then it is aboard her, in her own frame -- see stepTorpedoes.
+        const L = T.launch;
+        const lane = L.lanes[i % L.lanes.length];
+        const c = Math.cos(m.angle);
+        const sn = Math.sin(m.angle);
+        tp.aboard = {
+          x: spec.x + lane * c + L.lie * sn, z: spec.z - lane * sn + L.lie * c,
+          dx: sn, dz: c, v: L.eject,
+          hold: i * L.stagger,
+          run: (L.muzzle - L.lie) / L.eject + Math.sqrt((2 * L.height) / G),
+        };
+        const at = localToWorld(tp.aboard.x, tp.aboard.z, ship.heading);
+        tp.x = ship.x + at.x;
+        tp.z = ship.z + at.z;
+      }
+      state.torps.push(tp);
       launched++;
     }
     m.cooldown = T.reload;
@@ -3153,6 +3173,32 @@ export function fireTorpedoes(state, ship, only = null) {
 function stepTorpedoes(state, dt) {
   const out = [];
   for (const tp of state.torps) {
+    if (tp.aboard) {
+      // Still in her tube, or in the air between it and the sea: carried
+      // along with her, in her own frame, and harmless. It waits its turn in
+      // the tube, is blown out along it, and drops into the water clear of her
+      // side -- where it is a torpedo, running on the course it was set to.
+      const a = tp.aboard;
+      let t = dt;
+      const wait = Math.min(a.hold, t);
+      a.hold -= wait;
+      t -= wait;
+      if (t > 0) {
+        const run = Math.min(a.run, t);
+        a.x += a.dx * a.v * run;
+        a.z += a.dz * a.v * run;
+        a.run -= run;
+      }
+      const ship = state.ships.find((s) => s.id === tp.owner);
+      if (ship) {
+        const at = localToWorld(a.x, a.z, ship.heading);
+        tp.x = ship.x + at.x;
+        tp.z = ship.z + at.z;
+      }
+      if (a.hold <= 0 && a.run <= 1e-9) tp.aboard = null;
+      out.push(tp);
+      continue;
+    }
     const nx = tp.x + Math.sin(tp.heading) * tp.speed * dt;
     const nz = tp.z + Math.cos(tp.heading) * tp.speed * dt;
     tp.travelled += tp.speed * dt;

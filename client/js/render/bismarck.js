@@ -29,6 +29,14 @@
 //
 // and, inside her, her armour and her interior, fitted to her own lines.
 //
+// Her sister Tirpitz is drawn off the same model (buildTirpitz): the same ship
+// in every respect but the two quadruple banks of 53.3 cm tubes she was given
+// in 1942, on her upper deck either side between her catapult and her after
+// 15 cm, which stand five metres further aft than the Bismarck's to make room
+// for them. The tubes are the owner's sculpt of them, and they train; when one
+// fires, its four fish come out of it one after another and drop over her side
+// into the sea, where the simulation's torpedoes take up the running.
+//
 // Local frame, as everywhere else: +Z is the bow, +Y is up, y = 0 is the
 // waterline, and starboard is -X.
 
@@ -52,6 +60,14 @@ const CLS = SHIP_CLASSES.bismarck;
 export const LOA = CLS.hull.length;
 export const BEAM = CLS.hull.beam;
 export const DRAFT = CLS.hull.draft;
+
+// The two sisters, as they are built here: everything is the Bismarck's
+// unless it says otherwise, and what differs is read off each one's own
+// class -- where her 15 cm stand, and whether she has tubes.
+const SISTERS = {
+  bismarck: { id: 'bismarck', cls: SHIP_CLASSES.bismarck },
+  tirpitz: { id: 'tirpitz', cls: SHIP_CLASSES.tirpitz },
+};
 
 // Her own paints, for everything built here: the light grey she wore over
 // all her upperworks in May 1941, darker on her decks and her fittings.
@@ -329,8 +345,23 @@ function mainBattery(g) {
   return turrets;
 }
 
+/**
+ * Where her 15 cm stand: the seats prepare-bismarck-hull.mjs found for them on
+ * her deck, each where her own class puts it -- which for the Tirpitz's after
+ * pair is five metres abaft her sister's, clear of her tubes.
+ */
+function secondarySeats(v) {
+  const home = CLS.secondary.mounts;
+  return MOUNT_SEATS.secondary.map((s) => {
+    const i = home.findIndex((m) => Math.abs(m.x - s.x) < 0.05 && Math.abs(m.z - s.z) < 0.05);
+    if (i < 0) throw new Error(`no 15 cm of hers stands where the ${s.name} is seated`);
+    const m = v.cls.secondary.mounts[i];
+    return { ...s, x: m.x, z: m.z };
+  });
+}
+
 /** The barbettes her turrets and her 15 cm train on, from her deck up. */
-function barbettes(g) {
+function barbettes(g, v = SISTERS.bismarck) {
   for (const t of MOUNT_SEATS.turrets) {
     const foot = deckOver((2 * t.z) / LOA) - 0.3;
     const top = t.seat - 0.02;
@@ -338,7 +369,7 @@ function barbettes(g) {
     // The coaming round its foot, where it goes through her deck.
     cyl(g, M.steelDark, BARBETTE_R + 0.18, BARBETTE_R + 0.18, 0.5, t.x, foot + 0.3, t.z, 40);
   }
-  for (const s of MOUNT_SEATS.secondary) {
+  for (const s of secondarySeats(v)) {
     const foot = deckOver((2 * s.z) / LOA) - 0.3;
     const top = s.seat - 0.02;
     cyl(g, M.steel, 2.75, 2.75, top - foot, s.x, (top + foot) / 2, s.z, 28);
@@ -381,8 +412,8 @@ function sculpted(g, kind, x, y, z, rest, trainRate, bores = null) {
   return m;
 }
 
-function secondaries(g) {
-  const sec = MOUNT_SEATS.secondary.map((s) => sculpted(g, 'sec', s.x, s.seat, s.z, s.rest, CLS.secondary.traverse));
+function secondaries(g, v) {
+  const sec = secondarySeats(v).map((s) => sculpted(g, 'sec', s.x, s.seat, s.z, s.rest, CLS.secondary.traverse));
   g.userData.secMounts = sec;
   return sec;
 }
@@ -402,8 +433,8 @@ function lightSeat(m, r) {
   return built > 0 ? built : bismarckSeatY(m.x, m.z, r);
 }
 
-function mountings(g) {
-  const sec = secondaries(g);
+function mountings(g, v = SISTERS.bismarck) {
+  const sec = secondaries(g, v);
   const aa = [];
   const lights = lightMounts(CLS);
   for (const gun of CLS.aa.guns) {
@@ -424,9 +455,133 @@ function mountings(g) {
     }
   }
   if (aa.length !== lights.length) throw new Error('the Bismarck built a light battery her datasheet does not list');
+  const T = v.cls.torpedoes;
+  const torp = T ? T.mounts.map((spec) => torpedoBank(g, spec, T.traverse)) : [];
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
-  return { sec, aa };
+  g.userData.torpMounts = torp;
+  return { sec, aa, torp };
+}
+
+// ---------------------------------------------------- the Tirpitz's tubes --
+
+/**
+ * One of the Tirpitz's quadruple banks of 53.3 cm tubes, as the owner
+ * sculpted it (see gunPiece): it trains on its ring on her upper deck, its
+ * four tubes level, and its muzzles are the ends of its tubes.
+ */
+function torpedoBank(g, spec, trainRate) {
+  const piece = gunPiece('tubes');
+  const m = new THREE.Group();
+  m.position.set(spec.x, bismarckSeatY(spec.x, spec.z, 1.6), spec.z);
+  m.rotation.y = spec.angle;
+  m.userData.rest = 0;
+  m.userData.dynamic = true;
+  m.userData.mounting = true;
+  m.userData.name = `${spec.x > 0 ? 'port' : 'starboard'} tubes`;
+  m.userData.trainRate = trainRate;
+  m.add(new THREE.Mesh(piece.house, bismarckMaterials().plating));
+  // Nothing elevates: the cradle is where the tubes' axes are, so that the
+  // muzzles are read off the line the fish leave along.
+  const cradle = new THREE.Group();
+  cradle.position.set(...piece.trunnion);
+  m.add(cradle);
+  arm(m, cradle, piece.bores.map(([x, y, , zm]) => [x, y - piece.trunnion[1], zm]));
+  m.userData.bores = piece.bores;
+  g.add(m);
+  return m;
+}
+
+// Gravity, as the simulation has it, for a fish dropping into the sea.
+const G = 9.80665;
+
+// A G7a, as it comes out of a tube: 53.3 cm across and, here, six metres
+// long, so that it lies wholly in the sculpt's tubes until it is fired; its
+// fins inside its own diameter, as a tube-launched torpedo's are.
+const FISH_LEN = 6.0;
+let fishGeo = null;
+function fishGeometry() {
+  if (fishGeo) return fishGeo;
+  const R = 0.262;
+  const h = FISH_LEN / 2;
+  const prof = [
+    [0, h], [0.12, h - 0.06], [0.2, h - 0.2], [0.25, h - 0.45], [R, h - 0.8],
+    [R, -h + 1.3], [0.2, -h + 0.55], [0.12, -h + 0.18], [0, -h],
+  ].map(([r, z]) => new THREE.Vector2(r, z));
+  // A lathe turns about Y, tail to nose; laid down along +Z, nose first.
+  fishGeo = new THREE.LatheGeometry(prof.reverse(), 14);
+  fishGeo.rotateX(Math.PI / 2);
+  return fishGeo;
+}
+
+/**
+ * Her tubes, firing: `fireTubes(i, t)` throws the four fish out of bank `i`,
+ * one tube after another, as the simulation launches them (see fireTorpedoes
+ * and the class's `launch`). Each is blown out along its own tube, and once
+ * its middle is past the muzzle it drops -- going on at the speed it left at
+ * and tipping nose down as it falls -- until it is in the sea, where it is put
+ * on `userData.dropped` for a splash and the simulation's torpedo, which went
+ * in at the same place, takes over. All of it in her own frame, from where the
+ * bank was trained when it fired.
+ */
+function fitTubes(g, banks, launch) {
+  const flying = [];
+  const mat = new THREE.MeshLambertMaterial({ color: P.gunDark, side: THREE.DoubleSide });
+  const out = (launch.muzzle - launch.lie) / launch.eject;
+  g.userData.dropped = [];
+  g.userData.fireTubes = (i, t) => {
+    const bank = banks[i];
+    if (!bank) return;
+    const bores = bank.userData.bores;
+    if (!bank.userData.fish) {
+      bank.userData.fish = bores.map(() => {
+        const f = new THREE.Mesh(fishGeometry(), mat);
+        f.visible = false;
+        f.rotation.order = 'YXZ';
+        f.userData.dynamic = true;
+        g.add(f);
+        return f;
+      });
+    }
+    bank.updateMatrix();
+    bank.userData.fish.forEach((mesh, k) => {
+      const prev = flying.indexOf(mesh.userData.flight);
+      if (prev >= 0) flying.splice(prev, 1);
+      const [x, y] = bores[k];
+      mesh.userData.flight = {
+        mesh, t0: t + k * launch.stagger, x, y,
+        frame: bank.matrix.clone(), yaw: bank.rotation.y,
+      };
+      flying.push(mesh.userData.flight);
+    });
+  };
+  const p = new THREE.Vector3();
+  return (t) => {
+    for (let k = flying.length - 1; k >= 0; k--) {
+      const f = flying[k];
+      const tau = t - f.t0;
+      if (tau < 0) { f.mesh.visible = false; continue; }
+      const z = launch.lie + launch.eject * tau;
+      let y = f.y;
+      let pitch = 0;
+      if (tau > out) {
+        const fall = tau - out;
+        y -= 0.5 * G * fall * fall;
+        pitch = Math.atan2(G * fall, launch.eject);
+      }
+      p.set(f.x, y, z).applyMatrix4(f.frame);
+      if (p.y <= 0) {
+        // In the sea.
+        f.mesh.visible = false;
+        flying.splice(k, 1);
+        g.userData.dropped.push(new THREE.Vector3(p.x, 0, p.z));
+        continue;
+      }
+      f.mesh.position.copy(p);
+      f.mesh.rotation.set(pitch, f.yaw, 0);
+      f.mesh.visible = true;
+    }
+  };
 }
 
 // ------------------------------------------------------- her midships ----
@@ -935,34 +1090,50 @@ const STATIC = [
   ['screws', screws],
 ];
 
-export function buildBismarck() {
+function buildSister(v) {
   const g = new THREE.Group();
-  for (const [, build] of STATIC) build(g);
+  for (const [, build] of STATIC) build(g, v);
   buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + INNER_BOTTOM, sheer: deckOver, zAt });
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
-  mountings(g);
+  mountings(g, v);
   mergeMoving(g);
-  g.userData.classId = 'bismarck';
+  g.userData.classId = v.id;
   fitCatapults(g, {
     cats: g.userData.catapults, rig: CAT_RIG, deckY: CAT_Y,
     catX: 0, catZ: CAT_Z, run: DECK_RUN, aero: 'arado',
   });
+  if (v.cls.torpedoes) {
+    // Her tubes work on the same clock as her catapult.
+    const catapults = g.userData.step;
+    const tubes = fitTubes(g, g.userData.torpMounts, v.cls.torpedoes.launch);
+    g.userData.step = (t) => { catapults?.(t); tubes(t); };
+  }
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
     secMounts: g.userData.secMounts || [],
     aaMounts: g.userData.aaMounts || [],
+    torpMounts: g.userData.torpMounts || [],
   };
 }
 
-/** Every piece of her and where it sits, for the tests. */
-export function bismarckParts() {
+export function buildBismarck() {
+  return buildSister(SISTERS.bismarck);
+}
+
+export function buildTirpitz() {
+  return buildSister(SISTERS.tirpitz);
+}
+
+/** Every piece of her (or of her sister) and where it sits, for the tests. */
+export function bismarckParts(id = 'bismarck') {
+  const v = SISTERS[id];
   const parts = [];
   const builders = [...STATIC, ['mainBattery', mainBattery], ['mountings', mountings]];
   for (const [name, build] of builders) {
     const g = new THREE.Group();
-    build(g);
+    build(g, v);
     g.updateMatrixWorld(true);
     g.traverse((o) => {
       if (!o.isMesh || !o.geometry) return;

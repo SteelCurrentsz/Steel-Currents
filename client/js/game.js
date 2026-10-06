@@ -1171,7 +1171,11 @@ export class Battle {
           }
           break;
         }
-        case 'torpLaunch': if (ev.ship === this.shipId) audio.torpedo(); break;
+        case 'torpLaunch':
+          if (ev.ship === this.shipId) audio.torpedo();
+          // A bank whose fish are drawn leaving it throws them out now.
+          this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
+          break;
         case 'torpHit':
           fx.explosion(ev.x, 4, ev.z, 1.6);
           // A torpedo opens a hole the better part of ten metres across, under
@@ -3142,6 +3146,16 @@ export class Battle {
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
+      // And anything it has dropped into the sea: a fish off her tubes going
+      // in alongside, in her own frame.
+      const dropped = view.group.userData.dropped;
+      if (dropped && dropped.length) {
+        view.group.updateMatrixWorld(true);
+        for (const p of dropped.splice(0)) {
+          const w = view.group.localToWorld(p.clone());
+          this.scene.effects.splash(w.x, w.z, 120);
+        }
+      }
 
       // A ship going down does not leave a wake. She has stopped making way
       // through the water and started settling into it, and a Kelvin pattern
@@ -3308,6 +3322,7 @@ export class Battle {
         x: prev ? lerp(tp.x, prev.x, t) : tp.x,
         z: prev ? lerp(tp.z, prev.z, t) : tp.z,
         h: prev ? tp.h + angleDelta(tp.h, prev.h) * t : tp.h,
+        a: tp.a,
       };
     });
     this.scene.torpsNow = this.torpsNow;

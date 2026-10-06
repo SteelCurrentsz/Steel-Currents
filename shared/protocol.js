@@ -246,7 +246,12 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   const torps = [];
   for (const tp of state.torps) {
     if (!torpedoVisible(state, tp, team)) continue;
-    torps.push({ i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team });
+    torps.push({
+      i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team,
+      // Still aboard: in its tube or in the air off her side, which her model
+      // draws (see fireTorpedoes). Nothing is in the water yet.
+      a: tp.aboard ? 1 : undefined,
+    });
   }
   // The depth charges going down. Everybody gets them, whoever dropped them:
   // eight charges going into the sea off a destroyer's quarter is eight
