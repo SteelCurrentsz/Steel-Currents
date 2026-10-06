@@ -129,6 +129,11 @@ function surveyAll() {
   });
   const planes = new Set();
   g.traverse((o) => { if (o.userData && (o.userData.wings || o.userData.aero)) o.traverse((c) => { if (c.isMesh) planes.add(c); }); });
+  // Whatever stands on a catapult, too: a floatplane whose wings do not fold
+  // carries no `wings`, and is no more in the way of a gun for that.
+  for (const c of g.userData.catapults || []) {
+    if (c.plane) c.plane.traverse((o) => { if (o.isMesh) planes.add(o); });
+  }
   const sphereOf = new Map();
   for (const o of allMeshes) {
     if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
