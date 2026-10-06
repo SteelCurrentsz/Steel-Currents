@@ -642,20 +642,35 @@ if (process.env.CHECK) {
 // and abreast her funnel for her 15 cm, but not as far as the back of a
 // gunhouse swings as it trains: anywhere off the beam the corners of S1 and S2
 // went into the plating inboard of them. Each well is cut back to clear the
-// circle its gunhouse sweeps, from just over her deck to a little over its
-// roof, and closed flat; what overhangs it higher up -- the boat deck over S2
-// -- stays.
+// circle its gunhouse sweeps, from under her deck to a little over its roof,
+// and closed flat; what overhangs it higher up -- the boat deck over S2 --
+// stays. Her planking is not cut: the sculpt stood S2 on a plinth of its own,
+// and a cut a hand over her deck left the plinth's cross-section as a grey
+// floor over her teak -- and, where the camber of her deck rose through the
+// cut, a hole in her deck under it. So the wells go down through the plinth
+// to under her deck, with her deck taken out of the way first and put back
+// over them afterwards.
 export const WELL_R = 5.2;
 {
+  const deckT = [], deckC = [], restT = [], restC = [];
+  for (let t = 0; t < m.T.length / 3; t++) {
+    const [T2, C2] = m.C[t] === DECK ? [deckT, deckC] : [restT, restC];
+    T2.push(m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]);
+    C2.push(m.C[t]);
+  }
+  m.T = restT;
+  m.C = restC;
   for (const s of SECONDARY.filter((d) => d.z > 0)) {
     const xIn = Math.abs(s.x) - WELL_R;
     const box = {
       x0: s.x > 0 ? xIn : -(Math.abs(s.x) + 2.6), x1: s.x > 0 ? Math.abs(s.x) + 2.6 : -xIn,
-      y0: DECK_AMIDSHIPS + 0.08, y1: s.seat + 3.75, z0: s.z - WELL_R, z1: s.z + WELL_R,
+      y0: DECK_AMIDSHIPS - 0.25, y1: s.seat + 3.75, z0: s.z - WELL_R, z1: s.z + WELL_R,
     };
     const r = boxCut(m, box, { rescue: true });
     console.log(`well for ${s.name}: ${r.cut} triangles cut, caps ${r.caps.filter((n) => n).join('/') || 'none'}`);
   }
+  for (const v of deckT) m.T.push(v);
+  for (const c of deckC) m.C.push(c);
 }
 recomputeNormals(m);
 console.log(`faces facing in: ${turnInward(m)} turned`);
@@ -836,6 +851,42 @@ const FLAK = gunPiece('bismarck-105.glb', {
   barrelY: 0.235, r: 0.05, trunnionIn: 0, elev: 0.29, roofOver: 99,
 });
 
+// Tirpitz's quadruple 53.3 cm torpedo tubes, as the owner sculpted them: 3.6 m
+// a unit, which makes the bank six metres and four fifths long from its
+// muzzles to the air vessels on its breech doors and four across, its tubes
+// eight tenths of a metre through. It trains whole on the ring it stands on;
+// nothing of it elevates. `bores` is each tube's axis in the frame of its
+// mounting -- [x, y, z at the breech, z at the muzzle] -- which is what a
+// torpedo is shot out along.
+function tubePiece(file, { scale, pivot, foot, lanes, axisY, breech, muzzle }) {
+  const raw = readGlb(ASSET(file));
+  const P = [], N = [];
+  for (let i = 0; i < raw.pos.length; i += 3) {
+    P.push((raw.pos[i + 2] - pivot[1]) * scale, (raw.pos[i + 1] - foot) * scale, -(raw.pos[i] - pivot[0]) * scale);
+    N.push(raw.nrm[i + 2], raw.nrm[i + 1], -raw.nrm[i]);
+  }
+  const mesh = { P, N, T: Array.from(raw.idx) };
+  fixWinding(mesh);
+  const house = roofed(mesh, 99);
+  dropLoose(house, { maxArea: 0.05 * scale * scale, maxDiag: 0.15 * scale });
+  creased(house, 40);
+  let roof = 0;
+  for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
+  const y = +((axisY - foot) * scale).toFixed(3);
+  const zBreech = +(-(breech - pivot[0]) * scale).toFixed(3), zMuzzle = +(-(muzzle - pivot[0]) * scale).toFixed(3);
+  const bores = lanes.map((l) => [+((l - pivot[1]) * scale).toFixed(3), y, zBreech, zMuzzle]);
+  console.log(`${file}: ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; ${lanes.length} tubes `
+    + `${(zMuzzle - zBreech).toFixed(2)} m long, ${y} m up, muzzles ${zMuzzle} m ahead of the pivot`);
+  return {
+    house, guns: { T: [] }, trunnion: [0, y, 0], muzzles: bores.map(([x, by, , z]) => [x, by, z]),
+    roof: +roof.toFixed(3), bores,
+  };
+}
+const TUBES = tubePiece('tirpitz-tubes.glb', {
+  scale: 3.6, pivot: [0.0, 0.01], foot: -0.234, lanes: [-0.32, -0.10, 0.12, 0.34],
+  axisY: -0.03, breech: 0.80, muzzle: -0.948,
+});
+
 // ---- her lines, as the sculpt has them --------------------------------------------
 // Measured on planes a few millimetres off the round metre: her topsides are
 // lofted through stations on it, and a plane through a station's points cuts
@@ -851,7 +902,7 @@ console.log('buckets', packed.buckets, 'tris', packed.tris);
 const b64 = packed.blob.toString('base64');
 console.log('packed hull', packed.blob.length, 'bytes ->', b64.length, 'base64 chars');
 const piece = (g) => ({
-  trunnion: g.trunnion, muzzles: g.muzzles, roof: g.roof,
+  trunnion: g.trunnion, muzzles: g.muzzles, roof: g.roof, ...(g.bores ? { bores: g.bores } : {}),
   house: packPiece(g.house).toString('base64'), guns: g.guns.T.length ? packPiece(g.guns).toString('base64') : null,
 });
 const mounts = {
@@ -865,9 +916,12 @@ writeFileSync(OUT_DATA,
   + `export const BISMARCK_HULL_B64 = ${JSON.stringify(b64)};\n`
   + `// Her surface height, in centimetres, every ${HM.step} m: see bismarckSurfaceY.\n`
   + `export const BISMARCK_SURFACE = ${JSON.stringify({ ...HM, b64: heightBytes(hm).toString('base64') })};\n`
-  + `// Her 38 cm turret, 15 cm turret and 10.5 cm mounting, as the owner sculpted\n`
-  + `// them, each in the frame of its mounting.\n`
-  + `export const BISMARCK_GUNS = ${JSON.stringify({ main: piece(MAIN), sec: piece(SEC), flak: piece(FLAK) })};\n`
+  + `// Her 38 cm turret, 15 cm turret and 10.5 cm mounting, and Tirpitz's\n`
+  + `// quadruple torpedo tubes, as the owner sculpted them, each in the frame of\n`
+  + `// its mounting.\n`
+  + `export const BISMARCK_GUNS = ${JSON.stringify({
+    main: piece(MAIN), sec: piece(SEC), flak: piece(FLAK), tubes: piece(TUBES),
+  })};\n`
   + `// Where her turrets and her 15 cm stand, and the floors of the tubs her\n`
   + `// light guns were cut out of.\n`
   + `export const BISMARCK_MOUNTS = ${JSON.stringify(mounts)};\n`

@@ -72,17 +72,18 @@ export function buildBismarckHull(g) {
 const guns = new Map();
 /**
  * One of her guns as the owner sculpted it -- 'main' her 38 cm twin turret,
- * 'sec' her 15 cm twin turret, 'flak' her 10.5 cm twin in its shield --
- * decoded once, in the frame of its mounting: the pivot at the origin, the
- * foot of what trains at y = 0, the bore along +Z; and where its trunnions and
- * muzzles are.
+ * 'sec' her 15 cm twin turret, 'flak' her 10.5 cm twin in its shield, 'tubes'
+ * Tirpitz's quadruple torpedo tubes -- decoded once, in the frame of its
+ * mounting: the pivot at the origin, the foot of what trains at y = 0, the
+ * bore along +Z; and where its trunnions and muzzles are, and for the tubes
+ * each one's axis (`bores`: [x, y, z at the breech, z at the muzzle]).
  */
 export function gunPiece(kind) {
   if (!guns.has(kind)) {
     const p = BISMARCK_GUNS[kind];
     guns.set(kind, {
       house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null,
-      trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof,
+      trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof, bores: p.bores || null,
     });
   }
   return guns.get(kind);

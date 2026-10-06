@@ -2,7 +2,7 @@
 //
 //   npm i --no-save meshoptimizer@0.22          (see build/sculpt-source.mjs)
 //   node build/bismarck-source.mjs <Bismarck.glb> <forward superstructure.glb> \
-//     <38cm twin.glb> <15cm twin.glb> <10.5cm twin.glb>
+//     <38cm twin.glb> <15cm twin.glb> <10.5cm twin.glb> [<Tirpitz quad tubes.glb>]
 //
 // Any of them may be given as `-`, which leaves the asset made from it as it
 // is: the sculpts are not committed (they are 10 to 60 MB), and one can be
@@ -20,8 +20,10 @@
 //     tower mast and foretop, her funnel with its searchlight platforms, her
 //     boats and the domes of her flak directors -- two and a half million
 //     triangles drawn whole and closed, standing on her upper deck;
-//   * and her 38 cm twin turret, her 15 cm twin turret and her 10.5 cm twin
-//     mounting, each on its own.
+//   * her 38 cm twin turret, her 15 cm twin turret and her 10.5 cm twin
+//     mounting, each on its own;
+//   * and the quadruple 53.3 cm torpedo tube mounting her sister Tirpitz was
+//     given in 1942, on its own, tubes along X with their muzzles at -X.
 //
 // Here the whole of her is painted, as she was in May 1941 after her Baltic
 // stripes were painted out: red below her boot topping, black boot topping
@@ -51,6 +53,7 @@
 //   bismarck-15.glb        her 15 cm twin turret, off the platform it was
 //                          sculpted on
 //   bismarck-105.glb       her 10.5 cm twin mounting
+//   tirpitz-tubes.glb      Tirpitz's quadruple torpedo tubes
 //
 // Coordinates here are each sculpt's own. The whole of her: length along X
 // with her bow at -X, Y up, beam along Z, 1.90 units stem to stern.
@@ -65,10 +68,10 @@ const writeGlb = (file, m) => writeSourceGlb(file, m, 'build/bismarck-source.mjs
 const decimate = (m, ratio, error, normalWeight = 0) => decimateWith(MeshoptSimplifier, m, ratio, error, normalWeight);
 const out = (name) => path.join(ROOT, 'assets/models', name);
 
-const [SRC, SUPER_SRC, MAIN_SRC, SEC_SRC, FLAK_SRC] = process.argv.slice(2);
+const [SRC, SUPER_SRC, MAIN_SRC, SEC_SRC, FLAK_SRC, TUBES_SRC] = process.argv.slice(2);
 if (!FLAK_SRC) {
   console.error('usage: node build/bismarck-source.mjs <Bismarck.glb> <forward superstructure.glb> '
-    + '<38cm.glb> <15cm.glb> <10.5cm.glb>   (- for any of them to leave its asset as it is)');
+    + '<38cm.glb> <15cm.glb> <10.5cm.glb> [<quad tubes.glb>]   (- for any of them to leave its asset as it is)');
   process.exit(1);
 }
 const given = (src) => src && src !== '-';
@@ -163,4 +166,7 @@ if (given(SEC_SRC)) {
 }
 if (given(FLAK_SRC)) {
   writeGlb(out('bismarck-105.glb'), decimate(readSource(FLAK_SRC), +(process.env.FLAK_RATIO || 0.008), 0.004));
+}
+if (given(TUBES_SRC)) {
+  writeGlb(out('tirpitz-tubes.glb'), decimate(readSource(TUBES_SRC), +(process.env.TUBES_RATIO || 0.006), 0.002));
 }

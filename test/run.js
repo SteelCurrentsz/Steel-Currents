@@ -92,7 +92,9 @@ const musashiHalfBeam = (z) => musashiShellAt((2 * z) / MUSASHI_LOA, 5.0);
 import {
   buildBismarck, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge, builtDeckY as bismarckBuiltDeckY,
 } from '../client/js/render/bismarck.js';
-import { bismarckSurfaceY } from '../client/js/render/bismarckHull.js';
+import {
+  bismarckSurfaceY, buildBismarckHull, MOUNT_SEATS as BISMARCK_SEATS,
+} from '../client/js/render/bismarckHull.js';
 import {
   buildRichelieu, richelieuParts, CAT_Z as RICHELIEU_CAT_Z, deckEdge as richelieuDeckEdge, BREAK_Z as RICHELIEU_BREAK_Z,
 } from '../client/js/render/richelieu.js';
@@ -1827,6 +1829,51 @@ check('the Bismarck is built the same on both sides', () => {
   }
   assert.ok(list.length > 150, `only ${list.length} pieces of her were compared`);
   assert.equal(lone.length, 0, `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
+});
+
+check('the deck runs in under the Bismarck\'s forward 15 cm, planked and whole', () => {
+  // The sculpt stood each of her forward 15 cm on a plinth of its own, which
+  // is cut away under the barbette built here -- and the cut once took her
+  // planking with it round her middle pair, leaving a grey floor to starboard
+  // and a hole into her to port. Looked at from over her, the deck round the
+  // foot of each of them is her teak, at her deck, all the way in to it.
+  const g = new THREE.Group();
+  buildBismarckHull(g);
+  g.updateMatrixWorld(true);
+  const meshes = g.children.filter((o) => o.isMesh);
+  const was = meshes.map((o) => o.material.side);
+  for (const o of meshes) o.material.side = THREE.DoubleSide;
+  const rc = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const bad = [];
+  let n = 0;
+  try {
+    for (const s of BISMARCK_SEATS.secondary.filter((d) => d.z > 0)) {
+      for (let k = 0; k < 24; k++) {
+        for (const r of [2.9, 3.6, 4.3]) {
+          const a = (k / 24) * Math.PI * 2;
+          const x = s.x + Math.sin(a) * r;
+          const z = s.z + Math.cos(a) * r;
+          if (Math.abs(x) > bismarckDeckEdge(z) - 0.5) continue;
+          rc.set(new THREE.Vector3(x, 30, z), down);
+          const hit = rc.intersectObjects(meshes, false)[0];
+          n++;
+          // Over her deck there may be a platform of her superstructure; what
+          // there may not be is nothing, a floor under her deck, or plating
+          // where her planking should be.
+          if (hit && hit.point.y > 6.6) continue;
+          if (!hit || hit.point.y < 5.4 || hit.object.geometry.userData.surface !== 1) {
+            bad.push(`${s.name} at ${x.toFixed(1)}, ${z.toFixed(1)}: `
+              + `${hit ? `${hit.object.geometry.userData.surface === 1 ? 'deck' : 'plating'} at ${hit.point.y.toFixed(2)}` : 'nothing'}`);
+          }
+        }
+      }
+    }
+  } finally {
+    meshes.forEach((o, i) => { o.material.side = was[i]; });
+  }
+  assert.ok(n > 200, `only ${n} points round her 15 cm were looked at`);
+  assert.equal(bad.length, 0, `${bad.length} of ${n} points round her 15 cm are not her deck: ${bad.slice(0, 4).join('; ')}`);
 });
 
 check('the FS Richelieu is commissioned before the Bismarck', () => {
