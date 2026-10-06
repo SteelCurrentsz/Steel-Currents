@@ -23,12 +23,12 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
-  wildcat, dauntless, avenger, arado, kingfisher, besson,
+  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
   zero, suisei, tenzan, jake, heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {
-  wildcat, dauntless, avenger, arado, kingfisher, besson,
+  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
   zero, suisei, tenzan, jake,
 };
 
@@ -170,7 +170,7 @@ export class PlaneBoard {
       const f = BUILD[kind] || BUILD.wildcat;
       // In flight trim: wheels up, wings spread, nothing hanging off her.
       if (kind === 'avenger' || kind === 'tenzan') f(holder, 0, 0, 0, 0, false, false, { gear: false });
-      else if (kind === 'kingfisher' || kind === 'besson') f(holder, 0, 0, 0, 0, {});
+      else if (kind === 'kingfisher' || kind === 'besson' || kind === 'loire') f(holder, 0, 0, 0, 0, {});
       else f(holder, 0, 0, 0, 0, false, { gear: false });
     }
     holder.updateMatrixWorld(true);

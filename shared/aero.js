@@ -101,6 +101,15 @@ export const AERO = {
     thrust: 5200, vMax: 53, name: 'MB.411',
     helix: 0.050, gLimit: 3.8,
   },
+  // The Richelieu's scout: a three-seat flying boat with her one Hispano-Suiza
+  // on struts over her wing driving a pusher airscrew, and a boat hull for a
+  // fuselage. Big wing, big hull, seven hundred horsepower -- slow, steady,
+  // and made to sit out a swell alongside, not to fight anything.
+  loire: {
+    mass: 3500, wing: 40.2, span: 16.00, clMax: 1.52, cd0: 0.0500,
+    thrust: 10200, vMax: 61, name: 'Loire 130',
+    helix: 0.050, gLimit: 3.5,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

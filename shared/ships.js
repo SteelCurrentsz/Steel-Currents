@@ -1069,6 +1069,164 @@ export const SHIP_CLASSES = {
     },
   },
 
+  richelieu: {
+    // Richelieu, the first of the two: eight 380 mm in two quadruple turrets,
+    // both of them forward of her tower, so that her whole main battery bore
+    // ahead and her citadel could be short and thick; nine 152 mm in three
+    // triple turrets aft, and twelve 100 mm in six twins about her mack. The
+    // fastest battleship of her day on her trials. She was torpedoed at Dakar
+    // in July 1940 and fought the British there in September with her one
+    // working turret; refitted in New York in 1943, she served out the war
+    // with the Royal Navy in the Indian Ocean.
+    //
+    // She is drawn from the owner's sculpts of her (see richelieu.js) as she
+    // was completed in 1940: 247.85 m over all, 33 across, floated at her
+    // 9.6 m draft, her catapults and her crane on the quarterdeck a deck lower
+    // than her upper deck.
+    id: 'richelieu',
+    name: 'Richelieu',
+    fullName: 'FS Richelieu',
+    className: 'Richelieu',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'fra',
+    blurb: 'Eight 380 mm guns in two quadruple turrets, all of them forward, on the fastest battleship of 1940.',
+    hull: { length: 247.85, beam: 33, draft: 9.6, superstructure: 1.45 },
+    hp: 74500,
+    // Thirty-two knots on her trials, out of four shafts; a long, fine hull
+    // that turned wide.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.44,
+    turnRate: 0.05,
+    rudderShift: 13.0,
+    speedLossInTurn: 0.18,
+    concealment: 15400,
+    fireDetectPenalty: 6400,
+    // The DEM sets she was given in New York, on her tower and her mack.
+    radarRange: 11500,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // 330 mm of belt inclined fifteen degrees out at its top, over her
+    // magazines and machinery; 150 mm of armour deck over it, 170 over her
+    // magazines, and 40 of splinter deck under that. The barbettes of her
+    // turrets 405 mm, their faces 430.
+    armor: { belt: 330, deck: 170, citadel: 330, bow: 40, superstructure: 30 },
+    turrets: [
+      // I and II, the barbette of II where the upperworks sculpt drew its one
+      // turret and I thirty-two metres ahead of it, as her plans have them.
+      // Arcs and sectors measured off the model by build/survey-arcs.mjs (see
+      // layFloor in sim.js).
+      { id: 0, name: 'I', x: 0, z: 52.9, angle: 0, arc: 2.6, guns: 4, my: 12.2 },
+      { id: 1, name: 'II', x: 0, z: 20.9, angle: 0, arc: 2.5, guns: 4, my: 16.1 },
+    ],
+    gun: {
+      name: '380 mm/45 Mle 1935', role: 'surface',
+      // Five below the horizontal to thirty-five up.
+      elev: { min: -0.087, max: 0.611 },
+      reach: 19.6,
+      caliber: 380, reload: 28, traverse: 0.087, range: 22400, sigma: 1.3,
+      // The 884 kg shell at 830 m/s, the heaviest 380 mm of the war.
+      shells: shells(380, 12900, 5800, 630, 830, 0.24),
+    },
+    torpedoes: null,
+    // Three triple 152 mm turrets aft: two abreast each other on her upper
+    // deck, trained aft, and the third on the centreline forward of them,
+    // superfiring over both. They were built to fire at aircraft too and
+    // never did it well.
+    secondary: {
+      name: '152 mm/55 Mle 1930', role: 'surface',
+      // Seven below the horizontal to seventy-five up, in the Mle 1936 turret.
+      elev: { min: -0.122, max: 1.309 },
+      reach: 8.4,
+      caliber: 152, reload: 7.5, traverse: 0.17, range: 15000, sigma: 1.35,
+      shells: shells(152, 3100, 2400, 150, 870, 0.11),
+      mounts: [
+        { x: 0, z: -67.6, angle: 3.14, arc: 2.7, rest: Math.PI, guns: 3, my: 12.8 },
+        { x: 7.9, z: -74.95, angle: 2.4, arc: 1.5, rest: Math.PI, guns: 3, my: 9.7 },
+        { x: -7.9, z: -74.95, angle: -2.4, arc: 1.5, rest: Math.PI, guns: 3, my: 9.7 },
+      ],
+    },
+    // And her flak, the same way: a high-angle gun has most of the sky, and is
+    // held up over her where its barrels would go into her.
+    aa: {
+      range: 6000, dps: 92,
+      guns: [
+        // Six 100 mm twins, three a side about her mack, on the platforms the
+        // upperworks sculpt drew for them.
+        { name: '100 mm/45 Mle 1930', caliber: 100, role: 'dp', reload: 4.0, range: 6000,
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: -10.8, z: -25.6, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 12.9 },
+            { x: 10.8, z: -25.6, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 12.9 },
+            { x: -10, z: -38.2, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 14.9 },
+            { x: 10, z: -38.2, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 14.9 },
+            { x: -9.8, z: -50, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 12.9 },
+            { x: 9.8, z: -50, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 12.9 },
+          ] },
+        // Six quadruple Bofors in their tubs: a pair on the forward corners of
+        // her superstructure deck, a pair abreast her tower, and a pair on her
+        // upper deck abaft her after 100 mm.
+        { name: '40 mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200,
+          elev: { min: -0.175, max: 1.571 },
+          mounts: [
+            { x: -10.4, z: 6.8, angle: -1.57, arc: 2.4, rest: -Math.PI / 2, guns: 4, my: 11.6 },
+            { x: 10.4, z: 6.8, angle: 1.57, arc: 2.4, rest: Math.PI / 2, guns: 4, my: 11.6 },
+            { x: -12.6, z: 1.8, angle: -1.57, arc: 2.4, rest: -Math.PI / 2, guns: 4, my: 11.6 },
+            { x: 12.6, z: 1.8, angle: 1.57, arc: 2.4, rest: Math.PI / 2, guns: 4, my: 11.6 },
+            { x: -11.4, z: -57.2, angle: -1.57, arc: 2.4, rest: -Math.PI / 2, guns: 4, my: 9.4 },
+            { x: 11.4, z: -57.2, angle: 1.57, arc: 2.4, rest: Math.PI / 2, guns: 4, my: 9.4 },
+          ] },
+        // And ten single Oerlikons: six behind her breakwater on the
+        // forecastle, and four on the edges of her superstructure deck abreast
+        // her tower.
+        { name: '20 mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.087, max: 1.484 },
+          mounts: [
+            { x: -3.0, z: 82.5, angle: -0.6, arc: 2.2, rest: -0.6, guns: 1, my: 10.5 },
+            { x: 3.0, z: 82.5, angle: 0.6, arc: 2.2, rest: 0.6, guns: 1, my: 10.5 },
+            { x: -5.8, z: 79.0, angle: -0.9, arc: 2.2, rest: -0.9, guns: 1, my: 10.4 },
+            { x: 5.8, z: 79.0, angle: 0.9, arc: 2.2, rest: 0.9, guns: 1, my: 10.4 },
+            { x: -8.6, z: 75.5, angle: -1.2, arc: 2.2, rest: -1.2, guns: 1, my: 10.4 },
+            { x: 8.6, z: 75.5, angle: 1.2, arc: 2.2, rest: 1.2, guns: 1, my: 10.4 },
+            { x: -12.8, z: -10.8, angle: -1.57, arc: 2.4, rest: -Math.PI / 2, guns: 1, my: 11.6 },
+            { x: 12.8, z: -10.8, angle: 1.57, arc: 2.4, rest: Math.PI / 2, guns: 1, my: 11.6 },
+            { x: -12.8, z: -14.2, angle: -1.57, arc: 2.4, rest: -Math.PI / 2, guns: 1, my: 11.6 },
+            { x: 12.8, z: -14.2, angle: 1.57, arc: 2.4, rest: Math.PI / 2, guns: 1, my: 11.6 },
+          ] },
+      ],
+    },
+    // Two catapults on her quarterdeck, one each side, stowed pointing aft and
+    // trained out over her quarters to shoot, and a Loire 130 on each; her
+    // crane right aft between them, and her hangar under the quarterdeck.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 48, strikeRange: 8000,
+      rearm: 120, hp: 600, dropSpread: 0.07,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 420, bombHit: 0.26, bombFire: 0.1, bombPen: 14, bombBore: 0.14,
+      type: 'loire',
+      catapult: true, deckRun: 9.0, deckCycle: 34,
+      // Where the shot leaves her, off the integrated shot from her own
+      // girders: trained out over her quarters from turntables right aft.
+      runHeight: 19.8,
+      runOut: 213.5, runBearing: 2.557,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 47500,
+      aircraft: 4,
+      mainRounds: 832,
+      torpedoesCarried: 0,
+      secondary: { caliber: 152, label: '152mm', barrels: 9, rounds: 1800 },
+      tertiary: [
+        { caliber: 100, label: '100mm', barrels: 12, rounds: 6000 },
+        { caliber: 40, label: '40mm', barrels: 24, rounds: 36000 },
+        { caliber: 20, label: '20mm', barrels: 10, rounds: 24000 },
+      ],
+    },
+  },
+
   bismarck: {
     // KMS Bismarck, the first of the two: eight 38 cm in four twin turrets --
     // Anton and Bruno forward, Caesar and Dora aft -- twelve 15 cm in six twin
@@ -4864,7 +5022,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'bismarck', 'rodney', 'massachusetts', 'iowa', 'yamato', 'musashi', 'enterprise', 'shinano'];
+  'surcouf', 'richelieu', 'bismarck', 'rodney', 'massachusetts', 'iowa', 'yamato', 'musashi', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

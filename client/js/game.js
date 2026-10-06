@@ -53,6 +53,7 @@ const FLIGHT_NAME = {
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
+  loire: 'her Loires',
 };
 
 /** The order the parts come in on the wire and on the pilot's board. */
@@ -61,7 +62,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
   wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
-  arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411',
+  arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   zero: 'A6M Zero',
   suisei: 'D4Y Suisei', tenzan: 'B6N Tenzan', jake: 'E13A Jake',
 };
@@ -78,6 +79,10 @@ const GUN_CALIBRE = {
   // but a machine with no entry here fires nothing and shows nothing, and she
   // does shoot back, so this is the round she shoots back with.
   besson: 7.5,
+  // And the Loire 130 has none forward either: two flexible Darnes, one in
+  // the bow cockpit and one aft, and it is the one in the bow that fires on
+  // what is ahead of her.
+  loire: 7.5,
 };
 
 /**
@@ -91,7 +96,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1,
+  wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
   zero: 4, suisei: 2, tenzan: 1, jake: 1,
 };
 

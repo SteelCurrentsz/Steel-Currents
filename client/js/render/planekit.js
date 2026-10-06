@@ -2769,6 +2769,153 @@ function besson(g, x, y, z, ry, opts = {}) {
   return p;
 }
 
+/**
+ * A Loire 130: the Richelieu's scout, and the standard shipboard aeroplane of
+ * the Marine nationale from 1938.
+ *
+ * A flying boat rather than a float plane. Her fuselage is a boat hull with
+ * a planing bottom and a step, and she sits in the water on it with a float
+ * under each wingtip to keep her upright; her wing is set high over it on a
+ * pylon, out of the spray, and her one engine -- a seven hundred and twenty
+ * horsepower Hispano-Suiza 12X -- rides on struts over the middle of the wing
+ * in a nacelle of its own, driving a pusher airscrew aft of it so that the
+ * disc turns clear of the water and clear of the crew. Three men: a gunner in
+ * the bow, the pilot under the leading edge of the wing, and a second gunner
+ * aft of it. Sixteen metres of span and eleven of length, and two hundred and
+ * twenty kilometres an hour flat out -- a pair of eyes that could sit out a
+ * swell alongside to be craned back aboard.
+ */
+function loire(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('france');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+
+  // The hull: a boat, built the way a float is -- fine at the bow, a hard
+  // chine carrying the beam, a flat planing bottom broken by the step under
+  // the wing, and a long tapering run aft up to the tail. Stations aft to
+  // forward, [z, half beam, keel, chine, deck, crown].
+  seaFloat(p, TOP, BOT, [
+    [-5.70, 0.10, 0.92, 1.02, 1.22, 0.04],
+    [-4.60, 0.30, 0.66, 0.84, 1.30, 0.08],
+    [-3.30, 0.52, 0.40, 0.62, 1.44, 0.12],
+    [-1.90, 0.70, 0.20, 0.44, 1.56, 0.16],
+    [-0.62, 0.80, 0.08, 0.32, 1.62, 0.18],
+    [-0.60, 0.80, 0.00, 0.24, 1.62, 0.18],
+    [1.00, 0.82, 0.00, 0.22, 1.64, 0.20],
+    [2.60, 0.76, 0.04, 0.26, 1.62, 0.20],
+    [3.90, 0.60, 0.14, 0.36, 1.56, 0.18],
+    [4.90, 0.38, 0.32, 0.52, 1.46, 0.14],
+    [5.55, 0.12, 0.62, 0.78, 1.32, 0.06],
+  ]);
+  // The bow gunner's cockpit and his Darne on its ring; the mooring bollard
+  // forward of it.
+  cyl(p, M.cave, 0.34, 0.34, 0.06, 0, 1.76, 3.95, 14);
+  cyl(p, M.gunDark, 0.38, 0.38, 0.05, 0, 1.80, 3.95, 14);
+  const bowGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0, 2.06, 4.30, 6);
+  bowGun.rotation.x = 1.16;
+  cyl(p, M.gunDark, 0.04, 0.045, 0.12, 0, 1.56, 5.05, 8);
+  // The pilot under the leading edge of the wing, behind a windscreen, and
+  // the second gunner's ring aft of the wing.
+  greenhouse(p, 0.92, 0.54, 1.74, 0.70, 2.30, 4);
+  cyl(p, M.cave, 0.36, 0.36, 0.06, 0, 1.62, -1.85, 14);
+  cyl(p, M.gunDark, 0.40, 0.40, 0.05, 0, 1.66, -1.85, 14);
+  const aftGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0.06, 1.90, -2.18, 6);
+  aftGun.rotation.x = -1.20;
+  // The hull is painted to the chine like her float would be, and carries
+  // her number on her bow.
+  cockade(p, 0.71, 1.20, -3.10, 0.34, false);
+  cockade(p, -0.71, 1.20, -3.10, 0.34, false);
+
+  // The pylon her wing stands on: a deep faired fin of plating from the hull
+  // up to the centre section.
+  for (let i = 0; i < 5; i++) {
+    const u = i / 4;
+    box(p, TOP, 0.34 - u * 0.10, 0.20, 2.30 - u * 0.30, 0, 1.78 + u * 0.70, 0.55 - u * 0.05);
+  }
+  // The wing: high, straight, broad -- a lot of wing for a slow aeroplane --
+  // in two panels off the centre section, with a little dihedral and the
+  // ailerons outboard.
+  const WY = 2.62;
+  for (const s of [-1, 1]) {
+    const w = new THREE.Group();
+    w.position.set(s * 0.55, WY, 0.70);
+    w.rotation.z = s * 0.035;
+    p.add(w);
+    const sw = wing(w, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 7.45, rootC: 2.70, tipC: 1.90,
+      sweep: 0.12, thick: 0.15, camber: 0.034, twist: -0.03, rootCap: false,
+    });
+    ctrlSurface(w, TOP, sw, 0.62, 0.95);                        // aileron
+    ctrlSurface(w, TOP, sw, 0.08, 0.42, 0.70);                  // flap
+    cockade(w, s * 5.60, 0.14, -0.50, 0.62);
+    cockade(w, s * 5.60, -0.14, -0.50, 0.62, 'down');
+    // The wingtip float, on a vee of struts under the tip.
+    const ft = new THREE.Group();
+    ft.position.set(s * 6.10, -1.62, -0.10);
+    w.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.78, 0.06, 0.26, 0.30, 0.42, 0.02],
+      [-0.36, 0.16, 0.13, 0.21, 0.40, 0.03],
+      [0.30, 0.18, 0.05, 0.16, 0.40, 0.03],
+      [0.84, 0.14, 0.12, 0.22, 0.42, 0.03],
+      [1.16, 0.04, 0.26, 0.31, 0.44, 0.02],
+    ]);
+    strut(w, TOP, [s * 6.10, -1.22, 0.30], [s * 5.80, -0.05, 0.36], 0.04);
+    strut(w, TOP, [s * 6.10, -1.22, -0.50], [s * 5.80, -0.05, -0.62], 0.04);
+    // The struts from her hull out to the wing, either side of the pylon.
+    strut(p, TOP, [s * 0.70, 1.30, 1.20], [s * 3.10, WY + 0.03, 1.10], 0.05);
+    strut(p, TOP, [s * 0.70, 1.30, -0.10], [s * 3.10, WY + 0.03, -0.30], 0.05);
+  }
+  // The centre section over the pylon.
+  box(p, TOP, 1.20, 0.30, 2.60, 0, WY, -0.05);
+
+  // The engine: a long nacelle over the centre section on four struts, its
+  // radiator under its nose, and the airscrew on its tail -- a pusher, turning
+  // aft of the wing's trailing edge.
+  const NY = WY + 0.92;
+  airframe(p, TOP, [
+    { z: 1.75, w: 0.20, h: 0.22, y: NY },
+    { z: 1.40, w: 0.54, h: 0.62, y: NY },
+    { z: 0.50, w: 0.66, h: 0.76, y: NY },
+    { z: -0.70, w: 0.64, h: 0.72, y: NY },
+    { z: -1.55, w: 0.46, h: 0.50, y: NY },
+    { z: -1.95, w: 0.24, h: 0.26, y: NY },
+  ], { flat: 0.05, e: 0.9, mBot: TOP });
+  box(p, M.gunDark, 0.42, 0.28, 0.70, 0, NY - 0.42, 0.85);
+  for (const sx of [-1, 1]) {
+    for (const zz of [0.80, -0.80]) strut(p, TOP, [sx * 0.22, NY - 0.30, zz], [sx * 0.42, WY + 0.08, zz + 0.08], 0.045);
+    // Her exhausts along the nacelle's flanks.
+    box(p, M.gunDark, 0.07, 0.07, 1.30, sx * 0.34, NY + 0.08, -0.20);
+  }
+  const disc = new THREE.Group();
+  disc.position.set(0, NY, -2.05);
+  disc.rotation.y = Math.PI;
+  disc.userData.dynamic = true;
+  p.add(disc);
+  p.userData.prop = disc;
+  disc.userData.isProp = true;
+  animPart(p, 'prop', disc, { axis: 'z', spin: true });
+  cyl(disc, M.prop, 0.05, 0.20, 0.42, 0, 0, 0.18, 12).rotation.x = Math.PI / 2;
+  for (let i = 0; i < 3; i++) {
+    const bl = new THREE.Group();
+    bl.rotation.z = (i / 3) * Math.PI * 2 + 0.3;
+    disc.add(bl);
+    propBlade(bl, M.prop, 1.45, 0.26, 0.17, 0.60, 1.26);
+  }
+
+  // Her tail: the fin on the hull's run aft, the tailplane on it, and her
+  // colours on the rudder.
+  const tail = empennage(p, 1.70, 1.50, 4.80, 1.20, 1.30, -5.05);
+  rudderStripes(p, 1.30 + 0.70, -5.45, 1.30, 0.90);
+  // Braces from the hull to the tailplane, which on a flying boat is carried
+  // high and needs them.
+  for (const s of [-1, 1]) strut(p, TOP, [s * 0.16, 1.10, -4.70], [s * 1.30, 1.34, -4.95], 0.03);
+  aerial(p, 0, WY + 0.15, -0.95, 0.55, tail.finTop, TOP);
+  return p;
+}
+
 // ----------------------------------------------------- the Japanese ones --
 
 /**
@@ -4548,7 +4695,7 @@ function heavyBomber(kind) {
 
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
-export { wildcat, dauntless, avenger, arado, kingfisher, besson };
+export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
 export { zero, suisei, tenzan, jake };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };

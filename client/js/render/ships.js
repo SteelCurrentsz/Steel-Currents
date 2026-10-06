@@ -17,6 +17,7 @@ import { buildBaltimore } from './baltimore.js';
 import { buildMassachusetts } from './massachusetts.js';
 import { buildMusashi } from './musashi.js';
 import { buildBismarck } from './bismarck.js';
+import { buildRichelieu } from './richelieu.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -517,6 +518,21 @@ export function buildShip(classId) {
   // stack of platforms rather than a tower.
   if (cls.id === 'yamato') {
     const built = buildYamato();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Richelieu: the owner's sculpts of her hull, her upperworks and
+  // her guns, with her quarterdeck and its aviation built to her plans.
+  if (cls.id === 'richelieu') {
+    const built = buildRichelieu();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
