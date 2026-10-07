@@ -132,6 +132,7 @@ import { Wreckage } from '../client/js/render/wreckage.js';
 import { Debris } from '../client/js/render/debris.js';
 import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
+import { Effects } from '../client/js/render/effects.js';
 import { buildShip } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
@@ -12559,6 +12560,55 @@ check('gun smoke never outgrows its pool, and a small gun makes a small blast', 
     'the second barrel of a turret makes as much smoke as the first');
 });
 
+
+check('a gun drives a jet of flame down its bore, and lights up everything round it', () => {
+  // The flash is a blast driven one way, not a ball sitting on the muzzle:
+  // every barrel throws a long tongue of flame out along its own bore, burnt
+  // out before the cloud has formed round it.
+  const fx = new MuzzleBlasts(new THREE.Scene());
+  const bore = new THREE.Vector3(0, 0.2, 1).normalize();
+  for (let i = 0; i < 3; i++) fx.fire(i * 3, 14, 0, bore, 406);
+  const jets = fx.parts.filter((p) => p.kind === 3);
+  assert.equal(jets.length, 3, `a triple turret drove ${jets.length} jets of flame out of its three barrels`);
+  for (const j of jets) {
+    const along = j.tint[0] * bore.x + j.tint[1] * bore.y + j.tint[2] * bore.z;
+    assert.ok(Math.abs(along - 1) < 1e-6, 'a jet of flame is not laid along its bore');
+    assert.ok(j.r0 > 0.6 * blastSize(406) && j.w < 0.3 * j.r0,
+      `a jet ${j.r0.toFixed(0)} m long and ${j.w.toFixed(0)} wide is not a tongue of flame`);
+  }
+  for (let t = 0; t < 0.15; t += 1 / 60) fx.update(1 / 60);
+  assert.ok(!fx.parts.some((p) => p.kind === 3), 'the jet of flame is still burning a seventh of a second on');
+
+  // And the light of it: one light for a turret's barrels, as bright on the
+  // turret as the sun for the instant the gas is alight, and out again
+  // inside a fifth of a second -- not a lamp left burning over the deck.
+  // (Its lights and its blasts only: the rest of it is sprites drawn on a
+  // canvas, which a test has none of.)
+  const effects = () => {
+    const e = Object.create(Effects.prototype);
+    e.blasts = new MuzzleBlasts(new THREE.Scene());
+    e.lights = Array.from({ length: 6 }, () => ({ light: new THREE.PointLight(0xffbb66, 0, 900, 2), life: 0 }));
+    e.lightCursor = 0;
+    return e;
+  };
+  const ef = effects();
+  for (let i = 0; i < 3; i++) ef.muzzle(i * 3, 14, 0, 0, 406, bore);
+  const lit = ef.lights.filter((l) => l.light.intensity > 0);
+  assert.equal(lit.length, 1, `a turret's three barrels lit ${lit.length} lights`);
+  const light = lit[0].light;
+  const at15 = light.intensity / (15 * 15);
+  assert.ok(at15 > 1, `the flash lights a turret fifteen metres off to ${at15.toFixed(2)}, which is nothing`);
+  const first = light.intensity;
+  for (let t = 0; t < 0.05; t += 1 / 60) ef.stepLights(1 / 60);
+  assert.ok(light.intensity < 0.4 * first, 'the flash is still near full brightness a twentieth of a second on');
+  for (let t = 0; t < 0.2; t += 1 / 60) ef.stepLights(1 / 60);
+  assert.equal(light.intensity, 0, 'the flash is still lighting the ship a quarter of a second on');
+  // A five-inch gun lights a good deal less of the sea than a sixteen-inch.
+  const small = effects();
+  small.muzzle(0, 8, 0, 0, 127, bore);
+  const sl = small.lights.find((l) => l.light.intensity > 0).light;
+  assert.ok(sl.intensity < 0.4 * first, 'a five-inch gun lights the sea like a battleship');
+});
 
 check('a mounting knocked about is slower, and one that is finished never fires', () => {
   // A gun is not a switch. It is knocked about by splinters, its training gear

@@ -30,6 +30,7 @@ import * as THREE from '../../../vendor/three.module.js';
 const FLASH = 0;   // burning gas: light, not smoke
 const SMOKE = 1;   // the cloud, hot for a moment and then only smoke
 const RING = 2;    // the blast on the water, lying flat
+const JET = 3;     // the tongue of flame driven out down the bore
 
 /**
  * How big a gun's blast is, in metres: roughly the distance its cloud is
@@ -51,7 +52,10 @@ export function blastSize(caliber) {
  */
 export function blastRecipe(caliber, sibling = false, intensity = 1) {
   const S = Math.min(1.2, caliber / 406);
-  let smoke = caliber >= 300 ? 5 : caliber >= 180 ? 4 : caliber >= 120 ? 3 : 2;
+  // A good many heads to a heavy gun's cloud rather than a few big ones: it
+  // is the number of them, each lit on its own sunny side and dark in its own
+  // folds, that makes a cloud read as billowing smoke and not as a blur.
+  let smoke = caliber >= 300 ? 8 : caliber >= 180 ? 6 : caliber >= 120 ? 4 : 3;
   smoke = Math.max(1, Math.round(smoke * Math.min(1.3, Math.max(0.5, intensity))));
   if (sibling) smoke = Math.max(1, Math.round(smoke * 0.34));
   return {
@@ -62,12 +66,16 @@ export function blastRecipe(caliber, sibling = false, intensity = 1) {
     // on one another burn out to a flat yellow.
     flash: sibling ? 1 : caliber >= 200 ? 3 : 2,
     flashLife: 0.10 + caliber * 0.0003,
+    // And every barrel its own jet of flame down the bore, a tenth of a
+    // second on a sixteen-inch gun.
+    jet: 1,
+    jetLife: 0.07 + caliber * 0.0001,
     smoke,
     smokeLife: 8 + caliber * 0.026,
     // How long the fire is still alight inside the cloud: about as long as
     // the flash itself, which it is the tail end of.
-    heat: 0.06 + 0.07 * S,
-    opacity: 0.66 + 0.2 * Math.min(1, S),
+    heat: 0.04 + 0.05 * S,
+    opacity: 0.76 + 0.18 * Math.min(1, S),
     ring: !sibling && caliber >= 100,
     ringLife: 0.55 + 0.55 * S,
   };
@@ -112,8 +120,8 @@ export function noiseTexture() {
 const VERT = /* glsl */`
 attribute vec4 iCenter;   // where, and the half-width of the card
 attribute vec4 iA;        // age, life, how long it burns, seed
-attribute vec4 iB;        // what it is, opacity, how hot, spare
-attribute vec4 iTint;     // what colour the smoke is, in daylight
+attribute vec4 iB;        // what it is, opacity, how hot, and a jet's width
+attribute vec4 iTint;     // what colour the smoke is, in daylight; a jet's bore
 uniform float uFogDensity;
 uniform vec3 uSunDir;
 varying vec2 vUv;
@@ -132,7 +140,29 @@ void main() {
   vSunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
   float R = iCenter.w;
   vec4 mv;
-  if (iB.x > 1.5) {
+  if (iB.x > 2.5) {
+    // The jet: a card laid along the bore as the eye sees it, from the muzzle
+    // out to the length it has reached, as wide as the flame. Seen down the
+    // bore it shortens to a bloom as wide as it is long, which is what a gun
+    // firing at you looks like.
+    vec3 dirV = normalize((viewMatrix * vec4(iTint.xyz, 0.0)).xyz);
+    vec4 m0 = viewMatrix * vec4(iCenter.xyz, 1.0);
+    vec2 ax = dirV.xy;
+    float al = length(ax);
+    ax = al > 1e-4 ? ax / al : vec2(1.0, 0.0);
+    vec2 across = vec2(-ax.y, ax.x);
+    float W = iB.w;
+    float run = R * al + W;
+    float along = position.y + 0.5;
+    mv = m0;
+    mv.xy += ax * (along * run - 0.35 * W) + across * position.x * 2.0 * W;
+    mv.z += dirV.z * R * along;
+    // Across in widths, and along in fractions of the flame's own length --
+    // nought at the muzzle, one at the tip -- so the shape is drawn the same
+    // whichever way it is seen from.
+    vUv = vec2(position.x * 2.0, (along * run - 0.35 * W) / max(R * al + 0.3 * W, 1e-3));
+    vKeep = 1.0;
+  } else if (iB.x > 1.5) {
     // The ring lies on the water rather than facing the camera.
     mv = viewMatrix * vec4(iCenter.xyz + vec3(position.x, 0.0, position.y) * 2.0 * R, 1.0);
     vKeep = 1.0;
@@ -265,6 +295,33 @@ vec4 flash(vec2 p, float r, float age, float u, float seed, float hot) {
   return vec4(rgb * (1.0 - vFog * 0.7), a);
 }
 
+// The flame out of the muzzle: a cone of burning gas, white where it leaves
+// the bore, yellow and then orange toward its ragged tip, widening as it goes.
+// It is the first thing to arrive and the first to go -- out to its full
+// length in a couple of frames and burnt out in a tenth of a second -- and it
+// is what makes a gun's flash a blast driven one way rather than a ball.
+vec4 jet(vec2 p, float age, float u, float seed) {
+  float s = clamp(p.y, 0.0, 1.0);
+  // How far out it has got: the gas is out of the bore faster than the eye.
+  float reach = smoothstep(0.0, 0.035, age);
+  if (p.y > reach + 0.02) return vec4(0.0);
+  float sr = s / max(reach, 0.05);
+  vec3 q = vec3(p.x * 2.2, sr * 3.4 - age * 40.0, seed * 47.0);
+  float n = fbm2(q) + 0.35 * (vn(q * 3.1 + 5.0) - 0.5);
+  // Narrow at the muzzle, opening out, and torn ragged at the sides and tip.
+  float hw = (0.16 + 0.84 * pow(sr, 0.7)) * (0.85 + 0.55 * (n - 0.45));
+  float side = 1.0 - smoothstep(hw * 0.55, hw, abs(p.x));
+  float tip = 1.0 - smoothstep(0.72, 1.0, sr + 0.25 * (n - 0.5));
+  float back = smoothstep(-0.12, 0.04, p.y);
+  float body = side * tip * back;
+  float env = smoothstep(0.0, 0.008, age) * pow(1.0 - u, 1.6);
+  // Hottest on the axis close to the muzzle; cooler out at the edges and tip.
+  float t = (1.15 - 0.85 * sr) * (1.0 - 0.55 * abs(p.x) / max(hw, 0.05)) + 0.25 * (n - 0.5) - 0.6 * u;
+  vec3 c = fireRamp(clamp(t, 0.0, 1.0)) * (1.1 + 0.6 * exp(-age / 0.02));
+  float a = body * env * (0.75 + 0.25 * (1.0 - sr));
+  return vec4(c * a * (1.0 - vFog * 0.7), a * 0.85);
+}
+
 vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op) {
   // The ball sits inside the card with room round it for the lumps. Its
   // shading is worked out on a sphere the size of the whole card, though:
@@ -273,7 +330,10 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
   float z;
   vec3 nV = ball(p, z);
   vec3 nW = (vec4(nV, 0.0) * viewMatrix).xyz;
-  float rb = length(p / 0.80);
+  // Small enough inside the card that its tallest heads still stand clear of
+  // the card's edge. Let out to the edge, they were cut off by it in an arc,
+  // and a cloud with a circle drawn round its top is a cloud on a card.
+  float rb = length(p / 0.64);
 
   // The field it is made of. Fixed to the cloud, and turning over slowly the
   // whole time: that slow boil is the difference between smoke and a grey
@@ -290,15 +350,21 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
 
   // The cauliflower: heads standing proud of the mean radius, and the edge
   // going from firm to ragged as the cloud loses the shove that made it.
-  float lump = 1.0 + 0.30 * Hn + 0.16 * N;
-  float soft = mix(0.14, 0.44, smoothstep(0.0, 0.6, u));
+  // Firm and sharp-edged while it is new and dense -- the heads of a fresh
+  // cloud of cordite smoke stand out against the sky like cauliflower --
+  // softening only as it thins.
+  float lump = 1.0 + 0.25 * Hn + 0.18 * N;
+  float soft = mix(0.11, 0.40, smoothstep(0.0, 0.7, u));
   float a = 1.0 - smoothstep(lump * (1.0 - soft), lump * (1.0 + soft * 0.35), rb);
-  a *= 1.0 - smoothstep(0.86, 1.0, r);
+  a *= 1.0 - smoothstep(0.92, 1.0, r);
   if (a < 0.003) return vec4(0.0);
 
   // Thickest through the middle, and coming apart into separate rags as it
   // thins -- from the outside in, the way smoke does, not evenly all over.
-  float dens = a * (0.25 + 0.75 * z) * (0.82 + 0.3 * N);
+  // Thin at the limb, where the eye only grazes it, so the heads are firm
+  // through their middles and feathered at their edges rather than glassy
+  // discs with a hard rim.
+  float dens = a * (0.30 + 0.70 * z) * (0.82 + 0.3 * N);
   float thr = 0.62 * smoothstep(0.06, 1.0, u);
   dens *= smoothstep(thr - 0.06, thr + 0.24, (H * 0.55 + n * 0.45) * 0.9 + z * 0.3);
 
@@ -310,12 +376,13 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
   // Leant toward the eye: lit right out to the limb, a sphere draws its own
   // outline, and a cloud of them is a cloud of outlines.
   float lam = clamp(dot(normalize(vec3(nV.xy, nV.z + 0.4)), vSunV) * 0.55 + 0.45, 0.0, 1.0);
-  float sunK = lam * mix(0.30, 1.32, bump) * (0.82 + 0.36 * N);
+  float sunK = lam * mix(0.16, 1.45, bump) * (0.80 + 0.40 * N);
   // The sky gets into the heads and not into the folds between them.
   vec3 amb = mix(uGroundCol, uSkyCol, nW.y * 0.5 + 0.5)
-           * mix(0.74, 1.08, bump) * mix(0.82, 1.04, smoothstep(-0.7, 0.7, Hn));
-  // Dirty and brown while it is thick and new, lighter as it thins out.
-  vec3 albedo = vTint * mix(vec3(0.78, 0.71, 0.62), vec3(1.0), smoothstep(0.0, 0.16, u));
+           * mix(0.58, 1.10, bump) * mix(0.74, 1.05, smoothstep(-0.7, 0.7, Hn));
+  // Dirty and brown while it is thick and new -- cordite smoke comes out of a
+  // gun a yellowish brown -- greying as it thins out.
+  vec3 albedo = vTint * mix(vec3(0.70, 0.61, 0.49), vec3(1.0), smoothstep(0.0, 0.2, u));
   vec3 col = albedo * (uSunCol * sunK + amb);
   // Looking toward the sun through the thin edge of it, the edge lights up.
   col += uSunCol * pow(max(0.0, -vSunV.z), 3.0) * (1.0 - z) * (1.0 - dens) * 0.55;
@@ -326,12 +393,15 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
   float heat = tau > 0.0 ? exp(-age / tau) : 0.0;
   float spot = smoothstep(0.35, 1.0, z) * smoothstep(0.48, 0.80, H * 0.6 + n * 0.4 + 0.1 * z);
   float t = heat * spot * 1.25;
-  vec3 em = fireRamp(clamp(t, 0.0, 1.0)) * smoothstep(0.02, 0.25, t) * 1.5 * heat;
+  vec3 em = fireRamp(clamp(t, 0.0, 1.0)) * smoothstep(0.02, 0.25, t) * 1.2 * heat;
   // And soot while it burns, lit from inside where the fire still is -- and
   // all of it, for the instant the flash is alight inside it, lit orange.
   // The light through it is filtered on the way, toward red: grey laid over
   // a yellow flame comes out olive, and smoke in front of a fire never does.
-  float lit = tau > 0.0 ? exp(-age / 0.08) : 0.0;
+  // Over in a few frames: lit by the fire it came out of, not glowing on its
+  // own, so it is smoke a moment after the flash is gone and not a bank of
+  // orange fog.
+  float lit = tau > 0.0 ? exp(-age / 0.045) : 0.0;
   col = col * (1.0 - 0.45 * heat) * mix(vec3(1.0), vec3(1.3, 0.85, 0.55), lit)
       + vec3(0.55, 0.22, 0.06) * heat * spot * 0.7
       + vec3(0.85, 0.42, 0.14) * lit * (0.25 + 0.35 * z) * (0.7 + 0.6 * H);
@@ -339,7 +409,7 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
   // It comes out of the fireball as the fireball cools, rather than being
   // there over the top of it from the first frame; then it is at its thickest,
   // and thins slowly for the rest of its life.
-  float env = smoothstep(0.0, 0.16, age) * pow(1.0 - u, 2.1);
+  float env = smoothstep(0.0, 0.16, age) * pow(1.0 - u, 1.5);
   float alpha = clamp(dens * op * env, 0.0, 1.0);
   // The glow goes with the smoke it is in, edges and all: drawn on the
   // silhouette alone it is a hot disc, and a hot disc half hidden behind the
@@ -368,10 +438,16 @@ vec4 ring(vec2 p, float r, float age, float u, float seed) {
 
 void main() {
   vec2 p = vUv;
-  float r = length(p);
-  if (r > 1.0) discard;
   float age = vA.x;
   float u = clamp(age / vA.y, 0.0, 1.0);
+  if (vB.x > 2.5) {
+    vec4 j = jet(p, age, u, vA.w);
+    if (j.a < 0.002) discard;
+    gl_FragColor = j;
+    return;
+  }
+  float r = length(p);
+  if (r > 1.0) discard;
   vec4 c;
   if (vB.x < 0.5) c = flash(p, r, age, u, vA.w, vB.z);
   else if (vB.x < 1.5) c = smoke(p, r, age, u, vA.z, vA.w, vB.y);
@@ -525,12 +601,17 @@ export class MuzzleBlasts {
    * the others fired in the same frame from within a few metres of it get
    * their own flash and a share of the cloud.
    */
-  fire(x, y, z, dir, caliber = 152) {
-    let sibling = false;
+  /** Whether a barrel within a few metres of (x, y, z) has fired this frame. */
+  near(x, y, z) {
     for (const b of this.batch) {
       const dx = b.x - x, dy = b.y - y, dz = b.z - z;
-      if (dx * dx + dy * dy + dz * dz < 64) { sibling = true; break; }
+      if (dx * dx + dy * dy + dz * dz < 64) return true;
     }
+    return false;
+  }
+
+  fire(x, y, z, dir, caliber = 152) {
+    const sibling = this.near(x, y, z);
     this.batch.push({ x, y, z });
 
     const R = blastRecipe(caliber, sibling, this.intensity);
@@ -567,6 +648,18 @@ export class MuzzleBlasts {
       });
     }
 
+    // The jet: from the muzzle out along the bore, white at the root and
+    // orange at its ragged tip, out to its full length in a couple of frames
+    // and burnt out before the cloud has formed round it.
+    for (let i = 0; i < R.jet; i++) {
+      this.add({
+        kind: JET, x, y, z, vx: 0, vy: 0, vz: 0, k: 0, lift: 0, windK: 0,
+        r0: 0.9 * L, r1: 0.9 * L, rg: 1, grow: 0, w: 0.17 * L,
+        life: R.jetLife * (0.9 + Math.random() * 0.2),
+        tau: 0, seed: Math.random(), op: 1, hot: 1, tint: [d.x, d.y, d.z],
+      });
+    }
+
     // The cloud: thrown out down the bore, each card further than the last
     // and each stopping where the air stops it, so what stands there is a
     // bank with a shape -- dense by the muzzle, ragged at the far end.
@@ -575,8 +668,8 @@ export class MuzzleBlasts {
       const f = sibling ? 0.3 + Math.random() * 0.5 : (n > 1 ? i / (n - 1) : 0.4);
       const reach = (0.15 + 0.95 * f) * L;
       const k = 4.5 + Math.random();
-      const s = (Math.random() - 0.5) * 0.24 * L;
-      const h = (Math.random() * 0.8 - 0.2) * 0.12 * L;
+      const s = (Math.random() - 0.5) * 0.34 * L;
+      const h = (Math.random() - 0.25) * 0.16 * L;
       const start = 0.05 * L;
       this.add({
         kind: SMOKE,
@@ -684,7 +777,7 @@ export class MuzzleBlasts {
       const o = j * 4;
       C[o] = p.x; C[o + 1] = p.y; C[o + 2] = p.z; C[o + 3] = p.r;
       A[o] = p.age; A[o + 1] = p.life; A[o + 2] = p.tau; A[o + 3] = p.seed;
-      B[o] = p.kind; B[o + 1] = p.op; B[o + 2] = p.hot; B[o + 3] = 0;
+      B[o] = p.kind; B[o + 1] = p.op; B[o + 2] = p.hot; B[o + 3] = p.w || 0;
       T[o] = p.tint[0]; T[o + 1] = p.tint[1]; T[o + 2] = p.tint[2]; T[o + 3] = 0;
     }
     for (const a of [this.aCenter, this.aA, this.aB, this.aTint]) {

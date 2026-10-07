@@ -4,7 +4,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { Splashes, splashSize } from './splash.js';
-import { MuzzleBlasts } from './muzzleblast.js';
+import { MuzzleBlasts, blastSize } from './muzzleblast.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -191,9 +191,29 @@ export class Effects {
   flash(x, y, z, power = 1) {
     const entry = this.lights[this.lightCursor = (this.lightCursor + 1) % this.lights.length];
     entry.light.position.set(x, y, z);
+    entry.light.color.setHex(0xffbb66);
     entry.light.intensity = 8 * power;
     entry.light.distance = 700 * power;
     entry.life = 0.12;
+    entry.fade = 0.02;
+  }
+
+  /**
+   * The light of a gun going off, thrown over the turret, the deck, the sea
+   * and the smoke round it: as bright as the sun for the instant the gas is
+   * alight, and gone again in a few hundredths of a second. The light falls
+   * off with the square of the distance, so it is the size of the charge
+   * squared that says how far it reaches.
+   */
+  gunFlash(x, y, z, caliber) {
+    const entry = this.lights[this.lightCursor = (this.lightCursor + 1) % this.lights.length];
+    const k = 0.5 + caliber / 250;
+    entry.light.position.set(x, y, z);
+    entry.light.color.setHex(0xffa452);
+    entry.light.intensity = 170 * k * k;
+    entry.light.distance = 90 + 160 * k;
+    entry.life = 0.14;
+    entry.fade = 1e-12;
   }
 
   /**
@@ -324,11 +344,15 @@ export class Effects {
    * it; without it the blast goes out level on `bearing`.
    */
   muzzle(x, y, z, bearing, caliber = 152, aim = null) {
-    const scale = 0.5 + caliber / 250;
-    this.flash(x, y + 4, z, scale);
     const d = aim
       ? MUZZLE_DIR.copy(aim).normalize()
       : MUZZLE_DIR.set(Math.sin(bearing), 0.04, Math.cos(bearing)).normalize();
+    // A turret's barrels go off together and light the same water: one light
+    // for the lot, out in the middle of the fire in front of the muzzles.
+    if (!this.blasts.near(x, y, z)) {
+      const L = blastSize(caliber);
+      this.gunFlash(x + d.x * 0.35 * L, y + d.y * 0.35 * L + 2, z + d.z * 0.35 * L, caliber);
+    }
     this.blasts.fire(x, y, z, d, caliber);
   }
 
@@ -603,10 +627,15 @@ export class Effects {
         p.sprite.material.opacity = p.opacity0 * (1 - k * k);
       }
     }
+    this.stepLights(dt);
+  }
+
+  /** The flashes' lights dying away. */
+  stepLights(dt) {
     for (const l of this.lights) {
       if (l.life > 0) {
         l.life -= dt;
-        l.light.intensity *= Math.pow(0.02, dt);
+        l.light.intensity *= Math.pow(l.fade ?? 0.02, dt);
         if (l.life <= 0) l.light.intensity = 0;
       }
     }
