@@ -10,7 +10,8 @@ const DEFAULTS = {
   quality: 'medium',
   botSkill: 'regular',
   shadows: true,
-  shake: true,
+  // Whether your own guns kick the camera when they fire.
+  recoil: true,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
   // Null means she sails with what her datasheet says.
   airGroup: null,
@@ -18,12 +19,26 @@ const DEFAULTS = {
 
 let cache = null;
 
+/**
+ * What was stored, over the defaults.
+ *
+ * The switch for your own guns moving the camera used to be called `shake`,
+ * when what it did was shake it. A captain who turned that off did not want
+ * the camera moving when their guns fired, and that is still what they get.
+ */
+export function readSettings(stored = {}) {
+  const out = { ...DEFAULTS, ...stored };
+  if (stored.recoil === undefined && typeof stored.shake === 'boolean') out.recoil = stored.shake;
+  delete out.shake;
+  return out;
+}
+
 export function getSettings() {
   if (cache) return cache;
   try {
-    cache = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    cache = readSettings(JSON.parse(localStorage.getItem(KEY) || '{}'));
   } catch {
-    cache = { ...DEFAULTS };
+    cache = readSettings();
   }
   return cache;
 }

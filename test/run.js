@@ -105,7 +105,8 @@ import {
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
-import { Battle, airArsenal, poseBetween } from '../client/js/game.js';
+import { Battle, airArsenal, poseBetween, recoilKick } from '../client/js/game.js';
+import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
@@ -12450,6 +12451,81 @@ check('gun smoke is drawn back to front, follows the bore and goes down the wind
   const drifted = mean(windy.parts.filter((p) => p.kind === 1), 'x')
     - mean(still.parts.filter((p) => p.kind === 1), 'x');
   assert.ok(drifted > 25, `a six-metre breeze moved the smoke ${drifted.toFixed(0)} m in eight seconds`);
+});
+
+check('your own guns kick the camera a little, and only if you want them to', () => {
+  // Slight, and quick: up to the top of it in a few hundredths of a second,
+  // and gone well inside half of one, so it is felt rather than watched.
+  const peak = (cal) => {
+    let best = 0;
+    let at = 0;
+    for (let t = 0; t < 1; t += 0.002) {
+      const k = recoilKick(t, cal);
+      if (k > best) { best = k; at = t; }
+    }
+    return { best, at };
+  };
+  const big = peak(406);
+  assert.equal(recoilKick(0, 406), 0, 'the camera jumps before the gun has gone off');
+  assert.ok(big.at > 0.02 && big.at < 0.1, `the kick tops out after ${big.at.toFixed(3)} s`);
+  assert.ok(recoilKick(0.45, 406) < 0.05 * big.best, 'the camera is still settling half a second on');
+  assert.equal(recoilKick(1.5, 406), 0, 'the kick never quite goes away');
+  // A five-inch gun is a nudge; the secondaries fire every few seconds.
+  assert.ok(peak(127).best < 0.3 * big.best, 'a five-inch gun kicks the camera like a battleship');
+  assert.ok(peak(460).best <= 1, 'the Yamato kicks harder than the kick goes');
+
+  // Laid over the camera: tipped up, opened out, and back where it was.
+  const b = Object.create(Battle.prototype);
+  b.recoils = [];
+  b.recoilClock = 0;
+  const look = (clock, fov = 58) => {
+    const cam = new THREE.PerspectiveCamera(fov);
+    cam.position.set(0, 20, 0);
+    cam.lookAt(0, 20, 1000);
+    b.recoilClock = clock;
+    b.applyRecoil(cam);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    return { up: Math.asin(fwd.y), fov: cam.fov };
+  };
+  b.kick(406);
+  const top = look(big.at);
+  const deg = (r) => (r * 180) / Math.PI;
+  assert.ok(top.up > 0, 'a salvo tips the camera down');
+  assert.ok(deg(top.up) > 0.3 && deg(top.up) < 1.5,
+    `a sixteen-inch salvo tips the view ${deg(top.up).toFixed(2)} degrees: not slight, or not felt`);
+  assert.ok(top.fov > 58 && top.fov < 58 * 1.03, 'the view is not opened out a shade by the kick');
+  // Through a gun sight it is the same jolt for what the eye sees.
+  b.recoils = [];
+  b.recoilClock = 0;
+  b.kick(406);
+  const sight = look(big.at, 9);
+  assert.ok(Math.abs(sight.up / (9 * Math.PI / 180) - top.up / (58 * Math.PI / 180)) < 1e-3,
+    'the kick through the sight is not in proportion to the sight');
+  const after = look(1.2);
+  assert.ok(Math.abs(after.up) < 1e-9 && after.fov === 58, 'the camera is left tipped after the kick');
+  assert.equal(b.recoils.length, 0, 'spent kicks are kept');
+  // A broadside is one heavier kick, not four stacked.
+  b.recoils = [];
+  b.recoilClock = 0;
+  for (let i = 0; i < 4; i++) b.kick(406);
+  const four = look(big.at);
+  assert.ok(four.up > top.up && four.up < 1.4 * top.up,
+    'four turrets kick the camera four times as hard, or no harder than one');
+
+  // A switch in the options, on to start with; and anyone who had turned the
+  // old shake off finds the camera still at rest when they fire.
+  assert.equal(readSettings().recoil, true, 'the recoil starts switched off');
+  assert.equal(readSettings({ shake: false }).recoil, false, 'turning the shake off was forgotten');
+  assert.equal(readSettings({ shake: false, recoil: true }).recoil, true, 'the new switch is overridden by the old one');
+  assert.ok(!('shake' in readSettings({ shake: true })), 'the old switch is still being carried');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/id="opt-recoil" checked/.test(html), 'there is no recoil switch in the options, or it starts off');
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/optRecoil\.onchange = \(\) => setSettings\(\{ recoil: optRecoil\.checked \}\)/.test(main),
+    'the recoil switch is not wired to the setting');
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  assert.ok(/ev\.ship === this\.shipId && getSettings\(\)\.recoil\) this\.kick\(ev\.cal\)/.test(game),
+    'your own guns kick the camera whatever the switch says, or not at all');
 });
 
 check('gun smoke never outgrows its pool, and a small gun makes a small blast', () => {

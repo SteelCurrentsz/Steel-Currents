@@ -63,6 +63,23 @@ export function poseBetween(s, prev, t, ahead = 0) {
     v: s.v || 0,
   };
 }
+
+/**
+ * How hard your own guns kick the camera, `t` seconds after they went off: up
+ * to the top of it in a few hundredths of a second and settled back inside a
+ * quarter of one, with nothing after.
+ *
+ * `cal` is the bore in millimetres. A sixteen-inch salvo is the whole kick and
+ * a five-inch barely a nudge: the secondaries go off every few seconds, and a
+ * view that jumps every time they do is one nobody can lay a gun in.
+ */
+export function recoilKick(t, cal) {
+  if (t < 0) return 0;
+  const size = Math.min(1, Math.pow(Math.max(0, cal) / 406, 1.3));
+  const u = t / (0.045 + 0.025 * size);
+  return u > 12 ? 0 : size * u * Math.exp(1 - u);
+}
+
 // How far the view has to be walked before it lets go of the ship it is
 // watching. Screen pixels, and about a fingertip's width.
 const PAN_TO_LET_GO = 26;
@@ -442,6 +459,9 @@ export class Battle {
     this.scoped = false;
     this.fov = 58;
     this.shake = 0;
+    // Your own salvos, as the camera feels them. See kick().
+    this.recoils = [];
+    this.recoilClock = 0;
     this.aimPoint = new THREE.Vector3();
     this.sunk = false;
     this.mapBig = false;
@@ -1271,7 +1291,7 @@ export class Battle {
           // the muzzle is, which is the same point, less the roll.
           if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, d);
-          if (ev.ship === this.shipId && getSettings().shake) this.shake = Math.min(1, ev.cal / 320);
+          if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
         }
         case 'aa': {
@@ -3162,6 +3182,7 @@ export class Battle {
       !!this.bombSource() || (!this.flight && !!this.shellSource()),
       this.shellCam,
     );
+    this.recoilClock += dt;
     this.updateCamera(dt);
     // And the ground, if anything has taken a piece out of it since the last
     // frame. Held off for a moment after the last hit rather than done on the
@@ -4305,6 +4326,7 @@ export class Battle {
         // A gun sight is a telescope. Narrow, so a ship at ten thousand yards
         // is something you can lay on rather than a speck.
         cam.fov = this.scoped ? 9 : 24;
+        this.applyRecoil(cam);
         cam.updateProjectionMatrix();
         return;
       }
@@ -4438,7 +4460,52 @@ export class Battle {
       cam.position.y += (Math.random() - 0.5) * s;
       cam.position.z += (Math.random() - 0.5) * s;
     }
+    // Not on the plot: a chart that jumps when the guns go off is not a chart.
+    if (this.camMode !== 'tactical') this.applyRecoil(cam);
     cam.updateProjectionMatrix();
+  }
+
+  /**
+   * Your own guns going off, felt through the camera. One a mounting: the
+   * barrels of a turret fire together and kick once.
+   */
+  kick(cal) {
+    const list = this.recoils || (this.recoils = []);
+    if (list.length >= 6) list.shift();
+    list.push({ at: this.recoilClock || 0, cal, roll: Math.random() < 0.5 ? -1 : 1 });
+  }
+
+  /**
+   * Lay the kick over wherever the camera has just been put: tipped up a
+   * little, rolled a touch, and the view opened out a shade, as if the whole
+   * ship had been shoved back under the eye. Every camera is put fresh each
+   * frame, so this is laid on fresh each frame and never builds up.
+   */
+  applyRecoil(cam) {
+    const list = this.recoils;
+    if (!list || !list.length) return;
+    const now = this.recoilClock || 0;
+    let k = 0;
+    let roll = 0;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const age = now - list[i].at;
+      if (age > 1) { list.splice(i, 1); continue; }
+      const r = recoilKick(age, list[i].cal);
+      k += r;
+      roll += r * list[i].roll;
+    }
+    if (k <= 0) return;
+    // A broadside of four turrets is one heavier kick, not four on top of
+    // one another.
+    const cap = Math.min(1, 1.3 / k);
+    k *= cap;
+    roll *= cap;
+    // In proportion to what the lens takes in, so it is the same slight jolt
+    // through a gun sight as on the bridge, not ten times the size.
+    const fov = THREE.MathUtils.degToRad(cam.fov);
+    cam.rotateX(k * fov * 0.015);
+    cam.rotateZ(roll * fov * 0.005);
+    cam.fov *= 1 + 0.02 * k;
   }
 
   render() {

@@ -691,7 +691,7 @@ const optSens = document.getElementById('opt-sens');
 const optSkill = document.getElementById('opt-skill');
 const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
-const optShake = document.getElementById('opt-shake');
+const optRecoil = document.getElementById('opt-recoil');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -699,7 +699,7 @@ optSens.value = Math.round(settings.sensitivity * 100);
 optSkill.value = settings.botSkill;
 optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
-optShake.checked = settings.shake;
+optRecoil.checked = settings.recoil;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -717,7 +717,7 @@ optSens.oninput = () => {
 optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
-optShake.onchange = () => setSettings({ shake: optShake.checked });
+optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 
 // ------------------------------------------------------------------- net --
 
