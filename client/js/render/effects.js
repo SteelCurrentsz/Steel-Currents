@@ -1,8 +1,10 @@
-// Pooled sprite effects: shell splashes, explosions, muzzle flash, fires,
-// funnel smoke and smoke screens. One shared canvas texture, two materials.
+// Pooled sprite effects: shell splashes, explosions, fires, funnel smoke and
+// smoke screens. One shared canvas texture, two materials. A gun's flash and
+// smoke are handed on to muzzleblast.js.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { Splashes, splashSize } from './splash.js';
+import { MuzzleBlasts } from './muzzleblast.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -97,6 +99,7 @@ export function drift(p, dt) {
 }
 
 const POOL_SIZE = 900;
+const MUZZLE_DIR = new THREE.Vector3();
 
 export class Effects {
   constructor(scene, intensity = 1) {
@@ -122,6 +125,9 @@ export class Effects {
 
     // The water a round throws up is meshes, not sprites -- see splash.js.
     this.splashes = new Splashes(scene, intensity);
+    // And what a gun leaves in the air is its own thing too -- see
+    // muzzleblast.js.
+    this.blasts = new MuzzleBlasts(scene, { intensity });
 
     this.lights = [];
     for (let i = 0; i < 6; i++) {
@@ -310,54 +316,20 @@ export class Effects {
   /**
    * A gun going off: the flash, and then the smoke that stands there.
    *
-   * The flash is over in a fifth of a second and is the part everybody draws.
-   * The smoke is the part that makes it look like a gun: a bank of propellant
-   * smoke thrown out along the bore, slowing almost at once because it has no
-   * momentum of its own, and then hanging beside the ship for ten or fifteen
-   * seconds while she steams out from under it. A heavy gun makes a great deal
-   * of it and an Oerlikon makes almost none, so all of it scales off the bore.
+   * The work is in muzzleblast.js. What is left here is the light the flash
+   * throws on the ship, and working out which way the bore is pointing when
+   * the caller only knows the bearing.
+   *
+   * `aim` is the barrel's own line, elevation and all, when the model knows
+   * it; without it the blast goes out level on `bearing`.
    */
-  muzzle(x, y, z, bearing, caliber = 152) {
+  muzzle(x, y, z, bearing, caliber = 152, aim = null) {
     const scale = 0.5 + caliber / 250;
-    const sn = Math.sin(bearing);
-    const cs = Math.cos(bearing);
     this.flash(x, y + 4, z, scale);
-    this.spawn({
-      x: x + sn * 10, y: y + 3, z: z + cs * 10,
-      size: 10 * scale, grow: 26 * scale, ttl: 0.22, glow: true, color: 0xffdca0, opacity: 1,
-    });
-    // The burning propellant, still alight for a moment out past the muzzle.
-    this.spawn({
-      x: x + sn * 20 * scale, y: y + 3.5, z: z + cs * 20 * scale,
-      vx: sn * 40 * scale, vz: cs * 40 * scale, vy: 2,
-      size: 7 * scale, grow: 20 * scale, ttl: 0.32, glow: true,
-      color: 0xffb057, opacity: 0.9, drag: 0.97,
-    });
-    // And the bank of smoke: several puffs down the bore line, each thrown a
-    // little further and each a little slower than the one before it, so what
-    // stands there is a plume with a shape rather than one ball.
-    const puffs = Math.max(2, Math.round((1 + caliber / 120) * this.intensity));
-    for (let i = 0; i < puffs; i++) {
-      const f = i / Math.max(1, puffs - 1);
-      const out = (8 + f * 30) * scale;
-      const spread = (1 - f) * 3 + f * 7;
-      this.spawn({
-        x: x + sn * out + (Math.random() - 0.5) * spread,
-        y: y + 3 + f * 2.5 + (Math.random() - 0.5) * spread * 0.5,
-        z: z + cs * out + (Math.random() - 0.5) * spread,
-        vx: sn * (26 - f * 16) * scale + (Math.random() - 0.5) * 5,
-        vz: cs * (26 - f * 16) * scale + (Math.random() - 0.5) * 5,
-        vy: 2.2 + Math.random() * 2.5,
-        size: (5 + f * 5) * scale, grow: (11 + f * 9) * scale,
-        ttl: 5.5 + caliber * 0.028 + Math.random() * 3,
-        color: i === 0 ? 0xc4bfb4 : 0xa4a49c,
-        // Thin. A turret firing a full salvo lays down one of these per gun
-        // and a four-turret broadside lays down four banks on top of each
-        // other: at any real opacity that is a white wall with a ship
-        // somewhere behind it.
-        opacity: 0.26 - f * 0.07, drag: 0.93,
-      });
-    }
+    const d = aim
+      ? MUZZLE_DIR.copy(aim).normalize()
+      : MUZZLE_DIR.set(Math.sin(bearing), 0.04, Math.cos(bearing)).normalize();
+    this.blasts.fire(x, y, z, d, caliber);
   }
 
   /**
@@ -596,8 +568,10 @@ export class Effects {
     }
   }
 
-  update(dt) {
+  /** `camera` is what the gun smoke is sorted against; see muzzleblast.js. */
+  update(dt, camera) {
     this.splashes.update(dt);
+    this.blasts.update(dt, camera);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
       p.life += dt;

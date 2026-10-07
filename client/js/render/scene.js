@@ -1,7 +1,7 @@
 // The battle world: sky, sea, islands, ship view-models and the camera rig.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { Ocean, OCEAN_PRESETS } from './ocean.js';
+import { Ocean, OCEAN_PRESETS, WAVES } from './ocean.js';
 import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
@@ -1409,17 +1409,23 @@ export class ShipView {
    * bearing when a bearing is given instead. This is what puts a muzzle flash
    * on the muzzle and tracer at the end of a barrel -- straight off the scene
    * graph, so it is where the gun actually is with the ship rolling under it.
+   *
+   * `aims`, if given, is filled alongside with the line each of those barrels
+   * is laid on, which is the way its blast goes.
    */
-  muzzles(kind, which, out = []) {
+  muzzles(kind, which, out = [], aims = null) {
     const list = kind === 'turret' ? this.turrets
       : kind === 'sec' ? this.secMounts
         : kind === 'torp' ? this.torpMounts : this.aaMounts;
     out.length = 0;
+    if (aims) aims.length = 0;
     if (!list || !list.length) return out;
     const take = (m) => {
       if (!m || !m.userData.muzzles) return;
+      const aim = aims ? muzzleAim(m, new THREE.Vector3()) : null;
       for (let i = 0; i < m.userData.muzzles.length; i++) {
         out.push(muzzleWorld(m, i, new THREE.Vector3()));
+        if (aims) aims.push(aim);
       }
     };
     if (typeof which === 'number') take(list[which]);
@@ -1589,6 +1595,15 @@ export class BattleScene {
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
+    // The gun smoke is lit by the same hour and cloud as everything else, and
+    // drifts down the wind the sea is running before.
+    {
+      const [dx, dz] = WAVES[0].dir;
+      const speed = 2 + 1.3 * (world.sea ?? 2);
+      this.effects.blasts.setAtmosphere({
+        preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
+      });
+    }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
     this.weather = new Weather(this.scene, wx, { count: Math.round(9000 * q.particles) });
@@ -1759,7 +1774,7 @@ export class BattleScene {
     if (this.sky) this.sky.position.set(eye.x, 0, eye.z);
     if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
-    this.effects.update(dt);
+    this.effects.update(dt, this.camera);
     this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);

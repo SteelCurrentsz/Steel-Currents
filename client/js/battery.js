@@ -383,6 +383,8 @@ export class BatteryScene {
     this.scene.fog = new THREE.FogExp2(0xa9c4d8, 0.00035);
 
     this.fire = new GunFire(this.scene);
+    // Its smoke lit by the same sun as the concrete.
+    this.fire.blasts.setAtmosphere({ preset: 'day', sunDir: this.sun.position });
     this.battery = null;
     this.id = null;
     this.time = 0;
@@ -533,7 +535,7 @@ export class BatteryScene {
     // The guns keep their own time, and the smoke drifts on the same wind the
     // sea is running before.
     if (this.battery) this.battery.group.updateMatrixWorld(true);
-    this.fire.update(dt, WIND);
+    this.fire.update(dt, WIND, this.camera);
     // The flash lights the world by lifting the two lights already in the
     // scene rather than by adding a third one to it.
     const lit = this.fire.flashLevel;

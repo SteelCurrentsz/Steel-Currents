@@ -130,6 +130,7 @@ import { Fittings } from '../client/js/render/pieces.js';
 import { Wreckage } from '../client/js/render/wreckage.js';
 import { Debris } from '../client/js/render/debris.js';
 import { drift } from '../client/js/render/effects.js';
+import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { buildShip } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
@@ -12333,6 +12334,148 @@ check('smoke goes up and burning wreckage comes down', () => {
     const p = drift({ vx: 3, vy: 3, vz: 3, drag: d, lift: 2 }, 1 / 30);
     assert.ok(Number.isFinite(p.vx + p.vy + p.vz), `drag ${d} made a velocity NaN`);
   }
+});
+
+check('a gun goes off in a flash, and its smoke hangs on long after', () => {
+  // What makes it a gun rather than a lamp is the order things happen in and
+  // how long each of them lasts. The fire is over in a fifth of a second. The
+  // cloud it burns into is thrown out down the bore, stopped by the air
+  // inside a second, and then stands there thinning for fifteen or twenty --
+  // which is the part that used to be a scatter of soft dots that had blown
+  // away by the time the next salvo went.
+  const scene = new THREE.Scene();
+  const fx = new MuzzleBlasts(scene);
+  const eye = new THREE.PerspectiveCamera();
+  eye.position.set(0, 30, -300);
+  const L = blastSize(406);
+  const bore = new THREE.Vector3(1, 0, 0);
+  fx.fire(0, 14, 0, bore, 406);
+  const kinds = () => fx.parts.reduce((a, p) => { a[p.kind] = (a[p.kind] || 0) + 1; return a; }, {});
+  const at = {};
+  let t = 0;
+  for (const mark of [0.02, 0.4, 1, 3, 10, 30]) {
+    while (t < mark) { fx.update(1 / 60, eye); t += 1 / 60; }
+    at[mark] = { kinds: kinds(), smoke: fx.parts.filter((p) => p.kind === 1).map((p) => ({ ...p })) };
+  }
+  assert.ok(at[0.02].kinds[0] >= 2, 'a sixteen-inch gun went off with no flash');
+  assert.ok(!at[0.4].kinds[0], 'the flash is still burning four tenths of a second later');
+  assert.ok(at[0.4].kinds[1] >= 4, 'a sixteen-inch gun made almost no smoke');
+
+  // Out down the bore, and fast: most of the way out inside a second...
+  const reach = (list) => Math.max(...list.map((p) => p.x));
+  assert.ok(reach(at[1].smoke) > 0.8 * L,
+    `the cloud got ${reach(at[1].smoke).toFixed(0)} m out in a second, not the ${(0.8 * L).toFixed(0)} a heavy gun throws it`);
+  // ...and then stopped: in the still air of this test, it goes no further.
+  assert.ok(reach(at[3].smoke) - reach(at[1].smoke) < 0.1 * L,
+    'the smoke is still being driven out down the bore three seconds after the gun went off');
+  // Not straight down a line, and not off sideways either.
+  for (const p of at[1].smoke) {
+    assert.ok(Math.abs(p.z) < 0.3 * L, `a puff went ${p.z.toFixed(0)} m off the line of fire`);
+  }
+
+  // And it is still there ten seconds on, bigger than it was, then gone.
+  assert.ok(at[10].kinds[1] >= 3, 'the smoke of a sixteen-inch gun has gone inside ten seconds');
+  for (const p of at[10].smoke) {
+    const was = at[1].smoke.find((q) => q.seed === p.seed);
+    assert.ok(was && p.r > was.r, 'a cloud has stopped spreading as it thins');
+  }
+  assert.equal(fx.parts.length, 0, 'gun smoke still in the air half a minute later');
+  assert.equal(fx.mesh.visible, false, 'an empty pool is still being drawn');
+});
+
+check('the barrels of one turret fire into one cloud', () => {
+  // Three guns a few feet apart make one fireball and one bank of smoke. Three
+  // full blasts laid on top of each other were three times as thick, and a
+  // battleship's broadside came out as a white wall.
+  const count = (spacing) => {
+    const fx = new MuzzleBlasts(new THREE.Scene());
+    const d = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i < 3; i++) fx.fire(i * spacing, 14, 0, d, 406);
+    return fx.parts.length;
+  };
+  const turret = count(3);
+  const apart = count(60);
+  assert.ok(turret < apart * 0.66,
+    `a triple turret drew ${turret} pieces against ${apart} for three separate guns`);
+  // But each of them still flashes at its own muzzle.
+  const fx = new MuzzleBlasts(new THREE.Scene());
+  for (let i = 0; i < 3; i++) fx.fire(i * 3, 14, 0, new THREE.Vector3(0, 0, 1), 406);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(fx.parts.some((p) => p.kind === 0 && Math.abs(p.x - i * 3) < 0.5),
+      `barrel ${i + 1} of the turret fired without a flash`);
+  }
+  // A new frame is a new salvo.
+  fx.update(1 / 60);
+  const before = fx.parts.length;
+  fx.fire(0, 14, 0, new THREE.Vector3(0, 0, 1), 406);
+  assert.ok(fx.parts.length - before >= blastRecipe(406).smoke,
+    'the next salvo out of the same turret was taken for part of the last one');
+});
+
+check('gun smoke is drawn back to front, follows the bore and goes down the wind', () => {
+  const scene = new THREE.Scene();
+  const fx = new MuzzleBlasts(scene);
+  const eye = new THREE.PerspectiveCamera();
+  eye.position.set(-200, 40, 50);
+  // Laid up at thirty degrees for a long shot: the blast goes up with the bore.
+  const up = new THREE.Vector3(0, 0.5, Math.sqrt(0.75));
+  fx.fire(0, 14, 0, up, 356);
+  fx.fire(0, 14, 120, new THREE.Vector3(0, 0, 1), 356);
+  for (let i = 0; i < 60; i++) fx.update(1 / 60, eye);
+  const smoke = fx.parts.filter((p) => p.kind === 1);
+  const high = smoke.filter((p) => p.z < 60);
+  const level = smoke.filter((p) => p.z >= 60);
+  const mean = (l, k) => l.reduce((a, p) => a + p[k], 0) / l.length;
+  assert.ok(mean(high, 'y') - mean(level, 'y') > 0.2 * blastSize(356),
+    'a gun at thirty degrees of elevation blew its smoke out level');
+
+  // Back to front: the order the cards are handed to the GPU in.
+  const c = fx.aCenter.array;
+  let last = Infinity;
+  for (let i = 0; i < fx.geo.instanceCount; i++) {
+    const d = Math.hypot(c[i * 4] - eye.position.x, c[i * 4 + 1] - eye.position.y,
+      c[i * 4 + 2] - eye.position.z);
+    assert.ok(d <= last + 1e-6, 'gun smoke is drawn out of order, near before far');
+    last = d;
+  }
+
+  // And downwind: the same blast in a breeze ends up somewhere else.
+  const still = new MuzzleBlasts(new THREE.Scene());
+  const windy = new MuzzleBlasts(new THREE.Scene());
+  windy.setAtmosphere({ wind: { x: 6, z: 0 } });
+  for (const f of [still, windy]) {
+    f.fire(0, 14, 0, new THREE.Vector3(0, 0, 1), 203);
+    for (let i = 0; i < 8 * 30; i++) f.update(1 / 30);
+  }
+  const drifted = mean(windy.parts.filter((p) => p.kind === 1), 'x')
+    - mean(still.parts.filter((p) => p.kind === 1), 'x');
+  assert.ok(drifted > 25, `a six-metre breeze moved the smoke ${drifted.toFixed(0)} m in eight seconds`);
+});
+
+check('gun smoke never outgrows its pool, and a small gun makes a small blast', () => {
+  // A fleet action with every secondary battery in local control fires all
+  // the time. The pool takes the most nearly faded piece when it is full
+  // rather than growing, or refusing the new salvo.
+  const fx = new MuzzleBlasts(new THREE.Scene(), { max: 120 });
+  for (let i = 0; i < 200; i++) {
+    fx.fire(i * 40, 10, 0, new THREE.Vector3(0, 0, 1), 127);
+    fx.update(1 / 30);
+    assert.ok(fx.parts.length <= 120, `the pool grew to ${fx.parts.length}`);
+  }
+  assert.ok(fx.parts.some((p) => p.x >= 199 * 40 - 1), 'the newest salvo was refused');
+
+  let last = 0;
+  for (const cal of [20, 40, 88, 127, 152, 203, 280, 356, 406, 460, 800]) {
+    const r = blastRecipe(cal);
+    assert.ok(r.size > last, `a ${cal} mm gun has no bigger a blast than the gun below it`);
+    assert.ok(r.smoke >= 1 && r.flash >= 1, `a ${cal} mm gun goes off without flash or smoke`);
+    assert.ok(r.flashLife < 0.4, `a ${cal} mm flash burns for ${r.flashLife.toFixed(2)} s`);
+    last = r.size;
+  }
+  assert.ok(blastRecipe(127).smokeLife < blastRecipe(406).smokeLife,
+    'a five-inch gun leaves its smoke hanging as long as a sixteen-inch');
+  assert.ok(blastRecipe(406, true).smoke < blastRecipe(406).smoke,
+    'the second barrel of a turret makes as much smoke as the first');
 });
 
 

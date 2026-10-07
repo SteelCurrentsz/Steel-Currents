@@ -1254,8 +1254,14 @@ export class Battle {
             const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : null;
             const which = ev.t != null ? ev.t : ev.s;
             if (kind) {
-              for (const p of view.muzzles(kind, which)) {
-                fx.muzzle(p.x, p.y, p.z, ev.b, ev.cal);
+              // And which way each barrel is laid, elevation and all: the
+              // blast goes out along the bore, and a gun cocked up at twenty
+              // degrees for a long shot throws its smoke up into the air.
+              const aims = [];
+              const pts = view.muzzles(kind, which, [], aims);
+              for (let i = 0; i < pts.length; i++) {
+                const p = pts[i];
+                fx.muzzle(p.x, p.y, p.z, ev.b, ev.cal, aims[i]);
                 lit = true;
               }
             }
