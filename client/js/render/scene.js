@@ -21,6 +21,7 @@ import { Plating } from './plating.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
+import { Breakers } from './breakers.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -1603,6 +1604,12 @@ export class BattleScene {
       this.effects.blasts.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
+      // The sea against the ships: kept off their decks, and thrown up their
+      // sides as spray under the same sky and down the same wind.
+      this.breakers = new Breakers(this.scene, this.ocean, { intensity: q.particles });
+      this.breakers.setAtmosphere({
+        preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
+      });
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
@@ -1774,6 +1781,9 @@ export class BattleScene {
     if (this.sky) this.sky.position.set(eye.x, 0, eye.z);
     if (this.stars) this.stars.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
+    // After the sea has moved and before anything is drawn on it: where every
+    // ship is now is where the sea has to keep out of her this frame.
+    this.breakers.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
     this.flames.update(dt);
     this.debris.update(dt);

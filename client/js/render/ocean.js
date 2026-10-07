@@ -183,6 +183,67 @@ vec3 oilAt(vec2 p) {
 }
 `;
 
+/**
+ * The hulls near the eye, as the sea has to know them.
+ *
+ * The surface used to be one sheet running straight through every ship on
+ * it. A crest that stood a hand's breadth higher than her deck edge stood
+ * there across the whole of her deck, because there was nothing to say the
+ * deck was not sea -- and since a long crest is nearly flat over the width of
+ * a ship, slightly over the deck edge meant the entire quarterdeck under water.
+ *
+ * So each of the hulls close by is described to both stages: where she is,
+ * and what she is at each station along her -- how wide at the waterline, how
+ * high her deck edge stands, how far out her side is under it. The sea is not
+ * drawn inside her at all. Against her it is held down to just under her deck
+ * edge: a wave that would have gone over her meets her side and stops there,
+ * and what it would have put on her deck is thrown up the side as spray
+ * instead (see breakers.js). Where it is being held off her, it is white.
+ */
+export const MAX_HULLS = 8;
+/** Stations along each hull in the plan, stem to stern. */
+export const HULL_STATIONS = 64;
+/**
+ * How far under her deck edge the sea is stopped, in metres. Under it rather
+ * than at it, so the deck plating never has the water standing flush with it.
+ */
+export const HOLD_MARGIN = 0.35;
+
+/**
+ * Where the sea eases off against a hull: unchanged below `top - k`, and
+ * closing on `top` from there without ever reaching it. The vertex stage below
+ * does exactly this, so the two have to be changed together.
+ */
+export function heldTo(y, top, k) {
+  const over = y - (top - k);
+  return over <= 0 ? y : top - k + k * (1 - Math.exp(-over / k));
+}
+
+export const HULL_GLSL = /* glsl */`
+#define MAX_HULLS ${MAX_HULLS}
+uniform float uHullCount;
+uniform mat4 uHullInv[MAX_HULLS];  // the world into her own frame
+uniform vec4 uHullAt[MAX_HULLS];   // xz of her middle, reach squared, how much she holds the sea off
+uniform vec4 uHullDim[MAX_HULLS];  // z of her after end, her length, how far out she is felt, easing
+uniform sampler2D uHullPlan;       // a row a hull: waterline half-breadth, deck edge, side under it
+
+// What she is at a station, by z in her own frame.
+vec4 hullPlan(int i, float z, vec4 dim) {
+  float u = clamp((z - dim.x) / dim.y, 0.0, 1.0);
+  const float S = ${HULL_STATIONS}.0;
+  return texture2D(uHullPlan, vec2((u * (S - 1.0) + 0.5) / S,
+                                   (float(i) + 0.5) / float(MAX_HULLS)));
+}
+
+// How far a point is from her outline, in plan: abeam of her side, or out
+// past her stem or her counter. Inside her it is nothing.
+float hullOff(vec3 lp, vec4 pl, vec4 dim) {
+  vec2 o = vec2(max(abs(lp.x) - pl.b, 0.0),
+                max(max(dim.x - lp.z, lp.z - dim.x - dim.y), 0.0));
+  return length(o);
+}
+`;
+
 const VERT = /* glsl */`
 uniform float uFade;        // how far out the short waves are given up
 varying vec3 vWorld;
@@ -191,8 +252,38 @@ varying float vCrest;
 varying float vFold;
 varying float vDist;
 varying float vWake;
+varying float vHeld;
 ${WAVE_GLSL}
 ${WAKE_GLSL}
+${HULL_GLSL}
+
+// The sea against the hulls: held down to just under each one's deck edge,
+// eased in over a few metres of her side so it slopes up to her rather than
+// standing as a step. Returns how hard it was being held off her here.
+float holdOff(inout vec3 wp) {
+  float held = 0.0;
+  for (int i = 0; i < MAX_HULLS; i++) {
+    if (float(i) >= uHullCount) break;
+    vec4 at = uHullAt[i];
+    vec2 dc = wp.xz - at.xy;
+    if (at.w <= 0.0 || dot(dc, dc) > at.z) continue;
+    vec3 lp = (uHullInv[i] * vec4(wp, 1.0)).xyz;
+    vec4 dim = uHullDim[i];
+    vec4 pl = hullPlan(i, lp.z, dim);
+    float w = (1.0 - smoothstep(0.0, dim.z, hullOff(lp, pl, dim))) * at.w;
+    float k = dim.w;
+    float top = pl.g - ${HOLD_MARGIN.toFixed(3)};
+    float over = lp.y - (top - k);
+    if (w <= 0.0 || over <= 0.0) continue;
+    float y = top - k + k * (1.0 - exp(-over / k));
+    float drop = (lp.y - y) * w;
+    // Her frame is tilted by no more than her roll and her pitch, a few
+    // degrees, so a drop along her own vertical is a drop in the world's.
+    wp.y -= drop;
+    held = max(held, w * smoothstep(0.02, 0.9, drop + over * 0.25));
+  }
+  return held;
+}
 
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
@@ -218,6 +309,11 @@ void main() {
   float wkeep = 1.0 - smoothstep(uFade * 0.10, uFade * 0.30, far);
   wp.y += wakeLift(wp.xz) * wkeep;
   vWake = wkeep;
+  // And last, the hulls: everything above has decided where this water wants
+  // to be, and a ship's side is where it cannot go.
+  vec3 hp = wp.xyz;
+  vHeld = holdOff(hp);
+  wp.xyz = hp;
   vWorld = wp.xyz;
   vNormal = normalize(mix(vec3(0.0, 1.0, 0.0), nrm, keep));
   vCrest = d.y;
@@ -249,7 +345,33 @@ varying float vCrest;
 varying float vFold;
 varying float vDist;
 varying float vWake;
+varying float vHeld;
 ${WAKE_GLSL}
+${HULL_GLSL}
+
+// Whether this piece of sea is inside a hull, where there is no sea to draw:
+// within her waterline, or standing above her deck anywhere inside her deck
+// edge. Either is behind her plating or under her deck if the vertex stage
+// has done its work, and where a triangle too long to follow her has not, it
+// is the water on her deck that this takes away.
+bool inHull(vec3 p) {
+  for (int i = 0; i < MAX_HULLS; i++) {
+    if (float(i) >= uHullCount) break;
+    vec4 at = uHullAt[i];
+    vec2 dc = p.xz - at.xy;
+    if (at.w <= 0.0 || dot(dc, dc) > at.z) continue;
+    vec3 lp = (uHullInv[i] * vec4(p, 1.0)).xyz;
+    vec4 dim = uHullDim[i];
+    if (lp.z <= dim.x || lp.z >= dim.x + dim.y) continue;
+    vec4 pl = hullPlan(i, lp.z, dim);
+    // Drawn in from her sides as she stops floating, so a ship settling into
+    // the sea has it come in over her rather than appear on her all at once.
+    float keep = smoothstep(0.0, 1.0, at.w);
+    if (abs(lp.x) < pl.r * keep) return true;
+    if (abs(lp.x) < pl.b * keep && lp.y > pl.g - 0.15) return true;
+  }
+  return false;
+}
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -288,7 +410,11 @@ float onoise(vec2 p) {
 }
 
 void main() {
+  if (uHullCount > 0.0 && inHull(vWorld)) discard;
   vec3 n = normalize(vNormal);
+  // Where the sea is being held off a hull it is not the wave it was: the
+  // crest has been stopped against her side and lies flatter.
+  n = normalize(mix(n, vec3(0.0, 1.0, 0.0), vHeld * 0.55));
   vec3 toEye = cameraPosition - vWorld;
   float dcam = length(toEye);
   vec3 v = toEye / max(dcam, 1e-4);
@@ -504,6 +630,14 @@ void main() {
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
   col = mix(col, white, wkFoam * (0.42 + 0.38 * wkB) * clean);
+  // And the water a hull is holding off, which has just hit her side and come
+  // apart against it: broken white along her plating where the wave struck,
+  // in the same threads the wake breaks into, and thinning outward from her.
+  if (vHeld > 0.004) {
+    float hthr = mix(0.78, 0.34, vHeld);
+    float hf = smoothstep(hthr - 0.08, hthr + 0.14, fine) * smoothstep(0.02, 0.35, vHeld);
+    col = mix(col, white, mix(vHeld * 0.5, hf, fineLod) * (0.45 + 0.4 * vHeld) * clean);
+  }
 
   // ---- oil -----------------------------------------------------------------
   //
@@ -664,6 +798,21 @@ function discGeometry(size, rings, sectors, inner = 3) {
 const BLANK = new THREE.DataTexture(new Uint8Array(4), 1, 1);
 BLANK.needsUpdate = true;
 
+/**
+ * The plans of the hulls the sea is being told about: a row of stations for
+ * each slot, in half floats so they can be read between stations. Empty until
+ * something binds hulls to it -- see breakers.js.
+ */
+function hullPlanTexture() {
+  const tex = new THREE.DataTexture(new Uint16Array(HULL_STATIONS * MAX_HULLS * 4),
+    HULL_STATIONS, MAX_HULLS, THREE.RGBAFormat, THREE.HalfFloatType);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export class Ocean {
   /**
    * @param size    diameter of the disc in metres.
@@ -688,10 +837,18 @@ export class Ocean {
       waveB.push(new THREE.Vector2(Math.sqrt(G * k), w.steep));
     }
 
+    this.hullPlan = hullPlanTexture();
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
       uniforms: {
+        // The hulls the sea has to keep out of. None until something says
+        // there are; see breakers.js.
+        uHullCount: { value: 0 },
+        uHullInv: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Matrix4()) },
+        uHullAt: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4()) },
+        uHullDim: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4(0, 1, 1, 1)) },
+        uHullPlan: { value: this.hullPlan },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
         uSteep: { value: 1 },

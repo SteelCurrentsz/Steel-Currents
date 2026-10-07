@@ -82,7 +82,7 @@ export function blastRecipe(caliber, sibling = false, intensity = 1) {
  * instead of eight hashes, which is the difference between a cloud the GPU can
  * afford a screenful of and one it cannot.
  */
-function noiseTexture() {
+export function noiseTexture() {
   const N = 256;
   const r = new Uint8Array(N * N);
   let s = 0x9e3779b9;
@@ -390,7 +390,7 @@ void main() {
  * colours, because that is what these shaders write -- the same as the
  * explosions, so a burning ship and the gun that set her alight agree.
  */
-const SKIES = {
+export const SKIES = {
   day: { sun: [0.74, 0.71, 0.65], sky: [0.40, 0.44, 0.50], ground: [0.24, 0.29, 0.32] },
   dawn: { sun: [0.72, 0.52, 0.36], sky: [0.30, 0.29, 0.35], ground: [0.13, 0.15, 0.18] },
   dusk: { sun: [0.68, 0.49, 0.37], sky: [0.27, 0.27, 0.34], ground: [0.12, 0.14, 0.17] },
@@ -399,7 +399,7 @@ const SKIES = {
 
 // Propellant smoke in daylight: a light, faintly warm grey.
 const SMOKE_TINT = [0.86, 0.83, 0.78];
-const SPRAY_TINT = [0.86, 0.89, 0.92];
+export const SPRAY_TINT = [0.86, 0.89, 0.92];
 
 const MAX = 768;
 

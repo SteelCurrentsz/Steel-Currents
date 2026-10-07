@@ -228,7 +228,12 @@ function shellRuler(group) {
 }
 import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
-import { Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL } from '../client/js/render/ocean.js';
+import {
+  Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL, heldTo, MAX_HULLS, HOLD_MARGIN,
+} from '../client/js/render/ocean.js';
+import {
+  Breakers, hullPlan, planAt, holdStrength, FLOAT_Y, SHEET, DROP,
+} from '../client/js/render/breakers.js';
 import { Wake, WakeField, waveReach } from '../client/js/render/wakefield.js';
 import { ShipView } from '../client/js/render/scene.js';
 import { torpedoGeometry } from '../client/js/render/torpedo.js';
@@ -16685,6 +16690,216 @@ check('the Surcouf is built the way her drawings have her', () => {
     'her aeroplane is not on the casing abaft the hangar');
   assert.ok(plane.min.y > surcoufCasingY(-33.2) - 0.1,
     'her aeroplane is standing in her casing rather than on it');
+});
+
+
+check("the sea is kept out of a hull by her own plating, and off her deck by her deck edge", () => {
+  // What the sea is told about a ship comes off the lines every hull carries,
+  // and two things about it have to be right or it is worse than nothing. The
+  // outline it is kept out of must be inside her plating at every height the
+  // sea can stand against her -- a metre too wide is a hole in the sea
+  // alongside her. And her deck edge must be where her deck is drawn, not
+  // where her sheer says it was meant to be: a deck edge read high lets a sea
+  // stand on a deck that is lower than it.
+  for (const id of ['fletcher', 'spee', 'bismarck', 'enterprise']) {
+    const built = buildShip(id);
+    const plan = hullPlan(built.group.userData.lines, built.group);
+    assert.ok(plan, `the ${id} gave the sea nothing to keep out of`);
+    const ruler = shellRuler(built.group);
+    const at = {};
+    let checked = 0;
+    for (let i = 1; i < 40; i++) {
+      const z = plan.z0 + (plan.span * i) / 40;
+      planAt(plan, z, at);
+      if (at.mask <= 0) continue;
+      for (const y of [FLOAT_Y - 1.5, FLOAT_Y - 0.5, FLOAT_Y, FLOAT_Y + 0.5, FLOAT_Y + 1]) {
+        const sp = ruler(y, z);
+        assert.ok(sp, `the sea is kept out of the ${id} ${z.toFixed(0)} m along her where she has no plating`);
+        const out = Math.min(-sp.lo, sp.hi);
+        assert.ok(at.mask <= out + 0.05,
+          `the sea is kept ${at.mask.toFixed(2)} m out from the ${id}'s keel ${z.toFixed(0)} m along her, `
+          + `and her plating is only ${out.toFixed(2)} m out at ${y.toFixed(1)} m`);
+        checked++;
+      }
+      // Her side is still there just under the deck edge the sea is held to.
+      if (Math.abs(z) < plan.span * 0.4) {
+        assert.ok(ruler(at.deck - 0.3, z),
+          `the ${id}'s deck edge is read at ${at.deck.toFixed(1)} m ${z.toFixed(0)} m along her, above her side`);
+      }
+    }
+    assert.ok(checked > 60, `only ${checked} readings of the ${id} were checked`);
+    // And she is not a sliver: the sea is kept out of most of her beam.
+    planAt(plan, (plan.z0 + plan.z1) / 2, at);
+    assert.ok(at.mask > plan.beam * 0.3,
+      `the sea is kept out of only ${(at.mask * 2).toFixed(1)} m of the ${id}'s ${plan.beam.toFixed(1)} m`);
+  }
+
+  // The Graf Spee's quarterdeck is a deck lower than her waist, and that is
+  // where a following sea comes aboard her. Read off her sheer, it was not.
+  const speeBuilt = buildShip('spee');
+  const spee = hullPlan(speeBuilt.group.userData.lines, speeBuilt.group);
+  const aft = planAt(spee, spee.z0 + spee.span * 0.12).deck;
+  const waist = planAt(spee, (spee.z0 + spee.z1) / 2).deck;
+  assert.ok(aft < waist - 1, `the Spee's quarterdeck reads ${aft.toFixed(1)} m against ${waist.toFixed(1)} m amidships`);
+
+  // A boat's lines are her pressure hull, under the water when she is up, and
+  // her casing is meant to be swept: the sea is not kept off a submarine.
+  for (const id of ['u48', 'surcouf']) {
+    const boat = buildShip(id);
+    assert.equal(hullPlan(boat.group.userData.lines, boat.group), null,
+      `the sea is being kept off the ${id}'s casing`);
+  }
+});
+
+check('the sea against a hull is eased down under her deck edge, and left alone below it', () => {
+  const top = 4;
+  const k = 0.8;
+  // Below where it starts to be held, untouched.
+  for (const y of [-3, 0, 2, top - k]) assert.equal(heldTo(y, top, k), y);
+  // Above it, never as high as the top, however high the sea would have been.
+  let last = -Infinity;
+  for (let y = top - k; y < top + 12; y += 0.05) {
+    const h = heldTo(y, top, k);
+    assert.ok(h < top, `a sea at ${y.toFixed(2)} m was held to ${h.toFixed(3)}, over the ${top} m it is held under`);
+    assert.ok(h >= last, 'a higher sea was held lower than a lower one');
+    // Smooth through the knee: no step, and no kink a ripple would show.
+    if (Number.isFinite(last)) assert.ok(h - last < 0.0501, 'the sea steps up where it begins to be held');
+    last = h;
+  }
+  assert.ok(HOLD_MARGIN > 0.1 && HOLD_MARGIN < 1, 'the sea is held flush with her deck, or nowhere near it');
+});
+
+/**
+ * A ship for the breakers to watch: her group, her class and nothing else of
+ * a ShipView, which is all they read.
+ */
+function seaView(id, built = buildShip(id)) {
+  const scene = new THREE.Scene();
+  scene.add(built.group);
+  return { group: built.group, cls: SHIP_CLASSES[id], classId: id, sinkY: 0, going: null, depth: 0 };
+}
+
+check('a sea climbing her side throws spray up that side and out from her, along the stretch it struck', () => pinned(() => {
+  // A Fletcher lying still, floated the way the battle floats her, and a sea
+  // that is flat a long way under her deck everywhere except one stretch of
+  // her starboard side forward -- where it climbs her plating over a second
+  // and a half to a hand's breadth over her deck edge, stands there, and
+  // falls away again.
+  const view = seaView('fletcher');
+  view.group.position.set(0, -FLOAT_Y, 0);
+  const ocean = new Ocean('day');
+  const breakers = new Breakers(new THREE.Scene(), ocean);
+  const plan = hullPlan(view.group.userData.lines, view.group);
+  const at = {};
+  planAt(plan, 20, at);
+  const deckW = at.deck - FLOAT_Y;
+  let t = 0;
+  const rise = (tt) => tt < 1 ? 0 : tt < 2.5 ? (tt - 1) / 1.5 : tt < 3.5 ? 1 : Math.max(0, 1 - (tt - 3.5) / 1.2);
+  ocean.heightAt = (x, z) => (x > 0 && z > 8 && z < 32 ? -3 + (deckW + 0.2 + 3) * rise(t) : -3);
+  const eye = new THREE.PerspectiveCamera();
+  eye.position.set(150, 40, 0);
+  eye.updateMatrixWorld();
+
+  const born = [];
+  const add = breakers.add.bind(breakers);
+  breakers.add = (p) => { born.push({ ...p, t }); return add(p); };
+  const perFrame = [];
+  const DT = 1 / 30;
+  for (let i = 0; i < 7 * 30; i++) {
+    t = i * DT;
+    const before = born.length;
+    breakers.update(DT, eye, [view]);
+    perFrame.push(born.length - before);
+  }
+  const thrown = born.filter((p) => p.kind === SHEET || p.kind === DROP);
+  assert.ok(thrown.length > 40, `a sea up to her deck edge threw ${thrown.length} pieces of spray`);
+  for (const p of thrown) {
+    planAt(plan, p.z, at);
+    // Off the side the sea struck, outboard of her plating, never inboard
+    // over her deck -- the whole point.
+    assert.ok(p.x > at.side - 0.05,
+      `spray was thrown from ${p.x.toFixed(2)} m off her keel, inside her ${at.side.toFixed(2)} m side`);
+    // Up, and out away from her.
+    assert.ok(p.vy > 0, 'spray was thrown downward');
+    if (p.kind === SHEET) assert.ok(p.vx > 0, 'a sheet of spray was thrown in over her deck');
+    // Along the stretch of her the sea climbed, give or take a station.
+    assert.ok(p.z > 8 - 5 && p.z < 32 + 5, `spray was thrown ${p.z.toFixed(1)} m along her, where no sea struck`);
+  }
+  // Laid along her, not out of a point: a curtain the length of the stretch
+  // the wave hit, a metre or two deep.
+  const mean = (l, k) => l.reduce((a, p) => a + p[k], 0) / l.length;
+  const sd = (l, k) => { const m = mean(l, k); return Math.sqrt(mean(l.map((p) => ({ v: (p[k] - m) ** 2 })), 'v')); };
+  const sheets = thrown.filter((p) => p.kind === SHEET);
+  assert.ok(sd(sheets, 'z') > 4 * sd(sheets, 'x'),
+    `the spray was laid ${sd(sheets, 'z').toFixed(1)} m along her and ${sd(sheets, 'x').toFixed(1)} m across: a fountain, not a curtain`);
+
+  // And it comes and goes smoothly. It builds over several frames rather than
+  // starting at full, and it eases off after the sea falls away rather than
+  // stopping dead.
+  const first = perFrame.findIndex((n) => n > 0);
+  assert.ok(first > 30, 'spray was thrown before the sea had begun to climb her');
+  const peak = Math.max(...perFrame);
+  const opening = perFrame.slice(first, first + 3).reduce((a, n) => a + n, 0) / 3;
+  assert.ok(opening < peak * 0.6, 'the spray came on at full in its first frames');
+  const last = perFrame.length - 1 - [...perFrame].reverse().findIndex((n) => n > 0);
+  assert.ok(last * DT > 3.6, 'the spray stopped the moment the sea began to fall');
+  assert.ok(breakers.parts.length > 0 || last * DT > 4, 'nothing was left in the air as the sea fell away');
+
+  // A sea nowhere near her deck throws nothing.
+  const calm = new Breakers(new THREE.Scene(), ocean);
+  ocean.heightAt = () => -3;
+  for (let i = 0; i < 90; i++) calm.update(DT, eye, [view]);
+  assert.equal(calm.parts.length, 0, 'spray was thrown off a ship in a flat calm');
+}));
+
+check('the sea is told about the hulls nearest the eye, and lets go of one that is going down', () => {
+  const built = buildShip('fletcher');
+  const ocean = new Ocean('day');
+  const breakers = new Breakers(new THREE.Scene(), ocean);
+  const u = ocean.material.uniforms;
+  const eye = new THREE.PerspectiveCamera();
+  eye.position.set(0, 50, 0);
+  eye.updateMatrixWorld();
+  // Ships made of her lines alone, which is all the sea reads off one.
+  const ship = (x, z, h) => {
+    const g = new THREE.Group();
+    g.userData.lines = built.group.userData.lines;
+    g.position.set(x, -FLOAT_Y, z);
+    g.rotation.y = h;
+    return { group: g, cls: SHIP_CLASSES.fletcher, classId: 'fletcher', sinkY: 0, going: null, depth: 0 };
+  };
+  const a = ship(200, 100, 0.7);
+  breakers.update(0, eye, [a]);
+  assert.equal(u.uHullCount.value, 1, 'a ship afloat was not described to the sea');
+  assert.equal(u.uHullAt.value[0].w, 1, 'a ship afloat is only partly keeping the sea out');
+  // The sea's way into her frame really is her frame: her stem, from the world.
+  const stem = new THREE.Vector3(0, 3, 50).applyMatrix4(a.group.matrix);
+  const back = stem.clone().applyMatrix4(u.uHullInv.value[0]);
+  assert.ok(back.distanceTo(new THREE.Vector3(0, 3, 50)) < 1e-3, 'the sea is reading her in the wrong frame');
+
+  // Settling into it, she lets it in; gone, or a boat under water, not at all.
+  const plan = hullPlan(built.group.userData.lines, built.group);
+  a.sinkY = 0.9 * plan.freeboard;
+  assert.equal(holdStrength(a, plan), 0);
+  breakers.update(0, eye, [a]);
+  assert.equal(u.uHullCount.value, 0, 'the sea is still being kept off a ship awash');
+  a.sinkY = 0;
+  a.going = {};
+  breakers.update(0, eye, [a]);
+  assert.equal(u.uHullCount.value, 0, 'the sea is still being kept out of a ship that has gone');
+
+  // More ships than the sea has room for: the nearest are the ones it keeps out of.
+  const fleet = [];
+  for (let i = 0; i < MAX_HULLS + 4; i++) fleet.push(ship(0, 300 + i * 400, 0));
+  breakers.update(0, eye, [...fleet].reverse());
+  assert.equal(u.uHullCount.value, MAX_HULLS);
+  const nearest = new Set(breakers.bound.map((st) => st.view));
+  for (let i = 0; i < MAX_HULLS; i++) assert.ok(nearest.has(fleet[i]), `the ${i + 1}th nearest ship was left out`);
+
+  // And a boat is never described at all.
+  const boat = seaView('u48');
+  breakers.update(0, eye, [boat]);
+  assert.equal(u.uHullCount.value, 0, 'a surfaced boat is having the sea kept off her casing');
 });
 
 
