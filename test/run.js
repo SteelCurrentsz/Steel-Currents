@@ -105,7 +105,7 @@ import {
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
-import { Battle, airArsenal } from '../client/js/game.js';
+import { Battle, airArsenal, poseBetween } from '../client/js/game.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
 import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
@@ -227,7 +227,7 @@ function shellRuler(group) {
 import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import { Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL } from '../client/js/render/ocean.js';
-import { Wake, WakeField } from '../client/js/render/wakefield.js';
+import { Wake, WakeField, waveReach } from '../client/js/render/wakefield.js';
 import { ShipView } from '../client/js/render/scene.js';
 import { torpedoGeometry } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
@@ -7555,6 +7555,191 @@ check('a ship that is placed does not rule a line across the sea', () => {
   assert.ok(spread() < 40, 'her new trail is broken too');
 });
 
+check('her wake runs on with her, it does not step back every time she lays track', () => {
+  // How far astern of her stem each piece of her track is used to be counted
+  // -- the row's number times the length of a piece -- which is only true at
+  // the instant a piece is laid. Between pieces her stem runs on and the
+  // first piece behind it stays put, so the wake was stretched a little more
+  // every frame, and when she laid the next piece every row moved one number
+  // down and the whole wake behind her jumped twenty metres back to where it
+  // started. At speed that is twice a second: the wake pulsing and resetting.
+  //
+  // So: every frame, every piece of track she has already laid must have
+  // gone exactly as much further astern as she sailed, and no more.
+  const wake = new Wake({ length: 180, beam: 20 });
+  const dt = 1 / 30;
+  const v = 14;
+  let z = 0;
+  let last = new Map();
+  let worst = 0;
+  let measured = 0;
+  for (let i = 0; i < 40 / dt; i++) {
+    z += v * dt;
+    wake.update(dt, 0, z, 0, v);
+    // Nothing is written into the strip until she has laid enough to draw.
+    if (!wake.mesh.visible) continue;
+    const run = wake.geo.attributes.aRun;
+    const cols = run.count / 64;
+    const now = new Map();
+    for (let r = 1; r < wake.pts.length; r++) {
+      const p = wake.pts[r];
+      const at = run.getX(r * cols);
+      // And it is where it is: measured along her track from her stem.
+      assert.ok(Math.abs(at - (wake.pts[0].z - p.z)) < 0.05,
+        `a piece of track ${(wake.pts[0].z - p.z).toFixed(1)} m astern says ${at.toFixed(1)}`);
+      if (last.has(p.t)) {
+        worst = Math.max(worst, Math.abs(at - last.get(p.t) - v * dt));
+        measured++;
+      }
+      now.set(p.t, at);
+    }
+    last = now;
+  }
+  assert.ok(measured > 1000, `only ${measured} frames of track were compared`);
+  assert.ok(worst < 0.01,
+    `a piece of her wake moved ${worst.toFixed(2)} m further astern in one frame than she sailed`);
+});
+
+check('every ship under way throws the same height of sea, and it stays round her', () => {
+  // The heights in her wake used to be fractions of her beam, so a Yamato
+  // threw a sea three times the height of a Fletcher's and the two wakes
+  // looked like they were on different oceans. They are metres now, the same
+  // for every hull: a big ship spreads her wave over more water, she does not
+  // stand it any higher. Read out of the strip's own shader, term by term.
+  const wake = new Wake({ length: 100, beam: 10 });
+  const src = wake.mesh.material.fragmentShader;
+  const statement = (name) => {
+    const at = src.search(new RegExp(`float\\s+${name}\\s*=`));
+    assert.ok(at >= 0, `the wake shader has no ${name} term`);
+    return src.slice(at, src.indexOf(';', at));
+  };
+  for (const term of ['drive', 'bow', 'hollow', 'hollowAft', 'ampD', 'ampT']) {
+    assert.ok(!/uBeam|uStern|vHalf/.test(statement(term)),
+      `${term} is scaled by the size of her hull: ${statement(term)}`);
+  }
+  // And her waves die round her rather than running out along Kelvin's arms
+  // for a mile: both wave systems are held to `near`, and `near` is gone by
+  // her reach -- which is a ship's length or so past her transom and never
+  // more than a few hundred metres past it.
+  for (const term of ['ampD', 'ampT']) {
+    assert.ok(/\bnear\b/.test(statement(term)), `${term} runs on past her reach`);
+  }
+  assert.ok(/uReach/.test(statement('near')), 'her waves are not cut off at her reach');
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const past = waveReach(cls.hull.length) - cls.hull.length;
+    assert.ok(past <= 260 + cls.hull.length * 0.1 + 1e-6,
+      `${id}'s waves run ${past.toFixed(0)} m past her transom`);
+  }
+  // Nor is there a line of white laid along the arms any more.
+  assert.ok(!/armFoam/.test(src), 'the arms of her wake are still marked out in foam');
+  wake.dispose();
+});
+
+/**
+ * A battle service on a busy machine: a thirty-a-second timer that runs late
+ * by up to a dozen milliseconds and now and then stalls, a fixed step that
+ * catches up, and a snapshot only on an even tick -- exactly the shape of
+ * server/room.js. Then up to fifteen milliseconds on the wire. A ship at ten
+ * metres a second straight along x.
+ */
+function jitteryServer(secs, seed) {
+  let s = seed;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const step = 1 / 30;
+  const sends = [];
+  let wall = 0, prev = 0, accum = 0, tick = 0;
+  while (wall < secs) {
+    wall += step + rnd() * 0.012 + (rnd() < 0.04 ? 0.06 : 0);
+    accum += wall - prev;
+    prev = wall;
+    let n = 0;
+    while (accum >= step && n < 6) { accum -= step; tick++; n++; }
+    if (tick % 2 === 0) {
+      sends.push({ at: wall + rnd() * 0.015, tick, st: tick * step, x: tick * step * 10 });
+    }
+  }
+  return sends;
+}
+
+check("other ships are drawn on the server's clock, so they sail rather than stutter", () => {
+  // They used to be interpolated on when each snapshot happened to arrive.
+  // Snapshots leave the battle service bunched and gapped -- see above -- so
+  // a ship's speed on screen swung from stopped to many times her real speed
+  // ten times a second, and every ship on the sea moved like a flip-book.
+  const sends = jitteryServer(12, 7);
+  const g = Object.create(Battle.prototype);
+  Object.assign(g, { snapshots: [], clockOff: null, renderST: null, renderAt: 0 });
+  let k = 0;
+  const xs = [];
+  for (let now = 0.5; now < 11.5; now += 1 / 60) {
+    while (k < sends.length && sends[k].at <= now) {
+      const s = sends[k++];
+      g.snapshots.push({ at: s.at, st: s.st,
+        ships: [{ i: 1, x: s.x, z: 0, h: Math.PI / 2, v: 10, a: 1 }] });
+      if (g.snapshots.length > 12) g.snapshots.shift();
+      g.syncClock(s.at, s.st);
+    }
+    const pair = g.snapshotPair(g.stepRenderClock(now));
+    if (!pair) continue;
+    const { a, b, t, ahead } = pair;
+    xs.push(poseBetween(a.ships[0], b && b.ships[0], t, ahead).x);
+  }
+  // Once the clock has settled, she makes her ten metres a second every frame.
+  const v = [];
+  for (let i = 121; i < xs.length; i++) v.push((xs[i] - xs[i - 1]) * 60);
+  const lo = Math.min(...v);
+  const hi = Math.max(...v);
+  assert.ok(lo > 9 && hi < 11,
+    `on screen she runs between ${lo.toFixed(1)} and ${hi.toFixed(1)} m/s at a steady ten`);
+});
+
+check("her own hull is eased onto the server's track, not dragged back to it", () => {
+  // Her hull is predicted here and checked against the server's. She used to
+  // be pulled a tenth of the way to the last snapshot every frame -- but that
+  // is a place she had already sailed past, and it got staler until the next
+  // one came in, so she was dragged back and let go fifteen times a second.
+  const sends = jitteryServer(12, 11);
+  const ls = { x: 0, z: 0, heading: Math.PI / 2, speed: 10 };
+  const g = Object.create(Battle.prototype);
+  Object.assign(g, { snapshots: [], clockOff: null, localShip: ls, ownTrack: [], fix: null });
+  let k = 0;
+  const xs = [];
+  for (let now = 0; now < 11.5; now += 1 / 60) {
+    while (k < sends.length && sends[k].at <= now) {
+      const s = sends[k++];
+      g.syncClock(s.at, s.st);
+      g.correctOwn({ x: s.x, z: 0, h: Math.PI / 2, v: 10 }, s.st);
+    }
+    ls.x += 10 / 60;          // what predictShip does for her
+    g.takeUpFix(1 / 60, now);
+    xs.push(ls.x);
+  }
+  const v = [];
+  for (let i = 121; i < xs.length; i++) v.push((xs[i] - xs[i - 1]) * 60);
+  const lo = Math.min(...v);
+  const hi = Math.max(...v);
+  assert.ok(lo > 9 && hi < 11,
+    `on screen she runs between ${lo.toFixed(1)} and ${hi.toFixed(1)} m/s at a steady ten`);
+
+  // And when the two really do disagree, the difference is taken up -- over
+  // a second or so, a little at a time, not in one lurch.
+  const at = ls.x;
+  g.correctOwn({ x: at + 6, z: 0, h: Math.PI / 2, v: 10 }, g.ownTrack[g.ownTrack.length - 1].t - g.clockOff);
+  let biggest = 0;
+  for (let i = 0; i < 90; i++) {
+    const was = ls.x;
+    g.takeUpFix(1 / 60, 20 + i / 60);
+    biggest = Math.max(biggest, ls.x - was);
+  }
+  assert.ok(Math.abs(ls.x - (at + 6)) < 0.1, `she is still ${(at + 6 - ls.x).toFixed(2)} m off`);
+  assert.ok(biggest < 0.6, `she was moved ${biggest.toFixed(2)} m in a single frame`);
+
+  // Put somewhere else altogether -- a new battle, a respawn -- she is simply there.
+  g.correctOwn({ x: 5000, z: -300, h: 1, v: 4 }, 0);
+  assert.equal(ls.x, 5000);
+  assert.equal(ls.z, -300);
+});
+
 check('the sea never leaves the hull', () => {
   // The complaint this exists for: a carrier dipping in and out of the water
   // far enough to put her propellers in the air. Damping her heave caused it --
@@ -7665,9 +7850,12 @@ check('a destroyer works in a sea her betters walk through', () => {
   // than a strict inequality, which at that size is a coin toss.
   // The U-boat comes first because she is the smallest thing afloat here:
   // sixty-six metres and six of beam, and she works in a sea a destroyer
-  // rides through.
+  // rides through. The Enterprise comes after the Musashi, a metre shorter
+  // than her: a carrier's hull is long and fine for her beam, and in a sea
+  // that is one wind train rather than four crossing ones nothing of her
+  // length lies quieter.
   const order = ['u48', 'fletcher', 'cleveland', 'spee', 'takao', 'hipper', 'baltimore', 'massachusetts',
-    'rodney', 'enterprise', 'bismarck', 'tirpitz', 'musashi', 'shinano', 'iowa', 'yamato'];
+    'rodney', 'bismarck', 'tirpitz', 'musashi', 'enterprise', 'shinano', 'iowa', 'yamato'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(roll[order[i]] <= roll[order[i - 1]] + 0.02,
       `${order[i]} rolls ${roll[order[i]].toFixed(2)}deg against `

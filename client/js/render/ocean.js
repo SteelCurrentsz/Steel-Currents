@@ -40,11 +40,24 @@ import * as THREE from '../../../vendor/three.module.js';
  */
 export const AMP_SCALE = 0.42;
 
+// Eight of them, all running roughly downwind. It used to be four, coming from
+// four quarters of the compass and each half the length of the last -- and
+// four waves crossing at wide angles on lengths in simple ratios is not a sea,
+// it is an egg-crate: the same lattice of crests and hollows printed over and
+// over to the horizon, plain as a tiled floor from any height. A wind sea is
+// one train spread over a fan of bearings either side of the wind, on lengths
+// that share no common measure, so the crests never line up the same way
+// twice. The total energy -- the sum of the squared amplitudes -- is what it
+// was, so the sea is no rougher and the hulls ride it no harder.
 export const WAVES = [
-  { len: 470, amp: 1.00, steep: 0.62, dir: [0.86, 0.51] },
-  { len: 235, amp: 0.52, steep: 0.70, dir: [-0.42, 0.91] },
-  { len: 116, amp: 0.29, steep: 0.74, dir: [0.31, -0.95] },
-  { len: 60, amp: 0.16, steep: 0.78, dir: [-0.97, -0.24] },
+  { len: 452, amp: 0.81, steep: 0.55, dir: [0.860, 0.510] },
+  { len: 311, amp: 0.57, steep: 0.60, dir: [0.592, 0.806] },
+  { len: 227, amp: 0.44, steep: 0.64, dir: [1.000, -0.006] },
+  { len: 163, amp: 0.31, steep: 0.68, dir: [0.735, 0.678] },
+  { len: 118, amp: 0.23, steep: 0.72, dir: [0.960, -0.281] },
+  { len: 86, amp: 0.17, steep: 0.74, dir: [0.364, 0.931] },
+  { len: 61, amp: 0.115, steep: 0.78, dir: [0.972, 0.236] },
+  { len: 44, amp: 0.083, steep: 0.80, dir: [-0.029, 1.000] },
 ];
 const G = 9.81;
 
@@ -101,8 +114,9 @@ vec3 gerstner(vec2 p, out vec3 nrm, out float fold) {
  * exactly what it is shaded by.
  *
  * Everything in the map is positive so that two wakes crossing can be added:
- * R is how far the surface is lifted, G how far it is pulled down, B foam and
- * A how churned the water is at all.
+ * R is how far the surface is lifted, G how far it is pulled down, B how much
+ * of it is white with foam, and A how aerated it is -- the water her screws
+ * have been through, which is paler and glassier than the sea round it.
  */
 export const WAKE_GLSL = /* glsl */`
 uniform sampler2D uWakeNear;
@@ -245,14 +259,22 @@ float hash21(vec2 p) {
 
 // Value noise with its gradient, so the chop can be turned into a normal
 // without sampling the field four times over.
+//
+// The lattice is wrapped before it is hashed. A battlefield runs out to thirty
+// kilometres, and the finest octave of the chop is a metre a cell, so the cell
+// numbers reach the tens of thousands -- and a hash that multiplies those by
+// a few hundred has run out of float before it takes the fraction, so the
+// ripples far from the middle of the map came out as flat blocks. Wrapped,
+// the pattern repeats every few hundred cells, which no eye will ever find.
+vec2 wrapCell(vec2 i) { return mod(i, 289.0); }
 vec3 dnoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
   vec2 u = f * f * (3.0 - 2.0 * f);
   vec2 du = 6.0 * f * (1.0 - f);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
+  float a = hash21(wrapCell(i));
+  float b = hash21(wrapCell(i + vec2(1.0, 0.0)));
+  float c = hash21(wrapCell(i + vec2(0.0, 1.0)));
+  float d = hash21(wrapCell(i + vec2(1.0, 1.0)));
   float k1 = b - a, k2 = c - a, k3 = a - b - c + d;
   return vec3(a + k1 * u.x + k2 * u.y + k3 * u.x * u.y,
               du.x * (k1 + k3 * u.y),
@@ -279,9 +301,18 @@ void main() {
   // it would land in, which is what keeps the horizon from crawling.
   vec2 q = vWorld.xz;
   // What a ship has done to this piece of water. One sample for the foam and
-  // the churn; the slope of the wake comes from four more below.
+  // the aeration; the slope of the wake comes from four more below.
+  //
+  // Two different things, and the wake is mostly the second of them. B is
+  // white water: foam actually on the surface, thick at her stem and under
+  // her counter and breaking up into threads astern. A is the water her screws
+  // have been through -- full of fine bubbles, which turn it a pale green-blue
+  // from underneath, and smoothed, because the turbulence has knocked the
+  // ripple off it. That band of paler, glassier water is what a wake mostly
+  // is from the air, and it outlasts the foam on it by minutes.
   vec4 wk = wakeAt(q);
-  float churned = clamp(wk.a, 0.0, 1.0);
+  float aer = clamp(wk.a, 0.0, 1.0);
+  float wkB = clamp(wk.b, 0.0, 1.0);
   // And whether there is oil on this piece of water. Sampled here with the
   // wake because it has to be in hand before the chop is worked out: the first
   // thing oil does to a sea is stop it rippling.
@@ -291,31 +322,50 @@ void main() {
   float wl = 62.0;          // wavelength of the first octave, in metres
   float ht = 0.75;          // and its height
   vec2 drift = vec2(0.72, 0.69);
+  // Each octave is turned a little more than half a point off the last. Value
+  // noise is built on a square grid, and six octaves of it all square to the
+  // same axes read as a weave -- ripples lined up north-south and east-west
+  // across the whole sea. Turned, no two octaves share a grain.
+  mat2 rot = mat2(1.0, 0.0, 0.0, 1.0);
+  const mat2 TURN = mat2(0.8, 0.6, -0.6, 0.8);
   for (int i = 0; i < 6; i++) {
     float k = 6.2831853 / wl;
     // Deep water again: the short ones run slowly, the long ones fast.
     float sp = sqrt(9.81 / k);
-    vec3 nz = dnoise(q * k * 0.5 + drift * uTime * sp * k * 0.16);
+    vec3 nz = dnoise((rot * q) * k * 0.5 + drift * uTime * sp * k * 0.16
+                     + float(i) * 17.31);
     // An octave is kept only while it still covers a few pixels. Below that it
     // is detail the screen cannot resolve and shimmer it certainly can, and a
     // sea that sparkles like television static is the one thing worse than a
     // sea with no ripples on it at all.
     float lod = clamp(wl * 340.0 / max(dcam, 1.0) - 1.2, 0.0, 1.0);
-    slope += nz.yz * ht * k * 0.5 * lod;
+    // Back into the world's own axes: the gradient of f(R p) is R^T grad f,
+    // and a row vector times a matrix is the transpose doing exactly that.
+    slope += (nz.yz * rot) * ht * k * 0.5 * lod;
     wl *= 0.44;
     ht *= 0.52;
     drift = vec2(drift.y, -drift.x) * 0.98 + vec2(0.08, -0.05);
+    rot = TURN * rot;
   }
+  // The wind does not blow evenly. It comes in gusts a few hundred metres
+  // across that roughen the patch of sea they are crossing and leave the water
+  // either side of them smoother -- which is why a real sea seen from a height
+  // is mottled darker and lighter, and why one with the chop at the same
+  // strength everywhere looks machined. Drifting downwind, slowly.
+  float gust = onoise(q * 0.0021 + vec2(uTime * 0.0042, uTime * 0.0025));
+  float gustK = mix(0.70, 1.24, smoothstep(0.24, 0.72, gust));
+  slope *= gustK;
   // Inside a wake the swell is knocked down -- a ship flattens the sea she has
-  // been through -- but the surface is rougher, not smoother: it is a metre of
-  // confused water with no pattern in it. So the chop is damped and a fine
-  // ripple of its own put in its place.
+  // been through. Where the water is still white it is rough, a metre of
+  // confused water with no pattern in it, so a fine ripple of its own is put
+  // in; where it is only aerated it is glassy, and the chop is simply damped.
   vec2 wp2 = q * 0.55 + vec2(uTime * 0.6, -uTime * 0.45);
   vec3 r1 = dnoise(wp2);
   vec3 r2 = dnoise(wp2 * 2.7 + 5.0);
   vec2 rip = r1.yz + r2.yz * 0.5;
   float ripLod = clamp(240.0 / max(dcam, 1.0), 0.0, 1.0);
-  slope = slope * (1.0 - 0.55 * churned) + rip * 0.35 * churned * ripLod;
+  float wkRough = clamp(wkB * 1.6, 0.0, 1.0);
+  slope = slope * (1.0 - 0.58 * max(aer, wkRough)) + rip * 0.30 * wkRough * ripLod;
   // Oil flattens the sea, and this is the whole reason a slick can be seen at
   // all from anywhere but straight overhead. The film damps out the capillary
   // ripple that makes water matt, so where it lies the surface goes glassy
@@ -357,7 +407,20 @@ void main() {
   vec3 body = mix(uDeep, uShallow, clamp(lift * 0.5 + 0.5, 0.0, 1.0));
   float sss = pow(clamp(dot(v, -l) * 0.5 + 0.5, 0.0, 1.0), 3.0)
             * clamp(lift, 0.0, 1.0) * clamp(1.0 - ndv, 0.0, 1.0);
-  body += uLightColor * sss * 0.16;
+  // Green, not white: what comes back out of the back of a wave has been
+  // through a few metres of sea water, and sea water takes the red out first.
+  body += uLightColor * vec3(0.52, 0.94, 0.82) * sss * 0.16;
+  // Foam is lit by whatever is lighting the sea, so at night it is grey and by
+  // day it is white. Painting it white either way puts snow on a night ocean.
+  vec3 white = mix(uSkyTint * 1.35 + uLightColor * 0.20, vec3(0.95, 0.98, 1.0),
+                   clamp(uSkyTint.r + uSkyTint.g + uSkyTint.b, 0.0, 1.0));
+  // The water a ship has been through. It is full of fine bubbles, and they
+  // throw the light back up out of water that would otherwise swallow it, so
+  // the wake is a pale green-blue against the dark sea round it -- the colour
+  // of the water, lifted, rather than white. The foam on top of it is the
+  // white, and there is a good deal less of that than there is of this.
+  vec3 aqua = mix(uShallow * 1.9, white * vec3(0.40, 0.64, 0.62), 0.30);
+  body = mix(body, aqua, aer * 0.52);
 
   // The sky it is reflecting: brighter overhead, and the horizon haze low down.
   vec3 r = reflect(-v, n);
@@ -384,47 +447,63 @@ void main() {
   // ---- foam ----------------------------------------------------------------
   // Where the Gerstner surface folds over on itself the wave is breaking, and
   // that — not simply "high" — is where a whitecap belongs.
-  float breaking = smoothstep(0.34, 0.02, vFold);
-  float crest = smoothstep(uAmp * 0.85, uAmp * 1.45, vCrest);
-  // Whitecaps come in patches the size of a wave, not in speckle: the noise
-  // that breaks them up is metres across, not centimetres.
-  float lace = onoise(q * 0.022 + uTime * 0.02) * 0.65 + onoise(q * 0.11) * 0.35;
-  float foam = clamp(breaking * 1.0 + crest * 0.45, 0.0, 1.0)
-             * smoothstep(0.40, 0.74, lace);
-  foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
-  // The wake's own foam, broken up by the same lace so it is patchy the way a
-  // whitecap is, but laid on far harder. A breaking crest is water with white
-  // in it and sixty per cent is right for that; the wash off a battleship's
-  // screws is white all the way through, and the two cannot go through the
-  // same term at the same strength.
   //
-  // The map cannot hold detail finer than a texel, so what it gives back is a
-  // soft blob with the shape of the map's own grid in its edges. The lace is
-  // put back here, where there is a sample for every pixel: a fine noise that
-  // eats into the edges of the foam and leaves the middle of it alone, so a
-  // wash that is solid white down the middle breaks into flecks and holes at
-  // its margins the way broken water does. Faded out with range, because at
-  // two miles that detail is smaller than a pixel and all it does is crawl.
-  float wkB = clamp(wk.b, 0.0, 1.0);
-  float fine = onoise(q * 0.42 + uTime * 0.05) * 0.62
-             + onoise(q * 1.35 - uTime * 0.09) * 0.38;
-  float fineLod = clamp(600.0 / max(dcam, 1.0), 0.0, 1.0);
-  // Only where the map is unsure. Solid foam stays solid.
-  float bite = (1.0 - smoothstep(0.55, 0.95, wkB)) * fineLod * 0.55;
-  wkB *= mix(1.0, smoothstep(0.24, 0.70, fine), bite);
-  float wkFoam = wkB * mix(0.62, 1.0, smoothstep(0.24, 0.86, lace))
+  // Whitecaps are small and scattered and short-lived: a crest here and a
+  // crest there tipping over, a few metres of white each. They used to be
+  // laid on in floes the size of a wave, on a noise so coarse that from any
+  // height the sea was dappled with cloud -- and as the swell was a lattice,
+  // so were they. Now they need a crest that is actually folding, a patch of
+  // the fine lace to break in, and a gust to be blowing over it.
+  float breaking = smoothstep(0.30, 0.04, vFold);
+  float crest = smoothstep(uAmp * 1.0, uAmp * 1.7, vCrest);
+  float lace = onoise(q * 0.061 + vec2(uTime * 0.05, -uTime * 0.03)) * 0.6
+             + onoise(q * 0.23 - uTime * 0.04) * 0.4;
+  float foam = clamp(breaking + crest * 0.30, 0.0, 1.0)
+             * smoothstep(0.50, 0.70, lace)
+             * smoothstep(0.30, 0.70, gust);
+  foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
+
+  // The wake's own white water.
+  //
+  // What comes out of the map is how much of the surface is foam -- a
+  // coverage, not a colour -- and it is turned into foam here, where there is
+  // a sample for every pixel. Thick water, under her counter and against her
+  // stem, is foam with a few holes in it; thin water, the trail a few hundred
+  // metres astern, is threads and flecks on the pale aerated band and nothing
+  // more. A threshold walked down a fine noise by the coverage does both:
+  // where the map says nine tenths nearly all of the noise is over it, and
+  // where it says one tenth only its peaks are.
+  //
+  // It used to be painted white at ninety-four per cent wherever the map had
+  // any, which made a ship's wake a solid white road a mile long.
+  //
+  // In the world's own frame, so a patch of foam stays where the ship left
+  // it and dies there. Faded to the plain coverage with range, because at two
+  // miles the threads are smaller than a pixel and all they do is crawl.
+  //
+  // Half of the noise is folded about its own middle. Plain noise
+  // thresholded comes out as blobs with round edges, which is what spilt
+  // paint does and foam does not; folded, its middle contour becomes a ridge,
+  // and a threshold on a ridge is a net of threads -- the lace a wake's foam
+  // actually breaks up into.
+  float n1 = onoise(q * 0.27 + vec2(uTime * 0.03, -uTime * 0.02));
+  float n2 = onoise(q * 0.93 - uTime * 0.045);
+  float vein = 1.0 - abs(n1 - 0.47) * 2.6;
+  float fine = mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55);
+  float fineLod = clamp(500.0 / max(dcam, 1.0), 0.0, 1.0);
+  float thr = mix(0.80, 0.30, wkB);
+  float threads = smoothstep(thr - 0.06, thr + 0.16, fine) * smoothstep(0.02, 0.16, wkB);
+  float wkFoam = mix(wkB * 0.55, threads, fineLod)
                * clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
-  // Foam is lit by whatever is lighting the sea, so at night it is grey and by
-  // day it is white. Painting it white either way puts snow on a night ocean.
-  vec3 white = mix(uSkyTint * 1.35 + uLightColor * 0.20, vec3(0.95, 0.98, 1.0),
-                   clamp(uSkyTint.r + uSkyTint.g + uSkyTint.b, 0.0, 1.0));
   // Foam will not form on oil. A whitecap running into a slick stops at the
   // edge of it, and the wash off a ship steaming through one goes out the
   // moment she is in it -- which is a thing anybody who has seen a photograph
   // of a torpedoed tanker has seen and nobody ever draws.
   float clean = 1.0 - oilCov * 0.95;
-  col = mix(col, white, foam * 0.6 * clean);
-  col = mix(col, white, wkFoam * 0.94 * clean);
+  col = mix(col, white, foam * 0.5 * clean);
+  // Never quite opaque: even the boil under her counter is broken water with
+  // the sea showing through it, and thin foam is half see-through.
+  col = mix(col, white, wkFoam * (0.42 + 0.38 * wkB) * clean);
 
   // ---- oil -----------------------------------------------------------------
   //
@@ -505,24 +584,31 @@ void main() {
 }
 `;
 
+// The colour of the water itself, and of the sky it is reflecting.
+//
+// Open ocean is not blue the way a swimming pool is. Looking down into it you
+// see a dark slate with a little green in it -- deep water swallows nearly
+// everything -- and what makes it read as blue at all is the sky lying on it
+// at a glancing angle. These used to be a bright cerulean body under a
+// saturated sky tint, and the sea came out the colour of a poster.
 export const OCEAN_PRESETS = {
   night: {
-    deep: 0x040e19, shallow: 0x123049, sky: 0x1d3d5c,
+    deep: 0x050d14, shallow: 0x12282f, sky: 0x1c3346,
     light: 0xcfe1f8, specular: 1.0, amp: 2.9, fog: 0.00005, fogColor: 0x0b1a2b,
     lightDir: new THREE.Vector3(0.35, 0.42, -1).normalize(),
   },
   dawn: {
-    deep: 0x08192b, shallow: 0x1f4260, sky: 0x8a7570,
+    deep: 0x0b1b25, shallow: 0x22404a, sky: 0x8a7570,
     light: 0xffc98f, specular: 0.9, amp: 2.6, fog: 0.000045, fogColor: 0x3a3f52,
     lightDir: new THREE.Vector3(0.75, 0.18, -0.6).normalize(),
   },
   dusk: {
-    deep: 0x0d2338, shallow: 0x27506e, sky: 0x7d6672,
+    deep: 0x0e202b, shallow: 0x284a55, sky: 0x7d6672,
     light: 0xffd9b3, specular: 0.85, amp: 3.2, fog: 0.00005, fogColor: 0x2f3247,
     lightDir: new THREE.Vector3(-0.6, 0.25, -1).normalize(),
   },
   day: {
-    deep: 0x07253d, shallow: 0x2a6c90, sky: 0x8dbcd8,
+    deep: 0x0b1f2b, shallow: 0x1e4652, sky: 0x9cb4c3,
     light: 0xffffff, specular: 0.8, amp: 2.4, fog: 0.00004, fogColor: 0x8fadc2,
     lightDir: new THREE.Vector3(0.4, 0.75, -0.5).normalize(),
   },

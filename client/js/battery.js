@@ -346,8 +346,8 @@ export class BatteryScene {
 
     this.ocean = new Ocean('day', 14000, 190);
     const ou = this.ocean.material.uniforms;
-    ou.uDeep.value = new THREE.Color(0x0a2b45);
-    ou.uShallow.value = new THREE.Color(0x2b7796);
+    ou.uDeep.value = new THREE.Color(0x0c222e);
+    ou.uShallow.value = new THREE.Color(0x225059);
     ou.uSpecular.value = 0.24;
     ou.uLightDir.value.set(-0.70, 0.71, -0.10).normalize();
     this.ocean.setSeaState(2);

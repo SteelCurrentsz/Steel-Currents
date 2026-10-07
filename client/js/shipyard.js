@@ -52,8 +52,8 @@ export class ShipyardScene {
     // Deeper and less mirror-bright than the battle sea: a hull is being looked
     // at here, and a blown-out glare path across the frame competes with it.
     const ou = this.ocean.material.uniforms;
-    ou.uDeep.value = new THREE.Color(0x08243c);
-    ou.uShallow.value = new THREE.Color(0x1b5a80);
+    ou.uDeep.value = new THREE.Color(0x0a1c27);
+    ou.uShallow.value = new THREE.Color(0x1c414d);
     ou.uSpecular.value = 0.20;
     // The sun sits abaft the beam rather than over the shoulder, so its path on
     // the water runs away behind her instead of washing out the near field.

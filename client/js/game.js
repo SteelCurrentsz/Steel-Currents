@@ -17,7 +17,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor,
+  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
 } from '../../shared/sim.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
@@ -25,7 +25,44 @@ import {
 } from '../../shared/math.js';
 import { groundHeight, applyCrater } from '../../shared/world.js';
 
-const INTERP_DELAY = 0.12;     // seconds behind the server, to smooth jitter
+// How far behind the server everybody else is drawn, in the server's own
+// seconds. A little over two snapshots at fifteen a second, so one of them can
+// arrive late without the picture running out of road.
+const INTERP_DELAY = 0.15;
+// And when one is later than that, how far a ship is carried on past the last
+// snapshot on her own course and speed before she is held where she is. She
+// is a ship: she does not stop dead in the water because a packet did.
+const EXTRAPOLATE = 0.3;
+// How long our own hull takes to be eased back onto the server's track when
+// the two disagree. Quick enough that she never wanders far from where the
+// authority has her, slow enough that nobody sees her being put back.
+const CORRECT_TAU = 0.3;
+
+/**
+ * Where a ship is between two snapshots of her.
+ *
+ * `prev` is her in the later snapshot and `t` how far toward it; with no later
+ * snapshot she is carried `ahead` seconds on along her own heading at her own
+ * speed instead -- unless she is no longer afloat, in which case she is where
+ * she was last seen.
+ */
+export function poseBetween(s, prev, t, ahead = 0) {
+  if (prev) {
+    return {
+      x: lerp(s.x, prev.x, t),
+      z: lerp(s.z, prev.z, t),
+      h: s.h + angleDelta(s.h, prev.h) * t,
+      v: lerp(s.v || 0, prev.v || 0, t),
+    };
+  }
+  const run = s.a ? (s.v || 0) * ahead : 0;
+  return {
+    x: s.x + Math.sin(s.h) * run,
+    z: s.z + Math.cos(s.h) * run,
+    h: s.h,
+    v: s.v || 0,
+  };
+}
 // How far the view has to be walked before it lets go of the ship it is
 // watching. Screen pixels, and about a fingertip's width.
 const PAN_TO_LET_GO = 26;
@@ -313,6 +350,17 @@ export class Battle {
 
     this.entities = new Map();
     this.snapshots = [];
+    // How far our clock runs ahead of the server's simulation clock, and the
+    // moment on the server's clock the picture is being drawn at. See
+    // syncClock and stepRenderClock.
+    this.clockOff = null;
+    this.renderST = null;
+    this.renderAt = 0;
+    // Where our own hull was predicted to be over the last two seconds, so a
+    // snapshot can be compared with where we had her at the same moment; and
+    // what is left of the last correction to be taken up. See correctOwn.
+    this.ownTrack = [];
+    this.fix = null;
     // Last heading seen for each flight, so a turn can be read off as bank.
     this.planeTurn = new Map();
     // How far each flight's bomb bay is open and how far her weapon has
@@ -478,15 +526,32 @@ export class Battle {
   }
 
   onSnapshot(snap) {
-    this.snapshots.push({ ...snap, at: performance.now() / 1000 });
+    const now = performance.now() / 1000;
+    // When, on the server's own clock, this is a picture of. The tick, not the
+    // moment it happened to arrive: the battle service steps on a timer that
+    // runs late whenever the machine is busy, catches up two or three steps at
+    // a time, and sends a snapshot only on an even tick -- so snapshots arrive
+    // bunched and gapped, and interpolating on arrival time ran every ship on
+    // the sea fast, slow and stopped by turns, ten times a second. On the tick
+    // the positions are exactly as far apart as the time between them.
+    const st = Number.isFinite(snap.tick) ? snap.tick * DT : (snap.time || 0);
+    const newest = this.snapshots[this.snapshots.length - 1];
+    // A clock that has gone backwards is a new battle on the same screen.
+    if (newest && st < newest.st - 1) {
+      this.snapshots = [];
+      this.clockOff = null;
+      this.renderST = null;
+    }
+    this.snapshots.push({ ...snap, at: now, st });
     while (this.snapshots.length > 12) this.snapshots.shift();
     this.serverTime = snap.time;
+    this.syncClock(now, st);
 
     const own = snap.ships.find((s) => s.i === this.shipId);
     if (own) {
       const ls = this.localShip;
-      // Soft reconciliation: authority wins, but over a few frames.
-      this.reconcile = { x: own.x, z: own.z, h: own.h, v: own.v };
+      // Authority wins, but by being eased into rather than snapped to.
+      this.correctOwn(own, st);
       ls.hp = own.hp;
       ls.alive = !!own.a;
       ls.fires = own.f; ls.flooding = own.fl;
@@ -497,6 +562,145 @@ export class Battle {
       if (!own.a && !this.sunk) this.onOwnSunk();
       this.ownSnap = own;
     }
+  }
+
+  /**
+   * Keep track of how far our clock runs ahead of the server's.
+   *
+   * Each snapshot says so, plus however long it was on the way, and the time
+   * on the way is never less than nothing -- so the earliest any snapshot has
+   * ever arrived is the best reading there is. It is allowed to creep later
+   * on its own, slowly, because the server's clock can genuinely fall behind
+   * (a stalled event loop steps no more than half a second at once); and a
+   * jump of more than a second is taken outright.
+   */
+  syncClock(now, st) {
+    const off = now - st;
+    if (this.clockOff === null || off < this.clockOff || off - this.clockOff > 1) {
+      this.clockOff = off;
+    } else {
+      this.clockOff += (off - this.clockOff) * 0.02;
+    }
+  }
+
+  /**
+   * The moment on the server's clock the picture is drawn at, this frame.
+   *
+   * Run on our own clock and pulled gently toward where it ought to be,
+   * rather than set from the newest snapshot: a clock that jumped every time
+   * a packet came in would put the jump into every ship on the screen.
+   */
+  stepRenderClock(now = performance.now() / 1000) {
+    const want = now - this.clockOff - INTERP_DELAY;
+    // Real time, not the frame's capped step: on a slow machine the capped
+    // step runs short and the picture would fall steadily behind.
+    const step = Math.min(0.5, Math.max(0, now - this.renderAt));
+    this.renderAt = now;
+    if (this.renderST === null || Math.abs(want - this.renderST) > 1) {
+      this.renderST = want;
+    } else {
+      this.renderST += step;
+      this.renderST += (want - this.renderST) * Math.min(1, step * 2);
+    }
+    return this.renderST;
+  }
+
+  /**
+   * The two snapshots either side of a moment on the server's clock, how far
+   * between them it falls, and -- past the newest -- how far beyond it.
+   */
+  snapshotPair(renderTime) {
+    const snaps = this.snapshots;
+    let a = null, b = null;
+    for (let i = snaps.length - 1; i >= 0; i--) {
+      if (snaps[i].st <= renderTime) { a = snaps[i]; b = snaps[i + 1] || null; break; }
+    }
+    // Older than anything held: hold at the oldest, toward the next.
+    if (!a) { a = snaps[0] || null; b = snaps[1] || null; }
+    if (!a) return null;
+    const t = b ? clamp((renderTime - a.st) / Math.max(0.0001, b.st - a.st), 0, 1) : 0;
+    // Past the newest snapshot there is nothing to interpolate toward, and a
+    // ship held there until the next one lands stops dead and then jumps.
+    // She is carried on along her heading at her speed instead, for a short
+    // while -- which is where she will turn out to have been, near enough, so
+    // when the next snapshot comes in she is already there.
+    const ahead = b ? 0 : clamp(renderTime - a.st, 0, EXTRAPOLATE);
+    return { a, b, t, ahead };
+  }
+
+  /**
+   * Take up a frame's worth of the last correction, and note where our own
+   * hull has got to for the next snapshot to be held up against.
+   */
+  takeUpFix(dt, now) {
+    const ls = this.localShip;
+    const f = this.fix;
+    if (f) {
+      const k = 1 - Math.exp(-dt / CORRECT_TAU);
+      ls.x += f.x * k;
+      ls.z += f.z * k;
+      ls.heading = wrapAngle(ls.heading + f.h * k);
+      ls.speed += f.v * k;
+      f.x -= f.x * k;
+      f.z -= f.z * k;
+      f.h -= f.h * k;
+      f.v -= f.v * k;
+    }
+    this.ownTrack.push({ t: now, x: ls.x, z: ls.z, h: ls.heading, v: ls.speed });
+    while (this.ownTrack.length > 1 && this.ownTrack[0].t < now - 2) this.ownTrack.shift();
+  }
+
+  /**
+   * Where we had our own hull at a moment just past, off the record of it.
+   */
+  ownAt(t) {
+    const tr = this.ownTrack;
+    const ls = this.localShip;
+    if (!tr.length || t >= tr[tr.length - 1].t) {
+      return { x: ls.x, z: ls.z, h: ls.heading, v: ls.speed };
+    }
+    if (t <= tr[0].t) return tr[0];
+    let i = tr.length - 1;
+    while (i > 0 && tr[i - 1].t > t) i--;
+    const p = tr[i - 1];
+    const q = tr[i];
+    const k = (t - p.t) / Math.max(1e-6, q.t - p.t);
+    return {
+      x: lerp(p.x, q.x, k), z: lerp(p.z, q.z, k),
+      h: p.h + angleDelta(p.h, q.h) * k, v: lerp(p.v, q.v, k),
+    };
+  }
+
+  /**
+   * Bring the hull we are predicting into line with the server's.
+   *
+   * She is steered here by the same code the server steers her with, so the
+   * two hardly ever disagree by more than a little. She used to be pulled a
+   * tenth of the way toward the last snapshot every frame -- but the last
+   * snapshot is a position she has already sailed past, and goes on getting
+   * staler until the next arrives, so she was dragged back a metre and let go
+   * fifteen times a second: a ship that shuddered along instead of sailing.
+   *
+   * Now the snapshot is compared with where we had her at the moment it was
+   * taken, which is like with like, and only the difference is taken up --
+   * spread over a third of a second, from wherever she has got to since.
+   */
+  correctOwn(own, st) {
+    const ls = this.localShip;
+    const was = this.ownAt(st + this.clockOff);
+    const ex = own.x - was.x;
+    const ez = own.z - was.z;
+    // Out by more than she could ever drift: she was put somewhere. Take it.
+    if (Math.hypot(ex, ez) > 60) {
+      ls.x = own.x;
+      ls.z = own.z;
+      ls.heading = own.h;
+      ls.speed = own.v;
+      this.ownTrack = [];
+      this.fix = null;
+      return;
+    }
+    this.fix = { x: ex, z: ez, h: angleDelta(was.h, own.h), v: own.v - was.v };
   }
 
   /**
@@ -2914,17 +3118,12 @@ export class Battle {
     const ky = (this.input.down('ArrowDown') ? 1 : 0) - (this.input.down('ArrowUp') ? 1 : 0);
     if (kx || ky) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
 
-    // Predict our own hull, then ease toward the server's version of it.
+    // Predict our own hull, then take up whatever is left of the difference
+    // between her and the server's version of her. See correctOwn.
     predictShip(this.local, ls, dt);
-    if (this.reconcile) {
-      const k = 1 - Math.pow(0.001, dt);
-      ls.x = lerp(ls.x, this.reconcile.x, k);
-      ls.z = lerp(ls.z, this.reconcile.z, k);
-      ls.heading = wrapAngle(ls.heading + angleDelta(ls.heading, this.reconcile.h) * k);
-      ls.speed = lerp(ls.speed, this.reconcile.v, k);
-    }
-
     const now = performance.now() / 1000;
+    this.takeUpFix(dt, now);
+
     if (now - this.lastInputSent > 1 / INPUT_HZ) {
       this.lastInputSent = now;
       // Only the telegraph goes up the wire now. Her helm follows the course
@@ -3048,14 +3247,11 @@ export class Battle {
 
   /** Interpolate every remote entity and drive its view model. */
   syncEntities(dt) {
-    const renderTime = (performance.now() / 1000) - INTERP_DELAY;
-    let a = null, b = null;
-    for (let i = this.snapshots.length - 1; i >= 0; i--) {
-      if (this.snapshots[i].at <= renderTime) { a = this.snapshots[i]; b = this.snapshots[i + 1] || null; break; }
-    }
-    if (!a) a = this.snapshots[0];
-    if (!a) return;
-    const t = b ? clamp((renderTime - a.at) / Math.max(0.0001, b.at - a.at), 0, 1) : 0;
+    if (!this.snapshots.length) return;
+    // On the server's clock, not on the arrival times. See onSnapshot.
+    const pair = this.snapshotPair(this.stepRenderClock());
+    if (!pair) return;
+    const { a, b, t, ahead } = pair;
 
     // A ship conned off the chart holds the con until she sinks or drops off
     // the plot altogether. She used to have to be in `ships` -- which an
@@ -3082,16 +3278,17 @@ export class Battle {
       const prev = b ? b.ships.find((x) => x.i === s.i) : null;
       const view = this.scene.getShipView(s.i, s.c, s.tm, s.i === this.shipId);
       const isSelf = s.i === this.shipId;
-      const x = isSelf ? this.localShip.x : prev ? lerp(s.x, prev.x, t) : s.x;
-      const z = isSelf ? this.localShip.z : prev ? lerp(s.z, prev.z, t) : s.z;
-      const h = isSelf ? this.localShip.heading : prev ? s.h + angleDelta(s.h, prev.h) * t : s.h;
+      const pose = poseBetween(s, prev, t, ahead);
+      const x = isSelf ? this.localShip.x : pose.x;
+      const z = isSelf ? this.localShip.z : pose.z;
+      const h = isSelf ? this.localShip.heading : pose.h;
 
       // She takes the attitude the water under her puts on: the sea is sampled
       // at her bow, her stern and both beams, so a hull two hundred metres long
       // rides the swell rather than following every wave in it.
       const cls = getClass(s.c);
       const att = this.scene.ocean.attitude(x, z, h, cls.hull.length, cls.hull.beam);
-      const speed = isSelf ? this.localShip.speed : s.v;
+      const speed = isSelf ? this.localShip.speed : pose.v;
       view.group.position.set(x, 0, z);       // her height is the seakeeping's
       view.group.rotation.set(0, 0, 0);
       view.group.rotation.order = 'YXZ';
@@ -3118,13 +3315,18 @@ export class Battle {
       // Every ship's guns are laid by her own gunnery officer now, ours
       // included, so the bearings all come off the wire.
       const turrets = s.tu;
+      // Between snapshots like the hull is, or a turret training round steps
+      // across the sky fifteen times a second.
+      const turretsNext = prev && prev.tu;
       // A turret whose compartment has been shot out of the ship is finished:
       // it sits there canted over on its roller path, and the bearing on the
       // wire is nobody's any more.
       if (turrets) {
         turrets.forEach((ang, i) => {
-          const t = view.turrets[i];
-          if (t && t.userData.laid !== false) t.rotation.y = ang;
+          const tur = view.turrets[i];
+          const to = turretsNext ? turretsNext[i] : undefined;
+          const at = to === undefined ? ang : ang + angleDelta(ang, to) * t;
+          if (tur && tur.userData.laid !== false) tur.rotation.y = at;
         });
       }
       // And everything else that trains: her secondary mountings and her

@@ -33,13 +33,20 @@
 //
 //   R  how far the surface is lifted, over WAKE_H metres
 //   G  how far it is pulled down, the same
-//   B  foam
-//   A  disturbance: how churned this water is at all
+//   B  foam: how much of the surface is white
+//   A  aeration: water her screws have been through, full of fine bubbles,
+//      which the sea draws paler and glassier than the water round it
 
 import * as THREE from '../../../vendor/three.module.js';
 
-/** The metres of lift one full channel of the map stands for. */
-export const WAKE_H = 5.0;
+/**
+ * The metres of lift one full channel of the map stands for.
+ *
+ * Two and a half, where it was five: nothing a hull does to the sea stands
+ * more than a metre high now (see the heights in the strip's shader), and
+ * over eight bits that is a centimetre a step instead of two.
+ */
+export const WAKE_H = 2.5;
 
 /** How wide the two patches are, in metres. */
 export const NEAR_M = 2048;
@@ -60,10 +67,28 @@ export const POINTS = 64;
 const COLS = 9;
 /** How long a piece of wake stays on the water, in seconds. */
 export const LIFE = 120;
-// The ribbon goes on spreading at Kelvin's angle, which a mile astern is a
-// ribbon a third of a mile wide. Past this it runs parallel: the wave train
-// has faded by then and the rest is a straight band of dead water.
-const RUN_CAP = 520;
+// The longest track she keeps, measured from her stem. Her strip is faded out
+// toward this by distance, so its far end is soft and stays put rather than
+// stepping aft a whole piece of track every time she lets go of one.
+const TRACK_M = (POINTS - 2) * STEP_M;
+
+/** Hermite step, as GLSL has it. */
+function smooth(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * How far astern of her stem her own waves run before they have died.
+ *
+ * A ship's length or so past her transom, and never more than a few hundred
+ * metres past it whatever she is. The strip's shader fades the wave train
+ * out by here and the strip only spreads at Kelvin's angle this far, so the
+ * two are worked out from one place.
+ */
+export function waveReach(length) {
+  return length * 1.1 + Math.min(length * 1.4, 260);
+}
 
 // The strip is laid out in the world, so a ship that puts her helm over leaves
 // her wake curving astern instead of swinging it round with her like a tail.
@@ -74,12 +99,15 @@ attribute float aSpeed;    // how fast she was going when she made it
 attribute float aHalf;     // half the strip's width here, in metres
 attribute float aRun;      // how far astern of her stem this is, in metres
 attribute float aTail;     // 1 in the body of the strip, 0 at its far end
+attribute float aOdo;      // how far she had run, all told, when she laid it
 varying float vAge;
 varying float vTail;
 varying float vSide;
 varying float vSpeed;
 varying float vHalf;
 varying float vRun;
+varying float vOdo;
+varying vec2 vWorld;
 
 void main() {
   vAge = aAge;
@@ -88,6 +116,9 @@ void main() {
   vHalf = aHalf;
   vRun = aRun;
   vTail = aTail;
+  vOdo = aOdo;
+  // The strip's mesh sits at the origin, so this is where it is on the sea.
+  vWorld = position.xz;
   // Straight into the map's own frame: the camera looking down on it is
   // orthographic, so this is a plan of the sea and nothing else.
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -99,6 +130,7 @@ precision highp float;
 uniform float uLife;
 uniform float uBeam;
 uniform float uStern;      // her length: stem to transom
+uniform float uReach;      // how far astern of her stem her waves have died
 uniform float uScale;      // metres of lift one channel stands for
 uniform float uOpacity;
 varying float vAge;
@@ -107,17 +139,22 @@ varying float vSpeed;
 varying float vHalf;
 varying float vRun;
 varying float vTail;
+varying float vOdo;
+varying vec2 vWorld;
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
   p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
+// Wrapped before it is hashed, so the noise is as good thirty kilometres out
+// as it is in the middle of the map. See the ocean's dnoise.
+float cell(vec2 i) { return hash21(mod(i, 289.0)); }
 float vnoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
   vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash21(i), hash21(i + vec2(1, 0)), u.x),
-             mix(hash21(i + vec2(0, 1)), hash21(i + vec2(1, 1)), u.x), u.y);
+  return mix(mix(cell(i), cell(i + vec2(1, 0)), u.x),
+             mix(cell(i + vec2(0, 1)), cell(i + vec2(1, 1)), u.x), u.y);
 }
 /**
  * Noise for the map.
@@ -135,6 +172,18 @@ float fbm(vec2 p) {
   return v / 0.875;
 }
 
+// What a hull does to the height of the sea, in metres. The same for every
+// ship afloat: a battleship spreads her wave over more water than a destroyer
+// does, she does not stand it any higher. These used to be fractions of her
+// beam, so a Yamato threw a sea three times the height of a Fletcher's and
+// the two wakes looked like different oceans.
+const float BOW_H = 0.85;     // the mound she shoulders ahead of her stem
+const float SIDE_H = 0.40;    // the trough her displacement drags along her
+const float AFT_H = 0.45;     // the hollow under her counter
+const float DIV_H = 0.36;     // the diverging waves off her bow
+const float TRANS_H = 0.22;   // the transverse waves strung astern of her
+const float CHOP_H = 0.26;    // the confused water her screws leave
+
 void main() {
   float age = vAge / uLife;
   if (age > 1.0) discard;
@@ -142,13 +191,14 @@ void main() {
   float m = abs(vSide) * vHalf;          // metres off her track
   float run = vRun;                      // metres astern of her stem
 
-  // How hard she is pushing. A ship at steerage way makes almost nothing; one
-  // at thirty knots is throwing a wave three metres high off her bow.
-  float drive = clamp(vSpeed / 8.5, 0.0, 1.4);
-  if (drive < 0.02) discard;
+  // How hard she is pushing. Nothing at steerage way and full height by ten
+  // knots or so -- and, once she is under way, not a matter of how big she
+  // is or how hard she is driven: see the heights above.
+  float drive = smoothstep(0.6, 5.5, vSpeed);
+  if (drive < 0.01) discard;
 
-  // Kelvin. The arm of the wedge is at m = run * tan(19.47 degrees), and every
-  // wave system in here is placed against it. Its apex is her stem: the offset
+  // Kelvin. The arm of the wedge is at m = run * tan(19.47 degrees), and the
+  // waves off her bow are placed against it. Its apex is her stem: the offset
   // is her own half beam and no more, so the wedge springs from her side and
   // opens astern instead of starting a beam wide with the ship inside it.
   float armM = run * ${KELVIN.toFixed(5)} + uBeam * 0.50;
@@ -156,13 +206,13 @@ void main() {
 
   // ---- how wide the white water is here -----------------------------------
   //
-  // The one curve that gives a wake its shape seen from the air, and the thing
-  // the old one had no notion of: white water does not begin at full width. It
-  // begins at the cutwater, which is a few feet across, and opens from there
-  // -- out to her own side by the time it is abreast of the bridge, a little
-  // wider at her quarter, and then spreading slowly astern for as long as the
-  // water stays broken. Every term in the foam below is measured against it,
-  // so the whole wake comes to a point at her stem.
+  // The one curve that gives a wake its shape seen from the air: white water
+  // does not begin at full width. It begins at the cutwater, which is a few
+  // feet across, and opens from there -- out to her own side by the time it
+  // is abreast of the bridge, a little wider at her quarter, and then
+  // spreading slowly astern for as long as the water stays broken. Every term
+  // in the foam below is measured against it, so the whole wake comes to a
+  // point at her stem.
   float alongHull = clamp(run / max(uStern, 1.0), 0.0, 1.0);
   // Her own half beam at this point of her length: a fine entry over the
   // forward third, parallel middle body, a slight taper into the transom.
@@ -172,15 +222,10 @@ void main() {
   // gone by, and it is only past her that the wash is free to open out.
   float runS = max(run - uStern, 0.0);
   // Sublinear, because a wake broadens quickly just astern of the screws and
-  // then hardly at all: linear opening puts a wedge a quarter of a mile wide
-  // behind a destroyer.
-  float openAft = pow(runS, 0.86) * 0.115;
-  // What the stem itself throws. The water she shoulders aside leaves the
-  // cutwater and runs out and aft at something like seventeen degrees, so it
-  // is a couple of feet of white at the bow and is standing well off her side
-  // by the time it is abreast of the bridge. Capped, because past that it is
-  // no longer the bow wave breaking but the diverging train, and that is the
-  // arm of the wedge lower down rather than the white alongside her.
+  // then hardly at all.
+  float openAft = pow(runS, 0.80) * 0.10;
+  // What the stem itself throws: a couple of feet of white at the bow,
+  // standing well off her side by the time it is abreast of the bridge.
   float bowOut = min(run * 0.30, uBeam * 0.62);
   // The white lies outboard of her plating rather than against it, and stands
   // further off the further aft it is.
@@ -197,150 +242,148 @@ void main() {
   float kT = 6.2831853 / lam;
   float kD = 6.2831853 / (lam * 0.62);
 
-  // Nothing lasts. The waves go long before the foam does -- they are water,
-  // and water spreads its energy until there is none of it anywhere -- so they
-  // are given their own, much shorter, life.
-  float liveW = 1.0 - smoothstep(0.02, 0.42, age);
-  float liveF = 1.0 - smoothstep(0.10, 1.00, age);
+  // Her waves are hers. They stand round her and go along with her, and a
+  // ship's length or so past her transom they have spread themselves into
+  // nothing. They used to run out along Kelvin's arms for the better part of
+  // a mile, with a line of white on each, and from any height at all that was
+  // a great arrowhead ruled on the sea with the ship at its point.
+  float near = 1.0 - smoothstep(uStern * 1.05, uReach, run);
+  // And nothing lasts. The waves go first -- they are water, and water spreads
+  // its energy until there is none of it anywhere.
+  float liveW = 1.0 - smoothstep(0.02, 0.30, age);
+
+  // The clock on the trail starts at her transom rather than her stem: the
+  // water just astern of her is the newest in the wake, however long ago her
+  // bow went past it.
+  float tSt = max(vAge - uStern / max(vSpeed, 2.0), 0.0);
+  float ageF = tSt / uLife;
+  // The foam goes in well under half the time the bubbles under it take to
+  // come up, and the bubbles thin out from the start rather than all at once
+  // at the end. That is the whole look of an old wake: a long pale band with
+  // no white left on it, fading into the sea.
+  float liveF = 1.0 - smoothstep(0.0, 0.42, ageF);
+  float liveA = pow(1.0 - smoothstep(0.02, 1.0, ageF), 1.6);
 
   // ---- the shape of the water ---------------------------------------------
   // The mound the stem pushes ahead of itself, the trough her own displacement
-  // drags along her side, and the hollow the screws pull down astern. This is
-  // the biggest single thing a hull does to the sea and the wake did not have
-  // it at all: what was drawn before was a pattern of waves on flat water,
-  // when the water round a ship at speed is not flat to begin with.
+  // drags along her side, and the hollow the screws pull down astern.
   float bowRun = 1.0 - smoothstep(0.0, uStern * 0.20, run);
   float bowSide = 1.0 - smoothstep(wide * 0.55, wide * 1.9, m);
-  float bow = bowRun * bowSide * drive * drive * 0.50;
+  float bow = bowRun * bowSide * drive * BOW_H;
 
   float sideRun = smoothstep(uStern * 0.05, uStern * 0.25, run)
                 * (1.0 - smoothstep(uStern * 0.70, uStern * 1.10, run));
   float sideM = smoothstep(wide * 0.55, wide * 1.05, m)
               * (1.0 - smoothstep(wide * 1.35, wide * 2.4, m));
-  float hollow = -sideRun * sideM * drive * 0.30;
+  float hollow = -sideRun * sideM * drive * SIDE_H;
 
   float sternRun = smoothstep(uStern * 0.78, uStern * 1.00, run)
                  * (1.0 - smoothstep(uStern * 1.05, uStern * 1.9, run));
   float sternM = 1.0 - smoothstep(wide * 0.45, wide * 1.4, m);
-  float hollowAft = -sternRun * sternM * drive * 0.36;
+  float hollowAft = -sternRun * sternM * drive * AFT_H;
 
   // The diverging system: the feathers that leave the bow at an angle to her
-  // track and end on Kelvin's arm. They live *on* the arm and nowhere else --
-  // which is the whole shape of a wake from the air -- so the envelope round
-  // them is tight. Driven any wider than this and what comes out is a comb of
-  // parallel bars sweeping across half a kilometre of sea.
+  // track and end on Kelvin's arm. They live on the arm and nowhere else, so
+  // the envelope round them is tight.
   const float CP = 0.82, SP = 0.58;      // about thirty-five degrees
   float phD = kD * (run * CP + m * SP);
-  float envD = smoothstep(0.52, 0.86, arm) * (1.0 - smoothstep(1.00, 1.34, arm));
-  float ampD = uBeam * 0.048 * envD * drive * liveW
-             * (1.0 - smoothstep(140.0, 900.0, run));
+  float envD = smoothstep(0.55, 0.85, arm) * (1.0 - smoothstep(0.98, 1.22, arm));
+  float ampD = DIV_H * envD * drive * liveW * near;
 
   // The transverse system: arcs strung between the arms, bowing away from her,
   // so the phase runs on the distance from the ship rather than down the track.
-  // Always the fainter of the two, and from directly overhead almost the only
-  // thing you can see inside the wedge.
   float rad = sqrt(run * run + m * m * 0.8);
   float phT = kT * rad;
-  float envT = (1.0 - smoothstep(0.22, 0.84, arm))
+  float envT = (1.0 - smoothstep(0.22, 0.80, arm))
              * smoothstep(uStern * 0.18, uStern * 0.85, run);
-  float ampT = uBeam * 0.028 * envT * drive * liveW
-             * (1.0 - smoothstep(110.0, 700.0, run));
+  float ampT = TRANS_H * envT * drive * liveW * near;
 
   float h = bow + hollow + hollowAft + ampD * sin(phD) + ampT * sin(phT);
 
-  // The churned water itself is not flat: it is a metre of confused chop with
-  // nothing to do with the swell, and it is what makes a wake read as water
-  // rather than as paint once the wave train has gone.
-  float wash = smoothstep(uStern * 0.55, uStern * 1.05, run)
-             * (1.0 - smoothstep(0.30, 0.95, arm)) * liveF * drive;
-  // Scaled so the finest octave of it is several texels across. A metre of
-  // confused water is real, but the map cannot hold a metre, and what it gives
-  // back when asked for one is a grid of squares.
-  vec2 cp = vec2(m * 0.10 * sgn, run * 0.09 - vAge * 0.35);
-  h += (fbm(cp * 0.42) - 0.5) * 0.42 * wash;
+  // ---- in the water's own frame -------------------------------------------
+  // Everything below that is broken up -- the patches of foam, the threads of
+  // it, the ragged edges of the trail -- is broken up by noise laid in the
+  // water rather than on the ship: across her track in metres off it, and
+  // along it by how far she had run when she laid it. Neither of those moves
+  // while she sails on, so a patch of foam stays on the piece of sea she left
+  // it on and dies there. It used to be measured from her stem, and slid
+  // after her down the wake -- and jumped back twenty metres every time she
+  // laid another piece of track.
+  vec2 wq = vec2(m * sgn, vOdo);
+  // The water does go on moving, slowly, on its own clock: the noise turns
+  // over on the age of the water, so a patch changes shape as it dies rather
+  // than sitting there like a transfer.
+  float stir = vAge * 0.035;
+  float clump = fbm(vWorld * 0.032 + 3.7 + stir * 0.5);
+
+  // ---- the trail ------------------------------------------------------------
+  // The water her screws have been through. It leaves her transom at the
+  // width of the white water alongside her and opens slowly from there --
+  // the same opening every other term is measured against. Its edges are
+  // ragged, because churned water does not stop along a ruled line.
+  float coreW = spread;
+  float behind = smoothstep(uStern * 0.62, uStern * 0.95, run);
+  float inCore = 1.0 - smoothstep(coreW * (0.40 + 0.30 * clump),
+                                  coreW * (0.95 + 0.30 * clump), m);
+  float inBand = 1.0 - smoothstep(coreW * (0.70 + 0.25 * clump),
+                                  coreW * (1.25 + 0.30 * clump), m);
+
+  // The confused water just astern of her is not flat: it is a heap of short
+  // chop with nothing to do with the swell, and it settles in half a minute.
+  float wash = behind * inBand * (1.0 - smoothstep(4.0, 40.0, tSt)) * drive;
+  h += (fbm(vWorld * 0.075 + stir * 4.0) - 0.5) * CHOP_H * wash;
 
   // ---- foam ---------------------------------------------------------------
-  // Three things, and in the photograph they are the whole of the white water.
+  // How much of the surface is white, which the ocean turns into foam per
+  // pixel. Never all of it: even the boil under her counter is broken water
+  // with the sea showing through.
   //
-  // The sheet at the stem: it starts at the very bow, because that is where a
-  // ship makes white water -- the stem shoulders the sea aside and it breaks
-  // there, before anything else in the wake exists.
+  // The sheet at the stem, where she shoulders the sea aside and it breaks.
   float stem = (1.0 - smoothstep(uStern * 0.06, uStern * 0.36, run))
              * (1.0 - smoothstep(spread * 0.50, spread * 1.20, m))
-             * clamp(vSpeed / 5.0, 0.0, 1.0);
+             * drive;
 
   // The band down her side: the bow wave breaking and being dragged aft along
-  // the hull. It is the brightest thing in the picture and it runs unbroken
-  // from her stem to her quarter.
-  //
-  // Its inner edge is her own plating and its outer edge is the spread, so at
-  // the cutwater it is a bright line a couple of feet across and by the bridge
-  // it is a band the width of her flare. Measured from her side and not from
-  // her centreline: put it inboard of her beam and the ship stands on top of
-  // the brightest thing in her own wake.
+  // the hull, from her stem to her quarter. Its inner edge is her own plating
+  // and its outer edge is the spread -- put it inboard of her beam and the
+  // ship stands on top of the brightest thing in her own wake.
   float bandIn = max(hullHalf * 0.80, uBeam * 0.03);
   float band = smoothstep(bandIn * 0.45, bandIn, m)
              * (1.0 - smoothstep(spread * 0.98, spread * 1.50, m))
              * (1.0 - smoothstep(uStern * 0.95, uStern * 1.45, run))
-             * clamp(vSpeed / 5.5, 0.0, 1.0);
+             * drive;
+  float froth = fbm(vec2(wq.x * 0.06, wq.y * 0.05) + stir);
+  band *= smoothstep(0.25, 0.70, froth + 0.20);
 
-  // The wash off her screws: solid behind the transom, opening slowly and
-  // breaking into patches as it is left behind. The clock on it starts at the
-  // transom rather than at the stem -- the water just astern of her is the
-  // newest in the wake, however long ago her bow went past it.
-  float tSt = max(vAge - uStern / max(vSpeed, 2.0), 0.0);
-  float ageF = tSt / uLife;
-  // The same spread the rest of the foam is measured against, so the wash
-  // leaves the transom at exactly the width the band alongside her had.
-  float coreW = spread;
-  float core = (1.0 - smoothstep(coreW * 0.58, coreW * 1.18, m))
-             * (1.0 - smoothstep(0.10, 1.0, pow(ageF, 0.8)))
-             * smoothstep(uStern * 0.62, uStern * 0.95, run);
+  // The wash off her screws. Nearly solid straight astern of the transom; a
+  // few hundred metres back it has broken into threads drawn out along the
+  // track -- the shear between the churned water and the sea either side
+  // pulls the foam into lines -- and patches; past that there is no white
+  // left, only the pale band it was lying on.
+  float streak = fbm(vec2(wq.x * 0.11, wq.y * 0.016) + stir);
+  float boil = 1.0 - smoothstep(2.0, 14.0, tSt);
+  float lo = 0.30 + 0.30 * smoothstep(0.0, 0.40, ageF);
+  float breakUp = smoothstep(lo, lo + 0.30, streak * 0.6 + clump * 0.4);
+  float core = inCore * behind * liveF * mix(breakUp * 0.60, 0.76, boil);
 
-  // Broken up by noise anchored to the age of the water and to metres across
-  // it, so a patch of foam keeps its size and its shape while it drifts astern
-  // and dies rather than crawling about.
-  vec2 np = vec2(m * 0.05 * sgn, tSt * 0.42);
-  float churn = fbm(np * 0.85) * 0.62 + fbm(np * 1.9 + 11.0) * 0.38;
-  // Straight astern of the transom it is not patchy yet, it is a solid boil.
-  float boil = 1.0 - smoothstep(3.0, 16.0, tSt);
-  float mask = smoothstep(0.32, 0.80, churn + 0.20 * (1.0 - ageF));
-  mask = max(mask, boil * smoothstep(0.14, 0.50, churn + 0.26));
-  core *= mask;
-
-  // And the feathers on the diverging crests, where they are steep enough to
-  // break: a row of white marks down the outside of the wake rather than a
-  // clean line, which is what the arm of a wake actually looks like.
-  float froth = fbm(vec2(m * 0.045 * sgn, run * 0.042 - vAge * 1.1));
+  // And the crests of the diverging waves, where they are steep enough to
+  // break -- close in on her bow and nowhere else.
+  float lace = fbm(vec2(wq.x * 0.075, wq.y * 0.07) + stir * 2.0);
   float steepD = abs(ampD) * kD;
-  // Broken up by a much finer noise than the wash is: a feather on a wave
-  // face is a few metres of white, not a floe.
-  float lace = fbm(vec2(m * 0.075 * sgn, run * 0.070 - vAge * 1.1));
-  // Only the very top of the crest breaks. Opened any wider than this and what
-  // comes out is not a feather on a wave face but a floe.
-  float crest = smoothstep(0.03, 0.13, steepD)
-              * smoothstep(0.72, 0.99, sin(phD) * 0.5 + 0.5)
-              * smoothstep(0.34, 0.60, lace) * liveF;
-  // And the arm itself carries white for a long way whether or not the crest
-  // under it is breaking: in the photograph the two arms of the wedge are
-  // marked out in white to the edge of the frame.
-  float armFoam = smoothstep(0.88, 0.99, arm) * (1.0 - smoothstep(1.01, 1.11, arm))
-                * smoothstep(uStern * 0.4, uStern * 1.2, run)
-                * (1.0 - smoothstep(400.0, 1500.0, run))
-                * smoothstep(0.32, 0.66, lace * 0.6 + froth * 0.4)
-                * liveF * drive;
+  float crest = smoothstep(0.015, 0.06, steepD)
+              * smoothstep(0.74, 0.99, sin(phD) * 0.5 + 0.5)
+              * smoothstep(0.40, 0.64, lace);
 
-  float foam = clamp(stem * 0.95
-                   + band * smoothstep(0.30, 0.74, froth + 0.22) * 1.0
-                   + core * 1.0
-                   + crest * 0.70 + armFoam * 0.62, 0.0, 1.0);
-  foam *= liveF;
+  float foam = clamp(stem * 0.72 + band * 0.62 + core + crest * 0.45, 0.0, 0.86);
 
-  // How churned this water is at all, which is what tells the sea to put its
-  // own chop away here and roughen instead. Only where something is actually
-  // happening: a blanket over the whole strip flattens a quarter of a square
-  // kilometre of sea round every ship afloat.
-  float disturbed = clamp(stem + band * 0.8 + core + wash * 0.7, 0.0, 1.0);
+  // ---- aeration -----------------------------------------------------------
+  // The water her screws and her bow have been through, foam or no foam. It
+  // is a little wider than the white on it, and it lasts the whole life of
+  // the wake: the bubbles take minutes to come up.
+  float aer = inBand * behind * liveA * mix(0.70, 1.0, clump) * drive;
+  aer = max(aer, max(stem, band) * 0.55);
+  // Anything white has bubbles under it.
+  aer = max(aer, foam * 0.8);
 
   // Feathered in from the strip's own edges, or the strip is what you see.
   // Ramped in just abaft the stem as well. The strip begins at her bow, so
@@ -354,10 +397,9 @@ void main() {
 
   h *= edge;
   foam *= edge;
-  disturbed *= edge;
+  aer *= edge;
 
-  gl_FragColor = vec4(max(h, 0.0) / uScale, max(-h, 0.0) / uScale,
-                      foam, disturbed);
+  gl_FragColor = vec4(max(h, 0.0) / uScale, max(-h, 0.0) / uScale, foam, aer);
 }
 `;
 
@@ -376,8 +418,14 @@ export class Wake {
     // the bow, so a track that starts at her transom has no water in it where
     // the bow wave actually is.
     this.bowOffset = length * 0.5;
+    this.reach = waveReach(length);
     this.pts = [];
     this.clock = 0;
+    // How far her stem has run, all told. Every piece of her track carries
+    // the reading it was laid at, so how far astern of her any of it is comes
+    // straight off the difference -- and so does where a patch of foam sits
+    // along it, which is what keeps it on the piece of sea it was made on.
+    this.odo = 0;
     this.opacity = 1;
     this.build();
   }
@@ -391,6 +439,7 @@ export class Wake {
     const half = new Float32Array(verts);
     const run = new Float32Array(verts);
     const tail = new Float32Array(verts);
+    const odo = new Float32Array(verts);
     for (let i = 0; i < POINTS; i++) {
       for (let j = 0; j < COLS; j++) side[i * COLS + j] = (j / (COLS - 1)) * 2 - 1;
     }
@@ -409,6 +458,7 @@ export class Wake {
     geo.setAttribute('aHalf', new THREE.BufferAttribute(half, 1));
     geo.setAttribute('aRun', new THREE.BufferAttribute(run, 1));
     geo.setAttribute('aTail', new THREE.BufferAttribute(tail, 1));
+    geo.setAttribute('aOdo', new THREE.BufferAttribute(odo, 1));
     geo.setIndex(idx);
     // A bounding sphere big enough for anything the strip can become, so the
     // ortho camera drawing the map never culls a wake that is half inside it.
@@ -422,6 +472,7 @@ export class Wake {
         uLife: { value: LIFE },
         uBeam: { value: this.beam },
         uStern: { value: this.length },
+        uReach: { value: this.reach },
         uScale: { value: WAKE_H },
         uOpacity: { value: 1 },
       },
@@ -448,7 +499,6 @@ export class Wake {
     this.clock += dt;
     const bx = x + Math.sin(heading) * this.bowOffset;
     const bz = z + Math.cos(heading) * this.bowOffset;
-    const cur = { x: bx, z: bz, t: this.clock, v: Math.abs(speed), h: heading };
     // How far she is from the last piece of water she laid. Further than she
     // could have sailed since means she did not sail it -- she was put there,
     // at the start of a battle or when a view of her is built fresh -- and
@@ -458,6 +508,13 @@ export class Wake {
       ? Math.hypot(bx - this.pts[1].x, bz - this.pts[1].z) : 0;
     const jumped = this.pts.length > 1
       && gap > Math.max(STEP_M * 3, Math.abs(speed) * dt * 8 + STEP_M);
+    // Run on from wherever her stem was last frame. Not across a jump: she did
+    // not sail that.
+    const head = this.pts[0];
+    if (head && !jumped) this.odo += Math.hypot(bx - head.x, bz - head.z);
+    const cur = {
+      x: bx, z: bz, t: this.clock, v: Math.abs(speed), h: heading, odo: this.odo,
+    };
     if (this.pts.length < 2 || jumped) {
       this.pts = [cur, { ...cur }];
     } else if (gap >= STEP_M) {
@@ -481,25 +538,42 @@ export class Wake {
     const hlf = this.geo.attributes.aHalf;
     const rn = this.geo.attributes.aRun;
     const tl = this.geo.attributes.aTail;
-    // How near this row is to the end of the track she has actually laid. The
-    // last stretch of it is faded out, because a strip that simply stops draws
-    // a straight line ruled across the sea -- and it stops in the wrong place
-    // as well: a ship working up from rest has a short track whose oldest
-    // water is only a few seconds old, so nothing else fades it either.
+    const od = this.geo.attributes.aOdo;
     const last = this.pts.length - 1;
+    const lastRun = this.odo - this.pts[last].odo;
     for (let i = 0; i < POINTS; i++) {
       const spare = i >= this.pts.length;
-      const p = this.pts[Math.min(i, this.pts.length - 1)];
+      const p = this.pts[Math.min(i, last)];
       // Vertices past the end of the track are stacked on the last point and
       // aged out of the shader's life, so they discard instead of piling into
       // a bright knot at the tail.
       const a = spare ? LIFE + 1 : this.clock - p.t;
-      const fade = spare ? 0 : Math.min(1, (last - i) / 7);
-      const run = i * STEP_M;
-      // Half again as wide as Kelvin's arm: the diverging waves live *on* the
-      // arm, and a strip that ends there puts them under its own edge fade.
+      // How far astern of her stem this piece of track is, measured along it.
+      //
+      // It used to be counted -- the row's number times the length of a piece
+      // -- which is right only at the instant a piece is laid. Between pieces
+      // her stem runs on and the first piece behind it stays put, so the
+      // whole wake was stretched a little more every frame, and then the
+      // moment she laid the next piece every row moved one number down and
+      // the wake behind her jumped twenty metres back to where it started.
+      // Twice a second at speed: the whole wake pulsing and resetting.
+      const run = this.odo - p.odo;
+      // How near this row is to the end of the track she has actually laid.
+      // The last stretch of it is faded out, because a strip that simply stops
+      // draws a straight line ruled across the sea -- and it stops in the
+      // wrong place as well: a ship working up from rest has a short track
+      // whose oldest water is only a few seconds old, so nothing else fades it
+      // either. By distance, both ends of it, so it slides rather than steps.
+      const fade = spare ? 0
+        : Math.min(1, Math.max(0, (lastRun - run) / (STEP_M * 5)))
+          * (1 - smooth(TRACK_M * 0.6, TRACK_M, run));
+      // Half again as wide as Kelvin's arm out to where her waves die, so the
+      // diverging waves are not under the strip's own edge fade; and wide
+      // enough past that for the trail, which goes on opening slowly.
+      const runS = Math.max(run - this.length, 0);
+      const trail = 2.6 * (this.beam * 0.82 + Math.pow(runS, 0.8) * 0.10);
       const half = Math.max(this.beam * 1.7,
-        (this.beam * 0.85 + Math.min(run, RUN_CAP) * KELVIN) * 1.35);
+        (this.beam * 0.85 + Math.min(run, this.reach) * KELVIN) * 1.35, trail);
       const nx = Math.cos(p.h);
       const nz = -Math.sin(p.h);
       for (let j = 0; j < COLS; j++) {
@@ -511,6 +585,7 @@ export class Wake {
         hlf.setX(k, half);
         rn.setX(k, run);
         tl.setX(k, fade);
+        od.setX(k, p.odo);
       }
     }
     pos.needsUpdate = true;
@@ -519,6 +594,7 @@ export class Wake {
     hlf.needsUpdate = true;
     rn.needsUpdate = true;
     tl.needsUpdate = true;
+    od.needsUpdate = true;
   }
 
   /**
