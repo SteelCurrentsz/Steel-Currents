@@ -238,16 +238,112 @@ function foamTexture() {
 
 const COLUMNS = 30;
 const SWELLS = 72;
+// The spires that come up round the main mass, every one its own size and lean.
+const JETS = 420;
+// The water that comes back down out of them, and the little splashes it makes.
+const DROPS = 2600;
+const G = 9.81;
+
+/**
+ * One spire of water: narrow, lumpy, and tearing apart at the head.
+ *
+ * A heavy shell does not throw up a column. It throws up a mass with a dozen
+ * spires coming out of it, each leaning its own way, some twice the height of
+ * the others -- which is the shape every photograph of a fall of shot has, and
+ * the reason none of them look like a cone.
+ */
+function makeJetGeometry() {
+  const g = new THREE.CylinderGeometry(0.16, 1, 1, 10, 10, true);
+  g.translate(0, 0.5, 0);
+  const p = g.attributes.position;
+  const col = [];
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
+    const a = Math.atan2(x, z);
+    // Thickest a little way up, where the water has spread and not yet run out
+    // of push, and knotted all the way up.
+    const swell = (y < 0.25 ? 0.85 + y * 0.8 : 1.05 - (y - 0.25) * 0.55)
+      * (1 + 0.22 * Math.sin(a * 2 + y * 9.0) + 0.14 * Math.sin(a * 5 - y * 15.0));
+    p.setX(i, x * swell);
+    p.setZ(i, z * swell);
+    const up = Math.min(1, y * 1.2);
+    col.push(0.66 + 0.34 * up, 0.79 + 0.21 * up, 0.86 + 0.14 * up);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A material that fades instance by instance, off an attribute of its own. */
+function fadingMaterial(params) {
+  const m = new THREE.MeshBasicMaterial(params);
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\n'
+      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
+    sh.fragmentShader = 'varying float vFade;\n'
+      + sh.fragmentShader.replace('#include <dithering_fragment>',
+        '#include <dithering_fragment>\n  gl_FragColor.a *= vFade;');
+  };
+  return m;
+}
+
+const DROP_VERT = /* glsl */`
+attribute float aSize;
+attribute float aAlpha;
+uniform float uScale;
+varying float vA;
+void main() {
+  vA = aAlpha;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_PointSize = aSize * uScale / max(1.0, -mv.z);
+  gl_Position = projectionMatrix * mv;
+}
+`;
+const DROP_FRAG = /* glsl */`
+varying float vA;
+void main() {
+  vec2 c = gl_PointCoord - 0.5;
+  float d = length(c);
+  if (d > 0.5 || vA <= 0.0) discard;
+  // A clot of spray rather than a dot: dense in the middle, frayed at the edge.
+  float a = vA * smoothstep(0.5, 0.05, d) * (0.75 + 0.25 * sin(c.x * 23.0 + c.y * 17.0));
+  gl_FragColor = vec4(0.92, 0.96, 1.0, a);
+}
+`;
+
+/**
+ * How each kind of thing that goes into the sea throws it up.
+ *
+ *   shell  a mass and a crown of spires, leaning the way it came in
+ *   bomb   wider and lower, and more of it comes back down
+ *   dc     the sea humps up into a white dome first, and then the plume bursts
+ *          up through it in a fan
+ *   torp   a tall narrow column standing against a ship's side
+ *   drop   a torpedo going in off a low run: long and low, thrown forward
+ */
+const KINDS = {
+  shell: { tall: 1, wide: 1, jets: [5, 9], fan: [0.06, 0.32], jetH: [0.45, 1.2], drops: 1, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.25, jets: [8, 12], fan: [0.12, 0.45], jetH: [0.4, 1.05], drops: 1.5, delay: 0 },
+  dc: { tall: 0.42, wide: 1.9, jets: [9, 13], fan: [0.12, 0.4], jetH: [0.38, 0.8], jetW: [0.3, 0.55], drops: 2, delay: 0.38 },
+  torp: { tall: 1.15, wide: 0.62, jets: [4, 6], fan: [0.03, 0.16], jetH: [0.8, 1.25], drops: 1.2, delay: 0 },
+  drop: { tall: 0.55, wide: 0.8, jets: [3, 5], fan: [0.25, 0.5], jetH: [0.5, 1.0], drops: 0.6, delay: 0 },
+};
+
+const rnd = (a, b) => a + Math.random() * (b - a);
 
 export class Splashes {
   /**
    * `intensity` is the graphics quality dial the rest of the effects use: it
-   * thins the number of swells per splash on a slow machine, never the column,
-   * because the column is the part that carries the information.
+   * thins the spray and the little splashes on a slow machine, never the
+   * column, because the column is the part that carries the information.
    */
   constructor(scene, intensity = 1) {
     this.scene = scene;
     this.intensity = intensity;
+    // The waves a splash throws, when there is a sea to write them into (see
+    // SplashRings in wakefield.js). Without one it falls back to the swell
+    // meshes below.
+    this.waves = null;
     const geo = makeGeometry();
     this.colTex = columnTexture();
     this.swellTex = swellTexture();
@@ -263,7 +359,6 @@ export class Splashes {
       map: this.swellTex, transparent: true, depthWrite: false,
       side: THREE.DoubleSide, color: 0xe8f3ff,
     });
-
     const crownMat = new THREE.MeshBasicMaterial({
       map: this.colTex, transparent: true, depthWrite: false,
       side: THREE.DoubleSide, color: 0xdcecfa,
@@ -303,17 +398,86 @@ export class Splashes {
     this.columns = [];
     this.swells = [];
     this.foams = [];
+
+    // The spires: one draw call for all of them, each fading on its own.
+    const jetGeo = makeJetGeometry();
+    this.jetFade = new THREE.InstancedBufferAttribute(new Float32Array(JETS), 1);
+    this.jetFade.setUsage(THREE.DynamicDrawUsage);
+    jetGeo.setAttribute('aFade', this.jetFade);
+    this.jetMesh = new THREE.InstancedMesh(jetGeo, fadingMaterial({
+      map: this.colTex, transparent: true, depthWrite: false,
+      side: THREE.DoubleSide, color: 0xf2f8ff, vertexColors: true,
+    }), JETS);
+    this.jetMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.jetMesh.frustumCulled = false;
+    this.jetMesh.renderOrder = 3;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < JETS; i++) this.jetMesh.setMatrixAt(i, zero);
+    scene.add(this.jetMesh);
+    this.jetFree = [];
+    for (let i = JETS - 1; i >= 0; i--) this.jetFree.push(i);
+    this.jets = [];
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._e = new THREE.Euler(0, 0, 0, 'YXZ');
+    this._p = new THREE.Vector3();
+    this._s = new THREE.Vector3();
+
+    // The spray, as points: it is falling water, in clots.
+    const dg = new THREE.BufferGeometry();
+    this.dropPos = new Float32Array(DROPS * 3);
+    this.dropSize = new Float32Array(DROPS);
+    this.dropAlpha = new Float32Array(DROPS);
+    dg.setAttribute('position', new THREE.BufferAttribute(this.dropPos, 3).setUsage(THREE.DynamicDrawUsage));
+    dg.setAttribute('aSize', new THREE.BufferAttribute(this.dropSize, 1).setUsage(THREE.DynamicDrawUsage));
+    dg.setAttribute('aAlpha', new THREE.BufferAttribute(this.dropAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    this.dropMat = new THREE.ShaderMaterial({
+      vertexShader: DROP_VERT, fragmentShader: DROP_FRAG,
+      uniforms: { uScale: { value: 600 } },
+      transparent: true, depthWrite: false,
+    });
+    this.dropPoints = new THREE.Points(dg, this.dropMat);
+    this.dropPoints.frustumCulled = false;
+    this.dropPoints.renderOrder = 4;
+    // Sized to the screen it is drawn on, so a clot of spray is metres across
+    // and not pixels.
+    this.dropPoints.onBeforeRender = (renderer, _s, camera) => {
+      const h = renderer.getDrawingBufferSize(this._sz || (this._sz = new THREE.Vector2())).y;
+      const fov = (camera.fov || 50) * Math.PI / 180;
+      this.dropMat.uniforms.uScale.value = h / (2 * Math.tan(fov / 2));
+    };
+    scene.add(this.dropPoints);
+    this.dropVel = new Float32Array(DROPS * 3);
+    this.dropLife = new Float32Array(DROPS);
+    // What landing does: 0 nothing, or the bore of the little splash it makes.
+    this.dropKick = new Float32Array(DROPS);
+    this.dropFree = [];
+    for (let i = DROPS - 1; i >= 0; i--) this.dropFree.push(i);
+    this.dropsLive = [];
   }
 
+  /** The sea the waves go into. See SplashRings. */
+  setWaves(waves) { this.waves = waves; }
+
   /**
-   * A round in the water at (x, z).
+   * Something in the water at (x, z).
    *
-   * `bore` is the gun's calibre in millimetres; a torpedo or a bomb passes the
-   * equivalent bore for the size of hole it makes in the sea.
+   * `bore` is the gun's calibre in millimetres; a torpedo, a bomb or a depth
+   * charge passes the bore that throws the same weight of water. `opts.kind`
+   * says what it was -- see KINDS -- because a depth charge and a shell of the
+   * same weight do not throw the same shape.
    */
-  splash(x, z, bore = REF_BORE) {
-    const { height, radius } = splashSize(bore);
-    const col = this.colPool.pop();
+  splash(x, z, bore = REF_BORE, opts = {}) {
+    const kind = KINDS[opts.kind] || KINDS.shell;
+    const base = splashSize(bore);
+    const height = base.height * kind.tall;
+    const radius = base.radius * kind.wide;
+    // Which way it came in, which is the way it throws: a shell arrives on a
+    // slant and the water goes on the way it was going.
+    const lean = Number.isFinite(opts.heading) ? opts.heading : Math.random() * Math.PI * 2;
+    // A little splash thrown up by the spray off a big one is spires, foam and
+    // a ring: the columns are kept for the rounds that carry the information.
+    const col = opts.child ? null : this.colPool.pop();
     if (col) {
       const crown = this.crownPool.pop();
       const core = this.corePool.pop();
@@ -326,11 +490,10 @@ export class Splashes {
         core.rotation.y = col.rotation.y + 1.9 + Math.random();
         core.visible = true;
       }
-      // Leaned a few degrees off the vertical and squashed slightly on one
-      // axis: a shell arrives on a slant and throws the water the way it was
-      // going, so a column standing dead upright looks like a prop.
-      col.rotation.z = (Math.random() - 0.5) * 0.20;
-      col.rotation.x = (Math.random() - 0.5) * 0.20;
+      // Leaned off the vertical, the way it came in, and squashed on one axis.
+      const tilt = rnd(0.03, 0.14);
+      col.rotation.z = Math.sin(lean) * tilt;
+      col.rotation.x = Math.cos(lean) * tilt;
       if (crown) {
         crown.position.set(x, 0, z);
         crown.rotation.y = Math.random() * Math.PI * 2;
@@ -340,33 +503,90 @@ export class Splashes {
       // A tall column takes longer to go up and much longer to come down: an
       // 18-inch splash stands for the better part of four seconds, which is
       // what makes it possible to spot a straddle at twenty thousand yards.
-      const rise = 0.22 + height * 0.006;
+      const rise = (0.22 + height * 0.006) * (opts.kind === 'dc' ? 1.8 : 1);
       this.columns.push({
         col, core, crown, x, z, h: height, r: radius,
-        squash: 0.82 + Math.random() * 0.36,
+        squash: opts.kind === 'drop' ? 0.5 : 0.7 + Math.random() * 0.5,
         life: 0, rise, ttl: rise + 1.3 + height * 0.022,
       });
     }
+    this.spires(x, z, base.height, radius, kind, lean, bore);
+    this.spray(x, z, base.height, radius, kind, bore, lean);
     // The patch of churned water underneath it, which is what actually marks
-    // where the round went in: it is still there long after the column has
-    // fallen, and it is the last thing to go.
-    const foam = this.foamPool.pop();
-    if (foam) {
-      foam.position.set(x, 0.28, z);
+    // where the round went in. With a sea to write into it is written there,
+    // torn up, by the ring (see SplashRings); without one it is two patches
+    // laid on the water, turned and stretched differently.
+    for (let k = 0; k < (this.waves ? 0 : opts.child ? 1 : 2); k++) {
+      const foam = this.foamPool.pop();
+      if (!foam) break;
+      foam.position.set(x + rnd(-0.4, 0.4) * radius, 0.28 + k * 0.02, z + rnd(-0.4, 0.4) * radius);
       foam.rotation.z = Math.random() * Math.PI * 2;
       foam.material.opacity = 0;
       foam.visible = true;
       this.foams.push({
-        m: foam, r0: radius * 1.5, r1: radius * 4.2,
-        life: 0, ttl: 3.4 + height * 0.05, peak: 0.62,
+        m: foam, r0: radius * (1.3 + k * 0.4), r1: radius * (3.6 + k * 1.4),
+        stretch: rnd(0.55, 1.0), life: 0, ttl: 3.4 + height * 0.05, peak: k ? 0.4 : 0.6,
       });
     }
-    // And the swell that runs out from it. Three crests, thrown in order, each
-    // one lower and slower than the one in front: the size of the wave follows
-    // the size of the splash, because it is the same water.
-    const rings = Math.max(1, Math.round(3 * this.intensity));
-    for (let i = 0; i < rings; i++) {
-      this.swell(x, z, radius, height, i);
+    // And the wave that runs out from it: into the sea itself if there is one
+    // to write to, or as the swell meshes if there is not.
+    if (this.waves) {
+      this.waves.add(x, z, height, radius, opts.kind === 'dc' ? 1.4 : 1);
+    } else {
+      const rings = Math.max(1, Math.round(3 * this.intensity));
+      for (let i = 0; i < rings; i++) this.swell(x, z, radius, height, i);
+    }
+  }
+
+  /** The spires coming up round the main mass. */
+  spires(x, z, height, radius, kind, lean, bore) {
+    const n = Math.round(rnd(kind.jets[0], kind.jets[1] + 0.99) * Math.min(1, 0.5 + bore / 400));
+    for (let i = 0; i < n; i++) {
+      const slot = this.jetFree.pop();
+      if (slot === undefined) return;
+      // Round the foot of the mass, bunched toward the way it came in.
+      const a = lean + (Math.random() - 0.5) * Math.PI * (Math.random() < 0.6 ? 1.1 : 2);
+      const off = radius * rnd(0.1, 0.75);
+      const h = height * rnd(kind.jetH[0], kind.jetH[1]);
+      const rise = (0.2 + h * 0.0065) * rnd(0.85, 1.25);
+      this.jets.push({
+        slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
+        a, tilt: rnd(kind.fan[0], kind.fan[1]),
+        w: radius * rnd(...(kind.jetW || [0.16, 0.36])), h,
+        delay: kind.delay + rnd(0, 0.14), rise,
+        ttl: rise + 1.1 + h * 0.022,
+        life: 0,
+      });
+    }
+  }
+
+  /** The water thrown up out of it, which has to come down again somewhere. */
+  spray(x, z, height, radius, kind, bore, lean) {
+    const k = Math.max(0.35, bore / REF_BORE);
+    const n = Math.round(Math.min(220, 14 * Math.pow(k, 1.3) * kind.drops) * this.intensity);
+    // A big splash's spray makes splashes of its own where it lands; a small
+    // one's is gone into the sea without a mark.
+    let kids = bore >= 180 ? Math.round((2 + k * 2.5) * this.intensity) : 0;
+    for (let i = 0; i < n; i++) {
+      const s = this.dropFree.pop();
+      if (s === undefined) return;
+      const a = lean + (Math.random() - 0.5) * Math.PI * 2.2;
+      const u = rnd(0.25, 0.95);
+      const v = Math.sqrt(2 * G * height * u);
+      const out = rnd(0.12, 0.42) * v + rnd(0, 0.6) * Math.sqrt(G * radius);
+      this.dropPos[s * 3] = x + Math.sin(a) * radius * rnd(0.2, 0.9);
+      this.dropPos[s * 3 + 1] = rnd(0.5, 2.5);
+      this.dropPos[s * 3 + 2] = z + Math.cos(a) * radius * rnd(0.2, 0.9);
+      this.dropVel[s * 3] = Math.sin(a) * out;
+      this.dropVel[s * 3 + 1] = v * rnd(0.55, 0.95);
+      this.dropVel[s * 3 + 2] = Math.cos(a) * out;
+      this.dropSize[s] = rnd(0.6, 1.8) * (0.7 + k * 0.45);
+      this.dropAlpha[s] = 0;
+      this.dropLife[s] = -(kind.delay + rnd(0, 0.25));
+      let kick = 0;
+      if (kids > 0 && Math.random() < 0.35) { kids--; kick = Math.min(150, bore * rnd(0.12, 0.22)); }
+      this.dropKick[s] = kick;
+      this.dropsLive.push(s);
     }
   }
 
@@ -393,6 +613,7 @@ export class Splashes {
   }
 
   update(dt) {
+    if (this.waves) this.waves.update(dt);
     for (let i = this.columns.length - 1; i >= 0; i--) {
       const c = this.columns[i];
       c.life += dt;
@@ -425,8 +646,6 @@ export class Splashes {
       c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread * c.squash);
       c.col.material.opacity = 0.9 * (1 - k) * (1 - k * k);
       if (c.core) {
-        // A shade shorter and narrower, so its own lumps sit inside the outer
-        // wall's rather than fighting with them along the silhouette.
         c.core.position.y = c.col.position.y;
         c.core.scale.set(c.r * spread * 0.74, Math.max(0.5, c.h * f * 0.88), c.r * spread * 0.74 * c.squash);
         c.core.rotation.z = c.col.rotation.z * 0.6;
@@ -443,6 +662,9 @@ export class Splashes {
       }
     }
 
+    this.stepJets(dt);
+    this.stepDrops(dt);
+
     for (let i = this.foams.length - 1; i >= 0; i--) {
       const f = this.foams[i];
       f.life += dt;
@@ -455,7 +677,7 @@ export class Splashes {
       // Spreads quickly at first and then drifts, the way a patch of aerated
       // water does before the sea closes over it again.
       const r = f.r0 + (f.r1 - f.r0) * Math.pow(k, 0.45);
-      f.m.scale.set(r, r, 1);
+      f.m.scale.set(r, r * (f.stretch || 1), 1);
       f.m.material.opacity = f.peak * Math.min(1, f.life * 5) * (1 - k) * (1 - k);
     }
 
@@ -470,19 +692,96 @@ export class Splashes {
         this.swells.splice(i, 1);
         continue;
       }
-      // Easing off as it goes: a ring of water leaves the splash fast and then
-      // settles into the sea's own motion, and a crest travelling at a constant
-      // speed to the end of its life reads as a shockwave rather than a swell.
       const r = s.r0 + s.speed * t * (1 - 0.28 * k);
-      // The crest flattens as the ring spreads: the same water round a longer
-      // circumference. That is also what keeps a big splash's wave readable
-      // out to a couple of hundred metres and a small one's gone in thirty.
       const decay = s.r0 / r;
       s.m.scale.set(r, s.crest * Math.max(0.15, Math.pow(decay, 0.6)), r);
-      // Smoothstep in and out, so neither end of its life has a corner in it.
       const rise = Math.min(1, t * 3.5);
       const fade = (1 - k) * (1 - k) * (1 - k * 0.4);
       s.m.material.opacity = s.peak * rise * rise * (3 - 2 * rise) * fade;
     }
+  }
+
+  stepJets(dt) {
+    if (!this.jets.length) return;
+    const m = this._m;
+    for (let i = this.jets.length - 1; i >= 0; i--) {
+      const j = this.jets[i];
+      j.life += dt;
+      const t = j.life - j.delay;
+      if (t >= j.ttl) {
+        this.jetMesh.setMatrixAt(j.slot, m.makeScale(0, 0, 0));
+        this.jetFade.setX(j.slot, 0);
+        this.jetFree.push(j.slot);
+        this.jets.splice(i, 1);
+        continue;
+      }
+      if (t < 0) {
+        this.jetMesh.setMatrixAt(j.slot, m.makeScale(0, 0, 0));
+        this.jetFade.setX(j.slot, 0);
+        continue;
+      }
+      let f;
+      let spread;
+      let droop = 0;
+      if (t < j.rise) {
+        const u = t / j.rise;
+        f = Math.sin(u * Math.PI * 0.5);
+        spread = 0.5 + u * 0.5;
+      } else {
+        const u = (t - j.rise) / (j.ttl - j.rise);
+        f = (1 - u) * (1 - u * u * 0.25);
+        spread = 1 + u * 0.6;
+        // A spire that has run out of push does not shrink: its head falls
+        // away outward, and it bends over as it comes down.
+        droop = u * 0.5;
+      }
+      const k = t / j.ttl;
+      this._e.set(Math.cos(j.a) * (j.tilt + droop), 0, -Math.sin(j.a) * (j.tilt + droop));
+      this._q.setFromEuler(this._e);
+      this._p.set(j.x, -j.h * 0.04 * Math.max(0, k - 0.4), j.z);
+      this._s.set(j.w * spread, Math.max(0.3, j.h * f), j.w * spread);
+      m.compose(this._p, this._q, this._s);
+      this.jetMesh.setMatrixAt(j.slot, m);
+      this.jetFade.setX(j.slot, 0.85 * Math.min(1, t * 8) * (1 - k) * (1 - k * k * 0.5));
+    }
+    this.jetMesh.instanceMatrix.needsUpdate = true;
+    this.jetFade.needsUpdate = true;
+  }
+
+  stepDrops(dt) {
+    if (!this.dropsLive.length) return;
+    const P = this.dropPos;
+    const V = this.dropVel;
+    const drag = Math.exp(-dt * 0.35);
+    for (let i = this.dropsLive.length - 1; i >= 0; i--) {
+      const s = this.dropsLive[i];
+      this.dropLife[s] += dt;
+      if (this.dropLife[s] < 0) continue;
+      V[s * 3] *= drag;
+      V[s * 3 + 2] *= drag;
+      V[s * 3 + 1] -= G * dt;
+      P[s * 3] += V[s * 3] * dt;
+      P[s * 3 + 1] += V[s * 3 + 1] * dt;
+      P[s * 3 + 2] += V[s * 3 + 2] * dt;
+      // Thinning as it goes, the way a clot of spray tears itself up in the air.
+      const age = this.dropLife[s];
+      this.dropAlpha[s] = 0.55 * Math.min(1, age * 6) * Math.max(0.25, 1 - age * 0.12);
+      this.dropSize[s] *= 1 + dt * 0.18;
+      if (P[s * 3 + 1] <= 0 && V[s * 3 + 1] < 0) {
+        // Back in the sea. A big enough clot of it makes a splash of its own,
+        // and a ring of its own -- which is what the water round a heavy fall of
+        // shot is doing for seconds after the columns have gone.
+        const kick = this.dropKick[s];
+        if (kick > 0) this.splash(P[s * 3], P[s * 3 + 2], kick, { kind: 'drop', child: true });
+        this.dropAlpha[s] = 0;
+        this.dropSize[s] = 0;
+        this.dropFree.push(s);
+        this.dropsLive.splice(i, 1);
+      }
+    }
+    const g = this.dropPoints.geometry;
+    g.attributes.position.needsUpdate = true;
+    g.attributes.aSize.needsUpdate = true;
+    g.attributes.aAlpha.needsUpdate = true;
   }
 }

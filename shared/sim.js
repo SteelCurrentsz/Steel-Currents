@@ -170,6 +170,8 @@ export function addShip(state, {
     // Where the sea is in her, how far over she is lying, and how far down.
     // All three come out of the water in her compartments; see buoyancy.
     sink: 0, heel: 0, trim: 0,
+    // Rolling to a wave off a splash, and set sideways by it. See waterBlow.
+    rock: 0, rockRate: 0, driftX: 0, driftZ: 0,
     // How fast she is swinging, in radians a second, and how far over the
     // swing has laid her (see stepMovement). Her lean is in the same sense as
     // her heel: positive puts her +X side down.
@@ -487,7 +489,7 @@ export function leanFor(cls, speed, yawRate) {
  * pointing lower than its layer has it, and one over the high side higher.
  */
 export function deckTilt(ship, local) {
-  return -((ship.heel || 0) + (ship.lean || 0)) * Math.sin(local);
+  return -((ship.heel || 0) + (ship.lean || 0) + (ship.rock || 0)) * Math.sin(local);
 }
 
 /**
@@ -502,10 +504,110 @@ export function deckTilt(ship, local) {
  */
 export const LAY_LAG = 0.8;
 export function layError(state, ship, local) {
-  const r = (ship.leanRate || 0) * Math.sin(local);
+  const r = ((ship.leanRate || 0) + (ship.rockRate || 0)) * Math.sin(local);
   if (!r) return 0;
   return clamp(gauss(state.rng), -2.4, 2.4) * Math.abs(r) * LAY_LAG;
 }
+
+// ---------------------------------------------------------- what a splash does
+
+/**
+ * How fast the wave a splash throws runs out across the sea, in metres a second.
+ *
+ * A deep-water wave runs at a speed set by its length; the ring off a heavy
+ * shell is a few tens of metres from crest to crest, which is about this.
+ */
+export const SURGE_SPEED = 11;
+// How long the set a wave gives a hull takes to come off her, in seconds.
+const SURGE_DECAY = 3.2;
+// What a unit of wave does to a destroyer's roll, in radians a second, and to
+// her way through the water, in metres a second. Fitted so an eighteen-inch
+// shell falling thirty metres off a Fletcher's beam rolls her four degrees and
+// sets her a few metres over, and the same shell does next to nothing to a
+// battleship.
+const ROLL_KICK = 0.0057;
+const PUSH_KICK = 0.16;
+// A destroyer's worth of hull -- length by beam by draught -- which is what the
+// kick above is fitted against.
+const DD_BULK = 114 * 12 * 5.5;
+// The most a wave can be rolling her at, and setting her, however close it was.
+const MAX_ROCK_RATE = 0.3;
+const MAX_DRIFT = 4;
+
+/** How far out the wave off a splash of `size` (a bore, in millimetres) is still felt. */
+export function surgeReach(size) {
+  return 75 * Math.pow(Math.max(0.35, size / 127), 1.02);
+}
+
+/**
+ * Something big has gone into the sea at (x, z): a shell, a bomb, a torpedo, a
+ * depth charge going off under it. `size` is the bore that throws the same
+ * splash (see splashSize in the renderer, which is driven off the same number).
+ *
+ * The ring of water it throws runs out at SURGE_SPEED, and every hull it
+ * reaches is rolled by it and set over by it -- how much is how big the splash
+ * was, how close, and how much ship there is to move. A destroyer beside an
+ * eighteen-inch near miss rolls and is pushed bodily sideways; a battleship
+ * hardly notices. The wave gets there when it gets there, not when the shell
+ * lands. `delay` is for a weapon that lands a while after it is accounted for:
+ * a bomb is settled the moment it leaves the rack.
+ */
+export function waterBlow(state, x, z, size, delay = 0) {
+  if (!Number.isFinite(x) || !Number.isFinite(z) || !(size > 0)) return;
+  const reach = surgeReach(size);
+  const push = Math.pow(Math.max(0.35, size / 127), 2.2);
+  for (const s of state.ships) {
+    if (!s.alive) continue;
+    // A boat well down is under the wave, not on it.
+    if ((s.depth || 0) > 8) continue;
+    const h = shipClass(s).hull;
+    // To her side, not to her middle: a long hull is reached by a wave off
+    // her beam well before it gets to her keel.
+    const near = Math.max(0, Math.hypot(s.x - x, s.z - z) - h.beam * 0.5);
+    if (near > reach) continue;
+    const f = (1 - near / reach) ** 2;
+    const j = (push * f) / Math.max(0.05, (h.length * h.beam * h.draft) / DD_BULK);
+    if (j < 1e-4) continue;
+    (state.surges || (state.surges = [])).push({
+      at: state.t + delay + near / SURGE_SPEED, id: s.id, x, z, j,
+    });
+  }
+}
+
+/** The waves that have reached somebody this tick. See waterBlow. */
+function stepSurges(state) {
+  const q = state.surges;
+  if (!q || !q.length) return;
+  for (let i = q.length - 1; i >= 0; i--) {
+    const w = q[i];
+    if (w.at > state.t) continue;
+    q.splice(i, 1);
+    const s = state.ships.find((o) => o.id === w.id);
+    if (!s || !s.alive) continue;
+    const dx = s.x - w.x;
+    const dz = s.z - w.z;
+    const d = Math.hypot(dx, dz) || 1;
+    // Which side it came from, in her own frame, and how square on: a wave on
+    // her beam rolls her, one under her bow mostly lifts it.
+    const lx = worldToLocal(w.x - s.x, w.z - s.z, s.heading).x;
+    const square = Math.abs(lx) / d;
+    // The side the wave arrives on is lifted, so she lies over away from it.
+    // (Heel and roll are positive with her +x side down.)
+    s.rockRate = clamp((s.rockRate || 0) - Math.sign(lx || 1) * ROLL_KICK * w.j * (0.3 + 0.7 * square),
+      -MAX_ROCK_RATE, MAX_ROCK_RATE);
+    // And she is set bodily away from where it came from.
+    s.driftX = (s.driftX || 0) + (dx / d) * PUSH_KICK * w.j;
+    s.driftZ = (s.driftZ || 0) + (dz / d) * PUSH_KICK * w.j;
+    const v = Math.hypot(s.driftX, s.driftZ);
+    if (v > MAX_DRIFT) { s.driftX *= MAX_DRIFT / v; s.driftZ *= MAX_DRIFT / v; }
+  }
+}
+
+/** The period she rolls on, in seconds: longer the beamier she is. */
+export function rollPeriod(cls) {
+  return cls.rollPeriod ?? 2.0 * Math.sqrt(cls.hull.beam);
+}
+const ROLL_DAMPING = 0.12;
 
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
@@ -562,8 +664,24 @@ function stepMovement(state, ship, dt) {
   const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
   ship.speed = approach(ship.speed, target, accel * dt);
   const v = ship.speed;
-  const nx = ship.x + Math.sin(ship.heading) * v * dt;
-  const nz = ship.z + Math.cos(ship.heading) * v * dt;
+  // A roll a wave has given her works itself out on her own period, damped by
+  // the water round her bilges.
+  if (ship.rock || ship.rockRate) {
+    const w = (Math.PI * 2) / rollPeriod(cls);
+    ship.rockRate += (-w * w * ship.rock - 2 * ROLL_DAMPING * w * ship.rockRate) * dt;
+    ship.rock = clamp(ship.rock + ship.rockRate * dt, -0.35, 0.35);
+    if (Math.abs(ship.rock) < 1e-5 && Math.abs(ship.rockRate) < 1e-5) { ship.rock = 0; ship.rockRate = 0; }
+  }
+  // And a set a wave has given her comes off her as the water takes it back.
+  const sx = ship.driftX || 0;
+  const sz = ship.driftZ || 0;
+  if (sx || sz) {
+    const keep = Math.exp(-dt / SURGE_DECAY);
+    ship.driftX = Math.abs(sx * keep) < 1e-3 ? 0 : sx * keep;
+    ship.driftZ = Math.abs(sz * keep) < 1e-3 ? 0 : sz * keep;
+  }
+  const nx = ship.x + (Math.sin(ship.heading) * v + sx) * dt;
+  const nz = ship.z + (Math.cos(ship.heading) * v + sz) * dt;
 
   // Land: a grounded ship stops dead and takes hull damage.
   const isle = islandAt(state.world, nx, nz, cls.hull.beam);
@@ -1235,7 +1353,12 @@ function deliverOrdnance(state, p, best, P) {
       tz: best.z + Math.cos(ang) * off,
       hit: hit ? 1 : 0,
     });
-    if (!hit) continue;
+    if (!hit) {
+      // Into the sea beside her, a couple of seconds after it left the rack,
+      // which is how long it takes to get there (see the drop in ordnance.js).
+      waterBlow(state, best.x + Math.sin(ang) * off, best.z + Math.cos(ang) * off, 320, 2.2);
+      continue;
+    }
     const owner = state.ships.find((s) => s.id === p.owner) || null;
     const cls = getClass(best.classId);
     const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
@@ -1761,7 +1884,11 @@ export function dropOrdnance(state, ship, id) {
   // autopilot's drop has always raised this; a drop the pilot made himself
   // raised nothing at all, so a player who let his torpedoes go watched an
   // empty patch of water and had no way of knowing anything had happened.
-  if (torp > 0) state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+  if (torp > 0) {
+    state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+    // A ton of torpedo going into the sea off a low run.
+    waterBlow(state, p.x, p.z, 200);
+  }
   p.phase = 'return';
   return true;
 }
@@ -2637,6 +2764,7 @@ function stepShells(state, dt) {
           e: ashore ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber,
           bomb: sh.bomb ? 1 : 0,
         });
+        if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
         if (ashore) {
           landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell');
           // A stick laid across a gun position does for the crew as well as
@@ -3337,6 +3465,9 @@ function stepTorpedoes(state, dt) {
           (34 + state.rng() * 30) * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
+        // And the column of water it throws up her side, which is a wave like
+        // any other to whatever is lying alongside.
+        waterBlow(state, tp.x, tp.z, 620);
         hit = true;
         break;
       }
@@ -3634,6 +3765,8 @@ function stepCharges(state, dt) {
  */
 function burstCharge(state, c) {
   state.events.push({ e: 'dcBurst', x: c.x, y: c.y, z: c.z, owner: c.owner });
+  // The dome it throws up, which is smaller the deeper it was set.
+  waterBlow(state, c.x, c.z, 780 * Math.max(0.28, 1 + Math.min(0, c.y || 0) / 70));
   const owner = state.ships.find((s) => s.id === c.owner);
   // A pistol that has not armed is a drum of wet TNT and does nothing at all.
   if (-c.y < c.arming) return;
@@ -7147,6 +7280,7 @@ function finish(state, winner, reason) {
 export function step(state, dt = DT) {
   state.t += dt;
   state.tick++;
+  stepSurges(state);
   for (const ship of state.ships) {
     if (!ship.alive) continue;
     stepDive(state, ship, dt);

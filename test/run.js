@@ -8,6 +8,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
+  waterBlow, SURGE_SPEED, deckTilt,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
@@ -8397,6 +8398,74 @@ check("a ship's insides are worked out once for her class, and each ship has her
   assert.equal(typeof b.group.userData.lines.shellAt, 'function', 'the second Fuso has no lines');
 });
 
+check('a big splash beside a small ship rolls her and sets her over, and a battleship hardly notices', () => {
+  const ride = (classId, size, off, secs = 20) => {
+    const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'a', classId, team: 0, index: 0 });
+    s.x = 0; s.z = 0; s.heading = 0; s.speed = 0; s.notch = 1;
+    waterBlow(st, off, 0, size);
+    let peak = 0, first = null, roll0 = 0;
+    for (let i = 0; i < secs / DT; i++) {
+      step(st, DT);
+      s.speed = 0;
+      if (first === null && Math.abs(s.rockRate) > 1e-6) { first = st.t; roll0 = s.rock + s.rockRate * DT; }
+      if (Math.abs(s.rock) > Math.abs(peak)) peak = s.rock;
+    }
+    return { peak, first, roll0, set: s.x, rock: s.rock, tilt: deckTilt(s, Math.PI / 2) };
+  };
+  // An eighteen-inch shell thirty metres off a destroyer's starboard (+x) beam.
+  const dd = ride('fletcher', 460, 30);
+  assert.ok(Math.abs(dd.peak) > 0.04, `a Fletcher rolled ${(Math.abs(dd.peak) * 57.3).toFixed(1)} degrees`);
+  // The wave lifts the side it arrives on, so she lies over away from it first:
+  // her +x side comes up, which is a negative roll.
+  assert.ok(dd.roll0 < 0, 'she rolled toward the splash, not away from it');
+  // And she is set bodily away from it, a few metres.
+  assert.ok(dd.set < -2 && dd.set > -20, `she was set ${dd.set.toFixed(1)} m`);
+  // The wave gets to her when it gets to her: thirty metres, less her half
+  // beam, at the speed it runs.
+  assert.ok(Math.abs(dd.first - (30 - 6) / SURGE_SPEED) < 0.2, `it reached her after ${dd.first.toFixed(2)} s`);
+  // And it rolls out of her: twenty seconds on she is nearly upright.
+  assert.ok(Math.abs(dd.rock) < Math.abs(dd.peak) * 0.4, 'she went on rolling as if nothing damped her');
+  // The same shell off Yamato's beam is a ripple to her.
+  const bb = ride('yamato', 460, 40);
+  assert.ok(Math.abs(bb.peak) < Math.abs(dd.peak) * 0.12, `Yamato rolled ${(Math.abs(bb.peak) * 57.3).toFixed(2)} degrees`);
+  // A five-inch splash hardly moves a destroyer at all.
+  const small = ride('fletcher', 127, 12);
+  assert.ok(Math.abs(small.peak) < 0.01, `a five-inch splash rolled her ${(Math.abs(small.peak) * 57.3).toFixed(2)} degrees`);
+  // And nothing beyond the reach of the wave is touched.
+  const far = ride('fletcher', 460, 900, 6);
+  assert.equal(far.peak, 0, 'a splash a kilometre off rolled her');
+
+  // While she is rolling, it lays her guns: a beam gun's elevation is off by
+  // the roll, the way it is by a list.
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'a', classId: 'fletcher', team: 0, index: 0 });
+  s.rock = 0.05;
+  assert.ok(Math.abs(deckTilt(s, Math.PI / 2) + 0.05) < 1e-9, 'her roll does not tilt the deck her guns are laid from');
+});
+
+check('a splash throws a ring into the sea, and it runs out and dies', () => {
+  const field = new WakeField({ size: 8 });
+  const rings = field.rings;
+  rings.add(100, -40, 80, 20, 1);
+  rings.add(0, 0, 23, 5.4, 1);
+  rings.update(0.5);
+  assert.equal(rings.mesh.count, 2, 'two splashes, not two rings');
+  // The quad each one is drawn on grows with the wave.
+  const m = new THREE.Matrix4();
+  rings.mesh.getMatrixAt(0, m);
+  const early = new THREE.Vector3().setFromMatrixScale(m).x;
+  rings.update(2);
+  rings.mesh.getMatrixAt(0, m);
+  assert.ok(new THREE.Vector3().setFromMatrixScale(m).x > early + 15, 'the ring is not running out');
+  // A five-inch ring is gone in seconds; an eighteen-inch one runs for longer.
+  rings.update(10);
+  assert.equal(rings.mesh.count, 1, 'the small ring did not die, or the big one did');
+  rings.update(40);
+  assert.equal(rings.mesh.count, 0, 'the big ring never died');
+  field.dispose();
+});
+
 check('the sea never leaves the hull', () => {
   // The complaint this exists for: a carrier dipping in and out of the water
   // far enough to put her propellers in the air. Damping her heave caused it --
@@ -11228,7 +11297,7 @@ check('the wire says how many compartments are flooding and how she is floating'
   sh.sink = 1.4; sh.heel = 0.21; sh.trim = -0.05;
   const s = shipSnapshot(sh, true);
   assert.equal(s.fl, 3, `the wire says ${JSON.stringify(s.fl)} compartments are flooding`);
-  assert.ok(Array.isArray(s.fo) && s.fo.length === 4, 'how she is floating is not on the wire');
+  assert.ok(Array.isArray(s.fo) && s.fo.length === 5, 'how she is floating is not on the wire');
   assert.ok(Math.abs(s.fo[0] - 1.4) < 0.1 && Math.abs(s.fo[1] - 0.21) < 0.01,
     `she is floating at ${JSON.stringify(s.fo)}`);
   // And the water in each compartment, which is what the hologram draws.

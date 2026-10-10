@@ -489,7 +489,7 @@ export class Bombs {
         // Where the simulation said, not where the rounding left her.
         if (b.effects) {
           if (b.hit) b.effects.explosion(b.x1, 14, b.z1, 1.7);
-          else b.effects.splash(b.x1, b.z1, 320);
+          else b.effects.splash(b.x1, b.z1, 320, { kind: 'bomb' });
         }
         // And a bomb that hit went through a deck. Whoever is keeping the
         // ships knows which one and what that does to her.

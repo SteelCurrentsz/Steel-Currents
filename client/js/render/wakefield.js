@@ -635,6 +635,174 @@ export class Wake {
  * frame, before the water is drawn. What comes out is handed to the ocean,
  * which is the only thing that ever reads it.
  */
+// ------------------------------------------------------- the waves off a splash
+
+// How fast the ring off a splash runs out, in metres a second. The same number
+// the simulation rolls ships with (SURGE_SPEED in sim.js), so the hull that is
+// thrown about is thrown about as the wave the eye can see reaches her.
+export const RING_SPEED = 11;
+const RINGS = 96;
+
+const RING_VERT = /* glsl */`
+attribute vec4 aRing;   // xy where it went in, z when, w how high the first crest stands
+attribute vec4 aShape;  // x crest-to-crest length, y how long it runs, z seed, w foam
+varying vec2 vWorld;
+varying vec4 vRing;
+varying vec4 vShape;
+void main() {
+  vRing = aRing;
+  vShape = aShape;
+  vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
+  vWorld = w.xz;
+  gl_Position = projectionMatrix * viewMatrix * w;
+}
+`;
+
+const RING_FRAG = /* glsl */`
+uniform float uTime;
+uniform float uScale;
+uniform float uSpeed;
+varying vec2 vWorld;
+varying vec4 vRing;
+varying vec4 vShape;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+
+void main() {
+  float age = uTime - vRing.z;
+  float life = vShape.y;
+  if (age < 0.0 || age > life) discard;
+  float lam = vShape.x;
+  float seed = vShape.z;
+  vec2 d = vWorld - vRing.xy;
+  float r = length(d);
+  float th = atan(d.y, d.x);
+  // Not a circle. Water thrown out of a splash leaves it unevenly -- more of it
+  // goes the way the shell was travelling, and the sea it runs across has a
+  // swell of its own -- so the ring is lobed and torn round its circumference,
+  // differently every time.
+  float warp = 1.0 + 0.075 * sin(3.0 * th + seed) + 0.05 * sin(5.0 * th - seed * 1.7)
+    + 0.03 * sin(9.0 * th + seed * 3.1) + 0.06 * (noise(d / (lam * 1.6) + seed) - 0.5);
+  float rr = r / warp;
+  float front = uSpeed * age + lam * 0.6;
+  float s = (rr - front) / lam;
+  // A leading crest and a train of lower ones behind it, the way a wave group
+  // off an impact runs out: steep in front, dying away astern.
+  float env = exp(-max(s, 0.0) * max(s, 0.0) * 5.0) * exp(min(s, 0.0) * 0.6);
+  float spread = sqrt(lam * 2.5 / (lam * 2.5 + front));
+  float fade = 1.0 - smoothstep(life * 0.5, life, age);
+  float h = vRing.w * env * cos(6.2832 * s) * spread * fade;
+  // And where it went in: the cavity the shell punched closing up again,
+  // heaving the water in the middle up and down for a few seconds.
+  float core = exp(-(rr * rr) / (lam * lam * 1.4));
+  h += vRing.w * 1.2 * core * exp(-age * 0.9) * cos(age * 3.1);
+  // Foam: torn white water on the leading crest while it is young, and the
+  // patch in the middle where the column came down, broken up so neither is a
+  // disc.
+  float tear = noise(d / (lam * 0.45) + seed * 2.3) * 0.6 + noise(d / (lam * 0.16) - seed) * 0.4;
+  float crest = smoothstep(0.25, 0.9, env * max(0.0, cos(6.2832 * s))) * exp(-age * 0.55) * spread;
+  // The churned water where it came down, in torn clots and streaks with dark
+  // water between them -- never a white disc.
+  float churn = smoothstep(lam * 2.1, lam * 0.3, rr * (0.6 + tear * 0.9)) * exp(-age * 0.12);
+  float clots = smoothstep(0.32, 0.72, tear + 0.3 * churn);
+  float foam = vShape.w * clamp(crest * tear * 1.6 + churn * clots, 0.0, 1.0) * fade;
+  float aer = vShape.w * churn * 0.8 * fade;
+  gl_FragColor = vec4(max(h, 0.0) / uScale, max(-h, 0.0) / uScale, foam, aer);
+}
+`;
+
+/**
+ * The waves a splash throws, written into the wake map.
+ *
+ * Not a ring laid on the water: the water itself. Each one lifts and drops the
+ * surface in the map the ocean is displaced by, so the crest running out from
+ * a near miss is the sea moving -- lit by the sea's own light, carrying the
+ * sea's own chop, crossing the swell and the other splashes' rings by adding
+ * to them -- and the foam it tears up is foam in the sea, not a decal on it.
+ */
+export class SplashRings {
+  constructor() {
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    this.ring = new THREE.InstancedBufferAttribute(new Float32Array(RINGS * 4), 4);
+    this.shape = new THREE.InstancedBufferAttribute(new Float32Array(RINGS * 4), 4);
+    this.ring.setUsage(THREE.DynamicDrawUsage);
+    this.shape.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aRing', this.ring);
+    geo.setAttribute('aShape', this.shape);
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: RING_VERT,
+      fragmentShader: RING_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        uScale: { value: WAKE_H },
+        uSpeed: { value: RING_SPEED },
+      },
+      // Added, the same as a wake: where two rings cross the water does both.
+      transparent: true,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneFactor,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.InstancedMesh(geo, this.mat, RINGS);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    this.clock = 0;
+    this.live = [];
+    this.m = new THREE.Matrix4();
+  }
+
+  /**
+   * A ring off a splash at (x, z). `height` is how tall the column stood and
+   * `radius` how wide its foot was (see splashSize), which is all the size of
+   * the wave needs to know; `foam` is how much white water it leaves.
+   */
+  add(x, z, height, radius, foam = 1) {
+    // The crest stands in proportion to the water thrown, and is held under
+    // what the map can carry: a metre and a half off an eighteen-inch shell.
+    const amp = Math.min(1.6, 0.018 * height + 0.05);
+    const lam = 3 + radius * 1.05;
+    // It runs until it has gone as far as the simulation says it is felt.
+    const reach = 75 * Math.pow(Math.max(0.35, height / 23), 0.91);
+    const life = Math.min(30, Math.max(4, reach / RING_SPEED));
+    if (this.live.length >= RINGS) this.live.shift();
+    // A small splash leaves less white water than a big one, not the same
+    // patch smaller.
+    const white = foam * Math.min(1, 0.3 + height / 50);
+    this.live.push({ x, z, t0: this.clock, amp, lam, life, seed: Math.random() * 100, foam: white });
+  }
+
+  update(dt) {
+    this.clock += dt;
+    this.mat.uniforms.uTime.value = this.clock;
+    this.live = this.live.filter((r) => this.clock - r.t0 < r.life);
+    const n = this.live.length;
+    for (let i = 0; i < n; i++) {
+      const r = this.live[i];
+      // The quad only has to cover where the water is moving yet.
+      const span = RING_SPEED * (this.clock - r.t0) + r.lam * 4;
+      this.m.makeScale(span, 1, span).setPosition(r.x, 0, r.z);
+      this.mesh.setMatrixAt(i, this.m);
+      this.ring.setXYZW(i, r.x, r.z, r.t0, r.amp);
+      this.shape.setXYZW(i, r.lam, r.life, r.seed, r.foam);
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.ring.needsUpdate = true;
+    this.shape.needsUpdate = true;
+  }
+}
+
 export class WakeField {
   constructor({ size = 1024 } = {}) {
     this.size = size;
@@ -649,6 +817,9 @@ export class WakeField {
       { span: FAR_M, centre: new THREE.Vector2(), rt: null },
     ];
     for (const c of this.cascades) c.rt = this.target(size);
+    // And the rings the splashes throw, drawn into the same map.
+    this.rings = new SplashRings();
+    this.scene.add(this.rings.mesh);
   }
 
   target(size) {

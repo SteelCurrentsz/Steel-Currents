@@ -223,10 +223,13 @@ export class Effects {
    * top of the column, which is the one part of a splash that genuinely is a
    * cloud and so is the one part a billboard tells the truth about.
    */
-  splash(x, z, caliber = 152) {
-    this.splashes.splash(x, z, caliber);
+  splash(x, z, caliber = 152, opts = {}) {
+    this.splashes.splash(x, z, caliber, opts);
     const { height, radius } = splashSize(caliber);
-    const n = Math.max(2, Math.round(5 * this.intensity));
+    // Only off a big one: a five-inch splash is gone before it has torn itself
+    // up into a cloud, and a puff over it reads as a ball, not as spray.
+    if (caliber < 200) return;
+    const n = Math.max(2, Math.round(6 * this.intensity));
     for (let i = 0; i < n; i++) {
       // Thrown round the head and the shoulder of the mass, not stacked up its
       // middle: what feathers a splash is the spray coming off its edges.
@@ -240,9 +243,9 @@ export class Effects {
         vy: height * 0.24 * (1 - t * 0.5),
         vx: Math.sin(a) * radius * 0.9,
         vz: Math.cos(a) * radius * 0.9,
-        size: radius * (1.5 + Math.random() * 1.3), grow: radius * 1.9,
-        ttl: 1.5 + height * 0.024 + Math.random() * 0.5,
-        color: 0xe8f2fc, opacity: 0.42, drag: 0.8,
+        size: radius * (0.8 + Math.random() * 0.8), grow: radius * 1.4,
+        ttl: 1.2 + height * 0.02 + Math.random() * 0.5,
+        color: 0xeef5fd, opacity: 0.22, drag: 0.8,
       });
     }
   }

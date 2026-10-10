@@ -1436,7 +1436,7 @@ export class Battle {
           if (d < 0.6) audio.gun(Math.min(75, ev.cal), Math.max(d, 0.35));
           break;
         }
-        case 'splash': fx.splash(ev.x, ev.z, ev.cal); if (d < 0.75) audio.splash(d); break;
+        case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); if (d < 0.75) audio.splash(d); break;
         case 'landhit': {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
@@ -1514,7 +1514,7 @@ export class Battle {
           // A torpedo goes off under the water, so what is seen from a bridge
           // is not the fireball but the column it throws up alongside -- taller
           // than anything a gun makes, which is why one hit ends an argument.
-          fx.splash(ev.x, ev.z, 620);
+          fx.splash(ev.x, ev.z, 620, { kind: 'torp' });
           audio.explosion(1.5, d);
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
           if (ev.victim === this.shipId) {
@@ -1554,7 +1554,7 @@ export class Battle {
           // the energy reaches the surface at all.
           const deep = Math.max(0, -(ev.y || 0));
           const size = 780 * Math.max(0.28, 1 - deep / 70);
-          fx.splash(ev.x, ev.z, size);
+          fx.splash(ev.x, ev.z, size, { kind: 'dc' });
           audio.explosion(1.5 * Math.max(0.3, 1 - deep / 90), d);
           this.shake = Math.max(this.shake, 0.3 * Math.max(0, 1 - d));
           break;
@@ -1655,7 +1655,7 @@ export class Battle {
           // squadron's line, small ones, because a torpedo enters nose first.
           for (let i = 0; i < 3; i++) {
             fx.splash(ev.x + (i - 1) * 26 + (Math.random() - 0.5) * 14,
-              ev.z + (Math.random() - 0.5) * 26, 150);
+              ev.z + (Math.random() - 0.5) * 26, 150, { kind: 'drop' });
           }
           if (d < 0.8) audio.splash(d);
           break;
@@ -3435,7 +3435,12 @@ export class Battle {
       // Laid over by what is inside her, and leaning outward in a turn: ours
       // off her own prediction so it answers the helm at once.
       const lean = isSelf ? (this.localShip.lean || 0) : view.leanBy;
-      view.group.rotation.z = sea.roll - view.heelBy - lean;
+      // And rolling to the wave off a near miss, which is the server's to know:
+      // nothing aboard her predicts where the next shell is going to fall.
+      // Eased toward, because it comes fifteen times a second and a roll stepped
+      // at that rate shudders.
+      view.rockNow = (view.rockNow || 0) + ((view.rockBy || 0) - (view.rockNow || 0)) * (1 - Math.exp(-dt / 0.09));
+      view.group.rotation.z = sea.roll - view.heelBy - lean - view.rockNow;
 
       // Every ship's guns are laid by her own gunnery officer now, ours
       // included, so the bearings all come off the wire.

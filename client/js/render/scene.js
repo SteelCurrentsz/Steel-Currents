@@ -705,6 +705,7 @@ export class ShipView {
     this.sinkY = 0;
     this.heelBy = 0;
     this.leanBy = 0;
+    this.rockBy = 0;
     this.trimBy = 0;
     // Set once she has stopped floating; see founder.
     this.going = null;
@@ -940,6 +941,8 @@ export class ShipView {
     this.trimBy = fl[2] || 0;
     // And how far she is leaning out of a turn, on top of any list.
     this.leanBy = fl[3] || 0;
+    // And how far a wave off a near miss is rolling her (see waterBlow).
+    this.rockBy = fl[4] || 0;
   }
 
   /**
@@ -1599,6 +1602,8 @@ export class BattleScene {
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
+    // The waves a splash throws go into the sea itself, through the wake map.
+    this.effects.splashes.setWaves(this.wakes.rings);
     // The gun smoke is lit by the same hour and cloud as everything else, and
     // drifts down the wind the sea is running before.
     {
