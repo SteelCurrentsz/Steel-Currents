@@ -244,45 +244,137 @@ const JETS = 420;
 const DROPS = 2600;
 const G = 9.81;
 
+/** Value noise in three dimensions, for knobbling a plume. */
+function vnoise(x, y, z) {
+  const h = (a, b, c) => {
+    const n = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const l = (a, b, t) => a + (b - a) * t;
+  return l(
+    l(l(h(xi, yi, zi), h(xi + 1, yi, zi), u), l(h(xi, yi + 1, zi), h(xi + 1, yi + 1, zi), u), v),
+    l(l(h(xi, yi, zi + 1), h(xi + 1, yi, zi + 1), u), l(h(xi, yi + 1, zi + 1), h(xi + 1, yi + 1, zi + 1), u), v),
+    w,
+  );
+}
+
 /**
- * One spire of water: narrow, lumpy, and tearing apart at the head.
+ * One plume of water.
  *
- * A heavy shell does not throw up a column. It throws up a mass with a dozen
- * spires coming out of it, each leaning its own way, some twice the height of
- * the others -- which is the shape every photograph of a fall of shot has, and
- * the reason none of them look like a cone.
+ * A heavy shell does not throw up a sheet. It throws up a handful of plumes
+ * standing close together -- each a column of white water as thick as a house,
+ * swelling into a knobbled head of spray where it runs out of push, some twice
+ * the height of the others -- and that is the shape every photograph of a fall
+ * of shot has. Closed at the top and lumpy all over, so it is a body of water
+ * from every side and from above, not a surface you can see through.
  */
-function makeJetGeometry() {
-  const g = new THREE.CylinderGeometry(0.16, 1, 1, 10, 10, true);
-  g.translate(0, 0.5, 0);
+function makePlumeGeometry() {
+  // The profile, foot to head: a waist low down, swelling to the head, and a
+  // rounded top. Radius over height, both out of one.
+  const prof = [
+    [0.5, 0], [0.56, 0.04], [0.46, 0.14], [0.44, 0.28], [0.5, 0.42], [0.6, 0.55],
+    [0.74, 0.66], [0.86, 0.76], [0.88, 0.84], [0.78, 0.9], [0.6, 0.95], [0.34, 0.985], [0.001, 1],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  const g = new THREE.LatheGeometry(prof, 22);
   const p = g.attributes.position;
   const col = [];
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
-    const a = Math.atan2(x, z);
-    // Thickest a little way up, where the water has spread and not yet run out
-    // of push, and knotted all the way up.
-    const swell = (y < 0.25 ? 0.85 + y * 0.8 : 1.05 - (y - 0.25) * 0.55)
-      * (1 + 0.22 * Math.sin(a * 2 + y * 9.0) + 0.14 * Math.sin(a * 5 - y * 15.0));
-    p.setX(i, x * swell);
-    p.setZ(i, z * swell);
-    const up = Math.min(1, y * 1.2);
-    col.push(0.66 + 0.34 * up, 0.79 + 0.21 * up, 0.86 + 0.14 * up);
+    const r = Math.hypot(x, z);
+    // Knobbled: big lumps and little ones, more of both up in the head, where
+    // the water is breaking up.
+    const n = (vnoise(x * 2.4, y * 5.0, z * 2.4) - 0.5) * 0.5
+      + (vnoise(x * 6.0 + 9, y * 13.0, z * 6.0 + 4) - 0.5) * 0.35
+      + (vnoise(x * 14.0 - 3, y * 28.0, z * 14.0 + 7) - 0.5) * 0.22;
+    const k = 1 + n * (0.5 + y * 1.1);
+    if (r > 1e-4) { p.setX(i, x * k); p.setZ(i, z * k); }
+    p.setY(i, y + n * 0.04 * y);
+    // White water at the head, the sea's own colour coming up through it low
+    // down, where it is still more water than air -- and darker in the folds,
+    // which is what gives a heap of foam its shape.
+    const up = Math.min(1, y * 1.15);
+    const fold = 0.82 + 0.36 * Math.max(-0.5, Math.min(0.5, n));
+    col.push((0.68 + 0.32 * up) * fold, (0.78 + 0.22 * up) * fold, (0.85 + 0.15 * up) * fold);
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.computeVertexNormals();
   return g;
 }
 
-/** A material that fades instance by instance, off an attribute of its own. */
-function fadingMaterial(params) {
-  const m = new THREE.MeshBasicMaterial(params);
+/**
+ * Lit, opaque water, that fades instance by instance by breaking up rather
+ * than by going see-through: a plume coming down is torn into spray, and a
+ * hashed alpha draws that, where a translucent one draws a pane of glass.
+ */
+/** Foam, streaked up the plume the way the water is going. */
+function foamStreakTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 128, 256);
+  for (let i = 0; i < 260; i++) {
+    const x = Math.random() * 128;
+    const y = Math.random() * 256;
+    const g = 190 + Math.random() * 50;
+    ctx.fillStyle = `rgba(${g - 12},${g - 4},${g},${0.18 + Math.random() * 0.3})`;
+    ctx.fillRect(x, y, 1 + Math.random() * 3, 10 + Math.random() * 60);
+  }
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${0.4 + Math.random() * 0.6})`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * 128, Math.random() * 256, 0.6 + Math.random() * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(3, 2);
+  return t;
+}
+
+const PLUME_NOISE = /* glsl */`
+varying vec3 vObj;
+float ph(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float pn(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(ph(i), ph(i + vec3(1, 0, 0)), u.x), mix(ph(i + vec3(0, 1, 0)), ph(i + vec3(1, 1, 0)), u.x), u.y),
+             mix(mix(ph(i + vec3(0, 0, 1)), ph(i + vec3(1, 0, 1)), u.x), mix(ph(i + vec3(0, 1, 1)), ph(i + vec3(1, 1, 1)), u.x), u.y), u.z);
+}
+`;
+
+/**
+ * Lit, opaque water, that fades instance by instance by breaking up rather
+ * than by going see-through: a plume coming down is torn into spray, and a
+ * hashed alpha draws that, where a translucent one draws a pane of glass.
+ *
+ * And it is frayed where water is frayed -- at its head, where it is breaking
+ * up into spray, and round its silhouette, where the eye is looking through
+ * the thinnest of it -- so its edge is spray and not a skin.
+ */
+function plumeMaterial(map) {
+  const m = new THREE.MeshLambertMaterial({
+    vertexColors: true, color: 0xf2f6fa, map,
+    // Spray is bright: it scatters the sky's light back as well as the sun's.
+    emissive: 0x3d4a56,
+    alphaHash: true,
+  });
   m.onBeforeCompile = (sh) => {
-    sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\n'
-      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;');
-    sh.fragmentShader = 'varying float vFade;\n'
-      + sh.fragmentShader.replace('#include <dithering_fragment>',
-        '#include <dithering_fragment>\n  gl_FragColor.a *= vFade;');
+    sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\nvarying vec3 vObj;\n'
+      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;\n  vObj = position;');
+    sh.fragmentShader = 'varying float vFade;\n' + PLUME_NOISE
+      + sh.fragmentShader.replace('#include <alphahash_fragment>', `
+  {
+    float nz = pn(vObj * vec3(7.0, 13.0, 7.0)) * 0.65 + pn(vObj * vec3(19.0, 31.0, 19.0)) * 0.35;
+    float top = smoothstep(0.6, 1.0, vObj.y);
+    float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
+    float keep = 1.0 - top * 1.1 * nz - rim * rim * rim * 0.9 * nz;
+    diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0);
+  }
+#include <alphahash_fragment>`);
   };
   return m;
 }
@@ -322,11 +414,11 @@ void main() {
  *   drop   a torpedo going in off a low run: long and low, thrown forward
  */
 const KINDS = {
-  shell: { tall: 1, wide: 1, jets: [5, 9], fan: [0.06, 0.32], jetH: [0.45, 1.2], drops: 1, delay: 0 },
-  bomb: { tall: 0.85, wide: 1.25, jets: [8, 12], fan: [0.12, 0.45], jetH: [0.4, 1.05], drops: 1.5, delay: 0 },
-  dc: { tall: 0.42, wide: 1.9, jets: [9, 13], fan: [0.12, 0.4], jetH: [0.38, 0.8], jetW: [0.3, 0.55], drops: 2, delay: 0.38 },
-  torp: { tall: 1.15, wide: 0.62, jets: [4, 6], fan: [0.03, 0.16], jetH: [0.8, 1.25], drops: 1.2, delay: 0 },
-  drop: { tall: 0.55, wide: 0.8, jets: [3, 5], fan: [0.25, 0.5], jetH: [0.5, 1.0], drops: 0.6, delay: 0 },
+  shell: { tall: 1, wide: 1, jets: [4, 7], fan: [0.03, 0.2], jetH: [0.4, 0.85], jetW: [0.22, 0.36], drops: 1, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.2, jets: [5, 8], fan: [0.08, 0.3], jetH: [0.35, 0.8], jetW: [0.22, 0.36], drops: 1.5, delay: 0 },
+  dc: { tall: 0.5, wide: 1.25, jets: [6, 9], fan: [0.1, 0.3], jetH: [0.45, 0.85], jetW: [0.22, 0.36], drops: 2, delay: 0.3 },
+  torp: { tall: 1.15, wide: 0.7, jets: [3, 5], fan: [0.02, 0.12], jetH: [0.55, 0.9], jetW: [0.26, 0.38], drops: 1.2, delay: 0 },
+  drop: { tall: 0.55, wide: 0.8, jets: [2, 4], fan: [0.2, 0.42], jetH: [0.5, 0.9], jetW: [0.24, 0.36], drops: 0.6, delay: 0 },
 };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -400,14 +492,11 @@ export class Splashes {
     this.foams = [];
 
     // The spires: one draw call for all of them, each fading on its own.
-    const jetGeo = makeJetGeometry();
+    const jetGeo = makePlumeGeometry();
     this.jetFade = new THREE.InstancedBufferAttribute(new Float32Array(JETS), 1);
     this.jetFade.setUsage(THREE.DynamicDrawUsage);
     jetGeo.setAttribute('aFade', this.jetFade);
-    this.jetMesh = new THREE.InstancedMesh(jetGeo, fadingMaterial({
-      map: this.colTex, transparent: true, depthWrite: false,
-      side: THREE.DoubleSide, color: 0xf2f8ff, vertexColors: true,
-    }), JETS);
+    this.jetMesh = new THREE.InstancedMesh(jetGeo, plumeMaterial(foamStreakTexture()), JETS);
     this.jetMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.jetMesh.frustumCulled = false;
     this.jetMesh.renderOrder = 3;
@@ -477,7 +566,12 @@ export class Splashes {
     const lean = Number.isFinite(opts.heading) ? opts.heading : Math.random() * Math.PI * 2;
     // A little splash thrown up by the spray off a big one is spires, foam and
     // a ring: the columns are kept for the rounds that carry the information.
-    const col = opts.child ? null : this.colPool.pop();
+    // The plumes are the splash now (see spires). What is left of the old
+    // translucent column is its collar -- the skirt of water thrown out
+    // sideways in the first instant -- and only where there is no plume
+    // system to draw the rest (a scene built without one).
+    const col = opts.child || this.jetMesh ? null : this.colPool.pop();
+    if (!col && !opts.child) this.collar(x, z, height, radius);
     if (col) {
       const crown = this.crownPool.pop();
       const core = this.corePool.pop();
@@ -538,23 +632,50 @@ export class Splashes {
     }
   }
 
-  /** The spires coming up round the main mass. */
+  /** The skirt of water thrown out sideways in the first instant. */
+  collar(x, z, height, radius) {
+    const crown = this.crownPool.pop();
+    if (!crown) return;
+    crown.position.set(x, 0, z);
+    crown.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    crown.material.opacity = 0.5;
+    crown.visible = true;
+    const rise = 0.22 + height * 0.006;
+    this.columns.push({ col: null, core: null, crown, x, z, h: height * 0.7, r: radius, life: 0, rise, ttl: rise * 1.7 });
+  }
+
+  /**
+   * The plumes: a handful of separate columns of white water standing close
+   * together, not one mass. One of them goes the whole height -- that is the
+   * splash a spotter reads -- and the rest stand lower round it, each leaning
+   * its own way, with water between them.
+   */
   spires(x, z, height, radius, kind, lean, bore) {
-    const n = Math.round(rnd(kind.jets[0], kind.jets[1] + 0.99) * Math.min(1, 0.5 + bore / 400));
+    const n = Math.max(2, Math.round(rnd(kind.jets[0], kind.jets[1] + 0.99) * Math.min(1, 0.55 + bore / 450)));
+    const placed = [];
     for (let i = 0; i < n; i++) {
       const slot = this.jetFree.pop();
       if (slot === undefined) return;
-      // Round the foot of the mass, bunched toward the way it came in.
-      const a = lean + (Math.random() - 0.5) * Math.PI * (Math.random() < 0.6 ? 1.1 : 2);
-      const off = radius * rnd(0.1, 0.75);
-      const h = height * rnd(kind.jetH[0], kind.jetH[1]);
-      const rise = (0.2 + h * 0.0065) * rnd(0.85, 1.25);
+      const w = radius * rnd(kind.jetW[0], kind.jetW[1]) * (i === 0 ? 1.15 : 1);
+      // Spread round the point it went in, bunched toward the way it came in,
+      // and kept apart: two plumes that overlap read as one lump again.
+      let px = x, pz = z, a = lean;
+      for (let tries = 0; tries < 10; tries++) {
+        a = lean + (Math.random() - 0.5) * Math.PI * (Math.random() < 0.6 ? 1.2 : 2);
+        const off = i === 0 ? radius * rnd(0, 0.25) : radius * rnd(0.45, 1.25);
+        px = x + Math.sin(a) * off;
+        pz = z + Math.cos(a) * off;
+        if (placed.every((q) => Math.hypot(q.x - px, q.z - pz) > (q.w + w) * 0.62)) break;
+      }
+      placed.push({ x: px, z: pz, w });
+      const h = height * (i === 0 ? rnd(0.95, 1.05) : rnd(kind.jetH[0], kind.jetH[1]));
+      const rise = (0.2 + h * 0.0065) * rnd(0.85, 1.2);
       this.jets.push({
-        slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
-        a, tilt: rnd(kind.fan[0], kind.fan[1]),
-        w: radius * rnd(...(kind.jetW || [0.16, 0.36])), h,
-        delay: kind.delay + rnd(0, 0.14), rise,
-        ttl: rise + 1.1 + h * 0.022,
+        slot, x: px, z: pz,
+        a, tilt: i === 0 ? rnd(0, 0.06) : rnd(kind.fan[0], kind.fan[1]),
+        w, h,
+        delay: kind.delay + (i === 0 ? 0 : rnd(0, 0.18)), rise,
+        ttl: rise + 1.3 + h * 0.024,
         life: 0,
       });
     }
@@ -619,7 +740,7 @@ export class Splashes {
       c.life += dt;
       const k = c.life / c.ttl;
       if (k >= 1) {
-        c.col.visible = false; this.colPool.push(c.col);
+        if (c.col) { c.col.visible = false; this.colPool.push(c.col); }
         if (c.core) { c.core.visible = false; this.corePool.push(c.core); }
         if (c.crown) { c.crown.visible = false; this.crownPool.push(c.crown); }
         this.columns.splice(i, 1);
@@ -641,11 +762,13 @@ export class Splashes {
         // And it goes back where it came from: the foot of the column settles
         // under the surface as it falls, so what is left at the end is a patch
         // of disturbed water rather than a slab standing on it.
-        c.col.position.y = -c.h * 0.05 * u;
+        if (c.col) c.col.position.y = -c.h * 0.05 * u;
       }
-      c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread * c.squash);
-      c.col.material.opacity = 0.9 * (1 - k) * (1 - k * k);
-      if (c.core) {
+      if (c.col) {
+        c.col.scale.set(c.r * spread, Math.max(0.6, c.h * f), c.r * spread * c.squash);
+        c.col.material.opacity = 0.9 * (1 - k) * (1 - k * k);
+      }
+      if (c.core && c.col) {
         c.core.position.y = c.col.position.y;
         c.core.scale.set(c.r * spread * 0.74, Math.max(0.5, c.h * f * 0.88), c.r * spread * 0.74 * c.squash);
         c.core.rotation.z = c.col.rotation.z * 0.6;
@@ -742,7 +865,9 @@ export class Splashes {
       this._s.set(j.w * spread, Math.max(0.3, j.h * f), j.w * spread);
       m.compose(this._p, this._q, this._s);
       this.jetMesh.setMatrixAt(j.slot, m);
-      this.jetFade.setX(j.slot, 0.85 * Math.min(1, t * 8) * (1 - k) * (1 - k * k * 0.5));
+      // Whole while it stands; torn up into spray as it comes down.
+      const tear = k < 0.5 ? 0 : (k - 0.5) / 0.5;
+      this.jetFade.setX(j.slot, Math.min(1, t * 10) * (1 - tear * tear * (3 - 2 * tear)));
     }
     this.jetMesh.instanceMatrix.needsUpdate = true;
     this.jetFade.needsUpdate = true;
