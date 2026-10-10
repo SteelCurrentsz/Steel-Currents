@@ -93,7 +93,9 @@ import {
 import { fusoSurfaceY } from '../client/js/render/fusoHull.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
+  CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
 } from '../client/js/render/kongo.js';
+import { kongoSurfaceY } from '../client/js/render/kongoHull.js';
 
 /** How far out the Fuso's side is at her deck edge, at z. */
 const fusoHalfBeam = (z) => fusoShellAt((2 * z) / FUSO_LOA, Math.min(4.5, fusoSheer((2 * z) / FUSO_LOA) - 0.7));
@@ -1728,6 +1730,67 @@ check('a layer standing at a Kongo gun looks out over it, round its arc and nowh
       assert.ok(Math.abs(angleDelta(spec.angle, start)) <= spec.arc && layFloor(spec.mask, start) < 0.1,
         `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
     });
+  }
+});
+
+check("the Kongo trains her catapult out over her port quarter and shoots on the simulation's clock", () => {
+  // One catapult on her port quarterdeck between No.3 and No.4, on a turntable
+  // at its forward end, stowed pointing aft along her side, which trains out
+  // over her quarter to shoot -- and the Jake leaves the end of the girder on
+  // the tick the simulation puts her flight on the plot, where it puts it.
+  const built = buildKongo();
+  const g = built.group;
+  const deck = g.userData.deck;
+  assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} catapults`);
+  g.userData.step(0);
+  const c = deck.cats[0];
+  const p = c.group.position;
+  assert.ok(Math.abs(p.x - KONGO_CAT_X) < 0.01 && Math.abs(p.z - KONGO_CAT_Z) < 0.01,
+    `her catapult stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    const y = kongoSurfaceY(p.x + Math.sin(a) * 1.6, p.z + Math.cos(a) * 1.6);
+    assert.ok(y > 3.5 && y < 5.5, `her catapult's pedestal stands on ${y.toFixed(1)} m, not her quarterdeck`);
+  }
+  const r = c.group.rotation.y;
+  assert.ok(Math.cos(r) < -0.95, 'her catapult is not stowed pointing aft');
+  const end = [p.x + Math.sin(r) * deck.rig.FRONT, p.z + Math.cos(r) * deck.rig.FRONT];
+  const t = (2 * end[1]) / KONGO_LOA;
+  assert.ok(Math.abs(end[0]) < kongoShellAt(t, 3.5),
+    `her girder stowed reaches ${Math.abs(end[0]).toFixed(1)} m out, over her side`);
+  // Clear of No.4 as it trains: the end of her girder is outside its barbette.
+  const no4 = SHIP_CLASSES.kongo.turrets[3];
+  assert.ok(Math.hypot(end[0] - no4.x, end[1] - no4.z) > 5.5, 'her girder stowed lies over No.4\'s barbette');
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    const live = deck.live;
+    let away = null;
+    let out = 0;
+    for (let tt = t0; tt <= t0 + 20; tt += 1 / 600) {
+      g.userData.step(tt);
+      g.updateMatrixWorld(true);
+      out = Math.max(out, Math.sin(live.group.rotation.y) * Math.sign(live.group.position.x));
+      if (deck.airborne && away === null) away = tt - t0;
+    }
+    assert.ok(out > 0.6, 'her catapult never trained out over her quarter');
+    const want = SHIP_CLASSES.kongo.planes.deckRun;
+    assert.ok(away !== null && Math.abs(away - want) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${want}s on the plot`);
+    const at = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(SHIP_CLASSES.kongo, n === 0 ? -1 : 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(at.x > 0, 'the Jake went off her starboard side');
+    assert.ok(at.z < 0, 'the Jake went off forward');
+    // One catapult: every shot leaves her over the same quarter, where the
+    // plot puts her each time.
+    assert.ok(Math.hypot(at.x - plot[0], at.z - plot[1]) < 7,
+      `the model leaves her at ${at.x.toFixed(0)},${at.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(Math.abs(at.y - SHIP_CLASSES.kongo.planes.runHeight) < 3, `the shot leaves her ${at.y.toFixed(1)} m up`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    assert.ok(!c.gone && c.plane.visible, 'she never got her Jake back');
   }
 });
 

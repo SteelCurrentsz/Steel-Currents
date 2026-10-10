@@ -18,6 +18,9 @@
 //     through it, training round its own beam;
 //   * her 12.7 cm twins in their tubs and her 25 mm triples on her decks, the
 //     owner's sculpts of each;
+//   * her catapult on her port quarterdeck, which trains out over her quarter
+//     and throws a Jake off on the simulation's clock;
+//   * her four screws, which turn;
 //
 // and, inside her, her armour and her interior, fitted to her own lines.
 //
@@ -32,6 +35,8 @@ import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
+import { jake } from './planekit.js';
+import { RIG, fitCatapults } from './catapult.js';
 import {
   buildKongoHull, kongoSeatY, kongoSurfaceY, MOUNT_SEATS, SCULPT_LINES, kongoMaterials, gunPiece,
 } from './kongoHull.js';
@@ -246,6 +251,62 @@ function mountings(g) {
   return { sec, aa };
 }
 
+// ------------------------------------------------------------ aviation ----
+
+// Her catapult, on her quarterdeck between No.3 and No.4, on her port side
+// where the sculpt drew the ring of its turntable: stowed pointing aft and a
+// little inboard along her side, and trained out over her port quarter to
+// shoot. A Jake on its car. The pedestal stands on her quarterdeck, and the
+// girder lies over it, its trusses a hand over the planking.
+export const CAT_X = 10.5;
+export const CAT_Z = -47.5;
+export const CAT_RIG = {
+  ...RIG, BACK: -3.0, FRONT: 15.6, A: 2.0, STROKE: 12.8, REST: 0.18, OUT: -0.95, PLANE_Y: 1.1, PLANE_Z: 0.4,
+};
+const DECK_RUN = CLS.planes.deckRun;
+export const catY = () => kongoSurfaceY(CAT_X - 3, CAT_Z) + 1.1;
+
+function aviation(g) {
+  const cats = [];
+  const len = CAT_RIG.FRONT - CAT_RIG.BACK;
+  const mid = (CAT_RIG.FRONT + CAT_RIG.BACK) / 2;
+  const CAT_Y = catY();
+  const sgn = 1;
+  const x = CAT_X, z = CAT_Z;
+  const QD = kongoSurfaceY(x, z);
+  cyl(g, M.steelDark, 1.4, 1.65, CAT_Y - QD + 0.1, x, (CAT_Y + QD) / 2 - 0.05, z, 20);
+  const cat = new THREE.Group();
+  cat.position.set(x, CAT_Y, z);
+  // Stowed pointing aft, turned in from her port side.
+  cat.rotation.y = Math.PI + sgn * CAT_RIG.REST;
+  cat.userData.dynamic = true;
+  g.add(cat);
+  cyl(cat, M.steelDark, 1.7, 1.9, 0.45, 0, 0.22, 0, 20);
+  for (const rail of [-0.62, 0.62]) {
+    box(cat, M.steel, 0.26, 0.42, len, rail, 0.72, mid);
+    box(cat, M.steelDark, 0.32, 0.12, len, rail, 0.97, mid);
+  }
+  for (let i = 0; i < Math.floor(len / 1.9); i++) {
+    box(cat, M.steel, 1.5, 0.2, 0.26, 0, 0.5, CAT_RIG.BACK + 0.7 + i * 1.9);
+  }
+  for (let i = 0; i < 7; i++) {
+    const br = box(cat, M.steel, 0.14, 0.12, 2.3, 0, 0.36, 2.0 + i * 1.95);
+    br.rotation.x = i % 2 ? 0.55 : -0.55;
+  }
+  box(cat, M.steel, 2.0, 1.1, 2.0, 0, 1.0, CAT_RIG.BACK + 0.8);
+  box(cat, M.steelDark, 0.9, 0.7, 0.9, 0, 1.7, CAT_RIG.BACK + 0.8);
+  box(cat, M.gunDark, 0.5, 0.45, 0.8, 0, 1.0, CAT_RIG.FRONT - 0.3);
+  const car = new THREE.Group();
+  car.position.set(0, 0, CAT_RIG.A);
+  car.userData.dynamic = true;
+  cat.add(car);
+  box(car, M.steelDark, 1.7, 0.3, 2.6, 0, 1.12, 0);
+  for (const dz of [-0.9, 1.1]) box(car, M.gunDark, 1.5, 0.22, 0.36, 0, 1.36, dz);
+  const plane = jake(car, 0, CAT_RIG.PLANE_Y + 0.3, CAT_RIG.PLANE_Z, 0, false, { spin: true });
+  cats.push({ group: cat, car, plane, prop: plane.userData.prop, sgn, base: Math.PI });
+  g.userData.catapults = cats;
+}
+
 // ------------------------------------------------------------ her armour --
 
 /**
@@ -330,6 +391,7 @@ const STATIC = [
   ['hullModel', buildKongoHull],
   ['barbettes', barbettes],
   ['casemates', casemates],
+  ['aviation', aviation],
   ['armour', armour],
   ['screws', screws],
 ];
@@ -343,6 +405,10 @@ export function buildKongo() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'kongo';
+  fitCatapults(g, {
+    cats: g.userData.catapults, rig: CAT_RIG, deckY: catY(),
+    catX: CAT_X, catZ: CAT_Z, run: DECK_RUN, aero: 'jake',
+  });
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

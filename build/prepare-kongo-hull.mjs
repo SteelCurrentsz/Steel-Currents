@@ -740,6 +740,10 @@ export const SCULPTED_LIGHT = [
   { name: 'T2 stbd', x: -9.5, z: 0.0, r: 2.6 },
 ];
 
+// Her catapult: on her port quarterdeck between No.3 and No.4, its turntable
+// where the sculpt drew its ring (see kongo.js).
+export const CATAPULT_CUT = { x0: 6.0, x1: 13.5, y0: 4.25 + LIFT - 0.01, y1: 9.5, z0: -60.0, z1: -44.5 };
+
 // ---- cut every sculpted gun out of her ---------------------------------------------
 // Her turrets: the sculpt's gunhouse, from the top of its barbette up, and a
 // strip along its barrels. She stands her own on a barbette of her own.
@@ -775,6 +779,13 @@ function dropBox(mesh, box) {
     const bar = dropBox(sup, { x0: -3.4, x1: 3.4, y0, y1: t.seat + 7,
       z0: Math.min(t.face, t.face + dir * BARREL_REACH), z1: Math.max(t.face, t.face + dir * BARREL_REACH) });
     console.log(`${t.name}: ${house + bar} triangles cut`);
+  }
+  // Her catapult's turntable, where the sculpt drew its ring on her port
+  // quarterdeck, and what stood on her deck abaft it under its girder: kongo.js
+  // stands a catapult there that trains.
+  {
+    const n = dropBox(sup, CATAPULT_CUT);
+    console.log(`her catapult's place: ${n} triangles cut`);
   }
   // The floor of each light gun's tub: the lowest face of her superstructure
   // that faces up, near its middle.
