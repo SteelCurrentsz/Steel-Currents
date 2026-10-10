@@ -45,7 +45,7 @@ import {
   recomputeNormals, weld, stations, fair, hardEdges, shadePlating, boxUvs, denoise, smoothFlats,
   paletteToLinear, paint, heightmap, heightBytes, pack, packPieceCompact, faceNormal,
 } from './sculpt.mjs';
-import { subMesh, dropLoose, turnInward, thinFaces, creased, measureLines } from './sculpt-parts.mjs';
+import { subMesh, dropLoose, turnInward, thinFaces, creased, measureLines, slender } from './sculpt-parts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSET = (name) => path.join(ROOT, 'assets/models', name);
@@ -303,6 +303,26 @@ for (const sc of SCREWS) {
 // in her new deck, not a hand over it on nothing -- and it is laid back on her
 // when her deck is (see below).
 export const LIFT = 0.35, SINK = 0.6;
+// Her mainmast, as the sculpt drew its members: a pole abaft her after funnel's
+// casing at z -3.4, two legs from either side of her after funnel up to it
+// at thirty metres, and its boat crane -- a jib of two chords from the pole
+// forward over her fore funnel, and the boom under it from its heel at the
+// foot of the pole. Each [from, to, radius].
+// Her after control tower, abaft her after funnel: the box it stands in, and
+// how far its foot goes down into the house under it.
+const TOWER = { z0: -21.0, z1: -10.9, half: 6.5, y0: 9.5, sink: 0.8 };
+export const MAST = {
+  foot: 8.6, reach: 0.9,
+  over: { x0: -8, x1: 8, y0: 21.8, z0: -12, z1: 12.5 },
+  spars: [
+    [[0, 8.6, -3.4], [0, 38.4, -3.4], 0.42],
+    [[6.5, 7.2, -10.3], [0.35, 30.0, -3.55], 0.38],
+    [[-6.5, 7.2, -10.3], [-0.35, 30.0, -3.55], 0.38],
+    [[0, 25.5, -3.2], [0, 30.2, 7.4], 0.3],
+    [[0, 24.0, -3.0], [0, 28.9, 7.5], 0.3],
+    [[0, 8.3, -3.2], [0, 28.0, 4.6], 0.34],
+  ],
+};
 const SUPER_SIDE = 0.2;
 /** Cut `mesh` along y = level(z), in place, to what is under it; returns the triangles over it. */
 function splitAlong(mesh, level) {
@@ -414,6 +434,131 @@ let SUP = null;
     const f = smoothFlats(sup, canon, { passes: 10, max: 0.25, flat: 22 });
     console.log(`her superstructure smoothed: ${d.movedMax !== undefined ? d.movedMax.toFixed(2) : '?'} m by its faces, `
       + `${f.movedMax.toFixed(2)} m on its flats`);
+  }
+  // Her mainmast and its boat crane, which the sculpt drew as a tangle of
+  // spars melted together into ribbons: taken off her, everything over her
+  // funnels' caps between them, and under that every face within a spar's
+  // reach of the line of one of her mast's members (MAST, which kongo.js draws
+  // them along again, true).
+  if (!process.env.KEEP_MAST) {
+    const near = (x, y, z) => MAST.spars.some(([a, b, r]) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+      const L2 = dx * dx + dy * dy + dz * dz;
+      const u = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy + (z - a[2]) * dz) / L2));
+      return Math.hypot(x - a[0] - dx * u, y - a[1] - dy * u, z - a[2] - dz * u) < r + MAST.reach;
+    });
+    const B = MAST.over;
+    const off = (t) => {
+      const [x, y, z] = middle(sup, t);
+      if (x > B.x0 && x < B.x1 && y > B.y0 && z > B.z0 && z < B.z1) return true;
+      return y > MAST.foot && near(x, y, z);
+    };
+    const n0 = sup.T.length / 3;
+    sup = subMesh(sup, (t) => !off(t));
+    dropLoose(sup, { maxArea: 6, maxDiag: 12 });
+    console.log(`her mainmast and crane: ${n0 - sup.T.length / 3} faces taken off`);
+  }
+  // Her after control tower, which the sculpt melted into a lump: lofted
+  // afresh off its own sections, every half metre of its height, from where
+  // it stands on the house under it to its roof -- how far out it is each way
+  // round its middle, run smooth round it and up it -- so it is the shape and
+  // the size the sculpt drew it, without the drips.
+  if (!process.env.KEEP_TOWER) {
+    const T = TOWER;
+    const inBox = (x, y, z) => z > T.z0 && z < T.z1 && Math.abs(x) < T.half && y > T.y0;
+    const mine = (t) => inBox(...middle(sup, t));
+    const NA = 36;
+    const levels = [];
+    let top = T.y0;
+    for (let t = 0; t < sup.T.length / 3; t++) if (mine(t)) for (let j = 0; j < 3; j++) top = Math.max(top, sup.P[sup.T[t * 3 + j] * 3 + 1]);
+    for (let y = T.y0; y <= top - 0.25; y += 0.5) {
+      const pts = [];
+      for (let t = 0; t < sup.T.length / 3; t++) {
+        if (!mine(t)) continue;
+        const v = [0, 1, 2].map((j) => sup.T[t * 3 + j] * 3);
+        for (let j = 0; j < 3; j++) {
+          const a = v[j], b = v[(j + 1) % 3];
+          const ya = sup.P[a + 1], yb = sup.P[b + 1];
+          if ((ya - y) * (yb - y) > 0 || ya === yb) continue;
+          const f = (y - ya) / (yb - ya);
+          pts.push([sup.P[a] + (sup.P[b] - sup.P[a]) * f, sup.P[a + 2] + (sup.P[b + 2] - sup.P[a + 2]) * f]);
+        }
+      }
+      if (pts.length < 12) continue;
+      const cx = pts.reduce((q, p) => q + p[0], 0) / pts.length, cz = pts.reduce((q, p) => q + p[1], 0) / pts.length;
+      const r = new Float64Array(NA);
+      for (const [x, z] of pts) {
+        const k = ((Math.round(Math.atan2(x - cx, z - cz) / (2 * Math.PI) * NA) % NA) + NA) % NA;
+        r[k] = Math.max(r[k], Math.hypot(x - cx, z - cz));
+      }
+      // An empty bearing takes its neighbours'; a platform standing out on one
+      // bearing is held to half as far again as the tower is round it.
+      for (let k = 0; k < NA; k++) if (!r[k]) r[k] = Math.max(r[(k + NA - 1) % NA], r[(k + 1) % NA]);
+      const sorted = Array.from(r).sort((p, q) => p - q), med = sorted[NA >> 1];
+      for (let k = 0; k < NA; k++) r[k] = Math.min(r[k], med * 1.2);
+      levels.push({ y, cx, cz, r });
+    }
+    // It stands straight, round one middle; and its roof is the last section
+    // that is still the tower -- what stood on it, a rail or a rangefinder's
+    // pedestal, is not.
+    const mx = levels.reduce((q, l) => q + l.cx, 0) / levels.length, mz = levels.reduce((q, l) => q + l.cz, 0) / levels.length;
+    for (const L of levels) {
+      const pts = Array.from(L.r, (rr, k) => {
+        const a = (k / NA) * 2 * Math.PI;
+        return [L.cx + Math.sin(a) * rr - mx, L.cz + Math.cos(a) * rr - mz];
+      });
+      L.cx = mx; L.cz = mz;
+      for (let k = 0; k < NA; k++) {
+        const a = (k / NA) * 2 * Math.PI;
+        let best = 0;
+        for (const [x, z] of pts) if (Math.abs(Math.atan2(x, z) - a) < Math.PI / NA * 1.5 || Math.abs(Math.abs(Math.atan2(x, z) - a) - 2 * Math.PI) < Math.PI / NA * 1.5) best = Math.max(best, Math.hypot(x, z));
+        L.r[k] = best || L.r[k];
+      }
+    }
+    const size = levels.map((l) => l.r.reduce((q, v) => q + v, 0) / NA);
+    const typical = size.slice().sort((p, q) => p - q)[size.length >> 1];
+    while (levels.length > 4 && size[levels.length - 1] < typical * 0.75) { levels.pop(); size.pop(); }
+    // Smooth round each section and up the tower.
+    const smoothRound = (r) => Float64Array.from(r, (_, k) => (r[(k + NA - 2) % NA] + 2 * r[(k + NA - 1) % NA] + 3 * r[k]
+      + 2 * r[(k + 1) % NA] + r[(k + 2) % NA]) / 9);
+    for (const L of levels) L.r = smoothRound(smoothRound(L.r));
+    const up = levels.map((L, i) => {
+      const w = levels.slice(Math.max(0, i - 2), i + 3);
+      return {
+        y: L.y, cx: w.reduce((q, l) => q + l.cx, 0) / w.length, cz: w.reduce((q, l) => q + l.cz, 0) / w.length,
+        r: Float64Array.from(L.r, (_, k) => w.reduce((q, l) => q + l.r[k], 0) / w.length),
+      };
+    });
+    if (up.length >= 4) {
+      const n0 = sup.T.length / 3;
+      sup = subMesh(sup, (t) => !mine(t));
+      const base = sup.P.length / 3;
+      // Its foot let down into the house it stands on.
+      up.unshift({ ...up[0], y: T.y0 - T.sink });
+      for (const L of up) {
+        for (let k = 0; k < NA; k++) {
+          const a = (k / NA) * 2 * Math.PI;
+          sup.P.push(L.cx + Math.sin(a) * L.r[k], L.y, L.cz + Math.cos(a) * L.r[k]);
+          sup.N.push(Math.sin(a), 0, Math.cos(a));
+        }
+      }
+      for (let i = 0; i + 1 < up.length; i++) {
+        for (let k = 0; k < NA; k++) {
+          const a0 = base + i * NA + k, a1 = base + i * NA + (k + 1) % NA;
+          const b0 = a0 + NA, b1 = a1 + NA;
+          sup.T.push(a0, b0, a1, a1, b0, b1);
+          sup.C.push(SUPER_GREY, SUPER_GREY);
+        }
+      }
+      // Its roof, flat.
+      const last = up[up.length - 1], ci = sup.P.length / 3;
+      sup.P.push(last.cx, last.y, last.cz); sup.N.push(0, 1, 0);
+      const ring = base + (up.length - 1) * NA;
+      for (let k = 0; k < NA; k++) { sup.T.push(ring + k, ci, ring + (k + 1) % NA); sup.C.push(SUPER_GREY); }
+      fixWinding(sup);
+      console.log(`her after control tower: ${n0 - (sup.T.length / 3 - (up.length - 1) * NA * 2 - NA)} faces of the sculpt `
+        + `lofted afresh in ${up.length} sections, to ${last.y.toFixed(1)} m`);
+    }
   }
   SUP = sup;
   const { lo, hi } = bbox(sup);
@@ -1095,6 +1240,8 @@ writeFileSync(OUT_DATA,
   + `// Where her turrets and her casemates stand, and the floors of the tubs her\n`
   + `// light guns were cut out of.\n`
   + `export const KONGO_MOUNTS = ${JSON.stringify(mounts)};\n`
+  + `// Her mainmast and its crane, which kongo.js draws.\n`
+  + `export const KONGO_MAST = ${JSON.stringify(MAST.spars)};\n`
   + `// Her four screws, on the ends of her shafts.\n`
   + `export const SCREWS = ${JSON.stringify(SCREWS)};\n`
   + `// Her lines as the sculpt has them: keel, the deck over her insides, and\n`

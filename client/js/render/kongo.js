@@ -40,7 +40,7 @@ import { RIG, fitCatapults } from './catapult.js';
 import {
   buildKongoHull, kongoSeatY, kongoSurfaceY, MOUNT_SEATS, SCULPT_LINES, kongoMaterials, gunPiece,
 } from './kongoHull.js';
-import { SCREWS } from './kongoHull.data.js';
+import { SCREWS, KONGO_MAST } from './kongoHull.data.js';
 
 const CLS = SHIP_CLASSES.kongo;
 export const LOA = CLS.hull.length;
@@ -251,6 +251,39 @@ function mountings(g) {
   return { sec, aa };
 }
 
+// ------------------------------------------------------------ mainmast ----
+
+// Her mainmast and its boat crane, along the lines the sculpt drew them (see
+// MAST in prepare-kongo-hull.mjs, where the sculpt's own melted spars are
+// taken off her): a pole, two legs, a jib of two chords and the boom under
+// it, each a steel tube; the jib braced between its chords, a yard across the
+// pole, and a topmast over it.
+const UP = new THREE.Vector3(0, 1, 0);
+function tube(g, mat, a, b, r, seg = 10) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  const len = A.distanceTo(B);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg, 1, false), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(UP, B.clone().sub(A).normalize());
+  g.add(m);
+  return m;
+}
+function mainmast(g) {
+  for (const [a, b, r] of KONGO_MAST) tube(g, M.steel, a, b, r);
+  const [pole, , , chordA, chordB] = KONGO_MAST;
+  // The topmast, over the pole, and the yard across it.
+  const top = pole[1];
+  tube(g, M.steel, top, [top[0], top[1] + 4.0, top[2]], 0.16, 8);
+  tube(g, M.steel, [-4.8, 31.6, top[2]], [4.8, 31.6, top[2]], 0.13, 8);
+  // The jib's lacing, chord to chord, and its head.
+  for (let i = 1; i < 6; i++) {
+    const u = i / 6, v = (i + 0.5) / 6;
+    const at = (c, f) => c[0].map((p, k) => p + (c[1][k] - p) * f);
+    tube(g, M.steel, at(chordA, u), at(chordB, v), 0.09, 6);
+  }
+  box(g, M.steelDark, 0.9, 1.6, 0.9, 0, (chordA[1][1] + chordB[1][1]) / 2, (chordA[1][2] + chordB[1][2]) / 2);
+}
+
 // ------------------------------------------------------------ aviation ----
 
 // Her catapult, on her quarterdeck between No.3 and No.4, on her port side
@@ -391,6 +424,7 @@ const STATIC = [
   ['hullModel', buildKongoHull],
   ['barbettes', barbettes],
   ['casemates', casemates],
+  ['mainmast', mainmast],
   ['aviation', aviation],
   ['armour', armour],
   ['screws', screws],
