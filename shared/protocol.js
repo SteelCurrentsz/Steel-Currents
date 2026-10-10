@@ -15,6 +15,7 @@ const HOLES_SENT = 10;
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const r4 = (v) => Math.round(v * 10000) / 10000;
 const r2 = (v) => Math.round(v * 100) / 100;
 
 /**
@@ -107,6 +108,9 @@ export function shipSnapshot(ship, full, state = null) {
   if (full) {
     s.notch = ship.notch;
     s.rud = r3(ship.rudder);
+    // How fast she is swinging, which the helm takes time to change; her own
+    // bridge predicts the swing and has to start from the server's.
+    s.yr = r4(ship.yawRate || 0);
     // Her air, and where her captain has ordered her to. Both are her own
     // bridge's business: a boat's remaining oxygen is the one number that
     // decides everything she does next, and it is nobody else's.

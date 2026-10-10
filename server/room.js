@@ -271,7 +271,13 @@ export class Room {
       const events = step(this.state, DT);
       if (events.length) this.dispatchEvents(events);
     }
-    if (this.state.tick % SNAPSHOT_EVERY === 0) this.sendSnapshots();
+    // Every other tick -- counted from the last one sent, not off the tick
+    // number: a catch-up of an odd number of steps used to skip a snapshot
+    // and leave a gap in every ship's track.
+    if (this.state.tick - (this.sentAt ?? -Infinity) >= SNAPSHOT_EVERY) {
+      this.sentAt = this.state.tick;
+      this.sendSnapshots();
+    }
 
     if (this.state.over && this.phase === 'battle') {
       this.phase = 'ended';

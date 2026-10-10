@@ -37,6 +37,8 @@ const EXTRAPOLATE = 0.3;
 // the two disagree. Quick enough that she never wanders far from where the
 // authority has her, slow enough that nobody sees her being put back.
 const CORRECT_TAU = 0.3;
+// How many seconds of snapshots the server's clock rate is measured over.
+const CLOCK_WINDOW = 4;
 
 /**
  * Where a ship is between two snapshots of her.
@@ -367,16 +369,21 @@ export class Battle {
 
     this.entities = new Map();
     this.snapshots = [];
-    // How far our clock runs ahead of the server's simulation clock, and the
-    // moment on the server's clock the picture is being drawn at. See
-    // syncClock and stepRenderClock.
+    // The server's clock as we read it -- the recent snapshots, when each
+    // arrived, and how fast it is running against ours -- and the moment on it
+    // the picture is being drawn at. See syncClock and stepRenderClock.
+    this.clockPts = [];
+    this.clockRate = 1;
     this.clockOff = null;
     this.renderST = null;
     this.renderAt = 0;
-    // Where our own hull was predicted to be over the last two seconds, so a
-    // snapshot can be compared with where we had her at the same moment; and
-    // what is left of the last correction to be taken up. See correctOwn.
+    // Where our own hull was predicted to be over the last two seconds, on the
+    // server's clock, so a snapshot can be compared with where we had her at
+    // the same moment; the moment on that clock she has been predicted to;
+    // and what is left of the last correction to be taken up. See correctOwn.
     this.ownTrack = [];
+    this.ownST = null;
+    this.ownAtWall = 0;
     this.fix = null;
     // Last heading seen for each flight, so a turn can be read off as bank.
     this.planeTurn = new Map();
@@ -559,8 +566,12 @@ export class Battle {
     // A clock that has gone backwards is a new battle on the same screen.
     if (newest && st < newest.st - 1) {
       this.snapshots = [];
+      this.clockPts = [];
+      this.clockRate = 1;
       this.clockOff = null;
       this.renderST = null;
+      this.ownST = null;
+      this.ownTrack = [];
     }
     this.snapshots.push({ ...snap, at: now, st });
     while (this.snapshots.length > 12) this.snapshots.shift();
@@ -585,44 +596,98 @@ export class Battle {
   }
 
   /**
-   * Keep track of how far our clock runs ahead of the server's.
+   * Keep track of the server's clock: where it is, and how fast it runs.
    *
-   * Each snapshot says so, plus however long it was on the way, and the time
-   * on the way is never less than nothing -- so the earliest any snapshot has
-   * ever arrived is the best reading there is. It is allowed to creep later
-   * on its own, slowly, because the server's clock can genuinely fall behind
-   * (a stalled event loop steps no more than half a second at once); and a
-   * jump of more than a second is taken outright.
+   * It does not always run at one second a second. The battle a standalone
+   * page hosts in its own tab steps on a timer that the drawing starves: on a
+   * slow machine it gets through a second of battle in two or three seconds,
+   * and it drops time outright whenever the tab stalls. The picture used to be
+   * drawn on our own clock less a fixed offset, so it ran on ahead of every
+   * snapshot there was, held, and was then thrown back a second at a time when
+   * the offset was put right -- every ship on the sea sailing backwards -- and
+   * our own hull, predicted at a second a second, was dragged back onto a
+   * server that had not got that far.
+   *
+   * So the rate is measured, off the snapshots of the last few seconds, and
+   * the server's clock is read at any moment as the best of what the recent
+   * snapshots say: each one's time, carried on at that rate for as long as it
+   * has been here. One that came late says less than one that did not, so the
+   * best is the latest reading, the same way the earliest arrival was before.
    */
   syncClock(now, st) {
-    const off = now - st;
-    if (this.clockOff === null || off < this.clockOff || off - this.clockOff > 1) {
-      this.clockOff = off;
-    } else {
-      this.clockOff += (off - this.clockOff) * 0.02;
+    const pts = this.clockPts || (this.clockPts = []);
+    pts.push({ at: now, st });
+    while (pts.length > 2 && pts[0].at < now - CLOCK_WINDOW) pts.shift();
+    const first = pts[0];
+    const span = now - first.at;
+    if (span > 0.5) {
+      const r = clamp((st - first.st) / span, 0.05, 1.5);
+      this.clockRate = (this.clockRate ?? 1) + (r - (this.clockRate ?? 1)) * 0.2;
     }
+    // Still kept for anything that wants the plain offset.
+    this.clockOff = now - this.serverNow(now);
+  }
+
+  /** The server's clock, at a moment on ours. See syncClock. */
+  serverNow(now) {
+    const pts = this.clockPts;
+    if (!pts || !pts.length) return null;
+    const rate = this.clockRate ?? 1;
+    let best = -Infinity;
+    for (const p of pts) best = Math.max(best, p.st + (now - p.at) * rate);
+    // Never further past the newest snapshot than a ship is carried on past one.
+    return Math.min(best, pts[pts.length - 1].st + EXTRAPOLATE + INTERP_DELAY);
   }
 
   /**
    * The moment on the server's clock the picture is drawn at, this frame.
    *
-   * Run on our own clock and pulled gently toward where it ought to be,
+   * Run at the server's rate and pulled gently toward where it ought to be,
    * rather than set from the newest snapshot: a clock that jumped every time
-   * a packet came in would put the jump into every ship on the screen.
+   * a packet came in would put the jump into every ship on the screen. And it
+   * never goes back. A ship drawn a little slow for a moment is a ship; one
+   * drawn sailing astern is a glitch. Only a picture more than a second behind
+   * is jumped, and only forward.
    */
   stepRenderClock(now = performance.now() / 1000) {
-    const want = now - this.clockOff - INTERP_DELAY;
+    const est = this.serverNow(now);
+    if (est === null) return this.renderST;
+    const want = est - INTERP_DELAY;
     // Real time, not the frame's capped step: on a slow machine the capped
     // step runs short and the picture would fall steadily behind.
     const step = Math.min(0.5, Math.max(0, now - this.renderAt));
     this.renderAt = now;
-    if (this.renderST === null || Math.abs(want - this.renderST) > 1) {
+    if (this.renderST === null || want - this.renderST > 1) {
       this.renderST = want;
     } else {
-      this.renderST += step;
-      this.renderST += (want - this.renderST) * Math.min(1, step * 2);
+      const was = this.renderST;
+      let next = was + step * (this.clockRate ?? 1);
+      next += (want - next) * Math.min(1, step * 2);
+      this.renderST = Math.max(was, next);
     }
     return this.renderST;
+  }
+
+  /**
+   * How far, on the server's clock, our own hull is to be predicted on this
+   * frame -- the same pacing as the picture, without the delay: she is drawn
+   * where the server has her now. On a server running at half speed she is
+   * sailed at half speed, rather than run on ahead of it and pulled back.
+   */
+  stepOwnClock(now, dt) {
+    const est = this.serverNow(now);
+    if (est === null) { this.ownAtWall = now; return dt; }
+    const step = Math.min(0.5, Math.max(0, now - (this.ownAtWall || now)));
+    this.ownAtWall = now;
+    if (this.ownST === null || this.ownST === undefined || Math.abs(est - this.ownST) > 1) {
+      this.ownST = est;
+      return Math.min(dt, step * (this.clockRate ?? 1));
+    }
+    const was = this.ownST;
+    let next = was + step * (this.clockRate ?? 1);
+    next += (est - next) * Math.min(1, step * 2);
+    this.ownST = Math.max(was, next);
+    return this.ownST - was;
   }
 
   /**
@@ -661,13 +726,19 @@ export class Battle {
       ls.z += f.z * k;
       ls.heading = wrapAngle(ls.heading + f.h * k);
       ls.speed += f.v * k;
+      ls.yawRate = (ls.yawRate || 0) + (f.w || 0) * k;
+      f.w = (f.w || 0) - (f.w || 0) * k;
       f.x -= f.x * k;
       f.z -= f.z * k;
       f.h -= f.h * k;
       f.v -= f.v * k;
     }
-    this.ownTrack.push({ t: now, x: ls.x, z: ls.z, h: ls.heading, v: ls.speed });
-    while (this.ownTrack.length > 1 && this.ownTrack[0].t < now - 2) this.ownTrack.shift();
+    // On the server's clock, so a snapshot is held up against the same moment.
+    const t = this.ownST ?? now;
+    const tr = this.ownTrack;
+    if (tr.length && t <= tr[tr.length - 1].t) tr.pop();
+    tr.push({ t, x: ls.x, z: ls.z, h: ls.heading, v: ls.speed, w: ls.yawRate || 0 });
+    while (tr.length > 1 && tr[0].t < t - 2) tr.shift();
   }
 
   /**
@@ -677,7 +748,7 @@ export class Battle {
     const tr = this.ownTrack;
     const ls = this.localShip;
     if (!tr.length || t >= tr[tr.length - 1].t) {
-      return { x: ls.x, z: ls.z, h: ls.heading, v: ls.speed };
+      return { x: ls.x, z: ls.z, h: ls.heading, v: ls.speed, w: ls.yawRate || 0 };
     }
     if (t <= tr[0].t) return tr[0];
     let i = tr.length - 1;
@@ -688,6 +759,7 @@ export class Battle {
     return {
       x: lerp(p.x, q.x, k), z: lerp(p.z, q.z, k),
       h: p.h + angleDelta(p.h, q.h) * k, v: lerp(p.v, q.v, k),
+      w: lerp(p.w || 0, q.w || 0, k),
     };
   }
 
@@ -707,7 +779,7 @@ export class Battle {
    */
   correctOwn(own, st) {
     const ls = this.localShip;
-    const was = this.ownAt(st + this.clockOff);
+    const was = this.ownAt(st);
     const ex = own.x - was.x;
     const ez = own.z - was.z;
     // Out by more than she could ever drift: she was put somewhere. Take it.
@@ -716,11 +788,16 @@ export class Battle {
       ls.z = own.z;
       ls.heading = own.h;
       ls.speed = own.v;
+      if (Number.isFinite(own.yr)) ls.yawRate = own.yr;
       this.ownTrack = [];
       this.fix = null;
+      this.ownST = st;
       return;
     }
-    this.fix = { x: ex, z: ez, h: angleDelta(was.h, own.h), v: own.v - was.v };
+    this.fix = {
+      x: ex, z: ez, h: angleDelta(was.h, own.h), v: own.v - was.v,
+      w: Number.isFinite(own.yr) ? own.yr - (was.w || 0) : 0,
+    };
   }
 
   /**
@@ -3162,8 +3239,8 @@ export class Battle {
 
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
-    predictShip(this.local, ls, dt);
     const now = performance.now() / 1000;
+    predictShip(this.local, ls, this.stepOwnClock(now, dt));
     this.takeUpFix(dt, now);
 
     if (now - this.lastInputSent > 1 / INPUT_HZ) {

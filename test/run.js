@@ -8051,36 +8051,36 @@ check('every ship under way throws the same height of sea, and it stays round he
  * server/room.js. Then up to fifteen milliseconds on the wire. A ship at ten
  * metres a second straight along x.
  */
-function jitteryServer(secs, seed) {
+function jitteryServer(secs, seed, { every = 1 / 30, maxSteps = 6 } = {}) {
   let s = seed;
   const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
   const step = 1 / 30;
   const sends = [];
-  let wall = 0, prev = 0, accum = 0, tick = 0;
+  let wall = 0, prev = 0, accum = 0, tick = 0, sent = -Infinity;
   while (wall < secs) {
-    wall += step + rnd() * 0.012 + (rnd() < 0.04 ? 0.06 : 0);
-    accum += wall - prev;
+    wall += every + rnd() * 0.012 + (rnd() < 0.04 ? 0.06 : 0);
+    accum += Math.min(0.5, wall - prev);
     prev = wall;
     let n = 0;
-    while (accum >= step && n < 6) { accum -= step; tick++; n++; }
-    if (tick % 2 === 0) {
+    while (accum >= step && n < maxSteps) { accum -= step; tick++; n++; }
+    if (tick - sent >= 2) {
+      sent = tick;
       sends.push({ at: wall + rnd() * 0.015, tick, st: tick * step, x: tick * step * 10 });
     }
   }
   return sends;
 }
 
-check("other ships are drawn on the server's clock, so they sail rather than stutter", () => {
-  // They used to be interpolated on when each snapshot happened to arrive.
-  // Snapshots leave the battle service bunched and gapped -- see above -- so
-  // a ship's speed on screen swung from stopped to many times her real speed
-  // ten times a second, and every ship on the sea moved like a flip-book.
-  const sends = jitteryServer(12, 7);
+/**
+ * Draw ship 1 off a run of snapshots the way syncEntities does, sixty frames
+ * a second, and give back where she was drawn on each frame.
+ */
+function drawnTrack(sends, from, to) {
   const g = Object.create(Battle.prototype);
   Object.assign(g, { snapshots: [], clockOff: null, renderST: null, renderAt: 0 });
   let k = 0;
   const xs = [];
-  for (let now = 0.5; now < 11.5; now += 1 / 60) {
+  for (let now = from; now < to; now += 1 / 60) {
     while (k < sends.length && sends[k].at <= now) {
       const s = sends[k++];
       g.snapshots.push({ at: s.at, st: s.st,
@@ -8093,6 +8093,35 @@ check("other ships are drawn on the server's clock, so they sail rather than stu
     const { a, b, t, ahead } = pair;
     xs.push(poseBetween(a.ships[0], b && b.ships[0], t, ahead).x);
   }
+  return xs;
+}
+
+/** Her own hull, predicted against a run of snapshots as update() does it. */
+function predictedTrack(sends, to) {
+  const ls = { x: 0, z: 0, heading: Math.PI / 2, speed: 10 };
+  const g = Object.create(Battle.prototype);
+  Object.assign(g, { snapshots: [], clockOff: null, localShip: ls, ownTrack: [], fix: null });
+  let k = 0;
+  const xs = [];
+  for (let now = 0; now < to; now += 1 / 60) {
+    while (k < sends.length && sends[k].at <= now) {
+      const s = sends[k++];
+      g.syncClock(s.at, s.st);
+      g.correctOwn({ x: s.x, z: 0, h: Math.PI / 2, v: 10 }, s.st);
+    }
+    ls.x += 10 * g.stepOwnClock(now, 1 / 60);    // what predictShip does for her
+    g.takeUpFix(1 / 60, now);
+    xs.push(ls.x);
+  }
+  return { g, ls, xs };
+}
+
+check("other ships are drawn on the server's clock, so they sail rather than stutter", () => {
+  // They used to be interpolated on when each snapshot happened to arrive.
+  // Snapshots leave the battle service bunched and gapped -- see above -- so
+  // a ship's speed on screen swung from stopped to many times her real speed
+  // ten times a second, and every ship on the sea moved like a flip-book.
+  const xs = drawnTrack(jitteryServer(12, 7), 0.5, 11.5);
   // Once the clock has settled, she makes her ten metres a second every frame.
   const v = [];
   for (let i = 121; i < xs.length; i++) v.push((xs[i] - xs[i - 1]) * 60);
@@ -8107,22 +8136,7 @@ check("her own hull is eased onto the server's track, not dragged back to it", (
   // be pulled a tenth of the way to the last snapshot every frame -- but that
   // is a place she had already sailed past, and it got staler until the next
   // one came in, so she was dragged back and let go fifteen times a second.
-  const sends = jitteryServer(12, 11);
-  const ls = { x: 0, z: 0, heading: Math.PI / 2, speed: 10 };
-  const g = Object.create(Battle.prototype);
-  Object.assign(g, { snapshots: [], clockOff: null, localShip: ls, ownTrack: [], fix: null });
-  let k = 0;
-  const xs = [];
-  for (let now = 0; now < 11.5; now += 1 / 60) {
-    while (k < sends.length && sends[k].at <= now) {
-      const s = sends[k++];
-      g.syncClock(s.at, s.st);
-      g.correctOwn({ x: s.x, z: 0, h: Math.PI / 2, v: 10 }, s.st);
-    }
-    ls.x += 10 / 60;          // what predictShip does for her
-    g.takeUpFix(1 / 60, now);
-    xs.push(ls.x);
-  }
+  const { g, ls, xs } = predictedTrack(jitteryServer(12, 11), 11.5);
   const v = [];
   for (let i = 121; i < xs.length; i++) v.push((xs[i] - xs[i - 1]) * 60);
   const lo = Math.min(...v);
@@ -8133,7 +8147,7 @@ check("her own hull is eased onto the server's track, not dragged back to it", (
   // And when the two really do disagree, the difference is taken up -- over
   // a second or so, a little at a time, not in one lurch.
   const at = ls.x;
-  g.correctOwn({ x: at + 6, z: 0, h: Math.PI / 2, v: 10 }, g.ownTrack[g.ownTrack.length - 1].t - g.clockOff);
+  g.correctOwn({ x: at + 6, z: 0, h: Math.PI / 2, v: 10 }, g.ownTrack[g.ownTrack.length - 1].t);
   let biggest = 0;
   for (let i = 0; i < 90; i++) {
     const was = ls.x;
@@ -8147,6 +8161,32 @@ check("her own hull is eased onto the server's track, not dragged back to it", (
   g.correctOwn({ x: 5000, z: -300, h: 1, v: 4 }, 0);
   assert.equal(ls.x, 5000);
   assert.equal(ls.z, -300);
+});
+
+check('a battle that runs slow is drawn slow, and nothing on it ever sails astern', () => {
+  // The battle a standalone page hosts steps on a timer the drawing starves:
+  // on a slow machine it gets through a second of battle in two. The picture
+  // was drawn on our own clock less an offset, so it ran on ahead of every
+  // snapshot, held, and was thrown back a second at a time when the offset was
+  // put right -- every ship on the sea jumping astern -- and our own hull,
+  // predicted at a second a second, was dragged back every snapshot.
+  for (const [every, maxSteps] of [[0.1, 2], [0.07, 1], [1 / 30, 6]]) {
+    const sends = jitteryServer(30, 5, { every, maxSteps });
+    const rate = (sends.at(-1).st - sends[0].st) / (sends.at(-1).at - sends[0].at);
+    const settle = (xs) => xs.slice(360);
+    for (const [who, xs] of [['another ship', drawnTrack(sends, 0.5, 29.5)],
+      ['her own hull', predictedTrack(sends, 29.5).xs]]) {
+      const v = [];
+      const run = settle(xs);
+      for (let i = 1; i < run.length; i++) v.push((run[i] - run[i - 1]) * 60);
+      const lo = Math.min(...v);
+      const hi = Math.max(...v);
+      assert.ok(lo >= 0, `on a battle running at ${rate.toFixed(2)}x, ${who} went astern at ${lo.toFixed(1)} m/s`);
+      // And at a steady speed: what the battle runs at, give or take.
+      assert.ok(hi < 10 * rate * 1.6 + 1 && lo > 10 * rate * 0.4 - 1,
+        `on a battle running at ${rate.toFixed(2)}x, ${who} ran between ${lo.toFixed(1)} and ${hi.toFixed(1)} m/s`);
+    }
+  }
 });
 
 check('the sea never leaves the hull', () => {
