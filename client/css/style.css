@@ -86,7 +86,7 @@ html, body {
 .menu-right .menu-item:hover { transform: translateX(-10px); }
 
 /* Two menus in opposite corners need a screen wide enough to have corners. On
-   a phone they walk into each other -- FLEET BATTLE lands on top of OPTIONS /
+   a phone they walk into each other -- STAGED BATTLE lands on top of OPTIONS /
    HELP and neither can be read or tapped -- so below that width they become one
    centred column, and every item gets a thumb's worth of height. */
 @media (max-width: 700px) {

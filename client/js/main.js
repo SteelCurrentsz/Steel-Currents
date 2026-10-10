@@ -183,6 +183,8 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.click();
     switch (btn.dataset.action) {
       case 'pvp': show('pvp'); refreshRooms(); break;
+      // Not built yet: the key is on the menu so the menu is the shape it will be.
+      case 'arcade': toast('Arcade Battle is coming soon.'); break;
       case 'custom': show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
       case 'back': show('title'); break;
