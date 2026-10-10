@@ -1652,7 +1652,7 @@ check('the Fuso carries the guns she carried, each where it can be trained from'
   assert.equal(cls.turrets.length, 6, 'she carries six turrets');
   // Three forward of her funnel and three aft, No.3 and No.4 back to back.
   cls.turrets.forEach((t, i) => {
-    assert.ok(Math.abs(angleDelta(t.angle, i < 3 ? 0 : Math.PI)) < 0.05, `${t.name} does not face ${i < 3 ? 'forward' : 'aft'}`);
+    assert.ok(Math.abs(angleDelta(t.rest ?? t.angle, i < 3 ? 0 : Math.PI)) < 0.05, `${t.name} does not face ${i < 3 ? 'forward' : 'aft'}`);
   });
   assert.ok(cls.turrets[0].z > cls.turrets[1].z && cls.turrets[1].z > cls.turrets[2].z, 'No.1 to No.3 are out of order');
   assert.ok(cls.turrets[3].z > cls.turrets[4].z && cls.turrets[4].z > cls.turrets[5].z, 'No.4 to No.6 are out of order');
