@@ -91,7 +91,7 @@ import {
   buildFuso, CAT_X as FUSO_CAT_X, CAT_Z as FUSO_CAT_Z, CAT_Z_PORT as FUSO_CAT_Z_PORT, shellAt as fusoShellAt, keelY as fusoKeel,
   deckOver as fusoSheer, zAt as fusoZAt, LOA as FUSO_LOA,
 } from '../client/js/render/fuso.js';
-import { fusoSurfaceY } from '../client/js/render/fusoHull.js';
+import { fusoSurfaceY, MOUNT_SEATS as FUSO_SEATS, gunPiece as fusoGunPiece } from '../client/js/render/fusoHull.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -1894,6 +1894,32 @@ check('the Fuso carries the guns she carried, each where it can be trained from'
     assert.ok(!fires(t, behind, close), `${t.name} fires flat through her own superstructure`);
   });
   surveyedArcsHold('fuso');
+});
+
+check('the Fuso stands her 15.2 cm in casemates cut in the side of her forecastle, and draws her light guns the size of a man', () => {
+  const cls = SHIP_CLASSES.fuso;
+  // Each stands on a floor well under her deck, at her side, with her deck
+  // standing up round it on three sides and nothing over it.
+  FUSO_SEATS.secondary.forEach((s, i) => {
+    const deck = fusoSheer((2 * s.z) / FUSO_LOA);
+    assert.ok(deck - s.seat > 1.8 && deck - s.seat < 3.4,
+      `the 15.2 cm at ${s.x}, ${s.z} stands ${(deck - s.seat).toFixed(1)} m under her deck`);
+    assert.ok(Math.abs(fusoSurfaceY(s.x, s.z) - s.seat) < 0.5, `the 15.2 cm at ${s.x}, ${s.z} is not on a floor`);
+    // The deck is there a few metres inboard, and the notch's wall between.
+    const inboard = fusoSurfaceY(s.x - Math.sign(s.x) * 4.6, s.z);
+    assert.ok(inboard > deck - 0.5, `there is no deck behind the 15.2 cm at ${s.x}, ${s.z}`);
+    assert.ok(Math.abs(s.x) < fusoHalfBeam(s.z), `the 15.2 cm at ${s.x}, ${s.z} stands outside her`);
+    assert.equal(cls.secondary.mounts[i].z, s.z);
+  });
+  // A 25 mm triple's mounting is under two and a half metres across and its
+  // barrels under two metres long, and her mast stands over everything.
+  const aa = fusoGunPiece('aa');
+  aa.house.computeBoundingBox();
+  const bb = aa.house.boundingBox;
+  assert.ok(bb.max.x - bb.min.x < 2.4 && bb.max.z - bb.min.z < 2.4, 'the 25 mm triples are drawn bigger than a gun a man can stand behind');
+  assert.ok(aa.muzzles[0][2] < 2.2, `the 25 mm barrels are ${aa.muzzles[0][2].toFixed(1)} m long`);
+  const box = new THREE.Box3().setFromObject(buildFuso().group);
+  assert.ok(box.max.y > 35, `her mast only reaches ${box.max.y.toFixed(1)} m`);
 });
 
 check('a layer standing at a Fuso gun looks out over it, round its arc and nowhere else', () => {

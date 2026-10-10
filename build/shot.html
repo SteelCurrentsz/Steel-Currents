@@ -16,6 +16,8 @@ try {
   if (what.startsWith('ship:')) {
     const built = ships.buildShip(what.slice(5));
     g.add(built.group);
+    const hide = q.get('hide');
+    if (hide) built.group.traverse((o) => { if (o.isMesh && String(o.userData.mergeKey).startsWith(hide)) o.visible = false; });
     // Part-way through a launch, if asked: 0 is the order and 1 is the moment
     // her flight goes on the plot. A still of a ship that has an evolution to
     // play is a still of the first frame of it.
