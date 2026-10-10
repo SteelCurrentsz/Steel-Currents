@@ -3742,6 +3742,162 @@ export const SHIP_CLASSES = {
     },
   },
 
+  kongo: {
+    // IJN Kongo, the last capital ship built for Japan abroad: laid down at
+    // Barrow in 1911 to a design of Thurston's, the battlecruiser the Lion
+    // might have been, and rebuilt twice at home -- blistered, re-boilered,
+    // lengthened and given a pagoda -- into a fast battleship that could keep
+    // up with a carrier. Eight 35.6 cm/45 in four twin turrets, two forward and
+    // two aft; her 15.2 cm in casemates in her side; thirty knots. She was the
+    // only Japanese battleship to be sunk by a submarine, torpedoed by Sealion
+    // in the Formosa Strait on 21 November 1944.
+    //
+    // She is drawn from the owner's sculpts of her (see kongo.js): her hull,
+    // her decks, her superstructure and her funnels off one, her bridge, her
+    // turrets and every one of her guns off the others, at her own length --
+    // 222 m -- and floated at 9.7 m. She carries what she carried in 1944: eight
+    // 15.2 cm in her casemates, four a side, and the 12.7 cm twins and the
+    // 25 mm battery she had been given by then.
+    id: 'kongo',
+    name: 'Kongo',
+    fullName: 'IJN Kongo',
+    className: 'Kongo',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'jpn',
+    blurb: 'A British battlecruiser rebuilt as a fast battleship: eight 35.6 cm and thirty knots.',
+    hull: { length: 222.05, beam: 31.0, draft: 9.7, superstructure: 1.4 },
+    hp: 64800,
+    // Thirty knots and a quarter on her 1936 trials, on four shafts: lighter
+    // and finer than the battleships she fought beside, and quicker on her
+    // helm.
+    maxSpeed: 30.3 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.052,
+    rudderShift: 12,
+    speedLossInTurn: 0.16,
+    concealment: 15000,
+    fireDetectPenalty: 6500,
+    // Her Type 21 on her pagoda's masthead and her Type 22 below it.
+    radarRange: 9000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Eight inches of belt, as Barrow built her -- a battlecruiser's -- and a
+    // deck thickened over her magazines and her machinery when she was rebuilt;
+    // ten inches on her turret faces and barbettes.
+    armor: { belt: 203, deck: 102, citadel: 254, bow: 76, superstructure: 25 },
+    turrets: [
+      // No.1 and No.2 forward, No.2 superfiring; No.3 abaft her mainmast on her
+      // forecastle deck and No.4 on her quarterdeck, both facing astern.
+      { id: 0, name: 'No.1', x: 0, z: 58.15, angle: 0, arc: 2.58, guns: 2, my: 9.2,
+        lift: [[-2.6, -2.5, 0]],
+        mask: [[-2.6, -2.52, 0]] },
+      { id: 1, name: 'No.2', x: 0, z: 45.15, angle: -0.2, arc: 2.55, guns: 2, my: 12.2 },
+      { id: 2, name: 'No.3', x: 0, z: -24.75, angle: -Math.PI, arc: 2.65, guns: 2, my: 9.2,
+        lift: [[0.47, 0.54, 0.053], [0.53, 0.55, 0.018], [0.54, 0.64, 0.009], [0.63, 0.68, 0], [0.75, 0.92, 0.009],
+          [0.91, 0.94, 0], [2.48, 2.51, 0], [2.5, 2.63, 0.009], [2.73, 2.75, 0], [2.74, 2.88, 0.009],
+          [-2.88, -2.74, 0.009], [-2.75, -2.73, 0], [-2.63, -2.5, 0.009], [-2.51, -2.48, 0], [-0.94, -0.91, 0],
+          [-0.92, -0.75, 0.009], [-0.68, -0.65, 0], [-0.66, -0.54, 0.009], [-0.55, -0.53, 0.018],
+          [-0.54, -0.47, 0.088]],
+        mask: [[0.47, 0.54, 0.07], [0.53, 0.55, 0.053], [0.54, 0.57, 0.027], [0.56, 0.62, 0.009], [0.61, 0.66, 0],
+          [0.77, 0.9, 0.009], [0.89, 0.92, 0], [2.5, 2.53, 0], [2.52, 2.61, 0.009], [2.74, 2.77, 0],
+          [2.76, 2.86, 0.009], [2.97, 3.03, 0], [3.02, 3.1, 0.009], [3.09, -3.13, 0.018], [-3.14, -3.11, 0.009],
+          [-3.12, -3.06, 0.027], [-3.07, -3.04, 0.018], [-3.05, -3.01, 0.009], [-3.02, -2.97, 0],
+          [-2.86, -2.76, 0.009], [-2.77, -2.74, 0], [-2.61, -2.52, 0.009], [-2.53, -2.5, 0], [-0.92, -0.89, 0],
+          [-0.9, -0.77, 0.009], [-0.66, -0.63, 0], [-0.64, -0.54, 0.009], [-0.54, -0.51, 0.018],
+          [-0.52, -0.47, 0.088]] },
+      { id: 3, name: 'No.4', x: 0, z: -64.85, angle: -3.12, arc: 3.1, guns: 2, my: 7.5,
+        lift: [[0.34, 0.36, -0.008], [0.35, 0.47, 0.009], [0.46, 0.48, 0], [0.51, 0.54, -0.008], [0.53, 0.64, 0.009],
+          [0.63, 0.66, 0], [2.66, 2.7, 0], [2.69, 2.81, 0.009], [2.88, 3, 0], [-3.02, -2.92, 0.009],
+          [-2.93, -2.88, 0], [-2.81, -2.69, 0.009], [-2.7, -2.66, 0], [-0.66, -0.63, 0], [-0.64, -0.53, 0.009],
+          [-0.54, -0.51, -0.008], [-0.48, -0.46, 0], [-0.47, -0.35, 0.009], [-0.36, -0.34, -0.008]],
+        mask: [[0.04, 0.1, 0.35], [0.09, 0.14, 0.21], [0.13, 0.15, 0.105], [0.14, 0.17, 0.088], [0.16, 0.22, 0.07],
+          [0.21, 0.24, 0.053], [0.23, 0.29, 0.044], [0.28, 0.31, 0.018], [0.3, 0.33, -0.008], [0.35, 0.38, -0.008],
+          [0.37, 0.45, 0.009], [0.44, 0.47, 0], [0.53, 0.55, -0.008], [0.54, 0.62, 0.009], [0.61, 0.64, 0],
+          [2.67, 2.72, 0], [2.71, 2.79, 0.009], [2.9, 2.98, 0], [-3, -2.94, 0.009], [-2.95, -2.9, 0],
+          [-2.79, -2.71, 0.009], [-2.72, -2.67, 0], [-0.64, -0.61, 0], [-0.62, -0.54, 0.009], [-0.55, -0.53, -0.008],
+          [-0.47, -0.44, 0], [-0.45, -0.37, 0.009], [-0.38, -0.35, -0.008], [-0.33, -0.3, -0.008],
+          [-0.31, -0.28, 0.018], [-0.29, -0.2, 0.044], [-0.21, -0.16, 0.07], [-0.17, -0.14, 0.088],
+          [-0.15, -0.13, 0.105], [-0.14, -0.11, 0.21], [-0.12, -0.09, 0.262], [-0.1, -0.04, 0.35], [-0.05, 0, 0.437]] },
+    ],
+    gun: {
+      name: '35.6 cm/45 41st Year Type', role: 'surface',
+      // Five below the horizontal to forty-three up, as she was rebuilt.
+      elev: { min: -0.087, max: 0.75 },
+      reach: 14.4,
+      caliber: 356, reload: 24, traverse: 0.07, range: 20600, sigma: 1.4,
+      shells: shells(356, 10200, 4800, 480, 770, 0.24),
+    },
+    torpedoes: null,
+    // Eight 15.2 cm/50 41st Year Type, four a side in casemates in her side,
+    // under her forecastle deck: each looks out on its own beam and nowhere
+    // else, through the embrasure the sculpt drew for it.
+    secondary: {
+      name: '15.2 cm/50 41st Year Type', role: 'surface',
+      elev: { min: -0.087, max: 0.52 },
+      reach: 6.6,
+      caliber: 152, reload: 8.5, traverse: 0.12, range: 11800, sigma: 1.5,
+      shells: shells(152, 2600, 2100, 140, 835, 0.12),
+      mounts: [
+        { x: -12.46, z: 17.5, angle: -1.57, arc: 0.94, rest: -Math.PI / 2, guns: 1, my: 4.1 },
+        { x: 12.84, z: 17.5, angle: 1.57, arc: 0.94, rest: Math.PI / 2, guns: 1, my: 4.1 },
+        { x: -12.96, z: -0.5, angle: -1.57, arc: 0.94, rest: -Math.PI / 2, guns: 1, my: 4.1 },
+        { x: 13.12, z: -0.5, angle: 1.57, arc: 0.94, rest: Math.PI / 2, guns: 1, my: 4.1 },
+        { x: -12.66, z: -12.5, angle: -1.57, arc: 0.94, rest: -Math.PI / 2, guns: 1, my: 4.1 },
+        { x: 12.88, z: -12.5, angle: 1.57, arc: 0.94, rest: Math.PI / 2, guns: 1, my: 4.1 },
+        { x: -10.05, z: -30.0, angle: -1.57, arc: 0.94, rest: -Math.PI / 2, guns: 1, my: 4.1 },
+        { x: 10.23, z: -30.0, angle: 1.57, arc: 0.94, rest: Math.PI / 2, guns: 1, my: 4.1 },
+      ],
+    },
+    aa: {
+      range: 6200, dps: 84,
+      guns: [
+        // Four 12.7 cm Type 89 twins, in the tubs the sculpt of her has for
+        // them abreast her bridge and her mainmast.
+        { name: '12.7 cm Type 89', caliber: 127, role: 'dp', reload: 4.0, range: 6200,
+          elev: { min: -0.14, max: 1.57 },
+          mounts: [
+            { x: -11.6, z: 26.3, angle: -Math.PI / 2, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10 },
+            { x: 11.0, z: 26.3, angle: Math.PI / 2, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10 },
+            { x: -9.5, z: 0.0, angle: -Math.PI / 2, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10 },
+            { x: 10.5, z: 0.0, angle: Math.PI / 2, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10 },
+          ] },
+        // Twelve triple 25 mm Type 96, on her shelter deck abreast her bridge,
+        // on her forecastle deck either side of her funnels and abreast No.3,
+        // and on her quarterdeck -- clear of her turrets as they train.
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: -8.5, z: 33.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 10.5 },
+            { x: 8.5, z: 33.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 10.5 },
+            { x: -10.5, z: -7.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 8 },
+            { x: 10.5, z: -7.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 8 },
+            { x: -8.0, z: -16.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 8 },
+            { x: 8.0, z: -16.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 8 },
+            { x: -6.0, z: -36.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 8 },
+            { x: 6.0, z: -36.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 8 },
+            { x: -8.5, z: -50.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 6.3 },
+            { x: 8.5, z: -50.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 6.3 },
+            { x: -4.5, z: -78.0, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 3, my: 6.3 },
+            { x: 4.5, z: -78.0, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 3, my: 6.3 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 36600,
+      aircraft: 0,
+      mainRounds: 720,
+      secondary: { caliber: 152, label: '15.2cm', barrels: 8, rounds: 1600 },
+      tertiary: [
+        { caliber: 127, label: '12.7cm', barrels: 8, rounds: 4000 },
+        { caliber: 25, label: '25mm', barrels: 36, rounds: 108000 },
+      ],
+    },
+  },
+
   fuso: {
     // IJN Fuso, the first of the two Fusos: twelve 35.6 cm/45 in six twin
     // turrets -- more than any other battleship of her day -- three forward of
@@ -6212,7 +6368,7 @@ export const SHIP_CLASSES = {
 };
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'richelieu', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'richelieu', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'enterprise', 'shinano'];
 
 export function getClass(id) {

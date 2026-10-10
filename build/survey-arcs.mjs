@@ -178,6 +178,12 @@ function surveyAll() {
     const tip = V(0, 0, 0);
     const from = V(0, 0, 0);
     const dir = V(0, 0, 0);
+    // A gun in a casemate (`userData.casemate`: the plane of her side its
+    // embrasure is in, at x, and the port's middle and half its length and
+    // height) has its barrel out through her side by design: it is clear where
+    // its barrel goes out through the port, and from there on it has to clear
+    // her like any other.
+    const cm = m.userData.casemate || null;
     function clearAt(b, el) {
       lay(b, el);
       for (const mz of muzzles) {
@@ -185,6 +191,13 @@ function surveyAll() {
         for (const [ox, oy] of [[0, 0], [K.half, 0], [-K.half, 0], [0, K.half], [0, -K.half]]) {
           tip.set(mz.x + ox, mz.y + oy, mz.z).applyMatrix4(node.matrixWorld);
           from.set(mz.x + ox, mz.y + oy, 0).applyMatrix4(node.matrixWorld);
+          if (cm) {
+            const f = (cm.x - from.x) / (tip.x - from.x);
+            if (!(f > 0 && f < 1)) return false;
+            from.lerp(tip, f);
+            if (Math.abs(from.z - cm.z) > cm.half || Math.abs(from.y - cm.y) > cm.high) return false;
+            from.x += Math.sign(cm.x) * 0.3;
+          }
           dir.copy(tip).sub(from);
           const len = dir.length();
           dir.normalize();

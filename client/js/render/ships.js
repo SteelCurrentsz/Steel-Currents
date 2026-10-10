@@ -17,6 +17,7 @@ import { buildBaltimore } from './baltimore.js';
 import { buildMassachusetts } from './massachusetts.js';
 import { buildMusashi } from './musashi.js';
 import { buildFuso } from './fuso.js';
+import { buildKongo } from './kongo.js';
 import { buildBismarck, buildTirpitz } from './bismarck.js';
 import { buildRichelieu } from './richelieu.js';
 import { buildUboat } from './uboat.js';
@@ -572,6 +573,21 @@ export function buildShip(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Kongo: the owner's sculpts of her hull and superstructure, her
+  // bridge and every gun she carried.
+  if (cls.id === 'kongo') {
+    const built = buildKongo();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
     };
   }
 

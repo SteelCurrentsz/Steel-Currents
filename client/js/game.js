@@ -937,6 +937,22 @@ export class Battle {
       }
       return { x: GUN_EYE.x + sx * out, y: GUN_EYE.y + 0.6, z: GUN_EYE.z + sz * out };
     }
+    // A gun in a casemate is laid from its port. Its mounting is inside her,
+    // under her deck, and an eye stood up off it and stepped back is an eye in
+    // her messdeck looking at the back of her side plating: so it is carried
+    // out along the line of sight to where that line goes out through her
+    // side, a pace beyond, and a little over the bore -- where the layer's
+    // telescope looks out through the embrasure.
+    const cm = m.userData.casemate;
+    if (cm) {
+      const yaw = this.gunYaw - v.group.rotation.y;
+      const lx = Math.sin(yaw);
+      const lz = Math.cos(yaw);
+      const out = lx * Math.sign(cm.x) > 0.2 ? (cm.x - m.position.x) / lx : Math.abs(cm.x - m.position.x);
+      GUN_EYE.set(m.position.x + lx * (out + 0.6), cm.y + 1.1, m.position.z + lz * (out + 0.6));
+      v.group.localToWorld(GUN_EYE);
+      return { x: GUN_EYE.x, y: GUN_EYE.y, z: GUN_EYE.z };
+    }
     const { up, back } = this.eyeOffsets(v, m);
     return { x: GUN_EYE.x - sx * back, y: GUN_EYE.y + up, z: GUN_EYE.z - sz * back };
   }
