@@ -489,6 +489,11 @@ function cableLockers(g, hull, sole) {
 // tuck under the bilge is followed rather than averaged over, coarse enough
 // that most cells have a vertex in them.
 const ENV_DZ = 0.6;
+// How tall a cell of the plating is filed in for the rays, and how far past
+// its own heights a triangle is filed: far more than any rounding, so a ray
+// never misses a triangle it would have crossed.
+const RAY_DY = 0.5;
+const RAY_PAD = 1e-3;
 const ENV_DY = 0.15;
 // And how far inboard of the plating her insides are held. A bulkhead exactly
 // flush with the shell shows through it wherever the two disagree by a
@@ -534,8 +539,7 @@ const HOUSE_FLOOR = 0.9;
  * crossed it, and a mast or a rail crossing an empty cell makes the ship look
  * a metre wide there.
  */
-function heldToPlating(g, hull) {
-  const tris = platingTriangles(g);
+function heldToPlating(g, hull, tris = platingTriangles(g)) {
   if (!tris.length) return hull;
 
   // Bucketed along her, so a ray only has to try the plating near it.
@@ -562,6 +566,31 @@ function heldToPlating(g, hull) {
     const b1 = Math.min(nz - 1, Math.floor((hi - minZ) / ENV_DZ));
     for (let b = b0; b <= b1; b++) (bucket[b] || (bucket[b] = [])).push(i);
   }
+  // And each slice of her by height as well, so a ray at one height tries
+  // only the plating that reaches it. A triangle is filed in every cell its
+  // own heights overlap, and a hair more, so nothing a ray could cross is
+  // left out of the cell the ray is asked in: the answer is the same, only
+  // fewer triangles are asked.
+  const byHeight = new Array(nz);
+  const layer = (b, y) => {
+    const list = bucket[b];
+    if (!list) return null;
+    let cells = byHeight[b];
+    if (!cells) {
+      cells = new Map();
+      for (const i of list) {
+        const ya = tris[i + 1], yb = tris[i + 4], yc = tris[i + 7];
+        const c0 = Math.floor((Math.min(ya, yb, yc) - RAY_PAD) / RAY_DY);
+        const c1 = Math.floor((Math.max(ya, yb, yc) + RAY_PAD) / RAY_DY);
+        for (let c = c0; c <= c1; c++) {
+          const at = cells.get(c);
+          if (at) at.push(i); else cells.set(c, [i]);
+        }
+      }
+      byHeight[b] = cells;
+    }
+    return cells.get(Math.floor(y / RAY_DY)) || null;
+  };
 
   // The grid: how far out her plating is, at every station and height she has.
   const keelLow = Math.min(hull.keelY(-0.98), hull.keelY(0), hull.keelY(0.98)) - 1;
@@ -570,8 +599,7 @@ function heldToPlating(g, hull) {
   const ny = Math.max(1, Math.ceil((deckHigh - keelLow) / ENV_DY) + 1);
   const grid = new Float32Array(nz * ny).fill(-1);
   for (let zi = 0; zi < nz; zi++) {
-    const list = bucket[zi];
-    if (!list) continue;
+    if (!bucket[zi]) continue;
     const z = minZ + zi * ENV_DZ;
     for (let yi = 0; yi < ny; yi++) {
       // The widest she is on BOTH sides at once, not the widest she is on
@@ -580,7 +608,7 @@ function heldToPlating(g, hull) {
       // gallery four metres out on the starboard quarter is plating, and read
       // as a half-beam it says the ship is four metres wider than she is --
       // to port as well, where there is nothing at all.
-      const sp = spanAt(tris, list, (y0 + yi) * ENV_DY, z);
+      const sp = spanAt(tris, layer(zi, (y0 + yi) * ENV_DY), (y0 + yi) * ENV_DY, z);
       if (!sp) continue;
       const sym = Math.min(-sp.lo, sp.hi);
       grid[zi * ny + yi] = sym > 0 ? sym : -1;
@@ -670,8 +698,8 @@ function heldToPlating(g, hull) {
   };
   for (let zi = 0; zi < hnz; zi++) {
     const z = minZ + zi * HOUSE_DZ;
-    const list = bucket[Math.min(nz - 1, Math.max(0, Math.floor((z - minZ) / ENV_DZ)))];
-    if (!list) continue;
+    const zb = Math.min(nz - 1, Math.max(0, Math.floor((z - minZ) / ENV_DZ)));
+    if (!bucket[zb]) continue;
     const cap = roof(z);
     // Her sheer at this station, not amidships.
     //
@@ -685,7 +713,7 @@ function heldToPlating(g, hull) {
     for (let yi = 0; yi < hny; yi++) {
       const y = (hy0 + yi) * HOUSE_DY;
       if (y < floor) continue;
-      const sp = spanAt(tris, list, y, z);
+      const sp = spanAt(tris, layer(zb, y), y, z);
       if (!sp) continue;
       houseLo[zi * hny + yi] = cap >= 0 ? Math.max(sp.lo, -cap) : sp.lo;
       houseHi[zi * hny + yi] = cap >= 0 ? Math.min(sp.hi, cap) : sp.hi;
@@ -744,9 +772,9 @@ function heldToPlating(g, hull) {
     // a ray at the plate.
     houseRay: (z, y) => {
       if (y < hull.sheer(Math.max(-1, Math.min(1, z / halfL))) + HOUSE_FLOOR) return null;
-      const list = bucket[Math.floor((z - minZ) / ENV_DZ)];
-      if (!list) return null;
-      const sp = spanAt(tris, list, y, z);
+      const zb = Math.floor((z - minZ) / ENV_DZ);
+      if (!bucket[zb]) return null;
+      const sp = spanAt(tris, layer(zb, y), y, z);
       if (!sp) return null;
       const cap = roof(z);
       if (cap < 0) return sp;
@@ -831,6 +859,7 @@ function rayXSigned(tris, i, y, z) {
  * the keel and a carrier's does not.
  */
 function spanAt(tris, list, y, z) {
+  if (!list) return null;
   let lo = Infinity;
   let hi = -Infinity;
   for (let n = 0; n < list.length; n++) {
@@ -1114,6 +1143,32 @@ function upperworks(inside, hull) {
     (base + by) / 2, bz + 0.4, 12);
 }
 
+/** The insides already worked out, by the plating they were fitted to. */
+const INSIDES = new Map();
+
+/**
+ * A key for a set of plating: every coordinate of it, hashed, and the lines it
+ * was drawn to. Two ships share insides only if they share every triangle.
+ */
+function insideKey(tris, hull) {
+  let h1 = 0x811c9dc5 | 0, h2 = 0x01000193 | 0;
+  const f = new Float32Array(1);
+  const u = new Uint32Array(f.buffer);
+  for (let i = 0; i < tris.length; i++) {
+    f[0] = tris[i];
+    h1 = Math.imul(h1 ^ u[0], 16777619);
+    h2 = Math.imul(h2 + u[0], 2246822519) ^ (h2 >>> 13);
+  }
+  return `${tris.length}:${h1 >>> 0}:${h2 >>> 0}:${hull.loa}:${hull.keelY(0)}:${hull.sheer(0)}`;
+}
+
+/** Her own copy of a set of insides: her own geometry, the shared materials. */
+function copyInside(src) {
+  const out = src.clone(true);
+  out.traverse((o) => { if (o.geometry) o.geometry = o.geometry.clone(); });
+  return out;
+}
+
 /**
  * Build the whole of the inside of a hull.
  *
@@ -1140,7 +1195,23 @@ export function buildInterior(g, hull) {
   // this runs -- and the lines are held to it: never wider than the ship
   // actually is at that point, less a hand's breadth so nothing is flush with
   // the shell.
-  hull = heldToPlating(g, hull);
+  //
+  // All of that is measured off her plating and nothing else, so two ships
+  // drawn with the same plating have the same insides to the last bolt -- and
+  // working them out is most of the time it takes to build a ship: three and a
+  // half seconds for the Fuso, which is a battle that stops dead whenever one
+  // joins it. So the insides are worked out once for each set of plating and
+  // every later ship of the class is given her own copy of them.
+  const tris = platingTriangles(g);
+  const key = globalThis.__INSIDE_TRACE ? null : insideKey(tris, hull);
+  const kept = key && INSIDES.get(key);
+  if (kept) {
+    const inside = copyInside(kept.inside);
+    g.add(inside);
+    g.userData.lines = kept.lines;
+    return inside;
+  }
+  hull = heldToPlating(g, hull, tris);
 
   const inside = new THREE.Group();
   inside.userData.inside = true;
@@ -1281,6 +1352,8 @@ export function buildInterior(g, hull) {
       }
     }
   }
+  // Kept for the next of her class, before anything welds it into her.
+  if (key) INSIDES.set(key, { inside: copyInside(inside), lines: hull });
   return inside;
 }
 

@@ -25,7 +25,7 @@ import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
-import { mergeStatic } from './merge.js';
+import { mergeStatic, weldLoose } from './merge.js';
 import { dressShip } from './textures.js';
 
 const PALETTE = {
@@ -424,6 +424,34 @@ function orderLightMounts(cls, built) {
 }
 
 export function buildShip(classId) {
+  const built = buildShipModel(classId);
+  weldLoose(built.group, handedOver(built));
+  return built;
+}
+
+/**
+ * Everything a built ship hands the scene to work -- her turrets, her
+ * mountings, her lifts, and whatever she hung on her own userData -- which
+ * weldLoose has to leave exactly as it is.
+ */
+function handedOver(built) {
+  const out = new Set();
+  const add = (v, depth = 0) => {
+    if (!v || depth > 2) return;
+    if (v.isObject3D) { out.add(v); return; }
+    if (Array.isArray(v)) { for (const x of v) add(x, depth + 1); return; }
+    if (typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+      for (const k in v) add(v[k], depth + 1);
+    }
+  };
+  for (const k in built) if (k !== 'group') add(built[k]);
+  // And anything any part of her keeps a hand on: a mounting that knows its
+  // own barrels, a catapult that knows its car.
+  built.group.traverse((o) => { for (const k in o.userData) add(o.userData[k]); });
+  return out;
+}
+
+export function buildShipModel(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
   // The Big E is modelled rather than generated: a Yorktown's flight deck,
   // island, galleries and catwalks are not a shape a procedural hull can be

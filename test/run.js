@@ -146,7 +146,7 @@ import { Debris } from '../client/js/render/debris.js';
 import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
-import { buildShip } from '../client/js/render/ships.js';
+import { buildShip, buildShipModel } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
@@ -8187,6 +8187,116 @@ check('a battle that runs slow is drawn slow, and nothing on it ever sails aster
         `on a battle running at ${rate.toFixed(2)}x, ${who} ran between ${lo.toFixed(1)} and ${hi.toFixed(1)} m/s`);
     }
   }
+});
+
+/**
+ * What a ship shows, as numbers: for each material, how many triangles of it
+ * are on screen and where their corners are, in her own frame.
+ */
+function shownOf(root, all = false) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const acc = {};
+  const visit = (o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    const key = `${mat.type}:${mat.color ? mat.color.getHexString() : ''}:${mat.transparent ? 't' : 'o'}`;
+    const a = acc[key] || (acc[key] = [0, 0, 0, 0]);
+    const g = o.geometry;
+    const P = g.attributes.position;
+    const I = g.index;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    const n = I ? I.count : P.count;
+    for (let k = 0; k < n; k++) {
+      v.fromBufferAttribute(P, I ? I.getX(k) : k).applyMatrix4(m);
+      a[1] += v.x; a[2] += v.y; a[3] += v.z;
+    }
+    a[0] += n / 3;
+  };
+  if (all) root.traverse(visit); else root.traverseVisible(visit);
+  return acc;
+}
+
+function sameShown(a, b, what) {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    assert.ok(a[k] && b[k], `${what}: ${k} is drawn in one and not the other`);
+    assert.equal(a[k][0], b[k][0], `${what}: ${k} has ${b[k][0]} triangles, not ${a[k][0]}`);
+    for (let i = 1; i < 4; i++) {
+      assert.ok(Math.abs(a[k][i] - b[k][i]) <= Math.max(0.05, Math.abs(a[k][i]) * 1e-4),
+        `${what}: ${k} has moved`);
+    }
+  }
+}
+
+check('what is hung on a ship after her weld is welded too, and nothing on screen changes', () => {
+  // Her gun tubs, her lockers, the aeroplanes on her catapults and her deck:
+  // all of it put on after her weld, and all of it drawn a mesh at a time --
+  // more than half of a battleship's draw calls. It is welded now, each part
+  // that moves in its own frame, and every one of them has to go on moving.
+  const play = (b, t) => {
+    const ud = b.group.userData;
+    if (t === 'laid') {
+      for (const tu of b.turrets || []) { const T = tu.group || tu; if (T.rotation) T.rotation.y = 0.4; }
+      for (const a of [...(b.secMounts || []), ...(b.aaMounts || [])]) {
+        if (!a) continue;
+        a.rotation.y = 0.5;
+        const gn = a.userData.gunNode;
+        if (gn && gn !== a) gn.rotation.x = -0.3;
+      }
+      b.group.traverse((o) => { if (o.userData.screw) o.rotation.z += 0.7; });
+    } else if (t === 'launch') {
+      ud.step?.(0); ud.launch?.(1); ud.step?.(5);
+    } else if (t === 'away') {
+      ud.step?.(40);
+    } else if (t === 'home') {
+      ud.stow?.(); ud.recover?.(42); ud.step?.(43);
+      b.group.traverse((o) => { if (typeof o.userData.gear === 'function') o.userData.gear(1); });
+    }
+  };
+  let before = 0, after = 0;
+  for (const id of ['massachusetts', 'bismarck', 'enterprise', 'kongo']) {
+    const raw = buildShipModel(id);
+    const welded = buildShip(id);
+    raw.group.traverseVisible((o) => { if (o.isMesh) before++; });
+    welded.group.traverseVisible((o) => { if (o.isMesh) after++; });
+    for (const t of ['built', 'laid', 'launch', 'away', 'home']) {
+      play(raw, t);
+      play(welded, t);
+      sameShown(shownOf(raw.group), shownOf(welded.group), `${id}, ${t}`);
+    }
+  }
+  assert.ok(after < before * 0.6, `${before} meshes came down only to ${after}`);
+});
+
+check("a ship's insides are worked out once for her class, and each ship has her own", () => {
+  // Fitting her insides to her plating was most of the time it took to build
+  // a ship -- three and a half seconds for the Fuso -- and a battle stopped
+  // dead whenever one was sighted. The second of a class takes the first's.
+  const a = buildShip('fuso');
+  const t = performance.now();
+  const b = buildShip('fuso');
+  const took = performance.now() - t;
+  sameShown(shownOf(a.group, true), shownOf(b.group, true), 'the second Fuso');
+  assert.ok(took < 1500, `the second Fuso took ${took.toFixed(0)} ms to build`);
+  // Her own copy: nothing of one ship's hull and insides is another's, or a
+  // hole shot in one would be shot in both. (Her turrets' sculpts are shared
+  // between ships of a class, as they always were; nothing cuts holes in them.)
+  const fixed = (o, root) => {
+    for (let p = o.parent; p && p !== root; p = p.parent) if (p.userData.dynamic) return false;
+    return !!o.geometry;
+  };
+  const mine = new Set();
+  a.group.traverse((o) => { if (fixed(o, a.group)) mine.add(o.geometry.attributes.position.array); });
+  let n = 0;
+  b.group.traverse((o) => {
+    if (!fixed(o, b.group)) return;
+    n++;
+    assert.ok(!mine.has(o.geometry.attributes.position.array), 'two Fusos share a buffer in her hull');
+  });
+  assert.ok(n > 10, 'the second Fuso has no hull');
+  assert.equal(typeof b.group.userData.lines.shellAt, 'function', 'the second Fuso has no lines');
 });
 
 check('the sea never leaves the hull', () => {

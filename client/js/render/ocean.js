@@ -951,56 +951,90 @@ export class Ocean {
    */
   sample(x, z, time = this.material.uniforms.uTime.value) {
     const u = this.material.uniforms;
-    const amp = u.uAmp.value;
-    const steep = u.uSteep.value;
-    const n = WAVES.length;
+    const W = this.waveTerms(u.uAmp.value, u.uSteep.value);
+    const n = W.n;
+    const DX = W.dirx, DZ = W.dirz, K = W.k, A = W.a, OM = W.om, Q = W.q;
     let px = x;
     let pz = z;
-    let out = { y: 0, nx: 0, ny: 1, nz: 0 };
-    for (let pass = 0; pass < 3; pass++) {
+    let dy = 0;
+    // The first two passes only walk the point back; the tilt is wanted off
+    // the last one, so only the last one works it out.
+    for (let pass = 0; pass < 2; pass++) {
       let dx = 0;
-      let dy = 0;
       let dz = 0;
-      let ddxx = 1;
-      let ddxy = 0;
-      let ddxz = 0;
-      let ddzx = 0;
-      let ddzy = 0;
-      let ddzz = 1;
       for (let i = 0; i < n; i++) {
-        const w = WAVES[i];
-        const len = Math.hypot(w.dir[0], w.dir[1]);
-        const dirx = w.dir[0] / len;
-        const dirz = w.dir[1] / len;
-        const k = (Math.PI * 2) / w.len;
-        const a = w.amp * amp;
-        const om = Math.sqrt(G * k);
-        const q = (w.steep * steep) / Math.max(k * a * n, 1e-4);
-        const ph = k * (dirx * px + dirz * pz) - om * time;
+        const dirx = DX[i], dirz = DZ[i], a = A[i], q = Q[i];
+        const ph = K[i] * (dirx * px + dirz * pz) - OM[i] * time;
         const c = Math.cos(ph);
-        const s = Math.sin(ph);
         dx += q * a * dirx * c;
-        dy += a * s;
         dz += q * a * dirz * c;
-        const wa = k * a;
-        ddxx += -q * wa * dirx * dirx * s;
-        ddxy += wa * dirx * c;
-        ddxz += -q * wa * dirx * dirz * s;
-        ddzx += -q * wa * dirx * dirz * s;
-        ddzy += wa * dirz * c;
-        ddzz += -q * wa * dirz * dirz * s;
       }
-      // Walk the parameter back so the displaced point lands where asked.
       px = x - dx;
       pz = z - dz;
-      // Cross of the two tangents, which is the normal.
-      const nx = ddzy * ddxz - ddzz * ddxy;
-      const ny = ddzz * ddxx - ddzx * ddxz;
-      const nz = ddzx * ddxy - ddzy * ddxx;
-      const l = Math.hypot(nx, ny, nz) || 1;
-      out = { y: dy, px, pz, nx: nx / l, ny: ny / l, nz: nz / l };
     }
-    return out;
+    let dx = 0;
+    let dz = 0;
+    let ddxx = 1;
+    let ddxy = 0;
+    let ddxz = 0;
+    let ddzx = 0;
+    let ddzy = 0;
+    let ddzz = 1;
+    for (let i = 0; i < n; i++) {
+      const dirx = DX[i], dirz = DZ[i], k = K[i], a = A[i], q = Q[i];
+      const ph = k * (dirx * px + dirz * pz) - OM[i] * time;
+      const c = Math.cos(ph);
+      const s = Math.sin(ph);
+      dx += q * a * dirx * c;
+      dy += a * s;
+      dz += q * a * dirz * c;
+      const wa = k * a;
+      ddxx += -q * wa * dirx * dirx * s;
+      ddxy += wa * dirx * c;
+      ddxz += -q * wa * dirx * dirz * s;
+      ddzx += -q * wa * dirx * dirz * s;
+      ddzy += wa * dirz * c;
+      ddzz += -q * wa * dirz * dirz * s;
+    }
+    // Walk the parameter back so the displaced point lands where asked.
+    px = x - dx;
+    pz = z - dz;
+    // Cross of the two tangents, which is the normal.
+    const nx = ddzy * ddxz - ddzz * ddxy;
+    const ny = ddzz * ddxx - ddzx * ddxz;
+    const nz = ddzx * ddxy - ddzy * ddxx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    return { y: dy, px, pz, nx: nx / l, ny: ny / l, nz: nz / l };
+  }
+
+  /**
+   * What each wave is, worked out once for the sea state rather than three
+   * times a wave on every call: its heading, its wavenumber, its frequency,
+   * its height and its steepness, as the shader has them.
+   */
+  waveTerms(amp, steep) {
+    const c = this.terms;
+    if (c && c.amp === amp && c.steep === steep) return c;
+    const n = WAVES.length;
+    const t = {
+      amp, steep, n,
+      dirx: new Float64Array(n), dirz: new Float64Array(n), k: new Float64Array(n),
+      a: new Float64Array(n), om: new Float64Array(n), q: new Float64Array(n),
+    };
+    for (let i = 0; i < n; i++) {
+      const w = WAVES[i];
+      const len = Math.hypot(w.dir[0], w.dir[1]);
+      t.dirx[i] = w.dir[0] / len;
+      t.dirz[i] = w.dir[1] / len;
+      const k = (Math.PI * 2) / w.len;
+      const a = w.amp * amp;
+      t.k[i] = k;
+      t.a[i] = a;
+      t.om[i] = Math.sqrt(G * k);
+      t.q[i] = (w.steep * steep) / Math.max(k * a * n, 1e-4);
+    }
+    this.terms = t;
+    return t;
   }
 
   /** Wave height at a world point. */

@@ -105,7 +105,66 @@ export function mergeMoving(group, keyOf = null) {
   return saved;
 }
 
-export function mergeStatic(group, keyOf = null) {
+/**
+ * Weld whatever was put on a finished ship after her weld.
+ *
+ * A model is welded part-way through being built, and a good deal goes on her
+ * afterward: every light mounting's tub with its splinter shield, its rails
+ * and its ladder (the gun is lifted out of it and laid by the scene; the tub
+ * stays where it was put), and the ready-use lockers round it. On a
+ * battleship that was some five hundred meshes drawn one at a time, every
+ * frame, for every one of them on the sea -- most of a frame's draw calls.
+ *
+ * Only what can be shown to be inert goes in: a visible, opaque mesh with
+ * nothing on it the game could find it by (no userData of its own, no
+ * children), not inside anything that moves or that the model handed the
+ * scene to work (`skip`), and not already a weld. A weld is never welded
+ * again -- that would fold the compartments a hull is split into back
+ * together. Nothing changes on screen: the same triangles in the same
+ * materials, in fewer buffers.
+ */
+export function weldLoose(group, skip = new Set()) {
+  const welded = (o) => !!(o.userData && (o.userData.pieces || o.userData.mergeKey !== undefined));
+  const plain = (o) => {
+    if (o.name) return false;
+    const ud = o.userData || {};
+    for (const k in ud) if (k !== 'pieceId') return false;
+    return true;
+  };
+  // A part that moves, that the model handed over, or that has a name the game
+  // could look it up by, is a unit: nothing in it is welded into anything
+  // outside it, and nothing outside it into it.
+  // So is any group something has written a note on: a landing-gear leg that
+  // knows where its foot is is a leg that swings up into her wing.
+  const unit = (n) => n !== group && (n.userData.dynamic || skip.has(n)
+    || (!n.isMesh && (!!n.name || !plain(n))));
+  const opts = {
+    stop: (node) => unit(node) || (!node.isMesh && node.visible === false),
+    take: (mesh) => !welded(mesh) && plain(mesh) && !mesh.children.length
+      && !skip.has(mesh) && !Array.isArray(mesh.material) && !!mesh.material
+      && !mesh.material.transparent && !mesh.isSkinnedMesh
+      // A mirrored piece is drawn with its winding turned round; baked into a
+      // buffer that is not mirrored, it would be drawn inside out.
+      && mesh.matrixWorld.determinant() > 0,
+    // Its own texture coordinates, so a plate on a locker is the plate it was.
+    keepUv: true,
+    // And never a painted piece in with an unpainted one, nor one that has
+    // texture coordinates with one that has none.
+    split: (mesh) => `${mesh.geometry.attributes.color ? 'c' : '-'}${mesh.geometry.attributes.uv ? 'u' : '-'}`,
+  };
+  // Every unit on her, found before anything is welded, and then each one
+  // welded in its own frame -- so a catapult car's girders are one buffer that
+  // still runs down the track, and the aeroplane on it another that is still
+  // thrown off it.
+  const units = [];
+  group.traverse((n) => { if (unit(n) && !n.isMesh) units.push(n); });
+  group.updateMatrixWorld(true);
+  let saved = mergeStatic(group, null, opts);
+  for (const u of units) saved += mergeStatic(u, null, opts);
+  return saved;
+}
+
+export function mergeStatic(group, keyOf = null, opts = null) {
   group.updateMatrixWorld(true);
   const inv = group.matrixWorld.clone().invert();
 
@@ -130,6 +189,7 @@ export function mergeStatic(group, keyOf = null) {
   const walk = (node, owner) => {
     for (const child of node.children) {
       if (child.userData.dynamic) continue;
+      if (opts && opts.stop && opts.stop(child)) continue;
       // What is switched off stays off.
       //
       // An aeroplane carries both sets of wings and hides one of them: an
@@ -150,6 +210,7 @@ export function mergeStatic(group, keyOf = null) {
       // welding it would keep exactly one of them. Points carry their own
       // attributes and are not geometry in this sense either.
       if (child.isInstancedMesh || child.isPoints) continue;
+      if (child.isMesh && opts && opts.take && !opts.take(child)) continue;
       if (child.isMesh && child.geometry.attributes.position) {
         found.push(child);
         owners.set(child, owner || child);
@@ -197,7 +258,9 @@ export function mergeStatic(group, keyOf = null) {
       const c = geo.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(m);
       key = keyOf(mesh, c.x, c.y, c.z);
     }
-    const slot = key === null ? mesh.material : `${key}\u0000${mesh.material.uuid}`;
+    const split = opts && opts.split ? opts.split(mesh) : null;
+    const slot = key === null && split === null ? mesh.material
+      : `${key}\u0000${split}\u0000${mesh.material.uuid}`;
     let bucket = byMat.get(slot);
     if (!bucket) {
       byMat.set(slot, (bucket = {
@@ -206,6 +269,7 @@ export function mergeStatic(group, keyOf = null) {
     }
     const base = bucket.pos.length / 3;
     const idxFrom = bucket.idx.length;
+    const ownUv = opts && opts.keepUv ? geo.attributes.uv || null : null;
 
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m);
@@ -217,7 +281,8 @@ export function mergeStatic(group, keyOf = null) {
         // Box projection off whichever way the face mostly looks: flat up for
         // a deck, athwartships for a ship's side, fore and aft for a bulkhead.
         const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
-        if (ay >= ax && ay >= az) bucket.uv.push(px, pz);
+        if (opts && opts.keepUv) bucket.uv.push(ownUv ? ownUv.getX(i) : 0, ownUv ? ownUv.getY(i) : 0);
+        else if (ay >= ax && ay >= az) bucket.uv.push(px, pz);
         else if (ax >= az) bucket.uv.push(pz, py);
         else bucket.uv.push(px, py);
       }

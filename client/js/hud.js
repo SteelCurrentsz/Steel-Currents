@@ -1541,31 +1541,9 @@ export class Hud {
     }
   }
 
-  paintPlot(plot, own, ships, snap) {
-    const ctx = plot.ctx;
-    // The plot is drawn in the pixels it is actually shown at.
-    //
-    // It used to be a fixed three-hundred-and-twenty-pixel canvas squeezed into
-    // whatever box the stylesheet gave it, which on a phone is about a hundred:
-    // a destroyer's counter came out at two pixels across and a gun ashore at
-    // two and a half, which is to say invisible. Sizing the backing store to
-    // the box -- times the screen's own pixel ratio, so it stays sharp -- means
-    // a mark drawn six pixels wide is six pixels wide on the glass.
-    const cv = plot.cv;
-    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
-    const size = Math.max(64, Math.round(cv.clientWidth || 240));
-    const store = Math.round(size * dpr);
-    if (cv.width !== store || cv.height !== store) { cv.width = store; cv.height = store; }
+  /** What the plot draws under everything that moves. See paintPlot. */
+  paintChart(ctx, store, size, toX, toY, H, scale) {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
-    // And the marks come down a little on a small plot, so a division in line
-    // abreast is still four counters rather than one blob.
-    const k = clamp(size / 240, 0.7, 1.15);
-    const H = this.world?.half || MAP_HALF;
-    const view = plot.view;
-    const scale = (size / (H * 2)) * view.zoom;
-    const toX = (x) => size / 2 + (x - view.x) * scale;
-    const toY = (z) => size / 2 - (z - view.z) * scale;
-
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(8,24,42,0.75)';
     ctx.fillRect(0, 0, size, size);
@@ -1613,6 +1591,49 @@ export class Hud {
       }
       ctx.fill('evenodd');
     }
+  }
+
+  paintPlot(plot, own, ships, snap) {
+    const ctx = plot.ctx;
+    // The plot is drawn in the pixels it is actually shown at.
+    //
+    // It used to be a fixed three-hundred-and-twenty-pixel canvas squeezed into
+    // whatever box the stylesheet gave it, which on a phone is about a hundred:
+    // a destroyer's counter came out at two pixels across and a gun ashore at
+    // two and a half, which is to say invisible. Sizing the backing store to
+    // the box -- times the screen's own pixel ratio, so it stays sharp -- means
+    // a mark drawn six pixels wide is six pixels wide on the glass.
+    const cv = plot.cv;
+    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    const size = Math.max(64, Math.round(cv.clientWidth || 240));
+    const store = Math.round(size * dpr);
+    if (cv.width !== store || cv.height !== store) { cv.width = store; cv.height = store; }
+    ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
+    // And the marks come down a little on a small plot, so a division in line
+    // abreast is still four counters rather than one blob.
+    const k = clamp(size / 240, 0.7, 1.15);
+    const H = this.world?.half || MAP_HALF;
+    const view = plot.view;
+    const scale = (size / (H * 2)) * view.zoom;
+    const toX = (x) => size / 2 + (x - view.x) * scale;
+    const toY = (z) => size / 2 - (z - view.z) * scale;
+
+    // The sea, the grid, the border and the land do not move unless the plot
+    // does, and the coast of a real place is thousands of points: they are
+    // drawn once into a layer of their own and laid down each frame, and
+    // drawn again only when the plot is sized, panned or zoomed.
+    const key = `${store}|${size}|${view.x}|${view.z}|${view.zoom}|${H}`;
+    if (!plot.base || plot.baseKey !== key || plot.baseWorld !== this.world) {
+      const base = plot.base || (plot.base = document.createElement('canvas'));
+      base.width = store; base.height = store;
+      this.paintChart(base.getContext('2d'), store, size, toX, toY, H, scale);
+      plot.baseKey = key;
+      plot.baseWorld = this.world;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, store, store);
+    ctx.drawImage(plot.base, 0, 0);
+    ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
 
     if (snap) {
       ctx.strokeStyle = 'rgba(226,233,242,0.8)';

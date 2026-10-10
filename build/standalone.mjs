@@ -28,7 +28,8 @@ const HULLS = path.join(ROOT, 'client/js/render');
 
 execFileSync('npx', [
   'esbuild', 'client/js/main.js',
-  '--bundle', '--minify',
+  // MINIFY=0 leaves the names in, for a profile that can be read.
+  '--bundle', ...(process.env.MINIFY === '0' ? [] : ['--minify']),
   ...(SPLIT ? ['--format=esm', '--external:*.data.js'] : ['--format=iife']),
   `--outfile=${out('bundle.js')}`, '--log-level=warning',
 ], { cwd: ROOT, stdio: 'inherit' });
