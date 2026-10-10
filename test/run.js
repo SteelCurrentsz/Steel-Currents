@@ -14817,7 +14817,7 @@ check('the ground is ground, and it can be knocked about', () => {
   // Land used to be the one thing in this game that could be hit and not
   // change. A sixteen-inch shell into a hillside raised a puff of dust and the
   // hillside was exactly as it had been.
-  const world = generateWorld(4242, 'open_ocean');
+  const world = generateWorld(4242, 'coral_shelf');
   const st = createState(world, { mode: 'deathmatch' });
   const isle = world.islands[0];
   assert.ok(isle, 'the battlefield has no land on it to shoot at');
@@ -14864,7 +14864,7 @@ check('weak ground gives way, and takes the gun on it down', () => {
   // does not go on being ground with holes in it -- it slides. And a gun in an
   // emplacement is not bolted to the world: it is a platform dug into whatever
   // is there, and when that goes the platform goes.
-  const world = generateWorld(4242, 'open_ocean');
+  const world = generateWorld(4242, 'coral_shelf');
   const st = createState(world, { mode: 'deathmatch' });
   const isle = world.islands[0];
   const at = { x: isle.x, z: isle.z + isle.r * 0.80 };
@@ -14898,7 +14898,7 @@ check('weak ground gives way, and takes the gun on it down', () => {
     'the same piece of ground gave way twice');
 
   // And rock does not do any of this in a hurry.
-  const world2 = generateWorld(4242, 'open_ocean');
+  const world2 = generateWorld(4242, 'coral_shelf');
   const st2 = createState(world2, { mode: 'deathmatch' });
   const rock = { x: world2.islands[0].x, z: world2.islands[0].z + world2.islands[0].r * 0.10 };
   let hardRounds = 0;
