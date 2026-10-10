@@ -704,6 +704,7 @@ export class ShipView {
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
     this.heelBy = 0;
+    this.leanBy = 0;
     this.trimBy = 0;
     // Set once she has stopped floating; see founder.
     this.going = null;
@@ -937,6 +938,8 @@ export class ShipView {
     this.sinkY = fl[0] || 0;
     this.heelBy = fl[1] || 0;
     this.trimBy = fl[2] || 0;
+    // And how far she is leaning out of a turn, on top of any list.
+    this.leanBy = fl[3] || 0;
   }
 
   /**

@@ -3337,9 +3337,11 @@ export class Battle {
       view.group.rotation.order = 'YXZ';
       view.group.rotation.y = h;
       // Neither her pitch nor her roll is the angle of the water: both are her
-      // own, swung on her own periods against what the sea and her rudder are
-      // doing to her. How much she moves is a matter of how big she is.
-      const sea = view.sea.step(att, dt, isSelf ? -this.localShip.rudder * 0.05 : 0);
+      // own, swung on her own periods against what the sea is doing to her.
+      // How much she moves is a matter of how big she is. Her lean in a turn
+      // is not the sea's: the sim works it out (see leanFor) and it is added
+      // below.
+      const sea = view.sea.step(att, dt, 0);
       // How she is floating, on top of what the sea is doing to her: the water
       // inside her has put her deeper, laid her over to one side, and pulled
       // one end of her down. All three come off the wire and none of them is
@@ -3353,7 +3355,10 @@ export class Battle {
       }
       view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0);
       view.group.rotation.x = sea.pitch + view.trimBy;
-      view.group.rotation.z = sea.roll - view.heelBy;
+      // Laid over by what is inside her, and leaning outward in a turn: ours
+      // off her own prediction so it answers the helm at once.
+      const lean = isSelf ? (this.localShip.lean || 0) : view.leanBy;
+      view.group.rotation.z = sea.roll - view.heelBy - lean;
 
       // Every ship's guns are laid by her own gunnery officer now, ours
       // included, so the bearings all come off the wire.

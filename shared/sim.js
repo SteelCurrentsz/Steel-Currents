@@ -170,6 +170,10 @@ export function addShip(state, {
     // Where the sea is in her, how far over she is lying, and how far down.
     // All three come out of the water in her compartments; see buoyancy.
     sink: 0, heel: 0, trim: 0,
+    // How fast she is swinging, in radians a second, and how far over the
+    // swing has laid her (see stepMovement). Her lean is in the same sense as
+    // her heel: positive puts her +X side down.
+    yawRate: 0, lean: 0,
     // A submarine, and only a submarine, has these.
     //
     // `depth` is metres of water over her, `depthCmd` where her captain has
@@ -450,6 +454,59 @@ function stepDive(state, ship, dt) {
 // Movement
 // ---------------------------------------------------------------------------
 
+/** How long she takes to answer her rudder, and to lose a swing: seconds. */
+export function yawLag(cls) {
+  return cls.yawLag ?? 2.5 + cls.hull.length / 50;
+}
+/** How long she takes to roll into a turn's lean. */
+export const LEAN_LAG = 2.4;
+/** The most a turn will lay any ship over: she leans, she does not capsize. */
+export const MAX_LEAN = 0.21;
+/**
+ * How far over a turn lays her, in radians, in the sense of her heel.
+ *
+ * The force on her in a turn is her speed times her rate of swing, outward;
+ * the arm it acts on is how high her weight is over the water holding her
+ * keel, against her stability -- which a tall, narrow destroyer has less of
+ * than a battleship. `heelArm` says how tender she is; a ship's datasheet may
+ * carry her own.
+ */
+export function leanFor(cls, speed, yawRate) {
+  const arm = cls.heelArm ?? (cls.type === 'DD' ? 2.0 : cls.type === 'BB' ? 1.4 : cls.type === 'SS' ? 1.0 : 1.6);
+  // A swing to port is a positive rate, and lays her down on her -X side --
+  // her starboard side: a negative lean.
+  const a = (speed * yawRate) / 9.81;
+  return clamp(-Math.atan(a * arm), -MAX_LEAN, MAX_LEAN);
+}
+
+/**
+ * How far a gun's deck has her laid over on the bearing it is trained on, in
+ * her own frame: what a gun's elevation is lifted by in the world, for the
+ * same elevation off her deck. Her list and her lean together, both of which
+ * put her +X side down when positive: a gun trained out over the low side is
+ * pointing lower than its layer has it, and one over the high side higher.
+ */
+export function deckTilt(ship, local) {
+  return -((ship.heel || 0) + (ship.lean || 0)) * Math.sin(local);
+}
+
+/**
+ * What her layers put on a gun's elevation while she is rolling.
+ *
+ * A steady lean is laid off: the director's stable vertical knows where the
+ * horizon is, and the guns are elevated off it. What it cannot do is follow a
+ * ship rolling into a turn or out of one -- the gun is laid for where her deck
+ * was a moment ago, and the round goes high or low by what she has rolled
+ * since, on the bearing it is trained out over. Radians, to add to a round's
+ * elevation in the world.
+ */
+export const LAY_LAG = 0.8;
+export function layError(state, ship, local) {
+  const r = (ship.leanRate || 0) * Math.sin(local);
+  if (!r) return 0;
+  return clamp(gauss(state.rng), -2.4, 2.4) * Math.abs(r) * LAY_LAG;
+}
+
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
   const engine = ship.engineDamage > 0 ? 0.45 : 1;
@@ -467,7 +524,28 @@ function stepMovement(state, ship, dt) {
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
   const helm = Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
   const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1);
-  ship.heading = wrapAngle(ship.heading + rate * dt);
+  // She does not turn the moment the rudder bites. Thirty thousand tonnes has
+  // to be got swinging, and once it is swinging it goes on swinging: the rate
+  // the rudder is asking for is worked up to over a few seconds -- longer the
+  // longer she is -- and when the wheel comes back amidships she carries on
+  // round until the water has taken the swing off her. A course altered hard
+  // over runs past the new course before she is steadied on it.
+  const lag = yawLag(cls);
+  ship.yawRate = (ship.yawRate || 0) + (rate - (ship.yawRate || 0)) * (1 - Math.exp(-dt / lag));
+  ship.heading = wrapAngle(ship.heading + ship.yawRate * dt);
+  // And she lies over while she swings: the water holds her keel into the turn
+  // and everything over it goes on outward, so turning to port lays her down
+  // to starboard and turning to starboard lays her down to port. How far is
+  // how hard she is being turned -- speed times rate of swing, against the
+  // gravity that is holding her up -- and she rolls into it, and out of it, at
+  // her own pace. It is a lean, not a list: no water moves in her, and when
+  // the swing comes off her she comes back upright.
+  const want = leanFor(cls, ship.speed, ship.yawRate);
+  const was = ship.lean || 0;
+  ship.lean = was + (want - was) * (1 - Math.exp(-dt / LEAN_LAG));
+  // How fast she is rolling into it or out of it, which is what her layers
+  // cannot keep up with (see layError).
+  ship.leanRate = dt > 0 ? (ship.lean - was) / dt : 0;
 
   // A hull heels and scrubs off speed in a hard turn, so the telegraph setting
   // is only the speed you get when the rudder is amidships.
@@ -997,15 +1075,19 @@ function stepTurrets(state, ship, dt) {
       ? solveBallistic(cls.gun,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, cls.gun.range), 12).elev
       : elev;
-    const aim = want.blocked ? 0.03 : clamp(sol, stops.min, stops.max);
+    // Off her deck: her stops are on the mounting, and a turret trained out
+    // over the side she is lying down to has to come up further to put its
+    // shells where the solution says, and one over the high side less.
+    const deck = sol - deckTilt(ship, want.angle);
+    const aim = want.blocked ? 0.03 : clamp(deck, stops.min, stops.max);
     layMounting(t, spec, want.angle, aim, cls.gun.traverse * dt, 0.5 * dt, stops);
     // Off the target as well as off the arc: a solution her guns cannot reach
     // is a solution she has not got, and she checks fire rather than shooting
     // at the stop and missing by a mile every time. Nor one that would put
     // her own shells into her: laid on a ship close aboard over her own stem,
     // she holds fire until the range opens or the bearing does.
-    t.laid = !want.blocked && sol <= stops.max && sol >= stops.min
-      && sol >= layFloor(spec.mask, want.angle);
+    t.laid = !want.blocked && deck <= stops.max && deck >= stops.min
+      && deck >= layFloor(spec.mask, want.angle);
     if (t.cooldown > 0) t.cooldown -= dt;
   }
 }
@@ -1054,13 +1136,16 @@ export function fireGuns(state, ship, only = null) {
     const want = only !== null && ship.manned && ship.manned.k === 'main'
       ? mannedDesired(ship, tSpec) : turretDesired(ship, cls, t);
     if (want.blocked) continue;
-    // Nor past her stops: a gun that will not come down that far does not
-    // shoot at something alongside her, and one that will not go up that far
-    // does not reach.
-    if (solution > stops.max || solution < stops.min) continue;
+    // Nor past her stops, which are on her deck: a gun that will not come
+    // down that far does not shoot at something alongside her, and one that
+    // will not go up that far does not reach -- and lying over, the side she
+    // is down to reaches less far and the side she is up to cannot come down
+    // on something close.
+    const deck = solution - deckTilt(ship, want.angle);
+    if (deck > stops.max || deck < stops.min) continue;
     // Nor through her. A turret laid over her stem, her bridge or the turret
     // in front of it only fires once the solution has its shells clear.
-    if (solution < layFloor(tSpec.mask, want.angle)) continue;
+    if (deck < layFloor(tSpec.mask, want.angle)) continue;
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
 
     const bearing = wrapAngle(ship.heading + t.angle);
@@ -1075,12 +1160,14 @@ export function fireGuns(state, ship, only = null) {
       const mz = muzzlePos(ship, cls, tSpec, gun, bearing, g, tSpec.guns);
       const s2 = solveBallistic(gun, aimDist, mz.y);
       const b = bearing + Math.atan2(lat, Math.max(600, d));
-      const vh = s2.v * Math.cos(s2.elev);
+      // High or low by what she rolled while it was being laid.
+      const el = s2.elev + layError(state, ship, t.angle);
+      const vh = s2.v * Math.cos(el);
       fireShell(state, {
         id: eid(),
         owner: ship.id, team: ship.team,
         x: mz.x, z: mz.z, y: mz.y,
-        vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
+        vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(el),
         g: s2.g,
         spec, caliber: gun.caliber,
         classId: cls.id,
@@ -1864,7 +1951,7 @@ function stepSecondary(state, ship, dt) {
       const want = mannedDesired(ship, spec);
       const aim = solveBallistic(S,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
-      const up = want.blocked ? 0 : clamp(aim.elev, stops.min, stops.max);
+      const up = want.blocked ? 0 : clamp(aim.elev - deckTilt(ship, want.angle), stops.min, stops.max);
       layMounting(m, spec, want.angle, up, S.traverse * dt, 0.9 * dt, stops);
       m.target = 0;
       continue;
@@ -1902,16 +1989,17 @@ function stepSecondary(state, ship, dt) {
     const want = Math.abs(off) > spec.arc
       ? wrapAngle(spec.angle + Math.sign(off) * spec.arc)
       : local;
-    // And how far up the gun captain has his guns, on the same solution --
-    // never past the stops on the mounting.
-    layMounting(m, spec, want, clamp(aim.elev, stops.min, stops.max),
+    // And how far up the gun captain has his guns, on the same solution and
+    // off her deck as she is lying -- never past the stops on the mounting.
+    const deck = aim.elev - deckTilt(ship, want);
+    layMounting(m, spec, want, clamp(deck, stops.min, stops.max),
       S.traverse * dt, 0.9 * dt, stops);
     if (m.cooldown > 0) continue;
     if (Math.abs(angleDelta(m.angle, want)) > 0.05) continue;
     if (Math.abs(off) > spec.arc) continue;
-    if (aim.elev > stops.max || aim.elev < stops.min) continue;
+    if (deck > stops.max || deck < stops.min) continue;
     // Nor through her own funnel.
-    if (aim.elev < layFloor(spec.mask, want)) continue;
+    if (deck < layFloor(spec.mask, want)) continue;
 
     secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond);
   }
@@ -1939,12 +2027,13 @@ function secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond) {
     const mz = muzzlePos(ship, cls, spec, S, bearing, g, spec.guns);
     const s2 = solveBallistic(S, shotD, mz.y);
     const b = bearing + Math.atan2(lat, Math.max(600, aimD));
-    const vh = s2.v * Math.cos(s2.elev);
+    const el = s2.elev + layError(state, ship, m.angle);
+    const vh = s2.v * Math.cos(el);
     fireShell(state, {
       id: eid(),
       owner: ship.id, team: ship.team,
       x: mz.x, z: mz.z, y: mz.y,
-      vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(s2.elev),
+      vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: s2.v * Math.sin(el),
       g: s2.g,
       spec: spec0, caliber: S.caliber,
       classId: cls.id,
@@ -1987,8 +2076,9 @@ export function fireSecondary(state, ship, id) {
   const stops = gunLimits(S);
   const aim = solveBallistic(S,
     clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
-  if (aim.elev > stops.max || aim.elev < stops.min) return 0;
-  if (aim.elev < layFloor(spec.mask, want.angle)) return 0;
+  const deck = aim.elev - deckTilt(ship, want.angle);
+  if (deck > stops.max || deck < stops.min) return 0;
+  if (deck < layFloor(spec.mask, want.angle)) return 0;
   const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
   secondarySalvo(state, ship, m, spec, spec0, ship.manX, ship.manZ, cond);
   return spec.guns;
