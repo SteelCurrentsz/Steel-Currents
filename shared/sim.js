@@ -6708,8 +6708,19 @@ export function breakHer(state, ship, at, why) {
  */
 function stepSinking(state, ship, dt) {
   const S = ship.sinking;
-  if (!S || !ship.alive) return;
+  if (!S || S.under) return;
   const cls = shipClass(ship);
+  // Out of the fight, she is still going down -- the same way, at the same
+  // rate, from exactly where she was -- until the sea has closed over her.
+  // Nothing aboard her floods any more (the water in her stays where it was),
+  // so her own floating is held at what it was when she left the fight and
+  // her going down is added to it.
+  if (!ship.alive) {
+    if (!S.base) S.base = { sink: (ship.sink || 0) - S.down, heel: (ship.heel || 0) - S.heel, trim: (ship.trim || 0) - S.trim };
+    ship.sink = S.base.sink;
+    ship.heel = S.base.heel;
+    ship.trim = S.base.trim;
+  }
   S.t += dt;
   const u = clamp(S.t / S.T, 0, 1);
   // So that she is under, all told, at T: the rate grows as she goes.
@@ -6742,11 +6753,20 @@ function stepSinking(state, ship, dt) {
   if (ship.broke == null && cls.hull.length > 90 && Math.abs(ship.trim) > BREAK_TRIM && S.down > 2) {
     breakHer(state, ship, clamp(-Math.sign(ship.trim) * 0.25, -0.6, 0.6), 'trim');
   }
-  // Out of it: under, or with nothing left to fight.
   const under = S.down >= S.depth * 0.98;
+  if (!ship.alive) {
+    // Gone, when the sea has closed over the highest part of her.
+    if (under || S.t >= S.T * 1.05) {
+      S.under = true;
+      state.events.push({ e: 'under', ship: ship.id, x: r(ship.x), z: r(ship.z) });
+    }
+    return;
+  }
+  // Out of it: under, or with nothing left to fight.
   const upsideDown = Math.abs(ship.heel) > 2.6;
   if (under || (upsideDown && S.roll >= 1) || !canFight(ship)) {
     founder(state, ship, under ? S.kind : upsideDown ? 'capsize' : 'silenced');
+    if (under) { S.under = true; state.events.push({ e: 'under', ship: ship.id, x: r(ship.x), z: r(ship.z) }); }
   }
 }
 
@@ -7459,7 +7479,11 @@ export function step(state, dt = DT) {
   state.tick++;
   stepSurges(state);
   for (const ship of state.ships) {
-    if (!ship.alive) continue;
+    if (!ship.alive) {
+      // A wreck still going down goes on going down.
+      if (ship.sinking && !ship.sinking.under) stepSinking(state, ship, dt);
+      continue;
+    }
     stepDive(state, ship, dt);
     stepMovement(state, ship, dt);
     stepTurrets(state, ship, dt);

@@ -31,6 +31,9 @@ export function shipSnapshot(ship, full, state = null) {
     i: ship.id, x: r1(ship.x), z: r1(ship.z), h: r3(ship.heading),
     v: r1(ship.speed), hp: Math.round(ship.hp), a: ship.alive ? 1 : 0,
     c: ship.classId, n: ship.name, tm: ship.team,
+    // Out of the fight and still going down (go), or gone under (un): the
+    // picture draws her as the battle has her until she is under.
+    ...(!ship.alive && ship.sinking ? (ship.sinking.under ? { un: 1 } : { go: 1 }) : {}),
     f: ship.fires, fl: ship.flooding,
     tu: ship.turrets.map((t) => r3(t.angle)),
     // How far up the guns are. It is what a turret most obviously does and
@@ -222,7 +225,10 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   for (const s of state.ships) {
     const friendly = s.team === team || ended;
     const watched = s.id === watchId;
-    if (!s.alive && !friendly && !watched) continue;
+    // A wreck still going down is still there to be seen by whoever had her
+    // in sight, until the sea has closed over her.
+    const going = !s.alive && s.sinking && !s.sinking.under;
+    if (!s.alive && !friendly && !watched && !going) continue;
     if (!friendly && !watched && !s.spottedBy[team]) {
       contacts.push({
         i: s.id, x: Math.round(s.x), z: Math.round(s.z), h: r3(s.heading),

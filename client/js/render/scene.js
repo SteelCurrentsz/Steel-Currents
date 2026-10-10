@@ -996,7 +996,10 @@ export class ShipView {
       // settling her at.
       rate: ev.rate != null ? Math.max(0.08, ev.rate)
         : (0.10 + wrecked * 1.45 + water * 0.40) * (capsizing ? 0.35 : 1),
-      accel: ev.rate != null ? 0.01 : (0.015 + wrecked * 0.24) * (capsizing ? 0.55 : 1),
+      accel: ev.rate != null ? 0.0015 : (0.015 + wrecked * 0.24) * (capsizing ? 0.55 : 1),
+      // The battle sank her this far, and how she was lying is how she goes
+      // the rest of the way: nothing is added to it here.
+      follow: ev.rate != null,
       down: down0,
       roll: 0,
       // Still alight when she went. The sea reaches the fire before the fire
@@ -1087,7 +1090,9 @@ export class ShipView {
     // list she had and works a little further over as she goes; one that has
     // lost it keeps going, past her beam ends, and finishes bottom up.
     let heel;
-    if (g.capsizing) {
+    if (g.follow) {
+      heel = g.heel;
+    } else if (g.capsizing) {
       g.roll = Math.min(1, g.roll + dt * 0.055);
       const e = g.roll * g.roll * (3 - 2 * g.roll);
       const over = Math.PI - Math.abs(g.heel);
@@ -1098,7 +1103,7 @@ export class ShipView {
     // And how far down by the head or the stern. The flooded end goes on
     // getting heavier as the sea works aft through her, so the trim runs away:
     // a ship that went down by the bow ends up standing on it.
-    const trim = g.trim + Math.sign(g.trim || 0.2)
+    const trim = g.follow ? g.trim : g.trim + Math.sign(g.trim || 0.2)
       * Math.min(1.35, k * 0.05 * (1 + g.wrecked * 0.8));
 
     // Her back does not go on its own here, and she does not blow up because

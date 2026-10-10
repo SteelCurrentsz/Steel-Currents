@@ -3,7 +3,7 @@
 // smoke are handed on to muzzleblast.js.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { Splashes, splashSize } from './splash.js';
+import { Splashes } from './splash.js';
 import { MuzzleBlasts, blastSize } from './muzzleblast.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
@@ -224,30 +224,10 @@ export class Effects {
    * cloud and so is the one part a billboard tells the truth about.
    */
   splash(x, z, caliber = 152, opts = {}) {
+    // All of it is water now, in splash.js -- surge, stem and the head the
+    // stem breaks into. No sprite mist over it: a billboard puff over a
+    // column of water reads as smoke.
     this.splashes.splash(x, z, caliber, opts);
-    const { height, radius } = splashSize(caliber);
-    // Only off a big one: a five-inch splash is gone before it has torn itself
-    // up into a cloud, and a puff over it reads as a ball, not as spray.
-    if (caliber < 200) return;
-    const n = Math.max(2, Math.round(6 * this.intensity));
-    for (let i = 0; i < n; i++) {
-      // Thrown round the head and the shoulder of the mass, not stacked up its
-      // middle: what feathers a splash is the spray coming off its edges.
-      const t = 0.42 + (i / n) * 0.62;
-      const a = Math.random() * Math.PI * 2;
-      const out = radius * (0.5 + Math.random() * 0.85);
-      this.spawn({
-        x: x + Math.sin(a) * out,
-        y: height * t,
-        z: z + Math.cos(a) * out,
-        vy: height * 0.24 * (1 - t * 0.5),
-        vx: Math.sin(a) * radius * 0.9,
-        vz: Math.cos(a) * radius * 0.9,
-        size: radius * (0.8 + Math.random() * 0.8), grow: radius * 1.4,
-        ttl: 1.2 + height * 0.02 + Math.random() * 0.5,
-        color: 0xeef5fd, opacity: 0.22, drag: 0.8,
-      });
-    }
   }
 
   hit(x, y, z, kind, caliber = 152) {

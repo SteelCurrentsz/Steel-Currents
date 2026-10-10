@@ -1510,7 +1510,8 @@ export class Battle {
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
         case 'torpHit':
-          fx.explosion(ev.x, 4, ev.z, 1.6);
+          // Under her side, not on it: what shows is the column of water it
+          // throws up, not a fireball.
           // A torpedo opens a hole the better part of ten metres across, under
           // the waterline, and throws a good deal of the side of the ship into
           // the air with it.
@@ -3544,7 +3545,12 @@ export class Battle {
       // reads: what is left of her structure compartment by compartment, and
       // how much sea is in each of them. A hull shot to pieces goes quickly
       // and a hull with one hole in her takes her time -- see founder.
-      if (!s.a && !view.going) {
+      // A wreck the battle is still sinking is drawn as the battle has her --
+      // her depth, her list and her trim off the wire, the same as when she
+      // was fighting -- so she goes on going down the way she was. Only once
+      // the sea has closed over her does the picture take her the last of
+      // the way.
+      if (!s.a && !view.going && !s.go) {
         let left = 0;
         let wet = 0;
         for (let i = 0; i < SECTIONS.length; i++) {
@@ -3565,8 +3571,8 @@ export class Battle {
       if (view.going) {
         view.group.visible = view.stepFounder(dt);
       } else {
-        view.group.visible = !!s.a;
-        // Broken in two and still in the fight: the halves hinge off her pose.
+        view.group.visible = !!s.a || !!s.go;
+        // Broken in two: the halves hinge off her pose.
         if (view.halves) view.stepHalves(dt);
       }
       if (view.throes.length) this.deathThroes(view, s, x, z, h);

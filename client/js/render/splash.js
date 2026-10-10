@@ -472,10 +472,10 @@ void main() {
  */
 const KINDS = {
   shell: { tall: 1, wide: 1, stem: 0.4, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
-  bomb: { tall: 0.85, wide: 1.2, stem: 0.46, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0 },
-  dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32 },
-  torp: { tall: 1.15, wide: 0.75, stem: 0.42, side: [1, 2], head: 10, bloom: 1.5, surge: 14, reach: 1.6, drops: 1.2, delay: 0 },
-  drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.2, stem: 0.46, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0, maxH: 70 },
+  dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32, maxH: 45 },
+  torp: { tall: 1, wide: 1, stem: 0.5, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
+  drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0, maxH: 25 },
 };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -733,8 +733,8 @@ export class Splashes {
         delay: 0, ttl: rnd(0.9, 1.5), peak: 0.85, spread: 0.6, deck: y,
       });
     }
-    // And it is thrown up again off the deck, a little of it.
-    for (let i = 0; i < 4; i++) {
+    // (No droplets thrown back up off the deck: they read as specks.)
+    for (let i = 0; i < 0; i++) {
       const d = this.dropFree.pop();
       if (d === undefined) break;
       const a = Math.random() * Math.PI * 2;
@@ -823,11 +823,22 @@ export class Splashes {
         life: 0, rise, ttl: rise + 1.3 + height * 0.022,
       });
     }
-    const h = base.height * kind.tall;
-    this.spires(x, z, h, radius, kind, lean, bore);
-    this.surge(x, z, h, radius, kind, opts.child);
-    this.crest(x, z, h, radius, kind, lean, opts.child);
-    this.spray(x, z, h, radius, kind, bore, lean);
+    // Held to what each of them actually throws: a torpedo against a ship's
+    // side or a bomb stands sixty or seventy metres, whatever weight of water
+    // the shell table would give it, and a column scaled past that is a
+    // spindle, not a splash.
+    const h = Math.min(base.height * kind.tall, kind.maxH || Infinity);
+    // And the bigger it is, the thicker it is for its height: a heavy splash
+    // is a mass of water, not a taller thin one.
+    // As wide as its height makes it and no wider: a column held to seventy
+    // metres is not as broad as the shell table's weight of water would be.
+    const r = Math.min(radius, h * 0.22);
+    this.thick = Math.min(1.6, 1 + 0.2 * Math.max(0, h / 23 - 1));
+    this.spires(x, z, h, r, kind, lean, bore);
+    this.surge(x, z, h, r, kind, opts.child);
+    this.crest(x, z, h, r, kind, lean, opts.child);
+    // No loose particles: the fall is in the head (see crest), which opens out
+    // and comes back down over the stem as water, not as dots on the sea.
     // The patch of churned water underneath it, which is what actually marks
     // where the round went in. With a sea to write into it is written there,
     // torn up, by the ring (see SplashRings); without one it is two patches
@@ -886,7 +897,7 @@ export class Splashes {
         slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Near vertical: what drives it up is under it.
         a, tilt: stem ? rnd(0, 0.04) : rnd(0.03, 0.1),
-        w: radius * kind.stem * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
+        w: radius * kind.stem * (this.thick || 1) * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
         delay: kind.delay + (stem ? 0 : rnd(0.02, 0.12)), rise,
         ttl: rise + 1.2 + h * 0.022,
         life: 0,
@@ -936,7 +947,7 @@ export class Splashes {
    */
   crest(x, z, height, radius, kind, lean, child) {
     const n = Math.round(kind.head * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
-    const w = radius * kind.stem;
+    const w = radius * kind.stem * (this.thick || 1);
     const rise = 0.2 + height * 0.0065;
     for (let i = 0; i < n; i++) {
       // Up the top half of the stem, crowding toward the top.

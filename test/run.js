@@ -3538,6 +3538,39 @@ check('a ship going down is still in the fight, and her guns go out as the sea g
   assert.ok(gone && gone.capsize === 1, 'she capsized and the sinking does not say so');
 });
 
+check('a ship out of the fight goes on going down the way she was, until she is under', () => {
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = s.x + 60000; foe.z = s.z + 60000;
+  damageShip(st, s, foe, 1e9, 'he');
+  let outAt = null;
+  let underAt = null;
+  let downOut = 0;
+  let last = 0;
+  let worstStep = 0;
+  for (let i = 0; i < 30 * 600 && underAt === null; i++) {
+    for (const e of step(st, DT)) {
+      if (e.e === 'sink' && e.ship === s.id) { outAt = st.t; downOut = s.sinking.down; }
+      if (e.e === 'under' && e.ship === s.id) underAt = st.t;
+    }
+    // No plunge: she goes down no faster after she is out of it than before.
+    worstStep = Math.max(worstStep, s.sinking.down - last);
+    last = s.sinking.down;
+    if (outAt !== null && underAt === null && !s.alive) {
+      const snap = buildSnapshot(st, 0, null);
+      const her = snap.ships.find((q) => q.i === s.id);
+      assert.ok(her && her.go === 1, 'a wreck still going down is not on the wire as one');
+    }
+  }
+  assert.ok(outAt !== null && underAt !== null, 'she never went under');
+  assert.ok(underAt > outAt, 'she went from out of the fight to under in the same instant');
+  assert.ok(downOut < s.sinking.depth * 0.95, 'she was already under when she was out of it, so this tests nothing');
+  assert.ok(worstStep < s.sinking.depth / (s.sinking.T * 30) * 3, 'she plunged');
+  const after = buildSnapshot(st, 0, null).ships.find((q) => q.i === s.id);
+  assert.ok(!after || after.un === 1, 'under, and the wire does not say so');
+});
+
 check('a sinking is credited to the shooter', () => {
   const { state, a, b } = duel('iowa', 'fletcher');
   damageShip(state, b, a, b.maxHp + 1, 'test');
