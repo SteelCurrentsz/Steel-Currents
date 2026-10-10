@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  generateWorld, landAt, landMask, blockedByLand, islandAt, groundHeight,
+  generateWorld, isOpenSea, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt,
 } from '../shared/world.js';
 import {
@@ -3901,7 +3901,7 @@ const { LayoutMap } = await import('../client/js/layout.js');
 
 check('a battery is sited on the middle of its ground, not on the beach', () => {
   for (const [seed, preset, half] of [
-    [3221164032, 'open_ocean', 16000],
+    [3221164032, 'north_atlantic', 16000],
     [9911, 'solomon_narrows', 12000],
     [777, 'coral_shelf', 24000],
   ]) {
@@ -3967,6 +3967,51 @@ check('the walk inland finds the middle from anywhere on an island', () => {
   }
 });
 
+check('a battle set in the open ocean is fought out of sight of land, and its guns stay ashore', () => {
+  // The open ocean used to be laid out with two islands at least, and berthed
+  // anywhere near a coast it took the real coastline too. It is open water.
+  for (const place of [null, { lon: -5.0, lat: 48.4 }, { lon: 160.1, lat: -9.3 }]) {
+    const w = generateWorld(4242, 'open_ocean', null, 14000, place);
+    assert.equal(w.islands.length, 0, `${w.islands.length} islands in the open ocean`);
+    assert.equal(w.land.length, 0, 'a coastline in the open ocean');
+    assert.ok(isOpenSea(w), 'the open ocean does not know it is open');
+  }
+  assert.ok(generateWorld(4242, 'coral_shelf').islands.length > 0, 'the coral shelf has lost its islands');
+  assert.ok(!isOpenSea(generateWorld(4242, 'coral_shelf')), 'the coral shelf thinks it is open sea');
+
+  // Batteries ordered in the briefing are not put on the plotting board...
+  const req = {
+    t: 'custom', mapId: 'open_ocean', seed: 4242, half: 14000, lon: -5.0, lat: 48.4,
+    classId: 'fletcher', allyClasses: ['fletcher'], enemyClasses: ['fletcher'],
+    allyGuns: ['flak88', 'longues'], enemyGuns: ['flak88'], allyBombers: [], enemyBombers: [],
+  };
+  const board = Object.create(LayoutMap.prototype);
+  Object.assign(board, { tokens: [], view: { x: 0, z: 0, zoom: 1 }, pointers: new Map() });
+  board.paint = () => {};
+  board.frameAll = () => {};
+  board.show(req);
+  assert.equal(board.tokens.filter((t) => t.kind === 'gun').length, 0,
+    'a battery is plotted in the open ocean');
+  assert.equal(board.tokens.filter((t) => t.kind === 'ship').length, 3, 'the ships are not on the board');
+  // ...and with land to stand on, they are.
+  board.show({ ...req, mapId: 'coral_shelf', lon: undefined, lat: undefined });
+  assert.equal(board.tokens.filter((t) => t.kind === 'gun').length, 3,
+    'the batteries are gone from a battle with land in it');
+
+  // ...nor into the battle.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 4242, half: 14000, private: true, autoStart: false, place: { lon: -5.0, lat: 48.4 } });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, req, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'fletcher', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  }, { allies: 7, enemies: 8, guns: 12 });
+  assert.equal(room.state.batteries.length, 0, 'guns were sited in the open ocean');
+  assert.equal(room.world.islands.length + room.world.land.length, 0, 'the battle has land in it');
+  assert.equal(room.state.ships.length, 3, 'the fleets did not sail');
+});
+
 check('a sortie is crewed the same way with a socket and without one', () => {
   // The standalone build hosts its own battle in the tab, and used to do it
   // with a second copy of this that had never heard of the order-of-battle
@@ -3984,7 +4029,8 @@ check('a sortie is crewed the same way with a socket and without one', () => {
     allyGuns: ['flak88'], enemyGuns: ['flak88'],
   };
   // A room stood up without the tick timer, since nothing here needs to run.
-  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+  // On a theatre with land in it: the open ocean has nowhere to site a gun.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'coral_shelf',
     seed: 4242, half: 12000, private: true, autoStart: false });
   clearInterval(room.timer);
   const player = { id: 'p', name: 'Captain', team: 0, send() {} };

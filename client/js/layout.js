@@ -10,7 +10,7 @@
 // what is there when the fleets arrive, rather than a picture of it.
 
 import {
-  generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF,
+  generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF, isOpenSea,
 } from '../../shared/world.js';
 import { shipClearance } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
@@ -113,8 +113,13 @@ export class LayoutMap {
     const own = [req.classId, ...(req.allyClasses || [])];
     own.forEach((id, i) => this.tokens.push(this.shipToken(id, 0, i, i === 0)));
     (req.enemyClasses || []).forEach((id, i) => this.tokens.push(this.shipToken(id, 1, i, false)));
-    (req.allyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 0, i)));
-    (req.enemyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 1, i)));
+    // Out of sight of land there is nowhere to site a gun, so whatever batteries
+    // were ordered are not put on the chart at all -- nor into the battle (see
+    // server/setup.js).
+    if (!isOpenSea(this.world)) {
+      (req.allyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 0, i)));
+      (req.enemyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 1, i)));
+    }
     (req.allyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 0, i)));
     (req.enemyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 1, i)));
 

@@ -12,6 +12,7 @@
 
 import { normaliseAirGroup } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
+import { isOpenSea } from '../shared/world.js';
 
 /**
  * The berths off the order-of-battle chart, sanitised.
@@ -79,12 +80,17 @@ export function crewBattle(room, req, seat, limits = {}) {
 
   const allyGunAt = berthsFrom(layout.allyGuns, maxG);
   const enemyGunAt = berthsFrom(layout.enemyGuns, maxG);
-  gunsFrom(req.allyGuns, maxG).forEach((id, i) => {
-    room.addBatteryOnTeam(team, id, allyGunAt?.[i] ?? null);
-  });
-  gunsFrom(req.enemyGuns, maxG).forEach((id, i) => {
-    room.addBatteryOnTeam(1 - team, id, enemyGunAt?.[i] ?? null);
-  });
+  // Out of sight of land there is no ground to site a gun on: the batteries a
+  // briefing ordered stay ashore, and the plotting board does not show them.
+  const ashore = !isOpenSea(room.world);
+  if (ashore) {
+    gunsFrom(req.allyGuns, maxG).forEach((id, i) => {
+      room.addBatteryOnTeam(team, id, allyGunAt?.[i] ?? null);
+    });
+    gunsFrom(req.enemyGuns, maxG).forEach((id, i) => {
+      room.addBatteryOnTeam(1 - team, id, enemyGunAt?.[i] ?? null);
+    });
+  }
 
   // And the heavies, on the courses their commanders gave them. They are
   // ordered by type in the bomber yard and laid out on the chart the same way

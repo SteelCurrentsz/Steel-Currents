@@ -18,8 +18,17 @@ export const MAP_PRESETS = [
   { id: 'north_atlantic', name: 'North Atlantic', islands: 5, time: 'dusk', sea: 3 },
   { id: 'solomon_narrows', name: 'Solomon Narrows', islands: 11, time: 'night', sea: 1 },
   { id: 'coral_shelf', name: 'Coral Shelf', islands: 8, time: 'day', sea: 2 },
-  { id: 'open_ocean', name: 'Open Ocean', islands: 2, time: 'day', sea: 4 },
+  // Open water, and nothing else: no island, no reef, no coast. A battle set
+  // in the open ocean is fought out of sight of land, wherever on the chart it
+  // was berthed.
+  { id: 'open_ocean', name: 'Open Ocean', islands: 0, time: 'day', sea: 4, open: true },
 ];
+
+/** Whether a theatre (or a world raised in one) is fought out of sight of land. */
+export function isOpenSea(of) {
+  const id = typeof of === 'string' ? of : of?.preset ?? of?.id;
+  return !!getPreset(id)?.open && getPreset(id).id === id;
+}
 
 export function getPreset(id) {
   return MAP_PRESETS.find((m) => m.id === id) || MAP_PRESETS[0];
@@ -295,13 +304,13 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
   // the battlefield and cut to its borders. Invented islands are for a battle
   // that has no position — dropping them into the Bay of Biscay as well would
   // put shoals where the chart says there is deep water.
-  const land = place && Number.isFinite(place.lon) && Number.isFinite(place.lat)
+  const land = !preset.open && place && Number.isFinite(place.lon) && Number.isFinite(place.lat)
     ? coastFor(place.lon, place.lat, HALF, { seed })
     : [];
 
   // Islands are scattered at a density rather than a count, so opening the
   // battlefield out to seventy thousand yards does not leave it empty.
-  const wanted = land.length
+  const wanted = land.length || preset.open
     ? 0
     : Math.max(2, Math.round(preset.islands * (HALF / MAP_HALF) ** 1.6));
   const islands = [];
