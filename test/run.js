@@ -10630,7 +10630,12 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // And the Richelieu's sculpt is drawn nearly as full as the Musashi's: a
     // long parallel middle body with her side plumb down to a hard bilge a
     // metre and a half off her keel.
-    const box = id === 'musashi' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995 : id === 'richelieu' ? 0.975 : 0.92;
+    //
+    // So is the Kongo's: the bulges she was given when she was rebuilt are
+    // carried down to her bilge in the sculpt, and her section is fullest a
+    // few metres under her waterline and still nearly as full at her bilge.
+    const box = id === 'musashi' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995
+      : id === 'richelieu' || id === 'kongo' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
 
@@ -10665,8 +10670,9 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // stands where she is widest, and is wider than at her waterline. It is
     // held to her side at the height it stands to instead. The Richelieu's
     // bulge is widest three metres under her waterline, and the same goes for
-    // the Fuso's blisters, which top out at her waterline.)
-    if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso') {
+    // the Fuso's blisters, which top out at her waterline, and the Kongo's
+    // bulges, which are fullest three metres under it.)
+    if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));

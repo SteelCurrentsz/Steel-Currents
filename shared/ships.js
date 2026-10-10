@@ -3826,7 +3826,7 @@ export const SHIP_CLASSES = {
       name: '35.6 cm/45 41st Year Type', role: 'surface',
       // Five below the horizontal to forty-three up, as she was rebuilt.
       elev: { min: -0.087, max: 0.75 },
-      reach: 14.4,
+      reach: 18.0,
       caliber: 356, reload: 24, traverse: 0.07, range: 20600, sigma: 1.4,
       shells: shells(356, 10200, 4800, 480, 770, 0.24),
     },
@@ -3837,7 +3837,7 @@ export const SHIP_CLASSES = {
     secondary: {
       name: '15.2 cm/50 41st Year Type', role: 'surface',
       elev: { min: -0.087, max: 0.52 },
-      reach: 6.6,
+      reach: 6.8,
       caliber: 152, reload: 8.5, traverse: 0.12, range: 11800, sigma: 1.5,
       shells: shells(152, 2600, 2100, 140, 835, 0.12),
       mounts: [
