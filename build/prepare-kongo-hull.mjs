@@ -803,6 +803,8 @@ function dropBox(mesh, box) {
 // let down through that deck, so its block stands on it -- with its rangefinder
 // where the hull's sculpt has hers, 28.7 m forward of her middle.
 export const BRIDGE = { scale: 45, z: 24.6, legs: 0.03, shelter: 8.8 };
+// The house under its forward platforms, in her frame (see below).
+const BRIDGE_HOUSE = { x0: -4.3, x1: 4.3, y0: 8.4, y1: 10.4, z0: 24.6, z1: 38.6 };
 export const PAGODA_CUT = { x0: -8.4, x1: 8.4, y0: 9.1, y1: 60, z0: 19.0, z1: 40.0 };
 // And what her sculpt's tower carried out over her sides, aloft -- its yards,
 // its searchlight platforms -- from her funnel's height up.
@@ -829,6 +831,19 @@ const PAGODA_ARMS = { x0: -16, x1: 16, y0: 14.5, y1: 60, z0: 19.0, z1: 40.0 };
   console.log(`her bridge: ${T.length / 3} triangles, from ${lo[2].toFixed(1)} to ${hi[2].toFixed(1)} m along her, `
     + `${lo[0].toFixed(1)} to ${hi[0].toFixed(1)} across, ${hi[1].toFixed(1)} m up`);
   append(m, br);
+  // Under its forward platforms the sculpt stands it on open legs over the
+  // deck its block stood on, a deck high; the tower of the hull's sculpt that
+  // stood there was a deckhouse down to her shelter deck. So is hers: a house
+  // under them from that deck up to their floor, that nothing is seen through.
+  const H = BRIDGE_HOUSE;
+  const box = { P: [], N: [], T: [], C: [] };
+  // Corners: 0..3 at the foot, 4..7 at the head; x fastest, then z.
+  for (const y of [H.y0, H.y1]) for (const z of [H.z0, H.z1]) for (const x of [H.x0, H.x1]) { box.P.push(x, y, z); box.N.push(0, 0, 0); }
+  for (const [a0, b0, c0, d0] of [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]]) {
+    box.T.push(a0, b0, c0, a0, c0, d0);
+    box.C.push(SUPER_GREY, SUPER_GREY);
+  }
+  append(m, box);
 }
 const DECK_AMIDSHIPS = gunwaleAt(0).y;
 dropLoose(m, { maxArea: 8, maxDiag: 6 });

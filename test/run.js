@@ -1663,9 +1663,14 @@ check("the Kongo's shell has no holes in it", () => {
 check('the Kongo carries the guns she carried, each where it can be trained from', () => {
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.turrets.length, 4, 'she carries four turrets');
-  // Two forward, No.2 over No.1, and two aft facing astern.
+  // Two forward, No.2 over No.1, and two aft facing astern: each stowed that
+  // way, and able to train there. (No.2's arc, as surveyed, is centred a
+  // little to starboard of her bow: she trains further round that way before
+  // anything of hers stops her.)
   cls.turrets.forEach((t, i) => {
-    assert.ok(Math.abs(angleDelta(t.angle, i < 2 ? 0 : Math.PI)) < 0.05, `${t.name} does not face ${i < 2 ? 'forward' : 'aft'}`);
+    const stow = t.rest ?? t.angle;
+    assert.ok(Math.abs(angleDelta(stow, i < 2 ? 0 : Math.PI)) < 0.05, `${t.name} does not face ${i < 2 ? 'forward' : 'aft'}`);
+    assert.ok(Math.abs(angleDelta(t.angle, stow)) < t.arc - 0.5, `${t.name} cannot be trained to where it is stowed`);
   });
   assert.ok(cls.turrets[0].z > cls.turrets[1].z && cls.turrets[2].z > cls.turrets[3].z, 'her turrets are out of order');
   const sec = cls.secondary.mounts;
