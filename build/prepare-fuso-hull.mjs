@@ -597,19 +597,20 @@ const superZ = (lx) => (lx - SUPER.funnelX) * SUPER.scale + SUPER.funnelZ;
 }
 
 // ---- her bridge --------------------------------------------------------------------
-// The tower she is known for, at 19 m a unit: seven decks of it, from the
-// block it stands on to the rangefinder over its masthead, 31 m over her deck.
-// The sculpt has it turned bow to -Z, so it is turned half round; the middle
+// The tower she is known for, at 18 m a unit: seven decks of it, from the
+// block it stands on to the rangefinder over its masthead, 30 m over her deck,
+// its compass bridge to her bow and its legs and mast abaft it.
+// The sculpt is modelled bow to +Z, as she is, so it stands as it came; the middle
 // of its base block (z 0.46, x -0.49 in the sculpt) stands at BRIDGE.z on her.
-export const BRIDGE = { scale: 19, x: -0.49, mz: 0.46, foot: -0.861, z: 30, sink: 0.15 };
+export const BRIDGE = { scale: 18, x: -0.49, mz: 0.46, foot: -0.861, z: 33, sink: 0.15 };
 {
   const raw = readGlb(ASSET('fuso-bridge.glb'));
   const P = [], N = [];
   const U = BRIDGE.scale;
   for (let i = 0; i < raw.pos.length; i += 3) {
-    const z = BRIDGE.z - (raw.pos[i + 2] - BRIDGE.mz) * U;
-    P.push(-(raw.pos[i] - BRIDGE.x) * U, (raw.pos[i + 1] - BRIDGE.foot) * U + gunwaleAt(z).y - BRIDGE.sink, z);
-    N.push(-raw.nrm[i], raw.nrm[i + 1], -raw.nrm[i + 2]);
+    const z = BRIDGE.z + (raw.pos[i + 2] - BRIDGE.mz) * U;
+    P.push((raw.pos[i] - BRIDGE.x) * U, (raw.pos[i + 1] - BRIDGE.foot) * U + gunwaleAt(z).y - BRIDGE.sink, z);
+    N.push(raw.nrm[i], raw.nrm[i + 1], raw.nrm[i + 2]);
   }
   const T = Array.from(raw.idx);
   const br = { P, N, T, C: new Array(T.length / 3).fill(BRIDGE_GREY) };
@@ -632,20 +633,22 @@ export const BRIDGE = { scale: 19, x: -0.49, mz: 0.46, foot: -0.861, z: 30, sink
 export const TURRETS = [
   { name: 'No.1', z: +((0.45 - FRAME.xc) * FRAME.SCALE).toFixed(1), rest: 0, up: 1.6 },
   { name: 'No.2', z: +((0.33 - FRAME.xc) * FRAME.SCALE).toFixed(1), rest: 0, up: 4.6 },
-  { name: 'No.3', z: superZ(0.38), rest: 0, up: 1.7 },
+  { name: 'No.3', z: +(superZ(0.38) - 2).toFixed(1), rest: 0, up: 1.7 },
   { name: 'No.4', z: superZ(0.01), rest: Math.PI, up: 1.7 },
   { name: 'No.5', z: superZ(-0.34), rest: Math.PI, up: 5.0 },
   { name: 'No.6', z: superZ(-0.48), rest: Math.PI, up: 1.7 },
 ].map((t) => ({ ...t, x: 0, seat: +(gunwaleAt(t.z).y + t.up).toFixed(3) }));
 
-// Fourteen 15.2 cm singles, seven a side on her upper deck, on the round
-// pedestals the hull sheet drew them on: x is how far out and z how far along,
-// from the sheet. Each on a short pedestal of its own.
+// Fourteen 15.2 cm singles, seven a side, each in a casemate in the side of
+// her hull: z is how far along her. A port is cut in her side for each, and a
+// recess behind it (see below, where they are cut); x and seat are what the
+// cut finds -- the gun stands `pivot` inside her side, on the recess's floor.
 const PADS = [-0.353, -0.29, -0.23, -0.033, 0.107, 0.197, 0.3]
   .map((x) => +((x - FRAME.xc) * FRAME.SCALE).toFixed(1));
+export const CASEMATE = { floor: 3.2, high: 2.95, width: 4.8, deep: 4.6, pivot: 2.3, post: 0.2 };
 export const SECONDARY = PADS.flatMap((z, k) => [-1, 1].map((sgn) => ({
-  name: `S${k + 1} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * 10.7, z, rest: sgn * Math.PI / 2,
-  seat: +(gunwaleAt(z).y + 0.6).toFixed(3),
+  name: `S${k + 1} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * 13, z, rest: sgn * Math.PI / 2,
+  seat: +(gunwaleAt(z).y - CASEMATE.floor + CASEMATE.post).toFixed(3), side: sgn,
 })));
 
 // The light guns the sculpts drew cast into their tubs and platforms, cut out
@@ -705,6 +708,163 @@ dropLoose(m, { maxArea: 8, maxDiag: 6 });
 for (let t = 0; t < m.C.length; t++) if (m.C[t] === BRIDGE_GREY) m.C[t] = SUPER_GREY;
 recomputeNormals(m);
 console.log(`faces facing in: ${turnInward(m)} turned`);
+
+// ---- her casemates ----------------------------------------------------------------
+// A port is cut in her side for each 15.2 cm gun -- a rectangle `width` across
+// and `high` up, its floor `floor` under her deck edge -- and behind it a
+// recess `deep` into her, floor, ceiling, walls and back: the gun stands in it
+// on a post of its own, `pivot` inside her plating, and its barrel goes out
+// through the port. Her side is cut along the rectangle's edges (a triangle of
+// it that crosses one is split there, the pieces sharing the vertex either
+// side) and the recess is hung from the edge the cut leaves, so the shell is
+// still one closed skin.
+const plain = { P: m.P.slice(), N: m.N.slice(), T: m.T.slice(), C: m.C.slice() };
+{
+  const { P, N } = m;
+  const BLACK = 3;
+  const made = new Map();
+  const mid = (a, b, line, f) => {
+    // The vertex where edge a-b crosses a line: one for every polygon that has it, by where it is.
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    const u = a < b ? f : 1 - f;
+    const at = (j) => P[lo * 3 + j] + (P[hi * 3 + j] - P[lo * 3 + j]) * u;
+    const key = `${Math.round(at(0) * 1e6)}|${Math.round(at(1) * 1e6)}|${Math.round(at(2) * 1e6)}`;
+    if (made.has(key)) return made.get(key);
+    P.push(at(0), at(1), at(2));
+    N.push(at(0) > 0 ? 1 : -1, 0, 0);
+    const w = P.length / 3 - 1;
+    made.set(key, w);
+    return w;
+  };
+  /** Cut convex polygon `poly` (vertex indices) by `d(v) <= 0`: [inside, outside]. */
+  const clip = (poly, d, line) => {
+    const inn = [], out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const da = d(a), db = d(b);
+      if (da <= 1e-9) inn.push(a);
+      if (da >= -1e-9) out.push(a);
+      if ((da < -1e-9 && db > 1e-9) || (da > 1e-9 && db < -1e-9)) {
+        const w = mid(a, b, line, da / (da - db));
+        inn.push(w); out.push(w);
+      }
+    }
+    return [inn, out];
+  };
+  const area = (poly) => {
+    let a = 0;
+    for (let i = 1; i + 1 < poly.length; i++) {
+      const u = [0, 1, 2].map((j) => P[poly[i] * 3 + j] - P[poly[0] * 3 + j]);
+      const v = [0, 1, 2].map((j) => P[poly[i + 1] * 3 + j] - P[poly[0] * 3 + j]);
+      a += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]);
+    }
+    return a;
+  };
+  for (const c of SECONDARY) {
+    // A hair off her stations and rows, so the cut never runs along an edge of her side.
+    const y0 = gunwaleAt(c.z).y - CASEMATE.floor + 0.0071, y1 = y0 + CASEMATE.high;
+    const z0 = c.z - CASEMATE.width / 2 + 0.0137, z1 = c.z + CASEMATE.width / 2 + 0.0137;
+    const rects = [
+      [(v) => z0 - P[v * 3 + 2], 'z0'], [(v) => P[v * 3 + 2] - z1, 'z1'],
+      [(v) => y0 - P[v * 3 + 1], 'y0'], [(v) => P[v * 3 + 1] - y1, 'y1'],
+    ];
+    const keep = [], keepC = [];
+    for (let t = 0; t < m.T.length / 3; t++) {
+      const v = [m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]];
+      let zmin = Infinity, zmax = -Infinity, ymin = Infinity, ymax = -Infinity, xmin = Infinity;
+      for (const i of v) {
+        zmin = Math.min(zmin, P[i * 3 + 2]); zmax = Math.max(zmax, P[i * 3 + 2]);
+        ymin = Math.min(ymin, P[i * 3 + 1]); ymax = Math.max(ymax, P[i * 3 + 1]);
+        xmin = Math.min(xmin, Math.abs(P[i * 3]));
+      }
+      const touches = m.C[t] === GREY && xmin > 8 && v.every((i) => Math.sign(P[i * 3]) === c.side)
+        && zmax > z0 && zmin < z1 && ymax > y0 && ymin < y1;
+      if (!touches) { keep.push(...v); keepC.push(m.C[t]); continue; }
+      // Nine cells, by the four lines; the middle one is the port.
+      const outside = [];
+      // clip hands back [inside, outside] of `d <= 0`: for z0 the part over it, then the part under.
+      const [zr0, zl] = clip(v, rects[0][0], `${c.name}z0`);
+      const [zm0, zr] = zr0.length >= 3 ? clip(zr0, rects[1][0], `${c.name}z1`) : [[], []];
+      for (const band of [zl, zm0, zr]) {
+        if (band.length < 3) continue;
+        const [up, lo] = clip(band, rects[2][0], `${c.name}y0`);
+        const [mi, hi] = up.length >= 3 ? clip(up, rects[3][0], `${c.name}y1`) : [[], []];
+        // `mi` of the middle band is the port; the others are all hers.
+        const cells = band === zm0 ? [lo, hi] : [lo, mi, hi];
+        for (const cell of cells) if (cell.length >= 3 && area(cell) > 1e-9) outside.push(cell);
+      }
+      for (const poly of outside) {
+        for (let i = 1; i + 1 < poly.length; i++) { keep.push(poly[0], poly[i], poly[i + 1]); keepC.push(GREY); }
+      }
+    }
+    m.T = keep; m.C = keepC;
+    const onRect = (v) => {
+      const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+      if (Math.sign(x) !== c.side || Math.abs(x) < 8) return false;
+      const eps = 1e-5;
+      const inZ = z > z0 - eps && z < z1 + eps, inY = y > y0 - eps && y < y1 + eps;
+      return inZ && inY && (Math.abs(z - z0) < eps || Math.abs(z - z1) < eps || Math.abs(y - y0) < eps || Math.abs(y - y1) < eps);
+    };
+    const count = new Map();
+    for (let t = 0; t < m.T.length; t += 3) {
+      for (let j = 0; j < 3; j++) {
+        const a = m.T[t + j], b = m.T[t + (j + 1) % 3];
+        if (!onRect(a) || !onRect(b)) continue;
+        const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+        const e = count.get(k) || { n: 0, a, b };
+        e.n++; e.a = a; e.b = b;
+        count.set(k, e);
+      }
+    }
+    const edge = [...count.values()].filter((e) => e.n === 1);
+    if (!edge.length) throw new Error(`${c.name}: no edge left by the port`);
+    // Chained into one loop, whichever way each triangle happens to run its edge.
+    const nb = new Map();
+    for (const e of edge) {
+      if (!nb.has(e.a)) nb.set(e.a, []);
+      if (!nb.has(e.b)) nb.set(e.b, []);
+      nb.get(e.a).push(e.b); nb.get(e.b).push(e.a);
+    }
+    if (process.env.DEBUG_CASE) for (const [v, l] of nb) if (l.length !== 2) console.log('degree', l.length, P[v*3+2].toFixed(3), P[v*3+1].toFixed(3), l.map((q) => `${P[q*3+2].toFixed(2)},${P[q*3+1].toFixed(2)}`).join(' '));
+    const loop = [edge[0].a];
+    for (let prev = loop[0], v = edge[0].b; v !== loop[0];) {
+      loop.push(v);
+      const n = nb.get(v).filter((q) => q !== prev);
+      prev = v; v = n[0];
+      if (v === undefined) break;
+    }
+    if (loop.length !== edge.length) throw new Error(`${c.name}: the port's edge is ${edge.length} edges but its loop ${loop.length}`);
+    let hb = 0;
+    for (const v of loop) hb += Math.abs(P[v * 3]);
+    hb /= loop.length;
+    const back = c.side * (hb - CASEMATE.deep);
+    c.x = +(c.side * (hb - CASEMATE.pivot)).toFixed(3);
+    c.hb = +hb.toFixed(3);
+    const inner = loop.map((v) => { P.push(back, P[v * 3 + 1], P[v * 3 + 2]); N.push(0, 0, 0); return P.length / 3 - 1; });
+    const cx = c.side * (hb - CASEMATE.deep / 2), cy = (y0 + y1) / 2, cz = c.z;
+    const facing = (tri, paintOf) => {
+      const [a, b, d] = tri.map((i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]);
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+      const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+      const g = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3, (a[2] + b[2] + d[2]) / 3];
+      const to = n[0] * (cx - g[0]) + n[1] * (cy - g[1]) + n[2] * (cz - g[2]);
+      if (Math.hypot(...n) < 1e-12) return;
+      m.T.push(...(to >= 0 ? tri : [tri[0], tri[2], tri[1]]));
+      m.C.push(paintOf);
+    };
+    const flat = (v, w) => (Math.abs(P[v * 3 + 1] - y0) < 1e-5 && Math.abs(P[w * 3 + 1] - y0) < 1e-5 ? STEEL : BLACK);
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i], b = loop[(i + 1) % loop.length], ia = inner[i], ib = inner[(i + 1) % loop.length];
+      const paintOf = flat(a, b);
+      facing([a, b, ib], paintOf); facing([a, ib, ia], paintOf);
+    }
+    P.push(back, cy, cz); N.push(0, 0, 0);
+    const mid0 = P.length / 3 - 1;
+    for (let i = 0; i < loop.length; i++) facing([inner[i], inner[(i + 1) % loop.length], mid0], BLACK);
+    console.log(`${c.name}: casemate at z ${c.z}, her side ${hb.toFixed(2)} m out, port ${loop.length} points round, `
+      + `floor ${y0.toFixed(2)} m, gun at x ${c.x}`);
+  }
+}
 
 if (process.env.DUMP) {
   const { writeGlb } = await import('./sculpt-source.mjs');
@@ -861,11 +1021,11 @@ const MAIN = gunPiece('fuso-356.glb', {
   scale: MAIN_SCALE, pivot: [0.336, 0], dir: -1, foot: -0.08, face: 0.66, lanes: [-0.108, 0.108],
   barrelY: 0.082, r: 0.045, trunnionIn: 0.22, roofOver: 2.5,
 });
-// The 15.2 cm/50 Type 41 single in its shield: 8.2 m a unit, which makes its
-// shield three and a half metres across. Sculpted laid up fourteen degrees,
+// The 15.2 cm/50 Type 41 single in its shield: 6 m a unit, which makes its
+// shield two and a half metres across, to turn in a casemate. Sculpted laid up fourteen degrees,
 // and turned down level about its trunnion.
 const SEC = gunPiece('fuso-152.glb', {
-  scale: 8.2, pivot: [-0.41, 0], dir: 1, foot: -0.10, face: 0.31, lanes: [0],
+  scale: 6.0, pivot: [-0.41, 0], dir: 1, foot: -0.10, face: 0.31, lanes: [0],
   barrelY: 0.1448, r: 0.05, trunnionIn: 0.30, elev: 0.253, roofOver: 1.5,
 });
 // The 12.7 cm/40 Type 89 twin: 7.2 m a unit, which makes the base ring it
@@ -887,7 +1047,10 @@ const AA = gunPiece('fuso-25.glb', {
 // each triangle there at a corner, where measureLines finds no crossing at all
 // -- which drew her two metres narrower than her plating amidships, and no
 // width at all at her bow.
-const LINES = measureLines(m, st, { z0: -105.9963, dz: 1, nz: 212, y0: -10, dy: 0.5, ny: 40 }, DECK_AMIDSHIPS);
+// Measured on her side as it was before the ports were cut in it: her interior and her armour are
+// drawn to her lines, and a casemate is not a place her side is narrower.
+const stPlain = stations(plain, { length: REAL_LOA, beamCap: DECK_AMIDSHIPS - 0.2, edgeCap: 10.0, slice: true, beamFloor: 0 });
+const LINES = measureLines(plain, stPlain, { z0: -105.9963, dz: 1, nz: 212, y0: -10, dy: 0.5, ny: 40 }, DECK_AMIDSHIPS);
 
 // ---- slice, pack and write ------------------------------------------------------------
 const surfaceOf = (t) => (m.C[t] === DECK ? 1 : 0);
@@ -903,6 +1066,7 @@ const mounts = {
   turrets: TURRETS.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   secondary: SECONDARY.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   sculptedLight: SCULPTED_LIGHT.map(({ name, x, z, deck }) => ({ name, x, z, deck })),
+  casemate: CASEMATE,
 };
 writeFileSync(OUT_DATA,
   `// Generated by build/prepare-fuso-hull.mjs from the owner's sculpts.\n`

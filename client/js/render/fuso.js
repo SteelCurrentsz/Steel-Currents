@@ -5,7 +5,7 @@
 // was too small to carry them: three forward of her funnel, three aft, with
 // the pagoda of a bridge that she and her sister Yamashiro were known by
 // between the two sets. Rebuilt in 1930-35 and again for the 1944 war, she
-// carries fourteen 15.2 cm singles in a ring round her upper deck, four
+// carries fourteen 15.2 cm singles in casemates in her sides, four
 // 12.7 cm twins and a 25 mm battery on her superstructure and her deck, a
 // pair of catapults on her quarterdeck and three floatplanes to fly off them.
 //
@@ -17,8 +17,8 @@
 //     own, its barrels on a cradle that elevates -- No.1 and No.2 forward,
 //     No.3 in front of her funnel facing forward over her bridge's block, back
 //     to back with No.4 abaft it, and No.5 and No.6 aft, facing astern;
-//   * her fourteen 15.2 cm singles in their shields, seven a side, on the
-//     round pedestals the hull sheet drew them on;
+//   * her fourteen 15.2 cm singles in their shields, seven a side, each in a
+//     casemate cut in the side of her hull, firing through its port;
 //   * her 12.7 cm twins and her 25 mm triples, the owner's sculpts of each,
 //     on her platforms and her deck;
 //   * her two catapults, which train out over her quarters and throw a Jake
@@ -111,6 +111,22 @@ const INNER_BOTTOM = 0.15;
 /** Where her deck is at (0, z): her own surface on the centreline. */
 export const deckAt = (z) => fusoSurfaceY(0, z);
 
+/**
+ * How far out her insides may go at station t and height y: her side, except
+ * where a casemate is cut in it, where they stop at its back wall.
+ */
+function insideShell(t, y) {
+  const out = shellAt(t, y);
+  const cm = MOUNT_SEATS.casemate;
+  const z = zAt(t);
+  for (const s of MOUNT_SEATS.secondary) {
+    const floor = s.seat - cm.post;
+    if (Math.abs(z - s.z) > cm.width / 2 + 0.2 || y < floor - 0.2 || y > floor + cm.high + 0.2) continue;
+    return Math.min(out, Math.abs(s.x) + cm.pivot - cm.deep - 0.1);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------- main battery --
 
 // Each of her 35.6 cm turrets trains on a barbette seven metres and a fifth
@@ -147,7 +163,7 @@ function mainBattery(g) {
   return turrets;
 }
 
-/** The barbettes her turrets and her 15.2 cm train on, from her deck up. */
+/** The barbettes her turrets train on, from her deck up, and the posts her 15.2 cm train on. */
 function barbettes(g) {
   for (const t of MOUNT_SEATS.turrets) {
     const foot = deckOver((2 * t.z) / LOA) - 0.3;
@@ -156,10 +172,11 @@ function barbettes(g) {
     // The coaming round its foot, where it goes through her deck.
     cyl(g, M.steelDark, BARBETTE_R + 0.18, BARBETTE_R + 0.18, 0.4, t.x, foot + 0.3, t.z, 36);
   }
+  // Her 15.2 cm stand in casemates the hull is cut with, each on a post of its
+  // own on the casemate's floor: see CASEMATE in build/prepare-fuso-hull.mjs.
   for (const s of MOUNT_SEATS.secondary) {
-    const foot = deckOver((2 * s.z) / LOA) - 0.3;
-    const top = s.seat - 0.02;
-    cyl(g, M.steel, 1.35, 1.5, top - foot, s.x, (top + foot) / 2, s.z, 20);
+    const top = s.seat - 0.02, foot = top - 0.3;
+    cyl(g, M.steelDark, 1.2, 1.35, top - foot, s.x, (top + foot) / 2, s.z, 20);
   }
 }
 
@@ -311,7 +328,7 @@ function aviation(g) {
  *   the barbettes     of her six turrets, 305 mm, down to the armour deck
  */
 const CITADEL = [-72, 66];
-const ARMOUR_DECK = 2.4;
+const ARMOUR_DECK = 2.0;
 const BELT_FOOT = -5.5;
 
 function armour(g) {
@@ -389,7 +406,7 @@ const STATIC = [
 export function buildFuso() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
-  buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + INNER_BOTTOM, sheer: deckOver, zAt });
+  buildInterior(g, { loa: LOA, shellAt: insideShell, keelY: (t) => keelY(t) + INNER_BOTTOM, sheer: deckOver, zAt });
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);
