@@ -6677,6 +6677,11 @@ export function startSinking(state, ship, kind, by = 0) {
     // How far down by one end she already was: the trim that runs away is the
     // trim she had. Flooded evenly she settles level.
     trim0: ship.trim || 0,
+    // And the list she had. Once a compartment is full right across, the
+    // water in it lies level and takes nothing to either side -- but she does
+    // not come upright for it: the list she started going down with is the
+    // list she goes down with, and it works on further.
+    heel0: heel,
     roll: 0, way: Math.sign(heel || (state.rng() < 0.5 ? -1 : 1)),
   };
   state.events.push({ e: 'sinking', ship: ship.id, x: r(ship.x), z: r(ship.z), kind, T: Math.round(T) });
@@ -6712,17 +6717,23 @@ function stepSinking(state, ship, dt) {
   // The heavy end goes on getting heavier.
   const trimWay = Math.sign(S.trim0 || ship.trim || 0.05);
   S.trim = trimWay * u * u * Math.min(0.75, 0.1 + 6 * Math.abs(S.trim0 || 0));
+  const base = ship.heel || 0;
+  const held = S.heel0 ?? 0;
   if (S.capsize) {
     // Over, slowly at first and then all at once, and then she lies there
     // bottom up while the air trapped in her lets go.
     S.roll = Math.min(1, S.roll + dt / Math.min(140, S.T * 0.45));
     const e = S.roll * S.roll * (3 - 2 * S.roll);
-    const base = ship.heel || 0;
-    S.heel = S.way * Math.PI * e - base * e;
+    const from = S.rollFrom ?? held;
+    S.heel = from + (S.way * Math.PI - from) * e - base;
   } else {
-    S.heel = Math.sign(ship.heel || S.way) * u * 0.25;
+    // The list she had, working further on as she goes.
+    const want = held + Math.sign(held || S.way) * u * 0.25;
+    // The water in her may be lying her over further than that; never less.
+    const total = Math.abs(base) > Math.abs(want) && Math.sign(base) === Math.sign(want) ? base : want;
+    S.heel = total - base;
     // And a list that runs away from her is a capsize after all.
-    if (Math.abs((ship.heel || 0) + S.heel) > 1.15) { S.capsize = true; S.way = Math.sign(ship.heel + S.heel); }
+    if (Math.abs(total) > 1.15) { S.capsize = true; S.way = Math.sign(total); S.rollFrom = total; }
   }
   ship.sink = (ship.sink || 0) + S.down;
   ship.trim = (ship.trim || 0) + S.trim;

@@ -8,7 +8,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
-  waterBlow, SURGE_SPEED, deckTilt,
+  waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
@@ -3469,10 +3469,77 @@ check('a battle is fought out to the last ship', () => {
     'the wire still carries the points system');
 });
 
+check('a ship going down is still in the fight, and her guns go out as the sea gets to them', () => {
+  const mk = (cls) => {
+    const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'A', classId: cls, team: 0, index: 0 });
+    const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    foe.x = s.x + 60000; foe.z = s.z + 60000;
+    return { st, s };
+  };
+  // Going down by the head, slowly: still a ship in the battle.
+  const { st, s } = mk('cleveland');
+  startSinking(st, s, 'flooding');
+  assert.ok(s.alive && s.sinking, 'she was out of the fight the instant she started going');
+  assert.ok(s.sinking.T <= SINK_MAX && s.sinking.T > 120, `a mostly sound cruiser went down in ${s.sinking.T.toFixed(0)} s`);
+  // Her forward turret under, her after one still dry: A turret is out, and
+  // she still has a gun to fight with.
+  s.sinking.trim0 = 0;
+  s.sink = 4; s.trim = 0.2; s.heel = 0;
+  const cls = SHIP_CLASSES.cleveland;
+  const fwd = cls.turrets.find((t) => t.z > 0);
+  const aft = cls.turrets.find((t) => t.z < 0);
+  assert.ok(mountDrowned(s, fwd), 'the sea is over her forward turret and it is not drowned');
+  assert.ok(!mountDrowned(s, aft), 'her after turret is high and dry and it is drowned');
+  assert.ok(canFight(s), 'she has a dry turret and cannot fight');
+  // Under, all of her: nothing to fight with.
+  s.sink = 30;
+  assert.ok(!canFight(s), 'every gun aboard is under the sea and she can still fight');
+
+  // Shot to pieces and going down level, she does not break in two.
+  const flat = mk('cleveland');
+  flat.s.trim = 0;
+  damageShip(flat.st, flat.s, null, 1e9, 'he');
+  let broke = false;
+  for (let i = 0; i < 30 * 200 && flat.s.alive; i++) for (const e of step(flat.st, DT)) if (e.e === 'break') broke = true;
+  assert.ok(!broke, 'she went down level and broke in two anyway');
+  assert.ok(!flat.s.alive, 'shot to pieces she never went');
+
+  // Going down hard by the head, she does.
+  const head = mk('cleveland');
+  startSinking(head.st, head.s, 'flooding');
+  head.s.sinking.T = 60;
+  head.s.sinking.trim0 = 0.12;
+  broke = false;
+  for (let i = 0; i < 30 * 70 && head.s.alive; i++) for (const e of step(head.st, DT)) if (e.e === 'break') broke = true;
+  assert.ok(broke, 'she went down standing on her bow and never broke');
+
+  // And a big enough list rolls her right over.
+  const roll = mk('fletcher');
+  startSinking(roll.st, roll.s, 'flooding');
+  roll.s.sinking.capsize = true;
+  roll.s.sinking.way = 1;
+  roll.s.sinking.T = 300;
+  let most = 0;
+  let gone = null;
+  for (let i = 0; i < 30 * 200 && roll.s.alive; i++) {
+    for (const e of step(roll.st, DT)) if (e.e === 'sink' && e.ship === roll.s.id) gone = e;
+    most = Math.max(most, Math.abs(roll.s.heel));
+  }
+  // Out of the fight once she is far enough over that her guns are under, and
+  // the picture rolls the rest of her bottom up off the flag on the event.
+  assert.ok(most > 1.2, `a capsizing destroyer only went over ${(most * 57.3).toFixed(0)} degrees`);
+  assert.ok(gone && gone.capsize === 1, 'she capsized and the sinking does not say so');
+});
+
 check('a sinking is credited to the shooter', () => {
   const { state, a, b } = duel('iowa', 'fletcher');
   damageShip(state, b, a, b.maxHp + 1, 'test');
-  assert.equal(b.alive, false);
+  // Shot to pieces she is going down -- but she goes down, and the kill is
+  // the shooter's when she has gone, not the instant the last shell lands.
+  assert.ok(b.sinking, 'she was shot to pieces and is not going down');
+  for (let i = 0; i < 30 * 300 && b.alive; i++) step(state, DT);
+  assert.equal(b.alive, false, 'shot to pieces she was still in the fight five minutes later');
   assert.equal(a.kills, 1);
   assert.ok(a.damageDealt > 0);
 });
@@ -10701,7 +10768,9 @@ check('the sea decides how she sinks, and it is never the same twice', () => {
   assert.equal(one.alive, false, 'a torpedo forward did not sink a destroyer at all');
   assert.ok(one.ship.heel > 0.08,
     `she went down with a list of ${(one.ship.heel * 57.3).toFixed(0)} degrees to starboard`);
-  assert.ok(one.t > 20 && one.t < 400,
+  // Minutes, not seconds: the sea over her deck edge starts her going down,
+  // and going down takes as long as the sea takes to close over her.
+  assert.ok(one.t > 60 && one.t < 900,
     `she took ${one.t.toFixed(0)} s, which is either instant or for ever`);
 
   // Two on the same side: over much further, and much faster.
