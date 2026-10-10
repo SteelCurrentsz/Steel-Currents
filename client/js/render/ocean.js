@@ -276,6 +276,10 @@ float holdOff(inout vec3 wp) {
     float over = lp.y - (top - k);
     if (w <= 0.0 || over <= 0.0) continue;
     float y = top - k + k * (1.0 - exp(-over / k));
+    // But not all of it, when the sea is higher than her deck: a wave that
+    // stands over her deck edge comes aboard -- green water across the deck --
+    // and is held off her only by how far it has to climb.
+    y += max(0.0, lp.y - top) * 0.6;
     float drop = (lp.y - y) * w;
     // Her frame is tilted by no more than her roll and her pitch, a few
     // degrees, so a drop along her own vertical is a drop in the world's.

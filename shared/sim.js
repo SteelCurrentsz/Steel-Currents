@@ -659,7 +659,9 @@ function stepMovement(state, ship, dt) {
   // not make thirty-six knots.
   const flood = 1 - Math.min(0.75, ship.sink / Math.max(1, cls.hull.draft * 0.9) * 0.8
     + Math.abs(ship.heel) * 0.9);
-  const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : maxSpeed) * engine;
+  // And going down she loses her way: the sea is in her machinery spaces.
+  const going = ship.sinking ? Math.max(0, 1 - 1.3 * (ship.sinking.t / ship.sinking.T)) : 1;
+  const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : maxSpeed) * engine * going;
   const target = ordered * bleed * flood;
   const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
   ship.speed = approach(ship.speed, target, accel * dt);
@@ -1082,6 +1084,8 @@ export function gunState(ship, cls, spec, m) {
   if (!m) return 3;
   if (m.hurt >= 3) return 3;
   if (spec && magazineDrowned(ship, cls, spec)) return 3;
+  // Under the sea: it does not fire, from the moment it is under.
+  if (spec && ship.sinking && mountDrowned(ship, spec)) return 3;
   // Rounded up, not down. `hurt` is continuous because the mounting's crew
   // work it back down continuously, and taking the floor of it meant a turret
   // knocked into the damaged state read as sound again one tick later -- the
@@ -1110,6 +1114,7 @@ export function lightGunState(ship, cls, spec) {
   if (!c) return 0;
   if (c.hp <= 0) return 3;
   if (magazineDrowned(ship, cls, spec)) return 3;
+  if (ship.sinking && mountDrowned(ship, spec)) return 3;
   const f = c.hp / c.max;
   return f < 0.3 ? 2 : f < 0.62 ? 1 : 0;
 }
@@ -2912,6 +2917,13 @@ function detonate(state, ship, where, owner) {
   c.hp = 0;
   ship.hp = hullIntegrity(ship);
   damageShip(state, ship, owner, gone + cls.hp * 0.34, 'magazine', where);
+  // A magazine going up is the one thing that breaks her outright, there and
+  // then, at the magazine.
+  const sec = SECTIONS.find((q) => q.k === where);
+  if (sec && sec.from !== null && cls.hull.length > 60) {
+    breakHer(state, ship, clamp((sec.from + sec.to) / 2, -0.6, 0.6), 'magazine');
+    if (ship.sinking && owner) ship.sinking.by = owner.id;
+  }
   if (!ship.alive) {
     state.events.push({
       e: 'detonate', ship: ship.id, at: where,
@@ -6602,19 +6614,161 @@ function stepFlooding(state, ship, dt) {
   ship.trim = after.trim;
   // Her back can go before she does. Once it has, there is no ship: two
   // halves, and neither of them floats for long.
-  if (ship.alive && ship.broke == null) {
+  //
+  // Only when she is going down by the head or the stern hard enough to put
+  // her back across the sea: a ship flooded level settles, she does not break.
+  if (ship.alive && ship.broke == null && Math.abs(after.trim + (ship.sinking?.trim || 0)) > BREAK_TRIM * 0.6) {
     const at = breakStation(ship);
-    if (at != null) {
-      ship.broke = at;
-      state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z) });
-      founder(state, ship, 'broken');
-      return;
-    }
+    if (at != null) breakHer(state, ship, at, 'trim');
   }
-  // Over on her beam ends, or the sea coming in over the deck edge. Either
-  // way she has stopped being a ship.
-  if (ship.alive && Math.abs(after.heel) > 1.25) founder(state, ship, 'capsize');
-  else if (ship.alive && after.reserve <= 0) founder(state, ship, 'flooding');
+  // The sea coming in over the deck edge, or over on her beam ends. She is
+  // going -- but going takes time, and until she has gone she is fighting.
+  if (ship.alive && !ship.sinking && (after.reserve <= 0 || Math.abs(after.heel) > 1.25)) {
+    startSinking(state, ship, Math.abs(after.heel) > 1.25 ? 'capsize' : 'flooding');
+  }
+}
+
+// ------------------------------------------------------------- going down
+
+/** The longest a ship takes to go from the sea over her deck edge to gone, in seconds. */
+export const SINK_MAX = 600;
+/** How far down by the head or the stern she can go before her back goes, in radians. */
+export const BREAK_TRIM = 0.42;
+
+/** How high she stands above her waterline, all told: the depth the sea has to come up. */
+export function standsAbove(cls) {
+  return freeboardOf(cls) + 7 + 9 * (cls.hull.superstructure || 1);
+}
+
+/**
+ * She is going down.
+ *
+ * Not a switch: the sea has got over her deck edge, or she has been shot to
+ * pieces, and from here she settles -- slowly if she is mostly sound and has
+ * one bad hole in her, quickly if there is nothing left of her holding air.
+ * Ten minutes at the most. All that time she is still a ship in the battle:
+ * whatever guns are still above the water and still have crews go on firing,
+ * and she is not out of it until she cannot fight or the sea has closed over
+ * her (see stepSinking).
+ */
+export function startSinking(state, ship, kind, by = 0) {
+  if (!ship.alive || ship.sinking) return;
+  const cls = shipClass(ship);
+  const wrecked = 1 - clamp(ship.hp / Math.max(1, cls.hp), 0, 1);
+  const b = buoyancy(ship);
+  const water = clamp(b.water / Math.max(1, b.free), 0, 1);
+  let T = SINK_MAX * (1 - 0.72 * wrecked) * (1 - 0.3 * water);
+  if (kind === 'shattered') T *= 0.45;
+  if (kind === 'magazine') T *= 0.3;
+  T = clamp(T, 45, SINK_MAX);
+  const heel = ship.heel || 0;
+  ship.sinking = {
+    t: 0, T, kind, by,
+    // The depth she has to go to be under, and how far she has gone.
+    depth: standsAbove(cls), down: 0,
+    // What her going adds to her trim and her list over what the water in
+    // her already gives her.
+    trim: 0, heel: 0,
+    // Whether she is rolling over. A big enough list with the sea coming in
+    // over the low side does not settle: she goes on over and floats bottom
+    // up. Not every time -- a ship with the weight low enough down comes back
+    // and settles on her side.
+    capsize: Math.abs(heel) > 1.0 || (Math.abs(heel) > 0.45 && state.rng() < 0.4),
+    // How far down by one end she already was: the trim that runs away is the
+    // trim she had. Flooded evenly she settles level.
+    trim0: ship.trim || 0,
+    roll: 0, way: Math.sign(heel || (state.rng() < 0.5 ? -1 : 1)),
+  };
+  state.events.push({ e: 'sinking', ship: ship.id, x: r(ship.x), z: r(ship.z), kind, T: Math.round(T) });
+}
+
+/**
+ * Her back goes. Only off a magazine, or going down so hard by one end that
+ * she is a girder across the sea with nothing under the middle of it.
+ */
+export function breakHer(state, ship, at, why) {
+  if (ship.broke != null) return;
+  ship.broke = at;
+  state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z), why });
+  if (!ship.sinking) startSinking(state, ship, why === 'magazine' ? 'magazine' : 'shattered');
+  else ship.sinking.T = Math.min(ship.sinking.T, ship.sinking.t + 120);
+}
+
+/**
+ * One step of going down. She settles at the rate set when she started, a
+ * little faster as the last of the air goes out of her; her trim runs away
+ * toward whichever end is heavy, and her list toward the low side -- or right
+ * over, if she is capsizing. She is out of the battle when the sea closes over
+ * her, or when there is no gun aboard her left to fight with.
+ */
+function stepSinking(state, ship, dt) {
+  const S = ship.sinking;
+  if (!S || !ship.alive) return;
+  const cls = shipClass(ship);
+  S.t += dt;
+  const u = clamp(S.t / S.T, 0, 1);
+  // So that she is under, all told, at T: the rate grows as she goes.
+  S.down = S.depth * (u * 0.6 + u * u * 0.4);
+  // The heavy end goes on getting heavier.
+  const trimWay = Math.sign(S.trim0 || ship.trim || 0.05);
+  S.trim = trimWay * u * u * Math.min(0.75, 0.1 + 6 * Math.abs(S.trim0 || 0));
+  if (S.capsize) {
+    // Over, slowly at first and then all at once, and then she lies there
+    // bottom up while the air trapped in her lets go.
+    S.roll = Math.min(1, S.roll + dt / Math.min(140, S.T * 0.45));
+    const e = S.roll * S.roll * (3 - 2 * S.roll);
+    const base = ship.heel || 0;
+    S.heel = S.way * Math.PI * e - base * e;
+  } else {
+    S.heel = Math.sign(ship.heel || S.way) * u * 0.25;
+    // And a list that runs away from her is a capsize after all.
+    if (Math.abs((ship.heel || 0) + S.heel) > 1.15) { S.capsize = true; S.way = Math.sign(ship.heel + S.heel); }
+  }
+  ship.sink = (ship.sink || 0) + S.down;
+  ship.trim = (ship.trim || 0) + S.trim;
+  ship.heel = (ship.heel || 0) + S.heel;
+  // Too far down by one end: her back goes, where the sea has got to.
+  if (ship.broke == null && cls.hull.length > 90 && Math.abs(ship.trim) > BREAK_TRIM && S.down > 2) {
+    breakHer(state, ship, clamp(-Math.sign(ship.trim) * 0.25, -0.6, 0.6), 'trim');
+  }
+  // Out of it: under, or with nothing left to fight.
+  const under = S.down >= S.depth * 0.98;
+  const upsideDown = Math.abs(ship.heel) > 2.6;
+  if (under || (upsideDown && S.roll >= 1) || !canFight(ship)) {
+    founder(state, ship, under ? S.kind : upsideDown ? 'capsize' : 'silenced');
+  }
+}
+
+/** Whether she has a main or secondary gun left that could fire, now or after her crews have cleared it. */
+export function canFight(ship) {
+  const cls = shipClass(ship);
+  const any = (list, specs) => list.some((m, i) => gunState(ship, cls, specs[m.id ?? i], m) < 3);
+  const main = ship.turrets?.length ? any(ship.turrets, cls.turrets || []) : false;
+  const sec = ship.secMounts?.length ? any(ship.secMounts, cls.secondary?.mounts || []) : false;
+  return main || sec || (!ship.turrets?.length && !ship.secMounts?.length);
+}
+
+/**
+ * Whether the sea is over a mounting, the way she is lying now.
+ *
+ * Her list and her trim lift one side and one end out and put the other under,
+ * and a ship settling with her deck awash has her forward turret under while
+ * her after one is still dry. A gun under water does not fire, from the moment
+ * it is under.
+ */
+export function mountDrowned(ship, spec) {
+  if (!spec) return false;
+  const sink = ship.sink || 0;
+  const heel = ship.heel || 0;
+  const trim = ship.trim || 0;
+  if (!sink && !heel && !trim) return false;
+  const y = spec.my ?? 6;
+  const x = spec.x || 0;
+  const z = spec.z || 0;
+  // Her own frame rolled and pitched into the sea's: heel lays her +x side
+  // down, trim her bow.
+  const h = y * Math.cos(heel) * Math.cos(trim) - x * Math.sin(heel) - z * Math.sin(trim) - sink;
+  return h < -1;
 }
 
 /**
@@ -6771,12 +6925,21 @@ export function breakStation(ship) {
  * that off her trim, her heel, and whether her back went.
  */
 function founder(state, ship, kind) {
+  if (!ship.alive) return;
   ship.alive = false;
   ship.speed = 0;
-  const at = breakStation(ship);
-  if (at != null) ship.broke = at;
+  const S = ship.sinking;
+  const by = S?.by || 0;
+  const source = by ? state.ships.find((q) => q.id === by) : null;
+  if (source && source.team !== ship.team) source.kills++;
   state.events.push({
-    e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by: 0, kind,
+    e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by, kind,
+    // How much of her is still to go under, and how fast: the picture carries
+    // on from where the battle left her rather than starting a sinking of its
+    // own.
+    left: S ? r(Math.max(0, S.depth - S.down)) : null,
+    rate: S ? r(S.depth / Math.max(20, S.T) * 1.2) : null,
+    capsize: S?.capsize ? 1 : 0,
     // How she is going: how far over, how far down by the head, and where her
     // back went if it went. The client puts her under on these and nothing
     // else, so two ships never go down the same way.
@@ -7057,10 +7220,10 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
   // every ship in the game broke down at exactly the same point in her life.
   if (ship.hp <= 0) {
     ship.hp = 0;
-    ship.alive = false;
-    ship.speed = 0;
-    if (source && source.team !== ship.team) source.kills++;
-    state.events.push({ e: 'sink', ship: ship.id, x: ship.x, z: ship.z, by: source ? source.id : 0, kind });
+    // Shot to pieces. She is going, and fast -- but she goes down, she does
+    // not vanish, and whatever she still has above the water fights on.
+    startSinking(state, ship, kind === 'magazine' ? 'magazine' : 'shattered', source ? source.id : 0);
+    if (ship.sinking && source) ship.sinking.by = source.id;
   }
 }
 
@@ -7292,6 +7455,7 @@ export function step(state, dt = DT) {
     stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
+    stepSinking(state, ship, dt);
     stepFlak(state, ship, dt);
     stepDepthAttack(state, ship, dt);
   }

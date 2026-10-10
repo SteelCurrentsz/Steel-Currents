@@ -586,6 +586,8 @@ export class Battle {
       ls.hp = own.hp;
       ls.alive = !!own.a;
       ls.fires = own.f; ls.flooding = own.fl;
+      // Going down: her own prediction slows her as the battle does.
+      ls.sinking = Number.isFinite(own.sn) ? { t: own.sn, T: 1 } : null;
       if (own.cd) own.cd.forEach((cd, i) => { if (ls.turrets[i]) ls.turrets[i].cooldown = cd; });
       if (own.dis) own.dis.forEach((d, i) => { if (ls.turrets[i]) ls.turrets[i].disabled = d ? 1 : 0; });
       if (own.tp) own.tp.forEach((cd, i) => { if (ls.torpMounts[i]) ls.torpMounts[i].cooldown = cd; });
@@ -1268,8 +1270,8 @@ export class Battle {
     // own, and the chart view answered a drag by sliding a map about. She is
     // the thing worth watching at that moment, so the camera is put on her and
     // left there; every other mark on the plot is still one tap away.
-    if (this.camMode === 'tactical') this.camMode = 'chase';
-    this.lookAt({ kind: 'ship', id: this.shipId, team: this.team, name: 'Your ship' });
+    // And it is left exactly where it was: no cut, no zoom, no orbit put on
+    // her from somewhere else. She is going down in front of you.
     // The flag shifts anyway, because the fight goes on -- but shifting the
     // flag and moving the camera are two different things and used to be one.
     // Her helm answers the chart from here; see `conned`.
@@ -1325,6 +1327,14 @@ export class Battle {
         this.hud.alert(`${who}: blown up`);
         // And her oil goes up with her.
         this.scene.oil.spill(wx, wz, 90 + (t.size || 1) * 120, true);
+      } else if (t.kind === 'slam') {
+        // The half that came up falling back flat into the sea: thousands of
+        // tonnes of steel arriving at once, and the biggest splash of the day.
+        fx.splash(wx, wz, 520 + (t.size || 1) * 380, { kind: 'bomb' });
+        fx.splash(wx + (Math.random() - 0.5) * 30, wz + (Math.random() - 0.5) * 30,
+          380 + (t.size || 1) * 200, { kind: 'shell' });
+        audio.explosion(1.2 * near, 0);
+        this.shake = Math.max(this.shake, s.i === this.shipId ? 0.7 : 0.25 * near);
       } else if (t.kind === 'oil') {
         this.scene.oil.spill(wx, wz, t.volume || 30, !!t.burning);
       }
@@ -1543,6 +1553,25 @@ export class Battle {
             audio.click();
           }
           break;
+        case 'sinking': {
+          // She is going. Not gone: whatever is still above the water goes on
+          // fighting, and she has as long as the sea gives her.
+          const who = ev.ship === this.shipId ? 'We are' : `${this.names.get(ev.ship) || 'A ship'} is`;
+          const mins = Math.max(1, Math.round((ev.T || 60) / 60));
+          this.hud.alert(`${who} sinking${ev.kind === 'capsize' ? ' and capsizing' : ''} -- ${mins} min`);
+          break;
+        }
+        case 'break': {
+          // Her back has gone: off a magazine, or going down so hard by one end
+          // that the middle of her could not carry it. From where she is, not
+          // from level -- see breakHer and stepHalves in scene.js.
+          const view = this.scene.shipViews.get(ev.ship);
+          if (view && !view.halves) {
+            view.breakHer(ev.at);
+            view.throes.push({ kind: 'break', z: (ev.at || 0) * view.cls.hull.length / 2, size: 0.5 + view.cls.hull.length / 320 });
+          }
+          break;
+        }
         case 'dcAttack':
           if (ev.ship === this.shipId) this.hud.ribbon('DEPTH CHARGE ATTACK');
           break;
@@ -1576,15 +1605,14 @@ export class Battle {
           }
           break;
         case 'sink': {
-          // A ship going down goes up. Her fuel, her ready-use ammunition and
-          // whatever is left in her magazines all go at once as the sea gets
-          // to them, and what is left over her is the same boiling column a
-          // magazine leaves -- smaller, because it is the end of a ship rather
-          // than the middle of one.
-          fx.magazine(ev.x, 5, ev.z, 0.62);
-          this.scene.debris.burst(ev.x, 10, ev.z, 7, 1);
-          fx.splash(ev.x, ev.z, 700);
-          audio.explosion(2.4, 0);
+          // Out of the fight. She does not blow up for it -- a ship blows up
+          // when her magazine goes, and that is its own event -- she goes on
+          // going down from where the battle has her, and the air coming out
+          // of her heaves the sea up white over her.
+          this.sinkInfo = this.sinkInfo || new Map();
+          this.sinkInfo.set(ev.ship, ev);
+          fx.splash(ev.x, ev.z, 300, { kind: 'dc' });
+          audio.splash(0.6);
           const victim = this.names.get(ev.ship) || 'A ship';
           const killer = this.names.get(ev.by) || 'Someone';
           const vTeam = this.entities.get(ev.ship)?.team ?? 1;
@@ -3388,8 +3416,11 @@ export class Battle {
         // Only the camera that was on her comes off her. It used to drop any
         // watch at all, which took a captain who was watching his own ship go
         // down off her the moment the ship his flag had shifted to sank too.
+        // And not while she is still there to watch: a ship going down is
+        // the thing worth watching, and the camera stays on her, where it
+        // was, until there is nothing left of her to draw.
         if (this.watching && this.watching.kind === 'ship'
-          && this.watching.id === gone) this.lookAt(null);
+          && this.watching.id === gone && !this.scene.shipViews.get(gone)?.group.visible) this.lookAt(null);
       }
     }
     const seen = new Set();
@@ -3520,20 +3551,25 @@ export class Battle {
           left += (s.sk && s.sk[i] != null ? s.sk[i] : 9) / 9;
           wet += (s.wt && s.wt[i] != null ? s.wt[i] : 0) / 100;
         }
+        const gone = this.sinkInfo?.get(s.i);
         view.founder({
           heel: view.heelBy,
           trim: view.trimBy,
           broke: s.bk,
           wrecked: 1 - left / SECTIONS.length,
           water: wet / SECTIONS.length,
+          rate: gone?.rate ?? null,
+          capsize: !!gone?.capsize,
         });
       }
       if (view.going) {
         view.group.visible = view.stepFounder(dt);
-        if (view.throes.length) this.deathThroes(view, s, x, z, h);
       } else {
         view.group.visible = !!s.a;
+        // Broken in two and still in the fight: the halves hinge off her pose.
+        if (view.halves) view.stepHalves(dt);
       }
+      if (view.throes.length) this.deathThroes(view, s, x, z, h);
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 
       // Funnel smoke and burning damage.

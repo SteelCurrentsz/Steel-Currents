@@ -628,6 +628,39 @@ export class Splashes {
    */
   setHulls(fn) { this.hullSource = fn; }
 
+  /** The sea, to tell when a wave is higher than a deck. */
+  setSea(ocean) { this.sea = ocean; }
+
+  /**
+   * A sea higher than her deck edge comes aboard: wherever a crest stands over
+   * the gunwale it breaks across the deck in white water. Sampled down both
+   * sides of every hull near enough to see it, a few times a second.
+   */
+  overtop(dt) {
+    if (!this.sea || !this._hulls || !this._hulls.length) return;
+    this.overClock = (this.overClock || 0) - dt;
+    if (this.overClock > 0) return;
+    this.overClock = 0.18;
+    const v = this._ov || (this._ov = new THREE.Vector3());
+    let budget = 6;
+    for (const h of this._hulls) {
+      for (let k = 0; k < 7 && budget > 0; k++) {
+        const lz = (k / 6 - 0.5) * 1.8 * h.L;
+        for (const side of [-1, 1]) {
+          const lx = side * this.halfBeam(h, lz);
+          v.set(lx, h.deck, lz).applyMatrix4(h.mw);
+          const sea = this.sea.heightAt(v.x, v.z);
+          if (sea > v.y + 0.15 && Math.random() < 0.7) {
+            budget--;
+            // A little in from the edge, which is where it lands.
+            const w = (this._ow || (this._ow = new THREE.Vector3())).set(lx * 0.6, h.deck, lz).applyMatrix4(h.mw);
+            this.deckSplash(w.x, w.y, w.z, Math.min(3, 0.8 + (sea - v.y) * 1.4));
+          }
+        }
+      }
+    }
+  }
+
   /** Every hull on the sea this frame, in a form a point can be tested against. */
   refreshHulls() {
     const out = this._hulls || (this._hulls = []);
@@ -984,6 +1017,7 @@ export class Splashes {
   update(dt) {
     if (this.waves) this.waves.update(dt);
     this.refreshHulls();
+    this.overtop(dt);
     // How many deck splashes a frame may start: a straddle lands a great deal
     // of water on a ship at once, and every drop of it does not need a splash.
     this.deckBudget = 8;

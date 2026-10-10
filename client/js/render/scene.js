@@ -955,8 +955,13 @@ export class ShipView {
    */
   founder(ev = {}) {
     if (this.going) return;
-    const heel = ev.heel != null ? ev.heel : this.heelBy;
-    const trim = ev.trim != null ? ev.trim : this.trimBy;
+    // From exactly where she is. The battle has been settling her, listing
+    // her and trimming her for as long as she took to go (see stepSinking in
+    // sim.js): the picture of her last few metres carries on from that, it
+    // does not start a sinking of its own from level.
+    const heel = -this.group.rotation.z;
+    const trim = this.group.rotation.x;
+    const down0 = Math.max(0, -this.group.position.y);
     // What she is going down as. Both come off the wire and both came out of
     // the fight: `wrecked` is how much of her structure has been shot out of
     // her, nought to one, and `water` is how full of sea her compartments are.
@@ -965,7 +970,7 @@ export class ShipView {
     // Over on her beam ends when she stopped floating. She is not going to
     // settle with a list on: she is going to keep rolling, and finish upside
     // down. Half the ships that did that floated bottom-up for hours.
-    const capsizing = Math.abs(heel) > 1.0;
+    const capsizing = !!ev.capsize || Math.abs(heel) > 1.0;
     this.going = {
       t: 0,
       heel,
@@ -987,9 +992,12 @@ export class ShipView {
       //
       // A ship rolling over is the exception: she goes over first and down
       // afterwards, because the air trapped under her is still holding her up.
-      rate: (0.10 + wrecked * 1.45 + water * 0.40) * (capsizing ? 0.35 : 1),
-      accel: (0.015 + wrecked * 0.24) * (capsizing ? 0.55 : 1),
-      down: 0,
+      // The battle says how fast, when it knows: the same rate it was
+      // settling her at.
+      rate: ev.rate != null ? Math.max(0.08, ev.rate)
+        : (0.10 + wrecked * 1.45 + water * 0.40) * (capsizing ? 0.35 : 1),
+      accel: ev.rate != null ? 0.01 : (0.015 + wrecked * 0.24) * (capsizing ? 0.55 : 1),
+      down: down0,
       roll: 0,
       // Still alight when she went. The sea reaches the fire before the fire
       // is put out by it, and what the fire has been sitting next to for the
@@ -1014,6 +1022,11 @@ export class ShipView {
    */
   breakHer(at) {
     if (this.halves) return;
+    // Which end is the heavy one: the one she was going down by. That half
+    // goes on down; the other comes up, and falls back. See stepHalves.
+    this.heavyEnd = (this.group.rotation.x || this.trimBy || 0) >= 0 ? 'fore' : 'aft';
+    this.halfT = 0;
+    this.slammed = false;
     const half = this.cls.hull.length / 2;
     const zc = at * half;
     // Her plating at the break. She did not part along a clean line: a few
@@ -1088,45 +1101,10 @@ export class ShipView {
     const trim = g.trim + Math.sign(g.trim || 0.2)
       * Math.min(1.35, k * 0.05 * (1 + g.wrecked * 0.8));
 
-    // Her back goes on the way down.
-    //
-    // A hull standing on end is a girder with a third of its length out of the
-    // water and nothing under it: whatever the shellfire left of her, the
-    // bending finishes the job. She parts at the waterline -- which is where
-    // everybody who watched the Titanic go down said she parted, and where the
-    // two pieces of her on the bottom say she parted -- so the station is not
-    // chosen, it is worked out: it is the point along her that the sea has
-    // reached at the trim she has taken up.
-    if (!this.halves && !g.capsizing && len > 90
-      && Math.abs(trim) > 0.62 && down > len * 0.05) {
-      const reach = Math.abs(Math.sin(trim)) * half;
-      const at = clamp(-Math.sign(trim) * Math.min(1, down / Math.max(1e-3, reach)),
-        -0.60, 0.60);
-      this.breakHer(at);
-      g.broke = at;
-      g.brokeAt = k;
-      // The break itself takes her lights, throws steel about and is heard
-      // across the anchorage.
-      this.throes.push({ kind: 'break', z: at * half, size: 0.5 + len / 320 });
-    }
-
-    // Still on fire when the sea got to her. She blows up.
-    //
-    // Ready-use ammunition, her own fuel, and in the end whatever the fire has
-    // been sitting alongside -- and a magazine going off in a hull with no
-    // structure left in it does not damage her, it ends her: she is opened
-    // from the middle, the pieces go up, and what is left drops.
-    if (!g.blown && k > g.fuse && (this.burning || 0) > 0.30) {
-      g.blown = true;
-      const at = clamp((Math.random() - 0.5) * 0.6, -0.32, 0.32);
-      const zc = at * half;
-      this.plating.strip(zc - len * 0.11, zc + len * 0.11);
-      this.shed(this.fittings.shedSection(zc - len * 0.15, zc + len * 0.15));
-      if (!this.halves) { this.breakHer(at); g.broke = at; g.brokeAt = k; }
-      g.rate += 1.5;
-      g.accel += 0.4;
-      this.throes.push({ kind: 'blast', z: zc, size: 0.8 + len / 190 });
-    }
+    // Her back does not go on its own here, and she does not blow up because
+    // she was burning: both come from the battle -- her magazine, or her going
+    // down so hard by one end that she breaks (see breakHer in sim.js) -- and
+    // reach her as events.
 
     // Her oil.
     //
@@ -1146,39 +1124,60 @@ export class ShipView {
       });
     }
 
-    if (this.halves) {
-      // Two halves, each hanging from its own broken end.
-      //
-      // There is no buoyancy at the break, so that end of each half drops and
-      // the other end -- the bow of one, the stern of the other -- comes up
-      // out of the water. They pivot on the break and drift apart along the
-      // line she used to be, which is what a ship that has broken her back
-      // looks like from the moment it happens to the moment the last of her
-      // goes under.
-      // The clock the halves swing on starts when her back went, not when she
-      // stopped floating. She can break the moment she founders -- her keel
-      // was already cut -- or three-quarters of a minute later with her stern
-      // in the air, and a half that snapped to its full angle the instant it
-      // was made is not a ship breaking, it is a shape appearing.
-      const kb = Math.max(0, k - (g.brokeAt || 0));
-      for (const [key, part] of Object.entries(this.halves)) {
-        const way = key === 'fore' ? -1 : 1;
-        part.rotation.x = way * Math.min(1.15, kb * 0.11);
-        part.position.y = -down * (1 + kb * 0.04);
-        part.position.z = this.breakZ + way * -Math.min(len * 0.10, kb * 1.1);
-      }
-      this.group.rotation.z = -heel * 0.5;
-    } else {
-      this.group.position.y = -down;
-      this.group.rotation.x = trim;
-      // The same sign her list is drawn with while she is still afloat -- see
-      // the update loop, which lays her over by minus her heel. The two used
-      // to disagree, so a ship listing hard to starboard flicked over to port
-      // at the instant she stopped floating.
-      this.group.rotation.z = -heel;
-    }
+    // Her own frame goes on settling as one ship would: a break does not put
+    // her back level and start her again. The halves hinge off it.
+    this.group.position.y = -down;
+    this.group.rotation.x = trim;
+    this.group.rotation.z = -heel;
+    if (this.halves) this.stepHalves(dt);
     // Gone when the highest part of her is well under.
     return down < this.cls.hull.length * 0.5 + 20;
+  }
+
+  /**
+   * Two halves, hinged where she parted, moving off the hull's own pose.
+   *
+   * The heavy half -- the end she was going down by -- goes on down, steeper
+   * and steeper, its broken end leading. The other has nothing holding up the
+   * end that was joined to her: its far end comes up out of the sea as it
+   * pivots, stands there, and then the whole of it falls back flat into the
+   * water, which is a great deal of steel arriving in the sea at once -- and
+   * throws it up accordingly (a 'slam', drained by the battle into a splash).
+   * Everything starts from nought at the moment she broke, so there is no
+   * jump: she goes on from exactly where she was.
+   */
+  stepHalves(dt) {
+    if (!this.halves) return;
+    this.halfT = (this.halfT || 0) + dt;
+    const t = this.halfT;
+    const len = this.cls.hull.length;
+    const smooth = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };
+    for (const [key, part] of Object.entries(this.halves)) {
+      // +1 for the fore half, whose far end is her stem; -1 for the after half.
+      const end = key === 'fore' ? 1 : -1;
+      let lift;
+      if (key === this.heavyEnd) {
+        // Down by its far end, which is the end she was already going down by.
+        lift = -Math.min(0.6, t * 0.045);
+      } else if (t < 4.5) {
+        lift = 0.34 * smooth(t / 4.5);
+      } else if (t < 7) {
+        lift = 0.34 * (1 - smooth((t - 4.5) / 2.5)) - 0.05 * smooth((t - 4.5) / 2.5);
+      } else {
+        lift = -0.05 - Math.min(0.3, (t - 7) * 0.02);
+        if (!this.slammed) {
+          this.slammed = true;
+          // Where the far end of it came down.
+          const reach = (len / 2 - Math.abs(this.breakZ || 0)) * 0.6;
+          this.throes.push({ kind: 'slam', z: (this.breakZ || 0) + end * reach, size: 0.6 + len / 200 });
+        }
+      }
+      // Rotation about her beam at the break: positive puts her +z down, so a
+      // far end coming up is a turn the other way from the fore half's stem.
+      part.rotation.x = -end * lift;
+      // And they drift apart along the line she was on.
+      part.position.z = (this.breakZ || 0) + end * Math.min(len * 0.06, t * 0.7);
+    }
   }
 
   /**
@@ -1607,6 +1606,7 @@ export class BattleScene {
     // And the ships, so a splash stays at a ship's side and what it throws
     // comes aboard her.
     this.effects.splashes.setHulls(() => this.shipViews.values());
+    this.effects.splashes.setSea(this.ocean);
     // The gun smoke is lit by the same hour and cloud as everything else, and
     // drifts down the wind the sea is running before.
     {

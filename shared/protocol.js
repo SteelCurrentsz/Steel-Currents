@@ -111,6 +111,8 @@ export function shipSnapshot(ship, full, state = null) {
     // How fast she is swinging, which the helm takes time to change; her own
     // bridge predicts the swing and has to start from the server's.
     s.yr = r4(ship.yawRate || 0);
+    // How far through going down she is, which takes her way off her.
+    if (ship.sinking) s.sn = r3(ship.sinking.t / ship.sinking.T);
     // Her air, and where her captain has ordered her to. Both are her own
     // bridge's business: a boat's remaining oxygen is the one number that
     // decides everything she does next, and it is nobody else's.
