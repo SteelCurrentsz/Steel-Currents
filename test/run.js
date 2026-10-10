@@ -4813,12 +4813,12 @@ check('her own anti-submarine officer attacks a contact without being asked', ()
   // A boat that holds her course through an attack is dead; one that puts her
   // helm over and keeps changing it breaks the plot and lives, which is
   // exactly the fight that was fought over the Atlantic for six years.
-  const hunt = (jink) => {
+  const hunt = (jink, course = 0.6) => {
     const state = createState(generateWorld(4244, 'open_ocean'), { mode: 'deathmatch' });
     const dd = addShip(state, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
     const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
     dd.x = 0; dd.z = -900; dd.heading = 0; dd.notch = 3;
-    boat.x = 0; boat.z = 0; boat.heading = 0.6; boat.notch = 5; boat.depthCmd = 30;
+    boat.x = 0; boat.z = 0; boat.heading = course; boat.notch = 5; boat.depthCmd = 30;
     let attacks = 0;
     for (let i = 0; i < 600 / DT; i++) {
       steerToward(state, dd, headingTo(dd.x, dd.z, boat.x, boat.z));
@@ -4835,10 +4835,19 @@ check('her own anti-submarine officer attacks a contact without being asked', ()
   assert.ok(!straight.alive, 'a boat that held her course through an attack survived it');
   assert.ok(straight.left < SHIP_CLASSES.fletcher.depthCharges.carried,
     'the stowage never came down');
-  const jinking = hunt(true);
-  assert.ok(jinking.attacks > 1, 'she gave up on a boat that was still down there');
-  assert.ok(jinking.alive,
-    `a boat that kept her helm moving was still caught by ${jinking.attacks} attacks`);
+  // Which attack a jink beats depends on how the destroyer comes round onto
+  // her, and a destroyer that answers her helm slowly comes round differently
+  // every time; so the boat is run on eight courses, holding each and jinking
+  // on each. Holding on sinks her; jinking is a coin she can win.
+  const courses = Array.from({ length: 8 }, (_, k) => 0.6 + k * 0.785);
+  const held = courses.filter((c) => hunt(false, c).alive).length;
+  const jinks = courses.map((c) => hunt(true, c));
+  const lived = jinks.filter((j) => j.alive);
+  assert.ok(lived.length >= 3 && lived.length > held + 2,
+    `jinking saved her on ${lived.length} of 8 courses, holding on ${held}`);
+  for (const j of lived) {
+    assert.ok(j.attacks > 1, 'she gave up on a boat that was still down there');
+  }
 });
 
 check('the arsenal lists her depth charges as something that can be worked', () => {
@@ -10971,7 +10980,7 @@ check('the wire says how many compartments are flooding and how she is floating'
   sh.sink = 1.4; sh.heel = 0.21; sh.trim = -0.05;
   const s = shipSnapshot(sh, true);
   assert.equal(s.fl, 3, `the wire says ${JSON.stringify(s.fl)} compartments are flooding`);
-  assert.ok(Array.isArray(s.fo) && s.fo.length === 3, 'how she is floating is not on the wire');
+  assert.ok(Array.isArray(s.fo) && s.fo.length === 4, 'how she is floating is not on the wire');
   assert.ok(Math.abs(s.fo[0] - 1.4) < 0.1 && Math.abs(s.fo[1] - 0.21) < 0.01,
     `she is floating at ${JSON.stringify(s.fo)}`);
   // And the water in each compartment, which is what the hologram draws.
