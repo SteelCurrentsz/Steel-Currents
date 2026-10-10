@@ -3085,8 +3085,16 @@ check('her screws turn, and each shaft the way it is handed', () => {
     for (const sc of view.screws) {
       assert.ok(sc.userData.dynamic,
         `${id} has a screw welded into her hull`);
-      assert.ok(sc.children.length >= 2,
-        `${id} has a screw with no blades on it`);
+      // Her hub and her blades, which may be one welded buffer: it is the
+      // whole screw that turns, so what matters is that the blades are on it.
+      let tris = 0;
+      sc.traverse((o) => {
+        if (o.isMesh && o.geometry) {
+          const g = o.geometry;
+          tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+        }
+      });
+      assert.ok(tris >= 36, `${id} has a screw with no blades on it`);
     }
     // Stopped, they stop.
     const at = view.screws.map((sc) => sc.rotation.z);
