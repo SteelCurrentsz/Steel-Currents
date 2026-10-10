@@ -152,6 +152,19 @@ const KM_PER_DEG = 111.32;
  * game that can be floated on one, so the outer shape is what matters and the
  * hole is dropped.
  */
+/**
+ * Which way east is in the battlefield's own x.
+ *
+ * North is +z. The renderer is three.js's right-handed frame with y up, and in
+ * that frame, seen from above with north at the top, +x is on the LEFT -- a
+ * ship heading north has +x on her port hand. So east is -x. It used to be +x,
+ * which put every real coastline into the battle as its mirror image: Morocco
+ * to starboard of a ship steaming up the Strait of Gibraltar, Spain to port.
+ * Every chart that draws the battlefield draws -x to the right (CHART_X, in
+ * world.js), so the charts, the sea and the atlas all agree.
+ */
+export const EAST_X = -1;
+
 export function coastFor(lon, lat, half, { tolerance = 25, detail = 700, seed = 1 } = {}) {
   const mPerLat = KM_PER_DEG * 1000;
   const mPerLon = mPerLat * Math.max(0.02, Math.cos((lat * Math.PI) / 180));
@@ -178,7 +191,7 @@ export function coastFor(lon, lat, half, { tolerance = 25, detail = 700, seed = 
         const pts = [];
         for (let i = 0; i < r.length; i++) {
           pts.push([
-            (r[i][0] + shift - lon) * mPerLon,
+            EAST_X * (r[i][0] + shift - lon) * mPerLon,
             (r[i][1] - lat) * mPerLat,
           ]);
         }

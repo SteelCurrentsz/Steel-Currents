@@ -4,7 +4,7 @@
 // and he lays her course off on the plot.
 
 import { SHIP_CLASSES } from '../../shared/ships.js';
-import { MAP_HALF, islandRing } from '../../shared/world.js';
+import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
@@ -342,11 +342,11 @@ export class Hud {
       const m = perPx(p.box);
       // What is under the finger before, and after: the difference is the pan
       // that keeps it under the finger.
-      const bx = view.x + (p.x - p.box / 2) * m;
+      const bx = view.x + CHART_X * (p.x - p.box / 2) * m;
       const bz = view.z - (p.y - p.box / 2) * m;
       view.zoom = clamp(view.zoom * factor, 1, 12);
       const m2 = perPx(p.box);
-      view.x = bx - (p.x - p.box / 2) * m2;
+      view.x = bx - CHART_X * (p.x - p.box / 2) * m2;
       view.z = bz + (p.y - p.box / 2) * m2;
       clampView(p.box);
     };
@@ -378,7 +378,7 @@ export class Hud {
         return;
       }
       const m = perPx(now.box);
-      view.x -= (now.x - was.x) * m;
+      view.x -= CHART_X * (now.x - was.x) * m;
       view.z += (now.y - was.y) * m;
       moved += Math.hypot(now.x - was.x, now.y - was.y);
       clampView(now.box);
@@ -455,7 +455,7 @@ export class Hud {
     const H = this.world?.half || MAP_HALF;
     const scale = (size / (H * 2)) * plot.view.zoom;
     return {
-      x: plot.view.x + ((e.clientX - r.left) - size / 2) / scale,
+      x: plot.view.x + (CHART_X * ((e.clientX - r.left) - size / 2)) / scale,
       z: plot.view.z - ((e.clientY - r.top) - size / 2) / scale,
     };
   }
@@ -1563,7 +1563,7 @@ export class Hud {
     // The border of the battlefield: past it there is nothing to fight over,
     // and when the chart is zoomed in it is the only thing that says so.
     ctx.strokeStyle = 'rgba(154,166,178,0.4)';
-    ctx.strokeRect(toX(-H), toY(H), H * 2 * scale, H * 2 * scale);
+    ctx.strokeRect(Math.min(toX(-H), toX(H)), toY(H), H * 2 * scale, H * 2 * scale);
 
     // The islands, in the shape the hulls run aground on rather than as the
     // circles they used to be plotted as.
@@ -1615,7 +1615,10 @@ export class Hud {
     const H = this.world?.half || MAP_HALF;
     const view = plot.view;
     const scale = (size / (H * 2)) * view.zoom;
-    const toX = (x) => size / 2 + (x - view.x) * scale;
+    // The sea as it looks from overhead: north up, and world -x to the right
+    // (see CHART_X). Drawn with +x to the right it was the battle in a mirror,
+    // every contact on the wrong side of her.
+    const toX = (x) => size / 2 + CHART_X * (x - view.x) * scale;
     const toY = (z) => size / 2 - (z - view.z) * scale;
 
     // The sea, the grid, the border and the land do not move unless the plot
@@ -1667,7 +1670,7 @@ export class Hud {
         // Which way it is laid, so a captain can see what he must not cross.
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
+        ctx.lineTo(x + CHART_X * Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
       marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
@@ -1687,7 +1690,7 @@ export class Hud {
       const x = toX(s.x), y = toY(s.z);
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(-s.h);
+      ctx.rotate(CHART_X * s.h);
       ctx.beginPath();
       ctx.moveTo(0, -7 * k); ctx.lineTo(4 * k, 5.6 * k); ctx.lineTo(-4 * k, 5.6 * k);
       ctx.closePath();
@@ -1762,7 +1765,7 @@ export class Hud {
       ctx.lineWidth = mine ? 2.2 : 1.6;
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(-pl.h);
+      ctx.rotate(CHART_X * pl.h);
       // A swept pair of wings: unmistakably not a hull, at four pixels.
       ctx.beginPath();
       ctx.moveTo(-6.5 * k, 3.8 * k); ctx.lineTo(0, -5 * k); ctx.lineTo(6.5 * k, 3.8 * k);
@@ -1796,7 +1799,7 @@ export class Hud {
       const tint = mine ? '#e6cf9c' : bm.tm === this.team ? '#6fd3a0' : '#e2564f';
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(-bm.h);
+      ctx.rotate(CHART_X * bm.h);
       ctx.strokeStyle = tint;
       ctx.lineWidth = mine ? 2.3 : 1.7;
       // Fuselage, nose to tail.

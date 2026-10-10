@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  generateWorld, isOpenSea, landAt, landMask, blockedByLand, islandAt, groundHeight,
+  generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt,
 } from '../shared/world.js';
 import {
@@ -278,6 +278,7 @@ import {
   zAt as iowaZAt, halfDeck as iowaHalfDeck, iowaParts, iowaDecks,
 } from '../client/js/render/iowa.js';
 import * as THREE from '../vendor/three.module.js';
+import { EAST_X } from '../shared/coast.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
 import { unpackHoles, HoleField } from '../client/js/render/planes.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
@@ -3965,6 +3966,49 @@ check('the walk inland finds the middle from anywhere on an island', () => {
     assert.ok(mid.d > R * 0.5,
       `walked to ${Math.round(mid.d)} m of ground on an island of ${Math.round(R)} m`);
   }
+});
+
+check('the charts and the coast are the right way round, the way the sea looks from her bridge', () => {
+  // Seen from her bridge with her bow to the north, which hand is +x on? Asked
+  // of three.js itself, the same camera the battle is drawn with.
+  const cam = new THREE.PerspectiveCamera(60, 1, 1, 10000);
+  cam.position.set(0, 0, 0);
+  cam.up.set(0, 1, 0);
+  cam.lookAt(0, 0, 1);
+  cam.updateMatrixWorld(true);
+  const onScreen = new THREE.Vector3(100, 0, 100).project(cam);
+  assert.equal(Math.sign(onScreen.x), CHART_X,
+    'the charts draw x the opposite way to the sea they are a chart of');
+
+  // So east is the other way, and a real coast arrives the right way round:
+  // off Ostia, Italy is to the east and the Tyrrhenian is to the west.
+  // East, drawn on a chart, is to the right of it, the way an atlas has it.
+  assert.equal(CHART_X * EAST_X, 1, 'east on the charts is not east in the sea');
+  const ostia = generateWorld(1, 'coral_shelf', 'day', 16000, { lon: 12.25, lat: 41.75 });
+  assert.ok(landAt(ostia, EAST_X * 12000, 0), 'Italy is not to the east of Ostia');
+  assert.ok(!landAt(ostia, -EAST_X * 12000, 0), 'the Tyrrhenian is not to the west of Ostia');
+
+  // And the plotting board puts a contact where the bridge sees it, and turns
+  // her bow the way she is steering. A ship at +x, seen from a bridge heading
+  // north, is on the left of the picture; on the chart she is to the left too.
+  const board = Object.create(LayoutMap.prototype);
+  Object.assign(board, { half: 16000, view: { x: 0, z: 0, zoom: 1 }, _size: { w: 800, h: 800 } });
+  const mid = board.toScreen(0, 0);
+  const port = board.toScreen(4000, 0);
+  assert.ok(port.x < mid.x, 'a ship to port of a northbound bridge is plotted to starboard');
+  const back = board.fromScreen(port.x, port.y);
+  assert.ok(Math.abs(back.x - 4000) < 1e-6 && Math.abs(back.z) < 1e-6, 'the chart does not read back what it drew');
+  // Steering for +x is steering for the left of the chart: her bow, drawn as
+  // the nose of a counter pointing up and turned by the chart's own angle,
+  // points left.
+  const h = Math.atan2(1, 0);
+  const sh = CHART_X * h;
+  assert.ok(Math.sin(sh) < 0, 'a ship steering to port is drawn with her bow to starboard');
+  // And dragging her handle to the left of her sets her steering for +x.
+  const held = { x: 0, z: 0, heading: 0 };
+  const sc = board.toScreen(held.x, held.z);
+  const want = Math.atan2(CHART_X * (sc.x - 100 - sc.x), sc.y - sc.y);
+  assert.ok(Math.abs(Math.sin(want) - 1) < 1e-9, 'a handle dragged to the left does not steer her for +x');
 });
 
 check('a battle set in the open ocean is fought out of sight of land, and its guns stay ashore', () => {

@@ -10,6 +10,7 @@
 
 import { drawWorld, nearWater, waterSquareKm } from './worldmap.js';
 import { waterName } from './waters.js';
+import { EAST_X } from '../../shared/coast.js';
 import {
   generateWorld, islandRing, theatreFor, battlefieldSeed, battlefieldHalf,
 } from '../../shared/world.js';
@@ -529,7 +530,7 @@ export class DeployMap {
   fieldToLonLat(p, x, z) {
     const mPerLat = KM_PER_DEG * 1000;
     const mPerLon = mPerLat * Math.max(0.02, Math.cos((p.lat * Math.PI) / 180));
-    return { lon: p.lon + x / mPerLon, lat: p.lat + z / mPerLat };
+    return { lon: p.lon + (EAST_X * x) / mPerLon, lat: p.lat + z / mPerLat };
   }
 
   /** The zoom that puts the box across `frac` of the shorter side of the view. */

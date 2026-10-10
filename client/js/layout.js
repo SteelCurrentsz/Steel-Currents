@@ -10,7 +10,7 @@
 // what is there when the fleets arrive, rather than a picture of it.
 
 import {
-  generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF, isOpenSea,
+  generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF, isOpenSea, CHART_X,
 } from '../../shared/world.js';
 import { shipClearance } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
@@ -540,13 +540,15 @@ export class LayoutMap {
   toScreen(x, z) {
     const { w, h } = this.size;
     const s = this.scale;
-    return { x: w / 2 + (x - this.view.x) * s, y: h / 2 - (z - this.view.z) * s };
+    // North up and world -x to the right, the way the sea looks from overhead
+    // (see CHART_X).
+    return { x: w / 2 + CHART_X * (x - this.view.x) * s, y: h / 2 - (z - this.view.z) * s };
   }
 
   fromScreen(px, py) {
     const { w, h } = this.size;
     const s = this.scale;
-    return { x: this.view.x + (px - w / 2) / s, z: this.view.z - (py - h / 2) / s };
+    return { x: this.view.x + (CHART_X * (px - w / 2)) / s, z: this.view.z - (py - h / 2) / s };
   }
 
   /**
@@ -775,8 +777,8 @@ export class LayoutMap {
       for (const t of this.tokens) {
         const s = this.toScreen(t.x, t.z);
         const out = this.handleOut(t);
-        const hx = s.x + Math.sin(t.heading) * out;
-        const hy = s.y - Math.cos(t.heading) * out;
+        const hx = s.x + Math.sin(CHART_X * t.heading) * out;
+        const hy = s.y - Math.cos(CHART_X * t.heading) * out;
         const dh = Math.hypot(p.x - hx, p.y - hy);
         if (dh < HANDLE_R + 8 && dh < bestD) { best = { t, mode: 'turn' }; bestD = dh; }
         const db = Math.hypot(p.x - s.x, p.y - s.y);
@@ -825,7 +827,7 @@ export class LayoutMap {
       if (!this.drag) return;
       if (this.drag.mode === 'pan') {
         const s = this.scale;
-        this.view.x -= (p.x - prev.x) / s;
+        this.view.x -= (CHART_X * (p.x - prev.x)) / s;
         this.view.z += (p.y - prev.y) / s;
         this.clampView();
       } else if (this.drag.mode === 'move') {
@@ -837,7 +839,7 @@ export class LayoutMap {
       } else {
         const t = this.drag.t;
         const s = this.toScreen(t.x, t.z);
-        t.heading = Math.atan2(p.x - s.x, s.y - p.y);
+        t.heading = Math.atan2(CHART_X * (p.x - s.x), s.y - p.y);
         this.check(t);
       }
       this.dirty = true;
@@ -1048,8 +1050,11 @@ export class LayoutMap {
   drawToken(ctx, t) {
     const p = this.toScreen(t.x, t.z);
     const col = TEAM[t.team];
-    const sin = Math.sin(t.heading);
-    const cos = Math.cos(t.heading);
+    // Her heading as the chart shows it: the same angle from north, turned the
+    // way the chart's x runs.
+    const sh = CHART_X * t.heading;
+    const sin = Math.sin(sh);
+    const cos = Math.cos(sh);
     const r = this.bodyR(t);
     const out = this.handleOut(t);
 
@@ -1066,8 +1071,8 @@ export class LayoutMap {
       // Canvas angles run from +x and clockwise on a y-down canvas, and the
       // heading runs from +z and clockwise on the chart, so the two differ by a
       // quarter turn.
-      const a0 = t.heading - half - Math.PI / 2;
-      const a1 = t.heading + half - Math.PI / 2;
+      const a0 = sh - half - Math.PI / 2;
+      const a1 = sh + half - Math.PI / 2;
       ctx.strokeStyle = t.ok ? col.dim : 'rgba(226, 86, 79, 0.55)';
       if (t.traverse >= 360) {
         // A mounting that points anywhere has nothing to say about bearing, so
@@ -1113,10 +1118,9 @@ export class LayoutMap {
     // The body.
     ctx.save();
     ctx.translate(p.x, p.y);
-    // Screen y runs down while z runs up, so the chart is a mirror of the world
-    // in y -- and a heading measured clockwise from +z comes out as the same
-    // rotation clockwise on the canvas rather than its opposite.
-    ctx.rotate(t.heading);
+    // Screen y runs down while z runs up, and screen x runs the way CHART_X
+    // says, so the heading goes on the canvas as the chart shows it.
+    ctx.rotate(sh);
     ctx.beginPath();
     if (t.kind === 'ship') {
       // A hull: pointed at the bow, square at the transom, and about as fine

@@ -30,6 +30,16 @@ export function isOpenSea(of) {
   return !!getPreset(id)?.open && getPreset(id).id === id;
 }
 
+/**
+ * Which way a chart draws the battlefield's x: -1, so world -x (east) is to the
+ * right with north up -- which is how the sea itself looks from overhead.
+ *
+ * A chart drawn with +x to the right is the battle in a mirror: every contact on
+ * the wrong side of her, and every bow turned the wrong way round. Anything
+ * that puts the battlefield on a flat screen goes through this one number.
+ */
+export const CHART_X = -1;
+
 export function getPreset(id) {
   return MAP_PRESETS.find((m) => m.id === id) || MAP_PRESETS[0];
 }
