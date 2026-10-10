@@ -3450,14 +3450,20 @@ check('a battle is fought out to the last ship', () => {
 
   // The flagship goes down and the battle goes on, because her division has
   // not.
+  // Shot to pieces she goes down, which takes her a minute or two; the
+  // battle is still on while she does, and still on when she has gone.
   damageShip(st, a1, b1, a1.maxHp + 1, 'test');
-  step(st, DT);
+  for (let i = 0; i < 30 * 300 && a1.alive; i++) step(st, DT);
   assert.equal(a1.alive, false, 'the flagship did not sink');
   assert.equal(st.over, false, 'the battle ended with the flagship');
 
   // The last of her side goes and it is over.
   damageShip(st, a2, b1, a2.maxHp + 1, 'test');
-  const evs = step(st, DT);
+  // Not over while she is still going down and fighting.
+  step(st, DT);
+  assert.equal(st.over, false, 'the battle ended while her last ship was still afloat');
+  const evs = [];
+  for (let i = 0; i < 30 * 300 && !st.over; i++) evs.push(...step(st, DT));
   assert.equal(st.over, true, 'a side was wiped out and the battle went on');
   assert.equal(st.winner, 1, 'the wrong side won');
   assert.equal(st.reason, 'elimination', `she ended on ${st.reason}`);
@@ -9128,6 +9134,9 @@ check('she is counted in compartments and holes, not in hit points', () => {
   // And she goes when every compartment is gone, not a moment before.
   for (const k of SECTIONS) damageShip(st, her, null, cls.hp, 'pen', k.k);
   assert.equal(her.hp, 0);
+  // Gutted, she is going down -- fast, but she goes down rather than vanishing.
+  assert.ok(her.sinking, 'gutted, and not going down');
+  for (let i = 0; i < 30 * 300 && her.alive; i++) step(st, DT);
   assert.ok(!her.alive, 'gutted, and still afloat');
 });
 
