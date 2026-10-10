@@ -3765,8 +3765,11 @@ function stepCharges(state, dt) {
  */
 function burstCharge(state, c) {
   state.events.push({ e: 'dcBurst', x: c.x, y: c.y, z: c.z, owner: c.owner });
-  // The dome it throws up, which is smaller the deeper it was set.
-  waterBlow(state, c.x, c.z, 780 * Math.max(0.28, 1 + Math.min(0, c.y || 0) / 70));
+  // The wave off it, which falls away far faster with depth than the dome
+  // does: a charge going off at a hundred feet heaves the sea up white over
+  // it and sends almost nothing out across the surface.
+  const deep = Math.max(0, -(c.y || 0));
+  waterBlow(state, c.x, c.z, 780 * Math.pow(Math.max(0.12, 1 - deep / 45), 1.5));
   const owner = state.ships.find((s) => s.id === c.owner);
   // A pistol that has not armed is a drum of wet TNT and does nothing at all.
   if (-c.y < c.arming) return;
