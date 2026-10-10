@@ -360,7 +360,11 @@ function plumeMaterial(map) {
     vertexColors: true, color: 0xf2f6fa, map,
     // Spray is bright: it scatters the sky's light back as well as the sun's.
     emissive: 0x3d4a56,
-    alphaHash: true,
+    // Dense in its body and soft only at its edges (see below), so it is a
+    // body of water and not a pane -- but soft where it frays, which a hashed
+    // alpha draws as a screen door.
+    transparent: true,
+    depthWrite: false,
   });
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\nvarying vec3 vObj;\n'
@@ -371,13 +375,55 @@ function plumeMaterial(map) {
     float nz = pn(vObj * vec3(7.0, 13.0, 7.0)) * 0.65 + pn(vObj * vec3(19.0, 31.0, 19.0)) * 0.35;
     float top = smoothstep(0.6, 1.0, vObj.y);
     float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
-    float keep = 1.0 - top * 1.1 * nz - rim * rim * rim * 0.9 * nz;
+    float keep = 1.0 - top * 0.9 * nz - rim * rim * 0.85 * (0.4 + nz);
     diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0);
-  }
-#include <alphahash_fragment>`);
+  }`);
   };
   return m;
 }
+
+/**
+ * A puff of torn water: a lumpy ball, knobbled all over, for the surge round the
+ * foot of a splash and the head it breaks into at the top. The same material as
+ * the plumes, so it is lit, opaque in its body and frayed at its edge.
+ */
+function makePuffGeometry() {
+  const g = new THREE.IcosahedronGeometry(1, 3);
+  const p = g.attributes.position;
+  const col = [];
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i); const y = p.getY(i); const z = p.getZ(i);
+    // Billows, not shards: big soft lumps and only a little knobbling on them.
+    const n = (vnoise(x * 1.6 + 3, y * 1.6, z * 1.6 - 2) - 0.5) * 0.5
+      + (vnoise(x * 3.6, y * 3.6 + 5, z * 3.6) - 0.5) * 0.16;
+    const k = 1 + n;
+    p.setXYZ(i, x * k, y * k, z * k);
+    const shade = 0.82 + 0.3 * Math.max(-0.5, Math.min(0.5, n)) + 0.08 * y;
+    col.push(0.86 * shade, 0.92 * shade, 0.97 * shade);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  // The icosahedron comes with every face's corners its own, which shades it
+  // flat -- a heap of facets, which reads as ice. The corners that are the same
+  // point are given the same normal, so it shades as the soft billow it is.
+  const nrm = g.attributes.normal;
+  const sum = new Map();
+  const key = (i) => `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`;
+  for (let i = 0; i < p.count; i++) {
+    const k = key(i);
+    const v = sum.get(k) || [0, 0, 0];
+    v[0] += nrm.getX(i); v[1] += nrm.getY(i); v[2] += nrm.getZ(i);
+    sum.set(k, v);
+  }
+  for (let i = 0; i < p.count; i++) {
+    const v = sum.get(key(i));
+    const l = Math.hypot(v[0], v[1], v[2]) || 1;
+    nrm.setXYZ(i, v[0] / l, v[1] / l, v[2] / l);
+  }
+  return g;
+}
+
+const PUFFS = 1100;
 
 const DROP_VERT = /* glsl */`
 attribute float aSize;
@@ -406,19 +452,30 @@ void main() {
 /**
  * How each kind of thing that goes into the sea throws it up.
  *
- *   shell  a mass and a crown of spires, leaning the way it came in
- *   bomb   wider and lower, and more of it comes back down
- *   dc     the sea humps up into a white dome first, and then the plume bursts
- *          up through it in a fan
- *   torp   a tall narrow column standing against a ship's side
- *   drop   a torpedo going in off a low run: long and low, thrown forward
+ * Every one of them is the same three things, which is what a photograph of
+ * any of them shows (see the notes on Splashes): a base surge of churned white
+ * water spreading low across the sea, a stem driven up out of the middle of it,
+ * and a head the stem breaks into at the top of its throw, raining back down
+ * round its own edge. What changes is the proportions.
+ *
+ *   shell  a tall narrow stem and a head no wider than a few of it
+ *   bomb   a thicker stem, a bigger head, a heavier surge
+ *   dc     the sea heaving up white first, then a thick stem bursting up out of
+ *          it into a broad head, over a wide surge
+ *   torp   a tall column standing against a ship's side
+ *   drop   a torpedo going in off a low run: low, and thrown forward
+ *
+ * `stem` is the stem's radius over the splash's, `side` how many thinner jets
+ * stand round it, `head` how many puffs its head is made of and `bloom` how
+ * wide they open out over the stem, `surge` how many puffs the base surge is
+ * and `reach` how far out it runs.
  */
 const KINDS = {
-  shell: { tall: 1, wide: 1, jets: [4, 7], fan: [0.03, 0.2], jetH: [0.4, 0.85], jetW: [0.22, 0.36], drops: 1, delay: 0 },
-  bomb: { tall: 0.85, wide: 1.2, jets: [5, 8], fan: [0.08, 0.3], jetH: [0.35, 0.8], jetW: [0.22, 0.36], drops: 1.5, delay: 0 },
-  dc: { tall: 0.5, wide: 1.25, jets: [6, 9], fan: [0.1, 0.3], jetH: [0.45, 0.85], jetW: [0.22, 0.36], drops: 2, delay: 0.3 },
-  torp: { tall: 1.15, wide: 0.7, jets: [3, 5], fan: [0.02, 0.12], jetH: [0.55, 0.9], jetW: [0.26, 0.38], drops: 1.2, delay: 0 },
-  drop: { tall: 0.55, wide: 0.8, jets: [2, 4], fan: [0.2, 0.42], jetH: [0.5, 0.9], jetW: [0.24, 0.36], drops: 0.6, delay: 0 },
+  shell: { tall: 1, wide: 1, stem: 0.4, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.2, stem: 0.46, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0 },
+  dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32 },
+  torp: { tall: 1.15, wide: 0.75, stem: 0.42, side: [1, 2], head: 10, bloom: 1.5, surge: 14, reach: 1.6, drops: 1.2, delay: 0 },
+  drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0 },
 };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -503,6 +560,22 @@ export class Splashes {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < JETS; i++) this.jetMesh.setMatrixAt(i, zero);
     scene.add(this.jetMesh);
+
+    // The puffs: the base surge and the head, one draw call between them.
+    const puffGeo = makePuffGeometry();
+    this.puffFade = new THREE.InstancedBufferAttribute(new Float32Array(PUFFS), 1);
+    this.puffFade.setUsage(THREE.DynamicDrawUsage);
+    puffGeo.setAttribute('aFade', this.puffFade);
+    this.puffMesh = new THREE.InstancedMesh(puffGeo, plumeMaterial(this.jetMesh.material.map), PUFFS);
+    this.puffMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.puffMesh.frustumCulled = false;
+    this.puffMesh.renderOrder = 3;
+    for (let i = 0; i < PUFFS; i++) this.puffMesh.setMatrixAt(i, zero);
+    scene.add(this.puffMesh);
+    this.puffFree = [];
+    for (let i = PUFFS - 1; i >= 0; i--) this.puffFree.push(i);
+    this.puffs = [];
+
     this.jetFree = [];
     for (let i = JETS - 1; i >= 0; i--) this.jetFree.push(i);
     this.jets = [];
@@ -604,8 +677,11 @@ export class Splashes {
         life: 0, rise, ttl: rise + 1.3 + height * 0.022,
       });
     }
-    this.spires(x, z, base.height, radius, kind, lean, bore);
-    this.spray(x, z, base.height, radius, kind, bore, lean);
+    const h = base.height * kind.tall;
+    this.spires(x, z, h, radius, kind, lean, bore);
+    this.surge(x, z, h, radius, kind, opts.child);
+    this.crest(x, z, h, radius, kind, lean, opts.child);
+    this.spray(x, z, h, radius, kind, bore, lean);
     // The patch of churned water underneath it, which is what actually marks
     // where the round went in. With a sea to write into it is written there,
     // torn up, by the ring (see SplashRings); without one it is two patches
@@ -645,38 +721,95 @@ export class Splashes {
   }
 
   /**
-   * The plumes: a handful of separate columns of white water standing close
-   * together, not one mass. One of them goes the whole height -- that is the
-   * splash a spotter reads -- and the rest stand lower round it, each leaning
-   * its own way, with water between them.
+   * The stem: one narrow, rough column driven straight up out of the middle,
+   * the full height of the splash -- the thing a spotter reads -- and a jet or
+   * two thinner than it standing close in against it, so its edge is torn
+   * rather than smooth.
    */
   spires(x, z, height, radius, kind, lean, bore) {
-    const n = Math.max(2, Math.round(rnd(kind.jets[0], kind.jets[1] + 0.99) * Math.min(1, 0.55 + bore / 450)));
-    const placed = [];
-    for (let i = 0; i < n; i++) {
+    const sides = Math.round(rnd(kind.side[0], kind.side[1] + 0.99) * Math.min(1, 0.5 + bore / 400));
+    for (let i = 0; i <= sides; i++) {
       const slot = this.jetFree.pop();
       if (slot === undefined) return;
-      const w = radius * rnd(kind.jetW[0], kind.jetW[1]) * (i === 0 ? 1.15 : 1);
-      // Spread round the point it went in, bunched toward the way it came in,
-      // and kept apart: two plumes that overlap read as one lump again.
-      let px = x, pz = z, a = lean;
-      for (let tries = 0; tries < 10; tries++) {
-        a = lean + (Math.random() - 0.5) * Math.PI * (Math.random() < 0.6 ? 1.2 : 2);
-        const off = i === 0 ? radius * rnd(0, 0.25) : radius * rnd(0.45, 1.25);
-        px = x + Math.sin(a) * off;
-        pz = z + Math.cos(a) * off;
-        if (placed.every((q) => Math.hypot(q.x - px, q.z - pz) > (q.w + w) * 0.62)) break;
-      }
-      placed.push({ x: px, z: pz, w });
-      const h = height * (i === 0 ? rnd(0.95, 1.05) : rnd(kind.jetH[0], kind.jetH[1]));
-      const rise = (0.2 + h * 0.0065) * rnd(0.85, 1.2);
+      const stem = i === 0;
+      const a = lean + (Math.random() - 0.5) * Math.PI * 2;
+      const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.12, 0.3);
+      const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.55, 0.85));
+      const rise = (0.2 + h * 0.0065) * (stem ? 1 : rnd(0.9, 1.15));
       this.jets.push({
-        slot, x: px, z: pz,
-        a, tilt: i === 0 ? rnd(0, 0.06) : rnd(kind.fan[0], kind.fan[1]),
-        w, h,
-        delay: kind.delay + (i === 0 ? 0 : rnd(0, 0.18)), rise,
-        ttl: rise + 1.3 + h * 0.024,
+        slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
+        // Near vertical: what drives it up is under it.
+        a, tilt: stem ? rnd(0, 0.04) : rnd(0.03, 0.1),
+        w: radius * kind.stem * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
+        delay: kind.delay + (stem ? 0 : rnd(0.02, 0.12)), rise,
+        ttl: rise + 1.2 + h * 0.022,
         life: 0,
+      });
+    }
+  }
+
+  /** One puff, of the surge or of the head. */
+  puff(p) {
+    const slot = this.puffFree.pop();
+    if (slot === undefined) return;
+    this._e.set(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3);
+    p.q = new THREE.Quaternion().setFromEuler(this._e);
+    p.slot = slot;
+    p.life = 0;
+    this.puffs.push(p);
+  }
+
+  /**
+   * The base surge: a ring of churned white water and mist thrown out low
+   * across the sea from the foot of the splash in the first instant, dense and
+   * turbulent, spreading fast and then hanging, wider than the stem ever is.
+   */
+  surge(x, z, height, radius, kind, child) {
+    const n = Math.round(kind.surge * (child ? 0.4 : 1) * Math.max(0.6, this.intensity));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rnd(-0.25, 0.25);
+      const size = radius * rnd(0.3, 0.46);
+      const out = radius * kind.reach * rnd(0.6, 1.1);
+      const ttl = 2.2 + height * 0.03;
+      this.puff({
+        x: x + Math.sin(a) * radius * 0.35, z: z + Math.cos(a) * radius * 0.35, y: size * 0.25,
+        // Out fast and then hung up: it is thrown, and the air stops it.
+        dx: Math.sin(a) * out, dz: Math.cos(a) * out, dy: size * 0.3,
+        s0: size * 0.6, s1: size * 1.45, squash: 0.45,
+        delay: kind.delay * 0.4 + rnd(0, 0.06), ttl: ttl * rnd(0.85, 1.15),
+        peak: 0.95, spread: 0.25,
+      });
+    }
+  }
+
+  /**
+   * The crest: where the stem runs out of push it breaks into a head of spray,
+   * puff over puff, wider the higher they are -- the mushroom every photograph
+   * of a fall of shot has over each column -- softer and thinner than the stem,
+   * opening out as it hangs and drifting off downwind.
+   */
+  crest(x, z, height, radius, kind, lean, child) {
+    const n = Math.round(kind.head * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
+    const w = radius * kind.stem;
+    const rise = 0.2 + height * 0.0065;
+    for (let i = 0; i < n; i++) {
+      // Up the top half of the stem, crowding toward the top.
+      const u = 0.5 + 0.5 * Math.pow(Math.random(), 0.6);
+      const a = lean + Math.random() * Math.PI * 2;
+      const off = w * (0.3 + kind.bloom * (u - 0.5) * 1.6) * rnd(0.4, 1);
+      const size = w * (0.7 + kind.bloom * (u - 0.4)) * rnd(0.75, 1.15);
+      const ttl = 1.6 + height * 0.035;
+      this.puff({
+        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: height * u * 0.92,
+        // Opening outward and sinking as it goes, the way the head of a column
+        // spreads and comes back down over itself.
+        dx: Math.sin(a) * w * kind.bloom * rnd(0.4, 1.0), dz: Math.cos(a) * w * kind.bloom * rnd(0.4, 1.0),
+        dy: -height * rnd(0.08, 0.2),
+        s0: size * 0.45, s1: size * 1.45, squash: rnd(0.8, 1.05),
+        // Each one blooms as the top of the stem goes past it.
+        delay: kind.delay + rise * u * rnd(0.85, 1.05), ttl: ttl * rnd(0.85, 1.15),
+        // Softer and thinner than the stem it came off.
+        peak: rnd(0.5, 0.72), spread: 0.5,
       });
     }
   }
@@ -694,10 +827,12 @@ export class Splashes {
       const a = lean + (Math.random() - 0.5) * Math.PI * 2.2;
       const u = rnd(0.25, 0.95);
       const v = Math.sqrt(2 * G * height * u);
-      const out = rnd(0.12, 0.42) * v + rnd(0, 0.6) * Math.sqrt(G * radius);
-      this.dropPos[s * 3] = x + Math.sin(a) * radius * rnd(0.2, 0.9);
+      // Up the stem with it, and out of its head: so it falls round the edge
+      // of the head and down past the stem, like rain off it.
+      const out = rnd(0.07, 0.24) * v + rnd(0, 0.4) * Math.sqrt(G * radius);
+      this.dropPos[s * 3] = x + Math.sin(a) * radius * kind.stem * rnd(0.2, 1.0);
       this.dropPos[s * 3 + 1] = rnd(0.5, 2.5);
-      this.dropPos[s * 3 + 2] = z + Math.cos(a) * radius * rnd(0.2, 0.9);
+      this.dropPos[s * 3 + 2] = z + Math.cos(a) * radius * kind.stem * rnd(0.2, 1.0);
       this.dropVel[s * 3] = Math.sin(a) * out;
       this.dropVel[s * 3 + 1] = v * rnd(0.55, 0.95);
       this.dropVel[s * 3 + 2] = Math.cos(a) * out;
@@ -786,6 +921,7 @@ export class Splashes {
     }
 
     this.stepJets(dt);
+    this.stepPuffs(dt);
     this.stepDrops(dt);
 
     for (let i = this.foams.length - 1; i >= 0; i--) {
@@ -871,6 +1007,42 @@ export class Splashes {
     }
     this.jetMesh.instanceMatrix.needsUpdate = true;
     this.jetFade.needsUpdate = true;
+  }
+
+  stepPuffs(dt) {
+    if (!this.puffs.length) return;
+    const m = this._m;
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i];
+      p.life += dt;
+      const t = p.life - p.delay;
+      if (t >= p.ttl) {
+        this.puffMesh.setMatrixAt(p.slot, m.makeScale(0, 0, 0));
+        this.puffFade.setX(p.slot, 0);
+        this.puffFree.push(p.slot);
+        this.puffs.splice(i, 1);
+        continue;
+      }
+      if (t < 0) {
+        this.puffMesh.setMatrixAt(p.slot, m.makeScale(0, 0, 0));
+        this.puffFade.setX(p.slot, 0);
+        continue;
+      }
+      const k = t / p.ttl;
+      // Thrown, then stopped by the air: most of the way out in the first
+      // third of its life.
+      const go = 1 - Math.pow(1 - k, 3);
+      const size = p.s0 + (p.s1 - p.s0) * Math.pow(k, 0.5);
+      this._p.set(p.x + p.dx * go, Math.max(size * p.squash * 0.2, p.y + p.dy * k), p.z + p.dz * go);
+      this._s.set(size * (1 + p.spread * k), size * p.squash, size * (1 + p.spread * k));
+      m.compose(this._p, p.q, this._s);
+      this.puffMesh.setMatrixAt(p.slot, m);
+      // In quickly, and torn away to nothing as it goes.
+      const tear = k < 0.35 ? 0 : (k - 0.35) / 0.65;
+      this.puffFade.setX(p.slot, p.peak * Math.min(1, t * 9) * (1 - tear * tear * (3 - 2 * tear)));
+    }
+    this.puffMesh.instanceMatrix.needsUpdate = true;
+    this.puffFade.needsUpdate = true;
   }
 
   stepDrops(dt) {
