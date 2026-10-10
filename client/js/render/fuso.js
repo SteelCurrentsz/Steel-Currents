@@ -9,16 +9,17 @@
 // 12.7 cm twins and a 25 mm battery on her superstructure and her deck, a
 // pair of catapults on her quarterdeck and three floatplanes to fly off them.
 //
-// Her hull, her superstructure, her bridge, her funnel and her mainmast are the
-// sculpts (see fusoHull.js and build/prepare-fuso-hull.mjs), and so are every
-// one of her guns. What is built here is everything that moves or fires:
+// Her hull and her bridge are the sculpts, her hull carried up a deck over
+// her middle to her forecastle deck, and her funnel and after tower are drawn
+// to the kit of her (see fusoHull.js and build/prepare-fuso-hull.mjs); every
+// one of her guns is a sculpt. What is built here is everything that moves or fires:
 //
 //   * her six 35.6 cm turrets, the sculpt's own gunhouse on a barbette of its
 //     own, its barrels on a cradle that elevates -- No.1 and No.2 forward,
 //     No.3 in front of her funnel facing forward over her bridge's block, back
 //     to back with No.4 abaft it, and No.5 and No.6 aft, facing astern;
 //   * her fourteen 15.2 cm singles in their shields, seven a side, each in a
-//     casemate cut in the side of her hull, firing through its port;
+//     casemate cut in the side of her forecastle, firing over its sill;
 //   * her 12.7 cm twins and her 25 mm triples, the owner's sculpts of each,
 //     on her platforms and her deck;
 //   * her two catapults, which train out over her quarters and throw a Jake
@@ -121,7 +122,7 @@ function insideShell(t, y) {
   const z = zAt(t);
   for (const s of MOUNT_SEATS.secondary) {
     const floor = s.seat - cm.post;
-    if (Math.abs(z - s.z) > cm.width / 2 + 0.2 || y < floor - 0.2 || y > floor + cm.high + 0.2) continue;
+    if (Math.abs(z - s.z) > cm.width / 2 + 0.2 || y < floor - 0.2 || y > floor + cm.high + 0.6) continue;
     return Math.min(out, Math.abs(s.x) + cm.pivot - cm.deep - 0.1);
   }
   return out;
@@ -236,7 +237,7 @@ function mountings(g) {
   let k = 0;
   for (const gun of CLS.aa.guns) {
     for (const m of gun.mounts) {
-      const y = m.y !== undefined ? m.y : fusoSeatY(m.x, m.z, gun.caliber === 127 ? 1.8 : 1.2);
+      const y = m.y !== undefined ? m.y : fusoSeatY(m.x, m.z, gun.caliber === 127 ? 1.8 : 0.9);
       const a = gun.caliber === 127
         ? sculpted(g, 'twin', m.x, y, m.z, stowed(m), 0.28, { r: 0.14, len: 4.6 })
         : sculpted(g, 'aa', m.x, y, m.z, stowed(m), 0.9);

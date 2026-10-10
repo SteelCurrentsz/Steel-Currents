@@ -37,6 +37,7 @@ import {
   recomputeNormals, weld, stations, fair, hardEdges, shadePlating, boxUvs,
   paletteToLinear, paint, heightmap, heightBytes, pack, packPieceCompact, faceNormal,
 } from './sculpt.mjs';
+import { blank, box, prism, chamfered, lathe, tube, bar } from './fuso-parts.mjs';
 import { subMesh, dropLoose, turnInward, thinFaces, creased, measureLines } from './sculpt-parts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -193,11 +194,18 @@ const gunwale = (() => {
     for (const d of [0, -1, 1, -2]) if (map.has(key + d)) return map.get(key + d);
     return NaN;
   };
-  const gw = [0, 1].map((s) => {
-    const raw = Float64Array.from(gy, (y, k) => (Number.isNaN(y) ? NaN : at(side[s][k], y - GUNWALE.under)));
-    const m1 = Float64Array.from(raw, (_, k) => med(raw, k, 4));
-    return Float64Array.from(m1, (v, k) => (Number.isNaN(v) ? v : mean(m1, k, 2)));
+  const gw0 = [0, 1].map((s) => Float64Array.from(gy, (y, k) => (Number.isNaN(y) ? NaN : at(side[s][k], y - GUNWALE.under))));
+  const both = Float64Array.from(gw0[0], (a, k) => {
+    const b = gw0[1][k];
+    if (Number.isNaN(a)) return b;
+    if (Number.isNaN(b)) return a;
+    return (a + b) / 2;
   });
+  // The median of six metres either way and a running mean over three: her
+  // deck edge in plan is a long fair curve, and the lumps in it are the sculpt's.
+  const m1 = Float64Array.from(both, (_, k) => med(both, k, 12));
+  const fairHalf = Float64Array.from(m1, (v, k) => (Number.isNaN(v) ? v : mean(m1, k, 6)));
+  const gw = [fairHalf, fairHalf];
   return { gy, gw, side };
 })();
 const lerpAt = (arr, f) => {
@@ -207,11 +215,27 @@ const lerpAt = (arr, f) => {
   if (Number.isNaN(b)) return a;
   return a * (1 - u) + b * u;
 };
-/** Her gunwale at z: how high her deck edge is, and how far out each side (starboard, port). */
+// Her forecastle deck: the sculpt's hull stops at her upper deck, and over
+// the middle of her, from abaft No.1 to before No.5, the kit and her plans
+// have a deck more of hull -- her side carried straight up `h` and decked
+// over, with her 15.2 cm in casemates in it. It rises in `ramp` at either end,
+// one station: a step down to her upper deck that is a bulkhead across her.
+export const LEVEL = { z0: -44.75, z1: 49.75, h: 2.5, ramp: 0.5 };
+const raiseAt = (z) => {
+  const c = (v) => Math.min(1, Math.max(0, v));
+  const u = c((z - LEVEL.z0) / LEVEL.ramp) * c((LEVEL.z1 - z) / LEVEL.ramp);
+  return LEVEL.h * u * u * (3 - 2 * u);
+};
+/**
+ * Her gunwale at z: how high her deck edge is (`y`, her forecastle deck where
+ * she has one; `y0`, the sculpt's upper deck), and how far out each side
+ * (starboard, port).
+ */
 const gunwaleAt = (z) => {
   const f = (z - GUNWALE.z0) / GUNWALE.dz;
   const halves = [lerpAt(gunwale.gw[0], f), lerpAt(gunwale.gw[1], f)];
-  return { y: lerpAt(gunwale.gy, f), halves, half: Math.min(...halves) };
+  const y0 = lerpAt(gunwale.gy, f);
+  return { y: y0 + raiseAt(z), y0, halves, half: Math.min(...halves) };
 };
 // Where she ends, as her gunwale has her: her stern and her stem head -- the
 // last stations at which she has a side half a metre under her deck edge
@@ -280,7 +304,7 @@ dropLoose(m, { maxArea: 3, maxDiag: 4 });
 // from side to side, on the same points -- she is closed, and there is no
 // edge anywhere in her that the sea can be seen through.
 const CUT = 0.5, BOOT_TOP = 1.0, ROWS = 9;
-const FAIR = { r: 8, mean: 2 };
+const FAIR = { r: 14, mean: 4 };
 const KEY = (y) => Math.round(y / GUNWALE.step);
 /** Her faired half-breadth on side `s` (0 starboard, 1 port) at station `k` and height key `key`. */
 const fairHB = (() => {
@@ -298,7 +322,7 @@ const fairHB = (() => {
     v.sort((p, q) => p - q);
     return v[v.length >> 1];
   };
-  return (s, k, key) => {
+  const one = (s, k, key) => {
     const id = (s * GUNWALE.n + k) * 4096 + key + 2048;
     if (cache.has(id)) return cache.get(id);
     if (!has(s, k, key)) { cache.set(id, NaN); return NaN; }
@@ -311,6 +335,16 @@ const fairHB = (() => {
     const out = n ? sum / n : NaN;
     cache.set(id, out);
     return out;
+  };
+  // She is drawn the same either side: the sculpt's sides differ from each
+  // other by as much as a metre in places, which is the sculptor's hand and
+  // not her lines, and shows as a ripple in her deck edge where each is
+  // faired to its own.
+  return (s, k, key) => {
+    const a = one(0, k, key), b = one(1, k, key);
+    if (Number.isNaN(a)) return b;
+    if (Number.isNaN(b)) return a;
+    return (a + b) / 2;
   };
 })();
 /** Her faired half-breadth on side `s`, at station `k` and any height: between the quarter metres. */
@@ -432,7 +466,8 @@ const fairAtY = (s, k, y) => {
       // Read no higher than a hand under her deck edge: at her deck itself
       // the sculpt's deck is holed wherever a turret or a deckhouse stood,
       // and what is read there is the stump of it, not her side.
-      const y = Math.min(yOf(z, g.y), g.y - GUNWALE.under);
+      // Over her upper deck, where her forecastle is carried up, her side goes straight up.
+      const y = Math.min(yOf(z, g.y), g.y0 - GUNWALE.under);
       ks.push(k);
       for (const sd of [0, 1]) { const v = fairAtY(sd, k, y); ws[sd].push(Number.isNaN(v) || v < 0.05 ? NaN : v); }
     }
@@ -498,7 +533,15 @@ const fairAtY = (s, k, y) => {
   };
   const rows = [{ loop: rim }];
   for (let j = 1; j <= ROWS; j++) {
-    rows.push(rowAt(j === 1 ? () => BOOT_TOP : (z, gy) => BOOT_TOP + (gy - BOOT_TOP) * (j - 1) / (ROWS - 1)));
+    // The rows under her upper deck stay where they are under her forecastle: the last of them
+    // comes up to her upper deck's edge there, and the top row is her forecastle deck's.
+    rows.push(rowAt(j === 1 ? () => BOOT_TOP : (z) => {
+      const g = gunwaleAt(z);
+      if (j === ROWS) return g.y;
+      const gap = (g.y0 - BOOT_TOP) / (ROWS - 1);
+      const under = g.y0 - gap * (1 - (g.y - g.y0) / LEVEL.h);
+      return BOOT_TOP + (under - BOOT_TOP) * (j - 1) / (ROWS - 2);
+    }));
   }
   let sideTris = 0;
   for (let j = 0; j < ROWS; j++) sideTris += zip(rows[j].loop, rows[j + 1].loop, j === 0 ? 3 : GREY);
@@ -519,9 +562,10 @@ const fairAtY = (s, k, y) => {
   });
   let deckTris = 0;
   const up = (tri) => {
-    const [, ny] = faceNormal(m, ...tri);
+    const [nx, ny, nz] = faceNormal(m, ...tri);
     m.T.push(...(ny < 0 ? [tri[0], tri[2], tri[1]] : tri));
-    m.C.push(DECK);
+    // The step at either end of her forecastle is a bulkhead, and plated.
+    m.C.push(Math.abs(ny) < 0.6 * Math.hypot(nx, ny, nz) ? GREY : DECK);
     deckTris++;
   };
   for (let i = 0; i + 1 < across.length; i++) {
@@ -582,12 +626,15 @@ const superZ = (lx) => (lx - SUPER.funnelX) * SUPER.scale + SUPER.funnelZ;
     let n = 0;
     for (const c of components(sup)) {
       const zc = (c.lo[2] + c.hi[2]) / 2;
-      if (c.hi[1] - gunwaleAt(zc).y > SUPER.low) continue;
+      // Nor is a piece that hangs in the air over it: the stumps of a boom, a crane's jib, the wires
+      // that were left to hold a bit of what was cut away.
+      const floating = c.lo[1] - gunwaleAt(zc).y > 1.0;
+      if (!floating && c.hi[1] - gunwaleAt(zc).y > SUPER.low) continue;
       for (const t of c.tris) drop[t] = 1;
       n++;
     }
     sup = subMesh(sup, (t) => !drop[t]);
-    console.log(`her superstructure: ${n} low pieces taken off her deck`);
+    console.log(`her superstructure: ${n} low or floating pieces taken off her deck`);
   }
   sup.C = new Array(sup.T.length / 3).fill(SUPER_GREY);
   const { lo, hi } = bbox(sup);
@@ -623,7 +670,7 @@ export const BRIDGE = { scale: 18, x: -0.49, mz: 0.46, foot: -0.861, z: 33, sink
 
 // ---- her guns: where each stands ---------------------------------------------------
 // Six twin 35.6 cm turrets: No.1 and No.2 forward, No.2 superfiring over it
-// on a barbette three metres taller, No.3 in front of her
+// from her forecastle deck, No.3 in front of her
 // funnel, facing forward over her bridge's block, back to back with No.4
 // abaft it, and No.5 and No.6 aft, facing astern, No.5 superfiring over No.6
 // on a barbette three metres taller. Where the superstructure's
@@ -632,20 +679,20 @@ export const BRIDGE = { scale: 18, x: -0.49, mz: 0.46, foot: -0.861, z: 33, sink
 // her waterline; the barbettes themselves are fuso.js's.
 export const TURRETS = [
   { name: 'No.1', z: +((0.45 - FRAME.xc) * FRAME.SCALE).toFixed(1), rest: 0, up: 1.6 },
-  { name: 'No.2', z: +((0.33 - FRAME.xc) * FRAME.SCALE).toFixed(1), rest: 0, up: 4.6 },
+  { name: 'No.2', z: +((0.33 - FRAME.xc) * FRAME.SCALE).toFixed(1), rest: 0, up: 2.3 },
   { name: 'No.3', z: +(superZ(0.38) - 2).toFixed(1), rest: 0, up: 1.7 },
   { name: 'No.4', z: superZ(0.01), rest: Math.PI, up: 1.7 },
   { name: 'No.5', z: superZ(-0.34), rest: Math.PI, up: 5.0 },
   { name: 'No.6', z: superZ(-0.48), rest: Math.PI, up: 1.7 },
 ].map((t) => ({ ...t, x: 0, seat: +(gunwaleAt(t.z).y + t.up).toFixed(3) }));
 
-// Fourteen 15.2 cm singles, seven a side, each in a casemate in the side of
-// her hull: z is how far along her. A port is cut in her side for each, and a
-// recess behind it (see below, where they are cut); x and seat are what the
-// cut finds -- the gun stands `pivot` inside her side, on the recess's floor.
+// Fourteen 15.2 cm singles, seven a side, each in a casemate at the edge of
+// her deck: z is how far along her. A notch is cut in her side and her deck
+// for each (see below, where they are cut); x and seat are what the cut
+// finds -- the gun stands `pivot` inside her side, on the notch's floor.
 const PADS = [-0.353, -0.29, -0.23, -0.033, 0.107, 0.197, 0.3]
   .map((x) => +((x - FRAME.xc) * FRAME.SCALE).toFixed(1));
-export const CASEMATE = { floor: 3.2, high: 2.95, width: 4.8, deep: 4.6, pivot: 2.3, post: 0.2 };
+export const CASEMATE = { floor: LEVEL.h - 0.25, high: 2.3, width: 4.8, deep: 3.8, pivot: 2.0, post: 0.2 };
 export const SECONDARY = PADS.flatMap((z, k) => [-1, 1].map((sgn) => ({
   name: `S${k + 1} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * 13, z, rest: sgn * Math.PI / 2,
   seat: +(gunwaleAt(z).y - CASEMATE.floor + CASEMATE.post).toFixed(3), side: sgn,
@@ -703,41 +750,175 @@ function dropBox(mesh, box) {
     if (process.env.VERBOSE) console.log(`cut ${l.name}: ${n} triangles`);
   }
 }
+// ---- her funnel and her after tower, drawn here -----------------------------------
+// The sculpt's funnel is a good cylinder with its collars and its cap torn
+// off it, and what stood round its foot -- the casing over her boilers, the
+// searchlight tower in front of it -- is a heap of shards; her after tower is
+// not there at all, the strip No.4's barrels are cut along and No.5's house
+// having taken the middle of it, and what is left is a few platforms in the
+// air. So the sculpt's is taken off her from her bridge's block to her mast
+// and drawn again, to what the plans and the kit show of her: the casing over
+// her uptakes in two tiers with her searchlight tower in front, the funnel
+// itself, a tall oval a little narrower aloft with its bands, its cap, its
+// ladder and its steam pipes, and her after tower, a trunk on a deckhouse
+// with three platforms of control and rangefinders, a legged foot, and her
+// mast over it with its yards. They stand clear of the barrels No.4 and No.5
+// are cut along, and of where the 12.7 cm twins and the 25 mm stand.
+export const FUNNEL = { z: -8, rx: 3.5, rz: 4.0, casing: { x: 6.0, z0: -14.2, z1: -1.4 } };
+export const TOWER = { z: -40, trunk: { x: 3.0, z: 3.0 }, mast: 33 };
+const drawn = blank();
+{
+  const take = (box_) => dropBox(m, box_);
+  // From No.3's house to No.5's, all of it: between them the sculpt has her boats' booms
+  // and the stumps of her casing and platforms, and nothing that stands.
+  const nf = take({ x0: -14, x1: 14, y0: -Infinity, y1: Infinity, z0: -90, z1: 28 });
+  console.log(`her funnel and her after tower: ${nf} triangles of the sculpt's taken off her`);
+  const G = SUPER_GREY;
+  const out = drawn;
+  const d = (z) => gunwaleAt(z).y;
+  // -- the casing over her uptakes, and the tower in front of the funnel --
+  const dF = d(FUNNEL.z);
+  const C = FUNNEL.casing;
+  const yT = dF + 6.2;
+  prism(out, chamfered(-C.x, C.x, C.z0, C.z1, 1.8), dF - 0.3, dF + 3.4, G);
+  prism(out, chamfered(-C.x + 1.3, C.x - 1.3, C.z0 + 1.2, C.z1, 1.4), dF + 3.4, yT, G);
+  // The searchlight tower in front: a box on the casing's roof, two drums on it.
+  box(out, -2.9, 2.9, yT, yT + 2.7, C.z1 - 3.4, C.z1 - 1.4, G);
+  box(out, -3.3, 3.3, yT + 2.7, yT + 3.0, C.z1 - 3.8, C.z1 - 1.0, G);
+  for (const sx of [-1.9, 1.9]) {
+    tube(out, [sx, yT + 3.0, C.z1 - 2.9], [sx, yT + 4.2, C.z1 - 2.9], 0.85, 0.85, 14, G);
+    tube(out, [sx, yT + 3.6, C.z1 - 2.9], [sx, yT + 3.6, C.z1 - 1.0], 0.5, 0.55, 12, G);
+  }
+  // -- the funnel --
+  const y0 = yT, hF = 11.8;
+  lathe(out, 0, FUNNEL.z, FUNNEL.rx, FUNNEL.rz, [[y0, 1.04], [y0 + 0.4, 1.0], [y0 + hF - 0.9, 0.9], [y0 + hF - 0.5, 0.9], [y0 + hF - 0.5, 0.97], [y0 + hF, 0.97]], 28, G);
+  // its bands, a hand proud of it, and the rim inside its cap
+  for (const [yy, kk] of [[0.12, 1.04], [0.4, 0.99], [0.62, 0.95]]) {
+    lathe(out, 0, FUNNEL.z, FUNNEL.rx, FUNNEL.rz, [[y0 + hF * yy - 0.2, kk + 0.035], [y0 + hF * yy + 0.2, kk + 0.035]], 28, G);
+  }
+  // its cap: a grating over the mouth of it, a lip round it and bars across it
+  {
+    const yc = y0 + hF;
+    lathe(out, 0, FUNNEL.z, FUNNEL.rx, FUNNEL.rz, [[yc - 0.1, 1.0], [yc + 0.5, 1.0]], 28, G);
+    for (let k = -3; k <= 3; k++) {
+      const f = k / 3.6;
+      const w = FUNNEL.rx * 0.97 * Math.sqrt(1 - f * f);
+      bar(out, [-w, yc + 0.6, FUNNEL.z + f * FUNNEL.rz * 0.97], [w, yc + 0.6, FUNNEL.z + f * FUNNEL.rz * 0.97], 0.14, 0.14, G);
+    }
+    bar(out, [0, yc + 0.66, FUNNEL.z - FUNNEL.rz * 0.97], [0, yc + 0.66, FUNNEL.z + FUNNEL.rz * 0.97], 0.16, 0.16, G);
+  }
+  // her searchlight platform, round the funnel a third of the way up it, with a rail
+  const yP = y0 + 4.2;
+  prism(out, chamfered(-5.2, 5.2, FUNNEL.z - 5.4, FUNNEL.z + 5.4, 2.2), yP, yP + 0.3, G);
+  for (const sx of [-4.4, 4.4]) {
+    tube(out, [sx, yP + 0.3, FUNNEL.z + 3.2], [sx, yP + 1.5, FUNNEL.z + 3.2], 0.8, 0.8, 14, G);
+    tube(out, [sx, yP + 0.9, FUNNEL.z + 3.2], [sx + (sx > 0 ? 1.4 : -1.4), yP + 0.9, FUNNEL.z + 4.4], 0.45, 0.5, 12, G);
+  }
+  box(out, -5.2, 5.2, yP + 0.3, yP + 1.0, FUNNEL.z - 5.4, FUNNEL.z - 5.1, G);
+  // its ladder, up the front of it
+  const zl = FUNNEL.z + FUNNEL.rz * 0.93;
+  for (const sx of [-0.55, 0.55]) bar(out, [sx, y0 + 0.4, zl + 0.15], [sx, y0 + hF - 0.4, zl + 0.15], 0.12, 0.18, G);
+  for (let y = y0 + 1.0; y < y0 + hF - 0.6; y += 0.9) box(out, -0.55, 0.55, y - 0.05, y + 0.05, zl + 0.08, zl + 0.26, G);
+  // its steam pipes, up the back of it, and the whistle
+  for (const sx of [-1.3, 1.3]) tube(out, [sx, y0 + 4.0, FUNNEL.z - FUNNEL.rz * 0.93], [sx, y0 + hF + 2.2, FUNNEL.z - FUNNEL.rz * 0.93], 0.26, 0.2, 10, G);
+  // cowl ventilators on the casing's shoulders, two a side
+  for (const sx of [-1, 1]) {
+    for (const zz of [C.z0 + 1.8, C.z1 - 4.6]) {
+      const xv = sx * (C.x - 0.7);
+      tube(out, [xv, dF + 3.4, zz], [xv, dF + 4.7, zz], 0.42, 0.42, 12, G);
+      tube(out, [xv, dF + 4.7, zz], [xv, dF + 5.5, zz + 0.45], 0.42, 0.7, 12, G);
+    }
+  }
+  // -- her after tower --
+  // A block of it, as the kit has it: a deckhouse the breadth of her casing,
+  // a second over it, and the tower itself, square and solid, carrying three
+  // platforms of control, searchlights and rangefinder, its two legs out to
+  // the deckhouse's corners; its after face stands at the step down from her
+  // forecastle deck, No.5 below and abaft it.
+  const dT = d(TOWER.z);
+  const T0 = TOWER.z;
+  const A = T0 - 4.2;
+  prism(out, chamfered(-5.6, 5.6, A, T0 + 5.6, 1.6), dT - 0.3, dT + 3.0, G);
+  prism(out, chamfered(-4.4, 4.4, A + 0.6, T0 + 4.6, 1.2), dT + 3.0, dT + 5.8, G);
+  box(out, -TOWER.trunk.x, TOWER.trunk.x, dT + 5.8, dT + 15.4, T0 - TOWER.trunk.z, T0 + TOWER.trunk.z, G);
+  // the bridge-wing of it: a house on the second deckhouse's roof, abaft the tower
+  box(out, -3.2, 3.2, dT + 5.8, dT + 8.2, A + 0.9, T0 - TOWER.trunk.z, G);
+  // the foot: two legs, out from the deckhouse's front to the first platform
+  for (const sx of [-1, 1]) {
+    bar(out, [sx * 4.6, dT + 3.0, T0 + 4.8], [sx * 2.6, dT + 10.0, T0 + 2.4], 0.8, 0.8, G);
+  }
+  // three platforms, each with a rail round it and its house on it
+  const tiers = [
+    { y: dT + 10.0, hx: 5.6, hz: 5.4, house: [3.8, 4.4, 2.4] },
+    { y: dT + 12.7, hx: 4.6, hz: 4.4, house: [3.4, 3.6, 2.3] },
+    { y: dT + 15.4, hx: 3.6, hz: 3.4, house: [0, 0, 0] },
+  ];
+  for (const t of tiers) {
+    prism(out, chamfered(-t.hx, t.hx, T0 - t.hz, T0 + t.hz, 1.3), t.y, t.y + 0.3, G);
+    const r = 0.14;
+    box(out, -t.hx, t.hx, t.y + 0.3, t.y + 1.0, T0 + t.hz - r, T0 + t.hz, G);
+    box(out, -t.hx, t.hx, t.y + 0.3, t.y + 1.0, T0 - t.hz, T0 - t.hz + r, G);
+    box(out, -t.hx, -t.hx + r, t.y + 0.3, t.y + 1.0, T0 - t.hz, T0 + t.hz, G);
+    box(out, t.hx - r, t.hx, t.y + 0.3, t.y + 1.0, T0 - t.hz, T0 + t.hz, G);
+    if (t.house[0]) box(out, -t.house[0], t.house[0], t.y + 0.3, t.y + 0.3 + t.house[2], T0 - t.house[1] + 0.5, T0 + t.house[1] - 0.5, G);
+  }
+  // searchlights at the corners of the second platform, a rangefinder on the third
+  for (const sx of [-3.8, 3.8]) {
+    tube(out, [sx, dT + 13.0, T0 - 3.4], [sx, dT + 14.0, T0 - 3.4], 0.7, 0.7, 12, G);
+    tube(out, [sx, dT + 13.6, T0 - 3.4], [sx, dT + 13.6, T0 - 5.0], 0.42, 0.46, 10, G);
+  }
+  box(out, -1.1, 1.1, dT + 15.7, dT + 17.3, T0 - 1.1, T0 + 1.1, G);
+  tube(out, [-3.0, dT + 17.9, T0], [3.0, dT + 17.9, T0], 0.6, 0.6, 12, G);
+  box(out, -3.4, -2.9, dT + 17.5, dT + 18.3, T0 - 0.6, T0 + 0.6, G);
+  box(out, 2.9, 3.4, dT + 17.5, dT + 18.3, T0 - 0.6, T0 + 0.6, G);
+  // her mast, from the third platform up, with its yards and its truck
+  const yM = dT + 15.8;
+  tube(out, [0, yM, T0 - 1.2], [0, dT + TOWER.mast, T0 - 1.2], 0.38, 0.2, 10, G);
+  bar(out, [-5.6, dT + 27.0, T0 - 1.2], [5.6, dT + 27.0, T0 - 1.2], 0.22, 0.22, G);
+  bar(out, [-3.0, dT + 30.0, T0 - 1.2], [3.0, dT + 30.0, T0 - 1.2], 0.18, 0.18, G);
+  lathe(out, 0, T0 - 1.2, 0.45, 0.45, [[dT + TOWER.mast, 0.2], [dT + TOWER.mast + 0.35, 1.0], [dT + TOWER.mast + 0.7, 0.2]], 10, G);
+  console.log(`her funnel and her after tower: ${out.T.length / 3} triangles drawn`);
+}
 dropLoose(m, { maxArea: 8, maxDiag: 6 });
 // Her bridge is her superstructure's grey again, now that nothing is cut out of the one but the other.
 for (let t = 0; t < m.C.length; t++) if (m.C[t] === BRIDGE_GREY) m.C[t] = SUPER_GREY;
 recomputeNormals(m);
 console.log(`faces facing in: ${turnInward(m)} turned`);
+// Her funnel and her after tower go on after that: they are solids, drawn facing out, and what turns faces
+// on the strength of their neighbours would take a face of one for the wrong way round where it meets another.
+append(m, drawn);
 
 // ---- her casemates ----------------------------------------------------------------
-// A port is cut in her side for each 15.2 cm gun -- a rectangle `width` across
-// and `high` up, its floor `floor` under her deck edge -- and behind it a
-// recess `deep` into her, floor, ceiling, walls and back: the gun stands in it
-// on a post of its own, `pivot` inside her plating, and its barrel goes out
-// through the port. Her side is cut along the rectangle's edges (a triangle of
-// it that crosses one is split there, the pieces sharing the vertex either
-// side) and the recess is hung from the edge the cut leaves, so the shell is
-// still one closed skin.
+// Her fourteen 15.2 cm stand in the level of her hull under her forecastle
+// deck, in gun positions the deck edge is cut away over, as the kit of her
+// shows: a notch `width` along her and `deep` into her, its floor `floor`
+// under the deck, open to the sea on its outboard side and to the sky over
+// it, with a wall at the back and a wall either side, and the gun on a post of
+// its own `pivot` inside her side, firing out over the edge.
+//
+// Her side is cut along the notch (a triangle that crosses one of its edges
+// is split there, the pieces sharing the vertex either side) and so is her
+// deck; what is left is a loop of edges, and the notch's floor and walls are
+// hung from that loop, so she is still one closed skin.
 const plain = { P: m.P.slice(), N: m.N.slice(), T: m.T.slice(), C: m.C.slice() };
 {
   const { P, N } = m;
-  const BLACK = 3;
   const made = new Map();
-  const mid = (a, b, line, f) => {
-    // The vertex where edge a-b crosses a line: one for every polygon that has it, by where it is.
-    const [lo, hi] = a < b ? [a, b] : [b, a];
-    const u = a < b ? f : 1 - f;
-    const at = (j) => P[lo * 3 + j] + (P[hi * 3 + j] - P[lo * 3 + j]) * u;
-    const key = `${Math.round(at(0) * 1e6)}|${Math.round(at(1) * 1e6)}|${Math.round(at(2) * 1e6)}`;
+  const vertexAt = (x, y, z, nx = 0, ny = 1, nz = 0) => {
+    const key = `${Math.round(x * 1e6)}|${Math.round(y * 1e6)}|${Math.round(z * 1e6)}`;
     if (made.has(key)) return made.get(key);
-    P.push(at(0), at(1), at(2));
-    N.push(at(0) > 0 ? 1 : -1, 0, 0);
+    P.push(x, y, z); N.push(nx, ny, nz);
     const w = P.length / 3 - 1;
     made.set(key, w);
     return w;
   };
+  const cross = (a, b, f) => vertexAt(
+    P[a * 3] + (P[b * 3] - P[a * 3]) * f, P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * f,
+    P[a * 3 + 2] + (P[b * 3 + 2] - P[a * 3 + 2]) * f, N[a * 3], N[a * 3 + 1], N[a * 3 + 2]);
+  // Where it crosses from one end of a to b, the same wherever it is asked, whichever way round.
+  const mid = (a, b, f) => (a < b ? cross(a, b, f) : cross(b, a, 1 - f));
   /** Cut convex polygon `poly` (vertex indices) by `d(v) <= 0`: [inside, outside]. */
-  const clip = (poly, d, line) => {
+  const clip = (poly, d) => {
     const inn = [], out = [];
     for (let i = 0; i < poly.length; i++) {
       const a = poly[i], b = poly[(i + 1) % poly.length];
@@ -745,7 +926,7 @@ const plain = { P: m.P.slice(), N: m.N.slice(), T: m.T.slice(), C: m.C.slice() }
       if (da <= 1e-9) inn.push(a);
       if (da >= -1e-9) out.push(a);
       if ((da < -1e-9 && db > 1e-9) || (da > 1e-9 && db < -1e-9)) {
-        const w = mid(a, b, line, da / (da - db));
+        const w = mid(a, b, da / (da - db));
         inn.push(w); out.push(w);
       }
     }
@@ -761,107 +942,147 @@ const plain = { P: m.P.slice(), N: m.N.slice(), T: m.T.slice(), C: m.C.slice() }
     return a;
   };
   for (const c of SECONDARY) {
+    const sg = c.side;
     // A hair off her stations and rows, so the cut never runs along an edge of her side.
-    const y0 = gunwaleAt(c.z).y - CASEMATE.floor + 0.0071, y1 = y0 + CASEMATE.high;
+    const y0 = gunwaleAt(c.z).y - CASEMATE.floor + 0.0071;
     const z0 = c.z - CASEMATE.width / 2 + 0.0137, z1 = c.z + CASEMATE.width / 2 + 0.0137;
-    const rects = [
-      [(v) => z0 - P[v * 3 + 2], 'z0'], [(v) => P[v * 3 + 2] - z1, 'z1'],
-      [(v) => y0 - P[v * 3 + 1], 'y0'], [(v) => P[v * 3 + 1] - y1, 'y1'],
-    ];
+    // How far out her deck edge is here: the outermost of her deck's points along the notch.
+    let hb = 0;
+    const edge = [];
+    for (let t = 0; t < m.T.length; t++) {
+      const v = m.T[t], z = P[v * 3 + 2], x = P[v * 3];
+      if (m.C[Math.floor(t / 3)] !== DECK || Math.sign(x) !== sg || Math.abs(x) < 8) continue;
+      if (z < z0 - 0.6 || z > z1 + 0.6) continue;
+      edge.push(Math.abs(x));
+    }
+    edge.sort((p, q) => p - q);
+    hb = edge[edge.length - 1];
+    const xin = sg * (hb - CASEMATE.deep);
+    // Her side, and her deck: cut away what is inside the notch.
     const keep = [], keepC = [];
     for (let t = 0; t < m.T.length / 3; t++) {
       const v = [m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]];
-      let zmin = Infinity, zmax = -Infinity, ymin = Infinity, ymax = -Infinity, xmin = Infinity;
+      const paintOf = m.C[t];
+      let zmin = Infinity, zmax = -Infinity, ymax = -Infinity, ymin = Infinity, xmin = Infinity;
       for (const i of v) {
         zmin = Math.min(zmin, P[i * 3 + 2]); zmax = Math.max(zmax, P[i * 3 + 2]);
         ymin = Math.min(ymin, P[i * 3 + 1]); ymax = Math.max(ymax, P[i * 3 + 1]);
         xmin = Math.min(xmin, Math.abs(P[i * 3]));
       }
-      const touches = m.C[t] === GREY && xmin > 8 && v.every((i) => Math.sign(P[i * 3]) === c.side)
-        && zmax > z0 && zmin < z1 && ymax > y0 && ymin < y1;
-      if (!touches) { keep.push(...v); keepC.push(m.C[t]); continue; }
-      // Nine cells, by the four lines; the middle one is the port.
-      const outside = [];
-      // clip hands back [inside, outside] of `d <= 0`: for z0 the part over it, then the part under.
-      const [zr0, zl] = clip(v, rects[0][0], `${c.name}z0`);
-      const [zm0, zr] = zr0.length >= 3 ? clip(zr0, rects[1][0], `${c.name}z1`) : [[], []];
-      for (const band of [zl, zm0, zr]) {
+      const onSide = v.every((i) => Math.sign(P[i * 3]) === sg);
+      const isSide = paintOf === GREY && onSide && xmin > 8 && ymax > y0;
+      const isDeck = paintOf === DECK && onSide && Math.max(...v.map((i) => Math.abs(P[i * 3]))) > Math.abs(xin);
+      if (!(isSide || isDeck) || !(zmax > z0 && zmin < z1)) { keep.push(...v); keepC.push(paintOf); continue; }
+      const cells = [];
+      const [zr0, zl] = clip(v, (i) => z0 - P[i * 3 + 2]);
+      const [zm, zr] = zr0.length >= 3 ? clip(zr0, (i) => P[i * 3 + 2] - z1) : [[], []];
+      // The two outer bands are cut along the notch's other lines as well, though all of them
+      // stay, so that the corners of the notch are vertices of everything that meets it.
+      const along = isSide ? (i) => y0 - P[i * 3 + 1] : (i) => sg * (P[i * 3] - xin);
+      for (const band of [zl, zr]) {
         if (band.length < 3) continue;
-        const [up, lo] = clip(band, rects[2][0], `${c.name}y0`);
-        const [mi, hi] = up.length >= 3 ? clip(up, rects[3][0], `${c.name}y1`) : [[], []];
-        // `mi` of the middle band is the port; the others are all hers.
-        const cells = band === zm0 ? [lo, hi] : [lo, mi, hi];
-        for (const cell of cells) if (cell.length >= 3 && area(cell) > 1e-9) outside.push(cell);
+        const [a1, a2] = clip(band, along);
+        cells.push(a1, a2);
       }
-      for (const poly of outside) {
-        for (let i = 1; i + 1 < poly.length; i++) { keep.push(poly[0], poly[i], poly[i + 1]); keepC.push(GREY); }
+      if (zm.length >= 3) {
+        if (isSide) {
+          // The part of the middle band under the floor stays; the rest is the notch.
+          const [, lo] = clip(zm, (i) => y0 - P[i * 3 + 1]);
+          cells.push(lo);
+        } else {
+          // The part of her deck inboard of the notch's back wall stays.
+          const [inb] = clip(zm, (i) => sg * (P[i * 3] - xin));
+          cells.push(inb);
+        }
+      }
+      for (const cell of cells) {
+        if (cell.length < 3 || area(cell) < 1e-9) continue;
+        for (let i = 1; i + 1 < cell.length; i++) { keep.push(cell[0], cell[i], cell[i + 1]); keepC.push(paintOf); }
       }
     }
     m.T = keep; m.C = keepC;
-    const onRect = (v) => {
+    // The loop the cut left: edges with only one triangle on them, on the notch's faces.
+    const eps = 1e-5;
+    const inReach = (v) => {
       const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
-      if (Math.sign(x) !== c.side || Math.abs(x) < 8) return false;
-      const eps = 1e-5;
-      const inZ = z > z0 - eps && z < z1 + eps, inY = y > y0 - eps && y < y1 + eps;
-      return inZ && inY && (Math.abs(z - z0) < eps || Math.abs(z - z1) < eps || Math.abs(y - y0) < eps || Math.abs(y - y1) < eps);
+      return Math.sign(x) === sg && z > z0 - eps && z < z1 + eps && y > y0 - eps && Math.abs(x) > Math.abs(xin) - eps;
+    };
+    const onFace = (v) => {
+      const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+      return Math.abs(z - z0) < eps || Math.abs(z - z1) < eps || Math.abs(y - y0) < eps || Math.abs(Math.abs(x) - Math.abs(xin)) < eps;
     };
     const count = new Map();
     for (let t = 0; t < m.T.length; t += 3) {
       for (let j = 0; j < 3; j++) {
         const a = m.T[t + j], b = m.T[t + (j + 1) % 3];
-        if (!onRect(a) || !onRect(b)) continue;
+        if (!inReach(a) || !inReach(b) || !onFace(a) || !onFace(b)) continue;
         const k = a < b ? `${a}|${b}` : `${b}|${a}`;
         const e = count.get(k) || { n: 0, a, b };
-        e.n++; e.a = a; e.b = b;
+        e.n++;
         count.set(k, e);
       }
     }
-    const edge = [...count.values()].filter((e) => e.n === 1);
-    if (!edge.length) throw new Error(`${c.name}: no edge left by the port`);
-    // Chained into one loop, whichever way each triangle happens to run its edge.
+    const edges = [...count.values()].filter((e) => e.n === 1);
+    if (!edges.length) throw new Error(`${c.name}: no edge left by the notch`);
     const nb = new Map();
-    for (const e of edge) {
+    for (const e of edges) {
       if (!nb.has(e.a)) nb.set(e.a, []);
       if (!nb.has(e.b)) nb.set(e.b, []);
       nb.get(e.a).push(e.b); nb.get(e.b).push(e.a);
     }
-    if (process.env.DEBUG_CASE) for (const [v, l] of nb) if (l.length !== 2) console.log('degree', l.length, P[v*3+2].toFixed(3), P[v*3+1].toFixed(3), l.map((q) => `${P[q*3+2].toFixed(2)},${P[q*3+1].toFixed(2)}`).join(' '));
-    const loop = [edge[0].a];
-    for (let prev = loop[0], v = edge[0].b; v !== loop[0];) {
+    for (const [v, l] of nb) if (l.length !== 2) throw new Error(`${c.name}: the notch's edge forks at ${P[v * 3 + 2].toFixed(2)},${P[v * 3 + 1].toFixed(2)} (${l.length})`);
+    const loop = [edges[0].a];
+    for (let prev = loop[0], v = edges[0].b; v !== loop[0];) {
       loop.push(v);
       const n = nb.get(v).filter((q) => q !== prev);
       prev = v; v = n[0];
       if (v === undefined) break;
     }
-    if (loop.length !== edge.length) throw new Error(`${c.name}: the port's edge is ${edge.length} edges but its loop ${loop.length}`);
-    let hb = 0;
-    for (const v of loop) hb += Math.abs(P[v * 3]);
-    hb /= loop.length;
-    const back = c.side * (hb - CASEMATE.deep);
-    c.x = +(c.side * (hb - CASEMATE.pivot)).toFixed(3);
-    c.hb = +hb.toFixed(3);
-    const inner = loop.map((v) => { P.push(back, P[v * 3 + 1], P[v * 3 + 2]); N.push(0, 0, 0); return P.length / 3 - 1; });
-    const cx = c.side * (hb - CASEMATE.deep / 2), cy = (y0 + y1) / 2, cz = c.z;
+    if (loop.length !== edges.length) throw new Error(`${c.name}: the notch's edge is ${edges.length} edges but its loop ${loop.length}`);
+    // The runs of it in each face.
+    const run = (pred) => {
+      const n = loop.length;
+      let s0 = -1;
+      for (let i = 0; i < n; i++) if (!pred(loop[i])) { s0 = i; break; }
+      const out = [];
+      for (let k = 1; k <= n; k++) {
+        const v = loop[(s0 + k) % n];
+        if (pred(v)) out.push(v); else if (out.length) break;
+      }
+      return out;
+    };
+    const atZ = (zz) => (v) => Math.abs(P[v * 3 + 2] - zz) < eps;
+    const left = run(atZ(z0)), right = run(atZ(z1));
+    // The floor's and the back wall's edges run from the notch's forward wall to its after wall,
+    // so that closed with the two corners on the floor they go round once and do not cross.
+    const along = (list) => (P[list[0] * 3 + 2] > P[list[list.length - 1] * 3 + 2] ? list.slice().reverse() : list);
+    const bottom = along(run((v) => Math.abs(P[v * 3 + 1] - y0) < eps));
+    const back = along(run((v) => Math.abs(Math.abs(P[v * 3]) - Math.abs(xin)) < eps && P[v * 3 + 1] > y0 + 1));
+    const W0 = vertexAt(xin, y0, z0), W1 = vertexAt(xin, y0, z1);
+    const cxn = sg * (Math.abs(xin) + (hb - Math.abs(xin)) / 2), cyn = y0 + CASEMATE.floor / 2, czn = (z0 + z1) / 2;
     const facing = (tri, paintOf) => {
       const [a, b, d] = tri.map((i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]);
       const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
       const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-      const g = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3, (a[2] + b[2] + d[2]) / 3];
-      const to = n[0] * (cx - g[0]) + n[1] * (cy - g[1]) + n[2] * (cz - g[2]);
       if (Math.hypot(...n) < 1e-12) return;
+      const g = [(a[0] + b[0] + d[0]) / 3, (a[1] + b[1] + d[1]) / 3, (a[2] + b[2] + d[2]) / 3];
+      const to = n[0] * (cxn - g[0]) + n[1] * (cyn - g[1]) + n[2] * (czn - g[2]);
       m.T.push(...(to >= 0 ? tri : [tri[0], tri[2], tri[1]]));
       m.C.push(paintOf);
     };
-    const flat = (v, w) => (Math.abs(P[v * 3 + 1] - y0) < 1e-5 && Math.abs(P[w * 3 + 1] - y0) < 1e-5 ? STEEL : BLACK);
-    for (let i = 0; i < loop.length; i++) {
-      const a = loop[i], b = loop[(i + 1) % loop.length], ia = inner[i], ib = inner[(i + 1) % loop.length];
-      const paintOf = flat(a, b);
-      facing([a, b, ib], paintOf); facing([a, ib, ia], paintOf);
-    }
-    P.push(back, cy, cz); N.push(0, 0, 0);
-    const mid0 = P.length / 3 - 1;
-    for (let i = 0; i < loop.length; i++) facing([inner[i], inner[(i + 1) % loop.length], mid0], BLACK);
-    console.log(`${c.name}: casemate at z ${c.z}, her side ${hb.toFixed(2)} m out, port ${loop.length} points round, `
+    const fan = (poly, paintOf) => {
+      let mx = 0, my = 0, mz = 0;
+      for (const v of poly) { mx += P[v * 3]; my += P[v * 3 + 1]; mz += P[v * 3 + 2]; }
+      const mv = vertexAt(mx / poly.length, my / poly.length, mz / poly.length);
+      for (let i = 0; i < poly.length; i++) facing([poly[i], poly[(i + 1) % poly.length], mv], paintOf);
+    };
+    fan([...left, W0], GREY);
+    fan([...right, W1], GREY);
+    fan([...back, W1, W0], GREY);
+    fan([...bottom, W1, W0], STEEL);
+    c.x = +(sg * (hb - CASEMATE.pivot)).toFixed(3);
+    c.hb = +hb.toFixed(3);
+    console.log(`${c.name}: notch at z ${c.z}, her deck edge ${hb.toFixed(2)} m out, loop ${loop.length} points, `
       + `floor ${y0.toFixed(2)} m, gun at x ${c.x}`);
   }
 }
@@ -889,6 +1110,75 @@ if (process.env.DUMP) {
     if (ny > 0.8 * Math.hypot(nx, ny, nz) && cy > DECK_AMIDSHIPS + 0.3) { C[t] = STEEL; steel++; } else C[t] = GREY;
   }
   console.log(`decks: ${steel} faces of her superstructure's decks steel`);
+}
+
+// ---- her underwater body, run smooth ----------------------------------------------
+// The sculpt's body under her waterline is decimated to a few thousand long
+// triangles with her paint lines kept, and where it is not a straight run the
+// edges of them zigzag -- a row of teeth along her boot topping, and a lump
+// here and there where a long triangle's corners were taken a little off the
+// surface. It is run smooth: Taubin's pair of passes, a shrink and a slightly
+// larger swell, which does not take her in; every point stays within
+// `max` of where the sculpt put it, and the points that are held where they are
+// are her rim at the waterline, her keel on the centreline, the edge of every
+// hole and her stern, where her shafts and rudder are cut into her.
+{
+  const SMOOTH = { passes: 24, lambda: 0.5, mu: -0.53, max: 0.45, top: CUT - 0.02, aft: -64 };
+  const canon0 = weld(m);
+  const { P, T } = m;
+  const nv = P.length / 3;
+  const nb = new Map();
+  const edgeUse = new Map();
+  for (let t = 0; t < T.length; t += 3) {
+    for (let j = 0; j < 3; j++) {
+      const a = canon0[T[t + j]], b = canon0[T[t + (j + 1) % 3]];
+      if (a === b) continue;
+      if (!nb.has(a)) nb.set(a, new Set());
+      if (!nb.has(b)) nb.set(b, new Set());
+      nb.get(a).add(b); nb.get(b).add(a);
+      const k = a < b ? `${a},${b}` : `${b},${a}`;
+      edgeUse.set(k, (edgeUse.get(k) || 0) + 1);
+    }
+  }
+  const held = new Set();
+  for (const [k, n] of edgeUse) if (n !== 2) { const [a, b] = k.split(',').map(Number); held.add(a); held.add(b); }
+  const free = [];
+  for (const [c, set] of nb) {
+    if (held.has(c)) continue;
+    const x = P[c * 3], y = P[c * 3 + 1], z = P[c * 3 + 2];
+    if (y > SMOOTH.top || z < SMOOTH.aft || Math.abs(x) < 0.05) continue;
+    free.push(c);
+  }
+  const orig = new Map(free.map((c) => [c, [P[c * 3], P[c * 3 + 1], P[c * 3 + 2]]]));
+  const pass = (k) => {
+    const next = new Map();
+    for (const c of free) {
+      const set = nb.get(c);
+      let ax = 0, ay = 0, az = 0;
+      for (const o of set) { ax += P[o * 3]; ay += P[o * 3 + 1]; az += P[o * 3 + 2]; }
+      const n = set.size;
+      next.set(c, [P[c * 3] + k * (ax / n - P[c * 3]), P[c * 3 + 1] + k * (ay / n - P[c * 3 + 1]), P[c * 3 + 2] + k * (az / n - P[c * 3 + 2])]);
+    }
+    for (const [c, v] of next) { P[c * 3] = v[0]; P[c * 3 + 1] = v[1]; P[c * 3 + 2] = v[2]; }
+  };
+  for (let i = 0; i < SMOOTH.passes; i++) {
+    pass(SMOOTH.lambda); pass(SMOOTH.mu);
+    // Never further than `max` from where the sculpt put it.
+    for (const c of free) {
+      const o = orig.get(c);
+      const dx = P[c * 3] - o[0], dy = P[c * 3 + 1] - o[1], dz = P[c * 3 + 2] - o[2];
+      const d = Math.hypot(dx, dy, dz);
+      if (d > SMOOTH.max) { const f = SMOOTH.max / d; P[c * 3] = o[0] + dx * f; P[c * 3 + 1] = o[1] + dy * f; P[c * 3 + 2] = o[2] + dz * f; }
+    }
+  }
+  // Every vertex that welds to a moved one goes with it.
+  for (let i = 0; i < nv; i++) {
+    const c = canon0[i];
+    if (c !== i && orig.has(c)) { P[i * 3] = P[c * 3]; P[i * 3 + 1] = P[c * 3 + 1]; P[i * 3 + 2] = P[c * 3 + 2]; }
+  }
+  let worst = 0;
+  for (const c of free) { const o = orig.get(c); worst = Math.max(worst, Math.hypot(P[c * 3] - o[0], P[c * 3 + 1] - o[1], P[c * 3 + 2] - o[2])); }
+  console.log(`her underwater body: ${free.length} points run smooth, the furthest ${worst.toFixed(2)} m`);
 }
 
 // ---- split her normals at her creases --------------------------------------------
@@ -1034,10 +1324,10 @@ const TWIN = gunPiece('fuso-127.glb', {
   scale: 7.2, pivot: [0.33, -0.12], dir: 1, foot: -0.31, face: 0.22, lanes: [-0.0697, 0.0697],
   barrelY: 0.147, r: 0.045, trunnionIn: 0.15, elev: 0.245, roofOver: 99,
 });
-// The 25 mm Type 96 triple: 2.3 m a unit, which makes its pedestal two and
-// a half metres across.
+// The 25 mm Type 96 triple: 1.5 m a unit, which makes its pedestal a metre and
+// three quarters across -- it is a gun a man can stand behind.
 const AA = gunPiece('fuso-25.glb', {
-  scale: 2.3, pivot: [0.33, 0], dir: -1, foot: -0.627, face: 0.63, lanes: [-0.236, 0, 0.236],
+  scale: 1.25, pivot: [0.33, 0], dir: -1, foot: -0.627, face: 0.63, lanes: [-0.236, 0, 0.236],
   barrelY: 0.256, r: 0.05, trunnionIn: 0.55, roofOver: 99,
 });
 
@@ -1051,6 +1341,13 @@ const AA = gunPiece('fuso-25.glb', {
 // drawn to her lines, and a casemate is not a place her side is narrower.
 const stPlain = stations(plain, { length: REAL_LOA, beamCap: DECK_AMIDSHIPS - 0.2, edgeCap: 10.0, slice: true, beamFloor: 0 });
 const LINES = measureLines(plain, stPlain, { z0: -105.9963, dz: 1, nz: 212, y0: -10, dy: 0.5, ny: 40 }, DECK_AMIDSHIPS);
+// Her deck is laid level across her at her gunwale, so that is where it is: what
+// measureLines reads, the lowest deck within six metres, would take her
+// forecastle deck down to her upper deck for six metres either side of each step.
+LINES.deck = LINES.deck.map((v, k) => {
+  const y = gunwaleAt(LINES.z0 + k * LINES.dz).y;
+  return Number.isNaN(y) ? v : +y.toFixed(2);
+});
 
 // ---- slice, pack and write ------------------------------------------------------------
 const surfaceOf = (t) => (m.C[t] === DECK ? 1 : 0);
