@@ -622,6 +622,103 @@ export class Splashes {
   setWaves(waves) { this.waves = waves; }
 
   /**
+   * Where the ships are, as a function handing back the ship views: a splash
+   * is kept to her side, and the water it throws comes aboard her (see
+   * refreshHulls).
+   */
+  setHulls(fn) { this.hullSource = fn; }
+
+  /** Every hull on the sea this frame, in a form a point can be tested against. */
+  refreshHulls() {
+    const out = this._hulls || (this._hulls = []);
+    let n = 0;
+    if (this.hullSource) {
+      for (const v of this.hullSource()) {
+        const g = v && v.group;
+        if (!g || !g.visible) continue;
+        const ud = g.userData || {};
+        const L = (ud.length || v.cls?.hull?.length || 0) / 2;
+        const B = (ud.beam || v.cls?.hull?.beam || 0) / 2;
+        if (!(L > 0 && B > 0)) continue;
+        g.updateMatrixWorld();
+        const h = out[n] || (out[n] = { mw: new THREE.Matrix4(), inv: new THREE.Matrix4() });
+        h.mw.copy(g.matrixWorld);
+        h.inv.copy(g.matrixWorld).invert();
+        h.x = h.mw.elements[12];
+        h.z = h.mw.elements[14];
+        h.L = L;
+        h.B = B;
+        h.deck = ud.deckY ?? Math.max(4, B * 0.7);
+        h.reach = L + B + 4;
+        n++;
+      }
+    }
+    out.length = n;
+    return out;
+  }
+
+  /** How far out her side is at `lz` along her, near enough: full amidships, fining to her ends. */
+  halfBeam(h, lz) {
+    const t = Math.min(1, Math.abs(lz) / h.L);
+    return h.B * Math.sqrt(Math.max(0, 1 - t * t * t * t)) * (lz > 0 ? 1 - 0.3 * t * t : 1);
+  }
+
+  /** The hull (x, z) is over, and where it is in her own frame -- or null. */
+  hullAt(x, z, pad = 0) {
+    const hs = this._hulls;
+    if (!hs || !hs.length) return null;
+    const v = this._hv || (this._hv = new THREE.Vector3());
+    for (const h of hs) {
+      if (Math.abs(x - h.x) > h.reach + pad || Math.abs(z - h.z) > h.reach + pad) continue;
+      v.set(x, 0, z).applyMatrix4(h.inv);
+      if (Math.abs(v.z) > h.L + pad) continue;
+      if (Math.abs(v.x) > this.halfBeam(h, v.z) + pad) continue;
+      return { h, lx: v.x, lz: v.z };
+    }
+    return null;
+  }
+
+  /** The height of her deck in the world, over a point of her own. */
+  deckWorld(h, lx, lz) {
+    const v = this._dv || (this._dv = new THREE.Vector3());
+    return v.set(lx, h.deck, lz).applyMatrix4(h.mw).y;
+  }
+
+  /**
+   * Water coming down on a deck: it does not go through her into the sea. It
+   * lands, bursts across the planking in a sheet of white and spray, and runs
+   * off -- which is what a ship beside a heavy near miss takes aboard.
+   */
+  deckSplash(x, y, z, size) {
+    for (let i = 0; i < 2; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s0 = size * rnd(0.5, 0.9);
+      this.puff({
+        x, y: y + s0 * 0.15, z,
+        dx: Math.sin(a) * size * rnd(1, 2.4), dz: Math.cos(a) * size * rnd(1, 2.4), dy: 0,
+        s0: s0 * 0.6, s1: s0 * 1.5, squash: 0.35,
+        delay: 0, ttl: rnd(0.9, 1.5), peak: 0.85, spread: 0.6, deck: y,
+      });
+    }
+    // And it is thrown up again off the deck, a little of it.
+    for (let i = 0; i < 4; i++) {
+      const d = this.dropFree.pop();
+      if (d === undefined) break;
+      const a = Math.random() * Math.PI * 2;
+      const up = rnd(2, 5) * Math.sqrt(size);
+      this.dropPos[d * 3] = x; this.dropPos[d * 3 + 1] = y + 0.3; this.dropPos[d * 3 + 2] = z;
+      this.dropVel[d * 3] = Math.sin(a) * up * 0.8;
+      this.dropVel[d * 3 + 1] = up;
+      this.dropVel[d * 3 + 2] = Math.cos(a) * up * 0.8;
+      this.dropSize[d] = size * rnd(0.3, 0.6);
+      this.dropAlpha[d] = 0;
+      this.dropLife[d] = 0;
+      this.dropKick[d] = 0;
+      this.dropsLive.push(d);
+    }
+  }
+
+  /**
    * Something in the water at (x, z).
    *
    * `bore` is the gun's calibre in millimetres; a torpedo, a bomb or a depth
@@ -632,6 +729,22 @@ export class Splashes {
   splash(x, z, bore = REF_BORE, opts = {}) {
     const kind = KINDS[opts.kind] || KINDS.shell;
     const base = splashSize(bore);
+    // Never in her. A round that is in the water is in the water beside her,
+    // so a splash whose point falls inside a hull -- a near miss under her
+    // side, a ship that has moved on since the round was reckoned -- is stood
+    // off her side, the side it was nearer. What it throws can still come
+    // aboard (see stepDrops and stepPuffs).
+    if (!opts.onDeck) {
+      if (!this._hulls) this.refreshHulls();
+      const at = this.hullAt(x, z, base.radius * kind.wide * 0.3);
+      if (at) {
+        const side = at.lx === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(at.lx);
+        const out = this.halfBeam(at.h, at.lz) + base.radius * kind.wide * 0.45 + 1;
+        const v = (this._sv || (this._sv = new THREE.Vector3())).set(side * out, 0, at.lz).applyMatrix4(at.h.mw);
+        x = v.x;
+        z = v.z;
+      }
+    }
     const height = base.height * kind.tall;
     const radius = base.radius * kind.wide;
     // Which way it came in, which is the way it throws: a shell arrives on a
@@ -777,7 +890,7 @@ export class Splashes {
         dx: Math.sin(a) * out, dz: Math.cos(a) * out, dy: size * 0.3,
         s0: size * 0.6, s1: size * 1.45, squash: 0.45,
         delay: kind.delay * 0.4 + rnd(0, 0.06), ttl: ttl * rnd(0.85, 1.15),
-        peak: 0.95, spread: 0.25,
+        peak: 0.95, spread: 0.25, low: true,
       });
     }
   }
@@ -870,6 +983,10 @@ export class Splashes {
 
   update(dt) {
     if (this.waves) this.waves.update(dt);
+    this.refreshHulls();
+    // How many deck splashes a frame may start: a straddle lands a great deal
+    // of water on a ship at once, and every drop of it does not need a splash.
+    this.deckBudget = 8;
     for (let i = this.columns.length - 1; i >= 0; i--) {
       const c = this.columns[i];
       c.life += dt;
@@ -1034,6 +1151,15 @@ export class Splashes {
       const go = 1 - Math.pow(1 - k, 3);
       const size = p.s0 + (p.s1 - p.s0) * Math.pow(k, 0.5);
       this._p.set(p.x + p.dx * go, Math.max(size * p.squash * 0.2, p.y + p.dy * k), p.z + p.dz * go);
+      // Surge running in under a ship goes up over her, not through her: it
+      // comes aboard and across her deck.
+      if (p.low) {
+        const at = this.hullAt(this._p.x, this._p.z);
+        if (at) {
+          const deck = this.deckWorld(at.h, at.lx, at.lz) + size * p.squash * 0.3;
+          if (this._p.y < deck) this._p.y = deck;
+        }
+      }
       this._s.set(size * (1 + p.spread * k), size * p.squash, size * (1 + p.spread * k));
       m.compose(this._p, p.q, this._s);
       this.puffMesh.setMatrixAt(p.slot, m);
@@ -1064,6 +1190,26 @@ export class Splashes {
       const age = this.dropLife[s];
       this.dropAlpha[s] = 0.55 * Math.min(1, age * 6) * Math.max(0.25, 1 - age * 0.12);
       this.dropSize[s] *= 1 + dt * 0.18;
+      // Coming down on a deck: it lands there, not in the sea under her.
+      if (V[s * 3 + 1] < 0 && this._hulls && this._hulls.length) {
+        const at = this.hullAt(P[s * 3], P[s * 3 + 2]);
+        if (at) {
+          const deck = this.deckWorld(at.h, at.lx, at.lz);
+          if (P[s * 3 + 1] <= deck) {
+            if (this.deckBudget > 0) {
+              this.deckBudget--;
+              this.deckSplash(P[s * 3], deck, P[s * 3 + 2], Math.max(0.8, this.dropSize[s]));
+            }
+            this.dropAlpha[s] = 0;
+            this.dropSize[s] = 0;
+            this.dropFree.push(s);
+            this.dropsLive.splice(i, 1);
+            continue;
+          }
+          // Over her and still above her deck: carry on falling.
+          continue;
+        }
+      }
       if (P[s * 3 + 1] <= 0 && V[s * 3 + 1] < 0) {
         // Back in the sea. A big enough clot of it makes a splash of its own,
         // and a ring of its own -- which is what the water round a heavy fall of

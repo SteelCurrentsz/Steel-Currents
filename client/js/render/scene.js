@@ -1604,6 +1604,9 @@ export class BattleScene {
     this.effects = new Effects(this.scene, q.particles);
     // The waves a splash throws go into the sea itself, through the wake map.
     this.effects.splashes.setWaves(this.wakes.rings);
+    // And the ships, so a splash stays at a ship's side and what it throws
+    // comes aboard her.
+    this.effects.splashes.setHulls(() => this.shipViews.values());
     // The gun smoke is lit by the same hour and cloud as everything else, and
     // drifts down the wind the sea is running before.
     {
