@@ -5,6 +5,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { Splashes } from './splash.js';
 import { MuzzleBlasts, blastSize } from './muzzleblast.js';
+import { SmokeTrails } from './trails.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -128,6 +129,8 @@ export class Effects {
     // And what a gun leaves in the air is its own thing too -- see
     // muzzleblast.js.
     this.blasts = new MuzzleBlasts(scene, { intensity });
+    // The fire and smoke burning pieces trail on the way down. See trails.js.
+    this.trails = new SmokeTrails(scene, Math.round(6000 + 6000 * Math.min(1.7, intensity)));
 
     this.lights = [];
     for (let i = 0; i < 6; i++) {
@@ -247,14 +250,39 @@ export class Effects {
 
   explosion(x, y, z, scale = 1) {
     this.flash(x, y + 10, z, 3 * scale);
-    this.spawn({ x, y: y + 8, z, size: 40 * scale, grow: 90 * scale, ttl: 0.5, glow: true, color: 0xffc266, opacity: 1 });
+    this.spawn({ x, y: y + 8, z, size: 30 * scale, grow: 70 * scale, ttl: 0.35, glow: true, color: 0xffc266, opacity: 0.9 });
+    // Heads of fire, each going dark from the outside in as it climbs: the
+    // flash is light, but what stands there afterwards is burning gas
+    // turning into soot.
+    for (let i = 0; i < Math.round(7 * Math.min(1.5, this.intensity)); i++) {
+      const a = Math.random() * Math.PI * 2, r = Math.random() * 8 * scale;
+      this.spawn({
+        x: x + Math.cos(a) * r, y: y + 6 + Math.random() * 8 * scale, z: z + Math.sin(a) * r,
+        vx: Math.cos(a) * (6 + Math.random() * 12), vy: 6 + Math.random() * 14,
+        vz: Math.sin(a) * (6 + Math.random() * 12),
+        size: (10 + Math.random() * 8) * scale, grow: 16 * scale, ttl: 1.6 + Math.random() * 1.4,
+        billow: true, drag: 0.5, lift: 2,
+        color: Math.random() < 0.4 ? 0xffd58a : 0xff8a2e, cool: 0x161210, opacity: 0.92,
+      });
+    }
     for (let i = 0; i < Math.round(8 * this.intensity); i++) {
       this.spawn({
         x, y: y + 6, z,
         vx: (Math.random() - 0.5) * 30, vy: 8 + Math.random() * 22, vz: (Math.random() - 0.5) * 30,
         size: 22 * scale, grow: 30, ttl: 2.4 + Math.random() * 2,
-        color: 0x3c4046, opacity: 0.8,
+        billow: true, lift: 1.2, color: 0x2a2826, opacity: 0.8,
       });
+    }
+    // And a few burning pieces thrown out of it on trails.
+    for (let i = 0; i < Math.round(6 * Math.min(1.5, this.intensity)); i++) {
+      const a = Math.random() * Math.PI * 2, up = 0.4 + Math.random() * 0.5;
+      const v = (25 + Math.random() * 30) * Math.sqrt(scale);
+      this.trails.arc(x, y + 6, z, Math.cos(a) * v * (1 - up * 0.5), v * up * 1.3,
+        Math.sin(a) * v * (1 - up * 0.5), {
+          flight: 2 + Math.random() * 2, floor: 0.5, spacing: 0.03, limit: 40,
+          size: 1.4 * scale, grow: 2.4 * scale, life: 2.4 + Math.random() * 1.5,
+          burnFor: 0.6 + Math.random() * 1.2, tone: 0.25 + Math.random() * 0.4,
+        });
     }
   }
 
@@ -283,6 +311,14 @@ export class Effects {
         color: hot ? 0xffb057 : 0x2b2f34,
         opacity: hot ? 0.95 : 0.85,
       });
+      // The burning ones leave a line of fire and then smoke behind them.
+      if (hot || Math.random() < 0.3) {
+        this.trails.arc(x, y, z, Math.cos(a) * out * 0.8, up, Math.sin(a) * out * 0.8, {
+          flight: 2.6, floor: 0.5, spacing: 0.03, limit: 40, gravity: 6,
+          size: 1.1 * scale, grow: 2.2 * scale, life: 2.2 + Math.random() * 1.4,
+          burnFor: hot ? 0.8 + Math.random() * 1.2 : 0, tone: 0.2 + Math.random() * 0.3,
+        });
+      }
     }
     // And the smoke it all came out of.
     for (let i = 0; i < Math.round(4 * this.intensity); i++) {
@@ -499,14 +535,21 @@ export class Effects {
     this.flash(x, y + 14 * s, z, 6 * s);
     // The fireball. Thrown outwards on a sphere flattened by the sea, because
     // the water will not let it expand downwards and it goes sideways instead.
-    const N = Math.round(96 * Math.min(1.4, this.intensity));
+    // The fireball proper is the scene's (see magazineBurst); what is here is
+    // the base of it, rolling out low across the water.
+    const N = Math.round(44 * Math.min(1.4, this.intensity));
     for (let i = 0; i < N; i++) {
       const a = Math.random() * Math.PI * 2;
       const up = Math.random();
       // Squashed: mostly out, a little up.
       const out = 26 + Math.random() * 74;
-      const rise = up * up * 46;
+      const rise = up * up * 22;
       const heat = 1 - Math.min(1, (out / 100) * 0.7 + Math.random() * 0.3);
+      // Only the hottest heads are drawn as light. Added together, a hundred
+      // of them burn the whole thing out to a white blob; laid over each other
+      // as fire that cools to soot, they make a fireball with a black skin
+      // breaking open on the orange underneath.
+      const glow = heat > 0.7 && Math.random() < 0.5;
       this.spawn({
         x: x + Math.cos(a) * out * 0.5 * s,
         y: y + 4 + rise * 0.5 * s,
@@ -516,27 +559,30 @@ export class Effects {
         vz: Math.sin(a) * (18 + Math.random() * 30) * s,
         size: (13 + Math.random() * 17) * s,
         grow: (22 + Math.random() * 28) * s,
-        ttl: 1.5 + Math.random() * 2.4,
-        billow: true, glow: true, drag: 0.5, lift: -2,
+        ttl: 1.1 + Math.random() * 1.6,
+        billow: true, glow, drag: 0.5, lift: glow ? -2 : 1.5,
         // White-hot in the middle of it, orange at the edge, and every one of
         // them cooling to soot as it goes.
-        color: heat > 0.62 ? 0xfff6e2 : heat > 0.3 ? 0xffc069 : 0xff7a22,
-        cool: 0x241d18, opacity: 0.72,
+        color: heat > 0.62 ? 0xffd890 : heat > 0.3 ? 0xf08a32 : 0xb04416,
+        cool: glow ? 0x3a1a0a : 0x14110f, opacity: glow ? 0.4 : 0.85,
       });
     }
-    // The burning wreckage going out on flat trails, which is what gives the
-    // thing its size: they leave the fireball behind and are still going.
-    for (let i = 0; i < 18; i++) {
+    // The burning wreckage going out on long trails, which is what gives the
+    // thing its size: they leave the fireball behind and are still going,
+    // fire at the head and smoke behind, curving over and down to the sea.
+    const streaks = Math.round(30 * Math.min(1.4, this.intensity));
+    for (let i = 0; i < streaks; i++) {
       const a = Math.random() * Math.PI * 2;
-      const flat = 0.25 + Math.random() * 0.9;
-      this.spawn({
-        x, y: y + 6 * s, z,
-        vx: Math.cos(a) * (120 + Math.random() * 190) * s,
-        vy: (40 + Math.random() * 130) * flat,
-        vz: Math.sin(a) * (120 + Math.random() * 190) * s,
-        size: 4 * s, grow: 5 * s, ttl: 2.4 + Math.random() * 2.2,
-        glow: true, drag: 0.06, color: 0xffd07a, cool: 0x3a2a1e, opacity: 1,
-      });
+      const up = 0.35 + Math.random() * 0.6;
+      const v = (45 + Math.random() * 75) * Math.sqrt(s);
+      const flight = 2.5 + Math.random() * 4;
+      this.trails.arc(x, y + 6 * s, z,
+        Math.cos(a) * v * (1 - up * 0.6), v * up * 1.3, Math.sin(a) * v * (1 - up * 0.6), {
+          flight, floor: 0.5, spacing: 0.03, limit: 64,
+          size: (2.2 + Math.random() * 1.6) * s, grow: 4 * s, life: 3.5 + Math.random() * 2.5,
+          burnFor: flight * (0.3 + Math.random() * 0.5),
+          tone: 0.25 + Math.random() * 0.45,
+        });
     }
     // And the column, standing over the place afterwards. It goes up out of
     // the middle of the fireball and keeps going long after the fire is out,
@@ -579,6 +625,7 @@ export class Effects {
   update(dt, camera) {
     this.splashes.update(dt);
     this.blasts.update(dt, camera);
+    this.trails.update(dt);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
       p.life += dt;

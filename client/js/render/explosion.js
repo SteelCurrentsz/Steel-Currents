@@ -8,6 +8,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { NOISE } from './fire.js';
+import { SmokeTrails } from './trails.js';
 
 // A full billboard — these face the camera squarely rather than turning only
 // about the vertical, because a fireball has no up.
@@ -105,7 +106,7 @@ void main() {
   // How big she is has already been settled: the card is grown on the CPU to
   // whatever radius she has reached, so the ball sits at a fixed fraction of
   // it and the shader is left to do shape, colour and dying.
-  const float R = 0.74;
+  const float R = 0.62;
 
   // She does not stay a ball. The buoyant gas pulls up out of the middle, so
   // she is drawn in below and rolls over on top as she climbs.
@@ -116,9 +117,13 @@ void main() {
 
   float rn = length(pn);
   if (rn > 1.8) discard;
-  float rc = min(rn, 1.0);
-  vec3 dir = vec3(pn.x / max(rn, 1e-4) * rc, pn.y / max(rn, 1e-4) * rc,
-                  sqrt(max(0.0, 1.0 - rc * rc)));
+  // On the sphere inside the limb, and carried straight on outward past it,
+  // so the heads standing proud of her change as they go out. Clamped to the
+  // limb instead, every point along a radius sampled the same noise, and the
+  // edge came out as a ring of spikes.
+  // The depth is eased off at the limb: a true sphere's goes vertical
+  // there, and the noise sampled on it creases into a thin ring round her.
+  vec3 dir = vec3(pn.x, pn.y, sqrt(max(0.0, 1.0 - rn * rn) + 0.06) - 0.245);
 
   // The field she is boiling through. It is dragged outward as she swells and
   // lifted as she climbs, so a lump keeps its identity while it moves. It goes
@@ -141,7 +146,11 @@ void main() {
   // ...and the lumps grow as she loses her skin: a burning ball is held
   // roughly round by the pressure in it, and a cooling one is not held at all.
   float ragged = smoothstep(0.25, 1.70, e);
-  float lump = 1.00 + (0.34 + 0.34 * ragged) * N + (0.06 + 0.11 * ragged) * F;
+  // Outward only, from a solid core: a head that sinks below the mean is no
+  // longer a dent in her outline but a hole through the middle of her, and a
+  // ball of holes reads as lace with the sky showing through.
+  float lump = 0.90 + (0.30 + 0.28 * ragged) * clamp(N + 0.35, 0.0, 0.8)
+             + (0.05 + 0.08 * ragged) * F;
 
   // The limb. While she is burning she has a skin and a hard edge; once the
   // fire is out of her there is nothing holding her together, and the edge
@@ -149,16 +158,22 @@ void main() {
   // was hot is what makes it read as a dark dome parked over the town.
   // Never less than a band: with a hard threshold the lumps come out as a ring
   // of triangular teeth round the edge, which reads as a cartoon sun.
-  float soft = mix(0.17, 0.66, ragged);
-  float a = 1.0 - smoothstep(lump * (1.0 - soft), lump * (1.0 + soft * 0.30), rn);
+  float soft = mix(0.14, 0.36, ragged);
+  float a = 1.0 - smoothstep(lump * (1.0 - soft * 0.6), lump * (1.0 + soft * 0.25), rn);
   // ...and the noise is allowed to bite into her, harder the older she is, so
   // she comes apart into separate heads rather than thinning uniformly.
-  a *= mix(1.0, smoothstep(0.15, 0.78, fine * 0.66 + n * 0.34), ragged * 1.15);
+  // Only at the rim, though: bitten through the middle she reads as a lace
+  // ball with the sky showing through, and a cloud of soot is never that.
+  float rim = smoothstep(0.80, 1.05, rn / lump);
+  a *= mix(1.0, smoothstep(0.10, 0.70, fine * 0.66 + n * 0.34), ragged * (0.25 + 0.85 * rim));
   if (a < 0.004) discard;
 
   // How much gas the eye is looking through: most at the middle of the disc,
   // none at the limb. This is what gives it volume.
-  float thick = sqrt(max(0.0, 1.0 - rc * rc)) * a;
+  // Measured against her own lumpy outline, not the unit circle, or the
+  // shading draws that circle across her.
+  float rl = min(rn / lump, 1.0);
+  float thick = sqrt(max(0.0, 1.0 - rl * rl)) * a;
 
   // Soot: made in the flame, rolled out to the surface, and thickening as she
   // cools. The veins of it across the face are most of what separates a
@@ -178,15 +193,24 @@ void main() {
                    * (1.0 - smoothstep(0.0, 0.42, rn)));
   heat = clamp(heat, 0.0, 1.0);
 
-  float soot = clamp(smoothstep(0.28, 1.70, e) * (0.30 + 0.74 * vein)
-                     * (1.0 - thick * 0.45), 0.0, 1.0);
+  float soot = clamp(smoothstep(0.20, 1.25, e) * (0.55 + 0.60 * vein)
+                     * (1.0 - thick * 0.30), 0.0, 1.0);
   vec3 col = mix(ramp(heat), vec3(0.130, 0.108, 0.094), soot);
   // The underside of the cloud stands over a burning port and is lit by it, and
   // there is fire inside it for a long while yet, showing in the gaps between
   // the heads. Soot that takes no light off what it is sitting above and none
   // off what it is made of is a hole in the picture, not smoke.
-  col = mix(col, uLit, soot * (1.0 - smoothstep(-0.55, 0.95, pn.y)) * 0.85);
-  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.4, 2.6, e)) * 0.55;
+  col = mix(col, uLit, soot * (1.0 - smoothstep(-0.55, 0.95, pn.y)) * 0.45
+                      * (1.0 - smoothstep(1.0, 2.6, e)));
+  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.3, 1.7, e)) * 0.45;
+  // Fire still breaking out through the soot: the lobes that stand proudest
+  // are the ones still burning, and they show orange against the black long
+  // after the face of her has gone dark.
+  float burst = smoothstep(0.42, 0.95, N) * smoothstep(0.3, 0.9, F * 0.5 + 0.5)
+              * smoothstep(0.15, 0.6, e) * (1.0 - smoothstep(1.2, 2.8, e));
+  col = mix(col, ramp(0.55 + 0.25 * F), burst * 0.85);
+  // Lit on the top by the sky and dark underneath, so the soot has a shape.
+  col *= 0.86 + 0.28 * smoothstep(-0.6, 0.8, pn.y) * soot;
 
   // And she goes. Not quickly: what is left when the fire is out is soot, and
   // soot is opaque — it stands over the town as a black cloud, boiling and
@@ -194,14 +218,14 @@ void main() {
   // in the way. This is the part that takes ten seconds, and cutting it short
   // is what makes a blast read as a puff rather than as something that
   // happened.
-  float thin = 1.0 - 0.28 * smoothstep(0.5, 3.2, e);
+  float thin = 1.0 - 0.12 * smoothstep(0.5, 3.2, e);
   float gone = 1.0 - smoothstep(3.0, 6.4, e);
 
   // Hazed with range like everything else, but not all the way: the air here
   // is cool and the soot is warm, and taken to the full the two average out to
   // a green nobody has ever seen over a burning town.
   col = mix(col, uFogColor, vFog * 0.62);
-  gl_FragColor = vec4(col, clamp(a * thin * gone, 0.0, 1.0));
+  gl_FragColor = vec4(col, clamp(a * thin * gone * uKeep, 0.0, 1.0));
 }
 `;
 
@@ -256,24 +280,33 @@ void main() {
   // under it: the column is not a cone all the way up.
   float head = smoothstep(0.45, 0.95, uv.y) * (1.0 - smoothstep(0.95, 1.0, uv.y));
   spread *= mix(1.0, 1.0 - 0.30 * smoothstep(0.15, 0.55, uv.y) + 0.75 * head, uPower);
-  vec2 p = vec2((uv.x - 0.5) / spread * 2.4, uv.y * 1.15 - uLife * 0.85 + uSeed * 11.0);
-  float n = fbm(p * 1.25 + vec2(fbm3(p * 1.1), fbm3(p * 1.1 + 3.3)) * 0.9);
+  // Sampled at the same scale both ways, so the column boils in rounded
+  // heads rather than hanging in curtains -- stretching the noise across the
+  // column is what drew it as streaks.
+  vec2 p = vec2((uv.x - 0.5) * 3.2, uv.y * 3.2 - uLife * 1.3 + uSeed * 11.0);
+  vec2 warp = vec2(fbm3(p * 0.9), fbm3(p * 0.9 + 3.3));
+  float n = fbm(p * 1.4 + warp * 1.2);
+  float fineN = fbm3(p * 4.1 + warp * 2.0);
 
-  float across = 1.0 - smoothstep(0.30, 1.0, abs(uv.x - 0.5) / spread);
+  // And its sides are the heads too, not a ruled line.
+  float side = abs(uv.x - 0.5) / spread + (n - 0.5) * 0.55 + (fineN - 0.5) * 0.18;
+  float across = 1.0 - smoothstep(0.35, 0.95, side);
   // The head of the column climbs as the blast ages; below it the stem thins.
   float rise = smoothstep(0.0, 0.16, uv.y) * (1.0 - smoothstep(uLife * 1.15, uLife * 1.15 + 0.35, uv.y));
-  float d = across * rise * smoothstep(0.20, 0.72, n);
+  float d = across * rise * smoothstep(0.16, 0.58, n * 0.8 + fineN * 0.2);
   // Out before the border, on every side, whatever the spread has done.
   d *= smoothstep(0.0, 0.05, uv.x) * smoothstep(1.0, 0.95, uv.x)
      * (1.0 - smoothstep(0.92, 1.0, uv.y));
 
   // She stands long after the fire in her has gone out -- the column is what is
   // left of a blast, and cutting it short is what makes one read as a puff.
-  float fade = smoothstep(0.0, 0.06, uLife) * (1.0 - smoothstep(0.55, 1.0, uLife));
+  float fade = smoothstep(0.03, 0.14, uLife) * (1.0 - smoothstep(0.55, 1.0, uLife));
   d = clamp(d * fade * 1.15, 0.0, 1.0);
   if (d < 0.004) discard;
 
-  vec3 col = mix(vec3(0.070, 0.060, 0.053), vec3(0.150, 0.130, 0.118), n);
+  vec3 col = mix(vec3(0.060, 0.052, 0.046), vec3(0.175, 0.155, 0.140), n);
+  // The heads catch the sky on their tops; the folds between them do not.
+  col *= 0.80 + 0.45 * smoothstep(0.35, 0.75, fineN);
   col = mix(col, uLit, pow(1.0 - uv.y, 2.6) * (1.0 - smoothstep(0.0, 0.55, uLife)) * 0.85);
   col = mix(col, uFogColor, vFog);
   gl_FragColor = vec4(col, d);
@@ -331,9 +364,12 @@ attribute vec2 born;   // x = time of the blast, y = how long this piece lasts
 attribute float psize; // how big the piece is, in metres
 varying float vAge;
 varying float vSpin;
+varying float vSeed;
+varying float vRot;
 
 void main() {
   float age = (uTime - born.x) / born.y;
+  vSeed = fract(psize * 73.31 + born.y * 11.7);
   vAge = age;
   if (age < 0.0 || age > 1.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // off-screen: cheaper than a draw
@@ -345,6 +381,7 @@ void main() {
   // again several times on the way down. That flicker is most of what says a
   // spark is a fragment of something rather than a dot.
   vSpin = 0.55 + 0.45 * sin(t * (7.0 + fract(psize * 91.7) * 22.0) + psize * 611.0);
+  vRot = vSeed * 6.2832 + t * (vSeed - 0.5) * 9.0;
   vec3 pos = position + vel * t + vec3(0.0, -0.5 * 42.0 * t * t, 0.0);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
@@ -353,21 +390,32 @@ void main() {
   // A fragment two thousand metres off is a fraction of a pixel across, and at
   // night what carries that far is not the piece but the fact that it is
   // burning. Floored, so the glow is drawn at a size an eye could see.
-  gl_PointSize = max(2.2, psize * uPix / max(1.0, -mv.z)) * (1.0 - age * 0.35);
+  gl_PointSize = max(1.4, psize * uPix / max(1.0, -mv.z)) * (1.0 - age * 0.35);
 }
 `;
 
 const DEBRIS_FRAG = /* glsl */`
 varying float vAge;
 varying float vSpin;
+varying float vSeed;
+varying float vRot;
+float hs(float x) { return fract(sin(x * 127.1 + vSeed * 311.7) * 43758.5453); }
 void main() {
+  // A torn scrap, turning: an irregular outline worked out from the angle
+  // round its middle, longer one way than the other, so no two pieces are
+  // the same disc.
   vec2 d = gl_PointCoord - 0.5;
-  if (dot(d, d) > 0.25) discard;
+  float c = cos(vRot), s = sin(vRot);
+  d = mat2(c, -s, s, c) * d;
+  d.x *= 0.55 + 0.5 * vSeed;
+  float ang = atan(d.y, d.x) / 6.2832 * 6.0 + 6.0;
+  float k = floor(ang), f = fract(ang);
+  float lim = 0.16 + 0.30 * mix(hs(mod(k, 6.0)), hs(mod(k + 1.0, 6.0)), f);
+  float r = length(d);
+  if (r > lim) discard;
   // Struck metal and burning fragments: bright as they leave, dull as they fall.
   vec3 col = mix(vec3(1.0, 0.82, 0.42), vec3(0.42, 0.10, 0.03), pow(vAge, 0.7));
-  // Soft-edged and thinning as it cools, so a piece of plating tumbling away
-  // does not read as a bubble with a hard rim.
-  float core = 1.0 - smoothstep(0.06, 0.25, dot(d, d));
+  float core = 1.0 - smoothstep(lim * 0.35, lim, r);
   gl_FragColor = vec4(col, core * (1.0 - smoothstep(0.55, 1.0, vAge)) * vSpin * 1.25);
 }
 `;
@@ -378,6 +426,8 @@ const QUAD = new THREE.PlaneGeometry(1, 1, 1, 1);
 // a ring and each blast wipes out the fragments of the one before it, so the
 // bits vanish in mid-flight.
 const DEBRIS_MAX = 3000;
+// Extra heads round the fireball. See makeSlot.
+const LOBES = 5;
 
 /** One pool of blasts, from a stick of bombs down to a burning drum going up. */
 export class ExplosionSystem {
@@ -417,6 +467,8 @@ export class ExplosionSystem {
     this.debris.renderOrder = 12;
     scene.add(this.debris);
     this.debrisNext = 0;
+    // The smoke and fire the bigger pieces drag behind them. See trails.js.
+    this.trails = new SmokeTrails(scene, 24000);
   }
 
   makeSlot() {
@@ -451,6 +503,15 @@ export class ExplosionSystem {
       THREE.NormalBlending, 11);
     const glare = mk(GLARE_FRAG, {}, THREE.AdditiveBlending, 12);
     const flash = mk(FLASH_FRAG, {}, THREE.AdditiveBlending, 13);
+    // Heads of her own, boiling out of her sides and top. One ball, however
+    // lumpy, is still one ball -- an egg from far enough off. A real blast is
+    // a cluster of them, each burning and cooling on its own, and it is the
+    // cluster that gives the cauliflower outline.
+    const lobes = [];
+    for (let k = 0; k < LOBES; k++) {
+      lobes.push(mk(FIREBALL_FRAG, { uLit: { value: new THREE.Color(0.42, 0.16, 0.05) } },
+        THREE.NormalBlending, 11));
+    }
     const plume = mk(PLUME_FRAG, { uLit: { value: new THREE.Color(0.7, 0.28, 0.07) } },
       THREE.NormalBlending, 9);
 
@@ -477,7 +538,8 @@ export class ExplosionSystem {
     if (this.lights) this.scene.add(light);
 
     return {
-      ball, glare, flash, plume, ring, light,
+      ball, lobes, lobeAt: lobes.map(() => ({ x: 0, y: 0, z: 0, k: 1, lag: 0 })),
+      glare, flash, plume, ring, light,
       age: 1e9, total: 1, tau: 1, size: 1, lightPeak: 0, done: true,
     };
   }
@@ -527,6 +589,26 @@ export class ExplosionSystem {
     s.ball.material.uniforms.uSeed.value = Math.random();
     s.ball.material.uniforms.uPower.value = power;
     s.ball.material.uniforms.uTau.value = s.tau;
+    s.origin = [x, y, z];
+    for (let k = 0; k < LOBES; k++) {
+      const m = s.lobes[k], at = s.lobeAt[k];
+      // Round the sides and over the top, never underneath: the ground or
+      // the sea is in the way there.
+      const th = (k / LOBES + Math.random() * 0.15) * Math.PI * 2;
+      const el = -0.15 + Math.random() * 1.0;
+      const c = Math.cos(el);
+      at.x = Math.cos(th) * c; at.y = Math.sin(el); at.z = Math.sin(th) * c;
+      at.k = 0.45 + Math.random() * 0.30;
+      at.lag = Math.random() * 0.12 * s.tau;
+      m.visible = true;
+      const u = m.material.uniforms;
+      u.uSeed.value = Math.random();
+      u.uPower.value = power * 0.6;
+      u.uTau.value = s.tau * (0.75 + Math.random() * 0.4);
+      u.uKeep.value = 1;
+      u.uAge.value = 0;
+      u.uSize.value = 0.01;
+    }
 
     s.plume.visible = plume;
     s.plume.position.set(x, y, z);
@@ -544,10 +626,17 @@ export class ExplosionSystem {
     s.light.position.set(x, y + size * 0.5, z);
     s.light.distance = size * 26;
 
-    for (let i = 0; i < debris; i++) this.throwDebris(x, y, z, size);
+    // Not every piece trails -- most of them are too small to be seen burning
+    // -- but enough that the blast is ringed by falling streaks.
+    let trailed = 0;
+    const trailWant = Math.min(70, Math.round(debris * 0.32));
+    for (let i = 0; i < debris; i++) {
+      this.throwDebris(x, y, z, size, trailed < trailWant && Math.random() < 0.45);
+      if (this.lastTrailed) trailed++;
+    }
   }
 
-  throwDebris(x, y, z, size) {
+  throwDebris(x, y, z, size, trail = false) {
     const i = this.debrisNext;
     this.debrisNext = (this.debrisNext + 1) % DEBRIS_MAX;
     const g = this.debris.geometry;
@@ -565,11 +654,36 @@ export class ExplosionSystem {
     v.setXYZ(i, Math.cos(th) * speed * (1 - up), speed * up * 1.5, Math.sin(th) * speed * (1 - up));
     // Long enough to be seen falling as well as rising. Small bits burn out
     // quickly; the few big ones tumble down for several seconds.
-    b.setXY(i, this.time, 1.2 + Math.pow(Math.random(), 0.7) * 3.6);
-    // Fragments run from cinders up to plating, and the big ones are rare:
-    // what a bomb mostly throws is small bits, a great many of them.
-    ps.setX(i, size * (0.0035 + Math.pow(Math.random(), 3.4) * 0.030));
+    const flight = 1.2 + Math.pow(Math.random(), 0.7) * 3.6;
+    b.setXY(i, this.time, flight);
+    // Fragments run from cinders up to scraps of plate, and the big ones are
+    // rare: what a bomb mostly throws is small bits, a great many of them.
+    const piece = size * (0.0016 + Math.pow(Math.random(), 4.0) * 0.011);
+    ps.setX(i, piece);
     p.needsUpdate = v.needsUpdate = b.needsUpdate = ps.needsUpdate = true;
+
+    // The fast ones that go high are the ones that are seen trailing.
+    this.lastTrailed = trail && speed > size * 0.3 && up > 0.3;
+    if (this.lastTrailed) {
+      const vx = Math.cos(th) * speed * (1 - up), vy = speed * up * 1.5;
+      const vz = Math.sin(th) * speed * (1 - up);
+      // Fat enough at this range to read as a streak and not a string of
+      // beads: the puffs are laid closer than their own width.
+      const puff = 2 + size * 0.06;
+      this.trails.arc(x, y + 2, z, vx, vy, vz, {
+        flight: flight * 0.97,
+        gravity: 42,
+        floor: Math.min(y - 1, Math.max(0, y - 30)),
+        spacing: 0.02,
+        limit: 56,
+        size: puff,
+        grow: puff * 1.4,
+        life: 2.4 + size * 0.012,
+        burnFor: flight * (0.25 + Math.random() * 0.5),
+        tone: 0.3 + Math.random() * 0.4,
+        start: 0.04,
+      });
+    }
   }
 
   /** Keep the debris sized correctly when the window or the lens changes. */
@@ -581,6 +695,7 @@ export class ExplosionSystem {
   update(dt) {
     this.time += dt;
     this.debrisMat.uniforms.uTime.value = this.time;
+    this.trails.update(dt);
 
     for (const s of this.slots) {
       if (s.done) continue;
@@ -603,8 +718,22 @@ export class ExplosionSystem {
       // The card is grown to her, so the shader draws her at a fixed fraction
       // of it and never has to clip her against her own quad.
       s.ball.material.uniforms.uAge.value = age;
-      s.ball.material.uniforms.uSize.value = radius * 2.7;
+      // (2.7 x 0.74 / 0.62: the card is a little bigger than the ball needs,
+      // so the heads standing proud of her have room before the card's edge.)
+      s.ball.material.uniforms.uSize.value = radius * 3.22;
       s.ball.material.uniforms.uRise.value = rise;
+      for (let k = 0; k < LOBES; k++) {
+        const m = s.lobes[k], at = s.lobeAt[k];
+        const la = Math.max(0, age - at.lag);
+        const off = radius * 0.95;
+        m.position.set(s.origin[0] + at.x * off, s.origin[1] + Math.max(0, at.y) * off * 0.8,
+          s.origin[2] + at.z * off);
+        const u = m.material.uniforms;
+        u.uAge.value = la;
+        u.uSize.value = radius * 3.22 * at.k * Math.min(1, la / (s.tau * 0.08) + 0.15);
+        u.uRise.value = rise * (0.85 + 0.25 * at.y) + Math.min(0, at.y) * off;
+        u.uKeep.value = s.ball.material.uniforms.uKeep.value;
+      }
 
       s.flash.material.uniforms.uAge.value = age;
       s.flash.material.uniforms.uSize.value = s.size * 4.2;
@@ -619,7 +748,7 @@ export class ExplosionSystem {
         if (pl >= 1) { s.plume.visible = false; } else {
           s.plume.material.uniforms.uLife.value = pl;
           s.plume.material.uniforms.uSize.value = s.size * (3.4 + 1.6 * pl);
-          s.plume.material.uniforms.uRise.value = s.size * (3.0 + 2.2 * pl);
+          s.plume.material.uniforms.uRise.value = s.size * (2.1 + 2.6 * pl);
         }
       }
 
@@ -646,6 +775,7 @@ export class ExplosionSystem {
       if (age > s.total) {
         s.done = true;
         s.ball.visible = s.plume.visible = s.ring.visible = s.light.visible = false;
+        for (const m of s.lobes) m.visible = false;
         s.flash.visible = s.glare.visible = false;
       }
     }

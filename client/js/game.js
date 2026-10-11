@@ -1468,6 +1468,7 @@ export class Battle {
       } else if (t.kind === 'blast') {
         // The fire got to what was left of her ammunition.
         fx.magazine(wx, 8, wz, t.size || 1);
+        this.scene.magazineBurst(wx, 10, wz, t.size || 1);
         this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1);
         fx.splash(wx, wz, 800);
         // Heard everywhere, like any magazine.
@@ -1819,6 +1820,7 @@ export class Battle {
           }
           const size = 0.7 + cls.hull.length / 200;
           fx.magazine(wx, 8, wz, size);
+          this.scene.magazineBurst(wx, 10, wz, size);
           this.scene.debris.burst(wx, 14, wz, 9 + cls.hull.length / 26, 1);
           fx.splash(wx, wz, 900);
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);

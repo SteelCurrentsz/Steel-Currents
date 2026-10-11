@@ -1877,6 +1877,23 @@ export class BattleScene {
     this.effects.flash?.(x, y + 4, z, 1.2 * scale);
   }
 
+  /**
+   * A magazine going up: the fireball proper, boiling out over her in heads
+   * of fire and soot, with the column standing over it and burning wreckage
+   * thrown out of it on trails. The base surge and the smoke on the water are
+   * Effects.magazine's.
+   */
+  magazineBurst(x, y, z, scale = 1) {
+    this.bursts.blast(x, y, z, {
+      size: 62 * scale,
+      duration: 3.2,
+      debris: Math.round(140 * Math.min(1.5, this.q.particles)),
+      light: false,
+      ring: false,
+      power: 1,
+    });
+  }
+
   removeBatteryView(id) {
     const v = this.batteryViews.get(id);
     if (v) { this.scene.remove(v.group); this.batteryViews.delete(id); }
