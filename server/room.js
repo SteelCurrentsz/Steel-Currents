@@ -43,6 +43,9 @@ export class Room {
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
     this.world = generateWorld(this.seed, this.mapId, opts.time, opts.half, opts.place,
       opts.weather, !!opts.fog);
+    // Arcade rules ride on the world, which both the simulation and every
+    // client are handed: see stepDetection.
+    if (opts.arcade) this.world.arcade = true;
     this.state = createState(this.world, { mode: this.mode, timeLimit: opts.timeLimit || 900 });
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain

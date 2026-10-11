@@ -183,9 +183,9 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.click();
     switch (btn.dataset.action) {
       case 'pvp': show('pvp'); refreshRooms(); break;
-      // Not built yet: the key is on the menu so the menu is the shape it will be.
-      case 'arcade': toast('Arcade Battle is coming soon.'); break;
-      case 'custom': show('custom'); briefing.show(); break;
+      // The custom briefing, under arcade rules: see Briefing.setArcade.
+      case 'arcade': briefing.setArcade(true); show('custom'); briefing.show(); break;
+      case 'custom': briefing.setArcade(false); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;

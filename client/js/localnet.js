@@ -77,6 +77,7 @@ export class LocalNet extends EventTarget {
           time: msg.time,
           weather: msg.weather,
           fog: !!msg.fog,
+          arcade: !!msg.arcade,
           seed: msg.seed,
           half: msg.half,
           lon: msg.lon,
@@ -123,6 +124,7 @@ export class LocalNet extends EventTarget {
       time: opts.time,
       weather: opts.weather,
       fog: !!opts.fog,
+      arcade: !!opts.arcade,
       seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
       half: Number.isFinite(opts.half) ? opts.half : undefined,
       // Where on the earth this is being fought, which is what puts the real

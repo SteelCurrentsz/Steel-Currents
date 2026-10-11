@@ -176,7 +176,8 @@ function handle(player, msg) {
     case 'custom': {
       if (player.room) player.room.leave(player.id);
       const room = createRoom({
-        name: msg.roomName || 'Custom Battle',
+        name: msg.roomName || (msg.arcade ? 'Arcade Battle' : 'Custom Battle'),
+        arcade: !!msg.arcade,
         mode: msg.mode === 'deathmatch' ? 'deathmatch' : 'domination',
         mapId: msg.mapId,
         maxPlayers: 12,

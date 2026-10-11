@@ -18196,6 +18196,45 @@ check('a fog bank is asked for on its own, and closes the battle right down', ()
   assert.equal(seenFog, false, 'a ship at five thousand metres was seen through a fog bank');
 });
 
+check('an arcade battle sees every ship at once and fires the moment she is in range', () => {
+  // Fog, a typhoon and the middle of the night: the worst seeing there is.
+  const arcade = generateWorld(5, 'open_ocean', 'night', 9000, null, 'typhoon', true);
+  arcade.arcade = true;
+  const custom = generateWorld(5, 'open_ocean', 'night', 9000, null, 'typhoon', true);
+  const pair = (world, range) => {
+    const st = createState(world);
+    const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+    const b = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    a.x = 0; a.z = 0; b.x = 0; b.z = range;
+    // The lookouts report every third tick.
+    for (let i = 0; i < 4; i++) step(st, DT);
+    return { st, a, b };
+  };
+  // Seen on the first tick, both ways, from the far side of the field...
+  const far = pair(arcade, 15000);
+  assert.ok(far.b.spottedBy[0] && far.a.spottedBy[1], 'arcade rules left a ship unseen');
+  // ...where the same weather in a custom battle hides her.
+  const hid = pair(custom, 15000);
+  assert.equal(hid.b.spottedBy[0], false, 'a custom battle stopped hiding ships in a fog');
+
+  // Inside gun range she is fired on straight away; outside it she is not.
+  const fires = (range) => {
+    const { st, a, b } = pair(arcade, range);
+    const brain = createBotBrain('veteran');
+    let shot = false;
+    for (let i = 0; i < 60 && !shot; i++) {
+      stepBot(st, a, brain, DT, false);
+      step(st, DT);
+      shot = a.lastFiredAt > 0;
+      b.x = 0; b.z = range;
+    }
+    return shot;
+  };
+  const gun = SHIP_CLASSES.fletcher.gun.range;
+  assert.ok(fires(gun * 0.6), 'she held her fire on a ship in range in an arcade battle');
+  assert.equal(fires(gun * 1.6), false, 'she opened fire on a ship out of range');
+});
+
 check('every ship has her searchlights, and a lit one gives her away', () => {
   for (const [id, n] of [['fletcher', 4], ['iowa', 4], ['enterprise', 2], ['shinano', 2], ['u48', 1], ['surcouf', 1]]) {
     assert.equal(lampCount(SHIP_CLASSES[id]), n, `${id} has the wrong number of searchlights`);

@@ -7565,6 +7565,19 @@ export const LAMP_SEEN = 14000;
 
 function stepDetection(state) {
   for (const s of state.ships) s.spottedBy = [false, false];
+  // An arcade battle has no lookouts to beat: every ship afloat is on both
+  // sides' plots from the first second, whatever the fog, the rain or the
+  // hour, and the only thing that keeps the guns quiet is range. A boat that
+  // is down is still down -- there is nothing on the surface to lay a gun on.
+  if (state.world?.arcade) {
+    for (const target of state.ships) {
+      if (!target.alive) continue;
+      const tc = getClass(target.classId);
+      if (tc.dive && submerged(target)) continue;
+      target.spottedBy = [true, true];
+    }
+    return;
+  }
   for (const target of state.ships) {
     if (!target.alive) continue;
     const tc = getClass(target.classId);
