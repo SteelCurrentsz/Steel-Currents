@@ -17,7 +17,7 @@ import { getSettings } from './settings.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
-  steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
+  steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
   freeboardOf,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
@@ -283,6 +283,18 @@ function unpackLamps(lp) {
   const out = [];
   for (const [k, y, p] of lp) out[k] = { on: true, yaw: y / 100, pitch: p / 100 };
   return out;
+}
+
+/** The kinds of hit that got into her and burst inside. */
+const PENETRATING_KINDS = new Set(['pen', 'citadel', 'overpen', 'he']);
+
+/**
+ * How big the explosion of a round that got in is drawn, off the damage it
+ * did: a five-inch round that did two thousand is a modest burst, a
+ * sixteen-inch citadel hit is a fireball half the height of her mast.
+ */
+export function blastScale(dmg = 0) {
+  return Math.max(0.25, Math.min(2.4, 0.25 + 1.6 * Math.sqrt(Math.max(0, dmg) / 16000)));
 }
 
 function galeOf(world, t) {
@@ -1614,9 +1626,14 @@ export class Battle {
           if (d < 1) audio.explosion(1.6, d);
           break;
         case 'hit': {
-          fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
-          // And it comes out of the ship, where it went in.
-          this.shellDamage(ev);
+          // A round that got into her goes off inside her: an explosion, as
+          // big as the damage it did. One that did not get in is a flash and
+          // a puff against her armour. Neither leaves a mark on the ship.
+          if (PENETRATING_KINDS.has(ev.kind)) {
+            this.scene.shipBurst(ev.x, ev.y ?? 8, ev.z, blastScale(ev.dmg));
+          } else {
+            fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
+          }
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
             this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
@@ -1813,7 +1830,6 @@ export class Battle {
             const q = new THREE.Vector3(0, 8, lz);
             view.group.localToWorld(q);
             wx = q.x; wy = q.y; wz = q.z;
-            view.punch(wx, wy, wz, holeRadius('he', 200), 0.4, 1.4);
           }
           fx.explosion(wx, wy + 2, wz, 2.2);
           this.scene.debris.burst(wx, wy + 3, wz, 4.5, 0.8);
@@ -4499,40 +4515,11 @@ export class Battle {
     // it. It takes a piece of the deck away -- plating, beams, and whatever
     // was standing on it -- so the burst is worked at the size it really is
     // and carries the power to shed the fittings round it as well.
-    const r = holeRadius('bomb', 454) * 1.6;
-    const went = hit.punch(x, y, z, r, 0.35, 3.2);
-    // What goes into the air is the deck it took, and nothing else. It used to
-    // throw a burst of wreckage whether or not the bomb found anything --
-    // through a part of her already blown away, or into the sea alongside --
-    // so a near miss put a shower of steel into the air over open water. If
-    // there was no deck there, there is nothing to throw.
-    if (went <= 0) return;
-    this.scene.debris.burst(x, y + 4, z, 3.2 + Math.min(5, went * 0.4), 1);
-    this.scene.effects.explosion(x, y + 3, z, 1.5);
+    // It goes off on her and in her: an explosion, and no hole -- only a
+    // torpedo opens a ship now.
+    this.scene.shipBurst(x, y + 2, z, blastScale(6000));
     // On our own deck it goes on the board, where the deck went.
     if (hitId === this.shipId) this.markHole(x, y, z, 'bomb');
-  }
-
-  shellDamage(ev) {
-    if (!HOLING.has(ev.kind)) return;
-    const v = this.scene.shipViews.get(ev.victim);
-    if (!v) return;
-    const r = holeRadius(ev.kind, ev.cal);
-    if (!r) return;
-    const went = v.punch(ev.x, ev.y ?? 8, ev.z, r, 0.45);
-    // Whatever came out of her went somewhere.
-    //
-    // It used to be a citadel hit alone that threw anything. Every other kind
-    // of hole took a piece out of the ship and put nothing into the air, which
-    // is a hole that appears by magic -- and holes are most of what happens in
-    // an action. A citadel hit still throws the deck; a six-inch through the
-    // side throws splinters, which is the difference between them.
-    if (went > 0) {
-      const bore = (ev.cal || 152) / 1000;
-      const heavy = ev.kind === 'citadel';
-      this.scene.debris.burst(ev.x, (ev.y ?? 8) + (heavy ? 3 : 1.3), ev.z,
-        (heavy ? 2.2 : 0.8) + bore * (heavy ? 3 : 1.7), heavy ? 1 : 0.4);
-    }
   }
 
   /**

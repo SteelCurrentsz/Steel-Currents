@@ -341,13 +341,10 @@ export class Plating {
       cut = r * (1 + pass * 0.55);
       went += this.sweep(near, cut, pass === 0 ? soft : 0);
     }
-    // And what a hole looks like: torn plating round the mouth of it and soot
-    // on her paint for a couple of times its width. Only if something actually
-    // came off her -- a burst that opened nothing leaves nothing.
-    if (went > 0) {
-      this.rims.add(near, cut);
-      this.scorch(near[0], near[1], near[2], cut * 2.6, 0.9);
-    }
+    // A hole, and only a hole: no collar of torn plating stood round the mouth
+    // of it and no soot on her paint. Only a torpedo opens her now, and what
+    // it leaves is the opening in her side with the inside of her showing
+    // through it.
     return went;
   }
 

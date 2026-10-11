@@ -450,6 +450,20 @@ export class DamageBoard {
     // And a ring round the ring for one below her waterline, because that is
     // where the sea is getting in and it is a different problem.
     this.wetGeo = new THREE.RingGeometry(mr * 1.25, mr * 1.55, 18);
+    // The part of her a round that got in has damaged: a patch the size of
+    // what it wrecked, lit on her plating where it went in -- that piece of
+    // her, and not the whole length of hull it happens to be in.
+    this.patchGeo = new THREE.CircleGeometry(mr * 1.15, 22);
+    this.patchMat = {
+      dent: new THREE.MeshBasicMaterial({
+        color: 0xffa03a, transparent: true, opacity: 0.32, depthTest: false,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+      pen: new THREE.MeshBasicMaterial({
+        color: 0xff3a2a, transparent: true, opacity: 0.45, depthTest: false,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+    };
     this.wetMat = new THREE.MeshBasicMaterial({
       color: 0x4fd2ff, transparent: true, opacity: 0.8, depthTest: false,
       side: THREE.DoubleSide,
@@ -504,7 +518,7 @@ export class DamageBoard {
       mesh.position.set(0, (y0 + y1) / 2, mid);
       mesh.renderOrder = 1;
       this.rig.add(mesh);
-      this.rooms.push({ mesh, mat, k: r.k, name: r.name, y0, y1 });
+      this.rooms.push({ mesh, mat, k: r.k, name: r.name, y0, y1, z0, z1, hw: w / 2, hits: 0 });
     }
   }
 
@@ -625,7 +639,8 @@ export class DamageBoard {
       this.marks.remove(this.marks.children[0]);
     }
     const wet = ly < 0.4;
-    const m = new THREE.Mesh(this.markGeo, this.markMat[MARK_KIND[kind] || 'pen']);
+    const what = MARK_KIND[kind] || 'pen';
+    const m = new THREE.Mesh(this.markGeo, this.markMat[what]);
     m.renderOrder = 3;
     const half = this.halfBeam(lz, ly);
     // Out onto her side only if it was in her side. A round that stopped near
@@ -641,6 +656,20 @@ export class DamageBoard {
     if (out) g.rotation.y = Math.sign(lx || 1) * Math.PI / 2;
     else g.rotation.x = -Math.PI / 2;
     g.add(m);
+    if (this.patchMat[what]) {
+      const p = new THREE.Mesh(this.patchGeo, this.patchMat[what]);
+      p.renderOrder = 2;
+      g.add(p);
+    }
+    // And the room it went into, if it went into one: that compartment lights
+    // up, and the rest of the ship stays the colour it was.
+    if (what === 'pen') {
+      for (const r of this.rooms || []) {
+        if (lz < Math.min(r.z0, r.z1) || lz > Math.max(r.z0, r.z1)) continue;
+        if (ly < r.y0 - 1 || ly > r.y1 + 1 || Math.abs(lx) > r.hw + 1.5) continue;
+        r.hits += 1;
+      }
+    }
     if (wet) {
       const w = new THREE.Mesh(this.wetGeo, this.wetMat);
       w.renderOrder = 3;
@@ -722,36 +751,28 @@ export class DamageBoard {
     });
   }
 
-  /** What is left of each compartment: the colour her own plating takes. */
+  /**
+   * The colour of her plating and her rooms.
+   *
+   * It used to be each whole length of hull painted by what was left of it,
+   * so one round into her midships turned the middle third of the ship red.
+   * What is damaged is the piece a round went into, and that is drawn where
+   * it went in (see hole). Her plating stays the colour of sound plating; a
+   * room inside her lights up only for the rounds that got into that room.
+   */
   setCondition(sec) {
-    if (!sec || !this.painted) return;
-    const by = {};
-    SECTIONS.forEach((s, i) => {
-      if (!sec[i]) return;
-      by[s.k] = Math.max(0, Math.min(1, sec[i][0] / 100));
-    });
+    if (!this.painted) return;
+    void sec;
     for (const p of this.painted) {
-      const f = by[p.k];
-      if (f === undefined) continue;
-      const col = f > 0.6 ? SOUND.clone().lerp(HURT, (1 - f) / 0.4)
-        : HURT.clone().lerp(GONE, Math.min(1, (0.6 - f) / 0.6));
-      p.mat.color.copy(col);
-      // And it comes up out of the drawing as it goes: sound plating is a
-      // faint blue outline, wrecked plating is bright and red and impossible
-      // to miss on a ship turning slowly in the corner of the screen.
-      p.mat.opacity = 0.2 + (1 - f) * 0.56;
+      p.mat.color.copy(SOUND);
+      p.mat.opacity = 0.2;
     }
-    // And the rooms inside her, each off its own length of hull -- so a shell
-    // in her after magazine reddens her after magazine and leaves her engine
-    // room the blue it was. Nothing else on the board changes: one compartment
-    // being wrecked has never meant the ship is.
     for (const r of this.rooms || []) {
-      const f = by[r.k];
-      if (f === undefined) continue;
-      const col = f > 0.6 ? SOUND.clone().lerp(HURT, (1 - f) / 0.4)
-        : HURT.clone().lerp(GONE, Math.min(1, (0.6 - f) / 0.6));
+      const f = Math.min(1, (r.hits || 0) / 3);
+      const col = f <= 0 ? SOUND.clone()
+        : f < 0.67 ? SOUND.clone().lerp(HURT, Math.min(1, f * 1.5)) : HURT.clone().lerp(GONE, (f - 0.67) / 0.33);
       r.mat.color.copy(col);
-      r.mat.opacity = 0.26 + (1 - f) * 0.5;
+      r.mat.opacity = 0.26 + f * 0.5;
     }
   }
 

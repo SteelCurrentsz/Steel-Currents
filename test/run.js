@@ -125,7 +125,7 @@ import {
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
-import { Battle, airArsenal, poseBetween, recoilKick } from '../client/js/game.js';
+import { Battle, airArsenal, poseBetween, recoilKick, blastScale } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
@@ -11100,22 +11100,19 @@ check("the Admiral Hipper flies her Arados off her catapult", () => {
   assert.equal(deck.cat.plane.visible, false, 'her scout is still on the girder');
 });
 
-check('a hole has a torn edge, and she can be holed anywhere on her', () => {
-  // Taking the plating away leaves the right hole in the right place and it
-  // does not look like one. What makes a hole read as a hole is the plating
-  // round its mouth: a ragged collar of metal peeled back off the burst, and
-  // soot on her paint for a couple of times its width. Neither of those can
-  // come from the geometry that was removed.
-  //
-  // And she can be holed anywhere a round can reach. Her side, her decks and
-  // her upperworks are all plating and all in the same register, so all of
-  // them can have a hole cut in them -- there is nothing special about her
-  // waterline except that the sea is at it.
+check('a hole is only a hole, and she can be holed anywhere on her', () => {
+  // Only a torpedo opens her now, and what it leaves is the opening: the
+  // plating taken out of her and nothing put round it -- no collar of torn
+  // metal stood off the mouth of it, and no soot on her paint.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'fuso',
     'bismarck', 'tirpitz', 'richelieu']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const plating = new Plating(built.group);
+    const paint = plating.parts.map((part) => {
+      const col = part.mesh.geometry.attributes.color;
+      return col ? Array.from(col.array) : null;
+    });
     const places = [
       ['her side', cls.hull.beam * 0.5, 3, 0],
       ['her side under water', cls.hull.beam * 0.5, -3, -20],
@@ -11126,46 +11123,16 @@ check('a hole has a torn edge, and she can be holed anywhere on her', () => {
       const was = plating.rims.at;
       const went = plating.punch(x, y, z, 1.2, 0.45);
       assert.ok(went > 0, `${id} lost nothing out of ${where}`);
-      assert.ok(plating.rims.at > was, `a hole in ${where} of the ${id} has no torn edge`);
+      assert.equal(plating.rims.at, was, `a hole in ${where} of the ${id} grew a torn edge`);
     }
-    assert.ok(plating.rims.geo.drawRange.count > 0, `${id} draws no torn edges at all`);
+    plating.parts.forEach((part, i) => {
+      const col = part.mesh.geometry.attributes.color;
+      if (!col || !paint[i]) return;
+      for (let k = 0; k < col.array.length; k++) {
+        if (col.array[k] !== paint[i][k]) assert.fail(`${id}: her paint was blackened round a hole`);
+      }
+    });
   }
-
-  // The edges are folded through the plate rather than lying flat on it: a
-  // ring painted on her side is a target, not a hole.
-  const her = buildShip('cleveland');
-  const beam = SHIP_CLASSES.cleveland.hull.beam;
-  const plate = new Plating(her.group);
-  const at = plate.nearest(beam * 0.5, 4, 0, 8);
-  assert.ok(at && at.length === 6, 'her plating has no facing');
-  plate.punch(beam * 0.5, 4, 0, 1.6, 0);
-  const pos = plate.rims.geo.attributes.position.array;
-  const n = plate.rims.geo.drawRange.count;
-  let inboard = Infinity, outboard = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const x = pos[i * 3];
-    if (x < inboard) inboard = x;
-    if (x > outboard) outboard = x;
-  }
-  assert.ok(outboard - inboard > 0.4,
-    `the torn edge is flat on her side: ${(outboard - inboard).toFixed(2)} m of relief`);
-  assert.ok(inboard < at[0] - 0.1,
-    'the torn edges stand off her side instead of being folded through it');
-
-  // And her paint is blackened round the mouth of it, and nowhere else.
-  let near = 255, far = 255;
-  for (const part of plate.parts) {
-    const col = part.mesh.geometry.attributes.color;
-    if (!col) continue;
-    const vp = part.mesh.geometry.attributes.position.array;
-    for (let v = 0; v < col.count; v++) {
-      const d = Math.hypot(vp[v * 3] - beam * 0.5, vp[v * 3 + 1] - 4, vp[v * 3 + 2]);
-      if (d < 2.5) near = Math.min(near, col.array[v * 3]);
-      else if (d > 25) far = Math.min(far, col.array[v * 3]);
-    }
-  }
-  assert.ok(near < 200, `her plating at the hole is still ${near} bright, unscorched`);
-  assert.equal(far, 255, 'a shell in her waist blackened the far end of the ship');
 });
 
 check('the damage board is drawn on her own lines, not on a box', () => {
@@ -12764,63 +12731,30 @@ check('a magazine going up is heard by the whole battle', () => {
     'a detonation is not on the list of things the whole battle is told about');
 });
 
-check('a wrecked turret stays on her deck', () => {
-  // Her mountings used to be switched off when the deck under them was shot
-  // away: fifty feet of turret gone from the picture between one frame and the
-  // next, leaving a bare ring of deck. Nothing on a ship disappears. A turret
-  // that is finished sits there burnt out and canted over, and the only thing
-  // that ever took one off a ship was the magazine under it letting go.
+check('a shot-away compartment leaves her mountings as they were built', () => {
+  // What hits her is an explosion and a mark on the damage board. Nothing on
+  // the model is knocked askew, burnt or taken off her when a compartment is
+  // shot to nothing -- a turret over a wrecked length of hull sits there as
+  // built, and the battle has it out of action.
   const view = new ShipView({ add() {}, remove() {} }, 'cleveland', 0, false);
   const turret = view.turrets[0];
   const paint = [];
   turret.traverse((o) => { if (o.isMesh && o.material?.color) paint.push(o.material.color.getHex()); });
   const fair = { x: turret.rotation.x, z: turret.rotation.z };
-
   const under = sectionAt(turret.position.z / (SHIP_CLASSES.cleveland.hull.length / 2));
-  const whole = new Array(SECTIONS.length).fill(1);
-  const holed = whole.slice();
+  const holed = new Array(SECTIONS.length).fill(1);
   holed[SECTIONS.findIndex((q) => q.k === under)] = 0;
   view.setCondition(holed);
-
-  assert.equal(turret.visible, true, 'her forward turret vanished with the deck under it');
-  assert.ok(turret.userData.wrecked, 'the turret is undamaged on a compartment that has gone');
-  assert.equal(turret.userData.laid, false, 'a burnt-out turret is still training');
-  let n = 0;
-  let burnt = 0;
+  assert.equal(turret.visible, true);
+  assert.ok(!turret.userData.wrecked, 'the turret was wrecked on the model by a shot-away compartment');
+  assert.equal(turret.rotation.z, fair.z);
+  let n = 0, changed = 0;
   turret.traverse((o) => {
     if (!o.isMesh || !o.material?.color) return;
-    if (o.material.color.getHex() !== paint[n]) burnt++;
+    if (o.material.color.getHex() !== paint[n]) changed++;
     n++;
   });
-  assert.ok(burnt > 0, 'a burnt-out turret is still in her paint');
-  assert.ok(Math.abs(turret.rotation.z - fair.z) > 0.05,
-    'a turret off its roller path is sitting perfectly square');
-
-  // And her paint is her own: burning one ship's turret out does not blacken
-  // the same turret on every other ship of the class.
-  const other = new ShipView({ add() {}, remove() {} }, 'cleveland', 0, false);
-  let same = 0;
-  let k = 0;
-  other.turrets[0].traverse((o) => {
-    if (!o.isMesh || !o.material?.color) return;
-    if (o.material.color.getHex() === paint[k]) same++;
-    k++;
-  });
-  assert.equal(same, k, `${k - same} pieces of another ship's turret went black with this one`);
-
-  // Damage control gets to it and it trains again, in her own colours.
-  view.setCondition(whole);
-  assert.equal(turret.userData.wrecked, false, 'she never got the turret back');
-  assert.equal(turret.userData.laid, true, 'a repaired turret still will not train');
-  let back = 0;
-  let j = 0;
-  turret.traverse((o) => {
-    if (!o.isMesh || !o.material?.color) return;
-    if (Math.abs(o.material.color.getHex() - paint[j]) <= 0x010101) back++;
-    j++;
-  });
-  assert.ok(back > j * 0.9, 'a repaired turret is still burnt');
-  assert.ok(Math.abs(turret.rotation.z - fair.z) < 1e-6, 'it is still canted over');
+  assert.equal(changed, 0, 'the turret was discoloured');
 });
 
 check('a magazine explosion throws the turret over it into the air', () => {
@@ -12855,34 +12789,15 @@ check('a magazine explosion throws the turret over it into the air', () => {
   assert.equal(wreck.live.length, 0, 'a turret is still hanging in the air over the battle');
 });
 
-check('a bomb takes a piece of the deck it landed on', () => {
-  // A five-hundred-pounder through a wooden flight deck leaves a hole you can
-  // see from the bridge. The plating is cut where the bomb went, and the size
-  // of the cut is the size of the bomb -- not a scorch mark, a hole.
-  const built = buildShip('cleveland');
-  const plating = new Plating(built.group);
-  const deck = built.group.userData.lines.sheer(0);
-  const rims = plating.rims.at;
-  const went = plating.punch(0, deck, 10, holeRadius('bomb', 454) * 1.6, 0.35);
-  assert.ok(went > 0, 'a bomb burst on her deck and took nothing out of it');
-  assert.ok(plating.rims.at > rims, 'the hole it left in her deck has no torn edge');
-
-  // And it is a bomb's hole, not a shell's: a five-hundred-pounder through a
-  // deck takes a piece out of it you can see from the bridge.
-  const other = new Plating(buildShip('cleveland').group);
-  const shell = other.punch(0, deck, 10, holeRadius('pen', 152), 0.35);
-  assert.ok(went > shell * 2.5,
-    `a bomb took ${went.toFixed(1)} m2 of her deck against a six-inch shell's `
-    + `${shell.toFixed(1)}`);
-
-  // And the client cuts the deck rather than only playing an explosion over
-  // it: the bomb that got through her deck is punched through the ship it hit.
+check('only a torpedo opens her: a shell or a bomb that gets in is an explosion', () => {
   const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
-  const at = game.indexOf('  bombThrough(x, y, z) {');
-  const through = game.slice(at, at + 1600);
-  assert.ok(/\.punch\(/.test(through), 'a bomb through her deck never cuts it');
-  assert.ok(/holeRadius\('bomb'/.test(through),
-    "the hole a bomb leaves is not sized to the bomb");
+  const body = (from, len = 2400) => { const at = game.indexOf(from); assert.ok(at >= 0, from); return game.slice(at, at + len); };
+  assert.ok(!/\.punch\(/.test(body('  bombThrough(x, y, z) {', 1200)), 'a bomb still cuts her deck');
+  assert.ok(!/\.punch\(/.test(body("        case 'hit': {", 1800)), 'a shell still cuts her plating');
+  assert.ok(/\.punch\(/.test(body("        case 'torpHit':", 1200)), 'a torpedo no longer opens her side');
+  // And the explosion is as big as the damage the round did.
+  assert.ok(blastScale(2000) < blastScale(8000) && blastScale(8000) < blastScale(16000));
+  assert.ok(blastScale(0) > 0 && blastScale(1e9) <= 2.4);
 });
 
 check('her upperworks have an inside, with a bridge in it', () => {

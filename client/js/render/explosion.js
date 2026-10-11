@@ -380,8 +380,12 @@ const DEBRIS_MAX = 3000;
 
 /** One pool of blasts, from a stick of bombs down to a burning drum going up. */
 export class ExplosionSystem {
-  constructor(scene, { slots = 16 } = {}) {
+  constructor(scene, { slots = 16, lights = true } = {}) {
     this.scene = scene;
+    // A light a slot is right for a title screen and wrong for a battle,
+    // where every light in the scene is paid for on every surface whether it
+    // is lit or not -- and switching them on and off recompiles them all.
+    this.lights = lights;
     this.time = 0;
     this.fogColor = scene.fog ? scene.fog.color.clone() : new THREE.Color(0, 0, 0);
     this.fogDensity = scene.fog ? (scene.fog.density || 0) : 0;
@@ -464,9 +468,12 @@ export class ExplosionSystem {
     ring.visible = false;
     this.scene.add(ring);
 
-    const light = new THREE.PointLight(0xffb060, 0, 1200, 1.4);
+    // Stood in for by a plain object where there are to be no lights, so
+    // nothing below has to ask.
+    const light = this.lights ? new THREE.PointLight(0xffb060, 0, 1200, 1.4)
+      : { visible: false, intensity: 0, distance: 0, position: new THREE.Vector3() };
     light.visible = false;
-    this.scene.add(light);
+    if (this.lights) this.scene.add(light);
 
     return {
       ball, glare, flash, plume, ring, light,
@@ -481,7 +488,7 @@ export class ExplosionSystem {
    * @param debris how many fragments to throw out; 0 for a small one.
    */
   blast(x, y, z, {
-    size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0,
+    size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0, ring = true,
   } = {}) {
     // A free slot if there is one, and the one furthest through its life if
     // there is not: cutting a young fireball off in the middle to start another
@@ -520,13 +527,14 @@ export class ExplosionSystem {
     s.plume.material.uniforms.uSeed.value = Math.random();
     s.plume.material.uniforms.uPower.value = power;
 
-    s.ring.visible = true;
+    // The shockwave over the ground; a blast inside a ship has none.
+    s.ring.visible = ring;
     s.ring.position.set(x, y + 1.5, z);
 
     // Capped: past a point a bigger blast does not put out proportionally more
     // light at the range this is seen from, it just burns the picture out.
     s.lightPeak = light ? Math.min(size * 0.9, 130) : 0;
-    s.light.visible = light;
+    s.light.visible = light && this.lights;
     s.light.position.set(x, y + size * 0.5, z);
     s.light.distance = size * 26;
 

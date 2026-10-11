@@ -24,6 +24,7 @@ import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
+import { ExplosionSystem } from './explosion.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -48,6 +49,13 @@ const SKY = {
  * shape, at two she is a ghost, and past three there is nothing there.
  */
 export const FOG_DENSITY = 0.0009;
+
+/**
+ * Whether what hits her leaves marks on the model: plating stripped off a
+ * wrecked compartment, mountings knocked askew, soot. It does not -- a hit is
+ * an explosion, and only a torpedo opens her side (see ShipView.punch).
+ */
+export const NO_MARKS = true;
 
 export function skyDome(time, radius = 20000, overcast = 0) {
   const cfg = SKY[time] || SKY.night;
@@ -783,7 +791,10 @@ export class ShipView {
    * like every other piece of her. Safe to call every frame.
    */
   setCondition(sk) {
-    if (!sk) return;
+    // Nothing shot away is taken off her any more: a shell or a bomb that
+    // gets in is an explosion and a mark on the damage board, and the ship
+    // stands as she was built until the sea takes her.
+    if (!sk || NO_MARKS) return;
     for (let i = 0; i < SECTIONS.length; i++) {
       const k = SECTIONS[i].k;
       const gone = sk[i] <= 0;
@@ -1209,22 +1220,11 @@ export class ShipView {
     const p = TMP.set(wx, wy, wz);
     this.group.updateMatrixWorld(true);
     this.group.worldToLocal(p);
-    const went = this.plating.punch(p.x, p.y, p.z, r, soft);
-    // The blast reaches further than the hole. What it finds standing there
-    // is dented and blackened, and what it finds standing close enough to it
-    // is taken off her and thrown -- see pieces.js and wreckage.js.
-    //
-    // How hard the burst was, off the hole it opened: the two are the same
-    // number in different units, so a five-inch shell shakes a searchlight
-    // and a torpedo takes the boat deck with it.
-    this.shed(this.fittings.blast(p.x, p.y, p.z, r * 2.4, power || r * 0.52));
-    // And the soot. The plating blackens itself round the hole (see
-    // plating.js); this is everything standing near it -- and it is done here
-    // rather than by the caller because this is where the burst has already
-    // been put into her own frame, and a scorch mark worked out in world
-    // coordinates lands somewhere off her quarter.
-    if (went > 0) this.fittings.scorch(p.x, p.y, p.z, r * 3, 0.5);
-    return went;
+    // The hole, and nothing round it: nothing standing near it is thrown off
+    // her or blackened. What a hit does to her that can be seen is the
+    // explosion; what it does to her inside is on the damage board.
+    void power;
+    return this.plating.punch(p.x, p.y, p.z, r, soft);
   }
 
   /**
@@ -1250,6 +1250,9 @@ export class ShipView {
    * flash fire leaves a ship that is barely marked.
    */
   scorchAt(x, y, z, r, amount) {
+    // Nothing on her is discoloured by what hits her or burns in her: the
+    // fire is drawn as fire, and her paint stays her paint.
+    if (NO_MARKS) return;
     if (this.fittings) this.fittings.scorch(x, y, z, r, amount);
     // And the deck itself, which is the thing the fire is actually standing
     // on. Only her boats, her davits and her ready-use lockers used to
@@ -1654,6 +1657,10 @@ export class BattleScene {
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
+    // What a round that gets into a ship does that can be seen: it goes off
+    // inside her, fireball and soot and the pieces it throws. No lights of its
+    // own -- see ExplosionSystem.
+    this.bursts = new ExplosionSystem(this.scene, { slots: 16, lights: false });
     // The waves a splash throws go into the sea itself, through the wake map.
     this.effects.splashes.setWaves(this.wakes.rings);
     // And the ships, so a splash stays at a ship's side and what it throws
@@ -1842,6 +1849,25 @@ export class BattleScene {
     return v;
   }
 
+  /**
+   * A round going off inside a ship, `scale` off the damage it did (see
+   * blastScale in game.js): a five-inch hit is a burst the height of her
+   * funnel, a battleship's shell in her magazine spaces is a fireball over
+   * her whole superstructure.
+   */
+  shipBurst(x, y, z, scale = 1) {
+    this.bursts.blast(x, y, z, {
+      size: 5 + 7 * scale,
+      duration: 0.7 + 0.45 * scale,
+      debris: Math.round(6 + 14 * scale),
+      light: false,
+      plume: scale > 1.1,
+      ring: false,
+      power: Math.min(1, scale / 2),
+    });
+    this.effects.flash?.(x, y + 4, z, 1.2 * scale);
+  }
+
   removeBatteryView(id) {
     const v = this.batteryViews.get(id);
     if (v) { this.scene.remove(v.group); this.batteryViews.delete(id); }
@@ -1850,6 +1876,7 @@ export class BattleScene {
   resize(w, h) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.bursts?.resize(h, this.camera.fov);
   }
 
   update(dt) {
@@ -1863,6 +1890,7 @@ export class BattleScene {
     // ship is now is where the sea has to keep out of her this frame.
     this.breakers.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
+    this.bursts.update(dt);
     this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);
