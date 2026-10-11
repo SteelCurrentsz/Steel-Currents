@@ -431,7 +431,7 @@ export class Hud {
     // instead: a gun ashore, then somebody else's hull, then your own, and the
     // nearest inside each rank.
     const rank = (m) => (m.kind === 'battery' || m.kind === 'plane'
-      || m.kind === 'bomber' ? 0
+      || m.kind === 'bomber' || m.kind === 'torp' ? 0
       : m.id === this.selfId ? 2 : 1);
     let best = null;
     for (const mark of plot.marks) {
@@ -465,6 +465,24 @@ export class Hud {
 
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
+
+  /**
+   * The plate in the lower left that says what the camera is riding when it
+   * is not a ship -- `{ what, sub, team }`, or null to put it away.
+   */
+  setSpecPlate(info) {
+    const el = document.getElementById('spec-plate');
+    if (!el) return;
+    const key = info ? `${info.what}|${info.sub}|${info.team}` : '';
+    if (key === this.specKey) return;
+    this.specKey = key;
+    el.hidden = !info;
+    if (!info) return;
+    document.getElementById('spec-what').textContent = info.what;
+    document.getElementById('spec-sub').textContent = info.sub || '';
+    el.classList.toggle('t0', info.team === this.team);
+    el.classList.toggle('t1', info.team != null && info.team !== this.team);
+  }
 
   /**
    * The banner that names what the camera has gone to look at, and says which
@@ -1638,6 +1656,8 @@ export class Hud {
     ctx.drawImage(plot.base, 0, 0);
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
 
+    const marks = [];
+    plot.marks = marks;
     if (snap) {
       ctx.strokeStyle = 'rgba(226,233,242,0.8)';
       ctx.lineWidth = 1.4;
@@ -1646,11 +1666,10 @@ export class Hud {
         ctx.moveTo(toX(tp.x), toY(tp.z));
         ctx.lineTo(toX(tp.x + Math.sin(tp.h) * 380), toY(tp.z + Math.cos(tp.h) * 380));
         ctx.stroke();
+        // And each one can be picked off the plot and followed, whoever's it is.
+        if (!tp.a) marks.push({ kind: 'torp', id: tp.i, x: toX(tp.x), y: toY(tp.z), name: 'Torpedo', team: tp.tm });
       }
     }
-
-    const marks = [];
-    plot.marks = marks;
     this.selfId = own ? own.i : 0;
 
     // The guns ashore, plotted as the fixed marks they are: a square, because

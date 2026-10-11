@@ -3571,6 +3571,50 @@ check('a ship out of the fight goes on going down the way she was, until she is 
   assert.ok(!after || after.un === 1, 'under, and the wire does not say so');
 });
 
+check('the corner says what the camera is riding: the aeroplane, the round, the torpedo, and whose', () => {
+  const g = Object.create(Battle.prototype);
+  Object.assign(g, {
+    names: new Map([[3, 'Enterprise'], [7, 'Hipper'], [9, 'Fletcher']]),
+    snapshots: [{
+      ships: [], contacts: [],
+      planes: [{ i: 41, r: 'torpedo', n: 3, o: 3, tm: 1 }],
+      bombers: [{ i: 51, b: 'lancaster', n: 3, tm: 0 }],
+      torps: [],
+    }],
+    shellsNow: [{ i: 61, c: 406, tm: 0 }],
+    torpsNow: [{ i: 71, o: 7, tm: 1 }],
+  });
+  // An aeroplane: what she is, what she has been sent to do, and her ship --
+  // somebody else's as much as ours.
+  g.watching = { kind: 'plane', id: 41 };
+  let p = g.specInfo();
+  assert.equal(p.what, 'TBF Avenger');
+  assert.ok(/Torpedo bomber/.test(p.sub) && /Enterprise/.test(p.sub), `the plate says ${p.sub}`);
+  assert.equal(p.team, 1);
+  // The shell camera: her calibre, in millimetres, and who fired her -- and
+  // still after she has gone in, while the camera holds on the splash.
+  g.watching = { kind: 'shell', id: 61, ship: 9 };
+  p = g.specInfo();
+  assert.equal(p.what, '406 mm shell');
+  assert.ok(/Fletcher/.test(p.sub), `the plate says ${p.sub}`);
+  g.shellsNow = [];
+  assert.equal(g.specInfo().what, '406 mm shell', 'the calibre went with the round');
+  // A torpedo, whosever it is: the ship that let her go.
+  g.watching = { kind: 'torp', id: 71 };
+  p = g.specInfo();
+  assert.equal(p.what, 'Torpedo');
+  assert.ok(/Hipper/.test(p.sub), `the plate says ${p.sub}`);
+  g.torpsNow = [{ i: 72, o: 9, tm: 0 }];
+  g.watching = { kind: 'torp', id: 72 };
+  assert.ok(/Fletcher/.test(g.specInfo().sub), 'one of our own torpedoes does not say whose');
+  // The heavies.
+  g.watching = { kind: 'bomber', id: 51 };
+  assert.ok(/Heavy bomber/.test(g.specInfo().sub));
+  // And a ship has her own plate already.
+  g.watching = { kind: 'ship', id: 9 };
+  assert.equal(g.specInfo(), null);
+});
+
 check('a sinking is credited to the shooter', () => {
   const { state, a, b } = duel('iowa', 'fletcher');
   damageShip(state, b, a, b.maxHp + 1, 'test');

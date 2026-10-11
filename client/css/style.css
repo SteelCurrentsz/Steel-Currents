@@ -257,6 +257,17 @@ input[type="range"] { accent-color: var(--red); }
 
 .hud-left { position: absolute; left: 1.4vw; bottom: 12vh; width: 280px; }
 .ship-plate { background: rgba(8, 19, 31, 0.55); border-left: 3px solid var(--red); padding: 0.6rem 0.8rem; }
+/* What the camera is riding, over the ship plate: the aeroplane, the round or
+   the torpedo, and whose it is. */
+.spec-plate {
+  background: rgba(8, 19, 31, 0.72); border-left: 3px solid var(--sand);
+  padding: 0.45rem 0.8rem; margin-bottom: 0.45rem;
+}
+.spec-plate[hidden] { display: none; }
+.spec-what { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.06em; color: var(--sand-bright); }
+.spec-sub { font-size: 0.78rem; letter-spacing: 0.08em; color: var(--steel); line-height: 1.35; }
+.spec-plate.t0 { border-left-color: var(--ally); }
+.spec-plate.t1 { border-left-color: var(--enemy); }
 .ship-plate .name { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.08em; }
 /* Her condition, compartment by compartment. One pip each, running stem to
    transom, filled with what is left of it. They have gone: her condition is

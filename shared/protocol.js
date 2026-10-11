@@ -260,6 +260,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     if (!torpedoVisible(state, tp, team)) continue;
     torps.push({
       i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team,
+      // Who let her go: the ship whose tubes she came out of, or whose
+      // aeroplane dropped her.
+      o: tp.owner,
       // Still aboard: in its tube or in the air off her side, which her model
       // draws (see fireTorpedoes). Nothing is in the water yet.
       a: tp.aboard ? 1 : undefined,

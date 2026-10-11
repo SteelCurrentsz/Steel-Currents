@@ -123,6 +123,11 @@ const PLANE_NAME = {
   suisei: 'D4Y Suisei', tenzan: 'B6N Tenzan', jake: 'E13A Jake',
 };
 
+/** What she has been sent to do, as the plate in the corner says it. */
+const ROLE_NAME = {
+  fighter: 'Fighter', dive: 'Dive bomber', torpedo: 'Torpedo bomber', scout: 'Scout',
+};
+
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
   wildcat: 12.7,      // four fifties in the wings
@@ -2085,7 +2090,8 @@ export class Battle {
     const from = hit.kind === 'battery' ? snap.batteries
       : hit.kind === 'plane' ? snap.planes
         : hit.kind === 'bomber' ? snap.bombers
-          : [...snap.ships, ...(snap.contacts || [])];
+          : hit.kind === 'torp' ? snap.torps
+            : [...snap.ships, ...(snap.contacts || [])];
     const e = (from || []).find((x) => x.i === hit.id);
     if (!e) return null;
     // A battery is laid on a bearing and then trained off it.
@@ -2133,6 +2139,20 @@ export class Battle {
         x: from.x, y: this.scene.ocean.heightAt(from.x, from.z) * 0.5, z: from.z,
         span: fc.hull.length, eye: 14 + fc.hull.superstructure * 12,
       };
+    }
+    if (this.watching.kind === 'torp') {
+      // The fish, running just under the surface: the camera rides close
+      // behind and above her, and the wake she leaves runs out under it.
+      const tp = (this.torpsNow || []).find((x) => x.i === this.watching.id);
+      if (tp) {
+        this.torpLast = { x: tp.x, z: tp.z, t: 3 };
+        return { x: tp.x, y: 0.5, z: tp.z, span: 10, eye: 1.2, close: true };
+      }
+      // She has run her course or found her ship: hold on the spot a few
+      // seconds, which is where the column goes up.
+      const last = this.torpLast;
+      if (last && last.t > 0) return { x: last.x, y: 4, z: last.z, span: 60, eye: 3, close: true };
+      return null;
     }
     if (this.watching.kind === 'bomber') {
       // A formation, watched from outside it. Her leader is the mark, but what
@@ -3211,9 +3231,68 @@ export class Battle {
 
   // --------------------------------------------------------------- loop ----
 
+  /**
+   * What the plate in the lower left says about what the camera is riding --
+   * an aeroplane, a round or a torpedo, ours or theirs -- or null when it is
+   * on a ship, whose own plate already says so.
+   */
+  specInfo() {
+    const w = this.watching;
+    if (!w) return null;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap) return null;
+    const whose = (id) => (id ? this.names.get(id) : null);
+    if (w.kind === 'plane') {
+      const pl = (snap.planes || []).find((q) => q.i === w.id);
+      if (!pl) return this.specWas || null;
+      const type = typeOf(pl.k, pl.r || 'torpedo');
+      const from = whose(pl.o);
+      this.specWas = {
+        what: PLANE_NAME[type] || 'Aircraft',
+        sub: `${ROLE_NAME[pl.r] || 'Aircraft'}${pl.n > 1 ? ` · ${pl.n} aircraft` : ''}${from ? ` · from ${from}` : ''}`,
+        team: pl.tm,
+      };
+      return this.specWas;
+    }
+    if (w.kind === 'bomber') {
+      const bm = (snap.bombers || []).find((q) => q.i === w.id);
+      if (!bm) return this.specWas || null;
+      this.specWas = {
+        what: BOMBERS[bm.b]?.name || 'Heavy bombers',
+        sub: `Heavy bomber${bm.n > 1 ? ` · ${bm.n} aircraft` : ''} · flown from ashore`,
+        team: bm.tm,
+      };
+      return this.specWas;
+    }
+    if (w.kind === 'shell') {
+      // The round under the camera, or the last one it was on while the
+      // camera holds on the splash.
+      const sh = (this.shellsNow || []).find((q) => q.i === w.id);
+      if (sh) this.shellCal = { c: sh.c, bomb: !!sh.bm, tm: sh.tm };
+      const cal = this.shellCal;
+      if (!cal || !cal.c) return null;
+      const from = this.shellIsBomb ? null : whose(w.ship);
+      return {
+        what: cal.bomb ? `${Math.round(cal.c)} mm bomb` : `${Math.round(cal.c)} mm shell`,
+        sub: from ? `Fired by ${from}` : (cal.bomb ? 'Dropped by the squadron' : ''),
+        team: cal.tm,
+      };
+    }
+    if (w.kind === 'torp') {
+      const tp = (this.torpsNow || []).find((q) => q.i === w.id);
+      if (tp) this.torpWho = { o: tp.o, tm: tp.tm };
+      const who = this.torpWho;
+      const from = who ? whose(who.o) : null;
+      return { what: 'Torpedo', sub: from ? `Launched by ${from}` : 'Launched by an unknown ship', team: who?.tm };
+    }
+    return null;
+  }
+
   update(dt) {
     const ls = this.localShip;
     const settings = getSettings();
+    if (this.torpLast && this.torpLast.t > 0) this.torpLast.t -= dt;
+    this.hud.setSpecPlate(this.specInfo());
     // A clock for whatever on a ship moves of its own accord: the carrier's
     // lifts and her launch cycle run off this. It is wall time, not a sum of
     // frame steps -- a launch takes twelve seconds because that is how long it
@@ -3697,6 +3776,8 @@ export class Battle {
         z: prev ? lerp(tp.z, prev.z, t) : tp.z,
         h: prev ? tp.h + angleDelta(tp.h, prev.h) * t : tp.h,
         a: tp.a,
+        o: tp.o,
+        tm: tp.tm,
       };
     });
     this.scene.torpsNow = this.torpsNow;
