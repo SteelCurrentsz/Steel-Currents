@@ -25,6 +25,7 @@ import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
+import { soupOf } from './section.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -1796,6 +1797,13 @@ export class BattleScene {
       try {
         v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
       } catch { v.lamps = null; }
+      // And her model put into the form the penetration camera cuts her
+      // from, while nothing is happening -- not at the moment the first
+      // shell strikes her, which is when a pause is noticed.
+      if (typeof window !== 'undefined') {
+        const later = window.requestIdleCallback || ((f) => setTimeout(f, 1200));
+        later(() => { try { if (this.shipViews.get(id) === v) soupOf(v); } catch { /* drawn without */ } });
+      }
     }
     return v;
   }

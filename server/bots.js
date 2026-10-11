@@ -28,6 +28,7 @@ import {
   useSmoke, canFire, steerToward, sonarContact,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
+import { setLamp } from '../shared/searchlights.js';
 
 const SKILL = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
@@ -117,6 +118,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // captain watching one of his ships work wants to know what she is shooting
   // at, and the brain is the server's alone.
   ship.targetId = target ? target.id : 0;
+  workLamps(state, ship, cls, target);
 
   // Damage control: put fires out once a couple are burning, or when badly hurt.
   if ((ship.fires >= 2 || ship.flooding >= 1 || ship.hp < ship.maxHp * 0.4) && ship.repairCd <= 0) {
@@ -370,3 +372,30 @@ export const BOT_NAMES = [
   'Halsey', 'Spruance', 'Cunningham', 'Lütjens', 'Nagumo', 'Vian', 'Tovey',
   'Mikawa', 'Burke', 'Somerville', 'Ciliax', 'Tanaka', 'Lee', 'Oldendorf',
 ];
+
+/**
+ * Her searchlights, at night or in a fog: on the ship she is fighting once
+ * she is close enough for a lamp to find it, and dark otherwise. A lit lamp
+ * gives her away to everybody (see stepDetection), so she only shows one when
+ * she is already engaged and near -- which is when they were used: to hold a
+ * target the guns had found, in the last few thousand yards of a night action.
+ */
+export const LAMP_RANGE = 6000;
+function workLamps(state, ship, cls, target) {
+  if (!ship.lamps || !ship.lamps.length) return;
+  const dark = state.world?.time === 'night' || state.world?.fog;
+  const d = target ? dist(ship.x, ship.z, target.x, target.z) : Infinity;
+  const want = !!(dark && target && d < LAMP_RANGE
+    && target.spottedBy?.[ship.team] && !(cls.dive && ship.depth > 0.6));
+  const bearing = target ? wrapAngle(headingTo(ship.x, ship.z, target.x, target.z) - ship.heading) : 0;
+  ship.lamps.forEach((l, k) => {
+    // The bridge pair only, and only the one on the side she bears on: the
+    // lamp on the far wing would be shining across her own bridge.
+    const side = ship.lamps.length === 1 ? 0 : (k % 2 === 0 ? 1 : -1);
+    const fwd = ship.lamps.length < 4 || k < 2;
+    const bears = side === 0 || Math.sign(bearing) === side || Math.abs(bearing) < 0.3;
+    const on = want && fwd && bears;
+    if (on === l.on && (!on || Math.abs(angleDelta(l.yaw, bearing)) < 0.02)) return;
+    setLamp(ship, cls, { k, on, yaw: bearing, pitch: on ? -Math.atan2(14, Math.max(200, d)) : l.pitch });
+  });
+}

@@ -1643,10 +1643,12 @@ export class Battle {
           }
           // Our own round: cut to her section and watch it go in, if the
           // captain wants to.
-          // Any ship's round into any ship -- ours, our side's, theirs -- but
-          // ours first: another ship's hit waits for a quiet moment.
-          if (this.penCam && getSettings().penCam !== false) {
-            this.penCam.offer(ev, ev.owner === this.shipId || ev.victim === this.shipId);
+          // Only while riding a salvo down: the rounds of the ship being
+          // followed, ours or anybody's, are shown going into whatever they
+          // struck -- and outside the shell camera the battle is left alone.
+          if (this.penCam && getSettings().penCam !== false && this.shellCam && !this.shellIsBomb
+            && ev.owner === this.shellFrom) {
+            this.penCam.offer(ev, true);
           }
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';

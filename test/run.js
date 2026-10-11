@@ -18325,5 +18325,21 @@ check('the penetration camera cuts her own model across, guns and all', () => {
 });
 
 
+
+check('a bot puts a lamp on the ship she is fighting at night, and not by day', () => {
+  const run = (time) => {
+    const st = createState(generateWorld(1, 'open_ocean', time, 9000, null, 'sunny'));
+    const a = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0, isBot: true });
+    const b = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    b.x = a.x + 3000; b.z = a.z;
+    const brain = createBotBrain(a);
+    for (let i = 0; i < 90; i++) { step(st); stepBot(st, a, brain, DT); }
+    return a.lamps.filter((l) => l.on).length;
+  };
+  assert.ok(run('night') >= 1, 'no lamp at night at three thousand metres');
+  assert.equal(run('day'), 0, 'a lamp by day');
+});
+
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

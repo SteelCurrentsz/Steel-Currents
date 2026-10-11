@@ -71,20 +71,30 @@ function guessedPlan(cls) {
 }
 
 const HEIGHT_VERT = /* glsl */`
+uniform float uLum;
 varying float vY;
+varying float vDark;
 void main() {
   vec4 w = modelMatrix * vec4(position, 1.0);
   vY = w.y;
+  float lum = uLum;
+#ifdef USE_COLOR
+  lum *= dot(color.rgb, vec3(0.3, 0.59, 0.11));
+#endif
+  // Black paint: a funnel cap, the top of a stack. Not a platform for a lamp.
+  vDark = lum < 0.045 ? 1.0 : 0.0;
   gl_Position = projectionMatrix * viewMatrix * w;
 }
 `;
 const HEIGHT_FRAG = /* glsl */`
 varying float vY;
+varying float vDark;
 void main() {
-  // Metres over a hundred and twenty, in two channels: coarse and fine.
+  // Metres over a hundred and twenty, in two channels: coarse and fine; and
+  // whether it is painted black, in the third.
   float h = clamp(vY / 120.0, 0.0, 0.9999);
   float c = floor(h * 255.0) / 255.0;
-  gl_FragColor = vec4(c, (h - c) * 255.0, 0.0, 1.0);
+  gl_FragColor = vec4(c, (h - c) * 255.0, vDark, 1.0);
 }
 `;
 
@@ -126,9 +136,39 @@ function measuredPlan(view, renderer) {
   cam.lookAt(0, 0, 0);
   cam.updateMatrixWorld(true);
   const rt = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
-  const mat = new THREE.ShaderMaterial({ vertexShader: HEIGHT_VERT, fragmentShader: HEIGHT_FRAG, side: THREE.DoubleSide });
+  // A height material a mesh, by how dark its paint is and whether it is
+  // painted per vertex: the black of a funnel cap is what tells it from a
+  // platform, and a merged mesh carries its paint in its vertex colours.
+  const mats = new Map();
+  const swapped = [];
+  const heightMat = (lum, vc) => {
+    const key = `${Math.round(lum * 40)}:${vc ? 1 : 0}`;
+    if (!mats.has(key)) {
+      mats.set(key, new THREE.ShaderMaterial({
+        vertexShader: HEIGHT_VERT, fragmentShader: HEIGHT_FRAG, side: THREE.DoubleSide,
+        vertexColors: vc, uniforms: { uLum: { value: lum } },
+      }));
+    }
+    return mats.get(key);
+  };
+  g.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const m0 = Array.isArray(o.material) ? o.material[0] : o.material;
+    // What is never drawn is not her: hit boxes and proxies carry a material
+    // that is switched off, and swapping it for one that is not would stand
+    // them up in the picture as solid platforms in the air.
+    if (!m0 || m0.visible === false || (m0.transparent && (m0.opacity ?? 1) < 0.3)) {
+      if (o.visible) { o.visible = false; hidden.push(o); }
+      return;
+    }
+    const col = m0 && m0.color ? m0.color : null;
+    const lum = col ? col.r * 0.3 + col.g * 0.59 + col.b * 0.11 : 1;
+    const vc = !!(m0 && m0.vertexColors && o.geometry?.attributes?.color);
+    swapped.push([o, o.material]);
+    o.material = heightMat(lum, vc);
+  });
+  const mat = { dispose() { for (const m of mats.values()) m.dispose(); } };
   const scene = new THREE.Scene();
-  scene.overrideMaterial = mat;
   if (keep.par) keep.par.remove(g);
   scene.add(g);
   const prevTarget = renderer.getRenderTarget();
@@ -145,6 +185,7 @@ function measuredPlan(view, renderer) {
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(prevClear, prevAlpha);
     scene.remove(g);
+    for (const [o, m] of swapped) o.material = m;
     for (const c of hidden) c.visible = true;
     if (keep.par) keep.par.add(g);
     g.position.copy(keep.p);
@@ -156,16 +197,19 @@ function measuredPlan(view, renderer) {
   }
   // Heights, in metres; NaN where there is nothing of her.
   const heights = new Float32Array(w * h);
+  const dark = new Uint8Array(w * h);
   let any = 0;
   for (let i = 0; i < w * h; i++) {
     const a = buf[i * 4 + 3];
     if (a < 128) { heights[i] = NaN; continue; }
     heights[i] = (buf[i * 4] / 255 + buf[i * 4 + 1] / 255 / 255) * 120;
+    dark[i] = buf[i * 4 + 2] > 128 ? 1 : 0;
     any++;
   }
   if (any < 50) return null;
-  const map = { w, h, halfX, halfZ, heights };
-  const lamps = findLamps(cls, map);
+  const map = { w, h, halfX, halfZ, heights, dark };
+  const found = findLamps(cls, map);
+  const lamps = found ? found.map((l) => ground(map, l)) : null;
   return lamps ? { lamps, map } : null;
 }
 
@@ -227,7 +271,7 @@ function findLamps(cls, map) {
     if (!Number.isFinite(top)) return null;
     let fj = tj;
     while (fj + 1 < map.h && at(map, ti, fj + 1) > top - 1.2) fj++;
-    return [{ x: colX(map, ti), y: top + 0.5, z: rowZ(map, fj) - 0.6, side: 0, name: 'Tower' }];
+    return [{ x: colX(map, ti), y: at(map, ti, fj) + 0.7, z: rowZ(map, fj), side: 0, name: 'Tower' }];
   }
 
   if (n === 2) {
@@ -254,42 +298,126 @@ function findLamps(cls, map) {
       if (!best || score > best.score) best = { j, a: ins[0], b: ins[ins.length - 1], score };
     }
     if (!best) return null;
-    const ya = Math.max(at(map, best.a, best.j), level);
-    const yb = Math.max(at(map, best.b, best.j), level);
+    // On what is actually there at the island's edge, not on the level the
+    // edge was looked for at: a lamp stands on plating, not on a number.
+    const ya = at(map, best.a, best.j);
+    const yb = at(map, best.b, best.j);
     return [
-      { x: colX(map, best.a), y: ya + 0.5, z: rowZ(map, best.j), side: 1, name: 'Island, port side' },
-      { x: colX(map, best.b), y: yb + 0.5, z: rowZ(map, best.j), side: -1, name: 'Island, starboard side' },
+      { x: colX(map, best.a), y: ya + 0.7, z: rowZ(map, best.j), side: 1, name: 'Island, port side' },
+      { x: colX(map, best.b), y: yb + 0.7, z: rowZ(map, best.j), side: -1, name: 'Island, starboard side' },
     ];
   }
 
   // Everybody else: a pair on the bridge and a pair aft. For each, the row of
   // her where the structure standing on her deck is tallest and broadest,
   // and the two edges of it there.
-  const over = deck + 1.8;
-  const pick = (z0, z1) => {
+  // The top of her bridge and the top of her after superstructure -- the
+  // after fire-control and radar platform -- each the highest level in its
+  // half of her that has room on it for a lamp either side. A funnel's rim
+  // or a mast top is high and has no room; the platform under the radar does.
+  const pick = (z0, z1, minW, strict = 2, maxL = Infinity) => {
     let best = null;
     for (const j of rows(z0, z1)) {
-      const p = edge(j, 1, over);
-      const s = edge(j, -1, over);
-      if (!p || !s) continue;
-      // A funnel or a mast is tall and narrow, and nobody mounts a lamp on
-      // the rim of one: what is wanted is a platform with room either side.
-      if (Math.abs(p.x - s.x) < cls.hull.beam * 0.35) continue;
-      const score = Math.min(p.y, s.y) + 0.25 * Math.abs(p.x - s.x);
-      if (!best || score > best.score) best = { j, p, s, score };
+      const cols = [];
+      for (let i = 0; i < map.w; i++) {
+        const y = at(map, i, j);
+        if (Number.isFinite(y) && y > deck + 1.8) cols.push([i, y, map.dark ? map.dark[j * map.w + i] : 0]);
+      }
+      if (cols.length < 3) continue;
+      const levels = [...new Set(cols.map(([, y]) => Math.round(y * 2) / 2))].sort((a, b) => b - a);
+      for (const L of levels) {
+        if (L > maxL) continue;
+        // Only solid plating at that level: every pixel round it at it too.
+        // A stay or an aerial is a line a pixel wide across the picture, and
+        // a lamp stood on one floats in the air.
+        const solid = (i) => {
+          for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+            if (!(at(map, i + di, j + dj) >= L - 0.6)) return false;
+          }
+          return true;
+        };
+        const on = cols.filter(([i, y]) => y >= L - 0.45 && solid(i));
+        if (on.length < 2) continue;
+        // Nothing black up there: that level is the top of a funnel.
+        if (strict > 0 && on.some((c) => c[2])) continue;
+        // The two outermost pixels of that level: its two edges.
+        let lo = on[0], hi = on[0];
+        for (const c of on) { if (c[0] < lo[0]) lo = c; if (c[0] > hi[0]) hi = c; }
+        const width = Math.abs(colX(map, hi[0]) - colX(map, lo[0]));
+        if (width < minW) continue;
+        // And one piece of plating from edge to edge, more or less, not two
+        // things far apart at the same height.
+        if (strict > 1 && on.length < (hi[0] - lo[0] + 1) * 0.6) continue;
+        // A platform, not a rim or a yard: solid across its middle -- a
+        // funnel's top is a ring with the inside of the funnel in it -- and
+        // with deck under each edge for a metre or so fore and aft, which a
+        // yardarm or the lip of a funnel has not.
+        const mid = Math.round((lo[0] + hi[0]) / 2);
+        if (!(at(map, mid, j) >= L - 1.5)) continue;
+        const rowM = (2 * map.halfZ) / map.h;
+        const reach = Math.max(2, Math.round(0.9 / rowM));
+        const firm = (col) => {
+          let n = 0, ok = 0;
+          for (let d = -reach; d <= reach; d++) {
+            n++;
+            if (at(map, col, j + d) >= L - 0.6) ok++;
+          }
+          return ok / n >= 0.75;
+        };
+        const inA = lo[0] + 1, inB = hi[0] - 1;
+        if (strict > 0 && (!firm(inA) || !firm(inB))) continue;
+        const score = L + 0.05 * width;
+        if (!best || score > best.score) best = { j, lo, hi, L, score };
+        break;
+      }
     }
     return best;
   };
-  const fwd = pick(0.0, 0.42);
-  const aft = pick(-0.44, -0.04);
+  const B = cls.hull.beam;
+  // As strictly as her model allows: a clean platform if she has one, and
+  // the best seat on solid plating there is if she has not.
+  const best = (z0, z1, w, maxL = Infinity) => pick(z0, z1, w, 2, maxL) || pick(z0, z1, w, 1, maxL)
+    || pick(z0, z1, w, 0, maxL) || pick(z0, z1, w * 0.6, 0, maxL);
+  const fwd = best(0.0, 0.42, Math.max(2.4, B * 0.28));
+  // Aft, no higher than the bridge: what stands higher than her bridge aft is
+  // her mainmast and its yards, and a lamp up there is not on a platform.
+  const aft = fwd && (best(-0.44, -0.04, Math.max(2.0, B * 0.2), fwd.L - 1)
+    || best(-0.44, -0.04, Math.max(2.0, B * 0.2)));
   if (!fwd || !aft) return null;
   const out = [];
+  // Stood on the plating at each edge, a little in from it, with the foot of
+  // its pedestal on that plating: the drum sits 0.7 m above what it stands on.
+  const seat = (b, c) => {
+    const s = c === b.lo ? 1 : -1;   // column 0 is her port side
+    const i = c[0] + s;              // one pixel in from the edge
+    // On the level it was found at, both of the pair: they stand on the
+    // same platform.
+    return { x: colX(map, i), y: b.L + 0.7 };
+  };
   for (const [b, where] of [[fwd, 'Bridge'], [aft, 'After superstructure']]) {
     const z = rowZ(map, b.j);
-    out.push({ x: b.p.x - 0.3, y: b.p.y + 0.6, z, side: 1, name: `${where}, port` });
-    out.push({ x: b.s.x + 0.3, y: b.s.y + 0.6, z, side: -1, name: `${where}, starboard` });
+    const p = seat(b, b.lo);
+    const q = seat(b, b.hi);
+    out.push({ x: p.x, y: p.y, z, side: 1, name: `${where}, port` });
+    out.push({ x: q.x, y: q.y, z, side: -1, name: `${where}, starboard` });
   }
-  return out;
+  return out.map((l) => ground(map, l));
+}
+
+/**
+ * Stood on whatever is under it. Whatever the search above settled on, the
+ * foot of a lamp's pedestal goes on the plating at the place it stands --
+ * the highest of the few pixels round it -- so no lamp is ever in the air.
+ */
+function ground(map, l) {
+  const i = Math.round((((-l.x / map.halfX) + 1) / 2) * map.w - 0.5);
+  const j = Math.round((((l.z / map.halfZ) + 1) / 2) * map.h - 0.5);
+  let top = -Infinity;
+  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+    const y = at(map, i + di, j + dj);
+    if (Number.isFinite(y)) top = Math.max(top, y);
+  }
+  return Number.isFinite(top) ? { ...l, y: top + 0.7 } : l;
 }
 
 /**
