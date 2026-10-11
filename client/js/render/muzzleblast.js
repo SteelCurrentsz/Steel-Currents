@@ -182,7 +182,11 @@ void main() {
     float sea = smoothstep(0.0, clamp(R * 0.35, 2.0, 14.0), wy);
     // And thinned as the eye goes into it, or a cloud the camera is inside is
     // one grey card across the whole of the screen.
-    float near = smoothstep(0.7 * R, 2.4 * R, -mv.z);
+    // Well before the eye is inside it: a card seen from close to is a flat
+    // disc the size of the screen, and half faded it is a ghostly grey oval
+    // with the rags in it standing out as specks -- which is what riding a
+    // salvo out of the turret used to look through.
+    float near = smoothstep(1.6 * R, 4.5 * R, -mv.z);
     vKeep = sea * mix(1.0, near, step(0.5, iB.x));
   }
   float fd = uFogDensity * length(mv.xyz);
@@ -366,7 +370,9 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
   // discs with a hard rim.
   float dens = a * (0.30 + 0.70 * z) * (0.82 + 0.3 * N);
   float thr = 0.62 * smoothstep(0.06, 1.0, u);
-  dens *= smoothstep(thr - 0.06, thr + 0.24, (H * 0.55 + n * 0.45) * 0.9 + z * 0.3);
+  // On the heads and not the fine grain: thresholded on the fine noise, a
+  // thinning cloud breaks up into a scatter of specks rather than rags.
+  dens *= smoothstep(thr - 0.12, thr + 0.32, (H * 0.85 + n * 0.15) * 0.9 + z * 0.3);
 
   // Light. The sphere gives the broad shape of it; the heads are found by
   // looking a little way toward the sun -- more smoke that way means this

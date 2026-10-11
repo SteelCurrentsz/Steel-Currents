@@ -320,8 +320,19 @@ export function getWeather(id) {
   return WEATHER[id] || WEATHER.sunny;
 }
 
+/**
+ * How far a lookout can see, as a fraction of a clear day's: the weather's,
+ * and a fog bank on top of it. Fog shuts a battle down to a few thousand
+ * yards whatever else the sky is doing -- which is what made the night actions
+ * in the Solomons and the Barents Sea what they were.
+ */
+export const FOG_SIGHT = 0.4;
+export function sightOf(world) {
+  return getWeather(world?.weather).sight * (world?.fog ? FOG_SIGHT : 1);
+}
+
 export function generateWorld(seed, presetId, time = null, half = MAP_HALF, place = null,
-  weather = null) {
+  weather = null, fog = false) {
   const preset = getPreset(presetId);
   const rng = makeRng(seed);
   const HALF = Math.max(MAP_HALF_MIN, Math.min(MAP_HALF_MAX, half));
@@ -369,6 +380,7 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     seed, preset: preset.id, islands, land, half: HALF,
     time: TIMES.includes(time) ? time : preset.time,
     weather: wx,
+    fog: !!fog,
     // The theatre's own sea, plus whatever the weather is adding to it.
     sea: Math.max(0, Math.min(6, preset.sea + WEATHER[wx].sea)),
   };

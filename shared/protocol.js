@@ -6,6 +6,7 @@ import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact,
 } from './sim.js';
 import { PARTS } from './airframe.js';
+import { lampWire } from './searchlights.js';
 
 /** The part keys, in the order a hole report packs them. */
 const PART_KEYS = PARTS.map((p) => p.k);
@@ -41,6 +42,9 @@ export function shipSnapshot(ship, full, state = null) {
     // the horizon shows you her elevation, not her fire-control problem.
     te: ship.turrets.map((t) => r3(t.elev || 0)),
     sm: ship.smokeActive > 0 ? 1 : 0,
+    // Her searchlights that are lit, and where they are trained. Anyone who
+    // can see her can see those.
+    ...(lampWire(ship) ? { lp: lampWire(ship) } : {}),
     // What is left of each of her compartments, in tenths, for everybody.
     //
     // Her own captain gets the full figures below; this is the coarse one, and

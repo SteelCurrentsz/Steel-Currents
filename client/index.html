@@ -201,6 +201,9 @@
         <button class="bh-step rev" id="time-next" type="button">
           <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="time-val">Dawn</span>
         </button>
+        <button class="bh-step rev" id="fog-next" type="button">
+          <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="fog-val">No Fog</span>
+        </button>
         <button class="bh-step rev" id="weather-next" type="button">
           <span class="chev">&gt;&gt;&gt;</span><span class="bh-val" id="weather-val">Sunny</span>
         </button>
@@ -542,6 +545,20 @@
       </svg>
       <span>SHIP</span>
     </button>
+    <!-- Her searchlights: a plan of her from overhead with the lamps on it,
+         and a tap on one puts you behind it. -->
+    <button class="conn-key" id="key-lamps" type="button" data-panel="lamps"
+            aria-label="Search lights">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M12.2 12.5h7.6l1.9 15.5H10.3z" fill="currentColor"/>
+        <path d="M11.5 9h9v3.5h-9z" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M13 9V6.6L16 4.6l3 2V9" fill="currentColor"/>
+        <path d="M8.6 28.8h14.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M23.2 8.4l5.4-2.2M23.2 12.2l5.4 2.2M8.8 8.4L3.4 6.2M8.8 12.2l-5.4 2.2"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+      <span>SEARCH<br>LIGHTS</span>
+    </button>
     <!-- What the bridge you are standing on is shooting at. Beside the keys
          rather than in a panel behind one of them, because it is the thing
          you want to be able to read without taking your eyes off the sea. -->
@@ -602,6 +619,13 @@
        way about -- with the range under it and, for anything but the
        close-range battery, a trigger. A Bofors has no trigger here because an
        automatic gun fires itself for as long as it is laid. -->
+  <!-- Behind a searchlight: drag to train it, and the two keys to switch it
+       and to come away from it. -->
+  <div class="lamp-sight" id="lamp-sight" hidden>
+    <p class="lamp-name" id="lamp-name"></p>
+    <button class="lamp-switch" id="lamp-switch" type="button">Light on</button>
+    <button class="gun-leave" id="lamp-leave" type="button">Leave searchlight</button>
+  </div>
   <div class="gun-sight" id="gun-sight" hidden>
     <div class="gun-cross" aria-hidden="true">
       <i class="gp"></i>

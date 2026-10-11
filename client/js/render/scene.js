@@ -23,6 +23,7 @@ import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
+import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -42,6 +43,12 @@ const SKY = {
  * The sky. `overcast` is how far to pull it toward the flat grey lid a bad day
  * puts over the sea — 0 leaves the hour's own sky alone, 1 replaces it.
  */
+/**
+ * How thick a fog bank is: exponential-squared, so a ship at a mile is a grey
+ * shape, at two she is a ghost, and past three there is nothing there.
+ */
+export const FOG_DENSITY = 0.0009;
+
 export function skyDome(time, radius = 20000, overcast = 0) {
   const cfg = SKY[time] || SKY.night;
   // Cloud is darker overhead than it is at the horizon, the same way clear sky
@@ -1584,6 +1591,29 @@ export class BattleScene {
     const fogCol = new THREE.Color(p.fogColor).lerp(new THREE.Color(0x78838d), overcast * 0.90)
       .multiplyScalar(dark);
     this.scene.fog = new THREE.FogExp2(fogCol, p.fog * 0.7 * wx.fog);
+    // A fog bank. Not a weather: it lies over whatever the sky is doing, and
+    // shuts the battle down to a couple of miles. It is the air itself gone
+    // thick, so it is drawn as the air -- every surface fading into it with
+    // range, the horizon gone, the sky the same grey as the sea where they
+    // meet -- rather than as a cloud of drifting particles, which is what
+    // smoke looks like and not what fog does. Lit by what light there is: a
+    // pale grey at noon, a dull one at dusk, nearly black at night.
+    if (world.fog) {
+      const lit = (preset === 'day' ? 1 : preset === 'night' ? 0.16 : 0.5)
+        * Math.sqrt(wx.light) * dark;
+      fogCol.lerp(new THREE.Color(0x9aa3ab).multiplyScalar(lit), 0.85);
+      this.scene.fog.color.copy(fogCol);
+      this.scene.fog.density = Math.max(this.scene.fog.density, FOG_DENSITY);
+      const ou = this.ocean.material.uniforms;
+      ou.uFogDensity.value = Math.max(ou.uFogDensity.value, FOG_DENSITY);
+      ou.uFogColor.value.copy(fogCol);
+      ou.uFogPatch.value = 1;
+      // The sky goes into it too: there is no horizon, only the grey getting
+      // thicker the lower you look.
+      const su = this.sky.material.uniforms;
+      su.top.value.lerp(fogCol, 0.7);
+      su.bottom.value.copy(fogCol);
+    }
     // Kept, so the view can be put back the way it was when the camera comes up.
     this.airFog = { color: fogCol.clone(), density: this.scene.fog.density,
       sky: this.scene.background || null };
@@ -1648,6 +1678,11 @@ export class BattleScene {
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
+    // What a searchlight's beam has to light in the air: next to nothing on
+    // a clear night, a great deal in rain, and a solid bar of light in fog.
+    this.lampHaze = world.fog ? 1 : wx.fall === 'rain' ? 0.6 + 0.15 * (wx.drop || 1) / 2
+      : wx.fall === 'snow' ? 0.7 : 0.22;
+    this.lampLights = new LampLights(this.scene, this.ocean);
     this.weather = new Weather(this.scene, wx, {
       count: Math.round(9000 * q.particles),
       wind: wx.blow ? windAt(world, 0) : null,
@@ -1749,6 +1784,11 @@ export class BattleScene {
       v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
         this.wakes, this.wreck);
       this.shipViews.set(id, v);
+      // Her searchlights, found off her own model and dark until somebody
+      // switches one on. See searchlights.js.
+      try {
+        v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
+      } catch { v.lamps = null; }
     }
     return v;
   }
@@ -1833,6 +1873,16 @@ export class BattleScene {
     this.charges.update(dt, this.chargesNow || []);
     this.weather.update(dt, eye);
     this.oil.update(dt);
+    // The lamps that are lit, for the few real lights and the sea's pools.
+    {
+      const lit = this.litLamps || (this.litLamps = []);
+      lit.length = 0;
+      for (const v of this.shipViews.values()) {
+        if (!v.lamps || !v.group.visible) continue;
+        v.lamps.lamps.forEach((l, k) => { if (l.on) lit.push({ lamps: v.lamps, k }); });
+      }
+      this.lampLights.update(lit, this.camera);
+    }
 
     // Burning oil, standing on the water rather than on any ship. She may have
     // gone down a quarter of an hour ago and the sea over her still be alight,

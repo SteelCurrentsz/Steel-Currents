@@ -8,6 +8,8 @@ import {
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, windAt, WAVES as SEA_WAVES, SEA_AMP,
 } from '../shared/sea.js';
+import { lampCount, setLamp, lampWire, freshLamps, LAMP_PITCH } from '../shared/searchlights.js';
+import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlights.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
@@ -30,7 +32,7 @@ import {
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
-  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD,
+  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -18027,6 +18029,91 @@ check('a gale carries a shell and an aeroplane downwind, and a breeze does not',
   const q = { id: 3, x: 0, y: 200, z: 0, bank: 0 };
   buffet(calmSt, q, 1);
   assert.equal(q.x, 0, 'a thunderstorm blew an aeroplane off her track');
+});
+
+
+
+check('a fog bank is asked for on its own, and closes the battle right down', () => {
+  const clear = generateWorld(5, 'open_ocean', 'night', 9000, null, 'sunny');
+  const fog = generateWorld(5, 'open_ocean', 'night', 9000, null, 'sunny', true);
+  assert.equal(clear.fog, false);
+  assert.equal(fog.fog, true);
+  // The same weather either way: fog is laid over it, not instead of it.
+  assert.equal(fog.weather, clear.weather);
+  // Two ships at a range a lookout picks one up at on a clear night, and not
+  // in a fog.
+  const range = (world) => {
+    const st = createState(world);
+    const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+    const b = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0, at: { x: a.x, z: a.z + 5000 } });
+    b.x = a.x; b.z = a.z + 5000;
+    for (let i = 0; i < 6; i++) step(st);
+    return b.spottedBy[0];
+  };
+  const seenClear = range(clear);
+  const seenFog = range(fog);
+  assert.ok(!(seenFog && !seenClear));
+  assert.equal(seenFog, false, 'a ship at five thousand metres was seen through a fog bank');
+});
+
+check('every ship has her searchlights, and a lit one gives her away', () => {
+  for (const [id, n] of [['fletcher', 4], ['iowa', 4], ['enterprise', 2], ['shinano', 2], ['u48', 1], ['surcouf', 1]]) {
+    assert.equal(lampCount(SHIP_CLASSES[id]), n, `${id} has the wrong number of searchlights`);
+  }
+  const world = generateWorld(5, 'open_ocean', 'night', 9000, null, 'sunny');
+  const st = createState(world);
+  const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const b = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  b.x = a.x; b.z = a.z + 11000;
+  assert.equal(a.lamps.length, 4);
+  assert.equal(lampWire(b), null, 'a darkened ship is putting lamps on the wire');
+  for (let i = 0; i < 6; i++) step(st);
+  assert.equal(b.spottedBy[0], false, 'a darkened ship was seen at eleven thousand metres');
+  // An order to one lamp, held inside its stops.
+  assert.ok(setLamp(b, SHIP_CLASSES.fletcher, { k: 2, on: true, yaw: 7, pitch: 9 }));
+  assert.equal(b.lamps[2].on, true);
+  assert.ok(Math.abs(b.lamps[2].yaw - Math.atan2(Math.sin(7), Math.cos(7))) < 1e-9);
+  assert.equal(b.lamps[2].pitch, LAMP_PITCH.max);
+  assert.equal(setLamp(b, SHIP_CLASSES.fletcher, { k: 9, on: true }), false);
+  const wire = shipSnapshot(b, false, st).lp;
+  assert.deepEqual(wire, [[2, Math.round(b.lamps[2].yaw * 100), Math.round(LAMP_PITCH.max * 100)]]);
+  for (let i = 0; i < 6; i++) step(st);
+  assert.equal(b.spottedBy[0], true, 'a lit searchlight at eleven thousand metres was not seen');
+  assert.ok(11000 < LAMP_SEEN);
+  // Out, and dark again.
+  setLamp(b, SHIP_CLASSES.fletcher, { k: 2, on: false });
+  for (let i = 0; i < 6; i++) step(st);
+  assert.equal(b.spottedBy[0], false);
+});
+
+check('the lamps stand where a ship of her type carries them', () => {
+  for (const id of ['fletcher', 'iowa', 'enterprise', 'u48']) {
+    const cls = SHIP_CLASSES[id];
+    const plan = lampPlanOf({ cls, classId: id, group: null });
+    assert.equal(plan.lamps.length, lampCount(cls));
+    for (const l of plan.lamps) {
+      assert.ok(Math.abs(l.z) < cls.hull.length / 2 && Math.abs(l.x) < cls.hull.beam / 2, `${id}: ${l.name} is off her`);
+      assert.ok(l.y > 0, `${id}: ${l.name} is under the water`);
+    }
+    if (lampCount(cls) === 4) {
+      // A pair forward and a pair aft, one each side.
+      const [bp, bs, ap, as] = plan.lamps;
+      assert.ok(bp.z > 0 && bs.z > 0 && ap.z < 0 && as.z < 0, `${id}: the pairs are not forward and aft`);
+      assert.ok(bp.x > 0 && bs.x < 0 && ap.x > 0 && as.x < 0, `${id}: the pairs are not either side`);
+    }
+    // And a lamp on the model: trained and lit off the state, dark without it.
+    const group = new THREE.Group();
+    const lamps = new ShipLamps({ cls, group }, plan);
+    const st = freshLamps(cls);
+    st[0].on = true; st[0].yaw = 1; st[0].pitch = 0.2;
+    lamps.set(st);
+    assert.equal(lamps.lamps[0].beam.visible, true);
+    assert.ok(lamps.lamps.slice(1).every((l) => !l.beam.visible));
+    const e = lamps.eye(0);
+    assert.ok(e.dir.y > 0.1 && e.dir.x > 0.5, 'the lamp is not looking where it was trained');
+    lamps.set(null);
+    assert.ok(lamps.lamps.every((l) => !l.beam.visible));
+  }
 });
 
 

@@ -66,6 +66,10 @@ export class Briefing {
       enemyBombers: [],
       time: 'dawn',
       weather: 'sunny',
+      // A fog bank over the whole battlefield, on top of whatever the sky is
+      // doing: it is not a weather of its own, because a fog at night in a
+      // gale is as real a thing as a fog on a flat calm at noon.
+      fog: false,
       // Where the battle is fought. The chart sets this — four corners and the
       // water between them; until it has been opened, a stretch of the North
       // Atlantic with plenty of sea room.
@@ -93,6 +97,7 @@ export class Briefing {
       enemyBomberList: document.getElementById('enemy-bomber-list'),
       time: document.getElementById('time-val'),
       weather: document.getElementById('weather-val'),
+      fog: document.getElementById('fog-val'),
       theatre: document.getElementById('theatre-name'),
       start: document.getElementById('custom-start'),
     };
@@ -150,6 +155,7 @@ export class Briefing {
     on('enemy-bomber', () => this.onOpenBombers?.('enemy'));
 
     on('time-next', () => { s.time = cycle(TIMES, s.time, 1); this.render(); });
+    on('fog-next', () => { s.fog = !s.fog; this.render(); });
     on('weather-next', () => { s.weather = cycle(WEATHERS, s.weather, 1); this.render(); });
     on('theatre-btn', () => this.onOpenChart?.(this.state.deploy));
   }
@@ -361,6 +367,7 @@ export class Briefing {
     if (this.el.enemyBomberList) this.el.enemyBomberList.innerHTML = this.bomberList('enemy');
     this.el.time.textContent = TIME_NAMES[s.time] || s.time;
     if (this.el.weather) this.el.weather.textContent = WEATHER[s.weather]?.name || s.weather;
+    if (this.el.fog) this.el.fog.textContent = s.fog ? 'Fog' : 'No Fog';
     this.el.theatre.textContent = s.deploy.name;
 
     // Nothing sails until both sides have something to sail. The button says
@@ -446,6 +453,7 @@ export class Briefing {
       mapId: theatreFor(d),
       time: s.time,
       weather: s.weather,
+      fog: !!s.fog,
       allies: s.allyFleet.length - 1,
       enemies: s.enemyFleet.length,
       botSkill: this.getSkill(),

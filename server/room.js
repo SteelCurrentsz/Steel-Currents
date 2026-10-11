@@ -11,6 +11,7 @@ import {
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
 import { getClass, SHIP_ORDER } from '../shared/ships.js';
+import { setLamp } from '../shared/searchlights.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
 import { createStaff, stepStaff } from './command.js';
 
@@ -41,7 +42,7 @@ export class Room {
     this.autoStart = opts.autoStart !== false;
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
     this.world = generateWorld(this.seed, this.mapId, opts.time, opts.half, opts.place,
-      opts.weather);
+      opts.weather, !!opts.fog);
     this.state = createState(this.world, { mode: this.mode, timeLimit: opts.timeLimit || 900 });
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain
@@ -427,6 +428,9 @@ export class Room {
       // trigger -- which her close-range battery does not need, because an
       // automatic gun fires itself for as long as it is laid.
       case 'man': manGun(this.conned(ship, msg), msg); break;
+      // A searchlight: switched on or off, or trained. On her own ship only --
+      // a lamp is worked from where it stands.
+      case 'lamp': setLamp(ship, getClass(ship.classId), msg); break;
       case 'lay': layGun(this.conned(ship, msg), msg); break;
       case 'shoot': shootGun(this.state, this.conned(ship, msg)); break;
       // Damage control and smoke are given to whichever ship is being conned,

@@ -104,7 +104,7 @@ export class LayoutMap {
     this.world = generateWorld(req.seed, req.mapId, req.time, req.half,
       Number.isFinite(req.lon) && Number.isFinite(req.lat)
         ? { lon: req.lon, lat: req.lat } : null,
-      req.weather);
+      req.weather, !!req.fog);
     this.half = this.world.half;
 
     // Team 0 is the captain's side and starts to the south, which is how the

@@ -347,6 +347,11 @@ uniform float uCrest;
 uniform float uSpecular;
 uniform float uFogDensity;
 uniform vec3 uFogColor;
+uniform float uFogPatch;
+// The searchlights nearest the eye: where each lamp is (w on or off), and
+// the way it faces (w the cosine of its edge). See render/searchlights.js.
+uniform vec4 uLampPos[3];
+uniform vec4 uLampDir[3];
 uniform vec2 uGlare;
 uniform float uGlareSize;
 uniform float uStreak;
@@ -715,7 +720,30 @@ void main() {
     col *= mix(1.0, 0.7 + 0.3 * streak, path * 0.8);
   }
 
-  float fog = 1.0 - exp(-pow(dcam * uFogDensity, 2.0));
+  // The pool a searchlight throws on the water: a hard-edged oval where the
+  // beam meets the sea, long when it is trained low, white on the crests
+  // that face it and dark in the troughs that do not.
+  for (int i = 0; i < 3; i++) {
+    if (uLampPos[i].w < 0.5) continue;
+    vec3 Ls = uLampPos[i].xyz - vWorld;
+    float ds = length(Ls);
+    vec3 ls = Ls / max(ds, 1e-3);
+    float cs = dot(-ls, uLampDir[i].xyz);
+    float cut = uLampDir[i].w;
+    float inside = smoothstep(cut - (1.0 - cut) * 0.6, cut + (1.0 - cut) * 0.5, cs);
+    if (inside <= 0.0) continue;
+    float face = clamp(dot(n, ls), 0.0, 1.0);
+    float gl = pow(clamp(dot(n, normalize(ls + v)), 0.0, 1.0), 60.0);
+    float reach = 1.0 / (1.0 + ds * ds * 1.6e-6);
+    col += vec3(1.0, 0.95, 0.84) * inside * reach * (face * 1.5 + gl * 3.0);
+  }
+
+  // A fog bank is not even: it lies in drifts, thicker here and thinner
+  // there, and moves with the air. Varied over a kilometre or so, so the sea
+  // goes into it patchily rather than at one ruled distance.
+  float fogK = uFogPatch > 0.0
+    ? mix(0.72, 1.3, onoise(vWorld.xz * 0.0011 + vec2(uTime * 0.006, -uTime * 0.004))) : 1.0;
+  float fog = 1.0 - exp(-pow(dcam * uFogDensity * fogK, 2.0));
   col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
 
   // Seen from underneath, the surface is not the opaque sheet it is from above:
@@ -881,6 +909,9 @@ export class Ocean {
         uLightColor: { value: new THREE.Color(p.light) },
         uSpecular: { value: p.specular },
         uFogDensity: { value: p.fog },
+        uFogPatch: { value: 0 },
+        uLampPos: { value: [0, 1, 2].map(() => new THREE.Vector4(0, 0, 0, 0)) },
+        uLampDir: { value: [0, 1, 2].map(() => new THREE.Vector4(0, 0, 1, 1)) },
         uFogColor: { value: new THREE.Color(p.fogColor) },
         uGlare: { value: new THREE.Vector2(300, 1400) },
         uGlareSize: { value: 1600 },

@@ -185,6 +185,7 @@ function handle(player, msg) {
         botSkill: msg.botSkill || 'regular',
         time: msg.time,
         weather: msg.weather,
+        fog: !!msg.fog,
         // Where the corners were laid: the seed makes the same berth lay out
         // the same field every time, `half` is how much of it there is, and
         // the position is what puts the real coastline in the battlefield.

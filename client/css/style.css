@@ -2208,3 +2208,43 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .fly-ident-type { font-size: 0.95rem; }
   .fly-damage-parts { font-size: 0.46rem; }
 }
+
+/* The searchlight plan: her outline from overhead, bow up, with a lighthouse
+   on each lamp. */
+.lamp-plan { display: flex; justify-content: center; padding: 0.4rem 0 0.6rem; }
+.lamp-ship { position: relative; height: min(46vh, 340px); max-width: 100%; }
+.lamp-ship-img { display: block; width: 100%; height: 100%; image-rendering: auto; }
+.lamp-ship-hull {
+  width: 100%; height: 100%; background: rgba(150, 168, 180, 0.35);
+  border-radius: 50% 50% 18% 18% / 12% 12% 4% 4%;
+}
+.lamp-key {
+  position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px;
+  display: grid; place-items: center; padding: 0;
+  background: rgba(8, 19, 31, 0.82); border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 50%; color: #fff; cursor: pointer;
+}
+.lamp-key .lamp-icon { width: 22px; height: 22px; }
+.lamp-key:hover { border-color: var(--sand); }
+.lamp-key.on { background: rgba(255, 240, 200, 0.92); color: #10161c; box-shadow: 0 0 12px rgba(255, 236, 190, 0.9); }
+
+.lamp-sight { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.lamp-sight[hidden] { display: none; }
+.lamp-sight button { pointer-events: auto; }
+.lamp-name {
+  position: absolute; left: 50%; top: 12vh; transform: translateX(-50%); margin: 0;
+  font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--sand); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); white-space: nowrap;
+}
+.lamp-switch {
+  position: absolute; right: max(1.2rem, env(safe-area-inset-right)); bottom: 16vh;
+  width: 96px; height: 96px; border-radius: 50%;
+  background: rgba(8, 19, 31, 0.84); border: 2px solid var(--sand);
+  color: var(--sand); font-family: var(--ui); font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer;
+}
+.lamp-switch.on { background: rgba(255, 240, 200, 0.9); color: #10161c; box-shadow: 0 0 18px rgba(255, 236, 190, 0.7); }
+/* Two words on a key built for one: the lamp key is a little wider and its
+   label sits on two lines. */
+#key-lamps { width: 70px; }
+#key-lamps span { letter-spacing: 0.1em; line-height: 1.05; text-align: center; }

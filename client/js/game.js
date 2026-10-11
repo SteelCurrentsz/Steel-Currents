@@ -21,6 +21,8 @@ import {
   freeboardOf,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
+import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
+import { lampPlan, planImage } from './render/searchlights.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
@@ -275,6 +277,14 @@ function batteryKind(row) {
  * The gale an aeroplane is flying in at a moment, or null when there is none
  * worth the name. The same wind the server is blowing (see shared/sea.js).
  */
+/** Another ship's lit lamps off the wire: [index, yaw, pitch] in hundredths. */
+function unpackLamps(lp) {
+  if (!lp || !lp.length) return null;
+  const out = [];
+  for (const [k, y, p] of lp) out[k] = { on: true, yaw: y / 100, pitch: p / 100 };
+  return out;
+}
+
 function galeOf(world, t) {
   const wx = getWeather(world?.weather);
   if (!wx.blow) return null;
@@ -522,6 +532,11 @@ export class Battle {
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null));
+    // Her searchlights: the plan on the panel, and the two keys behind one.
+    this.hud.onLampPlan = () => this.lampPanel();
+    this.hud.onLampPick = (k) => this.enterLamp(k);
+    document.getElementById('lamp-switch')?.addEventListener('click', () => this.switchLamp());
+    document.getElementById('lamp-leave')?.addEventListener('click', () => this.leaveLamp());
     const fireKey = document.getElementById('gun-fire');
     if (fireKey) {
       fireKey.addEventListener('pointerdown', (e) => { e.preventDefault(); this.pullTrigger(); });
@@ -1274,7 +1289,105 @@ export class Battle {
    * and the camera goes to whatever is left of your side: you still have the
    * chart, you still have the con, and you fight her out with what is afloat.
    */
+  /** Her lamps, as her own bridge has them. */
+  ownLamps() {
+    if (!this.myLamps) this.myLamps = freshLamps(this.cls);
+    return this.myLamps;
+  }
+
+  /** What the searchlight panel draws: her plan, and her lamps on it. */
+  lampPanel() {
+    if (this.sunk) return null;
+    const view = this.scene.shipViews.get(this.shipId);
+    if (!view || !view.lamps) return null;
+    const plan = lampPlan(view, this.scene.renderer);
+    const lamps = this.ownLamps();
+    const half = plan.map
+      ? { halfX: plan.map.halfX, halfZ: plan.map.halfZ }
+      : { halfX: this.cls.hull.beam * 0.5 + 2, halfZ: this.cls.hull.length * 0.5 + 2 };
+    return {
+      ...half,
+      image: planImage(plan),
+      lamps: plan.lamps.map((p, k) => ({ x: p.x, z: p.z, side: p.side, name: p.name, on: !!lamps[k]?.on })),
+    };
+  }
+
+  /** Go and stand behind one of her searchlights, and switch it on. */
+  enterLamp(k) {
+    const view = this.scene.shipViews.get(this.shipId);
+    if (this.sunk || !view || !view.lamps || !view.lamps.lamps[k]) return;
+    if (this.gun) this.manGun(null);
+    const l = this.ownLamps()[k];
+    if (!l) return;
+    this.lamp = { k, name: view.lamps.plan.lamps[k].name, sentAt: 0 };
+    // Trained out on her own side to start with, which is where a lamp on
+    // that wing is looking when it is not looking at anything.
+    if (!l.on && Math.abs(l.yaw) < 1e-3) {
+      const side = view.lamps.plan.lamps[k].side || 0;
+      l.yaw = side * 0.6;
+      l.pitch = -0.04;
+    }
+    l.on = true;
+    this.sendLamp(k);
+    this.watching = null;
+    this.hud.setWatching(null);
+    this.hud.setWatchBanner(null);
+    this.freeCamera(false);
+    if (this.hud.panel) this.hud.togglePanel(this.hud.panel);
+    this.hud.setLampSight({ name: this.lamp.name, on: true });
+    this.hud.alert(`${this.lamp.name} — drag to train`);
+    audio.click();
+  }
+
+  /** Come away from the searchlight. It stays as it was left: lit, if it was. */
+  leaveLamp(quiet = false) {
+    if (!this.lamp) return;
+    this.lamp = null;
+    this.hud.setLampSight(null);
+    this.input.orbiting = false;
+    if (!quiet) audio.click();
+  }
+
+  /** The switch on the lamp you are behind. */
+  switchLamp() {
+    if (!this.lamp) return;
+    const l = this.ownLamps()[this.lamp.k];
+    if (!l) return;
+    l.on = !l.on;
+    this.sendLamp(this.lamp.k);
+    this.hud.setLampSight({ name: this.lamp.name, on: l.on });
+    audio.click();
+  }
+
+  /** The drag, on the lamp: round and up and down, told to the ship a few times a second. */
+  trainLamp() {
+    const m = this.input.takeMouse();
+    const l = this.ownLamps()[this.lamp.k];
+    if (!l) return;
+    if (m.x || m.y) {
+      // Dragging right looks right, which is to starboard: her -x, a smaller
+      // yaw. Dragging up looks up.
+      l.yaw = wrapAngle(l.yaw - m.x);
+      l.pitch = clamp(l.pitch - m.y, LAMP_PITCH.min, LAMP_PITCH.max);
+      this.lampDirty = true;
+    }
+    const now = performance.now();
+    if (this.lampDirty && now - (this.lamp.sentAt || 0) > 120) {
+      this.lamp.sentAt = now;
+      this.lampDirty = false;
+      this.sendLamp(this.lamp.k);
+    }
+  }
+
+  sendLamp(k) {
+    const l = this.ownLamps()[k];
+    if (!l) return;
+    this.net.send({ t: 'lamp', k, on: l.on, yaw: l.yaw, pitch: l.pitch });
+    this.hud.setLampsLit(this.ownLamps());
+  }
+
   onOwnSunk() {
+    this.leaveLamp(true);
     this.sunk = true;
     this.hud.setSunk(true);
     this.hud.alert('Abandon ship');
@@ -3346,7 +3459,11 @@ export class Battle {
     // ship's own fire control. This block used to run first every frame and
     // take the movement before the sight could ask for it, so a captain at a
     // gun could not move the camera at all.
-    if (!this.watching && !this.gun) {
+    // Behind a searchlight the drag trains the lamp, and nothing else -- until
+    // the camera is wanted for something else, which takes you off it.
+    if (this.lamp && (this.watching || this.flight || this.gun || this.sunk)) this.leaveLamp(true);
+    if (this.lamp) this.trainLamp(dt);
+    if (!this.watching && !this.gun && !this.lamp) {
       const m = this.input.takeMouse();
       const zoom = this.scoped ? 0.35 : 1;
       this.yaw = wrapAngle(this.yaw + m.x * zoom);
@@ -3675,6 +3792,12 @@ export class Battle {
       // And everything else that trains: her secondary mountings and her
       // tubes off the snapshot, her light battery off the aircraft overhead.
       view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
+      // Her searchlights: ours off our own hand, so a lamp answers at once;
+      // everybody else's off the wire.
+      if (view.lamps) {
+        const lit = !s.a ? null : isSelf ? (this.sunk ? null : this.ownLamps()) : unpackLamps(s.lp);
+        view.lamps.set(lit, dt, this.scene.scene.fog);
+      }
       // And her screws, at the rate her speed sets.
       view.spinScrews(s.v, dt);
       // Her way, so anything blown off her leaves with it rather than
@@ -4529,6 +4652,23 @@ export class Battle {
     // up -- the stick is still read and still sent, see stepFlight -- so
     // coming off the camera puts you straight back at the controls.
     const riding = this.shellCam && this.watching && this.watching.kind === 'shell';
+    // Behind one of her searchlights: the eye a little above and behind its
+    // glass, looking down the beam.
+    if (this.lamp && !riding) {
+      const view = this.scene.shipViews.get(this.shipId);
+      const e = view && view.lamps ? view.lamps.eye(this.lamp.k) : null;
+      if (!e) this.leaveLamp(true);
+      else {
+        cam.fov = 58;
+        cam.updateProjectionMatrix();
+        cam.up.set(0, 1, 0);
+        const flat = Math.hypot(e.dir.x, e.dir.z) || 1;
+        cam.position.set(e.pos.x - (e.dir.x / flat) * 2.2, e.pos.y + 1.1, e.pos.z - (e.dir.z / flat) * 2.2);
+        cam.lookAt(e.pos.x + e.dir.x * 600, e.pos.y + e.dir.y * 600 + 1.1, e.pos.z + e.dir.z * 600);
+        this.input.orbiting = true;
+        return;
+      }
+    }
     if (this.turret && !riding) {
       // In one of her turrets. The eye is on the mounting, the drag turns the
       // gunner's head, and the head does not go outside the cone the mounting

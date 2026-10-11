@@ -31,8 +31,18 @@ const DC_ORDER = ['Shore up', 'Start pumps', 'Damage control'];
 
 const PANEL_TITLES = {
   helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
-  ship: 'DAMAGE CONTROL',
+  ship: 'DAMAGE CONTROL', lamps: 'SEARCH LIGHTS',
 };
+
+/** The lighthouse a lamp is marked with on the plan. */
+const LAMP_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true" class="lamp-icon">
+        <path d="M12.2 12.5h7.6l1.9 15.5H10.3z" fill="currentColor"/>
+        <path d="M11.5 9h9v3.5h-9z" fill="none" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M13 9V6.6L16 4.6l3 2V9" fill="currentColor"/>
+        <path d="M8.6 28.8h14.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M23.2 8.4l5.4-2.2M23.2 12.2l5.4 2.2M8.8 8.4L3.4 6.2M8.8 12.2l-5.4 2.2"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>`;
 
 const M_TO_YARDS = 1.09361;
 
@@ -743,6 +753,7 @@ export class Hud {
     if (this.panel === 'helm') this.buildHelmPanel();
     else if (this.panel === 'dmg') this.buildDamagePanel();
     else if (this.panel === 'arms') this.buildArsenalPanel();
+    else if (this.panel === 'lamps') this.buildLampPanel();
     else this.buildActionPanel(this.panel);
     if (this.lastOwn) this.paintPanel(this.lastOwn);
   }
@@ -1284,6 +1295,80 @@ export class Hud {
    * because it does not have one: an automatic gun fires for as long as it is
    * laid, and the only decision its layer makes is when to stop.
    */
+  /**
+   * Her searchlights, on a plan of her from overhead: a lighthouse where each
+   * lamp stands, lit if the lamp is, and a tap on one goes to it. What is
+   * drawn comes from the battle (see Battle.lampPanel), which has the model.
+   */
+  buildLampPanel() {
+    const info = this.onLampPlan?.();
+    const wrap = document.createElement('div');
+    wrap.className = 'lamp-plan';
+    if (!info || !info.lamps.length) {
+      const p = document.createElement('p');
+      p.className = 'conn-note';
+      p.textContent = 'No searchlights left on her';
+      this.el.connBody.appendChild(p);
+      return;
+    }
+    const ship = document.createElement('div');
+    ship.className = 'lamp-ship';
+    // Her proportions, so the plan is her shape and not a stretched one.
+    ship.style.aspectRatio = `${info.halfX} / ${info.halfZ}`;
+    if (info.image) {
+      info.image.className = 'lamp-ship-img';
+      ship.appendChild(info.image);
+    } else {
+      const hull = document.createElement('div');
+      hull.className = 'lamp-ship-hull';
+      ship.appendChild(hull);
+    }
+    this.lampKeys = info.lamps.map((l, k) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lamp-key' + (l.on ? ' on' : '');
+      b.title = l.name;
+      b.setAttribute('aria-label', l.name);
+      b.innerHTML = LAMP_ICON;
+      // Port is the left of the plan and the bow its top.
+      b.style.left = `${((1 - l.x / info.halfX) / 2) * 100}%`;
+      b.style.top = `${((1 - l.z / info.halfZ) / 2) * 100}%`;
+      // Stood out off her side, the side the lamp is on, so a pair on a
+      // narrow bridge are two keys and not one on top of the other.
+      if (l.side) b.style.transform = `translateX(${l.side > 0 ? -22 : 22}px)`;
+      b.onclick = () => this.onLampPick?.(k);
+      ship.appendChild(b);
+      return b;
+    });
+    wrap.appendChild(ship);
+    this.el.connBody.appendChild(wrap);
+    const note = document.createElement('p');
+    note.className = 'conn-note';
+    note.textContent = 'Tap a light to stand behind it';
+    this.el.connBody.appendChild(note);
+  }
+
+  /** Which of the lamps on the plan are lit, while it is up. */
+  setLampsLit(states) {
+    if (this.panel !== 'lamps' || !this.lampKeys) return;
+    this.lampKeys.forEach((b, k) => b.classList.toggle('on', !!(states && states[k] && states[k].on)));
+  }
+
+  /** Standing behind a searchlight, or not: `lamp` is { name, on } or null. */
+  setLampSight(lamp) {
+    const el = this.el.lampSight || (this.el.lampSight = document.getElementById('lamp-sight'));
+    if (!el) return;
+    el.hidden = !lamp;
+    if (!lamp) return;
+    const name = document.getElementById('lamp-name');
+    if (name) name.textContent = lamp.name;
+    const sw = document.getElementById('lamp-switch');
+    if (sw) {
+      sw.textContent = lamp.on ? 'Light off' : 'Light on';
+      sw.classList.toggle('on', !!lamp.on);
+    }
+  }
+
   setGunSight(gun) {
     const el = this.el.gunSight || (this.el.gunSight = document.getElementById('gun-sight'));
     const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));

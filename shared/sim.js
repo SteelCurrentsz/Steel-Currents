@@ -7,6 +7,7 @@ import {
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
 import { getClass } from './ships.js';
+import { freshLamps } from './searchlights.js';
 import { BOMBERS } from './bombers.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -20,7 +21,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, soilAt, addCrater, craterWire, landCeiling,
+  groundHeight, soilAt, addCrater, craterWire, landCeiling, sightOf,
 } from './world.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf,
@@ -156,6 +157,8 @@ export function addShip(state, {
     wayZ: null,
     hp: cls.hp,
     maxHp: cls.hp,
+    // Her searchlights, dark. See shared/searchlights.js.
+    lamps: freshLamps(cls),
     // She is not a pool of hit points. She is compartments, and this is them.
     sections: freshSections(cls.hp),
     alive: true,
@@ -7533,6 +7536,9 @@ function stepDamageOverTime(state, ship, dt) {
 // Detection
 // ---------------------------------------------------------------------------
 
+/** How far off a lit searchlight is seen, in clear air, in metres. */
+export const LAMP_SEEN = 14000;
+
 function stepDetection(state) {
   for (const s of state.ships) s.spottedBy = [false, false];
   for (const target of state.ships) {
@@ -7547,9 +7553,15 @@ function stepDetection(state) {
     // Weather shortens the range a lookout can pick her up at. Radar below is
     // left alone, which is the whole point of radar: in a rain squall a set is
     // worth more than every pair of eyes on the ship.
-    conceal *= getWeather(state.world?.weather).sight;
+    conceal *= sightOf(state.world);
     if (target.smokeActive > 0) conceal *= 0.22;
     if (target.fires > 0) conceal *= 1.25;
+    // A lit searchlight is the brightest thing on the sea, and it gives her
+    // away to everybody who can see the beam: far further than her hull,
+    // though a fog bank or a rain squall still swallows it.
+    if (target.lamps && target.lamps.some((l) => l.on)) {
+      conceal = Math.max(conceal, LAMP_SEEN * sightOf(state.world));
+    }
 
     for (const observer of state.ships) {
       if (!observer.alive || observer.team === target.team) continue;
@@ -7579,7 +7591,7 @@ function stepDetection(state) {
   for (const bm of (state.bombers || [])) {
     if (!bm.alive) continue;
     // Off her height, and shortened by the weather like everything else.
-    const reach = (9000 + bm.y * 2.6) * getWeather(state.world?.weather).sight;
+    const reach = (9000 + bm.y * 2.6) * sightOf(state.world);
     for (const target of state.ships) {
       if (!target.alive || target.team === bm.team) continue;
       if (target.smokeActive > 0) continue;
