@@ -694,6 +694,7 @@ const optSkill = document.getElementById('opt-skill');
 const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
+const optPenCam = document.getElementById('opt-pencam');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -702,6 +703,7 @@ optSkill.value = settings.botSkill;
 optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
+if (optPenCam) optPenCam.checked = settings.penCam !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -720,6 +722,7 @@ optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
+if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
 
 // ------------------------------------------------------------------- net --
 

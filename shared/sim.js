@@ -8,6 +8,7 @@ import {
 } from './math.js';
 import { getClass } from './ships.js';
 import { freshLamps } from './searchlights.js';
+import { armourScheme, layersFor, walkLayers } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -3239,20 +3240,34 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const effArmor = sec.armor / Math.max(0.18, cosT);
   const pen = spec.pen * penFall;
 
+  // Her armour, as the plates it is made of, and the shell walked through
+  // them in the order it meets them. See shared/armor.js.
+  const layers = layersFor(armourScheme(cls, freeboardOf(cls)), sec.part);
+  const cosOf = (face) => (face === 'deck' ? strikeCos(sh, target, 'deck')
+    : face === 'end' ? strikeCos(sh, target, sec.part) : cosT);
+  const walk = walkLayers(layers, pen, cosOf, spec.fuseArm || 0);
+  void effArmor;
+
   let dmg = 0, kind = 'pen';
   if (ricochets(state, theta, spec, sec.armor)) {
     kind = 'ricochet'; dmg = 0;
+    walk.stop = 0;
   } else if (spec.type === 'ap') {
-    if (pen < effArmor) {
-      // It broke up on the face of the plate. Some of the energy still gets
-      // in; the shell does not.
+    if (walk.stop === 0) {
+      // It broke up on the face of the first plate. Some of the energy still
+      // gets in; the shell does not.
       kind = 'shatter'; dmg = spec.damage * 0.04;
-    } else if (sec.cit && pen > effArmor * 1.05) {
+    } else if (walk.stop > 0) {
+      // Through the outer plate and stopped by the one behind it: it bursts
+      // between them -- in her side protection, or between her decks -- and
+      // never reaches what they were there to keep it out of.
+      kind = 'pen'; dmg = spec.damage * 0.33;
+    } else if (sec.cit && walk.rem > walk.first * 0.05) {
       // Into the box: her machinery and her magazines. It got there by going
-      // through her armour, which is quite enough to start the fuse, and there
-      // is nothing behind the plate to stop the burst.
+      // through every plate in the way, which is quite enough to start the
+      // fuse, and there is nothing left to stop the burst.
       kind = 'citadel'; dmg = spec.damage;
-    } else if (sec.armor < spec.fuseArm && pen > effArmor * 3) {
+    } else if (!walk.armed && pen > walk.total * 3) {
       // Straight through her. An armour-piercing shell is fused to burst a set
       // distance in, and it needs to meet a plate of a certain thickness to
       // start the fuse at all -- so a battleship's shell through a destroyer's
@@ -3274,8 +3289,8 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     // Putting high explosive through the same arithmetic as armour-piercing
     // meant a five-inch shell could not open a destroyer's nineteen
     // millimetres of side, which is what the gun was for.
-    if (spec.pen >= sec.armor) { kind = 'he'; dmg = spec.damage * 0.4; }
-    else { kind = 'splash'; dmg = spec.damage * 0.1; }
+    if (spec.pen >= sec.armor) { kind = 'he'; dmg = spec.damage * 0.4; walk.stop = Math.min(1, layers.length - 1); }
+    else { kind = 'splash'; dmg = spec.damage * 0.1; walk.stop = 0; }
     const fireRoll = state.rng();
     if (fireRoll < spec.fireChance * (target.fires >= 4 ? 0.3 : 1)) {
       // Where the shell went, not somewhere on the ship in general.
@@ -3347,10 +3362,19 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     owner.ribbons.hits++;
     if (kind === 'citadel') owner.ribbons.cits++;
   }
+  // And the walk itself, for the penetration camera: each plate it met and
+  // what that plate was worth at the angle it met it, where it stopped, and
+  // the strike in her own frame -- where on her and which way it was going.
+  const lv = worldToLocal(sh.vx, sh.vz, target.heading);
   state.events.push({
     e: 'hit', kind, part: sec.part,
     x: cx, y: cy, z: cz, cal: sh.caliber,
     victim: target.id, owner: sh.owner, dmg: Math.round(dmg),
+    pl: layers.map((L, i) => [L.k, Math.round(L.t), walk.met[i] ?? Math.round(L.t)]),
+    ps: walk.stop,
+    lx: Math.round(l.x * 10) / 10, lz: Math.round(l.z * 10) / 10,
+    lv: [Math.round(lv.x), Math.round(sh.vy), Math.round(lv.z)],
+    sc: target.classId, ap: spec.type === 'ap' ? 1 : 0,
   });
 }
 

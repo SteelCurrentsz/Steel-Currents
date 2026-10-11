@@ -23,6 +23,7 @@ import {
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
+import { PenCam } from './render/pencam.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
@@ -544,6 +545,11 @@ export class Battle {
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null));
+    // The penetration camera, over the whole battle screen.
+    {
+      const host = document.getElementById('screen-battle');
+      this.penCam = host && typeof document !== 'undefined' ? new PenCam(host) : null;
+    }
     // Her searchlights: the plan on the panel, and the two keys behind one.
     this.hud.onLampPlan = () => this.lampPanel();
     this.hud.onLampPick = (k) => this.enterLamp(k);
@@ -1634,6 +1640,9 @@ export class Battle {
           } else {
             fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
           }
+          // Our own round: cut to her section and watch it go in, if the
+          // captain wants to.
+          if (ev.owner === this.shipId && this.penCam && getSettings().penCam !== false) this.penCam.offer(ev);
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
             this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
@@ -3448,6 +3457,7 @@ export class Battle {
     const ls = this.localShip;
     const settings = getSettings();
     if (this.torpLast && this.torpLast.t > 0) this.torpLast.t -= dt;
+    this.penCam?.update(dt);
     this.hud.setSpecPlate(this.specInfo());
     // A clock for whatever on a ship moves of its own accord: the carrier's
     // lifts and her launch cycle run off this. It is wall time, not a sum of
@@ -4975,6 +4985,7 @@ export class Battle {
   resize(w, h) { this.scene.resize(w, h); }
 
   dispose() {
+    this.penCam?.el.remove();
     this.off.forEach((f) => f());
     this.input.enabled = false;
     this.input.reset();

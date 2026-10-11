@@ -9,6 +9,7 @@ import {
   seaOf, waveTerms, seaHeight, seaAttitude, windAt, WAVES as SEA_WAVES, SEA_AMP,
 } from '../shared/sea.js';
 import { lampCount, setLamp, lampWire, freshLamps, LAMP_PITCH } from '../shared/searchlights.js';
+import { armourScheme, layersFor, walkLayers, LAYER_NAMES } from '../shared/armor.js';
 import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlights.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
@@ -32,7 +33,7 @@ import {
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
-  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN,
+  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -657,8 +658,12 @@ check('what a shell does to her is settled by the plate it met', () => {
   const oblique = strikes('hipper', 'cleveland', 'ap', 35, 25);
   assert.ok(abeam.citadel > 0.9,
     `203 mm AP should beat a Cleveland's belt abeam: ${JSON.stringify(abeam)}`);
-  assert.ok(oblique.shatter > 0.9,
-    `angled, the same belt should break it up: ${JSON.stringify(oblique)}`);
+  // Angled, it cannot reach her machinery. Her armour is layers now (see
+  // shared/armor.js): it may still beat the outer belt and be stopped by the
+  // torpedo bulkhead behind it, and burst in the space between them -- which
+  // is what that bulkhead was there for -- but it does not get into the box.
+  assert.ok(!oblique.citadel && (oblique.shatter || 0) + (oblique.pen || 0) > 0.9,
+    `angled, the same belt should keep it out of her citadel: ${JSON.stringify(oblique)}`);
   // And that is the plate, not the angle turning it: at thirty-five degrees
   // of aspect the shell is still meeting her well inside the angle anything
   // glances off at.
@@ -18029,6 +18034,54 @@ check('the lamps stand where a ship of her type carries them', () => {
     lamps.set(null);
     assert.ok(lamps.lamps.every((l) => !l.beam.visible));
   }
+});
+
+
+
+check('her armour is the layers it is made of, and adds up to her datasheet', () => {
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const S = armourScheme(cls, freeboardOf(cls));
+    const sum = (part) => layersFor(S, part).reduce((n, L) => n + L.t, 0);
+    assert.ok(Math.abs(sum('belt') - cls.armor.belt) < 1e-6, `${id}: her side layers do not add up to her belt`);
+    assert.ok(Math.abs(sum('deck') - cls.armor.deck) < 1e-6, `${id}: her deck layers do not add up to her deck`);
+    for (const part of ['belt', 'deck', 'bow', 'stern', 'superstructure']) {
+      for (const L of layersFor(S, part)) assert.ok(LAYER_NAMES[L.k], `${id}: a plate with no name`);
+    }
+    if (S.boxed) {
+      assert.equal(layersFor(S, 'belt').length, 2, `${id}: an armoured ship with no bulkhead behind her belt`);
+      assert.equal(layersFor(S, 'deck').length, 3, `${id}: an armoured ship with one deck`);
+      assert.ok(S.bulkheadX < S.B2 && S.splinterDeck < S.mainDeck && S.mainDeck <= S.fb);
+    }
+  }
+  // A shell is stopped by the first plate it cannot beat, and not before.
+  const L = [{ k: 'b', t: 300, face: 'side' }, { k: 'k', t: 30, face: 'side' }];
+  const sq = () => 1;
+  assert.equal(walkLayers(L, 250, sq).stop, 0);
+  assert.equal(walkLayers(L, 320, sq).stop, 1);
+  assert.equal(walkLayers(L, 400, sq).stop, -1);
+  // And met at an angle, a plate is thicker in its path.
+  assert.equal(walkLayers(L, 400, () => 0.5).stop, 0);
+});
+
+check('a hit carries the plates it went through, and they agree with what it did', () => {
+  const world = generateWorld(1, 'open_ocean', 'day', 9000, null, 'sunny');
+  const shoot = (from, to, v, y, lz = 0) => {
+    const st = createState(world);
+    const t = addShip(st, { name: 'T', classId: to, team: 1, index: 0 });
+    t.heading = 0; t.x = 0; t.z = 0;
+    const gun = SHIP_CLASSES[from].gun;
+    const sh = { x: 0, y, z: 0, ...v, g: 9.81, team: 0, owner: 7, caliber: gun.caliber, spec: gun.shells.ap, life: 6, kind: 'ap' };
+    resolveShellHit(st, sh, t, SHIP_CLASSES[to].hull.beam / 2, lz, y);
+    return st.events.find((e) => e.e === 'hit');
+  };
+  const small = shoot('fletcher', 'yamato', { vx: -700, vy: -30, vz: 40 }, 2);
+  assert.equal(small.kind, 'shatter');
+  assert.equal(small.ps, 0, 'a shell that shattered is not stopped by its first plate');
+  assert.ok(small.pl.length >= 2 && small.pl[0][0] === 'b');
+  const big = shoot('iowa', 'kongo', { vx: -700, vy: -60, vz: 80 }, 4, -40);
+  assert.ok(['citadel', 'pen'].includes(big.kind), big.kind);
+  if (big.kind === 'citadel') assert.equal(big.ps, -1, 'a citadel hit stopped in her armour');
+  assert.ok(Array.isArray(big.lv) && big.lv.length === 3 && big.sc === 'kongo');
 });
 
 

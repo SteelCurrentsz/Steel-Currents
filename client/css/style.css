@@ -2248,3 +2248,9 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
    label sits on two lines. */
 #key-lamps { width: 70px; }
 #key-lamps span { letter-spacing: 0.1em; line-height: 1.05; text-align: center; }
+
+/* The penetration camera: her section, over everything, for a moment. A tap
+   anywhere puts the battle back. */
+.pen-cam { position: absolute; inset: 0; z-index: 30; cursor: pointer; }
+.pen-cam[hidden] { display: none; }
+.pen-cam canvas { display: block; width: 100%; height: 100%; }

@@ -12,6 +12,9 @@ const DEFAULTS = {
   shadows: true,
   // Whether your own guns kick the camera when they fire.
   recoil: true,
+  // The penetration camera: the cut to her section when one of your rounds
+  // strikes a ship. See render/pencam.js.
+  penCam: true,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
   // Null means she sails with what her datasheet says.
   airGroup: null,
