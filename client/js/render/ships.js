@@ -19,6 +19,7 @@ import { buildMusashi } from './musashi.js';
 import { buildFuso } from './fuso.js';
 import { buildKongo } from './kongo.js';
 import { buildBismarck, buildTirpitz } from './bismarck.js';
+import { buildScharnhorst } from './scharnhorst.js';
 import { buildRichelieu } from './richelieu.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
@@ -577,6 +578,20 @@ export function buildShipModel(classId) {
   // And the Bismarck: the owner's sculpts of her hull, her forward
   // superstructure and her guns, with what stood abaft her funnel built to her
   // plans.
+  // The owner's sculpts of her, with her tubes on her deck.
+  if (cls.id === 'scharnhorst') {
+    const built = buildScharnhorst();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
   if (cls.id === 'bismarck') {
     const built = buildBismarck();
     Object.assign(built.group.userData, {

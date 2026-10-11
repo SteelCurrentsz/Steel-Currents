@@ -470,10 +470,10 @@ function mountings(g, v = SISTERS.bismarck) {
  * sculpted it (see gunPiece): it trains on its ring on her upper deck, its
  * four tubes level, and its muzzles are the ends of its tubes.
  */
-function torpedoBank(g, spec, trainRate) {
+export function torpedoBank(g, spec, trainRate, seatY = bismarckSeatY) {
   const piece = gunPiece('tubes');
   const m = new THREE.Group();
-  m.position.set(spec.x, bismarckSeatY(spec.x, spec.z, 1.6), spec.z);
+  m.position.set(spec.x, seatY(spec.x, spec.z, 1.6), spec.z);
   m.rotation.y = spec.angle;
   m.userData.rest = 0;
   m.userData.dynamic = true;
@@ -515,16 +515,18 @@ function fishGeometry() {
 }
 
 /**
- * Her tubes, firing: `fireTubes(i, t)` throws the four fish out of bank `i`,
- * one tube after another, as the simulation launches them (see fireTorpedoes
- * and the class's `launch`). Each is blown out along its own tube, and once
+ * Her tubes, firing: `fireTubes(i, t)` throws the fish out of bank `i`, one
+ * tube after another, as the simulation launches them (see fireTorpedoes and
+ * the class's `launch`) -- out of the tubes whose lanes `launch.lanes` names,
+ * which for the Tirpitz is all four and for a ship that fires three out of a
+ * bank of four is three. Each is blown out along its own tube, and once
  * its middle is past the muzzle it drops -- going on at the speed it left at
  * and tipping nose down as it falls -- until it is in the sea, where it is put
  * on `userData.dropped` for a splash and the simulation's torpedo, which went
  * in at the same place, takes over. All of it in her own frame, from where the
  * bank was trained when it fired.
  */
-function fitTubes(g, banks, launch) {
+export function fitTubes(g, banks, launch) {
   const flying = [];
   const mat = new THREE.MeshLambertMaterial({ color: P.gunDark, side: THREE.DoubleSide });
   const out = (launch.muzzle - launch.lie) / launch.eject;
@@ -532,7 +534,8 @@ function fitTubes(g, banks, launch) {
   g.userData.fireTubes = (i, t) => {
     const bank = banks[i];
     if (!bank) return;
-    const bores = bank.userData.bores;
+    // The bores the class fires from, each the one nearest its lane.
+    const bores = launch.lanes.map((l) => bank.userData.bores.reduce((a, b) => (Math.abs(b[0] - l) < Math.abs(a[0] - l) ? b : a)));
     if (!bank.userData.fish) {
       bank.userData.fish = bores.map(() => {
         const f = new THREE.Mesh(fishGeometry(), mat);
