@@ -648,30 +648,31 @@ export const TURRETS = [
 
 // Her four 15 cm twin turrets on her upper deck, one either side abreast her
 // bridge and one either side abreast her mainmast, each on a short barbette of
-// its own; and her four 15 cm singles in their shields, on her upper deck
-// between them, either side of her funnel and abaft it.
+// its own; and her four 15 cm singles in their shields at her deck edge between
+// them, either side of the 10.5 cm abreast her funnel -- as her plans of 1943
+// have them.
 const sides = (list, seat) => list.flatMap((d) => [-1, 1].map((sgn) => ({
   name: `${d.name} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * d.x, z: d.z, rest: sgn * Math.PI / 2,
   seat: +(gunwaleAt(d.z).y + seat).toFixed(3),
 })));
-export const SECONDARY = sides([{ name: 'S1', x: 10.0, z: 13.6 }, { name: 'S4', x: 9.4, z: -34.5 }], 0.7);
-export const SINGLES = sides([{ name: 'S2', x: 10.4, z: 1.5 }, { name: 'S3', x: 10.4, z: -13.4 }], 0.25);
+export const SECONDARY = sides([{ name: 'S1', x: 9.5, z: 17.1 }, { name: 'S4', x: 8.8, z: -35.6 }], 0.7);
+export const SINGLES = sides([{ name: 'S2', x: 12.4, z: 2.5 }, { name: 'S3', x: 12.4, z: -8.1 }], 0.25);
 
 // What the two superstructure sculpts carried that is not theirs to keep, and
 // stands where a gun of hers that trains goes: cut out down to the floor it
 // stood on and up past its top, and closed over. The after sculpt's own after
-// 15 cm turrets, abreast her mainmast where hers stand; the three small
-// mountings either side of her funnel on her upper deck, where her 15 cm
-// singles and the middle of her 10.5 cm stand; and the 10.5 cm on the after
-// end of her after superstructure.
+// 15 cm turrets, abreast her mainmast where hers stand; what the two sculpts
+// stood on her upper deck either side of her funnel, from her bridge to her
+// cranes, where her 10.5 cm and her 15 cm singles stand; and the 10.5 cm on the
+// after end of her after superstructure.
 const box = (x0, x1, z0, z1, y0, y1) => ({ x0, x1, z0, z1, y0, y1 });
 const both = (b) => [b, { ...b, x0: -b.x1, x1: -b.x0 }];
 export const CUTS = [
   ...both(box(4.9, 11.0, -44.6, -30.6, 4.35, 10.5)),
-  ...both(box(7.1, 11.8, -8.6, -2.4, 4.3, 8.4)),
-  ...both(box(7.1, 11.6, -2.2, 7.4, 4.3, 8.0)),
-  ...both(box(7.1, 11.8, -15.8, -10.8, 4.3, 8.4)),
-  box(-3.6, 3.6, -59.6, -50.4, 6.02, 9.5),
+  ...both(box(7.1, 14.5, -16.0, -10.3, 4.3, 8.4)),
+  ...both(box(7.1, 14.5, -10.3, 4.9, 4.3, 8.4)),
+  ...both(box(7.1, 14.5, 4.9, 11.9, 4.3, 8.2)),
+  box(-4.0, 4.0, -59.6, -50.4, 6.02, 9.5),
 ];
 // The point of her conning tower, and how far out either side of it the
 // house it stands on goes: nothing of the forward sculpt stands forward of it
@@ -684,12 +685,16 @@ export const SCULPTED_LIGHT = [
   { name: '3.7 funnel', x: 3.3, z: 3.6, r: 1.6, deck: 10.9 },
   { name: '3.7 after', x: 3.0, z: -40.1, r: 1.3, deck: 8.8 },
 ].flatMap((l) => [-1, 1].map((sgn) => ({ ...l, name: `${l.name} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * l.x })));
-// Her 10.5 cm twins: the middle of the three small mountings either side of
-// her funnel, and the one on the after end of her after superstructure,
-// trained aft over Caesar.
+// Her 10.5 cm twins, seven of them as her plans of 1943 have them: three either
+// side -- on a round platform abreast her bridge (`tub`, its height over her
+// deck), on her deck edge abreast her funnel between her 15 cm singles, and on
+// a round platform abaft her funnel by her cranes -- and one on the after end
+// of her after superstructure, trained aft over Caesar.
 export const FLAK = [
-  { name: '10.5 port', x: 10.6, z: -5.5, rest: Math.PI / 2 },
-  { name: '10.5 stbd', x: -10.6, z: -5.5, rest: -Math.PI / 2 },
+  ...[{ name: '10.5 I', x: 10.8, z: 8.1, tub: 0.6 }, { name: '10.5 II', x: 11.9, z: -2.7 },
+    { name: '10.5 III', x: 10.8, z: -13.0, tub: 0.6 }].flatMap((d) => [-1, 1].map((sgn) => ({
+    ...d, name: `${d.name} ${sgn > 0 ? 'port' : 'stbd'}`, x: sgn * d.x, rest: sgn * Math.PI / 2,
+  }))),
   { name: '10.5 aft', x: 0, z: -54.2, rest: Math.PI, floor: 5.92 },
 ];
 
@@ -748,7 +753,7 @@ for (const [name, sup] of [['fore', FORE_SUP], ['aft', AFT_SUP]]) {
 }
 // Where each gun stands that was cut out of them: on the floor its sculpt
 // stood it on.
-for (const f of FLAK) f.seat = +(f.floor ?? gunwaleAt(f.z).y).toFixed(3);
+for (const f of FLAK) f.seat = +(f.floor ?? gunwaleAt(f.z).y + (f.tub || 0)).toFixed(3);
 recomputeNormals(m);
 console.log(`faces facing in: ${turnInward(m)} turned`);
 
@@ -932,7 +937,7 @@ const mounts = {
   turrets: TURRETS.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   secondary: SECONDARY.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
   singles: SINGLES.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
-  flak: FLAK.map(({ name, x, z, rest, seat }) => ({ name, x, z, rest: +rest.toFixed(6), seat })),
+  flak: FLAK.map(({ name, x, z, rest, seat, tub }) => ({ name, x, z, rest: +rest.toFixed(6), seat, ...(tub ? { tub } : {}) })),
   sculptedLight: SCULPTED_LIGHT.map(({ name, x, z, deck }) => ({ name, x, z, deck })),
 };
 writeFileSync(OUT_DATA,

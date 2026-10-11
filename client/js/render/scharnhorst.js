@@ -17,11 +17,12 @@
 //     the owner's gunhouse on a barbette of its own, its three barrels on a
 //     cradle that elevates;
 //   * her four 15 cm twin turrets on their barbettes and her four 15 cm
-//     singles on their pedestals, her 10.5 cm twins, her 3.7 cm twins and her
-//     2 cm singles (see kmguns.js);
-//   * her two banks of tubes, either side on her upper deck abreast her after
-//     superstructure, which train, and which throw three fish each over her
-//     side when they fire, out of three of the four tubes in each;
+//     singles on their pedestals at her deck edge, her seven 10.5 cm twins,
+//     four of them on round platforms, her 3.7 cm twins and her 2 cm singles
+//     (see kmguns.js) -- all where her plans of 1943 put them;
+//   * her two banks of tubes, either side at her deck edge abreast her cranes,
+//     which train, and which throw three fish each over her side when they
+//     fire, out of three of the four tubes in each;
 //   * what was on her weather deck: the breakwater forward of Anton, her
 //     anchor gear and her anchors, her bollards, her jack and ensign staffs;
 //   * her three screws, which turn;
@@ -212,6 +213,23 @@ function barbettes(g) {
     const foot = deckOver((2 * s.z) / LOA) - 0.3;
     const top = s.seat - 0.02;
     cyl(g, M.steel, SEC_BARBETTE_R, SEC_BARBETTE_R, top - foot, s.x, (top + foot) / 2, s.z, 28);
+  }
+}
+
+/**
+ * The round platforms her 10.5 cm stand on abreast her bridge and by her
+ * cranes, a hand over her deck: a low drum with a steel deck on it and a
+ * coaming round its edge.
+ */
+const TUB_R = 3.0;
+function flakPlatforms(g) {
+  for (const f of MOUNT_SEATS.flak) {
+    if (!f.tub) continue;
+    const foot = deckOver((2 * f.z) / LOA) - 0.3;
+    const top = f.seat - 0.02;
+    cyl(g, M.steel, TUB_R, TUB_R + 0.1, top - foot, f.x, (top + foot) / 2, f.z, 32);
+    cyl(g, M.deckSteel, TUB_R - 0.05, TUB_R - 0.05, 0.04, f.x, top + 0.01, f.z, 32);
+    cyl(g, M.steelDark, TUB_R + 0.04, TUB_R + 0.04, 0.12, f.x, top + 0.06, f.z, 32);
   }
 }
 
@@ -500,6 +518,7 @@ function screws(g) {
 const STATIC = [
   ['hullModel', buildScharnhorstHull],
   ['barbettes', barbettes],
+  ['flakPlatforms', flakPlatforms],
   ['fittings', weatherDeck],
   ['armour', armour],
   ['screws', screws],
