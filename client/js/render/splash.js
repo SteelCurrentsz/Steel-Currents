@@ -476,6 +476,12 @@ const KINDS = {
   dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32, maxH: 45 },
   torp: { tall: 1, wide: 1, stem: 0.5, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
   drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0, maxH: 25 },
+  // A sea broken against her bow: low and wide, thrown out and back along her
+  // side rather than up, with no column in the middle of it.
+  bow: { tall: 0.5, wide: 1.6, stem: 0.12, side: [2, 3], head: 7, bloom: 2.0, surge: 10, reach: 1.3, drops: 1.6, delay: 0, maxH: 22, ring: 0.18 },
+  // Her bow coming down out of the air onto the back of a sea: a slab of
+  // water flung out on both sides of her, wider than it is high.
+  slam: { tall: 0.42, wide: 2.1, stem: 0.1, side: [2, 3], head: 8, bloom: 2.3, surge: 16, reach: 1.7, drops: 2.0, delay: 0, maxH: 18, ring: 0.3 },
 };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -858,7 +864,14 @@ export class Splashes {
     // And the wave that runs out from it: into the sea itself if there is one
     // to write to, or as the swell meshes if there is not.
     if (this.waves) {
-      this.waves.add(x, z, height, radius, opts.kind === 'dc' ? 1.4 : 1);
+      // A sea breaking on a ship's bow throws spray, not a wave: most of the
+      // water in it was the wave already. See `ring` in KINDS.
+      if (kind.ring) {
+        this.waves.add(x, z, Math.min(height, kind.maxH || Infinity) * kind.ring,
+          radius * Math.sqrt(kind.ring), kind.ring);
+      } else {
+        this.waves.add(x, z, height, radius, opts.kind === 'dc' ? 1.4 : 1);
+      }
     } else {
       const rings = Math.max(1, Math.round(3 * this.intensity));
       for (let i = 0; i < rings; i++) this.swell(x, z, radius, height, i);

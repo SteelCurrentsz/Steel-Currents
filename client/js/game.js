@@ -18,12 +18,14 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
+  freeboardOf,
 } from '../../shared/sim.js';
+import { windAt } from '../../shared/sea.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
-import { groundHeight, applyCrater } from '../../shared/world.js';
+import { groundHeight, applyCrater, getWeather } from '../../shared/world.js';
 
 // How far behind the server everybody else is drawn, in the server's own
 // seconds. A little over two snapshots at fifteen a second, so one of them can
@@ -267,6 +269,17 @@ function batteryKind(row) {
   // the word. See dropCharges.
   if (row.charges) return 'dc';
   return null;
+}
+
+/**
+ * The gale an aeroplane is flying in at a moment, or null when there is none
+ * worth the name. The same wind the server is blowing (see shared/sea.js).
+ */
+function galeOf(world, t) {
+  const wx = getWeather(world?.weather);
+  if (!wx.blow) return null;
+  const w = windAt(world, Number.isFinite(t) ? t : 0);
+  return { x: w.x, z: w.z, rough: w.blow * (w.speed / 36) };
 }
 
 export class Battle {
@@ -1559,6 +1572,18 @@ export class Battle {
             audio.click();
           }
           break;
+        case 'swamp': {
+          // A sea over one of her own mountings: out until it has run off.
+          if (ev.ship !== this.shipId) break;
+          const now = performance.now();
+          if (now - (this.swampSaid || 0) < 4000) break;
+          this.swampSaid = now;
+          const row = ev.k === 'main' ? this.cls.turrets?.[ev.i] : null;
+          this.hud.alert(row && row.name
+            ? `${row.name} turret swamped`
+            : ev.k === 'main' ? 'Turret swamped' : 'Secondary mounting swamped');
+          break;
+        }
         case 'sinking': {
           // She is going. Not gone: whatever is still above the water goes on
           // fighting, and she has as long as the sea gives her.
@@ -2713,6 +2738,7 @@ export class Battle {
       // spending the rest of the battle in her.
       if (f.orphanAt > 180) { this.leaveFlight(true); return; }
       const sea = this.scene.ocean.heightAt(f.pilot.x, f.pilot.z);
+      f.pilot.gale = galeOf(this.world, this.renderST ?? this.time);
       f.pilot.step(dt, sea);
       if (!f.pilot.alive) {
         // The sea. She goes in where she went in.
@@ -2766,6 +2792,7 @@ export class Battle {
     p.stickRoll = stick.roll * wear.turn + wear.pull;
     p.throttle = stick.throttle * wear.speed;
     const sea = this.scene.ocean.heightAt(p.x, p.z);
+    p.gale = galeOf(this.world, this.renderST ?? this.time);
     p.step(dt, sea);
     if (!p.alive) { this.leaveFlight(true); return; }
 
@@ -3468,6 +3495,74 @@ export class Battle {
     );
   }
 
+  /** Whether this is a sea that breaks over ships. */
+  get storm() {
+    return (getWeather(this.world?.weather).swell || 1) > 1;
+  }
+
+  /**
+   * A heavy sea against her: a crest coming up over her bow, and her
+   * forefoot slamming back into the water after a sea has lifted it clear.
+   *
+   * Both are read off the hull as it is drawn -- her heave, pitch and roll --
+   * against the water at her stem, so the spray goes up at the moment the
+   * picture shows the sea hitting her. Only for ships close enough to see it.
+   */
+  seaSpray(view, cls, x, z, h, dt) {
+    const cam = this.scene.camera.position;
+    if ((cam.x - x) ** 2 + (cam.z - z) ** 2 > 3200 * 3200) return;
+    const L = cls.hull.length;
+    const zb = L * 0.44;
+    const g = view.group;
+    const r = g.rotation.z, p = g.rotation.x;
+    const yAt = (ly, lz) => g.position.y + ly * Math.cos(r) * Math.cos(p) - lz * Math.sin(p);
+    const bx = x + Math.sin(h) * zb, bz = z + Math.cos(h) * zb;
+    const water = this.scene.ocean.heightAt(bx, bz);
+    // Her deck at the stem stands higher than amidships: she has sheer.
+    const deck = water - yAt(freeboardOf(cls) * 1.2 + 1, zb);
+    const foot = water - yAt(0, zb);
+    const k = view.spray || (view.spray = { deck, foot, wait: 0, clear: false, low: false });
+    // Armed by the sea having been well down her stem, and her forefoot
+    // having been out of it, since each last went off.
+    if (foot < -0.4) k.clear = true;
+    const dDeck = (deck - k.deck) / Math.max(dt, 1e-3);
+    const dFoot = (foot - k.foot) / Math.max(dt, 1e-3);
+    k.wait -= dt;
+    if (k.wait <= 0) {
+      const fx = this.scene.effects;
+      const side = (s) => {
+        // Out to either side of her stem and thrown aft along her.
+        const lx = s * cls.hull.beam * 0.35;
+        const w = localToWorld(lx, zb * 0.92, h);
+        return { x: x + w.x, z: z + w.z, heading: wrapAngle(h + Math.PI - s * 0.9) };
+      };
+      // How near a sea has to come to her deck edge to break over her bow.
+      const NEAR = 2.6;
+      if (deck < -NEAR - 1.5) k.low = true;
+      if (k.low && deck >= -NEAR && dDeck > 0.6) {
+        k.low = false;
+        // A sea come up her stem to the deck edge and over it.
+        const bore = clamp(110 + dDeck * 30 + Math.max(0, deck) * 20 + L * 0.3, 120, 320);
+        for (const s of [-1, 1]) {
+          const at = side(s);
+          fx.splash(at.x, at.z, bore * (0.8 + Math.random() * 0.3), { kind: 'bow', heading: at.heading });
+        }
+        k.wait = 1.2;
+      } else if (k.clear && foot >= 0 && dFoot > 0.8) {
+        k.clear = false;
+        // Her forefoot was out of the sea and has come down on it.
+        const bore = clamp(130 + dFoot * 35 + L * 0.35, 140, 360);
+        for (const s of [-1, 1]) {
+          const at = side(s);
+          fx.splash(at.x, at.z, bore * (0.85 + Math.random() * 0.3), { kind: 'slam', heading: at.heading });
+        }
+        k.wait = 1.6;
+      }
+    }
+    k.deck = deck;
+    k.foot = foot;
+  }
+
   visibleShips() {
     const snap = this.snapshots[this.snapshots.length - 1];
     return snap ? snap.ships : [];
@@ -3478,6 +3573,9 @@ export class Battle {
     if (!this.snapshots.length) return;
     // On the server's clock, not on the arrival times. See onSnapshot.
     const pair = this.snapshotPair(this.stepRenderClock());
+    // The sea runs on the server's clock, so the wave that the simulation
+    // says is over a turret is the wave that is drawn over it.
+    if (Number.isFinite(this.renderST)) this.scene.ocean.clock = this.renderST;
     if (!pair) return;
     const { a, b, t, ahead } = pair;
 
@@ -3552,6 +3650,9 @@ export class Battle {
       // at that rate shudders.
       view.rockNow = (view.rockNow || 0) + ((view.rockBy || 0) - (view.rockNow || 0)) * (1 - Math.exp(-dt / 0.09));
       view.group.rotation.z = sea.roll - view.heelBy - lean - view.rockNow;
+      // And what a heavy sea does against her: breaking over her bow, and
+      // thrown out either side of her when she comes down on it.
+      if (this.storm) this.seaSpray(view, cls, x, z, h, dt);
 
       // Every ship's guns are laid by her own gunnery officer now, ours
       // included, so the bearings all come off the wire.

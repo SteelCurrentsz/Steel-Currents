@@ -288,15 +288,28 @@ export const TIMES = ['dawn', 'day', 'dusk', 'night'];
  *            right down, which is a tactical fact and not a filter over it.
  *   fall     what is coming down, if anything.
  *   lightning average seconds between strikes, or 0.
+ *   wind     the mean wind, in metres a second; and `blow`, how much of it
+ *            the simulation acts on. Short of a typhoon no wind moves a shell
+ *            or an aeroplane far enough to be worth working out.
+ *   swell    how much taller every wave is than the sea state makes it, and
+ *   short    how much more again the short, breaking sea is built up, which
+ *            is the part of a storm that comes aboard (see shared/sea.js).
+ *   dark     what is left of the light after the sky has done with it, on
+ *            top of the hour's own: a typhoon is dark at noon, and at night
+ *            it is darker than night.
  */
-export const WEATHERS = ['sunny', 'cloudy', 'rain', 'thunder', 'snow'];
+export const WEATHERS = ['sunny', 'cloudy', 'rain', 'thunder', 'typhoon', 'super_typhoon', 'snow'];
 
 export const WEATHER = {
-  sunny:   { name: 'Sunny',        sea: 0,   light: 1.00, fog: 1.0, sight: 1.00, fall: null,   drop: 0,    lightning: 0 },
-  cloudy:  { name: 'Cloudy',       sea: 0.6, light: 0.70, fog: 1.5, sight: 0.90, fall: null,   drop: 0,    lightning: 0 },
-  rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0 },
-  thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9 },
-  snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0 },
+  sunny:   { name: 'Sunny',        sea: 0,   light: 1.00, fog: 1.0, sight: 1.00, fall: null,   drop: 0,    lightning: 0, wind: 4 },
+  cloudy:  { name: 'Cloudy',       sea: 0.6, light: 0.70, fog: 1.5, sight: 0.90, fall: null,   drop: 0,    lightning: 0, wind: 7 },
+  rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0, wind: 10 },
+  thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9, wind: 16 },
+  typhoon: { name: 'Typhoon',      sea: 3.2, light: 0.22, fog: 5.6, sight: 0.36, fall: 'rain', drop: 2.6,  lightning: 6,
+    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55 },
+  super_typhoon: { name: 'Super Typhoon', sea: 3.8, light: 0.12, fog: 7.4, sight: 0.26, fall: 'rain', drop: 3.8, lightning: 4,
+    wind: 62, blow: 1, swell: 1.8, short: 6.0, steep: 1.25, dark: 0.32 },
+  snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0, wind: 9 },
 };
 
 export function getWeather(id) {

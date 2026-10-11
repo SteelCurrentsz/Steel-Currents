@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
-  spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt,
+  spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
 } from '../shared/world.js';
+import {
+  seaOf, waveTerms, seaHeight, seaAttitude, windAt, WAVES as SEA_WAVES, SEA_AMP,
+} from '../shared/sea.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
@@ -27,6 +30,7 @@ import {
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
+  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -17856,6 +17860,173 @@ check('the sea is told about the hulls nearest the eye, and lets go of one that 
   const boat = seaView('u48');
   breakers.update(0, eye, [boat]);
   assert.equal(u.uHullCount.value, 0, 'a surfaced boat is having the sea kept off her casing');
+});
+
+
+check('a typhoon comes after a thunderstorm and a super typhoon after that, each worse', () => {
+  const at = (id) => WEATHERS.indexOf(id);
+  assert.equal(at('typhoon'), at('thunder') + 1, 'the typhoon is not next after the thunderstorm');
+  assert.equal(at('super_typhoon'), at('typhoon') + 1, 'the super typhoon is not next after the typhoon');
+  assert.equal(WEATHER.typhoon.name, 'Typhoon');
+  assert.equal(WEATHER.super_typhoon.name, 'Super Typhoon');
+  // The height of the sea, as the hour and the theatre leave it the same.
+  const hs = (wx) => {
+    const S = seaOf({ weather: wx, time: 'day', sea: 6 });
+    const W = waveTerms(S.amp, S.steep, S.short);
+    return 4 * Math.sqrt([...W.a].reduce((n, a) => n + a * a, 0) / 2);
+  };
+  const order = ['thunder', 'typhoon', 'super_typhoon'];
+  for (let i = 1; i < order.length; i++) {
+    const a = WEATHER[order[i - 1]], b = WEATHER[order[i]];
+    assert.ok(hs(order[i]) > hs(order[i - 1]) * 1.3, `${order[i]} is not a much higher sea`);
+    assert.ok(b.drop > a.drop, `${order[i]} does not rain harder`);
+    assert.ok(b.wind > a.wind, `${order[i]} does not blow harder`);
+    assert.ok(b.light < a.light && (b.dark ?? 1) < (a.dark ?? 1), `${order[i]} is not darker`);
+  }
+  // Dark whatever the hour: it is a share of the light, so night is darker still.
+  assert.ok(WEATHER.typhoon.dark < 1 && WEATHER.super_typhoon.dark < WEATHER.typhoon.dark);
+});
+
+check('the sea the server reckons with is the sea the screen draws', () => {
+  for (const wx of ['sunny', 'typhoon', 'super_typhoon']) {
+    for (const time of ['day', 'night']) {
+      const world = { weather: wx, time, sea: 5 };
+      const sea = Object.create(Ocean.prototype);
+      sea.preset = { amp: SEA_AMP[time] };
+      sea.material = { uniforms: {
+        uAmp: { value: 0 }, uSteep: { value: 1 }, uChop: { value: 1 }, uTime: { value: 0 },
+        uWave: { value: SEA_WAVES.map((w) => ({ w: w.amp })) },
+      } };
+      sea.setSeaState(world.sea, WEATHER[wx]);
+      const S = seaOf(world);
+      const W = waveTerms(S.amp, S.steep, S.short);
+      for (const [x, z, t] of [[0, 0, 3], [420, -77, 31.5], [-1900, 2400, 400]]) {
+        assert.ok(Math.abs(sea.heightAt(x, z, t) - seaHeight(W, x, z, t)) < 1e-9,
+          `${wx} at ${time}: the client's water and the server's disagree at ${x},${z}`);
+      }
+      // And the shader is fed the same heights wave by wave.
+      sea.material.uniforms.uWave.value.forEach((v, i) => {
+        assert.ok(Math.abs(v.w * sea.material.uniforms.uAmp.value - W.a[i]) < 1e-9, `${wx}: wave ${i} drawn at the wrong height`);
+      });
+    }
+  }
+});
+
+check('a hull lifts her bow to the sea standing under it', () => {
+  // The renderer's sense: positive is bow down. So water higher forward than
+  // aft wants a negative pitch -- the other way round, she buries her bow in
+  // every crest she meets.
+  const S = seaOf({ weather: 'typhoon', time: 'day', sea: 5 });
+  const W = waveTerms(S.amp, S.steep, S.short);
+  let seen = 0;
+  const hl = 220 * 0.46;
+  const mean = (sgn, t) => [0.33, 0.67, 1].reduce((n, u) => n + seaHeight(W, 0, sgn * u * hl, t), 0) / 3;
+  for (let t = 0; t < 120; t += 0.7) {
+    const fwd = mean(1, t), aft = mean(-1, t);
+    if (Math.abs(fwd - aft) < 3) continue;
+    const att = seaAttitude(W, 0, 0, 0, 220, 30, t);
+    assert.equal(Math.sign(att.pitch), Math.sign(aft - fwd), `at ${t}s her bow goes the wrong way`);
+    seen++;
+  }
+  assert.ok(seen > 20);
+});
+
+check('a typhoon sea puts her guns under for a moment, and only a typhoon does', () => {
+  const run = (wx, classId) => {
+    const world = generateWorld(5, 'open_ocean', 'day', 9000, null, wx);
+    const state = createState(world);
+    const ship = addShip(state, { name: 'A', classId, team: 0, index: 0 });
+    const cls = SHIP_CLASSES[classId];
+    let out = 0, back = 0, n = 0, swamps = 0, longest = 0, run = 0;
+    for (let i = 0; i < 30 * 180; i++) {
+      for (const ev of step(state)) if (ev.e === 'swamp' && ev.ship === ship.id) swamps++;
+      const any = ship.turrets.some((t) => gunState(ship, cls, cls.turrets[t.id], t) >= 3);
+      if (any) { out++; run++; longest = Math.max(longest, run); } else { if (run) back++; run = 0; }
+      n++;
+      assert.ok(canFight(ship), `${classId} in a ${wx} counted out of the fight by a sea over her`);
+      // Nothing swamped is damaged.
+      for (const t of ship.turrets) assert.ok(gunState(ship, cls, cls.turrets[t.id], t, true) < 3);
+    }
+    return { out: out / n, back, swamps, longest: longest * DT };
+  };
+  for (const wx of ['sunny', 'thunder']) {
+    const r = run(wx, 'fletcher');
+    assert.equal(r.swamps, 0, `a ${wx} swamped her turrets`);
+    assert.equal(r.out, 0);
+  }
+  const ty = run('typhoon', 'fletcher');
+  const sup = run('super_typhoon', 'fletcher');
+  assert.ok(ty.swamps > 10, `a typhoon put her turrets under only ${ty.swamps} times`);
+  assert.ok(ty.back > 5, 'a swamped turret never came back');
+  assert.ok(sup.out > ty.out, 'a super typhoon is no harder on her guns than a typhoon');
+  assert.ok(ty.longest < 60, `a turret was out for ${ty.longest.toFixed(0)}s at a stretch`);
+});
+
+check('the sea that swamps a turret is the sea over the turret', () => {
+  const world = generateWorld(5, 'open_ocean', 'day', 9000, null, 'super_typhoon');
+  const state = createState(world);
+  const ship = addShip(state, { name: 'A', classId: 'kongo', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.kongo;
+  const W = stormSea(state);
+  assert.ok(W, 'no storm sea in a super typhoon');
+  assert.equal(stormSea(createState(generateWorld(5, 'open_ocean', 'day', 9000, null, 'thunder'))), null);
+  let checked = 0;
+  for (let i = 0; i < 30 * 120; i++) {
+    const before = ship.turrets.map((t) => t.swamp || 0);
+    step(state);
+    if (!ship.seaAcc) {
+      // A step that looked at the sea: every turret it put under had the sea over it.
+      ship.turrets.forEach((t, k) => {
+        if ((t.swamp || 0) > before[k] + 1e-6) {
+          const spec = cls.turrets[t.id];
+          assert.ok(seaOver(state, ship, W, spec.x, spec.my + 0.4, spec.z) > 0);
+          checked++;
+        }
+      });
+    }
+  }
+  assert.ok(checked > 5);
+});
+
+check('a gale carries a shell and an aeroplane downwind, and a breeze does not', () => {
+  const landing = (wx, cal) => {
+    const world = generateWorld(5, 'open_ocean', 'day', 9000, null, wx);
+    const state = createState(world);
+    state.shells.push({ x: 0, y: 10, z: 0, vx: 500, vy: 250, vz: 0, g: 9.81, team: 0,
+      caliber: cal, life: 0, owner: 0, kind: 'ap' });
+    let last = null;
+    for (let i = 0; i < 30 * 70 && state.shells.length; i++) {
+      const sh = state.shells[0];
+      last = { x: sh.x, z: sh.z };
+      step(state);
+    }
+    assert.equal(state.shells.length, 0, 'the shell never came down');
+    return last;
+  };
+  const calm = landing('sunny', 406);
+  const ty = landing('typhoon', 406);
+  const sup = landing('super_typhoon', 406);
+  const light = landing('typhoon', 127);
+  const off = (a) => Math.hypot(a.x - calm.x, a.z - calm.z);
+  assert.ok(Number.isFinite(calm.x) && Number.isFinite(ty.x), 'the shell never came down');
+  assert.ok(off(ty) > 25, `a typhoon moved a heavy shell only ${off(ty).toFixed(1)} m`);
+  assert.ok(off(sup) > off(ty) * 1.3, 'a super typhoon is no worse for gunnery than a typhoon');
+  assert.ok(off(light) > off(ty), 'a light shell is carried no further than a heavy one');
+  // Downwind.
+  const w = windAt({ weather: 'typhoon' }, 10);
+  assert.ok(((ty.x - calm.x) * w.x + (ty.z - calm.z) * w.z) > 0, 'the shell went upwind');
+
+  const st = createState(generateWorld(5, 'open_ocean', 'day', 9000, null, 'super_typhoon'));
+  st.wind = windAt(st.world, 0);
+  const p = { id: 3, x: 0, y: 200, z: 0, bank: 0 };
+  for (let i = 0; i < 300; i++) { st.t += DT; st.wind = windAt(st.world, st.t); buffet(st, p, DT); }
+  assert.ok((p.x * st.wind.x + p.z * st.wind.z) > 0 && Math.hypot(p.x, p.z) > 100, 'the gale left her where she was');
+  assert.ok(Math.abs(p.y - 200) > 0.5 || Math.abs(p.bank) > 0.01, 'the gale never threw her about');
+  const calmSt = createState(generateWorld(5, 'open_ocean', 'day', 9000, null, 'thunder'));
+  calmSt.wind = windAt(calmSt.world, 0);
+  const q = { id: 3, x: 0, y: 200, z: 0, bank: 0 };
+  buffet(calmSt, q, 1);
+  assert.equal(q.x, 0, 'a thunderstorm blew an aeroplane off her track');
 });
 
 

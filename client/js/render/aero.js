@@ -212,6 +212,11 @@ export class Pilot {
     this.g = 1;
     this.stall = 0;
     this.alive = true;
+    // The gale she is flying in, when there is one: {x, z} of wind in metres a
+    // second and `rough`, how hard it throws her about. Set from outside every
+    // frame (see shared/sea.js windAt); null in any weather short of one.
+    this.gale = null;
+    this.galeT = Math.random() * 100;
   }
 
   /** The speed below which this wing will not hold her up in level flight. */
@@ -398,6 +403,21 @@ export class Pilot {
     this.x += Math.sin(this.heading) * ground * s;
     this.z += Math.cos(this.heading) * ground * s;
     this.y += this.v * Math.sin(this.pitch) * s;
+    // A gale carries the whole of her with it, the air she is flying in being
+    // on its way somewhere -- so she crabs to hold a track -- and it is not a
+    // smooth one. The gusts kick her wings over and drop her and lift her,
+    // and low over the sea that is a thing to be fighting all the time.
+    const gl = this.gale;
+    if (gl) {
+      this.galeT += s;
+      const t = this.galeT;
+      const k = gl.rough || 0;
+      this.x += (gl.x || 0) * s;
+      this.z += (gl.z || 0) * s;
+      this.bank += k * (0.32 * Math.sin(t * 2.3 + 0.4) + 0.18 * Math.sin(t * 5.7 + 1.9)) * s;
+      this.pitch += k * (0.10 * Math.sin(t * 1.7 + 2.1) + 0.06 * Math.sin(t * 4.3)) * s;
+      this.y += k * (2.4 * Math.sin(t * 1.13) + 1.3 * Math.sin(t * 3.7 + 0.8)) * s;
+    }
     // The sea is hard.
     if (this.y < seaAt + 2) {
       this.y = seaAt + 2;

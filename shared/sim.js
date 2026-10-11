@@ -22,6 +22,9 @@ import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
   groundHeight, soilAt, addCrater, craterWire, landCeiling,
 } from './world.js';
+import {
+  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt,
+} from './sea.js';
 
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
@@ -1080,9 +1083,14 @@ export function magazineDrowned(ship, cls, spec) {
 /**
  * What state a mounting is in: 0 sound, 1 damaged, 2 bad, 3 disabled.
  */
-export function gunState(ship, cls, spec, m) {
+export function gunState(ship, cls, spec, m, lasting = false) {
   if (!m) return 3;
   if (m.hurt >= 3) return 3;
+  // Green water over it: out of action until the sea has run off and her
+  // crew are back on their feet. Not for long, and not damage -- a ship is
+  // not out of the fight because a sea has come over her forecastle, so the
+  // question of whether she can still fight does not count it (`lasting`).
+  if (!lasting && m.swamp > 0) return 3;
   if (spec && magazineDrowned(ship, cls, spec)) return 3;
   // Under the sea: it does not fire, from the moment it is under.
   if (spec && ship.sinking && mountDrowned(ship, spec)) return 3;
@@ -1920,7 +1928,7 @@ export function aaBattery(cls) {
   if (hit) return hit;
   const out = [];
   const add = (m, range, caliber, name, battery) => out.push({
-    x: m.x, z: m.z, angle: m.angle, arc: m.arc, guns: m.guns || 1,
+    x: m.x, z: m.z, my: m.my, angle: m.angle, arc: m.arc, guns: m.guns || 1,
     // How far up and how far down that mounting will go, off the battery it
     // belongs to. A quadruple 1.1" and a 5"/38 are both anti-aircraft guns and
     // they do not have the same stops.
@@ -2007,6 +2015,8 @@ export function aaBearing(cls, ship, px, pz, py) {
     // fire. So does a mounting standing on a compartment that has been shot
     // out of her.
     if (lightGunState(ship, cls, m) >= 3) continue;
+    // Or with a sea over it this moment.
+    if (ship.aaWet && ship.aaWet[mi] > 0) continue;
     // And a mounting a fighter has been along: its crew are down or its gun
     // is wrecked, and either way it is not shooting at anybody.
     if (!flakUp(ship, mi)) continue;
@@ -2688,6 +2698,146 @@ function collapseGround(state, c, soft) {
   }
 }
 
+/**
+ * How hard a gale pushes a shell sideways, per metre a second of wind.
+ *
+ * Nothing short of a typhoon is worth working out: a shell is in the air for
+ * half a minute at the most and a breeze moves it a few metres in that. In a
+ * typhoon it moves it a ship's length, and a light shell -- which has less
+ * weight to carry its way through the air -- further than a heavy one. The
+ * fire-control tables of the day had a wind correction, but nothing corrects
+ * for a gust that arrives while the shell is in flight.
+ */
+export const WIND_PUSH = 0.006;
+function windPush(state, bore = 152) {
+  const w = state.wind;
+  if (!w || !w.blow) return 0;
+  return WIND_PUSH * w.blow * Math.sqrt(406 / Math.max(20, bore || 152));
+}
+
+/**
+ * What a gale does to an aeroplane: it carries her downwind, and it throws
+ * her about. A pilot crabs into it and gets some of the drift back, which is
+ * why only half the wind is put on her track; the gusts he can do nothing
+ * about, and a low torpedo bomber in a super typhoon spends the whole of her
+ * run fighting to keep her wings out of the sea.
+ */
+export function buffet(state, p, dt) {
+  const w = state.wind;
+  if (!w || !w.blow) return;
+  p.x += w.x * 0.5 * w.blow * dt;
+  p.z += w.z * 0.5 * w.blow * dt;
+  const rough = w.blow * (w.speed / 36);
+  const t = state.t + (p.id || 0) * 1.7;
+  p.y = Math.max(14, p.y + rough * (2.4 * Math.sin(t * 1.13) + 1.3 * Math.sin(t * 3.7 + 0.8)) * dt);
+  p.bank = clamp((p.bank ?? 0) + rough * 0.3 * Math.sin(t * 2.3 + 0.4) * dt, -1.5, 1.5);
+}
+
+// ---------------------------------------------------------------------------
+// The sea coming aboard
+// ---------------------------------------------------------------------------
+//
+// In a typhoon the sea is higher than her deck, and a gun under a breaking sea
+// is a gun nobody can work: the crew are hanging on, the sights are full of
+// water and the training gear is under a ton of it. It is out of action for as
+// long as the sea is over it and for a few seconds after, while the water runs
+// off and the crew get back to it.
+//
+// The server works this out off the same sea the screen is drawing (shared/
+// sea.js), on the same clock, with the same response of the hull to it -- so
+// the forward turret goes out at the moment the player sees the green water
+// come over it, and comes back when the sea has run off.
+
+const SWAMP_EVERY = 0.2;
+/** How long a mounting is out after the sea has left it, in seconds. */
+export const SWAMP_HOLD = 2.5;
+
+/** The waves of a storm big enough to come aboard, or null in any other sea. */
+export function stormSea(state) {
+  if (state.seaTerms !== undefined) return state.seaTerms;
+  const wx = getWeather(state.world?.weather);
+  if (!((wx.swell || 1) > 1)) { state.seaTerms = null; return null; }
+  const S = seaOf(state.world);
+  state.seaTerms = waveTerms(S.amp, S.steep, S.short);
+  return state.seaTerms;
+}
+
+/**
+ * Her motion in the seaway, as the renderer has it (see seakeeping.js): a
+ * damped spring each in roll, pitch and heave, pushed by the water under her.
+ */
+export function stepSeaway(state, ship, W, h) {
+  const cls = shipClass(ship);
+  const L = cls.hull.length, B = cls.hull.beam;
+  const att = seaAttitude(W, ship.x, ship.z, ship.heading, L, B, state.t, 5);
+  const k = ship.seaway || (ship.seaway = { r: 0, rv: 0, p: 0, pv: 0, h: att.heave, hv: 0 });
+  const rw = (Math.PI * 2) / (2.7 * Math.sqrt(B));
+  const pp = 0.44 * Math.sqrt(L) * 1.02;
+  const pw = (Math.PI * 2) / pp;
+  const hw = (Math.PI * 2) / (pp * 1.25);
+  const rTo = att.roll * rollHeed(L);
+  const pTo = att.pitch * pitchHeed(L);
+  const hTo = att.heave;
+  const n = Math.max(1, Math.ceil(h / 0.04));
+  const s = h / n;
+  for (let i = 0; i < n; i++) {
+    k.rv += (rw * rw * (rTo - k.r) - 2 * 0.13 * rw * k.rv) * s; k.r += k.rv * s;
+    k.pv += (pw * pw * (pTo - k.p) - 2 * 1.25 * pw * k.pv) * s; k.p += k.pv * s;
+    k.hv += (hw * hw * (hTo - k.h) - 2 * 1.1 * hw * k.hv) * s; k.h += k.hv * s;
+  }
+  return k;
+}
+
+/**
+ * How far the sea stands over a point on her, in metres; negative is dry.
+ * `x, y, z` are in her own frame, y off her waterline.
+ */
+export function seaOver(state, ship, W, x, y, z) {
+  const k = ship.seaway || { r: 0, p: 0, h: 0 };
+  // Her own frame laid over by the sea and by what is in her, the way the
+  // renderer draws her: rolled about her keel, then pitched about her beam.
+  const r = k.r - (ship.heel || 0);
+  const p = k.p + (ship.trim || 0);
+  const yw = k.h - 1 - (ship.sink || 0)
+    + (x * Math.sin(r) + y * Math.cos(r)) * Math.cos(p) - z * Math.sin(p);
+  const w = localToWorld(x, z, ship.heading);
+  return seaHeight(W, ship.x + w.x, ship.z + w.z, state.t) - yw;
+}
+
+function stepSwamp(state, ship, dt) {
+  const W = stormSea(state);
+  if (!W) return;
+  ship.seaAcc = (ship.seaAcc || 0) + dt;
+  if (ship.seaAcc < SWAMP_EVERY) return;
+  const h = ship.seaAcc;
+  ship.seaAcc = 0;
+  stepSeaway(state, ship, W, h);
+  // A boat under the water is not being swamped: she is a boat.
+  if (submerged(ship)) return;
+  const cls = shipClass(ship);
+  const deck = freeboardOf(cls);
+  const wet = (m, spec, kind = null, i = 0) => {
+    if (!m || !spec) return;
+    if (m.swamp > 0) m.swamp = Math.max(0, m.swamp - h);
+    // Over the gun house, not just round its foot.
+    if (seaOver(state, ship, W, spec.x || 0, (spec.my ?? deck + 2) + 0.4, spec.z || 0) > 0) {
+      // Her bridge is told when a turret goes under. The light guns go under
+      // by the dozen and nobody reports each one.
+      if (kind && !(m.swamp > 0)) state.events.push({ e: 'swamp', ship: ship.id, k: kind, i });
+      m.swamp = SWAMP_HOLD + state.rng() * 1.5;
+    }
+  };
+  (ship.turrets || []).forEach((t, i) => wet(t, cls.turrets?.[t.id], 'main', i));
+  (ship.secMounts || []).forEach((m, i) => wet(m, cls.secondary?.mounts?.[m.id], 'sec', i));
+  const aa = aaBattery(cls);
+  const aw = ship.aaWet || (ship.aaWet = new Array(aa.length).fill(0));
+  for (let i = 0; i < aa.length; i++) {
+    const box = { swamp: aw[i] };
+    wet(box, aa[i]);
+    aw[i] = box.swamp;
+  }
+}
+
 function stepShells(state, dt) {
   const out = [];
   for (const sh of state.shells) {
@@ -2697,6 +2847,12 @@ function stepShells(state, dt) {
     sh.z += sh.vz * dt;
     sh.vy -= sh.g * dt;
     sh.y += sh.vy * dt;
+    // A gale carries a shell off its line. See windPush.
+    const wp = windPush(state, sh.caliber);
+    if (wp) {
+      sh.vx += state.wind.x * wp * dt;
+      sh.vz += state.wind.z * wp * dt;
+    }
 
     let consumed = false;
     // Ship intersection: sample the segment so fast shells cannot tunnel.
@@ -5180,6 +5336,7 @@ function stepPlanes(state, dt) {
       p.speed = speed;
       p.x += Math.sin(p.heading) * speed * dt;
       p.z += Math.cos(p.heading) * speed * dt;
+      buffet(state, p, dt);
     } else {
       // Somebody is flying her: her bank is his, and the client that has her
       // draws it off his own stick rather than off this.
@@ -6254,6 +6411,8 @@ function stepBombers(state, dt) {
     bm.turn = clamp(rate, -1, 1);
     bm.x += Math.sin(bm.heading) * bm.speed * dt;
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
+    // And a heavy is in the same gale as everything else.
+    buffet(state, bm, dt);
 
     heavyFlak(state, bm, dt);
     heavyDamage(state, bm, dt);
@@ -6773,7 +6932,7 @@ function stepSinking(state, ship, dt) {
 /** Whether she has a main or secondary gun left that could fire, now or after her crews have cleared it. */
 export function canFight(ship) {
   const cls = shipClass(ship);
-  const any = (list, specs) => list.some((m, i) => gunState(ship, cls, specs[m.id ?? i], m) < 3);
+  const any = (list, specs) => list.some((m, i) => gunState(ship, cls, specs[m.id ?? i], m, true) < 3);
   const main = ship.turrets?.length ? any(ship.turrets, cls.turrets || []) : false;
   const sec = ship.secMounts?.length ? any(ship.secMounts, cls.secondary?.mounts || []) : false;
   return main || sec || (!ship.turrets?.length && !ship.secMounts?.length);
@@ -7477,6 +7636,7 @@ function finish(state, winner, reason) {
 export function step(state, dt = DT) {
   state.t += dt;
   state.tick++;
+  state.wind = windAt(state.world, state.t);
   stepSurges(state);
   for (const ship of state.ships) {
     if (!ship.alive) {
@@ -7493,6 +7653,7 @@ export function step(state, dt = DT) {
     stepSinking(state, ship, dt);
     stepFlak(state, ship, dt);
     stepDepthAttack(state, ship, dt);
+    stepSwamp(state, ship, dt);
   }
   stepCollisions(state, dt);
   stepBatteries(state, dt);

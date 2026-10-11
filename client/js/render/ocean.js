@@ -20,6 +20,9 @@
 // instead of boiling.
 
 import * as THREE from '../../../vendor/three.module.js';
+import {
+  WAVES, AMP_SCALE, waveTerms, waveScales, seaSample, seaAttitude,
+} from '../../../shared/sea.js';
 
 // The wave train, shared by the shader and by heightAt() below. Wavelength in
 // metres, amplitude as a fraction of the sea state's, steepness, and heading.
@@ -38,7 +41,7 @@ import * as THREE from '../../../vendor/three.module.js';
  * in, and which left a carrier's propellers in the air at the bottom of every
  * trough. This is a rough day rather than a gale.
  */
-export const AMP_SCALE = 0.42;
+export { AMP_SCALE };
 
 // Eight of them, all running roughly downwind. It used to be four, coming from
 // four quarters of the compass and each half the length of the last -- and
@@ -49,16 +52,7 @@ export const AMP_SCALE = 0.42;
 // that share no common measure, so the crests never line up the same way
 // twice. The total energy -- the sum of the squared amplitudes -- is what it
 // was, so the sea is no rougher and the hulls ride it no harder.
-export const WAVES = [
-  { len: 452, amp: 0.81, steep: 0.55, dir: [0.860, 0.510] },
-  { len: 311, amp: 0.57, steep: 0.60, dir: [0.592, 0.806] },
-  { len: 227, amp: 0.44, steep: 0.64, dir: [1.000, -0.006] },
-  { len: 163, amp: 0.31, steep: 0.68, dir: [0.735, 0.678] },
-  { len: 118, amp: 0.23, steep: 0.72, dir: [0.960, -0.281] },
-  { len: 86, amp: 0.17, steep: 0.74, dir: [0.364, 0.931] },
-  { len: 61, amp: 0.115, steep: 0.78, dir: [0.972, 0.236] },
-  { len: 44, amp: 0.083, steep: 0.80, dir: [-0.029, 1.000] },
-];
+export { WAVES };
 const G = 9.81;
 
 // Exported so anything that has to sit on this water -- the wakes above all --
@@ -335,6 +329,9 @@ uniform vec3 uSkyTint;
 uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 uniform float uAmp;
+// What counts as a crest's height: the sea's own, which in a storm is not
+// uAmp -- the short sea is built up on top of it. See setSeaState.
+uniform float uCrest;
 uniform float uSpecular;
 uniform float uFogDensity;
 uniform vec3 uFogColor;
@@ -533,7 +530,7 @@ void main() {
   // What is under the surface: dark, with the light of the sky carried down
   // into the backs of the waves. Water scatters green, which is why a wave
   // with the sun behind it glows and the rest of the sea does not.
-  float lift = clamp(vCrest / max(uAmp * 1.6, 0.001), -1.0, 1.0);
+  float lift = clamp(vCrest / max(uCrest * 1.6, 0.001), -1.0, 1.0);
   vec3 body = mix(uDeep, uShallow, clamp(lift * 0.5 + 0.5, 0.0, 1.0));
   float sss = pow(clamp(dot(v, -l) * 0.5 + 0.5, 0.0, 1.0), 3.0)
             * clamp(lift, 0.0, 1.0) * clamp(1.0 - ndv, 0.0, 1.0);
@@ -585,7 +582,7 @@ void main() {
   // so were they. Now they need a crest that is actually folding, a patch of
   // the fine lace to break in, and a gust to be blowing over it.
   float breaking = smoothstep(0.30, 0.04, vFold);
-  float crest = smoothstep(uAmp * 1.0, uAmp * 1.7, vCrest);
+  float crest = smoothstep(uCrest * 1.0, uCrest * 1.7, vCrest);
   float lace = onoise(q * 0.061 + vec2(uTime * 0.05, -uTime * 0.03)) * 0.6
              + onoise(q * 0.23 - uTime * 0.04) * 0.4;
   float foam = clamp(breaking + crest * 0.30, 0.0, 1.0)
@@ -855,6 +852,7 @@ export class Ocean {
         uHullPlan: { value: this.hullPlan },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
+        uCrest: { value: p.amp },
         uSteep: { value: 1 },
         uChop: { value: 1 },
         uFade: { value: size * 0.34 },
@@ -914,16 +912,39 @@ export class Ocean {
     this.mesh.renderOrder = on ? 1 : -1;
   }
 
-  setSeaState(state) {
+  /**
+   * How rough it is. `wx` is the weather out of shared/world.js: a storm
+   * puts more height on every wave than the sea state does and builds the
+   * short sea up further still, which is what comes aboard a ship.
+   */
+  setSeaState(state, wx = null) {
     const k = 0.4 + state * 0.28;
-    this.material.uniforms.uAmp.value = this.preset.amp * k * AMP_SCALE;
+    const u = this.material.uniforms;
+    u.uAmp.value = this.preset.amp * k * AMP_SCALE * (wx?.swell || 1);
+    u.uSteep.value = wx?.steep || 1;
+    this.short = wx?.short || 0;
+    const scale = waveScales(this.short);
+    u.uWave.value.forEach((w, i) => { w.w = WAVES[i].amp * scale[i]; });
+    // The crests whiten at the same share of the sea's height whatever is
+    // building it, and a storm's a little sooner: a gale is white all over.
+    const was = Math.hypot(...WAVES.map((w) => w.amp));
+    const now = Math.hypot(...WAVES.map((w, i) => w.amp * scale[i]));
+    if (u.uCrest) u.uCrest.value = u.uAmp.value * (now / was) * (this.short ? 0.9 : 1);
     // A calm sea is glassy and a rough one is not: the chop rides the state
     // rather than sitting at one strength whatever the weather.
-    this.material.uniforms.uChop.value = 0.5 + Math.min(1.6, k) * 0.75;
+    u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.min(1.6, wx?.swell || 1);
+  }
+
+  /** Run the sea on a clock of somebody else's -- the server's, in a battle. */
+  setTime(t) {
+    this.material.uniforms.uTime.value = t;
   }
 
   update(dt, cameraPos) {
-    this.material.uniforms.uTime.value += dt;
+    // On somebody else's clock when there is one -- the server's, in a battle,
+    // which is what makes it the same sea the simulation is running.
+    if (Number.isFinite(this.clock)) this.material.uniforms.uTime.value = this.clock;
+    else this.material.uniforms.uTime.value += dt;
     if (cameraPos) {
       // Carried with the camera exactly. The wave field is worked out from the
       // world position of each vertex, so the water stays where it is while the
@@ -955,90 +976,19 @@ export class Ocean {
    */
   sample(x, z, time = this.material.uniforms.uTime.value) {
     const u = this.material.uniforms;
-    const W = this.waveTerms(u.uAmp.value, u.uSteep.value);
-    const n = W.n;
-    const DX = W.dirx, DZ = W.dirz, K = W.k, A = W.a, OM = W.om, Q = W.q;
-    let px = x;
-    let pz = z;
-    let dy = 0;
-    // The first two passes only walk the point back; the tilt is wanted off
-    // the last one, so only the last one works it out.
-    for (let pass = 0; pass < 2; pass++) {
-      let dx = 0;
-      let dz = 0;
-      for (let i = 0; i < n; i++) {
-        const dirx = DX[i], dirz = DZ[i], a = A[i], q = Q[i];
-        const ph = K[i] * (dirx * px + dirz * pz) - OM[i] * time;
-        const c = Math.cos(ph);
-        dx += q * a * dirx * c;
-        dz += q * a * dirz * c;
-      }
-      px = x - dx;
-      pz = z - dz;
-    }
-    let dx = 0;
-    let dz = 0;
-    let ddxx = 1;
-    let ddxy = 0;
-    let ddxz = 0;
-    let ddzx = 0;
-    let ddzy = 0;
-    let ddzz = 1;
-    for (let i = 0; i < n; i++) {
-      const dirx = DX[i], dirz = DZ[i], k = K[i], a = A[i], q = Q[i];
-      const ph = k * (dirx * px + dirz * pz) - OM[i] * time;
-      const c = Math.cos(ph);
-      const s = Math.sin(ph);
-      dx += q * a * dirx * c;
-      dy += a * s;
-      dz += q * a * dirz * c;
-      const wa = k * a;
-      ddxx += -q * wa * dirx * dirx * s;
-      ddxy += wa * dirx * c;
-      ddxz += -q * wa * dirx * dirz * s;
-      ddzx += -q * wa * dirx * dirz * s;
-      ddzy += wa * dirz * c;
-      ddzz += -q * wa * dirz * dirz * s;
-    }
-    // Walk the parameter back so the displaced point lands where asked.
-    px = x - dx;
-    pz = z - dz;
-    // Cross of the two tangents, which is the normal.
-    const nx = ddzy * ddxz - ddzz * ddxy;
-    const ny = ddzz * ddxx - ddzx * ddxz;
-    const nz = ddzx * ddxy - ddzy * ddxx;
-    const l = Math.hypot(nx, ny, nz) || 1;
-    return { y: dy, px, pz, nx: nx / l, ny: ny / l, nz: nz / l };
+    return seaSample(this.waveTerms(u.uAmp.value, u.uSteep.value), x, z, time);
   }
 
   /**
    * What each wave is, worked out once for the sea state rather than three
-   * times a wave on every call: its heading, its wavenumber, its frequency,
-   * its height and its steepness, as the shader has them.
+   * times a wave on every call. See shared/sea.js, which the server reads too.
    */
   waveTerms(amp, steep) {
     const c = this.terms;
-    if (c && c.amp === amp && c.steep === steep) return c;
-    const n = WAVES.length;
-    const t = {
-      amp, steep, n,
-      dirx: new Float64Array(n), dirz: new Float64Array(n), k: new Float64Array(n),
-      a: new Float64Array(n), om: new Float64Array(n), q: new Float64Array(n),
-    };
-    for (let i = 0; i < n; i++) {
-      const w = WAVES[i];
-      const len = Math.hypot(w.dir[0], w.dir[1]);
-      t.dirx[i] = w.dir[0] / len;
-      t.dirz[i] = w.dir[1] / len;
-      const k = (Math.PI * 2) / w.len;
-      const a = w.amp * amp;
-      t.k[i] = k;
-      t.a[i] = a;
-      t.om[i] = Math.sqrt(G * k);
-      t.q[i] = (w.steep * steep) / Math.max(k * a * n, 1e-4);
-    }
-    this.terms = t;
-    return t;
+    const short = this.short || 0;
+    if (c && c.amp === amp && c.steep === steep && c.short === short) return c;
+    this.terms = waveTerms(amp, steep, short);
+    return this.terms;
   }
 
   /** Wave height at a world point. */
@@ -1063,49 +1013,9 @@ export class Ocean {
    * her, which puts her screws in the air at the bottom of every trough.
    */
   attitude(x, z, heading, length, beam, time = this.material.uniforms.uTime.value) {
-    const sh = Math.sin(heading);
-    const ch = Math.cos(heading);
-    const hl = length * 0.46;
-    const hb = Math.max(beam * 0.5, 4);
-    const at = (fwd, side) => this.heightAt(
-      x + sh * fwd + ch * side, z + ch * fwd - sh * side, time);
-
-    // Seven stations along her, three abreast at each: enough to average out a
-    // sea a good deal shorter than she is without costing a sample per metre.
-    const STA = 7;
-    let sum = 0;
-    let n = 0;
-    let fwdSum = 0;
-    let aftSum = 0;
-    let fwdN = 0;
-    let aftN = 0;
-    let portSum = 0;
-    let stbdSum = 0;
-    let armF = 0;
-    let armS = 0;
-    for (let i = 0; i < STA; i++) {
-      const u = STA === 1 ? 0 : (i / (STA - 1)) * 2 - 1;   // -1 aft to +1 forward
-      const fwd = u * hl;
-      for (const side of [-hb * 0.7, 0, hb * 0.7]) {
-        const h = at(fwd, side);
-        sum += h; n++;
-        if (u > 0.1) { fwdSum += h; fwdN++; armF += fwd; }
-        else if (u < -0.1) { aftSum += h; aftN++; }
-        if (side < 0) { portSum += h; armS += -side; }
-        else if (side > 0) stbdSum += h;
-      }
-    }
-    const heave = sum / n;
-    // Pitch and roll from the difference between her halves, over the distance
-    // between where those halves act.
-    const armFwd = fwdN ? armF / fwdN : hl;
-    const trim = fwdN && aftN ? (fwdSum / fwdN) - (aftSum / aftN) : 0;
-    const list = (stbdSum - portSum) / STA;
-    const armSide = armS / STA;
-    return {
-      heave,
-      pitch: Math.atan2(trim, armFwd * 2),
-      roll: Math.atan2(list, armSide * 2),
-    };
+    const u = this.material.uniforms;
+    return seaAttitude(this.waveTerms(u.uAmp.value, u.uSteep.value),
+      x, z, heading, length, beam, time);
   }
+
 }

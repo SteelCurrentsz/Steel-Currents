@@ -2,6 +2,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS, WAVES } from './ocean.js';
+import { windAt } from '../../../shared/sea.js';
 import { Weather } from './weather.js';
 import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
@@ -1531,13 +1532,22 @@ export class BattleScene {
     // daylight. Carried on the camera it is always the same distance off in
     // every direction, which is what a sky is.
     this.sky = skyDome(preset, q.drawDistance * 0.8, overcast);
+    // And a typhoon on top of that, which is dark whatever the hour: the
+    // cloud is miles deep. It is a share of the light that is left, so it
+    // stacks with the hour's own -- a typhoon at night is darker than night.
+    const dark = wx.dark ?? 1;
+    this.dark = dark;
+    if (dark < 1) {
+      this.sky.material.uniforms.top.value.multiplyScalar(dark * 0.85);
+      this.sky.material.uniforms.bottom.value.multiplyScalar(dark);
+    }
     this.scene.add(this.sky);
     // No stars through cloud.
     this.stars = (preset === 'night' && overcast < 0.3) ? starField(600) : null;
     if (this.stars) this.scene.add(this.stars);
 
     this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
-    this.ocean.setSeaState(world.sea ?? 2);
+    this.ocean.setSeaState(world.sea ?? 2, wx);
     // What the ships have done to that water. Nothing of it is in the scene:
     // it is drawn into a map of its own and the ocean reads it, so a wake is
     // the sea being displaced rather than a shape drawn on top of it.
@@ -1558,6 +1568,10 @@ export class BattleScene {
       dull(0x27343c, overcast * 0.92)(u.uShallow.value);
       dull(0x78838d, overcast * 0.90)(u.uFogColor.value);
       dull(0xb4bdc6, overcast * 0.70)(u.uLightColor.value);
+      if (dark < 1) {
+        for (const c of [u.uSkyTint, u.uDeep, u.uShallow, u.uFogColor]) c.value.multiplyScalar(dark);
+        u.uLightColor.value.multiplyScalar(Math.sqrt(dark));
+      }
     }
     {
       // The reflected pool sits opposite the light, out toward the horizon.
@@ -1567,7 +1581,8 @@ export class BattleScene {
     this.scene.add(this.ocean.mesh);
 
     const p = OCEAN_PRESETS[preset];
-    const fogCol = new THREE.Color(p.fogColor).lerp(new THREE.Color(0x78838d), overcast * 0.90);
+    const fogCol = new THREE.Color(p.fogColor).lerp(new THREE.Color(0x78838d), overcast * 0.90)
+      .multiplyScalar(dark);
     this.scene.fog = new THREE.FogExp2(fogCol, p.fog * 0.7 * wx.fog);
     // Kept, so the view can be put back the way it was when the camera comes up.
     this.airFog = { color: fogCol.clone(), density: this.scene.fog.density,
@@ -1578,7 +1593,7 @@ export class BattleScene {
     // Warships are grey on a dark sea: without a strong sky term they read as
     // black silhouettes, so the ambient does most of the work at night.
     const sunI = preset === 'day' ? 1.9 : preset === 'dusk' ? 1.15 : 0.85;
-    const sun = new THREE.DirectionalLight(p.light, sunI * wx.light);
+    const sun = new THREE.DirectionalLight(p.light, sunI * wx.light * dark);
     sun.position.copy(p.lightDir).multiplyScalar(3000);
     this.scene.add(sun);
     // The sky term is held up more than the sun is: under cloud the light is
@@ -1586,7 +1601,10 @@ export class BattleScene {
     this.scene.add(new THREE.HemisphereLight(
       preset === 'day' ? 0xa8cee6 : preset === 'dusk' ? 0x7e8fb0 : 0x4a6c9c,
       preset === 'day' ? 0x2c5a72 : 0x111a26,
-      (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light),
+      // Held up more than the sun, or a ship in a typhoon is a black shape
+      // on a black sea; but it goes down with it.
+      (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light)
+        * (0.35 + 0.65 * dark),
     ));
 
     const isles = buildIslands(world);
@@ -1616,7 +1634,8 @@ export class BattleScene {
     // drifts down the wind the sea is running before.
     {
       const [dx, dz] = WAVES[0].dir;
-      const speed = 2 + 1.3 * (world.sea ?? 2);
+      // In a gale the smoke goes the way the gale is going, and fast.
+      const speed = Math.max(2 + 1.3 * (world.sea ?? 2), (wx.wind || 0) * 0.55);
       this.effects.blasts.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
@@ -1629,7 +1648,10 @@ export class BattleScene {
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
-    this.weather = new Weather(this.scene, wx, { count: Math.round(9000 * q.particles) });
+    this.weather = new Weather(this.scene, wx, {
+      count: Math.round(9000 * q.particles),
+      wind: wx.blow ? windAt(world, 0) : null,
+    });
 
     this.camera = new THREE.PerspectiveCamera(58, 1, 2, q.drawDistance);
     this.shipViews = new Map();

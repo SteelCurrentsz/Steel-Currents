@@ -97,7 +97,10 @@ void main() {
  * reading the same weather.
  */
 export class Weather {
-  constructor(scene, wx, { count = 9000 } = {}) {
+  constructor(scene, wx, { count = 9000, wind = null } = {}) {
+    // A gale's own wind, mean speed and bearing, when it is blowing hard
+    // enough to drive the rain sideways. See shared/sea.js.
+    this.wind = wind;
     this.scene = scene;
     this.wx = wx;
     this.time = 0;
@@ -153,9 +156,17 @@ export class Weather {
         uTime: { value: 0 },
         uCam: { value: new THREE.Vector3() },
         uBox: { value: box },
-        uFall: { value: rain ? 22 : 2.4 },
-        uWind: { value: new THREE.Vector2(rain ? -5.5 : -2.6, rain ? 2.2 : 1.1) },
-        uLen: { value: rain ? 0.055 : 0 },
+        uFall: { value: rain ? 22 * (this.wind ? 1.25 : 1) : 2.4 },
+        // In a typhoon the rain is going sideways nearly as fast as it is
+        // coming down -- driven, not falling. The mean wind and not the gust:
+        // the drops are placed off the clock times this, so it cannot change
+        // under them.
+        uWind: {
+          value: this.wind
+            ? new THREE.Vector2(this.wind.x / this.wind.gust * 0.8, this.wind.z / this.wind.gust * 0.8)
+            : new THREE.Vector2(rain ? -5.5 : -2.6, rain ? 2.2 : 1.1),
+        },
+        uLen: { value: rain ? (this.wind ? 0.08 : 0.055) : 0 },
         // A flake is five millimetres across and would be a fraction of a pixel
         // at any range worth drawing it at. What is actually seen in falling
         // snow is not the flake's size but that there is one there, so it is
@@ -168,7 +179,7 @@ export class Weather {
         // water, and one colour blended over both does both -- which is more
         // than a white streak drawn over everything manages.
         uColor: { value: new THREE.Color(rain ? 0x7d93a6 : 0xeef4fa) },
-        uOpacity: { value: rain ? 0.50 : 0.72 },
+        uOpacity: { value: rain ? (this.wind ? 0.62 : 0.50) : 0.72 },
       },
       transparent: true,
       depthWrite: false,
