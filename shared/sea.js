@@ -192,6 +192,18 @@ export function seaAttitude(W, x, z, heading, length, beam, time, STA = 7) {
   };
 }
 
+/**
+ * How much of the sea a hull rides up, in a weather: all of it in any sea
+ * short of a storm, and in a typhoon a share -- of her heave, and rather more
+ * of her pitch and roll, so she still works in the seaway while the crests go
+ * over her instead of carrying her. Both ends use this, so the guns the server
+ * puts under are the guns the screen shows under.
+ */
+export function rideOf(world) {
+  const r = getWeather(world?.weather).ride ?? 1;
+  return { heave: r, tilt: 0.5 + 0.5 * r };
+}
+
 /** How much of the sea's slope reaches her athwartships. See seakeeping.js. */
 export function rollHeed(length) {
   return Math.min(1, Math.max(0.16, Math.pow(47 / length, 0.915)));

@@ -20,7 +20,7 @@ import {
   steerToWaypoint, PENETRATING, HOLING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
   freeboardOf,
 } from '../../shared/sim.js';
-import { windAt } from '../../shared/sea.js';
+import { windAt, rideOf } from '../../shared/sea.js';
 import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
@@ -3627,6 +3627,7 @@ export class Battle {
       // How much she moves is a matter of how big she is. Her lean in a turn
       // is not the sea's: the sim works it out (see leanFor) and it is added
       // below.
+      view.sea.ride = this.ride || (this.ride = rideOf(this.world));
       const sea = view.sea.step(att, dt, 0);
       // How she is floating, on top of what the sea is doing to her: the water
       // inside her has put her deeper, laid her over to one side, and pulled

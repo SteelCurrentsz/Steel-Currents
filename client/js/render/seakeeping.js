@@ -105,6 +105,9 @@ export class Seakeeping {
     this.pitchV = 0;
     this.heave = 0;
     this.heaveV = 0;
+    // How much of the sea she rides up -- see rideOf in shared/sea.js. All of
+    // it, short of a storm.
+    this.ride = { heave: 1, tilt: 1 };
   }
 
   /**
@@ -119,9 +122,10 @@ export class Seakeeping {
     // motion in slow motion.
     const n = Math.min(8, Math.max(1, Math.ceil(dt / 0.04)));
     const h = dt / n;
-    const rollTo = att.roll * this.rollHeed + heel;
-    const pitchTo = att.pitch * this.pitchHeed;
-    const heaveTo = att.heave * this.heaveHeed;
+    const ride = this.ride || { heave: 1, tilt: 1 };
+    const rollTo = att.roll * this.rollHeed * ride.tilt + heel;
+    const pitchTo = att.pitch * this.pitchHeed * ride.tilt;
+    const heaveTo = att.heave * this.heaveHeed * ride.heave;
     for (let i = 0; i < n; i++) {
       // Roll is lightly damped: critically damped, she would simply track the
       // water and there would be no roll to watch at all.

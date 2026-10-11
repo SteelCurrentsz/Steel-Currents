@@ -220,6 +220,7 @@ uniform mat4 uHullInv[MAX_HULLS];  // the world into her own frame
 uniform vec4 uHullAt[MAX_HULLS];   // xz of her middle, reach squared, how much she holds the sea off
 uniform vec4 uHullDim[MAX_HULLS];  // z of her after end, her length, how far out she is felt, easing
 uniform sampler2D uHullPlan;       // a row a hull: waterline half-breadth, deck edge, side under it
+uniform float uHoldLeak;           // how much of a sea standing over her deck comes aboard
 
 // What she is at a station, by z in her own frame.
 vec4 hullPlan(int i, float z, vec4 dim) {
@@ -267,13 +268,24 @@ float holdOff(inout vec3 wp) {
     float w = (1.0 - smoothstep(0.0, dim.z, hullOff(lp, pl, dim))) * at.w;
     float k = dim.w;
     float top = pl.g - ${HOLD_MARGIN.toFixed(3)};
+    // And held up to her, the other way: the trough under her does not open
+    // round her bottom. She sits in the sea rather than being stood on a
+    // crest with daylight under her, and the water at her sides is never let
+    // fall below a little under her waterline -- which is a metre up her
+    // frame, because every hull is floated a metre down.
+    float floorY = 0.35;
+    float under = floorY - lp.y;
+    if (w > 0.0 && under > 0.0) {
+      wp.y += under * w;
+      continue;
+    }
     float over = lp.y - (top - k);
     if (w <= 0.0 || over <= 0.0) continue;
     float y = top - k + k * (1.0 - exp(-over / k));
     // But not all of it, when the sea is higher than her deck: a wave that
     // stands over her deck edge comes aboard -- green water across the deck --
     // and is held off her only by how far it has to climb.
-    y += max(0.0, lp.y - top) * 0.6;
+    y += max(0.0, lp.y - top) * uHoldLeak;
     float drop = (lp.y - y) * w;
     // Her frame is tilted by no more than her roll and her pitch, a few
     // degrees, so a drop along her own vertical is a drop in the world's.
@@ -368,8 +380,11 @@ bool inHull(vec3 p) {
     // Drawn in from her sides as she stops floating, so a ship settling into
     // the sea has it come in over her rather than appear on her all at once.
     float keep = smoothstep(0.0, 1.0, at.w);
-    if (abs(lp.x) < pl.r * keep) return true;
-    if (abs(lp.x) < pl.b * keep && lp.y > pl.g - 0.15) return true;
+    // Only the water that would be inside her plating: within her waterline
+    // and under her deck. A sea standing over her deck is green water coming
+    // aboard and is drawn -- taking it away left a hole in every crest that
+    // broke over her, and the sea beyond showed through it.
+    if (abs(lp.x) < pl.r * keep && lp.y < pl.g - 0.15) return true;
   }
   return false;
 }
@@ -850,6 +865,7 @@ export class Ocean {
         uHullAt: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4()) },
         uHullDim: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4(0, 1, 1, 1)) },
         uHullPlan: { value: this.hullPlan },
+        uHoldLeak: { value: 0.6 },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
         uCrest: { value: p.amp },
@@ -923,6 +939,10 @@ export class Ocean {
     u.uAmp.value = this.preset.amp * k * AMP_SCALE * (wx?.swell || 1);
     u.uSteep.value = wx?.steep || 1;
     this.short = wx?.short || 0;
+    // In a storm a sea that stands over her deck comes over it nearly whole
+    // -- onto the deck and against the superstructure -- rather than being
+    // shaved off at her deck edge.
+    if (u.uHoldLeak) u.uHoldLeak.value = this.short ? 0.95 : 0.6;
     const scale = waveScales(this.short);
     u.uWave.value.forEach((w, i) => { w.w = WAVES[i].amp * scale[i]; });
     // The crests whiten at the same share of the sea's height whatever is

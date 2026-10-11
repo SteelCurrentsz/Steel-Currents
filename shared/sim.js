@@ -23,7 +23,7 @@ import {
   groundHeight, soilAt, addCrater, craterWire, landCeiling,
 } from './world.js';
 import {
-  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt,
+  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf,
 } from './sea.js';
 
 export const TICK_RATE = 30;
@@ -2770,14 +2770,15 @@ export function stepSeaway(state, ship, W, h) {
   const cls = shipClass(ship);
   const L = cls.hull.length, B = cls.hull.beam;
   const att = seaAttitude(W, ship.x, ship.z, ship.heading, L, B, state.t, 5);
-  const k = ship.seaway || (ship.seaway = { r: 0, rv: 0, p: 0, pv: 0, h: att.heave, hv: 0 });
+  const ride = rideOf(state.world);
+  const k = ship.seaway || (ship.seaway = { r: 0, rv: 0, p: 0, pv: 0, h: att.heave * ride.heave, hv: 0 });
   const rw = (Math.PI * 2) / (2.7 * Math.sqrt(B));
   const pp = 0.44 * Math.sqrt(L) * 1.02;
   const pw = (Math.PI * 2) / pp;
   const hw = (Math.PI * 2) / (pp * 1.25);
-  const rTo = att.roll * rollHeed(L);
-  const pTo = att.pitch * pitchHeed(L);
-  const hTo = att.heave;
+  const rTo = att.roll * rollHeed(L) * ride.tilt;
+  const pTo = att.pitch * pitchHeed(L) * ride.tilt;
+  const hTo = att.heave * ride.heave;
   const n = Math.max(1, Math.ceil(h / 0.04));
   const s = h / n;
   for (let i = 0; i < n; i++) {

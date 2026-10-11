@@ -17878,7 +17878,7 @@ check('a typhoon comes after a thunderstorm and a super typhoon after that, each
   const order = ['thunder', 'typhoon', 'super_typhoon'];
   for (let i = 1; i < order.length; i++) {
     const a = WEATHER[order[i - 1]], b = WEATHER[order[i]];
-    assert.ok(hs(order[i]) > hs(order[i - 1]) * 1.3, `${order[i]} is not a much higher sea`);
+    assert.ok(hs(order[i]) > hs(order[i - 1]) * (i === 1 ? 1.5 : 1.15), `${order[i]} is not a higher sea`);
     assert.ok(b.drop > a.drop, `${order[i]} does not rain harder`);
     assert.ok(b.wind > a.wind, `${order[i]} does not blow harder`);
     assert.ok(b.light < a.light && (b.dark ?? 1) < (a.dark ?? 1), `${order[i]} is not darker`);

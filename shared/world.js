@@ -294,6 +294,10 @@ export const TIMES = ['dawn', 'day', 'dusk', 'night'];
  *   swell    how much taller every wave is than the sea state makes it, and
  *   short    how much more again the short, breaking sea is built up, which
  *            is the part of a storm that comes aboard (see shared/sea.js).
+ *   ride     how much of the sea's rise and fall a hull takes up. In a storm
+ *            she does not ride up every sea like a cork: she is a few
+ *            thousand tons being driven into it, and the seas break over her
+ *            rather than lifting her (see shared/sea.js rideOf).
  *   dark     what is left of the light after the sky has done with it, on
  *            top of the hour's own: a typhoon is dark at noon, and at night
  *            it is darker than night.
@@ -306,9 +310,9 @@ export const WEATHER = {
   rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0, wind: 10 },
   thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9, wind: 16 },
   typhoon: { name: 'Typhoon',      sea: 3.2, light: 0.22, fog: 5.6, sight: 0.36, fall: 'rain', drop: 2.6,  lightning: 6,
-    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55 },
+    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55, ride: 0.45 },
   super_typhoon: { name: 'Super Typhoon', sea: 3.8, light: 0.12, fog: 7.4, sight: 0.26, fall: 'rain', drop: 3.8, lightning: 4,
-    wind: 62, blow: 1, swell: 1.8, short: 6.0, steep: 1.25, dark: 0.32 },
+    wind: 62, blow: 1, swell: 1.6, short: 4.6, steep: 1.25, dark: 0.32, ride: 0.3 },
   snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0, wind: 9 },
 };
 
