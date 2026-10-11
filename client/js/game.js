@@ -548,7 +548,8 @@ export class Battle {
     // The penetration camera, over the whole battle screen.
     {
       const host = document.getElementById('screen-battle');
-      this.penCam = host && typeof document !== 'undefined' ? new PenCam(host) : null;
+      this.penCam = host && typeof document !== 'undefined'
+        ? new PenCam(host, (id) => this.scene.shipViews.get(id)) : null;
     }
     // Her searchlights: the plan on the panel, and the two keys behind one.
     this.hud.onLampPlan = () => this.lampPanel();
@@ -1642,7 +1643,11 @@ export class Battle {
           }
           // Our own round: cut to her section and watch it go in, if the
           // captain wants to.
-          if (ev.owner === this.shipId && this.penCam && getSettings().penCam !== false) this.penCam.offer(ev);
+          // Any ship's round into any ship -- ours, our side's, theirs -- but
+          // ours first: another ship's hit waits for a quiet moment.
+          if (this.penCam && getSettings().penCam !== false) {
+            this.penCam.offer(ev, ev.owner === this.shipId || ev.victim === this.shipId);
+          }
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
             this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');

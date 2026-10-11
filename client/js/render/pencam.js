@@ -17,6 +17,7 @@
 import { armourScheme, LAYER_NAMES } from '../../../shared/armor.js';
 import { freeboardOf } from '../../../shared/sim.js';
 import { getClass } from '../../../shared/ships.js';
+import { sectionAt, extents, halfAt } from './section.js';
 
 const RESULT = {
   citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT',
@@ -38,12 +39,16 @@ const ROOMS = [
 const APPROACH = 0.45;
 const THROUGH_SPEED = 26;      // metres of the drawing a second, inside her
 const AFTER = 1.6;
+/** How long after one has been shown before another ship's hit is shown, in seconds. */
+const QUIET = 6;
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 export class PenCam {
-  constructor(host) {
+  /** `viewOf(id)` hands over the ship's view, whose model the section is cut from. */
+  constructor(host, viewOf = null) {
     this.host = host;
+    this.viewOf = viewOf;
     this.el = document.createElement('div');
     this.el.className = 'pen-cam';
     this.el.hidden = true;
@@ -63,8 +68,12 @@ export class PenCam {
    * of one another, so they are gathered for a moment and the one that did
    * the most is the one drawn.
    */
-  offer(ev) {
+  offer(ev, ours = true) {
     if (this.shot || !ev || !ev.pl) return;
+    // Somebody else's round, only when nothing has been shown for a while:
+    // a fleet action puts a hit somewhere every second, and cutting away to
+    // every one of them is no battle at all.
+    if (!ours && (this.quietFor || 0) < QUIET) return;
     const rank = (e) => ({ citadel: 5, pen: 4, overpen: 3, he: 2, shatter: 1, ricochet: 1, splash: 0 }[e.kind] || 0) * 1e6 + (e.dmg || 0);
     if (!this.pending) this.pending = { ev, wait: 0.15 };
     else if (rank(ev) > rank(this.pending.ev)) this.pending.ev = ev;
@@ -73,9 +82,11 @@ export class PenCam {
   stop() {
     this.shot = null;
     this.el.hidden = true;
+    this.quietFor = 0;
   }
 
   update(dt) {
+    if (!this.shot) this.quietFor = (this.quietFor ?? QUIET) + dt;
     if (this.pending) {
       this.pending.wait -= dt;
       if (this.pending.wait <= 0) {
@@ -94,20 +105,48 @@ export class PenCam {
   start(ev) {
     const cls = getClass(ev.sc);
     if (!cls) return;
-    const S = armourScheme(cls, freeboardOf(cls));
+    let S = armourScheme(cls, freeboardOf(cls));
     const half = cls.hull.length / 2;
     const rel = Math.min(1, Math.abs(ev.lz || 0) / half);
     // Her half-breadth at this station: full amidships, fining to her ends.
     const fine = rel < 0.5 ? 1 : Math.sqrt(Math.max(0.04, 1 - ((rel - 0.5) / 0.5) ** 2));
-    const hb = S.B2 * fine;
-    const works = { half: S.B2 * 0.42 * fine, top: S.fb + 6 + 7 * (cls.hull.superstructure || 1) };
+    let hb = S.B2 * fine;
+    let works = { half: S.B2 * 0.42 * fine, top: S.fb + 6 + 7 * (cls.hull.superstructure || 1) };
+    // Her own model cut across at the station it struck, when there is one:
+    // her real lines, her upperworks and whatever guns stand there.
+    let segs = null, ext = null;
+    const view = this.viewOf?.(ev.victim);
+    if (view) {
+      try { segs = sectionAt(view, ev.lz || 0); ext = segs && segs.length > 6 ? extents(segs) : null; } catch { ext = null; }
+    }
+    if (ext) {
+      // Her deck at this station, off the model: the top of the widest part
+      // of her below her upperworks. The armour heights are fitted to it.
+      let wide = 0;
+      for (let y = -S.draft; y < S.fb * 1.6; y += 0.25) wide = Math.max(wide, halfAt(ext, y) || 0);
+      let deckY = 0;
+      for (let y = 0; y < S.fb * 2.2; y += 0.25) {
+        const h = halfAt(ext, y);
+        if (h >= wide * 0.8) deckY = y;
+        else if (y > 1.5) break;
+      }
+      if (deckY > 1) {
+        const k = deckY / S.fb;
+        S = { ...S, fb: deckY, beltTop: S.beltTop * k, mainDeck: S.mainDeck * k, splinterDeck: S.splinterDeck * k };
+      }
+      hb = Math.max(1, halfAt(ext, Math.min(S.fb - 0.5, 1)) || hb);
+      works = { half: hb * 0.5, top: ext.y1 };
+    }
     const side = (ev.lx || 0) >= 0 ? 1 : -1;
     const y0 = Math.max(-S.draft + 0.5, Math.min(ev.y ?? 4, works.top - 1));
     // Where it struck, in the section.
     let ix, iy;
+    const at = (y) => (ext ? (halfAt(ext, y) || hb) : hb);
     if (ev.part === 'deck') { ix = Math.max(-hb * 0.9, Math.min(hb * 0.9, ev.lx || 0)); iy = S.fb; }
-    else if (ev.part === 'superstructure') { ix = side * works.half; iy = Math.max(S.fb + 1, y0); }
-    else { ix = side * hb; iy = Math.min(y0, S.fb - 0.3); }
+    else if (ev.part === 'superstructure') {
+      iy = Math.max(S.fb + 1, y0);
+      ix = side * (ext ? (halfAt(ext, iy) || works.half) : works.half);
+    } else { iy = Math.min(y0, S.fb - 0.3); ix = side * at(iy); }
     // Its line of flight across her: the athwartships part of its velocity
     // and the vertical. A round coming down her length is drawn coming in a
     // little off square, or it would arrive edge-on to the drawing.
@@ -127,7 +166,7 @@ export class PenCam {
     const plates = (ev.pl || []).map(([k, t, eff], i) => {
       let s = 0;
       if (i > 0) {
-        if (k === 'k') s = Math.abs((ix - Math.sign(ix || 1) * S.bulkheadX) / (d.x || 1e-3));
+        if (k === 'k') s = Math.abs((S.B2 * 0.32) / (d.x || 1e-3));
         else if (k === 'd') s = Math.abs((iy - S.mainDeck) / (d.y || -1e-3));
         else if (k === 's') s = Math.abs((iy - S.splinterDeck) / (d.y || -1e-3));
         else s = 2 * i;
@@ -149,7 +188,7 @@ export class PenCam {
       return t >= Math.min(r.t0, r.t1) && t <= Math.max(r.t0, r.t1);
     });
     this.shot = {
-      ev, cls, S, hb, works, rel, ix, iy, d, plates, stop, kind, burstAt, rooms,
+      ev, cls, S, hb, works, rel, ix, iy, d, plates, stop, kind, burstAt, rooms, segs, ext,
       t: 0,
       inside: burstAt / THROUGH_SPEED,
       end: APPROACH + burstAt / THROUGH_SPEED + AFTER,
@@ -344,20 +383,48 @@ export class PenCam {
       c.lineTo(X(hb), Y(S.fb));
       c.closePath();
     };
-    hull();
-    c.fillStyle = '#1b252e';
-    c.fill();
-    // Her upperworks.
-    c.fillStyle = '#212c36';
-    c.fillRect(X(-works.half), Y(works.top), works.half * 2 * k, (works.top - S.fb) * k);
-    c.strokeStyle = '#7d8a96';
-    c.lineWidth = mm(S.works);
-    c.strokeRect(X(-works.half), Y(works.top), works.half * 2 * k, (works.top - S.fb) * k);
+    const ext = s.ext;
+    // How wide she is at a height: her model's, or the drawing's.
+    const halfY = (y) => (ext ? (halfAt(ext, y) || 0) : (y <= S.fb ? hb : works.half));
+    if (ext) {
+      // Her own section: filled where there is anything of her at each
+      // height, so her hull and her upperworks are the shapes they are.
+      c.fillStyle = '#1b252e';
+      let run = null;
+      const flush = () => {
+        if (!run || run.length < 2) { run = null; return; }
+        c.beginPath();
+        run.forEach(([y, lo]) => c.lineTo(X(lo), Y(y)));
+        for (let i = run.length - 1; i >= 0; i--) c.lineTo(X(run[i][2]), Y(run[i][0]));
+        c.closePath();
+        c.fill();
+        run = null;
+      };
+      for (let i = 0; i < ext.lo.length; i++) {
+        const y = ext.y0 + i * ext.dy;
+        if (Number.isNaN(ext.lo[i])) { flush(); continue; }
+        (run || (run = [])).push([y, ext.lo[i], ext.hi[i]]);
+      }
+      flush();
+    } else {
+      hull();
+      c.fillStyle = '#1b252e';
+      c.fill();
+      // Her upperworks.
+      c.fillStyle = '#212c36';
+      c.fillRect(X(-works.half), Y(works.top), works.half * 2 * k, (works.top - S.fb) * k);
+      c.strokeStyle = '#7d8a96';
+      c.lineWidth = mm(S.works);
+      c.strokeRect(X(-works.half), Y(works.top), works.half * 2 * k, (works.top - S.fb) * k);
+    }
 
     // The rooms inside her, at this station.
     c.font = `${12 * dpr}px "Inter", system-ui, sans-serif`;
     c.textAlign = 'center';
-    const inner = S.boxed ? Math.min(S.bulkheadX, hb - 0.8) : hb - 0.5;
+    // Her side protection is a sixth of her beam deep, inboard of her side.
+    const inner = Math.max(0.8, S.boxed
+      ? (halfY((S.bottom + S.splinterDeck) / 2) || hb) - S.B2 * 0.32
+      : (halfY(S.fb * 0.3) || hb) - 0.5);
     const roomTop = S.boxed ? S.splinterDeck : S.fb - 2.4;
     const depth = roomTop - S.bottom;
     for (const r of s.rooms) {
@@ -377,7 +444,8 @@ export class PenCam {
     c.strokeStyle = 'rgba(150, 165, 178, 0.55)';
     c.lineWidth = 1 * dpr;
     for (const y of [S.bottom, roomTop, (roomTop + S.fb) / 2]) {
-      c.beginPath(); c.moveTo(X(-hb + 0.3), Y(y)); c.lineTo(X(hb - 0.3), Y(y)); c.stroke();
+      const w = Math.max(0.5, (halfY(y) || hb) - 0.3);
+      c.beginPath(); c.moveTo(X(-w), Y(y)); c.lineTo(X(w), Y(y)); c.stroke();
     }
     // The armour, every plate where it is and as thick as it is (drawn
     // thicker than life so a thin plate can be seen at all).
@@ -390,28 +458,54 @@ export class PenCam {
       c.beginPath(); draw(); c.stroke();
     };
     const beltKey = S.boxed ? 'b' : 'p';
+    // Down her side, following her own plating.
+    const sideLine = (sd, ya, yb) => {
+      let first = true;
+      for (let y = ya; y <= yb + 1e-6; y += 0.25) {
+        const x = sd * ((halfY(y) || hb) - 0.15);
+        if (first) { c.moveTo(X(x), Y(y)); first = false; } else c.lineTo(X(x), Y(y));
+      }
+    };
     plate(beltKey, S.belt, () => {
-      for (const sd of [-1, 1]) { c.moveTo(X(sd * hb), Y(S.beltLow)); c.lineTo(X(sd * hb), Y(Math.min(S.beltTop, S.fb))); }
+      for (const sd of [-1, 1]) sideLine(sd, S.beltLow, Math.min(S.beltTop, S.fb));
     });
     if (S.boxed) {
       plate('p', S.upper, () => {
-        for (const sd of [-1, 1]) { c.moveTo(X(sd * hb), Y(S.beltTop)); c.lineTo(X(sd * hb), Y(S.fb)); }
+        for (const sd of [-1, 1]) sideLine(sd, S.beltTop, S.fb);
       });
       plate('k', S.bulkhead, () => {
         for (const sd of [-1, 1]) { c.moveTo(X(sd * inner), Y(S.bottom)); c.lineTo(X(sd * inner), Y(S.mainDeck)); }
       });
-      plate('d', S.deck, () => { c.moveTo(X(-hb), Y(S.mainDeck)); c.lineTo(X(hb), Y(S.mainDeck)); });
+      plate('d', S.deck, () => { const w = halfY(S.mainDeck) || hb; c.moveTo(X(-w), Y(S.mainDeck)); c.lineTo(X(w), Y(S.mainDeck)); });
       plate('s', S.splinter, () => { c.moveTo(X(-inner), Y(S.splinterDeck)); c.lineTo(X(inner), Y(S.splinterDeck)); });
     }
-    plate('w', S.weather, () => { c.moveTo(X(-hb), Y(S.fb)); c.lineTo(X(hb), Y(S.fb)); });
+    plate('w', S.weather, () => { const w = halfY(S.fb - 0.1) || hb; c.moveTo(X(-w), Y(S.fb)); c.lineTo(X(w), Y(S.fb)); });
     if (s.ev.part === 'bow' || s.ev.part === 'stern') {
-      plate(s.ev.part === 'bow' ? 'f' : 'a', S.bow, () => { hull(); });
+      plate(s.ev.part === 'bow' ? 'f' : 'a', S.bow, () => {
+        if (ext) for (const sd of [-1, 1]) sideLine(sd, Math.max(ext.y0, -S.draft), S.fb);
+        else hull();
+      });
     }
-    // Her outline over everything.
-    hull();
-    c.strokeStyle = 'rgba(200, 212, 222, 0.6)';
-    c.lineWidth = 1 * dpr;
-    c.stroke();
+    // Her outline over everything: her model's own lines where it cuts her,
+    // her guns picked out, or the drawing's outline without one.
+    if (s.segs && ext) {
+      c.lineWidth = 1 * dpr;
+      c.strokeStyle = 'rgba(200, 212, 222, 0.62)';
+      c.beginPath();
+      for (const g of s.segs) if (!g[4]) { c.moveTo(X(g[0]), Y(g[1])); c.lineTo(X(g[2]), Y(g[3])); }
+      c.stroke();
+      c.fillStyle = 'rgba(130, 120, 90, 0.5)';
+      c.strokeStyle = 'rgba(232, 196, 106, 0.85)';
+      c.lineWidth = 1.3 * dpr;
+      c.beginPath();
+      for (const g of s.segs) if (g[4]) { c.moveTo(X(g[0]), Y(g[1])); c.lineTo(X(g[2]), Y(g[3])); }
+      c.stroke();
+    } else {
+      hull();
+      c.strokeStyle = 'rgba(200, 212, 222, 0.6)';
+      c.lineWidth = 1 * dpr;
+      c.stroke();
+    }
 
     // The round.
     const T = s.t;

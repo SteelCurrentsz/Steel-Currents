@@ -73,6 +73,7 @@ float fbm3dLow(vec3 p) {
 // the way burning gas does instead of sliding about like a texture.
 const FIREBALL_FRAG = /* glsl */`
 uniform float uAge;       // seconds since the detonation
+uniform float uKeep;      // how much of her is left to draw: 1 until she is let go
 uniform float uTau;       // how long this size of ball burns, in seconds
 uniform float uSeed;
 uniform float uPower;     // 0 for a drum going up, 1 for a magazine
@@ -426,7 +427,7 @@ export class ExplosionSystem {
         uniforms: {
           uLife: { value: 2 }, uAge: { value: 99 }, uTau: { value: 1 },
           uSeed: { value: 0 },
-          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 },
+          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 }, uKeep: { value: 1 },
           uFogColor: { value: this.fogColor }, uFogDensity: { value: this.fogDensity },
           ...extra,
         },
@@ -489,6 +490,7 @@ export class ExplosionSystem {
    */
   blast(x, y, z, {
     size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0, ring = true,
+    linger = 3.4,
   } = {}) {
     // A free slot if there is one, and the one furthest through its life if
     // there is not: cutting a young fireball off in the middle to start another
@@ -507,7 +509,11 @@ export class ExplosionSystem {
     // than that, which is most of what a real blast does and nearly all of what
     // makes one look real.
     s.tau = duration * 0.62;
-    s.total = duration * 3.4;
+    // How long what is left of her hangs about after the fire: a long while
+    // over a town, and not at all inside a ship, where the smoke of a hit is
+    // her own smoke and a lingering grey ball is a ghost over her.
+    s.total = duration * linger;
+    s.ball.material.uniforms.uKeep.value = 1;
     s.size = size;
     s.plumeOn = plume;
 
@@ -635,6 +641,8 @@ export class ExplosionSystem {
 
       if (s.glare.visible && age > s.tau * 0.55) s.glare.visible = false;
 
+      // Thinned out over the last third of her time rather than cut off.
+      s.ball.material.uniforms.uKeep.value = Math.max(0, Math.min(1, (s.total - age) / (s.total * 0.33)));
       if (age > s.total) {
         s.done = true;
         s.ball.visible = s.plume.visible = s.ring.visible = s.light.visible = false;

@@ -43,6 +43,8 @@ export const FLOAT_Y = 1.0;
 export const SHEET = 0;   // water torn off her side, the body of the splash
 export const DROP = 1;    // what it comes apart into
 export const MIST = 2;    // what blows off the top of it
+/** Whether the mist cards are thrown at all. They are not; see throw(). */
+const MIST_CARDS = false;
 
 /** How far off the eye a hull is still described to the sea, in metres. */
 const HULL_RANGE = 9000;
@@ -392,7 +394,12 @@ export function holdStrength(view, plan) {
   if (!view.group || view.group.visible === false) return 0;
   if (view.going || view.halves) return 0;
   const settle = (view.sinkY || 0) / Math.max(1, plan.freeboard);
-  return (1 - smooth(0.25, 0.6, settle)) * (1 - smooth(0.1, 0.6, view.depth || 0));
+  // Nor once she is laid well over or down by an end: a ship rolling over
+  // has her bottom coming up out of the sea, and holding the sea to the
+  // waterline she was built to draws a sheet of water across her keel.
+  const lay = Math.abs(view.heelBy || 0) + Math.abs(view.trimBy || 0);
+  return (1 - smooth(0.25, 0.6, settle)) * (1 - smooth(0.1, 0.6, view.depth || 0))
+    * (1 - smooth(0.12, 0.35, lay));
 }
 
 // ------------------------------------------------------------- shaders --
@@ -937,8 +944,10 @@ export class Breakers {
         op: 0.6, base: sea, force: f,
       });
     }
-    // The mist off the top of a hard one, which the wind takes.
-    if (f > 0.25 && Math.random() < 0.12 + 0.3 * f) {
+    // The mist off the top of a hard one, which the wind takes. Not drawn:
+    // a card of soft mist reads as a grey ball hanging beside her, which is
+    // not what spray does -- the sheets and the drops are the spray.
+    if (MIST_CARDS && f > 0.25 && Math.random() < 0.12 + 0.3 * f) {
       const p = at(sign * (side + 0.5 + Math.random() * 1.0),
         deck + 0.5 + f * (1.5 + 2 * Math.random()), z);
       const v = way(sign * (0.4 + 0.8 * f), 0.8 + 2.2 * f, (Math.random() - 0.5) * 1.2);

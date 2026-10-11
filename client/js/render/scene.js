@@ -1861,8 +1861,9 @@ export class BattleScene {
       duration: 0.7 + 0.45 * scale,
       debris: Math.round(6 + 14 * scale),
       light: false,
-      plume: scale > 1.1,
+      plume: false,
       ring: false,
+      linger: 1.5,
       power: Math.min(1, scale / 2),
     });
     this.effects.flash?.(x, y + 4, z, 1.2 * scale);

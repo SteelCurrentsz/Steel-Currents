@@ -10,6 +10,7 @@ import {
 } from '../shared/sea.js';
 import { lampCount, setLamp, lampWire, freshLamps, LAMP_PITCH } from '../shared/searchlights.js';
 import { armourScheme, layersFor, walkLayers, LAYER_NAMES } from '../shared/armor.js';
+import { sectionAt as cutSection, extents as sectionExtents, halfAt as sectionHalf } from '../client/js/render/section.js';
 import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlights.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
@@ -18082,6 +18083,26 @@ check('a hit carries the plates it went through, and they agree with what it did
   assert.ok(['citadel', 'pen'].includes(big.kind), big.kind);
   if (big.kind === 'citadel') assert.equal(big.ps, -1, 'a citadel hit stopped in her armour');
   assert.ok(Array.isArray(big.lv) && big.lv.length === 3 && big.sc === 'kongo');
+});
+
+
+
+check('the penetration camera cuts her own model across, guns and all', () => {
+  for (const id of ['fletcher', 'kongo', 'iowa']) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    const view = { group: built.group, classId: id, cls, turrets: built.turrets, secMounts: built.secMounts };
+    const segs = cutSection(view, 0);
+    assert.ok(segs && segs.length > 20, `${id}: no section through her middle`);
+    const ext = sectionExtents(segs);
+    // As wide as she is, where she floats.
+    const wl = sectionHalf(ext, 1);
+    assert.ok(Math.abs(wl - cls.hull.beam / 2) < cls.hull.beam * 0.2, `${id}: her section is ${wl} wide, not her beam`);
+    // And through a turret, the turret is in it.
+    const t = cls.turrets[0];
+    const atGun = cutSection(view, t.z);
+    assert.ok(atGun.some((g) => g[4] === 1), `${id}: the section through her forward turret has no turret in it`);
+  }
 });
 
 

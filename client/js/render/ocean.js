@@ -221,6 +221,7 @@ uniform vec4 uHullAt[MAX_HULLS];   // xz of her middle, reach squared, how much 
 uniform vec4 uHullDim[MAX_HULLS];  // z of her after end, her length, how far out she is felt, easing
 uniform sampler2D uHullPlan;       // a row a hull: waterline half-breadth, deck edge, side under it
 uniform float uHoldLeak;           // how much of a sea standing over her deck comes aboard
+uniform float uHoldUp;             // how far the trough is held up to her sides, in a storm
 
 // What she is at a station, by z in her own frame.
 vec4 hullPlan(int i, float z, vec4 dim) {
@@ -273,10 +274,12 @@ float holdOff(inout vec3 wp) {
     // crest with daylight under her, and the water at her sides is never let
     // fall below a little under her waterline -- which is a metre up her
     // frame, because every hull is floated a metre down.
-    float floorY = 0.35;
+    // Only in a storm, and only partly: in any other sea she rides the
+    // water and there is no trough deep enough to open round her.
+    float floorY = 0.0;
     float under = floorY - lp.y;
-    if (w > 0.0 && under > 0.0) {
-      wp.y += under * w;
+    if (uHoldUp > 0.0 && w > 0.0 && under > 0.0) {
+      wp.y += under * w * uHoldUp;
       continue;
     }
     float over = lp.y - (top - k);
@@ -894,6 +897,7 @@ export class Ocean {
         uHullDim: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4(0, 1, 1, 1)) },
         uHullPlan: { value: this.hullPlan },
         uHoldLeak: { value: 0.6 },
+        uHoldUp: { value: 0 },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
         uCrest: { value: p.amp },
@@ -974,6 +978,7 @@ export class Ocean {
     // -- onto the deck and against the superstructure -- rather than being
     // shaved off at her deck edge.
     if (u.uHoldLeak) u.uHoldLeak.value = this.short ? 0.95 : 0.6;
+    if (u.uHoldUp) u.uHoldUp.value = this.short ? 0.55 : 0;
     const scale = waveScales(this.short);
     u.uWave.value.forEach((w, i) => { w.w = WAVES[i].amp * scale[i]; });
     // The crests whiten at the same share of the sea's height whatever is
