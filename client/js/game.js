@@ -26,6 +26,9 @@ import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
 import { PenCam } from './render/pencam.js';
 import {
+  MAN, freshMan, stepDeck, stepWater, deckAt, onPlan, roughPlan, placeOn,
+} from './walker.js';
+import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
@@ -577,6 +580,12 @@ export class Battle {
     this.hud.onLampPick = (k) => this.enterLamp(k);
     document.getElementById('lamp-switch')?.addEventListener('click', () => this.switchLamp());
     document.getElementById('lamp-leave')?.addEventListener('click', () => this.leaveLamp());
+    // The human view: a pin in her plan, and you on your own two feet there.
+    this.man = null;
+    this.hud.onHumanPlan = () => this.humanPanel();
+    this.hud.onHumanDeploy = (x, z) => this.deployMan(x, z);
+    this.hud.bindHumanStick(() => { this.jumpAsked = true; });
+    document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan());
     const fireKey = document.getElementById('gun-fire');
     if (fireKey) {
       fireKey.addEventListener('pointerdown', (e) => { e.preventDefault(); this.pullTrigger(); });
@@ -1356,6 +1365,180 @@ export class Battle {
       image: planImage(plan),
       lamps: plan.lamps.map((p, k) => ({ x: p.x, z: p.z, side: p.side, name: p.name, on: !!lamps[k]?.on })),
     };
+  }
+
+  /** The plan a man walks her deck on: her own, or a rough one if her model gave none. */
+  manPlan(view) {
+    if (view.manMap) return view.manMap;
+    const plan = lampPlan(view, this.scene.renderer);
+    const cls = view.cls || this.cls;
+    view.manMap = plan.map || roughPlan(cls.hull.length, cls.hull.beam, freeboardOf(cls) + 1);
+    return view.manMap;
+  }
+
+  /** What the human view panel draws: her plan, and whether a place is on it. */
+  humanPanel() {
+    if (this.sunk) return null;
+    const view = this.scene.shipViews.get(this.shipId);
+    if (!view) return null;
+    const plan = lampPlan(view, this.scene.renderer);
+    const map = this.manPlan(view);
+    const cls = this.cls;
+    return {
+      halfX: map.halfX, halfZ: map.halfZ,
+      image: planImage(plan),
+      onShip: (x, z) => onPlan(map, x, z),
+      describe: (x, z) => placeOn(cls.hull.length, cls.hull.beam, x, z),
+    };
+  }
+
+  /** Stand on her deck at (x, z) in her frame, facing her bow. */
+  deployMan(x, z) {
+    const view = this.scene.shipViews.get(this.shipId);
+    if (this.sunk || !view) return;
+    const map = this.manPlan(view);
+    if (!onPlan(map, x, z)) return;
+    if (this.gun) this.manGun(null);
+    if (this.lamp) this.leaveLamp(true);
+    if (this.flight) this.leaveFlight();
+    if (this.shellCam) this.toggleShellCam();
+    this.man = freshMan(map, x, z, 0);
+    this.man.map = map;
+    this.jumpAsked = false;
+    this.watching = null;
+    this.hud.setWatching(null);
+    this.hud.setWatchBanner(null);
+    this.freeCamera(false);
+    this.roam = null;
+    if (this.hud.panel) this.hud.togglePanel(this.hud.panel);
+    this.hud.setHumanSight({ where: this.manWhere() });
+    this.hud.alert('Stick or WASD to walk, drag to look');
+    audio.click();
+  }
+
+  /** Back to the bridge from wherever you have walked or swum to. */
+  leaveMan(quiet = false) {
+    if (!this.man) return;
+    this.man = null;
+    this.manSaid = null;
+    this.hud.setHumanSight(null);
+    this.input.orbiting = false;
+    const cam = this.scene.camera;
+    cam.near = 2;
+    cam.updateProjectionMatrix();
+    if (!quiet) audio.click();
+  }
+
+  /** Where the man is, in a word or two, for the line over the screen. */
+  manWhere() {
+    const m = this.man;
+    if (!m) return '';
+    if (m.aboard) return placeOn(this.cls.hull.length, this.cls.hull.beam, m.x, m.z);
+    if (m.swimming) return 'In the water';
+    if (m.grounded) return 'Ashore';
+    return 'Overboard';
+  }
+
+  /** Over the side: out of her frame and into the world's, falling. */
+  manOverboard(view) {
+    const m = this.man;
+    if (view) {
+      const p = view.group.localToWorld(new THREE.Vector3(m.x, m.y, m.z));
+      m.x = p.x; m.y = p.y; m.z = p.z;
+      m.yaw = wrapAngle(m.yaw + view.group.rotation.y);
+    }
+    m.aboard = false;
+    m.grounded = false;
+    m.swimming = false;
+    m.held = 0;
+  }
+
+  /** One frame of the man: his head off the drag, his feet off the stick and keys. */
+  stepMan(dt) {
+    const m = this.man;
+    const look = this.input.takeMouse();
+    if (!this.hud.stickMouse) {
+      // Dragging right looks right; dragging up looks up.
+      m.yaw = wrapAngle(m.yaw - look.x);
+      m.pitch = clamp(m.pitch - look.y, -1.35, 1.35);
+    }
+    const k = this.input;
+    const key = (...c) => (c.some((x) => k.down(x)) ? 1 : 0);
+    const st = this.hud.stick || { x: 0, y: 0 };
+    const move = {
+      fwd: clamp(key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown') + st.y, -1, 1),
+      side: clamp(key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft') + st.x, -1, 1),
+      run: !!key('ShiftLeft', 'ShiftRight') || Math.hypot(st.x, st.y) > 0.96,
+      jump: !!this.jumpAsked,
+    };
+    this.jumpAsked = false;
+    const view = this.scene.shipViews.get(this.shipId);
+    const map = m.map;
+    if (m.aboard) {
+      if (!view || this.sunk) this.manOverboard(view);
+      else if (stepDeck(m, move, dt, map) === 'overboard') {
+        this.manOverboard(view);
+        this.hud.alert('Man overboard!');
+      }
+    }
+    if (!m.aboard) {
+      const ocean = this.scene.ocean;
+      const local = new THREE.Vector3();
+      // Her plan under a point in the world, and how far over his feet her
+      // deck is there; null where she is not.
+      const her = (x, z) => {
+        if (!view || this.sunk) return null;
+        view.group.worldToLocal(local.set(x, m.y, z));
+        const d = deckAt(map, local.x, local.z);
+        return Number.isFinite(d) ? { x: local.x, z: local.z, rise: d - local.y, deck: d } : null;
+      };
+      const ground = (x, z) => (this.world ? groundHeight(this.world, x, z) : -100);
+      const r = stepWater(m, move, dt, {
+        sea: (x, z) => ocean.heightAt(x, z),
+        ground,
+        // Her side is a wall to a man in the water -- unless it is low enough
+        // to haul himself up on, which a boat's is.
+        blocked: (x, z) => { const h = her(x, z); return !!h && h.rise > MAN.climb; },
+      });
+      if (r === 'splash') { audio.splash(0); this.hud.alert('In the water — swim'); }
+      const h = her(m.x, m.z);
+      if (h && h.rise <= MAN.climb && (move.fwd || move.side)) {
+        // Up her side and onto her deck.
+        m.aboard = true;
+        m.x = h.x; m.z = h.z; m.y = h.deck;
+        m.yaw = wrapAngle(m.yaw - view.group.rotation.y);
+        m.vy = 0; m.grounded = true; m.swimming = false;
+        this.hud.alert('Back aboard');
+      } else if (h && h.rise > 0) {
+        // She has come down on him: he is shoved out from under her side.
+        const out = Math.sign(h.x) || 1;
+        let lx = h.x;
+        for (let n = 0; n < 200 && onPlan(map, lx, h.z); n++) lx += out * 0.4;
+        const p = view.group.localToWorld(new THREE.Vector3(lx, 0, h.z));
+        m.x = p.x; m.z = p.z;
+      }
+    }
+    const where = this.manWhere();
+    if (where !== this.manSaid) {
+      this.manSaid = where;
+      this.hud.setHumanSight({ where });
+    }
+  }
+
+  /** Where his eye is in the world and which way he is looking. */
+  manEye(out = new THREE.Vector3(), dir = new THREE.Vector3()) {
+    const m = this.man;
+    const view = this.scene.shipViews.get(this.shipId);
+    let yaw = m.yaw;
+    if (m.aboard && view) {
+      view.group.updateMatrixWorld(true);
+      out.set(m.x, m.y + MAN.eye, m.z);
+      view.group.localToWorld(out);
+      yaw = m.yaw + view.group.rotation.y;
+    } else out.set(m.x, m.y + MAN.eye, m.z);
+    const c = Math.cos(m.pitch);
+    dir.set(Math.sin(yaw) * c, Math.sin(m.pitch), Math.cos(yaw) * c);
+    return { pos: out, dir };
   }
 
   /** Go and stand behind one of her searchlights, and switch it on. */
@@ -2249,6 +2432,12 @@ export class Battle {
 
   onKey(code) {
     const ls = this.localShip;
+    // Walking about her, the walking keys walk him and Space jumps.
+    if (this.man) {
+      if (code === 'Space') { this.jumpAsked = true; return; }
+      if (code === 'Escape') { this.leaveMan(); return; }
+      if (['KeyW', 'KeyS', 'KeyA', 'KeyD'].includes(code)) return;
+    }
     switch (code) {
       case 'KeyW': this.setNotch(this.connedNotch() + 1); audio.click(); break;
       case 'KeyS': this.setNotch(this.connedNotch() - 1); audio.click(); break;
@@ -3679,7 +3868,12 @@ export class Battle {
     // the camera is wanted for something else, which takes you off it.
     if (this.lamp && (this.watching || this.flight || this.gun || this.sunk)) this.leaveLamp(true);
     if (this.lamp) this.trainLamp(dt);
-    if (!this.watching && !this.gun && !this.lamp) {
+    // On his own two feet, the drag turns his head and the stick and the keys
+    // walk him; anything that wants the camera for something else takes him
+    // back to the bridge.
+    if (this.man && (this.watching || this.flight || this.gun || this.lamp)) this.leaveMan(true);
+    if (this.man) this.stepMan(dt);
+    if (!this.watching && !this.gun && !this.lamp && !this.man) {
       const m = this.input.takeMouse();
       const zoom = this.scoped ? 0.35 : 1;
       this.yaw = wrapAngle(this.yaw + m.x * zoom);
@@ -3694,6 +3888,7 @@ export class Battle {
     // whether you are on your own bridge or watching somebody else -- walking
     // away from a contact is how you let go of it.
     const pan = this.input.takePan();
+    if (this.man) { pan.x = 0; pan.y = 0; }
     // The moment the hand stops, whatever it had walked so far is forgotten.
     // Otherwise a twitch here and a twitch a minute later eventually add up to
     // a walk and let go of a ship nobody meant to let go of.
@@ -3703,7 +3898,7 @@ export class Battle {
     const ARROW = 340 * dt;
     const kx = (this.input.down('ArrowRight') ? 1 : 0) - (this.input.down('ArrowLeft') ? 1 : 0);
     const ky = (this.input.down('ArrowDown') ? 1 : 0) - (this.input.down('ArrowUp') ? 1 : 0);
-    if (kx || ky) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
+    if ((kx || ky) && !this.man) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
 
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
@@ -4880,6 +5075,19 @@ export class Battle {
     // up -- the stick is still read and still sent, see stepFlight -- so
     // coming off the camera puts you straight back at the controls.
     const riding = this.shellCam && this.watching && this.watching.kind === 'shell';
+    // On his own two feet: a man's eye, a man's field of view, and a near
+    // plane close enough that the rail in front of him is not cut away.
+    if (this.man) {
+      const e = this.manEye();
+      cam.fov = 72;
+      cam.near = 0.1;
+      cam.updateProjectionMatrix();
+      cam.up.set(0, 1, 0);
+      cam.position.copy(e.pos);
+      cam.lookAt(e.pos.x + e.dir.x * 100, e.pos.y + e.dir.y * 100, e.pos.z + e.dir.z * 100);
+      this.input.orbiting = true;
+      return;
+    }
     // Behind one of her searchlights: the eye a little above and behind its
     // glass, looking down the beam.
     if (this.lamp && !riding) {
@@ -5209,6 +5417,10 @@ export class Battle {
     // camera actually ended up and what the sea is doing under it.
     const cam = this.scene.camera;
     const sea = this.scene.ocean.heightAt(cam.position.x, cam.position.z);
+    // A man swimming has his eye just over the water he is drawn in, on the
+    // clock it is drawn at -- not the one his last step was taken on, which a
+    // slow frame leaves a wave behind.
+    if (this.man && this.man.swimming) cam.position.y = sea + MAN.float;
     this.scene.setUnderwater(cam.position.y < sea - 0.2);
     this.scene.render();
   }

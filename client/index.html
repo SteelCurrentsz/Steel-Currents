@@ -378,6 +378,11 @@
     </div>
     <!-- No bar. What she is worth is what her compartments are worth, and that
          is read off the damage board behind the wrench. -->
+    <!-- Walking about her in the human view: the stick moves you, a drag
+         anywhere else turns your head. -->
+    <div class="human-stick" id="human-stick" hidden>
+      <div class="human-stick-knob" id="human-stick-knob"></div>
+    </div>
     <div class="ship-plate">
       <div class="name" id="own-name">—</div>
       <div class="cond-row" id="cond-row"></div>
@@ -565,6 +570,16 @@
       </svg>
       <span>SEARCH<br>LIGHTS</span>
     </button>
+    <!-- Go and stand on her: a plan of her from overhead to put a pin in, and
+         Deploy puts you there, on your own two feet. -->
+    <button class="conn-key" id="key-human" type="button" data-panel="human"
+            aria-label="Human view">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="13.5" cy="13.5" r="8.2" fill="none" stroke="currentColor" stroke-width="2.6"/>
+        <path d="M19.6 19.6L28 28" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+      </svg>
+      <span>HUMAN<br>VIEW</span>
+    </button>
     <!-- What the bridge you are standing on is shooting at. Beside the keys
          rather than in a panel behind one of them, because it is the thing
          you want to be able to read without taking your eyes off the sea. -->
@@ -631,6 +646,12 @@
     <p class="lamp-name" id="lamp-name"></p>
     <button class="lamp-switch" id="lamp-switch" type="button">Light on</button>
     <button class="gun-leave" id="lamp-leave" type="button">Leave searchlight</button>
+  </div>
+  <!-- On your own two feet, in the human view. -->
+  <div class="human-sight" id="human-sight" hidden>
+    <p class="lamp-name" id="human-where"></p>
+    <button class="human-jump" id="human-jump" type="button">Jump</button>
+    <button class="gun-leave" id="human-leave" type="button">Leave human view</button>
   </div>
   <div class="gun-sight" id="gun-sight" hidden>
     <div class="gun-cross" aria-hidden="true">

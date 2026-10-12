@@ -2254,3 +2254,54 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .pen-cam { position: absolute; inset: 0; z-index: 30; cursor: pointer; }
 .pen-cam[hidden] { display: none; }
 .pen-cam canvas { display: block; width: 100%; height: 100%; }
+
+/* The human view. The key is as wide as the searchlight key beside it, and
+   its panel is her plan with a pin to put in it and Deploy over its top left. */
+#key-human { width: 70px; }
+#key-human span { letter-spacing: 0.1em; line-height: 1.05; text-align: center; }
+.human-bar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.2rem; }
+.human-deploy {
+  padding: 0.35rem 1rem; min-height: 32px;
+  background: var(--sand); border: 1px solid var(--sand); color: #0b141d;
+  font-family: var(--ui); font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; cursor: pointer;
+}
+.human-deploy:disabled {
+  background: rgba(8, 19, 31, 0.6); color: var(--steel); border-color: var(--panel-line);
+  opacity: 0.55; cursor: not-allowed;
+}
+.human-said {
+  font-size: 0.66rem; letter-spacing: 0.12em; color: var(--steel); text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.human-ship { cursor: crosshair; }
+.human-pin {
+  position: absolute; width: 22px; height: 30px; margin: -29px 0 0 -11px;
+  color: #ff5a4a; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.7));
+}
+.human-pin[hidden] { display: none; }
+.human-pin svg { width: 100%; height: 100%; display: block; }
+
+/* On foot: the stick over the ship plate, and Jump and Leave on the screen. */
+.human-stick {
+  position: relative; z-index: 8; width: 128px; height: 128px; margin-bottom: 0.6rem;
+  border-radius: 50%; background: rgba(8, 19, 31, 0.5);
+  border: 2px solid rgba(230, 207, 156, 0.55); touch-action: none; cursor: grab;
+}
+.human-stick[hidden] { display: none; }
+.human-stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border-radius: 50%; background: rgba(230, 207, 156, 0.85);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6); pointer-events: none;
+}
+.human-sight { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.human-sight[hidden] { display: none; }
+.human-sight button { pointer-events: auto; }
+.human-jump {
+  position: absolute; right: max(1.2rem, env(safe-area-inset-right)); bottom: 16vh;
+  width: 84px; height: 84px; border-radius: 50%;
+  background: rgba(8, 19, 31, 0.84); border: 2px solid var(--sand);
+  color: var(--sand); font-family: var(--ui); font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; touch-action: none;
+}
+.battle.human .reticle { display: none; }

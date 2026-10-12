@@ -31,8 +31,15 @@ const DC_ORDER = ['Shore up', 'Start pumps', 'Damage control'];
 
 const PANEL_TITLES = {
   helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
-  ship: 'DAMAGE CONTROL', lamps: 'SEARCH LIGHTS',
+  ship: 'DAMAGE CONTROL', lamps: 'SEARCH LIGHTS', human: 'HUMAN VIEW',
 };
+
+/** The pin put in her plan where the human view is to stand you. */
+const PIN_ICON = `<svg viewBox="0 0 24 32" aria-hidden="true">
+        <path d="M12 1.5c-5.8 0-10 4.3-10 9.9 0 7.3 10 19.1 10 19.1s10-11.8 10-19.1c0-5.6-4.2-9.9-10-9.9z"
+              fill="currentColor" stroke="#10161c" stroke-width="1.4"/>
+        <circle cx="12" cy="11.2" r="3.6" fill="#10161c"/>
+      </svg>`;
 
 /** The lighthouse a lamp is marked with on the plan. */
 const LAMP_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true" class="lamp-icon">
@@ -754,6 +761,7 @@ export class Hud {
     else if (this.panel === 'dmg') this.buildDamagePanel();
     else if (this.panel === 'arms') this.buildArsenalPanel();
     else if (this.panel === 'lamps') this.buildLampPanel();
+    else if (this.panel === 'human') this.buildHumanPanel();
     else this.buildActionPanel(this.panel);
     if (this.lastOwn) this.paintPanel(this.lastOwn);
   }
@@ -1346,6 +1354,154 @@ export class Hud {
     note.className = 'conn-note';
     note.textContent = 'Tap a light to stand behind it';
     this.el.connBody.appendChild(note);
+  }
+
+  /**
+   * The human view: her plan from overhead, a tap on it puts a pin in her
+   * deck, and Deploy -- live only once there is a pin -- stands you there.
+   * What is drawn, and whether a place is on her, comes from the battle (see
+   * Battle.humanPanel).
+   */
+  buildHumanPanel() {
+    const info = this.onHumanPlan?.();
+    const body = this.el.connBody;
+    if (!info) {
+      const p = document.createElement('p');
+      p.className = 'conn-note';
+      p.textContent = 'There is nothing of her left to stand on';
+      body.appendChild(p);
+      return;
+    }
+    const bar = document.createElement('div');
+    bar.className = 'human-bar';
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'human-deploy';
+    go.textContent = 'Deploy';
+    go.disabled = true;
+    bar.appendChild(go);
+    const said = document.createElement('span');
+    said.className = 'human-said';
+    said.textContent = 'No place picked';
+    bar.appendChild(said);
+    body.appendChild(bar);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'lamp-plan';
+    const ship = document.createElement('div');
+    ship.className = 'lamp-ship human-ship';
+    ship.style.aspectRatio = `${info.halfX} / ${info.halfZ}`;
+    if (info.image) {
+      info.image.className = 'lamp-ship-img';
+      ship.appendChild(info.image);
+    } else {
+      const hull = document.createElement('div');
+      hull.className = 'lamp-ship-hull';
+      ship.appendChild(hull);
+    }
+    const pin = document.createElement('div');
+    pin.className = 'human-pin';
+    pin.hidden = true;
+    pin.innerHTML = PIN_ICON;
+    ship.appendChild(pin);
+    let at = null;
+    ship.addEventListener('click', (e) => {
+      const r = ship.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const fx = (e.clientX - r.left) / r.width;
+      const fy = (e.clientY - r.top) / r.height;
+      // Port is the left of the plan and the bow its top: her +x and +z.
+      const x = info.halfX * (1 - 2 * fx);
+      const z = info.halfZ * (1 - 2 * fy);
+      if (!info.onShip(x, z)) {
+        this.alert('Put the pin on her deck');
+        return;
+      }
+      at = { x, z };
+      pin.hidden = false;
+      pin.style.left = `${fx * 100}%`;
+      pin.style.top = `${fy * 100}%`;
+      go.disabled = false;
+      said.textContent = info.describe ? info.describe(x, z) : 'Place picked';
+    });
+    go.onclick = () => { if (at) this.onHumanDeploy?.(at.x, at.z); };
+    wrap.appendChild(ship);
+    body.appendChild(wrap);
+    const note = document.createElement('p');
+    note.className = 'conn-note';
+    note.textContent = 'Tap her deck to put a pin in it, then Deploy';
+    body.appendChild(note);
+  }
+
+  /** On your own two feet, or not: `man` is { where } or null. */
+  setHumanSight(man) {
+    const el = this.el.humanSight || (this.el.humanSight = document.getElementById('human-sight'));
+    const stick = this.el.humanStick || (this.el.humanStick = document.getElementById('human-stick'));
+    if (stick) stick.hidden = !man;
+    document.getElementById('screen-battle')?.classList.toggle('human', !!man);
+    if (!man) this.centreStick();
+    if (!el) return;
+    el.hidden = !man;
+    if (!man) return;
+    const where = document.getElementById('human-where');
+    if (where && where.textContent !== man.where) where.textContent = man.where;
+  }
+
+  /**
+   * The stick over the ship plate. `this.stick` is where it is pushed, each
+   * of x (right) and y (forward) from -1 to 1, and back to nothing the
+   * moment the thumb comes off it.
+   */
+  bindHumanStick(onJump) {
+    this.stick = { x: 0, y: 0 };
+    const pad = document.getElementById('human-stick');
+    const knob = document.getElementById('human-stick-knob');
+    document.getElementById('human-jump')?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      onJump?.();
+    });
+    if (!pad || !knob) return;
+    let held = null;
+    const put = (e) => {
+      const r = pad.getBoundingClientRect();
+      const R = r.width / 2;
+      let dx = e.clientX - (r.left + R);
+      let dy = e.clientY - (r.top + R);
+      const d = Math.hypot(dx, dy);
+      const max = R * 0.62;
+      if (d > max) { dx *= max / d; dy *= max / d; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      this.stick.x = dx / max;
+      this.stick.y = -dy / max;
+    };
+    pad.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      held = e.pointerId;
+      // A mouse dragging the stick is moving the window's mouse too, and that
+      // is not a turn of the head; the battle throws it away while this is set.
+      this.stickMouse = e.pointerType === 'mouse';
+      try { pad.setPointerCapture(e.pointerId); } catch { /* gone already */ }
+      put(e);
+    });
+    pad.addEventListener('pointermove', (e) => { if (e.pointerId === held) { e.preventDefault(); put(e); } });
+    const end = (e) => {
+      if (e.pointerId !== held) return;
+      held = null;
+      this.stickMouse = false;
+      this.centreStick();
+    };
+    pad.addEventListener('pointerup', end);
+    pad.addEventListener('pointercancel', end);
+    pad.addEventListener('lostpointercapture', end);
+    // A mouse held down on the stick is not a drag on the sea.
+    pad.addEventListener('mousedown', (e) => e.stopPropagation());
+  }
+
+  centreStick() {
+    if (this.stick) { this.stick.x = 0; this.stick.y = 0; }
+    const knob = document.getElementById('human-stick-knob');
+    if (knob) knob.style.transform = '';
   }
 
   /** Which of the lamps on the plan are lit, while it is up. */

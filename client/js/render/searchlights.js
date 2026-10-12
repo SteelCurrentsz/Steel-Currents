@@ -209,8 +209,10 @@ function measuredPlan(view, renderer) {
   if (any < 50) return null;
   const map = { w, h, halfX, halfZ, heights, dark };
   const found = findLamps(cls, map);
-  const lamps = found ? found.map((l) => ground(map, l)) : null;
-  return lamps ? { lamps, map } : null;
+  // Her lamps where they were found, or where a ship her size would have
+  // them -- but the map either way: the human view walks her deck off it.
+  const lamps = found ? found.map((l) => ground(map, l)) : guessedPlan(cls).lamps;
+  return { lamps, map };
 }
 
 // Pixel to her own frame, and back. Row 0 is the bottom of the picture --

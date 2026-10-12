@@ -13,6 +13,9 @@ import { armourScheme, layersFor, walkLayers, LAYER_NAMES } from '../shared/armo
 import { sectionAt as cutSection, extents as sectionExtents, halfAt as sectionHalf } from '../client/js/render/section.js';
 import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlights.js';
 import {
+  MAN, freshMan, stepDeck as walkDeck, stepWater, onPlan, roughPlan,
+} from '../client/js/walker.js';
+import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
 } from '../shared/sim.js';
 import {
@@ -19082,6 +19085,49 @@ check('collision: the piece cut off her is solid and does not pass through anoth
   };
   assert.ok(run(false) > 4, 'the piece never reached the destroyer; the test proves nothing');
   assert.ok(run(true) < 0.5, `the piece went ${run(true).toFixed(1)} m into her`);
+});
+
+// The human view: a man on her deck, over her side, and in the sea.
+check('human view: a man walks her deck, is stopped by a deck house and goes over the side', () => {
+  // A flat deck at 8 m, sixty long and twelve across, with a house on it
+  // amidships twelve metres high.
+  const plan = roughPlan(60, 12, 8);
+  for (let j = 0; j < plan.h; j++) {
+    for (let i = 0; i < plan.w; i++) {
+      const x = ((i + 0.5) / plan.w * 2 - 1) * -plan.halfX;
+      const z = ((j + 0.5) / plan.h * 2 - 1) * plan.halfZ;
+      if (Math.abs(x) < 3 && Math.abs(z - 10) < 3) plan.heights[j * plan.w + i] = 20;
+    }
+  }
+  assert.ok(onPlan(plan, 0, -20) && !onPlan(plan, 20, 0));
+  const man = freshMan(plan, 0, -10, 0);
+  assert.equal(man.y, 8);
+  // Forward, into the house: he stops short of it and stays on the deck.
+  for (let t = 0; t < 10; t += 1 / 30) walkDeck(man, { fwd: 1, side: 0 }, 1 / 30, plan);
+  assert.ok(man.z < 7.5 && man.z > 4, `he walked to ${man.z.toFixed(1)}`);
+  assert.equal(man.y, 8);
+  // To port (his left, facing the bow, is her +x) and over the side.
+  let went = null;
+  for (let t = 0; t < 10 && !went; t += 1 / 30) went = walkDeck(man, { fwd: 0, side: -1 }, 1 / 30, plan);
+  assert.equal(went, 'overboard');
+  assert.ok(man.x > 5);
+  // In the water he falls, goes in, and floats with his eye just over it.
+  man.aboard = false; man.grounded = false; man.swimming = false;
+  const env = { sea: () => 0.5, ground: () => -60, blocked: () => false };
+  let splash = null;
+  for (let t = 0; t < 5; t += 1 / 30) splash = stepWater(man, { fwd: 1 }, 1 / 30, env) || splash;
+  assert.equal(splash, 'splash');
+  assert.ok(man.swimming);
+  assert.ok(Math.abs(man.y + MAN.eye - (0.5 + MAN.float)) < 0.05);
+  // And her side is a wall to him.
+  const x0 = man.x;
+  man.yaw = Math.PI / 2;
+  for (let t = 0; t < 2; t += 1 / 30) stepWater(man, { fwd: 1 }, 1 / 30, { ...env, blocked: (x) => x > x0 + 0.5 });
+  assert.ok(man.x <= x0 + 0.5);
+  // Ashore he stands on the ground instead.
+  const beach = { sea: () => 0, ground: () => 2, blocked: () => false };
+  for (let t = 0; t < 3; t += 1 / 30) stepWater(man, { fwd: 0 }, 1 / 30, beach);
+  assert.ok(!man.swimming && man.grounded && Math.abs(man.y - 2) < 0.1);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
