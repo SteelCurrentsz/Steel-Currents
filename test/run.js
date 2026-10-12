@@ -18658,7 +18658,7 @@ check('a ship going down settles and lists smoothly, not in steps', () => {
  * side at her bow). Same side so nobody's guns go off and muddy the damage;
  * a collision does not care whose ships they are.
  */
-function collide(rc, tc, how, knots) {
+function collide(rc, tc, how, knots, prep = null) {
   const world = generateWorld(4242, 'open_ocean');
   world.islands = [];
   // Two ships of one side, so friendly fire has to be on for them to hurt
@@ -18681,10 +18681,40 @@ function collide(rc, tc, how, knots) {
   // Holding the speed she struck at: the collision is the question, not
   // what she does with her telegraph afterwards.
   R.speed = v; R.notch = 1;
+  if (prep) prep(st, T);
   const events = [];
   for (let i = 0; i < 30 * 4; i++) events.push(...step(st, DT));
   return { st, R, T, events, hit: events.find((e) => e.e === 'collide') };
 }
+
+check('collision: a sinking ship, or a wreck out of the fight, is still steel to run into', () => {
+  // Going down, she is still in the fight and still in the way.
+  const going = collide('fletcher', 'cleveland', 'tbone', 20, (st, T) => startSinking(st, T, 'shattered'));
+  assert.ok(going.hit, 'the destroyer went through a sinking cruiser');
+  assert.ok(going.R.hp < going.R.maxHp, 'she rammed a sinking cruiser and took nothing for it');
+
+  // Out of the fight altogether and settling: a wreck. Running into her costs
+  // what running into her would cost if she were still fighting, and the ship
+  // that did it is fouled on her and stopped.
+  const wreck = (st, T) => { startSinking(st, T, 'shattered'); T.alive = false; };
+  const dead = collide('fletcher', 'cleveland', 'tbone', 20, wreck);
+  assert.ok(dead.hit, 'the destroyer sailed straight through a wreck');
+  assert.ok(dead.R.hp < dead.R.maxHp, 'she rammed a wreck and took nothing for it');
+  assert.ok(Math.abs(dead.R.speed) < 20 / 1.944 * 0.5, `she ran on through her at ${dead.R.speed.toFixed(1)} m/s`);
+  // The two hulls are kept apart: the destroyer did not end up inside her.
+  const live = collide('fletcher', 'cleveland', 'tbone', 20);
+  const gap = (q) => Math.hypot(q.R.x - q.T.x, q.R.z - q.T.z);
+  assert.ok(gap(dead) > gap(live) - 6, `she is ${gap(dead).toFixed(1)} m from the wreck's middle`);
+
+  // Gone: the sea has closed over her, and she is under everybody's keel.
+  const under = collide('fletcher', 'cleveland', 'tbone', 20, (st, T) => {
+    wreck(st, T);
+    T.sinking.under = true;
+    T.sink = T.sinking.depth;
+  });
+  assert.ok(!under.hit, 'the destroyer struck a wreck already on the bottom');
+  assert.equal(under.R.hp, under.R.maxHp);
+});
 
 check('collision: a heavier stem driven hard into a lighter ship cuts her in two', () => {
   const { R, T, hit, events } = collide('iowa', 'fletcher', 'tbone', 26);

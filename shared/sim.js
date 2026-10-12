@@ -951,6 +951,18 @@ function partAt(ship, cls, px, pz) {
  */
 function stepCollisions(state, dt) {
   const alive = state.ships.filter((s) => s.alive);
+  // And every wreck still on the surface. A ship out of the fight is still
+  // thousands of tons of steel going down where she stopped, and a ship that
+  // runs into her is hurt exactly as if she were still fighting. She is only
+  // out of everybody's way once the sea has closed over her -- and before
+  // that, how far she has settled decides whose keel still reaches her (see
+  // bodySpan).
+  const hulls = state.ships.filter((s) => s.alive || (s.sinking && !s.sinking.under));
+  for (const s of hulls) {
+    // Nothing moves a wreck but what runs into her: her engines are stopped
+    // and the way she had is long off her.
+    if (!s.alive) { s.speed = 0; s.driftX = 0; s.driftZ = 0; s.yawRate = 0; }
+  }
   const rams = state.rams || (state.rams = {});
   for (const s of alive) s.fouled = 0;
   // A ship a boat has come up under settles back onto the sea.
@@ -960,9 +972,11 @@ function stepCollisions(state, dt) {
     s.lift *= k; s.liftHeel = (s.liftHeel || 0) * k; s.liftTrim = (s.liftTrim || 0) * k;
     if (s.lift < 0.01) { s.lift = 0; s.liftHeel = 0; s.liftTrim = 0; }
   }
-  for (let i = 0; i < alive.length; i++) {
-    for (let j = i + 1; j < alive.length; j++) {
-      const a = alive[i], b = alive[j];
+  for (let i = 0; i < hulls.length; i++) {
+    for (let j = i + 1; j < hulls.length; j++) {
+      const a = hulls[i], b = hulls[j];
+      // Two wrecks drifting into each other is nobody's business.
+      if (!a.alive && !b.alive) continue;
       const ca = shipClass(a), cb = shipClass(b);
       const reach = (ca.hull.length + cb.hull.length) * 0.5 + FOUL_GAP;
       if (dist2(a.x, a.z, b.x, b.z) > reach * reach) continue;
@@ -994,12 +1008,18 @@ function stepCollisions(state, dt) {
       }
       const at = contactPoint(A, B);
       if (fresh) ramImpact(state, a, b, ca, cb, at, nx, nz);
-      if (!a.alive || !b.alive) continue;
-      a.fouled = b.id; b.fouled = a.id;
-      a.foulT = fresh ? 0 : (a.foulT || 0) + dt;
-      b.foulT = fresh ? 0 : (b.foulT || 0) + dt;
-      holdFast(a, nx, nz, dt);
-      holdFast(b, -nx, -nz, dt);
+      // Whichever of them is still a ship is fouled on the other, wreck or
+      // not, and has to back off her to get clear.
+      if (a.alive) {
+        a.fouled = b.id;
+        a.foulT = fresh ? 0 : (a.foulT || 0) + dt;
+        holdFast(a, nx, nz, dt);
+      }
+      if (b.alive) {
+        b.fouled = a.id;
+        b.foulT = fresh ? 0 : (b.foulT || 0) + dt;
+        holdFast(b, -nx, -nz, dt);
+      }
     }
   }
   // Where every boat's tower top is now, to tell next tick whether she was
@@ -1050,7 +1070,10 @@ export function bodySpan(ship, cls) {
   const lift = ship.lift || 0;
   if (!cls.dive) {
     const fb = freeboardOf(cls);
-    return { keel: -cls.hull.draft + lift, deck: fb + lift, top: fb * 3 + lift };
+    // Settled deeper by the water in her, or going down: all of her is that
+    // much lower, keel and upperworks together.
+    const y = lift - Math.max(0, ship.sink || 0);
+    return { keel: -cls.hull.draft + y, deck: fb + y, top: fb * 3 + y };
   }
   const d = ship.depth || 0;
   const deck = -d + BOAT_FREEBOARD + lift;
