@@ -2287,6 +2287,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   position: relative; z-index: 8; width: 128px; height: 128px; margin-bottom: 0.6rem;
   border-radius: 50%; background: rgba(8, 19, 31, 0.5);
   border: 2px solid rgba(230, 207, 156, 0.55); touch-action: none; cursor: grab;
+  /* The plate it stands on takes no touches (see .battle > *); the stick must. */
+  pointer-events: auto;
 }
 .human-stick[hidden] { display: none; }
 .human-stick-knob {
