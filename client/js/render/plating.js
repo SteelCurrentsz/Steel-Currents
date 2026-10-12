@@ -348,6 +348,65 @@ export class Plating {
     return went;
   }
 
+  /**
+   * A hull torn open by another hull: not a round hole but a rent, longer one
+   * way than the other and ragged all round, made of a few overlapping tears
+   * of different sizes laid along her plating from where the two met. `seed`
+   * makes the shape, so the same collision tears her the same way on every
+   * client.
+   */
+  tear(x, y, z, r, seed = 0) {
+    const near = this.nearest(x, y, z, Math.max(7, r * 3));
+    if (!near) return 0;
+    let h = (seed * 2654435761 + 97) >>> 0;
+    const rnd = () => { h = (h ^ (h << 13)) >>> 0; h = (h ^ (h >>> 17)) >>> 0; h = (h ^ (h << 5)) >>> 0; return (h % 10000) / 10000; };
+    // Two directions in the face of the plating: along her, and across that.
+    const nx = near[3] || 0, ny = near[4] || 0, nz = near[5] || 0;
+    let ax = 0, ay = 0, az = 1;
+    if (Math.abs(nz) > 0.8) { ax = 0; ay = 1; az = 0; }
+    const dot = ax * nx + ay * ny + az * nz;
+    ax -= nx * dot; ay -= ny * dot; az -= nz * dot;
+    const al = Math.hypot(ax, ay, az) || 1;
+    ax /= al; ay /= al; az /= al;
+    const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
+    // Longer along her than up and down, by an amount of its own, and lopsided.
+    const stretch = 1.3 + rnd() * 1.2;
+    const lean = (rnd() - 0.5) * 0.8;
+    const lobes = 3 + Math.floor(rnd() * 3);
+    let went = this.sweep(near, r * (0.55 + rnd() * 0.2), 0.45);
+    for (let i = 0; i < lobes; i++) {
+      const along = (rnd() * 2 - 1) * r * stretch * 0.75;
+      const across = (rnd() * 2 - 1) * r * 0.45 + along * lean;
+      const p = [near[0] + ax * along + bx * across, near[1] + ay * along + by * across, near[2] + az * along + bz * across];
+      went += this.sweep(p, r * (0.25 + rnd() * 0.4), 0.5);
+    }
+    // However it fell, some of her is gone.
+    for (let pass = 1; pass < 3 && went < 2; pass++) went += this.sweep(near, r * (0.6 + pass * 0.4), 0);
+    return went;
+  }
+
+  /**
+   * A scrape along her: a ragged streak of plating stripped off her for
+   * `len` metres, the tears no bigger than `w`. A small ship's stem on a
+   * big ship's belt leaves this and nothing more.
+   */
+  scratch(x, y, z, len, w, seed = 0) {
+    const near = this.nearest(x, y, z, 6);
+    if (!near) return 0;
+    let h = (seed * 2246822519 + 13) >>> 0;
+    const rnd = () => { h = (h ^ (h << 13)) >>> 0; h = (h ^ (h >>> 17)) >>> 0; h = (h ^ (h << 5)) >>> 0; return (h % 10000) / 10000; };
+    const n = Math.max(2, Math.round(len / Math.max(0.3, w)));
+    const slope = (rnd() - 0.5) * 0.25;
+    let went = 0;
+    for (let i = 0; i < n; i++) {
+      const f = (i / (n - 1) - 0.5) * len;
+      const p = [near[0], near[1] + f * slope + (rnd() - 0.5) * w * 0.4, near[2] + f];
+      went += this.sweep(p, w * (0.5 + rnd() * 0.6), 0.6);
+    }
+    if (!went) went = this.sweep(near, Math.max(0.5, w * 1.6), 0);
+    return went;
+  }
+
   /** One burst, of one size, centred on a piece of her plating. */
   sweep(near, r, soft) {
     const x = near[0], y = near[1], z = near[2];

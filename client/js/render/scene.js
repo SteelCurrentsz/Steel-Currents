@@ -1114,8 +1114,8 @@ export class ShipView {
    * Once a frame, after she is posed: the tear follows her and the piece that
    * went drifts and settles. Returns where its broken end is, or null.
    */
-  stepCut(dt) {
-    return this.severed ? this.severed.step(dt) : null;
+  stepCut(dt, others = null) {
+    return this.severed ? this.severed.step(dt, others && others.values()) : null;
   }
 
   /**
@@ -1123,9 +1123,15 @@ export class ShipView {
    * crumpled back on itself, a gash along her side. The plating goes where it
    * went, and what is behind it is her inside.
    */
-  stove(x, y, z, r) {
+  stove(x, y, z, r, seed = 0) {
     if (!this.plating) return 0;
-    return this.plating.punch(x, y, z, r, 0.4);
+    return this.plating.tear(x, y, z, r, seed);
+  }
+
+  /** A collision too light to open her: her plating scraped for `len` metres. */
+  scrapeAt(x, y, z, len, w, seed = 0) {
+    if (!this.plating) return 0;
+    return this.plating.scratch(x, y, z, len, w, seed);
   }
 
   /**

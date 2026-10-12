@@ -1481,9 +1481,14 @@ export class Battle {
       const y = o.what === 'keel' ? -cls.hull.draft * 0.85
         : o.what === 'crush' ? 0
           : o.what === 'gash' || o.what === 'scrape' ? 0.5 : fb * 0.4;
-      const r = Math.max(1.2, o.r || 2);
-      view.stove(o.lx, y, o.lz, r);
-      if (o.r > 4) view.stove(o.lx, y + r * 0.5, o.lz, r * 0.7);
+      // The same tear on every client: shaped by where on her it was.
+      const seed = Math.round(o.lx * 7 + o.lz * 13 + (ev.x || 0) * 3 + (ev.z || 0) * 5 + o.ship * 31);
+      if (o.what === 'scratch') {
+        // Scraped, not holed: a streak along her as long as she was moving.
+        view.scrapeAt(o.lx, y, o.lz, 1.5 + (ev.v || 0) * 0.35, Math.max(0.3, o.r || 0.3), seed);
+        continue;
+      }
+      view.stove(o.lx, y, o.lz, Math.max(0.8, o.r || 1.5), seed);
       if (o.ship === this.shipId) {
         this.markHole(...this.ownWorld(o.lx, o.lz), o.what === 'dent' ? 'he' : 'pen');
       }
@@ -1496,7 +1501,8 @@ export class Battle {
       const me = (ev.out || []).find((o) => o.ship === this.shipId);
       const what = me ? me.what : 'scrape';
       const rose = ev.kind === 'rise';
-      this.hud.alert(what === 'smash' ? `Collision with ${name} — our bow is stove in`
+      this.hud.alert(what === 'scratch' ? `Collision with ${name} — plating scraped`
+        : what === 'smash' ? `Collision with ${name} — our bow is stove in`
         : what === 'gash' ? `Rammed by ${name} — holed`
           : what === 'dent' ? `We have rammed ${name}`
             : what === 'split' ? (rose ? `Surfaced under ${name} — our hull has broken in two` : `Run down by ${name} — our hull has broken in two`)
@@ -4064,7 +4070,7 @@ export class Battle {
       // A piece of her cut off before we were watching her: she is drawn
       // without it. The tear follows her from wherever she has been posed.
       if (s.ct && !view.severed) view.cutHer(s.ct[0], s.ct[1], null);
-      view.stepCut(dt);
+      view.stepCut(dt, this.scene.shipViews);
       if (view.throes.length) this.deathThroes(view, s, x, z, h);
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 

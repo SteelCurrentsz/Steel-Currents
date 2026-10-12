@@ -181,6 +181,31 @@ function disposeCut(root) {
  * the cut is being put on a ship that parted before we were watching, in
  * which case the piece is long gone and only she is drawn.
  */
+/** A box in plan: centre, the way it points, and its half length and half beam. */
+function box(x, z, h, hl, hb) {
+  const ux = Math.sin(h), uz = Math.cos(h);
+  return { x, z, ux, uz, vx: uz, vz: -ux, hl, hb };
+}
+
+/**
+ * Whether two boxes in plan overlap, and if so the least way to part them:
+ * `nx`, `nz` points from A toward B and `depth` is how far A has to go back
+ * along it. Separating axes.
+ */
+function overlap(A, B) {
+  const dx = B.x - A.x, dz = B.z - A.z;
+  let best = Infinity, nx = 0, nz = 0;
+  for (const [lx, lz] of [[A.ux, A.uz], [A.vx, A.vz], [B.ux, B.uz], [B.vx, B.vz]]) {
+    const ra = A.hl * Math.abs(A.ux * lx + A.uz * lz) + A.hb * Math.abs(A.vx * lx + A.vz * lz);
+    const rb = B.hl * Math.abs(B.ux * lx + B.uz * lz) + B.hb * Math.abs(B.vx * lx + B.vz * lz);
+    const d = dx * lx + dz * lz;
+    const over = ra + rb - Math.abs(d);
+    if (over <= 0) return null;
+    if (over < best) { best = over; const sg = d >= 0 ? 1 : -1; nx = lx * sg; nz = lz * sg; }
+  }
+  return { depth: best, nx, nz };
+}
+
 export class Severance {
   constructor(view, z, keep, motion = null) {
     this.view = view;
@@ -261,7 +286,7 @@ export class Severance {
    * Returns the piece's broken end in the world, when there is one to make
    * water and smoke at, or null.
    */
-  step(dt) {
+  step(dt, others = null) {
     const group = this.view.group;
     group.updateMatrixWorld(true);
     this.U.uCutInv.value.copy(group.matrixWorld).invert();
@@ -278,6 +303,9 @@ export class Severance {
     const apart = D.apart * Math.exp(-D.t / 14);
     D.pivot.x += (D.vx + Math.sin(h) * apart) * dt;
     D.pivot.z += (D.vz + Math.cos(h) * apart) * dt;
+    // And it is a solid thing: it is shoved aside by any hull it drifts into,
+    // or that comes on into it, rather than passing through her.
+    if (others) this.fend(others, h);
     // Settling: slowly while the air is in it, and then all at once.
     const ease = (x) => x * x * (3 - 2 * x);
     const lean = ease(Math.min(1, D.t / 40));
@@ -298,6 +326,40 @@ export class Severance {
       return null;
     }
     return { piece: p, z: this.z, u };
+  }
+
+  /**
+   * Keep the piece out of every hull afloat, her own included: each is a box
+   * in plan, length by beam, and the piece is pushed out of any it overlaps
+   * along the way it overlaps least, losing its way into her.
+   */
+  fend(others, h) {
+    const D = this.drift;
+    const half = Math.abs((this.keep > 0 ? -this.len / 2 : this.len / 2) - this.z) / 2;
+    const P = box(D.pivot.x, D.pivot.z, h, half, this.view.cls.hull.beam * 0.45);
+    for (const v of others) {
+      if (!v || !v.group || !v.group.visible || !v.cls || v.going) continue;
+      const g = v.group;
+      const L = v.cls.hull.length / 2;
+      // Only what is left of her, if she has lost a piece herself.
+      let lo = -L, hi = L;
+      if (v.severed) { if (v.severed.keep > 0) lo = v.severed.z; else hi = v.severed.z; }
+      const mid = (lo + hi) / 2;
+      const hv = g.rotation.y;
+      const Q = box(g.position.x + Math.sin(hv) * mid, g.position.z + Math.cos(hv) * mid, hv,
+        (hi - lo) / 2, v.cls.hull.beam * 0.45);
+      const hit = overlap(P, Q);
+      if (!hit) continue;
+      // Out of her, all of the way: it is wreckage and she is a ship.
+      D.pivot.x -= hit.nx * hit.depth;
+      D.pivot.z -= hit.nz * hit.depth;
+      P.x -= hit.nx * hit.depth;
+      P.z -= hit.nz * hit.depth;
+      const into = D.vx * hit.nx + D.vz * hit.nz;
+      if (into > 0) { D.vx -= hit.nx * into * 1.3; D.vz -= hit.nz * into * 1.3; }
+      // And it stops parting along its length into her.
+      D.apart *= 0.9;
+    }
   }
 
   /** The piece is under. Nothing of it is left to draw. */

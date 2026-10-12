@@ -18526,12 +18526,46 @@ check('collision: head on, the weaker bow is smashed in and both ships pay', () 
   const r = hit.out.find((o) => o.ship === R.id);
   const t = hit.out.find((o) => o.ship === T.id);
   assert.ok(['smash', 'chop'].includes(r.what), `the destroyer's bow was ${r.what}`);
-  assert.equal(t.what, 'dent');
+  // A destroyer's stem does no more than mark a battleship's.
+  assert.ok(['dent', 'scratch'].includes(t.what), `the battleship's bow was ${t.what}`);
   assert.ok(R.hp < R.maxHp && T.hp < T.maxHp, 'somebody came out of it untouched');
   // Two stems as good as each other: neither comes out the better.
   const even = collide('fletcher', 'fletcher', 'head', 10);
   const whats = even.hit.out.map((o) => o.what);
   assert.equal(whats[0], whats[1], `two destroyers head on: ${whats.join(' and ')}`);
+});
+
+check('collision: a destroyer rammed into a Yamato scratches her and no more', () => {
+  for (const big of ['yamato', 'musashi']) {
+    const { T, hit } = collide('fletcher', big, 'tbone', 35);
+    const t = hit.out.find((o) => o.ship === T.id);
+    assert.equal(t.what, 'scratch', `${big}: ${t.what} ${t.r} m`);
+    assert.ok(T.hp > T.maxHp * 0.99, `${big} lost ${(100 - 100 * T.hp / T.maxHp).toFixed(1)}% to a destroyer's stem`);
+  }
+});
+
+check('collision: the faster she is driven in, the more she does', () => {
+  const hurt = (kn) => {
+    const { T } = collide('bismarck', 'cleveland', 'tbone', kn);
+    return T.maxHp - T.hp;
+  };
+  const slow = hurt(5), mid = hurt(9), fast = hurt(14);
+  assert.ok(slow < mid && mid < fast, `5 kn ${slow.toFixed(0)}, 9 kn ${mid.toFixed(0)}, 14 kn ${fast.toFixed(0)}`);
+});
+
+check('collision: a hole is as big as the difference in what met, not the size of the ship', () => {
+  // A battleship's stem into a cruiser's side opens her wider than a cruiser
+  // barely stronger than the side she meets; neither is a hole the size of a
+  // house.
+  const gash = (rc, tc, kn) => {
+    const { T, hit } = collide(rc, tc, 'tbone', kn);
+    return hit.out.find((o) => o.ship === T.id);
+  };
+  const big = gash('bismarck', 'cleveland', 10);
+  const even = gash('cleveland', 'baltimore', 10);
+  assert.equal(big.what, 'gash');
+  assert.ok(big.r < 6, `a ${big.r} m hole`);
+  assert.ok(even.r < big.r, `${even.what} ${even.r} against ${big.r}`);
 });
 
 check('collision: fouled ships are held together until one backs away', () => {
@@ -18747,6 +18781,35 @@ check('collision: the picture tears her at the cut and lets the piece go', () =>
   assert.equal(late.cutHer(0, 1, null), null);
 });
 
+
+check('collision: the piece cut off her is solid and does not pass through another hull', () => {
+  // The after half of a cruiser drifting astern, and a destroyer lying across
+  // its way. Without anything to stop it the piece goes straight through her;
+  // with her hull in the way it fetches up against her side.
+  const run = (fend) => {
+    const scene = new THREE.Scene();
+    const view = new ShipView(scene, 'cleveland', 0, false);
+    view.group.rotation.order = 'YXZ';
+    view.group.updateMatrixWorld(true);
+    const other = new ShipView(scene, 'fletcher', 1, false);
+    const half = SHIP_CLASSES.cleveland.hull.length / 2;
+    other.group.position.set(0, 0, -half - 9);
+    other.group.rotation.y = Math.PI / 2;
+    const sev = view.cutHer(0, 1, { v: 0, h: 0 });
+    const views = new Map([[1, view], [2, other]]);
+    let worst = 0;
+    for (let t = 0; t < 20; t += 1 / 30) {
+      view.stepCut(1 / 30, fend ? views : null);
+      // How far the piece's after end has gone past the destroyer's near side.
+      const tail = sev.drift.pivot.z - half / 2;
+      const side = other.group.position.z + SHIP_CLASSES.fletcher.hull.beam * 0.45;
+      worst = Math.max(worst, side - tail);
+    }
+    return worst;
+  };
+  assert.ok(run(false) > 4, 'the piece never reached the destroyer; the test proves nothing');
+  assert.ok(run(true) < 0.5, `the piece went ${run(true).toFixed(1)} m into her`);
+});
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

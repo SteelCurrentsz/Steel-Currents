@@ -755,6 +755,8 @@ function stepMovement(state, ship, dt) {
 // they are touching, and which part of each that is -- her stem, her side, her
 // counter -- decides what kind of collision it was.
 
+/** A hole smaller across than this, in metres, is a scratch and not a hole. */
+const SCRATCH_R = 0.9;
 /** How far apart two hulls can be and still count as fouled, in metres. */
 const FOUL_GAP = 1.5;
 /** How fast a fouled ship's way comes off her, per second. */
@@ -1105,7 +1107,7 @@ function keelStrike(state, U, L, cu, cl, at, v) {
   const whereU = sectionAt(pu.station);
   damageShip(state, U, L, cu.hp * (0.01 + 0.05 * k) * Math.min(1.5, Math.sqrt(ml / mu) * 2), 'ram', whereU);
   if (v > 1.5) openBottom(state, U, cu, whereU, 1 + 8 * k);
-  struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.2 * k);
+  struck(out, U, pu, 'keel', 0.6 + cl.hull.beam * 0.2 * k);
   // And the boat, run down.
   const whereL = sectionAt(pl.station);
   const heavy = Math.min(2, Math.sqrt(mu / ml));
@@ -1116,7 +1118,7 @@ function keelStrike(state, U, L, cu, cl, at, v) {
   } else {
     damageShip(state, L, U, cl.hp * (0.12 + 0.45 * k) * heavy, 'ram', whereL);
     openHull(state, L, whereL, 2 + 14 * k, pl.side, cl.hull.draft * 0.5);
-    struck(out, L, pl, 'crush', 1.5 + cl.hull.beam * 0.4 * k);
+    struck(out, L, pl, 'crush', 1 + cl.hull.beam * 0.3 * k);
   }
   state.events.push({ e: 'collide', a: U.id, b: L.id, x: r(at.x), z: r(at.z), v: r(v), kind: 'keel', out });
 }
@@ -1149,7 +1151,7 @@ function surfaceUnder(state, U, L, cu, cl, at, rise) {
     struck(out, L, pl, 'split', cl.hull.beam);
     damageShip(state, U, L, cu.hp * 0.01, 'ram', whereU);
     openBottom(state, U, cu, whereU, 2);
-    struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.1);
+    struck(out, U, pu, 'keel', 0.6 + cl.hull.beam * 0.1);
   } else {
     // She is lifted, the more the lighter she is against the boat.
     const lift = clamp(rise * Math.sqrt(ml / mu) * 1.6, 0.2, 3);
@@ -1162,7 +1164,7 @@ function surfaceUnder(state, U, L, cu, cl, at, rise) {
     U.liftTrim = -clamp(pu.lz / half, -1, 1) * clamp(lift / half * 2, 0.005, 0.06);
     damageShip(state, U, L, cu.hp * (0.015 + 0.04 * k) * (light ? 1.4 : 1), 'ram', whereU);
     openBottom(state, U, cu, whereU, 1 + 6 * k);
-    struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.2 * k);
+    struck(out, U, pu, 'keel', 0.6 + cl.hull.beam * 0.2 * k);
     damageShip(state, L, U, cl.hp * (0.06 + 0.12 * k) * (light ? 1 : 1.6), 'ram', whereL);
     openHull(state, L, whereL, 1 + 6 * k, pl.side, cl.hull.draft * 0.4);
     struck(out, L, pl, 'crush', 1 + cl.hull.beam * 0.25 * k);
@@ -1221,7 +1223,7 @@ function ramImpact(state, a, b, ca, cb, at, nx, nz) {
     const where = sectionAt(ps.station);
     damageShip(state, S, S === a ? b : a, cs.hp * 0.01 * k, 'ram', where);
     openBottom(state, S, cs, where, 1 + 5 * k);
-    struck(out, S, ps, 'keel', 1 + cs.hull.beam * 0.15 * k);
+    struck(out, S, ps, 'keel', 0.5 + cs.hull.beam * 0.1 * k);
   }
   state.events.push({
     e: 'collide', a: a.id, b: b.id, x: r(at.x), z: r(at.z), v: r(Math.max(v, vrel * 0.5)),
@@ -1230,8 +1232,19 @@ function ramImpact(state, a, b, ca, cb, at, nx, nz) {
   });
 }
 
+/**
+ * How wide her stem is where it does its work, in metres: a fraction of her
+ * beam, because a stem is a knife edge flaring out behind it, and only so much
+ * of even the biggest ship's bow is ever driven into anything.
+ */
+function stemWidth(cls) {
+  return Math.min(cls.hull.beam, 40) * 0.22;
+}
+
 /** One ship's share of a collision, for the event: what it did to her and where. */
 function struck(out, ship, p, what, size) {
+  // Too small to open her: the paint and a dent in the plating, no more.
+  if (size < SCRATCH_R && !['cut', 'chop', 'split', 'keel', 'crush'].includes(what)) what = 'scratch';
   out.push({ ship: ship.id, what, lx: r(p.lx), lz: r(p.lz), r: r(size) });
 }
 
@@ -1270,25 +1283,31 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
       struck(out, T, pt, 'cut', ct.hull.beam);
     } else {
       // A gash in her side, as deep as the stem got.
+      // As wide as her stem drove it and no wider than her stem is: a much
+      // stronger stem opens more of her, a stem barely the stronger a slit.
       const k = Math.min(1, f);
-      damageShip(state, T, R, ct.hp * (0.03 + 0.12 * k * k), 'ram', whereT);
-      openHull(state, T, whereT, 3 + 30 * k * k, pt.side, ct.hull.draft * 0.55);
-      struck(out, T, pt, 'gash', 2 + ct.hull.beam * 0.35 * k);
+      const edge = Math.min(2.2, Math.sqrt(margin));
+      damageShip(state, T, R, ct.hp * (0.02 + 0.1 * k * k) * Math.min(1.2, edge), 'ram', whereT);
+      openHull(state, T, whereT, 2 + 20 * k * k * edge, pt.side, ct.hull.draft * 0.55);
+      struck(out, T, pt, 'gash', Math.min(stemWidth(cr) * 1.2, 0.5 + Math.min(ct.hull.beam, 40) * 0.12 * k * edge + 1.2 * k));
     }
     // And her own bow pays for it: crumpled plating and a sprung forefoot.
     const bowR = sectionAt(pr.station);
     const k = Math.min(1, v / need);
     damageShip(state, R, T, cr.hp * (0.015 + 0.04 * k), 'ram', bowR);
     if (v > 2) openHull(state, R, bowR, 1 + 4 * k, pr.side, cr.hull.draft * 0.3);
-    struck(out, R, pr, 'dent', 1 + cr.hull.beam * 0.15 * k);
+    struck(out, R, pr, 'dent', 0.5 + stemWidth(cr) * 0.35 * k);
   } else {
     // The side is the stronger, and her stem is what goes.
     crushBow(state, R, T, cr, pr, v * (1 - margin * 0.8), out);
-    // The ship she hit is opened too, if not as badly.
-    const k = Math.min(1, (v / need) * (0.4 + margin));
-    damageShip(state, T, R, ct.hp * (0.01 + 0.06 * k), 'ram', whereT);
-    if (k > 0.2) openHull(state, T, whereT, 1 + 12 * k * k, pt.side, ct.hull.draft * 0.5);
-    struck(out, T, pt, 'gash', 1 + ct.hull.beam * 0.2 * k);
+    // The ship she hit is opened too, if not as badly -- by as much as the
+    // stem was worth against that side, the weight behind it and how fast it
+    // was driven. A destroyer into a battleship's belt scratches her paint.
+    const mass = clamp(Math.sqrt(tonnage(cr) / tonnage(ct)), 0.08, 1);
+    const k = Math.min(1, (drive / need) * (0.12 + margin) * mass * 1.6);
+    damageShip(state, T, R, ct.hp * (0.002 + 0.05 * k) * (0.3 + 0.7 * mass), 'ram', whereT);
+    if (k > 0.2) openHull(state, T, whereT, 1 + 10 * k * k, pt.side, ct.hull.draft * 0.5);
+    struck(out, T, pt, 'gash', 0.3 + stemWidth(cr) * 0.55 * k);
   }
 }
 
@@ -1313,12 +1332,12 @@ function headOn(state, a, b, ca, cb, pa, pb, v, out) {
   const need = cutNeed(cs);
   const k = Math.min(1, (v / need) * (0.3 + ratio));
   const where = sectionAt(ps.station);
-  damageShip(state, S, W, cs.hp * (0.015 + 0.06 * k), 'ram', where);
+  damageShip(state, S, W, cs.hp * (0.01 + 0.06 * k) * clamp(Math.sqrt(tonnage(cw) / tonnage(cs)), 0.15, 1), 'ram', where);
   if (k > 0.25) {
     openHull(state, S, where, 1 + 8 * k, 1, cs.hull.draft * 0.35);
     openHull(state, S, where, 1 + 8 * k, -1, cs.hull.draft * 0.35);
   }
-  struck(out, S, ps, 'dent', 1 + cs.hull.beam * 0.25 * k);
+  struck(out, S, ps, 'dent', 0.3 + stemWidth(cw) * 0.6 * k);
 }
 
 /**
@@ -1344,7 +1363,7 @@ function crushBow(state, R, T, cr, pr, crush, out) {
   const open = 2 + 18 * k;
   openHull(state, R, where, open, 1, cr.hull.draft * 0.45);
   openHull(state, R, where, open, -1, cr.hull.draft * 0.45);
-  struck(out, R, pr, 'smash', 1.5 + cr.hull.beam * 0.4 * k);
+  struck(out, R, pr, 'smash', 0.8 + stemWidth(cr) * 0.8 * k);
 }
 
 /** Two sides ground together. Plating opened along both, and nothing worse. */
@@ -1354,7 +1373,7 @@ function scrape(state, a, b, ca, cb, pa, pb, vrel, out) {
     const where = sectionAt(p.station);
     damageShip(state, s, o, c.hp * 0.03 * k * Math.sqrt(tonnage(shipClass(o)) / tonnage(c)), 'ram', where);
     if (vrel > 3) openHull(state, s, where, 1 + 6 * k, p.side, c.hull.draft * 0.3);
-    struck(out, s, p, 'scrape', 1 + 2.5 * k);
+    struck(out, s, p, 'scrape', 0.4 + 1.6 * k * Math.min(1, Math.sqrt(tonnage(shipClass(o)) / tonnage(c))));
   }
 }
 
