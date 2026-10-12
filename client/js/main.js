@@ -102,8 +102,56 @@ let current = 'title';
 
 function applyQuality() {
   const q = QUALITY[getSettings().quality] || QUALITY.medium;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+  governor.scale = 1;
+  renderer.setPixelRatio(governor.base);
   resize();
+}
+
+// The resolution governor.
+//
+// Everything that makes a frame -- the hulls, their fittings, the sea, the
+// weather, the smoke -- is drawn at the detail the quality setting asks for,
+// always. What gives, when a frame is taking too long, is how many pixels it
+// is drawn into: a phone's GPU is bound by how many it has to fill, and a few
+// fewer of them on a small, dense screen is the one saving nobody can see.
+// It comes back up as soon as there is time for it.
+const governor = {
+  base: 1, scale: 1, ema: 1 / 60, wait: 0, calm: 0,
+  // Never fewer than three drawn pixels for every four on the screen.
+  floor: 0.75,
+};
+function govern(interval) {
+  const g = governor;
+  if (current !== 'battle') {
+    if (g.scale !== 1) setRenderScale(1);
+    g.ema = 1 / 60;
+    return;
+  }
+  // A frame that took a quarter of a second was a stall -- a tab switch, a
+  // garbage collection -- not the steady cost of drawing.
+  g.ema += (Math.min(interval, 0.1) - g.ema) * 0.06;
+  if (g.wait > 0) { g.wait -= interval; return; }
+  const least = Math.min(1, g.floor / Math.max(0.01, g.base));
+  if (g.ema > 1 / 48 && g.scale > least + 1e-3) {
+    setRenderScale(Math.max(least, g.scale * 0.9));
+    g.wait = 1.0;
+    g.calm = 0;
+  } else if (g.ema < 1 / 57 && g.scale < 1) {
+    g.calm += interval;
+    if (g.calm > 3) {
+      setRenderScale(Math.min(1, g.scale * 1.06));
+      g.wait = 1.5;
+      g.calm = 0;
+    }
+  } else {
+    g.calm = 0;
+  }
+}
+function setRenderScale(k) {
+  governor.scale = k;
+  renderer.setPixelRatio(governor.base * k);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 }
 
 function resize() {
@@ -778,6 +826,19 @@ function joinBattle(m) {
   show('battle');
   input.enabled = true;
   resize();
+  // Every material in the battle compiled now, behind the first second of
+  // it, rather than the first time each one comes into view -- which was a
+  // hitch every time a new class of ship, or a fire, or a squadron did.
+  const warm = battle;
+  setTimeout(() => {
+    if (battle !== warm || !warm.scene) return;
+    try {
+      const done = renderer.compileAsync
+        ? renderer.compileAsync(warm.scene.scene, warm.scene.camera)
+        : renderer.compile(warm.scene.scene, warm.scene.camera);
+      done?.catch?.(() => {});
+    } catch { /* a warm-up that fails costs nothing but the warm-up */ }
+  }, 600);
   audio.resume();
   toast('Battle stations');
 }
@@ -852,8 +913,10 @@ let last = performance.now();
 // now, so a frame that goes wrong costs a frame.
 let frameErrors = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const interval = (now - last) / 1000;
+  const dt = Math.min(0.05, interval);
   last = now;
+  govern(interval);
   try {
     drawFrame(dt);
   } catch (e) {

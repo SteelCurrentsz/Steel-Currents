@@ -3803,7 +3803,14 @@ export class Battle {
     }
     // The plot is always drawn round your own hull, whoever the camera is on:
     // it is your chart table, and the mark in the middle of it is you.
-    if (snap) this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
+    // Twenty times a second, which is as often as anything on it moves far
+    // enough to see; painting it every frame cost more than the rest of the
+    // HUD together.
+    this.plotDue = (this.plotDue || 0) - dt;
+    if (snap && this.plotDue <= 0) {
+      this.plotDue = this.mapBig ? 1 / 30 : 1 / 20;
+      this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
+    }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
 

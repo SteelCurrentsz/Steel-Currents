@@ -213,6 +213,13 @@ export function heldTo(y, top, k) {
   return over <= 0 ? y : top - k + k * (1 - Math.exp(-over / k));
 }
 
+/**
+ * How far down her own frame the sea inside her plan is still taken away, in
+ * metres: a little under her waterline (a metre up her frame, every hull being
+ * floated a metre down) and no deeper. See inHull.
+ */
+const HULL_CUT_FLOOR = -0.6;
+
 export const HULL_GLSL = /* glsl */`
 #define MAX_HULLS ${MAX_HULLS}
 uniform float uHullCount;
@@ -392,7 +399,15 @@ bool inHull(vec3 p) {
     // and under her deck. A sea standing over her deck is green water coming
     // aboard and is drawn -- taking it away left a hole in every crest that
     // broke over her, and the sea beyond showed through it.
-    if (abs(lp.x) < pl.r * keep && lp.y < pl.g - 0.15) return true;
+    //
+    // And only near her waterline. Her plan is her breadth at the waterline,
+    // and she is not that wide all the way down: her forefoot is raked back
+    // under her stem and her counter is cut up under her stern, so a trough
+    // that drops the sea a few metres down her side at the bow puts the
+    // surface inside her plan where there is no plating at all. Taken away
+    // there, it opened a window through the sea onto nothing. Anywhere deeper
+    // that her hull does stand, her own plating hides the water behind it.
+    if (abs(lp.x) < pl.r * keep && lp.y < pl.g - 0.15 && lp.y > ${HULL_CUT_FLOOR.toFixed(2)}) return true;
   }
   return false;
 }
