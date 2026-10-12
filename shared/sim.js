@@ -197,6 +197,12 @@ export function addShip(state, {
     tubeOpen: 0,
     // The station her back went at, if it went. See breakStation.
     broke: null,
+    // The piece of her that has been cut off, if one has: the station she
+    // parted at and which side of it she still is. See cutHer.
+    cut: null,
+    // The ship she is fouled on, if she is, and for how long. See
+    // stepCollisions.
+    fouled: 0, foulT: 0,
     flooding: 0,
     repairCd: 0,
     repairActive: 0,
@@ -618,7 +624,9 @@ const ROLL_DAMPING = 0.12;
 
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
-  const engine = ship.engineDamage > 0 ? 0.45 : 1;
+  // And a piece of her cut off takes what was in it: her machinery, her
+  // screws, or the stem she was cutting the water with. See cutDrive.
+  const engine = (ship.engineDamage > 0 ? 0.45 : 1) * cutDrive(ship);
   // A submarine under water is on her motors and her battery, and a Type VII
   // makes eight knots on them against eighteen on the diesels. The diesels
   // cannot be run under -- they need air the boat has not got.
@@ -632,7 +640,9 @@ function stepMovement(state, ship, dt) {
   // A hull barely answers the helm below steerage way, and bites hardest near
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
   const helm = Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
-  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1);
+  // No rudder at all once her stern has gone.
+  const rudderGone = ship.cut && ship.sections.stern.lost ? 0 : 1;
+  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone;
   // She does not turn the moment the rudder bites. Thirty thousand tonnes has
   // to be got swinging, and once it is swinging it goes on swinging: the rate
   // the rudder is asking for is worked up to over a few seconds -- longer the
@@ -670,7 +680,9 @@ function stepMovement(state, ship, dt) {
   const going = ship.sinking ? Math.max(0, 1 - 1.3 * (ship.sinking.t / ship.sinking.T)) : 1;
   const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : maxSpeed) * engine * going;
   const target = ordered * bleed * flood;
-  const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * engine;
+  // Way comes off her whether she has an engine or not: a ship stopped by
+  // the loss of her machinery carries her way and loses it to the water.
+  const accel = cls.accel * (target < ship.speed ? 1.6 : 1) * (engine > 0 ? engine : 0.6);
   ship.speed = approach(ship.speed, target, accel * dt);
   const v = ship.speed;
   // A roll a wave has given her works itself out on her own period, damped by
@@ -727,40 +739,540 @@ function stepMovement(state, ship, dt) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Collision and ramming
+// ---------------------------------------------------------------------------
+//
+// Two hulls that meet do not bounce off each other. They foul: the stem of one
+// is in the side of the other, or the two are ground together along their
+// length, and from then on neither of them is going anywhere until one backs
+// out of it or goes down. What happens in the instant they meet is a question
+// of what each of them hit the other with -- a stem is a knife, a belt is a
+// wall -- and how hard.
+//
+// Each hull is the box she is fought on, length by beam, with whatever of her
+// has been cut off her taken out of it. Where the two boxes overlap is where
+// they are touching, and which part of each that is -- her stem, her side, her
+// counter -- decides what kind of collision it was.
+
+/** How far apart two hulls can be and still count as fouled, in metres. */
+const FOUL_GAP = 1.5;
+/** How fast a fouled ship's way comes off her, per second. */
+const FOUL_DRAG = 0.9;
+/** How fast a stem pressed into another hull is stopped, per second. */
+const FOUL_STOP = 3.2;
+/** The slowest closing speed that is a collision rather than a nudge, m/s. */
+const RAM_MIN = 0.9;
+/** How long two hulls have to be clear before they can strike again, seconds. */
+const RAM_REARM = 2.5;
+/** How hard a weaker stem has to be driven into a stronger hull to lose it, m/s. */
+const CHOP_V = 5.6;
+
+/** What she displaces, near enough, in tonnes. */
+function tonnage(cls) {
+  return cls.hull.length * cls.hull.beam * cls.hull.draft * 0.55;
+}
+
+/**
+ * What her stem is worth as a ram.
+ *
+ * The plating on her bow, and the frames and the collision bulkhead behind it
+ * -- which in a warship are built to the same scale as the rest of her
+ * protection. A battleship's stem has fifty millimetres of plate on it and a
+ * hull behind it built to carry four hundred on her belt, and it will go
+ * through a cruiser's side; a destroyer's has thirteen and a hull built to
+ * carry nothing at all.
+ */
+export function stemStrength(cls) {
+  return cls.armor.bow + 0.4 * cls.armor.belt;
+}
+
+/** What her side is worth against a stem at this station (-1 stern .. 1 stem). */
+export function sideStrength(cls, station) {
+  return Math.abs(station) < 0.6 ? cls.armor.belt : cls.armor.bow;
+}
+
+/**
+ * Where her bridge is, as a station along her (-1 stern .. 1 stem).
+ *
+ * Her bridge and her main superstructure are what she is fought from. A ship
+ * cut in two is the half that still has them; the other half is wreckage,
+ * however many guns are standing on it. Not in the yard's data, so it is read
+ * off where her guns are: a warship's bridge stands just abaft her forward
+ * turrets, because that is where the guns can be seen from and fired over.
+ */
+export function bridgeStation(cls) {
+  if (cls.bridge != null) return cls.bridge;
+  if (cls.type === 'SS') return 0;
+  if (cls.type === 'CV') return 0.05;
+  const half = cls.hull.length / 2;
+  const fwd = (cls.turrets || []).filter((t) => (t.z || 0) > 0);
+  const st = fwd.length ? Math.min(...fwd.map((t) => t.z)) / half - 0.08 : 0.3;
+  return clamp(st, -0.1, 0.45);
+}
+
+/**
+ * The length of her that is still her, as stations (-1 stern .. 1 stem).
+ * All of her, unless a piece has been cut off.
+ */
+export function hullSpan(ship) {
+  const c = ship.cut;
+  if (!c) return { lo: -1, hi: 1 };
+  return c.keep > 0 ? { lo: c.at, hi: 1 } : { lo: -1, hi: c.at };
+}
+
+/**
+ * Is a point at this distance along her (metres, her own frame) on the piece
+ * that has been cut off her? A shell that arrives there has hit wreckage
+ * drifting away from her, not her.
+ */
+export function severed(ship, cls, lz) {
+  const c = ship && ship.cut;
+  if (!c) return false;
+  const st = lz / (cls.hull.length * 0.5);
+  return c.keep > 0 ? st < c.at : st > c.at;
+}
+
+/** Her hull as the box the collision is worked on: centre, axes and half-sizes. */
+function hullBox(ship, cls) {
+  const half = cls.hull.length / 2;
+  const sp = hullSpan(ship);
+  const off = ((sp.lo + sp.hi) / 2) * half;
+  const ux = Math.sin(ship.heading);
+  const uz = Math.cos(ship.heading);
+  return {
+    x: ship.x + ux * off, z: ship.z + uz * off,
+    ux, uz, vx: uz, vz: -ux,
+    hl: ((sp.hi - sp.lo) / 2) * half,
+    // A little inside her full beam: her ends are fine and her box is not.
+    hb: cls.hull.beam * 0.45,
+  };
+}
+
+/**
+ * Whether two hulls overlap, and if so by how much and which way to part
+ * them. Separating axes on the two boxes: the axis they overlap least on is
+ * the one they are pushed apart along.
+ */
+function hullsMeet(A, B, gap = 0) {
+  const dx = B.x - A.x;
+  const dz = B.z - A.z;
+  let best = Infinity;
+  let nx = 0;
+  let nz = 0;
+  for (const [lx, lz] of [[A.ux, A.uz], [A.vx, A.vz], [B.ux, B.uz], [B.vx, B.vz]]) {
+    const ra = A.hl * Math.abs(A.ux * lx + A.uz * lz) + A.hb * Math.abs(A.vx * lx + A.vz * lz);
+    const rb = B.hl * Math.abs(B.ux * lx + B.uz * lz) + B.hb * Math.abs(B.vx * lx + B.vz * lz);
+    const d = dx * lx + dz * lz;
+    const over = ra + rb + gap - Math.abs(d);
+    if (over < 0) return null;
+    if (over < best) {
+      best = over;
+      const s = d >= 0 ? 1 : -1;
+      nx = lx * s;
+      nz = lz * s;
+    }
+  }
+  return { depth: best - gap, nx, nz };
+}
+
+function inBox(B, px, pz, pad = 0) {
+  const dx = px - B.x;
+  const dz = pz - B.z;
+  return Math.abs(dx * B.ux + dz * B.uz) <= B.hl + pad
+    && Math.abs(dx * B.vx + dz * B.vz) <= B.hb + pad;
+}
+
+/**
+ * Where two hulls are touching: the points of each -- her stem, her counter,
+ * her corners and the middle of her sides -- that are inside the other,
+ * averaged. A stem in a ship's side gives the stem; two ships ground together
+ * along their length give somewhere along the overlap.
+ */
+function contactPoint(A, B) {
+  let sx = 0;
+  let sz = 0;
+  let n = 0;
+  const probe = (P, Q) => {
+    for (const [a, b] of [[1, 0], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1], [0, 1], [0, -1], [0.5, 1], [0.5, -1], [-0.5, 1], [-0.5, -1]]) {
+      const px = P.x + P.ux * P.hl * a + P.vx * P.hb * b;
+      const pz = P.z + P.uz * P.hl * a + P.vz * P.hb * b;
+      if (inBox(Q, px, pz, FOUL_GAP)) { sx += px; sz += pz; n++; }
+    }
+  };
+  probe(A, B);
+  probe(B, A);
+  if (n) return { x: sx / n, z: sz / n };
+  return { x: (A.x + B.x) / 2, z: (A.z + B.z) / 2 };
+}
+
+/** Her velocity over the ground, as a vector. */
+function velocityOf(ship) {
+  return {
+    x: Math.sin(ship.heading) * ship.speed + (ship.driftX || 0),
+    z: Math.cos(ship.heading) * ship.speed + (ship.driftZ || 0),
+  };
+}
+
+/** What part of her a point in the world is on: stem, counter or side. */
+function partAt(ship, cls, px, pz) {
+  const l = worldToLocal(px - ship.x, pz - ship.z, ship.heading);
+  const station = clamp(l.z / (cls.hull.length / 2), -1, 1);
+  const sp = hullSpan(ship);
+  // Her stem is whatever is foremost of her now, and her counter whatever is
+  // aftermost -- a ship that has lost her bow strikes with the broken end.
+  const part = station > sp.hi - 0.4 ? 'bow' : station < sp.lo + 0.38 ? 'stern' : 'side';
+  return { station, part, lx: l.x, lz: l.z, side: l.x >= 0 ? 1 : -1 };
+}
+
+/**
+ * Two hulls touching, every tick.
+ *
+ * They are kept out of each other -- shared out by how heavy each is, so a
+ * destroyer is shoved aside by a battleship rather than the battleship by her
+ * -- and while they are touching neither of them is making way. A ship
+ * pressing into the other is stopped, a ship dragging the other along is
+ * slowed, and the only way out of it is to back away: a ship going astern
+ * away from the other is let go. The first instant of it is the collision
+ * itself, and that is worked out on its own (see ramImpact).
+ */
 function stepCollisions(state, dt) {
   const alive = state.ships.filter((s) => s.alive);
+  const rams = state.rams || (state.rams = {});
+  for (const s of alive) s.fouled = 0;
   for (let i = 0; i < alive.length; i++) {
     for (let j = i + 1; j < alive.length; j++) {
       const a = alive[i], b = alive[j];
       const ca = shipClass(a), cb = shipClass(b);
       // A boat that is properly down is under everybody's keel and cannot be
-      // run into. This matters rather more than it sounds: the fending-off
-      // radius here is a quarter of the two ships' lengths added together,
-      // which for a destroyer and a Type VII is fifty metres -- so a boat
-      // thirty metres down was being shouldered aside, and rammed, by a ship
-      // that was nowhere near her, and no depth charge attack could ever be
-      // run home. She is clear once she has more water over her than the other
-      // ship draws; at periscope depth her tower is still up there, and ships
-      // did ram boats at periscope depth.
+      // run into. She is clear once she has more water over her than the
+      // other ship draws; at periscope depth her tower is still up there, and
+      // ships did ram boats at periscope depth.
       if (ca.dive && a.depth > cb.hull.draft) continue;
       if (cb.dive && b.depth > ca.hull.draft) continue;
-      const minD = (ca.hull.length + cb.hull.length) * 0.28;
-      const d = dist(a.x, a.z, b.x, b.z);
-      if (d > minD || d === 0) continue;
-      const push = (minD - d) * 0.5;
-      const h = headingTo(a.x, a.z, b.x, b.z);
-      a.x -= Math.sin(h) * push; a.z -= Math.cos(h) * push;
-      b.x += Math.sin(h) * push; b.z += Math.cos(h) * push;
-      const rel = Math.abs(a.speed - b.speed) + Math.abs(a.speed) * 0.2;
-      if (rel > 3) {
-        const dmg = rel * 55 * dt * 30;
-        damageShip(state, a, b, dmg * (cb.hp / ca.hp) * 0.5, 'ram');
-        damageShip(state, b, a, dmg * (ca.hp / cb.hp) * 0.5, 'ram');
-        a.speed *= 0.55; b.speed *= 0.55;
-        state.events.push({ e: 'ram', x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+      const reach = (ca.hull.length + cb.hull.length) * 0.5 + FOUL_GAP;
+      if (dist2(a.x, a.z, b.x, b.z) > reach * reach) continue;
+      const A = hullBox(a, ca);
+      const B = hullBox(b, cb);
+      const hit = hullsMeet(A, B, FOUL_GAP);
+      const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+      if (!hit) continue;
+      const fresh = !(rams[key] >= state.t - RAM_REARM);
+      rams[key] = state.t;
+      const { nx, nz } = hit;
+      // Kept out of each other, the lighter one moved the further.
+      if (hit.depth > 0) {
+        const ma = tonnage(ca), mb = tonnage(cb);
+        const fa = mb / (ma + mb);
+        const push = hit.depth + 0.02;
+        a.x -= nx * push * fa; a.z -= nz * push * fa;
+        b.x += nx * push * (1 - fa); b.z += nz * push * (1 - fa);
       }
+      const at = contactPoint(A, B);
+      if (fresh) ramImpact(state, a, b, ca, cb, at, nx, nz);
+      if (!a.alive || !b.alive) continue;
+      a.fouled = b.id; b.fouled = a.id;
+      a.foulT = fresh ? 0 : (a.foulT || 0) + dt;
+      b.foulT = fresh ? 0 : (b.foulT || 0) + dt;
+      holdFast(a, nx, nz, dt);
+      holdFast(b, -nx, -nz, dt);
     }
   }
+  // Forget the pairs that have been clear long enough to strike again.
+  for (const k in rams) if (rams[k] < state.t - RAM_REARM * 2) delete rams[k];
+}
+
+/**
+ * A ship fouled on another: `nx`, `nz` is the way to the other hull.
+ *
+ * Way into the other ship comes off her fast -- there is a hull in the way --
+ * and way along it comes off her more slowly, because she is dragging the
+ * other ship with her or grinding along her side. Way that is taking her
+ * clear is left alone, and that is how she gets out of it.
+ */
+function holdFast(ship, nx, nz, dt) {
+  const along = Math.sin(ship.heading) * nx + Math.cos(ship.heading) * nz;
+  const into = ship.speed * along;
+  if (into < -0.05 && Math.abs(along) > 0.25) return;
+  const stop = into > 0 ? FOUL_STOP * Math.abs(along) : 0;
+  ship.speed *= Math.exp(-(FOUL_DRAG + stop) * dt);
+  if (Math.abs(ship.speed) < 0.02) ship.speed = 0;
+  // And the swing she had on her. Her stem is in the other ship's side.
+  ship.yawRate = (ship.yawRate || 0) * Math.exp(-2 * dt);
+}
+
+/**
+ * The instant two hulls meet.
+ *
+ * What happens is a question of what hit what. A stem into a ship's side is a
+ * ram: if the stem is the stronger -- a heavier ship's bow into a lighter
+ * one's belt -- it goes through her, and driven hard enough it goes right
+ * through and cuts her in two; if the side is the stronger the stem is what
+ * gives, crumpled back on itself or, hard enough, torn off her altogether.
+ * Two stems meeting is a head-on collision, and the weaker bow is the one
+ * that is smashed. Two ships ground along each other's sides open each other
+ * up and no more. Both always pay something.
+ */
+function ramImpact(state, a, b, ca, cb, at, nx, nz) {
+  const va = velocityOf(a);
+  const vb = velocityOf(b);
+  // How fast they were closing, along the line they met on.
+  const vc = (va.x - vb.x) * nx + (va.z - vb.z) * nz;
+  const vrel = Math.hypot(va.x - vb.x, va.z - vb.z);
+  if (vc < RAM_MIN && vrel < RAM_MIN * 2) return;
+  const pa = partAt(a, ca, at.x, at.z);
+  const pb = partAt(b, cb, at.x, at.z);
+  // Driving her stem into the other: her bow is at the contact and she is
+  // making way toward the other ship.
+  const drives = (s, p, sx, sz) => p.part === 'bow'
+    && s.speed * (Math.sin(s.heading) * sx + Math.cos(s.heading) * sz) > RAM_MIN * 0.5;
+  const aRams = drives(a, pa, nx, nz);
+  const bRams = drives(b, pb, -nx, -nz);
+  const out = [];
+  const v = Math.max(vc, 0);
+  if (aRams && bRams) {
+    headOn(state, a, b, ca, cb, pa, pb, v, out);
+  } else if (aRams && pb.part !== 'bow') {
+    ram(state, a, b, ca, cb, pa, pb, v, out);
+  } else if (bRams && pa.part !== 'bow') {
+    ram(state, b, a, cb, ca, pb, pa, v, out);
+  } else if (aRams || bRams) {
+    // Stem against stem, but only one of them driving it.
+    headOn(state, a, b, ca, cb, pa, pb, v, out);
+  } else {
+    scrape(state, a, b, ca, cb, pa, pb, vrel, out);
+  }
+  state.events.push({
+    e: 'collide', a: a.id, b: b.id, x: r(at.x), z: r(at.z), v: r(Math.max(v, vrel * 0.5)),
+    kind: aRams && bRams ? 'head' : aRams || bRams ? 'ram' : 'scrape',
+    out,
+  });
+}
+
+/** One ship's share of a collision, for the event: what it did to her and where. */
+function struck(out, ship, p, what, size) {
+  out.push({ ship: ship.id, what, lx: r(p.lx), lz: r(p.lz), r: r(size) });
+}
+
+/**
+ * How hard a stem has to be driven to go right through her, in metres a
+ * second: more the beamier she is, because that is how much ship there is to
+ * cut. A destroyer is cut in two by anything heavier driven into her at fifteen
+ * knots; a cruiser wants twenty.
+ */
+function cutNeed(cls) {
+  return 5 + 0.25 * cls.hull.beam;
+}
+
+/** How hard a stem is driven, for a ship of this weight into one of that. */
+function driveOf(mr, mt, v) {
+  return v * Math.min(1.35, Math.sqrt((2 * mr) / (mr + mt)));
+}
+
+/**
+ * Her stem into another ship's side.
+ */
+function ram(state, R, T, cr, ct, pr, pt, v, out) {
+  const margin = stemStrength(cr) / Math.max(1, sideStrength(ct, pt.station));
+  const drive = driveOf(tonnage(cr), tonnage(ct), v);
+  // What it takes to go right through her: more the beamier she is, because
+  // that is how much ship there is to cut.
+  const need = cutNeed(ct);
+  const whereT = sectionAt(pt.station);
+  if (margin >= 1) {
+    // The stem is the stronger. It goes into her.
+    const score = drive * Math.min(1.6, Math.sqrt(margin));
+    const f = score / need;
+    if (f >= 1 && ct.hull.length > 40 && !T.cut && T.broke == null) {
+      damageShip(state, T, R, ct.hp * 0.06, 'ram', whereT);
+      cutHer(state, T, pt.station, R.id, 'ram');
+      struck(out, T, pt, 'cut', ct.hull.beam);
+    } else {
+      // A gash in her side, as deep as the stem got.
+      const k = Math.min(1, f);
+      damageShip(state, T, R, ct.hp * (0.03 + 0.12 * k * k), 'ram', whereT);
+      openHull(state, T, whereT, 3 + 30 * k * k, pt.side, ct.hull.draft * 0.55);
+      struck(out, T, pt, 'gash', 2 + ct.hull.beam * 0.35 * k);
+    }
+    // And her own bow pays for it: crumpled plating and a sprung forefoot.
+    const bowR = sectionAt(pr.station);
+    const k = Math.min(1, v / need);
+    damageShip(state, R, T, cr.hp * (0.015 + 0.04 * k), 'ram', bowR);
+    if (v > 2) openHull(state, R, bowR, 1 + 4 * k, pr.side, cr.hull.draft * 0.3);
+    struck(out, R, pr, 'dent', 1 + cr.hull.beam * 0.15 * k);
+  } else {
+    // The side is the stronger, and her stem is what goes.
+    crushBow(state, R, T, cr, pr, v * (1 - margin * 0.8), out);
+    // The ship she hit is opened too, if not as badly.
+    const k = Math.min(1, (v / need) * (0.4 + margin));
+    damageShip(state, T, R, ct.hp * (0.01 + 0.06 * k), 'ram', whereT);
+    if (k > 0.2) openHull(state, T, whereT, 1 + 12 * k * k, pt.side, ct.hull.draft * 0.5);
+    struck(out, T, pt, 'gash', 1 + ct.hull.beam * 0.2 * k);
+  }
+}
+
+/**
+ * Stem to stem. The weaker bow is smashed in, and driven hard enough is torn
+ * off her; the stronger is crumpled, but stays.
+ */
+function headOn(state, a, b, ca, cb, pa, pb, v, out) {
+  const sa = stemStrength(ca) * Math.sqrt(tonnage(ca));
+  const sb = stemStrength(cb) * Math.sqrt(tonnage(cb));
+  const [W, S, cw, cs, pw, ps] = sa <= sb ? [a, b, ca, cb, pa, pb] : [b, a, cb, ca, pb, pa];
+  const ratio = Math.min(sa, sb) / Math.max(sa, sb);
+  if (ratio > 0.85) {
+    // Stems as good as each other: both of them go, and neither ship comes
+    // out of it the better.
+    crushBow(state, W, S, cw, pw, v * 0.36, out);
+    crushBow(state, S, W, cs, ps, v * 0.36, out);
+    return;
+  }
+  crushBow(state, W, S, cw, pw, v * (1 - ratio * 0.6), out);
+  // The stronger stem, crumpled by what it went through.
+  const need = cutNeed(cs);
+  const k = Math.min(1, (v / need) * (0.3 + ratio));
+  const where = sectionAt(ps.station);
+  damageShip(state, S, W, cs.hp * (0.015 + 0.06 * k), 'ram', where);
+  if (k > 0.25) {
+    openHull(state, S, where, 1 + 8 * k, 1, cs.hull.draft * 0.35);
+    openHull(state, S, where, 1 + 8 * k, -1, cs.hull.draft * 0.35);
+  }
+  struck(out, S, ps, 'dent', 1 + cs.hull.beam * 0.25 * k);
+}
+
+/**
+ * Her stem gives. `crush` is how hard it was driven into something it could
+ * not go through, in metres a second.
+ */
+function crushBow(state, R, T, cr, pr, crush, out) {
+  const where = sectionAt(pr.station);
+  if (crush >= CHOP_V && cr.hull.length > 40 && !R.cut && R.broke == null) {
+    // Torn off her. Where depends on how hard: the forefoot at the least, back
+    // to her collision bulkhead and beyond if it was hard enough.
+    const sp = hullSpan(R);
+    const back = clamp(0.24 + 0.05 * (crush - CHOP_V), 0.24, 0.42);
+    const at = pr.station > 0 ? sp.hi - back : sp.lo + back;
+    damageShip(state, R, T, cr.hp * 0.05, 'ram', where);
+    cutHer(state, R, at, T.id, 'ram');
+    struck(out, R, pr, 'chop', cr.hull.beam);
+    return;
+  }
+  // Smashed in: her bow crumpled back on itself and open to the sea.
+  const k = Math.min(1, crush / CHOP_V);
+  damageShip(state, R, T, cr.hp * (0.03 + 0.11 * k), 'ram', where);
+  const open = 2 + 18 * k;
+  openHull(state, R, where, open, 1, cr.hull.draft * 0.45);
+  openHull(state, R, where, open, -1, cr.hull.draft * 0.45);
+  struck(out, R, pr, 'smash', 1.5 + cr.hull.beam * 0.4 * k);
+}
+
+/** Two sides ground together. Plating opened along both, and nothing worse. */
+function scrape(state, a, b, ca, cb, pa, pb, vrel, out) {
+  const k = Math.min(1, vrel / 12);
+  for (const [s, o, c, p] of [[a, b, ca, pa], [b, a, cb, pb]]) {
+    const where = sectionAt(p.station);
+    damageShip(state, s, o, c.hp * 0.03 * k * Math.sqrt(tonnage(shipClass(o)) / tonnage(c)), 'ram', where);
+    if (vrel > 3) openHull(state, s, where, 1 + 6 * k, p.side, c.hull.draft * 0.3);
+    struck(out, s, p, 'scrape', 1 + 2.5 * k);
+  }
+}
+
+/**
+ * A piece of her is cut off.
+ *
+ * `at` is the station she parts at (-1 stern .. 1 stem). She is the piece that
+ * still has her bridge on it; the rest is wreckage, gone from her. Everything
+ * standing on it is gone with it -- turrets, mountings, tubes, searchlights --
+ * and so is whatever was in the compartments it carried away: a ship that has
+ * lost her stern has lost her screws and her rudder, and one cut through her
+ * machinery spaces has no machinery. The compartment the cut runs through, or
+ * the first sound one behind it, is open to the sea across the whole of her
+ * section, and she floods through it.
+ */
+export function cutHer(state, ship, at, by = 0, why = 'ram') {
+  if (!ship.alive || ship.cut || ship.broke != null) return false;
+  const cls = shipClass(ship);
+  at = Math.round(clamp(at, -0.82, 0.82) * 1000) / 1000;
+  const keep = bridgeStation(cls) >= at ? 1 : -1;
+  ship.cut = { at, keep };
+  // The compartments it took, and the one it left open.
+  let open = null;
+  let openGap = Infinity;
+  const lose = cutLoses(at, keep);
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    if (lose.includes(s.k)) {
+      c.lost = true;
+      c.hp = 0;
+      c.water = 0; c.wP = 0; c.wS = 0;
+      c.holeP = 0; c.holeS = 0; c.inflow = 0;
+      c.fire = 0; c.burnt = 0;
+      continue;
+    }
+    // The nearest of what is left to the cut is the one that is open.
+    const gap = keep > 0 ? Math.max(0, s.from - at) : Math.max(0, at - s.to);
+    if (gap < openGap) { openGap = gap; open = s.k; }
+  }
+  if (open) {
+    const c = ship.sections[open];
+    // Wrecked where she parted -- but the bulkhead at the far end of it is
+    // still a bulkhead, and it is what the rest of her floats on.
+    c.hp = Math.min(c.hp, c.max * 0.28);
+    const area = cls.hull.beam * cls.hull.draft * 0.55;
+    openHull(state, ship, open, area, 1, cls.hull.draft * 0.85);
+    openHull(state, ship, open, area, -1, cls.hull.draft * 0.85);
+    c.side = 0;
+  }
+  ship.hp = hullIntegrity(ship);
+  // Everything that was standing on the piece that went.
+  const gone = (spec) => spec && severed(ship, cls, spec.z || 0);
+  ship.turrets.forEach((t) => { if (gone(cls.turrets[t.id])) t.hurt = 3; });
+  ship.secMounts.forEach((m, i) => { if (gone(cls.secondary?.mounts?.[m.id ?? i])) m.hurt = 3; });
+  ship.torpMounts.forEach((m) => { if (gone(cls.torpedoes?.mounts?.[m.id])) m.lost = true; });
+  if (ship.manned && ship.manned.k === 'torp' && ship.torpMounts[ship.manned.i]?.lost) ship.manned = null;
+  ship.flooding = floodedCount(ship);
+  ship.fires = burningCount(ship);
+  state.events.push({
+    e: 'cut', ship: ship.id, at: r(at), keep, by, why,
+    x: r(ship.x), z: r(ship.z), h: r(ship.heading), v: r(ship.speed),
+  });
+  // Nobody steers a ship from the half without the bridge, and nothing drives
+  // one from the half without the machinery or the screws.
+  if (ship.sections.mid.lost || ship.sections.stern.lost) ship.speed *= 0.5;
+  if (ship.hp <= 0) startSinking(state, ship, 'shattered', by);
+  return true;
+}
+
+/**
+ * Which of her compartments a cut at `at` takes with it, keeping the `keep`
+ * side (+1 forward of the cut, -1 abaft it): every one that has less than a
+ * third of itself left on her side of it.
+ */
+export function cutLoses(at, keep) {
+  const out = [];
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const len = s.to - s.from;
+    const kept = keep > 0
+      ? clamp(s.to - Math.max(s.from, at), 0, len) / len
+      : clamp(Math.min(s.to, at) - s.from, 0, len) / len;
+    if (kept < 0.35) out.push(s.k);
+  }
+  return out;
+}
+
+/**
+ * What she can still make, as a fraction of her speed, once a piece of her has
+ * gone: nothing without her machinery or her screws, and not much with her
+ * bow gone, because she is pushing a flat wall of torn steel through the
+ * water and every knot of it is forcing the sea into her.
+ */
+export function cutDrive(ship) {
+  if (!ship.cut) return 1;
+  const S = ship.sections;
+  if (S.mid.lost || S.stern.lost) return 0;
+  return ship.cut.keep < 0 ? 0.45 : 0.8;
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,6 +1602,8 @@ export function magazineDrowned(ship, cls, spec) {
 export function gunState(ship, cls, spec, m, lasting = false) {
   if (!m) return 3;
   if (m.hurt >= 3) return 3;
+  // Standing on a piece of her that has been cut off.
+  if (spec && ship.cut && severed(ship, cls, spec.z || 0)) return 3;
   // Green water over it: out of action until the sea has run off and her
   // crew are back on their feet. Not for long, and not damage -- a ship is
   // not out of the fight because a sea has come over her forecastle, so the
@@ -1124,7 +1638,8 @@ export function lightGunState(ship, cls, spec) {
   if (!ship || !ship.sections) return 0;
   const c = ship.sections[magazineOf(cls, spec)];
   if (!c) return 0;
-  if (c.hp <= 0) return 3;
+  if (c.hp <= 0 || c.lost) return 3;
+  if (ship.cut && severed(ship, cls, spec.z || 0)) return 3;
   if (magazineDrowned(ship, cls, spec)) return 3;
   if (ship.sinking && mountDrowned(ship, spec)) return 3;
   const f = c.hp / c.max;
@@ -1709,6 +2224,7 @@ function stepBullets(state, dt) {
         const cx = lerp(px, b.x, f), cy = lerp(py, b.y, f), cz = lerp(pz, b.z, f);
         if (cy > top || cy < -1) continue;
         if (!pointInBox(cx, cz, s.x, s.z, s.heading, halfLen, halfBeam)) continue;
+        if (severed(s, cls, worldToLocal(cx - s.x, cz - s.z, s.heading).z)) continue;
         bulletIntoShip(state, b, s, cls, cx, cy, cz);
         done = true;
       }
@@ -2874,6 +3390,9 @@ function stepShells(state, dt) {
         const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
         if (cy > deck || cy < -2) continue;
         if (!pointInBox(cx, cz, target.x, target.z, target.heading, halfLen, halfBeam)) continue;
+        // The piece of her that has been cut off is not her any more: a shell
+        // into it is a shell into wreckage, and it goes on to the sea.
+        if (severed(target, cls, worldToLocal(cx - target.x, cz - target.z, target.heading).z)) continue;
         if (sh.bomb) {
           // A bomb has no belt to beat. It arrives on her deck, and what it
           // reaches is settled there -- see bombHit, which is what a dive
@@ -3518,7 +4037,7 @@ export function fireTorpedoes(state, ship, only = null) {
   for (const m of ship.torpMounts) {
     if (only !== null && m.id !== only) continue;
     if (m.id === held) continue;
-    if (m.cooldown > 0) continue;
+    if (m.cooldown > 0 || m.lost) continue;
     const spec = T.mounts[m.id];
     const world = manned
       ? headingTo(ship.x, ship.z, ship.manX, ship.manZ)
@@ -3627,6 +4146,7 @@ function stepTorpedoes(state, dt) {
         if (!target.alive || target.team === tp.team) continue;
         const cls = getClass(target.classId);
         if (!pointInBox(tp.x, tp.z, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 3)) continue;
+        if (severed(target, cls, worldToLocal(tp.x - target.x, tp.z - target.z, target.heading).z)) continue;
         const owner = state.ships.find((s) => s.id === tp.owner);
         // What she has between the warhead and the inside of the ship. A big
         // hull carries her machinery well inboard of her side, with bulges,
@@ -6480,7 +7000,7 @@ export function leadPoint(fromX, fromZ, target, projSpeed) {
  */
 function startFire(state, ship, where = 'works', strength = 0.35) {
   const c = ship.sections[where] || ship.sections.works;
-  if (!c) return;
+  if (!c || c.lost) return;
   const was = c.fire;
   c.fire = Math.min(1, c.fire + strength);
   ship.fires = burningCount(ship);
@@ -6723,6 +7243,8 @@ function stepFlooding(state, ship, dt) {
     if (a.from === null || bb.from === null) continue;
     const ca = ship.sections[a.k];
     const cb = ship.sections[bb.k];
+    // A compartment that has been cut off her is not there to flood into.
+    if (ca.lost || cb.lost) continue;
     const worst = Math.min(ca.hp / ca.max, cb.hp / cb.max);
     if (worst > 0.25) continue;
     const va = sectionVolume(cls, a.k);
@@ -6879,7 +7401,9 @@ export function startSinking(state, ship, kind, by = 0) {
  * she is a girder across the sea with nothing under the middle of it.
  */
 export function breakHer(state, ship, at, why) {
-  if (ship.broke != null) return;
+  // A ship that has already had a piece cut off her has parted once, at the
+  // cut: what is left of her goes down as one piece.
+  if (ship.broke != null || ship.cut) return;
   ship.broke = at;
   state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z), why });
   if (!ship.sinking) startSinking(state, ship, why === 'magazine' ? 'magazine' : 'shattered');
@@ -7102,6 +7626,7 @@ function stepFires(state, ship, dt) {
  */
 export function breakStation(ship) {
   if (ship.broke != null) return ship.broke;
+  if (ship.cut) return null;
   const cls = shipClass(ship);
   const b = buoyancy(ship);
   // Nothing breaks a hull that is not carrying a great deal of water. A ship
@@ -7293,6 +7818,11 @@ export function floodWater(ship) {
   let port = 0;
   let stbd = 0;
   let moment = 0;
+  // Taken about the middle of what is left of her. A ship that has lost her
+  // stern floats on the hull she still has, and the compartment open at the
+  // broken end is a long way abaft the middle of that.
+  const sp = hullSpan(ship);
+  const mid = (sp.lo + sp.hi) / 2;
   for (const s of SECTIONS) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
@@ -7300,8 +7830,11 @@ export function floodWater(ship) {
     total += w;
     port += c.wP;
     stbd += c.wS;
-    // Where along her it is, for the trim: positive is forward.
-    moment += w * ((s.from + s.to) / 2);
+    // Where along her it is, for the trim: positive is forward -- the part of
+    // the compartment that is still on her, if it was cut through.
+    const a = Math.max(s.from, sp.lo);
+    const b = Math.min(s.to, sp.hi);
+    moment += w * ((b > a ? (a + b) / 2 : (s.from + s.to) / 2) - mid);
   }
   return { total, port, stbd, moment };
 }
@@ -7322,13 +7855,19 @@ export function buoyancy(ship) {
   const h = cls.hull;
   const w = floodWater(ship);
   const fb = freeboardOf(cls);
+  // How much of her length is still her. A piece cut off her takes its
+  // waterplane and its displacement with it, and the same water in what is
+  // left puts her deeper and trims her harder.
+  const sp = hullSpan(ship);
+  const kept = (sp.hi - sp.lo) / 2;
+  const len = h.length * kept;
   // What she weighs, near enough: her block coefficient is about a half in a
   // destroyer and a little more in anything fatter, and a cubic metre of sea
   // is a tonne.
-  const disp = h.length * h.beam * h.draft * 0.55;
+  const disp = len * h.beam * h.draft * 0.55;
   // How much deeper the water aboard has put her: tonnes over the area of her
   // waterplane.
-  const sink = w.total / Math.max(1, h.length * h.beam * 0.72);
+  const sink = w.total / Math.max(1, len * h.beam * 0.72);
 
   // Her metacentric height -- how stiff she is. A warship of this size carries
   // a metre or two of it, and every compartment with water slopping about in
@@ -7382,7 +7921,7 @@ export function buoyancy(ship) {
   // And how far down by the head or the stern: the same sum taken along her,
   // against her longitudinal stability, which is enormous by comparison --
   // which is why a ship heels many degrees and trims few.
-  const gml = h.length * 1.1;
+  const gml = len * 1.1;
   const trim = Math.asin(clamp(
     (w.moment * h.length * 0.5) / Math.max(1, disp * gml), -0.999, 0.999));
 
@@ -7392,11 +7931,11 @@ export function buoyancy(ship) {
   // upright one needs. This is why the way she is hit decides how long she
   // lasts, and it is the whole of the sinking condition.
   const edge = sink + Math.abs(Math.sin(heel)) * h.beam * 0.5
-    + Math.abs(Math.sin(trim)) * h.length * 0.5;
+    + Math.abs(Math.sin(trim)) * len * 0.5;
   return {
     water: w.total, sink, heel, trim, gm, edge, freeboard: fb,
     reserve: Math.max(0, 1 - edge / fb),
-    free: h.length * h.beam * fb * 0.55,
+    free: len * h.beam * fb * 0.55,
   };
 }
 

@@ -18,7 +18,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf,
+  freeboardOf, cutLoses,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -645,6 +645,12 @@ export class Battle {
       ls.hp = own.hp;
       ls.alive = !!own.a;
       ls.fires = own.f; ls.flooding = own.fl;
+      // A piece of her gone: her own prediction loses what went with it --
+      // her screws, her machinery, her rudder -- as the battle does.
+      if (own.ct && !ls.cut) {
+        ls.cut = { at: own.ct[0], keep: own.ct[1] };
+        for (const k of cutLoses(own.ct[0], own.ct[1])) ls.sections[k].lost = true;
+      }
       // Going down: her own prediction slows her as the battle does.
       ls.sinking = Number.isFinite(own.sn) ? { t: own.sn, T: 1 } : null;
       if (own.cd) own.cd.forEach((cd, i) => { if (ls.turrets[i]) ls.turrets[i].cooldown = cd; });
@@ -1442,6 +1448,99 @@ export class Battle {
   }
 
   /**
+   * Two ships have met.
+   *
+   * Steel on steel, not an explosion: a deep grinding crash, a sheet of spray
+   * thrown up between them and plating going in where each of them was
+   * struck. Where it went in is in each ship's own frame, so the hole is in
+   * her stem or her side wherever she has moved to by the time it is drawn.
+   */
+  onCollide(ev, d) {
+    const fx = this.scene.effects;
+    const big = clamp((ev.v || 0) / 10, 0.2, 1.6);
+    fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
+    this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
+    if (d < 1.3) audio.explosion(0.5 + big * 0.9, d);
+    for (const o of ev.out || []) {
+      const view = this.scene.shipViews.get(o.ship);
+      // A cut or a lost bow is drawn by the cut itself (see onCut).
+      if (!view || o.what === 'cut' || o.what === 'chop') continue;
+      const cls = view.cls;
+      const fb = freeboardOf(cls);
+      // Her stem goes in at and above her waterline; a gash in her side runs
+      // down below it, which is where the water comes in.
+      const y = o.what === 'gash' || o.what === 'scrape' ? 0.5 : fb * 0.4;
+      const r = Math.max(1.2, o.r || 2);
+      view.stove(o.lx, y, o.lz, r);
+      if (o.r > 4) view.stove(o.lx, y + r * 0.5, o.lz, r * 0.7);
+      if (o.ship === this.shipId) {
+        this.markHole(...this.ownWorld(o.lx, o.lz), o.what === 'dent' ? 'he' : 'pen');
+      }
+    }
+    // Who hit whom, for the people who were there.
+    const mine = ev.a === this.shipId || ev.b === this.shipId;
+    if (mine) {
+      const other = ev.a === this.shipId ? ev.b : ev.a;
+      const name = this.names.get(other) || 'another ship';
+      const me = (ev.out || []).find((o) => o.ship === this.shipId);
+      const what = me ? me.what : 'scrape';
+      this.hud.alert(what === 'smash' ? `Collision with ${name} — our bow is stove in`
+        : what === 'gash' ? `Rammed by ${name} — holed`
+          : what === 'dent' ? `We have rammed ${name}`
+            : `Collision with ${name}`);
+      this.shake = Math.max(this.shake, 0.4 + big * 0.5);
+      audio.alarm();
+    } else {
+      const ours = [ev.a, ev.b].some((i) => {
+        const v = this.scene.shipViews.get(i);
+        return v && v.team === this.team;
+      });
+      if (ours && d < 1) this.hud.ribbon('COLLISION');
+    }
+  }
+
+  /** A point in our own ship's frame, put out into the world. */
+  ownWorld(lx, lz) {
+    const ls = this.localShip;
+    const w = localToWorld(lx, lz, ls.heading);
+    return [ls.x + w.x, 0.5, ls.z + w.z];
+  }
+
+  /**
+   * A piece of a ship has been cut off her: another ship's stem right through
+   * her, or her own bow torn away on something it could not go through.
+   *
+   * She is torn open where it happened (see cutHer in scene.js), and the piece
+   * that went is let go into the sea beside her.
+   */
+  onCut(ev) {
+    const view = this.scene.shipViews.get(ev.ship);
+    const fx = this.scene.effects;
+    if (view) {
+      view.cutHer(ev.at, ev.keep, { v: ev.v || 0, h: ev.h ?? view.group.rotation.y });
+      // Where she parted, in the world.
+      view.group.updateMatrixWorld(true);
+      const p = new THREE.Vector3(0, 2, ev.at * view.cls.hull.length / 2);
+      view.group.localToWorld(p);
+      const size = 0.5 + view.cls.hull.length / 320;
+      const near = this.distanceFade(p.x, p.z);
+      this.scene.debris.burst(p.x, 6, p.z, 6 + size * 6, 0.9);
+      fx.splash(p.x, p.z, 420 + size * 300, { kind: 'bomb' });
+      fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
+      // And everything in her bunkers on that length of her, onto the sea.
+      this.scene.oil.spill(p.x, p.z, 40 + view.cls.hull.length * 0.6, false);
+      audio.explosion(1.4 * near, 0);
+      this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.2 : 0.4 * near);
+    }
+    const lost = cutLoses(ev.at, ev.keep);
+    const ends = lost.length === 1 && (lost[0] === 'bow' || lost[0] === 'stern');
+    const who = ev.ship === this.shipId ? 'We have' : `${this.names.get(ev.ship) || 'A ship'} has`;
+    const whose = ev.ship === this.shipId ? 'our' : 'her';
+    this.hud.alert(ends ? `${who} lost ${whose} ${lost[0]}` : `${who} been cut in two`);
+    if (ev.by === this.shipId && ev.ship !== this.shipId) this.hud.ribbon(ends ? 'BOW TORN OFF' : 'CUT IN TWO', 'cit');
+  }
+
+  /**
    * What a ship does on the way down that the rest of the battle has to hear.
    *
    * The model works out what is happening to her -- her back going, the
@@ -1757,6 +1856,12 @@ export class Battle {
           }
           break;
         }
+        case 'collide':
+          this.onCollide(ev, d);
+          break;
+        case 'cut':
+          this.onCut(ev);
+          break;
         case 'dcAttack':
           if (ev.ship === this.shipId) this.hud.ribbon('DEPTH CHARGE ATTACK');
           break;
@@ -3941,6 +4046,10 @@ export class Battle {
         // Broken in two: the halves hinge off her pose.
         if (view.halves) view.stepHalves(dt);
       }
+      // A piece of her cut off before we were watching her: she is drawn
+      // without it. The tear follows her from wherever she has been posed.
+      if (s.ct && !view.severed) view.cutHer(s.ct[0], s.ct[1], null);
+      view.stepCut(dt);
       if (view.throes.length) this.deathThroes(view, s, x, z, h);
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 

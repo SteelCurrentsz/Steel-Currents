@@ -325,6 +325,15 @@ export class Room {
   }
 
   eventVisible(ev, team) {
+    // Two ships meeting is seen by anyone who can see either of them -- and
+    // by nobody else, or a collision between two ships out of sight would put
+    // them both on the chart.
+    if (ev.e === 'collide') {
+      return [ev.a, ev.b].some((id) => {
+        const s = this.state.ships.find((x) => x.id === id);
+        return s && (s.team === team || s.spottedBy[team]);
+      });
+    }
     const shipId = ev.ship || ev.victim;
     if (shipId) {
       const s = this.state.ships.find((x) => x.id === shipId);

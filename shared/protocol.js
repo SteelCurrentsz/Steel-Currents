@@ -104,6 +104,9 @@ export function shipSnapshot(ship, full, state = null) {
     fs: SECTIONS.map((k) => ship.sections[k.k].side || 0),
     // Where her back went, if it went.
     bk: ship.broke == null ? null : r3(ship.broke),
+    // And the piece of her that has been cut off, if one has: where she
+    // parted and which side of it she still is. See cutHer.
+    ct: ship.cut ? [r3(ship.cut.at), ship.cut.keep] : null,
   };
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam

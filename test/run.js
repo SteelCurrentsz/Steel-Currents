@@ -13,6 +13,9 @@ import { armourScheme, layersFor, walkLayers, LAYER_NAMES } from '../shared/armo
 import { sectionAt as cutSection, extents as sectionExtents, halfAt as sectionHalf } from '../client/js/render/section.js';
 import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlights.js';
 import {
+  cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
+} from '../shared/sim.js';
+import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX,
@@ -18399,6 +18402,248 @@ check('a ship going down settles and lists smoothly, not in steps', () => {
   const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
   a.sink = 1.234;
   assert.ok(Math.abs(shipSnapshot(a, false, st).fo[0] - 1.23) < 1e-9);
+});
+
+
+// ---------------------------------------------------------------------------
+// Collision and ramming
+// ---------------------------------------------------------------------------
+
+/**
+ * Two ships on the same side, one driven into the other.
+ *
+ * `how` is 'tbone' (her stem square into the other's side amidships), 'head'
+ * (stem to stem, both making the same speed) or 'bowside' (into the other's
+ * side at her bow). Same side so nobody's guns go off and muddy the damage;
+ * a collision does not care whose ships they are.
+ */
+function collide(rc, tc, how, knots) {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const R = addShip(st, { name: 'R', classId: rc, team: 0, index: 0 });
+  const T = addShip(st, { name: 'T', classId: tc, team: 0, index: 1 });
+  const cr = SHIP_CLASSES[rc], ct = SHIP_CLASSES[tc];
+  const v = knots / 1.944;
+  T.x = 0; T.z = 0; T.heading = Math.PI / 2; T.speed = 0; T.notch = 1;
+  if (how === 'tbone') {
+    // Her stem just clear of the other's side as the collision works it out
+    // (a little inside her full beam), so she arrives at the speed she was
+    // set going at rather than coasting down to it.
+    R.x = 0; R.z = -(cr.hull.length / 2 + ct.hull.beam * 0.45 + 2); R.heading = 0;
+  } else if (how === 'head') {
+    R.x = -(cr.hull.length / 2 + ct.hull.length / 2 + 2); R.z = 0; R.heading = Math.PI / 2;
+    T.heading = -Math.PI / 2; T.speed = v; T.notch = 1;
+  }
+  // Holding the speed she struck at: the collision is the question, not
+  // what she does with her telegraph afterwards.
+  R.speed = v; R.notch = 1;
+  const events = [];
+  for (let i = 0; i < 30 * 4; i++) events.push(...step(st, DT));
+  return { st, R, T, events, hit: events.find((e) => e.e === 'collide') };
+}
+
+check('collision: a heavier stem driven hard into a lighter ship cuts her in two', () => {
+  const { R, T, hit, events } = collide('iowa', 'fletcher', 'tbone', 26);
+  assert.ok(hit, 'they never met');
+  assert.equal(hit.kind, 'ram');
+  const cut = events.find((e) => e.e === 'cut');
+  assert.ok(cut && cut.ship === T.id && cut.by === R.id, 'the destroyer was not cut');
+  assert.ok(T.cut, 'no cut on her');
+  // She is the half with her bridge on it.
+  const bridge = bridgeStation(SHIP_CLASSES.fletcher);
+  assert.ok(T.cut.keep > 0 ? bridge > T.cut.at : bridge < T.cut.at, 'she kept the half without her bridge');
+  // And both of them paid.
+  assert.ok(R.hp < R.maxHp, 'the battleship came out of it untouched');
+  assert.ok(T.hp < T.maxHp * 0.7, `cut in two and ${Math.round(100 * T.hp / T.maxHp)}% of her left`);
+});
+
+check('collision: the guns on the half without her bridge never fire again', () => {
+  const { T } = collide('iowa', 'fletcher', 'tbone', 26);
+  assert.ok(T.cut);
+  const cls = SHIP_CLASSES.fletcher;
+  let gone = 0, kept = 0;
+  for (const t of T.turrets) {
+    const spec = cls.turrets[t.id];
+    const lost = severed(T, cls, spec.z);
+    const state = gunState(T, cls, spec, t, true);
+    if (lost) { gone++; assert.equal(state, 3, `${spec.name || t.id} on the lost half still answers`); }
+    else kept++;
+  }
+  assert.ok(gone > 0 && kept > 0, `cut amidships, she lost ${gone} turrets and kept ${kept}`);
+});
+
+check('collision: a ship cut in two floods through the break and goes down by it', () => {
+  const { st, T } = collide('iowa', 'fletcher', 'tbone', 26);
+  assert.ok(T.cut);
+  const lost = SECTIONS.filter((q) => T.sections[q.k].lost).map((q) => q.k);
+  assert.deepEqual(lost, cutLoses(T.cut.at, T.cut.keep));
+  for (let i = 0; i < 30 * 30; i++) step(st, DT);
+  const b = buoyancy(T);
+  assert.ok(b.water > 200, `only ${Math.round(b.water)} tonnes in her`);
+  // Down by her broken end: the end the cut is at.
+  const brokenFwd = T.cut.keep < 0;
+  assert.ok(brokenFwd ? T.trim > 0.02 : T.trim < -0.02, `trimmed ${T.trim.toFixed(3)} with her ${brokenFwd ? 'bow' : 'stern'} gone`);
+  // And nothing floods into the compartments that are not there.
+  for (const k of lost) assert.equal(T.sections[k].water, 0, `${k} is gone and flooding`);
+});
+
+check('collision: a slow ram gashes her side and does not cut her', () => {
+  const { T, hit, events } = collide('iowa', 'cleveland', 'tbone', 6);
+  assert.ok(hit, 'they never met');
+  assert.ok(!events.some((e) => e.e === 'cut'), 'six knots cut a cruiser in two');
+  const gash = hit.out.find((o) => o.ship === T.id);
+  assert.equal(gash.what, 'gash');
+  const c = T.sections.mid;
+  assert.ok(c.holeP + c.holeS > 0, 'a stem in her side and no hole');
+});
+
+check('collision: a weak stem into a battleship belt is smashed, and torn off when driven hard', () => {
+  const slow = collide('fletcher', 'iowa', 'tbone', 7);
+  const s = slow.hit.out.find((o) => o.ship === slow.R.id);
+  assert.equal(s.what, 'smash', `at seven knots her bow was ${s.what}`);
+  assert.ok(!slow.R.cut && !slow.T.cut);
+  const b = slow.R.sections.bow;
+  assert.ok(b.holeP > 0 && b.holeS > 0, 'a stove-in bow is open both sides');
+  // The battleship is hurt, if not much.
+  assert.ok(slow.T.hp < slow.T.maxHp, 'the battleship was not touched');
+
+  const hard = collide('fletcher', 'iowa', 'tbone', 30);
+  const h = hard.hit.out.find((o) => o.ship === hard.R.id);
+  assert.equal(h.what, 'chop', `at thirty knots her bow was ${h.what}`);
+  assert.ok(hard.R.cut && hard.R.cut.keep < 0, 'she kept her bow');
+  assert.ok(hard.R.sections.bow.lost, 'her bow is still a compartment of hers');
+  assert.ok(!hard.T.cut, 'a destroyer cut a battleship in two');
+  // And she has lost her forward guns with it, but none of the rest.
+  const cls = SHIP_CLASSES.fletcher;
+  const live = hard.R.turrets.filter((t) => gunState(hard.R, cls, cls.turrets[t.id], t, true) < 3);
+  assert.ok(live.length >= 3, `only ${live.length} turrets left`);
+});
+
+check('collision: head on, the weaker bow is smashed in and both ships pay', () => {
+  const { R, T, hit } = collide('fletcher', 'iowa', 'head', 12);
+  assert.equal(hit.kind, 'head');
+  const r = hit.out.find((o) => o.ship === R.id);
+  const t = hit.out.find((o) => o.ship === T.id);
+  assert.ok(['smash', 'chop'].includes(r.what), `the destroyer's bow was ${r.what}`);
+  assert.equal(t.what, 'dent');
+  assert.ok(R.hp < R.maxHp && T.hp < T.maxHp, 'somebody came out of it untouched');
+  // Two stems as good as each other: neither comes out the better.
+  const even = collide('fletcher', 'fletcher', 'head', 10);
+  const whats = even.hit.out.map((o) => o.what);
+  assert.equal(whats[0], whats[1], `two destroyers head on: ${whats.join(' and ')}`);
+});
+
+check('collision: fouled ships are held together until one backs away', () => {
+  const { st, R, T } = collide('cleveland', 'cleveland', 'tbone', 6);
+  // Her captain keeps ringing for speed. It does him no good.
+  R.notch = 3; T.notch = 5;
+  for (let i = 0; i < 30 * 15; i++) step(st, DT);
+  assert.equal(R.fouled, T.id);
+  assert.equal(T.fouled, R.id);
+  assert.ok(Math.abs(R.speed) < 1, `pressed into her side at ${R.speed.toFixed(1)} m/s`);
+  assert.ok(Math.abs(T.speed) < 3, `dragging a cruiser along at ${T.speed.toFixed(1)} m/s`);
+  // Going astern is let go.
+  R.notch = 0;
+  for (let i = 0; i < 30 * 20; i++) step(st, DT);
+  assert.equal(R.fouled, 0, 'still fouled after backing away');
+  assert.equal(T.fouled, 0);
+  assert.ok(T.speed > 5, `free, and still making only ${T.speed.toFixed(1)} m/s`);
+});
+
+check('collision: a ship that has gone down lets go of the one fouled on her', () => {
+  const { st, R, T } = collide('cleveland', 'cleveland', 'tbone', 6);
+  for (let i = 0; i < 30 * 3; i++) step(st, DT);
+  assert.equal(T.fouled, R.id);
+  R.alive = false;
+  T.notch = 5;
+  for (let i = 0; i < 30 * 20; i++) step(st, DT);
+  assert.equal(T.fouled, 0);
+  assert.ok(T.speed > 5, `the wreck still holding her at ${T.speed.toFixed(1)} m/s`);
+});
+
+check('collision: a ship with her stern cut off has no screws and no rudder', () => {
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  st.world.islands = [];
+  const s = addShip(st, { name: 'S', classId: 'cleveland', team: 0, index: 0 });
+  s.x = 0; s.z = 0; s.heading = 0; s.speed = 10; s.notch = 5;
+  assert.ok(cutHer(st, s, -0.5, 0, 'ram'));
+  assert.equal(s.cut.keep, 1);
+  assert.ok(s.sections.stern.lost);
+  s.rudderCmd = 1;
+  const h0 = s.heading;
+  for (let i = 0; i < 30 * 40; i++) step(st, DT);
+  assert.ok(Math.abs(s.speed) < 0.3, `no screws and making ${s.speed.toFixed(2)} m/s`);
+  assert.ok(Math.abs(s.heading - h0) < 0.05, 'no rudder and she turned');
+  // Only once.
+  assert.equal(cutHer(st, s, 0.3, 0, 'ram'), false);
+});
+
+check('collision: a shell into the piece cut off her is not a hit on her', () => {
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'S', classId: 'cleveland', team: 0, index: 0 });
+  const cls = SHIP_CLASSES.cleveland;
+  cutHer(st, s, 0.3, 0, 'ram');
+  // Her bridge is forward, so she kept the bow.
+  assert.equal(s.cut.keep, 1);
+  assert.deepEqual(hullSpan(s), { lo: 0.3, hi: 1 });
+  assert.ok(severed(s, cls, -cls.hull.length * 0.3));
+  assert.ok(!severed(s, cls, cls.hull.length * 0.4));
+  // And she is on the wire that way, for anyone who joins afterwards.
+  assert.deepEqual(shipSnapshot(s, false, st).ct, [0.3, 1]);
+});
+
+check('collision: a stem is worth what her bow and her scantlings are, a side what her belt is', () => {
+  const bb = SHIP_CLASSES.iowa, dd = SHIP_CLASSES.fletcher, cl = SHIP_CLASSES.cleveland;
+  assert.ok(stemStrength(bb) > sideStrength(cl, 0), 'a battleship stem does not beat a cruiser belt');
+  assert.ok(stemStrength(dd) < sideStrength(cl, 0), 'a destroyer stem beats a cruiser belt');
+  assert.ok(stemStrength(dd) > sideStrength(dd, 0), 'a destroyer cannot cut a destroyer');
+  // Her ends are not armoured like her middle.
+  assert.ok(sideStrength(bb, 0.9) < sideStrength(bb, 0));
+});
+
+check('collision: a bot fouled on another ship backs clear of her', () => {
+  const { st, R, T } = collide('cleveland', 'cleveland', 'tbone', 6);
+  const brain = createBotBrain('veteran');
+  let freed = false;
+  for (let i = 0; i < 30 * 30 && !freed; i++) {
+    stepBot(st, R, brain, DT);
+    step(st, DT);
+    if (i > 30 * 3 && !R.fouled && !T.fouled) freed = true;
+  }
+  assert.ok(freed, 'the bot stayed with her stem in the other ship');
+});
+
+check('collision: the picture tears her at the cut and lets the piece go', () => {
+  const scene = new THREE.Scene();
+  const view = new ShipView(scene, 'cleveland', 0, false);
+  view.group.rotation.order = 'YXZ';
+  view.group.updateMatrixWorld(true);
+  const sev = view.cutHer(0, 1, { v: 6, h: 0 });
+  assert.ok(sev && sev.piece, 'no piece let go');
+  assert.equal(sev.piece.parent, scene);
+  // Her own model and the piece are drawn behind the tear, from opposite sides.
+  let mine = 0, theirs = 0;
+  view.group.traverse((o) => { if (o.userData.cutMat) mine++; });
+  sev.piece.traverse((o) => { if (o.userData.cutMat) theirs++; });
+  assert.ok(mine > 10 && theirs > 10, `${mine} of hers and ${theirs} of the piece's torn`);
+  assert.equal(sev.U.uCutSide.value, 1);
+  assert.equal(sev.PU.uCutSide.value, -1);
+  // It drifts off and goes down, and is gone.
+  const piece = sev.piece;
+  const z0 = piece.position.z;
+  for (let t = 0; t < 30; t += 1 / 30) view.stepCut(1 / 30);
+  assert.ok(sev.piece && sev.piece.position.y < -1, 'the piece is not settling');
+  assert.ok(sev.piece.position.z < z0, 'the after half did not drift astern of her');
+  for (let t = 0; t < 600; t += 1 / 10) view.stepCut(1 / 10);
+  assert.equal(sev.piece, null, 'the piece never went under');
+  assert.ok(!scene.children.includes(piece), 'the piece is still in the scene');
+  // A ship that parted before we were watching is drawn without the piece.
+  const late = new ShipView(new THREE.Scene(), 'fletcher', 0, false);
+  const s2 = late.cutHer(0.58, -1, null);
+  assert.equal(s2.piece, null);
+  // And only once.
+  assert.equal(late.cutHer(0, 1, null), null);
 });
 
 

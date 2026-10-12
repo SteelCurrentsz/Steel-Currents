@@ -26,6 +26,7 @@ import { Breakers } from './breakers.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { soupOf } from './section.js';
+import { Severance } from './sever.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -727,6 +728,9 @@ export class ShipView {
     // Set once she has stopped floating; see founder.
     this.going = null;
     this.halves = null;
+    // A piece of her cut off by another ship's stem, if one has been. See
+    // cutHer and sever.js.
+    this.severed = null;
     // How hard she is burning, nought to one, put here off the wire every
     // frame. The founder reads it: a ship that goes down with fires still in
     // her does not simply go down.
@@ -1086,6 +1090,42 @@ export class ShipView {
     this.group.add(aft);
     this.breakZ = zc;
     this.halves = { fore, aft };
+  }
+
+  /**
+   * A piece of her has been cut off: by another ship's stem through her side,
+   * or her own bow torn away against something stronger. See cutHer in sim.js.
+   *
+   * `at` is the station she parted at (-1 stern .. 1 stem) and `keep` the side
+   * of it that is still her. From here she is drawn torn open at the break,
+   * her insides in section, and the piece that went is let go into the sea
+   * beside her with `motion` -- { v, h }, the way she had on her -- to drift
+   * off and go down on its own. Without `motion` she parted before anybody
+   * here was watching, and the piece is long gone.
+   */
+  cutHer(at, keep, motion = null) {
+    if (this.severed) return null;
+    const z = at * this.cls.hull.length / 2;
+    this.severed = new Severance(this, z, keep, motion);
+    return this.severed;
+  }
+
+  /**
+   * Once a frame, after she is posed: the tear follows her and the piece that
+   * went drifts and settles. Returns where its broken end is, or null.
+   */
+  stepCut(dt) {
+    return this.severed ? this.severed.step(dt) : null;
+  }
+
+  /**
+   * A collision has opened her plating, at a point in her own frame -- a stem
+   * crumpled back on itself, a gash along her side. The plating goes where it
+   * went, and what is behind it is her inside.
+   */
+  stove(x, y, z, r) {
+    if (!this.plating) return 0;
+    return this.plating.punch(x, y, z, r, 0.4);
   }
 
   /**
@@ -1483,6 +1523,7 @@ export class ShipView {
   }
 
   dispose(scene) {
+    if (this.severed) this.severed.dispose();
     scene.remove(this.group);
     if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();

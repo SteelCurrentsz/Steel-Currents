@@ -41,7 +41,44 @@ export function createBotBrain(skill = 'regular') {
     torpTimer: 4 + Math.random() * 6,
     wander: Math.random() * Math.PI * 2,
     kite: Math.random() < 0.5 ? 1 : -1,
+    // Seconds left of getting clear of a ship she is fouled on. See clearFoul.
+    clearing: 0,
+    clearAway: 1,
   };
+}
+
+/**
+ * Get her clear of a ship she has run into.
+ *
+ * Two hulls that have met stay locked together until one of them backs out of
+ * it (see stepCollisions in sim.js), and a captain does not stand there with
+ * his stem in another ship's side waiting for something to happen. If the
+ * other ship is ahead of her she goes astern; if it is abeam or astern she
+ * goes ahead and puts her helm away from it. Either way she keeps at it for a
+ * few seconds once she is clear, so she does not drive straight back in.
+ *
+ * Returns whether she is busy getting clear.
+ */
+function clearFoul(state, ship, brain, dt) {
+  brain.clearing = Math.max(0, (brain.clearing || 0) - dt);
+  if (ship.fouled && (ship.foulT || 0) > 1.2 && brain.clearing <= 0) {
+    const other = state.ships.find((s) => s.id === ship.fouled);
+    if (other) {
+      const off = angleDelta(ship.heading, headingTo(ship.x, ship.z, other.x, other.z));
+      brain.clearAway = Math.abs(off) < 1.75 ? -1 : 1;
+      brain.clearSide = off >= 0 ? -1 : 1;
+      brain.clearing = 7;
+    }
+  }
+  if (brain.clearing <= 0) return false;
+  if (brain.clearAway < 0) {
+    ship.notch = 0;
+    ship.rudderCmd = 0;
+  } else {
+    ship.notch = 5;
+    ship.rudderCmd = brain.clearSide || 1;
+  }
+  return true;
 }
 
 /** Preferred fighting distance, as a fraction of main battery range. */
@@ -119,6 +156,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // at, and the brain is the server's alone.
   ship.targetId = target ? target.id : 0;
   workLamps(state, ship, cls, target);
+  // Fouled on another ship: getting clear comes before anything else she
+  // might want to do with her helm.
+  const clearing = !conned && clearFoul(state, ship, brain, dt);
 
   // Damage control: put fires out once a couple are burning, or when badly hurt.
   if ((ship.fires >= 2 || ship.flooding >= 1 || ship.hp < ship.maxHp * 0.4) && ship.repairCd <= 0) {
@@ -140,7 +180,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     // Nothing afloat to fight. He keeps his station and the fleet keeps
     // looking -- which is a great deal better than a dozen hulls each going
     // off to look on their own.
-    if (conned) layAhead(ship);
+    if (clearing) { /* backing clear of a ship she is fouled on */ } else if (conned) layAhead(ship);
     else if (!keepStation(state, ship, brain, staff, dt)) patrol(state, ship, brain, dt);
     shellShore(state, ship, brain, cls);
     return;
@@ -156,7 +196,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   ship.aimX = lead.x + (Math.random() * 2 - 1) * err;
   ship.aimZ = lead.z + (Math.random() * 2 - 1) * err;
 
-  if (!conned) {
+  if (!conned && !clearing) {
     if (hunt(state, ship, cls)) {
       // A boat under her, and she is the only ship on the board that can do
       // anything about it. She comes off whatever else she was doing until the
