@@ -15,6 +15,7 @@ import { lampPlan as lampPlanOf, ShipLamps } from '../client/js/render/searchlig
 import {
   MAN, freshMan, stepDeck as walkDeck, stepWater, onPlan, roughPlan,
 } from '../client/js/walker.js';
+import { buildBridge } from '../client/js/render/bridgeroom.js';
 import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
 } from '../shared/sim.js';
@@ -19128,6 +19129,33 @@ check('human view: a man walks her deck, is stopped by a deck house and goes ove
   const beach = { sea: () => 0, ground: () => 2, blocked: () => false };
   for (let t = 0; t < 3; t += 1 / 30) stepWater(man, { fwd: 0 }, 1 / 30, beach);
   assert.ok(!man.swimming && man.grounded && Math.abs(man.y - 2) < 0.1);
+});
+
+check('human view: every ship has a bridge to stand in, and the wheelhouse opens onto its wings', () => {
+  for (const id of SHIP_ORDER) {
+    const cls = SHIP_CLASSES[id];
+    const br = buildBridge(cls, null);
+    const sp = br.spot;
+    // Stood on her deck at the helm, inside the room, at a man's height under its deckhead.
+    const man = freshMan(br.walk, br.stand.x, br.stand.z, 0);
+    assert.ok(Math.abs(man.y - sp.floor) < 0.1, `${id}: he stands at ${man.y}, her floor is ${sp.floor}`);
+    assert.equal(br.where(man.x), 'house', id);
+    assert.ok(sp.width >= 2.3 && sp.depth >= 3.5, `${id}: a ${sp.width} by ${sp.depth} room`);
+    // Walls keep him in: straight ahead he stops short of the windows.
+    for (let t = 0; t < 8; t += 1 / 30) walkDeck(man, { fwd: 1 }, 1 / 30, br.walk);
+    assert.ok(man.z < sp.z + sp.depth / 2 - 0.2, `${id}: walked through her forward bulkhead`);
+    if (sp.kind === 'tower') continue;
+    // And out of the door on to the port wing.
+    const out = freshMan(br.walk, br.stand.x, br.stand.z, Math.PI / 2);
+    // Aft to the door first, then out through it.
+    const doorZ = br.door;
+    out.yaw = Math.PI;
+    for (let t = 0; t < 10 && out.z > doorZ; t += 1 / 30) walkDeck(out, { fwd: 1 }, 1 / 30, br.walk);
+    out.yaw = Math.PI / 2;
+    for (let t = 0; t < 10; t += 1 / 30) walkDeck(out, { fwd: 1 }, 1 / 30, br.walk);
+    assert.equal(br.where(out.x), 'port', `${id}: never got out on to the wing (at ${out.x.toFixed(1)}, ${out.z.toFixed(1)})`);
+    assert.ok(Math.abs(out.y - sp.floor) < 0.1, `${id}: the wing is not at the wheelhouse's level`);
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

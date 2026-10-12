@@ -1359,6 +1359,7 @@ export class Hud {
   /**
    * The human view: her plan from overhead, a tap on it puts a pin in her
    * deck, and Deploy -- live only once there is a pin -- stands you there.
+   * Bridge, beside it, puts you in her wheelhouse.
    * What is drawn, and whether a place is on her, comes from the battle (see
    * Battle.humanPanel).
    */
@@ -1380,6 +1381,13 @@ export class Hud {
     go.textContent = 'Deploy';
     go.disabled = true;
     bar.appendChild(go);
+    // Straight up to her bridge: no pin wanted, it is always the same place.
+    const up = document.createElement('button');
+    up.type = 'button';
+    up.className = 'human-deploy human-bridge';
+    up.textContent = 'Bridge';
+    up.onclick = () => this.onHumanBridge?.();
+    bar.appendChild(up);
     const said = document.createElement('span');
     said.className = 'human-said';
     said.textContent = 'No place picked';

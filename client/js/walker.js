@@ -26,10 +26,11 @@ export const MAN = {
 
 // Pixel to her own frame and back; the same reading of the map the plan is
 // drawn with. Column 0 is her port side (+x), row 0 her stern (-z).
+// A map may be of only part of her -- the wheelhouse -- centred on (cx, cz).
 function cell(map, x, z) {
   return {
-    i: Math.round((((-x / map.halfX) + 1) / 2) * map.w - 0.5),
-    j: Math.round((((z / map.halfZ) + 1) / 2) * map.h - 0.5),
+    i: Math.round((((-(x - (map.cx || 0)) / map.halfX) + 1) / 2) * map.w - 0.5),
+    j: Math.round((((z - (map.cz || 0)) / map.halfZ) + 1) / 2 * map.h - 0.5),
   };
 }
 function px(map, i, j) {
@@ -51,6 +52,8 @@ export function deckAt(map, x, z) {
   const { i, j } = cell(map, x, z);
   const y = px(map, i, j);
   if (!Number.isFinite(y)) return NaN;
+  // A map drawn for walking, not seen from overhead, means what it says.
+  if (map.exact) return y;
   // Looked at over a metre or so of her whatever her plan's scale: a gun
   // barrel is half a metre across, and on a destroyer's plan that is three
   // pixels.
@@ -144,11 +147,13 @@ export function stepDeck(man, move, dt, map) {
     man.vy -= MAN.gravity * dt;
     man.y += man.vy * dt;
     if (man.y <= floor) { man.y = floor; man.vy = 0; man.grounded = true; } else man.grounded = false;
-  } else {
+  } else if (floor - man.y <= MAN.climb) {
     man.y = floor;
     man.vy = 0;
     man.grounded = true;
   }
+  // Higher than that and he has been put inside something, not on it: he
+  // stays where he is rather than being stood on top of a wall.
   return null;
 }
 

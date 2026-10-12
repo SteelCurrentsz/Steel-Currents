@@ -25,6 +25,7 @@ import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
 import { PenCam } from './render/pencam.js';
+import { buildBridge } from './render/bridgeroom.js';
 import {
   MAN, freshMan, stepDeck, stepWater, deckAt, onPlan, roughPlan, placeOn,
 } from './walker.js';
@@ -584,6 +585,7 @@ export class Battle {
     this.man = null;
     this.hud.onHumanPlan = () => this.humanPanel();
     this.hud.onHumanDeploy = (x, z) => this.deployMan(x, z);
+    this.hud.onHumanBridge = () => this.deployBridge();
     this.hud.bindHumanStick(() => { this.jumpAsked = true; });
     document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan());
     const fireKey = document.getElementById('gun-fire');
@@ -1398,12 +1400,86 @@ export class Battle {
     if (this.sunk || !view) return;
     const map = this.manPlan(view);
     if (!onPlan(map, x, z)) return;
+    this.standMan(view, map, x, z, false);
+  }
+
+  /** Her wheelhouse, built the first time anybody goes up to it. */
+  shipBridge(view) {
+    if (!view.bridge) {
+      view.bridge = buildBridge(view.cls || this.cls, lampPlan(view, this.scene.renderer));
+      view.group.add(view.bridge.group);
+    }
+    return view.bridge;
+  }
+
+  /** Up to her bridge: stood behind the helmsman, looking out over the bow. */
+  deployBridge() {
+    const view = this.scene.shipViews.get(this.shipId);
+    if (this.sunk || !view) return;
+    const br = this.shipBridge(view);
+    this.standMan(view, br.walk, br.stand.x, br.stand.z, true);
+  }
+
+  /**
+   * Show her wheelhouse, or put it away. While it is up, her own model is cut
+   * away round it -- her bridge on the outside is a solid block, and a man
+   * stood in the room would otherwise be stood inside that block.
+   */
+  showBridge(view, on) {
+    const br = view && view.bridge;
+    if (!br || br.shown === on) return;
+    br.shown = on;
+    br.group.visible = on;
+    const r = this.scene.renderer;
+    if (on) r.localClippingEnabled = true;
+    if (!br.planes) {
+      const b = br.clipBox;
+      // Facing out of the box: what is inside all six is cut away.
+      br.local = [
+        new THREE.Plane(new THREE.Vector3(1, 0, 0), -b.max.x),
+        new THREE.Plane(new THREE.Vector3(-1, 0, 0), b.min.x),
+        new THREE.Plane(new THREE.Vector3(0, 1, 0), -b.max.y),
+        new THREE.Plane(new THREE.Vector3(0, -1, 0), b.min.y),
+        new THREE.Plane(new THREE.Vector3(0, 0, 1), -b.max.z),
+        new THREE.Plane(new THREE.Vector3(0, 0, -1), b.min.z),
+      ];
+      br.planes = br.local.map((p) => p.clone());
+    }
+    const mats = new Set();
+    view.group.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (let p = o; p; p = p.parent) if (p === br.group) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) mats.add(m);
+    });
+    for (const m of mats) {
+      m.clippingPlanes = on ? br.planes : null;
+      m.clipIntersection = on;
+      m.needsUpdate = true;
+    }
+    if (on) this.placeBridge(view);
+  }
+
+  /** Her wheelhouse's cut, where she is this frame, and her wheel and telegraphs on her. */
+  placeBridge(view) {
+    const br = view.bridge;
+    view.group.updateMatrixWorld(true);
+    br.local.forEach((p, k) => br.planes[k].copy(p).applyMatrix4(view.group.matrixWorld));
+    const ls = this.localShip;
+    // Her telegraph runs astern, stop, then four speeds ahead.
+    const ahead = ls.notch <= MIN_NOTCH ? -1 : (ls.notch - MIN_NOTCH - 1) / Math.max(1, MAX_NOTCH - MIN_NOTCH - 1);
+    br.set({ rudder: ls.rudder || 0, throttle: ahead, heading: ls.heading || 0 });
+  }
+
+  /** Put a man on her at (x, z) on `map`, facing her bow. */
+  standMan(view, map, x, z, room) {
     if (this.gun) this.manGun(null);
     if (this.lamp) this.leaveLamp(true);
     if (this.flight) this.leaveFlight();
     if (this.shellCam) this.toggleShellCam();
     this.man = freshMan(map, x, z, 0);
     this.man.map = map;
+    this.man.room = room;
+    this.showBridge(view, room);
     this.jumpAsked = false;
     this.watching = null;
     this.hud.setWatching(null);
@@ -1419,6 +1495,7 @@ export class Battle {
   /** Back to the bridge from wherever you have walked or swum to. */
   leaveMan(quiet = false) {
     if (!this.man) return;
+    this.showBridge(this.scene.shipViews.get(this.shipId), false);
     this.man = null;
     this.manSaid = null;
     this.hud.setHumanSight(null);
@@ -1433,6 +1510,12 @@ export class Battle {
   manWhere() {
     const m = this.man;
     if (!m) return '';
+    if (m.aboard && m.room) {
+      const view = this.scene.shipViews.get(this.shipId);
+      const w = view && view.bridge ? view.bridge.where(m.x) : 'house';
+      if (w === 'house') return this.cls.type === 'SS' ? 'Conning tower' : 'Bridge — wheelhouse';
+      return `Bridge wing, ${w} side`;
+    }
     if (m.aboard) return placeOn(this.cls.hull.length, this.cls.hull.beam, m.x, m.z);
     if (m.swimming) return 'In the water';
     if (m.grounded) return 'Ashore';
@@ -1451,6 +1534,12 @@ export class Battle {
     m.grounded = false;
     m.swimming = false;
     m.held = 0;
+    // Out of her wheelhouse, if that is where he was: it is hers, not the sea's.
+    if (m.room) {
+      m.room = false;
+      m.map = view ? this.manPlan(view) : m.map;
+      this.showBridge(view, false);
+    }
   }
 
   /** One frame of the man: his head off the drag, his feet off the stick and keys. */
@@ -5078,9 +5167,16 @@ export class Battle {
     // On his own two feet: a man's eye, a man's field of view, and a near
     // plane close enough that the rail in front of him is not cut away.
     if (this.man) {
+      // Her wheelhouse's cut goes where she is now that she has been put
+      // there this frame; a frame late and her plating shows through the
+      // windows at thirty knots.
+      if (this.man.room) {
+        const view = this.scene.shipViews.get(this.shipId);
+        if (view && view.bridge) this.placeBridge(view);
+      }
       const e = this.manEye();
       cam.fov = 72;
-      cam.near = 0.1;
+      cam.near = this.man.room ? 0.05 : 0.1;
       cam.updateProjectionMatrix();
       cam.up.set(0, 1, 0);
       cam.position.copy(e.pos);
@@ -5421,13 +5517,18 @@ export class Battle {
     // clock it is drawn at -- not the one his last step was taken on, which a
     // slow frame leaves a wave behind.
     if (this.man && this.man.swimming) cam.position.y = sea + MAN.float;
-    this.scene.setUnderwater(cam.position.y < sea - 0.2);
+    // Stood in her wheelhouse or her conning tower he is in a dry room,
+    // whatever the sea outside it is doing.
+    this.scene.setUnderwater(cam.position.y < sea - 0.2 && !(this.man && this.man.room));
     this.scene.render();
   }
 
   resize(w, h) { this.scene.resize(w, h); }
 
   dispose() {
+    // Off her bridge first: the cut round it is on materials the next
+    // battle's ships are drawn with too.
+    this.leaveMan(true);
     this.penCam?.el.remove();
     this.off.forEach((f) => f());
     this.input.enabled = false;
