@@ -3640,6 +3640,104 @@ check('a ship picked off the plot is conned from it, whichever side she is on', 
   room.close();
 });
 
+check('a ship conned off the plot answers her new captain and not her own', () => {
+  // A ship under her own captain's orders used to be steered by him every
+  // tick whatever the plot said, so a course laid off for a ship you were
+  // watching lasted a thirtieth of a second.
+  const room = new Room({ name: 'Test', mode: 'deathmatch', autoStart: false, seed: 7 });
+  const player = { id: 'p1', name: 'You', send: () => {} };
+  room.join(player, { name: 'You', classId: 'fletcher', team: 0 });
+  const mine = room.state.ships.find((s) => s.id === player.shipId);
+  const friend = addShip(room.state, { name: 'Mate', classId: 'cleveland', team: 0, index: 1 });
+  friend.isBot = true;
+  room.brains.set(friend.id, createBotBrain('veteran'));
+  const foe = addShip(room.state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  room.brains.set(foe.id, createBotBrain('veteran'));
+  foe.isBot = true;
+  room.state.world.islands = [];
+  mine.x = -3000; mine.z = 0;
+  friend.x = 0; friend.z = 0; friend.heading = 0; friend.speed = 8;
+  foe.x = 0; foe.z = 9000; foe.heading = Math.PI;
+  room.phase = 'battle';
+  const run = (secs) => {
+    for (let i = 0; i < secs * 5; i++) { room.lastTick = Date.now() - 200; room.tick(); }
+  };
+  room.command(player, { t: 'watch', ship: friend.id });
+  room.command(player, { t: 'goto', ship: friend.id, x: 6000, z: 0 });
+  room.command(player, { t: 'notch', ship: friend.id, notch: 4 });
+  assert.equal(friend.heldBy, mine.id, 'she was not taken under orders');
+  run(50);
+  assert.ok(Math.abs(angleDelta(friend.heading, Math.PI / 2)) < 0.35,
+    `she steered ${(friend.heading * 57.3).toFixed(0)} deg rather than the course laid off for her`);
+  assert.equal(friend.notch, 4, 'her own captain rang up his own speed over the order');
+  // Looking at somebody else hands her back.
+  room.command(player, { t: 'watch', ship: foe.id });
+  assert.equal(friend.heldBy, 0, 'she was kept under orders nobody was watching');
+  assert.equal(friend.wayX, null);
+  room.close();
+});
+
+check('a captain whose ship has gone down still has the con of what he is watching', () => {
+  const room = new Room({ name: 'Test', mode: 'deathmatch', autoStart: false, seed: 7 });
+  const player = { id: 'p1', name: 'You', send: () => {} };
+  room.join(player, { name: 'You', classId: 'fletcher', team: 0 });
+  const mine = room.state.ships.find((s) => s.id === player.shipId);
+  const friend = addShip(room.state, { name: 'Mate', classId: 'cleveland', team: 0, index: 1 });
+  friend.isBot = true;
+  room.brains.set(friend.id, createBotBrain('veteran'));
+  mine.alive = false;
+  room.command(player, { t: 'watch', ship: friend.id });
+  room.command(player, { t: 'notch', ship: friend.id, notch: 3 });
+  assert.equal(friend.notch, 3, 'she did not answer the telegraph');
+  room.command(player, { t: 'goto', ship: friend.id, x: 100, z: 200 });
+  assert.equal(friend.wayX, 100, 'she did not take the course');
+  friend.fires = 2;
+  room.command(player, { t: 'repair', ship: friend.id });
+  assert.equal(friend.fires, 0, 'her parties did not turn out');
+  // Watching his own wreck go down does not take the con off her.
+  room.command(player, { t: 'watch', ship: mine.id });
+  assert.equal(friend.heldBy, mine.id);
+  // And his own ship takes nothing: she is on the bottom.
+  room.command(player, { t: 'notch', notch: 5 });
+  assert.notEqual(mine.notch, 5);
+  room.close();
+});
+
+check('a torpedo that strikes inside five seconds is a dud, and after that it goes off', () => {
+  const run = (gap) => {
+    const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    state.world.islands = [];
+    const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'cleveland', team: 1, index: 0 });
+    for (const s of [a, b]) for (const t of s.turrets) t.disabled = 1e9;
+    silenceSecondaries(a, b);
+    a.x = -3000; b.x = 0; b.z = 0; b.heading = 0;
+    const T = SHIP_CLASSES.fletcher.torpedoes;
+    // Launched `gap` seconds' run from her side, so it strikes at that age.
+    state.torps.push({
+      id: 1, owner: a.id, team: a.team, x: -(b.x + 13 + T.speed * gap), z: 0, heading: Math.PI / 2,
+      speed: T.speed, range: T.range, travelled: 0, age: 0, arming: T.arming,
+      damage: T.damage, detection: 900, flood: T.floodChance,
+    });
+    const before = b.hp;
+    const events = [];
+    for (let i = 0; i < (gap + 3) * 30; i++) events.push(...step(state, DT));
+    return { took: before - b.hp, events, left: state.torps.length };
+  };
+  // Point blank: it hits her -- it does not run on through her -- and does nothing.
+  for (const gap of [0.2, 2, 4.5]) {
+    const r = run(gap);
+    assert.ok(r.events.some((e) => e.e === 'torpDud'), `a fish ${gap} s out ran through her`);
+    assert.ok(!r.events.some((e) => e.e === 'torpHit'), `a fish ${gap} s out went off`);
+    assert.equal(r.took, 0, `a dud at ${gap} s did ${r.took} damage`);
+    assert.equal(r.left, 0, 'the dud went on running');
+  }
+  // Past five seconds it is armed.
+  const armed = run(6);
+  assert.ok(armed.events.some((e) => e.e === 'torpHit'), 'a fish six seconds out did not go off');
+  assert.ok(armed.took > 0);
+});
+
 check('a battle is fought out to the last ship', () => {
   // It used to be able to end three other ways: on points, off a running
   // score from three circles on the chart; on a clock, with whoever was ahead

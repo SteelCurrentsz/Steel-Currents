@@ -147,6 +147,8 @@ export class Room {
         this.state.ships = this.state.ships.filter((s) => s.id !== ship.id);
       }
     }
+    const gone = this.players.get(playerId);
+    if (gone) this.release(gone);
     this.players.delete(playerId);
     this.broadcastRoster();
     if (this.players.size === 0) this.close();
@@ -267,10 +269,13 @@ export class Room {
         // Everything afloat fights itself. A ship with a captain aboard is
         // conned by him -- her helm and her aircraft are his -- and fights
         // herself round that.
+        // So is a ship somebody has taken the con of off the plot: her own
+        // captain keeps her guns, and her helm and telegraph are his.
         const brain = this.brains.get(ship.id);
-        if (brain) stepBot(this.state, ship, brain, DT, !ship.isBot, this.staff[ship.team]);
+        const conned = !ship.isBot || !!ship.heldBy;
+        if (brain) stepBot(this.state, ship, brain, DT, conned, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
-        if (!ship.isBot) steerToWaypoint(this.state, ship);
+        if (conned) steerToWaypoint(this.state, ship);
       }
       const events = step(this.state, DT);
       if (events.length) this.dispatchEvents(events);
@@ -370,9 +375,34 @@ export class Room {
    * is a check that she exists and is still afloat.
    */
   conned(ship, msg) {
-    if (typeof msg.ship !== 'number' || msg.ship === ship.id) return ship;
+    if (typeof msg.ship !== 'number' || msg.ship === ship.id) return ship.alive ? ship : null;
     const target = this.state.ships.find((s) => s.id === msg.ship);
-    return target && target.alive ? target : ship;
+    return target && target.alive ? target : ship.alive ? ship : null;
+  }
+
+  /**
+   * A player has given an order to a ship that is not his own: from now on
+   * she answers him and not her own captain, until he looks away from her.
+   */
+  hold(player, target) {
+    if (!target || target.id === player.shipId) return;
+    if (player.holds && player.holds !== target.id) this.release(player);
+    if (target.heldBy !== player.shipId && target.wayX == null) target.rudderCmd = 0;
+    player.holds = target.id;
+    target.heldBy = player.shipId;
+  }
+
+  /** Hand the ship a player has been conning back to her own captain. */
+  release(player) {
+    const id = player.holds;
+    player.holds = 0;
+    if (!id) return;
+    const ship = this.state.ships.find((s) => s.id === id);
+    if (!ship || ship.heldBy !== player.shipId) return;
+    ship.heldBy = 0;
+    // Her own captain steers her his own way, not to the mark left on the
+    // chart for her.
+    if (ship.isBot) { ship.wayX = null; ship.wayZ = null; }
   }
 
   command(player, msg) {
@@ -382,12 +412,27 @@ export class Room {
     // him away.
     if (msg.t === 'watch') {
       player.watching = typeof msg.ship === 'number' ? msg.ship : 0;
+      // Looking at another ship takes him off the one he had the con of.
+      // Watching his own wreck go down does not: his flag is still flying in
+      // the ship he shifted it to.
+      const own = this.shipOf(player);
+      if (player.holds && player.watching !== player.holds
+        && !(player.watching === player.shipId && own && !own.alive)) this.release(player);
       return;
     }
     const ship = this.shipOf(player);
-    if (!ship || !ship.alive) return;
+    if (!ship) return;
+    // A captain whose ship has gone down still has the con of whatever he has
+    // picked off the plot: orders that name another ship go to her.
+    const other = typeof msg.ship === 'number' && msg.ship !== ship.id;
+    if (!ship.alive && !other) return;
+    // And she answers him from now on rather than her own captain.
+    if (other) {
+      const target = this.state.ships.find((s) => s.id === msg.ship);
+      if (target && target.alive) this.hold(player, target);
+    }
     switch (msg.t) {
-      case 'input': applyInput(ship, msg); break;
+      case 'input': { const to = this.conned(ship, msg); if (to) applyInput(to, msg); break; }
       // A course order off the chart. It may be given to any ship on the
       // plot -- the giver's own division, and the enemy's line as well. That
       // is not how a battle works and it is not meant to be: the plot here is
@@ -417,21 +462,23 @@ export class Room {
         applyInput(target, { notch: msg.notch });
         break;
       }
-      case 'fire': fireGuns(this.state, ship); break;
-      case 'torp': fireTorpedoes(this.state, ship); break;
+      case 'fire': { const to = this.conned(ship, msg); if (to) fireGuns(this.state, to); break; }
+      case 'torp': { const to = this.conned(ship, msg); if (to) fireTorpedoes(this.state, to); break; }
       // The depth charge gear. `dc` puts a pattern in the water -- one
       // mounting when `i` names one, the whole battery otherwise -- `dcset`
       // winds the pistols, and `dcauto` says whether her own anti-submarine
       // officer may attack a contact without being asked.
       case 'dc': {
         const from = this.conned(ship, msg);
+        if (!from) break;
         const only = Number.isInteger(msg.i) ? msg.i : null;
         if (!dropCharges(this.state, from, only)) player.send({ t: 'nodc' });
         break;
       }
-      case 'dcset': setChargeDepth(this.conned(ship, msg), msg.d); break;
+      case 'dcset': { const to = this.conned(ship, msg); if (to) setChargeDepth(to, msg.d); break; }
       case 'dcauto': {
         const from = this.conned(ship, msg);
+        if (!from) break;
         from.dcAuto = msg.on ? 1 : 0;
         break;
       }
@@ -439,17 +486,21 @@ export class Room {
       // or hands it back, `lay` says where he is holding, and `shoot` is the
       // trigger -- which her close-range battery does not need, because an
       // automatic gun fires itself for as long as it is laid.
-      case 'man': manGun(this.conned(ship, msg), msg); break;
+      case 'man': { const to = this.conned(ship, msg); if (to) manGun(to, msg); break; }
       // A searchlight: switched on or off, or trained. On her own ship only --
       // a lamp is worked from where it stands.
-      case 'lamp': setLamp(ship, getClass(ship.classId), msg); break;
-      case 'lay': layGun(this.conned(ship, msg), msg); break;
-      case 'shoot': shootGun(this.state, this.conned(ship, msg)); break;
+      case 'lamp': {
+        const to = this.conned(ship, msg);
+        if (to) setLamp(to, getClass(to.classId), msg);
+        break;
+      }
+      case 'lay': { const to = this.conned(ship, msg); if (to) layGun(to, msg); break; }
+      case 'shoot': { const to = this.conned(ship, msg); if (to) shootGun(this.state, to); break; }
       // Damage control and smoke are given to whichever ship is being conned,
       // the same way a course is. A captain watching another ship from her own
       // bridge is on her bridge.
-      case 'repair': useRepair(this.state, this.conned(ship, msg)); break;
-      case 'smoke': useSmoke(this.state, this.conned(ship, msg)); break;
+      case 'repair': { const to = this.conned(ship, msg); if (to) useRepair(this.state, to); break; }
+      case 'smoke': { const to = this.conned(ship, msg); if (to) useSmoke(this.state, to); break; }
       // A player flying one of her flights by hand. `fly` is where the
       // aeroplane is now, `drop` lets go of what she is carrying, and `land`
       // hands her back to the autopilot.
@@ -492,6 +543,7 @@ export class Room {
         // squadron fight the same ship, which is what a captain ordering a
         // strike means by it -- he does not lay off a separate bearing.
         const from = this.conned(ship, msg);
+        if (!from) break;
         const brain = this.brains.get(from.id);
         const foe = brain && this.state.ships.find(
           (s) => s.id === brain.targetId && s.alive && s.team !== from.team);

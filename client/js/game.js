@@ -399,6 +399,19 @@ export class Battle {
     // next snapshot -- a dive takes the better part of half a minute and a
     // captain who cannot see it start does not know he gave the order.
     this.hud.onDiveOrder?.(() => {
+      // The boat under orders: her own, or one being watched and conned.
+      const id = this.conned();
+      if (id !== this.shipId) {
+        const s = this.shownShip();
+        const cls = s && getClass(s.c);
+        if (!cls || !cls.dive) return;
+        const D = cls.dive;
+        const at = s.d || 0;
+        const next = at < 0.5 ? D.periscope : at < D.periscope + 0.5 ? D.max : 0;
+        this.net.send({ t: 'input', ship: id, depth: next });
+        audio.click();
+        return;
+      }
       const ls = this.localShip;
       const cls = getClass(ls.classId);
       if (!cls.dive) return;
@@ -1801,6 +1814,13 @@ export class Battle {
           // A bank whose fish are drawn leaving it throws them out now.
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
+        case 'torpDud':
+          // Struck her before its pistol had armed: a thump against her side
+          // and a little white water, and nothing else.
+          fx.splash(ev.x, ev.z, 90, { kind: 'bow' });
+          if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO DUD');
+          if (ev.victim === this.shipId) this.hud.alert('Torpedo struck us — a dud, no damage');
+          break;
         case 'torpHit':
           // Under her side, not on it: what shows is the column of water it
           // throws up, not a fireball.
@@ -2212,16 +2232,16 @@ export class Battle {
   onKey(code) {
     const ls = this.localShip;
     switch (code) {
-      case 'KeyW': this.setNotch(ls.notch + 1); audio.click(); break;
-      case 'KeyS': this.setNotch(ls.notch - 1); audio.click(); break;
+      case 'KeyW': this.setNotch(this.connedNotch() + 1); audio.click(); break;
+      case 'KeyS': this.setNotch(this.connedNotch() - 1); audio.click(); break;
       // Her guns and her torpedoes are fought by her own officers. What is
       // left to her captain is where she goes, when her aircraft go, and
       // getting her fires out.
       case 'KeyQ': this.setCourse(null); break;
-      case 'Digit4': this.net.send({ t: 'strike' }); break;
+      case 'Digit4': this.net.send({ t: 'strike', ship: this.conned() }); break;
       case 'KeyP': this.togglePilotView(); break;
-      case 'KeyR': this.net.send({ t: 'repair' }); break;
-      case 'KeyT': this.net.send({ t: 'smoke' }); break;
+      case 'KeyR': this.net.send({ t: 'repair', ship: this.conned() }); break;
+      case 'KeyT': this.net.send({ t: 'smoke', ship: this.conned() }); break;
       // The racks. One key, because there is one order: let go.
       case 'KeyG': this.dropCharges(null); break;
       case 'KeyC': {
@@ -2292,8 +2312,9 @@ export class Battle {
       return;
     }
     if (!hit && at) {
-      const id = this.selected ?? this.shipId;
-      this.setCourse(at, id);
+      // Open water is where the ship under orders goes: the one being
+      // watched, or whoever the flag is in.
+      this.setCourse(at, this.conned());
       return;
     }
     this.lookAt(hit);
@@ -2306,10 +2327,12 @@ export class Battle {
    * server; the rest of the division are somebody else's hulls and the order
    * goes up the wire alone.
    */
-  setCourse(at, id = this.selected ?? this.shipId) {
+  setCourse(at, id = this.conned()) {
     if (!at) {
-      this.wayX = null; this.wayZ = null;
-      if (id === this.shipId) this.net.send({ t: 'goto', x: null, z: null });
+      if (id === this.shipId) {
+        this.wayX = null; this.wayZ = null;
+        this.net.send({ t: 'goto', x: null, z: null });
+      } else this.net.send({ t: 'goto', ship: id, x: null, z: null });
       return;
     }
     if (id === this.shipId) { this.wayX = at.x; this.wayZ = at.z; }
@@ -3521,6 +3544,13 @@ export class Battle {
       && this.watching.id !== this.shipId) return this.watching.id;
     if (this.sunk && this.flag != null) return this.flag;
     return this.shipId;
+  }
+
+  /** Where the telegraph of the ship under orders stands. */
+  connedNotch() {
+    if (this.conned() === this.shipId) return this.localShip.notch;
+    const s = this.shownShip();
+    return s && typeof s.notch === 'number' ? s.notch : 1;
   }
 
   /** The snapshot of whoever is being read out at the bottom of the screen. */

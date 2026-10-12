@@ -4303,9 +4303,19 @@ export function fireTorpedoes(state, ship, only = null) {
   return launched;
 }
 
+/**
+ * Seconds from launch before a torpedo's pistol is armed. A fish that strikes
+ * sooner than this still strikes -- it is half a ton of steel at forty knots
+ * and it stops against her side -- but it does not go off.
+ */
+export const TORP_ARM_TIME = 5;
+
 function stepTorpedoes(state, dt) {
   const out = [];
   for (const tp of state.torps) {
+    // How long since it was launched. A fish put in the water by hand comes
+    // in with only how far it has run, which is how long it has been running.
+    tp.age = (tp.age ?? (tp.travelled || 0) / Math.max(1, tp.speed)) + dt;
     if (tp.aboard) {
       // Still in her tube, or in the air between it and the sea: carried
       // along with her, in her own frame, and harmless. It waits its turn in
@@ -4341,12 +4351,29 @@ function stepTorpedoes(state, dt) {
     if (islandAt(state.world, tp.x, tp.z, 0)) { state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 }); continue; }
 
     let hit = false;
-    if (tp.travelled > tp.arming) {
+    {
       for (const target of state.ships) {
         if (!target.alive || target.team === tp.team) continue;
         const cls = getClass(target.classId);
-        if (!pointInBox(tp.x, tp.z, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 3)) continue;
-        if (severed(target, cls, worldToLocal(tp.x - target.x, tp.z - target.z, target.heading).z)) continue;
+        // Swept along the run it made this tick, not only where it ended up,
+        // so a fish fired into a ship from close aboard cannot step over her.
+        const px = tp.x - Math.sin(tp.heading) * tp.speed * dt;
+        const pz = tp.z - Math.cos(tp.heading) * tp.speed * dt;
+        let at = null;
+        for (let k = 1; k <= 4 && !at; k++) {
+          const qx = px + (tp.x - px) * (k / 4), qz = pz + (tp.z - pz) * (k / 4);
+          if (pointInBox(qx, qz, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 3)) at = { x: qx, z: qz };
+        }
+        if (!at) continue;
+        if (severed(target, cls, worldToLocal(at.x - target.x, at.z - target.z, target.heading).z)) continue;
+        tp.x = at.x; tp.z = at.z;
+        if (tp.age <= TORP_ARM_TIME) {
+          // A dud: it hits her and that is all. Her plating is dented, the
+          // fish breaks up against her side, and nobody is any the worse.
+          state.events.push({ e: 'torpDud', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
+          hit = true;
+          break;
+        }
         const owner = state.ships.find((s) => s.id === tp.owner);
         // What she has between the warhead and the inside of the ship. A big
         // hull carries her machinery well inboard of her side, with bulges,
