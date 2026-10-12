@@ -940,18 +940,29 @@ function stepCollisions(state, dt) {
   const alive = state.ships.filter((s) => s.alive);
   const rams = state.rams || (state.rams = {});
   for (const s of alive) s.fouled = 0;
+  // A ship a boat has come up under settles back onto the sea.
+  for (const s of state.ships) {
+    if (!s.lift) continue;
+    const k = Math.exp(-dt / LIFT_TAU);
+    s.lift *= k; s.liftHeel = (s.liftHeel || 0) * k; s.liftTrim = (s.liftTrim || 0) * k;
+    if (s.lift < 0.01) { s.lift = 0; s.liftHeel = 0; s.liftTrim = 0; }
+  }
   for (let i = 0; i < alive.length; i++) {
     for (let j = i + 1; j < alive.length; j++) {
       const a = alive[i], b = alive[j];
       const ca = shipClass(a), cb = shipClass(b);
-      // A boat that is properly down is under everybody's keel and cannot be
-      // run into. She is clear once she has more water over her than the
-      // other ship draws; at periscope depth her tower is still up there, and
-      // ships did ram boats at periscope depth.
-      if (ca.dive && a.depth > cb.hull.draft) continue;
-      if (cb.dive && b.depth > ca.hull.draft) continue;
       const reach = (ca.hull.length + cb.hull.length) * 0.5 + FOUL_GAP;
       if (dist2(a.x, a.z, b.x, b.z) > reach * reach) continue;
+      // Up and down as well as across. A boat that is properly down is under
+      // everybody's keel and cannot be run into; at periscope depth her tower
+      // is still up there, and ships did ram boats at periscope depth.
+      const sa = bodySpan(a, ca), sb = bodySpan(b, cb);
+      // One of them a boat with all of her hull under the other's keel: the
+      // other runs over her, or she comes up under the other. See underKeel.
+      const under = cb.dive && sb.deck <= sa.keel + 0.3 ? [a, b, ca, cb, sa, sb]
+        : ca.dive && sa.deck <= sb.keel + 0.3 ? [b, a, cb, ca, sb, sa] : null;
+      if (under) { underKeel(state, ...under, rams, dt); continue; }
+      if (sa.keel >= sb.top || sb.keel >= sa.top) continue;
       const A = hullBox(a, ca);
       const B = hullBox(b, cb);
       const hit = hullsMeet(A, B, FOUL_GAP);
@@ -978,6 +989,12 @@ function stepCollisions(state, dt) {
       holdFast(b, -nx, -nz, dt);
     }
   }
+  // Where every boat's tower top is now, to tell next tick whether she was
+  // coming up.
+  for (const s of alive) {
+    const c = shipClass(s);
+    if (c.dive) s.topWas = bodySpan(s, c).top;
+  }
   // Forget the pairs that have been clear long enough to strike again.
   for (const k in rams) if (rams[k] < state.t - RAM_REARM * 2) delete rams[k];
 }
@@ -1001,6 +1018,160 @@ function holdFast(ship, nx, nz, dt) {
   ship.yawRate = (ship.yawRate || 0) * Math.exp(-2 * dt);
 }
 
+/** How high a boat's casing stands over her keel, beyond her draft, in metres. */
+const BOAT_FREEBOARD = 1.5;
+/** How long a ship a boat has lifted takes to settle back, seconds. */
+const LIFT_TAU = 2.2;
+/** A ship lighter than this is one a boat coming up under her lifts rather than breaks on, tonnes. */
+const LIGHT_TONS = 8000;
+/** How hard a boat has to come up under a heavy ship to break her back on it. */
+const SPLIT_RISE = 7;
+
+/**
+ * Where a hull is up and down, in metres from the surface: her keel, her deck,
+ * and the top of what stands on her. A ship is where her draft and her
+ * freeboard put her, a little higher while a boat has her lifted; a boat is
+ * wherever her depth has taken her, her tower awash at periscope depth.
+ */
+export function bodySpan(ship, cls) {
+  const lift = ship.lift || 0;
+  if (!cls.dive) {
+    const fb = freeboardOf(cls);
+    return { keel: -cls.hull.draft + lift, deck: fb + lift, top: fb * 3 + lift };
+  }
+  const d = ship.depth || 0;
+  const deck = -d + BOAT_FREEBOARD + lift;
+  return { keel: deck - BOAT_FREEBOARD - cls.hull.draft, deck, top: -d + cls.dive.periscope * 0.6 + lift };
+}
+
+/** The depth that puts the top of her tower just under this. */
+function depthUnder(cls, y) {
+  return Math.max(0, cls.dive.periscope * 0.6 - y + 0.1);
+}
+
+/** Holed along her bottom: the sea comes in at the full depth she draws. */
+function openBottom(state, ship, cls, where, area) {
+  openHull(state, ship, where, area / 2, 1, cls.hull.draft * 0.95);
+  openHull(state, ship, where, area / 2, -1, cls.hull.draft * 0.95);
+}
+
+/**
+ * A boat with her hull under another's keel: `U` the one above, `L` the boat.
+ *
+ * If her tower or her casing reaches up past that keel, the two have met --
+ * and how depends on who was moving which way. Coming up under her is the
+ * boat's own doing (see surfaceUnder); anything else is the other running
+ * over her (see keelStrike). Either way the boat is then held down under that
+ * keel until she is clear of it: there is a ship in the way.
+ */
+function underKeel(state, U, L, cu, cl, su, sl, rams, dt) {
+  const prevTop = L.topWas ?? sl.top;
+  if (sl.top <= su.keel) return;
+  const A = hullBox(U, cu);
+  const B = hullBox(L, cl);
+  if (!hullsMeet(A, B, 0)) return;
+  const key = `k${Math.min(U.id, L.id)}:${Math.max(U.id, L.id)}`;
+  const fresh = !(rams[key] >= state.t - RAM_REARM);
+  rams[key] = state.t;
+  if (fresh) {
+    const at = contactPoint(A, B);
+    const rise = Math.max(0, sl.top - prevTop) / Math.max(dt, 1e-3);
+    if (rise > 0.4 && prevTop <= su.keel + 0.05) surfaceUnder(state, U, L, cu, cl, at, rise);
+    else {
+      const va = velocityOf(U), vb = velocityOf(L);
+      keelStrike(state, U, L, cu, cl, at, Math.hypot(va.x - vb.x, va.z - vb.z));
+    }
+  }
+  // Held under the keel she hit, wherever her captain wants her.
+  if (L.alive) {
+    L.depth = Math.max(L.depth, depthUnder(cl, su.keel - (L.lift || 0)));
+  }
+}
+
+/**
+ * A ship running over a boat that is not deep enough: her keel into the
+ * boat's tower and casing. The boat is driven under and crushed -- a destroyer
+ * at speed was the end of any boat she caught like that -- and the ship comes
+ * out of it with her bottom plating torn open along the boat's back.
+ */
+function keelStrike(state, U, L, cu, cl, at, v) {
+  if (v < RAM_MIN * 0.5) return;
+  const pu = partAt(U, cu, at.x, at.z);
+  const pl = partAt(L, cl, at.x, at.z);
+  const mu = tonnage(cu), ml = tonnage(cl);
+  const k = Math.min(1, v / 10);
+  const out = [];
+  // Her bottom, opened along the boat's back.
+  const whereU = sectionAt(pu.station);
+  damageShip(state, U, L, cu.hp * (0.01 + 0.05 * k) * Math.min(1.5, Math.sqrt(ml / mu) * 2), 'ram', whereU);
+  if (v > 1.5) openBottom(state, U, cu, whereU, 1 + 8 * k);
+  struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.2 * k);
+  // And the boat, run down.
+  const whereL = sectionAt(pl.station);
+  const heavy = Math.min(2, Math.sqrt(mu / ml));
+  if (k > 0.55 && mu > ml * 2.5 && cl.hull.length > 40 && !L.cut && L.broke == null) {
+    damageShip(state, L, U, cl.hp * 0.4, 'ram', whereL);
+    cutHer(state, L, clamp(pl.station, -0.5, 0.5), U.id, 'ram');
+    struck(out, L, pl, 'split', cl.hull.beam);
+  } else {
+    damageShip(state, L, U, cl.hp * (0.12 + 0.45 * k) * heavy, 'ram', whereL);
+    openHull(state, L, whereL, 2 + 14 * k, pl.side, cl.hull.draft * 0.5);
+    struck(out, L, pl, 'crush', 1.5 + cl.hull.beam * 0.4 * k);
+  }
+  state.events.push({ e: 'collide', a: U.id, b: L.id, x: r(at.x), z: r(at.z), v: r(v), kind: 'keel', out });
+}
+
+/**
+ * A boat blowing her tanks with a ship over her. She comes up into the ship's
+ * bottom with the whole of her buoyancy behind her.
+ *
+ * Under a light ship -- a destroyer -- the ship gives: the boat heaves her up
+ * and over to one side, and both of them come out of it stove in but whole.
+ * Under a heavy one there is nothing to give but the boat. Hard enough and she
+ * breaks her back on the keel and goes down in two halves; gently, or a big
+ * boat under a cruiser, she still lifts her, if not much.
+ */
+function surfaceUnder(state, U, L, cu, cl, at, rise) {
+  const pu = partAt(U, cu, at.x, at.z);
+  const pl = partAt(L, cl, at.x, at.z);
+  const mu = tonnage(cu), ml = tonnage(cl);
+  const light = mu < LIGHT_TONS;
+  const score = rise * Math.sqrt(mu / ml);
+  const k = Math.min(1, rise / 3.5);
+  const out = [];
+  const whereU = sectionAt(pu.station);
+  const whereL = sectionAt(pl.station);
+  let kind = 'lift';
+  if (!light && score >= SPLIT_RISE && cl.hull.length > 40 && !L.cut && L.broke == null) {
+    kind = 'split';
+    damageShip(state, L, U, cl.hp * 0.5, 'ram', whereL);
+    cutHer(state, L, clamp(pl.station, -0.5, 0.5), U.id, 'ram');
+    struck(out, L, pl, 'split', cl.hull.beam);
+    damageShip(state, U, L, cu.hp * 0.01, 'ram', whereU);
+    openBottom(state, U, cu, whereU, 2);
+    struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.1);
+  } else {
+    // She is lifted, the more the lighter she is against the boat.
+    const lift = clamp(rise * Math.sqrt(ml / mu) * 1.6, 0.2, 3);
+    U.lift = Math.max(U.lift || 0, lift);
+    // Over to the side away from the boat, and up by whichever end she is
+    // under: on her beam a ship heels many degrees for a few of trim.
+    const half = cu.hull.length / 2;
+    U.liftHeel = -pu.side * clamp(Math.abs(pu.lx) / Math.max(1, cu.hull.beam) + 0.2, 0.2, 0.7)
+      * clamp(lift / cu.hull.beam * 2.2, 0.03, 0.32);
+    U.liftTrim = -clamp(pu.lz / half, -1, 1) * clamp(lift / half * 2, 0.005, 0.06);
+    damageShip(state, U, L, cu.hp * (0.015 + 0.04 * k) * (light ? 1.4 : 1), 'ram', whereU);
+    openBottom(state, U, cu, whereU, 1 + 6 * k);
+    struck(out, U, pu, 'keel', 1 + cu.hull.beam * 0.2 * k);
+    damageShip(state, L, U, cl.hp * (0.06 + 0.12 * k) * (light ? 1 : 1.6), 'ram', whereL);
+    openHull(state, L, whereL, 1 + 6 * k, pl.side, cl.hull.draft * 0.4);
+    struck(out, L, pl, 'crush', 1 + cl.hull.beam * 0.25 * k);
+  }
+  state.events.push({ e: 'collide', a: U.id, b: L.id, x: r(at.x), z: r(at.z), v: r(rise), kind: 'rise', lift: kind, out });
+}
+
+/**
+ * The instant two hulls meet.
 /**
  * The instant two hulls meet.
  *
@@ -1041,6 +1212,16 @@ function ramImpact(state, a, b, ca, cb, at, nx, nz) {
     headOn(state, a, b, ca, cb, pa, pb, v, out);
   } else {
     scrape(state, a, b, ca, cb, pa, pb, vrel, out);
+  }
+  // A ship that runs into a boat rides up over her: a boat's hull is mostly
+  // under water, and the ship's forefoot and bottom go over and onto it.
+  if (!ca.dive !== !cb.dive && Math.max(v, vrel) > 2) {
+    const [S, cs, ps] = ca.dive ? [b, cb, pb] : [a, ca, pa];
+    const k = Math.min(1, Math.max(v, vrel) / 12);
+    const where = sectionAt(ps.station);
+    damageShip(state, S, S === a ? b : a, cs.hp * 0.01 * k, 'ram', where);
+    openBottom(state, S, cs, where, 1 + 5 * k);
+    struck(out, S, ps, 'keel', 1 + cs.hull.beam * 0.15 * k);
   }
   state.events.push({
     e: 'collide', a: a.id, b: b.id, x: r(at.x), z: r(at.z), v: r(Math.max(v, vrel * 0.5)),

@@ -18614,6 +18614,107 @@ check('collision: a bot fouled on another ship backs clear of her', () => {
   assert.ok(freed, 'the bot stayed with her stem in the other ship');
 });
 
+/**
+ * A ship and a boat, or two boats, set up to meet: `B` the boat held at the
+ * depth she is ordered to (or blowing to the surface for `rise`), `A` either
+ * steaming at her or lying stopped over her.
+ */
+function boatMeet(ac, bc, { depth = 0, rise = false, knots = 0, aDepth = 0 } = {}) {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const A = addShip(st, { name: 'A', classId: ac, team: 0, index: 0 });
+  const B = addShip(st, { name: 'B', classId: bc, team: 1, index: 0 });
+  A.dcAuto = 0; B.dcAuto = 0;
+  B.depth = depth; B.depthCmd = rise ? 0 : depth;
+  if (aDepth) { A.depth = aDepth; A.depthCmd = aDepth; }
+  const v = knots / 1.944;
+  if (rise) {
+    A.x = 0; A.z = 0; A.heading = 0; A.speed = 0;
+    B.x = 2; B.z = 10; B.heading = 0.3;
+  } else {
+    B.x = 0; B.z = 0; B.heading = Math.PI / 2;
+    A.x = 0; A.z = -(SHIP_CLASSES[ac].hull.length / 2 + 12); A.heading = 0; A.notch = 5;
+  }
+  const events = [];
+  let lift = 0;
+  for (let i = 0; i < 20 / DT; i++) {
+    if (!rise) B.depthCmd = depth;
+    if (v) A.speed = v;
+    events.push(...step(st, DT));
+    lift = Math.max(lift, A.lift || 0);
+  }
+  return { st, A, B, events, lift, hits: events.filter((e) => e.e === 'collide') };
+}
+
+/** Whether any compartment of hers is holed down at her keel. */
+function bottomHoled(ship) {
+  const draft = SHIP_CLASSES[ship.classId].hull.draft;
+  return Object.values(ship.sections).some((c) => c.holeP + c.holeS > 0 && (c.holeY ?? -99) > draft * 0.9);
+}
+
+check('collision: a ship rams a boat on the surface and her bottom pays for riding over her', () => {
+  const { A, B, hits } = boatMeet('fletcher', 'u48', { knots: 30 });
+  assert.ok(hits.length, 'they never met');
+  assert.equal(hits[0].kind, 'ram');
+  assert.ok(B.hp < B.maxHp * 0.7, `the boat came out of it with ${Math.round(100 * B.hp / B.maxHp)}%`);
+  assert.ok(bottomHoled(A), 'the destroyer rode over a boat and her bottom was not touched');
+});
+
+check('collision: a ship runs over a boat at periscope depth: her keel into the boat, the boat driven under', () => {
+  const { A, B, hits } = boatMeet('fletcher', 'u48', { depth: 9, knots: 30 });
+  const keel = hits.find((e) => e.kind === 'keel');
+  assert.ok(keel, `no keel strike: ${hits.map((e) => e.kind)}`);
+  assert.ok(bottomHoled(A), 'her bottom was not opened');
+  assert.ok(B.hp < B.maxHp * 0.6 || !B.alive, 'the boat was run down and hardly felt it');
+  assert.ok(B.depth >= 9, 'the boat was not held under the keel');
+});
+
+check('collision: a boat coming up under a destroyer lifts her and does not break', () => {
+  const { A, B, hits, lift } = boatMeet('fletcher', 'u48', { depth: 25, rise: true });
+  const r = hits.find((e) => e.kind === 'rise');
+  assert.ok(r, 'she came up through the destroyer');
+  assert.equal(r.lift, 'lift');
+  assert.ok(!B.cut && B.alive, 'the boat broke under a light ship');
+  assert.ok(lift > 1, `the destroyer was lifted only ${lift.toFixed(2)} m`);
+  assert.ok(bottomHoled(A), 'the destroyer\'s bottom was not stove in');
+  // Held under her while the destroyer is over her.
+  assert.ok(B.depth > SHIP_CLASSES.fletcher.hull.draft, `the boat came up through her to ${B.depth.toFixed(1)} m`);
+});
+
+check('collision: a boat blowing hard under a battleship breaks her back on the keel', () => {
+  const { B, hits } = boatMeet('bismarck', 'u48', { depth: 25, rise: true });
+  const r = hits.find((e) => e.kind === 'rise');
+  assert.ok(r, 'she never met the keel');
+  assert.equal(r.lift, 'split');
+  assert.ok(B.cut, 'the boat is still in one piece');
+});
+
+check('collision: a big boat coming up under a cruiser lifts her rather than breaking', () => {
+  const { B, hits, lift } = boatMeet('cleveland', 'surcouf', { depth: 25, rise: true });
+  const r = hits.find((e) => e.kind === 'rise');
+  assert.ok(r && r.lift === 'lift', `${r && r.lift}`);
+  assert.ok(!B.cut);
+  assert.ok(lift > 0.5 && lift < 3, `lifted ${lift.toFixed(2)} m`);
+});
+
+check('collision: two boats meet under water', () => {
+  const { A, B, hits } = boatMeet('surcouf', 'u48', { depth: 20, aDepth: 20, knots: 8 });
+  assert.ok(hits.length && hits[0].kind === 'ram', `${hits.map((e) => e.kind)}`);
+  assert.ok(A.hp < A.maxHp && B.hp < B.maxHp, 'one of them came out untouched');
+  // And they do not meet with one well over the other.
+  const deep = boatMeet('surcouf', 'u48', { depth: 50, aDepth: 10, knots: 8 });
+  assert.equal(deep.hits.length, 0, 'a boat forty metres over the other ran into her');
+});
+
+check('collision: a lifted ship is drawn lifted', () => {
+  const { st, A } = boatMeet('fletcher', 'u48', { depth: 25, rise: true });
+  A.lift = 2; A.liftHeel = 0.1;
+  const me = shipSnapshot(A, true, st);
+  assert.ok(me.fo[0] <= (A.sink || 0) - 1.9, `drawn at ${me.fo[0]}`);
+  assert.ok(Math.abs(me.fo[1] - (A.heel + 0.1)) < 0.01);
+});
+
 check('collision: the picture tears her at the cut and lets the piece go', () => {
   const scene = new THREE.Scene();
   const view = new ShipView(scene, 'cleveland', 0, false);

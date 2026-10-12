@@ -69,7 +69,7 @@ export function shipSnapshot(ship, full, state = null) {
     // many compartments were making water.
     // Her depth to the centimetre: in tenths of a metre a ship settling a few
     // centimetres a second goes down the screen in steps.
-    fo: [Math.round((ship.sink || 0) * 100) / 100, r3(ship.heel), r3(ship.trim), r3(ship.lean || 0), r3(ship.rock || 0)],
+    fo: [Math.round(((ship.sink || 0) - (ship.lift || 0)) * 100) / 100, r3(ship.heel + (ship.liftHeel || 0)), r3(ship.trim + (ship.liftTrim || 0)), r3(ship.lean || 0), r3(ship.rock || 0)],
     // A submarine, and nothing else, carries these: how deep she is and how
     // long her tubes' outer doors have been open. Everybody who can see her
     // gets them -- a boat's depth is not private information to anyone close

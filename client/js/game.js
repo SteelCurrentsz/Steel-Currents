@@ -1458,18 +1458,29 @@ export class Battle {
   onCollide(ev, d) {
     const fx = this.scene.effects;
     const big = clamp((ev.v || 0) / 10, 0.2, 1.6);
-    fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
-    this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
+    if (ev.kind === 'rise' || ev.kind === 'keel') {
+      // Under her keel: what comes up is sea, thrown up round her by a boat's
+      // buoyancy or by her bottom going over one, and the wreckage of a boat
+      // that broke on her.
+      fx.splash(ev.x, ev.z, 300 + big * 420, { kind: 'bow' });
+      if ((ev.out || []).some((o) => o.what === 'split')) this.scene.debris.burst(ev.x, 1, ev.z, 3 + big * 4, 0.5);
+    } else {
+      fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
+      this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
+    }
     if (d < 1.3) audio.explosion(0.5 + big * 0.9, d);
     for (const o of ev.out || []) {
       const view = this.scene.shipViews.get(o.ship);
       // A cut or a lost bow is drawn by the cut itself (see onCut).
-      if (!view || o.what === 'cut' || o.what === 'chop') continue;
+      if (!view || o.what === 'cut' || o.what === 'chop' || o.what === 'split') continue;
       const cls = view.cls;
       const fb = freeboardOf(cls);
       // Her stem goes in at and above her waterline; a gash in her side runs
-      // down below it, which is where the water comes in.
-      const y = o.what === 'gash' || o.what === 'scrape' ? 0.5 : fb * 0.4;
+      // down below it, which is where the water comes in; a boat run over or
+      // come up under her is along her bottom.
+      const y = o.what === 'keel' ? -cls.hull.draft * 0.85
+        : o.what === 'crush' ? 0
+          : o.what === 'gash' || o.what === 'scrape' ? 0.5 : fb * 0.4;
       const r = Math.max(1.2, o.r || 2);
       view.stove(o.lx, y, o.lz, r);
       if (o.r > 4) view.stove(o.lx, y + r * 0.5, o.lz, r * 0.7);
@@ -1484,10 +1495,14 @@ export class Battle {
       const name = this.names.get(other) || 'another ship';
       const me = (ev.out || []).find((o) => o.ship === this.shipId);
       const what = me ? me.what : 'scrape';
+      const rose = ev.kind === 'rise';
       this.hud.alert(what === 'smash' ? `Collision with ${name} — our bow is stove in`
         : what === 'gash' ? `Rammed by ${name} — holed`
           : what === 'dent' ? `We have rammed ${name}`
-            : `Collision with ${name}`);
+            : what === 'split' ? (rose ? `Surfaced under ${name} — our hull has broken in two` : `Run down by ${name} — our hull has broken in two`)
+              : what === 'crush' ? (rose ? `Surfaced under ${name} — tower and casing crushed` : `Run down by ${name} — tower and casing crushed`)
+                : what === 'keel' ? (rose ? `${name} surfaced under us — bottom holed` : `We have run over ${name} — bottom holed`)
+                  : `Collision with ${name}`);
       this.shake = Math.max(this.shake, 0.4 + big * 0.5);
       audio.alarm();
     } else {
