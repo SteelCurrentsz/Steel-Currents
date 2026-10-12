@@ -187,6 +187,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'arcade': briefing.setArcade(true); show('custom'); briefing.show(); break;
       case 'custom': briefing.setArcade(false); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
+      case 'premium': toast('Premium Equipment — coming soon'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;
       default: break;
