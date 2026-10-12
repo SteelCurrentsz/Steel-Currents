@@ -67,7 +67,9 @@ export function shipSnapshot(ship, full, state = null) {
     // overwritten by the triple every time a snapshot was built, and the ship
     // plate reported "FLOODING x0,0,0" at a captain who wanted to know how
     // many compartments were making water.
-    fo: [r1(ship.sink), r3(ship.heel), r3(ship.trim), r3(ship.lean || 0), r3(ship.rock || 0)],
+    // Her depth to the centimetre: in tenths of a metre a ship settling a few
+    // centimetres a second goes down the screen in steps.
+    fo: [Math.round((ship.sink || 0) * 100) / 100, r3(ship.heel), r3(ship.trim), r3(ship.lean || 0), r3(ship.rock || 0)],
     // A submarine, and nothing else, carries these: how deep she is and how
     // long her tubes' outer doors have been open. Everybody who can see her
     // gets them -- a boat's depth is not private information to anyone close

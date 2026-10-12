@@ -298,6 +298,13 @@ export function blastScale(dmg = 0) {
   return Math.max(0.25, Math.min(2.4, 0.25 + 1.6 * Math.sqrt(Math.max(0, dmg) / 16000)));
 }
 
+/** How she is floating, between two snapshots: each figure in proportion. */
+export function floatBetween(a, b, t) {
+  if (!a) return a;
+  if (!b || b.length !== a.length) return a;
+  return a.map((v, i) => v + ((b[i] ?? v) - v) * t);
+}
+
 function galeOf(world, t) {
   const wx = getWeather(world?.weather);
   if (!wx.blow) return null;
@@ -3760,9 +3767,15 @@ export class Battle {
       const view = this.scene.getShipView(s.i, s.c, s.tm, s.i === this.shipId);
       const isSelf = s.i === this.shipId;
       const pose = poseBetween(s, prev, t, ahead);
-      const x = isSelf ? this.localShip.x : pose.x;
-      const z = isSelf ? this.localShip.z : pose.z;
-      const h = isSelf ? this.localShip.heading : pose.h;
+      // Our own hull off our own prediction while she is a ship; once she has
+      // stopped being one there is nothing to predict, and she is drawn where
+      // the battle has her like any other wreck -- the prediction and the
+      // correction pulling against each other over a dead hull is what had
+      // her shuffling back and forth as she went down.
+      const own = isSelf && s.a;
+      const x = own ? this.localShip.x : pose.x;
+      const z = own ? this.localShip.z : pose.z;
+      const h = own ? this.localShip.heading : pose.h;
 
       // She takes the attitude the water under her puts on: the sea is sampled
       // at her bow, her stern and both beams, so a hull two hundred metres long
@@ -3780,12 +3793,26 @@ export class Battle {
       // is not the sea's: the sim works it out (see leanFor) and it is added
       // below.
       view.sea.ride = this.ride || (this.ride = rideOf(this.world));
+      // A ship going down has the sea in her, and a hull full of water does
+      // not lift and roll to every wave the way a buoyant one does: the
+      // deeper she is settled, the less of the sea's motion she takes up, so
+      // a sinking ship goes down steadily instead of bobbing and swaying.
+      {
+        const fb = freeboardOf(cls);
+        const settle = clamp((view.sinkY || 0) / Math.max(1, fb), 0, 1);
+        const calm = !s.a ? 0.15 : 1 - 0.75 * settle;
+        const r = this.ride;
+        view.sea.ride = { heave: r.heave * calm, tilt: r.tilt * calm };
+      }
       const sea = view.sea.step(att, dt, 0);
       // How she is floating, on top of what the sea is doing to her: the water
       // inside her has put her deeper, laid her over to one side, and pulled
       // one end of her down. All three come off the wire and none of them is
       // an animation -- they are what her flooding works out to.
-      view.setFloating(s.fo);
+      // Between the two snapshots, like her position, and eased: the wire
+      // says how she is floating fifteen times a second, and drawn straight
+      // off it a ship listing and settling goes over and down in steps.
+      view.setFloating(floatBetween(s.fo, prev && prev.fo, t), dt);
       // And how deep, if she is a boat. Her own bridge predicts it locally so
       // the order answers at once; everyone else takes it off the wire.
       if (cls.dive) {

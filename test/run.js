@@ -132,7 +132,7 @@ import {
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
-import { Battle, airArsenal, poseBetween, recoilKick, blastScale } from '../client/js/game.js';
+import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
@@ -18377,6 +18377,28 @@ check('a bot puts a lamp on the ship she is fighting at night, and not by day', 
   };
   assert.ok(run('night') >= 1, 'no lamp at night at three thousand metres');
   assert.equal(run('day'), 0, 'a lamp by day');
+});
+
+
+
+check('a ship going down settles and lists smoothly, not in steps', () => {
+  // Between two snapshots her depth and list are in proportion, the way her
+  // position is.
+  const mid = floatBetween([2, 0.2, 0.01, 0, 0], [2.2, 0.24, 0.02, 0, 0], 0.5);
+  assert.ok(Math.abs(mid[0] - 2.1) < 1e-9 && Math.abs(mid[1] - 0.22) < 1e-9);
+  // And eased onto rather than stepped onto: a frame takes her part of the way.
+  const view = new ShipView({ add() {}, remove() {} }, 'fletcher', 0, false);
+  view.setFloating([0, 0, 0, 0, 0]);
+  view.setFloating([1, 0.3, 0, 0, 0], 1 / 60);
+  assert.ok(view.sinkY > 0 && view.sinkY < 0.2, `she jumped to ${view.sinkY}`);
+  assert.ok(view.heelBy > 0 && view.heelBy < 0.06);
+  for (let i = 0; i < 240; i++) view.setFloating([1, 0.3, 0, 0, 0], 1 / 60);
+  assert.ok(Math.abs(view.sinkY - 1) < 1e-3 && Math.abs(view.heelBy - 0.3) < 1e-3, 'she never got there');
+  // And the wire carries her depth finely enough to settle smoothly.
+  const st = createState(generateWorld(1, 'open_ocean', 'day', 9000, null, 'sunny'));
+  const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  a.sink = 1.234;
+  assert.ok(Math.abs(shipSnapshot(a, false, st).fo[0] - 1.23) < 1e-9);
 });
 
 

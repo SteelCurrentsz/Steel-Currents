@@ -954,11 +954,16 @@ export class ShipView {
    * one with two torpedoes in the same side rolls over; one flooded evenly
    * settles upright. It is the same code in all three cases.
    */
-  setFloating(fl) {
+  setFloating(fl, dt = 0) {
     if (!fl) return;
-    this.sinkY = fl[0] || 0;
-    this.heelBy = fl[1] || 0;
-    this.trimBy = fl[2] || 0;
+    // Eased toward what the battle says, never stepped onto it: a list that
+    // jumps a degree when a compartment floods is a ship jerking, not a ship
+    // going over. A short lag -- a third of a second -- and no overshoot.
+    const k = dt > 0 ? 1 - Math.exp(-dt / 0.35) : 1;
+    const ease = (was, to) => (Number.isFinite(was) ? was + (to - was) * k : to);
+    this.sinkY = ease(this.sinkY, fl[0] || 0);
+    this.heelBy = ease(this.heelBy, fl[1] || 0);
+    this.trimBy = ease(this.trimBy, fl[2] || 0);
     // And how far she is leaning out of a turn, on top of any list.
     this.leanBy = fl[3] || 0;
     // And how far a wave off a near miss is rolling her (see waterBlow).
