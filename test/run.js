@@ -31,7 +31,7 @@ import {
   DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
-  gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned,
+  gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned, magazineTons,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts, layFloor,
   applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
@@ -9005,9 +9005,10 @@ check('a big splash beside a small ship rolls her and sets her over, and a battl
   assert.ok(Math.abs(dd.first - (30 - 6) / SURGE_SPEED) < 0.2, `it reached her after ${dd.first.toFixed(2)} s`);
   // And it rolls out of her: twenty seconds on she is nearly upright.
   assert.ok(Math.abs(dd.rock) < Math.abs(dd.peak) * 0.4, 'she went on rolling as if nothing damped her');
-  // The same shell off Yamato's beam is a ripple to her.
+  // The same shell off Yamato's beam is a ripple to her: about an eighth of
+  // what it does to the destroyer, at her own size.
   const bb = ride('yamato', 460, 40);
-  assert.ok(Math.abs(bb.peak) < Math.abs(dd.peak) * 0.12, `Yamato rolled ${(Math.abs(bb.peak) * 57.3).toFixed(2)} degrees`);
+  assert.ok(Math.abs(bb.peak) < Math.abs(dd.peak) * 0.15, `Yamato rolled ${(Math.abs(bb.peak) * 57.3).toFixed(2)} degrees`);
   // A five-inch splash hardly moves a destroyer at all.
   const small = ride('fletcher', 127, 12);
   assert.ok(Math.abs(small.peak) < 0.01, `a five-inch splash rolled her ${(Math.abs(small.peak) * 57.3).toFixed(2)} degrees`);
@@ -9150,9 +9151,10 @@ check('a destroyer works in a sea her betters walk through', () => {
   // Ordered by what actually decides it, which is length first and beam after:
   // the Takao is a metre longer than the Hipper and a metre narrower, and a
   // narrow ship rolls, so she comes before her. At the big end two ships of
-  // four hundred metres are both simply steady and the difference between them
+  // two hundred and seventy metres are both simply steady and the difference between them
   // is below what this measures at all -- hence the hair of tolerance rather
-  // than a strict inequality, which at that size is a coin toss.
+  // than a strict inequality, which at that size is a coin toss. Yamato and
+  // Musashi are sisters, the same hull, and work exactly alike.
   // The U-boat comes first because she is the smallest thing afloat here:
   // sixty-six metres and six of beam, and she works in a sea a destroyer
   // rides through. The Enterprise comes after the Musashi, a metre shorter
@@ -9160,7 +9162,7 @@ check('a destroyer works in a sea her betters walk through', () => {
   // that is one wind train rather than four crossing ones nothing of her
   // length lies quieter.
   const order = ['u48', 'fletcher', 'cleveland', 'spee', 'takao', 'hipper', 'baltimore', 'massachusetts', 'fuso',
-    'rodney', 'bismarck', 'tirpitz', 'musashi', 'enterprise', 'shinano', 'iowa', 'yamato'];
+    'rodney', 'bismarck', 'tirpitz', 'yamato', 'musashi', 'enterprise', 'shinano', 'iowa'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(roll[order[i]] <= roll[order[i - 1]] + 0.02,
       `${order[i]} rolls ${roll[order[i]].toFixed(2)}deg against `
@@ -9171,9 +9173,9 @@ check('a destroyer works in a sea her betters walk through', () => {
   }
   // And the spread from end to end is a real one, or the ordering above is
   // nine ships that all work the same amount inside the tolerance.
-  assert.ok(roll.fletcher > roll.yamato * 8,
-    `a Fletcher rolls ${roll.fletcher.toFixed(2)}deg and a Yamato `
-    + `${roll.yamato.toFixed(2)}deg, which is not a difference worth having`);
+  assert.ok(roll.fletcher > roll.iowa * 8,
+    `a Fletcher rolls ${roll.fletcher.toFixed(2)}deg and an Iowa `
+    + `${roll.iowa.toFixed(2)}deg, which is not a difference worth having`);
   // She used to take the whole angle of the water and roll five degrees, which
   // was tiring to watch and hard to aim from. Steadier now, but she must still
   // be a destroyer and not a pier.
@@ -13195,6 +13197,63 @@ check('a magazine explosion throws the turret over it into the air', () => {
   assert.equal(wreck.live.length, 0, 'a turret is still hanging in the air over the battle');
 });
 
+check('a magazine blows her apart, and how far by what was in it', () => {
+  // Not her plating peeled off a length of her with her insides standing in
+  // the gap: three pieces of her, torn, and the one over the magazine thrown
+  // into the air with the turrets on it -- a few metres off a destroyer's
+  // outfit of five-inch, a hundred and more off a battleship's.
+  const rng = () => 0.5;
+  const tons = (id) => {
+    const state = { rng };
+    const cls = SHIP_CLASSES[id];
+    return magazineTons(state, { classId: id }, cls, 'fwd');
+  };
+  assert.ok(tons('iowa') > 20 * tons('fletcher'),
+    `an Iowa's forward magazine held ${tons('iowa').toFixed(0)} t and a Fletcher's ${tons('fletcher').toFixed(0)} t`);
+  assert.ok(tons('iowa') > 500 && tons('iowa') < 3000, `an Iowa's forward magazine held ${tons('iowa').toFixed(0)} t`);
+
+  const blow = (t) => {
+    const scene = new THREE.Scene();
+    const view = new ShipView(scene, 'cleveland', 0, false);
+    view.group.updateMatrixWorld(true);
+    const zc = SHIP_CLASSES.cleveland.turrets[0].z;
+    assert.ok(view.blowApart(zc, t), 'she could not be blown apart');
+    const R = view.rupture;
+    // Her own model is not drawn; her pieces are.
+    const own = view.group.children.filter((c) => c !== view.marker
+      && c !== R.fore.piece && c !== R.aft.piece);
+    assert.ok(own.length && own.every((c) => !c.visible), 'her whole model is still drawn under her pieces');
+    // Every piece is torn, not stripped: each carries the tear in its materials.
+    for (const piece of [R.fore.piece, R.aft.piece, R.chunk.piece]) {
+      let torn = 0;
+      piece.traverse((o) => { if (o.userData.cutMat) torn++; });
+      assert.ok(torn > 0, 'a piece of her was not torn from the rest');
+    }
+    assert.ok(R.flyers.length > 1, 'no turret went up with her magazine');
+    let hull = 0;
+    let turret = 0;
+    const y0 = R.flyers.map((f) => f.obj.position.y);
+    let wet = 0;
+    for (let i = 0; i < 30 * 90 && R.flyers.length; i++) {
+      for (const f of R.flyers) {
+        const k = f.hull ? 'hull' : 'turret';
+        const up = f.obj.position.y - (f.hull ? y0[0] : 0);
+        if (k === 'hull') hull = Math.max(hull, up); else turret = Math.max(turret, up);
+      }
+      wet += view.stepRupture(1 / 30).length;
+    }
+    assert.equal(R.flyers.length, 0, 'something she threw is still hanging over the battle');
+    assert.ok(wet > 1, 'what she threw never came down in the sea');
+    view.dispose(scene);
+    return { hull, turret };
+  };
+  const small = blow(25);
+  const big = blow(1500);
+  assert.ok(big.hull > 60, `a battleship's magazine threw her hull only ${big.hull.toFixed(1)} m`);
+  assert.ok(small.hull < 15, `a destroyer's magazine threw her hull ${small.hull.toFixed(1)} m`);
+  assert.ok(big.turret > big.hull, 'her turrets did not go higher than her hull');
+});
+
 check('only a torpedo opens her: a shell or a bomb that gets in is an explosion', () => {
   const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
   const body = (from, len = 2400) => { const at = game.indexOf(from); assert.ok(at >= 0, from); return game.slice(at, at + len); };
@@ -13216,7 +13275,11 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // table and the watchkeepers' chairs are in every one of her steering and
   // control positions, so a shell through the front of her bridge opens on to
   // the room rather than on to a lit box. See bridgeInside.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee', 'yamato',
+  // Not the Yamato: she is a bare hull until her upperworks are built (see
+  // buildYamato), and the only thing of hers above her main deck is the sweep
+  // of her sheer forward, which passed this only while she was drawn half
+  // again her size.
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee',
     'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;

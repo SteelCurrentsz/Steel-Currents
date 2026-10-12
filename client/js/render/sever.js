@@ -44,6 +44,10 @@ const FRAG_HEAD = /* glsl */`
 uniform float uCutZ;
 uniform float uCutSide;
 uniform float uCutJag;
+uniform float uCutSeed;
+uniform float uCutZ2;
+uniform float uCutSeed2;
+uniform float uCutBand;
 varying vec3 vCutP;
 float cutTear;
 float cutHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
@@ -59,16 +63,23 @@ float cutNoise( vec2 p ) {
 }
 // Where along her the tear is, at this point of her section: a long wander
 // round the frames, and short teeth on top of it.
-float cutLine( vec3 p ) {
-  vec2 q = vec2( p.x + p.y * 0.31, p.y - p.x * 0.17 );
+// \`seed\` picks a different tear, so two of them across the same ship do not
+// run parallel to one another.
+float cutLine( vec3 p, float z, float seed ) {
+  vec2 q = vec2( p.x + p.y * 0.31, p.y - p.x * 0.17 ) + seed;
   float n = cutNoise( q * 0.32 ) * 0.62 + cutNoise( q * 1.35 + 7.1 ) * 0.38;
-  return uCutZ + uCutJag * ( n * 2.0 - 1.0 );
+  return z + uCutJag * ( n * 2.0 - 1.0 );
 }
 `;
 
 const FRAG_CLIP = /* glsl */`
-  cutTear = vCutP.z - cutLine( vCutP );
-  if ( uCutSide * cutTear < 0.0 ) discard;
+  cutTear = vCutP.z - cutLine( vCutP, uCutZ, uCutSeed );
+  if ( uCutBand > 0.5 ) {
+    // A length of her torn out at both ends: only what lies between the two.
+    float hiTear = cutLine( vCutP, uCutZ2, uCutSeed2 ) - vCutP.z;
+    if ( cutTear < 0.0 || hiTear < 0.0 ) discard;
+    cutTear = min( cutTear, hiTear );
+  } else if ( uCutSide * cutTear < 0.0 ) discard;
 `;
 
 const FRAG_TINT = /* glsl */`
@@ -81,13 +92,24 @@ const FRAG_TINT = /* glsl */`
   }
 `;
 
-/** The uniforms one piece of her shares across every material it is drawn with. */
-function cutUniforms(z, side, jag) {
+/**
+ * The uniforms one piece of her shares across every material it is drawn with.
+ *
+ * One tear at `z` keeping the `side` of it, or -- with `band` -- the length of
+ * her between a tear at `z` and another at `z2`. `seed` and `seed2` choose
+ * which way each tear wanders; a piece either side of a tear has to be given
+ * the same seed for that tear, so the two fit tooth for tooth.
+ */
+export function cutUniforms(z, side, jag, { seed = 0, z2 = 0, seed2 = 0, band = false } = {}) {
   return {
     uCutInv: { value: new THREE.Matrix4() },
     uCutZ: { value: z },
     uCutSide: { value: side },
     uCutJag: { value: jag },
+    uCutSeed: { value: seed },
+    uCutZ2: { value: z2 },
+    uCutSeed2: { value: seed2 },
+    uCutBand: { value: band ? 1 : 0 },
   };
 }
 
@@ -123,7 +145,7 @@ function cutMaterial(src, U) {
  * cut is kept whole if it stands on this side of the tear and hidden if it
  * does not -- a searchlight's beam, mostly.
  */
-function cutTree(root, U, side, z, skip) {
+export function cutTree(root, U, inside, skip) {
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
   const at = new THREE.Vector3();
   root.traverse((o) => {
@@ -131,7 +153,9 @@ function cutTree(root, U, side, z, skip) {
     if (!o.material) return;
     const list = Array.isArray(o.material) ? o.material : [o.material];
     const cut = list.map((q) => cutMaterial(q, U));
-    if (cut.every(Boolean) && (o.isMesh || o.isInstancedMesh)) {
+    // A rail or a run of rigging is a line the length of her, and is torn
+    // like her plating rather than kept or dropped whole.
+    if (cut.every(Boolean) && (o.isMesh || o.isInstancedMesh || o.isLine)) {
       // A burnt-out turret has its own copy already; it is not shared, so it
       // can go, and the cut one keeps the burn.
       o.material = Array.isArray(o.material) ? cut : cut[0];
@@ -142,7 +166,7 @@ function cutTree(root, U, side, z, skip) {
     for (const q of cut) q && q.dispose();
     o.updateWorldMatrix(true, false);
     at.setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
-    if (side * (at.z - z) < 0) o.visible = false;
+    if (!inside(at.z)) o.visible = false;
   });
 }
 
@@ -154,7 +178,7 @@ function cutTree(root, U, side, z, skip) {
  * at the mounting. The copy's notes are the original's, shared -- nothing
  * reads them off the piece that went.
  */
-function cloneTree(o) {
+export function cloneTree(o) {
   const ud = o.userData;
   o.userData = {};
   let c;
@@ -165,11 +189,30 @@ function cloneTree(o) {
 }
 
 /** Every material under `root` that this file made. */
-function disposeCut(root) {
+export function disposeCut(root) {
   root.traverse((o) => {
     if (!o.userData.cutMat || !o.material) return;
     for (const q of Array.isArray(o.material) ? o.material : [o.material]) q.dispose();
   });
+}
+
+/**
+ * A copy of a ship's model with nothing on it that belongs to her as a ship
+ * rather than as steel: her marker ring, her lights, anything drawn glowing.
+ */
+export function copyOf(view) {
+  const group = view.group;
+  const piece = cloneTree(group);
+  const mi = group.children.indexOf(view.marker);
+  if (mi >= 0 && piece.children[mi]) piece.remove(piece.children[mi]);
+  const drop = [];
+  piece.traverse((o) => {
+    if (o.isLight) drop.push(o);
+    else if (o.material && (o.material.isShaderMaterial
+      || o.material.blending === THREE.AdditiveBlending)) drop.push(o);
+  });
+  for (const o of drop) if (o.parent) o.parent.remove(o);
+  return piece;
 }
 
 /**
@@ -223,24 +266,14 @@ export class Severance {
     // The piece that went, while it is still worth drawing.
     this.piece = null;
     if (motion && group.parent) {
-      const piece = cloneTree(group);
-      // Nothing on it that belongs to her: her marker ring, her lights.
-      const mi = group.children.indexOf(view.marker);
-      if (mi >= 0 && piece.children[mi]) piece.remove(piece.children[mi]);
-      const drop = [];
-      piece.traverse((o) => {
-        if (o.isLight) drop.push(o);
-        else if (o.material && (o.material.isShaderMaterial
-          || o.material.blending === THREE.AdditiveBlending)) drop.push(o);
-      });
-      for (const o of drop) if (o.parent) o.parent.remove(o);
+      const piece = copyOf(view);
       group.parent.add(piece);
       piece.position.copy(group.position);
       piece.quaternion.copy(group.quaternion);
       piece.updateMatrixWorld(true);
       this.PU = cutUniforms(z, -keep, this.jag);
       this.PU.uCutInv.value.copy(piece.matrixWorld).invert();
-      cutTree(piece, this.PU, -keep, z, null);
+      cutTree(piece, this.PU, (q) => -keep * (q - z) >= 0, null);
       // Which end of it is the broken one, in its own frame: the end that
       // was joined to her.
       const far = keep > 0 ? -this.len / 2 : this.len / 2;
@@ -276,7 +309,7 @@ export class Severance {
       this.piece = piece;
     }
     // And her, from now on only her side of the tear.
-    cutTree(group, this.U, keep, z, (o) => o === view.marker);
+    cutTree(group, this.U, (q) => keep * (q - z) >= 0, (o) => o === view.marker);
   }
 
   /**

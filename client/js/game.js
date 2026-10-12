@@ -7,6 +7,7 @@ import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
+import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock }
   from './render/aero.js';
 import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles } from './render/planes.js';
@@ -1891,7 +1892,9 @@ export class Battle {
           // that the middle of her could not carry it. From where she is, not
           // from level -- see breakHer and stepHalves in scene.js.
           const view = this.scene.shipViews.get(ev.ship);
-          if (view && !view.halves) {
+          // Off a magazine she is not broken, she is blown apart, and the
+          // detonation that comes with this in the same tick does that.
+          if (view && !view.halves && ev.why !== 'magazine') {
             view.breakHer(ev.at);
             view.throes.push({ kind: 'break', z: (ev.at || 0) * view.cls.hull.length / 2, size: 0.5 + view.cls.hull.length / 320 });
           }
@@ -1962,20 +1965,35 @@ export class Battle {
           const sec = SECTIONS.find((q) => q.k === ev.at);
           const z0 = (sec && sec.from !== null ? Math.max(-1, sec.from) : -0.2) * half;
           const z1 = (sec && sec.to !== null ? Math.min(1, sec.to) : 0.2) * half;
+          // The magazine itself is under the turrets it fed, so that is where
+          // she goes from rather than the middle of the compartment.
+          const fed = cls.turrets.filter((t) => sectionAt(
+            Math.max(-1, Math.min(1, (t.z || 0) / half))) === ev.at);
+          const zc = fed.length
+            ? fed.reduce((a, t) => a + t.z, 0) / fed.length : (z0 + z1) / 2;
+          // How much went up. Older servers do not say: a battleship's worth
+          // on a battleship, a destroyer's on a destroyer.
+          const tons = ev.t ?? cls.hull.length * cls.hull.beam * 0.12;
+          const power = blastPower(tons);
           // Where on her it was, in the world.
           let wx = ev.x, wz = ev.z;
           if (view) {
-            const at = view.blowOut(z0, z1);
+            // A ship of any size is taken apart by it: her two ends left
+            // afloat, the length between thrown into the air. A launch that
+            // is already in pieces is opened up where it went instead.
+            const apart = cls.hull.length > 60 && view.blowApart(zc, tons);
+            const mid = apart ? zc : view.blowOut(z0, z1).mid;
             view.group.updateMatrixWorld(true);
-            const p = new THREE.Vector3(0, 6, at.mid);
+            const p = new THREE.Vector3(0, 6, mid);
             view.group.localToWorld(p);
             wx = p.x; wz = p.z;
           }
-          const size = 0.7 + cls.hull.length / 200;
+          // From big to enormous, by what was in her.
+          const size = 0.6 + power * 1.6;
           fx.magazine(wx, 8, wz, size);
           this.scene.magazineBurst(wx, 10, wz, size);
-          this.scene.debris.burst(wx, 14, wz, 9 + cls.hull.length / 26, 1);
-          fx.splash(wx, wz, 900);
+          this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4);
+          fx.splash(wx, wz, 500 + 700 * power);
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);
           // Heard everywhere. Not faded with range like everything else --
           // that is the point of it.
@@ -4101,6 +4119,16 @@ export class Battle {
       // without it. The tear follows her from wherever she has been posed.
       if (s.ct && !view.severed) view.cutHer(s.ct[0], s.ct[1], null);
       view.stepCut(dt, this.scene.shipViews);
+      // What her magazine threw into the air, coming down into the sea.
+      const fell = view.stepRupture(dt);
+      if (fell) {
+        for (const w of fell) {
+          const big = w.hull ? 1 : 0.45;
+          this.scene.effects.splash(w.x, w.z, (260 + w.size * 18 + w.fall * 6) * big,
+            { kind: w.hull ? 'bomb' : 'shell' });
+          audio.explosion(0.9 * big * this.distanceFade(w.x, w.z), 0);
+        }
+      }
       if (view.throes.length) this.deathThroes(view, s, x, z, h);
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 

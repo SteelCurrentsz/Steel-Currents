@@ -27,6 +27,7 @@ import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { soupOf } from './section.js';
 import { Severance } from './sever.js';
+import { Rupture } from './rupture.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import {
@@ -731,6 +732,9 @@ export class ShipView {
     // A piece of her cut off by another ship's stem, if one has been. See
     // cutHer and sever.js.
     this.severed = null;
+    // Blown apart by her own magazine, if she has been. See blowApart and
+    // rupture.js.
+    this.rupture = null;
     // How hard she is burning, nought to one, put here off the wire every
     // frame. The founder reads it: a ship that goes down with fires still in
     // her does not simply go down.
@@ -949,6 +953,28 @@ export class ShipView {
   }
 
   /**
+   * Her magazine goes and takes her apart with it: the length of her over it
+   * thrown up out of the sea, the turrets on it higher still, and her two
+   * ends left to go down on their own. `zc` is the middle of the magazine in
+   * her own frame and `tons` what was in it. See rupture.js.
+   *
+   * Returns false when she cannot be blown apart -- she is already in pieces
+   * -- and the caller falls back to opening up the length of her that went.
+   */
+  blowApart(zc, tons) {
+    if (this.rupture || this.halves || this.severed) return false;
+    this.rupture = new Rupture(this, zc, tons, {
+      v: this.speedNow || 0, h: this.group.rotation.y,
+    });
+    return true;
+  }
+
+  /** Once a frame, after she is posed. The splashes what was thrown made. */
+  stepRupture(dt) {
+    return this.rupture ? this.rupture.step(dt) : null;
+  }
+
+  /**
    * How she is floating, and how she goes down.
    *
    * `fl` is what the wire carries: how much deeper the water in her has put
@@ -1040,7 +1066,7 @@ export class ShipView {
       // The clock on her oil. See stepFounder.
       oil: 0.4,
     };
-    if (this.going.broke != null) this.breakHer(this.going.broke);
+    if (this.going.broke != null && !this.rupture) this.breakHer(this.going.broke);
   }
 
   /**
@@ -1530,6 +1556,7 @@ export class ShipView {
 
   dispose(scene) {
     if (this.severed) this.severed.dispose();
+    if (this.rupture) this.rupture.dispose();
     scene.remove(this.group);
     if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();

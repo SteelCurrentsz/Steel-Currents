@@ -31,8 +31,11 @@ import { fiveInch38, quadBofors, oerlikon } from './usnguns.js';
  * sheer and the turn of the bilge are exactly the ship the drawing shows --
  * she is simply larger. Change this one number and she changes size, model and
  * datasheet together; nothing else needs touching.
+ *
+ * One: she is drawn at her own size, the same as every other ship in the game,
+ * so that she stands in the water at her real size against them.
  */
-export const SCALE = 1.55;
+export const SCALE = 1;
 
 export const LOA = 270 * SCALE;
 export const BEAM = 33 * SCALE;

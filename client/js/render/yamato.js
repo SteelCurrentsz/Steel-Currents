@@ -62,10 +62,11 @@ const CLS = SHIP_CLASSES.yamato;
  * The same figure the Iowa is drawn at, and for the same reason: the two of
  * them have to stand in the same water and read as the same kind of thing, and
  * everything in the game that is a battleship is drawn at this scale. Her
- * lines are untouched -- every offset below is her real one off the drawing --
- * she is simply larger.
+ * lines are untouched -- every offset below is her real one off the drawing.
+ * One, now: every ship in the game is drawn at her own size, so that Yamato
+ * and Musashi, sisters, are the same ship side by side.
  */
-export const SCALE = 1.55;
+export const SCALE = 1;
 export const LOA = CLS.hull.length;      // 263 m x SCALE
 export const BEAM = CLS.hull.beam;
 export const DRAFT = CLS.hull.draft;

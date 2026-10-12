@@ -3812,10 +3812,48 @@ const REACH = {
  * She usually goes. Sometimes she does not, and then she is a ship with a
  * length of herself missing, which is its own kind of finish.
  */
+/**
+ * How much ammunition, in tons, was stowed in one of her magazines.
+ *
+ * Every mounting is fed from the compartment under it (see magazineOf), so a
+ * magazine holds the outfit of the guns over it: shell and charge for each
+ * round, as many rounds a gun as she carried for that bore, and the warheads
+ * of any torpedoes in the same length of her. A round goes as the cube of the
+ * bore -- a sixteen-inch shell and its bags are a ton and a half, a five-inch
+ * round forty kilograms -- and a big gun carried a hundred rounds against a
+ * five-inch's three hundred. How full she still was is anybody's guess, so it
+ * is one.
+ */
+export function magazineTons(state, ship, cls, where) {
+  let tons = 0;
+  const battery = (spec, list, per) => {
+    if (!spec || !list) return;
+    const bore = (spec.caliber || 127) / 1000;
+    const round = 21 * bore * bore * bore;
+    const rounds = Math.min(400, 40 / bore);
+    for (const m of list) {
+      if (magazineOf(cls, m) !== where) continue;
+      tons += (m.guns || per) * rounds * round;
+    }
+  };
+  battery(cls.gun, cls.turrets, 1);
+  battery(cls.secondary, cls.secondary?.mounts, 1);
+  for (const m of cls.torpedoes?.mounts || []) {
+    if (magazineOf(cls, m) === where) tons += (m.tubes || 1) * 0.35;
+  }
+  // A ship has some ammunition everywhere; never nothing.
+  tons = Math.max(tons, cls.hull.length * 0.08);
+  return tons * (0.55 + state.rng() * 0.45);
+}
+
 function detonate(state, ship, where, owner) {
   const cls = shipClass(ship);
   const c = ship.sections[where];
   if (!c) return;
+  // What was in it, which is how hard it goes. The client sizes everything
+  // it draws off this: the fireball, the column, and how far her hull and her
+  // turrets are thrown.
+  const tons = Math.round(magazineTons(state, ship, cls, where));
   // The compartment itself, and a great deal of what is either side of it.
   const gone = c.hp;
   c.hp = 0;
@@ -3831,7 +3869,7 @@ function detonate(state, ship, where, owner) {
   if (!ship.alive) {
     state.events.push({
       e: 'detonate', ship: ship.id, at: where,
-      x: r(ship.x), z: r(ship.z), cls: ship.classId,
+      x: r(ship.x), z: r(ship.z), cls: ship.classId, t: tons,
     });
     return;
   }
@@ -3866,7 +3904,7 @@ function detonate(state, ship, where, owner) {
   ship.flooding = floodedCount(ship);
   state.events.push({
     e: 'detonate', ship: ship.id, at: where,
-    x: r(ship.x), z: r(ship.z), cls: ship.classId,
+    x: r(ship.x), z: r(ship.z), cls: ship.classId, t: tons,
   });
 }
 

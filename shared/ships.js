@@ -47,8 +47,11 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 // which on a heavy cruiser was six metres above the gun and on a destroyer a
 // good deal forward of it. A shell now leaves the muzzle it was fired from.
 
-// How much bigger than her real self the Iowa is drawn and fought.
-const BIG = 1.55;
+// How much bigger than her real self the Iowa (and the Yamato) is drawn and
+// fought. They were drawn a half again life size once; every ship in the game
+// is at her own size now, so that a Fletcher alongside an Iowa is the size a
+// Fletcher was alongside an Iowa.
+const BIG = 1;
 
 export const SHIP_CLASSES = {
   fletcher: {
@@ -4058,13 +4061,13 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 307, deck: 152, citadel: 307, bow: 38, superstructure: 38 },
     turrets: [
-      { id: 0, name: 'A', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 19.69 },
-      { id: 1, name: 'B', x: 0, z: 58 * BIG, angle: 0, arc: 2.27, guns: 3, my: 25.19 },
-      { id: 2, name: 'Y', x: 0, z: -74 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 16.70 },
+      { id: 0, name: 'A', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 12.71 },
+      { id: 1, name: 'B', x: 0, z: 58 * BIG, angle: 0, arc: 2.27, guns: 3, my: 16.25 },
+      { id: 2, name: 'Y', x: 0, z: -74 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 10.78 },
     ],
     gun: {
       name: '16"/50 Mk 7', role: 'surface',
-      reach: 27.87,
+      reach: 17.98,
       caliber: 406, reload: 26, traverse: 0.09, range: 21600, sigma: 1.35,
       shells: shells(406, 13500, 6300, 640, 762, 0.28),
     },
@@ -4073,26 +4076,24 @@ export const SHIP_CLASSES = {
     // secondary battery is a destroyer's main one, and it fires on its own.
     secondary: {
       name: '5"/38 Mk 28', role: 'dp',
-      // She is drawn a half again life size, hull and battery together, so a
-      // 5"/38's muzzle stands eleven and a third metres out from the trunnion
-      // rather than the seven and a third it did.
-      reach: 11.37,
+      // A 5"/38's muzzle seven and a third metres out from the trunnion.
+      reach: 7.34,
       caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
       shells: shells(127, 2000, 1750, 80, 792, 0.08),
       // On sponsons off the 01 deck, five a side, spaced so no mount is
       // inside the next one's blast and every one of them has the deck edge
       // to itself. Her light battery goes between them, on the weather deck.
       mounts: [
-        { x: -11.2 * BIG, z: 38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
-        { x: 11.2 * BIG, z: 38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
-        { x: -11.6 * BIG, z: 22 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
-        { x: 11.6 * BIG, z: 22 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
-        { x: -11.6 * BIG, z: 2 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2, my: 22.35 },
-        { x: 11.6 * BIG, z: 2 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2, my: 22.35 },
-        { x: -11.6 * BIG, z: -18 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
-        { x: 11.6 * BIG, z: -18 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 22.35 },
-        { x: -11.4 * BIG, z: -40 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
-        { x: 11.4 * BIG, z: -40 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 22.35 },
+        { x: -11.2 * BIG, z: 38 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 14.42 },
+        { x: 11.2 * BIG, z: 38 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 14.42 },
+        { x: -11.6 * BIG, z: 22 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 14.42 },
+        { x: 11.6 * BIG, z: 22 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 14.42 },
+        { x: -11.6 * BIG, z: 2 * BIG, angle: -Math.PI / 2, arc: 1.31, guns: 2, my: 14.42 },
+        { x: 11.6 * BIG, z: 2 * BIG, angle: Math.PI / 2, arc: 1.31, guns: 2, my: 14.42 },
+        { x: -11.6 * BIG, z: -18 * BIG, angle: -Math.PI / 2, arc: 1.40, guns: 2, my: 14.42 },
+        { x: 11.6 * BIG, z: -18 * BIG, angle: Math.PI / 2, arc: 1.40, guns: 2, my: 14.42 },
+        { x: -11.4 * BIG, z: -40 * BIG, angle: -Math.PI / 2, arc: 1.48, guns: 2, my: 14.42 },
+        { x: 11.4 * BIG, z: -40 * BIG, angle: Math.PI / 2, arc: 1.48, guns: 2, my: 14.42 },
       ],
     },
     aa: {
@@ -4881,13 +4882,13 @@ export const SHIP_CLASSES = {
     // ends are unarmoured, which is where she was actually hurt.
     armor: { belt: 410, deck: 200, citadel: 410, bow: 50, superstructure: 50 },
     turrets: [
-      { id: 0, name: 'No.1', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 25.77 },
-      { id: 1, name: 'No.2', x: 0, z: 55 * BIG, angle: 0, arc: 2.27, guns: 3, my: 33.98 },
-      { id: 2, name: 'No.3', x: 0, z: -68 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 27.34 },
+      { id: 0, name: 'No.1', x: 0, z: 78 * BIG, angle: 0, arc: 2.36, guns: 3, my: 16.63 },
+      { id: 1, name: 'No.2', x: 0, z: 55 * BIG, angle: 0, arc: 2.27, guns: 3, my: 21.92 },
+      { id: 2, name: 'No.3', x: 0, z: -68 * BIG, angle: Math.PI, arc: 2.36, guns: 3, my: 17.64 },
     ],
     gun: {
       name: '46 cm/45 Type 94', role: 'surface',
-      reach: 34.25,
+      reach: 22.10,
       caliber: 460, reload: 29, traverse: 0.06, range: 23800, sigma: 1.30,
       shells: shells(460, 15800, 7400, 760, 780, 0.26),
     },
@@ -4898,12 +4899,12 @@ export const SHIP_CLASSES = {
     // comes to carry a light cruiser's turret, armoured like a biscuit tin.
     secondary: {
       name: '15.5 cm/60 Type 3', role: 'surface',
-      reach: 17.26,
+      reach: 11.14,
       caliber: 155, reload: 9.5, traverse: 0.10, range: 14600, sigma: 1.45,
       shells: shells(155, 3100, 2500, 175, 920, 0.12),
       mounts: [
-        { x: 0, z: 36 * BIG, angle: 0, arc: 1.92, guns: 3, my: 34.72 },
-        { x: 0, z: -48 * BIG, angle: Math.PI, arc: 1.92, guns: 3, my: 34.72 },
+        { x: 0, z: 36 * BIG, angle: 0, arc: 1.92, guns: 3, my: 22.40 },
+        { x: 0, z: -48 * BIG, angle: Math.PI, arc: 1.92, guns: 3, my: 22.40 },
       ],
     },
     aa: {
@@ -6538,13 +6539,10 @@ export const SHIP_CLASSES = {
     blurb: 'An armoured flight deck on a battleship hull. Slow to hurt, slow to turn, and she carries a strike nothing this side of the horizon can answer.',
     // Two hundred and seventy-six metres on the waterline she is drawn to.
     //
-    // Shinano's length overall is 265.8 m. She is drawn a little over it, for
-    // the reason her own sister is drawn a great deal over hers: Yamato is the
-    // same hull and this game draws her at 263 m x 1.55, so at her book length
-    // Shinano came out two-thirds the size of the ship she was built from. Ten
-    // metres does not close that, but it takes the worst of it out and it is
-    // what makes her read as the long fine-ended hull she was rather than a
-    // flight deck on a barge.
+    // Shinano's length overall is 265.8 m. She was drawn ten metres over it
+    // while Yamato was drawn half again her size, and her model was built to
+    // that length -- her stern work stands at fixed stations off it -- so she
+    // stays at it until her lines are redrawn to her book length.
     hull: { length: 276, beam: 36.3, draft: 10.3, superstructure: 0.6, flightDeck: true },
     hp: 66400,
     maxSpeed: 27 * KNOTS,
