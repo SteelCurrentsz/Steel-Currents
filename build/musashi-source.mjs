@@ -2,7 +2,7 @@
 //
 //   npm i --no-save meshoptimizer@0.22          (see build/sculpt-source.mjs)
 //   node build/musashi-source.mjs <Musashi.glb> <MusashiSuperstructure.glb> \
-//     <15.5cm triple.glb> <12.7cm twin.glb> <25mm pod.glb>
+//     <15.5cm triple.glb> <12.7cm twin.glb> <25mm pod.glb> [<46cm triple.glb>]
 //
 // Any of them may be given as `-`, which leaves the asset made from it as it
 // is: the sculpts are not committed (they are 30 to 140 MB), and one can be
@@ -20,7 +20,12 @@
 //     her after control station, every platform and tub -- and rigged with
 //     wires a hand thick; it is what her superstructure is;
 //   * and her 15.5 cm triple, her 12.7 cm twin and her shielded 25 mm triple,
-//     each on its own.
+//     each on its own;
+//   * and, later, her 46 cm triple on its own (YamatoClassMainGun.glb): the
+//     gunhouse with its blast bags, its rangefinder arms, its roof fittings
+//     and the guard rails round its roof, and the three barrels. It is one
+//     piece, rails and all, and the decimator keeps it one: every stanchion
+//     and every chain of the rails stays on the roof it stands on.
 //
 // Here the whole of her is painted, as she was at Kure in 1942: red below her
 // boot topping, black boot topping through her waterline, and Kure grey over
@@ -54,6 +59,7 @@
 //   musashi-155.glb       her 15.5 cm triple
 //   musashi-127.glb       her 12.7 cm twin
 //   musashi-25pod.glb     her shielded 25 mm triple
+//   musashi-460.glb       her 46 cm triple
 //
 // Coordinates here are each sculpt's own. The whole of her: length along X
 // with her bow at -X, Y up, beam along Z, 1.90 units stem to stern.
@@ -70,7 +76,7 @@ const writeGlb = (file, m) => writeSourceGlb(file, m, 'build/musashi-source.mjs'
 const decimate = (m, ratio, error, normalWeight = 0) => decimateWith(MeshoptSimplifier, m, ratio, error, normalWeight);
 const out = (name) => path.join(ROOT, 'assets/models', name);
 
-const [SRC, SUPER_SRC, SEC6_SRC, SEC5_SRC, POD_SRC] = process.argv.slice(2);
+const [SRC, SUPER_SRC, SEC6_SRC, SEC5_SRC, POD_SRC, MAIN_SRC] = process.argv.slice(2);
 if (!POD_SRC) {
   console.error('usage: node build/musashi-source.mjs <Musashi.glb> <MusashiSuperstructure.glb> '
     + '<15.5cm.glb> <12.7cm.glb> <25mm pod.glb>   (- for any of them to leave its asset as it is)');
@@ -269,4 +275,11 @@ if (given(SEC5_SRC)) {
 if (given(POD_SRC)) {
   const pod = crop(readSource(POD_SRC), (x, y, z) => x > 0.06 && z < -0.2);
   writeGlb(out('musashi-25pod.glb'), decimate(pod, +(process.env.POD_RATIO || 0.0016), 0.008));
+}
+// Her 46 cm triple. Taken down to about a fifteenth of itself, which keeps
+// the face, the blast bags, the rangefinder and the roof's fittings, and every
+// rail stanchion and chain still joined to the roof under it.
+if (given(MAIN_SRC)) {
+  const main = readSource(MAIN_SRC);
+  writeGlb(out('musashi-460.glb'), decimate(main, +(process.env.MAIN_RATIO || 0.07), 0.004));
 }

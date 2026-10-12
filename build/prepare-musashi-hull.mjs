@@ -1395,6 +1395,18 @@ const POD = gunPiece('musashi-25pod.glb', {
 POD.muzzles = [-0.4, 0, 0.4].map((x) => [x, 0, 1.6]);
 POD.trunnion = [0, 1.5, 0.3];
 
+// Her 46 cm triple, from the owner's sculpt of it (YamatoClassMainGun.glb), in
+// place of the gunhouses cut out of her: 16 m a unit, which draws it as wide
+// as those were and puts its foot on the same barbettes. It trains about a
+// point four tenths of its length back from its face, where the old ones did;
+// the barrels and their blast bags elevate, and everything else -- the face,
+// the rangefinder and its arms, the roof's fittings and the rails round the
+// roof, all one piece with the house -- trains.
+const MAIN = gunPiece('musashi-460.glb', {
+  scale: 16, pivot: [0.37, 0], facing: '-x', foot: -0.148, face: 0.40,
+  lanes: [-0.2273, 0, 0.2273], barrelY: -0.053, r: 0.065, trunnionIn: 0.06,
+});
+
 // ---- her lines, as the sculpt has them --------------------------------------------
 const LINES = measureLines(m, st, { z0: -131, dz: 1, nz: 263, y0: -11, dy: 0.5, ny: 40 }, DECK_Y);
 // Under her quarterdeck the sculpt drew her hangar's floor, two metres up,
@@ -1456,9 +1468,9 @@ writeFileSync(OUT_DATA,
   + `// Her three turrets as the sculpt drew them, each in the frame of its own\n`
   + `// mounting: the gunhouse, painted, and the barrels about their trunnions.\n`
   + `export const MUSASHI_TURRETS = ${JSON.stringify(turrets)};\n`
-  + `// Her 15.5 cm triple, 12.7 cm twin and shielded 25 mm triple, as the owner\n`
-  + `// sculpted them, each in the frame of its mounting.\n`
-  + `export const MUSASHI_GUNS = ${JSON.stringify({ sec6: piece(SEC6), sec5: piece(SEC5), pod: piece(POD) })};\n`
+  + `// Her 46 cm triple, 15.5 cm triple, 12.7 cm twin and shielded 25 mm triple,\n`
+  + `// as the owner sculpted them, each in the frame of its mounting.\n`
+  + `export const MUSASHI_GUNS = ${JSON.stringify({ sec6: piece(SEC6), sec5: piece(SEC5), pod: piece(POD), main: piece(MAIN) })};\n`
   + `// Where each of them stands.\n`
   + `export const MUSASHI_MOUNTS = ${JSON.stringify(mounts)};\n`
   + `// Her four screws, on the ends of her shafts.\n`

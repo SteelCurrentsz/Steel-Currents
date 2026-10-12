@@ -101,7 +101,7 @@ import {
   buildMusashi, CAT_X as MUSASHI_CAT_X, CAT_Z as MUSASHI_CAT_Z,
   shellAt as musashiShellAt, LOA as MUSASHI_LOA,
 } from '../client/js/render/musashi.js';
-import { musashiSurfaceY } from '../client/js/render/musashiHull.js';
+import { musashiSurfaceY, gunPiece as musashiGunPiece } from '../client/js/render/musashiHull.js';
 import {
   buildFuso, CAT_X as FUSO_CAT_X, CAT_Z as FUSO_CAT_Z, CAT_Z_PORT as FUSO_CAT_Z_PORT, shellAt as fusoShellAt, keelY as fusoKeel,
   deckOver as fusoSheer, zAt as fusoZAt, LOA as FUSO_LOA,
@@ -3272,6 +3272,51 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
       `a turret laid at ${(-t.userData.gunNode.rotation.x).toFixed(2)} rad `
       + 'instead of the 0.31 it was given');
   }
+});
+
+check('the Musashi\'s 46 cm triples are the owner\'s sculpt, rails and all, and fire from their own muzzles', () => {
+  const piece = musashiGunPiece('main');
+  // One piece: every rail stanchion and chain on the roof is joined to the
+  // house it stands on, so nothing of it hangs in the air on its own.
+  const g = piece.house;
+  const p = g.attributes.position;
+  const idx = g.index;
+  const key = (i) => `${Math.round(p.getX(i) * 1e3)},${Math.round(p.getY(i) * 1e3)},${Math.round(p.getZ(i) * 1e3)}`;
+  const id = new Map();
+  const at = new Int32Array(p.count);
+  for (let i = 0; i < p.count; i++) { const k = key(i); if (!id.has(k)) id.set(k, id.size); at[i] = id.get(k); }
+  const parent = Int32Array.from({ length: id.size }, (_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const n = idx ? idx.count : p.count;
+  for (let t = 0; t < n; t += 3) {
+    const a = find(at[idx ? idx.getX(t) : t]);
+    parent[find(at[idx ? idx.getX(t + 1) : t + 1])] = a;
+    parent[find(at[idx ? idx.getX(t + 2) : t + 2])] = a;
+  }
+  const sizes = new Map();
+  for (let t = 0; t < n; t += 3) { const r = find(at[idx ? idx.getX(t) : t]); sizes.set(r, (sizes.get(r) || 0) + 1); }
+  const pieces = [...sizes.values()].sort((x, y) => y - x);
+  const loose = pieces.slice(1).reduce((x, y) => x + y, 0);
+  assert.ok(loose <= n / 3 * 0.01, `${pieces.length} pieces, ${loose} triangles not joined to the house: ${pieces.slice(0, 6)}`);
+  // As wide as the gunhouses she had, on the same barbettes.
+  g.computeBoundingBox();
+  const w = g.boundingBox.max.x - g.boundingBox.min.x;
+  assert.ok(w > 13 && w < 17.5, `the gunhouse is ${w.toFixed(1)} m across`);
+  // Every muzzle the flash and the shell come out of is the end of a barrel.
+  const gp = piece.guns.attributes.position;
+  assert.equal(piece.muzzles.length, 3);
+  for (const [mx, my, mz] of piece.muzzles) {
+    let tip = -Infinity;
+    for (let i = 0; i < gp.count; i++) {
+      if (Math.abs(gp.getX(i) - mx) < 0.8 && Math.abs(gp.getY(i) - my) < 0.8) tip = Math.max(tip, gp.getZ(i));
+    }
+    assert.ok(Math.abs(tip - mz) < 0.05, `a muzzle at ${mz.toFixed(2)} m on a barrel that ends at ${tip.toFixed(2)} m`);
+  }
+  // And her three turrets are built from it.
+  const view = new ShipView({ add() {}, remove() {} }, 'musashi', 0, false);
+  const main = view.group.userData.turrets || [];
+  assert.equal(main.length, 3);
+  for (const m of main) assert.ok(m.children.some((c) => c.isMesh && c.geometry === piece.house), 'a turret not built from the sculpt');
 });
 
 check('a shell leaves the muzzle it was fired from', () => {

@@ -47,7 +47,7 @@ import { triple25 } from './ijnguns.js';
 import { jake } from './planekit.js';
 import { RIG, fitCatapults } from './catapult.js';
 import {
-  buildMusashiHull, musashiSeatY, musashiSurfaceY, turretPieces, TURRET_PIECES, MOUNT_SEATS,
+  buildMusashiHull, musashiSeatY, musashiSurfaceY, TURRET_PIECES, MOUNT_SEATS,
   SCULPT_LINES, musashiMaterials, gunPiece,
 } from './musashiHull.js';
 import { SCREWS } from './musashiHull.data.js';
@@ -125,35 +125,32 @@ export const deckAt = (z) => musashiSurfaceY(0, z);
 const ROOF_25 = { 'No.1': [[0, -6.4]], 'No.2': [[0, -7.0]], 'No.3': [[-2.6, -6.6], [2.6, -6.6]] };
 
 /**
- * One of her 46 cm/45 Type 94 triples, as the sculpt drew it: the gunhouse is
- * the piece of her the build script's box took out of her, down to the
- * barbette it trains on, so it turns about the middle of that barbette; the
- * barrels are measured off the sculpt and turned true about trunnions inside
- * the face.
+ * One of her 46 cm/45 Type 94 triples: the owner's sculpt of the turret (see
+ * gunPiece), standing on the barbette the hull sculpt has under each one --
+ * No.1 on her forecastle, No.2 superfiring over it, No.3 on her quarterdeck
+ * facing astern. The gunhouse, its rangefinder, its roof fittings and the
+ * rails round its roof are one piece and train together; the barrels and
+ * their blast bags elevate about trunnions inside the face, and the fire of
+ * each gun comes out of its own muzzle.
  */
 function fortySix(g, i) {
   const spec = TURRET_PIECES[i];
-  const { house, guns } = turretPieces(i);
+  const piece = gunPiece('main');
   const m = new THREE.Group();
   m.position.set(spec.x, spec.seat, spec.z);
   m.rotation.y = spec.rest;
   m.userData.dynamic = true;
   m.userData.mounting = true;
   m.userData.trainRate = CLS.gun.traverse;
-  m.add(new THREE.Mesh(house, musashiMaterials().plating));
+  m.add(new THREE.Mesh(piece.house, musashiMaterials().plating));
   const cradle = new THREE.Group();
-  cradle.position.set(spec.trunnion[0], spec.trunnion[1], spec.trunnion[2]);
-  cradle.rotation.x = -spec.pitch;
-  cradle.add(new THREE.Mesh(guns, M.gun));
-  // The canvas blast bags where the barrels go through the face.
-  for (const [x] of spec.muzzles) {
-    cyl(cradle, M.canvas, 0.78, 0.86, 1.2, x, 0, 0.75, 16).rotation.x = Math.PI / 2;
-  }
+  cradle.position.set(...piece.trunnion);
+  cradle.add(new THREE.Mesh(piece.guns, M.gun));
   m.add(cradle);
-  arm(m, cradle, spec.muzzles);
+  arm(m, cradle, piece.muzzles);
   // The open 25 mm on her roof, facing the way she does: it goes round with her.
   for (const [x, z] of ROOF_25[spec.name] || []) {
-    const y = roofAt(house, x, z);
+    const y = roofDeckAt(piece.house, x, z);
     const a = triple25(m, M, x, y, z, 0, false);
     a.userData.rest = 0;
   }
@@ -161,14 +158,33 @@ function fortySix(g, i) {
   return m;
 }
 
-/** The top of a piece at (x, z) in its own frame: the highest point of it near there. */
-function roofAt(geo, x, z) {
+/**
+ * The roof plating of a piece at (x, z): the level over which the most of its
+ * upward faces lie near there -- the roof, not the top of a rail stanchion or
+ * a periscope hood standing on it.
+ */
+function roofDeckAt(geo, x, z) {
   const p = geo.attributes.position;
-  let top = -Infinity;
-  for (let i = 0; i < p.count; i++) {
-    if (Math.abs(p.getX(i) - x) < 1.2 && Math.abs(p.getZ(i) - z) < 1.2) top = Math.max(top, p.getY(i));
+  const idx = geo.index;
+  const n = idx ? idx.count : p.count;
+  const bins = new Map();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const u = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let t = 0; t + 2 < n; t += 3) {
+    a.fromBufferAttribute(p, idx ? idx.getX(t) : t);
+    b.fromBufferAttribute(p, idx ? idx.getX(t + 1) : t + 1);
+    c.fromBufferAttribute(p, idx ? idx.getX(t + 2) : t + 2);
+    const cx = (a.x + b.x + c.x) / 3, cz = (a.z + b.z + c.z) / 3;
+    if (Math.abs(cx - x) > 2.2 || Math.abs(cz - z) > 2.2) continue;
+    u.subVectors(b, a); v.subVectors(c, a); u.cross(v);
+    const area = u.length() / 2;
+    if (area <= 0 || u.y / (2 * area) < 0.94) continue;
+    const k = Math.round((a.y + b.y + c.y) / 3 / 0.1);
+    bins.set(k, (bins.get(k) || 0) + area);
   }
-  return Number.isFinite(top) ? top : 3;
+  let best = null, most = 0;
+  for (const [k, w] of bins) if (w > most) { most = w; best = k; }
+  return best === null ? 3 : best * 0.1;
 }
 
 function mainBattery(g) {
