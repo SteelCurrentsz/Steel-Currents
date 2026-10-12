@@ -62,7 +62,7 @@ export class LocalNet extends EventTarget {
       case 'quickmatch':
         // No one else is out there to wait for, so skip the lobby clock and
         // put a full bot fleet on each side.
-        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular' });
+        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular', ff: !!msg.ff });
         break;
 
       case 'custom':
@@ -77,6 +77,7 @@ export class LocalNet extends EventTarget {
           time: msg.time,
           weather: msg.weather,
           fog: !!msg.fog,
+          ff: !!msg.ff,
           arcade: !!msg.arcade,
           seed: msg.seed,
           half: msg.half,
@@ -87,7 +88,7 @@ export class LocalNet extends EventTarget {
 
       case 'joinRoom':
         // Rooms are never shared in a standalone build, so this is a new battle.
-        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular' });
+        this.startBattle({ ...msg, allies: 3, enemies: 4 }, { botSkill: 'regular', ff: !!msg.ff });
         break;
 
       case 'leave':
@@ -124,6 +125,7 @@ export class LocalNet extends EventTarget {
       time: opts.time,
       weather: opts.weather,
       fog: !!opts.fog,
+      friendlyFire: !!opts.ff,
       arcade: !!opts.arcade,
       seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
       half: Number.isFinite(opts.half) ? opts.half : undefined,

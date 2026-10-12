@@ -46,7 +46,9 @@ export class Room {
     // Arcade rules ride on the world, which both the simulation and every
     // client are handed: see stepDetection.
     if (opts.arcade) this.world.arcade = true;
-    this.state = createState(this.world, { mode: this.mode, timeLimit: opts.timeLimit || 900 });
+    this.state = createState(this.world, {
+      mode: this.mode, timeLimit: opts.timeLimit || 900, friendlyFire: !!opts.friendlyFire,
+    });
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain
     this.phase = 'lobby';         // lobby | battle | ended

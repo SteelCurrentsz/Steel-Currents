@@ -77,6 +77,12 @@ renderer.toneMappingExposure = 1.18;
 
 // A standalone build (no battle service to reach) hosts its own Room in-tab.
 const net = globalThis.STEEL_CURRENTS_OFFLINE ? new LocalNet() : new Net();
+// Every battle a captain starts carries his friendly fire setting with it.
+{
+  const send = net.send.bind(net);
+  net.send = (m) => send(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom')
+    ? { ...m, ff: getSettings().friendlyFire === true } : m);
+}
 const input = new Input(canvas);
 input.touch = isTouchDevice();
 if (input.touch) document.getElementById('touch-help')?.removeAttribute('hidden');
@@ -696,6 +702,7 @@ const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
+const optFF = document.getElementById('opt-ff');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -705,6 +712,7 @@ optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
+if (optFF) optFF.checked = settings.friendlyFire === true;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -724,6 +732,7 @@ optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQ
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
+if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --
 

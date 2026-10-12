@@ -3738,6 +3738,86 @@ check('a torpedo that strikes inside five seconds is a dud, and after that it go
   assert.ok(armed.took > 0);
 });
 
+check('friendly fire: off, a side cannot hurt itself; on, everything it fires can', () => {
+  const setup = (ff) => {
+    const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch', friendlyFire: ff });
+    state.world.islands = [];
+    const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'cleveland', team: 0, index: 1 });
+    const foe = addShip(state, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+    foe.x = 20000; foe.z = 20000;
+    for (const s of [a, b, foe]) for (const t of s.turrets) t.disabled = 1e9;
+    silenceSecondaries(a, b, foe);
+    a.x = -3000; a.z = 0; b.x = 0; b.z = 0; b.heading = 0;
+    return { state, a, b };
+  };
+  const T = SHIP_CLASSES.fletcher.torpedoes;
+  const torpAt = (state, a, b) => state.torps.push({
+    id: 1, owner: a.id, team: a.team, x: b.x - 300, z: b.z, heading: Math.PI / 2,
+    speed: T.speed, range: T.range, travelled: 400, age: 20, arming: T.arming,
+    damage: T.damage, detection: 900, flood: T.floodChance,
+  });
+  for (const ff of [false, true]) {
+    const { state, a, b } = setup(ff);
+    torpAt(state, a, b);
+    const before = b.hp;
+    const ev = [];
+    for (let i = 0; i < 30 * 20; i++) ev.push(...step(state, DT));
+    const hit = ev.some((e) => e.e === 'torpHit' && e.victim === b.id);
+    assert.equal(hit, ff, `friendly fire ${ff ? 'on' : 'off'}: a torpedo of her own side ${hit ? 'hit' : 'missed'} her`);
+    assert.equal(b.hp < before, ff);
+  }
+  // And a shell: dropped onto her deck from her own side.
+  for (const ff of [false, true]) {
+    const { state, a, b } = setup(ff);
+    // A real salvo out of her guns, put over the other ship's deck and coming
+    // straight down.
+    for (const t of a.turrets) { t.disabled = 0; t.reload = 0; t.cooldown = 0; }
+    a.aimX = b.x; a.aimZ = b.z;
+    for (let i = 0; i < 30 * 6 && !state.shells.length; i++) { fireGuns(state, a); step(state, DT); }
+    assert.ok(state.shells.length, 'she would not fire');
+    for (const sh of state.shells) { sh.x = b.x; sh.z = b.z; sh.y = 30; sh.vx = 0; sh.vz = 0; sh.vy = -250; }
+    const before = b.hp;
+    const ev = [];
+    for (let i = 0; i < 30; i++) ev.push(...step(state, DT));
+    const struck = ev.some((e) => e.victim === b.id);
+    assert.equal(struck, ff, `friendly fire ${ff ? 'on' : 'off'}: a shell of her own side ${struck ? 'struck' : 'passed through'} her`);
+  }
+});
+
+check('friendly fire: off, two ships of a side run into each other and bump; on, they ram', () => {
+  const run = (ff) => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch', friendlyFire: ff });
+    const R = addShip(st, { name: 'R', classId: 'bismarck', team: 0, index: 0 });
+    const T = addShip(st, { name: 'T', classId: 'fletcher', team: 0, index: 1 });
+    T.x = 0; T.z = 0; T.heading = Math.PI / 2; T.speed = 0; T.notch = 1;
+    R.x = 0; R.z = -(SHIP_CLASSES.bismarck.hull.length / 2 + 8); R.heading = 0; R.speed = 12; R.notch = 1;
+    const ev = [];
+    for (let i = 0; i < 120; i++) ev.push(...step(st, DT));
+    return { T, hit: ev.find((e) => e.e === 'collide'), cut: ev.some((e) => e.e === 'cut') };
+  };
+  const off = run(false);
+  assert.ok(off.hit, 'they never met');
+  assert.equal(off.hit.kind, 'bump');
+  assert.equal(off.T.hp, off.T.maxHp, 'a friend was hurt with friendly fire off');
+  assert.ok(!off.cut);
+  const on = run(true);
+  assert.notEqual(on.hit.kind, 'bump');
+  assert.ok(on.T.hp < on.T.maxHp, 'with friendly fire on the ram did nothing');
+});
+
+check('friendly fire: off by default, and the room and the battle carry it', () => {
+  assert.equal(createState(generateWorld(1, 'open_ocean'), {}).friendlyFire, false);
+  const off = new Room({ name: 't', mode: 'deathmatch', autoStart: false });
+  assert.equal(off.state.friendlyFire, false);
+  off.close();
+  const on = new Room({ name: 't', mode: 'deathmatch', autoStart: false, friendlyFire: true });
+  assert.equal(on.state.friendlyFire, true);
+  on.close();
+});
+
 check('a battle is fought out to the last ship', () => {
   // It used to be able to end three other ways: on points, off a running
   // score from three circles on the chart; on a clock, with whoever was ahead
@@ -18518,7 +18598,9 @@ check('a ship going down settles and lists smoothly, not in steps', () => {
 function collide(rc, tc, how, knots) {
   const world = generateWorld(4242, 'open_ocean');
   world.islands = [];
-  const st = createState(world, { mode: 'deathmatch' });
+  // Two ships of one side, so friendly fire has to be on for them to hurt
+  // each other at all.
+  const st = createState(world, { mode: 'deathmatch', friendlyFire: true });
   const R = addShip(st, { name: 'R', classId: rc, team: 0, index: 0 });
   const T = addShip(st, { name: 'T', classId: tc, team: 0, index: 1 });
   const cr = SHIP_CLASSES[rc], ct = SHIP_CLASSES[tc];

@@ -15,6 +15,9 @@ const DEFAULTS = {
   // The penetration camera: the cut to her section when one of your rounds
   // strikes a ship. See render/pencam.js.
   penCam: true,
+  // Whether a side's shells, torpedoes, charges, aircraft and stems hurt its
+  // own ships. Off until a captain turns it on.
+  friendlyFire: false,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
   // Null means she sails with what her datasheet says.
   airGroup: null,

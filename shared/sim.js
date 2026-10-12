@@ -42,6 +42,9 @@ function eid() { return nextEntityId++; }
 export function createState(world, opts = {}) {
   return {
     world,
+    // Whether a side's own fire, torpedoes, charges, aircraft and stems hurt
+    // its own ships. Off unless the battle was set up with it on.
+    friendlyFire: !!opts.friendlyFire,
     t: 0,
     tick: 0,
     ships: [],
@@ -412,6 +415,14 @@ export function applyInput(ship, input) {
   if (typeof input.depth === 'number' && shipClass(ship).dive) {
     ship.depthCmd = clamp(input.depth, 0, shipClass(ship).dive.max);
   }
+}
+
+/**
+ * Whether something of `team`'s may hurt this ship, battery or aeroplane: an
+ * enemy's always, and a friend's only with friendly fire on.
+ */
+export function mayHurt(state, team, target) {
+  return !target || target.team !== team || !!state.friendlyFire;
 }
 
 /** Whether she is under enough of the sea to matter. */
@@ -1097,7 +1108,7 @@ function underKeel(state, U, L, cu, cl, su, sl, rams, dt) {
  * out of it with her bottom plating torn open along the boat's back.
  */
 function keelStrike(state, U, L, cu, cl, at, v) {
-  if (v < RAM_MIN * 0.5) return;
+  if (v < RAM_MIN * 0.5 || !mayHurt(state, U.team, L)) return;
   const pu = partAt(U, cu, at.x, at.z);
   const pl = partAt(L, cl, at.x, at.z);
   const mu = tonnage(cu), ml = tonnage(cl);
@@ -1134,6 +1145,7 @@ function keelStrike(state, U, L, cu, cl, at, v) {
  * boat under a cruiser, she still lifts her, if not much.
  */
 function surfaceUnder(state, U, L, cu, cl, at, rise) {
+  if (!mayHurt(state, U.team, L)) return;
   const pu = partAt(U, cu, at.x, at.z);
   const pl = partAt(L, cl, at.x, at.z);
   const mu = tonnage(cu), ml = tonnage(cl);
@@ -1187,6 +1199,12 @@ function surfaceUnder(state, U, L, cu, cl, at, rise) {
  * up and no more. Both always pay something.
  */
 function ramImpact(state, a, b, ca, cb, at, nx, nz) {
+  // Ships of one side, with friendly fire off: they bump, they foul, and
+  // nobody is hurt.
+  if (!mayHurt(state, a.team, b)) {
+    state.events.push({ e: 'collide', a: a.id, b: b.id, x: r(at.x), z: r(at.z), v: 0, kind: 'bump', out: [] });
+    return;
+  }
   const va = velocityOf(a);
   const vb = velocityOf(b);
   // How fast they were closing, along the line they met on.
@@ -2400,7 +2418,7 @@ function stepBullets(state, dt) {
     // Aeroplanes first: that is what a fighter's guns are for, and a flight is
     // a small target that a coarse test walks straight past.
     for (const q of state.planes) {
-      if (q.dead || q.team === b.team || q.id === b.plane) continue;
+      if (q.dead || !mayHurt(state, b.team, q) || q.id === b.plane) continue;
       if (!segNear(px, py, pz, b.x, b.y, b.z, q.x, q.y ?? 220, q.z, 26)) continue;
       hurtFlight(state, q, b.dmg, 'fighters');
       state.events.push({
@@ -2413,7 +2431,7 @@ function stepBullets(state, dt) {
 
     // Ships. Her box and her air draft, in four steps along the segment.
     for (const s of state.ships) {
-      if (!s.alive || s.team === b.team) continue;
+      if (!s.alive || !mayHurt(state, b.team, s)) continue;
       const cls = getClass(s.classId);
       if (dist2(b.x, b.z, s.x, s.z) > 4e6) continue;
       const halfLen = cls.hull.length * 0.5;
@@ -2434,7 +2452,7 @@ function stepBullets(state, dt) {
 
     // The guns ashore, which are a low wide target.
     for (const bat of state.batteries) {
-      if (!bat.alive || bat.team === b.team) continue;
+      if (!bat.alive || !mayHurt(state, b.team, bat)) continue;
       const spec = BATTERIES[bat.batteryId];
       const reach = spec.span * 0.5 + 4;
       if (dist2(b.x, b.z, bat.x, bat.z) > (reach + 60) * (reach + 60)) continue;
@@ -2606,7 +2624,10 @@ export function dropOrdnance(state, ship, id) {
   let best = null;
   let bestD = torp > 0 ? 1600 : 1200;
   for (const s of state.ships) {
-    if (!s.alive || s.team === p.team) continue;
+    if (!s.alive || !mayHurt(state, p.team, s)) continue;
+    // With friendly fire on, a pilot's drop goes into whatever is under it --
+    // except the carrier she flew off, which she is not dropping on.
+    if (s.team === p.team && s.id === p.owner) continue;
     const d = dist(p.x, p.z, s.x, s.z);
     if (d < bestD) { best = s; bestD = d; }
   }
@@ -3578,7 +3599,9 @@ function stepShells(state, dt) {
     let consumed = false;
     // Ship intersection: sample the segment so fast shells cannot tunnel.
     for (const target of state.ships) {
-      if (!target.alive || target.team === sh.team) continue;
+      if (!target.alive || !mayHurt(state, sh.team, target)) continue;
+      // Never the ship that fired it: it leaves her muzzles inside her own box.
+      if (target.id === sh.owner && !sh.fromBattery && !sh.bomb) continue;
       const cls = getClass(target.classId);
       const halfLen = cls.hull.length * 0.5;
       const halfBeam = cls.hull.beam * 0.5 + 2;
@@ -3617,7 +3640,8 @@ function stepShells(state, dt) {
 
     // And the guns ashore, which are a low, wide target rather than a hull.
     for (const bat of state.batteries) {
-      if (!bat.alive || bat.team === sh.team) continue;
+      if (!bat.alive || !mayHurt(state, sh.team, bat)) continue;
+      if (sh.fromBattery && bat.id === sh.owner) continue;
       const b = BATTERIES[bat.batteryId];
       const reach = b.span * 0.5 + 6;
       if (dist2(sh.x, sh.z, bat.x, bat.z) > (reach + 240) * (reach + 240)) continue;
@@ -3656,7 +3680,7 @@ function stepShells(state, dt) {
           // the ground: a battery under it is the target, not scenery.
           if (sh.bomb) {
             for (const bat of state.batteries) {
-              if (!bat.alive || bat.team === sh.team) continue;
+              if (!bat.alive || !mayHurt(state, sh.team, bat)) continue;
               const spec = BATTERIES[bat.batteryId];
               // How far from a gun position a bomb has to land to matter.
               //
@@ -4353,7 +4377,9 @@ function stepTorpedoes(state, dt) {
     let hit = false;
     {
       for (const target of state.ships) {
-        if (!target.alive || target.team === tp.team) continue;
+        if (!target.alive || !mayHurt(state, tp.team, target)) continue;
+        // Not the ship that fired it while it is still getting clear of her.
+        if (target.id === tp.owner && tp.age < 10) continue;
         const cls = getClass(target.classId);
         // Swept along the run it made this tick, not only where it ended up,
         // so a fish fired into a ship from close aboard cannot step over her.
@@ -4718,6 +4744,10 @@ function burstCharge(state, c) {
   if (-c.y < c.arming) return;
   for (const target of state.ships) {
     if (!target.alive) continue;
+    // Her own charges can always get her -- a pattern dropped from a ship not
+    // making way goes off under her own quarterdeck -- but another ship of
+    // her side only with friendly fire on.
+    if (target.id !== c.owner && !mayHurt(state, c.team ?? (owner && owner.team), target)) continue;
     const cls = getClass(target.classId);
     // How far it is from the burst to the nearest piece of her. Her hull is a
     // box: her length and beam in plan, and in the vertical from her keel to
@@ -5778,7 +5808,7 @@ function nearestEnemyShip(state, p) {
 function stepRam(state, p) {
   if (p.dead) return false;
   for (const s of state.ships) {
-    if (!s.alive || s.team === p.team) continue;
+    if (!s.alive || !mayHurt(state, p.team, s)) continue;
     const cls = getClass(s.classId);
     if (!planeInShip(p, s, cls)) continue;
     return ramShip(state, p, s, cls);
