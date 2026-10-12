@@ -4439,35 +4439,24 @@ export class Battle {
       // of her goes down the flames go with her rather than being left alight
       // on the open sea.
       if (s.fr && (s.a || view.group.visible)) {
-        view.fireTimer -= dt;
-        if (view.fireTimer <= 0) {
-          view.fireTimer = 0.10;
-          const l = getClass(s.c).hull.length;
-          for (let i = 0; i < SECTIONS.length; i++) {
-            const heat = (s.fr[i] || 0) / 9;
-            if (heat < 0.06) continue;
-            const sec = SECTIONS[i];
-            // The superstructure burns above the deck and amidships; a
-            // compartment burns over its own length of her.
-            const mid = sec.from === null ? 0.05 : (sec.from + sec.to) / 2;
-            const spread = sec.from === null ? 0.12 : (sec.to - sec.from) * 0.42;
-            const off = (mid + (Math.random() - 0.5) * spread * 2) * l * 0.5;
-            const up = sec.from === null ? 20 : 9;
-            this.scene.effects.fire(x + Math.sin(h) * off + (Math.random() - 0.5) * 6,
-              up, z + Math.cos(h) * off + (Math.random() - 0.5) * 6, heat);
-            // And the flame itself, which is geometry rather than a picture:
-            // it stands on her deck over the compartment that is alight and
-            // stays where it is when the camera walks round her.
-            this.scene.flames.at(`${s.i}:${i}`,
-              x + Math.sin(h) * ((mid) * l * 0.5), up - 1,
-              z + Math.cos(h) * ((mid) * l * 0.5),
-              heat, Math.max(6, spread * l));
-            // And it blackens what is standing in it. Slowly, and for as long
-            // as it burns, so a compartment that has been alight for two
-            // minutes leaves the ship black there when it is out -- and it
-            // stays black, because soot does.
-            view.scorchAt(0, up - 3, off, 9 + heat * 7, heat * dt * 0.16);
-          }
+        const l = getClass(s.c).hull.length;
+        for (let i = 0; i < SECTIONS.length; i++) {
+          const heat = (s.fr[i] || 0) / 9;
+          if (heat < 0.06) continue;
+          const sec = SECTIONS[i];
+          // The superstructure burns above the deck and amidships; a
+          // compartment burns over its own length of her.
+          const mid = sec.from === null ? 0.05 : (sec.from + sec.to) / 2;
+          const spread = sec.from === null ? 0.12 : (sec.to - sec.from) * 0.42;
+          const up = sec.from === null ? 20 : 9;
+          // The flame stands on her deck over the compartment that is
+          // alight, and the smoke goes up off it -- both in flames.js. Every
+          // frame, so the fire stays on her as she steams rather than being
+          // left a few metres astern of where she was a tenth of a second ago.
+          this.scene.flames.at(`${s.i}:${i}`,
+            x + Math.sin(h) * (mid * l * 0.5), up - 1,
+            z + Math.cos(h) * (mid * l * 0.5),
+            heat, Math.max(6, spread * l));
         }
       }
 
@@ -4491,15 +4480,7 @@ export class Battle {
       if (g.al) for (const m of view.spin) m.rotation.y = g.h + ang;
       view.marker.visible = this.camMode === 'tactical';
       // Silenced, and burning where it stands.
-      if (!g.al) {
-        view.smokeTimer -= dt;
-        if (view.smokeTimer <= 0) {
-          view.smokeTimer = 0.4 + Math.random() * 0.5;
-          const off = (Math.random() - 0.5) * view.span * 0.6;
-          this.scene.effects.fire(g.x + off, g.y + 4, g.z + (Math.random() - 0.5) * view.span * 0.6);
-          this.scene.flames.at(`bat:${g.i}`, g.x, g.y + 2, g.z, 0.6, view.span * 0.5);
-        }
-      }
+      if (!g.al) this.scene.flames.at(`bat:${g.i}`, g.x, g.y + 2, g.z, 0.6, view.span * 0.5);
     }
     for (const [id] of this.scene.batteryViews) {
       if (!gunsSeen.has(id)) this.scene.removeBatteryView(id);

@@ -1996,6 +1996,12 @@ export class BattleScene {
     this.breakers.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
     this.bursts.update(dt);
+    // The air the smoke goes off on.
+    if (this.world) {
+      const w = windAt(this.world, this.ocean?.clock ?? this.flames.time);
+      this.flames.wind.x = w.x;
+      this.flames.wind.z = w.z;
+    }
     this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);
@@ -2024,9 +2030,6 @@ export class BattleScene {
     // The sheet of light under it belongs to the ocean, which reads the oil
     // map and glows where the oil is alight; this is the flame itself, and the
     // smoke, which on burning fuel oil is thick, black and enormous.
-    this.oilSmoke = (this.oilSmoke || 0) - dt;
-    const puff = this.oilSmoke <= 0;
-    if (puff) this.oilSmoke = 0.22;
     for (let i = 0; i < this.oil.slicks.length; i++) {
       const sl = this.oil.slicks[i];
       if (sl.burn < 0.06) continue;
@@ -2040,10 +2043,6 @@ export class BattleScene {
         const d = r * (0.14 + 0.42 * (((j * 7 + i * 3) % 5) / 5));
         this.flames.at(`oil${i}:${j}`, sl.x + Math.cos(a) * d, 0.5,
           sl.z + Math.sin(a) * d, heat * 0.85, Math.max(9, r * 0.42));
-        if (puff) {
-          this.effects.fire(sl.x + Math.cos(a) * d, 1.5, sl.z + Math.sin(a) * d,
-            heat * 0.9);
-        }
       }
     }
   }

@@ -75,7 +75,7 @@ float fbm3(vec2 p) {
 //
 // The cards are cylindrical billboards: they turn to face the camera about the
 // vertical axis only, so a flame stays upright however the view rolls.
-const BILLBOARD_VERT = /* glsl */`
+export const BILLBOARD_VERT = /* glsl */`
 uniform float uFogDensity;
 attribute vec3 iPos;
 attribute vec3 iCard;    // width, height, lean
@@ -119,7 +119,7 @@ void main() {
 // flame is the same size whether it is coming off a drum or off a burning
 // warehouse, and it climbs at the same speed, so the eye reads the scale off
 // the motion.
-const FLAME_FRAG = /* glsl */`
+export const FLAME_FRAG = /* glsl */`
 uniform float uTime;
 varying vec2 vUv;
 varying float vFog;
@@ -244,7 +244,7 @@ void main() {
 // A soft halo of light round every seat of fire. Real fire at a distance is
 // mostly this: the flame itself is small, and what carries across a mile of
 // night is the glow it throws into the smoke and dust above it.
-const GLOW_FRAG = /* glsl */`
+export const GLOW_FRAG = /* glsl */`
 varying vec2 vUv;
 varying float vFog;
 varying vec2 vLevel;
