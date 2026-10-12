@@ -2,6 +2,7 @@
 // else, camera rig, effects and the loop that ties them together.
 
 import * as THREE from '../../vendor/three.module.js';
+import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
 import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
@@ -49,6 +50,8 @@ const EXTRAPOLATE = 0.3;
 const CORRECT_TAU = 0.3;
 // How many seconds of snapshots the server's clock rate is measured over.
 const CLOCK_WINDOW = 4;
+/** Scratch for where a fire stands this frame. */
+const FIRE_AT = new THREE.Vector3();
 
 /**
  * Where a ship is between two snapshots of her.
@@ -4439,24 +4442,31 @@ export class Battle {
       // of her goes down the flames go with her rather than being left alight
       // on the open sea.
       if (s.fr && (s.a || view.group.visible)) {
-        const l = getClass(s.c).hull.length;
+        const cls = getClass(s.c);
+        // Where on her each burning compartment's fire stands, found once on
+        // her own model (see fireseats.js) and carried in her own frame, so
+        // the fire is on the deck or the superstructure that is alight and
+        // goes with her as she heels, settles and steams.
+        view.group.updateMatrix();
         for (let i = 0; i < SECTIONS.length; i++) {
           const heat = (s.fr[i] || 0) / 9;
           if (heat < 0.06) continue;
-          const sec = SECTIONS[i];
-          // The superstructure burns above the deck and amidships; a
-          // compartment burns over its own length of her.
-          const mid = sec.from === null ? 0.05 : (sec.from + sec.to) / 2;
-          const spread = sec.from === null ? 0.12 : (sec.to - sec.from) * 0.42;
-          const up = sec.from === null ? 20 : 9;
-          // The flame stands on her deck over the compartment that is
-          // alight, and the smoke goes up off it -- both in flames.js. Every
-          // frame, so the fire stays on her as she steams rather than being
-          // left a few metres astern of where she was a tenth of a second ago.
-          this.scene.flames.at(`${s.i}:${i}`,
-            x + Math.sin(h) * (mid * l * 0.5), up - 1,
-            z + Math.cos(h) * (mid * l * 0.5),
-            heat, Math.max(6, spread * l));
+          view.fireSeats = view.fireSeats || new Map();
+          let seats = view.fireSeats.get(i);
+          if (!seats) {
+            seats = fireSeats(view, cls, SECTIONS[i], freeboardOf(cls));
+            view.fireSeats.set(i, seats);
+          }
+          // The whole of the compartment goes up, not one column over it:
+          // the hottest seat first, the others catching as it spreads.
+          for (let j = 0; j < seats.length; j++) {
+            const st = seats[j];
+            const catchAt = j === 1 ? 0 : 0.12 + 0.1 * j;
+            if (heat < catchAt) continue;
+            FIRE_AT.set(st.x, st.y, st.z).applyMatrix4(view.group.matrix);
+            this.scene.flames.at(`${s.i}:${i}:${j}`, FIRE_AT.x, FIRE_AT.y, FIRE_AT.z,
+              heat * (j === 1 ? 1 : 0.85), st.span);
+          }
         }
       }
 

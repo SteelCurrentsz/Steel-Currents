@@ -5084,7 +5084,8 @@ export const SHIP_CLASSES = {
       name: '46 cm/45 Type 94', role: 'surface',
       // Five below the horizontal to forty-five up.
       elev: { min: -0.087, max: 0.785 },
-      reach: 18.2,
+      // Pivot to muzzle on the owner's sculpt of the turret.
+      reach: 21.3,
       caliber: 460, reload: 29, traverse: 0.06, range: 23800, sigma: 1.30,
       shells: shells(460, 15800, 7400, 760, 780, 0.26),
     },

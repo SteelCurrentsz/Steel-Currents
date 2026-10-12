@@ -21,7 +21,7 @@ import { NOISE, BILLBOARD_VERT, FLAME_FRAG, GLOW_FRAG } from './fire.js';
 
 // How many fires can burn at once, how many flame cards each is made of, and
 // how many puffs of smoke can be in the air.
-const MAX_FIRES = 22;
+const MAX_FIRES = 64;
 const CARDS = 3;
 const MAX_PUFFS = 1400;
 // A tongue of flame is about this across and climbs at about this speed,
@@ -205,8 +205,8 @@ export class Flames {
   /** How big a fire is, in metres: as wide as its compartment lets it be. */
   size(f) {
     const h = Math.max(0.05, f.heat);
-    const w = THREE.MathUtils.clamp(f.span * 0.5, 6, 30) * (0.5 + 0.6 * h);
-    return { w, h: w * (1.4 + 1.0 * h), heat: h };
+    const w = THREE.MathUtils.clamp(f.span * 0.62, 7, 34) * (0.55 + 0.6 * h);
+    return { w, h: w * (1.35 + 0.9 * h), heat: h };
   }
 
   update(dt) {
@@ -263,8 +263,8 @@ export class Flames {
       // Smoke off the head of it, more the harder it burns.
       // Shared out when a great many are burning, so the last fire on the
       // list is not starved of smoke by the first.
-      f.due -= dt * (2.2 + 4.5 * s.heat) * Math.min(1.6, this.intensity)
-        * Math.min(1, 8 / Math.max(1, this.fires.size));
+      f.due -= dt * (1.3 + 2.7 * s.heat) * Math.min(1.6, this.intensity)
+        * Math.min(1, 14 / Math.max(1, this.fires.size));
       while (f.due <= 0) {
         f.due += 1;
         this.puff(f, s);
