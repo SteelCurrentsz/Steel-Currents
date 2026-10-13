@@ -1,17 +1,24 @@
-// All sound is synthesised — no asset downloads. Gunfire is a filtered noise
-// burst over a pitch-dropping sine; the sea is filtered pink noise.
+// The battle's sound: every noise put where it happened and heard from where
+// the camera is.
+//
+// The sounds themselves are built in sfx.js, sample by sample, in a worker so
+// the battle never waits on one. What this file does is the hearing: a gun
+// fifteen hundred metres off arrives a beat and a half after its flash, a
+// great deal quieter than one alongside and with the crack gone out of it,
+// because air takes the top off a sound long before it takes the bottom. A
+// ship close aboard is heard working through the water and her machinery
+// turning; one going down is heard creaking. Bring the camera in on any of
+// it and it gets louder and brighter, because you are nearer to it.
 //
 // Nothing here is allowed to stop the game. Web Audio refuses a value that is
-// not a number -- `AudioParam` and the schedulers all throw
-// "the provided value is non-finite" rather than ignoring it -- and every
-// figure in this file is worked out from something that happened in the
-// battle: how far away a gun was, how hard the engines are working. A single
-// bad number anywhere upstream used to arrive here and take the whole battle
-// down with it, because a sound is on the same call stack as the frame that
-// asked for it. So every number is checked on the way in, and a sound that
-// cannot be worked out is simply not played.
+// not a number -- `AudioParam` and the schedulers all throw "the provided
+// value is non-finite" rather than ignoring it -- and every figure in this
+// file is worked out from something that happened in the battle. So every
+// number is checked on the way in, and a sound that cannot be worked out is
+// simply not played.
 
 import { getSettings } from './settings.js';
+import { sfxKit, RECIPES, rng } from './sfx.js';
 
 /** A number, or the fallback -- so nothing that is not a number reaches the API. */
 function num(v, fallback = 0) { return Number.isFinite(v) ? v : fallback; }
@@ -22,12 +29,45 @@ function span(v, lo, hi, fallback = lo) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/** The rate the takes are built at: all a sound at a distance needs, and quick. */
+const BUILD_RATE = 32000;
+/** Sound in air, metres a second. */
+const SPEED_OF_SOUND = 343;
+/** The longest a sound is held back for its distance: past it, it is too quiet to matter. */
+const MAX_DELAY = 1.6;
+const MAX_VOICES = 48;
+/** How many ships are heard working through the water at once, nearest first. */
+const SHIP_VOICES = 4;
+
+/**
+ * The order the takes are built in: what is heard in the first seconds of a
+ * battle first, the rare things last.
+ */
+const BUILD_ORDER = [
+  'gunMedium', 'gunHeavy', 'gunLight', 'splashSmall', 'splashLarge', 'sea', 'wash',
+  'turbines', 'boomSmall', 'clang', 'pom', 'rattle', 'boomInside', 'boomLarge',
+  'ricochet', 'shatter', 'splashBomb', 'launch', 'torpHit', 'crash', 'creak', 'groan',
+  'bang', 'vent', 'magazine', 'wind', 'diesels', 'alarm',
+];
+
+function seedOf(name, take) {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return (h ^ Math.imul(take + 1, 0x9E3779B1)) >>> 0;
+}
+
 export class Audio {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.noiseBuffer = null;
     this.enabled = true;
+    this.bank = new Map();
+    this.voices = 0;
+    this.recent = new Map();
+    this.ear = { x: 0, y: 30, z: 0, rx: 1, rz: 0, set: false };
+    this.shipVoices = new Map();
+    this.creaks = new Map();
+    this.ambience = null;
   }
 
   ensure() {
@@ -35,53 +75,374 @@ export class Audio {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) { this.enabled = false; return null; }
     this.ctx = new Ctx();
-    this.master = this.ctx.createGain();
+    const ctx = this.ctx;
+    this.master = ctx.createGain();
     this.master.gain.value = span(getSettings().volume / 100, 0, 1);
-    this.master.connect(this.ctx.destination);
-    this.noiseBuffer = this.makeNoise(2);
-    return this.ctx;
+    this.master.connect(ctx.destination);
+    // Everything that happens goes through one compressor, the way an ear
+    // closes up under gunfire: a broadside alongside is not allowed to clip,
+    // and the sea goes quiet under it for a moment.
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16;
+    comp.knee.value = 10;
+    comp.ratio.value = 5;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.35;
+    comp.connect(this.master);
+    this.sfx = ctx.createGain();
+    this.sfx.gain.value = 0.85;
+    this.sfx.connect(comp);
+    this.amb = ctx.createGain();
+    this.amb.gain.value = 1;
+    this.amb.connect(comp);
+    this.startBuilding();
+    return ctx;
   }
 
   resume() { const c = this.ensure(); if (c && c.state === 'suspended') c.resume(); }
 
   setVolume(v) { if (this.master) this.master.gain.value = span(v / 100, 0, 1); }
 
-  makeNoise(seconds) {
-    const len = Math.floor(this.ctx.sampleRate * seconds);
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < len; i++) {
-      const white = Math.random() * 2 - 1;
-      last = (last + 0.02 * white) / 1.02;   // pink-ish
-      data[i] = last * 3.2;
+  // ------------------------------------------------------------ building ----
+
+  /**
+   * Every take of every sound, built off the main thread: one at a time, in
+   * the order they are wanted. Without a worker -- a host that refuses one --
+   * they are built here instead, one between frames.
+   */
+  startBuilding() {
+    const jobs = [];
+    for (const name of BUILD_ORDER) {
+      const r = RECIPES[name];
+      if (!r) continue;
+      for (let take = 0; take < r.takes; take++) jobs.push({ name, take });
     }
-    return buf;
+    this.jobs = jobs;
+    try {
+      const src = `const K = (${sfxKit.toString()})();\n`
+        + 'onmessage = (e) => { const { name, take, sr, seed } = e.data;'
+        + ' const chs = K.RECIPES[name].make(sr, K.rng(seed));'
+        + ' postMessage({ name, take, sr, chs }, chs.map((c) => c.buffer)); };';
+      const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      w.onmessage = (e) => { this.store(e.data); this.nextJob(); };
+      w.onerror = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        this.worker = null;
+        try { w.terminate(); } catch { /* gone */ }
+        // Whatever was in hand goes back on the list for the main thread.
+        if (this.inHand) this.jobs.unshift(this.inHand);
+        this.inHand = null;
+        this.buildHere();
+      };
+      this.worker = w;
+      this.nextJob();
+    } catch {
+      this.worker = null;
+      this.buildHere();
+    }
   }
 
-  noise(when, dur, { freq = 700, q = 0.7, gain = 0.5, type = 'lowpass', sweep = 0 } = {}) {
+  nextJob() {
+    const job = this.jobs.shift();
+    this.inHand = job || null;
+    if (!job || !this.worker) return;
+    this.worker.postMessage({ ...job, sr: BUILD_RATE, seed: seedOf(job.name, job.take) });
+  }
+
+  buildHere() {
+    const step = () => {
+      const job = this.jobs.shift();
+      if (!job) return;
+      try {
+        const chs = RECIPES[job.name].make(BUILD_RATE, rng(seedOf(job.name, job.take)));
+        this.store({ ...job, sr: BUILD_RATE, chs });
+      } catch { /* that one is not heard */ }
+      setTimeout(step, 60);
+    };
+    setTimeout(step, 0);
+  }
+
+  store({ name, sr, chs }) {
+    const ctx = this.ctx;
+    if (!ctx || !chs || !chs.length) return;
+    try {
+      const buf = ctx.createBuffer(chs.length, chs[0].length, sr);
+      chs.forEach((c, i) => buf.copyToChannel ? buf.copyToChannel(c, i) : buf.getChannelData(i).set(c));
+      if (!this.bank.has(name)) this.bank.set(name, []);
+      this.bank.get(name).push(buf);
+      // A loop that was waiting on its take starts now.
+      if (this.ambience && (name === 'sea' || name === 'wind')) this.startAmbienceLoops();
+    } catch { /* a buffer the device would not make */ }
+  }
+
+  take(name) {
+    const list = this.bank.get(name);
+    if (!list || !list.length) return null;
+    return list[(Math.random() * list.length) | 0];
+  }
+
+  // ------------------------------------------------------------- hearing ----
+
+  /** Where the ears are: the camera, every frame. */
+  listen(camera) {
+    if (!camera || !camera.position) return;
+    const p = camera.position;
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return;
+    const e = camera.matrixWorld && camera.matrixWorld.elements;
+    let rx = 1, rz = 0;
+    if (e && Number.isFinite(e[0]) && Number.isFinite(e[2])) {
+      const l = Math.hypot(e[0], e[2]);
+      if (l > 1e-4) { rx = e[0] / l; rz = e[2] / l; }
+    }
+    this.ear = { x: p.x, y: p.y, z: p.z, rx, rz, set: true };
+    this.updateAmbience();
+  }
+
+  /**
+   * How a sound at `at` reaches the camera: how loud, how dull, which side
+   * and how late. `at` is a point in the world; nothing is a sound at the
+   * ears themselves (the ship's own alarm); and a bare number is the old 0..1
+   * of how far off, for a caller that has no point to give.
+   */
+  hear(at, ref) {
+    if (at == null) return { g: 1, fc: 20000, pan: 0, delay: 0 };
+    if (typeof at === 'number') {
+      const f = span(at, 0, 1, 1);
+      return { g: (1 - f) * (1 - f), fc: 20000 * (1 - f) + 300, pan: 0, delay: 0 };
+    }
+    const ear = this.ear;
+    const x = num(at.x, NaN), z = num(at.z, NaN);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+    const y = num(at.y, 4);
+    const dx = x - ear.x, dy = y - ear.y, dz = z - ear.z;
+    const d = Math.hypot(dx, dy, dz);
+    // Spreading: half as loud for twice as far, once past the sound's own size.
+    const g = ref / Math.max(ref, d);
+    // And the air: the top goes first.
+    const fc = span(19000 / (1 + d / 260), 160, 19000);
+    const side = d > 1 ? (dx * ear.rx + dz * ear.rz) / d : 0;
+    const pan = span(side * Math.min(1, d / 40) * 0.8, -0.8, 0.8, 0);
+    const delay = Math.min(MAX_DELAY, d / SPEED_OF_SOUND);
+    return { g, fc, pan, delay, d };
+  }
+
+  /**
+   * One sound, once, where it happened. `level` is how loud it is at `ref`
+   * metres; `rate` pitches it (and its length) by that much; `dull` takes more
+   * of the top off, for something heard through a hull or the sea.
+   */
+  play(name, at, { level = 1, ref = 200, rate = 1, dull = 1, after = 0 } = {}) {
     const ctx = this.ensure(); if (!ctx) return;
-    // Everything the API will refuse, made safe here rather than at each of
-    // the dozen places that call this. `Math.max(0.0002, NaN)` is NaN -- which
-    // is exactly how a bad gain used to get all the way to the hardware.
-    when = num(when, ctx.currentTime);
-    dur = span(dur, 0.01, 8, 0.3);
-    gain = span(gain, 0.0002, 1, 0.0002);
-    freq = span(freq, 20, 20000, 700);
-    q = span(q, 0.0001, 30, 0.7);
-    sweep = span(sweep, 0, 8, 0);
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
-    src.loop = true;
-    const filt = ctx.createBiquadFilter();
-    filt.type = type; filt.frequency.value = freq; filt.Q.value = q;
-    if (sweep) filt.frequency.exponentialRampToValueAtTime(Math.max(40, freq * sweep), when + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(gain, when + Math.min(0.02, dur * 0.15));
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    src.connect(filt).connect(g).connect(this.master);
-    src.start(when); src.stop(when + dur + 0.05);
+    const buf = this.take(name);
+    if (!buf) return;
+    const h = this.hear(at, span(ref, 1, 1e5, 200));
+    if (!h) return;
+    const g = h.g * span(level, 0, 4, 0);
+    if (g < 0.0025) return;
+    if (this.voices >= MAX_VOICES || (this.voices >= MAX_VOICES * 0.7 && g < 0.06)) return;
+    // The same noise at the same place in the same instant is one noise: a
+    // salvo of nine landing together is not nine times as loud.
+    if (at && typeof at === 'object') {
+      const key = `${name}|${Math.round(num(at.x) / 30)}|${Math.round(num(at.z) / 30)}`;
+      const last = this.recent.get(key);
+      if (last != null && ctx.currentTime - last < 0.04) return;
+      this.recent.set(key, ctx.currentTime);
+      if (this.recent.size > 200) this.recent.clear();
+    }
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = span(rate * (0.96 + Math.random() * 0.08), 0.25, 4, 1);
+      const gain = ctx.createGain();
+      gain.gain.value = span(g, 0, 4, 0);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = span(h.fc / span(dull, 1, 40, 1), 60, 20000, 20000);
+      lp.Q.value = 0.5;
+      let tail = src.connect(gain).connect(lp);
+      if (ctx.createStereoPanner) {
+        const pan = ctx.createStereoPanner();
+        pan.pan.value = h.pan;
+        tail = tail.connect(pan);
+      }
+      tail.connect(this.sfx);
+      this.voices++;
+      src.onended = () => { this.voices--; try { src.disconnect(); gain.disconnect(); lp.disconnect(); } catch { /* gone */ } };
+      src.start(ctx.currentTime + 0.005 + h.delay + span(after, 0, 10, 0));
+    } catch { /* not heard */ }
+  }
+
+  // ---------------------------------------------------------------- guns ----
+
+  /**
+   * A gun, or a turret's worth of them, going off at `at`. Heavier guns are
+   * louder and carry further, and what is heard of them from far off is the
+   * roll and not the crack -- the air sees to that.
+   */
+  gun(caliber = 152, at = null, barrels = 1) {
+    const cal = span(caliber, 7, 510, 152);
+    const n = span(barrels, 1, 4, 1);
+    const more = 1 + 0.18 * (n - 1);
+    if (cal >= 250) {
+      this.play('gunHeavy', at, { level: (0.8 + 0.2 * (cal - 250) / 210) * more, ref: 200 + cal * 1.4, rate: 1.06 - (cal - 250) / 1600 });
+    } else if (cal >= 120) {
+      this.play('gunMedium', at, { level: (0.55 + 0.3 * (cal - 120) / 130) * more, ref: 120 + cal * 1.4, rate: 1.12 - (cal - 120) / 700 });
+    } else if (cal >= 60) {
+      this.play('gunLight', at, { level: (0.42 + 0.15 * (cal - 60) / 60) * more, ref: 90 + cal * 1.3, rate: 1.15 - (cal - 60) / 500 });
+    } else if (cal >= 30) {
+      this.play('pom', at, { level: 0.38, ref: 90, rate: 1.1 - (cal - 30) / 120 });
+    } else {
+      this.play('rattle', at, { level: 0.3, ref: 60, rate: 1.05 - cal / 200 });
+    }
+  }
+
+  /**
+   * The light battery firing at aircraft: the automatic guns going in short
+   * bursts, as many rounds as there are barrels on her, about, or the heavy
+   * dual-purpose mountings banging away out at long range.
+   */
+  aa(caliber = 40, barrels = 4, at = null) {
+    const cal = span(caliber, 7, 200, 40);
+    const n = span(barrels, 1, 80, 4);
+    if (cal >= 75) {
+      this.play('gunLight', at, { level: 0.42, ref: 200, rate: 1.1 });
+      if (n > 6) this.play('gunLight', at, { level: 0.32, ref: 200, rate: 1.04, after: 0.08 + Math.random() * 0.12 });
+      return;
+    }
+    const pom = cal >= 30;
+    const shots = Math.min(pom ? 4 : 7, Math.max(1, Math.round(pom ? n / 5 : n / 3)));
+    const gap = pom ? 0.075 : 0.045;
+    for (let i = 0; i < shots; i++) {
+      this.play(pom ? 'pom' : 'rattle', at, {
+        level: pom ? 0.34 : 0.24, ref: pom ? 110 : 70,
+        rate: (pom ? 1.0 : 1.08) + (Math.random() - 0.5) * 0.06,
+        after: i * gap + Math.random() * gap,
+      });
+    }
+  }
+
+  // ------------------------------------------------------ what lands ----
+
+  /** A round into the sea (`caliber` in mm), or a bomb if `bomb`. */
+  splash(caliber = 150, at = null, bomb = false) {
+    // The old call: splash(distance).
+    if (typeof caliber === 'number' && at == null && caliber <= 1) {
+      this.play('splashSmall', caliber, { level: 0.5 });
+      return;
+    }
+    const cal = span(caliber, 5, 2000, 150);
+    if (bomb) { this.play('splashBomb', at, { level: 0.95, ref: 380, rate: 0.95 + Math.random() * 0.1 }); return; }
+    if (cal < 30) return;
+    if (cal >= 200) {
+      this.play('splashLarge', at, { level: 0.5 + 0.3 * Math.min(1, (cal - 200) / 260), ref: 180 + cal * 0.5, rate: 1.08 - Math.min(0.2, (cal - 200) / 1300) });
+    } else {
+      this.play('splashSmall', at, { level: 0.3 + 0.3 * (cal - 30) / 170, ref: 70 + cal * 0.6, rate: 1.15 - (cal - 30) / 900 });
+    }
+  }
+
+  /**
+   * A round arriving on a ship. What got in goes off inside her, deadened by
+   * the plating round it; what did not, rings the plate; a citadel is the
+   * worst of both.
+   */
+  hit(kind, caliber = 150, at = null) {
+    const cal = span(caliber, 5, 510, 150);
+    const big = Math.min(1, cal / 406);
+    const ref = 140 + cal * 0.9;
+    switch (kind) {
+      case 'citadel':
+        this.play('boomInside', at, { level: 1, ref, rate: 0.9 });
+        this.play('boomLarge', at, { level: 0.6, ref, after: 0.05 });
+        break;
+      case 'pen':
+        this.play('boomInside', at, { level: 0.55 + 0.4 * big, ref, rate: 1.1 - 0.2 * big });
+        break;
+      case 'he':
+        this.play(cal >= 200 ? 'boomLarge' : 'boomSmall', at, { level: 0.5 + 0.4 * big, ref, rate: 1.1 - 0.15 * big });
+        break;
+      case 'overpen':
+        // In one side and out of the other without going off: a hard punch
+        // through the plate.
+        this.play('clang', at, { level: 0.5 + 0.3 * big, ref, rate: 0.85 });
+        break;
+      case 'shatter':
+        this.play('shatter', at, { level: 0.5 + 0.3 * big, ref, rate: 1.1 - 0.25 * big });
+        break;
+      case 'ricochet':
+        this.play('ricochet', at, { level: 0.5 + 0.3 * big, ref, rate: 1.1 - 0.25 * big });
+        break;
+      case 'splash':
+        break;
+      default:
+        this.play('clang', at, { level: 0.45 + 0.3 * big, ref, rate: 1.15 - 0.3 * big });
+    }
+  }
+
+  /**
+   * Anything else blowing up. `scale` is the old measure of how big (0.5 a
+   * small burst, 2 and over something very large); `at` a point, or the old
+   * 0..1 of how far off.
+   */
+  explosion(scale = 1, at = null) {
+    const s = span(scale, 0.1, 4, 1);
+    const name = s >= 1.35 ? 'boomLarge' : 'boomSmall';
+    this.play(name, at, { level: Math.min(1, 0.45 + s * 0.3), ref: 150 + s * 220, rate: 1.12 - Math.min(0.3, s * 0.1) });
+  }
+
+  /** A magazine going up: heard from anywhere in the action. */
+  magazine(at = null) {
+    this.play('magazine', at, { level: 1.1, ref: 2600 });
+  }
+
+  /** A torpedo leaving her tubes. */
+  torpedo(at = null) { this.play('launch', at, { level: 0.5, ref: 80 }); }
+
+  /** A torpedo going off against a hull. */
+  torpHit(at = null) { this.play('torpHit', at, { level: 1, ref: 500, rate: 0.95 + Math.random() * 0.1 }); }
+
+  /** A depth charge: a deep, deadened blow, and the sea going up over it. */
+  depthCharge(at = null, depth = 0) {
+    const shallow = span(1 - depth / 90, 0.3, 1, 1);
+    this.play('splashBomb', at, { level: 0.9 * shallow, ref: 320, rate: 0.85, dull: 1 + (1 - shallow) * 4 });
+  }
+
+  /** Two hulls meeting, as hard as `v` metres a second. */
+  crash(at = null, v = 5) {
+    const hard = span(v / 10, 0.2, 1.6, 0.5);
+    this.play('crash', at, { level: 0.5 + 0.4 * Math.min(1, hard), ref: 200, rate: 1.1 - 0.2 * Math.min(1, hard) });
+  }
+
+  /** Steel tearing: a back breaking, a bow coming off. */
+  tear(at = null, size = 1) {
+    const s = span(size, 0.3, 2, 1);
+    this.play('groan', at, { level: 1, ref: 260 * s, rate: 1.15 - s * 0.2 });
+    this.play('crash', at, { level: 0.7, ref: 220 * s, rate: 0.75, after: 0.15 });
+    this.play('splashLarge', at, { level: 0.7, ref: 260 * s, rate: 0.8, after: 0.5 });
+  }
+
+  /** Thousands of tonnes of her going into the sea at once. */
+  slam(at = null, size = 1) {
+    this.play('splashBomb', at, { level: 0.9, ref: 300 * span(size, 0.3, 2, 1), rate: 0.75 });
+  }
+
+  /** The sea closing over her: the air in her coming out all at once. */
+  founder(at = null) {
+    this.play('vent', at, { level: 1, ref: 220, rate: 0.85 });
+    this.play('bang', at, { level: 0.8, ref: 220, after: 0.4 });
+    this.play('splashLarge', at, { level: 0.6, ref: 240, rate: 0.7, after: 0.2 });
+  }
+
+  alarm() {
+    const ctx = this.ensure(); if (!ctx) return;
+    if (this.take('alarm')) { this.play('alarm', null, { level: 0.3 }); return; }
+    const t = ctx.currentTime;
+    for (let i = 0; i < 3; i++) this.tone(t + i * 0.42, 0.5, { f0: 430, f1: 425, gain: 0.08, type: 'sine' });
+  }
+
+  click() {
+    const ctx = this.ensure(); if (!ctx) return;
+    this.tone(ctx.currentTime, 0.05, { f0: 420, f1: 260, gain: 0.1, type: 'triangle' });
   }
 
   tone(when, dur, { f0 = 120, f1 = 40, gain = 0.4, type = 'sine' } = {}) {
@@ -103,82 +464,184 @@ export class Audio {
     osc.start(when); osc.stop(when + dur + 0.05);
   }
 
-  /** distance 0..1, 1 being far away — everything gets quieter and duller. */
-  gun(caliber = 152, distance = 0) {
-    const ctx = this.ensure(); if (!ctx) return;
-    const t = ctx.currentTime + 0.01;
-    const big = span(caliber, 20, 460, 152) / 406;
-    const near = 1 - span(distance, 0, 1, 1);
-    this.noise(t, 0.45 + big * 0.9, { freq: 900 - big * 550, gain: 0.42 * near, sweep: 0.25 });
-    this.tone(t, 0.5 + big * 1.1, { f0: 150 - big * 80, f1: 26, gain: 0.5 * near * (0.5 + big) });
+  // --------------------------------------------------------------- ships ----
+
+  /**
+   * The ships near the camera, every frame: `{ id, x, z, load, len, sub,
+   * depth, alive, sinking }`. The nearest few are heard under way -- the
+   * water at her bow and along her side, her machinery -- louder the harder
+   * she is steaming; and any going down is heard creaking and groaning as she
+   * goes, now and then, from wherever she is.
+   */
+  ships(list) {
+    const ctx = this.ctx;
+    if (!ctx || !this.ambience || !Array.isArray(list)) return;
+    const now = ctx.currentTime;
+    const scored = [];
+    for (const s of list) {
+      if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.z)) continue;
+      const len = span(s.len, 10, 400, 150);
+      const h = this.hear({ x: s.x, y: 3, z: s.z }, 60 + len * 0.6);
+      if (!h) continue;
+      scored.push({ s, h, len });
+    }
+    scored.sort((a, b) => b.h.g - a.h.g);
+    const keep = new Set();
+    let n = 0;
+    for (const e of scored) {
+      if (!e.s.alive || n >= SHIP_VOICES || e.h.g < 0.01) continue;
+      n++;
+      keep.add(e.s.id);
+      this.shipVoice(e.s, e.h, e.len, now);
+    }
+    for (const [id, v] of this.shipVoices) {
+      if (keep.has(id)) continue;
+      this.fadeShip(v, now);
+      if (now - v.quietSince > 1.5) { this.dropShip(v); this.shipVoices.delete(id); }
+    }
+    // And those going down.
+    let sinking = 0;
+    const live = new Set();
+    for (const e of scored) {
+      if (!e.s.sinking || sinking >= 3) continue;
+      sinking++;
+      live.add(e.s.id);
+      let next = this.creaks.get(e.s.id);
+      if (next == null) { next = now + 0.8 + Math.random() * 1.8; this.creaks.set(e.s.id, next); }
+      if (now < next) continue;
+      this.creaks.set(e.s.id, now + 2.2 + Math.random() * 4.5);
+      const r = Math.random();
+      const name = r < 0.4 ? 'creak' : r < 0.68 ? 'groan' : r < 0.86 ? 'bang' : 'vent';
+      // Heard from her, low down: most of what is making it is under water.
+      const at = { x: e.s.x + (Math.random() - 0.5) * e.len * 0.6, y: -1, z: e.s.z + (Math.random() - 0.5) * e.len * 0.3 };
+      const big = Math.min(1.2, e.len / 220);
+      this.play(name, at, { level: 0.75 + 0.25 * big, ref: 90 + e.len * 0.7, rate: 1.12 - 0.25 * big + (Math.random() - 0.5) * 0.12 });
+    }
+    for (const id of [...this.creaks.keys()]) if (!live.has(id)) this.creaks.delete(id);
   }
 
-  explosion(scale = 1, distance = 0) {
-    const ctx = this.ensure(); if (!ctx) return;
-    const t = ctx.currentTime + 0.01;
-    scale = span(scale, 0.1, 4, 1);
-    const near = 1 - span(distance, 0, 1, 1);
-    this.noise(t, 0.9 * scale, { freq: 480, gain: 0.5 * near, sweep: 0.12 });
-    this.tone(t, 1.1 * scale, { f0: 90, f1: 18, gain: 0.55 * near });
+  shipVoice(s, h, len, now) {
+    const ctx = this.ctx;
+    let v = this.shipVoices.get(s.id);
+    const sub = !!s.sub;
+    const machName = sub ? 'diesels' : 'turbines';
+    if (!v) {
+      const washBuf = this.take('wash'), machBuf = this.take(machName);
+      if (!washBuf || !machBuf) return;
+      try {
+        const out = ctx.createGain(); out.gain.value = 1;
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5; lp.frequency.value = h.fc;
+        let tail = out.connect(lp);
+        let pan = null;
+        if (ctx.createStereoPanner) { pan = ctx.createStereoPanner(); tail = tail.connect(pan); }
+        tail.connect(this.sfx);
+        const loop = (buf) => {
+          const src = ctx.createBufferSource();
+          src.buffer = buf; src.loop = true;
+          const g = ctx.createGain(); g.gain.value = 0;
+          src.connect(g).connect(out);
+          src.start(now + Math.random() * 0.05, Math.random() * buf.duration);
+          return { src, g };
+        };
+        v = { wash: loop(washBuf), mach: loop(machBuf), out, lp, pan, quietSince: Infinity };
+        this.shipVoices.set(s.id, v);
+      } catch { return; }
+    }
+    v.quietSince = Infinity;
+    const load = span(s.load, 0, 1, 0);
+    const size = span(len / 250, 0.3, 1.2, 0.6);
+    const under = sub && num(s.depth, 0) > 4;
+    const wash = under ? 0 : 0.5 * size * Math.pow(load, 1.3);
+    // Machinery is heard close to, being inside her: it falls away over a
+    // much shorter distance than the water she is throwing about.
+    const near = 40 + len * 0.3;
+    const machG = near / Math.max(near, num(h.d, 0));
+    const mach = 0.34 * size * (0.4 + 0.6 * load) * (under ? 0.4 : 1) * machG;
+    const tc = 0.3;
+    try {
+      v.wash.g.gain.setTargetAtTime(span(wash * h.g, 0, 2, 0), now, tc);
+      v.mach.g.gain.setTargetAtTime(span(mach, 0, 2, 0), now, tc);
+      v.wash.src.playbackRate.setTargetAtTime(span(0.85 + 0.3 * load, 0.5, 2, 1), now, tc);
+      v.mach.src.playbackRate.setTargetAtTime(span(0.65 + 0.6 * load, 0.3, 2, 1), now, tc);
+      v.lp.frequency.setTargetAtTime(span(under ? Math.min(380, h.fc) : h.fc, 60, 20000, 20000), now, tc);
+      if (v.pan) v.pan.pan.setTargetAtTime(h.pan, now, tc);
+    } catch { /* next frame */ }
   }
 
-  splash(distance = 0) {
-    const ctx = this.ensure(); if (!ctx) return;
-    this.noise(ctx.currentTime + 0.01, 0.5, { freq: 2400, gain: 0.16 * (1 - span(distance, 0, 1, 1)), sweep: 0.15, type: 'bandpass', q: 0.9 });
+  fadeShip(v, now) {
+    if (v.quietSince === Infinity) {
+      v.quietSince = now;
+      try { v.wash.g.gain.setTargetAtTime(0, now, 0.3); v.mach.g.gain.setTargetAtTime(0, now, 0.3); } catch { /* gone */ }
+    }
   }
 
-  torpedo() {
-    const ctx = this.ensure(); if (!ctx) return;
-    this.noise(ctx.currentTime + 0.01, 0.7, { freq: 1400, gain: 0.22, sweep: 0.4, type: 'highpass' });
+  dropShip(v) {
+    for (const p of [v.wash, v.mach]) {
+      try { p.src.stop(); p.src.disconnect(); p.g.disconnect(); } catch { /* gone */ }
+    }
+    try { v.out.disconnect(); v.lp.disconnect(); v.pan && v.pan.disconnect(); } catch { /* gone */ }
   }
 
-  alarm() {
-    const ctx = this.ensure(); if (!ctx) return;
-    const t = ctx.currentTime;
-    for (let i = 0; i < 3; i++) this.tone(t + i * 0.32, 0.22, { f0: 720, f1: 700, gain: 0.16, type: 'square' });
-  }
+  // ------------------------------------------------------------ ambience ----
 
-  click() {
-    const ctx = this.ensure(); if (!ctx) return;
-    this.tone(ctx.currentTime, 0.05, { f0: 420, f1: 260, gain: 0.1, type: 'triangle' });
-  }
-
-  hit(kind) {
-    const ctx = this.ensure(); if (!ctx) return;
-    if (kind === 'citadel') { this.explosion(1.3, 0.1); this.tone(ctx.currentTime, 0.5, { f0: 300, f1: 60, gain: 0.3, type: 'sawtooth' }); }
-    else if (kind === 'ricochet' || kind === 'shatter') this.noise(ctx.currentTime, 0.25, { freq: 3200, gain: 0.12, type: 'bandpass', sweep: 0.3 });
-    else this.explosion(0.7, 0.2);
-  }
-
-  /** Continuous engine and sea bed, started once the battle opens. */
+  /** The sea and the wind, started once the battle opens. */
   startAmbience() {
     const ctx = this.ensure(); if (!ctx || this.ambience) return;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuffer; src.loop = true;
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'lowpass'; filt.frequency.value = 340;
-    const g = ctx.createGain(); g.gain.value = 0.055;
-    src.connect(filt).connect(g).connect(this.master);
-    src.start();
-    const rumble = ctx.createOscillator();
-    rumble.type = 'sine'; rumble.frequency.value = 46;
-    const rg = ctx.createGain(); rg.gain.value = 0.03;
-    rumble.connect(rg).connect(this.master);
-    rumble.start();
-    this.ambience = { src, g, rumble, rg };
+    const bed = (name) => {
+      const g = ctx.createGain(); g.gain.value = 0;
+      g.connect(this.amb);
+      return { g, src: null, name };
+    };
+    this.ambience = { sea: bed('sea'), wind: bed('wind') };
+    this.startAmbienceLoops();
   }
 
-  setEngineLoad(load) {
-    if (!this.ambience) return;
-    load = span(load, 0, 1, 0);
-    this.ambience.rg.gain.value = 0.014 + load * 0.05;
-    this.ambience.rumble.frequency.value = 38 + load * 26;
+  startAmbienceLoops() {
+    const ctx = this.ctx;
+    const a = this.ambience;
+    if (!ctx || !a) return;
+    for (const bed of [a.sea, a.wind]) {
+      if (bed.src) continue;
+      const buf = this.take(bed.name);
+      if (!buf) continue;
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = buf; src.loop = true;
+        src.connect(bed.g);
+        src.start(ctx.currentTime, Math.random() * buf.duration);
+        bed.src = src;
+      } catch { /* not heard */ }
+    }
+    this.updateAmbience();
   }
+
+  /** Low over the water it is the sea; high up, the wind. */
+  updateAmbience() {
+    const a = this.ambience, ctx = this.ctx;
+    if (!a || !ctx) return;
+    const h = span(this.ear.y, 0, 5000, 30);
+    const sea = 0.2 * span(1 - (h - 15) / 700, 0.12, 1, 1);
+    const wind = 0.035 + 0.11 * span((h - 60) / 900, 0, 1, 0);
+    try {
+      a.sea.g.gain.setTargetAtTime(sea, ctx.currentTime, 0.6);
+      a.wind.g.gain.setTargetAtTime(wind, ctx.currentTime, 0.6);
+    } catch { /* next frame */ }
+  }
+
+  /** Kept for the callers: her machinery is heard with every other ship's now. */
+  setEngineLoad() {}
 
   stopAmbience() {
-    if (!this.ambience) return;
-    try { this.ambience.src.stop(); this.ambience.rumble.stop(); } catch { /* already stopped */ }
+    const a = this.ambience;
+    if (a) {
+      for (const bed of [a.sea, a.wind]) {
+        try { if (bed.src) bed.src.stop(); bed.g.disconnect(); } catch { /* already stopped */ }
+      }
+    }
     this.ambience = null;
+    for (const v of this.shipVoices.values()) this.dropShip(v);
+    this.shipVoices.clear();
+    this.creaks.clear();
   }
 }
 

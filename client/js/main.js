@@ -823,6 +823,7 @@ function joinBattle(m) {
     onExit: (result) => endBattle(result),
   });
   window.__battle = battle;   // handy handle for debugging in the console
+  window.__audio = audio;
   show('battle');
   input.enabled = true;
   resize();

@@ -1626,7 +1626,7 @@ export class Battle {
         // to haul himself up on, which a boat's is.
         blocked: (x, z) => { const h = her(x, z); return !!h && h.rise > MAN.climb; },
       });
-      if (r === 'splash') { audio.splash(0); this.hud.alert('In the water — swim'); }
+      if (r === 'splash') { audio.splash(60, null); this.hud.alert('In the water — swim'); }
       const h = her(m.x, m.z);
       if (h && h.rise <= MAN.climb && (move.fwd || move.side)) {
         // Up her side and onto her deck.
@@ -1746,7 +1746,6 @@ export class Battle {
     this.sunk = true;
     this.hud.setSunk(true);
     this.hud.alert('Abandon ship');
-    audio.explosion(2, 0);
     this.input.releaseLock();
     // The camera stays with her.
     //
@@ -1791,7 +1790,8 @@ export class Battle {
       fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
       this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
     }
-    if (d < 1.3) audio.explosion(0.5 + big * 0.9, d);
+    if (ev.kind === 'rise' || ev.kind === 'keel') audio.slam({ x: ev.x, y: -2, z: ev.z }, 0.4 + big * 0.5);
+    audio.crash({ x: ev.x, y: 3, z: ev.z }, ev.v || 0);
     for (const o of ev.out || []) {
       const view = this.scene.shipViews.get(o.ship);
       // A cut or a lost bow is drawn by the cut itself (see onCut).
@@ -1873,7 +1873,7 @@ export class Battle {
       fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
       // And everything in her bunkers on that length of her, onto the sea.
       this.scene.oil.spill(p.x, p.z, 40 + view.cls.hull.length * 0.6, false);
-      audio.explosion(1.4 * near, 0);
+      audio.tear({ x: p.x, y: 3, z: p.z }, size);
       this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.2 : 0.4 * near);
     }
     const lost = cutLoses(ev.at, ev.keep);
@@ -1911,7 +1911,7 @@ export class Battle {
         // and then a great deal of the ship falling into the sea at once.
         this.scene.debris.burst(wx, 6, wz, 5 + (t.size || 0) * 5, 0.8);
         fx.splash(wx, wz, 340);
-        audio.explosion(1.5 * near, 0);
+        audio.tear({ x: wx, y: 3, z: wz }, t.size || 1);
         this.shake = Math.max(this.shake, s.i === this.shipId ? 0.9 : 0.35 * near);
         const who = this.names.get(s.i) || 'A ship';
         this.hud.alert(`${who}: broken in two`);
@@ -1922,7 +1922,7 @@ export class Battle {
         this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1);
         fx.splash(wx, wz, 800);
         // Heard everywhere, like any magazine.
-        audio.explosion(3.2, 0);
+        audio.magazine({ x: wx, y: 8, z: wz });
         this.shake = Math.max(this.shake, s.i === this.shipId ? 1.5 : 0.8);
         const who = this.names.get(s.i) || 'A ship';
         this.hud.alert(`${who}: blown up`);
@@ -1934,7 +1934,7 @@ export class Battle {
         fx.splash(wx, wz, 520 + (t.size || 1) * 380, { kind: 'bomb' });
         fx.splash(wx + (Math.random() - 0.5) * 30, wz + (Math.random() - 0.5) * 30,
           380 + (t.size || 1) * 200, { kind: 'shell' });
-        audio.explosion(1.2 * near, 0);
+        audio.slam({ x: wx, y: 0, z: wz }, t.size || 1);
         this.shake = Math.max(this.shake, s.i === this.shipId ? 0.7 : 0.25 * near);
       } else if (t.kind === 'oil') {
         this.scene.oil.spill(wx, wz, t.volume || 30, !!t.burning);
@@ -1974,6 +1974,7 @@ export class Battle {
           // her own turret roof.
           const view = this.scene.shipViews.get(ev.ship);
           let lit = false;
+          let heard = null;
           if (view) {
             const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : null;
             const which = ev.t != null ? ev.t : ev.s;
@@ -1986,6 +1987,7 @@ export class Battle {
               for (let i = 0; i < pts.length; i++) {
                 const p = pts[i];
                 fx.muzzle(p.x, p.y, p.z, ev.b, ev.cal, aims[i]);
+                if (!heard) heard = { x: p.x, y: p.y, z: p.z };
                 lit = true;
               }
             }
@@ -1994,7 +1996,7 @@ export class Battle {
           // scene has not built. Both fall back on where the simulation says
           // the muzzle is, which is the same point, less the roll.
           if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
-          audio.gun(ev.cal, d);
+          audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
         }
@@ -2044,10 +2046,10 @@ export class Battle {
           }
           const gy = view ? view.group.position.y + 14 : 16;
           if (!fired) this.scene.flak.fire(ev.x, gy, ev.z, ev.tx, ty, ev.tz, ev.cal, ev.n, fx);
-          if (d < 0.6) audio.gun(Math.min(75, ev.cal), Math.max(d, 0.35));
+          audio.aa(ev.cal, ev.n, { x: ev.x, y: gy, z: ev.z });
           break;
         }
-        case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); if (d < 0.75) audio.splash(d); break;
+        case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
         case 'landhit': {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
@@ -2066,7 +2068,7 @@ export class Battle {
           applyCrater(this.scene.world, ev.c);
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.debris(ev.x, g + 6, ev.z, Math.min(60, ev.r));
-          if (d < 1.2) audio.explosion(1.1, d);
+          audio.explosion(1.1, { x: ev.x, y: g, z: ev.z });
           if (this.hud) this.hud.ribbon('GROUND GAVE WAY', 'miss');
           break;
         }
@@ -2081,7 +2083,7 @@ export class Battle {
           break;
         case 'batterySilenced':
           fx.explosion(ev.x, (ev.y || 0) + 6, ev.z, 1.6);
-          if (d < 1) audio.explosion(1.6, d);
+          audio.explosion(1.6, { x: ev.x, y: (ev.y || 0) + 6, z: ev.z });
           break;
         case 'hit': {
           // A round that got into her goes off inside her: an explosion, as
@@ -2092,6 +2094,8 @@ export class Battle {
           } else {
             fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
           }
+          // Heard from wherever it struck, whoever's it was.
+          audio.hit(ev.kind, ev.cal, { x: ev.x, y: ev.y ?? 8, z: ev.z });
           // Our own round: cut to her section and watch it go in, if the
           // captain wants to.
           // Only while riding a salvo down: the rounds of the ship being
@@ -2104,10 +2108,8 @@ export class Battle {
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
             this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
-            audio.hit(ev.kind);
           } else if (ev.victim === this.shipId) {
             this.shake = Math.max(this.shake, 0.5);
-            audio.hit(ev.kind);
             // A hole in our own hull goes on the damage board, at the place on
             // her the shell actually went in.
             // Every round that struck her goes on the board, not only the
@@ -2120,7 +2122,7 @@ export class Battle {
           break;
         }
         case 'torpLaunch':
-          if (ev.ship === this.shipId) audio.torpedo();
+          audio.torpedo({ x: ev.x, y: 4, z: ev.z });
           // A bank whose fish are drawn leaving it throws them out now.
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
@@ -2148,7 +2150,7 @@ export class Battle {
           // is not the fireball but the column it throws up alongside -- taller
           // than anything a gun makes, which is why one hit ends an argument.
           fx.splash(ev.x, ev.z, 620, { kind: 'torp' });
-          audio.explosion(1.5, d);
+          audio.torpHit({ x: ev.x, y: -1, z: ev.z });
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
           if (ev.victim === this.shipId) {
             this.hud.alert('Torpedo hit');
@@ -2227,7 +2229,7 @@ export class Battle {
           const deep = Math.max(0, -(ev.y || 0));
           const size = 780 * Math.max(0.28, 1 - deep / 70);
           fx.splash(ev.x, ev.z, size, { kind: 'dc' });
-          audio.explosion(1.5 * Math.max(0.3, 1 - deep / 90), d);
+          audio.depthCharge({ x: ev.x, y: -deep * 0.3, z: ev.z }, deep);
           this.shake = Math.max(this.shake, 0.3 * Math.max(0, 1 - d));
           break;
         }
@@ -2255,7 +2257,7 @@ export class Battle {
           this.sinkInfo = this.sinkInfo || new Map();
           this.sinkInfo.set(ev.ship, ev);
           fx.splash(ev.x, ev.z, 300, { kind: 'dc' });
-          audio.splash(0.6);
+          audio.founder({ x: ev.x, y: -1, z: ev.z });
           const victim = this.names.get(ev.ship) || 'A ship';
           const killer = this.names.get(ev.by) || 'Someone';
           const vTeam = this.entities.get(ev.ship)?.team ?? 1;
@@ -2304,9 +2306,9 @@ export class Battle {
           this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4);
           fx.splash(wx, wz, 500 + 700 * power);
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);
-          // Heard everywhere. Not faded with range like everything else --
-          // that is the point of it.
-          audio.explosion(3.4, 0);
+          // Heard everywhere: the loudest thing in the action carries the
+          // whole of it, though it still comes in late and dull from far off.
+          audio.magazine({ x: wx, y: 8, z: wz });
           const who = this.names.get(ev.ship) || 'A ship';
           this.hud.alert(ev.ship === this.shipId
             ? 'Magazine detonation' : `${who}: magazine`);
@@ -2331,7 +2333,7 @@ export class Battle {
           }
           fx.explosion(wx, wy + 2, wz, 2.2);
           this.scene.debris.burst(wx, wy + 3, wz, 4.5, 0.8);
-          audio.explosion(1.7, this.distanceFade(wx, wz));
+          audio.explosion(1.7, { x: wx, y: wy + 2, z: wz });
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 0.9 : 0.35);
           if (ev.ship === this.shipId) this.hud.alert('Fire reached the ready-use');
           break;
@@ -2343,7 +2345,7 @@ export class Battle {
             fx.splash(ev.x + (i - 1) * 26 + (Math.random() - 0.5) * 14,
               ev.z + (Math.random() - 0.5) * 26, 150, { kind: 'drop' });
           }
-          if (d < 0.8) audio.splash(d);
+          audio.splash(90, { x: ev.x, y: 1, z: ev.z });
           break;
         }
         case 'launch': {
@@ -2429,10 +2431,9 @@ export class Battle {
         case 'deckCrash': {
           // An aeroplane at eighty knots on a flight deck with a hole in it.
           // She goes into it, and there is a fire on the deck where she went.
-          const near = this.distanceFade(ev.x, ev.z);
           fx.explosion(ev.x, 20, ev.z, 1.6);
           fx.debris(ev.x, 20, ev.z, 20);
-          if (near < 0.9) audio.explosion(1.2, near);
+          audio.explosion(1.2, { x: ev.x, y: 20, z: ev.z });
           if (ev.ship === this.shipId) this.hud.alert('Crash on deck — flight deck out');
           break;
         }
@@ -2442,7 +2443,7 @@ export class Battle {
           const big = ev.armed ? 2.4 : 1.5;
           fx.explosion(ev.x, ev.y, ev.z, big);
           fx.debris(ev.x, ev.y, ev.z, ev.armed ? 34 : 22);
-          if (d < 1.4) audio.explosion(big, d);
+          audio.explosion(big, { x: ev.x, y: ev.y, z: ev.z });
           if (ev.ship === this.shipId) {
             this.hud.alert(ev.armed ? 'Aircraft into the ship — she was carrying'
               : 'Aircraft into the ship');
@@ -2457,7 +2458,7 @@ export class Battle {
         case 'planeCrash':
           fx.explosion(ev.x, ev.y + 3, ev.z, 1.5);
           fx.debris(ev.x, ev.y + 3, ev.z, 20);
-          if (d < 1.2) audio.explosion(1.3, d);
+          audio.explosion(1.3, { x: ev.x, y: ev.y + 3, z: ev.z });
           break;
         case 'airHit':
           // Where a burst from an aeroplane's guns actually arrived. Small, and
@@ -4066,13 +4067,14 @@ export class Battle {
     );
     this.recoilClock += dt;
     this.updateCamera(dt);
+    this.scene.camera.updateMatrixWorld();
+    audio.listen(this.scene.camera);
     // And the ground, if anything has taken a piece out of it since the last
     // frame. Held off for a moment after the last hit rather than done on the
     // hit, because a salvo of nine lands in under a second.
     this.scene.syncGround(dt);
     this.scene.update(dt);
 
-    audio.setEngineLoad(clamp(Math.abs(ls.speed) / this.cls.maxSpeed, 0, 1));
 
     const ownForHud = this.ownSnap
       ? { ...this.ownSnap, v: ls.speed, h: ls.heading, notch: ls.notch, rud: ls.rudderCmd, maxHp: this.cls.hp }
@@ -4289,6 +4291,9 @@ export class Battle {
       }
     }
     const seen = new Set();
+    // What each ship sounds like this frame, for the audio to pick the nearest
+    // of: how hard she is steaming, and whether she is going down.
+    const heard = [];
     for (const s of a.ships) {
       seen.add(s.i);
       const prev = b ? b.ships.find((x) => x.i === s.i) : null;
@@ -4480,10 +4485,20 @@ export class Battle {
           const big = w.hull ? 1 : 0.45;
           this.scene.effects.splash(w.x, w.z, (260 + w.size * 18 + w.fall * 6) * big,
             { kind: w.hull ? 'bomb' : 'shell' });
-          audio.explosion(0.9 * big * this.distanceFade(w.x, w.z), 0);
+          audio.splash(w.hull ? 900 : 300, { x: w.x, y: 1, z: w.z }, !!w.hull);
         }
       }
       if (view.throes.length) this.deathThroes(view, s, x, z, h);
+      if (view.group.visible) {
+        heard.push({
+          id: s.i, x, z, load, len: cls.hull.length, sub: !!cls.dive,
+          depth: cls.dive ? (isSelf ? this.localShip.depth : (s.d || 0)) : 0,
+          alive: !!s.a,
+          // Going down: settling with the sea in her, or a wreck still on
+          // her way to the bottom.
+          sinking: !s.a || Number.isFinite(s.sn),
+        });
+      }
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 
       // Funnel smoke and burning damage.
@@ -4531,6 +4546,7 @@ export class Battle {
       }
 
     }
+    audio.ships(heard);
 
     for (const [id] of this.scene.shipViews) {
       if (!seen.has(id)) this.scene.removeShipView(id);
@@ -4817,8 +4833,7 @@ export class Battle {
       if (burst) {
         fx.explosion(x, y0, z, 0.85);
         fx.debris(x, y0, z, 12);
-        const near = this.distanceFade(x, z);
-        if (near < 0.85) audio.explosion(0.7, near);
+        audio.explosion(0.7, { x, y: y0, z });
         continue;
       }
       if (this.wrecks.length > 14) this.wrecks.shift();
@@ -4877,8 +4892,7 @@ export class Battle {
       // Blown apart in the air. There is nothing left to fall.
       fx.explosion(o.x, o.y, o.z, 0.8);
       fx.debris(o.x, o.y, o.z, 12);
-      const near = this.distanceFade(o.x, o.z);
-      if (near < 0.85) audio.explosion(0.65, near);
+      audio.explosion(0.65, { x: o.x, y: o.y, z: o.z });
       return;
     }
     if (this.wrecks.length > 14) this.wrecks.shift();

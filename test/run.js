@@ -140,6 +140,7 @@ import {
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
+import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -13014,36 +13015,152 @@ check('a sound that cannot be worked out is not played', () => {
   };
   const node = () => ({
     gain: param(), frequency: param(), Q: param(), detune: param(),
-    connect(n) { return n; }, start: finite('start'), stop: finite('stop'),
+    playbackRate: param(), pan: param(),
+    connect(n) { return n; }, disconnect() {}, start: finite('start'), stop: finite('stop'),
     buffer: null, loop: false, type: 'sine',
   });
   const ctx = {
     currentTime: 12.5, sampleRate: 48000, state: 'running', destination: {},
     createGain: node, createBiquadFilter: node, createOscillator: node,
-    createBufferSource: node,
-    createBuffer: (ch, len) => ({ getChannelData: () => new Float32Array(len) }),
+    createBufferSource: node, createStereoPanner: node,
+    createBuffer: (ch, len) => ({ duration: len / 48000, getChannelData: () => new Float32Array(len) }),
   };
   const a = new AudioClass();
   a.ctx = ctx;
   a.master = node();
-  a.noiseBuffer = ctx.createBuffer(1, 16, 48000);
+  a.sfx = node();
+  a.amb = node();
   a.ensure = () => ctx;
+  // A take of everything, so every call gets as far as the sound card.
+  for (const name of Object.keys(SFX_RECIPES)) a.bank.set(name, [ctx.createBuffer(1, 16)]);
+  for (const p of [param(), param()]) { p.setTargetAtTime = finite('setTargetAtTime'); }
+  const withTarget = (n) => { for (const k of ['gain', 'frequency', 'playbackRate', 'pan']) n[k].setTargetAtTime = finite('setTargetAtTime'); return n; };
+  ctx.createGain = () => withTarget(node());
+  ctx.createBiquadFilter = () => withTarget(node());
+  ctx.createBufferSource = () => withTarget(node());
+  ctx.createStereoPanner = () => withTarget(node());
 
   // Every report the battle can ask for, handed the thing that broke it: a
-  // distance worked out from a shell that was nowhere.
+  // place worked out from a shell that was nowhere, and ears that are too.
+  const nowhere = { x: NaN, y: NaN, z: NaN };
+  a.listen({ position: { x: NaN, y: 3, z: 0 }, matrixWorld: { elements: [NaN, 0, NaN] } });
+  a.listen({ position: { x: 0, y: 30, z: 0 }, matrixWorld: { elements: [NaN, 0, NaN] } });
   a.gun(152, NaN);
   a.gun(NaN, 0.4);
+  a.gun(406, { x: 300, y: NaN, z: 0 }, NaN);
+  a.gun(NaN, nowhere);
+  a.aa(NaN, NaN, { x: 20, z: 40 });
+  a.aa(20, 12, nowhere);
   a.explosion(NaN, NaN);
+  a.explosion(1.5, { x: Infinity, z: 0 });
   a.splash(NaN);
+  a.splash(NaN, { x: 10, z: 10 }, true);
   a.hit('citadel');
+  a.hit('ricochet', NaN, { x: 10, y: NaN, z: 5 });
+  a.magazine(nowhere); a.torpedo(nowhere); a.torpHit({ x: 1, z: 1 });
+  a.depthCharge({ x: 1, z: 1 }, NaN); a.crash({ x: 1, z: 1 }, NaN);
+  a.tear({ x: 1, z: 1 }, NaN); a.slam(nowhere, NaN); a.founder({ x: 5, z: 5 });
   a.tone(NaN, NaN, { f0: NaN, f1: NaN, gain: NaN });
-  a.noise(NaN, NaN, { freq: NaN, gain: NaN, q: NaN, sweep: NaN });
   a.setVolume(NaN);
-  a.ambience = { src: node(), g: node(), rumble: node(), rg: node() };
+  a.startAmbience();
+  a.ships([
+    { id: 1, x: 50, z: 0, load: NaN, len: NaN, alive: true },
+    { id: 2, x: NaN, z: 0, load: 1, len: 200, alive: true },
+    { id: 3, x: 80, z: 30, load: 0.5, len: 200, alive: false, sinking: true, depth: NaN, sub: true },
+  ]);
+  ctx.currentTime = 30;
+  a.ships([{ id: 3, x: 80, z: 30, load: 0, len: NaN, alive: false, sinking: true }]);
   a.setEngineLoad(NaN);
+  a.stopAmbience();
   assert.deepEqual(seen, [], `the sound card was handed ${seen.join(', ')}`);
 });
 
+
+check('every sound the battle makes is built clean, the same each time, and loops without a seam', () => {
+  // Built from nothing but noise and a few resonances, so every sample of
+  // every take has to be a number, inside the speaker, and not silence; the
+  // same seed has to make the same take, or what the worker hands back would
+  // differ from what the tests heard. And the beds that repeat -- the sea,
+  // a ship's wash and machinery -- must not click every time round.
+  const sr = 8000;
+  for (const [name, r] of Object.entries(SFX_RECIPES)) {
+    const chs = r.make(sr, sfxRng(7));
+    assert.ok(chs.length >= 1 && chs[0].length > sr * 0.2, `${name}: too short`);
+    let peak = 0, sum = 0;
+    for (const c of chs) {
+      assert.equal(c.length, chs[0].length, `${name}: channels of different lengths`);
+      for (const v of c) {
+        assert.ok(Number.isFinite(v), `${name}: a sample that is not a number`);
+        peak = Math.max(peak, Math.abs(v)); sum += v * v;
+      }
+    }
+    assert.ok(peak <= 1 && peak > 0.3, `${name}: peaks at ${peak}`);
+    assert.ok(Math.sqrt(sum / (chs.length * chs[0].length)) > 0.01, `${name}: next to silent`);
+    const again = r.make(sr, sfxRng(7));
+    assert.equal(again[0][Math.floor(again[0].length / 3)], chs[0][Math.floor(chs[0].length / 3)], `${name}: not the same take twice`);
+  }
+  for (const name of ['sea', 'wind', 'wash', 'turbines', 'diesels']) {
+    for (const c of SFX_RECIPES[name].make(sr, sfxRng(3))) {
+      // Round the join, no bigger a step than anywhere else in it.
+      let step = 0;
+      for (let i = 1; i < c.length; i++) step = Math.max(step, Math.abs(c[i] - c[i - 1]));
+      const join = Math.abs(c[0] - c[c.length - 1]);
+      assert.ok(join <= step * 1.05 + 1e-6, `${name}: clicks where it loops (${join} against ${step})`);
+    }
+  }
+  // And the whole of it runs on its own, which is what the worker is given.
+  const K = (0, eval)(`(${sfxKit.toString()})()`);
+  const w = K.RECIPES.pom.make(sr, K.rng(7));
+  const h = SFX_RECIPES.pom.make(sr, sfxRng(7));
+  assert.equal(w[0][500], h[0][500], 'the worker builds a different sound');
+});
+
+check('a sound is heard from where it happened: quieter, duller and later the further off', () => {
+  const a = new AudioClass();
+  a.ear = { x: 0, y: 20, z: 0, rx: 1, rz: 0, set: true };
+  const near = a.hear({ x: 0, y: 5, z: 200 }, 300);
+  const far = a.hear({ x: 0, y: 5, z: 6000 }, 300);
+  assert.ok(near.g > 0.95, `a heavy gun two hundred metres off is at ${near.g}`);
+  assert.ok(far.g < near.g * 0.08, 'six kilometres is hardly quieter than two hundred metres');
+  assert.ok(far.fc < near.fc / 4, 'the air does not take the top off a far sound');
+  assert.ok(far.delay > near.delay, 'a far sound is not heard any later');
+  assert.ok(Math.abs(near.delay - 200 / 343) < 0.01, 'sound does not travel at the speed of sound');
+  // On the right of the camera, it is on the right.
+  assert.ok(a.hear({ x: 400, y: 20, z: 0 }, 100).pan > 0.5, 'a gun to starboard of the camera is not heard there');
+  assert.ok(a.hear({ x: -400, y: 20, z: 0 }, 100).pan < -0.5, 'a gun to port is not heard there');
+  // Coming in on it is what brings it up.
+  a.ear = { x: 0, y: 900, z: 1500, rx: 1, rz: 0, set: true };
+  const out = a.hear({ x: 0, y: 5, z: 0 }, 150).g;
+  a.ear = { x: 0, y: 40, z: 120, rx: 1, rz: 0, set: true };
+  const zoomed = a.hear({ x: 0, y: 5, z: 0 }, 150).g;
+  assert.ok(zoomed > out * 5, `zoomed in on a splash it is ${zoomed}, from out on the chart ${out}`);
+});
+
+check('a ship going down is heard creaking, now and then, and not once she is gone', () => {
+  const played = [];
+  const a = new AudioClass();
+  const param = () => ({ value: 0, setTargetAtTime() {}, setValueAtTime() {} });
+  const node = () => ({ gain: param(), frequency: param(), Q: param(), playbackRate: param(), pan: param(),
+    connect(n) { return n; }, disconnect() {}, start() {}, stop() {} });
+  const ctx = { currentTime: 0, createGain: node, createBiquadFilter: node, createBufferSource: node,
+    createStereoPanner: node, createBuffer: (c, n) => ({ duration: n / 8000 }) };
+  a.ctx = ctx; a.ensure = () => ctx; a.sfx = node(); a.amb = node(); a.master = node();
+  a.ambience = { sea: { g: node() }, wind: { g: node() } };
+  for (const n of Object.keys(SFX_RECIPES)) a.bank.set(n, [ctx.createBuffer(1, 800)]);
+  a.ear = { x: 0, y: 30, z: 0, rx: 1, rz: 0, set: true };
+  const orig = a.play.bind(a);
+  a.play = (name, at, o) => { played.push(name); orig(name, at, o); };
+  const wreck = { id: 5, x: 300, z: 0, load: 0, len: 220, alive: false, sinking: true };
+  for (let t = 0; t <= 60; t += 0.5) { ctx.currentTime = t; a.ships([wreck]); }
+  const groans = played.filter((n) => ['creak', 'groan', 'bang', 'vent'].includes(n)).length;
+  assert.ok(groans >= 6 && groans <= 30, `a minute of her going down made ${groans} noises`);
+  played.length = 0;
+  for (let t = 60; t <= 90; t += 0.5) { ctx.currentTime = t; a.ships([]); }
+  assert.equal(played.length, 0, 'she is still creaking with the sea closed over her');
+  // A ship under way is heard working through the water, a wreck is not.
+  a.ships([{ id: 7, x: 100, z: 0, load: 1, len: 200, alive: true }]);
+  assert.ok(a.shipVoices.has(7), 'a ship steaming past the camera is not heard');
+});
 
 check('every ship is built out of pieces that can be found again', () => {
   // Welding a ship into one buffer per material is what makes her affordable
