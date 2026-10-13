@@ -243,7 +243,8 @@ export class Audio {
     if (this.voices >= MAX_VOICES || (this.voices >= MAX_VOICES * 0.7 && g < 0.06)) return;
     // The same noise at the same place in the same instant is one noise: a
     // salvo of nine landing together is not nine times as loud.
-    if (at && typeof at === 'object') {
+    // (A burst put down round by round is not: those are held apart on purpose.)
+    if (at && typeof at === 'object' && !(after > 0)) {
       const key = `${name}|${Math.round(num(at.x) / 30)}|${Math.round(num(at.z) / 30)}`;
       const last = this.recent.get(key);
       if (last != null && ctx.currentTime - last < 0.04) return;
