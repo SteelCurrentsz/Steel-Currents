@@ -444,6 +444,9 @@ input[type="range"] { accent-color: var(--red); }
 .target-gun { touch-action: none; user-select: none; }
 .target-gun.linked { border-color: rgba(226, 86, 79, 0.7); }
 .target-gun.idle { opacity: 0.45; text-decoration: line-through; }
+/* Switched off, or out of action for good. */
+.target-gun.off { color: #fff; background: rgba(180, 34, 34, 0.85); border-color: #e2564f; }
+.target-gun.off.on { box-shadow: 0 0 0 2px #ffc94a inset; }
 .target-ghost {
   position: fixed; z-index: 100; pointer-events: none; transform: translate(-50%, -60%);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);

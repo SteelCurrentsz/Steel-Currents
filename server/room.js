@@ -2,7 +2,7 @@
 
 import {
   createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
-  manGun, layGun, shootGun, assignMount,
+  manGun, layGun, shootGun, assignMount, setMountOff,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret,
@@ -502,6 +502,12 @@ export class Room {
       case 'assign': {
         const to = this.conned(ship, msg);
         if (to) assignMount(this.state, to, msg.k, msg.i, typeof msg.target === 'number' ? msg.target : 0);
+        break;
+      }
+      // One of them switched off, or back on, off the same panel.
+      case 'gunoff': {
+        const to = this.conned(ship, msg);
+        if (to) setMountOff(to, msg.k, msg.i, !!msg.off);
         break;
       }
       case 'shoot': { const to = this.conned(ship, msg); if (to) shootGun(this.state, to); break; }

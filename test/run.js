@@ -18,7 +18,7 @@ import {
 import { buildBridge } from '../client/js/render/bridgeroom.js';
 import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
-  assignMount, dpMounts, assignedAim,
+  assignMount, dpMounts, assignedAim, setMountOff, mountOff,
 } from '../shared/sim.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
@@ -3952,6 +3952,33 @@ check('a gun put on a ship by name is laid on her, fires at her, and idles out o
   // And cleared, it is her gunnery officer's again.
   assignMount(state, a, 'main', 0, 0);
   assert.equal(a.assign['main:0'], undefined);
+});
+
+check('a mounting switched off from the targeting panel holds its fire, and is on the wire', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  state.world.islands = [];
+  const a = addShip(state, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const near = addShip(state, { name: 'Near', classId: 'fletcher', team: 1, index: 0 });
+  a.x = 0; a.z = 0; a.heading = 0; a.speed = 0;
+  near.x = -9000; near.z = 0; near.heading = 0; near.speed = 0;
+  assert.ok(assignMount(state, a, 'main', 0, near.id));
+  assert.ok(setMountOff(a, 'main', 0, true));
+  assert.ok(!setMountOff(a, 'main', 99, true), 'switched off a mounting she has not got');
+  assert.ok(mountOff(a, 'main', 0));
+  for (let i = 0; i < 30 * 30; i++) { near.spottedBy[0] = true; step(state, DT); }
+  state.shells.length = 0;
+  for (const t of a.turrets) t.cooldown = 0;
+  near.spottedBy[0] = true;
+  assert.equal(fireGuns(state, a, 0), 0, 'a turret that is switched off fired');
+  const snap = shipSnapshot(a, true, state);
+  assert.deepEqual(snap.of, ['main:0']);
+  // Gone for good reads on the wire too.
+  a.turrets[1].hurt = 3;
+  assert.ok(shipSnapshot(a, true, state).ko.includes('main:1'));
+  // And back on, it is laid and fires again.
+  assert.ok(setMountOff(a, 'main', 0, false));
+  assert.ok(!mountOff(a, 'main', 0));
+  assert.equal(shipSnapshot(a, true, state).of, undefined);
 });
 
 check('secondaries, dual-purpose guns and torpedo banks can be put on a ship by name', () => {

@@ -364,6 +364,12 @@ export class Battle {
       if (target) this.hud.alert(`${t.label} on ${this.names.get(target) || 'target'}`);
       else this.hud.alert(`${t.label} back to fire control`);
     });
+    // A gun's key double-tapped: that mounting switched off, or back on.
+    this.hud.onTargetingOff?.((t, off) => {
+      this.net.send({ t: 'gunoff', ship: this.conned(), k: t.kind, i: t.i, off });
+      audio.click();
+      this.hud.alert(`${t.label} ${off ? 'switched off' : 'switched on'}`);
+    });
     // And the arsenal's own hologram: the same hull with no damage on it, and
     // the battery that was pressed lit up where it stands on her.
     this.hud.onArsenalBoard?.((canvas, specs, row) => {
@@ -4130,7 +4136,7 @@ export class Battle {
         const dp = new Map(dpMounts(cls).map((m) => [m.i, m.gun.range]));
         const reach = (t) => (t.kind === 'main' ? cls.gun?.range : t.kind === 'sec' ? cls.secondary?.range
           : t.kind === 'dp' ? dp.get(t.i) : cls.torpedoes?.range) || 0;
-        this.hud.paintTargetFoes(foes, shown.as || {}, reach);
+        this.hud.paintTargetFoes(foes, shown.as || {}, reach, shown.of || [], shown.ko || []);
       }
     }
     if (this.board && this.hud.panel === 'dmg') {

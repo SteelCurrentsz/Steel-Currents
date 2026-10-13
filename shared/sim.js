@@ -239,6 +239,10 @@ export function addShip(state, {
     // nothing while she is out of its reach or out of sight; one not in here
     // is her gunnery officer's, as always. See assignMount.
     assign: {},
+    // Which of those same mountings her captain has switched off, by the same
+    // keys: a gun in here neither trains nor fires until it is switched back
+    // on, whoever would have laid it. See setMountOff.
+    off: {},
     // The cooldown of each dual-purpose mounting of her light battery that has
     // been put on a ship, by its index in her light battery.
     dpCd: {},
@@ -1693,6 +1697,25 @@ export function assignMount(state, ship, kind, i, targetId) {
 }
 
 /**
+ * Switch one of her mountings off, or back on. A mounting that is off holds
+ * its fire whoever has it -- her gunnery officer, a ship given it by name, or
+ * a captain standing at it. Returns whether anything was done.
+ */
+export function setMountOff(ship, kind, i, off) {
+  if (!ship || !ASSIGN_KINDS.includes(kind)) return false;
+  if (!hasMount(shipClass(ship), kind, i)) return false;
+  ship.off = ship.off || {};
+  if (off) ship.off[`${kind}:${i}`] = true;
+  else delete ship.off[`${kind}:${i}`];
+  return true;
+}
+
+/** Whether her captain has switched that mounting off. */
+export function mountOff(ship, kind, i) {
+  return !!(ship.off && ship.off[`${kind}:${i}`]);
+}
+
+/**
  * The ship a mounting has been put on, while she is there to be shot at; a
  * mounting whose ship has gone down is given back to her gunnery officer.
  */
@@ -2063,6 +2086,8 @@ function stepTurrets(state, ship, dt) {
     // it does not train, elevate or reload.
     if (cond >= 3) { t.laid = false; continue; }
     if (t.disabled > 0) { t.disabled -= dt; continue; }
+    // Switched off: it stands where it is and goes on loading.
+    if (mountOff(ship, 'main', t.id)) { t.laid = false; if (t.cooldown > 0) t.cooldown -= dt; continue; }
     // A turret somebody has gone down to takes his bearing and nobody else's.
     // Every other turret aboard goes on being laid by her fire control, which
     // is the whole point: manning A turret does not stop B turret shooting.
@@ -2107,7 +2132,7 @@ export function canFire(ship) {
   if (gunsDrowned(ship)) return false;
   const cls = shipClass(ship);
   return ship.turrets.some((t) => t.cooldown <= 0 && t.disabled <= 0
-    && t.laid !== false && gunState(ship, cls, cls.turrets[t.id], t) < 3);
+    && t.laid !== false && !mountOff(ship, 'main', t.id) && gunState(ship, cls, cls.turrets[t.id], t) < 3);
 }
 
 /**
@@ -2138,6 +2163,7 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
     if (only !== null && t.id !== only) continue;
     if (t.id === held) continue;
     if (t.cooldown > 0 || t.disabled > 0) continue;
+    if (mountOff(ship, 'main', t.id)) continue;
     const tSpec = cls.turrets[t.id];
     const cond = gunState(ship, cls, tSpec, t);
     if (cond >= 3) continue;
@@ -2688,6 +2714,27 @@ function flakState(ship, cls) {
   return ship.flak;
 }
 
+/**
+ * Whether the mounting at this place in her flak battery (see aaBattery) has
+ * been switched off from the targeting panel: a dual-purpose main or secondary
+ * mounting by its own key, a dual-purpose gun of her light battery by its
+ * place in that battery, and the light anti-aircraft guns never -- the panel
+ * has no key for them.
+ */
+function flakOff(ship, cls, mi) {
+  if (!ship.off) return false;
+  let at = mi;
+  if (cls.gun && cls.gun.role === 'dp') {
+    if (at < cls.turrets.length) return mountOff(ship, 'main', at);
+    at -= cls.turrets.length;
+  }
+  if (cls.secondary && cls.secondary.role === 'dp') {
+    if (at < cls.secondary.mounts.length) return mountOff(ship, 'sec', at);
+    at -= cls.secondary.mounts.length;
+  }
+  return mountOff(ship, 'dp', at);
+}
+
 /** Is that mounting in action? */
 export function flakUp(ship, i) {
   const f = ship && ship.flak && ship.flak[i];
@@ -2908,6 +2955,8 @@ export function aaBearing(cls, ship, px, pz, py) {
     // And a mounting a fighter has been along: its crew are down or its gun
     // is wrecked, and either way it is not shooting at anybody.
     if (!flakUp(ship, mi)) continue;
+    // Or one her captain has switched off.
+    if (flakOff(ship, cls, mi)) continue;
     on += m.guns;
   }
   return { share: all > 0 ? on / all : 0, barrels: on, of: all, bearing, range: d };
@@ -3007,7 +3056,7 @@ function stepDpSurface(state, ship, dt) {
   ship.dpCd = ship.dpCd || {};
   for (const { i, spec, gun } of dpMounts(cls)) {
     if (ship.dpCd[i] > 0) ship.dpCd[i] -= dt;
-    if (!ship.assign[`dp:${i}`]) continue;
+    if (!ship.assign[`dp:${i}`] || mountOff(ship, 'dp', i)) continue;
     const B = dpBattery(gun);
     const given = assignedAim(state, ship, 'dp', i, B.range, B);
     if (!given || given.idle || ship.dpCd[i] > 0) continue;
@@ -3051,6 +3100,7 @@ function stepSecondary(state, ship, dt) {
     if (cond >= 3) continue;
     if (m.disabled > 0) { m.disabled -= dt; continue; }
     if (m.cooldown > 0) m.cooldown -= dt;
+    if (mountOff(ship, 'sec', m.id)) { m.target = 0; continue; }
     // A mounting somebody has gone down to comes off local control: it trains
     // where he is holding, elevates on his range, and waits for his trigger.
     const stops = gunLimits(S);
@@ -3174,6 +3224,7 @@ export function fireSecondary(state, ship, id) {
   if (!S || !ship.alive) return 0;
   const m = ship.secMounts.find((q) => q.id === id);
   if (!m || m.cooldown > 0 || m.disabled > 0) return 0;
+  if (mountOff(ship, 'sec', m.id)) return 0;
   const spec = S.mounts[m.id];
   const cond = gunState(ship, cls, spec, m);
   if (cond >= 3) return 0;
@@ -4539,6 +4590,7 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
     if (only !== null && m.id !== only) continue;
     if (m.id === held) continue;
     if (m.cooldown > 0 || m.lost) continue;
+    if (mountOff(ship, 'torp', m.id)) continue;
     const spec = T.mounts[m.id];
     const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
     if (given && given.idle) continue;

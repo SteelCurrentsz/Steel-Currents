@@ -3,7 +3,7 @@
 
 import { getClass } from './ships.js';
 import {
-  torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact,
+  torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -121,6 +121,17 @@ export function shipSnapshot(ship, full, state = null) {
     s.notch = ship.notch;
     // Which of her mountings her captain has put on which ship by name.
     if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
+    // Which of them he has switched off, and which are gone for good -- the
+    // same keys, so the panel can show both on the key for that mounting.
+    if (ship.off && Object.keys(ship.off).length) s.of = Object.keys(ship.off);
+    const ko = [];
+    ship.turrets.forEach((t) => { if (gunState(ship, cls, cls.turrets[t.id], t) >= 3) ko.push(`main:${t.id}`); });
+    if (cls.secondary) {
+      ship.secMounts.forEach((m) => { if (gunState(ship, cls, cls.secondary.mounts[m.id], m) >= 3) ko.push(`sec:${m.id}`); });
+    }
+    for (const d of dpMounts(cls)) if (lightGunState(ship, cls, d.spec) >= 3) ko.push(`dp:${d.i}`);
+    ship.torpMounts.forEach((m) => { if (m.lost) ko.push(`torp:${m.id}`); });
+    if (ko.length) s.ko = ko;
     s.rud = r3(ship.rudder);
     // How fast she is swinging, which the helm takes time to change; her own
     // bridge predicts the swing and has to start from the server's.

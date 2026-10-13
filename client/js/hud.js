@@ -1159,6 +1159,16 @@ export class Hud {
         window.removeEventListener('pointercancel', up);
         for (const b of this.targetFoes?.boxes.values() || []) b.el.classList.remove('drop');
         if (!ghost) {
+          // A second tap on the same key, quickly: switch the mounting off,
+          // or back on. The first tap has already rung it on her model.
+          const now = performance.now();
+          const last = this.lastGunTap;
+          if (last && last.kind === t.kind && last.i === t.i && now - last.at < 350) {
+            this.lastGunTap = null;
+            this.onTargetOff?.(t, !this.targetOff?.has(`${t.kind}:${t.i}`));
+            return;
+          }
+          this.lastGunTap = { kind: t.kind, i: t.i, at: now };
           // A tap: ring it on her model, or stop ringing it.
           const on = this.targetPick?.kind !== t.kind || this.targetPick?.i !== t.i;
           this.targetPick = on ? t : null;
@@ -1184,10 +1194,13 @@ export class Hud {
    * `foes` is `[{ i, n, c, d }]`, `assign` her assignments off the wire, and
    * `reach(t)` the range of the mounting a key stands for.
    */
-  paintTargetFoes(foes, assign, reach) {
+  paintTargetFoes(foes, assign, reach, off = [], lost = []) {
     const T = this.targetFoes;
     if (!T || this.panel !== 'targeting') return;
     const keys = this.targetKeys || [];
+    // Switched off by her captain, or gone for good: either way the key is red.
+    this.targetOff = new Set(off);
+    const dead = (t) => this.targetOff.has(`${t.kind}:${t.i}`) || lost.includes(`${t.kind}:${t.i}`);
     const seen = new Set();
     for (const f of foes) {
       seen.add(f.i);
@@ -1207,14 +1220,14 @@ export class Hud {
       b.range.textContent = `${Math.round(f.d * M_TO_YARDS).toLocaleString()} yd`;
       // Her guns on this ship, in the order the bar has them.
       const on = keys.filter((k) => assign && assign[`${k.t.kind}:${k.t.i}`] === f.i);
-      const sig = on.map((k) => `${k.t.kind}${k.t.i}:${f.d > reach(k.t) ? 1 : 0}`).join(',');
+      const sig = on.map((k) => `${k.t.kind}${k.t.i}:${f.d > reach(k.t) ? 1 : 0}${dead(k.t) ? 'x' : ''}`).join(',');
       if (sig !== b.sig) {
         b.sig = sig;
         b.guns.innerHTML = '';
         for (const k of on) {
           const g = document.createElement('button');
           g.type = 'button';
-          g.className = 'target-gun linked' + (f.d > reach(k.t) ? ' idle' : '');
+          g.className = 'target-gun linked' + (f.d > reach(k.t) ? ' idle' : '') + (dead(k.t) ? ' off' : '');
           g.textContent = k.t.label;
           g.title = f.d > reach(k.t) ? `${k.t.label}: out of range, idle` : `${k.t.label}: firing on ${f.n}`;
           this.dragGun(g, k.t, f.i);
@@ -1235,8 +1248,18 @@ export class Hud {
     }
     T.none.hidden = foes.length > 0;
     // And on the bar: a key that is on a ship says so.
-    for (const k of keys) k.el.classList.toggle('linked', !!(assign && assign[`${k.t.kind}:${k.t.i}`]));
+    for (const k of keys) {
+      k.el.classList.toggle('linked', !!(assign && assign[`${k.t.kind}:${k.t.i}`]));
+      const out = dead(k.t);
+      k.el.classList.toggle('off', out);
+      k.el.title = `${k.t.group} ${k.t.label}`
+        + (lost.includes(`${k.t.kind}:${k.t.i}`) ? ' -- out of action'
+          : out ? ' -- switched off (double-tap to switch on)' : ' -- double-tap to switch off');
+    }
   }
+
+  /** What double-tapping a gun's key does: switch it off, or on. Set by the battle. */
+  onTargetingOff(fn) { this.onTargetOff = fn; }
 
   /** What dropping a gun on an enemy's box does. Set by the battle. */
   onTargetingAssign(fn) { this.onTargetAssign = fn; }
