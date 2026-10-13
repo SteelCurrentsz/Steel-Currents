@@ -10,7 +10,6 @@ import { buildHipper } from './hipper.js';
 import { buildSpee } from './spee.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
-import { buildYamato } from './yamato.js';
 import { buildTakao } from './takao.js';
 import { buildRodney } from './rodney.js';
 import { buildBaltimore } from './baltimore.js';
@@ -543,12 +542,10 @@ export function buildShipModel(classId) {
     };
   }
 
-  // And the Yamato: the largest battleship ever built, and a shape no
-  // parametric hull gets near -- a bulbous forefoot, a sheer that sweeps three
-  // and a half metres over her forward third, and a pagoda bridge that is a
-  // stack of platforms rather than a tower.
+  // And the Yamato: the largest battleship ever built, drawn as her sister is.
   if (cls.id === 'yamato') {
-    const built = buildYamato();
+    // Her sister's hull: see SHIP_CLASSES.yamato.
+    const built = buildMusashi();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

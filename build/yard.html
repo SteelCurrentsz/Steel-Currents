@@ -39,6 +39,8 @@ scene.add(new THREE.HemisphereLight(0xa8cee6, 0x2c5a72, 1.0));
 const built = buildShip(id);
 scene.add(built.group);
 if (built.group.userData.step) built.group.userData.step(+(q.get('t') || 3));
+// hide=mounts draws her without anything that trains, to see the hull under it.
+if (q.get('hide') === 'mounts') built.group.traverse((o) => { if (o.userData.mounting) o.visible = false; });
 built.group.updateMatrixWorld(true);
 
 // A patch of sea, so the waterline reads.

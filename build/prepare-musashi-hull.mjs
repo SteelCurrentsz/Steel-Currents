@@ -521,13 +521,13 @@ const AFT_AERIAL = { a: [-54.5, 32.6], b: [-118.0, 21.8], r: 0.9, x: 5.5 };
 export const TURRETS = [
   { name: 'No.1', x: 0, z: 53.9, s: 1, floor: 7.0, seat: 7.0, face: 6.95,
     house: { along: [-10.6, 7.0], across: [-7.8, 7.8], top: 10.95, cut: 12.4 },
-    barrels: { along: 18.85, y: [7.9, 9.7] }, under: 6.5 },
+    barrels: { along: 18.85, y: [7.9, 9.7] }, under: 6.5, behind: [-11.9, 10.95] },
   { name: 'No.2', x: 0, z: 30.75, s: 1, floor: 9.7, seat: 9.7, face: 7.65,
     house: { along: [-10.4, 7.7], across: [-7.8, 7.8], top: 14.8, cut: 14.8 },
-    barrels: { along: 18.75, y: [10.5, 12.3] } },
+    barrels: { along: 18.75, y: [10.5, 12.3], over: 13.9 } },
   { name: 'No.3', x: 0, z: -64.25, s: -1, floor: 8.9, seat: 8.9, face: 8.35,
     house: { along: [-9.6, 8.4], across: [-7.8, 7.8], top: 14.9, cut: 14.9 },
-    barrels: { along: 19.0, y: [9.5, 11.2] }, under: 6.5 },
+    barrels: { along: 19.0, y: [9.5, 11.2] }, under: 6.5, behind: [-10.6, 12.0], corners: [4.6, 8.4] },
 ];
 const BARREL_HALF = 3.95;
 const alongZ = (t, a) => t.z + t.s * a;
@@ -541,6 +541,35 @@ function turretBoxes(t, top) {
     { name: `${t.name} barrels`, x0: t.x - BARREL_HALF, x1: t.x + BARREL_HALF, y0: t.barrels.y[0], y1: t.barrels.y[1],
       z0: Math.min(ba, bb), z1: Math.max(ba, bb) },
   ];
+  // Over No.2's barrels, where the tops of the sculpt's own guns and blast
+  // bags stood clear of the box the barrels came out in, against the back of
+  // No.1.
+  if (t.barrels.over) {
+    boxes.push({ name: `${t.name} over barrels`, x0: t.x - BARREL_HALF, x1: t.x + BARREL_HALF,
+      y0: t.barrels.y[1] - 0.01, y1: t.barrels.over, z0: Math.min(ba, bb), z1: Math.max(ba, bb) });
+  }
+  // And behind No.1 and No.3, the back of the sculpt's own gunhouse, which
+  // ran on past the box it came out in: off down to the top of the barbette,
+  // which stays whole. `behind` is how far back it goes and how high.
+  if (t.behind) {
+    const [back, high] = t.behind;
+    const z0 = alongZ(t, back), z1 = alongZ(t, along[0] + 0.01 * t.s);
+    boxes.push({ name: `${t.name} behind`, x0: t.x + across[0], x1: t.x + across[1],
+      y0: t.floor + 0.05, y1: high, z0: Math.min(z0, z1), z1: Math.max(z0, z1) });
+    // Under its back corners No.3's gunhouse came down past its barbette to
+    // her deck, outside the round of it: those come off down to a hand over
+    // her deck, either side, and the barbette between them stays.
+    if (t.corners) {
+      const [inner, outer] = t.corners;
+      const za = alongZ(t, back), zb = alongZ(t, along[0] + 1.2 * t.s);
+      let deck = -Infinity;
+      for (let z = Math.min(za, zb); z <= Math.max(za, zb); z += 0.5) deck = Math.max(deck, deckAt(z));
+      for (const sg of [-1, 1]) {
+        boxes.push({ name: `${t.name} corner ${sg}`, x0: t.x + Math.min(sg * inner, sg * outer), x1: t.x + Math.max(sg * inner, sg * outer),
+          y0: deck + 0.15, y1: t.floor + 0.06, z0: Math.min(za, zb), z1: Math.max(za, zb) });
+      }
+    }
+  }
   // Under the barrels of No.1 and No.3 the sculpt left a wedge standing on
   // her deck -- what its own gunhouse had cast into her under its guns --
   // which no gun of hers covers now. It comes off down to a hand over the
@@ -750,6 +779,33 @@ if (process.env.CHECK) {
   for (const b of [...CUT_BOXES, ...TURRETS.flatMap(hullBoxes)]) {
     const r = boxCut(m, b, { rescue: true });
     if (process.env.VERBOSE) console.log(`cut ${b.name}: ${r.cut} triangles, caps ${r.caps.filter((n) => n).join('/') || 'none'}`);
+  }
+  // The faces the cut of No.3's gunhouse left across the after end of her
+  // superstructure, standing up off her barbette against the back of the
+  // turret: flat plates with nothing behind them, and fins either side of
+  // them out past the round of the after 15.5 cm's barbette. They come off.
+  {
+    const T = [], C = [];
+    let gone = 0;
+    for (let q = 0; q < m.T.length; q += 3) {
+      let cx = 0, cy = 0, cz = 0;
+      for (let j = 0; j < 3; j++) { cx += m.P[m.T[q + j] * 3] / 3; cy += m.P[m.T[q + j] * 3 + 1] / 3; cz += m.P[m.T[q + j] * 3 + 2] / 3; }
+      if (cz > -54.95 && cz < -54.3 && Math.abs(cx) >= 4.8 && Math.abs(cx) < 9 && cy > 9.0 && cy < 12.6) { gone++; continue; }
+      // And the flat faces the cuts closed the slab off with across her, a
+      // plate with nothing behind it standing up off No.3's barbette.
+      if (cz > -54.8 && cz < -53.45 && Math.abs(cx) < 9 && cy > 8.95 && cy < 12.25) {
+        const v = [0, 1, 2].map((k) => m.T[q + k] * 3);
+        const ux = m.P[v[1]] - m.P[v[0]], uy = m.P[v[1] + 1] - m.P[v[0] + 1], uz = m.P[v[1] + 2] - m.P[v[0] + 2];
+        const wx = m.P[v[2]] - m.P[v[0]], wy = m.P[v[2] + 1] - m.P[v[0] + 1], wz = m.P[v[2] + 2] - m.P[v[0] + 2];
+        const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+        if (Math.abs(nz) > 0.98 * Math.hypot(nx, ny, nz)) { gone++; continue; }
+      }
+      T.push(m.T[q], m.T[q + 1], m.T[q + 2]);
+      if (m.C) C.push(m.C[q / 3]);
+    }
+    m.T = T;
+    if (m.C) m.C = C;
+    if (process.env.VERBOSE) console.log(`No.3 fins: ${gone} triangles`);
   }
   for (const b of CUT_BOXES.filter((k) => k.deck !== undefined)) {
     // Where nothing is stood back on the place, it is pressed to the deck
