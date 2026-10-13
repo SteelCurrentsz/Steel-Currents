@@ -534,6 +534,8 @@ export class Hud {
       // The dive key is not a panel. It is an order, and it is given by
       // pressing it: surfaced, periscope depth, deep, and round again.
       if (el.dataset.panel === 'dive') { el.onclick = () => this.onDive?.(); continue; }
+      // Targeting has no panel behind it yet.
+      if (el.dataset.panel === 'targeting') { el.onclick = null; continue; }
       el.onclick = () => this.togglePanel(el.dataset.panel);
     }
     this.panel = null;

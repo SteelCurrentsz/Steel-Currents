@@ -412,6 +412,8 @@ input[type="range"] { accent-color: var(--red); }
 .conn-key.spent { opacity: 0.42; }
 /* A ship with no aircraft aboard has no air key, and the other two close up. */
 .conn-key[hidden] { display: none; }
+/* Nine letters is more than the key is wide at the usual spacing. */
+#key-targeting span { letter-spacing: 0.02em; }
 
 /* The target plate, standing beside the keys.
  *
