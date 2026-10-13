@@ -31,7 +31,7 @@ const DC_ORDER = ['Shore up', 'Start pumps', 'Damage control'];
 
 const PANEL_TITLES = {
   helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
-  ship: 'DAMAGE CONTROL', lamps: 'SEARCH LIGHTS', human: 'HUMAN VIEW',
+  ship: 'DAMAGE CONTROL', lamps: 'SEARCH LIGHTS', human: 'HUMAN VIEW', targeting: 'TARGETING',
 };
 
 /** The pin put in her plan where the human view is to stand you. */
@@ -534,8 +534,6 @@ export class Hud {
       // The dive key is not a panel. It is an order, and it is given by
       // pressing it: surfaced, periscope depth, deep, and round again.
       if (el.dataset.panel === 'dive') { el.onclick = () => this.onDive?.(); continue; }
-      // Targeting has no panel behind it yet.
-      if (el.dataset.panel === 'targeting') { el.onclick = null; continue; }
       el.onclick = () => this.togglePanel(el.dataset.panel);
     }
     this.panel = null;
@@ -753,7 +751,7 @@ export class Hud {
       el.classList.toggle('on', k === this.panel);
     }
     this.el.connPanel.hidden = !this.panel;
-    this.el.connPanel.classList.toggle('wide', this.panel === 'dmg');
+    this.el.connPanel.classList.toggle('wide', this.panel === 'dmg' || this.panel === 'targeting');
     this.el.connPanel.classList.toggle('tall', this.panel === 'arms');
     if (!this.panel) return;
     this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
@@ -764,6 +762,7 @@ export class Hud {
     else if (this.panel === 'arms') this.buildArsenalPanel();
     else if (this.panel === 'lamps') this.buildLampPanel();
     else if (this.panel === 'human') this.buildHumanPanel();
+    else if (this.panel === 'targeting') this.buildTargetingPanel();
     else this.buildActionPanel(this.panel);
     if (this.lastOwn) this.paintPanel(this.lastOwn);
   }
@@ -1051,6 +1050,25 @@ export class Hud {
 
   /** Say who builds the hologram, so the HUD need not import a renderer. */
   onDamageBoard(fn) { this.onBoard = fn; }
+
+  /**
+   * Targeting: her own model, the ship you are on or watching, in the one
+   * fixed view a gunnery officer has of her -- not turned by anything -- with
+   * her turrets trained as they are. The battle hands it a renderer the first
+   * time it is raised (see onTargetingBoard).
+   */
+  buildTargetingPanel() {
+    const wrap = document.createElement('div');
+    wrap.className = 'board-wrap target-wrap';
+    const cv = document.createElement('canvas');
+    cv.className = 'board-canvas';
+    wrap.appendChild(cv);
+    this.el.connBody.appendChild(wrap);
+    this.onTarget?.(cv);
+  }
+
+  /** What builds the targeting panel's picture. Set by the battle. */
+  onTargetingBoard(fn) { this.onTarget = fn; }
 
   /**
    * The arsenal: every gun, tube and charge aboard, and what each may engage.

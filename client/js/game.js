@@ -6,6 +6,7 @@ import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
 import { Hud, readTarget } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
+import { TargetingView } from './render/targetview.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
@@ -348,6 +349,12 @@ export class Battle {
     this.hud.onDamageBoard?.((canvas) => {
       this.board = new DamageBoard(canvas, classId);
       for (const h of this.holes) this.board.hole(h[0], h[1], h[2], h[3]);
+    });
+    // The targeting panel's picture of her: her own model in a fixed view. A
+    // fresh canvas each time the panel is raised, so a fresh renderer on it.
+    this.hud.onTargetingBoard?.((canvas) => {
+      this.targetView?.dispose();
+      this.targetView = new TargetingView(canvas);
     });
     // And the arsenal's own hologram: the same hull with no damage on it, and
     // the battery that was pressed lit up where it stands on her.
@@ -4079,6 +4086,16 @@ export class Battle {
       this.armsBoard.setMountCondition(this.mountCondition(this.armsRow));
       this.armsBoard.update(null, dt);
     }
+    if (this.targetView && this.hud.panel === 'targeting') {
+      // Whoever is being read out: your own ship, or the one you are watching.
+      const id = this.conned();
+      const c = id === this.shipId ? this.cls.id : shown?.c;
+      if (c) {
+        this.targetView.build(c);
+        this.targetView.follow(this.scene.shipViews.get(id));
+        this.targetView.render();
+      }
+    }
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);
       this.board.setWater(shown?.wt);
@@ -5517,6 +5534,7 @@ export class Battle {
   resize(w, h) { this.scene.resize(w, h); }
 
   dispose() {
+    this.targetView?.dispose();
     // Off her bridge first: the cut round it is on materials the next
     // battle's ships are drawn with too.
     this.leaveMan(true);
