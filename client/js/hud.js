@@ -1104,17 +1104,23 @@ export class Hud {
       b.className = 'target-gun';
       b.textContent = t.label;
       b.title = `${t.group} ${t.label}`;
-      b.onclick = () => {
-        const on = this.targetPick !== t;
-        this.targetPick = on ? t : null;
-        for (const k of this.targetKeys) k.el.classList.toggle('on', k.t === this.targetPick);
-        this.onTargetPick?.(this.targetPick);
-      };
+      this.dragGun(b, t, 0);
       bar.appendChild(b);
       this.targetKeys.push({ t, el: b });
     }
     this.targetPick = null;
     this.el.connBody.appendChild(bar);
+    // A box for every enemy ship in sight. A gun's key dragged onto one puts
+    // that gun on her; dragged out of her box and let go anywhere else, it is
+    // given back to her gunnery officer.
+    const foes = document.createElement('div');
+    foes.className = 'target-foes';
+    const none = document.createElement('p');
+    none.className = 'conn-note target-none';
+    none.textContent = 'No enemy in sight';
+    foes.appendChild(none);
+    this.el.connBody.appendChild(foes);
+    this.targetFoes = { el: foes, none, boxes: new Map() };
     const wrap = document.createElement('div');
     wrap.className = 'board-wrap target-wrap';
     const cv = document.createElement('canvas');
@@ -1123,6 +1129,117 @@ export class Hud {
     this.el.connBody.appendChild(wrap);
     this.onTarget?.(cv);
   }
+
+  /**
+   * Make a gun's key draggable. A tap rings it on her model; a drag carries
+   * it, and let go over an enemy's box it is put on her -- let go anywhere
+   * else, a key that was already on a ship (`from` her id) is taken off her.
+   */
+  dragGun(el, t, from) {
+    el.style.touchAction = 'none';
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const x0 = e.clientX, y0 = e.clientY;
+      let ghost = null;
+      const move = (ev) => {
+        if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 7) return;
+        if (!ghost) {
+          ghost = el.cloneNode(true);
+          ghost.classList.add('target-ghost');
+          document.body.appendChild(ghost);
+        }
+        ghost.style.left = `${ev.clientX}px`;
+        ghost.style.top = `${ev.clientY}px`;
+        const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.target-foe');
+        for (const b of this.targetFoes?.boxes.values() || []) b.el.classList.toggle('drop', b.el === over);
+      };
+      const up = (ev) => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        for (const b of this.targetFoes?.boxes.values() || []) b.el.classList.remove('drop');
+        if (!ghost) {
+          // A tap: ring it on her model, or stop ringing it.
+          const on = this.targetPick?.kind !== t.kind || this.targetPick?.i !== t.i;
+          this.targetPick = on ? t : null;
+          for (const k of this.targetKeys || []) k.el.classList.toggle('on', !!this.targetPick && k.t.kind === t.kind && k.t.i === t.i);
+          this.onTargetPick?.(this.targetPick);
+          return;
+        }
+        ghost.remove();
+        const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.target-foe');
+        const to = over ? Number(over.dataset.ship) : 0;
+        if (to && to !== from) this.onTargetAssign?.(t, to);
+        else if (!over && from) this.onTargetAssign?.(t, 0);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+  }
+
+  /**
+   * The enemy boxes, kept up to date: who is in sight, how far off, and which
+   * of her guns are on each -- greyed where the ship is out of that gun's reach.
+   * `foes` is `[{ i, n, c, d }]`, `assign` her assignments off the wire, and
+   * `reach(t)` the range of the mounting a key stands for.
+   */
+  paintTargetFoes(foes, assign, reach) {
+    const T = this.targetFoes;
+    if (!T || this.panel !== 'targeting') return;
+    const keys = this.targetKeys || [];
+    const seen = new Set();
+    for (const f of foes) {
+      seen.add(f.i);
+      let b = T.boxes.get(f.i);
+      if (!b) {
+        const el = document.createElement('div');
+        el.className = 'target-foe';
+        el.dataset.ship = String(f.i);
+        el.innerHTML = '<div class="tf-head"><span class="tf-name"></span><span class="tf-range"></span></div>'
+          + '<div class="tf-guns"></div>';
+        T.el.appendChild(el);
+        b = { el, name: el.querySelector('.tf-name'), range: el.querySelector('.tf-range'),
+          guns: el.querySelector('.tf-guns'), sig: null };
+        T.boxes.set(f.i, b);
+      }
+      b.name.textContent = f.n;
+      b.range.textContent = `${Math.round(f.d * M_TO_YARDS).toLocaleString()} yd`;
+      // Her guns on this ship, in the order the bar has them.
+      const on = keys.filter((k) => assign && assign[`${k.t.kind}:${k.t.i}`] === f.i);
+      const sig = on.map((k) => `${k.t.kind}${k.t.i}:${f.d > reach(k.t) ? 1 : 0}`).join(',');
+      if (sig !== b.sig) {
+        b.sig = sig;
+        b.guns.innerHTML = '';
+        for (const k of on) {
+          const g = document.createElement('button');
+          g.type = 'button';
+          g.className = 'target-gun linked' + (f.d > reach(k.t) ? ' idle' : '');
+          g.textContent = k.t.label;
+          g.title = f.d > reach(k.t) ? `${k.t.label}: out of range, idle` : `${k.t.label}: firing on ${f.n}`;
+          this.dragGun(g, k.t, f.i);
+          b.guns.appendChild(g);
+        }
+        if (!on.length) {
+          const hint = document.createElement('span');
+          hint.className = 'tf-hint';
+          hint.textContent = 'Drop a gun here';
+          b.guns.appendChild(hint);
+        }
+      }
+    }
+    for (const [id, b] of T.boxes) {
+      if (seen.has(id)) continue;
+      b.el.remove();
+      T.boxes.delete(id);
+    }
+    T.none.hidden = foes.length > 0;
+    // And on the bar: a key that is on a ship says so.
+    for (const k of keys) k.el.classList.toggle('linked', !!(assign && assign[`${k.t.kind}:${k.t.i}`]));
+  }
+
+  /** What dropping a gun on an enemy's box does. Set by the battle. */
+  onTargetingAssign(fn) { this.onTargetAssign = fn; }
 
   /** What builds the targeting panel's picture. Set by the battle. */
   onTargetingBoard(fn) { this.onTarget = fn; }

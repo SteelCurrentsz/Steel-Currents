@@ -21,7 +21,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses,
+  freeboardOf, cutLoses, dpMounts,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -357,6 +357,13 @@ export class Battle {
       this.targetView = new TargetingView(canvas);
     });
     this.hud.onTargetingPick?.((pick) => this.targetView?.select(pick));
+    // A gun dropped on an enemy's box: put on her by name, or given back.
+    this.hud.onTargetingAssign?.((t, target) => {
+      this.net.send({ t: 'assign', ship: this.conned(), k: t.kind, i: t.i, target });
+      audio.click();
+      if (target) this.hud.alert(`${t.label} on ${this.names.get(target) || 'target'}`);
+      else this.hud.alert(`${t.label} back to fire control`);
+    });
     // And the arsenal's own hologram: the same hull with no damage on it, and
     // the battery that was pressed lit up where it stands on her.
     this.hud.onArsenalBoard?.((canvas, specs, row) => {
@@ -4108,6 +4115,22 @@ export class Battle {
         this.targetView.build(c);
         this.targetView.follow(this.scene.shipViews.get(id));
         this.targetView.render();
+      }
+      // The enemy boxes over her, four times a second.
+      this.foeDue = (this.foeDue || 0) - dt;
+      if (snap && shown && c && this.foeDue <= 0) {
+        this.foeDue = 0.25;
+        const cls = getClass(c);
+        const myTeam = shown.tm ?? this.team;
+        const sx = id === this.shipId ? ls.x : shown.x, sz = id === this.shipId ? ls.z : shown.z;
+        const foes = (snap.ships || [])
+          .filter((q) => q.a && q.tm !== myTeam)
+          .map((q) => ({ i: q.i, n: q.n || 'Contact', c: q.c, d: Math.hypot(q.x - sx, q.z - sz) }))
+          .sort((p, q) => p.d - q.d);
+        const dp = new Map(dpMounts(cls).map((m) => [m.i, m.gun.range]));
+        const reach = (t) => (t.kind === 'main' ? cls.gun?.range : t.kind === 'sec' ? cls.secondary?.range
+          : t.kind === 'dp' ? dp.get(t.i) : cls.torpedoes?.range) || 0;
+        this.hud.paintTargetFoes(foes, shown.as || {}, reach);
       }
     }
     if (this.board && this.hud.panel === 'dmg') {

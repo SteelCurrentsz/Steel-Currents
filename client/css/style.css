@@ -427,6 +427,27 @@ input[type="range"] { accent-color: var(--red); }
 }
 .target-gun.on { color: #10161c; background: #ffc94a; border-color: #ffc94a; }
 .target-wrap { cursor: grab; touch-action: none; }
+/* The enemy ships in sight, each a box her guns are dropped on. */
+.target-foes { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.target-none { margin: 0.1rem 0 0.2rem; }
+.target-foe {
+  flex: 1 1 8.5rem; min-width: 8.5rem; padding: 0.35rem 0.45rem 0.4rem;
+  background: rgba(60, 14, 18, 0.35); border: 1px solid rgba(226, 86, 79, 0.45);
+  transition: border-color 0.12s, background 0.12s;
+}
+.target-foe.drop { border-color: #ffc94a; background: rgba(255, 201, 74, 0.14); }
+.tf-head { display: flex; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.3rem; }
+.tf-name { color: var(--enemy); font-size: 0.78rem; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-range { color: var(--steel); font-size: 0.68rem; white-space: nowrap; }
+.tf-guns { display: flex; flex-wrap: wrap; gap: 0.25rem; min-height: 1.6rem; align-items: center; }
+.tf-hint { font-size: 0.64rem; color: rgba(154, 166, 178, 0.6); letter-spacing: 0.06em; }
+.target-gun { touch-action: none; user-select: none; }
+.target-gun.linked { border-color: rgba(226, 86, 79, 0.7); }
+.target-gun.idle { opacity: 0.45; text-decoration: line-through; }
+.target-ghost {
+  position: fixed; z-index: 100; pointer-events: none; transform: translate(-50%, -60%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
 .target-wrap:active { cursor: grabbing; }
 
 /* The target plate, standing beside the keys.

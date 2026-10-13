@@ -2,7 +2,7 @@
 
 import {
   createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
-  manGun, layGun, shootGun,
+  manGun, layGun, shootGun, assignMount,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret,
@@ -497,6 +497,13 @@ export class Room {
         break;
       }
       case 'lay': { const to = this.conned(ship, msg); if (to) layGun(to, msg); break; }
+      // One of her guns or banks put on an enemy ship by name off the
+      // targeting panel, or given back to her gunnery officer.
+      case 'assign': {
+        const to = this.conned(ship, msg);
+        if (to) assignMount(this.state, to, msg.k, msg.i, typeof msg.target === 'number' ? msg.target : 0);
+        break;
+      }
       case 'shoot': { const to = this.conned(ship, msg); if (to) shootGun(this.state, to); break; }
       // Damage control and smoke are given to whichever ship is being conned,
       // the same way a course is. A captain watching another ship from her own

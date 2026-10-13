@@ -18,6 +18,7 @@ import {
 import { buildBridge } from '../client/js/render/bridgeroom.js';
 import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
+  assignMount, dpMounts, assignedAim,
 } from '../shared/sim.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
@@ -3899,6 +3900,93 @@ check('friendly fire: off by default, and the room and the battle carry it', () 
   const on = new Room({ name: 't', mode: 'deathmatch', autoStart: false, friendlyFire: true });
   assert.equal(on.state.friendlyFire, true);
   on.close();
+});
+
+check('a gun put on a ship by name is laid on her, fires at her, and idles out of reach', () => {
+  const setup = () => {
+    const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    state.world.islands = [];
+    const a = addShip(state, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+    const near = addShip(state, { name: 'Near', classId: 'fletcher', team: 1, index: 0 });
+    const far = addShip(state, { name: 'Far', classId: 'fletcher', team: 1, index: 1 });
+    a.x = 0; a.z = 0; a.heading = 0; a.speed = 0;
+    // One on her starboard beam in range, one on her port beam far out of it.
+    near.x = -9000; near.z = 0; near.heading = 0; near.speed = 0;
+    far.x = 40000; far.z = 0; far.heading = 0; far.speed = 0;
+    for (const s of [near, far]) s.spottedBy[0] = true;
+    // Her own fire control is laid on the far one.
+    a.aimX = far.x; a.aimZ = far.z;
+    return { state, a, near, far };
+  };
+  const { state, a, near, far } = setup();
+  assert.ok(assignMount(state, a, 'main', 0, near.id));
+  assert.equal(a.assign['main:0'], near.id);
+  // Not on her own side, and not on a mounting she has not got.
+  assert.ok(!assignMount(state, a, 'main', 0, a.id));
+  assert.ok(!assignMount(state, a, 'main', 99, near.id));
+  for (let i = 0; i < 30 * 30; i++) { for (const s of [near, far]) s.spottedBy[0] = true; step(state, DT); }
+  const t0 = a.turrets.find((t) => t.id === 0);
+  const want = wrapAngle(headingTo(a.x, a.z, near.x, near.z) - a.heading);
+  assert.ok(Math.abs(angleDelta(t0.angle, want)) < 0.1 || !t0.laid,
+    `turret 0 is at ${(t0.angle * 57.3).toFixed(0)} deg, not on her at ${(want * 57.3).toFixed(0)}`);
+  state.shells.length = 0;
+  for (const t of a.turrets) t.cooldown = 0;
+  near.spottedBy[0] = true;
+  const fired = fireGuns(state, a, null, { assignedOnly: true });
+  assert.ok(fired > 0, 'the turret given a ship in range did not fire');
+  // Every shell that went is going her way, not the far ship's.
+  for (const sh of state.shells) assert.ok(sh.vx < 0, 'a shell went toward the ship she was not given');
+  // Put on a ship out of its reach, it idles.
+  assignMount(state, a, 'main', 0, far.id);
+  far.spottedBy[0] = true;
+  const reach = Math.hypot(far.x - a.x, far.z - a.z);
+  assert.equal(assignedAim(state, a, 'main', 0, reach - 10).idle, true, 'a ship beyond the range was not out of reach');
+  assert.equal(assignedAim(state, a, 'main', 0, reach + 10).idle, false);
+  // And on one nobody can see, the same: it stands where it is and holds fire.
+  for (let i = 0; i < 10; i++) { far.spottedBy[0] = false; step(state, DT); }
+  state.shells.length = 0;
+  for (const t of a.turrets) t.cooldown = 0;
+  far.spottedBy[0] = false;
+  assert.equal(fireGuns(state, a, null, { assignedOnly: true }), 0, 'a gun fired at a ship it could not reach');
+  assert.equal(t0.laid, false);
+  // And cleared, it is her gunnery officer's again.
+  assignMount(state, a, 'main', 0, 0);
+  assert.equal(a.assign['main:0'], undefined);
+});
+
+check('secondaries, dual-purpose guns and torpedo banks can be put on a ship by name', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  state.world.islands = [];
+  const a = addShip(state, { name: 'A', classId: 'musashi', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+  a.x = 0; a.z = 0; a.heading = 0; a.speed = 0;
+  foe.x = -5000; foe.z = 500; foe.heading = 0; foe.speed = 0;
+  foe.spottedBy[0] = true;
+  const dps = dpMounts(SHIP_CLASSES.musashi);
+  assert.ok(dps.length === 6, `${dps.length} dual-purpose mountings`);
+  // The DP mountings on her starboard side: she fights to starboard (-x).
+  const stbd = dps.filter((d) => d.spec.x < 0);
+  for (const d of stbd) assert.ok(assignMount(state, a, 'dp', d.i, foe.id));
+  // An anti-aircraft mounting is not one she lays on a ship.
+  const light = (SHIP_CLASSES.musashi.aa.guns.find((g) => g.role !== 'dp'));
+  assert.ok(!assignMount(state, a, 'dp', dps.length + 50, foe.id));
+  assert.ok(light);
+  state.shells.length = 0;
+  let dpShells = 0;
+  for (let i = 0; i < 30 * 12; i++) {
+    foe.spottedBy[0] = true;
+    const ev = step(state, DT);
+    dpShells += ev.filter((e) => e.e === 'muzzle' && e.ship === a.id && e.dp !== undefined).length;
+  }
+  assert.ok(dpShells > 0, 'the dual-purpose guns put on her never fired');
+  // A secondary given her picks nobody else.
+  assert.ok(assignMount(state, a, 'sec', 0, foe.id));
+  // Torpedoes on a ship that carries none are refused.
+  assert.ok(!assignMount(state, a, 'torp', 0, foe.id));
+  // She goes down, and they are given back.
+  foe.alive = false;
+  step(state, DT);
+  assert.equal(Object.keys(a.assign).length, 0, `still assigned: ${JSON.stringify(a.assign)}`);
 });
 
 check('a battle is fought out to the last ship', () => {

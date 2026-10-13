@@ -119,6 +119,8 @@ export function shipSnapshot(ship, full, state = null) {
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
   if (full) {
     s.notch = ship.notch;
+    // Which of her mountings her captain has put on which ship by name.
+    if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
     s.rud = r3(ship.rudder);
     // How fast she is swinging, which the helm takes time to change; her own
     // bridge predicts the swing and has to start from the server's.

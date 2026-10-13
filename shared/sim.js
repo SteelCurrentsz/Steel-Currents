@@ -233,6 +233,15 @@ export function addShip(state, {
     // looking: an aim point is a patch of sea ahead of a ship making twenty
     // knots, not the ship.
     targetId: 0,
+    // Which enemy ship each of her guns and tubes has been given by name off
+    // the targeting panel, as 'main:0', 'sec:3', 'dp:5', 'torp:1' to a ship
+    // id. A mounting in here is laid on that ship and no other, and does
+    // nothing while she is out of its reach or out of sight; one not in here
+    // is her gunnery officer's, as always. See assignMount.
+    assign: {},
+    // The cooldown of each dual-purpose mounting of her light battery that has
+    // been put on a ship, by its index in her light battery.
+    dpCd: {},
     aimX: sp.x + Math.sin(sp.heading) * 6000,
     aimZ: sp.z + Math.cos(sp.heading) * 6000,
     // `hurt` is what state the mounting is in and it lasts: 0 sound, 1
@@ -1638,6 +1647,100 @@ export function lightMounts(cls) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Guns given a target by name
+// ---------------------------------------------------------------------------
+
+/** The kinds of mounting the targeting panel can put on a ship. */
+export const ASSIGN_KINDS = ['main', 'sec', 'dp', 'torp'];
+
+/** The dual-purpose mountings of her light battery, by index in it, with their gun. */
+export function dpMounts(cls) {
+  const out = [];
+  let at = 0;
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    g.mounts.forEach((m, j) => { if (g.role === 'dp') out.push({ i: at + j, spec: m, gun: g }); });
+    at += g.mounts.length;
+  }
+  return out;
+}
+
+/** Whether she has mounting `i` of this kind at all. */
+function hasMount(cls, kind, i) {
+  if (!Number.isInteger(i) || i < 0) return false;
+  if (kind === 'main') return i < (cls.turrets || []).length;
+  if (kind === 'sec') return !!cls.secondary && i < cls.secondary.mounts.length;
+  if (kind === 'torp') return !!cls.torpedoes && i < cls.torpedoes.mounts.length;
+  if (kind === 'dp') return dpMounts(cls).some((d) => d.i === i);
+  return false;
+}
+
+/**
+ * Put one of her mountings on an enemy ship by name, or -- with no target --
+ * give it back to her gunnery officer. Returns whether anything was done.
+ */
+export function assignMount(state, ship, kind, i, targetId) {
+  if (!ship || !ASSIGN_KINDS.includes(kind)) return false;
+  const cls = shipClass(ship);
+  if (!hasMount(cls, kind, i)) return false;
+  ship.assign = ship.assign || {};
+  const key = `${kind}:${i}`;
+  if (!targetId) { delete ship.assign[key]; return true; }
+  const foe = state.ships.find((s) => s.id === targetId);
+  if (!foe || !foe.alive || foe.id === ship.id || !mayHurt(state, ship.team, foe)) return false;
+  ship.assign[key] = foe.id;
+  return true;
+}
+
+/**
+ * The ship a mounting has been put on, while she is there to be shot at; a
+ * mounting whose ship has gone down is given back to her gunnery officer.
+ */
+function assignedFoe(state, ship, kind, i) {
+  const id = ship.assign && ship.assign[`${kind}:${i}`];
+  if (!id) return null;
+  const foe = state.ships.find((s) => s.id === id);
+  if (!foe || !foe.alive) { delete ship.assign[`${kind}:${i}`]; return null; }
+  return foe;
+}
+
+/**
+ * Where a mounting that has been given a ship is to lay, or null when it has
+ * not been given one. `idle` when she is beyond `range` or nobody on her side
+ * can see her: a gun on a ship it cannot reach does not fire at the horizon,
+ * it waits. Led by `speed` metres a second of projectile, or by the gun's own
+ * flight time when `battery` is given.
+ */
+export function assignedAim(state, ship, kind, i, range, battery = null, speed = 0) {
+  const foe = assignedFoe(state, ship, kind, i);
+  if (!foe) return null;
+  const d = dist(ship.x, ship.z, foe.x, foe.z);
+  if (d > range || !foe.spottedBy[ship.team]) return { foe, idle: true, d, x: foe.x, z: foe.z };
+  let x = foe.x, z = foe.z;
+  if (battery) {
+    const tof = solveBallistic(battery, clamp(d, 400, range), 10).tof;
+    x = foe.x + Math.sin(foe.heading) * foe.speed * tof;
+    z = foe.z + Math.cos(foe.heading) * foe.speed * tof;
+  } else if (speed > 0) {
+    const lp = leadPoint(ship.x, ship.z, foe, speed);
+    x = lp.x; z = lp.z;
+  }
+  return { foe, idle: false, d: dist(ship.x, ship.z, x, z), x, z };
+}
+
+/** Whether any of her mountings of this kind has been given a ship it can shoot at now. */
+export function assignedReady(state, ship, kind) {
+  const cls = shipClass(ship);
+  const n = kind === 'main' ? ship.turrets.length : kind === 'torp' ? ship.torpMounts.length : 0;
+  const range = kind === 'main' ? cls.gun.range : kind === 'torp' && cls.torpedoes ? cls.torpedoes.range : 0;
+  for (let k = 0; k < n; k++) {
+    const id = kind === 'main' ? ship.turrets[k].id : ship.torpMounts[k].id;
+    const a = assignedAim(state, ship, kind, id, range);
+    if (a && !a.idle) return true;
+  }
+  return false;
+}
+
 /**
  * Pull the trigger on the gun somebody is standing at.
  *
@@ -1929,9 +2032,9 @@ function mendMount(m, dt) {
 }
 
 /** Bearing a turret wants, clamped into its firing arc; null when it cannot bear. */
-function turretDesired(ship, cls, t) {
+function turretDesired(ship, cls, t, aim = null) {
   const spec = cls.turrets[t.id];
-  const world = headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+  const world = aim ? headingTo(ship.x, ship.z, aim.x, aim.z) : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
   const local = wrapAngle(world - ship.heading);
   const off = angleDelta(spec.angle, local);
   const limited = Math.abs(off) > spec.arc;
@@ -1965,7 +2068,11 @@ function stepTurrets(state, ship, dt) {
     // is the whole point: manning A turret does not stop B turret shooting.
     const held = isManned(ship, 'main', t.id);
     const spec = cls.turrets[t.id];
-    const want = held ? mannedDesired(ship, spec) : turretDesired(ship, cls, t);
+    // Given a ship by name: laid on her and nothing else, and while she is
+    // out of reach or out of sight it stands where it is and does not fire.
+    const given = held ? null : assignedAim(state, ship, 'main', t.id, cls.gun.range, cls.gun);
+    if (given && given.idle) { t.laid = false; if (t.cooldown > 0) t.cooldown -= dt; continue; }
+    const want = held ? mannedDesired(ship, spec) : turretDesired(ship, cls, t, given);
     // A gun that cannot bear comes down to the loading angle rather than
     // standing there pointing at the sky over her own bridge -- and one that
     // can never goes past its own stops.
@@ -1975,7 +2082,7 @@ function stepTurrets(state, ship, dt) {
     const sol = held
       ? solveBallistic(cls.gun,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, cls.gun.range), 12).elev
-      : elev;
+      : given ? solveBallistic(cls.gun, clamp(given.d, 400, cls.gun.range), 12).elev : elev;
     // Off her deck: her stops are on the mounting, and a turret trained out
     // over the side she is lying down to has to come up further to put its
     // shells where the solution says, and one over the high side less.
@@ -2011,7 +2118,7 @@ export function canFire(ship) {
  * leaves out whichever mounting somebody has gone down to -- a manned gun
  * fires when its layer says so and not when the plot says so.
  */
-export function fireGuns(state, ship, only = null) {
+export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}) {
   if (!ship.alive) return 0;
   if (gunsDrowned(ship)) return 0;
   const cls = shipClass(ship);
@@ -2022,11 +2129,11 @@ export function fireGuns(state, ship, only = null) {
   // A gun laid by hand shoots at the range its layer is holding.
   const aimAt = only !== null && ship.manned && ship.manned.k === 'main'
     ? { x: ship.manX, z: ship.manZ } : { x: ship.aimX, z: ship.aimZ };
-  const d = clamp(dist(ship.x, ship.z, aimAt.x, aimAt.z), 400, gun.range);
+  const d0 = clamp(dist(ship.x, ship.z, aimAt.x, aimAt.z), 400, gun.range);
   let fired = 0;
 
   const stops = gunLimits(gun);
-  const solution = solveBallistic(gun, d, 12).elev;
+  const solution0 = solveBallistic(gun, d0, 12).elev;
   for (const t of ship.turrets) {
     if (only !== null && t.id !== only) continue;
     if (t.id === held) continue;
@@ -2034,8 +2141,15 @@ export function fireGuns(state, ship, only = null) {
     const tSpec = cls.turrets[t.id];
     const cond = gunState(ship, cls, tSpec, t);
     if (cond >= 3) continue;
-    const want = only !== null && ship.manned && ship.manned.k === 'main'
-      ? mannedDesired(ship, tSpec) : turretDesired(ship, cls, t);
+    const manning = only !== null && ship.manned && ship.manned.k === 'main';
+    // A turret given a ship fires at her, on her own range, and not at all
+    // while she is out of reach; the rest fire on the plot's solution.
+    const given = manning ? null : assignedAim(state, ship, 'main', t.id, gun.range, gun);
+    if (given && given.idle) continue;
+    if (!given && assignedOnly) continue;
+    const d = given ? clamp(given.d, 400, gun.range) : d0;
+    const solution = given ? solveBallistic(gun, d, 12).elev : solution0;
+    const want = manning ? mannedDesired(ship, tSpec) : turretDesired(ship, cls, t, given);
     if (want.blocked) continue;
     // Nor past her stops, which are on her deck: a gun that will not come
     // down that far does not shoot at something alongside her, and one that
@@ -2827,7 +2941,18 @@ export function mountBears(ship, spec, worldBearing) {
  * What a secondary mounting shoots at: the nearest enemy she can see, inside
  * her own range, on a bearing she can actually train to.
  */
-function secondaryTarget(state, ship, spec, S) {
+function secondaryTarget(state, ship, spec, S, m = null) {
+  // Given a ship by name, the gun captain shoots at her or at nothing.
+  if (m && ship.assign && ship.assign[`sec:${m.id}`]) {
+    const foe = assignedFoe(state, ship, 'sec', m.id);
+    if (foe) {
+      const d = dist(ship.x, ship.z, foe.x, foe.z);
+      if (!foe.spottedBy[ship.team] || d > S.range) return null;
+      const b = headingTo(ship.x, ship.z, foe.x, foe.z);
+      if (!mountBears(ship, spec, b)) return null;
+      return foe;
+    }
+  }
   let best = null;
   let bestD = Infinity;
   for (const foe of state.ships) {
@@ -2850,6 +2975,67 @@ function secondaryTarget(state, ship, spec, S) {
 /** What her secondary battery is firing: its own order, or the main battery's. */
 export function secondaryShell(ship) {
   return ship.secShell || ship.shellType;
+}
+
+/**
+ * The battery a dual-purpose mounting of her light battery fires at a ship
+ * with: its own calibre, range and stops, and a common high-explosive round,
+ * because her datasheet gives that battery its anti-aircraft figures only.
+ */
+const DP_BATTERY = new Map();
+function dpBattery(g) {
+  let b = DP_BATTERY.get(g);
+  if (!b) {
+    const v = 700 + g.caliber * 0.8;
+    const he = { type: 'he', caliber: g.caliber, damage: Math.round(g.caliber * g.caliber * 0.1),
+      pen: Math.round(g.caliber / 6), velocity: v, fuseArm: 0, fireChance: 0.08, drag: 0.0028 };
+    b = { name: g.name, caliber: g.caliber, range: g.range, reload: g.reload || 5, sigma: 1.25, reach: 4,
+      elev: g.elev, role: 'dp', shells: { ap: { ...he, type: 'ap' }, he } };
+    DP_BATTERY.set(g, b);
+  }
+  return b;
+}
+
+/**
+ * Her dual-purpose mountings that have been put on a ship by name. They go on
+ * shooting at aircraft in the flak (see stepFlak); this is the other half of
+ * what makes them dual-purpose, and only for the ship they were given.
+ */
+function stepDpSurface(state, ship, dt) {
+  if (!ship.assign || gunsDrowned(ship)) return;
+  const cls = shipClass(ship);
+  ship.dpCd = ship.dpCd || {};
+  for (const { i, spec, gun } of dpMounts(cls)) {
+    if (ship.dpCd[i] > 0) ship.dpCd[i] -= dt;
+    if (!ship.assign[`dp:${i}`]) continue;
+    const B = dpBattery(gun);
+    const given = assignedAim(state, ship, 'dp', i, B.range, B);
+    if (!given || given.idle || ship.dpCd[i] > 0) continue;
+    if (lightGunState(ship, cls, spec) >= 3) continue;
+    if (ship.aaWet && ship.aaWet[i] > 0) continue;
+    const b = headingTo(ship.x, ship.z, given.x, given.z);
+    if (!mountBears(ship, spec, b)) continue;
+    const aimD = clamp(given.d, 400, B.range);
+    const spread = (aimD * 0.0125) / B.sigma;
+    for (let gi = 0; gi < (spec.guns || 1); gi++) {
+      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spread * 0.35;
+      const rr = clamp(gauss(state.rng), -2.4, 2.4) * spread;
+      const mz = muzzlePos(ship, cls, spec, B, b, gi, spec.guns || 1);
+      const s2 = solveBallistic(B, clamp(aimD + rr, 300, B.range), mz.y);
+      const bb = b + Math.atan2(lat, Math.max(600, aimD));
+      const vh = s2.v * Math.cos(s2.elev);
+      fireShell(state, {
+        id: eid(), owner: ship.id, team: ship.team,
+        x: mz.x, z: mz.z, y: mz.y,
+        vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: s2.v * Math.sin(s2.elev),
+        g: s2.g, spec: B.shells.he, caliber: B.caliber, classId: cls.id, life: 0,
+      });
+    }
+    ship.dpCd[i] = B.reload;
+    const mz0 = muzzlePos(ship, cls, spec, B, b);
+    state.events.push({ e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b, cal: B.caliber, ship: ship.id, dp: i });
+    ship.lastFiredAt = state.t;
+  }
 }
 
 function stepSecondary(state, ship, dt) {
@@ -2877,7 +3063,7 @@ function stepSecondary(state, ship, dt) {
       m.target = 0;
       continue;
     }
-    const foe = secondaryTarget(state, ship, spec, S);
+    const foe = secondaryTarget(state, ship, spec, S, m);
     if (!foe) {
       // Nothing on her side: back to the bearing she rests on, which is
       // where she is stowed rather than the middle of her arc.
@@ -4328,12 +4514,17 @@ function stepTorpMounts(state, ship, dt) {
   const manWorld = headingTo(ship.x, ship.z, ship.manX, ship.manZ);
   const manLocal = wrapAngle(manWorld - ship.heading);
   for (const m of ship.torpMounts) {
-    const want = isManned(ship, 'torp', m.id) ? manLocal : local;
+    const manned = isManned(ship, 'torp', m.id);
+    const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
+    // Given a ship out of reach: the bank stands where it is.
+    if (given && given.idle) continue;
+    const want = manned ? manLocal
+      : given ? wrapAngle(headingTo(ship.x, ship.z, given.x, given.z) - ship.heading) : local;
     m.angle = trainWithin(m.angle, torpDesired(ship, T.mounts[m.id], want, cls), rate, T.mounts[m.id]);
   }
 }
 
-export function fireTorpedoes(state, ship, only = null) {
+export function fireTorpedoes(state, ship, only = null, { assignedOnly = false } = {}) {
   const cls = shipClass(ship);
   if (!cls.torpedoes || !ship.alive) return 0;
   const T = cls.torpedoes;
@@ -4349,9 +4540,13 @@ export function fireTorpedoes(state, ship, only = null) {
     if (m.id === held) continue;
     if (m.cooldown > 0 || m.lost) continue;
     const spec = T.mounts[m.id];
+    const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
+    if (given && given.idle) continue;
+    if (!given && assignedOnly) continue;
     const world = manned
       ? headingTo(ship.x, ship.z, ship.manX, ship.manZ)
-      : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
+      : given ? headingTo(ship.x, ship.z, given.x, given.z)
+        : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
     if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
     // Her own hull is not something to fire a torpedo through. The bank trains
@@ -8581,6 +8776,7 @@ export function step(state, dt = DT) {
     stepTurrets(state, ship, dt);
     stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
+    stepDpSurface(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
     stepSinking(state, ship, dt);
     stepFlak(state, ship, dt);

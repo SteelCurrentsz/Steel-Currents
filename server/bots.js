@@ -25,7 +25,7 @@ import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
-  useSmoke, canFire, steerToward, sonarContact,
+  useSmoke, canFire, steerToward, sonarContact, assignedReady,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -132,6 +132,21 @@ function hunt(state, ship, cls) {
   return true;
 }
 
+/**
+ * The mountings her captain has put on a ship by name, when her own gunnery
+ * officer is not firing: his target is out of reach, or he has none, and a
+ * turret or a bank laid on another ship has that ship inside its range. Only
+ * those fire.
+ */
+function fireAssigned(state, ship, brain, cls, what) {
+  if (what === 'guns') {
+    if (brain.fireTimer > 0 || !canFire(ship) || !assignedReady(state, ship, 'main')) return;
+    if (fireGuns(state, ship, null, { assignedOnly: true }) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
+  } else if (cls.torpedoes && brain.torpTimer <= 0 && assignedReady(state, ship, 'torp')) {
+    if (fireTorpedoes(state, ship, null, { assignedOnly: true }) > 0) brain.torpTimer = 12;
+  }
+}
+
 export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
   const cls = getClass(ship.classId);
@@ -183,6 +198,8 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     if (clearing) { /* backing clear of a ship she is fouled on */ } else if (conned) layAhead(ship);
     else if (!keepStation(state, ship, brain, staff, dt)) patrol(state, ship, brain, dt);
     shellShore(state, ship, brain, cls);
+    fireAssigned(state, ship, brain, cls, 'guns');
+    fireAssigned(state, ship, brain, cls, 'torps');
     return;
   }
 
@@ -256,6 +273,8 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     // that is what she fires.
     if (!ship.shellSet) ship.shellType = pickShell(cls, getClass(target.classId), d);
     if (fireGuns(state, ship) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
+  } else {
+    fireAssigned(state, ship, brain, cls, 'guns');
   }
 
   if (cls.torpedoes && canSee && clear && brain.torpTimer <= 0 && d < cls.torpedoes.range * 0.85) {
@@ -264,6 +283,8 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     ship.aimX = tSol.x; ship.aimZ = tSol.z;
     if (fireTorpedoes(state, ship) > 0) brain.torpTimer = 12;
     ship.aimX = saveAimX; ship.aimZ = saveAimZ;
+  } else {
+    fireAssigned(state, ship, brain, cls, 'torps');
   }
 
   // A conned ship's aircraft are her captain's to send, and nobody else's.
