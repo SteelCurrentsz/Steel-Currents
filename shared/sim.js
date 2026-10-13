@@ -221,6 +221,12 @@ export function addShip(state, {
     engineDamage: 0,
     steeringDamage: 0,
     shellType: 'ap',
+    // What her secondary battery is loaded with, or null while it follows the
+    // main battery's. And whether her captain has given either order himself:
+    // her gunnery officer picks the round for every salvo until he has, and
+    // from then on leaves it alone.
+    secShell: null,
+    shellSet: false,
     // Which ship her main battery is laid on, or 0. Her gunnery officer picks
     // it (see stepBot) whoever has the con, and it is the one thing about a
     // ship's fire that the bridge you are standing on cannot work out from
@@ -409,7 +415,11 @@ export function applyInput(ship, input) {
   if (typeof input.aimX === 'number' && typeof input.aimZ === 'number') {
     ship.aimX = input.aimX; ship.aimZ = input.aimZ;
   }
-  if (input.shellType === 'ap' || input.shellType === 'he') ship.shellType = input.shellType;
+  if (input.shellType === 'ap' || input.shellType === 'he') {
+    ship.shellType = input.shellType;
+    ship.shellSet = true;
+  }
+  if (input.secShell === 'ap' || input.secShell === 'he') ship.secShell = input.secShell;
   // Where her captain has ordered her to. Refused outright by anything that
   // cannot dive, so a stray key on a battleship does not sink her.
   if (typeof input.depth === 'number' && shipClass(ship).dive) {
@@ -2837,12 +2847,17 @@ function secondaryTarget(state, ship, spec, S) {
   return best;
 }
 
+/** What her secondary battery is firing: its own order, or the main battery's. */
+export function secondaryShell(ship) {
+  return ship.secShell || ship.shellType;
+}
+
 function stepSecondary(state, ship, dt) {
   const cls = shipClass(ship);
   const S = cls.secondary;
   if (!S || !ship.secMounts.length) return;
   if (gunsDrowned(ship)) return;
-  const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
+  const spec0 = S.shells[secondaryShell(ship)] || S.shells.he || S.shells.ap;
   for (const m of ship.secMounts) {
     mendMount(m, dt);
     const spec = S.mounts[m.id];
@@ -2985,7 +3000,7 @@ export function fireSecondary(state, ship, id) {
   const deck = aim.elev - deckTilt(ship, want.angle);
   if (deck > stops.max || deck < stops.min) return 0;
   if (deck < layFloor(spec.mask, want.angle)) return 0;
-  const spec0 = S.shells[ship.shellType] || S.shells.he || S.shells.ap;
+  const spec0 = S.shells[secondaryShell(ship)] || S.shells.he || S.shells.ap;
   secondarySalvo(state, ship, m, spec, spec0, ship.manX, ship.manZ, cond);
   return spec.guns;
 }
@@ -4081,6 +4096,16 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
       kind = 'overpen'; dmg = spec.damage * 0.1;
     } else {
       kind = 'pen'; dmg = spec.damage * 0.33;
+    }
+    // An armour-piercing shell carries a small bursting charge, and one that
+    // goes off inside her can still set something alight -- only far less
+    // often than a shell that is all charge and bursts on whatever it meets.
+    // One that broke up on the plate or went straight through never burst
+    // where there was anything to burn.
+    if ((kind === 'pen' || kind === 'citadel')
+      && state.rng() < (spec.fireChance || 0) * (target.fires >= 4 ? 0.3 : 1)) {
+      startFire(state, target,
+        sectionAt(l.z / (cls.hull.length * 0.5), sec.part), 0.3);
     }
   } else {
     // High explosive does not have to get inside her to do its work, but it

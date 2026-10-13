@@ -181,6 +181,7 @@ export function shipSnapshot(ship, full, state = null) {
     }
     s.smk = ship.smoke;
     s.st = ship.shellType;
+    s.ss = ship.secShell || ship.shellType;
     s.ax = Math.round(ship.aimX); s.az = Math.round(ship.aimZ);
     // Who her main battery is laid on, so the bridge you are standing on can
     // name her. It goes to her own side, and to whoever has picked her off

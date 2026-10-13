@@ -696,6 +696,25 @@ input[type="range"] { accent-color: var(--red); }
 .arms-bear.part { color: var(--sand); }
 .arms-bear.masked { color: var(--enemy); }
 
+/* A gun battery's bearing, and beside it what she is loading: armour-piercing
+   or high explosive. */
+.arms-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-top: 0.28rem; padding-top: 0.24rem; border-top: 1px solid var(--panel-line);
+}
+.arms-line .arms-bear { margin: 0; padding: 0; border: 0; }
+.arms-shell { display: flex; flex: none; }
+.arms-shell button {
+  min-width: 2.4rem; padding: 0.22rem 0.5rem;
+  background: rgba(8, 19, 31, 0.6); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.64rem;
+  font-weight: 700; letter-spacing: 0.12em; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.arms-shell button + button { border-left: 0; }
+.arms-shell button:hover { color: var(--sand); }
+.arms-shell button.on { color: #0b141d; background: var(--sand); border-color: var(--sand); }
+
 /* The depth charge gear's controls. It is the one weapon aboard that is not
    laid on anything, so its row carries the orders instead of a bearing: what
    the pistols are wound to, the word to let go, and whether her own

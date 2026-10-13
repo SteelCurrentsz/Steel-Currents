@@ -37,7 +37,7 @@ import {
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned, magazineTons,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts, layFloor,
-  applyInput, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
+  applyInput, secondaryShell, submerged, gunsDrowned, landStrike, hurtFlak, flakUp,
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
@@ -9571,6 +9571,90 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   // to drop them on.
   const dc = arsenal(SHIP_CLASSES.fletcher).find((w) => w.role === 'sub');
   assert.ok(dc && dc.barrels > 0, 'her depth charge gear is not in the arsenal');
+});
+
+check('the arsenal offers AP and HE on her guns, and not on her tubes or light guns', () => {
+  for (const cls of Object.values(SHIP_CLASSES)) {
+    for (const w of arsenal(cls)) {
+      if (w.band === 'Main battery') {
+        assert.equal(w.shell, cls.gun.shells.he && cls.gun.shells.ap ? 'main' : null,
+          `${cls.id} main battery has the wrong shell order`);
+      } else if (w.band === 'Secondary battery') {
+        assert.equal(w.shell, 'sec', `${cls.id} secondaries have no shell order`);
+      } else {
+        assert.ok(!w.shell, `${cls.id} ${w.name} offers a choice of shell`);
+      }
+    }
+  }
+});
+
+check('her main battery and her secondaries are loaded on separate orders', () => {
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Her', classId: 'iowa', team: 0, index: 0 });
+  assert.equal(her.shellType, 'ap');
+  // Until she is told otherwise her secondaries fire what her main battery does.
+  assert.equal(secondaryShell(her), 'ap');
+  applyInput(her, { shellType: 'he' });
+  assert.equal(secondaryShell(her), 'he');
+  applyInput(her, { secShell: 'ap' });
+  assert.equal(her.shellType, 'he');
+  assert.equal(secondaryShell(her), 'ap');
+  applyInput(her, { secShell: 'shrapnel' });
+  assert.equal(secondaryShell(her), 'ap', 'a round she does not carry was loaded');
+  const snap = shipSnapshot(her, true);
+  assert.equal(snap.st, 'he');
+  assert.equal(snap.ss, 'ap');
+});
+
+check("her gunnery officer leaves her captain's choice of shell alone", () => {
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Her', classId: 'iowa', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  her.x = 0; her.z = 0; her.heading = Math.PI / 2;
+  foe.x = 0; foe.z = 9000;
+  foe.spottedBy = [true, true];
+  her.spottedBy = [true, true];
+  // Left to himself he loads high explosive for a destroyer.
+  const brain = createBotBrain('veteran');
+  for (let i = 0; i < 400 && her.shellType === 'ap'; i++) {
+    stepBot(st, her, brain, DT, true);
+    step(st, DT);
+  }
+  assert.equal(her.shellType, 'he', 'she never picked a round for herself');
+  // Told armour-piercing, she fires armour-piercing.
+  applyInput(her, { shellType: 'ap' });
+  for (let i = 0; i < 400; i++) {
+    stepBot(st, her, brain, DT, true);
+    step(st, DT);
+  }
+  assert.equal(her.shellType, 'ap', 'her gunnery officer overrode the order');
+});
+
+check('high explosive sets her alight far more often than armour-piercing', () => {
+  const st = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'Her', classId: 'cleveland', team: 0, index: 0 });
+  her.x = 0; her.z = 0; her.heading = 0;
+  const burn = (type) => {
+    const spec = SHIP_CLASSES.hipper.gun.shells[type];
+    let lit = 0;
+    for (let i = 0; i < 3000; i++) {
+      her.alive = true;
+      her.hp = her.maxHp;
+      her.fires = 0;
+      for (const k of SECTIONS) { const c = her.sections[k.k]; c.hp = c.max; c.fire = 0; }
+      const sh = {
+        owner: 0, team: 1, caliber: spec.caliber, spec, life: 20, g: 9.8,
+        x: 0, y: 4, z: 0, vx: 400, vy: -40, vz: 0,
+      };
+      resolveShellHit(st, sh, her, 0, 0, 4);
+      if (SECTIONS.some((k) => her.sections[k.k].fire > 0)) lit++;
+    }
+    return lit / 3000;
+  };
+  const ap = burn('ap');
+  const he = burn('he');
+  assert.ok(ap > 0, 'an armour-piercing shell bursting inside her never started a fire');
+  assert.ok(he > ap * 3, `high explosive ${he.toFixed(3)} against armour-piercing ${ap.toFixed(3)}`);
 });
 
 check('a shell is drawn to its own bore, and an anti-aircraft round is tiny', () => {

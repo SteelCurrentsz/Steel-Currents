@@ -99,6 +99,8 @@ export function arsenal(cls) {
     const ap = battery.shells.ap || battery.shells.he;
     return ap ? ap.pen : null;
   };
+  const hasBoth = (battery) => !!(battery && battery.shells
+    && battery.shells.ap && battery.shells.he);
   if (cls.gun) {
     rows.push({
       name: cls.gun.name || `${cls.gun.caliber} mm`,
@@ -109,6 +111,9 @@ export function arsenal(cls) {
       range: cls.gun.range,
       role: cls.gun.role || 'surface',
       pen: pierce(cls.gun),
+      // Which of her loading orders this battery answers to, when it has both
+      // rounds to choose between.
+      shell: hasBoth(cls.gun) ? 'main' : null,
       band: 'Main battery',
       specs: cls.turrets,
       // Which array on the wire says what condition each of these mountings
@@ -129,6 +134,7 @@ export function arsenal(cls) {
       range: cls.secondary.range,
       role: cls.secondary.role || 'dp',
       pen: pierce(cls.secondary),
+      shell: hasBoth(cls.secondary) ? 'sec' : null,
       band: 'Secondary battery',
       specs: cls.secondary.mounts,
       cond: 'sc',
@@ -1168,10 +1174,30 @@ export class Hud {
         + `<div class="arms-sub">${w.note || mounts}</div>`
         + `<dl class="arms-stats">${stats
           .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
-        + (w.specs ? '<div class="arms-bear"></div>' : '');
+        + (!w.specs ? ''
+          // A battery with two rounds to choose between carries the order
+          // beside its bearing: armour-piercing or high explosive.
+          : w.shell ? '<div class="arms-line"><div class="arms-bear"></div>'
+            + '<div class="arms-shell" role="group" aria-label="Shell">'
+            + '<button type="button" data-s="ap" title="Armour-piercing">AP</button>'
+            + '<button type="button" data-s="he" title="High explosive">HE</button></div></div>'
+          : '<div class="arms-bear"></div>');
       list.appendChild(row);
       const entry = { w, el: row.querySelector('.arms-bear'), row };
       this.armsRows.push(entry);
+      if (w.shell) {
+        entry.shellEls = [...row.querySelectorAll('.arms-shell button')];
+        for (const b of entry.shellEls) {
+          b.addEventListener('click', (e) => {
+            // The order, and not a look at the battery on the hologram.
+            e.stopPropagation();
+            entry.shellWant = { s: b.dataset.s, at: performance.now() };
+            this.paintShell(entry, entry.shellOwn);
+            this.onShellPick?.(w.shell, b.dataset.s);
+          });
+          b.addEventListener('keydown', (e) => e.stopPropagation());
+        }
+      }
       // The depth charge gear is worked and not laid, so its row carries the
       // controls rather than a bearing: what the pistols are wound to, the
       // order to let go, and whether her own anti-submarine officer may attack
@@ -1255,6 +1281,29 @@ export class Hud {
     box.appendChild(ping);
     entry.pingEl = ping;
     entry.row.appendChild(box);
+  }
+
+  /** Say what pressing a battery's AP or HE key does. */
+  onShell(fn) { this.onShellPick = fn; }
+
+  /**
+   * Light whichever round a battery is loaded with.
+   *
+   * What was just pressed wins for a moment over what the last snapshot said,
+   * so the key lights on the press and not a round trip later.
+   */
+  paintShell(entry, loaded) {
+    if (!entry.shellEls) return;
+    const want = entry.shellWant;
+    let on = loaded || 'ap';
+    if (want) {
+      if (want.s === loaded || performance.now() - want.at > 1500) entry.shellWant = null;
+      else on = want.s;
+    }
+    for (const b of entry.shellEls) {
+      b.classList.toggle('on', b.dataset.s === on);
+      b.setAttribute('aria-pressed', b.dataset.s === on ? 'true' : 'false');
+    }
   }
 
   /** Say what pressing the depth charge controls does. */
@@ -1680,6 +1729,10 @@ export class Hud {
       // The depth charge gear does not bear on anything: it is worked, not
       // laid, and its row reads what is loaded and what the sonar has.
       if (w.charges) { this.paintCharges(entry, own); continue; }
+      if (w.shell) {
+        entry.shellOwn = w.shell === 'main' ? own.st : (own.ss || own.st);
+        this.paintShell(entry, entry.shellOwn);
+      }
       if (!el) continue;
       let on = 0;
       for (const m of w.specs) {

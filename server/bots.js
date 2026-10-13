@@ -252,7 +252,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   const clear = !!state.world?.arcade
     || !blockedByLand(state.world, ship.x, ship.z, target.x, target.z);
   if (canSee && clear && d < cls.gun.range * 0.95 && brain.fireTimer <= 0 && canFire(ship)) {
-    ship.shellType = pickShell(cls, getClass(target.classId), d);
+    // Unless her captain has said what she is loaded with, in which case
+    // that is what she fires.
+    if (!ship.shellSet) ship.shellType = pickShell(cls, getClass(target.classId), d);
     if (fireGuns(state, ship) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
   }
 
@@ -349,7 +351,7 @@ function shellShore(state, ship, brain, cls) {
   ship.aimX = best.x;
   ship.aimZ = best.z;
   if (brain.fireTimer <= 0 && canFire(ship)) {
-    ship.shellType = cls.gun.shells.he ? 'he' : 'ap';
+    if (!ship.shellSet) ship.shellType = cls.gun.shells.he ? 'he' : 'ap';
     if (fireGuns(state, ship) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
   }
   return true;

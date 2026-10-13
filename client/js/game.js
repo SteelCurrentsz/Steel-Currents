@@ -377,6 +377,19 @@ export class Battle {
     // The depth charge gear, which is ordered rather than laid: the word to
     // let go, what the pistols are wound to, and whether her own
     // anti-submarine officer may attack a sonar contact without being asked.
+    // What a battery is loaded with. Her main battery's order and her
+    // secondary's are separate, because what is worth firing at a destroyer
+    // from a five-inch is not what is worth firing at a battleship from her
+    // sixteen-inch.
+    this.hud.onShell?.((battery, kind) => {
+      const ship = this.conned();
+      const order = battery === 'sec' ? { secShell: kind } : { shellType: kind };
+      if (ship === this.shipId && this.localShip) applyInput(this.localShip, order);
+      this.net.send({ t: 'input', ship, ...order });
+      const what = kind === 'he' ? 'high explosive' : 'armour-piercing';
+      this.hud.alert(`${battery === 'sec' ? 'Secondaries' : 'Main battery'} loading ${what}`);
+      audio.click();
+    });
     this.hud.onDepthCharges?.((msg) => {
       const ship = this.conned();
       if (msg.k === 'drop') this.dropCharges(null);
