@@ -4653,8 +4653,9 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
     ship.tubeOpen = 4.5;
     state.events.push({
       e: 'torpLaunch', x: ship.x + pos.x, z: ship.z + pos.z, ship: ship.id,
-      // Which bank went, so the boat on screen opens the right doors.
-      mount: m.id,
+      // Which bank went, so the boat on screen opens the right doors; and
+      // how many fish, so the bridge knows whether to say one or a spread.
+      mount: m.id, n: launched,
     });
   }
   return launched;

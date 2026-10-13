@@ -12,6 +12,9 @@ const DEFAULTS = {
   shadows: true,
   // Whether your own guns kick the camera when they fire.
   recoil: true,
+  // The orders shouted on the bridge of the ship you are on, in her own
+  // navy's language.
+  voices: true,
   // The penetration camera: the cut to her section when one of your rounds
   // strikes a ship. See render/pencam.js.
   penCam: true,

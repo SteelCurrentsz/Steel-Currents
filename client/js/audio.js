@@ -19,6 +19,7 @@
 
 import { getSettings } from './settings.js';
 import { sfxKit, RECIPES, rng } from './sfx.js';
+import { loadVoiceLines } from './render/voicebank.js';
 
 /** A number, or the fallback -- so nothing that is not a number reaches the API. */
 function num(v, fallback = 0) { return Number.isFinite(v) ? v : fallback; }
@@ -38,6 +39,16 @@ const MAX_DELAY = 1.6;
 const MAX_VOICES = 48;
 /** How many ships are heard working through the water at once, nearest first. */
 const SHIP_VOICES = 4;
+
+/**
+ * How long after giving an order he gives it again, by order, in seconds: a
+ * gunnery officer calls "open fire" when the guns open, not at every salvo of
+ * a twenty-minute action -- but a ship that has been firing all that time is
+ * told again now and then, and every spread of torpedoes is called away.
+ */
+const ORDER_REST = { main: 35, sec: 45, aa: 45, torp: 9, dc: 12 };
+/** The navies that have their own voice; any other ship speaks as an American. */
+const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn']);
 
 /**
  * The order the takes are built in: what is heard in the first seconds of a
@@ -68,6 +79,9 @@ export class Audio {
     this.shipVoices = new Map();
     this.creaks = new Map();
     this.ambience = null;
+    this.orders = new Map();
+    this.orderGiven = {};
+    this.speakingUntil = 0;
   }
 
   ensure() {
@@ -432,6 +446,76 @@ export class Audio {
     this.play('vent', at, { level: 1, ref: 220, rate: 0.85 });
     this.play('bang', at, { level: 0.8, ref: 220, after: 0.4 });
     this.play('splashLarge', at, { level: 0.6, ref: 240, rate: 0.7, after: 0.2 });
+  }
+
+  // ------------------------------------------------------------ the bridge ----
+
+  /**
+   * An order shouted on the bridge of the ship you are on: `order` is 'main',
+   * 'sec', 'torp', 'aa' or 'dc', `many` whether it is a spread of torpedoes or
+   * more than one aeroplane, and `nation` her navy, whose language he speaks.
+   * One man gives one order at a time, and none again too soon.
+   */
+  order(order, nation = 'usa', many = false) {
+    if (getSettings().voices === false) return;
+    const rest = ORDER_REST[order];
+    if (rest == null) return;
+    const ctx = this.ensure(); if (!ctx) return;
+    const now = ctx.currentTime;
+    if (now < this.speakingUntil) return;
+    if (now - (this.orderGiven[order] ?? -1e9) < rest) return;
+    this.orderGiven[order] = now;
+    // Held while the line is fetched and opened, so a salvo of four turrets
+    // in one tick does not start four of him.
+    this.speakingUntil = now + 3;
+    const navy = NAVIES.has(nation) ? nation : 'usa';
+    const key = many && (order === 'torp' || order === 'aa') ? `${order}s` : order;
+    this.orderBuffer(navy, key).then((buf) => {
+      if (!buf || !this.ctx) { this.speakingUntil = 0; return; }
+      try {
+        const c = this.ctx;
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = 0.98 + Math.random() * 0.05;
+        const g = c.createGain();
+        g.gain.value = 0.8;
+        // Straight to the speaker, past the compressor: he is standing next
+        // to you, and the guns are not allowed to swallow what he says.
+        src.connect(g).connect(this.master);
+        src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* gone */ } };
+        src.start(c.currentTime + 0.02);
+        this.speakingUntil = c.currentTime + buf.duration + 0.4;
+      } catch { this.speakingUntil = 0; }
+    }, () => { this.speakingUntil = 0; });
+  }
+
+  /** One order opened for playing, kept once it has been. */
+  orderBuffer(navy, key) {
+    const id = `${navy}:${key}`;
+    if (this.orders.has(id)) return this.orders.get(id);
+    const p = loadVoiceLines().then((lines) => {
+      const set = lines && lines[navy];
+      // Japanese has no plural, so it has no line for one.
+      const b64 = set && (set[key] || set[key.replace(/s$/, '')]);
+      if (!b64 || !this.ctx) return null;
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Promise((res, rej) => {
+        // The callback form, for the Safari that has no promise from it.
+        const q = this.ctx.decodeAudioData(bytes.buffer, res, rej);
+        if (q && q.then) q.then(res, rej);
+      });
+    }).catch(() => { this.orders.delete(id); return null; });
+    this.orders.set(id, p);
+    return p;
+  }
+
+  /** Have her navy's orders ready before the first is given. */
+  readyOrders(nation) {
+    if (getSettings().voices === false || !this.ensure()) return;
+    const navy = NAVIES.has(nation) ? nation : 'usa';
+    for (const k of ['main', 'sec', 'torp', 'torps', 'aa', 'aas', 'dc']) this.orderBuffer(navy, k);
   }
 
   alarm() {

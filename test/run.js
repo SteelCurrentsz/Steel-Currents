@@ -141,6 +141,7 @@ import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinano
   from '../client/js/render/shinano.js';
 import { Audio as AudioClass } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
+import { VOICE_LINES } from '../client/js/render/voices.data.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -13160,6 +13161,40 @@ check('a ship going down is heard creaking, now and then, and not once she is go
   // A ship under way is heard working through the water, a wreck is not.
   a.ships([{ id: 7, x: 100, z: 0, load: 1, len: 200, alive: true }]);
   assert.ok(a.shipVoices.has(7), 'a ship steaming past the camera is not heard');
+});
+
+check('the bridge gives its orders in its own navy, one at a time and not at every salvo', () => {
+  // Every navy afloat in the game has its officers' voices, every order.
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const set = VOICE_LINES[cls.nation];
+    assert.ok(set, `${id}: no voice for the ${cls.nation} navy`);
+    for (const k of ['main', 'sec', 'torp', 'aa', 'dc']) {
+      assert.ok(set[k] && set[k].length > 4000, `${id}: the ${cls.nation} bridge has no "${k}" order`);
+    }
+  }
+  // MP3 in each: a frame sync or an ID3 tag at the head of it.
+  const head = Buffer.from(VOICE_LINES.jpn.main, 'base64');
+  assert.ok(head.slice(0, 3).toString() === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0), 'a voice line is not an MP3');
+
+  const said = [];
+  const a = new AudioClass();
+  const ctx = { currentTime: 0 };
+  a.ctx = ctx; a.ensure = () => ctx;
+  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
+  const at = (t, ...args) => { ctx.currentTime = t; a.speakingUntil = Math.min(a.speakingUntil, t); a.order(...args); };
+  at(0, 'main', 'jpn');
+  at(0.1, 'main', 'jpn');          // the next turret in the same salvo
+  at(10, 'main', 'jpn');           // the next salvo
+  at(40, 'main', 'jpn');           // still firing, half a minute on
+  at(41, 'torp', 'ger', true);
+  at(42, 'aa', 'gbr', false);
+  at(43, 'dc', 'fra');
+  at(44, 'sec', 'italy');          // a navy with no voice of its own
+  assert.deepEqual(said, ['jpn:main', 'jpn:main', 'ger:torps', 'gbr:aa', 'fra:dc', 'usa:sec']);
+  // And none while he is still saying the last one.
+  said.length = 0;
+  a.speakingUntil = 100; ctx.currentTime = 90; a.order('torp', 'usa');
+  assert.deepEqual(said, [], 'two orders at once');
 });
 
 check('every ship is built out of pieces that can be found again', () => {
