@@ -521,13 +521,13 @@ const AFT_AERIAL = { a: [-54.5, 32.6], b: [-118.0, 21.8], r: 0.9, x: 5.5 };
 export const TURRETS = [
   { name: 'No.1', x: 0, z: 53.9, s: 1, floor: 7.0, seat: 7.0, face: 6.95,
     house: { along: [-10.6, 7.0], across: [-7.8, 7.8], top: 10.95, cut: 12.4 },
-    barrels: { along: 18.85, y: [7.9, 9.7] } },
+    barrels: { along: 18.85, y: [7.9, 9.7] }, under: 6.5 },
   { name: 'No.2', x: 0, z: 30.75, s: 1, floor: 9.7, seat: 9.7, face: 7.65,
     house: { along: [-10.4, 7.7], across: [-7.8, 7.8], top: 14.8, cut: 14.8 },
     barrels: { along: 18.75, y: [10.5, 12.3] } },
   { name: 'No.3', x: 0, z: -64.25, s: -1, floor: 8.9, seat: 8.9, face: 8.35,
     house: { along: [-9.6, 8.4], across: [-7.8, 7.8], top: 14.9, cut: 14.9 },
-    barrels: { along: 19.0, y: [9.5, 11.2] } },
+    barrels: { along: 19.0, y: [9.5, 11.2] }, under: 6.5 },
 ];
 const BARREL_HALF = 3.95;
 const alongZ = (t, a) => t.z + t.s * a;
@@ -535,12 +535,26 @@ function turretBoxes(t, top) {
   const { along, across } = t.house;
   const za = alongZ(t, along[0]), zb = alongZ(t, along[1]);
   const ba = alongZ(t, along[1] - 0.01 * t.s), bb = alongZ(t, t.barrels.along + 0.3);
-  return [
+  const boxes = [
     { name: `${t.name} house`, x0: t.x + across[0], x1: t.x + across[1], y0: t.floor, y1: top,
       z0: Math.min(za, zb), z1: Math.max(za, zb) },
     { name: `${t.name} barrels`, x0: t.x - BARREL_HALF, x1: t.x + BARREL_HALF, y0: t.barrels.y[0], y1: t.barrels.y[1],
       z0: Math.min(ba, bb), z1: Math.max(ba, bb) },
   ];
+  // Under the barrels of No.1 and No.3 the sculpt left a wedge standing on
+  // her deck -- what its own gunhouse had cast into her under its guns --
+  // which no gun of hers covers now. It comes off down to a hand over the
+  // highest of her deck there (it is within a few centimetres of level
+  // under both), in one cut: cut in steps, every step's cap stood up as a
+  // plate across her deck.
+  if (t.under) {
+    const lo = Math.min(ba, bb), hi = Math.max(ba, bb);
+    let deck = -Infinity;
+    for (let z = lo; z <= hi; z += 0.5) deck = Math.max(deck, deckAt(z));
+    boxes.push({ name: `${t.name} under barrels`, x0: t.x - t.under, x1: t.x + t.under,
+      y0: deck + 0.15, y1: t.barrels.y[0] + 0.01, z0: lo, z1: hi });
+  }
+  return boxes;
 }
 
 // ---- her 15.5 cm ------------------------------------------------------------------
