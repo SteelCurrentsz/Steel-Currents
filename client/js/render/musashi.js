@@ -24,8 +24,9 @@
 //   * her six 12.7 cm twins, the owner's sculpt of the mount in its shield, on
 //     the drums the superstructure sculpt drew them on;
 //   * her 25 mm: in the shields the owner sculpted on the pedestals round her
-//     superstructure and right aft, and open in their tubs round her
-//     superstructure and on their pedestals forward and aft;
+//     superstructure and right aft, and open -- the owner's sculpt of the open
+//     triple -- in their tubs round her superstructure, on their pedestals
+//     forward and aft, and on her turret roofs;
 //   * her two catapults, which train out over her quarters and throw a Jake
 //     off on the simulation's clock;
 //   * her four screws, which turn;
@@ -43,7 +44,6 @@ import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
-import { triple25 } from './ijnguns.js';
 import { jake } from './planekit.js';
 import { RIG, fitCatapults } from './catapult.js';
 import {
@@ -151,8 +151,7 @@ function fortySix(g, i) {
   // The open 25 mm on her roof, facing the way she does: it goes round with her.
   for (const [x, z] of ROOF_25[spec.name] || []) {
     const y = roofDeckAt(piece.house, x, z);
-    const a = triple25(m, M, x, y, z, 0, false);
-    a.userData.rest = 0;
+    sculpted(m, 'aa', x, y, z, 0, 0.9);
   }
   g.add(m);
   return m;
@@ -263,8 +262,8 @@ function mountings(g) {
       } else if (m.pod) {
         a = sculpted(g, 'pod', m.x, lightSeat(m, 1.0), m.z, stowed(m), 0.9);
       } else {
-        a = triple25(g, M, m.x, lightSeat(m, 0.8), m.z, stowed(m), false);
-        a.rotation.y = stowed(m);
+        // Open, in a tub or on a pedestal: the owner's sculpt of the mount.
+        a = sculpted(g, 'aa', m.x, lightSeat(m, 1.0), m.z, stowed(m), 0.9);
       }
       a.userData.rest = 0;
       a.userData.sector = { angle: m.angle, arc: m.arc, stow: stowed(m) };

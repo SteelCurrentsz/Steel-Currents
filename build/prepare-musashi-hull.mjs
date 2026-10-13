@@ -1333,7 +1333,11 @@ for (const t of TURRETS) {
 //   face      how far ahead of the pivot the barrels come out (sculpt units)
 //   lanes     where across each barrel runs; barrelY their height; r how
 //             far out from its axis a barrel's skin is
-function gunPiece(file, { scale, pivot, facing, foot, face, lanes = [], barrelY = 0, r = 0, trunnionIn = 0.08 }) {
+//   cradle    (optional) what elevates, decided by the sculpt's own (x, y, z)
+//             at the middle of a face, in place of `lanes` and `r` -- for a
+//             mounting whose whole gun block lifts, magazines and sights and
+//             all; with it, `face` is where its trunnions are
+function gunPiece(file, { scale, pivot, facing, foot, face, lanes = [], barrelY = 0, r = 0, trunnionIn = 0.08, cradle = null }) {
   const raw = readGlb(ASSET(file));
   const P = [], N = [];
   const toLocal = (x, y, z) => (facing === '-x'
@@ -1347,7 +1351,11 @@ function gunPiece(file, { scale, pivot, facing, foot, face, lanes = [], barrelY 
   const mesh = { P, N, T: Array.from(raw.idx) };
   fixWinding(mesh);
   const faceZ = face * scale, yB = (barrelY - foot) * scale, rB = r * scale;
+  const fromLocal = (x, y, z) => (facing === '-x'
+    ? [pivot[0] - z / scale, y / scale + foot, pivot[1] + x / scale]
+    : [pivot[0] - x / scale, y / scale + foot, pivot[1] - z / scale]);
   const isBarrel = (t) => {
+    if (cradle) return cradle(...fromLocal(...middle(mesh, t)));
     if (!lanes.length) return false;
     const [x, y, z] = middle(mesh, t);
     return z > faceZ && lanes.some((l) => Math.hypot(x - l * scale, y - yB) < rB);
@@ -1359,12 +1367,20 @@ function gunPiece(file, { scale, pivot, facing, foot, face, lanes = [], barrelY 
   const house = roofed(subMesh(mesh, (t) => above(t) && !isBarrel(t)), 99);
   dropLoose(house, { maxArea: 0.05 * scale * scale, maxDiag: 0.15 * scale });
   creased(house, 40);
-  const tz = faceZ - trunnionIn * scale;
+  const tz = cradle ? faceZ : faceZ - trunnionIn * scale;
   const guns = subMesh(mesh, (t) => isBarrel(t));
   for (let i = 0; i < guns.P.length; i += 3) { guns.P[i + 1] -= yB; guns.P[i + 2] -= tz; }
   if (guns.T.length) creased(guns, 40);
   let tip = 0;
   for (let i = 2; i < guns.P.length; i += 3) tip = Math.max(tip, guns.P[i]);
+  if (cradle) {
+    // Where each bore ends, along it: the most forward point of the cradle
+    // within a hand of each lane.
+    tip = 0;
+    for (let i = 0; i < guns.P.length; i += 3) {
+      if (lanes.some((l) => Math.hypot(guns.P[i] - l * scale, guns.P[i + 1]) < 0.15 * scale)) tip = Math.max(tip, guns.P[i + 2]);
+    }
+  }
   let roof = 0;
   for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
   const muzzles = lanes.map((l) => [+(l * scale).toFixed(3), 0, +tip.toFixed(3)]);
@@ -1394,6 +1410,18 @@ const POD = gunPiece('musashi-25pod.glb', {
 });
 POD.muzzles = [-0.4, 0, 0.4].map((x) => [x, 0, 1.6]);
 POD.trunnion = [0, 1.5, 0.3];
+// The open 25 mm triple, from the owner's sculpt of it (Japanese25mmAA.glb):
+// 1.7 m a unit, which makes it the size of the open triple it replaces --
+// three and a quarter metres from the back of it to the muzzles and a little
+// over two high. It trains about the middle of its base ring. What elevates
+// is the whole of the gun block over the carriage -- the three guns, their
+// magazines, the sight bar -- about trunnions at the top of the carriage, on
+// the line of the bores; the base ring, the carriage, the layers' seats and
+// their handwheels train with it and do not lift.
+const AA = gunPiece('musashi-25.glb', {
+  scale: 1.7, pivot: [0.33, 0], facing: '-x', foot: -0.627, face: 0, lanes: [-0.21, 0, 0.21],
+  barrelY: 0.254, cradle: (x, y) => y > 0.12 && x < 0.97,
+});
 
 // Her 46 cm triple, from the owner's sculpt of it (YamatoClassMainGun.glb), in
 // place of the gunhouses cut out of her: 16 m a unit, which draws it as wide
@@ -1470,7 +1498,7 @@ writeFileSync(OUT_DATA,
   + `export const MUSASHI_TURRETS = ${JSON.stringify(turrets)};\n`
   + `// Her 46 cm triple, 15.5 cm triple, 12.7 cm twin and shielded 25 mm triple,\n`
   + `// as the owner sculpted them, each in the frame of its mounting.\n`
-  + `export const MUSASHI_GUNS = ${JSON.stringify({ sec6: piece(SEC6), sec5: piece(SEC5), pod: piece(POD), main: piece(MAIN) })};\n`
+  + `export const MUSASHI_GUNS = ${JSON.stringify({ sec6: piece(SEC6), sec5: piece(SEC5), pod: piece(POD), main: piece(MAIN), aa: piece(AA) })};\n`
   + `// Where each of them stands.\n`
   + `export const MUSASHI_MOUNTS = ${JSON.stringify(mounts)};\n`
   + `// Her four screws, on the ends of her shafts.\n`

@@ -2,7 +2,8 @@
 //
 //   npm i --no-save meshoptimizer@0.22          (see build/sculpt-source.mjs)
 //   node build/musashi-source.mjs <Musashi.glb> <MusashiSuperstructure.glb> \
-//     <15.5cm triple.glb> <12.7cm twin.glb> <25mm pod.glb> [<46cm triple.glb>]
+//     <15.5cm triple.glb> <12.7cm twin.glb> <25mm pod.glb> [<46cm triple.glb>] \
+//     [<25mm open triple.glb>]
 //
 // Any of them may be given as `-`, which leaves the asset made from it as it
 // is: the sculpts are not committed (they are 30 to 140 MB), and one can be
@@ -25,7 +26,10 @@
 //     gunhouse with its blast bags, its rangefinder arms, its roof fittings
 //     and the guard rails round its roof, and the three barrels. It is one
 //     piece, rails and all, and the decimator keeps it one: every stanchion
-//     and every chain of the rails stays on the roof it stands on.
+//     and every chain of the rails stays on the roof it stands on;
+//   * and her open 25 mm triple on its own (Japanese25mmAA.glb): the base
+//     ring, the carriage, the layers' seats and handwheels, the three guns
+//     with their magazines, and the ring sights.
 //
 // Here the whole of her is painted, as she was at Kure in 1942: red below her
 // boot topping, black boot topping through her waterline, and Kure grey over
@@ -60,6 +64,7 @@
 //   musashi-127.glb       her 12.7 cm twin
 //   musashi-25pod.glb     her shielded 25 mm triple
 //   musashi-460.glb       her 46 cm triple
+//   musashi-25.glb        her open 25 mm triple
 //
 // Coordinates here are each sculpt's own. The whole of her: length along X
 // with her bow at -X, Y up, beam along Z, 1.90 units stem to stern.
@@ -76,7 +81,7 @@ const writeGlb = (file, m) => writeSourceGlb(file, m, 'build/musashi-source.mjs'
 const decimate = (m, ratio, error, normalWeight = 0) => decimateWith(MeshoptSimplifier, m, ratio, error, normalWeight);
 const out = (name) => path.join(ROOT, 'assets/models', name);
 
-const [SRC, SUPER_SRC, SEC6_SRC, SEC5_SRC, POD_SRC, MAIN_SRC] = process.argv.slice(2);
+const [SRC, SUPER_SRC, SEC6_SRC, SEC5_SRC, POD_SRC, MAIN_SRC, AA_SRC] = process.argv.slice(2);
 if (!POD_SRC) {
   console.error('usage: node build/musashi-source.mjs <Musashi.glb> <MusashiSuperstructure.glb> '
     + '<15.5cm.glb> <12.7cm.glb> <25mm pod.glb>   (- for any of them to leave its asset as it is)');
@@ -282,4 +287,15 @@ if (given(POD_SRC)) {
 if (given(MAIN_SRC)) {
   const main = readSource(MAIN_SRC);
   writeGlb(out('musashi-460.glb'), decimate(main, +(process.env.MAIN_RATIO || 0.07), 0.004));
+}
+// Her open 25 mm triple. She carries thirty of them, so it is taken down hard
+// -- to a few thousand triangles -- which still keeps the guns, their
+// magazines, the carriage, the seats and the ring sights.
+if (given(AA_SRC)) {
+  // The two ring sights at the ends of the sight bar are a few centimetres of
+  // wire each at her size, and decimated they break into flakes hanging in
+  // the air beside the guns; they are taken off, and the bar that carried them
+  // kept.
+  const aa = crop(readSource(AA_SRC), (x, y, z) => !(Math.abs(z) > 0.47 && y > 0.24 && x > -0.06 && x < 0.07));
+  writeGlb(out('musashi-25.glb'), decimate(aa, +(process.env.AA_RATIO || 0.0034), 0.006));
 }

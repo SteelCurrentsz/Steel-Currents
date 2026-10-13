@@ -3319,6 +3319,40 @@ check('the Musashi\'s 46 cm triples are the owner\'s sculpt, rails and all, and 
   for (const m of main) assert.ok(m.children.some((c) => c.isMesh && c.geometry === piece.house), 'a turret not built from the sculpt');
 });
 
+check('the Musashi\'s open 25 mm triples are the owner\'s sculpt, the size the old ones were', () => {
+  const piece = musashiGunPiece('aa');
+  const box = new THREE.Box3();
+  for (const g of [piece.house, piece.guns]) {
+    g.computeBoundingBox();
+    const b = g.boundingBox.clone();
+    if (g === piece.guns) b.translate(new THREE.Vector3(...piece.trunnion));
+    box.union(b);
+  }
+  const len = box.max.z - box.min.z;
+  const high = box.max.y - box.min.y;
+  // The open triple she had: three and a half metres stem to stern of it and
+  // two high.
+  assert.ok(len > 2.9 && len < 3.8, `${len.toFixed(2)} m long`);
+  assert.ok(high > 1.7 && high < 2.4, `${high.toFixed(2)} m high`);
+  assert.equal(piece.muzzles.length, 3);
+  // Each muzzle is the end of its own gun.
+  const gp = piece.guns.attributes.position;
+  for (const [mx, my, mz] of piece.muzzles) {
+    let tip = -Infinity;
+    for (let i = 0; i < gp.count; i++) {
+      if (Math.abs(gp.getX(i) - mx) < 0.15 && Math.abs(gp.getY(i) - my) < 0.25) tip = Math.max(tip, gp.getZ(i));
+    }
+    assert.ok(Math.abs(tip - mz) < 0.08, `a muzzle at ${mz.toFixed(2)} m on a gun that ends at ${tip.toFixed(2)} m`);
+  }
+  // And every open mounting of hers is built from it.
+  const view = new ShipView({ add() {}, remove() {} }, 'musashi', 0, false);
+  let open = 0;
+  view.group.traverse((o) => { if (o.isMesh && o.geometry === piece.house) open++; });
+  const lights = view.group.userData.aaMounts.filter((a) => a.children.some((c) => c.isMesh && c.geometry === piece.house));
+  assert.ok(lights.length >= 10, `only ${lights.length} of her light mountings are the sculpt`);
+  assert.ok(open > lights.length, 'the turret roofs have none');
+});
+
 check('a shell leaves the muzzle it was fired from', () => {
   // The simulation has no model, so it carries the geometry it needs on the
   // datasheet: how far a muzzle stands out from the axis its mounting trains
