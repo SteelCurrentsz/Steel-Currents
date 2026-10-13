@@ -11654,7 +11654,8 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     assert.ok(mid <= cls.hull.beam * 0.62,
       `${id} measures wider than she is: ${mid.toFixed(1)}`);
     assert.ok(bow < mid * 0.8, `${id} has a bow as wide as her waist`);
-    // The Musashi is drawn from the owner's sculpt of her, and a Yamato's
+    // The Musashi is drawn from the owner's sculpt of her -- and so is the
+    // Yamato, who is her sister's hull -- and a Yamato's
     // midship section is as full as any ship's afloat -- a midship coefficient
     // of 0.99, her side plumb to within a metre and a half of her flat bottom
     // and a tight bilge under it -- so at 85% of her draft she has barely
@@ -11671,7 +11672,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // So is the Kongo's: the bulges she was given when she was rebuilt are
     // carried down to her bilge in the sculpt, and her section is fullest a
     // few metres under her waterline and still nearly as full at her bilge.
-    const box = id === 'musashi' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995
+    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995
       : id === 'richelieu' || id === 'kongo' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
