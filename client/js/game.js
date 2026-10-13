@@ -356,6 +356,7 @@ export class Battle {
       this.targetView?.dispose();
       this.targetView = new TargetingView(canvas);
     });
+    this.hud.onTargetingPick?.((pick) => this.targetView?.select(pick));
     // And the arsenal's own hologram: the same hull with no damage on it, and
     // the battery that was pressed lit up where it stands on her.
     this.hud.onArsenalBoard?.((canvas, specs, row) => {

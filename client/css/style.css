@@ -414,6 +414,20 @@ input[type="range"] { accent-color: var(--red); }
 .conn-key[hidden] { display: none; }
 /* Nine letters is more than the key is wide at the usual spacing. */
 #key-targeting span { letter-spacing: 0.02em; }
+/* The targeting panel's keys, one a mounting, over her picture. */
+.target-guns { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-bottom: 0.45rem; }
+.target-band {
+  font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--steel);
+  margin: 0 0.1rem 0 0.35rem;
+}
+.target-band:first-child { margin-left: 0; }
+.target-gun {
+  min-width: 2.3rem; padding: 0.28rem 0.45rem; font: inherit; font-size: 0.72rem; letter-spacing: 0.06em;
+  color: var(--sand); background: rgba(9, 20, 33, 0.85); border: 1px solid var(--panel-line); cursor: pointer;
+}
+.target-gun.on { color: #10161c; background: #ffc94a; border-color: #ffc94a; }
+.target-wrap { cursor: grab; touch-action: none; }
+.target-wrap:active { cursor: grabbing; }
 
 /* The target plate, standing beside the keys.
  *

@@ -1,8 +1,8 @@
 // The targeting panel's picture of her: the ship herself, as she is built for
-// the battle, stood in a fixed view off her starboard quarter -- not a model to
-// be turned about, but the one look at her a gunnery officer has from his
-// position, with her turrets trained and her guns laid as they are on the
-// water this instant.
+// the battle, with her turrets trained and her guns laid as they are on the
+// water this instant. It opens off her starboard bow-quarter, fitted to the
+// panel, and a drag turns the view round her and a pinch or the wheel brings
+// it in; the mounting picked on the bar over it is ringed where it stands.
 //
 // It carries a renderer of its own, built the first time the key is pressed,
 // and builds a model of each class the first time it is asked to show one.
@@ -30,6 +30,73 @@ export class TargetingView {
     this.models = MODELS;
     this.shown = null;
     this.classId = null;
+    // Where the view stands round her: a bearing and an elevation off her
+    // middle, and how far in from the fitted distance.
+    this.yaw = Math.atan2(-0.62, 0.72);
+    this.pitch = 0.32;
+    this.zoom = 1;
+    this.pick = null;
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48),
+      new THREE.MeshBasicMaterial({ color: 0xffc94a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false }));
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.renderOrder = 10;
+    this.ring.visible = false;
+    this.scene.add(this.ring);
+    this.bindDrag();
+  }
+
+  /** Drag to turn round her; pinch or the wheel to come in. */
+  bindDrag() {
+    const c = this.canvas;
+    c.style.touchAction = 'none';
+    const pts = new Map();
+    let last = null, spread = 0;
+    const gap = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    c.addEventListener('pointerdown', (e) => {
+      c.setPointerCapture?.(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      last = { x: e.clientX, y: e.clientY };
+      if (pts.size === 2) spread = gap();
+      e.preventDefault();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size >= 2) {
+        const g = gap();
+        if (spread > 0) this.zoom = THREE.MathUtils.clamp(this.zoom * (g / spread), 0.6, 4);
+        spread = g;
+        return;
+      }
+      const dx = e.clientX - last.x, dy = e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+      this.yaw -= dx * 0.01;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.008, -0.15, 1.45);
+      e.preventDefault();
+    });
+    const up = (e) => { pts.delete(e.pointerId); spread = pts.size >= 2 ? gap() : 0; if (pts.size === 1) last = [...pts.values()][0]; };
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+    c.addEventListener('wheel', (e) => {
+      this.zoom = THREE.MathUtils.clamp(this.zoom * Math.exp(-e.deltaY * 0.0015), 0.6, 4);
+      e.preventDefault();
+    }, { passive: false });
+  }
+
+  /**
+   * Ring one of her mountings, or none: `{ kind, i, at }` off the bar over the
+   * picture (see targetingMounts), `at` where her datasheet stands it.
+   */
+  select(pick) { this.pick = pick || null; }
+
+  /** The model's mounting a pick names, if the model has one for it. */
+  mountOf(pick) {
+    const m = this.shown;
+    if (!m || !pick) return null;
+    const torps = (m.torpMounts && m.torpMounts.length ? m.torpMounts : m.group.userData.torpMounts) || [];
+    const list = pick.kind === 'main' ? m.turrets : pick.kind === 'sec' ? m.secMounts
+      : pick.kind === 'dp' ? m.aaMounts : torps;
+    return (list || [])[pick.i] || null;
   }
 
   /** Show this class: built once, and kept for the next time she is asked for. */
@@ -104,32 +171,54 @@ export class TargetingView {
       this.camera.aspect = w / Math.max(1, h);
       this.camera.updateProjectionMatrix();
     }
-    // One view, always the same: off her starboard bow-quarter, a little above
-    // her, standing far enough off for the whole of her to fit across the
-    // panel. It is not turned by anything.
-    // Brought in until she just fills the panel,
-    // with a margin: a destroyer and a battleship each fill it.
-    const dir = new THREE.Vector3(-0.62, 0.30, 0.72).normalize();
+    // Brought in until she just fills the panel from wherever it is looking
+    // at her, with a margin -- so a destroyer and a battleship each fill it,
+    // broadside or end on -- and then in or out by the pinch. Worked out again
+    // only when the view has turned.
     const cam = this.camera;
-    const corners = m.points;
-    const fits = (d) => {
-      cam.position.copy(m.mid).addScaledVector(dir, d);
-      cam.lookAt(m.mid);
-      cam.updateMatrixWorld(true);
-      return corners.every((c) => {
-        const q = c.clone().project(cam);
-        return Math.abs(q.x) < 0.94 && Math.abs(q.y) < 0.9 && q.z < 1;
-      });
-    };
-    if (this.fitFor !== m || this.fitAspect !== cam.aspect) {
+    const cp = Math.cos(this.pitch);
+    const look = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
+    const key = `${m.mid.x}|${this.yaw.toFixed(3)}|${this.pitch.toFixed(3)}|${cam.aspect.toFixed(3)}`;
+    if (this.fitKey !== key || this.fitFor !== m) {
+      const pts = m.points;
+      const step = Math.max(1, Math.floor(pts.length / 700));
+      const fits = (d) => {
+        cam.position.copy(m.mid).addScaledVector(look, d);
+        cam.lookAt(m.mid);
+        cam.updateMatrixWorld(true);
+        const q = new THREE.Vector3();
+        for (let k = 0; k < pts.length; k += step) {
+          q.copy(pts[k]).project(cam);
+          if (Math.abs(q.x) > 0.94 || Math.abs(q.y) > 0.9 || q.z >= 1) return false;
+        }
+        return true;
+      };
       let lo = 1, hi = Math.max(m.size.x, m.size.z) * 8;
-      for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
+      for (let k = 0; k < 22; k++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
       this.fitD = hi;
+      this.fitKey = key;
       this.fitFor = m;
-      this.fitAspect = cam.aspect;
     }
-    cam.position.copy(m.mid).addScaledVector(dir, this.fitD);
+    cam.position.copy(m.mid).addScaledVector(look, this.fitD / this.zoom);
     cam.lookAt(m.mid);
+    // The ring round the mounting picked, where it stands on her now.
+    const mount = this.mountOf(this.pick);
+    if (this.pick && (mount || this.pick.at)) {
+      let x, y, z, r;
+      if (mount) {
+        const b = new THREE.Box3().setFromObject(mount);
+        const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
+        x = c.x; y = b.min.y + 0.3; z = c.z; r = Math.max(2.5, Math.max(sz.x, sz.z) * 0.62);
+      } else {
+        x = this.pick.at.x; z = this.pick.at.z; y = m.mid.y; r = 4;
+      }
+      this.ring.position.set(x, y, z);
+      this.ring.scale.setScalar(r);
+      this.ring.material.opacity = 0.65 + 0.3 * Math.sin(performance.now() / 180);
+      this.ring.visible = true;
+    } else {
+      this.ring.visible = false;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 

@@ -66,6 +66,27 @@ const ROLE_LABEL = {
  * Each entry is what the arsenal panel shows -- the mounting's name, its bore,
  * how long it takes to load, how far it reaches and what it may be laid on.
  */
+/**
+ * The mountings the targeting panel lays: every main turret, every secondary
+ * mounting, every dual-purpose mounting of her light battery and every torpedo
+ * bank -- and none of the light anti-aircraft guns. Each is `{ kind, i, label,
+ * at }`: which of the model's lists it is in and where, a short name for its
+ * button, and where her datasheet stands it.
+ */
+export function targetingMounts(cls) {
+  const out = [];
+  const name = (m, fallback) => (m.name && m.name.length <= 8 ? m.name : fallback);
+  (cls.turrets || []).forEach((m, i) => out.push({ kind: 'main', i, label: name(m, `M${i + 1}`), at: m, group: 'Main' }));
+  ((cls.secondary && cls.secondary.mounts) || []).forEach((m, i) => out.push({ kind: 'sec', i, label: name(m, `S${i + 1}`), at: m, group: 'Secondary' }));
+  let at = 0, dp = 0;
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    if (g.role === 'dp') g.mounts.forEach((m, j) => out.push({ kind: 'dp', i: at + j, label: name(m, `DP${++dp}`), at: m, group: 'Dual purpose' }));
+    at += g.mounts.length;
+  }
+  ((cls.torpedoes && cls.torpedoes.mounts) || []).forEach((m, i) => out.push({ kind: 'torp', i, label: name(m, `T${i + 1}`), at: m, group: 'Torpedoes' }));
+  return out;
+}
+
 export function arsenal(cls) {
   const rows = [];
   const barrels = (mounts) => mounts.reduce((n, m) => n + (m.guns || 1), 0);
@@ -1052,12 +1073,42 @@ export class Hud {
   onDamageBoard(fn) { this.onBoard = fn; }
 
   /**
-   * Targeting: her own model, the ship you are on or watching, in the one
-   * fixed view a gunnery officer has of her -- not turned by anything -- with
-   * her turrets trained as they are. The battle hands it a renderer the first
+   * Targeting: a key for each of her guns and torpedo banks, and her own
+   * model -- the ship you are on or watching -- which a drag turns round and a
+   * pinch brings in, with her turrets trained as they are. The battle hands it a renderer the first
    * time it is raised (see onTargetingBoard).
    */
   buildTargetingPanel() {
+    // A key for every gun she lays and every torpedo bank she has, over the
+    // picture: press one and it is ringed on her; press it again and it is not.
+    const bar = document.createElement('div');
+    bar.className = 'target-guns';
+    let group = null;
+    this.targetKeys = [];
+    for (const t of targetingMounts(this.shown || {})) {
+      if (t.group !== group) {
+        group = t.group;
+        const h = document.createElement('span');
+        h.className = 'target-band';
+        h.textContent = group;
+        bar.appendChild(h);
+      }
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'target-gun';
+      b.textContent = t.label;
+      b.title = `${t.group} ${t.label}`;
+      b.onclick = () => {
+        const on = this.targetPick !== t;
+        this.targetPick = on ? t : null;
+        for (const k of this.targetKeys) k.el.classList.toggle('on', k.t === this.targetPick);
+        this.onTargetPick?.(this.targetPick);
+      };
+      bar.appendChild(b);
+      this.targetKeys.push({ t, el: b });
+    }
+    this.targetPick = null;
+    this.el.connBody.appendChild(bar);
     const wrap = document.createElement('div');
     wrap.className = 'board-wrap target-wrap';
     const cv = document.createElement('canvas');
@@ -1069,6 +1120,9 @@ export class Hud {
 
   /** What builds the targeting panel's picture. Set by the battle. */
   onTargetingBoard(fn) { this.onTarget = fn; }
+
+  /** What picking a mounting on the targeting bar does. Set by the battle. */
+  onTargetingPick(fn) { this.onTargetPick = fn; }
 
   /**
    * The arsenal: every gun, tube and charge aboard, and what each may engage.
