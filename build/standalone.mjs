@@ -117,6 +117,8 @@ const shell = `
   // asks for the next frame come what may. And the screen itself is taken down
   // by the game when the harbour has been built, never on a timer.
   window.addEventListener('error', function (e) {
+    // The game is waiting on the graphics and has said so (see main.js).
+    if (window.__waitingForGraphics) return;
     if (window.__title) {
       if (window.console && console.error) console.error('Steel Currents:', e.message || e);
       return;

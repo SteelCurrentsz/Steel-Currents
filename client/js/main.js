@@ -144,7 +144,8 @@ function makeRenderer(at = document.getElementById('stage')) {
   }
   // Nothing better on offer: the last one, which three.js restores when the
   // browser gives the context back.
-  return made || new THREE.WebGLRenderer({ canvas: at, antialias: false });
+  if (made) return made;
+  try { return new THREE.WebGLRenderer({ canvas: at, antialias: false }); } catch { return null; }
 }
 
 /** A new canvas in the old one's place, with its id and its classes. */
@@ -162,7 +163,69 @@ function freshCanvas(old) {
 // canvas and put behind the stand-in, and every screen goes on drawing
 // through the same object it always had. Everything it draws is sent to the
 // new context again the first time it is drawn there.
+/**
+ * Whether the browser will give this page a graphics context that works.
+ *
+ * An iPad whose graphics went down a moment ago -- in this page or another --
+ * hands out contexts that are already lost for a while afterwards, and every
+ * question asked of one is answered with null. The renderer cannot be built
+ * on that: it is the "null is not an object" that stopped the game on the
+ * start screen. So it is asked first, on a canvas of its own that is given
+ * straight back.
+ */
+function graphicsUp() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    const up = !!gl && !gl.isContextLost();
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return up;
+  } catch { return false; }
+}
+
+/**
+ * Wait for the graphics to come back, saying so, and start again when they do.
+ * Not a reload loop: after a few tries in a couple of minutes it stops and
+ * says what will help.
+ */
+function waitForGraphics() {
+  globalThis.__waitingForGraphics = true;
+  const say = (msg) => {
+    const el = document.getElementById('boot');
+    el?.classList.remove('gone', 'done');
+    el?.classList.add('stuck');
+    const t = document.getElementById('boot-say');
+    if (t) t.textContent = msg;
+  };
+  let tries = [];
+  try { tries = JSON.parse(sessionStorage.getItem('steel-currents:gpu-wait') || '[]'); } catch { /* none */ }
+  tries = tries.filter((t) => Date.now() - t < 120000);
+  if (tries.length >= 4) {
+    say('The graphics have not come back. Close other tabs or apps, or restart the browser, and open the game again.');
+    return;
+  }
+  say('Waiting for the graphics to recover\u2026');
+  const poll = setInterval(() => {
+    if (!graphicsUp()) return;
+    clearInterval(poll);
+    tries.push(Date.now());
+    try { sessionStorage.setItem('steel-currents:gpu-wait', JSON.stringify(tries)); } catch { /* private */ }
+    location.reload();
+  }, 1000);
+}
+
+if (!graphicsUp()) {
+  waitForGraphics();
+  // Nothing below can run without a context. (The boot screen's own error
+  // handler knows this one and says nothing over the message above.)
+  throw new Error('Steel Currents: waiting for the graphics to recover');
+}
+
 let real = makeRenderer();
+if (!real || real.getContext().isContextLost()) {
+  waitForGraphics();
+  throw new Error('Steel Currents: waiting for the graphics to recover');
+}
 const bound = new Map();
 const renderer = new Proxy({}, {
   get(_, k) {
@@ -314,10 +377,10 @@ function rebuild() {
     localClippingEnabled: old.localClippingEnabled,
   };
   const fresh = makeRenderer(freshCanvas(old.domElement));
-  if (fresh.getContext().isContextLost()) {
+  if (!fresh || fresh.getContext().isContextLost()) {
     // Still nothing: try again shortly rather than give up on the battle.
     rebuildTimer = setTimeout(rebuild, 3000);
-    try { fresh.dispose(); } catch { /* gone */ }
+    try { fresh && fresh.dispose(); } catch { /* gone */ }
     return;
   }
   try { old.dispose(); } catch { /* gone */ }
