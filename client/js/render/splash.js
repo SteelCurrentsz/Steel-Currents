@@ -679,7 +679,10 @@ export class Splashes {
         const L = (ud.length || v.cls?.hull?.length || 0) / 2;
         const B = (ud.beam || v.cls?.hull?.beam || 0) / 2;
         if (!(L > 0 && B > 0)) continue;
-        g.updateMatrixWorld();
+        // Her own placing only, not every fitting on her: the renderer brings
+        // the thousands of meshes under her up to date once a frame anyway,
+        // and doing it here as well was the most expensive line in the game.
+        g.updateWorldMatrix(true, false);
         const h = out[n] || (out[n] = { mw: new THREE.Matrix4(), inv: new THREE.Matrix4() });
         h.mw.copy(g.matrixWorld);
         h.inv.copy(g.matrixWorld).invert();

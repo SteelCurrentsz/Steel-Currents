@@ -12,6 +12,8 @@ import * as THREE from '../../../vendor/three.module.js';
 
 const BUCKET = 2;
 const SOUPS = new Map();
+/** Builds under way, by class: a generator worked a slice at a time. */
+const BUILDING = new Map();
 
 /** Whether a piece of her is a weapon, by the mountings her view keeps. */
 function weaponSet(view) {
@@ -23,25 +25,28 @@ function weaponSet(view) {
 }
 
 /**
- * Her triangles in her own frame, bucketed by station. Built the first time a
- * class is asked for and kept: her lines do not change.
+ * Her triangles in her own frame, bucketed by station, built a slice at a
+ * time: a battleship is the best part of a million triangles, and putting
+ * every one of them into an ordinary array in one go stopped the battle for
+ * half a second and, for a moment, needed a hundred megabytes. They go
+ * straight into typed arrays now -- the corners as 16-bit steps across her
+ * own bounding box, under half a centimetre on the longest hull afloat -- and
+ * the work yields every few thousand triangles.
  */
-export function soupOf(view) {
-  const key = view.classId || view.cls?.id;
-  if (SOUPS.has(key)) return SOUPS.get(key);
+function* build(view) {
   const g = view.group;
   if (!g) return null;
   g.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(g.matrixWorld).invert();
   const weapons = weaponSet(view);
-  const tris = [];   // x0 y0 z0 x1 y1 z1 x2 y2 z2 kind
-  const m = new THREE.Matrix4();
-  const im = new THREE.Matrix4();
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const kindOf = (o) => {
     for (let p = o; p && p !== g; p = p.parent) if (weapons.has(p)) return 1;
     return 0;
   };
+  // What is to be read, and where each piece stands in her frame -- taken
+  // all at once, so a turret training between slices does not tear her.
+  const parts = [];
+  let nt = 0;
   g.traverse((o) => {
     if (!o.isMesh || !o.geometry?.attributes?.position) return;
     if (o.material && (o.material.isShaderMaterial || o.material.transparent)) return;
@@ -49,41 +54,122 @@ export function soupOf(view) {
     for (let p = o; p && p !== g; p = p.parent) if (p.userData && p.userData.lamp !== undefined) return;
     const pos = o.geometry.attributes.position;
     const idx = o.geometry.index;
-    const kind = kindOf(o);
-    const n = idx ? idx.count : pos.count;
+    const n = Math.floor((idx ? idx.count : pos.count) / 3);
     const count = o.isInstancedMesh ? o.count : 1;
+    const base = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
     for (let inst = 0; inst < count; inst++) {
-      m.multiplyMatrices(inv, o.matrixWorld);
-      if (o.isInstancedMesh) { o.getMatrixAt(inst, im); m.multiply(im); }
-      for (let i = 0; i + 2 < n; i += 3) {
-        const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
-        a.fromBufferAttribute(pos, i0).applyMatrix4(m);
-        b.fromBufferAttribute(pos, i1).applyMatrix4(m);
-        c.fromBufferAttribute(pos, i2).applyMatrix4(m);
-        tris.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, kind);
-      }
+      const m = base.clone();
+      if (o.isInstancedMesh) { const im = new THREE.Matrix4(); o.getMatrixAt(inst, im); m.multiply(im); }
+      parts.push({ pos, idx, n, m, kind: kindOf(o) });
+      nt += n;
     }
   });
-  const T = new Float32Array(tris);
-  const nt = T.length / 10;
-  let zmin = Infinity, zmax = -Infinity;
-  for (let t = 0; t < nt; t++) {
-    const o = t * 10;
-    zmin = Math.min(zmin, T[o + 2], T[o + 5], T[o + 8]);
-    zmax = Math.max(zmax, T[o + 2], T[o + 5], T[o + 8]);
+  yield;
+  // Her box, to scale the corners into.
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  let done = 0;
+  for (const p of parts) {
+    const { pos, idx, n, m } = p;
+    for (let i = 0; i < n * 3; i++) {
+      v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m);
+      box.expandByPoint(v);
+    }
+    done += n;
+    if (done > 40000) { done = 0; yield; }
   }
-  const nb = Math.max(1, Math.ceil((zmax - zmin) / BUCKET) + 1);
-  const buckets = Array.from({ length: nb }, () => []);
-  for (let t = 0; t < nt; t++) {
-    const o = t * 10;
-    const lo = Math.min(T[o + 2], T[o + 5], T[o + 8]);
-    const hi = Math.max(T[o + 2], T[o + 5], T[o + 8]);
-    for (let k = Math.floor((lo - zmin) / BUCKET); k <= Math.floor((hi - zmin) / BUCKET); k++) buckets[k].push(t);
+  if (box.isEmpty()) { box.min.set(-1, -1, -1); box.max.set(1, 1, 1); }
+  const lo = box.min.clone();
+  const span = box.max.clone().sub(lo).max(new THREE.Vector3(1e-3, 1e-3, 1e-3));
+  const q = new THREE.Vector3(65535 / span.x, 65535 / span.y, 65535 / span.z);
+  const Q = new Uint16Array(nt * 9);
+  const K = new Uint8Array(nt);
+  const zlo = new Float32Array(nt), zhi = new Float32Array(nt);
+  let t = 0;
+  done = 0;
+  for (const p of parts) {
+    const { pos, idx, n, m, kind } = p;
+    for (let k = 0; k < n; k++, t++) {
+      let a = Infinity, b = -Infinity;
+      for (let e = 0; e < 3; e++) {
+        const i = k * 3 + e;
+        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m);
+        const o = t * 9 + e * 3;
+        Q[o] = Math.round((v.x - lo.x) * q.x);
+        Q[o + 1] = Math.round((v.y - lo.y) * q.y);
+        Q[o + 2] = Math.round((v.z - lo.z) * q.z);
+        if (v.z < a) a = v.z;
+        if (v.z > b) b = v.z;
+      }
+      K[t] = kind;
+      zlo[t] = a; zhi[t] = b;
+    }
+    done += n;
+    if (done > 25000) { done = 0; yield; }
   }
-  const soup = { T, zmin, buckets };
-  SOUPS.set(key, soup);
-  return soup;
+  // Which triangles cross each two-metre station, as one flat list.
+  const zmin = lo.z;
+  const nb = Math.max(1, Math.ceil(span.z / BUCKET) + 1);
+  const start = new Uint32Array(nb + 1);
+  for (let i = 0; i < nt; i++) {
+    for (let k = Math.floor((zlo[i] - zmin) / BUCKET); k <= Math.floor((zhi[i] - zmin) / BUCKET); k++) start[k + 1]++;
+  }
+  for (let k = 0; k < nb; k++) start[k + 1] += start[k];
+  const list = new Uint32Array(start[nb]);
+  const fill = start.slice(0, nb);
+  for (let i = 0; i < nt; i++) {
+    for (let k = Math.floor((zlo[i] - zmin) / BUCKET); k <= Math.floor((zhi[i] - zmin) / BUCKET); k++) list[fill[k]++] = i;
+  }
+  return { Q, K, lo, step: new THREE.Vector3(span.x / 65535, span.y / 65535, span.z / 65535), zmin, start, list, nb };
 }
+
+function keyOf(view) { return view.classId || view.cls?.id; }
+
+/**
+ * Her triangles in her own frame, bucketed by station. Built the first time a
+ * class is asked for and kept: her lines do not change. Asked for now, it is
+ * finished now; see prepareSoup for building it while nothing is happening.
+ */
+export function soupOf(view) {
+  const key = keyOf(view);
+  if (SOUPS.has(key)) return SOUPS.get(key);
+  let it = BUILDING.get(key);
+  if (!it) it = build(view);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  BUILDING.delete(key);
+  SOUPS.set(key, r.value);
+  return r.value;
+}
+
+/**
+ * Build her soup in the background, a few milliseconds at a time between
+ * frames, so the first shell into her finds it ready and the battle never
+ * waits for it.
+ */
+export function prepareSoup(view, budgetMs = 4) {
+  const key = keyOf(view);
+  if (SOUPS.has(key) || BUILDING.has(key) || typeof window === 'undefined') return;
+  const it = build(view);
+  BUILDING.set(key, it);
+  const later = window.requestIdleCallback
+    ? (f) => window.requestIdleCallback(f, { timeout: 500 })
+    : (f) => setTimeout(f, 16);
+  const step = () => {
+    if (BUILDING.get(key) !== it) return;   // finished another way, or cleared
+    const t0 = performance.now();
+    try {
+      let r = it.next();
+      while (!r.done && performance.now() - t0 < budgetMs) r = it.next();
+      if (r.done) { BUILDING.delete(key); SOUPS.set(key, r.value); return; }
+    } catch { BUILDING.delete(key); return; }
+    later(step);
+  };
+  later(step);
+}
+
+/** Let go of every soup: the battle that wanted them is over. */
+export function clearSoups() { SOUPS.clear(); BUILDING.clear(); }
 
 /**
  * Her section at station z: segments [x0, y0, x1, y1, kind], kind 0 for her
@@ -92,22 +178,29 @@ export function soupOf(view) {
 export function sectionAt(view, z) {
   const soup = soupOf(view);
   if (!soup) return null;
-  const { T, zmin, buckets } = soup;
+  const { Q, K, lo, step, zmin, start, list, nb } = soup;
   const k = Math.floor((z - zmin) / BUCKET);
-  const list = buckets[k] || [];
   const segs = [];
+  if (k < 0 || k >= nb) return segs;
   const P = [];
-  for (const t of list) {
-    const o = t * 10;
+  const X = [0, 0, 0], Y = [0, 0, 0], Z = [0, 0, 0];
+  for (let j = start[k]; j < start[k + 1]; j++) {
+    const t = list[j];
+    const o = t * 9;
+    for (let e = 0; e < 3; e++) {
+      X[e] = lo.x + Q[o + e * 3] * step.x;
+      Y[e] = lo.y + Q[o + e * 3 + 1] * step.y;
+      Z[e] = lo.z + Q[o + e * 3 + 2] * step.z;
+    }
     P.length = 0;
     for (let e = 0; e < 3; e++) {
-      const i = o + e * 3, j = o + ((e + 1) % 3) * 3;
-      const za = T[i + 2] - z, zb = T[j + 2] - z;
+      const f1 = (e + 1) % 3;
+      const za = Z[e] - z, zb = Z[f1] - z;
       if ((za < 0) === (zb < 0)) continue;
       const f = za / (za - zb);
-      P.push(T[i] + (T[j] - T[i]) * f, T[i + 1] + (T[j + 1] - T[i + 1]) * f);
+      P.push(X[e] + (X[f1] - X[e]) * f, Y[e] + (Y[f1] - Y[e]) * f);
     }
-    if (P.length >= 4) segs.push([P[0], P[1], P[2], P[3], T[o + 9]]);
+    if (P.length >= 4) segs.push([P[0], P[1], P[2], P[3], K[t]]);
   }
   return segs;
 }

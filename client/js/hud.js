@@ -252,7 +252,7 @@ export function readTarget(shown, snap, own) {
   };
 }
 
-export class Hud {
+class HudBase {
   constructor({ team, world, onLeave }) {
     this.team = team;
     this.world = world;
@@ -2391,5 +2391,61 @@ export class Hud {
         ctx.stroke();
       }
     }
+  }
+}
+
+// Every listener a HUD puts on the page comes off again with it.
+//
+// The HUD is built afresh for every battle, but the buttons, the chart and the
+// cockpit it wires up are the page's own and outlive it. Each battle added its
+// handlers alongside the last one's and nothing ever took them away, so after
+// a few actions a single tap on the chart ran every previous battle's handler
+// too -- steering ships in fights long over -- and each of those kept its
+// whole battle in memory. So whatever the HUD, or any of its methods, adds
+// with addEventListener is tied to one AbortController, and disposing the HUD
+// takes all of it off at once.
+const realAdd = EventTarget.prototype.addEventListener;
+let listening = null;
+if (!EventTarget.prototype.__hudScoped) {
+  EventTarget.prototype.__hudScoped = true;
+  EventTarget.prototype.addEventListener = function addEventListener(type, fn, opts) {
+    if (listening && !(opts && typeof opts === 'object' && opts.signal)) {
+      opts = opts && typeof opts === 'object' ? { ...opts, signal: listening } : { capture: !!opts, signal: listening };
+    }
+    return realAdd.call(this, type, fn, opts);
+  };
+}
+function within(signal, fn) {
+  const was = listening;
+  listening = signal;
+  try { return fn(); } finally { listening = was; }
+}
+for (const name of Object.getOwnPropertyNames(HudBase.prototype)) {
+  if (name === 'constructor') continue;
+  const d = Object.getOwnPropertyDescriptor(HudBase.prototype, name);
+  if (typeof d.value !== 'function') continue;
+  const f = d.value;
+  HudBase.prototype[name] = function (...args) {
+    return this.abort ? within(this.abort.signal, () => f.apply(this, args)) : f.apply(this, args);
+  };
+}
+
+export class Hud extends HudBase {
+  constructor(opts) {
+    const abort = new AbortController();
+    within(abort.signal, () => super(opts));
+    this.abort = abort;
+  }
+
+  /** Off the page: every listener this HUD added comes off with it. */
+  dispose() {
+    this.abort.abort();
+    // And the handlers it put on the page's own buttons as properties, which
+    // would otherwise hold the finished battle until the next one took the
+    // buttons over.
+    const el = this.el || {};
+    const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
+      el.flyArms, el.flyBombCam, el.flyTake, el.shellCam, ...Object.values(this.keys || {})];
+    for (const n of own) if (n) n.onclick = null;
   }
 }

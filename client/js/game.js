@@ -347,6 +347,10 @@ export class Battle {
     // The damage board builds its own little renderer the first time the
     // wrench is pressed, and is fed her compartments every frame after.
     this.hud.onDamageBoard?.((canvas) => {
+      // A fresh canvas every time the panel opens: the last board's context
+      // goes first, or a captain who opens it twenty times runs the page out
+      // of contexts and the battle's own is the one the browser takes back.
+      this.board?.dispose();
       this.board = new DamageBoard(canvas, classId);
       for (const h of this.holes) this.board.hole(h[0], h[1], h[2], h[3]);
     });
@@ -604,9 +608,13 @@ export class Battle {
     // firing.
     this.hud.bindShellCam(() => this.toggleShellCam());
     this.hud.onToggleMap = () => this.toggleMap();
-    document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome());
-    document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera());
-    document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null));
+    // The page's own buttons outlive the battle: what is put on them here
+    // comes off again in dispose, all at once.
+    this.abort = new AbortController();
+    const mine = { signal: this.abort.signal };
+    document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome(), mine);
+    document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera(), mine);
+    document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null), mine);
     // The penetration camera, over the whole battle screen.
     {
       const host = document.getElementById('screen-battle');
@@ -616,26 +624,26 @@ export class Battle {
     // Her searchlights: the plan on the panel, and the two keys behind one.
     this.hud.onLampPlan = () => this.lampPanel();
     this.hud.onLampPick = (k) => this.enterLamp(k);
-    document.getElementById('lamp-switch')?.addEventListener('click', () => this.switchLamp());
-    document.getElementById('lamp-leave')?.addEventListener('click', () => this.leaveLamp());
+    document.getElementById('lamp-switch')?.addEventListener('click', () => this.switchLamp(), mine);
+    document.getElementById('lamp-leave')?.addEventListener('click', () => this.leaveLamp(), mine);
     // The human view: a pin in her plan, and you on your own two feet there.
     this.man = null;
     this.hud.onHumanPlan = () => this.humanPanel();
     this.hud.onHumanDeploy = (x, z) => this.deployMan(x, z);
     this.hud.onHumanBridge = () => this.deployBridge();
     this.hud.bindHumanStick(() => { this.jumpAsked = true; });
-    document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan());
+    document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan(), mine);
     const fireKey = document.getElementById('gun-fire');
     if (fireKey) {
-      fireKey.addEventListener('pointerdown', (e) => { e.preventDefault(); this.pullTrigger(); });
-      fireKey.addEventListener('click', (e) => e.preventDefault());
+      fireKey.addEventListener('pointerdown', (e) => { e.preventDefault(); this.pullTrigger(); }, mine);
+      fireKey.addEventListener('click', (e) => e.preventDefault(), mine);
     }
     document.getElementById('watch-swap')?.addEventListener('click', () => {
       if (!this.watching) return;
       this.watchPov = !this.watchPov;
       this.hud.setWatchBanner(this.watching, this.watchPov);
       audio.click();
-    });
+    }, mine);
 
     this.raycaster = new THREE.Raycaster();
     this.seaPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -2556,9 +2564,13 @@ export class Battle {
 
   bindInput() {
     this.input.enabled = true;
-    this.input.on('key', (code) => this.onKey(code));
-    this.input.on('scope', (on) => { this.scoped = on; });
-    this.input.on('wheel', (dir) => {
+    // Taken off again when the battle ends (see dispose). The input outlives
+    // every battle, and a handler left on it kept the whole of a finished
+    // battle in memory -- and answered every key pressed in the next one,
+    // sending its orders into a fight it was no longer part of.
+    this.off.push(this.input.on('key', (code) => this.onKey(code)));
+    this.off.push(this.input.on('scope', (on) => { this.scoped = on; }));
+    this.off.push(this.input.on('wheel', (dir) => {
       // While the camera is off watching somebody else the wheel works that
       // camera, not this one: standing further off her when you are outside,
       // and putting a glass to your eye when you are aboard.
@@ -2575,7 +2587,7 @@ export class Battle {
       // and out far enough to see the whole action.
       this.camDistance = clamp(this.camDistance * Math.pow(1.15, dir),
         this.cls.hull.length * 0.05, this.cls.hull.length * 6);
-    });
+    }));
   }
 
   onKey(code) {
@@ -5624,5 +5636,16 @@ export class Battle {
     audio.stopAmbience();
     this.hud.setSunk(false);
     this.hud.showScoreboard(null, 0, false);
+    // And everything the battle put on the GPU, or the next one starts with
+    // this one still in memory.
+    try { this.scene.dispose(); } catch (e) { console.error('Steel Currents: clearing the battle', e); }
+    this.hud.dispose?.();
+    this.abort?.abort();
+    for (const b of [this.board, this.armsBoard, this.planeBoard]) { try { b?.dispose(); } catch { /* gone */ } }
+    this.board = this.armsBoard = this.planeBoard = null;
+    // A button's onclick on the page can still reach this battle until the
+    // next one takes the button over; let it reach nothing heavy.
+    this.snapshots = [];
+    this.entities?.clear?.();
   }
 }

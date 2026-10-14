@@ -142,6 +142,8 @@ import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinano
 import { Audio as AudioClass } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
 import { VOICE_LINES } from '../client/js/render/voices.data.js';
+import { Input } from '../client/js/input.js';
+import { pixelRadius } from '../client/js/render/pixelcull.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -13195,6 +13197,28 @@ check('the bridge gives its orders in its own navy, one at a time and not at eve
   said.length = 0;
   a.speakingUntil = 100; ctx.currentTime = 90; a.order('torp', 'usa');
   assert.deepEqual(said, [], 'two orders at once');
+});
+
+check('a piece smaller than a pixel is not drawn, and nothing that can be seen is lost', () => {
+  // A 40 mm mounting, a metre across, at the far side of a fleet action is
+  // well under half a pixel on a phone; a battleship there is not.
+  assert.ok(pixelRadius(0.6, 12000, 720, 50) < 0.5, 'a gun mount on the horizon would still be drawn');
+  assert.ok(pixelRadius(130, 12000, 720, 50) > 2, 'a battleship on the horizon would be culled');
+  assert.ok(pixelRadius(0.6, 300, 720, 50) > 0.5, 'a gun mount alongside would be culled');
+});
+
+check('the controls a battle hooks up come off again when it is over', () => {
+  // A handler left on the input answered every key pressed in the next
+  // battle, and kept the old one in memory.
+  const input = Object.create(Input.prototype);
+  input.handlers = {};
+  let n = 0;
+  const off = input.on('key', () => n++);
+  input.emit('key', 'KeyW');
+  off();
+  input.emit('key', 'KeyW');
+  assert.equal(n, 1, 'a handler taken off the input still hears keys');
+  assert.equal(input.handlers.key.length, 0);
 });
 
 check('every ship is built out of pieces that can be found again', () => {

@@ -25,11 +25,12 @@ import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
-import { soupOf } from './section.js';
+import { prepareSoup, clearSoups } from './section.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
+import { renderCulled } from './pixelcull.js';
 import {
   MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
 } from '../../../shared/world.js';
@@ -1880,8 +1881,13 @@ export class BattleScene {
       // from, while nothing is happening -- not at the moment the first
       // shell strikes her, which is when a pause is noticed.
       if (typeof window !== 'undefined') {
-        const later = window.requestIdleCallback || ((f) => setTimeout(f, 1200));
-        later(() => { try { if (this.shipViews.get(id) === v) soupOf(v); } catch { /* drawn without */ } });
+        // Only the other side's: they are what the camera watches shells go
+        // into, and a soup is the best part of twenty megabytes for a
+        // battleship. Anything else is built the moment it is first wanted.
+        if (isSelf) this.ownTeam = team;
+        if (!isSelf && (this.ownTeam == null || team !== this.ownTeam)) {
+          setTimeout(() => { try { if (this.shipViews.get(id) === v) prepareSoup(v); } catch { /* drawn without */ } }, 1500);
+        }
       }
     }
     return v;
@@ -2086,6 +2092,50 @@ export class BattleScene {
     // all until there is a wreck making some.
     this.oil.render(this.renderer, this.camera);
     this.oil.bind(this.ocean.material.uniforms);
-    this.renderer.render(this.scene, this.camera);
+    renderCulled(this.renderer, this.scene, this.camera);
+  }
+
+  /**
+   * The battle is over: give back everything it put on the GPU.
+   *
+   * The renderer outlives the battle -- the harbour, the yard and the next
+   * action all draw with it -- and it holds on to every geometry, material,
+   * texture and render target it has ever been handed until each is disposed.
+   * Nothing was, so every battle left its fleet behind in memory: some five
+   * hundred meshes and well over a hundred megabytes a time, until a phone
+   * that had fought three or four actions ran out and the page died. Anything
+   * shared with what comes next (a hull kept for the targeting panel, a
+   * texture made once) is simply uploaded again the next time it is drawn.
+   */
+  dispose() {
+    const keep = new Set([this.renderer, this.camera, this.scene, this.world]);
+    const free = (v) => {
+      if (!v || typeof v !== 'object' || keep.has(v) || v.isObject3D) return;
+      if (v.isMaterial || v.isBufferGeometry || v.isTexture) return;
+      if (typeof v.dispose === 'function') { try { v.dispose(); } catch { /* half built */ } }
+    };
+    for (const v of Object.values(this)) free(v);
+    for (const view of this.shipViews.values()) for (const v of Object.values(view)) free(v);
+    const geos = new Set(), mats = new Set(), texs = new Set();
+    const texOf = (x) => { if (x && x.isTexture) texs.add(x); };
+    this.scene.traverse((o) => {
+      if (o.geometry) geos.add(o.geometry);
+      const m = o.material;
+      for (const x of Array.isArray(m) ? m : m ? [m] : []) mats.add(x);
+      if (o.isInstancedMesh || o.isBatchedMesh) { try { o.dispose(); } catch { /* gone */ } }
+    });
+    for (const m of mats) {
+      for (const k of Object.keys(m)) texOf(m[k]);
+      if (m.uniforms) for (const u of Object.values(m.uniforms)) texOf(u && u.value);
+    }
+    texOf(this.scene.background);
+    texOf(this.scene.environment);
+    for (const g of geos) g.dispose();
+    for (const m of mats) m.dispose();
+    for (const t of texs) t.dispose();
+    this.scene.clear();
+    this.shipViews.clear();
+    clearSoups();
+    if (this.renderer.renderLists) this.renderer.renderLists.dispose();
   }
 }

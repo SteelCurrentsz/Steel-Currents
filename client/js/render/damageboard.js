@@ -884,6 +884,10 @@ export class DamageBoard {
 
   dispose() {
     this.renderer.dispose();
+    // Its canvas is thrown away with the panel, and a context left alive
+    // with it counts against the handful a page may hold: past that the
+    // browser drops the oldest, which may be the battle's own.
+    this.renderer.forceContextLoss();
   }
 }
 

@@ -96,7 +96,15 @@ export class Input {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
-  on(type, fn) { (this.handlers[type] ||= []).push(fn); }
+  /** Listen for `type`; hands back the means to stop listening. */
+  on(type, fn) {
+    (this.handlers[type] ||= []).push(fn);
+    return () => {
+      const list = this.handlers[type];
+      const i = list ? list.indexOf(fn) : -1;
+      if (i >= 0) list.splice(i, 1);
+    };
+  }
   emit(type, arg) { (this.handlers[type] || []).forEach((f) => f(arg)); }
 
   down(code) { return this.keys.has(code); }
