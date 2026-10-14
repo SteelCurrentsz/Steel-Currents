@@ -21,6 +21,7 @@
 // assigned to the fuselage instead of the wing does not change that.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { BoardRenderer } from './boardgl.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
@@ -77,7 +78,8 @@ export function partOfPiece(c, lo, hi) {
 export class PlaneBoard {
   constructor(canvas) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // One context shared by every board: see boardgl.js.
+    this.renderer = new BoardRenderer(canvas);
     this.renderer.setClearColor(0x000000, 0);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(32, 2.2, 0.1, 400);

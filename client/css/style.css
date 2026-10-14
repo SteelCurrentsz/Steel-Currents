@@ -2367,3 +2367,25 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; touch-action: none;
 }
 .battle.human .reticle { display: none; }
+
+/* The prompt to turn a phone or tablet on its side. Never seen otherwise: it
+   is at the foot of the page, and with nothing over it -- a battle whose
+   picture had gone -- it used to show through as a line of bare text. */
+.rotate-prompt { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  body.in-battle .rotate-prompt {
+    display: flex; position: fixed; inset: 0; z-index: 9999;
+    flex-direction: column; align-items: center; justify-content: center; gap: 0.7rem;
+    padding: 2rem; text-align: center;
+    background: rgba(4, 9, 16, 0.97); color: var(--sand); font-family: var(--ui);
+  }
+  body.in-battle .rotate-prompt p {
+    margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  body.in-battle .rotate-prompt span { font-size: 0.85rem; opacity: 0.75; }
+  body.in-battle .rotate-prompt .rot-icon {
+    width: 34px; height: 56px; border: 2px solid currentColor; border-radius: 6px;
+    margin-bottom: 0.6rem; animation: rot-turn 2.4s ease-in-out infinite;
+  }
+}
+@keyframes rot-turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }

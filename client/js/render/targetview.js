@@ -8,6 +8,7 @@
 // and builds a model of each class the first time it is asked to show one.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { BoardRenderer } from './boardgl.js';
 import { buildShip } from './ships.js';
 
 // Her models, one a class, kept across the panel being raised and put away:
@@ -17,7 +18,8 @@ const MODELS = new Map();
 export class TargetingView {
   constructor(canvas) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // One context shared by every board: see boardgl.js.
+    this.renderer = new BoardRenderer(canvas);
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;

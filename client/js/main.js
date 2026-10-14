@@ -1,6 +1,7 @@
 // Boot, screen flow and the single render loop shared by the title scene and
 // the battle.
 
+import { letGoBoards } from './render/boardgl.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
@@ -223,6 +224,7 @@ window.addEventListener('resize', resize);
 canvas.addEventListener('webglcontextlost', (e) => {
   // Without this the context is never restored and the game is finished.
   e.preventDefault();
+  letGoBoards();
   toast('The graphics card dropped the picture — putting it back.');
 }, false);
 canvas.addEventListener('webglcontextrestored', () => {

@@ -4233,7 +4233,7 @@ function detonate(state, ship, where, owner) {
   const tons = Math.round(magazineTons(state, ship, cls, where));
   // And she is stopped dead by it (see stepMovement).
   ship.blown = true;
-  ship.speed = 0; ship.yawRate = 0; ship.driftX = 0; ship.driftZ = 0; ship.notch = 1;
+  ship.speed = 0; ship.yawRate = 0; ship.driftX = 0; ship.driftZ = 0;
   // The compartment itself, and a great deal of what is either side of it.
   const gone = c.hp;
   c.hp = 0;

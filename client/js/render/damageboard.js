@@ -18,6 +18,7 @@
 // water in her is the shape of the inside of the ship.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { BoardRenderer } from './boardgl.js';
 import { buildShip } from './ships.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { SECTIONS, freeboardOf } from '../../../shared/sim.js';
@@ -96,7 +97,8 @@ export class DamageBoard {
   constructor(canvas, classId, { plain = false } = {}) {
     this.plain = plain;
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // One context shared by every board: see boardgl.js.
+    this.renderer = new BoardRenderer(canvas);
     this.renderer.setClearColor(0x000000, 0);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(34, 1.9, 1, 4000);
