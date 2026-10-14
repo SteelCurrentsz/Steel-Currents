@@ -6727,7 +6727,9 @@ SHIP_CLASSES.yamato = {
  * coming in through her holes is left to do what it did.
  */
 export const HULL_TOUGHNESS = 1.8;
-for (const c of Object.values(SHIP_CLASSES)) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
+// Not a submarine: a pressure hull split by a charge is a boat lost, however
+// much else she could have taken.
+for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',

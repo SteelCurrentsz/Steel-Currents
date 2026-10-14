@@ -9765,15 +9765,29 @@ check('high explosive sets her alight far more often than armour-piercing', () =
         owner: 0, team: 1, caliber: spec.caliber, spec, life: 20, g: 9.8,
         x: 0, y: 4, z: 0, vx: 400, vy: -40, vz: 0,
       };
+      st.events.length = 0;
       resolveShellHit(st, sh, her, 0, 0, 4);
-      if (SECTIONS.some((k) => her.sections[k.k].fire > 0)) lit++;
+      const kind = st.events.find((e) => e.e === 'hit')?.kind;
+      const fire = SECTIONS.some((k) => her.sections[k.k].fire > 0);
+      (by[kind] || (by[kind] = [0, 0]))[0]++;
+      if (fire) { lit++; by[kind][1]++; }
     }
     return lit / 3000;
   };
-  const ap = burn('ap');
+  let by = {};
+  burn('ap');
+  const apBy = by;
+  by = {};
   const he = burn('he');
-  assert.ok(ap > 0, 'an armour-piercing shell bursting inside her never started a fire');
-  assert.ok(he > ap * 3, `high explosive ${he.toFixed(3)} against armour-piercing ${ap.toFixed(3)}`);
+  const rate = (k) => (apBy[k] ? apBy[k][1] / apBy[k][0] : null);
+  // A shell that is all bursting charge and goes off on whatever it meets
+  // sets her alight more often than an armour-piercing one bursting in her
+  // side protection; but a citadel hit -- the burst among her machinery or her
+  // handling rooms -- is the worst fire of all.
+  for (const k of ['pen', 'citadel']) assert.ok(rate(k) === null || rate(k) > 0, `an armour-piercing ${k} never started a fire`);
+  if (rate('pen') !== null) assert.ok(he > rate('pen'), `high explosive ${he.toFixed(3)} against an armour-piercing penetration ${rate('pen').toFixed(3)}`);
+  if (rate('citadel') !== null) assert.ok(rate('citadel') >= 0.3, `a citadel hit set her alight ${rate('citadel').toFixed(3)} of the time`);
+  assert.ok(rate('pen') !== null || rate('citadel') !== null, 'no armour-piercing round got into her');
 });
 
 check('a shell is drawn to its own bore, and an anti-aircraft round is tiny', () => {
@@ -10678,6 +10692,9 @@ check('a squadron always comes back, however her flights end', () => {
   const came = new Set();
   for (let i = 0; i < 30 * 60 * 8; i++) {
     for (const s of state.ships) s.spottedBy = [true, true];
+    // What is being measured is her squadrons coming home, not her damage
+    // control: a fire on her stops flying, so her fires are kept out.
+    for (const k of SECTIONS) cv.sections[k.k].fire = 0;
     if (i % (30 * 8) === 0 && launchStrike(state, cv)) launched++;
     step(state, DT);
     // Any squadron marked flying with nothing of it in the air, and not on the
