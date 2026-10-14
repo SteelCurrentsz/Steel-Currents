@@ -92,9 +92,15 @@ const shell = `
   }
   try {
     var c = document.createElement('canvas');
-    if (!(c.getContext('webgl2') || c.getContext('webgl'))) {
+    var probe = c.getContext('webgl2') || c.getContext('webgl');
+    if (!probe) {
       return fail('This browser has no WebGL \\u2014 hardware acceleration may be off');
     }
+    // Given straight back: a phone allows a page only so many contexts, and
+    // this one was being kept alive beside the game's own.
+    var lose = probe.getExtension('WEBGL_lose_context');
+    if (lose) lose.loseContext();
+    c.width = c.height = 1;
   } catch (e) {
     return fail('WebGL could not start, so the battle cannot be drawn');
   }

@@ -68,8 +68,56 @@ const boot = {
   },
 };
 
-const canvas = document.getElementById('stage');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+// A context the browser has already taken back answers every question about
+// itself with null, and three.js's first question -- how precise its shaders
+// can be -- then threw on the way in: "null is not an object", and the game
+// never started. Safari does this on a page opened while it is short of
+// graphics memory, or in a frame that has just let another one go. Asked of a
+// lost context, the answer is now the ordinary one, so the renderer can be
+// built and the context given back when the browser restores it.
+for (const C of [globalThis.WebGL2RenderingContext, globalThis.WebGLRenderingContext]) {
+  const ask = C && C.prototype.getShaderPrecisionFormat;
+  if (!ask || ask.patched) continue;
+  const safe = function (...args) {
+    return ask.apply(this, args) || { precision: 23, rangeMin: 127, rangeMax: 127 };
+  };
+  safe.patched = true;
+  C.prototype.getShaderPrecisionFormat = safe;
+}
+
+/**
+ * The renderer, on a context that is actually there. A canvas whose context
+ * has been lost keeps that lost context, so each further try is on a fresh
+ * canvas in its place, asking for less each time.
+ */
+function makeRenderer() {
+  const asks = [
+    { antialias: true, powerPreference: 'high-performance' },
+    { antialias: false },
+    { antialias: false, powerPreference: 'low-power' },
+  ];
+  let at = document.getElementById('stage');
+  let made = null;
+  for (let i = 0; i < asks.length; i++) {
+    try {
+      made = new THREE.WebGLRenderer({ canvas: at, ...asks[i] });
+      const gl = made.getContext();
+      if (gl && !gl.isContextLost()) return made;
+    } catch (e) {
+      console.error('Steel Currents: renderer', e);
+    }
+    if (i === asks.length - 1) break;
+    try { made && made.dispose(); } catch {}
+    const fresh = at.cloneNode(false);
+    at.replaceWith(fresh);
+    at = fresh;
+  }
+  // Nothing better on offer: the last one, which three.js restores when the
+  // browser gives the context back.
+  return made || new THREE.WebGLRenderer({ canvas: at, antialias: false });
+}
+const renderer = makeRenderer();
+const canvas = renderer.domElement;
 renderer.setClearColor(0x050c16);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;

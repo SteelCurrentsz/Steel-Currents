@@ -41,12 +41,17 @@ const MAX_VOICES = 48;
 const SHIP_VOICES = 4;
 
 /**
- * How long after giving an order he gives it again, by order, in seconds: a
- * gunnery officer calls "open fire" when the guns open, not at every salvo of
- * a twenty-minute action -- but a ship that has been firing all that time is
- * told again now and then, and every spread of torpedoes is called away.
+ * Everything said on the bridge: the orders that go a second before a weapon
+ * does, and the reports -- what has happened to her, and what has been seen.
+ * A report waiting on him keeps longer than an order, which is no use once the
+ * weapon it was for has gone.
  */
-const ORDER_REST = { main: 35, sec: 45, aa: 45, torp: 9, dc: 12 };
+const LINES = {
+  main: 'order', sec: 'order', torp: 'order', aa: 'order', dc: 'order',
+  abandon: 'report', lastShell: 'report', spotted: 'report', torpPort: 'report',
+  torpStbd: 'report', breach: 'report', seal: 'report',
+};
+const KEEPS = { order: 2.5, report: 8 };
 /** The navies that have their own voice; any other ship speaks as an American. */
 const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn']);
 
@@ -58,7 +63,7 @@ const BUILD_ORDER = [
   'gunMedium', 'gunHeavy', 'gunLight', 'splashSmall', 'splashLarge', 'sea', 'wash',
   'turbines', 'boomSmall', 'clang', 'pom', 'rattle', 'boomInside', 'boomLarge',
   'ricochet', 'shatter', 'splashBomb', 'launch', 'torpHit', 'crash', 'creak', 'groan',
-  'bang', 'vent', 'magazine', 'wind', 'diesels', 'alarm',
+  'bang', 'vent', 'magazine', 'wind', 'diesels', 'alarm', 'shellAir',
 ];
 
 function seedOf(name, take) {
@@ -474,49 +479,67 @@ export class Audio {
    * An order shouted on the bridge of the ship you are on: `order` is 'main',
    * 'sec', 'torp', 'aa' or 'dc', `many` whether it is a spread of torpedoes or
    * more than one aeroplane, and `nation` her navy, whose language he speaks.
-   * One man gives one order at a time, and none again too soon.
    */
   order(order, nation = 'usa', many = false) {
+    this.say(order, nation, { many });
+  }
+
+  /**
+   * Anything said on the bridge (see LINES), in her navy's language. `digits`
+   * follows the line with a bearing read out figure by figure -- "bearing
+   * two-seven-zero" -- the way a lookout reports one. One man says one thing
+   * at a time: a second line while he is still on the first follows straight
+   * after it, if it is still worth saying then, and the same line twice in a
+   * breath is one line.
+   */
+  say(line, nation = 'usa', { many = false, digits = null } = {}) {
     if (getSettings().voices === false) return;
-    if (ORDER_REST[order] == null) return;
+    if (!LINES[line]) return;
     const ctx = this.ensure(); if (!ctx) return;
     const now = ctx.currentTime;
-    // The battle says when an order is given (the word comes a second
-    // before the weapon goes, see orderGiven in the simulation), so every one
-    // is said -- but one man says one at a time. A second order while he is
-    // still on the first follows straight after it, if it is still fresh
-    // then; the same order twice in a breath is one order.
-    if (now - (this.orderGiven[order] ?? -1e9) < 0.6) return;
+    const tag = digits ? `${line}:${digits}` : line;
+    if (now - (this.orderGiven[tag] ?? -1e9) < 0.6) return;
     if (now < this.speakingUntil) {
-      this.orderQueue = (this.orderQueue || []).filter((q) => q.order !== order);
-      this.orderQueue.push({ order, nation, many, at: now });
+      const q = (this.orderQueue || []).filter((w) => w.tag !== tag);
+      q.push({ order: line, nation, many, digits, tag, at: now });
+      // What has happened to her before what is to be done.
+      q.sort((x, y) => (LINES[y.order] === 'report') - (LINES[x.order] === 'report'));
+      this.orderQueue = q;
       if (!this.orderTimer) {
         this.orderTimer = setTimeout(() => this.nextOrder(), Math.max(50, (this.speakingUntil - now) * 1000));
       }
       return;
     }
-    this.orderGiven[order] = now;
+    this.orderGiven[tag] = now;
     // Held while the line is fetched and opened, so a salvo of four turrets
     // in one tick does not start four of him.
     this.speakingUntil = now + 3;
     const navy = NAVIES.has(nation) ? nation : 'usa';
-    const key = many && (order === 'torp' || order === 'aa') ? `${order}s` : order;
-    this.orderBuffer(navy, key).then((buf) => {
-      if (!buf || !this.ctx) { this.speakingUntil = 0; return; }
+    const key = many && (line === 'torp' || line === 'aa') ? `${line}s` : line;
+    const keys = [key, ...(digits ? String(digits).split('').map((d) => `d${d}`) : [])];
+    Promise.all(keys.map((k) => this.orderBuffer(navy, k))).then((bufs) => {
+      bufs = bufs.filter(Boolean);
+      if (!bufs.length || !this.ctx) { this.speakingUntil = 0; return; }
       try {
         const c = this.ctx;
-        const src = c.createBufferSource();
-        src.buffer = buf;
-        src.playbackRate.value = 0.98 + Math.random() * 0.05;
-        const g = c.createGain();
-        g.gain.value = 1;
-        // On the bridge's own path, past the battle's compressor: he is
-        // standing next to you, and the guns are not allowed to swallow him.
-        src.connect(g).connect(this.voice || this.master);
-        src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* gone */ } };
+        const rate = 0.98 + Math.random() * 0.05;
         const at = c.currentTime + 0.02;
-        const len = buf.duration / src.playbackRate.value;
-        src.start(at);
+        let t = at;
+        for (let i = 0; i < bufs.length; i++) {
+          const src = c.createBufferSource();
+          src.buffer = bufs[i];
+          src.playbackRate.value = rate;
+          const g = c.createGain();
+          g.gain.value = 1;
+          // On the bridge's own path, past the battle's compressor: he is
+          // standing next to you, and the guns are not allowed to swallow him.
+          src.connect(g).connect(this.voice || this.master);
+          src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* gone */ } };
+          src.start(t);
+          // A breath after the line before the figures, and none between them.
+          t += bufs[i].duration / rate + (i === 0 && bufs.length > 1 ? 0.12 : 0.02);
+        }
+        const len = t - at;
         // Everything else held well down under him for as long as he speaks,
         // and brought back up after.
         if (this.duck) {
@@ -525,12 +548,12 @@ export class Audio {
           d.setTargetAtTime(0.28, at - 0.02, 0.03);
           d.setTargetAtTime(1, at + len, 0.35);
         }
-        this.speakingUntil = c.currentTime + buf.duration + 0.4;
+        this.speakingUntil = c.currentTime + len + 0.4;
       } catch { this.speakingUntil = 0; }
     }, () => { this.speakingUntil = 0; });
   }
 
-  /** The next order waiting on him, if it is not stale by now. */
+  /** The next line waiting on him, if it is not stale by now. */
   nextOrder() {
     this.orderTimer = null;
     const ctx = this.ctx;
@@ -541,7 +564,7 @@ export class Audio {
       return;
     }
     const q = this.orderQueue.shift();
-    if (now - q.at < 2.5) this.order(q.order, q.nation, q.many);
+    if (now - q.at < KEEPS[LINES[q.order]]) this.say(q.order, q.nation, { many: q.many, digits: q.digits });
     if (this.orderQueue.length && !this.orderTimer) this.orderTimer = setTimeout(() => this.nextOrder(), 100);
   }
 
@@ -571,7 +594,9 @@ export class Audio {
   readyOrders(nation) {
     if (getSettings().voices === false || !this.ensure()) return;
     const navy = NAVIES.has(nation) ? nation : 'usa';
-    for (const k of ['main', 'sec', 'torp', 'torps', 'aa', 'aas', 'dc']) this.orderBuffer(navy, k);
+    for (const k of ['main', 'sec', 'torp', 'torps', 'aa', 'aas', 'dc', 'abandon', 'lastShell',
+      'spotted', 'torpPort', 'torpStbd', 'breach', 'seal', 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6',
+      'd7', 'd8', 'd9']) this.orderBuffer(navy, k);
   }
 
   alarm() {
@@ -659,6 +684,112 @@ export class Audio {
       this.play(name, at, { level: 0.75 + 0.25 * big, ref: 90 + e.len * 0.7, rate: 1.12 - 0.25 * big + (Math.random() - 0.5) * 0.12 });
     }
     for (const id of [...this.creaks.keys()]) if (!live.has(id)) this.creaks.delete(id);
+  }
+
+  /**
+   * The rounds in the air near the camera, every frame: `{ i, x, y, z, c }`
+   * (c the calibre in mm). A shell going through the air shrieks: torn air,
+   * pitched by how big the shell is and how fast it is going, and pitched up
+   * coming on and down going away, so a round passing overhead is heard
+   * falling in pitch as it goes by. Riding one on the shell camera it is a
+   * steady scream that slowly drops as she loses her speed. The nearest few
+   * only; the rest are too far off to be heard over the guns.
+   */
+  shells(list, dt) {
+    const ctx = this.ctx;
+    if (!ctx || !this.ambience || !Array.isArray(list)) return;
+    const now = ctx.currentTime;
+    const ear = this.ear;
+    const seen = this.shellSeen || (this.shellSeen = new Map());
+    const voices = this.shellVoices || (this.shellVoices = new Map());
+    const step = Math.max(1 / 240, num(dt, 1 / 60));
+    const near = [];
+    for (const sh of list) {
+      if (!sh || !Number.isFinite(sh.x) || !Number.isFinite(sh.z)) continue;
+      const y = num(sh.y, 0);
+      const d = Math.hypot(sh.x - ear.x, y - ear.y, sh.z - ear.z);
+      const was = seen.get(sh.i);
+      let speed = 0, closing = 0;
+      if (was) {
+        speed = Math.hypot(sh.x - was.x, y - was.y, sh.z - was.z) / step;
+        closing = (was.d - d) / step;
+        // Faster than a shell flies is a jump of the camera, not a shell.
+        if (speed > 1500) { speed = was.speed || 0; closing = 0; }
+      }
+      seen.set(sh.i, { x: sh.x, y, z: sh.z, d, speed, t: now });
+      const reach = 250 + span(num(sh.c, 150), 20, 460, 150) * 1.6;
+      if (d < reach && y > 0.5) near.push({ sh, d, speed, closing, reach });
+    }
+    for (const [id, w] of seen) if (now - w.t > 1) seen.delete(id);
+    near.sort((a, b) => a.d - b.d);
+    const keep = new Set();
+    for (const e of near.slice(0, 3)) {
+      keep.add(e.sh.i);
+      this.shellVoice(e, now);
+    }
+    for (const [id, v] of voices) {
+      if (keep.has(id)) continue;
+      try { v.g.gain.setTargetAtTime(0, now, 0.08); } catch { /* gone */ }
+      if (v.quietSince == null) v.quietSince = now;
+      if (now - v.quietSince > 0.6) {
+        try { v.src.stop(); v.src.disconnect(); v.g.disconnect(); v.bp.disconnect(); v.bp2.disconnect(); v.lp.disconnect(); v.pan && v.pan.disconnect(); } catch { /* gone */ }
+        voices.delete(id);
+      }
+    }
+  }
+
+  shellVoice(e, now) {
+    const ctx = this.ctx;
+    const voices = this.shellVoices;
+    let v = voices.get(e.sh.i);
+    if (!v) {
+      const buf = this.take('shellAir');
+      if (!buf) return;
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = buf; src.loop = true;
+        // The shriek: a narrow band of the torn air, and under it the rush.
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 11;
+        const bp2 = ctx.createBiquadFilter(); bp2.type = 'bandpass'; bp2.Q.value = 0.9;
+        const g = ctx.createGain(); g.gain.value = 0;
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5;
+        let tail = g.connect(lp);
+        let pan = null;
+        if (ctx.createStereoPanner) { pan = ctx.createStereoPanner(); tail = tail.connect(pan); }
+        tail.connect(this.sfx);
+        const g1 = ctx.createGain(); g1.gain.value = 1;
+        const g2 = ctx.createGain(); g2.gain.value = 0.35;
+        src.connect(bp).connect(g1).connect(g);
+        src.connect(bp2).connect(g2).connect(g);
+        src.start(now, Math.random() * buf.duration);
+        v = { src, bp, bp2, g, lp, pan, quietSince: null };
+        voices.set(e.sh.i, v);
+      } catch { return; }
+    }
+    v.quietSince = null;
+    const cal = span(num(e.sh.c, 150), 20, 460, 150);
+    // The bigger the round the lower it sings; the slower, the lower still.
+    const base = 1250 - 1.6 * cal;
+    const pace = Math.sqrt(span(e.speed / 650, 0.3, 1.6, 1));
+    // Coming on, higher; going away, lower. Supersonic, the formula runs away:
+    // held to what still sounds like the thing.
+    const c = SPEED_OF_SOUND;
+    const dop = span(c / Math.max(60, c - span(e.closing, -c * 0.6, c * 0.8, 0)), 0.6, 2.2, 1);
+    const f = span(base * pace * dop, 180, 5000, 800);
+    const h = this.hear({ x: e.sh.x, y: e.sh.y, z: e.sh.z }, 30);
+    if (!h) return;
+    // Loud close by, gone at the edge of hearing it.
+    const edge = 1 - span(e.d / e.reach, 0, 1, 1);
+    const level = 0.55 * (0.5 + cal / 460) * h.g * edge * edge;
+    const tc = 0.05;
+    try {
+      v.bp.frequency.setTargetAtTime(f, now, tc);
+      v.bp2.frequency.setTargetAtTime(f * 0.55, now, tc);
+      v.src.playbackRate.setTargetAtTime(span(0.8 + 0.3 * dop, 0.5, 2, 1), now, tc);
+      v.g.gain.setTargetAtTime(span(level, 0, 1.5, 0), now, tc);
+      v.lp.frequency.setTargetAtTime(span(h.fc, 200, 20000, 20000), now, tc);
+      if (v.pan) v.pan.pan.setTargetAtTime(h.pan, now, tc);
+    } catch { /* next frame */ }
   }
 
   shipVoice(s, h, len, now) {

@@ -1996,7 +1996,7 @@ export function gunState(ship, cls, spec, m, lasting = false) {
   if (!lasting && m.swamp > 0) return 3;
   if (spec && magazineDrowned(ship, cls, spec)) return 3;
   // Under the sea: it does not fire, from the moment it is under.
-  if (spec && ship.sinking && mountDrowned(ship, spec)) return 3;
+  if (spec && (ship.sinking || !cls.dive) && mountDrowned(ship, spec)) return 3;
   // Rounded up, not down. `hurt` is continuous because the mounting's crew
   // work it back down continuously, and taking the floor of it meant a turret
   // knocked into the damaged state read as sound again one tick later -- the
@@ -2026,7 +2026,7 @@ export function lightGunState(ship, cls, spec) {
   if (c.hp <= 0 || c.lost) return 3;
   if (ship.cut && severed(ship, cls, spec.z || 0)) return 3;
   if (magazineDrowned(ship, cls, spec)) return 3;
-  if (ship.sinking && mountDrowned(ship, spec)) return 3;
+  if ((ship.sinking || !cls.dive) && mountDrowned(ship, spec)) return 3;
   const f = c.hp / c.max;
   return f < 0.3 ? 2 : f < 0.62 ? 1 : 0;
 }
@@ -2141,15 +2141,18 @@ function stepTurrets(state, ship, dt) {
  * of anything -- the main battery, the secondaries, the tubes, the close-range
  * guns, the charges -- waits on an order: the word is given (an `order` event,
  * which the bridge shouts) and the weapon goes ORDER_WINDUP seconds later if
- * it still bears. While it keeps firing no fresh order is needed; once it has
- * been quiet for a while, the next opening is ordered again.
+ * it still bears. Every salvo is ordered, not only the first of an action:
+ * the guns of one salvo that come on a moment apart go on the one word, and
+ * the next salvo waits on the next. The close-range battery, which fires
+ * continuously while it has something to fire at, is ordered each time it
+ * takes up a target after a pause.
  *
  * Only a battle that asks for orders has them (state.orders, which a Room
  * sets); a gun a captain has gone down to and is laying himself fires when he
  * says, and does not come through here.
  */
 export const ORDER_WINDUP = 1;
-const ORDER_QUIET = { main: 30, sec: 25, aa: 20, torp: 8, dc: 8 };
+const ORDER_QUIET = { main: 2, sec: 2, aa: 8, torp: 2, dc: 2 };
 /** How long a word holds if the weapon could not take it up -- lost her, say. */
 const ORDER_LAPSE = 6;
 
@@ -2248,7 +2251,7 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
     // Laid, loaded and bearing: the word first, unless a man at the gun is
     // the one firing it.
-    if (!manning && !orderGiven(state, ship, 'main', { quiet: Math.max(30, gun.reload + 12) })) continue;
+    if (!manning && !orderGiven(state, ship, 'main')) continue;
 
     const bearing = wrapAngle(ship.heading + t.angle);
     // Dispersion: a cone that widens with range, tightened by the gun's sigma.
@@ -2826,6 +2829,42 @@ export function hurtFlak(state, ship, cls, at, power) {
   if (power > 900 && state.rng() < 0.35) f.dead = true;
   state.events.push({ e: 'flakOut', ship: ship.id, m: best, dead: f.dead ? 1 : 0 });
   return true;
+}
+
+/** Seconds a mounting has to be under before the sea has finished it. */
+const DROWN_HOLD = 2;
+
+/**
+ * Mountings the sea has closed over, finished for good.
+ *
+ * A gun that has been right under is not a gun when she comes back up: its
+ * training gear, its hoists, its sights and its ready-use ammunition are full
+ * of salt water and its crew are gone. So once a mounting has been under for
+ * a moment -- not a sea breaking over it, which is green water and passes (see
+ * stepSwamp), but her settling, her list or her trim putting it there -- it
+ * is wrecked, and it never fires again whatever she does afterwards. A boat's
+ * deck gun goes under every time she dives, and comes up again; she is left
+ * out of it.
+ */
+export function stepDrowning(state, ship, dt) {
+  const cls = shipClass(ship);
+  if (cls.dive) return;
+  if (!ship.sink && !ship.heel && !ship.trim) return;
+  const wet = ship.wet || (ship.wet = { t: [], s: [], p: [], a: [] });
+  const soak = (list, i, spec, finish) => {
+    if (!spec || list[i] === -1) return;
+    if (!mountDrowned(ship, spec)) { list[i] = 0; return; }
+    list[i] = (list[i] || 0) + dt;
+    if (list[i] >= DROWN_HOLD) { list[i] = -1; finish(); }
+  };
+  (cls.turrets || []).forEach((spec, i) => soak(wet.t, i, spec, () => hurtMount(state, ship.turrets[i], 3)));
+  (cls.secondary?.mounts || []).forEach((spec, i) => soak(wet.s, i, spec, () => hurtMount(state, ship.secMounts[i], 3)));
+  (cls.torpedoes?.mounts || []).forEach((spec, i) => soak(wet.p, i, spec, () => hurtMount(state, ship.torpMounts?.[i], 3)));
+  const battery = aaBattery(cls);
+  if (battery.length) {
+    const flak = flakState(ship, cls);
+    battery.forEach((spec, i) => soak(wet.a, i, spec, () => { flak[i].dead = true; }));
+  }
 }
 
 /** The crews getting their mountings back into action. */
@@ -8970,6 +9009,7 @@ export function step(state, dt = DT) {
     stepDamageOverTime(state, ship, dt);
     stepSinking(state, ship, dt);
     stepFlak(state, ship, dt);
+    stepDrowning(state, ship, dt);
     stepDepthAttack(state, ship, dt);
     stepSwamp(state, ship, dt);
   }

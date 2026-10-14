@@ -23,7 +23,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
-  waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX,
+  waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
@@ -139,7 +139,7 @@ import {
 } from '../client/js/render/richelieuHull.js';
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
-import { Audio as AudioClass } from '../client/js/audio.js';
+import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
 import { VOICE_LINES } from '../client/js/render/voices.data.js';
 import { Input } from '../client/js/input.js';
@@ -4078,6 +4078,32 @@ check('a battle is fought out to the last ship', () => {
   const snap = buildSnapshot(st, 0, a2.id);
   assert.ok(!('caps' in snap) && !('score' in snap),
     'the wire still carries the points system');
+});
+
+check('a gun the sea has been over never fires again, and her flak with it', () => {
+  const st = createState(generateWorld(3, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = s.x + 60000; foe.z = s.z + 60000;
+  const cls = SHIP_CLASSES.cleveland;
+  const fi = cls.turrets.findIndex((t) => t.z > 0 && mountDrowned({ sink: 4, trim: 0.2, heel: 0 }, t));
+  const ai = cls.turrets.findIndex((t) => t.z < 0);
+  assert.ok(fi >= 0, 'nothing of hers goes under down by the head');
+  // Down by the head for a few seconds, then put back on an even keel.
+  const hold = (sink, trim, secs) => {
+    // (Her attitude is held here; in a battle it is the water in her.)
+    for (let i = 0; i < secs / DT; i++) { s.sink = sink; s.trim = trim; s.heel = 0; stepDrowning(st, s, DT); }
+  };
+  hold(4, 0.2, 3);
+  hold(0, 0, 3);
+  s.sink = 0; s.trim = 0; s.heel = 0;
+  assert.ok(s.turrets[fi].hurt >= 3, 'her forward turret came out of the sea and fights on');
+  assert.ok(!(s.turrets[ai].hurt >= 3), 'her after turret, high and dry, was drowned');
+  // And every light gun that went under is dead, however dry she is now.
+  const battery = aaBattery(cls);
+  const under = battery.map((m, i) => [m, i]).filter(([m]) => mountDrowned({ sink: 4, trim: 0.2, heel: 0 }, m));
+  assert.ok(under.length > 0, 'none of her light guns went under');
+  for (const [, i] of under) assert.ok(!flakUp(s, i), `light gun ${i} came up out of the sea and fires again`);
 });
 
 check('a ship going down is still in the fight, and her guns go out as the sea gets to them', () => {
@@ -13182,7 +13208,7 @@ check('a ship going down is heard creaking, now and then, and not once she is go
   assert.ok(a.shipVoices.has(7), 'a ship steaming past the camera is not heard');
 });
 
-check('the bridge gives its orders in its own navy, one at a time and not at every salvo', () => {
+check('the bridge gives its orders in its own navy, one at a time', () => {
   // Every navy afloat in the game has its officers' voices, every order.
   for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
     const set = VOICE_LINES[cls.nation];
@@ -13219,7 +13245,76 @@ check('the bridge gives its orders in its own navy, one at a time and not at eve
   assert.deepEqual(said, ['usa:torp'], 'the waiting order was not said when he was free');
 });
 
-check('the word is given a second before a weapon opens fire, and not again while it keeps firing', () => {
+check('the lookout reports an enemy coming into sight, with her bearing, and not the ones in sight at the start', () => {
+  const heard = [];
+  const was = theAudio.say;
+  theAudio.say = (line, nation, o = {}) => heard.push([line, nation, o.digits]);
+  try {
+    const b = Object.create(Battle.prototype);
+    b.team = 0; b.shipId = 1; b.cls = { nation: 'jpn' }; b.watchSent = 0;
+    const me = { i: 1, tm: 0, a: 1, x: 0, z: 0 };
+    const foe = (i, x, z) => ({ i, tm: 1, a: 1, x, z });
+    b.ownSnap = me;
+    // In sight when the battle opened: nobody reports her.
+    b.lookouts({ time: 0, ships: [me, foe(2, 0, 9000)] });
+    b.lookouts({ time: 1, ships: [me, foe(2, 0, 9000)] });
+    assert.deepEqual(heard, [], 'a ship in sight from the start was reported');
+    // A new one, due east.
+    b.lookouts({ time: 5, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
+    assert.deepEqual(heard, [['spotted', 'jpn', '090']]);
+    // Still in sight: not again.
+    b.lookouts({ time: 6, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
+    assert.equal(heard.length, 1);
+    // Lost for a while and found again, south-west: reported again.
+    for (let t = 7; t < 80; t += 5) b.lookouts({ time: t, ships: [me, foe(2, 0, 9000)] });
+    b.lookouts({ time: 80, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000)] });
+    assert.deepEqual(heard[1], ['spotted', 'jpn', '225']);
+    // Two at once: the nearer is the one called.
+    b.lookouts({ time: 81, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000), foe(4, 0, -20000), foe(5, 3000, 3000)] });
+    assert.deepEqual(heard[2], ['spotted', 'jpn', '045']);
+    // Our own side is never reported.
+    b.lookouts({ time: 82, ships: [me, { i: 9, tm: 0, a: 1, x: 100, z: 100 }] });
+    assert.equal(heard.length, 3);
+  } finally { theAudio.say = was; }
+});
+
+check('the bridge reports what has happened to her, in her own navy, and reads a bearing out', () => {
+  // Every navy has every report and every figure of a bearing.
+  const reports = ['abandon', 'lastShell', 'spotted', 'torpPort', 'torpStbd', 'breach', 'seal'];
+  for (const navy of ['usa', 'gbr', 'ger', 'fra', 'jpn']) {
+    for (const k of [...reports, 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9']) {
+      assert.ok(VOICE_LINES[navy][k] && VOICE_LINES[navy][k].length > 800, `the ${navy} bridge has no "${k}"`);
+    }
+  }
+  const said = [];
+  const a = new AudioClass();
+  const ctx = { currentTime: 0 };
+  a.ctx = ctx; a.ensure = () => ctx;
+  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
+  // "Enemy spotted, bearing zero-four-five": the line, then each figure.
+  a.say('spotted', 'ger', { digits: '045' });
+  assert.deepEqual(said, ['ger:spotted', 'ger:d0', 'ger:d4', 'ger:d5']);
+  // A report waiting on him outlasts an order, and goes ahead of one.
+  said.length = 0;
+  a.speakingUntil = 10; ctx.currentTime = 5;
+  a.say('main', 'usa');
+  a.say('torpStbd', 'usa');
+  assert.equal(a.orderQueue[0].order, 'torpStbd', 'an order was put ahead of a torpedo hit');
+  clearTimeout(a.orderTimer); a.orderTimer = null;
+  a.speakingUntil = 0; ctx.currentTime = 11; a.nextOrder();
+  assert.deepEqual(said, ['usa:torpStbd']);
+  // Six seconds on, the order is stale and is not said; a report would be.
+  a.orderQueue = [{ order: 'main', nation: 'usa', at: 5, tag: 'main' }, { order: 'breach', nation: 'usa', at: 5, tag: 'breach' }];
+  said.length = 0; ctx.currentTime = 11; a.speakingUntil = 0;
+  a.nextOrder(); clearTimeout(a.orderTimer); a.orderTimer = null; a.speakingUntil = 0; a.nextOrder();
+  clearTimeout(a.orderTimer); a.orderTimer = null;
+  assert.deepEqual(said, ['usa:breach'], 'a stale order was said, or a fresh report was not');
+  // And a line nobody wrote is not said at all.
+  said.length = 0; a.speakingUntil = 0; a.say('sing', 'usa');
+  assert.deepEqual(said, []);
+});
+
+check('the word is given a second before every salvo', () => {
   const world = generateWorld(4242, 'open');
   const state = createState(world);
   state.orders = true;
@@ -13227,23 +13322,28 @@ check('the word is given a second before a weapon opens fire, and not again whil
   const said = () => state.events.filter((e) => e.e === 'order');
   // Asked to fire: the word, and nothing yet.
   state.t = 10;
-  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
+  assert.equal(orderGiven(state, ship, 'main'), false);
   assert.equal(said().length, 1, 'no word given');
   assert.equal(said()[0].k, 'main');
   // Inside the beat it still holds, and is not given twice.
   state.t = 10.5;
-  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
+  assert.equal(orderGiven(state, ship, 'main'), false);
   assert.equal(said().length, 1, 'the word given again before the guns went');
-  // A second after it, they go.
+  // A second after it, they go -- and a mounting that comes on a moment
+  // later goes with the same salvo.
   state.t = 10 + ORDER_WINDUP;
-  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), true, 'the guns did not go a second after the word');
-  // Firing on, salvo after salvo, needs no new word.
-  for (const t of [20, 40, 60]) { state.t = t; assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), true); }
+  assert.equal(orderGiven(state, ship, 'main'), true, 'the guns did not go a second after the word');
+  state.t = 11.8;
+  assert.equal(orderGiven(state, ship, 'main'), true, 'a turret a moment behind the rest waited on a new word');
   assert.equal(said().length, 1);
-  // Quiet for a while, and the next opening is ordered again.
-  state.t = 200;
-  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
-  assert.equal(said().length, 2, 'no fresh word after a quiet spell');
+  // The next salvo is ordered again, and the one after that.
+  for (const t of [20, 40]) {
+    state.t = t;
+    assert.equal(orderGiven(state, ship, 'main'), false, `the salvo at ${t} s went without a word`);
+    state.t = t + ORDER_WINDUP;
+    assert.equal(orderGiven(state, ship, 'main'), true);
+  }
+  assert.equal(said().length, 3, 'a salvo was fired without the word for it');
   // And a battle that does not ask for orders fires at once.
   const plain = createState(world);
   const s2 = addShip(plain, { classId: 'fletcher', team: 0, x: 0, z: 0, heading: 0 });

@@ -123,64 +123,108 @@ export function sfxKit() {
 
   /**
    * A gun going off. `size` 0 is a destroyer's 5-inch, 1 the 46 cm of a Yamato.
-   * Close to, it is the crack and the blow of the blast; the roll that follows is
-   * the same blast coming back off the sea and the air for seconds afterwards,
-   * and that is what is still heard from ten miles away.
+   *
+   * There is no note in it anywhere. A gun is not a drum: the falling tone that
+   * made it sound like one is gone. What is left is what is really heard from a
+   * ship's deck -- the shock front, so hard it overloads the ear, the blast of
+   * hot gas behind it, a weight of air at the bottom of hearing, and then the
+   * roll: the same blast coming back off the sea, the ships around and the
+   * air itself, uneven, rumbling on and dying for seconds the way thunder does.
    */
   function gun(sr, rand, size = 0.5) {
     size = Math.min(1, Math.max(0, size));
-    const dur = 1.8 + 3.4 * size;
+    const dur = 2.6 + 4.2 * size;
     const chs = buffers(sr, dur, 2);
     const [L, R] = chs;
     const n = L.length;
-    const bodyLp = svf(sr, 'low');
-    const subLp = svf(sr, 'low');
-    const crackHp = svf(sr, 'high');
+    const frontHp = svf(sr, 'high');
+    const gasLp = svf(sr, 'low'), gasLp2 = svf(sr, 'low');
+    const subLp = svf(sr, 'low'), subLp2 = svf(sr, 'low');
     const rollL = svf(sr, 'low'), rollR = svf(sr, 'low');
-    const swirlL = drift(sr, rand, 3), swirlR = drift(sr, rand, 3);
+    const rollL2 = svf(sr, 'low'), rollR2 = svf(sr, 'low');
     const echo = new Float32Array(n);
-    const thumpF0 = 34 + 26 * (1 - size);
-    const bodyTau = 0.07 + 0.17 * size;
-    const thumpTau = 0.1 + 0.26 * size;
-    const rollTau = 0.6 + 1.5 * size;
-    const nWave = 0.0016 + 0.0012 * size;
-    let ph = 0;
+    const gasTau = 0.06 + 0.2 * size;
+    const subTau = 0.16 + 0.42 * size;
+    const rollTau = 0.9 + 1.9 * size;
+    const nWave = 0.0018 + 0.0016 * size;
+    // The roll is a run of uneven swells, not a smooth tail: each one the
+    // blast coming back off something, arriving later and duller.
+    const bumps = [];
+    let tb = 0.06 + 0.05 * rand();
+    while (tb < dur - 0.3) {
+      bumps.push({ t: tb, w: 0.05 + 0.22 * rand() * (1 + tb * 0.4), a: (0.4 + 0.8 * rand()) * Math.exp(-tb / rollTau), side: rand() });
+      tb += 0.04 + 0.28 * rand() * (1 + tb * 0.5);
+    }
+    let bi = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
-      // The front: a pressure step and its fall, over in a couple of
-      // milliseconds, and the scatter of the crack with it.
-      let crack = 0;
-      if (t < nWave) crack = 1 - 2 * t / nWave;
-      if (t < 0.03) crack += crackHp(rand() * 2 - 1, 900) * Math.exp(-t / 0.004) * 0.8;
-      // The gas: broad noise that loses its top quickly.
-      const fc = 140 + (3600 - 2400 * size) * Math.exp(-t / (0.05 + 0.05 * size));
-      const body = bodyLp(rand() * 2 - 1, fc, 0.8) * rise(t, 0.0015) * Math.exp(-t / bodyTau) * 1.6;
-      // The blow in the chest.
-      const f = thumpF0 + 70 * Math.exp(-t / 0.025);
-      ph += TAU * f / sr;
-      // Mostly a shove of air, not a note: a little of the pitch-falling
-      // tone, and most of the weight from noise with nothing left in it
-      // above a hundred cycles.
-      const thump = (Math.sin(ph) * 0.45 + subLp(rand() * 2 - 1, 90, 0.9) * 7) * rise(t, 0.0012) * Math.exp(-t / thumpTau);
-      // And the roll, different in each ear.
-      const rEnv = rise(t, 0.12 + 0.1 * size) * Math.exp(-Math.max(0, t - 0.08) / rollTau);
-      const rfc = 85 + 300 * Math.exp(-t / 0.9);
-      const rl = rollL(rand() * 2 - 1, rfc) * rEnv * (0.75 + 0.45 * swirlL());
-      const rr = rollR(rand() * 2 - 1, rfc) * rEnv * (0.75 + 0.45 * swirlR());
-      echo[i] = body;
-      const dry = crack * 0.9 + body + thump;
-      L[i] = dry + rl * 1.3;
-      R[i] = dry + rr * 1.3;
+      // The front: a pressure step and its fall, and the ragged edge of it.
+      let front = 0;
+      if (t < nWave) front = 1 - 2 * t / nWave;
+      if (t < 0.04) front += frontHp(rand() * 2 - 1, 700) * Math.exp(-t / 0.006) * 1.1;
+      // The gas: broad noise whose top goes out of it as it expands.
+      const fc = 120 + (3000 - 1800 * size) * Math.exp(-t / (0.04 + 0.06 * size));
+      const gas = gasLp2(gasLp(rand() * 2 - 1, fc, 0.6), fc * 1.4, 0.6) * rise(t, 0.0012) * Math.exp(-t / gasTau) * 2.2;
+      // The shove of air: noise with nothing left in it above sixty cycles.
+      const sub = subLp2(subLp(rand() * 2 - 1, 55 + 20 * (1 - size), 0.7), 70, 0.7)
+        * rise(t, 0.003) * Math.exp(-t / subTau) * 16;
+      // The roll, swelling and falling, different in each ear.
+      // (Each swell is summed out to three widths either side, where it has
+      // died away to nothing: cut short, it was a click.)
+      while (bi < bumps.length && bumps[bi].t + 3 * bumps[bi].w < t) bi++;
+      let el = 0, er = 0;
+      for (let k = bi; k < bumps.length && bumps[k].t - 3.2 < t; k++) {
+        const b = bumps[k];
+        if (Math.abs(t - b.t) > 3 * b.w) continue;
+        const u = (t - b.t) / b.w;
+        const g = Math.exp(-u * u) * b.a;
+        el += g * (0.4 + 0.6 * b.side);
+        er += g * (1 - 0.6 * b.side);
+      }
+      const rfc = 70 + 420 * Math.exp(-t / (0.5 + 0.6 * size));
+      const base = rise(t, 0.05) * Math.exp(-t / (rollTau * 1.4)) * 0.35;
+      const rl = rollL2(rollL(rand() * 2 - 1, rfc, 0.7), rfc * 1.2) * (el + base);
+      const rr = rollR2(rollR(rand() * 2 - 1, rfc, 0.7), rfc * 1.2) * (er + base);
+      echo[i] = gas + sub * 0.3;
+      // Driven hard: at this pressure everything that hears it is overloaded.
+      const dry = sat(front * 1.2 + gas + sub, 2.4);
+      L[i] = dry + rl * 2.4;
+      R[i] = dry + rr * 2.4;
     }
-    // One clear answer off the horizon, duller than what went out.
-    const d1 = Math.round(sr * (0.22 + 0.25 * rand()));
-    const d2 = Math.round(sr * (0.5 + 0.4 * rand()));
-    const e1 = svf(sr, 'low'), e2 = svf(sr, 'low');
+    // Answers off the ships about and the horizon: later, duller, quieter.
+    // Each answer smeared over a few tens of milliseconds, the way a blast
+    // comes back off a long, uneven surface rather than off one wall: as a
+    // single clean repeat it was a slap-back, and it sounded like a cartoon.
+    const taps = [];
+    [0.18, 0.42, 0.75, 1.2, 1.9].forEach((d0, k) => {
+      const d = d0 * (0.8 + 0.4 * rand()) * (0.7 + 0.6 * size);
+      const side = rand();
+      for (let j = 0; j < 7; j++) {
+        taps.push({
+          d: Math.round(sr * (d + (0.012 + 0.03 * k) * j * (0.6 + 0.8 * rand()))),
+          a: 0.3 * Math.pow(0.6, k) * (0.4 + 0.6 * rand()) / 3.2, side,
+        });
+      }
+    });
+    // And duller than what went out: the echo source is the blast with its
+    // top taken off.
+    const dull = svf(sr, 'low'), dull2 = svf(sr, 'low');
+    for (let i = 0; i < n; i++) echo[i] = dull2(dull(echo[i], 420), 420);
+    for (let i = n - 1; i >= 0; i--) {
+      let el = 0, er = 0;
+      for (const tp of taps) {
+        const j = i - tp.d;
+        if (j < 0) continue;
+        const v = echo[j] * tp.a;
+        el += v * (0.5 + 0.5 * tp.side);
+        er += v * (1 - 0.5 * tp.side);
+      }
+      L[i] += el; R[i] += er;
+    }
+    const sl = svf(sr, 'low'), sr2 = svf(sr, 'low');
     for (let i = 0; i < n; i++) {
-      const a = i - d1 >= 0 ? echo[i - d1] : 0;
-      const b = i - d2 >= 0 ? echo[i - d2] : 0;
-      L[i] = sat(L[i] + e1(a, 500) * 0.32 + e2(b, 350) * 0.14);
-      R[i] = sat(R[i] + e2(a, 500) * 0.14 + e1(b, 350) * 0.32);
+      L[i] = sat(sl(L[i], 7000), 1.2);
+      R[i] = sat(sr2(R[i], 7000), 1.2);
     }
     return finish(chs, sr);
   }
@@ -194,16 +238,15 @@ export function sfxKit() {
     const dur = pom ? 0.75 : 0.42;
     const chs = buffers(sr, dur, 1);
     const [M] = chs;
-    const lp = svf(sr, 'low'), hp = svf(sr, 'high'), tail = svf(sr, 'low');
-    const f0 = pom ? 95 : 170;
-    let ph = 0;
+    const lp = svf(sr, 'low'), hp = svf(sr, 'high'), tail = svf(sr, 'low'), sub = svf(sr, 'low');
+    const f0 = pom ? 110 : 190;
     for (let i = 0; i < M.length; i++) {
       const t = i / sr;
       const crack = t < 0.02 ? hp(rand() * 2 - 1, 1500) * Math.exp(-t / (pom ? 0.0025 : 0.0015)) : 0;
       const fc = (pom ? 600 : 1100) + (pom ? 5200 : 7000) * Math.exp(-t / (pom ? 0.025 : 0.014));
       const body = lp(rand() * 2 - 1, fc) * rise(t, 0.0008) * Math.exp(-t / (pom ? 0.045 : 0.022)) * 1.4;
-      ph += TAU * (f0 + 80 * Math.exp(-t / 0.012)) / sr;
-      const thump = Math.sin(ph) * Math.exp(-t / (pom ? 0.05 : 0.025)) * 0.7;
+      // The blow of it: air, not a note.
+      const thump = sub(rand() * 2 - 1, f0, 0.7) * rise(t, 0.0008) * Math.exp(-t / (pom ? 0.05 : 0.025)) * 6;
       const roll = tail(rand() * 2 - 1, 380) * rise(t, 0.03) * Math.exp(-t / (pom ? 0.22 : 0.12)) * 0.6;
       // The breech going home: a small hard click after the report.
       const at = pom ? 0.19 : 0.07;
@@ -398,34 +441,63 @@ export function sfxKit() {
    * `deep` makes it the long, low moan of a hull bending rather than a seam.
    */
   function creak(sr, rand, deep = false) {
-    const dur = deep ? 3 + 2.5 * rand() : 1.4 + 1.8 * rand();
+    // Steel loaded past what it was built for does not hum and it does not
+    // squeak like a door. It holds, and holds, and lets go a little -- a
+    // slip, at no regular rate, in clusters as the load comes on -- and every
+    // slip sets the plates and frames ringing at their own pitches, which are
+    // not a chord: a plate's are anything but whole multiples of each other.
+    // Under it all the hull groans, a low, uneven strain with no pitch to it.
+    // And all of it is heard through her and the water round her, so the top
+    // is gone and it rings on in the hull.
+    const dur = deep ? 3.5 + 3 * rand() : 1.8 + 2 * rand();
     const chs = buffers(sr, dur, 1);
     const [M] = chs;
-    const base = deep ? 55 + 40 * rand() : 110 + 140 * rand();
-    const modes = [1, 2.71, 5.3, 8.9].map((r) => resonator(sr, base * r * (0.95 + 0.1 * rand()), deep ? 0.18 : 0.09));
-    const rate0 = deep ? 4 + 6 * rand() : 9 + 22 * rand();
-    const glide = (rand() - 0.5) * 1.4;
-    const wander = drift(sr, rand, 1.6);
-    const swell = drift(sr, rand, 0.9);
-    const fric = svf(sr, 'band'), groan = svf(sr, 'low'), out = svf(sr, 'low');
-    let ph = 0, gph = 0;
+    const base = deep ? 42 + 30 * rand() : 85 + 90 * rand();
+    const ratios = [1, 1.47, 2.09, 2.83, 3.61, 4.95, 6.27, 8.3, 10.9];
+    const modes = ratios.map((r, k) => resonator(sr, base * r * (0.93 + 0.14 * rand()),
+      (deep ? 0.32 : 0.16) / (1 + k * 0.18)));
+    const gains = ratios.map((_, k) => (0.5 + rand()) / (1 + k * 0.35));
+    // How the load comes on and goes off: one or two slow swells.
+    const peaks = [0.25 + 0.4 * rand(), 0.5 + 0.45 * rand()];
+    const bell = (u, at, w) => { const z = (u - at) / w; return Math.exp(-z * z); };
+    const load = (u) => bell(u, peaks[0], 0.22) + 0.7 * bell(u, peaks[1], 0.18);
+    const groanBp = svf(sr, 'band'), groanBp2 = svf(sr, 'band'), groanLp = svf(sr, 'low');
+    const gf0 = base * (0.8 + 0.5 * rand());
+    const glide = (rand() - 0.5) * 0.5;
+    const wander = drift(sr, rand, 0.7);
+    const out = svf(sr, 'low'), out2 = svf(sr, 'low');
+    // The inside of a steel box: a few short reflections that ring with it.
+    const rooms = [0.019, 0.031, 0.047].map((d) => ({ d: Math.round(sr * d * (0.8 + 0.4 * rand())), buf: null }));
+    for (const r of rooms) r.buf = new Float32Array(r.d);
+    let slipHold = 0;
     for (let i = 0; i < M.length; i++) {
       const t = i / sr;
       const u = t / dur;
-      const env = Math.min(1, t / 0.35) * Math.min(1, (dur - t) / 0.45) * (0.7 + 0.5 * swell());
-      const rate = Math.max(1.5, rate0 * (1 + glide * u) * (1 + 0.5 * wander()));
-      ph += rate / sr;
+      const ld = load(u) * Math.min(1, t / 0.08) * Math.min(1, (dur - t) / 0.3);
+      // A slip: more often and harder as the load comes on, and once one goes
+      // the next follows close behind it.
       let x = 0;
-      if (ph >= 1) { ph -= 1; x = (0.6 + 0.4 * rand()) * Math.max(0, env); }
+      const rate = (deep ? 6 : 14) * ld * ld + 0.3;
+      slipHold -= 1 / sr;
+      if (rand() < rate / sr * (slipHold > 0 ? 6 : 1)) {
+        x = (0.3 + 0.7 * rand()) * (0.3 + ld) * (rand() < 0.08 ? 2.5 : 1);
+        slipHold = 0.03 + 0.05 * rand();
+      }
       let y = 0;
-      for (const m of modes) y += m(x);
-      y *= 30;
-      const rub = fric(rand() * 2 - 1, base * 6, 3) * Math.max(0, env) * 0.12;
-      gph += TAU * (deep ? 38 : 60) * (1 + 0.3 * wander()) / sr;
-      const saw = ((gph / TAU) % 1) * 2 - 1;
-      const moan = groan(saw, deep ? 160 : 220) * Math.max(0, env) * (deep ? 0.5 : 0.22);
-      // Heard through her hull and the water round it: the top is gone.
-      M[i] = sat(out(y + rub + moan, deep ? 1600 : 2600));
+      for (let k = 0; k < modes.length; k++) y += modes[k](x) * gains[k];
+      y *= 22;
+      // The groan: band-limited strain, wandering in pitch, never a tone.
+      const gf = gf0 * (1 + glide * u) * (1 + 0.12 * wander());
+      const g = groanBp2(groanBp(rand() * 2 - 1, gf, 5), gf * 1.02, 5);
+      const groan = groanLp(g, gf * 3) * ld * (deep ? 1.6 : 0.8);
+      let v = y + groan;
+      for (const r of rooms) {
+        const j = i % r.d;
+        const back = r.buf[j];
+        r.buf[j] = v * 0.5 + back * 0.32;
+        v += back * 0.3;
+      }
+      M[i] = sat(out2(out(v, deep ? 900 : 1500), deep ? 1100 : 1800), 1.3);
     }
     return finish(chs, sr);
   }
@@ -733,6 +805,28 @@ export function sfxKit() {
   }
 
   /** Every one-shot the game asks for, by name, with how many takes of it. */
+  /**
+   * Air torn by a shell going through it: the raw stuff of the whistle a round
+   * makes overhead, a loop of noise with a little flutter in it. The pitch,
+   * the shriek and the falling note as it goes by are put on it as it is
+   * played, by the filters audio.js runs it through (see shells there).
+   */
+  function shellAir(sr, rand) {
+    const dur = 2;
+    const chs = buffers(sr, dur, 1);
+    const [M] = chs;
+    const lp = svf(sr, 'low');
+    const n = M.length;
+    // Flutter on whole cycles of the loop, so it goes round without a seam.
+    const f1 = 7 / dur, f2 = 13 / dur, p1 = rand() * TAU, p2 = rand() * TAU;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const fl = 0.8 + 0.12 * Math.sin(TAU * f1 * t + p1) + 0.08 * Math.sin(TAU * f2 * t + p2);
+      M[i] = lp(rand() * 2 - 1, 9000) * fl;
+    }
+    return finish(chs, sr, 0.9, true);
+  }
+
   const RECIPES = {
     gunHeavy: { takes: 2, make: (sr, r) => gun(sr, r, 0.9) },
     gunMedium: { takes: 2, make: (sr, r) => gun(sr, r, 0.45) },
@@ -762,9 +856,10 @@ export function sfxKit() {
     wash: { takes: 2, make: (sr, r) => wash(sr, r) },
     turbines: { takes: 2, make: (sr, r) => machinery(sr, r, false) },
     diesels: { takes: 1, make: (sr, r) => machinery(sr, r, true) },
+    shellAir: { takes: 1, make: (sr, r) => shellAir(sr, r) },
   };
 
-  return { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, RECIPES };
+  return { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES };
 }
 
-export const { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, RECIPES } = sfxKit();
+export const { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES } = sfxKit();
