@@ -2,7 +2,7 @@
 // the battle.
 
 import { letGoBoards } from './render/boardgl.js';
-import { HOLE_SHADER } from './render/shellholes.js';
+import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
@@ -88,18 +88,33 @@ for (const C of [globalThis.WebGL2RenderingContext, globalThis.WebGLRenderingCon
 }
 
 // Lighter graphics on a device whose graphics card has already let the game
-// go once: no antialiasing and no more than one drawn pixel to a screen pixel.
-// Kept for a week, so the next battle on the same iPad does not go the same
-// way, and then tried again at full quality.
+// go: a level for every time it has happened (see gpusafe.js for what each
+// leaves out), kept for a week from the last time, so the next battle on the
+// same iPad does not go the same way -- and then tried again at full quality.
 const SAFE_KEY = 'steel-currents:gpu-safe';
-function safeGraphics() {
-  try { return Date.now() - Number(localStorage.getItem(SAFE_KEY) || 0) < 7 * 864e5; } catch { return false; }
+function safeState() {
+  try {
+    const raw = localStorage.getItem(SAFE_KEY);
+    if (!raw) return { t: 0, level: 0 };
+    // Older builds kept only the time, for what is now the first level.
+    const v = raw.trim().startsWith('{') ? JSON.parse(raw) : { t: Number(raw), level: 1 };
+    if (!(Date.now() - v.t < 7 * 864e5)) return { t: 0, level: 0 };
+    return { t: v.t, level: Math.max(0, Math.min(3, v.level | 0)) };
+  } catch { return { t: 0, level: 0 }; }
 }
+function safeGraphics() { return GPU.level >= 1; }
+let steppedAt = 0;
+/** One level lighter -- not twice for the one loss -- and remembered. */
 function goSafe() {
-  try { localStorage.setItem(SAFE_KEY, String(Date.now())); } catch { /* private mode */ }
-  HOLE_SHADER.on = false;
+  const now = Date.now();
+  if (now - steppedAt < 10000) return;
+  steppedAt = now;
+  const level = Math.min(3, GPU.level + 1);
+  setGpuLevel(level);
+  try { localStorage.setItem(SAFE_KEY, JSON.stringify({ t: now, level })); } catch { /* private mode */ }
+  if (level >= 3 && getSettings().quality !== 'low') setSettings({ quality: 'low' });
 }
-HOLE_SHADER.on = !safeGraphics();
+setGpuLevel(safeState().level);
 
 /**
  * A renderer, on a context that is actually there. A canvas whose context
@@ -193,7 +208,7 @@ let current = 'title';
 
 function applyQuality() {
   const q = QUALITY[getSettings().quality] || QUALITY.medium;
-  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, safeGraphics() ? 1 : Infinity);
+  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, GPU.level >= 2 ? 0.8 : GPU.level >= 1 ? 1 : Infinity);
   governor.scale = 1;
   renderer.setPixelRatio(governor.base);
   resize();
@@ -317,7 +332,7 @@ function rebuild() {
   applyQuality();
   resize();
   if (battle && battle.scene && battle.scene.cutWarm) battle.scene.cutWarm = null;
-  toast('Picture rebuilt — graphics lightened to keep it.');
+  toast(`Picture rebuilt — graphics lightened to keep it (level ${GPU.level} of 3).`);
 }
 
 // --------------------------------------------------------------- screens --

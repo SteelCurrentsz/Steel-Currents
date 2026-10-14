@@ -16,14 +16,6 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { cloneMaterial } from './sever.js';
 
-/**
- * Whether holes are cut in the shader at all. Off on a device whose graphics
- * have already been lost once (see safeGraphics in main.js): there they are
- * cut out of her plating the old way, triangle by triangle, at no cost to
- * drawing her.
- */
-export const HOLE_SHADER = { on: true };
-
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
 export const HOLE_SLOTS = 48;
 

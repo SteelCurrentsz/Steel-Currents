@@ -20,6 +20,7 @@
 import { getSettings } from './settings.js';
 import { sfxKit, RECIPES, rng } from './sfx.js';
 import { loadVoiceLines } from './render/voicebank.js';
+import { GPU } from './render/gpusafe.js';
 
 /** A number, or the fallback -- so nothing that is not a number reaches the API. */
 function num(v, fallback = 0) { return Number.isFinite(v) ? v : fallback; }
@@ -70,6 +71,26 @@ function seedOf(name, take) {
   let h = 2166136261;
   for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
   return (h ^ Math.imul(take + 1, 0x9E3779B1)) >>> 0;
+}
+
+/**
+ * Ease an audio parameter toward `v` -- but not every frame. Each call puts an
+ * event on the parameter's timeline, and a sound updated sixty times a second
+ * for the length of a battle piled up tens of thousands of them: on an iPad,
+ * where the sound is run by the same process as the graphics, that was more
+ * than it would carry. So a change too small to hear is skipped, and none is
+ * sent sooner than a tenth of a second after the last.
+ */
+function glide(param, v, now, tc) {
+  if (!param || !Number.isFinite(v)) return;
+  const last = param.__v;
+  const ago = now - (param.__t ?? -1e9);
+  if (last != null) {
+    const small = Math.abs(v - last) <= 0.03 * Math.max(Math.abs(last), 0.02);
+    if (ago < 0.08 || (small && ago < 0.6)) return;
+  }
+  param.__v = v; param.__t = now;
+  param.setTargetAtTime(v, now, tc);
 }
 
 export class Audio {
@@ -698,6 +719,8 @@ export class Audio {
   shells(list, dt) {
     const ctx = this.ctx;
     if (!ctx || !this.ambience || !Array.isArray(list)) return;
+    // Left off on a device that has lost its graphics (see gpusafe.js).
+    if (!GPU.whistles) list = [];
     const now = ctx.currentTime;
     const ear = this.ear;
     const seen = this.shellSeen || (this.shellSeen = new Map());
@@ -729,7 +752,7 @@ export class Audio {
     }
     for (const [id, v] of voices) {
       if (keep.has(id)) continue;
-      try { v.g.gain.setTargetAtTime(0, now, 0.08); } catch { /* gone */ }
+      try { v.g.gain.setTargetAtTime(0, now, 0.08); v.g.gain.__v = 0; v.g.gain.__t = now; } catch { /* gone */ }
       if (v.quietSince == null) v.quietSince = now;
       if (now - v.quietSince > 0.6) {
         try { v.src.stop(); v.src.disconnect(); v.g.disconnect(); v.bp.disconnect(); v.bp2.disconnect(); v.lp.disconnect(); v.pan && v.pan.disconnect(); } catch { /* gone */ }
@@ -783,12 +806,12 @@ export class Audio {
     const level = 0.55 * (0.5 + cal / 460) * h.g * edge * edge;
     const tc = 0.05;
     try {
-      v.bp.frequency.setTargetAtTime(f, now, tc);
-      v.bp2.frequency.setTargetAtTime(f * 0.55, now, tc);
-      v.src.playbackRate.setTargetAtTime(span(0.8 + 0.3 * dop, 0.5, 2, 1), now, tc);
-      v.g.gain.setTargetAtTime(span(level, 0, 1.5, 0), now, tc);
-      v.lp.frequency.setTargetAtTime(span(h.fc, 200, 20000, 20000), now, tc);
-      if (v.pan) v.pan.pan.setTargetAtTime(h.pan, now, tc);
+      glide(v.bp.frequency, f, now, tc);
+      glide(v.bp2.frequency, f * 0.55, now, tc);
+      glide(v.src.playbackRate, span(0.8 + 0.3 * dop, 0.5, 2, 1), now, tc);
+      glide(v.g.gain, span(level, 0, 1.5, 0), now, tc);
+      glide(v.lp.frequency, span(h.fc, 200, 20000, 20000), now, tc);
+      if (v.pan) glide(v.pan.pan, h.pan, now, tc);
     } catch { /* next frame */ }
   }
 
@@ -831,19 +854,21 @@ export class Audio {
     const mach = 0.34 * size * (0.4 + 0.6 * load) * (under ? 0.4 : 1) * machG;
     const tc = 0.3;
     try {
-      v.wash.g.gain.setTargetAtTime(span(wash * h.g, 0, 2, 0), now, tc);
-      v.mach.g.gain.setTargetAtTime(span(mach, 0, 2, 0), now, tc);
-      v.wash.src.playbackRate.setTargetAtTime(span(0.85 + 0.3 * load, 0.5, 2, 1), now, tc);
-      v.mach.src.playbackRate.setTargetAtTime(span(0.65 + 0.6 * load, 0.3, 2, 1), now, tc);
-      v.lp.frequency.setTargetAtTime(span(under ? Math.min(380, h.fc) : h.fc, 60, 20000, 20000), now, tc);
-      if (v.pan) v.pan.pan.setTargetAtTime(h.pan, now, tc);
+      glide(v.wash.g.gain, span(wash * h.g, 0, 2, 0), now, tc);
+      glide(v.mach.g.gain, span(mach, 0, 2, 0), now, tc);
+      glide(v.wash.src.playbackRate, span(0.85 + 0.3 * load, 0.5, 2, 1), now, tc);
+      glide(v.mach.src.playbackRate, span(0.65 + 0.6 * load, 0.3, 2, 1), now, tc);
+      glide(v.lp.frequency, span(under ? Math.min(380, h.fc) : h.fc, 60, 20000, 20000), now, tc);
+      if (v.pan) glide(v.pan.pan, h.pan, now, tc);
     } catch { /* next frame */ }
   }
 
   fadeShip(v, now) {
     if (v.quietSince === Infinity) {
       v.quietSince = now;
-      try { v.wash.g.gain.setTargetAtTime(0, now, 0.3); v.mach.g.gain.setTargetAtTime(0, now, 0.3); } catch { /* gone */ }
+      try {
+        for (const g of [v.wash.g.gain, v.mach.g.gain]) { g.setTargetAtTime(0, now, 0.3); g.__v = 0; g.__t = now; }
+      } catch { /* gone */ }
     }
   }
 
@@ -895,8 +920,8 @@ export class Audio {
     const sea = 0.2 * span(1 - (h - 15) / 700, 0.12, 1, 1);
     const wind = 0.035 + 0.11 * span((h - 60) / 900, 0, 1, 0);
     try {
-      a.sea.g.gain.setTargetAtTime(sea, ctx.currentTime, 0.6);
-      a.wind.g.gain.setTargetAtTime(wind, ctx.currentTime, 0.6);
+      glide(a.sea.g.gain, sea, ctx.currentTime, 0.6);
+      glide(a.wind.g.gain, wind, ctx.currentTime, 0.6);
     } catch { /* next frame */ }
   }
 

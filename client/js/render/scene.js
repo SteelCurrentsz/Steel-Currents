@@ -19,7 +19,8 @@ import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
-import { holePlating, HOLE_SHADER } from './shellholes.js';
+import { holePlating } from './shellholes.js';
+import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
@@ -725,7 +726,7 @@ export class ShipView {
     // And the shell holes in her plating, cut where they are in her shaders
     // (see shellholes.js) -- after her fittings have been given their own
     // copies of her paint, which the holes are then cut into.
-    this.holes = HOLE_SHADER.on ? holePlating(this.plating.parts) : null;
+    this.holes = GPU.holeShader ? holePlating(this.plating.parts) : null;
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -1376,21 +1377,23 @@ export class ShipView {
     // The plate it came in through, as thick as it is: the first of the
     // layers the battle walked it through.
     const thick = Array.isArray(ev.pl) && ev.pl[0] ? (ev.pl[0][1] || 0) / 1000 : null;
+    // (Left off on a device that has lost its graphics: see gpusafe.js.)
+    const mark = GPU.marks ? (k) => this.plating.mark(x, y, z, k, dir, bore, seed) : () => {};
     switch (ev.kind) {
       case 'ricochet':
       case 'shatter':
-        this.plating.mark(x, y, z, ev.kind, dir, bore, seed);
+        mark(ev.kind);
         return;
       case 'splash':
-        this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        mark('dent');
         return;
       case 'overpen':
-        this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        mark('dent');
         this.holeAt(x, y, z, Math.max(0.7, bore * 1.6), dir, thick);
         return;
       case 'he':
         if (bore >= 0.2) this.holeAt(x, y, z, Math.max(1, holeRadius('he', ev.cal) * 0.55), dir, thick);
-        else this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        else mark('dent');
         return;
       case 'pen':
         // No smaller than reads as a hole on plating cut as coarsely as hers:
