@@ -85,7 +85,8 @@ export class Wreckage {
     // something a ship can actually do to a piece of herself -- forty metres a
     // second put a searchlight forty metres up and left it hanging there for
     // six seconds, which is not wreckage, it is a balloon.
-    const push = Math.min(26, 3 + cut.force * 4.5);
+    // Or not thrown at all: a piece with nothing left under it simply drops.
+    const push = cut.drop ? 0 : Math.min(26, 3 + cut.force * 4.5);
     const q = new THREE.Quaternion().setFromRotationMatrix(
       this.m.extractRotation(ship.matrixWorld));
     this.live.push({
@@ -93,9 +94,9 @@ export class Wreckage {
       x: at.x, y: at.y, z: at.z,
       // Her own way, the blast, and a little of everything: two pieces off the
       // same burst never go the same way.
-      vx: vx + (dx / d) * push + (Math.random() - 0.5) * 3,
-      vy: (dy / d) * push * 0.6 + push * 0.55 + Math.random() * 3,
-      vz: vz + (dz / d) * push + (Math.random() - 0.5) * 3,
+      vx: vx + (dx / d) * push + (Math.random() - 0.5) * (cut.drop ? 0.4 : 3),
+      vy: cut.drop ? -0.3 : (dy / d) * push * 0.6 + push * 0.55 + Math.random() * 3,
+      vz: vz + (dz / d) * push + (Math.random() - 0.5) * (cut.drop ? 0.4 : 3),
       q,
       // Tumbling about an axis of its own. A big piece turns slowly; a locker
       // knocked off a bulkhead goes end over end.

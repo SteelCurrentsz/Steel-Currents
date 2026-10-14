@@ -18,7 +18,8 @@ import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
-import { Plating } from './plating.js';
+import { Plating, holeRadius } from './plating.js';
+import { holePlating } from './shellholes.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
@@ -721,6 +722,10 @@ export class ShipView {
     // hole is cut in; this is what is bent, blackened and knocked off her.
     // See pieces.js. `wreck` is where a piece goes when it parts from her.
     this.fittings = new Fittings(this.group, { detail: quality > 4 ? 0.6 : 1 });
+    // And the shell holes in her plating, cut where they are in her shaders
+    // (see shellholes.js) -- after her fittings have been given their own
+    // copies of her paint, which the holes are then cut into.
+    this.holes = holePlating(this.plating.parts.map((p) => p.mesh));
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -1304,7 +1309,114 @@ export class ShipView {
     // her or blackened. What a hit does to her that can be seen is the
     // explosion; what it does to her inside is on the damage board.
     void power;
-    return this.plating.punch(p.x, p.y, p.z, r, soft);
+    const went = this.plating.punch(p.x, p.y, p.z, r, soft);
+    // But what was standing on the plating that has gone has nothing under
+    // it now, and it does not hang there: it falls.
+    if (went > 0) this.dropUnsupported(p.x, p.y, p.z, r);
+    return went;
+  }
+
+  /**
+   * Everything that was standing on a piece of her that has just gone: a
+   * locker, a boat, a light, a rail, whose foot was on the plating the hole
+   * took. It is not thrown -- nothing hit it -- it simply drops, over the side
+   * or down through the hole, under its own weight (see wreckage.js).
+   */
+  dropUnsupported(x, y, z, r) {
+    // Plating the holes have cut loose from the rest of her.
+    let fell = this.plating ? this.plating.islands(x, y, z, r) : [];
+    if (!fell.length) fell = null;
+    const F = this.fittings;
+    if (!F || !F.pieces) { if (fell) this.shed(fell); return; }
+    for (let b = Math.round((z - r) / 8) - 1; b <= Math.round((z + r) / 8) + 1; b++) {
+      for (const piece of F.buckets.get(b) || []) {
+        if (!piece.on || !piece.fitting) continue;
+        const foot = piece.cy - piece.r;
+        if (Math.hypot(piece.cx - x, piece.cz - z) > r + piece.r * 0.35) continue;
+        if (foot < y - r * 0.9 || foot > y + r * 0.6) continue;
+        const cut = F.shed(piece, piece.cx, piece.cy + 1, piece.cz, 0);
+        cut.drop = true;
+        (fell || (fell = [])).push(cut);
+      }
+    }
+    if (fell) this.shed(fell);
+  }
+
+  /**
+   * What a round did to her, where it struck, as the simulation called it:
+   * a hole for one that got in, and a mark for one that did not.
+   *
+   *   ricochet   a gouge where it skidded along her. No damage, no hole.
+   *   shatter    a dent where it broke up, and the scrapes of its pieces.
+   *   overpen    clean through: a hole its own size, and the plating dished
+   *              in round it.
+   *   pen        a hole where it burst, about its own bore across.
+   *   citadel    a great ragged opening, many times its bore.
+   *   he         a high-explosive shell that beat the plate: a hole for a
+   *              heavy one, a dent for a light one.
+   *   splash     one that did not: a dent and its paint scraped off.
+   *
+   * A hole is a hole and only a hole -- no ring of soot, no torn collar, no
+   * wreckage thrown out of it.
+   */
+  hitMark(ev) {
+    if (!this.plating) return;
+    const bore = (ev.cal || 152) / 1000;
+    const p = TMP.set(ev.x, ev.y ?? 8, ev.z);
+    this.group.updateMatrixWorld(true);
+    this.group.worldToLocal(p);
+    // The shell's way in her own frame, for which way a gouge runs.
+    const v = ev.lv ? new THREE.Vector3(ev.lv[0], ev.lv[1], ev.lv[2]) : null;
+    const dir = v && v.lengthSq() > 1 ? [v.x, v.y, v.z] : null;
+    const seed = ((Math.round(ev.x * 7) * 73856093) ^ (Math.round(ev.z * 7) * 19349663)) >>> 0;
+    const x = p.x, y = p.y, z = p.z;
+    switch (ev.kind) {
+      case 'ricochet':
+      case 'shatter':
+        this.plating.mark(x, y, z, ev.kind, dir, bore, seed);
+        return;
+      case 'splash':
+        this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        return;
+      case 'overpen':
+        this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        this.holeAt(x, y, z, Math.max(0.7, bore * 1.6));
+        return;
+      case 'he':
+        if (bore >= 0.2) this.holeAt(x, y, z, Math.max(1, holeRadius('he', ev.cal) * 0.55));
+        else this.plating.mark(x, y, z, 'dent', dir, bore, seed);
+        return;
+      case 'pen':
+        // No smaller than reads as a hole on plating cut as coarsely as hers:
+        // a five-inch shell's own bore takes out a sliver and looks like a
+        // crack in the paint.
+        this.holeAt(x, y, z, Math.max(1, holeRadius('pen', ev.cal) * 1.3));
+        return;
+      case 'citadel': {
+        // The worst a shell can do short of her magazine: a big ragged
+        // opening, longer one way than the other.
+        const r = Math.max(2.2, holeRadius('citadel', ev.cal) * 0.6);
+        this.holeAt(x, y, z, r);
+        this.plating.tear(x, y, z, r * 0.8, seed);
+        return;
+      }
+      default:
+    }
+  }
+
+  /** A hole at a point in her own frame, and whatever was standing on it falls. */
+  holeAt(x, y, z, r) {
+    // On her plating, not in the air beside it: the hit is reported off the
+    // battle's box of her, and her real side can be a metre or two inboard.
+    const near = this.plating.nearest(x, y, z, Math.max(6, r * 2.5));
+    if (!near) return 0;
+    const old = this.holes ? this.holes.add(near[0], near[1], near[2], r) : null;
+    // One that has dropped out of what her shaders hold is cut out of her
+    // the old way, so it stays a hole.
+    if (old) this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
+    if (!this.holes) this.plating.punch(x, y, z, r, 0.45);
+    this.dropUnsupported(near[0], near[1], near[2], r);
+    return 1;
   }
 
   /**

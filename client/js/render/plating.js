@@ -230,6 +230,89 @@ class Rims {
 }
 
 /**
+ * Scrapes and gouges on her paint: what a round that did not get in leaves.
+ *
+ * A shell that glances off a belt or breaks up on it does not open her, but
+ * it does not leave her as she was either. It strips the paint off in a long
+ * bright gouge where it skidded, or splashes a starburst of short scrapes
+ * round the place it broke up -- bare steel showing through grey, and a darker
+ * scuff where it struck. Every one on a ship is one batch and one draw call,
+ * laid a hair proud of the plating it is on and moving with her.
+ */
+const SCAR_MAX = 600;
+
+class Scars {
+  constructor(group) {
+    this.at = 0;
+    this.live = 0;
+    const n = SCAR_MAX * 6;
+    this.pos = new Float32Array(n * 3);
+    this.col = new Float32Array(n * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setDrawRange(0, 0);
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      vertexColors: true, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.renderOrder = 2;
+    this.mesh.userData.noSplit = true;
+    group.add(this.mesh);
+    this.geo = geo;
+  }
+
+  /**
+   * One strip on the plating: from `p` along `a` for `len`, `w` wide, lying
+   * in the plane whose normal is `n`, tapering at both ends. `c` is its colour
+   * down the middle; the edges are a little darker, the paint torn back.
+   */
+  strip(p, n, a, len, w, c) {
+    const bx = n[1] * a[2] - n[2] * a[1], by = n[2] * a[0] - n[0] * a[2], bz = n[0] * a[1] - n[1] * a[0];
+    const slot = this.at % SCAR_MAX;
+    this.at++;
+    this.live = Math.min(SCAR_MAX, this.at);
+    let w0 = slot * 6 * 3;
+    const lift = 0.025;
+    const pt = (f, side) => {
+      const taper = 1 - Math.abs(f * 2 - 1) * 0.75;
+      return [
+        p[0] + a[0] * len * f + bx * w * 0.5 * side * taper + n[0] * lift,
+        p[1] + a[1] * len * f + by * w * 0.5 * side * taper + n[1] * lift,
+        p[2] + a[2] * len * f + bz * w * 0.5 * side * taper + n[2] * lift,
+      ];
+    };
+    const edge = [c[0] * 0.55, c[1] * 0.55, c[2] * 0.55];
+    const quad = [pt(0, -1), pt(0, 1), pt(1, 1), pt(0, -1), pt(1, 1), pt(1, -1)];
+    const cols = [edge, c, c, edge, c, edge];
+    for (let i = 0; i < 6; i++) {
+      this.pos[w0] = quad[i][0]; this.pos[w0 + 1] = quad[i][1]; this.pos[w0 + 2] = quad[i][2];
+      this.col[w0] = cols[i][0]; this.col[w0 + 1] = cols[i][1]; this.col[w0 + 2] = cols[i][2];
+      w0 += 3;
+    }
+    for (const at of [this.geo.attributes.position, this.geo.attributes.color]) {
+      at.addUpdateRange(slot * 18, 18);
+      at.needsUpdate = true;
+    }
+    this.geo.setDrawRange(0, this.live * 6);
+  }
+
+  dispose() {
+    this.mesh.removeFromParent();
+    this.geo.dispose();
+    this.mesh.material.dispose();
+  }
+}
+
+/** Bare steel, where the paint has been taken off it. */
+const STEEL = [0.62, 0.63, 0.64];
+/** A scuff: steel bruised dark by the blow. */
+const SCUFF = [0.2, 0.2, 0.21];
+
+/**
  * Which way a piece of her plating faces.
  *
  * Off the normals she is drawn with, averaged over the triangle's three
@@ -280,6 +363,8 @@ export class Plating {
     this.parts = [];
     // Every hole's torn edge, in one batch on the ship herself.
     this.rims = new Rims(group);
+    // And every scrape and gouge, in another.
+    this.scars = new Scars(group);
     // Every triangle that has been taken out of her, so the damage survives a
     // rebuild and so we can say how open she is.
     this.torn = 0;
@@ -405,6 +490,249 @@ export class Plating {
     }
     if (!went) went = this.sweep(near, Math.max(0.5, w * 1.6), 0);
     return went;
+  }
+
+  /**
+   * A dent: her plating pushed in round a point, deepest in the middle and
+   * fairing out to nothing at `r`, and its light bent with it so it reads as
+   * a dish in the steel. The plating is still there and still whole.
+   */
+  dent(x, y, z, r, depth) {
+    // No smaller than the plating is cut: a dish narrower than the pieces
+    // she is made of has no corner inside it to push in.
+    r = Math.max(r, 2.4);
+    const near = this.nearest(x, y, z, Math.max(5, r * 3));
+    if (!near) return false;
+    const [cx, cy, cz, nx, ny, nz] = near;
+    const r2 = r * r;
+    let any = false;
+    for (const part of this.parts) {
+      if (cz + r < part.minZ || cz - r > part.maxZ) continue;
+      const geo = part.mesh.geometry;
+      const P = geo.attributes.position;
+      const N = geo.attributes.normal;
+      const pa = P.array, na = N ? N.array : null;
+      const ia = part.idx.array;
+      const lo = Math.max(0, Math.floor((cz - r - 3 - part.minZ) / BUCKET));
+      const hi = Math.min(part.buckets.length - 1, Math.floor((cz + r + 3 - part.minZ) / BUCKET));
+      const seen = new Set();
+      let vmin = Infinity, vmax = -1;
+      for (let b = lo; b <= hi; b++) {
+        const list = part.buckets[b];
+        if (!list) continue;
+        for (const t of list) {
+          if (part.dead[t]) continue;
+          for (let k = 0; k < 3; k++) {
+            const v = ia[t * 3 + k];
+            if (seen.has(v)) continue;
+            seen.add(v);
+            const o = v * 3;
+            const dx = pa[o] - cx, dy = pa[o + 1] - cy, dz = pa[o + 2] - cz;
+            // Only plating facing the same way: a dent in her side does not
+            // push her deck in, and it does not dish the other side of her.
+            if (na && na[o] * nx + na[o + 1] * ny + na[o + 2] * nz < 0.6) continue;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 >= r2) continue;
+            const f = 1 - d2 / r2;
+            const push = depth * f * f;
+            pa[o] -= nx * push; pa[o + 1] -= ny * push; pa[o + 2] -= nz * push;
+            if (na) {
+              // The slope of the dish, leaned into the normal: the side of it
+              // toward the light is lit and the side away is dark.
+              const d = Math.sqrt(d2) || 1;
+              const slope = (4 * depth * f * d) / r2;
+              na[o] += (dx / d) * slope; na[o + 1] += (dy / d) * slope; na[o + 2] += (dz / d) * slope;
+              const l = Math.hypot(na[o], na[o + 1], na[o + 2]) || 1;
+              na[o] /= l; na[o + 1] /= l; na[o + 2] /= l;
+            }
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
+            any = true;
+          }
+        }
+      }
+      if (vmax >= 0) {
+        P.addUpdateRange(vmin * 3, (vmax - vmin + 1) * 3);
+        P.needsUpdate = true;
+        if (N) { N.addUpdateRange(vmin * 3, (vmax - vmin + 1) * 3); N.needsUpdate = true; }
+      }
+    }
+    return any;
+  }
+
+  /**
+   * The mark a round leaves that did not get through, at a point on her.
+   *
+   * `kind` is the simulation's: a ricochet is a long gouge where it skidded
+   * along her, the way it was going (`dir`, in her frame), and nothing else;
+   * a shatter is a dent where it struck and a starburst of short scrapes
+   * round it; a shell that went clean through, or one that burst against her
+   * without getting in, dents her round where it went. `bore` is its calibre
+   * in metres. `seed` makes the shape the same on every client.
+   */
+  mark(x, y, z, kind, dir, bore, seed = 0) {
+    const near = this.nearest(x, y, z, 6);
+    if (!near) return false;
+    let h = (seed * 2654435761 + 7) >>> 0;
+    const rnd = () => { h = (h ^ (h << 13)) >>> 0; h = (h ^ (h >>> 17)) >>> 0; h = (h ^ (h << 5)) >>> 0; return (h % 10000) / 10000; };
+    const n = [near[3], near[4], near[5]];
+    const p = [near[0], near[1], near[2]];
+    // A direction lying in the plating: the shell's own, flattened onto it.
+    const inPlane = (v) => {
+      const d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+      const a = [v[0] - n[0] * d, v[1] - n[1] * d, v[2] - n[2] * d];
+      const l = Math.hypot(a[0], a[1], a[2]);
+      return l > 1e-3 ? [a[0] / l, a[1] / l, a[2] / l] : null;
+    };
+    const spin = (a, ang) => {
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      const b = [n[1] * a[2] - n[2] * a[1], n[2] * a[0] - n[0] * a[2], n[0] * a[1] - n[1] * a[0]];
+      return [a[0] * c + b[0] * sn, a[1] * c + b[1] * sn, a[2] * c + b[2] * sn];
+    };
+    let along = (dir && inPlane(dir)) || inPlane([0, 0, 1]) || inPlane([1, 0, 0]);
+    if (!along) return false;
+    const b = Math.max(0.04, bore || 0.15);
+    if (kind === 'ricochet') {
+      // It skidded: a gouge the way it was going, starting where it struck,
+      // with a thinner scrape beside it where the driving band dragged.
+      const len = 1.5 + b * 10 * (0.7 + rnd() * 0.6);
+      along = spin(along, (rnd() - 0.5) * 0.25);
+      // A dark groove where it bit in, the bright steel either side of it
+      // where the paint was ploughed off.
+      this.scars.strip(p, n, along, len, b * 1.8, STEEL);
+      this.scars.strip(p, n, along, len * 0.85, b * 0.6, SCUFF);
+      const off = spin(along, Math.PI / 2);
+      const q = [p[0] + off[0] * b * 1.3, p[1] + off[1] * b * 1.3, p[2] + off[2] * b * 1.3];
+      this.scars.strip(q, n, spin(along, (rnd() - 0.5) * 0.15), len * (0.3 + rnd() * 0.4), b * 0.4, STEEL);
+      // And a shallow dent at the start of it, where it first bit.
+      this.dent(p[0], p[1], p[2], b * 4, b * 0.25);
+      return true;
+    }
+    if (kind === 'shatter') {
+      // It broke up on her: a dish where it struck, a dark bruise in it, and
+      // the pieces of it scraping away from there in every direction.
+      this.dent(p[0], p[1], p[2], b * 6, b * 0.7);
+      // The bruise where it struck: a dark, scraped patch, irregular.
+      for (let i = 0; i < 3; i++) {
+        const a = spin(along, rnd() * Math.PI);
+        const back = b * (0.8 + rnd() * 0.8);
+        this.scars.strip([p[0] - a[0] * back, p[1] - a[1] * back, p[2] - a[2] * back], n, a, back * 2,
+          b * (1.6 + rnd() * 1.4), SCUFF);
+      }
+      // And a few of its pieces dragged off across her, mostly the way it
+      // was going, none of them alike.
+      const k = 2 + Math.floor(rnd() * 3);
+      for (let i = 0; i < k; i++) {
+        const a = spin(along, (rnd() - 0.5) * 2.4);
+        const start = [p[0] + a[0] * b, p[1] + a[1] * b, p[2] + a[2] * b];
+        this.scars.strip(start, n, a, b * (1.5 + rnd() * 3), b * (0.4 + rnd() * 0.5), STEEL);
+      }
+      return true;
+    }
+    // Through and out, or burst against her: dished in round where it went,
+    // the paint scraped off round the mouth of it.
+    this.dent(p[0], p[1], p[2], b * 7, b * 0.9);
+    for (let i = 0; i < 3; i++) {
+      const a = spin(along, rnd() * Math.PI * 2);
+      this.scars.strip(p, n, a, b * (2 + rnd() * 3), b * 0.25, STEEL);
+    }
+    return true;
+  }
+
+  /**
+   * Plating round a hole that is no longer joined to the rest of her.
+   *
+   * Two holes close together, or one that takes a ring out of a plate, can
+   * leave a patch of plating standing in the air with nothing round it: a
+   * sliver between holes, the middle of a plate whose edges have gone. Steel
+   * does not hang there. So after a hole the plating near it is walked, corner
+   * to shared corner, outward from where it is still joined to her; whatever
+   * is not reached is cut out of her and handed back as pieces, in her own
+   * frame, for the wreckage to drop into the sea.
+   */
+  islands(x, y, z, r) {
+    const zone = r * 2.2, ring = zone + 2.5;
+    const zone2 = zone * zone, ring2 = ring * ring;
+    const out = [];
+    for (const part of this.parts) {
+      if (z + ring < part.minZ || z - ring > part.maxZ) continue;
+      const ia = part.idx.array;
+      const lo = Math.max(0, Math.floor((z - ring - part.minZ) / BUCKET));
+      const hi = Math.min(part.buckets.length - 1, Math.floor((z + ring - part.minZ) / BUCKET));
+      const inner = [];
+      const anchor = new Set();
+      for (let b = lo; b <= hi; b++) {
+        const list = part.buckets[b];
+        if (!list) continue;
+        for (const t of list) {
+          if (part.dead[t]) continue;
+          const o = t * 3;
+          const dx = part.cent[o] - x, dy = part.cent[o + 1] - y, dz = part.cent[o + 2] - z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < zone2) inner.push(t);
+          else if (d2 < ring2) { anchor.add(ia[o]); anchor.add(ia[o + 1]); anchor.add(ia[o + 2]); }
+        }
+      }
+      // A buffer with nothing of it outside the zone is a whole small thing
+      // standing there, not a patch of a bigger plate; it is left alone.
+      if (!inner.length || !anchor.size) continue;
+      const byVert = new Map();
+      for (const t of inner) {
+        for (let k = 0; k < 3; k++) {
+          const v = ia[t * 3 + k];
+          let l = byVert.get(v);
+          if (!l) byVert.set(v, (l = []));
+          l.push(t);
+        }
+      }
+      const held = new Set();
+      const queue = [];
+      for (const t of inner) {
+        const o = t * 3;
+        if (anchor.has(ia[o]) || anchor.has(ia[o + 1]) || anchor.has(ia[o + 2])) { held.add(t); queue.push(t); }
+      }
+      while (queue.length) {
+        const t = queue.pop();
+        for (let k = 0; k < 3; k++) {
+          for (const u of byVert.get(ia[t * 3 + k]) || []) {
+            if (!held.has(u)) { held.add(u); queue.push(u); }
+          }
+        }
+      }
+      const loose = inner.filter((t) => !held.has(t));
+      if (!loose.length) continue;
+      // Cut out of her, and kept as a piece of geometry of its own.
+      const pa = part.mesh.geometry.attributes.position.array;
+      const ca = part.mesh.geometry.attributes.color;
+      let cx = 0, cy = 0, cz = 0;
+      for (const t of loose) { cx += part.cent[t * 3]; cy += part.cent[t * 3 + 1]; cz += part.cent[t * 3 + 2]; }
+      cx /= loose.length; cy /= loose.length; cz /= loose.length;
+      const pos = new Float32Array(loose.length * 9);
+      const col = new Float32Array(loose.length * 9);
+      const idx = new Uint16Array(loose.length * 3);
+      let from = Infinity, to = -1;
+      loose.forEach((t, i) => {
+        const o = t * 3;
+        for (let k = 0; k < 3; k++) {
+          const v = ia[o + k] * 3;
+          const w = (i * 3 + k) * 3;
+          pos[w] = pa[v] - cx; pos[w + 1] = pa[v + 1] - cy; pos[w + 2] = pa[v + 2] - cz;
+          const c = ca ? [ca.getX(ia[o + k]), ca.getY(ia[o + k]), ca.getZ(ia[o + k])] : [0.5, 0.52, 0.54];
+          const div = ca && ca.array instanceof Uint8Array && !ca.normalized ? 255 : 1;
+          col[w] = c[0] / div; col[w + 1] = c[1] / div; col[w + 2] = c[2] / div;
+          idx[i * 3 + k] = i * 3 + k;
+        }
+        part.dead[t] = 1;
+        const a = ia[o];
+        ia[o + 1] = a; ia[o + 2] = a;
+        if (o < from) from = o;
+        if (o + 3 > to) to = o + 3;
+      });
+      flush(part, from, to);
+      this.torn += loose.length;
+      out.push({ pos, col, idx, x: cx, y: cy, z: cz, from: { x: cx, y: cy + 1, z: cz }, force: 0, drop: true });
+    }
+    return out;
   }
 
   /** One burst, of one size, centred on a piece of her plating. */

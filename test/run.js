@@ -13755,12 +13755,44 @@ check('a magazine blows her apart, and how far by what was in it', () => {
   assert.ok(big.turret > big.hull && big.turret < 160, `the wreckage of her mountings went up ${big.turret.toFixed(1)} m`);
 });
 
-check('only a torpedo opens her: a shell or a bomb that gets in is an explosion', () => {
+check('a round that got in holes her, and one that did not only marks her', () => {
   const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
   const body = (from, len = 2400) => { const at = game.indexOf(from); assert.ok(at >= 0, from); return game.slice(at, at + len); };
-  assert.ok(!/\.punch\(/.test(body('  bombThrough(x, y, z) {', 1200)), 'a bomb still cuts her deck');
-  assert.ok(!/\.punch\(/.test(body("        case 'hit': {", 1800)), 'a shell still cuts her plating');
+  assert.ok(/hitMark\(ev\)/.test(body("        case 'hit': {", 1800)), 'a shell hit is not put on her plating');
   assert.ok(/\.punch\(/.test(body("        case 'torpHit':", 1200)), 'a torpedo no longer opens her side');
+  // On a real hull: what each kind of hit leaves on her.
+  const scene = new THREE.Scene();
+  const view = new ShipView(scene, 'cleveland', 0, false);
+  view.group.updateMatrixWorld(true);
+  const P = view.plating;
+  const side = new THREE.Vector3(SHIP_CLASSES.cleveland.hull.beam / 2, 3, 20);
+  const at = (z) => { const w = side.clone().setZ(z); view.group.localToWorld(w); return w; };
+  const moved = () => { let sum = 0; for (const part of P.parts) { const a = part.mesh.geometry.attributes.position.array; for (let i = 0; i < a.length; i++) sum += a[i] * ((i % 7) + 1); } return sum; };
+  const shoot = (kind, z, cal = 203) => { const w = at(z); view.hitMark({ kind, cal, x: w.x, y: w.y, z: w.z, lv: [0, -100, 600] }); };
+  let torn = P.torn, scars = P.scars.at, shape = moved();
+  shoot('ricochet', -30);
+  assert.equal(P.torn, torn, 'a ricochet opened her');
+  assert.ok(P.scars.at > scars, 'a ricochet left no gouge on her');
+  scars = P.scars.at; shape = moved();
+  shoot('shatter', -10);
+  assert.equal(P.torn, torn, 'a shatter opened her');
+  assert.ok(P.scars.at > scars, 'a shatter left no scrapes');
+  assert.notEqual(moved(), shape, 'a shatter did not dent her');
+  assert.equal(view.holes.list.length, 0, 'a round that did not get in holed her');
+  shoot('pen', 10);
+  assert.equal(view.holes.list.length, 1, 'a penetration made no hole');
+  const pen = view.holes.list[0][3];
+  assert.ok(pen >= 1, `a penetration's hole is ${pen.toFixed(2)} m across the middle`);
+  shoot('citadel', 35, 406);
+  assert.equal(view.holes.list.length, 2, 'a citadel hit made no hole');
+  assert.ok(view.holes.list[1][3] > pen * 1.8, 'a citadel hit opened her no more than a penetration');
+  // Cut in her own copies of her materials, so no other ship of her class is holed.
+  for (const part of P.parts) {
+    for (const m of [].concat(part.mesh.material)) assert.ok(!m.isMeshPhongMaterial && !m.isMeshLambertMaterial && !m.isMeshStandardMaterial || m.userData.holed, 'her plating is not cut for holes');
+  }
+  // And a hole is only a hole: no torn collar stood round it, no soot.
+  assert.equal(P.rims.at, 0, 'a hole was given a collar');
+  view.dispose(scene);
   // And the explosion is as big as the damage the round did.
   assert.ok(blastScale(2000) < blastScale(8000) && blastScale(8000) < blastScale(16000));
   assert.ok(blastScale(0) > 0 && blastScale(1e9) <= 2.4);

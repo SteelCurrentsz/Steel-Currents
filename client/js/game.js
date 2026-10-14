@@ -2113,6 +2113,10 @@ export class Battle {
           } else {
             fx.hit(ev.x, ev.y ?? 8, ev.z, ev.kind, ev.cal);
           }
+          // And what it did to her plating, where it struck: a hole for a
+          // round that got in, a gouge, a dent or a scrape for one that did
+          // not. See ShipView.hitMark.
+          this.scene.shipViews.get(ev.victim)?.hitMark(ev);
           // Heard from wherever it struck, whoever's it was.
           audio.hit(ev.kind, ev.cal, { x: ev.x, y: ev.y ?? 8, z: ev.z });
           // Our own round: cut to her section and watch it go in, if the
@@ -2162,8 +2166,9 @@ export class Battle {
           {
             const v = this.scene.shipViews.get(ev.victim);
             if (v) {
+              // The hole and nothing else: the column of water it throws up is
+              // what is seen.
               v.punch(ev.x, (ev.y ?? -2), ev.z, holeRadius('torpedo', 1000), 0.4);
-              this.scene.debris.burst(ev.x, 6, ev.z, 3.4, 0.9);
             }
           }
           // A torpedo goes off under the water, so what is seen from a bridge
@@ -5130,9 +5135,16 @@ export class Battle {
     // it. It takes a piece of the deck away -- plating, beams, and whatever
     // was standing on it -- so the burst is worked at the size it really is
     // and carries the power to shed the fittings round it as well.
-    // It goes off on her and in her: an explosion, and no hole -- only a
-    // torpedo opens a ship now.
+    // It goes off on her and in her: an explosion, and the hole it made
+    // coming down through her deck -- a hole and nothing else; what was
+    // standing on that piece of deck falls in with it.
     this.scene.shipBurst(x, y + 2, z, blastScale(6000));
+    {
+      const p = new THREE.Vector3(x, y, z);
+      hit.group.updateMatrixWorld(true);
+      hit.group.worldToLocal(p);
+      if (hit.plating) hit.holeAt(p.x, p.y, p.z, holeRadius('bomb', 454) * 0.45);
+    }
     // On our own deck it goes on the board, where the deck went.
     if (hitId === this.shipId) this.markHole(x, y, z, 'bomb');
   }

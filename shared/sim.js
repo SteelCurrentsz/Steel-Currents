@@ -1470,7 +1470,7 @@ export function cutHer(state, ship, at, by = 0, why = 'ram') {
       c.lost = true;
       c.hp = 0;
       c.water = 0; c.wP = 0; c.wS = 0;
-      c.holeP = 0; c.holeS = 0; c.inflow = 0;
+      c.holeP = 0; c.holeS = 0; c.inflow = 0; c.holes = []; c.posArea = 0;
       c.fire = 0; c.burnt = 0;
       continue;
     }
@@ -4377,7 +4377,9 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
       // Into the box: her machinery and her magazines. It got there by going
       // through every plate in the way, which is quite enough to start the
       // fuse, and there is nothing left to stop the burst.
-      kind = 'citadel'; dmg = spec.damage;
+      // The worst thing a shell can do to her, short of her magazine: the
+      // whole of the shell's damage and the structure round the burst with it.
+      kind = 'citadel'; dmg = spec.damage * 1.25;
     } else if (!walk.armed && pen > walk.total * 3) {
       // Straight through her. An armour-piercing shell is fused to burst a set
       // distance in, and it needs to meet a plate of a certain thickness to
@@ -4394,10 +4396,15 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     // often than a shell that is all charge and bursts on whatever it meets.
     // One that broke up on the plate or went straight through never burst
     // where there was anything to burn.
-    if ((kind === 'pen' || kind === 'citadel')
-      && state.rng() < (spec.fireChance || 0) * (target.fires >= 4 ? 0.3 : 1)) {
+    // A citadel hit is the bursting charge going off among her machinery or
+    // her handling rooms -- oil, cordite, lagging, everything that burns --
+    // so it starts a fire far more often than a shell that burst in her side
+    // protection, and a hotter one.
+    const cit = kind === 'citadel';
+    if ((kind === 'pen' || cit)
+      && state.rng() < Math.min(0.9, cit ? Math.max(0.4, (spec.fireChance || 0) * 3) : Math.max(0.08, (spec.fireChance || 0) * 1.3)) * (target.fires >= 4 ? 0.3 : 1)) {
       startFire(state, target,
-        sectionAt(l.z / (cls.hull.length * 0.5), sec.part), 0.3);
+        sectionAt(l.z / (cls.hull.length * 0.5), sec.part), cit ? 0.65 : 0.3);
     }
   } else {
     // High explosive does not have to get inside her to do its work, but it
@@ -4471,12 +4478,20 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     // Where it went in, relative to her waterline, and which side of her.
     const depth = -(cy - 0.6);
     const side = l.x >= 0 ? 1 : -1;
-    openHull(state, target, where, area, side, depth);
+    // Where on her, so the sea can be asked about it there (see holeHead): on
+    // her side at the point it went in, its height off her waterline.
+    const half = cls.hull.beam / 2;
+    // seaOver measures her from a datum a metre under the line the shells
+    // are reckoned from (the same one the renderer floats her on), so the
+    // hole goes in at its height off that: in a flat calm it floods at
+    // exactly the depth it always did.
+    const at = { x: side * half, y: cy - 0.6 + 1, z: l.z };
+    openHull(state, target, where, area, side, depth, at);
     // A shell that went clean through her came out the other side, and the
     // hole it came out by is as much use to the sea as the one it went in by.
     // That is the whole of what an overpenetration is worth, and against a
     // ship with no armour worth beating it is worth a good deal.
-    if (kind === 'overpen') openHull(state, target, where, area, -side, depth);
+    if (kind === 'overpen') openHull(state, target, where, area, -side, depth, { x: -at.x, y: at.y, z: at.z });
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
@@ -7746,11 +7761,53 @@ function floodedCount(ship) {
  * sea to reach it, which is what makes a ship that has been hit high up
  * suddenly start flooding an hour later.
  */
-export function openHull(state, ship, where, area, side, depth) {
+/**
+ * How deep the sea is over a hole in her this instant, in metres (negative:
+ * dry). The sea is the one the screen draws -- calm or storm, the waves are
+ * always running -- and the hole is where it is on her: in her own frame, its
+ * height off her waterline, laid over by her list and trim and her motion in
+ * the seaway, and let down by however far she has settled.
+ */
+export function holeHead(state, ship, h) {
+  const W = state.allSea || (state.allSea = (() => {
+    const S = seaOf(state.world);
+    return waveTerms(S.amp, S.steep, S.short);
+  })());
+  return seaOver(state, ship, W, h.x, h.y, h.z);
+}
+
+export function openHull(state, ship, where, area, side, depth, at = null) {
   const c = ship.sections[where];
   if (!c || area <= 0) return;
   const first = c.holeP + c.holeS < 0.01;
   if (side < 0) c.holeP += area; else c.holeS += area;
+  // A hole that is somewhere in particular on her -- a shell's, with the
+  // point it went in -- is kept where it is, and the sea is asked about it
+  // there every moment: how high the water stands over that point, with her
+  // settling, her list, her trim and the waves running along her all in it.
+  // So a hole a metre above her waterline takes water whenever a wave or a
+  // roll puts the sea over it, and more of it the lower she gets. See
+  // holeHead. A hole with no place (a collision's rent, the ground) is the old
+  // kind: one depth, below which it floods.
+  if (at) {
+    const holes = c.holes || (c.holes = []);
+    if (holes.length < 16) holes.push({ x: at.x, y: at.y, z: at.z, a: area });
+    else {
+      // Full: the new hole goes into the nearest one, which is where the
+      // plating between them has gone anyway.
+      let best = holes[0], bd = Infinity;
+      for (const h of holes) {
+        const d = Math.hypot(h.x - at.x, h.y - at.y, h.z - at.z);
+        if (d < bd) { bd = d; best = h; }
+      }
+      best.a += area;
+    }
+    c.posArea = (c.posArea || 0) + area;
+    if (!c.side) c.side = side < 0 ? -1 : 1;
+    if (first) state.events.push({ e: 'flood', ship: ship.id, at: where, dry: 1 });
+    ship.flooding = floodedCount(ship);
+    return;
+  }
   // And which side of her the water in here is going to sit on. Remembered on
   // the compartment rather than worked out from which holes are still open --
   // a damage control party that shores the holes does not make the water that
@@ -7847,24 +7904,37 @@ function stepFlooding(state, ship, dt) {
     // the most damage is the one the sea gets into fastest, which is where the
     // water starts and where it stays worst.
     const wrecked = 1 - clamp(c.hp / c.max, 0, 1);
-    const open = (c.holeP + c.holeS) * (1 + wrecked * 1.5) * shored;
-    if (open > 0 && vol > 0) {
-      // How much sea is standing over the hole now: what it was when it was
-      // made, plus however much deeper she is sitting since.
-      const head = (c.holeY ?? 1) + b.sink;
-      c.inflow = 0;
-      if (head > 0.05) {
-        // Torricelli, with the usual coefficient for a ragged hole in
-        // plating -- and choked by the wreckage and the machinery the water
-        // has to get past, which is what makes a flooded compartment take a
-        // minute rather than five seconds.
-        const rate = 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16;
+    const worse = (1 + wrecked * 1.5) * shored;
+    // The holes with no place on her, at the one depth they were made at...
+    const open = Math.max(0, c.holeP + c.holeS - (c.posArea || 0)) * worse;
+    c.inflow = 0;
+    if (vol > 0) {
+      // Torricelli, with the usual coefficient for a ragged hole in plating --
+      // and choked by the wreckage and the machinery the water has to get
+      // past, which is what makes a flooded compartment take a minute rather
+      // than five seconds.
+      let rate = 0;
+      if (open > 0) {
+        // How much sea is standing over the hole now: what it was when it
+        // was made, plus however much deeper she is sitting since.
+        const head = (c.holeY ?? 1) + b.sink;
+        if (head > 0.05) rate += 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16;
+      }
+      // ...and every hole that is somewhere, with the sea asked about it
+      // where it is: the waves, her roll and pitch, her list, her trim and
+      // how far down she is, all at that point. A hole above her waterline
+      // takes the sea in gulps, when a wave or a roll puts the water over it.
+      if (c.holes && c.holes.length) {
+        for (const h of c.holes) {
+          const head = holeHead(state, ship, h);
+          if (head > 0.02) rate += 0.62 * h.a * worse * Math.sqrt(2 * 9.81 * head) * 0.16;
+        }
+      }
+      if (rate > 0) {
         const full = c.water / vol;
         const q = Math.min(vol - c.water, rate * (1 - full * 0.7) * dt);
         if (q > 0) { c.water += q; took += q; c.inflow = q / dt; }
       }
-    } else {
-      c.inflow = 0;
     }
     // And it puts the fire out, which is the one good thing about it. The
     // water is in the bottom of the compartment, which is where the fire is,
