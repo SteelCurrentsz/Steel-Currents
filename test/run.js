@@ -13619,15 +13619,23 @@ check('a shell among her charges blows the magazine, and nothing else does', () 
   assert.ok(ship.sections.mid.holeS > 0,
     'the compartment next door is dry and unopened');
 
-  // And the sea comes in. Not a leak -- her side is gone over the length of
-  // that compartment, and half a minute later there are thousands of tons in
-  // her and she is flooding in more compartments than the one that went up.
+  // And she is out of the fight and going down where she lies, her side open
+  // to the sea over the length of that compartment -- stopped dead where it
+  // happened, with her telegraph rung up or not, and nothing aboard her ever
+  // laying a gun again.
+  ship.notch = 5; ship.rudderCmd = 1;
+  const x0 = ship.x, z0 = ship.z, h0 = ship.heading;
+  assert.ok(ship.blown && ship.speed === 0, 'she kept her way after her magazine went up');
+  assert.ok(ship.turrets.every((t) => t.hurt >= 3), 'a turret came through a magazine explosion');
   const held = c.wP + c.wS;
-  for (let i = 0; i < 30 / DT; i++) step(state, DT);
-  const took = c.wP + c.wS - held;
-  assert.ok(took > 2000, `she took ${took.toFixed(0)} tons in half a minute`);
-  assert.ok(ship.flooding > 1,
-    `only ${ship.flooding} compartment is flooding after a magazine went up`);
+  for (let i = 0; i < 30 / DT; i++) {
+    step(state, DT);
+    if (ship.alive) { ship.notch = 5; ship.rudderCmd = 1; }
+  }
+  assert.ok(Math.hypot(ship.x - x0, ship.z - z0) < 0.01 && ship.heading === h0,
+    `she sailed on ${Math.hypot(ship.x - x0, ship.z - z0).toFixed(1)} m after her magazine went up`);
+  assert.ok(!ship.alive && ship.sinking, 'she fought on with her magazine blown out of her');
+  assert.ok(c.wP + c.wS >= held, 'the sea went out of her');
 
   // A light cruiser does not live through it at all.
   const cruiser = bang('iowa', 'cleveland', 0.4, { keep: true }).blown.ship;

@@ -30,7 +30,7 @@ import { prepareSoup, clearSoups } from './section.js';
 import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
-import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
+import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
 import {
@@ -810,7 +810,7 @@ export class ShipView {
     // Nothing shot away is taken off her any more: a shell or a bomb that
     // gets in is an explosion and a mark on the damage board, and the ship
     // stands as she was built until the sea takes her.
-    if (!sk || NO_MARKS) return;
+    if (!sk || NO_MARKS || this.rupture) return;
     for (let i = 0; i < SECTIONS.length; i++) {
       const k = SECTIONS[i].k;
       const gone = sk[i] <= 0;
@@ -1301,7 +1301,7 @@ export class ShipView {
    * her up from one that burst against something already blown away.
    */
   punch(wx, wy, wz, r, soft = 0.55, power = 0) {
-    if (!this.plating) return 0;
+    if (!this.plating || this.rupture) return 0;
     const p = TMP.set(wx, wy, wz);
     this.group.updateMatrixWorld(true);
     this.group.worldToLocal(p);
@@ -1323,6 +1323,7 @@ export class ShipView {
    * or down through the hole, under its own weight (see wreckage.js).
    */
   dropUnsupported(x, y, z, r) {
+    if (this.rupture) return;
     // Plating the holes have cut loose from the rest of her.
     let fell = this.plating ? this.plating.islands(x, y, z, r) : [];
     if (!fell.length) fell = null;
@@ -1360,7 +1361,9 @@ export class ShipView {
    * wreckage thrown out of it.
    */
   hitMark(ev) {
-    if (!this.plating) return;
+    // Blown apart, she is drawn as her wreck (see rupture.js), and her own
+    // model is not there to be marked or to shed anything.
+    if (!this.plating || this.rupture) return;
     const bore = (ev.cal || 152) / 1000;
     const p = TMP.set(ev.x, ev.y ?? 8, ev.z);
     this.group.updateMatrixWorld(true);
@@ -1370,6 +1373,9 @@ export class ShipView {
     const dir = v && v.lengthSq() > 1 ? [v.x, v.y, v.z] : null;
     const seed = ((Math.round(ev.x * 7) * 73856093) ^ (Math.round(ev.z * 7) * 19349663)) >>> 0;
     const x = p.x, y = p.y, z = p.z;
+    // The plate it came in through, as thick as it is: the first of the
+    // layers the battle walked it through.
+    const thick = Array.isArray(ev.pl) && ev.pl[0] ? (ev.pl[0][1] || 0) / 1000 : null;
     switch (ev.kind) {
       case 'ricochet':
       case 'shatter':
@@ -1380,23 +1386,23 @@ export class ShipView {
         return;
       case 'overpen':
         this.plating.mark(x, y, z, 'dent', dir, bore, seed);
-        this.holeAt(x, y, z, Math.max(0.7, bore * 1.6));
+        this.holeAt(x, y, z, Math.max(0.7, bore * 1.6), dir, thick);
         return;
       case 'he':
-        if (bore >= 0.2) this.holeAt(x, y, z, Math.max(1, holeRadius('he', ev.cal) * 0.55));
+        if (bore >= 0.2) this.holeAt(x, y, z, Math.max(1, holeRadius('he', ev.cal) * 0.55), dir, thick);
         else this.plating.mark(x, y, z, 'dent', dir, bore, seed);
         return;
       case 'pen':
         // No smaller than reads as a hole on plating cut as coarsely as hers:
         // a five-inch shell's own bore takes out a sliver and looks like a
         // crack in the paint.
-        this.holeAt(x, y, z, Math.max(1, holeRadius('pen', ev.cal) * 1.3));
+        this.holeAt(x, y, z, Math.max(1, holeRadius('pen', ev.cal) * 1.3), dir, thick);
         return;
       case 'citadel': {
         // The worst a shell can do short of her magazine: a big ragged
         // opening, longer one way than the other.
         const r = Math.max(2.2, holeRadius('citadel', ev.cal) * 0.6);
-        this.holeAt(x, y, z, r);
+        this.holeAt(x, y, z, r, dir, thick);
         this.plating.tear(x, y, z, r * 0.8, seed);
         return;
       }
@@ -1404,19 +1410,47 @@ export class ShipView {
     }
   }
 
-  /** A hole at a point in her own frame, and whatever was standing on it falls. */
-  holeAt(x, y, z, r) {
+  /**
+   * A hole at a point in her own frame, and whatever was standing on it falls.
+   *
+   * `dir` is the way the shell was going, in her frame, and `thick` the plate
+   * it went through in metres -- off her armour where the battle did not say.
+   */
+  holeAt(x, y, z, r, dir = null, thick = null) {
     // On her plating, not in the air beside it: the hit is reported off the
     // battle's box of her, and her real side can be a metre or two inboard.
     const near = this.plating.nearest(x, y, z, Math.max(6, r * 2.5));
     if (!near) return 0;
-    const old = this.holes ? this.holes.add(near[0], near[1], near[2], r) : null;
+    let [cx, cy, cz, nx, ny, nz] = near;
+    // Facing out of her: against the shell, or failing that up off a deck
+    // and outboard off a side.
+    const out = dir ? -(nx * dir[0] + ny * dir[1] + nz * dir[2])
+      : Math.abs(ny) > 0.6 ? ny : nx * cx;
+    if (out < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    // Where it struck on that plate, not the middle of the nearest piece of
+    // it, which on a long strip of side can be a metre away.
+    const off = (x - cx) * nx + (y - cy) * ny + (z - cz) * nz;
+    cx = x - nx * off; cy = y - ny * off; cz = z - nz * off;
+    if (thick == null) thick = this.plateAt(cy, cz, ny);
+    const old = this.holes
+      ? this.holes.add(cx, cy, cz, r, nx, ny, nz, Math.max(0.012, thick)) : null;
     // One that has dropped out of what her shaders hold is cut out of her
     // the old way, so it stays a hole.
     if (old) this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
     if (!this.holes) this.plating.punch(x, y, z, r, 0.45);
-    this.dropUnsupported(near[0], near[1], near[2], r);
+    this.dropUnsupported(cx, cy, cz, r);
     return 1;
+  }
+
+  /** How thick her plating is at a height and a station, metres: her armour. */
+  plateAt(y, z, ny) {
+    const A = this.cls.armor || {};
+    const half = this.cls.hull.length / 2;
+    const deckY = freeboardOf(this.cls);
+    const mm = Math.abs(ny) > 0.6 ? (A.deck ?? 20)
+      : y > deckY + 1.5 ? (A.superstructure ?? 12)
+        : Math.abs(z) > half * 0.62 ? (A.bow ?? 20) : (A.belt ?? 20);
+    return mm / 1000;
   }
 
   /**

@@ -19,32 +19,99 @@ import { cloneMaterial } from './sever.js';
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
 export const HOLE_SLOTS = 48;
 
-const VERT_HEAD = 'varying vec3 vHolePos;';
-const VERT_BODY = 'vHolePos = position;';
+const VERT_HEAD = 'varying vec3 vHolePos; varying vec3 vHoleView;';
+// Where the fragment is and which way it is being looked at, both in her
+// plating's own frame (a direction multiplied on the left of the model matrix
+// is that direction carried back into the model's frame).
+const VERT_BODY = `vHolePos = position;
+vHoleView = (vec4((modelMatrix * vec4(position, 1.0)).xyz - cameraPosition, 0.0) * modelMatrix).xyz;`;
 const FRAG_HEAD = `
 varying vec3 vHolePos;
+varying vec3 vHoleView;
 uniform vec4 uHoles[${HOLE_SLOTS}];
+uniform vec4 uHoleNorm[${HOLE_SLOTS}];
 uniform int uHoleN;
+float holeEdge(vec3 d, vec3 n, vec4 h, out float rr) {
+  // Measured across the plate, not through it: the outline is in her plating.
+  vec3 t1 = normalize(cross(n, abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+  vec3 t2 = cross(n, t1);
+  float s = fract(sin(dot(h.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  float s2 = fract(s * 7.31 + 0.17);
+  float s3 = fract(s * 13.7 + 0.53);
+  float u = dot(d, t1), v = dot(d, t2);
+  float r = abs(h.w);
+  // Off-centre and drawn out one way: a shell comes in at a slant and the
+  // plate tears along its grain.
+  float ang = s * 6.2832;
+  vec2 ax = vec2(cos(ang), sin(ang));
+  vec2 q = vec2(u, v) - ax * r * (0.18 * s2);
+  float el = 1.0 + 0.55 * s3;
+  vec2 e = vec2(dot(q, ax) / el, dot(q, vec2(-ax.y, ax.x)) * (0.85 + 0.15 * s2));
+  float th = atan(e.y, e.x);
+  // Torn, not cut: big uneven lobes, smaller bites and a jagged lip.
+  float w = 0.20 * sin(2.0 * th + s * 11.0) + 0.16 * sin(3.0 * th + s2 * 17.0)
+          + 0.09 * sin(5.0 * th + s3 * 23.0) + 0.06 * sin(9.0 * th + s * 31.0)
+          + 0.035 * sin(17.0 * th + s2 * 41.0) + 0.02 * sin(29.0 * th + s3 * 7.0);
+  rr = r * (1.0 + w);
+  return length(e);
+}
 `;
-// Ragged, not a disc: the radius wanders with the direction from the middle,
-// in a few smooth lobes of its own for every hole (its seed is the hole's own
-// position), so no two holes are the same shape and none is a circle.
+// Where a hole is, her plating is not drawn -- but only in the plate that was
+// struck (a slab as thick as the hole is wide, square to that plate), so the
+// far side of her is still there. And the plate is as thick as her armour is
+// at that point: looked into at a slant, the wall of the hole is seen, bare
+// torn steel down to the inside of the plate. Behind the plating everything is
+// the dark inside of a steel box, never the sea on the other side.
 const FRAG_CUT = `
+  bool holeWall = false;
+  float holeDeep = 0.0;
   for (int i = 0; i < ${HOLE_SLOTS}; i++) {
     if (i >= uHoleN) break;
     vec4 h = uHoles[i];
     vec3 d = vHolePos - h.xyz;
     float r = abs(h.w);
-    float d2 = dot(d, d);
-    if (d2 < r * r * 1.7) {
-      vec3 n = d / max(sqrt(d2), 1e-3);
-      float s = fract(h.x * 0.137 + h.z * 0.071 + h.y * 0.29) * 6.2832;
-      float lobe = sin(n.x * 5.0 + s) * sin(n.y * 4.0 + s * 1.7) * sin(n.z * 6.0 + s * 2.3);
-      float rr = r * (1.0 + 0.28 * lobe);
-      if (d2 < rr * rr) discard;
+    // (The outline reaches out to about two and a half times r at most.)
+    if (dot(d, d) > r * r * 7.0) continue;
+    vec4 nh = uHoleNorm[i];
+    vec3 n = nh.xyz;
+    float off = dot(d, n);
+    if (abs(off) > max(0.9, r * 0.6) + nh.w) continue;
+    float rr;
+    float at = holeEdge(d - n * off, n, h, rr);
+    if (at >= rr) continue;
+    // Inside the outline. Down through the plate along the line of sight:
+    // still inside the outline at the back of the plate, it is open; out of
+    // it before then, that is the wall of the hole that is being seen.
+    vec3 V = normalize(vHoleView);
+    float into = -dot(V, n);
+    if (into > 0.03 && nh.w > 0.0) {
+      float run = (nh.w + off) / into;
+      vec3 b = d + V * run;
+      float rb;
+      float atb = holeEdge(b - n * dot(b, n), n, h, rb);
+      if (atb >= rb) { holeWall = true; holeDeep = clamp((rr - at) / max(rr - at + atb - rb, 1e-4), 0.0, 1.0); continue; }
     }
+    discard;
   }
 `;
+// Bare torn steel for the wall of a hole, and the dark of her insides for the
+// back of every plate.
+const FRAG_SHADE = `
+  if (holeWall) gl_FragColor.rgb = mix(vec3(0.075, 0.07, 0.064), vec3(0.012, 0.011, 0.010), holeDeep) * (0.6 + 0.4 * gl_FragColor.g / max(diffuseColor.g, 0.05));
+  else if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.007, 0.0062, 0.0056) + gl_FragColor.rgb * 0.04;
+`;
+
+/**
+ * A ray meets her plating from outside only, as it did before the insides of
+ * her plates were drawn: what a layer sees down his sight, or what a click
+ * lands on, is her side and not the back of the plate he is standing behind.
+ */
+function rayOutside(rc, out) {
+  const ms = Array.isArray(this.material) ? this.material : [this.material];
+  const was = ms.map((m) => m && m.side);
+  for (const m of ms) if (m && m.userData && m.userData.raySide != null) m.side = m.userData.raySide;
+  try { THREE.Mesh.prototype.raycast.call(this, rc, out); } finally { ms.forEach((m, i) => { if (m) m.side = was[i]; }); }
+}
 
 /**
  * Give every piece of her plating its own copy of its material with the
@@ -53,6 +120,7 @@ const FRAG_CUT = `
 export function holePlating(meshes) {
   const U = {
     uHoles: { value: Array.from({ length: HOLE_SLOTS }, () => new THREE.Vector4()) },
+    uHoleNorm: { value: Array.from({ length: HOLE_SLOTS }, () => new THREE.Vector4()) },
     uHoleN: { value: 0 },
   };
   const made = new Map();
@@ -70,9 +138,16 @@ export function holePlating(meshes) {
         .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${FRAG_HEAD}`)
-        .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`);
+        .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`)
+        .replace('#include <tonemapping_fragment>', `${FRAG_SHADE}\n#include <tonemapping_fragment>`);
     };
-    m.customProgramCacheKey = () => `holes|${prevKey}`;
+    m.customProgramCacheKey = () => `holes2|${prevKey}`;
+    // Both faces, so that the inside of a plate is there to be seen through a
+    // hole; the shadows she casts are what they were.
+    if (m.side === THREE.FrontSide) {
+      m.side = THREE.DoubleSide; m.shadowSide = THREE.BackSide;
+      m.userData.raySide = THREE.FrontSide;
+    }
     // Hers alone already, so nothing that wants a ship's own copy of her
     // paint (see markable in pieces.js) copies it again and loses the holes.
     m.userData = { ...(m.userData || {}), holed: true, perShip: true };
@@ -81,17 +156,26 @@ export function holePlating(meshes) {
   };
   for (const mesh of meshes) {
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(wrap) : wrap(mesh.material);
+    mesh.raycast = rayOutside;
   }
   return {
     U,
     list: [],
-    /** A hole at (x, y, z) in her plating's own frame, `r` across the middle. */
-    add(x, y, z, r) {
+    /**
+     * A hole at (x, y, z) in her plating's own frame, `r` across the middle,
+     * in a plate facing (nx, ny, nz) that is `thick` metres of steel.
+     */
+    add(x, y, z, r, nx = 0, ny = 1, nz = 0, thick = 0.02) {
       const list = this.list;
-      list.push([x, y, z, r]);
+      const l = Math.hypot(nx, ny, nz) || 1;
+      list.push([x, y, z, r, nx / l, ny / l, nz / l, thick]);
       const n = Math.min(list.length, HOLE_SLOTS);
       const from = list.length - n;
-      for (let i = 0; i < n; i++) U.uHoles.value[i].set(...list[from + i]);
+      for (let i = 0; i < n; i++) {
+        const h = list[from + i];
+        U.uHoles.value[i].set(h[0], h[1], h[2], h[3]);
+        U.uHoleNorm.value[i].set(h[4], h[5], h[6], h[7]);
+      }
       U.uHoleN.value = n;
       // Past what the shaders hold, the oldest hole is handed back for the
       // caller to take out of her the old way, so it does not close up.

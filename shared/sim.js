@@ -658,6 +658,14 @@ const ROLL_DAMPING = 0.12;
 
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
+  // Her magazine has gone up under her. There is no engine room, no rudder
+  // and no bridge to ring down for either: she stops where it happened, dead
+  // in the water, and goes down there.
+  if (ship.blown) {
+    ship.speed = 0; ship.yawRate = 0; ship.driftX = 0; ship.driftZ = 0;
+    ship.rudder = 0; ship.rudderCmd = 0; ship.lean = 0; ship.leanRate = 0;
+    return;
+  }
   // And a piece of her cut off takes what was in it: her machinery, her
   // screws, or the stem she was cutting the water with. See cutDrive.
   const engine = (ship.engineDamage > 0 ? 0.45 : 1) * cutDrive(ship);
@@ -4184,6 +4192,9 @@ function detonate(state, ship, where, owner) {
   // it draws off this: the fireball, the column, and how far her hull and her
   // turrets are thrown.
   const tons = Math.round(magazineTons(state, ship, cls, where));
+  // And she is stopped dead by it (see stepMovement).
+  ship.blown = true;
+  ship.speed = 0; ship.yawRate = 0; ship.driftX = 0; ship.driftZ = 0; ship.notch = 1;
   // The compartment itself, and a great deal of what is either side of it.
   const gone = c.hp;
   c.hp = 0;
@@ -4220,15 +4231,12 @@ function detonate(state, ship, where, owner) {
     startFire(state, ship, n.k, 0.7);
   }
   startFire(state, ship, 'works', 0.5);
-  // The shock. Nothing aboard is laying a gun for a while.
-  for (const t of ship.turrets) {
-    t.disabled = Math.max(t.disabled, 26 + state.rng() * 20);
-    hurtMount(state, t, 1.4 + state.rng() * 1.9);
-  }
-  for (const m of ship.secMounts) {
-    m.disabled = Math.max(m.disabled || 0, 20 + state.rng() * 16);
-    hurtMount(state, m, 1.1 + state.rng() * 2.1);
-  }
+  // And she is finished as a fighting ship. Her back is broken, her
+  // mountings are lifted off their roller paths and her fire control is gone:
+  // nothing aboard her lays a gun again, and she goes down where she lies.
+  for (const t of ship.turrets) { t.disabled = Math.max(t.disabled, 60); hurtMount(state, t, 3); }
+  for (const m of ship.secMounts) { m.disabled = Math.max(m.disabled || 0, 60); hurtMount(state, m, 3); }
+  for (const m of ship.torpMounts || []) hurtMount(state, m, 3);
   ship.engineDamage = Math.max(ship.engineDamage, 18 + state.rng() * 20);
   ship.steeringDamage = Math.max(ship.steeringDamage, 18 + state.rng() * 20);
   ship.flooding = floodedCount(ship);
@@ -6261,7 +6269,7 @@ function stepPlanes(state, dt) {
       if (!s.alive || s.team === p.team) continue;
       // A boat that is down has her flak under water with everything else, and
       // an aeroplane overhead has nothing whatever to fear from her.
-      if (gunsDrowned(s)) continue;
+      if (gunsDrowned(s) || s.blown) continue;
       const scls = getClass(s.classId);
       if (!scls.aa) continue;
       const d = dist(p.x, p.z, s.x, s.z);
@@ -7182,7 +7190,7 @@ export function highBattery(cls, slant) {
 function heavyFlak(state, bm, dt) {
   let taken = 0;
   for (const s of state.ships) {
-    if (!s.alive || s.team === bm.team) continue;
+    if (!s.alive || s.team === bm.team || s.blown) continue;
     const cls = getClass(s.classId);
     if (!cls.aa) continue;
     const d = dist(bm.x, bm.z, s.x, s.z);

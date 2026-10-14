@@ -2297,6 +2297,13 @@ export class Battle {
           // local noise, and the column over her is visible from the other
           // end of the map.
           const view = this.scene.shipViews.get(ev.ship);
+          // Stopped dead, as the battle has her (see stepMovement): our own
+          // prediction must not sail on.
+          if (ev.ship === this.shipId && this.localShip) {
+            const ls = this.localShip;
+            ls.blown = true; ls.speed = 0; ls.yawRate = 0; ls.driftX = 0; ls.driftZ = 0;
+            this.fix = null;
+          }
           const cls = getClass(ev.cls);
           const half = cls.hull.length / 2;
           const sec = SECTIONS.find((q) => q.k === ev.at);
