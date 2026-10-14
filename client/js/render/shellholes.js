@@ -16,6 +16,14 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { cloneMaterial } from './sever.js';
 
+/**
+ * Whether holes are cut in the shader at all. Off on a device whose graphics
+ * have already been lost once (see safeGraphics in main.js): there they are
+ * cut out of her plating the old way, triangle by triangle, at no cost to
+ * drawing her.
+ */
+export const HOLE_SHADER = { on: true };
+
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
 export const HOLE_SLOTS = 48;
 
@@ -94,12 +102,21 @@ const FRAG_CUT = `
     discard;
   }
 `;
-// Bare torn steel for the wall of a hole, and the dark of her insides for the
-// back of every plate.
+// Bare torn steel for the wall of a hole. (The dark of her insides, seen
+// through it, is the inner face drawn on its own: see holeNear.)
 const FRAG_SHADE = `
   if (holeWall) gl_FragColor.rgb = mix(vec3(0.075, 0.07, 0.064), vec3(0.012, 0.011, 0.010), holeDeep) * (0.6 + 0.4 * gl_FragColor.g / max(diffuseColor.g, 0.05));
-  else if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.007, 0.0062, 0.0056) + gl_FragColor.rgb * 0.04;
 `;
+
+let INSIDE = null;
+/** The inside face of a holed plate: dark steel, unlit, fogged like everything else. */
+function insideMaterial() {
+  if (!INSIDE) {
+    INSIDE = new THREE.MeshBasicMaterial({ color: 0x0b0a09, side: THREE.BackSide });
+    INSIDE.userData.inside = true;
+  }
+  return INSIDE;
+}
 
 /**
  * A ray meets her plating from outside only, as it did before the insides of
@@ -117,7 +134,7 @@ function rayOutside(rc, out) {
  * Give every piece of her plating its own copy of its material with the
  * holes cut in, and hand back the list they are cut from.
  */
-export function holePlating(meshes) {
+export function holePlating(parts) {
   const U = {
     uHoles: { value: Array.from({ length: HOLE_SLOTS }, () => new THREE.Vector4()) },
     uHoleNorm: { value: Array.from({ length: HOLE_SLOTS }, () => new THREE.Vector4()) },
@@ -141,26 +158,58 @@ export function holePlating(meshes) {
         .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`)
         .replace('#include <tonemapping_fragment>', `${FRAG_SHADE}\n#include <tonemapping_fragment>`);
     };
-    m.customProgramCacheKey = () => `holes2|${prevKey}`;
-    // Both faces, so that the inside of a plate is there to be seen through a
-    // hole; the shadows she casts are what they were.
-    if (m.side === THREE.FrontSide) {
-      m.side = THREE.DoubleSide; m.shadowSide = THREE.BackSide;
-      m.userData.raySide = THREE.FrontSide;
-    }
+    m.customProgramCacheKey = () => `holes3|${prevKey}`;
     // Hers alone already, so nothing that wants a ship's own copy of her
     // paint (see markable in pieces.js) copies it again and loses the holes.
     m.userData = { ...(m.userData || {}), holed: true, perShip: true };
     made.set(src, m);
     return m;
   };
-  for (const mesh of meshes) {
-    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(wrap) : wrap(mesh.material);
-    mesh.raycast = rayOutside;
+  // Ready, but not put on her: a plate with no hole near it is drawn with
+  // her own paint as it always was. A shader that can throw a fragment away
+  // turns off the trick a phone or tablet's graphics chip uses to skip
+  // everything hidden behind something nearer -- on every plate it is on --
+  // and drawing both faces of a plate doubles what is left. Across the whole
+  // of every hull in a battle that was more than an iPad would carry, and it
+  // took the picture away. So the holes go on the pieces of her plating
+  // within reach of a hole, and only when there is one.
+  const pieces = parts.map((p) => ({
+    mesh: p.mesh || p,
+    lo: Number.isFinite(p.minZ) ? p.minZ : -Infinity,
+    hi: Number.isFinite(p.maxZ) ? p.maxZ : Infinity,
+    holed: false,
+  }));
+  for (const q of pieces) {
+    const mm = q.mesh.material;
+    for (const m of Array.isArray(mm) ? mm : [mm]) wrap(m);
   }
+  const holeNear = (z, r) => {
+    const reach = r * 2.7 + 1;
+    for (const q of pieces) {
+      if (q.holed || z + reach < q.lo || z - reach > q.hi) continue;
+      q.holed = true;
+      const mesh = q.mesh;
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(wrap) : wrap(mesh.material);
+      mesh.raycast = rayOutside;
+      // And the inside of those plates, seen through a hole: the dark of a
+      // steel box rather than the sea beyond her. Its own plain, unlit mesh
+      // of the back faces only, which costs a phone next to nothing -- the
+      // plating's own shader drawing both faces cost it twice the plating.
+      const inner = new THREE.Mesh(mesh.geometry, insideMaterial());
+      inner.userData.inside = true;
+      inner.raycast = () => {};
+      inner.renderOrder = mesh.renderOrder;
+      mesh.add(inner);
+    }
+  };
   return {
     U,
     list: [],
+    /** Her plating's holed materials, each with a geometry it is drawn on, for compiling ahead. */
+    warm: pieces.flatMap((q) => {
+      const mm = q.mesh.material;
+      return (Array.isArray(mm) ? mm : [mm]).map((m) => [q.mesh.geometry, made.get(m) || m]);
+    }),
     /**
      * A hole at (x, y, z) in her plating's own frame, `r` across the middle,
      * in a plate facing (nx, ny, nz) that is `thick` metres of steel.
@@ -169,6 +218,7 @@ export function holePlating(meshes) {
       const list = this.list;
       const l = Math.hypot(nx, ny, nz) || 1;
       list.push([x, y, z, r, nx / l, ny / l, nz / l, thick]);
+      holeNear(z, r);
       const n = Math.min(list.length, HOLE_SLOTS);
       const from = list.length - n;
       for (let i = 0; i < n; i++) {

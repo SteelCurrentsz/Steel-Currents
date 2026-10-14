@@ -13911,10 +13911,22 @@ check('a round that got in holes her, and one that did not only marks her', () =
   shoot('citadel', 35, 406);
   assert.equal(view.holes.list.length, 2, 'a citadel hit made no hole');
   assert.ok(view.holes.list[1][3] > pen * 1.8, 'a citadel hit opened her no more than a penetration');
-  // Cut in her own copies of her materials, so no other ship of her class is holed.
+  // Cut in her own copies of her materials, so no other ship of her class is
+  // holed -- and only on the plating within reach of a hole: the rest of her
+  // keeps her own paint, which a phone's graphics chip draws far more cheaply.
+  const lit = (m) => m.isMeshPhongMaterial || m.isMeshLambertMaterial || m.isMeshStandardMaterial;
+  const near = (part, z) => z + 12 >= part.minZ && z - 12 <= part.maxZ;
+  let holed = 0, plain = 0;
   for (const part of P.parts) {
-    for (const m of [].concat(part.mesh.material)) assert.ok(!m.isMeshPhongMaterial && !m.isMeshLambertMaterial && !m.isMeshStandardMaterial || m.userData.holed, 'her plating is not cut for holes');
+    for (const m of [].concat(part.mesh.material)) {
+      if (!lit(m)) continue;
+      const struck = view.holes.list.some((h) => near(part, h[2]));
+      if (m.userData.holed) { holed++; assert.ok(struck || part.minZ <= -1e9, 'plating nowhere near a hole was given the hole shader'); }
+      else { plain++; assert.ok(!struck || !(view.holes.list.some((h) => h[2] + h[3] * 2.7 + 1 >= part.minZ && h[2] - h[3] * 2.7 - 1 <= part.maxZ)), 'plating at a hole is not cut for it'); }
+    }
   }
+  assert.ok(holed > 0, 'none of her plating was cut for its holes');
+  assert.ok(plain > 0, 'all of her plating carries the hole shader, holes or not');
   // And a hole is only a hole: no torn collar stood round it, no soot.
   assert.equal(P.rims.at, 0, 'a hole was given a collar');
   view.dispose(scene);

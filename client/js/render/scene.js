@@ -19,7 +19,7 @@ import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
-import { holePlating } from './shellholes.js';
+import { holePlating, HOLE_SHADER } from './shellholes.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
@@ -725,7 +725,7 @@ export class ShipView {
     // And the shell holes in her plating, cut where they are in her shaders
     // (see shellholes.js) -- after her fittings have been given their own
     // copies of her paint, which the holes are then cut into.
-    this.holes = holePlating(this.plating.parts.map((p) => p.mesh));
+    this.holes = HOLE_SHADER.on ? holePlating(this.plating.parts) : null;
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -2252,6 +2252,7 @@ export class BattleScene {
    * nobody holds is thrown away.
    */
   warmCuts(views = this.shipViews.values()) {
+    views = [...views];
     const w = this.cutWarm || (this.cutWarm = { mats: [], bare: null, seen: new Set(), U: cutUniforms(0, 1, 0.5) });
     const scene = new THREE.Scene();
     // Her insides, too: built only when she is opened up, and cut with her.
@@ -2282,6 +2283,19 @@ export class BattleScene {
           }
         }
       });
+    }
+    // Her plating as it is drawn once it has been holed (see shellholes.js):
+    // put on her at the first hit, and compiled now rather than then.
+    for (const view of views) {
+      for (const [geo, m] of (view && view.holes && view.holes.warm) || []) {
+        const key = `${m.uuid}|holes`;
+        if (!geo || w.seen.has(key)) continue;
+        w.seen.add(key);
+        w.mats.push(m);
+        const mesh = new THREE.Mesh(geo, m);
+        mesh.frustumCulled = false;
+        scene.add(mesh);
+      }
     }
     if (!scene.children.length) return;
     // Compiled under the battle's own lights and fog, which are part of

@@ -2,6 +2,7 @@
 // the battle.
 
 import { letGoBoards } from './render/boardgl.js';
+import { HOLE_SHADER } from './render/shellholes.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
@@ -96,7 +97,9 @@ function safeGraphics() {
 }
 function goSafe() {
   try { localStorage.setItem(SAFE_KEY, String(Date.now())); } catch { /* private mode */ }
+  HOLE_SHADER.on = false;
 }
+HOLE_SHADER.on = !safeGraphics();
 
 /**
  * A renderer, on a context that is actually there. A canvas whose context
