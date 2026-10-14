@@ -13692,9 +13692,10 @@ check('a magazine explosion throws the turret over it into the air', () => {
 
 check('a magazine blows her apart, and how far by what was in it', () => {
   // Not her plating peeled off a length of her with her insides standing in
-  // the gap: three pieces of her, torn, and the one over the magazine thrown
-  // into the air with the turrets on it -- a few metres off a destroyer's
-  // outfit of five-inch, a hundred and more off a battleship's.
+  // the gap: three pieces of her, torn, the one over the magazine heaved up
+  // and dropped -- a little off a destroyer's outfit of five-inch, a few
+  // metres off a battleship's -- and the mountings that stood on it thrown as
+  // wreckage: torn, crumpled fragments, never a whole turret in the sky.
   const rng = () => 0.5;
   const tons = (id) => {
     const state = { rng };
@@ -13722,7 +13723,13 @@ check('a magazine blows her apart, and how far by what was in it', () => {
       piece.traverse((o) => { if (o.userData.cutMat) torn++; });
       assert.ok(torn > 0, 'a piece of her was not torn from the rest');
     }
-    assert.ok(R.flyers.length > 1, 'no turret went up with her magazine');
+    // Torn up a few a frame in the battle; all at once here.
+    R.tearSome(1e9);
+    const scraps = R.flyers.filter((f) => !f.hull);
+    assert.ok(scraps.length > 4, 'nothing of her mountings went up with her magazine');
+    for (const f of scraps) {
+      assert.ok(f.obj.isMesh && f.obj.userData.ownGeo, 'a whole mounting was thrown, not its wreckage');
+    }
     let hull = 0;
     let turret = 0;
     const y0 = R.flyers.map((f) => f.obj.position.y);
@@ -13742,9 +13749,10 @@ check('a magazine blows her apart, and how far by what was in it', () => {
   };
   const small = blow(25);
   const big = blow(1500);
-  assert.ok(big.hull > 60, `a battleship's magazine threw her hull only ${big.hull.toFixed(1)} m`);
-  assert.ok(small.hull < 15, `a destroyer's magazine threw her hull ${small.hull.toFixed(1)} m`);
-  assert.ok(big.turret > big.hull, 'her turrets did not go higher than her hull');
+  assert.ok(big.hull > small.hull, 'a battleship\'s magazine heaved her no higher than a destroyer\'s');
+  assert.ok(big.hull > 2 && big.hull < 15, `a battleship's magazine threw a thousand tons of her hull ${big.hull.toFixed(1)} m`);
+  assert.ok(small.hull < 4, `a destroyer's magazine threw her hull ${small.hull.toFixed(1)} m`);
+  assert.ok(big.turret > big.hull && big.turret < 160, `the wreckage of her mountings went up ${big.turret.toFixed(1)} m`);
 });
 
 check('only a torpedo opens her: a shell or a bomb that gets in is an explosion', () => {
