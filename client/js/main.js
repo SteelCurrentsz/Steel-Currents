@@ -86,18 +86,31 @@ for (const C of [globalThis.WebGL2RenderingContext, globalThis.WebGLRenderingCon
   C.prototype.getShaderPrecisionFormat = safe;
 }
 
+// Lighter graphics on a device whose graphics card has already let the game
+// go once: no antialiasing and no more than one drawn pixel to a screen pixel.
+// Kept for a week, so the next battle on the same iPad does not go the same
+// way, and then tried again at full quality.
+const SAFE_KEY = 'steel-currents:gpu-safe';
+function safeGraphics() {
+  try { return Date.now() - Number(localStorage.getItem(SAFE_KEY) || 0) < 7 * 864e5; } catch { return false; }
+}
+function goSafe() {
+  try { localStorage.setItem(SAFE_KEY, String(Date.now())); } catch { /* private mode */ }
+}
+
 /**
- * The renderer, on a context that is actually there. A canvas whose context
+ * A renderer, on a context that is actually there. A canvas whose context
  * has been lost keeps that lost context, so each further try is on a fresh
  * canvas in its place, asking for less each time.
  */
-function makeRenderer() {
-  const asks = [
-    { antialias: true, powerPreference: 'high-performance' },
-    { antialias: false },
-    { antialias: false, powerPreference: 'low-power' },
-  ];
-  let at = document.getElementById('stage');
+function makeRenderer(at = document.getElementById('stage')) {
+  const asks = safeGraphics()
+    ? [{ antialias: false }, { antialias: false, powerPreference: 'low-power' }]
+    : [
+      { antialias: true, powerPreference: 'high-performance' },
+      { antialias: false },
+      { antialias: false, powerPreference: 'low-power' },
+    ];
   let made = null;
   for (let i = 0; i < asks.length; i++) {
     try {
@@ -109,16 +122,42 @@ function makeRenderer() {
     }
     if (i === asks.length - 1) break;
     try { made && made.dispose(); } catch {}
-    const fresh = at.cloneNode(false);
-    at.replaceWith(fresh);
-    at = fresh;
+    at = freshCanvas(at);
   }
   // Nothing better on offer: the last one, which three.js restores when the
   // browser gives the context back.
   return made || new THREE.WebGLRenderer({ canvas: at, antialias: false });
 }
-const renderer = makeRenderer();
-const canvas = renderer.domElement;
+
+/** A new canvas in the old one's place, with its id and its classes. */
+function freshCanvas(old) {
+  const fresh = old.cloneNode(false);
+  old.replaceWith(fresh);
+  return fresh;
+}
+
+// The renderer every screen is handed is this, and not the WebGL renderer
+// itself: a stand-in that passes everything on to whichever renderer is
+// current. When the graphics card takes the battle's context back and the
+// browser does not give it back -- an iPad, often, and then the battle is a
+// black screen under the HUD for good -- a new renderer is built on a new
+// canvas and put behind the stand-in, and every screen goes on drawing
+// through the same object it always had. Everything it draws is sent to the
+// new context again the first time it is drawn there.
+let real = makeRenderer();
+const bound = new Map();
+const renderer = new Proxy({}, {
+  get(_, k) {
+    const v = real[k];
+    if (typeof v !== 'function') return v;
+    let f = bound.get(k);
+    if (!f || f.of !== real) { f = v.bind(real); f.of = real; bound.set(k, f); }
+    return f;
+  },
+  set(_, k, v) { real[k] = v; return true; },
+  has(_, k) { return k in real; },
+});
+let canvas = real.domElement;
 renderer.setClearColor(0x050c16);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -151,7 +190,7 @@ let current = 'title';
 
 function applyQuality() {
   const q = QUALITY[getSettings().quality] || QUALITY.medium;
-  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, safeGraphics() ? 1 : Infinity);
   governor.scale = 1;
   renderer.setPixelRatio(governor.base);
   resize();
@@ -221,16 +260,62 @@ window.addEventListener('resize', resize);
 // a frozen picture or the browser's own crash notice. Both events are caught:
 // the loss is stopped from becoming the browser's default "page is dead", and
 // the restore puts the picture back.
-canvas.addEventListener('webglcontextlost', (e) => {
-  // Without this the context is never restored and the game is finished.
-  e.preventDefault();
-  letGoBoards();
-  toast('The graphics card dropped the picture — putting it back.');
-}, false);
-canvas.addEventListener('webglcontextrestored', () => {
+let rebuildTimer = 0;
+function watchContext(c) {
+  c.addEventListener('webglcontextlost', (e) => {
+    // Without this the context is never restored.
+    e.preventDefault();
+    letGoBoards();
+    goSafe();
+    toast('The graphics card dropped the picture — putting it back.');
+    // Given back by the browser, three.js picks it up again by itself (see
+    // below). Not given back in a moment, it is built again from nothing.
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(rebuild, 1500);
+  }, false);
+  c.addEventListener('webglcontextrestored', () => {
+    clearTimeout(rebuildTimer);
+    applyQuality();
+    toast('Picture restored.');
+  }, false);
+}
+watchContext(canvas);
+
+/** A new renderer on a new canvas, set up as the old one was, behind the stand-in. */
+function rebuild() {
+  const old = real;
+  if (!old.getContext().isContextLost()) return;
+  const size = old.getSize(new THREE.Vector2());
+  const clear = old.getClearColor(new THREE.Color());
+  const alpha = old.getClearAlpha();
+  const keep = {
+    outputColorSpace: old.outputColorSpace, toneMapping: old.toneMapping,
+    toneMappingExposure: old.toneMappingExposure, autoClear: old.autoClear,
+    autoClearColor: old.autoClearColor, autoClearDepth: old.autoClearDepth,
+    autoClearStencil: old.autoClearStencil, sortObjects: old.sortObjects,
+    localClippingEnabled: old.localClippingEnabled,
+  };
+  const fresh = makeRenderer(freshCanvas(old.domElement));
+  if (fresh.getContext().isContextLost()) {
+    // Still nothing: try again shortly rather than give up on the battle.
+    rebuildTimer = setTimeout(rebuild, 3000);
+    try { fresh.dispose(); } catch { /* gone */ }
+    return;
+  }
+  try { old.dispose(); } catch { /* gone */ }
+  Object.assign(fresh, keep);
+  fresh.setClearColor(clear, alpha);
+  real = fresh;
+  bound.clear();
+  canvas = fresh.domElement;
+  input.canvas = canvas;
+  watchContext(canvas);
+  // Lighter from here on: see safeGraphics.
   applyQuality();
-  toast('Picture restored.');
-}, false);
+  resize();
+  if (battle && battle.scene && battle.scene.cutWarm) battle.scene.cutWarm = null;
+  toast('Picture rebuilt — graphics lightened to keep it.');
+}
 
 // --------------------------------------------------------------- screens --
 
