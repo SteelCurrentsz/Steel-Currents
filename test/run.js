@@ -21,7 +21,7 @@ import {
   assignMount, dpMounts, assignedAim, setMountOff, mountOff,
 } from '../shared/sim.js';
 import {
-  createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic,
+  createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX,
 } from '../shared/sim.js';
@@ -13185,18 +13185,52 @@ check('the bridge gives its orders in its own navy, one at a time and not at eve
   a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
   const at = (t, ...args) => { ctx.currentTime = t; a.speakingUntil = Math.min(a.speakingUntil, t); a.order(...args); };
   at(0, 'main', 'jpn');
-  at(0.1, 'main', 'jpn');          // the next turret in the same salvo
-  at(10, 'main', 'jpn');           // the next salvo
-  at(40, 'main', 'jpn');           // still firing, half a minute on
+  at(0.1, 'main', 'jpn');          // the same word, twice in a breath
+  at(40, 'main', 'jpn');           // the next time the battle gives it
   at(41, 'torp', 'ger', true);
   at(42, 'aa', 'gbr', false);
   at(43, 'dc', 'fra');
   at(44, 'sec', 'italy');          // a navy with no voice of its own
   assert.deepEqual(said, ['jpn:main', 'jpn:main', 'ger:torps', 'gbr:aa', 'fra:dc', 'usa:sec']);
-  // And none while he is still saying the last one.
+  // And a second word while he is still on the first waits for him.
   said.length = 0;
   a.speakingUntil = 100; ctx.currentTime = 90; a.order('torp', 'usa');
   assert.deepEqual(said, [], 'two orders at once');
+  assert.equal(a.orderQueue.length, 1, 'the second order was dropped rather than kept for after');
+  clearTimeout(a.orderTimer); a.orderTimer = null;
+  a.speakingUntil = 0; ctx.currentTime = 91; a.nextOrder();
+  assert.deepEqual(said, ['usa:torp'], 'the waiting order was not said when he was free');
+});
+
+check('the word is given a second before a weapon opens fire, and not again while it keeps firing', () => {
+  const world = generateWorld(4242, 'open');
+  const state = createState(world);
+  state.orders = true;
+  const ship = addShip(state, { classId: 'fletcher', team: 0, x: 0, z: 0, heading: 0 });
+  const said = () => state.events.filter((e) => e.e === 'order');
+  // Asked to fire: the word, and nothing yet.
+  state.t = 10;
+  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
+  assert.equal(said().length, 1, 'no word given');
+  assert.equal(said()[0].k, 'main');
+  // Inside the beat it still holds, and is not given twice.
+  state.t = 10.5;
+  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
+  assert.equal(said().length, 1, 'the word given again before the guns went');
+  // A second after it, they go.
+  state.t = 10 + ORDER_WINDUP;
+  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), true, 'the guns did not go a second after the word');
+  // Firing on, salvo after salvo, needs no new word.
+  for (const t of [20, 40, 60]) { state.t = t; assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), true); }
+  assert.equal(said().length, 1);
+  // Quiet for a while, and the next opening is ordered again.
+  state.t = 200;
+  assert.equal(orderGiven(state, ship, 'main', { quiet: 30 }), false);
+  assert.equal(said().length, 2, 'no fresh word after a quiet spell');
+  // And a battle that does not ask for orders fires at once.
+  const plain = createState(world);
+  const s2 = addShip(plain, { classId: 'fletcher', team: 0, x: 0, z: 0, heading: 0 });
+  assert.equal(orderGiven(plain, s2, 'main'), true);
 });
 
 check('a piece smaller than a pixel is not drawn, and nothing that can be seen is lost', () => {

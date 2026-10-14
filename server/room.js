@@ -6,7 +6,7 @@ import {
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret,
-  dropCharges, setChargeDepth,
+  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
@@ -49,6 +49,11 @@ export class Room {
     this.state = createState(this.world, {
       mode: this.mode, timeLimit: opts.timeLimit || 900, friendlyFire: !!opts.friendlyFire,
     });
+    // Every weapon opens on an officer's word, a beat before it fires (see
+    // orderGiven) -- and what a captain asked for himself is carried out
+    // when the beat is up.
+    this.state.orders = true;
+    this.later = [];
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain
     this.phase = 'lobby';         // lobby | battle | ended
@@ -231,6 +236,19 @@ export class Room {
     this.onEmpty(this);
   }
 
+  /**
+   * Carry out something a captain asked for. If it has to wait on the word
+   * (see orderGiven), it is done again when the beat is up rather than
+   * forgotten: a key pressed once is an order given once.
+   */
+  onWord(ship, kind, fn) {
+    const r = fn();
+    if (!r && orderPending(this.state, ship, kind)) {
+      this.later.push({ at: this.state.t + ORDER_WINDUP + 0.05, fn });
+    }
+    return r;
+  }
+
   tick() {
     const now = Date.now();
     // Fixed timestep, but catch up if the event loop stalled.
@@ -278,6 +296,11 @@ export class Room {
         if (brain) stepBot(this.state, ship, brain, DT, conned, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
         if (conned) steerToWaypoint(this.state, ship);
+      }
+      if (this.later.length) {
+        const due = this.later.filter((q) => q.at <= this.state.t);
+        this.later = this.later.filter((q) => q.at > this.state.t);
+        for (const q of due) { try { q.fn(); } catch { /* she is gone */ } }
       }
       const events = step(this.state, DT);
       if (events.length) this.dispatchEvents(events);
@@ -464,8 +487,8 @@ export class Room {
         applyInput(target, { notch: msg.notch });
         break;
       }
-      case 'fire': { const to = this.conned(ship, msg); if (to) fireGuns(this.state, to); break; }
-      case 'torp': { const to = this.conned(ship, msg); if (to) fireTorpedoes(this.state, to); break; }
+      case 'fire': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'main', () => fireGuns(this.state, to)); break; }
+      case 'torp': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'torp', () => fireTorpedoes(this.state, to)); break; }
       // The depth charge gear. `dc` puts a pattern in the water -- one
       // mounting when `i` names one, the whole battery otherwise -- `dcset`
       // winds the pistols, and `dcauto` says whether her own anti-submarine
@@ -474,7 +497,8 @@ export class Room {
         const from = this.conned(ship, msg);
         if (!from) break;
         const only = Number.isInteger(msg.i) ? msg.i : null;
-        if (!dropCharges(this.state, from, only)) player.send({ t: 'nodc' });
+        if (!this.onWord(from, 'dc', () => dropCharges(this.state, from, only))
+          && !orderPending(this.state, from, 'dc')) player.send({ t: 'nodc' });
         break;
       }
       case 'dcset': { const to = this.conned(ship, msg); if (to) setChargeDepth(to, msg.d); break; }

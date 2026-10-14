@@ -1975,6 +1975,11 @@ export class Battle {
     for (const ev of events) {
       const d = this.distanceFade(ev.x, ev.z);
       switch (ev.e) {
+        case 'order':
+          // The word, a second before the weapon goes: shouted on the bridge
+          // you are standing on, in her own navy's language.
+          if (ev.ship === bridge) audio.order(ev.k, navy, !!ev.many);
+          break;
         case 'muzzle': {
           // On the muzzles, one flash a barrel.
           //
@@ -2010,7 +2015,6 @@ export class Battle {
           // the muzzle is, which is the same point, less the roll.
           if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
-          if (ev.ship != null && ev.ship === bridge) audio.order(ev.t != null ? 'main' : 'sec', navy);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
         }
@@ -2061,14 +2065,7 @@ export class Battle {
           const gy = view ? view.group.position.y + 14 : 16;
           if (!fired) this.scene.flak.fire(ev.x, gy, ev.z, ev.tx, ty, ev.tz, ev.cal, ev.n, fx);
           audio.aa(ev.cal, ev.n, { x: ev.x, y: gy, z: ev.z });
-          if (ev.ship === bridge) {
-            // One aeroplane, or a formation: what is in the sky round where
-            // the guns are pointed.
-            const near = (list, r) => (list || []).filter((q) =>
-              Math.abs(q.x - ev.tx) < r && Math.abs(q.z - ev.tz) < r).length;
-            const many = near(this.planesNow, 350) + near(this.bombersNow, 500) > 1;
-            audio.order('aa', navy, many);
-          }
+
           break;
         }
         case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
@@ -2145,11 +2142,7 @@ export class Battle {
         }
         case 'torpLaunch':
           audio.torpedo({ x: ev.x, y: 4, z: ev.z });
-          if (ev.ship === bridge) {
-            const spread = (ev.n || 1) > 1
-              || events.filter((q) => q.e === 'torpLaunch' && q.ship === ev.ship).length > 1;
-            audio.order('torp', navy, spread);
-          }
+
           // A bank whose fish are drawn leaving it throws them out now.
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
@@ -2205,7 +2198,6 @@ export class Battle {
           }
           // The cans going over the stern and the throwers' charges into the sea.
           audio.splash(80, { x: ev.x, y: 1, z: ev.z });
-          if (ev.ship === bridge) audio.order('dc', navy);
           break;
         case 'swamp': {
           // A sea over one of her own mountings: out until it has run off.

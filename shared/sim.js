@@ -2125,6 +2125,56 @@ function stepTurrets(state, ship, dt) {
   }
 }
 
+/**
+ * The order before the action.
+ *
+ * Nothing on a warship opens fire because it happens to be loaded: an
+ * officer gives the word and the guns go a beat after it. So the first round
+ * of anything -- the main battery, the secondaries, the tubes, the close-range
+ * guns, the charges -- waits on an order: the word is given (an `order` event,
+ * which the bridge shouts) and the weapon goes ORDER_WINDUP seconds later if
+ * it still bears. While it keeps firing no fresh order is needed; once it has
+ * been quiet for a while, the next opening is ordered again.
+ *
+ * Only a battle that asks for orders has them (state.orders, which a Room
+ * sets); a gun a captain has gone down to and is laying himself fires when he
+ * says, and does not come through here.
+ */
+export const ORDER_WINDUP = 1;
+const ORDER_QUIET = { main: 30, sec: 25, aa: 20, torp: 8, dc: 8 };
+/** How long a word holds if the weapon could not take it up -- lost her, say. */
+const ORDER_LAPSE = 6;
+
+/**
+ * True when `kind` may fire this tick. False while the word is being given,
+ * and the first time it is asked for after a quiet spell -- which is when the
+ * word is given. `quiet` overrides how long a quiet spell is; `many` says
+ * whether it is a spread of fish or more than one aeroplane.
+ */
+export function orderGiven(state, ship, kind, { quiet = ORDER_QUIET[kind] ?? 20, many = false } = {}) {
+  if (!state.orders) return true;
+  const o = ship.orders || (ship.orders = {});
+  const g = o[kind] || (o[kind] = { at: -1e9, last: -1e9 });
+  const t = state.t;
+  // Still at it: the word given for this engagement still stands.
+  if (t - g.last <= quiet) { g.last = t; return true; }
+  if (g.at > g.last) {
+    // Given, and the beat not yet up.
+    if (t < g.at + ORDER_WINDUP) return false;
+    // Given, and now is when it goes.
+    if (t <= g.at + ORDER_WINDUP + ORDER_LAPSE) { g.last = t; return true; }
+  }
+  g.at = t;
+  state.events.push({ e: 'order', ship: ship.id, k: kind, many: many ? 1 : 0 });
+  return false;
+}
+
+/** Whether the word for `kind` has been given and is waiting on its beat. */
+export function orderPending(state, ship, kind) {
+  const g = ship.orders && ship.orders[kind];
+  return !!(state.orders && g && g.at > g.last && state.t < g.at + ORDER_WINDUP + ORDER_LAPSE);
+}
+
 export function canFire(ship) {
   if (!ship.alive) return false;
   // Everything on a submarine's casing is outside the pressure hull and full
@@ -2188,6 +2238,9 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
     // in front of it only fires once the solution has its shells clear.
     if (deck < layFloor(tSpec.mask, want.angle)) continue;
     if (Math.abs(angleDelta(t.angle, want.angle)) > 0.035) continue;
+    // Laid, loaded and bearing: the word first, unless a man at the gun is
+    // the one firing it.
+    if (!manning && !orderGiven(state, ship, 'main', { quiet: Math.max(30, gun.reload + 12) })) continue;
 
     const bearing = wrapAngle(ship.heading + t.angle);
     // Dispersion: a cone that widens with range, tightened by the gun's sigma.
@@ -3064,6 +3117,7 @@ function stepDpSurface(state, ship, dt) {
     if (ship.aaWet && ship.aaWet[i] > 0) continue;
     const b = headingTo(ship.x, ship.z, given.x, given.z);
     if (!mountBears(ship, spec, b)) continue;
+    if (!orderGiven(state, ship, 'sec')) continue;
     const aimD = clamp(given.d, 400, B.range);
     const spread = (aimD * 0.0125) / B.sigma;
     for (let gi = 0; gi < (spec.guns || 1); gi++) {
@@ -3157,6 +3211,7 @@ function stepSecondary(state, ship, dt) {
     if (deck > stops.max || deck < stops.min) continue;
     // Nor through her own funnel.
     if (deck < layFloor(spec.mask, want)) continue;
+    if (!orderGiven(state, ship, 'sec')) continue;
 
     secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond);
   }
@@ -4612,6 +4667,7 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
     // And she has to have come round. Fired before the bank has trained, the
     // fish go where the tubes were pointing, which is over her own bow.
     if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
+    if (!manned && !orderGiven(state, ship, 'torp', { many: spec.tubes > 1 })) continue;
     const pos = localToWorld(spec.x, spec.z, ship.heading);
     // Down the line of the tubes, which is where a torpedo goes.
     const base = wrapAngle(ship.heading + m.angle);
@@ -4898,6 +4954,7 @@ export function dropCharges(state, ship, only = null) {
     if (ship.dcLeft <= 0) break;
     const spec = mounts[m.id];
     if (!spec) continue;
+    if (!orderGiven(state, ship, 'dc')) break;
     // Where it enters the water. A rack rolls its charge off the stern and it
     // goes in where the stern is; a K-gun throws its arbor out on the beam, so
     // the charge enters the sea the better part of sixty metres from the side
@@ -6196,6 +6253,7 @@ function stepPlanes(state, dt) {
       if (d >= scls.aa.range) continue;
       const bear = aaBearing(scls, s, p.x, p.z, p.y);
       if (bear.barrels === 0) continue;
+      if (!orderGiven(state, s, 'aa', { many: (p.count || 1) > 1 })) continue;
       hurtFlight(state, p, scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range));
       // And what a pair of hands on one mounting is worth.
       //
@@ -7119,6 +7177,7 @@ function heavyFlak(state, bm, dt) {
     // And how much of her battery that actually is.
     const share = highBattery(cls, slant);
     if (share <= 0) continue;
+    if (!orderGiven(state, s, 'aa', { many: true })) continue;
     // What is left of her fire once the guns that cannot reach are taken out
     // of it, and then a good deal off that again: this is fire against a
     // formation holding course through it, which historically took thousands

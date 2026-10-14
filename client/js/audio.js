@@ -478,12 +478,23 @@ export class Audio {
    */
   order(order, nation = 'usa', many = false) {
     if (getSettings().voices === false) return;
-    const rest = ORDER_REST[order];
-    if (rest == null) return;
+    if (ORDER_REST[order] == null) return;
     const ctx = this.ensure(); if (!ctx) return;
     const now = ctx.currentTime;
-    if (now < this.speakingUntil) return;
-    if (now - (this.orderGiven[order] ?? -1e9) < rest) return;
+    // The battle says when an order is given (the word comes a second
+    // before the weapon goes, see orderGiven in the simulation), so every one
+    // is said -- but one man says one at a time. A second order while he is
+    // still on the first follows straight after it, if it is still fresh
+    // then; the same order twice in a breath is one order.
+    if (now - (this.orderGiven[order] ?? -1e9) < 0.6) return;
+    if (now < this.speakingUntil) {
+      this.orderQueue = (this.orderQueue || []).filter((q) => q.order !== order);
+      this.orderQueue.push({ order, nation, many, at: now });
+      if (!this.orderTimer) {
+        this.orderTimer = setTimeout(() => this.nextOrder(), Math.max(50, (this.speakingUntil - now) * 1000));
+      }
+      return;
+    }
     this.orderGiven[order] = now;
     // Held while the line is fetched and opened, so a salvo of four turrets
     // in one tick does not start four of him.
@@ -517,6 +528,21 @@ export class Audio {
         this.speakingUntil = c.currentTime + buf.duration + 0.4;
       } catch { this.speakingUntil = 0; }
     }, () => { this.speakingUntil = 0; });
+  }
+
+  /** The next order waiting on him, if it is not stale by now. */
+  nextOrder() {
+    this.orderTimer = null;
+    const ctx = this.ctx;
+    if (!ctx || !this.orderQueue || !this.orderQueue.length) return;
+    const now = ctx.currentTime;
+    if (now < this.speakingUntil) {
+      this.orderTimer = setTimeout(() => this.nextOrder(), Math.max(50, (this.speakingUntil - now) * 1000));
+      return;
+    }
+    const q = this.orderQueue.shift();
+    if (now - q.at < 2.5) this.order(q.order, q.nation, q.many);
+    if (this.orderQueue.length && !this.orderTimer) this.orderTimer = setTimeout(() => this.nextOrder(), 100);
   }
 
   /** One order opened for playing, kept once it has been. */
