@@ -17,7 +17,7 @@ import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
-import { meshSection } from './interior.js';
+import { meshSection, interiorMaterial } from './interior.js';
 import { Plating } from './plating.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
@@ -26,6 +26,7 @@ import { Breakers } from './breakers.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { prepareSoup, clearSoups } from './section.js';
+import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { SECTIONS, sectionAt, layFloor } from '../../../shared/sim.js';
@@ -1884,6 +1885,7 @@ export class BattleScene {
         // Only the other side's: they are what the camera watches shells go
         // into, and a soup is the best part of twenty megabytes for a
         // battleship. Anything else is built the moment it is first wanted.
+        setTimeout(() => { if (this.shipViews.get(id) === v) this.warmCuts([v]); }, 2500);
         if (isSelf) this.ownTeam = team;
         if (!isSelf && (this.ownTeam == null || team !== this.ownTeam)) {
           setTimeout(() => { try { if (this.shipViews.get(id) === v) prepareSoup(v); } catch { /* drawn without */ } }, 1500);
@@ -2096,6 +2098,56 @@ export class BattleScene {
   }
 
   /**
+   * Every ship's materials as they are drawn once she has been cut or blown
+   * apart, compiled while nothing is happening. A torn hull is drawn with its
+   * own shaders -- the tear is cut into them -- and they used to be compiled
+   * the instant a magazine went up, on top of everything else that instant
+   * costs. The materials are kept until the battle ends, because a program
+   * nobody holds is thrown away.
+   */
+  warmCuts(views = this.shipViews.values()) {
+    const w = this.cutWarm || (this.cutWarm = { mats: [], bare: null, seen: new Set(), U: cutUniforms(0, 1, 0.5) });
+    const scene = new THREE.Scene();
+    // Her insides, too: built only when she is opened up, and cut with her.
+    const inside = new THREE.Group();
+    // (Her insides carry no normals; neither does this.)
+    if (!w.bare) { w.bare = new THREE.BoxGeometry(1, 1, 1); w.bare.deleteAttribute('normal'); w.bare.deleteAttribute('uv'); }
+    inside.add(new THREE.Mesh(w.bare, interiorMaterial()));
+    for (const view of [{ group: inside }, ...views]) {
+      if (!view || !view.group) continue;
+      view.group.traverse((o) => {
+        if (!(o.isMesh || o.isInstancedMesh) || !o.material) return;
+        for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
+          const key = `${q.uuid}|${o.isInstancedMesh ? 1 : 0}`;
+          if (w.seen.has(key)) continue;
+          w.seen.add(key);
+          // Once, and cut again: a magazine tears her across twice, and a
+          // piece of a piece is cut a third time -- each its own shader.
+          let m = q;
+          for (let depth = 0; depth < 3; depth++) {
+            m = cutMaterial(m, w.U);
+            if (!m) break;
+            w.mats.push(m);
+            // On her own geometry: what attributes it has is part of the
+            // shader too.
+            const mesh = o.isInstancedMesh ? new THREE.InstancedMesh(o.geometry, m, 1) : new THREE.Mesh(o.geometry, m);
+            mesh.frustumCulled = false;
+            scene.add(mesh);
+          }
+        }
+      });
+    }
+    if (!scene.children.length) return;
+    // Compiled under the battle's own lights and fog, which are part of
+    // what a shader is: without them these would be the wrong programs.
+    try {
+      const r = this.renderer;
+      const done = r.compileAsync ? r.compileAsync(scene, this.camera, this.scene) : r.compile(scene, this.camera, this.scene);
+      done?.catch?.(() => {});
+    } catch { /* drawn the first time it is needed instead */ }
+  }
+
+  /**
    * The battle is over: give back everything it put on the GPU.
    *
    * The renderer outlives the battle -- the harbour, the yard and the next
@@ -2127,6 +2179,11 @@ export class BattleScene {
     for (const m of mats) {
       for (const k of Object.keys(m)) texOf(m[k]);
       if (m.uniforms) for (const u of Object.values(m.uniforms)) texOf(u && u.value);
+    }
+    if (this.cutWarm) {
+      for (const m of this.cutWarm.mats) mats.add(m);
+      if (this.cutWarm.bare) geos.add(this.cutWarm.bare);
+      this.cutWarm = null;
     }
     texOf(this.scene.background);
     texOf(this.scene.environment);

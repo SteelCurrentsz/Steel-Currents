@@ -103,12 +103,32 @@ export class Audio {
     comp.attack.value = 0.004;
     comp.release.value = 0.35;
     comp.connect(this.master);
+    // Everything but the bridge goes through one more gain, which drops
+    // while an order is being shouted and comes back after it: the guns and
+    // the sea are held under him so every order is heard, however much is
+    // going off.
+    this.duck = ctx.createGain();
+    this.duck.gain.value = 1;
+    this.duck.connect(comp);
     this.sfx = ctx.createGain();
     this.sfx.gain.value = 0.85;
-    this.sfx.connect(comp);
+    this.sfx.connect(this.duck);
     this.amb = ctx.createGain();
     this.amb.gain.value = 1;
-    this.amb.connect(comp);
+    this.amb.connect(this.duck);
+    // And the bridge has a path of its own: loud, past the battle's
+    // compressor, with a limiter of its own so a shout as loud as this
+    // stays clean.
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -4;
+    lim.knee.value = 2;
+    lim.ratio.value = 20;
+    lim.attack.value = 0.002;
+    lim.release.value = 0.12;
+    lim.connect(this.master);
+    this.voice = ctx.createGain();
+    this.voice.gain.value = 1.7;
+    this.voice.connect(lim);
     this.startBuilding();
     return ctx;
   }
@@ -478,12 +498,22 @@ export class Audio {
         src.buffer = buf;
         src.playbackRate.value = 0.98 + Math.random() * 0.05;
         const g = c.createGain();
-        g.gain.value = 0.8;
-        // Straight to the speaker, past the compressor: he is standing next
-        // to you, and the guns are not allowed to swallow what he says.
-        src.connect(g).connect(this.master);
+        g.gain.value = 1;
+        // On the bridge's own path, past the battle's compressor: he is
+        // standing next to you, and the guns are not allowed to swallow him.
+        src.connect(g).connect(this.voice || this.master);
         src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* gone */ } };
-        src.start(c.currentTime + 0.02);
+        const at = c.currentTime + 0.02;
+        const len = buf.duration / src.playbackRate.value;
+        src.start(at);
+        // Everything else held well down under him for as long as he speaks,
+        // and brought back up after.
+        if (this.duck) {
+          const d = this.duck.gain;
+          d.cancelScheduledValues(at);
+          d.setTargetAtTime(0.28, at - 0.02, 0.03);
+          d.setTargetAtTime(1, at + len, 0.35);
+        }
         this.speakingUntil = c.currentTime + buf.duration + 0.4;
       } catch { this.speakingUntil = 0; }
     }, () => { this.speakingUntil = 0; });

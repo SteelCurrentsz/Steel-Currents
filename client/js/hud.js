@@ -2426,7 +2426,7 @@ for (const name of Object.getOwnPropertyNames(HudBase.prototype)) {
   if (typeof d.value !== 'function') continue;
   const f = d.value;
   HudBase.prototype[name] = function (...args) {
-    return this.abort ? within(this.abort.signal, () => f.apply(this, args)) : f.apply(this, args);
+    return this && this.abort ? within(this.abort.signal, () => f.apply(this, args)) : f.apply(this, args);
   };
 }
 

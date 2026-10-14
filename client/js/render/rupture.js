@@ -24,7 +24,7 @@
 // and the same tonnage sizes the fireball, the column and the splash.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { cutUniforms, cutTree, copyOf, disposeCut } from './sever.js';
+import { cutUniforms, cutTree, copyOf, disposeCut, cloneMaterial } from './sever.js';
 
 const G = 9.81;
 const TMP = new THREE.Vector3();
@@ -49,7 +49,7 @@ function burn(o, k) {
   o.traverse((m) => {
     if (!m.isMesh || !m.material) return;
     const list = (Array.isArray(m.material) ? m.material : [m.material]).map((q) => {
-      const c = q.clone();
+      const c = cloneMaterial(q);
       if (c.color) c.color.multiplyScalar(k);
       if (c.emissive) c.emissive.setHex(0x000000);
       return c;

@@ -46,6 +46,9 @@ const mat = (c) => {
 };
 const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 
+/** One of the materials her insides are drawn with: every one is the same shader. */
+export function interiorMaterial() { return mat(P.red); }
+
 /**
  * A plate cut to the shape of the hull at one height.
  *

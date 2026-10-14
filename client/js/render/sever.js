@@ -118,9 +118,34 @@ export function cutUniforms(z, side, jag, { seed = 0, z2 = 0, seed2 = 0, band = 
  * Returns null for a material the tear cannot be put into -- a hand-written
  * shader -- and the caller keeps or drops the whole object instead.
  */
-function cutMaterial(src, U) {
+/**
+ * A copy of a material whose userData is copied plainly, not through JSON:
+ * see cutMaterial for what the JSON round trip cost.
+ */
+export function cloneMaterial(src) {
+  const ud = src.userData;
+  src.userData = {};
+  let m;
+  try { m = src.clone(); } finally { src.userData = ud; }
+  m.userData = { ...(ud || {}) };
+  return m;
+}
+
+/** The material each cut material was made from. */
+const CUT_FROM = new WeakMap();
+
+export function cutMaterial(src, U) {
   if (!src || src.isShaderMaterial || src.isRawShaderMaterial) return null;
-  const m = src.clone();
+  // Three copies a material's userData by writing it out as JSON and reading
+  // it back, and anything in it that is itself a material or a texture gets
+  // serialised whole on the way -- its pictures turned into data URLs. A cut
+  // used to keep the material it was cut from in there, so cutting a ship
+  // that had been cut before, or blowing one apart into a dozen pieces, spent
+  // seconds encoding images nobody read: the magazine went up and the battle
+  // stopped. The userData goes across as a plain shallow copy instead, and
+  // where a cut came from is kept beside it.
+  const ud = src.userData;
+  const m = cloneMaterial(src);
   const prev = src.onBeforeCompile;
   const prevKey = src.customProgramCacheKey ? src.customProgramCacheKey() : '';
   m.side = THREE.DoubleSide;
@@ -136,7 +161,9 @@ function cutMaterial(src, U) {
       .replace('#include <color_fragment>', `#include <color_fragment>\n${FRAG_TINT}`);
   };
   m.customProgramCacheKey = () => `sever|${prevKey}`;
-  m.userData = { ...(src.userData || {}), cutFrom: src };
+  m.userData = { ...(ud || {}) };
+  delete m.userData.cutFrom;
+  CUT_FROM.set(m, CUT_FROM.get(src) || src);
   return m;
 }
 
