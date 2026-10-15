@@ -8,7 +8,7 @@ import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
-import { SECTIONS, torpedoClear, layFloor } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
 import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +28,10 @@ const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
  */
 const DC_NEXT = ['SHORE', 'PUMPS', 'READY'];
 const DC_ORDER = ['Shore up', 'Start pumps', 'Damage control'];
+
+/** The jobs a damage control party is cycled through, and what its key says. */
+const PARTY_CYCLE = [null, 'pump', 'repair', 'guns', 'engine'];
+const PARTY_KEY = { '': 'STAND BY', auto: 'AUTO', pump: 'PUMPS', repair: 'REPAIR', guns: 'GUNS', engine: 'ENGINES' };
 
 const PANEL_TITLES = {
   helm: 'ENGINE', dmg: 'DAMAGE', arms: 'ARSENAL', air: 'AIR GROUP',
@@ -746,6 +750,7 @@ class HudBase {
     if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
+    this.paintParties(own);
     const hurt = (own.f || 0) + (own.fl || 0);
     this.el.connSub.textContent = stage >= 2 && (own.fl || 0)
       ? `pumping, ${own.fl} flooded`
@@ -779,7 +784,7 @@ class HudBase {
     }
     this.el.connPanel.hidden = !this.panel;
     this.el.connPanel.classList.toggle('wide', this.panel === 'dmg' || this.panel === 'targeting');
-    this.el.connPanel.classList.toggle('tall', this.panel === 'arms');
+    this.el.connPanel.classList.toggle('tall', this.panel === 'arms' || this.panel === 'ship');
     if (!this.panel) return;
     this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
     this.el.connBody.innerHTML = '';
@@ -1914,6 +1919,85 @@ class HudBase {
       this.el.connBody.appendChild(b);
       this.acts[a.k] = b;
     }
+    if (which !== 'air') this.buildParties();
+  }
+
+  /**
+   * Her damage control parties, under the call-away: one row each, with the
+   * job it has been given on a key that changes it, and under that what it
+   * is actually doing.
+   */
+  buildParties() {
+    const n = partyCount(this.shown);
+    const band = document.createElement('div');
+    band.className = 'arms-band';
+    band.textContent = 'DAMAGE CONTROL PARTIES';
+    this.el.connBody.appendChild(band);
+    this.partyRows = [];
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement('div');
+      row.className = 'party-row';
+      row.innerHTML = `<div class="party-head"><span class="party-name">No. ${i + 1} party</span>`
+        + '<button type="button" class="party-job">STAND BY</button></div>'
+        + '<div class="party-on">Unoccupied</div>';
+      const key = row.querySelector('.party-job');
+      key.onclick = () => {
+        const now = this.partyJobs?.[i] ?? null;
+        const at = PARTY_CYCLE.indexOf(now === 'auto' ? null : now);
+        const job = PARTY_CYCLE[(at + 1) % PARTY_CYCLE.length];
+        // Said on the key at once; the battle confirms it a moment later.
+        (this.partyJobs || (this.partyJobs = []))[i] = job;
+        this.partyHold = (this.partyHold || []);
+        this.partyHold[i] = performance.now() + 900;
+        key.textContent = PARTY_KEY[job || ''];
+        this.connFn?.('party', { i, job });
+      };
+      this.el.connBody.appendChild(row);
+      this.partyRows.push({ row, key, on: row.querySelector('.party-on') });
+    }
+  }
+
+  /** What a party is doing, in words, off what the wire says it is on. */
+  partyDoing(on) {
+    if (!on) return 'Unoccupied';
+    const [what, a, b] = on.split(':');
+    const name = (k) => (SECTIONS.find((q) => q.k === k)?.name || k).toLowerCase();
+    if (what === 'pump') return `Pumping out the ${name(a)}`;
+    if (what === 'trim') return `Counter-flooding -- ${name(a)}`;
+    if (what === 'fire') return `Fighting a fire -- ${name(a)}`;
+    if (what === 'hole') return `Patching holes -- ${name(a)}`;
+    if (what === 'hull') return `Repairing the ${name(a)}`;
+    if (what === 'engine') return 'Repairing the engines';
+    if (what === 'steering') return 'Repairing the steering gear';
+    if (what === 'gun') {
+      const i = Number(b);
+      if (a === 'main') {
+        const t = this.shown?.turrets?.[i];
+        return `Repairing ${t && t.name ? `${t.name} turret` : `turret ${i + 1}`}`;
+      }
+      return `Repairing secondary mount ${i + 1}`;
+    }
+    return 'Unoccupied';
+  }
+
+  /** The party rows, off the snapshot. */
+  paintParties(own) {
+    if (!this.partyRows || !own.pa) return;
+    this.partyJobs = this.partyJobs || [];
+    const now = performance.now();
+    this.partyRows.forEach((r, i) => {
+      const p = own.pa[i];
+      if (!p) return;
+      const held = this.partyHold && this.partyHold[i] > now;
+      if (!held) {
+        this.partyJobs[i] = p[0] || null;
+        r.key.textContent = PARTY_KEY[p[0] || ''];
+      }
+      r.key.classList.toggle('on', !!(held ? this.partyJobs[i] : p[0]));
+      const text = this.partyDoing(p[1]);
+      if (r.on.textContent !== text) r.on.textContent = text;
+      r.on.classList.toggle('idle', !p[1]);
+    });
   }
 
   /**

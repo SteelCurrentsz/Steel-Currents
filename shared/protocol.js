@@ -179,6 +179,9 @@ export function shipSnapshot(ship, full, state = null) {
     }
     s.sq = ship.squadrons.map((q) => (q.state === 'deck' ? Math.max(0, Math.round(q.cooldown)) : -1));
     s.rc = Math.max(0, Math.round(ship.repairCd * 10) / 10);
+    // Her damage control parties: what each has been told to do, and what it
+    // is doing about it this second (empty: nothing).
+    if (ship.parties) s.pa = ship.parties.map((p) => [p.job || '', p.on || '']);
     // How far her damage control has got: nothing yet, shored, or pumping.
     // The bridge has to know, because the first call-away only buys her time
     // and it is the second that starts taking the water out of her.

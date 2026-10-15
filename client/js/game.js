@@ -352,7 +352,6 @@ export class Battle {
       // of contexts and the battle's own is the one the browser takes back.
       this.board?.dispose();
       this.board = new DamageBoard(canvas, classId);
-      for (const h of this.holes) this.board.hole(h[0], h[1], h[2], h[3]);
     });
     // The targeting panel's picture of her: her own model in a fixed view. A
     // fresh canvas each time the panel is raised, so a fresh renderer on it.
@@ -436,6 +435,7 @@ export class Battle {
       else if (k === 'plane') this.togglePilotView();
       else if (k === 'repair') this.net.send({ t: 'repair', ship });
       else if (k === 'smoke') this.net.send({ t: 'smoke', ship });
+      else if (k === 'party') this.net.send({ t: 'party', ship, i: v.i, job: v.job });
       audio.click();
     });
 
@@ -2282,6 +2282,13 @@ export class Battle {
           this.hud.alert(row && row.name
             ? `${row.name} turret swamped`
             : ev.k === 'main' ? 'Turret swamped' : 'Secondary mounting swamped');
+          break;
+        }
+        case 'saved': {
+          // Her parties got enough of the sea out of her in time: she has
+          // come back up and she steams on.
+          const who = ev.ship === this.shipId ? 'We have' : `${this.names.get(ev.ship) || 'A ship'} has`;
+          this.hud.alert(`${who} been saved -- ship stabilised`);
           break;
         }
         case 'sinking': {
@@ -4297,6 +4304,12 @@ export class Battle {
     }
     if (this.board && this.hud.panel === 'dmg') {
       if (shown) this.board.build(shown.c);
+      // Her holes: our own as our own bridge has them, anyone else's as they
+      // were seen to strike her.
+      {
+        const id = this.conned();
+        this.board.setHits(id, id === this.shipId ? this.holes : this.hitsOn.get(id));
+      }
       this.board.setWater(shown?.wt);
       // What is burning, and where the sea is running -- in through her
       // plating, or back out of it once the pumps are going.
@@ -5297,7 +5310,9 @@ export class Battle {
     const h = [l.x, wy ?? 8, l.z, kind];
     this.holes.push(h);
     if (this.holes.length > 90) this.holes.shift();
-    this.board?.hole(h[0], h[1], h[2], h[3]);
+    // Counted, so the board knows the list has changed when it is full and
+    // one goes off the front as one comes on the back. See DamageBoard.setHits.
+    this.holes.v = (this.holes.v || 0) + 1;
   }
 
   /**

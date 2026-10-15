@@ -4,7 +4,7 @@ import {
   createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
   manGun, layGun, shootGun, assignMount, setMountOff,
   steerToWaypoint,
-  launchStrike, useRepair, useSmoke, DT, TICK_RATE, flyPlane, dropOrdnance,
+  launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP,
 } from '../shared/sim.js';
@@ -540,6 +540,12 @@ export class Room {
       // bridge is on her bridge.
       case 'repair': { const to = this.conned(ship, msg); if (to) useRepair(this.state, to); break; }
       case 'smoke': { const to = this.conned(ship, msg); if (to) useSmoke(this.state, to); break; }
+      // One of her damage control parties sent to a job, or stood down.
+      case 'party': {
+        const to = this.conned(ship, msg);
+        if (to) setParty(to, msg.i, typeof msg.job === 'string' ? msg.job : null);
+        break;
+      }
       // A player flying one of her flights by hand. `fly` is where the
       // aeroplane is now, `drop` lets go of what she is carrying, and `land`
       // hands her back to the autopilot.

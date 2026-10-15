@@ -6,7 +6,7 @@ import {
   clamp, lerp, wrapAngle, angleDelta, approachAngle, approach, dist, dist2,
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
-import { getClass } from './ships.js';
+import { getClass, SHIP_CLASSES } from './ships.js';
 import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
@@ -307,6 +307,10 @@ export function addShip(state, {
     ribbons: { hits: 0, cits: 0, torps: 0, fires: 0 },
     respawnAt: 0,
     input: { throttleUp: false, throttleDown: false },
+    // Her damage control parties, each with its job and what it is doing about
+    // it. A bot's captain has them sent wherever they are wanted; a player's
+    // stand by until they are told. See stepParties.
+    parties: Array.from({ length: partyCount(cls) }, () => ({ job: isBot ? 'auto' : null, on: null })),
   };
   state.ships.push(ship);
   return ship;
@@ -8337,8 +8341,12 @@ function stepFlooding(state, ship, dt) {
     const side = c.side
       || (c.holeS > c.holeP ? 1 : c.holeP > c.holeS ? -1 : 0);
     const [wp, ws] = splitWater(c.water, vol, side);
-    c.wP = wp;
-    c.wS = ws;
+    // Counter-flooded: her parties have let the sea into the wing on the
+    // other side to match, and the weight out to one side is out to both.
+    // See stepParties.
+    const cf = clamp(c.cf || 0, 0, 1);
+    c.wP = wp + (c.water / 2 - wp) * cf;
+    c.wS = ws + (c.water / 2 - ws) * cf;
   }
   if (took > 0) ship.flooding = floodedCount(ship);
 
@@ -8470,6 +8478,15 @@ function stepSinking(state, ship, dt) {
     ship.sink = S.base.sink;
     ship.heel = S.base.heel;
     ship.trim = S.base.trim;
+  }
+  // Brought back. Her own floating is what stepFlooding has just made it,
+  // with nothing more of going down added on.
+  if (saved(ship, S, dt)) {
+    ship.sinking = null;
+    const b = buoyancy(ship);
+    ship.sink = b.sink; ship.heel = b.heel; ship.trim = b.trim;
+    state.events.push({ e: 'saved', ship: ship.id, x: r(ship.x), z: r(ship.z) });
+    return;
   }
   S.t += dt;
   const u = clamp(S.t / S.T, 0, 1);
@@ -9098,6 +9115,208 @@ export function useRepair(state, ship) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Damage control parties
+// ---------------------------------------------------------------------------
+
+/** What a party can be sent to do. */
+export const PARTY_JOBS = ['pump', 'repair', 'guns', 'engine'];
+
+/**
+ * How many damage control parties she carries: three in the smallest ship in
+ * the game and eight in the biggest, by her length -- which is near enough by
+ * her company, and her company is where the parties come from.
+ */
+let PARTY_SPAN = null;
+export function partyCount(cls) {
+  if (!PARTY_SPAN) {
+    const lens = Object.values(SHIP_CLASSES).map((c) => c.hull.length);
+    PARTY_SPAN = [Math.min(...lens), Math.max(...lens)];
+  }
+  const [lo, hi] = PARTY_SPAN;
+  const f = hi > lo ? clamp((cls.hull.length - lo) / (hi - lo), 0, 1) : 0;
+  return 3 + Math.round(f * 5);
+}
+
+/** Send party `i` to a job, or stand it down (`null`). */
+export function setParty(ship, i, job) {
+  if (!ship || !ship.parties || !Number.isInteger(i) || !ship.parties[i]) return false;
+  if (job !== null && job !== 'auto' && !PARTY_JOBS.includes(job)) return false;
+  ship.parties[i].job = job;
+  ship.parties[i].on = null;
+  return true;
+}
+
+/** What one party pumps, in cubic metres a second: a portable pump and its hoses. */
+function partyPump(cls) {
+  return pumpRate(cls) * 0.8;
+}
+
+/** Whether a mounting can be worked on at all, rather than being gone. */
+function mendable(ship, cls, kind, i, m, spec) {
+  if (!m || mountFell(ship, kind, i)) return false;
+  if (spec && ship.cut && severed(ship, cls, spec.z || 0)) return false;
+  return (m.hurt || 0) > 0 || (m.disabled || 0) > 0;
+}
+
+/**
+ * Something for a party to do under a job, or null: what it is, and the work.
+ * The same choice every party on that job makes, so two parties on the pumps
+ * go to the same flooded compartment and pump it twice as fast.
+ */
+function partyWork(ship, cls, job) {
+  if (job === 'pump') {
+    // Lying over: the first thing is to bring her upright, by flooding the
+    // wing opposite the one the sea is in. It costs her buoyancy and it puts
+    // her deck edge back above the water, which is what keeps her afloat.
+    if (Math.abs(ship.heel || 0) > 0.05) {
+      let cf = null;
+      for (const s of SECTIONS) {
+        if (s.from === null) continue;
+        const c = ship.sections[s.k];
+        if ((c.cf || 0) >= 1 || c.water < 1) continue;
+        const lop = Math.abs(c.wP - c.wS) * (1 - (c.cf || 0));
+        if (lop > 1 && (!cf || lop > cf.lop)) cf = { k: s.k, lop };
+      }
+      if (cf) return { on: `trim:${cf.k}`, k: cf.k, what: 'trim' };
+    }
+    let best = null;
+    for (const s of SECTIONS) {
+      if (s.from === null) continue;
+      const c = ship.sections[s.k];
+      if (c.water > 1 && (!best || c.water > ship.sections[best].water)) best = s.k;
+    }
+    return best ? { on: `pump:${best}`, k: best } : null;
+  }
+  if (job === 'repair') {
+    // Fires first: they are what spreads. Then the holes, because they are
+    // what lets the sea in. Then the structure.
+    let fire = null;
+    let hole = null;
+    let hull = null;
+    for (const s of SECTIONS) {
+      const c = ship.sections[s.k];
+      if (c.fire > 0.02 && (!fire || c.fire > ship.sections[fire].fire)) fire = s.k;
+      const open = c.holeP + c.holeS;
+      if (s.from !== null && open > 0.05
+        && (!hole || open > ship.sections[hole].holeP + ship.sections[hole].holeS)) hole = s.k;
+      if (c.hp < c.max * 0.995 && (!hull || c.hp / c.max < ship.sections[hull].hp / ship.sections[hull].max)) hull = s.k;
+    }
+    if (fire) return { on: `fire:${fire}`, k: fire, what: 'fire' };
+    if (hole) return { on: `hole:${hole}`, k: hole, what: 'hole' };
+    if (hull) return { on: `hull:${hull}`, k: hull, what: 'hull' };
+    return null;
+  }
+  if (job === 'guns') {
+    let best = null;
+    const look = (kind, live, specs) => {
+      for (let i = 0; live && i < live.length; i++) {
+        const m = live[i];
+        if (!mendable(ship, cls, kind, i, m, specs && specs[i])) continue;
+        const bad = (m.hurt || 0) * 10 + (m.disabled || 0);
+        if (!best || bad > best.bad) best = { on: `gun:${kind}:${i}`, m, bad };
+      }
+    };
+    look('main', ship.turrets, cls.turrets);
+    look('sec', ship.secMounts, cls.secondary ? cls.secondary.mounts : null);
+    return best;
+  }
+  if (job === 'engine') {
+    if (ship.engineDamage > 0) return { on: 'engine', what: 'engine' };
+    if (ship.steeringDamage > 0) return { on: 'steering', what: 'steering' };
+    return null;
+  }
+  return null;
+}
+
+/** For a party left to its own devices: the job most wanted, turn and turn about. */
+function autoJob(ship, cls, i) {
+  const order = ['engine', 'pump', 'repair', 'guns'];
+  for (let k = 0; k < order.length; k++) {
+    const job = order[(k + i) % order.length];
+    if (partyWork(ship, cls, job)) return job;
+  }
+  return null;
+}
+
+/**
+ * The parties at work. Each is on the job it was given, and within that job
+ * it goes where it is most wanted; with nothing to do there it stands by.
+ */
+function stepParties(state, ship, dt) {
+  if (!ship.parties || !ship.parties.length) return;
+  const cls = shipClass(ship);
+  let mended = false;
+  ship.parties.forEach((p, i) => {
+    const job = p.job === 'auto' ? autoJob(ship, cls, i) : p.job;
+    const w = job ? partyWork(ship, cls, job) : null;
+    p.on = w ? w.on : null;
+    if (!w) return;
+    if (job === 'pump' && w.what === 'trim') {
+      const c = ship.sections[w.k];
+      c.cf = Math.min(1, (c.cf || 0) + dt / 75);
+    } else if (job === 'pump') {
+      const c = ship.sections[w.k];
+      const q = Math.min(c.water, partyPump(cls) * dt);
+      c.water -= q;
+      c.inflow = (c.inflow || 0) - q / dt;
+    } else if (job === 'repair') {
+      const c = ship.sections[w.k];
+      if (w.what === 'fire') {
+        c.fire = Math.max(0, c.fire - 0.05 * dt);
+      } else if (w.what === 'hole') {
+        // A patch over the worst of it: a collision mat, timber and wedges.
+        const open = c.holeP + c.holeS;
+        const f = Math.max(0, open - 0.08 * dt) / open;
+        c.holeP *= f; c.holeS *= f;
+        if (c.posArea) c.posArea *= f;
+        for (const h of c.holes || []) h.a *= f;
+      } else {
+        c.hp = Math.min(c.max, c.hp + ship.maxHp * 0.0012 * dt);
+        mended = true;
+      }
+    } else if (job === 'guns') {
+      const m = w.m;
+      m.disabled = Math.max(0, (m.disabled || 0) - dt);
+      if ((m.hurt || 0) >= 3) {
+        // Wrecked, not gone: cleared away, rewired and put back in hand, and
+        // it is a long job.
+        m.fix = (m.fix || 0) + dt;
+        if (m.fix >= 50) { m.hurt = 2.4; m.fix = 0; }
+      } else {
+        m.hurt = Math.max(0, (m.hurt || 0) - 0.06 * dt);
+      }
+    } else if (job === 'engine') {
+      if (w.what === 'engine') ship.engineDamage = Math.max(0, ship.engineDamage - 2 * dt);
+      else ship.steeringDamage = Math.max(0, ship.steeringDamage - 2 * dt);
+    }
+  });
+  if (mended) ship.hp = Math.min(ship.maxHp, hullIntegrity(ship));
+  ship.fires = burningCount(ship);
+}
+
+/**
+ * Whether her parties have brought her back from going down.
+ *
+ * A ship that is sinking because the sea is over her deck edge is a ship with
+ * too much water in her, and water can be pumped out: get enough of it out,
+ * and the holes patched, before she has gone too far, and she comes back up
+ * and steams on. A magazine, a broken back, a piece of her gone, or a ship
+ * already on her beam ends is past saving.
+ */
+function saved(ship, S, dt) {
+  if (!ship.alive || !S || S.under) return false;
+  if (S.kind === 'magazine' || ship.blown || ship.broke != null || ship.cut) return false;
+  if (S.t > S.T * 0.85 || (S.roll || 0) > 0.3) return false;
+  if (ship.hp < ship.maxHp * 0.08) return false;
+  // Held there, not touched for a moment: twenty seconds with her deck edge
+  // clear and her list coming off before anybody can call her safe.
+  const b = buoyancy(ship);
+  const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5;
+  S.held = ok ? (S.held || 0) + dt : 0;
+  return S.held >= 20;
+}
+
 export function useSmoke(state, ship) {
   if (!ship.alive || ship.smoke <= 0 || ship.smokeActive > 0) return false;
   ship.smoke--;
@@ -9109,6 +9328,7 @@ export function useSmoke(state, ship) {
 function stepDamageOverTime(state, ship, dt) {
   const cls = shipClass(ship);
   stepFires(state, ship, dt);
+  stepParties(state, ship, dt);
   stepFlooding(state, ship, dt);
   if (ship.repairActive > 0) {
     ship.repairActive -= dt;

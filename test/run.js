@@ -19,6 +19,7 @@ import { buildBridge } from '../client/js/render/bridgeroom.js';
 import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
   assignMount, dpMounts, assignedAim, setMountOff, mountOff, undercut, mountFell,
+  partyCount, setParty, PARTY_JOBS,
 } from '../shared/sim.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
@@ -19923,6 +19924,82 @@ check('an 18-inch shell goes through a 14-inch belt at the ranges battleships fo
   // angled away at the same range.
   const back = strikes('rodney', 'musashi', 'ap', 50, 12, { life: 40 });
   assert.ok((back.shatter || 0) + (back.ricochet || 0) > 0.6, JSON.stringify(back));
+});
+
+check('damage control parties: three in the smallest ship, eight in the biggest, and each does its job', () => {
+  const counts = Object.values(SHIP_CLASSES).map((c) => partyCount(c));
+  assert.equal(Math.min(...counts), 3);
+  assert.equal(Math.max(...counts), 8);
+  const sea = () => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    return createState(world, { mode: 'deathmatch' });
+  };
+  const st = sea();
+  const her = addShip(st, { name: 'H', classId: 'cleveland', team: 1, index: 0 });
+  const bot = addShip(st, { name: 'B', classId: 'cleveland', team: 0, index: 0, isBot: true });
+  assert.equal(her.parties.length, partyCount(SHIP_CLASSES.cleveland));
+  assert.ok(her.parties.every((p) => p.job === null), 'a player\'s parties should stand by until told');
+  assert.ok(bot.parties.every((p) => p.job === 'auto'), 'a bot\'s parties should go where they are wanted');
+  assert.ok(!setParty(her, 0, 'dance'), 'not a job');
+  assert.ok(!setParty(her, 99, 'pump'), 'not a party');
+  // Nothing wrong with her: every party is unoccupied whatever its job.
+  for (let i = 0; i < 4; i++) setParty(her, i, PARTY_JOBS[i]);
+  step(st, DT);
+  assert.ok(her.parties.every((p) => p.on === null), JSON.stringify(her.parties));
+  // Water in her machinery, the engines out, B turret hurt, a hole forward.
+  her.sections.mid.water = 400;
+  her.engineDamage = 30;
+  her.turrets[1].hurt = 1.5;
+  her.sections.fwd.holeP = 2;
+  step(st, DT);
+  const on = her.parties.map((p) => p.on);
+  assert.equal(on[0], 'pump:mid');
+  assert.equal(on[1], 'hole:fwd');
+  assert.equal(on[2], 'gun:main:1');
+  assert.equal(on[3], 'engine');
+  for (let i = 0; i < 30 * 20; i++) step(st, DT);
+  assert.ok(her.engineDamage <= 0, `engines ${her.engineDamage}`);
+  assert.ok(her.turrets[1].hurt < 0.5, `turret ${her.turrets[1].hurt}`);
+  assert.ok(her.sections.fwd.holeP < 1, `hole ${her.sections.fwd.holeP}`);
+  // And the snapshot carries them to her bridge.
+  const snap = shipSnapshot(her, true);
+  assert.equal(snap.pa.length, her.parties.length);
+  assert.equal(snap.pa[0][0], 'pump');
+});
+
+check('a ship going down from flooding can be saved by her parties, and steams on', () => {
+  // Holed low down on one side in three compartments, the way a torpedo
+  // spread leaves her: she lists, the sea comes over her deck edge, she goes.
+  const holed = () => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const her = addShip(st, { name: 'H', classId: 'iowa', team: 1, index: 0 });
+    addShip(st, { name: 'X', classId: 'fletcher', team: 0, index: 0 });
+    for (const k of ['fwd', 'mid', 'aft']) openHull(st, her, k, 6, 1, 6);
+    for (let i = 0; i < 30 * 400 && !her.sinking; i++) step(st, DT);
+    assert.ok(her.sinking, 'she should be going down');
+    return { st, her };
+  };
+  // Half her parties on the pumps and half patching: she is brought back
+  // and stays up.
+  {
+    const { st, her } = holed();
+    her.parties.forEach((_, i) => setParty(her, i, i % 2 ? 'pump' : 'repair'));
+    const events = [];
+    for (let i = 0; i < 30 * 600; i++) events.push(...step(st, DT));
+    assert.ok(events.some((e) => e.e === 'saved' && e.ship === her.id), 'no word that she was saved');
+    assert.ok(her.alive && !her.sinking, 'she went down after all');
+    assert.ok(her.parties.some((p) => p.on && p.on.startsWith('trim:')) || Math.abs(her.heel) < 0.2,
+      `still lying over at ${her.heel}`);
+  }
+  // Nobody sent: she goes.
+  {
+    const { st, her } = holed();
+    for (let i = 0; i < 30 * 700 && her.alive; i++) step(st, DT);
+    assert.ok(!her.alive, 'she was saved without anybody sent to her');
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

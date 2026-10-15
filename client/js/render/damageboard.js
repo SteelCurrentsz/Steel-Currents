@@ -289,6 +289,9 @@ export class DamageBoard {
         this.painted.push({ mat, k });
       }
     });
+    // The arsenal's hologram never shows a hole, so it does not pay for this.
+    this.plateBins = null;
+    if (!this.plain) this.indexPlating();
     this.rig.add(this.hull);
 
     // The bulkheads she is divided by, drawn at her own section rather than as
@@ -416,6 +419,20 @@ export class DamageBoard {
     // Where she has been holed. Marks are added as the hits come in.
     this.marks = new THREE.Group();
     this.rig.add(this.marks);
+    // Her own plating, lit where it has been holed. See paintHole.
+    this.holo = new THREE.Group();
+    this.rig.add(this.holo);
+    this.holoMat = {
+      pen: [
+        new THREE.MeshBasicMaterial({ color: 0xff2a1a, wireframe: true, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
+        new THREE.MeshBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false, side: THREE.DoubleSide }),
+      ],
+      dent: [
+        new THREE.MeshBasicMaterial({ color: 0xffa03a, wireframe: true, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }),
+        new THREE.MeshBasicMaterial({ color: 0xffa03a, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false, side: THREE.DoubleSide }),
+      ],
+    };
+    this.hitKey = null;
     // Big enough to read at this range, and drawn over the hull rather than
     // behind it: a hole you cannot see is not much of a damage board.
     // A circle on her plating where the round struck, because that is what a
@@ -636,6 +653,81 @@ export class DamageBoard {
    * put on the plating nearest where the round stopped: her side, her deck or
    * her upperworks, as the case may be.
    */
+  /**
+   * Every hole she has, off the battle: `[lx, ly, lz, kind]` each, in her own
+   * frame. Drawn afresh whenever the list or the ship on the board changes,
+   * so a board rebuilt for another ship and back does not lose her holes.
+   */
+  setHits(key, list) {
+    const k = `${key}|${this.classId}|${list ? list.v || list.length : 0}`;
+    if (k === this.hitKey || !this.marks) return;
+    this.hitKey = k;
+    this.marks.clear();
+    for (const o of this.holo.children) o.geometry.dispose();
+    this.holo.clear();
+    for (const h of list || []) this.hole(h[0], h[1], h[2], h[3]);
+  }
+
+  /**
+   * Her plating, filed by where it is along her, so the triangles round a hole
+   * can be found without going through every triangle in the ship.
+   */
+  indexPlating() {
+    const BIN = 4;
+    const bins = new Map();
+    const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    this.hull.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes?.position || !meshSection(o)) return;
+      const P = o.geometry.attributes.position;
+      const I = o.geometry.index;
+      const n = I ? I.count : P.count;
+      for (let t = 0; t + 2 < n; t += 3) {
+        for (let j = 0; j < 3; j++) v[j].fromBufferAttribute(P, I ? I.getX(t + j) : t + j).applyMatrix4(o.matrixWorld);
+        const b = Math.floor((v[0].z + v[1].z + v[2].z) / 3 / BIN);
+        let list = bins.get(b);
+        if (!list) bins.set(b, list = []);
+        list.push(v[0].x, v[0].y, v[0].z, v[1].x, v[1].y, v[1].z, v[2].x, v[2].y, v[2].z);
+      }
+    });
+    // Kept as plain floats: a battleship's plating is a couple of hundred
+    // thousand triangles, and a phone has the memory for them that way.
+    for (const [b, list] of bins) bins.set(b, Float32Array.from(list));
+    this.plateBins = { BIN, bins };
+  }
+
+  /**
+   * The plating round a hole, drawn in the hologram itself: the triangles of
+   * her own hull within reach of it, red for a round that got in and orange
+   * for one her armour stopped. That piece of her, and nothing round it.
+   */
+  paintHole(x, y, z, r, what) {
+    const mats = this.holoMat && this.holoMat[what];
+    if (!mats || !this.plateBins) return;
+    const { BIN, bins } = this.plateBins;
+    const out = [];
+    const r2 = r * r;
+    for (let b = Math.floor((z - r) / BIN) - 1; b <= Math.floor((z + r) / BIN) + 1; b++) {
+      const list = bins.get(b);
+      if (!list) continue;
+      for (let i = 0; i < list.length; i += 9) {
+        let near = false;
+        for (let j = 0; j < 9 && !near; j += 3) {
+          const dx = list[i + j] - x, dy = list[i + j + 1] - y, dz = list[i + j + 2] - z;
+          near = dx * dx + dy * dy + dz * dz < r2;
+        }
+        if (near) for (let j = 0; j < 9; j++) out.push(list[i + j]);
+      }
+    }
+    if (!out.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+    for (const [i, m] of mats.entries()) {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.renderOrder = 4 - i;
+      this.holo.add(mesh);
+    }
+  }
+
   hole(lx, ly, lz, kind = 'pen') {
     while (this.marks.children.length > 90) {
       this.marks.remove(this.marks.children[0]);
@@ -657,6 +749,10 @@ export class DamageBoard {
     // line, which is no mark at all.
     if (out) g.rotation.y = Math.sign(lx || 1) * Math.PI / 2;
     else g.rotation.x = -Math.PI / 2;
+    // And her own plating there, lit in the hologram: as far round the hole
+    // as the round tore it open.
+    const tore = { citadel: 5, torpedo: 7, bomb: 4.5, magazine: 9, cook: 4, overpen: 2.4, he: 2.2 }[kind] ?? 3.2;
+    this.paintHole(g.position.x, g.position.y, g.position.z, Math.max(tore, this.beam * 0.05), what);
     g.add(m);
     if (this.patchMat[what]) {
       const p = new THREE.Mesh(this.patchGeo, this.patchMat[what]);
