@@ -1482,7 +1482,7 @@ export function cutHer(state, ship, at, by = 0, why = 'ram') {
       c.lost = true;
       c.hp = 0;
       c.water = 0; c.wP = 0; c.wS = 0;
-      c.holeP = 0; c.holeS = 0; c.inflow = 0; c.holes = []; c.posArea = 0;
+      c.holeP = 0; c.holeS = 0; c.inflow = 0; c.holes = []; c.posArea = 0; c.rent0 = 0;
       c.fire = 0; c.burnt = 0;
       continue;
     }
@@ -8114,7 +8114,7 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
   // kind: one depth, below which it floods.
   if (at) {
     const holes = c.holes || (c.holes = []);
-    if (holes.length < 16) holes.push({ x: at.x, y: at.y, z: at.z, a: area });
+    if (holes.length < 16) holes.push({ x: at.x, y: at.y, z: at.z, a: area, a0: area });
     else {
       // Full: the new hole goes into the nearest one, which is where the
       // plating between them has gone anyway.
@@ -8124,6 +8124,7 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
         if (d < bd) { bd = d; best = h; }
       }
       best.a += area;
+      best.a0 = (best.a0 ?? best.a) + area;
     }
     c.posArea = (c.posArea || 0) + area;
     if (!c.side) c.side = side < 0 ? -1 : 1;
@@ -8138,6 +8139,9 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
   // side off the holes meant she snapped bolt upright the moment the repair
   // button was pressed.
   if (!c.side) c.side = side < 0 ? -1 : 1;
+  // How big it was when it was made, which is what decides how far her
+  // parties can close it. See closable.
+  c.rent0 = (c.rent0 || 0) + area;
   // How far below her waterline the hole is, so the head of water over it can
   // be worked out. Holes above the waterline are recorded at a negative depth
   // and only start drawing when she has settled onto them.
@@ -9147,9 +9151,92 @@ export function setParty(ship, i, job) {
   return true;
 }
 
+/**
+ * How much one party gets done, against a ship with five of them.
+ *
+ * More parties is more hands, but not more of everything in proportion: a
+ * battleship's eight share the same passages, the same pumps and the same
+ * damage control central, and a destroyer's three are each doing the work of
+ * two. Each party's output goes as one over the square root of how many she
+ * carries, so a full complement of eight does about one and a half times what
+ * three do -- the bigger ship is better found, and not overwhelmingly so.
+ */
+function partyEffort(ship) {
+  const n = (ship.parties && ship.parties.length) || 5;
+  return Math.sqrt(5 / n);
+}
+
+/**
+ * The work rates of one party at that effort, per second.
+ *
+ * Measured against the rest of the ship: a fire grows by about 0.007 a second
+ * at its worst, so one party puts out a developing fire in under a minute; the
+ * old call-away put back eleven per cent of her structure a minute, and a full
+ * crew on repairs does a little better than that; a damaged gun is back in
+ * hand in twenty seconds against the seventy its own crew takes.
+ */
+const PARTY = {
+  pump: 0.6, // of her own pumpRate, cubic metres a second
+  patch: 0.07, // square metres of hole closed a second
+  fire: 0.03, // of a compartment's fire put out a second
+  hull: 0.0004, // of her full structure put back a second
+  gun: 0.05, // of a mounting's damage cleared a second
+  rebuild: 60, // seconds to bring a wrecked mounting back to damaged
+  engine: 1.5, // seconds of engine or steering damage cleared a second
+  trim: 1 / 75, // of a compartment's list counter-flooded away a second
+};
+
 /** What one party pumps, in cubic metres a second: a portable pump and its hoses. */
-function partyPump(cls) {
-  return pumpRate(cls) * 0.8;
+function partyPump(cls, ship) {
+  return pumpRate(cls) * PARTY.pump * partyEffort(ship);
+}
+
+/**
+ * The most a hole can be closed down to, in square metres.
+ *
+ * A shell hole a metre or so across can be plugged: a mattress, a plank and
+ * wedges, and it is shut. A torpedo's rent or a citadel hit's ragged opening
+ * the size of a room cannot be closed at sea at all -- a party can shore the
+ * bulkheads round it, get a collision mat over part of it and stop the worst,
+ * and that is half of it at best.
+ */
+const PLUG_MAX = 3;
+function holeFloor(a0) {
+  return a0 <= PLUG_MAX ? 0 : a0 * 0.5;
+}
+
+/** How much of a compartment's open area her parties can still close. */
+function closable(c) {
+  let left = 0;
+  for (const h of c.holes || []) left += Math.max(0, h.a - holeFloor(h.a0 ?? h.a));
+  const rent = Math.max(0, c.holeP + c.holeS - (c.posArea || 0));
+  left += Math.max(0, rent - holeFloor(c.rent0 || rent));
+  return left;
+}
+
+/** Close `amount` square metres of what can be closed in a compartment. */
+function patchHoles(c, amount) {
+  let left = amount;
+  let shut = 0;
+  for (const h of c.holes || []) {
+    if (left <= 0) break;
+    const q = Math.min(left, Math.max(0, h.a - holeFloor(h.a0 ?? h.a)));
+    h.a -= q;
+    c.posArea = Math.max(0, (c.posArea || 0) - q);
+    left -= q;
+    shut += q;
+  }
+  if (left > 0) {
+    const rent = Math.max(0, c.holeP + c.holeS - (c.posArea || 0));
+    shut += Math.min(left, Math.max(0, rent - holeFloor(c.rent0 || rent)));
+  }
+  // Off both sides of her in proportion: the area is what floods her.
+  const open = c.holeP + c.holeS;
+  if (open > 0 && shut > 0) {
+    const f = Math.max(0, open - shut) / open;
+    c.holeP *= f;
+    c.holeS *= f;
+  }
 }
 
 /** Whether a mounting can be worked on at all, rather than being gone. */
@@ -9197,9 +9284,8 @@ function partyWork(ship, cls, job) {
     for (const s of SECTIONS) {
       const c = ship.sections[s.k];
       if (c.fire > 0.02 && (!fire || c.fire > ship.sections[fire].fire)) fire = s.k;
-      const open = c.holeP + c.holeS;
-      if (s.from !== null && open > 0.05
-        && (!hole || open > ship.sections[hole].holeP + ship.sections[hole].holeS)) hole = s.k;
+      const open = s.from !== null ? closable(c) : 0;
+      if (open > 0.05 && (!hole || open > closable(ship.sections[hole]))) hole = s.k;
       if (c.hp < c.max * 0.995 && (!hull || c.hp / c.max < ship.sections[hull].hp / ship.sections[hull].max)) hull = s.k;
     }
     if (fire) return { on: `fire:${fire}`, k: fire, what: 'fire' };
@@ -9229,6 +9315,9 @@ function partyWork(ship, cls, job) {
   return null;
 }
 
+/** How long a party on its own takes to notice it is wanted, in seconds. */
+const AUTO_LAG = 12;
+
 /** For a party left to its own devices: the job most wanted, turn and turn about. */
 function autoJob(ship, cls, i) {
   const order = ['engine', 'pump', 'repair', 'guns'];
@@ -9246,49 +9335,53 @@ function autoJob(ship, cls, i) {
 function stepParties(state, ship, dt) {
   if (!ship.parties || !ship.parties.length) return;
   const cls = shipClass(ship);
+  const eff = partyEffort(ship);
   let mended = false;
   ship.parties.forEach((p, i) => {
     const job = p.job === 'auto' ? autoJob(ship, cls, i) : p.job;
     const w = job ? partyWork(ship, cls, job) : null;
+    // A party left to its own devices has to find out there is something
+    // wrong before it goes: the word has to reach it and it has to get there.
+    // Sent by the captain, it is already on its way.
+    if (p.job === 'auto') {
+      if (!w) { p.lag = 0; p.on = null; return; }
+      if (!p.on && (p.lag = (p.lag || 0) + dt) < AUTO_LAG) return;
+    }
     p.on = w ? w.on : null;
     if (!w) return;
     if (job === 'pump' && w.what === 'trim') {
       const c = ship.sections[w.k];
-      c.cf = Math.min(1, (c.cf || 0) + dt / 75);
+      c.cf = Math.min(1, (c.cf || 0) + PARTY.trim * eff * dt);
     } else if (job === 'pump') {
       const c = ship.sections[w.k];
-      const q = Math.min(c.water, partyPump(cls) * dt);
+      const q = Math.min(c.water, partyPump(cls, ship) * dt);
       c.water -= q;
       c.inflow = (c.inflow || 0) - q / dt;
     } else if (job === 'repair') {
       const c = ship.sections[w.k];
       if (w.what === 'fire') {
-        c.fire = Math.max(0, c.fire - 0.05 * dt);
+        c.fire = Math.max(0, c.fire - PARTY.fire * eff * dt);
       } else if (w.what === 'hole') {
         // A patch over the worst of it: a collision mat, timber and wedges.
-        const open = c.holeP + c.holeS;
-        const f = Math.max(0, open - 0.08 * dt) / open;
-        c.holeP *= f; c.holeS *= f;
-        if (c.posArea) c.posArea *= f;
-        for (const h of c.holes || []) h.a *= f;
+        patchHoles(c, PARTY.patch * eff * dt);
       } else {
-        c.hp = Math.min(c.max, c.hp + ship.maxHp * 0.0012 * dt);
+        c.hp = Math.min(c.max, c.hp + ship.maxHp * PARTY.hull * eff * dt);
         mended = true;
       }
     } else if (job === 'guns') {
       const m = w.m;
-      m.disabled = Math.max(0, (m.disabled || 0) - dt);
+      m.disabled = Math.max(0, (m.disabled || 0) - dt * eff);
       if ((m.hurt || 0) >= 3) {
         // Wrecked, not gone: cleared away, rewired and put back in hand, and
         // it is a long job.
-        m.fix = (m.fix || 0) + dt;
-        if (m.fix >= 50) { m.hurt = 2.4; m.fix = 0; }
+        m.fix = (m.fix || 0) + dt * eff;
+        if (m.fix >= PARTY.rebuild) { m.hurt = 2.4; m.fix = 0; }
       } else {
-        m.hurt = Math.max(0, (m.hurt || 0) - 0.06 * dt);
+        m.hurt = Math.max(0, (m.hurt || 0) - PARTY.gun * eff * dt);
       }
     } else if (job === 'engine') {
-      if (w.what === 'engine') ship.engineDamage = Math.max(0, ship.engineDamage - 2 * dt);
-      else ship.steeringDamage = Math.max(0, ship.steeringDamage - 2 * dt);
+      if (w.what === 'engine') ship.engineDamage = Math.max(0, ship.engineDamage - PARTY.engine * eff * dt);
+      else ship.steeringDamage = Math.max(0, ship.steeringDamage - PARTY.engine * eff * dt);
     }
   });
   if (mended) ship.hp = Math.min(ship.maxHp, hullIntegrity(ship));
@@ -9309,6 +9402,11 @@ function saved(ship, S, dt) {
   if (S.kind === 'magazine' || ship.blown || ship.broke != null || ship.cut) return false;
   if (S.t > S.T * 0.85 || (S.roll || 0) > 0.3) return false;
   if (ship.hp < ship.maxHp * 0.08) return false;
+  // Saved by somebody: her parties have to be at it -- on the pumps,
+  // counter-flooding, or closing her up. A ship that rights herself with
+  // nobody doing anything about it has only stopped going down for a moment.
+  const working = (ship.parties || []).some((p) => p.on && /^(pump|trim|hole|hull|fire):/.test(p.on));
+  if (!working) { S.held = 0; return false; }
   // Held there, not touched for a moment: twenty seconds with her deck edge
   // clear and her list coming off before anybody can call her safe.
   const b = buoyancy(ship);
