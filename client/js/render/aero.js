@@ -168,6 +168,12 @@ export function catapultProfile(aero, stroke = 21) {
   return { dt, rows };
 }
 
+/** How much livelier a player's aeroplane is than her book figures. */
+export const AGILITY = 1.35;
+
+/** The most the rudder will skid her flight path round, in radians a second. */
+const YAW_RATE = 0.16;
+
 /**
  * An aeroplane with somebody in it.
  *
@@ -190,8 +196,16 @@ export function catapultProfile(aero, stroke = 21) {
  * be real for the flying to be worth doing at all.
  */
 export class Pilot {
-  constructor(aero, { x = 0, y = 300, z = 0, heading = 0, speed = null } = {}) {
+  constructor(aero, {
+    x = 0, y = 300, z = 0, heading = 0, speed = null, agility = AGILITY,
+  } = {}) {
     this.a = aero;
+    // How much livelier than her book figures she is under a player's hands.
+    // A dogfight on a touch screen is fought at arm's length through an
+    // instructor, and an aeroplane that answers at exactly her real roll and
+    // pitch rates feels like a barge through that much indirection: she is
+    // given a third again on both, and answers the controls quicker.
+    this.agility = agility;
     this.x = x; this.y = y; this.z = z;
     this.heading = heading;
     this.pitch = 0;
@@ -202,6 +216,11 @@ export class Pilot {
     // positive.
     this.stickPitch = 0;
     this.stickRoll = 0;
+    // The rudder, -1 to 1, positive the way positive roll turns her. Only the
+    // instructor uses it (see `instruct`): the last few degrees onto a target
+    // are trodden on with the feet, not rolled into, which is what makes a
+    // mouse-aimed fighter sit steady on a mark instead of hunting round it.
+    this.stickYaw = 0;
     // How fast she is actually rolling, in radians a second. A rate rather
     // than an angle, because that is what an aileron commands -- and a state
     // rather than a number worked out each frame, because she has inertia and
@@ -286,7 +305,7 @@ export class Pilot {
     // and multiplying by dynamic pressure on top of it counted her airspeed
     // twice and had a Wildcat rolling at a hundred and fifty degrees a second.
     const want = held
-      ? this.stickRoll * rollRate(a, this.v)
+      ? this.stickRoll * rollRate(a, this.v) * this.agility
       // Hands off she rolls level on her own dihedral, and slowly. Nine degrees
       // a second: a hard bank takes eight or nine seconds to come out of on its
       // own, which is what dihedral does -- it is a weak righting moment out of
@@ -298,12 +317,12 @@ export class Pilot {
       // something that happens to him.
       : (Math.abs(this.bank) < Math.PI * 0.55
         ? Math.max(-0.16, Math.min(0.16, -this.bank * 0.6)) : 0);
-    const kr = 1 - Math.exp(-s / rollTau(a, this.v));
+    const kr = 1 - Math.exp(-s / (rollTau(a, this.v) / this.agility));
     this.roll += (want - this.roll) * kr;
     this.bank = wrapAngle(this.bank + this.roll * s);
 
     // Pitch. The stick asks for g; the wing decides whether it gets it.
-    const rate = pitchRate(a) * q;
+    const rate = pitchRate(a) * q * this.agility;
     // In a turn she needs more than one g just to hold her height, and the
     // instructor feeds that in so she does not fall out of every turn.
     //
@@ -342,7 +361,7 @@ export class Pilot {
     // the tail damps her into a steady g, and on a heavy that is the better
     // part of half a second -- which is most of what "she should not react so
     // suddenly" means.
-    const kp = 1 - Math.exp(-s / pitchTau(a, this.v));
+    const kp = 1 - Math.exp(-s / (pitchTau(a, this.v) / this.agility));
     this.g += (Math.max(minG, Math.min(askG, maxG)) - this.g) * kp;
     // Buffet and departure: asking the wing for more than it has. The spar is
     // not the wing -- over-stressing her is not stalling her -- so this is
@@ -352,7 +371,10 @@ export class Pilot {
     // The turn. The horizontal part of the lift pulls her round -- which is
     // why a turn costs speed and why she cannot turn at all inverted at low g.
     const turn = (G * this.g * Math.sin(this.bank)) / Math.max(18, this.v);
-    this.heading = wrapAngle(this.heading + turn * s);
+    // And the rudder: a slow skid of the flight path, a few degrees a second at
+    // most, with the authority the air gives it.
+    const yaw = this.stickYaw * YAW_RATE * Math.min(1.2, q);
+    this.heading = wrapAngle(this.heading + (turn + yaw) * s);
     // And the vertical part against gravity gives the climb rate.
     const gamma = (G * (this.g * Math.cos(this.bank) - Math.cos(this.pitch)))
       / Math.max(18, this.v);
@@ -385,7 +407,8 @@ export class Pilot {
     // Energy: thrust against drag and the component of weight along the path.
     const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));
     const T = thrust(a, this.v, this.throttle);
-    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2);
+    // A skid is draggy, which is the price of treading her round.
+    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25);
     this.v += ((T - D) / a.mass - G * Math.sin(this.pitch)) * s;
     // She can be slower than the stall -- that is what a stall is -- but not
     // stopped, and not faster than the airframe allows in a dive.
@@ -482,4 +505,96 @@ export class Airborne {
     }
     return this;
   }
+}
+
+/**
+ * The instructor: fly her at a point in the sky.
+ *
+ * This is mouse-aim, the way the big air-combat games fly a fighter from a
+ * mouse or a thumb. The player does not hold a stick at all. He drags the
+ * view, a marker sits where he is looking, and this works the stick, the
+ * ailerons and the rudder to put the aeroplane's nose on it: rolling her into
+ * the turn so her lift is pointed at the mark and pulling, treading the last
+ * few degrees on with the rudder, and keeping her wings level when the mark is
+ * dead ahead. Look left and she goes left; look up and she climbs.
+ *
+ * It is a pilot, not a cheat. Everything it does goes through the same stick,
+ * throttle and wing as a pilot's hands would -- she still turns at the rate
+ * her wing gives her, bleeds speed in a hard turn, and will not be pulled past
+ * what the wing will carry. It just never asks for more than that: the pull is
+ * held to the edge of the buffet, so she does not stall out of a turn the way
+ * a thumb on a stick would have her.
+ *
+ * `aim` is a unit vector, in the world, of where the player wants her nose.
+ * Headings run the game's way round: positive bank turns her towards rising
+ * heading.
+ */
+export function instruct(p, aim) {
+  const ch = Math.cos(p.heading);
+  const sh = Math.sin(p.heading);
+  const cg = Math.cos(p.pitch);
+  const sg = Math.sin(p.pitch);
+  const cb = Math.cos(p.bank);
+  const sb = Math.sin(p.bank);
+  // Her own axes: forward down her flight path, up through her canopy, and
+  // out along the wing she turns towards with positive bank.
+  const fx = sh * cg, fy = sg, fz = ch * cg;
+  const u0x = -sh * sg, u0y = cg, u0z = -ch * sg;
+  const lx = ch, lz = -sh;
+  const ux = cb * u0x + sb * lx, uy = cb * u0y, uz = cb * u0z + sb * lz;
+  const wx = cb * lx - sb * u0x, wy = -sb * u0y, wz = cb * lz - sb * u0z;
+  // Where the mark is, in her own frame.
+  const c = aim.x * fx + aim.y * fy + aim.z * fz;
+  const b = aim.x * ux + aim.y * uy + aim.z * uz;
+  const s = aim.x * wx + aim.y * wy + aim.z * wz;
+  const off = Math.acos(Math.max(-1, Math.min(1, c)));
+
+  const a = p.a;
+  const vs = stallSpeed(a);
+  const v = Math.max(20, p.v);
+  const wingG = (v * v) / (vs * vs);
+  const limit = a.gLimit ?? 5.5;
+  const span = Math.max(1, limit - 1);
+  const rmax = Math.max(0.1, rollRate(a, p.v) * (p.agility || 1));
+  // The g she needs just to hold her height in the bank she is in, which the
+  // flight model feeds in on its own (see Pilot.substep).
+  const hold = Math.abs(cb) < 0.2 ? Math.sign(cb || 1) * 4.5 : 1 / cb;
+  // And never past the buffet: the most the wing will give, less that.
+  const top = Math.max(0, (Math.min(wingG * 0.92, limit) - hold) / span);
+
+  // ---- a mark near the horizon: a turn ------------------------------------
+  // Bank into it the way a pilot does -- as far as the wing will hold her up
+  // and no further, so she comes round on the edge of the buffet without
+  // falling out of it -- and work the nose up or down onto it with the stick.
+  const yawErr = wrapAngle(Math.atan2(aim.x, aim.z) - p.heading);
+  const aimGamma = Math.asin(Math.max(-1, Math.min(1, aim.y)));
+  const most = Math.min(1.40, wingG * 0.9 > 1.02 ? Math.acos(1 / (wingG * 0.9)) : 0.2);
+  const wantBank = Math.max(-most, Math.min(most, yawErr * 3.2));
+  const rollT = (wrapAngle(wantBank - p.bank) * 5.5) / rmax;
+  // The nose, in the vertical. Pulling in a bank lifts her nose along her own
+  // up, which is only partly the world's, so it takes more in a steep one.
+  const gErr = aimGamma - p.pitch;
+  const pitchT = ((gErr * 2.6 * v) / G) / span / Math.max(0.35, Math.abs(cb)) * Math.sign(cb || 1);
+  // Rudder, for the last few degrees: a skid onto the mark instead of a roll.
+  const yawT = Math.max(-1, Math.min(1, yawErr * 9)) * (1 - smooth(0.05, 0.25, Math.abs(yawErr)));
+
+  // ---- a mark well above or below: over the top ---------------------------
+  // Roll until her lift points at it and pull, which is how a loop, an
+  // Immelmann and a split-S are all flown.
+  const rollTo = Math.atan2(s, b);
+  const rollV = (rollTo * 5.5) / rmax;
+  const pitchV = (off * Math.max(0, Math.cos(rollTo)) * 3.2 * v) / G / span;
+
+  // A heavy bomber is not looped or split-essed: whatever the mark, she is
+  // flown round in a turn and pushed or pulled onto it.
+  const k = (a.gLimit ?? 5.5) > 3.2 ? smooth(0.42, 0.62, Math.abs(aim.y)) : 0;
+  p.stickRoll = Math.max(-1, Math.min(1, rollT + (rollV - rollT) * k));
+  p.stickPitch = Math.max(-0.55, Math.min(top, 1, pitchT + (pitchV - pitchT) * k));
+  p.stickYaw = yawT * (1 - k);
+  return off;
+}
+
+function smooth(a, b, x) {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 }

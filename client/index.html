@@ -442,25 +442,69 @@
     <span>CONTROL</span>
   </button>
 
-  <!-- The cockpit. There is no stick on the glass: the whole screen is the
-       stick, so a swipe anywhere flies her and the sight in the middle stays
-       put. The throttle is up the left edge and the weapons are under the
-       right thumb. Nothing else is on screen while you are up there. -->
+  <!-- The cockpit, laid out the way War Thunder Mobile lays one out, because
+       that is the layout everybody's thumbs already know. There is no stick:
+       drag anywhere and the view goes where the thumb goes -- left is left,
+       up is up -- and the aeroplane flies herself onto the little four-point
+       marker in the middle of it. The ring is where her guns are pointed. Two
+       triggers, one under each thumb, the throttle up the right edge, and the
+       chart stays where it always is, in the top right corner. -->
   <div class="cockpit" id="cockpit" hidden>
     <!-- The flying surface, under everything else in the cockpit: it takes any
          drag that no button wanted. -->
     <div class="fly-swipe" id="fly-swipe"></div>
+    <!-- Where she is being flown to: the view's own centre, four points. -->
+    <div class="fly-aim" id="fly-aim"><i></i><i></i><i></i><i></i></div>
+    <!-- The gunsight: a hollow ring where the bore lines cross, which is
+         where the rounds go. It lags the marker while she comes round onto it
+         and sits on it once she is there. -->
+    <div class="fly-reticle" id="fly-reticle"></div>
+    <!-- The lead: where to put the ring to hit the aeroplane she is after. -->
+    <div class="fly-lead" id="fly-lead" hidden><i></i></div>
+    <p class="fly-far" id="fly-far" hidden>Enemy is too far, fly closer</p>
     <div class="fly-readout" id="fly-readout">
-      <div><b id="fly-speed">0</b><i>KN IAS</i></div>
-      <div><b id="fly-alt">0</b><i>FT</i></div>
-      <div><b id="fly-g">1.0</b><i>G</i></div>
-      <div><b id="fly-thr">100</b><i>THR</i></div>
+      <div><i>SPD</i><b id="fly-speed">0</b><i>km/h</i></div>
+      <div><i>ALT</i><b id="fly-alt">0</b><i>m</i></div>
+      <div class="fly-readout-g"><i>G</i><b id="fly-g">1.0</b></div>
     </div>
     <div class="fly-stall" id="fly-stall" hidden>STALL</div>
+    <!-- The throttle: a ladder up the right edge with a knob on it. The top of
+         it, over the red line, is emergency power. -->
     <div class="fly-throttle" id="fly-throttle">
+      <div class="fly-throttle-rail"></div>
+      <div class="fly-throttle-wep"></div>
       <div class="fly-throttle-fill" id="fly-throttle-fill"></div>
-      <span>THR</span>
+      <div class="fly-throttle-knob" id="fly-throttle-knob"></div>
+      <span class="fly-throttle-val" id="fly-thr">100</span>
     </div>
+    <!-- The two triggers: the big one under the left thumb, and one by the
+         throttle under the right. Either fires everything she has forward. -->
+    <button class="fly-fire left" id="fly-guns" type="button" aria-label="Fire">
+      <span class="fly-ammo" id="fly-ammo">0</span>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+          <g fill="currentColor">
+            <path d="M14 34l15-19 3 2.4-15 19z"/><path d="M28.6 13.4l3.6-4.6 2.4 1.9-3.6 4.6z"/>
+            <path d="M22 38l15-19 3 2.4-15 19z"/><path d="M36.6 17.4l3.6-4.6 2.4 1.9-3.6 4.6z"/>
+            <path d="M9 37.5l5-3 1.6 2.2-4.4 3.8zM17 41.5l5-3 1.6 2.2-4.4 3.8z" opacity="0.75"/>
+          </g>
+        </svg>
+    </button>
+    <button class="fly-fire right" id="fly-guns2" type="button" aria-label="Fire">
+      <span class="fly-ammo" id="fly-ammo2">0</span>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+          <g fill="currentColor">
+            <path d="M14 34l15-19 3 2.4-15 19z"/><path d="M28.6 13.4l3.6-4.6 2.4 1.9-3.6 4.6z"/>
+            <path d="M22 38l15-19 3 2.4-15 19z"/><path d="M36.6 17.4l3.6-4.6 2.4 1.9-3.6 4.6z"/>
+            <path d="M9 37.5l5-3 1.6 2.2-4.4 3.8zM17 41.5l5-3 1.6 2.2-4.4 3.8z" opacity="0.75"/>
+          </g>
+        </svg>
+    </button>
+    <!-- A glass to the eye, for a long shot. -->
+    <button class="fly-round zoom" id="fly-zoom" type="button" aria-label="Zoom">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2">
+        <circle cx="10" cy="19" r="5.2"/><circle cx="22" cy="19" r="5.2"/>
+        <path d="M12 9h8M10 14l2-5M22 14l-2-5M15.2 19h1.6"/></g></svg>
+    </button>
     <div class="fly-actions">
       <!-- Her armament, as the ship's arsenal panel lists a ship's: every gun
            and every powered turret aboard, and pressing one puts you in it. -->
@@ -470,17 +514,11 @@
            not on screen while he is flying. -->
       <button class="fly-btn bombcam" id="fly-bombcam" type="button" hidden>BOMBS<br>AWAY</button>
       <button class="fly-btn drop" id="fly-drop" type="button">DROP</button>
-      <button class="fly-btn guns" id="fly-guns" type="button">FIRE</button>
     </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
-    <!-- The sight: a white ring on the middle of the screen, where her guns
-         are pointed. -->
-    <div class="fly-reticle" id="fly-reticle"><i></i></div>
-    <p class="fly-hint" id="fly-hint">Swipe anywhere to fly her</p>
-    <!-- Her name, in the bottom left corner, and her condition along the
-         bottom: which aeroplane this is and how much of her is left. The
-         bridge's own keys are put away while somebody is flying, so the
-         bottom of the screen is the pilot's and carries nothing else. -->
+    <p class="fly-hint" id="fly-hint">Drag anywhere to aim · she flies to the marker</p>
+    <!-- Her name, and her condition along the bottom: which aeroplane this is
+         and how much of her is left. -->
     <div class="fly-ident" id="fly-ident">
       <span class="fly-ident-type" id="fly-ident-type">Wildcat</span>
       <span class="fly-ident-sub" id="fly-ident-sub">off Enterprise</span>

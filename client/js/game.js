@@ -4,13 +4,13 @@
 import * as THREE from '../../vendor/three.module.js';
 import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
-import { Hud, readTarget } from './hud.js';
+import { Hud, readTarget, THROTTLE_MAX } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
-import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock }
+import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct }
   from './render/aero.js';
 import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles } from './render/planes.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
@@ -188,6 +188,29 @@ const GUN_COUNT = {
  * a torpedo has to be dropped where the target cannot comb it, and a bomb has
  * to be released from the dive rather than lobbed from four thousand yards.
  */
+/**
+ * Rounds aboard for her forward guns, all of them together -- what the
+ * number over the trigger counts down from. Her real loads near enough: a
+ * Wildcat's four fifties at four hundred a gun, a Zero's two cannon and two
+ * rifle-calibre, a scout's one gun and a few belts.
+ */
+const AMMO = {
+  wildcat: 1600, dauntless: 720, avenger: 600, arado: 620, kingfisher: 500,
+  besson: 500, loire: 500, zero: 1120, suisei: 800, tenzan: 500, jake: 500,
+};
+/** Rounds a minute out of one gun: about seven hundred, for all of them. */
+const GUN_RPM = 720;
+/**
+ * Where her wing guns are laid to meet, in metres, and so where the ring is
+ * drawn. A long way out, so the rounds go out in a tight bundle down the
+ * line of sight instead of crossing and spreading.
+ */
+const GUN_CONVERGE = 420;
+/** How far the rounds are worth anything, for the lead and the far warning. */
+const GUN_REACH = 900;
+/** How fast they go, for the lead: muzzle velocity, plus her own speed. */
+const GUN_V = 810;
+
 const LOAD = {
   dive: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
   scout: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
@@ -2611,6 +2634,16 @@ export class Battle {
           if (this.flight && this.flight.id === ev.i) this.leaveFlight(true);
           break;
         }
+        case 'goingIn':
+          // One of ours has decided to go into a ship: shot to pieces with
+          // nowhere to go, a float plane with no deck to come home to, or a
+          // fighter with nothing left in the air to fight.
+          if (ev.team === this.team && !(this.flight && this.flight.id === ev.i)) {
+            this.hud.ribbon('KAMIKAZE RUN', 'cit');
+          } else if (ev.ship === this.shipId) {
+            this.hud.alert('Enemy aircraft diving on us');
+          }
+          break;
         case 'planeCrash':
           fx.explosion(ev.x, ev.y + 3, ev.z, 1.5);
           fx.debris(ev.x, ev.y + 3, ev.z, 20);
@@ -2719,6 +2752,9 @@ export class Battle {
 
   onKey(code) {
     const ls = this.localShip;
+    // In the cockpit the flying keys fly her (see stepFlight) and do nothing
+    // to the ship she came off.
+    if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space'].includes(code)) return;
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3334,6 +3370,13 @@ export class Battle {
       sent: 0,
       guns: 0,
       tracer: 0,
+      // Where she is being flown to: the view's own direction, which the
+      // thumb moves and the instructor follows. Starts dead ahead of her.
+      aimYaw: pl.h,
+      aimPitch: 0,
+      // What is left in her guns.
+      ammo: AMMO[kind] ?? 800,
+      guns_n: GUN_COUNT[kind] ?? 2,
     };
 
     this.watching = null;
@@ -3345,8 +3388,13 @@ export class Battle {
     // Who she is, in the bottom left corner, and her own damage board across
     // the bottom of the screen.
     const ship = (snap.ships || []).find((q) => q.i === pl.o);
+    // A float plane has no deck to come back to: the pilot is told so.
+    const cls = ship && SHIP_CLASSES[ship.c];
+    const oneWay = !!(cls && cls.planes && (cls.planes.catapult || cls.planes.launcher === 'derrick'));
+    this.flight.oneWay = oneWay;
     this.hud.setFlightIdent(PLANE_NAME[kind] || 'Aircraft',
-      ship ? `off ${ship.n || 'the fleet'}` : 'off the fleet');
+      (ship ? `off ${ship.n || 'the fleet'}` : 'off the fleet') + (oneWay ? ' · one way' : ''));
+    if (oneWay) this.hud.alert('Catapult launch: no way back aboard — go in when she is done');
     if (!this.planeBoard) {
       const cv = document.getElementById('fly-damage-board');
       if (cv) this.planeBoard = new PlaneBoard(cv);
@@ -3394,6 +3442,9 @@ export class Battle {
       },
       pilot: new Pilot(aero, {
         x: bm.x, y: bm.y, z: bm.z, heading: bm.h, speed: aero.vMax * 0.70,
+        // Thirty tonnes is thirty tonnes: livelier under a player, but not a
+        // fighter.
+        agility: 1.15,
       }),
       from: 0,
       dm: bm.dm || null,
@@ -3406,6 +3457,12 @@ export class Battle {
       tracer: 0,
       // How many of her are left, so the formation is drawn with its gaps.
       count: Math.max(1, bm.n || 1),
+      aimYaw: bm.h,
+      aimPitch: 0,
+      // A heavy's guns are her turrets, and they are fed from boxes the
+      // gunners keep full: nothing to count down.
+      ammo: Infinity,
+      guns_n: 0,
     };
     this.watching = null;
     this.hud.setWatching(null);
@@ -3577,16 +3634,25 @@ export class Battle {
     }
     f.asked = Math.max(0, f.asked - dt);
 
-    const stick = this.hud.fly || { pitch: 0, roll: 0, throttle: 1 };
+    const stick = this.hud.fly || { throttle: 1, aimX: 0, aimY: 0 };
     const p = f.pilot;
+    this.steerAim(f, stick, dt);
+    // The instructor works the stick, the ailerons and the rudder to put her
+    // nose on the marker.
+    instruct(p, this.flyAim(f, p));
     // What a shot-about aeroplane can still be made to do. An engine at half
     // will not hold full power, a wing panel shot through will not be hauled
     // round, and a machine with one wing worse than the other flies one wing
     // low whatever the stick is doing. The simulation has been keeping this
     // per part since the flak became real; the pilot now feels it.
     const wear = this.flyWear(f);
-    p.stickPitch = stick.pitch * wear.turn;
-    p.stickRoll = stick.roll * wear.turn + wear.pull;
+    p.stickPitch *= wear.turn;
+    p.stickRoll = p.stickRoll * wear.turn + wear.pull;
+    p.stickYaw *= wear.turn;
+    // The keys, for a desk: W and S open and close her up, as they do a ship.
+    const keys = this.input;
+    if (keys.down('KeyW') || keys.down('ShiftLeft')) this.hud.setThrottle(stick.throttle + dt * 0.6);
+    if (keys.down('KeyS') || keys.down('ControlLeft')) this.hud.setThrottle(stick.throttle - dt * 0.6);
     p.throttle = stick.throttle * wear.speed;
     const sea = this.scene.ocean.heightAt(p.x, p.z);
     p.gale = galeOf(this.world, this.renderST ?? this.time);
@@ -3596,7 +3662,12 @@ export class Battle {
     // The guns: held down, reported in bursts rather than per frame. The
     // tracer is drawn here rather than off the wire coming back, because a
     // pilot pressing the trigger has to see it leave the wing now.
-    if (stick.firing) {
+    // Either trigger, or the space bar or the left mouse key at a desk.
+    const firing = (stick.firing || keys.down('Space')) && (f.ammo > 0 || !!this.turret);
+    if (firing) {
+      if (!this.turret && Number.isFinite(f.ammo)) {
+        f.ammo = Math.max(0, f.ammo - (GUN_RPM / 60) * f.guns_n * dt);
+      }
       f.guns += dt;
       f.tracer -= dt;
       if (f.tracer <= 0) {
@@ -3630,6 +3701,7 @@ export class Battle {
     // use of a fixed ring: it says when the aeroplane is pointed at the thing
     // rather than near it.
     this.hud.setSightHot(this.sightOn(f, p, snap));
+    this.hud.setAmmo(Number.isFinite(f.ammo) ? f.ammo : 0);
 
     f.sent -= dt;
     if (f.sent <= 0) {
@@ -3650,12 +3722,188 @@ export class Battle {
         // them: her height decides whether she has flown into anything, and
         // her pitch is half of where her guns are pointing.
         y: Math.round(p.y * 10) / 10, p: Math.round((p.pitch || 0) * 1000) / 1000,
+        // And where her guns are actually laid in the vertical, which is her
+        // nose rather than her flight path -- the server sends the rounds down
+        // it -- and how fast she is going, which they go out at on top of
+        // their own muzzle velocity.
+        gp: Math.round((p.attitude || 0) * 1000) / 1000,
+        v: Math.round(p.v),
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
     // Her condition, on the board along the bottom and on the line under it.
     if (this.planeBoard) this.planeBoard.update(f.dm, dt);
     this.hud.paintFlightDamage(f.dm, PART_ORDER.map((k) => PART_NAME[k]));
+  }
+
+  /**
+   * Move the marker: the thumb's travel since last frame, turned into an angle.
+   *
+   * Left is left and up is up. A drag the height of the screen swings the
+   * view about one and a half times its own field of view, which is quick
+   * enough to get round onto something behind her in one sweep and fine
+   * enough to lay the ring on a fighter at four hundred metres -- and since
+   * it goes as the field of view, it gets finer still with the glass up.
+   *
+   * At a desk the arrow keys walk it about as well.
+   */
+  steerAim(f, stick, dt) {
+    // Sitting in one of her turrets the drag is the gunner's head, and the
+    // aeroplane holds whatever she was last pointed at.
+    if (this.turret) { stick.aimX = 0; stick.aimY = 0; return; }
+    const cam = this.scene.camera;
+    const fov = ((cam && cam.fov) || 62) * Math.PI / 180;
+    const k = (fov * 1.5) / Math.max(320, window.innerHeight || 720);
+    const keys = this.input;
+    const kx = (keys.down('ArrowRight') || keys.down('KeyD') ? 1 : 0)
+      - (keys.down('ArrowLeft') || keys.down('KeyA') ? 1 : 0);
+    const ky = (keys.down('ArrowUp') ? 1 : 0) - (keys.down('ArrowDown') ? 1 : 0);
+    // Screen right is falling heading in this world, so a drag to the right
+    // takes heading off.
+    f.aimYaw = wrapAngle(f.aimYaw - stick.aimX * k - kx * 1.2 * dt);
+    // A heavy is not stood on her tail or pushed straight down.
+    const lim = f.heavy ? 0.6 : 1.35;
+    f.aimPitch = clamp(f.aimPitch - stick.aimY * k + ky * 0.9 * dt, -lim, lim);
+    stick.aimX = 0;
+    stick.aimY = 0;
+  }
+
+  /**
+   * Where the instructor is to fly her: the marker, unless that would put her
+   * in the sea. Low down, a mark below the horizon is lifted -- the more the
+   * lower she is -- so a pilot looking down at a ship he is strafing pulls out
+   * over her instead of flying into the water beside her.
+   */
+  flyAim(f, p) {
+    const sea = this.scene.ocean.heightAt(p.x, p.z);
+    const h = p.y - Math.max(0, sea);
+    let pitch = f.aimPitch;
+    if (h < 260) {
+      const u = clamp((h - 25) / 235, 0, 1);
+      // From a firm climb at twenty-five metres to a steep dive allowed at
+      // two hundred and sixty; and her own sink rate taken into account, so a
+      // fast dive is pulled out of earlier than a slow one.
+      const sink = Math.max(0, -Math.sin(p.pitch) * p.v);
+      const floor = lerp(0.14, -1.0, u) + clamp(sink / 140, 0, 0.6) * (1 - u * 0.5);
+      pitch = Math.max(pitch, Math.min(0.4, floor));
+    }
+    // The camera stands behind and above her, so the line from her to the
+    // marker is not quite the camera's: she is pointed at the point on the
+    // camera's line where her guns meet, so the ring settles on the marker
+    // rather than a degree under it. And it is her nose that is laid there,
+    // not her flight path -- the angle her wing is working at is taken off.
+    const cp = Math.cos(pitch);
+    const dx = Math.sin(f.aimYaw) * cp;
+    const dy = Math.sin(pitch);
+    const dz = Math.cos(f.aimYaw) * cp;
+    const rig = this.chaseRig(p);
+    const tx = p.x - dx * rig.back + dx * (GUN_CONVERGE + rig.back) - p.x;
+    const ty = rig.up - dy * rig.back + dy * (GUN_CONVERGE + rig.back);
+    const tz = p.z - dz * rig.back + dz * (GUN_CONVERGE + rig.back) - p.z;
+    const len = Math.hypot(tx, ty, tz) || 1;
+    const aoa = clamp(p.attitude - p.pitch, -0.3, 0.3);
+    const yaw = Math.atan2(tx, tz);
+    const pt = Math.asin(clamp(ty / len, -1, 1)) - aoa;
+    const a = f.aimVec || (f.aimVec = { x: 0, y: 0, z: 1 });
+    a.x = Math.sin(yaw) * Math.cos(pt);
+    a.y = Math.sin(pt);
+    a.z = Math.cos(yaw) * Math.cos(pt);
+    return a;
+  }
+
+  /** How far behind and above her the chase camera stands. */
+  chaseRig(p) {
+    const span = (p.a && p.a.span) || 11;
+    const zoom = this.hud.fly && this.hud.fly.zoom;
+    return { back: (18 + span * 1.2) * (zoom ? 1.25 : 1), up: 4 + span * 0.32 };
+  }
+
+  /**
+   * The sights on the glass, put where they are in the picture.
+   *
+   * The marker is the view's own direction. The ring is where her guns are
+   * laid -- down her nose, out to where the wing guns meet. And the lead is
+   * the point the ring has to be on to hit the enemy aeroplane nearest the
+   * ring: where she will be when the rounds get there, at her speed and on
+   * her heading.
+   */
+  paintSights() {
+    const f = this.flight;
+    if (!f || !this.hud.placeSights) return;
+    const cam = this.scene.camera;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const v = this.sightVec || (this.sightVec = new THREE.Vector3());
+    const project = (x, y, z) => {
+      v.set(x, y, z).project(cam);
+      if (v.z > 1 || v.z < -1) return null;
+      return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+    };
+    const p = f.pilot;
+    const ap = Math.cos(f.aimPitch);
+    const aim = this.turret ? null : project(
+      cam.position.x + Math.sin(f.aimYaw) * ap * 2000,
+      cam.position.y + Math.sin(f.aimPitch) * 2000,
+      cam.position.z + Math.cos(f.aimYaw) * ap * 2000,
+    );
+    // A heavy's pilot has no forward guns: the ring is for a turret gunner,
+    // and he has his own sight.
+    const bore = p.attitude;
+    const bc = Math.cos(bore);
+    const ring = f.heavy || this.turret ? null : project(
+      p.x + Math.sin(p.heading) * bc * GUN_CONVERGE,
+      p.y + Math.sin(bore) * GUN_CONVERGE,
+      p.z + Math.cos(p.heading) * bc * GUN_CONVERGE,
+    );
+    let lead = null;
+    let far = false;
+    if (ring) {
+      // The enemy aeroplane nearest the ring, ahead of her, within a long
+      // way of her guns.
+      const fx = Math.sin(p.heading) * bc;
+      const fy = Math.sin(bore);
+      const fz = Math.cos(p.heading) * bc;
+      let best = null;
+      let bestScore = Infinity;
+      const consider = (x, y, z, h, sp, vy) => {
+        const dx = x - p.x, dy = y - p.y, dz = z - p.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d < 30 || d > 2600) return;
+        const ahead = (dx * fx + dy * fy + dz * fz) / d;
+        if (ahead < 0.82) return;
+        const score = (1 - ahead) * 4000 + d * 0.15;
+        if (score < bestScore) { bestScore = score; best = { x, y, z, h, sp, vy, d }; }
+      };
+      for (const q of (this.planesNow || [])) {
+        if (q.tm === this.team || q.i === f.id) continue;
+        consider(q.x, this.planeHeight(q), q.z, q.h, q.s || 70, q.vy || 0);
+      }
+      const snap = this.snapshots[this.snapshots.length - 1];
+      for (const q of ((snap && snap.bombers) || [])) {
+        if (q.tm === this.team) continue;
+        consider(q.x, q.y, q.z, q.h, q.s || 80, 0);
+      }
+      if (best) {
+        // Time of flight, solved twice: the rounds go out at muzzle velocity
+        // plus her own speed.
+        const vb = GUN_V + p.v;
+        let t = best.d / vb;
+        let lx = best.x, ly = best.y, lz = best.z;
+        for (let i = 0; i < 3; i++) {
+          lx = best.x + Math.sin(best.h) * best.sp * t;
+          ly = best.y + best.vy * t + 0.5 * 9.81 * t * t;
+          lz = best.z + Math.cos(best.h) * best.sp * t;
+          t = Math.hypot(lx - p.x, ly - p.y, lz - p.z) / vb;
+        }
+        const at = project(lx, ly, lz);
+        if (at) {
+          lead = { x: at.x, y: at.y, near: best.d < GUN_REACH };
+          // The ring is on her but she is out of reach.
+          far = best.d > GUN_REACH && Math.hypot(at.x - ring.x, at.y - ring.y) < 70;
+        }
+      }
+    }
+    this.hud.placeSights(aim, ring, lead, far);
   }
 
   /**
@@ -3779,10 +4027,12 @@ export class Battle {
     const aim = p.attitude;
     const bank = p.bank || 0;
     const cp = Math.cos(aim);
-    const R = 620;
-    // Where the guns are laid to cross: about 250 yards, which is what a
-    // fighter's were harmonised at.
-    const CONVERGE = 230;
+    const R = GUN_REACH;
+    // Where the guns are laid to meet. A long way out, and every tracer is
+    // run on to the same point on the bore line at the end of its reach, so
+    // the burst goes out as one tight bundle down the line of the ring rather
+    // than crossing a couple of hundred metres out and fanning apart after.
+    const CONVERGE = GUN_REACH;
     const q = this.gunQuat || (this.gunQuat = new THREE.Quaternion());
     const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
     const v = this.gunVec || (this.gunVec = new THREE.Vector3());
@@ -4228,6 +4478,9 @@ export class Battle {
     this.recoilClock += dt;
     this.updateCamera(dt);
     this.scene.camera.updateMatrixWorld();
+    // The sights on the glass are worked out of the camera this frame has
+    // just been given, so they sit on what is drawn.
+    if (this.flight) this.paintSights();
     audio.listen(this.scene.camera);
     // And the ground, if anything has taken a piece out of it since the last
     // frame. Held off for a moment after the last hit rather than done on the
@@ -5481,59 +5734,37 @@ export class Battle {
         return;
       }
     }
-    // In the cockpit, the camera belongs to the aeroplane and to nothing else:
-    // over her shoulder, banking with her, looking where her nose is looking.
+    // In the cockpit: behind her and above, looking where the marker is.
     if (this.flight && !riding) {
-      const p = this.flight.pilot;
-      cam.fov = 62;
+      // Not where she is pointed: drag the view round and she is seen rolling
+      // and pulling after it, and once she is on it the ring sits on the
+      // marker. The horizon stays level, so what turns is the aeroplane.
+      const f = this.flight;
+      const p = f.pilot;
+      const zoom = this.hud.fly && this.hud.fly.zoom;
+      const want = zoom ? 30 : 62;
+      cam.fov = lerp(cam.fov || 62, want, 1 - Math.pow(0.0005, Math.min(0.1, dt)));
       cam.updateProjectionMatrix();
-      // The camera trails her; it is not bolted to her.
-      //
-      // It used to take her attitude exactly, which sounds right and is what
-      // made it unusable: roll the aeroplane and the whole world turned over
-      // round a picture of an aeroplane that never moved, and every touch of
-      // the stick threw the horizon about. What a chase camera does is lag --
-      // it swings round after her in its own time, and it keeps the horizon
-      // very nearly where the horizon is, so what you see rolling is the
-      // aeroplane. The rig below is her heading and pitch eased toward hers
-      // over about a third of a second, and a quarter of her bank.
-      const r = this.flight.rig || (this.flight.rig = {
-        heading: p.heading, pitch: p.pitch, bank: 0,
-      });
-      const k = 1 - Math.pow(0.0008, Math.min(0.1, dt));
-      r.heading = wrapAngle(r.heading + angleDelta(r.heading, p.heading) * k);
-      r.pitch = lerp(r.pitch, clamp(p.pitch, -0.7, 0.7), k);
-      r.bank = lerp(r.bank, clamp(p.bank * 0.26, -0.34, 0.34), k);
-      // Far enough back and high enough that she is in the frame with the sea
-      // under her: a chase camera that cannot see its own aeroplane is a
-      // camera pointed at nothing.
-      // Off her own span, so the camera stands where she can be seen. A fixed
-      // thirty-four metres frames a Wildcat and puts the lens inside a
-      // Lancaster's port wing: a heavy is three times the aeroplane and wants
-      // three times the room.
-      const span = (p.a && p.a.span) || 11;
-      const back = 20 + span * 1.25;
-      const up = 5 + span * 0.36;
-      const cp = Math.cos(r.pitch);
-      const bx = -Math.sin(r.heading) * cp * back - Math.sin(r.bank) * Math.cos(r.heading) * up;
-      const bz = -Math.cos(r.heading) * cp * back + Math.sin(r.bank) * Math.sin(r.heading) * up;
-      const by = -Math.sin(r.pitch) * back + Math.cos(r.bank) * up;
-      cam.position.set(p.x + bx, Math.max(p.y + by, 3), p.z + bz);
-      cam.up.set(-Math.sin(r.bank) * Math.cos(r.heading), Math.cos(r.bank),
-        Math.sin(r.bank) * Math.sin(r.heading));
-      // Looking down the rig's nose rather than hers, so a hard pull does not
-      // whip the view -- but through a point on the aeroplane, so however far
-      // the rig is lagging she stays in the middle of the picture.
-      const look = 40 + span * 2.6;
-      cam.lookAt(
-        p.x + Math.sin(r.heading) * cp * look,
-        // Raised with the camera, not a fixed two metres above her. The lens
-        // stands higher off a big aeroplane than off a small one, and aiming
-        // it at the same two metres tipped it down thirteen degrees and left
-        // a Lancaster sitting in the bottom third of the frame.
-        p.y + Math.sin(r.pitch) * look + up * 0.55,
-        p.z + Math.cos(r.heading) * cp * look,
-      );
+      // Off her own span, so the camera stands where she can be seen: a heavy
+      // is three times the aeroplane and wants three times the room.
+      const { back, up } = this.chaseRig(p);
+      const cp = Math.cos(f.aimPitch);
+      const dx = Math.sin(f.aimYaw) * cp;
+      const dy = Math.sin(f.aimPitch);
+      const dz = Math.cos(f.aimYaw) * cp;
+      // A little give in the rig, so a burst of buffet or a gust shakes her
+      // in the frame instead of shaking the frame.
+      const r = f.rig || (f.rig = { x: p.x, y: p.y, z: p.z });
+      const kr = 1 - Math.pow(1e-6, Math.min(0.1, dt));
+      r.x = lerp(r.x, p.x, kr);
+      r.y = lerp(r.y, p.y, kr);
+      r.z = lerp(r.z, p.z, kr);
+      const ex = r.x - dx * back;
+      const ey = Math.max(r.y - dy * back + up, 3);
+      const ez = r.z - dz * back;
+      cam.position.set(ex, ey, ez);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(ex + dx * 1000, ey + dy * 1000, ez + dz * 1000);
       this.input.orbiting = false;
       return;
     }

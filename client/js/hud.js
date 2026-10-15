@@ -57,6 +57,9 @@ const LAMP_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true" class="lamp-icon"
 
 const M_TO_YARDS = 1.09361;
 
+/** The top of the throttle ladder: a tenth over full power, which is emergency power. */
+export const THROTTLE_MAX = 1.1;
+
 /** What a mounting is allowed to engage, in the words a gunnery officer uses. */
 const ROLE_LABEL = {
   surface: 'Surface', aa: 'Air', dp: 'Dual purpose', sub: 'Submarine',
@@ -272,8 +275,11 @@ class HudBase {
       flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
       flyThr: $('fly-thr'), flyStall: $('fly-stall'),
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
+      flyThrottleKnob: $('fly-throttle-knob'),
       flySwipe: $('fly-swipe'), flyHint: $('fly-hint'),
-      flyReticle: $('fly-reticle'),
+      flyReticle: $('fly-reticle'), flyAim: $('fly-aim'), flyLead: $('fly-lead'),
+      flyFar: $('fly-far'), flyGuns2: $('fly-guns2'), flyZoom: $('fly-zoom'),
+      flyAmmo: $('fly-ammo'), flyAmmo2: $('fly-ammo2'),
       flyIdentType: $('fly-ident-type'), flyIdentSub: $('fly-ident-sub'),
       flyDamage: $('fly-damage'), flyDamageBoard: $('fly-damage-board'),
       flyDamageParts: $('fly-damage-parts'),
@@ -844,76 +850,71 @@ class HudBase {
   }
 
   /**
-   * The cockpit: the whole screen is the stick, and the sight does not move.
+   * The cockpit, flown the way War Thunder flies an aeroplane from a thumb.
    *
-   * There used to be a joystick drawn in the bottom left corner, and a stick
-   * drawn on the glass is the worst of both worlds -- it covers a fifth of the
-   * picture, it has to be found before it can be used, and a thumb that slides
-   * off the edge of it stops flying the aeroplane without saying so. So there
-   * is no stick. A white ring sits in the middle of the screen where the guns
-   * point, and a swipe started anywhere that is not a button flies her: where
-   * the thumb went down is the middle, and how far it has moved from there is
-   * how hard she is being hauled round. Lift it and she rolls level on her own.
+   * There is no stick. A drag started anywhere that is not a button moves the
+   * view -- drag left and it looks left, drag up and it looks up -- and a
+   * small four-point marker sits in the middle of it. The aeroplane flies
+   * herself onto the marker (see `instruct` in render/aero.js): she rolls,
+   * pulls and treads the rudder to put her nose where the player is looking.
+   * The hollow ring is where her guns are actually pointed, so it trails the
+   * marker while she comes round and sits on it once she is there.
+   *
+   * It used to be a swipe that was the stick itself, and the stick ran the
+   * way a stick runs: thumb right rolled her into a turn that the chase
+   * camera showed going left, and thumb down was nose up. Everybody who flew
+   * her flew her backwards.
+   *
+   * `aimX` and `aimY` collect how far the thumb has moved, in pixels, since
+   * the game last took them; the game turns them into an angle.
    *
    * Everything is pointer events rather than touch events, so it works the
    * same under a finger and under a mouse.
    */
   bindCockpit(fns) {
-    this.fly = { pitch: 0, roll: 0, throttle: 1, firing: false };
+    this.fly = {
+      throttle: 1, firing: false, aimX: 0, aimY: 0, zoom: false, held: false,
+    };
     this.flyFns = fns || {};
     const el = this.el;
     if (!el.flySwipe) return;
 
-    // ---- the swipe -------------------------------------------------------
-    // How far the thumb has to travel for full deflection. A share of the
-    // smaller screen dimension rather than a number of pixels, so the same
-    // gesture flies her the same way on a phone and on a desktop.
-    const reach = () => Math.max(70, Math.min(window.innerWidth, window.innerHeight) * 0.20);
+    // ---- the aim ---------------------------------------------------------
     let swipeId = null;
-    let ox = 0;
-    let oy = 0;
-    const swipeAt = (ev) => {
-      const rad = reach();
-      let dx = (ev.clientX - ox) / rad;
-      let dy = (ev.clientY - oy) / rad;
-      const len = Math.hypot(dx, dy);
-      if (len > 1) { dx /= len; dy /= len; }
-      this.fly.roll = dx;
-      // Screen down is nose up, which is what a stick does.
-      this.fly.pitch = -dy;
-    };
-    const swipeOff = () => {
-      swipeId = null;
-      this.fly.roll = 0;
-      this.fly.pitch = 0;
-      el.flySwipe.classList.remove('held');
-    };
+    let lx = 0;
+    let ly = 0;
     el.flySwipe.addEventListener('pointerdown', (ev) => {
       swipeId = ev.pointerId;
-      ox = ev.clientX;
-      oy = ev.clientY;
+      lx = ev.clientX;
+      ly = ev.clientY;
       el.flySwipe.setPointerCapture(ev.pointerId);
-      el.flySwipe.classList.add('held');
+      this.fly.held = true;
       // Said once, then out of the way.
       if (el.flyHint) el.flyHint.classList.add('gone');
       ev.preventDefault();
     });
     el.flySwipe.addEventListener('pointermove', (ev) => {
-      if (ev.pointerId === swipeId) swipeAt(ev);
+      if (ev.pointerId !== swipeId) return;
+      this.fly.aimX += ev.clientX - lx;
+      this.fly.aimY += ev.clientY - ly;
+      lx = ev.clientX;
+      ly = ev.clientY;
     });
-    for (const k of ['pointerup', 'pointercancel', 'pointerleave']) {
+    for (const k of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       el.flySwipe.addEventListener(k, (ev) => {
-        if (ev.pointerId === swipeId) swipeOff();
+        if (ev.pointerId === swipeId) { swipeId = null; this.fly.held = false; }
       });
     }
 
     // ---- the throttle ----------------------------------------------------
+    // Up the ladder from idle to full, and the last notch over the red line is
+    // emergency power: a tenth more than the engine is rated for, for as long
+    // as the thumb holds it there.
     let thrId = null;
     const thrAt = (ev) => {
       const r = el.flyThrottle.getBoundingClientRect();
-      const t = clamp(1 - (ev.clientY - r.top) / r.height, 0, 1);
-      this.fly.throttle = t;
-      el.flyThrottleFill.style.height = `${t * 100}%`;
+      const u = clamp(1 - (ev.clientY - r.top) / r.height, 0, 1);
+      this.setThrottle(u * THROTTLE_MAX);
     };
     el.flyThrottle.addEventListener('pointerdown', (ev) => {
       thrId = ev.pointerId;
@@ -929,19 +930,35 @@ class HudBase {
     }
 
     // ---- the triggers ----------------------------------------------------
-    const hold = (btn, on, off) => {
+    // Two of them, one under each thumb. Either one fires; she stops when
+    // neither is held.
+    const down = new Set();
+    const paint = () => {
+      this.fly.firing = down.size > 0;
+      el.flyGuns.classList.toggle('on', down.has(el.flyGuns));
+      if (el.flyGuns2) el.flyGuns2.classList.toggle('on', down.has(el.flyGuns2));
+    };
+    const trigger = (btn) => {
+      if (!btn) return;
       btn.addEventListener('pointerdown', (ev) => {
         btn.setPointerCapture(ev.pointerId);
-        on();
+        down.add(btn);
+        paint();
         ev.preventDefault();
       });
-      for (const k of ['pointerup', 'pointercancel', 'pointerleave']) {
-        btn.addEventListener(k, () => off());
+      for (const k of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        btn.addEventListener(k, () => { down.delete(btn); paint(); });
       }
     };
-    hold(el.flyGuns,
-      () => { this.fly.firing = true; el.flyGuns.classList.add('on'); },
-      () => { this.fly.firing = false; el.flyGuns.classList.remove('on'); });
+    trigger(el.flyGuns);
+    trigger(el.flyGuns2);
+    this.releaseTriggers = () => { down.clear(); paint(); };
+    if (el.flyZoom) {
+      el.flyZoom.onclick = () => {
+        this.fly.zoom = !this.fly.zoom;
+        el.flyZoom.classList.toggle('on', this.fly.zoom);
+      };
+    }
     el.flyDrop.onclick = () => this.flyFns.drop?.();
     el.flyLeave.onclick = () => this.flyFns.leave?.();
     // Her armament, in the cockpit. The same panel the bridge raises with the
@@ -950,6 +967,52 @@ class HudBase {
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
+  }
+
+  /** Put the throttle somewhere, and the knob with it. 0 to THROTTLE_MAX. */
+  setThrottle(t) {
+    const el = this.el;
+    this.fly.throttle = clamp(t, 0, THROTTLE_MAX);
+    const u = this.fly.throttle / THROTTLE_MAX;
+    if (el.flyThrottleFill) el.flyThrottleFill.style.height = `${u * 100}%`;
+    if (el.flyThrottleKnob) el.flyThrottleKnob.style.bottom = `${u * 100}%`;
+    if (el.flyThrottle) el.flyThrottle.classList.toggle('wep', this.fly.throttle > 1.001);
+    if (el.flyThr) el.flyThr.textContent = Math.round(this.fly.throttle * 100);
+  }
+
+  /**
+   * The sights, moved to where they are: the marker, the ring and the lead,
+   * each in screen pixels or null to hide it.
+   */
+  placeSights(aim, ring, lead, far) {
+    const el = this.el;
+    const put = (node, at) => {
+      if (!node) return;
+      if (!at) { node.style.visibility = 'hidden'; return; }
+      node.style.visibility = '';
+      node.style.left = `${at.x}px`;
+      node.style.top = `${at.y}px`;
+    };
+    put(el.flyAim, aim);
+    put(el.flyReticle, ring);
+    if (el.flyLead) {
+      el.flyLead.hidden = !lead;
+      if (lead) {
+        el.flyLead.style.transform = `translate(${lead.x}px, ${lead.y}px)`;
+        el.flyLead.classList.toggle('near', !!lead.near);
+      }
+    }
+    if (el.flyFar) el.flyFar.hidden = !far;
+  }
+
+  /** Rounds left in her guns, on both triggers. */
+  setAmmo(n) {
+    const el = this.el;
+    const txt = String(Math.max(0, Math.round(n)));
+    for (const [a, b] of [[el.flyAmmo, el.flyGuns], [el.flyAmmo2, el.flyGuns2]]) {
+      if (a && a.textContent !== txt) a.textContent = txt;
+      if (b) b.classList.toggle('empty', n <= 0);
+    }
   }
 
   /** Raise or lower the "take this aeroplane" button. */
@@ -1055,14 +1118,14 @@ class HudBase {
       for (const k of Object.values(this.keys || {})) k.classList.remove('on');
       this.setFlyOffer(false);
       // Full throttle on the way in: nobody takes an aeroplane to idle it.
-      this.fly.throttle = 1;
-      if (this.el.flyThrottleFill) this.el.flyThrottleFill.style.height = '100%';
-      // And she starts with the stick central, whatever was left over from
-      // the last time somebody flew.
-      this.fly.pitch = 0;
-      this.fly.roll = 0;
-      this.fly.firing = false;
-      if (this.el.flySwipe) this.el.flySwipe.classList.remove('held');
+      this.setThrottle(1);
+      // And nothing left over from the last time somebody flew.
+      this.fly.aimX = 0;
+      this.fly.aimY = 0;
+      this.fly.held = false;
+      this.fly.zoom = false;
+      if (this.el.flyZoom) this.el.flyZoom.classList.remove('on');
+      this.releaseTriggers?.();
       if (this.el.flyHint) this.el.flyHint.classList.remove('gone');
       this.setSightHot(false);
     }
@@ -1072,10 +1135,9 @@ class HudBase {
   paintCockpit(p) {
     const el = this.el;
     if (!el.flySpeed || !p) return;
-    el.flySpeed.textContent = Math.round(p.v * 1.94384);
-    el.flyAlt.textContent = Math.round(p.y * 3.28084);
+    el.flySpeed.textContent = Math.round(p.v * 3.6);
+    el.flyAlt.textContent = Math.round(p.y);
     el.flyG.textContent = p.g.toFixed(1);
-    el.flyThr.textContent = Math.round(this.fly.throttle * 100);
     el.flyStall.hidden = p.stall < 0.25;
     el.flyDrop.classList.toggle('spent', !p.armed);
   }

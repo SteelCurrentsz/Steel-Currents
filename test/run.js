@@ -44,12 +44,12 @@ import {
   mayFly, PILOT_HOLD, addBomber, bombAlt, hurtBomber, HEAVY_VIC, MAX_NOTCH,
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
-  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf,
+  stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf, oneWay,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
-  rollRate, rollTau, pitchTau,
+  rollRate, rollTau, pitchTau, instruct,
 } from '../client/js/render/aero.js';
 import { twoFingerGesture } from '../client/js/touch.js';
 // A strike is up to three flights and they go one at a time, each down the
@@ -373,7 +373,8 @@ function flyDom() {
   return {
     flySwipe: make(), flyHint: make(), flyReticle: make(),
     flyThrottle: make(), flyThrottleFill: make(),
-    flyGuns: make(), flyDrop: make(), flyLeave: make(), flyTake: make(),
+    flyGuns: make(), flyGuns2: make(), flyDrop: make(), flyLeave: make(), flyTake: make(),
+    flyThrottleKnob: make(), flyThr: make(), flyZoom: make(),
     cockpit: make(), connKeys: make(), connPanel: make(),
     hudLeft: make(), hudRight: make(), hudTop: make(),
   };
@@ -12353,27 +12354,27 @@ check("a fighter's guns hurt the machine she is firing at", () => {
     'her fire took the same off every machine in the formation at once');
 });
 
-check('there is no stick drawn on the glass, and a swipe flies her', () => {
+check('there is no stick drawn on the glass: a drag aims her, left for left and up for up', () => {
   // A joystick painted in the corner covers a fifth of the picture, has to be
   // found before it can be used, and stops flying the aeroplane without saying
-  // so the moment a thumb slides off the edge of it. The whole screen is the
-  // stick now: a swipe started anywhere flies her, and a white ring in the
-  // middle marks where the guns point.
+  // so the moment a thumb slides off the edge of it. So there is none. A drag
+  // anywhere moves the view -- and the four-point marker in the middle of it
+  // -- and the aeroplane is flown onto the marker by her instructor; a hollow
+  // ring is where her guns are pointed. The way War Thunder flies her.
   const markup = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   assert.ok(!/id="fly-stick"/.test(markup), 'there is still a joystick on the glass');
-  assert.ok(/id="fly-swipe"/.test(markup), 'there is nothing to swipe on');
-  assert.ok(/id="fly-reticle"/.test(markup), 'there is no sight in the middle of the screen');
+  assert.ok(/id="fly-swipe"/.test(markup), 'there is nothing to drag on');
+  assert.ok(/id="fly-reticle"/.test(markup), 'there is no gunsight');
+  assert.ok(/id="fly-aim"/.test(markup), 'there is no marker to fly her to');
+  assert.ok(/id="fly-guns"/.test(markup) && /id="fly-guns2"/.test(markup),
+    'there is not a trigger under each thumb');
+  assert.ok(/id="fly-throttle-knob"/.test(markup), 'the throttle has no knob to drag');
   const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
-  const ring = css.slice(css.indexOf('.fly-reticle {'), css.indexOf('.fly-reticle::before'));
+  const ring = css.slice(css.indexOf('.fly-reticle {'), css.indexOf('.fly-reticle.hot'));
   assert.ok(/border:[^;]*255,\s*255,\s*255/.test(ring),
     `the sight is not a white ring: ${ring.replace(/\s+/g, ' ').trim()}`);
-  assert.ok(/left:\s*50%/.test(ring) && /top:\s*50%/.test(ring),
-    'the sight is not in the middle of the screen');
+  assert.ok(/border-radius:\s*50%/.test(ring), 'the sight is not a ring');
 
-  // And the swipe itself: where the thumb goes down is the middle, how far it
-  // has moved is how hard she is being hauled round, and lifting it centres.
-  // How far a thumb has to travel is a share of the screen, so there has to be
-  // a screen for it to be a share of.
   const hadWindow = 'window' in globalThis;
   if (!hadWindow) globalThis.window = { innerWidth: 1280, innerHeight: 720 };
   try {
@@ -12384,24 +12385,38 @@ check('there is no stick drawn on the glass, and a swipe flies her', () => {
   const down = (x, y) => el.flySwipe.fire('pointerdown', { pointerId: 1, clientX: x, clientY: y });
   const move = (x, y) => el.flySwipe.fire('pointermove', { pointerId: 1, clientX: x, clientY: y });
   down(400, 400);
-  assert.equal(hud.fly.roll, 0, 'putting a thumb down deflected the stick before it moved');
+  assert.equal(hud.fly.aimX, 0, 'putting a thumb down moved the marker before it moved');
+  assert.equal(hud.fly.aimY, 0, 'putting a thumb down moved the marker before it moved');
   move(600, 400);
-  assert.ok(hud.fly.roll > 0.5, `swiping right rolled her ${hud.fly.roll.toFixed(2)}`);
-  assert.ok(Math.abs(hud.fly.pitch) < 0.01, 'a sideways swipe pitched her');
-  move(400, 200);
-  assert.ok(hud.fly.pitch > 0.5, `swiping up pitched her ${hud.fly.pitch.toFixed(2)}, nose down`);
-  // Never past the stops, however far the thumb travels.
-  move(9000, 9000);
-  assert.ok(Math.hypot(hud.fly.roll, hud.fly.pitch) <= 1.001,
-    'a long swipe asked for more than full deflection');
+  assert.equal(hud.fly.aimX, 200, `dragging right moved the marker ${hud.fly.aimX}`);
+  assert.equal(hud.fly.aimY, 0, 'a sideways drag moved the marker up or down');
+  move(600, 250);
+  assert.equal(hud.fly.aimY, -150, `dragging up moved the marker ${hud.fly.aimY}`);
   el.flySwipe.fire('pointerup', { pointerId: 1 });
-  assert.equal(hud.fly.roll, 0, 'she held the roll after the thumb came off');
-  assert.equal(hud.fly.pitch, 0, 'she held the pitch after the thumb came off');
-  // A second pointer that was never the flying one must not centre her.
+  // Lifting the thumb leaves the marker where it was: she flies on to it.
+  move(900, 900);
+  assert.equal(hud.fly.aimX, 200, 'the marker moved with no thumb on the glass');
+  // A second pointer that was never the aiming one does not stop the first.
   down(300, 300);
-  move(500, 300);
   el.flySwipe.fire('pointerup', { pointerId: 9 });
-  assert.ok(hud.fly.roll > 0.5, 'letting go of some other finger stopped flying her');
+  move(320, 300);
+  assert.equal(hud.fly.aimX, 220, 'letting go of some other finger stopped the aim');
+  el.flySwipe.fire('pointerup', { pointerId: 1 });
+
+  // Either trigger fires, and she stops when neither is held.
+  el.flyGuns.fire('pointerdown', { pointerId: 2 });
+  el.flyGuns2.fire('pointerdown', { pointerId: 3 });
+  assert.ok(hud.fly.firing, 'the triggers do not fire');
+  el.flyGuns.fire('pointerup', { pointerId: 2 });
+  assert.ok(hud.fly.firing, 'letting go of one trigger stopped the other');
+  el.flyGuns2.fire('pointerup', { pointerId: 3 });
+  assert.ok(!hud.fly.firing, 'she went on firing with no trigger held');
+
+  // The throttle goes over the top into emergency power, and no further.
+  hud.setThrottle(5);
+  assert.ok(hud.fly.throttle > 1 && hud.fly.throttle <= 1.1001, `throttle ${hud.fly.throttle}`);
+  hud.setThrottle(-1);
+  assert.equal(hud.fly.throttle, 0);
 
   // The drop key says what is on the rack, and a fighter has not got one.
   hud.setArmament('TORPEDO');
@@ -12450,7 +12465,8 @@ check('the cockpit says what happened, not what was hoped', () => {
   g.team = 0;
   g.hud = {
     alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
-    paintFlightDamage() {}, fly: { pitch: 0, roll: 0, throttle: 1 },
+    paintFlightDamage() {}, setAmmo() {}, setThrottle() {},
+    fly: { throttle: 1, aimX: 0, aimY: 0 },
   };
   g.net = { send: (m) => sent.push(m) };
   g.snapshots = [{ ships: [{ i: 9, a: 1, tm: 1, x: 100, z: 0 }], planes: [] }];
@@ -12477,11 +12493,18 @@ check('the cockpit says what happened, not what was hoped', () => {
     sightOn: () => false,
     wingGuns() {},
     flyWear: Battle.prototype.flyWear,
+    steerAim: Battle.prototype.steerAim,
+    flyAim: Battle.prototype.flyAim,
+    chaseRig: Battle.prototype.chaseRig,
+    input: { down: () => false },
     planeBoard: null,
-    flight: Object.assign(g.flight, { wear: { speed: 1, turn: 1, pull: 0 }, pilot: {
-      x: 0, y: 200, z: 0, v: 60, g: 1, stall: 0, alive: true, heading: 0,
-      attitude: 0, bank: 0, step() {},
-    } }),
+    flight: Object.assign(g.flight, {
+      wear: { speed: 1, turn: 1, pull: 0 }, aimYaw: 0, aimPitch: 0, ammo: 600, guns_n: 2,
+      pilot: {
+        x: 0, y: 200, z: 0, v: 60, g: 1, stall: 0, alive: true, heading: 0, pitch: 0,
+        attitude: 0, bank: 0, roll: 0, agility: 1, a: AERO.avenger, step() {},
+      },
+    }),
   }, 0.016);
   assert.deepEqual(said, ['Torpedoes away'],
     `when the fish actually went the cockpit said ${JSON.stringify(said)}`);
@@ -18431,7 +18454,7 @@ check('from outside her you never see her insides', () => {
   }
 });
 
-check('a ship that flies her aircraft can fly them twice', () => {
+check('a ship\'s aircraft come back on the board, and a seaplane does not', () => {
   // Every squadron that goes out comes home, is rearmed and goes again, and
   // the clock that says when is `planes.rearm`. The Surcouf was given
   // `planes.cooldown` instead -- a key nothing in the simulation reads -- so
@@ -18447,10 +18470,10 @@ check('a ship that flies her aircraft can fly them twice', () => {
       `${id} has no rearming time, so her squadrons never come back on the board`);
   }
 
-  // And the whole way round, on a ship whose evolution is the longest in the
-  // fleet: order her up, watch her go, let her come home, and she is ready
-  // again once her rearm has run.
-  const cls = SHIP_CLASSES.surcouf;
+  // A seaplane is not one of them, though. The Surcouf's Besson goes over
+  // the side on a derrick and there is no hoisting her back in the middle of
+  // an action: she goes out, and when her work is done she goes into an enemy
+  // ship (see oneWay). Her place in the hangar stays empty.
   const st = createState(generateWorld(717, 'open_ocean'), { mode: 'deathmatch' });
   const sub = addShip(st, { name: 'Surcouf', classId: 'surcouf', team: 0, index: 0 });
   const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
@@ -18458,24 +18481,17 @@ check('a ship that flies her aircraft can fly them twice', () => {
   sub.aimX = foe.x; sub.aimZ = foe.z;
   assert.ok(launchStrike(st, sub), 'she would not launch at all');
   let flew = false;
-  let backAndReady = false;
-  // Long enough for the whole cycle: the evolution, out to the target and
-  // home, and three minutes on her trolley being made ready again.
+  let wentIn = false;
   for (let i = 0; i < Math.round(700 / DT); i++) {
     for (const s of st.ships) s.spottedBy = [true, true];
-    step(st, DT);
+    for (const e of step(st, DT)) if (e.e === 'goingIn') wentIn = true;
     if (st.planes.length) flew = true;
-    const sq = sub.squadrons[0];
-    if (flew && !st.planes.length && sq.state === 'deck') {
-      assert.ok(Number.isFinite(sq.cooldown),
-        'her squadron came home to a rearming time of ' + sq.cooldown);
-      if (sq.cooldown <= 0) { backAndReady = true; break; }
-    }
+    if (flew && !st.planes.length) break;
   }
   assert.ok(flew, 'her Besson never left');
-  assert.ok(backAndReady,
-    'her Besson never became ready again after coming home');
-  assert.ok(launchStrike(st, sub), 'she would not fly a second sortie');
+  assert.ok(wentIn, 'her Besson never went in');
+  assert.equal(sub.squadrons[0].state, 'spent', `her squadron is ${sub.squadrons[0].state}`);
+  assert.ok(!launchStrike(st, sub), 'she flew off a seaplane she no longer has');
 });
 
 check('the Surcouf puts her Besson in the water and flies her off it', () => {
@@ -20000,6 +20016,144 @@ check('a ship going down from flooding can be saved by her parties, and steams o
     for (let i = 0; i < 30 * 700 && her.alive; i++) step(st, DT);
     assert.ok(!her.alive, 'she was saved without anybody sent to her');
   }
+});
+
+check('the instructor flies her onto the marker, left for left and up for up', () => {
+  // Mouse-aim: the player puts a marker in the sky and the aeroplane is flown
+  // onto it. Wherever it is -- off either wing, behind her, above -- she gets
+  // there, without stalling and without hunting round it once she is on.
+  const dir = (yaw, pitch) => ({
+    x: Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch),
+  });
+  for (const kind of ['wildcat', 'avenger']) {
+    for (const [yaw, pitch, secs] of [[0.35, 0, 3], [1.57, 0, 6], [-1.57, 0, 6], [3.1, 0, 10], [0, 0.45, 3], [0, -0.35, 3]]) {
+      const p = new Pilot(AERO[kind], { y: 1500, speed: AERO[kind].vMax * 0.75 });
+      const a = dir(yaw, pitch);
+      let stalled = 0;
+      let off = 0;
+      for (let i = 0; i < secs * 60; i++) {
+        off = instruct(p, a);
+        p.step(1 / 60, 0);
+        stalled = Math.max(stalled, p.stall);
+      }
+      assert.ok(off < 0.05, `${kind} to ${yaw},${pitch}: still ${(off * 57.3).toFixed(1)} deg off after ${secs} s`);
+      assert.ok(stalled < 0.3, `${kind} to ${yaw},${pitch}: stalled getting there`);
+      // And stays there.
+      let worst = 0;
+      for (let i = 0; i < 120; i++) { worst = Math.max(worst, instruct(p, a)); p.step(1 / 60, 0); }
+      assert.ok(worst < 0.05, `${kind} hunts round the marker, ${(worst * 57.3).toFixed(1)} deg`);
+    }
+  }
+  // A marker to her right -- falling heading in this world -- is a turn that
+  // way, and she banks into it.
+  const p = new Pilot(AERO.wildcat, { y: 1500, speed: 110 });
+  for (let i = 0; i < 30; i++) { instruct(p, dir(-1, 0)); p.step(1 / 60, 0); }
+  assert.ok(p.bank < -0.2 && p.heading < 0, `bank ${p.bank.toFixed(2)}, heading ${p.heading.toFixed(2)}`);
+});
+
+check('a float plane is not coming back: she goes into an enemy ship when her work is done', () => {
+  const world = generateWorld(6102, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cl = addShip(st, { name: 'Cleveland', classId: 'cleveland', team: 0, index: 0 });
+  cl.x = 0; cl.z = -6000; cl.heading = 0; cl.notch = 0;
+  const foe = addShip(st, { name: 'Fletcher', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
+  assert.ok(oneWay(SHIP_CLASSES.cleveland.planes), 'a catapult scout is not one-way');
+  assert.ok(!oneWay(SHIP_CLASSES.enterprise.planes), 'a carrier\'s aircraft are one-way');
+  launchStrike(st, cl);
+  let goingIn = 0;
+  let ram = 0;
+  let home = false;
+  for (let i = 0; i < 500 / DT; i++) {
+    cl.spottedBy = [true, true]; foe.spottedBy = [true, true];
+    for (const e of step(st, DT)) {
+      if (e.e === 'goingIn') goingIn += 1;
+      if (e.e === 'ram') ram += 1;
+    }
+    for (const p of st.planes) {
+      if (p.owner === cl.id && p.phase === 'return' && dist(p.x, p.z, cl.x, cl.z) < 400) home = true;
+    }
+  }
+  assert.ok(goingIn > 0, 'the scout never went in');
+  assert.ok(!home, 'the scout came home to her catapult');
+  assert.ok(cl.squadrons.some((q) => q.state === 'spent'),
+    `her catapult was given another aeroplane: ${cl.squadrons.map((q) => q.state)}`);
+  assert.equal(cl.squadrons.filter((q) => q.state === 'deck' && q.cooldown > 0).length, 0,
+    'a lost float plane is being rearmed');
+  assert.ok(ram > 0 || goingIn > 0);
+});
+
+check('a fighter with nothing in the air to fight shields the strike and goes into the ship', () => {
+  const world = generateWorld(6102, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = -6000; cv.heading = 0;
+  const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+  foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
+  launchStrike(st, cv);
+  let shielding = false;
+  let ahead = false;
+  let fighterIn = false;
+  for (let i = 0; i < 400 / DT && !fighterIn; i++) {
+    cv.spottedBy = [true, true]; foe.spottedBy = [true, true];
+    for (const e of step(st, DT)) {
+      if (e.e === 'goingIn' || e.e === 'ram') {
+        const p = st.planes.find((q) => q.id === e.i);
+        if (e.e === 'ram' && (!p || p.role === 'fighter')) fighterIn = true;
+      }
+    }
+    for (const p of st.planes) {
+      if (p.role !== 'fighter' || !p.shieldFor) continue;
+      shielding = true;
+      const cov = st.planes.find((q) => q.id === p.shieldFor);
+      if (cov && dist(p.x, p.z, foe.x, foe.z) < dist(cov.x, cov.z, foe.x, foe.z)) ahead = true;
+    }
+  }
+  assert.ok(shielding, 'the fighters never took up a shield');
+  assert.ok(ahead, 'the shield never got in front of the flight it was covering');
+  assert.ok(fighterIn, 'the fighter never went into the ship');
+  assert.ok(!st.planes.some((p) => p.role === 'fighter' && p.phase === 'return'),
+    'a fighter turned for home with a ship left to go into');
+});
+
+check('a fighter going in ahead takes the flak meant for the bombers behind her', () => {
+  const world = generateWorld(6102, 'open_ocean');
+  world.islands = [];
+  const run = (shield) => {
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    cv.x = 0; cv.z = -9000;
+    const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
+    foe.x = 0; foe.z = 0; foe.notch = 0;
+    launchStrike(st, cv);
+    for (let i = 0; i < Math.ceil(DECK_RUN * 3 / DT); i++) step(st, DT);
+    const tb = st.planes.find((q) => q.role === 'torpedo') || st.planes.find((q) => q.role === 'dive');
+    const ft = st.planes.find((q) => q.role === 'fighter');
+    assert.ok(tb && ft, 'the strike did not get off');
+    // Held where they are, the torpedo bomber running in on the cruiser and
+    // the fighter three hundred metres in front of her -- or, without a
+    // shield, a long way off to one side.
+    const fx = shield ? 0 : 6000;
+    tb.x = 0; tb.z = -2200; tb.y = 120; tb.flown = true; tb.flownAt = 1e9;
+    tb.phase = 'outbound'; tb.targetId = foe.id;
+    ft.x = fx; ft.z = -1900; ft.y = 120; ft.flown = true; ft.flownAt = 1e9;
+    ft.phase = 'outbound';
+    const hp = () => tb.machines.reduce((n, a) => n + airframeHpOf(a), 0);
+    const was = hp();
+    for (let i = 0; i < 8 / DT; i++) {
+      foe.spottedBy = [true, true]; cv.spottedBy = [true, true];
+      tb.flownAt = st.t; ft.flownAt = st.t;
+      tb.x = 0; tb.z = -2200; ft.x = fx; ft.z = -1900;
+      step(st, DT);
+    }
+    return was - hp();
+  };
+  const bare = run(false);
+  const screened = run(true);
+  assert.ok(bare > 0, 'the flak never touched her');
+  assert.ok(screened < bare * 0.75, `screened she took ${screened.toFixed(3)}, bare ${bare.toFixed(3)}`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
