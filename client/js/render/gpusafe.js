@@ -4,13 +4,16 @@
 // page's -- a few seconds after the first shells landed, and nothing here can
 // see why: the same battle in any other browser holds steady. So each time it
 // happens the device steps down one more level, and stays there for a week,
-// until a battle holds: see stepDown in main.js.
+// until a battle holds: see goSafe in main.js.
 //
-//   1  no antialiasing, a drawn pixel to a screen pixel, holes cut out of
-//      her plating rather than in the shader
+//   1  holes cut out of her plating rather than in the shader
 //   2  and no dents or scrapes where shells strike, no shriek of shells going
-//      over, and fewer drawn pixels still
-//   3  and the low quality setting
+//      over, and no antialiasing
+//   3  and the low quality setting, at one drawn pixel to a screen pixel
+//
+// What a player sees as a sharp picture -- full resolution, antialiased --
+// goes last: dropped first, it made the game look pixelated for a week on a
+// device that was already well again.
 export const GPU = {
   level: 0,
   holeShader: true,

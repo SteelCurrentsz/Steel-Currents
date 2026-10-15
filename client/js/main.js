@@ -91,18 +91,21 @@ for (const C of [globalThis.WebGL2RenderingContext, globalThis.WebGLRenderingCon
 // go: a level for every time it has happened (see gpusafe.js for what each
 // leaves out), kept for a week from the last time, so the next battle on the
 // same iPad does not go the same way -- and then tried again at full quality.
-const SAFE_KEY = 'steel-currents:gpu-safe';
+// A new name: what earlier builds stored was put there by a crash that the
+// shader it came from no longer has in it, and it left a device drawing at
+// half its resolution with no antialiasing -- a pixelated game -- for a week.
+const SAFE_KEY = 'steel-currents:gpu-safe-2';
+try { localStorage.removeItem('steel-currents:gpu-safe'); } catch { /* private mode */ }
 function safeState() {
   try {
     const raw = localStorage.getItem(SAFE_KEY);
     if (!raw) return { t: 0, level: 0 };
-    // Older builds kept only the time, for what is now the first level.
-    const v = raw.trim().startsWith('{') ? JSON.parse(raw) : { t: Number(raw), level: 1 };
+    const v = JSON.parse(raw);
     if (!(Date.now() - v.t < 7 * 864e5)) return { t: 0, level: 0 };
     return { t: v.t, level: Math.max(0, Math.min(3, v.level | 0)) };
   } catch { return { t: 0, level: 0 }; }
 }
-function safeGraphics() { return GPU.level >= 1; }
+function safeGraphics() { return GPU.level >= 2; }
 let steppedAt = 0;
 /** One level lighter -- not twice for the one loss -- and remembered. */
 function goSafe() {
@@ -282,7 +285,7 @@ let current = 'title';
 
 function applyQuality() {
   const q = QUALITY[getSettings().quality] || QUALITY.medium;
-  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, GPU.level >= 2 ? 0.8 : GPU.level >= 1 ? 1 : Infinity);
+  governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, GPU.level >= 3 ? 1 : Infinity);
   governor.scale = 1;
   renderer.setPixelRatio(governor.base);
   resize();
