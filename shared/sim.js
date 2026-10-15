@@ -8,7 +8,7 @@ import {
 } from './math.js';
 import { getClass } from './ships.js';
 import { freshLamps } from './searchlights.js';
-import { armourScheme, layersFor, walkLayers } from './armor.js';
+import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -2024,8 +2024,9 @@ export function lightGunState(ship, cls, spec) {
   const c = ship.sections[magazineOf(cls, spec)];
   if (!c) return 0;
   if (c.hp <= 0 || c.lost) return 3;
-  // Gone down through a hole in the deck it stood on. See undercut.
-  if (ship.fell && mountFell(ship, 'aa', lightMounts(cls).indexOf(spec))) return 3;
+  // Gone down through a hole in the deck it stood on (see undercut), or
+  // wrecked by a bomb that came down on it (see bombOnMount).
+  if ((ship.fell || ship.ko) && mountFell(ship, 'aa', lightMounts(cls).indexOf(spec))) return 3;
   if (ship.cut && severed(ship, cls, spec.z || 0)) return 3;
   if (magazineDrowned(ship, cls, spec)) return 3;
   if ((ship.sinking || !cls.dive) && mountDrowned(ship, spec)) return 3;
@@ -2404,7 +2405,10 @@ export function bombHit(state, ship, owner, cell, side, P, at) {
   // compartment under it; stopped on the deck it is everything standing about
   // on top of her -- the mountings, the directors, the people working them --
   // which is why an armoured deck saves the ship and not her upperworks.
-  wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb', at);
+  // The mounting it came down on, if it came down on one -- settled by that
+  // mounting's own roof, and not a second time by the burst below.
+  const onMount = bombOnMount(state, ship, owner, P, at);
+  wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb', onMount ? null : at);
   if (through >= 2.2) {
     // Out through her bottom, or bursting against it. Either way the sea is
     // inside her, and it is inside her a long way down.
@@ -4435,7 +4439,65 @@ function standing(ship, cls) {
 
 /** Whether a mounting has gone down through her deck. */
 export function mountFell(ship, kind, i) {
-  return !!(ship && ship.fell && ship.fell[`${kind}:${i}`]);
+  const key = `${kind}:${i}`;
+  return !!(ship && ((ship.fell && ship.fell[key]) || (ship.ko && ship.ko[key])));
+}
+
+/**
+ * A bomb that came down on a mounting rather than on the deck beside it.
+ *
+ * What happens is the bomb against the roof of the thing: through it and it
+ * bursts in the gunhouse, among the crew, the breeches and the charges in the
+ * hoist, and the mounting is finished for the rest of the action. Stopped by
+ * it and it bursts on top -- the crew are shaken, the sights and the training
+ * gear are knocked about, and the gun is damaged for as long as it takes them
+ * to put it right, which is longer the less roof there was to stop it.
+ */
+function bombOnMount(state, ship, owner, P, at) {
+  if (!ship.alive || !at) return false;
+  const cls = shipClass(ship);
+  let g = null;
+  let bd = Infinity;
+  for (const q of standing(ship, cls)) {
+    if (mountFell(ship, q.k, q.i)) continue;
+    if (q.m && q.m.hurt >= 3) continue;
+    const d = Math.hypot((q.s.x || 0) - at.x, q.s.z - at.z);
+    if (d <= footOf(q.bore) * 0.9 && d < bd) { bd = d; g = q; }
+  }
+  if (!g) return false;
+  const roof = mountRoof(cls, g.k);
+  const through = (P.bombPen ?? 60) / Math.max(1, roof);
+  const key = `${g.k}:${g.i}`;
+  const w = localToWorld(g.s.x || 0, g.s.z, ship.heading);
+  const ev = {
+    e: 'bombMount', ship: ship.id, k: g.k, i: g.i, pen: through >= 1 ? 1 : 0, roof,
+    x: r(ship.x + w.x), y: r(g.s.my ?? freeboardOf(cls) + 1), z: r(ship.z + w.z),
+  };
+  if (through >= 1) {
+    // Through the roof: the mounting is gone for good.
+    (ship.ko || (ship.ko = {}))[key] = 1;
+    if (g.m) { g.m.hurt = 3; g.m.laid = false; }
+    damageShip(state, ship, owner, cls.hp * clamp(0.006 + g.bore * 0.03, 0.006, 0.02), 'bomb',
+      sectionAt(clamp(g.s.z / (cls.hull.length / 2), -1, 1), 'deck'));
+    state.events.push(ev);
+    if (!ship.alive) return true;
+    // The charges in the gunhouse and the hoist under it.
+    if (!(ship.blew && ship.blew[key]) && state.rng() < 0.45) readyUse(state, ship, cls, g, owner, 0);
+    // And down the hoist into the handling room: a turret is stood on its
+    // magazine, and a flash down the trunk is how a turret hit loses a ship.
+    if (g.k === 'main' && ship.alive) {
+      const where = sectionAt(g.s.z / (cls.hull.length / 2), 'deck');
+      if ((where === 'fwd' || where === 'aft') && state.rng() < 0.06) detonate(state, ship, where, owner);
+    }
+    return true;
+  }
+  // Burst on the roof.
+  if (g.m) {
+    g.m.disabled = Math.max(g.m.disabled || 0, 6 + state.rng() * 10 + 20 * through);
+    hurtMount(state, g.m, clamp(0.3 + 2.4 * through, 0.3, 2.4) + state.rng() * 0.4);
+  }
+  state.events.push(ev);
+  return true;
 }
 
 /**
@@ -4590,7 +4652,16 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const cosT = strikeCos(sh, target, sec.part);
   const theta = Math.acos(cosT);
   const travelled = dist(0, 0, sh.vx * sh.life, sh.vz * sh.life);
-  const penFall = clamp(1.12 - travelled / 30000, 0.5, 1);
+  // What it keeps is what its striking velocity keeps, and that falls off
+  // smoothly with the distance flown: about four-fifths of the muzzle figure
+  // at ten kilometres, two-thirds at twenty, half at thirty -- the curve the
+  // navy tables give for every heavy shell of the period (an Iowa's 16-inch
+  // goes 829, 697, 509 mm at nought, nine and eighteen kilometres). It used
+  // to fall away in a straight line and was down to half by nineteen
+  // kilometres, which left an 18-inch shell at the range battleships fought
+  // at unable to get through a 14-inch belt it would in fact have gone
+  // through with room to spare.
+  const penFall = clamp(Math.exp(-travelled / 42000), 0.35, 1);
   const effArmor = sec.armor / Math.max(0.18, cosT);
   const pen = spec.pen * penFall;
 

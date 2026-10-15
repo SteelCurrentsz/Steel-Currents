@@ -951,6 +951,22 @@ export class ShipView {
     return true;
   }
 
+  /**
+   * Every mounting a bomb has come down on and finished: `wk` off the wire.
+   * It is still there -- burnt out, canted on its roller path, guns down.
+   */
+  setKnocked(wk) {
+    if (!wk || !wk.length || this.rupture) return;
+    for (const key of wk) {
+      const c = key.indexOf(':');
+      const kind = key.slice(0, c);
+      const list = kind === 'main' ? this.turrets : kind === 'sec' ? this.secMounts
+        : kind === 'aa' ? this.aaMounts : null;
+      const m = list && list[Number(key.slice(c + 1))];
+      if (m && !m.userData.gone) this.wreckMount(m);
+    }
+  }
+
   /** Every mounting the battle says has gone through her deck: `dn` off the wire. */
   setFallen(dn) {
     if (!dn || !dn.length) return;

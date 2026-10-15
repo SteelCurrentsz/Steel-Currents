@@ -452,17 +452,17 @@ export class DamageBoard {
     // And a ring round the ring for one below her waterline, because that is
     // where the sea is getting in and it is a different problem.
     this.wetGeo = new THREE.RingGeometry(mr * 1.25, mr * 1.55, 18);
-    // The part of her a round that got in has damaged: a patch the size of
-    // what it wrecked, lit on her plating where it went in -- that piece of
-    // her, and not the whole length of hull it happens to be in.
-    this.patchGeo = new THREE.CircleGeometry(mr * 1.15, 22);
+    // The hole itself, filled in inside the ring: the spot it went in, solid,
+    // and no wider than the ring round it -- that piece of her, and not the
+    // length of hull it happens to be in.
+    this.patchGeo = new THREE.CircleGeometry(mr * 0.54, 22);
     this.patchMat = {
       dent: new THREE.MeshBasicMaterial({
         color: 0xffa03a, transparent: true, opacity: 0.32, depthTest: false,
         side: THREE.DoubleSide, depthWrite: false,
       }),
       pen: new THREE.MeshBasicMaterial({
-        color: 0xff3a2a, transparent: true, opacity: 0.45, depthTest: false,
+        color: 0xff2a1a, transparent: true, opacity: 0.9, depthTest: false,
         side: THREE.DoubleSide, depthWrite: false,
       }),
     };
@@ -663,15 +663,10 @@ export class DamageBoard {
       p.renderOrder = 2;
       g.add(p);
     }
-    // And the room it went into, if it went into one: that compartment lights
-    // up, and the rest of the ship stays the colour it was.
-    if (what === 'pen') {
-      for (const r of this.rooms || []) {
-        if (lz < Math.min(r.z0, r.z1) || lz > Math.max(r.z0, r.z1)) continue;
-        if (ly < r.y0 - 1 || ly > r.y1 + 1 || Math.abs(lx) > r.hw + 1.5) continue;
-        r.hits += 1;
-      }
-    }
+    // The red is the spot it went in and nothing else. The room it went into
+    // used to light up as well, and a room is the length of a compartment --
+    // a whole engine room, a whole magazine -- so one round turned a third of
+    // her red and the spot it struck was lost in it.
     if (wet) {
       const w = new THREE.Mesh(this.wetGeo, this.wetMat);
       w.renderOrder = 3;

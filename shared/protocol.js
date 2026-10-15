@@ -110,6 +110,8 @@ export function shipSnapshot(ship, full, state = null) {
     // Her mountings that have gone down through holes in the deck under
     // them. Anyone can see a gap where a turret was.
     ...(ship.fell ? { dn: Object.keys(ship.fell) } : {}),
+    // And the ones a bomb came down on and wrecked where they stand.
+    ...(ship.ko ? { wk: Object.keys(ship.ko) } : {}),
   };
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam

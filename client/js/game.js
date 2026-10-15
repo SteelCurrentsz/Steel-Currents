@@ -423,6 +423,9 @@ export class Battle {
     // Where she has been holed, in her own frame, kept so the board can show
     // the same holes after it has been put away and raised again.
     this.holes = [];
+    // Every round seen to strike each ship, where on her it went in and what
+    // it did, for the targeting panel's picture of her. See TargetingView.setHits.
+    this.hitsOn = new Map();
     // The three conn keys, and what each of their panels does.
     // Every one of these is given to whichever ship is being conned -- your
     // own, or whoever you have picked off the plot and are watching.
@@ -2162,6 +2165,13 @@ export class Battle {
           // round that got in, a gouge, a dent or a scrape for one that did
           // not. See ShipView.hitMark.
           this.scene.shipViews.get(ev.victim)?.hitMark(ev);
+          if (ev.kind !== 'splash' && Number.isFinite(ev.lx) && Number.isFinite(ev.lz)) {
+            const L = this.hitsOn.get(ev.victim) || [];
+            L.push([ev.lx, ev.y ?? 4, ev.lz, ev.kind]);
+            if (L.length > 90) L.shift();
+            L.v = (L.v || 0) + 1;
+            this.hitsOn.set(ev.victim, L);
+          }
           // Heard from wherever it struck, whoever's it was.
           audio.hit(ev.kind, ev.cal, { x: ev.x, y: ev.y ?? 8, z: ev.z });
           // Our own round: cut to her section and watch it go in, if the
@@ -2175,7 +2185,11 @@ export class Battle {
           }
           if (ev.owner === this.shipId) {
             const label = { citadel: 'CITADEL', pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', splash: 'SPLASH', shatter: 'SHATTER', ricochet: 'RICOCHET' }[ev.kind] || 'HIT';
-            this.hud.ribbon(`${label}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
+            // Which of her guns it was. A battleship's secondaries shattering
+            // on an enemy's belt read exactly like her main battery doing it,
+            // and made it look as if nothing she fired would go through.
+            const sec = ev.cal && this.cls?.gun?.caliber && ev.cal < this.cls.gun.caliber ? ` (${ev.cal} mm)` : '';
+            this.hud.ribbon(`${label}${sec}${ev.dmg ? `  ${ev.dmg}` : ''}`, ev.kind === 'citadel' ? 'cit' : (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
           } else if (ev.victim === this.shipId) {
             this.shake = Math.max(this.shake, 0.5);
             // A hole in our own hull goes on the damage board, at the place on
@@ -2439,6 +2453,18 @@ export class Battle {
           if (ev.ship === this.shipId) {
             this.hud.alert(ev.k === 'main' ? 'Turret has gone through the deck'
               : ev.k === 'sec' ? 'Secondary mount through the deck' : 'AA mount through the deck');
+          }
+          break;
+        }
+        case 'bombMount': {
+          // A bomb on a mounting. Through its roof it is finished; on top of
+          // it, it is shaken and damaged.
+          const view = this.scene.shipViews.get(ev.ship);
+          if (ev.pen && view) view.setKnocked([`${ev.k}:${ev.i}`]);
+          const name = ev.k === 'main' ? 'Turret' : ev.k === 'sec' ? 'Secondary mount' : 'AA mount';
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.pen ? `Bomb through ${name.toLowerCase()} roof -- knocked out`
+              : `Bomb on ${name.toLowerCase()} -- armour held, gun damaged`);
           }
           break;
         }
@@ -4249,6 +4275,7 @@ export class Battle {
       if (c) {
         this.targetView.build(c);
         this.targetView.follow(this.scene.shipViews.get(id));
+        this.targetView.setHits(id, this.hitsOn.get(id));
         this.targetView.render();
       }
       // The enemy boxes over her, four times a second.
@@ -4535,6 +4562,7 @@ export class Battle {
       view.setCondition(s.sk);
       // And whatever has gone down through a hole in her deck.
       if (s.dn) view.setFallen(s.dn);
+      if (s.wk) view.setKnocked(s.wk);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);

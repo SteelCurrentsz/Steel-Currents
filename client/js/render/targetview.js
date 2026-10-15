@@ -10,6 +10,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { BoardRenderer } from './boardgl.js';
 import { buildShip } from './ships.js';
+import { MARK_KIND } from './damageboard.js';
 
 // Her models, one a class, kept across the panel being raised and put away:
 // building a hull is the slow part, and she does not change.
@@ -155,10 +156,53 @@ export class TargetingView {
       for (let i = 0; i < n; i++) {
         const a = mine[i], b = theirs[i];
         if (!a || !b) continue;
+        // Gone through her deck on the water, gone from the picture too.
+        a.visible = !b.userData.gone;
         a.rotation.y = b.rotation.y;
         const ga = a.userData.gunNode, gb = b.userData.gunNode;
         if (ga && gb && ga !== a) ga.rotation.x = gb.rotation.x;
       }
+    }
+  }
+
+  /**
+   * The rounds she has been seen to take, each marked where it went in:
+   * red for one that got in, orange for one that holed her and was stopped by
+   * her armour, white for one her armour turned away. The spot it struck and
+   * nothing round it -- a penetration is a hole in one place, not a
+   * compartment. `list` is `[lx, ly, lz, kind]` in her own frame.
+   */
+  setHits(id, list) {
+    const m = this.shown;
+    const n = list ? list.v || list.length : 0;
+    const key = `${id}|${this.classId}|${n}`;
+    if (key === this.hitKey) return;
+    this.hitKey = key;
+    if (!this.hitGroup) {
+      this.hitGroup = new THREE.Group();
+      this.hitGroup.renderOrder = 9;
+      const mat = (color, opacity) => new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity, depthTest: false, depthWrite: false,
+      });
+      this.hitMat = { pen: mat(0xff2a1a, 0.95), dent: mat(0xffa03a, 0.9), none: mat(0xffffff, 0.75) };
+      this.scene.add(this.hitGroup);
+    }
+    for (const c of [...this.hitGroup.children]) this.hitGroup.remove(c);
+    if (!m || !list) return;
+    const beam = Math.min(m.size.x, m.size.z) || 20;
+    const rad = Math.max(0.8, beam * 0.045);
+    if (!this.hitGeo || this.hitRad !== rad) {
+      this.hitGeo = new THREE.SphereGeometry(rad, 10, 8);
+      this.hitRad = rad;
+    }
+    for (const [lx, ly, lz, kind] of list) {
+      const what = MARK_KIND[kind] || 'pen';
+      const dot = new THREE.Mesh(this.hitGeo, this.hitMat[what]);
+      dot.position.set(lx, ly, lz);
+      // A round that got in is drawn larger, so it reads at a glance.
+      if (what === 'pen') dot.scale.setScalar(1.35);
+      dot.renderOrder = what === 'pen' ? 12 : 11;
+      this.hitGroup.add(dot);
     }
   }
 

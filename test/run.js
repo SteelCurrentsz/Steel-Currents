@@ -28,6 +28,7 @@ import {
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
 } from '../shared/batteries.js';
+import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import {
@@ -19872,6 +19873,56 @@ check('a hole under a mounting can set off its ready-use ammunition', () => {
   }
   assert.ok(blasts > 0, 'nothing ever went off');
   assert.ok(blasts < 60, 'everything always went off');
+});
+
+check('a bomb on a mounting: through a thin roof it is finished, a battleship turret roof holds', () => {
+  const sea = () => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    return createState(world, { mode: 'deathmatch' });
+  };
+  const big = { bombDamage: 4000, bombPen: 120, bombBore: 0.45, bombFire: 0 };
+  // A cruiser's 76 mm gunhouse roof does not stop it.
+  let st = sea();
+  const cl = addShip(st, { name: 'C', classId: 'cleveland', team: 1, index: 0 });
+  const T = SHIP_CLASSES.cleveland.turrets[0];
+  bombHit(st, cl, null, sectionAt(T.z / (SHIP_CLASSES.cleveland.hull.length / 2), 'deck'), 1, big,
+    { x: T.x || 0, y: freeboardOf(SHIP_CLASSES.cleveland), z: T.z });
+  const e = st.events.find((q) => q.e === 'bombMount');
+  assert.ok(e && e.pen === 1 && e.k === 'main' && e.i === 0, `no penetration of a 76 mm roof: ${JSON.stringify(e)}`);
+  assert.equal(gunState(cl, SHIP_CLASSES.cleveland, T, cl.turrets[0]), 3, 'the turret still fights');
+  assert.ok(shipSnapshot(cl, false).wk.includes('main:0'));
+  // An Iowa's seven and a quarter inches does: damaged and shaken, not finished.
+  st = sea();
+  const io = addShip(st, { name: 'I', classId: 'iowa', team: 1, index: 0 });
+  const A = SHIP_CLASSES.iowa.turrets[0];
+  assert.ok(mountRoof(SHIP_CLASSES.iowa, 'main') > big.bombPen);
+  bombHit(st, io, null, sectionAt(A.z / (SHIP_CLASSES.iowa.hull.length / 2), 'deck'), 1, big,
+    { x: 0, y: freeboardOf(SHIP_CLASSES.iowa), z: A.z });
+  const f = st.events.find((q) => q.e === 'bombMount');
+  assert.ok(f && f.pen === 0, `a 120 mm bomb went through 184 mm: ${JSON.stringify(f)}`);
+  assert.ok(io.turrets[0].hurt > 0 && io.turrets[0].hurt < 3, `hurt ${io.turrets[0].hurt}`);
+  assert.ok(io.turrets[0].disabled > 0, 'not even shaken');
+  // A bomb on open deck well clear of every mounting hits none of them.
+  st = sea();
+  const i2 = addShip(st, { name: 'J', classId: 'iowa', team: 1, index: 0 });
+  bombHit(st, i2, null, 'stern', 1, big, { x: 0, y: freeboardOf(SHIP_CLASSES.iowa), z: -SHIP_CLASSES.iowa.hull.length * 0.47 });
+  assert.ok(!st.events.some((q) => q.e === 'bombMount'), 'a bomb on her quarterdeck hit a turret');
+});
+
+check('an 18-inch shell goes through a 14-inch belt at the ranges battleships fought at', () => {
+  // Navy tables: 460 mm Type 91 through ~566 mm at twenty kilometres. Her
+  // belt broadside and a little angled is well inside that. Forty seconds at
+  // the four hundred metres a second strikes() flies is sixteen kilometres.
+  for (const present of [90, 65]) {
+    const t = strikes('musashi', 'rodney', 'ap', present, 12, { life: 40 });
+    const inn = (t.citadel || 0) + (t.pen || 0);
+    assert.ok(inn > 0.9, `${present} degrees: ${JSON.stringify(t)}`);
+  }
+  // And Rodney's own 16-inch does not get through Musashi's 410 mm belt
+  // angled away at the same range.
+  const back = strikes('rodney', 'musashi', 'ap', 50, 12, { life: 40 });
+  assert.ok((back.shatter || 0) + (back.ricochet || 0) > 0.6, JSON.stringify(back));
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

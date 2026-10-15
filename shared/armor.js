@@ -116,3 +116,30 @@ export function walkLayers(layers, pen, cosOf, fuseArm = 0) {
   }
   return { stop: -1, rem, armed: through >= fuseArm, first, total, met };
 }
+
+/**
+ * How thick the roof of a mounting is, in millimetres: what a bomb coming
+ * down on it has to get through. `kind` is 'main', 'sec' or 'aa'.
+ *
+ * A capital ship's turret is the best-protected thing aboard her after her
+ * magazines -- an Iowa's gunhouse roof is seven and a quarter inches, a
+ * Yamato's ten and a half -- while a destroyer's five-inch mount and every
+ * light gun on every ship is a splinter shield at most. That difference is
+ * the whole of why a dive bomber can wreck a cruiser's turret and only
+ * shake a battleship's.
+ */
+const TURRET_ROOF = {
+  fletcher: 3, cleveland: 76, hipper: 70, spee: 105, u48: 0, surcouf: 25,
+  richelieu: 170, scharnhorst: 150, bismarck: 130, tirpitz: 130, rodney: 184,
+  massachusetts: 184, iowa: 184, kongo: 152, fuso: 152, musashi: 270, yamato: 270,
+  takao: 25, baltimore: 76, shinano: 6, enterprise: 3,
+};
+const SEC_ROOF = {
+  iowa: 25, massachusetts: 25, cleveland: 25, baltimore: 25, bismarck: 35, tirpitz: 35,
+  scharnhorst: 35, richelieu: 70, musashi: 25, yamato: 25, rodney: 25, kongo: 25, fuso: 25,
+};
+export function mountRoof(cls, kind) {
+  if (kind === 'main') return TURRET_ROOF[cls.id] ?? Math.round((cls.armor?.deck || 20) * 1.2);
+  if (kind === 'sec') return SEC_ROOF[cls.id] ?? 10;
+  return 0;
+}
