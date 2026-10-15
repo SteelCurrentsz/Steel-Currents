@@ -201,11 +201,22 @@ function waitForGraphics() {
   try { tries = JSON.parse(sessionStorage.getItem('steel-currents:gpu-wait') || '[]'); } catch { /* none */ }
   tries = tries.filter((t) => Date.now() - t < 120000);
   if (tries.length >= 4) {
-    say('The graphics have not come back. Close other tabs or apps, or restart the browser, and open the game again.');
+    say('The graphics have not come back. Close the browser completely (swipe it away in the app '
+      + 'switcher) and open it again, then reopen the game.');
     return;
   }
   say('Waiting for the graphics to recover\u2026');
+  // A browser that has had its graphics go down under a page more than once
+  // stops giving that page working graphics at all until it is closed and
+  // opened again -- Safari does, and so does every browser on an iPad, which
+  // is Safari underneath. Waiting will not bring them back, so after a little
+  // while the captain is told what will.
+  const began = Date.now();
   const poll = setInterval(() => {
+    if (Date.now() - began > 15000) {
+      say('The browser has switched off 3D graphics for this page. Close the browser completely '
+        + '(swipe it away in the app switcher) and open it again, then reopen the game.');
+    }
     if (!graphicsUp()) return;
     clearInterval(poll);
     tries.push(Date.now());

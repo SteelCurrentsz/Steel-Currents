@@ -17,87 +17,50 @@ import * as THREE from '../../../vendor/three.module.js';
 import { cloneMaterial } from './sever.js';
 
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
-export const HOLE_SLOTS = 48;
+export const HOLE_SLOTS = 24;
 
-const VERT_HEAD = 'varying vec3 vHolePos; varying vec3 vHoleView;';
-// Where the fragment is and which way it is being looked at, both in her
-// plating's own frame (a direction multiplied on the left of the model matrix
-// is that direction carried back into the model's frame).
-const VERT_BODY = `vHolePos = position;
-vHoleView = (vec4((modelMatrix * vec4(position, 1.0)).xyz - cameraPosition, 0.0) * modelMatrix).xyz;`;
+// Kept to the shape of the first version of this shader, which an iPad was
+// seen to run: one position a fragment, one loop that stops at the count,
+// branches inside it, and nothing else -- no helper functions, no `out`
+// parameters, no arctangents, no reading which face is being drawn. A later
+// one did more (it worked out the wall of the hole from the line of sight)
+// and an iPad's graphics went down the first time it was needed, at the
+// first hole of a battle, taking the page with them. It also holds no more
+// uniforms than that first version did: two arrays of HOLE_SLOTS.
+const VERT_HEAD = 'varying vec3 vHolePos;';
+const VERT_BODY = 'vHolePos = position;';
 const FRAG_HEAD = `
 varying vec3 vHolePos;
-varying vec3 vHoleView;
 uniform vec4 uHoles[${HOLE_SLOTS}];
 uniform vec4 uHoleNorm[${HOLE_SLOTS}];
 uniform int uHoleN;
-float holeEdge(vec3 d, vec3 n, vec4 h, out float rr) {
-  // Measured across the plate, not through it: the outline is in her plating.
-  vec3 t1 = normalize(cross(n, abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-  vec3 t2 = cross(n, t1);
-  float s = fract(sin(dot(h.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-  float s2 = fract(s * 7.31 + 0.17);
-  float s3 = fract(s * 13.7 + 0.53);
-  float u = dot(d, t1), v = dot(d, t2);
-  float r = abs(h.w);
-  // Off-centre and drawn out one way: a shell comes in at a slant and the
-  // plate tears along its grain.
-  float ang = s * 6.2832;
-  vec2 ax = vec2(cos(ang), sin(ang));
-  vec2 q = vec2(u, v) - ax * r * (0.18 * s2);
-  float el = 1.0 + 0.55 * s3;
-  vec2 e = vec2(dot(q, ax) / el, dot(q, vec2(-ax.y, ax.x)) * (0.85 + 0.15 * s2));
-  float th = atan(e.y, e.x);
-  // Torn, not cut: big uneven lobes, smaller bites and a jagged lip.
-  float w = 0.20 * sin(2.0 * th + s * 11.0) + 0.16 * sin(3.0 * th + s2 * 17.0)
-          + 0.09 * sin(5.0 * th + s3 * 23.0) + 0.06 * sin(9.0 * th + s * 31.0)
-          + 0.035 * sin(17.0 * th + s2 * 41.0) + 0.02 * sin(29.0 * th + s3 * 7.0);
-  rr = r * (1.0 + w);
-  return length(e);
-}
 `;
-// Where a hole is, her plating is not drawn -- but only in the plate that was
-// struck (a slab as thick as the hole is wide, square to that plate), so the
-// far side of her is still there. And the plate is as thick as her armour is
-// at that point: looked into at a slant, the wall of the hole is seen, bare
-// torn steel down to the inside of the plate. Behind the plating everything is
-// the dark inside of a steel box, never the sea on the other side.
+// Only the plate that was struck: a slab as thick as the hole is wide, square
+// to that plate, so the far side of her is still there. Ragged, not a disc --
+// lobes of its own for every hole, seeded off where it is -- and drawn out
+// along a direction of its own in the plate, so none is a circle and no two
+// are alike. What is behind it is the inside of a steel box (see holeNear).
 const FRAG_CUT = `
-  bool holeWall = false;
-  float holeDeep = 0.0;
   for (int i = 0; i < ${HOLE_SLOTS}; i++) {
     if (i >= uHoleN) break;
     vec4 h = uHoles[i];
+    vec3 hn = uHoleNorm[i].xyz;
     vec3 d = vHolePos - h.xyz;
     float r = abs(h.w);
-    // (The outline reaches out to about two and a half times r at most.)
-    if (dot(d, d) > r * r * 7.0) continue;
-    vec4 nh = uHoleNorm[i];
-    vec3 n = nh.xyz;
-    float off = dot(d, n);
-    if (abs(off) > max(0.9, r * 0.6) + nh.w) continue;
-    float rr;
-    float at = holeEdge(d - n * off, n, h, rr);
-    if (at >= rr) continue;
-    // Inside the outline. Down through the plate along the line of sight:
-    // still inside the outline at the back of the plate, it is open; out of
-    // it before then, that is the wall of the hole that is being seen.
-    vec3 V = normalize(vHoleView);
-    float into = -dot(V, n);
-    if (into > 0.03 && nh.w > 0.0) {
-      float run = (nh.w + off) / into;
-      vec3 b = d + V * run;
-      float rb;
-      float atb = holeEdge(b - n * dot(b, n), n, h, rb);
-      if (atb >= rb) { holeWall = true; holeDeep = clamp((rr - at) / max(rr - at + atb - rb, 1e-4), 0.0, 1.0); continue; }
+    float off = dot(d, hn);
+    vec3 p = d - hn * off;
+    float d2 = dot(p, p);
+    if (d2 < r * r * 6.0 && abs(off) < max(0.9, r * 0.6) + uHoleNorm[i].w) {
+      vec3 u = p / max(sqrt(d2), 1e-3);
+      float s = fract(h.x * 0.137 + h.z * 0.071 + h.y * 0.29) * 6.2832;
+      float lobe = sin(u.x * 5.0 + s) * sin(u.y * 4.0 + s * 1.7) * sin(u.z * 6.0 + s * 2.3)
+        + 0.45 * sin(u.x * 11.0 + u.z * 9.0 + s * 3.1) * sin(u.y * 7.0 + s * 0.6);
+      vec3 ax = normalize(cross(hn, vec3(sin(s), 0.37, cos(s))) + vec3(1e-4));
+      float along = dot(u, ax);
+      float rr = r * (1.0 + 0.24 * lobe) * (1.0 + 0.5 * along * along);
+      if (d2 < rr * rr) discard;
     }
-    discard;
   }
-`;
-// Bare torn steel for the wall of a hole. (The dark of her insides, seen
-// through it, is the inner face drawn on its own: see holeNear.)
-const FRAG_SHADE = `
-  if (holeWall) gl_FragColor.rgb = mix(vec3(0.075, 0.07, 0.064), vec3(0.012, 0.011, 0.010), holeDeep) * (0.6 + 0.4 * gl_FragColor.g / max(diffuseColor.g, 0.05));
 `;
 
 let INSIDE = null;
@@ -147,10 +110,9 @@ export function holePlating(parts) {
         .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${FRAG_HEAD}`)
-        .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`)
-        .replace('#include <tonemapping_fragment>', `${FRAG_SHADE}\n#include <tonemapping_fragment>`);
+        .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`);
     };
-    m.customProgramCacheKey = () => `holes3|${prevKey}`;
+    m.customProgramCacheKey = () => `holes4|${prevKey}`;
     // Hers alone already, so nothing that wants a ship's own copy of her
     // paint (see markable in pieces.js) copies it again and loses the holes.
     m.userData = { ...(m.userData || {}), holed: true, perShip: true };
