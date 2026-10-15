@@ -16404,6 +16404,77 @@ check("a fighter's rounds go where she is pointed", () => {
   assert.ok(on.flak > 0, 'a fighter went down her deck and every flak mounting kept firing');
 });
 
+check("a fighter's rounds go straight out to two kilometres", () => {
+  // A pilot shooting at a ship a long way off gets what is under his ring: the
+  // rounds fly flat and the pattern is half a metre across at two thousand.
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
+  dd.x = 0; dd.z = 0; dd.heading = Math.PI / 2; dd.notch = 0;
+  cv.airGroup = { fighters: 4, dive: 0, torpedo: 0 };
+  cv.aimX = dd.x; cv.aimZ = dd.z;
+  for (let i = 0; i < 40; i++) step(st, DT);
+  launchStrike(st, cv);
+  for (let i = 0; i < 1600 && !st.planes.length; i++) step(st, DT);
+  const p = st.planes[0];
+  assert.ok(p, 'no fighter got up');
+  let hits = 0;
+  let fired = 0;
+  for (let k = 0; k < 150; k++) {
+    // Two kilometres off her beam, level at five metres, nose on her.
+    p.x = dd.x; p.z = dd.z - 2000; p.y = 5; p.heading = 0; p.pitch = 0; p.gunPitch = 0;
+    if (k < 60) { strafe(st, cv, p.id, DT); fired++; }
+    hits += step(st, DT).filter((e) => e.e === 'airHit' && e.ship === dd.id).length;
+  }
+  assert.ok(fired > 0 && hits > 10, `two kilometres off with the sight on her, ${hits} bursts arrived`);
+});
+
+check('a pilot can dive straight into a ship, and into the sea', () => {
+  const setup = () => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+    cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
+    dd.x = 0; dd.z = 0; dd.heading = Math.PI / 2; dd.notch = 0;
+    cv.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+    cv.aimX = dd.x; cv.aimZ = dd.z;
+    for (let i = 0; i < 40; i++) step(st, DT);
+    launchStrike(st, cv);
+    for (let i = 0; i < 1600 && !st.planes.length; i++) step(st, DT);
+    const p = st.planes[0];
+    assert.ok(p, 'no aircraft got up');
+    return { st, cv, dd, p };
+  };
+  // A steep fast dive across her: one word from the pilot has her forty metres
+  // up short of the ship, the next has her in the water beyond it. Between the
+  // two she went through the destroyer, and she is put into her.
+  {
+    const { st, cv, dd, p } = setup();
+    p.x = dd.x; p.z = dd.z - 20; p.y = 40;
+    assert.ok(flyPlane(st, cv, { i: p.id, x: dd.x, z: dd.z - 20, h: 0, y: 40, p: -1.2 }));
+    st.t += 0.1;
+    assert.ok(flyPlane(st, cv, { i: p.id, x: dd.x, z: dd.z + 14, h: 0, y: -1, p: -1.2 }));
+    const ev = step(st, DT);
+    assert.ok(ev.some((e) => e.e === 'ram' && e.ship === dd.id),
+      'a dive straight through a destroyer missed her');
+  }
+  // And one flown into the open sea goes in rather than being caught.
+  {
+    const { st, cv, dd, p } = setup();
+    p.x = dd.x + 600; p.z = dd.z; p.y = 30;
+    assert.ok(flyPlane(st, cv, { i: p.id, x: dd.x + 600, z: dd.z, h: 0, y: 30, p: -1.4 }));
+    st.t += 0.1;
+    assert.ok(flyPlane(st, cv, { i: p.id, x: dd.x + 600, z: dd.z + 5, h: 0, y: -1, p: -1.4 }));
+    const ev = step(st, DT);
+    assert.ok(ev.some((e) => e.e === 'planeCrash' && e.i === p.id), 'a dive into the sea did not go in');
+  }
+});
+
 check('a raked mounting stops firing, and its crew get it back', () => {
   // Flak was one number for the whole ship. So the one thing a fighter could
   // not do to a ship was the one thing fighters actually did.

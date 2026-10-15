@@ -2493,6 +2493,7 @@ export function flyPlane(state, ship, msg) {
   const since = Math.max(0.05, Math.min(2, state.t - (p.flownAt ?? state.t)));
   const reach = top * since + 80;
   if (dist(p.x, p.z, msg.x, msg.z) > reach) return false;
+  const was = { x: p.x, y: p.y ?? 220, z: p.z };
   p.x = msg.x;
   p.z = msg.z;
   p.heading = wrapAngle(msg.h);
@@ -2510,6 +2511,12 @@ export function flyPlane(state, ship, msg) {
     const climb = 140 * since + 60;
     p.y = clamp(msg.y, Math.max(-4, (p.y ?? 220) - climb), Math.min(9000, (p.y ?? 220) + climb));
   }
+  // A pilot diving on a ship covers fifteen or twenty metres between one word
+  // from him and the next, and a destroyer is ten metres across: the line she
+  // flew is walked, not just the point she got to, so she cannot pass through
+  // a hull between two messages. The first point of it inside an enemy is
+  // where she stops, and the tick puts her into that ship.
+  sweepIntoShip(state, p, was);
   p.flown = true;
   p.flownAt = state.t;
   p.pilot = ship.id;
@@ -2554,8 +2561,13 @@ export function flyPlane(state, ship, msg) {
 const BURST_RATE = 11;
 /** Muzzle velocity of a rifle-calibre aircraft gun, near enough. */
 const BULLET_V = 810;
-/** And how long the rounds are worth anything: about nine hundred metres. */
-const BULLET_LIFE = 0.97;
+/**
+ * And how long the rounds are worth anything: two and a half seconds, which
+ * at muzzle velocity plus her own speed is the better part of three
+ * kilometres -- far enough that a ship on the horizon of the sight is a ship
+ * in reach of it.
+ */
+const BULLET_LIFE = 2.5;
 /**
  * How tight the pattern is, in radians.
  *
@@ -2566,7 +2578,10 @@ const BULLET_LIFE = 0.97;
  * strength rather than being one aeroplane's.
  */
 function burstSpread(p) {
-  return 0.0012 + 0.0005 * Math.max(0, (p.count || 1) - 1);
+  // A quarter of a milliradian: half a metre at two kilometres. The pilot's
+  // guns go where the ring is, near or far, and the formation round him is
+  // flying on him rather than adding its own spread to his.
+  return 0.00025 + 0.00005 * Math.max(0, (p.count || 1) - 1);
 }
 
 /**
@@ -2651,9 +2666,8 @@ function fireBullet(state, p, dmg, hurt, spread) {
 /**
  * The rounds, in flight.
  *
- * Gravity is in here because at nine hundred metres a rifle-calibre round has
- * dropped a couple of metres, which is the difference between the waterline
- * and the boot topping. Everything is tested along the segment the round
+ * They fly flat: the pilot's sight is the line they go down, out to the end
+ * of their reach, with no drop to hold off for. Everything is tested along the segment the round
  * covered this tick rather than at the point it ended at: a round doing eight
  * hundred metres a second moves twenty-seven metres in a tick, and an
  * aeroplane is nine metres long.
@@ -2663,7 +2677,8 @@ function stepBullets(state, dt) {
   const out = [];
   for (const b of state.bullets) {
     const px = b.x, py = b.y, pz = b.z;
-    b.vy -= G * dt;
+    // No drop: the pilot's rounds go straight down the line of the sight, so
+    // what is under the ring at two kilometres is what they hit.
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.z += b.vz * dt;
@@ -2689,7 +2704,7 @@ function stepBullets(state, dt) {
     for (const s of state.ships) {
       if (!s.alive || !mayHurt(state, b.team, s)) continue;
       const cls = getClass(s.classId);
-      if (dist2(b.x, b.z, s.x, s.z) > 4e6) continue;
+      if (dist2(b.x, b.z, s.x, s.z) > 9e6) continue;
       const halfLen = cls.hull.length * 0.5;
       const halfBeam = cls.hull.beam * 0.5;
       const top = 16 + cls.hull.superstructure * 14;
@@ -6450,6 +6465,27 @@ function hurtBattery(state, bat, damage) {
 
 /** What the airframe alone is worth, by what sort of aeroplane it is. */
 const RAM_MASS = { fighter: 2600, dive: 3900, torpedo: 4600, scout: 3000 };
+
+/** Walk the line a piloted flight just flew; leave her where it first meets an enemy hull. */
+function sweepIntoShip(state, p, was) {
+  const to = { x: p.x, y: p.y ?? 220, z: p.z };
+  const len = Math.hypot(to.x - was.x, to.y - was.y, to.z - was.z);
+  if (len < 1) return false;
+  const n = Math.min(80, Math.ceil(len / 3));
+  for (const s of state.ships) {
+    if (!s.alive || !mayHurt(state, p.team, s)) continue;
+    const cls = getClass(s.classId);
+    if (dist2(to.x, to.z, s.x, s.z) > (cls.hull.length + len) ** 2) continue;
+    for (let i = 1; i <= n; i++) {
+      const f = i / n;
+      const q = { x: lerp(was.x, to.x, f), y: lerp(was.y, to.y, f), z: lerp(was.z, to.z, f) };
+      if (!planeInShip(q, s, cls)) continue;
+      p.x = q.x; p.y = q.y; p.z = q.z;
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Is this flight inside that ship?

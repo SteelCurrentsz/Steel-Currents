@@ -205,9 +205,13 @@ const GUN_RPM = 720;
  * drawn. A long way out, so the rounds go out in a tight bundle down the
  * line of sight instead of crossing and spreading.
  */
-const GUN_CONVERGE = 420;
+// Twelve hundred metres: the chase camera stands a few metres above her, and
+// the further out the ring is laid the less the line from the camera through
+// it parts from the line the rounds go down -- under eight metres anywhere
+// out to the end of their reach, against thirty with the ring at four hundred.
+const GUN_CONVERGE = 1200;
 /** How far the rounds are worth anything, for the lead and the far warning. */
-const GUN_REACH = 900;
+const GUN_REACH = 2400;
 /** How fast they go, for the lead: muzzle velocity, plus her own speed. */
 const GUN_V = 810;
 
@@ -3535,13 +3539,16 @@ export class Battle {
   }
 
   /** Hand her back to the autopilot and go back to the bridge. */
-  leaveFlight(lost = false) {
+  leaveFlight(lost = false, crashed = false) {
     if (!this.flight) return;
     // `land` gives her back to the autopilot and drops the claim on her, so
     // somebody else can take her afterwards. A heavy has no deck to land on
     // and is handed back to her own navigator instead, which is the same
-    // thing said differently.
-    this.net.send({ t: this.flight.heavy ? 'landb' : 'land', i: this.flight.id });
+    // thing said differently. One flown into the sea is not given back: the
+    // simulation has her at the waterline and puts her in on its next tick.
+    if (!(crashed && !this.flight.heavy)) {
+      this.net.send({ t: this.flight.heavy ? 'landb' : 'land', i: this.flight.id });
+    }
     const heavy = this.flight.heavy;
     this.flight = null;
     this.turret = null;
@@ -3657,7 +3664,19 @@ export class Battle {
     const sea = this.scene.ocean.heightAt(p.x, p.z);
     p.gale = galeOf(this.world, this.renderST ?? this.time);
     p.step(dt, sea);
-    if (!p.alive) { this.leaveFlight(true); return; }
+    if (!p.alive) {
+      // She has gone into the sea, or into a ship at her waterline. The
+      // simulation is told where, at the waterline, so it can put her into
+      // whatever hull is there -- and she is not handed back to the
+      // autopilot, which would fly her out of the water again.
+      this.net.send({
+        t: 'fly', i: f.id,
+        x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+        y: -1, p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
+      });
+      this.leaveFlight(true, true);
+      return;
+    }
 
     // The guns: held down, reported in bursts rather than per frame. The
     // tracer is drawn here rather than off the wire coming back, because a
@@ -3761,32 +3780,23 @@ export class Battle {
     // Screen right is falling heading in this world, so a drag to the right
     // takes heading off.
     f.aimYaw = wrapAngle(f.aimYaw - stick.aimX * k - kx * 1.2 * dt);
-    // A heavy is not stood on her tail or pushed straight down.
-    const lim = f.heavy ? 0.6 : 1.35;
+    // A heavy is not stood on her tail or pushed straight down; anything else
+    // can be put into a vertical dive.
+    const lim = f.heavy ? 0.6 : 1.55;
     f.aimPitch = clamp(f.aimPitch - stick.aimY * k + ky * 0.9 * dt, -lim, lim);
     stick.aimX = 0;
     stick.aimY = 0;
   }
 
   /**
-   * Where the instructor is to fly her: the marker, unless that would put her
-   * in the sea. Low down, a mark below the horizon is lifted -- the more the
-   * lower she is -- so a pilot looking down at a ship he is strafing pulls out
-   * over her instead of flying into the water beside her.
+   * Where the instructor is to fly her: the marker, wherever it is.
+   *
+   * There is no pulling her out over the water. A pilot who puts the marker
+   * on the sea or on a ship's side goes into it -- which is how an aeroplane
+   * is put into a ship -- and one who wants to pull out has to pull out.
    */
   flyAim(f, p) {
-    const sea = this.scene.ocean.heightAt(p.x, p.z);
-    const h = p.y - Math.max(0, sea);
-    let pitch = f.aimPitch;
-    if (h < 260) {
-      const u = clamp((h - 25) / 235, 0, 1);
-      // From a firm climb at twenty-five metres to a steep dive allowed at
-      // two hundred and sixty; and her own sink rate taken into account, so a
-      // fast dive is pulled out of earlier than a slow one.
-      const sink = Math.max(0, -Math.sin(p.pitch) * p.v);
-      const floor = lerp(0.14, -1.0, u) + clamp(sink / 140, 0, 0.6) * (1 - u * 0.5);
-      pitch = Math.max(pitch, Math.min(0.4, floor));
-    }
+    const pitch = f.aimPitch;
     // The camera stands behind and above her, so the line from her to the
     // marker is not quite the camera's: she is pointed at the point on the
     // camera's line where her guns meet, so the ring settles on the marker
@@ -3891,7 +3901,8 @@ export class Battle {
         let lx = best.x, ly = best.y, lz = best.z;
         for (let i = 0; i < 3; i++) {
           lx = best.x + Math.sin(best.h) * best.sp * t;
-          ly = best.y + best.vy * t + 0.5 * 9.81 * t * t;
+          // The rounds fly flat (see stepBullets), so there is no drop to add.
+          ly = best.y + best.vy * t;
           lz = best.z + Math.cos(best.h) * best.sp * t;
           t = Math.hypot(lx - p.x, ly - p.y, lz - p.z) / vb;
         }
@@ -3975,32 +3986,39 @@ export class Battle {
   /**
    * Is anything under the sight?
    *
-   * Her own guns' cone, out to the range they reach: about nine degrees either
-   * side, the same figure the simulation uses to decide whether a burst hits
-   * anything. Aeroplanes first, because that is what a fighter is looking for.
+   * Down her bore, out to the range her rounds reach. The guns put their
+   * rounds inside half a metre at two kilometres, so the question is whether
+   * the target is as wide as the angle it is off her nose, not whether it is
+   * in a broad cone: an aeroplane is a few tens of metres of air to hit, a
+   * ship a hundred. Aeroplanes first, because that is what a fighter is
+   * looking for.
    */
   sightOn(f, p, snap) {
     if (!snap) return false;
-    const RANGE = 700;
-    const CONE = 0.16;
-    const sn = Math.sin(p.heading);
-    const cs = Math.cos(p.heading);
-    const under = (x, z) => {
+    const bore = p.attitude || 0;
+    const bc = Math.cos(bore);
+    const fx = Math.sin(p.heading) * bc;
+    const fy = Math.sin(bore);
+    const fz = Math.cos(p.heading) * bc;
+    const under = (x, y, z, size) => {
       const dx = x - p.x;
+      const dy = y - p.y;
       const dz = z - p.z;
-      const d = Math.hypot(dx, dz);
-      if (d > RANGE || d < 1) return false;
-      // How far off the nose she lies, as the cosine of the angle between the
-      // bearing and where the aeroplane is pointed.
-      return (dx * sn + dz * cs) / d > Math.cos(CONE);
+      const d = Math.hypot(dx, dy, dz);
+      if (d > GUN_REACH || d < 1) return false;
+      const along = dx * fx + dy * fy + dz * fz;
+      if (along <= 0) return false;
+      // How far off the bore line she lies, in metres, at her range.
+      const off = Math.sqrt(Math.max(0, d * d - along * along));
+      return off < size;
     };
     for (const q of (snap.planes || [])) {
       if (q.tm === this.team || q.i === f.id) continue;
-      if (under(q.x, q.z)) return true;
+      if (under(q.x, this.planeHeight(q), q.z, 26)) return true;
     }
     for (const q of snap.ships) {
       if (!q.a || q.tm === this.team) continue;
-      if (under(q.x, q.z)) return true;
+      if (under(q.x, 8, q.z, 60)) return true;
     }
     return false;
   }
