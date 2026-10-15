@@ -107,6 +107,9 @@ export function shipSnapshot(ship, full, state = null) {
     // And the piece of her that has been cut off, if one has: where she
     // parted and which side of it she still is. See cutHer.
     ct: ship.cut ? [r3(ship.cut.at), ship.cut.keep] : null,
+    // Her mountings that have gone down through holes in the deck under
+    // them. Anyone can see a gap where a turret was.
+    ...(ship.fell ? { dn: Object.keys(ship.fell) } : {}),
   };
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam

@@ -600,9 +600,21 @@ const TMP_AIM = new THREE.Vector3();
  */
 const WRECK_VERTS = 2200;
 
-function mountToWreck(m) {
+function mountToWreck(m, frame = null) {
   m.updateMatrixWorld(true);
-  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  // Baked in her own frame rather than the mounting's when she is given, so
+  // it leaves trained the way it was trained and from wherever in her model
+  // it hangs, rather than squared fore and aft at the top of her tree.
+  let inv;
+  let at = null;
+  if (frame) {
+    frame.updateMatrixWorld(true);
+    const w = new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
+    at = frame.worldToLocal(w.clone());
+    inv = new THREE.Matrix4().copy(frame.matrixWorld).setPosition(w).invert();
+  } else {
+    inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  }
   const local = new THREE.Matrix4();
   const v = new THREE.Vector3();
   const pos = [];
@@ -630,12 +642,13 @@ function mountToWreck(m) {
     else for (let i = 0; i < P.count; i++) idx.push(base + i);
   });
   if (!idx.length) return null;
+  const p = at || m.position;
   return {
     pos: new Float32Array(pos), col: new Float32Array(col),
     idx: new Uint32Array(idx),
     // Where it stood on her, and where the blast came from: under it.
-    x: m.position.x, y: m.position.y, z: m.position.z,
-    from: { x: m.position.x, y: m.position.y - 12, z: m.position.z },
+    x: p.x, y: p.y, z: p.z,
+    from: { x: p.x, y: p.y - 12, z: p.z },
     force: 4.4,
   };
 }
@@ -905,6 +918,45 @@ export class ShipView {
       // And the guns back up off the stops. The lay code takes them from here.
       const node = m.userData.gunNode;
       if (node && node !== m) node.rotation.x = m.userData.elevRest || 0;
+    }
+  }
+
+  /**
+   * A mounting with the deck under it shot away, going down through the hole.
+   *
+   * Not thrown -- nothing under it went off -- it drops, under its own weight,
+   * trained the way it was trained, and goes on down through her and out of
+   * sight. The battle has already decided it is gone (see undercut in
+   * sim.js); `kind` and `i` are how the wire names it.
+   */
+  dropMount(kind, i) {
+    if (this.rupture) return false;
+    const list = kind === 'main' ? this.turrets : kind === 'sec' ? this.secMounts
+      : kind === 'aa' ? this.aaMounts : null;
+    const m = list && list[i];
+    if (!m || m.userData.gone) return false;
+    const cut = this.wreck ? mountToWreck(m, this.group) : null;
+    if (cut) {
+      cut.drop = true;
+      cut.force = 0;
+      this.wreck.add(cut, this.group,
+        (this.speedNow || 0) * Math.sin(this.group.rotation.y),
+        (this.speedNow || 0) * Math.cos(this.group.rotation.y));
+    }
+    // It is gone from where it stood whether or not there was room in the air
+    // for it: there is a hole there now, and nothing on it.
+    m.visible = false;
+    m.userData.gone = true;
+    m.userData.laid = false;
+    return true;
+  }
+
+  /** Every mounting the battle says has gone through her deck: `dn` off the wire. */
+  setFallen(dn) {
+    if (!dn || !dn.length) return;
+    for (const key of dn) {
+      const c = key.indexOf(':');
+      this.dropMount(key.slice(0, c), Number(key.slice(c + 1)));
     }
   }
 

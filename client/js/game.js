@@ -2429,6 +2429,38 @@ export class Battle {
           if (ev.ship === this.shipId) this.hud.alert('Fire reached the ready-use');
           break;
         }
+        case 'fall': {
+          // A mounting with the deck under it shot away: down through the hole.
+          const view = this.scene.shipViews.get(ev.ship);
+          if (view && view.dropMount(ev.k, ev.i)) {
+            this.scene.debris.burst(ev.x, ev.y, ev.z, ev.k === 'main' ? 3.5 : 1.6, 0.4);
+            audio.hit('pen', ev.k === 'main' ? 406 : 127, { x: ev.x, y: ev.y, z: ev.z });
+          }
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.k === 'main' ? 'Turret has gone through the deck'
+              : ev.k === 'sec' ? 'Secondary mount through the deck' : 'AA mount through the deck');
+          }
+          break;
+        }
+        case 'blast': {
+          // Her ready-use ammunition going off round a mounting: a burst on
+          // her deck, a hole where it was, and the fire it starts.
+          const size = 1.2 + (ev.cal || 40) / 1000 * 3.5;
+          fx.explosion(ev.x, ev.y + 1.5, ev.z, size);
+          this.scene.debris.burst(ev.x, ev.y + 2, ev.z, 2 + size * 1.6, 0.6 + size * 0.15);
+          audio.explosion(size, { x: ev.x, y: ev.y + 1.5, z: ev.z });
+          const view = this.scene.shipViews.get(ev.ship);
+          if (view && view.plating && !view.rupture) {
+            const p = new THREE.Vector3(ev.x, ev.y, ev.z);
+            view.group.updateMatrixWorld(true);
+            view.group.worldToLocal(p);
+            view.holeAt(p.x, p.y, p.z, ev.rad || 1.5);
+            view.scorchAt(p.x, p.y, p.z, (ev.rad || 1.5) * 2.5, 0.8);
+          }
+          this.shake = Math.max(this.shake, ev.ship === this.shipId ? 0.8 : 0.3);
+          if (ev.ship === this.shipId) this.hud.alert('Ready-use ammunition exploded');
+          break;
+        }
         case 'airDrop': {
           // The fish going into the sea: a short row of splashes across the
           // squadron's line, small ones, because a torpedo enters nose first.
@@ -4501,6 +4533,8 @@ export class Battle {
       // does now is let go of what was standing on a compartment that no
       // longer has anything left holding it. See setCondition.
       view.setCondition(s.sk);
+      // And whatever has gone down through a hole in her deck.
+      if (s.dn) view.setFallen(s.dn);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);

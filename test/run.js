@@ -18,7 +18,7 @@ import {
 import { buildBridge } from '../client/js/render/bridgeroom.js';
 import {
   cutHer, hullSpan, severed, stemStrength, sideStrength, bridgeStation, cutLoses,
-  assignMount, dpMounts, assignedAim, setMountOff, mountOff,
+  assignMount, dpMounts, assignedAim, setMountOff, mountOff, undercut, mountFell,
 } from '../shared/sim.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
@@ -19822,6 +19822,56 @@ check('human view: every ship has a bridge to stand in, and the wheelhouse opens
     assert.equal(br.where(out.x), 'port', `${id}: never got out on to the wing (at ${out.x.toFixed(1)}, ${out.z.toFixed(1)})`);
     assert.ok(Math.abs(out.y - sp.floor) < 0.1, `${id}: the wing is not at the wheelhouse's level`);
   }
+});
+
+check('a hole under a mounting: it goes down through the deck, and a hole elsewhere leaves it be', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'H', classId: 'iowa', team: 1, index: 0 });
+  const cls = SHIP_CLASSES.iowa;
+  const A = cls.turrets[0];
+  const deckY = A.my - 3;
+  // Well clear of every mounting: nothing goes.
+  st.events.length = 0;
+  undercut(st, her, { x: 0, y: deckY, z: 0 }, 1.2, null);
+  assert.ok(!st.events.some((e) => e.e === 'fall'), 'a hole amidships dropped a mounting');
+  // One small hole at the edge of A turret's roller path does not drop it.
+  undercut(st, her, { x: 5.5, y: deckY, z: A.z }, 1.2, null);
+  assert.ok(!mountFell(her, 'main', 0), 'A turret fell through a one-metre hole at its edge');
+  // A shell's worth of deck gone from under the middle of it does.
+  for (let i = 0; i < 4 && !mountFell(her, 'main', 0); i++) {
+    undercut(st, her, { x: (i - 1.5) * 1.5, y: deckY, z: A.z }, 2.2, null);
+  }
+  assert.ok(mountFell(her, 'main', 0), 'A turret stayed up with its deck shot away');
+  assert.equal(gunState(her, cls, A, her.turrets[0]), 3, 'a turret that has gone through the deck still fights');
+  assert.ok(st.events.some((e) => e.e === 'fall' && e.k === 'main' && e.i === 0), 'no fall on the wire');
+  assert.ok(shipSnapshot(her, false).dn.includes('main:0'), 'the snapshot does not show it gone');
+  // A light mounting goes on one hole under it, and stops shooting.
+  const aa = cls.aa.guns[0].mounts[0];
+  undercut(st, her, { x: aa.x, y: freeboardOf(cls), z: aa.z }, 1, null);
+  assert.ok(mountFell(her, 'aa', 0), 'a Bofors stayed standing over a hole');
+  assert.equal(lightGunState(her, cls, aa), 3);
+});
+
+check('a hole under a mounting can set off its ready-use ammunition', () => {
+  let blasts = 0;
+  for (let n = 0; n < 60; n++) {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const her = addShip(st, { name: 'H', classId: 'iowa', team: 1, index: 0 });
+    const s = SHIP_CLASSES.iowa.secondary.mounts[0];
+    for (let i = 0; i < n % 7; i++) st.rng();
+    undercut(st, her, { x: s.x, y: s.my - 2, z: s.z }, 3, null);
+    const b = st.events.find((e) => e.e === 'blast');
+    if (!b) continue;
+    blasts++;
+    assert.ok(b.rad > 0 && Number.isFinite(b.x) && Number.isFinite(b.z), 'a blast with nowhere to be');
+    assert.ok(her.hp < her.maxHp, 'a blast that did her no harm');
+  }
+  assert.ok(blasts > 0, 'nothing ever went off');
+  assert.ok(blasts < 60, 'everything always went off');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

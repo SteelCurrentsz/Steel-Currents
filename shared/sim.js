@@ -2024,6 +2024,8 @@ export function lightGunState(ship, cls, spec) {
   const c = ship.sections[magazineOf(cls, spec)];
   if (!c) return 0;
   if (c.hp <= 0 || c.lost) return 3;
+  // Gone down through a hole in the deck it stood on. See undercut.
+  if (ship.fell && mountFell(ship, 'aa', lightMounts(cls).indexOf(spec))) return 3;
   if (ship.cut && severed(ship, cls, spec.z || 0)) return 3;
   if (magazineDrowned(ship, cls, spec)) return 3;
   if ((ship.sinking || !cls.dive) && mountDrowned(ship, spec)) return 3;
@@ -4379,6 +4381,200 @@ function nearestMount(ship, cls, at) {
   return best ? { m: best, d: bd } : null;
 }
 
+// ---------------------------------------------------------------------------
+// What stands on a hole
+// ---------------------------------------------------------------------------
+
+/**
+ * How much of a mounting's footing has to be shot away before it goes down
+ * through it. Not all of it: a turret is a thousand tons on a roller path,
+ * and a third of the deck under that path gone is a third of what is holding
+ * it up gone. It sags, the rollers come off the track, and it drops.
+ */
+const FOOTING = 0.3;
+
+/**
+ * How wide a mounting stands on her deck, in metres, off the bore of its
+ * guns: a sixteen-inch gunhouse is a dozen metres across, a twin five-inch
+ * five, a quad Bofors two and a half.
+ */
+function footOf(bore) {
+  return 0.7 + bore * 13;
+}
+
+/** How much of one disc lies over another: two radii and the gap between their middles. */
+function lens(r0, r1, d) {
+  if (d >= r0 + r1) return 0;
+  const lo = Math.min(r0, r1);
+  if (d <= Math.abs(r0 - r1)) return Math.PI * lo * lo;
+  const a = r0 * r0 * Math.acos(clamp((d * d + r0 * r0 - r1 * r1) / (2 * d * r0), -1, 1));
+  const b = r1 * r1 * Math.acos(clamp((d * d + r1 * r1 - r0 * r0) / (2 * d * r1), -1, 1));
+  const c = 0.5 * Math.sqrt(Math.max(0, (-d + r0 + r1) * (d + r0 - r1) * (d - r0 + r1) * (d + r0 + r1)));
+  return a + b - c;
+}
+
+/**
+ * Every mounting she carries, with where it stands and how big a gun it is:
+ * her turrets, her secondaries and her close-range battery, keyed the way the
+ * wire keys them.
+ */
+function standing(ship, cls) {
+  const out = [];
+  (cls.turrets || []).forEach((s, i) => {
+    out.push({ k: 'main', i, s, m: ship.turrets[i], bore: (cls.gun?.caliber || 150) / 1000 });
+  });
+  (cls.secondary?.mounts || []).forEach((s, i) => {
+    out.push({ k: 'sec', i, s, m: ship.secMounts[i], bore: (cls.secondary.caliber || 100) / 1000 });
+  });
+  let i = 0;
+  for (const g of (cls.aa && cls.aa.guns) || []) {
+    for (const s of g.mounts) out.push({ k: 'aa', i: i++, s, m: null, bore: (g.caliber || 25) / 1000 });
+  }
+  return out;
+}
+
+/** Whether a mounting has gone down through her deck. */
+export function mountFell(ship, kind, i) {
+  return !!(ship && ship.fell && ship.fell[`${kind}:${i}`]);
+}
+
+/**
+ * A hole in her deck or her upperworks, and what was standing on it.
+ *
+ * `at` is where it is in her own frame -- the height off her waterline the
+ * shells are reckoned from -- and `r` how far across the middle it is, the
+ * same hole the picture cuts in her plating. A mounting with that much of
+ * the deck under it gone has nothing holding it up, and it goes down through
+ * the hole: out of action for good, and drawn falling (see ShipView.dropMount).
+ *
+ * And a hole under a gun is a hole in its ready-use racks: the charges and the
+ * fused rounds stowed round the mounting for the first minutes of an action.
+ * Those can go off -- the burst that made the hole, or the mounting coming
+ * down on them -- and when they do it is an explosion of its own, which makes
+ * a hole of its own, under whatever is standing next to it.
+ */
+export function undercut(state, ship, at, r, owner, depth = 0) {
+  if (!ship.alive || !at || !(r > 0)) return;
+  const cls = shipClass(ship);
+  const deckY = freeboardOf(cls);
+  const fell = [];
+  const blew = [];
+  for (const g of standing(ship, cls)) {
+    const key = `${g.k}:${g.i}`;
+    if (ship.fell && ship.fell[key]) continue;
+    const foot = footOf(g.bore);
+    const d = Math.hypot((g.s.x || 0) - at.x, g.s.z - at.z);
+    if (d >= foot + r) continue;
+    // Under it, not over it or a deck below it: no higher than its guns, and
+    // no further down than its own trunk goes. The close-range battery does
+    // not say how high it stands, so it is taken to be on the deck the hole
+    // is in.
+    const top = g.s.my ?? (at.y + 1);
+    if (at.y > top + 0.5 || at.y < Math.min(top, deckY) - foot - 5) continue;
+    const cover = lens(foot, r, d);
+    if (cover <= 0) continue;
+    const area = Math.PI * foot * foot;
+    const book = ship.footing || (ship.footing = {});
+    book[key] = (book[key] || 0) + cover;
+    // The ready-use racks round it, opened by the burst.
+    if (!(ship.blew && ship.blew[key]) && state.rng() < clamp(cover / area, 0, 1) * 0.35) {
+      blew.push(g);
+    }
+    if (book[key] >= area * FOOTING) fell.push(g);
+  }
+  for (const g of fell) dropMount(state, ship, cls, g, owner, blew, depth);
+  for (const g of blew) readyUse(state, ship, cls, g, owner, depth);
+}
+
+/** A mounting going down through the deck under it. */
+function dropMount(state, ship, cls, g, owner, blew, depth) {
+  const key = `${g.k}:${g.i}`;
+  (ship.fell || (ship.fell = {}))[key] = 1;
+  if (g.m) {
+    g.m.hurt = 3;
+    g.m.laid = false;
+  }
+  const half = cls.hull.length / 2;
+  const top = g.s.my ?? freeboardOf(cls) + 1;
+  const w = localToWorld(g.s.x || 0, g.s.z, ship.heading);
+  state.events.push({
+    e: 'fall', ship: ship.id, k: g.k, i: g.i,
+    x: r(ship.x + w.x), y: r(top), z: r(ship.z + w.z),
+  });
+  // A thousand tons dropping a deck onto its own handling room: the charges
+  // in the hoists and the racks round it can go up as it lands.
+  if (!(ship.blew && ship.blew[key]) && !blew.includes(g)
+    && state.rng() < (g.k === 'main' ? 0.35 : g.k === 'sec' ? 0.25 : 0.15)) {
+    blew.push(g);
+  }
+  // And a main turret is stood on its magazine. Coming down through the deck
+  // on top of it, it can take the magazine with it -- not often.
+  if (g.k === 'main' && depth === 0) {
+    const where = sectionAt(g.s.z / half, 'deck');
+    if ((where === 'fwd' || where === 'aft') && state.rng() < 0.08) {
+      detonate(state, ship, where, owner);
+    }
+  }
+}
+
+/**
+ * A mounting's ready-use ammunition going off.
+ *
+ * Not her magazine: what was stowed up top for the first minutes of an
+ * action. It wrecks what is round it, starts a fire, and blows a hole in the
+ * deck it was on -- and that hole is under whatever else is standing there.
+ */
+function readyUse(state, ship, cls, g, owner, depth) {
+  if (!ship.alive) return;
+  const key = `${g.k}:${g.i}`;
+  (ship.blew || (ship.blew = {}))[key] = 1;
+  const deckY = freeboardOf(cls);
+  const half = cls.hull.length / 2;
+  const y = Math.min(g.s.my ?? deckY + 1, deckY + 1);
+  const at = { x: g.s.x || 0, y, z: g.s.z };
+  const where = sectionAt(clamp(at.z / half, -1, 1), (g.s.my ?? deckY) > deckY + 3 ? 'superstructure' : 'deck');
+  damageShip(state, ship, owner, cls.hp * clamp(0.01 + g.bore * 0.08, 0.012, 0.045), 'cook', where);
+  if (!ship.alive) return;
+  startFire(state, ship, where, 0.3);
+  ship.fires = burningCount(ship);
+  // Everything else within reach of it.
+  const reach = 3 + g.bore * 14;
+  const hurt = (live, specs) => {
+    for (let i = 0; live && specs && i < live.length && i < specs.length; i++) {
+      const s = specs[i];
+      if (live[i] === g.m) continue;
+      if (Math.hypot((s.x || 0) - at.x, s.z - at.z) > reach) continue;
+      live[i].disabled = Math.max(live[i].disabled || 0, 3 + state.rng() * 5);
+      hurtMount(state, live[i], 0.5 + state.rng());
+    }
+  };
+  hurt(ship.turrets, cls.turrets);
+  hurt(ship.secMounts, cls.secondary ? cls.secondary.mounts : null);
+  const hole = 1 + g.bore * 4;
+  const w = localToWorld(at.x, at.z, ship.heading);
+  state.events.push({
+    e: 'blast', ship: ship.id, k: g.k, i: g.i,
+    x: r(ship.x + w.x), y: r(at.y), z: r(ship.z + w.z), rad: r(hole), cal: Math.round(g.bore * 1000),
+  });
+  // And the hole it made, under whatever was next to it. Two steps of that
+  // and no more: a battleship's light battery going up rack by rack down the
+  // length of her is a thing that happened, but not every time.
+  if (depth < 2) undercut(state, ship, at, hole, owner, depth + 1);
+}
+
+/**
+ * How far across the middle the hole a round leaves in her deck is, metres --
+ * the same one the picture cuts (see ShipView.hitMark), so what falls through
+ * it is what is seen standing over it.
+ */
+function deckHole(kind, bore) {
+  if (kind === 'overpen') return Math.max(0.7, bore * 1.6);
+  if (kind === 'he') return bore >= 0.2 ? Math.max(1, bore * 3.5 * 0.55) : 0;
+  if (kind === 'pen') return Math.max(1, bore * 2.2 * 1.3);
+  if (kind === 'citadel') return Math.max(2.2, bore * 9 * 0.6);
+  return 0;
+}
+
 export function resolveShellHit(state, sh, target, cx, cz, cy) {
   const cls = getClass(target.classId);
   const spec = sh.spec;
@@ -4539,6 +4735,11 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     // That is the whole of what an overpenetration is worth, and against a
     // ship with no armour worth beating it is worth a good deal.
     if (kind === 'overpen') openHull(state, target, where, area, -side, depth, { x: -at.x, y: at.y, z: at.z });
+  }
+  // A hole in her deck or her upperworks is under something, as often as
+  // not, and that does not stay where it was. See undercut.
+  if (HOLING.has(kind) && (sec.part === 'deck' || sec.part === 'superstructure') && target.alive) {
+    undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner);
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
