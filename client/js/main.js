@@ -11,7 +11,7 @@ import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
 import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
-import { Net } from './net.js';
+import { Net, PUBLIC_SERVER } from './net.js';
 import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
@@ -466,7 +466,17 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.resume();
     audio.click();
     switch (btn.dataset.action) {
-      case 'pvp': show('pvp'); refreshRooms(); break;
+      case 'pvp': pvpScreen(false); show('pvp'); refreshRooms(); break;
+      // Other captains, on the battle service. A standalone page has no
+      // service to reach -- its battles are hosted in the tab, against the
+      // bots -- so it says where the game is played with others instead.
+      case 'multiplayer':
+        if (globalThis.STEEL_CURRENTS_OFFLINE) {
+          toast(`Multiplayer Battle is played online at ${PUBLIC_SERVER}`);
+          break;
+        }
+        pvpScreen(true); show('pvp'); refreshRooms();
+        break;
       // The custom briefing, under arcade rules: see Briefing.setArcade.
       case 'arcade': briefing.setArcade(true); show('custom'); briefing.show(); break;
       case 'custom': briefing.setArcade(false); show('custom'); briefing.show(); break;
@@ -478,6 +488,18 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     }
   });
 });
+
+/** The lobby under its two names: the staged battle, or other captains online. */
+function pvpScreen(multiplayer) {
+  const title = document.getElementById('pvp-title');
+  const blurb = document.getElementById('pvp-blurb');
+  if (title) title.textContent = multiplayer ? 'Multiplayer Battle' : 'Staged Battle';
+  if (blurb) {
+    blurb.textContent = multiplayer
+      ? 'Against other captains, online. Join a battle in progress or start one for them to join.'
+      : 'Player versus player. Pick a hull, take a side, and fight for the map.';
+  }
+}
 
 // ---------------------------------------------------------- the account --
 //

@@ -51,6 +51,7 @@
        stylesheet stack them into a single centred column instead. -->
   <div class="title-menus">
     <nav class="menu menu-left">
+      <button class="menu-item" data-action="multiplayer">Multiplayer Battle</button>
       <button class="menu-item" data-action="arcade">Arcade Battle</button>
       <button class="menu-item" data-action="pvp">Staged Battle</button>
       <button class="menu-item" data-action="custom">Custom Battle</button>
@@ -163,8 +164,8 @@
 <section id="screen-pvp" class="screen panel-screen">
   <div class="panel">
     <header class="panel-head">
-      <h2>Staged Battle</h2>
-      <p>Player versus player. Pick a hull, take a side, and fight for the map.</p>
+      <h2 id="pvp-title">Staged Battle</h2>
+      <p id="pvp-blurb">Player versus player. Pick a hull, take a side, and fight for the map.</p>
     </header>
     <div class="panel-body">
       <label class="field">
