@@ -45,10 +45,10 @@ html = html.replace(/\s*<script type="module" src="js\/main\.js"><\/script>/, ''
 // The lobby copy describes finding other captains, which a standalone build
 // cannot do. Say what this build actually is.
 html = html
-  .replace('<h2>Staged Battle</h2>', '<h2>Skirmish</h2>')
+  .replace('<h2 id="pvp-title">Staged Battle</h2>', '<h2 id="pvp-title">Skirmish</h2>')
   .replace(
-    '<p>Player versus player. Pick a hull, take a side, and fight for the map.</p>',
-    '<p>Pick a hull, take a side, and fight an AI fleet for the map.</p>',
+    '<p id="pvp-blurb">Player versus player. Pick a hull, take a side, and fight for the map.</p>',
+    '<p id="pvp-blurb">Pick a hull, take a side, and fight an AI fleet for the map.</p>',
   )
   .replace('<span>Battles in progress</span>', '<span>Opposition</span>')
   .replace(

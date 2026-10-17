@@ -491,6 +491,9 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
 
 /** The lobby under its two names: the staged battle, or other captains online. */
 function pvpScreen(multiplayer) {
+  // A standalone build's lobby is a skirmish against the bots, and says so
+  // in its own words (see build/standalone.mjs).
+  if (globalThis.STEEL_CURRENTS_OFFLINE) return;
   const title = document.getElementById('pvp-title');
   const blurb = document.getElementById('pvp-blurb');
   if (title) title.textContent = multiplayer ? 'Multiplayer Battle' : 'Staged Battle';
