@@ -874,19 +874,24 @@ class HudBase {
   bindCockpit(fns) {
     this.fly = {
       throttle: 1, firing: false, aimX: 0, aimY: 0, zoom: false, held: false,
+      // The free camera: how far it has been dragged round her, and whether
+      // it is being held there.
+      lookX: 0, lookY: 0, looking: false, lookKey: false,
     };
     this.flyFns = fns || {};
     const el = this.el;
     if (!el.flySwipe) return;
 
     // ---- the aim ---------------------------------------------------------
-    let swipeId = null;
-    let lx = 0;
-    let ly = 0;
+    // One finger, or the left mouse key, is the view she flies after: drag it
+    // anywhere -- up through the vertical and over, round behind her -- and
+    // she follows it there. A second finger on the glass, the right mouse key,
+    // or C held down at a desk turns the camera round her instead, to look
+    // about without touching her course; let go and it swings back.
+    const ptrs = new Map();
+    el.flySwipe.addEventListener('contextmenu', (ev) => ev.preventDefault());
     el.flySwipe.addEventListener('pointerdown', (ev) => {
-      swipeId = ev.pointerId;
-      lx = ev.clientX;
-      ly = ev.clientY;
+      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, look: ev.button === 2 });
       el.flySwipe.setPointerCapture(ev.pointerId);
       this.fly.held = true;
       // Said once, then out of the way.
@@ -894,15 +899,22 @@ class HudBase {
       ev.preventDefault();
     });
     el.flySwipe.addEventListener('pointermove', (ev) => {
-      if (ev.pointerId !== swipeId) return;
-      this.fly.aimX += ev.clientX - lx;
-      this.fly.aimY += ev.clientY - ly;
-      lx = ev.clientX;
-      ly = ev.clientY;
+      const p = ptrs.get(ev.pointerId);
+      if (!p) return;
+      const dx = ev.clientX - p.x;
+      const dy = ev.clientY - p.y;
+      p.x = ev.clientX;
+      p.y = ev.clientY;
+      // With two down, both fingers move the camera together: half each.
+      if (p.look || this.fly.lookKey) { this.fly.lookX += dx; this.fly.lookY += dy; }
+      else if (ptrs.size > 1) { this.fly.lookX += dx / 2; this.fly.lookY += dy / 2; }
+      else { this.fly.aimX += dx; this.fly.aimY += dy; }
+      this.fly.looking = p.look || this.fly.lookKey || ptrs.size > 1;
     });
     for (const k of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       el.flySwipe.addEventListener(k, (ev) => {
-        if (ev.pointerId === swipeId) { swipeId = null; this.fly.held = false; }
+        ptrs.delete(ev.pointerId);
+        if (!ptrs.size) { this.fly.held = false; this.fly.looking = !!this.fly.lookKey; }
       });
     }
 

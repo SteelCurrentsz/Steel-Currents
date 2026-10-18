@@ -19,8 +19,11 @@
 import * as THREE from '../../../vendor/three.module.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, tenzan, jake, muzzlesOf, dressPlane,
+  suisei, tenzan, jake, muzzlesOf, dressPlane,
 } from './planekit.js';
+import {
+  ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
+} from './zeroModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -148,7 +151,211 @@ export function gunsOf(kind) {
   return (m && m.length) ? m : [[0, 0, 3.2]];
 }
 
-/** One of each type, in flight trim, welded and ready to instance. */
+/**
+ * The pieces an aeroplane can lose, as bits of a mask.
+ *
+ * A wing shot off at the root takes its outboard panel and its leg with it; a
+ * tail shot off takes the tail wheel. `segGone` says which pieces a mask
+ * leaves her without, and everything that draws her goes through it.
+ */
+export const CUT = { tail: 1, wingInL: 2, wingInR: 4, wingOutL: 8, wingOutR: 16, prop: 32 };
+
+/** The pieces every type is drawn in. */
+export const SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
+
+/** Whether the piece called `name` is gone from an aeroplane with this mask. */
+export function segGone(name, cut) {
+  if (!cut) return false;
+  switch (name) {
+    case 'tail': case 'gearT': return (cut & CUT.tail) !== 0;
+    case 'wingInL': case 'gearL': return (cut & CUT.wingInL) !== 0;
+    case 'wingInR': case 'gearR': return (cut & CUT.wingInR) !== 0;
+    case 'wingOutL': return (cut & (CUT.wingOutL | CUT.wingInL)) !== 0;
+    case 'wingOutR': return (cut & (CUT.wingOutR | CUT.wingInR)) !== 0;
+    case 'prop': return (cut & CUT.prop) !== 0;
+    default: return false;
+  }
+}
+
+/**
+ * Which piece of a built-up model a point is in.
+ *
+ * The models in the kit are not built in pieces, so they are cut by where
+ * each triangle is: the last quarter of her length is her tail, the panel
+ * outboard of about three fifths of her semi-span is the part of a wing a
+ * burst clips off, and the rest of each wing outboard of her fuselage is the
+ * wing. Good enough to lose a wing or a tail by; the Zero is cut where her
+ * own structure breaks (see zeroModel.js).
+ */
+function boxSegOf(box) {
+  const half = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+  const len = box.max.z - box.min.z;
+  const tailZ = box.min.z + len * 0.27;
+  const bodyW = half * 0.13;
+  const fn = (x, y, z) => {
+    const ax = Math.abs(x);
+    if (z < tailZ) return 'tail';
+    if (ax > half * 0.58) return x > 0 ? 'wingOutR' : 'wingOutL';
+    if (ax > bodyW) return x > 0 ? 'wingInR' : 'wingInL';
+    return 'body';
+  };
+  const cy = (box.min.y + box.max.y) / 2;
+  const cz = (tailZ + box.max.z) / 2;
+  fn.breaks = {
+    tail: [0, cy, tailZ],
+    wingInL: [-bodyW, cy, cz], wingInR: [bodyW, cy, cz],
+    wingOutL: [-half * 0.58, cy, cz], wingOutR: [half * 0.58, cy, cz],
+    prop: [0, cy, box.max.z],
+  };
+  return fn;
+}
+
+/**
+ * Cut one welded geometry into its pieces. Each piece shares the welded
+ * buffers and keeps its own triangles, in the same material groups, so a
+ * piece is a draw call and no more memory.
+ */
+function segment(geo, segOf) {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  const lists = {};
+  for (const name of SEGS) lists[name] = [];
+  const groups = geo.groups.length ? geo.groups : [{ start: 0, count: idx.count, materialIndex: 0 }];
+  for (const gr of groups) {
+    for (const name of SEGS) lists[name].push({ slot: gr.materialIndex, idx: [] });
+    const at = lists.body.length - 1;
+    for (let i = gr.start; i < gr.start + gr.count; i += 3) {
+      const a = idx.getX(i), b = idx.getX(i + 1), c = idx.getX(i + 2);
+      const cx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+      const cy = (pos.getY(a) + pos.getY(b) + pos.getY(c)) / 3;
+      const cz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
+      lists[segOf(cx, cy, cz)][at].idx.push(a, b, c);
+    }
+  }
+  const out = {};
+  for (const name of SEGS) {
+    const all = [];
+    const g = new THREE.BufferGeometry();
+    for (const k of Object.keys(geo.attributes)) g.setAttribute(k, geo.attributes[k]);
+    for (const { slot, idx: list } of lists[name]) {
+      if (!list.length) continue;
+      g.addGroup(all.length, list.length, slot);
+      for (const v of list) all.push(v);
+    }
+    if (!all.length) continue;
+    g.setIndex(all);
+    g.computeBoundingSphere();
+    out[name] = g;
+  }
+  return out;
+}
+
+/**
+ * Her wingtips, the furthest point of her out each side, and her nose: where
+ * her vapour trails and her contrail come off.
+ */
+function tipsOf(key, geo) {
+  if (key === 'zero') return { tips: ZERO.tips, nose: [0, ZERO.prop[1] - 0.2, ZERO.prop[2] - 1.2] };
+  const pos = geo.attributes.position;
+  let l = null, r = null, front = -Infinity, fy = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (!l || x < l[0]) l = [x, y, z];
+    if (!r || x > r[0]) r = [x, y, z];
+    if (Math.abs(x) < 0.5 && z > front) { front = z; fy = y; }
+  }
+  return { tips: [l || [-5, 0, 0], r || [5, 0, 0]], nose: [0, fy, front - 1] };
+}
+
+/** The middle of the triangles a geometry actually draws, in its own frame. */
+function centroidOf(geo) {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  const c = new THREE.Vector3();
+  if (!idx || !idx.count) return c;
+  for (let i = 0; i < idx.count; i++) {
+    const v = idx.getX(i);
+    c.x += pos.getX(v); c.y += pos.getY(v); c.z += pos.getZ(v);
+  }
+  return c.multiplyScalar(1 / idx.count);
+}
+
+/** The Zero: the owner's sculpt, already in her pieces. */
+function zeroFlightModel() {
+  const geos = zeroGeometries();
+  const mat = zeroMaterial();
+  const segs = {};
+  for (const k of ZERO_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  // What a hole is snapped onto: every piece of her that is skin, in one.
+  const pos = [];
+  const idx = [];
+  for (const k of ZERO_SEGS) {
+    const g = geos[k];
+    const base = pos.length / 3;
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) pos.push(p.getX(i), p.getY(i), p.getZ(i));
+    for (let i = 0; i < g.index.count; i++) idx.push(base + g.index.getX(i));
+  }
+  const probe = new THREE.BufferGeometry();
+  probe.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  probe.setIndex(idx);
+  // Her airscrew and her legs, each about its own hinge, as the kit's moving
+  // parts are.
+  const local = (g, at) => {
+    const c = g.clone();
+    c.translate(-at[0], -at[1], -at[2]);
+    return c;
+  };
+  const parts = [];
+  const rot = new THREE.Quaternion();
+  // Her airscrew, with the faint disc a turning one is past a few hundred
+  // yards welded into it as its own group -- the same as every other type's
+  // (see flightModels below).
+  const blades = local(geos.prop, ZERO.prop);
+  const ring = new THREE.RingGeometry(ZERO.propR * 0.3, ZERO.propR * 0.99, 28, 1).translate(0, 0, 0.12);
+  const prop = new THREE.BufferGeometry();
+  {
+    const bp = blades.attributes.position, bn = blades.attributes.normal, bc = blades.attributes.color;
+    const rp = ring.attributes.position;
+    const nb = bp.count, nr = rp.count;
+    const pos = new Float32Array((nb + nr) * 3);
+    const nor = new Float32Array((nb + nr) * 3);
+    const col = new Uint8Array((nb + nr) * 3);
+    pos.set(bp.array, 0); nor.set(bn.array, 0); col.set(bc.array, 0);
+    pos.set(rp.array, nb * 3);
+    for (let i = 0; i < nr; i++) nor[(nb + i) * 3 + 2] = 1;
+    const idx = Array.from(blades.index.array);
+    const bi = idx.length;
+    for (let i = 0; i < ring.index.count; i++) idx.push(nb + ring.index.getX(i));
+    prop.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    prop.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    prop.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
+    prop.setIndex(idx);
+    prop.addGroup(0, bi, 0);
+    prop.addGroup(bi, idx.length - bi, 1);
+  }
+  parts.push({
+    name: 'prop', axis: 'z', open: 0, spin: true,
+    at: new THREE.Vector3().fromArray(ZERO.prop), rot,
+    geo: prop, mats: [mat, new THREE.MeshBasicMaterial({
+      color: 0x6f7a86, transparent: true, opacity: 0.085,
+      side: THREE.DoubleSide, depthWrite: false,
+    })],
+  });
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = ZERO[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0,
+      at: new THREE.Vector3().fromArray(spec.at), rot,
+      geo: local(geos[k], spec.at), mats: [mat],
+    });
+  }
+  const segOf = zeroSegOf;
+  segOf.breaks = ZERO.breaks;
+  return { segs, parts, probe, segOf, cy: 1.65, geo: probe, mats: [mat] };
+}
+
+/** One of each type, in flight trim, welded, cut into her pieces and ready to instance. */
 export function flightModels() {
   const out = {};
   const make = (key, build) => {
@@ -217,7 +424,12 @@ export function flightModels() {
         spin: spec.spin, at, rot, geo, mats,
       });
     }
-    out[key] = { ...weld(g), parts };
+    const { geo, mats } = weld(g);
+    geo.computeBoundingBox();
+    const segOf = boxSegOf(geo.boundingBox);
+    const segs = {};
+    for (const [name, sg] of Object.entries(segment(geo, segOf))) segs[name] = { geo: sg, mats };
+    out[key] = { segs, parts, probe: geo, segOf, cy: 0, geo, mats };
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
   make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
@@ -233,12 +445,20 @@ export function flightModels() {
   // And the Loire 130 the Richelieu works off her quarterdeck.
   make('loire', (g) => loire(g, 0, 0, 0, 0, {}));
   // And the Japanese four: a Zero, a Suisei, a Tenzan and the Jake the
-  // battleships and the cruisers work off their catapults.
-  make('zero', (g) => zero(g, 0, 0, 0, 0, false, { gear: false }));
+  // battleships and the cruisers work off their catapults. The Zero is the
+  // owner's sculpt of her, in the pieces she is built to come apart in.
+  out.zero = zeroFlightModel();
+  MUZZLES.zero = ZERO.guns.slice().sort((a, b) => a[0] - b[0]);
   make('suisei', (g) => suisei(g, 0, 0, 0, 0, false, { gear: false }));
   make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, true, { gear: false }));
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
   return out;
+}
+
+/** Where on her each piece breaks away, in her own frame. */
+export function breaksOf(models, kind) {
+  const m = models[kind];
+  return (m && m.segOf && m.segOf.breaks) || null;
 }
 
 /**
@@ -442,7 +662,7 @@ export class HoleField {
    * Where a hole really is on this model, and which way that piece of her
    * faces. Null when the ray finds no aeroplane there.
    */
-  snap(key, geo, h, span) {
+  snap(key, geo, h, span, cy = 0) {
     if (!geo) return null;
     const id = `${key}|${h.k}|${h.x}|${h.y}|${h.z}`;
     if (this.snapped.has(id)) return this.snapped.get(id);
@@ -455,14 +675,14 @@ export class HoleField {
     }
     const len = span * 0.72;
     const px = h.x * span * 0.5;
-    const py = h.y * span * 0.30;
+    const py = cy + h.y * span * 0.30;
     const pz = h.z * len * 0.5;
     // In at her from outside. A wing and a tailplane are found from above or
     // below, a fuselage from the side -- which is also the direction the round
     // came from, so the hole ends up on the side it went in.
     const flat = h.k === 'wings' || h.k === 'tail';
     const reach = span * 1.2;
-    if (flat) this.dir.set(0, py >= 0 ? -1 : 1, 0);
+    if (flat) this.dir.set(0, py >= cy ? -1 : 1, 0);
     else this.dir.set(px >= 0 ? -1 : 1, 0, 0);
     this.probe.far = reach * 2.4;
     // The point itself first, and then round about it.
@@ -485,7 +705,7 @@ export class HoleField {
         const ox = ring * span * Math.cos(a);
         const oz = ring * span * Math.sin(a);
         // Offset across the two axes the ray is not travelling along.
-        if (flat) this.from.set(px + ox, py >= 0 ? reach : -reach, pz + oz);
+        if (flat) this.from.set(px + ox, py >= cy ? cy + reach : cy - reach, pz + oz);
         else this.from.set(px >= 0 ? reach : -reach, py + ox * 0.5, pz + oz);
         this.probe.set(this.from, this.dir);
         const hit = this.probe.intersectObject(probe, false)[0];
@@ -500,15 +720,17 @@ export class HoleField {
     return null;
   }
 
-  on(body, holes, span, turn = 0, geo = null, key = '') {
+  on(body, holes, span, turn = 0, geo = null, key = '', segOf = null, cut = 0, cy = 0) {
     if (!holes || !holes.length) return;
     const d = this.dummy;
     for (let i = 0; i < holes.length; i++) {
       if (this.n >= this.max) return;
       const h = holes[(i + turn) % holes.length];
-      const at = this.snap(key, geo, h, span);
+      const at = this.snap(key, geo, h, span, cy);
       // No aeroplane there. A hole in fresh air is worse than no hole.
       if (!at) continue;
+      // Nor in a piece of her that is not there any more.
+      if (cut && segOf && segGone(segOf(at.p.x, at.p.y, at.p.z), cut)) continue;
       d.position.copy(at.p);
       // Laid in the skin rather than squared to her axes: a hole in a wing
       // that has dihedral lies at the dihedral, and one in the round of her
@@ -537,22 +759,40 @@ export class Flights {
     this.max = max;
     this.models = flightModels();
     this.batches = {};
-    for (const [key, { geo, mats, parts }] of Object.entries(this.models)) {
-      const mesh = new THREE.InstancedMesh(geo, mats, max);
+    const batch = (geo, mats) => {
+      // A list of materials is drawn group by group, and a geometry with no
+      // groups under a list is drawn as nothing at all.
+      const mat = Array.isArray(mats) && !geo.groups.length ? mats[0] : mats;
+      const mesh = new THREE.InstancedMesh(geo, mat, max);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
+      // Nothing in the air yet. An instanced mesh is born with identity
+      // matrices -- every aeroplane it can hold stacked at the origin at full
+      // size -- so the count goes to nought before it is ever drawn.
+      mesh.count = 0;
+      mesh.visible = false;
       scene.add(mesh);
+      return mesh;
+    };
+    for (const [key, model] of Object.entries(this.models)) {
+      // One batch per piece of her: a squadron with a wing shot off one of its
+      // machines is the same handful of draw calls as a whole one, the piece
+      // simply left out of that machine.
+      const segs = {};
+      for (const [name, { geo, mats }] of Object.entries(model.segs)) {
+        segs[name] = { mesh: batch(geo, mats), n: 0, center: centroidOf(geo) };
+      }
       // One batch per moving part as well, drawn at whatever angle that part
       // is at on each aeroplane: a squadron with her bays open is the same
       // number of draw calls as a squadron with them shut.
-      const moving = (parts || []).map((sp) => {
-        const pm = new THREE.InstancedMesh(sp.geo, sp.mats, max);
-        pm.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        pm.frustumCulled = false;
-        scene.add(pm);
-        return { spec: sp, mesh: pm, n: 0 };
-      });
-      this.batches[key] = { mesh, n: 0, parts: moving };
+      const moving = (model.parts || []).map((sp) => ({ spec: sp, mesh: batch(sp.geo, sp.mats), n: 0 }));
+      this.batches[key] = {
+        // The body is the batch every machine of the type is in, whatever she
+        // has lost: what anything asking for "her batch" is given.
+        mesh: segs.body.mesh,
+        segs, parts: moving, probe: model.probe, segOf: model.segOf, cy: model.cy || 0,
+        ...tipsOf(key, model.probe),
+      };
     }
     // Every hole in every aeroplane in the sky, in one batch.
     this.holes = new HoleField(scene);
@@ -572,40 +812,67 @@ export class Flights {
     // easterly heading was drawn dead level, and so was everything else in
     // the game that was not pointed at the top of the chart.
     this.dummy.rotation.order = 'YXZ';
-    // Nothing in the air yet. An instanced mesh is born with identity matrices
-    // -- every aeroplane it can hold stacked at the origin at full size -- so
-    // the count goes to nought before it is ever drawn.
-    for (const key of Object.keys(this.batches)) {
-      this.batches[key].mesh.count = 0;
-      this.batches[key].mesh.visible = false;
-      for (const q of this.batches[key].parts) { q.mesh.count = 0; q.mesh.visible = false; }
-    }
+    // The world matrix of each machine the last `add` or `one` put up, for
+    // what is drawn on them afterwards: trails off their tips, flashes at
+    // their guns.
+    this.slotM = SLOTS.map(() => new THREE.Matrix4());
+    this.slotN = 0;
+  }
+
+  /** Her wingtips and her engine, in her own frame: where her trails come off. */
+  tips(kind) {
+    const b = this.batches[kind];
+    return b ? { tips: b.tips, nose: b.nose } : null;
+  }
+
+  /** Where on her each piece of this type breaks away, in her own frame. */
+  breaks(kind) { return breaksOf(this.models, kind); }
+
+  /** The middle of one piece of this type, in her own frame: what it tumbles about. */
+  centerOf(kind, name) {
+    const b = this.batches[kind];
+    if (!b) return null;
+    if (b.segs[name]) return b.segs[name].center;
+    const q = b.parts.find((p) => p.spec.name === name);
+    return q ? q.spec.at : null;
   }
 
   /**
    * Draw one aeroplane's moving parts at the attitude her trim says they are
    * in: `bay` is how far the doors are open, 0 shut to 1 wide; `fall` is how
    * far the weapon has dropped clear of her, or null while it is still on the
-   * rack.
+   * rack; `gear` is her legs, 0 down to 1 up, and up unless she says.
    */
-  trimParts(b, body, trim) {
+  trimParts(b, body, trim, cut = 0) {
     if (!b.parts.length) return;
     const bay = trim && trim.bay ? Math.max(0, Math.min(1, trim.bay)) : 0;
     const fall = trim && trim.fall !== undefined && trim.fall !== null ? trim.fall : null;
     const turn = trim && trim.prop ? trim.prop : 0;
+    const gear = trim && trim.gear !== undefined ? Math.max(0, Math.min(1, trim.gear)) : 1;
     for (const q of b.parts) {
       if (q.n >= this.max) continue;
+      if (segGone(q.spec.name, cut)) continue;
       // A weapon that has gone is not drawn at all, and once it is clear of
       // her the simulation's own bomb or torpedo has taken it over.
       if (q.spec.fall && fall !== null && fall > 3.5) continue;
       this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
         q.spec.axis === 'z' ? 1 : 0);
       // An airscrew is wound on rather than swung open: the angle is where it
-      // has got to, and it goes round faster the faster she is going.
-      this.spin.setFromAxisAngle(this.axis, q.spec.spin ? turn : q.spec.open * bay);
+      // has got to, and it goes round faster the faster she is going. A leg
+      // is swung up on its hinge as far as it has got.
+      let ang = q.spec.open * bay;
+      let tuck = 0;
+      if (q.spec.spin) ang = turn;
+      else if (q.spec.gear) {
+        const e = gear * gear * (3 - 2 * gear);
+        ang = q.spec.open * e;
+        tuck = (q.spec.tuck || 0) * e;
+      }
+      this.spin.setFromAxisAngle(this.axis, ang);
       this.hinge.makeRotationFromQuaternion(this.spin);
       this.part.makeRotationFromQuaternion(q.spec.rot).multiply(this.hinge);
       this.part.setPosition(q.spec.at);
+      if (tuck) this.part.elements[13] += tuck;
       if (q.spec.fall && fall !== null) {
         // Straight down and a little astern, the way a weapon leaves.
         this.slide.makeTranslation(0, -fall, -fall * 0.18);
@@ -616,36 +883,40 @@ export class Flights {
     }
   }
 
-  parkFrom(key, from) {
-    const b = this.batches[key];
-    const d = this.dummy;
-    d.position.set(0, -20000, 0);
-    d.rotation.set(0, 0, 0);
-    d.scale.setScalar(0.001);
-    d.updateMatrix();
-    for (let i = from; i < this.max; i++) b.mesh.setMatrixAt(i, d.matrix);
-    b.mesh.instanceMatrix.needsUpdate = true;
+  /** Put one aeroplane's pieces in at `matrix`, less what she has lost. */
+  body(b, matrix, cut = 0) {
+    for (const [name, sg] of Object.entries(b.segs)) {
+      if (sg.n >= this.max) continue;
+      if (segGone(name, cut)) continue;
+      sg.mesh.setMatrixAt(sg.n++, matrix);
+    }
   }
 
   begin() {
     for (const b of Object.values(this.batches)) {
-      b.n = 0;
+      for (const sg of Object.values(b.segs)) sg.n = 0;
       for (const q of b.parts) q.n = 0;
     }
     this.holes.begin();
   }
 
   /** Put one aeroplane's holes on her; see HoleField. */
-  holesOn(body, holes, span, turn = 0, b = null, key = '') {
-    this.holes.on(body, holes, span, turn, b && b.mesh.geometry, key);
+  holesOn(body, holes, span, turn = 0, b = null, key = '', cut = 0) {
+    if (!b) return;
+    this.holes.on(body, holes, span, turn, b.probe, key, b.segOf, cut, b.cy);
   }
 
   /**
    * Put one flight in the air: `count` aircraft of her type, in formation on
    * the leader's position and course, banked into whatever turn she is in.
+   *
+   * `cut` is what one of them has lost -- the machine in slot `cutSlot` --
+   * and `att`, when it is given, is the leader's whole attitude as a
+   * quaternion: the aeroplane under the player's hands, which goes over the
+   * top and round in a roll in a way three angles cannot say smoothly.
    */
   add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null,
-    holes = null, span = 12) {
+    holes = null, span = 12, cut = 0, cutSlot = 0, att = null) {
     const key = type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger');
     const b = this.batches[key];
     if (!b) return;
@@ -654,7 +925,6 @@ export class Flights {
     const cs = Math.cos(heading);
     for (let i = 0; i < count && i < SLOTS.length; i++) {
       if (i === skip) continue;
-      if (b.n >= this.max) break;
       const [sx, sy, sz] = SLOTS[i];
       // The slot is in her own frame: across, down, astern.
       d.position.set(
@@ -662,18 +932,22 @@ export class Flights {
         y + sy,
         z + cs * sz - sn * sx,
       );
+      if (att && i === 0) d.quaternion.copy(att);
       // Nose up is a negative rotation about her own X axis, the same way a
       // gun's muzzle is raised: passed straight through, every aeroplane in
       // the game was drawn climbing when she was diving and diving when she
       // was climbing.
-      d.rotation.set(-pitch, heading, -bank);
+      else d.rotation.set(-pitch, heading, -bank);
       d.scale.setScalar(1);
       d.updateMatrix();
-      b.mesh.setMatrixAt(b.n++, d.matrix);
-      this.trimParts(b, d.matrix, trim);
+      this.slotM[i].copy(d.matrix);
+      this.slotN = i + 1;
+      const c = i === cutSlot ? cut : 0;
+      this.body(b, d.matrix, c);
+      this.trimParts(b, d.matrix, trim, c);
       // And what has been shot through her. The list is turned one place for
       // each machine, so the wingman is not the leader's holes drawn twice.
-      this.holesOn(d.matrix, holes, span, i, b, key);
+      this.holesOn(d.matrix, holes, span, i, b, key, c);
     }
   }
 
@@ -685,18 +959,43 @@ export class Flights {
    * somebody's division. Drawn out of the same batch, so she costs nothing.
    */
   one(role, x, y, z, heading, bank, pitch, roll = 0, type = null, trim = null,
-    holes = null, span = 12) {
+    holes = null, span = 12, cut = 0, att = null) {
     const key = type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger');
     const b = this.batches[key];
-    if (!b || b.n >= this.max) return;
+    if (!b) return;
     const d = this.dummy;
     d.position.set(x, y, z);
-    d.rotation.set(-pitch, heading, -bank + roll);
+    if (att) d.quaternion.copy(att);
+    else d.rotation.set(-pitch, heading, -bank + roll);
     d.scale.setScalar(1);
     d.updateMatrix();
-    b.mesh.setMatrixAt(b.n++, d.matrix);
-    this.trimParts(b, d.matrix, trim);
-    this.holesOn(d.matrix, holes, span, 0, b, key);
+    this.slotM[0].copy(d.matrix);
+    this.slotN = 1;
+    this.body(b, d.matrix, cut);
+    this.trimParts(b, d.matrix, trim, cut);
+    this.holesOn(d.matrix, holes, span, 0, b, key, cut);
+  }
+
+  /**
+   * One piece that has come off an aeroplane -- a wing, a tail, an airscrew --
+   * on its own way down, at `matrix`, which places it the way it sat on her.
+   */
+  piece(type, name, matrix) {
+    const b = this.batches[type];
+    if (!b) return;
+    const sg = b.segs[name];
+    if (sg) {
+      if (sg.n < this.max) sg.mesh.setMatrixAt(sg.n++, matrix);
+      return;
+    }
+    // A moving part, at its hinge.
+    for (const q of b.parts) {
+      if (q.spec.name !== name || q.n >= this.max) continue;
+      this.part.makeRotationFromQuaternion(q.spec.rot);
+      this.part.setPosition(q.spec.at);
+      this.part.premultiply(matrix);
+      q.mesh.setMatrixAt(q.n++, this.part);
+    }
   }
 
   /**
@@ -706,27 +1005,20 @@ export class Flights {
    * the matrix -- so a batch built to hold ninety-six machines drew ninety-six
    * of them every frame for the whole action, ninety of them parked twenty
    * kilometres under the sea at a thousandth of their size where nobody could
-   * see them and nothing could cull them. Five types of aeroplane, five or six
-   * thousand triangles apiece: two and a half million triangles a frame to
-   * draw an empty sky, which was three quarters of everything the card was
-   * being asked for.
-   *
-   * `count` is the instanced mesh's own word for how many are real. Setting it
-   * costs nothing, changes nothing anybody can see, and stops the batch at the
-   * last aeroplane actually flying.
+   * see them and nothing could cull them. `count` is the instanced mesh's own
+   * word for how many are real, and it stops the batch at the last aeroplane
+   * actually flying.
    */
   end() {
     this.holes.end();
-    for (const key of Object.keys(this.batches)) {
-      const b = this.batches[key];
-      b.mesh.count = b.n;
-      b.mesh.visible = b.n > 0;
-      if (b.n > 0) b.mesh.instanceMatrix.needsUpdate = true;
-      for (const q of b.parts) {
-        q.mesh.count = q.n;
-        q.mesh.visible = q.n > 0;
-        if (q.n > 0) q.mesh.instanceMatrix.needsUpdate = true;
-      }
+    const close = (q) => {
+      q.mesh.count = q.n;
+      q.mesh.visible = q.n > 0;
+      if (q.n > 0) q.mesh.instanceMatrix.needsUpdate = true;
+    };
+    for (const b of Object.values(this.batches)) {
+      for (const sg of Object.values(b.segs)) close(sg);
+      for (const q of b.parts) close(q);
     }
   }
 }

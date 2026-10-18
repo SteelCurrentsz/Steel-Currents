@@ -69,6 +69,7 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { AERO, launchProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
+import { engineStart } from './deckengine.js';
 import {
   box, cyl, tubeZ, tubeX, fairTable, ladder, sideLadder, loftShape, planHouse,
   strip, sheet, rail,
@@ -2468,7 +2469,14 @@ export function stepDeck(deck, t) {
   p.visible = true;
   p.position.set(0, y + 0.34, z);
   p.rotation.set(pitch, yaw, 0);
-  if (plane.prop) plane.prop.rotation.z += turning * 0.05;
+  // Her engine: started as the lift brings her up, caught before she taxis,
+  // idling down the deck to the spot and run right up on the brakes. The
+  // airscrew turns at what the engine says rather than at a number per phase.
+  // See deckengine.js.
+  const rate = engineStart(deck.engine || (deck.engine = {}), run >= DOWN,
+    (run - DOWN) / pace, run >= TAXIED ? 1 : Math.min(0.3, turning / 30), dt, deck.fx, p,
+    [[-0.66, 1.5, 2.9], [0.66, 1.5, 2.9]]);
+  if (plane.prop) plane.prop.rotation.z += rate * dt;
 }
 
 /**
@@ -2631,6 +2639,7 @@ export function buildEnterprise() {
   g.userData.step = (t) => stepDeck(deck, t);
   g.userData.launch = (t) => {
     deck.launchAt = t;
+    deck.engine = {};
     deck.airborne = false;
     deck.landAt = null;
     deck.startY = lifts[lifts.length - 1].group.position.y;

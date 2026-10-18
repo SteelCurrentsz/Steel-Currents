@@ -310,7 +310,9 @@ import {
 import * as THREE from '../vendor/three.module.js';
 import { EAST_X } from '../shared/coast.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
-import { unpackHoles, HoleField } from '../client/js/render/planes.js';
+import { unpackHoles, HoleField, CUT, segGone } from '../client/js/render/planes.js';
+import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js';
+import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
 import {
   buildSurcouf, LOA as surcoufLOA,
@@ -7949,7 +7951,11 @@ check('nothing on an aeroplane is hanging in the air on its own', () => {
       bb.expandByScalar(GAP / 2);
       boxes.push(bb);
     });
-    assert.ok(boxes.length > 60, `${kind} is drawn with only ${boxes.length} pieces`);
+    // A machine built out of primitives is hundreds of them. One drawn from
+    // an owner's sculpt is a handful of pieces -- the ones she can lose and
+    // the ones that move -- and the same question is asked of those.
+    const sculpt = g.children.some((c) => c.userData && c.userData.sculpt);
+    if (!sculpt) assert.ok(boxes.length > 60, `${kind} is drawn with only ${boxes.length} pieces`);
     const up = boxes.map((_, i) => i);
     const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
     for (let i = 0; i < boxes.length; i++) {
@@ -20381,6 +20387,87 @@ check('a fighter going in ahead takes the flak meant for the bombers behind her'
   const screened = run(true);
   assert.ok(bare > 0, 'the flak never touched her');
   assert.ok(screened < bare * 0.75, `screened she took ${screened.toFixed(3)}, bare ${bare.toFixed(3)}`);
+});
+
+check('she goes over the top of a loop without a twitch', () => {
+  // She is flown on a direction and an up, and the three angles are read off
+  // them. Flown on the angles, every loop had to be folded over by hand at the
+  // vertical, and her nose jumped there. Full back stick, right round: her
+  // nose never moves more than a few degrees in a frame, and she comes out
+  // the right way up going the way she went in.
+  const p = new Pilot(AERO.zero, { y: 1500, heading: 0.7, speed: 140 });
+  p.stickPitch = 1;
+  let last = null;
+  let worst = 0;
+  let top = -1;
+  for (let i = 0; i < 60 * 9; i++) {
+    p.step(1 / 60);
+    const n = p.body().n;
+    if (last) worst = Math.max(worst, Math.acos(Math.min(1, n.x * last.x + n.y * last.y + n.z * last.z)));
+    last = n;
+    top = Math.max(top, n.y);
+  }
+  assert.ok(top > 0.99, `she never went through the vertical (${top.toFixed(2)})`);
+  assert.ok(worst < 0.08, `her nose jumped ${worst.toFixed(3)} rad in one frame`);
+  // And written to as three angles, she is rebuilt from what was written.
+  const q = new Pilot(AERO.zero, { y: 1500, heading: 0, speed: 140 });
+  q.bank = 0.8;
+  q.step(1 / 60);
+  assert.ok(Math.abs(q.bank - 0.8) < 0.1, `a bank written in came out ${q.bank.toFixed(2)}`);
+});
+
+check('a wing panel shot through enough comes off, and a machine going down breaks', () => {
+  // Holes out on the port wing clip it; holes inboard do not.
+  const out = [];
+  for (let i = 0; i < 5; i++) out.push({ k: 'wings', x: -0.8, y: 0, z: 0.1, r: 0.2 });
+  assert.ok(cutFromHoles(out) & CUT.wingOutL, 'five holes out on the port wing left it on');
+  assert.equal(cutFromHoles(out) & CUT.wingOutR, 0, 'the starboard wing came off with the port');
+  const inboard = out.map((h) => ({ ...h, x: -0.2 }));
+  assert.equal(cutFromHoles(inboard), 0, 'holes in the root of a wing clipped its tip');
+  // Shot down with her wing full of holes, she loses that wing at the root.
+  const c = breakCut('shot', [...out, ...out], 3);
+  assert.ok(c & CUT.wingInL, 'a machine shot down through her port wing kept it');
+  assert.ok(segGone('wingOutL', c) && segGone('gearL', c), 'a wing off at the root left its tip and leg');
+  // And whatever she loses comes off her as pieces, once.
+  const groups = piecesOf(c, cutFromHoles(out));
+  assert.ok(groups.some((g) => g[0] === 'wingInL'), 'the wing did not come off her');
+  assert.ok(!groups.some((g) => g[0] === 'wingOutL'), 'a tip already gone came off twice');
+  // Out of fuel she comes down whole.
+  assert.equal(breakCut('dry', out, 1), 0, 'a machine out of fuel broke up');
+});
+
+check('the Zero is the owner\'s sculpt, in the pieces she comes apart in', () => {
+  const g = zeroGeometries();
+  for (const k of ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR', 'prop',
+    'gearL', 'gearR', 'gearT', 'lod']) {
+    assert.ok(g[k] && g[k].index.count > 0, `she has no ${k}`);
+  }
+  // Her span, her guns and her hinges, off the sculpt.
+  g.wingOutR.computeBoundingBox();
+  g.wingOutL.computeBoundingBox();
+  const span = g.wingOutR.boundingBox.max.x - g.wingOutL.boundingBox.min.x;
+  assert.ok(Math.abs(span - ZERO.span) < 0.3, `she spans ${span.toFixed(2)} m`);
+  assert.equal(ZERO.guns.length, 4, 'she does not carry two cannon and two machine guns');
+  assert.ok(ZERO.gearL.up > 0 && ZERO.gearR.up < 0, 'her legs do not fold inward');
+  // Her cockpit is sealed: there is glass over it.
+  let glass = 0;
+  const col = g.body.attributes.color;
+  for (let i = 0; i < col.count; i++) if (Math.round(col.getX(i) * 255) === 2) glass++;
+  assert.ok(glass > 100, 'her canopy is open to the sky');
+  // In the air she is drawn in her pieces, with her airscrew and legs moving.
+  const fl = new Flights({ add() {} }, 4);
+  const b = fl.batches.zero;
+  assert.deepEqual(Object.keys(b.segs).sort(),
+    ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'].sort());
+  assert.deepEqual(b.parts.map((q) => q.spec.name).sort(), ['gearL', 'gearR', 'gearT', 'prop']);
+  fl.begin();
+  fl.one('fighter', 0, 300, 0, 0, 0, 0, 0, 'zero', null, null, 11, CUT.tail | CUT.wingOutR);
+  fl.end();
+  assert.equal(b.segs.tail.mesh.count, 0, 'her tail is drawn after it was shot off');
+  assert.equal(b.segs.wingOutR.mesh.count, 0, 'her clipped wing is still drawn');
+  assert.equal(b.segs.wingOutL.mesh.count, 1, 'her good wing is not drawn');
+  assert.equal(b.parts.find((q) => q.spec.name === 'gearT').mesh.count, 0,
+    'her tail wheel is drawn without her tail');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

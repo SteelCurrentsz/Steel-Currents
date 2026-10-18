@@ -99,12 +99,81 @@ export class Pilot {
    * of the stall drawn dead level.
    */
   get attitude() {
+    // Off her nose as a direction, so it stays right all the way round a loop
+    // and on her back -- where the angle of attack lowers the nose against the
+    // earth rather than raising it.
+    const n = this.body().n;
+    return Math.asin(Math.max(-1, Math.min(1, n.y)));
+  }
+
+  /**
+   * Her flight path and her way up, as vectors in the world.
+   *
+   * These are what she is actually flown on. `heading`, `pitch` and `bank`
+   * are worked out from them after every step, for everything that reads her
+   * as three angles -- and if anything writes to those three angles, the
+   * frame is rebuilt from what was written before the next step.
+   *
+   * Three angles is how she used to be flown, and three angles cannot go
+   * through the vertical: at ninety degrees of pitch the heading means
+   * nothing, and every loop had to be folded over the top by hand -- heading
+   * swung round half a turn and bank flipped on its back in the one step --
+   * which is where she twitched at the top of every loop and the bottom of
+   * every split-S, and why a turn near the vertical came out at the wrong
+   * rate. A direction and an up have no such place.
+   */
+  frame() {
+    if (!this.F || this.heading !== this._h || this.pitch !== this._p || this.bank !== this._b) {
+      const ch = Math.cos(this.heading), sh = Math.sin(this.heading);
+      const cg = Math.cos(this.pitch), sg = Math.sin(this.pitch);
+      const cb = Math.cos(this.bank), sb = Math.sin(this.bank);
+      this.F = { x: sh * cg, y: sg, z: ch * cg };
+      const u0x = -sh * sg, u0y = cg, u0z = -ch * sg;
+      this.U = { x: cb * u0x + sb * ch, y: cb * u0y, z: cb * u0z - sb * sh };
+      this._h = this.heading; this._p = this.pitch; this._b = this.bank;
+    }
+    return this;
+  }
+
+  /** Write the three angles back from the frame. */
+  angles() {
+    const F = this.F, U = this.U;
+    const fy = Math.max(-1, Math.min(1, F.y));
+    this.pitch = Math.asin(fy);
+    // Straight up or straight down the heading is wherever it was: what
+    // changes going through the vertical is the bank, and it is read off the
+    // way up against that heading.
+    if (Math.hypot(F.x, F.z) > 1e-5) this.heading = Math.atan2(F.x, F.z);
+    const ch = Math.cos(this.heading), sh = Math.sin(this.heading);
+    const cg = Math.cos(this.pitch), sg = Math.sin(this.pitch);
+    const u0x = -sh * sg, u0y = cg, u0z = -ch * sg;
+    this.bank = Math.atan2(U.x * ch - U.z * sh, U.x * u0x + U.y * u0y + U.z * u0z);
+    this._h = this.heading; this._p = this.pitch; this._b = this.bank;
+  }
+
+  /**
+   * Where her nose is pointed, and the way up through her canopy, as unit
+   * vectors: her flight path turned up toward her lift by the angle her wing
+   * is working at. This is what she is drawn at and what her guns are laid
+   * on, all the way round a loop and upside down.
+   */
+  body() {
+    this.frame();
+    const F = this.F, U = this.U;
+    const a = this.attitudeAlpha();
+    const c = Math.cos(a), s = Math.sin(a);
+    return {
+      n: { x: F.x * c + U.x * s, y: F.y * c + U.y * s, z: F.z * c + U.z * s },
+      u: { x: U.x * c - F.x * s, y: U.y * c - F.y * s, z: U.z * c - F.z * s },
+    };
+  }
+
+  /** The angle her nose stands off her flight path, toward her lift. */
+  attitudeAlpha() {
     const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(this.g)));
     // Past the stall the wing has let go, and she stops flying at an angle of
-    // attack and starts falling at one: the nose comes down toward her path
-    // rather than standing further and further above it.
-    const nose = this.pitch + a * (1 - 0.7 * this.stall);
-    return Math.max(-1.5, Math.min(1.5, nose));
+    // attack and starts falling at one.
+    return a * (1 - 0.7 * this.stall) * (this.g < 0 ? -1 : 1);
   }
 
   /**
@@ -114,9 +183,8 @@ export class Pilot {
    * fast enough that a whole frame of it in one go is visibly wrong.
    */
   step(dt, seaAt = 0) {
-    const a = this.a;
     const h = Math.min(dt, 1 / 60);
-    for (let n = 0, steps = Math.max(1, Math.ceil(dt / h)); n < steps; n++) {
+    for (let n = 0, steps = Math.max(1, Math.ceil(dt / h - 1e-9)); n < steps; n++) {
       const s = Math.min(h, dt - n * h);
       if (s <= 0) break;
       this.substep(s, seaAt);
@@ -126,6 +194,8 @@ export class Pilot {
 
   substep(s, seaAt) {
     const a = this.a;
+    this.frame();
+    const F = this.F, U = this.U;
     const vs = this.vStall;
     // How much authority she has: a control surface works on dynamic pressure,
     // so an aeroplane near the stall is soggy and one going flat out is
@@ -134,121 +204,72 @@ export class Pilot {
 
     // Roll: the stick asks for a rate of roll, not an angle of bank.
     //
-    // It used to ask for an angle. Stick hard over meant eighty-three degrees
-    // and not one degree more, so there was no such thing as rolling past the
-    // vertical -- and an aileron roll, a barrel roll, a roll off the top, or
-    // simply flying her upside down for a moment were not things the aeroplane
-    // could be made to do at all. That is not what an aileron does. It asks
-    // for a rate, and she keeps going round for as long as it is held.
-    //
-    // The rate is hers: her helix angle wound up over her own span at her own
-    // speed. And she does not get to it at once -- there is an aeroplane's
-    // worth of inertia to start turning and the air has to damp her into a
-    // steady roll, which is the roll mode and takes a sixth of a second on a
-    // fighter and a third on a heavy.
+    // It is an aileron: she keeps going round for as long as it is held,
+    // which is what makes a roll, a barrel roll, a roll off the top and plain
+    // inverted flight things she can be flown through. The rate is hers --
+    // her helix angle wound up over her own span at her own speed -- and she
+    // does not get to it at once: there is an aeroplane's worth of inertia to
+    // start turning, and the air has to damp her into a steady roll.
     const held = Math.abs(this.stickRoll) > 0.03;
-    // No `q` on this one. The helix angle already carries the whole of the
-    // speed dependence -- that is what makes it the right number to store --
-    // and multiplying by dynamic pressure on top of it counted her airspeed
-    // twice and had a Wildcat rolling at a hundred and fifty degrees a second.
     const want = held
       ? this.stickRoll * rollRate(a, this.v) * this.agility
-      // Hands off she rolls level on her own dihedral, and slowly. Nine degrees
-      // a second: a hard bank takes eight or nine seconds to come out of on its
-      // own, which is what dihedral does -- it is a weak righting moment out of
-      // sideslip, not a second pair of ailerons.
-      //
-      // And only from the right way up. An aeroplane on her back does not
-      // right herself: she hangs there until the pilot rolls her out, which is
-      // exactly why inverted flight is something a pilot holds rather than
-      // something that happens to him.
+      // Hands off she rolls level on her own dihedral, and slowly -- and only
+      // from the right way up. An aeroplane on her back does not right
+      // herself: she hangs there until the pilot rolls her out.
       : (Math.abs(this.bank) < Math.PI * 0.55
         ? Math.max(-0.16, Math.min(0.16, -this.bank * 0.6)) : 0);
     const kr = 1 - Math.exp(-s / (rollTau(a, this.v) / this.agility));
     this.roll += (want - this.roll) * kr;
-    this.bank = wrapAngle(this.bank + this.roll * s);
+    // Positive roll is positive bank: her lift swung round toward the wing
+    // she turns with, about her own flight path.
+    rotate(U, F, -this.roll * s);
 
     // Pitch. The stick asks for g; the wing decides whether it gets it.
     const rate = pitchRate(a) * q * this.agility;
     // In a turn she needs more than one g just to hold her height, and the
-    // instructor feeds that in so she does not fall out of every turn.
-    //
-    // Which way that g has to go depends on which way up she is. On her back
-    // the lift points at the ground, so holding her level means pushing: a
-    // negative g, not a bigger positive one.
-    //
-    // And there is a limit to how much the instructor will feed in. Past about
-    // seventy degrees of bank the g needed to hold height runs away -- at
-    // eighty-two it is seven and at ninety it is infinite -- and what a pilot
-    // actually does there is pull as hard as he is going to and accept that he
-    // is going downhill. That is what a hard turn costs, and it is why one
-    // ends lower than it began.
+    // instructor feeds that in so she does not fall out of every turn -- the
+    // other way on her back, where holding her level is a push. Past about
+    // seventy degrees of bank the g needed runs away, and what a pilot does
+    // there is pull as hard as he is going to and accept going downhill.
     const c = Math.cos(this.bank);
     const HOLD_MAX = 4.5;
     const hold = Math.max(-HOLD_MAX, Math.min(HOLD_MAX,
       Math.abs(c) < 1e-3 ? Math.sign(c || 1) * HOLD_MAX : 1 / c));
-    // Full back stick asks for everything the structure was stressed to and
-    // not a pound more. It used to add the limit load factor on top of
-    // whatever the bank was already asking for, so a Lancaster in a turn was
-    // being asked for four g -- half as much again as her spar would take, on
-    // an aeroplane with fourteen thousand pounds of bombs in the bay.
+    // Full back stick asks for everything the structure was stressed to.
     const limit = a.gLimit ?? 5.5;
     const askG = hold + this.stickPitch * (limit - 1);
     // The most this wing can pull at this speed, which is a different question
-    // from the most the structure will stand: near the stall the wing runs out
-    // first and at speed the spar does.
+    // from the most the structure will stand.
     const wingG = Math.max(0.15, (this.v * this.v) / (vs * vs));
     const maxG = Math.min(wingG, limit);
-    // And the most it will take the other way. A wing is built to be loaded
-    // one way up: the negative limit on these airframes was around two fifths
-    // of the positive one, which is why a pilot rolls and pulls rather than
-    // pushing through.
+    // And the most it will take the other way: a wing is built to be loaded
+    // one way up.
     const minG = -Math.min(wingG, limit * 0.45);
-    // She does not get it at once either. An elevator starts her pitching and
-    // the tail damps her into a steady g, and on a heavy that is the better
-    // part of half a second -- which is most of what "she should not react so
-    // suddenly" means.
     const kp = 1 - Math.exp(-s / (pitchTau(a, this.v) / this.agility));
     this.g += (Math.max(minG, Math.min(askG, maxG)) - this.g) * kp;
-    // Buffet and departure: asking the wing for more than it has. The spar is
-    // not the wing -- over-stressing her is not stalling her -- so this is
-    // against what the wing will give and nothing else.
+    // Buffet and departure: asking the wing for more than it has.
     this.stall = Math.max(0, Math.min(1, (askG - wingG) / Math.max(1, wingG * 0.5)));
 
-    // The turn. The horizontal part of the lift pulls her round -- which is
-    // why a turn costs speed and why she cannot turn at all inverted at low g.
-    const turn = (G * this.g * Math.sin(this.bank)) / Math.max(18, this.v);
-    // And the rudder: a slow skid of the flight path, a few degrees a second at
-    // most, with the authority the air gives it.
-    const yaw = this.stickYaw * YAW_RATE * Math.min(1.2, q);
-    this.heading = wrapAngle(this.heading + (turn + yaw) * s);
-    // And the vertical part against gravity gives the climb rate.
-    const gamma = (G * (this.g * Math.cos(this.bank) - Math.cos(this.pitch)))
-      / Math.max(18, this.v);
-    // Rate-limited, because an aeroplane has mass and a tailplane: she swings
-    // her nose as fast as her elevator will move it and no faster. The limit
-    // was worked out and then not used, so at speed she could snap from a
-    // vertical dive to a vertical climb inside a frame.
-    const dP = Math.max(-rate * s, Math.min(rate * s, gamma * s));
-    this.pitch += dP;
-    // Over the top.
-    //
-    // A loop, an Immelmann and a split-S all take her through the vertical,
-    // and in a heading-pitch-bank frame that is where the arithmetic folds:
-    // past ninety degrees of pitch she is going the other way round and upside
-    // down. It used to be handled by clamping her a few degrees short of the
-    // vertical, which is why she could be stood on her tail and no further and
-    // why none of those manoeuvres was flyable. Fold the frame the way it
-    // actually folds instead, and she goes over the top and comes out the
-    // other side inverted, as she should.
-    if (this.pitch > Math.PI / 2) {
-      this.pitch = Math.PI - this.pitch;
-      this.heading = wrapAngle(this.heading + Math.PI);
-      this.bank = wrapAngle(this.bank + Math.PI);
-    } else if (this.pitch < -Math.PI / 2) {
-      this.pitch = -Math.PI - this.pitch;
-      this.heading = wrapAngle(this.heading + Math.PI);
-      this.bank = wrapAngle(this.bank + Math.PI);
+    // Where she is being pulled: her lift along her way up, the rudder's skid
+    // along her wing, and gravity -- and the part of that square to her path
+    // swings the path round, which is a turn, a climb, a loop or a dive
+    // depending only on which way her lift is pointed.
+    const v = Math.max(18, this.v);
+    const W = cross(U, F);
+    const yaw = this.stickYaw * YAW_RATE * Math.min(1.2, q) * v;
+    let ax = G * this.g * U.x + yaw * W.x;
+    let ay = G * this.g * U.y + yaw * W.y - G;
+    let az = G * this.g * U.z + yaw * W.z;
+    const along = ax * F.x + ay * F.y + az * F.z;
+    ax -= along * F.x; ay -= along * F.y; az -= along * F.z;
+    const acc = Math.hypot(ax, ay, az);
+    if (acc > 1e-6) {
+      // Rate-limited, because an aeroplane has mass and a tailplane: she
+      // swings her nose as fast as her elevator will move it and no faster.
+      const w = Math.min(acc / v, Math.max(rate, 0.35));
+      const axis = cross(F, { x: ax / acc, y: ay / acc, z: az / acc });
+      rotate(F, axis, w * s);
+      rotate(U, axis, w * s);
     }
 
     // Energy: thrust against drag and the component of weight along the path.
@@ -256,45 +277,91 @@ export class Pilot {
     const T = thrust(a, this.v, this.throttle);
     // A skid is draggy, which is the price of treading her round.
     const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25);
-    this.v += ((T - D) / a.mass - G * Math.sin(this.pitch)) * s;
-    // She can be slower than the stall -- that is what a stall is -- but not
-    // stopped, and not faster than the airframe allows in a dive.
+    this.v += ((T - D) / a.mass - G * F.y) * s;
     this.v = Math.max(8, Math.min(a.vMax * 1.55, this.v));
 
-    // A stalled wing drops the nose whether the pilot likes it or not.
+    // A stalled wing drops the nose whether the pilot likes it or not --
+    // toward the earth, which on her back is toward her own canopy -- and a
+    // wing goes first.
     if (this.stall > 0.35 && this.v < vs * 1.05) {
-      // Downwards, which on her back is towards her own canopy: the nose drops
-      // relative to the earth and not relative to her.
-      this.pitch -= 1.1 * this.stall * s * Math.sign(Math.cos(this.bank) || 1);
-      this.bank += (this.bank >= 0 ? 1 : -1) * 0.5 * this.stall * s;
+      const down = cross(F, { x: 0, y: -1, z: 0 });
+      const dl = Math.hypot(down.x, down.y, down.z);
+      if (dl > 1e-4) {
+        const ang = 1.1 * this.stall * s;
+        rotate(F, down, ang);
+        rotate(U, down, ang);
+      }
+      rotate(U, F, -(this.roll >= 0 ? 1 : -1) * 0.5 * this.stall * s);
     }
 
-    const ground = this.v * Math.cos(this.pitch);
-    this.x += Math.sin(this.heading) * ground * s;
-    this.z += Math.cos(this.heading) * ground * s;
-    this.y += this.v * Math.sin(this.pitch) * s;
-    // A gale carries the whole of her with it, the air she is flying in being
-    // on its way somewhere -- so she crabs to hold a track -- and it is not a
-    // smooth one. The gusts kick her wings over and drop her and lift her,
-    // and low over the sea that is a thing to be fighting all the time.
+    // A gale throws her about: the gusts kick her wings over and drop her and
+    // lift her, and low over the sea that is a thing to be fighting all the
+    // time. The air she is flying in is on its way somewhere, too, and carries
+    // the whole of her with it.
     const gl = this.gale;
+    let gx = 0, gz = 0, gy = 0;
     if (gl) {
       this.galeT += s;
       const t = this.galeT;
       const k = gl.rough || 0;
-      this.x += (gl.x || 0) * s;
-      this.z += (gl.z || 0) * s;
-      this.bank += k * (0.32 * Math.sin(t * 2.3 + 0.4) + 0.18 * Math.sin(t * 5.7 + 1.9)) * s;
-      this.pitch += k * (0.10 * Math.sin(t * 1.7 + 2.1) + 0.06 * Math.sin(t * 4.3)) * s;
-      this.y += k * (2.4 * Math.sin(t * 1.13) + 1.3 * Math.sin(t * 3.7 + 0.8)) * s;
+      gx = gl.x || 0; gz = gl.z || 0;
+      rotate(U, F, -k * (0.32 * Math.sin(t * 2.3 + 0.4) + 0.18 * Math.sin(t * 5.7 + 1.9)) * s);
+      const wing = cross(U, F);
+      const kick = -k * (0.10 * Math.sin(t * 1.7 + 2.1) + 0.06 * Math.sin(t * 4.3)) * s;
+      rotate(F, wing, kick);
+      rotate(U, wing, kick);
+      gy = k * (2.4 * Math.sin(t * 1.13) + 1.3 * Math.sin(t * 3.7 + 0.8));
     }
+    orthonormal(F, U);
+
+    this.x += (F.x * this.v + gx) * s;
+    this.z += (F.z * this.v + gz) * s;
+    this.y += (F.y * this.v + gy) * s;
     // The sea is hard.
     if (this.y < seaAt + 2) {
       this.y = seaAt + 2;
-      if (this.pitch < 0) this.pitch = 0;
+      if (F.y < 0) { F.y = 0; orthonormal(F, U); }
       this.alive = false;
     }
+    this.angles();
   }
+}
+
+function cross(a, b) {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
+}
+
+/** Turn `v` about the unit vector `ax` by `ang` radians, in place. */
+function rotate(v, ax, ang) {
+  const l = Math.hypot(ax.x, ax.y, ax.z);
+  if (l < 1e-9 || !ang) return v;
+  const kx = ax.x / l, ky = ax.y / l, kz = ax.z / l;
+  const c = Math.cos(ang), s = Math.sin(ang);
+  const d = (kx * v.x + ky * v.y + kz * v.z) * (1 - c);
+  const x = v.x * c + (ky * v.z - kz * v.y) * s + kx * d;
+  const y = v.y * c + (kz * v.x - kx * v.z) * s + ky * d;
+  const z = v.z * c + (kx * v.y - ky * v.x) * s + kz * d;
+  v.x = x; v.y = y; v.z = z;
+  return v;
+}
+
+/** Unit `F`, and `U` square to it and unit, against creeping arithmetic. */
+function orthonormal(F, U) {
+  let l = Math.hypot(F.x, F.y, F.z) || 1;
+  F.x /= l; F.y /= l; F.z /= l;
+  const d = U.x * F.x + U.y * F.y + U.z * F.z;
+  U.x -= F.x * d; U.y -= F.y * d; U.z -= F.z * d;
+  l = Math.hypot(U.x, U.y, U.z);
+  if (l < 1e-6) {
+    // Degenerate: pick any up square to her path.
+    const t = Math.abs(F.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    const w = cross(F, t);
+    const u = cross(w, F);
+    l = Math.hypot(u.x, u.y, u.z) || 1;
+    U.x = u.x / l; U.y = u.y / l; U.z = u.z / l;
+    return;
+  }
+  U.x /= l; U.y /= l; U.z /= l;
 }
 
 

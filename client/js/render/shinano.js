@@ -72,6 +72,8 @@ import {
 } from './shipkit.js';
 import { hullForm, plateHull } from './hullform.js';
 import { zero, suisei, tenzan } from './planekit.js';
+import { ZERO } from './zeroModel.js';
+import { engineStart } from './deckengine.js';
 import {
   typeEightNine, triple25, rocket, rangefinder, director,
   typeTwentyOne, typeThirteen, cowl, boat, searchlight,
@@ -1798,7 +1800,7 @@ function airGroup(g) {
       ? tenzan(g, x, y, z, yaw, false, false, {})
       : kind === 'suisei'
         ? suisei(g, x, y, z, yaw, false, {})
-        : zero(g, x, y, z, yaw, false, {});
+        : zero(g, x, y, z, yaw, false, { lod: true });
     // The opposite of the hangar park: these are ranged for flying off, so it
     // is the folded set that has to go or she carries both at once.
     a.userData.wings?.stowed?.removeFromParent();
@@ -3210,18 +3212,39 @@ const ROLL = 9.0;
 /** Where she picks up a wire: a little way up the deck from the round-down. */
 function landZ() { return FD_AFT + RD_AFT + 5; }
 
-/** The aircraft that flies when she launches, and where it waits. */
+/**
+ * The aircraft that flies when she launches, and where it waits: a Tenzan for
+ * a strike, and a Zero when it is fighters going off. Both ride the same
+ * group, so the lift and the deck run do not care which one it is; the one
+ * not flying is put out of sight.
+ */
 function deckAircraft(g) {
   const plane = new THREE.Group();
   plane.userData.dynamic = true;
   g.add(plane);
   const body = tenzan(plane, 0, 0, 0, 0, true, true);
-  return {
+  const fighter = zero(plane, 0, 0, 0, 0, false, {});
+  fighter.visible = false;
+  const out = {
     group: plane,
     prop: body.userData.prop || null,
     wings: body.userData.wings || null,
     gear: body.userData.gear || null,
+    // Her stacks, either side of the cowling, for the smoke when she starts.
+    exhaust: [[-0.62, 1.55, 3.0], [0.62, 1.55, 3.0]],
+    kinds: {
+      torpedo: { body, prop: body.userData.prop || null, wings: body.userData.wings || null,
+        gear: body.userData.gear || null, exhaust: [[-0.62, 1.55, 3.0], [0.62, 1.55, 3.0]] },
+      fighter: { body: fighter, prop: fighter.userData.prop || null, wings: null,
+        gear: fighter.userData.gear || null, exhaust: ZERO.exhaust },
+    },
   };
+  out.pick = (role) => {
+    const k = out.kinds[role === 'fighter' ? 'fighter' : 'torpedo'];
+    for (const v of Object.values(out.kinds)) v.body.visible = v === k;
+    out.prop = k.prop; out.wings = k.wings; out.gear = k.gear; out.exhaust = k.exhaust;
+  };
+  return out;
 }
 
 function below(deck, p, aft) {
@@ -3322,6 +3345,16 @@ export function stepDeck(deck, t) {
 
   // The evolution.
   p.visible = true;
+  // Her engine: started on the lift as she comes up, caught by the time she
+  // is off it, idling as she taxis and wound right up for the run. See
+  // deckengine.js.
+  {
+    const START = 1.2;
+    const rate = engineStart(deck.engine || (deck.engine = {}), run >= START,
+      (run - START) / pace, run >= ROLL ? 1 : 0.12, dt, deck.fx, p, plane.exhaust);
+    if (plane.prop) plane.prop.rotation.z += rate * dt;
+  }
+  if (plane.gear) plane.gear(0);
   if (run < 3.6) {
     // The lift comes up out of the hangar with her on it, wings going out.
     const u = ease(run / 3.6);
@@ -3422,10 +3455,12 @@ export function buildShinano() {
   g.userData.deckPlane = plane.group;
   g.userData.landingSpot = [0, FD + 0.34, landZ()];
   g.userData.step = (t) => stepDeck(deck, t);
-  g.userData.launch = (t) => {
+  g.userData.launch = (t, role) => {
     deck.launchAt = t;
     deck.landAt = null;
     deck.stowed = false;
+    deck.engine = {};
+    plane.pick(role);
     plane.group.visible = true;
   };
   g.userData.recover = (t = deck.lastT ?? 0) => {

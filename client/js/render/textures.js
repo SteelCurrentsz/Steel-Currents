@@ -412,6 +412,8 @@ export function dressShip(root) {
       if (!m || m.isLineBasicMaterial || m.transparent) return m;
       // Anything see-through is glass, a propeller disc or a wake: leave it.
       if (m.map) return m;
+      // A model that paints herself in her own shader (see zeroModel.js).
+      if (m.userData && m.userData.painted) return m;
       const planked = PLANKED.has(m.color ? m.color.getHex() : -1);
       return surface(m, planked);
     });

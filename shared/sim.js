@@ -5704,7 +5704,11 @@ export function launchStrike(state, ship) {
     ].filter((f) => f.count > 0),
     escort: fighters,
   };
-  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
+  // Which job is going off first, so the deck can range the right machine.
+  state.events.push({
+    e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
+    r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
+  });
   return true;
 }
 
@@ -5878,7 +5882,10 @@ function stepLaunch(state, ship, dt) {
   // busy for the whole of it, so nothing else can use it meanwhile.
   L.left = cls.planes.deckRun ?? DECK_RUN;
   ship.deckBusy = Math.max(ship.deckBusy, L.left + (cls.planes.deckCycle ?? DECK_CYCLE) * 0.35);
-  state.events.push({ e: 'launch', x: ship.x, z: ship.z, ship: ship.id });
+  state.events.push({
+    e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
+    r: L.flights[0] ? L.flights[0].role : undefined,
+  });
 }
 
 /**

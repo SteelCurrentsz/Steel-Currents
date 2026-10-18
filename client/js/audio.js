@@ -627,6 +627,27 @@ export class Audio {
     for (let i = 0; i < 3; i++) this.tone(t + i * 0.42, 0.5, { f0: 430, f1: 425, gain: 0.08, type: 'sine' });
   }
 
+  /**
+   * An aero engine being started: a cough as a cylinder fires and does not
+   * catch, or -- `caught` -- the bang and blare of it catching. Heard from
+   * where she is on the deck.
+   */
+  cough(at = null, caught = false) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const h = this.hear(at, 60);
+    if (!h || h.g < 0.02) return;
+    const t = ctx.currentTime + (h.delay || 0);
+    const g = Math.min(0.5, 0.35 * h.g);
+    this.tone(t, caught ? 0.35 : 0.16, { f0: caught ? 95 : 70, f1: 30, gain: g, type: 'sawtooth' });
+    this.tone(t, caught ? 0.25 : 0.1, { f0: caught ? 210 : 160, f1: 60, gain: g * 0.5, type: 'square' });
+    if (caught) {
+      // And then she runs: a rasp of exhausts climbing as she winds up.
+      for (let i = 1; i < 6; i++) {
+        this.tone(t + i * 0.09, 0.12, { f0: 80 + i * 18, f1: 60 + i * 15, gain: g * 0.35, type: 'sawtooth' });
+      }
+    }
+  }
+
   click() {
     const ctx = this.ensure(); if (!ctx) return;
     this.tone(ctx.currentTime, 0.05, { f0: 420, f1: 260, gain: 0.1, type: 'triangle' });

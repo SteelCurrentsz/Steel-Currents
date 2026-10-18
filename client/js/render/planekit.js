@@ -28,6 +28,7 @@
 //   OS2U-3           dt10.3 m long   10.9 m span               4.6 m high
 
 import * as THREE from '../../../vendor/three.module.js';
+import { zeroModel } from './zeroModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -247,6 +248,8 @@ export function dressPlane(root) {
     const mats = [].concat(o.material);
     const out = mats.map((m) => {
       if (!m || !m.color || m.transparent || m.map) return m;
+      // A model that paints herself in her own shader (see zeroModel.js).
+      if (m.userData && m.userData.painted) return m;
       const hex = m.color.getHex();
       if (BARE.has(hex)) return m;
       let made = DRESSED.get(hex);
@@ -2929,6 +2932,21 @@ function loire(g, x, y, z, ry, opts = {}) {
  * the version that was still flying in 1944.
  */
 function zero(g, x, y, z, ry, folded = false, opts = {}) {
+  // The owner's sculpt of her, wherever she is spread to fly or ranged on a
+  // deck. Struck below with her wings folded she is still the one built here
+  // out of primitives: the sculpt's wings do not fold, and a hangar is no
+  // place for eleven metres of them.
+  if (!folded && !opts.primitive) {
+    const p = zeroModel({ lod: !!opts.lod });
+    p.position.set(x, y, z);
+    p.rotation.y = ry;
+    g.add(p);
+    if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+    // Spread and stowed are the same wing on her; the callers that strip one
+    // set off a model find nothing to strip.
+    p.userData.wings = null;
+    return p;
+  }
   paint('ijn');
   const p = new THREE.Group();
   p.position.set(x, y, z);

@@ -12,6 +12,7 @@ import { Shells, Flak, Bombs } from './ordnance.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
 import { Flights } from './planes.js';
+import { Contrails, GunFlashes } from './airfx.js';
 import { Heavies } from './heavies.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
@@ -2025,6 +2026,10 @@ export class BattleScene {
     // deck, in flight trim, as many of them as the flight actually has. See
     // planes.js.
     this.flights = new Flights(this.scene, 96);
+    // What they leave in the air: vapour off their tips and contrails off
+    // their engines, and the flash of their guns, on them. See airfx.js.
+    this.contrails = new Contrails(this.scene);
+    this.gunFlashes = new GunFlashes(this.scene);
     // And the heavy squadrons, which are nobody's carrier aircraft: their own
     // batch, their own models and their own spacing. See heavies.js.
     this.heavies = new Heavies(this.scene, 27);

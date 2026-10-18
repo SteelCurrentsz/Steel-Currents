@@ -12,8 +12,9 @@ import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
   from './render/aero.js';
-import { startManeuver, flyManeuver, pathOf, upOf } from '../../shared/pilot.js';
-import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles } from './render/planes.js';
+import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
+import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT } from './render/planes.js';
+import { cutFromHoles, breakCut, piecesOf, Pieces } from './render/breakup.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
@@ -117,11 +118,6 @@ const CAMERAS = ['chase', 'bridge', 'tactical'];
  * Q and E, a barrel roll either way under Z and X, and a loop, an Immelmann
  * and a split-S under V, B and N. The glass has buttons for the same.
  */
-const FLY_MOVES = {
-  KeyQ: ['roll', -1], KeyE: ['roll', 1],
-  KeyZ: ['barrel', -1], KeyX: ['barrel', 1],
-  KeyV: ['loop', 1], KeyB: ['immelmann', 0], KeyN: ['splitS', 0],
-};
 
 /** Turn a vector about a unit axis, in place (Rodrigues). */
 function rotate(v, ax, ang) {
@@ -140,6 +136,37 @@ function norm3(v) {
   const l = Math.hypot(v.x, v.y, v.z) || 1;
   v.x /= l; v.y /= l; v.z /= l;
   return v;
+}
+
+const ATT_Q = new THREE.Quaternion();
+const ATT_M = new THREE.Matrix4();
+const ATT_X = new THREE.Vector3();
+const ATT_Y = new THREE.Vector3();
+const ATT_Z = new THREE.Vector3();
+/**
+ * The whole attitude of an aeroplane under a pilot, as a quaternion: her nose
+ * and the way up through her canopy, off the flight model's own frame. Drawn
+ * this way she goes over the top of a loop and round a roll as one smooth
+ * motion, which three angles -- folding at the vertical -- never managed.
+ */
+function attitudeOf(p, out = ATT_Q) {
+  const b = p.body();
+  ATT_Z.set(b.n.x, b.n.y, b.n.z);
+  ATT_Y.set(b.u.x, b.u.y, b.u.z);
+  ATT_X.crossVectors(ATT_Y, ATT_Z).normalize();
+  ATT_Y.crossVectors(ATT_Z, ATT_X).normalize();
+  ATT_M.makeBasis(ATT_X, ATT_Y, ATT_Z);
+  return out.setFromRotationMatrix(ATT_M);
+}
+
+const PLANE_E = new THREE.Euler(0, 0, 0, 'YXZ');
+const PLANE_V = new THREE.Vector3();
+const PLANE_S = new THREE.Vector3(1, 1, 1);
+/** An aeroplane's world matrix off her place and three angles, as she is drawn. */
+function planeMatrix(x, y, z, heading, bank, pitch, out = new THREE.Matrix4()) {
+  PLANE_E.set(-pitch, heading, -bank);
+  ATT_Q.setFromEuler(PLANE_E);
+  return out.compose(PLANE_V.set(x, y, z), ATT_Q, PLANE_S);
 }
 // How deep the camera may go. The bottom, not the surface: the orbit is allowed
 // under the water, and the only thing down there it must not get inside is the
@@ -602,6 +629,12 @@ export class Battle {
     this.freeCam = false;
     // What is left of the ones that were shot down, on their way into the sea.
     this.wrecks = [];
+    // The pieces that have come off aeroplanes, on their own way down: a wing,
+    // a tail, an airscrew. See breakup.js.
+    this.pieces = new Pieces();
+    // Which flights have their guns going, and until when: their flashes are
+    // drawn on them every frame of the burst. See airFx.
+    this.airBursts = new Map();
     this.watchYaw = 0;
     this.watchPitch = 0.06;
 
@@ -2582,7 +2615,9 @@ export class Battle {
           // few seconds after she is off the bow and is aboard again long
           // before the next one is ranged. See flyLaunched.
           this.recallDeckPlane(v);
-          v.group.userData.launch?.(this.time);
+          // The deck lays her starting smoke with the battle's own effects.
+          if (v.group.userData.deck) v.group.userData.deck.fx = fx;
+          v.group.userData.launch?.(this.time, ev.r);
           break;
         }
         case 'airborne': {
@@ -2629,18 +2664,9 @@ export class Battle {
           this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
           // The flicker at her muzzles, off her own model: a strike coming in
           // has guns going on the wings of the machines flying it.
-          if (from && this.distanceFade(ev.x, ev.z) > 0.2) {
-            const d = Math.hypot(ev.tx - ev.x, ty - y, ev.tz - ev.z) || 1;
-            const ux = (ev.tx - ev.x) / d;
-            const uy = (ty - y) / d;
-            const uz = (ev.tz - ev.z) / d;
-            const sn = Math.sin(from.h || 0);
-            const cs = Math.cos(from.h || 0);
-            for (const m of gunsOf(typeOf(from.k, from.r || 'fighter'))) {
-              fx.wingGun(ev.x + cs * m[0] + sn * m[2], y + m[1],
-                ev.z - sn * m[0] + cs * m[2], ux, uy, uz, 12.7);
-            }
-          }
+          // Drawn on her, at each gun, for as long as the burst lasts -- see
+          // airFx -- rather than left in the air where she was when it began.
+          if (from) this.airBursts.set(ev.i, this.time + 0.35);
           break;
         }
         case 'deckCrash': {
@@ -2790,13 +2816,7 @@ export class Battle {
     const ls = this.localShip;
     // In the cockpit the flying keys fly her (see stepFlight) and do nothing
     // to the ship she came off.
-    if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space'].includes(code)) return;
-    // And the set pieces, on the keys round the left hand.
-    if (this.flight && FLY_MOVES[code]) {
-      const [kind, dir] = FLY_MOVES[code];
-      this.flyMove(kind, dir);
-      return;
-    }
+    if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3432,7 +3452,9 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
-    this.hud.setMoves(true);
+    // No set pieces any more: she is flown through them by the pilot, by
+    // looking where he wants her to go.
+    this.hud.setMoves(false);
     // Who she is, in the bottom left corner, and her own damage board across
     // the bottom of the screen.
     const ship = (snap.ships || []).find((q) => q.i === pl.o);
@@ -3635,6 +3657,22 @@ export class Battle {
         f.orphan = true;
         f.orphanAt = 0;
         this.hud.alert('Going down');
+        // What broke when she was hit, off where the rounds were going in --
+        // a wing at the root, or her tail -- thrown off her where she is.
+        if (!f.heavy) {
+          const had = f.cut || 0;
+          f.cut = breakCut('shot', f.holes, f.id || 1, had);
+          const groups = piecesOf(f.cut, had);
+          if (groups.length) {
+            const fp = f.pilot;
+            const m = new THREE.Matrix4().compose(
+              new THREE.Vector3(fp.x, fp.y, fp.z), attitudeOf(fp), new THREE.Vector3(1, 1, 1));
+            const n = pathOf(fp);
+            this.pieces.spawn(this.scene.flights, f.kind, groups, m,
+              { x: n.x * fp.v, y: n.y * fp.v, z: n.z * fp.v }, { seed: f.id || 1 });
+            this.hud.alert((f.cut & CUT.tail) ? 'Tail shot away' : 'Wing shot away');
+          }
+        }
       }
       f.orphanAt += dt;
       // Nothing is driving her any more. Power off, and enough nose-down bias
@@ -3642,6 +3680,22 @@ export class Battle {
       // machine that has been shot out of the sky, not one being ditched.
       f.pilot.throttle = 0;
       if (f.pilot.pitch > -0.22) f.pilot.pitch -= dt * 0.25;
+      // A wing gone is a spin toward the side it went from, and nothing the
+      // stick can do about it; a tail gone is a machine with nothing to hold
+      // her nose up.
+      const fc = f.cut || 0;
+      if (fc & (CUT.wingInL | CUT.wingInR)) {
+        f.pilot.stickRoll = (fc & CUT.wingInL) ? -1 : 1;
+        f.pilot.stickPitch = 0.4;
+      } else if (fc & CUT.tail) {
+        f.pilot.stickPitch = -0.3;
+        f.pilot.stickRoll = 0.25;
+      } else {
+        f.pilot.stickRoll = 0;
+        f.pilot.stickPitch = 0;
+      }
+      f.pilot.stickYaw = 0;
+      f.propTurn = ((f.propTurn || 0) + dt * 4) % (Math.PI * 2);
       // The one backstop. If she has been falling for three minutes and has
       // still not arrived, something is wrong with her and the pilot is not
       // spending the rest of the battle in her.
@@ -3664,6 +3718,8 @@ export class Battle {
     // And where she has been shot through, so an aeroplane the player rides
     // down goes down with the holes that put her there in her.
     f.holes = unpackHoles(pl.hl);
+    // And the end of a wing shot off by them, which she flies on without.
+    if (!f.heavy) f.cut = cutFromHoles(f.holes, f.dm);
     // And how many of her are left in the air beside you.
     if (f.heavy) {
       f.count = Math.max(1, pl.n || 1);
@@ -3691,24 +3747,26 @@ export class Battle {
 
     const stick = this.hud.fly || { throttle: 1, aimX: 0, aimY: 0 };
     const p = f.pilot;
-    // In the middle of a set piece the stick is the manoeuvre's, and the view
-    // goes round with her: when it is flown the marker is wherever her nose
-    // ended up, so the instructor does not haul her straight back.
-    if (p.man) {
-      // A deliberate drag on the glass takes her back off it; a thumb
-      // resting on it does not.
-      p.man.drag = (p.man.drag || 0) + Math.hypot(stick.aimX, stick.aimY);
-      if (p.man.drag > 60) p.man = null;
-      stick.aimX = 0;
-      stick.aimY = 0;
-    }
-    if (p.man && flyManeuver(p, dt)) {
-      this.aimAtNose(f, p, dt);
-    } else {
-      this.steerAim(f, stick, dt);
-      // The instructor works the stick, the ailerons and the rudder to put
-      // her nose on the marker.
-      instruct(p, this.flyAim(f, p));
+    const keys = this.input;
+    // Every manoeuvre is the pilot's own. There are no set pieces: the view
+    // goes wherever it is dragged -- up and over the top, round behind her,
+    // down past the vertical -- and she is flown after it, so a loop is the
+    // view dragged up and over, an Immelmann is the same rolled out at the
+    // top, a split-S is the view dragged down behind her, and a break is the
+    // view swung hard round.
+    this.steerAim(f, stick, dt);
+    this.freeLook?.(f, stick, dt);
+    // The instructor works the stick, the ailerons and the rudder to put her
+    // nose on the marker.
+    instruct(p, this.flyAim(f, p));
+    // And the ailerons under the pilot's own hand: Q and E roll her for as
+    // long as they are held, which is an aileron roll, a barrel roll with the
+    // view pulled up as well, or simply flying her on her back.
+    const handRoll = (keys.down('KeyE') ? 1 : 0) - (keys.down('KeyQ') ? 1 : 0);
+    if (handRoll) {
+      p.stickRoll = handRoll;
+      p.stickYaw = 0;
+      p.stickPitch = Math.max(p.stickPitch, 0.08 * Math.cos(p.bank));
     }
     // What a shot-about aeroplane can still be made to do. An engine at half
     // will not hold full power, a wing panel shot through will not be hauled
@@ -3720,7 +3778,6 @@ export class Battle {
     p.stickRoll = p.stickRoll * wear.turn + wear.pull;
     p.stickYaw *= wear.turn;
     // The keys, for a desk: W and S open and close her up, as they do a ship.
-    const keys = this.input;
     if (keys.down('KeyW') || keys.down('ShiftLeft')) this.hud.setThrottle(stick.throttle + dt * 0.6);
     if (keys.down('KeyS') || keys.down('ControlLeft')) this.hud.setThrottle(stick.throttle - dt * 0.6);
     p.throttle = stick.throttle * wear.speed;
@@ -3746,6 +3803,7 @@ export class Battle {
     // pilot pressing the trigger has to see it leave the wing now.
     // Either trigger, or the space bar or the left mouse key at a desk.
     const firing = (stick.firing || keys.down('Space')) && (f.ammo > 0 || !!this.turret);
+    f.firingNow = firing && !this.turret && !f.heavy;
     if (firing) {
       if (!this.turret && Number.isFinite(f.ammo)) {
         f.ammo = Math.max(0, f.ammo - (GUN_RPM / 60) * f.guns_n * dt);
@@ -3865,7 +3923,11 @@ export class Battle {
     if (yaw) {
       // Round the world's vertical while the view is the right way up, which
       // is what a drag sideways means; round its own when it is not.
-      const ax = U.y > 0.35 ? { x: 0, y: 1, z: 0 } : U;
+      // Blended rather than switched, so there is no step in the way the
+      // view swings as it comes over the top and back down.
+      const kw = Math.max(0, Math.min(1, (U.y - 0.1) / 0.5));
+      const ax = { x: U.x * (1 - kw), y: U.y * (1 - kw) + kw, z: U.z * (1 - kw) };
+      norm3(ax);
       rotate(F, ax, yaw);
       rotate(U, ax, yaw);
     }
@@ -3901,6 +3963,27 @@ export class Battle {
     norm3(U);
     f.aimYaw = Math.atan2(F.x, F.z);
     f.aimPitch = Math.asin(clamp(F.y, -1, 1));
+  }
+
+  /**
+   * The free camera: turned round her by a second finger, the right mouse key
+   * or with C held, without touching where she is being flown. Let go and it
+   * swings back behind her.
+   */
+  freeLook(f, stick, dt) {
+    const cam = this.scene.camera;
+    const fov = ((cam && cam.fov) || 62) * Math.PI / 180;
+    const k = (fov * 1.6) / Math.max(320, window.innerHeight || 720);
+    if (this.hud.fly) this.hud.fly.lookKey = this.input.down('KeyC');
+    f.lookYaw = wrapAngle((f.lookYaw || 0) - (stick.lookX || 0) * k);
+    f.lookPitch = clamp((f.lookPitch || 0) + (stick.lookY || 0) * k, -1.45, 1.45);
+    stick.lookX = 0;
+    stick.lookY = 0;
+    if (!stick.looking) {
+      const e = Math.pow(0.04, dt);
+      f.lookYaw *= e;
+      f.lookPitch *= e;
+    }
   }
 
   /**
@@ -4127,15 +4210,29 @@ export class Battle {
   bayTrim(pl, dt, speed = 0) {
     let t = this.planeTrim.get(pl.i);
     if (!t) {
-      t = { bay: 0, fall: null, gone: false, hold: 0, prop: Math.random() * 6.28 };
+      t = { bay: 0, fall: null, gone: false, hold: 0, prop: Math.random() * 6.28, rate: 34 };
+      // Her legs. A flight first seen low and slow has only just left the
+      // deck or the water, and her wheels are still down: they come up as she
+      // climbs away, which is what a pilot does the moment he has a positive
+      // rate of climb. Anything first seen at height has had them up for
+      // the whole sortie.
+      t.gear = (pl.y ?? 220) < 70 ? 0 : 1;
       this.planeTrim.set(pl.i, t);
     }
-    // The airscrew, wound on at a rate her airspeed decides. Not her real
+    if (t.gear < 1 && (pl.y ?? 220) > 14) t.gear = Math.min(1, t.gear + dt / 2.8);
+    // The airscrew, wound on at a rate her engine decides: her throttle when
+    // somebody has his hand on it, and otherwise her airspeed. Not her real
     // revolutions -- two thousand a minute at sixty frames a second is a
-    // strobe and nothing else -- but a rate that reads as turning, idling on
-    // the deck and a blur at full throttle, and one that visibly picks up as
-    // she accelerates down the deck.
-    t.prop = (t.prop + dt * (7 + Math.min(1, speed / 150) * 20)) % (Math.PI * 2);
+    // strobe and nothing else -- but a rate that reads as turning, picks up
+    // and dies away smoothly as the power goes on and off, and smears into
+    // the disc at full power. An engine that is dead windmills.
+    const flyer = this.flight && this.flight.id === pl.i ? this.flight : null;
+    const spin = flyer
+      ? (flyer.orphan ? 4 : 22 + 34 * Math.min(1.1, flyer.pilot.throttle))
+      : 18 + Math.min(1, speed / 150) * 30;
+    t.rate += (spin - t.rate) * (1 - Math.exp(-dt * 2.5));
+    t.prop = (t.prop + dt * t.rate) % (Math.PI * 2);
+    t.idle = t.rate < 12;
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
@@ -4191,6 +4288,34 @@ export class Battle {
   }
 
   /**
+   * What one flight leaves in the air this frame, off the machines the
+   * formation has just been drawn as: vapour off every tip and a contrail off
+   * every engine high enough for one, and -- while her guns are going -- the
+   * flash at every muzzle and the smoke streaming off it.
+   *
+   * `g` is how hard she is pulling, `v` her speed, `y` her height, `vel` her
+   * velocity, and `firing` how many of her machines are shooting.
+   */
+  airFx(id, kind, g, v, y, vel, firing, dt) {
+    const fl = this.scene.flights;
+    const tp = fl.tips(kind);
+    if (!tp) return;
+    const eye = this.scene.camera.position;
+    const guns = gunsOf(kind);
+    // A Zero's two cowling guns are rifle calibre and her wing guns cannon.
+    const cal = kind === 'zero' ? guns.map((m) => (Math.abs(m[0]) < 0.6 ? 7.7 : 20))
+      : (GUN_CALIBRE[kind] ?? 12.7);
+    for (let i = 0; i < fl.slotN; i++) {
+      const m = fl.slotM[i];
+      const d = Math.hypot(m.elements[12] - eye.x, m.elements[13] - eye.y, m.elements[14] - eye.z);
+      if (d < 3000) this.scene.contrails.lay(`${id}/${i}`, m, tp.tips, tp.nose, g, v, y);
+      if (i < firing && d < 1800) {
+        this.scene.gunFlashes.fire(`${id}/${i}`, m, guns, vel, cal, this.scene.effects, dt, i === 0 && d < 600);
+      }
+    }
+  }
+
+  /**
    * A burst, out of the guns she actually has.
    *
    * A fighter's guns are in her wings -- four of them in a Wildcat, two either
@@ -4242,12 +4367,8 @@ export class Battle {
       const ey = my + (nose.y - my) * k;
       const ez = mz + (nose.z - mz) * k;
       this.scene.flak.fire(mx, my, mz, ex, ey, ez, f.calibre, 8, this.scene.effects);
-      // And the flicker at the muzzle itself, down the bore, so a burst is
-      // something happening on her wings rather than tracer appearing in mid
-      // air a little way in front of them.
-      const d = Math.hypot(ex - mx, ey - my, ez - mz) || 1;
-      this.scene.effects.wingGun(mx, my, mz, (ex - mx) / d, (ey - my) / d,
-        (ez - mz) / d, f.calibre);
+      // The flash at the muzzle and the smoke off it are drawn on her every
+      // frame the trigger is held -- see airFx -- not left in the air here.
     }
   }
 
@@ -5254,13 +5375,24 @@ export class Battle {
         b: lerp(pl.b || 0, nx.b || 0, t),
         // Her real attitude, when somebody is flying her. Through the
         // vertical her heading and bank both swing half way round in one go
-        // (the top of a loop), and blending across that is a pirouette that
-        // never happened: the nearer snapshot is taken instead.
-        ...(pl.bk !== undefined && nx.bk !== undefined ? (
-          Math.abs(angleDelta(pl.h, nx.h)) > 2.2
-            ? (t < 0.5 ? {} : { h: nx.h, bk: nx.bk, pt: nx.pt })
-            : { bk: pl.bk + angleDelta(pl.bk, nx.bk) * t, pt: lerp(pl.pt, nx.pt, t) }
-        ) : {}),
+        // (the top of a loop) while her pitch turns back on itself, and
+        // blending across that is a pirouette that never happened. The same
+        // attitude written the other way -- heading and bank turned back half
+        // a turn, and the pitch carried on past the vertical -- blends
+        // straight through it, which is what she actually did.
+        ...(pl.bk !== undefined && nx.bk !== undefined ? (() => {
+          if (Math.abs(angleDelta(pl.h, nx.h)) > 2.2) {
+            const pt2 = (nx.pt || 0) >= 0 ? Math.PI - (nx.pt || 0) : -Math.PI - (nx.pt || 0);
+            const h2 = nx.h + Math.PI;
+            const bk2 = nx.bk + Math.PI;
+            return {
+              h: pl.h + angleDelta(pl.h, h2) * t,
+              bk: pl.bk + angleDelta(pl.bk, bk2) * t,
+              pt: lerp(pl.pt || 0, pt2, t),
+            };
+          }
+          return { bk: pl.bk + angleDelta(pl.bk, nx.bk) * t, pt: lerp(pl.pt, nx.pt, t) };
+        })() : {}),
         // Her height and how she is going through the air, blended like the
         // rest of her. They used not to be, so a squadron slid smoothly across
         // the sea and stepped down the sky five times a second.
@@ -5274,6 +5406,7 @@ export class Battle {
     // Every flight in the air, as the aircraft she actually is and as many of
     // them as she actually has.
     this.scene.flights.begin();
+    this.scene.gunFlashes.begin();
     for (const pl of planes) {
       // How hard she is banked.
       //
@@ -5331,12 +5464,26 @@ export class Battle {
       // see what it is doing to her.
       const holes = unpackHoles(pl.hl);
       if (mine) {
+        // At her whole attitude, as a quaternion, and less whatever she has
+        // lost -- see stepFlight.
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
-          kind, trim, holes, a.span);
+          kind, trim, holes, a.span, this.flight.cut || 0, 0, attitudeOf(mine));
+        const n = pathOf(mine);
+        this.airFx(pl.i, kind, mine.g, mine.v, mine.y,
+          { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v },
+          this.flight.firingNow ? 1 : 0, dt);
       } else {
+        // A wing panel shot away goes with the holes that took it: worked out
+        // off the same list on every screen, so the machine a gunner has been
+        // walking his fire along is seen to have lost the end of her wing.
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
-          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span);
+          pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span,
+          cutFromHoles(holes, pl.dm), 0);
+        this.airFx(pl.i, kind, 1 / Math.max(0.25, Math.abs(Math.cos(bank))), gs,
+          this.planeHeight(pl),
+          { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs },
+          (this.airBursts.get(pl.i) || 0) > this.time ? Math.max(1, pl.n || 1) : 0, dt);
       }
       // The ones that have been hit and are still flying.
       //
@@ -5349,8 +5496,10 @@ export class Battle {
     }
     for (const w of this.wrecks) {
       this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
-        0, w.kind, null, w.holes, w.span || 12);
+        0, w.kind, w.trim || null, w.holes, w.span || 12, w.cut || 0);
     }
+    // And the pieces that came off them.
+    this.pieces.draw(this.scene.flights);
     // And the one the player is riding down after the simulation has finished
     // with her. She is off the wire, so nothing above draws her -- and a pilot
     // watching his own aeroplane vanish out from under him while he is still
@@ -5360,10 +5509,12 @@ export class Battle {
     if (ride) {
       const rp = ride.pilot;
       this.scene.flights.one(ride.role || 'torpedo', rp.x, rp.y, rp.z,
-        rp.heading, rp.bank, rp.attitude, 0, ride.kind, null,
-        ride.holes, (AERO[ride.kind] || AERO.avenger).span);
+        rp.heading, rp.bank, rp.attitude, 0, ride.kind, { prop: ride.propTurn || 0 },
+        ride.holes, (AERO[ride.kind] || AERO.avenger).span, ride.cut || 0, attitudeOf(rp));
     }
     this.scene.flights.end();
+    this.scene.gunFlashes.end(dt);
+    this.scene.contrails.update(dt, this.scene.camera);
 
     // The heavy squadrons, four thousand feet over the lot of them. They are
     // not anybody's carrier aircraft and they are not drawn as any: their own
@@ -5456,15 +5607,20 @@ export class Battle {
       const y0 = y + (Math.random() - 0.5) * 18;
       // Out of fuel is not being shot at: she ditches, she does not explode.
       const burst = ev.why !== 'fuel' && Math.random() < 0.4;
+      const kind = typeOf(pl && pl.k, role);
+      const holes = unpackHoles(pl && pl.hl);
       if (burst) {
         fx.explosion(x, y0, z, 0.85);
         fx.debris(x, y0, z, 12);
         audio.explosion(0.7, { x, y: y0, z });
+        // And the aeroplane herself in pieces, going outwards: her wings, her
+        // tail, her airscrew and what is left of her middle.
+        this.blowApart(kind, x, y0, z, heading, 62);
         continue;
       }
       if (this.wrecks.length > 14) this.wrecks.shift();
       const sp = 62 + Math.random() * 28;
-      this.wrecks.push({
+      this.wrecks.push(this.breakWreck({
         role, kind: typeOf(pl && pl.k, role), x, y: y0, z,
         vx: Math.sin(heading) * sp, vy: -4 - Math.random() * 8, vz: Math.cos(heading) * sp,
         heading, pitch: -0.15, bank: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random()),
@@ -5477,10 +5633,40 @@ export class Battle {
         // The holes that put her there, which go down with her. A machine that
         // comes out of the flak and falls out of the sky whole and unmarked is
         // the one thing a squadron never looked like.
-        holes: unpackHoles(pl && pl.hl),
-        span: (AERO[typeOf(pl && pl.k, role)] || AERO.avenger).span,
-      });
+        holes,
+        span: (AERO[kind] || AERO.avenger).span,
+      }, ev.why || 'shot', (ev.i || 0) * 7 + i));
     }
+  }
+
+  /**
+   * What a machine going down has broken off her: worked out off how she went
+   * and where the rounds were going in (see breakup.js), and the pieces put in
+   * the air beside her with her speed and a twist of their own.
+   */
+  breakWreck(w, why, seed) {
+    const had = cutFromHoles(w.holes);
+    w.cut = breakCut(why, w.holes, seed, had);
+    const groups = piecesOf(w.cut, had);
+    if (groups.length) {
+      const m = planeMatrix(w.x, w.y, w.z, w.heading, w.bank, w.pitch);
+      this.pieces.spawn(this.scene.flights, w.kind, groups, m,
+        { x: w.vx, y: w.vy, z: w.vz }, { seed });
+      // Where it broke, a flash and a gout of smoke.
+      const fx = this.scene.effects;
+      fx.wreckSmoke(w.x, w.y, w.z, 1);
+      fx.wreckSmoke(w.x, w.y + 1, w.z, 1);
+    }
+    return w;
+  }
+
+  /** A machine blown apart in the air: every piece of her, outwards. */
+  blowApart(kind, x, y, z, heading, speed, pitch = 0, bank = 0) {
+    const m = planeMatrix(x, y, z, heading, bank, pitch);
+    const v = { x: Math.sin(heading) * speed, y: 0, z: Math.cos(heading) * speed };
+    this.pieces.spawn(this.scene.flights, kind,
+      [['body'], ['tail', 'gearT'], ['wingInL', 'gearL'], ['wingInR', 'gearR'],
+        ['wingOutL'], ['wingOutR'], ['prop']], m, v, { burst: true });
   }
 
   /**
@@ -5515,10 +5701,11 @@ export class Battle {
   oneDown(o) {
     const fx = this.scene.effects;
     if (o.why === 'shot' && Math.random() < 0.4) {
-      // Blown apart in the air. There is nothing left to fall.
+      // Blown apart in the air. There is nothing left to fall but pieces.
       fx.explosion(o.x, o.y, o.z, 0.8);
       fx.debris(o.x, o.y, o.z, 12);
       audio.explosion(0.65, { x: o.x, y: o.y, z: o.z });
+      this.blowApart(o.kind, o.x, o.y, o.z, o.heading, 60);
       return;
     }
     if (this.wrecks.length > 14) this.wrecks.shift();
@@ -5527,7 +5714,7 @@ export class Battle {
     // been shot to pieces is not flying at all.
     const limp = o.why === 'crippled' || o.why === 'dry';
     const sp = limp ? 44 + Math.random() * 14 : 60 + Math.random() * 26;
-    this.wrecks.push({
+    this.wrecks.push(this.breakWreck({
       role: o.role, kind: o.kind, x: o.x, y: o.y, z: o.z,
       vx: Math.sin(o.heading) * sp, vz: Math.cos(o.heading) * sp,
       vy: limp ? -3 - Math.random() * 3 : -5 - Math.random() * 9,
@@ -5543,7 +5730,7 @@ export class Battle {
       trail: o.why === 'fire' ? 1 : o.why === 'dry' ? 0.25 : 0.6,
       holes: o.holes || null,
       span: o.span || 12,
-    });
+    }, o.why || 'shot', Math.round(o.x * 3 + o.z * 7)));
   }
 
   /**
@@ -5555,6 +5742,7 @@ export class Battle {
    */
   stepWrecks(dt) {
     const fx = this.scene.effects;
+    this.pieces.step(dt, fx, (x, z) => this.scene.ocean.heightAt(x, z));
     for (let i = this.wrecks.length - 1; i >= 0; i--) {
       const w = this.wrecks[i];
       const drag = Math.pow(0.72, dt);
@@ -5961,12 +6149,27 @@ export class Battle {
       // Behind her down the line of the view and above her along the view's
       // own up -- which is under her when the view is upside down over the
       // top of a loop, so she stays in the same place in the picture.
-      const ex = r.x - F.x * back + U.x * up;
-      const ey = Math.max(r.y - F.y * back + U.y * up, 3);
-      const ez = r.z - F.z * back + U.z * up;
+      // Turned round her by however far the free camera has been dragged:
+      // about the view's own up, then up and down over her.
+      let cF = F, cU = U;
+      if (f.lookYaw || f.lookPitch) {
+        cF = { x: F.x, y: F.y, z: F.z };
+        cU = { x: U.x, y: U.y, z: U.z };
+        if (f.lookYaw) rotate(cF, U, f.lookYaw);
+        if (f.lookPitch) {
+          const rx = cF.y * cU.z - cF.z * cU.y, ry = cF.z * cU.x - cF.x * cU.z, rz = cF.x * cU.y - cF.y * cU.x;
+          const ax = { x: rx, y: ry, z: rz };
+          norm3(ax);
+          rotate(cF, ax, -f.lookPitch);
+          rotate(cU, ax, -f.lookPitch);
+        }
+      }
+      const ex = r.x - cF.x * back + cU.x * up;
+      const ey = Math.max(r.y - cF.y * back + cU.y * up, 3);
+      const ez = r.z - cF.z * back + cU.z * up;
       cam.position.set(ex, ey, ez);
-      cam.up.set(U.x, U.y, U.z);
-      cam.lookAt(ex + F.x * 1000, ey + F.y * 1000, ez + F.z * 1000);
+      cam.up.set(cU.x, cU.y, cU.z);
+      cam.lookAt(ex + cF.x * 1000, ey + cF.y * 1000, ez + cF.z * 1000);
       this.input.orbiting = false;
       return;
     }
