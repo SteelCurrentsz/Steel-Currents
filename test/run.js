@@ -12496,12 +12496,14 @@ check('the cockpit says what happened, not what was hoped', () => {
     wingGuns() {},
     flyWear: Battle.prototype.flyWear,
     steerAim: Battle.prototype.steerAim,
+    levelAim: Battle.prototype.levelAim,
     flyAim: Battle.prototype.flyAim,
     chaseRig: Battle.prototype.chaseRig,
     input: { down: () => false },
     planeBoard: null,
     flight: Object.assign(g.flight, {
       wear: { speed: 1, turn: 1, pull: 0 }, aimYaw: 0, aimPitch: 0, ammo: 600, guns_n: 2,
+      aimF: { x: 0, y: 0, z: 1 }, aimU: { x: 0, y: 1, z: 0 },
       pilot: {
         x: 0, y: 200, z: 0, v: 60, g: 1, stall: 0, alive: true, heading: 0, pitch: 0,
         attitude: 0, bank: 0, roll: 0, agility: 1, a: AERO.avenger, step() {},
