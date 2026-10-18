@@ -16970,7 +16970,8 @@ check("an aeroplane rolls right over, flies on her back and goes over the top", 
   assert.ok(hands.hi - hands.lo < 30, 'she will not hold her height hands off');
 
   // No aeroplane has a bank limit any more, because no aeroplane has one.
-  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../shared/pilot.js', import.meta.url), 'utf8');
   assert.ok(!/bankMax/.test(aero), 'a bank limit is still in the flight model');
 });
 
@@ -17209,7 +17210,8 @@ check("an aeroplane answers her controls the way her size and weight say", () =>
     'a heavy answers full back stick as sharply as a fighter does');
 
   // Nothing is left of the hand-set numbers.
-  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8')
+    + readFileSync(new URL('../shared/pilot.js', import.meta.url), 'utf8');
   assert.ok(!/rollRate: |pitchRate: /.test(aero),
     'a per-type roll or pitch rate is still written down');
   for (const a of [...Object.values(AERO), ...Object.values(HEAVY_AERO)]) {
@@ -18047,7 +18049,8 @@ check('the pilot gets out when she hits the sea, and not before', () => {
   // The only ways out: the water, an explosion against a ship, or the backstop.
   assert.ok(/leaveFlight\(true\)/.test(step), 'she never leaves at all');
   // And the sea is the thing that ends a Pilot, which is what the above turns on.
-  const aero = readFileSync(new URL('../client/js/render/aero.js', import.meta.url), 'utf8');
+  // (The Pilot lives in shared/ now, so the simulation's fighters fly on it too.)
+  const aero = readFileSync(new URL('../shared/pilot.js', import.meta.url), 'utf8');
   assert.ok(/The sea is hard\.[\s\S]{0,200}this\.alive = false/.test(aero),
     'the flight model no longer ends an aeroplane at the water');
   // An aeroplane the player is riding down is still drawn: she is off the wire,
