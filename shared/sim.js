@@ -6927,7 +6927,7 @@ const TOUCH_HEAVY = 15;
  * point, because two aeroplanes closing at four hundred knots are seven metres
  * nearer each other every tick.
  */
-function flyingMachines(p, heavy, leadOnly = false) {
+function flyingMachines(p, heavy) {
   const out = [];
   if (!(p.machines || []).length) return out;
   const at = { x: 0, y: 0, z: 0 };
@@ -6937,7 +6937,6 @@ function flyingMachines(p, heavy, leadOnly = false) {
   for (const a of p.machines) {
     if (!a.alive || a.left) continue;
     const k = machineSlot(p, a);
-    if (leadOnly && k !== 0) continue;
     (heavy ? vicAt : slotAt)(k, p.heading || 0, at);
     (heavy ? vicAt : slotAt)(k, p.ph ?? p.heading ?? 0, was);
     out.push({
@@ -6992,8 +6991,8 @@ function airborne(state) {
  * Aeroplanes flown into each other.
  *
  * Two of the other side's machines that pass close enough to touch, touch: a
- * fighter pressing her attack on a bomber until the last instant, or two coming
- * at each other head on and neither giving way. Both go, and both fall.
+ * player pressing his attack on a bomber until the last instant, or putting
+ * his aeroplane into somebody else's on purpose. Both go, and both fall.
  *
  * Not her own side's. A formation is flown on a leader, a few metres apart,
  * and the pilots flying it are the ones keeping it from happening; it is not
@@ -7011,16 +7010,16 @@ function stepMidAir(state) {
       const reach = 260 + (A.heavy || B.heavy ? 200 : 0);
       if (Math.abs((A.q.y ?? 220) - (B.q.y ?? 220)) > reach) continue;
       if (dist2(A.q.x, A.q.z, B.q.x, B.q.z) > reach * reach) continue;
+      // Somebody has to be flying one of them. Two the simulation is flying
+      // are flown by pilots who can see each other: they meet on passage a
+      // mile apart, and in a fight the one going in head on breaks away before
+      // he arrives -- which the simulation's pilots, who fly straight at
+      // whatever they are after, would otherwise never do.
+      if (!A.q.flown && !B.q.flown) continue;
       const rad = A.heavy || B.heavy ? TOUCH_HEAVY : TOUCH;
-      // Between two formations nobody is flying it is the two leaders: the
-      // wingmen are flying on them, and a wingman who sees his leader's
-      // opponent coming at him is not tied to a station by a rod -- he moves.
-      // With a player at the stick of either, every machine is where it is
-      // and there is nobody to move it for him.
-      const lead = !A.q.flown && !B.q.flown;
       let hit = null;
-      for (const m of flyingMachines(A.q, A.heavy, lead)) {
-        for (const n of flyingMachines(B.q, B.heavy, lead)) {
+      for (const m of flyingMachines(A.q, A.heavy)) {
+        for (const n of flyingMachines(B.q, B.heavy)) {
           if (passNear(m, n, rad)) { hit = [m, n]; break; }
         }
         if (hit) break;
