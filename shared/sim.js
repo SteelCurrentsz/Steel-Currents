@@ -885,6 +885,16 @@ export function severed(ship, cls, lz) {
   return c.keep > 0 ? st < c.at : st > c.at;
 }
 
+/**
+ * Whether a wreck the sea has closed over amidships still has a piece of her
+ * standing up out of it: broken in two with her halves on end, or down so
+ * hard by one end that the other is in the air. A wreck lying level is under
+ * everybody's keel once she is under; one of these is not until she is gone.
+ */
+function standsUp(ship) {
+  return ship.broke != null || Math.abs(ship.trim || 0) > 0.25;
+}
+
 /** Her hull as the box the collision is worked on: centre, axes and half-sizes. */
 function hullBox(ship, cls) {
   const half = cls.hull.length / 2;
@@ -997,7 +1007,8 @@ function stepCollisions(state, dt) {
   // half standing up out of the sea is still there after the deck has gone
   // under (see stepWreckDown) -- and before that, how far she has settled
   // decides whose keel still reaches her (see bodySpan).
-  const hulls = state.ships.filter((s) => s.alive || (s.sinking && !s.sinking.gone));
+  const hulls = state.ships.filter((s) => s.alive || (s.sinking && !s.sinking.under)
+    || (s.sinking && !s.sinking.gone && standsUp(s)));
   for (const s of hulls) {
     // Nothing moves a wreck but what runs into her: her engines are stopped
     // and the way she had is long off her.
@@ -1116,11 +1127,15 @@ export function bodySpan(ship, cls) {
     let top = fb * 3 + y;
     // Going down by one end, the other end is up in the air: her top is
     // that, not her deck settled level.
-    if (ship.sinking) top = Math.max(top, fb + y + Math.abs(Math.sin(ship.trim || 0)) * cls.hull.length * 0.5);
-    // And a wreck that has stopped being a ship stands as high as the
-    // picture draws her: broken, her halves go up on end, and she is drawn
-    // until her highest part is that far under (see stepFounder in scene.js).
-    if (!ship.alive && ship.sinking) top = Math.max(top, cls.hull.length * 0.5 + 20 + y);
+    // Only a real one: a degree or two of settling by the head is still a
+    // ship lying level under the sea.
+    if (ship.sinking && Math.abs(ship.trim || 0) > 0.25) {
+      top = Math.max(top, fb + y + Math.abs(Math.sin(ship.trim)) * cls.hull.length * 0.5);
+    }
+    // And broken in two, her halves go up on end, each with her broken end
+    // down (see stepHalves in scene.js): the far end of each is up in the air
+    // long after her deck has gone under.
+    if (ship.sinking && ship.broke != null) top = Math.max(top, fb + y + cls.hull.length * 0.4);
     return { keel: -cls.hull.draft + y, deck: fb + y, top };
   }
   const d = ship.depth || 0;
