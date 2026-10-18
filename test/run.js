@@ -313,6 +313,7 @@ import { createBotBrain, stepBot } from '../server/bots.js';
 import { unpackHoles, HoleField, CUT, segGone } from '../client/js/render/planes.js';
 import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js';
 import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
+import { engineStart, CRANK } from '../client/js/render/deckengine.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
 import {
   buildSurcouf, LOA as surcoufLOA,
@@ -20468,6 +20469,40 @@ check('the Zero is the owner\'s sculpt, in the pieces she comes apart in', () =>
   assert.equal(b.segs.wingOutL.mesh.count, 1, 'her good wing is not drawn');
   assert.equal(b.parts.find((q) => q.spec.name === 'gearT').mesh.count, 0,
     'her tail wheel is drawn without her tail');
+});
+
+check('her engine is started on the deck: it turns over, coughs, catches, and her legs come up once she is away', () => {
+  // On the starter her airscrew goes over slowly, in jerks; once she catches
+  // it runs at a fast idle, and the throttle winds it up from there.
+  const e = {};
+  const dt = 1 / 30;
+  let cranking = 0;
+  let t = 0;
+  for (; t < CRANK; t += dt) cranking = Math.max(cranking, engineStart(e, true, t, 0, dt, null, null, null));
+  assert.ok(cranking > 0.5, 'her airscrew does not turn on the starter');
+  assert.ok(cranking < 16, `her airscrew is a disc before she has caught (${cranking.toFixed(1)})`);
+  assert.ok(!e.caught, 'she caught before the starter had turned her over');
+  let idle = 0;
+  for (; t < CRANK + 3; t += dt) idle = engineStart(e, true, t, 0, dt, null, null, null);
+  assert.ok(e.caught, 'she never caught');
+  assert.ok(idle > 18, `she does not run once she has caught (${idle.toFixed(1)})`);
+  let full = 0;
+  for (; t < CRANK + 6; t += dt) full = engineStart(e, true, t, 1, dt, null, null, null);
+  assert.ok(full > idle * 1.8, 'the throttle does not wind her up');
+  // Shut down, she runs down to a stop.
+  let off = full;
+  for (let i = 0; i < 150; i++) off = engineStart(e, false, 0, 0, dt, null, null, null);
+  assert.equal(off, 0, 'her airscrew turns on with the engine off');
+  // Her legs: down as she leaves the deck, up as she climbs away.
+  const b = Object.create(Battle.prototype);
+  b.planeTrim = new Map();
+  b.flight = null;
+  const pl = { i: 7, d: 0, y: 6 };
+  assert.equal(b.bayTrim(pl, 0.1, 40).gear, 0, 'her wheels are up on the deck');
+  pl.y = 60;
+  let g = 0;
+  for (let i = 0; i < 40; i++) g = b.bayTrim(pl, 0.1, 60).gear;
+  assert.equal(g, 1, 'her wheels stay down after she has climbed away');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
