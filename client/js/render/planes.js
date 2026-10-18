@@ -19,11 +19,14 @@
 import * as THREE from '../../../vendor/three.module.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  suisei, tenzan, jake, muzzlesOf, dressPlane,
+  tenzan, jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
 } from './zeroModel.js';
+import {
+  SUISEI, SUISEI_SEGS, suiseiGeometries, suiseiMaterial, suiseiSegOf, suiseiRest, suiseiHinge,
+} from './suiseiModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -256,6 +259,7 @@ function segment(geo, segOf) {
  */
 function tipsOf(key, geo) {
   if (key === 'zero') return { tips: ZERO.tips, nose: [0, ZERO.prop[1] - 0.2, ZERO.prop[2] - 1.2] };
+  if (key === 'suisei') return { tips: SUISEI.tips, nose: [0, SUISEI.prop[1] - 0.2, SUISEI.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -280,16 +284,48 @@ function centroidOf(geo) {
   return c.multiplyScalar(1 / idx.count);
 }
 
-/** The Zero: the owner's sculpt, already in her pieces. */
-function zeroFlightModel() {
-  const geos = zeroGeometries();
-  const mat = zeroMaterial();
-  const segs = {};
-  for (const k of ZERO_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
-  // What a hole is snapped onto: every piece of her that is skin, in one.
+/** The faint smoky ring a turning airscrew is past a few hundred yards. */
+function discMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0x6f7a86, transparent: true, opacity: 0.085,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+}
+
+/**
+ * A sculpt's airscrew, about its own hub, with the disc a turning one is past
+ * a few hundred yards welded into it as its own group -- the same as every
+ * other type's (see flightModels below).
+ */
+function withDisc(blades, radius) {
+  const ring = new THREE.RingGeometry(radius * 0.3, radius * 0.99, 28, 1).translate(0, 0, 0.12);
+  const prop = new THREE.BufferGeometry();
+  const bp = blades.attributes.position, bn = blades.attributes.normal, bc = blades.attributes.color;
+  const rp = ring.attributes.position;
+  const nb = bp.count, nr = rp.count;
+  const pos = new Float32Array((nb + nr) * 3);
+  const nor = new Float32Array((nb + nr) * 3);
+  const col = new Uint8Array((nb + nr) * 3);
+  pos.set(bp.array, 0); nor.set(bn.array, 0); col.set(bc.array, 0);
+  pos.set(rp.array, nb * 3);
+  for (let i = 0; i < nr; i++) nor[(nb + i) * 3 + 2] = 1;
+  const idx = Array.from(blades.index.array);
+  const bi = idx.length;
+  for (let i = 0; i < ring.index.count; i++) idx.push(nb + ring.index.getX(i));
+  prop.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  prop.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  prop.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
+  prop.setIndex(idx);
+  prop.addGroup(0, bi, 0);
+  prop.addGroup(bi, idx.length - bi, 1);
+  return prop;
+}
+
+/** Every piece of a sculpt that is skin, in one: what a hole is snapped onto. */
+function probeOf(geos, names) {
   const pos = [];
   const idx = [];
-  for (const k of ZERO_SEGS) {
+  for (const k of names) {
     const g = geos[k];
     const base = pos.length / 3;
     const p = g.attributes.position;
@@ -299,6 +335,17 @@ function zeroFlightModel() {
   const probe = new THREE.BufferGeometry();
   probe.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   probe.setIndex(idx);
+  return probe;
+}
+
+/** The Zero: the owner's sculpt, already in her pieces. */
+function zeroFlightModel() {
+  const geos = zeroGeometries();
+  const mat = zeroMaterial();
+  const segs = {};
+  for (const k of ZERO_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  // What a hole is snapped onto: every piece of her that is skin, in one.
+  const probe = probeOf(geos, ZERO_SEGS);
   // Her airscrew and her legs, each about its own hinge, as the kit's moving
   // parts are.
   const local = (g, at) => {
@@ -311,36 +358,10 @@ function zeroFlightModel() {
   // Her airscrew, with the faint disc a turning one is past a few hundred
   // yards welded into it as its own group -- the same as every other type's
   // (see flightModels below).
-  const blades = local(geos.prop, ZERO.prop);
-  const ring = new THREE.RingGeometry(ZERO.propR * 0.3, ZERO.propR * 0.99, 28, 1).translate(0, 0, 0.12);
-  const prop = new THREE.BufferGeometry();
-  {
-    const bp = blades.attributes.position, bn = blades.attributes.normal, bc = blades.attributes.color;
-    const rp = ring.attributes.position;
-    const nb = bp.count, nr = rp.count;
-    const pos = new Float32Array((nb + nr) * 3);
-    const nor = new Float32Array((nb + nr) * 3);
-    const col = new Uint8Array((nb + nr) * 3);
-    pos.set(bp.array, 0); nor.set(bn.array, 0); col.set(bc.array, 0);
-    pos.set(rp.array, nb * 3);
-    for (let i = 0; i < nr; i++) nor[(nb + i) * 3 + 2] = 1;
-    const idx = Array.from(blades.index.array);
-    const bi = idx.length;
-    for (let i = 0; i < ring.index.count; i++) idx.push(nb + ring.index.getX(i));
-    prop.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    prop.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    prop.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
-    prop.setIndex(idx);
-    prop.addGroup(0, bi, 0);
-    prop.addGroup(bi, idx.length - bi, 1);
-  }
   parts.push({
     name: 'prop', axis: 'z', open: 0, spin: true,
     at: new THREE.Vector3().fromArray(ZERO.prop), rot,
-    geo: prop, mats: [mat, new THREE.MeshBasicMaterial({
-      color: 0x6f7a86, transparent: true, opacity: 0.085,
-      side: THREE.DoubleSide, depthWrite: false,
-    })],
+    geo: withDisc(local(geos.prop, ZERO.prop), ZERO.propR), mats: [mat, discMaterial()],
   });
   for (const k of ['gearL', 'gearR', 'gearT']) {
     const spec = ZERO[k];
@@ -353,6 +374,90 @@ function zeroFlightModel() {
   const segOf = zeroSegOf;
   segOf.breaks = ZERO.breaks;
   return { segs, parts, probe, segOf, cy: 1.65, geo: probe, mats: [mat] };
+}
+
+/**
+ * The Suisei: the owner's sculpt, in her pieces, with everything of her that
+ * moves on its own hinge -- her airscrew, her bomb doors, the bomb on its
+ * crutch, the gunner's gun and her three legs.
+ */
+function suiseiFlightModel() {
+  const geos = suiseiGeometries();
+  const mat = suiseiMaterial();
+  const segs = {};
+  for (const k of SUISEI_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, SUISEI_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(suiseiHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: suiseiRest('prop'),
+    geo: withDisc(geos.prop, SUISEI.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['bayPort', 'bayStbd']) {
+    parts.push({
+      name: k, axis: 'z', open: SUISEI[k].open, at: at(k), rot: suiseiRest(k),
+      geo: geos[k], mats: [mat],
+    });
+  }
+  parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: suiseiRest('store'),
+    geo: geos.store, mats: [mat] });
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: suiseiRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = SUISEI[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0,
+      at: at(k), rot: suiseiRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = suiseiSegOf;
+  segOf.breaks = SUISEI.breaks;
+  return { segs, parts, probe, segOf, cy: 1.3, geo: probe, mats: [mat] };
+}
+
+/**
+ * Where the gunner's gun is on a type that has one, in her own frame: its
+ * pivot, the rotation it sits at, and its muzzle about the pivot laid aft.
+ * Null for a type with nobody facing aft.
+ */
+export function rearGunOf(kind) {
+  if (kind === 'suisei') {
+    return { at: SUISEI.gun.at, rot: suiseiRest('gun'), muzzle: SUISEI.gun.muzzle };
+  }
+  return null;
+}
+
+/**
+ * Where each type's weapon hangs, in her own frame, with the bay open: filled
+ * in by `flightModels` off the part that falls, so it cannot drift out of step
+ * with the model. Read with `storeOf`.
+ */
+const STORES = {};
+
+/**
+ * Where a type's bomb is when it is let go -- the middle of it, in her own
+ * frame, with her bay open and her crutch swung out -- the way it is lying,
+ * and how long and how fat it is. Null for a type with nothing on a rack.
+ */
+export function storeOf(kind) {
+  return STORES[kind] || null;
+}
+
+function readStore(key, parts) {
+  const sp = parts.find((q) => q.fall);
+  if (!sp) return;
+  sp.geo.computeBoundingBox();
+  const bb = sp.geo.boundingBox;
+  const c = bb.getCenter(new THREE.Vector3());
+  const size = bb.getSize(new THREE.Vector3());
+  const axis = new THREE.Vector3(sp.axis === 'x' ? 1 : 0, sp.axis === 'y' ? 1 : 0, sp.axis === 'z' ? 1 : 0);
+  const swing = new THREE.Quaternion().setFromAxisAngle(axis, sp.open || 0);
+  const q = sp.rot.clone().multiply(swing);
+  STORES[key] = {
+    at: c.applyQuaternion(q).add(sp.at).toArray(),
+    q, len: size.z, r: Math.max(size.x, size.y) * 0.5,
+    // The type's own weapon: what falls is what hung in her.
+    geo: sp.geo, mats: sp.mats, mid: bb.getCenter(new THREE.Vector3()),
+  };
 }
 
 /** One of each type, in flight trim, welded, cut into her pieces and ready to instance. */
@@ -430,6 +535,7 @@ export function flightModels() {
     const segs = {};
     for (const [name, sg] of Object.entries(segment(geo, segOf))) segs[name] = { geo: sg, mats };
     out[key] = { segs, parts, probe: geo, segOf, cy: 0, geo, mats };
+    readStore(key, parts);
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
   make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
@@ -449,7 +555,9 @@ export function flightModels() {
   // owner's sculpt of her, in the pieces she is built to come apart in.
   out.zero = zeroFlightModel();
   MUZZLES.zero = ZERO.guns.slice().sort((a, b) => a[0] - b[0]);
-  make('suisei', (g) => suisei(g, 0, 0, 0, 0, false, { gear: false }));
+  out.suisei = suiseiFlightModel();
+  MUZZLES.suisei = SUISEI.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('suisei', out.suisei.parts);
   make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, true, { gear: false }));
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
   return out;
@@ -740,7 +848,11 @@ export class HoleField {
       d.quaternion.copy(this.q);
       // And a whisker proud of it, or it fights with the skin it is in.
       d.position.addScaledVector(at.n, 0.03);
-      d.scale.setScalar(Math.max(0.12, h.r));
+      // A little larger than the round that made it: the skin tears back
+      // round a hole and the paint burns off round that, and at the range
+      // anybody watches an aeroplane from a hole the bore of the round is
+      // not there at all.
+      d.scale.setScalar(Math.max(0.2, h.r * 1.4));
       d.updateMatrix();
       this.m.copy(d.matrix).premultiply(body);
       this.mesh.setMatrixAt(this.n++, this.m);
@@ -800,6 +912,7 @@ export class Flights {
     this.hinge = new THREE.Matrix4();
     this.slide = new THREE.Matrix4();
     this.spin = new THREE.Quaternion();
+    this.turret = new THREE.Euler();
     this.axis = new THREE.Vector3();
     this.dummy = new THREE.Object3D();
     // Yaw, then pitch, then roll -- which is how an aeroplane's attitude is
@@ -855,6 +968,10 @@ export class Flights {
       // A weapon that has gone is not drawn at all, and once it is clear of
       // her the simulation's own bomb or torpedo has taken it over.
       if (q.spec.fall && fall !== null && fall > 3.5) continue;
+      // And a bomb that has been handed to the bombs in the air is the one
+      // falling: the one on the rack goes the same instant, or she is drawn
+      // twice -- once leaving and once still hanging in the bay.
+      if (q.spec.fall && trim && trim.handed) continue;
       this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
         q.spec.axis === 'z' ? 1 : 0);
       // An airscrew is wound on rather than swung open: the angle is where it
@@ -868,7 +985,13 @@ export class Flights {
         ang = q.spec.open * e;
         tuck = (q.spec.tuck || 0) * e;
       }
-      this.spin.setFromAxisAngle(this.axis, ang);
+      if (q.spec.turret) {
+        // A gun on a mounting: round in azimuth about her vertical, then up
+        // in elevation, at whatever the gunner has it laid on.
+        this.turret.set(trim && trim.gunPitch !== undefined ? trim.gunPitch : 0.25,
+          trim && trim.gunYaw ? trim.gunYaw : 0, 0, 'YXZ');
+        this.spin.setFromEuler(this.turret);
+      } else this.spin.setFromAxisAngle(this.axis, ang);
       this.hinge.makeRotationFromQuaternion(this.spin);
       this.part.makeRotationFromQuaternion(q.spec.rot).multiply(this.hinge);
       this.part.setPosition(q.spec.at);

@@ -53,6 +53,8 @@ import {
 } from '../client/js/render/aero.js';
 import { twoFingerGesture } from '../client/js/touch.js';
 import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
+import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
+import { Bombs, bombScale } from '../client/js/render/ordnance.js';
 import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
@@ -152,7 +154,9 @@ import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween }
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
-import { weld, flightModels, typeOf, Flights, gunsOf } from '../client/js/render/planes.js';
+import {
+  weld, flightModels, typeOf, Flights, gunsOf, storeOf, rearGunOf,
+} from '../client/js/render/planes.js';
 import {
   PARTS as AIR_PARTS, freshAirframe, hitAirframe, stepAirframe, airframeState,
   PART_BOX, HOLE_COST, MAX_HOLES,
@@ -20503,6 +20507,125 @@ check('her engine is started on the deck: it turns over, coughs, catches, and he
   let g = 0;
   for (let i = 0; i < 40; i++) g = b.bayTrim(pl, 0.1, 60).gear;
   assert.equal(g, 1, 'her wheels stay down after she has climbed away');
+});
+
+check('a dive bomber climbs to her perch, rolls over into a steep dive and pulls out', () => {
+  // The attack is a shape: up to the perch on the way in, over on her back at
+  // the push-over, seventy-odd degrees down to the release, and out of it hard
+  // at the bottom with height in hand, climbing away.
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  let roll = 0, steep = 0, bombs = 0, bottom = Infinity, after = -Infinity, flown = null, released = false;
+  for (let i = 0; i < 400 / DT; i++) {
+    const evs = step(state, DT);
+    bombs += evs.filter((e) => e.e === 'bomb').length;
+    const p = state.planes.find((q) => q.role === 'dive' && !q.dead);
+    if (!p) { if (released) break; continue; }
+    flown = p;
+    if (p.dv === 'roll') roll = Math.max(roll, Math.abs(p.show || 0));
+    if (p.dv === 'dive' && p.speed > 1) steep = Math.max(steep, Math.atan2(-p.vy, p.speed));
+    if (p.dropped) {
+      released = true;
+      bottom = Math.min(bottom, p.y);
+      if (p.vy > 0) after = Math.max(after, p.y);
+    }
+    if (released && after > bottom + 150) break;
+  }
+  assert.ok(flown, 'no dive bomber ever flew');
+  assert.ok(roll > 2.4, `she never went over on her back (bank ${roll.toFixed(2)})`);
+  assert.ok(steep > 1.05, `her dive was ${(steep * 57.3).toFixed(0)} degrees, not a dive bomber's`);
+  assert.ok(bombs > 0, 'she never let her bomb go');
+  assert.ok(bottom > 120, `she pulled out at ${bottom.toFixed(0)} m, into the sea`);
+  assert.ok(after > bottom + 150, 'she never climbed away after the release');
+  // And the client is told the roll, so it can draw it.
+  const snap = buildSnapshot(state, 0);
+  assert.ok(Array.isArray(snap.planes), 'no planes on the wire');
+});
+
+check('the Suisei is the owner\'s sculpt, with her legs, her bay, her bomb and her gun', () => {
+  const geos = suiseiGeometries();
+  for (const k of [...SUISEI_SEGS, ...SUISEI_PARTS, 'lod']) {
+    assert.ok(geos[k] && geos[k].index.count > 0, `she has no ${k}`);
+  }
+  // Wheels on the deck: her tyres reach y = 0 with her legs down.
+  const lowest = (k) => {
+    const p = geos[k].attributes.position;
+    let lo = Infinity;
+    for (let i = 0; i < p.count; i++) lo = Math.min(lo, p.getY(i) + SUISEI[k].at[1]);
+    return lo;
+  };
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    assert.ok(Math.abs(lowest(k)) < 0.05, `her ${k} stands at ${lowest(k).toFixed(2)}, not on the deck`);
+  }
+  // The bomb is a five hundred kilogram bomb, inside her, above the doors.
+  const m = flightModels().suisei;
+  const st = storeOf('suisei');
+  assert.ok(st && st.len > 1.6 && st.len < 2.3, 'her bomb is the wrong length');
+  assert.ok(st.r > 0.15 && st.r < 0.4, 'her bomb is the wrong girth');
+  assert.ok(st.at[1] > SUISEI.bayPort.at[1] - 0.1, 'her bomb hangs below her bay doors');
+  // And the gunner has a gun, facing aft.
+  const g = rearGunOf('suisei');
+  assert.ok(g && g.muzzle[2] < -0.5, 'her gunner\'s gun does not face aft');
+  // The flights draw her in her own pieces, with her parts on hinges.
+  for (const k of ['prop', 'bayPort', 'bayStbd', 'store', 'gun', 'gearL', 'gearR', 'gearT']) {
+    assert.ok(m.parts.some((q) => q.name === k), `her ${k} does not move`);
+  }
+});
+
+check('a bomb leaves the rack it hung on, at her speed, and arrives where it was sent', () => {
+  const scene = new THREE.Scene();
+  const bombs = new Bombs(scene, 8);
+  const hits = [];
+  bombs.onHit = (x, y, z) => hits.push([x, z]);
+  const rel = {
+    p: new THREE.Vector3(10, 450, 20), v: new THREE.Vector3(0, -120, 45),
+    q: new THREE.Quaternion(), len: 1.9, r: 0.2,
+  };
+  bombs.drop(10, 450, 20, 30, 200, true, null, 1.8, 108, rel);
+  const b = bombs.live[0];
+  assert.ok(Math.hypot(b.x - 10, b.y - 450, b.z - 20) < 1e-6, 'the bomb did not start in her bay');
+  assert.ok(Math.hypot(b.vx, b.vy + 120, b.vz - 45) < 1e-6, 'the bomb did not leave at her speed');
+  for (let i = 0; i < 600 && bombs.live.length; i++) bombs.update(1 / 60);
+  assert.equal(hits.length, 1, 'the bomb never arrived');
+  assert.ok(Math.hypot(hits[0][0] - 30, hits[0][1] - 200) < 1, 'the bomb arrived somewhere else');
+  // Her own size close to, and only larger far enough off to need it.
+  assert.equal(bombScale(50), 1);
+  assert.ok(bombScale(3000) > 3);
+});
+
+check('a bomber\'s rear gunner swings onto a fighter astern of her and fires', () => {
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Enterprise', classId: 'enterprise', team: 1, index: 0 });
+  foe.x = ship.x + 8000; foe.z = ship.z;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  foe.aimX = ship.x; foe.aimZ = ship.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  foe.airGroup = { fighters: 4, dive: 0, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch');
+  assert.ok(launchStrike(state, foe), 'the fighters would not launch');
+  for (let i = 0; i < 30 / DT && state.planes.length < 2; i++) step(state, DT);
+  const bomber = state.planes.find((q) => q.team === 0);
+  const fighter = state.planes.find((q) => q.team === 1);
+  assert.ok(bomber && fighter, 'nobody got off the deck');
+  // Put the fighter two hundred metres astern of her and a little above.
+  bomber.y = 800; fighter.y = 830;
+  fighter.x = bomber.x - Math.sin(bomber.heading) * 200;
+  fighter.z = bomber.z - Math.cos(bomber.heading) * 200;
+  fighter.heading = bomber.heading;
+  const hp = fighter.hp;
+  let fired = 0;
+  for (let i = 0; i < 1 / DT; i++) {
+    const evs = step(state, DT);
+    fired += evs.filter((e) => e.e === 'rearGun' && e.i === bomber.id).length;
+  }
+  assert.ok(fired > 0, 'her gunner never fired at a fighter sitting on her tail');
+  assert.ok(fighter.dead || fighter.hp < hp, 'her gunner fired and hit nothing');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

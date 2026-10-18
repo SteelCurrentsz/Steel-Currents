@@ -211,18 +211,20 @@ export class Flak {
    * there is: an aeroplane crossing the beam of a battleship is met by a wall
    * and one coming in over her bow by a handful of guns.
    */
-  fire(x, y, z, tx, ty, tz, caliber, barrels, effects) {
+  fire(x, y, z, tx, ty, tz, caliber, barrels, effects, spread = 90, from = 14) {
     const n = Math.max(2, Math.min(14, Math.round(barrels / 3)));
-    const span = Math.hypot(tx - x, tz - z);
+    const span = Math.hypot(tx - x, tz - z, (ty - y) * 0.01);
     if (span < 1) return;
     for (let i = 0; i < n; i++) {
       if (this.rounds.length >= this.max) break;
-      // Scattered round the aiming point, because that is where they go.
-      const sx = tx + (Math.random() - 0.5) * 90;
-      const sy = ty + (Math.random() - 0.5) * 60;
-      const sz = tz + (Math.random() - 0.5) * 90;
-      const ox = (Math.random() - 0.5) * 14;
-      const oz = (Math.random() - 0.5) * 14;
+      // Scattered round the aiming point, because that is where they go: a
+      // ship's battery by the width of a formation, one gunner on a ring by
+      // a few metres. `from` is how far apart the barrels it comes out of are.
+      const sx = tx + (Math.random() - 0.5) * spread;
+      const sy = ty + (Math.random() - 0.5) * spread * 0.67;
+      const sz = tz + (Math.random() - 0.5) * spread;
+      const ox = (Math.random() - 0.5) * from;
+      const oz = (Math.random() - 0.5) * from;
       const flight = 0.5 + span / 900 + Math.random() * 0.35;
       this.rounds.push({
         x0: x + ox, y0: y, z0: z + oz,
@@ -403,31 +405,71 @@ export function bombAim(range, drop, speed) {
 }
 
 /**
+ * How much bigger than she really is a bomb is drawn, `d` metres from the eye.
+ *
+ * She used to be drawn nine metres long everywhere -- five times her size --
+ * so the bomb a Suisei had been carrying in her bay came out of the bay as
+ * something longer than the aeroplane, from a point beside her rather than
+ * from the rack she had been hanging on. Now she is her own size wherever
+ * there is anything to compare her with, and only grows as she gets far
+ * enough off that her own size would be under a pixel: a bomb watched from
+ * the ship she is coming down on still reads as a bomb coming down.
+ */
+export function bombScale(d) {
+  return Math.max(1, Math.min(4.5, d / 320));
+}
+
+/**
  * The bombs on the way down.
  *
  * A dive bomber's bomb is settled the moment she lets go of it -- there is
  * nothing for it to run on and nothing to comb -- so the simulation does not
  * fly a body for it. What it sends is where the bomb was released and where it
- * is going to arrive, and this flies the real thing between the two: released
- * at the speed she is going, falling under gravity against the air, and lying
- * along its own line of flight the whole way down. It used to be interpolated
- * from one point to the other on a squared curve, which is not an arc a bomb
- * has ever flown.
+ * is going to arrive, and this flies the real thing between the two.
+ *
+ * It leaves from the rack it was on, at the speed and on the heading of the
+ * aeroplane that was carrying it, nose where her nose was -- because that is
+ * what a bomb does, and because anything else is a bomb that jumps from one
+ * place to another the instant it is let go. Then it falls under gravity
+ * against the air, weathercocking onto its own line of flight, and the little
+ * the pilot's aim was out by is taken up over the fall rather than at the
+ * start of it, so it arrives where the simulation said it would.
  */
 export class Bombs {
   constructor(scene, max = 48) {
     this.max = max;
     this.live = [];
+    // Bombs that are the simulation's own bodies -- a heavy's stick -- placed
+    // each frame by whoever is reading them off the wire. See `carry`.
+    this.carried = [];
     this.mat = new THREE.MeshLambertMaterial({ color: 0x3c4149 });
     this.mesh = new THREE.InstancedMesh(bombGeometry(), this.mat, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+    this.scene = scene;
+    // A type whose own weapon is modelled drops that: the same geometry that
+    // hung in her bay, rather than a generic one of a different size.
+    this.shapes = new Map();
     this.dummy = new THREE.Object3D();
     this.dir = new THREE.Vector3();
     this.quat = new THREE.Quaternion();
+    this.aim = new THREE.Quaternion();
     this.fwd = new THREE.Vector3(0, 0, 1);
+    this.eye = new THREE.Vector3();
     this.park(0);
+  }
+
+  /** Drop this geometry and material for a type's bombs: see `drop`'s `shape`. */
+  shape(key, geo, mat) {
+    if (this.shapes.has(key)) return;
+    const mesh = new THREE.InstancedMesh(geo, mat, this.max);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.visible = false;
+    this.scene.add(mesh);
+    this.shapes.set(key, { mesh, n: 0 });
   }
 
   park(from) {
@@ -440,38 +482,76 @@ export class Bombs {
    * One bomb away. `y` is the height she was released from, `hit` says whether
    * this one is going to find the ship or go into the water alongside.
    *
-   * The drawn size is exaggerated the same way a shell's is, and for the same
-   * reason: a real thousand-pounder is a metre and three quarters long, and at
-   * the range you watch one come down from that is not a pixel. It is
-   * exaggerated by the same factor, so a bomb and a sixteen-inch round stand
-   * in the right relation to each other.
+   * `rel`, when it is given, is the release itself: `p` where the bomb was on
+   * her rack, `v` the aeroplane's velocity, `q` the way the bomb was lying,
+   * `len` and `r` its size and `shape` the key of a type's own bomb. Without
+   * it -- a bomb from an aeroplane nobody is drawing -- it is let go from
+   * where the simulation says, on the line that reaches the target.
    */
-  drop(x, y, z, tx, tz, hit, effects, size = 9, speed = 108) {
+  drop(x, y, z, tx, tz, hit, effects, size = 1.8, speed = 108, rel = null) {
     if (this.live.length >= this.max) return;
-    const y0 = Math.max(40, y);
-    const dx = tx - x;
-    const dz = tz - z;
-    const range = Math.hypot(dx, dz);
-    // Straight down on top of her is a dive bomber's business and the aim
-    // below cannot solve it; give her a little way to run.
-    const D = Math.max(20, range);
-    const aim = bombAim(D, y0 - (hit ? 14 : 0), speed);
-    const ux = range > 1e-3 ? dx / range : 0;
-    const uz = range > 1e-3 ? dz / range : 1;
-    const flat = Math.cos(aim.theta) * speed;
-    this.live.push({
-      x, y: y0, z,
-      vx: ux * flat, vy: Math.sin(aim.theta) * speed, vz: uz * flat,
-      // Where she is meant to end up, so the burst goes where the simulation
-      // said it would however the integration rounds.
-      x1: tx, z1: tz, y1: hit ? 14 : 0,
-      t: 0, fall: aim.fall, hit, effects, size,
-    });
+    const y1 = hit ? 14 : 0;
+    const b = {
+      x, y: Math.max(40, y), z, vx: 0, vy: 0, vz: 0, ax: 0, az: 0,
+      x1: tx, z1: tz, y1, t: 0, fall: 0, hit, effects,
+      len: size, r: size * 0.11, shape: null, q: null, settle: 0,
+    };
+    if (rel) {
+      b.x = rel.p.x; b.y = rel.p.y; b.z = rel.p.z;
+      b.vx = rel.v.x; b.vy = rel.v.y; b.vz = rel.v.z;
+      b.len = rel.len || b.len; b.r = rel.r || b.r;
+      b.shape = rel.shape && this.shapes.has(rel.shape) ? rel.shape : null;
+      b.q = rel.q ? rel.q.clone() : null;
+    } else {
+      const dx = tx - x;
+      const dz = tz - z;
+      const range = Math.hypot(dx, dz);
+      // Straight down on top of her is a dive bomber's business and the aim
+      // below cannot solve it; give her a little way to run.
+      const aim = bombAim(Math.max(20, range), b.y - y1, speed);
+      const ux = range > 1e-3 ? dx / range : 0;
+      const uz = range > 1e-3 ? dz / range : 1;
+      const flat = Math.cos(aim.theta) * speed;
+      b.vx = ux * flat; b.vy = Math.sin(aim.theta) * speed; b.vz = uz * flat;
+    }
+    // Where she would come down if nothing but the air had hold of her, and
+    // the steady push across that takes her to where the simulation says she
+    // lands instead. Spread over the whole fall it is a few metres a second
+    // squared at most: nobody watching can tell it from the wind.
+    const free = { x: b.x, y: b.y, z: b.z, vx: b.vx, vy: b.vy, vz: b.vz };
+    let T = 0;
+    while (free.y > y1 && T < 60) { bombStep(free, 1 / 60); T += 1 / 60; }
+    T = Math.max(0.4, T);
+    b.ax = 2 * (tx - free.x) / (T * T);
+    b.az = 2 * (tz - free.z) / (T * T);
+    b.fall = T;
+    this.live.push(b);
   }
 
-  update(dt) {
+  /**
+   * The bombs the simulation is flying itself, this frame: each `{x, y, z,
+   * dx, dy, dz, len, r}`, the line it is falling along and its size. They are
+   * drawn with the rest, at the same scale, so a heavy's stick is the same
+   * kind of object as a dive bomber's bomb.
+   */
+  carry(list) { this.carried = list || []; }
+
+  place(mesh, n, x, y, z, q, len, r, real) {
     const d = this.dummy;
+    d.position.set(x, y, z);
+    d.quaternion.copy(q);
+    const k = bombScale(this.eye.distanceTo(d.position));
+    // The generic body is one long; a type's own is already her size.
+    if (real) d.scale.setScalar(k);
+    else d.scale.set(k * r / 0.27, k * r / 0.27, k * len);
+    d.updateMatrix();
+    mesh.setMatrixAt(n, d.matrix);
+  }
+
+  update(dt, camera = null) {
+    if (camera) this.eye.setFromMatrixPosition(camera.matrixWorld);
     let n = 0;
+    for (const sh of this.shapes.values()) sh.n = 0;
     const STEP = 1 / 120;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const b = this.live[i];
@@ -481,6 +561,8 @@ export class Bombs {
       while (left > 0) {
         const h = Math.min(STEP, left);
         bombStep(b, h);
+        b.vx += b.ax * h;
+        b.vz += b.az * h;
         b.t += h;
         left -= h;
       }
@@ -497,21 +579,34 @@ export class Bombs {
         this.live.splice(i, 1);
         continue;
       }
-      if (n >= this.max) continue;
-      d.position.set(b.x, b.y, b.z);
       // Nose along her own line of flight, which is what a falling bomb does:
-      // she weathercocks, and by the time she arrives she is pointing straight
-      // down.
+      // she leaves lying the way she lay on the rack and weathercocks onto it
+      // over the first second, and by the time she arrives she is pointing
+      // straight down.
       this.dir.set(b.vx, b.vy, b.vz);
-      if (this.dir.lengthSq() > 1e-6) {
-        this.dir.normalize();
-        this.quat.setFromUnitVectors(this.fwd, this.dir);
-        d.quaternion.copy(this.quat);
-      } else d.quaternion.identity();
-      d.scale.set(b.size * 0.34, b.size * 0.34, b.size);
-      d.updateMatrix();
-      this.mesh.setMatrixAt(n++, d.matrix);
+      if (this.dir.lengthSq() > 1e-6) this.aim.setFromUnitVectors(this.fwd, this.dir.normalize());
+      else this.aim.identity();
+      if (b.q) {
+        b.settle = Math.min(1, b.settle + dt * 1.6);
+        this.quat.copy(b.q).slerp(this.aim, b.settle * b.settle);
+      } else this.quat.copy(this.aim);
+      const sh = b.shape ? this.shapes.get(b.shape) : null;
+      if (sh) {
+        if (sh.n < this.max) this.place(sh.mesh, sh.n++, b.x, b.y, b.z, this.quat, b.len, b.r, true);
+      } else if (n < this.max) this.place(this.mesh, n++, b.x, b.y, b.z, this.quat, b.len, b.r, false);
+    }
+    for (const c of this.carried) {
+      if (n >= this.max) break;
+      this.dir.set(c.dx, c.dy, c.dz);
+      if (this.dir.lengthSq() > 1e-6) this.quat.setFromUnitVectors(this.fwd, this.dir.normalize());
+      else this.quat.identity();
+      this.place(this.mesh, n++, c.x, c.y, c.z, this.quat, c.len, c.r, false);
     }
     this.park(n);
+    for (const sh of this.shapes.values()) {
+      sh.mesh.count = sh.n;
+      sh.mesh.visible = sh.n > 0;
+      if (sh.n > 0) sh.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 }

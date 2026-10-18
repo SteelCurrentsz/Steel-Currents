@@ -29,6 +29,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { zeroModel } from './zeroModel.js';
+import { suiseiModel } from './suiseiModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -3034,6 +3035,18 @@ function zero(g, x, y, z, ry, folded = false, opts = {}) {
  * brakes under the wing rather than on the trailing edge.
  */
 function suisei(g, x, y, z, ry, folded = false, opts = {}) {
+  // The owner's sculpt of her, spread to fly or ranged on a deck; struck
+  // below with her wings folded she is still the one built here, as the
+  // Zero is.
+  if (!folded && !opts.primitive) {
+    const p = suiseiModel({ lod: !!opts.lod });
+    p.position.set(x, y, z);
+    p.rotation.y = ry;
+    g.add(p);
+    if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+    p.userData.wings = null;
+    return p;
+  }
   paint('ijn');
   const p = new THREE.Group();
   p.position.set(x, y, z);

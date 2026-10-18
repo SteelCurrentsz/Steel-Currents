@@ -372,8 +372,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // simulation's own fighter pilots in a fight -- her real bank and the
       // pitch of her flight path. A roll, a loop or a split-S cannot be drawn
       // from a turn rate: she goes past the vertical and over on her back.
-      bk: p.df || p.flown ? r3(p.bank || 0) : undefined,
-      pt: p.df || p.flown ? r3(p.pitch || 0) : undefined,
+      bk: p.df || p.flown ? r3(p.bank || 0) : p.show !== undefined ? r3(p.show) : undefined,
+      pt: p.df || p.flown ? r3(p.pitch || 0)
+        // A dive bomber rolling in over the top: the pitch of the path she
+        // is on, off her climb and her speed, for the bank to go with.
+        : p.show !== undefined ? r3(Math.atan2(p.vy || 0, Math.max(1, p.speed || 0))) : undefined,
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
       // And which machine, where her ship flies one particular type. A

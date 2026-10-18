@@ -6099,7 +6099,7 @@ const AIRFRAME = {
   // whose ceiling is barely above the height she is trying to reach spends the
   // last thousand metres of the climb crawling and never arrives.
   fighter: { climb: 12.5, ceiling: 9800, dive: 34, g: 1.3 },
-  dive: { climb: 9.0, ceiling: 7600, dive: 118, g: 2.7 },
+  dive: { climb: 9.0, ceiling: 7600, dive: 132, g: 2.7 },
   scout: { climb: 5.5, ceiling: 5500, dive: 26, g: 0.4 },
   torpedo: { climb: 6.0, ceiling: 6800, dive: 30, g: 0.55 },
 };
@@ -6132,10 +6132,28 @@ const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260 };
  * go: the bomb had to be thrown thirty degrees above the horizontal to reach
  * the ship at all, and nothing about it looked like an attack.
  */
-const DIVE_PERCH = 1150;       // the height she pushes over from
-const DIVE_PUSH = 900;         // and the ground range she does it at
-const DIVE_DROP = 260;         // her height when the bomb leaves her
-const DIVE_AT = 240;           // and the range -- just inside the release
+const DIVE_PERCH = 1500;       // the height she pushes over from
+const DIVE_PUSH = 700;         // and the ground range she does it at
+const DIVE_DROP = 450;         // her height when the bomb leaves her
+const DIVE_AT = 170;           // and the range -- just inside the release
+/**
+ * How she gets from the perch into the dive: not by pushing the stick
+ * forward, which puts her crew on the canopy and her engine out of fuel, but
+ * over on her back. She lifts her nose for a moment, rolls inverted, pulls the
+ * nose down through the horizon onto her target and rolls upright again
+ * with her brakes out, pointing at it -- a couple of seconds from level flight
+ * to seventy degrees, and the one thing everybody who ever saw a dive bombing
+ * attack remembers.
+ */
+const DIVE_ROLL = 2.1;         // seconds, from the zoom to upright in the dive
+/**
+ * And how hard she pulls in each part of it, in gravities: the roll-in is a
+ * hard pull with her on her back, and the pull-out at the bottom is the
+ * hardest thing she does -- the bomb is gone, she is four hundred metres up
+ * at two hundred and sixty knots and pointing at the sea.
+ */
+const DIVE_PULL_IN = 4.2;
+const DIVE_PULL_OUT = 5.2;
 /**
  * And the speed she holds coming down, which is what the brakes are for.
  *
@@ -6146,7 +6164,7 @@ const DIVE_AT = 240;           // and the range -- just inside the release
  * taken its share -- which is why a steep dive crosses the ground slowly and
  * why the flak gets a long look at her.
  */
-const DIVE_SPEED = 128;
+const DIVE_SPEED = 140;
 /**
  * How far out each kind starts changing height, and where she has to be at it.
  *
@@ -6160,8 +6178,77 @@ const DIVE_SPEED = 128;
 // is a long way out: two hundred and fifty metres of climb at a loaded
 // bomber's rate of climb is most of a minute, and she has to be at the top of
 // it before she is over her target rather than still going up underneath her.
-const RUN_IN_FROM = { torpedo: 5200, dive: 9000, fighter: 3000, scout: 3200 };
+const RUN_IN_FROM = { torpedo: 5200, dive: 12000, fighter: 3000, scout: 3200 };
 const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
+
+/**
+ * Where a dive bomber is in her attack, and what it asks of her vertical.
+ *
+ * `p.dv` is the stage: nothing on passage and on the climb to the perch;
+ * `roll` from the moment she is over her push-over point until she is upright
+ * in the dive; `dive` down the line to the release; `pull` from the release
+ * until she is climbing again, after which the climb back up to cruising
+ * height is the ordinary business of coming home. `p.show` is her bank while
+ * she is rolling, which is more than the autopilot's own bank can ever be --
+ * she goes right over on her back -- and is what the client draws.
+ *
+ * Returns what the stage wants of her vertical speed and how hard she may
+ * pull to get it, or null when it is her ordinary profile that decides.
+ */
+function diveStage(state, p, dt) {
+  if (p.dv === 'pull') {
+    // Out of it: as hard as she will stand until the nose is above the
+    // horizon, and then the climb home.
+    if ((p.vy || 0) > 2) { p.dv = undefined; return null; }
+    return { vy: 30, g: DIVE_PULL_OUT };
+  }
+  if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
+    p.dv = undefined; p.show = undefined;
+    return null;
+  }
+  const mark = p.targetBat
+    ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
+    : state.ships.find((q) => q.id === p.targetId && q.alive);
+  if (!mark) return null;
+  const d = dist(p.x, p.z, mark.x, mark.z);
+  if (!p.dv) {
+    if (d > DIVE_PUSH + 160 || (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + 200) return null;
+    // Over the top. Which way she rolls is the way her target is turning out
+    // from under her, so she comes out of it already pointing at it.
+    p.dv = 'roll';
+    p.dvT = 0;
+    p.perch = Math.max(DIVE_DROP + 260, p.y);
+    const off = angleDelta(p.heading, headingTo(p.x, p.z, mark.x, mark.z));
+    p.dvSide = off >= 0 ? 1 : -1;
+  }
+  if (p.dv === 'roll') {
+    p.dvT += dt;
+    const t = p.dvT;
+    const k = (u) => u * u * (3 - 2 * u);
+    // Her bank: up and over onto her back, held there while she pulls the
+    // nose down through the horizon, and back upright with the target under
+    // her nose.
+    let bank;
+    if (t < 0.45) bank = 0.9 * k(t / 0.45);
+    else if (t < 1.25) bank = 0.9 + (2.75 - 0.9) * k((t - 0.45) / 0.8);
+    else bank = 2.75 * (1 - k(Math.min(1, (t - 1.25) / (DIVE_ROLL - 1.25))));
+    p.show = p.dvSide * bank;
+    if (t >= DIVE_ROLL) {
+      p.dv = 'dive';
+      p.show = undefined;
+      // The line she dives down starts where she is now, at the height she
+      // has now: the zoom and the roll have used some of both.
+      p.diveFrom = Math.max(DIVE_AT + 120, d);
+      p.perch = Math.max((mark.y || 0) + DIVE_DROP + 60, p.y);
+      return null;
+    }
+    // The zoom first, nose up for the half second she is rolling into it,
+    // and then everything she has downward.
+    if (t < 0.45) return { vy: 12, g: 1.6 };
+    return { vy: -132, g: DIVE_PULL_IN };
+  }
+  return null;
+}
 
 /** The best rate of climb anything in this strike can hold. */
 function slowestClimb(state, p) {
@@ -6257,6 +6344,13 @@ function wantedHeight(state, p, carrier, inCompany) {
   if (d > from) return CRUISE_ALT;
   // The dive, which is its own shape and not an eased approach to a height.
   if (p.role === 'dive') {
+    // In the dive itself: straight down the line from wherever she came out
+    // of her roll to the release, which is what makes it one angle all the
+    // way down. See diveStage.
+    if (p.dv === 'dive' && p.diveFrom) {
+      const k = clamp((d - DIVE_AT) / Math.max(1, p.diveFrom - DIVE_AT), 0, 1);
+      return (mark.y || 0) + DIVE_DROP + (p.perch - DIVE_DROP) * k;
+    }
     if (d > DIVE_PUSH) {
       // Still climbing to the perch: she wants to be over the top of her
       // target with height in hand, not arriving at it level.
@@ -6761,6 +6855,72 @@ function fightFor(state, p, dt) {
 }
 
 /**
+ * The man in the back seat.
+ *
+ * Every carrier aircraft that is not a fighter has a gunner facing aft with a
+ * rifle-calibre gun on a ring -- the Suisei's Type 92, the Dauntless's twin
+ * thirties, the Tenzan's and the Avenger's -- and he does not wait to be told.
+ * Anything of the other side's that comes into his arc within his reach, he
+ * swings onto and fires at, whatever his pilot is doing: on passage, in the
+ * dive, pulling out, or with a captain flying the aeroplane by hand.
+ *
+ * His arc is everything abaft the wing and above the tailplane; nothing ahead
+ * of her and nothing he would have to shoot through his own tail to reach.
+ * What he is worth is a fraction of a fighter's battery, because it is one gun
+ * on a moving ring rather than four bore-sighted ones. A fighter already
+ * trading fire with this one in a turning fight is answered there -- see the
+ * fighter's attack in stepPlanes -- so here he only swings and shoots, and
+ * the damage is not counted twice.
+ */
+const REAR_REACH = 480;
+const REAR_BITE = 0.11;     // of FIGHTER_GUNS, per machine with a gunner
+const REAR_ROLES = new Set(['dive', 'torpedo', 'scout']);
+function stepRearGunners(state, dt) {
+  for (const p of state.planes) {
+    if (p.dead || !REAR_ROLES.has(p.role) || !(p.count > 0)) continue;
+    const py = p.y ?? 220;
+    const v = airVelocity(p);
+    const sp = Math.hypot(v.x, v.y, v.z) || 1;
+    let best = null, bestR = REAR_REACH;
+    for (const q of state.planes) {
+      if (q.dead || q.team === p.team || !mayHurt(state, p.team, q)) continue;
+      const dx = q.x - p.x, dy = (q.y ?? 220) - py, dz = q.z - p.z;
+      const R = Math.hypot(dx, dy, dz);
+      if (R >= bestR || R < 8) continue;
+      // Abaft her wing, or above her: not out ahead, where the pilot's guns
+      // are and the gunner's would go through his own airscrew.
+      const fore = (dx * v.x + dy * v.y + dz * v.z) / (sp * R);
+      if (fore > 0.25) continue;
+      // And not down through her own tail.
+      if (fore < -0.9 && dy < -R * 0.15) continue;
+      best = q; bestR = R;
+    }
+    if (!best) { p.rear = 0; continue; }
+    p.rear = best.id;
+    // He fires in bursts, which is what a gunner on a pan of ninety-seven
+    // rounds does: a couple of seconds on, a moment to lay off again.
+    p.rearT = (p.rearT ?? 0) + dt;
+    const on = (p.rearT % 2.6) < 1.7;
+    if (!on) continue;
+    const already = best.df && best.targetAir === p.id;
+    if (!already) {
+      // He hits less the further out she is and the faster she is crossing.
+      const reach = 1 - bestR / REAR_REACH;
+      const bite = (FIGHTER_GUNS * REAR_BITE) * (p.count || 1) * (0.35 + 0.65 * reach) * dt;
+      hurtFlight(state, best, bite, 'gunners');
+      if (best.hp <= 0 && !best.dead) killFlight(state, best, 'gunners');
+    }
+    if (state.t - (p.rearAt ?? -9) >= 0.12) {
+      p.rearAt = state.t;
+      state.events.push({
+        e: 'rearGun', i: p.id, t: best.id, team: p.team,
+        x: r(best.x), y: r(best.y ?? 220), z: r(best.z),
+      });
+    }
+  }
+}
+
+/**
  * A tick of a fighter in a fight: her pilot flies her, and she shoots when
  * her guns are on. Returns true if she has flown into the sea doing it.
  */
@@ -7140,12 +7300,18 @@ function stepPlanes(state, dt) {
       const rise = best * Math.max(0.15, 1 - p.y / frame.ceiling);
       // How hard she goes after the height she wants. A dive bomber pushing
       // over wants her nose down now, and she has the wing to do it with.
-      const pull = G * (frame.g ?? 0.34) * dt;
+      let pull = G * (frame.g ?? 0.34) * dt;
       // A dive bomber holds the line she is diving down rather than easing
       // onto it: a lazy gain leaves her a couple of hundred metres above the
       // profile all the way in, which is a shallow glide and not a dive.
-      const askVy = clamp((wantY - p.y) * (p.role === 'dive' ? 1.4 : p.phase === 'ram' ? 1.0 : 0.22),
+      let askVy = clamp((wantY - p.y) * (p.role === 'dive' ? 1.4 : p.phase === 'ram' ? 1.0 : 0.22),
         -frame.dive, rise);
+      // Over the top and down, and out at the bottom: see diveStage.
+      const stage = p.role === 'dive' ? diveStage(state, p, dt) : null;
+      if (stage) {
+        if (stage.vy !== undefined) askVy = stage.vy;
+        if (stage.g) pull = G * stage.g * dt;
+      }
       p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -pull, pull);
       p.y = Math.max(14, p.y + p.vy * dt);
 
@@ -7353,10 +7519,18 @@ function stepPlanes(state, dt) {
       // up is not dive bombing, it is lobbing, and the only way a bomb gets
       // from there to the ship is by being thrown thirty degrees above the
       // horizontal. She presses home instead, and pays the flak for it.
-      const RELEASE = p.torp > 0 ? 900 : 260;
-      if (best && bestD < RELEASE) {
+      // A dive bomber lets go at the bottom of her dive, not wherever she
+      // happens to be when the ship comes within a quarter of a mile: down
+      // the line to her release height, or close over the top of her.
+      const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : 260;
+      const low = p.role === 'dive' && p.dv === 'dive' && best
+        && (p.y ?? 0) < (best.y || 0) + DIVE_DROP + 20 && bestD < DIVE_AT + 260;
+      if (best && (bestD < RELEASE || low)) {
         deliverOrdnance(state, p, best, P);
         state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+        p.dropped = true;
+        // And out of it. See diveStage.
+        if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }
         p.phase = 'return';
       } else if (best && bestD < 2200) {
         // In the run. She steers for the point she wants to drop from rather
@@ -7762,10 +7936,15 @@ function dropBomb(state, bm, L) {
   const e = bm.err || { x: 0, z: 0 };
   const sx = gauss(state.rng) * 26;
   const sz = gauss(state.rng) * 26;
+  // It leaves from the formation, not from a point thirty metres off to one
+  // side of it: the aimer's error and the scatter of the stick are what the
+  // bomb does on the way down, so they go into how it leaves rather than
+  // where. Spread over the fall they are the same miss at the bottom.
+  const fall = Math.sqrt(2 * Math.max(50, bm.y) / 9.81);
   fireShell(state, {
     id: eid(), owner: 0, bomber: bm.id, team: bm.team,
-    x: bm.x + e.x + sx, y: bm.y, z: bm.z + e.z + sz,
-    vx: sn * bm.speed, vy: 0, vz: cs * bm.speed,
+    x: bm.x, y: bm.y, z: bm.z,
+    vx: sn * bm.speed + (e.x + sx) / fall, vy: 0, vz: cs * bm.speed + (e.z + sz) / fall,
     g: 9.81,
     caliber: L.caliber,
     // What tells the shell pipeline this is a bomb rather than a round of
@@ -9932,6 +10111,7 @@ export function step(state, dt = DT) {
   stepTorpedoes(state, dt);
   stepCharges(state, dt);
   stepPlanes(state, dt);
+  stepRearGunners(state, dt);
   stepBombers(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);

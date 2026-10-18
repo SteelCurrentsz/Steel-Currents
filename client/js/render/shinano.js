@@ -73,6 +73,7 @@ import {
 import { hullForm, plateHull } from './hullform.js';
 import { zero, suisei, tenzan } from './planekit.js';
 import { ZERO } from './zeroModel.js';
+import { SUISEI } from './suiseiModel.js';
 import { engineStart } from './deckengine.js';
 import {
   typeEightNine, triple25, rocket, rangefinder, director,
@@ -1799,7 +1800,7 @@ function airGroup(g) {
     const a = kind === 'tenzan'
       ? tenzan(g, x, y, z, yaw, false, false, {})
       : kind === 'suisei'
-        ? suisei(g, x, y, z, yaw, false, {})
+        ? suisei(g, x, y, z, yaw, false, { lod: true })
         : zero(g, x, y, z, yaw, false, { lod: true });
     // The opposite of the hangar park: these are ranged for flying off, so it
     // is the folded set that has to go or she carries both at once.
@@ -3214,7 +3215,8 @@ function landZ() { return FD_AFT + RD_AFT + 5; }
 
 /**
  * The aircraft that flies when she launches, and where it waits: a Tenzan for
- * a strike, and a Zero when it is fighters going off. Both ride the same
+ * a torpedo strike, a Suisei for a dive bombing one, and a Zero when it is
+ * fighters going off. Both ride the same
  * group, so the lift and the deck run do not care which one it is; the one
  * not flying is put out of sight.
  */
@@ -3225,6 +3227,8 @@ function deckAircraft(g) {
   const body = tenzan(plane, 0, 0, 0, 0, true, true);
   const fighter = zero(plane, 0, 0, 0, 0, false, {});
   fighter.visible = false;
+  const diver = suisei(plane, 0, 0, 0, 0, false, {});
+  diver.visible = false;
   const out = {
     group: plane,
     prop: body.userData.prop || null,
@@ -3237,10 +3241,12 @@ function deckAircraft(g) {
         gear: body.userData.gear || null, exhaust: [[-0.62, 1.55, 3.0], [0.62, 1.55, 3.0]] },
       fighter: { body: fighter, prop: fighter.userData.prop || null, wings: null,
         gear: fighter.userData.gear || null, exhaust: ZERO.exhaust },
+      dive: { body: diver, prop: diver.userData.prop || null, wings: null,
+        gear: diver.userData.gear || null, exhaust: SUISEI.exhaust },
     },
   };
   out.pick = (role) => {
-    const k = out.kinds[role === 'fighter' ? 'fighter' : 'torpedo'];
+    const k = out.kinds[role === 'fighter' ? 'fighter' : role === 'dive' ? 'dive' : 'torpedo'];
     for (const v of Object.values(out.kinds)) v.body.visible = v === k;
     out.prop = k.prop; out.wings = k.wings; out.gear = k.gear; out.exhaust = k.exhaust;
   };

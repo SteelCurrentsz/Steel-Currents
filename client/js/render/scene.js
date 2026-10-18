@@ -2236,7 +2236,7 @@ export class BattleScene {
     this.debris.update(dt);
     this.wreck.update(dt);
     this.flak.update(dt);
-    this.bombs.update(dt);
+    this.bombs.update(dt, this.camera);
     this.torpedoes.update(dt, this.torpsNow || [],
       (x, z) => this.ocean.heightAt(x, z));
     this.charges.update(dt, this.chargesNow || []);

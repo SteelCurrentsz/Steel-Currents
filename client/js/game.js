@@ -13,7 +13,9 @@ import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
   from './render/aero.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
-import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT } from './render/planes.js';
+import {
+  ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT, storeOf, rearGunOf,
+} from './render/planes.js';
 import { cutFromHoles, breakCut, piecesOf, Pieces } from './render/breakup.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
@@ -104,6 +106,16 @@ const PAN_TO_LET_GO = 26;
 
 // Scratch for reading a mounting's place in the world off the scene graph.
 const GUN_EYE = new THREE.Vector3();
+// Scratch for the rear gunner: see `rearGun`.
+const RG_M = new THREE.Matrix4();
+const RG_M2 = new THREE.Matrix4();
+const RG_V = new THREE.Vector3();
+const RG_V2 = new THREE.Vector3();
+const RG_ONE = new THREE.Vector3(1, 1, 1);
+const RG_Q = new THREE.Quaternion();
+const RG_Q2 = new THREE.Quaternion();
+const RG_E = new THREE.Euler();
+const RG_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 const EYE_UP = new THREE.Vector3();
 const EYE_TOP = new THREE.Vector3();
 const EYE_BACK = new THREE.Vector3();
@@ -585,6 +597,11 @@ export class Battle {
     // How far each flight's bomb bay is open and how far her weapon has
     // fallen clear of her. See `bayTrim`.
     this.planeTrim = new Map();
+    // Where each flight's machines were last drawn, slot by slot, and how fast
+    // they were going: what a bomb is let go from. See `releaseOf`.
+    this.planeDrawn = new Map();
+    // What each flight's rear gunner is on, off the wire. See `rearGun`.
+    this.rearAim = new Map();
     this.snapTime = 0;
     this.serverTime = 0;
     this.shellTrails = new Map();
@@ -2645,7 +2662,9 @@ export class Battle {
           // scene; whether she hits was settled the moment the pilot let go.
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
           const y = from ? this.planeHeight(from) : 220;
-          this.scene.bombs.drop(ev.x, y, ev.z, ev.tx, ev.tz, !!ev.hit, fx);
+          // Off the rack it was hanging on, in the machine it was hanging in.
+          const rel = this.releaseOf(ev.i);
+          this.scene.bombs.drop(ev.x, y, ev.z, ev.tx, ev.tz, !!ev.hit, fx, 1.8, 108, rel);
           break;
         }
         case 'airGuns': {
@@ -2667,6 +2686,25 @@ export class Battle {
           // Drawn on her, at each gun, for as long as the burst lasts -- see
           // airFx -- rather than left in the air where she was when it began.
           if (from) this.airBursts.set(ev.i, this.time + 0.35);
+          break;
+        }
+        case 'rearGun': {
+          // Her gunner, on something of ours or theirs astern of her. The gun
+          // swings onto it in `rearGun`, frame by frame; here is the tracer.
+          this.rearAim.set(ev.i, { t: ev.t, x: ev.x, y: ev.y, z: ev.z, at: this.time });
+          const d = this.planeDrawn.get(ev.i);
+          const g = d && rearGunOf(d.kind);
+          if (!d || !g || !d.n || this.time - d.at > 1) break;
+          const tgt = (this.planesNow || []).find((q) => q.i === ev.t);
+          const tx = tgt ? tgt.x : ev.x, tz = tgt ? tgt.z : ev.z;
+          const ty = tgt ? this.planeHeight(tgt) : ev.y;
+          // From each machine whose gunner has a line on her, not out of the
+          // middle of the formation.
+          for (let i = 0; i < d.n; i++) {
+            const mz = this.rearMuzzle(d, g, i, RG_V);
+            if (!mz) continue;
+            this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, 7.7, 6, fx, 7, 0);
+          }
           break;
         }
         case 'deckCrash': {
@@ -4193,6 +4231,125 @@ export class Battle {
   }
 
   /**
+   * The world matrix of one machine's rear gun as it is laid now, turned so
+   * its bore is +z -- which is the way a muzzle flash is drawn -- or null.
+   */
+  rearMatrix(d, g, slot, out = RG_M) {
+    const m = d.mats[slot];
+    if (!m) return null;
+    const t = this.planeTrim.get(d.id);
+    RG_E.set(t && t.gunPitch !== undefined ? t.gunPitch : 0.25, t && t.gunYaw ? t.gunYaw : 0, 0, 'YXZ');
+    RG_Q.copy(g.rot).multiply(RG_Q2.setFromEuler(RG_E)).multiply(RG_FLIP);
+    out.compose(RG_V.fromArray(g.at), RG_Q, RG_ONE).premultiply(m);
+    return out;
+  }
+
+  /** Where one machine's rear gun's muzzle is in the world. */
+  rearMuzzle(d, g, slot, out) {
+    const m = this.rearMatrix(d, g, slot);
+    if (!m) return null;
+    return out.set(-g.muzzle[0], g.muzzle[1], -g.muzzle[2]).applyMatrix4(m);
+  }
+
+  /**
+   * Her gunner, swinging his gun onto whatever he is shooting at and back to
+   * stowed when there is nothing, and the flash at its muzzle while he fires.
+   * Laid off the aeroplane as she was last drawn, so the gun points where the
+   * target is on the screen.
+   */
+  rearGun(pl, kind, vel, dt) {
+    const g = rearGunOf(kind);
+    if (!g) return;
+    const t = this.planeTrim.get(pl.i);
+    const d = this.planeDrawn.get(pl.i);
+    if (!t || !d) return;
+    d.id = pl.i;
+    const aim = this.rearAim.get(pl.i);
+    const live = aim && this.time - aim.at < 0.5;
+    let yaw = 0, pitch = 0.25;
+    if (live && d.mats[0]) {
+      const q = (this.planesNow || []).find((p) => p.i === aim.t);
+      RG_V.set(q ? q.x : aim.x, q ? this.planeHeight(q) : aim.y, q ? q.z : aim.z);
+      // Into her frame, about the gun's pivot, and then into the frame the
+      // gun is built in.
+      RG_M2.copy(d.mats[0]).invert();
+      RG_V.applyMatrix4(RG_M2).sub(RG_V2.fromArray(g.at));
+      RG_V.applyQuaternion(RG_Q.copy(g.rot).invert()).normalize();
+      // The gun is laid aft along -z: yaw about her vertical, then up.
+      yaw = Math.atan2(-RG_V.x, -RG_V.z);
+      pitch = Math.asin(Math.max(-1, Math.min(1, RG_V.y)));
+      yaw = Math.max(-2.3, Math.min(2.3, yaw));
+      pitch = Math.max(-0.35, Math.min(1.25, pitch));
+    }
+    // A man swinging a gun on a ring: quick, but not instant.
+    const k = 1 - Math.exp(-dt * (live ? 7 : 2));
+    t.gunYaw = (t.gunYaw || 0) + angleDelta(t.gunYaw || 0, yaw) * k;
+    t.gunPitch = (t.gunPitch ?? 0.25) + (pitch - (t.gunPitch ?? 0.25)) * k;
+    if (!live) return;
+    const eye = this.scene.camera.position;
+    for (let i = 0; i < d.n; i++) {
+      const m = this.rearMatrix(d, g, i);
+      if (!m) continue;
+      const far = Math.hypot(m.elements[12] - eye.x, m.elements[13] - eye.y, m.elements[14] - eye.z);
+      if (far > 1500) continue;
+      this.scene.gunFlashes.fire(`${pl.i}/rear/${i}`, m, [[0, 0.06, 0.88]], vel, 7.7,
+        this.scene.effects, dt, i === 0 && far < 400);
+    }
+  }
+
+  /** Keep where each machine of a flight was just drawn; see `releaseOf`. */
+  noteDrawn(id, kind, vx, vy, vz) {
+    const f = this.scene.flights;
+    let d = this.planeDrawn.get(id);
+    if (!d) {
+      d = { kind, mats: [], v: new THREE.Vector3(), next: 0 };
+      this.planeDrawn.set(id, d);
+    }
+    d.kind = kind;
+    d.v.set(vx, vy, vz);
+    d.n = f.slotN;
+    for (let i = 0; i < f.slotN; i++) {
+      if (!d.mats[i]) d.mats[i] = new THREE.Matrix4();
+      d.mats[i].copy(f.slotM[i]);
+    }
+    d.at = this.time;
+  }
+
+  /**
+   * Where the next bomb out of a flight leaves from: the rack in the next of
+   * her machines, as she was last drawn, with that machine's speed and the
+   * bomb lying the way it lay in her. Null when she is not being drawn, and
+   * the bomb goes from where the simulation says.
+   */
+  releaseOf(id) {
+    const d = this.planeDrawn.get(id);
+    if (!d || !d.n || this.time - d.at > 1) return null;
+    const st = storeOf(d.kind);
+    const m = d.mats[d.next % d.n];
+    d.next++;
+    const p = st ? new THREE.Vector3().fromArray(st.at) : new THREE.Vector3(0, 0.2, 0.4);
+    p.applyMatrix4(m);
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    if (st) {
+      q.multiply(st.q);
+      // Her own weapon, which is what falls.
+      if (st.geo) {
+        this.scene.bombs.shape(d.kind, st.geo.clone().translate(-st.mid.x, -st.mid.y, -st.mid.z),
+          st.mats.length > 1 ? st.mats : st.mats[0]);
+      }
+    }
+    // The trim: the bomb is the falling one now, and the one on the rack is
+    // not drawn again.
+    const t = this.planeTrim.get(id);
+    if (t) t.handed = true;
+    return {
+      p, v: d.v.clone(), q,
+      len: st ? st.len : 1.75, r: st ? st.r : 0.2,
+      shape: st && st.geo ? d.kind : null,
+    };
+  }
+
+  /**
    * How far a flight's bay is open and how far her weapon has fallen.
    *
    * The squadrons in the air are drawn as instanced batches -- one geometry
@@ -4236,6 +4393,17 @@ export class Battle {
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
+    // She opens up on the way down, not at the bottom of it. A dive bomber's
+    // doors are open from the moment she is over on her back and committed
+    // -- the bomb has to be clear to go the instant she lets go of it -- and a
+    // torpedo bomber's are open for the last of her run on the water. They
+    // used to open at the instant of release, with the weapon already falling
+    // out of a bay that was still shut.
+    if (!t.gone && !pl.d) {
+      const role = pl.r || 'torpedo';
+      if (role === 'dive' && (pl.vy || 0) < -14) t.hold = Math.max(t.hold, 0.5);
+      if (role === 'torpedo' && (pl.y ?? 220) < 90 && (pl.vy || 0) < 4) t.hold = Math.max(t.hold, 0.5);
+    }
     t.hold = Math.max(0, t.hold - dt);
     // A bomb bay takes about a second and a half either way.
     const want = t.hold > 0 ? 1 : 0;
@@ -5308,6 +5476,7 @@ export class Battle {
     // to ride the same interpolated round the screen is showing rather than
     // the raw snapshot position five times a second behind it.
     const shells = [];
+    const bombsNow = [];
     // A shell is drawn nose-first along the line it is actually flying, so the
     // line between the last snapshot's position and this one is what points
     // her. That is her velocity to within a tick, which is near enough: a
@@ -5320,9 +5489,16 @@ export class Battle {
       const dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
       const dy = prev ? prev.y - sh.y : 0.2;
       const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
-      n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
+      // A heavy's bomb is a bomb, drawn as one and at her own size beside
+      // the formation that let her go -- not as a gun's round of the same
+      // weight, glowing like tracer and five times as long.
+      if (sh.bm) {
+        const lb = Math.max(250, (sh.c - 180) / 0.10);
+        bombsNow.push({ x, y, z, dx, dy, dz, len: Math.min(3.2, 1.1 + lb * 0.0006), r: Math.min(0.5, 0.12 + lb * 0.00008) });
+      } else n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
       shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm, bm: sh.bm });
     }
+    this.scene.bombs.carry(bombsNow);
     this.shellsNow = shells;
     // And heard: the shriek of the rounds going over, nearest first.
     audio.shells(shells, dt);
@@ -5470,6 +5646,8 @@ export class Battle {
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
           kind, trim, holes, a.span, this.flight.cut || 0, 0, attitudeOf(mine));
         const n = pathOf(mine);
+        this.noteDrawn(pl.i, kind, n.x * mine.v, n.y * mine.v, n.z * mine.v);
+        this.rearGun(pl, kind, { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v }, dt);
         this.airFx(pl.i, kind, mine.g, mine.v, mine.y,
           { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v },
           this.flight.firingNow ? 1 : 0, dt);
@@ -5480,6 +5658,8 @@ export class Battle {
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span,
           cutFromHoles(holes, pl.dm), 0);
+        this.noteDrawn(pl.i, kind, Math.sin(pl.h) * gs, pl.vy || 0, Math.cos(pl.h) * gs);
+        this.rearGun(pl, kind, { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs }, dt);
         this.airFx(pl.i, kind, 1 / Math.max(0.25, Math.abs(Math.cos(bank))), gs,
           this.planeHeight(pl),
           { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs },
