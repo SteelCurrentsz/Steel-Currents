@@ -8064,8 +8064,9 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
   const want = {
     // Two doors and the fish inside them.
     avenger: ['prop', 'bayPort', 'bayStbd', 'store'],
-    // The Suisei is the one dive bomber of the four with an internal bay.
-    suisei: ['prop', 'bayPort', 'bayStbd', 'store'],
+    // The Suisei is the one dive bomber of the four with an internal bay --
+    // and, being the owner's sculpt, her legs and her gunner's gun move too.
+    suisei: ['prop', 'bayPort', 'bayStbd', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
     // A Dauntless has no bay: a bomb let go from the belly of a machine
     // standing on her nose goes through her own airscrew, so it swings clear
     // on a trapeze first.
@@ -8084,7 +8085,7 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
         `the ${kind}'s ${q.name} has no hinge`);
       // A door swings, the weapon falls away, the airscrew turns. Nothing
       // registered as a moving part may be inert.
-      assert.ok(q.open !== 0 || q.fall || q.spin,
+      assert.ok(q.open !== 0 || q.fall || q.spin || q.turret,
         `the ${kind}'s ${q.name} cannot move`);
     }
   }
