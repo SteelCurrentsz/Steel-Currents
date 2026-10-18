@@ -11,6 +11,7 @@ dist/
 build/bundle.js
 build/steel-currents.html
 build/split/
+build/chunks/
 build/*.png
 # Throwaway probe pages: one ship on a plane of sea, so a model can be
 # measured and photographed without starting a battle. Made as needed.

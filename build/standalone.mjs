@@ -27,17 +27,27 @@ const SPLIT = process.argv.includes('--split');
 const out = (...p) => path.join(ROOT, 'build', ...p);
 const HULLS = path.join(ROOT, 'client/js/render');
 
+// Split, the ships fetched on demand (see loadShips in ships.js) are chunks of
+// their own beside the page, so the page does not wait on their hulls: the
+// data files they import are external, and a chunk imports its own only when
+// it is itself fetched. The entry is `main.js` in the chunk directory.
+const CHUNKS = out('chunks');
+fs.rmSync(CHUNKS, { recursive: true, force: true });
 execFileSync('npx', [
   'esbuild', 'client/js/main.js',
   // MINIFY=0 leaves the names in, for a profile that can be read.
   '--bundle', ...(process.env.MINIFY === '0' ? [] : ['--minify']),
-  ...(SPLIT ? ['--format=esm', '--external:*.data.js'] : ['--format=iife']),
-  `--outfile=${out('bundle.js')}`, '--log-level=warning',
+  ...(SPLIT
+    ? ['--format=esm', '--external:*.data.js', '--splitting', `--outdir=${CHUNKS}`,
+      '--chunk-names=chunk-[hash]']
+    : ['--format=iife', `--outfile=${out('bundle.js')}`]),
+  '--log-level=warning',
 ], { cwd: ROOT, stdio: 'inherit' });
 
 let html = fs.readFileSync(path.join(ROOT, 'client/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'client/css/style.css'), 'utf8');
-const js = fs.readFileSync(out('bundle.js'), 'utf8');
+const js = fs.readFileSync(SPLIT ? path.join(CHUNKS, 'main.js') : out('bundle.js'), 'utf8');
+const chunks = SPLIT ? fs.readdirSync(CHUNKS).filter((f) => f.startsWith('chunk-')) : [];
 
 // Drop the two tags that point at files this page will not be able to fetch.
 html = html.replace(/\s*<link rel="stylesheet" href="css\/style\.css" \/>/, '');
@@ -123,11 +133,16 @@ if (!SPLIT) {
 } else {
   // Every hull the module imports, and no other: a data file it does not
   // name would be dead weight, and one it names that is missing a blank sea.
-  const named = [...new Set([...js.matchAll(/["']\.\/([A-Za-z]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
+  const every = [js, ...chunks.map((f) => fs.readFileSync(path.join(CHUNKS, f), 'utf8'))].join('\n');
+  const named = [...new Set([...every.matchAll(/["']\.\/([A-Za-z]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
   fs.rmSync(out('split'), { recursive: true, force: true });
   fs.mkdirSync(out('split'));
   fs.writeFileSync(out('split', 'index.html'), html);
   console.log(`build/split/index.html — ${Math.round(html.length / 1024)} KB`);
+  for (const f of chunks) {
+    fs.copyFileSync(path.join(CHUNKS, f), out('split', f));
+    console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
+  }
   for (const f of named) {
     fs.copyFileSync(path.join(HULLS, f), out('split', f));
     console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
