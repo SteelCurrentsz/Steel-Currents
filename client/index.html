@@ -506,6 +506,36 @@
         <circle cx="10" cy="19" r="5.2"/><circle cx="22" cy="19" r="5.2"/>
         <path d="M12 9h8M10 14l2-5M22 14l-2-5M15.2 19h1.6"/></g></svg>
     </button>
+    <!-- The set pieces: what a fighter pilot does with his hands rather than
+         his eyes. Each is flown through her own wing, and a drag on the glass
+         takes her back off it. Q/E, Z/X, V, B and N at a desk. -->
+    <div class="fly-moves" id="fly-moves">
+      <button class="fly-move" type="button" data-move="roll" aria-label="Aileron roll">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M6 16h20M16 12v8"/><path d="M8 9a11 11 0 0 1 16 0"/><path d="M24 9l-.5-4M24 9l-4 .4"/></g></svg>
+        <span>ROLL</span>
+      </button>
+      <button class="fly-move" type="button" data-move="barrel" aria-label="Barrel roll">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M4 20c4-10 8-10 12 0s8 10 12 0"/><path d="M4 12c4 10 8 10 12 0s8-10 12 0" opacity="0.45"/></g></svg>
+        <span>BARREL</span>
+      </button>
+      <button class="fly-move" type="button" data-move="loop" aria-label="Loop">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M4 26h10c8 0 12-5 12-11a8 8 0 0 0-16 0c0 6 4 11 12 11h6"/></g></svg>
+        <span>LOOP</span>
+      </button>
+      <button class="fly-move" type="button" data-move="immelmann" aria-label="Immelmann turn">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M4 26h10a9 9 0 0 0 0-18H6"/><path d="M9 4l-4 4 4 4"/></g></svg>
+        <span>IMMEL</span>
+      </button>
+      <button class="fly-move" type="button" data-move="splitS" aria-label="Split-S">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M4 6h10a9 9 0 0 1 0 18H6"/><path d="M9 20l-4 4 4 4"/></g></svg>
+        <span>SPLIT-S</span>
+      </button>
+    </div>
     <div class="fly-actions">
       <!-- Her armament, as the ship's arsenal panel lists a ship's: every gun
            and every powered turret aboard, and pressing one puts you in it. -->

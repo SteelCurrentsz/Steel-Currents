@@ -284,7 +284,7 @@ class HudBase {
       flyDamage: $('fly-damage'), flyDamageBoard: $('fly-damage-board'),
       flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
-      flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'),
+      flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'), flyMoves: $('fly-moves'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -959,6 +959,14 @@ class HudBase {
         el.flyZoom.classList.toggle('on', this.fly.zoom);
       };
     }
+    // The set pieces, each its own key.
+    this.moveKeys = el.flyMoves ? [...el.flyMoves.querySelectorAll('[data-move]')] : [];
+    for (const btn of this.moveKeys) {
+      btn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        this.flyFns.move?.(btn.dataset.move);
+      });
+    }
     el.flyDrop.onclick = () => this.flyFns.drop?.();
     el.flyLeave.onclick = () => this.flyFns.leave?.();
     // Her armament, in the cockpit. The same panel the bridge raises with the
@@ -967,6 +975,23 @@ class HudBase {
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
+  }
+
+  /** Offer the set pieces, or not: a heavy bomber has none. */
+  setMoves(on) {
+    if (this.el.flyMoves) this.el.flyMoves.hidden = !on;
+  }
+
+  /** Light the key for a set piece while she flies it. */
+  flashMove(kind) {
+    for (const btn of this.moveKeys || []) {
+      const on = btn.dataset.move === kind;
+      btn.classList.toggle('on', on);
+      if (on) {
+        clearTimeout(btn.flashT);
+        btn.flashT = setTimeout(() => btn.classList.remove('on'), 900);
+      }
+    }
   }
 
   /** Put the throttle somewhere, and the knob with it. 0 to THROTTLE_MAX. */

@@ -647,6 +647,31 @@ input[type="range"] { accent-color: var(--red); }
 }
 .fly-round.on { background: rgba(108, 150, 214, 0.6); }
 
+/* The set pieces: a row of small keys across the top middle, under the way
+   out of the cockpit. That is open sky: the aeroplane sits below the middle
+   of the picture, her damage board has the bottom, and the triggers and the
+   throttle have the corners. */
+.fly-moves {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc(max(0.8rem, env(safe-area-inset-top)) + 2.3rem);
+  display: flex; gap: 0.45rem; pointer-events: none;
+}
+.fly-move {
+  pointer-events: auto; touch-action: none; cursor: pointer; padding: 0;
+  width: 50px; height: 50px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(8, 19, 31, 0.4); color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.fly-move svg { width: 52%; height: 52%; display: block; }
+.fly-move span {
+  font-family: var(--ui); font-size: 0.42rem; letter-spacing: 0.08em; margin-top: 1px;
+}
+.fly-move:active, .fly-move.on {
+  background: rgba(108, 150, 214, 0.6); border-color: #fff;
+}
+
 /* The rest of what she carries, along the bottom right beside the throttle. */
 .fly-actions {
   position: absolute; right: max(0.8rem, env(safe-area-inset-right));
@@ -2356,6 +2381,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .fly-fire.right { width: 64px; height: 64px; }
   .fly-throttle { height: 38vh; }
   .fly-round, .fly-btn { width: 48px; height: 48px; }
+  .fly-move { width: 42px; height: 42px; }
+  .fly-move span { display: none; }
   .fly-readout { top: 36%; }
   .fly-readout b { font-size: 0.9rem; }
   .fly-readout i { font-size: 0.7rem; }

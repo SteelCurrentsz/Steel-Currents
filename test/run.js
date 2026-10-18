@@ -52,6 +52,8 @@ import {
   rollRate, rollTau, pitchTau, instruct,
 } from '../client/js/render/aero.js';
 import { twoFingerGesture } from '../client/js/touch.js';
+import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
+import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.
@@ -20120,6 +20122,155 @@ check('the instructor flies her onto the marker, left for left and up for up', (
   const p = new Pilot(AERO.wildcat, { y: 1500, speed: 110 });
   for (let i = 0; i < 30; i++) { instruct(p, dir(-1, 0)); p.step(1 / 60, 0); }
   assert.ok(p.bank < -0.2 && p.heading < 0, `bank ${p.bank.toFixed(2)}, heading ${p.heading.toFixed(2)}`);
+});
+
+check('set pieces: a roll goes right round, a loop comes back, a split-S reverses downhill', () => {
+  // Mouse-aim cannot ask for a roll or a loop -- there is no point in the sky
+  // that means "go round once" -- so each is a short script for the stick,
+  // flown through the same wing as everything else.
+  const fly = (kind, dir = 1, aero = AERO.wildcat, speed = 120) => {
+    const p = new Pilot(aero, { y: 2000, speed });
+    const h0 = p.heading;
+    const y0 = p.y;
+    assert.ok(startManeuver(p, kind, dir), `no such manoeuvre as ${kind}`);
+    let t = 0;
+    let rolled = 0;
+    let topPitch = 0;
+    let lowPitch = 0;
+    let stalled = 0;
+    while (p.man && t < 20) {
+      flyManeuver(p, 1 / 60);
+      p.step(1 / 60, 0);
+      t += 1 / 60;
+      rolled += p.roll / 60;
+      topPitch = Math.max(topPitch, p.pitch);
+      lowPitch = Math.min(lowPitch, p.pitch);
+      stalled = Math.max(stalled, p.stall);
+    }
+    return { p, t, turned: wrapAngle(p.heading - h0), dy: p.y - y0, rolled, topPitch, lowPitch, stalled };
+  };
+  // An aileron roll: right round, either way, and out roughly level on the
+  // heading she went in on.
+  for (const dir of [1, -1]) {
+    const r = fly('roll', dir);
+    assert.ok(Math.abs(Math.abs(r.rolled) - Math.PI * 2) < 0.6,
+      `a roll went round ${(r.rolled * 57.3).toFixed(0)} degrees`);
+    assert.ok(Math.sign(r.rolled) === dir, 'she rolled the wrong way');
+    assert.ok(Math.abs(r.turned) < 0.3, `a roll changed her heading by ${(r.turned * 57.3).toFixed(0)}`);
+    assert.ok(r.p.alive && r.t < 6, 'a roll took too long or went into the sea');
+  }
+  // A barrel roll goes round too, and the nose comes up first.
+  const barrel = fly('barrel');
+  assert.ok(Math.abs(barrel.rolled) > Math.PI * 1.6, 'a barrel roll did not go round');
+  assert.ok(barrel.topPitch > 0.2, 'a barrel roll never put her nose up');
+  // A loop: through the vertical, over on her back, and back on the heading
+  // she started on.
+  const loop = fly('loop', 1, AERO.wildcat, 135);
+  assert.ok(loop.topPitch > 1.3 && loop.lowPitch < -0.6, 'a loop did not go over the top');
+  assert.ok(Math.abs(loop.turned) < 0.35, `a loop came out ${(loop.turned * 57.3).toFixed(0)} degrees off`);
+  assert.ok(loop.stalled < 0.5, 'she stalled going round a loop at a fair speed');
+  // An Immelmann goes back the way she came, higher; a split-S goes back the
+  // way she came, lower.
+  const imm = fly('immelmann', 1, AERO.wildcat, 140);
+  assert.ok(Math.abs(imm.turned) > Math.PI * 0.8, 'an Immelmann did not reverse her');
+  assert.ok(imm.dy > 150, `an Immelmann gained only ${imm.dy.toFixed(0)} m`);
+  assert.ok(Math.abs(wrapAngle(imm.p.bank)) < 0.5, 'an Immelmann left her on her back');
+  const splitS = fly('splitS');
+  assert.ok(Math.abs(splitS.turned) > Math.PI * 0.8, 'a split-S did not reverse her');
+  assert.ok(splitS.dy < -300, `a split-S lost only ${-splitS.dy.toFixed(0)} m`);
+  assert.ok(Math.abs(wrapAngle(splitS.p.bank)) < 0.5, 'a split-S left her on her back');
+});
+
+check('the instructor pulls her out of a dive onto a marker behind her, rather than spiralling', () => {
+  // Off the bottom of a loop: nose well down, the marker level and behind.
+  // Turning flat onto it is a diving spiral; putting her lift on it and
+  // pulling brings her out.
+  const p = new Pilot(AERO.wildcat, { y: 2500, speed: 110 });
+  p.pitch = -1.1;
+  p.bank = -1.2;
+  const aim = { x: 0, y: 0, z: -1 };
+  let off = Math.PI;
+  for (let i = 0; i < 60 * 9; i++) { off = instruct(p, aim); p.step(1 / 60, 0); }
+  assert.ok(p.alive, 'she flew into the sea');
+  assert.ok(off < 0.15, `still ${(off * 57.3).toFixed(0)} degrees off the marker after nine seconds`);
+  assert.ok(p.pitch > -0.3, `still diving at ${(p.pitch * 57.3).toFixed(0)} degrees`);
+});
+
+check('an enemy fighter on her tail is shaken off, not flown away from in a straight line', () => {
+  // A bot fighter used to fight by being near: nothing it did depended on
+  // where anybody was pointing. Now she looks over her shoulder.
+  const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  launchStrike(st, cv);
+  launchStrike(st, foe);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const bot = st.planes.find((q) => q.team === 0 && q.role === 'fighter' && !q.dead);
+  const him = st.planes.find((q) => q.team === 1 && q.role === 'fighter' && !q.dead);
+  assert.ok(bot && him, 'there are not two fighters');
+  for (const q of st.planes) if (q !== bot && q !== him) { q.x = -40000; q.z = -40000; }
+  bot.x = 30000; bot.z = 30000; bot.y = 1800; bot.heading = 0;
+  bot.phase = 'outbound';
+  bot.targetAir = him.id;
+  // Him: three hundred metres astern of her, nose on her, held there as a
+  // player would be -- flown, not the simulation's.
+  const glue = () => {
+    const f = bot.df ? pathOf(bot.df.pilot) : { x: Math.sin(bot.heading), y: 0, z: Math.cos(bot.heading) };
+    him.x = bot.x - f.x * 300; him.y = bot.y - f.y * 300; him.z = bot.z - f.z * 300;
+    him.heading = Math.atan2(f.x, f.z);
+    him.pitch = Math.asin(f.y);
+    him.speed = 110;
+    him.flown = true;
+    him.flownAt = st.t;
+    him.pilot = foe.id;
+  };
+  const seen = new Set();
+  let rolledHard = 0;
+  for (let i = 0; i < 30 * 12; i++) {
+    glue();
+    step(st, DT);
+    if (bot.df) {
+      seen.add(bot.df.mode);
+      if (bot.df.pilot.man) seen.add(`man:${bot.df.pilot.man.kind}`);
+      rolledHard = Math.max(rolledHard, Math.abs(bot.df.pilot.bank));
+    }
+  }
+  assert.ok(bot.df, 'she never went into the fight');
+  assert.ok(seen.has('defend'), `she never saw him: ${[...seen].join(', ')}`);
+  assert.ok([...seen].some((m) => m.startsWith('man:')),
+    `she never threw anything to spoil his aim: ${[...seen].join(', ')}`);
+  assert.ok(rolledHard > 1.2, 'she never banked hard to get out from under him');
+});
+
+check('a bot fighter shoots only when her guns bear', () => {
+  // The rounds are real, so spraying them about is no use -- and a bot that
+  // fired whenever anything was close would tell everybody where she was.
+  const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  launchStrike(st, cv);
+  launchStrike(st, foe);
+  for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
+  const bot = st.planes.find((q) => q.team === 0 && q.role === 'fighter' && !q.dead);
+  const him = st.planes.find((q) => q.team === 1 && !q.dead);
+  bot.x = 0; bot.z = 0; bot.y = 1500; bot.heading = 0; bot.speed = 110; bot.vy = 0;
+  enterDogfight(bot, AERO.wildcat);
+  const ctx = { rng: st.rng, groundAt: () => 0, mayHurt: (s, t, q) => q.team !== t, wear: null };
+  // Dead astern of her, going away: nothing bears.
+  him.x = 0; him.z = -300; him.y = 1500; him.heading = Math.PI; him.speed = 100; him.vy = 0;
+  assert.equal(stepDogfight(st, bot, him, DT, ctx).fire, false, 'she fired at something behind her');
+  // Dead ahead, going the same way, at three hundred metres: it does.
+  enterDogfight(bot, AERO.wildcat);
+  bot.df.think = 99;
+  bot.df.aim = { x: 0, y: 0, z: 1 };
+  him.x = 0; him.z = 300; him.y = 1500 + 300 * Math.sin(bot.df.pilot.attitude); him.heading = 0;
+  him.speed = bot.df.pilot.v; him.vy = 0;
+  let fired = false;
+  for (let i = 0; i < 10 && !fired; i++) {
+    bot.x = 0; bot.z = 0; bot.y = 1500;
+    fired = stepDogfight(st, bot, him, DT, ctx).fire;
+  }
+  assert.ok(fired, 'she held her fire with him sitting in her sight');
 });
 
 check('a float plane is not coming back: she goes into an enemy ship when her work is done', () => {

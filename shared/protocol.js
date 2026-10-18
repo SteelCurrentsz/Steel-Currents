@@ -368,6 +368,12 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // How hard she is turning, so the client can bank her properly instead
       // of differencing two headings five times a second.
       b: r3(p.turn || 0),
+      // And, when somebody is actually flying her -- a player, or one of the
+      // simulation's own fighter pilots in a fight -- her real bank and the
+      // pitch of her flight path. A roll, a loop or a split-S cannot be drawn
+      // from a turn rate: she goes past the vertical and over on her back.
+      bk: p.df || p.flown ? r3(p.bank || 0) : undefined,
+      pt: p.df || p.flown ? r3(p.pitch || 0) : undefined,
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
       // And which machine, where her ship flies one particular type. A

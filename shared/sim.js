@@ -14,6 +14,10 @@ import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
 } from './aero.js';
 import {
+  enterDogfight, leaveDogfight, stepDogfight, pickFoe, threatOn, velocityOf as airVelocity, gunned,
+  ENGAGE, DISENGAGE,
+} from './dogfight.js';
+import {
   freshAirframe, hitAirframe, stepAirframe, airframeState, flightState,
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
@@ -2502,6 +2506,8 @@ export function flyPlane(state, ship, msg) {
   // since the last word from her, the same way her position is: nobody drops a
   // flight from cruising height into somebody's boat deck in one message.
   if (Number.isFinite(msg.p)) p.pitch = clamp(msg.p, -1.5, 1.5);
+  // And her bank, which is all the way round now that she can be rolled.
+  if (Number.isFinite(msg.bk)) p.bank = wrapAngle(msg.bk);
   // Where her guns are laid, which is her nose and not her flight path, and
   // what she is doing through the air: the rounds go down the one at their
   // muzzle velocity plus the other.
@@ -2604,9 +2610,19 @@ export function strafe(state, ship, id, dt) {
   const P = cls.planes;
   if (!P) return false;
   if (!p.count) return false;
+  burst(state, p, P, dt);
+  return true;
+}
 
+/**
+ * The guns going, for as long as `dt` stands for: on their own rhythm rather
+ * than every tick. The pilot's trigger and the simulation's own fighter pilots
+ * (see dogfight.js) both come through here, so a bot's burst is the same
+ * rounds down the same bore as a player's.
+ */
+function burst(state, p, P, dt) {
   p.gunAt = (p.gunAt ?? 0) + dt;
-  if (p.gunAt < 1 / BURST_RATE) return true;
+  if (p.gunAt < 1 / BURST_RATE) return;
   const rounds = Math.min(4, Math.floor(p.gunAt * BURST_RATE));
   p.gunAt = 0;
 
@@ -2620,7 +2636,6 @@ export function strafe(state, ship, id, dt) {
   for (let i = 0; i < rounds; i++) {
     fireBullet(state, p, air, ship2, spread);
   }
-  return true;
 }
 
 /** One tracer and the rounds it stands for, down the bore and off she goes. */
@@ -6704,6 +6719,77 @@ function stepRam(state, p) {
   return false;
 }
 
+/**
+ * Whether a fighter is in a fight, and with whom.
+ *
+ * She goes in when the flight she is after is close enough to fight, and
+ * comes out when it is gone or a long way off. In between she looks round
+ * every second for whoever matters most -- the man on her tail before the one
+ * in front of her -- which is what a pilot in a fight does with his head.
+ */
+function fightFor(state, p, dt) {
+  // Going home she does not go looking for a fight, but she does not fly
+  // straight and level with somebody on her tail either: she turns and deals
+  // with him, and goes on home when he is gone.
+  if (p.phase === 'return') {
+    const t = threatOn(state, p, mayHurt);
+    if (t) { p.targetAir = t.q.id; p.homeFight = 4; }
+    p.homeFight = Math.max(0, (p.homeFight ?? 0) - dt);
+    if (p.homeFight <= 0) return null;
+  }
+  if (p.df) {
+    p.df.pick = (p.df.pick ?? 0) - dt;
+    if (p.df.pick <= 0) {
+      p.df.pick = 1;
+      const q = pickFoe(state, p, mayHurt);
+      if (q) p.targetAir = q.id;
+    }
+  }
+  const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir && !q.dead) : null;
+  if (!foe) return null;
+  const R = Math.hypot(foe.x - p.x, (foe.y ?? 220) - (p.y ?? 220), foe.z - p.z);
+  if (R > (p.df ? DISENGAGE : ENGAGE)) return null;
+  if (!p.df) enterDogfight(p, airframeOf(p.type, p.role));
+  return foe;
+}
+
+/**
+ * A tick of a fighter in a fight: her pilot flies her, and she shoots when
+ * her guns are on. Returns true if she has flown into the sea doing it.
+ */
+function flyFight(state, p, foe, P, dt) {
+  const res = stepDogfight(state, p, foe, dt, {
+    rng: state.rng,
+    // The ground only asked about where it could possibly be under her.
+    groundAt: (x, z) => ((p.y ?? 220) < landCeiling(state.world) + 400
+      ? groundHeight(state.world, x, z) : 0),
+    mayHurt,
+    wear: p.wear,
+  });
+  const pl = p.df.pilot;
+  p.x = pl.x; p.y = pl.y; p.z = pl.z;
+  if (res.crashed) {
+    killFlight(state, p, 'crashed');
+    return true;
+  }
+  p.heading = pl.heading;
+  p.pitch = pl.pitch;
+  p.bank = pl.bank;
+  p.roll = pl.roll;
+  // Her speed across the ground and up or down, which is what the cruise and
+  // the client both read.
+  p.speed = pl.v * Math.cos(pl.pitch);
+  p.vy = pl.v * Math.sin(pl.pitch);
+  p.turn = (9.80665 * pl.g * Math.sin(pl.bank)) / Math.max(18, pl.v);
+  // Her guns are along her nose, not her flight path.
+  p.gunPitch = pl.attitude;
+  if (res.fire) {
+    burst(state, p, P, dt);
+    gunsSeen(state, p, foe.x, foe.z, true);
+  }
+  return false;
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -6856,7 +6942,7 @@ function stepPlanes(state, dt) {
     // Every couple of seconds she looks again for the thing she is actually
     // after, which is not the same thing for every flight in the strike.
     p.hunt -= dt;
-    if (p.phase === 'outbound' && p.hunt <= 0) {
+    if (p.phase === 'outbound' && p.hunt <= 0 && !p.df) {
       p.hunt = 2;
       const want = pickAirTarget(state, p);
       if (want && want.battery) {
@@ -6933,7 +7019,14 @@ function stepPlanes(state, dt) {
     // word from that client stops coming she is picked up again on the next
     // tick and carries on to wherever she was sent.
     if (p.flown && state.t - (p.flownAt ?? 0) > 1.5) p.flown = false;
-    if (!p.flown) {
+    // In a fight she is flown by a fighter pilot rather than an autopilot:
+    // see dogfight.js.
+    const fight = !p.flown && p.role === 'fighter'
+      && (p.phase === 'outbound' || p.phase === 'return') ? fightFor(state, p, dt) : null;
+    if (!fight && p.df) leaveDogfight(p);
+    if (fight) {
+      if (flyFight(state, p, fight, P, dt)) continue;
+    } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
       if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
       // In company: she flies her station on the leader rather than at the
@@ -7158,6 +7251,28 @@ function stepPlanes(state, dt) {
     if (p.phase === 'outbound' && p.role === 'fighter') {
       // A fighter's attack: guns, in a turning fight or in a firing pass.
       const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir) : null;
+      if (p.df && foe && !foe.dead) {
+        // In a fight. Her own guns went in flyFight, down her bore and only
+        // when they would hit; what is left is his back at her. A bomber's
+        // gunners only see her from astern of him, and they are not a
+        // fighter's guns.
+        if (!gunned(foe)) {
+          const R = Math.hypot(foe.x - p.x, (foe.y ?? 220) - (p.y ?? 220), foe.z - p.z);
+          const vf = airVelocity(foe);
+          const sf = Math.hypot(vf.x, vf.y, vf.z) || 1;
+          const astern = ((p.x - foe.x) * vf.x + ((p.y ?? 220) - (foe.y ?? 220)) * vf.y
+            + (p.z - foe.z) * vf.z) / (sf * Math.max(1, R));
+          if (R < 520 && astern < -0.5) {
+            const bite = P.fighterGuns ?? FIGHTER_GUNS;
+            hurtFlight(state, p, bite * 0.3 * (foe.count || 1) * dt, 'fighters');
+            gunsSeen(state, foe, p.x, p.z, true);
+          }
+        }
+        if (p.dead || p.hp <= 0) { if (!p.dead) killFlight(state, p, 'fighters'); continue; }
+        if (foe.hp <= 0 && !foe.dead) killFlight(state, foe, 'fighters');
+        out.push(p);
+        continue;
+      }
       if (foe && dist(p.x, p.z, foe.x, foe.z) < 420) {
         // Both flights are shooting; the one with more aircraft up and the
         // better position does more of it. She wears them down rather than

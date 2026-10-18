@@ -10,8 +10,9 @@ import { TargetingView } from './render/targetview.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
-import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct }
+import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
   from './render/aero.js';
+import { startManeuver, flyManeuver, pathOf, upOf } from '../../shared/pilot.js';
 import { ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles } from './render/planes.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
@@ -110,6 +111,36 @@ const EYE_HITS = [];
 const INPUT_HZ = 20;
 
 const CAMERAS = ['chase', 'bridge', 'tactical'];
+
+/**
+ * The set pieces a pilot can throw from the keyboard: a roll either way under
+ * Q and E, a barrel roll either way under Z and X, and a loop, an Immelmann
+ * and a split-S under V, B and N. The glass has buttons for the same.
+ */
+const FLY_MOVES = {
+  KeyQ: ['roll', -1], KeyE: ['roll', 1],
+  KeyZ: ['barrel', -1], KeyX: ['barrel', 1],
+  KeyV: ['loop', 1], KeyB: ['immelmann', 0], KeyN: ['splitS', 0],
+};
+
+/** Turn a vector about a unit axis, in place (Rodrigues). */
+function rotate(v, ax, ang) {
+  const c = Math.cos(ang), sn = Math.sin(ang);
+  const d = (v.x * ax.x + v.y * ax.y + v.z * ax.z) * (1 - c);
+  const cx = ax.y * v.z - ax.z * v.y, cy = ax.z * v.x - ax.x * v.z, cz = ax.x * v.y - ax.y * v.x;
+  const x = v.x * c + cx * sn + ax.x * d;
+  const y = v.y * c + cy * sn + ax.y * d;
+  const z = v.z * c + cz * sn + ax.z * d;
+  v.x = x; v.y = y; v.z = z;
+  return v;
+}
+
+/** Make a vector unit length, in place. */
+function norm3(v) {
+  const l = Math.hypot(v.x, v.y, v.z) || 1;
+  v.x /= l; v.y /= l; v.z /= l;
+  return v;
+}
 // How deep the camera may go. The bottom, not the surface: the orbit is allowed
 // under the water, and the only thing down there it must not get inside is the
 // ground.
@@ -633,6 +664,7 @@ export class Battle {
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
       bombCam: () => this.toggleShellCam(),
+      move: (kind) => this.flyMove(kind),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
     // firing.
@@ -2759,6 +2791,12 @@ export class Battle {
     // In the cockpit the flying keys fly her (see stepFlight) and do nothing
     // to the ship she came off.
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space'].includes(code)) return;
+    // And the set pieces, on the keys round the left hand.
+    if (this.flight && FLY_MOVES[code]) {
+      const [kind, dir] = FLY_MOVES[code];
+      this.flyMove(kind, dir);
+      return;
+    }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3378,6 +3416,11 @@ export class Battle {
       // thumb moves and the instructor follows. Starts dead ahead of her.
       aimYaw: pl.h,
       aimPitch: 0,
+      // The same thing as a direction and a way up: the view is free to go
+      // over the top of a loop and come down the other side upside down,
+      // which a yaw and a pitch cannot do -- they run out at the vertical.
+      aimF: { x: Math.sin(pl.h), y: 0, z: Math.cos(pl.h) },
+      aimU: { x: 0, y: 1, z: 0 },
       // What is left in her guns.
       ammo: AMMO[kind] ?? 800,
       guns_n: GUN_COUNT[kind] ?? 2,
@@ -3389,6 +3432,7 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
+    this.hud.setMoves(true);
     // Who she is, in the bottom left corner, and her own damage board across
     // the bottom of the screen.
     const ship = (snap.ships || []).find((q) => q.i === pl.o);
@@ -3463,6 +3507,8 @@ export class Battle {
       count: Math.max(1, bm.n || 1),
       aimYaw: bm.h,
       aimPitch: 0,
+      aimF: { x: Math.sin(bm.h), y: 0, z: Math.cos(bm.h) },
+      aimU: { x: 0, y: 1, z: 0 },
       // A heavy's guns are her turrets, and they are fed from boxes the
       // gunners keep full: nothing to count down.
       ammo: Infinity,
@@ -3474,6 +3520,8 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament('BOMBS');
+    // Nothing that size is rolled or looped.
+    this.hud.setMoves(false);
     this.hud.setFlightIdent(spec.name || 'Heavy bomber',
       `${this.flight.count} of ${spec.crew ? 'the squadron' : 'her'}`);
     if (!this.planeBoard) {
@@ -3643,10 +3691,25 @@ export class Battle {
 
     const stick = this.hud.fly || { throttle: 1, aimX: 0, aimY: 0 };
     const p = f.pilot;
-    this.steerAim(f, stick, dt);
-    // The instructor works the stick, the ailerons and the rudder to put her
-    // nose on the marker.
-    instruct(p, this.flyAim(f, p));
+    // In the middle of a set piece the stick is the manoeuvre's, and the view
+    // goes round with her: when it is flown the marker is wherever her nose
+    // ended up, so the instructor does not haul her straight back.
+    if (p.man) {
+      // A deliberate drag on the glass takes her back off it; a thumb
+      // resting on it does not.
+      p.man.drag = (p.man.drag || 0) + Math.hypot(stick.aimX, stick.aimY);
+      if (p.man.drag > 60) p.man = null;
+      stick.aimX = 0;
+      stick.aimY = 0;
+    }
+    if (p.man && flyManeuver(p, dt)) {
+      this.aimAtNose(f, p, dt);
+    } else {
+      this.steerAim(f, stick, dt);
+      // The instructor works the stick, the ailerons and the rudder to put
+      // her nose on the marker.
+      instruct(p, this.flyAim(f, p));
+    }
     // What a shot-about aeroplane can still be made to do. An engine at half
     // will not hold full power, a wing panel shot through will not be hauled
     // round, and a machine with one wing worse than the other flies one wing
@@ -3747,6 +3810,8 @@ export class Battle {
         // their own muzzle velocity.
         gp: Math.round((p.attitude || 0) * 1000) / 1000,
         v: Math.round(p.v),
+        // And her bank, all the way round, so a roll is seen to be a roll.
+        bk: Math.round((p.bank || 0) * 1000) / 1000,
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
@@ -3778,14 +3843,119 @@ export class Battle {
       - (keys.down('ArrowLeft') || keys.down('KeyA') ? 1 : 0);
     const ky = (keys.down('ArrowUp') ? 1 : 0) - (keys.down('ArrowDown') ? 1 : 0);
     // Screen right is falling heading in this world, so a drag to the right
-    // takes heading off.
-    f.aimYaw = wrapAngle(f.aimYaw - stick.aimX * k - kx * 1.2 * dt);
-    // A heavy is not stood on her tail or pushed straight down; anything else
-    // can be put into a vertical dive.
-    const lim = f.heavy ? 0.6 : 1.55;
-    f.aimPitch = clamp(f.aimPitch - stick.aimY * k + ky * 0.9 * dt, -lim, lim);
+    // turns the view that way; up raises it -- about the view's own axes, so
+    // a drag up keeps going up through the vertical and over the top.
+    const yaw = -stick.aimX * k - kx * 1.2 * dt;
+    const pitch = -stick.aimY * k + ky * 0.9 * dt;
     stick.aimX = 0;
     stick.aimY = 0;
+    const F = f.aimF;
+    const U = f.aimU;
+    // A heavy is not looped: her marker stops short of the vertical.
+    const lim = f.heavy ? Math.sin(0.6) : 2;
+    if (pitch) {
+      const c = Math.cos(pitch), sn = Math.sin(pitch);
+      const nf = { x: F.x * c + U.x * sn, y: F.y * c + U.y * sn, z: F.z * c + U.z * sn };
+      if (Math.abs(nf.y) <= lim || Math.abs(nf.y) < Math.abs(F.y)) {
+        const nu = { x: U.x * c - F.x * sn, y: U.y * c - F.y * sn, z: U.z * c - F.z * sn };
+        Object.assign(F, nf);
+        Object.assign(U, nu);
+      }
+    }
+    if (yaw) {
+      // Round the world's vertical while the view is the right way up, which
+      // is what a drag sideways means; round its own when it is not.
+      const ax = U.y > 0.35 ? { x: 0, y: 1, z: 0 } : U;
+      rotate(F, ax, yaw);
+      rotate(U, ax, yaw);
+    }
+    this.levelAim(f, dt);
+  }
+
+  /**
+   * Bring the view's horizon back level, gently.
+   *
+   * Over the top of a loop the view is upside down, and that is right while
+   * she is going over: the sky is under her canopy. Once she is coming down
+   * the other side it rolls itself back the right way up, which is what a
+   * pilot's head does -- and nothing happens near the vertical, where "level"
+   * has no meaning and trying to find it is what made the old view spin.
+   */
+  levelAim(f, dt) {
+    const F = f.aimF;
+    const U = f.aimU;
+    norm3(F);
+    // The level up for this direction: the world's vertical, square to it.
+    const lv = { x: -F.x * F.y, y: 1 - F.y * F.y, z: -F.z * F.y };
+    if (Math.hypot(lv.x, lv.y, lv.z) > 0.2) {
+      norm3(lv);
+      const rate = (1 - Math.abs(F.y)) * 2.4 * dt;
+      // Turned about her line of sight, so the direction stays put.
+      const sx = F.y * U.z - F.z * U.y, sy = F.z * U.x - F.x * U.z, sz = F.x * U.y - F.y * U.x;
+      const ang = Math.atan2(sx * lv.x + sy * lv.y + sz * lv.z, U.x * lv.x + U.y * lv.y + U.z * lv.z);
+      rotate(U, F, Math.max(-rate, Math.min(rate, ang)));
+    }
+    // And square, against creeping arithmetic.
+    const d = U.x * F.x + U.y * F.y + U.z * F.z;
+    U.x -= F.x * d; U.y -= F.y * d; U.z -= F.z * d;
+    norm3(U);
+    f.aimYaw = Math.atan2(F.x, F.z);
+    f.aimPitch = Math.asin(clamp(F.y, -1, 1));
+  }
+
+  /**
+   * In a set piece the view rides with her: the marker goes to her nose, and
+   * the way up goes round with her as she goes over -- carried, not reset, so
+   * a loop is seen from outside the loop and a roll is the world turning.
+   */
+  aimAtNose(f, p, dt) {
+    const n = pathOf(p);
+    const F = f.aimF;
+    const U = f.aimU;
+    const k = 1 - Math.pow(0.0004, Math.min(0.1, dt));
+    F.x += (n.x - F.x) * k; F.y += (n.y - F.y) * k; F.z += (n.z - F.z) * k;
+    norm3(F);
+    // Through a loop she takes the view's up with her, since that is the way
+    // she is pulling; in a roll it is left alone and she rolls in the frame.
+    // Only once she is actually pulling round: rolling her level first, or
+    // onto her back for a split-S, is a roll, and the horizon stays put.
+    const pulling = p.man && p.man.stage >= 1
+      && (p.man.kind === 'loop' || p.man.kind === 'immelmann' || p.man.kind === 'splitS');
+    if (pulling) {
+      const u = upOf(p);
+      U.x += (u.x - U.x) * k; U.y += (u.y - U.y) * k; U.z += (u.z - U.z) * k;
+      const d = U.x * F.x + U.y * F.y + U.z * F.z;
+      U.x -= F.x * d; U.y -= F.y * d; U.z -= F.z * d;
+      norm3(U);
+      f.aimYaw = Math.atan2(F.x, F.z);
+      f.aimPitch = Math.asin(clamp(F.y, -1, 1));
+    } else {
+      this.levelAim(f, dt);
+    }
+  }
+
+  /**
+   * Throw a set piece: a roll, a loop, a reversal. `dir` is which way it
+   * rolls; with none given it goes the way the marker is off her nose, which
+   * is the way a pilot would roll to look at it.
+   */
+  flyMove(kind, dir = 0) {
+    const f = this.flight;
+    if (!f || this.turret) return;
+    const p = f.pilot;
+    // A thirty-tonne bomber is not rolled or looped.
+    if (f.heavy) { this.hud.alert('She is far too big to throw about'); return; }
+    if (!dir) {
+      const u = upOf(p);
+      const n = pathOf(p);
+      const rx = n.y * u.z - n.z * u.y, ry = n.z * u.x - n.x * u.z, rz = n.x * u.y - n.y * u.x;
+      const F = f.aimF;
+      dir = (F.x * rx + F.y * ry + F.z * rz) > 0 ? -1 : 1;
+    }
+    if (startManeuver(p, kind, dir)) {
+      this.hud.flashMove?.(kind);
+      audio.click();
+    }
   }
 
   /**
@@ -3796,28 +3966,26 @@ export class Battle {
    * is put into a ship -- and one who wants to pull out has to pull out.
    */
   flyAim(f, p) {
-    const pitch = f.aimPitch;
     // The camera stands behind and above her, so the line from her to the
     // marker is not quite the camera's: she is pointed at the point on the
     // camera's line where her guns meet, so the ring settles on the marker
     // rather than a degree under it. And it is her nose that is laid there,
     // not her flight path -- the angle her wing is working at is taken off.
-    const cp = Math.cos(pitch);
-    const dx = Math.sin(f.aimYaw) * cp;
-    const dy = Math.sin(pitch);
-    const dz = Math.cos(f.aimYaw) * cp;
+    const F = f.aimF;
+    const U = f.aimU;
     const rig = this.chaseRig(p);
-    const tx = p.x - dx * rig.back + dx * (GUN_CONVERGE + rig.back) - p.x;
-    const ty = rig.up - dy * rig.back + dy * (GUN_CONVERGE + rig.back);
-    const tz = p.z - dz * rig.back + dz * (GUN_CONVERGE + rig.back) - p.z;
+    const tx = F.x * GUN_CONVERGE + U.x * rig.up;
+    const ty = F.y * GUN_CONVERGE + U.y * rig.up;
+    const tz = F.z * GUN_CONVERGE + U.z * rig.up;
     const len = Math.hypot(tx, ty, tz) || 1;
     const aoa = clamp(p.attitude - p.pitch, -0.3, 0.3);
-    const yaw = Math.atan2(tx, tz);
-    const pt = Math.asin(clamp(ty / len, -1, 1)) - aoa;
     const a = f.aimVec || (f.aimVec = { x: 0, y: 0, z: 1 });
-    a.x = Math.sin(yaw) * Math.cos(pt);
-    a.y = Math.sin(pt);
-    a.z = Math.cos(yaw) * Math.cos(pt);
+    // Her bore is her heading at her nose's attitude, so the angle of attack
+    // comes off in the vertical.
+    a.x = tx / len;
+    a.y = ty / len - aoa;
+    a.z = tz / len;
+    norm3(a);
     return a;
   }
 
@@ -3850,11 +4018,10 @@ export class Battle {
       return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
     };
     const p = f.pilot;
-    const ap = Math.cos(f.aimPitch);
     const aim = this.turret ? null : project(
-      cam.position.x + Math.sin(f.aimYaw) * ap * 2000,
-      cam.position.y + Math.sin(f.aimPitch) * 2000,
-      cam.position.z + Math.cos(f.aimYaw) * ap * 2000,
+      cam.position.x + f.aimF.x * 2000,
+      cam.position.y + f.aimF.y * 2000,
+      cam.position.z + f.aimF.z * 2000,
     );
     // A heavy's pilot has no forward guns: the ring is for a turret gunner,
     // and he has his own sight.
@@ -5085,6 +5252,15 @@ export class Battle {
         h: pl.h + angleDelta(pl.h, nx.h) * t,
         a: lerp(pl.a, nx.a, t),
         b: lerp(pl.b || 0, nx.b || 0, t),
+        // Her real attitude, when somebody is flying her. Through the
+        // vertical her heading and bank both swing half way round in one go
+        // (the top of a loop), and blending across that is a pirouette that
+        // never happened: the nearer snapshot is taken instead.
+        ...(pl.bk !== undefined && nx.bk !== undefined ? (
+          Math.abs(angleDelta(pl.h, nx.h)) > 2.2
+            ? (t < 0.5 ? {} : { h: nx.h, bk: nx.bk, pt: nx.pt })
+            : { bk: pl.bk + angleDelta(pl.bk, nx.bk) * t, pt: lerp(pl.pt, nx.pt, t) }
+        ) : {}),
         // Her height and how she is going through the air, blended like the
         // rest of her. They used not to be, so a squadron slid smoothly across
         // the sea and stepped down the sky five times a second.
@@ -5114,9 +5290,12 @@ export class Battle {
       const kind = typeOf(pl.k, pl.r || 'torpedo');
       const a = AERO[kind] || AERO.avenger;
       const gs = Math.max(12, pl.s || a.vMax * 0.7);
-      const want = clamp(Math.atan2(gs * (pl.b || 0), 9.81), -1.15, 1.15);
+      const flown = pl.bk !== undefined;
+      const want = flown ? pl.bk : clamp(Math.atan2(gs * (pl.b || 0), 9.81), -1.15, 1.15);
       const held = this.planeTurn.get(pl.i);
-      const bank = held === undefined ? want
+      // A pilot's own bank is drawn as it comes: eased, she would never get
+      // round a roll before the next one started.
+      const bank = held === undefined || flown ? want
         : held + (want - held) * (1 - Math.pow(0.02, dt));
       this.planeTurn.set(pl.i, bank);
       // Her attitude, which is not the direction she is travelling.
@@ -5130,8 +5309,12 @@ export class Battle {
       //
       // Both of those used to be guesses: the rate of climb over a fixed
       // seventy-eight metres a second, and no angle of attack at all.
-      const pitch = flightAttitude(a, gs, pl.vy || 0,
-        1 / Math.max(0.35, Math.cos(bank)));
+      // Somebody flying her sends the pitch of her flight path, which goes
+      // past the vertical and over on her back as nothing worked out from a
+      // rate of climb can; her nose sits above it by what her wing is doing.
+      const pitch = flown
+        ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
+        : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
@@ -5766,10 +5949,8 @@ export class Battle {
       // Off her own span, so the camera stands where she can be seen: a heavy
       // is three times the aeroplane and wants three times the room.
       const { back, up } = this.chaseRig(p);
-      const cp = Math.cos(f.aimPitch);
-      const dx = Math.sin(f.aimYaw) * cp;
-      const dy = Math.sin(f.aimPitch);
-      const dz = Math.cos(f.aimYaw) * cp;
+      const F = f.aimF;
+      const U = f.aimU;
       // A little give in the rig, so a burst of buffet or a gust shakes her
       // in the frame instead of shaking the frame.
       const r = f.rig || (f.rig = { x: p.x, y: p.y, z: p.z });
@@ -5777,12 +5958,15 @@ export class Battle {
       r.x = lerp(r.x, p.x, kr);
       r.y = lerp(r.y, p.y, kr);
       r.z = lerp(r.z, p.z, kr);
-      const ex = r.x - dx * back;
-      const ey = Math.max(r.y - dy * back + up, 3);
-      const ez = r.z - dz * back;
+      // Behind her down the line of the view and above her along the view's
+      // own up -- which is under her when the view is upside down over the
+      // top of a loop, so she stays in the same place in the picture.
+      const ex = r.x - F.x * back + U.x * up;
+      const ey = Math.max(r.y - F.y * back + U.y * up, 3);
+      const ez = r.z - F.z * back + U.z * up;
       cam.position.set(ex, ey, ez);
-      cam.up.set(0, 1, 0);
-      cam.lookAt(ex + dx * 1000, ey + dy * 1000, ez + dz * 1000);
+      cam.up.set(U.x, U.y, U.z);
+      cam.lookAt(ex + F.x * 1000, ey + F.y * 1000, ez + F.z * 1000);
       this.input.orbiting = false;
       return;
     }
