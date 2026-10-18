@@ -10,6 +10,7 @@ import { getClass, SHIP_CLASSES } from './ships.js';
 import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
+import { slotAt, vicAt } from './formation.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
 } from './aero.js';
@@ -64,6 +65,9 @@ export function createState(world, opts = {}) {
     planes: [],
     // The heavy squadrons, which belong to nobody's deck.
     bombers: [],
+    // What is left of an aeroplane on its way down: a real body that falls,
+    // and hits whatever it falls on. See stepFallers.
+    fallers: [],
     events: [],
     rng: makeRng((world.seed ^ 0x9e3779b9) >>> 0),
     mode: opts.mode || 'domination',
@@ -2733,6 +2737,27 @@ function stepBullets(state, dt) {
       hurtFlight(state, q, b.dmg, 'fighters');
       state.events.push({
         e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 1, i: q.id,
+      });
+      done = true;
+      break;
+    }
+    if (done) continue;
+
+    // The heavies, machine by machine: a vic of them is two hundred metres
+    // across and mostly air, so it is each bomber's own place that is tested,
+    // not the leader's. The same rounds a flight takes, into a great deal more
+    // aeroplane.
+    for (const bm of state.bombers || []) {
+      if (!bm.alive || !mayHurt(state, b.team, bm)) continue;
+      if (Math.abs(bm.y - b.y) > 300 || dist2(bm.x, bm.z, b.x, b.z) > 400 * 400) continue;
+      const m = flyingMachines(bm, true).find((n) => segNear(
+        px, py, pz, b.x, b.y, b.z, n.x, n.y, n.z, TOUCH_HEAVY + 4,
+      ));
+      if (!m) continue;
+      bm.aimed = m.a;
+      hurtBomber(state, bm, b.dmg, 'fighters');
+      state.events.push({
+        e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 1, i: bm.id,
       });
       done = true;
       break;
@@ -6837,7 +6862,7 @@ function ramShip(state, p, s, cls) {
   state.events.push({
     e: 'ram', ship: s.id, team: p.team, i: p.id,
     x: r(p.x), y: r(y), z: r(p.z), h: r(p.heading),
-    armed: armed ? 1 : 0, dmg: Math.round(dmg),
+    armed: armed ? 1 : 0, dmg: Math.round(dmg), tk: state.tick,
   });
 
   // The machine that did it. One aeroplane, not the flight -- the rest of the
@@ -6856,6 +6881,286 @@ function ramShip(state, p, s, cls) {
     p.count = fs.count;
   }
   return true;
+}
+
+/**
+ * What is left of an aeroplane, into a ship.
+ *
+ * The same physics a machine flown in on purpose gets (see ramShip), with the
+ * difference that nobody aimed her: she arrives at whatever speed the fall
+ * has given her, on whatever she happens to come down on. A heavy is several
+ * carrier aircraft's weight, and one that still had her bombs aboard brings
+ * them with her.
+ */
+function wreckIntoShip(state, f, s, cls) {
+  const owner = f.owner ? state.ships.find((q) => q.id === f.owner) || null : null;
+  const l = worldToLocal(f.x - s.x, f.z - s.z, s.heading);
+  const y = f.y;
+  const where = sectionAt(l.z / (cls.hull.length * 0.5), y > 12 ? 'superstructure' : 'belt');
+  const side = l.x >= 0 ? 1 : -1;
+  const speed = Math.max(30, Math.hypot(f.vx, f.vy, f.vz));
+  const armed = f.load > 0;
+  const dmg = f.mass * (speed / 110) * (speed / 110) * 0.7 + f.load;
+  damageShip(state, s, owner, dmg, armed ? 'bomb' : 'he', where);
+  s.sections[where].pens++;
+  wreckContents(state, s, y > 12 ? 'works' : where,
+    (armed ? 0.36 : 0.2) + (f.heavy ? 0.14 : 0), armed ? 'bomb' : 'he',
+    { x: l.x, y, z: l.z });
+  if (y < 9) {
+    const area = (f.heavy ? 6 : 2) + state.rng() * (armed ? 8 : 4);
+    openHull(state, s, where, area, side, Math.max(0.5, cls.hull.draft * 0.25 * state.rng()));
+  }
+  startFire(state, s, where, f.heavy || armed ? 0.85 : 0.5);
+  state.events.push({
+    e: 'wreckHit', ship: s.id, f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
+    x: r(f.x), y: r(y), z: r(f.z), armed: armed ? 1 : 0, dmg: Math.round(dmg), tk: state.tick,
+  });
+}
+
+/** How close two aeroplanes have to come to touch: half a span each, near enough. */
+const TOUCH = 7;
+const TOUCH_HEAVY = 15;
+
+/**
+ * Every machine of a formation that is still flying, where she is now and
+ * where she was a tick ago -- for walking a line through rather than testing a
+ * point, because two aeroplanes closing at four hundred knots are seven metres
+ * nearer each other every tick.
+ */
+function flyingMachines(p, heavy, leadOnly = false) {
+  const out = [];
+  if (!(p.machines || []).length) return out;
+  const at = { x: 0, y: 0, z: 0 };
+  const was = { x: 0, y: 0, z: 0 };
+  const py = p.y ?? 220;
+  const px0 = p.px ?? p.x, py0 = p.py ?? py, pz0 = p.pz ?? p.z;
+  for (const a of p.machines) {
+    if (!a.alive || a.left) continue;
+    const k = machineSlot(p, a);
+    if (leadOnly && k !== 0) continue;
+    (heavy ? vicAt : slotAt)(k, p.heading || 0, at);
+    (heavy ? vicAt : slotAt)(k, p.ph ?? p.heading ?? 0, was);
+    out.push({
+      a, x: p.x + at.x, y: py + at.y, z: p.z + at.z,
+      x0: px0 + was.x, y0: py0 + was.y, z0: pz0 + was.z,
+    });
+  }
+  return out;
+}
+
+/**
+ * Do two lines through the air, walked over the same tick, come within `rad`
+ * of each other? The second one's motion is taken off the first, so it is one
+ * segment against a fixed point.
+ */
+function passNear(m, n, rad) {
+  return segNear(
+    m.x0 - n.x0, m.y0 - n.y0, m.z0 - n.z0,
+    m.x - n.x, m.y - n.y, m.z - n.z,
+    0, 0, 0, rad,
+  );
+}
+
+/** Lose one machine of a carrier flight or of a heavy squadron, whichever she is. */
+function loseMachine(state, q, a, heavy, why) {
+  if (heavy) {
+    loseHeavy(state, q, a, why);
+    const fs = flightState(q.machines);
+    q.wear = fs;
+    q.count = fs.count;
+    if (q.count <= 0) heavyGone(state, q, why);
+    return;
+  }
+  losePlane(state, q, a, why);
+  const fs = flightState(q.machines);
+  q.wear = fs;
+  q.count = fs.count;
+  if (q.torp) q.torp = Math.min(q.torp, fs.count);
+  if (q.bomb) q.bomb = Math.min(q.bomb, fs.count);
+  if (!fs.count) { q.hp = 0; killFlight(state, q, why); }
+}
+
+/** Everything in the air that a body can fly into: the flights and the heavies. */
+function airborne(state) {
+  const out = [];
+  for (const p of state.planes) if (!p.dead) out.push({ q: p, heavy: false });
+  for (const b of state.bombers || []) if (b.alive) out.push({ q: b, heavy: true });
+  return out;
+}
+
+/**
+ * Aeroplanes flown into each other.
+ *
+ * Two of the other side's machines that pass close enough to touch, touch: a
+ * fighter pressing her attack on a bomber until the last instant, or two coming
+ * at each other head on and neither giving way. Both go, and both fall.
+ *
+ * Not her own side's. A formation is flown on a leader, a few metres apart,
+ * and the pilots flying it are the ones keeping it from happening; it is not
+ * a thing that happens to a squadron in the ordinary way of flying.
+ */
+function stepMidAir(state) {
+  const air = airborne(state);
+  for (let i = 0; i < air.length; i++) {
+    const A = air[i];
+    for (let j = i + 1; j < air.length; j++) {
+      const B = air[j];
+      if (A.q.team === B.q.team) continue;
+      if (A.q.dead || B.q.dead || A.q.alive === false || B.q.alive === false) continue;
+      // Not near enough for any of either to reach the other, this tick.
+      const reach = 260 + (A.heavy || B.heavy ? 200 : 0);
+      if (Math.abs((A.q.y ?? 220) - (B.q.y ?? 220)) > reach) continue;
+      if (dist2(A.q.x, A.q.z, B.q.x, B.q.z) > reach * reach) continue;
+      const rad = A.heavy || B.heavy ? TOUCH_HEAVY : TOUCH;
+      // Between two formations nobody is flying it is the two leaders: the
+      // wingmen are flying on them, and a wingman who sees his leader's
+      // opponent coming at him is not tied to a station by a rod -- he moves.
+      // With a player at the stick of either, every machine is where it is
+      // and there is nobody to move it for him.
+      const lead = !A.q.flown && !B.q.flown;
+      let hit = null;
+      for (const m of flyingMachines(A.q, A.heavy, lead)) {
+        for (const n of flyingMachines(B.q, B.heavy, lead)) {
+          if (passNear(m, n, rad)) { hit = [m, n]; break; }
+        }
+        if (hit) break;
+      }
+      if (!hit) continue;
+      const [m, n] = hit;
+      state.events.push({
+        e: 'midAir', a: A.q.id, b: B.q.id, team: A.q.team,
+        x: r((m.x + n.x) / 2), y: r((m.y + n.y) / 2), z: r((m.z + n.z) / 2),
+        heavy: A.heavy || B.heavy ? 1 : 0, tk: state.tick,
+      });
+      loseMachine(state, A.q, m.a, A.heavy, 'collided');
+      loseMachine(state, B.q, n.a, B.heavy, 'collided');
+    }
+  }
+  // Where everybody was, for the next tick's lines.
+  for (const { q } of air) {
+    q.px = q.x; q.py = q.y ?? 220; q.pz = q.z; q.ph = q.heading;
+  }
+}
+
+/** Wreckage falling out of the formation it came from does not hit that formation. */
+const OWN_CLEAR = 2.5;
+
+/**
+ * The wreckage, falling.
+ *
+ * What is left of an aeroplane has a great deal of drag and no lift, so she
+ * loses her way and keeps her fall -- the same two lines the screen flies her
+ * down on, so that the one falling there is the one falling here. On the way
+ * down she can come down on a ship or through another formation, and either
+ * is hit by her.
+ */
+function stepFallers(state, dt) {
+  const list = state.fallers;
+  if (!list || !list.length) return;
+  const out = [];
+  const drag = Math.pow(0.72, dt);
+  const air = airborne(state);
+  for (let fi = 0; fi < list.length; fi++) {
+    const f = list[fi];
+    const x0 = f.x, y0 = f.y, z0 = f.z;
+    f.vx *= drag;
+    f.vz *= drag;
+    f.vy = f.vy * drag - 9.81 * dt;
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    f.z += f.vz * dt;
+    f.age += dt;
+    if (fallInto(state, f, x0, y0, z0, air)) continue;
+    if (f.age > 300) continue;
+    out.push(f);
+  }
+  state.fallers = out;
+}
+
+/** Whatever a falling wreck has come down on this tick, and what it did. */
+function fallInto(state, f, x0, y0, z0, air) {
+  // A ship.
+  for (const s of state.ships) {
+    if (!s.alive || !mayHurt(state, f.team, s)) continue;
+    const cls = getClass(s.classId);
+    if (dist2(f.x, f.z, s.x, s.z) > (cls.hull.length * 0.6 + 30) ** 2) continue;
+    for (let i = 1; i <= 4; i++) {
+      const k = i / 4;
+      const q = { x: lerp(x0, f.x, k), y: lerp(y0, f.y, k), z: lerp(z0, f.z, k) };
+      if (!planeInShip(q, s, cls)) continue;
+      f.x = q.x; f.y = q.y; f.z = q.z;
+      wreckIntoShip(state, f, s, cls);
+      return true;
+    }
+  }
+  // Another aeroplane: anybody's, because nobody is flying this one.
+  const rad = f.heavy ? TOUCH_HEAVY : TOUCH + 2;
+  for (const { q, heavy } of air) {
+    if (q.dead || q.alive === false) continue;
+    if (q.id === f.from && f.age < OWN_CLEAR) continue;
+    if (Math.abs((q.y ?? 220) - f.y) > 260) continue;
+    if (dist2(q.x, q.z, f.x, f.z) > 260 * 260) continue;
+    for (const m of flyingMachines(q, heavy)) {
+      if (!passNear({ x0, y0, z0, x: f.x, y: f.y, z: f.z }, m,
+        rad + (heavy ? TOUCH_HEAVY - TOUCH : 0))) continue;
+      state.events.push({
+        e: 'wreckHit', f: f.id, i: f.from, team: f.team, air: q.id, heavy: f.heavy ? 1 : 0,
+        x: r(m.x), y: r(m.y), z: r(m.z), tk: state.tick,
+      });
+      loseMachine(state, q, m.a, heavy, 'collided');
+      return true;
+    }
+  }
+  // The ground, or the sea.
+  const g = f.y <= landCeiling(state.world) ? groundHeight(state.world, f.x, f.z) : 0;
+  if (f.y <= Math.max(0, g)) {
+    if (g > 0.5) landStrike(state, f.x, f.z, f.heavy ? 0.4 : 0.2, 'crash');
+    state.events.push({
+      e: 'wreckIn', f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
+      x: r(f.x), y: r(Math.max(0, g)), z: r(f.z), land: g > 0.5 ? 1 : 0, tk: state.tick,
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A heavy squadron flown into a ship, or into the ground.
+ *
+ * Not something the staff ever sends her to do, and four thousand feet up she
+ * never will; but she can be flown by hand, and a captain who puts thirty
+ * tonnes of bomber into somebody's upperworks gets what that is worth. One
+ * machine at a time, the leader first, the same way a flight goes in.
+ */
+function stepHeavyRam(state, bm) {
+  if (!bm.alive) return;
+  const live = (bm.machines || []).filter((a) => a.alive && !a.left);
+  const lead = live.find((a) => machineSlot(bm, a) === 0) || live[0];
+  if (!lead) return;
+  for (const s of state.ships) {
+    if (!s.alive || !mayHurt(state, bm.team, s)) continue;
+    const cls = getClass(s.classId);
+    if (!planeInShip(bm, s, cls)) continue;
+    const L = heavyLoad(bm);
+    const sp = Math.max(40, bm.speed || 80);
+    wreckIntoShip(state, {
+      id: 0, from: bm.id, team: bm.team, owner: 0, heavy: true,
+      x: bm.x, y: bm.y, z: bm.z,
+      vx: Math.sin(bm.heading) * sp, vy: 0, vz: Math.cos(bm.heading) * sp,
+      mass: HEAVY_RAM, load: bm.loads > 0 ? L.bombDamage * 2.5 : 0,
+    }, s, cls);
+    loseMachine(state, bm, lead, true, 'rammed');
+    return;
+  }
+  const g = bm.y <= landCeiling(state.world) ? groundHeight(state.world, bm.x, bm.z) : 0;
+  if (bm.y <= Math.max(0, g) + 4) {
+    if (g > 0.5) landStrike(state, bm.x, bm.z, 0.5, 'crash');
+    state.events.push({
+      e: 'planeCrash', i: bm.id, team: bm.team, heavy: 1,
+      x: r(bm.x), z: r(bm.z), y: r(Math.max(0, g)), tk: state.tick,
+    });
+    loseMachine(state, bm, lead, true, 'crashed');
+  }
 }
 
 /**
@@ -6962,6 +7267,7 @@ function stepRam(state, p) {
     if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
+      tk: state.tick,
     });
     const live = (p.machines || []).filter((a) => a.alive && !a.left);
     if (live.length) losePlane(state, p, live[0], 'crashed');
@@ -7821,13 +8127,98 @@ export function hurtFlight(state, p, damage, why = 'flak') {
  */
 function losePlane(state, p, a, why) {
   if (a.gone) return;
+  // How many of her were flying, this one among them.
+  const was = p.machines.filter((m) => m.alive && (!m.left || m === a)).length;
+  // Somebody flying her is the leader, and stays the leader: the stick is in
+  // the aeroplane at the head of the formation, so a hit on her while she has
+  // wingmen is taken by one of them instead of the screen.
+  if (p.flown && was > 1) keepLeader(p, a);
   a.gone = true;
   a.alive = false;
-  const slot = p.machines.indexOf(a);
-  state.events.push({
-    e: 'planeDown', i: p.id, team: p.team, x: r(p.x), z: r(p.z),
-    slot, h: r(p.heading), y: r(p.y ?? 220), why,
+  // She falls from the slot she was flying in, and the snapshot stops drawing
+  // that slot (see slotMask) -- so what goes down is the aeroplane that was
+  // there, and the formation flies on with a gap in it rather than closing up
+  // over her: closed up, the slot she fell out of was still drawn full and the
+  // last one emptied instead, which was one aeroplane on the screen twice.
+  const slot = machineSlot(p, a);
+  const at = slotAt(slot, p.heading || 0);
+  const x = p.x + at.x, y = (p.y ?? 220) + at.y, z = p.z + at.z;
+  const ev = {
+    e: 'planeDown', i: p.id, team: p.team, x: r(x), z: r(z),
+    slot, h: r(p.heading), y: r(y), why, last: was <= 1 ? 1 : 0, tk: state.tick,
+  };
+  // What is left of her, falling. Not when she has gone into something
+  // already -- that is the end of her -- and not when she has blown up in the
+  // air, which leaves nothing big enough to matter.
+  if (why !== 'rammed' && why !== 'crashed') {
+    if (why === 'shot' && state.rng() < 0.4) ev.burst = 1;
+    else {
+      const f = fallFrom(state, p, x, y, z, why);
+      ev.f = f.id;
+      ev.vx = r(f.vx); ev.vy = r(f.vy); ev.vz = r(f.vz);
+    }
+  }
+  state.events.push(ev);
+}
+
+/** Which station in the formation a machine flies. Hers for the whole sortie. */
+export function machineSlot(p, a) {
+  return a.slot ?? Math.max(0, p.machines.indexOf(a));
+}
+
+/** The stations still flying, as a bit each. */
+export function slotMask(p) {
+  let m = 0;
+  for (const a of p.machines || []) if (a.alive && !a.left) m |= 1 << (machineSlot(p, a) % 31);
+  return m;
+}
+
+/**
+ * The leader's station handed to whoever is about to be lost in her place --
+ * the last of the formation -- so the aeroplane a player is flying is never
+ * the one that leaves it.
+ */
+function keepLeader(p, a) {
+  if (machineSlot(p, a) !== 0) return;
+  const others = p.machines.filter((m) => m !== a && m.alive && !m.left && !m.gone);
+  if (!others.length) return;
+  const other = others.reduce((x, y) => (machineSlot(p, y) > machineSlot(p, x) ? y : x));
+  const was = machineSlot(p, other);
+  other.slot = 0;
+  a.slot = was;
+}
+
+/** Going down quietly rather than out of control: no engine, but a wing. */
+const LIMP = new Set(['crippled', 'dry', 'fuel', 'nodeck']);
+
+/**
+ * One machine of a flight, falling: her own speed on her and nothing holding
+ * her up, from where she was flying.
+ */
+function fallFrom(state, p, x, y, z, why) {
+  const limp = LIMP.has(why);
+  const sp = limp ? 44 + state.rng() * 14 : 60 + state.rng() * 26;
+  const h = p.heading || 0;
+  const owner = state.ships.find((q) => q.id === p.owner) || null;
+  const P = owner ? shipClass(owner).planes : null;
+  const armed = !p.dropped && ((p.bomb ?? 0) > 0 || (p.torp ?? 0) > 0);
+  return addFaller(state, {
+    team: p.team, from: p.id, owner: p.owner, role: p.role, heavy: false,
+    x, y, z,
+    vx: Math.sin(h) * sp, vz: Math.cos(h) * sp,
+    vy: limp ? -3 - state.rng() * 3 : -5 - state.rng() * 9,
+    mass: RAM_MASS[p.role] || RAM_MASS.scout,
+    // A machine that still had her weapon on goes in with it.
+    load: armed && P ? ((p.torp ?? 0) > 0 ? (P.torpDamage ?? 9000) * 0.5
+      : (P.bombDamage ?? 4000) * 0.6) : 0,
   });
+}
+
+function addFaller(state, f) {
+  f.id = eid();
+  f.age = 0;
+  (state.fallers ||= []).push(f);
+  return f;
 }
 
 /**
@@ -7887,9 +8278,29 @@ function stepFlightDamage(state, p, dt) {
  */
 function killFlight(state, p, why) {
   if (p.dead) return;
+  // Whatever of her is still in the air comes down now, each machine from her
+  // own slot -- reported one by one, so that what falls is what was flying
+  // and nothing is made up on the screen to fill a count.
+  const live = (p.machines || []).filter((a) => a.alive && !a.gone);
+  for (let i = live.length - 1; i >= 0; i--) losePlane(state, p, live[i], why);
+  if (!(p.machines && p.machines.length) && why !== 'rammed' && why !== 'crashed') {
+    const n = Math.min(3, Math.max(1, p.count || 1));
+    for (let i = n - 1; i >= 0; i--) {
+      const at = slotAt(i, p.heading || 0);
+      const x = p.x + at.x, y = (p.y ?? 220) + at.y, z = p.z + at.z;
+      const f = fallFrom(state, p, x, y, z, why);
+      state.events.push({
+        e: 'planeDown', i: p.id, team: p.team, x: r(x), y: r(y), z: r(z), slot: i,
+        h: r(p.heading), why, last: i === 0 ? 1 : 0, tk: state.tick,
+        f: f.id, vx: r(f.vx), vy: r(f.vy), vz: r(f.vz),
+      });
+    }
+  }
   p.dead = true;
   p.hp = -1;
-  state.events.push({ e: 'planesLost', i: p.id, x: p.x, z: p.z, team: p.team, why });
+  state.events.push({
+    e: 'planesLost', i: p.id, x: p.x, y: r(p.y ?? 220), z: p.z, team: p.team, why, tk: state.tick,
+  });
 }
 
 /**
@@ -8278,13 +8689,7 @@ function heavyDamage(state, bm, dt) {
   for (const a of bm.machines) {
     if (!a.alive || a.left) continue;
     const end = stepAirframe(a, dt, state.rng());
-    if (end) {
-      a.alive = false;
-      a.gone = true;
-      state.events.push({
-        e: 'bomberDown', i: bm.id, tm: bm.team, x: r(bm.x), y: r(bm.y), z: r(bm.z), why: end,
-      });
-    }
+    if (end) loseHeavy(state, bm, a, end);
   }
   for (;;) {
     const live = bm.machines.filter((a) => a.alive && !a.left);
@@ -8302,10 +8707,7 @@ function heavyDamage(state, bm, dt) {
       break;
     }
     bad.left = true;
-    state.events.push({
-      e: 'bomberDown', i: bm.id, tm: bm.team, x: r(bm.x), y: r(bm.y), z: r(bm.z),
-      why: 'crippled',
-    });
+    loseHeavy(state, bm, bad, 'crippled');
   }
   const fs = flightState(bm.machines);
   bm.wear = fs;
@@ -8313,12 +8715,63 @@ function heavyDamage(state, bm, dt) {
   let hp = 0;
   for (const a of bm.machines) if (a.alive && !a.left) hp += airframeHp(a) * HEAVY_HP;
   bm.hp = hp;
-  if (bm.count <= 0) {
-    bm.alive = false;
-    bm.hp = 0;
-    state.events.push({ e: 'bomberOut', i: bm.id, tm: bm.team, x: r(bm.x), z: r(bm.z) });
-  }
+  if (bm.count <= 0) heavyGone(state, bm);
 }
+
+/** The last of a heavy squadron, gone. */
+function heavyGone(state, bm, why = 'shot') {
+  if (!bm.alive) return;
+  // Anything of her still up comes down with her rather than vanishing.
+  const live = (bm.machines || []).filter((a) => a.alive && !a.gone);
+  for (let i = live.length - 1; i >= 0; i--) loseHeavy(state, bm, live[i], why);
+  bm.alive = false;
+  bm.hp = 0;
+  bm.count = 0;
+  state.events.push({ e: 'bomberOut', i: bm.id, tm: bm.team, x: r(bm.x), z: r(bm.z), tk: state.tick });
+}
+
+/**
+ * One heavy out of a formation, and what is left of her falling.
+ *
+ * The same bargain a carrier flight's machine gets (see losePlane): she falls
+ * from her own station in the vic, which the screen stops drawing, and she
+ * falls as a body -- thirty tonnes of her, and whatever she
+ * had not yet dropped still in the bay.
+ */
+function loseHeavy(state, bm, a, why) {
+  if (a.gone) return;
+  const was = bm.machines.filter((m) => m.alive && (!m.left || m === a)).length;
+  if (bm.flown && was > 1) keepLeader(bm, a);
+  a.gone = true;
+  a.alive = false;
+  const slot = machineSlot(bm, a);
+  const at = vicAt(slot, bm.heading || 0);
+  const x = bm.x + at.x, y = bm.y + at.y, z = bm.z + at.z;
+  const ev = {
+    e: 'bomberDown', i: bm.id, tm: bm.team, x: r(x), y: r(y), z: r(z), h: r(bm.heading),
+    slot, why, last: was <= 1 ? 1 : 0, tk: state.tick,
+  };
+  if (why !== 'rammed' && why !== 'crashed') {
+    const limp = LIMP.has(why);
+    const sp = Math.max(40, (bm.speed || 80) * (limp ? 0.7 : 0.85));
+    const L = heavyLoad(bm);
+    const f = addFaller(state, {
+      team: bm.team, from: bm.id, owner: 0, role: 'heavy', heavy: true, type: bm.bomberId,
+      x, y, z,
+      vx: Math.sin(bm.heading) * sp, vz: Math.cos(bm.heading) * sp,
+      vy: limp ? -4 - state.rng() * 3 : -6 - state.rng() * 8,
+      mass: HEAVY_RAM,
+      // Her share of a stick she never got to lay.
+      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * 2.5 : 0,
+    });
+    ev.f = f.id;
+    ev.vx = r(f.vx); ev.vy = r(f.vy); ev.vz = r(f.vz);
+  }
+  state.events.push(ev);
+}
+
+/** A four-engined bomber, as a weight arriving: several carrier aircraft's worth. */
+const HEAVY_RAM = 16000;
 
 /**
  * A formation somebody is flying by hand.
@@ -8447,7 +8900,7 @@ export function hurtBomber(state, bm, damage, why = 'flak') {
     if (hit.lit) {
       state.events.push({ e: 'planeFire', i: bm.id, x: r(bm.x), z: r(bm.z), team: bm.team });
     }
-    if (hit.down) { a.alive = false; a.gone = true; bm.aimed = null; }
+    if (hit.down) { loseHeavy(state, bm, a, why === 'flak' ? 'shot' : why); bm.aimed = null; }
     let hp = 0;
     for (const m of bm.machines) if (m.alive && !m.left) hp += airframeHp(m) * HEAVY_HP;
     bm.hp = hp;
@@ -8458,17 +8911,18 @@ export function hurtBomber(state, bm, damage, why = 'flak') {
     ? bm.machines.filter((a) => a.alive && !a.left).length
     : Math.max(0, Math.ceil(bm.hp / HEAVY_HP));
   if (left < bm.count) {
-    // One of them has gone. It is worth an event: a heavy going down out of a
-    // formation is the most visible thing that happens over a fleet.
-    for (let i = left; i < bm.count; i++) {
-      state.events.push({ e: 'bomberDown', i: bm.id, tm: bm.team, x: bm.x, y: bm.y, z: bm.z, why });
+    // One of them has gone. A formation with machines has said so already, one
+    // at a time, in loseHeavy; one without is reported here.
+    if (!(bm.machines || []).length) {
+      for (let i = left; i < bm.count; i++) {
+        state.events.push({
+          e: 'bomberDown', i: bm.id, tm: bm.team, x: bm.x, y: bm.y, z: bm.z, why, tk: state.tick,
+        });
+      }
     }
     bm.count = left;
   }
-  if (bm.count <= 0 || bm.hp <= 0) {
-    bm.alive = false;
-    bm.count = 0;
-  }
+  if (bm.count <= 0 || bm.hp <= 0) heavyGone(state, bm);
 }
 
 /**
@@ -8535,6 +8989,7 @@ function stepBombers(state, dt) {
       }
       heavyFlak(state, bm, dt);
       heavyDamage(state, bm, dt);
+      stepHeavyRam(state, bm);
       if (!bm.alive) continue;
       heavySeen(state, bm);
       out.push(bm);
@@ -8634,6 +9089,7 @@ function stepBombers(state, dt) {
 
     heavyFlak(state, bm, dt);
     heavyDamage(state, bm, dt);
+    stepHeavyRam(state, bm);
     if (!bm.alive) continue;
 
     heavySeen(state, bm);
@@ -10348,6 +10804,8 @@ export function step(state, dt = DT) {
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);
+  stepMidAir(state);
+  stepFallers(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);
   const ev = state.events;

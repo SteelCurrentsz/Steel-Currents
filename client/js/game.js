@@ -45,6 +45,14 @@ import { groundHeight, applyCrater, getWeather } from '../../shared/world.js';
 // seconds. A little over two snapshots at fifteen a second, so one of them can
 // arrive late without the picture running out of road.
 const INTERP_DELAY = 0.15;
+/**
+ * The losses that are held until the picture reaches the moment they happened
+ * at; see lateEvents.
+ */
+const LATE_EVENTS = new Set([
+  'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
+  'planeCrash', 'ram',
+]);
 // And when one is later than that, how far a ship is carried on past the last
 // snapshot on her own course and speed before she is held where she is. She
 // is a ship: she does not stop dead in the water because a packet did.
@@ -670,6 +678,21 @@ export class Battle {
     this.freeCam = false;
     // What is left of the ones that were shot down, on their way into the sea.
     this.wrecks = [];
+    // Losses the picture has not caught up with yet. The simulation reports a
+    // machine going down the tick it happens; the picture is drawn a little
+    // behind the newest snapshot, so the aeroplane is still flying on the
+    // screen when the word arrives. Played then, she was drawn twice -- once
+    // flying on in her formation and once falling out of it a few metres
+    // ahead -- so the word is held until the picture gets to that moment.
+    this.lateEvents = [];
+    // Machines lost out of each formation, and when: which stations to leave
+    // out of a snapshot drawn from before it happened. See drawnMask.
+    this.downs = new Map();
+    // And flights gone altogether, and when.
+    this.goneAt = new Map();
+    // Flights reported flown into the ground, so the loss that follows is not
+    // given a second splash of its own.
+    this.crashSeen = new Set();
     // The pieces that have come off aeroplanes, on their own way down: a wing,
     // a tail, an airscrew. See breakup.js.
     this.pieces = new Pieces();
@@ -2172,7 +2195,7 @@ export class Battle {
     return best;
   }
 
-  onEvents(events) {
+  onEvents(events, late = false) {
     const fx = this.scene.effects;
     // The bridge you are standing on, and the language her officers give
     // their orders in.
@@ -2180,6 +2203,7 @@ export class Battle {
     const navy = this.scene.shipViews.get(bridge)?.cls?.nation || this.cls?.nation || 'usa';
     if (navy !== this.ordersFor) { this.ordersFor = navy; audio.readyOrders(navy); }
     for (const ev of events) {
+      if (!late && this.holdBack(ev)) continue;
       const d = this.distanceFade(ev.x, ev.z);
       switch (ev.e) {
         case 'order':
@@ -2806,6 +2830,7 @@ export class Battle {
           }
           break;
         case 'planeCrash':
+          this.crashSeen.add(ev.i);
           fx.explosion(ev.x, ev.y + 3, ev.z, 1.5);
           fx.debris(ev.x, ev.y + 3, ev.z, 20);
           audio.explosion(1.3, { x: ev.x, y: ev.y + 3, z: ev.z });
@@ -2822,23 +2847,34 @@ export class Battle {
           }
           break;
         case 'planeDown': {
-          // One machine out of a formation that flies on. She goes down where
-          // she was actually flying rather than at her leader's position, and
-          // she goes down the way she was lost: shot to pieces, burning, out of
-          // fuel, or crippled and turning back with a dead engine.
-          const at = slotAt(ev.slot || 0, ev.h || 0);
+          // One machine out of a formation that flies on. She goes down from
+          // the station she was flying in, at the speed the simulation has her
+          // falling at -- it is flying the same wreck down, and what she hits
+          // on the way is what it says she hit.
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
-          const wreckKind = typeOf(from && from.k, (from && from.r) || 'torpedo');
-          this.oneDown({
-            x: ev.x + at.x, y: (ev.y || 220) + at.y, z: ev.z + at.z,
-            heading: ev.h || 0, why: ev.why,
-            role: (from && from.r) || 'torpedo', kind: wreckKind,
-            // What was done to her, so she goes down with it in her. The
-            // flight's last report is the nearest thing there is to this one
-            // machine's, and it is what the gunner who hit her was looking at.
-            holes: unpackHoles(from && from.hl),
-            span: (AERO[wreckKind] || AERO.avenger).span,
-          });
+          const role = (from && from.r) || 'torpedo';
+          const wreckKind = typeOf(from && from.k, role);
+          this.noteDown(ev.i, ev.slot, ev.tk);
+          const own = this.flight && !this.flight.heavy && this.flight.id === ev.i;
+          if (own && ev.last) {
+            // The one under the player: he is riding her down already (see
+            // stepFlight), and a second one falling beside him is the
+            // aeroplane twice. What the simulation does with her wreck is
+            // what ends his ride.
+            this.flight.fallerId = ev.f || 0;
+          } else if (ev.burst || ev.f) {
+            this.oneDown({
+              x: ev.x, y: ev.y ?? 220, z: ev.z,
+              vx: ev.vx, vy: ev.vy, vz: ev.vz, f: ev.f || 0, burst: !!ev.burst,
+              heading: ev.h || 0, why: ev.why,
+              role, kind: wreckKind,
+              // What was done to her, so she goes down with it in her. The
+              // flight's last report is the nearest thing there is to this one
+              // machine's, and it is what the gunner who hit her was looking at.
+              holes: unpackHoles(from && from.hl),
+              span: (AERO[wreckKind] || AERO.avenger).span,
+            });
+          }
           if (ev.team === this.team && ev.why !== 'crippled') this.hud.alert('Aircraft down');
           break;
         }
@@ -2851,10 +2887,91 @@ export class Battle {
         case 'planesLost':
           // Not a recovery: she is not coming home, so nobody is to look for
           // her on the deck. See comingHome.
+          //
+          // Nothing falls here. Every machine of her still in the air was
+          // reported going down on her own just before this (see killFlight),
+          // and making up wrecks for her again out of the last snapshot's
+          // count was the squadron coming down twice.
           this.lostFlights.add(ev.i);
-          this.shootDown(ev);
+          if (Number.isFinite(ev.tk)) this.goneAt.set(ev.i, ev.tk * DT);
+          if (ev.why === 'crashed' && (ev.y ?? 0) < 60 && !this.crashSeen.has(ev.i)) {
+            // Flown into the sea in a fight: there is nothing to fall.
+            fx.splash(ev.x, ev.z, 200);
+            fx.explosion(ev.x, 3, ev.z, 0.7);
+          }
           if (ev.team === this.team) this.hud.alert('Squadron lost');
           break;
+        case 'bomberDown': {
+          // One heavy out of a formation: from her own station in the vic,
+          // falling the way the simulation is flying her down.
+          this.noteDown(ev.i, ev.slot, ev.tk);
+          const from = (this.bombersNow || []).find((q) => q.i === ev.i);
+          const kind = (from && from.b) || 'lancaster';
+          const own = this.flight && this.flight.heavy && this.flight.id === ev.i;
+          if (ev.f) {
+            this.heavyDown({
+              x: ev.x, y: ev.y, z: ev.z, vx: ev.vx, vy: ev.vy, vz: ev.vz, f: ev.f,
+              heading: ev.h ?? (from ? from.h : 0), why: ev.why, kind,
+              holes: unpackHoles(from && from.hl),
+              span: (HEAVY_AERO[kind] || HEAVY_AERO.lancaster).span,
+            });
+          }
+          if (own && ev.last) this.flight.fallerId = ev.f || 0;
+          if (ev.tm === this.team && ev.why !== 'crippled') this.hud.alert('Bomber down');
+          break;
+        }
+        case 'bomberOut':
+          if (Number.isFinite(ev.tk)) this.goneAt.set(ev.i, ev.tk * DT);
+          if (ev.tm === this.team) this.hud.alert('Bomber squadron lost');
+          break;
+        case 'midAir': {
+          // Two aeroplanes into each other. A flash, what is left of both of
+          // them going outward, and each one falling on her own (they come as
+          // planeDown and bomberDown of their own).
+          const big = ev.heavy ? 1.8 : 1.1;
+          fx.explosion(ev.x, ev.y, ev.z, big);
+          fx.debris(ev.x, ev.y, ev.z, ev.heavy ? 26 : 16);
+          audio.explosion(big, { x: ev.x, y: ev.y, z: ev.z });
+          if (this.flight && (this.flight.id === ev.a || this.flight.id === ev.b)) {
+            this.hud.alert('Mid-air collision');
+          }
+          break;
+        }
+        case 'wreckHit': {
+          // A falling wreck has come down on something: a ship's deck, or
+          // another aeroplane on the way down.
+          this.endWreck(ev.f);
+          const big = (ev.heavy ? 2.2 : 1.2) + (ev.armed ? 0.8 : 0);
+          fx.explosion(ev.x, ev.y, ev.z, big);
+          fx.debris(ev.x, ev.y, ev.z, ev.heavy ? 34 : 18);
+          audio.explosion(big, { x: ev.x, y: ev.y, z: ev.z });
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.heavy ? 'A burning bomber has come down on us'
+              : 'A burning aircraft has come down on us');
+          } else if (ev.ship && ev.team === this.team && ev.dmg) {
+            this.hud.ribbon(`WRECK  ${ev.dmg}`, 'cit');
+          }
+          if (this.flight && this.flight.orphan && ev.f && this.flight.fallerId === ev.f) {
+            this.leaveFlight(true);
+          }
+          break;
+        }
+        case 'wreckIn': {
+          // Into the sea, or into a hillside.
+          if (this.endWreck(ev.f)) {
+            if (ev.land) {
+              fx.explosion(ev.x, ev.y + 3, ev.z, ev.heavy ? 1.6 : 0.9);
+              fx.debris(ev.x, ev.y + 3, ev.z, 14);
+            } else {
+              fx.splash(ev.x, ev.z, ev.heavy ? 420 : 260);
+              fx.explosion(ev.x, 3, ev.z, ev.heavy ? 1.1 : 0.6);
+            }
+          }
+          if (this.flight && this.flight.orphan && ev.f && this.flight.fallerId === ev.f) {
+            this.leaveFlight(true);
+          }
+          break;
+        }
         default: break;
       }
     }
@@ -5250,6 +5367,7 @@ export class Battle {
     if (!this.snapshots.length) return;
     // On the server's clock, not on the arrival times. See onSnapshot.
     const pair = this.snapshotPair(this.stepRenderClock());
+    this.releaseLate();
     // The sea runs on the server's clock, so the wave that the simulation
     // says is over a turret is the wave that is drawn over it.
     if (Number.isFinite(this.renderST)) this.scene.ocean.clock = this.renderST;
@@ -5739,6 +5857,10 @@ export class Battle {
     // them as she actually has.
     this.scene.flights.begin();
     this.scene.gunFlashes.begin();
+    // The moment the snapshot these were drawn from was taken (`a` is taken
+    // for each flight's wing below).
+    const drawnAt = a.st;
+    this.pruneDowns();
     for (const pl of planes) {
       // How hard she is banked.
       //
@@ -5797,6 +5919,11 @@ export class Battle {
       // is, at the attitude the stick has her in -- not at the position the
       // last snapshot happened to carry.
       const mine = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
+      // Which of her are still flying at the moment this picture is of. None:
+      // she is gone, and the snapshot has not caught up -- or she is the one
+      // the player is riding down, which is drawn below on her own.
+      const mask = this.drawnMask(pl.i, pl.sl, pl.n, drawnAt);
+      if (!mask || (mine && this.flight.orphan)) continue;
       const trim = this.bayTrim(pl, dt, mine ? mine.v : gs);
       // What has been shot through her, off the wire. Both sides get this:
       // a gunner walking his tracer onto a torpedo bomber has to be able to
@@ -5807,7 +5934,7 @@ export class Battle {
         // lost -- see stepFlight.
         this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
-          kind, trim, holes, a.span, this.flight.cut || 0, 0, attitudeOf(mine));
+          kind, trim, holes, a.span, this.flight.cut || 0, 0, attitudeOf(mine), mask);
         const n = pathOf(mine);
         this.noteDrawn(pl.i, kind, n.x * mine.v, n.y * mine.v, n.z * mine.v);
         this.rearGun(pl, kind, { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v }, dt);
@@ -5824,7 +5951,7 @@ export class Battle {
         this.planeCut.set(pl.i, cut);
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span,
-          cut, 0);
+          cut, 0, null, mask);
         this.noteDrawn(pl.i, kind, Math.sin(pl.h) * gs, pl.vy || 0, Math.cos(pl.h) * gs);
         this.rearGun(pl, kind, { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs }, dt);
         this.airFx(pl.i, kind, 1 / Math.max(0.25, Math.abs(Math.cos(bank))), gs,
@@ -5839,9 +5966,10 @@ export class Battle {
       // ship that owns it, and there was nothing to draw before: a flight was
       // one hit-point bar, so every machine in it was in identical condition
       // by definition and none of them could be the one that had been hit.
-      if (pl.sm > 0) this.smokeFlight(pl, dt);
+      if (pl.sm > 0) this.smokeFlight(pl, dt, mask);
     }
     for (const w of this.wrecks) {
+      if (w.heavy) continue;
       this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
         0, w.kind, w.trim || null, w.holes, w.span || 12, w.cut || 0);
     }
@@ -5898,11 +6026,15 @@ export class Battle {
         ? this.flight.pilot : null;
       const holes = unpackHoles(bm.hl);
       const hspan = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span;
+      // The stations still flying in the moment this picture is of, the same
+      // as a flight's: a heavy reported lost is not drawn on in her place.
+      const mask = this.drawnMask(bm.i, bm.sl, bm.n, drawnAt);
+      if (!mask) continue;
       if (mine) {
         this.scene.heavies.add(
           bm.b || 'lancaster', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude,
-          Math.max(1, this.flight.count || bm.n || 1), holes, hspan,
+          Math.max(1, this.flight.count || bm.n || 1), holes, hspan, mask,
         );
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
@@ -5911,9 +6043,15 @@ export class Battle {
       }
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
-        Math.max(1, bm.n || 1), holes, hspan,
+        Math.max(1, bm.n || 1), holes, hspan, mask,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
+    }
+    // And the ones on their way down, each on her own.
+    for (const w of this.wrecks) {
+      if (!w.heavy) continue;
+      this.scene.heavies.add(w.kind, w.x, w.y, w.z, w.heading, w.bank, w.pitch, 1,
+        w.holes, w.span || 31);
     }
     this.bombersNow = heavies;
     this.scene.heavies.end();
@@ -5932,61 +6070,82 @@ export class Battle {
   }
 
   /**
-   * A flight is shot down, and it is worth watching.
+   * Hold a loss back until the picture has got to it; see lateEvents.
    *
-   * There was no such thing before: the marker was removed from the plot and
-   * that was the whole of it -- a squadron of aeroplanes simply stopped
-   * existing in mid-air. What happens to an aeroplane hit by a shell is one of
-   * two things, and both of them are worth the frame they cost. Either she
-   * blows up where she is, and there is nothing left but pieces going
-   * outwards, or she is set on fire and goes down: nose over, trailing smoke,
-   * turning as she falls, into the sea.
+   * Not one that is the player's own aeroplane: his is drawn where his own
+   * flight model has her, which is now and not a moment ago, and what happens
+   * to her happens to him when it happens.
    */
-  shootDown(ev) {
-    const pl = (this.planesNow || []).find((q) => q.i === ev.i);
-    const role = (pl && pl.r) || 'torpedo';
-    const heading = pl ? pl.h : 0;
-    const y = pl ? this.planeHeight(pl) : 200;
-    // A flight is several aeroplanes; losing it is several of them going down.
-    const n = Math.min(3, Math.max(1, pl ? (pl.n || 1) : 1));
-    const fx = this.scene.effects;
-    for (let i = 0; i < n; i++) {
-      const off = (i - (n - 1) / 2) * 26;
-      const x = ev.x + Math.cos(heading) * off;
-      const z = ev.z - Math.sin(heading) * off;
-      const y0 = y + (Math.random() - 0.5) * 18;
-      // Out of fuel is not being shot at: she ditches, she does not explode.
-      const burst = ev.why !== 'fuel' && Math.random() < 0.4;
-      const kind = typeOf(pl && pl.k, role);
-      const holes = unpackHoles(pl && pl.hl);
-      if (burst) {
-        fx.explosion(x, y0, z, 0.85);
-        fx.debris(x, y0, z, 12);
-        audio.explosion(0.7, { x, y: y0, z });
-        // And the aeroplane herself in pieces, going outwards: her wings, her
-        // tail, her airscrew and what is left of her middle.
-        this.blowApart(kind, x, y0, z, heading, 62);
-        continue;
-      }
-      if (this.wrecks.length > 14) this.wrecks.shift();
-      const sp = 62 + Math.random() * 28;
-      this.wrecks.push(this.breakWreck({
-        role, kind: typeOf(pl && pl.k, role), x, y: y0, z,
-        vx: Math.sin(heading) * sp, vy: -4 - Math.random() * 8, vz: Math.cos(heading) * sp,
-        heading, pitch: -0.15, bank: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random()),
-        // How fast she is going round as she falls. A wing off one side is a
-        // spin; a hit in the engine is a long flat glide with the smoke
-        // streaming off her.
-        spin: (Math.random() - 0.5) * 2.6,
-        tumble: 0.5 + Math.random() * 1.4,
-        smoke: 0,
-        // The holes that put her there, which go down with her. A machine that
-        // comes out of the flak and falls out of the sky whole and unmarked is
-        // the one thing a squadron never looked like.
-        holes,
-        span: (AERO[kind] || AERO.avenger).span,
-      }, ev.why || 'shot', (ev.i || 0) * 7 + i));
+  holdBack(ev) {
+    if (!LATE_EVENTS.has(ev.e) || !Number.isFinite(ev.tk)) return false;
+    if (this.renderST === null || !Number.isFinite(this.renderST)) return false;
+    const f = this.flight;
+    if (f && (ev.i === f.id || ev.a === f.id || ev.b === f.id || ev.air === f.id
+      || (ev.f && ev.f === f.fallerId))) return false;
+    if (ev.tk * DT <= this.renderST) return false;
+    // She is not coming home, whenever the picture gets to her: nobody is to
+    // take her vanishing for a recovery in the meantime.
+    if (ev.e === 'planesLost') this.lostFlights.add(ev.i);
+    this.lateEvents.push({ ev, at: this.time });
+    return true;
+  }
+
+  /** Play whatever the picture has now caught up with. */
+  releaseLate() {
+    if (!this.lateEvents.length) return;
+    const now = this.renderST ?? Infinity;
+    const due = [];
+    const keep = [];
+    for (const q of this.lateEvents) {
+      // Or that has waited long enough: a picture stalled behind a lost
+      // connection is not to keep a shot-down aeroplane flying for ever.
+      if (q.ev.tk * DT <= now || this.time - q.at > 3) due.push(q.ev);
+      else keep.push(q);
     }
+    this.lateEvents = keep;
+    if (due.length) this.onEvents(due, true);
+  }
+
+  /** A machine lost from a formation's station, at a moment on the server's clock. */
+  noteDown(id, slot, tk) {
+    if (!Number.isFinite(slot) || !Number.isFinite(tk)) return;
+    let list = this.downs.get(id);
+    if (!list) { list = []; this.downs.set(id, list); }
+    list.push({ slot, st: tk * DT });
+  }
+
+  /**
+   * Which stations of a formation to draw, off a snapshot taken at `st`: the
+   * ones it says are flying, less any machine since reported lost -- so the
+   * aeroplane that is falling is not also still drawn in her place. Zero is
+   * nothing at all: the flight is gone.
+   */
+  drawnMask(id, sl, n, st) {
+    if (this.goneAt.has(id)) return 0;
+    let m = Number.isFinite(sl) ? sl : (1 << Math.max(1, n || 1)) - 1;
+    const list = this.downs.get(id);
+    if (list) for (const d of list) if (d.st > st) m &= ~(1 << d.slot);
+    return m;
+  }
+
+  /** Forget the losses every snapshot held now already shows. */
+  pruneDowns() {
+    const oldest = this.snapshots.length ? this.snapshots[0].st : -Infinity;
+    for (const [id, list] of this.downs) {
+      const left = list.filter((d) => d.st > oldest);
+      if (left.length) this.downs.set(id, left); else this.downs.delete(id);
+    }
+    for (const [id, st] of this.goneAt) if (st < oldest) this.goneAt.delete(id);
+    if (this.crashSeen.size > 200) this.crashSeen.clear();
+  }
+
+  /** A wreck the simulation says has arrived somewhere: off the screen. */
+  endWreck(f) {
+    if (!f) return false;
+    const i = this.wrecks.findIndex((w) => w.f === f);
+    if (i < 0) return false;
+    this.wrecks.splice(i, 1);
+    return true;
   }
 
   /**
@@ -6025,17 +6184,21 @@ export class Battle {
    * Off the slots they are actually flying in, so what streams is the second
    * aeroplane of the second section rather than a smudge at the leader's tail.
    */
-  smokeFlight(pl, dt) {
+  smokeFlight(pl, dt, mask = 0) {
     const at = this.planeSmoke.get(pl.i) || 0;
     const now = at - dt;
     if (now > 0) { this.planeSmoke.set(pl.i, now); return; }
     this.planeSmoke.set(pl.i, 0.09);
     const y = this.planeHeight(pl);
-    const n = Math.min(pl.sm, Math.max(1, pl.n || 1));
+    // The stations actually flying, the furthest back first: the hurt ones
+    // are the last in the formation, because a leader whose machine is shot
+    // about hands the lead over.
+    const slots = [];
+    const m = mask || (1 << Math.max(1, pl.n || 1)) - 1;
+    for (let i = 5; i >= 0; i--) if ((m >> i) & 1) slots.push(i);
+    const n = Math.min(pl.sm, slots.length);
     for (let i = 0; i < n; i++) {
-      // The hurt ones are the last in the formation: a leader whose machine is
-      // shot about hands the lead over.
-      const s = slotAt(Math.max(0, (pl.n || 1) - 1 - i), pl.h || 0);
+      const s = slotAt(slots[i], pl.h || 0);
       this.scene.effects.wreckSmoke(pl.x + s.x, y + s.y, pl.z + s.z);
     }
   }
@@ -6050,7 +6213,7 @@ export class Battle {
    */
   oneDown(o) {
     const fx = this.scene.effects;
-    if (o.why === 'shot' && Math.random() < 0.4) {
+    if (o.burst) {
       // Blown apart in the air. There is nothing left to fall but pieces.
       fx.explosion(o.x, o.y, o.z, 0.8);
       fx.debris(o.x, o.y, o.z, 12);
@@ -6058,16 +6221,17 @@ export class Battle {
       this.blowApart(o.kind, o.x, o.y, o.z, o.heading, 60);
       return;
     }
-    if (this.wrecks.length > 14) this.wrecks.shift();
+    this.makeRoom();
     // A machine that has been crippled is still flying: she turns away and
     // goes down slowly on what is left of her engine. One that has burned or
-    // been shot to pieces is not flying at all.
-    const limp = o.why === 'crippled' || o.why === 'dry';
-    const sp = limp ? 44 + Math.random() * 14 : 60 + Math.random() * 26;
+    // been shot to pieces is not flying at all. How fast she is going is the
+    // simulation's, which is flying the same wreck down.
+    const limp = o.why === 'crippled' || o.why === 'dry' || o.why === 'fuel' || o.why === 'nodeck';
+    const sp = limp ? 50 : 72;
     this.wrecks.push(this.breakWreck({
-      role: o.role, kind: o.kind, x: o.x, y: o.y, z: o.z,
-      vx: Math.sin(o.heading) * sp, vz: Math.cos(o.heading) * sp,
-      vy: limp ? -3 - Math.random() * 3 : -5 - Math.random() * 9,
+      role: o.role, kind: o.kind, x: o.x, y: o.y, z: o.z, f: o.f || 0,
+      vx: o.vx ?? Math.sin(o.heading) * sp, vz: o.vz ?? Math.cos(o.heading) * sp,
+      vy: o.vy ?? (limp ? -4 : -10),
       heading: o.heading, pitch: -0.12,
       bank: (Math.random() < 0.5 ? -1 : 1) * (limp ? 0.2 + Math.random() * 0.4
         : 0.5 + Math.random()),
@@ -6081,6 +6245,36 @@ export class Battle {
       holes: o.holes || null,
       span: o.span || 12,
     }, o.why || 'shot', Math.round(o.x * 3 + o.z * 7)));
+  }
+
+  /**
+   * Room for one more wreck. The oldest goes -- and one the simulation is
+   * still flying goes last, because what it hits is going to be reported.
+   */
+  makeRoom() {
+    if (this.wrecks.length < 40) return;
+    const i = this.wrecks.findIndex((w) => !w.f);
+    this.wrecks.splice(i >= 0 ? i : 0, 1);
+  }
+
+  /**
+   * One heavy out of her vic, on her way down: thirty metres of aeroplane,
+   * falling slowly over on one wing with the smoke pouring off her.
+   */
+  heavyDown(o) {
+    this.makeRoom();
+    const fx = this.scene.effects;
+    fx.wreckSmoke(o.x, o.y, o.z, 1);
+    this.wrecks.push({
+      heavy: true, kind: o.kind, x: o.x, y: o.y, z: o.z, f: o.f,
+      vx: o.vx ?? 0, vy: o.vy ?? -6, vz: o.vz ?? 0,
+      heading: o.heading || 0, pitch: -0.08,
+      bank: (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.3),
+      spin: (Math.random() - 0.5) * 0.5,
+      tumble: (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.25),
+      smoke: 0, trail: o.why === 'crippled' ? 0.6 : 1,
+      holes: o.holes || null, span: o.span || 31,
+    });
   }
 
   /**
@@ -6127,10 +6321,14 @@ export class Battle {
       if (w.y <= sea + 1) {
         // In. A hundred-knot aeroplane going into the sea throws a good deal
         // of water up, and then there is nothing there at all.
-        fx.splash(w.x, w.z, 260);
-        fx.explosion(w.x, sea + 3, w.z, 0.6);
+        fx.splash(w.x, w.z, w.heavy ? 420 : 260);
+        fx.explosion(w.x, sea + 3, w.z, w.heavy ? 1.1 : 0.6);
+        this.wrecks.splice(i, 1);
+      } else if (w.age > 120) {
+        // One the simulation has stopped telling us about.
         this.wrecks.splice(i, 1);
       }
+      w.age = (w.age || 0) + dt;
     }
   }
 

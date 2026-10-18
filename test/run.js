@@ -21054,5 +21054,157 @@ check('a hole stays in her: the oldest is never written over by the newest', () 
     'a hole closed up as another was made');
 });
 
+// --------------------------------------------------------------------------
+// Aeroplanes going down, and what they come down on
+// --------------------------------------------------------------------------
+
+/** A carrier, an enemy battleship, and one flight of hers in the air. */
+function airUp(group = { fighters: 4, dive: 0, torpedo: 0 }) {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
+  bb.x = 0; bb.z = 0; bb.heading = 0; bb.notch = 0;
+  cv.airGroup = group;
+  cv.aimX = bb.x; cv.aimZ = bb.z;
+  for (let i = 0; i < 40; i++) step(st, DT);
+  launchStrike(st, cv);
+  for (let i = 0; i < 1600 && !st.planes.length; i++) { cv.aimX = bb.x; cv.aimZ = bb.z; step(st, DT); }
+  for (let i = 0; i < 300; i++) step(st, DT);
+  const p = st.planes.find((q) => !q.dead);
+  assert.ok(p, 'no aircraft got up');
+  return { st, cv, bb, p };
+}
+
+check('a flight shot down comes down once, each machine from her own station', () => {
+  const { st, p } = airUp();
+  p.machines = [0, 1, 2].map(() => freshAirframe(p.perHp || 100));
+  p.count = 3;
+  const n = 3;
+  const evs = [];
+  for (let k = 0; k < 400 && !p.dead; k++) {
+    hurtFlight(st, p, 4000, 'flak');
+    evs.push(...step(st, DT));
+  }
+  assert.ok(p.dead, 'the flight would not go down');
+  const downs = evs.filter((e) => e.e === 'planeDown' && e.i === p.id);
+  // One report a machine -- the last of her was reported twice, once going
+  // down and again as the squadron was lost -- and each from a different slot.
+  assert.equal(downs.length, n, `${n} machines, ${downs.length} reported going down`);
+  assert.equal(new Set(downs.map((e) => e.slot)).size, n, 'two machines fell out of one slot');
+  assert.equal(evs.filter((e) => e.e === 'planesLost' && e.i === p.id).length, 1);
+  // Every one not blown apart in the air is a body the simulation is flying.
+  for (const e of downs) assert.ok(e.burst || e.f, `a machine went down as nothing (${e.why})`);
+  // And nothing of her is still on the wire.
+  const snap = buildSnapshot(st, 0, 0);
+  assert.ok(!snap.planes.some((q) => q.i === p.id), 'a flight shot down was still sent');
+});
+
+check('a machine out of the middle of a formation leaves a gap there', () => {
+  const { st, p } = airUp();
+  // A division of three, which a flight off a deck is not any more but a
+  // formation still can be.
+  p.machines = [0, 1, 2].map(() => freshAirframe(p.perHp || 100));
+  p.count = 3;
+  p.aimed = p.machines[1];
+  let ev = null;
+  for (let k = 0; k < 400 && !ev; k++) {
+    hurtFlight(st, p, 4000, 'flak');
+    ev = step(st, DT).find((e) => e.e === 'planeDown' && e.i === p.id);
+  }
+  assert.ok(ev, 'nothing went down');
+  assert.equal(ev.slot, 1, 'she fell out of somebody else\'s slot');
+  const pl = buildSnapshot(st, 0, 0).planes.find((q) => q.i === p.id);
+  assert.equal(pl.sl & 0b10, 0, 'her slot was still sent as flying');
+  assert.equal(pl.sl & 1, 1, 'the leader was not sent as flying');
+});
+
+check('a burning aeroplane that comes down on a ship hits her', () => {
+  const { st, bb, p } = airUp();
+  // Over her stern, flying up her length, a little above her upperworks.
+  p.x = bb.x; p.z = bb.z - 150; p.y = 70; p.heading = 0;
+  for (const a of p.machines) a.slot = 0;
+  let hit = null;
+  const hp0 = bb.hp;
+  const evs = [];
+  for (let k = 0; k < 400 && !p.dead; k++) { hurtFlight(st, p, 4000, 'fire'); evs.push(...step(st, DT)); }
+  hit = evs.find((e) => e.e === 'wreckHit' && e.ship === bb.id);
+  for (let k = 0; k < 600 && !hit; k++) hit = step(st, DT).find((e) => e.e === 'wreckHit' && e.ship === bb.id);
+  assert.ok(hit, 'the wreck fell through the ship');
+  assert.ok(bb.hp < hp0, 'a wreck came down on her and did nothing');
+});
+
+check('two aeroplanes flown into each other both go down', () => {
+  const { st, cv, p } = airUp();
+  const foe = addShip(st, { name: 'CV2', classId: 'enterprise', team: 1, index: 1, airGroup: SMALL_E });
+  foe.x = 4000; foe.z = 8000;
+  foe.aimX = cv.x; foe.aimZ = cv.z;
+  for (let i = 0; i < 40; i++) step(st, DT);
+  assert.ok(launchStrike(st, foe), 'the other carrier would not launch');
+  let q = null;
+  for (let i = 0; i < 2400 && !q; i++) {
+    step(st, DT);
+    q = st.planes.find((x) => x.team === 1 && !x.dead && (x.y ?? 0) > 60);
+  }
+  assert.ok(q, 'the other side got nothing up');
+  const n0 = p.count, m0 = q.count;
+  let mid = null;
+  for (let k = 0; k < 3000 && !mid && !p.dead && !q.dead; k++) {
+    // Straight at her leader, at her height.
+    const h = Math.atan2(q.x - p.x, q.z - p.z);
+    const d = Math.hypot(q.x - p.x, q.z - p.z);
+    const s = Math.min(d, 24);
+    flyPlane(st, cv, { i: p.id, x: p.x + Math.sin(h) * s, z: p.z + Math.cos(h) * s, h, y: q.y ?? 220, p: 0 });
+    mid = step(st, DT).find((e) => e.e === 'midAir');
+  }
+  assert.ok(mid, 'she flew through the other flight without touching her');
+  assert.ok(p.dead || p.count < n0, 'the one flown into her lost nothing');
+  assert.ok(q.dead || q.count < m0, 'the one she flew into lost nothing');
+});
+
+check("a fighter's rounds bring a heavy's machines down, and they fall", () => {
+  const { st, cv, p } = airUp();
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 1, x: p.x, z: p.z + 3000, heading: Math.PI });
+  bm.spottedBy = [true, true];
+  const hp0 = bm.hp;
+  let down = null;
+  for (let k = 0; k < 30 * 120 && !down && bm.alive; k++) {
+    // Sat on her nose, three hundred metres out at her height, guns on her.
+    const ax = bm.x + Math.sin(bm.heading) * 300, az = bm.z + Math.cos(bm.heading) * 300;
+    const h = Math.atan2(bm.x - ax, bm.z - az);
+    p.x = ax; p.z = az; p.y = bm.y;
+    flyPlane(st, cv, { i: p.id, x: ax, z: az, h, y: bm.y, p: 0, gp: 0 });
+    strafe(st, cv, p.id, DT);
+    down = step(st, DT).find((e) => e.e === 'bomberDown' && e.i === bm.id);
+  }
+  assert.ok(bm.hp < hp0 || down, 'a fighter\'s guns on a Lancaster did nothing');
+  assert.ok(down, 'nothing of the vic came down');
+  assert.ok(down.f, 'a heavy went down as nothing');
+  assert.ok(st.fallers.some((f) => f.id === down.f && f.heavy), 'her wreck is not falling');
+});
+
+check('a heavy flown into a ship is thirty tonnes into her', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const own = addShip(st, { name: 'CA', classId: 'hipper', team: 0, index: 0 });
+  const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  own.x = 0; own.z = -9000;
+  bb.x = 0; bb.z = 0; bb.heading = 0; bb.notch = 0;
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -500, heading: 0 });
+  bm.y = 24;
+  const hp0 = bb.hp;
+  let hit = null;
+  for (let k = 0; k < 600 && !hit; k++) {
+    flyBomber(st, own, { i: bm.id, x: bm.x, z: bm.z + bm.speed * DT, h: 0, y: 24 });
+    hit = step(st, DT).find((e) => e.e === 'wreckHit' && e.ship === bb.id);
+  }
+  assert.ok(hit, 'the heavy flew through the battleship');
+  assert.equal(hit.heavy, 1);
+  assert.ok(hp0 - bb.hp > 3000, `a heavy into a battleship was worth ${hp0 - bb.hp}`);
+});
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -17,6 +17,7 @@
 // makes a strike look like a strike coming in.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
   tenzan, jake, muzzlesOf, dressPlane,
@@ -593,40 +594,9 @@ export function typeOf(type, role) {
   return ROLE_TYPE[role] || 'avenger';
 }
 
-/**
- * Where each aeroplane of a flight sits relative to her leader.
- *
- * A division of four is two sections of two: the wingman stepped back, out and
- * down from his leader, and the second section the same again outside them.
- * The numbers are in metres and they are the real spacing -- close enough that
- * they read as one formation, far enough apart that nobody is flying through
- * anybody.
- */
-const SLOTS = [
-  [0, 0, 0],
-  [22, -6, -18],
-  [-26, -4, -22],
-  [-48, -9, -42],
-  [46, -11, -40],
-  [0, -14, -46],
-];
-
-/**
- * Where one aeroplane of a flight is, relative to her leader.
- *
- * The same table the formation is drawn from, so a machine that is smoking or
- * going down is smoking or going down in the place she is actually flying
- * rather than at the leader's own position.
- */
-export function slotAt(i, heading, out = { x: 0, y: 0, z: 0 }) {
-  const [sx, sy, sz] = SLOTS[i % SLOTS.length];
-  const sn = Math.sin(heading);
-  const cs = Math.cos(heading);
-  out.x = sn * sz + cs * sx;
-  out.y = sy;
-  out.z = cs * sz - sn * sx;
-  return out;
-}
+// Where each aeroplane of a flight sits relative to her leader. The table
+// lives in shared/formation.js now, where the simulation can read it too.
+export { slotAt };
 
 /**
  * How many holes one aeroplane carries into the shader, and how many
@@ -1099,16 +1069,22 @@ export class Flights {
    * and `att`, when it is given, is the leader's whole attitude as a
    * quaternion: the aeroplane under the player's hands, which goes over the
    * top and round in a roll in a way three angles cannot say smoothly.
+   *
+   * `mask`, when it is given, is which stations are flying, a bit each: a
+   * machine lost out of the middle of a formation leaves a gap there, rather
+   * than the rest closing up over her while she falls out of the same place.
    */
   add(role, x, y, z, heading, bank, pitch, count, skip = -1, type = null, trim = null,
-    holes = null, span = 12, cut = 0, cutSlot = 0, att = null) {
+    holes = null, span = 12, cut = 0, cutSlot = 0, att = null, mask = 0) {
     const key = type && this.batches[type] ? type : (ROLE_TYPE[role] || 'avenger');
     const b = this.batches[key];
     if (!b) return;
     const d = this.dummy;
     const sn = Math.sin(heading);
     const cs = Math.cos(heading);
-    for (let i = 0; i < count && i < SLOTS.length; i++) {
+    this.slotN = 0;
+    for (let i = 0; i < SLOTS.length; i++) {
+      if (mask ? !((mask >> i) & 1) : i >= count) continue;
       if (i === skip) continue;
       const [sx, sy, sz] = SLOTS[i];
       // The slot is in her own frame: across, down, astern.
@@ -1125,8 +1101,9 @@ export class Flights {
       else d.rotation.set(-pitch, heading, -bank);
       d.scale.setScalar(1);
       d.updateMatrix();
-      this.slotM[i].copy(d.matrix);
-      this.slotN = i + 1;
+      // Kept in the order drawn, gaps left out, for whatever wants each
+      // machine that is actually there: the bombs off her racks, her trails.
+      this.slotM[this.slotN++].copy(d.matrix);
       const c = i === cutSlot ? cut : 0;
       // What has been shot through her, cut out of her. The list is turned
       // one place for each machine, so the wingman is not the leader's holes

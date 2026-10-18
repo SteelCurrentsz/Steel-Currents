@@ -4,6 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
+  slotMask,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -355,7 +356,20 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     return out;
   };
 
+  // Which stations of a formation are still flying, when that is not simply
+  // the first so many: a machine shot out of the middle leaves a gap where she
+  // was, and the gap is drawn as a gap.
+  const gaps = (p) => {
+    if (!(p.machines || []).length) return undefined;
+    const m = slotMask(p);
+    return m === (1 << p.count) - 1 ? undefined : m;
+  };
+
+  // Not one that went down this tick after her own turn of it -- to a gunner,
+  // or flown into somebody -- which stays in the array until the next tick so
+  // that whatever got her can still find her, and is not an aeroplane.
   const planes = state.planes
+    .filter((p) => !p.dead)
     .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
     // `o` is the carrier she flew off and `a` is how long she has been up:
     // between them the client can put the aeroplane it watched leave the deck
@@ -363,7 +377,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
     // having her appear at cruising height the instant the button is pressed.
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
-      o: p.owner, a: r1(p.life),
+      o: p.owner, a: r1(p.life), sl: gaps(p),
       // How high she is, and how fast she is going up or down. The client used
       // to work her height out from how long she had been up, which made every
       // aeroplane climb at the same rate to the same altitude whatever she was
@@ -425,11 +439,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   // side's staff has sent her after is the plan, and a plan the other side can
   // read off the wire is not a plan. See `stepBombers`.
   const bombers = (state.bombers || [])
-    .filter((b) => b.team === team || b.spottedBy[team] || ended)
+    .filter((b) => b.alive && (b.team === team || b.spottedBy[team] || ended))
     .map((b) => ({
       i: b.id, b: b.bomberId, tm: b.team,
       x: r1(b.x), y: r1(b.y), z: r1(b.z), h: r3(b.heading),
-      n: b.count, tn: r3(b.turn || 0), s: r1(b.speed),
+      n: b.count, sl: gaps(b), tn: r3(b.turn || 0), s: r1(b.speed),
       // Open on the run and shut everywhere else, which is the one thing about
       // her that anybody watching can actually see.
       d: b.phase === 'run' ? 1 : 0,

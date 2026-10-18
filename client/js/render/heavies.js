@@ -15,25 +15,10 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { heavyBomber } from './planekit.js';
 import { weld, HoleField, holeRows } from './planes.js';
+import { VIC } from '../../../shared/formation.js';
 
-/**
- * Where each machine of a vic flies, in her leader's own frame.
- *
- * Line astern stepped down and out, which is what a bomber formation was: far
- * enough apart that one aeroplane blowing up does not take the next with her,
- * close enough that every gun in the formation bears on the same fighter.
- */
-const VIC = [
-  [0, 0, 0],
-  [-52, -14, -46],
-  [52, -14, -46],
-  [-104, -28, -92],
-  [104, -28, -92],
-  [0, -22, -92],
-  [-156, -40, -138],
-  [156, -40, -138],
-  [0, -44, -184],
-];
+// Where each machine of a vic flies, in her leader's own frame: see
+// shared/formation.js, which the simulation reads too.
 
 export class Heavies {
   constructor(scene, max = 27) {
@@ -112,16 +97,20 @@ export class Heavies {
   /**
    * One formation: her leader's place in the sky and how many of her are left.
    *
-   * `count` machines are drawn, each at her own station on the leader, so a
-   * squadron that has lost two comes through as a vic with two gaps in it.
+   * `count` machines are drawn, each at her own station on the leader -- or
+   * the stations `mask` names -- so a squadron that has lost two comes
+   * through as a vic with two gaps in it.
    */
-  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31) {
+  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31, mask = 0) {
     const b = this.batch(kind);
     const d = this.dummy;
     const n = Math.max(1, Math.min(VIC.length, count | 0));
     const sn = Math.sin(heading);
     const cs = Math.cos(heading);
-    for (let i = 0; i < n && b.n < this.max; i++) {
+    // `mask` is which stations are still flying, when a machine has gone out
+    // of the middle of the vic and left a gap there.
+    for (let i = 0; i < VIC.length && b.n < this.max; i++) {
+      if (mask ? !((mask >> i) & 1) : i >= n) continue;
       const [ox, oy, oz] = VIC[i];
       d.position.set(x + cs * ox + sn * oz, y + oy, z - sn * ox + cs * oz);
       // Nose up is a negative rotation about her own X axis, and a bank to
