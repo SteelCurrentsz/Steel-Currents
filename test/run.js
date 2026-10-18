@@ -186,7 +186,7 @@ import { Debris } from '../client/js/render/debris.js';
 import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
-import { buildShip, buildShipModel } from '../client/js/render/ships.js';
+import { buildShip, buildShipModel, loadShips } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
@@ -335,6 +335,8 @@ import {
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { crewBattle } from '../server/setup.js';
+// The sculpted ships are fetched on demand in the browser; here, all of them up front.
+await loadShips();
 
 
 /**

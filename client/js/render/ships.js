@@ -7,19 +7,8 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
 import { buildFletcher } from './fletcher.js';
 import { buildHipper } from './hipper.js';
-import { buildSpee } from './spee.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
-import { buildTakao } from './takao.js';
-import { buildRodney } from './rodney.js';
-import { buildBaltimore } from './baltimore.js';
-import { buildMassachusetts } from './massachusetts.js';
-import { buildMusashi } from './musashi.js';
-import { buildFuso } from './fuso.js';
-import { buildKongo } from './kongo.js';
-import { buildBismarck, buildTirpitz } from './bismarck.js';
-import { buildScharnhorst } from './scharnhorst.js';
-import { buildRichelieu } from './richelieu.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildShinano } from './shinano.js';
@@ -27,6 +16,67 @@ import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
 import { mergeStatic, weldLoose } from './merge.js';
 import { dressShip } from './textures.js';
+
+/**
+ * The ships built off the owner's sculpts, fetched when they are wanted.
+ *
+ * Each carries her hull as a few megabytes of data, and between them they are
+ * forty -- nearly all of the game's weight. Imported up front, every byte of
+ * that had to come down the wire before a line of the game ran, and a captain
+ * on anything short of a fast line sat at "Casting off" for a minute or for
+ * good. The harbour needs none of them, so they are fetched here: in the
+ * background once the title screen is up, and waited for by the shipyard and
+ * before a battle is joined.
+ */
+let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu;
+const SCULPTED = {
+  spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
+  takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
+  rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
+  baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
+  massachusetts: () => import('./massachusetts.js')
+    .then((m) => { buildMassachusetts = m.buildMassachusetts; }),
+  musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
+  fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
+  kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
+  bismarck: () => import('./bismarck.js')
+    .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
+  scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
+  richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
+};
+// The module each class is drawn by, where it is not her own name.
+const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
+const fetched = new Map();
+const ready = new Set();
+
+function sculptOf(classId) {
+  const k = SCULPT_OF[classId] || classId;
+  return SCULPTED[k] ? k : null;
+}
+
+/** Whether a class can be built now, without waiting for anything. */
+export function shipReady(classId) {
+  const k = sculptOf(classId);
+  return !k || ready.has(k);
+}
+
+/**
+ * Fetch whatever these classes need -- every sculpted ship, given none -- and
+ * resolve when all of it is in. `onEach(done, of)` is told as each one lands.
+ * A fetch that fails is forgotten, so the next ask tries it again.
+ */
+export function loadShips(classIds = Object.keys(SCULPTED), onEach = null) {
+  const keys = [...new Set(classIds.map(sculptOf).filter(Boolean))];
+  let done = 0;
+  return Promise.all(keys.map((k) => {
+    if (!fetched.has(k)) {
+      fetched.set(k, SCULPTED[k]().then(() => { ready.add(k); },
+        (e) => { fetched.delete(k); throw e; }));
+    }
+    return fetched.get(k).then(() => { done++; onEach?.(done, keys.length); });
+  }));
+}
 
 const PALETTE = {
   hull: 0x8e969d,
@@ -453,6 +503,9 @@ function handedOver(built) {
 
 export function buildShipModel(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
+  if (!shipReady(cls.id)) {
+    throw new Error(`Steel Currents: ${cls.id} has not been fetched -- await loadShips() first`);
+  }
   // The Big E is modelled rather than generated: a Yorktown's flight deck,
   // island, galleries and catwalks are not a shape a procedural hull can be
   // talked into, and she is the one ship in the game a captain can walk round.

@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import { WebSocketServer } from 'ws';
 import { Room } from './room.js';
 import { scoreboard } from '../shared/protocol.js';
@@ -68,15 +69,55 @@ const server = http.createServer((req, res) => {
   }
   const file = safeResolve(req.url);
   if (!file) return notFound(res);
-  fs.readFile(file, (err, data) => {
-    if (err) return notFound(res);
-    res.writeHead(200, {
+  serveFile(req, res, file);
+});
+
+// What has been read off the disk, and its gzip, kept until the file changes.
+// The game is forty-odd megabytes of script, most of it ship hulls, and every
+// visit used to fetch all of it again uncompressed: `no-cache` with nothing to
+// revalidate against means "download it again". Now a browser that has the
+// file asks with its tag and gets a 304, and one that has not gets it zipped.
+const served = new Map();
+const ZIPPABLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg']);
+
+function serveFile(req, res, file) {
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return notFound(res);
+    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    const head = {
       'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
+      ETag: etag,
+      Vary: 'Accept-Encoding',
+    };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, head);
+      return res.end();
+    }
+    const hit = served.get(file);
+    if (hit && hit.etag === etag) return send(req, res, head, hit);
+    fs.readFile(file, (err2, data) => {
+      if (err2) return notFound(res);
+      const entry = { etag, data, gz: null };
+      if (ZIPPABLE.has(path.extname(file)) && data.length > 1024) {
+        entry.gz = zlib.gzipSync(data, { level: 6 });
+      }
+      served.set(file, entry);
+      send(req, res, head, entry);
     });
-    res.end(data);
   });
-});
+}
+
+function send(req, res, head, entry) {
+  const zip = entry.gz && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  const body = zip ? entry.gz : entry.data;
+  res.writeHead(200, {
+    ...head,
+    ...(zip ? { 'Content-Encoding': 'gzip' } : {}),
+    'Content-Length': body.length,
+  });
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
 
 function notFound(res) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); }
 function json(res, code, body) {

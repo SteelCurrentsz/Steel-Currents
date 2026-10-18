@@ -6,6 +6,7 @@ import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
+import { loadShips, shipReady } from './render/ships.js';
 import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
@@ -265,10 +266,23 @@ renderer.toneMappingExposure = 1.18;
 // a socket of its own (net.js) for that mode alone.
 const net = new LocalNet();
 // Every battle a captain starts carries his friendly fire setting with it.
+// And none is joined until every ship that could be in it has been fetched
+// (see loadShips): the room starts the moment it is joined, and a fleet that
+// cannot be drawn yet would leave the captain watching a battle he is not in.
 {
   const send = net.send.bind(net);
-  net.send = (m) => send(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom')
-    ? { ...m, ff: getSettings().friendlyFire === true } : m);
+  net.send = (m) => {
+    if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
+    const go = () => send({ ...m, ff: getSettings().friendlyFire === true });
+    if (SHIP_ORDER.every(shipReady)) return go();
+    boot.show('Bringing up the fleet');
+    loadShips(undefined, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+      .then(go, (e) => {
+        console.error('Steel Currents: the fleet would not load', e);
+        boot.done();
+        toast('The fleet could not be fetched. Check the connection and try again.');
+      });
+  };
 }
 const input = new Input(canvas);
 input.touch = isTouchDevice();
@@ -773,7 +787,14 @@ function stepAirGroup(kind, d) {
 function renderYard() {
   const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
   const cls = SHIP_CLASSES[id];
-  yard.setShip(id);
+  // A hull still coming down the wire: the one on the water stays there until
+  // she is in, unless the captain has walked on past her by then.
+  if (shipReady(id)) yard.setShip(id);
+  else {
+    loadShips([id]).then(() => {
+      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+    }, () => toast('That ship could not be fetched. Check the connection and try again.'));
+  }
   // Her full name and pennant where there is room for it; the short one is what
   // the rosters and the plot use.
   document.getElementById('yard-name').textContent = cls.fullName || cls.name;
@@ -1258,7 +1279,13 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
     boot.say('Lighting the fires', 0.8);
     // One more frame so the harbour is drawn under the screen before it lifts,
     // rather than the player watching it appear.
-    requestAnimationFrame(() => requestAnimationFrame(() => boot.done()));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      boot.done();
+      // The sculpted ships, fetched behind the title screen so the shipyard
+      // and the first battle find them already here. A failure is left for
+      // whichever of those asks next, which tries again.
+      setTimeout(() => loadShips().catch(() => {}), 300);
+    }));
   } catch (e) {
     console.error('Steel Currents: the harbour would not build', e);
     boot.el?.classList.add('stuck');
