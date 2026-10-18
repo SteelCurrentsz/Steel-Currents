@@ -268,6 +268,8 @@ class HudBase {
       status: $('status-row'),
       targetPlate: $('target-plate'), targetName: $('target-name'),
       shellCam: $('shell-cam'),
+      timeWarp: $('time-warp'),
+      timeWarpN: $('time-warp-n'),
       targetLine: $('target-line'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
@@ -740,6 +742,11 @@ class HudBase {
       const soon = (own.sq || []).filter((q) => q > 0);
       set('air', ready > 0 ? `×${ready}` : soon.length ? `${Math.ceil(Math.min(...soon))}s` : '—',
         ready > 0 ? 'ready' : 'spent');
+      // Said on the key the moment it is pressed; the battle confirms it a
+      // moment later, and until then the key is not argued with.
+      const auto = this.autoHold > performance.now() ? !!this.autoWant : !!own.al;
+      this.autoOn = auto;
+      set('auto', auto ? 'ON' : 'OFF', auto ? 'active' : 'ready');
       set('plane', 'PL', 'ready');
       this.el.connSub.textContent = `${ready} ready`;
       return;
@@ -2005,8 +2012,12 @@ class HudBase {
     // A carrier sends a strike; a cruiser shoots a scout off a catapult, and
     // calling that a strike oversells four Kingfishers considerably.
     const air = cls.planes && cls.planes.group ? 'Launch strike' : 'Launch scout';
+    // And under the strike key, on a carrier, the one that has her air officer
+    // fly them off himself as each strike is ranged.
     const list = which === 'air'
-      ? [{ k: 'air', label: air }, { k: 'plane', label: 'Pilot view' }]
+      ? [{ k: 'air', label: air },
+        ...(cls.planes && cls.planes.group ? [{ k: 'auto', label: 'Auto launch' }] : []),
+        { k: 'plane', label: 'Pilot view' }]
       : [{ k: 'repair', label: 'Damage control' },
         ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : [])];
     for (const a of list) {
@@ -2154,6 +2165,23 @@ class HudBase {
   /** What the shell key does when it is pressed. */
   bindShellCam(fn) {
     if (this.el.shellCam) this.el.shellCam.onclick = () => fn();
+  }
+
+  /**
+   * The speed key, beside the shell key: how many times faster than life the
+   * battle is running. Lit whenever it is running fast.
+   */
+  setTimeWarp(scale) {
+    const el = this.el.timeWarp;
+    if (!el) return;
+    if (this.el.timeWarpN) this.el.timeWarpN.textContent = `${scale}\u00d7`;
+    el.classList.toggle('on', scale > 1);
+    el.title = scale > 1 ? `Running at ${scale}\u00d7 speed` : 'Speed up time';
+  }
+
+  /** What the speed key does when it is pressed. */
+  bindTimeWarp(fn) {
+    if (this.el.timeWarp) this.el.timeWarp.onclick = () => fn();
   }
 
   setTarget(t) {
@@ -2628,7 +2656,7 @@ export class Hud extends HudBase {
     // buttons over.
     const el = this.el || {};
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
-      el.flyArms, el.flyBombCam, el.flyTake, el.shellCam, ...Object.values(this.keys || {})];
+      el.flyArms, el.flyBombCam, el.flyTake, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
   }
 }

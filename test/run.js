@@ -33,7 +33,7 @@ import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import {
-  normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -20934,6 +20934,119 @@ check('a bomber\'s rear gunner swings onto a fighter astern of her and fires', (
   }
   assert.ok(fired > 0, 'her gunner never fired at a fighter sitting on her tail');
   assert.ok(fighter.dead || fighter.hp < hp, 'her gunner fired and hit nothing');
+});
+
+check('a strike goes off the deck a fighter, a dive bomber and a torpedo bomber in turn', () => {
+  const order = launchOrder(3, 2, 1).map((q) => q.role);
+  assert.deepEqual(order, ['fighter', 'dive', 'torpedo', 'fighter', 'dive', 'fighter'],
+    `the deck sent them off ${order.join(', ')}`);
+  for (const q of launchOrder(2, 2, 2)) {
+    assert.equal(q.torp, q.role === 'torpedo' ? 1 : 0, `a ${q.role} with a fish under her`);
+    assert.equal(q.bomb, q.role === 'dive' ? 1 : 0, `a ${q.role} with a bomb under her`);
+  }
+  // And off a real deck, in that order.
+  const world = generateWorld(9301, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'S', classId: 'shinano', team: 0, index: 0,
+    airGroup: { fighters: 6, dive: 6, torpedo: 6 } });
+  cv.aimX = cv.x + 9000; cv.aimZ = cv.z;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  assert.deepEqual(cv.launching.flights.slice(0, 4).map((q) => q.role),
+    ['fighter', 'dive', 'torpedo', 'fighter']);
+});
+
+check('every carrier in a fleet sails with her own air group', () => {
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 77, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, {
+    classId: 'shinano', wing: { fighters: 50, dive: 0, torpedo: 0 },
+    allyClasses: ['shinano', 'shinano'],
+    allyWings: [{ fighters: 25, dive: 0, torpedo: 25 }, null],
+    enemyClasses: ['enterprise'], enemyWings: [{ fighters: 0, dive: 80, torpedo: 0 }],
+  }, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'shinano', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  });
+  const [mine, second, third] = room.state.ships.filter((s) => s.team === 0);
+  const foe = room.state.ships.find((s) => s.team === 1);
+  assert.deepEqual(mine.airGroup, { fighters: 50, dive: 0, torpedo: 0 }, 'her own');
+  assert.deepEqual(second.airGroup, { fighters: 25, dive: 0, torpedo: 25 }, 'her sister\'s');
+  assert.deepEqual(third.airGroup, defaultAirGroup(SHIP_CLASSES.shinano), 'one nobody balanced');
+  assert.deepEqual(foe.airGroup, { fighters: 0, dive: 80, torpedo: 0 }, 'the enemy\'s');
+});
+
+check('a battle with one captain in it runs as fast as he asks, up to five times', () => {
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 78, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const said = [];
+  const player = { id: 'p', name: 'Captain', team: 0, send: (m) => said.push(m) };
+  crewBattle(room, { classId: 'fletcher', enemyClasses: ['fletcher'] }, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'fletcher', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  });
+  room.start();
+  const run = (scale) => {
+    room.command(player, { t: 'warp', s: scale });
+    room.accum = 0;
+    room.lastTick = Date.now() - 200;
+    const t0 = room.state.tick;
+    room.tick();
+    return room.state.tick - t0;
+  };
+  const one = run(1);
+  const five = run(5);
+  assert.equal(room.timeScale, 5);
+  assert.ok(five >= one * 4.5, `five times as fast stepped ${five} ticks to ${one}`);
+  assert.ok(said.some((m) => m.t === 'warp' && m.s === 5), 'nobody was told how fast it runs');
+  run(9);
+  assert.equal(room.timeScale, 5, 'faster than five');
+  run(0);
+  assert.equal(room.timeScale, 1, 'slower than life');
+  room.close();
+});
+
+check('a carrier told to launch on her own flies her strikes off without being asked', () => {
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 79, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, { classId: 'enterprise', enemyClasses: ['fletcher'] }, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'enterprise', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  });
+  const cv = room.state.ships.find((s) => !s.isBot);
+  const foe = room.state.ships.find((s) => s.team === 1);
+  foe.x = cv.x + 9000; foe.z = cv.z;
+  for (const s of room.state.ships) s.spottedBy = [true, true];
+  room.start();
+  const go = (secs) => {
+    for (let i = 0; i < secs / DT; i++) {
+      room.accum = 0; room.lastTick = Date.now() - DT * 1000 - 1; room.tick();
+    }
+  };
+  go(3);
+  assert.ok(!cv.launching && cv.squadrons.every((q) => q.state === 'deck'),
+    'her aircraft went without her captain\'s word');
+  room.command(player, { t: 'autolaunch', ship: cv.id, on: true });
+  assert.equal(cv.autoLaunch, true);
+  go(3);
+  assert.ok(cv.launching || cv.squadrons.some((q) => q.state !== 'deck'),
+    'told to launch on her own, she launched nothing');
+  const snap = buildSnapshot(room.state, 0, cv.id);
+  assert.equal(snap.ships.find((s) => s.i === cv.id).al, 1, 'her bridge is not told');
+  room.close();
+});
+
+check('a hole stays in her: the oldest is never written over by the newest', () => {
+  const a = freshAirframe(1e7);
+  for (let i = 0; i < MAX_HOLES; i++) hitAirframe(a, HOLE_COST, (i * 0.37) % 1, (i * 0.61) % 1);
+  const first = a.holes.map((h) => `${h.k}${h.x}${h.z}`);
+  for (let i = 0; i < 50; i++) hitAirframe(a, HOLE_COST, Math.random(), Math.random());
+  assert.deepEqual(a.holes.map((h) => `${h.k}${h.x}${h.z}`), first,
+    'a hole closed up as another was made');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

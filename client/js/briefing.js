@@ -32,7 +32,7 @@ const cycle = (arr, cur, step = 1) => {
 
 export class Briefing {
   constructor({ onStart, getName, getSkill, onShipChange, onOpenPicker, onClosePicker,
-    onOpenYard, onOpenChart, onOpenGuns, onOpenBombers }) {
+    onOpenYard, onOpenChart, onOpenGuns, onOpenBombers, onEditWing }) {
     this.onStart = onStart;
     this.getName = getName;
     // How hard the other side fights is a preference rather than a property of
@@ -45,6 +45,7 @@ export class Briefing {
     this.onOpenChart = onOpenChart;
     this.onOpenGuns = onOpenGuns;
     this.onOpenBombers = onOpenBombers;
+    this.onEditWing = onEditWing;
     this.state = {
       // Both sides start with nothing. Your fleet's first hull is the one you
       // take the bridge of; the rest sail under AI captains, and the enemy
@@ -53,6 +54,12 @@ export class Briefing {
       // the screen came up with.
       allyFleet: [],
       enemyFleet: [],
+      // What each of those hulls embarks, hull for hull: a carrier's air
+      // group is hers, not her class's, so two Shinanos in one fleet can sail
+      // one with fifty fighters and the other with half fighters and half
+      // torpedo bombers. Null for a hull that carries no air group.
+      allyWings: [],
+      enemyWings: [],
       // The coast batteries each side has emplaced. They are chosen the same
       // way the hulls are, off the turret button under each fleet.
       allyGuns: [],
@@ -143,6 +150,17 @@ export class Briefing {
     press(this.el.allyDel, () => this.openPicker('ally', 'remove'));
     press(this.el.enemyDel, () => this.openPicker('enemy', 'remove'));
 
+    // A carrier on either roster opens her own air group, to be rebalanced
+    // for that one hull and no other.
+    for (const side of ['ally', 'enemy']) {
+      const list = side === 'ally' ? this.el.allyList : this.el.enemyList;
+      list?.addEventListener('click', (e) => {
+        const row = e.target.closest?.('.fleet-ship.wing');
+        if (!row) return;
+        this.onEditWing?.(side, Number(row.dataset.i));
+      });
+    }
+
     // The battery under each fleet opens the gun park, the way the hull icon
     // over it opens the shipyard.
     on('ally-turret', () => this.onOpenGuns?.('ally'));
@@ -168,15 +186,41 @@ export class Briefing {
    */
   fleetList(side) {
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    const wings = this.wings(side);
     return fleet.map((id, i) => {
       const cls = SHIP_CLASSES[id];
       const code = cls?.type || '??';
       const name = cls?.name || id;
       const flag = side === 'ally' && i === 0 ? ' flag' : '';
-      return `<li class="fleet-ship${flag}">`
+      // A carrier says what she has embarked, under her name, and is the
+      // key to change it.
+      const g = cls?.planes?.group ? (wings[i] || cls.planes.group.default) : null;
+      const wing = g ? ' wing' : '';
+      const air = g
+        ? `<span class="hull-wing">${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T</span>` : '';
+      return `<li class="fleet-ship${flag}${wing}" data-i="${i}"`
+        + `${g ? ' title="Change her air group"' : ''}>`
         + `<b class="hull-code">${code}</b>`
-        + `<span class="hull-name">${name}</span></li>`;
+        + `<span class="hull-name">${name}</span>${air}</li>`;
     }).join('');
+  }
+
+  /** What each hull of one fleet embarks, in fleet order. */
+  wings(side) {
+    return side === 'ally' ? this.state.allyWings : this.state.enemyWings;
+  }
+
+  /** The air group one hull of a fleet sails with; null if she has none. */
+  wingOf(side, i) {
+    return this.wings(side)[i] || null;
+  }
+
+  /** Give one hull of a fleet her own air group. */
+  setWing(side, i, group) {
+    const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
+    if (!(i >= 0 && i < fleet.length)) return;
+    this.wings(side)[i] = group ? { ...group } : null;
+    this.render();
   }
 
   /**
@@ -271,10 +315,12 @@ export class Briefing {
 
   /** Commission a hull into one of the fleets. The shipyard calls this once a
    *  captain has looked her over. False if that fleet is already full. */
-  commission(side, classId) {
+  commission(side, classId, wing = null) {
     const fleet = side === 'ally' ? this.state.allyFleet : this.state.enemyFleet;
     if (fleet.length >= FLEET_MAX) return false;
     fleet.push(classId);
+    // Her own air group, as it stood in the yard when she was commissioned.
+    this.wings(side)[fleet.length - 1] = wing ? { ...wing } : null;
     if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
     this.render();
     return true;
@@ -324,6 +370,8 @@ export class Briefing {
       const flagship = index === 0 && yours;
       card(`${c.type} · ${c.typeName}`, c.name, flagship ? 'Your bridge' : c.blurb, () => {
         fleet.splice(index, 1);
+        // Her air group goes with her, and every hull after her keeps its own.
+        this.wings(side).splice(index, 1);
         if (side === 'ally') this.onShipChange?.(this.state.allyFleet[0]);
       });
     });
@@ -452,6 +500,11 @@ export class Briefing {
       classId: s.allyFleet[0],
       allyClasses: s.allyFleet.slice(1),
       enemyClasses: s.enemyFleet,
+      // And what each of them embarks, hull by hull, in the same order: her
+      // own first, then her consorts', then the enemy's.
+      wing: s.allyWings[0] || null,
+      allyWings: s.allyFleet.slice(1).map((_, i) => s.allyWings[i + 1] || null),
+      enemyWings: s.enemyFleet.map((_, i) => s.enemyWings[i] || null),
       // The batteries go with the request so the order-of-battle chart can put
       // a token on the ground for each of them.
       allyGuns: s.allyGuns.slice(),

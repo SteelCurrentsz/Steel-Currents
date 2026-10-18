@@ -287,7 +287,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     fireAssigned(state, ship, brain, cls, 'torps');
   }
 
-  // A conned ship's aircraft are her captain's to send, and nobody else's.
+  // A conned ship's aircraft are her captain's to send, and nobody else's --
+  // unless he has told her air officer to send them himself (`autoLaunch`),
+  // in which case they go the way every other carrier's do.
   //
   // Everybody else's go the moment they can go. A squadron ranged on a deck is
   // a squadron doing nothing, and a carrier with her aircraft aboard is a
@@ -299,7 +301,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // the target is coming towards her and the strike takes several minutes to
   // form up and get out. Holding them on deck until the enemy was inside the
   // radius of action meant a carrier waited to be attacked before answering.
-  if (!conned && cls.planes) {
+  if ((!conned || ship.autoLaunch) && cls.planes) {
     const mark = staff && staff.strikeAt
       ? state.ships.find((q) => q.id === staff.strikeAt && q.alive) : target;
     const reach = cls.planes.strikeRange * 1.5;

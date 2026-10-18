@@ -21,6 +21,9 @@ const SKILL_OF = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
 const SNAPSHOT_EVERY = 2;       // ticks -> 15 snapshots per second
 const LOBBY_COUNTDOWN = 12;     // seconds a public lobby holds open for others
+// How much faster than life a battle may be run. A battle with one captain in
+// it is his to hurry along; one with two is nobody's, so it runs at one.
+export const MAX_TIME_SCALE = 5;
 
 let roomSeq = 1;
 
@@ -54,6 +57,9 @@ export class Room {
     // when the beat is up.
     this.state.orders = true;
     this.later = [];
+    // How many seconds of battle go by in each second of the clock on the
+    // wall. See the 'warp' command.
+    this.timeScale = 1;
     this.players = new Map();     // playerId -> player
     this.brains = new Map();      // shipId -> bot brain
     this.phase = 'lobby';         // lobby | battle | ended
@@ -135,6 +141,11 @@ export class Room {
     player.shipId = ship.id;
     player.room = this;
     this.players.set(player.id, player);
+    // A second captain aboard: the battle is nobody's to hurry any more.
+    if (this.players.size > 1 && this.timeScale !== 1) {
+      this.timeScale = 1;
+      this.broadcast({ t: 'warp', s: 1 });
+    }
     this.broadcastRoster();
     if (this.phase === 'lobby' && this.autoStart) this.maybeStart();
     return { ship };
@@ -200,12 +211,14 @@ export class Room {
     return addBomber(this.state, { bomberId, team, x, z, heading: h });
   }
 
-  addBotOnTeam(team, skill = this.botSkill, classId = null, at = null) {
+  // `airGroup` is her own, when the briefing balanced one for this hull; a
+  // hull without one sails with her side's, or her datasheet's.
+  addBotOnTeam(team, skill = this.botSkill, classId = null, at = null, airGroup = null) {
     const cls = classId || SHIP_ORDER[Math.floor(Math.random() * SHIP_ORDER.length)];
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
     const ship = addShip(this.state, {
       name, classId: cls, team, index: this.teamIndex[team]++, isBot: true, at,
-      airGroup: this.airGroupFor(team),
+      airGroup: airGroup || this.airGroupFor(team),
     });
     this.brains.set(ship.id, createBotBrain(skill));
     return ship;
@@ -276,9 +289,12 @@ export class Room {
     // because there is nobody left to fire them.
     if (this.phase !== 'battle' && this.phase !== 'ended') return;
 
+    // Run fast, the whole of it is run fast: every step is the same step, there
+    // are simply more of them to the second.
+    const scale = this.timeScale || 1;
     let steps = 0;
-    this.accum = (this.accum || 0) + elapsed;
-    while (this.accum >= DT && steps < 6) {
+    this.accum = (this.accum || 0) + elapsed * scale;
+    while (this.accum >= DT && steps < 6 * scale) {
       this.accum -= DT;
       steps++;
       // Both staffs first: the orders a captain acts on this tick are written
@@ -445,6 +461,16 @@ export class Room {
         && !(player.watching === player.shipId && own && !own.alive)) this.release(player);
       return;
     }
+    // How fast the battle runs. Only a captain alone in it may change that --
+    // with two aboard, one cannot hurry the other's battle along.
+    if (msg.t === 'warp') {
+      const want = Math.round(Number(msg.s));
+      const s = this.players.size <= 1 && Number.isFinite(want)
+        ? Math.max(1, Math.min(MAX_TIME_SCALE, want)) : 1;
+      this.timeScale = s;
+      this.broadcast({ t: 'warp', s });
+      return;
+    }
     const ship = this.shipOf(player);
     if (!ship) return;
     // A captain whose ship has gone down still has the con of whatever he has
@@ -583,6 +609,14 @@ export class Room {
       // Her guns, held down. `dt` is how long the trigger has been down since
       // the last word, clamped so a client cannot claim a minute of it.
       case 'gun': strafe(this.state, ship, msg.i, Math.min(0.3, Math.max(0, msg.dt || 0))); break;
+      // Her air officer told to fly the strikes off himself, as each is
+      // ranged and there is something in reach to send it at -- or told to
+      // wait for the captain's word again.
+      case 'autolaunch': {
+        const to = this.conned(ship, msg);
+        if (to && getClass(to.classId).planes) to.autoLaunch = !!msg.on;
+        break;
+      }
       case 'strike': {
         // Her aircraft go for whatever her fire control is on. The guns and the
         // squadron fight the same ship, which is what a captain ordering a

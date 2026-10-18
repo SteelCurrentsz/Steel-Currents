@@ -66,8 +66,13 @@ export const PART_BOX = {
   body: { x: [-0.11, 0.11], y: [-0.09, 0.09], z: [-0.55, 0.55] },
 };
 
-/** How many holes are kept on one airframe before the oldest is written over. */
-export const MAX_HOLES = 14;
+/**
+ * How many holes one airframe carries. Past this she takes no more of them --
+ * the hole that is there stays there: writing the oldest over had a hole
+ * vanish out of her skin every time a new one arrived, and the aeroplane a
+ * gunner was watching closed up and opened again as he hit her.
+ */
+export const MAX_HOLES = 16;
 
 /**
  * How much damage buys one hole.
@@ -120,8 +125,8 @@ export function punchAirframe(a, part, damage, roll, roll2, roll3) {
   if (!a.holes) a.holes = [];
   // A wing is a finite amount of wing. Past a certain number of them the holes
   // stop being separate holes and start being one piece of missing aeroplane,
-  // and the oldest is written over rather than the list growing without end.
-  if (a.holes.length >= MAX_HOLES) a.holes.shift();
+  // so the list stops growing -- and the holes already in her stay in her.
+  if (a.holes.length >= MAX_HOLES) return hole;
   a.holes.push(hole);
   return hole;
 }

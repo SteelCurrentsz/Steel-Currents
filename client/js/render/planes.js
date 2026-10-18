@@ -862,11 +862,12 @@ export class HoleField {
       if (!at) continue;
       // Nor in a piece of her that is not there any more.
       if (cut && segOf && segGone(segOf(at.p.x, at.p.y, at.p.z), cut)) continue;
-      // A little larger than the round that made it: the skin tears back
-      // round a hole, and at the range anybody watches an aeroplane from a
-      // hole the bore of the round is not there at all. Through a wing it is
-      // deep enough to open both skins.
-      const r = Math.max(0.16, h.r * 1.2, at.through * 1.25);
+      // About the size of what made it, torn a little round the edge -- a
+      // hole, not a crater: drawn at twice the size of the round they read as
+      // pieces missing from her, and the camera is close enough now to see
+      // the difference. Through a wing it is still just deep enough to open
+      // both skins, so there is sky through it.
+      const r = Math.max(0.07, h.r * 0.6, at.through * 1.4);
       const o = (row * HOLES_PER + k) * 4;
       this.data[o] = at.mid.x;
       this.data[o + 1] = at.mid.y;

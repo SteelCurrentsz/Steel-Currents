@@ -59,6 +59,14 @@ const CLOCK_WINDOW = 4;
 const FIRE_AT = new THREE.Vector3();
 /** How long an aeroplane fresh off the deck takes to settle onto her own track, in seconds. */
 const HANDOVER = 1.6;
+/** A snapshot's aeroplanes by id, worked out once for each snapshot. */
+function planeMap(snap) {
+  if (!snap) return null;
+  if (!snap.planeIds) snap.planeIds = new Map((snap.planes || []).map((q) => [q.i, q]));
+  return snap.planeIds;
+}
+/** The fastest the battle may be run, in times as fast as life. See Room.timeScale. */
+const MAX_WARP = 5;
 
 /**
  * Where a ship is between two snapshots of her.
@@ -531,6 +539,13 @@ export class Battle {
       const ship = this.conned();
       if (k === 'notch') this.setNotch(v);
       else if (k === 'air') this.net.send({ t: 'strike', ship });
+      else if (k === 'auto') {
+        const on = !this.hud.autoOn;
+        this.hud.autoWant = on;
+        this.hud.autoHold = performance.now() + 900;
+        this.hud.autoOn = on;
+        this.net.send({ t: 'autolaunch', ship, on });
+      }
       else if (k === 'plane') this.togglePilotView();
       else if (k === 'repair') this.net.send({ t: 'repair', ship });
       else if (k === 'smoke') this.net.send({ t: 'smoke', ship });
@@ -596,6 +611,10 @@ export class Battle {
     this.fix = null;
     // Last heading seen for each flight, so a turn can be read off as bank.
     this.planeTurn = new Map();
+    // And how far her nose is up, eased the same way. See syncEntities.
+    this.planePitch = new Map();
+    // And what each has lost -- a wing panel, a tail -- which stays lost.
+    this.planeCut = new Map();
     // How far each flight's bomb bay is open and how far her weapon has
     // fallen clear of her. See `bayTrim`.
     this.planeTrim = new Map();
@@ -724,6 +743,12 @@ export class Battle {
     // The shell camera, beside the target plate: ride the rounds this ship is
     // firing.
     this.hud.bindShellCam(() => this.toggleShellCam());
+    // And the speed key beside it: how many times faster than life the battle
+    // runs. The battle service says what it is running at, and the key shows
+    // that rather than what was last asked for.
+    this.timeScale = 1;
+    this.hud.setTimeWarp?.(1);
+    this.hud.bindTimeWarp?.(() => this.cycleWarp());
     this.hud.onToggleMap = () => this.toggleMap();
     // The page's own buttons outlive the battle: what is put on them here
     // comes off again in dispose, all at once.
@@ -778,6 +803,7 @@ export class Battle {
       this.net.on('ev', (m) => this.onEvents(m.ev)),
       this.net.on('roster', (m) => { this.roster = m.roster; m.roster.forEach((r) => this.names.set(r.id, r.name)); }),
       this.net.on('result', (m) => this.onResult(m)),
+      this.net.on('warp', (m) => this.onWarp(m.s)),
       // The simulation refusing a drop. She is still carrying it, so the key
       // comes back live and the pilot is told why nothing happened rather than
       // being left pressing a dead button.
@@ -796,6 +822,29 @@ export class Battle {
           : 'Racks still reloading');
       }),
     ];
+  }
+
+  /** Press the speed key: one, two, three, four, five times as fast, and round again. */
+  cycleWarp() {
+    const next = (this.timeScale || 1) >= MAX_WARP ? 1 : (this.timeScale || 1) + 1;
+    this.net.send({ t: 'warp', s: next });
+    audio.click();
+  }
+
+  /**
+   * The battle running at a new rate. The clock the picture is drawn on is
+   * told at once rather than left to find out over the next few seconds of
+   * snapshots: measured, it lagged the change and the whole sea was held back
+   * and then thrown forward to catch up.
+   */
+  onWarp(s) {
+    const k = clamp(Math.round(Number(s) || 1), 1, MAX_WARP);
+    if (k === this.timeScale) return;
+    this.timeScale = k;
+    const pts = this.clockPts;
+    if (pts && pts.length) pts.splice(0, pts.length - 1);
+    this.clockRate = k;
+    this.hud.setTimeWarp?.(k);
   }
 
   onSnapshot(snap) {
@@ -911,7 +960,7 @@ export class Battle {
     const first = pts[0];
     const span = now - first.at;
     if (span > 0.5) {
-      const r = clamp((st - first.st) / span, 0.05, 1.5);
+      const r = clamp((st - first.st) / span, 0.05, Math.max(1.5, (this.timeScale || 1) * 1.25));
       this.clockRate = (this.clockRate ?? 1) + (r - (this.clockRate ?? 1)) * 0.2;
     }
     // Still kept for anything that wants the plain offset.
@@ -926,7 +975,10 @@ export class Battle {
     let best = -Infinity;
     for (const p of pts) best = Math.max(best, p.st + (now - p.at) * rate);
     // Never further past the newest snapshot than a ship is carried on past one.
-    return Math.min(best, pts[pts.length - 1].st + EXTRAPOLATE + INTERP_DELAY);
+    // Both in the server's seconds, so run fast they stretch with it: the
+    // snapshots come no oftener, and each one is that much more battle apart.
+    const k = this.timeScale || 1;
+    return Math.min(best, pts[pts.length - 1].st + (EXTRAPOLATE + INTERP_DELAY) * k);
   }
 
   /**
@@ -942,12 +994,12 @@ export class Battle {
   stepRenderClock(now = performance.now() / 1000) {
     const est = this.serverNow(now);
     if (est === null) return this.renderST;
-    const want = est - INTERP_DELAY;
+    const want = est - INTERP_DELAY * (this.timeScale || 1);
     // Real time, not the frame's capped step: on a slow machine the capped
     // step runs short and the picture would fall steadily behind.
     const step = Math.min(0.5, Math.max(0, now - this.renderAt));
     this.renderAt = now;
-    if (this.renderST === null || want - this.renderST > 1) {
+    if (this.renderST === null || want - this.renderST > (this.timeScale || 1)) {
       this.renderST = want;
     } else {
       const was = this.renderST;
@@ -969,7 +1021,8 @@ export class Battle {
     if (est === null) { this.ownAtWall = now; return dt; }
     const step = Math.min(0.5, Math.max(0, now - (this.ownAtWall || now)));
     this.ownAtWall = now;
-    if (this.ownST === null || this.ownST === undefined || Math.abs(est - this.ownST) > 1) {
+    if (this.ownST === null || this.ownST === undefined
+      || Math.abs(est - this.ownST) > (this.timeScale || 1)) {
       this.ownST = est;
       return Math.min(dt, step * (this.clockRate ?? 1));
     }
@@ -999,7 +1052,7 @@ export class Battle {
     // She is carried on along her heading at her speed instead, for a short
     // while -- which is where she will turn out to have been, near enough, so
     // when the next snapshot comes in she is already there.
-    const ahead = b ? 0 : clamp(renderTime - a.st, 0, EXTRAPOLATE);
+    const ahead = b ? 0 : clamp(renderTime - a.st, 0, EXTRAPOLATE * (this.timeScale || 1));
     return { a, b, t, ahead };
   }
 
@@ -3009,8 +3062,11 @@ export class Battle {
       this.watchYaw = facing === null ? this.yaw : facing;
       this.watchPitch = 0.06;
       this.watchEl = 0.30;
-      this.watchDist = 3.2;
-      this.watchDistNow = 3.2;
+      // An aeroplane close, the way her own pilot's chase camera has her: a
+      // ship's three lengths off is a speck when the length is twelve metres.
+      const near = hit.kind === 'plane' ? 1.4 : 3.2;
+      this.watchDist = near;
+      this.watchDistNow = near;
       this.watchFov = 52;
       this.watchFovNow = 52;
       // A squadron of heavies is watched from outside it, not from inside one
@@ -3143,7 +3199,11 @@ export class Battle {
       // that one, so it is flown off the interpolated plot position.
       const pl = (this.planesNow || []).find((x) => x.i === this.watching.id);
       if (pl) {
-        return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span: 14, eye: 2.2, close: true };
+        // Her own span, so the orbit is laid off the aeroplane she is: a Zero
+        // is not an Avenger, and a camera set for the larger stood well back
+        // from the smaller.
+        const span = (AERO[typeOf(pl.k, pl.r || 'torpedo')] || AERO.avenger).span || 12;
+        return { x: pl.x, y: this.planeHeight(pl), z: pl.z, span, eye: 2.2, close: true };
       }
       return null;
     }
@@ -3682,7 +3742,7 @@ export class Battle {
    * -- often enough that the flight the plot shows is the one under the
    * player, sparing enough that it is not a message a frame.
    */
-  stepFlight(dt) {
+  stepFlight(dt, sdt = dt) {
     const f = this.flight;
     if (!f) return;
     const snap = this.snapshots[this.snapshots.length - 1];
@@ -3765,7 +3825,7 @@ export class Battle {
     // down goes down with the holes that put her there in her.
     f.holes = unpackHoles(pl.hl);
     // And the end of a wing shot off by them, which she flies on without.
-    if (!f.heavy) f.cut = cutFromHoles(f.holes, f.dm);
+    if (!f.heavy) f.cut = (f.cut || 0) | cutFromHoles(f.holes, f.dm);
     // And how many of her are left in the air beside you.
     if (f.heavy) {
       f.count = Math.max(1, pl.n || 1);
@@ -3829,7 +3889,12 @@ export class Battle {
     p.throttle = stick.throttle * wear.speed;
     const sea = this.scene.ocean.heightAt(p.x, p.z);
     p.gale = galeOf(this.world, this.renderST ?? this.time);
-    p.step(dt, sea);
+    // Flown in steps no longer than a frame at life speed, so a battle run fast
+    // flies her further each frame without flying her any less carefully.
+    {
+      const n = Math.max(1, Math.ceil(sdt / Math.max(1e-4, dt) - 1e-6));
+      for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea);
+    }
     if (!p.alive) {
       // She has gone into the sea, or into a ship at her waterline. The
       // simulation is told where, at the waterline, so it can put her into
@@ -3852,10 +3917,10 @@ export class Battle {
     f.firingNow = firing && !this.turret && !f.heavy;
     if (firing) {
       if (!this.turret && Number.isFinite(f.ammo)) {
-        f.ammo = Math.max(0, f.ammo - (GUN_RPM / 60) * f.guns_n * dt);
+        f.ammo = Math.max(0, f.ammo - (GUN_RPM / 60) * f.guns_n * sdt);
       }
-      f.guns += dt;
-      f.tracer -= dt;
+      f.guns += sdt;
+      f.tracer -= sdt;
       if (f.tracer <= 0) {
         f.tracer = 0.1;
         // Out of the turret he is sitting in, when he is sitting in one, and
@@ -4122,7 +4187,10 @@ export class Battle {
   chaseRig(p) {
     const span = (p.a && p.a.span) || 11;
     const zoom = this.hud.fly && this.hud.fly.zoom;
-    return { back: (18 + span * 1.2) * (zoom ? 1.25 : 1), up: 4 + span * 0.32 };
+    // Close: about her own span and a half behind her, near enough that her
+    // panel lines, her markings and every hole in her read, and far enough
+    // that the whole of her -- wingtip to wingtip -- is in the picture.
+    return { back: (5 + span * 1.05) * (zoom ? 1.25 : 1), up: 1.6 + span * 0.2 };
   }
 
   /**
@@ -4472,7 +4540,7 @@ export class Battle {
    * `g` is how hard she is pulling, `v` her speed, `y` her height, `vel` her
    * velocity, and `firing` how many of her machines are shooting.
    */
-  airFx(id, kind, g, v, y, vel, firing, dt) {
+  airFx(id, kind, g, v, y, vel, firing, dt, cut = 0) {
     const fl = this.scene.flights;
     const tp = fl.tips(kind);
     if (!tp) return;
@@ -4484,7 +4552,14 @@ export class Battle {
     for (let i = 0; i < fl.slotN; i++) {
       const m = fl.slotM[i];
       const d = Math.hypot(m.elements[12] - eye.x, m.elements[13] - eye.y, m.elements[14] - eye.z);
-      if (d < 3000) this.scene.contrails.lay(`${id}/${i}`, m, tp.tips, tp.nose, g, v, y);
+      // The trail comes off her wingtip, and a wing that has gone has taken
+      // its tip with it: only the slot that lost it, the others are whole.
+      // The engine's is laid as long as she has her airscrew.
+      const c = i === 0 ? cut : 0;
+      if (d < 3000) {
+        this.scene.contrails.lay(`${id}/${i}`, m, tp.tips, tp.nose, g, v, y,
+          [!(c & (CUT.wingOutL | CUT.wingInL)), !(c & (CUT.wingOutR | CUT.wingInR))], !(c & CUT.prop));
+      }
       if (i < firing && d < 1800) {
         this.scene.gunFlashes.fire(`${id}/${i}`, m, guns, vel, cal, this.scene.effects, dt, i === 0 && d < 600);
       }
@@ -4627,8 +4702,8 @@ export class Battle {
     this.watchEl = 0.24;              // a little above her, not edge-on
     // Multiples of her length. Ten metres put the camera inside the wing: an
     // aeroplane needs standing off far enough that she reads as an aeroplane.
-    this.watchDist = 1.55;
-    this.watchDistNow = 1.55;
+    this.watchDist = 1.4;
+    this.watchDistNow = 1.4;
     this.hud.setWatching?.(this.watching);
     this.hud.setWatchBanner?.(this.watching, false);
     this.hud.setFlyOffer(this.canTake());
@@ -4862,7 +4937,18 @@ export class Battle {
     // frame steps -- a launch takes twelve seconds because that is how long it
     // takes, and accumulating dt made it take twelve seconds of frames, which
     // on a slow machine is a minute and a half.
-    this.time = performance.now() / 1000;
+    // Wall time run at the battle's own rate: sped up, the deck is worked as
+    // much faster as everything else is.
+    {
+      const wall = performance.now() / 1000;
+      const step = this.wallAt === undefined ? 0 : clamp(wall - this.wallAt, 0, 1);
+      this.wallAt = wall;
+      this.time = this.time === undefined ? wall : this.time + step * (this.timeScale || 1);
+    }
+    // And a frame's worth of battle, for everything that moves with it -- the
+    // aircraft, the wrecks, the smoke and the sea. The camera and the hand on
+    // the controls stay at the speed of life.
+    const sdt = dt * (this.timeScale || 1);
 
     // The helm answers the chart, not a wheel. Steered here as well as on the
     // server, and by the same shared code, so the hull the player is watching
@@ -4932,8 +5018,8 @@ export class Battle {
       this.net.send({ t: 'input', notch: ls.notch });
     }
 
-    this.stepFlight(dt);
-    this.syncEntities(dt);
+    this.stepFlight(dt, sdt);
+    this.syncEntities(sdt);
     // After the entities, because the camera rides an interpolated round and
     // syncEntities is what interpolates them.
     this.stepShellCam(dt);
@@ -4968,7 +5054,7 @@ export class Battle {
     // frame. Held off for a moment after the last hit rather than done on the
     // hit, because a salvo of nine lands in under a second.
     this.scene.syncGround(dt);
-    this.scene.update(dt);
+    this.scene.update(sdt);
 
 
     const ownForHud = this.ownSnap
@@ -5547,13 +5633,53 @@ export class Battle {
     // used not to be, and the aeroplane the camera rides was the one thing on
     // screen stepping ten times a second instead of running: that is what made
     // riding her look broken.
+    //
+    // And along a curve through them, not a straight line from one to the
+    // next: joined with straight lines, her velocity changed fifteen times a
+    // second, on every snapshot -- invisible on a ship, and a twitch on an
+    // aeroplane the camera is sitting a few metres behind. The curve passes
+    // through every snapshot and leaves each one at the speed and in the
+    // direction she arrived at it, worked out off the snapshots either side.
+    const snaps = this.snapshots;
+    const ia = snaps.indexOf(a);
+    const before = ia > 0 ? planeMap(snaps[ia - 1]) : null;
+    const after = ia >= 0 && snaps[ia + 2] ? planeMap(snaps[ia + 2]) : null;
+    const nextOf = b ? planeMap(b) : null;
     const planes = (a.planes || []).map((pl) => {
-      const nx = b ? (b.planes || []).find((q) => q.i === pl.i) : null;
-      if (!nx) return pl;
+      const nx = nextOf ? nextOf.get(pl.i) : null;
+      if (!nx) {
+        // Past the newest snapshot: on along her own heading at her own speed
+        // for as long as the next one is late, rather than held in the air
+        // and then jumped -- which was the aeroplane that stuttered.
+        if (b || !(ahead > 0)) return pl;
+        const gs = pl.s || 0;
+        return {
+          ...pl,
+          x: pl.x + Math.sin(pl.h) * gs * ahead,
+          z: pl.z + Math.cos(pl.h) * gs * ahead,
+          y: (pl.y ?? 220) + (pl.vy || 0) * ahead,
+        };
+      }
+      const T = Math.max(1e-3, b.st - a.st);
+      const pv = before && before.get(pl.i);
+      const nn = after && after.get(pl.i);
+      const tb = pv ? snaps[ia - 1].st : 0;
+      const ta = nn ? snaps[ia + 2].st : 0;
+      const curve = (k, fallback) => {
+        const p0 = pl[k] ?? fallback, p1 = nx[k] ?? fallback;
+        // Too far between two snapshots to be flying: somebody has put her
+        // somewhere. Straight there.
+        if (Math.abs(p1 - p0) > 400) return lerp(p0, p1, t);
+        const m0 = pv && b.st - tb > 1e-3 ? ((p1 - (pv[k] ?? fallback)) / (b.st - tb)) * T : p1 - p0;
+        const m1 = nn && ta - a.st > 1e-3 ? (((nn[k] ?? fallback) - p0) / (ta - a.st)) * T : p1 - p0;
+        const t2 = t * t, t3 = t2 * t;
+        return (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0
+          + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * m1;
+      };
       return {
         ...pl,
-        x: lerp(pl.x, nx.x, t),
-        z: lerp(pl.z, nx.z, t),
+        x: curve('x', 0),
+        z: curve('z', 0),
         h: pl.h + angleDelta(pl.h, nx.h) * t,
         a: lerp(pl.a, nx.a, t),
         b: lerp(pl.b || 0, nx.b || 0, t),
@@ -5580,11 +5706,15 @@ export class Battle {
         // Her height and how she is going through the air, blended like the
         // rest of her. They used not to be, so a squadron slid smoothly across
         // the sea and stepped down the sky five times a second.
-        y: lerp(pl.y ?? 220, nx.y ?? 220, t),
+        y: curve('y', 220),
         vy: lerp(pl.vy || 0, nx.vy || 0, t),
         s: lerp(pl.s || 0, nx.s || 0, t),
       };
     });
+    // Who has just left a deck, first: the frame an aeroplane first comes on
+    // the wire is the frame she has to be drawn where the deck left her, not
+    // one frame later after she has been seen where the simulation has her.
+    this.flyLaunched(planes, dt);
     // An aeroplane fresh off the deck starts where the deck model left her,
     // and comes onto the place the simulation has her over the next second
     // and a half. The two are meant to agree and very nearly do; when they do
@@ -5645,9 +5775,16 @@ export class Battle {
       // Somebody flying her sends the pitch of her flight path, which goes
       // past the vertical and over on her back as nothing worked out from a
       // rate of climb can; her nose sits above it by what her wing is doing.
-      const pitch = flown
+      const pitchWant = flown
         ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
         : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
+      // Eased like her bank, on the autopilot: her rate of climb comes off the
+      // wire a tenth of a metre a second at a time, and her nose nodded with
+      // every step of it.
+      const pitchWas = this.planePitch.get(pl.i);
+      const pitch = pitchWas === undefined || flown ? pitchWant
+        : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(0.01, dt));
+      this.planePitch.set(pl.i, pitch);
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
@@ -5674,20 +5811,24 @@ export class Battle {
         this.rearGun(pl, kind, { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v }, dt);
         this.airFx(pl.i, kind, mine.g, mine.v, mine.y,
           { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v },
-          this.flight.firingNow ? 1 : 0, dt);
+          this.flight.firingNow ? 1 : 0, dt, this.flight.cut || 0);
       } else {
         // A wing panel shot away goes with the holes that took it: worked out
         // off the same list on every screen, so the machine a gunner has been
         // walking his fire along is seen to have lost the end of her wing.
+        // And once gone, gone: the wing is not grown back because the holes
+        // that took it have since dropped off the end of the list.
+        const cut = (this.planeCut.get(pl.i) || 0) | cutFromHoles(holes, pl.dm);
+        this.planeCut.set(pl.i, cut);
         this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span,
-          cutFromHoles(holes, pl.dm), 0);
+          cut, 0);
         this.noteDrawn(pl.i, kind, Math.sin(pl.h) * gs, pl.vy || 0, Math.cos(pl.h) * gs);
         this.rearGun(pl, kind, { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs }, dt);
         this.airFx(pl.i, kind, 1 / Math.max(0.25, Math.abs(Math.cos(bank))), gs,
           this.planeHeight(pl),
           { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs },
-          (this.airBursts.get(pl.i) || 0) > this.time ? Math.max(1, pl.n || 1) : 0, dt);
+          (this.airBursts.get(pl.i) || 0) > this.time ? Math.max(1, pl.n || 1) : 0, dt, cut);
       }
       // The ones that have been hit and are still flying.
       //
@@ -5702,6 +5843,8 @@ export class Battle {
       this.scene.flights.one(w.role, w.x, w.y, w.z, w.heading, w.bank, w.pitch,
         0, w.kind, w.trim || null, w.holes, w.span || 12, w.cut || 0);
     }
+    // And the ones that have just gone off a deck and are not on the wire yet.
+    this.drawClimbOuts();
     // And the pieces that came off them.
     this.pieces.draw(this.scene.flights);
     // And the one the player is riding down after the simulation has finished
@@ -5777,12 +5920,13 @@ export class Battle {
       if (!planes.some((q) => q.i === id)) {
         this.planeTrim.delete(id);
         this.planeTurn.delete(id);
+        this.planePitch.delete(id);
+        this.planeCut.delete(id);
         this.planeSmoke.delete(id);
       }
     }
     // The ones that are not flying any more: the wrecks on their way down.
     this.stepWrecks(dt);
-    this.flyLaunched(planes, dt);
   }
 
   /**
@@ -6005,6 +6149,75 @@ export class Battle {
   }
 
   /**
+   * Where and how an aeroplane left a deck, in the world: off the end of the
+   * integrated run on a carrier, off the end of the shot on a catapult. Kept
+   * for the climb-out (see drawClimbOuts) and the hand-over to the flight the
+   * simulation is flying.
+   */
+  leftDeck(v, deck) {
+    v.group.updateMatrixWorld(true);
+    const at = new THREE.Vector3();
+    const fwd = new THREE.Vector3(0, 0, 1);
+    let pitch = 0;
+    if (deck.endPose) {
+      at.set(deck.endPose.x, deck.endPose.y, deck.endPose.z).applyMatrix4(v.group.matrixWorld);
+      fwd.transformDirection(v.group.matrixWorld);
+      pitch = deck.endPose.pitch || 0;
+    } else {
+      at.setFromMatrixPosition(deck.endMatrix);
+      fwd.transformDirection(deck.endMatrix);
+      pitch = Math.asin(clamp(fwd.y, -1, 1));
+    }
+    const P = v.cls && v.cls.planes ? v.cls.planes : {};
+    const role = (deck.plane && deck.plane.role) || (P.group ? 'torpedo' : 'dive');
+    const type = (P.types && P.types[role]) || P.type || null;
+    return {
+      at, t: deck.airborneAt ?? this.time,
+      h: Math.atan2(fwd.x, fwd.z), pitch: clamp(pitch, -0.2, 0.35),
+      v: P.launchSpeed ?? 44, role, kind: typeOf(type, role), handed: false,
+    };
+  }
+
+  /**
+   * Where an aeroplane is that left a deck `left` describes: on along the line
+   * she left it on, working up from her take-off speed, and climbing.
+   */
+  climbOutAt(left) {
+    const since = Math.max(0, Math.min(6, this.time - left.t));
+    const run = left.v * since + 0.8 * since * since;
+    const flat = Math.cos(left.pitch);
+    return {
+      x: left.at.x + Math.sin(left.h) * run * flat,
+      y: left.at.y + Math.max(4 * since, Math.sin(left.pitch) * run * 0.5),
+      z: left.at.z + Math.cos(left.h) * run * flat,
+    };
+  }
+
+  /**
+   * The aeroplanes that have left a deck and are not on the wire yet.
+   *
+   * The deck model is struck below the instant her run is over, and the
+   * flight the simulation puts up is drawn a few snapshots later, when the
+   * picture's clock gets to the snapshot she first appears in. Between the two
+   * there was no aeroplane at all: she went off the bow, vanished, and came
+   * back a moment later. She is drawn here for that moment instead, flying
+   * on from where the deck left her, and the flight is handed her place when
+   * it comes on (see flyLaunched).
+   */
+  drawClimbOuts() {
+    for (const [, v] of this.scene.shipViews) {
+      const deck = v.group.userData.deck;
+      const left = deck && deck.left;
+      if (!left || left.handed || !v.group.parent) continue;
+      if (this.time - left.t > 4) continue;
+      const e = this.climbOutAt(left);
+      left.prop = (left.prop || 0) + 1.6;
+      this.scene.flights.one(left.role, e.x, e.y, e.z, left.h, 0, left.pitch, 0,
+        left.kind, { prop: left.prop, gear: 1 });
+    }
+  }
+
+  /**
    * The aircraft that have just left the deck.
    *
    * The deck run is integrated from the aeroplane's own weight and wing, and
@@ -6032,10 +6245,13 @@ export class Battle {
       // she goes and kept: the word that her flight is up, and the order for
       // the next one to come up the lift, arrive in the same breath, and the
       // next evolution has started on the deck by the time anybody looks.
-      if (deck.airborne && deck.endPose && !deck.left) {
-        const end = new THREE.Vector3(deck.endPose.x, deck.endPose.y, deck.endPose.z)
-          .applyMatrix4(v.group.matrixWorld);
-        deck.left = { at: end, t: deck.airborneAt ?? this.time };
+      // Once a launch: `airborne` stays up until the next one is called, and
+      // latching her again after she had been handed over drew her climbing
+      // out a second time.
+      if (deck.airborne && (deck.endPose || deck.endMatrix) && !deck.left
+        && deck.leftOf !== deck.launchAt) {
+        deck.leftOf = deck.launchAt;
+        deck.left = this.leftDeck(v, deck);
       }
       if (deck.left && this.time - deck.left.t > 6) deck.left = null;
       if (!deck.pending.length) continue;
@@ -6045,19 +6261,19 @@ export class Battle {
       // waited for, but not for long.
       const left = deck.left;
       if (left) {
-        const since = Math.max(0, Math.min(3, this.time - left.t));
         for (const id of deck.pending) {
           const pl = planes.find((q) => q.i === id);
           if (!pl || this.handover.has(id)) continue;
-          // On from where she left the model at her own speed, for however
-          // long it has been since.
-          const gs = pl.s || 44;
-          const ex = left.at.x + Math.sin(pl.h) * gs * since;
-          const ez = left.at.z + Math.cos(pl.h) * gs * since;
-          const ey = left.at.y + (pl.vy || 0) * since;
+          // Where the climb-out has got her to -- the aeroplane on the screen
+          // this instant, flying on from the deck at the speed she left it --
+          // so she is handed over where she is drawn, not where she might be.
+          const e = this.climbOutAt(left);
           this.handover.set(id, {
-            t0: this.time, dx: ex - pl.x, dy: ey - (pl.y ?? ey), dz: ez - pl.z,
+            t0: this.time, dx: e.x - pl.x, dy: e.y - (pl.y ?? e.y), dz: e.z - pl.z,
           });
+          // And at the attitude she is drawn at, eased from there onto her own.
+          this.planePitch.set(id, left.pitch);
+          left.handed = true;
         }
       }
       const waiting = deck.pending.some((id) => !planes.some((q) => q.i === id));

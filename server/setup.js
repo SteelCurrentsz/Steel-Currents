@@ -28,6 +28,17 @@ export function berthsFrom(v, cap) {
     : null));
 }
 
+/**
+ * One hull's air group off the request, if it is the shape of one: three
+ * counts. What the counts may be is the class's business -- `addShip` lands
+ * them on something she can embark -- so only the shape is checked here.
+ */
+export function wingOf(v) {
+  if (!v || typeof v !== 'object') return null;
+  const ok = ['fighters', 'dive', 'torpedo'].every((k) => Number.isFinite(Number(v[k])));
+  return ok ? { fighters: Number(v.fighters), dive: Number(v.dive), torpedo: Number(v.torpedo) } : null;
+}
+
 /** The battery ids off the gun park, sanitised the same way. */
 export function gunsFrom(v, cap) {
   return Array.isArray(v) ? v.slice(0, cap).filter((id) => typeof id === 'string') : [];
@@ -65,6 +76,16 @@ export function crewBattle(room, req, seat, limits = {}) {
       sh.airGroup = normaliseAirGroup(getClass(sh.classId), req.airGroup);
     }
   }
+  // And her own, if the briefing gave her hull one: every carrier in a fleet
+  // has her own air group, and the captain's is the one he balanced for her.
+  if (wingOf(req.wing)) {
+    for (const sh of room.state.ships) {
+      if (sh.team !== team || sh.isBot || !sh.squadrons || !sh.squadrons.length) continue;
+      sh.airGroup = normaliseAirGroup(getClass(sh.classId), req.wing);
+    }
+  }
+  const allyWings = Array.isArray(req.allyWings) ? req.allyWings : [];
+  const enemyWings = Array.isArray(req.enemyWings) ? req.enemyWings : [];
 
   const allyClasses = Array.isArray(req.allyClasses) ? req.allyClasses.slice(0, maxA) : null;
   const enemyClasses = Array.isArray(req.enemyClasses) ? req.enemyClasses.slice(0, maxE) : null;
@@ -72,10 +93,12 @@ export function crewBattle(room, req, seat, limits = {}) {
   const enemies = enemyClasses?.length ?? Math.max(1, Math.min(maxE, req.enemies ?? 4));
 
   for (let i = 0; i < allies; i++) {
-    room.addBotOnTeam(team, req.botSkill, allyClasses?.[i] ?? null, allyAt?.[i + 1] ?? null);
+    room.addBotOnTeam(team, req.botSkill, allyClasses?.[i] ?? null, allyAt?.[i + 1] ?? null,
+      wingOf(allyWings[i]));
   }
   for (let i = 0; i < enemies; i++) {
-    room.addBotOnTeam(1 - team, req.botSkill, enemyClasses?.[i] ?? null, enemyAt?.[i] ?? null);
+    room.addBotOnTeam(1 - team, req.botSkill, enemyClasses?.[i] ?? null, enemyAt?.[i] ?? null,
+      wingOf(enemyWings[i]));
   }
 
   const allyGunAt = berthsFrom(layout.allyGuns, maxG);

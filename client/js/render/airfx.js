@@ -83,9 +83,11 @@ export class Contrails {
    *
    * `key` is which aeroplane; `m` is her world matrix; `tips` is where her
    * wingtips are in her own frame and `nose` her engine; `g` is how hard she
-   * is pulling, `v` how fast she is going and `y` how high she is.
+   * is pulling, `v` how fast she is going and `y` how high she is. `has`
+   * says which tips she still has -- a wing shot off takes its tip and its
+   * trail with it -- and `engine` whether her engine's trail is laid at all.
    */
-  lay(key, m, tips, nose, g, v, y) {
+  lay(key, m, tips, nose, g, v, y, has = null, engine = true) {
     const t = this.time;
     // The tips: a wisp at speed in level flight, and cloud when she is hauled
     // round -- low pressure over the tip is what condenses the vapour, and it
@@ -97,6 +99,8 @@ export class Contrails {
     const p = new THREE.Vector3();
     tips.forEach((tip, i) => {
       const id = key + ':' + i;
+      // That wingtip has gone: so has its trail, at once.
+      if (has && !has[i]) { this.trails.delete(id); return; }
       let tr = this.trails.get(id);
       if (!tr) { tr = new Trail(TIP_LIFE, TIP_WIDE, 120); this.trails.set(id, tr); }
       p.fromArray(tip).applyMatrix4(m);
@@ -109,7 +113,7 @@ export class Contrails {
     const ea = high * 0.75 * Math.max(0.3, fast);
     const id = key + ':e';
     let tr = this.trails.get(id);
-    if (ea > 0.01 || tr) {
+    if (engine && (ea > 0.01 || tr)) {
       if (!tr) { tr = new Trail(ENGINE_LIFE, ENGINE_WIDE, 160); this.trails.set(id, tr); }
       p.fromArray(nose).applyMatrix4(m);
       tr.push(p.x, p.y, p.z, ea, t);

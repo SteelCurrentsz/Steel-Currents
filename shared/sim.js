@@ -5699,13 +5699,14 @@ export function launchStrike(state, ship) {
   // One aeroplane at a time. A squadron does not leave a deck as a flight of
   // three appearing together round the one machine you watched take off: each
   // of them comes up the lift, runs down the deck and goes, and is her own
-  // aeroplane in the air from the moment her wheels leave it. The fighters go
-  // first, to be overhead when the strike forms; the torpedo bombers, heaviest
-  // and needing the most deck, go last.
-  const queue = [];
-  for (let i = 0; i < fighters; i++) queue.push({ role: 'fighter', count: 1, torp: 0, bomb: 0 });
-  for (let i = 0; i < bomb; i++) queue.push({ role: 'dive', count: 1, torp: 0, bomb: 1 });
-  for (let i = 0; i < torp; i++) queue.push({ role: 'torpedo', count: 1, torp: 1, bomb: 0 });
+  // aeroplane in the air from the moment her wheels leave it.
+  //
+  // And they go in turn: a fighter, a dive bomber, a torpedo bomber, and round
+  // again, for as long as there are any of each left below. Sending every
+  // fighter first had the escort circling over the ship for the whole of the
+  // launch while the bombers were still coming up the lift one by one; ranged
+  // in turn, the strike forms up as a strike from its first three aeroplanes.
+  const queue = launchOrder(fighters, bomb, torp);
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
@@ -5728,6 +5729,26 @@ export function launchStrike(state, ship) {
     d: ship.launching.left,
   });
   return true;
+}
+
+/**
+ * The order a strike goes off the deck in: one of each type in turn --
+ * fighter, dive bomber, torpedo bomber -- and round again, skipping a type
+ * once there are none of it left.
+ */
+export function launchOrder(fighters, bomb, torp) {
+  const left = { fighter: fighters, dive: bomb, torpedo: torp };
+  const queue = [];
+  while (left.fighter + left.dive + left.torpedo > 0) {
+    for (const role of ['fighter', 'dive', 'torpedo']) {
+      if (left[role] <= 0) continue;
+      left[role]--;
+      queue.push({
+        role, count: 1, torp: role === 'torpedo' ? 1 : 0, bomb: role === 'dive' ? 1 : 0,
+      });
+    }
+  }
+  return queue;
 }
 
 /**

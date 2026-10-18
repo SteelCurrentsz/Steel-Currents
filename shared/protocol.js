@@ -11,8 +11,8 @@ import { lampWire } from './searchlights.js';
 /** The part keys, in the order a hole report packs them. */
 const PART_KEYS = PARTS.map((p) => p.k);
 
-/** How many of an aeroplane's holes go on the wire: the most recent this many. */
-const HOLES_SENT = 10;
+/** How many of an aeroplane's holes go on the wire: every one she can carry (MAX_HOLES). */
+const HOLES_SENT = 16;
 
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -178,6 +178,8 @@ export function shipSnapshot(ship, full, state = null) {
       s.sd = ship.secMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
     }
     s.sq = ship.squadrons.map((q) => (q.state === 'deck' ? Math.max(0, Math.round(q.cooldown)) : -1));
+    // Whether her air officer is sending them off on his own. See autoLaunch.
+    if (ship.autoLaunch) s.al = 1;
     s.rc = Math.max(0, Math.round(ship.repairCd * 10) / 10);
     // Her damage control parties: what each has been told to do, and what it
     // is doing about it this second (empty: nothing).

@@ -412,6 +412,11 @@ input[type="range"] { accent-color: var(--red); }
 .conn-key.spent { opacity: 0.42; }
 /* A ship with no aircraft aboard has no air key, and the other two close up. */
 .conn-key[hidden] { display: none; }
+/* The speed key: the rate in big figures where the other keys have a drawing. */
+.conn-key .warp-n {
+  display: block; height: 22px; line-height: 22px; font-size: 1.05rem;
+  letter-spacing: 0.02em; font-weight: 700;
+}
 /* Nine letters is more than the key is wide at the usual spacing. */
 #key-targeting span { letter-spacing: 0.02em; }
 /* The targeting panel's keys, one a mounting, over her picture. */
@@ -1249,6 +1254,13 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .hull-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: center;
+}
+/* A carrier's air group, under her name: and the row is the key to it. */
+.fleet-ship.wing { cursor: pointer; }
+.fleet-ship.wing:hover { border-color: rgba(230, 207, 156, 0.6); }
+.hull-wing {
+  grid-column: 2; text-align: center; font-size: 0.82em; letter-spacing: 0.04em;
+  color: var(--sand); opacity: 0.9; white-space: nowrap;
 }
 
 /* A battery carries its name and nothing else. There is no type code on it

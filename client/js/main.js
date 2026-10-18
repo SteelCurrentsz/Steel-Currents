@@ -634,6 +634,7 @@ const briefing = new Briefing({
   onOpenChart: (at) => openChart(at),
   onOpenGuns: (side) => openGuns(side),
   onOpenBombers: (side) => openBombers(side),
+  onEditWing: (side, i) => openRefit(side, i),
 });
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
@@ -656,7 +657,10 @@ document.getElementById('deploy-close').onclick = () => { audio.click(); show('c
 // Which fleet the hull on the water would join, and where in the catalogue we
 // are. The scene itself is built the first time it is asked for: the title
 // screen has enough to do at boot without a second sea and a second hull.
-const yardUi = { side: 'ally', index: 0, ag: null };
+// `refit` is set while the yard is open on one hull already in a fleet --
+// which side, and which of its hulls -- to change her air group and nothing
+// else; null while it is open to commission something new.
+const yardUi = { side: 'ally', index: 0, ag: null, refit: null };
 
 function openYard(side) {
   yardUi.side = side;
@@ -675,8 +679,25 @@ function openYard(side) {
 
 function closeYard() {
   closeAirGroup();
+  yardUi.refit = null;
   yard?.detach();
   show('custom');
+}
+
+/**
+ * One carrier already in a fleet, back in the yard to have her air group
+ * changed: hers alone, so a second hull of the same class keeps her own.
+ */
+function openRefit(side, i) {
+  const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
+  const at = SHIP_ORDER.indexOf(id);
+  if (at < 0 || !SHIP_CLASSES[id]?.planes?.group) return;
+  audio.click();
+  yardUi.index = at;
+  openYard(side);
+  yardUi.refit = { side, i, id };
+  renderYard();
+  openAirGroup();
 }
 
 function sheet(el, heading, rows) {
@@ -708,9 +729,17 @@ function airGroupSpec() {
   return SHIP_CLASSES[id]?.planes?.group || null;
 }
 
-/** The group as chosen, landed on something legal for this class. */
+/**
+ * The group as chosen, landed on something legal for this class: the hull's
+ * own while one is being refitted, and otherwise whatever the next carrier
+ * commissioned will embark.
+ */
 function currentAirGroup(cls) {
   if (!cls?.planes) return null;
+  const r = yardUi.refit;
+  if (r && SHIP_CLASSES[r.id] === cls) {
+    return normaliseAirGroup(cls, briefing.wingOf(r.side, r.i) || getSettings().airGroup);
+  }
   return normaliseAirGroup(cls, getSettings().airGroup);
 }
 
@@ -816,6 +845,8 @@ function renderYard() {
 }
 
 function stepYard(dir) {
+  // Walking on to another class is not refitting the one she came in for.
+  yardUi.refit = null;
   yardUi.index = (yardUi.index + dir + SHIP_ORDER.length) % SHIP_ORDER.length;
   closeAirGroup();
   renderYard();
@@ -856,6 +887,16 @@ document.getElementById('ag-reset').onclick = () => {
 };
 document.getElementById('ag-done').onclick = () => {
   audio.click();
+  // A refit is that one hull's and nobody else's: it goes on her, and the
+  // captain goes back to the chart he came from.
+  const r = yardUi.refit;
+  if (r) {
+    if (yardUi.ag) briefing.setWing(r.side, r.i, yardUi.ag);
+    const name = SHIP_CLASSES[r.id]?.name || 'She';
+    closeYard();
+    toast(`${name}'s air group is changed.`);
+    return;
+  }
   if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag } });
   closeAirGroup();
   renderYard();
@@ -868,7 +909,11 @@ document.getElementById('yard-commission').onclick = () => {
   audio.click();
   const id = SHIP_ORDER[yardUi.index % SHIP_ORDER.length];
   const whose = yardUi.side === 'ally' ? 'your' : 'the enemy';
-  if (!briefing.commission(yardUi.side, id)) {
+  // A carrier goes with the air group the yard has her balanced at, and keeps
+  // it: the next one commissioned can be given a different one.
+  if (yardUi.refit) { yardUi.refit = null; }
+  const wing = SHIP_CLASSES[id]?.planes?.group ? currentAirGroup(SHIP_CLASSES[id]) : null;
+  if (!briefing.commission(yardUi.side, id, wing)) {
     toast(`${FLEET_MAX} ships is all ${whose} fleet will take.`);
     return;
   }
