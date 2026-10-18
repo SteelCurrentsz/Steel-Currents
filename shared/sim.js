@@ -993,10 +993,11 @@ function stepCollisions(state, dt) {
   // And every wreck still on the surface. A ship out of the fight is still
   // thousands of tons of steel going down where she stopped, and a ship that
   // runs into her is hurt exactly as if she were still fighting. She is only
-  // out of everybody's way once the sea has closed over her -- and before
-  // that, how far she has settled decides whose keel still reaches her (see
-  // bodySpan).
-  const hulls = state.ships.filter((s) => s.alive || (s.sinking && !s.sinking.under));
+  // out of everybody's way once the last of her is gone -- a bow or a broken
+  // half standing up out of the sea is still there after the deck has gone
+  // under (see stepWreckDown) -- and before that, how far she has settled
+  // decides whose keel still reaches her (see bodySpan).
+  const hulls = state.ships.filter((s) => s.alive || (s.sinking && !s.sinking.gone));
   for (const s of hulls) {
     // Nothing moves a wreck but what runs into her: her engines are stopped
     // and the way she had is long off her.
@@ -1112,7 +1113,15 @@ export function bodySpan(ship, cls) {
     // Settled deeper by the water in her, or going down: all of her is that
     // much lower, keel and upperworks together.
     const y = lift - Math.max(0, ship.sink || 0);
-    return { keel: -cls.hull.draft + y, deck: fb + y, top: fb * 3 + y };
+    let top = fb * 3 + y;
+    // Going down by one end, the other end is up in the air: her top is
+    // that, not her deck settled level.
+    if (ship.sinking) top = Math.max(top, fb + y + Math.abs(Math.sin(ship.trim || 0)) * cls.hull.length * 0.5);
+    // And a wreck that has stopped being a ship stands as high as the
+    // picture draws her: broken, her halves go up on end, and she is drawn
+    // until her highest part is that far under (see stepFounder in scene.js).
+    if (!ship.alive && ship.sinking) top = Math.max(top, cls.hull.length * 0.5 + 20 + y);
+    return { keel: -cls.hull.draft + y, deck: fb + y, top };
   }
   const d = ship.depth || 0;
   const deck = -d + BOAT_FREEBOARD + lift;
@@ -5916,15 +5925,19 @@ function stepLaunch(state, ship, dt) {
       perHp: planeHp(cls, f, L) / Math.max(1, f.count),
       machines: Array.from({ length: f.count },
         () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count))),
-      // She does not set off on her own. A strike forms up over the ship and
-      // goes out together -- see stepFormation.
-      phase: 'formup', dropped: false, life: 0, hunt: 0,
-      lead: L.lead, slot: L.slot++,
+      // She goes for the enemy the moment her wheels are up. A deckload
+      // goes off one aeroplane at a time, twenty-odd seconds apart, and
+      // holding the first of them over the ship until the last was off had
+      // a strike circling its own carrier for ten minutes with the enemy in
+      // sight -- so each one is her own leader and heads straight out.
+      phase: 'outbound', dropped: false, life: 0, hunt: 0,
+      lead: 0, slot: L.slot++,
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0, bank: 0, roll: 0,
     };
     if (!L.lead) L.lead = p.id;
+    p.lead = p.id;
     state.planes.push(p);
     // Which flight the aeroplane that has just gone down the deck became.
     //
@@ -6611,14 +6624,18 @@ export function pickAirTarget(state, p) {
   if (p.orderTarget) {
     const want = state.ships.find((q) => q.id === p.orderTarget && q.alive
       && q.team !== p.team);
-    if (want && dist(p.x, p.z, want.x, want.z) < REACH * 1.6) return { ship: want };
+    if (want && (dist(p.x, p.z, want.x, want.z) < REACH * 1.6
+      || (want.spottedBy && want.spottedBy[p.team]))) return { ship: want };
   }
+  // Anything her side has spotted is hers to go for, however far: she does
+  // not wait to stumble on it inside her own sight. Something nobody has
+  // reported still counts once she is close enough to see it herself.
   let best = null;
   let score = Infinity;
   for (const s2 of state.ships) {
     if (!s2.alive || s2.team === p.team) continue;
     const d = dist(p.x, p.z, s2.x, s2.z);
-    if (d > REACH) continue;
+    if (d > REACH && !(s2.spottedBy && s2.spottedBy[p.team])) continue;
     let v;
     if (p.role === 'fighter') v = bulk(s2) * 2.2 + d * 0.02;          // the smallest
     else if (p.role === 'torpedo') v = -bulk(s2) * 6 + d * 0.02;      // the biggest
@@ -9191,6 +9208,28 @@ function stepSinking(state, ship, dt) {
   }
 }
 
+/**
+ * Under, as far as the battle is concerned, and still going down.
+ *
+ * The battle stops counting her when the sea has closed over the deck she
+ * stood on -- but a ship standing on her bow, or broken in two with both
+ * halves up on end, still has a hundred feet of her out of the water, and the
+ * picture goes on drawing her the rest of the way down (see stepFounder in
+ * scene.js). For as long as it does she is steel that a ship can run into, so
+ * she is taken down here at the same rate the picture uses, and she is out of
+ * everybody's way only once the highest part of her is as far under as the
+ * picture lets her go.
+ */
+function stepWreckDown(ship, dt) {
+  const S = ship.sinking;
+  const cls = shipClass(ship);
+  if (S.sunkAt == null) S.sunkAt = Math.max(0, ship.sink || 0);
+  S.afterT = (S.afterT || 0) + dt;
+  S.after = (S.after || 0) + (S.depth / Math.max(20, S.T) * 1.2 + 0.0015 * S.afterT) * dt;
+  ship.sink = S.sunkAt + S.after;
+  if (ship.sink >= cls.hull.length * 0.5 + 20 || S.afterT > 900) S.gone = true;
+}
+
 /** Whether she has a main or secondary gun left that could fire, now or after her crews have cleared it. */
 export function canFight(ship) {
   const cls = shipClass(ship);
@@ -10110,7 +10149,15 @@ function stepDamageOverTime(state, ship, dt) {
 export const LAMP_SEEN = 14000;
 
 function stepDetection(state) {
-  for (const s of state.ships) s.spottedBy = [false, false];
+  for (const s of state.ships) {
+    // A wreck stays in sight of whoever had her in sight when she went, and
+    // of anybody who comes near enough to see her afterwards, until the last
+    // of her is gone (see wreckSighting). Kept apart from spottedBy, which is what
+    // the guns and the aircraft lay on: a wreck is to be seen, not shot at.
+    if (!s.alive && !s.wreckSeen) s.wreckSeen = [!!s.spottedBy?.[0], !!s.spottedBy?.[1]];
+    s.spottedBy = [false, false];
+  }
+  wreckSighting(state);
   // An arcade battle has no lookouts to beat: every ship afloat is on both
   // sides' plots from the first second, whatever the fog, the rain or the
   // hour, and the only thing that keeps the guns quiet is range. A boat that
@@ -10187,6 +10234,29 @@ function stepDetection(state) {
   }
 }
 
+/**
+ * Wrecks found after they stopped being ships.
+ *
+ * A hull going down is the biggest, smokiest thing on the sea, and a wreck
+ * nobody on the other side had in sight when she went is still there to be
+ * seen by the first ship that steams up to her. Once seen she stays seen for
+ * that side: the picture of a ship going down does not flicker in and out
+ * with the lookouts, and it used to -- her hull was dropped from the wire the
+ * tick she stopped being a ship, and came back when the battle ended and
+ * everything was shown.
+ */
+function wreckSighting(state) {
+  for (const w of state.ships) {
+    if (w.alive || !w.wreckSeen || w.sinking?.under) continue;
+    if (w.wreckSeen[0] && w.wreckSeen[1]) continue;
+    const reach = shipClass(w).concealment * sightOf(state.world) * 1.25;
+    for (const o of state.ships) {
+      if (!o.alive || o.team === w.team || w.wreckSeen[o.team]) continue;
+      if (dist(o.x, o.z, w.x, w.z) < reach) w.wreckSeen[o.team] = true;
+    }
+  }
+}
+
 export function torpedoVisible(state, tp, team) {
   if (tp.team === team) return true;
   for (const s of state.ships) {
@@ -10238,6 +10308,7 @@ export function step(state, dt = DT) {
     if (!ship.alive) {
       // A wreck still going down goes on going down.
       if (ship.sinking && !ship.sinking.under) stepSinking(state, ship, dt);
+      else if (ship.sinking && !ship.sinking.gone) stepWreckDown(ship, dt);
       continue;
     }
     stepDive(state, ship, dt);

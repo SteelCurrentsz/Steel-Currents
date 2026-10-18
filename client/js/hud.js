@@ -2236,6 +2236,8 @@ class HudBase {
   }
 
   alert(text) {
+    // A captain may turn the big red words off in the settings.
+    if (getSettings().alerts === false) return;
     const el = document.createElement('div');
     el.className = 'alert';
     el.textContent = text;

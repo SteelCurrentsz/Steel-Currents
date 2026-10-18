@@ -20,7 +20,8 @@ import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
-import { holePlating } from './shellholes.js';
+import { holePlating, lineInside } from './shellholes.js';
+import { Inrush } from './inrush.js';
 import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
@@ -741,6 +742,10 @@ export class ShipView {
     // (see shellholes.js) -- after her fittings have been given their own
     // copies of her paint, which the holes are then cut into.
     this.holes = GPU.holeShader ? holePlating(this.plating.parts) : null;
+    // The sea coming in through whichever of those holes it reaches. Made
+    // when she is first holed; see opened.
+    this.ocean = ocean;
+    this.inrush = null;
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -864,8 +869,11 @@ export class ShipView {
     if (m.userData.wrecked) return;
     m.userData.wrecked = true;
     m.userData.laid = false;
-    // Its own copy of every material, so a burnt-out turret does not blacken
-    // the same turret on every other ship of the class.
+    // Its own copy of every material, so putting out a wrecked turret's
+    // lights does not put out the same turret on every other ship of the
+    // class. Her paint is left the colour it is (see NO_MARKS): a turret
+    // used to be blackened here, and a ship going down with her guns
+    // knocked out came out of it patched in black.
     m.traverse((o) => {
       if (!o.isMesh || !o.material) return;
       if (!o.userData.ownMat) {
@@ -874,7 +882,6 @@ export class ShipView {
         o.userData.ownMat = true;
       }
       for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
-        if (q.color) q.color.multiplyScalar(0.24);
         // Her running lights and her gun flashes are out with everything else
         // in it, and the colour they were is kept so damage control can put
         // them back.
@@ -907,7 +914,6 @@ export class ShipView {
     m.traverse((o) => {
       if (!o.isMesh || !o.material) return;
       for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
-        if (q.color) q.color.multiplyScalar(1 / 0.24);
         if (q.emissive && q.userData && q.userData.lit !== undefined) {
           q.emissive.setHex(q.userData.lit);
         }
@@ -1228,7 +1234,44 @@ export class ShipView {
    */
   stove(x, y, z, r, seed = 0) {
     if (!this.plating) return 0;
-    return this.plating.tear(x, y, z, r, seed);
+    const went = this.plating.tear(x, y, z, r, seed);
+    if (went > 0) this.opened(x, y, z, r);
+    return went;
+  }
+
+  /**
+   * She has a hole in her at a point in her own frame, `r` across: line the
+   * inside of her plating so the hole shows her inside rather than the sea
+   * through the other side (see lineInside), and let the sea in through it
+   * if it is low enough to take water (see Inrush).
+   */
+  opened(x, y, z, r, n = null) {
+    if (this.plating) lineInside(this.plating.parts);
+    if (!this.ocean) return;
+    if (!this.inrush) this.inrush = new Inrush(this.group, this.ocean);
+    // Which way the plate faces, when the caller did not know: off the
+    // plating itself, turned to face out of her -- up off a deck, outboard
+    // off a side.
+    if (!n && this.plating) {
+      const near = this.plating.nearest(x, y, z, Math.max(6, r * 2.5));
+      if (near) {
+        let [, , , nx, ny, nz] = near;
+        const out = Math.abs(ny) > 0.6 ? ny : nx * (x || near[0]);
+        if (out < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        n = [nx, ny, nz];
+      }
+    }
+    this.inrush.add(x, y, z, r, n);
+  }
+
+  /**
+   * Once a frame, after she is posed: the sea pouring into whichever of her
+   * holes it reaches. Not once she is in two -- her holes are on a model
+   * that is not there any more as one thing -- or once she is out of sight.
+   */
+  stepInrush(dt) {
+    if (!this.inrush) return;
+    this.inrush.step(dt, this.group.visible && !this.halves && !this.rupture);
   }
 
   /** A collision too light to open her: her plating scraped for `len` metres. */
@@ -1383,6 +1426,7 @@ export class ShipView {
     // But what was standing on the plating that has gone has nothing under
     // it now, and it does not hang there: it falls.
     if (went > 0) this.dropUnsupported(p.x, p.y, p.z, r);
+    if (went > 0) this.opened(p.x, p.y, p.z, r);
     return went;
   }
 
@@ -1511,6 +1555,7 @@ export class ShipView {
     if (old) this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
     if (!this.holes) this.plating.punch(x, y, z, r, 0.45);
     this.dropUnsupported(cx, cy, cz, r);
+    this.opened(cx, cy, cz, r, [nx, ny, nz]);
     return 1;
   }
 
@@ -1775,6 +1820,7 @@ export class ShipView {
   }
 
   dispose(scene) {
+    if (this.inrush) this.inrush.dispose();
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     scene.remove(this.group);

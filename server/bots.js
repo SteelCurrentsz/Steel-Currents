@@ -191,6 +191,10 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // put it to is getting her remaining guns close enough to tell.
   const hurt = ship.hp < ship.maxHp * 0.3 && (ship.flooding >= 2 || ship.fires >= 3);
 
+  // Her aircraft go whether or not her guns have anything to shoot at: a
+  // carrier's reach is her air group, not her five-inch.
+  flyOff(state, ship, cls, staff, conned);
+
   if (!target) {
     // Nothing afloat to fight. He keeps his station and the fleet keeps
     // looking -- which is a great deal better than a dozen hulls each going
@@ -286,33 +290,50 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   } else {
     fireAssigned(state, ship, brain, cls, 'torps');
   }
+}
 
-  // A conned ship's aircraft are her captain's to send, and nobody else's --
-  // unless he has told her air officer to send them himself (`autoLaunch`),
-  // in which case they go the way every other carrier's do.
-  //
-  // Everybody else's go the moment they can go. A squadron ranged on a deck is
-  // a squadron doing nothing, and a carrier with her aircraft aboard is a
-  // target rather than a warship -- so she flies them off as soon as they are
-  // fuelled and the lift is clear, and they close the last of the distance
-  // themselves.
-  //
-  // The range she launches at is half again what a flight can reach, because
-  // the target is coming towards her and the strike takes several minutes to
-  // form up and get out. Holding them on deck until the enemy was inside the
-  // radius of action meant a carrier waited to be attacked before answering.
-  if ((!conned || ship.autoLaunch) && cls.planes) {
-    const mark = staff && staff.strikeAt
-      ? state.ships.find((q) => q.id === staff.strikeAt && q.alive) : target;
-    const reach = cls.planes.strikeRange * 1.5;
-    if (mark && dist(ship.x, ship.z, mark.x, mark.z) < reach) {
-      const p = leadPoint(ship.x, ship.z, mark, cls.planes.cruiseSpeed);
-      const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
-      ship.aimX = p.x; ship.aimZ = p.z;
-      launchStrike(state, ship);
-      ship.aimX = saveAimX; ship.aimZ = saveAimZ;
+/**
+ * A carrier's air officer sending off whatever is ready.
+ *
+ * A conned ship's aircraft are her captain's to send, and nobody else's --
+ * unless he has told her air officer to send them himself (`autoLaunch`),
+ * in which case they go the way every other carrier's do.
+ *
+ * Everybody else's go the moment they can go, at the first enemy anybody on
+ * her side has spotted. A squadron ranged on a deck is a squadron doing
+ * nothing. This used to wait for a ship inside her own gun range -- a
+ * carrier's guns reach a fraction of what her aircraft do, so she sat on a
+ * full deck with the enemy reported and in reach of her strike.
+ *
+ * The range she launches at is half again what a flight can reach, because
+ * the target is coming towards her and the strike takes several minutes to
+ * get out; the point she sends them at is brought inside the radius, and the
+ * aircraft find the ship themselves from there.
+ */
+function flyOff(state, ship, cls, staff, conned) {
+  if (!cls.planes || (conned && !ship.autoLaunch)) return;
+  const reach = cls.planes.strikeRange * 1.5;
+  let mark = staff && staff.strikeAt
+    ? state.ships.find((q) => q.id === staff.strikeAt && q.alive && q.spottedBy[ship.team]) : null;
+  if (!mark) {
+    let bestD = reach;
+    for (const q of state.ships) {
+      if (!q.alive || q.team === ship.team || !q.spottedBy[ship.team]) continue;
+      const d = dist(ship.x, ship.z, q.x, q.z);
+      if (d < bestD) { bestD = d; mark = q; }
     }
   }
+  if (!mark || dist(ship.x, ship.z, mark.x, mark.z) >= reach) return;
+  const p = leadPoint(ship.x, ship.z, mark, cls.planes.cruiseSpeed);
+  // Inside what launchStrike will accept.
+  const d = dist(ship.x, ship.z, p.x, p.z);
+  const most = cls.planes.strikeRange * 0.98;
+  const k = d > most ? most / d : 1;
+  const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
+  ship.aimX = ship.x + (p.x - ship.x) * k;
+  ship.aimZ = ship.z + (p.z - ship.z) * k;
+  launchStrike(state, ship);
+  ship.aimX = saveAimX; ship.aimZ = saveAimZ;
 }
 
 /**

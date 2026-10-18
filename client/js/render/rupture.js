@@ -282,13 +282,15 @@ export function tear(geo, rnd, depth) {
   });
 }
 
-/** Scorched: the paint burnt off it, nothing glowing on it. */
-function scorched(mat, k) {
+/**
+ * Nothing glowing on it. Its paint is the paint it had: the ship is drawn in
+ * her own colours to the end (see NO_MARKS in scene.js), and a piece thrown
+ * off her that came down near-black did not read as a piece of her.
+ */
+function scorched(mat) {
   const one = (q) => {
     const c = cloneMaterial(q);
-    if (c.color) c.color.multiplyScalar(k);
     if (c.emissive) c.emissive.setHex(0x000000);
-    if (c.specular) c.specular.multiplyScalar(0.3);
     return c;
   };
   return Array.isArray(mat) ? mat.map(one) : one(mat);
@@ -458,7 +460,7 @@ export class Rupture {
       const heavy = r > 2.5;
       for (const fr of tear(o.geometry, rnd, heavy ? 1 : r > 1.2 ? 2 : 1)) {
         const geo = mangle(fr.geo, rnd);
-        const piece = new THREE.Mesh(geo, scorched(o.material, 0.22 + rnd() * 0.15));
+        const piece = new THREE.Mesh(geo, scorched(o.material));
         piece.userData.cutMat = true;
         piece.userData.ownGeo = true;
         local.decompose(piece.position, piece.quaternion, piece.scale);

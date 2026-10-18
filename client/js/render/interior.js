@@ -41,7 +41,9 @@ const P = {
 };
 const MATS = {};
 const mat = (c) => {
-  if (!MATS[c]) MATS[c] = new THREE.MeshLambertMaterial({ color: c });
+  // Both faces: a deck or a bulkhead seen from underneath or from the far
+  // side through a hole is still steel, not a window onto the sea.
+  if (!MATS[c]) MATS[c] = new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide });
   return MATS[c];
 };
 const M = new Proxy({}, { get: (_, k) => mat(P[k]) });

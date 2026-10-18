@@ -18,6 +18,9 @@ const DEFAULTS = {
   // The penetration camera: the cut to her section when one of your rounds
   // strikes a ship. See render/pencam.js.
   penCam: true,
+  // The large red words across the top of the screen when something happens
+  // to your ship or to the enemy: TORPEDO HIT, FIRE, SHE IS SINKING.
+  alerts: true,
   // Whether a side's shells, torpedoes, charges, aircraft and stems hurt its
   // own ships. Off until a captain turns it on.
   friendlyFire: false,

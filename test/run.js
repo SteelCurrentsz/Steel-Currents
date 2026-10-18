@@ -11152,7 +11152,7 @@ check('a strike goes up as three flights and comes home as one squadron', () => 
     'the squadron came back on the board with two flights still up');
 });
 
-check('a full deckload goes up one aeroplane at a time and waits for the last of it', () => {
+check('a full deckload goes up one aeroplane at a time, each going straight for the enemy', () => {
   // Eighty aircraft in the Enterprise's hangar, a quarter of them to a strike,
   // and every one of them her own aeroplane down the deck: up the lift, along
   // to the spot, and off. Nothing appears beside her when she goes.
@@ -11177,11 +11177,10 @@ check('a full deckload goes up one aeroplane at a time and waits for the last of
       `${st.planes.length - lastCount} aeroplanes left the deck on one tick`);
     for (const p of st.planes) if (!born.some((b) => b.id === p.id)) born.push({ id: p.id, t: st.t, n: p.count });
     lastCount = st.planes.length;
-    // And the strike circles until the last of it is up.
-    if (cv.launching) {
-      assert.ok(st.planes.every((p) => p.phase === 'formup'),
-        'the strike set off before the last of it was off the deck');
-    }
+    // And none of it circles the ship waiting for the rest: each one is
+    // away for the enemy the moment her wheels are up.
+    assert.ok(st.planes.every((p) => p.phase !== 'formup'),
+      'an aeroplane was held over the ship waiting for the rest of the strike');
   }
   assert.equal(born.length, want, `${born.length} of ${want} got off the deck`);
   assert.ok(born.every((b) => b.n === 1), 'an aeroplane went up as a flight of several');
@@ -11189,12 +11188,15 @@ check('a full deckload goes up one aeroplane at a time and waits for the last of
     const gap = born[i].t - born[i - 1].t;
     assert.ok(Math.abs(gap - DECK_NEXT) < 0.5, `two went ${gap.toFixed(1)} s apart`);
   }
-  // Each in her own station: no two of them are flying at the same point.
-  const goals = new Set(st.planes.map((p) => `${p.lead === p.id ? 'L' : p.slot}`));
-  assert.equal(goals.size, st.planes.length, 'two aeroplanes were given the same station');
-  // The first of them has been going round for seven minutes, and that is not
-  // seven minutes of her sortie: she is still there.
-  assert.ok(st.planes.every((p) => !p.dead), 'the form-up ran an aeroplane out of fuel');
+  // Each her own leader, flying for the enemy rather than for a station on
+  // somebody else.
+  assert.ok(st.planes.every((p) => p.lead === p.id), 'an aeroplane was flying station on another');
+  // And the first of them, seven minutes up, is long gone from over the ship.
+  const first = st.planes.find((p) => p.id === born[0].id);
+  if (first) {
+    assert.ok(dist(first.x, first.z, cv.x, cv.z) > 3000,
+      `the first aeroplane off is still ${dist(first.x, first.z, cv.x, cv.z).toFixed(0)} m from her carrier`);
+  }
 });
 
 check('a dive bomber over her target without her full height dives from what she has', () => {
@@ -11235,12 +11237,11 @@ check('a dive bomber over her target without her full height dives from what she
   assert.ok(drop.y < rolled.y - 120, `she let go at ${drop.y.toFixed(0)} m, not down the dive`);
 });
 
-check('a strike forms up over the ship and goes out in company', () => {
-  // Three flights leaving one at a time used to set off one at a time as well,
-  // and since they all cruise at the same speed the last of them could never
-  // close the mile and a half the first had on her. What arrived over the
-  // enemy was a queue. It forms up now: the leader flies a circle over the
-  // ship until the rest of the strike is on her, and then they go together.
+check('a strike goes straight for a spotted enemy the moment it is off the deck', () => {
+  // A deckload goes off one aeroplane at a time, twenty-odd seconds apart. It
+  // used to form up over the ship until the last of it was up, which had the
+  // first aeroplanes circling their own carrier for minutes with the enemy in
+  // sight. Each one goes now: off the deck and away for the enemy.
   const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
   const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
@@ -11252,48 +11253,50 @@ check('a strike forms up over the ship and goes out in company', () => {
   // further in one tick than an aeroplane can fly in one. This is the check
   // that says there is no teleport left anywhere in the flight path.
   const last = new Map();
+  const born = new Map();
   let worst = 0;
-  let together = 0;
-  let departed = 0;
-  const spans = [];
-  for (let i = 0; i < 30 * 260; i++) {
+  let firstAt = 0;
+  for (let i = 0; i < 30 * 120; i++) {
     for (const s of st.ships) s.spottedBy = [true, true];
     step(st, DT);
     for (const p of st.planes) {
       const was = last.get(p.id);
       if (was) worst = Math.max(worst, Math.hypot(p.x - was.x, p.z - was.z));
       last.set(p.id, { x: p.x, z: p.z });
-    }
-    if (!departed && st.planes.length >= 3 && st.planes.every((p) => p.phase === 'outbound')) {
-      departed = st.t;
-    }
-    // How spread out the strike is on passage: after it has set off, and
-    // before it is in to attack. Over the target it is meant to come apart --
-    // the torpedo bombers go down to the water and out to the beam while the
-    // dive bombers climb over the top -- so that is not the question here.
-    const far = st.planes.length ? Math.min(...st.ships
-      .filter((q) => q.alive && q.team !== st.planes[0].team)
-      .map((q) => dist(st.planes[0].x, st.planes[0].z, q.x, q.z))) : 0;
-    if (departed && st.t > departed + 25 && far > 4000 && st.planes.length >= 3
-      && st.planes.every((p) => p.phase === 'outbound')) {
-      let span = 0;
-      for (const a of st.planes) {
-        for (const b of st.planes) span = Math.max(span, Math.hypot(a.x - b.x, a.z - b.z));
+      if (!born.has(p.id)) born.set(p.id, { t: st.t, d: dist(p.x, p.z, foe.x, foe.z) });
+      assert.notEqual(p.phase, 'formup', 'an aeroplane was held over the ship');
+      // Fifteen seconds after she is up she is closing the enemy, not going
+      // round the ship.
+      const b = born.get(p.id);
+      if (!p.dropped && p.phase === 'outbound' && st.t - b.t > 15 && st.t - b.t < 16) {
+        assert.ok(dist(p.x, p.z, foe.x, foe.z) < b.d - 300,
+          `a ${p.role} fifteen seconds up was no nearer the enemy`);
       }
-      spans.push(span);
-      if (span < 900) together++;
     }
+    if (!firstAt && st.planes.length) firstAt = st.t;
   }
   // A flight cruises at seventy-eight metres a second, which is 2.6 m a tick.
   assert.ok(worst < 8, `a flight moved ${worst.toFixed(0)} m in one tick`);
-  assert.ok(departed > 0, 'the strike never set off');
-  assert.ok(spans.length > 100, 'the strike was never all outbound together');
-  assert.ok(departed < 140, `the strike took ${departed.toFixed(0)} s to set off`);
-  const widest = Math.max(...spans);
-  assert.ok(widest < 1500,
-    `the strike was strung out over ${widest.toFixed(0)} m`);
-  assert.ok(together > spans.length * 0.8,
-    `the strike was only in company for ${together} of ${spans.length} ticks`);
+  assert.ok(born.size >= 3, `only ${born.size} aeroplanes got off the deck`);
+});
+
+check('a strike goes for a spotted enemy beyond its own lookouts', () => {
+  // Her side has the enemy reported. She does not have to stumble on him
+  // inside her own sight: she goes for what the fleet can see.
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const far = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  far.x = 0; far.z = 13000;
+  const flight = (role) => ({
+    id: 900, owner: 0, team: 0, x: 0, z: 0, y: 300, role, phase: 'outbound', count: 1,
+  });
+  far.spottedBy = [false, false];
+  assert.ok(!pickAirTarget(st, flight('dive'))?.ship, 'she went for a ship nobody had seen');
+  far.spottedBy = [true, false];
+  assert.equal(pickAirTarget(st, flight('dive'))?.ship?.id, far.id,
+    'a dive bomber would not go for the ship her side had spotted');
+  assert.equal(pickAirTarget(st, flight('torpedo'))?.ship?.id, far.id,
+    'a torpedo bomber would not go for the ship her side had spotted');
 });
 
 check('the deck says which flight the aeroplane that just left it became', () => {
@@ -18312,7 +18315,9 @@ check('a pilot with nothing left to drop and a whole aeroplane goes home', () =>
   let closest = start;
   let sawRam = false;
   for (let i = 0; i < 9000 && !p.dead; i++) {
-    for (const e of step(st, DT)) if (e.e === 'goingIn') sawRam = true;
+    // Her, not the escort: a fighter going in ahead of the bombers as a
+    // shield is a different decision (see shieldTarget).
+    for (const e of step(st, DT)) if (e.e === 'goingIn' && e.i === p.id) sawRam = true;
     closest = Math.min(closest, dist(p.x, p.z, cv.x, cv.z));
   }
   assert.ok(!sawRam, 'a whole aeroplane with her bombs gone went for the enemy');

@@ -83,8 +83,14 @@ const FRAG_CLIP = /* glsl */`
 `;
 
 const FRAG_TINT = /* glsl */`
-  // The inside of her plating: bare, unlit steel.
+  // The inside of her plating: bare, unlit steel. Only on a material that
+  // was drawn one-sided, whose back faces nobody had seen -- those are the
+  // inside of her. A material she was already drawn double-sided with shows
+  // both faces as her paint, and darkening its backs turned whole stretches
+  // of a broken ship brown.
+  #ifdef CUT_INSIDE
   if ( !gl_FrontFacing ) diffuseColor.rgb *= vec3( 0.34, 0.31, 0.29 );
+  #endif
   // And the metal along the tear, burnt and rusted where it parted.
   {
     float edge = 1.0 - smoothstep( 0.0, 1.8, abs( cutTear ) );
@@ -148,10 +154,13 @@ export function cutMaterial(src, U) {
   const m = cloneMaterial(src);
   const prev = src.onBeforeCompile;
   const prevKey = src.customProgramCacheKey ? src.customProgramCacheKey() : '';
+  // Which of its faces are her inside: the back of a one-sided material.
+  const inside = src.side === THREE.FrontSide;
   m.side = THREE.DoubleSide;
   m.onBeforeCompile = (shader, renderer) => {
     if (prev && prev !== THREE.Material.prototype.onBeforeCompile) prev.call(m, shader, renderer);
     Object.assign(shader.uniforms, U);
+    if (inside) shader.fragmentShader = `#define CUT_INSIDE\n${shader.fragmentShader}`;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_HEAD}`)
       .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_BODY}`);
@@ -160,7 +169,7 @@ export function cutMaterial(src, U) {
       .replace(/void main\(\) \{/, `void main() {\n${FRAG_CLIP}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\n${FRAG_TINT}`);
   };
-  m.customProgramCacheKey = () => `sever|${prevKey}`;
+  m.customProgramCacheKey = () => `sever${inside ? 'i' : ''}|${prevKey}`;
   m.userData = { ...(ud || {}) };
   delete m.userData.cutFrom;
   CUT_FROM.set(m, CUT_FROM.get(src) || src);

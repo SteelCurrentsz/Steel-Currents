@@ -258,11 +258,13 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   for (const s of state.ships) {
     const friendly = s.team === team || ended;
     const watched = s.id === watchId;
-    // A wreck still going down is still there to be seen by whoever had her
-    // in sight, until the sea has closed over her.
-    const going = !s.alive && s.sinking && !s.sinking.under;
-    if (!s.alive && !friendly && !watched && !going) continue;
-    if (!friendly && !watched && !s.spottedBy[team]) {
+    // A wreck is still there to be seen by whoever had her in sight, for as
+    // long as she is going down -- and after, flagged as under, so the
+    // picture of her last moments plays out to the end rather than being cut
+    // off the tick the battle stops counting her.
+    const wreck = !s.alive && !!s.sinking && !!s.wreckSeen?.[team];
+    if (!s.alive && !friendly && !watched && !wreck) continue;
+    if (!friendly && !watched && !wreck && !s.spottedBy[team]) {
       contacts.push({
         i: s.id, x: Math.round(s.x), z: Math.round(s.z), h: r3(s.heading),
         tm: s.team, c: s.classId, n: s.name,

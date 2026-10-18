@@ -1100,6 +1100,7 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
+const optAlerts = document.getElementById('opt-alerts');
 const optVoices = document.getElementById('opt-voices');
 
 optName.value = settings.name;
@@ -1111,6 +1112,7 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
+if (optAlerts) optAlerts.checked = settings.alerts !== false;
 if (optVoices) optVoices.checked = settings.voices !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
@@ -1132,6 +1134,10 @@ optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optVoices) optVoices.onchange = () => setSettings({ voices: optVoices.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
+if (optAlerts) optAlerts.onchange = () => {
+  setSettings({ alerts: optAlerts.checked });
+  if (!optAlerts.checked) document.getElementById('alerts')?.replaceChildren();
+};
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --

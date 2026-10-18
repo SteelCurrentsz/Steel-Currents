@@ -86,6 +86,31 @@ function rayOutside(rc, out) {
 }
 
 /**
+ * The inside face of every piece of her plating: the dark of a steel box.
+ *
+ * Put on the whole of her the first time she is opened, not only on the
+ * plates near the hole. Looked into at an angle, a hole shows the far side of
+ * her and the plates fore and aft of it -- and wherever those had no inside
+ * drawn, the eye went straight out through her into the sea beyond. It is one
+ * plain, unlit mesh of back faces per piece, sharing her geometry, so a plate
+ * taken out of her plating is taken out of its lining too.
+ */
+export function lineInside(meshes) {
+  for (const m of meshes) {
+    const mesh = m.mesh || m;
+    if (!mesh || !mesh.geometry || mesh.userData.lined) continue;
+    mesh.userData.lined = true;
+    const inner = new THREE.Mesh(mesh.geometry, insideMaterial());
+    inner.userData.inside = true;
+    inner.raycast = () => {};
+    inner.renderOrder = mesh.renderOrder;
+    inner.castShadow = false;
+    inner.receiveShadow = false;
+    mesh.add(inner);
+  }
+}
+
+/**
  * Give every piece of her plating its own copy of its material with the
  * holes cut in, and hand back the list they are cut from.
  */
@@ -145,16 +170,10 @@ export function holePlating(parts) {
       const mesh = q.mesh;
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(wrap) : wrap(mesh.material);
       mesh.raycast = rayOutside;
-      // And the inside of those plates, seen through a hole: the dark of a
-      // steel box rather than the sea beyond her. Its own plain, unlit mesh
-      // of the back faces only, which costs a phone next to nothing -- the
-      // plating's own shader drawing both faces cost it twice the plating.
-      const inner = new THREE.Mesh(mesh.geometry, insideMaterial());
-      inner.userData.inside = true;
-      inner.raycast = () => {};
-      inner.renderOrder = mesh.renderOrder;
-      mesh.add(inner);
     }
+    // And the inside of all of her, seen through it: the dark of a steel box
+    // rather than the sea beyond her. See lineInside.
+    lineInside(pieces);
   };
   return {
     U,

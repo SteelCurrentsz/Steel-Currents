@@ -5469,6 +5469,8 @@ export class Battle {
       // without it. The tear follows her from wherever she has been posed.
       if (s.ct && !view.severed) view.cutHer(s.ct[0], s.ct[1], null);
       view.stepCut(dt, this.scene.shipViews);
+      // The sea pouring into whichever of her holes it has reached.
+      view.stepInrush(dt);
       // What her magazine threw into the air, coming down into the sea.
       const fell = view.stepRupture(dt);
       if (fell) {
