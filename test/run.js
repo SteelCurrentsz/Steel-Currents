@@ -1,6 +1,6 @@
 // Headless checks for the simulation: ballistics, armour, torpedoes, bots.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
@@ -320,6 +320,7 @@ import {
 import * as THREE from '../vendor/three.module.js';
 import { EAST_X } from '../shared/coast.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
+import { LocalNet } from '../client/js/localnet.js';
 import { unpackHoles, HoleField, CUT, segGone } from '../client/js/render/planes.js';
 import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js';
 import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
@@ -13222,6 +13223,41 @@ check('a frame that goes wrong costs a frame, not the battle', () => {
     'the loading screen is not given a frame to paint in before the build');
 });
 
+
+check('the game plays with no connection: every battle is hosted on the device', () => {
+  // It used to need the battle service for everything but the standalone
+  // page: a staged battle, a custom one, an arcade one, all went through a
+  // socket to a server, and with the wifi off there was no game. Every battle
+  // is hosted in the tab now. Only Multiplayer Battle, which is not in the
+  // game yet, will ever need a connection.
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/const net = new LocalNet\(\);/.test(main), 'battles are not hosted on the device');
+  assert.ok(!/new Net\(|from '\.\/net\.js'/.test(main), 'the game still opens a socket to play');
+  assert.ok(!/fetch\(/.test(main), 'the game still asks a server for something');
+  assert.ok(!/Not connected to the battle service/.test(main),
+    'a battle still refuses to start without the battle service');
+  // And nothing it plays with is left to be fetched in the middle of a
+  // battle: the voices are asked for as the game starts.
+  const bank = readFileSync(new URL('../client/js/render/voicebank.js', import.meta.url), 'utf8');
+  assert.ok(/^loadVoiceLines\(\);$/m.test(bank), 'the voices are fetched mid-battle');
+  // Nothing anywhere in the client reaches off the device for an asset.
+  for (const f of readdirSync(new URL('../client/js/', import.meta.url))) {
+    if (!f.endsWith('.js')) continue;
+    if (f === 'net.js') continue;
+    const src = readFileSync(new URL(`../client/js/${f}`, import.meta.url), 'utf8');
+    assert.ok(!/new WebSocket|fetch\(\s*['"`]https?:/.test(src), `${f} reaches off the device`);
+  }
+  // And a staged battle starts with nothing but the tab: the room, its bots
+  // and its world all come up here.
+  const ln = new LocalNet();
+  let joined = null;
+  ln.on('joined', (m) => { joined = m; });
+  ln.connect();
+  ln.send({ t: 'quickmatch', name: 'Captain', classId: 'fletcher' });
+  assert.ok(joined && joined.world, 'a staged battle did not start on the device');
+  assert.ok(joined.roster && joined.roster.length >= 5, 'it started with nobody to fight');
+  ln.send({ t: 'leave' });
+});
 
 check('a secondary mounting is laid on a bearing that is a number', () => {
   // The one that stopped a battle. A secondary's lead was worked out as

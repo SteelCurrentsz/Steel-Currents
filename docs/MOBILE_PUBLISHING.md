@@ -48,7 +48,14 @@ steel-currents/
 ```bash
 npm run build
 ```
-This copies all necessary web assets to the `www/` directory for the native builds.
+This builds the game into `www/` for the native builds. Everything the game
+plays with is in those files -- the simulation, the AI captains, the ships and
+the voices -- so the installed app plays with no connection at all. Only
+Multiplayer Battle, which is not in the game yet, will need one.
+
+For a single file that runs straight from disk with no server and no
+connection (open it in any browser), `npm run build:offline` writes
+`build/steel-currents.html`.
 
 ### 2. iOS Setup
 

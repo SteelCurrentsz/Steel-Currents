@@ -7,6 +7,7 @@
 // host, or anywhere else that will not let it open a socket.
 //
 //   node build/standalone.mjs --split   ->  build/split/index.html, and her hulls
+//   node build/standalone.mjs --split --www   ->  the same, copied to www/ for the apps
 //
 // The same page with the hull data left out of it: the game is an ES module
 // that imports each `*Hull.data.js` from beside the page, and they are copied
@@ -42,23 +43,6 @@ const js = fs.readFileSync(out('bundle.js'), 'utf8');
 html = html.replace(/\s*<link rel="stylesheet" href="css\/style\.css" \/>/, '');
 html = html.replace(/\s*<script type="module" src="js\/main\.js"><\/script>/, '');
 
-// The lobby copy describes finding other captains, which a standalone build
-// cannot do. Say what this build actually is.
-html = html
-  .replace('<h2 id="pvp-title">Staged Battle</h2>', '<h2 id="pvp-title">Skirmish</h2>')
-  .replace(
-    '<p id="pvp-blurb">Player versus player. Pick a hull, take a side, and fight for the map.</p>',
-    '<p id="pvp-blurb">Pick a hull, take a side, and fight an AI fleet for the map.</p>',
-  )
-  .replace('<span>Battles in progress</span>', '<span>Opposition</span>')
-  .replace(
-    '<div class="room-list" id="room-list"><p class="muted">No open battles — start one.</p></div>',
-    '<div class="room-list" id="room-list"><p class="muted">Four enemy captains, three of your own. ' +
-    'Multiplayer needs the battle service — see the repository to run it.</p></div>',
-  )
-  .replace('<button class="btn" id="pvp-quick">Quick Match</button>',
-    '<button class="btn" id="pvp-quick">Put to sea</button>');
-
 // The loading screen lives in the page itself now, styled by the game's own
 // stylesheet and taken down by the game when the harbour has actually been
 // built. What is left here is the part a standalone build alone needs: a check
@@ -73,9 +57,6 @@ html = html
 // being finished is worse than none.
 const boot = '<style>html, body { background: #05080f; }</style>';
 
-// Set before the bundle runs: ESM import hoisting would otherwise lift the
-// client above an assignment made inside a module.
-const flag = '<script>globalThis.STEEL_CURRENTS_OFFLINE = true;</script>';
 
 const shell = `
 <script>
@@ -134,7 +115,7 @@ const shell = `
 // matched text and splice `</body>` into the middle of the bundle.
 html = html.replace('</head>', () => `<style>\n${css}\n</style>\n</head>`);
 html = html.replace('<body>', () => `<body>\n${boot}`);
-html = html.replace('</body>', () => `${shell}${flag}<script${SPLIT ? ' type="module"' : ''}>\n${js}\n</script>\n</body>`);
+html = html.replace('</body>', () => `${shell}<script${SPLIT ? ' type="module"' : ''}>\n${js}\n</script>\n</body>`);
 
 if (!SPLIT) {
   fs.writeFileSync(out('steel-currents.html'), html);
@@ -150,5 +131,14 @@ if (!SPLIT) {
   for (const f of named) {
     fs.copyFileSync(path.join(HULLS, f), out('split', f));
     console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
+  }
+  // And the same files as the phone apps' web assets (capacitor.config.json's
+  // `webDir`). Everything the game plays with is in them, so the app installed
+  // from them plays with the phone in flight mode.
+  if (process.argv.includes('--www')) {
+    const www = path.join(ROOT, 'www');
+    fs.rmSync(www, { recursive: true, force: true });
+    fs.cpSync(out('split'), www, { recursive: true });
+    console.log('www/ — the phone apps\' web assets');
   }
 }

@@ -11,7 +11,6 @@ import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
 import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
-import { Net, PUBLIC_SERVER } from './net.js';
 import { LocalNet } from './localnet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
@@ -258,8 +257,13 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.18;
 
-// A standalone build (no battle service to reach) hosts its own Room in-tab.
-const net = globalThis.STEEL_CURRENTS_OFFLINE ? new LocalNet() : new Net();
+// Every battle is hosted here, in the tab: the simulation, the bot captains
+// and the room they fight in all run on this device, so the game plays with
+// no connection at all -- in an aeroplane, at sea, with the wifi off. The
+// battle service is for other human captains, and the one mode that will need
+// it is Multiplayer Battle, which is not in the game yet; when it is, it gets
+// a socket of its own (net.js) for that mode alone.
+const net = new LocalNet();
 // Every battle a captain starts carries his friendly fire setting with it.
 {
   const send = net.send.bind(net);
@@ -466,16 +470,11 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.resume();
     audio.click();
     switch (btn.dataset.action) {
-      case 'pvp': pvpScreen(false); show('pvp'); refreshRooms(); break;
-      // Other captains, on the battle service. A standalone page has no
-      // service to reach -- its battles are hosted in the tab, against the
-      // bots -- so it says where the game is played with others instead.
+      case 'pvp': pvpScreen(); show('pvp'); break;
+      // Other human captains, which is the one thing that needs a connection
+      // and the one mode not in the game yet. Everything else plays offline.
       case 'multiplayer':
-        if (globalThis.STEEL_CURRENTS_OFFLINE) {
-          toast(`Multiplayer Battle is played online at ${PUBLIC_SERVER}`);
-          break;
-        }
-        pvpScreen(true); show('pvp'); refreshRooms();
+        toast('Multiplayer Battle is coming soon, and will need a connection. Every other battle plays offline.');
         break;
       // The custom briefing, under arcade rules: see Briefing.setArcade.
       case 'arcade': briefing.setArcade(true); show('custom'); briefing.show(); break;
@@ -489,20 +488,12 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
   });
 });
 
-/** The lobby under its two names: the staged battle, or other captains online. */
-function pvpScreen(multiplayer) {
-  // A standalone build's lobby is a skirmish against the bots, and says so
-  // in its own words (see build/standalone.mjs).
-  if (globalThis.STEEL_CURRENTS_OFFLINE) return;
-  const title = document.getElementById('pvp-title');
-  const blurb = document.getElementById('pvp-blurb');
-  if (title) title.textContent = multiplayer ? 'Multiplayer Battle' : 'Staged Battle';
-  if (blurb) {
-    blurb.textContent = multiplayer
-      ? 'Against other captains, online. Join a battle in progress or start one for them to join.'
-      : 'Player versus player. Pick a hull, take a side, and fight for the map.';
-  }
-}
+/**
+ * The lobby. It is the staged battle: a side each, the bots crewing every
+ * other hull, hosted on this device -- so it never lists anybody else's
+ * battles, because there is no service it asks. See index.html for its copy.
+ */
+function pvpScreen() {}
 
 // ---------------------------------------------------------- the account --
 //
@@ -1008,7 +999,6 @@ const layout = new LayoutMap({
   onGo: (plan) => {
     audio.click();
     fullscreen.enterBattleView(document.documentElement);
-    if (!net.connected) { toast('Not connected to the battle service.'); return; }
     net.send({ ...layoutReq, layout: plan });
     toast('Sortieing…');
   },
@@ -1029,9 +1019,8 @@ document.getElementById('custom-start').onclick = () => {
 document.getElementById('pvp-quick').onclick = () => {
   audio.resume();
   fullscreen.enterBattleView(document.documentElement);
-  if (!net.connected) { toast('Not connected to the battle service.'); return; }
   net.send({ t: 'quickmatch', name: getSettings().name, classId: getSettings().ship });
-  toast('Finding a battle…');
+  toast('Putting to sea…');
 };
 
 // ---------------------------------------------------------------- options --
@@ -1081,23 +1070,11 @@ if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked })
 
 // ------------------------------------------------------------------- net --
 
-const netState = document.getElementById('net-state');
-// A standalone build hosts its own battle, so there is no link whose state
-// could be worth reporting. The networked build still says where it stands.
-if (globalThis.STEEL_CURRENTS_OFFLINE) netState.remove();
+// Every battle is hosted on this device, so there is no link whose state could
+// be worth reporting: the line that used to say whether the battle service was
+// up is taken off the title screen.
+document.getElementById('net-state')?.remove();
 
-net.on('open', () => {
-  if (!netState.isConnected) return;
-  netState.textContent = 'battle service online';
-  netState.className = 'net-state online';
-});
-net.on('close', () => {
-  if (!netState.isConnected) return;
-  netState.textContent = 'reconnecting…';
-  netState.className = 'net-state offline';
-});
-net.on('hello', (m) => renderRooms(m.rooms));
-net.on('lobby', (m) => renderRooms(m.rooms));
 net.on('error', (m) => toast(m.msg || 'The signal was refused.'));
 
 net.on('joined', (m) => {
@@ -1168,37 +1145,6 @@ function renderResult(result) {
     .join('');
   document.getElementById('result-table').innerHTML =
     `<tr><th></th><th>Captain</th><th>Ship</th><th></th><th></th><th></th><th></th></tr>${rows}`;
-}
-
-function renderRooms(rooms) {
-  const list = document.getElementById('room-list');
-  if (!rooms || !rooms.length) {
-    list.innerHTML = '<p class="muted">No open battles — start one with Quick Match.</p>';
-    return;
-  }
-  list.innerHTML = '';
-  for (const r of rooms) {
-    const row = document.createElement('div');
-    row.className = 'room-row';
-    row.innerHTML = `<div><div class="rn">${r.name}</div>
-      <div class="rm">${r.map.replace(/_/g, ' ')} · ${r.mode} · ${r.players}/${r.max} captains${r.bots ? ` · ${r.bots} AI` : ''}</div></div>`;
-    const btn = document.createElement('button');
-    btn.className = 'btn';
-    btn.textContent = r.phase === 'lobby' ? 'Join' : 'Join in progress';
-    btn.onclick = () => net.send({ t: 'joinRoom', room: r.id, name: getSettings().name, classId: getSettings().ship });
-    row.appendChild(btn);
-    list.appendChild(row);
-  }
-}
-
-async function refreshRooms() {
-  // A standalone build hosts its own battle; there is no lobby to poll.
-  if (globalThis.STEEL_CURRENTS_OFFLINE) return;
-  try {
-    const res = await fetch('/api/status');
-    const data = await res.json();
-    renderRooms(data.rooms);
-  } catch { /* the socket will deliver the lobby anyway */ }
 }
 
 // ------------------------------------------------------------------ loop --

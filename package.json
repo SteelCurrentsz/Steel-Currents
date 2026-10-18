@@ -8,7 +8,9 @@
     "start": "node server/index.js",
     "dev": "node server/index.js",
     "test": "node test/run.js",
-    "build:world": "node build/genworld.mjs"
+    "build:world": "node build/genworld.mjs",
+    "build": "node build/standalone.mjs --split --www",
+    "build:offline": "node build/standalone.mjs"
   },
   "engines": {
     "node": ">=18"
