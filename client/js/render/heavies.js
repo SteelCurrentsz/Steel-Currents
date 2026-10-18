@@ -14,7 +14,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { heavyBomber } from './planekit.js';
-import { weld, HoleField } from './planes.js';
+import { weld, HoleField, holeRows } from './planes.js';
 
 /**
  * Where each machine of a vic flies, in her leader's own frame.
@@ -78,7 +78,9 @@ export class Heavies {
       return { at, rot, geo, mats };
     });
     const { geo, mats } = weld(g);
-    const mesh = new THREE.InstancedMesh(geo, mats, this.max);
+    // Her skin is cut where she has been hit: see HoleField.
+    const mesh = new THREE.InstancedMesh(geo, this.holes.material(mats), this.max);
+    mesh.userData.holeRow = holeRows(mesh, this.max);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
     mesh.count = 0;
@@ -130,12 +132,12 @@ export class Heavies {
       // was at it.
       d.rotation.set(-(pitch || 0), heading, -(bank || 0));
       d.updateMatrix();
-      b.mesh.setMatrixAt(b.n++, d.matrix);
       // What the fighters and the flak have made of her skin. A heavy is
       // thirty metres across and flies straight and level through everything
       // the fleet can put up, so she is the aeroplane in this battle that ends
       // a sortie looking most like a colander.
-      this.holes.on(d.matrix, holes, span, i, b.mesh.geometry, kind);
+      b.mesh.userData.holeRow.array[b.n] = this.holes.on(d.matrix, holes, span, i, b.mesh.geometry, kind);
+      b.mesh.setMatrixAt(b.n++, d.matrix);
       // Her airscrews, turning about their own shafts wherever the engine
       // mounted them, and then carried round by whatever the aeroplane herself
       // is doing. Each machine of the formation gets her own, so all four
@@ -158,6 +160,7 @@ export class Heavies {
       b.mesh.count = b.n;
       b.mesh.visible = b.n > 0;
       b.mesh.instanceMatrix.needsUpdate = true;
+      b.mesh.userData.holeRow.needsUpdate = true;
       for (const q of b.props) {
         q.mesh.count = q.n;
         q.mesh.visible = q.n > 0;

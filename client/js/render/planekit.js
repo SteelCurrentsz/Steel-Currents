@@ -1863,6 +1863,87 @@ function mainGear(p, s, x, z, len, r, rake = 0.12) {
   return leg;
 }
 
+/**
+ * Her span and her length, as she was built.
+ *
+ * Each of these is drawn from her own frames and stations, and each comes out
+ * near enough the right size -- but near enough is a few per cent either way,
+ * and it does not go the same way for all of them: the Wildcat came out a
+ * twentieth longer than an F4F-4 and the Jake a good deal wider than an
+ * E13A, so a Wildcat ranged beside a Dauntless looked as long as she did. The whole aeroplane is put to her real span and her real overall
+ * length here, after she is built, so everything hung on her -- her legs, her
+ * weapon, her airscrew -- goes with her.
+ *
+ * `[span, length]` in metres over her as built (spread, airscrew included)
+ * and as she was.
+ */
+const TRUE_SIZE = {
+  wildcat: [[11.28, 9.25], [11.58, 8.76]],
+  dauntless: [[12.43, 10.15], [12.66, 10.09]],
+  avenger: [[16.40, 12.35], [16.51, 12.48]],
+  tenzan: [[14.88, 10.20], [14.89, 10.87]],
+  arado: [[12.44, 10.64], [12.44, 11.00]],
+  kingfisher: [[11.33, 9.64], [10.95, 10.31]],
+  // Her span only. She is a little short for an E13A, but she stands on her
+  // ships' catapults nose to tail, and those were laid out round the length
+  // she is: a Jake the right length is two Jakes standing in each other.
+  jake: [[15.16, 9.64], [14.50, 9.64]],
+  loire: [[16.00, 11.53], [16.00, 11.30]],
+};
+
+function trueSize(p, kind) {
+  const t = TRUE_SIZE[kind];
+  if (!t) return;
+  const sx = t[1][0] / t[0][0];
+  const sz = t[1][1] / t[0][1];
+  // Her height goes with the two, which keeps her sections the shape they were.
+  p.scale.multiply(new THREE.Vector3(sx, Math.sqrt(sx * sz), sz));
+}
+
+/**
+ * Her undercarriage, worked: `p.userData.gear(u)`, 0 down and locked, 1 up
+ * with the doors shut on it.
+ *
+ * Each main leg swings in towards her centreline about its fore-and-aft
+ * hinge, which lays the wheel flat, and rises and slides inboard into its
+ * well as it goes; the tail leg swings up into the sternpost. How far each of
+ * them goes is not chosen by eye. It was fitted, for each type, against her
+ * own skin: the swing and the travel that keep every part of the leg inside
+ * the wing or the fuselage over the whole of the stroke, so the wheel goes up
+ * through the well in the underside and stops there -- not on through the
+ * top of the wing, which is where all of them used to end up. And once she
+ * is up the doors close over it: a stowed leg is not drawn at all.
+ *
+ * `fit` is `{ main: [swing, rise, inboard], tail: [swing, rise, aft] }`.
+ */
+function gearRig(p, mains, tail, fit) {
+  const m = fit.main;
+  const t = fit.tail;
+  const legs = mains.map(({ s, g }) => ({
+    s, g, rz: g.rotation.z, x: g.position.x, y: g.position.y,
+  }));
+  const tl = tail ? { g: tail, rx: tail.rotation.x, y: tail.position.y, z: tail.position.z } : null;
+  // What it was fitted to, for the fitting (build/fit-gear.mjs) to work on.
+  p.userData.gearFit = fit;
+  p.userData.gear = (u) => {
+    const k = Math.max(0, Math.min(1, u));
+    const e = k * k * (3 - 2 * k);
+    const shut = k >= 0.985;
+    for (const l of legs) {
+      l.g.rotation.z = l.rz - l.s * m[0] * e;
+      l.g.position.y = l.y + m[1] * e;
+      l.g.position.x = l.x - l.s * m[2] * e;
+      l.g.visible = !shut;
+    }
+    if (tl) {
+      tl.g.rotation.x = tl.rx + t[0] * e;
+      tl.g.position.y = tl.y + t[1] * e;
+      tl.g.position.z = tl.z + t[2] * e;
+      tl.g.visible = !shut;
+    }
+  };
+}
+
 /** Tailwheel and the hook stowed up under the sternpost. */
 function tailGear(p, z, r, hookLen, len = 0.42) {
   // The wheel and its leg in a group of their own, so they can be swung up
@@ -2039,11 +2120,14 @@ function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
   // Her narrow-track gear cranks up into the fuselage sides, so it stands close
   // in under her and the wheels are half buried when it is down.
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 0.72, 1.5, 1.02, 0.34, 0.02);
-    tailGear(p, -3.85, 0.17, 1.0, 0.3);
+    // Cranked up by hand into the sides of her fuselage.
+    const mains = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 0.72, 1.5, 1.02, 0.34, 0.02) }));
+    gearRig(p, mains, tailGear(p, -3.85, 0.17, 1.0, 0.3),
+      { main: [1.2, 0.6, 0.2], tail: [-1.2, 0.5, 0.4] });
   }
   // Aerial mast and the wire back to the fin.
   aerial(p, 0, cl(0.5) + 1.01, 0.5, 0.62, tail.finTop);
+  trueSize(p, 'wildcat');
   return p;
 }
 
@@ -2175,11 +2259,14 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   bomb(shell, 2.2, 0.24);
   animPart(p, 'store', store, { axis: 'x', open: -0.92, fall: true });
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4);
-    tailGear(p, -4.45, 0.19, 1.2, 0.34);
+    // Inward, into the wing roots.
+    const mains = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.5, 1.7, 1.06, 0.4) }));
+    gearRig(p, mains, tailGear(p, -4.45, 0.19, 1.2, 0.34),
+      { main: [1.7, -0.15, 0.4], tail: [-1.2, 0.6, -0.3] });
   }
   aerial(p, 0, cl(0.6) + 1.05, 0.6, 0.7, tail.finTop);
   if (folded) p.scale.set(0.995, 1, 1);
+  trueSize(p, 'dauntless');
   return p;
 }
 
@@ -2299,15 +2386,12 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   const legs = opts.gear === false ? []
     : [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
   const tailLeg = opts.gear === false ? null : tailGear(p, -5.5, 0.21, 1.1, 0.36);
-  const down = legs.map((l) => l.g.rotation.z);
-  // 0 is down and locked, 1 is up and the doors shut behind her.
-  p.userData.gear = (u) => {
-    const k = Math.max(0, Math.min(1, u));
-    const e = k * k * (3 - 2 * k);
-    legs.forEach((l, i) => { l.g.rotation.z = down[i] + l.s * 1.5 * e; });
-    tailLeg.rotation.x = 1.6 * e;
-  };
+  // 0 is down and locked, 1 is up and the doors shut behind her. The legs
+  // used to swing outward and up through the top of the wing, so a climbing
+  // Avenger carried her wheels standing on her mainplane.
+  if (legs.length) gearRig(p, legs, tailLeg, { main: [1.8, -0.2, 0.3], tail: [-1.9, 0.45, -0.3] });
   aerial(p, 0, cl(1.4) + 1.50, 1.4, 0.8, tail.finTop);
+  trueSize(p, 'avenger');
   return p;
 }
 /**
@@ -2484,6 +2568,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
   }
   // The aerial mast and the wire aft to the fin.
   aerial(p, 0, cl(1.4) + 1.10, 1.40, 0.52, tail.finTop, TOP);
+  trueSize(p, 'arado');
   return p;
 }
 
@@ -2606,6 +2691,7 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
     }
   }
   aerial(p, 0, cl(1.0) + 1.04, 1.00, 0.48, tail.finTop, TOP);
+  trueSize(p, 'kingfisher');
   return p;
 }
 
@@ -2917,6 +3003,7 @@ function loire(g, x, y, z, ry, opts = {}) {
   // high and needs them.
   for (const s of [-1, 1]) strut(p, TOP, [s * 0.16, 1.10, -4.70], [s * 1.30, 1.34, -4.95], 0.03);
   aerial(p, 0, WY + 0.15, -0.95, 0.55, tail.finTop, TOP);
+  trueSize(p, 'loire');
   return p;
 }
 
@@ -3248,8 +3335,9 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   // shape so the tail could fold clear for the lift.
   const tail = empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
   if (opts.gear !== false) {
-    for (const s of [-1, 1]) mainGear(p, s, s * 1.55, 0.31, 1.30, 0.36, 0.05);
-    tailGear(p, -5.00, 0.18, 1.1, 0.34);
+    const mains = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 0.31, 1.30, 0.36, 0.05) }));
+    gearRig(p, mains, tailGear(p, -5.00, 0.18, 1.1, 0.34),
+      { main: [1.5, 0.1, 0.4], tail: [1.65, 0.6, 0.4] });
   }
   // The rear gunner's 7.92 mm, and the tunnel gun under the sternpost.
   const mg = cyl(p, M.gunDark, 0.04, 0.04, 0.8, 0, cl(-2.1) + 0.94, -2.4, 6);
@@ -3257,6 +3345,7 @@ function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   cyl(p, M.gunDark, 0.035, 0.035, 0.6, 0, cl(-3.4) - 0.18, -3.6, 6)
     .rotation.x = 0.4;
   aerial(p, 0, cl(0.2) + 1.03, 0.2, 0.58, tail.finTop);
+  trueSize(p, 'tenzan');
   return p;
 }
 
@@ -3377,6 +3466,7 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
   const mg = cyl(p, M.gunDark, 0.035, 0.035, 0.7, 0, cl() + 0.80, -2.6, 6);
   mg.rotation.x = -0.45;
   aerial(p, 0, cl() + 0.81, 0.3, 0.5, tail.finTop);
+  trueSize(p, 'jake');
   return p;
 }
 

@@ -6510,10 +6510,15 @@ export const SHIP_CLASSES = {
       ],
     },
     planes: {
-      squadrons: 3, perSquadron: 6, cruiseSpeed: 82, strikeRange: 15600,
+      squadrons: 3, perSquadron: 17, cruiseSpeed: 82, strikeRange: 15600,
       // What she flies: her own nation's machines, one to a role.
       types: { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' },
-      runOut: 158, runHeight: 43,
+      // Where her deck run leaves each of her three types, off the integrated
+      // launch the model on her deck flies: off the round-up, through the sag
+      // the bow leaves under her, and climbing away. A Zero is off and away
+      // well ahead of a Tenzan with a fish under her.
+      runOut: { fighter: 286, dive: 279, torpedo: 267 },
+      runHeight: { fighter: 25.6, dive: 25.3, torpedo: 23.6 },
       rearm: 40, torpDamage: 9400, torpSpeed: 27 * KNOTS, torpRange: 2800,
       floodChance: 0.27, hp: 1300, dropSpread: 0.05,
       // A Suisei's 500 kg semi-armour-piercing bomb beats about a hundred
@@ -6521,14 +6526,16 @@ export const SHIP_CLASSES = {
       // through a cruiser's deck to burst below it, and stopped dead on a
       // battleship's armoured deck.
       bombDamage: 4400, bombHit: 0.40, bombFire: 0.36, bombPen: 100, bombBore: 0.38,
+      // Fifty aircraft in her hangars, split however her captain likes: any
+      // one type may fill all of it, and none of them has to be embarked.
       group: {
-        total: 18,
+        total: 50,
         min: { fighters: 0, dive: 0, torpedo: 0 },
-        max: { fighters: 12, dive: 12, torpedo: 12 },
-        minStrike: 3,
-        // Her intended group: a squadron of each, fighters heaviest because
-        // by the end of 1944 that is what a Japanese carrier flew.
-        default: { fighters: 8, dive: 6, torpedo: 4 },
+        max: { fighters: 50, dive: 50, torpedo: 50 },
+        minStrike: 0,
+        // Her intended group, fighters heaviest because by the end of 1944
+        // that is what a Japanese carrier flew.
+        default: { fighters: 20, dive: 16, torpedo: 14 },
       },
     },
     datasheet: {
@@ -6662,12 +6669,13 @@ export const SHIP_CLASSES = {
       ],
     },
     planes: {
-      squadrons: 3, perSquadron: 4, cruiseSpeed: 78, strikeRange: 14000,
-      // Where and how high her deck run leaves an aeroplane, measured off the
-      // integrated launch the model on her deck actually flies -- so the
-      // aeroplane the formation starts drawing is the one that just went off
-      // the bow, in the same place at the same height.
-      runOut: 156, runHeight: 41,
+      squadrons: 4, perSquadron: 20, cruiseSpeed: 78, strikeRange: 14000,
+      // Where and how high her deck run leaves each of her three types,
+      // measured off the integrated launch the model on her deck actually
+      // flies -- so the aeroplane the simulation starts flying is the one that
+      // just went off the bow, in the same place at the same height.
+      runOut: { fighter: 297, dive: 279, torpedo: 274 },
+      runHeight: { fighter: 23.0, dive: 20.8, torpedo: 19.7 },
       rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
       floodChance: 0.25, hp: 1400, dropSpread: 0.05,
       // What a dive bomber does when it gets there. A thousand-pound
@@ -6679,16 +6687,16 @@ export const SHIP_CLASSES = {
       // battleship's armoured deck, which is what the weight of it was for.
       bombDamage: 4200, bombHit: 0.42, bombFire: 0.34, bombPen: 92, bombBore: 0.36,
       // The air group she sails with. A captain may re-balance it in the yard
-      // between fighters, dive bombers and torpedo bombers, inside these
-      // limits: twelve aircraft in all, and she must embark something that can
-      // hit a ship or there is no point sending her.
+      // between fighters, dive bombers and torpedo bombers however the captain likes:
+      // eighty aircraft in all, and any one type may take every one of them.
       group: {
-        total: 12,
+        total: 80,
         min: { fighters: 0, dive: 0, torpedo: 0 },
-        max: { fighters: 8, dive: 8, torpedo: 8 },
-        minStrike: 2,
-        // Her Midway loadout: a squadron of each.
-        default: { fighters: 4, dive: 4, torpedo: 4 },
+        max: { fighters: 80, dive: 80, torpedo: 80 },
+        minStrike: 0,
+        // Her Midway loadout, near enough: a fighting, a bombing and a
+        // scouting squadron of Dauntlesses, and a torpedo squadron.
+        default: { fighters: 27, dive: 37, torpedo: 16 },
       },
     },
     datasheet: {

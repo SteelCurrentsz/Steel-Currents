@@ -67,9 +67,9 @@ import { arm as armMount } from './mounts.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
-import { AERO, launchProfile } from './aero.js';
 import { DECK_RUN } from '../../../shared/sim.js';
 import { engineStart } from './deckengine.js';
+import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
 import {
   box, cyl, tubeZ, tubeX, fairTable, ladder, sideLadder, loftShape, planHouse,
   strip, sheet, rail,
@@ -2179,18 +2179,43 @@ function elevators(g) {
   return lifts;
 }
 
-/** The aircraft that flies when she launches, and where it waits. */
+/**
+ * The aircraft that flies when she launches, and where it waits: a Wildcat
+ * when it is fighters going off, a Dauntless for a dive bombing strike and an
+ * Avenger for a torpedo one. All three ride the same group, so the lift and
+ * the deck run do not care which it is; the two not flying are out of sight.
+ */
 function deckAircraft(g) {
   const plane = new THREE.Group();
   plane.userData.dynamic = true;
   g.add(plane);
-  const body = avenger(plane, 0, 0, 0, 0, true, true);
-  return {
-    group: plane,
-    prop: body.userData.prop || null,
-    wings: body.userData.wings || null,
-    gear: body.userData.gear || null,
+  const kinds = {};
+  const make = (role, body) => {
+    const prop = body.userData.prop || null;
+    // Her stacks, either side of the cowling behind the airscrew.
+    const at = prop ? prop.position : new THREE.Vector3(0, 1.6, 3.4);
+    kinds[role] = {
+      body, prop,
+      wings: body.userData.wings || null,
+      gear: body.userData.gear || null,
+      blur: propBlur(prop),
+      exhaust: [[-0.62, at.y - 0.25, at.z - 1.5], [0.62, at.y - 0.25, at.z - 1.5]],
+    };
   };
+  make('fighter', wildcat(plane, 0, 0, 0, 0, true, {}));
+  make('dive', dauntless(plane, 0, 0, 0, 0, false, {}));
+  make('torpedo', avenger(plane, 0, 0, 0, 0, true, true));
+  const out = { group: plane, kinds, role: 'torpedo' };
+  out.pick = (role) => {
+    const r = kinds[role] ? role : 'torpedo';
+    for (const [k, v] of Object.entries(kinds)) v.body.visible = k === r;
+    const k = kinds[r];
+    out.role = r;
+    out.prop = k.prop; out.wings = k.wings; out.gear = k.gear;
+    out.blur = k.blur; out.exhaust = k.exhaust;
+  };
+  out.pick('torpedo');
+  return out;
 }
 
 const LIFT_DROP = FD - HANGAR - 0.55;
@@ -2244,14 +2269,20 @@ export function stepDeck(deck, t) {
   // How long each part of the evolution takes. Everything up to the flag is a
   // handling job and is timed; everything after it is flown, and takes as long
   // as the aeroplane takes.
-  const LAUNCH = ROLL + (deck.profile ? deck.profile.rows.length * deck.profile.dt : 12);
+  const FLOWN = deck.profile ? deck.profile.rows.length * deck.profile.dt : 12;
+  const LAUNCH = ROLL + FLOWN;
   // Played so that she leaves the deck exactly when the simulation puts her
-  // squadron in the air. Left to run at its own length the evolution took four
-  // seconds longer, and for those four seconds the squadron was already up:
-  // three markers flying off the bow while the aeroplane you were watching was
-  // still on the planking, which is the aircraft that appeared out of nothing.
-  const pace = LAUNCH / DECK_RUN;
-  const run = deck.launchAt === null ? -1 : (t - deck.launchAt) * pace;
+  // in the air. Left to run at its own length the evolution took four seconds
+  // longer, and for those four seconds she was already up: a marker flying off
+  // the bow while the aeroplane you were watching was still on the planking,
+  // which is the aircraft that appeared out of nothing.
+  //
+  // Only the handling is paced to fit, though. The run is flown and is played
+  // at the speed it was flown at; stretched along with the rest of it she
+  // crept down the deck in slow motion with her airscrew going flat out.
+  const clock = deckClock(ROLL, FLOWN, deck.dur ?? DECK_RUN);
+  const pace = clock.pace;
+  const run = deck.launchAt === null ? -1 : clock.at(t - deck.launchAt);
 
   // Ranging for a launch: the deck is made flush before anything goes down it.
   //
@@ -2325,6 +2356,7 @@ export function stepDeck(deck, t) {
     // whether or not a frame happened to land in the last tenth of a second of
     // the deck run. At five frames a second it would not, and she would snap
     // back to the lift with the squadron she is flying still in the air.
+    if (!deck.airborne) deck.airborneAt = t;
     deck.airborne = true;
     aft.group.position.y = FD;
     wings(true);
@@ -2400,6 +2432,8 @@ export function stepDeck(deck, t) {
   let pitch = 0;
   let yaw = 0.08;
   let turning = 0;                      // how fast the propeller is going round
+  let speed = 0;                        // over the deck
+  let power = 0;                        // her throttle
 
   if (run < DOWN) {
     // The lift down the well. She rides it if she is on it; if she is already
@@ -2431,6 +2465,7 @@ export function stepDeck(deck, t) {
     z = LIFT_Z + (SPOT - LIFT_Z) * k;
     yaw = 0.08 * (1 - k);
     turning = 11;
+    power = 0.22;
     // She rocks a little on her oleos as she rolls.
     pitch = 0.006 * Math.sin(run * 9);
   } else if (run < ROLL) {
@@ -2439,7 +2474,9 @@ export function stepDeck(deck, t) {
     z = SPOT;
     yaw = 0;
     turning = 30;
-    pitch = -0.012 * Math.sin((run - TAXIED) * 22);
+    // Opened up against the brakes, all the way by the time the flag drops.
+    power = 0.3 + 0.7 * Math.min(1, (run - TAXIED) / (ROLL - TAXIED));
+    pitch = -0.012 * Math.sin((run - TAXIED) * 22) * power;
   } else {
     // The deck run, flown rather than drawn: thrust against drag and rolling
     // friction, the wing taking her weight as the speed builds, and the wheels
@@ -2453,6 +2490,7 @@ export function stepDeck(deck, t) {
     const [s2, h, th, up] = pr.rows[i];
     z = SPOT + s2;
     y = FD + h;
+    speed = rowSpeed(pr, i);
     // Nose up, which is what a climb is. It was negated here, so an aeroplane
     // coming off the round-down was drawn nose down all the way up the deck --
     // and the formation that took her over a moment later was drawn nose up,
@@ -2460,10 +2498,17 @@ export function stepDeck(deck, t) {
     pitch = th;
     yaw = 0;
     turning = 34;
-    gear(up ? Math.min(1, (h - 3) / 14) : 0);
+    power = 1;
+    // Her wheels come up once she is clear of the bow and sure of flying --
+    // not over the deck, where she may yet have to put them back on it.
+    const off = pr.bow >= 0 ? (run - ROLL) - pr.bow : -1;
+    gear(up && off > 0 ? Math.min(1, off / 2.6) : 0);
     // Once she is well clear of the bow -- and once the simulation has actually
     // put her squadron up -- she belongs to whatever is flying her.
-    if (z > fdEndF(0) + 40 && run >= LAUNCH) deck.airborne = true;
+    if (z > fdEndF(0) + 40 && run >= LAUNCH) {
+      if (!deck.airborne) deck.airborneAt = t;
+      deck.airborne = true;
+    }
   }
 
   p.visible = true;
@@ -2473,10 +2518,14 @@ export function stepDeck(deck, t) {
   // idling down the deck to the spot and run right up on the brakes. The
   // airscrew turns at what the engine says rather than at a number per phase.
   // See deckengine.js.
-  const rate = engineStart(deck.engine || (deck.engine = {}), run >= DOWN,
-    (run - DOWN) / pace, run >= TAXIED ? 1 : Math.min(0.3, turning / 30), dt, deck.fx, p,
-    [[-0.66, 1.5, 2.9], [0.66, 1.5, 2.9]]);
+  // And the airscrew winds up with her: idling down the deck, wound up on the
+  // brakes, and turning faster yet as the air comes at it down the run.
+  const el = t - deck.launchAt;
+  const rate = propRate(engineStart(deck.engine || (deck.engine = {}), run >= DOWN,
+    el - DOWN / pace, run >= UP ? power : Math.min(0.3, turning / 30), dt, deck.fx, p,
+    plane.exhaust), speed, deck.profile ? deck.profile.vr : 30);
   if (plane.prop) plane.prop.rotation.z += rate * dt;
+  if (plane.blur) plane.blur(rate);
 }
 
 /**
@@ -2489,9 +2538,16 @@ export function stepDeck(deck, t) {
  * a phase happens has to ask, not count seconds of its own.
  */
 export function deckPhases(deck) {
-  const LAUNCH = ROLL + (deck && deck.profile ? deck.profile.rows.length * deck.profile.dt : 12);
-  const k = DECK_RUN / LAUNCH;
-  return { down: DOWN * k, up: UP * k, taxied: TAXIED * k, roll: ROLL * k, launch: DECK_RUN };
+  const FLOWN = deck && deck.profile ? deck.profile.rows.length * deck.profile.dt : 12;
+  const c = deckClock(ROLL, FLOWN, (deck && deck.dur) ?? DECK_RUN);
+  const k = 1 / c.pace;
+  return {
+    down: DOWN * k, up: UP * k, taxied: TAXIED * k, roll: c.handling,
+    // Her wheels leaving the deck, and her crossing the bow.
+    off: c.handling + (deck && deck.profile ? deck.profile.rows.findIndex((r) => r[3]) * deck.profile.dt : 0),
+    bow: c.handling + (deck && deck.profile ? deck.profile.bow : 0),
+    launch: c.handling + FLOWN,
+  };
 }
 
 /** Kept for the tests and for anything that only wants the lifts moved. */
@@ -2619,25 +2675,38 @@ export function buildEnterprise() {
     // Struck below between sorties, which is where a carrier keeps her
     // aircraft, and the reason the launch begins with the lift going down.
     stowed: true, landAt: null,
-    profile: launchProfile(AERO.avenger, fdEndF(0) - spot),
+    // One integrated run for each of the three: a Wildcat is off the deck in
+    // half the planking an Avenger with a fish under her needs.
+    profiles: deckProfiles(DECK_KINDS.usa, fdEndF(0) - spot),
   };
+  deck.profile = deck.profiles.torpedo;
   // Whose frame the deck evolution is drawn in. See stepDeck.
   deck.owner = plane.group.parent;
   // Where the deck run leaves her, in the ship's own frame: the last row of
   // the profile the launch was integrated into. Whatever takes her over flies
   // her from here, and it reads this rather than looking at where the model
   // happens to be.
-  {
-    const end = deck.profile.rows[deck.profile.rows.length - 1];
-    deck.endPose = { x: 0, y: FD + end[1] + 0.34, z: spot + end[0], pitch: end[2] };
-  }
+  const endOf = (pr) => {
+    const end = pr.rows[pr.rows.length - 1];
+    return { x: 0, y: FD + end[1] + 0.34, z: spot + end[0], pitch: end[2] };
+  };
+  deck.endPoses = {};
+  for (const [role, pr] of Object.entries(deck.profiles)) deck.endPoses[role] = endOf(pr);
+  deck.endPose = deck.endPoses.torpedo;
   g.userData.deck = deck;
   // Where an aeroplane coming home puts her wheels down. The approach flies to
   // this and the recovery rolls up the deck from it, so the two agree.
   g.userData.landingSpot = [0, FD + 0.34, landZ()];
   g.userData.deckPlane = plane.group;
   g.userData.step = (t) => stepDeck(deck, t);
-  g.userData.launch = (t) => {
+  // `role` is which of the three is going; `dur` how long the simulation gives
+  // her from the flag to her wheels coming up, which is longer for the first
+  // of a strike than for those that follow her up the lift.
+  g.userData.launch = (t, role = 'torpedo', dur = DECK_RUN) => {
+    plane.pick(role);
+    deck.profile = deck.profiles[plane.role];
+    deck.endPose = deck.endPoses[plane.role];
+    deck.dur = dur;
     deck.launchAt = t;
     deck.engine = {};
     deck.airborne = false;

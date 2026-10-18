@@ -21,6 +21,17 @@ import { ZERO_PIECES, ZERO_META } from './zeroModel.data.js';
 
 export const ZERO = ZERO_META;
 
+// How her legs go up, fitted against her own wing rather than set by eye (see
+// planekit's gearRig): each main leg swings in about its hinge, rises and
+// slides into its well, and the tail leg swings up into the sternpost.
+// `slide` is the travel along her span for a main leg, and fore and aft for the
+// tail. The sculpt's own numbers swung the mains a hundred degrees and lifted
+// them three tenths of a metre, which put both wheels up through the top of
+// the wing at the root.
+Object.assign(ZERO_META.gearL, { up: 1.35, tuck: 0.55, slide: -0.3 });
+Object.assign(ZERO_META.gearR, { up: -1.65, tuck: 0.4, slide: -0.4 });
+Object.assign(ZERO_META.gearT, { up: 1.2, tuck: 0.25, slide: 0 });
+
 /** The pieces a Zero can lose, and the parts of her that move. */
 export const ZERO_SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
 export const ZERO_PARTS = ['prop', 'gearL', 'gearR', 'gearT'];
@@ -249,6 +260,10 @@ export function zeroModel(opts = {}) {
         hinge.rotation[spec.axis] = spec.up * e;
         hinge.position.fromArray(spec.at);
         hinge.position.y += (spec.tuck || 0) * e;
+        if (spec.axis === 'z') hinge.position.x += (spec.slide || 0) * e;
+        else hinge.position.z += (spec.slide || 0) * e;
+        // Up, and the doors shut over it.
+        hinge.visible = k < 0.985;
       }
     };
   }

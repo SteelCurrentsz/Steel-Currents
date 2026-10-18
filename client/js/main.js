@@ -689,9 +689,9 @@ function sheet(el, heading, rows) {
 /**
  * What the carrier embarks, and the panel that sets it.
  *
- * Twelve aircraft in the hangar, split between fighters, dive bombers and
- * torpedo bombers however the captain likes, inside the limits her datasheet
- * carries. The choice is kept in settings and rides the sortie request, so the
+ * Her whole hangar, split between fighters, dive bombers and torpedo
+ * bombers however the captain likes: all of one type, none of another, or
+ * anything between. The choice is kept in settings and rides the sortie request, so the
  * hulls on her side sail with it and the simulation flies what was actually
  * embarked: torpedo bombers put fish in the water, dive bombers put bombs on
  * the deck, fighters keep the flak off the strike.
@@ -730,7 +730,21 @@ function renderAirGroup() {
   const total = AG_KINDS.reduce((n, k) => n + g[k], 0);
   const strike = g.dive + g.torpedo;
   document.getElementById('ag-sub').textContent =
-    `${spec.total} aircraft in the hangar. Balance them as you like.`;
+    `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
+  // What she actually flies in each role: a Shinano's fighters are Zeros.
+  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const types = SHIP_CLASSES[id]?.planes?.types || {};
+  const NAMES = {
+    zero: 'Zero', suisei: 'Suisei', tenzan: 'Tenzan',
+    wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+  };
+  const ROLES = { fighters: ['fighter', 'Wildcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
+    torpedo: ['torpedo', 'Avenger', 'torpedoes'] };
+  for (const k of AG_KINDS) {
+    const [role, fallback, job] = ROLES[k];
+    const em = document.querySelector(`.ag-row[data-kind="${k}"] em`);
+    if (em) em.textContent = `${NAMES[types[role]] || fallback} \u2014 ${job}`;
+  }
   for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
   document.getElementById('ag-total-n').textContent = `${total} / ${spec.total}`;
   document.getElementById('ag-total').classList.toggle('full', total === spec.total);
@@ -795,8 +809,33 @@ function stepYard(dir) {
   renderYard();
 }
 
+// Eighty aircraft is a lot of presses one at a time, so a stepper held down
+// keeps stepping, and quicker the longer it is held.
 for (const btn of document.querySelectorAll('.ag-step')) {
-  btn.onclick = () => { audio.click(); stepAirGroup(btn.dataset.kind, Number(btn.dataset.step)); };
+  let timer = null;
+  let held = 0;
+  const step = () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step));
+  const stop = () => { clearTimeout(timer); timer = null; };
+  const repeat = () => {
+    held++;
+    step();
+    if (btn.disabled) { stop(); return; }
+    timer = setTimeout(repeat, held < 6 ? 140 : 50);
+  };
+  btn.onpointerdown = (e) => {
+    if (btn.disabled) return;
+    e.preventDefault();
+    audio.click();
+    held = 0;
+    step();
+    stop();
+    timer = setTimeout(repeat, 380);
+  };
+  btn.onpointerup = stop;
+  btn.onpointerleave = stop;
+  btn.onpointercancel = stop;
+  // The keyboard still gets one step a press.
+  btn.onclick = (e) => { if (e.detail === 0) { audio.click(); step(); } };
 }
 document.getElementById('ag-reset').onclick = () => {
   audio.click();

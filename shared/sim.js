@@ -5674,10 +5674,19 @@ export function launchStrike(state, ship) {
   // finds its own target.
   const group = ship.airGroup || defaultAirGroup(cls) || cls.planes.flight
     || { fighters: 0, dive: 0, torpedo: 4 };
-  const share = (n) => Math.max(0, Math.round(n / cls.planes.squadrons));
-  let fighters = share(group.fighters);
-  let bomb = share(group.dive);
-  let torp = share(group.torpedo);
+  // What is still below of each type: a squadron is a third of the group, but
+  // what she embarked is all she has, so the last squadron takes whatever the
+  // first two left rather than a rounded third of a number that is not there.
+  const n = cls.planes.squadrons;
+  const share = (k) => {
+    const all = Math.max(0, group[k] | 0);
+    const base = Math.floor(all / n);
+    // The odd ones go with the first squadrons off the deck.
+    return base + (sq.id < all - base * n ? 1 : 0);
+  };
+  let fighters = share('fighters');
+  let bomb = share('dive');
+  let torp = share('torpedo');
   // A group small enough to round away to nothing still sends what it has:
   // otherwise a captain who embarked two torpedo bombers watches a squadron
   // fly out, find the enemy and drop nothing at all.
@@ -5687,27 +5696,36 @@ export function launchStrike(state, ship) {
     else if (group.fighters > 0) fighters = 1;
     else torp = 1;
   }
+  // One aeroplane at a time. A squadron does not leave a deck as a flight of
+  // three appearing together round the one machine you watched take off: each
+  // of them comes up the lift, runs down the deck and goes, and is her own
+  // aeroplane in the air from the moment her wheels leave it. The fighters go
+  // first, to be overhead when the strike forms; the torpedo bombers, heaviest
+  // and needing the most deck, go last.
+  const queue = [];
+  for (let i = 0; i < fighters; i++) queue.push({ role: 'fighter', count: 1, torp: 0, bomb: 0 });
+  for (let i = 0; i < bomb; i++) queue.push({ role: 'dive', count: 1, torp: 0, bomb: 1 });
+  for (let i = 0; i < torp; i++) queue.push({ role: 'torpedo', count: 1, torp: 1, bomb: 0 });
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
-    // The first flight off the deck leads the strike; the rest form on her.
+    // The first aeroplane off the deck leads the strike; the rest form on her.
     // Filled in when she is actually airborne, because until then there is no
-    // flight to be the leader.
+    // aeroplane to be the leader.
     lead: 0, slot: 0,
     // Which side a catapult ship is shooting off this time. She has two and
     // uses them turn and turn about.
     side: (ship.catSide = -(ship.catSide || 1)),
-    flights: [
-      { role: 'fighter', count: fighters, torp: 0, bomb: 0 },
-      { role: 'dive', count: bomb, torp: 0, bomb },
-      { role: 'torpedo', count: torp, torp, bomb: 0 },
-    ].filter((f) => f.count > 0),
+    flights: queue,
     escort: fighters,
   };
   // Which job is going off first, so the deck can range the right machine.
+  // And how long the deck has to do it in, so the evolution drawn on her is
+  // played to the same clock.
   state.events.push({
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
+    d: ship.launching.left,
   });
   return true;
 }
@@ -5720,6 +5738,19 @@ export function launchStrike(state, ship) {
  * while the one you are watching is still on the planking.
  */
 export const DECK_RUN = 24.5;
+
+/**
+ * And for each one after the first of a strike: the lift brings her up while
+ * the one ahead of her is still running, she taxis to the spot, and goes. The
+ * deck evolution on the client plays its handling at whatever pace fits this
+ * and flies the run itself at the speed the aeroplane actually runs at.
+ */
+export const DECK_NEXT = 22;
+
+/** Her speed as the deck run hands her over, in metres a second. */
+export const LAUNCH_SPEED = 44;
+/** And how quickly she works up from there to cruise, in metres a second a second. */
+const CLIMB_OUT_ACCEL = 1.6;
 
 /**
  * How far ahead of the ship the deck run leaves an aeroplane.
@@ -5748,9 +5779,12 @@ export const DECK_RUN_OUT = 156;
  * a hundred and fifty metres from where you watched her go. The distances are
  * measured off the integrated launch each ship actually flies.
  */
-export function launchOffset(cls, side = 1) {
+export function launchOffset(cls, side = 1, role = null) {
   const P = cls.planes || {};
-  const out = P.runOut ?? DECK_RUN_OUT;
+  // A carrier's three types do not leave her deck in the same place: a Zero is
+  // off and climbing a long way short of where a Tenzan with a fish under her
+  // is still hanging over the water. So a deck says where each of them goes.
+  const out = byRole(P.runOut, role) ?? DECK_RUN_OUT;
   // A ship with a pair of catapults works them turn and turn about, so hers go
   // off alternate sides. A ship with one derrick has one side to work it over,
   // and says which: the Surcouf's boom tops over her port quarter, and a scout
@@ -5759,6 +5793,12 @@ export function launchOffset(cls, side = 1) {
   const s = P.runSide ?? side;
   const bearing = (P.runBearing ?? 0) * (P.runBearing ? s : 1);
   return { out, bearing };
+}
+
+/** A number a ship's data may give once for all her aircraft, or per role. */
+function byRole(v, role) {
+  if (v && typeof v === 'object') return v[role] ?? v.torpedo ?? Object.values(v)[0];
+  return v;
 }
 
 /**
@@ -5814,7 +5854,7 @@ function stepLaunch(state, ship, dt) {
     // whatever she has been laid on.
     // Where this ship's launch actually leaves her: off the bow down a flight
     // deck, off the beam off a catapult.
-    const off = launchOffset(cls, L.side || 1);
+    const off = launchOffset(cls, L.side || 1, f.role);
     const away = wrapAngle(ship.heading + off.bearing);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
@@ -5839,8 +5879,13 @@ function stepLaunch(state, ship, dt) {
       // Where the launch actually leaves her, off the ground: the end of the
       // integrated deck run or catapult shot, not a number chosen to look
       // right. She climbs away from there under her own power.
-      y: cls.planes.runHeight ?? 41,
+      y: byRole(cls.planes.runHeight, f.role) ?? 41,
       vy: 4,
+      // Not at cruise: at what she left the deck at, a few knots over the
+      // stall with her flaps still down, and she works up to cruise from
+      // there. Born at cruise she was drawn leaping forward at the hand-over,
+      // twice as fast as the aeroplane that had just gone off the bow.
+      launchV: cls.planes.launchSpeed ?? LAUNCH_SPEED,
       hp: planeHp(cls, f, L),
       // The aeroplanes themselves. A flight is not a hit-point bar with a
       // number of aircraft written on it: it is that many machines, each with
@@ -5878,13 +5923,17 @@ function stepLaunch(state, ship, dt) {
     releaseStrike(state, ship, L.sqId);
     return;
   }
-  // The next one is ranged and goes down the deck after her. The deck stays
-  // busy for the whole of it, so nothing else can use it meanwhile.
-  L.left = cls.planes.deckRun ?? DECK_RUN;
+  // The next one is ranged and goes down the deck after her. She is already
+  // in the hangar with her engine warm, so it is the lift and the taxi and her
+  // own run and no more: quicker than the first one, which had the whole
+  // evolution to go through. The deck stays busy for the whole of it, so
+  // nothing else can use it meanwhile.
+  L.left = cls.planes.deckNext ?? DECK_NEXT;
   ship.deckBusy = Math.max(ship.deckBusy, L.left + (cls.planes.deckCycle ?? DECK_CYCLE) * 0.35);
   state.events.push({
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
+    d: L.left,
   });
 }
 
@@ -5932,16 +5981,25 @@ function strikeFormed(state, lead, ship) {
 }
 
 /**
- * How far off her leader each flight of a strike stands.
+ * Where one aeroplane of a strike flies on her leader, now that each of them
+ * is her own aeroplane rather than a flight of several drawn round one point.
  *
- * Across and astern, in the leader's own frame, in metres. Wide enough that
- * three formations read as three formations rather than one smear, close
- * enough that they read as one strike -- which is the point of forming up at
- * all. A strike that goes out in company arrives in company; three flights
- * that each set off the moment their wheels came up arrive one at a time and
- * are shot down one at a time.
+ * Vics of three -- a section leader with a wingman stepped back on each side
+ * -- and the vics in echelon behind the leader's, three abreast. A strike of
+ * thirty comes out as ten vics in three columns, which is what a deckload
+ * strike looked like going out, and nobody is in anybody else's slot.
  */
-const STATION = [[0, 0], [250, -210], [-270, -250], [460, -450], [-490, -490]];
+function stationOf(slot) {
+  const s = Math.max(0, slot | 0);
+  const vic = Math.floor(s / 3);
+  const inVic = s % 3;
+  const wing = [[0, 0], [38, -30], [-38, -30]][inVic];
+  const row = Math.floor(vic / 3);
+  const col = vic % 3;
+  const cx = [0, 190, -190][col];
+  const cz = -row * 170 - (col ? 95 : 0);
+  return [cx + wing[0], cz + wing[1]];
+}
 
 /** How near the enemy the strike breaks formation and each flight goes in. */
 const BREAK_RANGE = 4000;
@@ -6037,7 +6095,7 @@ function formationGoal(state, p, carrier) {
       if (dist(lead.x, lead.z, s.x, s.z) < BREAK_RANGE) { p.lead = p.id; return null; }
     }
   }
-  const [sx, sz] = STATION[Math.min(STATION.length - 1, p.slot || 0)];
+  const [sx, sz] = stationOf(p.slot || 0);
   const sn = Math.sin(lead.heading);
   const cs = Math.cos(lead.heading);
   return { x: lead.x + sn * sz + cs * sx, z: lead.z + cs * sz - sn * sx };
@@ -6220,13 +6278,21 @@ function diveStage(state, p, dt) {
     // She rolls in where the height she has will make a steep dive of it: a
     // fifty-five degree line from the roll-out to the release, and the couple
     // of hundred metres the roll itself carries her on.
-    const over = (p.y ?? 0) - (mark.y || 0) - DIVE_DROP;
-    if (over < 110 || d > DIVE_AT + over / 1.45 + 220) return null;
+    //
+    // And whatever height that is. One that arrives over her target before
+    // she has climbed to her perch does not go round it climbing for more:
+    // she is there, the flak is on her, and she pushes over from where she is
+    // and lets go lower down the dive instead -- see dropHeight.
+    const over = Math.max(0, (p.y ?? 0) - (mark.y || 0) - dropHeight(p, mark));
+    if (d > DIVE_AT + over / 1.45 + 220) return null;
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
     p.dvT = 0;
-    p.perch = Math.max(DIVE_DROP + 260, p.y);
+    // Where the bomb leaves her, fixed for this dive at the height she has
+    // to start it from.
+    p.dropY = releaseFor((p.y ?? 0) - (mark.y || 0));
+    p.perch = Math.max((mark.y || 0) + p.dropY + 60, p.y);
     const off = angleDelta(p.heading, headingTo(p.x, p.z, mark.x, mark.z));
     p.dvSide = off >= 0 ? 1 : -1;
   }
@@ -6248,7 +6314,7 @@ function diveStage(state, p, dt) {
       // The line she dives down starts where she is now, at the height she
       // has now: the zoom and the roll have used some of both.
       p.diveFrom = Math.max(DIVE_AT + 120, d);
-      p.perch = Math.max((mark.y || 0) + DIVE_DROP + 60, p.y);
+      p.perch = Math.max((mark.y || 0) + dropHeight(p, mark) + 60, p.y);
       return null;
     }
     // The zoom first, nose up for the half second she is rolling into it,
@@ -6260,36 +6326,22 @@ function diveStage(state, p, dt) {
 }
 
 /**
- * Where a dive bomber steers while she climbs for her perch over the target.
+ * The height above her target a dive bomber lets go at, for a dive started
+ * this high.
  *
- * A strike sent at a ship a few miles off arrives over her still climbing out,
- * and a dive bomber is no use without height: she stands off and goes round
- * her target in a wide circle, climbing, until she has enough to push over
- * from -- then she turns in, and diveStage takes her over the top. Null when
- * she has the height, or is not a dive bomber going in.
+ * Four hundred and fifty metres from a proper perch. One that rolled in short
+ * of her perch has less dive to give, so she lets go lower -- a little under
+ * half of whatever she started from, and never under a hundred and twenty,
+ * which is as low as anybody pulled out of a dive and lived.
  */
-const DIVE_CIRCLE = 1400;
-const DIVE_MIN = 420;          // the least height above her target she dives from
-function diveOrbit(state, p) {
-  if (p.role !== 'dive' || p.phase !== 'outbound' || p.dv || p.dropped || !(p.bomb > 0)) return null;
-  const mark = p.targetBat
-    ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
-    : state.ships.find((q) => q.id === p.targetId && q.alive);
-  if (!mark) return null;
-  const d = dist(p.x, p.z, mark.x, mark.z);
-  const short = (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + DIVE_MIN;
-  // Once she has started round she keeps going until she has the height,
-  // and then a little more, so she does not turn in and out of it.
-  if (!short && !(p.orbiting && (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + DIVE_MIN + 60)) {
-    p.orbiting = false;
-    return null;
-  }
-  if (!p.orbiting && d > DIVE_CIRCLE + 600) return null;
-  p.orbiting = true;
-  // A point a little way round the circle from where she is: she flies a
-  // ring about her target at the circle's radius.
-  const a = Math.atan2(p.x - mark.x, p.z - mark.z) + (p.dvSide || 1) * 0.55;
-  return { x: mark.x + Math.sin(a) * DIVE_CIRCLE, z: mark.z + Math.cos(a) * DIVE_CIRCLE };
+function releaseFor(above) {
+  return clamp(above * 0.42, 120, DIVE_DROP);
+}
+
+/** Her release height on this dive, or a full one when she has not begun it. */
+function dropHeight(p, mark) {
+  if (p.dropY !== undefined && p.dv) return p.dropY;
+  return releaseFor((p.y ?? 0) - (mark.y || 0));
 }
 
 /** The best rate of climb anything in this strike can hold. */
@@ -6391,14 +6443,18 @@ function wantedHeight(state, p, carrier, inCompany) {
     // way down. See diveStage.
     if (p.dv === 'dive' && p.diveFrom) {
       const k = clamp((d - DIVE_AT) / Math.max(1, p.diveFrom - DIVE_AT), 0, 1);
-      return (mark.y || 0) + DIVE_DROP + (p.perch - DIVE_DROP) * k;
+      const drop = dropHeight(p, mark);
+      return (mark.y || 0) + drop + (p.perch - drop) * k;
     }
     // Still climbing to the perch, and holding what she has until she is far
     // enough in to roll over onto it: she wants to be over the top of her
     // target with height in hand, not arriving at it level, and not easing
     // down toward it before she has rolled in. See diveStage.
-    const height = (p.y ?? 0) >= (mark.y || 0) + DIVE_DROP + 110;
-    if (d > DIVE_PUSH || (!p.dv && height)) {
+    //
+    // Short of her perch she goes on climbing on the way in, but only on the
+    // way in: once she is over her target she dives from what she has. See
+    // diveStage.
+    if (d > DIVE_PUSH || !p.dv) {
       const k = clamp((d - DIVE_PUSH) / Math.max(1, from - DIVE_PUSH), 0, 1);
       return DIVE_PERCH + (CRUISE_ALT - DIVE_PERCH) * k;
     }
@@ -6407,11 +6463,12 @@ function wantedHeight(state, p, carrier, inCompany) {
     // when the target is only a few miles away, and a dive flown down to a
     // line she never got up to is a climb followed by a dive. Whatever she has
     // when she arrives on top of her target is what she gives up.
-    if (p.perch === undefined) p.perch = Math.max(DIVE_DROP + 260, p.y);
+    const drop = dropHeight(p, mark);
+    if (p.perch === undefined) p.perch = Math.max(drop + 260, p.y);
     // Straight in the ground range, which is what makes it a constant angle
     // all the way to the release.
     const k = clamp((d - DIVE_AT) / (DIVE_PUSH - DIVE_AT), 0, 1);
-    return (mark.y || 0) + DIVE_DROP + (p.perch - DIVE_DROP) * k;
+    return (mark.y || 0) + drop + (p.perch - drop) * k;
   }
   const at = RUN_IN_ALT[p.role] ?? 260;
   const by = RUN_IN_BY[p.role] ?? 700;
@@ -7002,6 +7059,11 @@ function flyFight(state, p, foe, P, dt) {
   return false;
 }
 
+/** How long she has been on her sortie, not counting the form-up over the ship. */
+function aloft(p) {
+  return p.life - (p.formT || 0);
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -7014,6 +7076,12 @@ function stepPlanes(state, dt) {
     const P = cls && cls.planes ? cls.planes : null;
     if (!P) continue;
     p.life += dt;
+    // Time spent going round over the ship waiting for the rest of the strike
+    // to come off the deck, which is not time on the sortie: a deckload goes
+    // off one aeroplane at a time and the first of it is up for minutes
+    // before the last, and she was turning for home -- or ditching out of
+    // fuel -- before the strike had even set off.
+    if (p.phase === 'formup') p.formT = (p.formT || 0) + dt;
 
     // Anti-aircraft fire from every enemy that can bear chews the squadron
     // down. Only the barrels that can actually train onto her do anything:
@@ -7244,10 +7312,6 @@ function stepPlanes(state, dt) {
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
-      // A dive bomber that has arrived over her target without the height to
-      // dive from it goes round it climbing until she has: see diveOrbit.
-      const orbit = diveOrbit(state, p);
-      if (orbit) { goalX = orbit.x; goalZ = orbit.z; }
       const want = headingTo(p.x, p.z, goalX, goalZ);
       // She rolls into a turn and out of it.
       //
@@ -7378,6 +7442,10 @@ function stepPlanes(state, dt) {
       } else {
         speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
       }
+
+      // Fresh off the deck she has not got her cruise yet, and builds it at
+      // what her engine has to spare once the flaps are up.
+      if (p.launchV && p.life < 60) speed = Math.min(speed, p.launchV + p.life * CLIMB_OUT_ACCEL);
 
       // How fast she is crossing the ground. Kept on the flight because the
       // client draws her attitude off it: the angle her nose is at is the
@@ -7515,7 +7583,7 @@ function stepPlanes(state, dt) {
       if (mark && !p.shieldFor && dist(p.x, p.z, mark.x, mark.z) < 2600) {
         gunsSeen(state, p, mark.x, mark.z, false);
         goIn(state, p, mark);
-      } else if (p.life > (p.orderEscort && strikeMark(state, p)
+      } else if (aloft(p) > (p.orderEscort && strikeMark(state, p)
         ? 420 : p.targetHeavy ? 480 : 260)) {
         // Out of patrol endurance. It used to be a hundred and fifty seconds,
         // which was most of a sortie once a strike started spending a minute
@@ -7573,12 +7641,12 @@ function stepPlanes(state, dt) {
       // the line to her release height, or close over the top of her.
       const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : 260;
       const low = p.role === 'dive' && p.dv === 'dive' && best
-        && (p.y ?? 0) < (best.y || 0) + DIVE_DROP + 20 && bestD < DIVE_AT + 260;
+        && (p.y ?? 0) < (best.y || 0) + dropHeight(p, best) + 20 && bestD < DIVE_AT + 260;
       // And not before she is in her dive. One with the height for one that
       // has not yet rolled in holds on to it -- she is on her way over the top
       // -- and only one too low ever to dive lets go on the level.
-      const holding = p.role === 'dive' && (p.dv === 'roll' || p.orbiting
-        || (p.dv !== 'dive' && (p.y ?? 0) > (best ? best.y || 0 : 0) + DIVE_DROP + 110));
+      const holding = p.role === 'dive' && (p.dv === 'roll'
+        || (p.dv !== 'dive' && (p.y ?? 0) > (best ? best.y || 0 : 0) + releaseFor(0) + 110));
       // In the dive she holds on to it until she is down to her release
       // height, and lets go then -- or over the top of her, whichever is first.
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
@@ -7602,7 +7670,7 @@ function stepPlanes(state, dt) {
           p.tx = best.x;
           p.tz = best.z;
         }
-      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || p.life > 180) {
+      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > 180) {
         p.phase = 'return';
       }
     } else if (p.phase === 'return' && carrier && !oneWay(P)
@@ -7619,7 +7687,7 @@ function stepPlanes(state, dt) {
       if (flightDeckOut(carrier)) { killFlight(state, p, 'nodeck'); continue; }
       p.dead = true;
       continue;
-    } else if (p.phase === 'ram' ? p.life > 600 : (!carrier || p.life > 300)) {
+    } else if (p.phase === 'ram' ? aloft(p) > 600 : (!carrier || aloft(p) > 300)) {
       // Out of fuel, or her ship is gone from under her. One going in has
       // nowhere to come back to and no reserve to keep for it, so she gets
       // the whole of her tanks, and her own ship sunk is nothing to her.
@@ -7647,8 +7715,11 @@ function stepPlanes(state, dt) {
  * than her share of the old bar.
  */
 function planeHp(cls, f, L) {
+  // An escort makes a strike harder to stop, up to the few fighters that can
+  // actually stay with any one bomber; a strike with forty fighters over it is
+  // not forty times as hard to shoot down.
   return cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
-    * (1 + (f.role === 'fighter' ? 0 : L.escort * 0.18)) * 2.0;
+    * (1 + (f.role === 'fighter' ? 0 : Math.min(3, L.escort) * 0.18)) * 2.0;
 }
 
 /**

@@ -2025,7 +2025,7 @@ export class BattleScene {
     // The squadrons in the air: the same aircraft that sit on the Enterprise's
     // deck, in flight trim, as many of them as the flight actually has. See
     // planes.js.
-    this.flights = new Flights(this.scene, 96);
+    this.flights = new Flights(this.scene, 240);
     // What they leave in the air: vapour off their tips and contrails off
     // their engines, and the flash of their guns, on them. See airfx.js.
     this.contrails = new Contrails(this.scene);

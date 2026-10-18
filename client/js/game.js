@@ -57,6 +57,8 @@ const CORRECT_TAU = 0.3;
 const CLOCK_WINDOW = 4;
 /** Scratch for where a fire stands this frame. */
 const FIRE_AT = new THREE.Vector3();
+/** How long an aeroplane fresh off the deck takes to settle onto her own track, in seconds. */
+const HANDOVER = 1.6;
 
 /**
  * Where a ship is between two snapshots of her.
@@ -632,6 +634,9 @@ export class Battle {
     // When each damaged flight last put up a puff of smoke.
     this.planeSmoke = new Map();
     this.lostFlights = new Set();
+    // Aeroplanes just off a deck, and how far the deck model was from where
+    // the simulation put them. See flyLaunched.
+    this.handover = new Map();
     // Where the camera is standing when it has been walked off its ship: a
     // point on the sea it orbits instead. Null means it is on whatever it is
     // following -- your own hull, or a mark picked off the chart.
@@ -2634,7 +2639,10 @@ export class Battle {
           this.recallDeckPlane(v);
           // The deck lays her starting smoke with the battle's own effects.
           if (v.group.userData.deck) v.group.userData.deck.fx = fx;
-          v.group.userData.launch?.(this.time, ev.r);
+          // Which of her three types is going, and how long the deck has to get
+          // her off: the first of a strike comes up from the hangar with the
+          // whole evolution to go through, and the ones after her are quicker.
+          v.group.userData.launch?.(this.time, ev.r, ev.d);
           break;
         }
         case 'airborne': {
@@ -5577,6 +5585,22 @@ export class Battle {
         s: lerp(pl.s || 0, nx.s || 0, t),
       };
     });
+    // An aeroplane fresh off the deck starts where the deck model left her,
+    // and comes onto the place the simulation has her over the next second
+    // and a half. The two are meant to agree and very nearly do; when they do
+    // not -- a snapshot late, a ship turning under her -- she eases across
+    // the gap rather than jumping it. See flyLaunched.
+    for (let i = 0; i < planes.length; i++) {
+      const h = this.handover.get(planes[i].i);
+      if (!h) continue;
+      const k = (this.time - h.t0) / HANDOVER;
+      if (k >= 1 || k < 0) { this.handover.delete(planes[i].i); continue; }
+      const w = 1 - k * k * (3 - 2 * k);
+      const pl = planes[i];
+      planes[i] = {
+        ...pl, x: pl.x + h.dx * w, y: (pl.y ?? 220) + h.dy * w, z: pl.z + h.dz * w,
+      };
+    }
     this.planesNow = planes;
 
     // Every flight in the air, as the aircraft she actually is and as many of
@@ -5983,29 +6007,67 @@ export class Battle {
   /**
    * The aircraft that have just left the deck.
    *
-   * There is nothing to do. The deck run is integrated from the aeroplane's
-   * own weight and wing, and the simulation puts her flight into the air at
-   * exactly the point that run ends -- see DECK_RUN_OUT, which is measured off
-   * the profile rather than guessed. So the aeroplane the formation starts
-   * drawing is in the place, and at the attitude, of the aeroplane that just
-   * went off the bow, and the hand-over is invisible without anybody flying
-   * anything anywhere.
+   * The deck run is integrated from the aeroplane's own weight and wing, and
+   * the simulation puts her into the air at the point that run ends -- each
+   * type at her own point, off her own profile (see the carriers' `runOut`).
+   * So the aeroplane the simulation flies is in the place, and at the
+   * attitude, of the aeroplane that just went off the bow, very nearly.
    *
-   * It was not always so. There was a copy of the deck model that flew out to
-   * join its flight, and every bug in this area for three revisions came from
-   * it: it was handed the wrong flight, or the flight it wanted had not
-   * reached the client yet and it turned round and flew back onto the deck, or
-   * it never closed and hung about behind the formation for the whole sortie.
-   * The two positions agree by construction now, and there is a check that
-   * says so, so none of that machinery is needed.
+   * Very nearly is not quite. The two clocks are within a frame or two of
+   * each other and either can be first; a snapshot can be late; the ship can
+   * be turning under her. So the gap between where the deck model left her
+   * and where the simulation has her is carried on her for a moment and eased
+   * out, rather than jumped -- and nothing else about her is touched: there
+   * is still only the one aeroplane, flown by the simulation.
+   *
+   * It used to be a flight of several machines drawn round the one that had
+   * just taken off, which is the aeroplane that took off, jumped, and had
+   * three more appear beside her.
    */
   flyLaunched(planes, dt) {
-    // The deck is free again the moment her wheels are off it.
     for (const [, v] of this.scene.shipViews) {
       const deck = v.group.userData.deck;
-      if (!deck || !deck.pending || !deck.pending.length) continue;
-      if (!deck.airborne && !deck.endMatrix) continue;
+      if (!deck || !deck.pending) continue;
+      // Where the deck model was when she went, in the world, taken the frame
+      // she goes and kept: the word that her flight is up, and the order for
+      // the next one to come up the lift, arrive in the same breath, and the
+      // next evolution has started on the deck by the time anybody looks.
+      if (deck.airborne && deck.endPose && !deck.left) {
+        const end = new THREE.Vector3(deck.endPose.x, deck.endPose.y, deck.endPose.z)
+          .applyMatrix4(v.group.matrixWorld);
+        deck.left = { at: end, t: deck.airborneAt ?? this.time };
+      }
+      if (deck.left && this.time - deck.left.t > 6) deck.left = null;
+      if (!deck.pending.length) continue;
+      // The difference between that and where the simulation has her is
+      // carried on her for a moment and eased out, so the aeroplane that went
+      // off the bow is the one that flies on. A flight not on the wire yet is
+      // waited for, but not for long.
+      const left = deck.left;
+      if (left) {
+        const since = Math.max(0, Math.min(3, this.time - left.t));
+        for (const id of deck.pending) {
+          const pl = planes.find((q) => q.i === id);
+          if (!pl || this.handover.has(id)) continue;
+          // On from where she left the model at her own speed, for however
+          // long it has been since.
+          const gs = pl.s || 44;
+          const ex = left.at.x + Math.sin(pl.h) * gs * since;
+          const ez = left.at.z + Math.cos(pl.h) * gs * since;
+          const ey = left.at.y + (pl.vy || 0) * since;
+          this.handover.set(id, {
+            t0: this.time, dx: ex - pl.x, dy: ey - (pl.y ?? ey), dz: ez - pl.z,
+          });
+        }
+      }
+      const waiting = deck.pending.some((id) => !planes.some((q) => q.i === id));
+      if ((waiting || !left) && this.time - (deck.pendingAt ?? this.time) < 2.5) {
+        deck.pendingAt = deck.pendingAt ?? this.time;
+        continue;
+      }
+      deck.pendingAt = undefined;
       deck.pending.length = 0;
+      deck.left = null;
       deck.flightId = 0;
       deck.endMatrix = null;
       if (deck.launchAt === null) v.group.userData.stow?.();

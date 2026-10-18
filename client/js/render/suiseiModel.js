@@ -17,6 +17,14 @@ import { SUISEI_PIECES, SUISEI_META } from './suiseiModel.data.js';
 
 export const SUISEI = SUISEI_META;
 
+// How her legs go up, fitted against her own wing (see zeroModel.js and
+// planekit's gearRig). Her port leg is hinged lower in the sculpt than her
+// starboard one, so the two do not travel the same: given the same swing the
+// port wheel came up through the top of her wing.
+Object.assign(SUISEI_META.gearL, { up: 1.65, tuck: 0.15, slide: 0 });
+Object.assign(SUISEI_META.gearR, { up: -1.4, tuck: -0.05, slide: 0 });
+Object.assign(SUISEI_META.gearT, { up: -1.9, tuck: 0.45, slide: 0.3 });
+
 /** The pieces a Suisei can lose, and the parts of her that move. */
 export const SUISEI_SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
 export const SUISEI_PARTS = ['prop', 'bayPort', 'bayStbd', 'store', 'gun', 'gearL', 'gearR', 'gearT'];
@@ -281,6 +289,9 @@ export function suiseiModel(opts = {}) {
         turn.rotation[spec.axis] = spec.up * e;
         hinge.position.fromArray(spec.at);
         hinge.position.y += (spec.tuck || 0) * e;
+        if (spec.axis === 'z') hinge.position.x += (spec.slide || 0) * e;
+        else hinge.position.z += (spec.slide || 0) * e;
+        hinge.visible = k < 0.985;
       }
     };
   }

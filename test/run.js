@@ -35,7 +35,7 @@ import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
-  DECK_RUN, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
+  DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned, magazineTons,
@@ -60,6 +60,12 @@ import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.
 const STRIKE_RUN = DECK_RUN * 3 + 1;
+// The air groups most of the checks below fly: the small groups these carriers
+// sailed with before their hangars were filled -- a squadron of each, a strike
+// of three or so off the deck at a time -- so a check about what one strike
+// does is not kept waiting while forty aeroplanes go up one at a time.
+const SMALL_E = { fighters: 4, dive: 4, torpedo: 4 };
+const SMALL_S = { fighters: 3, dive: 3, torpedo: 3 };
 const AERO_WILDCAT = AERO.wildcat;
 const AERO_AVENGER = AERO.avenger;
 import { Hud, arsenal, readTarget } from '../client/js/hud.js';
@@ -7641,20 +7647,29 @@ check('an air group is landed on something she can actually embark', () => {
   const spec = cls.planes.group;
   const sum = (g) => g.fighters + g.dive + g.torpedo;
 
+  // Eighty in the Enterprise and fifty in the Shinano.
+  assert.equal(spec.total, 80, `the Enterprise embarks ${spec.total}`);
+  assert.equal(SHIP_CLASSES.shinano.planes.group.total, 50,
+    `the Shinano embarks ${SHIP_CLASSES.shinano.planes.group.total}`);
+
   // Nothing asked for: her datasheet's own loadout.
   assert.deepEqual(normaliseAirGroup(cls, null), defaultAirGroup(cls));
   assert.equal(sum(defaultAirGroup(cls)), spec.total);
 
   // More than she has hangar for is trimmed to the hangar.
-  const big = normaliseAirGroup(cls, { fighters: 8, dive: 8, torpedo: 8 });
+  const big = normaliseAirGroup(cls, { fighters: 60, dive: 60, torpedo: 60 });
   assert.ok(sum(big) <= spec.total, `trimmed to ${sum(big)}, over ${spec.total}`);
-  assert.ok(big.dive + big.torpedo >= spec.minStrike, 'trimmed away her strike aircraft');
 
-  // A group with nothing that can hit a ship gets strike aircraft back.
-  const allFighters = normaliseAirGroup(cls, { fighters: 12, dive: 0, torpedo: 0 });
-  assert.ok(allFighters.dive + allFighters.torpedo >= spec.minStrike,
-    'sailed with no strike aircraft at all');
-  assert.ok(sum(allFighters) <= spec.total);
+  // No limit on any one kind: all fighters is a group, and so is a hangar
+  // half empty. Fifty fighters and nothing else is what she sails with.
+  for (const [id, want] of [['enterprise', { fighters: 50, dive: 0, torpedo: 0 }],
+    ['enterprise', { fighters: 0, dive: 80, torpedo: 0 }],
+    ['shinano', { fighters: 50, dive: 0, torpedo: 0 }],
+    ['shinano', { fighters: 0, dive: 0, torpedo: 50 }],
+    ['shinano', { fighters: 7, dive: 0, torpedo: 3 }]]) {
+    assert.deepEqual(normaliseAirGroup(SHIP_CLASSES[id], want), want,
+      `the ${id} would not take ${JSON.stringify(want)}`);
+  }
 
   // Rubbish, negative and out-of-range numbers all land somewhere legal.
   for (const junk of [{}, { fighters: -5, dive: 99, torpedo: NaN },
@@ -7664,7 +7679,7 @@ check('an air group is landed on something she can actually embark', () => {
       assert.ok(Number.isInteger(g[k]) && g[k] >= spec.min[k] && g[k] <= spec.max[k],
         `${k} came out ${g[k]} from ${JSON.stringify(junk)}`);
     }
-    assert.ok(sum(g) <= spec.total && g.dive + g.torpedo >= spec.minStrike);
+    assert.ok(sum(g) <= spec.total);
   }
 
   // And a ship carries what she was given, not what the class says.
@@ -7797,10 +7812,21 @@ check('a launch runs the whole evolution, hangar to bow', () => {
   assert.ok(late > early * 2.5,
     `she made ${early.toFixed(1)} m in her first second and ${late.toFixed(1)} in her last`);
 
-  // And off the bow, climbing.
+  // And off the bow -- and the bow going from under her is not nothing. Held
+  // a few feet up by the air between her wing and the deck, she settles as
+  // the deck runs out, sinks a few metres with her nose up, and only then
+  // climbs away.
   const last = track[track.length - 1];
   assert.ok(last.z > 140, `she left the deck at z ${last.z.toFixed(0)}`);
-  assert.ok(last.y > FD + 8, `she was still at ${last.y.toFixed(1)} m going over the bow`);
+  const bowZ = 131;
+  const atBow = track.find((s) => s.z > bowZ);
+  assert.ok(atBow, 'she never reached the bow');
+  const after = track.filter((s) => s.t >= atBow.t && s.t <= atBow.t + 2.5);
+  const sag = Math.min(...after.map((s) => s.y));
+  assert.ok(sag < atBow.y - 1.5 && sag > atBow.y - 8,
+    `crossing the bow at ${atBow.y.toFixed(1)} m she sank to ${sag.toFixed(1)}`);
+  assert.ok(sag > FD - 6, `she sank to ${sag.toFixed(1)} m, into the sea`);
+  assert.ok(last.y > sag + 1.5, `she never climbed away from the sag at ${sag.toFixed(1)} m`);
 
   // Afterwards she is airborne and stays airborne: she does not vanish and she
   // does not reappear on the lift behind her. The scene flies her from there.
@@ -8173,7 +8199,7 @@ check('a captain can fly any of the fleet\'s aircraft, but only one man at a tim
   // which is most of the point of having a carrier in company. It used to be
   // her own ship's flights and nothing else.
   const st = createState(generateWorld(4471, 'open_ocean'), { mode: 'deathmatch' });
-  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0 });
+  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const escort = addShip(st, { name: 'Fletcher', classId: 'fletcher', team: 0, index: 1 });
   const enemy = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
   carrier.aimX = enemy.x;
@@ -8209,7 +8235,7 @@ check('the pilot is told which aeroplane she is and how much of her is left', ()
   // and her condition across the middle. The simulation has kept the damage
   // part by part since the flak became real; this is it reaching him.
   const st = createState(generateWorld(4471, 'open_ocean'), { mode: 'deathmatch' });
-  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0 });
+  const carrier = addShip(st, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const enemy = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
   carrier.aimX = enemy.x;
   carrier.aimZ = enemy.z;
@@ -8370,17 +8396,19 @@ check('she does not take off with her wings folded', () => {
   // spreads on the lift, on her way up, and she is spread for the whole of the
   // taxi, the run-up and the deck run -- or the wing she is flying on is lying
   // along her own fuselage.
+  // Both of her types that fold: the Wildcat that goes up as a fighter and
+  // the Avenger that carries the fish. Each is the one drawn when hers is the
+  // job going off.
+  for (const role of ['fighter', 'torpedo']) {
   const built = buildEnterprise();
-  const wings = built.deckPlane.children
-    .map((c) => c.userData && c.userData.wings).find(Boolean)
-    || (built.group.userData.deck.plane || {}).wings;
-  assert.ok(wings && wings.stowed && wings.spread, 'she has only one set of wings');
+  const wings = built.group.userData.deck.plane.kinds[role].wings;
+  assert.ok(wings && wings.stowed && wings.spread, `her ${role} has only one set of wings`);
 
   built.group.userData.step(0);
   assert.ok(wings.stowed.visible && !wings.spread.visible,
     'she is standing on the lift with her wings spread');
 
-  built.group.userData.launch(0);
+  built.group.userData.launch(0, role);
   // The evolution is paced to end when the simulation puts her squadron up, so
   // the phases are asked for rather than counted in seconds.
   const ph = deckPhases(built.group.userData.deck);
@@ -8406,6 +8434,7 @@ check('she does not take off with her wings folded', () => {
   for (let t = home; t <= home + 12; t += 0.05) built.group.userData.step(t);
   assert.ok(wings.stowed.visible && !wings.spread.visible,
     'she was struck below with her wings still spread');
+  }
 });
 
 check('a second squadron gets a deck to take off from', () => {
@@ -8635,12 +8664,152 @@ check('her wheels come up once she is off the deck', () => {
   assert.ok(Math.abs(gap() - stood) < 0.05, 'her wheels stayed up when she came home');
 });
 
+check('her undercarriage goes up into her and stays there', () => {
+  // The legs came up through the top of the wing: an Avenger climbing out with
+  // her wheels standing on her mainplane, a Zero with both tyres showing over
+  // the wing root, a Suisei with her port wheel through the top of her wing.
+  // Each leg now swings into its well along a stroke fitted to her own skin,
+  // and once it is up the doors are shut on it.
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const builders = {
+    wildcat: (g) => pkWildcat(g, 0, 0, 0, 0, false, {}),
+    dauntless: (g) => pkDauntless(g, 0, 0, 0, 0, false, {}),
+    avenger: (g) => pkAvenger(g, 0, 0, 0, 0, false, true),
+    zero: (g) => pkZero(g, 0, 0, 0, 0, false, {}),
+    suisei: (g) => pkSuisei(g, 0, 0, 0, 0, false, {}),
+    tenzan: (g) => pkTenzan(g, 0, 0, 0, 0, false, true),
+  };
+  for (const [kind, build] of Object.entries(builders)) {
+    const g = new THREE.Group();
+    const p = build(g);
+    assert.ok(p.userData.gear, `a ${kind} cannot raise her legs`);
+    p.userData.gear(0);
+    g.updateMatrixWorld(true);
+    const legs = [];
+    p.traverse((o) => { if (o.userData.legFoot) legs.push(o.isMesh ? o.parent : o); });
+    assert.ok(legs.length >= 3, `a ${kind} has ${legs.length} legs`);
+    const isLeg = (o) => { for (let n = o; n; n = n.parent) if (legs.includes(n) || legs.includes(n.parent)) return true; return false; };
+    const shown = (o) => { for (let n = o; n; n = n.parent) if (n.visible === false) return false; return true; };
+    const skin = [];
+    p.traverse((o) => { if (o.isMesh && shown(o) && !isLeg(o)) skin.push(o); });
+    const top = (x, z) => {
+      ray.set(new THREE.Vector3(x, 30, z), down);
+      const h = ray.intersectObjects(skin, false);
+      return h.length ? h[0].point.y : null;
+    };
+    // Nearly up: whatever of her legs there is to see is under her skin, not
+    // standing through the top of it.
+    p.userData.gear(0.95);
+    g.updateMatrixWorld(true);
+    let worst = 0;
+    const v = new THREE.Vector3();
+    for (const leg of legs) {
+      leg.traverse((o) => {
+        if (!o.isMesh || !shown(o)) return;
+        const pos = o.geometry.attributes.position;
+        const step = Math.max(1, Math.floor(pos.count / 120));
+        for (let i = 0; i < pos.count; i += step) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          const t = top(v.x, v.z);
+          if (t !== null) worst = Math.max(worst, v.y - t);
+        }
+      });
+    }
+    assert.ok(worst < 0.12, `a ${kind}'s legs stand ${worst.toFixed(2)} m through the top of her`);
+    // And up, the doors shut on them.
+    p.userData.gear(1);
+    assert.ok(legs.every((l) => !shown(l)), `a ${kind}'s legs are still showing with her gear up`);
+    // And down again, all of them.
+    p.userData.gear(0);
+    assert.ok(legs.every((l) => shown(l)), `a ${kind} landed with a leg still up`);
+  }
+});
+
+check('a hole in an aeroplane is a hole', () => {
+  // It was a disc of near-black laid on her skin with a ring of grey petals
+  // round it: from close to, a black sticker. Her skin is cut away inside it
+  // now, so what shows through is the sky -- or through one side of her, the
+  // inside of the other.
+  const scene = new THREE.Scene();
+  const flights = new Flights(scene, 8);
+  const holes = unpackHoles([2, 30, 0, 5, 6, 2, -25, 0, 2, 6, 5, 0, 10, -10, 6]);
+  flights.begin();
+  flights.one('fighter', 0, 300, 0, 0, 0, 0, 0, 'wildcat', null, holes, 11.58, 0);
+  flights.one('fighter', 50, 300, 0, 0, 0, 0, 0, 'wildcat', null, null, 11.58, 0);
+  flights.end();
+  const body = flights.batches.wildcat.segs.body.mesh;
+  const rows = body.geometry.attributes.holeRow;
+  assert.ok(rows, 'her skin does not know which holes to cut');
+  assert.ok(rows.array[0] >= 0, 'the machine that was hit carries no holes');
+  assert.equal(rows.array[1], -1, 'the machine nobody hit is carrying holes');
+  assert.ok(flights.holes.count >= 2, `${flights.holes.count} holes cut`);
+  // Cut by her own material, in the shader: everything inside a hole is
+  // thrown away, and there is nothing black about the edge of one.
+  const mats = [].concat(body.material);
+  const sh = { uniforms: {}, vertexShader: THREE.ShaderLib.phong.vertexShader,
+    fragmentShader: THREE.ShaderLib.phong.fragmentShader };
+  mats[0].onBeforeCompile(sh, null);
+  assert.ok(/if \(dist < rr\) discard;/.test(sh.fragmentShader), 'her skin is not cut where she was hit');
+  assert.ok(/attribute float holeRow/.test(sh.vertexShader), 'her skin cannot be told which holes are hers');
+  assert.equal(mats[0].side, THREE.DoubleSide, 'there is no other side of her to see through a hole');
+  // The material on the aeroplanes that have not been in the air is not touched.
+  const deck = new THREE.Group();
+  pkWildcat(deck, 0, 0, 0, 0, false, {});
+  let cut = false;
+  deck.traverse((o) => { if (o.isMesh && [].concat(o.material).some((m) => m === mats[0])) cut = true; });
+  assert.ok(!cut, 'the deck model is drawn with holes in her');
+});
+
+check('the deck sends off the type that is going, and winds her airscrew up as she runs', () => {
+  // The Enterprise put every strike off her deck as an Avenger -- the fighters
+  // went down it as a sixteen-metre torpedo bomber and came out of the
+  // hand-over as Wildcats -- and her airscrew turned at one rate from the
+  // run-up to the bow.
+  for (const [build, kinds] of [[buildEnterprise, ['fighter', 'dive', 'torpedo']],
+    [buildShinano, ['fighter', 'dive', 'torpedo']]]) {
+    const built = build();
+    const ud = built.group.userData;
+    const deck = ud.deck;
+    for (const role of kinds) {
+      ud.step(0);
+      ud.launch(0, role, DECK_RUN);
+      const shown = Object.entries(deck.plane.kinds).filter(([, k]) => k.body.visible).map(([r]) => r);
+      assert.deepEqual(shown, [role], `a ${role} launch drew ${shown.join(', ')}`);
+      const ph = deckPhases(deck);
+      let was = deck.plane.prop.rotation.z;
+      const rates = [];
+      let wheelsOff = null;
+      for (let t = 0; t <= ph.launch - 0.05; t += 1 / 60) {
+        ud.step(t);
+        const r = (deck.plane.prop.rotation.z - was) * 60;
+        was = deck.plane.prop.rotation.z;
+        rates.push({ t, r });
+        if (wheelsOff === null && built.deckPlane.position.y > FD + 1 && t > ph.roll) wheelsOff = t;
+      }
+      const at = (t0) => rates.find((q) => q.t >= t0).r;
+      const taxi = at(ph.roll - 0.6 * (ph.roll - ph.taxied) - 0.6);
+      const roll = at(ph.roll + 0.3);
+      const fly = at(ph.launch - 1);
+      assert.ok(roll > taxi * 1.2, `${role}: her airscrew turned ${taxi.toFixed(0)} taxiing and ${roll.toFixed(0)} rolling`);
+      assert.ok(fly > roll, `${role}: her airscrew turned ${roll.toFixed(0)} at the flag and ${fly.toFixed(0)} flying`);
+      // She went at the pace the simulation gives her and no slower.
+      assert.ok(Math.abs(ph.launch - DECK_RUN) < 0.05, `${role}: her evolution takes ${ph.launch.toFixed(2)} s`);
+    }
+    // And one that follows the first up the lift is quicker, on the same clock.
+    ud.step(100);
+    ud.launch(100, 'fighter', DECK_NEXT);
+    assert.ok(Math.abs(deckPhases(deck).launch - DECK_NEXT) < 0.05,
+      'the next one up the lift is not off on the simulation\'s clock');
+  }
+});
+
 check('only one aircraft uses the deck at a time', () => {
   // The lift has to fetch her, she has to taxi aft and run up: the deck is
   // busy for the whole of that, and a second squadron cannot go until it is
   // clear. Otherwise two aeroplanes occupy the same strip of planking.
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
-  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   ship.aimX = ship.x + 5000; ship.aimZ = ship.z + 5000;
   assert.ok(launchStrike(state, ship), 'she would not launch at all');
   assert.ok(!launchStrike(state, ship), 'a second squadron went while the deck was busy');
@@ -8656,7 +8825,7 @@ check('a strike is not flown at a target under her own bows', () => {
   // watched leave the deck vanishes under him. There is a minimum range for a
   // strike, and inside it she does not launch at all.
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
-  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const ship = addShip(state, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   ship.aimX = ship.x + 300; ship.aimZ = ship.z;
   assert.ok(!launchStrike(state, ship), 'she flew a strike at a target alongside');
   assert.equal(ship.deckBusy, 0, 'the deck was fouled by a strike that never went');
@@ -9904,7 +10073,7 @@ check('a captain keeps his aircraft to himself', () => {
   // target holds her squadrons; the same carrier left to herself flies them.
   const build = (conned) => {
     const st = createState(generateWorld(11, 'open_ocean'), { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
     cv.x = 0; cv.z = 0; foe.x = 6000; foe.z = 0;
     foe.spottedBy[0] = 3;
@@ -10010,7 +10179,7 @@ check('each kind of aeroplane goes after its own kind of target', () => {
   // destroyer, a cruiser and a battleship in front of one and see where each
   // flight points itself.
   const st = createState(generateWorld(21, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const dd = addShip(st, { name: 'Tin', classId: 'fletcher', team: 1, index: 0 });
   const cl = addShip(st, { name: 'Light', classId: 'cleveland', team: 1, index: 1 });
   const bb = addShip(st, { name: 'Big', classId: 'iowa', team: 1, index: 2 });
@@ -10063,8 +10232,8 @@ check('each kind of aeroplane goes after its own kind of target', () => {
 
 check('a pilot flies her flight, and nobody else can', () => {
   const state = createState(generateWorld(7373, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const foe = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0 });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const foe = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 8000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
   launchStrike(state, cv);
@@ -10578,7 +10747,7 @@ check('a strike pays for what it does', () => {
   // she is attacking.
   const cost = (classId, seed) => {
     const st = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     const foe = addShip(st, { name: 'F', classId, team: 1, index: 0 });
     cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6500;
     cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -10726,7 +10895,7 @@ check('a squadron always comes back, however her flights end', () => {
   // other as still out, neither released the squadron, and the carrier could
   // never rearm it. Her aircraft never came back.
   const state = createState(generateWorld(9090, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(state, { name: 'CL', classId: 'cleveland', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 7000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -10765,8 +10934,8 @@ check('a flight shot down is reported once, not twice', () => {
   // reported it lost all over again -- two "squadron lost" messages, and two
   // attempts to bring the same squadron home.
   const state = createState(generateWorld(9091, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const cv2 = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0 });
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const cv2 = addShip(state, { name: 'CV2', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   // Well apart, so the dogfight below happens out of reach of either ship's
   // anti-aircraft fire and the only thing that can kill a flight is another
   // flight -- which is the path under test.
@@ -10820,7 +10989,7 @@ check('a strike gets through and drops what it is carrying', () => {
   //
   // A strike is meant to get through and to lose part of itself doing it.
   const st = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0;
   foe.x = 0; foe.z = 9000;
@@ -10959,14 +11128,17 @@ check('a strike goes up as three flights and comes home as one squadron', () => 
   const roles = st.planes.map((p) => p.role).sort();
   assert.deepEqual(roles, ['dive', 'fighter', 'torpedo'],
     `she sent up ${JSON.stringify(roles)}`);
-  // And they went one after another: each has been in the air a deck run
-  // longer than the one behind her.
+  // And they went one after another: each has been in the air one deck cycle
+  // longer than the one behind her -- the lift, the taxi and her own run.
   const lives = st.planes.map((p) => p.life).sort((a, b) => b - a);
   for (let i = 1; i < lives.length; i++) {
     const gap = lives[i - 1] - lives[i];
-    assert.ok(Math.abs(gap - DECK_RUN) < 1,
-      `two flights left the deck ${gap.toFixed(1)} s apart, not ${DECK_RUN}`);
+    assert.ok(Math.abs(gap - DECK_NEXT) < 1,
+      `two aeroplanes left the deck ${gap.toFixed(1)} s apart, not ${DECK_NEXT}`);
   }
+  // Each of them one aeroplane, not a flight drawn round the one that went.
+  assert.ok(st.planes.every((p) => p.count === 1 && p.machines.length === 1),
+    `she put up ${st.planes.map((p) => p.count).join(', ')} at a time`);
   assert.ok(st.planes.every((p) => p.sqId === st.planes[0].sqId), 'they came off different squadrons');
   // One flight home does not put the squadron back on the board while the
   // other two are still over the enemy.
@@ -10977,6 +11149,89 @@ check('a strike goes up as three flights and comes home as one squadron', () => 
     'the squadron came back on the board with two flights still up');
 });
 
+check('a full deckload goes up one aeroplane at a time and waits for the last of it', () => {
+  // Eighty aircraft in the Enterprise's hangar, a quarter of them to a strike,
+  // and every one of them her own aeroplane down the deck: up the lift, along
+  // to the spot, and off. Nothing appears beside her when she goes.
+  const st = createState(generateWorld(23, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  const g = cv.airGroup;
+  assert.equal(g.fighters + g.dive + g.torpedo, 80, 'she did not sail with eighty');
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  const want = cv.launching.flights.length;
+  // A quarter of eighty, give or take the odd ones, which go with the first.
+  assert.ok(want === 20 || want === 21, `a strike off her is ${want} aeroplanes, not a quarter of eighty`);
+  const born = [];
+  let lastCount = 0;
+  for (let i = 0; i < Math.ceil((DECK_RUN + DECK_NEXT * (want - 1) + 2) / DT); i++) {
+    for (const q of st.ships) q.spottedBy = [true, true];
+    step(st, DT);
+    // Never more than one more than there was.
+    assert.ok(st.planes.length <= lastCount + 1,
+      `${st.planes.length - lastCount} aeroplanes left the deck on one tick`);
+    for (const p of st.planes) if (!born.some((b) => b.id === p.id)) born.push({ id: p.id, t: st.t, n: p.count });
+    lastCount = st.planes.length;
+    // And the strike circles until the last of it is up.
+    if (cv.launching) {
+      assert.ok(st.planes.every((p) => p.phase === 'formup'),
+        'the strike set off before the last of it was off the deck');
+    }
+  }
+  assert.equal(born.length, want, `${born.length} of ${want} got off the deck`);
+  assert.ok(born.every((b) => b.n === 1), 'an aeroplane went up as a flight of several');
+  for (let i = 1; i < born.length; i++) {
+    const gap = born[i].t - born[i - 1].t;
+    assert.ok(Math.abs(gap - DECK_NEXT) < 0.5, `two went ${gap.toFixed(1)} s apart`);
+  }
+  // Each in her own station: no two of them are flying at the same point.
+  const goals = new Set(st.planes.map((p) => `${p.lead === p.id ? 'L' : p.slot}`));
+  assert.equal(goals.size, st.planes.length, 'two aeroplanes were given the same station');
+  // The first of them has been going round for seven minutes, and that is not
+  // seven minutes of her sortie: she is still there.
+  assert.ok(st.planes.every((p) => !p.dead), 'the form-up ran an aeroplane out of fuel');
+});
+
+check('a dive bomber over her target without her full height dives from what she has', () => {
+  // A dive bomber that got to her target before she had climbed to her perch
+  // used to go round it climbing. She is there and the flak is on her: she
+  // pushes over from whatever she has and lets go lower down the dive.
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighters: 0, dive: 4, torpedo: 0 } });
+  const foe = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+  cv.x = 0; cv.z = -9000; foe.x = 0; foe.z = 0; foe.notch = 0;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  for (let i = 0; i < Math.ceil((DECK_RUN + 0.5) / DT) && !st.planes.length; i++) step(st, DT);
+  const p = st.planes.find((q) => q.role === 'dive');
+  assert.ok(p, 'no dive bomber got off the deck');
+  // Put her two and a half kilometres short of her target at seven hundred
+  // metres, outbound and pointed at it: well short of a thousand.
+  p.phase = 'outbound'; p.lead = p.id; p.targetId = foe.id;
+  p.x = 0; p.z = -2500; p.y = 700; p.vy = 0; p.heading = 0; p.tx = foe.x; p.tz = foe.z;
+  let rolled = null;
+  let drop = null;
+  let lowest = Infinity;
+  for (let i = 0; i < 30 * 90 && !drop; i++) {
+    for (const q of st.ships) q.spottedBy = [true, true];
+    for (const e of step(st, DT)) if (e.e === 'airDrop' && e.r === 'dive') drop = { y: p.y };
+    if (p.dv && !rolled) rolled = { y: p.y, d: dist(p.x, p.z, foe.x, foe.z) };
+    lowest = Math.min(lowest, p.vy || 0);
+    assert.ok(!p.dead, 'she was lost before she got there');
+  }
+  assert.ok(rolled, 'she never pushed over');
+  assert.ok(rolled.y < 1000, `she climbed to ${rolled.y.toFixed(0)} m before she would dive`);
+  assert.ok(rolled.d < 1200, `she rolled in ${rolled.d.toFixed(0)} m out, not over her target`);
+  assert.ok(lowest < -25, `she never came down faster than ${(-lowest).toFixed(0)} m/s`);
+  assert.ok(drop, 'she never let go');
+  assert.ok(drop.y < rolled.y - 120, `she let go at ${drop.y.toFixed(0)} m, not down the dive`);
+});
+
 check('a strike forms up over the ship and goes out in company', () => {
   // Three flights leaving one at a time used to set off one at a time as well,
   // and since they all cruise at the same speed the last of them could never
@@ -10984,7 +11239,7 @@ check('a strike forms up over the ship and goes out in company', () => {
   // enemy was a queue. It forms up now: the leader flies a circle over the
   // ship until the rest of the strike is on her, and then they go together.
   const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -11045,7 +11300,7 @@ check('the deck says which flight the aeroplane that just left it became', () =>
   // every time another aeroplane went: the one already up was let go of and
   // snapped onto the new one's formation. The simulation names her instead.
   const st = createState(generateWorld(515, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -11325,7 +11580,7 @@ check('a compartment blown out of her opens the ship up', () => {
 
 check('nothing takes off over a hole in the flight deck', () => {
   const st = createState(generateWorld(818, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -11359,7 +11614,7 @@ check('nothing takes off over a hole in the flight deck', () => {
 
 check('a flight with no deck to come home to goes in the water', () => {
   const st = createState(generateWorld(919, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -11423,10 +11678,19 @@ check('the deck hands her over where and how she left it', () => {
   assert.ok(plane.position.y < FD && Math.abs(plane.position.z) < built.length * 0.5,
     `she is parked at ${plane.position.z.toFixed(0)} m, ${plane.position.y.toFixed(0)} m up`);
 
-  // The simulation puts her flight up at the same place, so the formation
-  // draws her where she already is.
-  assert.ok(Math.abs(DECK_RUN_OUT - deck.endPose.z) < 12,
-    `the deck leaves her at ${deck.endPose.z.toFixed(0)} and her flight is born at ${DECK_RUN_OUT}`);
+  // The simulation puts each type up at the same place, so the aeroplane it
+  // flies is where the deck left her -- on both carriers, for all three of
+  // the types each of them flies.
+  for (const [id, build] of [['enterprise', buildEnterprise], ['shinano', buildShinano]]) {
+    const d = build().group.userData.deck;
+    const P = SHIP_CLASSES[id].planes;
+    for (const role of ['fighter', 'dive', 'torpedo']) {
+      const e = d.endPoses[role];
+      assert.ok(Math.abs(P.runOut[role] - e.z) < 6 && Math.abs(P.runHeight[role] - e.y) < 1.5,
+        `the ${id}'s deck leaves her ${role}s at ${e.z.toFixed(0)}, ${e.y.toFixed(1)} up, `
+        + `and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+    }
+  }
 });
 
 check('a shell that gets through opens her plating, and the sea comes in', () => {
@@ -11737,7 +12001,7 @@ check('an aeroplane has a height, and gravity has her', () => {
   // see. She flies the vertical now, on her own rate of climb, against her own
   // weight.
   const st = createState(generateWorld(515, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
   cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
   cv.aimX = foe.x; cv.aimZ = foe.z;
@@ -12144,7 +12408,7 @@ check('a dive bomber climbs to the perch and dives on her target', () => {
   // down a straight line at fifty-odd degrees until she is close enough to be
   // sure of her aim.
   const st = createState(generateWorld(707, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   // A destroyer, and not a battleship. What is under test here is the shape of
   // the dive -- the climb to the perch, the pushover, the angle she holds down
   // to the release -- and against an Iowa's close-range battery an unescorted
@@ -12279,7 +12543,7 @@ check('a fighter has no bombs, and what is on the rack is what goes', () => {
   // for home, and on a fighter -- who carries nothing -- absolutely nothing
   // left the aeroplane. Pressing it took her out of the fight for free.
   const st = createState(generateWorld(77, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
   launchStrike(st, cv);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -12335,8 +12599,8 @@ check("a fighter's guns hurt the machine she is firing at", () => {
   // individually. Four machines came apart together or not at all, and no
   // fighter ever shot an engine out, set a tank alight or took a wing off.
   const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   launchStrike(st, cv);
   launchStrike(st, foe);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -15051,7 +15315,7 @@ check('a close-range mounting is laid by hand and fires itself', () => {
   world.islands = [];
   const state = createState(world, { mode: 'deathmatch' });
   const v = addShip(state, { name: 'V', classId: 'cleveland', team: 0, index: 0 });
-  const foe = addShip(state, { name: 'F', classId: 'enterprise', team: 1, index: 0 });
+  const foe = addShip(state, { name: 'F', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
   foe.x = 0; foe.z = 9000; foe.speed = 0;
   const cls = SHIP_CLASSES.cleveland;
@@ -15088,7 +15352,7 @@ check('a close-range mounting is laid by hand and fires itself', () => {
     w2.islands = [];
     const st = createState(w2, { mode: 'deathmatch' });
     const s = addShip(st, { name: 'V', classId: 'cleveland', team: 0, index: 0 });
-    const e = addShip(st, { name: 'F', classId: 'enterprise', team: 1, index: 0 });
+    const e = addShip(st, { name: 'F', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
     s.x = 0; s.z = 0; s.heading = 0; s.speed = 0;
     e.x = 0; e.z = 9000; e.speed = 0;
     // A flight coming in on her starboard bow, inside her light battery.
@@ -16326,7 +16590,7 @@ check('an aeroplane flown into a ship is an aeroplane into a ship', () => {
     const world = generateWorld(4242, 'open_ocean');
     world.islands = [];
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
     cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
     bb.x = 0; bb.z = 0; bb.heading = 0; bb.notch = 1;
@@ -16341,6 +16605,9 @@ check('an aeroplane flown into a ship is an aeroplane into a ship', () => {
     }
     const p = st.planes[0];
     assert.ok(p, `no aircraft got up for the ${label} run`);
+    // Off the deck she is barely over the stall, and works up to her cruise
+    // over the next half minute: let her have it before she is flown in.
+    for (let i = 0; i < 30 * 30; i++) { cv.aimX = bb.x; cv.aimZ = bb.z; step(st, DT); }
     const hp0 = bb.hp;
     let ram = null;
     for (let k = 0; k < 900 && !ram && !p.dead; k++) {
@@ -16388,7 +16655,7 @@ check("a fighter's rounds go where she is pointed", () => {
     const world = generateWorld(4242, 'open_ocean');
     world.islands = [];
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
     cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
     dd.x = 0; dd.z = 0; dd.heading = 0; dd.notch = 1;
@@ -16430,7 +16697,7 @@ check("a fighter's rounds go straight out to two kilometres", () => {
   const world = generateWorld(4242, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
   cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
   dd.x = 0; dd.z = 0; dd.heading = Math.PI / 2; dd.notch = 0;
@@ -16457,7 +16724,7 @@ check('a pilot can dive straight into a ship, and into the sea', () => {
     const world = generateWorld(4242, 'open_ocean');
     world.islands = [];
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
     cv.x = 0; cv.z = -6000; cv.heading = 0; cv.notch = 4;
     dd.x = 0; dd.z = 0; dd.heading = Math.PI / 2; dd.notch = 0;
@@ -16826,7 +17093,8 @@ check("a strike goes out together and its escort stays with it", () => {
   const st = createState(world, { mode: 'deathmatch' });
   const brains = new Map();
   const mk = (team, classId, index) => {
-    const s = addShip(st, { name: `${classId}${team}${index}`, classId, team, index });
+    const airGroup = classId === 'enterprise' ? SMALL_E : classId === 'shinano' ? SMALL_S : undefined;
+    const s = addShip(st, { name: `${classId}${team}${index}`, classId, team, index, airGroup });
     s.isBot = true;
     brains.set(s.id, createBotBrain(0.85));
     return s;
@@ -17056,7 +17324,7 @@ check("a formation is machines, and a gunner in one of her turrets fires it", ()
   // same turret laid the other way does not, because her guns will not train
   // through her own tail.
   const ship = addShip(st, { name: 'Iowa', classId: 'iowa', team: 0, index: 0 });
-  const cv = addShip(st, { name: 'Shinano', classId: 'shinano', team: 1, index: 0 });
+  const cv = addShip(st, { name: 'Shinano', classId: 'shinano', team: 1, index: 0, airGroup: SMALL_S });
   cv.x = 0; cv.z = 400;
   launchStrike(st, cv);
   for (let i = 0; i < 2400 && !st.planes.length; i++) step(st, DT);
@@ -17361,7 +17629,7 @@ check("a formation is shot at by the fleet's flak and by a battery ashore", () =
 check('a squadron goes for a gun position when there is nothing afloat', () => {
   const world = generateWorld(5120, 'islands');
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = 0;
   const bat = addBattery(st, { batteryId: 'todt', team: 1, x: 0, z: 5200 });
   bat.spottedBy = [true, true];
@@ -17429,7 +17697,7 @@ check("a ship's aircraft climb to the stream and shoot it down", () => pinned(()
   // about whether she could have gone to five.
   {
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     cv.x = 0; cv.z = 0;
     const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 9000 });
     let peak = 0;
@@ -17454,7 +17722,7 @@ check("a ship's aircraft climb to the stream and shoot it down", () => pinned(()
   // And a formation that can be shot down, is.
   {
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     cv.x = 0; cv.z = 0;
     for (let k = 0; k < 3; k++) {
       addBomber(st, { bomberId: 'fortress', team: 1, x: k * 900 - 900, z: 11000 });
@@ -17488,7 +17756,7 @@ check('a fighter cannot reach a formation she is nowhere near', () => {
 
   const world = generateWorld(881, 'open_ocean');
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = 0;
   const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 0 });
   bm.spottedBy = [true, true];
@@ -17863,7 +18131,7 @@ check('a round that finds her leaves a hole in her', () => {
 check("a squadron's holes go out on the wire and come back", () => {
   const world = generateWorld(9101, 'open_ocean');
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = 0;
   launchStrike(st, cv);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -17898,50 +18166,49 @@ check("a squadron's holes go out on the wire and come back", () => {
     assert.ok(h.r > 0, 'an unpacked hole has no size');
   }
 
-  // And onto the aeroplane. One instanced batch for the whole sky, each hole
-  // placed in her own frame and carried by her matrix -- the same way her
-  // airscrew and her bay doors are drawn.
+  // And into the aeroplane. One field for the whole sky: each machine that
+  // has been hit gets a row of holes in her own frame, which her skin's shader
+  // cuts out wherever her matrix carries her.
   const field = new HoleField(new THREE.Scene(), 64);
-  assert.equal(field.mesh.geometry.groups.length, 2,
-    'a hole is not the dark of her inside and a torn lip of metal');
   field.begin();
   const at = new THREE.Matrix4().makeTranslation(100, 200, 300);
   // Out on the starboard wing of an eleven-and-a-half-metre fighter -- and on
-  // her skin, which means the batch needs the geometry she is drawn from: the
+  // her skin, which means the field needs the geometry she is drawn from: the
   // hole is put where a ray cast in at that point finds aeroplane, so without
-  // a model there is nothing to find and nothing to draw.
+  // a model there is nothing to find and nothing to cut.
   const one = unpackHoles([2, 30, 0, 5, 6]);
   const geo = flightModels().wildcat.geo;
-  field.on(at, one, 11.58, 0, geo, 'wildcat');
+  const row = field.on(at, one, 11.58, 0, geo, 'wildcat');
   field.end();
-  assert.equal(field.mesh.count, 1, 'a hole was not drawn');
-  assert.ok(field.mesh.visible, 'the hole batch is not being drawn at all');
-  const put = new THREE.Matrix4();
-  field.mesh.getMatrixAt(0, put);
-  const where = new THREE.Vector3().setFromMatrixPosition(put);
-  assert.ok(Math.abs(where.x - 100 - 0.6 * 11.58 * 0.5) < 0.2,
-    `a hole six tenths out the wing landed ${(where.x - 100).toFixed(2)} m from her centreline`);
-  // And it is on her and not beside her. The snap moves a hole up or down the
+  assert.ok(row >= 0, 'a hole was not cut');
+  assert.equal(field.count, 1, `${field.count} holes cut for one`);
+  const where = field.hole(row, 0);
+  assert.ok(where && Math.abs(where.x - 0.6 * 11.58 * 0.5) < 0.2,
+    `a hole six tenths out the wing landed ${where ? where.x.toFixed(2) : 'nowhere'} m from her centreline`);
+  // And it is in her and not beside her. The snap moves a hole up or down the
   // ray until it is in her skin -- a hole in a wing box is not at the height
   // of the box, it is at the height of the wing -- so what is worth asserting
   // is that it finished inside the aeroplane, not that it stayed where the box
   // put it.
   const skin = new THREE.Box3().setFromBufferAttribute(geo.attributes.position)
     .expandByScalar(0.06);
-  assert.ok(skin.containsPoint(where.clone().sub(new THREE.Vector3(100, 200, 300))),
-    'the hole is not on the aeroplane it belongs to');
-  // Nothing to draw when nothing has hit her.
+  assert.ok(skin.containsPoint(new THREE.Vector3(where.x, where.y, where.z)),
+    'the hole is not in the aeroplane it belongs to');
+  // Through a wing it opens both skins: the cut is at least as deep as half
+  // the wing is thick.
+  assert.ok(where.r >= 0.16, `a hole ${where.r.toFixed(2)} m across is too small to see`);
+  // Nothing to cut when nothing has hit her.
   field.begin();
-  field.on(at, null, 11.58, 0);
+  assert.equal(field.on(at, null, 11.58, 0), -1, 'an untouched aeroplane is carrying holes');
   field.end();
-  assert.equal(field.mesh.count, 0, 'an untouched aeroplane is carrying holes');
+  assert.equal(field.count, 0, 'an untouched aeroplane is carrying holes');
 });
 
 check('a pilot with nothing left to drop and no way home goes into the ship', () => {
   const world = generateWorld(6102, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = -6000; cv.heading = 0;
   const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
   foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
@@ -17993,7 +18260,7 @@ check('a pilot with nothing left to drop and a whole aeroplane goes home', () =>
   const world = generateWorld(6104, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = -6000; cv.heading = 0;
   const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
   foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
@@ -18023,8 +18290,8 @@ check('a carrier flies off whatever is ready the moment it is ready', () => {
   const world = generateWorld(9103, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const a = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
-  const b = addShip(st, { name: 'Shinano', classId: 'shinano', team: 0, index: 1 });
+  const a = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const b = addShip(st, { name: 'Shinano', classId: 'shinano', team: 0, index: 1, airGroup: SMALL_S });
   a.x = -2000; a.z = -9000; b.x = 2000; b.z = -9000;
   const foe = addShip(st, { name: 'Yamato', classId: 'yamato', team: 1, index: 0 });
   foe.x = 0; foe.z = 4000; foe.spottedBy = [true, true];
@@ -18131,14 +18398,12 @@ check('a bullet hole is on the aeroplane and not floating beside her', () => {
     assert.equal(floating, 0, `${floating} holes on a ${kind} are not on her`);
   }
 
-  // A hole is laid in the surface, not squared to her axes: the disc is built
-  // facing +z, so the rotation has to take +z to the surface normal.
+  // A hole is a hole: her skin is cut away inside it, not a dark disc laid on
+  // top of it. Nothing about it is drawn; the skin is discarded.
   const src = readFileSync(
     new URL('../client/js/render/planes.js', import.meta.url), 'utf8');
-  assert.ok(/setFromUnitVectors\(this\.up, at\.n\)/.test(src),
-    'a hole is no longer laid in the skin it is in');
-  assert.ok(!/d\.rotation\.set\(-Math\.PI \/ 2, 0, 0\)/.test(src),
-    'holes are still squared to her axes rather than to her skin');
+  assert.ok(/if \(dist < rr\) discard;/.test(src), 'a hole no longer cuts her skin');
+  assert.ok(!/CircleGeometry/.test(src), 'a hole is a dark disc laid on her again');
 });
 
 check('every aeroplane in the battle turns on the same wing the player flies', () => {
@@ -18205,7 +18470,7 @@ check('a flight in the battle actually flies the turn she is given', () => {
   const world = generateWorld(9210, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = 0;
   launchStrike(st, cv);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -20221,8 +20486,8 @@ check('an enemy fighter on her tail is shaken off, not flown away from in a stra
   // A bot fighter used to fight by being near: nothing it did depended on
   // where anybody was pointing. Now she looks over her shoulder.
   const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   launchStrike(st, cv);
   launchStrike(st, foe);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -20267,8 +20532,8 @@ check('a bot fighter shoots only when her guns bear', () => {
   // The rounds are real, so spraying them about is no use -- and a bot that
   // fired whenever anything was close would tell everybody where she was.
   const st = createState(generateWorld(91, 'open_ocean'), { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0 });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const foe = addShip(st, { name: 'CVB', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   launchStrike(st, cv);
   launchStrike(st, foe);
   for (let i = 0; i < Math.ceil(STRIKE_RUN / DT); i++) step(st, DT);
@@ -20331,7 +20596,7 @@ check('a fighter with nothing in the air to fight shields the strike and goes in
   const world = generateWorld(6102, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
-  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
   cv.x = 0; cv.z = -6000; cv.heading = 0;
   const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
   foe.x = 0; foe.z = 1800; foe.heading = Math.PI; foe.notch = 0;
@@ -20366,7 +20631,7 @@ check('a fighter going in ahead takes the flak meant for the bombers behind her'
   world.islands = [];
   const run = (shield) => {
     const st = createState(world, { mode: 'deathmatch' });
-    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0 });
+    const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
     cv.x = 0; cv.z = -9000;
     const foe = addShip(st, { name: 'Hipper', classId: 'hipper', team: 1, index: 0 });
     foe.x = 0; foe.z = 0; foe.notch = 0;
@@ -20519,7 +20784,7 @@ check('a dive bomber climbs to her perch, rolls over into a steep dive and pulls
   // the push-over, seventy-odd degrees down to the release, and out of it hard
   // at the bottom with height in hand, climbing away.
   const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
-  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0 });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
   const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
   foe.x = ship.x + 9000; foe.z = ship.z + 3000;
   ship.aimX = foe.x; ship.aimZ = foe.z;
@@ -20605,8 +20870,8 @@ check('a bomb leaves the rack it hung on, at her speed, and arrives where it was
 
 check('a bomber\'s rear gunner swings onto a fighter astern of her and fires', () => {
   const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
-  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0 });
-  const foe = addShip(state, { name: 'Enterprise', classId: 'enterprise', team: 1, index: 0 });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Enterprise', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
   foe.x = ship.x + 8000; foe.z = ship.z;
   ship.aimX = foe.x; ship.aimZ = foe.z;
   foe.aimX = ship.x; foe.aimZ = ship.z;

@@ -71,18 +71,34 @@ export class DeckRun {
  * run once, at a fixed step, and what comes out is a table: how far up the deck
  * she is at each moment, how high, how nose-up, and whether the wing has her.
  *
- * Returns `{ dt, rows }` where each row is `[distance, height, pitch, flying]`.
+ * Three parts to it, the way every deck launch looked from the island. The
+ * run, slow at first and quicker as the wing takes her weight off the wheels.
+ * The wheels coming off the planking short of the bow, and the few feet of
+ * height the cushion of air between the wing and the deck holds her at. And
+ * the bow going past under her: the cushion goes with it, she settles towards
+ * the water by a few metres with her nose still up, and only when she has
+ * built a few more knots does she climb away. That sag off the bow is the
+ * whole look of a loaded aeroplane leaving a carrier.
+ *
+ * Returns `{ dt, rows, vr, bow }` where each row is
+ * `[distance, height, pitch, flying, speed]`, `vr` is the speed she flies at
+ * and `bow` is the time she crosses the bow.
  */
 export function launchProfile(aero, deckAhead) {
   const dt = 1 / 120;
   const run = new DeckRun(aero);
-  const rows = [[0, 0, 0, 0]];
+  const rows = [[0, 0, 0, 0, 0]];
   let y = 0;
   let pitch = 0;
   let v = 0;
   let s = 0;
   let t = 0;
-  while (t < 18) {
+  let vy = 0;
+  let bow = -1;
+  // How long the sag off the bow lasts, and how fast she sinks at the worst of it.
+  const SAG = 2.0;
+  const SINK = 3.2;
+  while (t < 24) {
     t += dt;
     if (!run.flying) {
       run.step(dt);
@@ -91,28 +107,46 @@ export function launchProfile(aero, deckAhead) {
       // She comes up on her tail as the elevator bites, in the last of the run.
       const near = Math.max(0, (v / run.vr) - 0.86) / 0.14;
       pitch = Math.min(0.14, near * 0.14);
-      rows.push([s, 0, pitch, 0]);
+      rows.push([s, 0, pitch, 0, run.v]);
       continue;
     }
-    // Off, and climbing on whatever thrust is left over. The height she makes
-    // is the excess power divided by her weight, which is why she stays low
-    // over the bow with a fish under her.
     const cl = clFor(aero, v);
     const T = thrust(aero, v);
     const D = drag(aero, v, cl);
     const best = Math.max(0.02, (T - D) / (aero.mass * G));
-    pitch += Math.max(-0.5 * dt, Math.min(0.5 * dt, Math.min(0.22, best) - pitch));
-    v += ((T - D) / aero.mass - G * Math.sin(pitch)) * dt;
+    const over = s < deckAhead;
+    if (over) {
+      // Off the wheels and over the deck still, in ground effect: she holds a
+      // couple of metres and lets the speed come.
+      pitch += Math.max(-0.5 * dt, Math.min(0.5 * dt, 0.12 - pitch));
+      vy += ((2.2 - y) * 1.6 - vy) * Math.min(1, dt * 3);
+    } else {
+      if (bow < 0) bow = t;
+      const k = t - bow;
+      if (k < SAG) {
+        // The bow has gone and the cushion with it. Nose up, sinking.
+        pitch += Math.max(-0.4 * dt, Math.min(0.4 * dt, 0.13 - pitch));
+        const want = -SINK * Math.sin(Math.PI * Math.min(1, k / SAG));
+        vy += (want - vy) * Math.min(1, dt * 4);
+      } else {
+        // And away, on whatever thrust is left over. The height she makes is
+        // the excess power divided by her weight, which is why she stays low
+        // with a fish under her.
+        pitch += Math.max(-0.5 * dt, Math.min(0.5 * dt, Math.min(0.22, best + 0.06) - pitch));
+        vy += (v * Math.min(0.22, best) - vy) * Math.min(1, dt * 1.5);
+      }
+    }
+    v += ((T - D) / aero.mass - G * (vy / Math.max(1, v))) * dt;
     v = Math.max(stallSpeed(aero) * 0.95, v);
-    s += v * Math.cos(pitch) * dt;
-    y += v * Math.sin(pitch) * dt;
-    rows.push([s, y, pitch, 1]);
-    // Off, over the bow and climbing away: the evolution is over and whatever
+    s += Math.sqrt(Math.max(0, v * v - vy * vy)) * dt;
+    y += vy * dt;
+    rows.push([s, y, pitch, 1, v - WIND_OVER_DECK]);
+    // Off, past the sag and climbing away: the evolution is over and whatever
     // flies her next takes her from here. Run on any further and the whole
     // launch cycle gets longer for pictures nobody is looking at.
-    if (s > deckAhead + 25 && y > 18) break;
+    if (bow >= 0 && t - bow > SAG + 1.2 && vy > 1) break;
   }
-  return { dt, rows };
+  return { dt, rows, vr: run.vr - WIND_OVER_DECK, bow };
 }
 
 /**

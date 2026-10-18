@@ -75,6 +75,7 @@ import { zero, suisei, tenzan } from './planekit.js';
 import { ZERO } from './zeroModel.js';
 import { SUISEI } from './suiseiModel.js';
 import { engineStart } from './deckengine.js';
+import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
 import {
   typeEightNine, triple25, rocket, rangefinder, director,
   typeTwentyOne, typeThirteen, cowl, boat, searchlight,
@@ -1789,22 +1790,36 @@ function airGroup(g) {
   // wire and rolls up to, the after lift well, and the crash barriers. A deck
   // park drawn without looking at those is a strike parked on a hole and an
   // aeroplane landing through it.
+  //
+  // And clear of the runway itself. They used to be parked six or seven
+  // metres either side of the centreline, which with eleven to fifteen metres
+  // of wing on each of them put their wingtips across the middle of the deck:
+  // the aeroplane going off ran through their wings, and the park read as a
+  // heap of aeroplanes too big for the deck they stood on. Each stands now
+  // with her inboard wingtip outside the widest wing that runs down the
+  // middle -- a Tenzan's -- and her outboard one inside the deck edge, and
+  // the Tenzan in the park has hers folded.
+  const LANE = 7.6;
   const ranged = [
-    [-6.4, -98, 'zero'], [6.8, -90, 'zero'], [-7.0, -80, 'zero'],
-    [6.6, -72, 'zero'], [-7.2, -50, 'suisei'], [7.0, -42, 'suisei'],
-    [-7.4, -34, 'suisei'], [7.2, -24, 'tenzan'],
+    [-1, -88, 'zero'], [1, -80, 'zero'], [-1, -72, 'zero'],
+    [1, -50, 'suisei'], [-1, -42, 'suisei'], [1, -34, 'suisei'],
+    [-1, -26, 'tenzan'],
   ];
-  for (const [x, z, kind] of ranged) {
+  const HALF = { zero: 5.5, suisei: 5.75, tenzan: 2.0 };
+  for (const [side, z, kind] of ranged) {
+    const x = side * (LANE + HALF[kind]);
     const y = fdY(z) + 0.12;
-    const yaw = x < 0 ? 0.09 : -0.09;
+    const yaw = side < 0 ? 0.06 : -0.06;
+    const folded = kind === 'tenzan';
     const a = kind === 'tenzan'
-      ? tenzan(g, x, y, z, yaw, false, false, {})
+      ? tenzan(g, x, y, z, yaw, folded, false, {})
       : kind === 'suisei'
         ? suisei(g, x, y, z, yaw, false, { lod: true })
         : zero(g, x, y, z, yaw, false, { lod: true });
-    // The opposite of the hangar park: these are ranged for flying off, so it
-    // is the folded set that has to go or she carries both at once.
-    a.userData.wings?.stowed?.removeFromParent();
+    // Only the set of wings she is standing with: the weld bakes whatever is
+    // in the tree whether or not it is being drawn.
+    if (folded) a.userData.wings?.spread?.removeFromParent();
+    else a.userData.wings?.stowed?.removeFromParent();
   }
 }
 
@@ -3209,7 +3224,14 @@ function armour(g) {
 // ----------------------------------------------------------- deck cycle ----
 
 const LIFT_DROP = FD - HANGAR - 0.6;
+// The launch, phase by phase, in the evolution's own seconds: the lift up out
+// of the hangar with her on it, the taxi forward to the spot, and the run-up
+// against the brakes until the flag. Everything after that is flown.
+const UP = 3.6;
+const TAXIED = 7.4;
 const ROLL = 9.0;
+/** Where she starts her run: forward of the after lift, so she never runs over its well. */
+const SPOT_OFF = 26;
 /** Where she picks up a wire: a little way up the deck from the round-down. */
 function landZ() { return FD_AFT + RD_AFT + 5; }
 
@@ -3245,11 +3267,17 @@ function deckAircraft(g) {
         gear: diver.userData.gear || null, exhaust: SUISEI.exhaust },
     },
   };
+  // Each airscrew fades into her disc as she winds up; see propBlur.
+  for (const k of Object.values(out.kinds)) k.blur = propBlur(k.prop);
   out.pick = (role) => {
-    const k = out.kinds[role === 'fighter' ? 'fighter' : role === 'dive' ? 'dive' : 'torpedo'];
+    const r = role === 'fighter' ? 'fighter' : role === 'dive' ? 'dive' : 'torpedo';
+    const k = out.kinds[r];
     for (const v of Object.values(out.kinds)) v.body.visible = v === k;
+    out.role = r;
     out.prop = k.prop; out.wings = k.wings; out.gear = k.gear; out.exhaust = k.exhaust;
+    out.blur = k.blur;
   };
+  out.pick('torpedo');
   return out;
 }
 
@@ -3276,10 +3304,15 @@ export function stepDeck(deck, t) {
   if (!deck) return;
   const { lifts, plane } = deck;
   const aft = lifts[lifts.length - 1];
-  const LAUNCH = ROLL + 12;
-  const pace = LAUNCH / DECK_RUN;
+  // The handling is paced to the simulation's clock and the run is flown at
+  // its own speed, the same as the Enterprise's: see deckClock.
+  const pr = deck.profile;
+  const FLOWN = pr ? pr.rows.length * pr.dt : 12;
+  const LAUNCH = ROLL + FLOWN;
+  const clock = deckClock(ROLL, FLOWN, deck.dur ?? DECK_RUN);
+  const pace = clock.pace;
   const run = deck.launchAt === null || deck.launchAt === undefined
-    ? -1 : (t - deck.launchAt) * pace;
+    ? -1 : clock.at(t - deck.launchAt);
 
   const dt = Math.max(0, Math.min(0.5, t - (deck.lastT ?? t)));
   deck.lastT = t;
@@ -3341,53 +3374,83 @@ export function stepDeck(deck, t) {
     return;
   }
 
-  if (run < 0 || run > LAUNCH + 1) {
-    // Nothing on. She waits below on the after lift, and the lift goes back to
+  if (run < 0 || deck.airborne) {
+    // Nothing on, or she has gone and her flight is being drawn where the run
+    // left her. She waits below on the after lift, and the lift goes back to
     // running its own idle round with the other one -- which the loop above
     // has already done, so nothing is set here.
-    if (deck.stowed) { p.visible = false; below(deck, p, aft); }
+    if (deck.stowed || deck.airborne) { p.visible = false; below(deck, p, aft); }
+    return;
+  }
+  if (run >= LAUNCH) {
+    // The evolution is over, so she went -- whether or not a frame happened to
+    // land in the last tenth of a second of it.
+    if (!deck.airborne) deck.airborneAt = t;
+    deck.airborne = true;
+    p.visible = false;
+    if (plane.gear) plane.gear(1);
+    below(deck, p, aft);
     return;
   }
 
   // The evolution.
   p.visible = true;
-  // Her engine: started on the lift as she comes up, caught by the time she
-  // is off it, idling as she taxis and wound right up for the run. See
-  // deckengine.js.
-  {
-    const START = 1.2;
-    const rate = engineStart(deck.engine || (deck.engine = {}), run >= START,
-      (run - START) / pace, run >= ROLL ? 1 : 0.12, dt, deck.fx, p, plane.exhaust);
-    if (plane.prop) plane.prop.rotation.z += rate * dt;
-  }
-  if (plane.gear) plane.gear(0);
-  if (run < 3.6) {
+  const spot = AFT_Z + SPOT_OFF;
+  let power = 0;
+  let speed = 0;
+  if (run < UP) {
     // The lift comes up out of the hangar with her on it, wings going out.
-    const u = ease(run / 3.6);
+    if (plane.gear) plane.gear(0);
+    const u = ease(run / UP);
     aft.group.position.y = FD - LIFT_DROP * (1 - u);
     wings(u > 0.55);
     p.position.set(0, aft.group.position.y + 0.34, AFT_Z - 0.45);
     p.rotation.set(0, 0.08 * (1 - u), 0);
-    return;
+  } else if (run < ROLL) {
+    aft.group.position.y = FD;
+    wings(true);
+    if (plane.gear) plane.gear(0);
+    if (run < TAXIED) {
+      // Taxied forward off the lift to the spot and lined up on the centreline.
+      const u = ease((run - UP) / (TAXIED - UP));
+      p.position.set(0, FD + 0.34, AFT_Z - 0.45 + (spot - (AFT_Z - 0.45)) * u);
+      p.rotation.set(0, 0, 0.006 * Math.sin(run * 9));
+      power = 0.22;
+    } else {
+      // Run up on the brakes, all the way by the time the flag drops.
+      power = 0.3 + 0.7 * Math.min(1, (run - TAXIED) / (ROLL - TAXIED));
+      p.position.set(0, FD + 0.34, spot);
+      p.rotation.set(-0.012 * Math.sin((run - TAXIED) * 22) * power, 0, 0);
+    }
+  } else {
+    // And the run itself: flown, out of the profile her own weight and wing
+    // were integrated into -- slow off the spot, quicker as the wing takes her,
+    // off the wheels short of the bow, the sag as the bow goes from under her,
+    // and away.
+    aft.group.position.y = FD;
+    wings(true);
+    power = 1;
+    const i = Math.min(pr.rows.length - 1, Math.max(0, Math.round((run - ROLL) / pr.dt)));
+    const [s2, h, th, up] = pr.rows[i];
+    speed = rowSpeed(pr, i);
+    p.position.set(0, FD + 0.34 + h, spot + s2);
+    // Nose up is a negative turn about her own X axis in this frame.
+    p.rotation.set(-th, 0, 0);
+    // Wheels up once she is clear of the bow and sure of flying.
+    const off = pr.bow >= 0 ? (run - ROLL) - pr.bow : -1;
+    if (plane.gear) plane.gear(up && off > 0 ? Math.min(1, off / 2.6) : 0);
   }
-  aft.group.position.y = FD;
-  wings(true);
-  if (run < ROLL) {
-    // Taxied forward off the lift to the spot and lined up on the centreline.
-    const u = ease((run - 3.6) / (ROLL - 3.6));
-    const spot = AFT_Z + 26;
-    p.position.set(0, FD + 0.34, AFT_Z - 0.45 + (spot - (AFT_Z - 0.45)) * u);
-    p.rotation.set(0, 0, 0);
-    return;
+  // Her engine: started on the lift as she comes up, caught by the time she
+  // is off it, idling as she taxis and wound right up for the run -- and the
+  // airscrew turning faster yet as the air comes at it. See deckengine.js.
+  {
+    const START = 1.2;
+    const el = t - deck.launchAt;
+    const rate = propRate(engineStart(deck.engine || (deck.engine = {}), run >= START,
+      el - START / pace, power, dt, deck.fx, p, plane.exhaust), speed, pr ? pr.vr : 30);
+    if (plane.prop) plane.prop.rotation.z += rate * dt;
+    if (plane.blur) plane.blur(rate);
   }
-  // And the run itself: down the deck and off over the round-up.
-  const u = Math.min(1, (run - ROLL) / 12);
-  const spot = AFT_Z + 26;
-  const z = spot + (FD_FWD - spot) * (u * u * 0.75 + u * 0.25);
-  const lift = Math.max(0, (u - 0.82) / 0.18);
-  p.position.set(0, FD + 0.34 + lift * 5, z);
-  p.rotation.set(-lift * 0.14, 0, 0);
-  if (u >= 1) p.visible = false;
 }
 
 /** Kept for the tests and for anything that only wants the lifts moved. */
@@ -3455,27 +3518,49 @@ export function buildShinano() {
 
   const deck = {
     lifts, plane, launchAt: null, landAt: null, stowed: true,
-    owner: g, flush: 0, lastT: 0,
+    owner: g, flush: 0, lastT: 0, airborne: false,
+    // Flights whose wheels have left the planking and are waiting to be
+    // handed the aeroplane that went down the deck; see the game's flyLaunched.
+    pending: [], flightId: 0,
   };
+  // One integrated run for each of the three, from the spot to the round-up.
+  {
+    const spot = LIFT_A + SPOT_OFF;
+    deck.profiles = deckProfiles(DECK_KINDS.ijn, FD_FWD - spot);
+    deck.endPoses = {};
+    for (const [role, pr] of Object.entries(deck.profiles)) {
+      const end = pr.rows[pr.rows.length - 1];
+      deck.endPoses[role] = { x: 0, y: FD + end[1] + 0.34, z: spot + end[0], pitch: end[2] };
+    }
+    deck.profile = deck.profiles.torpedo;
+    deck.endPose = deck.endPoses.torpedo;
+  }
   g.userData.deck = deck;
   g.userData.deckPlane = plane.group;
   g.userData.landingSpot = [0, FD + 0.34, landZ()];
   g.userData.step = (t) => stepDeck(deck, t);
-  g.userData.launch = (t, role) => {
+  g.userData.launch = (t, role, dur = DECK_RUN) => {
     deck.launchAt = t;
     deck.landAt = null;
     deck.stowed = false;
+    deck.airborne = false;
     deck.engine = {};
+    deck.dur = dur;
     plane.pick(role);
+    deck.profile = deck.profiles[plane.role];
+    deck.endPose = deck.endPoses[plane.role];
     plane.group.visible = true;
   };
   g.userData.recover = (t = deck.lastT ?? 0) => {
     deck.landAt = t;
     deck.launchAt = null;
     deck.stowed = false;
+    deck.airborne = false;
+    if (plane.gear) plane.gear(0);
     plane.group.visible = true;
   };
   g.userData.stow = () => {
+    deck.airborne = false;
     deck.launchAt = null;
     deck.landAt = null;
     deck.stowed = true;
