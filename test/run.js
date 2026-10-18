@@ -12176,8 +12176,12 @@ check('a dive bomber climbs to the perch and dives on her target', () => {
     `she cruised at ${far.toFixed(0)} m and pushed over from ${perch.toFixed(0)}`);
 
   // The dive itself, measured as an angle: how much height she gives up
-  // against how much ground she covers between the pushover and the release.
-  const inside = run.filter((r) => r.d < 850 && r.d > 300);
+  // against how much ground she covers from the moment she is going down
+  // hard -- out of her roll and into it -- to the release. The approach to
+  // the roll-in is flown level and is not part of it.
+  const start = run.findIndex((r) => r.d < 1200 && r.vy < -30);
+  assert.ok(start >= 0, 'she never went down into a dive');
+  const inside = run.slice(start, dropped ? run.indexOf(dropped) + 1 : run.length);
   assert.ok(inside.length > 3, 'she was never inside the pushover');
   const top = inside[0];
   const bottom = inside[inside.length - 1];

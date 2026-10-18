@@ -6212,7 +6212,16 @@ function diveStage(state, p, dt) {
   if (!mark) return null;
   const d = dist(p.x, p.z, mark.x, mark.z);
   if (!p.dv) {
-    if (d > DIVE_PUSH + 160 || (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + 200) return null;
+    // Whatever height she has got up to is what she dives from, so long as
+    // there is a dive in it: a strike sent at a ship a few miles off is still
+    // climbing when it arrives over her, and a dive bomber that waited for
+    // the full perch would never go down at all -- she lobbed it from level
+    // flight instead, which is not what she is for.
+    // She rolls in where the height she has will make a steep dive of it: a
+    // fifty-five degree line from the roll-out to the release, and the couple
+    // of hundred metres the roll itself carries her on.
+    const over = (p.y ?? 0) - (mark.y || 0) - DIVE_DROP;
+    if (over < 110 || d > DIVE_AT + over / 1.45 + 220) return null;
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
@@ -6248,6 +6257,39 @@ function diveStage(state, p, dt) {
     return { vy: -132, g: DIVE_PULL_IN };
   }
   return null;
+}
+
+/**
+ * Where a dive bomber steers while she climbs for her perch over the target.
+ *
+ * A strike sent at a ship a few miles off arrives over her still climbing out,
+ * and a dive bomber is no use without height: she stands off and goes round
+ * her target in a wide circle, climbing, until she has enough to push over
+ * from -- then she turns in, and diveStage takes her over the top. Null when
+ * she has the height, or is not a dive bomber going in.
+ */
+const DIVE_CIRCLE = 1400;
+const DIVE_MIN = 420;          // the least height above her target she dives from
+function diveOrbit(state, p) {
+  if (p.role !== 'dive' || p.phase !== 'outbound' || p.dv || p.dropped || !(p.bomb > 0)) return null;
+  const mark = p.targetBat
+    ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
+    : state.ships.find((q) => q.id === p.targetId && q.alive);
+  if (!mark) return null;
+  const d = dist(p.x, p.z, mark.x, mark.z);
+  const short = (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + DIVE_MIN;
+  // Once she has started round she keeps going until she has the height,
+  // and then a little more, so she does not turn in and out of it.
+  if (!short && !(p.orbiting && (p.y ?? 0) < (mark.y || 0) + DIVE_DROP + DIVE_MIN + 60)) {
+    p.orbiting = false;
+    return null;
+  }
+  if (!p.orbiting && d > DIVE_CIRCLE + 600) return null;
+  p.orbiting = true;
+  // A point a little way round the circle from where she is: she flies a
+  // ring about her target at the circle's radius.
+  const a = Math.atan2(p.x - mark.x, p.z - mark.z) + (p.dvSide || 1) * 0.55;
+  return { x: mark.x + Math.sin(a) * DIVE_CIRCLE, z: mark.z + Math.cos(a) * DIVE_CIRCLE };
 }
 
 /** The best rate of climb anything in this strike can hold. */
@@ -6351,9 +6393,12 @@ function wantedHeight(state, p, carrier, inCompany) {
       const k = clamp((d - DIVE_AT) / Math.max(1, p.diveFrom - DIVE_AT), 0, 1);
       return (mark.y || 0) + DIVE_DROP + (p.perch - DIVE_DROP) * k;
     }
-    if (d > DIVE_PUSH) {
-      // Still climbing to the perch: she wants to be over the top of her
-      // target with height in hand, not arriving at it level.
+    // Still climbing to the perch, and holding what she has until she is far
+    // enough in to roll over onto it: she wants to be over the top of her
+    // target with height in hand, not arriving at it level, and not easing
+    // down toward it before she has rolled in. See diveStage.
+    const height = (p.y ?? 0) >= (mark.y || 0) + DIVE_DROP + 110;
+    if (d > DIVE_PUSH || (!p.dv && height)) {
       const k = clamp((d - DIVE_PUSH) / Math.max(1, from - DIVE_PUSH), 0, 1);
       return DIVE_PERCH + (CRUISE_ALT - DIVE_PERCH) * k;
     }
@@ -7199,6 +7244,10 @@ function stepPlanes(state, dt) {
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
+      // A dive bomber that has arrived over her target without the height to
+      // dive from it goes round it climbing until she has: see diveOrbit.
+      const orbit = diveOrbit(state, p);
+      if (orbit) { goalX = orbit.x; goalZ = orbit.z; }
       const want = headingTo(p.x, p.z, goalX, goalZ);
       // She rolls into a turn and out of it.
       //
@@ -7525,7 +7574,15 @@ function stepPlanes(state, dt) {
       const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : 260;
       const low = p.role === 'dive' && p.dv === 'dive' && best
         && (p.y ?? 0) < (best.y || 0) + DIVE_DROP + 20 && bestD < DIVE_AT + 260;
-      if (best && (bestD < RELEASE || low)) {
+      // And not before she is in her dive. One with the height for one that
+      // has not yet rolled in holds on to it -- she is on her way over the top
+      // -- and only one too low ever to dive lets go on the level.
+      const holding = p.role === 'dive' && (p.dv === 'roll' || p.orbiting
+        || (p.dv !== 'dive' && (p.y ?? 0) > (best ? best.y || 0 : 0) + DIVE_DROP + 110));
+      // In the dive she holds on to it until she is down to her release
+      // height, and lets go then -- or over the top of her, whichever is first.
+      const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
+      if (best && !holding && go) {
         deliverOrdnance(state, p, best, P);
         state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.dropped = true;
