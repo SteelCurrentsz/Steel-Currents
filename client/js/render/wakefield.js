@@ -701,18 +701,12 @@ void main() {
   // heaving the water in the middle up and down for a few seconds.
   float core = exp(-(rr * rr) / (lam * lam * 1.4));
   h += vRing.w * 1.2 * core * exp(-age * 0.9) * cos(age * 3.1);
-  // Foam: torn white water on the leading crest while it is young, and the
-  // patch in the middle where the column came down, broken up so neither is a
-  // disc.
-  float tear = noise(d / (lam * 0.45) + seed * 2.3) * 0.6 + noise(d / (lam * 0.16) - seed) * 0.4;
-  float crest = smoothstep(0.25, 0.9, env * max(0.0, cos(6.2832 * s))) * exp(-age * 0.55) * spread;
-  // The churned water where it came down, in torn clots and streaks with dark
-  // water between them -- never a white disc.
-  float churn = smoothstep(lam * 2.1, lam * 0.3, rr * (0.6 + tear * 0.9)) * exp(-age * 0.12);
-  float clots = smoothstep(0.32, 0.72, tear + 0.3 * churn);
-  float foam = vShape.w * clamp(crest * tear * 1.6 + churn * clots, 0.0, 1.0) * fade;
-  float aer = vShape.w * churn * 0.8 * fade;
-  gl_FragColor = vec4(max(h, 0.0) / uScale, max(-h, 0.0) / uScale, foam, aer);
+  // No foam and no aeration. The white on its leading crest ran out across
+  // the sea as a pale shockwave, and the churned, aerated water it left where
+  // it went in lay on the sea for half a minute as a flat pale disc a couple
+  // of hundred metres across -- beside a ship's bow, or under her in a storm.
+  // The white water a splash leaves is its own (see Splashes), and it goes.
+  gl_FragColor = vec4(max(h, 0.0) / uScale, max(-h, 0.0) / uScale, 0.0, 0.0);
 }
 `;
 
@@ -770,7 +764,9 @@ export class SplashRings {
   add(x, z, height, radius, foam = 1) {
     // The crest stands in proportion to the water thrown, and is held under
     // what the map can carry: a metre and a half off an eighteen-inch shell.
-    const amp = Math.min(1.6, 0.018 * height + 0.05);
+    // Low: a ring that stood a metre and a half high ran out across the sea
+    // like a shockwave. What a splash sends out is a few low ripples.
+    const amp = Math.min(0.45, 0.006 * height + 0.03);
     const lam = 3 + radius * 1.05;
     // It runs until it has gone as far as the simulation says it is felt.
     const reach = 75 * Math.pow(Math.max(0.35, height / 23), 0.91);
