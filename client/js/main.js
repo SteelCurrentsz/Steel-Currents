@@ -484,15 +484,16 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
     audio.resume();
     audio.click();
     switch (btn.dataset.action) {
-      case 'pvp': pvpScreen(); show('pvp'); break;
+      // The custom briefing under the staged battle's name: see Briefing.setMode.
+      case 'pvp': briefing.setMode('staged'); show('custom'); briefing.show(); break;
       // Other human captains, which is the one thing that needs a connection
       // and the one mode not in the game yet. Everything else plays offline.
       case 'multiplayer':
         toast('Multiplayer Battle is coming soon, and will need a connection. Every other battle plays offline.');
         break;
-      // The custom briefing, under arcade rules: see Briefing.setArcade.
-      case 'arcade': briefing.setArcade(true); show('custom'); briefing.show(); break;
-      case 'custom': briefing.setArcade(false); show('custom'); briefing.show(); break;
+      // The custom briefing, under arcade rules: see Briefing.setMode.
+      case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
+      case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
       case 'premium': toast('Premium Equipment — coming soon'); break;
       case 'back': show('title'); break;

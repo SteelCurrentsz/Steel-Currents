@@ -463,15 +463,17 @@ export class Briefing {
   }
 
   /**
-   * The same briefing serves two battles. An arcade battle is a custom battle
-   * in every particular -- fleets, chart, hour, weather -- except that both
-   * sides see everything from the start; all that changes here is the name on
-   * the sheet and the flag that goes with the order.
+   * The same briefing serves three battles. A staged battle is a custom
+   * battle under another name. An arcade battle is a custom battle in every
+   * particular -- fleets, chart, hour, weather -- except that both sides see
+   * everything from the start; all that changes here is the name on the sheet
+   * and the flag that goes with the order.
    */
-  setArcade(on) {
-    this.arcade = !!on;
+  setMode(mode) {
+    this.arcade = mode === 'arcade';
+    this.staged = mode === 'staged';
     const h = document.querySelector('#screen-custom .bh-left h2');
-    if (h) h.textContent = this.arcade ? 'Arcade Battle' : 'Custom Battle';
+    if (h) h.textContent = this.arcade ? 'Arcade Battle' : this.staged ? 'Staged Battle' : 'Custom Battle';
   }
 
   /** Called when the screen becomes visible: the canvas has no size until then. */
@@ -495,7 +497,7 @@ export class Briefing {
     return {
       t: 'custom',
       name: this.getName(),
-      roomName: `${this.getName()}'s ${this.arcade ? 'arcade ' : ''}battle`,
+      roomName: `${this.getName()}'s ${this.arcade ? 'arcade ' : this.staged ? 'staged ' : ''}battle`,
       arcade: !!this.arcade,
       classId: s.allyFleet[0],
       allyClasses: s.allyFleet.slice(1),
