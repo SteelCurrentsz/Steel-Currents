@@ -501,32 +501,50 @@ void main() {
   float a;
   float lit = 1.0;
   if (kind < 0.5) {
-    // A sheet of water thrown up her side. Not a ball: a fan, narrow at the
-    // end it leaves her by and spreading toward the end it is going, with its
-    // edges pushed out in places and eaten back in others so that no two are
-    // the same shape, and streaked along the way it is travelling -- which is
-    // what water torn off a hull at speed looks like, ropes rather than foam.
-    vec3 s3 = vec3(q * 1.6 + seed * 37.0, seed * 11.0 + age * 0.9);
-    float n1 = vn(s3);
-    float n2 = vn(s3 * 2.3 + 5.1);
-    float n3 = vn(vec3(q.x * 6.5 + seed * 7.0, q.y * 1.1 - age * 2.2, seed * 23.0));
+    // A sheet of water thrown up her side. It has no outline of its own: what
+    // gives white water its shape is the grain in it -- fine ropes and threads
+    // drawn out the way it is going, and the holes between them -- so the
+    // card is only a soft envelope, feathered out to nothing well inside its
+    // edges, and everything that reads as water is in the fine noise inside
+    // it. A card cut to a shape by coarse noise reads as a blob, however the
+    // blob is drawn; a hundred soft ones overlapping read as a curtain.
     float lead = p.y * 0.5 + 0.5;
-    // Its sides wander along their length rather than running straight, or a
-    // fan of water is a shard of glass.
-    float n4 = vn(vec3(sign(p.x) * 3.1 + seed * 13.0, q.y * 2.6 + seed * 5.0, age * 0.7));
-    float wide = mix(0.30, 0.92, smoothstep(0.0, 0.8, lead))
-               * (1.0 + 0.40 * (n1 - 0.5) + 0.42 * (n4 - 0.5));
-    float tip = 0.80 + 0.36 * (n2 - 0.5);
-    float body = (1.0 - smoothstep(wide * 0.38, wide * 1.04, abs(p.x)))
-               * (1.0 - smoothstep(tip - 0.35, tip, p.y))
-               * smoothstep(-1.0, -0.62, p.y);
-    float dens = body * (0.62 + 0.55 * n3);
-    // And coming apart as it climbs, from its leading end back, into ropes
-    // and holes: what reaches the top of a splash is not a sheet any more.
-    float thr = (0.08 + 0.62 * u) * (0.55 + 0.6 * lead);
-    dens *= smoothstep(thr - 0.10, thr + 0.22, n2 * 0.4 + n3 * 0.45 + (1.0 - lead) * 0.25);
-    a = dens * smoothstep(0.0, 0.07, age) * (1.0 - smoothstep(0.55, 1.0, u));
-    lit = 0.88 + 0.16 * n3;
+    // Streaked hard along its way: the grain is fine across and long along.
+    vec2 g = vec2(p.x * 1.5, q.y * 0.5);
+    float drift = age * 1.6;
+    vec3 s3 = vec3(g * 2.0 + seed * 31.0, seed * 7.0);
+    float f1 = vn(vec3(g.x * 3.0 + seed * 17.0, g.y * 2.0 - drift, seed * 3.0));
+    float f2 = vn(vec3(g.x * 7.0 + seed * 5.0, g.y * 4.0 - drift * 1.7, seed * 9.0 + 1.7));
+    float f3 = vn(vec3(g.x * 11.0 + seed * 11.0, g.y * 7.0 - drift * 2.5, seed * 13.0 + 4.1));
+    float f4 = vn(s3 * 1.2);
+    float grain = f1 * 0.5 + f2 * 0.32 + f3 * 0.18;
+    // The envelope: a soft plume, narrow where it leaves her and fuller where
+    // it is going, with no edge anywhere -- a falloff, not a cut.
+    float wide = mix(0.42, 0.95, smoothstep(0.0, 0.9, lead)) * (0.88 + 0.24 * f4);
+    float ex = p.x / wide;
+    float ey = (p.y - 0.05) / 0.95;
+    // Its top is not a cap but fingers: ropes of water ending at different
+    // heights across it, each feathering out into what it sheds.
+    float fing = vn(vec3(p.x * 4.5 + seed * 19.0, seed * 3.0, age * 0.4));
+    float top = 0.45 + 0.5 * fing;
+    float env = exp(-2.6 * ex * ex) * smoothstep(-1.0, -0.7, p.y)
+              * (1.0 - smoothstep(top - 0.45, top + 0.05, p.y));
+    env *= 1.0 - smoothstep(0.8, 1.0, r);
+    // Coming apart as it climbs and ages: the threshold rises through the
+    // grain so the thin places open first and the ropes go last, leaving the
+    // top of the splash as threads and then as nothing. Soft both sides, so
+    // the holes open as a thinning rather than as cut-outs.
+    float thr = 0.2 + (0.1 + 0.55 * u) * (0.5 + 0.7 * lead);
+    float keep = smoothstep(thr - 0.14, thr + 0.3, grain + (1.0 - lead) * 0.15);
+    // And under the ropes, the fine spray they are shedding: a soft haze over
+    // the whole of the envelope, which is what makes the body of it one body
+    // of water rather than a tangle of threads. It thins out as it ages.
+    float haze = 0.3 * (1.0 - 0.6 * u) * (0.7 + 0.6 * f1);
+    float dens = env * max(haze, keep * (0.45 + 0.8 * grain));
+    a = dens * smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(0.45, 1.0, u));
+    // Thick water is a little darker than the threads at its edges, which the
+    // light goes through: some body to it, rather than flat white paper.
+    lit = mix(1.06, 0.84, smoothstep(0.35, 0.95, dens)) * (0.94 + 0.12 * f2);
   } else if (kind < 1.5) {
     if (r > 1.0) discard;
     // A drop, drawn as the streak it makes in the moment the eye takes it in,
@@ -569,7 +587,7 @@ export class Breakers {
     this.scene = scene;
     this.ocean = ocean;
     this.intensity = intensity;
-    this.max = max ?? Math.round(1200 * Math.min(1.8, Math.max(0.4, intensity)));
+    this.max = max ?? Math.round(2000 * Math.min(1.8, Math.max(0.4, intensity)));
     this.parts = [];
     this.wind = { x: 0, z: 0 };
     this.fogColor = new THREE.Color(0, 0, 0);
@@ -910,38 +928,40 @@ export class Breakers {
     const scale = Math.min(1.5, Math.max(0.8, Math.sqrt(st.plan.freeboard / 4)));
     const shove = Math.min(3, push * 0.3);
 
-    // The sheet: off her plating just under the deck edge, where the water
-    // that climbed her side leaves it, going up and out away from her.
-    {
+    // The sheets: off her plating just under the deck edge, where the water
+    // that climbed her side leaves it, going up and out away from her. Three
+    // to a burst, smaller and fainter than one would be, a little apart along
+    // her: soft cards overlapping are what make it one body of water.
+    for (let k = 0; k < 3; k++) {
       const p = at(sign * (side + 0.15 + Math.random() * 0.4),
-        deck - 0.2 - Math.random() * (0.5 + 0.6 * f), z);
-      const up = (3.4 + 8.0 * f + shove) * (0.75 + 0.5 * Math.random());
+        deck - 0.2 - Math.random() * (0.5 + 0.6 * f), z + (Math.random() - 0.5) * 1.6);
+      const up = (3.4 + 8.0 * f + shove) * (0.7 + 0.55 * Math.random());
       const v = way(sign * (0.5 + 1.9 * f) * (0.5 + Math.random()), up,
         (Math.random() - 0.5) * (0.8 + 1.6 * f));
       this.add({
         kind: SHEET, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
-        r0: (0.35 + 0.4 * f) * scale,
-        r1: (1.0 + 1.7 * f) * (0.8 + 0.4 * Math.random()) * scale, rg: 2.2,
+        r0: (0.3 + 0.35 * f) * scale,
+        r1: (0.85 + 1.5 * f) * (0.8 + 0.4 * Math.random()) * scale, rg: 2.0,
         life: 1.0 + 0.9 * f + 0.4 * Math.random(),
-        drag: 0.55, grav: 1, windK: 0.35, stretch: 0.12,
-        op: 0.5 + 0.4 * f, base: sea, force: f,
+        drag: 0.55, grav: 1, windK: 0.35, stretch: 0.16,
+        op: 0.38 + 0.32 * f, base: sea, force: f,
       });
     }
     // The drops: thrown harder and wider, and falling back through the rest.
-    const drops = 2 + (Math.random() < 0.3 + 0.5 * f ? 1 : 0) + (f > 0.6 ? 1 : 0);
+    const drops = 4 + (Math.random() < 0.3 + 0.5 * f ? 2 : 0) + (f > 0.6 ? 2 : 0);
     for (let k = 0; k < drops; k++) {
       const p = at(sign * (side + 0.1 + Math.random() * 0.6),
         deck - 0.1 - Math.random() * 0.7, z + (Math.random() - 0.5) * 1.5);
       const up = (3.4 + 8.8 * f + shove) * (0.6 + 0.75 * Math.random());
       const v = way(sign * (0.9 + 3.2 * f) * (0.4 + Math.random()), up,
         (Math.random() - 0.5) * (1.4 + 2.6 * f));
-      const rad = (0.04 + 0.07 * Math.random()) * scale;
+      const rad = (0.03 + 0.05 * Math.random()) * scale;
       this.add({
         kind: DROP, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
         r0: rad, r1: rad, rg: 1,
         life: 1.6 + 1.2 * Math.random(),
         drag: 0.12, grav: 1, windK: 0.2, stretch: 0.10,
-        op: 0.6, base: sea, force: f,
+        op: 0.5, base: sea, force: f,
       });
     }
     // The mist off the top of a hard one, which the wind takes. Not drawn:
