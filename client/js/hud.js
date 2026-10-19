@@ -279,7 +279,8 @@ class HudBase {
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
       flyThrottleKnob: $('fly-throttle-knob'),
       flySwipe: $('fly-swipe'), flyHint: $('fly-hint'),
-      flyReticle: $('fly-reticle'), flyAim: $('fly-aim'), flyLead: $('fly-lead'),
+      flyReticle: $('fly-reticle'), flyAim: $('fly-aim'), bombSight: $('bomb-sight'),
+      bombSightHint: $('bomb-sight-hint'), flyLead: $('fly-lead'),
       flyFar: $('fly-far'), flyGuns2: $('fly-guns2'), flyZoom: $('fly-zoom'),
       flyAmmo: $('fly-ammo'), flyAmmo2: $('fly-ammo2'),
       flyIdentType: $('fly-ident-type'), flyIdentSub: $('fly-ident-sub'),
@@ -1028,6 +1029,25 @@ class HudBase {
    * The sights, moved to where they are: the marker, the ring and the lead,
    * each in screen pixels or null to hide it.
    */
+  /**
+   * The bomb aimer's crosshair, at a point in screen pixels, or null to take
+   * it down. `away` dims it once the stick has gone; `hint` is the line over
+   * it saying what the DROP key will do next.
+   */
+  placeBombSight(at, away = false, hint = '') {
+    const el = this.el;
+    if (!el.bombSight) return;
+    el.bombSight.hidden = !at;
+    if (el.bombSightHint) {
+      el.bombSightHint.hidden = !at || !hint;
+      el.bombSightHint.textContent = hint;
+    }
+    if (!at) return;
+    el.bombSight.classList.toggle('away', away);
+    el.bombSight.style.left = `${at.x}px`;
+    el.bombSight.style.top = `${at.y}px`;
+  }
+
   placeSights(aim, ring, lead, far) {
     const el = this.el;
     const put = (node, at) => {

@@ -25,7 +25,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts,
+  freeboardOf, cutLoses, dpMounts, bombThrow,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -641,6 +641,9 @@ export class Battle {
     // And the turret on her he is sitting in, if any: see manTurret. Null is
     // the pilot's own seat, which is where everybody starts.
     this.turret = null;
+    // The bomb aimer's view out of a heavy's bomb bay, while DROP has been
+    // pressed once and not yet followed through: see openBombSight.
+    this.bombSight = null;
     // What the camera is looking at, when it is not looking at your own hull:
     // {kind:'ship'|'battery', id, name}, set by tapping a contact on the plot.
     // You still have the con while you are watching — the helm and the
@@ -3033,6 +3036,10 @@ export class Battle {
     // In the cockpit the flying keys fly her (see stepFlight) and do nothing
     // to the ship she came off.
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
+    // A heavy's bombs off the keyboard as well as the DROP key, and out of the
+    // bomb bay without leaving the battle.
+    if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
+    if (this.bombSight && code === 'Escape') { this.closeBombSight(); audio.click(); return; }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3518,6 +3525,7 @@ export class Battle {
     const spec = (HEAVY[air.kind] || HEAVY.lancaster).turrets
       .find((t) => t.name === row.turret);
     if (!spec) return;
+    this.closeBombSight();
     this.turret = {
       id: air.id,
       heavy: air.heavy,
@@ -3801,7 +3809,14 @@ export class Battle {
     // aeroplane. There is no "press home" to be told about, and no range test
     // to pass -- what there is instead is the aimer's error, which is the
     // whole of why she misses.
+    //
+    // The first press does not drop anything: it puts the view in the bomb
+    // bay, looking down past her belly at the sea, with the aimer's crosshair
+    // on the point the stick would fall on if it went now. The second press
+    // lets it go.
     if (f.heavy) {
+      if (!this.bombSight) { this.openBombSight(); return; }
+      if (this.bombSight.away) return;
       if (f.asked > 0) return;
       f.asked = 1.2;
       this.net.send({ t: 'dropb', i: f.id });
@@ -3831,6 +3846,45 @@ export class Battle {
     audio.click();
   }
 
+  /**
+   * Go down to the bomb bay, or come back up out of it.
+   *
+   * The camera goes under her and looks down and ahead at the sea she is
+   * crossing, and the crosshair is put on the point a stick let go now would
+   * land on -- forward of her by as far as the bombs travel while they fall.
+   * She is still flown from down here: drag and she comes round, and the
+   * crosshair walks across the sea with her.
+   */
+  openBombSight() {
+    const f = this.flight;
+    if (!f || !f.heavy) return;
+    this.turret = null;
+    this.hud.setAirGun(null);
+    this.bombSight = { id: f.id, away: false, t: 0 };
+    this.hud.setArmament('RELEASE');
+    audio.click();
+  }
+
+  closeBombSight() {
+    if (!this.bombSight) return;
+    this.bombSight = null;
+    this.hud.placeBombSight(null);
+    if (this.flight && this.flight.heavy) this.hud.setArmament('BOMBS');
+  }
+
+  /**
+   * Where a stick let go now would land, and how high she is above it.
+   *
+   * The same throw the simulation gives the bombs: her cruising speed off her
+   * datasheet, carried forward for as long as they take to fall to the sea.
+   */
+  bombImpact(f) {
+    const p = f.pilot;
+    const spec = BOMBERS[f.kind] || BOMBERS.lancaster;
+    const fwd = bombThrow(Math.max(0, p.y), spec.cruise * 0.44704);
+    return { x: p.x + Math.sin(p.heading) * fwd, y: 0, z: p.z + Math.cos(p.heading) * fwd };
+  }
+
   /** Hand her back to the autopilot and go back to the bridge. */
   leaveFlight(lost = false, crashed = false) {
     if (!this.flight) return;
@@ -3843,6 +3897,7 @@ export class Battle {
       this.net.send({ t: this.flight.heavy ? 'landb' : 'land', i: this.flight.id });
     }
     const heavy = this.flight.heavy;
+    this.closeBombSight();
     this.flight = null;
     this.turret = null;
     this.hud.setAirGun(null);
@@ -3951,6 +4006,12 @@ export class Battle {
         // A load has gone. The pilot is told once, and the key comes back
         // alive only if there is another run in her.
         if (left < f.loads) this.hud.alert(left > 0 ? 'Sticks away — one load left' : 'Sticks away');
+        // The aimer stays at the bay long enough to see where they went, and
+        // then the view comes back up to the cockpit by itself.
+        if (left < f.loads && this.bombSight) {
+          this.bombSight.away = true;
+          this.bombSight.t = Math.sqrt((2 * Math.max(50, f.pilot.y)) / 9.81) + 3;
+        }
         f.loads = left;
       }
       f.armed = left > 0;
@@ -3967,6 +4028,10 @@ export class Battle {
       if (f.load) this.hud.alert(f.load.away);
     }
     f.asked = Math.max(0, f.asked - dt);
+    if (this.bombSight && this.bombSight.away) {
+      this.bombSight.t -= dt;
+      if (this.bombSight.t <= 0) this.closeBombSight();
+    }
 
     const stick = this.hud.fly || { throttle: 1, aimX: 0, aimY: 0 };
     const p = f.pilot;
@@ -4332,6 +4397,17 @@ export class Battle {
       return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
     };
     const p = f.pilot;
+    if (this.bombSight && this.shellCam && this.watching && this.watching.kind === 'shell') {
+      this.hud.placeBombSight(null);
+    } else if (this.bombSight) {
+      const hit = this.bombImpact(f);
+      const at = project(hit.x, hit.y, hit.z);
+      const bs = this.bombSight;
+      this.hud.placeBombSight(at, bs.away, bs.away ? 'BOMBS AWAY'
+        : f.armed ? 'BOMB BAY — DROP AGAIN TO RELEASE · G' : 'BOMB BAY');
+      this.hud.placeSights(null, null, null, false);
+      return;
+    }
     const aim = this.turret ? null : project(
       cam.position.x + f.aimF.x * 2000,
       cam.position.y + f.aimF.y * 2000,
@@ -6746,6 +6822,30 @@ export class Battle {
         this.input.orbiting = true;
         return;
       }
+    }
+    // In the bomb bay: under her belly, looking down and ahead, so the sea
+    // straight beneath her is at the bottom of the picture and the point the
+    // stick will fall on is up the middle. Forward is up the screen.
+    if (this.bombSight && this.flight && !riding) {
+      const f = this.flight;
+      const p = f.pilot;
+      const hit = this.bombImpact(f);
+      const eyeY = Math.max(p.y - 4, 2);
+      // How far below the horizon the aim point is. The view is pointed
+      // halfway between that and straight down, and opened wide enough to
+      // hold both.
+      const a = Math.atan2(eyeY, Math.max(1, Math.hypot(hit.x - p.x, hit.z - p.z)));
+      const dep = (Math.PI / 2 + a) / 2;
+      cam.fov = clamp(((Math.PI / 2 - a) * 180 / Math.PI) * 1.2, 46, 80);
+      cam.updateProjectionMatrix();
+      const sx = Math.sin(p.heading), sz = Math.cos(p.heading);
+      cam.position.set(p.x, eyeY, p.z);
+      cam.up.set(sx, 0, sz);
+      const c = Math.cos(dep), s = Math.sin(dep);
+      cam.lookAt(p.x + sx * c * 1000, eyeY - s * 1000, p.z + sz * c * 1000);
+      // The drag still flies her, as it does from the cockpit.
+      this.input.orbiting = false;
+      return;
     }
     if (this.turret && !riding) {
       // In one of her turrets. The eye is on the mounting, the drag turns the

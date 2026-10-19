@@ -756,6 +756,32 @@ input[type="range"] { accent-color: var(--red); }
 .fly-reticle.hot { border-color: rgba(255, 92, 84, 0.98); }
 .fly-reticle.off { opacity: 0; }
 
+/* The bomb sight: a long crosshair and a ring, on the point of the sea the
+   stick will fall on, over a view straight out of the bomb bay. */
+.bomb-sight {
+  position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+  pointer-events: none; will-change: left, top;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.95));
+}
+.bomb-sight[hidden] { display: none; }
+.bomb-sight > i {
+  position: absolute; background: rgba(255, 214, 120, 0.95);
+}
+.bomb-sight > i:nth-child(1) { left: -90px; width: 180px; top: -1px; height: 2px; }
+.bomb-sight > i:nth-child(2) { top: -90px; height: 180px; left: -1px; width: 2px; }
+.bomb-sight > b {
+  position: absolute; left: -26px; top: -26px; width: 48px; height: 48px;
+  border: 2px solid rgba(255, 214, 120, 0.95); border-radius: 50%;
+}
+.bomb-sight.away > i, .bomb-sight.away > b { opacity: 0.45; }
+.bomb-sight-hint {
+  position: absolute; left: 50%; top: 14%; transform: translateX(-50%);
+  margin: 0; pointer-events: none; color: #ffe0a0;
+  font-family: var(--ui); font-size: 0.7rem; letter-spacing: 0.18em;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9); white-space: nowrap;
+}
+.bomb-sight-hint[hidden] { display: none; }
+
 /* The lead: a small red ring with a pip, where the ring has to go. */
 .fly-lead {
   position: absolute; left: 0; top: 0; width: 26px; height: 26px;

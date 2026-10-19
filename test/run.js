@@ -16939,11 +16939,11 @@ check("a squadron of heavies is in the battle, and flies her own bombing height"
   // whole close-range battery bears, and a fleet's fighters are up there
   // within a few minutes of leaving the deck rather than spending the whole
   // sortie climbing.
-  const FIVE = 5000 * 0.3048;
+  const FIVE = 1000;
   assert.ok(Math.abs(bm.y - FIVE) < 1,
-    `a Lancaster is bombing from ${Math.round(bm.y)} m, not five thousand feet`);
+    `a Lancaster is bombing from ${Math.round(bm.y)} m, not a thousand metres`);
   for (const k of BOMBER_ORDER) {
-    assert.ok(Math.abs(bombAlt(BOMBERS[k]) - FIVE) < 1, `${k} is not at five thousand`);
+    assert.ok(Math.abs(bombAlt(BOMBERS[k]) - FIVE) < 1, `${k} is not at a thousand metres`);
   }
   // And that height is well inside what a carrier fighter's airframe will do,
   // or the whole point of lowering it is lost.
@@ -17569,23 +17569,23 @@ check("each side's squadrons are laid out on its own centre line", () => {
 });
 
 
-check('a bomber stream comes over at five thousand feet', () => {
+check('a bomber stream comes over at a thousand metres', () => {
   // Ten thousand put her above everything: a ship's close-range battery could
   // not be laid that high, and a fighter off a deck spent her whole sortie
   // climbing and turned for home short of the stream. Five thousand is a
   // height at which she is in the battle rather than over it.
-  assert.equal(BOMB_ALT, 1524, 'the bombing height is not five thousand feet');
-  assert.ok(Math.abs(bombAlt() - 5000 * 0.3048) < 0.5,
-    'bombAlt does not agree with five thousand feet');
+  assert.equal(BOMB_ALT, 1000, 'the bombing height is not a thousand metres');
+  assert.ok(Math.abs(bombAlt() - 1000) < 0.5,
+    'bombAlt does not agree with a thousand metres');
 
   const world = generateWorld(701, 'open_ocean');
   const st = createState(world, { mode: 'deathmatch' });
   const bm = addBomber(st, { bomberId: 'lancaster', team: 1, x: 0, z: 7000 });
   // She is put there when she is raised, not flown up to it over a minute.
-  assert.ok(Math.abs(bm.y - 1524) < 1,
+  assert.ok(Math.abs(bm.y - BOMB_ALT) < 1,
     `a formation was raised at ${Math.round(bm.y)} m`);
   for (let i = 0; i < 400; i++) step(st, DT);
-  assert.ok(Math.abs(bm.y - 1524) < 60,
+  assert.ok(Math.abs(bm.y - BOMB_ALT) < 60,
     `she drifted to ${Math.round(bm.y)} m on the run in`);
 });
 
@@ -17757,8 +17757,8 @@ check("a ship's aircraft climb to the stream and shoot it down", () => pinned(()
     // She used to level off around nine hundred metres and trade with thirteen
     // turrets from two thousand feet below, which is a range at which she could
     // not hit anything and they could.
-    assert.ok(peak > 1450,
-      `the highest aeroplane off the deck reached ${Math.round(peak)} m of 1524`);
+    assert.ok(peak > BOMB_ALT - 70,
+      `the highest aeroplane off the deck reached ${Math.round(peak)} m of ${BOMB_ALT}`);
   }
   // And a formation that can be shot down, is.
   {

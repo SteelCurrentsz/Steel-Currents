@@ -8356,27 +8356,27 @@ function sweepSquadrons(state) {
 // a shell with `bomb` written on it.
 
 /**
- * The height a heavy squadron works at: five thousand feet, for everybody.
+ * The height a heavy squadron works at: a thousand metres, for everybody.
  *
  * This is a long way below where they really bombed from -- fifteen to
- * twenty-five thousand, and chosen for the one reason that mattered at the
- * time, to be above the flak. Five thousand is under it.
+ * twenty-five thousand feet, and chosen for the one reason that mattered at
+ * the time, to be above the flak. A thousand metres is well under it.
  *
  * Which is the point. At this height everything can reach her: a ship's whole
  * close-range battery bears, not just the heavy mountings, and a fleet's
  * fighters are at her altitude within a minute of taking off instead of
  * spending the whole sortie climbing. She is in the battle rather than over
- * it, and her bombing is better for being lower -- the aimer's error grows
- * with height, so a stick from five thousand feet is worth twice one from ten.
+ * it, the man at the bomb bay can see the ships under her, and her bombing is
+ * better for being lower -- the aimer's error grows with height.
  *
  * She pays for all of it in the one currency a bomber has, which is losses.
  */
 export function bombAlt() {
-  return 5000 * 0.3048;
+  return 1000;
 }
 
 /** The same height as a number, for the yard scene and anything measuring. */
-export const BOMB_ALT = 1524;
+export const BOMB_ALT = 1000;
 
 /** What one machine of a heavy formation can absorb before she goes down. */
 const HEAVY_HP = 420;
@@ -8511,8 +8511,10 @@ function aimError(state, bm) {
   const t = bm.targetId ? state.ships.find((q) => q.id === bm.targetId) : null;
   const moving = t ? t.speed : 0;
   // A height error and a tracking error, added. The second one is the one that
-  // matters and the one a ship's captain earns by keeping his speed on.
-  const sd = 55 + bm.y * 0.028 + moving * 18;
+  // matters and the one a ship's captain earns by keeping his speed on. Down at
+  // a thousand metres the aimer can see what he is aiming at, so both are
+  // small: a stick laid on a ship lying still mostly falls on her.
+  const sd = 22 + bm.y * 0.012 + moving * 7;
   return { x: gauss(state.rng) * sd, z: gauss(state.rng) * sd };
 }
 
@@ -8525,8 +8527,8 @@ function dropBomb(state, bm, L) {
   // The aimer's error for this run, and a little dispersion on each body --
   // no two bombs of a stick fall in the same place.
   const e = bm.err || { x: 0, z: 0 };
-  const sx = gauss(state.rng) * 26;
-  const sz = gauss(state.rng) * 26;
+  const sx = gauss(state.rng) * 12;
+  const sz = gauss(state.rng) * 12;
   // It leaves from the formation, not from a point thirty metres off to one
   // side of it: the aimer's error and the scatter of the stick are what the
   // bomb does on the way down, so they go into how it leaves rather than
@@ -8613,7 +8615,7 @@ function heavyFlak(state, bm, dt) {
     // formation holding course through it, which historically took thousands
     // of rounds for every aeroplane it brought down.
     //
-    // The constant is what makes five thousand feet a place a squadron can
+    // The constant is what makes a thousand metres a place a squadron can
     // work from at all. Up at ten only the heavy mountings could reach and the
     // share did most of the work; down here the whole close-range battery
     // bears, the share is very nearly one, and a third of a battleship's `dps`
