@@ -17596,6 +17596,24 @@ check("a heavy's turrets fire at the fighters and are shot out one by one", () =
   for (const k of out) assert.ok(bm.posts[k].hp <= 0, `turret ${k} was reported out and is not`);
 }));
 
+check('rounds put into a heavy\'s tail turret shoot that turret out and no other', () => {
+  const st = createState(generateWorld(4104, 'open_ocean'), { mode: 'deathmatch' });
+  const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 6000, heading: 0.7 });
+  const tail = BOMBERS.fortress.posts.indexOf('tail');
+  const aft = BOMBERS.fortress.postAt[tail][1];
+  let n = 0;
+  while (bm.posts[tail].hp > 0 && n < 40) {
+    hurtBomber(st, bm, 10, 'fighters', { dx: Math.sin(0.7) * aft, dy: -0.2, dz: Math.cos(0.7) * aft });
+    n++;
+  }
+  assert.ok(bm.posts[tail].hp <= 0, `forty rounds into her tail turret did not put it out`);
+  assert.ok(n <= 8, `it took ${n} rounds to put a tail turret out`);
+  for (const [k, g] of bm.posts.entries()) {
+    if (k !== tail) assert.equal(g.hp, g.max, `rounds into her tail hurt her ${g.name} turret`);
+  }
+  assert.ok(bm.alive, 'shooting her tail turret out shot the whole formation down');
+});
+
 check('a bomber stream comes over at a thousand metres', () => {
   // Ten thousand put her above everything: a ship's close-range battery could
   // not be laid that high, and a fighter off a deck spent her whole sortie

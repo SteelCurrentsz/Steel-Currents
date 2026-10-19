@@ -2755,7 +2755,15 @@ function stepBullets(state, dt) {
       ));
       if (!m) continue;
       bm.aimed = m.a;
-      hurtBomber(state, bm, b.dmg, 'fighters');
+      // Where on her it went in: the point of the round's path nearest the
+      // middle of the machine it hit, which is what decides whether it was a
+      // turret it hit.
+      const sx = b.x - px, sy = b.y - py, sz = b.z - pz;
+      const L2 = sx * sx + sy * sy + sz * sz || 1;
+      const u = clamp(((m.x - px) * sx + (m.y - py) * sy + (m.z - pz) * sz) / L2, 0, 1);
+      hurtBomber(state, bm, b.dmg, 'fighters', {
+        dx: px + sx * u - m.x, dy: py + sy * u - m.y, dz: pz + sz * u - m.z,
+      });
       state.events.push({
         e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 1, i: bm.id,
       });
@@ -8390,6 +8398,10 @@ const HEAVY_HP = 420;
  */
 const POST_SHARE = 0.12;
 const POST_HIT = 0.35;
+/** How near a turret a round has to go in to hit it, along her and up her. */
+const POST_TOUCH = 3.2;
+/** And what a round that hits one does to it, against its share of her. */
+const POST_AIMED = 1.5;
 /** How far her gunners reach, along the line of sight. */
 const HEAVY_GUN_REACH = 520;
 /** What one gun of hers is worth, a second, at close range. */
@@ -8909,16 +8921,36 @@ export function gunTurret(state, ship, id, yaw, arc, dt, post = '') {
 }
 
 /** A formation losing aeroplanes, one at a time, as it is shot about. */
-export function hurtBomber(state, bm, damage, why = 'flak') {
+export function hurtBomber(state, bm, damage, why = 'flak', at = null) {
   if (!bm.alive) return;
   // Some of what hits her hits a gun position: the turret is shot through,
   // the gunner is hit, or the hydraulics that train it are cut. One that has
   // gone stays gone.
+  //
+  // A round whose way in is known (`at`, off the middle of the machine it
+  // hit) is put into whichever turret it went in beside, if it went in beside
+  // one -- so a fighter that holds his sight on her tail turret shoots her tail
+  // turret out. Flak, and anything else that arrives everywhere at once, takes
+  // its chance at one of them.
   const posts = (bm.posts || []).filter((g) => g.hp > 0);
-  if (posts.length && damage > 0 && state.rng() < POST_HIT) {
-    const k = Math.min(posts.length - 1, Math.floor(state.rng() * posts.length));
-    const g = posts[k];
-    g.hp -= damage;
+  let g = null;
+  let bite = damage;
+  if (posts.length && damage > 0 && at) {
+    const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+    const fore = at.dx * Math.sin(bm.heading) + at.dz * Math.cos(bm.heading);
+    let best = POST_TOUCH;
+    for (const q of posts) {
+      const p = (b.postAt || [])[bm.posts.indexOf(q)];
+      if (!p) continue;
+      const d = Math.hypot(at.dy - p[0], fore - p[1]);
+      if (d < best) { best = d; g = q; }
+    }
+    bite = damage * POST_AIMED;
+  } else if (posts.length && damage > 0 && state.rng() < POST_HIT) {
+    g = posts[Math.min(posts.length - 1, Math.floor(state.rng() * posts.length))];
+  }
+  if (g) {
+    g.hp -= bite;
     if (g.hp <= 0) {
       g.hp = 0;
       g.on = 0;

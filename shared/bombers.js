@@ -45,6 +45,7 @@ export const BOMBER_MAX = 8;
  * @property {number} turrets   powered turrets aboard
  * @property {string} stations  where those turrets are
  * @property {string[]} posts   every gun position, in the model's order
+ * @property {number[][]} postAt where each position is: [up, forward] in metres
  * @property {number} guns      barrels, all told
  * @property {string} calibre   what those barrels are
  * @property {string} arcs      how far each mounting trains, in degrees
@@ -76,6 +77,8 @@ export const BOMBERS = {
     // Every gun position aboard, powered or not, in the order the model
     // builds them -- the simulation fights each one, and each can be shot out.
     posts: ['nose', 'dorsal', 'tail'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[0.52, 10.05], [1.14, 1.20], [-0.02, -9.55]],
     guns: 8,
     calibre: '.303 in Browning',
     arcs: 'Nose 190°, dorsal 360°, tail 188°',
@@ -105,6 +108,8 @@ export const BOMBERS = {
     // Every gun position aboard, powered or not, in the order the model
     // builds them -- the simulation fights each one, and each can be shot out.
     posts: ['chin', 'dorsal', 'ball', 'tail'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[-1.02, 9.00], [1.10, 4.40], [-1.00, -0.90], [-0.26, -10.70]],
     guns: 13,
     calibre: '.50 in Browning M2',
     arcs: 'Chin 174°, dorsal 360°, ball 360°, tail 90°',
@@ -133,6 +138,8 @@ export const BOMBERS = {
     // Every gun position aboard, powered or not, in the order the model
     // builds them -- the simulation fights each one, and each can be shot out.
     posts: ['dorsal', 'nose', 'gondola'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[0.98, 1.10], [0.10, 6.90], [-1.30, 1.80]],
     guns: 6,
     calibre: '20 mm MG FF, 7.92 mm MG 15',
     arcs: 'Dorsal 200°, nose 80°, gondola 70°',
@@ -161,6 +168,8 @@ export const BOMBERS = {
     // Every gun position aboard, powered or not, in the order the model
     // builds them -- the simulation fights each one, and each can be shot out.
     posts: ['dorsal', 'gondola'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[0.92, 3.40], [-1.22, 1.20]],
     guns: 5,
     calibre: '13 mm MG 131, 7.92 mm MG 81',
     arcs: 'Dorsal 110°, gondola 70° — hand-held',
@@ -190,6 +199,8 @@ export const BOMBERS = {
     // Every gun position aboard, powered or not, in the order the model
     // builds them -- the simulation fights each one, and each can be shot out.
     posts: ['dorsal', 'tail'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[1.02, -1.80], [0.06, -9.40]],
     guns: 5,
     calibre: '20 mm Type 99, 7.7 mm Type 92',
     arcs: 'Dorsal 360°, tail 60°',
