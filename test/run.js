@@ -33,7 +33,7 @@ import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import {
-  normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -20984,6 +20984,53 @@ check('a bomber\'s rear gunner swings onto a fighter astern of her and fires', (
   }
   assert.ok(fired > 0, 'her gunner never fired at a fighter sitting on her tail');
   assert.ok(fighter.dead || fighter.hp < hp, 'her gunner fired and hit nothing');
+});
+
+check('a captain in a bomber\'s back seat shoots down the fighter on her tail, and into the sea', () => {
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Enterprise', classId: 'enterprise', team: 1, index: 0, airGroup: SMALL_E });
+  foe.x = ship.x + 8000; foe.z = ship.z;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  foe.aimX = ship.x; foe.aimZ = ship.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  foe.airGroup = { fighters: 4, dive: 0, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch');
+  assert.ok(launchStrike(state, foe), 'the fighters would not launch');
+  for (let i = 0; i < 30 / DT && state.planes.length < 2; i++) step(state, DT);
+  const bomber = state.planes.find((q) => q.team === 0);
+  const fighter = state.planes.find((q) => q.team === 1);
+  assert.ok(bomber && fighter, 'nobody got off the deck');
+  // Forward, through his own pilot: nothing goes.
+  const before = state.bullets.length;
+  gunRear(state, ship, bomber.id, 0, 0, 0.3);
+  assert.equal(state.bullets.length, before, 'the back seat fired forward through the airscrew');
+  // Somebody else's ship cannot work her gun.
+  assert.equal(gunRear(state, foe, bomber.id, Math.PI, 0, 0.3), false);
+  // Held on the fighter astern of her, her AI gunner standing down while he is
+  // in the seat, the fighter goes down to his rounds.
+  let aiFired = 0, sea = 0;
+  const hp = fighter.hp;
+  for (let i = 0; i < 6 / DT && !fighter.dead; i++) {
+    bomber.y = 800; fighter.y = 830;
+    fighter.x = bomber.x - Math.sin(bomber.heading) * 200;
+    fighter.z = bomber.z - Math.cos(bomber.heading) * 200;
+    fighter.heading = bomber.heading;
+    const pitch = -Math.atan2(30, 200);
+    gunRear(state, ship, bomber.id, Math.PI, pitch, DT);
+    const evs = step(state, DT);
+    aiFired += evs.filter((e) => e.e === 'rearGun' && e.i === bomber.id && e.t).length;
+  }
+  assert.ok(fighter.dead || fighter.hp < hp, 'his rounds never reached the fighter');
+  assert.equal(aiFired, 0, 'her own gunner kept firing with a captain in his seat');
+  // And laid down into the sea, the rounds throw spouts there.
+  bomber.y = 120;
+  for (let i = 0; i < 2 / DT; i++) {
+    gunRear(state, ship, bomber.id, Math.PI, 0.6, DT);
+    const evs = step(state, DT);
+    sea += evs.filter((e) => e.e === 'airHit' && e.sea).length;
+  }
+  assert.ok(sea > 0, 'rounds fired down into the sea never reached it');
 });
 
 check('a strike goes off the deck a fighter, a dive bomber and a torpedo bomber in turn', () => {

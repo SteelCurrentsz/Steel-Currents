@@ -5,7 +5,7 @@ import {
   manGun, layGun, shootGun, assignMount, setMountOff,
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
-  releasePlane, strafe, flyBomber, dropStick, gunTurret,
+  releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP,
 } from '../shared/sim.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -598,6 +598,11 @@ export class Room {
           Math.min(Math.PI, Math.max(0, Number(msg.a) || Math.PI)),
           Math.min(0.3, Math.max(0, msg.dt || 0)),
           typeof msg.n === 'string' ? msg.n.slice(0, 16) : '');
+        break;
+      // A carrier bomber's back-seat gun, laid and fired by the man in it.
+      case 'gunr':
+        gunRear(this.state, ship, msg.i, Number(msg.y), Number(msg.p) || 0,
+          Math.min(0.3, Math.max(0, Number(msg.dt) || 0)));
         break;
       case 'landb': {
         const bm = (this.state.bombers || []).find((q) => q.id === msg.i);

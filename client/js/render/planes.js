@@ -428,6 +428,26 @@ export function rearGunOf(kind) {
 }
 
 /**
+ * Where a carrier bomber's gunner sits and what he has, for somebody going to
+ * sit there: his eye in her own frame, just over the ring his gun swings on,
+ * and the cone it swings through -- everything abaft her wing and over her
+ * tail, which is the arc the simulation gives him (see stepRearGunners). The
+ * Avenger's is her ball turret, with her fifty in it.
+ */
+const REAR_SEATS = {
+  dauntless: { x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 },
+  suisei: { x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 },
+  avenger: { x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 },
+  tenzan: { x: 0, y: 2.85, z: -1.7, cal: 0.0077, guns: 1 },
+};
+
+/** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
+export function rearSeatOf(kind) {
+  const s = REAR_SEATS[kind];
+  return s ? { name: 'rear', arc: 110, up: 70, down: 25, ...s } : null;
+}
+
+/**
  * Where each type's weapon hangs, in her own frame, with the bay open: filled
  * in by `flightModels` off the part that falls, so it cannot drift out of step
  * with the model. Read with `storeOf`.

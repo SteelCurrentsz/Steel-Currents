@@ -233,6 +233,12 @@ export class Effects {
     this.splashes.splash(x, z, caliber, opts);
   }
 
+  /** An aircraft's round into the sea. See Splashes.spout. */
+  spout(x, z, caliber = 12.7) { this.splashes.spout(x, z, caliber); }
+
+  /** Something of an aeroplane dragging through the sea. See Splashes.skim. */
+  skim(x, z, vx, vz, depth, dt) { this.splashes.skim(x, z, vx, vz, depth, dt); }
+
   hit(x, y, z, kind, caliber = 152) {
     const big = kind === 'citadel' ? 2.4 : kind === 'pen' ? 1.3 : 0.8;
     this.flash(x, y + 6, z, big);

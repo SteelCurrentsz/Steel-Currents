@@ -890,6 +890,112 @@ export class Splashes {
   }
 
   /**
+   * A small thing into the sea: an aircraft's round, or a stream of them.
+   *
+   * Not a shell splash scaled down -- a rifle bullet does not throw a column,
+   * it throws a thin white spout a few metres high that is gone in a second,
+   * and a stream of them walks a line of those across the water, which is how
+   * a pilot sees where his burst went. `bore` is the round's calibre in
+   * millimetres: a twenty-millimetre shell throws a good deal more than a
+   * thirty.
+   */
+  spout(x, z, bore = 12.7) {
+    const k = Math.max(0.6, Math.min(2, bore / 12.7));
+    const h = rnd(3.2, 5) * k;
+    const w = rnd(0.4, 0.58) * Math.sqrt(k);
+    // The spout, and now and then a thinner one leaning off it.
+    for (let i = 0; i < (Math.random() < 0.4 ? 2 : 1); i++) {
+      const slot = this.jetFree.pop();
+      if (slot === undefined) break;
+      const a = Math.random() * Math.PI * 2;
+      const hh = h * (i ? rnd(0.5, 0.75) : 1);
+      const rise = 0.12 + hh * 0.02;
+      this.jets.push({
+        slot, x: x + (i ? Math.sin(a) * w * 0.6 : 0), z: z + (i ? Math.cos(a) * w * 0.6 : 0),
+        a, tilt: i ? rnd(0.1, 0.25) : rnd(0, 0.08),
+        w: w * (i ? 0.6 : 1), h: hh, delay: 0, rise, ttl: rise + 0.55 + hh * 0.05, life: 0,
+      });
+    }
+    // A puff of white water at its foot.
+    this.puff({
+      x, z, y: 0.2, dx: 0, dz: 0, dy: 0.2,
+      s0: w * 1.6, s1: w * 4.5, squash: 0.35,
+      delay: 0, ttl: rnd(0.9, 1.3), peak: 0.7, spread: 0.4, low: true,
+    });
+    // And a little ring off it, while the sea has room for one: the rings off
+    // the shell splashes are the ones that matter, and a burst of a hundred
+    // rounds must not push them out.
+    if (this.waves && this.waves.live.length < 48 && Math.random() < 0.35) {
+      this.waves.add(x, z, h * 0.6, w * 2, 0.5);
+    }
+  }
+
+  /**
+   * Something of an aeroplane dragging through the sea: a wingtip in a low
+   * turn, her belly, her floats. `vx`, `vz` is how fast it is going and `depth`
+   * how far into the water it is. The water is thrown up behind it in a sheet
+   * and falls back in a line of spray, and the sea is left torn up where it
+   * went -- called every frame it is in, it lays that line along her track.
+   */
+  skim(x, z, vx, vz, depth = 0.3, dt = 1 / 60) {
+    const sp = Math.hypot(vx, vz);
+    if (sp < 1) return;
+    const ux = vx / sp, uz = vz / sp;
+    const d = Math.max(0.1, Math.min(2, depth));
+    // How much she throws goes with her speed and how deep she is in.
+    const n = Math.min(10, Math.round((1 + sp * dt * 0.6) * (0.6 + d) * this.intensity));
+    for (let i = 0; i < n; i++) {
+      const s = this.dropFree.pop();
+      if (s === undefined) break;
+      // Thrown up and out to either side of the thing cutting the water, and
+      // carried on a little with it.
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const out = rnd(2, 6) * (0.6 + d);
+      const up = rnd(3, 8) * Math.sqrt(0.5 + d);
+      const back = rnd(0, 1) * sp * dt;
+      this.dropPos[s * 3] = x - ux * back + rnd(-0.3, 0.3);
+      this.dropPos[s * 3 + 1] = rnd(0.1, 0.4);
+      this.dropPos[s * 3 + 2] = z - uz * back + rnd(-0.3, 0.3);
+      this.dropVel[s * 3] = ux * sp * rnd(0.15, 0.4) - uz * side * out;
+      this.dropVel[s * 3 + 1] = up;
+      this.dropVel[s * 3 + 2] = uz * sp * rnd(0.15, 0.4) + ux * side * out;
+      this.dropSize[s] = rnd(0.5, 1.3) * (0.7 + d * 0.6);
+      this.dropAlpha[s] = 0;
+      this.dropLife[s] = 0;
+      this.dropKick[s] = 0;
+      this.dropsLive.push(s);
+    }
+    // The white water torn up where it went through, left lying on the sea.
+    this.skimT = (this.skimT || 0) - dt;
+    if (this.skimT > 0) return;
+    this.skimT = 0.05;
+    const w = 0.8 + d * 1.6;
+    this.puff({
+      x, z, y: 0.2, dx: ux * sp * 0.12, dz: uz * sp * 0.12, dy: 0.4 + d,
+      s0: w, s1: w * 3.2, squash: 0.4,
+      delay: 0, ttl: rnd(1.2, 1.8), peak: 0.75, spread: 0.6, low: true,
+    });
+    // A rooster tail of it off a deep cut.
+    if (d > 0.5) {
+      const slot = this.jetFree.pop();
+      if (slot !== undefined) {
+        const h = rnd(2, 4) * d;
+        const rise = 0.15 + h * 0.02;
+        this.jets.push({
+          slot, x: x - ux * 2, z: z - uz * 2, a: Math.atan2(-ux, -uz), tilt: rnd(0.3, 0.5),
+          w: 0.5 + d * 0.4, h, delay: 0, rise, ttl: rise + 0.6, life: 0,
+        });
+      }
+    }
+    // And a ripple running out from it, every so often.
+    this.skimRing = (this.skimRing || 0) - 0.05;
+    if (this.waves && this.skimRing <= 0 && this.waves.live.length < 56) {
+      this.skimRing = 0.25;
+      this.waves.add(x, z, 4 + d * 6, 1 + d, 0.8);
+    }
+  }
+
+  /**
    * The stem: one narrow, rough column driven straight up out of the middle,
    * the full height of the splash -- the thing a spotter reads -- and a jet or
    * two thinner than it standing close in against it, so its edge is torn

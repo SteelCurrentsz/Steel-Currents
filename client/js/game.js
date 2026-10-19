@@ -14,7 +14,7 @@ import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weatherc
   from './render/aero.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
 import {
-  ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT, storeOf, rearGunOf,
+  ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT, storeOf, rearGunOf, rearSeatOf,
 } from './render/planes.js';
 import { cutFromHoles, breakCut, piecesOf, Pieces } from './render/breakup.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
@@ -134,6 +134,11 @@ const RG_Q = new THREE.Quaternion();
 const RG_Q2 = new THREE.Quaternion();
 const RG_E = new THREE.Euler();
 const RG_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+// Scratch for the parts of an aeroplane in the sea: see `seaSkim`.
+const SKIM_P = new THREE.Vector3();
+const SKIM_PTS = [[0, 0.5, 0], [0, 1, -4.5]];
+const SKIM_M = new THREE.Matrix4();
+const SKIM_E = new THREE.Euler();
 const EYE_UP = new THREE.Vector3();
 const EYE_TOP = new THREE.Vector3();
 const EYE_BACK = new THREE.Vector3();
@@ -389,7 +394,7 @@ function buildAirArsenal(kind) {
   }
   const n = GUN_COUNT[kind] ?? gunsOf(kind).length;
   const cal = GUN_CALIBRE[kind] ?? 12.7;
-  return [{
+  const rows = [{
     name: `${cal} mm forward guns`,
     caliber: cal,
     barrels: n,
@@ -398,13 +403,32 @@ function buildAirArsenal(kind) {
     band: 'Fixed armament',
     note: `${n} ${n === 1 ? 'gun' : 'guns'} · fired by pointing her`,
   }];
+  // And the man in the back seat, whose gun is a mounting you can sit at.
+  const rear = rearSeatOf(kind);
+  if (rear) {
+    rows.push({
+      name: kind === 'avenger' ? 'Ball turret' : 'Rear gun',
+      caliber: Math.round(rear.cal * 10000) / 10,
+      barrels: rear.guns,
+      mounts: 1,
+      role: 'aa',
+      band: 'Defensive armament',
+      note: `${rear.guns} ${rear.guns === 1 ? 'gun' : 'guns'} · ${rear.arc * 2}° astern · `
+        + `+${rear.up}/-${rear.down}° · B to man`,
+      turret: 'rear',
+    });
+  }
+  return rows;
 }
 
 /** What a turret is called, rather than where the model puts it. */
 const TURRET_NAME = {
   nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
-  tail: 'Tail', gondola: 'Ventral', beam: 'Beam', waist: 'Waist',
+  tail: 'Tail', gondola: 'Ventral', beam: 'Beam', waist: 'Waist', rear: 'Rear',
 };
+
+/** Which mountings look astern when they are trained on their centreline. */
+const AFT_POSTS = new Set(['tail', 'gondola', 'rear']);
 
 /**
  * Which of the ship's batteries a row of the arsenal belongs to.
@@ -789,6 +813,7 @@ export class Battle {
     // and triggers once you are in her.
     this.hud.bindCockpit({
       take: () => this.takeFlight(),
+      gunner: () => this.toggleGunner(),
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
       bombCam: () => this.toggleShellCam(),
@@ -2808,6 +2833,8 @@ export class Battle {
           // Her gunner, on something of ours or theirs astern of her. The gun
           // swings onto it in `rearGun`, frame by frame; here is the tracer.
           this.rearAim.set(ev.i, { t: ev.t, x: ev.x, y: ev.y, z: ev.z, at: this.time });
+          // Our own gunner's tracer is drawn as he fires it (see turretGuns).
+          if (this.turret && this.turret.id === ev.i && !this.turret.heavy) break;
           const d = this.planeDrawn.get(ev.i);
           const g = d && rearGunOf(d.kind);
           if (!d || !g || !d.n || this.time - d.at > 1) break;
@@ -2897,8 +2924,10 @@ export class Battle {
           break;
         case 'airHit':
           // Where a burst from an aeroplane's guns actually arrived. Small, and
-          // there are a lot of them, so it is sparks and nothing else.
-          fx.hit(ev.x, ev.y, ev.z, 'splash', ev.air ? 8 : 13);
+          // there are a lot of them, so it is sparks and nothing else -- or,
+          // into the sea, a little white spout where each one went in.
+          if (ev.sea) fx.spout(ev.x, ev.z, ev.c || 12.7);
+          else fx.hit(ev.x, ev.y, ev.z, 'splash', ev.air ? 8 : 13);
           break;
         case 'flakOut':
           if (ev.ship === this.shipId) {
@@ -3112,6 +3141,8 @@ export class Battle {
       case 'KeyQ': this.setCourse(null); break;
       case 'Digit4': this.net.send({ t: 'strike', ship: this.conned() }); break;
       case 'KeyP': this.togglePilotView(); break;
+      // The gunner's seat of whatever aeroplane is in hand.
+      case 'KeyB': this.toggleGunner(); break;
       case 'KeyR': this.net.send({ t: 'repair', ship: this.conned() }); break;
       case 'KeyT': this.net.send({ t: 'smoke', ship: this.conned() }); break;
       // The racks. One key, because there is one order: let go.
@@ -3579,8 +3610,11 @@ export class Battle {
       audio.click();
       return;
     }
-    const spec = (HEAVY[air.kind] || HEAVY.lancaster).turrets
-      .find((t) => t.name === row.turret);
+    // A heavy's turrets are her model's own; a carrier bomber has the one
+    // gun, in the back seat.
+    const spec = air.heavy
+      ? (HEAVY[air.kind] || HEAVY.lancaster).turrets.find((t) => t.name === row.turret)
+      : rearSeatOf(air.kind);
     if (!spec) return;
     if (air.heavy && this.flight && this.flight.id === air.id
       && (this.flight.gunsOut || []).includes(row.turret)) {
@@ -3596,8 +3630,9 @@ export class Battle {
       // Where the gunner is looking, in the aeroplane's own frame. He starts
       // looking down his mounting's own centreline, which for a tail turret is
       // astern and for everything else is ahead.
-      yaw: spec.name === 'tail' || spec.name === 'gondola' ? Math.PI : 0,
-      pitch: 0,
+      yaw: AFT_POSTS.has(spec.name) ? Math.PI : 0,
+      pitch: AFT_POSTS.has(spec.name) ? -0.12 : 0,
+      kind: air.kind,
     };
     this.hud.setAirGun(row.turret);
     audio.click();
@@ -3619,8 +3654,13 @@ export class Battle {
     if (t.heavy) {
       at = this.heavyPose(t.id);
     } else {
+      // At the bank and the attitude she is being drawn at, so the gunner
+      // rolls with the aeroplane he is in.
       const pl = (this.planesNow || []).find((q) => q.i === t.id);
-      if (pl) at = { x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h, bank: 0, pitch: 0 };
+      if (pl) {
+        at = { x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h,
+          bank: this.planeTurn.get(pl.i) || 0, pitch: this.planePitch.get(pl.i) || 0 };
+      }
       const mine = this.flight && !this.flight.heavy && this.flight.id === t.id
         ? this.flight.pilot : null;
       if (mine) {
@@ -4162,6 +4202,7 @@ export class Battle {
     // Either trigger, or the space bar or the left mouse key at a desk.
     const firing = (stick.firing || keys.down('Space')) && (f.ammo > 0 || !!this.turret);
     f.firingNow = firing && !this.turret && !f.heavy;
+    f.gunnerNow = firing && !!this.turret;
     if (firing) {
       if (!this.turret && Number.isFinite(f.ammo)) {
         f.ammo = Math.max(0, f.ammo - (GUN_RPM / 60) * f.guns_n * sdt);
@@ -4174,7 +4215,7 @@ export class Battle {
         // out of her wings when he is not. A heavy has no forward guns worth
         // the name: her whole armament is the turrets, and a trigger pressed
         // from the pilot's seat of one does nothing, which is correct.
-        if (this.turret) this.turretGuns(f, p);
+        if (this.turret) this.turretGuns(this.turretCal(f));
         else if (!f.heavy) this.wingGuns(f, p);
       }
       if (f.guns > 0.15) {
@@ -4188,6 +4229,9 @@ export class Battle {
               dt: Math.round(f.guns * 100) / 100,
             });
           }
+        } else if (this.turret) {
+          // The back seat's gun, not the pilot's.
+          this.sendRearGun(this.turret, f.guns);
         } else {
           this.net.send({ t: 'gun', i: f.id, dt: Math.round(f.guns * 100) / 100 });
         }
@@ -4599,11 +4643,24 @@ export class Battle {
     if (!t || !d) return;
     d.id = pl.i;
     const aim = this.rearAim.get(pl.i);
-    const live = aim && this.time - aim.at < 0.5;
+    // Somebody of ours sitting in it: the gun is where he is looking, and it
+    // flashes while his trigger is down.
+    const held = this.turret && !this.turret.heavy && this.turret.id === pl.i ? this.turret : null;
+    const live = held ? (this.flight && this.flight.id === pl.i ? !!this.flight.gunnerNow
+      : !!(this.gunnerFire && this.gunnerFire.on)) : aim && this.time - aim.at < 0.5;
     let yaw = 0, pitch = 0.25;
-    if (live && d.mats[0]) {
-      const q = (this.planesNow || []).find((p) => p.i === aim.t);
-      RG_V.set(q ? q.x : aim.x, q ? this.planeHeight(q) : aim.y, q ? q.z : aim.z);
+    const seat = held && d.mats[0] ? this.turretEye() : null;
+    if ((seat || live) && d.mats[0]) {
+      if (seat) {
+        // A point a long way down the line he is looking along.
+        const look = seat.heading + held.yaw;
+        const cp = Math.cos(held.pitch);
+        RG_V.set(seat.x + Math.sin(look) * cp * 500, seat.y - Math.sin(held.pitch) * 500,
+          seat.z + Math.cos(look) * cp * 500);
+      } else {
+        const q = (this.planesNow || []).find((p) => p.i === aim.t);
+        RG_V.set(q ? q.x : aim.x, q ? this.planeHeight(q) : aim.y, q ? q.z : aim.z);
+      }
       // Into her frame, about the gun's pivot, and then into the frame the
       // gun is built in.
       RG_M2.copy(d.mats[0]).invert();
@@ -4616,7 +4673,7 @@ export class Battle {
       pitch = Math.max(-0.35, Math.min(1.25, pitch));
     }
     // A man swinging a gun on a ring: quick, but not instant.
-    const k = 1 - Math.exp(-dt * (live ? 7 : 2));
+    const k = held ? 1 : 1 - Math.exp(-dt * (live ? 7 : 2));
     t.gunYaw = (t.gunYaw || 0) + angleDelta(t.gunYaw || 0, yaw) * k;
     t.gunPitch = (t.gunPitch ?? 0.25) + (pitch - (t.gunPitch ?? 0.25)) * k;
     if (!live) return;
@@ -4821,7 +4878,31 @@ export class Battle {
       if (i < firing && d < 1800) {
         this.scene.gunFlashes.fire(`${id}/${i}`, m, guns, vel, cal, this.scene.effects, dt, i === 0 && d < 600);
       }
+      // Whatever of her is down in the sea: her wingtips in a low turn, her
+      // nose, her belly, her tail.
+      if (d < 4000) {
+        this.seaSkim(m, c & (CUT.wingOutL | CUT.wingInL) ? null : tp.tips[0], vel, dt);
+        this.seaSkim(m, c & (CUT.wingOutR | CUT.wingInR) ? null : tp.tips[1], vel, dt);
+        this.seaSkim(m, tp.nose, vel, dt);
+        for (const q of SKIM_PTS) this.seaSkim(m, q, vel, dt);
+      }
     }
+  }
+
+  /**
+   * One point of an aeroplane, in her own frame (`q`), against the sea.
+   *
+   * Under the water -- or close enough over it that the air off her wing
+   * tears the top off it -- it throws spray and leaves the sea torn up and
+   * rippling behind it, so a wingtip dragged through a low turn draws a line
+   * of white across the water. Only asked when she is low enough for it.
+   */
+  seaSkim(m, q, vel, dt) {
+    if (!q || m.elements[13] > 40) return;
+    const p = SKIM_P.fromArray(q).applyMatrix4(m);
+    if (this.scene.world && groundHeight(this.scene.world, p.x, p.z) > 0) return;
+    const depth = this.scene.ocean.heightAt(p.x, p.z) - p.y + 0.5;
+    if (depth > 0) this.scene.effects.skim(p.x, p.z, vel.x, vel.z, depth, dt);
   }
 
   /**
@@ -4890,22 +4971,114 @@ export class Battle {
    * point a couple of hundred yards out and converge there; a turret is not --
    * it is a pair of guns on a ring, pointed where the man points them.
    */
-  turretGuns(f, p) {
+  turretGuns(cal) {
     const eye = this.turretEye();
     if (!eye) return;
     const t = this.turret;
     const look = wrapAngle(eye.heading + t.yaw);
     const cp = Math.cos(t.pitch);
-    const R = 620;
+    let R = 620;
     const dx = Math.sin(look) * cp;
     const dy = -Math.sin(t.pitch);
     const dz = Math.cos(look) * cp;
+    // Laid down into the sea, the tracer stops where it goes in. A heavy's
+    // turret is fought by the simulation without rounds of its own, so the
+    // spout it throws is put there from here; the back seat's rounds are
+    // real ones, and the sea they go into says so itself (see airHit).
+    const sea = dy < 0 ? (eye.y - 0.5) / -dy : Infinity;
+    if (sea < R) {
+      R = sea;
+      if (t.heavy) this.spoutLater(eye.x + dx * R, eye.z + dz * R, cal, R / GUN_V);
+    }
     const ex = eye.x + dx * R;
     const ey = eye.y + dy * R;
     const ez = eye.z + dz * R;
-    this.scene.flak.fire(eye.x, eye.y, eye.z, ex, ey, ez, f.calibre, 8,
+    this.scene.flak.fire(eye.x, eye.y, eye.z, ex, ey, ez, cal, 8,
       this.scene.effects);
-    this.scene.effects.wingGun(eye.x, eye.y, eye.z, dx, dy, dz, f.calibre);
+    this.scene.effects.wingGun(eye.x, eye.y, eye.z, dx, dy, dz, cal);
+  }
+
+  /** The bore of the gun in the turret being manned. */
+  turretCal(f) {
+    const t = this.turret;
+    if (t && !t.heavy && t.spec.cal) return t.spec.cal * 1000;
+    return (f && f.calibre) || 12.7;
+  }
+
+  /** A round's spout, when the round gets there. See turretGuns. */
+  spoutLater(x, z, cal, after) {
+    if (!this.spouts) this.spouts = [];
+    if (this.spouts.length < 64) this.spouts.push({ x, z, cal, at: this.time + after });
+  }
+
+  /** Tell the simulation the back seat's gun is going, and where it is laid. */
+  sendRearGun(t, dt) {
+    this.net.send({
+      t: 'gunr', i: t.id,
+      y: Math.round(t.yaw * 1000) / 1000,
+      p: Math.round(t.pitch * 1000) / 1000,
+      dt: Math.round(dt * 100) / 100,
+    });
+  }
+
+  /**
+   * A turret manned off the plot, on an aeroplane somebody else is flying --
+   * her own navigator, or nobody at all. The gunner's trigger is his own: the
+   * space bar, or the FIRE key on the glass. What goes up the wire is the
+   * same as from a turret in an aeroplane the player is flying.
+   */
+  stepGunner(dt) {
+    const t = this.turret;
+    const flown = this.flight && this.flight.id === t?.id;
+    this.hud.setGunner?.(this.gunnerOffer(), !!t, !!t && !flown);
+    if (!t || flown) { this.gunnerFire = null; return; }
+    const g = this.gunnerFire || (this.gunnerFire = { guns: 0, tracer: 0 });
+    const firing = this.input.down('Space') || !!this.hud.gunHeld;
+    g.on = firing;
+    if (!firing) { g.guns = 0; g.tracer = 0; return; }
+    g.guns += dt;
+    g.tracer -= dt;
+    if (g.tracer <= 0) {
+      g.tracer = 0.1;
+      this.turretGuns(this.turretCal(null));
+    }
+    if (g.guns > 0.15) {
+      if (t.heavy) {
+        this.net.send({
+          t: 'gunb', i: t.id, n: t.name,
+          y: Math.round(t.yaw * 1000) / 1000,
+          a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
+          dt: Math.round(g.guns * 100) / 100,
+        });
+      } else {
+        this.sendRearGun(t, g.guns);
+      }
+      g.guns = 0;
+    }
+  }
+
+  /**
+   * Whether the aeroplane in hand has a gunner's seat to go to: a carrier
+   * bomber's back seat, or a heavy's tail turret if it is still there. The
+   * GUNNER key and B both go to it.
+   */
+  gunnerOffer() {
+    const air = this.airInHand();
+    if (!air) return null;
+    if (!air.heavy) return rearSeatOf(air.kind) ? 'rear' : null;
+    const spec = HEAVY[air.kind] || HEAVY.lancaster;
+    const names = (spec.turrets || []).map((q) => q.name);
+    const out = this.flight && this.flight.id === air.id ? (this.flight.gunsOut || []) : [];
+    const live = names.filter((n) => !out.includes(n));
+    return live.includes('tail') ? 'tail' : live[live.length - 1] || null;
+  }
+
+  /** Into the gunner's seat, or back out of it. */
+  toggleGunner() {
+    if (this.turret) { this.manTurret({ turret: this.turret.name }); return; }
+    const name = this.gunnerOffer();
+    if (!name) return;
+    this.manTurret({ turret: name });
   }
 
   /**
@@ -5293,6 +5466,15 @@ export class Battle {
     if (this.turret && (!air || air.id !== this.turret.id)) {
       this.turret = null;
       this.hud.setAirGun(null);
+    }
+    this.stepGunner(dt);
+    // The spouts of a manned heavy's rounds, as they get to the sea.
+    if (this.spouts && this.spouts.length) {
+      this.spouts = this.spouts.filter((q) => {
+        if (q.at > this.time) return true;
+        this.scene.effects.spout(q.x, q.z, q.cal);
+        return false;
+      });
     }
     // The key is offered for a salvo from the bridge, and for a stick whenever
     // a squadron is being watched or flown -- a pilot in a Lancaster has as
@@ -6180,6 +6362,17 @@ export class Battle {
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
         });
+        // Her wingtips and her ends, against the sea, the same as a flight's.
+        if (mine.y < 40) {
+          const m = SKIM_M.makeRotationFromEuler(SKIM_E.set(-mine.attitude, mine.heading, -mine.bank))
+            .setPosition(mine.x, mine.y, mine.z);
+          const n = pathOf(mine);
+          const vel = { x: n.x * mine.v, y: n.y * mine.v, z: n.z * mine.v };
+          const half = hspan / 2;
+          for (const q of [[-half, 0, 0], [half, 0, 0], [0, -1, 10], [0, -1, -10], [0, -1.5, 0]]) {
+            this.seaSkim(m, q, vel, dt);
+          }
+        }
         continue;
       }
       this.scene.heavies.add(
@@ -6928,7 +7121,7 @@ export class Battle {
         const down = ((t.spec.down === undefined ? 30 : t.spec.down) * Math.PI) / 180;
         // Her own centreline for this mounting: a tail turret's cone is about
         // dead astern, everything else's is about dead ahead.
-        const home = t.name === 'tail' || t.name === 'gondola' ? Math.PI : 0;
+        const home = AFT_POSTS.has(t.name) ? Math.PI : 0;
         t.yaw = home + clamp(wrapAngle(t.yaw + m.x - home), -arc, arc);
         t.pitch = clamp(t.pitch + m.y, -up, down);
         cam.fov = 58;
@@ -7243,6 +7436,7 @@ export class Battle {
     audio.stopAmbience();
     this.hud.setSunk(false);
     this.hud.showScoreboard(null, 0, false);
+    this.hud.setGunner?.(null, false, false);
     // And everything the battle put on the GPU, or the next one starts with
     // this one still in memory.
     try { this.scene.dispose(); } catch (e) { console.error('Steel Currents: clearing the battle', e); }

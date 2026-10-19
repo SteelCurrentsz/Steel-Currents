@@ -274,6 +274,7 @@ class HudBase {
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
       flyTake: $('fly-take'), cockpit: $('cockpit'), hudLeft: $('hud-left'),
+      gunSeat: $('gun-seat'), gunFire: $('gun-fire'),
       flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
       flyThr: $('fly-thr'), flyStall: $('fly-stall'),
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
@@ -995,6 +996,37 @@ class HudBase {
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
+    // The gunner's seat, and his trigger: held down for as long as the thumb
+    // is on it, the same as the cockpit's.
+    if (el.gunSeat) el.gunSeat.onclick = () => this.flyFns.gunner?.();
+    if (el.gunFire) {
+      const btn = el.gunFire;
+      btn.addEventListener('pointerdown', (ev) => {
+        btn.setPointerCapture(ev.pointerId);
+        this.gunHeld = true;
+        btn.classList.add('held');
+        ev.preventDefault();
+      });
+      for (const k of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        btn.addEventListener(k, () => { this.gunHeld = false; btn.classList.remove('held'); });
+      }
+    }
+  }
+
+  /**
+   * The gunner's key: offered while an aeroplane with a gunner's seat is
+   * being watched, reading LEAVE GUN while somebody is in it, with the FIRE
+   * key beside it when there is no cockpit on the glass to fire from.
+   */
+  setGunner(offer, seated, fire) {
+    const el = this.el;
+    if (!el.gunSeat) return;
+    const show = (!!offer || seated) && !this.flying;
+    el.gunSeat.hidden = !show;
+    const label = seated ? 'LEAVE GUN' : offer === 'rear' ? 'REAR GUNNER' : 'TAIL GUNNER';
+    if (show && el.gunSeat.textContent !== label) el.gunSeat.firstElementChild.textContent = label;
+    el.gunFire.hidden = !fire;
+    if (!fire && this.gunHeld) { this.gunHeld = false; el.gunFire.classList.remove('held'); }
   }
 
   /** Offer the set pieces, or not: a heavy bomber has none. */
@@ -2687,7 +2719,7 @@ export class Hud extends HudBase {
     // buttons over.
     const el = this.el || {};
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
-      el.flyArms, el.flyBombCam, el.flyTake, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
+      el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
   }
 }

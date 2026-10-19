@@ -516,6 +516,17 @@ input[type="range"] { accent-color: var(--red); }
 .fly-take[hidden] { display: none; }
 .fly-take svg { width: 20px; height: 20px; display: block; }
 .fly-take:hover { background: rgba(18, 44, 30, 0.96); }
+/* The gunner's seat sits above CONTROL, and his trigger under the right thumb. */
+.fly-take.gunner { bottom: calc(max(0.4vh, env(safe-area-inset-bottom)) + 2.6rem); }
+.gun-fire {
+  position: absolute; right: max(1.2rem, env(safe-area-inset-right)); bottom: 22vh; z-index: 9;
+  width: 4.6rem; height: 4.6rem; border-radius: 50%;
+  background: rgba(60, 14, 10, 0.78); border: 2px solid #e0533c; color: #ffd9cf;
+  font-family: var(--ui); font-size: 0.8rem; letter-spacing: 0.18em;
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.gun-fire[hidden] { display: none; }
+.gun-fire.held { background: rgba(140, 30, 18, 0.9); }
 
 /* The cockpit: War Thunder Mobile's layout, which is the one everybody's
    thumbs already know. Drag anywhere to aim; a trigger under each thumb; the

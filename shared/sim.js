@@ -2817,6 +2817,8 @@ function stepBullets(state, dt) {
       state.events.push({
         e: 'airHit', x: r(b.x), y: r(Math.max(0, g)), z: r(b.z), air: 0,
         land: g > 0.5 ? 1 : 0,
+        // Into the sea, which throws a spout -- and how big a round it was.
+        ...(g > 0.5 ? {} : { sea: 1, c: b.cal || 0 }),
       });
       continue;
     }
@@ -7346,6 +7348,9 @@ const REAR_ROLES = new Set(['dive', 'torpedo', 'scout']);
 function stepRearGunners(state, dt) {
   for (const p of state.planes) {
     if (p.dead || !REAR_ROLES.has(p.role) || !(p.count > 0)) continue;
+    // Somebody of ours is sitting in his seat and laying the gun himself:
+    // see gunRear.
+    if (state.t - (p.rearHand ?? -9) < 0.6) continue;
     const py = p.y ?? 220;
     const v = airVelocity(p);
     const sp = Math.hypot(v.x, v.y, v.z) || 1;
@@ -7386,6 +7391,65 @@ function stepRearGunners(state, dt) {
       });
     }
   }
+}
+
+/**
+ * The back seat's gun, laid and fired by a player sitting in it.
+ *
+ * `yaw` is where he is looking off her nose -- pi is dead astern -- and
+ * `pitch` how far below the horizon, which is how the client's turret view
+ * keeps them. His rounds are real rounds, down the line he is looking along
+ * and out at the muzzle velocity on top of her own speed, and they hit what
+ * they hit (see stepBullets): a fighter sitting on her tail, the sea, a ship.
+ * While he is in the seat the gunner the simulation keeps there stands down.
+ */
+const REAR_ARC = (115 * Math.PI) / 180;
+const REAR_HAND = 0.22;     // of FIGHTER_GUNS a second, per machine
+export function gunRear(state, ship, id, yaw, pitch, dt) {
+  const p = state.planes.find((q) => q.id === id);
+  if (!p || p.dead || !ship || p.team !== ship.team) return false;
+  if (!REAR_ROLES.has(p.role) || !(p.count > 0)) return false;
+  // Not somebody else's: an aeroplane another captain is flying has his gunner.
+  if (p.pilot && p.pilot !== ship.id) return false;
+  if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return false;
+  p.rearHand = state.t;
+  // He cannot fire forward through his own pilot.
+  if (Math.abs(wrapAngle(yaw - Math.PI)) > REAR_ARC) return true;
+  p.rearGunAt = (p.rearGunAt ?? 0) + dt;
+  if (p.rearGunAt < 1 / BURST_RATE) return true;
+  const rounds = Math.min(4, Math.floor(p.rearGunAt * BURST_RATE));
+  p.rearGunAt = 0;
+  const v = airVelocity(p);
+  const air = (FIGHTER_GUNS * REAR_HAND * (p.count || 1)) / BURST_RATE;
+  const hurt = (20 * (p.count || 1)) / BURST_RATE;
+  const el0 = -clamp(pitch, -1.4, 1.4);
+  for (let i = 0; i < rounds; i++) {
+    const h = wrapAngle(p.heading + yaw + (state.rng() + state.rng() - 1) * 0.004);
+    const el = el0 + (state.rng() + state.rng() - 1) * 0.004;
+    const cp = Math.cos(el);
+    state.bullets.push({
+      id: eid(),
+      team: p.team, owner: p.owner, plane: p.id,
+      x: p.x, y: (p.y ?? 220) + 0.8, z: p.z,
+      vx: Math.sin(h) * cp * BULLET_V + v.x,
+      vy: Math.sin(el) * BULLET_V + v.y,
+      vz: Math.cos(h) * cp * BULLET_V + v.z,
+      life: 0, dmg: air, hurt, cal: 7.7,
+    });
+  }
+  // Everybody else's screen swings her gunner's gun onto the line and draws
+  // the tracer down it.
+  if (state.t - (p.rearAt ?? -9) >= 0.12) {
+    p.rearAt = state.t;
+    const h = wrapAngle(p.heading + yaw);
+    const cp = Math.cos(el0);
+    state.events.push({
+      e: 'rearGun', i: p.id, t: 0, team: p.team,
+      x: r(p.x + Math.sin(h) * cp * 450), y: r((p.y ?? 220) + Math.sin(el0) * 450),
+      z: r(p.z + Math.cos(h) * cp * 450),
+    });
+  }
+  return true;
 }
 
 /**
