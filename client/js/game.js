@@ -282,10 +282,8 @@ const GUN_COUNT = {
  * Wildcat's four fifties at four hundred a gun, a Zero's two cannon and two
  * rifle-calibre, a scout's one gun and a few belts.
  */
-const AMMO = {
-  wildcat: 1600, dauntless: 720, avenger: 600, arado: 620, kingfisher: 500,
-  besson: 500, loire: 500, zero: 1120, suisei: 800, tenzan: 500, jake: 500,
-};
+/** Rounds aboard every aeroplane a player takes, across all her guns. */
+const PLANE_ROUNDS = 3000;
 /** Rounds a minute out of one gun: about seven hundred, for all of them. */
 const GUN_RPM = 720;
 /**
@@ -334,6 +332,36 @@ export function airArsenal(kind) {
   const rows = buildAirArsenal(kind);
   AIR_ARMS.set(kind, rows);
   return rows;
+}
+
+/**
+ * A gun mounting on an aeroplane, carried from her own frame into the world:
+ * rolled and pitched with her, because a gunner in a banked aeroplane is
+ * banked.
+ */
+function mountWorld(at, spec) {
+  const [lx, ly, lz] = spec ? [spec.x || 0, spec.y || 0, spec.z || 0] : [0, 0, 0];
+  const cb = Math.cos(at.bank), sb = Math.sin(at.bank);
+  const rx = lx * cb - ly * sb;
+  const ry = lx * sb + ly * cb;
+  const cp = Math.cos(at.pitch), sp = Math.sin(at.pitch);
+  const rz = lz * cp - ry * sp;
+  const y2 = lz * sp + ry * cp;
+  const ch = Math.cos(at.heading), sh = Math.sin(at.heading);
+  return {
+    x: at.x + rx * ch + rz * sh,
+    y: at.y + y2,
+    z: at.z - rx * sh + rz * ch,
+    heading: at.heading,
+    bank: at.bank,
+    pitch: at.pitch,
+  };
+}
+
+/** The gun positions of a heavy that have been shot out, off her `tg` bits. */
+function postsOut(kind, tg) {
+  const posts = (BOMBERS[kind] || BOMBERS.lancaster).posts || [];
+  return posts.filter((_, k) => tg & (1 << k));
 }
 
 function buildAirArsenal(kind) {
@@ -2795,6 +2823,35 @@ export class Battle {
           }
           break;
         }
+        case 'heavyGun': {
+          // One of a heavy's gun positions, on an aeroplane in its arc: the
+          // tracer goes out of that turret on her leading machine.
+          const bm = (this.bombersNow || []).find((q) => q.i === ev.i);
+          const at = this.heavyPose(ev.i);
+          if (!bm || !at) break;
+          const spec = ((HEAVY[bm.b] || HEAVY.lancaster).turrets || [])[ev.k];
+          const mz = mountWorld(at, spec);
+          const tgt = (this.planesNow || []).find((q) => q.i === ev.t);
+          const mine = this.flight && !this.flight.heavy && this.flight.id === ev.t
+            ? this.flight.pilot : null;
+          const tx = mine ? mine.x : tgt ? tgt.x : ev.x;
+          const ty = mine ? mine.y : tgt ? this.planeHeight(tgt) : ev.y;
+          const tz = mine ? mine.z : tgt ? tgt.z : ev.z;
+          const cal = /12\.7|0\.5|\.50/.test((BOMBERS[bm.b] || {}).calibre || '') ? 12.7 : 7.7;
+          this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, cal, 6, fx, 7, 0);
+          break;
+        }
+        case 'turretOut': {
+          // One of a heavy's turrets shot out. Her own pilot hears it off the
+          // snapshot (see stepFlight); a captain watching her is told here.
+          if (ev.tm === this.team && !(this.flight && this.flight.id === ev.i)
+            && this.watching && this.watching.id === ev.i) {
+            const bm = (this.bombersNow || []).find((q) => q.i === ev.i);
+            const name = bm ? postsOut(bm.b, 1 << ev.k)[0] : '';
+            if (name) this.hud.alert(`${TURRET_NAME[name] || name} turret knocked out`);
+          }
+          break;
+        }
         case 'deckCrash': {
           // An aeroplane at eighty knots on a flight deck with a hole in it.
           // She goes into it, and there is a fire on the deck where she went.
@@ -3525,6 +3582,11 @@ export class Battle {
     const spec = (HEAVY[air.kind] || HEAVY.lancaster).turrets
       .find((t) => t.name === row.turret);
     if (!spec) return;
+    if (air.heavy && this.flight && this.flight.id === air.id
+      && (this.flight.gunsOut || []).includes(row.turret)) {
+      this.hud.alert(`The ${TURRET_NAME[row.turret] || row.turret} turret has been shot out`);
+      return;
+    }
     this.closeBombSight();
     this.turret = {
       id: air.id,
@@ -3555,14 +3617,7 @@ export class Battle {
     if (!t) return null;
     let at = null;
     if (t.heavy) {
-      const bm = (this.bombersNow || []).find((q) => q.i === t.id);
-      if (bm) at = { x: bm.x, y: bm.y, z: bm.z, heading: bm.h, bank: bm.bank || 0, pitch: 0.05 };
-      const mine = this.flight && this.flight.heavy && this.flight.id === t.id
-        ? this.flight.pilot : null;
-      if (mine) {
-        at = { x: mine.x, y: mine.y, z: mine.z, heading: mine.heading,
-          bank: mine.bank, pitch: mine.pitch };
-      }
+      at = this.heavyPose(t.id);
     } else {
       const pl = (this.planesNow || []).find((q) => q.i === t.id);
       if (pl) at = { x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h, bank: 0, pitch: 0 };
@@ -3574,24 +3629,21 @@ export class Battle {
       }
     }
     if (!at) return null;
-    // The mounting, in her frame and then in the world. Rolled and pitched
-    // with her, because a gunner in a banked aeroplane is banked.
-    const [lx, ly, lz] = t.spec ? [t.spec.x || 0, t.spec.y || 0, t.spec.z || 0] : [0, 0, 0];
-    const cb = Math.cos(at.bank), sb = Math.sin(at.bank);
-    const rx = lx * cb - ly * sb;
-    const ry = lx * sb + ly * cb;
-    const cp = Math.cos(at.pitch), sp = Math.sin(at.pitch);
-    const rz = lz * cp - ry * sp;
-    const y2 = lz * sp + ry * cp;
-    const ch = Math.cos(at.heading), sh = Math.sin(at.heading);
-    return {
-      x: at.x + rx * ch + rz * sh,
-      y: at.y + y2,
-      z: at.z - rx * sh + rz * ch,
-      heading: at.heading,
-      bank: at.bank,
-      pitch: at.pitch,
-    };
+    return mountWorld(at, t.spec);
+  }
+
+  /** Where a heavy squadron's leading machine is and how she is sitting. */
+  heavyPose(id) {
+    let at = null;
+    const bm = (this.bombersNow || []).find((q) => q.i === id);
+    if (bm) at = { x: bm.x, y: bm.y, z: bm.z, heading: bm.h, bank: bm.bank || 0, pitch: 0.05 };
+    const mine = this.flight && this.flight.heavy && this.flight.id === id
+      ? this.flight.pilot : null;
+    if (mine) {
+      at = { x: mine.x, y: mine.y, z: mine.z, heading: mine.heading,
+        bank: mine.bank, pitch: mine.pitch };
+    }
+    return at;
   }
 
   /** Is the thing being watched a flight or a squadron of ours we could fly? */
@@ -3673,7 +3725,7 @@ export class Battle {
       aimF: { x: Math.sin(pl.h), y: 0, z: Math.cos(pl.h) },
       aimU: { x: 0, y: 1, z: 0 },
       // What is left in her guns.
-      ammo: AMMO[kind] ?? 800,
+      ammo: PLANE_ROUNDS,
       guns_n: GUN_COUNT[kind] ?? 2,
     };
 
@@ -4001,6 +4053,19 @@ export class Battle {
     // And how many of her are left in the air beside you.
     if (f.heavy) {
       f.count = Math.max(1, pl.n || 1);
+      // Her gun positions that have been shot out. The one he is sitting in
+      // going is said out loud and puts him back in the pilot's seat.
+      const tg = pl.tg || 0;
+      if (tg !== (f.tg || 0)) {
+        f.tg = tg;
+        f.gunsOut = postsOut(f.kind, tg);
+        this.hud.setAirGunsOut(f.gunsOut);
+        if (this.turret && f.gunsOut.includes(this.turret.name)) {
+          this.hud.alert(`The ${TURRET_NAME[this.turret.name] || this.turret.name} turret is knocked out`);
+          this.turret = null;
+          this.hud.setAirGun(null);
+        }
+      }
       const left = pl.ld || 0;
       if (left !== f.loads) {
         // A load has gone. The pilot is told once, and the key comes back
@@ -4117,7 +4182,7 @@ export class Battle {
           if (this.turret) {
             const t = this.turret;
             this.net.send({
-              t: 'gunb', i: f.id,
+              t: 'gunb', i: f.id, n: t.name,
               y: Math.round(t.yaw * 1000) / 1000,
               a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
               dt: Math.round(f.guns * 100) / 100,

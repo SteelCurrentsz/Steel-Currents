@@ -44,6 +44,7 @@ export const BOMBER_MAX = 8;
  * @property {string} load      how that load was usually made up
  * @property {number} turrets   powered turrets aboard
  * @property {string} stations  where those turrets are
+ * @property {string[]} posts   every gun position, in the model's order
  * @property {number} guns      barrels, all told
  * @property {string} calibre   what those barrels are
  * @property {string} arcs      how far each mounting trains, in degrees
@@ -72,6 +73,9 @@ export const BOMBERS = {
     load: '1 × 4,000 lb cookie + 12 SBC',
     turrets: 3,
     stations: 'Nose, dorsal, tail',
+    // Every gun position aboard, powered or not, in the order the model
+    // builds them -- the simulation fights each one, and each can be shot out.
+    posts: ['nose', 'dorsal', 'tail'],
     guns: 8,
     calibre: '.303 in Browning',
     arcs: 'Nose 190°, dorsal 360°, tail 188°',
@@ -98,6 +102,9 @@ export const BOMBERS = {
     load: '8 × 1,000 lb GP',
     turrets: 4,
     stations: 'Chin, dorsal, ball, tail',
+    // Every gun position aboard, powered or not, in the order the model
+    // builds them -- the simulation fights each one, and each can be shot out.
+    posts: ['chin', 'dorsal', 'ball', 'tail'],
     guns: 13,
     calibre: '.50 in Browning M2',
     arcs: 'Chin 174°, dorsal 360°, ball 360°, tail 90°',
@@ -123,6 +130,9 @@ export const BOMBERS = {
     load: '2 × LT F5b torpedoes, or 8 × SC 250',
     turrets: 1,
     stations: 'Dorsal',
+    // Every gun position aboard, powered or not, in the order the model
+    // builds them -- the simulation fights each one, and each can be shot out.
+    posts: ['dorsal', 'nose', 'gondola'],
     guns: 6,
     calibre: '20 mm MG FF, 7.92 mm MG 15',
     arcs: 'Dorsal 200°, nose 80°, gondola 70°',
@@ -148,6 +158,9 @@ export const BOMBERS = {
     load: '4 × SC 500 under the wing, 28 × SC 50 within',
     turrets: 0,
     stations: 'Flexible mountings only',
+    // Every gun position aboard, powered or not, in the order the model
+    // builds them -- the simulation fights each one, and each can be shot out.
+    posts: ['dorsal', 'gondola'],
     guns: 5,
     calibre: '13 mm MG 131, 7.92 mm MG 81',
     arcs: 'Dorsal 110°, gondola 70° — hand-held',
@@ -174,6 +187,9 @@ export const BOMBERS = {
     load: '1 × Type 91 torpedo, or 12 × 60 kg',
     turrets: 2,
     stations: 'Dorsal, tail',
+    // Every gun position aboard, powered or not, in the order the model
+    // builds them -- the simulation fights each one, and each can be shot out.
+    posts: ['dorsal', 'tail'],
     guns: 5,
     calibre: '20 mm Type 99, 7.7 mm Type 92',
     arcs: 'Dorsal 360°, tail 60°',

@@ -709,6 +709,9 @@ input[type="range"] { accent-color: var(--red); }
 .conn-panel.in-cockpit .arms-list { max-height: 46vh; }
 /* And the mounting somebody is actually sitting in. */
 .arms-row.manned { border-color: rgba(230, 207, 156, 0.8); }
+/* A turret that has been shot out: still listed, plainly not working. */
+.arms-row.out { opacity: 0.45; border-color: rgba(226, 86, 79, 0.7); }
+.arms-row.out .arms-name::after { content: ' — knocked out'; color: #ff9d96; }
 .arms-row.manned .arms-name { color: var(--sand); }
 
 .fly-btn.arms:active, .fly-btn.arms.on {

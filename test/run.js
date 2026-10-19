@@ -17569,6 +17569,33 @@ check("each side's squadrons are laid out on its own centre line", () => {
 });
 
 
+check("a heavy's turrets fire at the fighters and are shot out one by one", () => pinned(() => {
+  // Every gun position she has is fought on its own: it fires at whatever
+  // enemy aeroplane is in its arc and in reach, and a hit on her can put it
+  // out of action for good.
+  const world = generateWorld(4104, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighter: 8, dive: 0, torpedo: 0 } });
+  cv.x = 0; cv.z = 0;
+  const bm = addBomber(st, { bomberId: 'fortress', team: 1, x: 0, z: 6000 });
+  assert.equal(bm.posts.length, BOMBERS.fortress.posts.length,
+    'a Fortress was raised without her gun positions');
+  launchStrike(st, cv);
+  let fired = 0;
+  const out = new Set();
+  for (let i = 0; i < 20000 && bm.alive; i++) {
+    bm.spottedBy = [true, true];
+    for (const e of step(st, DT)) {
+      if (e.e === 'heavyGun' && e.i === bm.id) fired++;
+      if (e.e === 'turretOut' && e.i === bm.id) out.add(e.k);
+    }
+  }
+  assert.ok(fired > 0, "a Fortress's turrets never fired at the fighters on her");
+  assert.ok(out.size > 0, 'not one of her turrets was shot out');
+  for (const k of out) assert.ok(bm.posts[k].hp <= 0, `turret ${k} was reported out and is not`);
+}));
+
 check('a bomber stream comes over at a thousand metres', () => {
   // Ten thousand put her above everything: a ship's close-range battery could
   // not be laid that high, and a fighter off a deck spent her whole sortie

@@ -448,6 +448,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
       // her that anybody watching can actually see.
       d: b.phase === 'run' ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
+      // Which of her gun positions have been shot out, one bit each in the
+      // order of her `posts`.
+      tg: (b.posts || []).reduce((m, g, k) => (g.hp <= 0 ? m | (1 << k) : m), 0) || undefined,
       // What she has left to drop, so a captain flying her can see whether
       // there is another run in her.
       ld: b.loads || 0,

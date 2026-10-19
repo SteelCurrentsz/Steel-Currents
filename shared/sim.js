@@ -7849,11 +7849,9 @@ function stepPlanes(state, dt) {
         const bite = (P.fighterGuns ?? FIGHTER_GUNS)
           * (p.role === 'fighter' ? 0.9 : 0.35);
         hurtBomber(state, heavy, bite * p.count * dt, 'fighters');
-        // And the formation shoots back, turret by turret. A Lancaster's eight
-        // guns and a Fortress's thirteen are the reason a bomber stream was
-        // attacked and not simply shot down.
-        const b = BOMBERS[heavy.bomberId] || BOMBERS.lancaster;
-        hurtFlight(state, p, b.guns * heavy.count * 3.4 * dt, 'gunners');
+        // The formation shoots back turret by turret, at whatever is in each
+        // turret's arc -- see heavyGunners -- and not only at whoever is
+        // attacking her: a fighter flown by hand gets the same answer.
         gunsSeen(state, p, heavy.x, heavy.z, true);
         out.push(p);
         continue;
@@ -8381,6 +8379,22 @@ export const BOMB_ALT = 1000;
 /** What one machine of a heavy formation can absorb before she goes down. */
 const HEAVY_HP = 420;
 
+/**
+ * Her gun positions, and how hard they are to put out of action.
+ *
+ * All her positions together are worth this share of the formation's hit
+ * points, and a hit on her has POST_HIT of a chance of going into one of them
+ * as well as into the airframe -- so a vic that has been shot about to about
+ * two-thirds of itself has started losing turrets, and one that is very nearly
+ * down is very nearly defenceless.
+ */
+const POST_SHARE = 0.12;
+const POST_HIT = 0.35;
+/** How far her gunners reach, along the line of sight. */
+const HEAVY_GUN_REACH = 520;
+/** What one gun of hers is worth, a second, at close range. */
+const HEAVY_GUN_BITE = 5;
+
 /** How many aeroplanes fly in one formation -- a vic, which is what they flew. */
 export const HEAVY_VIC = 3;
 
@@ -8432,6 +8446,13 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     // airframe.js.
     perHp: HEAVY_HP,
     machines: Array.from({ length: n }, () => freshAirframe(HEAVY_HP)),
+    // Her gun positions, each fought on its own and each able to be shot out.
+    // One position stands for that turret across the whole vic. See
+    // heavyGunners.
+    posts: (b.posts || []).map((name) => ({
+      name, hp: (n * HEAVY_HP * POST_SHARE) / Math.max(1, b.posts.length),
+      max: (n * HEAVY_HP * POST_SHARE) / Math.max(1, b.posts.length), on: 0, t: 0,
+    })),
     wear: { speed: 1, turn: 1, aim: 1, count: n },
     // Set while somebody is flying her by hand; see flyBomber.
     flown: false, flownAt: 0, pilot: 0,
@@ -8849,9 +8870,12 @@ export function dropStick(state, ship, id) {
  * a tail gunner firing forward through his own fins does nothing at all --
  * which is the point of giving a turret an arc in the first place.
  */
-export function gunTurret(state, ship, id, yaw, arc, dt) {
+export function gunTurret(state, ship, id, yaw, arc, dt, post = '') {
   const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
   if (!bm || !ship || bm.team !== ship.team) return false;
+  // A position that has been shot out has nothing left in it to fire.
+  const g = post ? (bm.posts || []).find((q) => q.name === post) : null;
+  if (g && g.hp <= 0) return false;
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
   // Her own accumulator, not `gunAt` -- that one is a timestamp `gunsSeen`
   // uses to space the tracer out, and sharing it makes each of them eat the
@@ -8887,6 +8911,20 @@ export function gunTurret(state, ship, id, yaw, arc, dt) {
 /** A formation losing aeroplanes, one at a time, as it is shot about. */
 export function hurtBomber(state, bm, damage, why = 'flak') {
   if (!bm.alive) return;
+  // Some of what hits her hits a gun position: the turret is shot through,
+  // the gunner is hit, or the hydraulics that train it are cut. One that has
+  // gone stays gone.
+  const posts = (bm.posts || []).filter((g) => g.hp > 0);
+  if (posts.length && damage > 0 && state.rng() < POST_HIT) {
+    const k = Math.min(posts.length - 1, Math.floor(state.rng() * posts.length));
+    const g = posts[k];
+    g.hp -= damage;
+    if (g.hp <= 0) {
+      g.hp = 0;
+      g.on = 0;
+      state.events.push({ e: 'turretOut', i: bm.id, k: bm.posts.indexOf(g), tm: bm.team, why });
+    }
+  }
   // Into one machine of the formation rather than into the formation, so that
   // what a burst of flak does is break an engine or start a fire on one
   // bomber, and the rest fly on. The same routine a flight's damage goes
@@ -8958,6 +8996,68 @@ function heavySeen(state, bm) {
   }
 }
 
+/**
+ * Whether a gun position bears on something, given where it is off her nose
+ * (`fore`, the cosine off her heading) and how far above or below her it is
+ * (`up`, the sine of its elevation). A nose or a chin gun looks ahead, a tail
+ * gun astern, a dorsal turret over her and a ball or a gondola under her.
+ */
+function postBears(name, fore, up) {
+  switch (name) {
+    case 'nose': case 'chin': return fore > -0.15 && (name !== 'chin' || up < 0.5);
+    case 'tail': return fore < 0.15;
+    case 'dorsal': return up > -0.2;
+    case 'ball': case 'gondola': return up < 0.2;
+    default: return true;
+  }
+}
+
+/**
+ * Her gunners, fighting the formation.
+ *
+ * Every gun position she still has picks the nearest enemy aeroplane in its
+ * arc and in reach and fires at it in bursts -- an aeroplane flown by hand the
+ * same as one flown by the simulation. What each is worth is her guns shared
+ * over her positions, times the machines left in the vic; a position that has
+ * been shot out fires no more. A gunner who has gone to a turret himself
+ * fights it as well, on top of this: see gunTurret.
+ */
+function heavyGunners(state, bm, dt) {
+  const posts = bm.posts || [];
+  if (!posts.length || !(bm.count > 0)) return;
+  const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+  const per = (b.guns || 8) / posts.length;
+  const fx = Math.sin(bm.heading), fz = Math.cos(bm.heading);
+  for (let k = 0; k < posts.length; k++) {
+    const g = posts[k];
+    if (g.hp <= 0) { g.on = 0; continue; }
+    let best = null, bestR = HEAVY_GUN_REACH;
+    for (const q of state.planes) {
+      if (q.dead || q.team === bm.team || !mayHurt(state, bm.team, q)) continue;
+      const dx = q.x - bm.x, dy = (q.y ?? 220) - bm.y, dz = q.z - bm.z;
+      const R = Math.hypot(dx, dy, dz);
+      if (R >= bestR || R < 5) continue;
+      if (!postBears(g.name, (dx * fx + dz * fz) / R, dy / R)) continue;
+      best = q; bestR = R;
+    }
+    g.on = best ? best.id : 0;
+    if (!best) continue;
+    // In bursts: a couple of seconds on, a moment to lay off again.
+    g.t = (g.t || 0) + dt;
+    if ((g.t % 2.4) > 1.6) continue;
+    const reach = 1 - bestR / HEAVY_GUN_REACH;
+    hurtFlight(state, best, per * bm.count * HEAVY_GUN_BITE * (0.4 + 0.6 * reach) * dt, 'gunners');
+    if (best.hp <= 0 && !best.dead) killFlight(state, best, 'gunners');
+    if (state.t - (g.at ?? -9) >= 0.12) {
+      g.at = state.t;
+      state.events.push({
+        e: 'heavyGun', i: bm.id, k, t: best.id, team: bm.team,
+        x: r(best.x), y: r(best.y ?? 220), z: r(best.z),
+      });
+    }
+  }
+}
+
 function stepBombers(state, dt) {
   const out = [];
   for (const bm of state.bombers) {
@@ -8992,6 +9092,7 @@ function stepBombers(state, dt) {
       heavyDamage(state, bm, dt);
       stepHeavyRam(state, bm);
       if (!bm.alive) continue;
+      heavyGunners(state, bm, dt);
       heavySeen(state, bm);
       out.push(bm);
       continue;
@@ -9092,6 +9193,7 @@ function stepBombers(state, dt) {
     heavyDamage(state, bm, dt);
     stepHeavyRam(state, bm);
     if (!bm.alive) continue;
+    heavyGunners(state, bm, dt);
 
     heavySeen(state, bm);
 

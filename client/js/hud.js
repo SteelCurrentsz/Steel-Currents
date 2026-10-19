@@ -1682,6 +1682,15 @@ class HudBase {
   /** Say what happens when a gun on an aeroplane is pressed. */
   onAirArsenal(fn) { this.onAirGun = fn; }
 
+  /** Grey out the turrets that have been shot out, by name. */
+  setAirGunsOut(names) {
+    const out = names || [];
+    for (const r of this.armsRows || []) {
+      if (!r.w.turret) continue;
+      r.row.classList.toggle('out', out.includes(r.w.turret));
+    }
+  }
+
   /** Light the turret that is being manned, so the list says where you are. */
   setAirGun(name) {
     this.airGunAt = name || null;
