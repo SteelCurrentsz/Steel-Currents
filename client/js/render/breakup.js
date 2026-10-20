@@ -182,10 +182,10 @@ export class Pieces {
         tmpQ.setFromAxisAngle(tmpV.copy(k.w).multiplyScalar(1 / wl), wl * dt);
         k.q.premultiply(tmpQ);
       }
-      k.smoke -= dt;
-      if (k.smoke <= 0 && fx) {
-        k.smoke = k.burn > 0 ? 0.05 : 0.14;
-        fx.wreckSmoke(k.p.x, k.p.y, k.p.z, k.burn > 0 ? 1 : 0);
+      // The trail off her, laid along the way she went: see smokeRun.
+      if (fx) {
+        k.run = k.run || {};
+        fx.smokeRun(k.run, k.p.x, k.p.y, k.p.z, { fire: k.burn > 0 ? 0.7 : 0, thick: k.burn > 0 ? 0.6 : 0.4 });
       }
       k.burn = Math.max(0, k.burn - dt);
       const s = sea ? sea(k.p.x, k.p.z) : 0;

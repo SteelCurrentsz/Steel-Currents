@@ -21,6 +21,7 @@ const VERT = /* glsl */`
 uniform float uTime;
 uniform float uPix;        // pixels per metre at one metre
 uniform float uFogDensity;
+uniform float uMaxPx;      // the most a puff is ever drawn across, in pixels
 attribute vec3 drift;      // how it moves off once laid, metres a second
 attribute vec4 born;       // x: when it is laid, y: how long it lasts, z: size laid, w: growth
 attribute vec3 kind;       // x: fraction of its life spent burning, y: seed, z: tone
@@ -48,7 +49,7 @@ void main() {
   // It swells fast while it is hot and then only slowly: smoke spreads by
   // mixing, and mixing goes as the root of the time.
   float size = born.z + born.w * sqrt(t);
-  gl_PointSize = clamp(size * uPix / max(1.0, -mv.z), 1.2, 220.0);
+  gl_PointSize = clamp(size * uPix / max(1.0, -mv.z), 1.2, uMaxPx);
   vPx = gl_PointSize;
   vSpin = kind.y * 6.2832 + t * (kind.y - 0.5) * 1.6;
   float fd = uFogDensity * length(mv.xyz);
@@ -129,7 +130,14 @@ void main() {
 const G = 9.81;
 
 export class SmokeTrails {
-  constructor(scene, max = 9000) {
+  /**
+   * `maxPx` is how big one puff may ever be drawn. A trail off a piece of
+   * wreckage is seen from a ship a mile off and never needs more than the
+   * default; smoke off an aeroplane is seen from the cockpit of the one
+   * chasing her, thirty metres astern, and capped there it shrinks to a
+   * string of dots the nearer the camera gets.
+   */
+  constructor(scene, max = 9000, { maxPx = 220 } = {}) {
     this.max = max;
     this.next = 0;
     this.time = 0;
@@ -153,6 +161,7 @@ export class SmokeTrails {
       uniforms: {
         uTime: { value: 0 },
         uPix: { value: 900 },
+        uMaxPx: { value: maxPx },
         // Smoke takes its light from the sky it is under: the air colour is
         // the cheapest measure of that there is, and grey smoke drawn at
         // daylight brightness on a night sea glows.

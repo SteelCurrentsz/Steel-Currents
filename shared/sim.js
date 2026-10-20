@@ -7659,6 +7659,116 @@ function jinkFor(state, p, station, gx, gz, dt) {
   };
 }
 
+/** How far ahead she looks for one of her own side she is closing on, in seconds. */
+const AVOID_LOOK = 6;
+/** And how wide of him she means to pass, in metres. */
+const AVOID_SEP = 45;
+
+/**
+ * Her lookout for her own side: how far to swing her heading and her height
+ * off the autopilot's line to pass clear of a friendly she is closing on.
+ *
+ * Every machine of her side in the sky is flown by somebody watching for the
+ * others, and two of them on lines that meet do not meet: each sees the other
+ * coming, and each gives way -- away from him across the sky, and up or down
+ * whichever way he is not. Worked on where the two of them will be at their
+ * closest over the next few seconds rather than where they are now, so she
+ * starts giving way while there is room to do it in a bank and not a snap.
+ *
+ * Both of them run this, and each turns away from the other, so they open on
+ * each other rather than both dodging the same way. A machine dead ahead of
+ * her, closing head on, is passed on the right; and if they are at one height
+ * the lower id climbs and the other goes under.
+ *
+ * Her station on a leader is wider than this, so a formation keeping station
+ * is left alone; it is a flight joining up too fast, two strikes crossing, a
+ * fighter coming back through her own side, that it is for.
+ */
+function avoidFor(state, p) {
+  const { x: vx, y: vy, z: vz } = airVelocity(p);
+  const py = p.y ?? 220;
+  let heading = 0, height = 0, worst = 0;
+  for (const q of state.planes) {
+    if (q === p || q.dead || q.team !== p.team) continue;
+    const dx = q.x - p.x, dz = q.z - p.z, dy = (q.y ?? 220) - py;
+    if (Math.abs(dy) > 160 || dx * dx + dz * dz > 700 * 700) continue;
+    const w = airVelocity(q);
+    const wx = w.x - vx, wy = w.y - vy, wz = w.z - vz;
+    const ww = wx * wx + wy * wy + wz * wz;
+    const t = ww > 1e-6 ? clamp(-(dx * wx + dy * wy + dz * wz) / ww, 0, AVOID_LOOK) : 0;
+    const cx = dx + wx * t, cy = dy + wy * t, cz = dz + wz * t;
+    const miss = Math.hypot(cx, cy, cz);
+    if (miss >= AVOID_SEP) continue;
+    // Harder the nearer the miss and the sooner it comes -- and firmly from
+    // the start, because a pilot who sees he is going to hit somebody does
+    // not ease off the line a degree at a time.
+    const u = Math.sqrt(1 - miss / AVOID_SEP) * (1 - 0.5 * (t / AVOID_LOOK));
+    if (u <= worst) continue;
+    worst = u;
+    // Which side of her nose he will be on, and away from it.
+    const off = Math.hypot(cx, cz) > 2 ? angleDelta(p.heading, Math.atan2(cx, cz)) : 0;
+    const side = Math.abs(off) > 0.06 ? -Math.sign(off) : 1;
+    heading = side * u * 1.2;
+    const up = Math.abs(cy) > 3 ? -Math.sign(cy) : (p.id < q.id ? 1 : -1);
+    height = up * u * 60;
+  }
+  return { heading, height, urgent: worst };
+}
+
+/** The nearest two machines of one side are ever let come, centre to centre. */
+const SEP_MIN = 2 * TOUCH + 2;
+
+/**
+ * Her own side's aeroplanes are solid to her.
+ *
+ * Whatever the lookout above failed to give way for -- a dogfight with three of
+ * her own side on one enemy, a pilot flying his own machine through the middle
+ * of a strike -- two machines of one side are not let pass through each other.
+ * Where they have come closer than two half-spans they are pushed apart along
+ * the line between them, each half the way, so they slide off one another
+ * rather than overlapping. One under somebody's hands is his to place, and the
+ * other takes all of it; two flown by hand are both somebody else's to place.
+ * A heavy squadron does not give way to a single-engined machine: she does.
+ */
+function stepAirSpacing(state) {
+  const live = state.planes.filter((p) => !p.dead);
+  const push = (p, nx, ny, nz, k) => {
+    p.x += nx * k; p.z += nz * k;
+    p.y = Math.max(14, (p.y ?? 220) + ny * k);
+  };
+  for (let i = 0; i < live.length; i++) {
+    const A = live[i];
+    for (let j = i + 1; j < live.length; j++) {
+      const B = live[j];
+      if (A.team !== B.team || (A.flown && B.flown)) continue;
+      let dx = B.x - A.x, dy = (B.y ?? 220) - (A.y ?? 220), dz = B.z - A.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= SEP_MIN * SEP_MIN) continue;
+      let d = Math.sqrt(d2);
+      // Exactly on top of each other: apart sideways off her own heading.
+      if (d < 1e-3) { dx = Math.cos(A.heading); dy = 0; dz = -Math.sin(A.heading); d = 1; }
+      const nx = dx / d, ny = dy / d, nz = dz / d;
+      const gap = SEP_MIN - Math.min(d, SEP_MIN);
+      const a = A.flown ? 0 : B.flown ? 1 : 0.5;
+      push(A, nx, ny, nz, -gap * a);
+      push(B, nx, ny, nz, gap * (1 - a));
+    }
+    if (A.flown) continue;
+    for (const b of state.bombers || []) {
+      if (!b.alive || b.team !== A.team) continue;
+      if (Math.abs((b.y ?? 220) - (A.y ?? 220)) > 260 || dist2(A.x, A.z, b.x, b.z) > 260 * 260) continue;
+      const near = TOUCH + TOUCH_HEAVY + 2;
+      for (const m of flyingMachines(b, true)) {
+        const dx = A.x - m.x, dy = (A.y ?? 220) - m.y, dz = A.z - m.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d >= near) continue;
+        if (d < 1e-3) { push(A, 0, 1, 0, near); continue; }
+        push(A, dx / d, dy / d, dz / d, near - d);
+      }
+    }
+  }
+}
+
 /** How long she has been on her sortie, not counting the form-up over the ship. */
 function aloft(p) {
   return p.life - (p.formT || 0);
@@ -7945,7 +8055,14 @@ function stepPlanes(state, dt) {
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
       const jink = jinkFor(state, p, station, goalX, goalZ, dt);
-      const want = wrapAngle(headingTo(p.x, p.z, goalX, goalZ) + jink.heading);
+      // And clear of her own side: see avoidFor. Giving way comes before
+      // weaving -- a pilot dodging the flak does not dodge into his own
+      // wingman -- so the weave is taken out while she is giving way.
+      const clear = avoidFor(state, p);
+      const weave = 1 - Math.min(1, clear.urgent * 2.5);
+      jink.heading *= weave;
+      jink.height *= weave;
+      const want = wrapAngle(headingTo(p.x, p.z, goalX, goalZ) + jink.heading + clear.heading);
       // She rolls into a turn and out of it.
       //
       // A flight used to change course at 1.1 radians a second, which is sixty
@@ -8035,7 +8152,8 @@ function stepPlanes(state, dt) {
       // change is held to about a third of a gravity, which is what a pilot
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
-      const wantY = Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height);
+      const wantY = Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height
+        + clear.height);
       // A formation climbs at the rate its slowest aeroplane can hold, because
       // otherwise it is not a formation. Left to their own rates the fighters
       // were at cruising height while the torpedo bombers were still two
@@ -8050,8 +8168,11 @@ function stepPlanes(state, dt) {
       // A dive bomber holds the line she is diving down rather than easing
       // onto it: a lazy gain leaves her a couple of hundred metres above the
       // profile all the way in, which is a shallow glide and not a dive.
-      let askVy = clamp((wantY - p.y) * (p.role === 'dive' ? 1.4 : p.phase === 'ram' ? 1.0 : 0.22),
-        -frame.dive, rise);
+      // Giving way up or down is done on the stick, not by asking for a new
+      // height: the height she wants is closed on at a cruise climb, which is
+      // a good deal too slow to get over somebody coming the other way.
+      let askVy = clamp((wantY - p.y) * (p.role === 'dive' ? 1.4 : p.phase === 'ram' ? 1.0 : 0.22)
+        + Math.sign(clear.height) * clear.urgent * 14, -frame.dive, rise);
       // Over the top and down, and out at the bottom: see diveStage.
       const stage = p.role === 'dive' ? diveStage(state, p, dt) : null;
       if (stage) {
@@ -11216,6 +11337,7 @@ export function step(state, dt = DT) {
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);
+  stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);
   if (state.tick % 3 === 0) stepDetection(state);

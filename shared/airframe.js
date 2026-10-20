@@ -350,6 +350,7 @@ export function flightState(machines) {
   let aim = 0;
   let n = 0;
   let smoking = 0;
+  let burning = 0;
   for (const a of machines) {
     if (!a.alive || a.left) continue;
     const s = airframeState(a);
@@ -358,6 +359,7 @@ export function flightState(machines) {
     aim += s.aim;
     n++;
     if (a.fire > 0.05 || a.leak > 0.02) smoking++;
+    if (a.fire > 0.05) burning++;
   }
   return {
     count: n,
@@ -366,5 +368,8 @@ export function flightState(machines) {
     // Averaged, because each aeroplane aims her own bomb.
     aim: n ? aim / n : 0,
     smoking,
+    // And how many of those are alight, which is a different thing to see:
+    // flame streaming back off her, not a grey thread of oil.
+    burning,
   };
 }

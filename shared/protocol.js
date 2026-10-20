@@ -419,6 +419,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // it because there was nothing behind it -- a flight was one hit-point
       // bar and every machine in it was in identical condition by definition.
       sm: p.wear && p.wear.smoking ? p.wear.smoking : undefined,
+      fb: p.wear && p.wear.burning ? p.wear.burning : undefined,
       wr: p.wear && p.wear.speed < 0.995 ? r3(p.wear.speed) : undefined,
       // Which ship is flying her by hand, if anybody is. A flight has one
       // pilot: without this the plot could offer a squadron to two captains

@@ -6,6 +6,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { Splashes } from './splash.js';
 import { MuzzleBlasts, blastSize } from './muzzleblast.js';
 import { SmokeTrails } from './trails.js';
+import { Shards } from './shards.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -131,6 +132,19 @@ export class Effects {
     this.blasts = new MuzzleBlasts(scene, { intensity });
     // The fire and smoke burning pieces trail on the way down. See trails.js.
     this.trails = new SmokeTrails(scene, Math.round(6000 + 6000 * Math.min(1.7, intensity)));
+    // What goes on in the air round an aeroplane: the smoke and the fire off
+    // one that is hit, the black of a heavy shell bursting, and what is left of
+    // one that blows up. Its own pool, because a sky full of flak and burning
+    // aeroplanes would otherwise eat every trail the wreckage on the sea has --
+    // and drawn bigger close to, because it is looked at from a cockpit.
+    this.air = new SmokeTrails(scene, Math.round(9000 + 9000 * Math.min(1.6, intensity)),
+      { maxPx: 480 });
+    // And the scraps one blown apart throws. See shards.js.
+    this.shards = new Shards(scene, Math.round(1500 + 1500 * Math.min(1.6, intensity)));
+    // The fireballs, lent by the scene once it has them (see ExplosionSystem):
+    // the same boiling heads of fire and soot a hit inside a ship is drawn
+    // with, rather than a glowing disc.
+    this.bursts = null;
 
     this.lights = [];
     for (let i = 0; i < 6; i++) {
@@ -240,6 +254,7 @@ export class Effects {
   skim(x, z, vx, vz, depth, dt) { this.splashes.skim(x, z, vx, vz, depth, dt); }
 
   hit(x, y, z, kind, caliber = 152) {
+    if (kind === 'air') { this.strike(x, y, z, caliber); return; }
     const big = kind === 'citadel' ? 2.4 : kind === 'pen' ? 1.3 : 0.8;
     this.flash(x, y + 6, z, big);
     this.spawn({ x, y: y + 4, z, size: 16 * big, grow: 34 * big, ttl: 0.35, glow: true, color: 0xffd08a, opacity: 1 });
@@ -254,42 +269,79 @@ export class Effects {
     }
   }
 
-  explosion(x, y, z, scale = 1) {
+  /**
+   * Something going up: a fireball, the soot it turns into, and what it throws.
+   *
+   * `vel` is how fast whatever blew up was going, when it was going anywhere:
+   * an aeroplane at two hundred knots does not stop when her tanks go, and
+   * neither does the fire. It is carried on down her track for a hundred
+   * yards, smearing out as it slows, which is the shape every gun-camera film
+   * of one going up has in it.
+   */
+  explosion(x, y, z, scale = 1, vel = null) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     this.flash(x, y + 10, z, 3 * scale);
-    this.spawn({ x, y: y + 8, z, size: 30 * scale, grow: 70 * scale, ttl: 0.35, glow: true, color: 0xffc266, opacity: 0.9 });
-    // Heads of fire, each going dark from the outside in as it climbs: the
-    // flash is light, but what stands there afterwards is burning gas
-    // turning into soot.
-    for (let i = 0; i < Math.round(7 * Math.min(1.5, this.intensity)); i++) {
-      const a = Math.random() * Math.PI * 2, r = Math.random() * 8 * scale;
-      this.spawn({
-        x: x + Math.cos(a) * r, y: y + 6 + Math.random() * 8 * scale, z: z + Math.sin(a) * r,
-        vx: Math.cos(a) * (6 + Math.random() * 12), vy: 6 + Math.random() * 14,
-        vz: Math.sin(a) * (6 + Math.random() * 12),
-        size: (10 + Math.random() * 8) * scale, grow: 16 * scale, ttl: 1.6 + Math.random() * 1.4,
-        billow: true, drag: 0.5, lift: 2,
-        color: Math.random() < 0.4 ? 0xffd58a : 0xff8a2e, cool: 0x161210, opacity: 0.92,
+    const k = Math.min(1.5, this.intensity);
+    const vx = vel?.x || 0, vy = vel?.y || 0, vz = vel?.z || 0;
+    // The ball, from the scene's blasts.
+    if (this.bursts) {
+      this.bursts.blast(x, y + 2 * scale, z, {
+        size: 4 + 6 * scale,
+        duration: 0.55 + 0.35 * scale,
+        debris: Math.round((6 + 8 * scale) * k),
+        light: false, plume: false, ring: false, linger: 2.2,
+        power: Math.min(1, scale / 2),
       });
     }
-    for (let i = 0; i < Math.round(8 * this.intensity); i++) {
-      this.spawn({
-        x, y: y + 6, z,
-        vx: (Math.random() - 0.5) * 30, vy: 8 + Math.random() * 22, vz: (Math.random() - 0.5) * 30,
-        size: 22 * scale, grow: 30, ttl: 2.4 + Math.random() * 2,
-        billow: true, lift: 1.2, color: 0x2a2826, opacity: 0.8,
-      });
+    // Heads of burning fuel, each going out to soot as it climbs and slows:
+    // the flash is light, but what stands there afterwards is burning gas
+    // turning into smoke.
+    const heads = Math.round(9 * k);
+    for (let i = 0; i < heads; i++) {
+      const d = this.sphere(0.55);
+      const sp = (5 + Math.random() * 13) * Math.sqrt(scale);
+      this.air.puff(
+        x + d.x * 2 * scale, y + 3 * scale + d.y * 2 * scale, z + d.z * 2 * scale,
+        d.x * sp + vx * 0.45, Math.abs(d.y) * sp * 0.8 + vy * 0.3 + 2, d.z * sp + vz * 0.45, {
+          life: 2.2 + Math.random() * 1.6,
+          size: (3 + Math.random() * 3) * scale, grow: (4.5 + Math.random() * 3) * scale,
+          burn: 0.28 + Math.random() * 0.14, tone: 0.06 + Math.random() * 0.08,
+        });
     }
-    // And a few burning pieces thrown out of it on trails.
-    for (let i = 0; i < Math.round(6 * Math.min(1.5, this.intensity)); i++) {
-      const a = Math.random() * Math.PI * 2, up = 0.4 + Math.random() * 0.5;
+    // And the smoke that hangs where it was, black, boiling out slowly.
+    const smoke = Math.round(8 * k);
+    for (let i = 0; i < smoke; i++) {
+      const d = this.sphere(0.4);
+      const sp = (2 + Math.random() * 6) * Math.sqrt(scale);
+      this.air.puff(
+        x + d.x * 4 * scale, y + 4 * scale + d.y * 3 * scale, z + d.z * 4 * scale,
+        d.x * sp + vx * 0.2, d.y * sp + 2, d.z * sp + vz * 0.2, {
+          delay: 0.15 + Math.random() * 0.35,
+          life: 6 + Math.random() * 4,
+          size: (5 + Math.random() * 3) * scale, grow: (6 + Math.random() * 4) * scale,
+          burn: 0.02, tone: 0.07 + Math.random() * 0.1,
+        });
+    }
+    // A few burning pieces thrown out of it on trails: a few, because a
+    // dozen of them is a firework rather than an aeroplane.
+    for (let i = 0; i < Math.round(3 * k); i++) {
+      const a = Math.random() * Math.PI * 2, up = 0.2 + Math.random() * 0.5;
       const v = (25 + Math.random() * 30) * Math.sqrt(scale);
-      this.trails.arc(x, y + 6, z, Math.cos(a) * v * (1 - up * 0.5), v * up * 1.3,
-        Math.sin(a) * v * (1 - up * 0.5), {
+      this.trails.arc(x, y + 6, z, Math.cos(a) * v * (1 - up * 0.5) + vx * 0.5, v * up * 1.3,
+        Math.sin(a) * v * (1 - up * 0.5) + vz * 0.5, {
           flight: 2 + Math.random() * 2, floor: 0.5, spacing: 0.03, limit: 40,
           size: 1.4 * scale, grow: 2.4 * scale, life: 2.4 + Math.random() * 1.5,
           burnFor: 0.6 + Math.random() * 1.2, tone: 0.25 + Math.random() * 0.4,
         });
     }
+  }
+
+  /** A random direction, flattened towards the horizontal by `flat` (0..1). */
+  sphere(flat = 0) {
+    const a = Math.random() * Math.PI * 2;
+    const y = (Math.random() * 2 - 1) * (1 - flat);
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    return { x: Math.cos(a) * r, y, z: Math.sin(a) * r };
   }
 
   /**
@@ -300,40 +352,46 @@ export class Effects {
    * with a little burning trash among them, and they are what tells you an
    * aeroplane blew up rather than that something caught fire near you.
    */
-  debris(x, y, z, n = 10, scale = 1) {
+  debris(x, y, z, n = 10, scale = 1, vel = null) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     const count = Math.round(n * this.intensity);
+    const vx = vel?.x || 0, vy = vel?.y || 0, vz = vel?.z || 0;
     for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const up = 6 + Math.random() * 26;
+      const d = this.sphere(0.2);
       const out = 16 + Math.random() * 46;
       const hot = i % 4 === 0;
-      this.spawn({
-        x, y, z,
-        vx: Math.cos(a) * out, vy: up, vz: Math.sin(a) * out,
-        // Small and staying small: a piece of aeroplane does not billow.
-        size: (1.6 + Math.random() * 2.6) * scale, grow: 0.6, ttl: 2.6 + Math.random() * 2.4,
-        drag: 0.16,
-        glow: hot,
-        color: hot ? 0xffb057 : 0x2b2f34,
-        opacity: hot ? 0.95 : 0.85,
-      });
+      // Torn scraps rather than dots: see shards.js. Three for every piece
+      // there used to be, because most of an aeroplane is skin.
+      for (let j = 0; j < 3; j++) {
+        const sp = out * (0.5 + Math.random() * 0.7);
+        const e = this.sphere(0.1);
+        this.shards.throw(x, y, z,
+          (d.x + e.x * 0.5) * sp + vx * 0.7,
+          (Math.abs(d.y) + 0.25 + e.y * 0.4) * sp + vy * 0.5,
+          (d.z + e.z * 0.5) * sp + vz * 0.7, {
+            life: 3 + Math.random() * 3.5,
+            size: (0.35 + Math.pow(Math.random(), 2) * 1.1) * scale,
+            hot: hot && j === 0 ? 1 : 0,
+          });
+      }
       // The burning ones leave a line of fire and then smoke behind them.
-      if (hot || Math.random() < 0.3) {
-        this.trails.arc(x, y, z, Math.cos(a) * out * 0.8, up, Math.sin(a) * out * 0.8, {
-          flight: 2.6, floor: 0.5, spacing: 0.03, limit: 40, gravity: 6,
-          size: 1.1 * scale, grow: 2.2 * scale, life: 2.2 + Math.random() * 1.4,
-          burnFor: hot ? 0.8 + Math.random() * 1.2 : 0, tone: 0.2 + Math.random() * 0.3,
-        });
+      if (hot) {
+        this.trails.arc(x, y, z, d.x * out * 0.6 + vx * 0.4, (d.y * 0.5 + 0.2) * out * 0.5,
+          d.z * out * 0.6 + vz * 0.4, {
+            flight: 2, floor: 0.5, spacing: 0.03, limit: 30, gravity: 9.81,
+            size: 1.1 * scale, grow: 2.2 * scale, life: 2.2 + Math.random() * 1.4,
+            burnFor: hot ? 0.8 + Math.random() * 1.2 : 0, tone: 0.2 + Math.random() * 0.3,
+          });
       }
     }
     // And the smoke it all came out of.
     for (let i = 0; i < Math.round(4 * this.intensity); i++) {
-      this.spawn({
-        x, y, z,
-        vx: (Math.random() - 0.5) * 16, vy: 2 + Math.random() * 8, vz: (Math.random() - 0.5) * 16,
-        size: 9 * scale, grow: 16, ttl: 2.6 + Math.random() * 2,
-        color: 0x33383e, opacity: 0.75,
-      });
+      const d = this.sphere(0.3);
+      this.air.puff(x + d.x * 2, y + d.y * 2, z + d.z * 2,
+        d.x * 8 + vx * 0.2, 2 + Math.random() * 5, d.z * 8 + vz * 0.2, {
+          life: 4 + Math.random() * 3, size: 3.5 * scale, grow: 5 * scale,
+          tone: 0.18 + Math.random() * 0.12,
+        });
     }
   }
 
@@ -344,18 +402,75 @@ export class Effects {
    * trail, and the trail is the thing you actually see from a mile off.
    */
   wreckSmoke(x, y, z, fire = 1) {
-    this.spawn({
-      x, y, z,
-      vx: (Math.random() - 0.5) * 5, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 5,
-      size: 5, grow: 13, ttl: 5 + Math.random() * 3.5,
-      drag: 0.3, lift: 1.6, billow: true, color: 0x22252a, opacity: 0.7,
-    });
-    if (fire > 0 && Math.random() < 0.5) {
-      this.spawn({
-        x, y, z, size: 4.5, grow: 2, ttl: 0.4, glow: true,
-        color: 0xffa042, opacity: 0.9, drag: 0.7,
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    for (let i = 0; i < 3; i++) {
+      const d = this.sphere(0.3);
+      this.air.puff(x + d.x, y + d.y, z + d.z, d.x * 3, 1 + Math.random() * 2, d.z * 3, {
+        life: 5 + Math.random() * 3, size: 2.4, grow: 5.5,
+        burn: fire > 0 ? 0.06 : 0, tone: 0.08 + Math.random() * 0.08,
       });
     }
+    if (fire > 0) {
+      this.air.puff(x, y, z, 0, 0, 0, { life: 0.35, size: 3, grow: 4, burn: 0.95, tone: 0.1 });
+    }
+  }
+
+  /**
+   * The trail off something moving through the air: an aeroplane hit and still
+   * flying, one going down, a burning piece of one.
+   *
+   * Laid along the line it flew since the last call, not where it is now: at
+   * ninety metres a second one puff a frame is a string of beads a metre and a
+   * half apart, and one every tenth of a second is a row of balls. So `run` is
+   * the caller's own -- an object kept with the thing that is smoking, which
+   * remembers where the last puff went -- and the puffs are laid at a fixed
+   * spacing along the way from there, closer than they are wide, so what is
+   * left in the sky is one continuous ribbon that swells and breaks up as it
+   * ages.
+   *
+   * `fire` is how much of her is alight, 0 to 1. Burning, the newest of it is
+   * flame -- a short streaming tongue right behind her, white at the root and
+   * orange at the tip, going straight into oily black smoke. Not burning,
+   * which is a glycol or an oil leak or a shot-up engine, it is a thinner,
+   * paler grey. `thick` scales the lot: a heavy is four engines' worth.
+   */
+  smokeRun(run, x, y, z, { fire = 0, thick = 1, heavy = false } = {}) {
+    if (!run || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    if (run.x === undefined || Math.hypot(x - run.x, y - run.y, z - run.z) > 160) {
+      run.x = x; run.y = y; run.z = z;
+      return;
+    }
+    const dx = x - run.x, dy = y - run.y, dz = z - run.z;
+    const d = Math.hypot(dx, dy, dz);
+    const w = (heavy ? 1.8 : 1) * Math.max(0.3, thick);
+    const step = (heavy ? 2.4 : 1.6) / Math.sqrt(Math.max(0.3, Math.min(1.6, this.intensity)));
+    if (d < step) return;
+    const n = Math.min(40, Math.floor(d / step));
+    const ux = dx / d, uy = dy / d, uz = dz / d;
+    const burning = fire > 0.05;
+    for (let i = 1; i <= n; i++) {
+      const px = run.x + ux * step * i, py = run.y + uy * step * i, pz = run.z + uz * step * i;
+      const j = () => (Math.random() - 0.5);
+      // The smoke.
+      this.air.puff(px + j() * 0.6 * w, py + j() * 0.6 * w, pz + j() * 0.6 * w,
+        j() * 1.6, 0.6 + Math.random() * 0.8, j() * 1.6, {
+          life: (burning ? 6.5 : 4.5) * (0.8 + Math.random() * 0.4) * Math.min(1.4, 0.6 + thick * 0.5),
+          size: (burning ? 1.3 : 0.9) * w * (0.8 + Math.random() * 0.4),
+          grow: (burning ? 4.2 : 3) * w,
+          burn: burning ? 0.035 : 0,
+          tone: burning ? 0.04 + Math.random() * 0.07 : 0.34 + Math.random() * 0.12,
+        });
+      // And the flame, streaming back off her, only as long as it lasts.
+      if (burning && Math.random() < Math.min(1, fire + 0.25)) {
+        this.air.puff(px + j() * 0.4 * w, py + j() * 0.4 * w, pz + j() * 0.4 * w,
+          j() * 0.8, 0.4, j() * 0.8, {
+            life: (0.16 + Math.random() * 0.14) * (heavy ? 1.5 : 1),
+            size: (1.5 + Math.random() * 1.0) * w, grow: 1.6 * w,
+            burn: 0.96, tone: 0.08,
+          });
+      }
+    }
+    run.x += ux * step * n; run.y += uy * step * n; run.z += uz * step * n;
   }
 
   /**
@@ -395,16 +510,8 @@ export class Effects {
    */
   wingGun(x, y, z, dx, dy, dz, calibre = 12.7) {
     const k = 0.55 + calibre / 26;
-    this.spawn({
-      x: x + dx * 0.5, y: y + dy * 0.5, z: z + dz * 0.5,
-      size: 0.45 * k, grow: 2.0 * k, ttl: 0.06, glow: true,
-      color: 0xffe9b4, opacity: 1,
-    });
-    this.spawn({
-      x: x + dx * 1.4, y: y + dy * 1.4, z: z + dz * 1.4,
-      vx: -dx * 16, vy: -dy * 16, vz: -dz * 16,
-      size: 0.5 * k, grow: 4.2 * k, ttl: 0.55,
-      color: 0x9b9a92, opacity: 0.18, drag: 0.9,
+    this.air.puff(x + dx * 1.4, y + dy * 1.4, z + dz * 1.4, -dx * 14, -dy * 14, -dz * 14, {
+      life: 0.6, size: 0.35 * k, grow: 1.8 * k, tone: 0.6, burn: 0.08,
     });
   }
 
@@ -418,26 +525,54 @@ export class Effects {
    * fills up with these whether or not anything is being hit.
    */
   flakBurst(x, y, z, caliber = 127) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     const scale = 0.4 + caliber / 200;
-    this.spawn({
-      x, y, z, size: 4 * scale, grow: 13 * scale, ttl: 0.22,
-      glow: true, color: 0xffd9a0, opacity: 1,
+    // The burst itself: a hard orange flash that is gone in a fraction of a
+    // second, inside the smoke it makes.
+    this.air.puff(x, y, z, 0, 0, 0, {
+      life: 0.2, size: 2.4 * scale, grow: 10 * scale, burn: 0.98, tone: 0.05,
     });
-    const n = Math.max(1, Math.round(2 * this.intensity));
+    // And the smoke. Black -- American and British heavy flak burst black, and
+    // it is the one thing every gun-camera film of an attack has in it -- and
+    // not a ball but a knot: a handful of curls thrown out of the one point,
+    // tight and dense for the first second and then spreading and thinning
+    // into the ragged smudge that hangs there long after.
+    const n = Math.max(3, Math.round((4 + 3 * scale) * Math.min(1.5, this.intensity)));
     for (let i = 0; i < n; i++) {
-      this.spawn({
-        x: x + (Math.random() - 0.5) * 6,
-        y: y + (Math.random() - 0.5) * 5,
-        z: z + (Math.random() - 0.5) * 6,
-        vx: (Math.random() - 0.5) * 7, vy: 1 + Math.random() * 2,
-        vz: (Math.random() - 0.5) * 7,
-        size: 5.5 * scale, grow: 12 * scale,
-        ttl: 3.6 + Math.random() * 2.4,
-        // Black. American and British heavy flak burst black; it is the one
-        // thing every gun-camera film of an attack has in it.
-        color: 0x2b2c2e, opacity: 0.62, drag: 0.9,
-      });
+      const d = this.sphere(0);
+      const sp = (3 + Math.random() * 5) * scale;
+      this.air.puff(x + d.x * 0.8 * scale, y + d.y * 0.8 * scale, z + d.z * 0.8 * scale,
+        d.x * sp, d.y * sp + 0.5, d.z * sp, {
+          life: 4.5 + Math.random() * 3,
+          size: (2.2 + Math.random() * 1.4) * scale, grow: (3.4 + Math.random() * 1.8) * scale,
+          burn: 0.025, tone: 0.03 + Math.random() * 0.07,
+        });
     }
+    // The shell case going out of it, too fast to be anything but a glint.
+    for (let i = 0; i < Math.round(4 * Math.min(1.5, this.intensity)); i++) {
+      const d = this.sphere(0);
+      const sp = 40 + Math.random() * 50;
+      this.shards.throw(x, y, z, d.x * sp, d.y * sp, d.z * sp,
+        { life: 1.2 + Math.random(), size: 0.3 * scale, hot: 1 });
+    }
+  }
+
+  /**
+   * A round arriving on an aeroplane: a spark off the metal, a scrap or two of
+   * her skin, and a pinch of grey where it went in.
+   */
+  strike(x, y, z, caliber = 8) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    const k = 0.6 + caliber / 20;
+    this.air.puff(x, y, z, 0, 0, 0, { life: 0.12, size: 0.8 * k, grow: 3 * k, burn: 0.98, tone: 0.1 });
+    for (let i = 0; i < 3; i++) {
+      const d = this.sphere(0);
+      const sp = 12 + Math.random() * 25;
+      this.shards.throw(x, y, z, d.x * sp, d.y * sp, d.z * sp,
+        { life: 1 + Math.random() * 1.5, size: 0.18 + Math.random() * 0.25, hot: i === 0 ? 1 : 0 });
+    }
+    this.air.puff(x, y, z, (Math.random() - 0.5) * 2, 0.5, (Math.random() - 0.5) * 2,
+      { life: 1.4, size: 0.7 * k, grow: 2.2 * k, tone: 0.42 });
   }
 
   /**
@@ -632,6 +767,8 @@ export class Effects {
     this.splashes.update(dt);
     this.blasts.update(dt, camera);
     this.trails.update(dt);
+    this.air.update(dt);
+    this.shards.update(dt);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
       p.life += dt;

@@ -2959,7 +2959,7 @@ export class Battle {
           // there are a lot of them, so it is sparks and nothing else -- or,
           // into the sea, a little white spout where each one went in.
           if (ev.sea) fx.spout(ev.x, ev.z, ev.c || 12.7);
-          else fx.hit(ev.x, ev.y, ev.z, 'splash', ev.air ? 8 : 13);
+          else fx.hit(ev.x, ev.y, ev.z, ev.air ? 'air' : 'splash', ev.air ? 8 : 13);
           break;
         case 'flakOut':
           if (ev.ship === this.shipId) {
@@ -6571,11 +6571,14 @@ export class Battle {
    * aeroplane of the second section rather than a smudge at the leader's tail.
    */
   smokeFlight(pl, dt, mask = 0) {
-    const at = this.planeSmoke.get(pl.i) || 0;
-    const now = at - dt;
-    if (now > 0) { this.planeSmoke.set(pl.i, now); return; }
-    this.planeSmoke.set(pl.i, 0.09);
+    // Where each machine's trail last had a puff laid, so the next is laid
+    // along the way she has flown since: see Effects.smokeRun.
+    let runs = this.planeSmoke.get(pl.i);
+    if (!runs) { runs = []; this.planeSmoke.set(pl.i, runs); }
     const y = this.planeHeight(pl);
+    // Off her engine and wing roots, a few metres behind the middle of her,
+    // so the flame streams back from her rather than burning through her.
+    const bx = -Math.sin(pl.h || 0) * 3, bz = -Math.cos(pl.h || 0) * 3;
     // The stations actually flying, the furthest back first: the hurt ones
     // are the last in the formation, because a leader whose machine is shot
     // about hands the lead over.
@@ -6583,9 +6586,13 @@ export class Battle {
     const m = mask || (1 << Math.max(1, pl.n || 1)) - 1;
     for (let i = 5; i >= 0; i--) if ((m >> i) & 1) slots.push(i);
     const n = Math.min(pl.sm, slots.length);
+    // The ones on fire, rather than only trailing oil or glycol.
+    const fb = Math.min(pl.fb || 0, n);
     for (let i = 0; i < n; i++) {
       const s = slotAt(slots[i], pl.h || 0);
-      this.scene.effects.wreckSmoke(pl.x + s.x, y + s.y, pl.z + s.z);
+      const run = runs[slots[i]] || (runs[slots[i]] = {});
+      this.scene.effects.smokeRun(run, pl.x + s.x + bx, y + s.y, pl.z + s.z + bz,
+        { fire: i < fb ? 1 : 0 });
     }
   }
 
@@ -6600,9 +6607,13 @@ export class Battle {
   oneDown(o) {
     const fx = this.scene.effects;
     if (o.burst) {
-      // Blown apart in the air. There is nothing left to fall but pieces.
-      fx.explosion(o.x, o.y, o.z, 0.8);
-      fx.debris(o.x, o.y, o.z, 12);
+      // Blown apart in the air. There is nothing left to fall but pieces, and
+      // the fire and the pieces go on down the line she was flying.
+      const vel = {
+        x: o.vx ?? Math.sin(o.heading) * 60, y: o.vy ?? 0, z: o.vz ?? Math.cos(o.heading) * 60,
+      };
+      fx.explosion(o.x, o.y, o.z, 0.8, vel);
+      fx.debris(o.x, o.y, o.z, 12, 1, vel);
       audio.explosion(0.65, { x: o.x, y: o.y, z: o.z });
       this.blowApart(o.kind, o.x, o.y, o.z, o.heading, 60);
       return;
@@ -6696,13 +6707,14 @@ export class Battle {
       w.yaw = (w.yaw || 0) + w.spin * dt;
       w.heading = track > 2 ? wrapAngle(Math.atan2(w.vx, w.vz) + w.yaw * 0.35)
         : wrapAngle(w.heading + w.spin * dt);
-      w.smoke -= dt;
-      if (w.smoke <= 0) {
-        // As often as she is worth looking at: a burning machine leaves a
-        // column, one gliding down on an empty tank leaves almost nothing.
-        w.smoke = 0.055 / Math.max(0.2, w.trail === undefined ? 1 : w.trail);
-        fx.wreckSmoke(w.x, w.y, w.z);
-      }
+      // As much as she is worth looking at: a burning machine leaves a column
+      // with the fire streaming off the head of it, one gliding down on an
+      // empty tank leaves almost nothing.
+      w.run = w.run || {};
+      const tr = w.trail === undefined ? 1 : w.trail;
+      fx.smokeRun(w.run, w.x, w.y, w.z, {
+        fire: tr >= 1 ? 1 : tr >= 0.6 ? 0.45 : 0, thick: Math.max(0.35, tr), heavy: !!w.heavy,
+      });
       const sea = this.scene.ocean.heightAt(w.x, w.z);
       if (w.y <= sea + 1) {
         // In. A hundred-knot aeroplane going into the sea throws a good deal

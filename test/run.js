@@ -21264,6 +21264,71 @@ check('two aeroplanes flown into each other both go down', () => {
   assert.ok(q.dead || q.count < m0, 'the one she flew into lost nothing');
 });
 
+/** A second machine of her own side, a copy of her, to fly about with her. */
+function wingmanOf(st, p) {
+  const q = structuredClone(p);
+  q.id = Math.max(...st.planes.map((x) => x.id)) + 100;
+  q.lead = q.id;
+  st.planes.push(q);
+  return q;
+}
+
+check('two aeroplanes of one side never pass through each other', () => {
+  const { st, p } = airUp();
+  const q = wingmanOf(st, p);
+  // Put on top of each other, which is as far through as one can be.
+  q.x = p.x + 1; q.z = p.z; q.y = p.y = 400;
+  for (let k = 0; k < 20 / DT; k++) {
+    step(st, DT);
+    if (p.dead || q.dead) break;
+    const d = Math.hypot(p.x - q.x, (p.y ?? 0) - (q.y ?? 0), p.z - q.z);
+    assert.ok(d >= 15.9, `two of one side ${d.toFixed(1)} m apart, centre to centre`);
+  }
+});
+
+check('a pilot flying into one of his own side shoves her aside rather than through her', () => {
+  const { st, cv, p } = airUp();
+  const q = wingmanOf(st, p);
+  // She is going home on the autopilot, well clear of the flak; he is flown
+  // straight at her, wherever she goes and at whatever height she is.
+  p.x = 0; p.z = -11000; p.heading = 0; p.phase = 'return';
+  q.x = 0; q.z = -8000; q.heading = Math.PI; q.phase = 'return';
+  p.y = q.y = 400; p.vy = q.vy = 0;
+  let min = Infinity;
+  for (let k = 0; k < 25 / DT; k++) {
+    const h = Math.atan2(p.x - q.x, p.z - q.z);
+    const s = Math.min(85 * DT, Math.hypot(p.x - q.x, p.z - q.z));
+    flyPlane(st, cv, { i: q.id, x: q.x + Math.sin(h) * s, z: q.z + Math.cos(h) * s, h, y: p.y, p: 0, v: 85 });
+    const evs = step(st, DT);
+    assert.ok(!evs.some((e) => e.e === 'midAir'), 'two of one side collided');
+    if (p.dead || q.dead) break;
+    min = Math.min(min, Math.hypot(p.x - q.x, (p.y ?? 0) - (q.y ?? 0), p.z - q.z));
+  }
+  assert.ok(min >= 15.9, `she let him fly through her: ${min.toFixed(1)} m centre to centre`);
+});
+
+check('an aeroplane gives way to one of her own side coming the other way', () => {
+  const { st, cv, p } = airUp();
+  const q = wingmanOf(st, p);
+  p.x = 0; p.z = -11000; p.heading = 0; p.phase = 'return';
+  q.x = 0; q.z = -8000; q.heading = Math.PI; q.phase = 'return';
+  p.y = q.y = 400; p.vy = q.vy = 0;
+  // He comes straight down her line holding her height until they are close,
+  // and then holds his own: what she does about him from there is hers.
+  let hold = null;
+  let min = Infinity;
+  for (let k = 0; k < 25 / DT; k++) {
+    if (hold === null && Math.abs(p.z - q.z) < 400) hold = p.y;
+    flyPlane(st, cv, { i: q.id, x: q.x, z: q.z - 85 * DT, h: Math.PI, y: hold ?? p.y, p: 0, v: 85 });
+    step(st, DT);
+    if (p.dead || q.dead) break;
+    min = Math.min(min, Math.hypot(p.x - q.x, (p.y ?? 0) - (q.y ?? 0), p.z - q.z));
+  }
+  // Without her lookout she came by at thirty metres, climbing out for home
+  // under him.
+  assert.ok(min > 45, `she held on at him and passed ${min.toFixed(1)} m off`);
+});
+
 check("a fighter's rounds bring a heavy's machines down, and they fall", () => {
   const { st, cv, p } = airUp();
   const bm = addBomber(st, { bomberId: 'lancaster', team: 1, x: p.x, z: p.z + 3000, heading: Math.PI });

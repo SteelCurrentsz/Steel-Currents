@@ -2006,7 +2006,10 @@ export class BattleScene {
     // What a round that gets into a ship does that can be seen: it goes off
     // inside her, fireball and soot and the pieces it throws. No lights of its
     // own -- see ExplosionSystem.
-    this.bursts = new ExplosionSystem(this.scene, { slots: 16, lights: false });
+    this.bursts = new ExplosionSystem(this.scene, { slots: 28, lights: false });
+    // And lent to the effects, so an aeroplane going up is the same boiling
+    // fireball as a shell going off inside a ship, not a glowing disc.
+    this.effects.bursts = this.bursts;
     // The waves a splash throws go into the sea itself, through the wake map.
     this.effects.splashes.setWaves(this.wakes.rings);
     // And the ships, so a splash stays at a ship's side and what it throws
