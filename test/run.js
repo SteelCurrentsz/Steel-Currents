@@ -10945,9 +10945,14 @@ check('a flight shot down is reported once, not twice', () => {
   // Well apart, so the dogfight below happens out of reach of either ship's
   // anti-aircraft fire and the only thing that can kill a flight is another
   // flight -- which is the path under test.
-  cv.x = 0; cv.z = 0; cv2.x = 0; cv2.z = 12000;
-  cv.aimX = cv2.x; cv.aimZ = cv2.z;
-  cv2.aimX = cv.x; cv2.aimZ = cv.z;
+  // And far enough apart that the two strikes do not find each other on the
+  // way out: a fighter goes for anything in the air within seven kilometres,
+  // and two strikes launched at each other from twelve apart were inside that
+  // before they were all up. So opposite corners of the sea, each sent at a
+  // point in its own reach.
+  cv.x = -6800; cv.z = -6800; cv2.x = 6800; cv2.z = 6800;
+  cv.aimX = 0; cv.aimZ = 0;
+  cv2.aimX = 0; cv2.aimZ = 0;
   assert.ok(launchStrike(state, cv) && launchStrike(state, cv2), 'both would not launch');
   // Wait for the flights to get off the deck -- one at a time, so the whole
   // strike takes three deck runs -- then put the two forces on top of one
