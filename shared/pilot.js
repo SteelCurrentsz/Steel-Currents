@@ -16,10 +16,29 @@ import {
 } from './aero.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
-export const AGILITY = 1.35;
+export const AGILITY = 1.6;
 
 /** The most the rudder will skid her flight path round, in radians a second. */
-const YAW_RATE = 0.16;
+const YAW_RATE = 0.24;
+
+/**
+ * The load she needs to hold her height at this bank, given its cosine.
+ *
+ * One over the cosine, which runs away towards the vertical, so a pilot pulls
+ * as hard as he is going to past about seventy-five degrees and accepts going
+ * downhill -- and on her back it is a push. It used to be cut off at four and a
+ * half g and then turned straight over to minus four and a half the instant
+ * she passed ninety degrees, which is nine g asked for in a single frame: she
+ * bucked every time a hard turn went a degree past the vertical. Through the
+ * last few degrees it now runs down to nothing and out the other side, which
+ * is what a pilot's hand on the stick does.
+ */
+const HOLD_MAX = 4.5;
+const HOLD_KNEE = 0.1;
+export function holdG(cb) {
+  if (Math.abs(cb) >= HOLD_KNEE) return Math.max(-HOLD_MAX, Math.min(HOLD_MAX, 1 / cb));
+  return cb * (HOLD_MAX / HOLD_KNEE);
+}
 
 /**
  * An aeroplane with somebody in it.
@@ -76,6 +95,11 @@ export class Pilot {
     // How hard the wing is being asked to work, in g, and how close that is to
     // letting go. The HUD reads both.
     this.g = 1;
+    // The same, as her airframe has settled to it: what the angle her nose
+    // stands off her path is drawn from. A wing takes a moment to take up a
+    // load, and drawn off the instant figure her nose jerked up and down by
+    // degrees in a frame whenever the stick was thrown from a pull to a push.
+    this.gSeen = 1;
     this.stall = 0;
     this.alive = true;
     // The gale she is flying in, when there is one: {x, z} of wind in metres a
@@ -170,10 +194,18 @@ export class Pilot {
 
   /** The angle her nose stands off her flight path, toward her lift. */
   attitudeAlpha() {
-    const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(this.g)));
+    const g = this.gSeen ?? this.g;
+    const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(g)));
     // Past the stall the wing has let go, and she stops flying at an angle of
     // attack and starts falling at one.
-    return a * (1 - 0.7 * this.stall) * (this.g < 0 ? -1 : 1);
+    //
+    // And it goes through nothing on its way from loaded one way to loaded
+    // the other, as a wing does. Turned over on the sign of the load instead,
+    // the nose jumped the whole of twice her angle of attack in one frame
+    // every time she was pushed over the top of a climb or eased out of a
+    // dive -- which is the twitch she had going up and coming down.
+    const sign = Math.max(-1, Math.min(1, g / 0.6));
+    return a * (1 - 0.7 * this.stall) * sign;
   }
 
   /**
@@ -231,10 +263,7 @@ export class Pilot {
     // other way on her back, where holding her level is a push. Past about
     // seventy degrees of bank the g needed runs away, and what a pilot does
     // there is pull as hard as he is going to and accept going downhill.
-    const c = Math.cos(this.bank);
-    const HOLD_MAX = 4.5;
-    const hold = Math.max(-HOLD_MAX, Math.min(HOLD_MAX,
-      Math.abs(c) < 1e-3 ? Math.sign(c || 1) * HOLD_MAX : 1 / c));
+    const hold = holdG(Math.cos(this.bank));
     // Full back stick asks for everything the structure was stressed to.
     const limit = a.gLimit ?? 5.5;
     const askG = hold + this.stickPitch * (limit - 1);
@@ -247,6 +276,7 @@ export class Pilot {
     const minG = -Math.min(wingG, limit * 0.45);
     const kp = 1 - Math.exp(-s / (pitchTau(a, this.v) / this.agility));
     this.g += (Math.max(minG, Math.min(askG, maxG)) - this.g) * kp;
+    this.gSeen += (this.g - this.gSeen) * (1 - Math.exp(-s / 0.12));
     // Buffet and departure: asking the wing for more than it has.
     this.stall = Math.max(0, Math.min(1, (askG - wingG) / Math.max(1, wingG * 0.5)));
 
@@ -388,23 +418,19 @@ function orthonormal(F, U) {
  * heading.
  */
 export function instruct(p, aim) {
-  const ch = Math.cos(p.heading);
-  const sh = Math.sin(p.heading);
-  const cg = Math.cos(p.pitch);
-  const sg = Math.sin(p.pitch);
-  const cb = Math.cos(p.bank);
-  const sb = Math.sin(p.bank);
+  // (Anything flown without a frame of its own is read off its three angles.)
+  if (p.frame) p.frame();
+  const F = p.F || pathOf(p);
+  const U = p.U || upOf(p);
   // Her own axes: forward down her flight path, up through her canopy, and
-  // out along the wing she turns towards with positive bank.
-  const fx = sh * cg, fy = sg, fz = ch * cg;
-  const u0x = -sh * sg, u0y = cg, u0z = -ch * sg;
-  const lx = ch, lz = -sh;
-  const ux = cb * u0x + sb * lx, uy = cb * u0y, uz = cb * u0z + sb * lz;
-  const wx = cb * lx - sb * u0x, wy = -sb * u0y, wz = cb * lz - sb * u0z;
+  // out along the wing she turns towards with positive bank. Taken off the
+  // vectors she is flown on, not rebuilt from three angles, so they mean the
+  // same thing pointing straight up as they do level.
+  const W = cross(U, F);
   // Where the mark is, in her own frame.
-  const c = aim.x * fx + aim.y * fy + aim.z * fz;
-  const b = aim.x * ux + aim.y * uy + aim.z * uz;
-  const s = aim.x * wx + aim.y * wy + aim.z * wz;
+  const c = aim.x * F.x + aim.y * F.y + aim.z * F.z;
+  const b = aim.x * U.x + aim.y * U.y + aim.z * U.z;
+  const s = aim.x * W.x + aim.y * W.y + aim.z * W.z;
   const off = Math.acos(Math.max(-1, Math.min(1, c)));
 
   const a = p.a;
@@ -413,10 +439,19 @@ export function instruct(p, aim) {
   const wingG = (v * v) / (vs * vs);
   const limit = a.gLimit ?? 5.5;
   const span = Math.max(1, limit - 1);
-  const rmax = Math.max(0.1, rollRate(a, p.v) * (p.agility || 1));
+  const agility = p.agility || 1;
+  const rmax = Math.max(0.1, rollRate(a, p.v) * agility);
+  // How long she takes to answer the ailerons and the elevator. The stick is
+  // worked against where she will be once she has answered, not where she is:
+  // she has a roll on and a pull on, and a pilot who waits until the wing is
+  // where he wants it before he takes them off goes past it, comes back, and
+  // goes past it again -- which on the screen is an aeroplane that wags.
+  const tauR = rollTau(a, p.v) / agility;
+  const tauP = pitchTau(a, p.v) / agility;
+  const cb = Math.cos(p.bank);
   // The g she needs just to hold her height in the bank she is in, which the
   // flight model feeds in on its own (see Pilot.substep).
-  const hold = Math.abs(cb) < 0.2 ? Math.sign(cb || 1) * 4.5 : 1 / cb;
+  const hold = holdG(cb);
   // And never past the buffet: the most the wing will give, less that.
   const top = Math.max(0, (Math.min(wingG * 0.92, limit) - hold) / span);
 
@@ -426,22 +461,52 @@ export function instruct(p, aim) {
   // falling out of it -- and work the nose up or down onto it with the stick.
   const yawErr = wrapAngle(Math.atan2(aim.x, aim.z) - p.heading);
   const aimGamma = Math.asin(Math.max(-1, Math.min(1, aim.y)));
+  // How far the mark is round from her, as an angle in the sky rather than a
+  // difference of headings: up off the horizon the same heading difference is
+  // a great deal less of a turn, and flown as though it were not she banked
+  // hard for a mark only a few degrees off her nose and swung past it.
+  const side = yawErr * Math.cos(aimGamma);
   const most = Math.min(1.40, wingG * 0.9 > 1.02 ? Math.acos(1 / (wingG * 0.9)) : 0.2);
-  const wantBank = Math.max(-most, Math.min(most, yawErr * 3.2));
-  const rollT = (wrapAngle(wantBank - p.bank) * 5.5) / rmax;
+  const wantBank = Math.max(-most, Math.min(most, side * 4.0));
+  const rollT = ((wrapAngle(wantBank - p.bank) - p.roll * tauR) * 5.5) / rmax;
   // The nose, in the vertical. Pulling in a bank lifts her nose along her own
-  // up, which is only partly the world's, so it takes more in a steep one.
-  const gErr = aimGamma - p.pitch;
-  const pitchT = ((gErr * 2.6 * v) / G) / span / Math.max(0.35, Math.abs(cb)) * Math.sign(cb || 1);
+  // up, which is only partly the world's, so it takes more in a steep one --
+  // and nothing at all on her wing tip, where the elevator moves her nose
+  // along the horizon. That runs smoothly through the vertical bank: turned
+  // over on the sign of the cosine there it reversed the stick in a frame.
+  const climbing = (G * (p.g * cb - Math.cos(p.pitch))) / v;
+  const gErr = aimGamma - p.pitch - climbing * tauP;
+  const lift = cb / Math.max(cb * cb, 0.35 * 0.35);
+  const pitchT = ((gErr * 3.2 * v) / G / span) * lift;
   // Rudder, for the last few degrees: a skid onto the mark instead of a roll.
-  const yawT = Math.max(-1, Math.min(1, yawErr * 9)) * (1 - smooth(0.05, 0.25, Math.abs(yawErr)));
+  const yawT = Math.max(-1, Math.min(1, side * 9)) * (1 - smooth(0.05, 0.25, Math.abs(side)));
 
   // ---- a mark well above or below: over the top ---------------------------
   // Roll until her lift points at it and pull, which is how a loop, an
   // Immelmann and a split-S are all flown.
-  const rollTo = Math.atan2(s, b);
-  const rollV = (rollTo * 5.5) / rmax;
-  const pitchV = (off * Math.max(0, Math.cos(rollTo)) * 3.2 * v) / G / span;
+  let rollTo = Math.atan2(s, b);
+  // Dead under her canopy's floor the two ways round are the same distance,
+  // and the noise between them threw the stick from one to the other: she goes
+  // on round the way she is already rolling.
+  if (Math.abs(rollTo) > 2.6 && p.roll * rollTo < 0 && Math.abs(p.roll) > 0.15) {
+    rollTo -= Math.sign(rollTo) * Math.PI * 2;
+  }
+  // And with the mark on her nose there is nothing to roll towards: which way
+  // it lies from a point it is sitting on is whichever way the last rounding
+  // error went, and that slammed the ailerons from stop to stop the moment
+  // she arrived on anything above or below her. Close in she is laid on with
+  // the elevator and the rudder instead, the way the last few degrees of any
+  // shot are.
+  const far = smooth(0.04, 0.22, off);
+  const rollV = ((rollTo * far - p.roll * tauR) * 5.5) / rmax;
+  // Pull to the mark once her lift is on it; close in, up or down onto it.
+  // How fast her path is already swinging toward her canopy is taken off, and
+  // so is what gravity is already doing across her path -- pointed straight up
+  // she needs no g at all to go on pointing straight up.
+  const swinging = (G * (p.g - U.y)) / v;
+  const pull = far * off * Math.max(0, Math.cos(rollTo)) + (1 - far) * Math.atan2(b, Math.max(1e-3, c));
+  const pitchV = (U.y - hold + ((pull - swinging * tauP) * 3.2 * v) / G) / span;
+  const yawV = Math.max(-1, Math.min(1, s * 9)) * (1 - far);
 
   // A heavy bomber is not looped or split-essed: whatever the mark, she is
   // flown round in a turn and pushed or pulled onto it.
@@ -450,13 +515,18 @@ export function instruct(p, aim) {
   // Turning flat onto something behind her works from level flight; from the
   // bottom of a loop, nose down with the mark level behind her, it is a
   // diving spiral that never comes out. Putting her lift on the mark and
-  // pulling always does.
+  // pulling always does. So is anything with her own nose near the vertical,
+  // where her heading is whichever way the last rounding error left it.
   const k = (a.gLimit ?? 5.5) > 3.2
-    ? Math.max(smooth(0.42, 0.62, Math.abs(aim.y)), smooth(1.0, 1.5, off) * smooth(0.25, 0.5, -p.pitch))
+    ? Math.max(
+      smooth(0.42, 0.62, Math.abs(aim.y)),
+      smooth(1.0, 1.5, off) * smooth(0.25, 0.5, -p.pitch),
+      smooth(0.95, 1.25, Math.abs(p.pitch)),
+    )
     : 0;
   p.stickRoll = Math.max(-1, Math.min(1, rollT + (rollV - rollT) * k));
   p.stickPitch = Math.max(-0.55, Math.min(top, 1, pitchT + (pitchV - pitchT) * k));
-  p.stickYaw = yawT * (1 - k);
+  p.stickYaw = yawT + (yawV - yawT) * k;
   return off;
 }
 
@@ -479,8 +549,7 @@ export function pullTop(p) {
   const v = Math.max(20, p.v);
   const wingG = (v * v) / (vs * vs);
   const limit = a.gLimit ?? 5.5;
-  const cb = Math.cos(p.bank);
-  const hold = Math.abs(cb) < 0.2 ? Math.sign(cb || 1) * 4.5 : 1 / cb;
+  const hold = holdG(Math.cos(p.bank));
   return Math.max(0, Math.min(1, (Math.min(wingG * 0.92, limit) - hold) / Math.max(1, limit - 1)));
 }
 
