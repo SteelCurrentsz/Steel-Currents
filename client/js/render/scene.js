@@ -37,8 +37,9 @@ import { Rupture } from './rupture.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
+import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
-  MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
+  MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
   ISLE_RINGS, isleSpokes, isleVertex, COAST_STEP, drawnGround,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
@@ -132,7 +133,7 @@ function coastShade(h) {
   return [0.24, 0.27, 0.20];
 }
 
-function buildCoast(world) {
+function buildCoast(world, mat = null) {
   const m = landMask(world);
   if (!m.any) return null;
   // Drawn at twice the cell the sim collides on. The coastline carries its
@@ -158,7 +159,7 @@ function buildCoast(world) {
     if (!Number.isNaN(hs[k])) return hs[k];
     const x = -half + i * cell;
     const z = -half + j * cell;
-    hs[k] = groundHeight(world, x, z);
+    hs[k] = keelGround(world, x, z);
     return hs[k];
   };
 
@@ -197,7 +198,7 @@ function buildCoast(world) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+  return new THREE.Mesh(geo, mat || new THREE.MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
   }));
 }
@@ -266,7 +267,7 @@ function isleShade(h, slope = 0, grain = 0) {
   return [clamp(c[0] * g, 0, 1), clamp(c[1] * g, 0, 1), clamp(c[2] * g, 0, 1)];
 }
 
-function buildIslands(world) {
+function buildIslands(world, mat = null) {
   const islands = world.islands || [];
   if (!islands.length) return null;
   const g = new THREE.Group();
@@ -362,7 +363,7 @@ function buildIslands(world) {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const land = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+  const land = new THREE.Mesh(geo, mat || new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.95, metalness: 0,
   }));
   land.renderOrder = -1;
@@ -1145,6 +1146,10 @@ export class ShipView {
       // the rest of the way: nothing is added to it here.
       follow: ev.rate != null,
       down: down0,
+      // How far down the bottom lets her go, where there is a bottom: a ship
+      // lost inshore settles on it with her upperworks out of the sea.
+      floor: Number.isFinite(ev.floor) ? Math.max(down0, ev.floor) : Infinity,
+      rest: null,
       roll: 0,
       // Still alight when she went. The sea reaches the fire before the fire
       // is put out by it, and what the fire has been sitting next to for the
@@ -1307,6 +1312,12 @@ export class ShipView {
     // She goes at the rate her damage set, and gathers way downwards as the
     // last of the air comes out of her.
     g.down += (g.rate + g.accel * k) * dt;
+    if (g.down >= g.floor) {
+      // On the bottom. She stops where she is and lies as she was lying when
+      // she touched: nothing more to go down, and nothing to roll her further.
+      g.down = g.floor;
+      if (!g.rest) g.rest = { trim: this.group.rotation.x, heel: -this.group.rotation.z };
+    }
     const down = g.down;
 
     // How far over. A ship that still has some stability left settles with the
@@ -1355,11 +1366,13 @@ export class ShipView {
     // Her own frame goes on settling as one ship would: a break does not put
     // her back level and start her again. The halves hinge off it.
     this.group.position.y = -down;
-    this.group.rotation.x = trim;
-    this.group.rotation.z = -heel;
+    this.group.rotation.x = g.rest ? g.rest.trim : trim;
+    this.group.rotation.z = -(g.rest ? g.rest.heel : heel);
     if (this.halves) this.stepHalves(dt);
-    // Gone when the highest part of her is well under.
-    return down < this.cls.hull.length * 0.5 + 20;
+    // Gone when the highest part of her is well under -- and a wreck on the
+    // bottom in shallow water is never that: she stays, for as long as the
+    // battle does.
+    return g.rest ? true : down < this.cls.hull.length * 0.5 + 20;
   }
 
   /**
@@ -1992,16 +2005,28 @@ export class BattleScene {
         * (0.35 + 0.65 * dark),
     ));
 
-    const isles = buildIslands(world);
+    // The land's materials, made once and kept across every redraw of the
+    // ground: they carry the holes the keels' trenches are drawn in (see
+    // scars.js).
+    this.scarU = scarUniforms();
+    this.isleMat = cutLand(new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.95, metalness: 0,
+    }), this.scarU);
+    this.coastMat = cutLand(new THREE.MeshStandardMaterial({
+      vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+    }), this.scarU);
+    const isles = buildIslands(world, this.isleMat);
     if (isles) this.scene.add(isles);
     this.isleMesh = isles;
     // A battlefield has either a real coastline or invented islands, never
     // both, and the islands raise themselves above at their own detail. Running
     // the mask terrain over them as well would lay a hundred-and-fifty-metre
     // staircase on top of a three-hundred-metre island.
-    const coast = world.land?.length ? buildCoast(world) : null;
+    const coast = world.land?.length ? buildCoast(world, this.coastMat) : null;
     if (coast) this.scene.add(coast);
     this.coastMesh = coast;
+    // And the trenches keels have cut in it.
+    this.scars = new Scars(this.scene, world, (x, z) => terrainTint(world, x, z), this.scarU);
     // What the ground looked like when it was last drawn. The simulation bumps
     // this every time a shell takes a piece out of it; see syncGround.
     this.groundRev = world.groundRev || 0;
@@ -2009,6 +2034,8 @@ export class BattleScene {
     this.addBorder();
 
     this.effects = new Effects(this.scene, q.particles);
+    // What falls out of the sky comes down on the ground where there is some.
+    this.effects.groundAt = (x, z) => groundHeight(world, x, z);
     // What a round that gets into a ship does that can be seen: it goes off
     // inside her, fireball and soot and the pieces it throws. No lights of its
     // own -- see ExplosionSystem.
@@ -2377,14 +2404,15 @@ export class BattleScene {
    * rebuilding the island nine times.
    */
   syncGround(dt) {
+    if (this.scars) this.scars.sync(dt);
     const rev = this.world.groundRev || 0;
     if (rev === this.groundRev) return false;
     this.groundWait -= dt;
     if (this.groundWait > 0) return false;
     this.groundRev = rev;
     this.groundWait = 0.45;
-    for (const [old, add] of [[this.isleMesh, () => buildIslands(this.world)],
-      [this.coastMesh, () => (this.world.land?.length ? buildCoast(this.world) : null)]]) {
+    for (const [old, add] of [[this.isleMesh, () => buildIslands(this.world, this.isleMat)],
+      [this.coastMesh, () => (this.world.land?.length ? buildCoast(this.world, this.coastMat) : null)]]) {
       if (!old) continue;
       this.scene.remove(old);
       old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -2392,6 +2420,8 @@ export class BattleScene {
       if (made) this.scene.add(made);
       if (old === this.isleMesh) this.isleMesh = made; else this.coastMesh = made;
     }
+    // The trenches are lofted on the land as drawn, and that has just moved.
+    if (this.scars) this.scars.invalidate();
     return true;
   }
 

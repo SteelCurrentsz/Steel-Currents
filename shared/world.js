@@ -797,6 +797,168 @@ export function setCraters(world, list) {
   for (const c of list || []) applyCrater(world, c);
 }
 
+// ---------------------------------------------------------------------------
+// Keel scars
+// ---------------------------------------------------------------------------
+//
+// A ship that goes up a beach does not sit on top of it like a model on a
+// table. Her bottom is ten thousand tons of steel pressed into sand, and what
+// she leaves behind her is a trench the width of her bilges with the spoil
+// thrown up either side of it -- which is how a beaching is read from the air
+// for weeks afterwards.
+//
+// So the height field carries a third term besides the land and its craters:
+// a list of gouges, each a straight run of trench with a depth at either end.
+// A ship ploughing on extends the one she is cutting rather than starting
+// another, so a beaching is a handful of them and not a thousand.
+//
+// They are not craters, and they differ in the two ways that matter. A gouge
+// can go below the waterline -- most of a beaching is -- because the keel that
+// cut it is down there. And it is not in the mesh the land is drawn with,
+// because that mesh is a hundred metres between vertices and a trench is
+// fifteen across: it is drawn on its own (see render/scars.js), at its own
+// detail, over a hole cut in the land for it. Nor does a ship's own keel test
+// read it -- the trench is the shape of her bottom; she is lying in it, not
+// falling into it.
+
+/** How many scars a battlefield keeps. The oldest is recycled. */
+const GOUGE_MAX = 192;
+/** How far out from a trench's centre line its spoil is thrown, as a multiple of its half-width. */
+export const GOUGE_BERM = 1.8;
+
+function gougeIndex(world) {
+  // Rebuilt from the list when it is missing or has been through JSON, the
+  // same as the craters' (see craterIndex).
+  if (!(world._gougeIdx instanceof Map)) refileGouges(world);
+  return world._gougeIdx;
+}
+
+function refileGouges(world) {
+  const idx = (world._gougeIdx = new Map());
+  for (const g of world.gouges || []) {
+    const reach = g.w * GOUGE_BERM;
+    const i0 = Math.floor((Math.min(g.x0, g.x1) - reach) / CRATER_CELL);
+    const i1 = Math.floor((Math.max(g.x0, g.x1) + reach) / CRATER_CELL);
+    const j0 = Math.floor((Math.min(g.z0, g.z1) - reach) / CRATER_CELL);
+    const j1 = Math.floor((Math.max(g.z0, g.z1) + reach) / CRATER_CELL);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const k = `${i},${j}`;
+        let list = idx.get(k);
+        if (!list) { list = []; idx.set(k, list); }
+        list.push(g);
+      }
+    }
+  }
+}
+
+/**
+ * How far the scars move the ground at a point: down, in a trench, or up, on
+ * the spoil beside one. Where trenches cross the deeper wins, and spoil is
+ * never piled into somebody else's trench.
+ */
+export function gougeShift(world, x, z) {
+  if (!world.gouges || !world.gouges.length) return 0;
+  const list = gougeIndex(world).get(craterKey(x, z));
+  if (!list) return 0;
+  let cut = 0;
+  let heap = 0;
+  for (const g of list) {
+    const ex = g.x1 - g.x0;
+    const ez = g.z1 - g.z0;
+    const L2 = ex * ex + ez * ez;
+    let t = L2 > 1e-6 ? ((x - g.x0) * ex + (z - g.z0) * ez) / L2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const dx = x - (g.x0 + ex * t);
+    const dz = z - (g.z0 + ez * t);
+    const reach = g.w * GOUGE_BERM;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= reach * reach) continue;
+    const u = Math.sqrt(d2) / g.w;
+    const depth = g.d0 + (g.d1 - g.d0) * t;
+    if (u < 1) {
+      // Flat across her bottom and rounding up at the turn of her bilge.
+      const s = u < 0.55 ? 1 : 1 - (u - 0.55) / 0.45;
+      const drop = depth * s * s * (3 - 2 * s);
+      if (drop > cut) cut = drop;
+    } else {
+      // The spoil: a low bank, highest a little way out from the edge.
+      const b = (u - 1) / (GOUGE_BERM - 1);
+      const up = Math.min(2.5, depth * 0.3 + 0.15) * Math.sin(Math.PI * Math.sqrt(b));
+      if (up > heap) heap = up;
+    }
+  }
+  return cut > 0.01 ? -cut : heap;
+}
+
+/**
+ * Cut, or carry on cutting, a scar.
+ *
+ * `prev` is the scar the same part of the same keel was cutting last time.
+ * If the new run carries straight on from its end it is lengthened rather
+ * than a second one started. Returns the scar that holds the run, or null.
+ */
+export function addGouge(world, x0, z0, x1, z1, w, depth, prev = null) {
+  if (!world.gouges) world.gouges = [];
+  if (!(w > 0) || !(depth > 0)) return null;
+  const run = Math.hypot(x1 - x0, z1 - z0);
+  const g0 = prev && world.gouges.includes(prev) ? prev : null;
+  if (g0 && Math.hypot(g0.x1 - x0, g0.z1 - z0) < 2) {
+    const ex = g0.x1 - g0.x0;
+    const ez = g0.z1 - g0.z0;
+    const L = Math.hypot(ex, ez);
+    // Straight on: the same trench, longer. Bent: a new length of it.
+    const bent = L > 1 && run > 0.1
+      ? 1 - (ex * (x1 - x0) + ez * (z1 - z0)) / (L * run) : 0;
+    if (L + run < 70 && bent < 0.002 && Math.abs(g0.w - w) < 0.5) {
+      g0.x1 = x1; g0.z1 = z1;
+      g0.d1 = depth;
+      world.scarRev = (world.scarRev || 0) + 1;
+      refileGouges(world);
+      return g0;
+    }
+  }
+  const g = {
+    id: (world.gougeSeq = (world.gougeSeq || 0) + 1),
+    x0, z0, x1, z1, w, d0: g0 ? Math.max(g0.d1, depth) : depth, d1: depth,
+  };
+  if (world.gouges.length >= GOUGE_MAX) world.gouges.shift();
+  world.gouges.push(g);
+  world.scarRev = (world.scarRev || 0) + 1;
+  refileGouges(world);
+  return g;
+}
+
+/** A scar as it goes on the wire. */
+export function gougeWire(g) {
+  const q = (v) => Math.round(v * 10) / 10;
+  return { i: g.id, a: [q(g.x0), q(g.z0), q(g.x1), q(g.z1)], w: q(g.w), d: [q(g.d0), q(g.d1)] };
+}
+
+/**
+ * Put a scar on to a battlefield, from the wire. By its number, for the same
+ * reason a crater is (see applyCrater): a standalone build shares the very
+ * world the keel is cutting.
+ */
+export function applyGouge(world, m) {
+  if (!world.gouges) world.gouges = [];
+  let g = world.gouges.find((q) => q.id === m.i);
+  if (!g) {
+    g = { id: m.i };
+    if (world.gouges.length >= GOUGE_MAX) world.gouges.shift();
+    world.gouges.push(g);
+    world.gougeSeq = Math.max(world.gougeSeq || 0, m.i);
+  } else if (g.x1 === m.a[2] && g.z1 === m.a[3] && g.d1 === m.d[1] && g.d0 === m.d[0]) {
+    return false;
+  }
+  [g.x0, g.z0, g.x1, g.z1] = m.a;
+  g.w = m.w;
+  [g.d0, g.d1] = m.d;
+  world.scarRev = (world.scarRev || 0) + 1;
+  refileGouges(world);
+  return true;
+}
+
 /**
  * The shape of the land as it was made, before anything was fired at it.
  *
@@ -866,6 +1028,17 @@ export function landCeiling(world) {
  * knows nothing about, so ships would sail into a hill.
  */
 export function groundHeight(world, x, z) {
+  const h = keelGround(world, x, z);
+  return world.gouges && world.gouges.length ? h + gougeShift(world, x, z) : h;
+}
+
+/**
+ * The ground with its craters and without the trenches keels have cut in it:
+ * what a keel is tested against (she is lying in her own trench, not sinking
+ * into it), and what the land's mesh is lofted through (the trenches are drawn
+ * on their own, at their own detail).
+ */
+export function keelGround(world, x, z) {
   const base = baseGround(world, x, z);
   if (base <= 0) return base;
   return Math.max(0.2, base - craterDrop(world, x, z));
@@ -909,7 +1082,7 @@ export function isleVertex(world, isle, spokes, i, j) {
     const t = (f - 1) / (ISLE_RINGS[ISLE_RINGS.length - 1] - 1);
     y = -24 * t * t;
   } else {
-    y = groundHeight(world, x, z);
+    y = keelGround(world, x, z);
   }
   return [x, y, z];
 }
@@ -976,10 +1149,10 @@ function coastDrawn(world, x, z) {
   const j = Math.floor((z + m.half) / cell);
   const x0 = -m.half + i * cell;
   const z0 = -m.half + j * cell;
-  const h00 = groundHeight(world, x0, z0);
-  const h10 = groundHeight(world, x0 + cell, z0);
-  const h11 = groundHeight(world, x0 + cell, z0 + cell);
-  const h01 = groundHeight(world, x0, z0 + cell);
+  const h00 = keelGround(world, x0, z0);
+  const h10 = keelGround(world, x0 + cell, z0);
+  const h11 = keelGround(world, x0 + cell, z0 + cell);
+  const h01 = keelGround(world, x0, z0 + cell);
   const u = (x - x0) / cell;
   const w = (z - z0) / cell;
   // Split corner to corner from (x0, z0), as the renderer splits it.
@@ -1004,7 +1177,7 @@ export function drawnGround(world, x, z) {
     const h = coastDrawn(world, x, z);
     if (h > top) top = h;
   }
-  return top === -Infinity ? groundHeight(world, x, z) : top;
+  return top === -Infinity ? keelGround(world, x, z) : top;
 }
 
 /** Signed distance to the shore in metres: positive inland, negative at sea.

@@ -23,6 +23,7 @@ uniform float uFogDensity;
 attribute vec3 vel;
 attribute vec4 born;   // x: when, y: how long, z: size in metres, w: seed
 attribute float hot;   // 0 cold metal, 1 burning
+attribute float ground; // the height of the ground under it; 0 at sea
 varying float vAge;
 varying float vSeed;
 varying float vRot;
@@ -49,8 +50,12 @@ void main() {
   float g = 9.81;
   vec3 pos = position + vel * e / k;
   pos.y -= g * (t / k - e / (k * k));
-  // A scrap that has reached the sea is in it.
-  if (pos.y < 0.0) {
+  // A scrap that has come down ashore lies where it fell; one that has
+  // reached the sea is in it.
+  if (ground > 0.5 && pos.y < ground) {
+    t = min(t, 0.0);
+    pos.y = ground + 0.15;
+  } else if (pos.y < 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
     return;
@@ -118,6 +123,7 @@ export class Shards {
     geo.setAttribute('vel', at(3));
     geo.setAttribute('born', at(4, -1e9));
     geo.setAttribute('hot', at(1));
+    geo.setAttribute('ground', at(1));
     this.geo = geo;
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -148,7 +154,7 @@ export class Shards {
   }
 
   /** One scrap, thrown from a point at a velocity. */
-  throw(x, y, z, vx, vy, vz, { life = 4, size = 0.6, hot = 0 } = {}) {
+  throw(x, y, z, vx, vy, vz, { life = 4, size = 0.6, hot = 0, floor = 0 } = {}) {
     const i = this.next;
     this.next = (i + 1) % this.max;
     const g = this.geo.attributes;
@@ -156,6 +162,7 @@ export class Shards {
     g.vel.setXYZ(i, vx, vy, vz);
     g.born.setXYZW(i, this.time, life, size, Math.random());
     g.hot.setX(i, hot);
+    g.ground.setX(i, floor);
     if (i < this.lo) this.lo = i;
     if (i > this.hi) this.hi = i;
   }
@@ -164,7 +171,7 @@ export class Shards {
     this.time += dt;
     this.mat.uniforms.uTime.value = this.time;
     if (this.hi < 0) return;
-    for (const k of ['position', 'vel', 'born', 'hot']) {
+    for (const k of ['position', 'vel', 'born', 'hot', 'ground']) {
       const a = this.geo.attributes[k];
       a.clearUpdateRanges();
       a.addUpdateRange(this.lo * a.itemSize, (this.hi - this.lo + 1) * a.itemSize);

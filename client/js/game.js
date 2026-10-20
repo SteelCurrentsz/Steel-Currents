@@ -28,7 +28,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -42,7 +42,7 @@ import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
-import { groundHeight, applyCrater, getWeather } from '../../shared/world.js';
+import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 
 // How far behind the server everybody else is drawn, in the server's own
 // seconds. A little over two snapshots at fifteen a second, so one of them can
@@ -2444,6 +2444,18 @@ export class Battle {
           // -- does not dig it a second time. See applyCrater.
           applyCrater(this.scene.world, ev.c);
           break;
+        case 'gouge': {
+          // Her keel cutting the ground: the trench it leaves, and what it
+          // throws up -- sand off a beach, the sea where it is still under.
+          applyGouge(this.scene.world, ev.g);
+          const sz = Math.min(1.6, 0.35 + (ev.v || 0) / 6) * Math.max(0.6, (ev.w || 8) / 12);
+          if (ev.y > -0.5) {
+            fx.dust(ev.x, Math.max(0.5, ev.y + 0.5), ev.z, sz);
+          } else if ((ev.v || 0) > 0.8) {
+            fx.splash(ev.x, ev.z, 60 + sz * 90);
+          }
+          break;
+        }
         case 'collapse': {
           // Ground giving way. Not a burst: a slide, with the dust of it going
           // up where the hillside was.
@@ -6012,6 +6024,8 @@ export class Battle {
         }
         const gone = this.sinkInfo?.get(s.i);
         view.founder({
+          // How far further she can go before her keel is on the bottom.
+          floor: seabedRoom(this.scene.world, { x: s.x, z: s.z, heading: s.h || 0 }, view.cls),
           heel: view.heelBy,
           trim: view.trimBy,
           broke: s.bk,

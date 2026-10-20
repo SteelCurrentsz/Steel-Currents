@@ -355,6 +355,9 @@ export class Effects {
   debris(x, y, z, n = 10, scale = 1, vel = null) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     const count = Math.round(n * this.intensity);
+    // What it comes down on: the sea, or the ground where there is ground --
+    // and a scrap that lands ashore lies there rather than going on through.
+    const floor = this.groundAt ? Math.max(0, this.groundAt(x, z)) : 0;
     const vx = vel?.x || 0, vy = vel?.y || 0, vz = vel?.z || 0;
     for (let i = 0; i < count; i++) {
       const d = this.sphere(0.2);
@@ -372,6 +375,7 @@ export class Effects {
             life: 3 + Math.random() * 3.5,
             size: (0.35 + Math.pow(Math.random(), 2) * 1.1) * scale,
             hot: hot && j === 0 ? 1 : 0,
+            floor,
           });
       }
       // The burning ones leave a line of fire and then smoke behind them.
@@ -391,6 +395,22 @@ export class Effects {
         d.x * 8 + vx * 0.2, 2 + Math.random() * 5, d.z * 8 + vz * 0.2, {
           life: 4 + Math.random() * 3, size: 3.5 * scale, grow: 5 * scale,
           tone: 0.18 + Math.random() * 0.12,
+        });
+    }
+  }
+
+  /**
+   * Sand and earth thrown up by something ploughing through it: a keel going
+   * up a beach. Pale, low and slow -- it is dust, not smoke.
+   */
+  dust(x, y, z, size = 1) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    for (let i = 0; i < Math.max(1, Math.round(3 * this.intensity)); i++) {
+      const d = this.sphere(0.5);
+      this.air.puff(x + d.x * size * 3, y + Math.abs(d.y) * size, z + d.z * size * 3,
+        d.x * 3 * size, 1 + Math.random() * 2.5 * size, d.z * 3 * size, {
+          life: 3 + Math.random() * 3, size: 3 * size, grow: 7 * size,
+          tone: 0.62 + Math.random() * 0.14,
         });
     }
   }

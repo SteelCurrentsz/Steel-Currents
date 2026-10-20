@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
-  drawnGround, isleSpokes, isleVertex,
+  drawnGround, isleSpokes, isleVertex, keelGround, applyGouge, gougeShift,
 } from '../shared/world.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, windAt, WAVES as SEA_WAVES, SEA_AMP,
@@ -25,7 +25,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
-  siteBattery, batteryPad, afloatAt,
+  siteBattery, batteryPad, afloatAt, seabedRoom,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -4449,6 +4449,81 @@ check('the harder she goes aground the more of her bottom it takes', () => {
     took[label] = hp0 - ship.hp;
   }
   assert.ok(took.fast > took.slow * 1.5, `full speed cost ${Math.round(took.fast)}, a quarter ${Math.round(took.slow)}`);
+});
+
+check('driven up a beach she ploughs a trench in it, lies in it, and the trench goes on the wire', () => {
+  const ran = {};
+  for (const notch of [2, 5]) {
+    const { w, st, ship } = offIsland('iowa');
+    ship.notch = notch;
+    const cut = [];
+    for (let i = 0; i < 240 / DT; i++) for (const e of step(st, DT)) if (e.e === 'gouge') cut.push(e);
+    ran[notch] = { w, ship, cut };
+  }
+  // The harder she hits it the further up it she goes.
+  assert.ok(ran[5].ship.z > ran[2].ship.z + 25,
+    `full speed took her ${(ran[5].ship.z - ran[2].ship.z).toFixed(0)} m further up than a quarter`);
+  const { w, ship, cut } = ran[5];
+  assert.ok(cut.length && w.gouges?.length, 'she went up the beach and left no mark on it');
+  // The trench is in the ground the shells and the picture read, and is not
+  // in what her keel is tested against: she is lying in it, not sinking into it.
+  const g = w.gouges.reduce((a, b) => (b.w > a.w ? b : a));     // the one her bilges cut
+  const mx = (g.x0 + g.x1) / 2;
+  const mz = (g.z0 + g.z1) / 2;
+  assert.ok(groundHeight(w, mx, mz) < keelGround(w, mx, mz) - 0.3, 'the trench is not in the ground');
+  // With the spoil thrown up beside it.
+  const L = Math.hypot(g.x1 - g.x0, g.z1 - g.z0) || 1;
+  const ox = ((g.z1 - g.z0) / L) * g.w * 1.35;
+  const oz = (-(g.x1 - g.x0) / L) * g.w * 1.35;
+  assert.ok(gougeShift(w, mx + ox, mz + oz) > 0, 'nothing was thrown up either side of the trench');
+  // Under her, the trench is the shape of her: her bottom is in it, not
+  // through the floor of it and not standing in the air over it.
+  const T = SHIP_CLASSES.iowa.hull.draft;
+  const half = SHIP_CLASSES.iowa.hull.length / 2;
+  const k = 0.62;
+  const px = ship.x + Math.sin(ship.heading) * half * k;
+  const pz = ship.z + Math.cos(ship.heading) * half * k;
+  const keel = -T + ship.groundLift - ship.groundTrim * k * half;
+  if (keelGround(w, px, pz) > keel) {
+    const floor = groundHeight(w, px, pz);
+    assert.ok(floor < keel + 0.6 && floor > keel - 1.6,
+      `her keel is at ${keel.toFixed(1)} and the floor of her trench at ${groundHeight(w, px, pz).toFixed(1)}`);
+  }
+  // And a client that only ever saw the wire has the same trench.
+  const w2 = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  for (const e of cut) applyGouge(w2, e.g);
+  assert.equal(w2.gouges.length, w.gouges.length, 'the wire lost or doubled a scar');
+  assert.ok(Math.abs(groundHeight(w2, mx, mz) - groundHeight(w, mx, mz)) < 0.2, 'the wire moved the trench');
+});
+
+check('a ship that goes down in shallow water settles on the bottom, and the seabed holds her', () => {
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const st = createState(w, { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  const cls = SHIP_CLASSES.cleveland;
+  // Lying along the shore in a few metres more water than she draws.
+  let room = null;
+  for (let d = isle.r; d < isle.r * 2 && room === null; d += 4) {
+    for (const a of [Math.PI, 0, Math.PI / 2, -Math.PI / 2]) {
+      s.x = isle.x + Math.sin(a) * d; s.z = isle.z + Math.cos(a) * d; s.heading = a + Math.PI / 2;
+      const q = seabedRoom(w, s, cls);
+      if (q > 2 && q < 7 && afloatAt(w, cls, s.x, s.z, s.heading)) { room = q; break; }
+    }
+  }
+  assert.ok(room !== null, 'no water off the island a cruiser floats in with a few metres under her');
+  foe.x = s.x + 30000; foe.z = s.z + 30000;
+  damageShip(st, s, foe, 1e9, 'he');
+  let under = false;
+  let deepest = 0;
+  for (let i = 0; i < 30 * 900; i++) {
+    for (const e of step(st, DT)) if (e.e === 'under' && e.ship === s.id) under = true;
+    deepest = Math.max(deepest, s.sink || 0);
+  }
+  assert.ok(under, 'resting on the bottom, she was never counted gone');
+  assert.ok(deepest <= room + 0.05, `she went ${deepest.toFixed(1)} m down where there was ${room.toFixed(1)} m under her`);
+  assert.ok(deepest > room - 1.5, `she stopped ${(room - deepest).toFixed(1)} m short of the bottom`);
 });
 
 check('the coast breaks a sight line and stops a shell', () => {

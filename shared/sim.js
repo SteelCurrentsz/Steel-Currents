@@ -27,7 +27,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
+  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf,
@@ -837,6 +837,31 @@ function keelDepth(ship, cls) {
 }
 
 /**
+ * How much further she can settle before her keel is on the bottom: the
+ * least water under her anywhere along her length, less what she draws, and a
+ * metre for the mud she beds into. Infinity in open water.
+ *
+ * The seabed is solid. A ship going down in twelve fathoms off a beach used to
+ * go on down through it for as long as she would have in the open sea, and
+ * finish forty metres under an island; she settles on it instead, upright or
+ * on her side the way she was going, with her upperworks out of the water --
+ * which is how most of the ships ever lost inshore were left.
+ */
+export function seabedRoom(world, ship, cls) {
+  if (!world || (landCeiling(world) <= 0 && !world.land?.length)) return Infinity;
+  const half = cls.hull.length * 0.5;
+  if (keelGround(world, ship.x, ship.z) < -half - 60 && !islandAt(world, ship.x, ship.z, half + 60)) return Infinity;
+  const sn = Math.sin(ship.heading);
+  const cs = Math.cos(ship.heading);
+  let room = Infinity;
+  for (const k of KEEL) {
+    const g = keelGround(world, ship.x + sn * half * k, ship.z + cs * half * k);
+    room = Math.min(room, -g - cls.hull.draft * (Math.abs(k) > 0.85 ? 0.85 : 1) + 1);
+  }
+  return Math.max(0, room);
+}
+
+/**
  * How hard she is on the bottom at a position and heading: the sum over her
  * keel of how far the ground stands above it, the worst single place and where
  * it is, and how much water her screws have.
@@ -858,7 +883,7 @@ export function keelContact(world, ship, cls, x, z, heading) {
     for (const w of lat) {
       const px = x + sn * half * k + cs * cls.hull.beam * w;
       const pz = z + cs * half * k - sn * cls.hull.beam * w;
-      const c = groundHeight(world, px, pz) + draw;
+      const c = keelGround(world, px, pz) + draw;
       if (c <= 0) continue;
       out.pen += c;
       if (c > out.max) { out.max = c; out.at = k; }
@@ -868,7 +893,7 @@ export function keelContact(world, ship, cls, x, z, heading) {
   const sx = x + sn * half * SCREWS_AT;
   const sz = z + cs * half * SCREWS_AT;
   const lift = out.max * (out.at > 0 ? 0.25 : 0.7);
-  out.screws = Math.min(T, -groundHeight(world, sx, sz)) - lift;
+  out.screws = Math.min(T, -keelGround(world, sx, sz)) - lift;
   // And her stern itself driven hard into the bottom: the screws and the
   // rudder are under it, and they are in the sand with it, however deep the
   // water is a few metres further forward.
@@ -876,16 +901,88 @@ export function keelContact(world, ship, cls, x, z, heading) {
   return out;
 }
 
+/** How far into the ground her bottom is pressed at the worst place, for a given contact. */
+function groundDig(c, T) {
+  return Math.min(c.max, T * 0.6, c.max * 0.4 + 0.3);
+}
+
 /**
- * How she sits on the bottom, for the picture: lifted by about half of how far
- * she is on it, and down by the other end.
+ * How she sits on the bottom, for the picture.
+ *
+ * She hinges about the end that is still afloat: that end lies at her own
+ * draft, and the end on the ground is lifted until her bottom is pressed into
+ * it by `groundDig` and no further. It used to be half of how far on she was,
+ * lifted bodily, and trimmed on top of that -- which put a bow on a beach in
+ * the air over the sand and her keel through it a hundred feet further aft.
+ * `raise(k)` is how far she is lifted at a point along her keel, as a
+ * fraction of her half-length, which is what the keel's trench is cut to.
  */
 function groundPose(ship, cls, c) {
   if (!c || c.pen <= 0) { ship.groundLift = 0; ship.groundTrim = 0; return; }
   const half = cls.hull.length * 0.5;
-  ship.groundLift = c.max * 0.45;
-  // The same sign her collision trim takes: forward contact is bow up.
-  ship.groundTrim = -Math.sign(c.at || 1) * clamp(c.max / half, 0, 0.08);
+  const rise = Math.max(0, c.max - groundDig(c, keelDepth(ship, cls)));
+  if (Math.abs(c.at) < 0.25) {
+    // On it amidships: lifted level.
+    ship.groundLift = rise;
+    ship.groundTrim = 0;
+    return;
+  }
+  const e = c.at > 0 ? -1 : 1;              // the end still afloat
+  // Rotation about her beam: positive puts her bow down, so a bow lifted
+  // onto a beach is a negative trim -- the sign her collision trim takes.
+  const trim = clamp(-rise / ((c.at - e) * half), -0.12, 0.12);
+  ship.groundTrim = trim;
+  ship.groundLift = Math.max(0, rise + trim * c.at * half);
+}
+
+/** How far she is lifted by the ground at a point along her keel. */
+function groundRaise(ship, cls, k) {
+  return (ship.groundLift || 0) - (ship.groundTrim || 0) * k * cls.hull.length * 0.5;
+}
+
+/** Where along her keel the trench she cuts is taken from: as KEEL, and her stem and sternpost. */
+const SCORE = [-1, -0.92, -0.62, -0.32, 0, 0.32, 0.62, 0.92, 1];
+
+/**
+ * Her bottom cutting into the ground under her.
+ *
+ * Each part of her keel that is lower than the ground it is over has pushed
+ * that ground aside, and leaves the trench behind it as it goes: wherever she
+ * is driven on, off, or along a shoal, there is a scar where she went. Only
+ * the part of it near enough the surface to be seen is kept -- a furrow ten
+ * metres down under a sea that is not glass is a furrow nobody will ever see,
+ * and the battlefield only has room for so many.
+ */
+function scoreGround(state, ship, cls) {
+  const T = keelDepth(ship, cls);
+  const half = cls.hull.length * 0.5;
+  const sn = Math.sin(ship.heading);
+  const cs = Math.cos(ship.heading);
+  const marks = ship.scars || (ship.scars = []);
+  for (let n = 0; n < SCORE.length; n++) {
+    const k = SCORE[n];
+    const px = ship.x + sn * half * k;
+    const pz = ship.z + cs * half * k;
+    const ground = keelGround(state.world, px, pz);
+    const draw = T * (Math.abs(k) > 0.85 ? 0.85 : 1);
+    // How far the ground stands above her bottom here, as she lies.
+    const cut = ground + draw - groundRaise(ship, cls, k);
+    const last = marks[n];
+    if (cut < -0.4 || ground < -4) { marks[n] = null; continue; }
+    if (!last) { marks[n] = { x: px, z: pz, g: null }; continue; }
+    if (Math.hypot(px - last.x, pz - last.z) < 3) continue;
+    // Her bilges are as wide as she is amidships; her ends run to a point.
+    const w = cls.hull.beam * (Math.abs(k) > 0.97 ? 0.08 : Math.abs(k) > 0.85 ? 0.16 : Math.abs(k) > 0.5 ? 0.3 : 0.42);
+    const depth = clamp(Math.max(0.35, cut), 0.35, T);
+    const g = addGouge(state.world, last.x, last.z, px, pz, w, depth, last.g);
+    marks[n] = { x: px, z: pz, g };
+    if (g) {
+      state.events.push({
+        e: 'gouge', g: gougeWire(g), i: ship.id, x: r(px), z: r(pz),
+        y: r(ground), v: r(Math.abs(ship.speed)), w: r(w),
+      });
+    }
+  }
 }
 
 /**
@@ -902,6 +999,7 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
 
   if (now.pen <= 0) {
     groundPose(ship, cls, null);
+    ship.scars = null;
     if (ship.aground) {
       ship.aground = 0;
       ship.groundAt = 0;
@@ -928,6 +1026,7 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     groundPose(ship, cls, now);
     strand(now);
     ship.speed *= Math.exp(-dt * 0.8 * Math.min(1, now.max / T));
+    scoreGround(state, ship, cls);
     return false;
   }
 
@@ -945,15 +1044,21 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
       e: 'ground', i: ship.id, team: ship.team, x: r(ship.x), z: r(ship.z),
       v: r(v), at: r(now.at),
     });
+    // What she hit it with, which decides how far up it she goes.
+    ship.groundV = v;
   }
   ship.aground = Math.min(1, now.max / T);
   ship.groundAt = now.at;
 
   // How far she can be driven up before it holds her: about half her draft at
-  // the worst place. Short of that she rides on, losing her way fast. The
-  // first touch always goes through, however steep the bottom: she is on it,
-  // not held a hand's breadth off it.
-  if (was.pen > 0 && now.max > T * 0.55) {
+  // the worst place, and further the harder she hit it -- a ship that takes
+  // the ground at twenty-five knots does not stop where she touched, she
+  // ploughs on up the beach until it has taken all of that out of her. Short
+  // of that she rides on, losing her way. The first touch always goes
+  // through, however steep the bottom: she is on it, not held a hand's
+  // breadth off it.
+  const reach = T * Math.min(1.5, 0.55 + 0.07 * (ship.groundV || 0));
+  if (was.pen > 0 && now.max > reach) {
     groundPose(ship, cls, was);
     // Held where she is: as hard on as she is going to get.
     ship.aground = Math.min(1, was.max / T);
@@ -967,11 +1072,17 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   }
   groundPose(ship, cls, now);
   strand(now);
-  // Ploughing on up it: every metre further is more of her bottom torn.
+  // Ploughing on up it: every metre further is more of her bottom torn, and
+  // the sand she is shoving aside takes her way off her the harder the
+  // further on she is.
   if (was.pen > 0) {
-    damageShip(state, ship, null, ship.maxHp * 0.007 * (deeper / T), 'grounding', where(now.at));
+    damageShip(state, ship, null, ship.maxHp * 0.0045 * (deeper / T), 'grounding', where(now.at));
+    const brake = dt * (0.2 + 0.9 * now.max / T);
+    ship.speed = Math.sign(ship.speed) * Math.max(0, Math.abs(ship.speed) * Math.exp(-deeper / (T * 3)) - brake);
+  } else {
+    ship.speed *= 0.85;
   }
-  ship.speed *= was.pen > 0 ? Math.exp(-deeper / (T * 0.06)) : 0.35;
+  scoreGround(state, ship, cls);
   return false;
 }
 
@@ -10796,6 +10907,10 @@ function stepSinking(state, ship, dt) {
     // And a list that runs away from her is a capsize after all.
     if (Math.abs(total) > 1.15) { S.capsize = true; S.way = Math.sign(total); S.rollFrom = total; }
   }
+  // On the bottom, if there is one under her: she settles onto it and stops.
+  const floor = seabedRoom(state.world, ship, cls);
+  const onBottom = (ship.sink || 0) + S.down >= floor;
+  if (onBottom) S.down = Math.max(0, floor - (ship.sink || 0));
   ship.sink = (ship.sink || 0) + S.down;
   ship.trim = (ship.trim || 0) + S.trim;
   ship.heel = (ship.heel || 0) + S.heel;
@@ -10803,7 +10918,10 @@ function stepSinking(state, ship, dt) {
   if (ship.broke == null && cls.hull.length > 90 && Math.abs(ship.trim) > BREAK_TRIM && S.down > 2) {
     breakHer(state, ship, clamp(-Math.sign(ship.trim) * 0.25, -0.6, 0.6), 'trim');
   }
-  const under = S.down >= S.depth * 0.98;
+  // Resting on the bottom with her decks awash counts as gone once she has
+  // had as long to go as she would have had to go under: there is no more
+  // going down for her to do.
+  const under = S.down >= S.depth * 0.98 || (onBottom && u >= 0.6);
   if (!ship.alive) {
     // Gone, when the sea has closed over the highest part of her.
     if (under || S.t >= S.T * 1.05) {
@@ -10832,13 +10950,15 @@ function stepSinking(state, ship, dt) {
  * everybody's way only once the highest part of her is as far under as the
  * picture lets her go.
  */
-function stepWreckDown(ship, dt) {
+function stepWreckDown(state, ship, dt) {
   const S = ship.sinking;
   const cls = shipClass(ship);
   if (S.sunkAt == null) S.sunkAt = Math.max(0, ship.sink || 0);
+  // And no further than the bottom, where there is one.
+  if (S.floor === undefined) S.floor = seabedRoom(state.world, ship, cls);
   S.afterT = (S.afterT || 0) + dt;
   S.after = (S.after || 0) + (S.depth / Math.max(20, S.T) * 1.2 + 0.0015 * S.afterT) * dt;
-  ship.sink = S.sunkAt + S.after;
+  ship.sink = Math.min(S.sunkAt + S.after, Math.max(S.sunkAt, S.floor ?? Infinity));
   if (ship.sink >= cls.hull.length * 0.5 + 20 || S.afterT > 900) S.gone = true;
 }
 
@@ -11920,7 +12040,7 @@ export function step(state, dt = DT) {
     if (!ship.alive) {
       // A wreck still going down goes on going down.
       if (ship.sinking && !ship.sinking.under) stepSinking(state, ship, dt);
-      else if (ship.sinking && !ship.sinking.gone) stepWreckDown(ship, dt);
+      else if (ship.sinking && !ship.sinking.gone) stepWreckDown(state, ship, dt);
       continue;
     }
     stepDive(state, ship, dt);
