@@ -12,6 +12,13 @@ import { Room } from '../../server/room.js';
 import { crewBattle } from '../../server/setup.js';
 import { scoreboard } from '../../shared/protocol.js';
 
+// How much of a battle the replay keeps, in characters of recorded messages.
+// A snapshot of a full action is ten or fifteen thousand of them and there
+// are fifteen a second, so this is the best part of a quarter of an hour --
+// past it the replay stops recording rather than the page running out of
+// memory, and says so.
+const RECORD_CAP = 160e6;
+
 export class LocalNet extends EventTarget {
   constructor() {
     super();
@@ -79,6 +86,7 @@ export class LocalNet extends EventTarget {
           fog: !!msg.fog,
           ff: !!msg.ff,
           arcade: !!msg.arcade,
+          staged: !!msg.staged,
           seed: msg.seed,
           half: msg.half,
           lon: msg.lon,
@@ -127,6 +135,7 @@ export class LocalNet extends EventTarget {
       fog: !!opts.fog,
       friendlyFire: !!opts.ff,
       arcade: !!opts.arcade,
+      staged: !!opts.staged,
       seed: Number.isFinite(opts.seed) ? (opts.seed >>> 0) : undefined,
       half: Number.isFinite(opts.half) ? opts.half : undefined,
       // Where on the earth this is being fought, which is what puts the real
@@ -138,20 +147,38 @@ export class LocalNet extends EventTarget {
     this.room = room;
 
     this.player.name = String(msg.name || 'Captain').slice(0, 18);
+    this.player.director = false;
+    // A staged battle has a director rather than a captain: no ship of his
+    // own, so the hull the briefing put first in the line sails with the rest
+    // of the fleet instead of under him, with the berth and the air group
+    // that were hers.
+    let req = msg;
+    if (opts.staged) {
+      const layout = msg.layout || {};
+      req = {
+        ...msg,
+        allyClasses: [msg.classId, ...(msg.allyClasses || [])],
+        allyWings: [msg.wing || null, ...(msg.allyWings || [])],
+        wing: null,
+        layout: { ...layout, allies: [null, ...(layout.allies || [])] },
+      };
+    }
     // The fleets, the guns ashore and the berths off the order-of-battle
     // chart, out of the same setup.js the socket build runs. This used to be a
     // second copy that had never learned about the chart, so a captain who laid
     // his squadron out and pressed Sortie found it back on the spawn line with
     // no artillery on the coast at all.
-    const out = crewBattle(room, { ...msg, botSkill: opts.botSkill }, (at) => {
+    const out = crewBattle(room, { ...req, botSkill: opts.botSkill }, (at) => {
+      if (opts.staged) return room.seatDirector(this.player);
       const res = room.join(this.player, {
         name: this.player.name, classId: msg.classId, team: msg.team, at,
       });
       return res.error ? { error: res.error } : { team: this.player.team };
-    }, { allies: 7, enemies: 8, guns: 12 });
+    }, { allies: opts.staged ? 8 : 7, enemies: 8, guns: 12 });
     if (out && out.error) { this.deliver({ t: 'error', msg: out.error }); return; }
+    const stage = opts.staged ? room.stageScript(msg.script) : null;
 
-    this.deliver({
+    const joined = {
       t: 'joined',
       room: room.summary(),
       world: room.world,
@@ -160,7 +187,40 @@ export class LocalNet extends EventTarget {
       mode: room.mode,
       phase: room.phase,
       roster: scoreboard(room.state),
-    });
+      director: !!opts.staged,
+      stage,
+    };
+    this.record(room, joined, opts.staged ? 'Staged Battle' : opts.arcade ? 'Arcade Battle' : 'Custom Battle');
+    this.deliver(joined);
     room.start();
+  }
+
+  /**
+   * Keep the battle for the replay.
+   *
+   * Everything the room says, to anybody, from the first tick: the whole of
+   * the battle as a director would have seen it, whichever side the captain
+   * was on. Each message is kept as the text it would have gone down a
+   * socket as, which is the smallest form of it a page can hold and one that
+   * cannot be changed under the recording by whoever reads it afterwards.
+   */
+  record(room, joined, title) {
+    const rec = {
+      title,
+      joined: { ...joined, shipId: -1, team: 0, director: true },
+      frames: [],
+      size: 0,
+      full: false,
+      end: 0,
+    };
+    this.recording = rec;
+    room.recorder = (msg) => {
+      if (rec.full || !msg) return;
+      const text = JSON.stringify(msg);
+      rec.size += text.length;
+      if (rec.size > RECORD_CAP) { rec.full = true; return; }
+      rec.frames.push(text);
+      if (msg.t === 'snap' && Number.isFinite(msg.tick)) rec.end = msg.tick;
+    };
   }
 }

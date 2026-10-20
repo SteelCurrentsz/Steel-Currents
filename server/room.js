@@ -14,6 +14,7 @@ import { getClass, SHIP_ORDER } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
 import { createStaff, stepStaff } from './command.js';
+import { createStage, stepStage, unitsOf, unitIds } from './stage.js';
 
 // How hard a side fights, as a number. The same three words the briefing
 // offers, and the staff is as good as its captains are.
@@ -24,6 +25,9 @@ const LOBBY_COUNTDOWN = 12;     // seconds a public lobby holds open for others
 // How much faster than life a battle may be run. A battle with one captain in
 // it is his to hurry along; one with two is nobody's, so it runs at one.
 export const MAX_TIME_SCALE = 5;
+// And how much slower: a director filming a staged battle may run it at a
+// quarter of life, or stop it dead, to line a shot up.
+export const SLOW_TIME_SCALES = [0, 0.25, 0.5];
 
 let roomSeq = 1;
 
@@ -49,8 +53,13 @@ export class Room {
     // Arcade rules ride on the world, which both the simulation and every
     // client are handed: see stepDetection.
     if (opts.arcade) this.world.arcade = true;
+    // A staged battle is fought under the same rule: every ship can see every
+    // other, so nothing the script asks for waits on a lookout. See stage.js.
+    this.staged = !!opts.staged;
+    if (this.staged) this.world.arcade = true;
     this.state = createState(this.world, {
-      mode: this.mode, timeLimit: opts.timeLimit || 900, friendlyFire: !!opts.friendlyFire,
+      mode: this.mode, timeLimit: opts.timeLimit || (this.staged ? 1800 : 900),
+      friendlyFire: !!opts.friendlyFire,
     });
     // Every weapon opens on an officer's word, a beat before it fires (see
     // orderGiven) -- and what a captain asked for himself is carried out
@@ -149,6 +158,31 @@ export class Room {
     this.broadcastRoster();
     if (this.phase === 'lobby' && this.autoStart) this.maybeStart();
     return { ship };
+  }
+
+  /**
+   * A director: in the room, shown all of it, and in command of none of it.
+   * He has no ship -- `shipId` names nothing -- so every order he could send
+   * is turned away by `command`, except where to look and how fast to run.
+   */
+  seatDirector(player) {
+    player.team = 0;
+    player.shipId = -1;
+    player.director = true;
+    player.room = this;
+    this.players.set(player.id, player);
+    this.broadcastRoster();
+    return { team: 0 };
+  }
+
+  /**
+   * Bind the director's script to the order of battle, once everything in it
+   * has been added. Returns the names the client will need to put to ids.
+   */
+  stageScript(script) {
+    const units = unitsOf(this.state);
+    this.stage = createStage(this, script, units);
+    return { units: unitIds(units), shots: this.stage.shots };
   }
 
   leave(playerId) {
@@ -291,15 +325,19 @@ export class Room {
 
     // Run fast, the whole of it is run fast: every step is the same step, there
     // are simply more of them to the second.
-    const scale = this.timeScale || 1;
+    // Nought is a director's stopped battle, and means nought.
+    const scale = Number.isFinite(this.timeScale) ? this.timeScale : 1;
     let steps = 0;
     this.accum = (this.accum || 0) + elapsed * scale;
-    while (this.accum >= DT && steps < 6 * scale) {
+    while (this.accum >= DT && steps < Math.ceil(6 * scale)) {
       this.accum -= DT;
       steps++;
       // Both staffs first: the orders a captain acts on this tick are written
       // off the reports of the last one, which is what a signal is.
       for (const st of this.staff) stepStaff(this.state, st, DT);
+      // The script, before any captain acts: a cue due this tick is an order
+      // he is given this tick.
+      if (this.stage) stepStage(this, this.stage);
       for (const ship of this.state.ships) {
         if (!ship.alive) continue;
         // Everything afloat fights itself. A ship with a captain aboard is
@@ -308,7 +346,8 @@ export class Room {
         // So is a ship somebody has taken the con of off the plot: her own
         // captain keeps her guns, and her helm and telegraph are his.
         const brain = this.brains.get(ship.id);
-        const conned = !ship.isBot || !!ship.heldBy;
+        // In a staged battle every helm is the script's.
+        const conned = !ship.isBot || !!ship.heldBy || this.staged;
         if (brain) stepBot(this.state, ship, brain, DT, conned, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
         if (conned) steerToWaypoint(this.state, ship);
@@ -365,9 +404,11 @@ export class Room {
       }
     }
     for (const p of this.players.values()) {
-      const list = global.concat(perTeam[p.team]);
+      // A director is shown everything that happens, on both sides.
+      const list = p.director ? events : global.concat(perTeam[p.team]);
       if (list.length) p.send({ t: 'ev', ev: list });
     }
+    if (this.recorder) this.recorder({ t: 'ev', ev: events });
   }
 
   eventVisible(ev, team) {
@@ -389,9 +430,15 @@ export class Room {
   }
 
   sendSnapshots() {
+    let whole = null;
     for (const p of this.players.values()) {
-      p.send(buildSnapshot(this.state, p.team, p.shipId, p.watching || 0));
+      const snap = buildSnapshot(this.state, p.team, p.shipId, p.watching || 0, !!p.director);
+      if (p.director) whole = snap;
+      p.send(snap);
     }
+    // The replay is the whole battle, whoever was watching it: every ship on
+    // both sides, as a director would have seen her.
+    if (this.recorder) this.recorder(whole || buildSnapshot(this.state, 0, -1, 0, true));
   }
 
   broadcastRoster() {
@@ -400,6 +447,7 @@ export class Room {
 
   broadcast(msg) {
     for (const p of this.players.values()) p.send(msg);
+    if (this.recorder) this.recorder(msg);
   }
 
   // -- player commands -----------------------------------------------------
@@ -464,10 +512,18 @@ export class Room {
     // How fast the battle runs. Only a captain alone in it may change that --
     // with two aboard, one cannot hurry the other's battle along.
     if (msg.t === 'warp') {
-      const want = Math.round(Number(msg.s));
+      const asked = Number(msg.s);
+      // Below one is a director's, for slow motion and for stopping the action
+      // while a shot is lined up; anyone else is offered whole multiples.
+      const slow = player.director && SLOW_TIME_SCALES.includes(asked);
+      const want = slow ? asked : Math.round(asked);
       const s = this.players.size <= 1 && Number.isFinite(want)
-        ? Math.max(1, Math.min(MAX_TIME_SCALE, want)) : 1;
+        ? (slow ? want : Math.max(1, Math.min(MAX_TIME_SCALE, want))) : 1;
       this.timeScale = s;
+      // Stopped is stopped: whatever time was owed to the battle when the
+      // word was given is forgiven, or it would run on for a second or two
+      // working it off.
+      if (s === 0) this.accum = 0;
       this.broadcast({ t: 'warp', s });
       return;
     }

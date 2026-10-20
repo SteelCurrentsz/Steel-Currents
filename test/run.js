@@ -56,6 +56,9 @@ import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
 import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
 import { Bombs, bombScale } from '../client/js/render/ordnance.js';
 import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
+import { cleanScript, previewAt, unitKey } from '../shared/stage.js';
+import { ReplayNet } from '../client/js/replaynet.js';
+import { cutMaterial, cutUniforms } from '../client/js/render/sever.js';
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.
@@ -21296,6 +21299,178 @@ check('a heavy flown into a ship is thirty tonnes into her', () => {
   assert.ok(hit, 'the heavy flew through the battleship');
   assert.equal(hit.heavy, 1);
   assert.ok(hp0 - bb.hp > 3000, `a heavy into a battleship was worth ${hp0 - bb.hp}`);
+});
+
+// ------------------------------------------------------------ staged battle --
+
+/** A staged battle hosted on the device, stepped by hand rather than on its timer. */
+function stagedRoom(script, extra = {}) {
+  const ln = new LocalNet();
+  let joined = null;
+  ln.on('joined', (m) => { joined = m; });
+  ln.connect();
+  ln.send({
+    t: 'custom', staged: true, name: 'Director', classId: 'iowa',
+    allyClasses: ['fletcher'], enemyClasses: ['yamato', 'fletcher'],
+    seed: 7, lon: 160, lat: -10, script, ...extra,
+  });
+  clearInterval(ln.room.timer);
+  const run = (seconds) => {
+    for (let i = 0; i < seconds * 15; i++) { ln.room.lastTick = Date.now() - 67; ln.room.tick(); }
+  };
+  const ship = (key) => ln.room.state.ships.find((s) => s.id === joined.stage.units[key]);
+  return { ln, joined, run, ship };
+}
+
+check('a script is checked before a room will act on it', () => {
+  const out = cleanScript({
+    cues: [
+      { t: 30, u: 's:0:0', a: 'sink' },
+      { t: 5, u: 's:0:0', a: 'path', pts: [{ x: 100, z: 200 }, { x: 'x', z: 1 }] },
+      { t: 6, u: 's:0:0', a: 'fire' },                 // no target: dropped
+      { t: 7, u: 'nobody', a: 'smoke' },                // no such unit: dropped
+      { t: 8, u: 's:1:0', a: 'launch the nukes' },      // no such order: dropped
+      { t: 9, u: 's:1:0', a: 'speed', n: 99 },
+    ],
+    shots: [{ t: 3, k: 'follow', u: 's:1:0', view: 'beam' }, { t: 1, k: 'fixed', x: 9e9, z: 0, look: 's:0:0' }],
+  }, 20000);
+  assert.deepEqual(out.cues.map((c) => c.a), ['path', 'speed', 'sink'], 'the cues were not checked and sorted');
+  assert.equal(out.cues[0].pts.length, 1, 'a point that is not a point stayed on her course');
+  assert.equal(out.cues[1].n, 5, 'the telegraph was rung past full ahead');
+  assert.deepEqual(out.shots.map((s) => s.k), ['fixed', 'follow']);
+  assert.equal(out.shots[0].x, 20000, 'a camera was put off the edge of the battlefield');
+});
+
+check('the editor sees where the script will have a ship', () => {
+  const units = [{ key: unitKey('s', 0, 0), classId: 'fletcher', x: 0, z: 0, heading: 0 }];
+  const still = previewAt(units, { cues: [] }, 60).get('s:0:0');
+  assert.equal(Math.round(still.z), 0, 'a ship with no orders went somewhere');
+  const script = { cues: [{ t: 10, u: 's:0:0', a: 'path', pts: [{ x: 3000, z: 3000 }], n: 5 }] };
+  const before = previewAt(units, script, 9).get('s:0:0');
+  const after = previewAt(units, script, 120).get('s:0:0');
+  assert.equal(Math.round(before.z), 0, 'she sailed before she was told to');
+  assert.ok(after.x > 1000 && after.z > 1000, `she did not steer for her mark: ${after.x}, ${after.z}`);
+  const sunk = previewAt(units, { cues: [{ t: 5, u: 's:0:0', a: 'blow' }] }, 6).get('s:0:0');
+  assert.ok(sunk.gone, 'the storyboard still has her afloat after her magazine went');
+});
+
+check('a staged battle seats a director, not a captain', () => {
+  const { ln, joined } = stagedRoom({ cues: [], shots: [{ t: 0, k: 'follow', u: 's:0:0' }] });
+  assert.equal(joined.director, true);
+  assert.equal(joined.shipId, -1, 'the director was given a ship');
+  // The hull the briefing put first sails with the fleet, as a ship of it.
+  const mine = ln.room.state.ships.filter((s) => s.team === 0);
+  assert.deepEqual(mine.map((s) => s.classId), ['iowa', 'fletcher']);
+  assert.ok(mine.every((s) => s.isBot), 'a ship of the director\'s side had nobody on her bridge');
+  assert.deepEqual(Object.keys(joined.stage.units).sort(), ['s:0:0', 's:0:1', 's:1:0', 's:1:1']);
+  assert.equal(joined.stage.shots.length, 1);
+  ln.send({ t: 'leave' });
+});
+
+check('a staged battle does what its script says, when it says it', () => {
+  const { ln, run, ship } = stagedRoom({
+    cues: [
+      { t: 0, u: 's:0:0', a: 'path', pts: [{ x: 0, z: 0 }], n: 5 },
+      { t: 2, u: 's:0:0', a: 'fire', at: 's:1:0' },
+      { t: 4, u: 's:0:1', a: 'hold' },
+      { t: 6, u: 's:1:1', a: 'blow' },
+      { t: 8, u: 's:1:0', a: 'sink' },
+    ],
+  });
+  run(1);
+  assert.equal(ship('s:0:0').notch, 5, 'her telegraph was not rung up');
+  assert.ok(ship('s:0:0').wayX === 0 || ship('s:0:0').path, 'she was not given her course');
+  assert.ok(!ship('s:0:0').assign || !Object.keys(ship('s:0:0').assign).length, 'she opened fire early');
+  run(2);
+  const on = Object.values(ship('s:0:0').assign || {});
+  assert.ok(on.length && on.every((id) => id === ship('s:1:0').id), 'her guns were not put on the Yamato');
+  run(2);
+  assert.ok(Object.keys(ship('s:0:1').off || {}).length, 'the destroyer did not cease fire');
+  run(2);
+  assert.ok(ship('s:1:1').blown, 'the magazine cue did not go off');
+  run(2);
+  assert.ok(ship('s:1:0').sinking, 'the Yamato was told to sink and did not');
+  ln.send({ t: 'leave' });
+});
+
+check('a director can stop a staged battle dead, and run it slow', () => {
+  const { ln, run } = stagedRoom({ cues: [] });
+  run(1);
+  ln.send({ t: 'warp', s: 4 });
+  run(1);
+  ln.send({ t: 'warp', s: 0 });
+  assert.equal(ln.room.timeScale, 0);
+  const t0 = ln.room.state.t;
+  run(2);
+  assert.equal(ln.room.state.t, t0, 'a stopped battle went on');
+  ln.send({ t: 'warp', s: 0.25 });
+  run(4);
+  const gone = ln.room.state.t - t0;
+  assert.ok(gone > 0.5 && gone < 1.6, `a quarter speed battle ran ${gone}s in 4s`);
+  ln.send({ t: 'leave' });
+});
+
+check('only a director may slow a battle down', () => {
+  const ln = new LocalNet();
+  ln.connect();
+  ln.send({ t: 'quickmatch', name: 'Captain', classId: 'fletcher' });
+  clearInterval(ln.room.timer);
+  ln.send({ t: 'warp', s: 0 });
+  assert.equal(ln.room.timeScale, 1, 'a captain stopped the battle');
+  ln.send({ t: 'warp', s: 3 });
+  assert.equal(ln.room.timeScale, 3);
+  ln.send({ t: 'leave' });
+});
+
+check('every battle is recorded whole, and plays back from any moment', () => {
+  const { ln, run } = stagedRoom({ cues: [{ t: 3, u: 's:1:1', a: 'blow' }] });
+  run(8);
+  const rec = ln.recording;
+  ln.send({ t: 'leave' });
+  assert.ok(rec && rec.frames.length > 100, 'the battle was not recorded');
+  // Whole: both sides in full, which a captain's own view is not.
+  const snap = JSON.parse(rec.frames.find((f) => f.startsWith('{"t":"snap"')));
+  assert.equal(snap.ships.length, 4, 'the recording does not have every ship in it');
+  assert.equal(snap.contacts.length, 0);
+  const rp = new ReplayNet(rec);
+  assert.ok(rp.length > 7 && rp.length < 9, `the replay is ${rp.length}s of an 8s battle`);
+  const got = [];
+  rp.on('snap', (m) => got.push(m.tick));
+  const blew = [];
+  rp.on('ev', (m) => { if (m.ev.some((e) => e.e === 'detonate')) blew.push(m); });
+  rp.seek(6);
+  assert.equal(got.length, 1, 'a seek did not put up the picture at that moment');
+  assert.ok(Math.abs(got[0] * DT - rp.start - 6) < 0.2, 'it put up the wrong moment');
+  assert.equal(blew.length, 0, 'winding past the explosion set it off');
+  // And played from there, the rest of it comes out in order.
+  rp.wallAt = performance.now() - 250;
+  rp.rate = 4;
+  rp.pump();
+  assert.ok(got.length > 5 && got.every((t, i) => i === 0 || t > got[i - 1]), 'playback went out of order');
+  rp.stop();
+});
+
+check('a hull torn twice declares each tear once', () => {
+  // A ship that had already broken in two and then lost her magazine was torn
+  // again on top of the first tear, and the second tear's uniforms were the
+  // first's names over again: the shader would not compile and every material
+  // of her drew nothing.
+  const first = cutMaterial(new THREE.MeshPhongMaterial(), cutUniforms(10, 1, 2));
+  const second = cutMaterial(first, cutUniforms(-20, -1, 2));
+  const shader = {
+    uniforms: {},
+    vertexShader: '#include <common>\n#include <project_vertex>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n#include <color_fragment>\n}',
+  };
+  second.onBeforeCompile(shader, null);
+  const count = (src, re) => (src.match(re) || []).length;
+  assert.equal(count(shader.fragmentShader, /uniform float uCutZ;/g), 1);
+  assert.equal(count(shader.fragmentShader, /uniform float uCutZ_1;/g), 1);
+  assert.equal(count(shader.vertexShader, /varying vec3 vCutP;/g), 1);
+  assert.equal(count(shader.vertexShader, /varying vec3 vCutP_1;/g), 1);
+  assert.equal(count(shader.fragmentShader, /#define CUT_FUNCS/g), 2, 'the noise is not guarded');
+  assert.ok(shader.uniforms.uCutZ && shader.uniforms.uCutZ_1, 'a tear lost its uniforms');
+  assert.notEqual(first.customProgramCacheKey(), second.customProgramCacheKey());
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

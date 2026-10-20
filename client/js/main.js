@@ -13,11 +13,13 @@ import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
 import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
 import { LocalNet } from './localnet.js';
+import { ReplayNet } from './replaynet.js';
 import { Input } from './input.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
 import { Briefing, FLEET_MAX, BOMBER_MAX } from './briefing.js';
 import { LayoutMap } from './layout.js';
+import { ScriptEditor } from './scripteditor.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
@@ -1066,17 +1068,26 @@ const layout = new LayoutMap({
   onGo: (plan) => {
     audio.click();
     fullscreen.enterBattleView(document.documentElement);
-    net.send({ ...layoutReq, layout: plan });
-    toast('Sortieing…');
+    // A staged battle takes its script with it.
+    const script = layoutReq.staged ? scriptEditor.result() : undefined;
+    net.send({ ...layoutReq, layout: plan, script });
+    toast(layoutReq.staged ? 'Places, everyone…' : 'Sortieing…');
   },
 });
 let layoutReq = null;
+const scriptEditor = new ScriptEditor(layout);
+window.__script = scriptEditor;   // a handle for the console, like __battle
+document.getElementById('lay-mode')?.addEventListener('click', () => {
+  audio.click();
+  scriptEditor.setActive(!scriptEditor.active);
+});
 
 document.getElementById('custom-start').onclick = () => {
   audio.resume();
   const why = briefing.blocker();
   if (why) { toast(why); return; }
   layoutReq = briefing.request();
+  scriptEditor.enable(!!layoutReq.staged);
   show('lay');
   // The canvas has no box until the screen is up, so the chart is raised on the
   // next frame rather than drawn into a nought-by-nought canvas.
@@ -1157,17 +1168,23 @@ net.on('joined', (m) => {
   boot.hold('Building the fleet', () => joinBattle(m));
 });
 
-function joinBattle(m) {
+function joinBattle(m, replay = null) {
   if (battle) { battle.dispose(); battle = null; }
   battle = new Battle({
-    renderer, net, input,
+    renderer, net: replay || net, input,
     world: m.world,
     shipId: m.shipId,
     team: m.team,
     classId: getSettings().ship,
     roster: m.roster,
     mode: m.mode,
-    onExit: (result) => endBattle(result),
+    // A staged battle is watched from the director's chair, and so is every
+    // replay. See director.js.
+    director: !!m.director || !!replay,
+    stage: m.stage || null,
+    replay,
+    title: replay ? `Replay · ${replay.rec.title}` : 'Staged Battle',
+    onExit: (result) => (replay ? endReplay(replay) : endBattle(result)),
   });
   window.__battle = battle;   // handy handle for debugging in the console
   window.__audio = audio;
@@ -1188,14 +1205,56 @@ function joinBattle(m) {
     } catch { /* a warm-up that fails costs nothing but the warm-up */ }
   }, 600);
   audio.resume();
-  toast('Battle stations');
+  if (replay) replay.play();
+  else toast(m.director ? 'Action' : 'Battle stations');
 }
+
+// ---------------------------------------------------------------- replay --
+//
+// Every battle is recorded as it is fought (see LocalNet.record), and the
+// result screen offers it back: the whole action from the director's chair,
+// slowed, stopped, wound back and filmed from wherever the camera is wanted.
+
+let lastResult = null;
+
+function startReplay() {
+  const rec = net.recording;
+  if (!rec || !rec.frames.length) { toast('There is nothing recorded to replay.'); return; }
+  const replay = new ReplayNet(rec);
+  fullscreen.enterBattleView(document.documentElement);
+  boot.hold('Setting the scene', () => joinBattle(rec.joined, replay));
+  if (rec.full) toast('The recording ran out of room before the end of the battle.');
+}
+
+function endReplay(replay) {
+  replay.stop();
+  if (battle) { battle.dispose(); battle = null; }
+  if (lastResult && lastResult.roster) show('result');
+  else show('title');
+}
+
+document.getElementById('result-replay')?.addEventListener('click', () => {
+  audio.click();
+  startReplay();
+});
 
 net.on('start', () => toast('Enemy fleet sighted'));
 net.on('countdown', (m) => { if (m.s > 0 && m.s <= 10) toast(`Battle begins in ${m.s}…`); });
 
 function endBattle(result) {
   if (battle) { battle.dispose(); battle = null; }
+  lastResult = result;
+  // The replay is offered whenever there is a battle on record to play,
+  // whether it was fought to a finish or left half way.
+  const replayKey = document.getElementById('result-replay');
+  if (replayKey) replayKey.hidden = !(net.recording && net.recording.frames.length);
+  if (!(result && result.roster) && net.recording && net.recording.frames.length) {
+    document.getElementById('result-title').textContent = 'Battle over';
+    document.getElementById('result-sub').textContent = 'Left before the end.';
+    document.getElementById('result-table').innerHTML = '';
+    show('result');
+    return;
+  }
   if (result && result.roster) {
     document.getElementById('result-title').textContent =
       result.winner < 0 ? 'Draw' : result.winner === result.yourTeam ? 'Victory' : 'Battle over';

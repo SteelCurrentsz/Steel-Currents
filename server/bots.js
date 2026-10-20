@@ -158,7 +158,10 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // wins on who to shoot at -- that is the concentration, and it is the whole
   // point of having a staff -- and his own eyes win on whether he can actually
   // see her.
-  const ordered = staff ? staff.fireAt.get(ship.id) : 0;
+  // A staged battle's script outranks the staff: the director has said who
+  // she is shooting at (see server/stage.js).
+  const ordered = brain.forced && isValidTarget(state, ship, brain.forced) ? brain.forced
+    : staff ? staff.fireAt.get(ship.id) : 0;
   if (ordered && isValidTarget(state, ship, ordered)) {
     brain.targetId = ordered;
   } else if (brain.retarget <= 0 || !isValidTarget(state, ship, brain.targetId)) {

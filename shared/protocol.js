@@ -233,7 +233,7 @@ export function shipSnapshot(ship, full, state = null) {
   return s;
 }
 
-export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
+export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = false) {
   const ships = [];
   // What a captain can see out of the bridge windows, and what the plot knows.
   //
@@ -255,7 +255,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   // through in full, sunk or afloat, either side: the guns are finished and
   // what is left is a sea with wrecks burning on it, which is the one thing
   // everybody wants to look at and used to be the one thing the wire dropped.
-  const ended = !!state.over;
+  // And a staged battle's director, or a replay being recorded, is shown the
+  // whole of it from the first tick: there is nobody to conceal it from.
+  const ended = !!state.over || all;
   for (const s of state.ships) {
     const friendly = s.team === team || ended;
     const watched = s.id === watchId;
@@ -293,7 +295,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   }
   const torps = [];
   for (const tp of state.torps) {
-    if (!torpedoVisible(state, tp, team)) continue;
+    if (!all && !torpedoVisible(state, tp, team)) continue;
     torps.push({
       i: tp.id, x: r1(tp.x), z: r1(tp.z), h: r3(tp.heading), tm: tp.team,
       // Who let her go: the ship whose tubes she came out of, or whose
@@ -370,7 +372,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0) {
   // that whatever got her can still find her, and is not an aeroplane.
   const planes = state.planes
     .filter((p) => !p.dead)
-    .filter((p) => p.team === team || state.ships.some((s) => s.team === team && s.alive))
+    .filter((p) => all || p.team === team || state.ships.some((s) => s.team === team && s.alive))
     // `o` is the carrier she flew off and `a` is how long she has been up:
     // between them the client can put the aeroplane it watched leave the deck
     // on the squadron the simulation is flying, and climb her out rather than

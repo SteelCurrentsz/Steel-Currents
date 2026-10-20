@@ -743,6 +743,13 @@
     <h2>Your ship has gone down</h2>
     <p>The flag shifts to your next ship. Con your division from the chart.</p>
   </div>
+
+  <!-- The director's chair: a staged battle or a replay. The bar takes the
+       conning keys' place along the foot of the screen; the peek is the one
+       thing left when the screen is cleared for a shot, in the corner nothing
+       is drawn in. See director.js. -->
+  <div class="director-bar" id="director-bar" hidden></div>
+  <button class="director-peek" id="director-peek" type="button" aria-label="Show the controls">Show HUD</button>
 </section>
 
 <!-- ============================ RESULT ============================ -->
@@ -750,7 +757,10 @@
   <div class="panel wide">
     <header class="panel-head"><h2 id="result-title">Victory</h2><p id="result-sub"></p></header>
     <div class="panel-body"><table class="result-table" id="result-table"></table></div>
-    <footer class="panel-foot"><button class="btn" data-action="back">Return to port</button></footer>
+    <footer class="panel-foot">
+      <button class="btn ghost" id="result-replay" type="button" hidden>Watch replay</button>
+      <button class="btn" data-action="back">Return to port</button>
+    </footer>
   </div>
 </section>
 
@@ -793,8 +803,11 @@
   <div class="lay-actions">
     <button class="btn ghost" id="lay-back" type="button">Back</button>
     <button class="btn ghost" id="lay-auto" type="button">Form Up</button>
+    <!-- A staged battle is scripted on this same chart. See scripteditor.js. -->
+    <button class="btn ghost" id="lay-mode" type="button" hidden>Script</button>
     <button class="btn" id="lay-go" type="button">Sortie</button>
   </div>
+  <aside class="script-panel" id="script-panel" hidden aria-label="Script"></aside>
 </section>
 
 <section id="screen-yard" class="screen yard-screen">

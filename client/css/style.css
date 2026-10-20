@@ -2582,3 +2582,167 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .party-job.on { color: #0b141d; background: var(--sand); border-color: var(--sand); }
 .party-on { margin-top: 0.18rem; font-size: 0.66rem; letter-spacing: 0.08em; color: #8fd0ff; }
 .party-on.idle { color: var(--steel); opacity: 0.7; }
+
+/* ---------------------------------------------------------- the director --
+   A staged battle, or a replay. Nobody is aboard anything, so everything a
+   captain cons his ship with comes off the screen and the director's bar goes
+   along the foot of it in their place. */
+.battle.director .conn-keys,
+.battle.director .ship-plate,
+.battle.director .reticle,
+.battle.director #watch-back,
+.battle.director .sink-overlay,
+.battle.director .minimap-hint,
+.battle.director .fly-take { display: none !important; }
+
+.director-bar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: max(0.6vh, env(safe-area-inset-bottom));
+  width: min(760px, calc(100vw - 1.2rem));
+  display: flex; flex-direction: column; gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(6, 16, 28, 0.86); border: 1px solid var(--panel-line);
+  border-top: 2px solid var(--red);
+  pointer-events: auto; z-index: 9;
+  font-family: var(--ui);
+}
+.director-bar[hidden] { display: none; }
+.dir-row { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.dir-title {
+  font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--sand); margin-right: 0.3rem;
+}
+.dir-speeds { display: flex; }
+.dir-key, .dir-speed {
+  min-height: 32px; min-width: 2.4rem; padding: 0.2rem 0.6rem;
+  background: rgba(8, 19, 31, 0.7); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); font-size: 0.74rem;
+  letter-spacing: 0.08em; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dir-speed + .dir-speed { border-left: 0; }
+.dir-key:hover, .dir-speed:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.5); }
+.dir-key[aria-pressed="true"], .dir-speed.on {
+  color: #0b141d; background: var(--sand); border-color: var(--sand);
+}
+.dir-key:disabled { opacity: 0.35; cursor: default; }
+.dir-key.end { margin-left: auto; color: var(--sand); }
+.dir-clock {
+  min-width: 5.5rem; text-align: center;
+  font-size: 0.95rem; letter-spacing: 0.1em; color: var(--sand-bright);
+  font-variant-numeric: tabular-nums;
+}
+.dir-seek { width: 100%; accent-color: var(--red); margin: 0; }
+/* The bar is where the conning keys were, so the readouts that stood above
+   those keys stand above it instead. */
+.battle.director .conn-panel { bottom: calc(max(0.6vh, env(safe-area-inset-bottom)) + 96px); }
+@media (max-width: 700px), (max-height: 500px) {
+  .director-bar { padding: 0.3rem; gap: 0.2rem; }
+  .dir-key, .dir-speed { min-height: 30px; min-width: 2rem; padding: 0.15rem 0.4rem; font-size: 0.66rem; }
+  .dir-title { display: none; }
+}
+
+/* A clean screen, for the shot: nothing on it but the picture. The one way
+   back is a key in the top left corner that is all but invisible until it is
+   touched. */
+.director-peek { display: none; }
+.battle.director.clean > *:not(.director-peek) { display: none !important; }
+.battle.director.clean .director-peek {
+  display: block; position: absolute; top: 0; left: 0;
+  width: 64px; height: 44px; padding: 0;
+  background: transparent; border: 0; color: transparent;
+  font-family: var(--ui); font-size: 0.6rem; letter-spacing: 0.14em;
+  cursor: pointer; pointer-events: auto; z-index: 20;
+}
+.battle.director.clean .director-peek:hover,
+.battle.director.clean .director-peek:focus-visible {
+  color: var(--sand); background: rgba(6, 16, 28, 0.6);
+}
+/* And what the page lays over every screen: the full-screen key and the toasts. */
+body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
+
+/* ------------------------------------------------------------ the script --
+   A staged battle's script, written down the right-hand side of the order of
+   battle chart. The chart keeps the rest of the screen, and the buttons and
+   the zoom keys move over to stay on it. */
+.lay-screen { --sp-w: min(340px, 44vw); }
+.script-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: var(--sp-w);
+  display: flex; flex-direction: column;
+  padding: max(0.6rem, env(safe-area-inset-top)) max(0.6rem, env(safe-area-inset-right)) 0.6rem 0.7rem;
+  background: rgba(6, 15, 26, 0.93); border-left: 1px solid var(--panel-line);
+  overflow-y: auto; overscroll-behavior: contain;
+  font-family: var(--ui); color: #dbe4ec;
+}
+.script-panel[hidden] { display: none; }
+.lay-screen.scripting .lay-zoom { right: calc(var(--sp-w) + 0.8rem); }
+.lay-screen.scripting .lay-actions { right: var(--sp-w); }
+.lay-screen.scripting .deploy-hint { left: calc((100% - var(--sp-w)) / 2); max-width: min(46ch, calc(100vw - var(--sp-w) - 2rem)); }
+
+.sp-time { display: flex; align-items: center; gap: 0.45rem; }
+.sp-time input { flex: 1; min-width: 0; accent-color: var(--red); }
+.sp-play {
+  width: 36px; height: 36px; flex: none;
+  background: var(--red); border: 0; color: #fff; font-size: 0.9rem; cursor: pointer;
+}
+.sp-clock { font-size: 1.15rem; letter-spacing: 0.08em; color: var(--sand-bright); min-width: 3.2rem; font-variant-numeric: tabular-nums; }
+.sp-len { font-size: 0.72rem; color: var(--steel); }
+.sp-nudge { display: flex; gap: 0.25rem; margin: 0.4rem 0 0.5rem; }
+.sp-nudge button, .sp-tabs button, .sp-chip, .sp-cue, .sp-t, .sp-x, .sp-clear {
+  background: rgba(8, 19, 31, 0.7); border: 1px solid var(--panel-line);
+  color: var(--steel); font-family: var(--ui); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sp-nudge button { flex: 1; min-height: 30px; font-size: 0.7rem; letter-spacing: 0.06em; }
+.sp-tabs { display: flex; margin-bottom: 0.5rem; }
+.sp-tabs button {
+  flex: 1; min-height: 34px; font-size: 0.74rem; letter-spacing: 0.16em; text-transform: uppercase;
+}
+.sp-tabs button + button { border-left: 0; }
+.sp-tabs button.on { color: #0b141d; background: var(--sand); border-color: var(--sand); }
+.sp-body { flex: 1; }
+.sp-who { margin: 0.2rem 0 0.1rem; font-size: 1.15rem; letter-spacing: 0.05em; color: var(--sand-bright); }
+.sp-who small { font-size: 0.7rem; letter-spacing: 0.12em; color: var(--steel); }
+.sp-who.t0 { border-left: 3px solid #8cc2ff; padding-left: 0.4rem; }
+.sp-who.t1 { border-left: 3px solid #ffa9a2; padding-left: 0.4rem; }
+.sp-sub { margin: 0.3rem 0 0.35rem; font-size: 0.8rem; color: var(--steel); }
+.sp-sub b { color: var(--sand); }
+.sp-cues { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; margin-bottom: 0.55rem; }
+.sp-cue { min-height: 34px; padding: 0.2rem 0.4rem; font-size: 0.74rem; letter-spacing: 0.04em; text-align: left; }
+.sp-cue:hover, .sp-chip:hover, .sp-nudge button:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.5); }
+.sp-cue.outcome { border-left: 2px solid var(--enemy); }
+.sp-cue:disabled { opacity: 0.4; cursor: default; }
+.sp-field { margin-bottom: 0.45rem; }
+.sp-field > span { display: block; font-size: 0.62rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel); margin-bottom: 0.2rem; }
+.sp-notch { display: flex; flex-wrap: wrap; gap: 0.2rem; }
+.sp-chip { min-height: 30px; padding: 0.15rem 0.5rem; font-size: 0.7rem; }
+.sp-chip.on { color: #0b141d; background: var(--sand); border-color: var(--sand); }
+.sp-mode p { margin: 0.4rem 0; font-size: 0.85rem; line-height: 1.35; color: var(--sand-bright); }
+.sp-acts { display: flex; gap: 0.4rem; margin: 0.6rem 0; flex-wrap: wrap; }
+.sp-acts .btn { padding: 0.45rem 1rem; font-size: 0.85rem; }
+.sp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.sp-row {
+  display: flex; align-items: center; gap: 0.3rem;
+  padding: 0.15rem 0.2rem; border: 1px solid var(--panel-line); background: rgba(12, 24, 38, 0.6);
+  font-size: 0.74rem;
+}
+.sp-row.outcome { border-left: 2px solid var(--enemy); }
+.sp-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-t { min-width: 2.8rem; min-height: 28px; font-size: 0.72rem; color: var(--sand); font-variant-numeric: tabular-nums; }
+.sp-x { min-width: 28px; min-height: 28px; font-size: 0.8rem; }
+.sp-x:hover { color: var(--enemy); }
+.sp-none { font-size: 0.76rem; color: rgba(154, 166, 178, 0.6); padding: 0.3rem 0; }
+.sp-foot { margin-top: 0.6rem; }
+.sp-clear { width: 100%; min-height: 30px; font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.sp-clear:hover { color: var(--enemy); border-color: var(--enemy); }
+@media (max-height: 520px) {
+  .lay-screen { --sp-w: min(300px, 46vw); }
+  .lay-screen.scripting .lay-actions { left: max(0.5rem, env(safe-area-inset-left)); right: auto; }
+  .sp-cue { min-height: 30px; font-size: 0.68rem; }
+}
+/* The bar has the clock, and the battle's own would be a second one. */
+.battle.director .hud-top { display: none !important; }
+/* While scripting, the chart is the part of the screen the panel leaves it,
+   so nothing the director needs to tap is ever under the panel. */
+.lay-screen.scripting #lay-canvas { width: calc(100% - var(--sp-w)); }
+.lay-actions .btn[hidden] { display: none; }

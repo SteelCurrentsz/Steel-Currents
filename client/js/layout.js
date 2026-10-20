@@ -188,7 +188,7 @@ export class LayoutMap {
       // Five lines of instructions on a phone is a paragraph over the chart, so
       // the narrow screens get the short version of the same thing.
       const tight = (this.canvas.clientWidth || 1200) < 560;
-      const text = why || (tight
+      const text = why || (this.director?.active ? this.director.hint() : null) || (tight
         ? 'Drag to move, the peg to turn. Ships afloat, guns ashore.'
         : 'Drag to move, the peg off the bow to turn, the water to pan. '
           + 'Scroll or pinch to zoom. Ships on the water, guns ashore.');
@@ -774,7 +774,9 @@ export class LayoutMap {
     const pick = (p) => {
       let best = null;
       let bestD = Infinity;
-      for (const t of this.tokens) {
+      // While a staged battle is being scripted the chart shows every ship
+      // where the script has her, and that is where she is picked up.
+      for (const t of this.director?.shown() || this.tokens) {
         const s = this.toScreen(t.x, t.z);
         const out = this.handleOut(t);
         const hx = s.x + Math.sin(CHART_X * t.heading) * out;
@@ -797,6 +799,16 @@ export class LayoutMap {
         return;
       }
       const hit = pick(p);
+      // Scripting, a token is picked rather than moved, and the water is
+      // panned -- or tapped, which is the script's (see `up`).
+      if (this.director?.active) {
+        if (hit && this.director.pick(hit.t)) { e.preventDefault(); return; }
+        this.drag = { mode: 'pan', from: p, start: p };
+        el.classList.add('panning');
+        try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+        e.preventDefault();
+        return;
+      }
       // Nothing under the finger: the chart itself is dragged instead.
       this.drag = hit || { mode: 'pan', from: p };
       if (hit) {
@@ -847,6 +859,12 @@ export class LayoutMap {
     };
 
     const up = (e) => {
+      // A tap on the water, not a drag across it: the script's.
+      const d = this.drag;
+      if (d && d.start && this.director?.active && this.pointers.size === 1) {
+        const p = at(e);
+        if (Math.hypot(p.x - d.start.x, p.y - d.start.y) < 7) this.director.tapSea(this.fromScreen(p.x, p.y));
+      }
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = 0;
       this.drag = null;
@@ -1020,8 +1038,13 @@ export class LayoutMap {
     ctx.fillText('ENEMY END', cx + half - 12, cy - half + 22);
     ctx.letterSpacing = '0px';
 
-    for (const t of this.tokens) this.drawToken(ctx, t);
-    this.drawNames(ctx);
+    // Scripting, the tokens are drawn where the script has them at the moment
+    // on the scrubber, with their courses under them and the cameras over.
+    const shown = this.director?.shown() || this.tokens;
+    this.director?.under(ctx);
+    for (const t of shown) this.drawToken(ctx, t);
+    this.drawNames(ctx, shown);
+    this.director?.over(ctx);
 
     // The scale bar, because a plan without one says nothing about range. This
     // one belongs to the view rather than to the chart -- it says what the
@@ -1101,22 +1124,26 @@ export class LayoutMap {
       ctx.globalAlpha = 1;
     }
 
-    // The handle it is turned by, and the shaft joining it to the body.
-    const hx = p.x + sin * out;
-    const hy = p.y - cos * out;
-    ctx.strokeStyle = 'rgba(230, 207, 156, 0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(p.x + sin * r, p.y - cos * r);
-    ctx.lineTo(hx, hy);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(hx, hy, HANDLE_R * 0.55, 0, Math.PI * 2);
-    ctx.fillStyle = '#e6cf9c';
-    ctx.fill();
+    // The handle it is turned by, and the shaft joining it to the body. Not
+    // while the chart is a script: nothing is turned by hand there.
+    if (!t.noHandle) {
+      const hx = p.x + sin * out;
+      const hy = p.y - cos * out;
+      ctx.strokeStyle = 'rgba(230, 207, 156, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x + sin * r, p.y - cos * r);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx, hy, HANDLE_R * 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = '#e6cf9c';
+      ctx.fill();
+    }
 
-    // The body.
+    // The body. A ship the script has already sunk is drawn as a ghost.
     ctx.save();
+    if (t.gone) ctx.globalAlpha = 0.3;
     ctx.translate(p.x, p.y);
     // Screen y runs down while z runs up, and screen x runs the way CHART_X
     // says, so the heading goes on the canvas as the chart shows it.
@@ -1182,13 +1209,13 @@ export class LayoutMap {
    * Walked from the top of the pile down, so whatever was last picked up keeps
    * its name whoever else it has been dragged over.
    */
-  drawNames(ctx) {
+  drawNames(ctx, tokens = this.tokens) {
     ctx.font = '600 10px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';
     const taken = [];
     const clear = (x, y) => !taken.some((s) => Math.abs(s.x - x) < 52 && Math.abs(s.y - y) < 11);
-    for (let i = this.tokens.length - 1; i >= 0; i--) {
-      const t = this.tokens[i];
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i];
       const p = this.toScreen(t.x, t.z);
       // Under the token, unless the token is pointed that way -- a hull steering
       // down the chart has her peg where her name would go, so the name goes

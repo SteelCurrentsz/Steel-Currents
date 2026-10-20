@@ -4331,7 +4331,7 @@ export function magazineTons(state, ship, cls, where) {
   return tons * (0.55 + state.rng() * 0.45);
 }
 
-function detonate(state, ship, where, owner) {
+export function detonate(state, ship, where, owner) {
   const cls = shipClass(ship);
   const c = ship.sections[where];
   if (!c) return;
@@ -9323,7 +9323,7 @@ export function leadPoint(fromX, fromZ, target, projSpeed) {
  * gets there. `where` says which compartment; without one it is the
  * superstructure, which is where most fires start.
  */
-function startFire(state, ship, where = 'works', strength = 0.35) {
+export function startFire(state, ship, where = 'works', strength = 0.35) {
   const c = ship.sections[where] || ship.sections.works;
   if (!c || c.lost) return;
   const was = c.fire;

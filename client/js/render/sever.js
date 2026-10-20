@@ -50,6 +50,15 @@ uniform float uCutSeed2;
 uniform float uCutBand;
 varying vec3 vCutP;
 float cutTear;
+`;
+
+// The noise the tear is drawn with, once a shader however many times the
+// material has been torn: a piece of a ship that had already parted, blown
+// apart again by her magazine, is cut twice, and each cut has its own
+// uniforms but shares these.
+const FRAG_FUNCS = /* glsl */`
+#ifndef CUT_FUNCS
+#define CUT_FUNCS
 float cutHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
 // Value noise, blended linearly rather than smoothly: torn steel has corners.
 float cutNoise( vec2 p ) {
@@ -65,18 +74,19 @@ float cutNoise( vec2 p ) {
 // round the frames, and short teeth on top of it.
 // \`seed\` picks a different tear, so two of them across the same ship do not
 // run parallel to one another.
-float cutLine( vec3 p, float z, float seed ) {
+float cutLine( vec3 p, float z, float seed, float jag ) {
   vec2 q = vec2( p.x + p.y * 0.31, p.y - p.x * 0.17 ) + seed;
   float n = cutNoise( q * 0.32 ) * 0.62 + cutNoise( q * 1.35 + 7.1 ) * 0.38;
-  return z + uCutJag * ( n * 2.0 - 1.0 );
+  return z + jag * ( n * 2.0 - 1.0 );
 }
+#endif
 `;
 
 const FRAG_CLIP = /* glsl */`
-  cutTear = vCutP.z - cutLine( vCutP, uCutZ, uCutSeed );
+  cutTear = vCutP.z - cutLine( vCutP, uCutZ, uCutSeed, uCutJag );
   if ( uCutBand > 0.5 ) {
     // A length of her torn out at both ends: only what lies between the two.
-    float hiTear = cutLine( vCutP, uCutZ2, uCutSeed2 ) - vCutP.z;
+    float hiTear = cutLine( vCutP, uCutZ2, uCutSeed2, uCutJag ) - vCutP.z;
     if ( cutTear < 0.0 || hiTear < 0.0 ) discard;
     cutTear = min( cutTear, hiTear );
   } else if ( uCutSide * cutTear < 0.0 ) discard;
@@ -140,6 +150,25 @@ export function cloneMaterial(src) {
 /** The material each cut material was made from. */
 const CUT_FROM = new WeakMap();
 
+/** How many tears a cut material already has in it. */
+const CUT_DEPTH = new WeakMap();
+
+/**
+ * One tear's code and uniforms, named for the tear it is: the first keeps the
+ * plain names, and every tear after it has its own, so a material torn twice
+ * declares each of them once.
+ */
+const CUT_NAMES = /\b(uCut\w+|vCutP|cutTear)\b/g;
+function nth(code, n) {
+  return n ? code.replace(CUT_NAMES, (w) => `${w}_${n}`) : code;
+}
+function nthUniforms(U, n) {
+  if (!n) return U;
+  const out = {};
+  for (const k of Object.keys(U)) out[`${k}_${n}`] = U[k];
+  return out;
+}
+
 export function cutMaterial(src, U) {
   if (!src || src.isShaderMaterial || src.isRawShaderMaterial) return null;
   // Three copies a material's userData by writing it out as JSON and reading
@@ -155,21 +184,25 @@ export function cutMaterial(src, U) {
   const prev = src.onBeforeCompile;
   const prevKey = src.customProgramCacheKey ? src.customProgramCacheKey() : '';
   // Which of its faces are her inside: the back of a one-sided material.
-  const inside = src.side === THREE.FrontSide;
+  // A tear in a material that already has one: the first was the inside of
+  // her, so the second leaves that alone.
+  const n = CUT_DEPTH.get(src) || 0;
+  const inside = n ? false : src.side === THREE.FrontSide;
   m.side = THREE.DoubleSide;
   m.onBeforeCompile = (shader, renderer) => {
     if (prev && prev !== THREE.Material.prototype.onBeforeCompile) prev.call(m, shader, renderer);
-    Object.assign(shader.uniforms, U);
+    Object.assign(shader.uniforms, nthUniforms(U, n));
     if (inside) shader.fragmentShader = `#define CUT_INSIDE\n${shader.fragmentShader}`;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${VERT_HEAD}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_BODY}`);
+      .replace('#include <common>', `#include <common>\n${nth(VERT_HEAD, n)}`)
+      .replace('#include <project_vertex>', `#include <project_vertex>\n${nth(VERT_BODY, n)}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${FRAG_HEAD}`)
-      .replace(/void main\(\) \{/, `void main() {\n${FRAG_CLIP}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>\n${FRAG_TINT}`);
+      .replace('#include <common>', `#include <common>\n${FRAG_FUNCS}${nth(FRAG_HEAD, n)}`)
+      .replace(/void main\(\) \{/, `void main() {\n${nth(FRAG_CLIP, n)}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${nth(FRAG_TINT, n)}`);
   };
-  m.customProgramCacheKey = () => `sever${inside ? 'i' : ''}|${prevKey}`;
+  CUT_DEPTH.set(m, n + 1);
+  m.customProgramCacheKey = () => `sever${n}${inside ? 'i' : ''}|${prevKey}`;
   m.userData = { ...(ud || {}) };
   delete m.userData.cutFrom;
   CUT_FROM.set(m, CUT_FROM.get(src) || src);

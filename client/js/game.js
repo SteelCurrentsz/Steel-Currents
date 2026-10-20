@@ -21,6 +21,7 @@ import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
+import { Director } from './director.js';
 import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
@@ -75,6 +76,8 @@ function planeMap(snap) {
 }
 /** The fastest the battle may be run, in times as fast as life. See Room.timeScale. */
 const MAX_WARP = 5;
+// The rate a director's stopped battle is drawn at. See onWarp.
+const PAUSED = 1e-4;
 
 /**
  * Where a ship is between two snapshots of her.
@@ -489,7 +492,10 @@ function galeOf(world, t) {
 }
 
 export class Battle {
-  constructor({ renderer, net, input, world, shipId, team, classId, roster, mode, onExit }) {
+  constructor({
+    renderer, net, input, world, shipId, team, classId, roster, mode, onExit,
+    director = false, stage = null, replay = null, title = '',
+  }) {
     this.renderer = renderer;
     this.net = net;
     this.input = input;
@@ -872,6 +878,19 @@ export class Battle {
     this.bindNet();
     this.bindInput();
     audio.startAmbience();
+
+    // A staged battle's director, or a replay: nobody aboard anything. He is
+    // a captain whose ship was never there -- every control that would con
+    // her is taken away by `sunk` -- with the director's bar in place of the
+    // conning keys. See director.js.
+    if (director) {
+      this.sunk = true;
+      this.flag = null;
+      this.selected = -1;
+      this.hud.setSelected(-1);
+      this.camDistance = 1400;
+      this.director = new Director(this, { stage, replay, title });
+    }
   }
 
   // ---------------------------------------------------------------- net ----
@@ -917,7 +936,13 @@ export class Battle {
    * and then thrown forward to catch up.
    */
   onWarp(s) {
-    const k = clamp(Math.round(Number(s) || 1), 1, MAX_WARP);
+    // A director runs it slow and stops it; a captain only hurries it along.
+    // Stopped is kept as a crawl rather than nought, because a great deal of
+    // the clock divides by it and reads nought as "not set".
+    const k = this.director
+      ? Math.max(PAUSED, clamp(Number(s) || 0, 0, MAX_WARP))
+      : clamp(Math.round(Number(s) || 1), 1, MAX_WARP);
+    this.director?.heard(k > PAUSED ? k : 0);
     if (k === this.timeScale) return;
     this.timeScale = k;
     const pts = this.clockPts;
@@ -949,6 +974,13 @@ export class Battle {
     }
     this.snapshots.push({ ...snap, at: now, st });
     while (this.snapshots.length > 12) this.snapshots.shift();
+    // A director starts over the middle of the action, there being no bridge
+    // of his own to start on.
+    if (this.director && !this.roam && !this.watching && snap.ships.length) {
+      let x = 0, z = 0;
+      for (const q of snap.ships) { x += q.x; z += q.z; }
+      this.roam = { x: x / snap.ships.length, z: z / snap.ships.length };
+    }
     this.serverTime = snap.time;
     this.syncClock(now, st);
 
@@ -3113,7 +3145,8 @@ export class Battle {
       // same line serves a mouse and two fingers. In as close as her plating
       // and out far enough to see the whole action.
       this.camDistance = clamp(this.camDistance * Math.pow(1.15, dir),
-        this.cls.hull.length * 0.05, this.cls.hull.length * 6);
+        this.director ? 20 : this.cls.hull.length * 0.05,
+        this.director ? 9000 : this.cls.hull.length * 6);
     }));
   }
 
@@ -3165,10 +3198,14 @@ export class Battle {
       case 'Tab': this.showScores = !this.showScores; this.hud.showScoreboard(this.roster, this.shipId, this.showScores); break;
       // Out of somebody else's view first, out of the battle second.
       case 'Escape':
-        if (this.watching || this.roam) this.cameraHome(); else this.leave();
+        // A director has no bridge to come home to: Escape lets the camera
+        // go where it is, and the bar's End is the way out.
+        if (this.director) { if (this.watching) this.lookAt(null); }
+        else if (this.watching || this.roam) this.cameraHome(); else this.leave();
         break;
       // Back to your own bridge from wherever the camera has been walked to.
-      case 'KeyH': this.cameraHome(); break;
+      // A director's H is the clean screen (see director.js).
+      case 'KeyH': if (!this.director) this.cameraHome(); break;
       default: break;
     }
   }
@@ -3243,7 +3280,10 @@ export class Battle {
     audio.click();
   }
 
-  lookAt(hit) {
+  lookAt(hit, quiet = false) {
+    // A director who picks something himself has taken the camera off the
+    // script. The script's own cuts come through here quietly.
+    if (!quiet) this.director?.tookCamera();
     // Picking a mark off the chart takes the camera off the salvo it was
     // riding: the two are the same camera, and the mark you just tapped is
     // what you asked for.
@@ -3314,7 +3354,7 @@ export class Battle {
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
-    audio.click();
+    if (!quiet) audio.click();
   }
 
   /** Which way the thing being watched is pointed, or null if we cannot tell. */
@@ -5210,6 +5250,7 @@ export class Battle {
     // are on the training gear.
     if (this.gun || this.flight) return;
     if (!dx && !dy) return;
+    this.director?.tookCamera();
     const here = this.focusPoint();
     // Walking the view off a ship is how you let go of her: the camera starts
     // from where it already was, so nothing jumps, and from then on it is
@@ -5484,7 +5525,17 @@ export class Battle {
       this.shellCam,
     );
     this.recoilClock += dt;
+    // A director's camera always has somewhere to be. Let go of whatever it
+    // was on, it stays over the spot rather than going home to a bridge that
+    // is not there.
+    if (this.director) {
+      const w = this.watching && this.watchPoint();
+      if (w) this.dirFocus = { x: w.x, z: w.z };
+      else if (!this.roam) this.roam = this.dirFocus ? { ...this.dirFocus } : { x: 0, z: 0 };
+    }
+    this.director?.beforeCamera();
     this.updateCamera(dt);
+    this.director?.afterCamera();
     this.scene.camera.updateMatrixWorld();
     // The sights on the glass are worked out of the camera this frame has
     // just been given, so they sit on what is drawn.
@@ -7424,6 +7475,8 @@ export class Battle {
   resize(w, h) { this.scene.resize(w, h); }
 
   dispose() {
+    this.director?.dispose();
+    this.director = null;
     this.targetView?.dispose();
     // Off her bridge first: the cut round it is on materials the next
     // battle's ships are drawn with too.

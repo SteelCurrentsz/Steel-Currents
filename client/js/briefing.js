@@ -471,6 +471,8 @@ export class Briefing {
    */
   setMode(mode) {
     this.arcade = mode === 'arcade';
+    // A staged battle is fought to a script and watched from the director's
+    // chair; the briefing is the same, and the chart after it grows a script.
     this.staged = mode === 'staged';
     const h = document.querySelector('#screen-custom .bh-left h2');
     if (h) h.textContent = this.arcade ? 'Arcade Battle' : this.staged ? 'Staged Battle' : 'Custom Battle';
@@ -499,6 +501,7 @@ export class Briefing {
       name: this.getName(),
       roomName: `${this.getName()}'s ${this.arcade ? 'arcade ' : this.staged ? 'staged ' : ''}battle`,
       arcade: !!this.arcade,
+      staged: !!this.staged,
       classId: s.allyFleet[0],
       allyClasses: s.allyFleet.slice(1),
       enemyClasses: s.enemyFleet,
