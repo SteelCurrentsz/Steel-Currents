@@ -81,6 +81,26 @@ function clearFoul(state, ship, brain, dt) {
   return true;
 }
 
+/**
+ * Aground: get her off it. Whichever end is on the bottom, she is driven the
+ * other way -- astern off a bow on the beach, ahead off a stern -- with the
+ * wheel amidships, for long enough to come clear. Stranded, there is nothing
+ * a captain can do with the engines, and he stops trying.
+ */
+function clearGround(state, ship, brain, dt) {
+  brain.ungrounding = Math.max(0, (brain.ungrounding || 0) - dt);
+  if (ship.stranded) return false;
+  if (ship.aground > 0 && brain.ungrounding <= 0) {
+    brain.groundAway = (ship.groundAt || 0) >= 0 ? -1 : 1;
+    brain.ungrounding = 12;
+  }
+  if (brain.ungrounding <= 0) return false;
+  ship.notch = brain.groundAway < 0 ? 0 : 4;
+  ship.rudderCmd = 0;
+  if (!ship.aground && brain.ungrounding < 6) brain.ungrounding = 0;
+  return true;
+}
+
 /** Preferred fighting distance, as a fraction of main battery range. */
 function preferredRange(cls) {
   switch (cls.type) {
@@ -176,7 +196,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   workLamps(state, ship, cls, target);
   // Fouled on another ship: getting clear comes before anything else she
   // might want to do with her helm.
-  const clearing = !conned && clearFoul(state, ship, brain, dt);
+  const clearing = !conned && (clearGround(state, ship, brain, dt) || clearFoul(state, ship, brain, dt));
 
   // Damage control: put fires out once a couple are burning, or when badly hurt.
   if ((ship.fires >= 2 || ship.flooding >= 1 || ship.hp < ship.maxHp * 0.4) && ship.repairCd <= 0) {

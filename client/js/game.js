@@ -4,6 +4,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
+import { BATTERIES } from '../../shared/batteries.js';
 import { Hud, readTarget, THROTTLE_MAX } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
@@ -535,9 +536,15 @@ export class Battle {
     this.hud.onTargetingPick?.((pick) => this.targetView?.select(pick));
     // A gun dropped on an enemy's box: put on her by name, or given back.
     this.hud.onTargetingAssign?.((t, target) => {
+      const ashore = target ? (this.snapshots[this.snapshots.length - 1]?.batteries || []).find((g) => g.i === target) : null;
+      if (ashore && t.kind === 'torp') {
+        this.hud.alert('A torpedo cannot be sent at a gun ashore');
+        return;
+      }
       this.net.send({ t: 'assign', ship: this.conned(), k: t.kind, i: t.i, target });
       audio.click();
-      if (target) this.hud.alert(`${t.label} on ${this.names.get(target) || 'target'}`);
+      const what = ashore ? BATTERIES[ashore.b]?.name : this.names.get(target);
+      if (target) this.hud.alert(`${t.label} on ${what || 'target'}`);
       else this.hud.alert(`${t.label} back to fire control`);
     });
     // A gun's key double-tapped: that mounting switched off, or back on.
@@ -2966,6 +2973,29 @@ export class Battle {
           if (this.flight && this.flight.id === ev.i) this.leaveFlight(true);
           break;
         }
+        case 'ground': {
+          // Her keel on the bottom: steel dragged over rock or sand, and the
+          // whole ship shuddering to it.
+          const at = { x: ev.x, y: 0, z: ev.z };
+          audio.crash?.(at, Math.max(2, ev.v || 0));
+          audio.tear?.(at, Math.min(2, 0.5 + (ev.v || 0) / 8));
+          if (ev.i === this.shipId) {
+            this.hud.alert(ev.at >= 0
+              ? 'AGROUND forward — go astern to come off'
+              : 'AGROUND aft — go ahead to come off');
+          }
+          break;
+        }
+        case 'refloat':
+          if (ev.i === this.shipId) this.hud.alert('Afloat again');
+          break;
+        case 'stranded':
+          if (ev.i === this.shipId) {
+            this.hud.alert('STRANDED — screws out of the water, she will not come off');
+          } else if (ev.team === this.team) {
+            this.hud.ribbon('SHIP STRANDED', 'cit');
+          }
+          break;
         case 'goingIn':
           // One of ours has decided to go into a ship: shot to pieces with
           // nowhere to go, a float plane with no deck to come home to, or a
@@ -5636,6 +5666,12 @@ export class Battle {
         const foes = (snap.ships || [])
           .filter((q) => q.a && q.tm !== myTeam)
           .map((q) => ({ i: q.i, n: q.n || 'Contact', c: q.c, d: Math.hypot(q.x - sx, q.z - sz) }))
+          // And the guns ashore: a mounting can be put on a battery by name
+          // the same way it is put on a ship.
+          .concat((snap.batteries || [])
+            .filter((g) => g.al && g.tm !== myTeam)
+            .map((g) => ({ i: g.i, n: BATTERIES[g.b]?.name || 'Battery', c: null,
+              d: Math.hypot(g.x - sx, g.z - sz) })))
           .sort((p, q) => p.d - q.d);
         const dp = new Map(dpMounts(cls).map((m) => [m.i, m.gun.range]));
         const reach = (t) => (t.kind === 'main' ? cls.gun?.range : t.kind === 'sec' ? cls.secondary?.range

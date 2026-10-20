@@ -70,7 +70,12 @@ export function shipSnapshot(ship, full, state = null) {
     // many compartments were making water.
     // Her depth to the centimetre: in tenths of a metre a ship settling a few
     // centimetres a second goes down the screen in steps.
-    fo: [Math.round(((ship.sink || 0) - (ship.lift || 0)) * 100) / 100, r3(ship.heel + (ship.liftHeel || 0)), r3(ship.trim + (ship.liftTrim || 0)), r3(ship.lean || 0), r3(ship.rock || 0)],
+    // Riding up on another hull, or up a beach (groundLift, groundTrim), comes
+    // out of the same three: she is higher, and down by one end.
+    fo: [Math.round(((ship.sink || 0) - (ship.lift || 0) - (ship.groundLift || 0)) * 100) / 100, r3(ship.heel + (ship.liftHeel || 0)), r3(ship.trim + (ship.liftTrim || 0) + (ship.groundTrim || 0)), r3(ship.lean || 0), r3(ship.rock || 0)],
+    // Aground: how hard, and stranded with her screws out of the water.
+    ag: ship.aground ? r3(ship.aground) : undefined,
+    sd: ship.stranded ? 1 : undefined,
     // A submarine, and nothing else, carries these: how deep she is and how
     // long her tubes' outer doors have been open. Everybody who can see her
     // gets them -- a boat's depth is not private information to anyone close

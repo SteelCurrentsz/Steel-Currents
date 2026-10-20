@@ -4353,9 +4353,75 @@ check('a ship driven at the coast runs aground on it', () => {
     if (grounded) break;
   }
   assert.ok(grounded, 'she should have gone aground on the Spanish shore');
+  // She rides up it for a few seconds and the ground holds her.
+  for (let i = 0; i < 20 / DT; i++) step(state, DT);
   assert.ok(ship.hp < hp0, 'grounding should hurt');
   assert.ok(!landAt(w, ship.x, ship.z), 'she should be left floating, not inland');
   assert.ok(Math.abs(ship.speed) < 4, `she should be stopped, making ${ship.speed}`);
+});
+
+// A ship pointed straight at the largest island from just off its shelf.
+function offIsland(classId, stern = false) {
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const st = createState(w, { mode: 'deathmatch' });
+  const R = isle.rmax || isle.r;
+  const at = { x: isle.x, z: isle.z - R * 1.25 - 200 };
+  const ship = addShip(st, { name: 'A', classId, team: 0, at });
+  ship.x = at.x; ship.z = at.z;
+  ship.heading = stern ? Math.PI : 0;
+  return { w, st, ship, at };
+}
+
+check('a ship run onto an island goes aground on it, bow first, and backs off it', () => {
+  const { st, ship } = offIsland('fletcher');
+  const hp0 = ship.hp;
+  ship.notch = 4;
+  let ground = null;
+  for (let i = 0; i < 240 / DT; i++) for (const e of step(st, DT)) if (e.e === 'ground') ground = e;
+  assert.ok(ground, 'she never touched');
+  assert.ok(ground.at > 0, 'driven ahead, she should have touched forward');
+  assert.ok(ship.aground > 0, 'she is not on the bottom');
+  assert.equal(Math.abs(ship.speed) < 0.5, true, `she is still making ${ship.speed.toFixed(1)} m/s up the beach`);
+  assert.ok(ship.hp < hp0, 'running aground at speed did her bottom no harm');
+  assert.ok(!ship.stranded, 'a bow on the beach does not take her screws out of the water');
+  // She is held while she is driven on.
+  const held = { x: ship.x, z: ship.z };
+  for (let i = 0; i < 20 / DT; i++) step(st, DT);
+  assert.ok(Math.hypot(ship.x - held.x, ship.z - held.z) < 3, 'the ground did not hold her');
+  // Astern, she comes off.
+  ship.notch = 0;
+  let off = false;
+  for (let i = 0; i < 240 / DT && !off; i++) for (const e of step(st, DT)) if (e.e === 'refloat') off = true;
+  assert.ok(off, 'going astern did not bring her off');
+  for (let i = 0; i < 30 / DT; i++) step(st, DT);
+  assert.ok(!ship.aground && ship.speed < -1, 'she came off and is not going astern into open water');
+});
+
+check('backed onto the beach with her screws out of the water, she stays there', () => {
+  const { st, ship } = offIsland('iowa', true);
+  ship.notch = 0;
+  let stranded = false;
+  for (let i = 0; i < 300 / DT; i++) for (const e of step(st, DT)) if (e.e === 'stranded') stranded = true;
+  assert.ok(stranded && ship.stranded, 'stern onto the beach and her screws are still in the water');
+  const at = { x: ship.x, z: ship.z };
+  for (const notch of [5, 0, 5]) {
+    ship.notch = notch;
+    for (let i = 0; i < 60 / DT; i++) step(st, DT);
+  }
+  assert.ok(Math.hypot(ship.x - at.x, ship.z - at.z) < 2, 'a ship with her screws out of the water drove herself off');
+});
+
+check('the harder she goes aground the more of her bottom it takes', () => {
+  const took = {};
+  for (const [label, notch] of [['slow', 2], ['fast', 5]]) {
+    const { st, ship } = offIsland('cleveland');
+    ship.notch = notch;
+    const hp0 = ship.hp;
+    for (let i = 0; i < 240 / DT; i++) step(st, DT);
+    took[label] = hp0 - ship.hp;
+  }
+  assert.ok(took.fast > took.slow * 1.5, `full speed cost ${Math.round(took.fast)}, a quarter ${Math.round(took.slow)}`);
 });
 
 check('the coast breaks a sight line and stops a shell', () => {
@@ -4575,12 +4641,16 @@ check('a casemate is not re-laid the way a pedestal is', () => {
   // has to be shifted to reach past its arc and the other never does.
   const narrow = shoot('merville', 6000);
   narrow.ship.x = 0; narrow.ship.z = narrow.bat.z - 5000;
+  // Her secondaries go for a gun ashore when there is no ship to shoot at,
+  // and a howitzer in the open does not last long enough to be re-laid.
+  narrow.bat.hp = narrow.bat.maxHp = 1e9;
   const laid = narrow.bat.heading;
   for (let i = 0; i < 30 * 60; i++) step(narrow.state, DT);
   const swung = Math.abs(angleDelta(narrow.bat.heading, laid));
 
   const all = shoot('flak88', 6000);
   all.ship.x = 0; all.ship.z = all.bat.z - 5000;
+  all.bat.hp = all.bat.maxHp = 1e9;
   const laid2 = all.bat.heading;
   for (let i = 0; i < 30 * 60; i++) step(all.state, DT);
   assert.ok(Math.abs(angleDelta(all.bat.heading, laid2)) < 1e-6,
@@ -18410,6 +18480,128 @@ check("a squadron's holes go out on the wire and come back", () => {
   assert.equal(field.on(at, null, 11.58, 0), -1, 'an untouched aeroplane is carrying holes');
   field.end();
   assert.equal(field.count, 0, 'an untouched aeroplane is carrying holes');
+});
+
+// A battery on the summit of the largest island, and a berth in open water
+// `range` metres off it with sea room for a capital ship.
+function hillBattery(seed, range, batteryId = 'longues') {
+  const w = generateWorld(seed, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const st = createState(w, { mode: 'deathmatch' });
+  const s = siteBattery(w, isle.x, isle.z, BATTERIES[batteryId].span);
+  const bat = addBattery(st, { batteryId, team: 1, x: s.x, z: s.z });
+  let at = null;
+  for (let a = 0; a < 64 && !at; a++) {
+    const th = (a / 64) * Math.PI * 2;
+    const x = s.x + Math.sin(th) * range;
+    const z = s.z + Math.cos(th) * range;
+    if (!islandAt(w, x, z, 260) && Math.abs(x) < w.half - 600 && Math.abs(z) < w.half - 600) at = { x, z };
+  }
+  return { w, st, bat, at };
+}
+
+check('a ship\'s guns laid on a battery up a hill hit it, not the hill in front of it', () => {
+  // Every solution used to be worked out to the sea, which put the shell
+  // into the face of the hill short of a gun two hundred metres up. Two
+  // hundred and forty sixteen-inch shells did nothing whatever to it.
+  for (const seed of [9911, 4242]) {
+    const { st, bat, at } = hillBattery(seed, 9000);
+    assert.ok(bat.y > 100, `the battery is only ${bat.y.toFixed(0)}m up`);
+    bat.cooldown = 1e9;
+    const ship = addShip(st, { name: 'BB', classId: 'iowa', team: 0, at });
+    ship.heading = Math.atan2(bat.x - ship.x, bat.z - ship.z) + Math.PI / 2;
+    const falls = [];
+    for (let i = 0; i < 300 / DT && bat.alive; i++) {
+      ship.aimX = bat.x; ship.aimZ = bat.z; ship.shellType = 'he'; ship.notch = 2; ship.speed = 0;
+      for (const e of step(st, DT)) {
+        if (e.e === 'landhit' || e.e === 'splash') falls.push(Math.hypot(e.x - bat.x, e.z - bat.z));
+      }
+      fireGuns(st, ship);
+    }
+    falls.sort((a, b) => a - b);
+    const median = falls[Math.floor(falls.length / 2)];
+    assert.ok(median < 250, `half her shells fell more than ${Math.round(median)}m from the battery`);
+    assert.ok(!bat.alive, `five minutes of a battleship left the battery at ${Math.round(bat.hp)} of ${bat.maxHp}`);
+  }
+});
+
+check('a gun ashore can be given to a mounting by name, and a torpedo cannot', () => {
+  const { st, bat, at } = hillBattery(9911, 7000);
+  const ship = addShip(st, { name: 'CA', classId: 'baltimore', team: 0, at });
+  assert.ok(assignMount(st, ship, 'main', 0, bat.id), 'a turret could not be put on a battery');
+  assert.equal(ship.assign['main:0'], bat.id);
+  const torp = addShip(st, { name: 'DD', classId: 'fletcher', team: 0, at: { x: at.x + 300, z: at.z } });
+  assert.equal(assignMount(st, torp, 'torp', 0, bat.id), false, 'a bank of tubes was sent at a hill');
+});
+
+check('an aeroplane flown into a gun position takes the gun with it', () => {
+  const { st, bat, at } = hillBattery(9911, 6000);
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, at, airGroup: SMALL_E });
+  cv.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  cv.aimX = bat.x; cv.aimZ = bat.z;
+  launchStrike(st, cv);
+  for (let i = 0; i < 1600 && !st.planes.length; i++) { cv.aimX = bat.x; cv.aimZ = bat.z; step(st, DT); }
+  const p = st.planes[0];
+  assert.ok(p, 'nothing got off the deck');
+  for (let i = 0; i < 20 * 30; i++) step(st, DT);
+  let ram = null;
+  for (let k = 0; k < 2400 && !ram && !p.dead; k++) {
+    const h = Math.atan2(bat.x - p.x, bat.z - p.z);
+    const d = dist(p.x, p.z, bat.x, bat.z);
+    flyPlane(st, cv, {
+      i: p.id, x: p.x + Math.sin(h) * 22, z: p.z + Math.cos(h) * 22, h,
+      y: bat.y + Math.max(1, Math.min(300, d * 0.25)), p: -0.25,
+    });
+    ram = step(st, DT).find((e) => e.e === 'ram');
+  }
+  assert.ok(ram, 'she flew into the hill and never reached the gun');
+  assert.equal(ram.bat, bat.id, 'the aeroplane went into something other than the battery');
+  assert.ok(!bat.alive, `a loaded dive bomber into an open gun pit left it at ${Math.round(bat.hp)}`);
+});
+
+check('a doomed aeroplane with no ship in reach goes into a battery instead', () => {
+  const { st, bat, at } = hillBattery(9911, 6000);
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, at, airGroup: SMALL_E });
+  cv.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  bat.cooldown = 1e9;
+  launchStrike(st, cv);
+  for (let i = 0; i < 1600 && !st.planes.length; i++) step(st, DT);
+  const p = st.planes.find((q) => !q.dead);
+  assert.ok(p, 'nothing got off the deck');
+  p.dropped = true; p.bomb = 0; p.phase = 'outbound';
+  for (let k = 1; k < p.machines.length; k++) { p.machines[k].alive = false; p.machines[k].left = true; }
+  const a = p.machines[0];
+  let goingIn = null;
+  let ram = null;
+  for (let i = 0; i < 20000 && !p.dead; i++) {
+    a.fire = Math.max(a.fire || 0, 0.7);
+    for (const k of Object.keys(a.parts)) a.parts[k].hp = Math.max(a.parts[k].hp, a.parts[k].max * 0.5);
+    for (const e of step(st, DT)) {
+      if (e.e === 'goingIn') goingIn = e;
+      if (e.e === 'ram') ram = e;
+    }
+  }
+  assert.ok(goingIn && goingIn.bat === bat.id, 'she never went in on the battery');
+  assert.ok(ram && ram.bat === bat.id, 'she went in on the battery and never got there');
+  assert.ok(bat.hp < bat.maxHp, 'she hit the battery and did nothing to it');
+});
+
+check('a pilot\'s own bombs on a battery do what the strike\'s would have', () => {
+  let hurt = 0;
+  for (let trial = 0; trial < 6; trial++) {
+    const { st, bat, at } = hillBattery(9911, 6000);
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, at, airGroup: SMALL_E });
+    cv.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+    launchStrike(st, cv);
+    for (let i = 0; i < 1600 && !st.planes.length; i++) step(st, DT);
+    const p = st.planes[0];
+    p.x = bat.x + 200; p.z = bat.z; p.y = bat.y + 400;
+    flyPlane(st, cv, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y, p: -1 });
+    assert.ok(dropOrdnance(st, cv, p.id), 'the bombs would not come off over a battery');
+    assert.ok(p.dropped, 'she dropped and still has them');
+    if (bat.hp < bat.maxHp) hurt++;
+  }
+  assert.ok(hurt >= 2, `six sticks on a battery hurt it ${hurt} times`);
 });
 
 check('a pilot with nothing left to drop and no way home goes into the ship', () => {
