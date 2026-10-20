@@ -27,7 +27,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, soilAt, addCrater, craterWire, landCeiling, sightOf,
+  groundHeight, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf,
@@ -3524,33 +3524,40 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
  * hillside can meet without one of them going through the other.
  */
 export function batteryPad(world, x, z, span = 20) {
-  // Over the whole of what the emplacement covers -- the pit and the apron
-  // banked round it -- not just the gun's own circle. Sampling the middle only
-  // left the uphill side of the platform buried: the hill went on climbing past
-  // where anybody had looked, and came up through the revetment with the gun
-  // standing inside it.
-  let top = groundHeight(world, x, z);
+  return Math.max(4, padTop(world, x, z, span, 32).top + batteryRise(span));
+}
+
+/**
+ * The highest and lowest ground under an emplacement's footprint.
+ *
+ * Both the true ground and the ground as it is drawn, because the two are not
+ * the same between the terrain mesh's vertices: a pad cut to the true height
+ * alone came up through the drawn hill on one side and stood metres clear of
+ * it on the other. Taking the higher of the two everywhere means nothing on
+ * the screen or in the simulation comes up through the platform.
+ */
+function padTop(world, x, z, span, round = 32) {
+  let top = Math.max(groundHeight(world, x, z), drawnGround(world, x, z));
+  let low = top;
   for (const k of BATTERY_FOOTPRINT) {
     const r = Math.max(6, span * k);
-    for (let a = 0; a < 16; a++) {
-      const th = (a / 16) * TAU;
-      const h = groundHeight(world, x + Math.cos(th) * r, z + Math.sin(th) * r);
+    for (let a = 0; a < round; a++) {
+      const th = (a / round) * TAU;
+      const px = x + Math.cos(th) * r;
+      const pz = z + Math.sin(th) * r;
+      const h = Math.max(groundHeight(world, px, pz), drawnGround(world, px, pz));
       if (h > top) top = h;
+      if (h < low) low = h;
     }
   }
-  // And then a little higher again. A gun position is not a slice taken off a
-  // hill flush with the top of it -- it is an earthwork, spoil dug out and
-  // banked up until the piece stands clear of everything round it. Standing the
-  // pad exactly at the highest ground it covers left the hill grazing the
-  // platform wherever the sampling had missed by a metre, and the gun looked
-  // half-buried; standing it proud means the emplacement is a small hill of its
-  // own and nothing can come up through it.
-  return Math.max(4, top + batteryRise(span));
+  return { top, low };
 }
 
 /** How far a gun's earthwork stands above the ground it is dug out of. */
 export function batteryRise(span = 20) {
-  return Math.max(2.2, span * 0.11);
+  // Enough to clear the ground it is measured over and no more. It was a tenth
+  // of the span, which stood the railway gun on a six-metre plinth.
+  return Math.max(1.2, span * 0.045);
 }
 
 /**
@@ -3560,6 +3567,88 @@ export function batteryRise(span = 20) {
  * is drawn with stands on ground that was never measured.
  */
 export const BATTERY_FOOTPRINT = [0.25, 0.5, 0.75, 1.0, 1.18, 1.35];
+
+/**
+ * Where a battery can actually be built, as near as possible to where it was
+ * asked for.
+ *
+ * The chart only asks that a gun is put down on land, and land includes a
+ * beach a few metres wide, the lip of a cliff and the side of a ravine. A gun
+ * sited on any of those came out standing in the surf, perched on a mound
+ * twenty metres high on its downhill side, or buried in the hill on its uphill
+ * one. So the site is checked before the gun goes in: its whole footprint on
+ * dry ground well back from the water, and the ground under it level enough
+ * that the pad does not have to be built up into a tower to sit flat. If the
+ * spot asked for is not that, the nearest one that is.
+ *
+ * Returns `{ x, z }`, or the point it was given when there is no land to build
+ * on anywhere -- which the briefing does not allow, and a test may.
+ */
+export function siteBattery(world, x, z, span = 20) {
+  const isles = world.islands || [];
+  const coast = !!world.land?.length;
+  if (!isles.length && !coast) return { x, z };
+  // How far from the water the edge of the footprint has to be, and how much
+  // the ground may fall across it before the pad becomes a plinth.
+  const edge = span * 1.35 + 12;
+  const level = Math.max(3, span * 0.16);
+  const fits = (px, pz) => {
+    for (let a = 0; a < 12; a++) {
+      const th = (a / 12) * TAU;
+      const qx = px + Math.cos(th) * edge;
+      const qz = pz + Math.sin(th) * edge;
+      if (!islandAt(world, qx, qz, 0)) return null;
+      if (Math.min(groundHeight(world, qx, qz), drawnGround(world, qx, qz)) < 1.5) return null;
+    }
+    const { top, low } = padTop(world, px, pz, span, 12);
+    return top - low;
+  };
+  const here = fits(x, z);
+  if (here !== null && here <= level) return { x, z };
+
+  // Walked outward from the spot in rings, keeping the levellest site that
+  // fits, with a small premium on staying close.
+  let best = null;
+  const consider = (px, pz) => {
+    const fall = fits(px, pz);
+    if (fall === null) return;
+    const score = Math.max(0, fall - level) * 40 + fall + Math.hypot(px - x, pz - z) * 0.02;
+    if (!best || score < best.score) best = { x: px, z: pz, score, fall };
+  };
+  const reach = Math.max(500, span * 12);
+  for (let r = 20; r <= reach; r += Math.max(20, r * 0.18)) {
+    const n = Math.max(10, Math.round((TAU * r) / 45));
+    for (let a = 0; a < n; a++) {
+      const th = (a / n) * TAU;
+      consider(x + Math.cos(th) * r, z + Math.sin(th) * r);
+    }
+    // Close and level is good enough; there is no sense in looking further.
+    if (best && best.fall <= level) return { x: best.x, z: best.z };
+  }
+  if (best) return { x: best.x, z: best.z };
+
+  // Nothing near it. Then the nearest summit, or the nearest ground well
+  // inland on a coast: the tops of islands are flat, which is where guns go.
+  const far = [];
+  for (const i of isles) far.push({ x: i.x, z: i.z });
+  if (coast) {
+    const half = world.half || 7000;
+    const step = Math.max(300, half / 24);
+    for (let gz = -half + step; gz < half; gz += step) {
+      for (let gx = -half + step; gx < half; gx += step) {
+        if (shoreDistance(world, gx, gz) > edge + 150) far.push({ x: gx, z: gz });
+      }
+    }
+  }
+  far.sort((p, q) => Math.hypot(p.x - x, p.z - z) - Math.hypot(q.x - x, q.z - z));
+  for (const p of far.slice(0, 12)) {
+    const fall = fits(p.x, p.z);
+    if (fall === null) continue;
+    const score = fall + Math.hypot(p.x - x, p.z - z) * 0.002;
+    if (!best || score < best.score) best = { x: p.x, z: p.z, score, fall };
+  }
+  return best ? { x: best.x, z: best.z } : { x, z };
+}
 
 /** Whoever fired a shell: a ship, or one of the guns ashore. */
 function shellOwner(state, sh) {

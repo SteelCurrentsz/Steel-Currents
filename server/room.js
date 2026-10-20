@@ -6,8 +6,9 @@ import {
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
-  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP,
+  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery,
 } from '../shared/sim.js';
+import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
 import { getClass, SHIP_ORDER } from '../shared/ships.js';
@@ -225,10 +226,15 @@ export class Room {
    * fights it off its own datasheet.
    */
   addBatteryOnTeam(team, batteryId, at = null) {
+    const x = at && Number.isFinite(at.x) ? at.x : 0;
+    const z = at && Number.isFinite(at.z) ? at.z : (team === 0 ? -1 : 1) * (this.state.world.half - 1200);
+    // On ground it can be built on: dry, back from the water and level enough
+    // to cut a pad into, at or as near as it can be to where it was put.
+    const site = siteBattery(this.state.world, x, z, BATTERIES[batteryId]?.span);
     return addBattery(this.state, {
       batteryId, team,
-      x: at && Number.isFinite(at.x) ? at.x : 0,
-      z: at && Number.isFinite(at.z) ? at.z : (team === 0 ? -1 : 1) * (this.state.world.half - 1200),
+      x: site.x,
+      z: site.z,
       heading: at && Number.isFinite(at.h) ? at.h : (team === 0 ? 0 : Math.PI),
     });
   }

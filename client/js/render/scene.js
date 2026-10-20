@@ -39,9 +39,10 @@ import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
 import {
   MAP_HALF, landMask, groundHeight, getWeather, islandRadius, islandHeight,
+  ISLE_RINGS, isleSpokes, isleVertex, COAST_STEP, drawnGround,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
-import { makeRng, clamp } from '../../../shared/math.js';
+import { clamp } from '../../../shared/math.js';
 
 const SKY = {
   night: { top: 0x050d1c, bottom: 0x1d3550 },
@@ -124,14 +125,20 @@ function starField(count = 700) {
  * One mesh for the lot: a coastal battlefield is fifty thousand cells of land
  * and that is not fifty thousand draw calls.
  */
+/** Two greens and a sand, picked by height: beach, scrub, high ground. */
+function coastShade(h) {
+  if (h < 6) return [0.62, 0.58, 0.44];
+  if (h < 60) return [0.30, 0.35, 0.22];
+  return [0.24, 0.27, 0.20];
+}
+
 function buildCoast(world) {
   const m = landMask(world);
   if (!m.any) return null;
   // Drawn at twice the cell the sim collides on. The coastline carries its
   // detail at about seven hundred metres, so three hundred holds all of it,
   // and it is a quarter of the triangles.
-  const STEP = 2;
-  const cell = m.cell * STEP;
+  const cell = m.cell * COAST_STEP;
   const n = Math.ceil((m.half * 2) / cell) + 1;
   const half = m.half;
   const at = (i, j) => {
@@ -157,12 +164,7 @@ function buildCoast(world) {
 
   const pos = [];
   const col = [];
-  // Two greens and a sand, picked by height: beach, scrub, high ground.
-  const shade = (h) => {
-    if (h < 6) return [0.62, 0.58, 0.44];
-    if (h < 60) return [0.30, 0.35, 0.22];
-    return [0.24, 0.27, 0.20];
-  };
+  const shade = coastShade;
 
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
@@ -216,12 +218,9 @@ function buildCoast(world) {
  * hundred islands, and a hundred islands is two hundred draw calls for
  * something that never moves.
  */
-// Closer together near the water, where the beach and the first of the slope
-// are, and again at the summit; the shelf below the waterline needs only two.
-const ISLE_RINGS = [
-  0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.56, 0.63,
-  0.70, 0.76, 0.82, 0.87, 0.91, 0.945, 0.972, 0.99, 1, 1.14, 1.32,
-];
+// The rings and spokes the mesh is built on live with the height field, in
+// shared/world.js, because the gun pits have to know exactly where the drawn
+// ground is: see drawnGround.
 
 /**
  * The colour of a piece of ground, by how high it stands and how steep it is.
@@ -277,38 +276,22 @@ function buildIslands(world) {
   const foam = [];
 
   for (const isle of islands) {
-    const rng = makeRng(isle.shape || 1);
     // Enough spokes that the ridges and gullies the height field carries are
-    // actually resolved rather than aliased into facets.
-    const spokes = Math.max(48, Math.min(120, Math.round(isle.r / 8)));
+    // actually resolved rather than aliased into facets. Straight off the
+    // shared height field and nothing added: the hill on the screen has to be
+    // the hill the shells and the gun platforms are working from, or a battery
+    // cut to one stands in the other. Which now includes what has been blown
+    // out of it -- craters are in that field, so they are in the mesh without
+    // anything here knowing what a crater is.
+    const spokes = isleSpokes(isle);
 
     const nr = ISLE_RINGS.length;
     const px = new Float32Array(spokes * nr);
     const py = new Float32Array(spokes * nr);
     const pz = new Float32Array(spokes * nr);
     for (let i = 0; i < spokes; i++) {
-      const a = (i / spokes) * Math.PI * 2;
-      const R = islandRadius(isle, a);
-      const sn = Math.sin(a);
-      const cs = Math.cos(a);
       for (let j = 0; j < nr; j++) {
-        const f = ISLE_RINGS[j];
-        const x = isle.x + sn * R * f;
-        const z = isle.z + cs * R * f;
-        let y;
-        if (f >= 1) {
-          // Off the beach and down onto the shelf.
-          const t = (f - 1) / (ISLE_RINGS[nr - 1] - 1);
-          y = -24 * t * t;
-        } else {
-          // Straight off the shared height field and nothing added: the hill
-          // on the screen has to be the hill the shells and the gun platforms
-          // are working from, or a battery cut to one stands in the other.
-          // Which now includes what has been blown out of it -- craters are in
-          // that field, so they are in the mesh without anything here knowing
-          // what a crater is.
-          y = groundHeight(world, x, z);
-        }
+        const [x, y, z] = isleVertex(world, isle, spokes, i, j);
         const k = i * nr + j;
         px[k] = x; py[k] = y; pz[k] = z;
       }
@@ -395,140 +378,162 @@ function buildIslands(world) {
 }
 
 /**
+ * The colour the terrain is drawn in at a point, so whatever is laid over it
+ * can meet it without a seam.
+ */
+function terrainTint(world, x, z) {
+  const h = drawnGround(world, x, z);
+  if (world.land?.length && !(world.islands || []).length) return coastShade(h);
+  const d = 14;
+  const gx = (drawnGround(world, x + d, z) - drawnGround(world, x - d, z)) / (2 * d);
+  const gz = (drawnGround(world, x, z + d) - drawnGround(world, x, z - d)) / (2 * d);
+  return isleShade(h, Math.hypot(gx, gz), 0);
+}
+
+/**
  * The ground a battery is built on.
  *
- * A gun position is not set down on a hillside, it is cut into one: the pad is
- * levelled at the height of its uphill side and the spoil is thrown out to make
- * up the downhill one. Without that a flat emplacement on a slope has half of
- * it buried and the other half standing in the air, which is what a single
- * height sample gets you.
+ * A gun position is cut into a hillside and the spoil thrown out round it: a
+ * levelled floor at the pad height, and a bank of earth easing down -- or up,
+ * where the hill climbs past it -- to meet the hill again. It was a flat disc
+ * with a straight skirt in one colour, read off the true height field, and the
+ * terrain on the screen is a coarse mesh that is not quite that field: the
+ * skirt ended in mid-air over a hollow in the mesh or vanished into a bump in
+ * it, and the whole thing looked like a green block set down on the hill.
  *
- * So: a flat platform at the pad height, and a skirt round it falling to meet
- * the terrain. The skirt never rises above the pad — where the hill is higher
- * than the platform it simply carries on through, which is the cutting.
+ * Now it is lofted onto the ground as drawn (drawnGround), so it meets the
+ * terrain the captain can see exactly; it falls away on an eased curve rather
+ * than a cone, so it reads as a mound of earth; and it is painted from trodden
+ * earth on the floor into the terrain's own colour at its edge, so there is no
+ * line where one stops and the other starts.
  *
  * `at` is the emplacement's world position; the mesh is built in the view's own
  * local frame, so its origin is the pad and its y is metres above or below it.
  */
 function batteryApron(world, at, span, foot = 0) {
-  // The levelled ground is the emplacement's own size and no more -- but it is
-  // its whole size. The platform has to carry everything the gun is built with,
-  // outriggers, revetment, ready racks and all, or the pieces at the edge of it
-  // hang off the side of the mound with nothing under them. `foot` is what the
-  // model actually measures across the ground; the datasheet span is the floor
-  // under that, for a piece whose model happens to be compact.
+  // The levelled floor is the emplacement's whole size: everything the gun is
+  // built with has to stand on it. `foot` is what the model measures across
+  // the ground; the datasheet span is the floor under that.
   const R = Math.max(3, span * 0.5, foot * 1.14);
-  // How far the mound has to reach before it meets the ground again.
-  //
-  // The platform is cut at the height of the highest ground under it, so on a
-  // slope the downhill side of it stands over a gap -- and how big that gap is
-  // depends entirely on the hill. A fixed skirt was fine on a shoulder and
-  // ended in mid-air on anything steeper, with the emplacement apparently
-  // floating off the side of the hill. So the drop is measured, and the mound
-  // is banked out far enough to come down it at about one in one and a quarter,
-  // which is roughly the angle loose spoil stands at before it slides.
+  // How far the bank has to run out to come down to the ground, at about one
+  // in two and a half -- a bank of spoil that has settled and grassed over,
+  // not a heap. Measured just past the floor's edge: further out the bank is
+  // lying along the hill anyway, and measuring the whole fall of the hillside
+  // there built a mound the size of a hill on any slope.
   let drop = 0;
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const g0 = groundHeight(world, at.x + Math.sin(a) * R * 2.2, at.z + Math.cos(a) * R * 2.2);
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const g0 = drawnGround(world, at.x + Math.sin(a) * R * 1.15, at.z + Math.cos(a) * R * 1.15);
     if (at.y - g0 > drop) drop = at.y - g0;
   }
-  // Banked out to meet the ground, but not without limit: a gun sited on the
-  // lip of a cliff would otherwise grow a ramp a hundred metres across.
-  const reach = Math.min(R * 6, Math.max(R * 2.6, R + drop * 1.25));
-  const OUT = reach / R;
-  const RINGS = [1, ...[0.11, 0.26, 0.45, 0.68, 1].map((t) => 1 + (OUT - 1) * t)];
-  const SPOKES = 40;
+  // But not without limit: a gun on the lip of a cliff would otherwise grow a
+  // ramp a hundred metres across.
+  const reach = Math.min(R * 5, Math.max(R * 1.9, R + drop * 2.5));
+  // Rings out from the floor's edge, closer together where the bank turns.
+  const BANK = 12;
+  const rings = [0.45, 0.8, 1];
+  for (let k = 1; k <= BANK; k++) {
+    const t = k / BANK;
+    rings.push(1 + (reach / R - 1) * t * t * (0.6 + 0.4 * t));
+  }
+  const SPOKES = 48;
   const pos = [];
   const idx = [];
   const col = [];
-  const put = (x, y, z, shade) => {
-    pos.push(x, y, z);
-    col.push(shade[0], shade[1], shade[2]);
-  };
-  // Spoil out of the hill it was dug from, not a slab of concrete. The pad was
-  // a fixed pale grey that came out brighter than any ground in the game, so an
-  // emplacement on a green headland sat on what looked like a golf ball. It
-  // takes the colour of the ground at its own height and darkens it: bare
-  // trodden earth on the platform, banked spoil round that, and the hillside's
-  // own colour where the two meet, so the mound belongs to the hill.
-  const here = isleShade(at.y, 0, 0);
-  const tone = (k, g) => [
-    Math.min(1, here[0] * k + g), Math.min(1, here[1] * k + g), Math.min(1, here[2] * k + g),
-  ];
-  const PAD = tone(0.70, 0.055);       // levelled earth and rubble
-  const FILL = tone(0.85, 0.025);      // the spoil banked round it
-  const EDGE = here;                   // where it meets the hill again
-  // And an outline that is not a turned circle: spoil is thrown, not moulded.
+
+  // Trodden earth and gravel on the floor; the spoil in the bank a little
+  // lighter and drier than the ground it came out of; and at the edge the
+  // ground's own colour.
+  const EARTH = [0.37, 0.34, 0.28];
+  const SPOIL = [0.42, 0.39, 0.31];
   const seed = Math.abs(Math.round(at.x * 0.37 + at.z * 0.11));
   const ph = [(seed % 61) / 61 * 6.28, (seed % 37) / 37 * 6.28, (seed % 23) / 23 * 6.28];
+  // Spoil is thrown, not turned on a lathe: a ragged outline.
   const wob = (th) => 1
-    + 0.14 * Math.sin(th * 3 + ph[0])
-    + 0.085 * Math.sin(th * 5 - ph[1])
-    + 0.05 * Math.sin(th * 8 + ph[2]);
+    + 0.12 * Math.sin(th * 3 + ph[0])
+    + 0.07 * Math.sin(th * 5 - ph[1])
+    + 0.04 * Math.sin(th * 9 + ph[2]);
+  const grain = (n) => ((((n + seed) * 2654435761) >>> 0) % 1000) / 1000 * 0.08 - 0.04;
+  const ease = (t) => t * t * (3 - 2 * t);
 
-  put(0, 0, 0, PAD);                   // the middle of the platform
+  pos.push(0, 0, 0);
+  col.push(...EARTH, 1);
   for (let i = 0; i < SPOKES; i++) {
     const th = (i / SPOKES) * Math.PI * 2;
     const sn = Math.sin(th);
     const cs = Math.cos(th);
     const rough = wob(th);
-    for (let k = 0; k < RINGS.length; k++) {
-      // The platform itself stays a clean working circle -- it was levelled --
-      // and everything banked outside it is ragged.
-      const r = R * RINGS[k] * (k === 0 ? 1 : 1 + (rough - 1) * ((k - 1) / (RINGS.length - 2)));
+    for (let k = 0; k < rings.length; k++) {
+      const f = rings[k];
+      // How far out along the bank, 0 at the floor's edge and 1 at its foot.
+      const t = f <= 1 ? 0 : (f - 1) / (reach / R - 1);
+      const r = R * (f <= 1 ? f : 1 + (f - 1) * (1 + (rough - 1) * Math.min(1, t * 2)));
       const x = sn * r;
       const z = cs * r;
-      // Local height: the terrain out there relative to the pad, never above
-      // it. Taken as the highest of the point itself and a small ring round it,
-      // because what matters is not the ground at the sample but the ground
-      // between the samples -- a spur that rises between two of them would come
-      // up through the flat the two of them span.
       let y = 0;
-      if (k > 0) {
+      let c = EARTH;
+      if (t > 0) {
         const wx = at.x + x;
         const wz = at.z + z;
-        const near = R * 0.2;
-        let g = groundHeight(world, wx, wz);
-        for (let q = 0; q < 4; q++) {
-          const th2 = (q / 4) * Math.PI * 2 + 0.7;
-          const h = groundHeight(world, wx + Math.cos(th2) * near, wz + Math.sin(th2) * near);
-          if (h > g) g = h;
-        }
-        y = Math.min(0, g - at.y);
-        // The outermost ring is driven into the hillside rather than left
-        // sitting on it, so the earthwork ends buried instead of in mid-air.
-        if (k === RINGS.length - 1) y -= Math.max(3, span * 0.2);
+        // The ground there, relative to the pad, eased into from the floor:
+        // flat off the edge of the floor, then down (or up) the bank, then
+        // lying along the hill. The last ring is tucked a little under the
+        // terrain so the bank ends in the ground rather than on it.
+        const g = drawnGround(world, wx, wz) - at.y;
+        y = g * ease(t);
+        if (k === rings.length - 1) y = g;
+        const tint = terrainTint(world, wx, wz);
+        const m = ease(Math.min(1, t * 1.6));
+        c = [
+          SPOIL[0] + (tint[0] - SPOIL[0]) * m,
+          SPOIL[1] + (tint[1] - SPOIL[1]) * m,
+          SPOIL[2] + (tint[2] - SPOIL[2]) * m,
+        ];
       }
-      const shade = k === 0 ? PAD
-        : k >= RINGS.length - 2 ? EDGE
-          : FILL;
-      put(x, y, z, shade);
+      const n = grain(i * 31 + k);
+      pos.push(x, y, z);
+      // And the foot of the bank fades into the hill rather than ending on
+      // it: what shows through is the terrain's own colour and shading, so
+      // there is no seam to see however the two meshes' facets fall.
+      const alpha = 1 - ease(clamp((t - 0.5) / 0.5, 0, 1));
+      col.push(clamp(c[0] + n, 0, 1), clamp(c[1] + n, 0, 1), clamp(c[2] + n, 0, 1), alpha);
     }
   }
-  const ring = (i, k) => 1 + i * RINGS.length + k;
+  const nr = rings.length;
+  const ring = (i, k) => 1 + i * nr + k;
   for (let i = 0; i < SPOKES; i++) {
     const j = (i + 1) % SPOKES;
     idx.push(0, ring(i, 0), ring(j, 0));
-    for (let k = 0; k < RINGS.length - 1; k++) {
+    for (let k = 0; k < nr - 1; k++) {
       idx.push(ring(i, k), ring(i, k + 1), ring(j, k + 1));
       idx.push(ring(i, k), ring(j, k + 1), ring(j, k));
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 1, metalness: 0,
+    vertexColors: true, roughness: 1, metalness: 0, transparent: true,
   }));
-  // Over the hillside it is cut into, so the two do not fight for the same
+  // Over the hillside it is laid on, so the two do not fight for the same
   // fragments along the join.
   mesh.renderOrder = 1;
   mesh.material.polygonOffset = true;
   mesh.material.polygonOffsetFactor = -2;
   mesh.material.polygonOffsetUnits = -2;
+  // Where to look to tell whether the ground under it has changed since.
+  const probe = [];
+  for (let i = 0; i < SPOKES; i += 3) {
+    for (const k of [0, 3, 6, 9]) {
+      const q = ring(i, Math.min(nr - 1, k + 3)) * 3;
+      const x = at.x + pos[q];
+      const z = at.z + pos[q + 2];
+      probe.push([x, z, drawnGround(world, x, z)]);
+    }
+  }
+  mesh.userData.probe = probe;
   return mesh;
 }
 
@@ -2207,19 +2212,44 @@ export class BattleScene {
         transparent: true, opacity: 0.4, depthWrite: false,
       }));
       marker.position.y = 1.5;
+      // After the ground it stands on, which is drawn blended now.
+      marker.renderOrder = 2;
       group.add(marker);
 
-      // The ground it stands on, cut to fit the hill it stands on.
-      if (at) group.add(batteryApron(this.world, at, built.span, built.foot));
-
       v = {
-        group, spin, marker, span: built.span, batteryId, team, smokeTimer: 0,
+        group, spin, marker, span: built.span, foot: built.foot, batteryId, team, smokeTimer: 0,
+        apron: null, apronY: NaN, apronRev: -1,
         // A rocket launcher's rails and rockets, worked from the wire.
         launcher: built.launcher,
         elev: built.launcher ? built.launcher.travel : 0,
         shut: 0,
       };
       this.batteryViews.set(id, v);
+    }
+    // The ground it stands on, cut to fit the hill it stands on -- and cut
+    // again when that changes: a crater in the bank, or the ground going out
+    // from under the gun and dropping it, would otherwise leave the old
+    // earthwork standing in the air round it or the gun sunk inside it.
+    const rev = this.world.groundRev || 0;
+    if (at && rev !== v.apronRev && Math.abs(at.y - v.apronY) <= 0.05) {
+      // Most craters are nowhere near it. Only the ground it was laid on is
+      // worth looking at again, and only when it has actually moved.
+      v.apronRev = rev;
+      if (v.apronProbe?.some(([x, z, h]) => Math.abs(drawnGround(this.world, x, z) - h) > 0.3)) {
+        v.apronY = NaN;
+      }
+    }
+    if (at && !(Math.abs(at.y - v.apronY) <= 0.05)) {
+      if (v.apron) {
+        v.group.remove(v.apron);
+        v.apron.geometry.dispose();
+        v.apron.material.dispose();
+      }
+      v.apron = batteryApron(this.world, at, v.span, v.foot);
+      v.group.add(v.apron);
+      v.apronY = at.y;
+      v.apronRev = rev;
+      v.apronProbe = v.apron.userData.probe;
     }
     return v;
   }

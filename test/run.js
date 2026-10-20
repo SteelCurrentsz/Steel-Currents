@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
+  drawnGround, isleSpokes, isleVertex,
 } from '../shared/world.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, windAt, WAVES as SEA_WAVES, SEA_AMP,
@@ -24,6 +25,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
+  siteBattery, batteryPad,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -283,7 +285,7 @@ function shellRuler(group) {
     return hi < lo ? null : { lo, hi };
   };
 }
-import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS } from '../shared/math.js';
+import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, makeRng } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
   Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL, heldTo, MAX_HULLS, HOLD_MARGIN,
@@ -4929,22 +4931,26 @@ check('a sortie is crewed the same way with a socket and without one', () => {
   // with a second copy of this that had never heard of the order-of-battle
   // chart: every hull went to the spawn line and no gun went ashore at all.
   // Both builds go through crewBattle now, so this is the contract they share.
+  // A room stood up without the tick timer, since nothing here needs to run.
+  // On a theatre with land in it: the open ocean has nowhere to site a gun.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'coral_shelf',
+    seed: 4242, half: 12000, private: true, autoStart: false });
+  clearInterval(room.timer);
+  // The guns on the tops of two islands, which is ground they can be built on
+  // as it stands -- a gun put down in the sea or on a beach is moved to the
+  // nearest that is, and this is about the berth arriving, not about that.
+  const [isleA, isleB] = [...room.state.world.islands].sort((a, b) => b.r - a.r);
   const layout = {
     allies: [{ x: -1200, z: 2000, h: 0.4 }, { x: 900, z: 2600, h: 0 }],
     enemies: [{ x: -2600, z: -2900, h: 3.1 }],
-    allyGuns: [{ x: 4000, z: 1500, h: 1 }],
-    enemyGuns: [{ x: -4200, z: -1800, h: -1 }],
+    allyGuns: [{ x: isleA.x, z: isleA.z, h: 1 }],
+    enemyGuns: [{ x: isleB.x, z: isleB.z, h: -1 }],
   };
   const req = {
     layout, botSkill: 'regular',
     allyClasses: ['fletcher'], enemyClasses: ['fletcher'],
     allyGuns: ['flak88'], enemyGuns: ['flak88'],
   };
-  // A room stood up without the tick timer, since nothing here needs to run.
-  // On a theatre with land in it: the open ocean has nowhere to site a gun.
-  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'coral_shelf',
-    seed: 4242, half: 12000, private: true, autoStart: false });
-  clearInterval(room.timer);
   const player = { id: 'p', name: 'Captain', team: 0, send() {} };
   crewBattle(room, req, (at) => {
     const res = room.join(player, { name: 'Captain', classId: 'fletcher', team: 0, at });
@@ -4967,10 +4973,10 @@ check('a sortie is crewed the same way with a socket and without one', () => {
   assert.equal(room.state.batteries.length, 2, 'both sides got their guns ashore');
   const ally = room.state.batteries.find((b) => b.team === 0);
   const foe = room.state.batteries.find((b) => b.team === 1);
-  assert.equal(ally.x, 4000, 'the gun is where it was sited');
-  assert.equal(ally.z, 1500);
-  assert.equal(foe.x, -4200);
-  assert.equal(foe.z, -1800);
+  assert.equal(ally.x, isleA.x, 'the gun is where it was sited');
+  assert.equal(ally.z, isleA.z);
+  assert.equal(foe.x, isleB.x);
+  assert.equal(foe.z, isleB.z);
   clearInterval(room.timer);
 });
 
@@ -5027,9 +5033,17 @@ check('a gun stands on its ground, never inside it', () => {
       for (const ring of BATTERY_FOOTPRINT) {
         for (let j = 0; j < 12; j++) {
           const th = (j / 12) * Math.PI * 2;
-          const g = groundHeight(w, x + Math.cos(th) * span * ring, z + Math.sin(th) * span * ring);
+          const px = x + Math.cos(th) * span * ring;
+          const pz = z + Math.sin(th) * span * ring;
+          const g = groundHeight(w, px, pz);
           assert.ok(g <= bat.y + 0.001,
             `ground ${g.toFixed(1)}m under a pad cut at ${bat.y.toFixed(1)}m`);
+          // And the ground as it is drawn, which between the terrain mesh's
+          // vertices is not the same ground: a pad cut to the true height
+          // alone had the drawn hill coming up through it.
+          const d = drawnGround(w, px, pz);
+          assert.ok(d <= bat.y + 0.001,
+            `drawn ground ${d.toFixed(1)}m comes up through a pad at ${bat.y.toFixed(1)}m`);
         }
       }
       // And it stands proud of that ground: an earthwork, not a slice off the
@@ -5042,6 +5056,70 @@ check('a gun stands on its ground, never inside it', () => {
     }
   }
   assert.ok(tested >= 6, `only ${tested} emplacements were on land to test`);
+});
+
+check('a battery is sited on dry, level ground near where it was put', () => {
+  // The chart only asks that a gun goes down on land, and the beach, the lip
+  // of a cliff and the side of a ravine are all land. A gun put on one came
+  // out standing in the surf or perched on a tower of earth. siteBattery moves
+  // it to the nearest ground it can be built on.
+  for (const [w, label] of [
+    [generateWorld(9911, 'solomon_narrows', 'day', 14000), 'islands'],
+    [generateWorld(77, 'coral_shelf', 'day', 20000, { lon: -0.6, lat: 49.35 }), 'a real coast'],
+  ]) {
+    const rng = makeRng(5);
+    let tried = 0;
+    for (let q = 0; q < 400 && tried < 24; q++) {
+      const x = (rng() * 2 - 1) * w.half * 0.9;
+      const z = (rng() * 2 - 1) * w.half * 0.9;
+      if (!islandAt(w, x, z, 0)) continue;
+      tried++;
+      for (const id of ['flak88', 'longues', 'gustav']) {
+        const span = BATTERIES[id].span;
+        const s = siteBattery(w, x, z, span);
+        assert.ok(Math.hypot(s.x - x, s.z - z) < 1200,
+          `${label}: ${id} was moved ${Math.round(Math.hypot(s.x - x, s.z - z))}m`);
+        const y = batteryPad(w, s.x, s.z, span);
+        for (let a = 0; a < 16; a++) {
+          const th = (a / 16) * Math.PI * 2;
+          for (const k of [0.5, 1, 1.35]) {
+            const px = s.x + Math.cos(th) * span * k;
+            const pz = s.z + Math.sin(th) * span * k;
+            assert.ok(islandAt(w, px, pz, 0), `${label}: ${id} has part of its footprint in the sea`);
+            assert.ok(groundHeight(w, px, pz) > 1, `${label}: ${id} is sited on the beach`);
+            assert.ok(Math.max(groundHeight(w, px, pz), drawnGround(w, px, pz)) <= y + 0.001,
+              `${label}: ${id} has ground standing above its pad`);
+          }
+        }
+      }
+    }
+    assert.ok(tried >= 10, `${label}: only ${tried} spots on land to try`);
+  }
+  // And a gun put down on good flat ground stays where it was put.
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const s = siteBattery(w, isle.x, isle.z, BATTERIES.longues.span);
+  assert.equal(Math.hypot(s.x - isle.x, s.z - isle.z), 0, 'a gun on a level summit was moved off it');
+});
+
+check('the ground as drawn is the terrain mesh, triangle for triangle', () => {
+  // The gun pits are laid on drawnGround, so it has to be exactly the surface
+  // the renderer puts down: the island's spokes and rings, flat between them.
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const spokes = isleSpokes(isle);
+  // At the mesh's own vertices it is the vertex height...
+  for (let i = 0; i < spokes; i += 7) {
+    for (let j = 1; j < 17; j += 3) {
+      const [x, y, z] = isleVertex(w, isle, spokes, i, j);
+      assert.ok(Math.abs(drawnGround(w, x, z) - y) < 0.01, 'the drawn ground misses its own vertex');
+    }
+  }
+  // ...and halfway along an edge it is halfway between the two.
+  const a = isleVertex(w, isle, spokes, 3, 6);
+  const b = isleVertex(w, isle, spokes, 3, 7);
+  const mid = drawnGround(w, (a[0] + b[0]) / 2, (a[2] + b[2]) / 2);
+  assert.ok(Math.abs(mid - (a[1] + b[1]) / 2) < 0.01, 'the drawn ground is not flat between vertices');
 });
 
 check('no piece of a gun stands in mid-air', () => {

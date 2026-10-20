@@ -869,6 +869,142 @@ export function groundHeight(world, x, z) {
   return Math.max(0.2, base - craterDrop(world, x, z));
 }
 
+// ---------------------------------------------------------------------------
+// The ground as it is drawn
+// ---------------------------------------------------------------------------
+//
+// groundHeight is exact. The terrain on the screen is not: it is a mesh lofted
+// through that field, a radial one a hundred-odd metres between vertices on an
+// island and a grid three hundred metres across on a real coast, and between
+// its vertices it is flat. On a hillside that can be metres off the true
+// height either way -- which is nothing to a ship and everything to a gun pit
+// forty metres across, cut to the true ground and drawn on the mesh: half of it
+// stands in the air and the other half is under the hill. So the mesh's own
+// layout lives here, the renderer builds from it, and anything that has to sit
+// on the ground the captain can see asks drawnGround.
+
+/** Where the rings of an island's mesh fall along each spoke, as a fraction of its radius. */
+export const ISLE_RINGS = [
+  0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.56, 0.63,
+  0.70, 0.76, 0.82, 0.87, 0.91, 0.945, 0.972, 0.99, 1, 1.14, 1.32,
+];
+
+/** How many spokes an island's mesh is built with. */
+export function isleSpokes(isle) {
+  return Math.max(48, Math.min(120, Math.round(isle.r / 8)));
+}
+
+/** A vertex of an island's mesh: spoke `i`, ring `j`. */
+export function isleVertex(world, isle, spokes, i, j) {
+  const a = (i / spokes) * TAU;
+  const R = islandRadius(isle, a);
+  const f = ISLE_RINGS[j];
+  const x = isle.x + Math.sin(a) * R * f;
+  const z = isle.z + Math.cos(a) * R * f;
+  let y;
+  if (f >= 1) {
+    // Off the beach and down onto the shelf.
+    const t = (f - 1) / (ISLE_RINGS[ISLE_RINGS.length - 1] - 1);
+    y = -24 * t * t;
+  } else {
+    y = groundHeight(world, x, z);
+  }
+  return [x, y, z];
+}
+
+/** The real coast's mesh is drawn on cells this many times the mask's. */
+export const COAST_STEP = 2;
+
+// Height inside triangle abc at (x, z), or NaN when the point is outside it.
+function inTri(a, b, c, x, z) {
+  const d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+  if (Math.abs(d) < 1e-9) return NaN;
+  const l1 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / d;
+  const l2 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / d;
+  const l3 = 1 - l1 - l2;
+  const e = -1e-6;
+  if (l1 < e || l2 < e || l3 < e) return NaN;
+  return l1 * a[1] + l2 * b[1] + l3 * c[1];
+}
+
+// The island's mesh height at a point, or NaN off it.
+function isleDrawn(world, isle, x, z) {
+  const dx = x - isle.x;
+  const dz = z - isle.z;
+  const d = Math.hypot(dx, dz);
+  const last = ISLE_RINGS.length - 1;
+  if (d > (isle.rmax || isle.r) * ISLE_RINGS[last] + 1) return NaN;
+  const spokes = isleSpokes(isle);
+  const bearing = Math.atan2(dx, dz);
+  const t = (((bearing / TAU) % 1) + 1) % 1 * spokes;
+  const i = Math.floor(t) % spokes;
+  const i2 = (i + 1) % spokes;
+  const v = (s, j) => isleVertex(world, isle, spokes, s, j);
+  // Only the ring the point is in and the one either side of it are worth
+  // trying: the quads are chords, so it is never further out than that.
+  const f = d / islandRadius(isle, bearing);
+  let k = 0;
+  while (k < last && ISLE_RINGS[k + 1] <= f) k++;
+  // The summit fan, then ring by ring outward: the same triangles the
+  // renderer puts down, in the same winding.
+  let h = NaN;
+  if (k <= 1) {
+    h = inTri(v(i, 0), v(i, 1), v(i2, 1), x, z);
+    if (!Number.isNaN(h)) return h;
+  }
+  for (let j = Math.max(1, k - 1); j < Math.min(last, k + 2); j++) {
+    const a = v(i, j);
+    const b = v(i, j + 1);
+    const c = v(i2, j);
+    const d = v(i2, j + 1);
+    h = inTri(a, b, d, x, z);
+    if (!Number.isNaN(h)) return h;
+    h = inTri(a, d, c, x, z);
+    if (!Number.isNaN(h)) return h;
+  }
+  return NaN;
+}
+
+// The coast mesh's height at a point, or NaN where no quad is drawn.
+function coastDrawn(world, x, z) {
+  const m = landMask(world);
+  if (!m.any) return NaN;
+  const cell = m.cell * COAST_STEP;
+  const i = Math.floor((x + m.half) / cell);
+  const j = Math.floor((z + m.half) / cell);
+  const x0 = -m.half + i * cell;
+  const z0 = -m.half + j * cell;
+  const h00 = groundHeight(world, x0, z0);
+  const h10 = groundHeight(world, x0 + cell, z0);
+  const h11 = groundHeight(world, x0 + cell, z0 + cell);
+  const h01 = groundHeight(world, x0, z0 + cell);
+  const u = (x - x0) / cell;
+  const w = (z - z0) / cell;
+  // Split corner to corner from (x0, z0), as the renderer splits it.
+  return u >= w
+    ? h00 + u * (h10 - h00) + w * (h11 - h10)
+    : h00 + w * (h01 - h00) + u * (h11 - h01);
+}
+
+/**
+ * The height of the terrain as it is drawn, in metres.
+ *
+ * Where two islands' meshes overlap the higher one is what shows. Off every
+ * mesh it is the true ground, which out there is the seabed.
+ */
+export function drawnGround(world, x, z) {
+  let top = -Infinity;
+  for (const i of world.islands || []) {
+    const h = isleDrawn(world, i, x, z);
+    if (h > top) top = h;
+  }
+  if (world.land?.length) {
+    const h = coastDrawn(world, x, z);
+    if (h > top) top = h;
+  }
+  return top === -Infinity ? groundHeight(world, x, z) : top;
+}
+
 /** Signed distance to the shore in metres: positive inland, negative at sea.
  *  Read off the field, so it agrees with the collision to within a cell. */
 export function shoreDistance(world, x, z) {
