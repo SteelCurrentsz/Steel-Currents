@@ -179,17 +179,75 @@ export class Shells {
  * do miss, and the misses are what an air attack actually looks like from the
  * cockpit.
  */
+/**
+ * A tracer's glow: two crossed ribbons running back from the round along the
+ * line it came, bright at the round and nothing at the tail. Drawn added onto
+ * whatever is behind it, so it is light and not a solid thing.
+ *
+ * Built from z = -1 (the tail) to z = 0 (the round), one wide.
+ */
+function streakGeometry() {
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const hot = [1.0, 0.62, 0.22];
+  for (const [ax, ay] of [[1, 0], [0, 1]]) {
+    const b = pos.length / 3;
+    for (const z of [0, -1]) {
+      // Narrowing to a point at the tail, as the trace burns out behind it.
+      const w = z === 0 ? 0.5 : 0.08;
+      for (const sg of [-1, 1]) {
+        pos.push(ax * w * sg, ay * w * sg, z);
+        const k = z === 0 ? 1 : 0;
+        col.push(hot[0] * k, hot[1] * k, hot[2] * k);
+      }
+    }
+    idx.push(b, b + 1, b + 3, b, b + 3, b + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  return geo;
+}
+
+/** How long a light round is, in metres: a 20 mm round is nine centimetres of it. */
+function roundLength(caliber) {
+  return caliber < 75 ? caliber * 0.0045 : shellLength(caliber) * 0.35;
+}
+
+/**
+ * The fire of the light battery and the heavy AA, and of aircraft guns.
+ *
+ * These used to be the same shell the main battery fires, scaled down -- a
+ * yellow egg a metre and a half long and half a metre through for a twenty
+ * millimetre round, so the light battery hosed the sky with eggs. A round of
+ * that size is a bullet: it is nine centimetres long, and what anyone ever saw
+ * of it was its tracer -- a hot point with a thin line of light behind it.
+ *
+ * So that is what is drawn: the round at its own size, and the trace behind
+ * it. Both are only made bigger when they are far enough off that their own
+ * size would be under a pixel -- and then only to a pixel, so a stream of fire
+ * a mile off is a stream of fine lines and not a stream of rods.
+ */
 export class Flak {
   constructor(scene, max = 900) {
     this.max = max;
     this.rounds = [];
     this.time = 0;
-    const geo = shellGeometry();
-    this.mat = new THREE.MeshBasicMaterial({ color: 0xffcf7a });
-    this.mesh = new THREE.InstancedMesh(geo, this.mat, max);
+    this.mat = new THREE.MeshBasicMaterial({ color: 0xfff0c4 });
+    this.mesh = new THREE.InstancedMesh(shellGeometry(), this.mat, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+    this.trace = new THREE.InstancedMesh(streakGeometry(), new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }), max);
+    this.trace.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.trace.frustumCulled = false;
+    this.trace.renderOrder = 8;
+    scene.add(this.trace);
     this.dummy = new THREE.Object3D();
     this.dir = new THREE.Vector3();
     this.quat = new THREE.Quaternion();
@@ -199,9 +257,11 @@ export class Flak {
 
   /** Nothing beyond `from` is in the air. See Shells.hideFrom. */
   park(from) {
-    this.mesh.count = from;
-    this.mesh.visible = from > 0;
-    if (from > 0) this.mesh.instanceMatrix.needsUpdate = true;
+    for (const m of [this.mesh, this.trace]) {
+      m.count = from;
+      m.visible = from > 0;
+      if (from > 0) m.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /**
@@ -237,9 +297,17 @@ export class Flak {
     }
   }
 
-  update(dt) {
+  /**
+   * `camera` is what the rounds are kept a pixel wide for. Without one they
+   * are drawn at their own size, which from any distance is nothing.
+   */
+  update(dt, camera = null) {
     this.time += dt;
     const d = this.dummy;
+    const eye = camera ? camera.position : null;
+    // A pixel, in metres per metre of distance, on the camera as it is now.
+    const px = camera && camera.isPerspectiveCamera
+      ? (2 * Math.tan((camera.fov * Math.PI) / 360)) / 900 : 0;
     let n = 0;
     for (let i = this.rounds.length - 1; i >= 0; i--) {
       const r = this.rounds[i];
@@ -257,17 +325,28 @@ export class Flak {
       const x = r.x0 + (r.x1 - r.x0) * u;
       const y = r.y0 + (r.y1 - r.y0) * u;
       const z = r.z0 + (r.z1 - r.z0) * u;
-      d.position.set(x, y, z);
+      const run = Math.hypot(r.x1 - r.x0, r.y1 - r.y0, r.z1 - r.z0);
       this.dir.set(r.x1 - r.x0, r.y1 - r.y0, r.z1 - r.z0).normalize();
       this.quat.setFromUnitVectors(this.fwd, this.dir);
+      // Its own size, or a pixel across if that is bigger.
+      const far = eye ? Math.hypot(x - eye.x, y - eye.y, z - eye.z) : 0;
+      const len = roundLength(r.caliber);
+      const bore = r.caliber / 1000;
+      const wide = Math.max(bore, far * px);
+      d.position.set(x, y, z);
       d.quaternion.copy(this.quat);
-      // Small. This is the whole point of drawing them at all: a Bofors round
-      // beside a sixteen-inch round is the difference between the light battery
-      // and the main one, and you can see it at a glance.
-      const len = shellLength(r.caliber);
-      d.scale.set(len * 0.34, len * 0.34, len);
+      d.scale.set(wide, wide, Math.max(len, wide * 2));
       d.updateMatrix();
-      this.mesh.setMatrixAt(n++, d.matrix);
+      this.mesh.setMatrixAt(n, d.matrix);
+      // And the trace behind it: what the eye keeps of a round going at
+      // eight hundred metres a second, a few hundredths of a second of it --
+      // never longer than the way it has come from the muzzle.
+      const speed = run / r.flight;
+      const tail = Math.min(speed * 0.018, run * u, 22);
+      d.scale.set(wide * 1.6, wide * 1.6, Math.max(tail, 0.01));
+      d.updateMatrix();
+      this.trace.setMatrixAt(n, d.matrix);
+      n++;
     }
     this.park(n);
   }
