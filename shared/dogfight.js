@@ -33,15 +33,21 @@ import {
 } from './pilot.js';
 
 /** How close a fighter has to be to an enemy before the fight starts, slant. */
-export const ENGAGE = 2600;
+export const ENGAGE = 3400;
 /** And how far apart they have to get before it is over. */
-export const DISENGAGE = 4400;
+export const DISENGAGE = 5200;
 /** How far out she opens fire. Rifle calibre wants to be close. */
 export const OPEN_FIRE = 620;
 /** Muzzle velocity, the same as sim.js uses for the rounds themselves. */
 const BULLET_V = 810;
-/** How often she takes a fresh look at the fight, in seconds. */
-const THINK = 0.25;
+/**
+ * How often she takes a fresh look at the fight, in seconds.
+ *
+ * A quarter of a second left her flying a line she had already decided on for
+ * long enough to watch her do it: a man rolling in on her tail had most of a
+ * burst away before she noticed. A good pilot's head never stops moving.
+ */
+const THINK = 0.15;
 /** Lowest she will willingly fight, above the sea or the ground under her. */
 const HARD_DECK = 160;
 
@@ -102,6 +108,15 @@ export function enterDogfight(p, frm) {
     cool: 0,
     // Whether she was in close on the last look, for spotting a pass.
     close: false,
+    // Her jinking: the clock it runs on, where in it she started so a flight
+    // does not weave in step with its neighbour, which way she is breaking,
+    // how far nose up or down, and how long until she changes her mind.
+    // Off her own number rather than a die, so a replay flies the same.
+    weaveT: 0,
+    weavePh: ((p.id || 0) * 2.399) % (Math.PI * 2),
+    jinkSide: (p.id || 0) % 2 ? 1 : -1,
+    jinkUp: 0,
+    jinkT: 0,
   };
   return p.df;
 }
@@ -152,8 +167,9 @@ export function pickFoe(state, p, mayHurt) {
       if (onMe < 0.5 && R < 1400) score -= 1500 * (1 - onMe / 0.5);
     } else {
       // A bomber is worth more than a fighter: it is what the fighters are
-      // there to stop. But not worth dying for.
-      score -= 250;
+      // there to stop, and every one let through is a bomb on a ship. But not
+      // worth dying for -- the man on her tail still comes first.
+      score -= 650;
     }
     // A little loyalty to the one she is on, so she does not swap from one to
     // the other every look and fight neither.
@@ -248,6 +264,21 @@ export function stepDogfight(state, p, foe, dt, ctx) {
 
   df.cool = Math.max(0, df.cool - dt);
   df.zoom = Math.max(0, df.zoom - dt);
+  df.weaveT = (df.weaveT ?? 0) + dt;
+  df.jinkT = (df.jinkT ?? 0) - dt;
+  // Across her own wings, for anything that wants to throw her sideways.
+  const right = {
+    x: fwd.y * up.z - fwd.z * up.y, y: fwd.z * up.x - fwd.x * up.z, z: fwd.x * up.y - fwd.y * up.x,
+  };
+  // A weave: her nose swung from one side of the line to the other and up and
+  // down it, never two seconds on the same heading. `amp` is how far, in
+  // something like radians off the line.
+  const weave = (a, amp) => {
+    const t = df.weaveT + (df.weavePh ?? 0);
+    const sx = Math.sin(t * 2.3) * amp;
+    const sy = Math.sin(t * 1.4 + 1.1) * amp * 0.55;
+    return norm(a.x + right.x * sx + up.x * sy, a.y + right.y * sx + up.y * sy, a.z + right.z * sx + up.z * sy);
+  };
 
   // ---- deciding ---------------------------------------------------------
   df.think -= dt;
@@ -261,12 +292,12 @@ export function stepDogfight(state, p, foe, dt, ctx) {
 
     if (threat && !pl.man) {
       mode = 'defend';
-      // Which side of her he is on, across her own wings.
-      const right = { x: fwd.y * up.z - fwd.z * up.y, y: fwd.z * up.x - fwd.x * up.z, z: fwd.x * up.y - fwd.y * up.x };
       const away = threat.from;
       // `away` points from him to her, so the side he is on is the other way.
       const side = dot(right, away) > 0 ? -1 : 1;
-      if (threat.R < 520 && threat.onMe < 0.18 && df.cool <= 0) {
+      // Seen early and acted on early: she does not wait until his guns are
+      // already on her to do something about him.
+      if (threat.R < 760 && threat.onMe < 0.3 && df.cool <= 0) {
         // He is about to fire. Throw something he cannot follow: each of these
         // takes her out of the line of his guns faster than he can bring them
         // back, and the one she picks depends on what she has to spend.
@@ -279,16 +310,33 @@ export function stepDogfight(state, p, foe, dt, ctx) {
         else if (r < 0.9) kind = 'scissors';
         else kind = 'roll';
         startManeuver(pl, kind, side);
-        df.cool = 4 + rng() * 2;
+        df.cool = 2.2 + rng() * 1.6;
       } else {
         // Turn hard into him. A man turning across your nose is the hardest
         // deflection shot there is, and every second of it costs him angle.
-        const s = { x: right.x * side, y: right.y * side, z: right.z * side };
+        //
+        // But not the same turn for long. A pilot who holds one steady break
+        // is a pilot whose lead can be worked out; every second or so she
+        // changes it -- over the other way, nose up into a climbing turn,
+        // nose down into a diving one -- so the man behind her is always
+        // pulling for where she was.
+        if (df.jinkT <= 0) {
+          df.jinkT = 0.7 + rng() * 1.1;
+          df.jinkSide = rng() < 0.3 ? -(df.jinkSide || side) : side;
+          df.jinkUp = (rng() - 0.5) * 0.8;
+        }
+        const js = df.jinkSide || side;
+        const s = { x: right.x * js, y: right.y * js, z: right.z * js };
         const lat = norm(s.x - fwd.x * dot(s, fwd), s.y - fwd.y * dot(s, fwd), s.z - fwd.z * dot(s, fwd));
         // Nose a little low when she is slow, to keep her speed up while she
         // turns: a defensive turn that bleeds to the stall is a dead pilot.
         const sink = v < vs * 1.6 ? -0.25 : 0;
-        aim = norm(fwd.x * 0.25 + lat.x, fwd.y * 0.25 + lat.y + sink, fwd.z * 0.25 + lat.z);
+        const lift = v < vs * 1.6 ? Math.min(0, df.jinkUp) : df.jinkUp;
+        aim = norm(
+          fwd.x * 0.25 + lat.x + up.x * lift,
+          fwd.y * 0.25 + lat.y + sink + up.y * lift,
+          fwd.z * 0.25 + lat.z + up.z * lift,
+        );
       }
     } else if (df.zoom > 0) {
       // Zooming back up after a diving pass, to come down on him again.
@@ -302,8 +350,15 @@ export function stepDogfight(state, p, foe, dt, ctx) {
         // knots there is about a second between the two.
         mode = 'headon';
         if (R < 260) {
-          // Over the top of him, out of his line.
-          aim = norm(fwd.x + up.x * 1.2, fwd.y + up.y * 1.2, fwd.z + up.z * 1.2);
+          // Out of his line: over the top of him, or off to one side.
+          const k = df.jinkSide || 1;
+          aim = norm(fwd.x + up.x * 1.1 + right.x * k * 0.6, fwd.y + up.y * 1.1 + right.y * k * 0.6,
+            fwd.z + up.z * 1.1 + right.z * k * 0.6);
+        } else if (R > OPEN_FIRE * 1.4) {
+          // Out of range, his guns on her as much as hers on him: she weaves
+          // on the way in rather than give him a steady target, and only
+          // settles when she is close enough to shoot.
+          aim = weave(lead, 0.22);
         } else aim = lead;
       } else if (P.y > T.y + 450 && R > 700 && ata < 1.2) {
         // Height on a fighter: come down on him with it and go back up. It is
@@ -314,9 +369,11 @@ export function stepDogfight(state, p, foe, dt, ctx) {
         mode = 'attack';
         if (R > 900) {
           // Closing from a long way out. Aim a little behind him -- lag -- so
-          // she arrives on his tail rather than across it.
+          // she arrives on his tail rather than across it, weaving if he has
+          // guns that can come round onto her.
           const lag = { x: T.x - VT.x * 0.8, y: T.y - VT.y * 0.8, z: T.z - VT.z * 0.8 };
           aim = norm(lag.x - P.x, lag.y - P.y, lag.z - P.z);
+          if (gunned(foe)) aim = weave(aim, 0.14);
         } else {
           aim = lead;
         }
@@ -327,8 +384,14 @@ export function stepDogfight(state, p, foe, dt, ctx) {
           aim = norm(aim.x + up.x * 0.7, aim.y + up.y * 0.7 + 0.2, aim.z + up.z * 0.7);
           throttle = 0.55;
         } else if (R < 220 && closure > 25) {
-          // About to fly through him. Off the power, and out of his plane.
+          // About to fly through him. Off the power, and out of his plane --
+          // or a barrel roll round his line, which spends the overshoot going
+          // round him instead of past him and drops her back on his tail.
           throttle = 0.3;
+          if (df.cool <= 0 && !pl.man && rng() < 0.35) {
+            startManeuver(pl, 'barrel', dot(right, u) > 0 ? 1 : -1);
+            df.cool = 3 + rng() * 2;
+          }
         } else if (R < 360 && closure < -12) {
           // He is pulling away: everything she has.
           throttle = 1.1;
@@ -339,10 +402,16 @@ export function stepDogfight(state, p, foe, dt, ctx) {
         mode = 'turn';
         const ahead = { x: T.x + VT.x * 2.2, y: T.y + VT.y * 2.2, z: T.z + VT.z * 2.2 };
         aim = norm(ahead.x - P.x, ahead.y - P.y, ahead.z - P.z);
+        if (gunned(foe) && R > 700) aim = weave(aim, 0.1);
       }
-      // A pass made: she has gone through him and out the other side.
+      // A pass made: she has gone through him and out the other side. Back up
+      // for another -- in a zoom, or over the top in an Immelmann, which turns
+      // her round to face him again at the same time.
       if (df.close && R > 260 && ata > 1.7 && mode !== 'turn' && P.y > T.y - 100) {
-        df.zoom = 3 + rng() * 2;
+        if (!pl.man && df.cool <= 0 && v > vs * 2 && agl > 500 && rng() < 0.4) {
+          startManeuver(pl, 'immelmann', dot(right, u) > 0 ? 1 : -1);
+          df.cool = 3 + rng() * 2;
+        } else df.zoom = 3 + rng() * 2;
       }
     }
     df.close = R < 220;

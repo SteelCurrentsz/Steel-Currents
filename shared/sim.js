@@ -2648,7 +2648,7 @@ export function strafe(state, ship, id, dt) {
  * (see dogfight.js) both come through here, so a bot's burst is the same
  * rounds down the same bore as a player's.
  */
-function burst(state, p, P, dt) {
+function burst(state, p, P, dt, scale = 1) {
   p.gunAt = (p.gunAt ?? 0) + dt;
   if (p.gunAt < 1 / BURST_RATE) return;
   const rounds = Math.min(4, Math.floor(p.gunAt * BURST_RATE));
@@ -2658,8 +2658,8 @@ function burst(state, p, P, dt) {
   // it is two different numbers. Rifle calibre into another aeroplane is
   // lethal; the same rounds into a warship's plating are nothing, and what
   // they are actually for is the people standing in the open on her.
-  const air = (P.fighterGuns ?? FIGHTER_GUNS) * (p.count || 1) / BURST_RATE;
-  const ship2 = (P.strafeDamage ?? 260) * (p.count || 1) / BURST_RATE;
+  const air = (P.fighterGuns ?? FIGHTER_GUNS) * (p.count || 1) * scale / BURST_RATE;
+  const ship2 = (P.strafeDamage ?? 260) * (p.count || 1) * scale / BURST_RATE;
   const spread = burstSpread(p);
   for (let i = 0; i < rounds; i++) {
     fireBullet(state, p, air, ship2, spread);
@@ -6157,11 +6157,25 @@ function formationGoal(state, p, carrier) {
     const a = p.life * (v / R);
     return { x: carrier.x + Math.sin(a) * R, z: carrier.z + Math.cos(a) * R };
   }
+  // She has gone after something in the air: out of the formation and after
+  // it. On passage that is for good; over her own ship she comes back to the
+  // circle when it is over.
+  if (p.targetAir || p.df) {
+    if (p.phase !== 'formup') p.lead = p.id;
+    return null;
+  }
   const lead = state.planes.find((q) => q.id === p.lead && !q.dead);
   // Her leader has been shot down, or has already gone in. She is her own
   // leader from here.
   if (!lead) { p.lead = p.id; return null; }
   if (lead.phase === 'return') { p.lead = p.id; return null; }
+  // Her leader is a fighter and has gone off after something in the air. The
+  // strike does not follow him into a dogfight: the next of it takes over.
+  if (lead.role === 'fighter' && (lead.df || lead.targetAir || lead.targetHeavy)) {
+    const next = freshLead(state, p, lead);
+    p.lead = next ? next.id : p.id;
+    return formationGoal(state, p, carrier);
+  }
   // In sight of the enemy the formation breaks and each flight makes its own
   // attack, which is what a strike does over the target: they arrive together
   // and they go in separately, from different bearings, so the flak cannot
@@ -6183,6 +6197,22 @@ function formationGoal(state, p, carrier) {
   const sn = Math.sin(lead.heading);
   const cs = Math.cos(lead.heading);
   return { x: lead.x + sn * sz + cs * sx, z: lead.z + cs * sz - sn * sx };
+}
+
+/**
+ * Who leads a strike once its leader has gone off to fight: the first of the
+ * rest of it, by the order they came off the deck, that is not off fighting
+ * too. Every flight in the strike works it out the same way, so they all
+ * agree on her without having to be told.
+ */
+function freshLead(state, p, old) {
+  let best = null;
+  for (const q of state.planes) {
+    if (q.dead || q === old || q.owner !== p.owner || q.sqId !== p.sqId) continue;
+    if (q.phase !== p.phase || q.targetAir || q.df || q.targetHeavy) continue;
+    if (!best || q.id < best.id) best = q;
+  }
+  return best;
 }
 
 /**
@@ -6632,10 +6662,12 @@ export function pickAirTarget(state, p) {
     const guard = p.orderEscort ? strikeMark(state, p) : null;
     const from = guard || p;
     let air = null;
-    let airD = guard ? 4600 : 5200;
+    let airD = guard ? 6000 : 7000;
     for (const q of state.planes) {
-      if (q.team === p.team || q.id === p.id) continue;
-      const d = dist(from.x, from.z, q.x, q.z);
+      if (q.dead || q.team === p.team || q.id === p.id || !mayHurt(state, p.team, q)) continue;
+      // The machines carrying the bombs and the fish before their escort:
+      // stopping those is what she is up there for.
+      const d = dist(from.x, from.z, q.x, q.z) - (q.role === 'fighter' ? 0 : 900);
       if (d < airD) { air = q; airD = d; }
     }
     if (air) return { air };
@@ -6681,6 +6713,7 @@ export function pickAirTarget(state, p) {
   // not wait to stumble on it inside her own sight. Something nobody has
   // reported still counts once she is close enough to see it herself.
   let best = null;
+  let bestD = Infinity;
   let score = Infinity;
   for (const s2 of state.ships) {
     if (!s2.alive || s2.team === p.team) continue;
@@ -6690,8 +6723,23 @@ export function pickAirTarget(state, p) {
     if (p.role === 'fighter') v = bulk(s2) * 2.2 + d * 0.02;          // the smallest
     else if (p.role === 'torpedo') v = -bulk(s2) * 6 + d * 0.02;      // the biggest
     else v = d * 0.02;                                               // the nearest
-    if (v < score) { best = s2; score = v; }
+    if (v < score) { best = s2; score = v; bestD = d; }
   }
+  // A dive bomber's bomb is as good on a gun position as on a deck, and a
+  // battery shooting at her ships is as much her business as a ship is: she
+  // takes whichever of the two is nearer, rather than leaving the guns ashore
+  // until there is nothing left afloat.
+  const takesWorks = p.role !== 'fighter' && p.role !== 'torpedo';
+  let works = null;
+  let worksD = REACH * 1.4;
+  if (takesWorks) {
+    for (const b of state.batteries) {
+      if (!b.alive || b.team === p.team) continue;
+      const d = dist(p.x, p.z, b.x, b.z);
+      if (d < worksD) { works = b; worksD = d; }
+    }
+  }
+  if (works && (!best || worksD < bestD)) return { battery: works };
   if (best) return { ship: best };
 
   // Nothing afloat within reach. The guns ashore are a target too.
@@ -6714,6 +6762,15 @@ export function pickAirTarget(state, p) {
   }
   if (bat && p.role !== 'torpedo') return { battery: bat };
 
+  // Nothing on the surface left for her at all. Only now does a strike
+  // aircraft go after the other side's aeroplanes: she was sent with a bomb or
+  // a fish for a ship, and a flight that wanders off into a dogfight with her
+  // load still on the rack has thrown away the sortie.
+  if (p.role !== 'fighter') {
+    const foe = nearestAir(state, p, 6000);
+    if (foe) return { air: foe };
+  }
+
   // And nothing ashore either: up after the heavies.
   //
   // Every kind goes, not just the fighters. A dive bomber with her bomb still
@@ -6734,6 +6791,56 @@ export function pickAirTarget(state, p) {
   // not work on concrete, and sending her in to strafe an emplacement with two
   // rifle-calibre guns is a way of losing a torpedo bomber for nothing.
   return null;
+}
+
+/** The nearest of the other side's flights in the air, inside `reach`, or null. */
+function nearestAir(state, p, reach) {
+  let best = null;
+  let bestD = reach;
+  for (const q of state.planes) {
+    if (q.dead || q.team === p.team || q.id === p.id || !mayHurt(state, p.team, q)) continue;
+    const d = dist(p.x, p.z, q.x, q.z);
+    if (d < bestD) { best = q; bestD = d; }
+  }
+  return best;
+}
+
+/** How near something in the air has to be to stop a fighter going in. */
+const RAM_BREAK = 6000;
+
+/**
+ * A fighter that was about to go into a ship, and has something in the air to
+ * fight instead.
+ *
+ * Going in is the last thing a fighter does, not the first: it is what a
+ * fighter with nothing left to shoot at does with her aeroplane. While there
+ * is an enemy aeroplane or a bomber stream within reach she goes after that,
+ * and puts her aeroplane into a ship only once the sky is clear. Returns true
+ * when she has been turned onto one.
+ */
+function turnOnAir(state, p) {
+  if (p.role !== 'fighter' || p.flown || dyingFlight(p)) return false;
+  const air = nearestAir(state, p, RAM_BREAK);
+  let heavy = null;
+  if (!air) {
+    let hd = RAM_BREAK;
+    for (const q of (state.bombers || [])) {
+      if (!q.alive || q.team === p.team) continue;
+      const d = dist(p.x, p.z, q.x, q.z);
+      if (d < hd) { heavy = q; hd = d; }
+    }
+  }
+  if (!air && !heavy) return false;
+  p.phase = 'outbound';
+  p.ramOut = false;
+  p.shieldFor = 0;
+  p.targetId = 0; p.targetBat = 0;
+  p.targetAir = air ? air.id : 0;
+  p.targetHeavy = heavy ? heavy.id : 0;
+  const m = air || heavy;
+  p.tx = m.x; p.tz = m.z;
+  p.hunt = 0.6;
+  return true;
 }
 
 /**
@@ -7311,15 +7418,35 @@ function fightFor(state, p, dt) {
   if (p.df) {
     p.df.pick = (p.df.pick ?? 0) - dt;
     if (p.df.pick <= 0) {
-      p.df.pick = 1;
+      p.df.pick = 0.5;
       const q = pickFoe(state, p, mayHurt);
       if (q) p.targetAir = q.id;
     }
+  } else if (p.role === 'fighter' && p.phase !== 'return') {
+    // Her eyes, between the looks round she takes for something to go after:
+    // anything of theirs that comes within reach of her she turns onto at
+    // once, whatever she was doing, rather than holding on to the end of a
+    // patrol leg first.
+    p.reflex = (p.reflex ?? 0) - dt;
+    if (p.reflex <= 0) {
+      p.reflex = 0.3;
+      const q = pickFoe(state, p, mayHurt);
+      if (q && q.id !== p.targetAir) {
+        p.targetAir = q.id;
+        p.targetHeavy = 0; p.targetId = 0; p.targetBat = 0; p.shieldFor = 0;
+      }
+    }
   }
   const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir && !q.dead) : null;
-  if (!foe) return null;
+  // Gone, from a form-up: back to the circle. On passage the hunt finds her
+  // the next thing.
+  if (!foe) { if (p.phase === 'formup') p.targetAir = 0; return null; }
   const R = Math.hypot(foe.x - p.x, (foe.y ?? 220) - (p.y ?? 220), foe.z - p.z);
-  if (R > (p.df ? DISENGAGE : ENGAGE)) return null;
+  if (!p.df) { p.tx = foe.x; p.tz = foe.z; }
+  if (R > (p.df ? DISENGAGE : ENGAGE)) {
+    if (p.phase === 'formup' && R > ENGAGE * 1.5) p.targetAir = 0;
+    return null;
+  }
   if (!p.df) enterDogfight(p, airframeOf(p.type, p.role));
   return foe;
 }
@@ -7483,10 +7610,53 @@ function flyFight(state, p, foe, P, dt) {
   // Her guns are along her nose, not her flight path.
   p.gunPitch = pl.attitude;
   if (res.fire) {
-    burst(state, p, P, dt);
+    // A strike aircraft's forward guns are a pair, not a fighter's battery.
+    burst(state, p, P, dt, p.role === 'fighter' ? 1 : 0.4);
     gunsSeen(state, p, foe.x, foe.z, true);
   }
   return false;
+}
+
+/** How much of the flak laid on her a flight jinking hard gets out from under. */
+const JINK_FLAK = 0.2;
+
+/**
+ * Her jinking, off the autopilot's line: how far to swing her heading off it
+ * and how far to put her up or down off the height she wants.
+ *
+ * Nobody flies straight and level through flak or with a fighter behind him.
+ * She weaves -- a few seconds one way, a few the other, up a little and down
+ * a little -- so the gunners laying off for where she will be are laying off
+ * for somewhere she is not going. It eases in when the shooting starts and
+ * out when it stops, so it reads as a pilot and not as a switch, and it fades
+ * out close to whatever she is going for: the last of a run onto a ship is
+ * flown straight, because that is the part the aiming is done on.
+ *
+ * Not in company, where she is keeping station on her leader; not in a dive
+ * bomber's dive, which is one straight line; and not on a torpedo run, which
+ * has to be flown steady at the end or the fish goes wild.
+ */
+function jinkFor(state, p, station, gx, gz, dt) {
+  const hot = state.t - (p.flakAt ?? -99) < 2.5 || state.t - (p.threatAt ?? -99) < 2.5;
+  let may = hot && !station && p.phase !== 'formup' && !p.dv;
+  if (may && p.torp > 0 && p.targetId) {
+    const s = state.ships.find((q) => q.id === p.targetId && q.alive);
+    if (s && dist(p.x, p.z, s.x, s.z) < 2600) may = false;
+  }
+  const want = may ? 1 : 0;
+  p.jinkAmp = (p.jinkAmp ?? 0) + clamp(want - (p.jinkAmp ?? 0), -0.6 * dt, 0.8 * dt);
+  if (p.jinkAmp <= 0.001) { p.jinkAmp = 0; return { heading: 0, height: 0 }; }
+  // Faded out over the last of the approach to whatever she is steering for.
+  const d = dist(p.x, p.z, gx, gz);
+  const near = clamp((d - 350) / 1050, 0, 1);
+  const k = p.jinkAmp * near * near * (3 - 2 * near);
+  // Her own rhythm, so a strike does not weave in step.
+  const t = p.life + (p.id || 0) * 1.73;
+  const fast = p.role === 'fighter' ? 1.1 : 0.8;
+  return {
+    heading: k * (0.42 * Math.sin(t * fast) + 0.14 * Math.sin(t * fast * 2.7 + 0.9)),
+    height: k * (p.role === 'torpedo' ? 12 : 45) * Math.sin(t * fast * 0.83 + 2.2),
+  };
 }
 
 /** How long she has been on her sortie, not counting the form-up over the ship. */
@@ -7531,7 +7701,12 @@ function stepPlanes(state, dt) {
       if (!orderGiven(state, s, 'aa', { many: (p.count || 1) > 1 })) continue;
       // A fighter gone in ahead of her takes what was meant for her.
       const screen = screenFor(state, p, s);
-      const flak = scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range);
+      // An aeroplane jinking through it is harder to hit than one flying
+      // straight and level: the gunners are laying off for where she would
+      // have been.
+      const flak = scls.aa.dps * bear.share * dt * aaBite(d, scls.aa.range)
+        * (1 - JINK_FLAK * (p.jinkAmp ?? 0));
+      p.flakAt = state.t;
       if (screen) {
         hurtFlight(state, screen, flak * SCREEN_SHARE);
         hurtFlight(state, p, flak * (1 - SCREEN_SHARE));
@@ -7610,6 +7785,12 @@ function stepPlanes(state, dt) {
       if (mark) goIn(state, p, mark);
       else { p.phase = 'outbound'; p.hunt = 0; }
     }
+    // A fighter going in looks up on the way, and if there is anything of
+    // theirs in the air she goes after that instead.
+    if (p.phase === 'ram' && p.role === 'fighter') {
+      p.ramLook = (p.ramLook ?? 0) - dt;
+      if (p.ramLook <= 0) { p.ramLook = 0.5; turnOnAir(state, p); }
+    }
     if (p.phase === 'ram') {
       const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
       // She went down before the aeroplane got there. Nothing else to do with
@@ -7653,7 +7834,9 @@ function stepPlanes(state, dt) {
     // after, which is not the same thing for every flight in the strike.
     p.hunt -= dt;
     if (p.phase === 'outbound' && p.hunt <= 0 && !p.df) {
-      p.hunt = 2;
+      // Often: a pilot's head is never still, and whatever turns up she wants
+      // to be turning onto now rather than in a couple of seconds' time.
+      p.hunt = p.role === 'fighter' ? 0.6 : 1;
       const want = pickAirTarget(state, p);
       if (want && want.battery) {
         p.targetBat = want.battery.id;
@@ -7705,7 +7888,7 @@ function stepPlanes(state, dt) {
         const covD = cov ? dist(cov.x, cov.z, mark.x, mark.z) : 0;
         if (!cov || cov.dropped || cov.phase !== 'outbound' && cov.phase !== 'formup'
           || covD < 2400 || dist(p.x, p.z, mark.x, mark.z) < 1500) {
-          goIn(state, p, mark);
+          if (!turnOnAir(state, p)) goIn(state, p, mark);
         } else {
           const ahead = Math.min(SHIELD_AHEAD, covD * 0.5);
           const ux = (mark.x - cov.x) / covD;
@@ -7724,6 +7907,17 @@ function stepPlanes(state, dt) {
       }
     }
 
+    // Whether anybody is sitting on her tail, which is what starts her
+    // jinking (see jinkFor) when she is not in a fight to do anything better
+    // about him.
+    if (!p.df && !p.flown) {
+      p.lookT = (p.lookT ?? 0) - dt;
+      if (p.lookT <= 0) {
+        p.lookT = 0.4;
+        if (threatOn(state, p, mayHurt)) p.threatAt = state.t;
+      }
+    }
+
     // Where she goes, unless there is somebody in her. A flight under a pilot
     // is flown by the client that took her and steered by nobody here; if the
     // word from that client stops coming she is picked up again on the next
@@ -7731,8 +7925,16 @@ function stepPlanes(state, dt) {
     if (p.flown && state.t - (p.flownAt ?? 0) > 1.5) p.flown = false;
     // In a fight she is flown by a fighter pilot rather than an autopilot:
     // see dogfight.js.
-    const fight = !p.flown && p.role === 'fighter'
-      && (p.phase === 'outbound' || p.phase === 'return') ? fightFor(state, p, dt) : null;
+    //
+    // A fighter fights whenever there is somebody to fight, forming up over
+    // her own ship included. A strike aircraft fights when she is bounced on
+    // the way home, and on the way out only once there is nothing left on the
+    // surface for her and she has been sent after aeroplanes instead.
+    const fights = p.role === 'fighter'
+      ? (p.phase === 'outbound' || p.phase === 'return' || p.phase === 'formup')
+      : !p.dv && (p.phase === 'return' || (p.phase === 'outbound' && p.targetAir
+        && !p.targetId && !p.targetBat));
+    const fight = !p.flown && fights ? fightFor(state, p, dt) : null;
     if (!fight && p.df) leaveDogfight(p);
     if (fight) {
       if (flyFight(state, p, fight, P, dt)) continue;
@@ -7742,7 +7944,8 @@ function stepPlanes(state, dt) {
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
-      const want = headingTo(p.x, p.z, goalX, goalZ);
+      const jink = jinkFor(state, p, station, goalX, goalZ, dt);
+      const want = wrapAngle(headingTo(p.x, p.z, goalX, goalZ) + jink.heading);
       // She rolls into a turn and out of it.
       //
       // A flight used to change course at 1.1 radians a second, which is sixty
@@ -7832,7 +8035,7 @@ function stepPlanes(state, dt) {
       // change is held to about a third of a gravity, which is what a pilot
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
-      const wantY = wantedHeight(state, p, carrier, !!station);
+      const wantY = Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height);
       // A formation climbs at the rate its slowest aeroplane can hold, because
       // otherwise it is not a formation. Left to their own rates the fighters
       // were at cruising height while the torpedo bombers were still two
@@ -7966,6 +8169,14 @@ function stepPlanes(state, dt) {
       }
     }
 
+    // A strike aircraft in a fight is flown by her pilot until it is over, and
+    // does none of the rest of this until it is.
+    if (p.df && p.role !== 'fighter' && p.phase === 'outbound') {
+      if (!carrier || aloft(p) > 300) { killFlight(state, p, 'fuel'); continue; }
+      out.push(p);
+      continue;
+    }
+
     if (p.phase === 'outbound' && p.role === 'fighter') {
       // A fighter's attack: guns, in a turning fight or in a firing pass.
       const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir) : null;
@@ -8009,8 +8220,10 @@ function stepPlanes(state, dt) {
       // decides that for herself above, when the flight she is covering is in.
       const mark = state.ships.find((q) => q.id === p.targetId && q.alive);
       if (mark && !p.shieldFor && dist(p.x, p.z, mark.x, mark.z) < 2600) {
-        gunsSeen(state, p, mark.x, mark.z, false);
-        goIn(state, p, mark);
+        if (!turnOnAir(state, p)) {
+          gunsSeen(state, p, mark.x, mark.z, false);
+          goIn(state, p, mark);
+        }
       } else if (aloft(p) > (p.orderEscort && strikeMark(state, p)
         ? 420 : p.targetHeavy ? 480 : 260)) {
         // Out of patrol endurance. It used to be a hundred and fifty seconds,
