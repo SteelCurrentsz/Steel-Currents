@@ -23,11 +23,11 @@ import {
 } from '../shared/sim.js';
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
-  useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise,
+  useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
-  BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH,
+  BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
@@ -4473,6 +4473,42 @@ function shoot(batteryId, gap, half = 32004, classId = 'cleveland') {
   ship.x = 0; ship.z = gap / 2; ship.heading = Math.PI / 2; ship.notch = 1;
   return { state, bat, ship };
 }
+
+check('a Katyusha winds up, ripples sixteen rockets, and loads its rails again', () => {
+  const { state, bat, ship } = shoot('katyusha', 20000);
+  const b = BATTERIES.katyusha;
+  assert.equal(BATTERY_ORDER[BATTERY_ORDER.indexOf('longues') + 1], 'katyusha',
+    'it comes after Longues-sur-Mer in the gun park');
+  let windup = -1;
+  const times = [];
+  let hits = 0;
+  let emptied = -1;
+  for (let i = 0; i < 30 * 70; i++) {
+    for (const ev of step(state, DT)) {
+      if (ev.e === 'rippleWindup' && windup < 0) windup = state.t;
+      if (ev.e === 'rocket') { times.push(state.t); emptied = bat.rails; }
+      if (ev.e === 'hit' && ev.victim === ship.id) hits++;
+      // A rocket launcher fires no gun.
+      assert.ok(!(ev.e === 'muzzle' && ev.battery === bat.id), 'a launcher has no muzzle');
+    }
+  }
+  assert.ok(windup >= 0, 'the ripple should wind up first');
+  assert.equal(times.length, b.barrels, `one ripple of ${b.barrels}, got ${times.length}`);
+  assert.ok(times[0] - windup >= RIPPLE_WINDUP - DT, 'nothing leaves the rails during the wind-up');
+  const len = times[times.length - 1] - times[0];
+  assert.ok(Math.abs(len - b.salvo) < 0.2, `a ripple ${len.toFixed(1)} s long, not ${b.salvo}`);
+  // Each rocket is its own: they do not all land together, and not all of them hit.
+  const shells = state.shells.filter((sh) => sh.rocket);
+  assert.equal(shells.length, 0, 'every rocket has come down');
+  assert.ok(hits > 0 && hits < b.barrels, `a ripple should hit with some and miss with others, ${hits} hit`);
+  assert.equal(emptied, 0, 'the last rocket leaves the rails empty');
+  // Then three minutes of loading, a rocket at a time.
+  assert.ok(bat.rails > 0 && bat.rails < b.barrels, `part-way through the reload, ${bat.rails} on the rails`);
+  // Nothing left to shoot at, so the next ripple does not empty them again.
+  state.ships.length = 0;
+  for (let i = 0; i < 30 * b.reload; i++) step(state, DT);
+  assert.equal(bat.rails, b.barrels, 'and full again once it is done');
+});
 
 check('a battery opens fire inside its reach and stays quiet outside it', () => {
   const b = BATTERIES.merville;

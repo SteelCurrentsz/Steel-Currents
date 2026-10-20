@@ -14,6 +14,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { MuzzleBlasts } from './muzzleblast.js';
+import { LauncherShow } from './rockets.js';
 
 // ------------------------------------------------------------ the recoil --
 
@@ -79,6 +80,12 @@ export class GunFire {
    */
   setBattery(battery, reload, groundY = 0) {
     this.groundY = groundY;
+    // A rocket launcher has no guns to run back: it goes through its own
+    // drill, wind-up and ripple and reload, on its own clock.
+    if (this.show) { this.show.dispose(); this.show = null; }
+    if (battery && battery.launcher) {
+      this.show = new LauncherShow(this.scene, this.blasts, battery.launcher, groundY);
+    }
     const period = Math.min(18, 2.5 + Math.sqrt(Math.max(0.5, reload)) * 1.5);
     this.guns = (battery ? battery.guns : []).map((gun, i) => {
       return {
@@ -119,6 +126,7 @@ export class GunFire {
         if (gun.t > gun.out + gun.back) { gun.t = -1; gun.node.position.z = 0; }
       }
     }
+    if (this.show) lit = Math.max(lit, this.show.update(dt));
     this.flashLevel = lit;
     this.blasts.update(dt, camera);
   }
@@ -149,6 +157,7 @@ export class GunFire {
   }
 
   dispose() {
+    if (this.show) this.show.dispose();
     this.blasts.dispose();
   }
 }

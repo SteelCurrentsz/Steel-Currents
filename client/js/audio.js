@@ -63,7 +63,7 @@ const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn']);
 const BUILD_ORDER = [
   'gunMedium', 'gunHeavy', 'gunLight', 'splashSmall', 'splashLarge', 'sea', 'wash',
   'turbines', 'boomSmall', 'clang', 'pom', 'rattle', 'boomInside', 'boomLarge',
-  'ricochet', 'shatter', 'splashBomb', 'launch', 'torpHit', 'crash', 'creak', 'groan',
+  'ricochet', 'shatter', 'splashBomb', 'launch', 'rocket', 'torpHit', 'crash', 'creak', 'groan',
   'bang', 'vent', 'magazine', 'wind', 'diesels', 'alarm', 'shellAir',
 ];
 
@@ -454,6 +454,11 @@ export class Audio {
   /** A magazine going up: heard from anywhere in the action. */
   magazine(at = null) {
     this.play('magazine', at, { level: 1.1, ref: 2600 });
+  }
+
+  /** A rocket going off its rail. */
+  rocket(at = null) {
+    this.play('rocket', at, { level: 0.75, ref: 260, rate: 0.94 + Math.random() * 0.12 });
   }
 
   /** A torpedo leaving her tubes. */

@@ -2337,6 +2337,34 @@ export class Battle {
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
         }
+        case 'rocket': {
+          // A rocket off a launcher's rail: the backblast thrown back off the
+          // rear of the rail it left, and the dust it tears off the ground
+          // behind the lorry. Out of the model when there is one, because only
+          // the model knows which rail that was and where it is pointing.
+          const view = this.scene.batteryViews.get(ev.battery);
+          const L = view && view.launcher;
+          const at = { x: ev.x, y: ev.y, z: ev.z };
+          if (L) {
+            const r = L.rockets[L.order[(ev.n || 0) % L.order.length]];
+            r.node.updateMatrixWorld(true);
+            const p = r.node.getWorldPosition(new THREE.Vector3());
+            const back = new THREE.Vector3(0, 0, -1).transformDirection(r.node.matrixWorld);
+            p.addScaledVector(back, 0.7);
+            fx.blasts.fire(p.x, p.y, p.z, back, 95);
+            for (let k = 0; k < 2; k++) {
+              const s = Math.random() - 0.5;
+              fx.blasts.puff(p.x + back.x * (3 + k * 2) + s * 2, ev.y - 1, p.z + back.z * (3 + k * 2) + s * 2,
+                back.x * 6 + s * 3, 1.5, back.z * 6 + s * 3, 3 + Math.random() * 2, 10, [0.72, 0.66, 0.55], 0.5);
+            }
+            at.x = p.x; at.y = p.y; at.z = p.z;
+            // The front of the rail, where the rocket's trail begins.
+            const tip = r.node.localToWorld(new THREE.Vector3(0, 0, L.railAhead(r)));
+            this.scene.rockets.origin(tip.x, tip.y, tip.z);
+          } else fx.muzzle(ev.x, ev.y, ev.z, ev.b, 90);
+          audio.rocket(at);
+          break;
+        }
         case 'aa': {
           // The light battery opening up: tracer reaching out to the squadron
           // and, from the heavy mountings, the black puffs bursting round it.
@@ -6050,6 +6078,20 @@ export class Battle {
       // The emplacement stands still; the mounting inside it trains. A model
       // with two mountings -- Townsley has a gun at each end -- turns both.
       if (g.al) for (const m of view.spin) m.rotation.y = g.h + ang;
+      // A launcher's rails come up for a ripple and go down again to be
+      // loaded; the shutters drop over the cab with them; and the rockets on
+      // the rails are the ones the simulation says are still there.
+      const L = view.launcher;
+      if (L && g.al) {
+        const up = g.fs ? 1 : 0;
+        const want = up ? L.fire : L.travel;
+        const step = 0.2 * dt;
+        view.elev += Math.max(-step, Math.min(step, want - view.elev));
+        view.shut += Math.max(-dt, Math.min(dt, up - view.shut));
+        L.pose(view.elev, view.shut);
+        const gone = L.order.length - Math.min(L.order.length, g.rl ?? L.order.length);
+        for (let k = 0; k < L.order.length; k++) L.rockets[L.order[k]].node.visible = k >= gone;
+      }
       view.marker.visible = this.camMode === 'tactical';
       // Silenced, and burning where it stands.
       if (!g.al) this.scene.flames.at(`bat:${g.i}`, g.x, g.y + 2, g.z, 0.6, view.span * 0.5);
@@ -6070,6 +6112,9 @@ export class Battle {
     // line between the last snapshot's position and this one is what points
     // her. That is her velocity to within a tick, which is near enough: a
     // shell does not change direction quickly.
+    const rockets = this.scene.rockets;
+    rockets.begin(dt);
+    let nr = 0;
     for (const sh of a.shells) {
       const prev = b ? b.shells.find((x) => x.i === sh.i) : null;
       const x = prev ? lerp(sh.x, prev.x, t) : sh.x;
@@ -6084,7 +6129,8 @@ export class Battle {
       if (sh.bm) {
         const lb = Math.max(250, (sh.c - 180) / 0.10);
         bombsNow.push({ x, y, z, dx, dy, dz, len: Math.min(3.2, 1.1 + lb * 0.0006), r: Math.min(0.5, 0.12 + lb * 0.00008) });
-      } else n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
+      } else if (sh.rk) nr = rockets.set(nr, sh.i, x, y, z, dx, dy, dz);
+      else n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
       shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm, bm: sh.bm });
     }
     this.scene.bombs.carry(bombsNow);
@@ -6093,6 +6139,8 @@ export class Battle {
     audio.shells(shells, dt);
     this.scene.shells.hideFrom(n);
     this.scene.shells.flush();
+    rockets.hideFrom(nr);
+    rockets.flush();
 
     // The torpedoes, interpolated like everything else, and handed to the
     // module that draws the fish and lays her track. It wants world positions

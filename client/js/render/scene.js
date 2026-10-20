@@ -9,6 +9,7 @@ import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Flames } from './flames.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
+import { Rockets } from './rockets.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
 import { Flights } from './planes.js';
@@ -2057,6 +2058,8 @@ export class BattleScene {
     // control put a great many small shells in the air at once, and a shell
     // that is not drawn is a salvo the spotter cannot see.
     this.shells = new Shells(this.scene, 900);
+    // And the rockets, which are not shells: fins, a motor and a trail.
+    this.rockets = new Rockets(this.scene, this.effects.trails, 240);
     // The light battery's tracer and the black puffs it leaves behind.
     this.flak = new Flak(this.scene, 900);
     // What the dive bombers let go of, on the way down.
@@ -2209,7 +2212,13 @@ export class BattleScene {
       // The ground it stands on, cut to fit the hill it stands on.
       if (at) group.add(batteryApron(this.world, at, built.span, built.foot));
 
-      v = { group, spin, marker, span: built.span, batteryId, team, smokeTimer: 0 };
+      v = {
+        group, spin, marker, span: built.span, batteryId, team, smokeTimer: 0,
+        // A rocket launcher's rails and rockets, worked from the wire.
+        launcher: built.launcher,
+        elev: built.launcher ? built.launcher.travel : 0,
+        shut: 0,
+      };
       this.batteryViews.set(id, v);
     }
     return v;

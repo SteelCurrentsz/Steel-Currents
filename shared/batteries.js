@@ -13,7 +13,7 @@
 
 /** The order they are stepped through, roughly by bore. */
 export const BATTERY_ORDER = [
-  'flak88', 'merville', 'longues', 'oscarsborg', 'drum',
+  'flak88', 'merville', 'longues', 'katyusha', 'oscarsborg', 'drum',
   'todt', 'townsley', 'gustav',
 ];
 
@@ -36,6 +36,11 @@ export const BATTERY_ORDER = [
  * @property {number} [ceiling]   metres, for a gun that shot upward
  * @property {number} crew        men to fight it
  * @property {number} span        metres across the whole emplacement, for the camera
+ * @property {boolean} [rocket]   a rocket launcher: `barrels` is its rails' load,
+ *                                fired as one ripple a `salvo` seconds long
+ * @property {number} [salvo]     seconds from the first rocket of a ripple to the last
+ * @property {number} [relay]     radians a second it can be swung onto a new
+ *                                bearing, for a piece that can drive round
  */
 
 /** @type {Record<string, Battery>} */
@@ -91,6 +96,35 @@ export const BATTERIES = {
     armour: 30,
     weight: 16, reload: 10, range: 19500,
     crew: 8, span: 13,
+  },
+  // Not a gun at all: sixteen rockets on eight rails over the back of a lorry.
+  // The Germans heard it before they saw it and called it Stalin's organ; the
+  // crews named it after a song. It was never meant to hit one thing — it was
+  // meant to cover a grid square in ten seconds and be gone before the answer
+  // came back — so each rocket wanders on its own, but a ripple of sixteen
+  // lands in a tight enough pattern that a ship inside it is badly hurt.
+  katyusha: {
+    name: 'Katyusha Rocket Launcher',
+    place: 'Guards Mortar Regiments · Red Army',
+    piece: 'BM-13-16 on ZiS-6',
+    caliber: 132, bore: '132 mm', barrels: 16,
+    // An M-13 is 1.41 metres of rocket on a 132 mm body.
+    calibers: 11,
+    rocket: true,
+    // Sixteen rockets away in eight seconds, top and bottom of each rail in
+    // turn: the real figure was seven to ten.
+    salvo: 8,
+    // The rails swing ten degrees either side on the lorry. Past that the
+    // driver backs it round, which is quicker than relaying any casemate.
+    targets: 'ships',
+    traverse: 20,
+    relay: 0.12,
+    mount: 'ZiS-6 6×4 lorry, eight rails',
+    // The armoured shutters that came down over the cab windscreen before a
+    // ripple went over the crew's heads. Nothing else on it is armour.
+    armour: 6,
+    weight: 6.2, reload: 180, range: 8470,
+    crew: 6, span: 8,
   },
   // Krupp guns of 1900, in open emplacements cut into the rock of an island in
   // the Drobak Narrows. Two of them sank the Blucher at six hundred yards on
@@ -249,6 +283,11 @@ export function batteryGun(id) {
   if (g) return g;
   const b = BATTERIES[id] || BATTERIES.longues;
   const mm = b.caliber;
+  if (b.rocket) {
+    g = rocketGun(b);
+    GUNS.set(id, g);
+    return g;
+  }
   const velocity = 780;
   g = {
     caliber: mm,
@@ -275,6 +314,47 @@ export function batteryGun(id) {
   };
   GUNS.set(id, g);
   return g;
+}
+
+/**
+ * A rocket launcher's worth of firing solution.
+ *
+ * A rocket has burnt out a fraction of a second after it leaves the rail and
+ * flies the rest of the way as a shell does, so the same solver flies it. What
+ * is different is what it carries and how well it holds its line: a thin-cased
+ * warhead full of explosive and nothing that will go through a plate, slower
+ * than a gun's shell, and a fin-stabilised body that every gust and every
+ * small misalignment on the rail turns a little off its bearing. It is the
+ * same round whichever is asked for, because there is only one.
+ */
+function rocketGun(b) {
+  const mm = b.caliber;
+  const he = {
+    type: 'he', caliber: mm, rocket: true,
+    // Five kilos of explosive in a thin case: a little more blast than a
+    // shell of the same bore, and nothing like its penetration.
+    damage: Math.round(heDamage(mm) * 1.1), pen: Math.round(mm / 7), velocity: 640,
+    fuseArm: 0, fireChance: 0.16, drag: 0.003,
+  };
+  return {
+    caliber: mm,
+    reload: b.reload,
+    range: batteryReach(b),
+    // How tight a ripple lands. About a bedded gun's 2.4, because the whole
+    // ripple is laid on one point and the pattern is what a battery of these
+    // was sited and surveyed to put down. Each rocket still wanders across
+    // the line more than a shell does (see fireRocket), and it comes down at
+    // a steeper angle, so it finds a narrow deck less often than a gun's flat
+    // shot finds a side.
+    sigma: 2.6,
+    // A rocket that leaves its rail badly -- a bent fin, a nozzle burning
+    // unevenly -- goes where it likes. One in sixteen or so.
+    wild: 0.07,
+    salvo: b.salvo || 8,
+    rocket: true,
+    traverse: 0.5,
+    shells: { ap: he, he },
+  };
 }
 
 /**

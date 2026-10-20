@@ -3502,6 +3502,14 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     kills: 0,
     damageDealt: 0,
   };
+  // A rocket launcher fires its whole load as one ripple and is loaded again by
+  // hand: how many rockets are on the rails, and the ripple it is in, if any.
+  if (b.rocket) {
+    bat.rails = b.barrels;
+    bat.salvo = null;
+    // It comes into action loaded, so it waits only to be laid.
+    bat.cooldown = b.salvo * 0.5;
+  }
   state.batteries.push(bat);
   return bat;
 }
@@ -3628,6 +3636,7 @@ function batteryTarget(state, bat, b, gun, arcLimit = true) {
  * of water -- barely does it at all.
  */
 function relayRate(b) {
+  if (b.relay) return b.relay;
   if ((b.traverse ?? 120) >= 360) return 0;
   return 0.02 + (b.traverse ?? 120) / 120 * 0.03;
 }
@@ -3638,6 +3647,7 @@ function stepBatteries(state, dt) {
     const b = BATTERIES[bat.batteryId];
     const gun = batteryGun(bat.batteryId);
     if (bat.cooldown > 0) bat.cooldown -= dt;
+    if (gun.rocket) reloadRails(bat, b, gun);
 
     // Anything that shoots upward takes its share of whatever flies over it.
     const aa = batteryAa(b);
@@ -3695,13 +3705,150 @@ function stepBatteries(state, dt) {
       ? clamp(angleDelta(bat.heading, headingTo(bat.x, bat.z, target.x, target.z)), -arc, arc)
       : 0;
     bat.angle = approachAngle(bat.angle, want, gun.traverse * dt);
+    // A ripple once begun goes on to its last rocket: the firing circuit is
+    // already closed, and what changes is only where the rails are pointing.
+    if (bat.salvo) {
+      stepRipple(state, bat, b, gun, target, dt);
+      continue;
+    }
     if (!target) { bat.targetId = 0; continue; }
     bat.relayTo = null;
     if (bat.cooldown > 0) continue;
     // Laid on, or still coming round.
     if (Math.abs(angleDelta(bat.angle, want)) > 0.02) continue;
+    if (gun.rocket) {
+      startRipple(state, bat, gun, target);
+      continue;
+    }
     fireBattery(state, bat, b, gun, target);
   }
+}
+
+// ---------------------------------------------------------------------------
+// The rocket launcher
+// ---------------------------------------------------------------------------
+//
+// A gun fires and is loaded again. A Katyusha is loaded once, laid once, and
+// then empties itself in eight seconds: the rails come up off their rest to
+// the elevation, the crew get clear of the lorry and the cab shutters come
+// down, and then the firing handle is wound and the rockets go top and bottom
+// of each rail in turn. Then it is three minutes of men lifting forty-two kilo
+// rockets onto the rails one at a time.
+
+/** Seconds from the order to the first rocket: rails up, crew clear, handle wound. */
+export const RIPPLE_WINDUP = 3.5;
+
+/** Begin a ripple at `target`. Nothing leaves the rails until the wind-up is done. */
+function startRipple(state, bat, gun, target) {
+  if (!bat.rails) return;
+  // One elevation for the whole ripple, because the rails are laid together.
+  // Rockets were fired high -- the M-13 got its range at forty-five degrees --
+  // so this is always the lofted side of the choice a gun makes.
+  const theta = 0.3 + state.rng() * 0.16;
+  bat.salvo = {
+    wind: RIPPLE_WINDUP,
+    next: 0,
+    fired: 0,
+    load: bat.rails,
+    theta,
+    targetId: target.id,
+  };
+  state.events.push({
+    e: 'rippleWindup', x: bat.x, y: bat.y, z: bat.z, battery: bat.id,
+  });
+}
+
+/** One tick of a ripple in progress: the wind-up, then a rocket every so often. */
+function stepRipple(state, bat, b, gun, target, dt) {
+  const s = bat.salvo;
+  if (s.wind > 0) {
+    s.wind -= dt;
+    if (s.wind > 0) return;
+    s.next = 0;
+  }
+  // The one it was laid on, while she is still there; whatever else it can
+  // see if she is gone. If there is nothing, the rest go down the last bearing
+  // anyway -- once the handle is turning the rockets are going.
+  const aim = target
+    || state.ships.find((q) => q.id === s.targetId && q.alive) || null;
+  const gap = gun.salvo / Math.max(1, s.load - 1);
+  s.next -= dt;
+  while (s.next <= 0 && s.fired < s.load) {
+    fireRocket(state, bat, gun, aim, s);
+    s.fired++;
+    bat.rails = Math.max(0, bat.rails - 1);
+    s.next += gap;
+  }
+  if (s.fired >= s.load) {
+    bat.salvo = null;
+    bat.cooldown = gun.reload;
+  }
+}
+
+/**
+ * Load the rails again, a rocket at a time, over the reload.
+ *
+ * A crew lifts the rockets on by hand, so a launcher that has been firing is
+ * not empty and then full: it fills. That is what the rails on the model show.
+ */
+function reloadRails(bat, b, gun) {
+  if (bat.salvo || bat.rails >= b.barrels) return;
+  const done = 1 - Math.max(0, bat.cooldown) / gun.reload;
+  bat.rails = Math.max(bat.rails, Math.min(b.barrels, Math.floor(done * b.barrels)));
+}
+
+/** One rocket off the rails. */
+function fireRocket(state, bat, gun, target, s) {
+  const spec = gun.shells.he;
+  const bearing = wrapAngle(bat.heading + bat.angle);
+  // Where it is going: the target, led by the flight time; or with no target,
+  // as far down the bearing as the last one went.
+  let aimD, aimB;
+  if (target) {
+    const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
+    const arc0 = { ...gun, range: Math.max(d / Math.max(0.08, Math.sin(2 * s.theta)), d * 1.02) };
+    const lead = Math.min(solveBallistic(arc0, d, bat.y).tof, 60);
+    const ax = target.x + Math.sin(target.heading) * target.speed * lead;
+    const az = target.z + Math.cos(target.heading) * target.speed * lead;
+    aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
+    aimB = headingTo(bat.x, bat.z, ax, az);
+    s.lastD = aimD;
+    s.lastB = aimB;
+  } else {
+    aimD = s.lastD || gun.range * 0.1;
+    aimB = s.lastB ?? bearing;
+  }
+  // Every rocket on its own: a fin-stabilised body leaves the rail a fraction
+  // off true and goes on being off. Most of it is in range -- a rocket's motor
+  // never burns quite the same twice -- and a good deal is across the line too,
+  // more than a gun's.
+  const spreadBase = (aimD * 0.0125) / gun.sigma;
+  const wild = state.rng() < gun.wild ? 3.2 : 1;
+  const lat = clamp(gauss(state.rng), -2.6, 2.6) * spreadBase * 0.45 * wild;
+  const rng = clamp(gauss(state.rng), -2.6, 2.6) * spreadBase * wild;
+  const shotD = clamp(aimD + rng, 300, gun.range);
+  const arc = { ...gun, range: Math.max(shotD / Math.max(0.08, Math.sin(2 * s.theta)), shotD * 1.02) };
+  const sol = solveBallistic(arc, shotD, bat.y);
+  const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
+  const vh = sol.v * Math.cos(sol.elev);
+  // Off the front of the rails, which stand three metres up over the cab.
+  const id = eid();
+  fireShell(state, {
+    id,
+    owner: bat.id, team: bat.team, fromBattery: true, rocket: true,
+    x: bat.x + Math.sin(bb) * 4, z: bat.z + Math.cos(bb) * 4,
+    y: bat.y + 3.5,
+    vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: sol.v * Math.sin(sol.elev),
+    g: sol.g,
+    spec, caliber: gun.caliber,
+    classId: null,
+    life: 0,
+  });
+  bat.lastFiredAt = state.t;
+  state.events.push({
+    e: 'rocket', x: bat.x, z: bat.z, y: bat.y + 2, b: bearing,
+    cal: gun.caliber, battery: bat.id, n: s.fired, el: Math.round(sol.elev * 1000) / 1000,
+  });
 }
 
 /**

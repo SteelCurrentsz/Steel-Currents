@@ -632,6 +632,35 @@ export function sfxKit() {
   }
 
   /**
+   * A rocket off a rail: the crack of the motor lighting, the roar of it
+   * burning, and the howl -- the note the nozzle sings at, which is what gave
+   * the Katyusha its name on the other side of the line -- falling away as it
+   * climbs out of hearing.
+   */
+  function rocket(sr, rand) {
+    const dur = 2.4;
+    const chs = buffers(sr, dur, 1);
+    const [M] = chs;
+    const crack = svf(sr, 'band'), roar = svf(sr, 'band'), low = svf(sr, 'low');
+    let ph = 0;
+    const wob = 0.6 + rand() * 0.8;
+    for (let i = 0; i < M.length; i++) {
+      const t = i / sr;
+      const lit = crack(rand() * 2 - 1, 1800, 0.6) * rise(t, 0.002) * Math.exp(-t / 0.04) * 2.2;
+      // Out of the motor, brightest as it leaves and duller as it goes.
+      const away = Math.exp(-t / 0.7);
+      const burn = roar(rand() * 2 - 1, 700 + 900 * away, 0.9) * rise(t, 0.03) * (0.25 + 0.75 * away) * 1.4;
+      const rumble = low(rand() * 2 - 1, 140) * rise(t, 0.02) * Math.exp(-t / 0.5) * 1.6;
+      // The howl, dropping in pitch as it goes away from you.
+      const f = (560 + 60 * Math.sin(t * 9 * wob)) * (0.72 + 0.28 * away);
+      ph += TAU * f / sr;
+      const howl = (Math.sin(ph) + 0.35 * Math.sin(ph * 2.01)) * rise(t, 0.08) * Math.exp(-t / 0.9) * 0.35;
+      M[i] = sat(lit + burn + rumble + howl);
+    }
+    return finish(chs, sr);
+  }
+
+  /**
    * A torpedo against her side: a huge blow under the water, the hull shuddering
    * with it, and the column it threw up coming down all over her.
    */
@@ -849,6 +878,7 @@ export function sfxKit() {
     vent: { takes: 2, make: (sr, r) => vent(sr, r) },
     crash: { takes: 2, make: (sr, r) => crash(sr, r) },
     launch: { takes: 2, make: (sr, r) => launch(sr, r) },
+    rocket: { takes: 3, make: (sr, r) => rocket(sr, r) },
     torpHit: { takes: 2, make: (sr, r) => torpHit(sr, r) },
     alarm: { takes: 1, make: (sr, r) => alarm(sr, r) },
     sea: { takes: 1, make: (sr, r) => sea(sr, r) },
@@ -859,7 +889,7 @@ export function sfxKit() {
     shellAir: { takes: 1, make: (sr, r) => shellAir(sr, r) },
   };
 
-  return { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES };
+  return { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES };
 }
 
-export const { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES } = sfxKit();
+export const { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES } = sfxKit();

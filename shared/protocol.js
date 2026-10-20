@@ -291,6 +291,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // nothing: without this there is no way to tell one squadron's stick
       // from another's, and no way for a camera to follow one down.
       bm: sh.bomber || undefined,
+      // A rocket rather than a shell: drawn with fins and a motor burning.
+      rk: sh.rocket ? 1 : undefined,
     });
   }
   const torps = [];
@@ -475,6 +477,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     h: r3(b.heading), a: r3(b.angle),
     hp: Math.round(b.hp), mx: b.maxHp,
     al: b.alive ? 1 : 0,
+    // A rocket launcher's rails: how many rockets are on them, and whether a
+    // ripple is winding up (1) or going (2) -- which is what raises the rails
+    // and drops the cab shutters on the model.
+    rl: b.rails ?? undefined,
+    fs: b.salvo ? (b.salvo.wind > 0 ? 1 : 2) : undefined,
   }));
 
   return {

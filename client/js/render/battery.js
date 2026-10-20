@@ -20,6 +20,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { BATTERIES } from '../../../shared/batteries.js';
 import { mergeStatic, mergeMoving } from './merge.js';
+import { buildRocket, M13 } from './rockets.js';
 
 // ------------------------------------------------------------- materials --
 
@@ -47,6 +48,13 @@ const MAT = {
   // near enough flush with the ground to read as part of the mounting.
   bed: new THREE.MeshLambertMaterial({ color: 0x6b6d68 }),
   bore: new THREE.MeshLambertMaterial({ color: 0x131313 }),
+  // Red Army 4BO green, the colour every lorry and launcher left the works in,
+  // and the darker shade the weather and the oil turned it.
+  sov: new THREE.MeshLambertMaterial({ color: 0x67714a }),
+  sovDark: new THREE.MeshLambertMaterial({ color: 0x4b5236 }),
+  sovPale: new THREE.MeshLambertMaterial({ color: 0x78825a }),
+  glass: new THREE.MeshLambertMaterial({ color: 0x2b3439, emissive: 0x0b1014 }),
+  lamp: new THREE.MeshLambertMaterial({ color: 0xc9c4b0, emissive: 0x2a2820 }),
 };
 
 // ------------------------------------------------------------ primitives --
@@ -216,9 +224,9 @@ function roadWheel(g, r, wd, x, y, z, spokes = 6) {
 }
 
 /** A levelling jack: screw, footplate on the ground, and the pad it carries. */
-function jack(g, mat, x, y, z) {
+function jack(g, mat, x, y, z, screw = MAT.bright) {
   cyl(g, MAT.dark, 0.2, 0.24, 0.1, x, 0.05, z, 12);
-  cyl(g, MAT.bright, 0.06, 0.06, y - 0.1, x, (y - 0.1) / 2 + 0.1, z, 10);
+  cyl(g, screw, 0.06, 0.06, y - 0.1, x, (y - 0.1) / 2 + 0.1, z, 10);
   box(g, mat, 0.26, 0.1, 0.26, x, y, z);
 }
 
@@ -1291,10 +1299,452 @@ function buildGustav(g, b) {
   round_(g, bore, 0, 5.99, -11.0);
 }
 
+// ------------------------------------------------------------- the lorry --
+
+/** A box laid from one point to another: a strut, a brace, a leg. */
+function strut(g, mat, w, a, b, h = w) {
+  const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d.length()), mat);
+  m.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.normalize());
+  g.add(m);
+  return m;
+}
+
+/**
+ * A lorry wheel standing on the ground: a square-shouldered tyre with its
+ * tread, the pressed-steel disc, the hub and the ring of wheel nuts.
+ * `out` is which way its face is turned, +1 or -1 along x.
+ */
+function lorryWheel(g, R, wd, x, z, out = 1) {
+  shaft(g, MAT.rubber, R - 0.02, wd, x, R, z, 22);
+  for (const s of [-1, 1]) {
+    const t = new THREE.Mesh(new THREE.TorusGeometry(R - 0.075, 0.055, 6, 22), MAT.rubber);
+    t.rotation.y = Math.PI / 2;
+    t.position.set(x + s * (wd / 2 - 0.035), R, z);
+    g.add(t);
+  }
+  // The tread: a chevron of lugs round the crown, which on a lorry built to
+  // be driven across a steppe in the thaw is most of what a tyre is.
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    for (const s of [-1, 1]) {
+      const lug = box(g, MAT.rubber, wd * 0.42, 0.035, 0.07,
+        x + s * wd * 0.22, R + Math.cos(a) * (R - 0.012), z + Math.sin(a) * (R - 0.012));
+      lug.rotation.x = -a;
+      lug.rotation.y = s * 0.35;
+    }
+  }
+  shaft(g, MAT.sovDark, R * 0.6, wd + 0.02, x, R, z, 18);
+  shaft(g, MAT.sov, R * 0.3, wd + 0.06, x + out * 0.02, R, z, 14);
+  shaft(g, MAT.dark, R * 0.13, wd + 0.12, x + out * 0.04, R, z, 10);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    box(g, MAT.dark, 0.03, 0.03, 0.03, x + out * (wd / 2 + 0.035),
+      R + Math.cos(a) * R * 0.22, z + Math.sin(a) * R * 0.22);
+  }
+}
+
+/** A semi-elliptic leaf spring along z: the leaves stacked, shortest at the bottom. */
+function leafSpring(g, x, y, z, len, leaves = 5, down = true) {
+  for (let i = 0; i < leaves; i++) {
+    const l = len * (1 - i * 0.16);
+    box(g, MAT.dark, 0.07, 0.022, l, x, y + (down ? -1 : 1) * i * 0.024, z);
+  }
+  // The U-bolts round the middle of the stack.
+  for (const s of [-1, 1]) box(g, MAT.sovDark, 0.012, 0.16, 0.02, x + s * 0.045, y - 0.04, z);
+}
+
+/**
+ * BM-13-16 on the ZiS-6: the Katyusha.
+ *
+ * A three-axle lorry -- one axle under the engine and a bogie of two driven
+ * ones under the bed -- with the launcher on a frame over the back: eight
+ * rails of I-section, a rocket riding on top of each and another hung under
+ * it, pivoted at the rear and lifted by a pair of screws. In travel the rails
+ * lie almost flat over the cab on a rest; to fire they are wound up to the
+ * elevation, armoured shutters come down over the windscreen, and the whole
+ * load goes over the crew's heads in eight seconds.
+ *
+ * The lorry is the mounting -- it is aimed by pointing it, and swung through
+ * the last few degrees on the launcher's own traverse -- so the whole of it
+ * trains. Everything that moves after that is in `launcher`: the rails, the
+ * screws that lift them, the shutters and the sixteen rockets.
+ */
+function buildKatyusha(g, b) {
+  const R = 0.45;                 // 34x7 tyres
+  const W = 0.2;
+  const FRONT = 2.25;             // front axle
+  const BOGIE = [-1.27, -2.35];   // the two driven rear axles
+  const FRAME_Y = 0.88;           // top of the chassis rails
+  const car = new THREE.Group();
+  car.userData.weld = true;
+  g.add(trains(g, car));
+
+  // ---- running gear ----
+  for (const s of [-1, 1]) lorryWheel(car, R, W, s * 0.84, FRONT, s);
+  for (const z of BOGIE) {
+    for (const s of [-1, 1]) {
+      lorryWheel(car, R, W, s * 0.7, z, s);
+      lorryWheel(car, R, W, s * 0.94, z, s);
+    }
+  }
+  // The front axle, an I-beam, and the steering track-rod behind it.
+  box(car, MAT.dark, 1.56, 0.11, 0.09, 0, R, FRONT);
+  box(car, MAT.dark, 1.4, 0.035, 0.035, 0, R - 0.05, FRONT - 0.2);
+  // The rear axles: tube, banjo, and the propeller shafts that drive them.
+  for (const z of BOGIE) {
+    shaft(car, MAT.dark, 0.06, 1.7, 0, R, z, 12);
+    cyl(car, MAT.sovDark, 0.17, 0.17, 0.3, 0, R, z, 16).rotation.x = Math.PI / 2;
+    cyl(car, MAT.dark, 0.08, 0.1, 0.12, 0, R, z + 0.2, 12).rotation.x = Math.PI / 2;
+  }
+  strut(car, MAT.dark, 0.06, [0, R + 0.02, BOGIE[0] + 0.25], [0, R + 0.05, BOGIE[1] - 0.1 + 0.95]);
+  strut(car, MAT.dark, 0.06, [0, R + 0.04, BOGIE[0] + 0.3], [0, 0.66, 0.9]);
+  // The gearbox and the transfer case under the cab, carrying the shafts.
+  box(car, MAT.sovDark, 0.4, 0.3, 0.6, 0, 0.66, 1.05);
+  box(car, MAT.sovDark, 0.36, 0.26, 0.34, 0, 0.6, 0.55);
+  // Springs: semi-elliptics on the front axle, and inverted ones on the bogie
+  // with their ends on the two axles and their middles on a trunnion.
+  for (const s of [-1, 1]) {
+    leafSpring(car, s * 0.45, R + 0.17, FRONT, 1.2, 6, true);
+    box(car, MAT.dark, 0.08, 0.12, 0.08, s * 0.45, R + 0.1, FRONT);
+    for (const e of [-0.58, 0.58]) box(car, MAT.dark, 0.06, 0.16, 0.05, s * 0.45, FRAME_Y - 0.13, FRONT + e);
+    const mid = (BOGIE[0] + BOGIE[1]) / 2;
+    leafSpring(car, s * 0.45, R + 0.08, mid, 1.3, 5, false);
+    box(car, MAT.sovDark, 0.16, 0.2, 0.22, s * 0.45, R + 0.24, mid);
+    shaft(car, MAT.dark, 0.06, 0.24, s * 0.45, R + 0.3, mid, 10);
+    for (const z of BOGIE) box(car, MAT.dark, 0.09, 0.06, 0.12, s * 0.45, R + 0.07, z);
+  }
+
+  // ---- chassis ----
+  for (const s of [-1, 1]) {
+    box(car, MAT.sovDark, 0.07, 0.2, 5.95, s * 0.45, FRAME_Y - 0.1, 0);
+    box(car, MAT.sovDark, 0.12, 0.02, 5.95, s * 0.43, FRAME_Y - 0.01, 0);
+    box(car, MAT.sovDark, 0.12, 0.02, 5.95, s * 0.43, FRAME_Y - 0.19, 0);
+  }
+  for (const z of [2.9, 1.7, 0.2, -0.75, -1.8, -2.9]) {
+    box(car, MAT.sovDark, 0.9, 0.12, 0.08, 0, FRAME_Y - 0.1, z);
+  }
+  // Bumper, with the towing hooks through it and the dumb-irons that carry it.
+  box(car, MAT.sovDark, 2.05, 0.14, 0.1, 0, 0.66, 3.03);
+  for (const s of [-1, 1]) {
+    box(car, MAT.sovDark, 0.08, 0.16, 0.12, s * 0.45, 0.72, 2.96);
+    const hook = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.016, 6, 12, Math.PI * 1.3), MAT.dark);
+    hook.rotation.y = Math.PI / 2;
+    hook.position.set(s * 0.68, 0.6, 3.1);
+    car.add(hook);
+  }
+  // The fuel tank under the right of the cab, and the battery box on the left.
+  shaft(car, MAT.sov, 0.19, 0.95, 0.72, 0.72, 0.95, 16);
+  for (const z of [0.65, 1.25]) box(car, MAT.dark, 0.3, 0.06, 0.05, 0.68, 0.86, z);
+  box(car, MAT.sovDark, 0.36, 0.3, 0.42, -0.72, 0.72, 0.6);
+
+  // ---- bonnet and radiator ----
+  // The radiator shell, the vertical bars of its grille, and the starting
+  // handle hole under it.
+  box(car, MAT.sov, 0.88, 0.8, 0.12, 0, 1.24, 2.82);
+  for (let i = 0; i < 11; i++) box(car, MAT.sovDark, 0.022, 0.62, 0.04, -0.3 + i * 0.06, 1.23, 2.895);
+  box(car, MAT.sovPale, 0.8, 0.05, 0.05, 0, 1.6, 2.9);
+  box(car, MAT.dark, 0.06, 0.06, 0.04, 0, 0.92, 2.9);
+  cyl(car, MAT.bright, 0.035, 0.035, 0.06, 0, 1.69, 2.8, 10);
+  // The bonnet: a narrow box with its rounded top, and the louvres down each
+  // side that let the heat of the engine out.
+  box(car, MAT.sov, 0.84, 0.66, 1.2, 0, 1.22, 2.18);
+  const top = tube(car, MAT.sov, 0.42, 0.42, 1.2, 0, 1.55, 1.58, 20);
+  top.scale.z = 0.32;
+  box(car, MAT.sovDark, 0.03, 0.03, 1.2, 0, 1.685, 2.18);
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 7; i++) {
+      const lv = box(car, MAT.sovDark, 0.02, 0.24, 0.05, s * 0.425, 1.3, 1.8 + i * 0.1);
+      lv.rotation.y = s * 0.5;
+    }
+    // The hinge of the side panel, and its catch.
+    box(car, MAT.sovDark, 0.02, 0.025, 1.2, s * 0.43, 1.52, 2.18);
+    box(car, MAT.dark, 0.03, 0.06, 0.04, s * 0.435, 1.05, 2.5);
+  }
+
+  // ---- wings, lamps and running boards ----
+  for (const s of [-1, 1]) {
+    // The front wing, bent over the wheel in plates and run back into the
+    // running board.
+    const fx = s * 0.88;
+    for (let i = 0; i <= 8; i++) {
+      const a = -0.75 + (i / 8) * 2.1;
+      const r = R + 0.13;
+      const pl = box(car, MAT.sov, 0.36, 0.025, 0.19, fx, R + Math.cos(a) * r, FRONT + Math.sin(a) * r);
+      pl.rotation.x = a;
+    }
+    // Its valance, down to the frame, so the wing is carried.
+    box(car, MAT.sov, 0.03, 0.5, 0.8, s * 0.69, 0.92, FRONT);
+    strut(car, MAT.sovDark, 0.04, [s * 0.48, FRAME_Y - 0.05, FRONT - 0.85], [s * 0.88, 0.76, FRONT - 0.82]);
+    box(car, MAT.sov, 0.36, 0.03, 1.15, fx, 0.74, 1.05);
+    for (let i = 0; i < 4; i++) box(car, MAT.dark, 0.3, 0.012, 0.03, fx, 0.76, 0.65 + i * 0.25);
+    for (const z of [0.6, 1.45]) box(car, MAT.sovDark, 0.4, 0.04, 0.05, s * 0.67, 0.73, z);
+    // The rear wings over the bogie.
+    box(car, MAT.sov, 0.6, 0.025, 1.9, s * 0.82, 1.08, (BOGIE[0] + BOGIE[1]) / 2);
+    box(car, MAT.sovDark, 0.03, 0.2, 1.9, s * 1.11, 0.98, (BOGIE[0] + BOGIE[1]) / 2);
+    for (const z of BOGIE) box(car, MAT.sovDark, 0.6, 0.06, 0.06, s * 0.78, FRAME_Y + 0.02, z);
+    // The headlamp on its bar off the wing, with its blackout slit.
+    box(car, MAT.sovDark, 0.05, 0.32, 0.05, s * 0.64, 1.18, 2.6);
+    tube(car, MAT.sov, 0.11, 0.1, 0.2, s * 0.64, 1.38, 2.55, 14);
+    tube(car, MAT.lamp, 0.09, 0.09, 0.02, s * 0.64, 1.38, 2.745, 14);
+    box(car, MAT.dark, 0.12, 0.02, 0.025, s * 0.64, 1.38, 2.76);
+  }
+
+  // ---- the cab ----
+  const CF = 1.62, CB = 0.42, CW = 0.98;   // front, back, half-width
+  const cab = (CF + CB) / 2, cabLen = CF - CB;
+  // The floor and the scuttle under the windscreen.
+  box(car, MAT.sovDark, CW * 2, 0.06, cabLen, 0, 0.96, cab);
+  box(car, MAT.sov, CW * 2, 0.5, 0.12, 0, 1.43, CF - 0.04);
+  for (const s of [-1, 1]) {
+    // The door: lower panel, the window frame over it, and the handle.
+    box(car, MAT.sov, 0.05, 0.6, cabLen, s * CW, 1.29, cab);
+    box(car, MAT.sovDark, 0.06, 0.02, cabLen - 0.08, s * CW, 1.59, cab);
+    box(car, MAT.dark, 0.03, 0.03, 0.12, s * (CW + 0.03), 1.45, CB + 0.22);
+    // A pillars, B pillars, and the glass between them.
+    box(car, MAT.sov, 0.06, 0.48, 0.06, s * CW, 1.82, CF - 0.05);
+    box(car, MAT.sov, 0.06, 0.48, 0.07, s * CW, 1.82, CB + 0.04);
+    box(car, MAT.glass, 0.02, 0.4, cabLen - 0.2, s * CW, 1.82, cab);
+    // The mirror on its arm.
+    strut(car, MAT.dark, 0.02, [s * CW, 1.95, CF - 0.05], [s * (CW + 0.22), 2.0, CF - 0.02]);
+    box(car, MAT.glass, 0.02, 0.16, 0.12, s * (CW + 0.23), 2.0, CF - 0.02);
+  }
+  // The windscreen in two panes, the roof, and the back of the cab.
+  box(car, MAT.sov, 0.06, 0.48, 0.05, 0, 1.82, CF - 0.05);
+  for (const s of [-1, 1]) box(car, MAT.glass, CW - 0.06, 0.42, 0.02, s * CW / 2, 1.82, CF - 0.05);
+  box(car, MAT.sov, CW * 2 + 0.06, 0.07, cabLen + 0.1, 0, 2.09, cab);
+  box(car, MAT.sovDark, CW * 2 - 0.1, 0.02, cabLen - 0.1, 0, 2.135, cab);
+  box(car, MAT.sov, CW * 2, 1.1, 0.06, 0, 1.53, CB);
+  box(car, MAT.glass, 0.6, 0.22, 0.02, 0, 1.85, CB - 0.035);
+  // Inside: the seat squab you can see through the glass, and the wheel.
+  box(car, MAT.timber, CW * 1.8, 0.4, 0.12, 0, 1.25, CB + 0.12);
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.016, 6, 18), MAT.dark);
+  wheel.position.set(-0.45, 1.48, CF - 0.35);
+  wheel.rotation.x = -0.9;
+  car.add(wheel);
+  strut(car, MAT.dark, 0.035, [-0.45, 1.48, CF - 0.35], [-0.45, 1.25, CF - 0.12]);
+  // The shutter hinges, along the top of the windscreen.
+  for (const s of [-1, 0, 1]) box(car, MAT.dark, 0.08, 0.05, 0.05, s * 0.7, 2.04, CF + 0.01);
+
+  // The armoured shutter over the windscreen: up like a visor on the march,
+  // down over the glass when the rockets are about to go over the top.
+  const shutter = new THREE.Group();
+  shutter.userData.dynamic = true;
+  shutter.userData.weld = true;
+  shutter.position.set(0, 2.04, CF + 0.05);
+  car.add(shutter);
+  box(shutter, MAT.sovPale, CW * 2 - 0.04, 0.5, 0.02, 0, -0.25, 0.01);
+  for (const s of [-1, 1]) box(shutter, MAT.sovDark, 0.03, 0.5, 0.04, s * (CW - 0.08), -0.25, 0.02);
+  box(shutter, MAT.sovDark, CW * 2 - 0.1, 0.03, 0.04, 0, -0.48, 0.02);
+  // The vision slits the driver kept, one either side.
+  for (const s of [-1, 1]) box(shutter, MAT.dark, 0.42, 0.025, 0.03, s * CW / 2, -0.12, 0.02);
+
+  // ---- the launcher's frame ----
+  // The subframe, bolted on top of the chassis rails, and the cross-members
+  // that carry the turntable, the screws and the rest.
+  for (const s of [-1, 1]) box(car, MAT.sov, 0.12, 0.16, 3.3, s * 0.45, FRAME_Y + 0.08, -1.3);
+  box(car, MAT.sov, 1.8, 0.14, 0.14, 0, FRAME_Y + 0.08, 0.3);
+  box(car, MAT.sov, 1.7, 0.14, 0.14, 0, FRAME_Y + 0.08, -0.6);
+  box(car, MAT.sov, 2.0, 0.14, 0.14, 0, FRAME_Y + 0.08, -2.9);
+  // The crew's footboards along each side, and the step up onto them.
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      box(car, MAT.timberPale, 0.14, 0.04, 1.6, s * (0.6 + i * 0.15), FRAME_Y + 0.18, -1.95);
+    }
+    box(car, MAT.sovDark, 0.5, 0.04, 0.05, s * 0.75, FRAME_Y + 0.15, -1.2);
+    box(car, MAT.sovDark, 0.5, 0.04, 0.05, s * 0.75, FRAME_Y + 0.15, -2.7);
+  }
+  // The rear stabiliser jacks, wound down onto the ground before firing so
+  // the lorry does not walk on its springs during the ripple.
+  for (const s of [-1, 1]) {
+    box(car, MAT.sovDark, 0.55, 0.1, 0.12, s * 0.75, FRAME_Y + 0.03, -2.9);
+    jack(car, MAT.sovDark, s * 1.0, FRAME_Y - 0.03, -2.9, MAT.steel);
+  }
+  // The turntable the launcher traverses on, and its rotating frame: two
+  // cross-beams with an A-frame standing on each end of them.
+  const PIV_Y = 2.4, PIV_Z = -2.55;
+  cyl(car, MAT.sovDark, 0.72, 0.76, 0.08, 0, FRAME_Y + 0.2, -2.15, 28);
+  const turntable = new THREE.Group();
+  turntable.position.z = -2.15;
+  car.add(turntable);
+  racer(turntable, MAT.dark, 0.66, FRAME_Y + 0.25, 30, 0.6);
+  box(car, MAT.sov, 2.6, 0.14, 0.16, 0, FRAME_Y + 0.33, PIV_Z);
+  box(car, MAT.sov, 2.6, 0.14, 0.16, 0, FRAME_Y + 0.33, -1.75);
+  for (const z of [-1.75, PIV_Z]) for (const s of [-1, 1]) box(car, MAT.sov, 0.16, 0.12, 0.6, s * 0.55, FRAME_Y + 0.28, z + (z > -2 ? -0.2 : 0.2));
+  const deck = FRAME_Y + 0.4;
+  for (const s of [-1, 1]) {
+    const x = s * 1.22;
+    strut(car, MAT.sov, 0.1, [x, deck, PIV_Z - 0.1], [x, PIV_Y, PIV_Z]);
+    strut(car, MAT.sov, 0.1, [x, deck, -1.75], [x, PIV_Y - 0.02, PIV_Z + 0.05]);
+    strut(car, MAT.sovDark, 0.06, [x, deck + 0.5, PIV_Z], [x, deck + 0.42, -1.95]);
+    box(car, MAT.sovDark, 0.18, 0.2, 0.2, x, PIV_Y, PIV_Z);
+    // Traversing handwheel on the right, elevating handwheel on the left --
+    // the layer stood on the footboard between them.
+    handwheel(car, MAT.dark, 0.16, x + s * 0.12, deck + 0.75, -2.1, 'x');
+    box(car, MAT.sovDark, 0.12, 0.12, 0.12, x + s * 0.03, deck + 0.75, -2.1);
+  }
+  // The pivot shaft the rails swing on.
+  shaft(car, MAT.bright, 0.05, 2.6, 0, PIV_Y, PIV_Z, 12);
+  // The panoramic sight on its bracket off the left A-frame.
+  strut(car, MAT.sovDark, 0.05, [-1.22, deck + 1.05, -2.05], [-1.42, deck + 1.1, -2.05]);
+  box(car, MAT.dark, 0.14, 0.16, 0.18, -1.48, deck + 1.18, -2.05);
+  cyl(car, MAT.dark, 0.04, 0.05, 0.16, -1.48, deck + 1.34, -2.05, 10);
+  box(car, MAT.glass, 0.06, 0.05, 0.03, -1.48, deck + 1.42, -2.03);
+  // The rest the rails lie on when the launcher is down, just behind the cab.
+  for (const s of [-1, 1]) {
+    strut(car, MAT.sov, 0.08, [s * 0.75, FRAME_Y + 0.15, 0.3], [s * 0.7, 2.3, 0.3]);
+    strut(car, MAT.sovDark, 0.05, [s * 0.75, FRAME_Y + 0.15, -0.05], [s * 0.72, 1.9, 0.28]);
+  }
+  box(car, MAT.sov, 1.6, 0.08, 0.12, 0, 2.31, 0.3);
+  box(car, MAT.rubber, 1.4, 0.04, 0.14, 0, 2.36, 0.3);
+  // The base of each elevating screw, on its trunnion on the cross-member.
+  const SCREW_X = 0.62;
+  const BASE = new THREE.Vector3(0, FRAME_Y + 0.2, -0.6);
+  for (const s of [-1, 1]) {
+    box(car, MAT.sovDark, 0.2, 0.12, 0.2, s * SCREW_X, FRAME_Y + 0.17, -0.6);
+    shaft(car, MAT.dark, 0.04, 0.3, s * SCREW_X, BASE.y, BASE.z, 10);
+  }
+
+  // ---- the rails ----
+  const RAIL = 5.0;
+  const PITCH = 0.27;
+  const arm = new THREE.Group();
+  arm.userData.dynamic = true;
+  arm.userData.weld = true;
+  arm.position.set(0, PIV_Y, PIV_Z);
+  car.add(arm);
+  // The pivot bosses at the back of the pack, round the shaft.
+  for (const s of [-1, 1]) {
+    cyl(arm, MAT.sovDark, 0.1, 0.1, 0.16, s * 1.06, 0, 0, 14).rotation.z = Math.PI / 2;
+  }
+  const railX = [];
+  for (let i = 0; i < 8; i++) {
+    const x = (i - 3.5) * PITCH;
+    railX.push(x);
+    // An I-section: the flanges the studs ride in, and the web between them.
+    box(arm, MAT.sov, 0.075, 0.012, RAIL, x, 0.061, RAIL / 2);
+    box(arm, MAT.sov, 0.075, 0.012, RAIL, x, -0.061, RAIL / 2);
+    box(arm, MAT.sovDark, 0.012, 0.11, RAIL, x, 0, RAIL / 2);
+    // The catches at the rear that hold a rocket on its rail until it fires,
+    // and the igniter contact under them.
+    for (const s of [-1, 1]) {
+      box(arm, MAT.dark, 0.05, 0.03, 0.06, x, s * 0.082, 0.28);
+      box(arm, MAT.brass, 0.02, 0.02, 0.03, x + 0.03, s * 0.075, 0.2);
+    }
+  }
+  // The spars through the webs that tie the rails into one pack, the girders
+  // down each side, and the lattice between their chords.
+  for (const z of [0.1, 2.9, 4.9]) {
+    shaft(arm, MAT.sovDark, 0.028, 2.3, 0, 0, z, 10);
+  }
+  for (const s of [-1, 1]) {
+    const x = s * 1.1;
+    box(arm, MAT.sov, 0.06, 0.06, RAIL, x, 0.14, RAIL / 2);
+    box(arm, MAT.sov, 0.06, 0.06, RAIL, x, -0.14, RAIL / 2);
+    for (let k = 0; k < 10; k++) {
+      const z0 = k * 0.5, z1 = z0 + 0.5;
+      strut(arm, MAT.sovDark, 0.035, [x, k % 2 ? 0.14 : -0.14, z0], [x, k % 2 ? -0.14 : 0.14, z1]);
+    }
+    box(arm, MAT.sov, 0.06, 0.34, 0.06, x, 0, 0.02);
+    box(arm, MAT.sov, 0.06, 0.34, 0.06, x, 0, RAIL - 0.03);
+    box(arm, MAT.sovDark, 0.02, 0.3, 0.02, x, 0, 0.02);
+  }
+  // Under the pack: the beam the screws lift it by, and the one that lies on
+  // the rest in travel.
+  const LIFT_Z = 1.9;
+  box(arm, MAT.sov, 2.3, 0.08, 0.12, 0, -0.32, LIFT_Z);
+  box(arm, MAT.sov, 2.3, 0.08, 0.12, 0, -0.14, 2.9);
+  for (const x of [-1.1, -SCREW_X, SCREW_X, 1.1]) {
+    box(arm, MAT.sovDark, 0.05, 0.22, 0.08, x, -0.2, LIFT_Z);
+  }
+  for (const x of railX) box(arm, MAT.sovDark, 0.03, 0.08, 0.04, x, -0.1, 2.9);
+
+  // ---- the rockets ----
+  // Sixteen of them, one on top of each rail and one under it, tails at the
+  // rear catches. Each is its own part, because each one leaves on its own.
+  const rockets = [];
+  const ZC = 0.35 + M13.length / 2;
+  const Y = 0.067 + 0.022 + M13.radius;
+  for (let i = 0; i < 8; i++) {
+    for (const top of [true, false]) {
+      const studs = top ? -1 : 1;
+      const node = buildRocket(studs);
+      node.userData.dynamic = true;
+      node.userData.weld = true;
+      node.position.set(railX[i], top ? Y : -Y, ZC);
+      arm.add(node);
+      rockets.push({ node, home: node.position.clone(), studs, rail: i, top });
+    }
+  }
+  // The order they go in: from the outside rails inward, alternating sides,
+  // top before bottom -- so the pack never takes all its recoil on one side.
+  const order = [];
+  const seq = [0, 7, 1, 6, 2, 5, 3, 4];
+  for (const top of [true, false]) {
+    for (const r of seq) order.push(rockets.findIndex((q) => q.rail === r && q.top === top));
+  }
+
+  // ---- the screws ----
+  // Two telescopic screws from the cross-member up to the lifting beam: an
+  // outer barrel on its trunnion and the screw run out of it. Re-laid every
+  // time the rails move, so the two ends stay where they are pinned.
+  const screws = [];
+  for (const s of [-1, 1]) {
+    const outer = new THREE.Group();
+    outer.userData.dynamic = true;
+    car.add(outer);
+    cyl(outer, MAT.sovDark, 0.065, 0.07, 0.95, 0, 0.475, 0, 14);
+    cyl(outer, MAT.dark, 0.08, 0.08, 0.08, 0, 0.92, 0, 14);
+    const inner = new THREE.Group();
+    inner.userData.dynamic = true;
+    car.add(inner);
+    cyl(inner, MAT.bright, 0.035, 0.035, 1.05, 0, 0.525, 0, 12);
+    box(inner, MAT.sovDark, 0.1, 0.08, 0.1, 0, 0.02, 0);
+    screws.push({ outer, inner, x: s * SCREW_X });
+  }
+
+  const UP = new THREE.Vector3(0, 1, 0);
+  const a = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const launcher = {
+    root: car,
+    arm,
+    shutter,
+    rockets,
+    order,
+    // Rail elevation on the march and to fire, in radians.
+    travel: 0.045,
+    fire: 0.55,
+    rail: RAIL,
+    /** How far a rocket has to run from where it sits to the end of its rail. */
+    railAhead: (r) => RAIL - r.home.z + M13.length * 0.2,
+    /** Lay the rails at `elev` and the shutter `shut` of the way down. */
+    pose(elev, shut = 0) {
+      arm.rotation.x = -elev;
+      shutter.rotation.x = -1.45 * (1 - shut) + 0.1 * shut;
+      arm.updateMatrix();
+      for (const sc of screws) {
+        // Where the lifting beam is now, in the lorry's frame.
+        a.set(sc.x, -0.36, LIFT_Z).applyMatrix4(arm.matrix);
+        const base = BASE.clone().setX(sc.x);
+        d.copy(a).sub(base).normalize();
+        sc.outer.position.copy(base);
+        sc.outer.quaternion.setFromUnitVectors(UP, d);
+        sc.inner.position.copy(a);
+        sc.inner.quaternion.setFromUnitVectors(UP, d.negate());
+      }
+    },
+  };
+  launcher.pose(launcher.travel, 0);
+  g.userData.launcher = launcher;
+}
+
 const BUILDERS = {
   flak88: buildFlak88,
   merville: buildMerville,
   longues: buildLongues,
+  katyusha: buildKatyusha,
   oscarsborg: buildOscarsborg,
   drum: buildDrum,
   todt: buildTodt,
@@ -1347,6 +1797,15 @@ export function buildBattery(id) {
   // frame, so it goes on training and elevating exactly as it did and costs
   // two draw calls instead of a hundred. See mergeMoving.
   mergeMoving(group);
+  // And inside the parts that ask for it: a lorry that trains as a whole, and
+  // its rails, shutters and rockets, each welded in its own frame and the
+  // innermost first, so each goes on moving as it did and costs a few draw
+  // calls instead of a few hundred.
+  const welds = [];
+  group.traverse((o) => { if (o.userData.weld) welds.push(o); });
+  const depth = (o) => { let k = 0; for (let p = o; p; p = p.parent) k++; return k; };
+  welds.sort((p, q) => depth(q) - depth(p));
+  for (const w of welds) mergeStatic(w);
   group.updateMatrixWorld(true);
   let bb = new THREE.Box3().setFromObject(group);
   // Shift the whole gun so its middle is over the origin. The camera orbits
@@ -1381,6 +1840,8 @@ export function buildBattery(id) {
     turn: group.userData.turn || [],
     // The recoiling masses, for the scene to fire and to run back.
     guns: group.userData.guns,
+    // A rocket launcher's rails, rockets and shutters, or null.
+    launcher: group.userData.launcher || null,
     // The gun's real extent now that there is no concrete round it to inflate
     // the box: whichever of the declared span and the measured one is larger,
     // so a barrel that runs out further than expected is still in the frame.

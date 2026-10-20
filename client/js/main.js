@@ -937,6 +937,8 @@ function openGuns(side) {
     guns.resize(window.innerWidth, window.innerHeight);
   }
   guns.attach(document.getElementById('battery-grab'));
+  // A handle on the scene, the same as the bomber yard's.
+  window.__guns = guns;
   show('guns');
   renderGuns();
 }

@@ -584,7 +584,7 @@ export function mountingSheet(b) {
   rows.push(['Weight', b.weight >= 1000
     ? `${num(Math.round(b.weight))} t`
     : `${b.weight >= 10 ? Math.round(b.weight) : b.weight} t`]);
-  rows.push([b.armour >= 100 ? 'Turret armour' : 'Shield',
+  rows.push([b.armour >= 100 ? 'Turret armour' : b.rocket ? 'Cab shutters' : 'Shield',
     b.armour ? `${num(b.armour)} mm` : 'None']);
   rows.push(['Crew', `${num(b.crew)} men`]);
   return rows;
@@ -592,6 +592,16 @@ export function mountingSheet(b) {
 
 /** The gun: how big, how often, how far. */
 export function ordnanceSheet(b) {
+  // A launcher has rails rather than a barrel, and fires its load all at once.
+  if (b.rocket) {
+    return [
+      ['Rocket', `${b.bore} M-13`],
+      ['Rails', `8 · ${b.barrels} rockets`],
+      ['Salvo', `${b.barrels} in ${interval(b.salvo || 8)}`],
+      ['Reload', interval(b.reload)],
+      ['Range', distance(b.range)],
+    ];
+  }
   const rows = [
     ['Calibre', `${b.bore} L/${b.calibers}`],
     ['Barrels', b.barrels === 1 ? 'Single' : b.barrels === 2 ? 'Twin' : `${b.barrels}`],
