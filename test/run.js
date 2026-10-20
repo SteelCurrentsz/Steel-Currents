@@ -18412,8 +18412,8 @@ check('the pilot gets out when she hits the sea, and not before', () => {
   // stopped carrying his flight, which is a different moment from the one he
   // lives through. He rides her down now.
   const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
-  const step = src.slice(src.indexOf('stepFlight(dt) {'),
-    src.indexOf('stepFlight(dt) {') + 4200);
+  const at = src.indexOf('  stepFlight(dt');
+  const step = src.slice(at, at + 4200);
   assert.ok(/if \(!pl\) \{\s*\n\s*if \(!f\.orphan\)/.test(step),
     'the cockpit is still abandoned the moment the flight goes off the wire');
   assert.ok(/f\.orphan = true/.test(step), 'there is no going-down state');
