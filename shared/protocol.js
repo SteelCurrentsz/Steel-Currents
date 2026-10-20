@@ -279,7 +279,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   const visibleOwners = new Set(ships.map((s) => s.i));
   const shells = [];
   for (const sh of state.shells) {
-    if (sh.team !== team && !visibleOwners.has(sh.owner)) continue;
+    // A gun ashore is on both sides' charts from the start (see `batteries`
+    // below), so what it fires is seen like anything else in the air.
+    if (sh.team !== team && !sh.fromBattery && !visibleOwners.has(sh.owner)) continue;
     // `o` is the ship that fired her. Without it there is no way to tell one
     // ship's salvo from another's in the air, and the shell camera has to
     // follow the rounds from the ship you are actually watching.

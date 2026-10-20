@@ -6085,7 +6085,9 @@ export class Battle {
       if (L && g.al) {
         const up = g.fs ? 1 : 0;
         const want = up ? L.fire : L.travel;
-        const step = 0.2 * dt;
+        // Hurried if the ripple has started before they are up: a client
+        // that missed frames must not show rockets leaving lowered rails.
+        const step = (g.fs === 2 ? 0.8 : 0.2) * dt;
         view.elev += Math.max(-step, Math.min(step, want - view.elev));
         view.shut += Math.max(-dt, Math.min(dt, up - view.shut));
         L.pose(view.elev, view.shut);
