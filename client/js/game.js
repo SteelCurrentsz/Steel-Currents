@@ -5250,7 +5250,6 @@ export class Battle {
     // are on the training gear.
     if (this.gun || this.flight) return;
     if (!dx && !dy) return;
-    this.director?.tookCamera();
     const here = this.focusPoint();
     // Walking the view off a ship is how you let go of her: the camera starts
     // from where it already was, so nothing jumps, and from then on it is
@@ -5268,6 +5267,8 @@ export class Battle {
       this.lookAt(null);
     }
     this.panSlip = 0;
+    // A walk, not a twitch: the director has taken the camera off the script.
+    this.director?.tookCamera();
     if (!this.roam) this.roam = { x: here.x, z: here.z };
     // In the camera's own frame, and scaled by how far off it is standing:
     // panning a mile out has to move a mile, and panning alongside a ship has
