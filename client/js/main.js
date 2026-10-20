@@ -6,7 +6,7 @@ import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
-import { loadShips, shipReady } from './render/ships.js';
+import { loadShips, shipReady, preloadShips } from './render/ships.js';
 import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
@@ -267,6 +267,24 @@ renderer.toneMappingExposure = 1.18;
 // it is Multiplayer Battle, which is not in the game yet; when it is, it gets
 // a socket of its own (net.js) for that mode alone.
 const net = new LocalNet();
+
+/**
+ * The classes a battle about to be joined can have in it. A custom battle
+ * names every hull on both sides, so only those are waited for -- not the
+ * forty megabytes of every ship in the game. A battle that fills itself with
+ * bots of no particular class could have any of them.
+ */
+function fleetOf(m) {
+  if (m.t === 'custom') {
+    const allies = Array.isArray(m.allyClasses) ? m.allyClasses : null;
+    const enemies = Array.isArray(m.enemyClasses) ? m.enemyClasses : null;
+    const named = allies && enemies
+      && (m.allies == null || m.allies <= allies.length)
+      && (m.enemies == null || m.enemies <= enemies.length);
+    if (named) return [...new Set([m.classId, ...allies, ...enemies].filter(Boolean))];
+  }
+  return SHIP_ORDER;
+}
 // Every battle a captain starts carries his friendly fire setting with it.
 // And none is joined until every ship that could be in it has been fetched
 // (see loadShips): the room starts the moment it is joined, and a fleet that
@@ -276,9 +294,10 @@ const net = new LocalNet();
   net.send = (m) => {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
     const go = () => send({ ...m, ff: getSettings().friendlyFire === true });
-    if (SHIP_ORDER.every(shipReady)) return go();
+    const need = fleetOf(m);
+    if (need.every(shipReady)) return go();
     boot.show('Bringing up the fleet');
-    loadShips(undefined, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+    loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
       .then(go, (e) => {
         console.error('Steel Currents: the fleet would not load', e);
         boot.done();
@@ -1397,7 +1416,7 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
       // The sculpted ships, fetched behind the title screen so the shipyard
       // and the first battle find them already here. A failure is left for
       // whichever of those asks next, which tries again.
-      setTimeout(() => loadShips().catch(() => {}), 300);
+      setTimeout(() => preloadShips(), 300);
     }));
   } catch (e) {
     console.error('Steel Currents: the harbour would not build', e);

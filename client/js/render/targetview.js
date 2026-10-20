@@ -9,7 +9,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { BoardRenderer } from './boardgl.js';
-import { buildShip } from './ships.js';
+import { buildShip, loadShips, shipReady } from './ships.js';
 import { MARK_KIND } from './damageboard.js';
 
 // Her models, one a class, kept across the panel being raised and put away:
@@ -105,6 +105,8 @@ export class TargetingView {
   /** Show this class: built once, and kept for the next time she is asked for. */
   build(classId) {
     if (classId === this.classId) return;
+    // Not fetched yet: asked for, and shown on a later frame once it is in.
+    if (!shipReady(classId)) { loadShips([classId]).catch(() => {}); return; }
     if (this.shown) this.scene.remove(this.shown.group);
     let m = this.models.get(classId);
     if (!m) {

@@ -107,9 +107,20 @@ function berth(world, team, index, at, cls) {
   // of metres off an island's beach is not refused by a hundred-and-fifty-metre
   // grid cell.
   const clear = shipClearance(cls);
-  if (!islandAt(world, x, z, clear)) return { x, z, heading };
-  const off = nearestWater(world, x, z, clear, half);
+  if (afloatAt(world, cls, x, z, heading)) return { x, z, heading };
+  const off = nearestWater(world, x, z, clear, half, 1500, cls, heading);
   return off ? { x: off.x, z: off.z, heading } : line;
+}
+
+/**
+ * Whether a hull of this class lying here on this heading is afloat: clear of
+ * the shore by her own beam, and with water under the whole of her keel. A
+ * berth on an island's shelf that a destroyer floats on puts a battleship on
+ * the bottom before the battle has begun.
+ */
+export function afloatAt(world, cls, x, z, heading = 0) {
+  if (islandAt(world, x, z, shipClearance(cls))) return false;
+  return keelContact(world, { depth: 0 }, cls, x, z, heading).pen <= 0;
 }
 
 /**
@@ -121,14 +132,16 @@ function berth(world, team, index, at, cls) {
  * world grows, and the whole search is a few hundred cheap rim tests -- it
  * runs once per hull at the moment she is created and never again.
  */
-function nearestWater(world, x, z, clear, half, reach = 1500) {
+function nearestWater(world, x, z, clear, half, reach = 1500, cls = null, heading = 0) {
   const step = Math.max(30, clear * 0.9);
   for (let r = step; r <= reach; r += step) {
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * Math.PI * 2;
       const px = clamp(x + Math.sin(a) * r, -half, half);
       const pz = clamp(z + Math.cos(a) * r, -half, half);
-      if (!islandAt(world, px, pz, clear)) return { x: px, z: pz };
+      if (cls ? afloatAt(world, cls, px, pz, heading) : !islandAt(world, px, pz, clear)) {
+        return { x: px, z: pz };
+      }
     }
   }
   return null;
@@ -856,6 +869,10 @@ export function keelContact(world, ship, cls, x, z, heading) {
   const sz = z + cs * half * SCREWS_AT;
   const lift = out.max * (out.at > 0 ? 0.25 : 0.7);
   out.screws = Math.min(T, -groundHeight(world, sx, sz)) - lift;
+  // And her stern itself driven hard into the bottom: the screws and the
+  // rudder are under it, and they are in the sand with it, however deep the
+  // water is a few metres further forward.
+  if (out.at <= -0.6 && out.max >= T * 0.45) out.screws = Math.min(out.screws, 0);
   return out;
 }
 
@@ -893,12 +910,14 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     return false;
   }
 
-  // Her screws. Too little water over them and she has nothing to drive with,
-  // ahead or astern: she is stranded, and she stays stranded.
-  if (!ship.stranded && now.screws < T * 0.3) {
+  // Her screws, where she actually ends up. Too little water over them and
+  // she has nothing to drive with, ahead or astern: she is stranded, and she
+  // stays stranded.
+  const strand = (c) => {
+    if (ship.stranded || c.pen <= 0 || c.screws >= T * 0.3) return;
     ship.stranded = true;
     state.events.push({ e: 'stranded', i: ship.id, team: ship.team, x: r(ship.x), z: r(ship.z) });
-  }
+  };
 
   const deeper = now.pen - was.pen;
   if (deeper <= 1e-4) {
@@ -907,6 +926,7 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     ship.aground = Math.min(1, now.max / T);
     ship.groundAt = now.at;
     groundPose(ship, cls, now);
+    strand(now);
     ship.speed *= Math.exp(-dt * 0.8 * Math.min(1, now.max / T));
     return false;
   }
@@ -935,6 +955,10 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   // not held a hand's breadth off it.
   if (was.pen > 0 && now.max > T * 0.55) {
     groundPose(ship, cls, was);
+    // Held where she is: as hard on as she is going to get.
+    ship.aground = Math.min(1, was.max / T);
+    ship.groundAt = was.at;
+    strand(was);
     ship.speed = 0;
     ship.yawRate = 0;
     ship.heading = h0;
@@ -942,9 +966,10 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     return true;
   }
   groundPose(ship, cls, now);
+  strand(now);
   // Ploughing on up it: every metre further is more of her bottom torn.
   if (was.pen > 0) {
-    damageShip(state, ship, null, ship.maxHp * 0.02 * (deeper / T), 'grounding', where(now.at));
+    damageShip(state, ship, null, ship.maxHp * 0.007 * (deeper / T), 'grounding', where(now.at));
   }
   ship.speed *= was.pen > 0 ? Math.exp(-deeper / (T * 0.06)) : 0.35;
   return false;

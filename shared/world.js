@@ -822,7 +822,9 @@ function baseGround(world, x, z) {
     if (d > R && d < R * 1.9) near = Math.max(near, 1 - (d - R) / (R * 0.9));
   }
   if (top > 0) return top;
-  if (near > 0) return -40 + 34 * near * near;
+  // Shelving right up to the waterline, rather than ending six metres down
+  // in a step: a beach is a slope a ship can run up, not a kerb.
+  if (near > 0) return -40 + 40 * near * near;
 
   const d = shoreDistance(world, x, z);
   // Offshore: the beach runs on under the water for a little way rather than

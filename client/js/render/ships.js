@@ -78,6 +78,21 @@ export function loadShips(classIds = Object.keys(SCULPTED), onEach = null) {
   }));
 }
 
+/**
+ * Fetch every sculpted ship in the background, one at a time.
+ *
+ * All of them at once was forty megabytes asked for in a single breath, and
+ * the two or three a battle actually needed came down at a thirteenth of the
+ * line each, behind the ten it did not. One after another, a battle's own
+ * ships (asked for by loadShips the moment it is chosen) share the line with
+ * at most one other.
+ */
+export async function preloadShips() {
+  for (const k of Object.keys(SCULPTED)) {
+    try { await loadShips([k]); } catch { /* tried again when it is wanted */ }
+  }
+}
+
 const PALETTE = {
   hull: 0x8e969d,
   hullDark: 0x767e85,

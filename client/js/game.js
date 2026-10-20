@@ -4,6 +4,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
+import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { Hud, readTarget, THROTTLE_MAX } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
@@ -5842,6 +5843,11 @@ export class Battle {
     for (const s of a.ships) {
       seen.add(s.i);
       const prev = b ? b.ships.find((x) => x.i === s.i) : null;
+      // A hull whose model has not come down yet -- a ship that joined the
+      // battle after it began, of a class nobody had asked for -- is fetched
+      // now and drawn from the frame it lands on, rather than stopping the
+      // picture until it does.
+      if (!shipReady(s.c)) { loadShips([s.c]).catch(() => {}); continue; }
       const view = this.scene.getShipView(s.i, s.c, s.tm, s.i === this.shipId);
       const isSelf = s.i === this.shipId;
       const pose = poseBetween(s, prev, t, ahead);

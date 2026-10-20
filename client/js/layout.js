@@ -12,7 +12,7 @@
 import {
   generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF, isOpenSea, CHART_X,
 } from '../../shared/world.js';
-import { shipClearance } from '../../shared/sim.js';
+import { shipClearance, afloatAt } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
@@ -261,7 +261,7 @@ export class LayoutMap {
       const sign = t.team === 0 ? -1 : 1;
       const wantX = ((t.index % 8) - 3.5) * spacing;
       const wantZ = sign * back - sign * Math.floor(t.index / 8) * Math.max(500, spacing * 0.6);
-      const berth = this.float(wantX, wantZ, t.clearance);
+      const berth = this.float(wantX, wantZ, t.clearance, SHIP_CLASSES[t.classId], t.team === 0 ? 0 : Math.PI);
       t.x = berth.x;
       t.z = berth.z;
       t.heading = t.team === 0 ? 0 : Math.PI;
@@ -330,17 +330,21 @@ export class LayoutMap {
    * where we wanted to put her. Walked outward in rings, the way the
    * simulation walks its own spawn line off a headland.
    */
-  float(x, z, pad) {
+  float(x, z, pad, cls = null, heading = 0) {
     const edge = this.half - 200;
     const cx = clamp(x, -edge, edge);
     const cz = clamp(z, -edge, edge);
-    if (!islandAt(this.world, cx, cz, pad)) return { x: cx, z: cz };
+    // Afloat, keel and all, when the hull is known: the same test the server
+    // puts her berth to, so a ship the chart lays out is never aground on it.
+    const ok = (px, pz) => (cls ? afloatAt(this.world, cls, px, pz, heading)
+      : !islandAt(this.world, px, pz, pad));
+    if (ok(cx, cz)) return { x: cx, z: cz };
     for (let r = pad; r <= this.half; r += pad) {
       for (let a = 0; a < 16; a++) {
         const th = (a / 16) * Math.PI * 2;
         const nx = clamp(cx + Math.cos(th) * r, -edge, edge);
         const nz = clamp(cz + Math.sin(th) * r, -edge, edge);
-        if (!islandAt(this.world, nx, nz, pad)) return { x: nx, z: nz };
+        if (ok(nx, nz)) return { x: nx, z: nz };
       }
     }
     return { x: cx, z: cz };
@@ -474,7 +478,12 @@ export class LayoutMap {
       // Sea room for her own length, so she is not sitting on a shoal. Islands
       // and the real shore are both land here -- a hull does not care which
       // kind of ground she is on when she is on it.
-      t.ok = inside && !islandAt(this.world, t.x, t.z, t.clearance);
+      // And water under her whole keel: a berth on an island's shelf that a
+      // destroyer floats on is the bottom for a battleship.
+      const cls = SHIP_CLASSES[t.classId];
+      t.ok = inside && (cls ? afloatAt(this.world, cls, t.x, t.z, t.heading)
+        : !islandAt(this.world, t.x, t.z, t.clearance));
+      t.shoal = inside && !t.ok && !islandAt(this.world, t.x, t.z, t.clearance);
     } else if (t.kind === 'air') {
       // Nothing under a bomber is wrong: she is four thousand feet over it.
       // All the chart asks of her is that she starts on the battlefield.
@@ -490,7 +499,11 @@ export class LayoutMap {
     const bad = this.tokens.filter((t) => !t.ok);
     if (!bad.length) return '';
     const ship = bad.find((t) => t.kind === 'ship');
-    if (ship) return `${ship.name} is aground. Ships go on the water.`;
+    if (ship) {
+      return ship.shoal
+        ? `${ship.name} is in water too shallow for her. Move her into deeper water.`
+        : `${ship.name} is aground. Ships go on the water.`;
+    }
     const air = bad.find((t) => t.kind === 'air');
     if (air) return `${air.name} is off the battlefield. Bring her inside it.`;
     return `${bad[0].name} has no ground under it. Batteries go ashore.`;

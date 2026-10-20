@@ -25,7 +25,7 @@ import {
 import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
-  siteBattery, batteryPad,
+  siteBattery, batteryPad, afloatAt,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -4399,17 +4399,44 @@ check('a ship run onto an island goes aground on it, bow first, and backs off it
 });
 
 check('backed onto the beach with her screws out of the water, she stays there', () => {
-  const { st, ship } = offIsland('iowa', true);
-  ship.notch = 0;
-  let stranded = false;
-  for (let i = 0; i < 300 / DT; i++) for (const e of step(st, DT)) if (e.e === 'stranded') stranded = true;
-  assert.ok(stranded && ship.stranded, 'stern onto the beach and her screws are still in the water');
-  const at = { x: ship.x, z: ship.z };
-  for (const notch of [5, 0, 5]) {
-    ship.notch = notch;
-    for (let i = 0; i < 60 / DT; i++) step(st, DT);
+  for (const classId of ['fletcher', 'cleveland', 'iowa']) {
+    const { st, ship } = offIsland(classId, true);
+    ship.notch = 0;
+    let stranded = false;
+    for (let i = 0; i < 300 / DT; i++) for (const e of step(st, DT)) if (e.e === 'stranded') stranded = true;
+    assert.ok(stranded && ship.stranded, `${classId}: stern onto the beach and her screws are still in the water`);
+    const at = { x: ship.x, z: ship.z };
+    for (const notch of [5, 0, 5]) {
+      ship.notch = notch;
+      for (let i = 0; i < 60 / DT; i++) step(st, DT);
+    }
+    assert.ok(Math.hypot(ship.x - at.x, ship.z - at.z) < 2,
+      `${classId}: a ship with her screws out of the water drove herself off`);
   }
-  assert.ok(Math.hypot(ship.x - at.x, ship.z - at.z) < 2, 'a ship with her screws out of the water drove herself off');
+});
+
+check('a berth in water too shallow for her is moved to water she floats in', () => {
+  // Just off an island's beach a destroyer floats and a battleship is on the
+  // bottom. The chart and the server put both to the same keel test.
+  const w = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
+  const R = islandRadius(isle, Math.PI);
+  let at = null;
+  for (let d = R + 5; d < R * 1.6 && !at; d += 5) {
+    const x = isle.x, z = isle.z - d;
+    if (afloatAt(w, SHIP_CLASSES.fletcher, x, z, Math.PI / 2)
+      && !afloatAt(w, SHIP_CLASSES.iowa, x, z, Math.PI / 2)) at = { x, z, h: Math.PI / 2 };
+  }
+  assert.ok(at, 'no water off the island that a destroyer floats in and a battleship does not');
+  const st = createState(w, { mode: 'deathmatch' });
+  const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 0, at });
+  const bb = addShip(st, { name: 'BB', classId: 'iowa', team: 0, at });
+  assert.ok(Math.hypot(dd.x - at.x, dd.z - at.z) < 1, 'the destroyer was moved off a berth she floats at');
+  assert.ok(Math.hypot(bb.x - at.x, bb.z - at.z) > 1, 'the battleship was left on the bottom');
+  assert.ok(afloatAt(w, SHIP_CLASSES.iowa, bb.x, bb.z, bb.heading), 'and was not moved somewhere she floats');
+  // And she does not start the battle aground.
+  for (let i = 0; i < 30; i++) step(st, DT);
+  assert.ok(!bb.aground, 'the battleship began the battle on the bottom');
 });
 
 check('the harder she goes aground the more of her bottom it takes', () => {
@@ -4777,25 +4804,27 @@ check('a hull can be berthed right in under the shore', () => {
   const isle = [...w.islands].sort((a, b) => b.r - a.r)[0];
   const state = createState(w, { mode: 'deathmatch' });
 
-  // A cable's length off the beach, due east of the island's middle.
+  // As close in off the beach, due east of the island's middle, as she has
+  // water under her keel -- which the beach shelves away to, so a destroyer
+  // can lie closer in than a battleship.
   const R = islandRadius(isle, Math.PI / 2);
+  const closest = {};
   for (const [id, name] of [['fletcher', 'a destroyer'], ['iowa', 'a battleship']]) {
     const cls = SHIP_CLASSES[id];
-    const off = shipClearance(cls) + 12;
-    assert.ok(off < 60, `${name} should need only a few tens of metres, not ${off}`);
+    let off = shipClearance(cls);
+    while (!afloatAt(w, cls, isle.x + R + off, isle.z, 0) && off < 600) off += 5;
+    assert.ok(off < 400, `${name} needs ${off}m off the beach to float`);
+    closest[id] = off;
     const x = isle.x + R + off;
     const z = isle.z;
-    assert.ok(!islandAt(w, x, z, shipClearance(cls)), `${name} is afloat there`);
     const ship = addShip(state, {
       name, classId: id, team: 0, index: 0, at: { x, z, h: 0 },
     });
     assert.equal(ship.x, x, `${name} should be left where she was berthed`);
     assert.equal(ship.z, z);
-    // Which is genuinely close in: nearer than the old clearance would allow.
-    assert.ok(Math.hypot(ship.x - isle.x, ship.z - isle.z) - R < 70,
-      `${name} should be right in under the shore`);
     state.ships.length = 0;
   }
+  assert.ok(closest.fletcher < closest.iowa, 'a destroyer cannot lie any closer in than a battleship');
 
   // A berth on the island itself is still refused -- but she is put in the
   // water off it, alongside the plan she belongs to, not back on the spawn
