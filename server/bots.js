@@ -25,7 +25,7 @@ import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
-  useSmoke, canFire, steerToward, sonarContact, assignedReady,
+  useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -224,6 +224,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     // off to look on their own.
     if (clearing) { /* backing clear of a ship she is fouled on */ } else if (conned) layAhead(ship);
     else if (!keepStation(state, ship, brain, staff, dt)) patrol(state, ship, brain, dt);
+    if (!conned && !clearing) avoidCollision(state, ship, cls, brain);
     shellShore(state, ship, brain, cls);
     fireAssigned(state, ship, brain, cls, 'guns');
     fireAssigned(state, ship, brain, cls, 'torps');
@@ -284,6 +285,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
       }
     }
   }
+
+  // Whatever he wants of his helm, he does not want it into another ship.
+  if (!conned && !clearing) avoidCollision(state, ship, cls, brain);
 
   // Destroyers duck into smoke when caught in the open.
   if (cls.smokeCharges && ship.smoke > 0 && ship.smokeActive <= 0 && ship.hp < ship.maxHp * 0.65 && d < cls.gun.range * 0.6) {
@@ -405,6 +409,78 @@ function keepStation(state, ship, brain, staff, dt) {
   else ship.notch = gn;
   void brain;
   void dt;
+  return true;
+}
+
+/**
+ * Keeping clear of other ships.
+ *
+ * A captain does not steer for his station, his target or his torpedo run
+ * with his eyes shut. Every ship within a couple of miles is watched for where
+ * she will be against where he will be -- the closest the two will come on
+ * their present courses and speeds, and how soon -- and one that is going to
+ * pass closer than the two hulls and a margin can stand is acted on: the wheel
+ * put over away from where she will be, harder the closer and sooner it is,
+ * and the engines eased if she is ahead and close. Head on, both go to
+ * starboard and pass port to port, which is the rule of the road and the
+ * reason two ships doing this never turn into each other.
+ *
+ * Friend and enemy alike, and a wreck too: thirty thousand tons going down is
+ * as hard as thirty thousand tons fighting. A boat down under everybody's keel
+ * is not in the way. Returns whether he altered for anybody.
+ */
+const LOOK_AHEAD = 70;
+const WATCH_RANGE = 3200;
+function avoidCollision(state, ship, cls, brain) {
+  const h = ship.heading;
+  const v = Math.max(0, ship.speed || 0);
+  const vx = Math.sin(h) * v;
+  const vz = Math.cos(h) * v;
+  let worst = null;
+  let worstUrgency = 0;
+  for (const o of state.ships) {
+    if (o === ship) continue;
+    if (!o.alive && !(o.sinking && !o.sinking.under)) continue;
+    const ocls = getClass(o.classId);
+    if ((ocls.dive && submerged(o)) || (cls.dive && submerged(ship))) continue;
+    const dx = o.x - ship.x;
+    const dz = o.z - ship.z;
+    const d = Math.hypot(dx, dz);
+    if (d > WATCH_RANGE) continue;
+    const ov = o.alive ? Math.max(0, o.speed || 0) : 0;
+    const rvx = Math.sin(o.heading) * ov - vx;
+    const rvz = Math.cos(o.heading) * ov - vz;
+    const rv2 = rvx * rvx + rvz * rvz;
+    const tc = rv2 > 1e-3 ? clamp(-(dx * rvx + dz * rvz) / rv2, 0, LOOK_AHEAD) : 0;
+    const cx = dx + rvx * tc;
+    const cz = dz + rvz * tc;
+    const cpa = Math.hypot(cx, cz);
+    // Two hulls end to end is the worst case of how they can meet, and room
+    // to spare on top of it.
+    const safe = (cls.hull.length + ocls.hull.length) * 0.5 + 160;
+    if (cpa >= safe) continue;
+    const urgency = (1 - cpa / safe) + (1 - tc / LOOK_AHEAD);
+    if (urgency > worstUrgency) {
+      worstUrgency = urgency;
+      worst = { o, d, cx, cz, cpa, tc, safe, closing: dx * rvx + dz * rvz < 0 };
+    }
+  }
+  brain.avoiding = worst ? worst.o.id : 0;
+  if (!worst) return false;
+  // Which side she will be on when she is closest, and away from it. Dead
+  // ahead or dead astern, starboard.
+  const at = angleDelta(h, Math.atan2(worst.cx, worst.cz));
+  const side = Math.abs(at) < 0.12 || Math.abs(at) > Math.PI - 0.12 ? 1 : -Math.sign(at);
+  const turn = clamp(0.35 + worstUrgency * 0.5, 0.35, 1.3);
+  steerToward(state, ship, wrapAngle(h + side * turn));
+  // And off the engines when she is ahead, close and being closed: way is
+  // what does the damage. Not all the way off, though, and not for a ship that
+  // is already opening: a ship with no way on her cannot steer, and two of
+  // them stopped bow to bow wait for each other for the rest of the action.
+  const ahead = Math.abs(angleDelta(h, headingTo(ship.x, ship.z, worst.o.x, worst.o.z))) < 1.0;
+  if (ahead && worst.closing && worst.d < worst.safe * 3) {
+    ship.notch = Math.min(ship.notch, worst.d < worst.safe * 1.6 ? 2 : 3);
+  }
   return true;
 }
 

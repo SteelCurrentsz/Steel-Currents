@@ -18497,6 +18497,35 @@ check('two fleets close the range and neither turns out of the action', () => {
     `somebody put the enemy ${Math.round(worst * 180 / Math.PI)} degrees off her bow`);
 });
 
+check('ships keep clear of each other: head on, crossing and overtaking', () => {
+  const world = generateWorld(7312, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const brains = new Map();
+  const mk = (team, classId, x, z, h, notch = 5) => {
+    const s = addShip(st, { name: `${classId}${brains.size}`, classId, team, index: brains.size });
+    s.x = x; s.z = z; s.heading = h; s.isBot = true; s.notch = notch;
+    s.speed = 12;
+    brains.set(s.id, createBotBrain(0.85));
+    return s;
+  };
+  // Two pairs of the same side steaming straight at each other, nothing to
+  // shoot at to distract them, and one crossing the bows of another.
+  mk(0, 'iowa', 0, -2500, 0);
+  mk(0, 'yamato', 30, 2500, Math.PI);
+  mk(0, 'cleveland', -3000, 6000, Math.PI / 2);
+  mk(0, 'hipper', 0, 9000, Math.PI);
+  // And a fast destroyer coming up astern of a slow one on the same course.
+  mk(0, 'fletcher', 8000, -3000, 0);
+  mk(0, 'takao', 8000, -1500, 0, 2);
+  let touched = 0;
+  for (let i = 0; i < 30 * 240; i++) {
+    for (const s of st.ships) if (s.alive) stepBot(st, s, brains.get(s.id), DT);
+    for (const e of step(st, DT)) if (e.e === 'collide') touched++;
+  }
+  assert.equal(touched, 0, `ships ran into each other ${touched} times`);
+});
+
 check('a side with a line in front of it picks an end and splits to take it', () => {
   const world = generateWorld(8804, 'open_ocean');
   world.islands = [];
