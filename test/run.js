@@ -10761,10 +10761,14 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     const light = rows.filter((w) => w.role === 'aa');
     assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
-      const row = rows.find((w) => w.caliber === t.caliber);
-      assert.ok(row, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
-      assert.equal(row.barrels, t.barrels,
-        `${cls.id} ${t.label}: ${row.barrels} mounted against ${t.barrels} on her sheet`);
+      // A calibre she carries in more than one kind of mounting -- the
+      // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
+      // and her sheet counts the barrels of all of them.
+      const of = rows.filter((w) => w.caliber === t.caliber);
+      assert.ok(of.length, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
+      const barrels = of.reduce((n, w) => n + w.barrels, 0);
+      assert.equal(barrels, t.barrels,
+        `${cls.id} ${t.label}: ${barrels} mounted against ${t.barrels} on her sheet`);
     }
     assert.equal(!!rows.find((w) => w.band === 'Torpedo tubes'), !!cls.torpedoes,
       `${cls.id} torpedo tubes are listed wrongly`);
