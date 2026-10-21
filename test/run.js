@@ -2203,9 +2203,8 @@ check("the Yukikaze's shell has no holes in it, and she is off the stand she was
     const b = new THREE.Box3().setFromObject(o);
     if (b.max.z < 25 && b.min.z > -25) box.union(b);
   }
-  assert.ok(box.min.y > -CLS_YUKIKAZE_DRAFT() - 0.3, `something of hers reaches ${box.min.y.toFixed(2)} m under her waterline amidships`);
+  assert.ok(box.min.y > -SHIP_CLASSES.yukikaze.hull.draft - 0.3, `something of hers reaches ${box.min.y.toFixed(2)} m under her waterline amidships`);
 });
-const CLS_YUKIKAZE_DRAFT = () => SHIP_CLASSES.yukikaze.hull.draft;
 
 check('the Yukikaze carries the guns she carried, each where it can be trained from', () => {
   const cls = SHIP_CLASSES.yukikaze;
