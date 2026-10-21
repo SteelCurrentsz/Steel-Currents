@@ -12,16 +12,17 @@ import * as THREE from '../vendor/three.module.js';
 import * as K from '../client/js/render/planekit.js';
 import { ZERO } from '../client/js/render/zeroModel.js';
 import { SUISEI } from '../client/js/render/suiseiModel.js';
+import { B5N } from '../client/js/render/b5nModel.js';
 
 const kinds = process.argv.slice(2).length ? process.argv.slice(2)
-  : ['wildcat', 'dauntless', 'avenger', 'tenzan', 'zero', 'suisei'];
+  : ['wildcat', 'dauntless', 'avenger', 'zero', 'suisei', 'b5n'];
 const ray = new THREE.Raycaster();
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 
 for (const kind of kinds) {
   const g = new THREE.Group();
-  const p = kind === 'avenger' || kind === 'tenzan'
+  const p = kind === 'avenger'
     ? K[kind](g, 0, 0, 0, 0, false, true) : K[kind](g, 0, 0, 0, 0, false, {});
   p.userData.gear(0);
   g.updateMatrixWorld(true);
@@ -106,7 +107,7 @@ for (const kind of kinds) {
     console.log(kind, `main: [${m.a}, ${m.y}, ${m.x}] (${m.c.toFixed(3)})`,
       `tail: [${sgn * t.a}, ${t.y}, ${t.x}] (${t.c.toFixed(3)})`);
   } else {
-    const META = kind === 'zero' ? ZERO : SUISEI;
+    const META = kind === 'zero' ? ZERO : kind === 'b5n' ? B5N : SUISEI;
     for (const [k, set] of [['gearL', mains.filter((l) => l.getWorldPosition(new THREE.Vector3()).x < 0)],
       ['gearR', mains.filter((l) => l.getWorldPosition(new THREE.Vector3()).x > 0)], ['gearT', tail]]) {
       const spec = META[k];

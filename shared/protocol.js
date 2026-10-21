@@ -311,8 +311,10 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // aeroplane dropped her.
       o: tp.owner,
       // Still aboard: in its tube or in the air off her side, which her model
-      // draws (see fireTorpedoes). Nothing is in the water yet.
-      a: tp.aboard ? 1 : undefined,
+      // draws (see fireTorpedoes) -- or falling from the aeroplane that let
+      // it go, which the client draws off her rack. Nothing is in the water
+      // yet.
+      a: tp.aboard || tp.air > 0 ? 1 : undefined,
     });
   }
   // The depth charges going down. Everybody gets them, whoever dropped them:

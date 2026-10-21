@@ -71,9 +71,10 @@ import {
   strip, sheet, rail,
 } from './shipkit.js';
 import { hullForm, plateHull } from './hullform.js';
-import { zero, suisei, tenzan } from './planekit.js';
+import { zero, suisei, b5n } from './planekit.js';
 import { ZERO } from './zeroModel.js';
 import { SUISEI } from './suiseiModel.js';
+import { B5N } from './b5nModel.js';
 import { engineStart } from './deckengine.js';
 import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
 import {
@@ -1764,10 +1765,10 @@ function airGroup(g) {
   }
   park.forEach(([x, z], i) => {
     // Wings folded, because that is how an aircraft is struck below: spread,
-    // a Tenzan is fifteen metres across and two of them abreast are wider than
-    // the space they are parked in.
+    // a B5N is fifteen and a half metres across and two of them abreast are
+    // wider than the space they are parked in.
     const a = i % 3 === 0
-      ? tenzan(g, x, HANGAR + 1.5, z, x < 0 ? 0.10 : -0.10, true, false, {})
+      ? b5n(g, x, HANGAR + 1.5, z, x < 0 ? 0.10 : -0.10, true, { lod: true })
       : i % 3 === 1
         ? suisei(g, x, HANGAR + 1.5, z, x < 0 ? 0.10 : -0.10, true, {})
         : zero(g, x, HANGAR + 1.5, z, x < 0 ? 0.10 : -0.10, true, {});
@@ -1797,22 +1798,22 @@ function airGroup(g) {
   // the aeroplane going off ran through their wings, and the park read as a
   // heap of aeroplanes too big for the deck they stood on. Each stands now
   // with her inboard wingtip outside the widest wing that runs down the
-  // middle -- a Tenzan's -- and her outboard one inside the deck edge, and
-  // the Tenzan in the park has hers folded.
+  // middle -- a B5N's -- and her outboard one inside the deck edge, and
+  // the B5N in the park has hers folded.
   const LANE = 7.6;
   const ranged = [
     [-1, -88, 'zero'], [1, -80, 'zero'], [-1, -72, 'zero'],
     [1, -50, 'suisei'], [-1, -42, 'suisei'], [1, -34, 'suisei'],
-    [-1, -26, 'tenzan'],
+    [-1, -26, 'b5n'],
   ];
-  const HALF = { zero: 5.5, suisei: 5.75, tenzan: 2.0 };
+  const HALF = { zero: 5.5, suisei: 5.75, b5n: 3.5 };
   for (const [side, z, kind] of ranged) {
     const x = side * (LANE + HALF[kind]);
     const y = fdY(z) + 0.12;
     const yaw = side < 0 ? 0.06 : -0.06;
-    const folded = kind === 'tenzan';
-    const a = kind === 'tenzan'
-      ? tenzan(g, x, y, z, yaw, folded, false, {})
+    const folded = kind === 'b5n';
+    const a = kind === 'b5n'
+      ? b5n(g, x, y, z, yaw, folded, { lod: true })
       : kind === 'suisei'
         ? suisei(g, x, y, z, yaw, false, { lod: true })
         : zero(g, x, y, z, yaw, false, { lod: true });
@@ -3236,7 +3237,7 @@ const SPOT_OFF = 26;
 function landZ() { return FD_AFT + RD_AFT + 5; }
 
 /**
- * The aircraft that flies when she launches, and where it waits: a Tenzan for
+ * The aircraft that flies when she launches, and where it waits: a B5N for
  * a torpedo strike, a Suisei for a dive bombing one, and a Zero when it is
  * fighters going off. Both ride the same
  * group, so the lift and the deck run do not care which one it is; the one
@@ -3246,7 +3247,7 @@ function deckAircraft(g) {
   const plane = new THREE.Group();
   plane.userData.dynamic = true;
   g.add(plane);
-  const body = tenzan(plane, 0, 0, 0, 0, true, true);
+  const body = b5n(plane, 0, 0, 0, 0, true, {});
   const fighter = zero(plane, 0, 0, 0, 0, false, {});
   fighter.visible = false;
   const diver = suisei(plane, 0, 0, 0, 0, false, {});
@@ -3254,16 +3255,17 @@ function deckAircraft(g) {
   const out = {
     group: plane,
     prop: body.userData.prop || null,
-    wings: body.userData.wings || null,
+    wings: null,
+    fold: body.userData.fold || null,
     gear: body.userData.gear || null,
     // Her stacks, either side of the cowling, for the smoke when she starts.
-    exhaust: [[-0.62, 1.55, 3.0], [0.62, 1.55, 3.0]],
+    exhaust: B5N.exhaust,
     kinds: {
-      torpedo: { body, prop: body.userData.prop || null, wings: body.userData.wings || null,
-        gear: body.userData.gear || null, exhaust: [[-0.62, 1.55, 3.0], [0.62, 1.55, 3.0]] },
-      fighter: { body: fighter, prop: fighter.userData.prop || null, wings: null,
+      torpedo: { body, prop: body.userData.prop || null, wings: null, fold: body.userData.fold || null,
+        gear: body.userData.gear || null, exhaust: B5N.exhaust },
+      fighter: { body: fighter, prop: fighter.userData.prop || null, wings: null, fold: null,
         gear: fighter.userData.gear || null, exhaust: ZERO.exhaust },
-      dive: { body: diver, prop: diver.userData.prop || null, wings: null,
+      dive: { body: diver, prop: diver.userData.prop || null, wings: null, fold: null,
         gear: diver.userData.gear || null, exhaust: SUISEI.exhaust },
     },
   };
@@ -3274,7 +3276,7 @@ function deckAircraft(g) {
     const k = out.kinds[r];
     for (const v of Object.values(out.kinds)) v.body.visible = v === k;
     out.role = r;
-    out.prop = k.prop; out.wings = k.wings; out.gear = k.gear; out.exhaust = k.exhaust;
+    out.prop = k.prop; out.wings = k.wings; out.fold = k.fold; out.gear = k.gear; out.exhaust = k.exhaust;
     out.blur = k.blur;
   };
   out.pick('torpedo');
@@ -3340,10 +3342,15 @@ export function stepDeck(deck, t) {
   const p = plane.group;
   if (deck.owner && p.parent !== deck.owner) return;
   const AFT_Z = aft.group.position.z;
+  // How far her wings are spread, 0 folded to 1 out. A machine built with
+  // both sets of wings shows one or the other; the B5N swings her outer
+  // panels down off her back.
   const wings = (out) => {
+    const u = Math.max(0, Math.min(1, +out));
+    if (plane.fold) { plane.fold(1 - u); return; }
     if (!plane.wings) return;
-    plane.wings.spread.visible = out;
-    plane.wings.stowed.visible = !out;
+    plane.wings.spread.visible = u >= 0.5;
+    plane.wings.stowed.visible = u < 0.5;
   };
 
   // Coming home: she picks up a wire at the round-down, rolls up the deck to
@@ -3361,7 +3368,7 @@ export function stepDeck(deck, t) {
     }
     if (k < 6.4) {
       const u = ease((k - 3.0) / 3.4);
-      wings(false);
+      wings(1 - Math.min(1, (k - 3.0) / 1.6));
       aft.group.position.y = FD - LIFT_DROP * u;
       p.position.set(0, FD - LIFT_DROP * u + 0.34, AFT_Z - 0.45);
       p.visible = true;
@@ -3403,7 +3410,7 @@ export function stepDeck(deck, t) {
     if (plane.gear) plane.gear(0);
     const u = ease(run / UP);
     aft.group.position.y = FD - LIFT_DROP * (1 - u);
-    wings(u > 0.55);
+    wings(Math.min(1, Math.max(0, (u - 0.3) / 0.6)));
     p.position.set(0, aft.group.position.y + 0.34, AFT_Z - 0.45);
     p.rotation.set(0, 0.08 * (1 - u), 0);
   } else if (run < ROLL) {

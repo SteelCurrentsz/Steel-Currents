@@ -2685,6 +2685,34 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
 }
 
 /**
+ * Where a fish let go from an aeroplane goes into the sea, and how long it is
+ * in the air on the way: off her crutch at her speed along her heading, under
+ * gravity against the air -- the same law the client flies it down by (see
+ * ordnance.js's bombStep), so the splash it draws and the track that starts
+ * running are in the same place.
+ */
+const FISH_DRAG = 9.81 / (300 * 300);
+export function fishFall(p) {
+  const v = Math.max(30, p.speed || 80);
+  const f = { y: Math.max(1, (p.y ?? 40) - 1.5), vx: v, vy: p.vy || 0, d: 0, t: 0 };
+  const h = 1 / 60;
+  while (f.y > 0 && f.t < 20) {
+    const sp = Math.hypot(f.vx, f.vy);
+    const k = FISH_DRAG * sp;
+    f.vx -= f.vx * k * h;
+    f.vy -= (f.vy * k + 9.81) * h;
+    f.d += f.vx * h;
+    f.y += f.vy * h;
+    f.t += h;
+  }
+  return {
+    x: p.x + Math.sin(p.heading || 0) * f.d,
+    z: p.z + Math.cos(p.heading || 0) * f.d,
+    t: f.t,
+  };
+}
+
+/**
  * What a flight actually drops, and what it does when it arrives.
  *
  * One place, because two things call it: the flight's own attack run, and a
@@ -2693,19 +2721,30 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
  * nothing to run on and nothing to comb.
  */
 function deliverOrdnance(state, p, best, P) {
-  const lead = leadPoint(p.x, p.z, best, P.torpSpeed);
-  const base = headingTo(p.x, p.z, lead.x, lead.z);
+  // A fish does not start running under the aeroplane that let it go. It
+  // falls from her crutch at her speed and goes into the sea a couple of
+  // hundred metres ahead of where she was, and runs from there -- which is
+  // where the client draws the one it watched leave her come down. It is
+  // aimed from there, too.
+  const fall = (p.torp ?? p.count) > 0 ? fishFall(p) : null;
+  const ex = fall ? fall.x : p.x, ez = fall ? fall.z : p.z;
+  const lead = leadPoint(ex, ez, best, P.torpSpeed);
+  const base = headingTo(ex, ez, lead.x, lead.z);
   const torp = p.torp ?? p.count;
   for (let i = 0; i < torp; i++) {
     const spread = P.dropSpread / Math.max(0.3, (p.wear && p.wear.aim) || 1);
     const off = (i - (torp - 1) / 2) * spread;
     state.torps.push({
       id: eid(), owner: p.owner, team: p.team,
-      x: p.x, z: p.z, heading: wrapAngle(base + off),
+      x: ex, z: ez, heading: wrapAngle(base + off),
       speed: P.torpSpeed, range: P.torpRange, travelled: 0,
       damage: P.torpDamage, detection: 900, arming: 200, flood: P.floodChance,
+      // Still in the air: neither running nor able to hurt anybody until it
+      // is in the water.
+      air: fall ? fall.t : 0,
     });
   }
+  if (fall) p.fishAt = fall;
   // The dive bombers go in over the top. Whether a bomb hits is settled here
   // -- there is nothing to run on and nothing to comb, so a bomb is a die roll
   // and not a body to fly -- but where it is going is sent up the wire, so
@@ -3439,9 +3478,10 @@ export function dropOrdnance(state, ship, id) {
   // raised nothing at all, so a player who let his torpedoes go watched an
   // empty patch of water and had no way of knowing anything had happened.
   if (torp > 0) {
-    state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
-    // A ton of torpedo going into the sea off a low run.
-    waterBlow(state, p.x, p.z, 200);
+    const at = p.fishAt || { x: p.x, z: p.z, t: 0 };
+    state.events.push({ e: 'airDrop', x: at.x, z: at.z, r: p.role, i: p.id, fish: torp, ft: Math.round(at.t * 100) / 100 });
+    // A ton of torpedo going into the sea off a low run, when it gets there.
+    waterBlow(state, at.x, at.z, 200, at.t);
   }
   p.phase = 'return';
   return true;
@@ -5854,6 +5894,12 @@ function stepTorpedoes(state, dt) {
     // How long since it was launched. A fish put in the water by hand comes
     // in with only how far it has run, which is how long it has been running.
     tp.age = (tp.age ?? (tp.travelled || 0) / Math.max(1, tp.speed)) + dt;
+    if (tp.air > 0) {
+      // Falling from the aeroplane that let it go, to where it goes in.
+      tp.air = Math.max(0, tp.air - dt);
+      out.push(tp);
+      continue;
+    }
     if (tp.aboard) {
       // Still in her tube, or in the air between it and the sea: carried
       // along with her, in her own frame, and harmless. It waits its turn in
@@ -6651,7 +6697,7 @@ export const DECK_RUN_OUT = 156;
 export function launchOffset(cls, side = 1, role = null) {
   const P = cls.planes || {};
   // A carrier's three types do not leave her deck in the same place: a Zero is
-  // off and climbing a long way short of where a Tenzan with a fish under her
+  // off and climbing a long way short of where a B5N with a fish under her
   // is still hanging over the water. So a deck says where each of them goes.
   const out = byRole(P.runOut, role) ?? DECK_RUN_OUT;
   // A ship with a pair of catapults works them turn and turn about, so hers go
@@ -8365,7 +8411,7 @@ function fightFor(state, p, dt) {
  *
  * Every carrier aircraft that is not a fighter has a gunner facing aft with a
  * rifle-calibre gun on a ring -- the Suisei's Type 92, the Dauntless's twin
- * thirties, the Tenzan's and the Avenger's -- and he does not wait to be told.
+ * thirties, the B5N's and the Avenger's -- and he does not wait to be told.
  * Anything of the other side's that comes into his arc within his reach, he
  * swings onto and fires at, whatever his pilot is doing: on passage, in the
  * dive, pulling out, or with a captain flying the aeroplane by hand.
@@ -9311,8 +9357,12 @@ function stepPlanes(state, dt) {
       // height, and lets go then -- or over the top of her, whichever is first.
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
       if (best && !holding && go) {
+        const fish = p.torp ?? 0;
         deliverOrdnance(state, p, best, P);
-        state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+        if (fish > 0 && p.fishAt) {
+          state.events.push({ e: 'airDrop', x: p.fishAt.x, z: p.fishAt.z, r: p.role, i: p.id, fish,
+            ft: Math.round(p.fishAt.t * 100) / 100 });
+        } else state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.dropped = true;
         // And out of it. See diveStage.
         if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }

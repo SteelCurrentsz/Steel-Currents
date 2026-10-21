@@ -134,13 +134,14 @@ export const AERO = {
     thrust: 14800, vMax: 156, name: 'D4Y3',
     helix: 0.060, gLimit: 5.5,
   },
-  // The Tenzan: bigger than an Avenger, carrying one eighteen-inch torpedo
-  // under her belly, and handling exactly the way a loaded torpedo bomber
-  // handles -- which is to say not much.
-  tenzan: {
-    mass: 5650, wing: 37.2, span: 14.89, clMax: 1.58, cd0: 0.0300,
-    thrust: 19600, vMax: 133, name: 'B6N2',
-    helix: 0.050, gLimit: 4.2,
+  // The B5N: as big in the wing as an Avenger and a great deal lighter, on a
+  // Sakae of a thousand horsepower, carrying one eighteen-inch Type 91 under
+  // her belly. Slow, and handling the way a loaded torpedo bomber handles --
+  // which is to say not much -- but she gets off a deck in no distance at all.
+  b5n: {
+    mass: 3800, wing: 37.7, span: 15.52, clMax: 1.55, cd0: 0.0295,
+    thrust: 11900, vMax: 105, name: 'B5N2',
+    helix: 0.052, gLimit: 4.5,
   },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.

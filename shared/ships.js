@@ -6996,13 +6996,13 @@ export const SHIP_CLASSES = {
     planes: {
       squadrons: 3, perSquadron: 17, cruiseSpeed: 82, strikeRange: 15600,
       // What she flies: her own nation's machines, one to a role.
-      types: { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' },
+      types: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
       // Where her deck run leaves each of her three types, off the integrated
       // launch the model on her deck flies: off the round-up, through the sag
       // the bow leaves under her, and climbing away. A Zero is off and away
-      // well ahead of a Tenzan with a fish under her.
-      runOut: { fighter: 286, dive: 279, torpedo: 267 },
-      runHeight: { fighter: 25.6, dive: 25.3, torpedo: 23.6 },
+      // well ahead of a B5N with a fish under her.
+      runOut: { fighter: 286, dive: 279, torpedo: 251 },
+      runHeight: { fighter: 25.6, dive: 25.3, torpedo: 22.3 },
       rearm: 40, torpDamage: 9400, torpSpeed: 27 * KNOTS, torpRange: 2800,
       floodChance: 0.27, hp: 1300, dropSpread: 0.05,
       // A Suisei's 500 kg semi-armour-piercing bomb beats about a hundred

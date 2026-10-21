@@ -232,7 +232,7 @@ const PLANE_NAME = {
   wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   zero: 'A6M Zero',
-  suisei: 'D4Y Suisei', tenzan: 'B6N Tenzan', jake: 'E13A Jake',
+  suisei: 'D4Y Suisei', b5n: 'B5N2 Type 97', jake: 'E13A Jake',
 };
 
 /** What she has been sent to do, as the plate in the corner says it. */
@@ -270,7 +270,7 @@ const GUN_CALIBRE = {
  */
 const GUN_COUNT = {
   wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
-  zero: 4, suisei: 2, tenzan: 1, jake: 1,
+  zero: 4, suisei: 2, b5n: 1, jake: 1,
 };
 
 /**
@@ -2822,8 +2822,31 @@ export class Battle {
           break;
         }
         case 'airDrop': {
-          // The fish going into the sea: a short row of splashes across the
-          // squadron's line, small ones, because a torpedo enters nose first.
+          // The fish going into the sea, where the simulation put it in: a
+          // splash, a small one, because a torpedo enters nose first.
+          const enter = (x, z) => {
+            fx.splash(x, z, 150, { kind: 'drop' });
+            audio.splash(90, { x, y: 1, z });
+          };
+          // Each machine of hers that is being drawn lets her own fish go off
+          // her own crutch, at her speed and lying the way it hung, and it
+          // falls the couple of hundred metres to the sea in front of her.
+          // The first goes in where the simulation's fish starts running;
+          // the rest where they fall, a wingspan or two off it.
+          let shown = 0;
+          for (let k = 0; k < (ev.fish || 0); k++) {
+            const rel = this.releaseOf(ev.i);
+            if (!rel) break;
+            rel.land = enter;
+            const from = (this.planesNow || []).find((q) => q.i === ev.i);
+            const y = from ? this.planeHeight(from) : rel.p.y;
+            this.scene.bombs.drop(rel.p.x, y, rel.p.z, k === 0 ? ev.x : null, k === 0 ? ev.z : null,
+              false, fx, 1.8, 108, rel);
+            shown++;
+          }
+          if (shown) break;
+          // Nobody is drawing her: the row of splashes across the squadron's
+          // line, as the fish go in.
           for (let i = 0; i < 3; i++) {
             fx.splash(ev.x + (i - 1) * 26 + (Math.random() - 0.5) * 14,
               ev.z + (Math.random() - 0.5) * 26, 150, { kind: 'drop' });

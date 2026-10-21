@@ -791,7 +791,7 @@ function renderAirGroup() {
   const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
   const types = SHIP_CLASSES[id]?.planes?.types || {};
   const NAMES = {
-    zero: 'Zero', suisei: 'Suisei', tenzan: 'Tenzan',
+    zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
     wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
   };
   const ROLES = { fighters: ['fighter', 'Wildcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],

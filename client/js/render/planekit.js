@@ -30,6 +30,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { zeroModel } from './zeroModel.js';
 import { suiseiModel } from './suiseiModel.js';
+import { b5nModel } from './b5nModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -1881,7 +1882,6 @@ const TRUE_SIZE = {
   wildcat: [[11.28, 9.25], [11.58, 8.76]],
   dauntless: [[12.43, 10.15], [12.66, 10.09]],
   avenger: [[16.40, 12.35], [16.51, 12.48]],
-  tenzan: [[14.88, 10.20], [14.89, 10.87]],
   arado: [[12.44, 10.64], [12.44, 11.00]],
   kingfisher: [[11.33, 9.64], [10.95, 10.31]],
   // Her span only. She is a little short for an E13A, but she stands on her
@@ -3234,118 +3234,23 @@ function suisei(g, x, y, z, ry, folded = false, opts = {}) {
 }
 
 /**
- * A B6N Tenzan: the torpedo bomber.
+ * A B5N: the torpedo bomber.
  *
- * Bigger than an Avenger and built round the same job -- a long-range machine
- * carrying one eighteen-inch torpedo slung under her belly at an angle, which
- * is the detail that gives her away: the Tenzan's fish hangs nose-down and
- * offset to starboard, not in a bay. She has a forward-swept fin, which
- * nothing else does, because the tail had to fold for the lift.
+ * The aeroplane that sank the battleships at Pearl Harbor and the carriers at
+ * Midway and Santa Cruz: three crew under one long greenhouse, a Sakae radial,
+ * and an eighteen-inch Type 91 slung on a crutch under her belly. The owner's
+ * sculpt of her (see b5nModel.js), with her legs, her fish and her gunner's
+ * gun on their own hinges. Her outer panels fold up over her back, which is
+ * how she is struck below and how she is ranged in a deck park.
  */
-function tenzan(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
-  paint('ijn');
-  const p = new THREE.Group();
+function b5n(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = b5nModel({ lod: !!opts.lod, folded });
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  const cl = sitline(1.62, 0.12);
-  airframe(p, M.planeTop, [
-    { z: -5.30, w: 0.20, h: 0.56, y: cl(-5.30) + 0.36 },
-    { z: -4.50, w: 0.42, h: 0.84, y: cl(-4.50) + 0.27 },
-    { z: -3.50, w: 0.68, h: 1.12, y: cl(-3.50) + 0.18 },
-    { z: -2.40, w: 0.92, h: 1.40, y: cl(-2.40) + 0.10 },
-    { z: -1.20, w: 1.10, h: 1.62, y: cl(-1.20) + 0.04 },
-    { z: 0.00, w: 1.20, h: 1.74, y: cl(0.00) },
-    { z: 1.20, w: 1.20, h: 1.74, y: cl(1.20) },
-    { z: 2.30, w: 1.12, h: 1.62, y: cl(2.30) + 0.02 },
-    { z: 3.20, w: 1.00, h: 1.42, y: cl(3.20) + 0.05 },
-  ], { flat: 0.10, e: 0.95, mBot: M.planeBottom });
-  radial(p, 0.78, cl(3.6) + 0.08, 3.55, 3.4, 4, spin);
-  // Three crew under one hood that runs nearly to the fin.
-  greenhouse(p, 1.00, 0.66, cl(0.4) + 0.88, -1.90, 1.90, 6);
-  airframe(p, M.planeTop, [
-    { z: -4.70, w: 0.28, h: 0.30, y: cl(-4.70) + 0.40 },
-    { z: -3.30, w: 0.60, h: 0.50, y: cl(-3.30) + 0.52 },
-    { z: -2.30, w: 0.80, h: 0.62, y: cl(-2.30) + 0.62 },
-    { z: -1.90, w: 0.88, h: 0.66, y: cl(-1.90) + 0.66 },
-  ], { flat: 0.3, e: 0.96, capF: false, mBot: M.planeTop });
-
-  const stowed = new THREE.Group();
-  const spread = new THREE.Group();
-  p.add(stowed);
-  p.add(spread);
-  for (const s of [-1, 1]) {
-    foldWing(stowed, s, {
-      at: [s * 0.70, cl(0.9) - 0.80, 1.1], skew: 0.12, lean: 0.06,
-      span: 5.6, rootC: 2.70, tipC: 1.30, sweep: 0.70, thick: 0.112,
-      star: 0.60, guns: [], mark: 'hinomaru',
-    });
-    // The centre section: the piece of wing between the fuselage sides and
-    // the root of the panel, level and untapered, the way the Avenger's is.
-    // Without it both panels hung a hand's breadth off her sides.
-    wing(p, M.planeTop, M.planeBottom, {
-      side: s, x: 0, y: cl(0.9) - 0.34, z: 0.95, span: 0.80, rootC: 2.70,
-      tipC: 2.70, sweep: 0, thick: 0.112, camber: 0.024, stations: 2,
-      round: false, rootCap: false,
-    });
-    const w = new THREE.Group();
-    w.position.set(s * 0.74, cl(0.9) - 0.34, 0.95);
-    w.rotation.z = -s * 0.06;
-    spread.add(w);
-    const sw = wing(w, M.planeTop, M.planeBottom, {
-      side: s, x: 0, y: 0, z: 0, span: 6.7, rootC: 2.70, tipC: 1.30,
-      sweep: 0.70, thick: 0.112, camber: 0.024, twist: -0.03, rootCap: false,
-    });
-    ctrlSurface(w, M.planeTop, sw, 0.63, 0.91);                      // aileron
-    ctrlSurface(w, M.planeTop, sw, 0.13, 0.46, 0.70);                // flap
-    leBand(w, P.yellow, sw, 0.11, 0.44);
-    hinomaru(w, s * 4.0, 0.12, -0.70, 0.62);
-    hinomaru(w, s * 4.0, -0.12, -0.70, 0.62, 'down');
-    rootFillet(w, M.planeTop, s * 0.16, 0.02, -0.76, 3.0, 0.50, 0.29);
-  }
-  stowed.visible = !!folded;
-  spread.visible = !folded;
-  p.userData.wings = { stowed, spread };
-
-  // The torpedo, slung nose-down under her belly and offset to starboard,
-  // which is the way a Tenzan carried one.
-  if (opts.fish !== false) {
-    // The crutch and its sway braces, on the belly where the fish hangs: a
-    // torpedo carried outside is carried on something, and hers used to hang
-    // in the air under her with nothing joining the two.
-    const belly = underside(p, -0.30, 0.30, -4) ?? (cl(0.3) - 0.86);
-    for (const zz of [-0.85, 0.85]) {
-      box(p, M.gunDark, 0.34, 0.22, 0.16, -0.30, belly - 0.08, 0.30 + zz);
-      for (const sx of [-1, 1]) {
-        strut(p, M.gunDark, [-0.30 + sx * 0.02, belly - 0.02, 0.30 + zz],
-          [-0.30 + sx * 0.30, belly - 0.20, 0.30 + zz], 0.03);
-      }
-    }
-    const fish = new THREE.Group();
-    fish.position.set(-0.30, belly - 0.33, 0.30);
-    fish.rotation.x = 0.13;
-    p.add(fish);
-    torpedo(fish, 5.1, 0.23);
-    animPart(p, 'store', fish, { fall: true });
-  }
-
-  hinomaru(p, 0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
-  hinomaru(p, -0.42, cl(-2.7) + 0.06, -2.7, 0.44, false);
-  // The forward-swept fin, which is the Tenzan's other signature: it is that
-  // shape so the tail could fold clear for the lift.
-  const tail = empennage(p, 1.42, 1.20, 3.90, 0.98, cl(-4.5) + 0.34, -4.2);
-  if (opts.gear !== false) {
-    const mains = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 0.31, 1.30, 0.36, 0.05) }));
-    gearRig(p, mains, tailGear(p, -5.00, 0.18, 1.1, 0.34),
-      { main: [1.5, 0.1, 0.4], tail: [1.65, 0.6, 0.4] });
-  }
-  // The rear gunner's 7.92 mm, and the tunnel gun under the sternpost.
-  const mg = cyl(p, M.gunDark, 0.04, 0.04, 0.8, 0, cl(-2.1) + 0.94, -2.4, 6);
-  mg.rotation.x = -0.45;
-  cyl(p, M.gunDark, 0.035, 0.035, 0.6, 0, cl(-3.4) - 0.18, -3.6, 6)
-    .rotation.x = 0.4;
-  aerial(p, 0, cl(0.2) + 1.03, 0.2, 0.58, tail.finTop);
-  trueSize(p, 'tenzan');
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  if (opts.fish === false && p.userData.store) p.userData.store.visible = false;
+  p.userData.wings = null;
   return p;
 }
 
@@ -4817,7 +4722,7 @@ function heavyBomber(kind) {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
-export { zero, suisei, tenzan, jake };
+export { zero, suisei, b5n, jake };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

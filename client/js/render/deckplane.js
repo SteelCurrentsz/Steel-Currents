@@ -12,7 +12,7 @@ import { AERO, launchProfile } from './aero.js';
 /** Which job is which kind, on each side of the Pacific. */
 export const DECK_KINDS = {
   usa: { fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger' },
-  ijn: { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' },
+  ijn: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
 };
 
 /**

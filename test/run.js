@@ -185,7 +185,7 @@ import {
 } from '../shared/airframe.js';
 import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
-  tenzan as pkTenzan, jake as pkJake, dauntless as pkDauntless,
+  b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
 } from '../client/js/render/planekit.js';
 import {
@@ -8817,9 +8817,9 @@ function buildPlane(kind, opts = {}) {
   const g = new THREE.Group();
   const f = {
     wildcat: pkWildcat, dauntless: pkDauntless, avenger: pkAvenger, arado,
-    kingfisher, zero: pkZero, suisei: pkSuisei, tenzan: pkTenzan, jake: pkJake,
+    kingfisher, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
   }[kind];
-  if (kind === 'avenger' || kind === 'tenzan') f(g, 0, 0, 0, 0, false, false, opts);
+  if (kind === 'avenger') f(g, 0, 0, 0, 0, false, false, opts);
   else if (kind === 'kingfisher') f(g, 0, 0, 0, 0, opts);
   else f(g, 0, 0, 0, 0, false, opts);
   g.updateMatrixWorld(true);
@@ -8827,7 +8827,7 @@ function buildPlane(kind, opts = {}) {
 }
 
 const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'zero', 'suisei', 'tenzan', 'jake'];
+  'zero', 'suisei', 'b5n', 'jake'];
 
 check('nothing on an aeroplane is hanging in the air on its own', () => {
   // An aeroplane is drawn as a couple of hundred separate pieces, and a piece
@@ -8968,8 +8968,9 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
     // standing on her nose goes through her own airscrew, so it swings clear
     // on a trapeze first.
     dauntless: ['prop', 'trapeze', 'store'],
-    // A Tenzan's torpedo hangs outside, on a crutch under her belly.
-    tenzan: ['prop', 'store'],
+    // A B5N's torpedo hangs outside, on a crutch under her belly; she is the
+    // owner's sculpt, so her legs and her gunner's gun move too.
+    b5n: ['prop', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
   };
   for (const [kind, names] of Object.entries(want)) {
     const parts = (models[kind].parts || []).map((q) => q.name).sort();
@@ -9549,7 +9550,7 @@ check('her undercarriage goes up into her and stays there', () => {
     avenger: (g) => pkAvenger(g, 0, 0, 0, 0, false, true),
     zero: (g) => pkZero(g, 0, 0, 0, 0, false, {}),
     suisei: (g) => pkSuisei(g, 0, 0, 0, 0, false, {}),
-    tenzan: (g) => pkTenzan(g, 0, 0, 0, 0, false, true),
+    b5n: (g) => pkB5n(g, 0, 0, 0, 0, false, {}),
   };
   for (const [kind, build] of Object.entries(builders)) {
     const g = new THREE.Group();

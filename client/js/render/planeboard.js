@@ -25,12 +25,12 @@ import { BoardRenderer } from './boardgl.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, tenzan, jake, heavyBomber, HEAVY_KINDS,
+  zero, suisei, b5n, jake, heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, tenzan, jake,
+  zero, suisei, b5n, jake,
 };
 
 /** Whether this is one of the heavy squadrons rather than a carrier machine. */
@@ -49,7 +49,7 @@ export const PART_NAME = Object.fromEntries(PARTS.map((p) => [p.k, p.name]));
  * Which part of an aeroplane a piece of her belongs to.
  *
  * By where it is, in fractions of her own length and span, so the same rule
- * works on a Wildcat and on a Tenzan half as big again. `box` is the piece's
+ * works on a Wildcat and on a B5N half as big again. `box` is the piece's
  * own bounding box and `sz` the whole aeroplane's.
  */
 export function partOfPiece(c, lo, hi) {
@@ -171,7 +171,7 @@ export class PlaneBoard {
     } else {
       const f = BUILD[kind] || BUILD.wildcat;
       // In flight trim: wheels up, wings spread, nothing hanging off her.
-      if (kind === 'avenger' || kind === 'tenzan') f(holder, 0, 0, 0, 0, false, false, { gear: false });
+      if (kind === 'avenger') f(holder, 0, 0, 0, 0, false, false, { gear: false });
       else if (kind === 'kingfisher' || kind === 'besson' || kind === 'loire') f(holder, 0, 0, 0, 0, {});
       else f(holder, 0, 0, 0, 0, false, { gear: false });
     }

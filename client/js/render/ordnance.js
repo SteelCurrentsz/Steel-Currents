@@ -563,9 +563,14 @@ export class Bombs {
    *
    * `rel`, when it is given, is the release itself: `p` where the bomb was on
    * her rack, `v` the aeroplane's velocity, `q` the way the bomb was lying,
-   * `len` and `r` its size and `shape` the key of a type's own bomb. Without
-   * it -- a bomb from an aeroplane nobody is drawing -- it is let go from
-   * where the simulation says, on the line that reaches the target.
+   * `len` and `r` its size and `shape` the key of a type's own bomb, and
+   * `land`, if it is something other than a bomb -- a torpedo -- what to do
+   * when it reaches the sea instead of a bomb's burst or column of water.
+   * Without it -- a bomb from an aeroplane nobody is drawing -- it is let go
+   * from where the simulation says, on the line that reaches the target.
+   *
+   * A null `tx` lets it fall where it falls, with nothing steering it to a
+   * point: the second fish of a flight goes in off its own machine.
    */
   drop(x, y, z, tx, tz, hit, effects, size = 1.8, speed = 108, rel = null) {
     if (this.live.length >= this.max) return;
@@ -573,7 +578,7 @@ export class Bombs {
     const b = {
       x, y: Math.max(40, y), z, vx: 0, vy: 0, vz: 0, ax: 0, az: 0,
       x1: tx, z1: tz, y1, t: 0, fall: 0, hit, effects,
-      len: size, r: size * 0.11, shape: null, q: null, settle: 0,
+      len: size, r: size * 0.11, shape: null, q: null, settle: 0, land: null,
     };
     if (rel) {
       b.x = rel.p.x; b.y = rel.p.y; b.z = rel.p.z;
@@ -581,6 +586,7 @@ export class Bombs {
       b.len = rel.len || b.len; b.r = rel.r || b.r;
       b.shape = rel.shape && this.shapes.has(rel.shape) ? rel.shape : null;
       b.q = rel.q ? rel.q.clone() : null;
+      b.land = rel.land || null;
     } else {
       const dx = tx - x;
       const dz = tz - z;
@@ -601,8 +607,13 @@ export class Bombs {
     let T = 0;
     while (free.y > y1 && T < 60) { bombStep(free, 1 / 60); T += 1 / 60; }
     T = Math.max(0.4, T);
-    b.ax = 2 * (tx - free.x) / (T * T);
-    b.az = 2 * (tz - free.z) / (T * T);
+    if (tx === null || tz === null) {
+      b.x1 = free.x;
+      b.z1 = free.z;
+    } else {
+      b.ax = 2 * (tx - free.x) / (T * T);
+      b.az = 2 * (tz - free.z) / (T * T);
+    }
     b.fall = T;
     this.live.push(b);
   }
@@ -647,8 +658,10 @@ export class Bombs {
       }
       if (b.y <= b.y1 || b.t > b.fall + 2) {
         // Arrival: a burst on her upperworks, or a column of water alongside.
-        // Where the simulation said, not where the rounding left her.
-        if (b.effects) {
+        // Where the simulation said, not where the rounding left her. A
+        // torpedo going in says what it does itself.
+        if (b.land) b.land(b.x1, b.z1);
+        else if (b.effects) {
           if (b.hit) b.effects.explosion(b.x1, 14, b.z1, 1.7);
           else b.effects.splash(b.x1, b.z1, 320, { kind: 'bomb' });
         }

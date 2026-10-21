@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  tenzan, jake, muzzlesOf, dressPlane,
+  jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -28,6 +28,9 @@ import {
 import {
   SUISEI, SUISEI_SEGS, suiseiGeometries, suiseiMaterial, suiseiSegOf, suiseiRest, suiseiHinge,
 } from './suiseiModel.js';
+import {
+  B5N, B5N_SEGS, b5nGeometries, b5nMaterial, b5nSegOf, b5nRest, b5nHinge,
+} from './b5nModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -259,6 +262,7 @@ function segment(geo, segOf) {
 function tipsOf(key, geo) {
   if (key === 'zero') return { tips: ZERO.tips, nose: [0, ZERO.prop[1] - 0.2, ZERO.prop[2] - 1.2] };
   if (key === 'suisei') return { tips: SUISEI.tips, nose: [0, SUISEI.prop[1] - 0.2, SUISEI.prop[2] - 1.2] };
+  if (key === 'b5n') return { tips: B5N.tips, nose: [0, B5N.prop[1] - 0.2, B5N.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -416,6 +420,40 @@ function suiseiFlightModel() {
 }
 
 /**
+ * The B5N: the owner's sculpt, in her pieces, with everything of her that
+ * moves on its own hinge -- her airscrew, the fish on its crutch, the
+ * gunner's gun and her three legs. The fish hangs outside her, so there are
+ * no doors to open: it simply goes.
+ */
+function b5nFlightModel() {
+  const geos = b5nGeometries();
+  const mat = b5nMaterial();
+  const segs = {};
+  for (const k of B5N_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, B5N_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(b5nHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: b5nRest('prop'),
+    geo: withDisc(geos.prop, B5N.propR), mats: [mat, discMaterial()],
+  }];
+  parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: b5nRest('store'),
+    geo: geos.store, mats: [mat] });
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: b5nRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = B5N[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0,
+      slide: spec.slide || 0,
+      at: at(k), rot: b5nRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = b5nSegOf;
+  segOf.breaks = B5N.breaks;
+  return { segs, parts, probe, segOf, cy: B5N.cy, geo: probe, mats: [mat] };
+}
+
+/**
  * Where the gunner's gun is on a type that has one, in her own frame: its
  * pivot, the rotation it sits at, and its muzzle about the pivot laid aft.
  * Null for a type with nobody facing aft.
@@ -423,6 +461,9 @@ function suiseiFlightModel() {
 export function rearGunOf(kind) {
   if (kind === 'suisei') {
     return { at: SUISEI.gun.at, rot: suiseiRest('gun'), muzzle: SUISEI.gun.muzzle };
+  }
+  if (kind === 'b5n') {
+    return { at: B5N.gun.at, rot: b5nRest('gun'), muzzle: B5N.gun.muzzle };
   }
   return null;
 }
@@ -438,7 +479,7 @@ const REAR_SEATS = {
   dauntless: { x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 },
   suisei: { x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 },
   avenger: { x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 },
-  tenzan: { x: 0, y: 2.85, z: -1.7, cal: 0.0077, guns: 1 },
+  b5n: { x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 },
 };
 
 /** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
@@ -575,7 +616,7 @@ export function flightModels() {
   make('besson', (g) => besson(g, 0, 0, 0, 0, {}));
   // And the Loire 130 the Richelieu works off her quarterdeck.
   make('loire', (g) => loire(g, 0, 0, 0, 0, {}));
-  // And the Japanese four: a Zero, a Suisei, a Tenzan and the Jake the
+  // And the Japanese four: a Zero, a Suisei, a B5N and the Jake the
   // battleships and the cruisers work off their catapults. The Zero is the
   // owner's sculpt of her, in the pieces she is built to come apart in.
   out.zero = zeroFlightModel();
@@ -583,7 +624,10 @@ export function flightModels() {
   out.suisei = suiseiFlightModel();
   MUZZLES.suisei = SUISEI.guns.slice().sort((a, b) => a[0] - b[0]);
   readStore('suisei', out.suisei.parts);
-  make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, true, { gear: false }));
+  // The B5N is the owner's sculpt too, with the fish she carries her own.
+  out.b5n = b5nFlightModel();
+  MUZZLES.b5n = [];
+  readStore('b5n', out.b5n.parts);
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
   return out;
 }
@@ -606,7 +650,7 @@ export const ROLE_TYPE = {
 };
 
 const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'besson', 'loire', 'zero', 'suisei', 'tenzan', 'jake']);
+  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {
