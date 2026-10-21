@@ -51,6 +51,7 @@ import { box, cyl, tubeX, tubeZ, strip, sheet, rail, loftShape, planRun, ladder 
 import { threeSeven, twoCm } from './kmguns.js';
 import { arado } from './planekit.js';
 import { RIG, fitCatapults } from './catapult.js';
+import { fitTubes } from './tubes.js';
 import {
   buildBismarckHull, bismarckSeatY, bismarckSurfaceY, MOUNT_SEATS, SCULPT_LINES, bismarckMaterials, gunPiece,
 } from './bismarckHull.js';
@@ -492,100 +493,8 @@ export function torpedoBank(g, spec, trainRate, seatY = bismarckSeatY) {
   return m;
 }
 
-// Gravity, as the simulation has it, for a fish dropping into the sea.
-const G = 9.80665;
-
-// A G7a, as it comes out of a tube: 53.3 cm across and, here, six metres
-// long, so that it lies wholly in the sculpt's tubes until it is fired; its
-// fins inside its own diameter, as a tube-launched torpedo's are.
-const FISH_LEN = 6.0;
-let fishGeo = null;
-function fishGeometry() {
-  if (fishGeo) return fishGeo;
-  const R = 0.262;
-  const h = FISH_LEN / 2;
-  const prof = [
-    [0, h], [0.12, h - 0.06], [0.2, h - 0.2], [0.25, h - 0.45], [R, h - 0.8],
-    [R, -h + 1.3], [0.2, -h + 0.55], [0.12, -h + 0.18], [0, -h],
-  ].map(([r, z]) => new THREE.Vector2(r, z));
-  // A lathe turns about Y, tail to nose; laid down along +Z, nose first.
-  fishGeo = new THREE.LatheGeometry(prof.reverse(), 14);
-  fishGeo.rotateX(Math.PI / 2);
-  return fishGeo;
-}
-
-/**
- * Her tubes, firing: `fireTubes(i, t)` throws the fish out of bank `i`, one
- * tube after another, as the simulation launches them (see fireTorpedoes and
- * the class's `launch`) -- out of the tubes whose lanes `launch.lanes` names,
- * which for the Tirpitz is all four and for a ship that fires three out of a
- * bank of four is three. Each is blown out along its own tube, and once
- * its middle is past the muzzle it drops -- going on at the speed it left at
- * and tipping nose down as it falls -- until it is in the sea, where it is put
- * on `userData.dropped` for a splash and the simulation's torpedo, which went
- * in at the same place, takes over. All of it in her own frame, from where the
- * bank was trained when it fired.
- */
-export function fitTubes(g, banks, launch) {
-  const flying = [];
-  const mat = new THREE.MeshLambertMaterial({ color: P.gunDark, side: THREE.DoubleSide });
-  const out = (launch.muzzle - launch.lie) / launch.eject;
-  g.userData.dropped = [];
-  g.userData.fireTubes = (i, t) => {
-    const bank = banks[i];
-    if (!bank) return;
-    // The bores the class fires from, each the one nearest its lane.
-    const bores = launch.lanes.map((l) => bank.userData.bores.reduce((a, b) => (Math.abs(b[0] - l) < Math.abs(a[0] - l) ? b : a)));
-    if (!bank.userData.fish) {
-      bank.userData.fish = bores.map(() => {
-        const f = new THREE.Mesh(fishGeometry(), mat);
-        f.visible = false;
-        f.rotation.order = 'YXZ';
-        f.userData.dynamic = true;
-        g.add(f);
-        return f;
-      });
-    }
-    bank.updateMatrix();
-    bank.userData.fish.forEach((mesh, k) => {
-      const prev = flying.indexOf(mesh.userData.flight);
-      if (prev >= 0) flying.splice(prev, 1);
-      const [x, y] = bores[k];
-      mesh.userData.flight = {
-        mesh, t0: t + k * launch.stagger, x, y,
-        frame: bank.matrix.clone(), yaw: bank.rotation.y,
-      };
-      flying.push(mesh.userData.flight);
-    });
-  };
-  const p = new THREE.Vector3();
-  return (t) => {
-    for (let k = flying.length - 1; k >= 0; k--) {
-      const f = flying[k];
-      const tau = t - f.t0;
-      if (tau < 0) { f.mesh.visible = false; continue; }
-      const z = launch.lie + launch.eject * tau;
-      let y = f.y;
-      let pitch = 0;
-      if (tau > out) {
-        const fall = tau - out;
-        y -= 0.5 * G * fall * fall;
-        pitch = Math.atan2(G * fall, launch.eject);
-      }
-      p.set(f.x, y, z).applyMatrix4(f.frame);
-      if (p.y <= 0) {
-        // In the sea.
-        f.mesh.visible = false;
-        flying.splice(k, 1);
-        g.userData.dropped.push(new THREE.Vector3(p.x, 0, p.z));
-        continue;
-      }
-      f.mesh.position.copy(p);
-      f.mesh.rotation.set(pitch, f.yaw, 0);
-      f.mesh.visible = true;
-    }
-  };
-}
+// Her tubes, firing, are fitTubes in tubes.js: the Matsu's work the same way.
+export { fitTubes };
 
 // ------------------------------------------------------- her midships ----
 

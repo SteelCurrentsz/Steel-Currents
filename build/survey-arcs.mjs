@@ -59,12 +59,14 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import * as THREE from '../vendor/three.module.js';
-import { buildShip } from '../client/js/render/ships.js';
+import { buildShip, loadShips } from '../client/js/render/ships.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 import { lightMounts, torpedoClear, gunLimits } from '../shared/sim.js';
 
 const id = process.argv[2] || 'takao';
 const cls = SHIP_CLASSES[id];
+// A ship drawn off a sculpt is fetched before she can be built.
+await loadShips([id]);
 const DEG = Math.PI / 180;
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; };
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -106,7 +108,7 @@ function surveyAll() {
   const [i0, i1] = process.env.IDX ? process.env.IDX.split('-').map(Number) : [0, Infinity];
   const mounts = [
     ...built.turrets.map((m, i) => ({ kind: 'turret', i, m, spec: cls.turrets[i], stops: gunLimits(cls.gun) })),
-    ...built.secMounts.map((m, i) => ({ kind: 'sec', i, m, spec: cls.secondary.mounts[i], stops: gunLimits(cls.secondary) })),
+    ...built.secMounts.map((m, i) => ({ kind: 'sec', i, m, spec: cls.secondary && cls.secondary.mounts[i], stops: cls.secondary && gunLimits(cls.secondary) })),
     ...built.torpMounts.map((m, i) => ({ kind: 'torp', i, m, spec: cls.torpedoes.mounts[i], stops: { min: 0, max: 0 } })),
     ...built.aaMounts.map((m, i) => ({ kind: 'aa', i, m, spec: light[i], stops: lightStops[i] })),
   ].filter((e) => e.m && (!only || e.kind === only) && e.i >= i0 && e.i <= (i1 ?? i0));

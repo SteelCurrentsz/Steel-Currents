@@ -29,7 +29,7 @@ import { dressShip } from './textures.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu;
+  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu;
 const SCULPTED = {
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
@@ -40,6 +40,7 @@ const SCULPTED = {
   musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
+  matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
   bismarck: () => import('./bismarck.js')
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
@@ -680,6 +681,20 @@ export function buildShipModel(classId) {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Matsu: the owner's sculpts of her hull, her guns and her tubes.
+  if (cls.id === 'matsu') {
+    const built = buildMatsu();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
     };
   }

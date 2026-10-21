@@ -228,6 +228,195 @@ export const SHIP_CLASSES = {
     },
   },
 
+  matsu: {
+    // IJN Matsu, the first of the escort destroyers Japan built in a hurry in
+    // 1943 and 1944 to replace the fleet destroyers she had lost round the
+    // Solomons: a hundred metres, fourteen hundred tonnes, a single shaft's
+    // worth of turbines on each of two shafts and twenty-eight knots. Built to
+    // be built quickly -- straight frames, a flat transom, unit machinery --
+    // and armed for the war she was going to fight: dual-purpose 12.7 cm, a
+    // battery of 25 mm, a single quadruple bank of 61 cm tubes on her
+    // centreline and depth charges by the dozen. She was sunk off Chichi Jima
+    // on 4 August 1944 covering a convoy, turned back alone against a force of
+    // American cruisers and destroyers so the transports could get clear.
+    //
+    // She is drawn from the owner's sculpts of her (see matsu.js): her hull,
+    // her bridge, her funnels, her masts and her deckhouses off one, and her
+    // two 12.7 cm twins -- the one in its shield on her forecastle, the open
+    // one aft -- her 25 mm triple and her bank of tubes off the others, at
+    // her own length, 100 m, and floated at 3.3 m.
+    id: 'matsu',
+    name: 'Matsu',
+    fullName: 'IJN Matsu',
+    className: 'Matsu',
+    type: 'DD',
+    typeName: 'Destroyer',
+    nation: 'jpn',
+    blurb: 'A war-built escort destroyer: dual-purpose 12.7 cm, four Long Lances and racks full of depth charges.',
+    // She draws three metres and a third on a hundred-metre waterline: a light
+    // hull on a broad waterplane, which rides the sea up and down as closely
+    // as a ship can -- her heave on a stiffer spring than her length alone
+    // would give her (see Seakeeping), or the sea would leave her screws.
+    hull: { length: 100, beam: 9.9, draft: 3.3, superstructure: 0.9, heavePeriod: 3.2 },
+    hp: 12600,
+    // Twenty-seven knots and four fifths, on two shafts: slower than a fleet
+    // destroyer and handier, a short ship on a big rudder.
+    maxSpeed: 27.8 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 1.25,
+    turnRate: 0.15,
+    rudderShift: 2.4,
+    speedLossInTurn: 0.22,
+    concealment: 5400,
+    fireDetectPenalty: 3000,
+    // Her Type 22 on her foremast and the Type 13 on her mainmast.
+    radarRange: 8000,
+    repairCooldown: 60,
+    repairHeal: 0.11,
+    smokeCharges: 3,
+    // No armour as such: splinter plating round her bridge and her guns'
+    // shields, and her machinery's own casings.
+    armor: { belt: 13, deck: 10, citadel: 13, bow: 10, superstructure: 10 },
+    turrets: [
+      // Her forward twin in its shield on her forecastle, laid over her bow;
+      // her after one open on her upper deck abaft her after deckhouse, laid
+      // over her stern.
+      { id: 0, name: 'No.1', x: 0, z: 31.7, angle: 0, arc: 3.1, rest: 0, guns: 2, my: 8.02,
+        mask: [[-3.12, -3.02, 0.35], [-3.03, -2.95, 0.262], [-2.96, -2.92, 0.21], [-2.93, -2.9, 0.14],
+          [-2.91, -2.88, 0.105], [-2.89, -2.85, 0.018], [-2.86, -2.83, 0], [-2.84, -2.81, -0.008],
+          [2.81, 2.89, -0.008], [2.88, 2.91, 0.105], [2.9, 2.93, 0.123], [2.92, 2.96, 0.21], [2.95, 3, 0.262],
+          [2.99, 3.12, 0.35]] },
+      { id: 1, name: 'No.2', x: 0, z: -33.9, angle: 3.12, arc: 3.03, rest: Math.PI, guns: 2, my: 6.66,
+        mask: [[0.07, 0.15, 0.175], [0.14, 0.24, 0.053], [0.23, 0.26, 0.044], [-0.26, -0.23, 0.044],
+          [-0.24, -0.14, 0.053], [-0.15, -0.11, 0.175]] },
+    ],
+    gun: {
+      name: '12.7 cm/40 Type 89', role: 'dp',
+      // Seven below the horizontal to ninety, as a high-angle gun is.
+      elev: { min: -0.14, max: 1.57 },
+      reach: 4.04,
+      caliber: 127, reload: 4.0, traverse: 0.21, range: 14600, sigma: 2.0,
+      shells: shells(127, 2000, 1750, 70, 720, 0.08),
+    },
+    torpedoes: {
+      // One bank of four on her centreline between her funnels, which trains
+      // out on either beam -- under the platform her waist 25 mm stand on --
+      // and fires on neither her bow nor her stern, where her funnels and
+      // her own deck are in the way. The war-built ships carried no reloads
+      // in racks; a bank is reloaded by hand here, and slowly.
+      mounts: [
+        { id: 0, x: 0, z: -1.9, angle: -0.01, arc: 2.59, rest: 0, tubes: 4, my: 3.78,
+          mask: [[-0.83, 0.75]] },
+      ],
+      name: 'Type 93 torpedo', role: 'surface', caliber: 610,
+      reach: 4.33,
+      traverse: 0.22,
+      // Oxygen: half a ton of explosive, a long run, and no wake to speak of.
+      reload: 150, damage: 16200, speed: 36 * KNOTS, range: 10000,
+      detection: 800, arming: 400, spread: 0.07, floodChance: 0.38,
+      // Each fish blown out of its tube at twelve metres a second, the four
+      // tubes a third of a second apart, from where it lies in the tube --
+      // `lanes` across the bank, its middle `lie` and the muzzle `muzzle`
+      // ahead of the training ring -- and dropping the `height` from the
+      // tubes to the sea once it is out. A Type 93 is the fish: 61 cm and,
+      // drawn, five and a half metres so it lies in the sculpt's tubes.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 3.78,
+        fish: { len: 5.6, r: 0.24 },
+      },
+    },
+    secondary: null,
+    // Her 12.7 cm are dual-purpose and her main anti-aircraft battery; these
+    // are what she has inside their minimum: four 25 mm triples, two on the
+    // wings of the platform over her waist, one on the bandstand abaft her
+    // after funnel and one on the platform over her after deckhouse. A wing
+    // gun is worked on its own side, from across her bow round to across her
+    // stern, and not over its sister and her crew on the other wing.
+    aa: {
+      range: 3000, dps: 13,
+      guns: [
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: 3.77, z: -6.97, angle: 1.57, arc: 1.75, rest: Math.PI / 2, guns: 3, my: 6.9,
+              mask: [[-2.32, -2.27, 0.35], [-2.28, -2.26, -0.026], [-2.2, -2.1, 0.018], [-2.11, -2.08, -0.017],
+                [-1.79, -1.71, -0.026], [-1.72, -1.42, -0.017], [-1.43, -1.37, -0.026], [-0.43, -0.3, 0.35],
+                [-0.31, -0.28, 0.437], [-0.29, -0.27, 0.611], [-0.28, -0.16, 0.786], [-0.17, -0.14, 0.524],
+                [-0.15, -0.13, 0.35], [-0.14, -0.02, 0.262], [-0.03, 0, 0.21], [-0.01, 0.01, 0.035],
+                [0, 0.05, -0.026], [2.92, 2.96, -0.026], [2.95, 3, -0.017], [2.99, 3.02, 0], [3.01, 3.07, 0.018],
+                [3.06, -3.02, 0.035], [-3.03, -2.95, 0.07], [-2.96, -2.85, 0.35], [-2.86, -2.76, 0.123],
+                [-2.77, -2.74, 0.053], [-2.75, -2.73, 0.035]] },
+            { x: -3.77, z: -6.97, angle: -1.57, arc: 1.75, rest: -Math.PI / 2, guns: 3, my: 6.9,
+              mask: [[2.73, 2.75, 0.035], [2.74, 2.77, 0.053], [2.76, 2.86, 0.123], [2.85, 2.96, 0.35],
+                [2.95, 3.03, 0.07], [3.02, -3.06, 0.035], [-3.07, -3.01, 0.018], [-3.02, -2.99, 0],
+                [-3, -2.95, -0.017], [-2.96, -2.92, -0.026], [-0.05, 0, -0.026], [-0.01, 0.01, 0.035],
+                [0, 0.03, 0.21], [0.02, 0.14, 0.262], [0.13, 0.15, 0.35], [0.14, 0.17, 0.524], [0.16, 0.28, 0.786],
+                [0.27, 0.29, 0.611], [0.28, 0.31, 0.437], [0.3, 0.43, 0.35], [1.37, 1.43, -0.026],
+                [1.42, 1.72, -0.017], [1.71, 1.79, -0.026], [2.08, 2.11, -0.017], [2.1, 2.2, 0.018],
+                [2.26, 2.28, -0.026], [2.27, 2.32, 0.35]] },
+            { x: 0.07, z: -14.78, angle: 3.12, arc: 2.59, rest: Math.PI, guns: 3, my: 6.95,
+              mask: [[0.51, 0.59, -0.026], [0.84, 0.89, 0.018], [0.88, 1.06, 0.035], [1.05, 1.1, 0.018],
+                [1.09, 1.11, 0], [1.1, 1.13, -0.017], [1.12, 1.15, -0.026], [2.62, 2.81, 0.07], [2.8, 2.98, 0.053],
+                [2.97, 3, 0.175], [2.99, 3.02, 0.262], [3.01, 3.03, 0.35], [3.02, 3.14, 0.524], [3.13, -3.13, 0.35],
+                [-3.14, -3.02, 0.524], [-3.03, -2.95, 0.35], [-2.96, -2.92, 0.262], [-2.93, -2.74, 0.053],
+                [-2.75, -2.57, 0.07], [-1.2, -1.17, -0.026], [-1.18, -1.16, -0.017], [-1.17, -1.14, 0],
+                [-1.15, -1.07, 0.018], [-1.08, -0.98, 0.035], [-0.99, -0.88, 0.018], [-0.61, -0.56, -0.026]] },
+            { x: 0, z: -24.85, angle: -3.12, arc: 3.1, rest: Math.PI, guns: 3, my: 8.2,
+              lift: [[-0.75, -0.65, 0.018], [-0.66, -0.63, -0.026], [-0.57, -0.47, 0.018], [-0.48, -0.46, -0.026],
+                [-0.4, -0.3, 0], [-0.31, -0.28, -0.026]],
+              mask: [[0.04, 0.07, 0.35], [0.06, 0.08, 0.437], [0.07, 0.14, 1.048], [0.13, 0.15, 0.437],
+                [0.14, 0.21, 1.048], [0.2, 0.26, 0.262], [0.25, 0.28, 0], [-3.09, -2.81, -0.026],
+                [-0.73, -0.67, 0.018], [-0.68, -0.65, -0.026], [-0.55, -0.49, 0.018], [-0.5, -0.47, -0.026],
+                [-0.4, -0.34, 0.175], [-0.35, -0.32, 0], [-0.33, -0.3, -0.026], [-0.28, -0.25, 0.035],
+                [-0.26, -0.23, 0.35], [-0.24, -0.18, 1.048], [-0.19, -0.16, 0.524], [-0.17, -0.11, 1.048],
+                [-0.12, -0.09, 0.437], [-0.1, -0.07, 0.35], [-0.08, -0.02, 0.873], [-0.03, 0, 0.437]] },
+          ] },
+      ],
+    },
+    // Thirty-six Type 95 charges, two rails over her stern and two Type 94
+    // throwers either side of her quarterdeck. An escort destroyer was built
+    // for this as much as for anything, and carried more charges than a fleet
+    // destroyer ever did.
+    depthCharges: {
+      name: 'Type 95 depth charge', role: 'sub',
+      carried: 36,
+      // A hundred kilograms of explosive: lighter than a Mk 6.
+      damage: 8600,
+      // It sinks at a little under two metres a second.
+      sink: 1.9,
+      arming: 9,
+      settings: [15, 30, 60],
+      set: 30,
+      lethal: 7.5,
+      hurt: 19,
+      reload: 14,
+      throw: 60,
+      // Her Type 93 set, and its deafness, much as an American QC's.
+      sonar: 2200,
+      sonarMin: 150,
+      sonarSpeed: 20 * KNOTS,
+      racks: [
+        { id: 0, x: -1.6, z: -48.0, my: 4.0, angle: Math.PI, arc: 0.45 },
+        { id: 1, x: 1.6, z: -48.0, my: 4.0, angle: Math.PI, arc: 0.45 },
+      ],
+      throwers: [
+        { id: 0, x: -3.2, z: -38.0, my: 3.3, angle: -Math.PI / 2, arc: 0.45, throw: 70 },
+        { id: 1, x: 3.2, z: -38.0, my: 3.3, angle: Math.PI / 2, arc: 0.45, throw: 70 },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 1262,
+      aircraft: 0,
+      mainRounds: 720,
+      torpedoesCarried: 4,
+      secondary: null,
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 12, rounds: 24000 },
+      ],
+    },
+  },
+
   cleveland: {
     // Four triple 6" turrets, superfiring fore and aft. Wide arcs, but the
     // superstructure takes a bite out of each of them.
@@ -6739,7 +6928,7 @@ export const HULL_TOUGHNESS = 1.8;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'enterprise', 'shinano'];
 

@@ -97,8 +97,10 @@ export class Seakeeping {
     this.pitchHeed = pitchHeed(hull.length);
     this.heaveHeed = heaveHeed(hull.length);
     // Heave has a period of its own too -- she is a cork on a spring made of
-    // her own waterplane -- and it goes with her length like pitch does.
-    this.heaveW = (Math.PI * 2) / (pitchPeriod(hull.length) * 1.25);
+    // her own waterplane -- and it goes with her length like pitch does,
+    // unless her hull says otherwise: a shallow hull on a broad waterplane is
+    // a stiffer spring than her length makes her.
+    this.heaveW = (Math.PI * 2) / (hull.heavePeriod ?? pitchPeriod(hull.length) * 1.25);
     this.roll = 0;
     this.rollV = 0;
     this.pitch = 0;
