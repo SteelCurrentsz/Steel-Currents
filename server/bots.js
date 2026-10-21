@@ -363,38 +363,48 @@ function flyOff(state, ship, cls, staff, conned) {
  * Keeping station.
  *
  * The one behaviour that turns a collection of hulls into a fleet. His station
- * is a bearing and a distance from the guide, so it moves and turns with her;
- * he steers for it, and once he is on it he steers the fleet course like
- * everybody else. Out of station he uses the difference in speed to get back
- * -- ahead of station he eases, astern of it he cracks on.
+ * is a bearing and a distance from the guide -- the flagship -- so it moves and
+ * turns with her, and he follows her: her course, not the one on the signal
+ * pad, because she is the ship he can see and the one going into the action.
+ *
+ * He steers for a point a little ahead of his station along her course, so he
+ * comes up into it rather than across it, and he is never put more than a
+ * right angle off her heading to get there. A ship that finds herself ahead
+ * of her station used to put her helm over and steam back to it -- straight
+ * away from the enemy -- and that, more than anything, was the fleet turning
+ * out of the battle. Now she holds the flagship's course and eases until her
+ * station comes up to her. Astern of it she cracks on.
  *
  * Returns false when he has no station to keep, which is the guide's case and
  * the submarine's, and they steer for themselves.
  */
+const LEAD = 900;
 function keepStation(state, ship, brain, staff, dt) {
   if (!staff) return false;
   const at = stationPoint(state, staff, ship);
   if (!at) return false;
-  const d = dist(ship.x, ship.z, at.x, at.z);
-  const cls = getClass(ship.classId);
-  if (d > 260) {
-    // Not on it. Steer for it, and put on whatever she needs to close the
-    // gap -- a ship two miles out of station is no use to anybody.
-    steerToward(state, ship, headingTo(ship.x, ship.z, at.x, at.z));
-    ship.notch = d > 1200 ? 5 : 4;
-  } else {
-    // On it. Steer the fleet course, and hold the guide's speed -- hers, not a
-    // number written down here. The guide cracks on at everything she has now,
-    // so a line holding three-quarters could never stay with her: every ship in
-    // it fell out of station, worked up to full to catch her, eased back, and
-    // dropped astern again for the whole action.
-    steerToward(state, ship, staff.course);
-    const guide = state.ships.find((q) => q.id === staff.guideId && q.alive);
-    ship.notch = guide ? guide.notch : 5;
-  }
+  const guide = state.ships.find((q) => q.id === staff.guideId && q.alive);
+  const gh = guide ? guide.heading : staff.course;
+  const fx = Math.sin(gh);
+  const fz = Math.cos(gh);
+  const dx = at.x - ship.x;
+  const dz = at.z - ship.z;
+  // How far her station is ahead of her, along the flagship's course.
+  const along = dx * fx + dz * fz;
+  const want = headingTo(ship.x, ship.z, at.x + fx * LEAD, at.z + fz * LEAD);
+  const off = clamp(angleDelta(gh, want), -Math.PI * 0.45, Math.PI * 0.45);
+  steerToward(state, ship, wrapAngle(gh + off));
+  // The flagship's speed, and the difference made up on it. A human flag may
+  // be going astern or stopped; the fleet does not go astern after her, it
+  // stops with her.
+  const gn = guide ? clamp(guide.notch ?? 5, 1, 5) : 5;
+  if (along > 1500) ship.notch = 5;
+  else if (along > 200) ship.notch = Math.min(5, gn + 1);
+  else if (along < -1500) ship.notch = Math.max(1, gn - 3);
+  else if (along < -200) ship.notch = Math.max(2, gn - 1);
+  else ship.notch = gn;
   void brain;
   void dt;
-  void cls;
   return true;
 }
 

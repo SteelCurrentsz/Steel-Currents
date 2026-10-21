@@ -433,7 +433,12 @@ export function steerToward(state, ship, desiredHeading) {
     // it: she should not sheer away from a bay she could sail into.
     const reach = islandRadius(i, Math.atan2(ahead.x - i.x, ahead.z - i.z));
     if (dist(ahead.x, ahead.z, i.x, i.z) < reach + 300) {
-      target = headingTo(i.x, i.z, ship.x, ship.z);
+      // Off the island, but round it on the hand she wanted to go rather than
+      // straight back the way she came: a ship that met a headland on her way
+      // into the action used to turn tail on it.
+      const off = headingTo(i.x, i.z, ship.x, ship.z);
+      const d = angleDelta(off, desiredHeading);
+      target = wrapAngle(off + clamp(d, -1.0, 1.0));
       break;
     }
   }

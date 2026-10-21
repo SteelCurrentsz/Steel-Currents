@@ -164,9 +164,12 @@ function appreciate(state, staff) {
     return ty === 'BB' || ty === 'CA' || ty === 'CL';
   });
 
-  // The guide: the heaviest ship still able to lead. The whole line forms on
-  // her, and if she goes the next one takes it up.
-  const guide = heavies[0] || line[0] || null;
+  // The guide: the flagship. A captain's own ship flies the flag when there is
+  // one on this side -- the fleet is his, and it follows him in rather than
+  // forming on some other hull and leaving him to fight alone. Without one, the
+  // heaviest ship still able to lead; and if she goes the next takes it up.
+  const flag = line.find((s) => !s.isBot);
+  const guide = flag || heavies[0] || line[0] || null;
   staff.guideId = guide ? guide.id : 0;
   if (!guide) { staff.posture = 'seek'; return; }
 
@@ -222,7 +225,11 @@ function appreciate(state, staff) {
   // enough in that her guns are. A cruiser wants to be closer than a
   // battleship and a destroyer closer still, but the line is fought at the
   // guide's band because the line fights together.
-  const want = gcls.gun.range * (gcls.type === 'BB' ? 0.74 : 0.66);
+  //
+  // Into the battle, not off at the edge of it: the fleet used to settle at
+  // three-quarters of the guide's gun range and sit there broadside on, which
+  // from the bridge looks exactly like a fleet that has turned away.
+  const want = gcls.gun.range * (gcls.type === 'BB' ? 0.5 : 0.45);
 
   // And the course. This is the whole of the difference between a fleet that
   // fights and a fleet that runs away: she is never steered *from* the enemy,
@@ -234,10 +241,15 @@ function appreciate(state, staff) {
   // called on the signal pad, and the fleet used to be sent to a hundred and
   // thirty degrees any time it found itself inside two thirds of its own
   // fighting range. Inside that range it stays on the beam and fights there.
+  //
+  // The beam is kept for close action. Out to the fighting range the line
+  // goes in bows on, and at it angles in so the after turrets bear while the
+  // range still comes down: a fleet that turns broadside the moment it is in
+  // range is a fleet that stops going anywhere.
   const sideOf = staff.side || (staff.side = Math.random() < 0.5 ? 1 : -1);
-  let off = Math.PI * 0.5;
-  if (range > want * 1.15) off = Math.PI * 0.16;         // bows on, closing
-  else if (range > want * 0.9) off = Math.PI * 0.34;     // angling in
+  let off = Math.PI * 0.42;
+  if (range > want * 1.1) off = Math.PI * 0.06;          // bows on, closing
+  else if (range > want * 0.6) off = Math.PI * 0.25;     // angling in
   staff.posture = range > want * 1.2 ? 'close' : 'engage';
   let aim = wrapAngle(staff.axis + sideOf * off);
   staff.lastSignal = '';
@@ -255,7 +267,7 @@ function appreciate(state, staff) {
   // the enemy the entire way in, steaming away from a battle nobody had told
   // her to leave, because the two orders cancelled exactly.
   const lead = seen.find((c) => c.id === (plan ? plan.id : (prize && prize.id)));
-  if (lead && range < want * 0.9) {
+  if (lead && range < want * 0.6) {
     const theirCourse = lead.heading;
     const bearingFromThem = headingTo(lead.x, lead.z, guide.x, guide.z);
     const onTheirBow = Math.abs(angleDelta(theirCourse, bearingFromThem)) < 0.7;
