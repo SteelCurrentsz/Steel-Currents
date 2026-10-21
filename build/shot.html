@@ -14,6 +14,8 @@ try {
   const s2 = new THREE.DirectionalLight(0xbfd4e6, 0.55); s2.position.set(-50, 25, -40); scene.add(s2);
   const g = new THREE.Group();
   if (what.startsWith('ship:')) {
+    // A ship drawn off a sculpt is fetched before she can be built.
+    if (ships.loadShips) await ships.loadShips([what.slice(5)]);
     const built = ships.buildShip(what.slice(5));
     g.add(built.group);
     const hide = q.get('hide');

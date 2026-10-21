@@ -417,6 +417,177 @@ export const SHIP_CLASSES = {
     },
   },
 
+  yukikaze: {
+    // IJN Yukikaze, the eighth of the Kagero class: a fleet destroyer of 1940,
+    // a hundred and eighteen metres and two and a half thousand tonnes, with
+    // six 12.7 cm/50 in three twin gunhouses, eight 61 cm tubes in two
+    // quadruple banks with a reload for each tube, and thirty-five knots. She
+    // fought at the Java Sea, Midway, the Eastern Solomons, Santa Cruz, the
+    // night actions off Guadalcanal, Kolombangara, the Philippine Sea, Leyte
+    // Gulf and with the Yamato on her last sortie in April 1945, and came
+    // through every one of them: the luckiest ship in the Imperial Navy, and
+    // the only one of her class to see the war out.
+    //
+    // She is drawn as she was in 1945, from the owner's sculpts of her (see
+    // yukikaze.js): her hull, her bridge, her funnels, her masts and her
+    // deckhouses off one, and her 12.7 cm twin -- No.1 on her forecastle and
+    // No.3 on her quarterdeck, No.2's place on her after deckhouse given over
+    // to a 25 mm triple as it was in 1944 -- her 25 mm triple and her banks of
+    // tubes off the others, at her own length, 118.5 m, and floated at 3.76 m.
+    id: 'yukikaze',
+    name: 'Yukikaze',
+    fullName: 'IJN Yukikaze',
+    className: 'Kagero',
+    type: 'DD',
+    typeName: 'Destroyer',
+    nation: 'jpn',
+    blurb: 'The lucky one: a Kagero-class fleet destroyer with eight Long Lances, reloads for all of them, and twenty-six 25 mm.',
+    // She draws three and three quarter metres on a hundred and sixteen-metre
+    // waterline: a long, light hull on a fine waterplane, which heaves more
+    // quickly than her length alone would make her (see Seakeeping).
+    hull: { length: 118.5, beam: 11.2, draft: 3.76, superstructure: 0.9, heavePeriod: 3.6 },
+    hp: 15000,
+    // Thirty-five knots on two shafts, fifty-two thousand horsepower.
+    maxSpeed: 35 * KNOTS,
+    reverseSpeed: 9 * KNOTS,
+    accel: 1.3,
+    turnRate: 0.135,
+    rudderShift: 2.6,
+    speedLossInTurn: 0.24,
+    concealment: 5700,
+    fireDetectPenalty: 3100,
+    // Her Type 22 on her foremast and the Type 13 on her mainmast.
+    radarRange: 8500,
+    repairCooldown: 60,
+    repairHeal: 0.11,
+    smokeCharges: 3,
+    // No armour as such: splinter plating round her bridge, her gunhouses
+    // (which keep out spray and splinters and nothing else) and her machinery's
+    // own casings.
+    armor: { belt: 16, deck: 13, citadel: 16, bow: 10, superstructure: 10 },
+    turrets: [
+      // No.1 on her forecastle, laid over her bow; No.3 on her quarterdeck,
+      // laid over her stern.
+      { id: 0, name: 'No.1', x: 0, z: 39.5, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 7.2 },
+      { id: 1, name: 'No.3', x: 0, z: -37.1, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 5.0 },
+    ],
+    gun: {
+      name: '12.7 cm/50 Type 3', role: 'dp',
+      // Five below the horizontal to fifty-five: a C-type gunhouse was laid
+      // high for a surface gun, and not high enough to be an anti-aircraft
+      // gun, which is what she fought most of her war against.
+      elev: { min: -0.087, max: 0.96 },
+      reach: 5.6,
+      caliber: 127, reload: 5.0, traverse: 0.12, range: 15400, sigma: 1.9,
+      shells: shells(127, 2100, 1800, 80, 910, 0.08),
+    },
+    torpedoes: {
+      // Two banks of four on her centreline, the one between her funnels and
+      // the one abaft them, each training out on either beam and firing on
+      // neither her bow nor her stern. A Kagero carried a second fish for each
+      // tube in lockers beside the banks and reloaded them with her own
+      // gear in a matter of minutes -- which is what won the night actions of
+      // 1942 -- so she reloads quicker than any other ship's banks.
+      mounts: [
+        { id: 0, x: 0, z: 5.2, angle: 0, arc: 2.6, rest: 0, tubes: 4, my: 4.38 },
+        { id: 1, x: 0, z: -13.3, angle: 0, arc: 2.6, rest: 0, tubes: 4, my: 4.38 },
+      ],
+      name: 'Type 93 torpedo', role: 'surface', caliber: 610,
+      reach: 4.33,
+      traverse: 0.22,
+      // Oxygen: half a ton of explosive, a long run, and no wake to speak of.
+      reload: 90, damage: 16200, speed: 36 * KNOTS, range: 10000,
+      detection: 800, arming: 400, spread: 0.07, floodChance: 0.38,
+      // Each fish blown out of its tube at twelve metres a second, the four
+      // tubes a third of a second apart, from where it lies in the tube --
+      // `lanes` across the bank, its middle `lie` and the muzzle `muzzle`
+      // ahead of the training ring -- and dropping the `height` from the
+      // tubes to the sea once it is out. A Type 93 is the fish: 61 cm and,
+      // drawn, five and a half metres so it lies in the sculpt's tubes.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 4.38,
+        fish: { len: 5.6, r: 0.24 },
+      },
+    },
+    secondary: null,
+    // Her 12.7 cm are what she fights aeroplanes with beyond a few thousand
+    // metres, and laid too slowly to do it well; these are what she has
+    // inside them: six 25 mm triples -- in the tub on the bandstand before her
+    // bridge, on either wing of the platform round her after funnel, on the
+    // bandstand abaft it, at the foot of her mainmast and on her after
+    // deckhouse where No.2 stood -- and eight singles along her deck edges,
+    // each worked on its own side.
+    aa: {
+      range: 3000, dps: 16,
+      guns: [
+        { name: '25 mm Type 96 triple', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: 0, z: 32.6, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 9.0 },
+            { x: -2.6, z: -0.5, angle: -1.57, arc: 1.75, rest: -Math.PI / 2, guns: 3, my: 9.0 },
+            { x: 2.6, z: -0.5, angle: 1.57, arc: 1.75, rest: Math.PI / 2, guns: 3, my: 9.0 },
+            { x: 0, z: -6.1, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 9.0 },
+            { x: -0.1, z: -25.7, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 9.0 },
+            { x: 0.15, z: -29.8, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 7.1 },
+          ] },
+        { name: '25 mm Type 96 single', caliber: 25, role: 'aa', reload: 0.16, range: 2500,
+          elev: { min: -0.175, max: 1.48 },
+          mounts: [
+            { x: -4.0, z: 32.4, angle: -0.785, arc: 1.6, rest: -0.785, guns: 1, my: 6.4 },
+            { x: 4.0, z: 32.4, angle: 0.785, arc: 1.6, rest: 0.785, guns: 1, my: 6.4 },
+            { x: -4.2, z: 1.5, angle: -1.047, arc: 1.6, rest: -1.047, guns: 1, my: 4.5 },
+            { x: 4.2, z: 1.5, angle: 1.047, arc: 1.6, rest: 1.047, guns: 1, my: 4.5 },
+            { x: -4.2, z: -17.3, angle: -2.094, arc: 1.6, rest: -2.094, guns: 1, my: 4.5 },
+            { x: 4.2, z: -17.3, angle: 2.094, arc: 1.6, rest: 2.094, guns: 1, my: 4.5 },
+            { x: -4.2, z: -26.2, angle: -2.094, arc: 1.6, rest: -2.094, guns: 1, my: 4.5 },
+            { x: 4.2, z: -26.2, angle: 2.094, arc: 1.6, rest: 2.094, guns: 1, my: 4.5 },
+          ] },
+      ],
+    },
+    // Thirty-six Type 95 charges: two rails over her stern and a Type 94
+    // thrower either side of her quarterdeck, which is what she carried by
+    // 1944, when the war she was fighting was as much against submarines as
+    // against anything on the surface.
+    depthCharges: {
+      name: 'Type 95 depth charge', role: 'sub',
+      carried: 36,
+      // A hundred kilograms of explosive: lighter than a Mk 6.
+      damage: 8600,
+      // It sinks at a little under two metres a second.
+      sink: 1.9,
+      arming: 9,
+      settings: [15, 30, 60],
+      set: 30,
+      lethal: 7.5,
+      hurt: 19,
+      reload: 14,
+      throw: 60,
+      // Her Type 93 set, and its deafness, much as an American QC's.
+      sonar: 2200,
+      sonarMin: 150,
+      sonarSpeed: 20 * KNOTS,
+      racks: [
+        { id: 0, x: -1.7, z: -57.0, my: 4.1, angle: Math.PI, arc: 0.45 },
+        { id: 1, x: 1.7, z: -57.0, my: 4.1, angle: Math.PI, arc: 0.45 },
+      ],
+      throwers: [
+        { id: 0, x: -3.6, z: -48.8, my: 3.7, angle: -Math.PI / 2, arc: 0.45, throw: 70 },
+        { id: 1, x: 3.6, z: -48.8, my: 3.7, angle: Math.PI / 2, arc: 0.45, throw: 70 },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 2490,
+      aircraft: 0,
+      mainRounds: 900,
+      torpedoesCarried: 16,
+      secondary: null,
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 26, rounds: 52000 },
+      ],
+    },
+  },
+
   cleveland: {
     // Four triple 6" turrets, superfiring fore and aft. Wide arcs, but the
     // superstructure takes a bite out of each of them.
@@ -6928,7 +7099,7 @@ export const HULL_TOUGHNESS = 1.8;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'enterprise', 'shinano'];
 

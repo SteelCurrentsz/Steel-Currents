@@ -29,7 +29,7 @@ import { dressShip } from './textures.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu;
+  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze;
 const SCULPTED = {
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
@@ -41,6 +41,7 @@ const SCULPTED = {
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
   matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
+  yukikaze: () => import('./yukikaze.js').then((m) => { buildYukikaze = m.buildYukikaze; }),
   bismarck: () => import('./bismarck.js')
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
@@ -688,6 +689,21 @@ export function buildShipModel(classId) {
   // And the Matsu: the owner's sculpts of her hull, her guns and her tubes.
   if (cls.id === 'matsu') {
     const built = buildMatsu();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Yukikaze: the owner's sculpts of her hull, her twin, her triple
+  // and her tubes.
+  if (cls.id === 'yukikaze') {
+    const built = buildYukikaze();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
