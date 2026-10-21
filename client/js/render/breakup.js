@@ -145,6 +145,11 @@ export class Pieces {
       out.multiplyScalar(1 / len);
       const kick = burst ? 18 + hash(seed + i) * 22 : 2 + hash(seed + i) * 5;
       const heavy = name.startsWith('gear') || name === 'prop';
+      // The fuselage is most of the weight of her and has no wing left on it.
+      // Damped like a loose panel it stopped dead in the air and sank at
+      // twenty metres a second -- an aeroplane hanging over the sea for most
+      // of a minute. It keeps its way and falls like the lump it is.
+      const body = name === 'body';
       this.list.push({
         kind, name, names, center: c.clone(),
         p: at,
@@ -160,7 +165,10 @@ export class Pieces {
         ),
         // A wing has the most drag for its weight and stops dead in the air;
         // a leg or an airscrew is a lump of steel and falls like one.
-        drag: heavy ? 0.55 : name.startsWith('wing') ? 0.18 : 0.3,
+        drag: heavy ? 0.55 : body ? 0.7 : name.startsWith('wing') ? 0.18 : 0.3,
+        // And how hard the air holds up its fall, a second: it comes down at
+        // no more than about 9.8 / -ln(fall) metres a second.
+        fall: heavy || body ? 0.85 : name.startsWith('wing') ? 0.6 : 0.75,
         burn: name.startsWith('wing') && hash(seed + i * 2.2) < 0.75 ? 2.5 + hash(seed + i) * 3 : 0,
         smoke: 0,
         age: 0,
@@ -175,7 +183,7 @@ export class Pieces {
       k.age += dt;
       const d = Math.pow(k.drag, dt);
       k.v.x *= d; k.v.z *= d;
-      k.v.y = k.v.y * Math.pow(Math.min(0.95, k.drag + 0.35), dt) - 9.81 * dt;
+      k.v.y = k.v.y * Math.pow(k.fall ?? Math.min(0.95, k.drag + 0.35), dt) - 9.81 * dt;
       k.p.addScaledVector(k.v, dt);
       const wl = k.w.length();
       if (wl > 1e-4) {
