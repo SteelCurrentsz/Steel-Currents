@@ -38,7 +38,7 @@ import {
   normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
-  flightDeckOut, resolveShellHit, buoyancy, launchOffset, gunLimits,
+  flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
   flyPlane, releasePlane, dropOrdnance, strafe, openHull, bombHit,
   gunState, gunPenalty, lightGunState, magazineOf, magazineDrowned, magazineTons,
   sectionVolume, canFire, manGun, layGun, shootGun, lightMounts, layFloor,
@@ -11978,6 +11978,68 @@ check('nothing takes off over a hole in the flight deck', () => {
   assert.ok(launchStrike(st, cv), 'she would not launch after her deck was made good');
 });
 
+check('she flies off as long as there is deck, a dry hangar and planking not all alight', () => {
+  const st = createState(generateWorld(818, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
+  const cls = SHIP_CLASSES.enterprise;
+  // The after end shot away still leaves more than a take-off's worth of deck
+  // running to the bow.
+  cv.sections.aft.hp = 0;
+  assert.ok(runwayLength(cv) >= takeoffRoll(cv), 'a hole aft left too little deck');
+  assert.equal(flightDeckOut(cv), false, 'a hole abaft the run stopped her flying');
+  // Forward of the island it ends the run.
+  cv.sections.aft.hp = cv.sections.aft.max;
+  cv.sections.fwd.hp = 0;
+  assert.equal(flightDeckOut(cv), true, 'she flew off a deck broken forward');
+  cv.sections.fwd.hp = cv.sections.fwd.max;
+  // Fire on part of it is a deck that still works; the whole of it alight is not.
+  for (const k of ['stern', 'aft', 'mid']) cv.sections[k].fire = 0.8;
+  assert.equal(flightDeckOut(cv), false, 'part of the deck burning stopped her');
+  for (const k of ['fwd', 'bow']) cv.sections[k].fire = 0.8;
+  assert.equal(flightDeckOut(cv), true, 'she flew off a deck alight from end to end');
+  for (const k of Object.keys(cv.sections)) cv.sections[k].fire = 0;
+  // The sea in the hangar: nothing comes up the lift.
+  for (const k of ['aft', 'mid', 'fwd']) cv.sections[k].water = sectionVolume(cls, k) * 0.6;
+  assert.equal(flightDeckOut(cv), true, 'she flew off with her hangar flooded');
+  for (const k of ['aft', 'mid', 'fwd']) cv.sections[k].water = 0;
+  assert.equal(flightDeckOut(cv), false, 'a dry, whole, unburnt deck is out');
+
+  // And gravity on the run. Level, she gets off; listed past what her tyres
+  // hold, she goes over the side; down by the stern with the bow gone short,
+  // she runs out of deck.
+  assert.equal(deckRunFate(cv), null, 'she could not get off a level deck');
+  cv.heel = 0.05;
+  assert.equal(deckRunFate(cv), null, 'three degrees of list put her over the side');
+  cv.heel = -0.25;
+  assert.equal(deckRunFate(cv), 'side', 'fourteen degrees of list and she stayed on the deck');
+  cv.heel = 0;
+  cv.trim = -0.12;
+  cv.sections.aft.hp = 0;
+  assert.equal(deckRunFate(cv), 'bow', 'uphill on a short deck and she still flew');
+  cv.trim = 0;
+  cv.sections.aft.hp = cv.sections.aft.max;
+
+  // In the battle: a launch off a listing deck loses her over the side, and
+  // nothing of her gets into the air.
+  const foe = addShip(st, { name: 'BB', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 6000;
+  cv.aimX = foe.x; cv.aimZ = foe.z;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  let lost = null;
+  // Listed by the sea in her, one side of her machinery spaces flooded, and
+  // held there for the length of the launch.
+  const listed = sectionVolume(cls, 'mid') * 0.2;
+  for (let i = 0; i < 30 * 40 && !lost; i++) {
+    const c = cv.sections.mid;
+    c.wS = listed; c.wP = 0; c.water = listed; c.side = 1; c.holeS = 0; c.holeP = 0;
+    for (const e of step(st, DT)) if (e.e === 'deckLoss') lost = e;
+  }
+  assert.ok(lost, 'nothing went over the side of a ship listed seventeen degrees');
+  assert.equal(lost.how, 'side');
+  assert.equal(st.planes.filter((q) => q.owner === cv.id).length, 0, 'an aeroplane lost off the deck is flying');
+  assert.equal(cv.launching, null, 'the deck went on launching over the side');
+});
+
 check('a flight with no deck to come home to goes in the water', () => {
   const st = createState(generateWorld(919, 'open_ocean'), { mode: 'deathmatch' });
   const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0, airGroup: SMALL_E });
@@ -19850,6 +19912,16 @@ check('the sea is told about the hulls nearest the eye, and lets go of one that 
   a.going = {};
   breakers.update(0, eye, [a]);
   assert.equal(u.uHullCount.value, 0, 'the sea is still being kept out of a ship that has gone');
+  // Blown apart by her magazine, or cut in two: her outline as built is no
+  // longer where her steel is, and keeping the sea out of it cut a hole in the
+  // sea onto the sky.
+  a.going = null;
+  for (const how of ['rupture', 'severed']) {
+    a[how] = {};
+    breakers.update(0, eye, [a]);
+    assert.equal(u.uHullCount.value, 0, `the sea is still being kept out of a ship that is ${how}`);
+    a[how] = null;
+  }
 
   // More ships than the sea has room for: the nearest are the ones it keeps out of.
   const fleet = [];

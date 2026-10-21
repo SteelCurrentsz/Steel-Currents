@@ -6363,22 +6363,123 @@ export function normaliseAirGroup(cls, want) {
  * the deck over them goes with them: there is a hole in the planking where
  * aircraft have to run.
  *
- * The deck run starts at the round-down and goes the length of her, so it
- * crosses the after magazine, the machinery and the forward magazine. Any one
- * of those opened up and there is nothing to fly off.
+ * Her hangar is under the same three: the after magazine, the machinery and
+ * the forward magazine are what a hangar deck is built over.
  */
 const DECK_OVER = ['aft', 'mid', 'fwd'];
 
+/** Her flight deck, round-down to bow, as the compartments under it. */
+const RUNWAY = ['stern', 'aft', 'mid', 'fwd', 'bow'];
+
 /**
- * Is her flight deck wrecked?
+ * How much of her length a loaded aircraft needs to get off a level deck, with
+ * the ship's own way giving her wind over it. A ship can say otherwise.
+ */
+export const TAKEOFF_ROLL = 0.45;
+
+/** How full her hangar compartments have to be before nothing comes up the lift. */
+export const HANGAR_FLOODED = 0.5;
+
+/** A compartment burning this hard is planking nobody can taxi across. */
+const DECK_ABLAZE = 0.25;
+
+/**
+ * How much clear deck she has to fly off, in metres: the unbroken run of it
+ * that ends at her bow, because that is where an aeroplane leaves. A hole aft
+ * of the island shortens the run; a hole forward of it ends it.
+ */
+export function runwayLength(ship, cls = shipClass(ship)) {
+  const L = cls.hull.length;
+  if (!ship.sections) return L;
+  let run = 0;
+  for (let i = RUNWAY.length - 1; i >= 0; i--) {
+    const c = ship.sections[RUNWAY[i]];
+    if (!c || c.lost || c.hp <= 0) break;
+    const s = SECTIONS.find((q) => q.k === RUNWAY[i]);
+    run += (Math.min(1, s.to) - Math.max(-1, s.from)) * 0.5 * L;
+  }
+  return run;
+}
+
+/** How much deck she needs for the aeroplane to fly off it. */
+export function takeoffRoll(ship, cls = shipClass(ship)) {
+  return (cls.planes?.roll ?? TAKEOFF_ROLL) * cls.hull.length;
+}
+
+/** Whether the sea is in her hangar: nothing below can be brought up to fly. */
+export function hangarFlooded(ship, cls = shipClass(ship)) {
+  if (!ship.sections) return false;
+  let water = 0;
+  let room = 0;
+  for (const k of DECK_OVER) {
+    const c = ship.sections[k];
+    if (!c) continue;
+    water += c.water || 0;
+    room += sectionVolume(cls, k);
+  }
+  return room > 0 && water / room >= HANGAR_FLOODED;
+}
+
+/** Whether the whole of her runway is alight. Part of it burning is not enough. */
+export function runwayAblaze(ship) {
+  if (!ship.sections) return false;
+  return RUNWAY.every((k) => !ship.sections[k] || (ship.sections[k].fire || 0) >= DECK_ABLAZE);
+}
+
+/**
+ * Is her flight deck out?
  *
- * Not damaged -- wrecked. A compartment has to be gone, not merely holed,
- * before the deck above it is unusable: a carrier fought with her deck full of
- * holes all through the war, and patched them between strikes.
+ * Not damaged -- out. A carrier fought with her deck full of holes all through
+ * the war and patched them between strikes, and she flew off a deck with a
+ * fire on it. What stops her is not enough unbroken planking left to the bow
+ * to get an aeroplane off, the sea in the hangar the aircraft come up from, or
+ * every foot of the deck burning at once.
+ *
+ * A gun ship's catapults stand over her after compartments rather than on a
+ * flight deck, and go with any of them.
  */
 export function flightDeckOut(ship) {
   if (!ship.sections) return false;
-  return DECK_OVER.some((k) => ship.sections[k] && ship.sections[k].hp <= 0);
+  const cls = shipClass(ship);
+  if (cls.type !== 'CV') return DECK_OVER.some((k) => ship.sections[k] && ship.sections[k].hp <= 0);
+  return runwayLength(ship, cls) < takeoffRoll(ship, cls)
+    || hangarFlooded(ship, cls) || runwayAblaze(ship);
+}
+
+/** What a tyre holds sideways on wet planking, as a fraction of the weight on it. */
+export const DECK_GRIP = 0.12;
+/** How hard a loaded aeroplane at full power gathers way down a level deck, in m/s². */
+export const TAKEOFF_ACCEL = 4.5;
+
+/**
+ * Whether the deck run gets her off, and if not, how she was lost.
+ *
+ * Nothing holds an aeroplane to a flight deck but her own weight on her
+ * wheels. Listed, the deck is a slope across her, and for the seconds she is
+ * running down it she is sliding toward the low side at whatever gravity has
+ * left over once her tyres have taken their share: past a few degrees she goes
+ * over the edge before she has flying speed. Trimmed by the stern, the run is
+ * uphill and she needs more deck than she would on the level, and with the
+ * forward end shot away she may not have it -- in which case she goes off the
+ * bow without flying speed and into the sea ahead of the ship.
+ *
+ * Returns null when she flies, else `side` or `bow`.
+ */
+export function deckRunFate(ship, cls = shipClass(ship)) {
+  const G = 9.81;
+  const heel = (ship.heel || 0) + (ship.lean || 0) + (ship.rock || 0);
+  // Positive trim is down by the head: downhill, and it helps her.
+  const a = TAKEOFF_ACCEL + G * Math.sin(ship.trim || 0);
+  const runway = runwayLength(ship, cls);
+  const need = a > 0.3 ? takeoffRoll(ship, cls) * TAKEOFF_ACCEL / a : Infinity;
+  const run = Math.min(need, runway);
+  const T = Math.sqrt(2 * run / Math.max(0.3, a));
+  const slide = G * (Math.abs(Math.sin(heel)) - DECK_GRIP * Math.cos(heel));
+  const drift = slide > 0 ? 0.5 * slide * T * T : 0;
+  // From the centreline to the deck edge: her flight deck overhangs her hull.
+  if (drift > (cls.planes?.deckBeam ?? cls.hull.beam * 1.3) * 0.5) return 'side';
+  if (need > runway) return 'bow';
+  return null;
 }
 
 /** How long one launch takes the deck, from the lift going down to wheels up. */
@@ -6616,6 +6717,32 @@ function stepLaunch(state, ship, dt) {
     return;
   }
   const f = L.flights.shift();
+  // Her run down the deck, with the deck the way it is now. A carrier's; a
+  // catapult throws its aeroplane off whatever the ship is doing.
+  const fate = f && cls.type === 'CV' ? deckRunFate(ship, cls) : null;
+  if (fate) {
+    // Lost off the deck. She is not in the air and never will be; the deck
+    // officer stops the launch, and whatever of the strike is already up goes
+    // on without the rest of it. The squadron is struck below again until the
+    // deck is fit to fly off.
+    const fwd = fate === 'bow' ? runwayLength(ship, cls) - cls.hull.length * 0.5 + 12
+      : cls.hull.length * 0.1;
+    const low = wrapAngle(ship.heading + Math.sign(
+      (ship.heel || 0) + (ship.lean || 0) + (ship.rock || 0) || 1) * Math.PI / 2);
+    const out = fate === 'side' ? (cls.planes?.deckBeam ?? cls.hull.beam * 1.3) * 0.5 : 0;
+    ship.launching = null;
+    ship.deckBusy = Math.max(ship.deckBusy, 10);
+    sq.state = 'deck';
+    sq.cooldown = Math.max(sq.cooldown, 30);
+    releaseStrike(state, ship, L.sqId);
+    state.events.push({
+      e: 'deckLoss', ship: ship.id, how: fate, r: f.role,
+      x: r(ship.x + Math.sin(ship.heading) * fwd + Math.sin(low) * out),
+      z: r(ship.z + Math.cos(ship.heading) * fwd + Math.cos(low) * out),
+      h: Math.round((fate === 'side' ? low : ship.heading) * 1000) / 1000,
+    });
+    return;
+  }
   if (f) {
     // Off the bow on the ship's own head, climbing, and turning toward the
     // target from there: the deck run is down her centreline, not toward

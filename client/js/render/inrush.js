@@ -5,9 +5,11 @@
 // something else -- it is where the water is getting in, and that is the one
 // thing about it anybody would actually see: a green-white rush pouring over
 // the lip and down into her, harder the deeper the hole is under, and slopping
-// in and out with every wave when the sea is only just reaching it. And in
-// behind it, the water already inside her, lying at the level of the sea
-// outside and heaving with it.
+// in and out with every wave when the sea is only just reaching it.
+//
+// The water already in her is not drawn. It used to be, as a disc of foam laid
+// level behind the hole, and from outside it was a pale blue circle stuck to
+// her side wherever she was holed.
 //
 // Nothing here is the battle's. The battle floods her through the orifice it
 // worked out for that hit (see openHull in sim.js); this only draws what that
@@ -24,10 +26,8 @@ const HOLES = 40;
 const G = 9.81;
 
 const TMP = new THREE.Vector3();
-const TMP2 = new THREE.Vector3();
 const DOWN = new THREE.Vector3();
 const Q = new THREE.Quaternion();
-const FLAT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 let SPRITE;
 /** A soft round blob of spray, made once. Null where there is no canvas. */
@@ -48,34 +48,6 @@ function sprite() {
     SPRITE = new THREE.CanvasTexture(c);
   } catch { SPRITE = null; }
   return SPRITE;
-}
-
-let FOAM;
-/** Churned water lying in her: dark sea with white broken through it. */
-function foam() {
-  if (FOAM !== undefined) return FOAM;
-  FOAM = null;
-  if (typeof document === 'undefined') return FOAM;
-  try {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d');
-    g.fillStyle = '#1d4a52';
-    g.fillRect(0, 0, 64, 64);
-    // Deterministic, so it is the same water on every screen.
-    let s = 7;
-    const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-    for (let i = 0; i < 70; i++) {
-      const x = rnd() * 64, y = rnd() * 64, r = 1 + rnd() * 5;
-      g.fillStyle = `rgba(210,232,236,${0.15 + rnd() * 0.45})`;
-      g.beginPath();
-      g.arc(x, y, r, 0, Math.PI * 2);
-      g.fill();
-    }
-    FOAM = new THREE.CanvasTexture(c);
-    FOAM.wrapS = FOAM.wrapT = THREE.RepeatWrapping;
-  } catch { FOAM = null; }
-  return FOAM;
 }
 
 export class Inrush {
@@ -105,10 +77,6 @@ export class Inrush {
     this.points.userData.noSplit = true;
     this.points.raycast = () => {};
     group.add(this.points);
-    this.waterMat = new THREE.MeshBasicMaterial({
-      color: foam() ? 0xffffff : 0x1d4a52, map: foam(),
-      transparent: true, opacity: 0.92, side: THREE.DoubleSide, depthWrite: true,
-    });
     this.geo = geo;
   }
 
@@ -136,13 +104,10 @@ export class Inrush {
     const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
     const h = {
       x, y, z, r, nx, ny, nz, ax, ay, az, bx, by, bz,
-      acc: 0, water: null, seed: (Math.abs(x * 13.1 + z * 7.7 + y * 3.3) % 6.28),
+      acc: 0, seed: (Math.abs(x * 13.1 + z * 7.7 + y * 3.3) % 6.28),
     };
     this.holes.push(h);
-    if (this.holes.length > HOLES) {
-      const old = this.holes.shift();
-      if (old.water) { old.water.removeFromParent(); old.water.geometry.dispose(); }
-    }
+    if (this.holes.length > HOLES) this.holes.shift();
   }
 
   /** Once a frame, after she is posed. */
@@ -150,10 +115,7 @@ export class Inrush {
     this.t += dt;
     const g = this.group;
     this.points.visible = show;
-    if (!show) {
-      for (const h of this.holes) if (h.water) h.water.visible = false;
-      return;
-    }
+    if (!show) return;
     g.updateMatrixWorld(true);
     g.getWorldQuaternion(Q);
     const inv = Q.clone().invert();
@@ -185,33 +147,6 @@ export class Inrush {
           h.acc -= 1;
           this.spawn(h, v, wet);
         }
-      }
-      // And the water lying in her behind it, at the level of the sea
-      // outside, for as long as the sea is across the hole -- what you see
-      // looking in at a hole the waterline runs through.
-      const show2 = under > -h.r * 1.1 && under < h.r * 1.6;
-      if (show2) {
-        if (!h.water) {
-          const rad = Math.max(0.8, h.r * 1.15);
-          h.water = new THREE.Mesh(new THREE.CircleGeometry(rad, 18), this.waterMat);
-          h.water.raycast = () => {};
-          h.water.renderOrder = 1;
-          h.water.userData.noSplit = true;
-          g.add(h.water);
-        }
-        // In behind the plate, clear of it, at the sea's own height.
-        const back = h.r * 1.35 + 0.5;
-        TMP2.set(h.x - h.nx * back, h.y - h.ny * back, h.z - h.nz * back);
-        g.localToWorld(TMP2);
-        TMP2.y = sea + slop * 0.6;
-        g.worldToLocal(TMP2);
-        h.water.position.copy(TMP2);
-        // Level in the world, turning slowly as it churns.
-        h.water.quaternion.copy(inv).multiply(FLAT);
-        h.water.rotateZ(time * 0.4 + h.seed);
-        h.water.visible = true;
-      } else if (h.water) {
-        h.water.visible = false;
       }
     }
     // Every drop: falling, and gone when its time is up.
@@ -254,9 +189,5 @@ export class Inrush {
     this.points.removeFromParent();
     this.geo.dispose();
     this.points.material.dispose();
-    for (const h of this.holes) {
-      if (h.water) { h.water.removeFromParent(); h.water.geometry.dispose(); }
-    }
-    this.waterMat.dispose();
   }
 }

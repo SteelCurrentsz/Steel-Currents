@@ -2959,6 +2959,32 @@ export class Battle {
           }
           break;
         }
+        case 'deckLoss': {
+          // An aeroplane lost off her own deck: over the low side of a ship
+          // listed too far for her tyres to hold her, or off the bow without
+          // flying speed. She never flew, so there is nothing to hand over --
+          // the deck model is struck below at once, or the climb-out would be
+          // drawn for an aeroplane that is in the sea -- and what goes over the
+          // edge is a wreck falling from the deck.
+          const v = this.scene.shipViews.get(ev.ship);
+          if (v) this.recallDeckPlane(v);
+          const deckY = v ? (v.group.userData.flightDeckY ?? 17) + v.group.position.y : 17;
+          const role = ev.r || 'torpedo';
+          const P = v && v.cls && v.cls.planes ? v.cls.planes : {};
+          const kind = typeOf((P.types && P.types[role]) || P.type || null, role);
+          const off = ev.how === 'side';
+          this.oneDown({
+            x: ev.x, y: deckY + 1, z: ev.z, heading: ev.h || 0,
+            vx: Math.sin(ev.h || 0) * (off ? 5 : 26), vy: off ? -1 : 1,
+            vz: Math.cos(ev.h || 0) * (off ? 5 : 26),
+            role, kind, why: 'nodeck', span: (AERO[kind] || AERO.avenger).span,
+          });
+          if (ev.ship === this.shipId) {
+            this.hud.alert(off ? 'Aircraft lost over the side — she is listing too far'
+              : 'Aircraft lost off the bow — not enough deck');
+          }
+          break;
+        }
         case 'deckCrash': {
           // An aeroplane at eighty knots on a flight deck with a hole in it.
           // She goes into it, and there is a fire on the deck where she went.

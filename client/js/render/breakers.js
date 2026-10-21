@@ -392,7 +392,11 @@ function planOf(view) {
  */
 export function holdStrength(view, plan) {
   if (!view.group || view.group.visible === false) return 0;
-  if (view.going || view.halves) return 0;
+  // Blown apart by her magazine or cut in two, her own outline is no longer
+  // where her steel is: the pieces have gone their own ways and the plan of
+  // her as built would cut a hole in the sea where nothing is, and the sky
+  // shows through it.
+  if (view.going || view.halves || view.rupture || view.severed) return 0;
   const settle = (view.sinkY || 0) / Math.max(1, plan.freeboard);
   // Nor once she is laid well over or down by an end: a ship rolling over
   // has her bottom coming up out of the sea, and holding the sea to the
