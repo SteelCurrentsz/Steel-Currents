@@ -4451,6 +4451,70 @@ check('the harder she goes aground the more of her bottom it takes', () => {
   assert.ok(took.fast > took.slow * 1.5, `full speed cost ${Math.round(took.fast)}, a quarter ${Math.round(took.slow)}`);
 });
 
+check('a ship that takes the ground feels it at once, and stops on the beach she can see', () => {
+  for (const classId of ['fletcher', 'iowa']) {
+    const { w, st, ship } = offIsland(classId);
+    const cls = SHIP_CLASSES[classId];
+    ship.notch = 5;
+    let before = 0;
+    let hitAt = null;
+    let after = null;
+    for (let i = 0; i < 240 / DT; i++) {
+      const v = Math.abs(ship.speed);
+      const evs = step(st, DT);
+      if (hitAt === null && evs.some((e) => e.e === 'ground' && e.i === ship.id)) {
+        hitAt = st.t; before = v; after = Math.abs(ship.speed);
+      }
+      if (hitAt !== null && ship.speed === 0) break;
+    }
+    assert.ok(hitAt !== null, `${classId}: never touched`);
+    // The blow takes a good part of her way off her in the instant it lands.
+    assert.ok(after < before * 0.8, `${classId}: struck at ${before.toFixed(1)} m/s and was still making ${after.toFixed(1)}`);
+    // And she is stopped in seconds, not ploughing on for a minute.
+    assert.equal(ship.speed, 0, `${classId}: still making way`);
+    assert.ok(st.t - hitAt < 12, `${classId}: took ${(st.t - hitAt).toFixed(1)} s to stop`);
+    // Where it can be seen: her forefoot up at the waterline of the beach
+    // as it is drawn, not stopped a hundred metres short of it.
+    const half = cls.hull.length / 2;
+    const bow = drawnGround(w, ship.x + Math.sin(ship.heading) * half, ship.z + Math.cos(ship.heading) * half);
+    assert.ok(bow > -2, `${classId}: stopped with the ground ${(-bow).toFixed(1)} m under her bow`);
+    // And lying on it, not lifted clear of the sea.
+    assert.ok(ship.groundLift <= cls.hull.draft * 0.8 + 1e-6, `${classId}: lifted ${ship.groundLift.toFixed(1)} m`);
+  }
+});
+
+check('off a beach the ground a keel is tested against is the ground that is drawn', () => {
+  // A coast: the profile at the corners of the grid it is drawn on, flat
+  // between them -- not a staircase of mask cells with a cliff at the shore.
+  const w = strait();
+  let n = 0;
+  for (let x = -6000; x <= 6000; x += 137) {
+    for (let z = 8000; z <= 12000; z += 61) {
+      const g = keelGround(w, x, z);
+      if (g < -39 || g > 40) continue;
+      n++;
+      assert.ok(Math.abs(g - drawnGround(w, x, z)) < 0.25, `the coast is ${g.toFixed(1)} and drawn ${drawnGround(w, x, z).toFixed(1)} at ${x},${z}`);
+    }
+  }
+  assert.ok(n > 50, 'no shore found to check');
+  // And no cliff anywhere along it a ship could run into unseen.
+  for (let x = -6000; x <= 6000; x += 211) {
+    for (let z = 8000; z < 12000; z += 5) {
+      assert.ok(Math.abs(keelGround(w, x, z + 5) - keelGround(w, x, z)) < 5, `a step in the bottom at ${x},${z}`);
+    }
+  }
+  // An island: its mesh is laid out over the whole of its shelf, so the
+  // seabed off the beach is drawn where it is, not a made-up slope.
+  const wi = generateWorld(9911, 'solomon_narrows', 'day', 14000);
+  const isle = [...wi.islands].sort((a, b) => b.r - a.r)[0];
+  const R = islandRadius(isle, Math.PI);
+  for (let s = 0; s < 1200; s += 25) {
+    const z = isle.z - R - s;
+    assert.ok(Math.abs(keelGround(wi, isle.x, z) - drawnGround(wi, isle.x, z)) < 2.5,
+      `${s} m off the beach the bottom is ${keelGround(wi, isle.x, z).toFixed(1)} and drawn ${drawnGround(wi, isle.x, z).toFixed(1)}`);
+  }
+});
+
 check('driven up a beach she ploughs a trench in it, lies in it, and the trench goes on the wire', () => {
   const ran = {};
   for (const notch of [2, 5]) {

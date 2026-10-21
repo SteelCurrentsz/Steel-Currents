@@ -40,7 +40,7 @@ import { renderCulled } from './pixelcull.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
-  ISLE_RINGS, isleSpokes, isleVertex, COAST_STEP, drawnGround,
+  isleRings, isleSpokes, isleVertex, COAST_STEP, drawnGround,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { clamp } from '../../../shared/math.js';
@@ -286,7 +286,7 @@ function buildIslands(world, mat = null) {
     // anything here knowing what a crater is.
     const spokes = isleSpokes(isle);
 
-    const nr = ISLE_RINGS.length;
+    const nr = isleRings(isle).length;
     const px = new Float32Array(spokes * nr);
     const py = new Float32Array(spokes * nr);
     const pz = new Float32Array(spokes * nr);

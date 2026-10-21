@@ -797,6 +797,11 @@ function stepMovement(state, ship, dt) {
   const nx = ship.x + (Math.sin(ship.heading) * v + sx) * dt;
   const nz = ship.z + (Math.cos(ship.heading) * v + sz) * dt;
 
+  // The shock of taking the ground, dying away.
+  if (ship.groundJolt) {
+    ship.groundJolt *= Math.exp(-dt / 0.45);
+    if (Math.abs(ship.groundJolt) < 1e-4) ship.groundJolt = 0;
+  }
   // The bottom. She draws so many metres and the sea is so deep here; where
   // the ground comes up higher than her keel she is on it.
   if (!touchBottom(state, ship, cls, h0, nx, nz, dt)) { ship.x = nx; ship.z = nz; }
@@ -831,6 +836,19 @@ const KEEL = [-0.92, -0.62, -0.32, 0, 0.32, 0.62, 0.92];
 /** Where her screws are, as the same fraction. */
 const SCREWS_AT = -0.8;
 
+/**
+ * The bottom a keel is on: the ground exactly as it is drawn, without the
+ * trenches keels have cut in it (she lies in her own). The true height field
+ * and the mesh on the screen are a metre or two apart between the mesh's
+ * vertices, and up a steep beach several -- which is a bow sunk five metres
+ * into a hillside the captain can see, or stopped short of a beach she has
+ * not touched yet. Tested against the picture, she touches when she is seen
+ * to touch.
+ */
+function bedAt(world, x, z) {
+  return drawnGround(world, x, z);
+}
+
 /** How deep she goes: her draft, and for a boat under water her depth as well. */
 function keelDepth(ship, cls) {
   return cls.hull.draft + Math.max(0, ship.depth || 0);
@@ -855,7 +873,7 @@ export function seabedRoom(world, ship, cls) {
   const cs = Math.cos(ship.heading);
   let room = Infinity;
   for (const k of KEEL) {
-    const g = keelGround(world, ship.x + sn * half * k, ship.z + cs * half * k);
+    const g = bedAt(world, ship.x + sn * half * k, ship.z + cs * half * k);
     room = Math.min(room, -g - cls.hull.draft * (Math.abs(k) > 0.85 ? 0.85 : 1) + 1);
   }
   return Math.max(0, room);
@@ -883,7 +901,7 @@ export function keelContact(world, ship, cls, x, z, heading) {
     for (const w of lat) {
       const px = x + sn * half * k + cs * cls.hull.beam * w;
       const pz = z + cs * half * k - sn * cls.hull.beam * w;
-      const c = keelGround(world, px, pz) + draw;
+      const c = bedAt(world, px, pz) + draw;
       if (c <= 0) continue;
       out.pen += c;
       if (c > out.max) { out.max = c; out.at = k; }
@@ -893,7 +911,7 @@ export function keelContact(world, ship, cls, x, z, heading) {
   const sx = x + sn * half * SCREWS_AT;
   const sz = z + cs * half * SCREWS_AT;
   const lift = out.max * (out.at > 0 ? 0.25 : 0.7);
-  out.screws = Math.min(T, -keelGround(world, sx, sz)) - lift;
+  out.screws = Math.min(T, -bedAt(world, sx, sz)) - lift;
   // And her stern itself driven hard into the bottom: the screws and the
   // rudder are under it, and they are in the sand with it, however deep the
   // water is a few metres further forward.
@@ -920,7 +938,11 @@ function groundDig(c, T) {
 function groundPose(ship, cls, c) {
   if (!c || c.pen <= 0) { ship.groundLift = 0; ship.groundTrim = 0; return; }
   const half = cls.hull.length * 0.5;
-  const rise = Math.max(0, c.max - groundDig(c, keelDepth(ship, cls)));
+  const T = keelDepth(ship, cls);
+  // Never more than most of her draft: a ship lifted clear of the sea along
+  // her whole length is not aground, she is in the air, and whatever ground
+  // would say so is a step in it rather than a beach.
+  const rise = Math.min(T * 0.8, Math.max(0, c.max - groundDig(c, T)));
   if (Math.abs(c.at) < 0.25) {
     // On it amidships: lifted level.
     ship.groundLift = rise;
@@ -932,7 +954,7 @@ function groundPose(ship, cls, c) {
   // onto a beach is a negative trim -- the sign her collision trim takes.
   const trim = clamp(-rise / ((c.at - e) * half), -0.12, 0.12);
   ship.groundTrim = trim;
-  ship.groundLift = Math.max(0, rise + trim * c.at * half);
+  ship.groundLift = clamp(rise + trim * c.at * half, 0, T * 0.8);
 }
 
 /** How far she is lifted by the ground at a point along her keel. */
@@ -963,7 +985,7 @@ function scoreGround(state, ship, cls) {
     const k = SCORE[n];
     const px = ship.x + sn * half * k;
     const pz = ship.z + cs * half * k;
-    const ground = keelGround(state.world, px, pz);
+    const ground = bedAt(state.world, px, pz);
     const draw = T * (Math.abs(k) > 0.85 ? 0.85 : 1);
     // How far the ground stands above her bottom here, as she lies.
     const cut = ground + draw - groundRaise(ship, cls, k);
@@ -1018,7 +1040,7 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   };
 
   const deeper = now.pen - was.pen;
-  if (deeper <= 1e-4) {
+  if (deeper <= 1e-7) {
     // Coming off it, or sliding along it no further on: she goes, with the
     // bottom dragging at her.
     ship.aground = Math.min(1, now.max / T);
@@ -1040,12 +1062,20 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
         openHull(state, ship, where(now.at), (v - 2.5) * 0.12, now.at >= 0 ? 1 : -1, T * 0.95);
       }
     }
+    // Where she struck, for the spray and the sand it throws.
+    const strike = cls.hull.length * 0.5 * now.at;
     state.events.push({
       e: 'ground', i: ship.id, team: ship.team, x: r(ship.x), z: r(ship.z),
       v: r(v), at: r(now.at),
+      px: r(nx + Math.sin(ship.heading) * strike), pz: r(nz + Math.cos(ship.heading) * strike),
     });
     // What she hit it with, which decides how far up it she goes.
     ship.groundV = v;
+    // And the blow itself, which is felt at once and seen at once: the end
+    // that struck is thrown up and she shudders back down onto it, and the
+    // way comes off her in the first second rather than over a minute.
+    ship.groundJolt = -Math.sign(now.at || 1) * clamp(v / 12, 0.15, 1) * 0.04;
+    ship.speed *= 1 - 0.32 * clamp(v / 8, 0.3, 1);
   }
   ship.aground = Math.min(1, now.max / T);
   ship.groundAt = now.at;
@@ -1077,10 +1107,20 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   // further on she is.
   if (was.pen > 0) {
     damageShip(state, ship, null, ship.maxHp * 0.0045 * (deeper / T), 'grounding', where(now.at));
-    const brake = dt * (0.2 + 0.9 * now.max / T);
-    ship.speed = Math.sign(ship.speed) * Math.max(0, Math.abs(ship.speed) * Math.exp(-deeper / (T * 3)) - brake);
-  } else {
-    ship.speed *= 0.85;
+    const brake = dt * (0.45 + 1.7 * now.max / T);
+    ship.speed = Math.sign(ship.speed) * Math.max(0, Math.abs(ship.speed) * Math.exp(-deeper / (T * 2.2)) - brake);
+    // Way all but gone and still being pushed on: the ground has her. She
+    // does not creep up a beach a centimetre a second on her screws.
+    if (Math.abs(ship.speed) < 0.25) {
+      groundPose(ship, cls, was);
+      ship.aground = Math.min(1, was.max / T);
+      ship.groundAt = was.at;
+      ship.speed = 0;
+      ship.yawRate = 0;
+      ship.heading = h0;
+      ship.driftX = 0; ship.driftZ = 0;
+      return true;
+    }
   }
   scoreGround(state, ship, cls);
   return false;

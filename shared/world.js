@@ -240,7 +240,11 @@ export function islandHeight(isle, x, z) {
     // smoothstep gave was the shape of a slag heap rather than an island.
     const v = (u - BEACH) / (1 - BEACH);
     const t = Math.min(1, v / 0.82);
-    const steep = Math.pow(t, 0.6);
+    // Steep, but a slope and not a step: a bare power of a third or so goes
+    // straight up at the foot, which drew every island as a strand with a
+    // wall at the back of it. Offset a little, it climbs hard and evenly.
+    const E = 0.03;
+    const steep = (Math.pow(t + E, 0.6) - Math.pow(E, 0.6)) / (Math.pow(1 + E, 0.6) - Math.pow(E, 0.6));
     const eased = t * t * (3 - 2 * t);
     h = isle.height * (0.03 + 0.97 * (steep * 0.66 + eased * 0.34));
   }
@@ -968,34 +972,103 @@ export function applyGouge(world, m) {
  * coastline or turn a hill into a lagoon that ships can sail into.
  */
 function baseGround(world, x, z) {
+  // A real coastline is the grid it is drawn on: see coastBase.
+  if (world.land?.length && !(world.islands || []).length) return coastBase(world, x, z);
   // An island's own relief, which is a shape rather than a distance field: a
   // three-hundred-metre island is four mask cells across, and a chamfer over
   // four cells is a pyramid, not a hill.
   let top = 0;
-  let near = 0;
+  let near = -Infinity;
   for (const i of world.islands) {
-    if (Math.abs(x - i.x) > i.r * 2.2 || Math.abs(z - i.z) > i.r * 2.2) continue;
+    const L = shelfRun(i);
+    const reach = (i.rmax || i.r) + L * SHELF_OUT;
+    if (Math.abs(x - i.x) > reach || Math.abs(z - i.z) > reach) continue;
     const h = islandHeight(i, x, z);
     if (h > top) top = h;
     // The shelf an island stands on: the seabed comes up to meet it rather
     // than the island rising out of deep water like a post.
     const d = Math.hypot(x - i.x, z - i.z);
     const R = islandRadius(i, Math.atan2(x - i.x, z - i.z));
-    if (d > R && d < R * 1.9) near = Math.max(near, 1 - (d - R) / (R * 0.9));
+    if (d > R && d < R + L * SHELF_OUT) near = Math.max(near, shelfAt(d - R, L));
   }
   if (top > 0) return top;
-  // Shelving right up to the waterline, rather than ending six metres down
-  // in a step: a beach is a slope a ship can run up, not a kerb.
-  if (near > 0) return -40 + 40 * near * near;
+  if (near > -Infinity) return near;
 
   const d = shoreDistance(world, x, z);
   // Offshore: the beach runs on under the water for a little way rather than
   // stopping at the waterline, so the shore is a shore and not a kerb.
-  if (d <= 0) return Math.max(-40, d * 0.40);
+  if (d <= 0) return Math.max(-SHELF_DEEP, d * 0.40);
+  return coastProfile(d);
+}
+
+/** How deep the open sea is off every coast, in metres. */
+const SHELF_DEEP = 40;
+/** How many of its own lengths an island's shelf runs out before it is open sea. */
+const SHELF_OUT = 6.5;
+
+/**
+ * How far off an island's beach the seabed takes to fall most of the way to
+ * the open sea: the shelf's own length, in metres.
+ *
+ * A fifth of the island across, within limits. The shelf used to be nine
+ * tenths of the island's radius at any size, coming up flat at the end, so a
+ * battleship touched bottom a hundred and thirty metres off a beach she could
+ * not see and stopped there in what looked like open water.
+ */
+function shelfRun(isle) {
+  return Math.max(110, Math.min(240, isle.r * 0.2));
+}
+
+/**
+ * The seabed `s` metres off an island's beach: steepest at the waterline, as
+ * steep as the beach above it, and easing out to the deep. So a ship meets the
+ * bottom close in under the beach -- a destroyer twenty metres off it, a
+ * battleship sixty -- and the ground she meets climbs on up out of the water.
+ */
+function shelfAt(s, L) {
+  return -SHELF_DEEP * (1 - Math.exp(-s / L));
+}
+
+/** Ashore on a real coast, `d` metres inland. */
+function coastProfile(d) {
+  // Offshore: down to the deep within a hundred metres.
+  if (d <= 0) return Math.max(-SHELF_DEEP, d * 0.40);
   // Ashore: up quickly off the beach and then easing, which is what a coast
   // does. Four hundred and fifty metres of relief a couple of miles inland is
   // about right for the sort of water a fleet action is fought in.
   return 450 * (1 - Math.exp(-d / 2600));
+}
+
+/**
+ * The ground on a real coast: the coast's profile at the corners of the grid
+ * it is drawn on, and flat between them, split the way the renderer splits it.
+ *
+ * It used to be the profile read straight off the collision mask, whose
+ * distances come in steps of a hundred and fifty metres -- so the bottom off a
+ * coast was a staircase, and at the shoreline a single step from forty metres
+ * down to twenty-five up. The picture lofted the same numbers across a
+ * three-hundred-metre grid and drew a ramp. A ship ran into a cliff nobody
+ * could see, short of a beach everybody could, and was lifted bodily by the
+ * height of it. Now the ground is the ramp.
+ */
+function coastBase(world, x, z) {
+  const m = landMask(world);
+  if (!m.any) return -SHELF_DEEP;
+  const cell = m.cell * COAST_STEP;
+  const i = Math.floor((x + m.half) / cell);
+  const j = Math.floor((z + m.half) / cell);
+  const x0 = -m.half + i * cell;
+  const z0 = -m.half + j * cell;
+  const at = (cx, cz) => coastProfile(shoreDistance(world, cx, cz));
+  const h00 = at(x0, z0);
+  const h10 = at(x0 + cell, z0);
+  const h11 = at(x0 + cell, z0 + cell);
+  const h01 = at(x0, z0 + cell);
+  const u = (x - x0) / cell;
+  const w = (z - z0) / cell;
+  return u >= w
+    ? h00 + u * (h10 - h00) + w * (h11 - h10)
+    : h00 + w * (h01 - h00) + u * (h11 - h01);
 }
 
 /**
@@ -1058,11 +1131,32 @@ export function keelGround(world, x, z) {
 // layout lives here, the renderer builds from it, and anything that has to sit
 // on the ground the captain can see asks drawnGround.
 
-/** Where the rings of an island's mesh fall along each spoke, as a fraction of its radius. */
+/** Where the rings of an island's mesh fall inside its beach, as a fraction of its radius. */
 export const ISLE_RINGS = [
   0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.56, 0.63,
-  0.70, 0.76, 0.82, 0.87, 0.91, 0.945, 0.972, 0.99, 1, 1.14, 1.32,
+  0.70, 0.76, 0.82, 0.87, 0.91, 0.935, 0.955, 0.97, 0.98, 0.988, 0.995, 1,
 ];
+
+// Out over the shelf, in its own lengths off the beach.
+const SHELF_RINGS = [0.06, 0.15, 0.28, 0.45, 0.68, 1, 1.45, 2.05, 2.9, 4, 5.3, SHELF_OUT];
+const RINGS = new WeakMap();
+
+/**
+ * Every ring of an island's mesh, as a fraction of its radius: close together
+ * across the beach, where the ground turns from sea to land and a ship comes
+ * up it, and then out over the whole of the shelf. The mesh used to stop a
+ * third of a radius out at a made-up depth that was not the seabed the keels
+ * were tested against.
+ */
+export function isleRings(isle) {
+  let r = RINGS.get(isle);
+  if (!r) {
+    const L = shelfRun(isle) / isle.r;
+    r = [...ISLE_RINGS, ...SHELF_RINGS.map((k) => 1 + L * k)];
+    RINGS.set(isle, r);
+  }
+  return r;
+}
 
 /** How many spokes an island's mesh is built with. */
 export function isleSpokes(isle) {
@@ -1073,18 +1167,15 @@ export function isleSpokes(isle) {
 export function isleVertex(world, isle, spokes, i, j) {
   const a = (i / spokes) * TAU;
   const R = islandRadius(isle, a);
-  const f = ISLE_RINGS[j];
+  const f = isleRings(isle)[j];
   const x = isle.x + Math.sin(a) * R * f;
   const z = isle.z + Math.cos(a) * R * f;
-  let y;
-  if (f >= 1) {
-    // Off the beach and down onto the shelf.
-    const t = (f - 1) / (ISLE_RINGS[ISLE_RINGS.length - 1] - 1);
-    y = -24 * t * t;
-  } else {
-    y = keelGround(world, x, z);
-  }
-  return [x, y, z];
+  // The ground itself, out over the shelf as much as on the hill: the beach
+  // and the bottom a ship can see are the ones she runs onto. Out past its
+  // own beach it stays under the water: where its shelf runs in under a
+  // neighbour's hill, the neighbour's mesh is the one that draws that hill.
+  const y = keelGround(world, x, z);
+  return [x, f > 1 ? Math.min(y, -0.3) : y, z];
 }
 
 /** The real coast's mesh is drawn on cells this many times the mask's. */
@@ -1107,8 +1198,9 @@ function isleDrawn(world, isle, x, z) {
   const dx = x - isle.x;
   const dz = z - isle.z;
   const d = Math.hypot(dx, dz);
-  const last = ISLE_RINGS.length - 1;
-  if (d > (isle.rmax || isle.r) * ISLE_RINGS[last] + 1) return NaN;
+  const rings = isleRings(isle);
+  const last = rings.length - 1;
+  if (d > (isle.rmax || isle.r) * rings[last] + 1) return NaN;
   const spokes = isleSpokes(isle);
   const bearing = Math.atan2(dx, dz);
   const t = (((bearing / TAU) % 1) + 1) % 1 * spokes;
@@ -1119,7 +1211,7 @@ function isleDrawn(world, isle, x, z) {
   // trying: the quads are chords, so it is never further out than that.
   const f = d / islandRadius(isle, bearing);
   let k = 0;
-  while (k < last && ISLE_RINGS[k + 1] <= f) k++;
+  while (k < last && rings[k + 1] <= f) k++;
   // The summit fan, then ring by ring outward: the same triangles the
   // renderer puts down, in the same winding.
   let h = NaN;

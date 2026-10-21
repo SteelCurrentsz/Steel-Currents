@@ -2992,6 +2992,16 @@ export class Battle {
           const at = { x: ev.x, y: 0, z: ev.z };
           audio.crash?.(at, Math.max(2, ev.v || 0));
           audio.tear?.(at, Math.min(2, 0.5 + (ev.v || 0) / 8));
+          // Seen at the moment it happens: the sea thrown up round her
+          // forefoot -- or the sand, where she struck above the waterline --
+          // and, aboard her, the whole ship jarring.
+          if (ev.px != null) {
+            const hard = Math.min(1, (ev.v || 0) / 12);
+            const g = groundHeight(this.scene.world, ev.px, ev.pz);
+            if (g > -0.5) fx.dust(ev.px, Math.max(0.5, g + 1), ev.pz, 0.8 + hard * 1.4);
+            fx.splash(ev.px, ev.pz, 80 + hard * 260);
+          }
+          if (ev.i === this.shipId) this.shake = Math.max(this.shake, 0.5 + Math.min(1, (ev.v || 0) / 12));
           if (ev.i === this.shipId) {
             this.hud.alert(ev.at >= 0
               ? 'AGROUND forward — go astern to come off'

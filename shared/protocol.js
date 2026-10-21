@@ -72,7 +72,7 @@ export function shipSnapshot(ship, full, state = null) {
     // centimetres a second goes down the screen in steps.
     // Riding up on another hull, or up a beach (groundLift, groundTrim), comes
     // out of the same three: she is higher, and down by one end.
-    fo: [Math.round(((ship.sink || 0) - (ship.lift || 0) - (ship.groundLift || 0)) * 100) / 100, r3(ship.heel + (ship.liftHeel || 0)), r3(ship.trim + (ship.liftTrim || 0) + (ship.groundTrim || 0)), r3(ship.lean || 0), r3(ship.rock || 0)],
+    fo: [Math.round(((ship.sink || 0) - (ship.lift || 0) - (ship.groundLift || 0)) * 100) / 100, r3(ship.heel + (ship.liftHeel || 0)), r3(ship.trim + (ship.liftTrim || 0) + (ship.groundTrim || 0) + (ship.groundJolt || 0)), r3(ship.lean || 0), r3(ship.rock || 0)],
     // Aground: how hard, and stranded with her screws out of the water.
     ag: ship.aground ? r3(ship.aground) : undefined,
     sd: ship.stranded ? 1 : undefined,
