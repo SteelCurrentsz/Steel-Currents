@@ -11000,7 +11000,12 @@ function stepWreckDown(state, ship, dt) {
   const cls = shipClass(ship);
   if (S.sunkAt == null) S.sunkAt = Math.max(0, ship.sink || 0);
   // And no further than the bottom, where there is one.
-  if (S.floor === undefined) S.floor = seabedRoom(state.world, ship, cls);
+  // Null for no bottom in reach: an Infinity on her state is not a number the
+  // wire can carry.
+  if (S.floor === undefined) {
+    const f = seabedRoom(state.world, ship, cls);
+    S.floor = Number.isFinite(f) ? f : null;
+  }
   S.afterT = (S.afterT || 0) + dt;
   S.after = (S.after || 0) + (S.depth / Math.max(20, S.T) * 1.2 + 0.0015 * S.afterT) * dt;
   ship.sink = Math.min(S.sunkAt + S.after, Math.max(S.sunkAt, S.floor ?? Infinity));
