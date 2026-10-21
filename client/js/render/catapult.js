@@ -110,6 +110,19 @@ export function stepCatapults(deck, t) {
       // Gone. A frame can step clean over the last row of the profile, so the
       // hand-over is latched here as well: past the end of the shot she is
       // away, whether or not a frame landed on the moment she left the track.
+      //
+      // And where she left it is latched with it. The window for catching her
+      // on the last row is a few milliseconds wide, so most launches stepped
+      // over it -- and with no pose to hand over from, nothing flew on from
+      // the girder: the model vanished and the flight appeared somewhere else.
+      if (!c.gone) {
+        const [s2, h, th] = pr.rows[pr.rows.length - 1];
+        c.car.position.z = R.A + R.STROKE;
+        c.plane.position.set(0, R.PLANE_Y + h, R.PLANE_Z + Math.max(0, R.A + s2 - (R.A + R.STROKE)));
+        c.plane.rotation.set(th, 0, 0);
+        c.plane.updateMatrixWorld(true);
+        deck.endMatrix = c.plane.matrixWorld.clone();
+      }
       deck.airborne = true;
       c.gone = true;
       turning = 0;
@@ -162,12 +175,16 @@ export function fitCatapults(g, {
   g.userData.catapults = cats;
   g.userData.deckPlane = cats.length ? cats[0].plane : null;
   g.userData.step = (t) => stepCatapults(deck, t);
-  g.userData.launch = (t) => {
+  // `dur` is how long the simulation gives her from the order to leaving the
+  // track. Longer than her own evolution -- the second machine of a squadron
+  // -- she waits on her cradle for the difference rather than playing the
+  // whole shot slowly.
+  g.userData.launch = (t, role, dur = run) => {
     // The two catapults are used turn and turn about, which is what keeps one
     // of them free while the other is being reloaded by the crane.
     const next = cats.find((c) => !c.gone && c !== deck.live) || deck.live;
     deck.live = next;
-    deck.launchAt = t;
+    deck.launchAt = t + Math.max(0, (dur ?? run) - run);
     deck.airborne = false;
     if (next) {
       next.gone = false;

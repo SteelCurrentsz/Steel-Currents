@@ -339,11 +339,11 @@ export const SHIP_CLASSES = {
       catapult: true, deckRun: 8.6, deckCycle: 30,
       // The height the catapult shot leaves her at, off the integrated
       // profile: a scout is thrown off level and climbs from there.
-      runHeight: 22,
+      runHeight: 25.7,
       // Where the shot leaves her: a hundred and forty metres out, on the
       // bearing the catapult was trained to, which is well round on the bow.
       // Measured off the integrated catapult shot, not guessed.
-      runOut: 141, runBearing: 1.16,
+      runOut: 131, runBearing: 1.701, runHeading: 1.161, launchSpeed: 32,
       // Nothing for a captain to balance -- she embarks scouts and that is all
       // there is aboard -- so there is no hangar to re-stow and no `group`.
       flight: { fighters: 0, dive: 2, torpedo: 0 },
@@ -465,11 +465,11 @@ export const SHIP_CLASSES = {
       bombDamage: 700, bombHit: 0.28, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
       type: 'arado',
       catapult: true, deckRun: 9.4, deckCycle: 34,
-      runHeight: 20,
+      runHeight: 34,
       // Where the shot leaves her. Her catapult lies across the ship, so her
       // scouts go off the beam, not off the bow -- measured off the same
       // integrated shot the model on deck flies.
-      runOut: 128, runBearing: 1.42,
+      runOut: 136, runBearing: 1.955, runSide: 1, runHeading: 1.871, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -670,8 +670,8 @@ export const SHIP_CLASSES = {
       bombDamage: 700, bombHit: 0.26, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
       type: 'arado',
       catapult: true, deckRun: 9.4, deckCycle: 36,
-      runHeight: 19,
-      runOut: 122, runBearing: 1.42,
+      runHeight: 30,
+      runOut: 126, runBearing: 1.523, runSide: 1, runHeading: 1.421, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -1436,7 +1436,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her, off the integrated shot from her own
       // girders: trained out over her quarters from turntables right aft.
       runHeight: 19.8,
-      runOut: 213.5, runBearing: 2.557,
+      runOut: 213.5, runBearing: 2.557, runHeading: 2.222, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -2378,7 +2378,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her: off whichever beam the car was thrown to,
       // a little abaft it because her catapult is abaft her middle --
       // measured off the same integrated shot the model on her catapult flies.
-      runOut: 137.3, runBearing: 1.694,
+      runOut: 137.3, runBearing: 1.694, runHeading: 1.571, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -2909,7 +2909,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her: off whichever beam the car was thrown to,
       // a little abaft it because her catapult is abaft her middle --
       // measured off the same integrated shot the model on her catapult flies.
-      runOut: 137.3, runBearing: 1.694,
+      runOut: 137.3, runBearing: 1.694, runHeading: 1.571, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -4018,7 +4018,7 @@ export const SHIP_CLASSES = {
       // hundred and thirty-seven metres out and abaft her beam, twenty-two
       // and a half metres up.
       runHeight: 22.5,
-      runOut: 137.5, runBearing: 1.83,
+      runOut: 137.5, runBearing: 1.83, runHeading: 1.161, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -4155,8 +4155,8 @@ export const SHIP_CLASSES = {
       // catapult training out, the engine running up and the shot itself.
       type: 'kingfisher',
       catapult: true, deckRun: 8.6, deckCycle: 30,
-      runHeight: 22,
-      runOut: 141, runBearing: 1.16,
+      runHeight: 25,
+      runOut: 142, runBearing: 1.969, runHeading: 1.161, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -4465,7 +4465,7 @@ export const SHIP_CLASSES = {
       catapult: true, deckRun: 8.6, deckCycle: 34,
       // Where the shot leaves her, off the integrated shot from her own
       // girder: trained out over her port quarter.
-      runHeight: 23.4, runOut: 174.5, runBearing: 2.379, runSide: 1,
+      runHeight: 23.4, runOut: 174.5, runBearing: 2.379, runSide: 1, runHeading: 2.192, launchSpeed: 32,
       flight: { fighters: 0, dive: 1, torpedo: 0 },
     },
     datasheet: {
@@ -4824,7 +4824,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her, off the integrated shot from her own
       // girders: trained out over her quarters from turntables right aft.
       runHeight: 22.4,
-      runOut: 197.4, runBearing: 2.526,
+      runOut: 197.4, runBearing: 2.526, runHeading: 2.192, launchSpeed: 32,
       flight: { fighters: 0, dive: 1, torpedo: 0 },
     },
     datasheet: {
@@ -5404,7 +5404,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her, off the integrated shot from her own
       // girders: trained out over her quarter from turntables right aft.
       runHeight: 27,
-      runOut: 147.8, runBearing: 2.02,
+      runOut: 147.8, runBearing: 2.02, runHeading: 1.161, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {
@@ -6340,7 +6340,7 @@ export const SHIP_CLASSES = {
       // girders: trained out over her quarter, a hundred and eighty metres
       // out and well abaft the beam, twenty-three metres up.
       runHeight: 23,
-      runOut: 184, runBearing: 2.33,
+      runOut: 184, runBearing: 2.33, runHeading: 1.981, launchSpeed: 32,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {

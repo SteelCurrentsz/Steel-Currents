@@ -3733,6 +3733,15 @@ function stepCatapult(deck, t) {
     // Nose up: she is climbing away off the end of the girder.
     pitch = th;
   } else {
+    // Off the end of the track. Where she left it is latched for whatever
+    // flies her on from here: without it there was nothing to hand over, and
+    // the model simply vanished with her flight drawn somewhere else.
+    const [s2, h, th] = pr.rows[pr.rows.length - 1];
+    c.car.position.z = CAT_A + CAT_STROKE;
+    c.plane.position.set(0, 0.33 + h, Math.max(0, s2 - CAT_STROKE));
+    c.plane.rotation.set(th, 0, 0);
+    c.plane.updateMatrixWorld(true);
+    deck.endMatrix = c.plane.matrixWorld.clone();
     deck.airborne = true;
     deck.gone = true;
     c.plane.visible = false;

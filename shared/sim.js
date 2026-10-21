@@ -6661,7 +6661,13 @@ export function launchOffset(cls, side = 1, role = null) {
   // sea on the side nothing had happened on.
   const s = P.runSide ?? side;
   const bearing = (P.runBearing ?? 0) * (P.runBearing ? s : 1);
-  return { out, bearing };
+  // Which way her nose points as she leaves, which is down the girder. On a
+  // catapult trained out over the quarter that is not the bearing she ends up
+  // on: she was thrown off at one angle and has flown on from there, and
+  // putting her on the plot heading along the bearing instead turned her
+  // fifty degrees in the instant she was handed over.
+  const heading = P.runHeading != null ? P.runHeading * s : bearing;
+  return { out, bearing, heading };
 }
 
 /** A number a ship's data may give once for all her aircraft, or per role. */
@@ -6751,6 +6757,7 @@ function stepLaunch(state, ship, dt) {
     // deck, off the beam off a catapult.
     const off = launchOffset(cls, L.side || 1, f.role);
     const away = wrapAngle(ship.heading + off.bearing);
+    const nose = wrapAngle(ship.heading + off.heading);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
       // What she is, as against what she is for. A cruiser flies float planes
@@ -6765,7 +6772,7 @@ function stepLaunch(state, ship, dt) {
       speed: cls.planes.cruiseSpeed,
       x: ship.x + Math.sin(away) * off.out,
       z: ship.z + Math.cos(away) * off.out,
-      heading: away,
+      heading: nose,
       tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
       count: f.count,

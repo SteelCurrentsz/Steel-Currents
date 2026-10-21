@@ -1323,6 +1323,52 @@ check('the Baltimore trains her catapults out over her quarters and shoots on th
   assert.notEqual(shots[0], shots[1], 'she shot both scouts off the same catapult');
 });
 
+check('every catapult hands her scout over where and the way the plot has her, at any frame rate', () => {
+  // The shot's end used to be latched only on a frame that landed in its last
+  // few milliseconds, so most launches handed nothing over; and the plot put
+  // the flight on the bearing she ended up on rather than down the girder,
+  // fifty degrees off the way she was flying.
+  const ships = [
+    ['iowa', () => buildIowa({ breakaway: false })], ['cleveland', buildCleveland],
+    ['baltimore', buildBaltimore], ['massachusetts', buildMassachusetts],
+    ['musashi', buildMusashi], ['fuso', buildFuso], ['kongo', buildKongo],
+    ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
+    ['hipper', buildHipper], ['spee', buildSpee],
+  ];
+  const fwd = new THREE.Vector3();
+  for (const [id, build] of ships) {
+    const built = build();
+    const g = built.group || built;
+    const deck = g.userData.deck;
+    assert.ok(deck, `${id} has no catapult`);
+    g.userData.launch(0);
+    for (let t = 0; t <= 20 && !deck.airborne; t += 1 / 20) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+    }
+    assert.ok(deck.airborne, `${id} never shot her scout off`);
+    assert.ok(deck.endMatrix, `${id} handed nothing over at twenty frames a second`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    fwd.set(0, 0, 1).transformDirection(deck.endMatrix);
+    const side = Math.sign(end.x) || 1;
+    // Which of her two hands the plot puts her on is the one the model went
+    // off: the plot's sign for a starboard shot is the ship's own.
+    let best = Infinity;
+    let nose = 0;
+    for (const s of [-1, 1]) {
+      const off = launchOffset(SHIP_CLASSES[id], s);
+      const d = Math.hypot(end.x - Math.sin(off.bearing) * off.out, end.z - Math.cos(off.bearing) * off.out);
+      if (d < best) { best = d; nose = off.heading; }
+    }
+    void side;
+    assert.ok(best < 15, `${id}: the plot puts her ${best.toFixed(0)} m from where the shot left her`);
+    const heading = Math.atan2(fwd.x, fwd.z);
+    assert.ok(Math.abs(angleDelta(heading, nose)) < 0.12,
+      `${id}: she left the girder heading ${(heading * 57.3).toFixed(0)} and the plot flies her `
+      + `${(nose * 57.3).toFixed(0)}`);
+  }
+});
+
 check('the Baltimore launches her scouts, and nothing flies before she has shot it off', () => {
   const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
   const ship = addShip(state, { name: 'Baltimore', classId: 'baltimore', team: 0, index: 0 });
