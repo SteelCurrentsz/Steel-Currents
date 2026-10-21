@@ -893,17 +893,21 @@ const fairAtY = (s, k, y) => {
 // it -- and yukikaze.js stands the owner's sculpt of it (or, for the singles,
 // one drawn afresh) there. `floor` is the floor each stands on, as the sculpt
 // has it. The twins are taken off `whole`, with the rings under them, and
-// yukikaze.js stands each on a ring of its own at the same height.
+// yukikaze.js stands each on a barbette of its own: the owner's gunhouse is
+// lower to its bores than the one the sculpt of her hull drew, so each is
+// stood up until its bores are where the sculpt's were -- over her stem.
 const single = (x, z, rest) => ({ name: `single ${x > 0 ? 'port' : 'stbd'} ${z}`, kind: 'single', x, z, rest, floor: 'deck', r: 1.4, top: 3.4 });
 export const MOUNTS = [
-  { name: 'No.1', kind: 'twin', x: 0, z: 39.5, rest: 0, floor: 5.6, whole: true, cut: { x0: -3.0, x1: 3.0, z0: 35.4, z1: 47.4 } },
-  { name: 'No.3', kind: 'twin', x: 0, z: -37.1, rest: Math.PI, floor: 3.45, whole: true, cut: { x0: -3.0, x1: 3.0, z0: -43.6, z1: -33.0 } },
+  { name: 'No.1', kind: 'twin', x: 0, z: 39.5, rest: 0, floor: 6.25, whole: true, cut: { x0: -3.0, x1: 3.0, z0: 35.4, z1: 47.4 } },
+  { name: 'No.3', kind: 'twin', x: 0, z: -37.1, rest: Math.PI, floor: 3.8, whole: true, cut: { x0: -3.0, x1: 3.0, z0: -43.6, z1: -33.0 } },
   { name: 'tubes fwd', kind: 'tubes', x: 0, z: 5.2, rest: 0, floor: 'deck', top: 3.2, cut: { x0: -3.2, x1: 3.2, z0: 1.0, z1: 10.2 } },
   { name: 'tubes aft', kind: 'tubes', x: 0, z: -13.3, rest: 0, floor: 'deck', top: 3.2, cut: { x0: -3.2, x1: 3.2, z0: -17.5, z1: -8.4 } },
   { name: 'aa tub', kind: 'aa', x: 0, z: 32.6, rest: 0, floor: 7.4, cut: { x0: -1.55, x1: 1.55, z0: 30.35, z1: 34.2 } },
   { name: 'aa stbd wing', kind: 'aa', x: -2.6, z: -0.5, rest: -Math.PI / 2, floor: 7.5, cut: { x0: -3.75, x1: -1.5, z0: -1.65, z1: 0.65 }, barrels: { x0: -3.75, x1: -1.5, z0: 0.65, z1: 2.1 } },
   { name: 'aa port wing', kind: 'aa', x: 2.6, z: -0.5, rest: Math.PI / 2, floor: 7.5, cut: { x0: 1.5, x1: 3.75, z0: -1.65, z1: 0.65 }, barrels: { x0: 1.5, x1: 3.75, z0: 0.65, z1: 2.1 } },
-  { name: 'aa bandstand', kind: 'aa', x: 0, z: -6.1, rest: Math.PI, floor: 7.5, r: 1.15 },
+  { name: 'aa bandstand', kind: 'aa', x: 0, z: -6.1, rest: Math.PI, floor: 7.5, r: 1.15,
+    // and the post abaft it, which it was laid over the stern through.
+    also: { x0: -0.9, x1: 0.9, z0: -8.9, z1: -7.0 } },
   { name: 'aa mainmast', kind: 'aa', x: -0.1, z: -25.7, rest: Math.PI, floor: 7.5, cut: { x0: -1.4, x1: 1.2, z0: -27.2, z1: -24.4 }, barrels: { x0: -1.0, x1: 0.8, z0: -27.8, z1: -27.2 } },
   { name: 'aa deckhouse', kind: 'aa', x: 0.15, z: -29.8, rest: Math.PI, floor: 5.7, cut: { x0: -1.4, x1: 1.7, z0: -32.0, z1: -28.5 } },
   single(-4.0, 32.4, -Math.PI / 4), single(4.0, 32.4, Math.PI / 4),
@@ -948,6 +952,7 @@ function dropBox(mesh, box) {
     let n = dropBox(sup, { ...box, y0: mt.whole ? -1 : mt.floor + 0.12, y1: mt.floor + (mt.top ?? 7) });
     // Its barrels, where they reach out over the rim round it: from over the rim up.
     if (mt.barrels) n += dropBox(sup, { ...mt.barrels, y0: mt.floor + 0.8, y1: mt.floor + 4 });
+    if (mt.also) n += dropBox(sup, { ...mt.also, y0: mt.floor + 0.12, y1: mt.floor + 7 });
     console.log(`${mt.name}: floor ${mt.floor.toFixed(2)} m, ${n} triangles cut`);
   }
   console.log(`her quarterdeck: ${dropBox(sup, STERN_CUT)} triangles cut`);
