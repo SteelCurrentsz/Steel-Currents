@@ -134,7 +134,7 @@ if (!SPLIT) {
   // Every hull the module imports, and no other: a data file it does not
   // name would be dead weight, and one it names that is missing a blank sea.
   const every = [js, ...chunks.map((f) => fs.readFileSync(path.join(CHUNKS, f), 'utf8'))].join('\n');
-  const named = [...new Set([...every.matchAll(/["']\.\/([A-Za-z]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
+  const named = [...new Set([...every.matchAll(/["']\.\/([A-Za-z0-9]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
   fs.rmSync(out('split'), { recursive: true, force: true });
   fs.mkdirSync(out('split'));
   fs.writeFileSync(out('split', 'index.html'), html);
