@@ -87,6 +87,31 @@ const BASES = [
 ];
 
 /**
+ * The last chart painted on each canvas, without its marker, names or frame:
+ * see drawWorld. One per canvas, so panning the deployment chart never throws
+ * away the briefing's.
+ */
+const KEPT = new WeakMap();
+
+function keepBase(canvas, key) {
+  let kept = KEPT.get(canvas);
+  if (!kept) {
+    kept = { key: null, image: document.createElement('canvas') };
+    KEPT.set(canvas, kept);
+  }
+  const { image } = kept;
+  if (image.width !== canvas.width || image.height !== canvas.height) {
+    image.width = canvas.width;
+    image.height = canvas.height;
+  }
+  const c = image.getContext('2d');
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, image.width, image.height);
+  c.drawImage(canvas, 0, 0);
+  kept.key = key;
+}
+
+/**
  * Paint the chart. `focus` is [lon, lat] at the centre and `zoom` scales the
  * projection — 1 fits all 360 degrees of longitude across the canvas width.
  *
@@ -126,10 +151,26 @@ export function drawWorld(canvas, opts = {}) {
   const px = (lon) => w / 2 + (lon - focus[0]) * scale;
   const py = (lat) => h / 2 - (lat - focus[1]) * scale;
 
-  ctx.fillStyle = sea;
-  ctx.fillRect(0, 0, w, h);
+  // The sea, the land and the ice are the same picture every time the chart is
+  // painted at the same view, and they are nearly all of the cost of painting
+  // it: every coastline in the world stroked over and over for the strand.
+  // What changes from one paint to the next at the same view -- the theatre
+  // ring, the names, the frame -- is laid over a copy of them kept from the
+  // last time. So the briefing's chart takes a new position back from the
+  // deployment chart at once, rather than tracing the world again for the
+  // sake of moving a ring across it.
+  const key = [canvas.width, canvas.height, focus[0], focus[1], zoom,
+    sea, land, sand, snow, coast, shelf, graticule].join('|');
+  const kept = KEPT.get(canvas);
+  const hit = !!kept && kept.key === key;
+  if (hit) {
+    ctx.drawImage(kept.image, 0, 0, w, h);
+  } else {
+    ctx.fillStyle = sea;
+    ctx.fillRect(0, 0, w, h);
+  }
 
-  if (graticule) {
+  if (graticule && !hit) {
     // Meridians and parallels at a spacing that stays legible as the chart is
     // opened out: ten degrees across the world, down to one degree close in.
     const step = zoom > 24 ? 1 : zoom > 8 ? 5 : zoom > 3 ? 10 : 15;
@@ -259,7 +300,7 @@ export function drawWorld(canvas, opts = {}) {
   // Drawn three times across so the chart wraps at the dateline rather than
   // ending in open sea. Holes come from the data, so a single evenodd fill
   // leaves the lakes as water.
-  const polys = boxedLand();
+  const polys = hit ? [] : boxedLand();
   for (const shift of [-360, 0, 360]) {
     const shown = polys.filter((p) => visible(p, shift));
     if (!shown.length) continue;
@@ -331,6 +372,25 @@ export function drawWorld(canvas, opts = {}) {
     for (const path of paths) ctx.stroke(path);
   }
 
+  // Beyond the poles there is no chart. On a tall frame at world scale a good
+  // part of the canvas is off the map altogether, and leaving it painted as sea
+  // with the meridians running on through it reads as a fault.
+  const yTop = py(90);
+  const yBot = py(-90);
+  if (!hit && (yTop > 0 || yBot < h)) {
+    ctx.fillStyle = '#04090f';
+    if (yTop > 0) ctx.fillRect(0, 0, w, yTop);
+    if (yBot < h) ctx.fillRect(0, yBot, w, h - yBot);
+    ctx.strokeStyle = 'rgba(110, 154, 180, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (yTop > 0) { ctx.moveTo(0, yTop); ctx.lineTo(w, yTop); }
+    if (yBot < h) { ctx.moveTo(0, yBot); ctx.lineTo(w, yBot); }
+    ctx.stroke();
+  }
+
+  if (!hit) keepBase(canvas, key);
+
   // The theatre this briefing is set in, ringed on the chart.
   if (marker) {
     const mx = px(marker[0]);
@@ -355,23 +415,6 @@ export function drawWorld(canvas, opts = {}) {
       ctx.fillText(markerName.toUpperCase(), mx, my + 32);
       ctx.textAlign = 'start';
     }
-  }
-
-  // Beyond the poles there is no chart. On a tall frame at world scale a good
-  // part of the canvas is off the map altogether, and leaving it painted as sea
-  // with the meridians running on through it reads as a fault.
-  const yTop = py(90);
-  const yBot = py(-90);
-  if (yTop > 0 || yBot < h) {
-    ctx.fillStyle = '#04090f';
-    if (yTop > 0) ctx.fillRect(0, 0, w, yTop);
-    if (yBot < h) ctx.fillRect(0, yBot, w, h - yBot);
-    ctx.strokeStyle = 'rgba(110, 154, 180, 0.35)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    if (yTop > 0) { ctx.moveTo(0, yTop); ctx.lineTo(w, yTop); }
-    if (yBot < h) { ctx.moveTo(0, yBot); ctx.lineTo(w, yBot); }
-    ctx.stroke();
   }
 
   if (showWaters) {

@@ -14,16 +14,31 @@
 // with yellow bands at the tips, and a Type 91 under her in its dull steel
 // with its warhead dark.
 import * as THREE from '../../../vendor/three.module.js';
-import { B5N_PIECES, B5N_META } from './b5nModel.data.js';
 
-export const B5N = B5N_META;
+// Her sculpt is several hundred kilobytes, and nothing on the title screen
+// flies her, so it is not imported with the rest of the game: it is fetched by
+// loadB5n() -- which loadShips (ships.js) waits on before a battle or the
+// shipyard can want her -- and a captain is not kept at the loading screen
+// for an aeroplane he has not yet seen.
+let B5N_PIECES = null;
+/** Her measurements -- hinges, guns, where she breaks -- once loadB5n() is in. */
+export let B5N = null;
+let loading = null;
 
-// How her legs go up, fitted against her own wing (see build/fit-gear.mjs):
-// inward about the hinge at the top of each leg into the centre section, and
-// the tail wheel back and up into her.
-Object.assign(B5N_META.gearL, { up: 1.55, tuck: 0.22, slide: 0 });
-Object.assign(B5N_META.gearR, { up: -1.55, tuck: 0.22, slide: 0 });
-Object.assign(B5N_META.gearT, { up: -1.75, tuck: 0.35, slide: 0.2 });
+export function loadB5n() {
+  loading ||= import('./b5nModel.data.js').then((m) => {
+    const meta = m.B5N_META;
+    // How her legs go up, fitted against her own wing (see build/fit-gear.mjs):
+    // inward about the hinge at the top of each leg into the centre section, and
+    // the tail wheel back and up into her.
+    Object.assign(meta.gearL, { up: 1.55, tuck: 0.22, slide: 0 });
+    Object.assign(meta.gearR, { up: -1.55, tuck: 0.22, slide: 0 });
+    Object.assign(meta.gearT, { up: -1.75, tuck: 0.35, slide: 0.2 });
+    B5N_PIECES = m.B5N_PIECES;
+    B5N = meta;
+  }, (e) => { loading = null; throw e; });
+  return loading;
+}
 
 /** The pieces a B5N can lose, and the parts of her that move. */
 export const B5N_SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
@@ -35,18 +50,20 @@ export const B5N_PARTS = ['prop', 'store', 'gun', 'gearL', 'gearR', 'gearT'];
  */
 const LEVEL = new Set(['prop', 'store', 'gun']);
 
-const TILT_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -B5N_META.tilt);
+let TILT_Q = null;
+/** Her tilt, as a rotation: worked out once she is in (see loadB5n). */
+const tiltQ = () => (TILT_Q ||= new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -B5N.tilt));
 
 /** The rotation a part of her sits at before it moves: see LEVEL. */
 export function b5nRest(name, out = new THREE.Quaternion()) {
-  if (LEVEL.has(name)) return out.copy(TILT_Q);
+  if (LEVEL.has(name)) return out.copy(tiltQ());
   return out.identity();
 }
 
 /** Where each moving part's hinge is, in her own frame. */
 export function b5nHinge(name) {
-  if (name === 'prop') return B5N_META.prop;
-  const s = B5N_META[name];
+  if (name === 'prop') return B5N.prop;
+  const s = B5N[name];
   return s ? s.at : [0, 0, 0];
 }
 
@@ -120,11 +137,11 @@ const HEAD = hex(0x2f3336);
 // The paint is laid out in the level frame she was measured in -- see
 // build/b5n-source.mjs -- so the body's points are turned back down before
 // anything is read off them.
-const PAINT = /* glsl */`
+const paint = () => /* glsl */`
 vec3 b5nLevel(vec3 p) {
-  float y = p.y + ${f(B5N_META.ground)};
-  float z = p.z - ${f(B5N_META.dz)};
-  float c = ${f(Math.cos(B5N_META.tilt))}, s = ${f(Math.sin(B5N_META.tilt))};
+  float y = p.y + ${f(B5N.ground)};
+  float z = p.z - ${f(B5N.dz)};
+  float c = ${f(Math.cos(B5N.tilt))}, s = ${f(Math.sin(B5N.tilt))};
   return vec3(p.x, y * c - z * s, y * s + z * c);
 }
 vec3 b5nPaint(float tag, vec3 q, vec3 n) {
@@ -208,7 +225,7 @@ vBNrm = normal;`);
 varying float vBTag;
 varying vec3 vBPos;
 varying vec3 vBNrm;
-${PAINT}`)
+${paint()}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 diffuseColor.rgb = b5nPaint(vBTag, vBPos, normalize(vBNrm));
 if (!gl_FrontFacing) diffuseColor.rgb *= 0.12;`)
@@ -222,10 +239,10 @@ specularStrength = vBTag > 1.5 && vBTag < 2.5 ? 3.2 : (vBTag > 6.5 && vBTag < 7.
 
 /** Which piece of her a point in her own frame belongs to. */
 export function b5nSegOf(x, y, z) {
-  if (z < B5N_META.breaks.tail[2]) return 'tail';
+  if (z < B5N.breaks.tail[2]) return 'tail';
   const ax = Math.abs(x);
-  if (ax > Math.abs(B5N_META.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
-  if (ax > Math.abs(B5N_META.breaks.wingInR[0]) && y < B5N_META.breaks.wingInR[1] + 0.4) {
+  if (ax > Math.abs(B5N.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
+  if (ax > Math.abs(B5N.breaks.wingInR[0]) && y < B5N.breaks.wingInR[1] + 0.4) {
     return x > 0 ? 'wingInR' : 'wingInL';
   }
   return 'body';
@@ -246,7 +263,7 @@ function foldable(p, geo, mat, spec) {
   m.position.copy(at).negate();
   swing.add(m);
   p.add(hinge);
-  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(TILT_Q);
+  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(tiltQ());
   return { swing, axis, up: spec.up, mesh: m };
 }
 
@@ -270,7 +287,7 @@ export function b5nModel(opts = {}) {
   let outer;
   if (opts.lod) {
     p.add(new THREE.Mesh(geos.lod, mat));
-    outer = [foldable(p, geos.lodOutL, mat, B5N_META.foldL), foldable(p, geos.lodOutR, mat, B5N_META.foldR)];
+    outer = [foldable(p, geos.lodOutL, mat, B5N.foldL), foldable(p, geos.lodOutR, mat, B5N.foldR)];
   } else {
     for (const k of B5N_SEGS) {
       if (k === 'wingOutL' || k === 'wingOutR') continue;
@@ -278,7 +295,7 @@ export function b5nModel(opts = {}) {
       m.name = k;
       p.add(m);
     }
-    outer = [foldable(p, geos.wingOutL, mat, B5N_META.foldL), foldable(p, geos.wingOutR, mat, B5N_META.foldR)];
+    outer = [foldable(p, geos.wingOutL, mat, B5N.foldL), foldable(p, geos.wingOutR, mat, B5N.foldR)];
     outer[0].mesh.name = 'wingOutL';
     outer[1].mesh.name = 'wingOutR';
     const hinged = (name) => {
@@ -303,7 +320,7 @@ export function b5nModel(opts = {}) {
     gun.turn.rotation.x = 0.25;
     const legs = [];
     for (const k of ['gearL', 'gearR', 'gearT']) {
-      const spec = B5N_META[k];
+      const spec = B5N[k];
       const { h, turn, m } = hinged(k);
       legs.push({ hinge: h, turn, spec });
       m.userData.legFoot = { x: spec.at[0], z: spec.at[2], skin: spec.at[1], top: spec.at[1] };
@@ -329,7 +346,7 @@ export function b5nModel(opts = {}) {
     p.userData.folded = k > 0.5;
   };
   p.userData.fold(opts.folded ? 1 : 0);
-  for (const at of B5N_META.guns) {
+  for (const at of B5N.guns) {
     const o = new THREE.Object3D();
     o.position.fromArray(at);
     o.userData.muzzle = 0.15;

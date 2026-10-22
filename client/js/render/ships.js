@@ -16,6 +16,9 @@ import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
 import { mergeStatic, weldLoose } from './merge.js';
 import { dressShip } from './textures.js';
+import { loadZero } from './zeroModel.js';
+import { loadSuisei } from './suiseiModel.js';
+import { loadB5n } from './b5nModel.js';
 
 /**
  * The ships built off the owner's sculpts, fetched when they are wanted.
@@ -31,6 +34,11 @@ import { dressShip } from './textures.js';
 let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze;
 const SCULPTED = {
+  // Not a ship: the Japanese carrier aircraft, off the owner's sculpts. Every
+  // battle builds them to fly (planes.js) and the Shinano carries them, so
+  // whichever ships are waited for, these are too -- and they come first,
+  // ahead of the ships, when everything is fetched behind the title screen.
+  planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n()]),
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
@@ -57,10 +65,22 @@ function sculptOf(classId) {
   return SCULPTED[k] ? k : null;
 }
 
+/** What has to be fetched before a class can be built. The Shinano carries
+ *  the aircraft on her deck and in her hangar. */
+function needs(classId) {
+  const k = sculptOf(classId);
+  return [...(k ? [k] : []), ...(classId === 'shinano' ? ['planes'] : [])];
+}
+
 /** Whether a class can be built now, without waiting for anything. */
 export function shipReady(classId) {
-  const k = sculptOf(classId);
-  return !k || ready.has(k);
+  return needs(classId).every((k) => ready.has(k));
+}
+
+/** Whether a battle with these classes in it can be joined now: every one of
+ *  them, and the aircraft every battle builds to fly (planes.js). */
+export function fleetReady(classIds) {
+  return ready.has('planes') && classIds.every(shipReady);
 }
 
 /**
@@ -69,7 +89,7 @@ export function shipReady(classId) {
  * A fetch that fails is forgotten, so the next ask tries it again.
  */
 export function loadShips(classIds = Object.keys(SCULPTED), onEach = null) {
-  const keys = [...new Set(classIds.map(sculptOf).filter(Boolean))];
+  const keys = [...new Set(['planes', ...classIds.flatMap(needs)])];
   let done = 0;
   return Promise.all(keys.map((k) => {
     if (!fetched.has(k)) {

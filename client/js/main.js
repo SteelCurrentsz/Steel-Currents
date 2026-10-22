@@ -6,7 +6,7 @@ import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
-import { loadShips, shipReady, preloadShips } from './render/ships.js';
+import { loadShips, shipReady, fleetReady, preloadShips } from './render/ships.js';
 import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
@@ -295,7 +295,7 @@ function fleetOf(m) {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
     const go = () => send({ ...m, ff: getSettings().friendlyFire === true });
     const need = fleetOf(m);
-    if (need.every(shipReady)) return go();
+    if (fleetReady(need)) return go();
     boot.show('Bringing up the fleet');
     loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
       .then(go, (e) => {

@@ -72,6 +72,42 @@ const server = http.createServer((req, res) => {
   serveFile(req, res, file);
 });
 
+// Every module the game imports before its first frame, as the page names it.
+//
+// The client is served as the modules it is written in, a hundred and more of
+// them, and a browser finds out what a module imports only once it has that
+// module: main.js, then what main.js imports, then what those import, seven
+// deep. Every level is another round trip, and on a phone's connection the
+// loading screen sat on "Casting off" for all of them. Named in the page, the
+// whole tree is asked for at once, alongside main.js itself.
+const IMPORT = /^\s*(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|^\s*import\s*['"]([^'"]+)['"]/gm;
+function bootModules() {
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file) || !fs.existsSync(file)) return;
+    seen.add(file);
+    for (const m of fs.readFileSync(file, 'utf8').matchAll(IMPORT)) {
+      const spec = m[1] || m[2];
+      if (spec.startsWith('.')) walk(path.resolve(path.dirname(file), spec));
+    }
+  };
+  walk(path.join(ROOT, 'client/js/main.js'));
+  return [...seen];
+}
+const INDEX = path.join(ROOT, 'client/index.html');
+const BOOT = bootModules();
+const PRELOAD = BOOT.slice(1).map((f) => {
+  const rel = path.relative(ROOT, f).split(path.sep).join('/');
+  return rel.startsWith('client/') ? rel.slice('client/'.length) : rel;
+});
+const STARTED = Date.now().toString(36);
+
+function withPreloads(html) {
+  const links = PRELOAD.map((href) => `<link rel="modulepreload" href="${href}" />`).join('\n');
+  return html.replace('<script type="module" src="js/main.js"></script>',
+    (tag) => `${links}\n${tag}`);
+}
+
 // What has been read off the disk, and its gzip, kept until the file changes.
 // The game is forty-odd megabytes of script, most of it ship hulls, and every
 // visit used to fetch all of it again uncompressed: `no-cache` with nothing to
@@ -80,10 +116,17 @@ const server = http.createServer((req, res) => {
 const served = new Map();
 const ZIPPABLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg']);
 
+// The page carries the list of modules worked out when this process started,
+// so its tag changes with the process as well as with the file.
+function tagOf(file, st) {
+  const tag = `${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}`;
+  return `"${tag}${file === INDEX ? `-${STARTED}` : ''}"`;
+}
+
 function serveFile(req, res, file) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return notFound(res);
-    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    const etag = tagOf(file, st);
     const head = {
       'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
@@ -96,8 +139,9 @@ function serveFile(req, res, file) {
     }
     const hit = served.get(file);
     if (hit && hit.etag === etag) return send(req, res, head, hit);
-    fs.readFile(file, (err2, data) => {
+    fs.readFile(file, (err2, read) => {
       if (err2) return notFound(res);
+      const data = file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read;
       const entry = { etag, data, gz: null };
       if (ZIPPABLE.has(path.extname(file)) && data.length > 1024) {
         entry.gz = zlib.gzipSync(data, { level: 6 });
@@ -117,6 +161,23 @@ function send(req, res, head, entry) {
     'Content-Length': body.length,
   });
   res.end(req.method === 'HEAD' ? undefined : body);
+}
+
+// The page and its modules zipped as the server comes up, off the request
+// path, so the first captain after a deploy is not kept waiting while three
+// megabytes are compressed one file at a time in front of him.
+for (const file of [INDEX, ...BOOT]) {
+  fs.stat(file, (err, st) => {
+    if (err || served.has(file)) return;
+    fs.readFile(file, (err2, read) => {
+      if (err2) return;
+      const data = file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read;
+      zlib.gzip(data, { level: 6 }, (err3, gz) => {
+        if (err3 || served.has(file)) return;
+        served.set(file, { etag: tagOf(file, st), data, gz });
+      });
+    });
+  });
 }
 
 function notFound(res) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); }

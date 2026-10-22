@@ -61,6 +61,9 @@ import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 import { cleanScript, previewAt, unitKey } from '../shared/stage.js';
 import { ReplayNet } from '../client/js/replaynet.js';
 import { cutMaterial, cutUniforms } from '../client/js/render/sever.js';
+// The Japanese aircraft are fetched rather than imported (see loadShips), and
+// everything below that flies or builds one wants them in.
+await loadShips([]);
 // A strike is up to three flights and they go one at a time, each down the
 // whole length of the deck, so the last of them is airborne three deck runs
 // after the button was pressed.

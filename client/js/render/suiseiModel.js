@@ -13,17 +13,32 @@
 // on her inboard leading edges, a brown airscrew with yellow bands at the tips,
 // and her greenhouse glazed.
 import * as THREE from '../../../vendor/three.module.js';
-import { SUISEI_PIECES, SUISEI_META } from './suiseiModel.data.js';
 
-export const SUISEI = SUISEI_META;
+// Her sculpt is several hundred kilobytes, and nothing on the title screen
+// flies her, so it is not imported with the rest of the game: it is fetched by
+// loadSuisei() -- which loadShips (ships.js) waits on before a battle or the
+// shipyard can want her -- and a captain is not kept at the loading screen
+// for an aeroplane he has not yet seen.
+let SUISEI_PIECES = null;
+/** Her measurements -- hinges, guns, where she breaks -- once loadSuisei() is in. */
+export let SUISEI = null;
+let loading = null;
 
-// How her legs go up, fitted against her own wing (see zeroModel.js and
-// planekit's gearRig). Her port leg is hinged lower in the sculpt than her
-// starboard one, so the two do not travel the same: given the same swing the
-// port wheel came up through the top of her wing.
-Object.assign(SUISEI_META.gearL, { up: 1.65, tuck: 0.15, slide: 0 });
-Object.assign(SUISEI_META.gearR, { up: -1.4, tuck: -0.05, slide: 0 });
-Object.assign(SUISEI_META.gearT, { up: -1.9, tuck: 0.45, slide: 0.3 });
+export function loadSuisei() {
+  loading ||= import('./suiseiModel.data.js').then((m) => {
+    const meta = m.SUISEI_META;
+    // How her legs go up, fitted against her own wing (see zeroModel.js and
+    // planekit's gearRig). Her port leg is hinged lower in the sculpt than her
+    // starboard one, so the two do not travel the same: given the same swing the
+    // port wheel came up through the top of her wing.
+    Object.assign(meta.gearL, { up: 1.65, tuck: 0.15, slide: 0 });
+    Object.assign(meta.gearR, { up: -1.4, tuck: -0.05, slide: 0 });
+    Object.assign(meta.gearT, { up: -1.9, tuck: 0.45, slide: 0.3 });
+    SUISEI_PIECES = m.SUISEI_PIECES;
+    SUISEI = meta;
+  }, (e) => { loading = null; throw e; });
+  return loading;
+}
 
 /** The pieces a Suisei can lose, and the parts of her that move. */
 export const SUISEI_SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
@@ -37,14 +52,14 @@ const LEVEL = new Set(['prop', 'bayPort', 'bayStbd', 'store', 'gun']);
 
 /** The rotation a part of her sits at before it moves: see LEVEL. */
 export function suiseiRest(name, out = new THREE.Quaternion()) {
-  if (LEVEL.has(name)) return out.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -SUISEI_META.tilt);
+  if (LEVEL.has(name)) return out.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -SUISEI.tilt);
   return out.identity();
 }
 
 /** Where each moving part's hinge is, in her own frame. */
 export function suiseiHinge(name) {
-  if (name === 'prop') return SUISEI_META.prop;
-  const s = SUISEI_META[name];
+  if (name === 'prop') return SUISEI.prop;
+  const s = SUISEI[name];
   return s ? s.at : [0, 0, 0];
 }
 
@@ -117,11 +132,11 @@ const BOMB = hex(0x46493f);
 // The paint is laid out in the level frame she was measured in -- see
 // build/suisei-source.mjs -- so the body's points are turned back down
 // before anything is read off them.
-const PAINT = /* glsl */`
+const paint = () => /* glsl */`
 vec3 suiseiLevel(vec3 p) {
-  float y = p.y + ${f(SUISEI_META.ground)};
-  float z = p.z - ${f(SUISEI_META.dz)};
-  float c = ${f(Math.cos(SUISEI_META.tilt))}, s = ${f(Math.sin(SUISEI_META.tilt))};
+  float y = p.y + ${f(SUISEI.ground)};
+  float z = p.z - ${f(SUISEI.dz)};
+  float c = ${f(Math.cos(SUISEI.tilt))}, s = ${f(Math.sin(SUISEI.tilt))};
   return vec3(p.x, y * c - z * s, y * s + z * c);
 }
 vec3 suiseiPaint(float tag, vec3 q, vec3 n) {
@@ -203,7 +218,7 @@ vSNrm = normal;`);
 varying float vSTag;
 varying vec3 vSPos;
 varying vec3 vSNrm;
-${PAINT}`)
+${paint()}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 diffuseColor.rgb = suiseiPaint(vSTag, vSPos, normalize(vSNrm));
 if (!gl_FrontFacing) diffuseColor.rgb *= 0.12;`)
@@ -217,10 +232,10 @@ specularStrength = vSTag > 1.5 && vSTag < 2.5 ? 3.2 : (vSTag > 6.5 && vSTag < 7.
 
 /** Which piece of her a point in her own frame belongs to. */
 export function suiseiSegOf(x, y, z) {
-  if (z < SUISEI_META.breaks.tail[2]) return 'tail';
+  if (z < SUISEI.breaks.tail[2]) return 'tail';
   const ax = Math.abs(x);
-  if (ax > Math.abs(SUISEI_META.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
-  if (ax > Math.abs(SUISEI_META.breaks.wingInR[0]) && y < SUISEI_META.breaks.wingInR[1] + 0.5) {
+  if (ax > Math.abs(SUISEI.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
+  if (ax > Math.abs(SUISEI.breaks.wingInR[0]) && y < SUISEI.breaks.wingInR[1] + 0.5) {
     return x > 0 ? 'wingInR' : 'wingInL';
   }
   return 'body';
@@ -268,7 +283,7 @@ export function suiseiModel(opts = {}) {
     const doors = ['bayPort', 'bayStbd'].map((k) => ({ k, ...hinged(k) }));
     p.userData.bay = (u) => {
       const k = Math.max(0, Math.min(1, u));
-      for (const d of doors) d.turn.rotation.z = SUISEI_META[d.k].open * k;
+      for (const d of doors) d.turn.rotation.z = SUISEI[d.k].open * k;
     };
     p.userData.store = hinged('store').h;
     const gun = hinged('gun');
@@ -276,7 +291,7 @@ export function suiseiModel(opts = {}) {
     gun.turn.rotation.order = 'YXZ';
     const legs = [];
     for (const k of ['gearL', 'gearR', 'gearT']) {
-      const spec = SUISEI_META[k];
+      const spec = SUISEI[k];
       const { h, turn, m } = hinged(k);
       legs.push({ hinge: h, turn, spec });
       m.userData.legFoot = { x: spec.at[0], z: spec.at[2], skin: spec.at[1], top: spec.at[1] };
@@ -295,7 +310,7 @@ export function suiseiModel(opts = {}) {
       }
     };
   }
-  for (const at of SUISEI_META.guns) {
+  for (const at of SUISEI.guns) {
     const o = new THREE.Object3D();
     o.position.fromArray(at);
     o.userData.muzzle = 0.15;

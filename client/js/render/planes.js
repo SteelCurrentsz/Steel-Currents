@@ -475,16 +475,18 @@ export function rearGunOf(kind) {
  * tail, which is the arc the simulation gives him (see stepRearGunners). The
  * Avenger's is her ball turret, with her fifty in it.
  */
+// Functions, because the Suisei's and the B5N's are read off their sculpts,
+// which are fetched after this module is loaded (see loadShips).
 const REAR_SEATS = {
-  dauntless: { x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 },
-  suisei: { x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 },
-  avenger: { x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 },
-  b5n: { x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 },
+  dauntless: () => ({ x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 }),
+  suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
+  avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
+  b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
 };
 
 /** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
 export function rearSeatOf(kind) {
-  const s = REAR_SEATS[kind];
+  const s = REAR_SEATS[kind]?.();
   return s ? { name: 'rear', arc: 110, up: 70, down: 25, ...s } : null;
 }
 

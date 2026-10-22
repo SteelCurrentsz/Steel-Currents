@@ -17,20 +17,35 @@
 // roundels above and below the wing and on her sides with a white surround,
 // a brown airscrew with yellow tips, and her canopy glazed and shut.
 import * as THREE from '../../../vendor/three.module.js';
-import { ZERO_PIECES, ZERO_META } from './zeroModel.data.js';
 
-export const ZERO = ZERO_META;
+// Her sculpt is several hundred kilobytes, and nothing on the title screen
+// flies her, so it is not imported with the rest of the game: it is fetched by
+// loadZero() -- which loadShips (ships.js) waits on before a battle or the
+// shipyard can want her -- and a captain is not kept at the loading screen
+// for an aeroplane he has not yet seen.
+let ZERO_PIECES = null;
+/** Her measurements -- hinges, guns, where she breaks -- once loadZero() is in. */
+export let ZERO = null;
+let loading = null;
 
-// How her legs go up, fitted against her own wing rather than set by eye (see
-// planekit's gearRig): each main leg swings in about its hinge, rises and
-// slides into its well, and the tail leg swings up into the sternpost.
-// `slide` is the travel along her span for a main leg, and fore and aft for the
-// tail. The sculpt's own numbers swung the mains a hundred degrees and lifted
-// them three tenths of a metre, which put both wheels up through the top of
-// the wing at the root.
-Object.assign(ZERO_META.gearL, { up: 1.35, tuck: 0.55, slide: -0.3 });
-Object.assign(ZERO_META.gearR, { up: -1.65, tuck: 0.4, slide: -0.4 });
-Object.assign(ZERO_META.gearT, { up: 1.2, tuck: 0.25, slide: 0 });
+export function loadZero() {
+  loading ||= import('./zeroModel.data.js').then((m) => {
+    const meta = m.ZERO_META;
+    // How her legs go up, fitted against her own wing rather than set by eye (see
+    // planekit's gearRig): each main leg swings in about its hinge, rises and
+    // slides into its well, and the tail leg swings up into the sternpost.
+    // `slide` is the travel along her span for a main leg, and fore and aft for the
+    // tail. The sculpt's own numbers swung the mains a hundred degrees and lifted
+    // them three tenths of a metre, which put both wheels up through the top of
+    // the wing at the root.
+    Object.assign(meta.gearL, { up: 1.35, tuck: 0.55, slide: -0.3 });
+    Object.assign(meta.gearR, { up: -1.65, tuck: 0.4, slide: -0.4 });
+    Object.assign(meta.gearT, { up: 1.2, tuck: 0.25, slide: 0 });
+    ZERO_PIECES = m.ZERO_PIECES;
+    ZERO = meta;
+  }, (e) => { loading = null; throw e; });
+  return loading;
+}
 
 /** The pieces a Zero can lose, and the parts of her that move. */
 export const ZERO_SEGS = ['body', 'tail', 'wingInL', 'wingInR', 'wingOutL', 'wingOutR'];
@@ -197,9 +212,9 @@ specularStrength = vZTag > 1.5 && vZTag < 2.5 ? 3.2 : (vZTag > 0.5 && vZTag < 1.
  * to know whether the piece it was in is still there.
  */
 export function zeroSegOf(x, y, z) {
-  if (z < ZERO_META.breaks.tail[2]) return 'tail';
+  if (z < ZERO.breaks.tail[2]) return 'tail';
   const ax = Math.abs(x);
-  if (ax > Math.abs(ZERO_META.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
+  if (ax > Math.abs(ZERO.breaks.wingOutR[0])) return x > 0 ? 'wingOutR' : 'wingOutL';
   if (ax > 0.95 && y < 2.1) return x > 0 ? 'wingInR' : 'wingInL';
   return 'body';
 }
@@ -231,15 +246,15 @@ export function zeroModel(opts = {}) {
       p.add(m);
     }
     const hub = new THREE.Group();
-    hub.position.fromArray(ZERO_META.prop);
+    hub.position.fromArray(ZERO.prop);
     const blades = new THREE.Mesh(geos.prop, mat);
-    blades.position.fromArray(ZERO_META.prop).negate();
+    blades.position.fromArray(ZERO.prop).negate();
     hub.add(blades);
     p.add(hub);
     p.userData.prop = hub;
     const legs = [];
     for (const k of ['gearL', 'gearR', 'gearT']) {
-      const spec = ZERO_META[k];
+      const spec = ZERO[k];
       const hinge = new THREE.Group();
       hinge.position.fromArray(spec.at);
       const m = new THREE.Mesh(geos[k], mat);
@@ -269,7 +284,7 @@ export function zeroModel(opts = {}) {
   }
   // Her guns, for anything that asks the model where they are: see
   // planekit's muzzlesOf.
-  for (const at of ZERO_META.guns) {
+  for (const at of ZERO.guns) {
     const o = new THREE.Object3D();
     o.position.fromArray(at);
     o.userData.muzzle = 0.15;
