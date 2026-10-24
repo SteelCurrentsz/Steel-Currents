@@ -99,7 +99,7 @@ export const LW = {
   BLUE: hex(0x93a6b6), WHITE: hex(0xe6e6e0), BLACK: hex(0x161616), BLACKGREEN: hex(0x262c24),
   GLASS: hex(0x3a4d5a), TYRE: hex(0x1b1b1b), METAL: hex(0x34363a), CAVE: hex(0x4a4c42),
   BOMB: hex(0x646b5a), BAND: hex(0xc9a227), FISH: hex(0x8b9192), HEAD: hex(0x3a3f42),
-  ENGINE: hex(0x3c3d3f), LEG: hex(0x7d827c), YELLOW: hex(0xd8b326),
+  ENGINE: hex(0x3c3d3f), LEG: hex(0x7d827c), YELLOW: hex(0xd8b326), MOTTLE: hex(0x5d6650),
 };
 
 /**

@@ -54,7 +54,22 @@ export function bf109Geometries() {
 }
 
 const f = (v) => v.toFixed(5);
+// The top and the bottom of her fuselage along her length, read off the sculpt
+// in her level frame at a metre apart from her tail (z -4.5) to her spinner.
+const TOP = [1.55, 1.80, 1.78, 1.78, 1.81, 1.66, 1.63, 1.54, 1.45, 0.90];
+const BOT = [1.50, 1.15, 1.03, 0.81, 0.55, 0.15, 0.04, -0.02, 0.26, 0.58];
+const arr = (a) => `float[10](${a.map(f).join(', ')})`;
 const paint = () => /* glsl */`
+float bfAlong(float z, float k[10]) {
+  float u = clamp(z + 4.5, 0.0, 8.999);
+  int i = int(u);
+  return mix(k[i], k[i + 1], u - float(i));
+}
+// Soft-edged dapples of grey-green, the mottle the 109s of 1940 wore down
+// their blue sides and up their fins.
+float bfMottle(vec2 u) {
+  return sin(u.x * 5.1 + sin(u.y * 3.7) * 1.6) * sin(u.y * 4.3 + sin(u.x * 2.9) * 1.6);
+}
 vec3 bfPaint(float tag, vec3 q, vec3 n0) {
   float c = ${f(Math.cos(BF109.tilt))}, s = ${f(Math.sin(BF109.tilt))};
   float y = q.y + ${f(BF109.ground)};
@@ -72,11 +87,24 @@ vec3 bfPaint(float tag, vec3 q, vec3 n0) {
       if (p.z < -2.0) k = 0.0;
       if (k > 1.5) col = ${LW.BLACK}; else if (k > 0.5) col = ${LW.WHITE};
     } else {
-      // The splinter over her back and down to the line of her hood; her
-      // sides and her belly blue, the way the 109s of 1940 had them.
-      col = (n.y > 0.5 || (p.y > 1.55 && n.y > -0.1)) ? lwSplinter(p.z, p.x * 2.0) : ${LW.BLUE};
-      // Her fin and rudder in the greens both sides.
-      if (p.z < -3.2 && p.y > 1.55) col = lwSplinter(p.z, p.y);
+      // The greens over her back and down to a line a little above the middle
+      // of her side, from her spinner to her tail; under it her sides blue,
+      // dappled grey-green where they meet the green, and her belly blue.
+      // Read off where she is along her length, not off which way her skin
+      // faces, so the line runs straight down her and does not break up on
+      // the bumps of her cowling.
+      float top = bfAlong(p.z, ${arr(TOP)});
+      float bot = bfAlong(p.z, ${arr(BOT)});
+      float h = (p.y - bot) / max(top - bot, 0.05);
+      float m = bfMottle(vec2(p.z, p.y * 1.6) * 1.5);
+      if (p.y > top + 0.12 && p.z < -3.0) {
+        // Her fin and rudder: blue, dappled all over.
+        col = m > 0.4 ? ${LW.MOTTLE} : ${LW.BLUE};
+      } else if (h > 0.66 && n.y > -0.3) {
+        col = lwSplinter(p.z, p.x * 2.0);
+      } else {
+        col = (h > 0.4 && m > 1.2 - h) ? ${LW.MOTTLE} : ${LW.BLUE};
+      }
       if (abs(n.x) > 0.35 && ax < 0.6) {
         float k = lwCross(p.z + 1.75, p.y - 1.15, 0.38);
         if (k > 1.5) col = ${LW.BLACK}; else if (k > 0.5) col = ${LW.WHITE};

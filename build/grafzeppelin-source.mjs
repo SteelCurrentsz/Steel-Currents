@@ -60,18 +60,18 @@ const raw = readSource(SRC);
 console.log('sculpt', raw.P.length / 3, 'points', raw.T.length / 3, 'triangles');
 
 /**
- * Her section at x, under `top`: how far out her side is each way at height
- * y -- cut through her triangles, not read off whichever points fall near x --
- * a fiftieth of a hundredth of a unit of height at a time.
+ * Her section at x, between `floor` and `top`: how far out her side is each
+ * way at height y -- cut through her triangles, not read off whichever points
+ * fall near x -- a fiftieth of a hundredth of a unit of height at a time.
  */
-function sectionAt(x, top) {
-  const BIN = 0.0002, n = Math.ceil((top - BOTTOM) / BIN) + 1;
+function sectionAt(x, top, floor = BOTTOM) {
+  const BIN = 0.0002, n = Math.ceil((top - floor) / BIN) + 1;
   const port = new Float32Array(n), stbd = new Float32Array(n);
   const { P, T } = raw;
   // Each triangle crossing the station leaves a segment of her section;
   // every height bin a segment spans takes how far out the segment is there.
   const mark = (y, z) => {
-    const k = Math.round((y - BOTTOM) / BIN);
+    const k = Math.round((y - floor) / BIN);
     if (k < 0 || k >= n) return;
     if (z > 0) port[k] = Math.max(port[k], z); else stbd[k] = Math.max(stbd[k], -z);
   };
@@ -85,10 +85,10 @@ function sectionAt(x, top) {
     }
     if (pts.length < 2) continue;
     const [[ya, za], [yb, zb]] = pts;
-    const k0 = Math.ceil((Math.min(ya, yb) - BOTTOM) / BIN), k1 = Math.floor((Math.max(ya, yb) - BOTTOM) / BIN);
+    const k0 = Math.ceil((Math.min(ya, yb) - floor) / BIN), k1 = Math.floor((Math.max(ya, yb) - floor) / BIN);
     mark(ya, za); mark(yb, zb);
     for (let k = Math.max(0, k0); k <= Math.min(n - 1, k1); k++) {
-      const y = BOTTOM + k * BIN;
+      const y = floor + k * BIN;
       if (Math.sign(za) !== Math.sign(zb)) continue;
       mark(y, za + (zb - za) * ((y - ya) / (yb - ya)));
     }
@@ -98,8 +98,8 @@ function sectionAt(x, top) {
   let kk = 0;
   while (kk < n - 1 && !port[kk] && !stbd[kk]) kk++;
   for (const h of [port, stbd]) for (let k = n - 2; k >= 0; k--) if (!h[k]) h[k] = h[k + 1];
-  const at = (h) => (y) => h[Math.max(0, Math.min(n - 1, Math.round((y - BOTTOM) / BIN)))];
-  return { port: at(port), stbd: at(stbd), keel: BOTTOM + kk * BIN };
+  const at = (h) => (y) => h[Math.max(0, Math.min(n - 1, Math.round((y - floor) / BIN)))];
+  return { port: at(port), stbd: at(stbd), keel: floor + kk * BIN };
 }
 
 // Off with her underbody over the stand: every triangle whose middle is in
@@ -125,7 +125,12 @@ console.log(`without her stand: ${hull.T.length / 3} triangles; ${pieces.length 
 // so there is never a gap between them to see the sea through.
 {
   const top = ARM_TOP + LAP;
-  const sections = CLEAR.map((x) => ({ x, ...sectionAt(x, top + 0.001) }));
+  // Forward of the plate her bar keel hangs half a metre under the flat of her
+  // bottom, and the cut leaves its end open. Her section there is read down to
+  // the foot of it, so the new underbody starts as deep as her keel and comes
+  // up to her flat bottom by the first pad, and closes it.
+  const sections = CLEAR.map((x, i) => ({ x, ...sectionAt(x, top + 0.001, i === 0 ? BOTTOM - 0.006 : BOTTOM) }));
+  console.log('her keel at the forward end of the plate', sections[0].keel.toFixed(4));
   const NY = 48, NB = 14;
   // Twice as far in at her ends: just abaft the plate her old bottom has a
   // crack in it a few centimetres across, which a lap of one hand ends on.
