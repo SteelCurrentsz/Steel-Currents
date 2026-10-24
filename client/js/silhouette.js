@@ -69,6 +69,23 @@ const HULLS = {
     <rect x="30" y="22" width="4" height="4"/>
     <rect x="44" y="22" width="4" height="4"/>
     <rect x="78" y="22" width="4" height="4"/>`,
+  // The Graf Zeppelin: her flight deck stops short of her stem, over an open
+  // forecastle, and her island is a long low block amidships with the funnel
+  // in it, a tall mast over it and the jib of her crane raked up abaft it.
+  // Her 10.5 cm turrets stand on the deck in line with it, three a side of it.
+  grafzeppelin: `
+    <path d="M3 30 L8 31 L95 31 L93 37 L9 37 Z"/>
+    <path d="M10 26 L97 26 L97 31 L10 31 Z"/>
+    <rect x="42" y="19" width="17" height="7"/>
+    <rect x="47" y="13" width="8" height="7"/>
+    <rect x="50" y="3" width="1.6" height="11"/>
+    <path d="M58 21 L65 12 L66 13 L60 22 Z"/>
+    <rect x="24" y="23.5" width="3.5" height="2.5"/>
+    <rect x="30" y="23.5" width="3.5" height="2.5"/>
+    <rect x="36" y="23.5" width="3.5" height="2.5"/>
+    <rect x="63" y="23.5" width="3.5" height="2.5"/>
+    <rect x="69" y="23.5" width="3.5" height="2.5"/>
+    <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
 };
 
 // Badges that say what a hull icon does when it is a button rather than a

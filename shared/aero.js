@@ -143,6 +143,31 @@ export const AERO = {
     thrust: 11900, vMax: 105, name: 'B5N2',
     helix: 0.052, gLimit: 4.5,
   },
+  // And the German three, the Graf Zeppelin's group. The Bf 109T is an E with
+  // a longer wing to bring her landing speed down for a deck: a little slower
+  // than a Zero and a good deal heavier, she out-dives anything she meets and
+  // she rolls well until her ailerons stiffen at speed.
+  bf109: {
+    mass: 3080, wing: 17.5, span: 11.08, clMax: 1.55, cd0: 0.0235,
+    thrust: 15200, vMax: 158, name: 'Bf 109T-1',
+    helix: 0.075, gLimit: 7.0,
+  },
+  // The Ju 87C, the carrier Stuka: a B with a hook, folding wings and a
+  // 500 kg bomb under her. Slow, fixed-geared and draggy, and the steadiest
+  // platform there was to put a bomb on a ship from straight above it.
+  ju87c: {
+    mass: 5300, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0360,
+    thrust: 15600, vMax: 106, name: 'Ju 87C-1',
+    helix: 0.055, gLimit: 6.5,
+  },
+  // The Ju 87D with the aerial torpedo a carrier Stuka would have carried
+  // instead: the later airframe and the more powerful Jumo, and a tonne more
+  // of her to haul off the deck.
+  ju87d: {
+    mass: 5900, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0380,
+    thrust: 18500, vMax: 112, name: 'Ju 87D-4',
+    helix: 0.050, gLimit: 5.5,
+  },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.
   jake: {

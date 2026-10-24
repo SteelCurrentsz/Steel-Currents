@@ -32,7 +32,8 @@ import { loadB5n } from './b5nModel.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze;
+  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildGrafZeppelin;
 const SCULPTED = {
   // Not a ship: the Japanese carrier aircraft, off the owner's sculpts. Every
   // battle builds them to fly (planes.js) and the Shinano carries them, so
@@ -54,6 +55,7 @@ const SCULPTED = {
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
   richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
+  grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
@@ -867,6 +869,22 @@ export function buildShipModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Graf Zeppelin: the owner's sculpt of her, her runway laid afresh
+  // over it, three lifts that run and two hangars under them.
+  if (cls.id === 'grafzeppelin') {
+    const built = buildGrafZeppelin();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
     };
   }
 

@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  jake, muzzlesOf, dressPlane,
+  jake, bf109, ju87c, ju87d, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -482,6 +482,9 @@ const REAR_SEATS = {
   suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
   avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
+  // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
+  ju87c: () => ({ x: 0, y: 3.15, z: -1.9, cal: 0.0079, guns: 2 }),
+  ju87d: () => ({ x: 0, y: 3.15, z: -1.9, cal: 0.0079, guns: 2 }),
 };
 
 /** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
@@ -631,6 +634,12 @@ export function flightModels() {
   MUZZLES.b5n = [];
   readStore('b5n', out.b5n.parts);
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
+  // And the Graf Zeppelin's three, built here off the kit like the
+  // Americans: the Messerschmitt with her wheels up, and the two Stukas with
+  // theirs where a Stuka's always are.
+  make('bf109', (g) => bf109(g, 0, 0, 0, 0, false, { gear: false }));
+  make('ju87c', (g) => ju87c(g, 0, 0, 0, 0, false, {}));
+  make('ju87d', (g) => ju87d(g, 0, 0, 0, 0, false, {}));
   return out;
 }
 
@@ -652,7 +661,7 @@ export const ROLE_TYPE = {
 };
 
 const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake']);
+  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {

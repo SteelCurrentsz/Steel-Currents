@@ -132,7 +132,7 @@ const TURRET_ROOF = {
   fletcher: 3, matsu: 3, yukikaze: 3, cleveland: 76, hipper: 70, spee: 105, u48: 0, surcouf: 25,
   richelieu: 170, scharnhorst: 150, bismarck: 130, tirpitz: 130, rodney: 184,
   massachusetts: 184, iowa: 184, kongo: 152, fuso: 152, musashi: 270, yamato: 270,
-  takao: 25, baltimore: 76, shinano: 6, enterprise: 3,
+  takao: 25, baltimore: 76, shinano: 6, enterprise: 3, grafzeppelin: 20,
 };
 const SEC_ROOF = {
   iowa: 25, massachusetts: 25, cleveland: 25, baltimore: 25, bismarck: 35, tirpitz: 35,

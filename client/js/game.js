@@ -222,6 +222,9 @@ const FLIGHT_NAME = {
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
   loire: 'her Loires',
+  bf109: 'her Messerschmitts',
+  ju87c: 'her Stukas',
+  ju87d: 'her torpedo Stukas',
 };
 
 /** The order the parts come in on the wire and on the pilot's board. */
@@ -233,6 +236,7 @@ const PLANE_NAME = {
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   zero: 'A6M Zero',
   suisei: 'D4Y Suisei', b5n: 'B5N2 Type 97', jake: 'E13A Jake',
+  bf109: 'Bf 109T', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
 };
 
 /** What she has been sent to do, as the plate in the corner says it. */
@@ -256,6 +260,9 @@ const GUN_CALIBRE = {
   // the bow cockpit and one aft, and it is the one in the bow that fires on
   // what is ahead of her.
   loire: 7.5,
+  bf109: 20,          // two MG FF in the wings and two MG 17 over the engine
+  ju87c: 7.92,        // an MG 17 in each wing
+  ju87d: 7.92,
 };
 
 /**
@@ -271,6 +278,7 @@ const GUN_CALIBRE = {
 const GUN_COUNT = {
   wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
+  bf109: 4, ju87c: 2, ju87d: 2,
 };
 
 /**

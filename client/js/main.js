@@ -793,6 +793,7 @@ function renderAirGroup() {
   const NAMES = {
     zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
     wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+    bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
   };
   const ROLES = { fighters: ['fighter', 'Wildcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
     torpedo: ['torpedo', 'Avenger', 'torpedoes'] };
