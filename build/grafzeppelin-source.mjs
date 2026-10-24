@@ -127,7 +127,9 @@ console.log(`without her stand: ${hull.T.length / 3} triangles; ${pieces.length 
   const top = ARM_TOP + LAP;
   const sections = CLEAR.map((x) => ({ x, ...sectionAt(x, top + 0.001) }));
   const NY = 48, NB = 14;
-  const x0 = PLATE.x0 - LAP, x1 = PLATE.x1 + LAP;
+  // Twice as far in at her ends: just abaft the plate her old bottom has a
+  // crack in it a few centimetres across, which a lap of one hand ends on.
+  const x0 = PLATE.x0 - 2 * LAP, x1 = PLATE.x1 + 2 * LAP;
   const NX = Math.ceil((x1 - x0) / 0.004);
   const P = [], T = [];
   const ringOf = (x) => {

@@ -16537,7 +16537,9 @@ check('you cannot see straight through a gunhouse', () => {
         rc.set(from, new THREE.Vector3(-sgn, 0, 0));
         const hit = rc.intersectObjects(targets, false)[0];
         if (!hit) continue;                 // clear over or under her, not a hole
-        assert.ok(hit.point.x * sgn > 0,
+        // The near side of the gunhouse, not of the ship: the Graf Zeppelin's
+        // guns stand out at her sides, all of a gunhouse off the centreline.
+        assert.ok((hit.point.x - O.x) * sgn > 0,
           `a ray fired at the ${id}'s turret ${k} from ${sgn > 0 ? 'starboard' : 'port'} `
           + 'passes through the near side and meets the far one: her plating faces inwards');
       }

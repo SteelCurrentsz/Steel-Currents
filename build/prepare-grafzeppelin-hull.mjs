@@ -199,10 +199,23 @@ let plan;
   });
   plan = { ...PLAN, port: median(port), stbd: median(stbd) };
   // Abreast her island the median would carry the starboard edge under the
-  // island's foot; it stops at its face.
+  // island's foot; it stops at its face -- its own face at that station, a
+  // hand in under it, and not the inboard side of the box round it: at its
+  // forward end the island stands in from that by three metres, and the
+  // deck stopped at the box was a slot down into her beside it.
   for (let k = 0; k < PLAN.nz; k++) {
     const z = PLAN.z0 + k * PLAN.dz;
-    if (z > ISLAND.z0 && z < ISLAND.z1) plan.stbd[k] = Math.min(plan.stbd[k], -ISLAND.x1 + 0.3);
+    if (!(z > ISLAND.z0 && z < ISLAND.z1)) continue;
+    const j = Math.round((z - HM.z0) / HM.step);
+    // Her face is where she stands a metre and a half solid; a stanchion or
+    // a sliver left standing in the slot is not it.
+    const solid = (q) => {
+      for (let d = 0; d < 1.5; d += 0.25) if (hm[j * HM.nx + Math.round((-q - 0.25 - d - HM.x0) / HM.step)] < OVER + 0.5) return false;
+      return true;
+    };
+    let q = -ISLAND.x1;
+    while (q < -ISLAND.x0 && !solid(q)) q += 0.25;
+    plan.stbd[k] = q < -ISLAND.x0 && plan.stbd[k] > 0 ? Math.max(plan.stbd[k], q + 0.3) : Math.min(plan.stbd[k], -ISLAND.x1 + 0.3);
   }
 }
 /** How far out her deck runs each way at z, 0 off it. */
@@ -290,24 +303,88 @@ const CARVE_GUNS = bothSides([
 
 // ---- her screws -------------------------------------------------------------------------
 // Four shafts, the wing pair ending forward of the inner pair. The sculpt drew
-// a screw on the end of each; it is cut off, and grafzeppelin.js draws a
-// three-bladed screw there that turns.
+// a screw on the end of each -- and a second pair on her wing shafts ten
+// metres further forward, where no ship ever had one -- and all six are cut
+// off: grafzeppelin.js draws a three-bladed screw that turns on the end of
+// each of her four shafts.
+//
+// Only the screw comes off, not her bottom over it: the top of each disc
+// all but touches her plating, and a box cut up to it took a slice of her
+// counter with it, which the hole-closer then made good as a red box hung
+// under her stern. A face of her plating faces down, or stands clear above
+// the disc's hub; a blade faces fore and aft.
 export const SCREWS = [
   { x: -7.18, y: -2.56, z: -105.4, r: 2.1 },
   { x: 7.18, y: -2.56, z: -105.4, r: 2.1 },
   { x: -3.24, y: -2.56, z: -111.0, r: 2.1 },
   { x: 3.24, y: -2.56, z: -111.0, r: 2.1 },
 ];
-const CARVE_SCREWS = SCREWS.map((sc, i) => ({
+const SPARE_SCREWS = [
+  { x: -7.5, y: -3.8, z: -95.7, r: 2.4 },
+  { x: 7.5, y: -3.8, z: -95.7, r: 2.4 },
+];
+const CARVE_SCREWS = [...SCREWS, ...SPARE_SCREWS].map((sc, i) => ({
   name: `screw ${i + 1}`, x0: sc.x - sc.r - 0.4, x1: sc.x + sc.r + 0.4, z0: sc.z - 0.9, z1: sc.z + 0.9,
-  floor: () => sc.y - sc.r - 0.6, y1: sc.y + sc.r + 0.4,
+  floor: () => sc.y - sc.r - 0.6, y1: sc.y + sc.r + 0.4, sc,
 }));
 {
-  const boxes = [...CARVE_GUNS, ...CARVE_SCREWS];
-  const { keep, cut } = carve(m, boxes);
+  const { keep, cut } = carve(m, CARVE_GUNS);
   console.log('carved:', [...cut].map(([k, n]) => `${k} ${n}`).join(', '));
-  const s2 = closeHoles(m, keep, nearestBox(boxes));
+  const s2 = closeHoles(m, keep, nearestBox(CARVE_GUNS));
   console.log('closed', s2.loops, 'holes with', s2.capped, 'triangles;', s2.skirted, 'skirted;', s2.fanned, 'fanned;', s2.chains, 'open chains');
+}
+{
+  const { keep, cut } = carve(m, CARVE_SCREWS);
+  let spared = 0;
+  for (let t = 0; t < m.T.length / 3; t++) {
+    if (keep[t]) continue;
+    const [cx, cy, cz] = middle(m, t);
+    const box = CARVE_SCREWS.find((k) => cx >= k.x0 - 0.3 && cx <= k.x1 + 0.3 && cz >= k.z0 - 0.3 && cz <= k.z1 + 0.3);
+    // A face whose middle is outside every cut only had a corner in one: it is
+    // a plate of her, and big, which no part of a screw is.
+    if (!box) { keep[t] = 1; spared++; continue; }
+    const [nx, ny, nz] = faceNormal(m, m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]);
+    const len = Math.hypot(nx, ny, nz) || 1;
+    // Off the shaft's axis, what does not face fore and aft is her bottom,
+    // her skeg or a bracket; on it, forward of the disc, it is the shaft.
+    const off = Math.hypot(cx - box.sc.x, cy - box.sc.y);
+    const plating = (ny / len < -0.6 && cy > box.sc.y + 0.6)
+      || (Math.abs(nz) / len < 0.35 && off > 0.6 && (cy > box.sc.y + 0.3 || off > box.sc.r + 0.2))
+      || (off <= 0.6 && cz > box.sc.z + 0.45);
+    if (plating) { keep[t] = 1; spared++; }
+  }
+  // What is left of a blade -- its edges, which face neither way -- hangs on
+  // nothing once the faces either side of it are gone: what is put back must
+  // still be joined to her outside the cut.
+  const inBox = (t) => {
+    const [cx, , cz] = middle(m, t);
+    return CARVE_SCREWS.some((k) => cx >= k.x0 - 0.3 && cx <= k.x1 + 0.3 && cz >= k.z0 - 0.3 && cz <= k.z1 + 0.3);
+  };
+  const weld = new Map();
+  const vid = (v) => {
+    const k = `${m.P[v * 3].toFixed(4)},${m.P[v * 3 + 1].toFixed(4)},${m.P[v * 3 + 2].toFixed(4)}`;
+    if (!weld.has(k)) weld.set(k, weld.size);
+    return weld.get(k);
+  };
+  const nT = m.T.length / 3;
+  const corners = Array.from({ length: nT }, (_, t) => [vid(m.T[t * 3]), vid(m.T[t * 3 + 1]), vid(m.T[t * 3 + 2])]);
+  const byVertex = new Map();
+  for (let t = 0; t < nT; t++) {
+    if (!keep[t]) continue;
+    for (const v of corners[t]) { if (!byVertex.has(v)) byVertex.set(v, []); byVertex.get(v).push(t); }
+  }
+  const held = new Uint8Array(nT);
+  const queue = [];
+  for (let t = 0; t < nT; t++) if (keep[t] && !inBox(t)) { held[t] = 1; queue.push(t); }
+  while (queue.length) {
+    const t = queue.pop();
+    for (const v of corners[t]) for (const u of byVertex.get(v)) if (!held[u]) { held[u] = 1; queue.push(u); }
+  }
+  let hanging = 0;
+  for (let t = 0; t < nT; t++) if (keep[t] && !held[t]) { keep[t] = 0; hanging++; }
+  console.log('screws cut off:', [...cut].map(([k, n]) => `${k} ${n}`).join(', '), `| ${spared} faces of her bottom over them left on, ${hanging} left hanging taken off`);
+  const kept = subMesh(m, (t) => keep[t]);
+  m = { P: kept.P, N: kept.N, T: kept.T };
 }
 {
   const { keep, cut } = carve(m, CARVE_CASEMATES);
@@ -382,6 +459,48 @@ const st = stations(m, { length: REAL_LOA, beamCap: FD - 1.5, edgeCap: FD + 0.5,
 const LINES = measureLines(m, st, { z0: -130, dz: 1, nz: 261, y0: -10, dy: 0.5, ny: 54 }, FD);
 console.log('her lines: keel amidships', LINES.keel[130].toFixed(2), 'half-breadth at the waterline amidships',
   LINES.half[130 * LINES.ny + 20].toFixed(2));
+
+// And how far out her plating actually is, across the height of each of her
+// two hangars: the least, at each metre of her length, of the span between
+// the outermost crossing of her shell to port and to starboard. Her lines
+// are her widest at a height; this is what is there at every height of a
+// hangar, and it is not the same thing where her side is opened -- her boat
+// recesses aft, and her forecastle forward, open under her flight deck.
+{
+  const Z0 = -100, NZ = 201;
+  const bands = { lower: [3.8, 9.4], upper: [9.4, 14.5] };
+  const byZ = Array.from({ length: NZ }, () => []);
+  const { P, T } = m;
+  for (let t = 0; t < T.length; t += 3) {
+    const zs = [P[T[t] * 3 + 2], P[T[t + 1] * 3 + 2], P[T[t + 2] * 3 + 2]];
+    const k0 = Math.max(0, Math.ceil(Math.min(...zs) - Z0)), k1 = Math.min(NZ - 1, Math.floor(Math.max(...zs) - Z0));
+    for (let k = k0; k <= k1; k++) byZ[k].push(t);
+  }
+  const span = (k, y) => {
+    const z = Z0 + k;
+    let lo = Infinity, hi = -Infinity;
+    for (const t of byZ[k]) {
+      const a = T[t] * 3, b = T[t + 1] * 3, c = T[t + 2] * 3;
+      const d = (P[b + 2] - P[c + 2]) * (P[a + 1] - P[c + 1]) + (P[c + 1] - P[b + 1]) * (P[a + 2] - P[c + 2]);
+      if (Math.abs(d) < 1e-9) continue;
+      const l1 = ((P[b + 2] - P[c + 2]) * (y - P[c + 1]) + (P[c + 1] - P[b + 1]) * (z - P[c + 2])) / d;
+      const l2 = ((P[c + 2] - P[a + 2]) * (y - P[c + 1]) + (P[a + 1] - P[c + 1]) * (z - P[c + 2])) / d;
+      if (l1 < 0 || l2 < 0 || l1 + l2 > 1) continue;
+      const x = P[a] * l1 + P[b] * l2 + P[c] * (1 - l1 - l2);
+      lo = Math.min(lo, x); hi = Math.max(hi, x);
+    }
+    return hi < lo ? 0 : Math.max(0, Math.min(hi, -lo));
+  };
+  LINES.inner = { z0: Z0, dz: 1, nz: NZ };
+  for (const [name, [y0, y1]] of Object.entries(bands)) {
+    LINES.inner[name] = Array.from({ length: NZ }, (_, k) => {
+      let w = Infinity;
+      for (let y = y0; y <= y1 + 1e-6; y += 0.25) w = Math.min(w, span(k, y));
+      return +w.toFixed(2);
+    });
+  }
+  console.log('her plating across her hangars, every 20 m:', LINES.inner.upper.filter((_, k) => k % 20 === 0).join(' '));
+}
 
 // ---- paint -----------------------------------------------------------------------------
 const paintOfVertex = new Uint8Array(m.P.length / 3);

@@ -195,7 +195,9 @@ const HANGAR_U_TOP = FD - 1.1;
 const HANGAR_L = 3.8;
 const HANGAR_L_TOP = HANGAR_U - 0.45;
 /** How far each runs fore and aft; both are 16 m across where she is wide enough. */
-const HANGAR_U_Z = [-92, 96];
+// The upper hangar ends abaft her forward casemates: forward of them her
+// side is open under her flight deck.
+const HANGAR_U_Z = [-92, 74];
 const HANGAR_L_Z = [-84, 70];
 const HANGAR_HW = 8.0;
 
@@ -421,9 +423,21 @@ function elevators(g) {
 
 // ------------------------------------------------------------ her hangars --
 
-/** How far out a hangar goes at z: sixteen metres across, or her own breadth less her side and the passage beside it. */
+/**
+ * How far out a hangar goes at z: sixteen metres across, or her own breadth
+ * less her side and the passage beside it -- and never past her plating
+ * anywhere up the height of the hangar, which is narrower than her lines
+ * where her boat recesses are let into her side aft.
+ */
 function hangarHalf(z, y) {
-  return Math.min(HANGAR_HW, shellAt((2 * z) / LOA, y) - 1.4);
+  const I = L.inner;
+  const k = Math.round((z - I.z0) / I.dz);
+  const band = I[y < HANGAR_U ? 'lower' : 'upper'];
+  // The narrowest within a few metres: a wall is drawn straight between
+  // stations, and a frame left standing across a recess is not her side.
+  let plating = Infinity;
+  for (let j = k - 3; j <= k + 3; j++) if (j >= 0 && j < I.nz && band[j] > 0) plating = Math.min(plating, band[j] - 0.5);
+  return Math.min(HANGAR_HW, shellAt((2 * z) / LOA, y) - 1.4, plating);
 }
 
 /**
@@ -464,7 +478,7 @@ function hangarDeck(g, y0, y1, z0, z1) {
     }
     box(g, M.steelDark, w * 2 - 0.4, 0.32, 0.28, 0, y1 - 0.2, z).userData.inside = true;
   }
-  for (let z = z0 + 6; z < z1 - 4; z += 7) box(g, M.canvas, 0.6, 0.16, 2.2, 0, y1 - 0.5, z).userData.inside = true;
+  for (let z = z0 + 6; z < z1 - 4; z += 7) box(g, M.canvas, 0.6, 0.16, 2.2, 0, y1 - 1.1, z).userData.inside = true;
   for (const z of [z0 + (z1 - z0) * 0.3, z0 + (z1 - z0) * 0.62]) {
     const w = half(z) - 0.3;
     box(g, M.gunDark, w * 2, 0.5, 0.26, 0, y1 - 0.5, z).userData.inside = true;
@@ -752,7 +766,33 @@ function armour(g) {
 
 // --------------------------------------------------------------- screws --
 
-/** Her four screws, three-bladed, on the ends of her shafts where the sculpt drew them, the two sides handed against each other. */
+/**
+ * One blade of a screw, standing out from the hub along +y: a broad, rounded
+ * blade, widest two thirds of the way out, a plate thin fore and aft.
+ */
+function bladeGeometry(r) {
+  const root = 0.4, n = 14;
+  const shape = new THREE.Shape();
+  const half = (u) => r * 0.36 * Math.sin(Math.PI * Math.min(1, 0.12 + u * 0.95)) ** 0.7 + 0.12;
+  shape.moveTo(-half(0), root);
+  for (let i = 1; i <= n; i++) {
+    const u = i / n;
+    shape.lineTo(-half(u) * (1 - 0.3 * u), root + u * (r - root));
+  }
+  for (let i = n; i >= 0; i--) {
+    const u = i / n;
+    shape.lineTo(half(u) * (1 + 0.15 * u), root + u * (r - root));
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.09, bevelEnabled: false, curveSegments: 4 });
+  geo.translate(0, 0, -0.045);
+  return geo;
+}
+
+/**
+ * Her four screws, three-bladed, on the ends of her shafts where the sculpt
+ * drew them, the two sides handed against each other: each blade stands out
+ * from the hub across the shaft and is set at her pitch to it.
+ */
 function screws(g) {
   GZ_SCREWS.forEach((s) => {
     const hub = new THREE.Group();
@@ -761,12 +801,14 @@ function screws(g) {
     hub.userData.screw = { hand: Math.sign(s.x) || 1 };
     cyl(hub, M.brass, 0.45, 0.34, 0.85, 0, 0, 0, 14).rotation.x = Math.PI / 2;
     cyl(hub, M.brass, 0.34, 0.08, 0.7, 0, 0, -0.78, 12).rotation.x = Math.PI / 2;
+    const geo = bladeGeometry(s.r);
     for (let k = 0; k < 3; k++) {
-      const a = (k / 3) * Math.PI * 2;
-      const bl = box(hub, M.brass, s.r * 0.6, 0.11, s.r * 1.25,
-        Math.sin(a) * s.r * 0.55, Math.cos(a) * s.r * 0.55, 0);
-      bl.rotation.z = a;
-      bl.rotation.x = 0.4 * hub.userData.screw.hand;
+      const arm = new THREE.Group();
+      arm.rotation.z = (k / 3) * Math.PI * 2;
+      const bl = new THREE.Mesh(geo, M.brass);
+      bl.rotation.y = 0.55 * hub.userData.screw.hand;
+      arm.add(bl);
+      hub.add(arm);
     }
     g.add(hub);
   });
