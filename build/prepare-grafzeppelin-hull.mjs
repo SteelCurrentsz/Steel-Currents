@@ -283,7 +283,10 @@ const CARVE_GUNS = bothSides([
   // And on her port side only, the 3.7 cm the sculpt cast on the sponson
   // abreast her island: down to the sponson's floor at 11.3.
   { name: '3.7 cm cast on the port sponson amidships', x0: 15.7, x1: 17.85, z0: -4.3, z1: -2.7, floor: () => 11.42 },
-]);
+]).concat(bothSides([
+  // And the pair cast on her quarter platforms aft, down to the platform at 11.6.
+  { name: '3.7 cm cast on the quarter platform', x0: 11.3, x1: 13.3, z0: -116.4, z1: -115.1, floor: () => 11.74 },
+]));
 
 // ---- her screws -------------------------------------------------------------------------
 // Four shafts, the wing pair ending forward of the inner pair. The sculpt drew
