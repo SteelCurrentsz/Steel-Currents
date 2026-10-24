@@ -24,13 +24,13 @@ import * as THREE from '../../../vendor/three.module.js';
 import { BoardRenderer } from './boardgl.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
-  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, b5n, jake, bf109, ju87c, ju87d, heavyBomber, HEAVY_KINDS,
+  wildcat, avenger, arado, kingfisher, besson, loire,
+  zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {
-  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, b5n, jake, bf109, ju87c, ju87d,
+  wildcat, dauntless: sbd, avenger, arado, kingfisher, besson, loire,
+  zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat,
 };
 
 /** Whether this is one of the heavy squadrons rather than a carrier machine. */

@@ -215,6 +215,7 @@ const SEABED = -34;
 
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
+  hellcat: 'her Hellcats',
   wildcat: 'her fighters',
   dauntless: 'her dive bombers',
   avenger: 'her torpedo bombers',
@@ -232,7 +233,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
-  wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
+  hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   zero: 'A6M Zero',
   suisei: 'D4Y Suisei', b5n: 'B5N2 Type 97', jake: 'E13A Jake',
@@ -246,6 +247,7 @@ const ROLE_NAME = {
 
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
+  hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
   dauntless: 12.7,    // two in the cowling
   avenger: 12.7,      // one in each wing
@@ -276,7 +278,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };

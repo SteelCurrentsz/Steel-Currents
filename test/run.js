@@ -194,7 +194,7 @@ import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
-  bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d,
+  bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd,
 } from '../client/js/render/planekit.js';
 import {
   BOMBERS, BOMBER_ORDER, BOMBER_MAX as CATALOGUE_MAX, airframeSheet, payloadSheet,
@@ -347,6 +347,7 @@ import { LocalNet } from '../client/js/localnet.js';
 import { unpackHoles, HoleField, CUT, segGone } from '../client/js/render/planes.js';
 import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js';
 import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
+import { DAUNTLESS } from '../client/js/render/dauntlessModel.js';
 import { engineStart, CRANK } from '../client/js/render/deckengine.js';
 import { sustainBank, turnFor } from '../shared/aero.js';
 import {
@@ -9000,15 +9001,17 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
   // Every machine's airscrew is a moving part too -- it has to turn -- so it
   // is on all of these.
   const want = {
-    // Two doors and the fish inside them.
-    avenger: ['prop', 'bayPort', 'bayStbd', 'store'],
+    // Two doors and the fish inside them, her ball turret, and her legs,
+    // which come down on the approach.
+    avenger: ['prop', 'bayPort', 'bayStbd', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
     // The Suisei is the one dive bomber of the four with an internal bay --
     // and, being the owner's sculpt, her legs and her gunner's gun move too.
     suisei: ['prop', 'bayPort', 'bayStbd', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
     // A Dauntless has no bay: a bomb let go from the belly of a machine
     // standing on her nose goes through her own airscrew, so it swings clear
-    // on a trapeze first.
-    dauntless: ['prop', 'trapeze', 'store'],
+    // on a trapeze first. The owner's sculpt of her has a hundred-pounder
+    // under each wing as well, her gunner's guns and her legs.
+    dauntless: ['prop', 'trapeze', 'store', 'bombL', 'bombR', 'gun', 'gearL', 'gearR'],
     // A B5N's torpedo hangs outside, on a crutch under her belly; she is the
     // owner's sculpt, so her legs and her gunner's gun move too.
     b5n: ['prop', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
@@ -9032,6 +9035,7 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
   // her airscrew.
   assert.deepEqual((models.wildcat.parts || []).map((q) => q.name), ['prop'],
     'a Wildcat has been given something to drop');
+  assert.ok(!models.hellcat.parts.some((q) => q.fall), 'a Hellcat has been given something to drop');
 });
 
 check('the airscrew reads as a disc without a plate under her nose', () => {
@@ -9198,7 +9202,8 @@ check('the doors actually swing and the weapon actually leaves', () => {
   const scene = { add() {} };
   const fl = new Flights(scene, 8);
   const bat = fl.batches.avenger;
-  assert.ok(bat.parts.length === 4, `an Avenger has ${bat.parts.length} moving parts`);
+  // Her airscrew, her two doors, her fish, her ball turret and her three legs.
+  assert.ok(bat.parts.length === 8, `an Avenger has ${bat.parts.length} moving parts`);
   const readAt = (trim) => {
     fl.begin();
     fl.add('torpedo', 0, 100, 0, 0, 0, 0, 1, -1, 'avenger', trim);
@@ -9309,13 +9314,18 @@ check('she does not take off with her wings folded', () => {
   // spreads on the lift, on her way up, and she is spread for the whole of the
   // taxi, the run-up and the deck run -- or the wing she is flying on is lying
   // along her own fuselage.
-  // Both of her types that fold: the Wildcat that goes up as a fighter and
-  // the Avenger that carries the fish. Each is the one drawn when hers is the
+  // Both of her types that fold: the Hellcat that goes up as a fighter, whose
+  // panels swing on their hinges, and the Avenger that carries the fish, who
+  // has both sets built and shows one. Each is the one drawn when hers is the
   // job going off.
   for (const role of ['fighter', 'torpedo']) {
   const built = buildEnterprise();
-  const wings = built.group.userData.deck.plane.kinds[role].wings;
-  assert.ok(wings && wings.stowed && wings.spread, `her ${role} has only one set of wings`);
+  const kind = built.group.userData.deck.plane.kinds[role];
+  const wings = kind.wings || {
+    stowed: { get visible() { return !!kind.body.userData.folded; } },
+    spread: { get visible() { return !kind.body.userData.folded; } },
+  };
+  assert.ok(kind.fold || (wings.stowed && wings.spread), `her ${role} cannot fold her wings`);
 
   built.group.userData.step(0);
   assert.ok(wings.stowed.visible && !wings.spread.visible,
@@ -11250,7 +11260,7 @@ check('every ship flies the aeroplane she actually carried', () => {
   assert.equal(typeOf('arado', 'dive'), 'arado',
     'a scout is still drawn as whatever her job would be');
   assert.equal(typeOf(null, 'dive'), 'dauntless', 'a carrier dive bomber is not an SBD');
-  assert.equal(typeOf(null, 'fighter'), 'wildcat', 'a carrier fighter is not an F4F');
+  assert.equal(typeOf(null, 'fighter'), 'hellcat', 'a carrier fighter is not an F6F');
   assert.equal(typeOf('nonsense', 'torpedo'), 'avenger', 'an unknown type is not fallen back on');
 
   // There is a model for every one of them, and it is the right size.
@@ -11264,7 +11274,7 @@ check('every ship flies the aeroplane she actually carried', () => {
   };
   // Span and length, in metres, against the real machines.
   for (const [key, wantSpan, wantLen] of [
-    ['wildcat', 11.6, 8.8], ['dauntless', 12.7, 10.1], ['avenger', 16.5, 12.2],
+    ['hellcat', 13.1, 10.2], ['wildcat', 11.6, 8.8], ['dauntless', 12.7, 10.1], ['avenger', 16.5, 12.2],
     ['arado', 12.4, 11.0], ['kingfisher', 11.0, 10.3],
   ]) {
     const [sp, len] = span(key);
@@ -17134,6 +17144,72 @@ check('the Graf Zeppelin flies the owner\'s Messerschmitt and Stukas, each with 
         const sb = new THREE.Box3().setFromObject(s, true);
         assert.ok(sb.min.y > 0.08, `what the ${k} carries is on the deck`);
       }
+    }
+  }
+});
+
+check('the Enterprise flies the owner\'s Hellcat and Dauntless, and an Avenger with her fish in her belly', () => {
+  // Her fighters are Hellcats now, off the sculpt: six fifties, legs that
+  // come up, nothing on a rack. The Dauntless swings her thousand-pounder
+  // clear on the trapeze and lets the hundred-pounders off her wings go with
+  // it; her gunner's thirties turn. The Avenger opens her bay on the torpedo
+  // inside her, her ball turret turns, and all three let their legs down.
+  assert.equal(SHIP_CLASSES.enterprise.planes.types.fighter, 'hellcat', 'the Enterprise does not fly Hellcats');
+  assert.equal(typeOf(null, 'fighter'), 'hellcat', 'a carrier fighter is not an F6F');
+  const models = flightModels();
+  const gear = (k) => models[k].parts.filter((q) => q.gear).map((q) => q.name).sort();
+  const h = models.hellcat, d = models.dauntless, a = models.avenger;
+  assert.deepEqual(gear('hellcat'), ['gearL', 'gearR', 'gearT'], 'the Hellcat cannot raise her legs');
+  assert.ok(!h.parts.some((q) => q.fall), 'the Hellcat drops something');
+  assert.equal(gunsOf('hellcat').length, 6, 'the Hellcat has not her six fifties');
+  assert.deepEqual(gear('dauntless'), ['gearL', 'gearR'], 'the Dauntless cannot raise her legs');
+  const yoke = d.parts.find((q) => q.name === 'trapeze');
+  assert.ok(yoke && Math.abs(yoke.open) > 0.6, 'the Dauntless has no trapeze that swings');
+  assert.deepEqual(d.parts.filter((q) => q.fall).map((q) => q.name), ['store', 'bombL', 'bombR'],
+    'the Dauntless does not let her bomb and her wing bombs go');
+  const sb = storeOf('dauntless');
+  assert.ok(Math.abs(sb.at[0]) < 0.05 && sb.len > 1.6 && sb.extra.length === 2, 'the Dauntless\'s bomb is not a thousand-pounder on her centreline');
+  // Swung out, the bomb is ahead of where it hangs: clear of her airscrew.
+  assert.ok(sb.at[2] > DAUNTLESS.store.at[2] + 0.3, 'the trapeze does not throw the bomb forward');
+  assert.deepEqual(gear('avenger'), ['gearL', 'gearR', 'gearT'], 'the Avenger cannot lower her legs');
+  for (const k of ['bayPort', 'bayStbd']) {
+    const door = a.parts.find((q) => q.name === k);
+    assert.ok(door && Math.abs(door.open) > 1, `the Avenger's ${k} does not open`);
+  }
+  const fish = storeOf('avenger');
+  assert.ok(fish.len > 4 && Math.abs(fish.at[0]) < 0.05, 'the Avenger\'s torpedo is not on her centreline');
+  // In her belly: the top of the fish is up inside her, above the doors.
+  const doorY = a.parts.find((q) => q.name === 'bayPort').at.y;
+  assert.ok(fish.at[1] + fish.r > doorY, 'the Avenger carries her torpedo outside her bay');
+  for (const k of ['dauntless', 'avenger']) {
+    assert.ok(models[k].parts.some((q) => q.name === 'gun' && q.turret), `the ${k}'s gunner has no gun that turns`);
+    const g = rearGunOf(k);
+    assert.ok(g && g.muzzle[2] < -0.8, `the ${k}'s rear gun does not point aft`);
+  }
+  // On her wheels, nothing of either sculpt but her wheels on the deck; the
+  // Hellcat folds to under half her span and the Dauntless does not fold.
+  for (const [k, build, span] of [['hellcat', pkHellcat, 13.06], ['dauntless', pkSbd, 12.66]]) {
+    for (const folded of [false, true]) {
+      const g = new THREE.Group();
+      const p = build(g, 0, 0, 0, 0, folded, {});
+      g.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(g, true);
+      assert.ok(b.min.y > -0.05 && b.min.y < 0.1, `the ${k} stands at ${b.min.y.toFixed(2)} m, not on her wheels`);
+      const w = b.max.x - b.min.x;
+      if (!folded || k === 'dauntless') assert.ok(Math.abs(w - span) < 0.2, `the ${k} is ${w.toFixed(2)} m across`);
+      else assert.ok(w < span * 0.5, `the folded ${k} is ${w.toFixed(2)} m across`);
+      for (const s of [p.userData.store, ...(p.userData.wingStores || [])].filter(Boolean)) {
+        const sbb = new THREE.Box3().setFromObject(s, true);
+        assert.ok(sbb.min.y > 0.08, `what the ${k} carries is on the deck`);
+      }
+      // Legs up, none of them is drawn -- bar the Dauntless's tail wheel,
+      // which never came up.
+      p.userData.gear(1);
+      const legs = [];
+      p.traverse((o) => { if (/^gear[LRT]$/.test(o.name)) legs.push(o); });
+      assert.equal(legs.length, k === 'hellcat' ? 3 : 2, `the ${k} has the wrong legs`);
+      const shown = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; };
+      assert.ok(!legs.some(shown), `the ${k}'s legs do not come up`);
     }
   }
 });

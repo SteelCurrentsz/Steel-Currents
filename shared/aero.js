@@ -63,6 +63,15 @@ export const AERO = {
     // limit load factor her structure was stressed to.
     helix: 0.085, gLimit: 6.0,
   },
+  // The Hellcat that replaced her: two thousand horsepower, half as heavy
+  // again, faster than a Zero everywhere and as strong as the Grumman Iron
+  // Works ever built anything. She does not turn with a Zero -- nothing does
+  // -- but she climbs with one and dives away from it.
+  hellcat: {
+    mass: 5440, wing: 31.0, span: 13.06, clMax: 1.55, cd0: 0.0240,
+    thrust: 22500, vMax: 167, name: 'F6F-3',
+    helix: 0.080, gLimit: 7.0,
+  },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
@@ -418,7 +427,7 @@ export function turnFor(v, bank) {
 export function airframeOf(type, role) {
   if (type && AERO[type]) return AERO[type];
   const byRole = {
-    fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
+    fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
   };
   return AERO[byRole[role] || 'avenger'] || AERO.avenger;
 }

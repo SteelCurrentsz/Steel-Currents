@@ -7453,6 +7453,9 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 4, perSquadron: 20, cruiseSpeed: 78, strikeRange: 14000,
+      // What she embarks in each role: by 1943 her fighting squadron flew
+      // Hellcats, with the Dauntlesses and Avengers they escorted.
+      types: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger' },
       // Where and how high her deck run leaves each of her three types,
       // measured off the integrated launch the model on her deck actually
       // flies -- so the aeroplane the simulation starts flying is the one that

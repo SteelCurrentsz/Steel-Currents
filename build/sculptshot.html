@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset=utf8><style>body{margin:0;background:#8c8f93}</style></head>
+<body><script type="module">
+// One of the sculpted aeroplanes, as the game draws her, from a handful of
+// directions on a deck-coloured ground: ?kit=hellcat&args=[false,{}]&gear=0.5
+// &fold=0&views=[[1,0.2,0.3]]
+import * as THREE from '/vendor/three.module.js';
+window.__err = null;
+try {
+  const q = new URL(location).searchParams;
+  // Everything a model off the kit might want is fetched first.
+  await (await import('/client/js/render/ships.js')).loadShips([]);
+  const kit = await import('/client/js/render/planekit.js');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9fb3c4);
+  scene.add(new THREE.HemisphereLight(0xdfeaf2, 0x585f66, 1.0));
+  const sun = new THREE.DirectionalLight(0xfff4e2, 1.6); sun.position.set(30, 55, 40); scene.add(sun);
+  const s2 = new THREE.DirectionalLight(0xbfd4e6, 0.5); s2.position.set(-50, 25, -40); scene.add(s2);
+  // ?kit=avenger&args=[false,true,{}] -- the kit's builder and what follows
+  // her position and heading.
+  const holder = new THREE.Group();
+  const p = kit[q.get('kit')](holder, 0, 0, 0, 0, ...JSON.parse(q.get('args') || '[false,{}]'));
+  scene.add(holder);
+  if (q.get('show')) for (const part of p.userData.parts || []) if (part.name === 'gun') part.node.rotation.set(JSON.parse(q.get('show'))[1], JSON.parse(q.get('show'))[0], 0, 'YXZ');
+  if (q.get('gear') && p.userData.gear) p.userData.gear(+q.get('gear'));
+  if (q.get('fold') && p.userData.fold) p.userData.fold(+q.get('fold'));
+  if (q.get('bay') && p.userData.bay) p.userData.bay(+q.get('bay'));
+  if (q.get('gun') && p.userData.gun) { const g = JSON.parse(q.get('gun')); p.userData.gun.rotation.set(g[1], g[0], 0, 'YXZ'); }
+  if (q.get('ground') !== '0') {
+    const deck = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ color: 0x6b5f4f }));
+    deck.rotation.x = -Math.PI / 2; scene.add(deck);
+    const grid = new THREE.GridHelper(40, 40, 0x333333, 0x4a4a4a); grid.position.y = 0.002; scene.add(grid);
+  }
+  p.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(p);
+  const c = box.getCenter(new THREE.Vector3());
+  const r = box.getSize(new THREE.Vector3()).length() / 2;
+  const look = q.get('look'); if (look) { const L = JSON.parse(look); c.set(L[0], L[1], L[2]); }
+  const views = JSON.parse(q.get('views') || '[[1,0.05,0],[0.8,0.4,0.6],[0,1,0.001],[-0.7,0.3,-0.6],[0.3,-0.6,0.6],[0,0.1,1]]');
+  const zoom = +(q.get('zoom') || 1.9), W = +(q.get('w') || 520), H = +(q.get('h') || 420);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const cols = Math.min(views.length, 3), rows = Math.ceil(views.length / cols);
+  renderer.setSize(W * cols, H * rows, false);
+  document.body.appendChild(renderer.domElement);
+  renderer.setScissorTest(true);
+  views.forEach((v, i) => {
+    const cam = new THREE.PerspectiveCamera(32, W / H, 0.05, 6000);
+    const d = new THREE.Vector3(v[0], v[1], v[2]).normalize().multiplyScalar(r * zoom);
+    cam.position.copy(c).add(d); cam.lookAt(c);
+    const x = (i % cols) * W, y = (rows - 1 - Math.floor(i / cols)) * H;
+    renderer.setViewport(x, y, W, H); renderer.setScissor(x, y, W, H);
+    renderer.render(scene, cam);
+  });
+  window.__done = true;
+} catch (e) { window.__err = String(e && e.stack || e); window.__done = true; }
+</script></body></html>

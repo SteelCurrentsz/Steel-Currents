@@ -19,7 +19,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
-  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
+  wildcat, avenger, arado, kingfisher, besson, loire,
   jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
@@ -37,6 +37,13 @@ import {
 import {
   JU87, JU87_SEGS, ju87Geometries, ju87Material, ju87SegOf, ju87Rest, ju87Hinge,
 } from './ju87Model.js';
+import {
+  HELLCAT, HELLCAT_SEGS, hellcatGeometries, hellcatMaterial, hellcatSegOf, hellcatRest, hellcatHinge,
+} from './hellcatModel.js';
+import {
+  DAUNTLESS, DAUNTLESS_SEGS, dauntlessGeometries, dauntlessMaterial, dauntlessSegOf, dauntlessRest,
+  dauntlessHinge,
+} from './dauntlessModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -271,6 +278,8 @@ function tipsOf(key, geo) {
   if (key === 'b5n') return { tips: B5N.tips, nose: [0, B5N.prop[1] - 0.2, B5N.prop[2] - 1.2] };
   if (key === 'bf109') return { tips: BF109.tips, nose: [0, BF109.prop[1] - 0.2, BF109.prop[2] - 1.2] };
   if (key === 'ju87c' || key === 'ju87d') return { tips: JU87.tips, nose: [0, JU87.prop[1] - 0.2, JU87.prop[2] - 1.2] };
+  if (key === 'hellcat') return { tips: HELLCAT.tips, nose: [0, HELLCAT.prop[1] - 0.2, HELLCAT.prop[2] - 1.2] };
+  if (key === 'dauntless') return { tips: DAUNTLESS.tips, nose: [0, DAUNTLESS.prop[1] - 0.2, DAUNTLESS.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -528,6 +537,82 @@ function ju87FlightModel(variant) {
 }
 
 /**
+ * The F6F Hellcat: the owner's sculpt, in her pieces, with her airscrew and
+ * the three legs built for her on their own hinges -- the mains swinging aft
+ * into her wings, the tail wheel up into her.
+ */
+function hellcatFlightModel() {
+  const geos = hellcatGeometries();
+  const mat = hellcatMaterial();
+  const segs = {};
+  for (const k of HELLCAT_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, HELLCAT_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(hellcatHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: hellcatRest('prop'),
+    geo: withDisc(geos.prop, HELLCAT.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = HELLCAT[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: hellcatRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = hellcatSegOf;
+  segOf.breaks = HELLCAT.breaks;
+  return { segs, parts, probe, segOf, cy: HELLCAT.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The SBD Dauntless: the owner's sculpt, in her pieces, with everything of
+ * her that moves on its own hinge -- her airscrew, the displacing trapeze and
+ * the thousand-pounder on it, which swing down together as she dives and the
+ * bomb goes from the bottom of the swing, a hundred-pounder under each wing
+ * which goes with it, the gunner's twin thirties, and her two main legs. Her
+ * tail wheel is fixed, and goes with her tail.
+ */
+function dauntlessFlightModel() {
+  const geos = dauntlessGeometries();
+  const mat = dauntlessMaterial();
+  const segs = {};
+  for (const k of DAUNTLESS_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, DAUNTLESS_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(dauntlessHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: dauntlessRest('prop'),
+    geo: withDisc(geos.prop, DAUNTLESS.propR), mats: [mat, discMaterial()],
+  }];
+  parts.push({ name: 'trapeze', axis: 'x', open: DAUNTLESS.trapeze.open, at: at('trapeze'),
+    rot: dauntlessRest('trapeze'), geo: geos.trapeze, mats: [mat] });
+  // The bomb on the yoke first: it is the one the simulation's bomb is.
+  parts.push({ name: 'store', axis: 'x', open: DAUNTLESS.store.open, fall: true, at: at('store'),
+    rot: dauntlessRest('store'), geo: geos.store, mats: [mat] });
+  for (const k of ['bombL', 'bombR']) {
+    parts.push({ name: k, axis: 'z', open: 0, fall: true, at: at(k), rot: dauntlessRest(k), geo: geos[k], mats: [mat] });
+  }
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: dauntlessRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR']) {
+    const spec = DAUNTLESS[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: dauntlessRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = dauntlessSegOf;
+  segOf.breaks = DAUNTLESS.breaks;
+  return { segs, parts, probe, segOf, cy: DAUNTLESS.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The gun on a mounting of a type built off the kit rather than a sculpt --
+ * the Avenger's ball turret -- read off her model when she is welded (see
+ * flightModels), in the shape rearGunOf answers with.
+ */
+const KIT_GUNS = {};
+
+/**
  * Where the gunner's gun is on a type that has one, in her own frame: its
  * pivot, the rotation it sits at, and its muzzle about the pivot laid aft.
  * Null for a type with nobody facing aft.
@@ -542,7 +627,10 @@ export function rearGunOf(kind) {
   if (kind === 'ju87c' || kind === 'ju87d') {
     return { at: JU87.gun.at, rot: ju87Rest('gun'), muzzle: JU87.gun.muzzle };
   }
-  return null;
+  if (kind === 'dauntless') {
+    return { at: DAUNTLESS.gun.at, rot: dauntlessRest('gun'), muzzle: DAUNTLESS.gun.muzzle };
+  }
+  return KIT_GUNS[kind] || null;
 }
 
 /**
@@ -555,7 +643,9 @@ export function rearGunOf(kind) {
 // Functions, because the Suisei's, the B5N's and the Stuka's are read off their sculpts,
 // which are fetched after this module is loaded (see loadShips).
 const REAR_SEATS = {
-  dauntless: () => ({ x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 }),
+  // The SBD's gunner, behind the pilot under the after end of the greenhouse,
+  // with his twin thirties.
+  dauntless: () => ({ x: 0, y: DAUNTLESS.gun.at[1] + 0.45, z: DAUNTLESS.gun.at[2] + 0.4, cal: 0.0077, guns: 2 }),
   suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
   avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
@@ -684,8 +774,10 @@ export function flightModels() {
       node.parent.remove(node);
       parts.push({
         name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
-        spin: spec.spin, at, rot, geo, mats,
+        spin: spec.spin, gear: spec.gear, tuck: spec.tuck, slide: spec.slide,
+        turret: spec.turret, at, rot, geo, mats,
       });
+      if (spec.turret) KIT_GUNS[key] = { at: at.toArray(), rot: rot.clone(), muzzle: spec.muzzle };
     }
     const { geo, mats } = weld(g);
     geo.computeBoundingBox();
@@ -696,8 +788,16 @@ export function flightModels() {
     readStore(key, parts);
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
-  make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
-  make('avenger', (g) => avenger(g, 0, 0, 0, 0, false, true, { gear: false }));
+  // The Avenger with her legs on: they are moving parts, which come down on
+  // the approach and are not drawn while they are up.
+  make('avenger', (g) => avenger(g, 0, 0, 0, 0, false, true, {}));
+  // The American carrier's fighter and dive bomber, off the owner's sculpts:
+  // the Hellcat that took over from the Wildcat, and the Dauntless.
+  out.hellcat = hellcatFlightModel();
+  MUZZLES.hellcat = HELLCAT.guns.slice().sort((a, b) => a[0] - b[0]);
+  out.dauntless = dauntlessFlightModel();
+  MUZZLES.dauntless = DAUNTLESS.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('dauntless', out.dauntless.parts);
   // The two float planes fly as themselves. A cruiser's scout used to be
   // drawn as whatever the carrier had in the same role -- which is `dive` --
   // so a Dauntless dive bomber came off a battleship's quarterdeck, and the
@@ -749,10 +849,10 @@ export function breaksOf(models, kind) {
  * `typeOf`.
  */
 export const ROLE_TYPE = {
-  fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
+  fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
   'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */

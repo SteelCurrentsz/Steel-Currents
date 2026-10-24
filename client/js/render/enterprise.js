@@ -62,7 +62,9 @@
 // starboard is -X, and y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { wildcat, dauntless, avenger } from './planekit.js';
+import { wildcat, dauntless, avenger, hellcat, sbd } from './planekit.js';
+import { HELLCAT } from './hellcatModel.js';
+import { DAUNTLESS } from './dauntlessModel.js';
 import { arm as armMount } from './mounts.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
@@ -1008,10 +1010,14 @@ function hangarInterior(g) {
   // takes in the yaw she is parked at: a thirteen-metre aeroplane stood six
   // degrees off the fore-and-aft line reaches most of a metre and a half
   // further outboard than her span alone says.
+  //
+  // The Hellcat and the Dauntless are the owner's sculpts, drawn coarse down
+  // here where nobody gets nearer them than the hangar side, and the Hellcat
+  // with her panels swung back along her: under six metres across them.
   const TYPES = {
-    avenger: { half: 2.90, nose: 6.42, tail: -6.63, build: avenger },
-    dauntless: { half: 6.16, nose: 5.27, tail: -5.67, build: dauntless },
-    wildcat: { half: 1.88, nose: 5.17, tail: -4.89, build: wildcat },
+    avenger: { half: 2.90, nose: 6.42, tail: -6.63, build: (gg, x, y, z, ry) => avenger(gg, x, y, z, ry, true) },
+    dauntless: { half: 6.33, nose: 4.57, tail: -4.92, build: (gg, x, y, z, ry) => sbd(gg, x, y, z, ry, false, { lod: true }) },
+    hellcat: { half: 2.89, nose: 4.58, tail: -4.53, build: (gg, x, y, z, ry) => hellcat(gg, x, y, z, ry, true, { lod: true }) },
   };
   const parked = [];
   const spot = (kind, x, z, ry) => {
@@ -1040,7 +1046,7 @@ function hangarInterior(g) {
         && Math.abs(p.x - x) < p.halfW + halfW) return false;
     }
     parked.push({ x, z, len, halfW });
-    T.build(g, x, HANGAR + 0.6, z, ry, true);
+    T.build(g, x, HANGAR + 0.6, z, ry);
     return true;
   };
   // Torpedo bombers right aft, three abreast where the beam is still there for
@@ -1063,9 +1069,9 @@ function hangarInterior(g) {
     spot('dauntless', sgn * 5.85, 17.5 + i * 6.4, Math.PI + 0.03 * sgn);
   }
   for (let i = 0; i < 3; i++) {
-    const z = 42 + i * 9.0;
-    for (const x of [-8.4, 0, 8.4]) {
-      spot('wildcat', x, z, 0.05 * Math.sign(x || 1));
+    const z = 40 + i * 10.4;
+    for (const x of [-6.9, 0, 6.9]) {
+      spot('hellcat', x, z, 0.05 * Math.sign(x || 1));
     }
   }
 
@@ -2190,20 +2196,22 @@ function deckAircraft(g) {
   plane.userData.dynamic = true;
   g.add(plane);
   const kinds = {};
-  const make = (role, body) => {
+  // Her stacks, either side of the cowling behind the airscrew: off the
+  // sculpts where she is one, and off her hub where she is built here.
+  const make = (role, body, exhaust = null) => {
     const prop = body.userData.prop || null;
-    // Her stacks, either side of the cowling behind the airscrew.
     const at = prop ? prop.position : new THREE.Vector3(0, 1.6, 3.4);
     kinds[role] = {
       body, prop,
       wings: body.userData.wings || null,
+      fold: body.userData.fold || null,
       gear: body.userData.gear || null,
       blur: propBlur(prop),
-      exhaust: [[-0.62, at.y - 0.25, at.z - 1.5], [0.62, at.y - 0.25, at.z - 1.5]],
+      exhaust: exhaust || [[-0.62, at.y - 0.25, at.z - 1.5], [0.62, at.y - 0.25, at.z - 1.5]],
     };
   };
-  make('fighter', wildcat(plane, 0, 0, 0, 0, true, {}));
-  make('dive', dauntless(plane, 0, 0, 0, 0, false, {}));
+  make('fighter', hellcat(plane, 0, 0, 0, 0, true, {}), HELLCAT.exhaust);
+  make('dive', sbd(plane, 0, 0, 0, 0, false, {}), DAUNTLESS.exhaust);
   make('torpedo', avenger(plane, 0, 0, 0, 0, true, true));
   const out = { group: plane, kinds, role: 'torpedo' };
   out.pick = (role) => {
@@ -2211,7 +2219,7 @@ function deckAircraft(g) {
     for (const [k, v] of Object.entries(kinds)) v.body.visible = k === r;
     const k = kinds[r];
     out.role = r;
-    out.prop = k.prop; out.wings = k.wings; out.gear = k.gear;
+    out.prop = k.prop; out.wings = k.wings; out.fold = k.fold; out.gear = k.gear;
     out.blur = k.blur; out.exhaust = k.exhaust;
   };
   out.pick('torpedo');
@@ -2330,6 +2338,8 @@ export function stepDeck(deck, t) {
   // Wings spread or stowed. Folded she is struck below and rides the lift;
   // spread she is ready to go, and she cannot fly any other way.
   const wings = (out) => {
+    // The Hellcat's panels on the sto-wing, swung out or back.
+    if (plane.fold) { plane.fold(out ? 0 : 1); return; }
     if (!plane.wings) return;
     plane.wings.spread.visible = out;
     plane.wings.stowed.visible = !out;
@@ -2737,6 +2747,7 @@ export function buildEnterprise() {
     deck.stowed = true;
     below(deck, plane.group, lifts[lifts.length - 1]);
     if (plane.gear) plane.gear(0);
+    if (plane.fold) plane.fold(1);
     if (plane.wings) {
       plane.wings.spread.visible = false;
       plane.wings.stowed.visible = true;

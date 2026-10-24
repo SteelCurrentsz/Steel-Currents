@@ -26,7 +26,7 @@ try {
     const at = q.get('launch');
     if (at !== null && built.group.userData.launch) {
       const deck = built.group.userData.deck;
-      built.group.userData.launch(0);
+      built.group.userData.launch(0, q.get('role') || 'torpedo');
       built.group.userData.step(parseFloat(at) * (deck && deck.run ? deck.run : 1));
     }
   } else planekit[what](g, 0, 0, 0, 0, {});
@@ -38,7 +38,10 @@ try {
   const zoom = parseFloat(q.get('zoom') || '2.5');
   const W = parseInt(q.get('w') || '500', 10), H = parseInt(q.get('h') || '520', 10);
   const look = q.get('look');
-  if (look) { const Lk = JSON.parse(look); c.set(Lk[0], Lk[1], Lk[2]); }
+  // look=plane: on the aeroplane her deck evolution is drawing.
+  const dk = g.children[0]?.userData?.deck;
+  if (look === 'plane' && dk) { dk.plane.group.getWorldPosition(c); }
+  else if (look) { const Lk = JSON.parse(look); c.set(Lk[0], Lk[1], Lk[2]); }
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(W * views.length, H, false);
   document.body.appendChild(renderer.domElement);

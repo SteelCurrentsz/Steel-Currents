@@ -11,7 +11,7 @@ import { AERO, launchProfile } from './aero.js';
 
 /** Which job is which kind, on each side of the Pacific -- and on the one German carrier. */
 export const DECK_KINDS = {
-  usa: { fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger' },
+  usa: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger' },
   ijn: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
   ger: { fighter: 'bf109', dive: 'ju87c', torpedo: 'ju87d' },
 };

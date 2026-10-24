@@ -1,6 +1,7 @@
-// What the Messerschmitt's and the Stuka's model modules share: turning the
-// pieces build/plane-sculpt.mjs packs back into geometries, welding two of
-// them into one, and the Luftwaffe paint both wear.
+// What the sculpted aeroplanes' model modules share: turning the pieces
+// build/plane-sculpt.mjs packs back into geometries, welding two of them into
+// one, the Luftwaffe paint the Messerschmitt and the Stuka wear and the US
+// Navy's the Hellcat and the Dauntless wear.
 //
 // The B5N's, the Suisei's and the Zero's modules each carry their own copy of
 // the decoding; these two are written against one.
@@ -103,6 +104,48 @@ export const LW = {
 };
 
 /**
+ * The US Navy's 1943 finish, as GLSL: non-specular sea blue over everything
+ * that faces up, intermediate blue down her sides and on her fin, and insignia
+ * white underneath -- what the carrier squadrons flew from the spring of that
+ * year -- and the star-and-bar with its blue surround.
+ *
+ * `usnStar(p, r)` is 0 off a national insignia of disc radius `r` centred at
+ * (0, 0), its star pointing along +y and its bars along x; 1 on its white
+ * and 2 on its blue.
+ */
+export const USNAVY = /* glsl */`
+float usnStar5(vec2 p, float r, float rf) {
+  const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+  const vec2 k2 = vec2(-0.809016994375, -0.587785252292);
+  p.x = abs(p.x);
+  p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+  p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+  p.x = abs(p.x);
+  p.y -= r;
+  vec2 ba = rf * vec2(-k1.y, k1.x) - vec2(0.0, 1.0);
+  float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+  return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+float usnStar(vec2 p, float r) {
+  float d = length(p);
+  float o = r * 0.125;
+  bool bar = abs(p.x) < r * 2.0 && abs(p.y) < r * 0.25;
+  bool rim = (abs(p.x) < r * 2.0 + o && abs(p.y) < r * 0.25 + o) || d < r + o;
+  if (d < r) return usnStar5(p, r * 0.98, 0.38) < 0.0 ? 1.0 : 2.0;
+  if (bar) return 1.0;
+  if (rim) return 2.0;
+  return 0.0;
+}
+`;
+export const USN = {
+  SEA: hex(0x2c3a4f), MID: hex(0x4f6880), WHITE: hex(0xdcdfdc), STAR: hex(0xe8e8e2),
+  BLUE: hex(0x1f3563), GLASS: hex(0x3a4d5a), TYRE: hex(0x1b1b1b), METAL: hex(0x35383c),
+  ENGINE: hex(0x3a3b3d), BLADE: hex(0x1e1f21), TIP: hex(0xd8b326), CAVE: hex(0x2e3a2c),
+  BOMB: hex(0x4d5440), BAND: hex(0xc9a227), FISH: hex(0x7e8588), HEAD: hex(0x3a3f42),
+  CHROMATE: hex(0x8a9a52),
+};
+
+/**
  * A material that paints each piece of a sculpt in the shader off the tag in
  * its colour and the point in her own frame: `paint` is GLSL defining
  * `vec3 <fn>(float tag, vec3 q, vec3 n)`. Double-sided, so a piece shot off
@@ -132,6 +175,7 @@ varying float vSTag;
 varying vec3 vSPos;
 varying vec3 vSNrm;
 ${LUFTWAFFE}
+${USNAVY}
 ${paint}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 diffuseColor.rgb = ${fn}(vSTag, vSPos, normalize(vSNrm));
