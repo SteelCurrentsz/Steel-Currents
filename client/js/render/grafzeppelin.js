@@ -61,6 +61,8 @@ import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
 import { threeSeven, twoCm } from './kmguns.js';
 import { bf109, ju87c, ju87d } from './planekit.js';
+import { BF109 } from './bf109Model.js';
+import { JU87 } from './ju87Model.js';
 import { engineStart } from './deckengine.js';
 import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
 import {
@@ -508,8 +510,7 @@ function airGroup(g) {
       if (w < 6) continue;
       for (const x of [-3.4, 3.4]) {
         const kind = kinds[k++ % kinds.length];
-        const a = build[kind](g, x, y0 + 0.02, z, x < 0 ? 0.05 : -0.05, true, {});
-        a.userData.wings?.spread?.removeFromParent();
+        const a = build[kind](g, x, y0 + 0.02, z, x < 0 ? 0.05 : -0.05, true, { lod: true });
         a.traverse((o) => { o.userData.inside = true; });
       }
     }
@@ -525,8 +526,7 @@ function airGroup(g) {
     [-1, -86, 'dive'], [1, -76, 'dive'], [-1, -66, 'torpedo'],
   ];
   for (const [side, z, kind] of ranged) {
-    const a = build[kind](g, 0, fdY(z) + 0.05, z, side < 0 ? 0.05 : -0.05, true, {});
-    a.userData.wings?.spread?.removeFromParent();
+    const a = build[kind](g, 0, fdY(z) + 0.05, z, side < 0 ? 0.05 : -0.05, true, { lod: true });
     // How far she stands out from her own centreline, folded, read off her.
     a.updateMatrixWorld(true);
     const box3 = new THREE.Box3().setFromObject(a);
@@ -846,23 +846,22 @@ function deckAircraft(g) {
   plane.userData.dynamic = true;
   g.add(plane);
   const kinds = {};
-  const make = (role, body) => {
+  // Each with her stacks, either side of the cowling behind the airscrew, as
+  // her sculpt has them.
+  const make = (role, body, exhaust) => {
     const prop = body.userData.prop || null;
-    plane.updateMatrixWorld(true);
-    // Her stacks, either side of the cowling behind the airscrew.
-    const at = prop ? plane.worldToLocal(prop.getWorldPosition(new THREE.Vector3())) : new THREE.Vector3(0, 2, 3.5);
     kinds[role] = {
       body, prop,
       wings: body.userData.wings || null,
-      fold: null,
+      fold: body.userData.fold || null,
       gear: body.userData.gear || null,
       blur: propBlur(prop),
-      exhaust: [[-0.6, at.y - 0.1, at.z - 1.4], [0.6, at.y - 0.1, at.z - 1.4]],
+      exhaust,
     };
   };
-  make('fighter', bf109(plane, 0, 0, 0, 0, false, {}));
-  make('dive', ju87c(plane, 0, 0, 0, 0, false, {}));
-  make('torpedo', ju87d(plane, 0, 0, 0, 0, false, {}));
+  make('fighter', bf109(plane, 0, 0, 0, 0, false, {}), BF109.exhaust);
+  make('dive', ju87c(plane, 0, 0, 0, 0, false, {}), JU87.exhaust);
+  make('torpedo', ju87d(plane, 0, 0, 0, 0, false, {}), JU87.exhaust);
   const out = { group: plane, kinds, role: 'torpedo' };
   out.pick = (role) => {
     const r = kinds[role] ? role : 'torpedo';
@@ -933,8 +932,11 @@ export function stepDeck(deck, t) {
   const p = plane.group;
   if (deck.owner && p.parent !== deck.owner) return;
   const AFT_Z = aft.group.position.z;
+  // How far her wings are spread, 0 folded to 1 out: the sculpts swing their
+  // outer panels back along their sides.
   const wings = (out) => {
     const u = Math.max(0, Math.min(1, +out));
+    if (plane.fold) { plane.fold(1 - u); return; }
     if (!plane.wings) return;
     plane.wings.spread.visible = u >= 0.5;
     plane.wings.stowed.visible = u < 0.5;

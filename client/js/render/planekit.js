@@ -31,6 +31,8 @@ import * as THREE from '../../../vendor/three.module.js';
 import { zeroModel } from './zeroModel.js';
 import { suiseiModel } from './suiseiModel.js';
 import { b5nModel } from './b5nModel.js';
+import { bf109Model } from './bf109Model.js';
+import { ju87Model } from './ju87Model.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -1889,10 +1891,6 @@ const TRUE_SIZE = {
   // she is: a Jake the right length is two Jakes standing in each other.
   jake: [[15.16, 9.64], [14.50, 9.64]],
   loire: [[16.00, 11.53], [16.00, 11.30]],
-  // The Graf Zeppelin's: the Bf 109T's longer wing, and the Ju 87C's and D's.
-  bf109: [[11.80, 9.49], [11.08, 8.76]],
-  ju87c: [[14.46, 11.68], [13.80, 11.10]],
-  ju87d: [[14.46, 11.68], [13.80, 11.10]],
 };
 
 function trueSize(p, kind) {
@@ -3382,320 +3380,48 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
 // ------------------------------------------------------ the German ones --
 //
 // The Graf Zeppelin's group: the navalised Messerschmitt and the carrier
-// Stuka, in the Luftwaffe's 72 and 73 greens over 65 blue -- what the
-// Trägergruppe 186 that was formed to fly off her was painted in. Their real
-// dimensions:
-//
-//   Bf 109T-1        8.8 m long   11.1 m span               2.6 m high
-//   Ju 87C           11.1 m long  13.8 m span, folded back   3.9 m high
-//
-// Each is built round what names it: a 109's long narrow nose and its gear
-// splayed out under it; a Stuka's cranked wing, its trousered legs and the
-// greenhouse with the gunner at the back of it.
+// Stuka, off the owner's sculpts of them (see bf109Model.js and ju87Model.js),
+// in the Luftwaffe's 72 and 73 greens over 65 blue -- what the Trägergruppe
+// 186 that was formed to fly off her was painted in. Each folds her outer
+// panels -- the Messerschmitt's up over her, the Stuka's back along her sides
+// -- which is how she is struck below and ranged on a deck.
 
 /**
- * A Bf 109T: the E stretched in the wing for a carrier deck, with slats and
- * flaps to bring her landing speed down, a hook under the tail and catapult
- * spools under the fuselage. Her outer wings fold back along her sides to go
- * down a lift, which is how she is struck below.
+ * A Bf 109T: the E stretched in the wing for a carrier deck, with a hook
+ * under the tail and catapult spools under the fuselage. Her legs swing out
+ * into her wings on their own hinges.
  */
 function bf109(g, x, y, z, ry, folded = false, opts = {}) {
-  const was = [M.planeTop, M.planeBottom];
-  const [TOP, BOT] = paint('luftwaffe');
-  const p = new THREE.Group();
+  const p = bf109Model({ lod: !!opts.lod, folded });
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  // She sits steeply on her tail: a long nose over a short narrow undercarriage.
-  const cl = sitline(1.26, 0.17);
-  airframe(p, TOP, [
-    { z: -4.40, w: 0.14, h: 0.46, y: cl(-4.40) + 0.30 },
-    { z: -3.80, w: 0.30, h: 0.68, y: cl(-3.80) + 0.24 },
-    { z: -3.00, w: 0.48, h: 0.90, y: cl(-3.00) + 0.17 },
-    { z: -2.00, w: 0.64, h: 1.10, y: cl(-2.00) + 0.10 },
-    { z: -1.00, w: 0.78, h: 1.24, y: cl(-1.00) + 0.05 },
-    { z: 0.00, w: 0.86, h: 1.32, y: cl(0.00) + 0.02 },
-    { z: 1.00, w: 0.90, h: 1.34, y: cl(1.00) },
-    { z: 1.80, w: 0.88, h: 1.28, y: cl(1.80) },
-  ], { flat: 0.12, e: 0.9, mBot: BOT, capF: false });
-  // The Daimler-Benz, inverted, with its supercharger intake on the port
-  // side of the cowling and the radiator bath under the nose.
-  inline(p, 0.56, cl(3.3) + 0.06, 3.3, 3.0, 3, !!opts.spin);
-  box(p, TOP, 0.18, 0.22, 0.6, 0.44, cl(2.7) + 0.18, 2.7);
-  // Her two MG 17 over the engine, in troughs through the top of the cowling.
-  for (const s of [-1, 1]) {
-    box(p, M.cave, 0.1, 0.08, 1.0, s * 0.13, cl(2.9) + 0.62, 2.9);
-    arm(cyl(p, P.gunDark, 0.03, 0.03, 0.42, s * 0.13, cl(3.6) + 0.63, 3.55, 6), 0.21)
-      .rotation.x = Math.PI / 2;
-  }
-  // The hood: short, square-framed, hinged to starboard, with the armour
-  // plate behind the pilot's head.
-  greenhouse(p, 0.70, 0.52, cl(0.4) + 0.64, -0.7, 0.95, 3);
-  box(p, P.gunDark, 0.5, 0.42, 0.05, 0, cl(-0.65) + 0.92, -0.65);
-  // The turtledeck behind it, down to the fin.
-  airframe(p, TOP, [
-    { z: -3.80, w: 0.22, h: 0.24, y: cl(-3.80) + 0.40 },
-    { z: -2.40, w: 0.44, h: 0.42, y: cl(-2.40) + 0.52 },
-    { z: -1.10, w: 0.60, h: 0.54, y: cl(-1.10) + 0.62 },
-    { z: -0.60, w: 0.64, h: 0.56, y: cl(-0.60) + 0.64 },
-  ], { flat: 0.3, e: 0.94, capF: false, mBot: TOP });
-  // Wings: low, square-tipped and slatted; spread, or folded back along her
-  // sides about a hinge a third of the way out. The stub inboard of the
-  // hinge carries the guns and the legs and is there either way.
-  const WY = cl(1.0) - 0.52;
-  const ROOT = 0.42, STUB = 1.55;
-  const stowed = new THREE.Group();
-  const spread = new THREE.Group();
-  p.add(stowed);
-  p.add(spread);
-  for (const s of [-1, 1]) {
-    const w = new THREE.Group();
-    w.position.set(s * ROOT, WY, 0);
-    w.rotation.z = s * 0.10;
-    p.add(w);
-    const sw = wing(w, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 1.80, span: STUB, rootC: 2.05, tipC: 1.78,
-      sweep: 0.10, thick: 0.13, camber: 0.022, stations: 3, round: false, rootCap: false,
-    });
-    // An MG FF in each stub, and the bulge under the drum.
-    wingGun(w, sw, 0.62, 0.05, 0.36, 0.5);
-    surfPatch(w, BOT, sw, 0.5, 0.75, 0.2, 0.45, false, 0.03, 2, 2);
-    rootFillet(w, TOP, s * 0.12, 0.02, 0.4, 1.9, 0.4, 0.26);
-    const outer = (parent) => {
-      const o = new THREE.Group();
-      o.position.set(s * STUB, 0, -0.10);
-      parent.add(o);
-      return o;
-    };
-    // Spread.
-    const ws = new THREE.Group();
-    ws.position.copy(w.position);
-    ws.rotation.copy(w.rotation);
-    spread.add(ws);
-    const os = outer(ws);
-    const so = wing(os, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 1.80, span: 3.95, rootC: 1.78, tipC: 1.05,
-      sweep: 0.42, thick: 0.115, camber: 0.022, twist: -0.025, rootCap: false,
-    });
-    ctrlSurface(os, TOP, so, 0.45, 0.94);                         // aileron
-    ctrlSurface(os, TOP, so, 0.02, 0.44, 0.70);                   // flap
-    leBand(os, TOP, so, 0.25, 0.85, 0.10, 0.008);                 // slat
-    balkenkreuz(os, s * 2.6, 0.12, 0.9, 0.42);
-    balkenkreuz(os, s * 2.6, -0.10, 0.9, 0.42, false);
-    // Folded: the same panel swung back about the hinge, lying along her.
-    const wf = new THREE.Group();
-    wf.position.copy(w.position);
-    wf.rotation.copy(w.rotation);
-    stowed.add(wf);
-    const of = outer(wf);
-    of.rotation.y = s * 1.48;
-    of.rotation.z = s * 0.12;
-    wing(of, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 1.80, span: 3.95, rootC: 1.78, tipC: 1.05,
-      sweep: 0.42, thick: 0.115, camber: 0.022, twist: -0.025, rootCap: false,
-    });
-  }
-  stowed.visible = !!folded;
-  spread.visible = !folded;
-  p.userData.wings = { stowed, spread };
-  balkenkreuz(p, 0.40, cl(-2.6) + 0.12, -2.6, 0.32, false);
-  balkenkreuz(p, -0.40, cl(-2.6) + 0.12, -2.6, 0.32, false);
-  const tail = empennage(p, 1.18, 1.02, 3.2, 0.86, cl(-4.0) + 0.34, -3.75);
-  // The struts under the tailplane, which a 109 of her vintage had.
-  for (const s of [-1, 1]) {
-    strut(p, TOP, [s * 0.16, cl(-3.9) + 0.06, -3.85], [s * 0.85, cl(-4.0) + 0.32, -3.95], 0.035);
-  }
-  // Her catapult spools, under the fuselage either side of the centreline.
-  for (const s of [-1, 1]) {
-    cyl(p, P.gunDark, 0.06, 0.06, 0.2, s * 0.22, cl(0.6) - 0.62, 0.6, 8).rotation.z = Math.PI / 2;
-  }
-  if (opts.gear !== false) {
-    // Her legs hinge at the wing root and splay out under it: the narrow
-    // track every 109 pilot cursed, and they fold outward into the wings.
-    const mains = [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 0.78, 1.55, 1.18, 0.33, -0.16) }));
-    gearRig(p, mains, tailGear(p, -3.95, 0.16, 0.9, 0.34),
-      { main: [-1.45, 0.42, -0.25], tail: [0, 0, 0] });
-  }
-  aerial(p, 0, cl(-1.2) + 1.0, -1.2, 0.5, tail.finTop, TOP);
-  trueSize(p, 'bf109');
-  [M.planeTop, M.planeBottom] = was;
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
   return p;
 }
 
 /**
- * A Ju 87 for a carrier: the C, which carried her bomb on a crutch that
- * swung it clear of the airscrew in the dive, or with `opts.torpedo` the D
- * slung with an aerial torpedo in its place. Her outer wings fold back along
- * her sides about the knee of her cranked wing.
+ * A Ju 87 for a carrier: the C, with an SC 500 in a bomb bay whose doors open
+ * for the dive and an SC 250 under each outer wing, or with `opts.torpedo`
+ * the D, with an aerial torpedo on a crutch under her keel. Both have the
+ * gunner's twin MG 81Z on a mounting that turns, and legs that never come up.
  */
 function ju87(g, x, y, z, ry, folded = false, opts = {}) {
-  const was = [M.planeTop, M.planeBottom];
-  const [TOP, BOT] = paint('luftwaffe');
-  const p = new THREE.Group();
+  const p = ju87Model({ variant: opts.torpedo ? 'd' : 'c', lod: !!opts.lod, folded });
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
-  const cl = sitline(2.10, 0.15);
-  // A deep slab-sided body: she was built square, for a factory to rivet.
-  airframe(p, TOP, [
-    { z: -5.60, w: 0.16, h: 0.56, y: cl(-5.60) + 0.42 },
-    { z: -4.80, w: 0.40, h: 0.86, y: cl(-4.80) + 0.34 },
-    { z: -3.80, w: 0.62, h: 1.12, y: cl(-3.80) + 0.24 },
-    { z: -2.60, w: 0.82, h: 1.36, y: cl(-2.60) + 0.14 },
-    { z: -1.30, w: 0.96, h: 1.54, y: cl(-1.30) + 0.06 },
-    { z: 0.00, w: 1.04, h: 1.64, y: cl(0.00) + 0.02 },
-    { z: 1.20, w: 1.06, h: 1.66, y: cl(1.20) },
-    { z: 2.30, w: 1.02, h: 1.58, y: cl(2.30) },
-  ], { flat: 0.1, e: 0.84, mBot: BOT, capF: false });
-  // The Jumo 211, with the great chin radiator under it.
-  inline(p, 0.66, cl(4.2) + 0.04, 4.2, 3.4, 3, !!opts.spin);
-  // The greenhouse: pilot forward under a sliding hood, the gunner facing aft
-  // behind him under his own, the whole of it framed like a conservatory.
-  greenhouse(p, 0.94, 0.66, cl(0.0) + 0.80, -2.15, 1.75, 6);
-  // The gunner's twin MG 81Z in the aft end of it, stowed facing aft.
-  const GZ = -2.05;
-  const gy = cl(GZ) + 1.05;
-  box(p, P.gunDark, 0.36, 0.24, 0.26, 0, gy, GZ + 0.15);
-  for (const s of [-1, 1]) {
-    const mg = cyl(p, P.gunDark, 0.035, 0.035, 0.9, s * 0.07, gy + 0.05, GZ - 0.35, 6);
-    mg.rotation.x = Math.PI / 2 - 0.28;
-  }
-  // Her wing: the inverted gull. The inner panels go down from the roots to
-  // the knee the legs hang from, and the outer panels go up from there with
-  // the dive brakes slung under them.
-  const WY = cl(1.6) - 0.70;
-  const IN = 2.45, ANH = 0.25, DIH = 0.13, KNEE_Z = 0.06;
-  const knee = (s) => [s * (0.5 + IN * Math.cos(ANH)), WY - IN * Math.sin(ANH)];
-  const stowed = new THREE.Group();
-  const spread = new THREE.Group();
-  p.add(stowed);
-  p.add(spread);
-  for (const s of [-1, 1]) {
-    const wi = new THREE.Group();
-    wi.position.set(s * 0.5, WY, 0);
-    wi.rotation.z = -s * ANH;
-    p.add(wi);
-    const si = wing(wi, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 2.20, span: IN, rootC: 2.65, tipC: 2.48,
-      sweep: KNEE_Z, thick: 0.15, camber: 0.024, stations: 3, round: false, rootCap: false,
-    });
-    // An MG 17 in each inner panel, firing forward: the pilot's guns.
-    wingGun(wi, si, 0.7, 0.035, 0.3, 0.5);
-    rootFillet(wi, TOP, s * 0.10, 0.02, 0.8, 2.3, 0.44, 0.3);
-    const [kx, ky] = knee(s);
-    const outer = (parent, fold) => {
-      const o = new THREE.Group();
-      o.position.set(kx, ky, -KNEE_Z);
-      o.rotation.z = s * DIH;
-      if (fold) { o.rotation.order = 'YZX'; o.rotation.y = s * 1.52; o.rotation.z = s * 0.06; }
-      parent.add(o);
-      return o;
-    };
-    const os = outer(spread, false);
-    const so = wing(os, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 2.20, span: 4.38, rootC: 2.48, tipC: 1.30,
-      sweep: 0.55, thick: 0.13, camber: 0.024, twist: -0.03, rootCap: false,
-    });
-    ctrlSurface(os, TOP, so, 0.40, 0.97, 0.74);                    // aileron and flap,
-    ctrlSurface(os, TOP, so, 0.02, 0.39, 0.74);                    // the Junkers double wing
-    balkenkreuz(os, s * 2.8, 0.13, 0.9, 0.5);
-    balkenkreuz(os, s * 2.8, -0.11, 0.9, 0.5, false);
-    // The dive brakes: slatted plates hung under the leading edge on struts,
-    // turned flat to the air in cruise.
-    for (const [a, b] of [[0.06, 0.30], [0.34, 0.58]]) {
-      const la = so.at(a, 0.22, false), lb = so.at(b, 0.22, false);
-      const brake = box(os, P.gunDark, Math.abs(lb[0] - la[0]), 0.04, 0.24,
-        (la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2 - 0.28, (la[2] + lb[2]) / 2);
-      brake.rotation.z = Math.atan2(lb[1] - la[1], lb[0] - la[0]);
-      for (const at of [la, lb]) strut(os, P.gunDark, at, [at[0], at[1] - 0.27, at[2]], 0.02, 4);
-    }
-    const of = outer(stowed, true);
-    wing(of, TOP, BOT, {
-      side: s, x: 0, y: 0, z: 2.20, span: 4.38, rootC: 2.48, tipC: 1.30,
-      sweep: 0.55, thick: 0.13, camber: 0.024, twist: -0.03, rootCap: false,
-    });
-    // Her legs, fixed and trousered, straight down from the knees to the
-    // spatted wheels.
-    const wheel = 0.42;
-    const top = ky - 0.06;
-    const leg = new THREE.Group();
-    leg.position.set(kx, 0, 1.0);
-    leg.userData.legFoot = { x: kx, z: 1.0, top, skin: top + 0.06 };
-    p.add(leg);
-    airframe(leg, TOP, [
-      { z: -0.40, w: 0.16, h: 0.24, y: top - 0.05 },
-      { z: 0.00, w: 0.30, h: 0.30, y: top - 0.05 },
-      { z: 0.35, w: 0.20, h: 0.24, y: top - 0.05 },
-    ], { flat: 0, e: 0.95, mBot: BOT });
-    cyl(leg, TOP, 0.13, 0.17, top - wheel - 0.2, 0, (top + wheel + 0.2) / 2, 0, 10);
-    airframe(leg, TOP, [
-      { z: -0.70, w: 0.12, h: 0.24, y: wheel + 0.06 },
-      { z: -0.30, w: 0.30, h: 0.76, y: wheel + 0.08 },
-      { z: 0.20, w: 0.34, h: 0.92, y: wheel + 0.06 },
-      { z: 0.55, w: 0.24, h: 0.58, y: wheel },
-      { z: 0.75, w: 0.08, h: 0.18, y: wheel - 0.04 },
-    ], { flat: 0.15, e: 0.95, mBot: BOT });
-    const tyre = cyl(leg, M.prop, wheel, wheel, 0.2, 0, wheel, 0.05, 14);
-    tyre.rotation.z = Math.PI / 2;
-  }
-  stowed.visible = !!folded;
-  spread.visible = !folded;
-  p.userData.wings = { stowed, spread };
-  balkenkreuz(p, 0.50, cl(-3.0) + 0.16, -3.0, 0.42, false);
-  balkenkreuz(p, -0.50, cl(-3.0) + 0.16, -3.0, 0.42, false);
-  const tail = empennage(p, 1.55, 1.40, 4.6, 1.15, cl(-5.1) + 0.42, -4.75);
-  // The tailplane braced underneath, and the hook a carrier Stuka had.
-  for (const s of [-1, 1]) {
-    strut(p, TOP, [s * 0.2, cl(-5.0) + 0.12, -5.0], [s * 1.25, cl(-5.1) + 0.40, -5.2], 0.04);
-  }
-  const tw = tailGear(p, -5.15, 0.18, 1.0, 0.5);
-  void tw;
-  // What she carries.
-  const belly = underside(p, 0, 0.6, -4) ?? (cl(0.6) - 0.82);
-  if (opts.torpedo) {
-    // The D's aerial torpedo, an LT F5b, on a rack under the centreline.
-    for (const zz of [-0.6, 1.0]) box(p, P.gunDark, 0.14, 0.24, 0.3, 0, belly - 0.1, zz);
-    const fish = new THREE.Group();
-    fish.position.set(0, belly - 0.42, 0.3);
-    p.add(fish);
-    torpedo(fish, 4.8, 0.225);
-    animPart(p, 'store', fish, { fall: true });
-  } else {
-    // The C's SC 500 on the crutch that swung it down and forward clear of
-    // the airscrew before it let go -- the same swing the Dauntless's
-    // trapeze makes, because it is the same problem.
-    const PIV = [0, belly + 0.04, 0.55];
-    for (const s of [-1, 1]) box(p, P.gunDark, 0.1, 0.22, 0.5, s * 0.26, belly - 0.06, 0.55);
-    const yoke = new THREE.Group();
-    yoke.position.set(PIV[0], PIV[1], PIV[2]);
-    p.add(yoke);
-    for (const s of [-1, 1]) {
-      strut(yoke, P.gunDark, [s * 0.24, -0.04, 0], [s * 0.14, -0.66, 0.32], 0.05);
-      strut(yoke, P.gunDark, [s * 0.24, -0.04, 0], [s * 0.14, -0.66, -0.28], 0.04);
-    }
-    box(yoke, P.gunDark, 0.36, 0.07, 0.95, 0, -0.68, 0.02);
-    animPart(p, 'trapeze', yoke, { axis: 'x', open: -1.05 });
-    const store = new THREE.Group();
-    store.position.set(PIV[0], PIV[1], PIV[2]);
-    p.add(store);
-    const shell = new THREE.Group();
-    shell.position.set(0, -0.92, 0.02);
-    store.add(shell);
-    bomb(shell, 2.05, 0.25);
-    animPart(p, 'store', store, { axis: 'x', open: -1.05, fall: true });
-  }
-  aerial(p, 0, cl(-0.6) + 1.32, -0.6, 0.6, tail.finTop, TOP);
-  trueSize(p, opts.torpedo ? 'ju87d' : 'ju87c');
-  [M.planeTop, M.planeBottom] = was;
+  p.userData.wings = null;
   return p;
 }
 
-/** The C, with her bomb. */
+/** The C, with her bombs. */
 function ju87c(g, x, y, z, ry, folded = false, opts = {}) {
   return ju87(g, x, y, z, ry, folded, { ...opts, torpedo: false });
 }
 
-/** The D, with a torpedo where the C carries her bomb. */
+/** The D, with a torpedo where the C carries her bombs. */
 function ju87d(g, x, y, z, ry, folded = false, opts = {}) {
   return ju87(g, x, y, z, ry, folded, { ...opts, torpedo: true });
 }

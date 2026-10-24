@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
-  jake, bf109, ju87c, ju87d, muzzlesOf, dressPlane,
+  jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -31,6 +31,12 @@ import {
 import {
   B5N, B5N_SEGS, b5nGeometries, b5nMaterial, b5nSegOf, b5nRest, b5nHinge,
 } from './b5nModel.js';
+import {
+  BF109, BF109_SEGS, bf109Geometries, bf109Material, bf109SegOf, bf109Rest, bf109Hinge,
+} from './bf109Model.js';
+import {
+  JU87, JU87_SEGS, ju87Geometries, ju87Material, ju87SegOf, ju87Rest, ju87Hinge,
+} from './ju87Model.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -263,6 +269,8 @@ function tipsOf(key, geo) {
   if (key === 'zero') return { tips: ZERO.tips, nose: [0, ZERO.prop[1] - 0.2, ZERO.prop[2] - 1.2] };
   if (key === 'suisei') return { tips: SUISEI.tips, nose: [0, SUISEI.prop[1] - 0.2, SUISEI.prop[2] - 1.2] };
   if (key === 'b5n') return { tips: B5N.tips, nose: [0, B5N.prop[1] - 0.2, B5N.prop[2] - 1.2] };
+  if (key === 'bf109') return { tips: BF109.tips, nose: [0, BF109.prop[1] - 0.2, BF109.prop[2] - 1.2] };
+  if (key === 'ju87c' || key === 'ju87d') return { tips: JU87.tips, nose: [0, JU87.prop[1] - 0.2, JU87.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -454,6 +462,72 @@ function b5nFlightModel() {
 }
 
 /**
+ * The Bf 109T: the owner's sculpt, in her pieces, with her airscrew and her
+ * two main legs on their own hinges. Her tail wheel never came up.
+ */
+function bf109FlightModel() {
+  const geos = bf109Geometries();
+  const mat = bf109Material();
+  const segs = {};
+  for (const k of BF109_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, BF109_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(bf109Hinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: bf109Rest('prop'),
+    geo: withDisc(geos.prop, BF109.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['gearL', 'gearR']) {
+    const spec = BF109[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: bf109Rest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = bf109SegOf;
+  segOf.breaks = BF109.breaks;
+  return { segs, parts, probe, segOf, cy: BF109.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * A carrier Stuka: the owner's sculpt, in her pieces, with everything of her
+ * that moves on its own hinge -- her airscrew and the gunner's guns, and for
+ * the C her bomb doors, the SC 500 in her bay and an SC 250 under each wing,
+ * which all go together; for the D the torpedo under her keel. Her legs are
+ * fixed, and go with her inner panels.
+ */
+function ju87FlightModel(variant) {
+  const geos = ju87Geometries(variant);
+  const mat = ju87Material();
+  const segs = {};
+  for (const k of JU87_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, JU87_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(ju87Hinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: ju87Rest('prop'),
+    geo: withDisc(geos.prop, JU87.propR), mats: [mat, discMaterial()],
+  }];
+  if (variant === 'c') {
+    for (const k of ['bayPort', 'bayStbd']) {
+      parts.push({ name: k, axis: 'z', open: JU87[k].open, at: at(k), rot: ju87Rest(k), geo: geos[k], mats: [mat] });
+    }
+    // The bomb in the bay first: it is the one the simulation's bomb is.
+    parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: ju87Rest('store'),
+      geo: geos.store, mats: [mat] });
+    for (const k of ['bombL', 'bombR']) {
+      parts.push({ name: k, axis: 'z', open: 0, fall: true, at: at(k), rot: ju87Rest(k), geo: geos[k], mats: [mat] });
+    }
+  } else {
+    parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('fish'), rot: ju87Rest('fish'),
+      geo: geos.fish, mats: [mat] });
+  }
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: ju87Rest('gun'),
+    geo: geos.gun, mats: [mat] });
+  const segOf = ju87SegOf;
+  segOf.breaks = JU87.breaks;
+  return { segs, parts, probe, segOf, cy: JU87.cy, geo: probe, mats: [mat] };
+}
+
+/**
  * Where the gunner's gun is on a type that has one, in her own frame: its
  * pivot, the rotation it sits at, and its muzzle about the pivot laid aft.
  * Null for a type with nobody facing aft.
@@ -465,6 +539,9 @@ export function rearGunOf(kind) {
   if (kind === 'b5n') {
     return { at: B5N.gun.at, rot: b5nRest('gun'), muzzle: B5N.gun.muzzle };
   }
+  if (kind === 'ju87c' || kind === 'ju87d') {
+    return { at: JU87.gun.at, rot: ju87Rest('gun'), muzzle: JU87.gun.muzzle };
+  }
   return null;
 }
 
@@ -475,7 +552,7 @@ export function rearGunOf(kind) {
  * tail, which is the arc the simulation gives him (see stepRearGunners). The
  * Avenger's is her ball turret, with her fifty in it.
  */
-// Functions, because the Suisei's and the B5N's are read off their sculpts,
+// Functions, because the Suisei's, the B5N's and the Stuka's are read off their sculpts,
 // which are fetched after this module is loaded (see loadShips).
 const REAR_SEATS = {
   dauntless: () => ({ x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 }),
@@ -483,8 +560,8 @@ const REAR_SEATS = {
   avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
   // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
-  ju87c: () => ({ x: 0, y: 3.15, z: -1.9, cal: 0.0079, guns: 2 }),
-  ju87d: () => ({ x: 0, y: 3.15, z: -1.9, cal: 0.0079, guns: 2 }),
+  ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
+  ju87d: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
 };
 
 /** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
@@ -504,14 +581,16 @@ const STORES = {};
  * Where a type's bomb is when it is let go -- the middle of it, in her own
  * frame, with her bay open and her crutch swung out -- the way it is lying,
  * and how long and how fat it is. Null for a type with nothing on a rack.
+ *
+ * A type that lets more than one weapon go at once -- the Ju 87C's SC 500
+ * out of her bay and an SC 250 off each wing -- has the first as itself and
+ * the rest in `extra`, each the same shape and with its own `name`.
  */
 export function storeOf(kind) {
   return STORES[kind] || null;
 }
 
-function readStore(key, parts) {
-  const sp = parts.find((q) => q.fall);
-  if (!sp) return;
+function storeSpec(sp) {
   sp.geo.computeBoundingBox();
   const bb = sp.geo.boundingBox;
   const c = bb.getCenter(new THREE.Vector3());
@@ -519,12 +598,20 @@ function readStore(key, parts) {
   const axis = new THREE.Vector3(sp.axis === 'x' ? 1 : 0, sp.axis === 'y' ? 1 : 0, sp.axis === 'z' ? 1 : 0);
   const swing = new THREE.Quaternion().setFromAxisAngle(axis, sp.open || 0);
   const q = sp.rot.clone().multiply(swing);
-  STORES[key] = {
+  return {
+    name: sp.name,
     at: c.applyQuaternion(q).add(sp.at).toArray(),
     q, len: size.z, r: Math.max(size.x, size.y) * 0.5,
     // The type's own weapon: what falls is what hung in her.
     geo: sp.geo, mats: sp.mats, mid: bb.getCenter(new THREE.Vector3()),
   };
+}
+
+function readStore(key, parts) {
+  const falls = parts.filter((q) => q.fall);
+  if (!falls.length) return;
+  STORES[key] = storeSpec(falls[0]);
+  if (falls.length > 1) STORES[key].extra = falls.slice(1).map(storeSpec);
 }
 
 /** One of each type, in flight trim, welded, cut into her pieces and ready to instance. */
@@ -634,12 +721,17 @@ export function flightModels() {
   MUZZLES.b5n = [];
   readStore('b5n', out.b5n.parts);
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
-  // And the Graf Zeppelin's three, built here off the kit like the
-  // Americans: the Messerschmitt with her wheels up, and the two Stukas with
-  // theirs where a Stuka's always are.
-  make('bf109', (g) => bf109(g, 0, 0, 0, 0, false, { gear: false }));
-  make('ju87c', (g) => ju87c(g, 0, 0, 0, 0, false, {}));
-  make('ju87d', (g) => ju87d(g, 0, 0, 0, 0, false, {}));
+  // And the Graf Zeppelin's three, off the owner's sculpts: the Messerschmitt,
+  // and the two Stukas -- the C with her bombs and the D with her torpedo,
+  // which are the one airframe.
+  out.bf109 = bf109FlightModel();
+  MUZZLES.bf109 = BF109.guns.slice().sort((a, b) => a[0] - b[0]);
+  for (const v of ['c', 'd']) {
+    const key = 'ju87' + v;
+    out[key] = ju87FlightModel(v);
+    MUZZLES[key] = JU87.guns.slice().sort((a, b) => a[0] - b[0]);
+    readStore(key, out[key].parts);
+  }
   return out;
 }
 

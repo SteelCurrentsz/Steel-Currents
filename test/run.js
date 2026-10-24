@@ -194,6 +194,7 @@ import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
+  bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d,
 } from '../client/js/render/planekit.js';
 import {
   BOMBERS, BOMBER_ORDER, BOMBER_MAX as CATALOGUE_MAX, airframeSheet, payloadSheet,
@@ -17088,6 +17089,53 @@ check('the Graf Zeppelin is commissioned after the Musashi, with her own air gro
   }
   // And a recognition silhouette of her own, not a destroyer's.
   assert.notEqual(silhouette('grafzeppelin'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+});
+
+check('the Graf Zeppelin flies the owner\'s Messerschmitt and Stukas, each with what she carries', () => {
+  // One Stuka sculpt, two loads: the C opens her bay for the SC 500 in it and
+  // lets the SC 250 off each wing go with it; the D carries a torpedo under
+  // her keel and never opens her doors. Both have a gunner whose guns turn.
+  // The Messerschmitt raises her legs and drops nothing.
+  const models = flightModels();
+  const names = (k) => models[k].parts.map((q) => q.name);
+  const c = models.ju87c, d = models.ju87d, f = models.bf109;
+  for (const k of ['bayPort', 'bayStbd']) {
+    const door = c.parts.find((q) => q.name === k);
+    assert.ok(door && Math.abs(door.open) > 1, `the C's ${k} does not open`);
+  }
+  assert.deepEqual(c.parts.filter((q) => q.fall).map((q) => q.name), ['store', 'bombL', 'bombR'],
+    'the C does not let her bay bomb and both wing bombs go');
+  const st = storeOf('ju87c');
+  assert.equal(st.extra.length, 2, 'the C\'s wing bombs are not released with her bay bomb');
+  assert.ok(st.extra[0].at[0] * st.extra[1].at[0] < 0 && Math.abs(st.extra[0].at[0]) > 2.5,
+    'the C\'s wing bombs are not one under each wing');
+  assert.ok(Math.abs(st.at[0]) < 0.05 && st.len > 1.8, 'the C\'s bay bomb is not an SC 500 on her centreline');
+  assert.ok(!names('ju87d').includes('bayPort'), 'the D opens bomb doors she has nothing behind');
+  const fish = d.parts.filter((q) => q.fall);
+  assert.equal(fish.length, 1, 'the D carries more than her torpedo');
+  assert.ok(storeOf('ju87d').len > 4.5 && !storeOf('ju87d').extra, 'the D\'s torpedo is not a torpedo');
+  for (const k of ['ju87c', 'ju87d']) {
+    assert.ok(models[k].parts.some((q) => q.name === 'gun' && q.turret), `the ${k} has no gunner\'s gun that turns`);
+    assert.ok(rearGunOf(k), `nobody can sit in the ${k}\'s rear seat`);
+  }
+  assert.deepEqual(f.parts.filter((q) => q.gear).map((q) => q.name), ['gearL', 'gearR'], 'the 109 cannot raise her legs');
+  assert.ok(!f.parts.some((q) => q.fall), 'the 109 drops something');
+  // On her wheels, nothing of any of them but her wheels on the deck, and
+  // folded each is narrower than spread.
+  for (const [k, build] of [['bf109', pkBf109], ['ju87c', pkJu87c], ['ju87d', pkJu87d]]) {
+    for (const folded of [false, true]) {
+      const g = new THREE.Group();
+      const p = build(g, 0, 0, 0, 0, folded, {});
+      g.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(g, true);
+      assert.ok(b.min.y > -0.05 && b.min.y < 0.1, `the ${k} stands at ${b.min.y.toFixed(2)} m, not on her wheels`);
+      if (!folded) assert.ok(Math.abs(b.max.x - b.min.x - (k === 'bf109' ? 11.08 : 13.8)) < 0.3, `the ${k} is the wrong span`);
+      for (const s of [p.userData.store, ...(p.userData.wingStores || [])].filter(Boolean)) {
+        const sb = new THREE.Box3().setFromObject(s, true);
+        assert.ok(sb.min.y > 0.08, `what the ${k} carries is on the deck`);
+      }
+    }
+  }
 });
 
 check('the Graf Zeppelin has every gun she was given, where she was given it', () => {

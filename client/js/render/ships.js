@@ -19,6 +19,8 @@ import { dressShip } from './textures.js';
 import { loadZero } from './zeroModel.js';
 import { loadSuisei } from './suiseiModel.js';
 import { loadB5n } from './b5nModel.js';
+import { loadBf109 } from './bf109Model.js';
+import { loadJu87 } from './ju87Model.js';
 
 /**
  * The ships built off the owner's sculpts, fetched when they are wanted.
@@ -35,11 +37,12 @@ let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buil
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin;
 const SCULPTED = {
-  // Not a ship: the Japanese carrier aircraft, off the owner's sculpts. Every
-  // battle builds them to fly (planes.js) and the Shinano carries them, so
-  // whichever ships are waited for, these are too -- and they come first,
-  // ahead of the ships, when everything is fetched behind the title screen.
-  planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n()]),
+  // Not a ship: the Japanese and German carrier aircraft, off the owner's
+  // sculpts. Every battle builds them to fly (planes.js) and the Shinano and
+  // the Graf Zeppelin carry them, so whichever ships are waited for, these
+  // are too -- and they come first, ahead of the ships, when everything is
+  // fetched behind the title screen.
+  planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87()]),
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),

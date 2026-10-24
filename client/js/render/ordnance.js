@@ -565,7 +565,8 @@ export class Bombs {
    * her rack, `v` the aeroplane's velocity, `q` the way the bomb was lying,
    * `len` and `r` its size and `shape` the key of a type's own bomb, and
    * `land`, if it is something other than a bomb -- a torpedo -- what to do
-   * when it reaches the sea instead of a bomb's burst or column of water.
+   * when it reaches the sea instead of a bomb's burst or column of water;
+   * `quiet` a bomb that bursts but leaves the ship to the one beside it.
    * Without it -- a bomb from an aeroplane nobody is drawing -- it is let go
    * from where the simulation says, on the line that reaches the target.
    *
@@ -587,6 +588,7 @@ export class Bombs {
       b.shape = rel.shape && this.shapes.has(rel.shape) ? rel.shape : null;
       b.q = rel.q ? rel.q.clone() : null;
       b.land = rel.land || null;
+      b.quiet = !!rel.quiet;
     } else {
       const dx = tx - x;
       const dz = tz - z;
@@ -667,7 +669,7 @@ export class Bombs {
         }
         // And a bomb that hit went through a deck. Whoever is keeping the
         // ships knows which one and what that does to her.
-        if (b.hit && this.onHit) this.onHit(b.x1, 14, b.z1);
+        if (b.hit && !b.quiet && this.onHit) this.onHit(b.x1, 14, b.z1);
         this.live.splice(i, 1);
         continue;
       }

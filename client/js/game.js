@@ -2917,6 +2917,14 @@ export class Battle {
           // Off the rack it was hanging on, in the machine it was hanging in.
           const rel = this.releaseOf(ev.i);
           this.scene.bombs.drop(ev.x, y, ev.z, ev.tx, ev.tz, !!ev.hit, fx, 1.8, 108, rel);
+          // A Stuka's wing bombs go with it, and come down either side of it
+          // -- bursting on her if the big one does, alongside if it does not.
+          // The simulation's one bomb is the whole of the damage.
+          for (const x of (rel && rel.extra) || []) {
+            const ox = x.p.x - rel.p.x, oz = x.p.z - rel.p.z;
+            this.scene.bombs.drop(ev.x, y, ev.z, ev.tx + ox, ev.tz + oz, !!ev.hit, fx, 1.4, 108,
+              { ...x, quiet: true });
+          }
           break;
         }
         case 'airGuns': {
@@ -4907,6 +4915,18 @@ export class Battle {
           st.mats.length > 1 ? st.mats : st.mats[0]);
       }
     }
+    // And whatever else she lets go of with it -- a Ju 87C's SC 250s off her
+    // wings -- off its own rack, lying its own way, in its own shape.
+    const extra = (st && st.extra || []).map((x) => {
+      const key = `${d.kind}:${x.name}`;
+      this.scene.bombs.shape(key, x.geo.clone().translate(-x.mid.x, -x.mid.y, -x.mid.z),
+        x.mats.length > 1 ? x.mats : x.mats[0]);
+      return {
+        p: new THREE.Vector3().fromArray(x.at).applyMatrix4(m), v: d.v.clone(),
+        q: new THREE.Quaternion().setFromRotationMatrix(m).multiply(x.q),
+        len: x.len, r: x.r, shape: key,
+      };
+    });
     // The trim: the bomb is the falling one now, and the one on the rack is
     // not drawn again.
     const t = this.planeTrim.get(id);
@@ -4915,6 +4935,7 @@ export class Battle {
       p, v: d.v.clone(), q,
       len: st ? st.len : 1.75, r: st ? st.r : 0.2,
       shape: st && st.geo ? d.kind : null,
+      extra,
     };
   }
 
