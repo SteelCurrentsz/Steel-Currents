@@ -249,6 +249,9 @@ const { lathe, slab, rod } = kit(pieces, put);
   }
 }
 
+// The fifty's barrel, out of the stub the sculpt has to its muzzle.
+rod('gun', [0, 0.555, -1.32], [0, 0.585, -1.62], 0.022, TAG.metal, 6);
+
 // The floor of the turret's ring: the sculpt has nothing under the ball, so
 // a ball trained round would show the inside of her.
 lathe('body', [0, BALL.y - 0.02, BALL.at[2]], Y, [[0, 0], [0, BALL.x], [0.02, BALL.x + 0.01], [0.03, 0]], TAG.metal, 24);
@@ -361,7 +364,7 @@ const meta = {
   store: { at: tp(hingeOf.store), len: FISH.len, r: FISH.r },
   // The turret, about the middle of its ring, and the fifty's muzzle in its
   // own frame, laid aft.
-  gun: { at: tp(BALL.at), muzzle: [0, 0.31, -0.78] },
+  gun: { at: tp(BALL.at), muzzle: [0, 0.315, -0.98] },
   // Each main leg swings outboard about its hinge, ninety degrees, and its
   // wheel comes up flat into the wing; the tail wheel aft and up into her.
   gearL: { at: tp(hingeOf.gearL), axis: 'z', up: -1.55, tuck: 0.12 },

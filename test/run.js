@@ -194,7 +194,7 @@ import {
   arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
-  bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd,
+  bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
 } from '../client/js/render/planekit.js';
 import {
   BOMBERS, BOMBER_ORDER, BOMBER_MAX as CATALOGUE_MAX, airframeSheet, payloadSheet,
@@ -8630,7 +8630,8 @@ check('a carrier is found with a clear deck and her aircraft on the lifts', () =
   let below = 0;
   built.group.traverse((o) => {
     if (!o.isMesh || !o.material || !o.material.color) return;
-    if (!PAINT.has(o.material.color.getHexString())) return;
+    // A sculpt is painted in her shader and not by her material's colour.
+    if (!o.material.userData.painted && !PAINT.has(o.material.color.getHexString())) return;
     o.geometry.computeBoundingBox();
     const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
     let rides = false;
@@ -9534,8 +9535,16 @@ check('her wheels come up once she is off the deck', () => {
     plane.updateMatrixWorld(true);
     let lowest = Infinity;
     plane.traverse((o) => {
-      if (!o.isMesh || !o.material.color || o.material.color.getHexString() !== '24282c') return;
-      for (let n = o; n; n = n.parent) if (!n.visible) return;
+      if (!o.isMesh || !o.material.color) return;
+      // A sculpt's legs are pieces of their own, and are put out of sight
+      // once they are up: where they went is still where they are.
+      const leg = /^gear[LRT]$/.test(o.name);
+      if (!leg && o.material.color.getHexString() !== '24282c') return;
+      let body = !leg;
+      for (let n = o; n; n = n.parent) {
+        if (n.userData.gear) body = true;
+        if (!n.visible && body) return;
+      }
       lowest = Math.min(lowest, new THREE.Box3().setFromObject(o).min.y);
     });
     assert.ok(Number.isFinite(lowest), 'she has no wheels at all');
@@ -17186,9 +17195,11 @@ check('the Enterprise flies the owner\'s Hellcat and Dauntless, and an Avenger w
     const g = rearGunOf(k);
     assert.ok(g && g.muzzle[2] < -0.8, `the ${k}'s rear gun does not point aft`);
   }
-  // On her wheels, nothing of either sculpt but her wheels on the deck; the
-  // Hellcat folds to under half her span and the Dauntless does not fold.
-  for (const [k, build, span] of [['hellcat', pkHellcat, 13.06], ['dauntless', pkSbd, 12.66]]) {
+  // On her wheels, nothing of any sculpt but her wheels on the deck; the
+  // Hellcat and the Avenger fold to under half their spans and the Dauntless
+  // does not fold.
+  const tbfOf = (g, x, y, z, ry, folded, o) => pkTbf(g, x, y, z, ry, folded, false, o);
+  for (const [k, build, span] of [['hellcat', pkHellcat, 13.06], ['dauntless', pkSbd, 12.66], ['avenger', tbfOf, 16.51]]) {
     for (const folded of [false, true]) {
       const g = new THREE.Group();
       const p = build(g, 0, 0, 0, 0, folded, {});
@@ -17207,7 +17218,7 @@ check('the Enterprise flies the owner\'s Hellcat and Dauntless, and an Avenger w
       p.userData.gear(1);
       const legs = [];
       p.traverse((o) => { if (/^gear[LRT]$/.test(o.name)) legs.push(o); });
-      assert.equal(legs.length, k === 'hellcat' ? 3 : 2, `the ${k} has the wrong legs`);
+      assert.equal(legs.length, k === 'dauntless' ? 2 : 3, `the ${k} has the wrong legs`);
       const shown = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; };
       assert.ok(!legs.some(shown), `the ${k}'s legs do not come up`);
     }
