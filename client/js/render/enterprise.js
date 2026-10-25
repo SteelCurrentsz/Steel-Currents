@@ -62,9 +62,10 @@
 // starboard is -X, and y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { wildcat, dauntless, avenger, hellcat, sbd } from './planekit.js';
+import { wildcat, dauntless, avenger, hellcat, sbd, tbf } from './planekit.js';
 import { HELLCAT } from './hellcatModel.js';
 import { DAUNTLESS } from './dauntlessModel.js';
+import { AVENGER } from './avengerModel.js';
 import { arm as armMount } from './mounts.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
@@ -1011,11 +1012,11 @@ function hangarInterior(g) {
   // degrees off the fore-and-aft line reaches most of a metre and a half
   // further outboard than her span alone says.
   //
-  // The Hellcat and the Dauntless are the owner's sculpts, drawn coarse down
-  // here where nobody gets nearer them than the hangar side, and the Hellcat
-  // with her panels swung back along her: under six metres across them.
+  // All three are the owner's sculpts, drawn coarse down here where nobody
+  // gets nearer them than the hangar side, and the Hellcat and the Avenger
+  // with their panels swung back along them: six metres across or under.
   const TYPES = {
-    avenger: { half: 2.90, nose: 6.42, tail: -6.63, build: (gg, x, y, z, ry) => avenger(gg, x, y, z, ry, true) },
+    avenger: { half: 3.05, nose: 6.25, tail: -6.20, build: (gg, x, y, z, ry) => tbf(gg, x, y, z, ry, true, false, { lod: true }) },
     dauntless: { half: 6.33, nose: 4.57, tail: -4.92, build: (gg, x, y, z, ry) => sbd(gg, x, y, z, ry, false, { lod: true }) },
     hellcat: { half: 2.89, nose: 4.58, tail: -4.53, build: (gg, x, y, z, ry) => hellcat(gg, x, y, z, ry, true, { lod: true }) },
   };
@@ -2212,7 +2213,7 @@ function deckAircraft(g) {
   };
   make('fighter', hellcat(plane, 0, 0, 0, 0, true, {}), HELLCAT.exhaust);
   make('dive', sbd(plane, 0, 0, 0, 0, false, {}), DAUNTLESS.exhaust);
-  make('torpedo', avenger(plane, 0, 0, 0, 0, true, true));
+  make('torpedo', tbf(plane, 0, 0, 0, 0, true, true), AVENGER.exhaust);
   const out = { group: plane, kinds, role: 'torpedo' };
   out.pick = (role) => {
     const r = kinds[role] ? role : 'torpedo';

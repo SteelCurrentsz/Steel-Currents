@@ -19,7 +19,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
-  wildcat, avenger, arado, kingfisher, besson, loire,
+  wildcat, arado, kingfisher, besson, loire,
   jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
@@ -44,6 +44,9 @@ import {
   DAUNTLESS, DAUNTLESS_SEGS, dauntlessGeometries, dauntlessMaterial, dauntlessSegOf, dauntlessRest,
   dauntlessHinge,
 } from './dauntlessModel.js';
+import {
+  AVENGER, AVENGER_SEGS, avengerGeometries, avengerMaterial, avengerSegOf, avengerRest, avengerHinge,
+} from './avengerModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -279,6 +282,7 @@ function tipsOf(key, geo) {
   if (key === 'bf109') return { tips: BF109.tips, nose: [0, BF109.prop[1] - 0.2, BF109.prop[2] - 1.2] };
   if (key === 'ju87c' || key === 'ju87d') return { tips: JU87.tips, nose: [0, JU87.prop[1] - 0.2, JU87.prop[2] - 1.2] };
   if (key === 'hellcat') return { tips: HELLCAT.tips, nose: [0, HELLCAT.prop[1] - 0.2, HELLCAT.prop[2] - 1.2] };
+  if (key === 'avenger') return { tips: AVENGER.tips, nose: [0, AVENGER.prop[1] - 0.2, AVENGER.prop[2] - 1.2] };
   if (key === 'dauntless') return { tips: DAUNTLESS.tips, nose: [0, DAUNTLESS.prop[1] - 0.2, DAUNTLESS.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
@@ -606,6 +610,42 @@ function dauntlessFlightModel() {
 }
 
 /**
+ * The TBF Avenger: the owner's sculpt, in her pieces, with everything of her
+ * that moves on its own hinge -- her airscrew, the two doors of her bomb bay
+ * and the Mark 13 behind them, the ball turret with its fifty, and the three
+ * legs built for her, the mains swinging outboard into her wings.
+ */
+function avengerFlightModel() {
+  const geos = avengerGeometries();
+  const mat = avengerMaterial();
+  const segs = {};
+  for (const k of AVENGER_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, AVENGER_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(avengerHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: avengerRest('prop'),
+    geo: withDisc(geos.prop, AVENGER.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['bayPort', 'bayStbd']) {
+    parts.push({ name: k, axis: 'z', open: AVENGER[k].open, at: at(k), rot: avengerRest(k), geo: geos[k], mats: [mat] });
+  }
+  parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: avengerRest('store'),
+    geo: geos.store, mats: [mat] });
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: avengerRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = AVENGER[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: avengerRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = avengerSegOf;
+  segOf.breaks = AVENGER.breaks;
+  return { segs, parts, probe, segOf, cy: AVENGER.cy, geo: probe, mats: [mat] };
+}
+
+/**
  * The gun on a mounting of a type built off the kit rather than a sculpt --
  * the Avenger's ball turret -- read off her model when she is welded (see
  * flightModels), in the shape rearGunOf answers with.
@@ -627,6 +667,9 @@ export function rearGunOf(kind) {
   if (kind === 'ju87c' || kind === 'ju87d') {
     return { at: JU87.gun.at, rot: ju87Rest('gun'), muzzle: JU87.gun.muzzle };
   }
+  if (kind === 'avenger') {
+    return { at: AVENGER.gun.at, rot: avengerRest('gun'), muzzle: AVENGER.gun.muzzle };
+  }
   if (kind === 'dauntless') {
     return { at: DAUNTLESS.gun.at, rot: dauntlessRest('gun'), muzzle: DAUNTLESS.gun.muzzle };
   }
@@ -647,7 +690,8 @@ const REAR_SEATS = {
   // with his twin thirties.
   dauntless: () => ({ x: 0, y: DAUNTLESS.gun.at[1] + 0.45, z: DAUNTLESS.gun.at[2] + 0.4, cal: 0.0077, guns: 2 }),
   suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
-  avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
+  // The Avenger's turret gunner, in the ball on her back with his fifty.
+  avenger: () => ({ x: 0, y: AVENGER.gun.at[1] + 0.4, z: AVENGER.gun.at[2], cal: 0.0127, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
   // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
   ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
@@ -788,9 +832,10 @@ export function flightModels() {
     readStore(key, parts);
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
-  // The Avenger with her legs on: they are moving parts, which come down on
-  // the approach and are not drawn while they are up.
-  make('avenger', (g) => avenger(g, 0, 0, 0, 0, false, true, {}));
+  // The Avenger, off the owner's sculpt, with her fish in her belly.
+  out.avenger = avengerFlightModel();
+  MUZZLES.avenger = AVENGER.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('avenger', out.avenger.parts);
   // The American carrier's fighter and dive bomber, off the owner's sculpts:
   // the Hellcat that took over from the Wildcat, and the Dauntless.
   out.hellcat = hellcatFlightModel();

@@ -22,6 +22,7 @@ import { loadB5n } from './b5nModel.js';
 import { loadBf109 } from './bf109Model.js';
 import { loadJu87 } from './ju87Model.js';
 import { loadHellcat } from './hellcatModel.js';
+import { loadAvenger } from './avengerModel.js';
 import { loadDauntless } from './dauntlessModel.js';
 
 /**
@@ -45,7 +46,7 @@ const SCULPTED = {
   // are too -- and they come first, ahead of the ships, when everything is
   // fetched behind the title screen.
   planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
-    loadHellcat(), loadDauntless()]),
+    loadHellcat(), loadDauntless(), loadAvenger()]),
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),

@@ -35,6 +35,7 @@ import { bf109Model } from './bf109Model.js';
 import { ju87Model } from './ju87Model.js';
 import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
+import { avengerModel } from './avengerModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -3519,6 +3520,24 @@ function sbd(g, x, y, z, ry, folded = false, opts = {}) {
   return p;
 }
 
+/**
+ * A TBF Avenger, off the owner's sculpt: the Mark 13 in her bomb bay behind
+ * two doors, the ball turret on her back with its fifty, legs that swing
+ * outboard into her wings, and outer panels that fold back along her sides on
+ * the sto-wing. Called the way the kit's `avenger` is: `spin` is taken and
+ * ignored, because her airscrew is always on its hub.
+ */
+function tbf(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
+  const p = avengerModel({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  if (p.userData.bay) p.userData.bay(0);
+  p.userData.wings = null;
+  return p;
+}
+
 // ------------------------------------------------------ the heavy squadrons --
 //
 // The bombers: the aircraft nobody flies off a deck.
@@ -4866,7 +4885,7 @@ function heavyBomber(kind) {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked
