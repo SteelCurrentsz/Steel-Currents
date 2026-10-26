@@ -14,6 +14,7 @@ import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
 import { Flights } from './planes.js';
 import { Contrails, GunFlashes } from './airfx.js';
+import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
@@ -2085,6 +2086,8 @@ export class BattleScene {
     // What they leave in the air: vapour off their tips and contrails off
     // their engines, and the flash of their guns, on them. See airfx.js.
     this.contrails = new Contrails(this.scene);
+    // And a ship making smoke: what comes out of her funnels. See smokescreen.js.
+    this.smokeScreens = new SmokeScreens(this.scene);
     this.gunFlashes = new GunFlashes(this.scene);
     // And the heavy squadrons, which are nobody's carrier aircraft: their own
     // batch, their own models and their own spacing. See heavies.js.

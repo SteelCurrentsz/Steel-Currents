@@ -65,6 +65,9 @@ export function createState(world, opts = {}) {
     planes: [],
     // The heavy squadrons, which belong to nobody's deck.
     bombers: [],
+    // The smoke a ship has laid, lying on the sea along her track. See
+    // laySmoke and smokeBetween.
+    smokes: [],
     // What is left of an aeroplane on its way down: a real body that falls,
     // and hits whatever it falls on. See stepFallers.
     fallers: [],
@@ -12489,6 +12492,70 @@ function saved(ship, S, dt) {
   return S.held >= 20;
 }
 
+/** How long a stretch of smoke lies on the sea before it has thinned out. */
+export const SMOKE_LIFE = 45;
+/** How often a ship making smoke lays the next stretch of it, in seconds. */
+const SMOKE_LAY = 1.5;
+/**
+ * How much of the wind a bank lying on the sea moves at. Smoke down on the
+ * water is in the slow air at the bottom of the wind, and goes at a little
+ * over half of it.
+ */
+export const SMOKE_DRIFT = 0.6;
+
+/**
+ * How far a stretch of smoke reaches from where it was laid, `age` seconds on.
+ *
+ * It comes out of her funnels a column and spreads as it lies: by the time it
+ * is a minute old it is a bank a couple of hundred yards through. The same
+ * growth the picture draws it with (see smokescreen.js).
+ */
+export function smokeRadius(age) {
+  return 45 + 14 * Math.sqrt(Math.max(0, age));
+}
+
+/**
+ * Lay smoke behind her while she is making it.
+ *
+ * A screen is not an aura round the ship that made it. It is a bank lying
+ * along her track, and it hides whatever is in it or behind it -- her for as
+ * long as she stays in it, and anybody else who takes cover there -- and when
+ * she steams out of the end of it she is in plain sight again.
+ */
+function laySmoke(state, ship, dt) {
+  if (ship.smokeActive <= 0) return;
+  ship.smokeLay = (ship.smokeLay ?? 0) - dt;
+  if (ship.smokeLay > 0) return;
+  ship.smokeLay = SMOKE_LAY;
+  if (!state.smokes) state.smokes = [];
+  // And it goes down the wind as it lies, so a screen laid across the wind
+  // walks away from the ship that laid it.
+  const w = state.wind || { x: 0, z: 0 };
+  state.smokes.push({ x: ship.x, z: ship.z, t: state.t, wx: w.x * SMOKE_DRIFT, wz: w.z * SMOKE_DRIFT });
+}
+
+/** Whether any smoke lies across the line from one point to another, or over either end of it. */
+export function smokeBetween(state, ax, az, bx, bz) {
+  for (const c of state.smokes || []) {
+    const age = state.t - c.t;
+    if (age < 0 || age > SMOKE_LIFE) continue;
+    // Thinning at the end: a bank in its last few seconds is a haze, not a wall.
+    const r = smokeRadius(age) * (age > SMOKE_LIFE * 0.85 ? 0.5 : 1);
+    const cx = c.x + (c.wx || 0) * age;
+    const cz = c.z + (c.wz || 0) * age;
+    const dx = bx - ax, dz = bz - az;
+    const L2 = dx * dx + dz * dz;
+    const u = L2 > 0 ? Math.max(0, Math.min(1, ((cx - ax) * dx + (cz - az) * dz) / L2)) : 0;
+    if (Math.hypot(ax + dx * u - cx, az + dz * u - cz) < r) return true;
+  }
+  return false;
+}
+
+/** Whether a point is in a bank of smoke. */
+export function inSmoke(state, x, z) {
+  return smokeBetween(state, x, z, x, z);
+}
+
 export function useSmoke(state, ship) {
   if (!ship.alive || ship.smoke <= 0 || ship.smokeActive > 0) return false;
   ship.smoke--;
@@ -12517,6 +12584,7 @@ function stepDamageOverTime(state, ship, dt) {
   // through it as fast as it ever was, which is why damage control delays
   // flooding and does not cure it.
   if (ship.shored > 0) ship.shored = Math.max(0, ship.shored - dt / 75);
+  laySmoke(state, ship, dt);
   if (ship.smokeActive > 0) ship.smokeActive -= dt;
   if (ship.engineDamage > 0) ship.engineDamage -= dt;
   if (ship.steeringDamage > 0) ship.steeringDamage -= dt;
@@ -12570,7 +12638,6 @@ function stepDetection(state) {
     // left alone, which is the whole point of radar: in a rain squall a set is
     // worth more than every pair of eyes on the ship.
     conceal *= sightOf(state.world);
-    if (target.smokeActive > 0) conceal *= 0.22;
     if (target.fires > 0) conceal *= 1.25;
     // A lit searchlight is the brightest thing on the sea, and it gives her
     // away to everybody who can see the beam: far further than her hull,
@@ -12583,9 +12650,13 @@ function stepDetection(state) {
       if (!observer.alive || observer.team === target.team) continue;
       const oc = getClass(observer.classId);
       const d = dist(observer.x, observer.z, target.x, target.z);
-      const radar = d < oc.radarRange * 0.55 && target.smokeActive <= 0
+      // Smoke lying between them, or over either of them, hides her from his
+      // lookouts until she is close aboard -- and from his set, which in this
+      // war could not be trusted through a screen to tell a ship from it.
+      const smoked = smokeBetween(state, observer.x, observer.z, target.x, target.z);
+      const radar = d < oc.radarRange * 0.55 && !smoked
         && !(tc.dive && submerged(target));
-      if (d > conceal && !radar) continue;
+      if (d > (smoked ? conceal * 0.22 : conceal) && !radar) continue;
       if (d > 900 && blockedByLand(state.world, observer.x, observer.z, target.x, target.z)) continue;
       target.spottedBy[observer.team] = true;
     }
@@ -12610,7 +12681,8 @@ function stepDetection(state) {
     const reach = (9000 + bm.y * 2.6) * sightOf(state.world);
     for (const target of state.ships) {
       if (!target.alive || target.team === bm.team) continue;
-      if (target.smokeActive > 0) continue;
+      // From above, a ship in a smoke bank is the bank.
+      if (inSmoke(state, target.x, target.z)) continue;
       const tc = getClass(target.classId);
       if (tc.dive && submerged(target)) continue;
       if (dist(bm.x, bm.z, target.x, target.z) < reach) {
@@ -12689,6 +12761,10 @@ export function step(state, dt = DT) {
   state.t += dt;
   state.tick++;
   state.wind = windAt(state.world, state.t);
+  // Smoke that has thinned out is gone.
+  if (state.smokes && state.smokes.length && state.t - state.smokes[0].t > SMOKE_LIFE) {
+    state.smokes = state.smokes.filter((c) => state.t - c.t <= SMOKE_LIFE);
+  }
   stepSurges(state);
   for (const ship of state.ships) {
     if (!ship.alive) {

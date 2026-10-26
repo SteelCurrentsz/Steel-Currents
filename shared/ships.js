@@ -76,7 +76,10 @@ export const SHIP_CLASSES = {
     typeName: 'Destroyer',
     nation: 'usa',
     blurb: 'Fast, invisible until it wants not to be, and carrying ten torpedo tubes. Dies to a stiff breeze.',
-    hull: { length: 114, beam: 12, draft: 5.5, superstructure: 0.9 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5.2, 14.8], [0, -11.4, 14]], length: 114, beam: 12, draft: 5.5, superstructure: 0.9 },
     hp: 15600,
     maxSpeed: 36.5 * KNOTS,
     reverseSpeed: 9 * KNOTS,
@@ -279,7 +282,10 @@ export const SHIP_CLASSES = {
     // hull on a broad waterplane, which rides the sea up and down as closely
     // as a ship can -- her heave on a stiffer spring than her length alone
     // would give her (see Seakeeping), or the sea would leave her screws.
-    hull: { length: 100, beam: 9.9, draft: 3.3, superstructure: 0.9, heavePeriod: 3.2 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5, 10.2], [0, -12.3, 10.3]], length: 100, beam: 9.9, draft: 3.3, superstructure: 0.9, heavePeriod: 3.2 },
     hp: 12600,
     // Twenty-seven knots and four fifths, on two shafts: slower than a fleet
     // destroyer and handier, a short ship on a big rudder.
@@ -467,7 +473,10 @@ export const SHIP_CLASSES = {
     // She draws three and three quarter metres on a hundred and sixteen-metre
     // waterline: a long, light hull on a fine waterplane, which heaves more
     // quickly than her length alone would make her (see Seakeeping).
-    hull: { length: 118.5, beam: 11.2, draft: 3.76, superstructure: 0.9, heavePeriod: 3.6 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 13.5, 10.2], [0, -2.5, 10]], length: 118.5, beam: 11.2, draft: 3.76, superstructure: 0.9, heavePeriod: 3.6 },
     hp: 15000,
     // Thirty-five knots on two shafts, fifty-two thousand horsepower.
     maxSpeed: 35 * KNOTS,
@@ -743,7 +752,10 @@ export const SHIP_CLASSES = {
     typeName: 'Light Cruiser',
     nation: 'usa',
     blurb: 'Twelve six-inch rifles on a fast reload. No torpedoes, but nothing lightly armoured survives its rain of HE.',
-    hull: { length: 186, beam: 20, draft: 7.5, superstructure: 1.15 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 2.5, 25.5], [0, -14.8, 24.6]], length: 186, beam: 20, draft: 7.5, superstructure: 1.15 },
     hp: 27800,
     maxSpeed: 32.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -875,7 +887,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'ger',
     blurb: 'Eight-inch guns, a hard-hitting torpedo broadside and enough belt to bully anything smaller.',
-    hull: { length: 203, beam: 21.5, draft: 7.7, superstructure: 1.2 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 10, 25]], length: 203, beam: 21.5, draft: 7.7, superstructure: 1.2 },
     hp: 34400,
     maxSpeed: 32 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -1012,7 +1027,10 @@ export const SHIP_CLASSES = {
     typeName: 'Panzerschiff',
     nation: 'ger',
     blurb: 'Eleven-inch guns on a cruiser hull: she outranges anything that can catch her and outruns anything that can hurt her.',
-    hull: { length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 4.5, 19.4]], length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
     hp: 31600,
     maxSpeed: 28.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -1624,7 +1642,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'fra',
     blurb: 'Eight 380 mm guns in two quadruple turrets, all of them forward, on the fastest battleship of 1940.',
-    hull: { length: 247.85, beam: 33, draft: 9.6, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -38, 28.7]], length: 247.85, beam: 33, draft: 9.6, superstructure: 1.45 },
     hp: 74500,
     // Thirty-two knots on her trials, out of four shafts; a long, fine hull
     // that turned wide.
@@ -2003,7 +2024,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'Fast, low and wet: nine 28 cm guns at thirty-one knots. She sank Glorious, and it took Duke of York to catch her.',
-    hull: { length: 234.9, beam: 30, draft: 9.1, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -7, 17]], length: 234.9, beam: 30, draft: 9.1, superstructure: 1.4 },
     hp: 62400,
     // Thirty-one knots on trials out of three shafts; a fine hull that was
     // quick for a battleship, and wet forward until she was given her
@@ -2432,7 +2456,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'Eight 38 cm guns on the broadest, steadiest gun platform afloat. She sank Hood with her fifth salvo.',
-    hull: { length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -2, 25]], length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
     hp: 78400,
     // Thirty knots on her trials, out of three shafts; a broad hull that
     // rolled little and turned well for her size -- until her rudders jammed.
@@ -2943,7 +2970,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'The Bismarck again, with two banks of four torpedo tubes on her deck: a battleship that can finish what her guns start.',
-    hull: { length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -2, 25]], length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
     hp: 78400,
     // Thirty knots on her trials, out of three shafts; a broad hull that
     // rolled little and turned well for her size -- until her rudders jammed.
@@ -3476,7 +3506,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'gbr',
     blurb: 'Nine sixteen-inch guns, every one of them forward of her bridge. She closed Bismarck to three miles and took her apart.',
-    hull: { length: 216.4, beam: 33.8, draft: 8.6, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -46, 26.2]], length: 216.4, beam: 33.8, draft: 8.6, superstructure: 1.45 },
     hp: 66800,
     // Twenty-three knots, and a tower like a sail on a short hull: she was a
     // handful at low speed and in a wind, and she turned like a block of flats.
@@ -3874,7 +3907,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'usa',
     blurb: 'Nine sixteen-inch guns and an inclined belt on a hull built short to carry them. Big Mamie fired the first and the last American sixteen-inch shells of the war.',
-    hull: { length: 207.26, beam: 28.1, draft: 9.0, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -17.3, 32.5]], length: 207.26, beam: 28.1, draft: 9.0, superstructure: 1.4 },
     hp: 66000,
     // Twenty-seven and a half knots, and a short hull that turned tighter than
     // anything else in the battle line.
@@ -4582,6 +4618,9 @@ export const SHIP_CLASSES = {
     nation: 'usa',
     blurb: 'Nine sixteen-inch guns behind a citadel that laughs at cruisers. Turns like a continent.',
     hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 15.5, 25.3], [0, -14.5, 24.9]],
       length: 270 * BIG, beam: 33 * BIG, draft: 11 * BIG, superstructure: 1.35,
     },
     hp: 76200,
@@ -4735,7 +4774,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battlecruiser',
     nation: 'jpn',
     blurb: 'A British battlecruiser rebuilt as a fast battleship: eight 35.6 cm and thirty knots.',
-    hull: { length: 222.05, beam: 31.0, draft: 9.7, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5.8, 20.8], [0, -17, 16.5]], length: 222.05, beam: 31.0, draft: 9.7, superstructure: 1.4 },
     hp: 64800,
     // Thirty knots and a quarter on her 1936 trials, on four shafts: lighter
     // and finer than the battleships she fought beside, and quicker on her
@@ -5041,7 +5083,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'jpn',
     blurb: 'Six twin turrets and a pagoda of a bridge: twelve 35.6 cm guns on a hull that was too small for them.',
-    hull: { length: 212.75, beam: 32.6, draft: 9.7, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -11, 26.4]], length: 212.75, beam: 32.6, draft: 9.7, superstructure: 1.45 },
     hp: 70400,
     // Twenty-five knots on her 1944 trials, on four shafts: a stiff, narrow
     // ship that had been lengthened and blistered until she turned like a
@@ -5396,7 +5441,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'jpn',
     blurb: 'Yamato\'s sister, with all four of her 15.5 cm turrets. It took nineteen torpedoes and seventeen bombs to sink her.',
-    hull: { length: 263, beam: 38.9, draft: 10.4, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -24, 29.5]], length: 263, beam: 38.9, draft: 10.4, superstructure: 1.45 },
     hp: 92400,
     maxSpeed: 27 * KNOTS,
     reverseSpeed: 6 * KNOTS,
@@ -5974,7 +6022,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'jpn',
     blurb: 'A castle of a bridge, ten eight-inch guns, and sixteen Long Lances that reach further than anything else afloat.',
-    hull: { length: 203.8, beam: 20.4, draft: 6.3, superstructure: 1.5 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 9, 20], [0, -4.4, 19.9]], length: 203.8, beam: 20.4, draft: 6.3, superstructure: 1.5 },
     hp: 33100,
     maxSpeed: 34.2 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -6424,7 +6475,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'usa',
     blurb: 'Nine eight-inch rifles with super-heavy shells, radar-directed, and more 40 mm than a battleship. The treaty cruisers\' answer.',
-    hull: { length: 205.3, beam: 21.6, draft: 7.3, superstructure: 1.25 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 3, 24.4], [0, -15, 24.4]], length: 205.3, beam: 21.6, draft: 7.3, superstructure: 1.25 },
     hp: 35600,
     maxSpeed: 33 * KNOTS,
     reverseSpeed: 8 * KNOTS,

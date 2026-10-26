@@ -29,7 +29,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -158,6 +158,21 @@ const SKIM_E = new THREE.Euler();
 // draws her: heading first, then pitch, then bank.
 const HEAVY_AT = { x: 0, y: 0, z: 0 };
 const HEAVY_E = new THREE.Euler(0, 0, 0, 'YXZ');
+// A funnel top on a ship, carried into the world.
+const FUNNEL_P = new THREE.Vector3();
+
+/**
+ * Where a ship's funnels come out, as [across, along, up] in her own frame,
+ * metres. Off her datasheet (hull.funnels, measured off her model); a ship
+ * that has none -- a submarine runs on diesels -- makes what smoke she makes
+ * from a generator on her quarter.
+ */
+function funnelsOf(cls) {
+  const f = cls.hull.funnels;
+  if (f && f.length) return f;
+  return [[0, -cls.hull.length * 0.44, 3]];
+}
+
 // A hole off the wire, and where it is in the world.
 const LEAK_H = { k: 'tanks', x: 0, y: 0, z: 0 };
 const LEAK_P = new THREE.Vector3();
@@ -2693,7 +2708,9 @@ export class Battle {
           break;
         case 'fire': if (ev.ship === this.shipId) this.hud.alert('Fire on deck'); break;
         case 'flood': if (ev.ship === this.shipId) { this.hud.alert('Flooding'); audio.alarm(); } break;
-        case 'smoke': fx.smokeScreen(ev.x, ev.z); break;
+        // Made out of her funnels for as long as she is making it, off the
+        // ship's own `sm` (see makeSmoke) -- not set down beside her once.
+        case 'smoke': break;
         case 'repair':
           if (ev.ship === bridge) audio.say('seal', navy);
           if (ev.ship === this.shipId) {
@@ -6239,12 +6256,21 @@ export class Battle {
       }
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 
-      // Funnel smoke and burning damage.
+      // Funnel smoke and burning damage. Out of her own funnels, wherever
+      // they are on her (see hull.funnels), and carried with her as she
+      // rolls and pitches.
       view.smokeTimer -= dt;
-      if (view.smokeTimer <= 0 && s.a && getClass(s.c).type !== 'CV') {
+      if (s.a && s.sm && view.group.visible) {
+        this.makeSmoke(view, s, h, dt);
+      } else if (view.smokeTimer <= 0 && s.a && !['CV', 'SS'].includes(getClass(s.c).type)) {
+        // Not a carrier, whose uptakes are trunked out of the way of her deck,
+        // nor a boat, which runs on diesels and dives.
         view.smokeTimer = 0.25 + Math.random() * 0.3;
-        const l = getClass(s.c).hull.length;
-        this.scene.effects.funnelSmoke(x + Math.sin(h) * l * 0.02, 26, z + Math.cos(h) * l * 0.02, load);
+        view.group.updateMatrix();
+        for (const f of funnelsOf(getClass(s.c))) {
+          const p = FUNNEL_P.set(f[0], f[2], f[1]).applyMatrix4(view.group.matrix);
+          this.scene.effects.funnelSmoke(p.x, p.y, p.z, load);
+        }
       }
       // Fires burn where they are burning. A fire is a thing in a compartment
       // now, and the wire says which compartments are alight and how hard, so
@@ -6645,6 +6671,7 @@ export class Battle {
     this.scene.flights.end();
     this.scene.gunFlashes.end(dt);
     this.scene.contrails.update(dt, this.scene.camera);
+    this.scene.smokeScreens.update(dt);
 
     // The heavy squadrons, four thousand feet over the lot of them. They are
     // not anybody's carrier aircraft and they are not drawn as any: their own
@@ -6877,6 +6904,38 @@ export class Battle {
       this.scene.effects.smokeRun(run, pl.x + s.x + bx, y + s.y, pl.z + s.z + bz,
         { fire: i < fb ? 1 : 0 });
     }
+  }
+
+  /**
+   * A ship making smoke: her burners starved of air and fuel oil going up her
+   * funnels unburnt, so what comes out of each of them is a thick black
+   * column that falls back along her track into a wall. See smokescreen.js.
+   */
+  makeSmoke(view, s, h, dt) {
+    const cls = getClass(s.c);
+    const eye = this.scene.camera.position;
+    if (Math.hypot(view.group.position.x - eye.x, view.group.position.z - eye.z) > 14000) return;
+    view.group.updateMatrix();
+    // A battleship's funnel is a good deal more funnel than a destroyer's.
+    const scale = clamp(cls.hull.beam / 12, 0.9, 1.8);
+    const vx = Math.sin(h) * (s.v || 0);
+    const vz = Math.cos(h) * (s.v || 0);
+    // Down the wind the simulation's bank goes down (see laySmoke), so what
+    // is drawn is where a ship hiding in it is hidden.
+    const w = windAt(this.world, this.renderST ?? this.time);
+    const wx = w.x * SMOKE_DRIFT;
+    const wz = w.z * SMOKE_DRIFT;
+    view.screenT = (view.screenT || 0) - dt;
+    // Never more than a few at once after a stall: a screen is laid steadily,
+    // not in lumps.
+    for (let n = 0; view.screenT <= 0 && n < 3; n++) {
+      view.screenT += 0.11;
+      for (const f of funnelsOf(cls)) {
+        const p = FUNNEL_P.set(f[0], f[2] + 0.5, f[1]).applyMatrix4(view.group.matrix);
+        this.scene.smokeScreens.puff(p.x, p.y, p.z, vx, vz, scale, wx, wz);
+      }
+    }
+    if (view.screenT < -0.5) view.screenT = 0;
   }
 
   /**

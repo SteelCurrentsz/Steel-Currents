@@ -773,15 +773,6 @@ export class Effects {
     }
   }
 
-  smokeScreen(x, z) {
-    for (let i = 0; i < 3; i++) {
-      this.spawn({
-        x: x + (Math.random() - 0.5) * 120, y: 6 + Math.random() * 14, z: z + (Math.random() - 0.5) * 120,
-        vy: 1.2, size: 70, grow: 26, ttl: 22, color: 0xdfe6ec, opacity: 0.5, drag: 0.2,
-      });
-    }
-  }
-
   /** `camera` is what the gun smoke is sorted against; see muzzleblast.js. */
   update(dt, camera) {
     this.splashes.update(dt);

@@ -47,7 +47,7 @@ import {
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
   stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf, oneWay,
-  landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind,
+  landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind, useSmoke, smokeBetween, SMOKE_LIFE,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -3938,6 +3938,67 @@ check('the Musashi\'s open 25 mm triples are the owner\'s sculpt, the size the o
   const lights = view.group.userData.aaMounts.filter((a) => a.children.some((c) => c.isMesh && c.geometry === piece.house));
   assert.ok(lights.length >= 10, `only ${lights.length} of her light mountings are the sculpt`);
   assert.ok(open > lights.length, 'the turret roofs have none');
+});
+
+check('a smoke screen is a bank on the sea, not an aura round the ship that laid it', () => {
+  // She makes smoke and she is hidden -- while she is in it. Steam out of the
+  // end of it and she is in plain sight again; and when it has thinned out,
+  // it is gone.
+  const world = generateWorld(31, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const dd = addShip(st, { name: 'DD', classId: 'fletcher', team: 0, index: 0 });
+  // A boat on the surface to look: no radar, and a deck gun that will not sink
+  // a destroyer in the minute this takes.
+  const eye = addShip(st, { name: 'Eye', classId: 'u48', team: 1, index: 0 });
+  const still = () => { for (const q of [dd, eye]) { q.notch = 1; q.speed = 0; } };
+  dd.x = 0; dd.z = 0; eye.x = 0; eye.z = 4000;
+  still();
+  const look = (n = 4) => { for (let i = 0; i < n; i++) { still(); step(st, DT); } return dd.spottedBy[1]; };
+  assert.ok(look(), 'a destroyer at four kilometres was not seen at all');
+  assert.ok(useSmoke(st, dd), 'she would not make smoke');
+  assert.ok(!look(Math.ceil(4 / DT)), 'she was seen through her own smoke');
+  assert.ok(st.smokes.length > 0, 'she made smoke and none of it is lying on the sea');
+  assert.ok(smokeBetween(st, eye.x, eye.z, dd.x, dd.z), 'the smoke is not between them');
+  // Out of the end of it, a couple of kilometres to one side.
+  dd.smokeActive = 0;
+  dd.x = 2500;
+  assert.ok(look(), 'she was still hidden after she left her smoke');
+  // And the bank itself thins and is gone.
+  dd.x = 0;
+  for (let i = 0; i < Math.ceil((SMOKE_LIFE + 2) / DT); i++) { still(); step(st, DT); }
+  assert.equal(st.smokes.length, 0, 'the smoke never cleared');
+  assert.ok(look(), 'she was hidden by smoke that had gone');
+});
+
+check("a ship's funnels are on her datasheet where her model has them", () => {
+  // What she makes smoke out of, and what her funnel smoke comes out of: it
+  // used to come out of a point twenty-six metres over the middle of every
+  // ship, a dozen metres over a destroyer's funnels.
+  const V = new THREE.Vector3();
+  const rc = new THREE.Raycaster();
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    if (cls.smokeCharges) assert.ok(cls.hull.funnels && cls.hull.funnels.length, `${id} makes smoke and has no funnels`);
+    if (!cls.hull.funnels) continue;
+    const b = buildShip(id);
+    b.group.updateMatrixWorld(true);
+    const meshes = [];
+    b.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    for (const [x, z, y] of cls.hull.funnels) {
+      // The highest thing within a metre and a half of where her datasheet
+      // has the top of the funnel: a funnel's rim, or the lip of the opening.
+      let top = -Infinity;
+      for (let dx = -1.5; dx <= 1.5; dx += 0.5) {
+        for (let dz = -1.5; dz <= 1.5; dz += 0.5) {
+          rc.set(V.set(x + dx, y + 1.2, z + dz), new THREE.Vector3(0, -1, 0));
+          rc.far = 3;
+          const h = rc.intersectObjects(meshes, false)[0];
+          if (h) top = Math.max(top, h.point.y);
+        }
+      }
+      assert.ok(top > y - 1.5, `${id}: nothing of her at her funnel top at z ${z}, ${y} m up`);
+    }
+  }
 });
 
 check('a shell leaves the muzzle it was fired from', () => {
