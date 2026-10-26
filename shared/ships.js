@@ -6995,6 +6995,10 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 3, perSquadron: 17, cruiseSpeed: 82, strikeRange: 15600,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -105, y: 20.2 },
       // What she flies: her own nation's machines, one to a role.
       types: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
       // Where her deck run leaves each of her three types, off the integrated
@@ -7293,6 +7297,10 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 3, perSquadron: 15, cruiseSpeed: 80, strikeRange: 13800,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -106, y: 15.7 },
       // What she was to fly: the navalised Messerschmitt with a hook and
       // longer wings, and the carrier Stuka -- the C with its 500 kg bomb,
       // and the D carrying the aerial torpedo the C was never built to.
@@ -7453,6 +7461,10 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 4, perSquadron: 20, cruiseSpeed: 78, strikeRange: 14000,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -110, y: 17.3 },
       // What she embarks in each role: by 1943 her fighting squadron flew
       // Hellcats, with the Dauntlesses and Avengers they escorted.
       types: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger' },

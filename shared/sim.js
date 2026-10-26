@@ -319,6 +319,10 @@ export function addShip(state, {
     // at a time: the lift has to fetch her, she has to taxi aft and run up, and
     // nothing else can use the deck while she is on it.
     deckBusy: 0,
+    // And with the last aeroplane landed on her, until the lift has her below.
+    trapBusy: 0,
+    // Her own aircraft home and waiting to land, in the order she takes them.
+    recovery: [],
     // A launch ordered and not yet off the deck.
     launching: null,
     spottedBy: [false, false],
@@ -6536,6 +6540,266 @@ export function deckRunFate(ship, cls = shipClass(ship)) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+//
+// A carrier's aeroplane used to come home by flying to within three hundred
+// metres of the ship from wherever she happened to be and vanishing, and the
+// client then dragged her model across the sky onto the deck in a straight
+// line. Nothing landed: no circuit, no line-up, nothing to say the deck was
+// fit to land on.
+//
+// She is flown in now. Home, she joins the circle over her ship and waits her
+// turn; when she is called she goes out astern, turns onto the ship's
+// centreline and comes up the wake down a glide slope at a little more than
+// the ship's own speed, and her wheels go on at the round-down. A deck that is
+// not clear -- a launch going off, the last one still being taken up the lift,
+// the after end holed or alight -- is not landed on: she is waved off, goes
+// round and comes in again.
+
+/** How far astern of the round-down she is let into the groove, in metres. */
+export const GROOVE = 1300;
+/** The height she joins the groove at; the glide comes down from there to the deck. */
+const GROOVE_ALT = 85;
+/** The circle the rest of them wait on: its radius over the ship and its height. */
+const MARSHAL_R = 1500;
+const MARSHAL_ALT = 240;
+/** How close behind the one ahead of her the next is let into the groove. */
+const GROOVE_SPACING = 650;
+/** How many of them are let out of the circle at once, the one in the groove included. */
+const CLEARED = 3;
+/** How much faster than the ship she comes up the wake, in metres a second. */
+const OVERTAKE = 30;
+/**
+ * And never slower than this over the water. Below about fifty metres a second
+ * a loaded Avenger or a Stuka has no wing left to turn with, and an aeroplane
+ * that has slowed for the deck before she is lined up on it never gets there.
+ */
+const APPROACH_SPEED = 50;
+/** Where the batsman makes his call: this far short of touchdown, it is land or go round. */
+export const LANDING_CUT = 260;
+/** How long an aeroplane just landed fouls the deck: the wire, up the deck, down the lift. */
+export const TRAP_CYCLE = 9;
+/** How far off the centreline, and off her heading, she can be at the cut and still land. */
+const LINEUP = 13;
+const LINEUP_HEADING = 0.22;
+/** How far above or below the slope she can be at the cut. */
+const LINEUP_HEIGHT = 14;
+/** How much more fuel she keeps for the circuit than the sortie needed. */
+export const LANDING_RESERVE = 240;
+
+/** Her deck's after end -- the stern and the after compartment -- that she lands on. */
+const LANDING_AREA = ['stern', 'aft'];
+
+/** Where her wheels go on, in her own frame: metres forward of amidships, and the deck's height. */
+export function touchdownOf(cls) {
+  const P = cls.planes || {};
+  return P.touchdown || { z: -cls.hull.length * 0.42, y: 17 };
+}
+
+/**
+ * What is in the way of an aeroplane landing on her, or null if the deck is
+ * clear.
+ *
+ * `launch` -- a launch is going off, and there is an aeroplane on the
+ * runway. `deck` -- the last one down has not been taken below yet.
+ * `holed` -- the after end of her flight deck has been blown away and there
+ * is nothing to put wheels on, which does not get better. `fire` -- the after
+ * end is burning, which does.
+ */
+export function landingFouled(ship) {
+  if ((ship.launching && !ship.launching.hold) || ship.deckBusy > 0) return 'launch';
+  if (ship.trapBusy > 0) return 'deck';
+  if (ship.sections) {
+    for (const k of LANDING_AREA) {
+      const c = ship.sections[k];
+      if (c && (c.lost || c.hp <= 0)) return 'holed';
+    }
+    for (const k of LANDING_AREA) {
+      const c = ship.sections[k];
+      if (c && (c.fire || 0) >= DECK_ABLAZE) return 'fire';
+    }
+  }
+  return null;
+}
+
+/**
+ * Where an aeroplane is relative to her deck: how far ahead of the touchdown
+ * point (negative astern) and how far off the centreline (positive to
+ * starboard), plus the point itself in the world.
+ */
+function deckFrame(ship, cls, x, z) {
+  const td = touchdownOf(cls);
+  const fx = Math.sin(ship.heading);
+  const fz = Math.cos(ship.heading);
+  const tx = ship.x + fx * td.z;
+  const tz = ship.z + fz * td.z;
+  const dx = x - tx;
+  const dz = z - tz;
+  return { along: dx * fx + dz * fz, across: dx * fz - dz * fx, tx, tz, fx, fz, y: td.y };
+}
+
+/** A point in the world, given in her deck's frame. */
+function offDeck(f, along, across = 0) {
+  return { x: f.tx + f.fx * along + f.fz * across, z: f.tz + f.fz * along - f.fx * across };
+}
+
+/**
+ * Her place in the order the deck is taking them in, keeping it current.
+ *
+ * Whoever came home first lands first. One that went round goes to the back
+ * of it, and anything not waiting any more -- landed, shot down, taken over by
+ * a pilot -- comes out.
+ */
+function recoveryOrder(state, ship) {
+  const q = (ship.recovery || []).filter((id) => state.planes.some((p) => p.id === id
+    && !p.dead && p.phase === 'landing' && !p.flown && p.owner === ship.id));
+  ship.recovery = q;
+  return q;
+}
+
+/**
+ * The aeroplane on final now, the one ahead of her: where she is wanted and
+ * how fast.
+ *
+ * Returns `{ x, z, y, vy, speed, final }`: the point to steer for, the height
+ * she should be at and the rate she should be coming down at to stay on the
+ * slope, her speed over the ground, and whether she is lined up on the deck
+ * and should be left alone by everything that would weave her about.
+ */
+export function landingGuide(state, p, ship, dt) {
+  const cls = shipClass(ship);
+  const L = p.land || (p.land = { leg: 'marshal' });
+  const order = recoveryOrder(state, ship);
+  if (!order.includes(p.id)) order.push(p.id);
+  const at = order.indexOf(p.id);
+  const f = deckFrame(ship, cls, p.x, p.z);
+  const shipV = Math.max(0, ship.speed || 0);
+  const cruise = cls.planes.cruiseSpeed;
+
+  // Out of the circle when she is one of the next few to go -- and into the
+  // groove when the one ahead of her is far enough up it, or down.
+  if (L.leg === 'marshal' && at < CLEARED) L.leg = 'base';
+  if (L.leg === 'waveoff') {
+    // Climbing away up the port side, clear of the deck, until she is far
+    // enough ahead to come round again.
+    L.t = (L.t || 0) + dt;
+    if (L.t > 14) { L.leg = at < CLEARED ? 'base' : 'marshal'; L.t = 0; }
+    const g = offDeck(f, f.along + 900, -260);
+    return { ...g, y: GROOVE_ALT + 40, speed: cruise * 0.85, final: false };
+  }
+  if (L.leg === 'base') {
+    // Out to a point well astern and a little off to port, so she turns in
+    // onto the centreline rather than arriving on it at right angles.
+    const ahead = at === 0 ? null : state.planes.find((q) => q.id === order[at - 1]);
+    const aheadF = ahead && ahead.land && ahead.land.leg === 'final'
+      ? deckFrame(ship, cls, ahead.x, ahead.z) : null;
+    const free = at === 0 || (aheadF && aheadF.along > -GROOVE - 300 + GROOVE_SPACING);
+    if (free && f.along < -GROOVE - 150 && Math.abs(f.across) < 700) {
+      L.leg = 'final';
+      L.v = p.speed || cruise;
+    } else {
+      const g = offDeck(f, -GROOVE - 700, -350);
+      // Not cleared yet: she holds on the circle's height until she is.
+      return { ...g, y: free ? GROOVE_ALT + 20 : MARSHAL_ALT - 60, speed: cruise * 0.8, final: false };
+    }
+  }
+  if (L.leg === 'final') {
+    // Down the slope from the groove to the deck.
+    const slope = (GROOVE_ALT - f.y) / GROOVE;
+    const behind = Math.max(0, -f.along);
+    const y = f.y + 1.2 + Math.min(GROOVE_ALT - f.y + 20, behind * slope);
+    // Up the centreline: she steers for a point on it a little way ahead of
+    // her, which brings her onto it however she arrived, and closer to the
+    // deck the point is closer to her, so she is held on it tighter.
+    const look = clamp(behind * 0.35, 120, 420);
+    const g = offDeck(f, f.along + look, 0);
+    // Slowing to the overtake as she comes in, once she is round onto the
+    // line: the speed comes off at what an aeroplane can shed, and not before
+    // she has finished turning, because the turn is what the speed is for.
+    const lined = Math.abs(angleDelta(p.heading, ship.heading)) < 0.5;
+    const want = lined ? Math.max(APPROACH_SPEED, shipV + OVERTAKE) : cruise * 0.8;
+    L.v = (L.v ?? p.speed ?? cruise) + clamp(want - (L.v ?? want), -4 * dt, 4 * dt);
+    const closing = Math.max(5, L.v - shipV);
+    return { ...g, y, vy: -closing * slope, speed: L.v, final: true, along: f.along, across: f.across };
+  }
+  // On the circle, waiting: a wide left-hand orbit over her, stacked by her
+  // place in the queue so nobody is circling through anybody else.
+  const a = Math.atan2(p.x - ship.x, p.z - ship.z) - 0.55;
+  return {
+    x: ship.x + Math.sin(a) * MARSHAL_R, z: ship.z + Math.cos(a) * MARSHAL_R,
+    y: MARSHAL_ALT + Math.max(0, at - CLEARED) * 35, speed: cruise * 0.8, final: false,
+  };
+}
+
+/**
+ * After she has moved: the batsman's call at the cut, and her wheels going
+ * onto the deck at the round-down.
+ *
+ * Returns `trap` when she is down -- struck below and out of the air -- or
+ * null while she is still flying.
+ */
+export function stepLanding(state, p, ship) {
+  const L = p.land;
+  if (!L || L.leg !== 'final') return null;
+  const cls = shipClass(ship);
+  const f = deckFrame(ship, cls, p.x, p.z);
+  const slope = (GROOVE_ALT - f.y) / GROOVE;
+  const onSlope = f.y + 1.2 + Math.max(0, -f.along) * slope;
+  const waveOff = (why) => {
+    L.leg = 'waveoff';
+    L.t = 0;
+    L.cut = false;
+    // To the back of the queue: the next one is already coming up behind her.
+    ship.recovery = (ship.recovery || []).filter((id) => id !== p.id);
+    ship.recovery.push(p.id);
+    state.events.push({
+      e: 'waveOff', i: p.id, ship: ship.id, team: p.team, why, x: r(p.x), z: r(p.z),
+    });
+  };
+  if (!L.cut && f.along > -LANDING_CUT) {
+    // The call. A deck with anything on it is not landed on, and nor is one
+    // she is not lined up for.
+    const fouled = landingFouled(ship);
+    if (fouled) { waveOff(fouled); return null; }
+    if (Math.abs(f.across) > LINEUP
+      || Math.abs(angleDelta(p.heading, ship.heading)) > LINEUP_HEADING
+      || Math.abs((p.y ?? 0) - onSlope) > LINEUP_HEIGHT) {
+      waveOff('lineup');
+      return null;
+    }
+    L.cut = true;
+  }
+  // Past her: overshot the round-down without getting down, or she has been
+  // pushed off the line since the call. Round again.
+  if (L.cut && Math.abs(f.across) > LINEUP * 1.6) { waveOff('lineup'); return null; }
+  if (f.along < 0) return null;
+  if (!L.cut || (p.y ?? 0) - f.y > 9) { waveOff('long'); return null; }
+  // Something got onto the deck between the call and her wheels.
+  const fouled = landingFouled(ship);
+  if (fouled) { waveOff(fouled); return null; }
+  ship.trapBusy = TRAP_CYCLE;
+  ship.recovery = (ship.recovery || []).filter((id) => id !== p.id);
+  state.events.push({
+    e: 'trap', i: p.id, ship: ship.id, team: p.team, r: p.role, k: p.type || undefined,
+    x: r(p.x), z: r(p.z), tk: state.tick,
+  });
+  p.dead = true;
+  return 'trap';
+}
+
+/**
+ * Whether one of hers is past the call and committed to the deck. Nothing is
+ * ranged on a deck an aeroplane is about to land on.
+ */
+export function landingCommitted(state, ship) {
+  return (ship.recovery || []).some((id) => {
+    const p = state.planes.find((q) => q.id === id);
+    return p && !p.dead && p.land && p.land.cut;
+  });
+}
+
 /** How long one launch takes the deck, from the lift going down to wheels up. */
 // How long her deck is fouled by one launch. It is the whole evolution -- lift
 // down, lift up, taxi, run up, and the run itself, which is flown and takes as
@@ -6548,7 +6812,10 @@ export const MIN_STRIKE_RANGE = 1200;
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
-  if (ship.deckBusy > 0) return false;
+  if (ship.deckBusy > 0 || ship.launching) return false;
+  // Nor while an aeroplane is about to land on her, or the last one down is
+  // still on the deck. See stepLanding.
+  if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
   // Nothing takes off over a hole. See flightDeckOut.
   if (flightDeckOut(ship)) return false;
   const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
@@ -6749,6 +7016,17 @@ function stepLaunch(state, ship, dt) {
   // run: she is on it now, at eighty knots, and the moment the planking opens
   // under her there is nowhere for her to go.
   const wrecked = ship.alive && sq && sq.state === 'flying' && flightDeckOut(ship);
+  // Held for a recovery (see below): the deck is clear and there is nobody
+  // on it, so there is nothing to wreck and nothing to count down.
+  if (L.hold) {
+    if (!ship.alive || !sq || sq.state !== 'flying') {
+      ship.launching = null;
+      releaseStrike(state, ship, L.sqId);
+      return;
+    }
+    if (!recoveryUnderway(state, ship)) rangeNext(state, ship, cls, L);
+    return;
+  }
   L.left -= dt;
   if (L.left > 0 && !wrecked) return;
   // She was sunk, or her squadron was struck below while she was on the run.
@@ -6888,12 +7166,39 @@ function stepLaunch(state, ship, dt) {
   // own run and no more: quicker than the first one, which had the whole
   // evolution to go through. The deck stays busy for the whole of it, so
   // nothing else can use it meanwhile.
+  //
+  // Unless one of hers is coming in to land. The deck cannot launch and
+  // recover at once, and a deckload takes minutes to get off: run straight
+  // through, everything coming home in the meantime circled until it ran out
+  // of fuel. So between one aeroplane and the next the deck is cleared for
+  // whoever is in the groove, and the launch picks up again once she is down.
+  if (recoveryUnderway(state, ship)) {
+    L.hold = true;
+    L.left = 0;
+    ship.deckBusy = 0;
+    return;
+  }
+  rangeNext(state, ship, cls, L);
+}
+
+/** Bring the next of a strike up the lift and send her down the deck. */
+function rangeNext(state, ship, cls, L) {
+  L.hold = false;
   L.left = cls.planes.deckNext ?? DECK_NEXT;
   ship.deckBusy = Math.max(ship.deckBusy, L.left + (cls.planes.deckCycle ?? DECK_CYCLE) * 0.35);
   state.events.push({
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
     d: L.left,
+  });
+}
+
+/** Whether she is taking an aeroplane aboard: one in the groove, or one just down. */
+function recoveryUnderway(state, ship) {
+  if (ship.trapBusy > 0) return true;
+  return (ship.recovery || []).some((id) => {
+    const p = state.planes.find((q) => q.id === id);
+    return p && !p.dead && p.land && p.land.leg === 'final';
   });
 }
 
@@ -7044,7 +7349,7 @@ function formationGoal(state, p, carrier) {
   // Her leader has been shot down, or has already gone in. She is her own
   // leader from here.
   if (!lead) { p.lead = p.id; return null; }
-  if (lead.phase === 'return') { p.lead = p.id; return null; }
+  if (lead.phase === 'return' || lead.phase === 'landing') { p.lead = p.id; return null; }
   // Her leader is a fighter and has gone off after something in the air. The
   // strike does not follow him into a dogfight: the next of it takes over.
   if (lead.role === 'fighter' && (lead.df || lead.targetAir || lead.targetHeavy)) {
@@ -8898,6 +9203,9 @@ function stepPlanes(state, dt) {
     // and while it is going out in company afterwards. Null once she has
     // broken away to make her own attack.
     const station = formationGoal(state, p, carrier);
+    // Home: on the circle over her, or in the circuit coming in to land.
+    const guide = p.phase === 'landing' && carrier && !p.flown
+      ? landingGuide(state, p, carrier, dt) : null;
     // The leader decides when the strike goes.
     if (p.phase === 'formup' && (!p.lead || p.lead === p.id)
       && strikeFormed(state, p, carrier)) {
@@ -9014,7 +9322,8 @@ function stepPlanes(state, dt) {
       if (flyFight(state, p, fight, P, dt)) continue;
     } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
-      if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+      if (guide) { goalX = guide.x; goalZ = guide.z; }
+      else if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
@@ -9023,6 +9332,9 @@ function stepPlanes(state, dt) {
       // weaving -- a pilot dodging the flak does not dodge into his own
       // wingman -- so the weave is taken out while she is giving way.
       const clear = avoidFor(state, p);
+      // Lined up on the deck she flies the line and nothing else: no weave,
+      // and nobody else's business to push her off it.
+      if (guide && guide.final) { jink.heading = 0; jink.height = 0; clear.heading = 0; clear.height = 0; clear.urgent = 0; }
       const weave = 1 - Math.min(1, clear.urgent * 2.5);
       jink.heading *= weave;
       jink.height *= weave;
@@ -9101,7 +9413,7 @@ function stepPlanes(state, dt) {
       // the whole of formation flying and costs one multiplication.
       // And at the speed of her slowest. An engine shot about is an aeroplane
       // that cannot make her cruise, and a flight that waits for her.
-      let speed = P.cruiseSpeed * wear.speed;
+      let speed = guide ? Math.min(guide.speed, P.cruiseSpeed * wear.speed) : P.cruiseSpeed * wear.speed;
       if (station) {
         const off = dist(p.x, p.z, station.x, station.z);
         speed *= clamp(1 + (off - 120) / 900, 0.9, 1.22);
@@ -9116,8 +9428,8 @@ function stepPlanes(state, dt) {
       // change is held to about a third of a gravity, which is what a pilot
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
-      const wantY = Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height
-        + clear.height);
+      const wantY = guide ? guide.y + jink.height + clear.height
+        : Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
       // A formation climbs at the rate its slowest aeroplane can hold, because
       // otherwise it is not a formation. Left to their own rates the fighters
       // were at cruising height while the torpedo bombers were still two
@@ -9143,6 +9455,11 @@ function stepPlanes(state, dt) {
         if (stage.vy !== undefined) askVy = stage.vy;
         if (stage.g) pull = G * stage.g * dt;
       }
+      // Down the slope: the rate it takes to stay on it, and a correction for
+      // being off it, firm enough that she arrives at the deck and not above it.
+      if (guide && guide.vy !== undefined) {
+        askVy = clamp(guide.vy + (wantY - p.y) * 0.7, -frame.dive, rise);
+      }
       p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -pull, pull);
       p.y = Math.max(14, p.y + p.vy * dt);
 
@@ -9157,6 +9474,8 @@ function stepPlanes(state, dt) {
       // her nose past thirty degrees: a fast shallow glide, not a dive.
       if (p.role === 'dive' && p.vy < -12) {
         speed = Math.sqrt(Math.max(400, DIVE_SPEED * DIVE_SPEED - p.vy * p.vy));
+      } else if (guide && guide.final) {
+        // On the glide she is flown on the throttle to her approach speed.
       } else {
         speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
       }
@@ -9392,19 +9711,37 @@ function stepPlanes(state, dt) {
         p.phase = 'return';
       }
     } else if (p.phase === 'return' && carrier && !oneWay(P)
-      && dist(p.x, p.z, carrier.x, carrier.z) < 300) {
-      // Home. Her squadron is struck below and rearmed by the sweep below.
+      && dist(p.x, p.z, carrier.x, carrier.z) < MARSHAL_R + 600) {
+      // Home, and into the circuit: see landingGuide. Her squadron is struck
+      // below and rearmed by the sweep below once she is down.
       //
-      // Only on the way home. A flight forming up over the ship is within
-      // three hundred metres of her for most of a minute, and taking that for
-      // a recovery struck the whole strike below the moment it left the deck.
+      // Only on the way home. A flight forming up over the ship is within a
+      // mile of her for most of a minute, and taking that for a recovery
+      // struck the whole strike below the moment it left the deck.
       //
       // Unless there is no deck left to come home to, in which case she is
       // over her own ship with nowhere to put her wheels down and she goes in
       // the water alongside.
-      if (flightDeckOut(carrier)) { killFlight(state, p, 'nodeck'); continue; }
-      p.dead = true;
-      continue;
+      if (flightDeckOut(carrier) || landingFouled(carrier) === 'holed') {
+        if (dist(p.x, p.z, carrier.x, carrier.z) < 300) { killFlight(state, p, 'nodeck'); continue; }
+      } else {
+        p.phase = 'landing';
+        p.land = { leg: 'marshal' };
+        carrier.recovery = carrier.recovery || [];
+        if (!carrier.recovery.includes(p.id)) carrier.recovery.push(p.id);
+      }
+    } else if (p.phase === 'landing' && carrier) {
+      // The deck shot away under the circuit: nothing to come down on, and
+      // she goes in alongside (see above).
+      if (flightDeckOut(carrier) || landingFouled(carrier) === 'holed') {
+        p.phase = 'return';
+        p.land = null;
+      } else if (stepLanding(state, p, carrier) === 'trap') {
+        continue;
+      }
+      // She came home with what she needed to get there, and a reserve for
+      // going round: past that she goes in the water near her ship.
+      if (aloft(p) > 300 + LANDING_RESERVE) { killFlight(state, p, 'fuel'); continue; }
     } else if (p.phase === 'ram' ? aloft(p) > 600 : (!carrier || aloft(p) > 300)) {
       // Out of fuel, or her ship is gone from under her. One going in has
       // nowhere to come back to and no reserve to keep for it, so she gets
@@ -9609,7 +9946,7 @@ function stepFlightDamage(state, p, dt) {
     // home here. This runs every tick, so without the second test it put her
     // back on `return` a hundred times a second and she flew a sawtooth
     // between the enemy and a deck she was not going to reach.
-    if (p.phase !== 'return' && p.phase !== 'ram') {
+    if (p.phase !== 'return' && p.phase !== 'ram' && p.phase !== 'landing') {
       p.phase = 'return';
       state.events.push({ e: 'planeCrippled', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
     }
@@ -12112,6 +12449,7 @@ function stepDamageOverTime(state, ship, dt) {
   for (const m of ship.torpMounts) if (m.cooldown > 0) m.cooldown -= dt;
   for (const s of ship.squadrons) if (s.cooldown > 0) s.cooldown -= dt;
   if (ship.deckBusy > 0) ship.deckBusy -= dt;
+  if (ship.trapBusy > 0) ship.trapBusy -= dt;
   if (ship.launching) stepLaunch(state, ship, dt);
 }
 

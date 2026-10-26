@@ -54,8 +54,17 @@ const INTERP_DELAY = 0.15;
  */
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
-  'planeCrash', 'ram',
+  'planeCrash', 'ram', 'trap',
 ]);
+// What the batsman saw, for a captain watching one of his own go round.
+const WAVE_OFF = {
+  launch: 'Aircraft waved off — launch on deck',
+  deck: 'Aircraft waved off — deck fouled',
+  fire: 'Aircraft waved off — fire on the flight deck',
+  holed: 'Aircraft waved off — flight deck holed',
+  lineup: 'Aircraft waved off — not lined up',
+  long: 'Aircraft waved off — too high, going round',
+};
 // And when one is later than that, how far a ship is carried on past the last
 // snapshot on her own course and speed before she is held where she is. She
 // is a ship: she does not stop dead in the water because a packet did.
@@ -731,15 +740,8 @@ export class Battle {
     // Which of our own the plot is conning. Your own hull until you say
     // otherwise, so the first course you lay off goes to her.
     this.selected = shipId;
-    // An aeroplane on the approach, coming back aboard after her sortie.
-    this.landing = null;
-    // Where each of our flights was last seen, and which of them were reported
-    // shot down rather than recovered. Between them they say which vanishing
-    // flight is a squadron coming home -- see comingHome.
-    this.lastFlights = new Map();
     // When each damaged flight last put up a puff of smoke.
     this.planeSmoke = new Map();
-    this.lostFlights = new Set();
     // Aeroplanes just off a deck, and how far the deck model was from where
     // the simulation put them. See flyLaunched.
     this.handover = new Map();
@@ -2891,6 +2893,26 @@ export class Battle {
           v.group.userData.launch?.(this.time, ev.r, ev.d);
           break;
         }
+        case 'trap': {
+          // One of hers down on the deck. The flight the simulation flew up
+          // the wake and onto the round-down is gone from the plot this
+          // instant, and the deck's own model of her picks up where it put
+          // its wheels: the wire, up the deck to the after lift, wings
+          // folding, and the lift down into the hangar.
+          const v = this.scene.shipViews.get(ev.ship);
+          if (!v || !v.group.userData.recover) break;
+          this.recallDeckPlane(v);
+          v.group.userData.recover(this.time, ev.r);
+          break;
+        }
+        case 'waveOff': {
+          // Waved off: the deck was not fit to land on, or she was not fit to
+          // land on it, and she goes round.
+          if (ev.ship === this.shipId) {
+            this.hud.alert(WAVE_OFF[ev.why] || 'Aircraft waved off — going round');
+          }
+          break;
+        }
         case 'airborne': {
           // Which flight the aeroplane that has just gone down the deck
           // became. The simulation says so, because it is the only thing that
@@ -3154,14 +3176,10 @@ export class Battle {
           if (ev.team === this.team) this.hud.alert('Aircraft hit — turning back');
           break;
         case 'planesLost':
-          // Not a recovery: she is not coming home, so nobody is to look for
-          // her on the deck. See comingHome.
-          //
           // Nothing falls here. Every machine of her still in the air was
           // reported going down on her own just before this (see killFlight),
           // and making up wrecks for her again out of the last snapshot's
           // count was the squadron coming down twice.
-          this.lostFlights.add(ev.i);
           if (Number.isFinite(ev.tk)) this.goneAt.set(ev.i, ev.tk * DT);
           if (ev.why === 'crashed' && (ev.y ?? 0) < 60 && !this.crashSeen.has(ev.i)) {
             // Flown into the sea in a fight: there is nothing to fall.
@@ -4968,7 +4986,9 @@ export class Battle {
       t.gear = (pl.y ?? 220) < 70 ? 0 : 1;
       this.planeTrim.set(pl.i, t);
     }
-    if (t.gear < 1 && (pl.y ?? 220) > 14) t.gear = Math.min(1, t.gear + dt / 2.8);
+    // And down again coming home, for the deck.
+    if (pl.gd) t.gear = Math.max(0, t.gear - dt / 2.8);
+    else if (t.gear < 1 && (pl.y ?? 220) > 14) t.gear = Math.min(1, t.gear + dt / 2.8);
     // The airscrew, wound on at a rate her engine decides: her throttle when
     // somebody has his hand on it, and otherwise her airspeed. Not her real
     // revolutions -- two thousand a minute at sixty frames a second is a
@@ -6663,9 +6683,6 @@ export class Battle {
     if (f && (ev.i === f.id || ev.a === f.id || ev.b === f.id || ev.air === f.id
       || (ev.f && ev.f === f.fallerId))) return false;
     if (ev.tk * DT <= this.renderST) return false;
-    // She is not coming home, whenever the picture gets to her: nobody is to
-    // take her vanishing for a recovery in the meantime.
-    if (ev.e === 'planesLost') this.lostFlights.add(ev.i);
     this.lateEvents.push({ ev, at: this.time });
     return true;
   }
@@ -7080,52 +7097,6 @@ export class Battle {
       deck.endMatrix = null;
       if (deck.launchAt === null) v.group.userData.stow?.();
     }
-    this.comingHome(planes);
-    this.flyApproach();
-  }
-
-  /**
-   * A squadron gets home, and there is an aeroplane to watch land.
-   *
-   * A flight that reaches its carrier simply stops being on the plot -- the
-   * simulation has struck it below and rearmed it. That is the right thing for
-   * the simulation to do and the wrong thing to look at: a squadron you sent
-   * out an hour ago comes back and nothing happens on the deck at all.
-   *
-   * So the last place each of our flights was seen is remembered, and one that
-   * vanishes within sight of the ship she flew off is taken as a recovery: her
-   * carrier's own model is put in the air where the flight was and flies the
-   * approach -- round onto the centreline, down the glide, over the round-down
-   * -- and the deck takes it from there, up to the lift and below.
-   */
-  comingHome(planes) {
-    const now = new Map();
-    for (const p of planes) now.set(p.i, p);
-    for (const [id, was] of this.lastFlights) {
-      if (now.has(id)) continue;
-      // Not one that has just been taken over by a pilot, and not one that was
-      // reported shot down -- those have their own endings.
-      if (this.flight && this.flight.id === id) continue;
-      if (this.lostFlights.has(id)) continue;
-      const v = this.scene.shipViews.get(was.o);
-      if (!v || !v.group.userData.deckPlane || this.landing) continue;
-      const d = Math.hypot(was.x - v.group.position.x, was.z - v.group.position.z);
-      if (d > 700) continue;
-      // Her own model, put in the air where her flight was, flying in.
-      const g = v.group.userData.deckPlane;
-      this.scene.scene.attach(g);
-      g.position.set(was.x, this.planeHeight(was), was.z);
-      g.rotation.set(0, was.h ?? v.group.rotation.y, 0);
-      g.visible = true;
-      const deck = v.group.userData.deck;
-      if (deck) { deck.airborne = false; deck.launchAt = null; }
-      this.landing = {
-        t0: this.time, view: v, group: g,
-        from: g.position.clone(), fromY: g.rotation.y,
-      };
-    }
-    this.lastFlights = now;
-    if (this.lostFlights.size > 60) this.lostFlights.clear();
   }
 
   /**
@@ -7208,61 +7179,6 @@ export class Battle {
   }
 
   /**
-   * The approach: she comes up the wake, over the round-down and onto the deck.
-   *
-   * Flown in the world, because that is where she is -- the carrier is moving
-   * under her, so the point she is aiming at moves too and is worked out fresh
-   * every frame from where the ship is now.
-   */
-  flyApproach() {
-    const L = this.landing;
-    if (!L) return;
-    const APPROACH = 7.5;
-    const k = Math.min(1, (this.time - L.t0) / APPROACH);
-    const v = L.view;
-    const g = L.group;
-    // Her ship has gone from the scene under her -- sunk, or the view
-    // disposed. There is nothing to land on and nothing owns the model any
-    // more, so it goes with her rather than being left hanging in the world.
-    if (!v.group.parent) {
-      g.visible = false;
-      v.group.attach(g);
-      this.landing = null;
-      return;
-    }
-    // Where she is going. A carrier's aeroplane comes home to the after end of
-    // the flight deck; a cruiser's alights alongside and is craned back on to
-    // the catapult she was shot off, so the ship says where if she has one.
-    const home = v.group.userData.landingSpot;
-    const deck = v.group.userData.flightDeckY ?? 17;
-    const spot = home
-      ? new THREE.Vector3(home[0], home[1], home[2])
-      : new THREE.Vector3(0, deck + 0.4, -(v.cls.hull.length * 0.42));
-    v.group.updateMatrixWorld(true);
-    spot.applyMatrix4(v.group.matrixWorld);
-    // Eased in, and dropping onto the deck late rather than sinking the whole
-    // way down: she flies level up the wake and then settles.
-    const e = k * k * (3 - 2 * k);
-    g.position.lerpVectors(L.from, spot, e);
-    g.position.y = L.from.y + (spot.y - L.from.y) * (e * e);
-    const want = v.group.rotation.y;
-    let d = want - L.fromY;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    g.rotation.set(0.06 * (1 - e), L.fromY + d * e, 0);
-    g.visible = true;
-    const prop = v.group.userData.deck?.plane?.prop;
-    if (prop) prop.rotation.z += 1.1 * (1 - e * 0.7);
-    if (k < 1) return;
-    // Down: the model goes back into the ship's own group, and the recovery
-    // takes it from there -- up the deck to the after lift, wings folding, and
-    // the lift down into the hangar she came out of.
-    v.group.attach(g);
-    v.group.userData.recover?.(this.time);
-    this.landing = null;
-  }
-
-  /**
    * Bring a carrier's own aeroplane back into her group, wherever she is.
    *
    * The model belongs to the ship; while she is flying she is parented to the
@@ -7273,10 +7189,6 @@ export class Battle {
   recallDeckPlane(v) {
     // Anything of hers still climbing out from an earlier run keeps flying:
     // those are copies, and the ship's own model is not out there with them.
-    if (this.landing && this.landing.view === v) {
-      v.group.attach(this.landing.group);
-      this.landing = null;
-    }
     const deck = v.group.userData.deck;
     if (deck) deck.flightId = 0;
     v.group.userData.stow?.();

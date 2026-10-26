@@ -47,6 +47,7 @@ import {
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
   stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf, oneWay,
+  landingFouled, touchdownOf, GROOVE, LANDING_CUT,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -23006,6 +23007,174 @@ check('a hull torn twice declares each tear once', () => {
   assert.equal(count(shader.fragmentShader, /#define CUT_FUNCS/g), 2, 'the noise is not guarded');
   assert.ok(shader.uniforms.uCutZ && shader.uniforms.uCutZ_1, 'a tear lost its uniforms');
   assert.notEqual(first.customProgramCacheKey(), second.customProgramCacheKey());
+});
+
+/**
+ * One of a carrier's aircraft sent home from a strike: her ship steaming
+ * ahead, the aeroplane put out on her quarter with nothing left to drop.
+ */
+function homeFlight(seed, classId = 'enterprise') {
+  const world = generateWorld(seed, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId, team: 0, index: 0, airGroup: { fighters: 0, dive: 0, torpedo: 1 } });
+  cv.x = 0; cv.z = -6000; cv.heading = 0.4; cv.notch = 4;
+  const foe = addShip(st, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = 9000; foe.z = 9000;
+  cv.aimX = cv.x + 2500; cv.aimZ = cv.z + 2500;
+  assert.ok(launchStrike(st, cv), 'she would not launch');
+  for (let i = 0; i < 30 * 60 && !st.planes.length; i++) step(st, DT);
+  const p = st.planes[0];
+  assert.ok(p, 'nothing got off her deck');
+  p.dropped = true; p.torp = 0;
+  p.phase = 'return';
+  p.x = cv.x + 2500; p.z = cv.z + 1500; p.y = 300;
+  return { st, cv, p };
+}
+
+/** Where she is against her ship's deck: ahead of the touchdown point, and off its centreline. */
+function onDeckFrame(cv, x, z) {
+  const td = touchdownOf(SHIP_CLASSES[cv.classId]);
+  const fx = Math.sin(cv.heading);
+  const fz = Math.cos(cv.heading);
+  const dx = x - (cv.x + fx * td.z);
+  const dz = z - (cv.z + fz * td.z);
+  return { along: dx * fx + dz * fz, across: dx * fz - dz * fx };
+}
+
+for (const classId of ['enterprise', 'shinano', 'grafzeppelin']) {
+  check(`an aeroplane home to the ${classId} lines up astern and lands on her deck`, () => {
+    // She used to fly to within three hundred metres of the ship from
+    // wherever she was and vanish. She comes up the wake now: round onto the
+    // centreline well astern, down the slope, wheels on at the round-down.
+    const { st, cv, p } = homeFlight(7311, classId);
+    let trap = null;
+    let groove = Infinity;
+    let wasFinal = false;
+    let last = null;
+    for (let i = 0; i < 30 * 400 && !trap; i++) {
+      for (const e of step(st, DT)) if (e.e === 'trap' && e.i === p.id) trap = e;
+      if (p.land && p.land.leg === 'final') {
+        wasFinal = true;
+        const f = onDeckFrame(cv, p.x, p.z);
+        groove = Math.min(groove, f.along);
+      }
+      if (!p.dead) last = { x: p.x, z: p.z, y: p.y, heading: p.heading };
+    }
+    assert.ok(trap, `she never landed: ${p.dead ? 'lost' : `still ${p.phase}/${p.land && p.land.leg}`}`);
+    assert.ok(wasFinal, 'she landed without ever being on final');
+    assert.ok(groove < -GROOVE * 0.9, `she joined the groove only ${Math.round(-groove)} m astern`);
+    const f = onDeckFrame(cv, last.x, last.z);
+    assert.ok(Math.abs(f.across) < 8, `she put down ${f.across.toFixed(1)} m off the centreline`);
+    assert.ok(Math.abs(angleDelta(last.heading, cv.heading)) < 0.12,
+      'she put down crabbing across the deck');
+    const td = touchdownOf(SHIP_CLASSES[classId]);
+    assert.ok(last.y - td.y < 9 && last.y >= td.y - 1,
+      `she was ${(last.y - td.y).toFixed(1)} m over the deck as she landed`);
+    assert.ok(cv.trapBusy > 0, 'the deck was not fouled by the aeroplane just down on it');
+    // And her squadron is struck below, to be rearmed.
+    for (let i = 0; i < 30 * 2; i++) step(st, DT);
+    assert.ok(cv.squadrons.some((q) => q.state === 'deck' && q.cooldown > 0),
+      'her squadron was never struck below');
+  });
+}
+
+check('nothing lands on a fouled deck: she is waved off and comes round again', () => {
+  const { st, cv, p } = homeFlight(7312);
+  // Fly her in until she is in the groove.
+  for (let i = 0; i < 30 * 400 && !(p.land && p.land.leg === 'final'
+    && onDeckFrame(cv, p.x, p.z).along > -LANDING_CUT - 300); i++) step(st, DT);
+  assert.ok(p.land && p.land.leg === 'final', 'she never got into the groove');
+  // Something on the deck at the round-down -- the last one down, still
+  // being taken up to the lift -- and held there.
+  let waved = null;
+  let trapped = false;
+  for (let i = 0; i < 30 * 30; i++) {
+    cv.trapBusy = 5;
+    for (const e of step(st, DT)) {
+      if (e.e === 'waveOff' && e.i === p.id) waved = waved || e;
+      if (e.e === 'trap' && e.i === p.id) trapped = true;
+    }
+  }
+  assert.ok(!trapped, 'she landed on top of an aeroplane on the deck');
+  assert.ok(waved, 'she was never waved off');
+  assert.equal(waved.why, 'deck');
+  assert.ok(!p.dead, 'a wave-off lost her');
+  // A fire right across the after end is the same answer.
+  cv.trapBusy = 0;
+  cv.sections.stern.fire = 0.6;
+  assert.equal(landingFouled(cv), 'fire');
+  let fireWave = false;
+  // Burning, not burnt out: a fire left to itself takes the stern away, and
+  // that is a different answer (see the next check down).
+  const sternHp = cv.sections.stern.hp;
+  for (let i = 0; i < 30 * 200 && !fireWave; i++) {
+    cv.sections.stern.fire = 0.6;
+    cv.sections.stern.hp = sternHp;
+    for (const e of step(st, DT)) {
+      if (e.e === 'waveOff' && e.i === p.id && e.why === 'fire') fireWave = true;
+      if (e.e === 'trap' && e.i === p.id) trapped = true;
+    }
+  }
+  assert.ok(!trapped, 'she landed on a burning deck');
+  assert.ok(fireWave, 'she was not waved off a burning deck');
+  // The deck cleared, she comes round again and gets down.
+  cv.sections.stern.fire = 0;
+  for (let i = 0; i < 30 * 300 && !trapped; i++) {
+    cv.sections.stern.fire = 0;
+    for (const e of step(st, DT)) if (e.e === 'trap' && e.i === p.id) trapped = true;
+  }
+  assert.ok(trapped, `she never got down once the deck was clear (${p.dead ? 'lost' : p.phase})`);
+});
+
+check('with the after end of her deck blown away she has nowhere to land, and goes in alongside', () => {
+  const { st, cv, p } = homeFlight(7314);
+  for (let i = 0; i < 30 * 400 && p.phase !== 'landing'; i++) step(st, DT);
+  assert.equal(p.phase, 'landing', 'she never got home');
+  cv.sections.stern.hp = 0;
+  assert.equal(landingFouled(cv), 'holed');
+  let lost = null;
+  let trapped = false;
+  for (let i = 0; i < 30 * 200 && !lost; i++) {
+    cv.sections.stern.hp = 0;
+    for (const e of step(st, DT)) {
+      if (e.e === 'planesLost' && e.i === p.id) lost = e;
+      if (e.e === 'trap' && e.i === p.id) trapped = true;
+    }
+  }
+  assert.ok(!trapped, 'she landed on a deck that is not there');
+  assert.ok(lost, 'she circled a holed deck for ever');
+  assert.equal(lost.why, 'nodeck');
+  assert.ok(dist(p.x, p.z, cv.x, cv.z) < 400, 'she did not come down by her ship');
+});
+
+check('a launch on deck waves off whoever is coming in, and holds for one in the groove', () => {
+  const { st, cv, p } = homeFlight(7313);
+  // A deck mid-launch is not landed on.
+  cv.launching = { sqId: 0, left: 10, flights: [], hold: false };
+  assert.equal(landingFouled(cv), 'launch');
+  cv.launching = null;
+  cv.deckBusy = 0;
+  // And a launch between aeroplanes waits for the one in the groove.
+  for (let i = 0; i < 30 * 400 && !(p.land && p.land.leg === 'final'); i++) step(st, DT);
+  assert.ok(p.land && p.land.leg === 'final', 'she never got into the groove');
+  const sq = cv.squadrons.find((q) => q.state === 'deck');
+  sq.state = 'flying';
+  cv.launching = { sqId: sq.id, left: 0.01, flights: [{ role: 'fighter', count: 1, torp: 0, bomb: 0 }, { role: 'fighter', count: 1, torp: 0, bomb: 0 }],
+    lead: 0, slot: 0, side: 1, escort: 0, tx: cv.x, tz: cv.z + 5000 };
+  let held = false;
+  let trapped = false;
+  let launchAfter = false;
+  for (let i = 0; i < 30 * 200 && !launchAfter; i++) {
+    for (const e of step(st, DT)) {
+      if (e.e === 'trap' && e.i === p.id) trapped = true;
+      if (e.e === 'launch' && trapped) launchAfter = true;
+    }
+    if (cv.launching && cv.launching.hold) held = true;
+  }
+  assert.ok(held, 'the launch went on with an aeroplane in the groove');
+  assert.ok(trapped, 'the one in the groove never got down');
+  assert.ok(launchAfter, 'the launch never picked up again');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

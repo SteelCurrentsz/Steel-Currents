@@ -423,6 +423,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,
+      // Her wheels down and her hook out: in the groove coming in to land.
+      gd: p.land && (p.land.leg === 'final' || p.land.leg === 'base') ? 1 : undefined,
       // How she has been knocked about: how many of her machines are trailing
       // smoke, and how much aeroplane the flight has left. A formation coming
       // out of the flak with one of its number burning is the whole of what a
