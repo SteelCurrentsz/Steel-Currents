@@ -168,11 +168,15 @@ export function seaAttitude(W, x, z, heading, length, beam, time, STA = 7) {
   const hb = Math.max(beam * 0.5, 4);
   let sum = 0, n = 0, fwdSum = 0, aftSum = 0, fwdN = 0, aftN = 0;
   let portSum = 0, stbdSum = 0, armF = 0, armS = 0;
+  // The sea along her, station by station, for what her weight does where it
+  // has left her: see seaSupport.
+  const along = new Float64Array(STA);
   for (let i = 0; i < STA; i++) {
     const u = STA === 1 ? 0 : (i / (STA - 1)) * 2 - 1;
     const fwd = u * hl;
     for (const side of [-hb * 0.7, 0, hb * 0.7]) {
       const h = seaHeight(W, x + sh * fwd + ch * side, z + ch * fwd - sh * side, time);
+      along[i] += h / 3;
       sum += h; n++;
       if (u > 0.1) { fwdSum += h; fwdN++; armF += fwd; } else if (u < -0.1) { aftSum += h; aftN++; }
       if (side < 0) { portSum += h; armS += -side; } else if (side > 0) stbdSum += h;
@@ -189,7 +193,58 @@ export function seaAttitude(W, x, z, heading, length, beam, time, STA = 7) {
     // than under her stern is a negative pitch -- her bow lifted to it.
     pitch: Math.atan2(-trim, armFwd * 2),
     roll: Math.atan2(list, armSide * 2),
+    along,
+    arm: hl,
   };
+}
+
+/** How hard the sea holds up an end of her that has come clear of it. */
+export const SUPPORT = { gain: 12.0, forefoot: 0.75 };
+
+/**
+ * What her own weight does to the part of her the sea has left.
+ *
+ * Her pitch and heave are springs pushed towards a share of the sea's slope
+ * and level (see seakeeping.js), and a share is all a long hull should take of
+ * a sea shorter than she is. But a share of a slope is not a slope: in a big
+ * enough trough it held her bow up in the air over the water with nothing
+ * under it, for seconds at a time. Nothing holds steel up but water. So the
+ * sea is read along her, station by station, and wherever her keel stands
+ * clear of it, that length of her is weight with no buoyancy under it, and
+ * falls: it puts her down by the head (or the stern) and down altogether,
+ * as hard as the water would have held her up had it been there.
+ *
+ * Her keel there is her draft, cut up towards her stem and her counter the way
+ * a forefoot is, so a bow lifted over a trough falls before the whole of her
+ * draft is out. Returns accelerations in units of her own spring's stiffness:
+ * `heave` in metres, `pitch` in radians, positive putting her bow down.
+ */
+export function seaSupport(att, heave, pitch, draft, out = { heave: 0, pitch: 0 }) {
+  out.heave = 0;
+  out.pitch = 0;
+  const along = att?.along;
+  const n = along ? along.length : 0;
+  if (n < 2) return out;
+  const sp = Math.sin(pitch);
+  let sb = 0, sbz = 0, dh = 0, dp = 0;
+  for (let i = 0; i < n; i++) {
+    const u = (i / (n - 1)) * 2 - 1;
+    const z = u * att.arm;
+    // Fuller amidships than at her ends.
+    const b = 1 - 0.55 * u * u;
+    const a = Math.abs(u);
+    const t = Math.min(1, Math.max(0, (a - 0.55) / 0.45));
+    const keel = draft * (1 - SUPPORT.forefoot * t * t * (3 - 2 * t));
+    // How far the bottom of her there stands above the water.
+    const dry = Math.max(0, (heave - z * sp - keel) - along[i]);
+    sb += b;
+    sbz += b * z * z;
+    dh -= b * dry;
+    dp += b * z * dry;
+  }
+  out.heave = SUPPORT.gain * dh / sb;
+  out.pitch = sbz > 0 ? SUPPORT.gain * dp / sbz : 0;
+  return out;
 }
 
 /**

@@ -30,7 +30,7 @@ import {
   groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
-  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
+  seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
 } from './sea.js';
 
 export const TICK_RATE = 30;
@@ -4709,6 +4709,8 @@ export function stormSea(state) {
   return state.seaTerms;
 }
 
+const SUPPORT_OUT = { heave: 0, pitch: 0 };
+
 /**
  * Her motion in the seaway, as the renderer has it (see seakeeping.js): a
  * damped spring each in roll, pitch and heave, pushed by the water under her.
@@ -4728,10 +4730,13 @@ export function stepSeaway(state, ship, W, h) {
   const hTo = att.heave * ride.heave;
   const n = Math.max(1, Math.ceil(h / 0.04));
   const s = h / n;
+  // And her weight where the sea has left her, as the renderer has it.
+  const held = SUPPORT_OUT;
   for (let i = 0; i < n; i++) {
+    seaSupport(att, k.h, k.p, cls.hull.draft || 4, held);
     k.rv += (rw * rw * (rTo - k.r) - 2 * SEAWAY.rollZeta * rw * k.rv) * s; k.r += k.rv * s;
-    k.pv += (pw * pw * (pTo - k.p) - 2 * SEAWAY.pitchZeta * pw * k.pv) * s; k.p += k.pv * s;
-    k.hv += (hw * hw * (hTo - k.h) - 2 * SEAWAY.heaveZeta * hw * k.hv) * s; k.h += k.hv * s;
+    k.pv += (pw * pw * (pTo - k.p + held.pitch * ride.tilt) - 2 * SEAWAY.pitchZeta * pw * k.pv) * s; k.p += k.pv * s;
+    k.hv += (hw * hw * (hTo - k.h + held.heave * ride.heave) - 2 * SEAWAY.heaveZeta * hw * k.hv) * s; k.h += k.hv * s;
   }
   return k;
 }

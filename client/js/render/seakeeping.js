@@ -13,7 +13,7 @@
 // thirty-three of battleship. Every ship in the fleet took the same three and a
 // half degrees of roll and the same two and a half of pitch. Size has to tell.
 
-import { SEAWAY } from '../../../shared/sea.js';
+import { SEAWAY, seaSupport } from '../../../shared/sea.js';
 
 /**
  * Her natural roll period, in seconds.
@@ -111,6 +111,9 @@ export class Seakeeping {
     this.pitchV = 0;
     this.heave = 0;
     this.heaveV = 0;
+    // How deep she goes, for where the sea has to be to hold her up.
+    this.draft = hull.draft || 4;
+    this._support = { heave: 0, pitch: 0 };
     // How much of the sea she rides up -- see rideOf in shared/sea.js. All of
     // it, short of a storm.
     this.ride = { heave: 1, tilt: 1 };
@@ -132,7 +135,11 @@ export class Seakeeping {
     const rollTo = att.roll * this.rollHeed * ride.tilt + heel;
     const pitchTo = att.pitch * this.pitchHeed * ride.tilt;
     const heaveTo = att.heave * this.heaveHeed * ride.heave;
+    const held = this._support;
     for (let i = 0; i < n; i++) {
+      // And whatever of her the sea has left is weight with nothing under it:
+      // a bow out over a trough comes down into it. See seaSupport.
+      seaSupport(att, this.heave, this.pitch, this.draft, held);
       // Roll is lightly damped: critically damped, she would simply track the
       // water and there would be no roll to watch at all.
       this.rollV += (this.rollW * this.rollW * (rollTo - this.roll)
@@ -141,12 +148,12 @@ export class Seakeeping {
       // Pitch is damped much harder, but not to a stop: her weight carries
       // her bow on down into the face of a sea after the water under it has
       // started to rise, and that is the plunge that buries a forecastle.
-      this.pitchV += (this.pitchW * this.pitchW * (pitchTo - this.pitch)
+      this.pitchV += (this.pitchW * this.pitchW * (pitchTo - this.pitch + held.pitch * ride.tilt)
         - 2 * PITCH_ZETA * this.pitchW * this.pitchV) * h;
       this.pitch += this.pitchV * h;
       // And she rises and falls on the same sort of spring: late to each
       // sea, and carried a little past it by her own weight.
-      this.heaveV += (this.heaveW * this.heaveW * (heaveTo - this.heave)
+      this.heaveV += (this.heaveW * this.heaveW * (heaveTo - this.heave + held.heave * ride.heave)
         - 2 * HEAVE_ZETA * this.heaveW * this.heaveV) * h;
       this.heave += this.heaveV * h;
     }
