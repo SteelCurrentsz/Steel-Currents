@@ -6812,7 +6812,10 @@ export const MIN_STRIKE_RANGE = 1200;
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
-  if (ship.deckBusy > 0 || ship.launching) return false;
+  if (ship.deckBusy > 0) return false;
+  // A deckload waiting between aeroplanes for one coming in to land still has
+  // the rest of it below to fly off. See stepLaunch.
+  if (ship.launching && ship.launching.hold) return false;
   // Nor while an aeroplane is about to land on her, or the last one down is
   // still on the deck. See stepLanding.
   if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
