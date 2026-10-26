@@ -28,11 +28,11 @@ import * as THREE from '../../../vendor/three.module.js';
  * before the exhaust freezes; `sink` how fast it settles; `rgb` its colour.
  */
 const KIND = {
-  tip: { life: 2.6, wide: [0.22, 1.8], head: 0.02, sink: 0, rgb: [0.96, 0.97, 0.99], max: 120 },
-  engine: { life: 11, wide: [0.7, 11], head: 0.18, sink: 0.35, rgb: [0.97, 0.98, 1.0], max: 200 },
+  tip: { life: 3.2, wide: [0.3, 2.6], head: 0.02, sink: 0, rgb: [0.96, 0.97, 0.99], max: 140 },
+  engine: { life: 12, wide: [1.0, 14], head: 0.15, sink: 0.35, rgb: [0.97, 0.98, 1.0], max: 240 },
   // Petrol out of a holed wing tank: a white plume that bursts out of the
   // hole, spreads fast and evaporates in a few seconds.
-  fuel: { life: 3.4, wide: [0.35, 5.5], head: 0.01, sink: 0.6, rgb: [0.99, 0.99, 1.0], max: 160 },
+  fuel: { life: 6, wide: [0.8, 9], head: 0.01, sink: 0.8, rgb: [1.0, 1.0, 1.0], max: 220 },
 };
 
 // How many metres of trail one repeat of the texture covers.
@@ -109,7 +109,7 @@ function vapourTexture() {
 }
 
 export class Contrails {
-  constructor(scene, maxQuads = 7000) {
+  constructor(scene, maxQuads = 14000) {
     this.trails = new Map();
     this.max = maxQuads;
     this.time = 0;
@@ -153,16 +153,21 @@ export class Contrails {
    * is pulling, `v` how fast she is going and `y` how high she is. `has`
    * says which tips she still has -- a wing shot off takes its tip and its
    * trail with it -- and `engine` whether her engine's trail is laid at all.
+   * `nose` may be a list of points instead of one, for an aeroplane with more
+   * than one engine.
    */
   lay(key, m, tips, nose, g, v, y, has = null, engine = true) {
     const t = this.time;
     // The tips: a wisp at speed in level flight, and cloud when she is hauled
     // round -- low pressure over the tip is what condenses the vapour, and it
     // goes as the lift she is making.
-    const pull = Math.max(0, Math.min(1, (Math.abs(g) - 1.6) / 3.2));
-    const fast = Math.max(0, Math.min(1, (v - 70) / 90));
-    const damp = 0.12 + Math.max(0, Math.min(1, (y - 1500) / 3000)) * 0.2;
-    const a = Math.min(0.95, fast * damp + pull * 0.8);
+    //
+    // Tuned to the heights this battle is fought at -- a strike cruises at
+    // under a thousand metres -- rather than to the eight thousand a real
+    // contrail wants, which is why none of them used to be seen at all.
+    const pull = Math.max(0, Math.min(1, (Math.abs(g) - 1.4) / 2.6));
+    const fast = Math.max(0, Math.min(1, (v - 40) / 70));
+    const a = Math.min(0.95, 0.12 + fast * 0.3 + pull * 0.8);
     const p = new THREE.Vector3();
     tips.forEach((tip, i) => {
       const id = key + ':' + i;
@@ -175,22 +180,24 @@ export class Contrails {
     });
     // And the engine's own, once she is up where the air is cold enough: a
     // proper contrail, thin at first and spreading into a broad white road.
-    const high = Math.max(0, Math.min(1, (y - 1800) / 2200));
-    const ea = high * 0.8 * Math.max(0.3, fast);
-    const id = key + ':e';
-    if (engine && (ea > 0.01 || this.trails.has(id))) {
+    const high = Math.max(0, Math.min(1, (y - 150) / 550));
+    const ea = high * 0.75 * Math.max(0.5, fast);
+    const noses = Array.isArray(nose[0]) ? nose : [nose];
+    noses.forEach((n, k) => {
+      const id = key + ':e' + k;
+      if (!engine || (ea <= 0.01 && !this.trails.has(id))) return;
       const tr = this.trail(id, 'engine');
-      p.fromArray(nose).applyMatrix4(m);
+      p.fromArray(n).applyMatrix4(m);
       tr.push(p.x, p.y, p.z, ea, t);
       tr.seen = t;
-    }
+    });
   }
 
   /**
    * Fuel streaming out of a holed tank, at `x, y, z` in the world, this
    * frame. `key` is which tank on which aeroplane; `a` how thick the plume is.
    */
-  vent(key, x, y, z, a = 0.7) {
+  vent(key, x, y, z, a = 1) {
     const tr = this.trail(key + ':f', 'fuel');
     tr.push(x, y, z, a, this.time);
     tr.seen = this.time;
@@ -243,8 +250,8 @@ export class Contrails {
           const fade = Math.max(0, 1 - life);
           // A trail gets thinner as it gets wider: the same vapour, spread.
           const thin = tr.wide[0] / (w * 2);
-          const alpha = p.a * form * form * fade * Math.sqrt(fade)
-            * (0.55 + 0.45 * Math.min(1, thin * 6)) * (end ? 0 : 1);
+          const alpha = Math.min(1, 1.7 * p.a * form * form * fade * Math.sqrt(fade)
+            * (0.6 + 0.4 * Math.min(1, thin * 6))) * (end ? 0 : 1);
           // A touch of grey in the old part of it, which is lit from one side
           // and has the sky behind it.
           const shade = 1 - 0.1 * Math.min(1, life);

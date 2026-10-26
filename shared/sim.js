@@ -7173,7 +7173,7 @@ function stepLaunch(state, ship, dt) {
       perHp: planeHp(cls, f, L) / Math.max(1, f.count),
       machines: Array.from({ length: f.count },
         () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count),
-          f.role === 'fighter' ? 1 : BOMBER_TOUGH)),
+          carrierBomber(cls, f) ? BOMBER_TOUGH : 1)),
       // She goes for the enemy the moment her wheels are up. A deckload
       // goes off one aeroplane at a time, twenty-odd seconds apart, and
       // holding the first of them over the ship until the last was off had
@@ -9814,13 +9814,19 @@ function stepPlanes(state, dt) {
  * same time to wipe out a formation only if each machine is given rather more
  * than her share of the old bar.
  */
+/** A dive or torpedo bomber off a carrier's deck, rather than a catapult scout. */
+function carrierBomber(cls, f) {
+  return f.role !== 'fighter' && !!(cls.planes && cls.planes.group);
+}
+
 function planeHp(cls, f, L) {
   // An escort makes a strike harder to stop, up to the few fighters that can
   // actually stay with any one bomber; a strike with forty fighters over it is
   // not forty times as hard to shoot down.
-  // A bomber is built heavier than a fighter and takes a good deal more to
-  // bring down: half as much again of her is there to be shot away.
-  return cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1.5)
+  // A carrier's bomber is built heavier than a fighter and takes a good deal
+  // more to bring down: half as much again of her is there to be shot away.
+  // A catapult scout is not: she is a light float plane whatever she carries.
+  return cls.planes.hp * (f.role === 'fighter' ? 1.35 : carrierBomber(cls, f) ? 1.5 : 1)
     * (1 + (f.role === 'fighter' ? 0 : Math.min(3, L.escort) * 0.18)) * 2.0;
 }
 

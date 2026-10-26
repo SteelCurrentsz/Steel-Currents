@@ -154,6 +154,10 @@ const SKIM_P = new THREE.Vector3();
 const SKIM_PTS = [[0, 0.5, 0], [0, 1, -4.5]];
 const SKIM_M = new THREE.Matrix4();
 const SKIM_E = new THREE.Euler();
+// Where a heavy of the vic is, and her attitude, drawn the way heavies.js
+// draws her: heading first, then pitch, then bank.
+const HEAVY_AT = { x: 0, y: 0, z: 0 };
+const HEAVY_E = new THREE.Euler(0, 0, 0, 'YXZ');
 const EYE_UP = new THREE.Vector3();
 const EYE_TOP = new THREE.Vector3();
 const EYE_BACK = new THREE.Vector3();
@@ -5097,7 +5101,7 @@ export class Battle {
       // its tip with it: only the slot that lost it, the others are whole.
       // The engine's is laid as long as she has her airscrew.
       const c = i === 0 ? cut : 0;
-      if (d < 3000) {
+      if (d < 6000) {
         this.scene.contrails.lay(`${id}/${i}`, m, tp.tips, tp.nose, g, v, y,
           [!(c & (CUT.wingOutL | CUT.wingInL)), !(c & (CUT.wingOutR | CUT.wingInR))], !(c & CUT.prop));
       }
@@ -6637,7 +6641,7 @@ export class Battle {
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
         });
-        if (bm.lk > 0) this.heavyVents(bm, mine.x, mine.y, mine.z, mine.heading, mask);
+        this.heavyAir(bm, mine.x, mine.y, mine.z, mine.heading, mine.bank, mine.attitude, mine.v, mask);
         // Her wingtips and her ends, against the sea, the same as a flight's.
         if (mine.y < 40) {
           const m = SKIM_M.makeRotationFromEuler(SKIM_E.set(-mine.attitude, mine.heading, -mine.bank))
@@ -6656,7 +6660,7 @@ export class Battle {
         Math.max(1, bm.n || 1), holes, hspan, mask,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
-      if (bm.lk > 0) this.heavyVents(bm, x, y, z, h, mask);
+      this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
     }
     // And the ones on their way down, each on her own.
     for (const w of this.wrecks) {
@@ -6837,7 +6841,32 @@ export class Battle {
     const sx = side & 1 ? 1 : -1;
     const sn = Math.sin(heading), cs = Math.cos(heading);
     this.scene.contrails.vent(key,
-      x + cs * out * sx - sn * aft, y - 0.2, z - sn * out * sx - cs * aft, 0.75);
+      x + cs * out * sx - sn * aft, y - 0.2, z - sn * out * sx - cs * aft, 1);
+  }
+
+  /**
+   * What a heavy squadron leaves in the air: vapour off every wingtip and a
+   * contrail off each of her four engines, and fuel off the ones holed.
+   */
+  heavyAir(bm, x, y, z, heading, bank, pitch, v, mask) {
+    const eye = this.scene.camera.position;
+    const half = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span / 2;
+    const tips = [[-half, 0, -1], [half, 0, -1]];
+    const engines = [[-half * 0.42, -0.6, -2], [-half * 0.2, -0.6, -2],
+      [half * 0.2, -0.6, -2], [half * 0.42, -0.6, -2]];
+    const m = SKIM_M;
+    const g = 1 / Math.max(0.25, Math.abs(Math.cos(bank || 0)));
+    const at = HEAVY_AT;
+    const n = Math.max(1, bm.n || 1);
+    for (let i = 0; i < VIC.length; i++) {
+      if (mask ? !((mask >> i) & 1) : i >= n) continue;
+      vicAt(i, heading, at);
+      if (Math.hypot(x + at.x - eye.x, y + at.y - eye.y, z + at.z - eye.z) > 6000) continue;
+      m.makeRotationFromEuler(HEAVY_E.set(-(pitch || 0), heading, -(bank || 0), 'YXZ'))
+        .setPosition(x + at.x, y + at.y, z + at.z);
+      this.scene.contrails.lay(`${bm.i}/h${i}`, m, tips, engines, g, v || 80, y + at.y);
+    }
+    if (bm.lk > 0) this.heavyVents(bm, x, y, z, heading, mask);
   }
 
   /**

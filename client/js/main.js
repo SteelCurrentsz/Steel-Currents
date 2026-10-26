@@ -285,6 +285,27 @@ function fleetOf(m) {
   }
   return SHIP_ORDER;
 }
+/**
+ * A page loaded before the game was last published asks for its ships by the
+ * names they had then, and once those are gone every battle with one of them
+ * in it fails to load. A module that will not import is that, far more often
+ * than it is the connection: so the page is reloaded onto the current build,
+ * once -- a second failure inside a minute is a real fault and is reported.
+ */
+function staleBuild(e) {
+  const msg = String((e && e.message) || e || '');
+  if (!/dynamically imported module|Importing a module script failed|error loading dynamically/i.test(msg)) {
+    return false;
+  }
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('steel-currents:reloaded') || 0); } catch { /* private */ }
+  if (Date.now() - last < 60000) return false;
+  try { sessionStorage.setItem('steel-currents:reloaded', String(Date.now())); } catch { /* private */ }
+  toast('The game has been updated. Reloading…');
+  setTimeout(() => location.reload(), 800);
+  return true;
+}
+
 // Every battle a captain starts carries his friendly fire setting with it.
 // And none is joined until every ship that could be in it has been fetched
 // (see loadShips): the room starts the moment it is joined, and a fleet that
@@ -300,6 +321,7 @@ function fleetOf(m) {
     loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
       .then(go, (e) => {
         console.error('Steel Currents: the fleet would not load', e);
+        if (staleBuild(e)) return;
         boot.done();
         toast('The fleet could not be fetched. Check the connection and try again.');
       });
@@ -845,7 +867,9 @@ function renderYard() {
   else {
     loadShips([id]).then(() => {
       if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
-    }, () => toast('That ship could not be fetched. Check the connection and try again.'));
+    }, (e) => {
+      if (!staleBuild(e)) toast('That ship could not be fetched. Check the connection and try again.');
+    });
   }
   // Her full name and pennant where there is room for it; the short one is what
   // the rosters and the plot use.
