@@ -18,19 +18,34 @@ import * as THREE from '../../../vendor/three.module.js';
 
 // ---- the trails ------------------------------------------------------------
 
-/** How long a piece of trail lasts, in seconds, and how wide it grows to. */
-const TIP_LIFE = 2.6;
-const TIP_WIDE = [0.18, 1.6];
-const ENGINE_LIFE = 9;
-const ENGINE_WIDE = [0.6, 9];
+/**
+ * The kinds of trail, and how each one lives.
+ *
+ * `life` is how long a piece of it lasts, in seconds; `wide` what it is born
+ * and dies at, in metres; `head` how long after she has passed through a
+ * piece of air the trail is fully formed there -- vapour off a tip is there
+ * at once, an engine's contrail is a few lengths of clear air behind her
+ * before the exhaust freezes; `sink` how fast it settles; `rgb` its colour.
+ */
+const KIND = {
+  tip: { life: 2.6, wide: [0.22, 1.8], head: 0.02, sink: 0, rgb: [0.96, 0.97, 0.99], max: 120 },
+  engine: { life: 11, wide: [0.7, 11], head: 0.18, sink: 0.35, rgb: [0.97, 0.98, 1.0], max: 200 },
+  // Petrol out of a holed wing tank: a white plume that bursts out of the
+  // hole, spreads fast and evaporates in a few seconds.
+  fuel: { life: 3.4, wide: [0.35, 5.5], head: 0.01, sink: 0.6, rgb: [0.99, 0.99, 1.0], max: 160 },
+};
+
+// How many metres of trail one repeat of the texture covers.
+const TEX_LEN = 34;
 
 class Trail {
-  constructor(life, wide, max) {
-    this.life = life;
-    this.wide = wide;
-    this.max = max;
+  constructor(kind) {
+    Object.assign(this, KIND[kind]);
     this.pts = [];
     this.seen = 0;
+    // Each trail starts somewhere different along the texture, so no two of
+    // them carry the same lumps in the same places.
+    this.phase = Math.random();
   }
 
   push(x, y, z, a, t) {
@@ -38,10 +53,13 @@ class Trail {
     // Laid every metre and a half or every fortieth of a second, whichever
     // comes first, so a fast aeroplane's trail is as smooth as a slow one's.
     if (last && Math.hypot(x - last.x, y - last.y, z - last.z) < 1.5 && t - last.t < 0.025) {
+      const prev = this.pts[this.pts.length - 2];
+      last.d = prev ? prev.d + Math.hypot(x - prev.x, y - prev.y, z - prev.z) : 0;
       last.x = x; last.y = y; last.z = z; last.a = a;
       return;
     }
-    this.pts.push({ x, y, z, a, t });
+    const d = last ? last.d + Math.hypot(x - last.x, y - last.y, z - last.z) : 0;
+    this.pts.push({ x, y, z, a, t, d });
     if (this.pts.length > this.max) this.pts.shift();
   }
 
@@ -50,13 +68,54 @@ class Trail {
   }
 }
 
+/**
+ * The ribbon's texture: soft across it, brightest down the middle and gone at
+ * the edges so it reads as vapour and not as a strip of paper, and lumpy along
+ * it, the way a real trail is thicker in some places than others.
+ */
+function vapourTexture() {
+  if (typeof document === 'undefined') return null;
+  const W = 32, H = 128;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const img = g.createImageData(W, H);
+  // A few octaves of smooth noise along the trail, tiling.
+  const wave = (v) => 0.55
+    + 0.22 * Math.sin(v * Math.PI * 2 * 3 + 0.7)
+    + 0.14 * Math.sin(v * Math.PI * 2 * 7 + 2.1)
+    + 0.09 * Math.sin(v * Math.PI * 2 * 13 + 4.4);
+  for (let y = 0; y < H; y++) {
+    const v = y / H;
+    const lump = wave(v);
+    // The core wanders a little from side to side.
+    const off = 0.06 * Math.sin(v * Math.PI * 2 * 5 + 1.3);
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / W * 2 - 1 - off;
+      const core = Math.exp(-u * u * 4.2);
+      const strand = 0.85 + 0.15 * Math.sin((u * 9 + v * Math.PI * 2 * 4) * 1.7);
+      const al = Math.max(0, Math.min(1, core * (0.55 + 0.45 * lump) * strand));
+      const k = (y * W + x) * 4;
+      img.data[k] = img.data[k + 1] = img.data[k + 2] = 255;
+      img.data[k + 3] = Math.round(al * 255);
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export class Contrails {
-  constructor(scene, maxQuads = 6000) {
+  constructor(scene, maxQuads = 7000) {
     this.trails = new Map();
     this.max = maxQuads;
     this.time = 0;
     const pos = new Float32Array(maxQuads * 4 * 3);
     const col = new Float32Array(maxQuads * 4 * 4);
+    const uv = new Float32Array(maxQuads * 4 * 2);
     const idx = new Uint32Array(maxQuads * 6);
     for (let q = 0; q < maxQuads; q++) {
       const v = q * 4;
@@ -65,17 +124,25 @@ export class Contrails {
     this.geo = new THREE.BufferGeometry();
     this.pos = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
     this.col = new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage);
+    this.uv = new THREE.BufferAttribute(uv, 2).setUsage(THREE.DynamicDrawUsage);
     this.geo.setAttribute('position', this.pos);
     this.geo.setAttribute('color', this.col);
+    this.geo.setAttribute('uv', this.uv);
     this.geo.setIndex(new THREE.BufferAttribute(idx, 1));
     this.geo.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial({
-      vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      fog: true,
+      map: vapourTexture(), vertexColors: true, transparent: true, depthWrite: false,
+      side: THREE.DoubleSide, fog: true,
     }));
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
     scene.add(this.mesh);
+  }
+
+  trail(id, kind) {
+    let tr = this.trails.get(id);
+    if (!tr) { tr = new Trail(kind); this.trails.set(id, tr); }
+    return tr;
   }
 
   /**
@@ -101,8 +168,7 @@ export class Contrails {
       const id = key + ':' + i;
       // That wingtip has gone: so has its trail, at once.
       if (has && !has[i]) { this.trails.delete(id); return; }
-      let tr = this.trails.get(id);
-      if (!tr) { tr = new Trail(TIP_LIFE, TIP_WIDE, 120); this.trails.set(id, tr); }
+      const tr = this.trail(id, 'tip');
       p.fromArray(tip).applyMatrix4(m);
       tr.push(p.x, p.y, p.z, a, t);
       tr.seen = t;
@@ -110,15 +176,24 @@ export class Contrails {
     // And the engine's own, once she is up where the air is cold enough: a
     // proper contrail, thin at first and spreading into a broad white road.
     const high = Math.max(0, Math.min(1, (y - 1800) / 2200));
-    const ea = high * 0.75 * Math.max(0.3, fast);
+    const ea = high * 0.8 * Math.max(0.3, fast);
     const id = key + ':e';
-    let tr = this.trails.get(id);
-    if (engine && (ea > 0.01 || tr)) {
-      if (!tr) { tr = new Trail(ENGINE_LIFE, ENGINE_WIDE, 160); this.trails.set(id, tr); }
+    if (engine && (ea > 0.01 || this.trails.has(id))) {
+      const tr = this.trail(id, 'engine');
       p.fromArray(nose).applyMatrix4(m);
       tr.push(p.x, p.y, p.z, ea, t);
       tr.seen = t;
     }
+  }
+
+  /**
+   * Fuel streaming out of a holed tank, at `x, y, z` in the world, this
+   * frame. `key` is which tank on which aeroplane; `a` how thick the plume is.
+   */
+  vent(key, x, y, z, a = 0.7) {
+    const tr = this.trail(key + ':f', 'fuel');
+    tr.push(x, y, z, a, this.time);
+    tr.seen = this.time;
   }
 
   /** Age them and rebuild the ribbons to face `camera`. */
@@ -127,6 +202,7 @@ export class Contrails {
     const t = this.time;
     const pos = this.pos.array;
     const col = this.col.array;
+    const uvs = this.uv.array;
     const eye = camera.position;
     let q = 0;
     const side = new THREE.Vector3();
@@ -136,30 +212,51 @@ export class Contrails {
       tr.trim(t);
       if (!tr.pts.length && t - tr.seen > 1) { this.trails.delete(id); continue; }
       const pts = tr.pts;
-      for (let i = 0; i + 1 < pts.length && q < this.max; i++) {
-        const a = pts[i], b = pts[i + 1];
-        if (Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) > 60) continue;
-        dir.set(b.x - a.x, b.y - a.y, b.z - a.z);
+      const [r, g, b] = tr.rgb;
+      const last = pts.length - 1;
+      for (let i = 0; i < last && q < this.max; i++) {
+        const a = pts[i], c = pts[i + 1];
+        if (Math.hypot(c.x - a.x, c.y - a.y, c.z - a.z) > 60) continue;
+        dir.set(c.x - a.x, c.y - a.y, c.z - a.z);
         view.set(a.x - eye.x, a.y - eye.y, a.z - eye.z);
         side.crossVectors(dir, view);
         const sl = side.length();
         if (sl < 1e-6) continue;
         side.multiplyScalar(1 / sl);
         const v = q * 4;
-        const put = (k, p, s) => {
-          const age = (t - p.t) / tr.life;
-          const w = (tr.wide[0] + (tr.wide[1] - tr.wide[0]) * Math.sqrt(Math.max(0, age))) * 0.5;
+        const put = (k, p, s, end) => {
+          const age = Math.max(0, t - p.t);
+          const life = age / tr.life;
+          // It spreads quickly at first and then slowly, the way a plume of
+          // vapour mixes into the air round it.
+          const w = (tr.wide[0] + (tr.wide[1] - tr.wide[0]) * Math.sqrt(Math.min(1, life))) * 0.5;
+          // And settles as it goes.
+          const sink = tr.sink * age;
           pos[(v + k) * 3] = p.x + side.x * w * s;
-          pos[(v + k) * 3 + 1] = p.y + side.y * w * s;
+          pos[(v + k) * 3 + 1] = p.y + side.y * w * s - sink;
           pos[(v + k) * 3 + 2] = p.z + side.z * w * s;
-          const fade = Math.max(0, 1 - age);
-          const alpha = p.a * fade * fade * (k < 2 ? 1 : 1);
-          col.set([0.95, 0.96, 0.98, alpha], (v + k) * 4);
+          uvs[(v + k) * 2] = s < 0 ? 0 : 1;
+          uvs[(v + k) * 2 + 1] = p.d / TEX_LEN + tr.phase;
+          // Forming behind her rather than painted on at her tail, and thinning
+          // to nothing at its far end rather than cut off.
+          const form = Math.min(1, age / Math.max(1e-3, tr.head));
+          const fade = Math.max(0, 1 - life);
+          // A trail gets thinner as it gets wider: the same vapour, spread.
+          const thin = tr.wide[0] / (w * 2);
+          const alpha = p.a * form * form * fade * Math.sqrt(fade)
+            * (0.55 + 0.45 * Math.min(1, thin * 6)) * (end ? 0 : 1);
+          // A touch of grey in the old part of it, which is lit from one side
+          // and has the sky behind it.
+          const shade = 1 - 0.1 * Math.min(1, life);
+          col[(v + k) * 4] = r * shade;
+          col[(v + k) * 4 + 1] = g * shade;
+          col[(v + k) * 4 + 2] = b * shade;
+          col[(v + k) * 4 + 3] = alpha;
         };
-        put(0, a, -1);
-        put(1, a, 1);
-        put(2, b, -1);
-        put(3, b, 1);
+        put(0, a, -1, i === 0);
+        put(1, a, 1, i === 0);
+        put(2, c, -1, false);
+        put(3, c, 1, false);
         q++;
       }
     }
@@ -168,6 +265,7 @@ export class Contrails {
     if (q) {
       this.pos.needsUpdate = true;
       this.col.needsUpdate = true;
+      this.uv.needsUpdate = true;
     }
   }
 }

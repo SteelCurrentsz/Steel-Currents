@@ -7172,7 +7172,8 @@ function stepLaunch(state, ship, dt) {
       // airframe.js.
       perHp: planeHp(cls, f, L) / Math.max(1, f.count),
       machines: Array.from({ length: f.count },
-        () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count))),
+        () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count),
+          f.role === 'fighter' ? 1 : BOMBER_TOUGH)),
       // She goes for the enemy the moment her wheels are up. A deckload
       // goes off one aeroplane at a time, twenty-odd seconds apart, and
       // holding the first of them over the ship until the last was off had
@@ -9817,7 +9818,9 @@ function planeHp(cls, f, L) {
   // An escort makes a strike harder to stop, up to the few fighters that can
   // actually stay with any one bomber; a strike with forty fighters over it is
   // not forty times as hard to shoot down.
-  return cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1)
+  // A bomber is built heavier than a fighter and takes a good deal more to
+  // bring down: half as much again of her is there to be shot away.
+  return cls.planes.hp * (f.role === 'fighter' ? 1.35 : 1.5)
     * (1 + (f.role === 'fighter' ? 0 : Math.min(3, L.escort) * 0.18)) * 2.0;
 }
 
@@ -10120,7 +10123,16 @@ export function bombAlt() {
 export const BOMB_ALT = 1000;
 
 /** What one machine of a heavy formation can absorb before she goes down. */
-const HEAVY_HP = 420;
+const HEAVY_HP = 680;
+
+/**
+ * How much slower a fire eats a bomber than a fighter. A bomber is built to
+ * take punishment and get home -- heavier structure, self-sealing tanks,
+ * armour behind the crew -- and one that is set alight burns for a good while
+ * before it takes her wing off.
+ */
+const BOMBER_TOUGH = 1.6;
+const HEAVY_TOUGH = 2.0;
 
 /**
  * Her gun positions, and how hard they are to put out of action.
@@ -10192,7 +10204,7 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     // and a captain flying one gets the same damage board a pilot gets. See
     // airframe.js.
     perHp: HEAVY_HP,
-    machines: Array.from({ length: n }, () => freshAirframe(HEAVY_HP)),
+    machines: Array.from({ length: n }, () => freshAirframe(HEAVY_HP, HEAVY_TOUGH)),
     // Her gun positions, each fought on its own and each able to be shot out.
     // One position stands for that turret across the whole vic. See
     // heavyGunners.

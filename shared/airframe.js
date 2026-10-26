@@ -131,8 +131,15 @@ export function punchAirframe(a, part, damage, roll, roll2, roll3) {
   return hole;
 }
 
-/** One aeroplane, whole. `hp` is what the class datasheet gives a machine. */
-export function freshAirframe(hp) {
+/**
+ * One aeroplane, whole. `hp` is what the class datasheet gives a machine.
+ *
+ * `tough` is how slowly a fire eats her. A bomber is built heavier than a
+ * fighter -- more spar, more skin, self-sealing tanks and armour plate -- so
+ * a fire that would have a fighter's wing off in ten seconds takes a good deal
+ * longer over a bomber's, and more hits besides to bring her down.
+ */
+export function freshAirframe(hp, tough = 1) {
   const parts = {};
   for (const p of PARTS) parts[p.k] = { hp: hp * p.share, max: hp * p.share };
   return {
@@ -153,6 +160,7 @@ export function freshAirframe(hp) {
     // Whether she is still flying, and whether she is still with the flight.
     alive: true,
     left: false,
+    tough,
   };
 }
 
@@ -275,8 +283,9 @@ export function stepAirframe(a, dt, roll) {
     // occasionally blow one out, which is the only way a burning aeroplane
     // ever got home.
     a.fire = Math.min(1, a.fire + 0.06 * dt);
-    a.parts.body.hp -= a.parts.body.max * 0.10 * a.fire * dt;
-    a.parts.wings.hp -= a.parts.wings.max * 0.06 * a.fire * dt;
+    const eat = a.fire * dt / Math.max(0.1, a.tough || 1);
+    a.parts.body.hp -= a.parts.body.max * 0.10 * eat;
+    a.parts.wings.hp -= a.parts.wings.max * 0.06 * eat;
     // A slipstream will occasionally blow one out. Two per cent of a second,
     // so about a quarter of them go out before they have burned her down --
     // which is the only way a burning aeroplane ever got home. Written as a
@@ -351,6 +360,7 @@ export function flightState(machines) {
   let n = 0;
   let smoking = 0;
   let burning = 0;
+  let leaking = 0;
   for (const a of machines) {
     if (!a.alive || a.left) continue;
     const s = airframeState(a);
@@ -360,6 +370,7 @@ export function flightState(machines) {
     n++;
     if (a.fire > 0.05 || a.leak > 0.02) smoking++;
     if (a.fire > 0.05) burning++;
+    else if (a.leak > 0.02) leaking++;
   }
   return {
     count: n,
@@ -371,5 +382,8 @@ export function flightState(machines) {
     // And how many of those are alight, which is a different thing to see:
     // flame streaming back off her, not a grey thread of oil.
     burning,
+    // And how many are not alight but are losing fuel: a white plume of
+    // petrol vapour streaming back off a holed wing tank.
+    leaking,
   };
 }

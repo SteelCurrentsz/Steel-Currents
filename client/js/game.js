@@ -15,6 +15,7 @@ import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
   from './render/aero.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
+import { VIC, vicAt } from '../../shared/formation.js';
 import {
   ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT, storeOf, rearGunOf, rearSeatOf,
 } from './render/planes.js';
@@ -6636,6 +6637,7 @@ export class Battle {
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
         });
+        if (bm.lk > 0) this.heavyVents(bm, mine.x, mine.y, mine.z, mine.heading, mask);
         // Her wingtips and her ends, against the sea, the same as a flight's.
         if (mine.y < 40) {
           const m = SKIM_M.makeRotationFromEuler(SKIM_E.set(-mine.attitude, mine.heading, -mine.bank))
@@ -6654,6 +6656,7 @@ export class Battle {
         Math.max(1, bm.n || 1), holes, hspan, mask,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
+      if (bm.lk > 0) this.heavyVents(bm, x, y, z, h, mask);
     }
     // And the ones on their way down, each on her own.
     for (const w of this.wrecks) {
@@ -6807,11 +6810,50 @@ export class Battle {
     const n = Math.min(pl.sm, slots.length);
     // The ones on fire, rather than only trailing oil or glycol.
     const fb = Math.min(pl.fb || 0, n);
+    // And the ones that are not alight but have a tank holed: those stream
+    // white, petrol vapour off the wing rather than smoke.
+    const lk = Math.min(pl.lk || 0, n - fb);
     for (let i = 0; i < n; i++) {
       const s = slotAt(slots[i], pl.h || 0);
+      if (i >= fb && i < fb + lk) {
+        this.fuelVent(`${pl.i}/${slots[i]}`, pl.x + s.x, y + s.y, pl.z + s.z, pl.h || 0, 2.2, 1.5);
+        continue;
+      }
       const run = runs[slots[i]] || (runs[slots[i]] = {});
       this.scene.effects.smokeRun(run, pl.x + s.x + bx, y + s.y, pl.z + s.z + bz,
         { fire: i < fb ? 1 : 0 });
+    }
+  }
+
+  /**
+   * Fuel pouring out of a holed wing tank on one machine, at `x, y, z` on
+   * `heading`: a white plume off the trailing edge of the wing, `out` metres
+   * out from her centreline and `aft` behind it. Which wing is settled by the
+   * key, so the same machine always streams from the same side.
+   */
+  fuelVent(key, x, y, z, heading, out, aft) {
+    let side = 0;
+    for (let i = 0; i < key.length; i++) side = (side * 31 + key.charCodeAt(i)) | 0;
+    const sx = side & 1 ? 1 : -1;
+    const sn = Math.sin(heading), cs = Math.cos(heading);
+    this.scene.contrails.vent(key,
+      x + cs * out * sx - sn * aft, y - 0.2, z - sn * out * sx - cs * aft, 0.75);
+  }
+
+  /**
+   * The heavies of a squadron losing fuel: the hurt ones are the last
+   * stations still flying, the same as a flight's, and each streams from an
+   * inboard tank between her engines.
+   */
+  heavyVents(bm, x, y, z, heading, mask) {
+    const half = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span / 2;
+    const m = mask || (1 << Math.max(1, bm.n || 1)) - 1;
+    let left = bm.lk;
+    for (let i = VIC.length - 1; i >= 0 && left > 0; i--) {
+      if (!((m >> i) & 1)) continue;
+      const s = vicAt(i, heading);
+      this.fuelVent(`${bm.i}/h${i}`, x + s.x, y + s.y, z + s.z, heading, half * 0.32, 3.5);
+      left--;
     }
   }
 
