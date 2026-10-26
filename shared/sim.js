@@ -2735,6 +2735,8 @@ function deliverOrdnance(state, p, best, P) {
   const lead = leadPoint(ex, ez, best, P.torpSpeed);
   const base = headingTo(ex, ez, lead.x, lead.z);
   const torp = p.torp ?? p.count;
+  const carrier = state.ships.find((s) => s.id === p.owner);
+  const kind = torpedoKind(carrier ? shipClass(carrier) : null, true);
   for (let i = 0; i < torp; i++) {
     const spread = P.dropSpread / Math.max(0.3, (p.wear && p.wear.aim) || 1);
     const off = (i - (torp - 1) / 2) * spread;
@@ -2746,6 +2748,12 @@ function deliverOrdnance(state, p, best, P) {
       // Still in the air: neither running nor able to hurt anybody until it
       // is in the water.
       air: fall ? fall.t : 0,
+      // An aerial fish is armed by the time it is in the sea: its pistol is
+      // run off by the drop and the first few metres of its run, and it goes
+      // off against the first hull it meets. There is no tube for it to need
+      // clearing from, so it is never a dud.
+      aerial: true,
+      kind,
     });
   }
   if (fall) p.fishAt = fall;
@@ -5856,21 +5864,30 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
         speed: T.speed, range: T.range, travelled: 0,
         damage: T.damage, detection: T.detection, arming: T.arming,
         flood: T.floodChance,
+        kind: torpedoKind(cls),
       };
-      if (T.launch) {
-        // A bank standing high on a battleship's deck does not put its fish
-        // in the water where it stands: each one is blown out of its own tube
-        // in turn and goes over her side, and runs from where it falls in.
-        // Until then it is aboard her, in her own frame -- see stepTorpedoes.
-        const L = T.launch;
+      // A bank can carry its own launch -- the Surcouf's bow tubes and her
+      // trainable triples are nothing alike -- or take the class's.
+      const L = spec.launch || T.launch;
+      if (L) {
+        // A bank standing on a ship's deck does not put its fish in the water
+        // where it stands: each one is blown out of its own tube in turn and
+        // goes over her side, and runs from where it falls in. Until then it
+        // is aboard her, in her own frame -- see stepTorpedoes. A tube in her
+        // hull (`wet`) is already under the water: the fish is pushed out of
+        // it along its own line until it is clear of her, and runs from there.
         const lane = L.lanes[i % L.lanes.length];
+        const fish = Array.isArray(L.fish) ? L.fish[i % L.fish.length] : L.fish;
+        if (fish && fish.kind) tp.kind = fish.kind;
         const c = Math.cos(m.angle);
         const sn = Math.sin(m.angle);
+        const height = L.height ?? spec.my;
         tp.aboard = {
           x: spec.x + lane * c + L.lie * sn, z: spec.z - lane * sn + L.lie * c,
           dx: sn, dz: c, v: L.eject,
           hold: i * L.stagger,
-          run: (L.muzzle - L.lie) / L.eject + Math.sqrt((2 * L.height) / G),
+          run: (L.muzzle - L.lie) / L.eject
+            + (L.wet ? (L.clear || 0) / L.eject : Math.sqrt((2 * Math.max(0, height)) / G)),
         };
         const at = localToWorld(tp.aboard.x, tp.aboard.z, ship.heading);
         tp.x = ship.x + at.x;
@@ -5894,9 +5911,33 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
 }
 
 /**
+ * Which torpedo a ship or her aeroplanes put in the water, for the client to
+ * draw: a Fletcher's Mk 15 is not a Kagero's Type 93, and neither is anything
+ * like the stubby Mk 13 an Avenger drops. A class can say for itself
+ * (`torpedoes.kind`, or `planes.torpKind` for what her aircraft carry); the
+ * name on her datasheet says it next; and failing both it goes by whose navy
+ * she is in.
+ */
+const SHIP_FISH = { usa: 'mk15', jpn: 'type93', ger: 'g7a', gbr: 'mk1', fra: 'l3' };
+const AIR_FISH = { usa: 'mk13', jpn: 'type91', ger: 'f5b', gbr: 'mk12', fra: 'mk13' };
+const FISH_NAMES = [
+  [/mk\s*15/i, 'mk15'], [/type\s*93/i, 'type93'], [/g7e/i, 'g7e'], [/g7a/i, 'g7a'],
+  [/24\.5/, 'mk1'], [/1924/, 'l3'],
+];
+export function torpedoKind(cls, aerial = false) {
+  if (!cls) return aerial ? 'mk13' : 'mk15';
+  if (aerial) return cls.planes?.torpKind || AIR_FISH[cls.nation] || 'mk13';
+  const T = cls.torpedoes || {};
+  if (T.kind) return T.kind;
+  const named = FISH_NAMES.find(([re]) => re.test(T.name || ''));
+  return named ? named[1] : SHIP_FISH[cls.nation] || 'mk15';
+}
+
+/**
  * Seconds from launch before a torpedo's pistol is armed. A fish that strikes
  * sooner than this still strikes -- it is half a ton of steel at forty knots
- * and it stops against her side -- but it does not go off.
+ * and it stops against her side -- but it does not go off. Only a fish out of
+ * a tube: one dropped from an aeroplane is armed when it reaches the water.
  */
 export const TORP_ARM_TIME = 5;
 
@@ -5965,7 +6006,7 @@ function stepTorpedoes(state, dt) {
         if (!at) continue;
         if (severed(target, cls, worldToLocal(at.x - target.x, at.z - target.z, target.heading).z)) continue;
         tp.x = at.x; tp.z = at.z;
-        if (tp.age <= TORP_ARM_TIME) {
+        if (!tp.aerial && tp.age <= TORP_ARM_TIME) {
           // A dud: it hits her and that is all. Her plating is dented, the
           // fish breaks up against her side, and nobody is any the worse.
           state.events.push({ e: 'torpDud', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });

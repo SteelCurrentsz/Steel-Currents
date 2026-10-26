@@ -2070,9 +2070,8 @@ export class BattleScene {
     // What the dive bombers let go of, on the way down.
     this.bombs = new Bombs(this.scene, 64);
 
-    // The fish in the water and the rope of bubbles behind each of them.
-    // See torpedo.js: the track is the weapon, as far as anybody conning a
-    // ship is concerned.
+    // The fish in the water, each drawn as the torpedo it is and running at
+    // its depth under the sea. See torpedo.js.
     this.torpedoes = new Torpedoes(this.scene, this.ocean, 48);
     // And the depth charges going down, which is the other half of the same
     // fight: the fish is what a boat does to a ship and this is what the ship
@@ -2325,8 +2324,7 @@ export class BattleScene {
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
-    this.torpedoes.update(dt, this.torpsNow || [],
-      (x, z) => this.ocean.heightAt(x, z));
+    this.torpedoes.update(dt, this.torpsNow || []);
     this.charges.update(dt, this.chargesNow || []);
     this.weather.update(dt, eye);
     this.oil.update(dt);

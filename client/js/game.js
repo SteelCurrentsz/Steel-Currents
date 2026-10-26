@@ -3482,7 +3482,7 @@ export class Battle {
       this.watchEl = 0.30;
       // An aeroplane close, the way her own pilot's chase camera has her: a
       // ship's three lengths off is a speck when the length is twelve metres.
-      const near = hit.kind === 'plane' ? 1.4 : 3.2;
+      const near = hit.kind === 'plane' ? 1.4 : hit.kind === 'torp' ? 0.9 : 3.2;
       this.watchDist = near;
       this.watchDistNow = near;
       this.watchFov = 52;
@@ -3497,6 +3497,8 @@ export class Battle {
         this.watchPov = false;
         this.watchEl = 0.18;
       }
+      // A torpedo is watched from beside her, level, under the water.
+      if (hit.kind === 'torp') this.watchEl = 0.04;
     }
     // And the server is told, because it decides what this client is shown:
     // a ship nobody aboard has sighted is not in the snapshot at all, and
@@ -3581,12 +3583,14 @@ export class Battle {
       };
     }
     if (this.watching.kind === 'torp') {
-      // The fish, running just under the surface: the camera rides close
-      // behind and above her, and the wake she leaves runs out under it.
+      // The fish, running at her depth: the camera goes down to her and
+      // rides close alongside, under the sea with her -- from above there is
+      // nothing of a running torpedo to see.
       const tp = (this.torpsNow || []).find((x) => x.i === this.watching.id);
       if (tp) {
         this.torpLast = { x: tp.x, z: tp.z, t: 3 };
-        return { x: tp.x, y: 0.5, z: tp.z, span: 10, eye: 1.2, close: true };
+        const y = tp.a ? 0.5 : this.scene.torpedoes.depthOf(tp.i);
+        return { x: tp.x, y, z: tp.z, span: 10, eye: tp.a ? 1.2 : 0.45, close: true, under: !tp.a };
       }
       // She has run her course or found her ship: hold on the spot a few
       // seconds, which is where the column goes up.
@@ -6086,13 +6090,16 @@ export class Battle {
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
       // And anything it has dropped into the sea: a fish off her tubes going
-      // in alongside, in her own frame.
+      // in alongside, in her own frame -- a splash where it goes in, and the
+      // running torpedo picked up from that spot and that depth. One pushed
+      // out of a tube under the water makes no splash at all.
       const dropped = view.group.userData.dropped;
       if (dropped && dropped.length) {
         view.group.updateMatrixWorld(true);
         for (const p of dropped.splice(0)) {
           const w = view.group.localToWorld(p.clone());
-          this.scene.effects.splash(w.x, w.z, 120);
+          if (!p.wet) this.scene.effects.splash(w.x, w.z, 120);
+          this.scene.torpedoes.seed(w.x, p.wet ? w.y : 0, w.z);
         }
       }
 
@@ -6321,6 +6328,7 @@ export class Battle {
         a: tp.a,
         o: tp.o,
         tm: tp.tm,
+        k: tp.k,
       };
     });
     this.scene.torpsNow = this.torpsNow;
@@ -7442,7 +7450,7 @@ export class Battle {
         this.watchEl = clamp(this.watchEl - m.y, -1.15, 1.28);
         const near = !!watch.close;
         const d = Math.max(near ? 3 : 8, watch.span * this.watchDistNow);
-        const rise = near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
+        const rise = watch.under ? 0.2 : near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
         const aim = watch.y + watch.span * (near ? 0.03 : 0.2);
         const flat = Math.cos(this.watchEl);
         cam.position.set(
@@ -7460,6 +7468,12 @@ export class Battle {
         const bed = Math.max(floor + 7, SEABED);
         if (cam.position.y < bed) {
           cam.position.y = bed;
+          cam.lookAt(watch.x, aim, watch.z);
+        }
+        // And a fish is watched from down where she is: an orbit lifted over
+        // her would only put the surface between the camera and her.
+        if (watch.under && cam.position.y > watch.y + 0.8) {
+          cam.position.y = watch.y + 0.8;
           cam.lookAt(watch.x, aim, watch.z);
         }
       }

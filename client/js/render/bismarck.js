@@ -1018,7 +1018,7 @@ function buildSister(v) {
   if (v.cls.torpedoes) {
     // Her tubes work on the same clock as her catapult.
     const catapults = g.userData.step;
-    const tubes = fitTubes(g, g.userData.torpMounts, v.cls.torpedoes.launch);
+    const tubes = fitTubes(g, g.userData.torpMounts, v.cls.torpedoes);
     g.userData.step = (t) => { catapults?.(t); tubes(t); };
   }
   dressShip(g);

@@ -310,6 +310,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Who let her go: the ship whose tubes she came out of, or whose
       // aeroplane dropped her.
       o: tp.owner,
+      // Which torpedo she is, so she is drawn as herself: see torpedoKind.
+      k: tp.kind || undefined,
       // Still aboard: in its tube or in the air off her side, which her model
       // draws (see fireTorpedoes) -- or falling from the aeroplane that let
       // it go, which the client draws off her rack. Nothing is in the water

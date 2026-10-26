@@ -47,7 +47,7 @@ import {
   flyBomber, dropStick, gunTurret, BOMB_ALT, highBattery, hurtFlight,
   chargeMounts, dropCharges, setChargeDepth, sonarContact,
   stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf, oneWay,
-  landingFouled, touchdownOf, GROOVE, LANDING_CUT,
+  landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind,
 } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -314,7 +314,7 @@ import {
 } from '../client/js/render/breakers.js';
 import { Wake, WakeField, waveReach } from '../client/js/render/wakefield.js';
 import { ShipView } from '../client/js/render/scene.js';
-import { torpedoGeometry } from '../client/js/render/torpedo.js';
+import { torpedoGeometry, TORPEDO_KINDS, Torpedoes } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
 import {
@@ -4075,7 +4075,7 @@ check('her screws turn, and each shaft the way it is handed', () => {
   }
 });
 
-check('a torpedo is a torpedo, and it leaves a track behind it', () => {
+check('a torpedo is a torpedo', () => {
   // The fish: seven metres long and half a metre across, which is what a
   // Mk 15 is. It used to be a box.
   const geo = torpedoGeometry();
@@ -4406,6 +4406,113 @@ check('a torpedo that strikes inside five seconds is a dud, and after that it go
   const armed = run(6);
   assert.ok(armed.events.some((e) => e.e === 'torpHit'), 'a fish six seconds out did not go off');
   assert.ok(armed.took > 0);
+});
+
+check('every ship with tubes is seen firing them: each fish fits its own tube and goes into the sea', () => {
+  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
+    const T = cls.torpedoes;
+    if (!T) continue;
+    const built = buildShip(id);
+    const g = built.group;
+    assert.equal(built.torpMounts.length, T.mounts.length, `${id}'s model has not the banks her datasheet has`);
+    assert.equal(typeof g.userData.fireTubes, 'function', `${id}'s tubes cannot be seen firing`);
+    T.mounts.forEach((spec, i) => {
+      const L = spec.launch || T.launch;
+      assert.ok(L, `${id}'s bank ${i} has no launch`);
+      assert.equal(L.lanes.length, spec.tubes, `${id}'s bank ${i} fires ${spec.tubes} fish out of ${L.lanes.length} lanes`);
+      const bank = built.torpMounts[i];
+      g.updateMatrixWorld(true);
+      // Its lanes are its own tubes: each one a muzzle on the model.
+      const gun = bank.userData.gunNode || bank;
+      const rel = new THREE.Matrix4().copy(bank.matrixWorld).invert().multiply(gun.matrixWorld);
+      const muzzles = bank.userData.muzzles.map((v) => v.clone().applyMatrix4(rel));
+      for (const lane of L.lanes) {
+        assert.ok(muzzles.some((m) => Math.abs(m.x * (Math.sign(m.z) || 1) - lane) < 0.05),
+          `${id}'s bank ${i} fires down a lane at ${lane} where she has no tube`);
+      }
+      for (const m of muzzles) {
+        assert.ok(Math.abs(Math.abs(m.z) - L.muzzle) < 0.05, `${id}'s bank ${i} has a muzzle at ${m.z}, not ${L.muzzle}`);
+      }
+      // And each fish lies wholly inside its tube until it is fired.
+      L.lanes.forEach((_, k) => {
+        const fish = Array.isArray(L.fish) ? L.fish[k % L.fish.length] : (L.fish || { len: 6.0 });
+        assert.ok(L.lie + fish.len / 2 <= L.muzzle + 1e-6, `${id}'s fish stands out of the muzzle of bank ${i}`);
+      });
+      // Fired: every fish is first seen in the bank it was fired from -- or,
+      // out of a tube in her hull, inside her -- and every one goes in.
+      const box = new THREE.Box3().setFromObject(L.wet ? g : bank).expandByScalar(0.05);
+      g.userData.dropped.splice(0);
+      g.userData.step?.(0);
+      g.userData.fireTubes(i, 0);
+      const seen = [];
+      let drops = 0;
+      for (let k = 0; k <= 1200 && drops < L.lanes.length; k++) {
+        g.userData.step(k / 120);
+        drops += g.userData.dropped.splice(0).length;
+        bank.userData.fish.forEach((f, n) => {
+          if (f.visible && seen[n] === undefined) seen[n] = box.containsPoint(f.position);
+        });
+      }
+      assert.equal(drops, L.lanes.length, `${drops} of ${id}'s fish from bank ${i} went into the sea`);
+      assert.deepEqual(seen, L.lanes.map(() => true), `a fish of ${id}'s was first seen outside the tubes it was fired from`);
+    });
+  }
+});
+
+check('a torpedo dropped from an aeroplane is armed when it reaches the water', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  state.world.islands = [];
+  const a = addShip(state, { name: 'A', classId: 'enterprise', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'cleveland', team: 1, index: 0 });
+  for (const s of [a, b]) for (const t of s.turrets) t.disabled = 1e9;
+  silenceSecondaries(a, b);
+  a.x = -6000; b.x = 0; b.z = 0; b.heading = 0;
+  const P = SHIP_CLASSES.enterprise.planes;
+  // In the water a second's run off her side: a tube fish would be a dud.
+  state.torps.push({
+    id: 1, owner: a.id, team: a.team, x: -(13 + P.torpSpeed * 1), z: 0, heading: Math.PI / 2,
+    speed: P.torpSpeed, range: P.torpRange, travelled: 0, age: 0, arming: 200,
+    damage: P.torpDamage, detection: 900, flood: P.floodChance, aerial: true, kind: 'mk13',
+  });
+  const before = b.hp;
+  const events = [];
+  for (let i = 0; i < 4 * 30; i++) events.push(...step(state, DT));
+  assert.ok(events.some((e) => e.e === 'torpHit'), 'an aerial fish a second out did not go off');
+  assert.ok(!events.some((e) => e.e === 'torpDud'), 'an aerial fish was a dud');
+  assert.ok(b.hp < before);
+});
+
+check('each navy\'s torpedo is its own, and is drawn as itself under the sea', () => {
+  assert.equal(torpedoKind(SHIP_CLASSES.fletcher), 'mk15');
+  assert.equal(torpedoKind(SHIP_CLASSES.yukikaze), 'type93');
+  assert.equal(torpedoKind(SHIP_CLASSES.tirpitz), 'g7a');
+  assert.equal(torpedoKind(SHIP_CLASSES.u48), 'g7e');
+  assert.equal(torpedoKind(SHIP_CLASSES.rodney), 'mk1');
+  assert.equal(torpedoKind(SHIP_CLASSES.enterprise, true), 'mk13');
+  assert.equal(torpedoKind(SHIP_CLASSES.shinano, true), 'type91');
+  assert.equal(torpedoKind(SHIP_CLASSES.grafzeppelin, true), 'f5b');
+  // Different shapes, not one shape in different sizes.
+  const seen = new Set();
+  for (const k of Object.keys(TORPEDO_KINDS)) {
+    const g = torpedoGeometry(k);
+    g.computeBoundingBox();
+    const bb = g.boundingBox;
+    const key = `${g.attributes.position.count}/${(bb.max.z - bb.min.z).toFixed(2)}/${(bb.max.x - bb.min.x).toFixed(2)}`;
+    assert.ok(!seen.has(key), `${k} is drawn the same as another torpedo`);
+    seen.add(key);
+  }
+  // Held at one depth under the deepest trough, whatever the waves do.
+  const scene = { add() {}, remove() {} };
+  const ocean = { deepest: () => 2.5 };
+  const t = new Torpedoes(scene, ocean, 8);
+  const ys = [];
+  for (let i = 0; i < 200; i++) {
+    t.update(1 / 30, [{ i: 1, x: i * 0.6, z: 0, h: 0, k: 'mk15' }]);
+    ys.push(t.depthOf(1));
+  }
+  for (let i = 1; i < ys.length; i++) assert.ok(ys[i] <= ys[i - 1] + 1e-9, 'a running fish came up');
+  assert.ok(ys[ys.length - 1] < -2.5 - 1, 'a running fish is not below the troughs');
+  assert.equal(ys[ys.length - 1], ys[ys.length - 2]);
 });
 
 check('friendly fire: off, a side cannot hurt itself; on, everything it fires can', () => {

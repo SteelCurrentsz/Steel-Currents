@@ -19,6 +19,7 @@ import { dressShip } from './textures.js';
 import { loadZero } from './zeroModel.js';
 import { loadSuisei } from './suiseiModel.js';
 import { loadB5n } from './b5nModel.js';
+import { fitTubes } from './tubes.js';
 import { loadBf109 } from './bf109Model.js';
 import { loadJu87 } from './ju87Model.js';
 import { loadHellcat } from './hellcatModel.js';
@@ -548,6 +549,28 @@ function handedOver(built) {
 }
 
 export function buildShipModel(classId) {
+  const built = buildModel(classId);
+  armTubes(built, SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher);
+  return built;
+}
+
+/**
+ * Give her tubes something to fire. A ship whose model has not already set up
+ * its own (the Tirpitz's, the Matsu's) has its banks fitted here, off the
+ * muzzles each was armed with and the launch her datasheet gives it, so every
+ * torpedo in the game is seen leaving the tube it was fired from.
+ */
+function armTubes(built, cls) {
+  const g = built.group;
+  const banks = built.torpMounts || [];
+  if (!cls.torpedoes || !banks.length || g.userData.fireTubes) return;
+  if (!cls.torpedoes.launch && !cls.torpedoes.mounts.some((m) => m.launch)) return;
+  const tubes = fitTubes(g, banks, cls.torpedoes);
+  const before = g.userData.step;
+  g.userData.step = before ? (t) => { before(t); tubes(t); } : tubes;
+}
+
+function buildModel(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
   if (!shipReady(cls.id)) {
     throw new Error(`Steel Currents: ${cls.id} has not been fetched -- await loadShips() first`);

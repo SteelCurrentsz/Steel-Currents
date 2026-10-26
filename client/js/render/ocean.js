@@ -1053,6 +1053,19 @@ export class Ocean {
     return this.terms;
   }
 
+  /**
+   * How far below the mean the deepest trough this sea can make goes: every
+   * wave in the train at the bottom of its own trough at once. Anything held
+   * below this is under water whatever the surface is doing.
+   */
+  deepest() {
+    const u = this.material.uniforms;
+    const W = this.waveTerms(u.uAmp.value, u.uSteep.value);
+    let d = 0;
+    for (let i = 0; i < W.n; i++) d += W.a[i];
+    return d;
+  }
+
   /** Wave height at a world point. */
   heightAt(x, z, time = this.material.uniforms.uTime.value) {
     return this.sample(x, z, time).y;

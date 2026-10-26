@@ -53,6 +53,18 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 // Fletcher was alongside an Iowa.
 const BIG = 1;
 
+// The Surcouf's trainable triples on her casing: a 55 cm tube on the centre of
+// the mount and a 40 cm either side (surcouf.js), each fish blown out over her
+// side. A 55 cm 1924V and a 40 cm 1926, each drawn to fit its own tube.
+const SURCOUF_TRIPLE = {
+  eject: 12, stagger: 0.35, lanes: [0, -0.72, 0.72], lie: -0.15, muzzle: 2.9,
+  fish: [
+    { len: 5.8, r: 0.28, kind: 'l3' },
+    { len: 5.15, r: 0.2, kind: 'mle26' },
+    { len: 5.15, r: 0.2, kind: 'mle26' },
+  ],
+};
+
 export const SHIP_CLASSES = {
   fletcher: {
     // Five single 5"/38 dual-purpose mounts, quick-training and unobstructed on a
@@ -104,6 +116,16 @@ export const SHIP_CLASSES = {
       traverse: 0.30,
       reload: 62, damage: 12800, speed: 30 * KNOTS, range: 8500,
       detection: 1100, arming: 400, spread: 0.09, floodChance: 0.32,
+      // Each fish blown out of its tube along the bank, a third of a second
+      // apart, and over her side: five tubes, `lanes` across the bank, the
+      // fish's middle `lie` and the muzzle door `muzzle` ahead of the training
+      // ring, off the model's own tubes (fletcher.js). A Mk 15 is seven and a
+      // third metres long; drawn, seven, so it lies inside the sculpt's
+      // tubes. Each bank drops it from its own height (`my`).
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-1.56, -0.78, 0, 0.78, 1.56], lie: 0.2, muzzle: 3.82,
+        fish: { len: 7.0, r: 0.267, kind: 'mk15' },
+      },
     },
     // Her own five-inch is the anti-aircraft battery -- a Fletcher's main
     // armament is dual-purpose -- and the light guns are what she has left when
@@ -322,7 +344,7 @@ export const SHIP_CLASSES = {
       // drawn, five and a half metres so it lies in the sculpt's tubes.
       launch: {
         eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 3.78,
-        fish: { len: 5.6, r: 0.24 },
+        fish: { len: 5.6, r: 0.24, kind: 'type93' },
       },
     },
     secondary: null,
@@ -519,7 +541,7 @@ export const SHIP_CLASSES = {
       // drawn, five and a half metres so it lies in the sculpt's tubes.
       launch: {
         eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 4.38,
-        fish: { len: 5.6, r: 0.24 },
+        fish: { len: 5.6, r: 0.24, kind: 'type93' },
       },
     },
     secondary: null,
@@ -885,14 +907,21 @@ export const SHIP_CLASSES = {
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: -8, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
-        { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
+        { id: 0, x: -8.73, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
+        { id: 1, x: 8.73, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
       reach: 4.55,
       traverse: 0.26,
       reload: 78, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      // Out of the tubes and over her side, off the model's own banks
+      // (hipper.js): three tubes eight and a half metres long, so a G7a goes
+      // in at its full seven metres.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.82, 0, 0.82], lie: 0.7, muzzle: 4.5,
+        fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+      },
     },
     // Six twin 10.5 cm on the beam: three a side, and none of them can fire
     // across her.
@@ -1054,6 +1083,12 @@ export const SHIP_CLASSES = {
       traverse: 0.24,
       reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      // Out of the tubes and over her quarter, off the model's own banks
+      // (spee.js): four tubes side by side, long enough for a whole G7a.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-1.28, -0.43, 0.43, 1.28], lie: 0.7, muzzle: 4.5,
+        fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+      },
     },
     // Eight single 15 cm in open shielded mounts, four a side along her upper
     // deck. They are surface guns and nothing else: the mounting will not
@@ -1270,8 +1305,14 @@ export const SHIP_CLASSES = {
     // train. A Type VII is aimed by pointing the boat.
     torpedoes: {
       mounts: [
-        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.55 },
-        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -1.55 },
+        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.55,
+          // Out of the four bow doors, two over two (uboat.js), along the
+          // tube until the whole fish is clear of her stem.
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.691, 0.691, -0.346, 0.346], lie: -3.11, muzzle: 0.62, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -1.55,
+          launch: { eject: 9, stagger: 0, lanes: [0], lie: -3.11, muzzle: 0.62, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
       ],
       name: 'G7e torpedo', role: 'surface', caliber: 533,
       reach: 0.55,
@@ -1428,12 +1469,15 @@ export const SHIP_CLASSES = {
     torpedoes: {
       mounts: [
         // The bow four are inside the pressure hull and fire out of the stem.
-        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5 },
+        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5,
+          // Out of the four doors in her stem, two over two (surcouf.js).
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.66, 0.66, -0.66, 0.66], lie: -3.27, muzzle: 1.02, wet: true, clear: 4.6,
+            fish: { len: 8.28, r: 0.275, kind: 'l3' } } },
         // The two aft are external mountings standing on the casing, and they
         // go over the side the way a destroyer's bank does -- which is what
         // `inHull: false` says, and why she needs to say it per mounting.
-        { id: 1, x: -1.55, z: -17.5, angle: -1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
-        { id: 2, x: 1.55, z: -17.5, angle: 1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
+        { id: 1, x: -1.55, z: -17.5, angle: -1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false, launch: SURCOUF_TRIPLE },
+        { id: 2, x: 1.55, z: -17.5, angle: 1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false, launch: SURCOUF_TRIPLE },
       ],
       name: '550 mm 1924V', role: 'surface', caliber: 550,
       // Six 55 cm and four 40 cm, which is why she does not say twenty-one inch.
@@ -3505,6 +3549,14 @@ export const SHIP_CLASSES = {
       // much less of a wake than a cold-air fish.
       reload: 150, damage: 15600, speed: 35 * KNOTS, range: 13700,
       detection: 1300, arming: 450, spread: 0.05, floodChance: 0.40,
+      // Under the water: the fish is pushed out along its tube, through the
+      // sluice in her side, and runs once it is clear of her (rnguns.js
+      // bowTube). The tube is eight metres long to her plating, and the fish
+      // drawn in it a little under.
+      launch: {
+        eject: 9, stagger: 0, lanes: [0], lie: 4.0, muzzle: 8.1, wet: true, clear: 4.5,
+        fish: { len: 7.8, r: 0.311, kind: 'mk1' },
+      },
     },
     // Twelve 6-inch in six twin turrets, three a side round her after
     // superstructure: the forward and after pair on her upper deck, the middle
@@ -6010,6 +6062,14 @@ export const SHIP_CLASSES = {
       // No wake at all, which is the whole point of running one on oxygen:
       // the first anybody knew about a Long Lance was the hit.
       detection: 900, arming: 450, spread: 0.06, floodChance: 0.40,
+      // Out of the tubes, two over two, and out through the opening in her
+      // side (takao.js). The sculpt's tubes are eight and two fifths metres
+      // and narrow: the Type 93 is drawn eight metres long and slim enough
+      // to go in them.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.36, 0.36, -0.36, 0.36], lie: 1.15, muzzle: 5.3,
+        fish: { len: 8.0, r: 0.235, kind: 'type93' },
+      },
     },
     secondary: {
       name: '12.7 cm Type 89', role: 'dp',
