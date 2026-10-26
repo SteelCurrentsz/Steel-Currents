@@ -22,7 +22,6 @@ import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
 import { holePlating, lineInside } from './shellholes.js';
-import { Inrush } from './inrush.js';
 import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
@@ -752,7 +751,6 @@ export class ShipView {
     // The sea coming in through whichever of those holes it reaches. Made
     // when she is first holed; see opened.
     this.ocean = ocean;
-    this.inrush = null;
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -1253,36 +1251,10 @@ export class ShipView {
   /**
    * She has a hole in her at a point in her own frame, `r` across: line the
    * inside of her plating so the hole shows her inside rather than the sea
-   * through the other side (see lineInside), and let the sea in through it
-   * if it is low enough to take water (see Inrush).
+   * through the other side (see lineInside).
    */
   opened(x, y, z, r, n = null) {
     if (this.plating) lineInside(this.plating.parts);
-    if (!this.ocean) return;
-    if (!this.inrush) this.inrush = new Inrush(this.group, this.ocean);
-    // Which way the plate faces, when the caller did not know: off the
-    // plating itself, turned to face out of her -- up off a deck, outboard
-    // off a side.
-    if (!n && this.plating) {
-      const near = this.plating.nearest(x, y, z, Math.max(6, r * 2.5));
-      if (near) {
-        let [, , , nx, ny, nz] = near;
-        const out = Math.abs(ny) > 0.6 ? ny : nx * (x || near[0]);
-        if (out < 0) { nx = -nx; ny = -ny; nz = -nz; }
-        n = [nx, ny, nz];
-      }
-    }
-    this.inrush.add(x, y, z, r, n);
-  }
-
-  /**
-   * Once a frame, after she is posed: the sea pouring into whichever of her
-   * holes it reaches. Not once she is in two -- her holes are on a model
-   * that is not there any more as one thing -- or once she is out of sight.
-   */
-  stepInrush(dt) {
-    if (!this.inrush) return;
-    this.inrush.step(dt, this.group.visible && !this.halves && !this.rupture);
   }
 
   /** A collision too light to open her: her plating scraped for `len` metres. */
@@ -1839,7 +1811,6 @@ export class ShipView {
   }
 
   dispose(scene) {
-    if (this.inrush) this.inrush.dispose();
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     scene.remove(this.group);

@@ -355,8 +355,6 @@ uniform float uUnder;
 uniform float uChop;
 // How much of the surface a hard wind has streaked with foam, and which way
 // it is blowing. See setSeaState.
-uniform float uStreaks;
-uniform vec2 uWindDir;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
@@ -656,24 +654,6 @@ void main() {
   // of a torpedoed tanker has seen and nobody ever draws.
   float clean = 1.0 - oilCov * 0.95;
   col = mix(col, white, foam * 0.5 * clean);
-  // Spindrift. In a hard wind the foam off every breaking crest is not left
-  // lying in patches: it is dragged out downwind into long thin streaks that
-  // lie along the wind across the backs of the seas, and it is those lanes of
-  // white -- more than the height of anything -- that tell a rough sea from a
-  // big swell. Long along the wind and narrow across it, folded into ridges
-  // so it comes out as threads, and thickest on the crests it came off.
-  if (uStreaks > 0.0) {
-    vec2 wd = uWindDir;
-    vec2 wq = vec2(dot(q, wd), dot(q, vec2(-wd.y, wd.x)));
-    float sn = onoise(vec2(wq.x * 0.011 - uTime * 0.05, wq.y * 0.11));
-    float sn2 = onoise(vec2(wq.x * 0.024 - uTime * 0.08, wq.y * 0.29) + 7.7);
-    float lane = 1.0 - abs(sn - 0.5) * 3.2;
-    float thread = smoothstep(0.45, 0.85, lane * 0.75 + sn2 * 0.35);
-    float onCrest = 0.35 + 0.65 * smoothstep(-0.3, 0.7, lift);
-    float streak = thread * onCrest * uStreaks * smoothstep(0.2, 0.6, gust)
-                 * clamp(1.0 - dcam / 5000.0, 0.0, 1.0);
-    col = mix(col, white, streak * 0.42 * clean);
-  }
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
   col = mix(col, white, wkFoam * (0.42 + 0.38 * wkB) * clean);
@@ -925,8 +905,6 @@ export class Ocean {
         uCrest: { value: p.amp },
         uSteep: { value: 1 },
         uChop: { value: 1 },
-        uStreaks: { value: 0 },
-        uWindDir: { value: new THREE.Vector2(WAVES[0].dir[0], WAVES[0].dir[1]).normalize() },
         uFade: { value: size * 0.34 },
         uWave: { value: wave },
         uWaveB: { value: waveB },
@@ -1017,7 +995,6 @@ export class Ocean {
     u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.sqrt(Math.min(1.6, wx?.swell || 1));
     // Spindrift: none in any ordinary sea, lanes of it in rough water, and
     // the whole sea streaked white in a typhoon.
-    if (u.uStreaks) u.uStreaks.value = Math.min(1, Math.max(0, ((wx?.swell || 1) - 1) * 2.2));
   }
 
   /** Run the sea on a clock of somebody else's -- the server's, in a battle. */
