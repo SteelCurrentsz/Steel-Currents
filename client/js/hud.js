@@ -57,6 +57,12 @@ const LAMP_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true" class="lamp-icon"
 
 const M_TO_YARDS = 1.09361;
 
+/** What each of a bomber's gun positions is called on the gunner's key. */
+const TURRET_LABEL = {
+  nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
+  tail: 'Tail', gondola: 'Ventral', rear: 'Rear',
+};
+
 /** The top of the throttle ladder: a tenth over full power, which is emergency power. */
 export const THROTTLE_MAX = 1.1;
 
@@ -1018,12 +1024,16 @@ class HudBase {
    * being watched, reading LEAVE GUN while somebody is in it, with the FIRE
    * key beside it when there is no cockpit on the glass to fire from.
    */
-  setGunner(offer, seated, fire) {
+  setGunner(offer, seated, fire, next = null, at = null) {
     const el = this.el;
     if (!el.gunSeat) return;
     const show = (!!offer || seated) && !this.flying;
     el.gunSeat.hidden = !show;
-    const label = seated ? 'LEAVE GUN' : offer === 'rear' ? 'REAR GUNNER' : 'TAIL GUNNER';
+    // What a press does: into the first seat, on to the next turret, or out.
+    const name = (k) => (TURRET_LABEL[k] || k || '').toUpperCase();
+    const label = seated
+      ? (next ? `${name(at)} ▸ ${name(next)}` : 'LEAVE GUN')
+      : offer === 'rear' ? 'REAR GUNNER' : `${name(offer)} GUNNER`;
     if (show && el.gunSeat.textContent !== label) el.gunSeat.firstElementChild.textContent = label;
     el.gunFire.hidden = !fire;
     if (!fire && this.gunHeld) { this.gunHeld = false; el.gunFire.classList.remove('held'); }

@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask,
+  slotMask, machineSlot,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -374,6 +374,30 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // Which stations of a formation are still flying, when that is not simply
   // the first so many: a machine shot out of the middle leaves a gap where she
   // was, and the gap is drawn as a gap.
+  /**
+   * Which machines are streaming fuel, and from where.
+   *
+   * Four numbers a machine: her station in the formation, and where on her
+   * the hole in her tank is, in the airframe's own normalised frame (see
+   * PART_BOX) in hundredths. The plume comes out of that hole, not out of the
+   * middle of the formation. A machine that is alight is not on it: hers is
+   * fire, not vapour. One whose tank has been holed without the hole being
+   * recorded -- a till that has not yet filled -- leaks from the middle of
+   * the tank on her right wing.
+   */
+  const leakReport = (p) => {
+    const out = [];
+    for (const a of p.machines || []) {
+      if (!a.alive || a.left || !(a.leak > 0.02) || a.fire > 0.05) continue;
+      let h = null;
+      for (const q of a.holes || []) if (q.k === 'tanks') h = q;
+      out.push(machineSlot(p, a),
+        Math.round((h ? h.x : 0.24) * 100), Math.round((h ? h.y : 0) * 100),
+        Math.round((h ? h.z : 0.18) * 100));
+    }
+    return out.length ? out : undefined;
+  };
+
   const gaps = (p) => {
     if (!(p.machines || []).length) return undefined;
     const m = slotMask(p);
@@ -435,7 +459,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // bar and every machine in it was in identical condition by definition.
       sm: p.wear && p.wear.smoking ? p.wear.smoking : undefined,
       fb: p.wear && p.wear.burning ? p.wear.burning : undefined,
-      lk: p.wear && p.wear.leaking ? p.wear.leaking : undefined,
+      lp: leakReport(p),
       wr: p.wear && p.wear.speed < 0.995 ? r3(p.wear.speed) : undefined,
       // Which ship is flying her by hand, if anybody is. A flight has one
       // pilot: without this the plot could offer a squadron to two captains
@@ -467,8 +491,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // her that anybody watching can actually see.
       d: b.phase === 'run' ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
-      // How many of her are streaming fuel from a holed tank.
-      lk: b.wear && b.wear.leaking ? b.wear.leaking : undefined,
+      // Which of her are streaming fuel from a holed tank, and from where.
+      lp: leakReport(b),
       // Which of her gun positions have been shot out, one bit each in the
       // order of her `posts`.
       tg: (b.posts || []).reduce((m, g, k) => (g.hp <= 0 ? m | (1 << k) : m), 0) || undefined,

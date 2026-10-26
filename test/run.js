@@ -3981,9 +3981,11 @@ check('a shell leaves the muzzle it was fired from', () => {
         }
         out /= m.userData.muzzles.length;
         up /= m.userData.muzzles.length;
-        assert.ok(Math.abs(out - battery.reach) < 1.2,
+        // A mounting unlike the rest of its battery carries its own.
+        const reach = specs[i].reach || battery.reach;
+        assert.ok(Math.abs(out - reach) < 1.2,
           `${id} ${what} ${i}: her muzzle is ${out.toFixed(2)} m out and the `
-          + `datasheet says ${battery.reach}`);
+          + `datasheet says ${reach}`);
         assert.ok(specs[i].my != null,
           `${id} ${what} ${i}: no muzzle height on her datasheet`);
         assert.ok(Math.abs(up - specs[i].my) < 1.0,
@@ -10557,14 +10559,19 @@ check('a hull swings on her own period rather than lying on the water', () => {
 
   // Pitch is the other way about: she comes up into the wave and stops there.
   // A hull that went on nodding fore and aft would look like a bath toy.
+  //
+  // Not to a dead stop: pitch is damped short of critical, so her weight
+  // carries her a hair past level (see SEAWAY.pitchZeta) -- which is what
+  // buries a bow in a sea. What must not happen is a nod anybody could see,
+  // so a swing through level counts once it goes a tenth of a degree past.
   const nod = new Seakeeping(SHIP_CLASSES.fletcher.hull);
   nod.pitch = 0.10;
+  const SEEN = 0.1 * Math.PI / 180;
   let crossings = 0;
-  let last = nod.pitch;
+  let side = 1;
   for (let t = 0; t < 60; t += dt) {
     const q = nod.step(flat, dt).pitch;
-    if ((last > 0) !== (q > 0)) crossings++;
-    last = q;
+    if (Math.abs(q) > SEEN && Math.sign(q) !== side) { crossings++; side = Math.sign(q); }
   }
   assert.ok(crossings <= 2, `she nodded through level ${crossings} times`);
   assert.ok(Math.abs(nod.pitch) < 0.005, 'she never settled fore and aft');
@@ -11797,6 +11804,36 @@ check('an aeroplane that flies out of the flak may not get home', () => {
     `her worst leak emptied her in ${s2.toFixed(0)} s, which is not a fuel tank`);
 });
 
+check('fuel streams out of the hole in her tank, on the machine that has it', () => {
+  // The plume is drawn out of a particular hole on a particular aeroplane, so
+  // the wire has to say which machine and where the hole is -- not merely how
+  // many of the formation are leaking, which left the client to guess both.
+  const world = generateWorld(77, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = 0;
+  const p = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -2000, count: 3 });
+  const live = p.machines.filter((m) => m.alive && !m.left);
+  for (const m of live) { m.fire = 0; m.leak = 0; }
+  // One leaking out of a hole in her left tank; one leaking and alight, which
+  // is fire and not vapour; one holed without the hole recorded yet.
+  live[0].leak = 0.1;
+  live[0].holes = [{ k: 'wings', x: 0.6, y: 0, z: 0.1, r: 0.1 }, { k: 'tanks', x: -0.31, y: 0.02, z: 0.22, r: 0.1 }];
+  live[1].leak = 0.1; live[1].fire = 0.5;
+  live[2].leak = 0.1; live[2].holes = [];
+  assert.ok(live.length >= 3, `the squadron has ${live.length} machines`);
+  const snap = buildSnapshot(st, 0, cv.id, 0, true);
+  const w = snap.bombers.find((q) => q.i === p.id);
+  assert.ok(w && w.lp, 'nothing on the wire says she is leaking');
+  const rows = [];
+  for (let k = 0; k < w.lp.length; k += 4) rows.push(w.lp.slice(k, k + 4));
+  const slotOf = (m) => m.slot ?? p.machines.indexOf(m);
+  assert.equal(rows.length, 2, `two machines are streaming vapour, the wire says ${rows.length}`);
+  assert.deepEqual(rows[0], [slotOf(live[0]), -31, 2, 22], 'not out of the hole in her tank');
+  assert.equal(rows[1][0], slotOf(live[2]), 'the second leak is on the wrong machine');
+  assert.ok(!rows.some((r) => r[0] === slotOf(live[1])), 'a burning machine is drawn trailing vapour');
+});
+
 check('a strike pays for what it does', () => {
   // The whole point of a close-range battery. A strike used to fly through
   // anything at all without losing a single aeroplane -- the flight's shared
@@ -12231,13 +12268,23 @@ check('a full deckload goes up one aeroplane at a time, each going straight for 
   assert.ok(want === 20 || want === 21, `a strike off her is ${want} aeroplanes, not a quarter of eighty`);
   const born = [];
   let lastCount = 0;
-  for (let i = 0; i < Math.ceil((DECK_RUN + DECK_NEXT * (want - 1) + 2) / DT); i++) {
+  // The deck is cleared between one aeroplane and the next for any of hers
+  // coming back to land (see stepLaunch), and the first of them are back
+  // from a target nine kilometres off long before the last is ranged. So the
+  // launch takes as long as it takes plus however long it was held for them,
+  // and the time it was held is counted.
+  let held = 0;
+  const limit = DECK_RUN + DECK_NEXT * (want - 1) + 2;
+  for (let i = 0; i < Math.ceil(limit * 3 / DT) && (st.t < limit + held || cv.launching); i++) {
     for (const q of st.ships) q.spottedBy = [true, true];
+    if (cv.launching && cv.launching.hold) held += DT;
     step(st, DT);
     // Never more than one more than there was.
     assert.ok(st.planes.length <= lastCount + 1,
       `${st.planes.length - lastCount} aeroplanes left the deck on one tick`);
-    for (const p of st.planes) if (!born.some((b) => b.id === p.id)) born.push({ id: p.id, t: st.t, n: p.count });
+    for (const p of st.planes) {
+      if (!born.some((b) => b.id === p.id)) born.push({ id: p.id, t: st.t, n: p.count, held });
+    }
     lastCount = st.planes.length;
     // And none of it circles the ship waiting for the rest: each one is
     // away for the enemy the moment her wheels are up.
@@ -12247,15 +12294,17 @@ check('a full deckload goes up one aeroplane at a time, each going straight for 
   assert.equal(born.length, want, `${born.length} of ${want} got off the deck`);
   assert.ok(born.every((b) => b.n === 1), 'an aeroplane went up as a flight of several');
   for (let i = 1; i < born.length; i++) {
-    const gap = born[i].t - born[i - 1].t;
-    assert.ok(Math.abs(gap - DECK_NEXT) < 0.5, `two went ${gap.toFixed(1)} s apart`);
+    const gap = born[i].t - born[i - 1].t - (born[i].held - born[i - 1].held);
+    assert.ok(Math.abs(gap - DECK_NEXT) < 0.5,
+      `two went ${gap.toFixed(1)} s apart, not counting the deck held for a landing`);
   }
   // Each her own leader, flying for the enemy rather than for a station on
   // somebody else.
   assert.ok(st.planes.every((p) => p.lead === p.id), 'an aeroplane was flying station on another');
-  // And the first of them, seven minutes up, is long gone from over the ship.
+  // And the first of them, seven minutes up, is long gone from over the ship
+  // -- unless she has been and come back, and is landing on.
   const first = st.planes.find((p) => p.id === born[0].id);
-  if (first) {
+  if (first && first.phase !== 'return' && !first.land) {
     assert.ok(dist(first.x, first.z, cv.x, cv.z) > 3000,
       `the first aeroplane off is still ${dist(first.x, first.z, cv.x, cv.z).toFixed(0)} m from her carrier`);
   }
@@ -18782,6 +18831,22 @@ check("a formation is machines, and a gunner in one of her turrets fires it", ()
   const then = left();
   for (let i = 0; i < 12; i++) gunTurret(st, ship, bm.id, 0, 0.8, 0.1);
   assert.equal(left(), then, 'a tail gunner shot forward through his own aeroplane');
+  // Laid up into the sky over a fighter level with her, he misses; laid on
+  // her, he hits. Where he points his guns up and down counts as well as round.
+  const level = left();
+  for (let i = 0; i < 12; i++) gunTurret(st, ship, bm.id, Math.PI, 0.8, 0.1, 'tail', -0.9);
+  assert.equal(left(), level, 'a tail gunner laid well over a fighter level with her hit her');
+  for (let i = 0; i < 12; i++) gunTurret(st, ship, bm.id, Math.PI, 0.8, 0.1, 'tail', 0);
+  assert.ok(left() < level, 'a tail gunner laid on a fighter level with her missed');
+  // And each mounting has its own trigger: a burst started in one turret is
+  // not finished by the next.
+  const tail = bm.posts.find((q) => q.name === 'tail');
+  const nose = bm.posts.find((q) => q.name === 'nose');
+  tail.turretAt = 0; nose.turretAt = 0;
+  gunTurret(st, ship, bm.id, Math.PI, 0.8, 0.1, 'tail', 0);
+  gunTurret(st, ship, bm.id, 0, 0.8, 0.1, 'nose', 0);
+  assert.ok(Math.abs(tail.turretAt - 0.1) < 1e-9 && Math.abs(nose.turretAt - 0.1) < 1e-9,
+    'two turrets share one trigger');
 });
 
 check("the arsenal panel lists what an aeroplane carries, and her turrets", () => {

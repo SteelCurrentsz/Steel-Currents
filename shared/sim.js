@@ -1952,7 +1952,10 @@ function turretWorldPos(ship, cls, t) {
  */
 export function muzzlePos(ship, cls, mount, battery, bearing, gun = 0, guns = 1) {
   const w = localToWorld(mount.x, mount.z, ship.heading);
-  const reach = battery.reach || 8;
+  // A mounting that is not like the rest of its battery says so itself: the
+  // Surcouf's bow tubes open in her stem a metre ahead of the axis, where her
+  // external triples have six metres of tube lying on a ring.
+  const reach = mount.reach || battery.reach || 8;
   // Across the face of the mounting, so a wing gun is offset from the centre
   // one. A hair over a metre a barrel is right for everything from a 2 cm to
   // a 16 inch, because what sets it is the recoil gear and not the bore.
@@ -10635,20 +10638,23 @@ export function dropStick(state, ship, id) {
  * a tail gunner firing forward through his own fins does nothing at all --
  * which is the point of giving a turret an arc in the first place.
  */
-export function gunTurret(state, ship, id, yaw, arc, dt, post = '') {
+export function gunTurret(state, ship, id, yaw, arc, dt, post = '', pitch = null) {
   const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
   if (!bm || !ship || bm.team !== ship.team) return false;
   // A position that has been shot out has nothing left in it to fire.
   const g = post ? (bm.posts || []).find((q) => q.name === post) : null;
   if (g && g.hp <= 0) return false;
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
-  // Her own accumulator, not `gunAt` -- that one is a timestamp `gunsSeen`
-  // uses to space the tracer out, and sharing it makes each of them eat the
-  // other's state.
-  bm.turretAt = (bm.turretAt ?? 0) + dt;
-  if (bm.turretAt < 0.25) return true;
-  const burst = bm.turretAt;
-  bm.turretAt = 0;
+  // Each mounting's own accumulator, not `gunAt` -- that one is a timestamp
+  // `gunsSeen` uses to space the tracer out, and sharing it makes each of
+  // them eat the other's state -- and not one for the whole aeroplane either,
+  // or a gunner who moves from one turret to the next takes the last one's
+  // half-fired burst with him.
+  const acc = g || bm;
+  acc.turretAt = (acc.turretAt ?? 0) + dt;
+  if (acc.turretAt < 0.25) return true;
+  const burst = acc.turretAt;
+  acc.turretAt = 0;
   // What one mounting of hers is worth: her whole battery over the number of
   // turrets she carries, for one aeroplane rather than the formation.
   const perTurret = (b.guns || 8) / Math.max(1, b.turrets || 3);
@@ -10658,7 +10664,13 @@ export function gunTurret(state, ship, id, yaw, arc, dt, post = '') {
     if (q.dead || q.team === bm.team) continue;
     const d = dist(bm.x, bm.z, q.x, q.z);
     if (d > bestD) continue;
-    if (Math.abs((q.y ?? 0) - bm.y) > 500) continue;
+    const dy = (q.y ?? 0) - bm.y;
+    // Up and down as well as round: where he has his guns laid, if he says.
+    // His pitch is positive below the horizon. Without it, anything within a
+    // few hundred metres of her height will do.
+    if (pitch === null) {
+      if (Math.abs(dy) > 500) continue;
+    } else if (Math.abs(Math.atan2(dy, Math.max(1, d)) + pitch) > 0.35) continue;
     // Inside his cone, and inside it off her nose rather than off the world.
     const bear = wrapAngle(headingTo(bm.x, bm.z, q.x, q.z) - bm.heading);
     if (Math.abs(wrapAngle(bear - yaw)) > 0.35) continue;

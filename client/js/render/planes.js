@@ -1071,9 +1071,16 @@ export class HoleField {
     // In at her from outside. A wing and a tailplane are found from above or
     // below, a fuselage from the side -- which is also the direction the round
     // came from, so the hole ends up on the side it went in.
-    const flat = h.k === 'wings' || h.k === 'tail';
+    //
+    // A tank is in the wing, so it is found the way the wing is -- from below,
+    // which is where a holed tank drains. Found from the side, the way the
+    // fuselage is, the ray stopped at the first thing out on the wing it came
+    // to: a tank hole four metres out from her fuselage went on the outboard
+    // engine ten metres out, and the fuel poured out of that.
+    const flat = h.k === 'wings' || h.k === 'tail' || h.k === 'tanks';
+    const above = h.k !== 'tanks' && py >= cy;
     const reach = span * 1.2;
-    if (flat) this.dir.set(0, py >= cy ? -1 : 1, 0);
+    if (flat) this.dir.set(0, above ? -1 : 1, 0);
     else this.dir.set(px >= 0 ? -1 : 1, 0, 0);
     this.probe.far = reach * 2.4;
     // The point itself first, and then round about it.
@@ -1096,7 +1103,7 @@ export class HoleField {
         const ox = ring * span * Math.cos(a);
         const oz = ring * span * Math.sin(a);
         // Offset across the two axes the ray is not travelling along.
-        if (flat) this.from.set(px + ox, py >= cy ? cy + reach : cy - reach, pz + oz);
+        if (flat) this.from.set(px + ox, above ? cy + reach : cy - reach, pz + oz);
         else this.from.set(px >= 0 ? reach : -reach, py + ox * 0.5, pz + oz);
         this.probe.set(this.from, this.dir);
         const hits = this.probe.intersectObject(probe, false);
@@ -1263,6 +1270,8 @@ export class Flights {
     // what is drawn on them afterwards: trails off their tips, flashes at
     // their guns.
     this.slotM = SLOTS.map(() => new THREE.Matrix4());
+    // Which station of the formation each of those is.
+    this.slotI = SLOTS.map(() => 0);
     this.slotN = 0;
   }
 
@@ -1270,6 +1279,24 @@ export class Flights {
   tips(kind) {
     const b = this.batches[kind];
     return b ? { tips: b.tips, nose: b.nose } : null;
+  }
+
+  /**
+   * Where a hole at `h` -- a part and a point in the airframe's normalised
+   * frame, as the simulation records one -- is in the world, on the machine
+   * at `station` of the flight just drawn. The same ray the hole itself is
+   * cut by finds it, so anything coming out of the hole comes out of the
+   * hole that can be seen. Null when that machine is not being drawn.
+   */
+  pointOn(kind, station, h, span, out) {
+    const b = this.batches[kind];
+    if (!b) return null;
+    const k = this.slotI.indexOf(station);
+    if (k < 0 || k >= this.slotN) return null;
+    const at = this.holes.snap(kind, b.probe, h, span, b.cy);
+    if (at) out.copy(at.p);
+    else out.set(h.x * span * 0.5, b.cy + h.y * span * 0.30, h.z * span * 0.36);
+    return out.applyMatrix4(this.slotM[k]);
   }
 
   /** Where on her each piece of this type breaks away, in her own frame. */
@@ -1415,6 +1442,7 @@ export class Flights {
       d.updateMatrix();
       // Kept in the order drawn, gaps left out, for whatever wants each
       // machine that is actually there: the bombs off her racks, her trails.
+      this.slotI[this.slotN] = i;
       this.slotM[this.slotN++].copy(d.matrix);
       const c = i === cutSlot ? cut : 0;
       // What has been shot through her, cut out of her. The list is turned
@@ -1445,6 +1473,7 @@ export class Flights {
     d.scale.setScalar(1);
     d.updateMatrix();
     this.slotM[0].copy(d.matrix);
+    this.slotI[0] = 0;
     this.slotN = 1;
     const row = this.holesOn(d.matrix, holes, span, 0, b, key, cut);
     this.body(b, d.matrix, cut, row);

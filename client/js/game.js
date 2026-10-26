@@ -158,6 +158,9 @@ const SKIM_E = new THREE.Euler();
 // draws her: heading first, then pitch, then bank.
 const HEAVY_AT = { x: 0, y: 0, z: 0 };
 const HEAVY_E = new THREE.Euler(0, 0, 0, 'YXZ');
+// A hole off the wire, and where it is in the world.
+const LEAK_H = { k: 'tanks', x: 0, y: 0, z: 0 };
+const LEAK_P = new THREE.Vector3();
 const EYE_UP = new THREE.Vector3();
 const EYE_TOP = new THREE.Vector3();
 const EYE_BACK = new THREE.Vector3();
@@ -3330,6 +3333,20 @@ export class Battle {
     // bomb bay without leaving the battle.
     if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
     if (this.bombSight && code === 'Escape') { this.closeBombSight(); audio.click(); return; }
+    // Out of a turret before out of anything else.
+    if (this.turret && code === 'Escape') { this.manTurret({ turret: this.turret.name }); return; }
+    // A heavy's turrets by number, in the order her model has them -- nose
+    // to tail -- so a gunner can go straight to the one the fighter is
+    // coming in on rather than stepping through the others to get there.
+    if (/^Digit[1-9]$/.test(code)) {
+      const air = this.airInHand();
+      if (air && air.heavy) {
+        const names = this.heavyTurrets(air);
+        const name = names[Number(code.slice(5)) - 1];
+        if (name) this.manTurret({ turret: name });
+        return;
+      }
+    }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3850,6 +3867,11 @@ export class Battle {
       kind: air.kind,
     };
     this.hud.setAirGun(row.turret);
+    if (air.heavy) {
+      const n = this.heavyTurrets(air).length;
+      this.hud.alert(`${TURRET_NAME[row.turret] || row.turret} turret`
+        + (n > 1 ? ` — B or 1–${n} to change, Esc to leave` : ' — Esc to leave'));
+    }
     audio.click();
   }
 
@@ -4440,6 +4462,7 @@ export class Battle {
             this.net.send({
               t: 'gunb', i: f.id, n: t.name,
               y: Math.round(t.yaw * 1000) / 1000,
+              p: Math.round(t.pitch * 1000) / 1000,
               a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
               dt: Math.round(f.guns * 100) / 100,
             });
@@ -5260,7 +5283,7 @@ export class Battle {
   stepGunner(dt) {
     const t = this.turret;
     const flown = this.flight && this.flight.id === t?.id;
-    this.hud.setGunner?.(this.gunnerOffer(), !!t, !!t && !flown);
+    this.hud.setGunner?.(this.gunnerOffer(), !!t, !!t && !flown, this.nextGunner(), t ? t.name : null);
     if (!t || flown) { this.gunnerFire = null; return; }
     const g = this.gunnerFire || (this.gunnerFire = { guns: 0, tracer: 0 });
     const firing = this.input.down('Space') || !!this.hud.gunHeld;
@@ -5277,6 +5300,7 @@ export class Battle {
         this.net.send({
           t: 'gunb', i: t.id, n: t.name,
           y: Math.round(t.yaw * 1000) / 1000,
+          p: Math.round(t.pitch * 1000) / 1000,
           a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
           dt: Math.round(g.guns * 100) / 100,
         });
@@ -5288,6 +5312,16 @@ export class Battle {
   }
 
   /**
+   * A heavy's turrets, by name, in the order her model has them, less the
+   * ones that have been shot out.
+   */
+  heavyTurrets(air) {
+    const spec = HEAVY[air.kind] || HEAVY.lancaster;
+    const out = this.flight && this.flight.id === air.id ? (this.flight.gunsOut || []) : [];
+    return (spec.turrets || []).map((q) => q.name).filter((n) => !out.includes(n));
+  }
+
+  /**
    * Whether the aeroplane in hand has a gunner's seat to go to: a carrier
    * bomber's back seat, or a heavy's tail turret if it is still there. The
    * GUNNER key and B both go to it.
@@ -5296,19 +5330,33 @@ export class Battle {
     const air = this.airInHand();
     if (!air) return null;
     if (!air.heavy) return rearSeatOf(air.kind) ? 'rear' : null;
-    const spec = HEAVY[air.kind] || HEAVY.lancaster;
-    const names = (spec.turrets || []).map((q) => q.name);
-    const out = this.flight && this.flight.id === air.id ? (this.flight.gunsOut || []) : [];
-    const live = names.filter((n) => !out.includes(n));
+    const live = this.heavyTurrets(air);
     return live.includes('tail') ? 'tail' : live[live.length - 1] || null;
   }
 
-  /** Into the gunner's seat, or back out of it. */
+  /**
+   * Where the GUNNER key and B go next. On a heavy they step round all of
+   * her turrets, starting at the tail, and the press after the last one is
+   * back to the pilot's seat; a carrier bomber has the one gun. Null is out.
+   */
+  nextGunner() {
+    const offer = this.gunnerOffer();
+    if (!this.turret) return offer;
+    const air = this.airInHand();
+    if (!air || !air.heavy || !offer) return null;
+    const live = this.heavyTurrets(air);
+    const from = live.indexOf(offer);
+    const ring = live.slice(from).concat(live.slice(0, from));
+    const at = ring.indexOf(this.turret.name);
+    return at >= 0 && at + 1 < ring.length ? ring[at + 1] : null;
+  }
+
+  /** Into the gunner's seat, on to the next turret, or back out. */
   toggleGunner() {
-    if (this.turret) { this.manTurret({ turret: this.turret.name }); return; }
-    const name = this.gunnerOffer();
-    if (!name) return;
-    this.manTurret({ turret: name });
+    const next = this.nextGunner();
+    if (this.turret && !next) { this.manTurret({ turret: this.turret.name }); return; }
+    if (!next) return;
+    this.manTurret({ turret: next });
   }
 
   /**
@@ -6561,6 +6609,9 @@ export class Battle {
           { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs },
           (this.airBursts.get(pl.i) || 0) > this.time ? Math.max(1, pl.n || 1) : 0, dt, cut);
       }
+      // Fuel out of every holed tank, from the hole, on the machine that has it.
+      this.leakFx(pl.i, pl.lp,
+        (station, h, out) => this.scene.flights.pointOn(kind, station, h, a.span, out));
       // The ones that have been hit and are still flying.
       //
       // A formation coming out of the flak with one of its number streaming
@@ -6811,37 +6862,38 @@ export class Battle {
     const slots = [];
     const m = mask || (1 << Math.max(1, pl.n || 1)) - 1;
     for (let i = 5; i >= 0; i--) if ((m >> i) & 1) slots.push(i);
-    const n = Math.min(pl.sm, slots.length);
+    // The ones streaming fuel and not alight are drawn by leakFx, out of the
+    // hole in the tank; the rest of the hurt ones smoke.
+    const leaking = new Set();
+    const lp = pl.lp || [];
+    for (let k = 0; k + 3 < lp.length; k += 4) leaking.add(lp[k]);
+    const smokers = slots.filter((q) => !leaking.has(q));
+    const n = Math.min(Math.max(0, pl.sm - leaking.size), smokers.length);
     // The ones on fire, rather than only trailing oil or glycol.
     const fb = Math.min(pl.fb || 0, n);
-    // And the ones that are not alight but have a tank holed: those stream
-    // white, petrol vapour off the wing rather than smoke.
-    const lk = Math.min(pl.lk || 0, n - fb);
     for (let i = 0; i < n; i++) {
-      const s = slotAt(slots[i], pl.h || 0);
-      if (i >= fb && i < fb + lk) {
-        this.fuelVent(`${pl.i}/${slots[i]}`, pl.x + s.x, y + s.y, pl.z + s.z, pl.h || 0, 2.2, 1.5);
-        continue;
-      }
-      const run = runs[slots[i]] || (runs[slots[i]] = {});
+      const s = slotAt(smokers[i], pl.h || 0);
+      const run = runs[smokers[i]] || (runs[smokers[i]] = {});
       this.scene.effects.smokeRun(run, pl.x + s.x + bx, y + s.y, pl.z + s.z + bz,
         { fire: i < fb ? 1 : 0 });
     }
   }
 
   /**
-   * Fuel pouring out of a holed wing tank on one machine, at `x, y, z` on
-   * `heading`: a white plume off the trailing edge of the wing, `out` metres
-   * out from her centreline and `aft` behind it. Which wing is settled by the
-   * key, so the same machine always streams from the same side.
+   * Fuel streaming out of the holed tanks of a flight just drawn: out of the
+   * hole itself, on the machine that has it. `lp` is four numbers a machine
+   * off the wire -- her station, and where the hole is in her own frame in
+   * hundredths -- and `point(station, h, out)` finds that place in the world.
    */
-  fuelVent(key, x, y, z, heading, out, aft) {
-    let side = 0;
-    for (let i = 0; i < key.length; i++) side = (side * 31 + key.charCodeAt(i)) | 0;
-    const sx = side & 1 ? 1 : -1;
-    const sn = Math.sin(heading), cs = Math.cos(heading);
-    this.scene.contrails.vent(key,
-      x + cs * out * sx - sn * aft, y - 0.2, z - sn * out * sx - cs * aft, 1);
+  leakFx(id, lp, point) {
+    if (!lp) return;
+    const h = LEAK_H;
+    const p = LEAK_P;
+    for (let k = 0; k + 3 < lp.length; k += 4) {
+      h.x = lp[k + 1] / 100; h.y = lp[k + 2] / 100; h.z = lp[k + 3] / 100;
+      if (!point(lp[k], h, p)) continue;
+      this.scene.contrails.vent(`${id}/${lp[k]}`, p.x, p.y, p.z, 1);
+    }
   }
 
   /**
@@ -6866,23 +6918,17 @@ export class Battle {
         .setPosition(x + at.x, y + at.y, z + at.z);
       this.scene.contrails.lay(`${bm.i}/h${i}`, m, tips, engines, g, v || 80, y + at.y);
     }
-    if (bm.lk > 0) this.heavyVents(bm, x, y, z, heading, mask);
-  }
-
-  /**
-   * The heavies of a squadron losing fuel: the hurt ones are the last
-   * stations still flying, the same as a flight's, and each streams from an
-   * inboard tank between her engines.
-   */
-  heavyVents(bm, x, y, z, heading, mask) {
-    const half = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span / 2;
-    const m = mask || (1 << Math.max(1, bm.n || 1)) - 1;
-    let left = bm.lk;
-    for (let i = VIC.length - 1; i >= 0 && left > 0; i--) {
-      if (!((m >> i) & 1)) continue;
-      const s = vicAt(i, heading);
-      this.fuelVent(`${bm.i}/h${i}`, x + s.x, y + s.y, z + s.z, heading, half * 0.32, 3.5);
-      left--;
+    // And fuel, out of the hole in each holed tank, on the machine that has it.
+    if (bm.lp) {
+      const kind = bm.b || 'lancaster';
+      this.leakFx(`${bm.i}/h`, bm.lp, (station, h, out) => {
+        if (mask ? !((mask >> station) & 1) : station >= n) return null;
+        if (!this.scene.heavies.pointOn(kind, h, half * 2, out)) return null;
+        vicAt(station, heading, at);
+        m.makeRotationFromEuler(HEAVY_E.set(-(pitch || 0), heading, -(bank || 0), 'YXZ'))
+          .setPosition(x + at.x, y + at.y, z + at.z);
+        return out.applyMatrix4(m);
+      });
     }
   }
 

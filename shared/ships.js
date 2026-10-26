@@ -1470,7 +1470,9 @@ export const SHIP_CLASSES = {
       mounts: [
         // The bow four are inside the pressure hull and fire out of the stem.
         { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5,
-          // Out of the four doors in her stem, two over two (surcouf.js).
+          // Out of the four doors in her stem, two over two (surcouf.js), a
+          // metre ahead of the axis and two-thirds of one either side of it.
+          reach: 1.21,
           launch: { eject: 9, stagger: 0.6, lanes: [-0.66, 0.66, -0.66, 0.66], lie: -3.27, muzzle: 1.02, wet: true, clear: 4.6,
             fish: { len: 8.28, r: 0.275, kind: 'l3' } } },
         // The two aft are external mountings standing on the casing, and they

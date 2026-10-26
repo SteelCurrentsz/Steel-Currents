@@ -659,7 +659,8 @@ export class Room {
         gunTurret(this.state, ship, msg.i, Number(msg.y) || 0,
           Math.min(Math.PI, Math.max(0, Number(msg.a) || Math.PI)),
           Math.min(0.3, Math.max(0, msg.dt || 0)),
-          typeof msg.n === 'string' ? msg.n.slice(0, 16) : '');
+          typeof msg.n === 'string' ? msg.n.slice(0, 16) : '',
+          Number.isFinite(Number(msg.p)) ? Number(msg.p) : null);
         break;
       // A carrier bomber's back-seat gun, laid and fired by the man in it.
       case 'gunr':

@@ -83,6 +83,15 @@ export class Heavies {
     return b;
   }
 
+  /**
+   * Where a hole at `h` is on a heavy of this type, in her own frame: the same
+   * ray her holes are cut by. Null when the ray finds no aeroplane.
+   */
+  pointOn(kind, h, span, out) {
+    const at = this.holes.snap(kind, this.batch(kind).mesh.geometry, h, span);
+    return at ? out.copy(at.p) : null;
+  }
+
   /** A new frame: nothing is in the air until it has been added. */
   begin(dt = 0) {
     // The airscrews, wound on at the rate a cruising heavy turns hers.
