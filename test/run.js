@@ -20836,6 +20836,35 @@ check('a typhoon comes after a thunderstorm and a super typhoon after that, each
   assert.ok(WEATHER.typhoon.dark < 1 && WEATHER.super_typhoon.dark < WEATHER.typhoon.dark);
 });
 
+check('rough seas come after the rain: cloudy, dry, a high sea, and the guns kept in action', () => {
+  const at = (id) => WEATHERS.indexOf(id);
+  assert.equal(at('rough_seas'), at('rain') + 1, 'rough seas is not next after the rain');
+  const r = WEATHER.rough_seas;
+  assert.equal(r.name, 'Rough Seas');
+  assert.equal(r.fall, null, 'it is still raining in rough seas');
+  assert.equal(r.lightning, 0);
+  assert.ok(r.light < WEATHER.sunny.light && r.light >= WEATHER.rain.light, 'rough seas is not overcast');
+  const hs = (wx) => {
+    const S = seaOf({ weather: wx, time: 'day', sea: 4 });
+    const W = waveTerms(S.amp, S.steep, S.short);
+    return 4 * Math.sqrt([...W.a].reduce((n, a) => n + a * a, 0) / 2);
+  };
+  assert.ok(hs('rough_seas') > hs('rain') * 1.2, 'rough seas is no higher a sea than the rain');
+  assert.ok(hs('rough_seas') < hs('typhoon'), 'rough seas is as high as a typhoon');
+  // A sea she pitches into, but one that never puts her guns out.
+  const world = generateWorld(5, 'open_ocean', 'day', 9000, null, 'rough_seas');
+  const state = createState(world);
+  const ship = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  assert.ok(stormSea(state), 'no seaway worked out in rough seas');
+  let swamps = 0, pitch = 0;
+  for (let i = 0; i < 30 * 60; i++) {
+    for (const ev of step(state)) if (ev.e === 'swamp') swamps++;
+    pitch = Math.max(pitch, Math.abs(ship.seaway?.p || 0));
+  }
+  assert.equal(swamps, 0, 'rough seas swamped her turrets');
+  assert.ok(pitch > 0.004, 'she does not pitch in rough seas');
+});
+
 check('the sea the server reckons with is the sea the screen draws', () => {
   for (const wx of ['sunny', 'typhoon', 'super_typhoon']) {
     for (const time of ['day', 'night']) {

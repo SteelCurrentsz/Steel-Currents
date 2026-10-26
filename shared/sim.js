@@ -30,7 +30,7 @@ import {
   groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
-  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf,
+  seaOf, waveTerms, seaHeight, seaAttitude, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
 } from './sea.js';
 
 export const TICK_RATE = 30;
@@ -4721,17 +4721,17 @@ export function stepSeaway(state, ship, W, h) {
   const k = ship.seaway || (ship.seaway = { r: 0, rv: 0, p: 0, pv: 0, h: att.heave * ride.heave, hv: 0 });
   const rw = (Math.PI * 2) / (2.7 * Math.sqrt(B));
   const pp = 0.44 * Math.sqrt(L) * 1.02;
-  const pw = (Math.PI * 2) / pp;
-  const hw = (Math.PI * 2) / (pp * 1.25);
+  const pw = (Math.PI * 2) / (pp * SEAWAY.pitchSlow);
+  const hw = (Math.PI * 2) / (pp * SEAWAY.heaveSlow);
   const rTo = att.roll * rollHeed(L) * ride.tilt;
   const pTo = att.pitch * pitchHeed(L) * ride.tilt;
   const hTo = att.heave * ride.heave;
   const n = Math.max(1, Math.ceil(h / 0.04));
   const s = h / n;
   for (let i = 0; i < n; i++) {
-    k.rv += (rw * rw * (rTo - k.r) - 2 * 0.13 * rw * k.rv) * s; k.r += k.rv * s;
-    k.pv += (pw * pw * (pTo - k.p) - 2 * 1.25 * pw * k.pv) * s; k.p += k.pv * s;
-    k.hv += (hw * hw * (hTo - k.h) - 2 * 1.1 * hw * k.hv) * s; k.h += k.hv * s;
+    k.rv += (rw * rw * (rTo - k.r) - 2 * SEAWAY.rollZeta * rw * k.rv) * s; k.r += k.rv * s;
+    k.pv += (pw * pw * (pTo - k.p) - 2 * SEAWAY.pitchZeta * pw * k.pv) * s; k.p += k.pv * s;
+    k.hv += (hw * hw * (hTo - k.h) - 2 * SEAWAY.heaveZeta * hw * k.hv) * s; k.h += k.hv * s;
   }
   return k;
 }
@@ -4762,6 +4762,9 @@ function stepSwamp(state, ship, dt) {
   stepSeaway(state, ship, W, h);
   // A boat under the water is not being swamped: she is a boat.
   if (submerged(ship)) return;
+  // Nor is a ship in a sea that is only rough: she pitches and throws spray,
+  // but nothing short of a storm stands green water over her gun houses.
+  if (getWeather(state.world?.weather).swamp === false) return;
   const cls = shipClass(ship);
   const deck = freeboardOf(cls);
   const wet = (m, spec, kind = null, i = 0) => {

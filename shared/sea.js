@@ -204,6 +204,27 @@ export function rideOf(world) {
   return { heave: r, tilt: 0.5 + 0.5 * r };
 }
 
+/**
+ * How a hull answers the sea, as both ends integrate it (see seakeeping.js and
+ * stepSeaway in sim.js, which have to agree).
+ *
+ * She is heavy. A few thousand tons does not lift the moment a crest arrives
+ * under her and stop the moment it has passed: she comes up late, carries on a
+ * little past the level of the water, and is still settling when the next sea
+ * arrives -- so her bow goes down into the face of it and the sea comes back
+ * up her flare in a sheet, instead of her floating over the top like a cork.
+ * Heave and pitch are therefore slower than her own hull would make them on a
+ * spring alone, and damped short of critical so the weight shows as momentum.
+ */
+export const SEAWAY = {
+  rollZeta: 0.13,
+  pitchZeta: 0.62,
+  heaveZeta: 0.55,
+  // Her natural heave and pitch periods, as multiples of pitchPeriod().
+  heaveSlow: 1.25 * 1.35,
+  pitchSlow: 1.18,
+};
+
 /** How much of the sea's slope reaches her athwartships. See seakeeping.js. */
 export function rollHeed(length) {
   return Math.min(1, Math.max(0.16, Math.pow(47 / length, 0.915)));

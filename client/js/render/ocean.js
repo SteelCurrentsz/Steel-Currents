@@ -228,7 +228,6 @@ uniform vec4 uHullAt[MAX_HULLS];   // xz of her middle, reach squared, how much 
 uniform vec4 uHullDim[MAX_HULLS];  // z of her after end, her length, how far out she is felt, easing
 uniform sampler2D uHullPlan;       // a row a hull: waterline half-breadth, deck edge, side under it
 uniform float uHoldLeak;           // how much of a sea standing over her deck comes aboard
-uniform float uHoldUp;             // how far the trough is held up to her sides, in a storm
 
 // What she is at a station, by z in her own frame.
 vec4 hullPlan(int i, float z, vec4 dim) {
@@ -276,19 +275,6 @@ float holdOff(inout vec3 wp) {
     float w = (1.0 - smoothstep(0.0, dim.z, hullOff(lp, pl, dim))) * at.w;
     float k = dim.w;
     float top = pl.g - ${HOLD_MARGIN.toFixed(3)};
-    // And held up to her, the other way: the trough under her does not open
-    // round her bottom. She sits in the sea rather than being stood on a
-    // crest with daylight under her, and the water at her sides is never let
-    // fall below a little under her waterline -- which is a metre up her
-    // frame, because every hull is floated a metre down.
-    // Only in a storm, and only partly: in any other sea she rides the
-    // water and there is no trough deep enough to open round her.
-    float floorY = 0.0;
-    float under = floorY - lp.y;
-    if (uHoldUp > 0.0 && w > 0.0 && under > 0.0) {
-      wp.y += under * w * uHoldUp;
-      continue;
-    }
     float over = lp.y - (top - k);
     if (w <= 0.0 || over <= 0.0) continue;
     float y = top - k + k * (1.0 - exp(-over / k));
@@ -367,6 +353,10 @@ uniform float uGlareSize;
 uniform float uStreak;
 uniform float uUnder;
 uniform float uChop;
+// How much of the surface a hard wind has streaked with foam, and which way
+// it is blowing. See setSeaState.
+uniform float uStreaks;
+uniform vec2 uWindDir;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
@@ -666,6 +656,24 @@ void main() {
   // of a torpedoed tanker has seen and nobody ever draws.
   float clean = 1.0 - oilCov * 0.95;
   col = mix(col, white, foam * 0.5 * clean);
+  // Spindrift. In a hard wind the foam off every breaking crest is not left
+  // lying in patches: it is dragged out downwind into long thin streaks that
+  // lie along the wind across the backs of the seas, and it is those lanes of
+  // white -- more than the height of anything -- that tell a rough sea from a
+  // big swell. Long along the wind and narrow across it, folded into ridges
+  // so it comes out as threads, and thickest on the crests it came off.
+  if (uStreaks > 0.0) {
+    vec2 wd = uWindDir;
+    vec2 wq = vec2(dot(q, wd), dot(q, vec2(-wd.y, wd.x)));
+    float sn = onoise(vec2(wq.x * 0.011 - uTime * 0.05, wq.y * 0.11));
+    float sn2 = onoise(vec2(wq.x * 0.024 - uTime * 0.08, wq.y * 0.29) + 7.7);
+    float lane = 1.0 - abs(sn - 0.5) * 3.2;
+    float thread = smoothstep(0.45, 0.85, lane * 0.75 + sn2 * 0.35);
+    float onCrest = 0.35 + 0.65 * smoothstep(-0.3, 0.7, lift);
+    float streak = thread * onCrest * uStreaks * smoothstep(0.2, 0.6, gust)
+                 * clamp(1.0 - dcam / 5000.0, 0.0, 1.0);
+    col = mix(col, white, streak * 0.42 * clean);
+  }
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
   col = mix(col, white, wkFoam * (0.42 + 0.38 * wkB) * clean);
@@ -912,12 +920,13 @@ export class Ocean {
         uHullDim: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4(0, 1, 1, 1)) },
         uHullPlan: { value: this.hullPlan },
         uHoldLeak: { value: 0.6 },
-        uHoldUp: { value: 0 },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
         uCrest: { value: p.amp },
         uSteep: { value: 1 },
         uChop: { value: 1 },
+        uStreaks: { value: 0 },
+        uWindDir: { value: new THREE.Vector2(WAVES[0].dir[0], WAVES[0].dir[1]).normalize() },
         uFade: { value: size * 0.34 },
         uWave: { value: wave },
         uWaveB: { value: waveB },
@@ -993,7 +1002,6 @@ export class Ocean {
     // -- onto the deck and against the superstructure -- rather than being
     // shaved off at her deck edge.
     if (u.uHoldLeak) u.uHoldLeak.value = this.short ? 0.95 : 0.6;
-    if (u.uHoldUp) u.uHoldUp.value = this.short ? 0.55 : 0;
     const scale = waveScales(this.short);
     u.uWave.value.forEach((w, i) => { w.w = WAVES[i].amp * scale[i]; });
     // The crests whiten at the same share of the sea's height whatever is
@@ -1003,7 +1011,13 @@ export class Ocean {
     if (u.uCrest) u.uCrest.value = u.uAmp.value * (now / was) * (this.short ? 0.9 : 1);
     // A calm sea is glassy and a rough one is not: the chop rides the state
     // rather than sitting at one strength whatever the weather.
-    u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.min(1.6, wx?.swell || 1);
+    // Not straight up with the storm, though: past a point more ripple is
+    // not a rougher sea but a sparkling one, and what a gale adds is foam --
+    // the streaks below -- rather than finer and finer chop.
+    u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.sqrt(Math.min(1.6, wx?.swell || 1));
+    // Spindrift: none in any ordinary sea, lanes of it in rough water, and
+    // the whole sea streaked white in a typhoon.
+    if (u.uStreaks) u.uStreaks.value = Math.min(1, Math.max(0, ((wx?.swell || 1) - 1) * 2.2));
   }
 
   /** Run the sea on a clock of somebody else's -- the server's, in a battle. */

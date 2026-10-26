@@ -2060,6 +2060,8 @@ export class BattleScene {
       });
       // The sea against the ships: kept off their decks, and thrown up their
       // sides as spray under the same sky and down the same wind.
+      // And the white water out of every splash, under the same sky.
+      this.effects.splashes.setAtmosphere({ preset, overcast, sunDir: p.lightDir });
       this.breakers = new Breakers(this.scene, this.ocean, { intensity: q.particles });
       this.breakers.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },

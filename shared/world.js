@@ -298,25 +298,36 @@ export const TIMES = ['dawn', 'day', 'dusk', 'night'];
  *   swell    how much taller every wave is than the sea state makes it, and
  *   short    how much more again the short, breaking sea is built up, which
  *            is the part of a storm that comes aboard (see shared/sea.js).
- *   ride     how much of the sea's rise and fall a hull takes up. In a storm
- *            she does not ride up every sea like a cork: she is a few
- *            thousand tons being driven into it, and the seas break over her
- *            rather than lifting her (see shared/sea.js rideOf).
+ *   ride     how much of the sea's rise and fall a hull takes up. Nearly all
+ *            of it, even in a typhoon: she goes up and down with the seas
+ *            and it is her weight -- see seakeeping.js -- that has her late
+ *            to each one, so she drives her bow into the next crest rather
+ *            than floating over it (see shared/sea.js rideOf).
+ *   swamp    false for a sea that is rough but no storm: it throws spray
+ *            over her and she pitches into it, but it never stands green
+ *            water over her guns.
  *   dark     what is left of the light after the sky has done with it, on
  *            top of the hour's own: a typhoon is dark at noon, and at night
  *            it is darker than night.
  */
-export const WEATHERS = ['sunny', 'cloudy', 'rain', 'thunder', 'typhoon', 'super_typhoon', 'snow'];
+export const WEATHERS = ['sunny', 'cloudy', 'rain', 'rough_seas', 'thunder', 'typhoon', 'super_typhoon', 'snow'];
 
 export const WEATHER = {
   sunny:   { name: 'Sunny',        sea: 0,   light: 1.00, fog: 1.0, sight: 1.00, fall: null,   drop: 0,    lightning: 0, wind: 4 },
   cloudy:  { name: 'Cloudy',       sea: 0.6, light: 0.70, fog: 1.5, sight: 0.90, fall: null,   drop: 0,    lightning: 0, wind: 7 },
   rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0, wind: 10 },
+  // The day after the rain: the cloud has not lifted, but nothing is coming
+  // out of it any more, and the wind that brought the rain has left a big,
+  // short, steep sea behind it. Not a storm -- no lightning, no blinding rain
+  // -- but the seas are high enough to throw spray over a destroyer's bridge
+  // and to put a battleship's bow into them.
+  rough_seas: { name: 'Rough Seas', sea: 1.9, light: 0.62, fog: 1.9, sight: 0.84, fall: null, drop: 0, lightning: 0,
+    wind: 14, swell: 1.25, short: 1.6, steep: 1.08, ride: 1, swamp: false },
   thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9, wind: 16 },
   typhoon: { name: 'Typhoon',      sea: 3.2, light: 0.22, fog: 5.6, sight: 0.36, fall: 'rain', drop: 2.6,  lightning: 6,
-    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55, ride: 0.45 },
+    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55, ride: 0.85 },
   super_typhoon: { name: 'Super Typhoon', sea: 3.8, light: 0.12, fog: 7.4, sight: 0.26, fall: 'rain', drop: 3.8, lightning: 4,
-    wind: 62, blow: 1, swell: 1.6, short: 4.6, steep: 1.25, dark: 0.32, ride: 0.3 },
+    wind: 62, blow: 1, swell: 1.6, short: 4.6, steep: 1.25, dark: 0.32, ride: 0.8 },
   snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0, wind: 9 },
 };
 
