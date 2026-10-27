@@ -2383,8 +2383,13 @@ export class Battle {
           let lit = false;
           let heard = null;
           if (view) {
-            const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : null;
-            const which = ev.t != null ? ev.t : ev.s;
+            // `dp` is a dual-purpose gun of her light battery, which the
+            // model holds with the rest of her light mountings.
+            const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : ev.dp != null ? 'aa' : null;
+            const which = ev.t != null ? ev.t : ev.s != null ? ev.s : ev.dp;
+            // And it is laid where it fired, not on whatever aeroplane is
+            // nearest: a dual-purpose gun shooting at a ship points at her.
+            if (ev.dp != null) view.holdLight(ev.dp, ev.b, ev.up ?? null, 4);
             if (kind) {
               // And which way each barrel is laid, elevation and all: the
               // blast goes out along the bore, and a gun cocked up at twenty
@@ -2464,7 +2469,11 @@ export class Battle {
           if (view) {
             const bearing = Math.atan2(ev.tx - view.group.position.x,
               ev.tz - view.group.position.z);
-            mounts = view.bearingOn('aa', bearing, 0.85);
+            // The automatic guns only. A dual-purpose mounting fires its own
+            // rounds, a reload at a time, and they come on their own events.
+            const dpAt = new Set(dpMounts(view.cls).map((q) => q.i));
+            mounts = view.bearingOn('aa', bearing, 0.85)
+              .filter((m) => !dpAt.has(view.aaMounts.indexOf(m)));
             // How much of the burst each barrel is responsible for, so a ship
             // with eighty guns bearing does not send eighty times the tracer
             // of one with four -- the simulation has already decided how much
@@ -2493,6 +2502,11 @@ export class Battle {
 
           break;
         }
+        case 'airburst':
+          // A heavy round's time fuse running out in the sky.
+          fx.flakBurst(ev.x, ev.y, ev.z, ev.cal);
+          audio.explosion(Math.min(0.5, 0.12 + ev.cal / 600), { x: ev.x, y: ev.y, z: ev.z });
+          break;
         case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
         case 'landhit': {
           const g = groundHeight(this.scene.world, ev.x, ev.z);

@@ -2474,8 +2474,14 @@ function turretDesired(ship, cls, t, aim = null) {
   return { angle: local2, blocked: limited };
 }
 
-function stepTurrets(state, ship, dt) {
+function stepTurrets(state, ship, dt, live = true) {
   const cls = shipClass(ship);
+  // A dual-purpose main battery with nothing on the surface in reach goes up
+  // after the aeroplanes. Not in a client's prediction of her, which has no
+  // aeroplanes and fires nothing.
+  const upAfter = live && cls.gun.role === 'dp' && !!cls.aa
+    && ((state.planes && state.planes.length) || (state.bombers && state.bombers.length))
+    && !gunsDrowned(ship) && !surfaceInReach(state, ship, cls.gun.range);
   // How far up the guns are, which is the same solution she fires on: at eight
   // hundred yards a battleship's guns are almost flat, and at her extreme
   // range they are up at twenty degrees. It is on the wire because it is the
@@ -2506,6 +2512,23 @@ function stepTurrets(state, ship, dt) {
     // out of reach or out of sight it stands where it is and does not fire.
     const given = held ? null : assignedAim(state, ship, 'main', t.id, cls.gun.range, cls.gun);
     if (given && given.idle) { t.laid = false; if (t.cooldown > 0) t.cooldown -= dt; continue; }
+    if (upAfter && !held && !given) {
+      const air = dpAirTarget(state, ship, spec, cls.gun, cls.aa.range);
+      if (air) {
+        layMounting(t, spec, air.local, clamp(air.up, stops.min, stops.max),
+          cls.gun.traverse * dt, 0.9 * dt, stops);
+        // Laid on an aeroplane is not laid on the plot: her fire control's
+        // salvo waits until the turret is back on the surface.
+        t.laid = false;
+        if (t.cooldown > 0) t.cooldown -= dt;
+        if (t.cooldown <= 0 && Math.abs(angleDelta(t.angle, air.local)) <= 0.08
+          && Math.abs(t.elev - air.up) <= 0.12 && orderGiven(state, ship, 'aa')) {
+          dpAirSalvo(state, ship, cls, spec, cls.gun, air, { t: t.id });
+          t.cooldown = cls.gun.reload + gunPenalty(cond);
+        }
+        continue;
+      }
+    }
     const want = held ? mannedDesired(ship, spec) : turretDesired(ship, cls, t, given);
     // A gun that cannot bear comes down to the loading angle rather than
     // standing there pointing at the sky over her own bridge -- and one that
@@ -3584,6 +3607,24 @@ function mannedLightOn(ship, cls, px, pz, py) {
   return !(m.mask && up < layFloor(m.mask, wrapAngle(b - ship.heading)));
 }
 
+/**
+ * The bore of the heaviest automatic gun aboard that reaches `d`, or 0 when
+ * none of them does. The automatic guns are the light battery less its
+ * dual-purpose mountings, which are not automatic and do not fire tracer.
+ */
+const AUTO_CACHE = new Map();
+export function autoCal(cls, d) {
+  let list = AUTO_CACHE.get(cls.id);
+  if (!list) {
+    list = ((cls.aa && cls.aa.guns) || []).filter((g) => g.role !== 'dp')
+      .map((g) => ({ cal: g.caliber || 20, range: g.range || 0 }))
+      .sort((a, b) => b.cal - a.cal);
+    AUTO_CACHE.set(cls.id, list);
+  }
+  for (const g of list) if (d <= g.range) return g.cal;
+  return 0;
+}
+
 /** Total barrels in her light battery, bearing or not. */
 export function aaBarrels(cls) {
   return aaBattery(cls).reduce((n, m) => n + m.guns, 0);
@@ -3727,23 +3768,234 @@ function dpBattery(g) {
   return b;
 }
 
+// ---------------------------------------------------------------------------
+// Dual-purpose guns against aircraft
+// ---------------------------------------------------------------------------
+//
+// The flak arithmetic (stepPlanes, stepBombers) decides what a ship's fire
+// does to a squadron. What it never did was put a heavy round in the air: a
+// five-inch mounting at its stops on a torpedo bomber was drawn as a hose of
+// automatic tracer coming out of the Bofors tubs, which is not what a 5"/38
+// looks like or how often it fires. So each dual-purpose mounting lays on an
+// aeroplane itself and fires real rounds at it, on its own reload, out of its
+// own muzzles -- the same shells the main battery and the secondaries fire,
+// fused for a time of flight, and bursting where the fuse runs out.
+
+/** How far a time fuse is out, as a share of the time it was set for. */
+const FUSE_ERROR = 0.05;
+
+/** Which way an aeroplane is going, flight or heavy alike. */
+function airMotion(a) {
+  const v = airVelocity(a);
+  return { vx: v.x || 0, vy: v.y || 0, vz: v.z || 0 };
+}
+
 /**
- * Her dual-purpose mountings that have been put on a ship by name. They go on
- * shooting at aircraft in the flak (see stepFlak); this is the other half of
- * what makes them dual-purpose, and only for the ship they were given.
+ * The aeroplane this mounting would rather be shooting at: the nearest enemy
+ * one in reach, on a bearing it can train to and at a height between its stops
+ * and clear of her own upperworks. Heavies as well as carrier flights. Null
+ * when there is nothing up, which is when a dual-purpose gun goes back to the
+ * surface.
+ */
+function dpAirTarget(state, ship, spec, battery, reach) {
+  const stops = gunLimits(battery);
+  let best = null;
+  let bestD = reach;
+  const consider = (a, y) => {
+    // Slant range: a heavy three thousand metres up and a mile out is further
+    // off than the mile.
+    const ground = dist(ship.x, ship.z, a.x, a.z);
+    const d = Math.hypot(ground, y - (spec.my ?? 10));
+    if (d >= bestD) return;
+    const b = headingTo(ship.x, ship.z, a.x, a.z);
+    if (!mountBears(ship, spec, b)) return;
+    const local = wrapAngle(b - ship.heading);
+    const up = Math.atan2(y - (spec.my ?? 10), Math.max(1, ground)) - deckTilt(ship, local);
+    if (up > stops.max || up < stops.min) return;
+    if (spec.mask && up < layFloor(spec.mask, local)) return;
+    best = { a, y, d, b, local, up };
+    bestD = d;
+  };
+  for (const p of state.planes || []) {
+    if (p.dead || p.team === ship.team || !mayHurt(state, ship.team, p)) continue;
+    // Coming in to land on her own deck: nothing to shoot at.
+    if (p.phase === 'landing') continue;
+    consider(p, p.y ?? 200);
+  }
+  for (const bm of state.bombers || []) {
+    if (!bm.alive || bm.team === ship.team) continue;
+    consider(bm, bm.y ?? 3000);
+  }
+  return best;
+}
+
+/**
+ * One round from each barrel of a dual-purpose mounting, at an aeroplane.
+ *
+ * Laid off for where she will be when it gets there, with gravity taken off
+ * on the way, and fused to burst at that moment -- give or take what a
+ * mechanical time fuse was worth. `key` says which mounting it was, the way
+ * the surface battery's flash does: `t` a turret, `s` a secondary, `dp` a gun
+ * of the light battery.
+ */
+function dpAirSalvo(state, ship, cls, spec, battery, air, key) {
+  const guns = spec.guns || 1;
+  let fired = 0;
+  for (let gi = 0; gi < guns; gi++) {
+    const mz = muzzlePos(ship, cls, spec, battery, air.b, gi, guns);
+    fired += fuzedRound(state, mz, battery, air,
+      { owner: ship.id, team: ship.team, classId: cls.id });
+  }
+  const mz0 = muzzlePos(ship, cls, spec, battery, air.b);
+  state.events.push({
+    e: 'muzzle', x: mz0.x, z: mz0.z, y: mz0.y, b: air.b, cal: battery.caliber,
+    ship: ship.id, up: Math.round(air.up * 1000) / 1000, ...key,
+  });
+  ship.lastFiredAt = state.t;
+  return fired;
+}
+
+/**
+ * One time-fuzed round from a muzzle at `mz`, at the aeroplane in `air`.
+ *
+ * Laid off for where she will be when it gets there, with gravity taken off
+ * on the way, and fused to burst at that moment -- give or take what a laying
+ * error and a mechanical time fuse were worth. `who` is whose it is.
+ */
+function fuzedRound(state, mz, battery, air, who) {
+  const v = effVelocity(battery);
+  const g = gravityFor(battery);
+  const av = airMotion(air.a);
+  // Two passes of the lead: time of flight off the range, then off the range
+  // to where she will be after that long.
+  let tx = air.a.x, ty = air.y, tz = air.a.z;
+  let T = 0;
+  for (let k = 0; k < 2; k++) {
+    T = Math.hypot(tx - mz.x, ty - mz.y, tz - mz.z) / v;
+    tx = air.a.x + av.vx * T;
+    ty = air.y + av.vy * T;
+    tz = air.a.z + av.vz * T;
+  }
+  // Scattered as a barrage is: a few mils of laying error at the gun, and
+  // the fuse running long or short.
+  const sc = Math.max(8, T * v * 0.012);
+  tx += clamp(gauss(state.rng), -2.4, 2.4) * sc;
+  ty += clamp(gauss(state.rng), -2.4, 2.4) * sc * 0.6;
+  tz += clamp(gauss(state.rng), -2.4, 2.4) * sc;
+  T = Math.max(0.3, Math.hypot(tx - mz.x, ty - mz.y, tz - mz.z) / v);
+  return fireShell(state, {
+    id: eid(), ...who,
+    x: mz.x, z: mz.z, y: mz.y,
+    vx: (tx - mz.x) / T, vz: (tz - mz.z) / T, vy: (ty - mz.y) / T + (g * T) / 2,
+    g, spec: battery.shells.he || battery.shells.ap, caliber: battery.caliber, life: 0,
+    fuse: T * (1 + clamp(gauss(state.rng), -2, 2) * FUSE_ERROR),
+  }) ? 1 : 0;
+}
+
+/**
+ * The aeroplane a gun ashore built to shoot upward would rather be on: the
+ * nearest enemy one inside its reach and under its ceiling, on a bearing its
+ * mounting can come round to.
+ */
+function batteryAirTarget(state, bat, b, aa) {
+  const arc = batteryArc(b);
+  let best = null;
+  let bestD = aa.range;
+  const consider = (a, y) => {
+    if (b.ceiling && y > b.ceiling) return;
+    const ground = dist(bat.x, bat.z, a.x, a.z);
+    const d = Math.hypot(ground, y - bat.y);
+    if (d >= bestD) return;
+    const bearing = headingTo(bat.x, bat.z, a.x, a.z);
+    if (Math.abs(angleDelta(bat.heading, bearing)) > arc) return;
+    best = { a, y, d, b: bearing, up: Math.atan2(y - bat.y, Math.max(1, ground)) };
+    bestD = d;
+  };
+  for (const p of state.planes || []) {
+    if (p.dead || p.team === bat.team || p.phase === 'landing') continue;
+    consider(p, p.y ?? 200);
+  }
+  for (const bm of state.bombers || []) {
+    if (!bm.alive || bm.team === bat.team) continue;
+    consider(bm, bm.y ?? 3000);
+  }
+  return best;
+}
+
+/**
+ * Whether her main battery has anything on the surface to shoot at: an enemy
+ * ship her side can see, or a gun ashore, inside its range. A dual-purpose main
+ * battery -- a Fletcher's five-inch -- is her captain's for that, and goes up
+ * after the aeroplanes only when it has not got it.
+ */
+function surfaceInReach(state, ship, range) {
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team || !foe.spottedBy[ship.team]) continue;
+    if (dist(ship.x, ship.z, foe.x, foe.z) <= range) return true;
+  }
+  for (const bat of state.batteries || []) {
+    if (!bat.alive || bat.team === ship.team || !mayHurt(state, ship.team, bat)) continue;
+    if (dist(ship.x, ship.z, bat.x, bat.z) <= range) return true;
+  }
+  return false;
+}
+
+/** Where her flak battery (aaBattery) has the dual-purpose guns of her light battery. */
+function lightFlakAt(cls) {
+  let at = 0;
+  if (cls.gun && cls.gun.role === 'dp') at += cls.turrets.length;
+  if (cls.secondary && cls.secondary.role === 'dp') at += cls.secondary.mounts.length;
+  return at;
+}
+
+/**
+ * The dual-purpose guns of her light battery, in local control.
+ *
+ * Each is its own gun captain's: an aeroplane in reach and he is on it,
+ * because that is the thing coming at the ship; nothing up and he shoots at
+ * the nearest enemy he can see and bear on, afloat or ashore, the way a
+ * secondary mounting does. A gun given a ship by name off the targeting panel
+ * fires at her and nothing else, as it always has.
  */
 function stepDpSurface(state, ship, dt) {
-  if (!ship.assign || gunsDrowned(ship)) return;
+  if (gunsDrowned(ship)) return;
   const cls = shipClass(ship);
+  const dps = dpMounts(cls);
+  if (!dps.length) return;
   ship.dpCd = ship.dpCd || {};
-  for (const { i, spec, gun } of dpMounts(cls)) {
+  const flakAt = lightFlakAt(cls);
+  for (const { i, spec, gun } of dps) {
     if (ship.dpCd[i] > 0) ship.dpCd[i] -= dt;
-    if (!ship.assign[`dp:${i}`] || mountOff(ship, 'dp', i)) continue;
-    const B = dpBattery(gun);
-    const given = assignedAim(state, ship, 'dp', i, B.range, B);
-    if (!given || given.idle || ship.dpCd[i] > 0) continue;
+    if (mountOff(ship, 'dp', i)) continue;
+    if (ship.dpCd[i] > 0) continue;
     if (lightGunState(ship, cls, spec) >= 3) continue;
-    if (ship.aaWet && ship.aaWet[i] > 0) continue;
+    if (ship.aaWet && ship.aaWet[flakAt + i] > 0) continue;
+    if (!flakUp(ship, flakAt + i)) continue;
+    // A man standing at it lays it and it fires for him (see mannedLightOn).
+    if (isManned(ship, 'aa', i)) continue;
+    const B = dpBattery(gun);
+    const named = !!(ship.assign && ship.assign[`dp:${i}`]);
+    if (!named) {
+      const air = dpAirTarget(state, ship, spec, B, B.range);
+      if (air) {
+        if (!orderGiven(state, ship, 'aa')) continue;
+        dpAirSalvo(state, ship, cls, spec, B, air, { dp: i });
+        ship.dpCd[i] = B.reload;
+        continue;
+      }
+    }
+    let given = named ? assignedAim(state, ship, 'dp', i, B.range, B) : null;
+    if (!named) {
+      const foe = secondaryTarget(state, ship, spec, B);
+      if (foe) {
+        const d0 = dist(ship.x, ship.z, foe.x, foe.z);
+        const tof = solveBallistic(B, clamp(d0, 400, B.range), 10).tof;
+        const x = foe.x + Math.sin(foe.heading || 0) * (foe.speed || 0) * tof;
+        const z = foe.z + Math.cos(foe.heading || 0) * (foe.speed || 0) * tof;
+        given = { foe, idle: false, d: dist(ship.x, ship.z, x, z), x, z };
+      }
+    }
+    if (!given || given.idle) continue;
     const b = headingTo(ship.x, ship.z, given.x, given.z);
     if (!mountBears(ship, spec, b)) continue;
     if (!orderGiven(state, ship, 'sec')) continue;
@@ -3795,6 +4047,23 @@ function stepSecondary(state, ship, dt) {
       layMounting(m, spec, want.angle, up, S.traverse * dt, 0.9 * dt, stops);
       m.target = 0;
       continue;
+    }
+    // A dual-purpose secondary goes up after an aeroplane in reach before it
+    // looks at anything on the surface -- unless it has been given a ship by
+    // name, in which case she is what it is on.
+    if (S.role === 'dp' && !(ship.assign && ship.assign[`sec:${m.id}`])) {
+      const air = dpAirTarget(state, ship, spec, S, cls.aa ? cls.aa.range : 4000);
+      if (air) {
+        layMounting(m, spec, air.local, clamp(air.up, stops.min, stops.max),
+          S.traverse * dt, 0.9 * dt, stops);
+        m.target = 0;
+        if (m.cooldown > 0) continue;
+        if (Math.abs(angleDelta(m.angle, air.local)) > 0.08) continue;
+        if (!orderGiven(state, ship, 'aa')) continue;
+        dpAirSalvo(state, ship, cls, spec, S, air, { s: m.id });
+        m.cooldown = S.reload + gunPenalty(cond);
+        continue;
+      }
     }
     const foe = secondaryTarget(state, ship, spec, S, m);
     if (!foe) {
@@ -4150,11 +4419,32 @@ function batteryEye(state, bat, bearing) {
   return bat;
 }
 
+/**
+ * How much a battery commander wants this ship, other things being equal.
+ *
+ * Not simply the nearest. The ship shelling his position comes first -- she
+ * is the one killing his crews -- and after her a ship he has already hurt,
+ * because a cripple finished is a ship out of the battle; then a destroyer
+ * close in, which is the one that can run under his guns and put fish into
+ * the harbour; and then the nearest. The ship he is already laid on is worth
+ * something too, or he swings between two of them and hits neither.
+ */
+function batteryWants(state, bat, ship, d, gun) {
+  let v = -d / 1000;
+  if (bat.hitBy === ship.id && state.t - (bat.hitAt ?? -1e9) < 40) v += 6;
+  // Laid on this position by her own gunnery officer (see bots.js).
+  if (ship.firingBat === bat.id) v += 2;
+  v += (1 - ship.hp / Math.max(1, ship.maxHp)) * 4;
+  const cls = getClass(ship.classId);
+  if (cls.type === 'DD' && d < gun.range * 0.5) v += 1.5;
+  if (cls.type === 'CV') v += 1;
+  if (ship.id === bat.targetId) v += 1.5;
+  return v;
+}
+
 /** The enemy this battery would rather be shooting at, or null. */
 function batteryTarget(state, bat, b, gun, arcLimit = true) {
   const arc = batteryArc(b);
-  let best = null;
-  let bestD = Infinity;
   // What the battery has been told to engage, if anything. A coast defence
   // commander is part of a command, not a man shooting at whatever goes past:
   // when the staff has named a ship, that ship is his, and he only chooses for
@@ -4164,29 +4454,36 @@ function batteryTarget(state, bat, b, gun, arcLimit = true) {
   const wanted = bat.orderTarget
     ? state.ships.find((q) => q.id === bat.orderTarget && q.alive
       && q.team !== bat.team) : null;
-  for (const ship of (wanted ? [wanted, ...state.ships] : state.ships)) {
+  // Everything in reach, best first; and then the first of them he can see.
+  // Working out what is in sight is the expensive half, so it is asked of the
+  // ships in the order he wants them and stops at the first answer.
+  const cands = [];
+  for (const ship of state.ships) {
     if (!ship.alive || ship.team === bat.team) continue;
     const d = dist(bat.x, bat.z, ship.x, ship.z);
     // Out of range is out of range. This is the whole of what range means.
-    if (d > gun.range || d > bestD) continue;
+    if (d > gun.range) continue;
     const bearing = headingTo(bat.x, bat.z, ship.x, ship.z);
     // Inside the arc the mounting allows, or it can never bear -- unless we are
     // asking the other question, which is what the battery could reach if it
     // were re-laid.
     if (arcLimit && Math.abs(angleDelta(bat.heading, bearing)) > arc) continue;
+    // The ship the staff named is taken the moment she proves reachable:
+    // nothing is allowed to displace her.
+    const v = wanted && ship.id === wanted.id ? Infinity : batteryWants(state, bat, ship, d, gun);
+    cands.push({ ship, d, bearing, v });
+  }
+  cands.sort((p, q) => q.v - p.v);
+  for (const c of cands) {
     // And in sight: a hill between the two of them stops the shooting the same
     // way it stops a ship's — but not the hill the gun is standing on.
-    if (d > 900) {
-      const eye = batteryEye(state, bat, bearing);
-      if (blockedByLand(state.world, eye.x, eye.z, ship.x, ship.z, bat.own)) continue;
+    if (c.d > 900) {
+      const eye = batteryEye(state, bat, c.bearing);
+      if (blockedByLand(state.world, eye.x, eye.z, c.ship.x, c.ship.z, bat.own)) continue;
     }
-    best = ship;
-    bestD = d;
-    // The ship the staff named is taken the moment she proves reachable: she
-    // is first in the list, and nothing after her is allowed to displace her.
-    if (wanted && ship.id === wanted.id) break;
+    return c.ship;
   }
-  return best;
+  return null;
 }
 
 /**
@@ -4224,6 +4521,31 @@ function stepBatteries(state, dt) {
     }
 
     const arc = batteryArc(b);
+    // And a gun built to shoot upward puts its own rounds up at whatever is
+    // over it -- the sum above is what they do; these are the rounds. An
+    // aeroplane in reach comes before any ship: it is the thing coming at
+    // the position.
+    if (aa && !gun.rocket && !bat.salvo) {
+      const air = batteryAirTarget(state, bat, b, aa);
+      if (air) {
+        const want = clamp(angleDelta(bat.heading, air.b), -arc, arc);
+        bat.angle = approachAngle(bat.angle, want, gun.traverse * 2 * dt);
+        if (bat.cooldown <= 0 && Math.abs(angleDelta(bat.angle, want)) < 0.05) {
+          const at = { x: bat.x + Math.sin(air.b) * 4, z: bat.z + Math.cos(air.b) * 4, y: bat.y + 3 };
+          for (let g = 0; g < b.barrels; g++) {
+            fuzedRound(state, at, gun, air,
+              { owner: bat.id, team: bat.team, fromBattery: true, classId: null });
+          }
+          bat.cooldown = gun.reload;
+          bat.lastFiredAt = state.t;
+          state.events.push({
+            e: 'muzzle', x: bat.x, z: bat.z, y: bat.y + 6, b: air.b,
+            cal: gun.caliber, battery: bat.id, up: Math.round(air.up * 1000) / 1000,
+          });
+        }
+        continue;
+      }
+    }
     // Re-acquired twice a second rather than thirty times. Working out what a
     // battery can *see* is the expensive part -- the walk clear of its own
     // ground and the sight line over everything else -- and nothing on a
@@ -4446,7 +4768,7 @@ function loftedGun(state, gun, d) {
 }
 
 function fireBattery(state, bat, b, gun, target) {
-  const spec = gun.shells.ap;
+  const spec = batteryShell(gun, target);
   const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
   const bearing = wrapAngle(bat.heading + bat.angle);
   // A bedded gun shoots tighter than a rolling one, and the lead is the same
@@ -4492,6 +4814,23 @@ function fireBattery(state, bat, b, gun, target) {
 }
 
 /**
+ * What a battery loads for this ship: armour-piercing where it will get
+ * through her belt and she is worth it, high explosive into anything thin --
+ * a destroyer or a carrier, which an armour-piercing shell goes straight
+ * through -- and into a belt it cannot beat, where the burst on her upperworks
+ * is the only damage on offer.
+ */
+function batteryShell(gun, target) {
+  const he = gun.shells.he;
+  const ap = gun.shells.ap;
+  if (!he) return ap;
+  const cls = target && target.classId ? getClass(target.classId) : null;
+  if (!cls) return he;
+  if (cls.type === 'DD' || cls.type === 'CV' || cls.type === 'SS') return he;
+  return ap.pen >= cls.armor.belt * 1.1 ? ap : he;
+}
+
+/**
  * A shell arriving on a battery.
  *
  * There is no citadel to find and no belt to bounce off — an emplacement is a
@@ -4520,6 +4859,7 @@ function nearMiss(state, sh) {
     const dmg = sh.spec.damage * k * bite * cover;
     if (dmg < 1) continue;
     bat.hp -= dmg;
+    if (!sh.fromBattery) { bat.hitBy = sh.owner; bat.hitAt = state.t; }
     const shooter = shellOwner(state, sh);
     if (shooter) shooter.damageDealt += dmg;
     if (bat.hp <= 0) {
@@ -4547,6 +4887,8 @@ function resolveBatteryHit(state, sh, bat) {
   // round on fourteen inches of turret face does nothing but chip paint.
   const dmg = spec.damage * (through ? 0.5 : 0.12 * clamp((spec.pen / Math.max(1, b.armour)) * 2, 0.1, 1));
   bat.hp -= dmg;
+  // Who it was, which is the first thing the battery commander wants to know.
+  if (!sh.fromBattery && !sh.bomb) { bat.hitBy = sh.owner; bat.hitAt = state.t; }
   const shooter = shellOwner(state, sh);
   if (shooter) {
     shooter.damageDealt += dmg;
@@ -4832,6 +5174,13 @@ function stepShells(state, dt) {
     if (wp) {
       sh.vx += state.wind.x * wp * dt;
       sh.vz += state.wind.z * wp * dt;
+    }
+    // A round fused for a time of flight goes off where it is when the fuse
+    // runs out: the black burst in the sky that is nearly every round of
+    // heavy anti-aircraft fire ever fired. See dpAirSalvo.
+    if (sh.fuse && sh.life >= sh.fuse) {
+      state.events.push({ e: 'airburst', x: r(sh.x), y: r(sh.y), z: r(sh.z), cal: sh.caliber });
+      continue;
     }
 
     let consumed = false;
@@ -8072,7 +8421,13 @@ export function pickAirTarget(state, p) {
     let v;
     if (p.role === 'fighter') v = bulk(s2) * 2.2 + d * 0.02;          // the smallest
     else if (p.role === 'torpedo') v = -bulk(s2) * 6 + d * 0.02;      // the biggest
-    else v = d * 0.02;                                               // the nearest
+    // The nearest -- unless there is a carrier or a cripple in reach, which
+    // is worth a few miles more of flying: a carrier's deck is the enemy's
+    // whole air group, and a ship already burning is one bomb from the bottom.
+    else {
+      v = d * 0.02 - (getClass(s2.classId).type === 'CV' ? 110 : 0)
+        - (1 - s2.hp / Math.max(1, s2.maxHp)) * 70;
+    }
     if (v < score) { best = s2; score = v; bestD = d; }
   }
   // A dive bomber's bomb is as good on a gun position as on a deck, and a
@@ -9273,21 +9628,24 @@ function stepPlanes(state, dt) {
         if (mannedLightOn(s, scls, p.x, p.z, p.y)) {
           hurtFlight(state, p,
             scls.aa.dps * MANNED_AA * dt * aaBite(d, scls.aa.range), 'flak');
-          s.aaFire = Math.min(s.aaFire, 0.02);
+          if (!s.manned.auto) s.aaFire = Math.min(s.aaFire, 0.02);
         }
       }
       // And the tracer that goes with it. One burst at a time per ship, on the
       // gun's own rhythm rather than every tick, or the wire carries a
       // thousand rounds a second nobody could see anyway.
+      // Only the automatic guns' tracer: the dual-purpose mountings fire
+      // their own rounds at her (dpAirSalvo), one a reload, and a hose of
+      // tracer out past the reach of every automatic gun aboard is a hose of
+      // nothing.
       s.aaFire -= dt;
-      if (s.aaFire <= 0) {
+      const auto = autoCal(scls, d);
+      if (s.aaFire <= 0 && auto) {
         s.aaFire = 0.22 + 0.5 / Math.max(1, bear.barrels / 8);
         state.events.push({
           e: 'aa', ship: s.id, x: r(s.x), z: r(s.z),
           tx: r(p.x), tz: r(p.z), n: bear.barrels,
-          // What is doing the shooting at this range: the heavy dual-purpose
-          // mountings out here, the automatic guns close in.
-          cal: d > 2600 ? 127 : d > 1500 ? 40 : 20,
+          cal: auto,
         });
       }
     }
@@ -9865,14 +10223,37 @@ function stepPlanes(state, dt) {
         // In the run. She steers for the point she wants to drop from rather
         // than at the ship itself: a torpedo bomber wants to be off the beam,
         // where the target is longest, and a dive bomber wants to be over her.
+        //
+        // Both off where she will be rather than where she is: a ship making
+        // thirty knots is half a mile on by the time a torpedo bomber has got
+        // round to her beam and the fish has run, and a run made on where she
+        // was ends on her quarter, which is where the fish miss astern.
+        const pv = Math.max(40, p.speed || 80);
+        const sv = best.speed || 0;
         if (p.torp > 0) {
-          const beam = best.heading + (angleDelta(headingTo(best.x, best.z, p.x, p.z),
-            best.heading) > 0 ? Math.PI / 2 : -Math.PI / 2);
-          p.tx = best.x + Math.sin(beam) * 1100;
-          p.tz = best.z + Math.cos(beam) * 1100;
+          const tLead = Math.min(60, bestD / pv + 1100 / Math.max(1, P.torpSpeed || 20));
+          const fx = best.x + Math.sin(best.heading) * sv * tLead;
+          const fz = best.z + Math.cos(best.heading) * sv * tLead;
+          // The anvil. More than one torpedo flight on her and they split,
+          // one on each bow, so whichever way she turns to comb one spread
+          // she turns her beam to the other. Chosen while they are still well
+          // out and held, so nobody crosses over under her guns to get there.
+          const near = angleDelta(headingTo(fx, fz, p.x, p.z), best.heading) > 0 ? 1 : -1;
+          if (!p.anvil || p.anvilOn !== best.id) {
+            const pack = state.planes.filter((q) => !q.dead && q.team === p.team
+              && (q.torp ?? 0) > 0 && !q.dropped && q.targetId === best.id).length;
+            p.anvil = pack > 1 && bestD > 1500 ? ((p.slot || 0) % 2 ? 1 : -1) : near;
+            p.anvilOn = best.id;
+          }
+          // Ahead of her beam, not on it: a spread dropped forty degrees on
+          // her bow meets her however she has turned.
+          const beam = best.heading + p.anvil * Math.PI * 0.36;
+          p.tx = fx + Math.sin(beam) * 1100;
+          p.tz = fz + Math.cos(beam) * 1100;
         } else {
-          p.tx = best.x;
-          p.tz = best.z;
+          const tLead = Math.min(25, bestD / pv + 4);
+          p.tx = best.x + Math.sin(best.heading) * sv * tLead;
+          p.tz = best.z + Math.cos(best.heading) * sv * tLead;
         }
       } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > 180) {
         p.phase = 'return';
@@ -10542,20 +10923,23 @@ function heavyFlak(state, bm, dt) {
       if (mannedLightOn(s, cls, bm.x, bm.z, bm.y)) {
         taken += cls.aa.dps * MANNED_AA * share * 0.065
           * aaBite(slant, cls.aa.range) * dt;
-        s.aaFire = Math.min(s.aaFire, 0.02);
+        if (!s.manned.auto) s.aaFire = Math.min(s.aaFire, 0.02);
       }
     }
     // The tracer going up, on the gun's own rhythm rather than every tick.
+    // Up at a heavy's height it is the dual-purpose mountings doing the
+    // shooting, and they fire their own rounds (dpAirSalvo). Only a formation
+    // down inside the automatic guns' reach gets their tracer as well.
     s.aaFire -= dt;
-    if (s.aaFire <= 0) {
+    const auto = autoCal(cls, slant);
+    if (s.aaFire <= 0 && auto) {
       // A rough count of what is up: the share of the battery that reaches,
-      // over the whole of it. Far enough out that it is the heavy dual-purpose
-      // mountings doing the shooting, never the automatic guns.
+      // over the whole of it.
       s.aaFire = 0.30;
       state.events.push({
         e: 'aa', ship: s.id, x: r(s.x), z: r(s.z),
         tx: r(bm.x), tz: r(bm.z), n: Math.max(1, Math.round(share * 12)),
-        cal: 127,
+        cal: auto,
       });
     }
     s.spottedBy[bm.team] = true;
@@ -12340,6 +12724,7 @@ export function setParty(ship, i, job) {
   if (!ship || !ship.parties || !Number.isInteger(i) || !ship.parties[i]) return false;
   if (job !== null && job !== 'auto' && !PARTY_JOBS.includes(job)) return false;
   ship.parties[i].job = job;
+  ship.parties[i].directed = false;
   ship.parties[i].on = null;
   return true;
 }
@@ -12519,6 +12904,33 @@ function autoJob(ship, cls, i) {
     if (partyWork(ship, cls, job)) return job;
   }
   return null;
+}
+
+/**
+ * A captain working his damage control himself rather than leaving each
+ * party to find its own way to trouble.
+ *
+ * The parties she left on their own devices ('auto') wait to hear that
+ * something is wrong; parties her captain has sent are already on their way.
+ * So every job that has work in it is manned at once, the sea coming in and
+ * the fires with two parties to each one on the engines or the guns. Parties
+ * her captain has sent himself are his and are left alone. Returns how many
+ * are on a job.
+ */
+export function directParties(ship) {
+  if (!ship || !ship.parties || !ship.parties.length) return 0;
+  const cls = shipClass(ship);
+  const rank = ['pump', 'repair', 'engine', 'guns'].filter((j) => partyWork(ship, cls, j));
+  const slots = rank.flatMap((j) => (j === 'pump' || j === 'repair' ? [j, j] : [j]));
+  let on = 0;
+  ship.parties.forEach((p, i) => {
+    if (p.job !== 'auto' && !p.directed) return;
+    const job = slots.length ? slots[i % slots.length] : 'auto';
+    if (p.job !== job) { p.job = job; p.on = null; }
+    p.directed = job !== 'auto';
+    if (p.directed) on++;
+  });
+  return on;
 }
 
 /**
@@ -12932,5 +13344,5 @@ export function predictShip(state, ship, dt) {
   // was heard.
   stepDive(state, ship, dt);
   stepMovement(state, ship, dt);
-  stepTurrets(state, ship, dt);
+  stepTurrets(state, ship, dt, false);
 }

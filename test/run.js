@@ -23507,5 +23507,167 @@ check('a staged battle\'s clean screen keeps a faint X in the corner to bring th
   assert.ok(/rgba\([^)]*0\.\d+\)/.test(body), 'the X is not translucent');
 });
 
+// A strike flown off a carrier at `at`, for a gun to shoot at. The carrier is
+// kept off her plot, so a dual-purpose main battery has nothing on the surface
+// to hold it there.
+function strikeOn(st, at, ticks, onEvents, { hideCarrier = true } = {}) {
+  const cv = addShip(st, { name: 'CV', classId: 'shinano', team: 1, index: 9 });
+  cv.x = 0; cv.z = 16000; cv.heading = Math.PI;
+  for (let i = 0; i < ticks; i++) {
+    if (i % 30 === 0) { cv.aimX = at.x; cv.aimZ = at.z; launchStrike(st, cv); }
+    if (hideCarrier) cv.spottedBy[0] = false;
+    onEvents(step(st, DT), i);
+  }
+  return cv;
+}
+
+check('a dual-purpose mounting fires its own fuzed rounds at aircraft, a reload at a time', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  // A secondary battery (the Cleveland's twin 5"/38s), a main battery (the
+  // Fletcher's) and the light battery's (the Musashi's 12.7 cm).
+  for (const [classId, key] of [['cleveland', 's'], ['fletcher', 't'], ['musashi', 'dp']]) {
+    const st = createState(world, { mode: 'deathmatch' });
+    const a = addShip(st, { name: 'A', classId, team: 0, index: 0 });
+    a.x = 0; a.z = 0; a.heading = 0; a.speed = 0;
+    let shots = 0;
+    let bursts = 0;
+    const lastAt = new Map();
+    let fastest = Infinity;
+    strikeOn(st, a, 30 * 200, (ev) => {
+      for (const e of ev) {
+        if (e.e === 'airburst') bursts++;
+        if (e.e !== 'muzzle' || e.ship !== a.id || e.up == null || e[key] == null) continue;
+        shots++;
+        const prev = lastAt.get(e[key]);
+        if (prev != null) fastest = Math.min(fastest, st.t - prev);
+        lastAt.set(e[key], st.t);
+      }
+      for (const sh of st.shells) {
+        if (sh.fuse) assert.ok(Number.isFinite(sh.vx + sh.vy + sh.vz + sh.fuse), 'a fuzed round is not a number');
+      }
+    });
+    assert.ok(shots > 4, `${classId}: her dual-purpose guns fired ${shots} rounds at the strike`);
+    assert.ok(bursts > 4, `${classId}: only ${bursts} of them burst`);
+    // Each mounting on its own reload, which is seconds, not the tenths of a
+    // second an automatic gun's tracer comes at.
+    assert.ok(fastest > 2, `${classId}: one mounting fired twice in ${fastest.toFixed(2)} s`);
+  }
+}));
+
+check('the automatic guns\' tracer is the automatic guns\', and never a five-inch\'s', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  a.x = 0; a.z = 0; a.speed = 0;
+  const cals = new Set();
+  strikeOn(st, a, 30 * 160, (ev) => {
+    for (const e of ev) if (e.e === 'aa' && e.ship === a.id) cals.add(e.cal);
+  });
+  assert.ok(cals.size > 0, 'her light battery never opened up');
+  for (const c of cals) assert.ok(c <= 40, `tracer of ${c} mm out of a Fletcher`);
+}));
+
+check('the light battery\'s dual-purpose guns take on a ship by themselves when the sky is clear', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'musashi', team: 0, index: 0 });
+  const foe = addShip(st, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+  a.x = 0; a.z = 0; a.heading = 0; a.speed = 0;
+  foe.x = -4500; foe.z = 500; foe.heading = 0; foe.speed = 0;
+  let fired = 0;
+  for (let i = 0; i < 30 * 12; i++) {
+    foe.spottedBy[0] = true;
+    for (const e of step(st, DT)) {
+      if (e.e === 'muzzle' && e.ship === a.id && e.dp !== undefined && e.up == null) fired++;
+    }
+  }
+  assert.ok(!a.assign || !Object.keys(a.assign).length, 'nobody was supposed to have told them');
+  assert.ok(fired > 0, 'her dual-purpose guns sat out a destroyer at four and a half thousand metres');
+}));
+
+check('an eighty-eight puts its own rounds up at a strike before it looks for a ship', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const bat = addBattery(st, { batteryId: 'flak88', team: 0, x: 0, z: 0, heading: 0 });
+  let up = 0;
+  strikeOn(st, bat, 30 * 200, (ev) => {
+    for (const e of ev) if (e.e === 'muzzle' && e.battery === bat.id && e.up != null) up++;
+  }, { hideCarrier: false });
+  assert.ok(up > 3, `the battery fired ${up} rounds at the aircraft`);
+}));
+
+check('a captain combs a spread fired at her beam', () => pinned(() => {
+  const lost = [];
+  for (const thinking of [false, true]) {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const a = addShip(st, { name: 'A', classId: 'cleveland', team: 0, index: 0, isBot: true });
+    const f = addShip(st, { name: 'F', classId: 'fletcher', team: 1, index: 0, isBot: true });
+    a.x = 0; a.z = 0; a.heading = 0; a.speed = 14; a.notch = 5;
+    f.x = 4000; f.z = 0; f.heading = -Math.PI / 2; f.speed = 0;
+    // Five fish laid off to meet her a minute from now, on her beam.
+    for (let k = -2; k <= 2; k++) {
+      st.torps.push({
+        id: 9000 + k, owner: f.id, team: 1, x: 1200, z: 672 + k * 40,
+        heading: -Math.PI / 2 + k * 0.02, speed: 25, range: 8000, travelled: 0,
+        damage: 12000, detection: 3000, arming: 100, flood: 0.3,
+      });
+    }
+    const brain = createBotBrain('veteran');
+    const hp = a.hp;
+    for (let i = 0; i < 30 * 90; i++) {
+      if (thinking) stepBot(st, a, brain, DT, false, null);
+      step(st, DT);
+    }
+    lost.push(hp - a.hp);
+  }
+  assert.ok(lost[0] > 0, 'the spread was laid wrong: it missed a ship holding her course');
+  assert.ok(lost[1] < lost[0] * 0.5, `she took ${Math.round(lost[1])} combing it, against ${Math.round(lost[0])} standing on`);
+}));
+
+check('a submarine goes deep when a destroyer comes for her, and keeps her periscope up otherwise', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const u = addShip(st, { name: 'U', classId: 'u48', team: 0, index: 0, isBot: true });
+  const d = addShip(st, { name: 'D', classId: 'fletcher', team: 1, index: 0, isBot: true });
+  u.x = 0; u.z = 0; d.x = 0; d.z = 8000; d.heading = Math.PI;
+  const bu = createBotBrain('veteran');
+  for (let i = 0; i < 30 * 20; i++) { stepBot(st, u, bu, DT, false, null); step(st, DT); }
+  assert.equal(u.depthCmd, SHIP_CLASSES.u48.dive.periscope, 'she did not go to periscope depth with an enemy in sight');
+  d.x = 0; d.z = 2400;
+  for (let i = 0; i < 30 * 5; i++) { stepBot(st, u, bu, DT, false, null); step(st, DT); }
+  assert.ok(u.depthCmd > SHIP_CLASSES.u48.dive.periscope * 2, `a destroyer at 2400 m and she is ordered to ${u.depthCmd} m`);
+}));
+
+check('a captain goes down to a close-range mounting when a strike comes in, and her parties go where they are wanted', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'iowa', team: 0, index: 0, isBot: true });
+  a.x = 0; a.z = 0;
+  const brain = createBotBrain('veteran');
+  let manned = 0;
+  const cv = addShip(st, { name: 'CV', classId: 'shinano', team: 1, index: 9 });
+  cv.x = 0; cv.z = 16000;
+  for (let i = 0; i < 30 * 160; i++) {
+    if (i % 30 === 0) { cv.aimX = a.x; cv.aimZ = a.z; launchStrike(st, cv); }
+    stepBot(st, a, brain, DT, false, null);
+    step(st, DT);
+    if (a.manned && a.manned.k === 'aa') manned++;
+  }
+  assert.ok(manned > 30, 'nobody went to a gun');
+  // A fire and a hole in her, and the parties go to them without the wait.
+  a.sections.bow.fire = Math.max(a.sections.bow.fire, 0.6);
+  a.sections.bow.hp *= 0.6;
+  for (let i = 0; i < 31; i++) { stepBot(st, a, brain, DT, false, null); step(st, DT); }
+  assert.ok(a.parties.some((p) => p.directed && p.job === 'repair'), `parties: ${JSON.stringify(a.parties.map((p) => p.job))}`);
+}));
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

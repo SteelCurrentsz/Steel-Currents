@@ -1699,8 +1699,21 @@ export class ShipView {
       up = Math.atan2((p.y ?? 220) - this.group.position.y, Math.sqrt(d2) || 1);
     }
     // A light gun swings fast, and the smaller it is the faster it swings.
+    const now = performance.now() / 1000;
+    const want0 = want;
+    const up0 = up;
     for (const m of this.aaMounts) {
       if (m.userData.laid === false) continue;
+      // A dual-purpose gun laid where it last fired (see holdLight), which on
+      // a ship is nowhere near the nearest aeroplane.
+      const hold = m.userData.hold;
+      if (hold && hold.until > now) {
+        want = hold.b - this.group.rotation.y;
+        up = hold.up ?? 0.03;
+      } else {
+        want = want0;
+        up = up0;
+      }
       const rate = m.userData.trainRate || 1.6;
       // A mounting that knows its own arc and stops -- surveyed off her
       // structure, in her own frame -- is laid inside them: onto the aeroplane
@@ -1759,6 +1772,18 @@ export class ShipView {
       }
       layMount(m, aim, aim === null ? null : up, rate * dt, rate * 0.8 * dt);
     }
+  }
+
+  /**
+   * Hold one of her light mountings on a world bearing, and at an elevation
+   * (null for a surface shot), for `secs` -- what a dual-purpose gun of her
+   * light battery is laid on when it fires, which the simulation says and the
+   * nearest aeroplane does not.
+   */
+  holdLight(i, bearing, up, secs) {
+    const m = this.aaMounts && this.aaMounts[i];
+    if (!m || !Number.isFinite(bearing)) return;
+    m.userData.hold = { b: bearing, up, until: performance.now() / 1000 + secs };
   }
 
   /**
