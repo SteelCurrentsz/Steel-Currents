@@ -4814,20 +4814,18 @@ function fireBattery(state, bat, b, gun, target) {
 }
 
 /**
- * What a battery loads for this ship: armour-piercing where it will get
- * through her belt and she is worth it, high explosive into anything thin --
- * a destroyer or a carrier, which an armour-piercing shell goes straight
- * through -- and into a belt it cannot beat, where the burst on her upperworks
- * is the only damage on offer.
+ * What a battery loads for this ship: high explosive into anything thin -- a
+ * destroyer, a carrier, a boat -- which an armour-piercing shell goes straight
+ * through with its fuse asleep; armour-piercing into anything with armour on
+ * it, because plunging fire finds a deck even where it cannot find a belt.
  */
 function batteryShell(gun, target) {
   const he = gun.shells.he;
   const ap = gun.shells.ap;
   if (!he) return ap;
   const cls = target && target.classId ? getClass(target.classId) : null;
-  if (!cls) return he;
-  if (cls.type === 'DD' || cls.type === 'CV' || cls.type === 'SS') return he;
-  return ap.pen >= cls.armor.belt * 1.1 ? ap : he;
+  if (cls && (cls.type === 'DD' || cls.type === 'CV' || cls.type === 'SS')) return he;
+  return ap;
 }
 
 /**
