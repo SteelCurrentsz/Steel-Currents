@@ -417,7 +417,6 @@ input[type="range"] { accent-color: var(--red); }
   font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sand-bright);
 }
 .group-bar .watch-back[disabled] { opacity: 0.4; cursor: default; }
-.hud-right.flying .group-row { display: none; }
 
 /* ------------------------------------------------------------- the conn --
    A captain with his guns fought for him has three things left to do, so there
@@ -1985,7 +1984,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .hud-right.flying .free-cam-key,
 .hud-right.flying .plot-zoom-key,
 .hud-right.flying .minimap-hint,
-.hud-right.flying .watch-banner { display: none; }
+.hud-right.flying .watch-banner,
+.hud-right.flying .group-row { display: none; }
 #minimap {
   cursor: pointer;
   touch-action: manipulation;
