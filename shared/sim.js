@@ -3966,6 +3966,8 @@ function stepDpSurface(state, ship, dt) {
   const flakAt = lightFlakAt(cls);
   for (const { i, spec, gun } of dps) {
     if (ship.dpCd[i] > 0) ship.dpCd[i] -= dt;
+    // A ship it was given that has gone down gives it back, loaded or not.
+    if (ship.assign && ship.assign[`dp:${i}`]) assignedFoe(state, ship, 'dp', i);
     if (mountOff(ship, 'dp', i)) continue;
     if (ship.dpCd[i] > 0) continue;
     if (lightGunState(ship, cls, spec) >= 3) continue;
