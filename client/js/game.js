@@ -884,6 +884,12 @@ export class Battle {
     this.hud.setTimeWarp?.(1);
     this.hud.bindTimeWarp?.(() => this.cycleWarp());
     this.hud.onToggleMap = () => this.toggleMap();
+    // Fleets and squadrons, formed off the plot.
+    this.hud.bindGrouping?.({
+      toggle: () => this.toggleGrouping(),
+      form: () => this.sendGroup(false),
+      split: () => this.sendGroup(true),
+    });
     // The page's own buttons outlive the battle: what is put on them here
     // comes off again in dispose, all at once.
     this.abort = new AbortController();
@@ -967,6 +973,12 @@ export class Battle {
         this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
           : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
       }),
+      // A fleet or a squadron formed, or broken up, off the plot.
+      this.net.on('grouped', (m) => {
+        const what = m.k === 'ship' ? 'Fleet' : 'Squadron';
+        this.hud.alert(m.split ? `${what} split up` : m.g ? `${what} formed`
+          : `Pick two or more of your own ${m.k === 'ship' ? 'ships' : 'flights'}`);
+      }),
       this.net.on('nodc', () => {
         const own = this.ownSnap;
         this.hud.alert(own && own.dcl <= 0 ? 'Depth charge stowage empty'
@@ -1040,6 +1052,14 @@ export class Battle {
     const own = snap.ships.find((s) => s.i === this.shipId);
     if (own) {
       const ls = this.localShip;
+      // An order given to her fleet from another ship of it: her helm and her
+      // telegraph take it up, or her own prediction would steer against it.
+      if ((own.fq || 0) !== (this.fleetSeq || 0)) {
+        this.fleetSeq = own.fq || 0;
+        if (typeof own.notch === 'number') ls.notch = own.notch;
+        this.wayX = own.wx ?? null;
+        this.wayZ = own.wz ?? null;
+      }
       // Authority wins, but by being eased into rather than snapped to.
       this.correctOwn(own, st);
       ls.hp = own.hp;
@@ -3506,6 +3526,21 @@ export class Battle {
    * enemy or a gun ashore puts the camera on it as it always did.
    */
   workPlot(hit, at) {
+    // Forming a fleet or a squadron: a tap picks one of your own, or puts her
+    // back, and does nothing else. See toggleGrouping.
+    if (this.grouping) { this.pickForGroup(hit); return; }
+    // Open water with one of your own flights under the camera sends her --
+    // and the squadron she is in -- there.
+    if (!hit && at && this.watching && this.watching.kind === 'plane') {
+      const snap = this.snapshots[this.snapshots.length - 1];
+      const pl = snap && (snap.planes || []).find((q) => q.i === this.watching.id);
+      if (pl && pl.tm === this.team && this.flight?.id !== pl.i) {
+        this.net.send({ t: 'vector', i: pl.i, x: Math.round(at.x), z: Math.round(at.z) });
+        this.hud.alert(pl.wg ? 'Squadron sent' : 'Flight sent');
+        audio.click();
+        return;
+      }
+    }
     // Any ship picked off the plot is the ship you are watching and the ship
     // you are conning, whichever side she is on. The two used to be different
     // things -- tapping your own division selected her for orders and tapping
@@ -3525,6 +3560,45 @@ export class Battle {
       return;
     }
     this.lookAt(hit);
+  }
+
+  /**
+   * Group mode: the plot picks your own ships or flights instead of watching
+   * them, and the bar under it forms what was picked into a fleet or a
+   * squadron, or splits it out of the one it is in.
+   */
+  toggleGrouping(want = !this.grouping) {
+    this.grouping = want;
+    this.groupPick = { kind: null, ids: [] };
+    this.hud.setGrouping(want ? this.groupPick : null);
+    audio.click();
+  }
+
+  /** A tap on the plot in group mode. */
+  pickForGroup(hit) {
+    const P = this.groupPick;
+    if (!hit || (hit.kind !== 'ship' && hit.kind !== 'plane') || hit.team !== this.team) {
+      this.hud.alert('Pick your own ships or flights');
+      return;
+    }
+    if (P.kind && P.kind !== hit.kind) {
+      this.hud.alert(P.kind === 'ship' ? 'A fleet is ships only' : 'A squadron is aircraft only');
+      return;
+    }
+    const at = P.ids.indexOf(hit.id);
+    if (at >= 0) P.ids.splice(at, 1);
+    else if (P.ids.length < 8) P.ids.push(hit.id);
+    P.kind = P.ids.length ? hit.kind : null;
+    this.hud.setGrouping(P);
+    audio.click();
+  }
+
+  /** Form what is picked into a group, or split it out of the ones it is in. */
+  sendGroup(split) {
+    const P = this.groupPick;
+    if (!P || !P.kind || !P.ids.length) { this.hud.alert('Nothing picked'); return; }
+    this.net.send({ t: 'group', k: P.kind, ids: [...P.ids], split: split ? 1 : 0 });
+    this.toggleGrouping(false);
   }
 
   /**
@@ -5513,6 +5587,8 @@ export class Battle {
       this.net.send({ t: 'notch', ship: conned, notch: want });
       return;
     }
+    // In a fleet, the rest of it rings up the same: see the server's `notch`.
+    if (this.ownSnap && this.ownSnap.fg) this.net.send({ t: 'notch', ship: this.shipId, notch: want });
     if (this.localShip.notch === want) return;
     this.localShip.notch = want;
     this.net.send({ t: 'input', notch: want });

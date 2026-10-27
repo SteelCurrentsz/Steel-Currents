@@ -360,6 +360,7 @@ import {
   CASE_FWD_Z, CASE_AFT_Z, hangarTopY as surcoufHangarTopY,
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
+import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../shared/groups.js';
 import { crewBattle } from '../server/setup.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
@@ -23667,6 +23668,106 @@ check('a captain goes down to a close-range mounting when a strike comes in, and
   a.sections.bow.hp *= 0.6;
   for (let i = 0; i < 31; i++) { stepBot(st, a, brain, DT, false, null); step(st, DT); }
   assert.ok(a.parties.some((p) => p.directed && p.job === 'repair'), `parties: ${JSON.stringify(a.parties.map((p) => p.job))}`);
+}));
+
+
+check('ships formed into a fleet off the plot steam together on a course given to any one of them', () => {
+  const room = new Room({ name: 'Test', mode: 'deathmatch', autoStart: false, seed: 7 });
+  const sent = [];
+  const player = { id: 'p1', name: 'You', send: (m) => sent.push(m) };
+  room.join(player, { name: 'You', classId: 'fletcher', team: 0 });
+  const mine = room.state.ships.find((s) => s.id === player.shipId);
+  const a = addShip(room.state, { name: 'A', classId: 'cleveland', team: 0, index: 1 });
+  const b = addShip(room.state, { name: 'B', classId: 'cleveland', team: 0, index: 2 });
+  const foe = addShip(room.state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  // Line ahead, steaming north: A leads, B a kilometre astern of her.
+  a.x = 0; a.z = 0; a.heading = 0;
+  b.x = 0; b.z = -1000; b.heading = 0;
+  mine.x = 3000; mine.z = 0;
+
+  // The enemy is not his to put in a fleet; a fleet of one is not a fleet.
+  room.command(player, { t: 'group', k: 'ship', ids: [a.id, foe.id] });
+  assert.ok(!a.fleet && !foe.fleet, 'a fleet was formed with an enemy ship in it');
+  assert.equal(sent.at(-1).g, 0, 'the room did not say nothing was formed');
+
+  room.command(player, { t: 'group', k: 'ship', ids: [a.id, b.id] });
+  assert.ok(a.fleet && a.fleet === b.fleet, 'the fleet was not formed');
+  assert.ok(!mine.fleet, 'a ship that was not picked went into the fleet');
+  assert.equal(sent.at(-1).t, 'grouped');
+
+  // Due east: the line turns with her, so B is a kilometre west of the point.
+  room.command(player, { t: 'goto', ship: a.id, x: 5000, z: 0 });
+  assert.equal(a.wayX, 5000);
+  assert.ok(Math.abs(b.wayX - 4000) < 1 && Math.abs(b.wayZ) < 1,
+    `B was sent to ${b.wayX}, ${b.wayZ} rather than astern of A on the new course`);
+  assert.ok(b.fleetWay, 'B is not steaming on the fleet course');
+  assert.equal(mine.wayX, null, 'a ship outside the fleet took its course');
+
+  // And her own captain does not take her off it.
+  room.release(player);
+  assert.equal(b.wayX !== null, true, 'B lost the fleet course when the con was handed back');
+
+  // The telegraph too.
+  room.command(player, { t: 'notch', ship: b.id, notch: 2 });
+  assert.equal(a.notch, 2, 'A did not ring up what her fleet was given');
+
+  // The snapshot says which fleet, to her own side and no further.
+  const ours = buildSnapshot(room.state, 0, mine.id).ships.find((s) => s.i === a.id);
+  assert.equal(ours.fg, a.fleet);
+
+  // Split one out and a fleet of one is no fleet at all.
+  room.command(player, { t: 'group', k: 'ship', ids: [b.id], split: 1 });
+  assert.ok(!a.fleet && !b.fleet, 'a fleet of one survived the split');
+  assert.ok(!b.fleetWay, 'B kept steaming for a fleet she is not in');
+  room.close();
+});
+
+check('the stations of a fleet turn with the course it is given', () => {
+  const state = { ships: [], planes: [], world: { half: 20000 } };
+  const lead = { id: 1, alive: true, team: 0, x: 0, z: 0, heading: 0 };
+  const abeam = { id: 2, alive: true, team: 0, x: 800, z: 0, heading: 0 };
+  state.ships.push(lead, abeam);
+  setGroup(state, 0, 'ship', [1, 2]);
+  // Due south: her station on the starboard beam is now to the west.
+  const legs = fleetCourse(state, lead, 0, -6000);
+  const leg = legs.find((l) => l.ship === abeam);
+  assert.ok(Math.abs(leg.x + 800) < 1 && Math.abs(leg.z + 6000) < 1, `station ${leg.x}, ${leg.z}`);
+});
+
+check('flights formed into a squadron fly as one, go where they are sent and strike together', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'shinano', team: 0, index: 0, isBot: true });
+  const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0, isBot: true });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 30000;
+  for (let i = 0; i < 30 * 240 && st.planes.filter((p) => !p.dead).length < 2; i++) {
+    if (i % 30 === 0) { cv.aimX = foe.x; cv.aimZ = foe.z; launchStrike(st, cv); }
+    step(st, DT);
+  }
+  const up = st.planes.filter((p) => !p.dead && p.team === 0);
+  assert.ok(up.length >= 2, 'not enough flights got off the deck');
+  const gid = setGroup(st, 0, 'plane', up.map((p) => p.id));
+  assert.ok(gid, 'no squadron was formed');
+  const lead = wingLeader(st, up[0]);
+  for (const p of up) {
+    assert.equal(p.wing, gid);
+    if (p !== lead) assert.equal(p.lead, lead.id, 'a flight of the squadron is not flying on its leader');
+  }
+  assert.equal(membersOf(st, 'plane', gid).length, up.length);
+  // The enemy's flights are nobody's to group.
+  assert.equal(setGroup(st, 1, 'plane', up.map((p) => p.id)), 0);
+
+  // Sent off to the west, the whole of it turns that way and stops hunting.
+  const sentN = vectorFlight(st, 0, up[0].id, -9000, 0);
+  assert.ok(sentN >= 1, 'nothing was sent');
+  const was = lead.x;
+  for (let i = 0; i < 30 * 30; i++) step(st, DT);
+  if (!lead.dead) assert.ok(lead.x < was - 500, `the leader went from ${was} to ${lead.x} rather than west`);
+  const snap = buildSnapshot(st, 0, cv.id).planes.find((p) => p.i === lead.id);
+  if (snap) assert.equal(snap.wg, gid, 'the snapshot does not say which squadron');
+  const theirs = buildSnapshot(st, 1, foe.id).planes.find((p) => p.i === lead.id);
+  if (theirs) assert.equal(theirs.wg, undefined, 'the enemy was told which squadron');
 }));
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -136,6 +136,10 @@ export function shipSnapshot(ship, full, state = null) {
   }
   if (full) {
     s.notch = ship.notch;
+    // The fleet she is in, if any, and how many orders it has given her: a
+    // captain whose helm was put over by an order to his fleet takes it up.
+    if (ship.fleet) s.fg = ship.fleet;
+    if (ship.fleetSeq) s.fq = ship.fleetSeq;
     // Which of her mountings her captain has put on which ship by name.
     if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
     // Which of them he has switched off, and which are gone for good -- the
@@ -429,6 +433,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life), sl: gaps(p),
+      // The squadron she was formed into off the plot, to her own side only,
+      // and where it has been sent.
+      wg: p.wing && p.team === team ? p.wing : undefined,
+      vx: p.vec && p.team === team ? Math.round(p.vec.x) : undefined,
+      vz: p.vec && p.team === team ? Math.round(p.vec.z) : undefined,
       // How high she is, and how fast she is going up or down. The client used
       // to work her height out from how long she had been up, which made every
       // aeroplane climb at the same rate to the same altitude whatever she was

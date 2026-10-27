@@ -401,6 +401,24 @@ input[type="range"] { accent-color: var(--red); }
   color: var(--steel); opacity: 0.7;
 }
 
+/* Fleets and squadrons: the key under the plot, and the bar it raises. */
+.group-row { margin-top: 5px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.group-row .group-key { margin: 0; }
+.group-bar {
+  display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; justify-content: flex-end;
+  max-width: max(min(30vw, 42vh, 400px), 220px); min-width: 200px; box-sizing: border-box;
+  padding: 0.35rem 0.5rem; pointer-events: auto;
+  background: rgba(9, 20, 33, 0.86); border: 1px solid var(--panel-line);
+  border-left: 3px solid var(--sand);
+}
+.group-bar[hidden] { display: none; }
+.group-what {
+  flex: 1 1 100%; text-align: right;
+  font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sand-bright);
+}
+.group-bar .watch-back[disabled] { opacity: 0.4; cursor: default; }
+.hud-right.flying .group-row { display: none; }
+
 /* ------------------------------------------------------------- the conn --
    A captain with his guns fought for him has three things left to do, so there
    are three keys, small, along the bottom edge where a thumb finds them. Each
@@ -2388,6 +2406,31 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   transition: width 0.25s linear, background 0.3s ease;
 }
 .dive-key.gasping .air-bar b { background: var(--enemy); }
+/* The oxygen gauge, sat on top of the key: what is left as a bar and as a
+   figure. It rides the key, so it goes wherever the key goes and is not there
+   at all on anything that cannot dive. */
+.o2-gauge {
+  position: absolute; left: 50%; bottom: calc(100% + 5px);
+  transform: translateX(-50%);
+  width: 62px; padding: 3px 5px 4px;
+  display: flex; flex-direction: column; gap: 3px;
+  background: rgba(8, 19, 31, 0.86); border: 1px solid var(--panel-line);
+  color: var(--steel); pointer-events: none;
+  font-family: var(--ui); font-size: 0.58rem; letter-spacing: 0.06em;
+}
+.o2-head { display: flex; justify-content: space-between; align-items: baseline; }
+.o2-head b { color: var(--sand); font-weight: 700; }
+.o2-bar { display: block; height: 5px; background: rgba(154, 166, 178, 0.22); }
+.o2-bar b {
+  display: block; height: 100%; width: 100%; background: var(--ally);
+  transition: width 0.25s linear, background 0.3s ease;
+}
+/* On the surface she is breathing and the gauge says so quietly. */
+.dive-key:not(.under) .o2-gauge { opacity: 0.7; }
+.o2-gauge.low .o2-bar b { background: #e0a54a; }
+.dive-key.gasping .o2-gauge { border-color: rgba(226, 86, 79, 0.75); color: var(--enemy); }
+.dive-key.gasping .o2-gauge .o2-bar b { background: var(--enemy); }
+.dive-key.gasping .o2-head b { color: var(--enemy); }
 
 /* ------------------------------------------------------- the pilot's board --
    Who she is and how much of her is left.

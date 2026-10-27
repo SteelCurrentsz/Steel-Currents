@@ -546,6 +546,47 @@ class HudBase {
   /** Which ship the chart is conning, so she can be ringed. */
   setSelected(id) { this.selected = id ?? null; }
 
+  /**
+   * The fleets-and-squadrons key and its bar. `on` has `toggle`, `form` and
+   * `split`, each of which the battle answers.
+   */
+  bindGrouping(on) {
+    const key = (id, fn) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); fn();
+    });
+    key('group-key', () => on.toggle());
+    key('group-form', () => on.form());
+    key('group-split', () => on.split());
+    this.setGrouping(null);
+  }
+
+  /**
+   * What has been picked to form a group, `{ kind, ids }`, or null when the
+   * plot is not picking. The plot rings what is picked.
+   */
+  setGrouping(pick) {
+    this.groupPick = pick;
+    const btn = document.getElementById('group-key');
+    const bar = document.getElementById('group-bar');
+    const what = document.getElementById('group-what');
+    if (btn) btn.setAttribute('aria-pressed', pick ? 'true' : 'false');
+    if (!bar) return;
+    bar.hidden = !pick;
+    if (!pick) return;
+    const n = pick.ids.length;
+    const noun = pick.kind === 'plane' ? (n === 1 ? 'flight' : 'flights')
+      : (n === 1 ? 'ship' : 'ships');
+    if (what) {
+      what.textContent = n
+        ? `${n} ${noun} picked · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
+        : 'Tap your own ships or flights';
+    }
+    const form = document.getElementById('group-form');
+    const split = document.getElementById('group-split');
+    if (form) form.disabled = n < 2;
+    if (split) split.disabled = n < 1;
+  }
+
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
 
@@ -677,6 +718,18 @@ class HudBase {
       const frac = Math.max(0, Math.min(1, air / D.oxygen));
       const fill = document.getElementById('air-fill');
       if (fill) fill.style.width = `${(frac * 100).toFixed(1)}%`;
+      // And the gauge over the key, with the figure on it.
+      const pct = Math.round(frac * 100);
+      const gauge = document.getElementById('o2-gauge');
+      if (gauge && gauge.dataset.pct !== String(pct)) {
+        gauge.dataset.pct = String(pct);
+        gauge.setAttribute('aria-valuenow', String(pct));
+        gauge.classList.toggle('low', frac < 0.5);
+        const o2 = document.getElementById('o2-fill');
+        if (o2) o2.style.width = `${pct}%`;
+        const n = document.getElementById('o2-pct');
+        if (n) n.textContent = `${pct}%`;
+      }
       const depth = own.d || 0;
       const label = document.getElementById('dive-label');
       // What she is doing, not what the next press will do: an order already
@@ -2618,6 +2671,25 @@ class HudBase {
         ctx.stroke();
         ctx.restore();
       }
+      // Her fleet, beside her, so a captain can see which ships go together.
+      if (s.fg && s.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`F${s.fg}`, x + 8 * k, y + 8 * k);
+      }
+      // Picked to go into a fleet: a broken ring, in the chart's own yellow.
+      if (this.groupPick && this.groupPick.kind === 'ship' && this.groupPick.ids.includes(s.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 15 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       // And a ring round the ship the chart is currently conning.
       if (s.i === this.selected) {
         ctx.strokeStyle = '#e6cf9c';
@@ -2654,9 +2726,42 @@ class HudBase {
         ctx.stroke();
       }
       ctx.restore();
+      // Her squadron, and where it has been sent.
+      if (pl.wg && pl.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`S${pl.wg}`, x + 8 * k, y + 8 * k);
+      }
+      if (pl.vx !== undefined && pl.vz !== undefined && pl.tm === this.team) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(111,211,160,0.5)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([2 * k, 4 * k]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(toX(pl.vx), toY(pl.vz));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(toX(pl.vx), toY(pl.vz), 4 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this.groupPick && this.groupPick.kind === 'plane' && this.groupPick.ids.includes(pl.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 14 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       marks.push({
         kind: 'plane', id: pl.i, x, y,
-        name: `${pl.n} aircraft`,
+        name: `${pl.n} aircraft`, team: pl.tm,
       });
     }
 

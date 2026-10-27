@@ -11,6 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
+import { stepVector, wingTarget, wingLeader } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
 } from './aero.js';
@@ -7875,8 +7876,13 @@ function formationGoal(state, p, carrier) {
   }
   const lead = state.planes.find((q) => q.id === p.lead && !q.dead);
   // Her leader has been shot down, or has already gone in. She is her own
-  // leader from here.
-  if (!lead) { p.lead = p.id; return null; }
+  // leader from here -- unless she is in a squadron, which closes up on
+  // whoever leads it now.
+  if (!lead) {
+    const next = wingLeader(state, p);
+    p.lead = next && next !== p ? next.id : p.id;
+    return p.lead === p.id ? null : formationGoal(state, p, carrier);
+  }
   if (lead.phase === 'return' || lead.phase === 'landing') { p.lead = p.id; return null; }
   // Her leader is a fighter and has gone off after something in the air. The
   // strike does not follow him into a dogfight: the next of it takes over.
@@ -7917,7 +7923,9 @@ function formationGoal(state, p, carrier) {
 function freshLead(state, p, old) {
   let best = null;
   for (const q of state.planes) {
-    if (q.dead || q === old || q.owner !== p.owner || q.sqId !== p.sqId) continue;
+    if (q.dead || q === old) continue;
+    // Her own strike, or the squadron she was formed into off the plot.
+    if ((q.owner !== p.owner || q.sqId !== p.sqId) && !(p.wing && q.wing === p.wing)) continue;
     if (q.phase !== p.phase || q.targetAir || q.df || q.targetHeavy) continue;
     if (!best || q.id < best.id) best = q;
   }
@@ -9752,11 +9760,18 @@ function stepPlanes(state, dt) {
     // Every couple of seconds she looks again for the thing she is actually
     // after, which is not the same thing for every flight in the strike.
     p.hunt -= dt;
-    if (p.phase === 'outbound' && p.hunt <= 0 && !p.df) {
+    // Sent somewhere off the plot: she goes there, and looks for nothing on
+    // the way. See groups.js.
+    const vectored = !p.flown && stepVector(p);
+    if (p.phase === 'outbound' && p.hunt <= 0 && !p.df && !vectored) {
       // Often: a pilot's head is never still, and whatever turns up she wants
       // to be turning onto now rather than in a couple of seconds' time.
       p.hunt = p.role === 'fighter' ? 0.6 : 1;
-      const want = pickAirTarget(state, p);
+      // In a squadron, a strike aircraft goes for the ship her leader has
+      // gone for: a squadron that splits three ways over the enemy line is
+      // three small attacks rather than one big one.
+      const mate = wingTarget(state, p);
+      const want = mate ? { ship: mate } : pickAirTarget(state, p);
       if (want && want.battery) {
         p.targetBat = want.battery.id;
         p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;

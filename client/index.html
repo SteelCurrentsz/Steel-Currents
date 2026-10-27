@@ -441,6 +441,19 @@
       </button>
     </div>
     <p class="minimap-hint">Tap a ship, then the sea &middot; M for the big chart</p>
+    <!-- Fleets and squadrons. The key puts the plot into picking your own
+         ships or flights; the bar forms what was picked into one, or splits it
+         out of the one it is in. A course given to one ship of a fleet is
+         given to all of it, and a squadron flies and fights as one. -->
+    <div class="group-row" id="group-row">
+      <button class="free-cam-key group-key" id="group-key" type="button"
+              aria-pressed="false">Fleets &amp; squadrons</button>
+      <div class="group-bar" id="group-bar" role="status" hidden>
+        <span class="group-what" id="group-what"></span>
+        <button class="watch-back" id="group-form" type="button">Form</button>
+        <button class="watch-back" id="group-split" type="button">Split</button>
+      </div>
+    </div>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
     <div class="watch-banner" id="watch-banner" role="status" hidden>
@@ -621,6 +634,13 @@
       </svg>
       <span id="dive-label">DIVE</span>
       <i class="air-bar" aria-hidden="true"><b id="air-fill"></b></i>
+      <!-- Her air, over the key: a gauge with the figure on it, where a
+           captain can read it at a glance without the key under his thumb. -->
+      <span class="o2-gauge" id="o2-gauge" role="meter" aria-label="Oxygen"
+            aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+        <span class="o2-head"><b>O&#8322;</b><span id="o2-pct">100%</span></span>
+        <i class="o2-bar" aria-hidden="true"><b id="o2-fill"></b></i>
+      </span>
     </button>
     <button class="conn-key" id="key-ship" type="button" data-panel="ship"
             aria-label="Damage control">

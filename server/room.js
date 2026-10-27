@@ -13,6 +13,7 @@ import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
 import { getClass, SHIP_ORDER } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
+import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
 import { createStaff, stepStaff } from './command.js';
 import { createStage, stepStage, unitsOf, unitIds } from './stage.js';
@@ -353,10 +354,13 @@ export class Room {
         // captain keeps her guns, and her helm and telegraph are his.
         const brain = this.brains.get(ship.id);
         // In a staged battle every helm is the script's.
-        const conned = !ship.isBot || !!ship.heldBy || this.staged;
+        // And so is one steaming in company on a course given to her fleet.
+        const conned = !ship.isBot || !!ship.heldBy || this.staged || !!ship.fleetWay;
         if (brain) stepBot(this.state, ship, brain, DT, conned, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
         if (conned) steerToWaypoint(this.state, ship);
+        // There: she is her own captain's again.
+        if (ship.fleetWay && ship.wayX == null) ship.fleetWay = false;
       }
       if (this.later.length) {
         const due = this.later.filter((q) => q.at <= this.state.t);
@@ -497,7 +501,8 @@ export class Room {
     ship.heldBy = 0;
     // Her own captain steers her his own way, not to the mark left on the
     // chart for her.
-    if (ship.isBot) { ship.wayX = null; ship.wayZ = null; }
+    // Unless she is steaming on a course her fleet was given.
+    if (ship.isBot && !ship.fleetWay) { ship.wayX = null; ship.wayZ = null; }
   }
 
   command(player, msg) {
@@ -535,6 +540,19 @@ export class Room {
     }
     const ship = this.shipOf(player);
     if (!ship) return;
+    // Forming a fleet or a squadron off the plot, or breaking one up, and
+    // sending a squadron somewhere. These are orders to his side, not to his
+    // own ship, so a captain whose ship has gone down can still give them.
+    if (msg.t === 'group') {
+      const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
+      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split);
+      player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
+      return;
+    }
+    if (msg.t === 'vector') {
+      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z));
+      return;
+    }
     // A captain whose ship has gone down still has the con of whatever he has
     // picked off the plot: orders that name another ship go to her.
     const other = typeof msg.ship === 'number' && msg.ship !== ship.id;
@@ -555,24 +573,47 @@ export class Room {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
+        // A ship of a fleet takes the rest of it with her. See fleetCourse.
+        const fleet = target.fleet && target.team === ship.team;
         // No point given is the order cancelled: she holds what she is on.
         if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
-          target.wayX = null;
-          target.wayZ = null;
-          target.rudderCmd = 0;
+          for (const s of fleet ? membersOf(this.state, 'ship', target.fleet) : [target]) {
+            if (s !== target && !s.fleetWay) continue;
+            s.wayX = null;
+            s.wayZ = null;
+            s.rudderCmd = 0;
+            s.fleetWay = false;
+            if (s !== target) s.fleetSeq = (s.fleetSeq || 0) + 1;
+          }
           break;
         }
-        target.wayX = msg.x;
-        target.wayZ = msg.z;
-        // Ordered somewhere and stopped: give her steerage way to get there.
-        if (target.notch <= 1) target.notch = 4;
+        const legs = fleet ? fleetCourse(this.state, target, msg.x, msg.z)
+          : [{ ship: target, x: msg.x, z: msg.z }];
+        for (const leg of legs) {
+          leg.ship.wayX = leg.x;
+          leg.ship.wayZ = leg.z;
+          // The rest of the fleet steer for their stations on it whoever
+          // their own captains are.
+          if (leg.ship !== target) leg.ship.fleetWay = true;
+          // Ordered somewhere and stopped: give her steerage way to get there.
+          if (leg.ship.notch <= 1) leg.ship.notch = 4;
+          // And a captain in one of them is told: his own helm and telegraph
+          // take up what the fleet was given (see Game.onSnapshot).
+          if (leg.ship !== target) leg.ship.fleetSeq = (leg.ship.fleetSeq || 0) + 1;
+        }
         break;
       }
       case 'notch': {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
-        applyInput(target, { notch: msg.notch });
+        // A fleet rings up the same revolutions together.
+        const all = target.fleet && target.team === ship.team
+          ? membersOf(this.state, 'ship', target.fleet) : [target];
+        for (const s of all) {
+          applyInput(s, { notch: msg.notch });
+          if (s !== ship) s.fleetSeq = (s.fleetSeq || 0) + 1;
+        }
         break;
       }
       case 'fire': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'main', () => fireGuns(this.state, to)); break; }
