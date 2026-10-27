@@ -3784,6 +3784,17 @@ function dpBattery(g) {
 /** How far a time fuse is out, as a share of the time it was set for. */
 const FUSE_ERROR = 0.05;
 
+/**
+ * The dice the barrage's scatter is thrown with: its own, seeded off the
+ * battle's, so putting a round in the sky does not move every other roll in
+ * the action -- which fires catch, which aeroplanes come down -- onto a
+ * different throw.
+ */
+function flakRng(state) {
+  if (!state.flakRng) state.flakRng = makeRng(((state.world && state.world.seed) ^ 0x5bd1e995) >>> 0);
+  return state.flakRng;
+}
+
 /** Which way an aeroplane is going, flight or heavy alike. */
 function airMotion(a) {
   const v = airVelocity(a);
@@ -3866,6 +3877,7 @@ function fuzedRound(state, mz, battery, air, who) {
   const v = effVelocity(battery);
   const g = gravityFor(battery);
   const av = airMotion(air.a);
+  const rng = flakRng(state);
   // Two passes of the lead: time of flight off the range, then off the range
   // to where she will be after that long.
   let tx = air.a.x, ty = air.y, tz = air.a.z;
@@ -3879,16 +3891,16 @@ function fuzedRound(state, mz, battery, air, who) {
   // Scattered as a barrage is: a few mils of laying error at the gun, and
   // the fuse running long or short.
   const sc = Math.max(8, T * v * 0.012);
-  tx += clamp(gauss(state.rng), -2.4, 2.4) * sc;
-  ty += clamp(gauss(state.rng), -2.4, 2.4) * sc * 0.6;
-  tz += clamp(gauss(state.rng), -2.4, 2.4) * sc;
+  tx += clamp(gauss(rng), -2.4, 2.4) * sc;
+  ty += clamp(gauss(rng), -2.4, 2.4) * sc * 0.6;
+  tz += clamp(gauss(rng), -2.4, 2.4) * sc;
   T = Math.max(0.3, Math.hypot(tx - mz.x, ty - mz.y, tz - mz.z) / v);
   return fireShell(state, {
     id: eid(), ...who,
     x: mz.x, z: mz.z, y: mz.y,
     vx: (tx - mz.x) / T, vz: (tz - mz.z) / T, vy: (ty - mz.y) / T + (g * T) / 2,
     g, spec: battery.shells.he || battery.shells.ap, caliber: battery.caliber, life: 0,
-    fuse: T * (1 + clamp(gauss(state.rng), -2, 2) * FUSE_ERROR),
+    fuse: T * (1 + clamp(gauss(rng), -2, 2) * FUSE_ERROR),
   }) ? 1 : 0;
 }
 
