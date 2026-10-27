@@ -14506,6 +14506,21 @@ check('the game plays with no connection: every battle is hosted on the device',
   ln.send({ t: 'leave' });
 });
 
+check('the web game keeps every file it can ask for on the device', () => {
+  // Hosting the battle in the tab was half of it. On the web the hulls are
+  // fetched only when a battle wants them, so with the signal gone Sortie
+  // said to check the connection. A service worker now keeps all of it.
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/serviceWorker\.register\('\/sw\.js'\)/.test(main), 'the offline keeper is never registered');
+  const sw = readFileSync(new URL('../client/sw.js', import.meta.url), 'utf8');
+  assert.ok(/addEventListener\('fetch'/.test(sw) && /cache\.match/.test(sw), 'nothing is answered from the store');
+  const server = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
+  assert.ok(/'\/sw\.js'\) return serveWorker/.test(server), 'the server does not hand out the worker');
+  // The list it keeps has to reach the ships, which only `import()` names.
+  assert.ok(/const DYNAMIC = /.test(server) && /matchAll\(DYNAMIC\)/.test(server),
+    'the ships fetched on demand are left off the list');
+});
+
 check('a secondary mounting is laid on a bearing that is a number', () => {
   // The one that stopped a battle. A secondary's lead was worked out as
   // `d / (spec.velocity * 0.82)`, and `spec` is the mounting -- a position, an

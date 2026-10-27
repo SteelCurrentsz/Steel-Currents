@@ -323,7 +323,9 @@ function staleBuild(e) {
         console.error('Steel Currents: the fleet would not load', e);
         if (staleBuild(e)) return;
         boot.done();
-        toast('The fleet could not be fetched. Check the connection and try again.');
+        toast(navigator.onLine === false
+          ? 'The fleet is not on this device yet. Open the game once with a connection and it will be kept for offline play.'
+          : 'The fleet could not be fetched. Check the connection and try again.');
       });
   };
 }
@@ -475,7 +477,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'pvp', 'custom', 'options', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -538,7 +540,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
       case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
-      case 'premium': toast('Premium Equipment — coming soon'); break;
+      case 'premium': show('premium'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;
       default: break;
@@ -1418,6 +1420,16 @@ gateNote();
 show(signedIn ? 'title' : 'gate');
 
 net.connect();
+
+// On the web the hulls are fetched only when a battle wants them, so a
+// captain who lost his signal could not sortie. The service worker keeps every
+// file the game can ask for on this device (see client/sw.js). The apps and
+// the one-file build carry everything already, and have no /sw.js to ask for.
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
+  const keep = () => navigator.serviceWorker.register('/sw.js').catch(() => { /* online only */ });
+  if (document.readyState === 'complete') keep();
+  else window.addEventListener('load', keep, { once: true });
+}
 requestAnimationFrame(frame);
 
 // The harbour, built behind the loading screen. Two frames of waiting first,
