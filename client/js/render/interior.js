@@ -453,16 +453,20 @@ function steering(g, hull, sole) {
   const t = Math.max(-0.92, reachAt(hull, sole + 0.4, -1) + 0.05);
   const z = zOf(hull, t);
   const half = Math.max(1, fits(hull, t - 0.06, t + 0.06, sole, sole + 3.2));
+  // Built for a tiller flat three and a half metres high, and squashed to
+  // fit one that is not: a motor boat's counter has a metre and a half under
+  // her deck, and a rudder stock standing up through it is seen from astern.
+  const k = Math.min(1, Math.max(0.2, (hull.sheer(t) - 0.15 - sole) / 3.4));
   // The rudder stock coming up through the counter into the tiller flat, the
   // quadrant keyed to it, and the two rams that swing it.
-  cyl(g, M.machine, half * 0.13, half * 0.13, 3.4, 0, sole + 1.7, z, 12);
-  cyl(g, M.machine, half * 0.62, half * 0.62, 0.5, 0, sole + 2.6, z, 14);
-  box(g, M.machine, half * 1.2, 0.42, 0.7, 0, sole + 2.6, z + half * 0.25);
+  cyl(g, M.machine, half * 0.13, half * 0.13, 3.4 * k, 0, sole + 1.7 * k, z, 12);
+  cyl(g, M.machine, half * 0.62, half * 0.62, 0.5 * k, 0, sole + 2.6 * k, z, 14);
+  box(g, M.machine, half * 1.2, 0.42 * k, 0.7, 0, sole + 2.6 * k, z + half * 0.25);
   for (const s of [-1, 1]) {
-    tubeX(g, M.pipe, 0.22, half * 0.7, s * half * 0.55, sole + 2.6, z + half * 0.5, 8);
-    box(g, M.machine, half * 0.3, 0.9, 1.2, s * half * 0.72, sole + 1.2, z + half * 0.9);
+    tubeX(g, M.pipe, 0.22 * k, half * 0.7, s * half * 0.55, sole + 2.6 * k, z + half * 0.5, 8);
+    box(g, M.machine, half * 0.3, 0.9 * k, 1.2, s * half * 0.72, sole + 1.2 * k, z + half * 0.9);
     // The steering engine and its telemotor pipes, up the side.
-    tubeZ(g, M.pipe, 0.12, 6, s * half * 0.8, sole + 2.2, z + 4, 6);
+    tubeZ(g, M.pipe, 0.12 * k, 6, s * half * 0.8, sole + 2.2 * k, z + 4, 6);
   }
   platform(g, M.deck, hull, sole + 0.05, t - 0.1, -0.60, 0.2, 8);
 }

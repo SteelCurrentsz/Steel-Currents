@@ -494,6 +494,26 @@ function screws(g) {
   }
 }
 
+// ------------------------------------------------------------- engines --
+
+/**
+ * Her three Daimler-Benz MB 501s, low in the bilge amidships: twenty-cylinder
+ * diesels lying fore and aft, one on each shaft. A motor boat has no double
+ * bottom to stand them on, so they sit right down in her, and they are what
+ * a hole amidships opens on to.
+ */
+function engines(g) {
+  const inside = new THREE.Group();
+  inside.userData.inside = true;
+  for (const x of [-0.75, 0, 0.75]) {
+    box(inside, M.steelDark, 0.46, 0.30, 3.2, x, -1.12, -0.4);              // the sump
+    tubeZ(inside, M.gunDark, 0.21, 3.0, x, -0.98, -0.4, 16);                // the crankcase
+    for (const z of [-1.9, 1.1]) tubeZ(inside, M.steel, 0.27, 0.14, x, -0.98, z, 16);  // flywheel, gearbox
+    for (let i = 0; i < 5; i++) box(inside, M.steel, 0.36, 0.22, 0.48, x, -0.68, -1.6 + i * 0.6);  // the heads
+  }
+  g.add(inside);
+}
+
 // ----------------------------------------------------------------- build --
 
 const STATIC = [
@@ -506,6 +526,7 @@ const STATIC = [
 export function buildSboat() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
+  engines(g);
   buildInterior(g, {
     loa: LOA,
     shellAt: (t, y) => Math.max(0.02, shellAt(t, y) * 0.94),

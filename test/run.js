@@ -15830,7 +15830,7 @@ check('the arsenal says what the gun will go through, and shows where it is', ()
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
     for (const w of rows) {
-      if (w.band === 'Torpedo tubes' || w.band === 'Depth charges') {
+      if (w.band === 'Torpedo tubes' || w.band === 'Depth charges' || w.band === 'Mines') {
         assert.equal(w.pen, null, `${w.name} claims to pierce armour`);
         continue;
       }
