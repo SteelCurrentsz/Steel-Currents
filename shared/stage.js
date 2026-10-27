@@ -40,6 +40,7 @@ export const CUES = {
   torp: { label: 'Torpedoes at', at: true, help: 'Her banks fire as soon as they bear.' },
   strike: { label: 'Air strike on', at: true, help: 'Her air group flies off at the target.' },
   smoke: { label: 'Make smoke', help: 'A smoke screen out of her funnels.' },
+  mines: { label: 'Lay mines', help: 'A minelayer lays her whole load over the stern, one after another.' },
   burn: { label: 'Set on fire', outcome: true, help: 'A fire breaks out amidships.' },
   sink: { label: 'Sink', outcome: true, help: 'She is shot to pieces and settles.' },
   break: { label: 'Break in two', outcome: true, help: 'Her back goes and she parts amidships.' },

@@ -128,6 +128,12 @@ export function shipSnapshot(ship, full, state = null) {
     s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
   }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
+  // The mines still on her rails, and how long until the next one is rolled
+  // aft. Anyone can count the mines on a boat's stern through a glass.
+  if (cls.mines) {
+    s.mnl = ship.mnLeft;
+    s.mnc = Math.max(0, Math.round((ship.mnCool || 0) * 10) / 10);
+  }
   if (full) {
     s.notch = ship.notch;
     // Which of her mountings her captain has put on which ship by name.
@@ -327,6 +333,12 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   const charges = (state.charges || []).map((c) => ({
     i: c.id, x: r1(c.x), y: r1(c.y), z: r1(c.z), tm: c.team,
   }));
+  // The mines, to the side that laid them and nobody else. A mine on its
+  // mooring is under the sea and nobody can see it; the side that laid it
+  // knows where, because the boat that laid it wrote it down.
+  const mines = (state.mines || [])
+    .filter((m) => m.team === team || ended)
+    .map((m) => ({ i: m.id, x: r1(m.x), z: r1(m.z), tm: m.team, ar: m.age >= m.arming ? 1 : 0 }));
   /**
    * How the leading aeroplane of a flight has been knocked about.
    *
@@ -528,7 +540,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, charges, planes, batteries, bombers,
+    ships, contacts, shells, torps, charges, mines, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

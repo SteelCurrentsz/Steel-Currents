@@ -11,6 +11,7 @@ import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
+import { buildSboat } from './sboat.js';
 import { buildShinano } from './shinano.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
@@ -842,6 +843,22 @@ function buildModel(classId) {
       secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
       tubeCaps: built.tubeCaps,
+    };
+  }
+
+  // And the S-100: her own lines, her tubes in her forecastle and her mines
+  // on the rails over her stern.
+  if (cls.id === 'sboat') {
+    const built = buildSboat();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+      mineRack: built.mineRack,
     };
   }
 

@@ -232,6 +232,25 @@ export function arsenal(cls) {
       charges: true,
     });
   }
+  if (cls.mines) {
+    const N = cls.mines;
+    rows.push({
+      name: N.name,
+      caliber: null,
+      barrels: N.rails.length,
+      mounts: N.rails.length,
+      reload: N.reload,
+      // A mine has no range: it goes into the sea under her stern and waits
+      // there for whatever comes over it.
+      range: null,
+      role: N.role || 'surface',
+      pen: null,
+      band: 'Mines',
+      note: `${N.rails.length} rails, ${N.carried} carried`,
+      specs: N.rails.map((m) => ({ ...m, angle: Math.PI, arc: 0.45, guns: 1 })),
+      mines: true,
+    });
+  }
   return rows;
 }
 
@@ -1516,6 +1535,7 @@ class HudBase {
       // order to let go, and whether her own anti-submarine officer may attack
       // a sonar contact without being asked.
       if (w.charges) this.buildChargeControls(entry);
+      if (w.mines) this.buildMineControls(entry);
       // Press it and she appears underneath with that battery lit up on her.
       //
       // A list of guns tells you what she carries and not where any of it is,
@@ -1594,6 +1614,44 @@ class HudBase {
     box.appendChild(ping);
     entry.pingEl = ping;
     entry.row.appendChild(box);
+  }
+
+  /**
+   * The mine rails' one control: the word to let the next one go.
+   */
+  buildMineControls(entry) {
+    const box = document.createElement('div');
+    box.className = 'arms-dc';
+    const lay = document.createElement('button');
+    lay.type = 'button';
+    lay.className = 'arms-dc-fire';
+    lay.innerHTML = '<span>LAY MINE</span><b></b>';
+    lay.onclick = (e) => { e.stopPropagation(); this.onMineLay?.(); };
+    box.appendChild(lay);
+    entry.fireEl = lay;
+    entry.row.appendChild(box);
+  }
+
+  /** Say what pressing the lay-mine key does. */
+  onMines(fn) { this.onMineLay = fn; }
+
+  /** The mine row, every frame: what is left on the rails, and whether the next is aft. */
+  paintMines(entry, own) {
+    const N = this.shown.mines;
+    if (!N) return;
+    const left = own.mnl == null ? N.carried : own.mnl;
+    const wait = own.mnc || 0;
+    if (entry.el) {
+      entry.el.textContent = left <= 0
+        ? 'Rails empty'
+        : wait > 0 ? `Next mine aft in ${Math.ceil(wait)}s · ${left} left` : `${left} of ${N.carried} on the rails`;
+      entry.el.classList.toggle('masked', left <= 0);
+      entry.el.classList.toggle('part', left > 0 && wait > 0);
+    }
+    if (entry.fireEl) {
+      entry.fireEl.classList.toggle('spent', left <= 0 || wait > 0);
+      entry.fireEl.querySelector('b').textContent = left > 0 ? `${left}` : '';
+    }
   }
 
   /** Say what pressing a battery's AP or HE key does. */
@@ -2051,6 +2109,7 @@ class HudBase {
       // The depth charge gear does not bear on anything: it is worked, not
       // laid, and its row reads what is loaded and what the sonar has.
       if (w.charges) { this.paintCharges(entry, own); continue; }
+      if (w.mines) { this.paintMines(entry, own); continue; }
       if (w.shell) {
         entry.shellOwn = w.shell === 'main' ? own.st : (own.ss || own.st);
         this.paintShell(entry, entry.shellOwn);

@@ -6,7 +6,7 @@ import {
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
-  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery,
+  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -587,6 +587,17 @@ export class Room {
         const only = Number.isInteger(msg.i) ? msg.i : null;
         if (!this.onWord(from, 'dc', () => dropCharges(this.state, from, only))
           && !orderPending(this.state, from, 'dc')) player.send({ t: 'nodc' });
+        break;
+      }
+      // The mine rails: let the next one go over the stern.
+      case 'mine': {
+        const from = this.conned(ship, msg);
+        if (!from) break;
+        if (!this.onWord(from, 'mine', () => layMine(this.state, from))
+          && !orderPending(this.state, from, 'mine')) {
+          const why = from.mnLeft <= 0 ? 'empty' : submerged(from) ? 'under' : 'wait';
+          player.send({ t: 'nomine', why });
+        }
         break;
       }
       case 'dcset': { const to = this.conned(ship, msg); if (to) setChargeDepth(to, msg.d); break; }

@@ -25,7 +25,7 @@ import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
-  useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged,
+  useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -153,6 +153,28 @@ function hunt(state, ship, cls) {
 }
 
 /**
+ * A minelayer's captain, sowing.
+ *
+ * The mines go down where the enemy is going to be, and the one place a boat
+ * running at forty knots can be sure of that is her own wake: anything
+ * chasing her has to steam through it. So she lets one go whenever an enemy
+ * ship is astern of her and closing, and keeps her way on while she does it.
+ */
+function sowMines(state, ship, cls) {
+  if (!cls.mines || ship.mnLeft <= 0 || ship.mnCool > 0 || Math.abs(ship.speed) < 4) return;
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team || submerged(foe)) continue;
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    if (d > 3500 || d < 250) continue;
+    // Astern of her, give or take a couple of points.
+    const rel = wrapAngle(headingTo(ship.x, ship.z, foe.x, foe.z) - ship.heading);
+    if (Math.abs(rel) < 2.1) continue;
+    layMine(state, ship);
+    return;
+  }
+}
+
+/**
  * The mountings her captain has put on a ship by name, when her own gunnery
  * officer is not firing: his target is out of reach, or he has none, and a
  * turret or a bank laid on another ship has that ship inside its range. Only
@@ -217,6 +239,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // Her aircraft go whether or not her guns have anything to shoot at: a
   // carrier's reach is her air group, not her five-inch.
   flyOff(state, ship, cls, staff, conned);
+  if (!conned) sowMines(state, ship, cls);
 
   if (!target) {
     // Nothing afloat to fight. He keeps his station and the fleet keeps

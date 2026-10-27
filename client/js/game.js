@@ -494,6 +494,9 @@ function batteryKind(row) {
   // quarterdeck by a party with a pinch bar, and what the captain does is give
   // the word. See dropCharges.
   if (row.charges) return 'dc';
+  // And the mine rails, which are worked the same way: the word is given and
+  // the party rolls the next one over the stern.
+  if (row.mines) return 'mine';
   return null;
 }
 
@@ -608,7 +611,8 @@ export class Battle {
       // close-range mountings across the whole battery. See lightMounts.
       this.armsBoard.onPick((i) => (batteryKind(row) === 'dc'
         ? this.dropCharges(i)
-        : this.manGun(batteryKind(row), i, row)));
+        : batteryKind(row) === 'mine' ? this.layMine()
+          : this.manGun(batteryKind(row), i, row)));
     });
     // And an aeroplane's own armament: pressing a turret puts you in it, and
     // pressing the one you are in gets you out again.
@@ -629,6 +633,8 @@ export class Battle {
       this.hud.alert(`${battery === 'sec' ? 'Secondaries' : 'Main battery'} loading ${what}`);
       audio.click();
     });
+    // The mine rails: one order, let the next one go.
+    this.hud.onMines?.(() => this.layMine());
     this.hud.onDepthCharges?.((msg) => {
       const ship = this.conned();
       if (msg.k === 'drop') this.dropCharges(null);
@@ -957,6 +963,10 @@ export class Battle {
       // And the racks refusing. Either there is nothing left in the stowage or
       // the party has not finished reloading, and a captain who pressed the
       // key and saw nothing go over the stern is entitled to be told which.
+      this.net.on('nomine', (m) => {
+        this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
+          : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
+      }),
       this.net.on('nodc', () => {
         const own = this.ownSnap;
         this.hud.alert(own && own.dcl <= 0 ? 'Depth charge stowage empty'
@@ -1386,10 +1396,27 @@ export class Battle {
    */
   dropCharges(only = null) {
     const cls = getClass(this.shownShip()?.c || this.cls.id);
+    // A boat with mines on her stern and no depth charges lets a mine go on
+    // the same key: it is the one thing she drops over the stern.
+    if (!cls.depthCharges && cls.mines) { this.layMine(); return; }
     if (!cls.depthCharges) return;
     const msg = { t: 'dc', ship: this.conned() };
     if (Number.isInteger(only)) msg.i = only;
     this.net.send(msg);
+    audio.click();
+  }
+
+  /**
+   * Roll a mine off the rails.
+   *
+   * Like the depth charges, the order goes up the wire and nothing happens
+   * here: whether there is a mine left and whether the party has the next one
+   * aft are the simulation's to answer, and it says no by sending `nomine`.
+   */
+  layMine() {
+    const cls = getClass(this.shownShip()?.c || this.cls.id);
+    if (!cls.mines) return;
+    this.net.send({ t: 'mine', ship: this.conned() });
     audio.click();
   }
 
@@ -2683,6 +2710,27 @@ export class Battle {
         case 'cut':
           this.onCut(ev);
           break;
+        // A mine going over the stern: a splash under her counter, and on her
+        // own bridge the count of what is left on the rails.
+        case 'mineLay':
+          audio.splash(60, { x: ev.x, y: 1, z: ev.z });
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.n > 0 ? `Mine away — ${ev.n} left on the rails` : 'Last mine away');
+          }
+          break;
+        case 'mineHit': {
+          const v = this.scene.shipViews.get(ev.victim);
+          if (v) v.punch(ev.x, ev.y ?? -2, ev.z, holeRadius('torpedo', 1000), 0.4);
+          fx.splash(ev.x, ev.z, 680, { kind: 'torp' });
+          audio.torpHit({ x: ev.x, y: -1, z: ev.z });
+          if (ev.owner === this.shipId && ev.victim !== this.shipId) this.hud.ribbon('MINE HIT', 'cit');
+          if (ev.victim === this.shipId) {
+            this.hud.alert('Struck a mine');
+            audio.alarm();
+            this.markHole(ev.x, ev.y ?? -2, ev.z, 'torpedo');
+          }
+          break;
+        }
         case 'dcAttack':
           if (ev.ship === this.shipId) this.hud.ribbon('DEPTH CHARGE ATTACK');
           break;
@@ -6099,6 +6147,12 @@ export class Battle {
         view.setDive(isSelf ? this.localShip.depth : (s.d || 0), s.to || 0);
         view.stepDive(dt);
       }
+      // The mines still on her rails: one fewer on the stern for each that
+      // has gone over it.
+      if (cls.mines && view.mineRack && s.mnl != null) {
+        const gone = cls.mines.carried - s.mnl;
+        view.mineRack.forEach((m, k) => { m.visible = k >= gone; });
+      }
       view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0);
       view.group.rotation.x = sea.pitch + view.trimBy;
       // Laid over by what is inside her, and leaning outward in a turn: ours
@@ -6415,6 +6469,8 @@ export class Battle {
     // And the depth charges, sinking. Interpolated the same way, because a
     // charge that stepped down five times a second would read as a thing
     // falling in a lift rather than a thing falling through water.
+    // The mines this side has laid. They do not move.
+    this.scene.minesNow = a.mines || [];
     this.scene.chargesNow = (a.charges || []).map((c) => {
       const prev = b ? (b.charges || []).find((x) => x.i === c.i) : null;
       return {

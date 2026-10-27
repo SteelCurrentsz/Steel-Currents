@@ -413,6 +413,10 @@ export function armsSheet(cls, group = null) {
     rows.push([`${count(tubes(cls))} ${cls.torpedoes.tubeLabel || '21"'} tubes`,
       `${num(d.torpedoesCarried ?? tubes(cls))} fish`]);
   }
+  if (cls.mines) {
+    // The mines on her rails, which nothing else in the yard carries.
+    rows.push([`${count(cls.mines.rails.length)} mine rails`, `${num(cls.mines.carried)} mines`]);
+  }
   if (cls.planes && cls.planes.group) {
     // Both of these open the air group panel: what she is carrying is the one
     // thing on a carrier's sheet a captain gets to decide.

@@ -59,6 +59,8 @@ export function createState(world, opts = {}) {
     torps: [],
     // The depth charges in the water, sinking. See stepCharges.
     charges: [],
+    // The mines laid, on their moorings and waiting. See stepMines.
+    mines: [],
     // Rounds from aircraft guns, in flight. Small, short-lived and real:
     // see stepBullets.
     bullets: [],
@@ -296,6 +298,10 @@ export function addShip(state, {
     // stepDepthAttack.
     dcErr: null,
     dcTrack: null,
+    // The mine rails: how many are still aboard, and how long until the
+    // party has the next one rolled to the stern. See layMine.
+    mnLeft: cls.mines ? cls.mines.carried : 0,
+    mnCool: 0,
     // The secondary battery, mount by mount. It is not laid by her captain --
     // a secondary mounting is in local control, and the gun captain shoots at
     // whatever he can see and bear on -- so each one carries its own target,
@@ -2549,7 +2555,7 @@ function stepTurrets(state, ship, dt) {
  * says, and does not come through here.
  */
 export const ORDER_WINDUP = 1;
-const ORDER_QUIET = { main: 2, sec: 2, aa: 8, torp: 2, dc: 2 };
+const ORDER_QUIET = { main: 2, sec: 2, aa: 8, torp: 2, dc: 2, mine: 2 };
 /** How long a word holds if the weapon could not take it up -- lost her, say. */
 const ORDER_LAPSE = 6;
 
@@ -6407,6 +6413,116 @@ function burstCharge(state, c) {
       e: 'dcHit', x: c.x, y: c.y, z: c.z, victim: target.id, owner: c.owner,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mines
+// ---------------------------------------------------------------------------
+//
+// The one weapon that is laid and then left. A mine is rolled off the rails
+// over a boat's stern, sinks to the end of its mooring a couple of metres
+// under the surface, and from then on it is part of the sea: it does not aim,
+// it does not know whose it is, and it goes off against the first hull deep
+// enough to touch its horns. A boat laying a line across the track a squadron
+// has to steam is closing a piece of the sea to it.
+//
+// So the whole of the weapon is where it was put, how long it takes to arm,
+// and how deep it rides -- and a hull that draws less than that goes over it.
+
+/**
+ * Roll one mine off the rails.
+ *
+ * Returns 1 when one went and 0 when it did not: nothing left aboard, the
+ * party still bringing the next one aft, or the word not yet given.
+ */
+export function layMine(state, ship) {
+  const cls = shipClass(ship);
+  const M = cls.mines;
+  if (!M || !ship.alive || ship.mnLeft <= 0 || ship.mnCool > 0) return 0;
+  // Over the stern of a boat that is down there is nobody on the casing.
+  if (submerged(ship)) return 0;
+  if (!orderGiven(state, ship, 'mine')) return 0;
+  // Port and starboard rails turn about, so a line of them is laid as a pair
+  // of lines a few metres apart down her wake.
+  const rails = M.rails || [{ x: 0, z: -cls.hull.length * 0.48 }];
+  const rail = rails[(M.carried - ship.mnLeft) % rails.length];
+  const at = localToWorld(rail.x, rail.z, ship.heading);
+  state.mines.push({
+    id: eid(), owner: ship.id, team: ship.team,
+    x: ship.x + at.x, z: ship.z + at.z,
+    // How deep its horns ride under the surface, once it is on its mooring.
+    set: M.set, arming: M.arming, reach: M.reach,
+    damage: M.damage, age: 0,
+  });
+  ship.mnLeft--;
+  ship.mnCool = M.reload;
+  state.events.push({ e: 'mineLay', ship: ship.id, x: ship.x + at.x, z: ship.z + at.z, n: ship.mnLeft });
+  return 1;
+}
+
+/** Whether a mine has armed: it has been on its mooring long enough. */
+export function mineArmed(m) { return m.age >= m.arming; }
+
+/**
+ * The mines in the sea: waiting, and going off against whatever touches them.
+ *
+ * A mine is not on anybody's side. The boat that laid it can run onto it as
+ * well as anyone, once it has armed -- which is why it arms late, and why a
+ * minelayer does not come back the way she went.
+ */
+function stepMines(state, dt) {
+  if (!state.mines || !state.mines.length) return;
+  const out = [];
+  for (const m of state.mines) {
+    m.age += dt;
+    if (!mineArmed(m)) { out.push(m); continue; }
+    let victim = null;
+    for (const target of state.ships) {
+      if (!target.alive) continue;
+      if (target.id !== m.owner && !mayHurt(state, m.team, target)) continue;
+      const cls = getClass(target.classId);
+      // Her hull, top to keel, against the depth the horns ride at. A boat
+      // that draws less than the mooring goes over it; a submarine running
+      // deep goes under.
+      const top = -(target.depth || 0);
+      const keel = top - cls.hull.draft;
+      if (-m.set < keel || -m.set > top + 0.5) continue;
+      if (!pointInBox(m.x, m.z, target.x, target.z, target.heading,
+        cls.hull.length * 0.5 + m.reach, cls.hull.beam * 0.5 + m.reach)) continue;
+      const l = worldToLocal(m.x - target.x, m.z - target.z, target.heading);
+      if (severed(target, cls, l.z)) continue;
+      victim = target;
+      break;
+    }
+    if (victim) burstMine(state, m, victim);
+    else out.push(m);
+  }
+  state.mines = out;
+}
+
+/**
+ * A mine going off against a hull.
+ *
+ * Much what a torpedo does, a little lower down and nearer the keel: the
+ * charge goes off in contact with her bottom plating, and the hole it leaves
+ * is the sea's way into her.
+ */
+function burstMine(state, m, target) {
+  const cls = getClass(target.classId);
+  const owner = state.ships.find((s) => s.id === m.owner);
+  const lt = worldToLocal(m.x - target.x, m.z - target.z, target.heading);
+  const hole = sectionAt(clamp(lt.z / (cls.hull.length * 0.5), -1, 1), 'belt');
+  // A big hull's bulges and voids take some of it, as they do a torpedo's.
+  const reduction = clamp((cls.hull.beam - 12) / 46, 0, 0.42) * 0.8;
+  damageShip(state, target, owner, m.damage * 0.3 * (1 - reduction), 'mine', hole);
+  if (target.sections[hole]) target.sections[hole].pens++;
+  const deep = Math.min(cls.hull.draft * 0.9, m.set + 0.5);
+  wreckContents(state, target, hole, 0.533, 'mine', { x: lt.x, y: -deep, z: lt.z });
+  const side = lt.x >= 0 ? 1 : -1;
+  openHull(state, target, hole, (28 + state.rng() * 26) * (1 - reduction), side, Math.max(1, deep));
+  if (owner && owner.team !== target.team) owner.ribbons.torps++;
+  state.events.push({ e: 'mineHit', x: m.x, y: -m.set, z: m.z, victim: target.id, owner: m.owner });
+  waterBlow(state, m.x, m.z, 700);
 }
 
 // ---------------------------------------------------------------------------
@@ -12784,6 +12900,7 @@ export function step(state, dt = DT) {
     stepFlak(state, ship, dt);
     stepDrowning(state, ship, dt);
     stepDepthAttack(state, ship, dt);
+    if (ship.mnCool > 0) ship.mnCool = Math.max(0, ship.mnCool - dt);
     stepSwamp(state, ship, dt);
   }
   stepCollisions(state, dt);
@@ -12792,6 +12909,7 @@ export function step(state, dt = DT) {
   stepBullets(state, dt);
   stepTorpedoes(state, dt);
   stepCharges(state, dt);
+  stepMines(state, dt);
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);

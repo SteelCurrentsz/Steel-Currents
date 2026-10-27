@@ -14,6 +14,8 @@
  */
 export function lampCount(cls) {
   if (!cls) return 0;
+  // A class that says where hers are carries those and no others.
+  if (cls.lampSpots) return cls.lampSpots.length;
   if (cls.type === 'SS') return 1;
   if (cls.type === 'CV') return 2;
   return 4;

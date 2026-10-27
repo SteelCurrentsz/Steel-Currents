@@ -34,6 +34,7 @@ import {
 import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
+import { layMine } from '../shared/sim.js';
 import {
   normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
@@ -3819,7 +3820,7 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // every ship swung in bearing and nothing ever looked up, so a light battery
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
@@ -4013,7 +4014,7 @@ check('a shell leaves the muzzle it was fired from', () => {
   // compares.
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const cls = SHIP_CLASSES[id];
@@ -4061,7 +4062,7 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // Every ship in the game had her screws modelled and every one of them was
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const cls = SHIP_CLASSES[id];
@@ -10801,7 +10802,13 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // Wintergarten abaft the tower, and one gun that can train to a bearing is
     // by definition all of her. Everything with more than one has arcs.
     const only = aaBattery(cls).length < 2;
-    assert.ok(only || (ahead.share < 1 && beam.share < 1),
+    // And so is a boat too small to have anything standing between her guns
+    // and her beam. The S-100 is thirty-five metres long: her 2 cm on the
+    // forecastle, the twin amidships and the 3.7 cm aft all look out over a
+    // deck a metre and a half above the sea with nothing on it but rails.
+    // Ahead is still masked to the two after mountings by her bridge.
+    const small = cls.hull.length < 40;
+    assert.ok(only || (ahead.share < 1 && (small || beam.share < 1)),
       `${cls.id} brings her whole light battery to bear on one bearing`);
     // And she can fight an aeroplane somewhere. A ship with galleries down
     // both sides fights one on either bearing; the U-boat's one gun stands on
@@ -12615,7 +12622,7 @@ check('every ship has an inside, and it is inside her', () => {
   // Fitted to her own lines is the thing that has to be checked: an interior
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
@@ -14964,7 +14971,7 @@ check('every ship is built out of pieces that can be found again', () => {
   // no funnel any more, only triangles. She is still welded, and every mesh
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
@@ -15817,7 +15824,7 @@ check('the battle being over does not take the sea away', () => {
 check('the arsenal says what the gun will go through, and shows where it is', () => {
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const rows = arsenal(SHIP_CLASSES[id]);
@@ -20542,7 +20549,7 @@ check('from outside her you never see her insides', () => {
   // So the test is the symptom: stand off her, look at her from every bearing
   // and every height her hull occupies, and the first thing the eye meets must
   // be the ship and not the inside of the ship.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
@@ -21322,7 +21329,7 @@ check('an arcade battle sees every ship at once and fires the moment she is in r
 });
 
 check('every ship has her searchlights, and a lit one gives her away', () => {
-  for (const [id, n] of [['fletcher', 4], ['iowa', 4], ['enterprise', 2], ['shinano', 2], ['u48', 1], ['surcouf', 1]]) {
+  for (const [id, n] of [['fletcher', 4], ['iowa', 4], ['enterprise', 2], ['shinano', 2], ['u48', 1], ['surcouf', 1], ['sboat', 1]]) {
     assert.equal(lampCount(SHIP_CLASSES[id]), n, `${id} has the wrong number of searchlights`);
   }
   const world = generateWorld(5, 'open_ocean', 'night', 9000, null, 'sunny');
@@ -23408,6 +23415,81 @@ check('a launch on deck waves off whoever is coming in, and holds for one in the
   assert.ok(held, 'the launch went on with an aeroplane in the groove');
   assert.ok(trapped, 'the one in the groove never got down');
   assert.ok(launchAfter, 'the launch never picked up again');
+});
+
+check('the S-100 is in the yard after the Surcouf, and she carries mines', () => {
+  const i = SHIP_ORDER.indexOf('sboat');
+  assert.ok(i > 0, 'the S-boat is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'surcouf', 'she is not next after the Surcouf');
+  const cls = SHIP_CLASSES.sboat;
+  assert.ok(cls.maxSpeed > SHIP_CLASSES.fletcher.maxSpeed, 'an S-boat is slower than a destroyer');
+  assert.ok(cls.mines && cls.mines.carried > 0, 'she has no mines');
+  // Her mines ride deeper than she draws, so she runs over her own.
+  assert.ok(cls.mines.set > cls.hull.draft, 'she cannot cross her own minefield');
+  const built = buildShip('sboat');
+  assert.equal(built.mineRack.length, cls.mines.carried, 'her rails do not carry what her sheet says');
+  const rows = arsenal(cls);
+  assert.ok(rows.some((w) => w.mines), 'her mines are not in the arsenal');
+});
+
+check('a mine goes over the stern, arms, and opens up the first ship over it', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const boat = addShip(st, { name: 'S', classId: 'sboat', team: 0, index: 0 });
+  const dd = addShip(st, { name: 'D', classId: 'fletcher', team: 1, index: 0 });
+  boat.x = 0; boat.z = 0; boat.heading = 0; boat.notch = 1;
+  dd.x = 3000; dd.z = 3000;
+  const cls = SHIP_CLASSES.sboat;
+  assert.equal(layMine(st, boat), 1, 'the first mine did not go');
+  assert.equal(boat.mnLeft, cls.mines.carried - 1);
+  // The party has to run the next one aft.
+  assert.equal(layMine(st, boat), 0, 'two mines went at once');
+  const m = st.mines[0];
+  assert.ok(m.z < -cls.hull.length * 0.45, 'the mine did not go in under her stern');
+  // Not armed yet: a ship over it now is not touched.
+  dd.x = m.x; dd.z = m.z; dd.heading = 0;
+  const hp = dd.hp;
+  for (let k = 0; k < 30; k++) step(st, DT);
+  assert.equal(dd.hp, hp, 'a mine went off before it had armed');
+  dd.x = 3000; dd.z = 3000;
+  for (let k = 0; k < Math.ceil(cls.mines.arming / DT); k++) step(st, DT);
+  // The S-boat herself goes over it and nothing happens: she draws too little.
+  boat.x = m.x; boat.z = m.z;
+  const own = boat.hp;
+  for (let k = 0; k < 10; k++) step(st, DT);
+  assert.equal(boat.hp, own, 'the S-boat set off her own mine');
+  assert.equal(st.mines.length, 1);
+  boat.x = -3000;
+  // A destroyer does not.
+  dd.x = m.x + 1; dd.z = m.z;
+  const events = [];
+  for (let k = 0; k < 10; k++) events.push(...step(st, DT));
+  assert.ok(events.some((e) => e.e === 'mineHit' && e.victim === dd.id), 'the mine did not go off');
+  assert.ok(dd.hp < hp, 'the destroyer took no damage');
+  assert.equal(st.mines.length, 0, 'the mine is still in the water');
+});
+
+check('her mines are on her own side\'s plot and nobody else\'s', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const boat = addShip(st, { name: 'S', classId: 'sboat', team: 0, index: 0 });
+  addShip(st, { name: 'D', classId: 'fletcher', team: 1, index: 0 });
+  layMine(st, boat);
+  assert.equal(buildSnapshot(st, 0, boat.id).mines.length, 1);
+  assert.equal(buildSnapshot(st, 1, 0).mines.length, 0, 'the enemy can see her mines');
+  assert.equal(shipSnapshot(boat, false, st).mnl, SHIP_CLASSES.sboat.mines.carried - 1);
+});
+
+check('a staged battle\'s clean screen keeps a faint X in the corner to bring the HUD back', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/id="director-peek"[^>]*>&times;</.test(html), 'the way back is not an X');
+  const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
+  const rule = css.slice(css.indexOf('.battle.director.clean .director-peek {'));
+  const body = rule.slice(0, rule.indexOf('}'));
+  assert.ok(/right:/.test(body) && /bottom:/.test(body), 'the X is not in the bottom right corner');
+  assert.ok(/rgba\([^)]*0\.\d+\)/.test(body), 'the X is not translucent');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

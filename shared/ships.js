@@ -1620,6 +1620,143 @@ export const SHIP_CLASSES = {
     },
   },
 
+  sboat: {
+    // S-100, the name ship of the last and best of the Schnellboote: thirty-
+    // five metres of mahogany on light-alloy frames, three Daimler-Benz MB 501
+    // diesels and forty-three knots, two 53.3 cm tubes in the forecastle and
+    // the armoured Kalottenbrücke over her wheelhouse. The British called her
+    // an E-boat, and through four years in the Channel and the North Sea her
+    // flotillas sank more than a hundred ships between them -- with torpedoes
+    // on a dark night, and with the mines they laid across the convoy routes
+    // and were gone before anybody knew the sea had been closed.
+    //
+    // She fights unlike anything else here. She has nothing that will stop a
+    // shell, and every gun in this game goes through her; what she has is her
+    // speed, her size and her silhouette, which is barely above the sea, and a
+    // weapon nothing else carries. Six mines on rails over her quarters, rolled
+    // off the stern one after another into the path of whatever is chasing
+    // her -- and she draws so little water that her own mines pass under her.
+    //
+    // She is drawn from her own lines (see sboat.js).
+    id: 'sboat',
+    name: 'S-100',
+    fullName: 'S-100',
+    className: 'S-100',
+    type: 'DD',
+    typeName: 'Schnellboot',
+    nation: 'ger',
+    blurb: 'A Schnellboot: forty-three knots, two torpedo tubes in her forecastle and six mines on the rails over her stern.',
+    // Where her smoke comes from: the generator on her transom, which is what
+    // an S-boat laid her screen with.
+    hull: { funnels: [[0.9, -16.8, 2.3]], length: 34.94, beam: 5.28, draft: 1.67, superstructure: 0.5, heavePeriod: 2.4 },
+    hp: 2600,
+    // Forty-three and a half knots on three shafts, and the handiest thing in
+    // the game: a boat a third of a destroyer's length on three rudders.
+    maxSpeed: 43.6 * KNOTS,
+    reverseSpeed: 9 * KNOTS,
+    accel: 2.1,
+    turnRate: 0.21,
+    rudderShift: 1.4,
+    speedLossInTurn: 0.25,
+    // Low, small and dark: she is seen at very little more than the range a
+    // submarine on the surface is.
+    concealment: 3000,
+    fireDetectPenalty: 3200,
+    radarRange: 0,
+    repairCooldown: 70,
+    repairHeal: 0.10,
+    smokeCharges: 3,
+    // One searchlight, on her bridge: a destroyer's four would be most of her.
+    lampSpots: [{ x: 0, y: 4.35, z: 2.6, side: 0, name: 'Bridge' }],
+    // Wood. The only armour aboard is the twelve millimetres of the
+    // Kalottenbrücke over her wheelhouse.
+    armor: { belt: 6, deck: 6, citadel: 6, bow: 4, superstructure: 12 },
+    // The 3.7 cm Flak M42 aft, on its bandstand between the mine rails. It is
+    // her heaviest gun and an anti-aircraft gun first: what it does to a ship
+    // is knock her upperworks about.
+    turrets: [
+      { id: 0, name: 'Aft gun', x: 0, z: -12.6, angle: Math.PI, arc: 2.62, rest: Math.PI, guns: 1, my: 2.57,
+        open: true },
+    ],
+    gun: {
+      name: '3.7 cm Flak M42', role: 'dp',
+      elev: { min: -0.17, max: 1.48 },
+      reach: 2.5,
+      caliber: 37, reload: 0.9, traverse: 0.9, range: 6500, sigma: 1.1,
+      shells: shells(37, 210, 180, 30, 820, 0.04),
+    },
+    // Two 53.3 cm tubes side by side in the forecastle, firing over the bow.
+    // They do not train: an S-boat is aimed by pointing the boat, the way a
+    // U-boat is, and fires at speed from close in.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 11.9, angle: 0, arc: 0.30, tubes: 2, my: 1.75,
+          // Out of the two mouths in her bow, either side of the stem.
+          launch: { eject: 10, stagger: 0.5, lanes: [-0.82, 0.82], lie: 0, muzzle: 3.6, height: 1.75,
+            fish: { len: 7.0, r: 0.267, kind: 'g7a' } } },
+      ],
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '53.3 cm',
+      reach: 3.6,
+      inHull: true,
+      traverse: 0.0,
+      reload: 110, damage: 14200, speed: 40 * KNOTS, range: 7500,
+      detection: 900, arming: 300, spread: 0.04, floodChance: 0.38,
+    },
+    secondary: null,
+    // The 2 cm in the tub on her forecastle and the twin on the platform over
+    // her engine room. Each fights round to her beams and not across her
+    // bridge.
+    aa: {
+      range: 2200, dps: 9,
+      guns: [
+        { name: '2 cm C/38', caliber: 20, role: 'aa', reload: 0.26, range: 2200,
+          mounts: [
+            { x: 0, z: 8.6, angle: 0, arc: 2.36, rest: 0, guns: 1, my: 3.03 },
+          ] },
+        { name: '2 cm C/38 Zwilling', caliber: 20, role: 'aa', reload: 0.26, range: 2200,
+          mounts: [
+            { x: 0, z: -4.6, angle: Math.PI, arc: 2.53, rest: Math.PI, guns: 2, my: 3.04 },
+          ] },
+      ],
+    },
+    // The mines.
+    //
+    // Six UMB moored contact mines on two rails over her quarters, three a
+    // side, in place of her reload torpedoes. Each is rolled off the stern on
+    // its sinker, goes to the end of its mooring `set` metres under the
+    // surface and arms `arming` seconds later; from then on it goes off
+    // against any hull deep enough to touch its horns -- hers too, if she ever
+    // drew that much, which she does not.
+    mines: {
+      name: 'UMB moored mine', role: 'surface',
+      carried: 6,
+      // How long the party takes to run the next one aft to the stern.
+      reload: 5,
+      arming: 25,
+      set: 2.4,
+      reach: 1.2,
+      damage: 15000,
+      // The ends of the two rails at her transom, starboard first.
+      rails: [
+        { id: 0, x: 1.82, z: -17.4, my: 1.3 },
+        { id: 1, x: -1.82, z: -17.4, my: 1.3 },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 117,
+      aircraft: 0,
+      mainRounds: 1000,
+      // The two in the tubes: her reloads went ashore for the mines.
+      torpedoesCarried: 2,
+      secondary: null,
+      tertiary: [
+        { caliber: 20, label: '2cm', barrels: 3, rounds: 6000 },
+      ],
+    },
+  },
+
   richelieu: {
     // Richelieu, the first of the two: eight 380 mm in two quadruple turrets,
     // both of them forward of her tower, so that her whole main battery bore
@@ -7654,7 +7791,7 @@ export const HULL_TOUGHNESS = 1.8;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {

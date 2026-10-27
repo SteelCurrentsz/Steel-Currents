@@ -12,6 +12,7 @@ import { Shells, Flak, Bombs } from './ordnance.js';
 import { Rockets } from './rockets.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
+import { Mines } from './mines.js';
 import { Flights } from './planes.js';
 import { Contrails, GunFlashes } from './airfx.js';
 import { SmokeScreens } from './smokescreen.js';
@@ -691,6 +692,8 @@ export class ShipView {
     // The outer doors of a submarine's tubes, if she has any. Nothing else in
     // the game has them.
     this.tubeCaps = built.tubeCaps || null;
+    // The mines on a minelayer's rails, which go one by one as she lays them.
+    this.mineRack = built.mineRack || null;
     // How deep she is, and how far her doors are open: both come off the wire
     // and both are eased toward rather than snapped to, so a boat rises and
     // falls instead of teleporting between snapshots.
@@ -2078,6 +2081,8 @@ export class BattleScene {
     // fight: the fish is what a boat does to a ship and this is what the ship
     // does back. See depthcharge.js.
     this.charges = new DepthCharges(this.scene, 48);
+    // And the mines this side has laid, on their moorings. See mines.js.
+    this.mines = new Mines(this.scene, 64);
 
     // The squadrons in the air: the same aircraft that sit on the Enterprise's
     // deck, in flight trim, as many of them as the flight actually has. See
@@ -2329,6 +2334,7 @@ export class BattleScene {
     this.bombs.update(dt, this.camera);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.charges.update(dt, this.chargesNow || []);
+    this.mines.update(dt, this.minesNow || []);
     this.weather.update(dt, eye);
     this.oil.update(dt);
     // The lamps that are lit, for the few real lights and the sea's pools.
