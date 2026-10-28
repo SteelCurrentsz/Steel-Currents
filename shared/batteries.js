@@ -397,8 +397,10 @@ function rocketGun(b) {
  * time in the air and comes down nearly vertically, onto a deck rather than
  * into a side. Two rounds, as there were: the heavy concrete-piercing bomb,
  * which goes through a turret roof, and the light one, which is mostly
- * explosive. `mortar` tells the battery to lay it on a point (see fireMortar);
- * `velocity` here is only what the rest of the code reads off any shell.
+ * explosive. `mortar` tells the battery to lay it on a point (see fireMortar),
+ * which works out its own throw and flight time. `velocity` is a gun's, the
+ * same as every other battery's, so anything that asks for this one's flat
+ * solution the way it would for any gun gets a sensible answer.
  */
 function mortarGun(b) {
   const mm = b.caliber;
@@ -416,12 +418,12 @@ function mortarGun(b) {
     shells: {
       ap: {
         type: 'ap', caliber: mm, mortar: true,
-        damage: Math.round(apDamage(mm) * 0.8), pen: Math.round(apPen(mm) * 0.7), velocity: 283,
+        damage: Math.round(apDamage(mm) * 0.8), pen: Math.round(apPen(mm) * 0.7), velocity: 780,
         fuseArm: Math.round(mm / 8), fireChance: 0.04, drag: 0,
       },
       he: {
         type: 'he', caliber: mm, mortar: true,
-        damage: Math.round(heDamage(mm) * 1.25), pen: Math.round(mm / 5), velocity: 283,
+        damage: Math.round(heDamage(mm) * 1.25), pen: Math.round(mm / 5), velocity: 780,
         fuseArm: 0, fireChance: 0.22, drag: 0,
       },
     },
