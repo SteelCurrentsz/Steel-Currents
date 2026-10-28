@@ -13824,15 +13824,25 @@ check('a fighter has no bombs, and what is on the rack is what goes', () => {
   // Once only.
   assert.equal(dropOrdnance(st, cv, torpedo.id), false, 'she dropped the same fish twice');
 
-  // Too far off, and it is refused rather than thrown away from four thousand
-  // yards at a ship that will have moved before it arrives.
+  // Nothing near her, and they go all the same: where she lets go is the
+  // pilot's business. They fall as bodies from where she is, onto whatever
+  // is under her, rather than being settled on a ship four kilometres off.
   const dive = by('dive');
   assert.ok(dive, 'she flew off no dive bombers');
   dive.x = foe.x + 4000;
   dive.z = foe.z + 4000;
-  assert.equal(dropOrdnance(st, cv, dive.id), false,
-    'a dive bomber lobbed her bombs from four kilometres');
-  assert.ok(!dive.dropped, 'a refused drop still emptied her');
+  const phase = dive.phase;
+  const falling = st.shells.length;
+  st.events.length = 0;
+  assert.equal(dropOrdnance(st, cv, dive.id), true,
+    'a dive bomber with nothing in range was not let drop');
+  assert.ok(st.shells.slice(falling).some((sh) => sh.bomb && sh.plane === dive.id),
+    'she dropped with nothing in range and no bomb left the rack');
+  assert.ok(!st.events.some((e) => e.e === 'bomb'), 'a bomb let go at nothing was settled on a ship');
+  // Bombed up again for the run in.
+  st.shells.length = falling;
+  dive.dropped = false;
+  dive.phase = phase;
   // In from the dive, and the bombs go -- each one flown down on the wire so
   // it can be seen coming and seen bursting.
   dive.x = foe.x + 200;
@@ -24059,6 +24069,112 @@ check('the board\'s old ask for one town and one wall is still read, as a list o
   assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }] });
   assert.equal(cleanAsk({ cities: [], walls: [] }), null);
   assert.equal(cleanAsk({ cities: Array.from({ length: 40 }, (_, k) => ({ seed: k })) }).cities.length, 8);
+});
+
+// The guns, the aeroplanes and everything else against the works, and the
+// walls themselves with no holes in them.
+
+check('no two controls on the page share an id, so a FIRE key is wired to the trigger it shows', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const seen = new Set();
+  for (const m of html.matchAll(/\sid="([^"]+)"/g)) {
+    assert.ok(!seen.has(m[1]), `two elements are both #${m[1]}`);
+    seen.add(m[1]);
+  }
+});
+
+check('a gun somebody is standing at fires on his trigger, even switched off on the panel, and a trigger pulled early holds', () => {
+  const world = generateWorld(89, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const v = addShip(st, { name: 'V', classId: 'iowa', team: 0, index: 0 });
+  v.x = 0; v.z = 0; v.heading = 0; v.speed = 0;
+  // Off for the director: she does not train it or fire it herself.
+  assert.ok(setMountOff(v, 'main', 0, true));
+  manGun(v, { k: 'main', i: 0 });
+  for (let i = 0; i < 30 * 25; i++) { layGun(v, { x: 3000, z: 9000 }); step(st, DT); }
+  for (const t of v.turrets) t.cooldown = 0;
+  assert.ok(shootGun(st, v) > 0, 'a manned turret switched off on the panel would not fire on its trigger');
+
+  // Pulled with the turret still coming the last degree or two round: she
+  // goes when she gets there, rather than the press being lost.
+  for (const t of v.turrets) t.cooldown = 0;
+  layGun(v, { x: 3500, z: 9000 });
+  const n0 = st.shells.length;
+  assert.equal(shootGun(st, v), 0, 'fired before the turret had come round');
+  let went = false;
+  for (let i = 0; i < 30 * 2.4 && !went; i++) {
+    layGun(v, { x: 3500, z: 9000 });
+    step(st, DT);
+    went = st.shells.length > n0;
+  }
+  assert.ok(went, 'a trigger pulled while she trained was lost');
+});
+
+check('a pilot lets his bombs go anywhere, with nothing in range, and they fall on the town under him', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const cv = addShip(st, { name: 'C', classId: 'enterprise', team: 0, index: 0 });
+  const plan = cityPlans(world)[0];
+  const b = plan.buildings.slice().sort((a, c) => c.w * c.d - a.w * a.d)[0];
+  cv.x = b.x + 9000; cv.z = b.z;
+  // Over the town, nothing of the enemy's within miles, falling the 235 m
+  // her speed carries a bomb from three hundred metres up.
+  const p = {
+    id: 4242, owner: cv.id, team: 0, x: b.x, z: b.z - 235, y: plan.level + 300,
+    heading: 0, speed: 30, vy: 0, bomb: 1, torp: 0, role: 'dive', count: 3, machines: [],
+  };
+  st.planes.push(p);
+  assert.ok(dropOrdnance(st, cv, p.id), 'the drop was refused with nothing in range');
+  st.planes = st.planes.filter((q) => q !== p);
+  for (let i = 0; i < 30 * 12; i++) step(st, DT);
+  assert.ok((world.ruin?.b?.[b.id]?.d || 0) > 0.2, 'the bomb did nothing to the building it fell on');
+});
+
+check('a torpedo run into a sea wall goes off against it', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const run = world.works.walls[0];
+  const [x, z, nx, nz] = run.pts[Math.floor(run.pts.length / 2)];
+  st.torps.push({
+    id: 9, owner: 0, team: 1, x: x + nx * 600, z: z + nz * 600, heading: Math.atan2(-nx, -nz),
+    speed: 25, range: 5000, travelled: 0, damage: 12000, age: 30, aerial: true,
+  });
+  for (let i = 0; i < 30 * 40 && st.torps.length; i++) step(st, DT);
+  const hurt = Object.values(world.ruin?.w || {}).reduce((a, r) => a + r.d, 0);
+  assert.ok(hurt > 0.05, 'the wall took nothing from a torpedo against its face');
+});
+
+check('a strafing burst through a house knocks it about', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlans(world)[0];
+  const b = plan.buildings.find((q) => q.mat === 'wood') || plan.buildings[0];
+  for (let k = 0; k < 200; k++) {
+    st.bullets.push({ id: k, team: 1, owner: 0, plane: 1, x: b.x, y: plan.level + 40, z: b.z,
+      vx: 0, vy: -800, vz: 0, life: 0, dmg: 10, hurt: 95 });
+  }
+  step(st, DT); step(st, DT);
+  assert.ok((world.ruin?.b?.[b.id]?.d || 0) > 0, 'rounds through a roof did nothing to the house');
+});
+
+check('a sea wall has no holes in it at its bends, and every run of it is wound with the sea on its left', () => {
+  for (const world of [islandTown(), coastTown()]) {
+    for (const run of world.works.walls) {
+      let left = 0;
+      for (let k = 1; k < run.pts.length - 1; k++) {
+        const [x, z, nx, nz] = run.pts[k];
+        // Across the whole walkway at every point of it, outside of the bend
+        // as well as inside.
+        for (const off of [-16, -8, 0, 8, 16]) {
+          assert.ok(wallAt(world, x + nx * off, z + nz * off), `a hole in the wall ${off} m across it at a bend`);
+        }
+        const [px, pz] = run.pts[k - 1];
+        if (nz * (x - px) - nx * (z - pz) >= 0) left++;
+      }
+      assert.ok(left > (run.pts.length - 2) * 0.8, 'a run of wall wound the wrong way round, and drawn inside out');
+    }
+  }
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

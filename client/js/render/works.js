@@ -1238,8 +1238,8 @@ export class WorksView {
       old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
     const bufs = new Bufs();
-    const con = bufs.get('concrete');
-    const rub = bufs.get('plain');
+    const conR = bufs.get('concrete');
+    const rubR = bufs.get('plain');
     const pts = run.pts;
     const tops = this.wallTops[ri];
     const W2 = run.width / 2;
@@ -1259,11 +1259,22 @@ export class WorksView {
     });
     const P = (q, off, y) => [q.x + q.nx * off, y, q.z + q.nz * off];
     let s0 = 0;
+    // Every face is one-sided and wound for a run whose sea lies on its left
+    // as it goes. A run traced off a real coast goes whichever way the trace
+    // found it, so on one going the other way each quad is turned round --
+    // otherwise its faces point into the wall and the wall cannot be seen
+    // from outside at all.
+    const turned = (buf) => ({
+      quad: (p0, p1, p2, p3, uv, cc) => buf.quad(p3, p2, p1, p0, uv && [uv[3], uv[2], uv[1], uv[0]], cc),
+    });
     for (let k = 0; k < pts.length - 1; k++) {
       const a = cross[k];
       const b = cross[k + 1];
       const sec = secOf(k);
       const d = dmg(sec);
+      const left = (a.nz + b.nz) * (b.x - a.x) - (a.nx + b.nx) * (b.z - a.z) >= 0;
+      const con = left ? conR : turned(conR);
+      const rub = left ? rubR : turned(rubR);
       const len = Math.hypot(b.x - a.x, b.z - a.z);
       const s1 = s0 + len;
       // Each section poured on its own, a shade different from the next,
@@ -1294,8 +1305,8 @@ export class WorksView {
         // The faces of the sections either side, where they were broken off.
         const tx = b.x - a.x;
         const tz = b.z - a.z;
-        if (k > 0 && secOf(k - 1) !== sec && dmg(secOf(k - 1)) < 1) this.wallEnd(con, a, W2, tx, tz, c);
-        if (k + 1 < pts.length - 1 && secOf(k + 1) !== sec && dmg(secOf(k + 1)) < 1) this.wallEnd(con, b, W2, -tx, -tz, c);
+        if (k > 0 && secOf(k - 1) !== sec && dmg(secOf(k - 1)) < 1) this.wallEnd(conR, a, W2, tx, tz, c);
+        if (k + 1 < pts.length - 1 && secOf(k + 1) !== sec && dmg(secOf(k + 1)) < 1) this.wallEnd(conR, b, W2, -tx, -tz, c);
         s0 = s1;
         continue;
       }
@@ -1324,8 +1335,8 @@ export class WorksView {
     const e1 = cross[1];
     const z0 = cross[cross.length - 2];
     const z1 = cross[cross.length - 1];
-    if (dmg(0) < 1) this.wallEnd(con, e0, W2, e0.x - e1.x, e0.z - e1.z, [0.85, 0.84, 0.8]);
-    if (dmg(n - 1) < 1) this.wallEnd(con, z1, W2, z1.x - z0.x, z1.z - z0.z, [0.85, 0.84, 0.8]);
+    if (dmg(0) < 1) this.wallEnd(conR, e0, W2, e0.x - e1.x, e0.z - e1.z, [0.85, 0.84, 0.8]);
+    if (dmg(n - 1) < 1) this.wallEnd(conR, z1, W2, z1.x - z0.x, z1.z - z0.z, [0.85, 0.84, 0.8]);
     const g = bufs.meshes(this.mats);
     this.walls[ri] = g;
     this.group.add(g);

@@ -307,7 +307,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // round of gunfire. A bomb has no gun and no ship behind it, so `o` is
       // nothing: without this there is no way to tell one squadron's stick
       // from another's, and no way for a camera to follow one down.
-      bm: sh.bomber || undefined,
+      bm: sh.bomber || sh.plane || undefined,
       // A rocket rather than a shell: drawn with fins and a motor burning.
       rk: sh.rocket ? 1 : undefined,
     });

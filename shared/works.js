@@ -42,6 +42,9 @@ export const WALL_WIDTH = 34;
 const WALL_STEP = 12;
 /** A wall is fought in sections of this many of its steps. */
 const WALL_SECTION = 2;
+// How many wall steps a run is carried across where the ground under it
+// drops away, before it is ended there instead.
+const BRIDGE = 4;
 /** The parapet along a wall's sea edge. */
 export const PARAPET = 1.15;
 /** How many towns, and how many stretches of wall, a battle can ask for. */
@@ -528,15 +531,29 @@ function pushRun(world, runs, pts, taken = []) {
     }
     cur = [];
   };
+  // Points that failed only on the ground under them, held in case the wall
+  // picks up again just past them: a wall is carried across a gully or a
+  // little inlet a few steps wide rather than broken off either side of it,
+  // which left a gap a man could see the sea through.
+  let held = [];
   for (const p of pts) {
     const [x, z, nx, nz] = p;
+    const free = Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
+      && !onTaken(taken, x, z);
     // Ground under the back edge and the middle of it, and the sea not far
     // past the front.
-    const ok = rawGround(world, x, z) > 0.2
-      && rawGround(world, x - nx * (WALL_WIDTH / 2), z - nz * (WALL_WIDTH / 2)) > 0.3
-      && Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
-      && !onTaken(taken, x, z);
-    if (ok) cur.push(p); else flush();
+    const ground = rawGround(world, x, z) > 0.2
+      && rawGround(world, x - nx * (WALL_WIDTH / 2), z - nz * (WALL_WIDTH / 2)) > 0.3;
+    if (free && ground) {
+      if (held.length) cur.push(...held);
+      held = [];
+      cur.push(p);
+    } else if (free && cur.length && held.length < BRIDGE) {
+      held.push(p);
+    } else {
+      held = [];
+      flush();
+    }
   }
   flush();
 }
@@ -659,6 +676,13 @@ function coastLines(world, rng, target, single = false) {
       const back = WALL_WIDTH / 2 + 3;
       return [p[0] - nx * back, p[1] - nz * back, nx, nz];
     });
+    // Run so the sea is on its left, the way an island's rim runs: a contour
+    // traced off the mesh goes whichever way the trace happened to find it.
+    let turn = 0;
+    for (let k = 0; k < line.length - 1; k++) {
+      turn += line[k][3] * (line[k + 1][0] - line[k][0]) - line[k][2] * (line[k + 1][1] - line[k][1]);
+    }
+    if (turn < 0) line.reverse();
     out.push(line);
   });
   return out;
@@ -715,7 +739,11 @@ export function wallAt(world, x, z, pad = 0) {
     const dz = bz - az;
     const L2 = dx * dx + dz * dz || 1;
     const t = ((x - ax) * dx + (z - az) * dz) / L2;
-    if (t < -0.02 || t > 1.02) continue;
+    // Cut off square only at the two ends of the run. Between two of its
+    // segments the corner is rounded off: on the outside of a bend a point
+    // past the end of one segment and short of the start of the next is still
+    // on the wall, and leaving it out holed the wall at every bend.
+    if ((t < -0.02 && k === 0) || (t > 1.02 && k === run.pts.length - 2)) continue;
     const tc = clamp(t, 0, 1);
     const px = ax + dx * tc;
     const pz = az + dz * tc;

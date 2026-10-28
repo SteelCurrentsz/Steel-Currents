@@ -32,6 +32,7 @@ import {
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
+  wallAt, hurtBuilding, hurtWall, wallHp,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -1091,6 +1092,14 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
       v: r(v), at: r(now.at),
       px: r(nx + Math.sin(ship.heading) * strike), pz: r(nz + Math.cos(ship.heading) * strike),
     });
+    // A sea wall she has driven into takes the blow too: her bulk at the
+    // speed she was making, into the concrete where her stem met it.
+    const wx = nx + Math.sin(ship.heading) * strike, wz = nz + Math.cos(ship.heading) * strike;
+    const on = v > 1 && state.world.works?.walls?.length ? wallAt(state.world, wx, wz, 12) : null;
+    if (on) {
+      const bulk = cls.hull.length * cls.hull.beam * cls.hull.draft;
+      hurtWall(state.world, on.run, on.sec, (bulk * v * v) / 4e6, state.events, { x: wx, y: 0, z: wz });
+    }
     // What she hit it with, which decides how far up it she goes.
     ship.groundV = v;
     // And the blow itself, which is felt at once and seen at once: the end
@@ -2120,6 +2129,15 @@ export function mountOff(ship, kind, i) {
 }
 
 /**
+ * Switched off for her own fire control. The switch on the targeting panel
+ * takes a mounting off the director; it does not lock out the man who has
+ * gone down to it, who lays and fires it himself whatever the panel says.
+ */
+function offForDirector(ship, kind, i) {
+  return mountOff(ship, kind, i) && !isManned(ship, kind, i);
+}
+
+/**
  * The ship a mounting has been put on, while she is there to be shot at; a
  * mounting whose ship has gone down is given back to her gunnery officer.
  */
@@ -2186,11 +2204,30 @@ export function assignedReady(state, ship, kind) {
  */
 export function shootGun(state, ship) {
   if (!ship || !ship.alive || !ship.manned) return 0;
+  const went = fireManned(state, ship);
+  // Pulled while she is still coming round onto his bearing, or with the
+  // rammer still going home: the layer keeps his finger on it and she goes
+  // the moment she is laid and loaded, rather than the press being lost.
+  ship.manFire = went > 0 || ship.manned.k === 'aa' ? 0 : state.t + TRIGGER_HOLD;
+  return went;
+}
+
+/** How long a trigger pulled on a gun not yet laid or loaded stays pulled, in seconds. */
+const TRIGGER_HOLD = 2.5;
+
+function fireManned(state, ship) {
   const { k, i } = ship.manned;
   if (k === 'main') return fireGuns(state, ship, i);
   if (k === 'sec') return fireSecondary(state, ship, i);
   if (k === 'torp') return fireTorpedoes(state, ship, i);
   return 0;
+}
+
+/** A trigger still held on a manned gun, tried again now she may be laid. */
+function stepTrigger(state, ship) {
+  if (!(ship.manFire > 0)) return;
+  if (!ship.alive || !ship.manned || state.t > ship.manFire) { ship.manFire = 0; return; }
+  if (fireManned(state, ship) > 0) ship.manFire = 0;
 }
 
 /**
@@ -2506,7 +2543,7 @@ function stepTurrets(state, ship, dt, live = true) {
     if (cond >= 3) { t.laid = false; continue; }
     if (t.disabled > 0) { t.disabled -= dt; continue; }
     // Switched off: it stands where it is and goes on loading.
-    if (mountOff(ship, 'main', t.id)) { t.laid = false; if (t.cooldown > 0) t.cooldown -= dt; continue; }
+    if (offForDirector(ship, 'main', t.id)) { t.laid = false; if (t.cooldown > 0) t.cooldown -= dt; continue; }
     // A turret somebody has gone down to takes his bearing and nobody else's.
     // Every other turret aboard goes on being laid by her fire control, which
     // is the whole point: manning A turret does not stop B turret shooting.
@@ -2656,7 +2693,7 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
     if (only !== null && t.id !== only) continue;
     if (t.id === held) continue;
     if (t.cooldown > 0 || t.disabled > 0) continue;
-    if (mountOff(ship, 'main', t.id)) continue;
+    if (offForDirector(ship, 'main', t.id)) continue;
     const tSpec = cls.turrets[t.id];
     const cond = gunState(ship, cls, tSpec, t);
     if (cond >= 3) continue;
@@ -3043,6 +3080,8 @@ const BULLET_V = 810;
  * in reach of it.
  */
 const BULLET_LIFE = 2.5;
+/** What one round of a strafing burst is worth against a building or a wall, as a share of its strength in shell damage. */
+const BULLET_WORKS = 0.0006;
 /**
  * How tight the pattern is, in radians.
  *
@@ -3259,10 +3298,28 @@ function stepBullets(state, dt) {
     }
     if (done) continue;
 
+    // A house in the way. Rifle calibre does not knock a town down, but a
+    // long burst through the same roof does it no good, and timber goes first.
+    const w = state.world;
+    if (w.works?.cities?.length && Math.min(py, b.y) <= worksCeiling(w)) {
+      const hit = worksImpact(w, px, py, pz, b.x, b.y, b.z);
+      if (hit) {
+        hurtBuilding(w, hit.b, b.hurt * BULLET_WORKS, state.events, worksDice(state));
+        state.events.push({ e: 'airHit', x: r(hit.x), y: r(hit.y), z: r(hit.z), air: 0, land: 1 });
+        continue;
+      }
+    }
+
     // The sea, or the ground -- and the ground only asked about when she is
     // low enough to have met any.
     const g = b.y <= landCeiling(state.world) ? groundHeight(state.world, b.x, b.z) : 0;
     if (b.y <= Math.max(0, g)) {
+      // On a sea wall: concrete chipped, a very little at a time.
+      const on = g > 0.5 && w.works?.walls?.length ? wallAt(w, b.x, b.z) : null;
+      if (on) {
+        hurtWall(w, on.run, on.sec, Math.max(0.001, (b.hurt * BULLET_WORKS) / wallHp(w.works.walls[on.run])),
+          state.events, { x: b.x, y: g, z: b.z });
+      }
       state.events.push({
         e: 'airHit', x: r(b.x), y: r(Math.max(0, g)), z: r(b.z), air: 0,
         land: g > 0.5 ? 1 : 0,
@@ -3480,6 +3537,42 @@ function bombBattery(state, p, bat, P) {
     0.3, 'bomb');
 }
 
+/** A point a long way down her heading and standing still: what a fish let go at nothing is aimed at. */
+function aheadOf(p) {
+  const h = p.heading || 0;
+  return { x: p.x + Math.sin(h) * 4000, z: p.z + Math.cos(h) * 4000, heading: 0, speed: 0 };
+}
+
+/**
+ * Bombs let go at nothing in particular: bodies under gravity off the rack,
+ * at her speed and the way she is going, the same way a heavy's stick falls.
+ * Where they come down is where the shell pipeline says -- on a ship, on a
+ * house, on a wall, in the ground or in the sea.
+ */
+function freeBombs(state, p, P) {
+  const h = p.heading || 0;
+  const v = Math.max(30, p.speed || 80);
+  const vy = Number.isFinite(p.vy) ? p.vy : Math.sin(p.pitch || 0) * v;
+  const flat = Math.sqrt(Math.max(0, v * v - vy * vy));
+  const aim = (p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1;
+  const n = p.bomb || 1;
+  for (let i = 0; i < n; i++) {
+    // A little scatter off the rack, more from an aeroplane shot about.
+    const sx = gauss(state.rng) * 2.5 / Math.max(0.3, aim);
+    const sz = gauss(state.rng) * 2.5 / Math.max(0.3, aim);
+    fireShell(state, {
+      id: eid(), owner: p.owner, plane: p.id, team: p.team,
+      x: p.x, y: Math.max(1, (p.y ?? 200) - 1.5), z: p.z,
+      vx: Math.sin(h) * flat + sx, vy, vz: Math.cos(h) * flat + sz,
+      g: 9.81,
+      caliber: Math.round((P.bombBore ?? 0.3) * 1000),
+      bomb: { bombDamage: P.bombDamage ?? 900, bombPen: P.bombPen ?? 25,
+        bombBore: P.bombBore ?? 0.3, bombFire: P.bombFire ?? 0.1 },
+      life: 0, type: 'he',
+    });
+  }
+}
+
 export function dropOrdnance(state, ship, id) {
   const p = state.planes.find((q) => q.id === id);
   if (!p || p.dead || !ship) return false;
@@ -3521,9 +3614,14 @@ export function dropOrdnance(state, ship, id) {
       }
     }
   }
-  if (!best) return false;
   p.dropped = true;
-  deliverOrdnance(state, p, best, P);
+  if (!best) {
+    // Nothing near enough to be dropping at: she lets go where she is, on
+    // whatever is under her -- a town, a sea wall, a stretch of empty sea.
+    // That is the pilot's business, not the rack's.
+    if (bomb > 0) freeBombs(state, p, P);
+    else deliverOrdnance(state, p, aheadOf(p), P);
+  } else deliverOrdnance(state, p, best, P);
   // The fish going into the sea, which everybody within sight can see. The
   // autopilot's drop has always raised this; a drop the pilot made himself
   // raised nothing at all, so a player who let his torpedoes go watched an
@@ -4053,7 +4151,7 @@ function stepSecondary(state, ship, dt) {
     if (cond >= 3) continue;
     if (m.disabled > 0) { m.disabled -= dt; continue; }
     if (m.cooldown > 0) m.cooldown -= dt;
-    if (mountOff(ship, 'sec', m.id)) { m.target = 0; continue; }
+    if (offForDirector(ship, 'sec', m.id)) { m.target = 0; continue; }
     // A mounting somebody has gone down to comes off local control: it trains
     // where he is holding, elevates on his range, and waits for his trigger.
     const stops = gunLimits(S);
@@ -4196,7 +4294,7 @@ export function fireSecondary(state, ship, id) {
   if (!S || !ship.alive) return 0;
   const m = ship.secMounts.find((q) => q.id === id);
   if (!m || m.cooldown > 0 || m.disabled > 0) return 0;
-  if (mountOff(ship, 'sec', m.id)) return 0;
+  if (offForDirector(ship, 'sec', m.id)) return 0;
   const spec = S.mounts[m.id];
   const cond = gunState(ship, cls, spec, m);
   if (cond >= 3) return 0;
@@ -4966,7 +5064,10 @@ function groundStrength(soft) {
 export function landStrike(state, x, z, bore, kind = 'shell', filler = 1, inside = null) {
   const world = state.world;
   if (!world) return null;
-  if (groundHeight(world, x, z) <= 0.5 && !inside) return null;     // that was the sea
+  // That was the sea -- unless it was the sea at the foot of a sea wall,
+  // which takes a burst against its face as well as one on its walkway.
+  if (groundHeight(world, x, z) <= 0.5 && !inside
+    && !(world.works?.walls?.length && wallAt(world, x, z, 8))) return null;
   // The town and the sea walls take it first. On paving or on a wall there
   // is no crater to dig: what the burst does there it does to what is built.
   if (world.works) {
@@ -5024,6 +5125,13 @@ function collapseGround(state, c, soft) {
 
   // And anything standing on it goes down with it.
   settleBatteries(state, c.x, c.z, c.r);
+}
+
+/** The building standing at a point, if the point is inside it: `{ b, x, y, z }` or null. */
+function intoBuilding(state, x, y, z) {
+  const w = state.world;
+  if (!w.works?.cities?.length || y > worksCeiling(w)) return null;
+  return worksImpact(w, x, y + 0.5, z, x, y, z);
 }
 
 /** The town's own dice: what it rolls does not move any other roll in the battle. */
@@ -5264,7 +5372,7 @@ function stepShells(state, dt) {
           const cell = sectionAt(clamp(lb.z / halfLen, -1, 1), 'deck');
           const owner = state.bombers
             ? state.bombers.find((q) => q.id === sh.bomber) || null : null;
-          bombHit(state, target, null, cell, lb.x >= 0 ? 1 : -1, sh.bomb,
+          bombHit(state, target, sh.plane ? shellOwner(state, sh) : null, cell, lb.x >= 0 ? 1 : -1, sh.bomb,
             { x: lb.x, y: freeboardOf(cls), z: lb.z });
           state.events.push({ e: 'bombhit', x: cx, z: cz, cal: sh.caliber });
           void owner;
@@ -5332,6 +5440,11 @@ function stepShells(state, dt) {
           bomb: sh.bomb ? 1 : 0,
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
+        // Short of a sea wall, at its foot: the burst is against its face.
+        if (!ashore && state.world.works?.walls?.length && wallAt(state.world, sh.x, sh.z, 8)) {
+          landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
+            sh.spec?.type === 'ap' ? 0.2 : 1);
+        }
         if (ashore) {
           landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
             sh.spec?.type === 'ap' ? 0.2 : 1);
@@ -6262,7 +6375,7 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
     if (only !== null && m.id !== only) continue;
     if (m.id === held) continue;
     if (m.cooldown > 0 || m.lost) continue;
-    if (mountOff(ship, 'torp', m.id)) continue;
+    if (offForDirector(ship, 'torp', m.id)) continue;
     const spec = T.mounts[m.id];
     const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
     if (given && given.idle) continue;
@@ -6418,7 +6531,14 @@ function stepTorpedoes(state, dt) {
     tp.x = nx; tp.z = nz;
     const bound = state.world.half || MAP_HALF;
     if (tp.travelled > tp.range || Math.abs(tp.x) > bound || Math.abs(tp.z) > bound) continue;
-    if (islandAt(state.world, tp.x, tp.z, 0)) { state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 }); continue; }
+    // Run into the shore or the face of a sea wall: the warhead goes off
+    // against it, and what is built there takes it like a heavy bomb.
+    const onWall = !!(state.world.works?.walls?.length && wallAt(state.world, tp.x, tp.z, 2));
+    if (onWall || islandAt(state.world, tp.x, tp.z, 0)) {
+      state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 });
+      if (tp.age > TORP_ARM_TIME || tp.aerial) landStrike(state, tp.x, tp.z, 0.533, 'bomb', 1.4);
+      continue;
+    }
 
     let hit = false;
     {
@@ -6781,6 +6901,10 @@ function stepCharges(state, dt) {
  */
 function burstCharge(state, c) {
   state.events.push({ e: 'dcBurst', x: c.x, y: c.y, z: c.z, owner: c.owner });
+  // Against the foot of a sea wall, the shock goes into the concrete.
+  if (state.world.works?.walls?.length && (c.y || 0) > -25 && wallAt(state.world, c.x, c.z, 25)) {
+    landStrike(state, c.x, c.z, 0.45, 'bomb', 1);
+  }
   // The wave off it, which falls away far faster with depth than the dome
   // does: a charge going off at a hundred feet heaves the sea up white over
   // it and sends almost nothing out across the surface.
@@ -9063,8 +9187,10 @@ function fallInto(state, f, x0, y0, z0, air) {
   }
   // The ground, or the sea.
   const g = f.y <= landCeiling(state.world) ? groundHeight(state.world, f.x, f.z) : 0;
-  if (f.y <= Math.max(0, g)) {
-    if (g > 0.5) landStrike(state, f.x, f.z, f.heavy ? 0.4 : 0.2, 'crash');
+  const hb = f.y > Math.max(0, g) ? intoBuilding(state, f.x, f.y, f.z) : null;
+  if (f.y <= Math.max(0, g) || hb) {
+    if (hb) landStrike(state, hb.x, hb.z, f.heavy ? 0.4 : 0.2, 'crash', 1, hb.b);
+    else if (g > 0.5) landStrike(state, f.x, f.z, f.heavy ? 0.4 : 0.2, 'crash');
     state.events.push({
       e: 'wreckIn', f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
       x: r(f.x), y: r(Math.max(0, g)), z: r(f.z), land: g > 0.5 ? 1 : 0, tk: state.tick,
@@ -9103,8 +9229,10 @@ function stepHeavyRam(state, bm) {
     return;
   }
   const g = bm.y <= landCeiling(state.world) ? groundHeight(state.world, bm.x, bm.z) : 0;
-  if (bm.y <= Math.max(0, g) + 4) {
-    if (g > 0.5) landStrike(state, bm.x, bm.z, 0.5, 'crash');
+  const hb = bm.y > Math.max(0, g) + 4 ? intoBuilding(state, bm.x, bm.y - 4, bm.z) : null;
+  if (bm.y <= Math.max(0, g) + 4 || hb) {
+    if (hb) landStrike(state, hb.x, hb.z, 0.5, 'crash', 1, hb.b);
+    else if (g > 0.5) landStrike(state, bm.x, bm.z, 0.5, 'crash');
     state.events.push({
       e: 'planeCrash', i: bm.id, team: bm.team, heavy: 1,
       x: r(bm.x), z: r(bm.z), y: r(Math.max(0, g)), tk: state.tick,
@@ -9248,8 +9376,11 @@ function stepRam(state, p) {
   // crater in it the same way a bomb does.
   const y = p.y ?? 220;
   const g = y <= landCeiling(state.world) ? groundHeight(state.world, p.x, p.z) : 0;
-  if (y <= Math.max(0, g)) {
-    if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
+  // Or into a house: a roof is as hard as a hillside to an aeroplane.
+  const hb = y > Math.max(0, g) ? intoBuilding(state, p.x, y, p.z) : null;
+  if (y <= Math.max(0, g) || hb) {
+    if (hb) landStrike(state, hb.x, hb.z, (p.dropped ? 0.26 : 0.42), 'crash', 1, hb.b);
+    else if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
       tk: state.tick,
@@ -13392,6 +13523,7 @@ export function step(state, dt = DT) {
     stepTurrets(state, ship, dt);
     stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
+    stepTrigger(state, ship);
     stepDpSurface(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
     stepSinking(state, ship, dt);

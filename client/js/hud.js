@@ -299,7 +299,7 @@ class HudBase {
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
       flyTake: $('fly-take'), cockpit: $('cockpit'), hudLeft: $('hud-left'),
-      gunSeat: $('gun-seat'), gunFire: $('gun-fire'),
+      gunSeat: $('gun-seat'), gunnerFire: $('gunner-fire'),
       flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
       flyThr: $('fly-thr'), flyStall: $('fly-stall'),
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
@@ -1077,8 +1077,8 @@ class HudBase {
     // The gunner's seat, and his trigger: held down for as long as the thumb
     // is on it, the same as the cockpit's.
     if (el.gunSeat) el.gunSeat.onclick = () => this.flyFns.gunner?.();
-    if (el.gunFire) {
-      const btn = el.gunFire;
+    if (el.gunnerFire) {
+      const btn = el.gunnerFire;
       btn.addEventListener('pointerdown', (ev) => {
         btn.setPointerCapture(ev.pointerId);
         this.gunHeld = true;
@@ -1107,8 +1107,8 @@ class HudBase {
       ? (next ? `${name(at)} ▸ ${name(next)}` : 'LEAVE GUN')
       : offer === 'rear' ? 'REAR GUNNER' : `${name(offer)} GUNNER`;
     if (show && el.gunSeat.textContent !== label) el.gunSeat.firstElementChild.textContent = label;
-    el.gunFire.hidden = !fire;
-    if (!fire && this.gunHeld) { this.gunHeld = false; el.gunFire.classList.remove('held'); }
+    el.gunnerFire.hidden = !fire;
+    if (!fire && this.gunHeld) { this.gunHeld = false; el.gunnerFire.classList.remove('held'); }
   }
 
   /** Offer the set pieces, or not: a heavy bomber has none. */
@@ -2109,7 +2109,7 @@ class HudBase {
 
   setGunSight(gun) {
     const el = this.el.gunSight || (this.el.gunSight = document.getElementById('gun-sight'));
-    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    const fire = this.el.sightFire || (this.el.sightFire = document.getElementById('gun-fire'));
     if (!el) return;
     el.hidden = !gun;
     if (fire) fire.hidden = !gun || !!gun.auto;
@@ -2151,7 +2151,7 @@ class HudBase {
     }
     if (beyond) bits.push('OUT OF RANGE');
     read.textContent = bits.join('   ');
-    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    const fire = this.el.sightFire || (this.el.sightFire = document.getElementById('gun-fire'));
     if (fire && !gun.auto) {
       const i = gun.id ?? gun.index;
       const cd = gun.kind === 'main' ? own?.cd?.[i]

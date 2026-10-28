@@ -3568,6 +3568,8 @@ export class Battle {
         return;
       }
     }
+    // Standing at a gun, Space is the trigger as well as the FIRE key.
+    if (this.gun && code === 'Space') { this.pullTrigger(); return; }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -4427,17 +4429,9 @@ export class Battle {
       audio.click();
       return;
     }
-    // Near enough to be dropping at something. Worked out here rather than
-    // waited for from the server, so the answer is on the screen the instant
-    // the key goes down.
-    const snap = this.snapshots[this.snapshots.length - 1];
-    const p = f.pilot;
-    let near = Infinity;
-    for (const s of ((snap && snap.ships) || [])) {
-      if (!s.a || s.tm === this.team) continue;
-      near = Math.min(near, Math.hypot(s.x - p.x, s.z - p.z));
-    }
-    if (near > f.load.near) { this.hud.alert('Nothing in range — press home'); return; }
+    // No range test: she lets go wherever the pilot says, at a ship, a town,
+    // a sea wall or nothing at all. Near a ship the fish are aimed off her
+    // and the bombs settled on her; anywhere else they fall where they fall.
     // Asked for, not done. The key goes dead while the answer is in flight so
     // a fast thumb cannot drop twice, and what is said afterwards is what
     // actually happened: "torpedoes away" when the simulation says the fish
