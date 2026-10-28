@@ -285,7 +285,11 @@ const WALLS = [
 const ROOFS = [0xa0503a, 0x464a52, 0x62666c, 0x6b9a84, 0x45443f];
 const CHAR = [0.08, 0.07, 0.065];
 
-const col = (hex, k = 1) => [((hex >> 16) & 255) / 255 * k, ((hex >> 8) & 255) / 255 * k, (hex & 255) / 255 * k];
+// Vertex colours are read as linear light, and the palette above is written
+// the way paint is seen: brought into linear here, or every wall in the town
+// comes out pale and grey.
+const lin = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const col = (hex, k = 1) => [lin(((hex >> 16) & 255) / 255) * k, lin(((hex >> 8) & 255) / 255) * k, lin((hex & 255) / 255) * k];
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // ---------------------------------------------------------------------------
