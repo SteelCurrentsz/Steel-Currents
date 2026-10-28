@@ -45,7 +45,7 @@ import {
 } from '../../shared/math.js';
 import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 import {
-  applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF,
+  applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
 } from '../../shared/works.js';
 
 // How far behind the server everybody else is drawn, in the server's own
@@ -1475,6 +1475,16 @@ export class Battle {
     };
     const reach = Math.max(600, this.gun.range || 12000);
     const mine = this.conned();
+    // The land, and the town on it, are in the way of anything behind them:
+    // the line is followed out to where it first meets a hillside or a wall
+    // of a house, short of where it meets the water.
+    const w = this.scene?.world || this.world;
+    let sea = reach;
+    if (dir.y < -1e-4) sea = Math.min(reach, Math.max(1, eye.y / -dir.y));
+    const land = w ? solidHit(w, eye.x, eye.y, eye.z,
+      eye.x + dir.x * sea, eye.y + dir.y * sea, eye.z + dir.z * sea, 6) : null;
+    const landT = land ? land.f * sea : Infinity;
+    const landFlat = landT * cp;
     // The nearest hull the sight is on. Generous, because a ship at fifteen
     // thousand yards is a few pixels wide and a layer has a spotting glass:
     // half a degree of tolerance, widening with range so it is a ship's
@@ -1486,7 +1496,7 @@ export class Battle {
       const dx = sh.x - eye.x;
       const dz = sh.z - eye.z;
       const d = Math.hypot(dx, dz);
-      if (d < 200 || d > reach) continue;
+      if (d < 200 || d > reach || d > landFlat) continue;
       const off = Math.abs(angleDelta(Math.atan2(dx, dz), this.gunYaw));
       // A hull's own half-breadth, seen from here, plus a layer's allowance.
       const wide = Math.atan2(getClass(sh.c).hull.length * 0.32, d) + 0.006;
@@ -1497,6 +1507,13 @@ export class Battle {
       return {
         x: best.x, y: 4, z: best.z, range: bestD, onSea: true,
         on: best.i, name: best.n,
+      };
+    }
+    // The hill or the house the sight is on: laid on it, at its height.
+    if (land) {
+      return {
+        x: land.x, y: land.y, z: land.z, range: landT, onSea: true, land: true,
+        on: 0, name: land.b ? 'Town' : null,
       };
     }
     // Nothing under the sight: where the line meets the water, and the gun's
@@ -1866,26 +1883,13 @@ export class Battle {
     if (!w || !ls) return;
     let at = null;
     if (where === 'town') {
-      let plan = null;
-      for (const p of cityPlans(w)) {
-        if (!plan || Math.hypot(p.city.x - ls.x, p.city.z - ls.z) < Math.hypot(plan.city.x - ls.x, plan.city.z - ls.z)) plan = p;
-      }
-      if (!plan) return;
-      // The square if it is there, else the first open pavement near the middle.
-      const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);
-      const tries = [];
-      // Off to one side of the square, clear of the fountain and the
-      // monument down its middle, looking across it.
-      if (sq) tries.push([sq.cu + (sq.inner.u1 - sq.inner.u0) * 0.22, sq.cv - (sq.inner.v1 - sq.inner.v0) * 0.05]);
-      for (let r = 0; r < 300 && tries.length < 400; r += 6) {
-        for (let a = 0; a < 12; a++) tries.push([Math.cos(a / 2) * r, plan.D * 0.08 + Math.sin(a / 2) * r]);
-      }
-      for (const [u, v] of tries) {
-        const p = cityToWorld(plan.city, u, v);
-        const t = surfaceAt(w, p.x, p.z);
-        if (t === SURF.none || worksFloor(w, p.x, p.z).blocked) continue;
-        at = { x: p.x, z: p.z, yaw: plan.city.rot + Math.PI };
-        break;
+      // The nearest town first, and the next if there is nowhere in it to stand.
+      const plans = cityPlans(w).slice()
+        .sort((a, b) => Math.hypot(a.city.x - ls.x, a.city.z - ls.z) - Math.hypot(b.city.x - ls.x, b.city.z - ls.z));
+      if (!plans.length) { this.hud.alert('There is no town on this battlefield'); return; }
+      for (const plan of plans) {
+        at = standInTown(w, plan);
+        if (at) break;
       }
     } else {
       // The nearest land to her, walked a few metres up the beach.
@@ -2139,8 +2143,12 @@ export class Battle {
           if (works && worksFloor(this.world, x, z).blocked) return true;
           const h = her(x, z); return !!h && h.rise > MAN.climb;
         },
+        // A quay and a sea wall each have their steps and ladders: he can get
+        // up out of the sea, or off the beach, onto the town or the walkway.
+        ladder: (x, z) => !!works && worksHard(this.world, x, z),
       });
       if (r === 'splash') { audio.splash(60, null); this.hud.alert('In the water — swim'); }
+      if (r === 'climbed') this.hud.alert('Up the steps');
       const h = her(m.x, m.z);
       if (h && h.rise <= MAN.climb && (move.fwd || move.side)) {
         // Up her side and onto her deck.
@@ -4484,6 +4492,17 @@ export class Battle {
   }
 
   /** Hand her back to the autopilot and go back to the bridge. */
+  /**
+   * What an aeroplane flown by hand is tested against ashore, substep by
+   * substep: the ground as it is drawn and every building standing on it.
+   * The sea is the pilot's own business (see Pilot.substep).
+   */
+  solidLine() {
+    const w = this.scene?.world || this.world;
+    if (!w || (!(w.islands || []).length && !(w.land || []).length)) return null;
+    return (ax, ay, az, bx, by, bz) => solidHit(w, ax, ay, az, bx, by, bz, 2);
+  }
+
   leaveFlight(lost = false, crashed = false) {
     if (!this.flight) return;
     // `land` gives her back to the autopilot and drops the claim on her, so
@@ -4578,11 +4597,13 @@ export class Battle {
       if (f.orphanAt > 180) { this.leaveFlight(true); return; }
       const sea = this.scene.ocean.heightAt(f.pilot.x, f.pilot.z);
       f.pilot.gale = galeOf(this.world, this.renderST ?? this.time);
-      f.pilot.step(dt, sea);
+      f.pilot.step(dt, sea, this.solidLine());
       if (!f.pilot.alive) {
-        // The sea. She goes in where she went in.
+        // The sea, or the hill or the roof she came down on. She goes in
+        // where she went in.
         const fx = this.scene.effects;
-        fx.splash(f.pilot.x, f.pilot.z, 90);
+        if (f.pilot.struck) fx.explosion(f.pilot.x, f.pilot.y + 2, f.pilot.z, 1.2);
+        else fx.splash(f.pilot.x, f.pilot.z, 90);
         fx.debris(f.pilot.x, Math.max(2, f.pilot.y), f.pilot.z, 10);
         this.leaveFlight(true);
       }
@@ -4686,18 +4707,30 @@ export class Battle {
     // flies her further each frame without flying her any less carefully.
     {
       const n = Math.max(1, Math.ceil(sdt / Math.max(1e-4, dt) - 1e-6));
-      for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea);
+      const solid = this.solidLine();
+      for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea, solid);
     }
     if (!p.alive) {
-      // She has gone into the sea, or into a ship at her waterline. The
-      // simulation is told where, at the waterline, so it can put her into
-      // whatever hull is there -- and she is not handed back to the
-      // autopilot, which would fly her out of the water again.
-      this.net.send({
-        t: 'fly', i: f.id,
-        x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
-        y: -1, p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
-      });
+      // She has gone into the sea, or into a ship at her waterline, or into
+      // a hillside or a house. The simulation is told where -- at the
+      // waterline, or at the very point of the hill or the roof she met --
+      // so it can put her into whatever is there, and she is not handed back
+      // to the autopilot, which would fly her out of it again.
+      const into = p.struck;
+      if (f.heavy) {
+        this.net.send({
+          t: 'flyb', i: f.id,
+          x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+          y: into ? Math.round(p.y * 10) / 10 : 20,
+        });
+      } else {
+        this.net.send({
+          t: 'fly', i: f.id,
+          x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, h: Math.round(p.heading * 1000) / 1000,
+          y: into ? Math.round((p.y - 0.5) * 10) / 10 : -1,
+          p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
+        });
+      }
       this.leaveFlight(true, true);
       return;
     }
@@ -8073,4 +8106,47 @@ export class Battle {
     this.snapshots = [];
     this.entities?.clear?.();
   }
+}
+
+/**
+ * Somewhere in a town for a man to be put down: off to one side of its square,
+ * clear of the fountain and the monument down its middle, looking across it;
+ * else the open pavement nearest the middle of the town; else any paving in
+ * it at all, however much of it the guns or the sea walls have left. Null
+ * only if there is not a yard of street in the whole of it.
+ */
+export function standInTown(w, plan) {
+  const ok = (u, v) => {
+    const p = cityToWorld(plan.city, u, v);
+    if (surfaceAt(w, p.x, p.z) === SURF.none || worksFloor(w, p.x, p.z).blocked) return null;
+    return { x: p.x, z: p.z, yaw: plan.city.rot + Math.PI };
+  };
+  const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);
+  if (sq) {
+    const at = ok(sq.cu + (sq.inner.u1 - sq.inner.u0) * 0.22, sq.cv - (sq.inner.v1 - sq.inner.v0) * 0.05);
+    if (at) return at;
+  }
+  for (let r = 0; r < 300; r += 6) {
+    for (let a = 0; a < 12; a++) {
+      const at = ok(Math.cos(a / 2) * r, plan.D * 0.08 + Math.sin(a / 2) * r);
+      if (at) return at;
+    }
+  }
+  // Every cell of the town's surface, nearest its middle first.
+  const { nu, nv, surf, W, D } = plan;
+  const cells = [];
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      if (surf[j * nu + i] === SURF.none) continue;
+      const u = -W / 2 + (i + 0.5) * (W / nu);
+      const v = -D / 2 + (j + 0.5) * (D / nv);
+      cells.push([u * u + v * v, u, v]);
+    }
+  }
+  cells.sort((a, b) => a[0] - b[0]);
+  for (const [, u, v] of cells) {
+    const at = ok(u, v);
+    if (at) return at;
+  }
+  return null;
 }

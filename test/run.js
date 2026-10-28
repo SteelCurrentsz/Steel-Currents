@@ -180,7 +180,7 @@ import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.
 import { VOICE_LINES } from '../client/js/render/voices.data.js';
 import { Input } from '../client/js/input.js';
 import { pixelRadius } from '../client/js/render/pixelcull.js';
-import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween } from '../client/js/game.js';
+import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween, standInTown } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
 import { shellLength, bombGeometry, bombAim, bombStep } from '../client/js/render/ordnance.js';
@@ -364,7 +364,7 @@ import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../s
 import { crewBattle } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
-  applyRuin, worksHard, cityPlans, buildingById, cleanAsk,
+  applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
 } from '../shared/works.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
@@ -24175,6 +24175,154 @@ check('a sea wall has no holes in it at its bends, and every run of it is wound 
       assert.ok(left > (run.pts.length - 2) * 0.8, 'a run of wall wound the wrong way round, and drawn inside out');
     }
   }
+});
+
+
+// Towns put down one after another, and everything that moves running into
+// the land and the houses on it.
+
+check('a town put down beside another, or on top of it, never takes the other\'s buildings', () => {
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isles = bare.islands.filter((i) => i.r > 300).sort((a, b) => b.r - a.r).slice(0, 3);
+  for (const i of isles) {
+    const ask = { cities: [], walls: [{ seed: 2, x: Math.round(i.x + i.r * 1.1), z: Math.round(i.z) }] };
+    const spots = [[1.3, 0], [-1.3, 0], [0, 1.3], [0, 0], [0.2, 0.1]];
+    let before = [];
+    let walls = null;
+    for (const [k, [a, c]] of spots.entries()) {
+      ask.cities.push({ seed: 10 + k, x: Math.round(i.x + i.r * a), z: Math.round(i.z + i.r * c) });
+      const w = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, ask);
+      const plans = cityPlans(w);
+      const now = new Map(plans.map((p) => [p.city.ask, p.buildings.length]));
+      for (const [ak, n] of before) {
+        assert.equal(now.get(ak), n, `town ${ak} went from ${n} buildings to ${now.get(ak)} when another was put down`);
+      }
+      for (const p of plans) {
+        // A town squeezed into what room was left is a small one, and still
+        // stands level on its ground.
+        if (p.buildings.length > 40) { assertGrounded(w, p); continue; }
+        for (const q of p.buildings) {
+          const g = drawnGround(w, q.x, q.z);
+          assert.ok(Math.abs(g - p.level) < 0.08, `${q.kind} ${q.id} is ${(g - p.level).toFixed(2)} m off the level`);
+        }
+      }
+      if (walls === null) walls = w.works.walls.length;
+      assert.ok(w.works.walls.length >= 1, 'the sea wall went when a town was put down');
+      before = [...now];
+    }
+  }
+});
+
+check('a sea wall put down at a town is run along its waterfront, never through its houses', () => {
+  const bare = coastWorld(null);
+  for (const [x, z] of [[1700, -4600], [4500, 3100], [-2500, -3200]]) {
+    if (shoreDistance(bare, x, z) < 0) continue;
+    const ask = { cities: [{ seed: 4, x, z }], walls: [] };
+    const n = cityPlans(coastWorld(ask))[0].buildings.length;
+    ask.walls.push({ seed: 5, x, z });
+    const w = coastWorld(ask);
+    const left = cityPlans(w)[0].buildings.length;
+    assert.ok(left >= n * 0.7, `a wall took the town from ${n} buildings to ${left}`);
+  }
+});
+
+check('every town has somewhere to put a man down in it', () => {
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isles = bare.islands.filter((i) => i.r > 400).sort((a, b) => b.r - a.r);
+  const w = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, {
+    cities: [{ seed: 77 }, { seed: 6, x: isles[0].x, z: isles[0].z }, { seed: 8, x: isles[0].x + 300, z: isles[0].z }],
+    walls: [{ seed: 9 }],
+  });
+  for (const plan of cityPlans(w)) {
+    const at = standInTown(w, plan);
+    assert.ok(at, 'nowhere to stand in a town');
+    assert.ok(!worksFloor(w, at.x, at.z).blocked, 'put down inside a house');
+  }
+});
+
+check('a man in the water goes up the steps of a quay or a sea wall onto it', () => {
+  const man = { x: 0, y: -1.2, z: 0, vy: 0, yaw: 0, pitch: 0, grounded: false, swimming: true, held: 0 };
+  // The quay's face is at z = 1, sixteen metres up, and a sheer face.
+  const env = {
+    sea: () => 0, ground: (x, z) => (z > 1 ? 16 : -6), blocked: () => false,
+    ladder: (x, z) => z > 1,
+  };
+  let r = null;
+  for (let t = 0; t < 4 && r !== 'climbed'; t += 1 / 30) r = stepWater(man, { fwd: 1 }, 1 / 30, env);
+  assert.equal(r, 'climbed', 'he could not get out of the water onto the quay');
+  assert.ok(man.z > 1 && Math.abs(man.y - 16) < 0.01 && man.grounded);
+  // A cliff with no steps is still a cliff.
+  const cliff = { ...env, ladder: () => false };
+  const m2 = { x: 0, y: -1.2, z: 0, vy: 0, yaw: 0, pitch: 0, grounded: false, swimming: true, held: 0 };
+  for (let t = 0; t < 4; t += 1 / 30) stepWater(m2, { fwd: 1 }, 1 / 30, cliff);
+  assert.ok(m2.z <= 1, 'he went up a sheer cliff');
+});
+
+check('the line from the sea to a house meets the house, and the line into a hill the hill', () => {
+  const w = islandTown();
+  const plan = cityPlans(w)[0];
+  const c = plan.city;
+  // From well out to sea, straight in over the waterfront at roof height.
+  const b = plan.buildings.filter((q) => q.h > 8).sort((p, q) => q.v - p.v)[0];
+  const y = plan.level + b.h * 0.4;
+  const out = { x: b.x + Math.sin(c.rot) * 900, z: b.z + Math.cos(c.rot) * 900 };
+  const hit = solidHit(w, out.x, y, out.z, b.x, y, b.z);
+  assert.ok(hit, 'the line went through the town');
+  assert.ok(hit.b || hit.y <= solidGround(w, hit.x, hit.z) + 0.1, 'it stopped on nothing');
+  assert.ok(solidAt(w, hit.x, hit.y, hit.z), 'the point it stopped at is not inside anything');
+  // Low over an island's middle, from the sea: into its hill.
+  const i = w.islands.slice().sort((p, q) => q.height - p.height)[0];
+  const top = groundHeight(w, i.x, i.z);
+  const h2 = solidHit(w, i.x - i.r * 2.5, top * 0.5, i.z, i.x, top * 0.5, i.z);
+  assert.ok(h2 && !h2.b && h2.x < i.x, 'a line into the hill went through it');
+});
+
+check('an aeroplane flown by hand into a house or a hillside goes in there, whatever her speed', () => {
+  const fly = (world, from, to, y) => {
+    const st = createState(world, {});
+    const cv = addShip(st, { name: 'C', classId: 'enterprise', team: 0, index: 0 });
+    cv.x = from.x + 9000; cv.z = from.z + 9000;
+    const heading = Math.atan2(to.x - from.x, to.z - from.z);
+    const p = {
+      id: 4242, owner: cv.id, team: 0, x: from.x, z: from.z, y, heading, speed: 140, vy: 0,
+      bomb: 0, torp: 0, role: 'fighter', count: 1, machines: [],
+    };
+    st.planes.push(p);
+    const L = Math.hypot(to.x - from.x, to.z - from.z);
+    // Thirty metres between one word from her and the next: a fast machine
+    // a long way past a house's width.
+    for (let d = 30; d <= L + 300 && st.planes.includes(p) && !p.dead; d += 30) {
+      flyPlane(st, cv, { i: p.id, x: from.x + Math.sin(heading) * d, z: from.z + Math.cos(heading) * d, h: heading, y });
+      step(st, DT);
+    }
+    return { st, p };
+  };
+  const w = islandTown();
+  const plan = cityPlans(w)[0];
+  const c = plan.city;
+  const b = plan.buildings.filter((q) => q.h > 8 && q.w > 8).sort((p, q) => q.v - p.v)[0];
+  const from = { x: b.x + Math.sin(c.rot) * 160, z: b.z + Math.cos(c.rot) * 160 };
+  const { p } = fly(w, from, b, plan.level + b.h * 0.5);
+  assert.ok(p.dead || p.hp <= 0, 'she flew on through the town');
+  assert.ok(Object.values(w.ruin.b).some((r) => r.d > 0), 'she went into a house and did it no harm');
+
+  const w2 = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const i = w2.islands.slice().sort((q, k) => k.height - q.height)[0];
+  const top = groundHeight(w2, i.x, i.z);
+  const r2 = fly(w2, { x: i.x - i.r * 1.6, z: i.z }, { x: i.x, z: i.z }, top * 0.6);
+  assert.ok(r2.p.dead || r2.p.hp <= 0, 'she flew through the island');
+  assert.ok(r2.p.x < i.x, 'she came out the far side of the hill');
+});
+
+check('a pilot flying by hand stops at the hill he flies into, not at the sea under it', () => {
+  const w = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const i = w.islands.slice().sort((q, k) => k.height - q.height)[0];
+  const top = groundHeight(w, i.x, i.z);
+  const p = new Pilot(AERO_WILDCAT, { x: i.x - i.r * 1.5, y: top * 0.5, z: i.z, heading: Math.PI / 2, speed: 120 });
+  const solid = (ax, ay, az, bx, by, bz) => solidHit(w, ax, ay, az, bx, by, bz, 2);
+  for (let n = 0; n < 60 * 60 && p.alive; n++) p.step(1 / 60, 0, solid);
+  assert.ok(!p.alive && p.struck, 'she never met the hill');
+  assert.ok(p.y > 2 && p.x < i.x, `she stopped at ${p.y.toFixed(0)} m, ${(p.x - i.x).toFixed(0)} m from the middle`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

@@ -30,6 +30,7 @@
 import { makeRng, clamp, TAU } from './math.js';
 import {
   islandRadius, islandAt, landMask, shoreDistance, drawnGround, COAST_STEP, rawGround, groundHeight,
+  landCeiling,
 } from './world.js';
 
 // ---------------------------------------------------------------------------
@@ -245,6 +246,11 @@ function siteCity(world, ask, others = []) {
   const lim = half - Math.max(site.W, site.D) / 2 - 300;
   site.x = clamp(site.x, -lim, lim);
   site.z = clamp(site.z, -lim, lim);
+  // Clear of every town already standing. One laid over another was levelled
+  // to its own height across the other's streets, and took most of that
+  // town's buildings off the ground they had been drawn up on.
+  site = keepClear(world, site, others);
+  if (!site) return null;
   // The level the streets are cut to: what the ground is in the front half of
   // the site, where the harbour is -- a town is built at the water, and the
   // hill behind it is cut back to it. A town inland is built at the height
@@ -263,8 +269,97 @@ function siteCity(world, ask, others = []) {
   const top = site.inland ? (site.isle >= 0 ? Math.max(16, isles[site.isle].height * 0.8) : 420)
     : site.isle >= 0 ? 16 : 18;
   site.level = Math.round(clamp(med, 3.5, top) * 10) / 10;
+  // A neighbour close enough that the levelling of either reaches the other's
+  // streets: the two are one town on one level, or one of them is cut down
+  // or made up under the other's houses.
+  const near = others.find((o) => reaches(site, o));
+  if (near) site.level = near.level;
   site.seed = ask.seed;
   return site;
+}
+
+/** How far apart two towns' streets are kept: a field or two between them. */
+const TOWN_GAP = 30;
+
+/**
+ * Whether two towns' sites overlap, each widened by its pad: the separating
+ * axis test on the two rectangles, which can be turned any way to each other.
+ */
+function sitesOverlap(a, b, padA = 0, padB = 0) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const half = (c, pad, ax, az) => (c.W / 2 + pad) * Math.abs(Math.cos(c.rot) * ax - Math.sin(c.rot) * az)
+    + (c.D / 2 + pad) * Math.abs(Math.sin(c.rot) * ax + Math.cos(c.rot) * az);
+  for (const th of [a.rot, b.rot]) {
+    for (const [ax, az] of [[Math.cos(th), -Math.sin(th)], [Math.sin(th), Math.cos(th)]]) {
+      if (Math.abs(dx * ax + dz * az) > half(a, padA, ax, az) + half(b, padB, ax, az)) return false;
+    }
+  }
+  return true;
+}
+
+/** Whether the levelling of either of two towns reaches the other's streets. */
+function reaches(a, b) {
+  return sitesOverlap(a, b, a.flat + a.blend, b.flat) || sitesOverlap(a, b, a.flat, b.flat + b.blend);
+}
+
+/** Whether the water comes up to the front of a site: under its front row, or just past it. */
+function wetFront(world, site) {
+  return [-0.3, 0, 0.3].some((f) => [0.42, 0.5, 0.6].some((t) => {
+    const p = cityToWorld(site, f * site.W, t * site.D);
+    return rawGround(world, p.x, p.z) <= 0.3;
+  }));
+}
+
+/**
+ * The site, or the nearest one like it that is clear of every town in
+ * `others`: moved off them, or made smaller, whichever moves it less from
+ * where it was asked for. A harbour town made smaller keeps its front on the
+ * water. Null if there is no room anywhere near.
+ */
+function keepClear(world, site, others) {
+  // On a town's streets, or in reach of two that stand at different levels:
+  // it can be put on the level of one of them, not of both.
+  const clash = (s) => {
+    let level = null;
+    for (const o of others) {
+      if (sitesOverlap(s, o, TOWN_GAP / 2, TOWN_GAP / 2)) return true;
+      if (!reaches(s, o)) continue;
+      if (level !== null && o.level !== level) return true;
+      level = o.level;
+    }
+    return false;
+  };
+  if (!clash(site)) return site;
+  const half = world.half || 7000;
+  let best = null;
+  for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
+    const W = Math.round(site.W * k);
+    const D = Math.round(site.D * k);
+    const back = site.inland ? 0 : (site.D - D) / 2;
+    const ox = site.x - Math.sin(site.rot) * back;
+    const oz = site.z - Math.cos(site.rot) * back;
+    const lim = half - Math.max(W, D) / 2 - 300;
+    for (let r = 0; r <= 1800; r += 40) {
+      const cost = r + (1 - k) * 900;
+      if (best && cost >= best.cost) break;
+      const n = r ? Math.max(8, Math.round((TAU * r) / 60)) : 1;
+      for (let a = 0; a < n; a++) {
+        const th = (a / n) * TAU;
+        const x = ox + Math.sin(th) * r;
+        const z = oz + Math.cos(th) * r;
+        if (Math.abs(x) > lim || Math.abs(z) > lim) continue;
+        const s = { ...site, x, z, W, D };
+        if (rawGround(world, x, z) <= 0.3 || clash(s)) continue;
+        best = { s, cost };
+        break;
+      }
+    }
+  }
+  if (!best) return null;
+  const s = best.s;
+  if (s.x !== site.x || s.z !== site.z || s.W !== site.W) s.inland = !wetFront(world, s);
+  return s;
 }
 
 /**
@@ -292,13 +387,8 @@ function siteAt(world, ask) {
     const b = Math.hypot(gx, gz) > 1 ? Math.atan2(-gx, -gz) : Math.atan2(-ask.x, -ask.z);
     site = { x: ask.x, z: ask.z, rot: b, W: 760, D: 480, flat: 460, blend: 600, isle: -1 };
   }
-  // A waterfront if the sea is at the front of it: under its front row, or
-  // just past it.
-  const front = [-0.3, 0, 0.3].some((f) => [0.42, 0.5, 0.6].some((t) => {
-    const p = cityToWorld(site, f * site.W, t * site.D);
-    return rawGround(world, p.x, p.z) <= 0.3;
-  }));
-  site.inland = !front;
+  // A waterfront if the sea is at the front of it.
+  site.inland = !wetFront(world, site);
   return site;
 }
 
@@ -503,6 +593,24 @@ function onTaken(taken, x, z) {
   return false;
 }
 
+/**
+ * Whether a wall here would be run through a town's streets. Along a harbour
+ * town's waterfront it is welcome -- that is what a sea wall is for -- but a
+ * shore that winds in behind the front row would take the wall through the
+ * houses, and the town is drawn up round whatever wall there is.
+ */
+function inTown(world, x, z) {
+  for (const c of world.works?.cities || []) {
+    const { u, v } = worldToCity(c, x, z);
+    const pad = WALL_WIDTH / 2;
+    if (Math.abs(u) > c.W / 2 + pad || Math.abs(v) > c.D / 2 + pad) continue;
+    if (c.inland || v < c.D / 2 - FRONT_STRIP) return true;
+  }
+  return false;
+}
+/** How deep a harbour town's waterfront is, which a wall may be run along. */
+const FRONT_STRIP = 150;
+
 function boxOf(pts, pad) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of pts) {
@@ -539,7 +647,7 @@ function pushRun(world, runs, pts, taken = []) {
   for (const p of pts) {
     const [x, z, nx, nz] = p;
     const free = Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
-      && !onTaken(taken, x, z);
+      && !onTaken(taken, x, z) && !inTown(world, x, z);
     // Ground under the back edge and the middle of it, and the sea not far
     // past the front.
     const ground = rawGround(world, x, z) > 0.2
@@ -1503,7 +1611,7 @@ export function worksImpact(world, ax, ay, az, bx, by, bz) {
     const hit = impactIn(world, plan, ax, ay, az, bx, by, bz);
     if (hit && (!first || hit.f < first.f)) first = hit;
   }
-  return first && { b: first.b, x: first.x, y: first.y, z: first.z };
+  return first && { b: first.b, x: first.x, y: first.y, z: first.z, f: first.f };
 }
 
 function impactIn(world, plan, ax, ay, az, bx, by, bz) {
@@ -1515,9 +1623,26 @@ function impactIn(world, plan, ax, ay, az, bx, by, bz) {
   const mv = plan.D / 2 + 10;
   if ((pa.u > mu && pb.u > mu) || (pa.u < -mu && pb.u < -mu)
     || (pa.v > mv && pb.v > mv) || (pa.v < -mv && pb.v < -mv)) return null;
-  const steps = Math.max(2, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
-  for (let i = 1; i <= steps; i++) {
-    const f = i / steps;
+  // Only the part of the path over the town is walked: a gun sight's line is
+  // twenty kilometres long and crosses a town in a few hundred metres of it.
+  let f0 = 0;
+  let f1 = 1;
+  for (const [p0, p1, m] of [[pa.u, pb.u, mu], [pa.v, pb.v, mv]]) {
+    const d = p1 - p0;
+    if (Math.abs(d) < 1e-9) continue;
+    const t0 = (-m - p0) / d;
+    const t1 = (m - p0) / d;
+    f0 = Math.max(f0, Math.min(t0, t1));
+    f1 = Math.min(f1, Math.max(t0, t1));
+  }
+  if (f0 > f1) return null;
+  // Steps of four metres along the ground, and of two up and down, so a
+  // machine diving straight down onto a roof finds it too.
+  const span = f1 - f0;
+  const steps = Math.max(2, Math.ceil(Math.max(Math.hypot(bx - ax, bz - az) / 4, Math.abs(by - ay) / 2) * span));
+  for (let i = 0; i <= steps; i++) {
+    const f = f0 + (span * i) / steps;
+    if (f <= 0 && (ax !== bx || ay !== by || az !== bz)) continue;
     const x = ax + (bx - ax) * f;
     const y = ay + (by - ay) * f;
     const z = az + (bz - az) * f;
@@ -1815,3 +1940,88 @@ export function worksFloor(world, x, z) {
 
 /** How far round each solid piece of street furniture a man is kept off it. */
 const SOLID = { fountain: 5.6, statue: 1.9, bandstand: 5.1, kiosk: 1.7, phone: 0.75, pillar: 0.45 };
+
+// ---------------------------------------------------------------------------
+// What is solid
+// ---------------------------------------------------------------------------
+//
+// Everything that moves through the air -- an aeroplane flown into a hill, a
+// shell, a strafing burst, the line a gun layer looks down -- meets the same
+// two things ashore: the ground, as it is drawn and not only as the height
+// field has it between the mesh's points, and whatever building is standing
+// on it.
+
+/** The height of the land a body in the air meets at a point: the ground or the terrain as drawn, whichever stands higher. */
+export function solidGround(world, x, z) {
+  return Math.max(groundHeight(world, x, z), drawnGround(world, x, z));
+}
+
+/**
+ * Whether a point in the air is inside the land or a standing building:
+ * `{ x, y, z, b }`, with `b` the building or null for the ground, or null.
+ * Not the sea: that is everybody's own business.
+ */
+export function solidAt(world, x, y, z) {
+  if (y > landCeiling(world)) return null;
+  const g = solidGround(world, x, z);
+  if (g > 0 && y <= g) return { x, y, z, b: null };
+  if (!world.works?.cities?.length) return null;
+  const hit = worksImpact(world, x, y + 0.5, z, x, y, z);
+  return hit ? { x, y, z, b: hit.b } : null;
+}
+
+/**
+ * The first point on the line from a to b inside the land or a building:
+ * `{ x, y, z, b, f }`, with `f` how far along the line it is, or null.
+ *
+ * The ground is walked in steps no longer than `step` near it and longer the
+ * higher over it the line is, and the crossing found to a few centimetres;
+ * the buildings are walked by worksImpact. Land under the sea does not count.
+ */
+export function solidHit(world, ax, ay, az, bx, by, bz, step = 4) {
+  const top = landCeiling(world);
+  if (ay > top && by > top) return null;
+  const L = Math.hypot(bx - ax, by - ay, bz - az);
+  const at = (f) => [ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f];
+  const under = (f) => {
+    const [x, y, z] = at(f);
+    if (y > top) return { in: false, gap: y - top + step };
+    const g = solidGround(world, x, z);
+    return { in: g > 0 && y <= g, gap: y - Math.max(0, g) };
+  };
+  let ground = null;
+  if (L < 1e-6) {
+    if (under(0).in) ground = 0;
+  } else {
+    let f = 0;
+    let was = under(0);
+    if (was.in) ground = 0;
+    while (ground === null && f < 1) {
+      // As far as a slope of one in one could have come up to meet the line.
+      const next = Math.min(1, f + Math.max(step, Math.min(80, was.gap * 0.7)) / L);
+      const now = under(next);
+      if (now.in) {
+        let lo = f;
+        let hi = next;
+        for (let k = 0; k < 12; k++) {
+          const mid = (lo + hi) / 2;
+          if (under(mid).in) hi = mid; else lo = mid;
+        }
+        ground = hi;
+        break;
+      }
+      f = next;
+      was = now;
+    }
+  }
+  // A building short of the ground the line went into.
+  if (world.works?.cities?.length) {
+    const end = ground === null ? 1 : ground;
+    const [ex, ey, ez] = at(end);
+    const hit = worksImpact(world, ax, ay, az, ex, ey, ez);
+    if (hit) return { x: hit.x, y: hit.y, z: hit.z, b: hit.b, f: hit.f * end };
+  }
+  if (ground === null) return null;
+  const [x, y, z] = at(ground);
+  return { x, y, z, b: null, f: ground };
+}

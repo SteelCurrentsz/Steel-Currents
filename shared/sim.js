@@ -32,7 +32,7 @@ import {
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
-  wallAt, hurtBuilding, hurtWall, wallHp,
+  wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -2580,7 +2580,7 @@ function stepTurrets(state, ship, dt, live = true) {
     const sol = held
       ? solveBallistic(cls.gun,
         clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, cls.gun.range),
-        12 - aimHeight(state, ship.manX, ship.manZ)).elev
+        12 - Math.max(aimHeight(state, ship.manX, ship.manZ), ship.manY || 0)).elev
       : given ? solveBallistic(cls.gun, clamp(given.d, 400, cls.gun.range),
         12 - aimHeight(state, given.x, given.z)).elev : elev;
     // Off her deck: her stops are on the mounting, and a turret trained out
@@ -3028,7 +3028,7 @@ export function flyPlane(state, ship, msg) {
   // flew is walked, not just the point she got to, so she cannot pass through
   // a hull between two messages. The first point of it inside an enemy is
   // where she stops, and the tick puts her into that ship.
-  sweepIntoShip(state, p, was);
+  if (!sweepIntoShip(state, p, was)) sweepIntoSolid(state, p, was);
   p.flown = true;
   p.flownAt = state.t;
   p.pilot = ship.id;
@@ -3312,8 +3312,12 @@ function stepBullets(state, dt) {
 
     // The sea, or the ground -- and the ground only asked about when she is
     // low enough to have met any.
-    const g = b.y <= landCeiling(state.world) ? groundHeight(state.world, b.x, b.z) : 0;
-    if (b.y <= Math.max(0, g)) {
+    // Walked along the tick's path, not just its end: a round goes thirty
+    // metres a tick and a ridge is narrower than that at its top.
+    const cross = Math.min(py, b.y) <= landCeiling(w) ? solidHit(w, px, py, pz, b.x, b.y, b.z, 6) : null;
+    if (cross) { b.x = cross.x; b.y = cross.y; b.z = cross.z; }
+    const g = b.y <= landCeiling(w) ? solidGround(w, b.x, b.z) : 0;
+    if (b.y <= Math.max(0, g) || cross) {
       // On a sea wall: concrete chipped, a very little at a time.
       const on = g > 0.5 && w.works?.walls?.length ? wallAt(w, b.x, b.z) : null;
       if (on) {
@@ -4158,7 +4162,7 @@ function stepSecondary(state, ship, dt) {
     if (isManned(ship, 'sec', m.id)) {
       const want = mannedDesired(ship, spec);
       const aim = solveBallistic(S,
-        clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
+        clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10 - Math.max(0, ship.manY || 0));
       const up = want.blocked ? 0 : clamp(aim.elev - deckTilt(ship, want.angle), stops.min, stops.max);
       layMounting(m, spec, want.angle, up, S.traverse * dt, 0.9 * dt, stops);
       m.target = 0;
@@ -4303,7 +4307,7 @@ export function fireSecondary(state, ship, id) {
   if (Math.abs(angleDelta(m.angle, want.angle)) > 0.05) return 0;
   const stops = gunLimits(S);
   const aim = solveBallistic(S,
-    clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10);
+    clamp(dist(ship.x, ship.z, ship.manX, ship.manZ), 400, S.range), 10 - Math.max(0, ship.manY || 0));
   const deck = aim.elev - deckTilt(ship, want.angle);
   if (deck > stops.max || deck < stops.min) return 0;
   if (deck < layFloor(spec.mask, want.angle)) return 0;
@@ -5431,8 +5435,13 @@ function stepShells(state, dt) {
     // it, and that is the usual case: asking the height field about every
     // shell on every tick is the expensive way to find out she is still four
     // thousand feet over open water.
-    if (sh.y <= 0 || sh.y <= landCeiling(state.world)) {
-      const g = groundHeight(state.world, sh.x, sh.z);
+    if (sh.y <= 0 || Math.min(py, sh.y) <= landCeiling(state.world)) {
+      // The first of the land along this tick's path, so a round skimming a
+      // headland goes into its crest and not on through it to the far side.
+      const cross = solidHit(state.world, px, py, pz, sh.x, sh.y, sh.z, 8);
+      if (cross && !cross.b) { sh.x = cross.x; sh.y = cross.y; sh.z = cross.z; }
+      const g = cross && !cross.b ? Math.max(sh.y, groundHeight(state.world, sh.x, sh.z))
+        : groundHeight(state.world, sh.x, sh.z);
       if (sh.y <= Math.max(0, g)) {
         const ashore = g > 0.5;
         state.events.push({
@@ -8809,6 +8818,19 @@ function sweepIntoShip(state, p, was) {
 }
 
 /**
+ * The same for the land and the buildings on it: the first point of the line
+ * she flew since the last word from her that is inside a hill or a house is
+ * where she stops, so a pilot flying into a town at three hundred knots does
+ * not go through a terrace between one message and the next.
+ */
+function sweepIntoSolid(state, p, was) {
+  const hit = solidHit(state.world, was.x, was.y, was.z, p.x, p.y ?? 220, p.z, 2);
+  if (!hit) return false;
+  p.x = hit.x; p.y = hit.y; p.z = hit.z;
+  return true;
+}
+
+/**
  * Is this flight inside that ship?
  *
  * Her box, and her air draft -- from a little under the waterline, so a machine
@@ -9186,7 +9208,7 @@ function fallInto(state, f, x0, y0, z0, air) {
     }
   }
   // The ground, or the sea.
-  const g = f.y <= landCeiling(state.world) ? groundHeight(state.world, f.x, f.z) : 0;
+  const g = f.y <= landCeiling(state.world) ? solidGround(state.world, f.x, f.z) : 0;
   const hb = f.y > Math.max(0, g) ? intoBuilding(state, f.x, f.y, f.z) : null;
   if (f.y <= Math.max(0, g) || hb) {
     if (hb) landStrike(state, hb.x, hb.z, f.heavy ? 0.4 : 0.2, 'crash', 1, hb.b);
@@ -9228,7 +9250,7 @@ function stepHeavyRam(state, bm) {
     loseMachine(state, bm, lead, true, 'rammed');
     return;
   }
-  const g = bm.y <= landCeiling(state.world) ? groundHeight(state.world, bm.x, bm.z) : 0;
+  const g = bm.y <= landCeiling(state.world) ? solidGround(state.world, bm.x, bm.z) : 0;
   const hb = bm.y > Math.max(0, g) + 4 ? intoBuilding(state, bm.x, bm.y - 4, bm.z) : null;
   if (bm.y <= Math.max(0, g) + 4 || hb) {
     if (hb) landStrike(state, hb.x, hb.z, 0.5, 'crash', 1, hb.b);
@@ -9375,10 +9397,12 @@ function stepRam(state, p) {
   // Into the ground, or into the sea. A flight flown into a hillside digs a
   // crater in it the same way a bomb does.
   const y = p.y ?? 220;
-  const g = y <= landCeiling(state.world) ? groundHeight(state.world, p.x, p.z) : 0;
-  // Or into a house: a roof is as hard as a hillside to an aeroplane.
-  const hb = y > Math.max(0, g) ? intoBuilding(state, p.x, y, p.z) : null;
-  if (y <= Math.max(0, g) || hb) {
+  // The hill as it is drawn, and the houses on it: a roof is as hard as a
+  // hillside to an aeroplane.
+  const solid = solidAt(state.world, p.x, y, p.z);
+  const hb = solid?.b ? { x: p.x, z: p.z, b: solid.b } : null;
+  const g = hb ? y : solid ? solidGround(state.world, p.x, p.z) : 0;
+  if (y <= 0 || solid) {
     if (hb) landStrike(state, hb.x, hb.z, (p.dropped ? 0.26 : 0.42), 'crash', 1, hb.b);
     else if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
     state.events.push({
@@ -11307,14 +11331,20 @@ export function flyBomber(state, ship, msg) {
   // A heavy at her best speed in a dive, with room for a slow line.
   const reach = bm.speed * 2.4 * since + 80;
   if (dist(bm.x, bm.z, msg.x, msg.z) > reach) return false;
+  const was = { x: bm.x, y: bm.y, z: bm.z };
   bm.x = msg.x;
   bm.z = msg.z;
   bm.heading = wrapAngle(msg.h);
   if (Number.isFinite(msg.tn)) bm.turn = clamp(msg.tn, -1, 1);
   if (Number.isFinite(msg.y)) {
     const climb = 120 * since + 60;
-    bm.y = clamp(msg.y, Math.max(20, bm.y - climb), Math.min(12000, bm.y + climb));
+    // As low as she can be flown: into a hill, a roof or the sea.
+    bm.y = clamp(msg.y, Math.max(-4, bm.y - climb), Math.min(12000, bm.y + climb));
   }
+  // Into a hill or a house on the way, as a flight is (see sweepIntoSolid).
+  // Her belly is four metres under where she is reckoned to be.
+  const hit = solidHit(state.world, was.x, was.y - 4, was.z, bm.x, bm.y - 4, bm.z, 3);
+  if (hit) { bm.x = hit.x; bm.y = hit.y + 4; bm.z = hit.z; }
   bm.flown = true;
   bm.flownAt = state.t;
   bm.pilot = ship.id;
