@@ -844,6 +844,19 @@
     <button id="lay-out" type="button" aria-label="Zoom out">&minus;</button>
     <button id="lay-fit" type="button" aria-label="Fit the whole battlefield">&#9723;</button>
   </div>
+  <!-- The works ashore: a town and the sea walls in front of it, raised off a
+       seed. Pressed again, each is raised afresh; the cross takes it away.
+       See shared/works.js. -->
+  <div class="lay-works" id="lay-works">
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-city" type="button" title="Raise a town on the coast">Town</button>
+      <button class="lay-x" id="lay-city-x" type="button" aria-label="No town" hidden>&times;</button>
+    </div>
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-walls" type="button" title="Build sea walls along the shore">Sea Walls</button>
+      <button class="lay-x" id="lay-walls-x" type="button" aria-label="No sea walls" hidden>&times;</button>
+    </div>
+  </div>
   <p id="lay-hint" class="deploy-hint"></p>
   <div class="lay-actions">
     <button class="btn ghost" id="lay-back" type="button">Back</button>

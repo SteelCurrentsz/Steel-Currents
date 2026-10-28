@@ -51,7 +51,7 @@ export class Room {
     this.autoStart = opts.autoStart !== false;
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
     this.world = generateWorld(this.seed, this.mapId, opts.time, opts.half, opts.place,
-      opts.weather, !!opts.fog);
+      opts.weather, !!opts.fog, opts.works || null);
     // Arcade rules ride on the world, which both the simulation and every
     // client are handed: see stepDetection.
     if (opts.arcade) this.world.arcade = true;
@@ -406,7 +406,10 @@ export class Room {
       // those is heard and seen from anywhere on the map whether or not the
       // ship it happened to was in sight -- that is the whole of what makes a
       // detonation different from every other explosion in the game.
-      if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate') global.push(ev);
+      if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate'
+        // What has been done to the town is the town's state, not a flash
+        // somebody may or may not have seen: every client keeps its copy.
+        || ev.e === 'ruin') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);

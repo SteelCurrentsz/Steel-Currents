@@ -8,6 +8,7 @@ import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Flames } from './flames.js';
+import { WorksView } from './works.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Rockets } from './rockets.js';
 import { Torpedoes } from './torpedo.js';
@@ -2069,6 +2070,10 @@ export class BattleScene {
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
+    // The town and the sea walls, if the battle has them. See works.js.
+    this.worksView = world.works
+      ? new WorksView(this.scene, world, { effects: this.effects, flames: this.flames, time: this.time })
+      : null;
     // What a searchlight's beam has to light in the air: next to nothing on
     // a clear night, a great deal in rain, and a solid bar of light in fog.
     this.lampHaze = world.fog ? 1 : wx.fall === 'rain' ? 0.6 + 0.15 * (wx.drop || 1) / 2
@@ -2277,6 +2282,8 @@ export class BattleScene {
         v.apron.geometry.dispose();
         v.apron.material.dispose();
       }
+      // In the town, the street furniture on the site went with the houses.
+      if (!v.apron) this.worksView?.clearProps(at.x, at.z, v.span * 0.8 + 3);
       v.apron = batteryApron(this.world, at, v.span, v.foot);
       v.group.add(v.apron);
       v.apronY = at.y;
@@ -2352,6 +2359,7 @@ export class BattleScene {
       this.flames.wind.x = w.x;
       this.flames.wind.z = w.z;
     }
+    this.worksView?.update(dt, this.camera);
     this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);

@@ -11,6 +11,7 @@ import { WebSocketServer } from 'ws';
 import { Room } from './room.js';
 import { scoreboard } from '../shared/protocol.js';
 import { MAP_PRESETS } from '../shared/world.js';
+import { cleanAsk } from '../shared/works.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { crewBattle } from './setup.js';
 
@@ -344,6 +345,8 @@ function handle(player, msg) {
         half: Number.isFinite(msg.half) ? msg.half : undefined,
         place: (Number.isFinite(msg.lon) && Number.isFinite(msg.lat))
           ? { lon: msg.lon, lat: msg.lat } : undefined,
+        // The town and the sea walls the plotting board raised. See works.js.
+        works: cleanAsk(msg.layout?.works),
       });
       // The fleets, the guns ashore and the berths the captain gave them, all
       // out of setup.js -- the same code the standalone build runs, so a

@@ -11,6 +11,7 @@
 import { Room } from '../../server/room.js';
 import { crewBattle } from '../../server/setup.js';
 import { scoreboard } from '../../shared/protocol.js';
+import { cleanAsk } from '../../shared/works.js';
 
 // How much of a battle the replay keeps, in characters of recorded messages.
 // A snapshot of a full action is ten or fifteen thousand of them and there
@@ -91,6 +92,7 @@ export class LocalNet extends EventTarget {
           half: msg.half,
           lon: msg.lon,
           lat: msg.lat,
+          works: msg.layout?.works,
         });
         break;
 
@@ -142,6 +144,7 @@ export class LocalNet extends EventTarget {
       // coastline into the battlefield.
       place: (Number.isFinite(opts.lon) && Number.isFinite(opts.lat))
         ? { lon: opts.lon, lat: opts.lat } : undefined,
+      works: cleanAsk(opts.works),
       onEmpty: () => { this.room = null; },
     });
     this.room = room;

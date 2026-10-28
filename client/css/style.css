@@ -2032,6 +2032,29 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   display: flex; gap: 0.7rem; flex-wrap: wrap; justify-content: center;
 }
 .lay-actions .btn { min-width: 8.5rem; }
+/* The town and the walls: down the left of the chart, out of the way of the
+   fleets, which form up across the middle. */
+.lay-works {
+  position: absolute;
+  left: max(1.2rem, env(safe-area-inset-left));
+  top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.lay-works[hidden] { display: none; }
+.lay-work { display: flex; gap: 0.3rem; align-items: stretch; }
+.lay-work .btn { min-width: 7.5rem; padding: 0.5rem 0.8rem; font-size: 0.85rem; }
+.lay-work .btn.on { border-color: var(--sand); color: var(--sand-bright); }
+.lay-x {
+  width: 34px;
+  background: rgba(9, 20, 33, 0.8);
+  border: 1px solid var(--panel-line);
+  color: var(--sand); font-size: 1.1rem; cursor: pointer;
+}
+.lay-x[hidden] { display: none; }
+@media (max-width: 560px) {
+  .lay-works { top: auto; transform: none; bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 7.2rem); }
+  .lay-work .btn { min-width: 0; font-size: 0.78rem; }
+}
 /* A sortie that cannot be ordered still looks like the button it is, so the
    eye goes to the line of text above it rather than hunting for a control. */
 .lay-actions .btn[disabled] {

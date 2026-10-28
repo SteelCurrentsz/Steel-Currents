@@ -1944,6 +1944,24 @@ class HudBase {
     up.textContent = 'Bridge';
     up.onclick = () => this.onHumanBridge?.();
     bar.appendChild(up);
+    // Off her altogether: into the town, if the battle has one, or onto the
+    // nearest land to her, island or coast.
+    if (info.town) {
+      const town = document.createElement('button');
+      town.type = 'button';
+      town.className = 'human-deploy human-bridge';
+      town.textContent = 'Town';
+      town.onclick = () => this.onHumanAshore?.('town');
+      bar.appendChild(town);
+    }
+    if (info.land) {
+      const land = document.createElement('button');
+      land.type = 'button';
+      land.className = 'human-deploy human-bridge';
+      land.textContent = 'Ashore';
+      land.onclick = () => this.onHumanAshore?.('land');
+      bar.appendChild(land);
+    }
     const said = document.createElement('span');
     said.className = 'human-said';
     said.textContent = 'No place picked';

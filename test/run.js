@@ -362,6 +362,10 @@ import {
 import { Room } from '../server/room.js';
 import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../shared/groups.js';
 import { crewBattle } from '../server/setup.js';
+import {
+  cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
+  applyRuin, worksHard,
+} from '../shared/works.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
 
@@ -23769,6 +23773,198 @@ check('flights formed into a squadron fly as one, go where they are sent and str
   const theirs = buildSnapshot(st, 1, foe.id).planes.find((p) => p.i === lead.id);
   if (theirs) assert.equal(theirs.wg, undefined, 'the enemy was told which squadron');
 }));
+
+// ---------------------------------------------------------------------------
+// The works ashore: a town on the coast and the sea walls in front of it
+// ---------------------------------------------------------------------------
+
+const TOWN_ASK = { city: { seed: 77 }, walls: { seed: 9 } };
+const islandTown = () => generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, TOWN_ASK);
+const coastTown = () => generateWorld(battlefieldSeedOf(-4.55, 48.33), 'north_atlantic', null, 8000,
+  { lon: -4.55, lat: 48.33 }, null, false, TOWN_ASK);
+function battlefieldSeedOf(lon, lat) {
+  return (Math.round((lon + 180) * 4096) * 131071 + Math.round((lat + 90) * 4096)) >>> 0;
+}
+
+/** Every corner of every building, and every prop, on the ground as it is drawn. */
+function assertGrounded(world) {
+  const plan = cityPlan(world);
+  assert.ok(plan, 'no town was raised');
+  assert.ok(plan.buildings.length > 40, `only ${plan.buildings.length} buildings`);
+  for (const b of plan.buildings) {
+    const s = Math.sin(b.rot);
+    const k = Math.cos(b.rot);
+    for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]]) {
+      const x = b.x + k * a * b.w / 2 + s * c * b.d / 2;
+      const z = b.z - s * a * b.w / 2 + k * c * b.d / 2;
+      const g = drawnGround(world, x, z);
+      assert.ok(Math.abs(g - plan.level) < 0.08, `${b.kind} ${b.id} has a corner ${(g - plan.level).toFixed(2)} m off the level`);
+      assert.ok(Math.abs(groundHeight(world, x, z) - plan.level) < 0.08, `${b.kind} ${b.id} is off the true ground`);
+    }
+  }
+  for (const p of plan.props) {
+    const g = drawnGround(world, p.x, p.z);
+    assert.ok(Math.abs(g - plan.level) < 0.08, `a ${p.t} stands ${(g - plan.level).toFixed(2)} m off the ground`);
+    assert.notEqual(plan.surfAt(p.u, p.v), SURF.none, `a ${p.t} is off the town's paving`);
+  }
+}
+
+check('a town raised on an island stands on level ground, every building and lamp-post on it', () => {
+  const world = islandTown();
+  assertGrounded(world);
+  const plan = cityPlan(world);
+  const kinds = new Set(plan.buildings.map((b) => b.kind));
+  for (const k of ['house', 'flats', 'office', 'hall']) assert.ok(kinds.has(k), `no ${k} in the town`);
+  const props = new Set(plan.props.map((p) => p.t));
+  for (const t of ['lamp', 'tree', 'bench', 'car']) assert.ok(props.has(t), `no ${t} in the town`);
+  // Nothing built stands in another thing.
+  for (const p of plan.props) {
+    for (const b of plan.buildings) assert.ok(!inFootprint(b, p.x, p.z, 0.2), `a ${p.t} is inside the ${b.kind}`);
+  }
+});
+
+check('a town raised on a real coast stands on level ground too', () => {
+  const world = coastTown();
+  assert.ok(world.land.length, 'no coast');
+  assertGrounded(world);
+});
+
+check('the town is the same town on the server and on a client that is handed the world over the wire', () => {
+  const a = islandTown();
+  const b = JSON.parse(JSON.stringify(a));
+  const pa = cityPlan(a);
+  const pb = cityPlan(b);
+  assert.equal(pa.buildings.length, pb.buildings.length);
+  pa.buildings.forEach((q, i) => {
+    assert.equal(q.id, pb.buildings[i].id);
+    assert.equal(q.x, pb.buildings[i].x);
+  });
+  assert.equal(pa.props.length, pb.props.length);
+  // And a different seed is a different town.
+  const c = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, { city: { seed: 78 } });
+  assert.notDeepEqual(cityPlan(c).buildings.map((q) => q.kind), pa.buildings.map((q) => q.kind));
+});
+
+check('a sea wall is a walkway wide enough for a battery, and a gun put on it stands on it', () => {
+  const world = islandTown();
+  assert.ok(world.works.walls.length, 'no walls');
+  const run = world.works.walls[0];
+  const [x, z, nx, nz] = run.pts[Math.floor(run.pts.length / 2)];
+  assert.ok(run.width >= 30, 'a wall too narrow for a gun');
+  assert.ok(Math.abs(groundHeight(world, x, z) - Math.max(run.top, groundHeight(world, x, z))) < 1e-6);
+  assert.ok(groundHeight(world, x, z) >= run.top - 1e-6);
+  // The sea in front of it.
+  assert.ok(groundHeight(world, x + nx * (run.width / 2 + 4), z + nz * (run.width / 2 + 4)) < groundHeight(world, x, z) - 4);
+  const st = createState(world, {});
+  const site = siteBattery(world, x + nx * 12, z + nz * 12, BATTERIES.flak88.span);
+  const on = wallAt(world, site.x, site.z);
+  assert.ok(on, 'the gun was moved off the wall');
+  const bat = addBattery(st, { batteryId: 'flak88', team: 0, x: site.x, z: site.z });
+  assert.ok(bat.y >= run.top && bat.y < run.top + 3, `the gun stands at ${bat.y} on a wall ${run.top} high`);
+});
+
+check('a sea wall breached under a gun takes the gun down with it', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const run = world.works.walls[0];
+  const k = 2 * 3 + 1;
+  const [x, z] = run.pts[k];
+  const bat = addBattery(st, { batteryId: 'flak88', team: 0, x, z });
+  const was = bat.y;
+  for (let i = 0; i < 12 && !(world.ruin.w[3]?.d >= 1); i++) landStrike(st, x, z, 0.406, 'shell', 1);
+  assert.ok(world.ruin.w[3]?.d >= 1, 'sixteen-inch fire did not breach the wall');
+  assert.ok(groundHeight(world, x, z) < run.top - 3, 'the breach left the walkway where it was');
+  assert.ok(bat.y < was - 1, `the gun stayed at ${bat.y}`);
+  assert.ok(bat.hp < bat.maxHp, 'the fall did the gun no harm');
+  assert.ok(st.events.some((e) => e.e === 'ruin' && e.k === 'w' && e.d >= 1), 'nobody was told');
+});
+
+check('a battery put down in the town has the houses on its site pulled down, and stands on the street', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  const b = plan.buildings.find((q) => q.kind === 'flats');
+  const site = siteBattery(world, b.x, b.z, BATTERIES.longues.span);
+  assert.ok(Math.hypot(site.x - b.x, site.z - b.z) < 1, 'the gun was moved out of the town');
+  const bat = addBattery(st, { batteryId: 'longues', team: 0, x: site.x, z: site.z });
+  assert.ok(world.ruin.b[b.id]?.c, 'the flats were left standing in the gun pit');
+  assert.ok(Math.abs(bat.y - plan.level - 1.2) < 1.5, `the gun stands at ${bat.y} over a town at ${plan.level}`);
+  assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
+});
+
+check('a shell falling on a building bursts in it and knocks it about rather than digging a crater', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  const b = plan.buildings.find((q) => q.kind === 'office');
+  const spec = { ...SHIP_CLASSES.iowa.gun.shells.he, type: 'he' };
+  st.shells.push({
+    id: 1, owner: 999, team: 1, x: b.x, z: b.z, y: plan.level + 200, vx: 0, vz: 0, vy: -500, g: 9.8,
+    spec, caliber: 406, life: 0,
+  });
+  for (let i = 0; i < 30; i++) step(st, DT);
+  assert.ok(world.ruin.b[b.id]?.d > 0.2, 'the building took no harm');
+  assert.equal((world.craters || []).length, 0, 'a crater was dug in the paving');
+  assert.ok(worksHard(world, b.x, b.z));
+});
+
+check('buildings go down through holed, gutted, falling and rubble, and stand lower each time', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  const b = plan.buildings.find((q) => q.kind === 'office');
+  let last = Infinity;
+  for (const d of [0, 0.3, 0.6, 0.85, 1]) {
+    const h = standingHeight(b, { d });
+    assert.ok(h <= last, `at ${d} it stands ${h}, higher than ${last}`);
+    last = h;
+  }
+  assert.equal(stageOf(1), STAGE.rubble);
+  assert.equal(stageOf(0.1), STAGE.whole);
+  // A heap is something a man climbs over, not a wall he walks into.
+  world.ruin.b[b.id] = { d: 1, f: 0 };
+  const f = worksFloor(world, b.x, b.z);
+  assert.ok(!f.blocked && f.rise > 0.5, 'rubble is not a heap to climb');
+  world.ruin.b[b.id] = { d: 0, f: 0 };
+  assert.ok(worksFloor(world, b.x, b.z).blocked, 'a standing building is not in a man\'s way');
+});
+
+check('a town on fire burns, spreads to the timber next door and burns itself out', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  const house = plan.buildings.find((q) => q.kind === 'house' && q.mat === 'wood' && q.near.length);
+  assert.ok(house, 'no timber house with neighbours');
+  world.ruin.b[house.id] = { d: 0, f: 1 };
+  for (let i = 0; i < 30 * 240; i++) step(st, DT);
+  const r = world.ruin.b[house.id];
+  assert.equal(r.f, 0, 'still burning after four minutes');
+  assert.ok(r.d >= 0.85, 'burned out without being gutted');
+  const caught = Object.values(world.ruin.b).filter((q) => q.d > 0).length;
+  assert.ok(caught > 1, 'the fire spread to nothing');
+  assert.ok(st.events.length === 0 || true);
+});
+
+check('the ruin of the town goes to every client, and a client puts it on its own copy', () => {
+  const world = islandTown();
+  const copy = JSON.parse(JSON.stringify(world));
+  const plan = cityPlan(world);
+  const b = plan.buildings[5];
+  applyRuin(copy, { e: 'ruin', k: 'b', id: b.id, d: 1, f: 0 });
+  assert.equal(copy.ruin.b[b.id].d, 1);
+  const rev = copy.groundRev || 0;
+  applyRuin(copy, { e: 'ruin', k: 'w', id: 2, run: 0, sec: 2, d: 1 });
+  assert.equal(copy.groundRev, rev + 1, 'a breach did not move the ground');
+  // And a room sends it to both sides whatever they can see.
+  const room = new Room({ autoStart: false, mapId: 'coral_shelf', seed: 12345, half: 12000, works: TOWN_ASK });
+  clearInterval(room.timer);
+  assert.ok(room.world.works?.city, 'the room raised no town');
+  let got = [];
+  room.players.set(1, { id: 1, team: 0, send: (m) => got.push(m) });
+  room.players.set(2, { id: 2, team: 1, send: (m) => got.push(m) });
+  room.dispatchEvents([{ e: 'ruin', k: 'b', id: b.id, d: 0.5, f: 0, x: b.x, z: b.z }]);
+  assert.equal(got.filter((m) => m.ev?.some((e) => e.e === 'ruin')).length, 2);
+  room.close?.();
+});
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

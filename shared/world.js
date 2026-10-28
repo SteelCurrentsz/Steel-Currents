@@ -3,6 +3,7 @@
 
 import { makeRng, dist, TAU } from './math.js';
 import { coastFor } from './coast.js';
+import { raiseWorks, worksGround, worksHard, worksCeiling, pristine, wallAt } from './works.js';
 
 // Default half-width of the battlefield, in metres from centre to border. A
 // custom battle sets its own from the sea room where the pin was dropped; this
@@ -347,7 +348,7 @@ export function sightOf(world) {
 }
 
 export function generateWorld(seed, presetId, time = null, half = MAP_HALF, place = null,
-  weather = null, fog = false) {
+  weather = null, fog = false, works = null) {
   const preset = getPreset(presetId);
   const rng = makeRng(seed);
   const HALF = Math.max(MAP_HALF_MIN, Math.min(MAP_HALF_MAX, half));
@@ -399,6 +400,8 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     // The theatre's own sea, plus whatever the weather is adding to it.
     sea: Math.max(0, Math.min(6, preset.sea + WEATHER[wx].sea)),
   };
+  // A town and sea walls, if the plotting board asked for them.
+  if (works) raiseWorks(world, works);
   return world;
 }
 
@@ -983,6 +986,13 @@ export function applyGouge(world, m) {
  * coastline or turn a hill into a lagoon that ships can sail into.
  */
 function baseGround(world, x, z) {
+  const b = rawGround(world, x, z);
+  // The town levelled into it and the sea walls along it: see works.js.
+  return world.works ? worksGround(world, x, z, b) : b;
+}
+
+/** The ground as nature made it, before anybody built on it. */
+export function rawGround(world, x, z) {
   // A real coastline is the grid it is drawn on: see coastBase.
   if (world.land?.length && !(world.islands || []).length) return coastBase(world, x, z);
   // An island's own relief, which is a shape rather than a distance field: a
@@ -1098,6 +1108,9 @@ export function landCeiling(world) {
   // A real coastline has no island list to read: it climbs off the shore
   // distance field, and groundHeight tops out at four hundred and fifty.
   if (world.land && world.land.length) top = Math.max(top, 460);
+  // And what is built on it: a church spire on a low island stands higher
+  // than the island.
+  if (world.works) top = Math.max(top, worksCeiling(world));
   world._ceiling = top;
   return top;
 }
@@ -1125,6 +1138,9 @@ export function groundHeight(world, x, z) {
 export function keelGround(world, x, z) {
   const base = baseGround(world, x, z);
   if (base <= 0) return base;
+  // Paving and concrete take a shell as damage to what is built on them, not
+  // as a hole: see blastWorks.
+  if (world.works && (pristine() || worksHard(world, x, z))) return base;
   return Math.max(0.2, base - craterDrop(world, x, z));
 }
 
@@ -1280,7 +1296,14 @@ export function drawnGround(world, x, z) {
     const h = coastDrawn(world, x, z);
     if (h > top) top = h;
   }
-  return top === -Infinity ? keelGround(world, x, z) : top;
+  if (top === -Infinity) top = keelGround(world, x, z);
+  // A sea wall is drawn as itself, not lofted on the terrain's coarse mesh:
+  // along its width the ground as drawn is its walkway.
+  if (world.works?.walls?.length) {
+    const on = wallAt(world, x, z);
+    if (on) top = Math.max(top, keelGround(world, x, z));
+  }
+  return top;
 }
 
 /** Signed distance to the shore in metres: positive inland, negative at sea.

@@ -44,6 +44,9 @@ import {
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
 import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
+import {
+  applyRuin, cityPlan, cityToWorld, worksFloor, surfaceAt, wallAt, SURF,
+} from '../../shared/works.js';
 
 // How far behind the server everybody else is drawn, in the server's own
 // seconds. A little over two snapshots at fifteen a second, so one of them can
@@ -913,6 +916,7 @@ export class Battle {
     this.hud.onHumanPlan = () => this.humanPanel();
     this.hud.onHumanDeploy = (x, z) => this.deployMan(x, z);
     this.hud.onHumanBridge = () => this.deployBridge();
+    this.hud.onHumanAshore = (where) => this.deployAshore(where);
     this.hud.bindHumanStick(() => { this.jumpAsked = true; });
     document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan(), mine);
     const fireKey = document.getElementById('gun-fire');
@@ -1838,12 +1842,90 @@ export class Battle {
     const plan = lampPlan(view, this.scene.renderer);
     const map = this.manPlan(view);
     const cls = this.cls;
+    const w = this.scene.world;
     return {
       halfX: map.halfX, halfZ: map.halfZ,
       image: planImage(plan),
       onShip: (x, z) => onPlan(map, x, z),
       describe: (x, z) => placeOn(cls.hull.length, cls.hull.beam, x, z),
+      town: !!w?.works?.city,
+      land: !!(w && ((w.islands || []).length || (w.land || []).length)),
     };
+  }
+
+  /**
+   * Put a man ashore: in the middle of the town, on its square, or on the
+   * nearest dry land to her -- an island's beach, or the coast. He walks
+   * there as he does anywhere off her, on the ground as the simulation has
+   * it: kerbs, the walkway of a sea wall, the heaps where houses were.
+   */
+  deployAshore(where) {
+    const w = this.scene.world;
+    const view = this.scene.shipViews.get(this.shipId);
+    const ls = this.localShip;
+    if (!w || !ls) return;
+    let at = null;
+    if (where === 'town') {
+      const plan = cityPlan(w);
+      if (!plan) return;
+      // The square if it is there, else the first open pavement near the middle.
+      const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);
+      const tries = [];
+      if (sq) tries.push([sq.cu, sq.cv + (sq.inner.v1 - sq.inner.v0) * 0.3]);
+      for (let r = 0; r < 300 && tries.length < 400; r += 6) {
+        for (let a = 0; a < 12; a++) tries.push([Math.cos(a / 2) * r, plan.D * 0.08 + Math.sin(a / 2) * r]);
+      }
+      for (const [u, v] of tries) {
+        const p = cityToWorld(plan.city, u, v);
+        const t = surfaceAt(w, p.x, p.z);
+        if (t === SURF.none || worksFloor(w, p.x, p.z).blocked) continue;
+        at = { x: p.x, z: p.z, yaw: plan.city.rot + Math.PI };
+        break;
+      }
+    } else {
+      // The nearest land to her, walked a few metres up the beach.
+      outer: for (let r = 40; r < 30000; r *= 1.12) {
+        const n = Math.max(16, Math.round(r / 30));
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2;
+          const x = ls.x + Math.sin(a) * r;
+          const z = ls.z + Math.cos(a) * r;
+          if (groundHeight(w, x, z) <= 0.8) continue;
+          // A little further in, off the waterline.
+          for (let s = 0; s < 60; s += 3) {
+            const qx = x + Math.sin(a) * s;
+            const qz = z + Math.cos(a) * s;
+            if (groundHeight(w, qx, qz) > 1.2 && !worksFloor(w, qx, qz).blocked) {
+              at = { x: qx, z: qz, yaw: a + Math.PI };
+              break outer;
+            }
+          }
+        }
+      }
+    }
+    if (!at) { this.hud.alert(where === 'town' ? 'Nowhere in the town to stand' : 'No land within reach'); return; }
+    // Seated the way he is on her, then put down ashore instead.
+    const map = view ? this.manPlan(view) : roughPlan(this.cls.hull.length, this.cls.hull.beam, freeboardOf(this.cls) + 1);
+    if (view) this.standMan(view, map, 0, 0, false);
+    else {
+      this.man = freshMan(map, 0, 0, 0);
+      this.man.map = map;
+      this.hud.setHumanSight({ where: '' });
+    }
+    const m = this.man;
+    m.aboard = false;
+    m.room = false;
+    m.x = at.x;
+    m.z = at.z;
+    m.y = groundHeight(w, at.x, at.z) + worksFloor(w, at.x, at.z).rise;
+    m.vy = 0;
+    m.yaw = at.yaw;
+    m.pitch = 0;
+    m.grounded = true;
+    m.swimming = false;
+    this.manSaid = null;
+    this.hud.setHumanSight({ where: this.manWhere() });
+    this.hud.alert(where === 'town' ? 'Ashore in the town -- stick or WASD to walk' : 'Ashore -- stick or WASD to walk');
   }
 
   /** Stand on her deck at (x, z) in her frame, facing her bow. */
@@ -1970,6 +2052,11 @@ export class Battle {
     }
     if (m.aboard) return placeOn(this.cls.hull.length, this.cls.hull.beam, m.x, m.z);
     if (m.swimming) return 'In the water';
+    if (this.scene.world?.works) {
+      const w = this.scene.world;
+      if (wallAt(w, m.x, m.z)) return 'On the sea wall';
+      if (surfaceAt(w, m.x, m.z) !== SURF.none) return 'In the town';
+    }
     if (m.grounded) return 'Ashore';
     return 'Overboard';
   }
@@ -2033,13 +2120,20 @@ export class Battle {
         const d = deckAt(map, local.x, local.z);
         return Number.isFinite(d) ? { x: local.x, z: local.z, rise: d - local.y, deck: d } : null;
       };
-      const ground = (x, z) => (this.world ? groundHeight(this.world, x, z) : -100);
+      // The ground, and on it whatever has been built: a kerb, a lawn, the
+      // heap a house came down into. A standing wall is in his way.
+      const works = this.world?.works;
+      const ground = (x, z) => (this.world
+        ? groundHeight(this.world, x, z) + (works ? worksFloor(this.world, x, z).rise : 0) : -100);
       const r = stepWater(m, move, dt, {
         sea: (x, z) => ocean.heightAt(x, z),
         ground,
         // Her side is a wall to a man in the water -- unless it is low enough
         // to haul himself up on, which a boat's is.
-        blocked: (x, z) => { const h = her(x, z); return !!h && h.rise > MAN.climb; },
+        blocked: (x, z) => {
+          if (works && worksFloor(this.world, x, z).blocked) return true;
+          const h = her(x, z); return !!h && h.rise > MAN.climb;
+        },
       });
       if (r === 'splash') { audio.splash(60, null); this.hud.alert('In the water — swim'); }
       const h = her(m.x, m.z);
@@ -2532,8 +2626,31 @@ export class Battle {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
           fx.debris(ev.x, g + 3, ev.z, Math.max(6, ev.cal / 12));
+          // In the town: lamp-posts and trees knocked flat, cars thrown over.
+          this.scene.worksView?.blast(ev.x, ev.z, ev.cal);
           break;
         }
+        case 'bldghit':
+          // A round into a building: it bursts on the wall, and the wall comes
+          // out across the street.
+          fx.hit(ev.x, ev.y, ev.z, 'he', ev.cal);
+          fx.debris(ev.x, ev.y, ev.z, Math.max(6, ev.cal / 10));
+          audio.explosion(Math.min(0.7, 0.15 + ev.cal / 700), { x: ev.x, y: ev.y, z: ev.z });
+          this.scene.worksView?.hit(ev);
+          break;
+        case 'ruin':
+          // What has been done to the town and its walls: the state first,
+          // which is what the ground and the buildings are drawn from, and
+          // then the sight of it happening.
+          applyRuin(this.scene.world, ev);
+          this.scene.worksView?.ruin(ev);
+          if (ev.k === 'w' && ev.d >= 1) {
+            audio.explosion(1.2, { x: ev.x ?? 0, y: 4, z: ev.z ?? 0 });
+            if (this.hud) this.hud.ribbon('SEA WALL BREACHED', 'miss');
+          } else if (ev.k === 'b' && (ev.s === 3 || ev.s === 4)) {
+            audio.explosion(0.9, { x: ev.x, y: 6, z: ev.z });
+          }
+          break;
         case 'crater':
           // The hole it made. By its own number, so a standalone build -- where
           // the client is handed the very world the simulation is digging into

@@ -31,6 +31,9 @@ import {
   groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
+  worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
+} from './works.js';
+import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
 } from './sea.js';
 
@@ -4269,6 +4272,9 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     // It comes into action loaded, so it waits only to be laid.
     bat.cooldown = b.salvo * 0.5;
   }
+  // A gun put down in the town has the houses on its site pulled down first,
+  // and the emplacement dug where they stood.
+  if (state.world?.works?.city) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
   state.batteries.push(bat);
   return bat;
 }
@@ -4344,6 +4350,12 @@ export const BATTERY_FOOTPRINT = [0.25, 0.5, 0.75, 1.0, 1.18, 1.35];
  * on anywhere -- which the briefing does not allow, and a test may.
  */
 export function siteBattery(world, x, z, span = 20) {
+  // On a sea wall's walkway or in the town, where the ground is level by
+  // construction: the gun goes where it was put.
+  if (world.works) {
+    const on = siteOnWorks(world, x, z, span);
+    if (on) return { x: on.x, z: on.z };
+  }
   const isles = world.islands || [];
   const coast = !!world.land?.length;
   if (!isles.length && !coast) return { x, z };
@@ -4951,10 +4963,21 @@ function groundStrength(soft) {
  * and the charge goes as the cube of the bore. Returns the crater it made, or
  * null if whatever it was fell in the sea.
  */
-export function landStrike(state, x, z, bore, kind = 'shell') {
+export function landStrike(state, x, z, bore, kind = 'shell', filler = 1, inside = null) {
   const world = state.world;
   if (!world) return null;
-  if (groundHeight(world, x, z) <= 0.5) return null;     // that was the sea
+  if (groundHeight(world, x, z) <= 0.5 && !inside) return null;     // that was the sea
+  // The town and the sea walls take it first. On paving or on a wall there
+  // is no crater to dig: what the burst does there it does to what is built.
+  if (world.works) {
+    const rev = world.groundRev || 0;
+    const charge = (bore * 10) ** 3;
+    const fill = kind === 'bomb' ? 2.2 : kind === 'crash' ? 0.8 : filler;
+    const hard = blastWorks(world, x, groundHeight(world, x, z), z, charge, fill, state.events,
+      worksDice(state), inside);
+    if ((world.groundRev || 0) !== rev) settleBatteries(state, x, z, 60);
+    if (hard || inside) return null;
+  }
   const soft = soilAt(world, x, z);
   // A 15-inch shell digs a hole about eight metres across in firm ground and
   // half as much again in sand; a thousand-pound bomb rather more than that.
@@ -5000,18 +5023,35 @@ function collapseGround(state, c, soft) {
   });
 
   // And anything standing on it goes down with it.
-  //
-  // A gun in an emplacement is not bolted to the world: it is a platform dug
-  // into the ground, and when the ground under it goes the platform goes. It
-  // is re-seated on what is left -- which may be a long way down -- and it
-  // takes the fall as damage, because a gun that has dropped four metres on
-  // one side is a gun off its roller path and out of the action.
+  settleBatteries(state, c.x, c.z, c.r);
+}
+
+/** The town's own dice: what it rolls does not move any other roll in the battle. */
+function worksDice(state) {
+  if (!state.worksRng) state.worksRng = makeRng((state.world.seed ^ 0x2b1d5eed) >>> 0);
+  return state.worksRng;
+}
+
+/**
+ * Every gun within `reach` of a point whose ground has just changed, put back
+ * down on what is there now.
+ *
+ * A gun in an emplacement is not bolted to the world: it is a platform dug
+ * into the ground, and when the ground under it goes the platform goes -- a
+ * hillside slipping, or a section of sea wall breached under it. It is
+ * re-seated on what is left -- which may be a long way down -- and it takes
+ * the fall as damage, because a gun that has dropped four metres on one side
+ * is a gun off its roller path and out of the action.
+ */
+function settleBatteries(state, x, z, reach) {
   for (const bat of state.batteries) {
     if (!bat.alive) continue;
-    if (dist(bat.x, bat.z, c.x, c.z) > c.r) continue;
+    if (dist(bat.x, bat.z, x, z) > reach) continue;
     const b = BATTERIES[bat.batteryId];
     const was = bat.y;
-    bat.y = batteryPad(state.world, bat.x, bat.z, b.span);
+    bat.y = state.world.works && breachedAt(state.world, bat.x, bat.z)
+      ? Math.max(groundHeight(state.world, bat.x, bat.z), drawnGround(state.world, bat.x, bat.z)) + batteryRise(b.span)
+      : batteryPad(state.world, bat.x, bat.z, b.span);
     const fell = Math.max(0, was - bat.y);
     if (fell < 0.4) continue;
     state.events.push({
@@ -5259,6 +5299,24 @@ function stepShells(state, dt) {
     }
     if (consumed) continue;
 
+    // Into a building: it goes off against the wall it met, or inside the
+    // house if it came down through the roof. Sampled along the whole of this
+    // tick's path, because a shell crosses a street in less than a tick.
+    if (state.world.works?.city && Math.min(py, sh.y) <= worksCeiling(state.world)) {
+      const hit = worksImpact(state.world, px, py, pz, sh.x, sh.y, sh.z);
+      if (hit) {
+        state.events.push({
+          e: 'bldghit', x: r(hit.x), y: r(hit.y), z: r(hit.z), cal: sh.caliber,
+          bomb: sh.bomb ? 1 : 0, id: hit.b.id,
+        });
+        sh.x = hit.x; sh.z = hit.z; sh.y = hit.y;
+        landStrike(state, hit.x, hit.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
+          sh.spec?.type === 'ap' ? 0.2 : 1, hit.b);
+        if (!sh.bomb && sh.spec) nearMiss(state, sh);
+        continue;
+      }
+    }
+
     // Down. Either in the sea, or into the ground -- and into the ground it
     // takes a piece of the ground with it.
     // Above the highest land on the battlefield she cannot have hit any of
@@ -5275,7 +5333,8 @@ function stepShells(state, dt) {
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
         if (ashore) {
-          landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell');
+          landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
+            sh.spec?.type === 'ap' ? 0.2 : 1);
           // A shell into the ground beside a gun pit is not a miss. What it
           // throws out of the earth -- splinters, the parapet, the ready
           // ammunition -- does for the detachment and knocks the gun about,
@@ -13355,6 +13414,8 @@ export function step(state, dt = DT) {
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);
+  // The town burning.
+  if (state.world?.works?.city) stepWorks(state.world, dt, state.events, worksDice(state));
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);
   const ev = state.events;

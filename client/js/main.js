@@ -682,6 +682,7 @@ const briefing = new Briefing({
   onOpenBombers: (side) => openBombers(side),
   onEditWing: (side, i) => openRefit(side, i),
 });
+window.__briefing = briefing;   // a handle for the console, like __battle
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
 // ------------------------------------------------------- deployment chart --
