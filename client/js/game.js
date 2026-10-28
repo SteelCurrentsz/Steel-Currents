@@ -1871,7 +1871,9 @@ export class Battle {
       // The square if it is there, else the first open pavement near the middle.
       const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);
       const tries = [];
-      if (sq) tries.push([sq.cu, sq.cv + (sq.inner.v1 - sq.inner.v0) * 0.3]);
+      // Off to one side of the square, clear of the fountain and the
+      // monument down its middle, looking across it.
+      if (sq) tries.push([sq.cu + (sq.inner.u1 - sq.inner.u0) * 0.22, sq.cv - (sq.inner.v1 - sq.inner.v0) * 0.05]);
       for (let r = 0; r < 300 && tries.length < 400; r += 6) {
         for (let a = 0; a < 12; a++) tries.push([Math.cos(a / 2) * r, plan.D * 0.08 + Math.sin(a / 2) * r]);
       }

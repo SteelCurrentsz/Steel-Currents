@@ -1602,5 +1602,15 @@ export function worksFloor(world, x, z) {
     }
     return { rise, blocked: true };
   }
+  // And the larger furniture: nobody walks through a fountain's basin or a
+  // telephone kiosk.
+  for (const p of plan.props) {
+    const r = SOLID[p.t];
+    if (!r || Math.abs(p.u - u) > r || Math.abs(p.v - v) > r) continue;
+    if (Math.hypot(p.u - u, p.v - v) < r) return { rise, blocked: true };
+  }
   return { rise, blocked: false };
 }
+
+/** How far round each solid piece of street furniture a man is kept off it. */
+const SOLID = { fountain: 5.6, statue: 1.9, bandstand: 5.1, kiosk: 1.7, phone: 0.75, pillar: 0.45 };
