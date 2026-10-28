@@ -1,5 +1,5 @@
-// The works of man ashore: a town on the coast, and the sea walls in front of
-// it.
+// The works of man ashore: towns, on the coast or inland, and the sea walls
+// along the shore.
 //
 // Both are asked for on the plotting board and raised from a seed, the same
 // way the islands are -- so the server that fights over them and every client
@@ -44,32 +44,48 @@ const WALL_STEP = 12;
 const WALL_SECTION = 2;
 /** The parapet along a wall's sea edge. */
 export const PARAPET = 1.15;
+/** How many towns, and how many stretches of wall, a battle can ask for. */
+export const MAX_CITIES = 8;
+export const MAX_WALLS = 12;
+/**
+ * A building's id is its town's number times this, plus its own number in
+ * the town: one list of ruins, and one stream of events, for every town.
+ */
+const CITY_IDS = 100000;
+
+/** One town or one stretch of wall as asked for: `{ seed, x, z }`, the spot optional. */
+function cleanOne(a) {
+  if (!a || typeof a !== 'object' || !Number.isFinite(a.seed)) return null;
+  return {
+    seed: a.seed >>> 0,
+    ...(Number.isFinite(a.x) && Number.isFinite(a.z) ? { x: Math.round(a.x), z: Math.round(a.z) } : {}),
+  };
+}
 
 /**
- * What the board sends for the works, cleaned up: `{ city, walls }`, either of
- * which may be null. A city is `{ seed, x, z }` -- the position is optional,
- * and when it is missing the town finds its own site.
+ * What the board sends for the works, cleaned up: `{ cities, walls }`, each a
+ * list of `{ seed, x, z }` -- the position is optional, and when it is missing
+ * the town, or the wall, finds its own site. A lone `city` or `walls` object,
+ * as the board sent them when there could be only one of each, is read as a
+ * list of one.
  */
 export function cleanAsk(ask) {
   if (!ask || typeof ask !== 'object') return null;
-  const city = ask.city && Number.isFinite(ask.city.seed)
-    ? {
-      seed: ask.city.seed >>> 0,
-      ...(Number.isFinite(ask.city.x) && Number.isFinite(ask.city.z)
-        ? { x: Math.round(ask.city.x), z: Math.round(ask.city.z) } : {}),
-    }
-    : null;
-  const walls = ask.walls && Number.isFinite(ask.walls.seed) ? { seed: ask.walls.seed >>> 0 } : null;
-  return city || walls ? { city, walls } : null;
+  const list = (v, max) => (Array.isArray(v) ? v : v ? [v] : [])
+    .map(cleanOne).filter(Boolean).slice(0, max);
+  const cities = list(ask.cities ?? ask.city, MAX_CITIES);
+  const walls = list(ask.walls, MAX_WALLS);
+  return cities.length || walls.length ? { cities, walls } : null;
 }
 
 /**
  * Raise the works a battle asked for on a world that has just been generated.
  *
- * The order matters. The town is sited and levelled first, because the
- * levelling changes the ground; the walls are then run along the shore of
- * that ground; and the town's own streets and buildings are laid out last
- * (lazily, see cityPlan) inside what the walls leave of the site.
+ * The order matters. The towns are sited and levelled first, one after
+ * another, because the levelling changes the ground; the walls are then run
+ * along the shore of that ground; and each town's own streets and buildings
+ * are laid out last (lazily, see cityPlan) inside what the walls leave of its
+ * site.
  */
 export function raiseWorks(world, ask) {
   const a = cleanAsk(ask);
@@ -78,14 +94,25 @@ export function raiseWorks(world, ask) {
   world._ceiling = undefined;
   if (!a || !world || world.preset === 'open_ocean') return null;
   if (!(world.islands || []).length && !(world.land || []).length) return null;
-  world.works = { ask: a, city: null, walls: [] };
-  if (a.city) world.works.city = siteCity(world, a.city);
-  if (a.walls) world.works.walls = runWalls(world, a.walls.seed);
-  if (!world.works.city && !world.works.walls.length) world.works = null;
+  const works = { ask: a, cities: [], walls: [] };
+  world.works = works;
+  a.cities.forEach((ca, k) => {
+    const c = siteCity(world, ca, works.cities);
+    if (!c) return;
+    // Which of the towns asked for this is, and which of the towns built.
+    c.ask = k;
+    c.index = works.cities.length;
+    c.base = c.index * CITY_IDS;
+    works.cities.push(c);
+  });
+  const runs = [];
+  a.walls.forEach((wa, k) => runWalls(world, wa, k, runs));
+  works.walls = runs;
+  if (!works.cities.length && !works.walls.length) world.works = null;
   world._ceiling = undefined;
-  // Drawn up now rather than on the first shell that lands in it, which would
-  // be a hitch in the middle of the battle.
-  if (world.works?.city) cityPlan(world);
+  // Drawn up now rather than on the first shell that lands in one, which
+  // would be a hitch in the middle of the battle.
+  cityPlans(world);
   return world.works;
 }
 
@@ -97,17 +124,26 @@ export function raiseWorks(world, ask) {
  * Where the town stands, how big it is, which way it faces and what height
  * its streets are levelled to.
  *
- * It faces the sea: its local +v is out over the water, and its front row is
+ * Asked for at a spot on dry land, it stands there, wherever that is -- a
+ * market town ten miles inland as readily as a harbour. It still faces the
+ * nearest sea, its local +v out towards the water, and if the sea is close
+ * enough its front row is a waterfront.
+ *
+ * Asked for anywhere else, or nowhere, it is a harbour town: its front row is
  * laid right down to the shore. On an island it goes on the side the bearing
  * from the island's middle points at -- towards the spot the board asked for,
- * or, left to itself, towards the middle of the battlefield.
+ * or, left to itself, towards the middle of the battlefield. `others` are the
+ * towns already standing, which one left to find its own site keeps clear of.
  */
-function siteCity(world, ask) {
+function siteCity(world, ask, others = []) {
   const rng = makeRng(ask.seed ^ 0x51ab1e);
   const isles = world.islands || [];
   const half = world.half || 7000;
+  const clash = (x, z, W, D) => others.some((o) => Math.hypot(o.x - x, o.z - z) < (Math.max(o.W, o.D) + Math.max(W, D)) / 2);
   let site = null;
-  if (isles.length) {
+  if (Number.isFinite(ask.x) && rawGround(world, ask.x, ask.z) > 0.3) {
+    site = siteAt(world, ask);
+  } else if (isles.length) {
     // The island asked for, or the nearest big one to it, or the biggest.
     const want = Number.isFinite(ask.x) ? ask : null;
     let best = null;
@@ -115,7 +151,7 @@ function siteCity(world, ask) {
       if (i.r < 230) continue;
       const score = want
         ? Math.hypot(want.x - i.x, want.z - i.z) - (islandAt(world, want.x, want.z, 0) === i ? 1e6 : 0)
-        : -i.r + Math.hypot(i.x, i.z) * 0.05;
+        : -i.r + Math.hypot(i.x, i.z) * 0.05 + (others.some((o) => o.isle === isles.indexOf(i)) ? 1e5 : 0);
       if (!best || score < best.score) best = { i, score };
     }
     if (!best) {
@@ -187,7 +223,8 @@ function siteCity(world, ask) {
     let best = null;
     for (const cnd of cands.slice(0, 40)) {
       const f = frame(cnd.x, cnd.z);
-      const score = dry(f) * 3000 - cnd.d * (Number.isFinite(ask.x) ? 1.2 : 0.25);
+      const score = dry(f) * 3000 - cnd.d * (Number.isFinite(ask.x) ? 1.2 : 0.25)
+        - (clash(f.x, f.z, W, D) ? 5000 : 0);
       if (!best || score > best.score) best = { f, score };
     }
     if (!best) return null;
@@ -207,20 +244,58 @@ function siteCity(world, ask) {
   site.z = clamp(site.z, -lim, lim);
   // The level the streets are cut to: what the ground is in the front half of
   // the site, where the harbour is -- a town is built at the water, and the
-  // hill behind it is cut back to it.
+  // hill behind it is cut back to it. A town inland is built at the height
+  // of the ground it stands on, over the whole of it.
   const hs = [];
   for (let k = 0; k < 60; k++) {
     const u = (rng() - 0.5) * site.W;
-    const v = rng() * site.D * 0.45;
+    const v = site.inland ? (rng() - 0.5) * site.D : rng() * site.D * 0.45;
     const x = site.x + Math.cos(site.rot) * u + Math.sin(site.rot) * v;
     const z = site.z - Math.sin(site.rot) * u + Math.cos(site.rot) * v;
     const h = rawGround(world, x, z);
     if (h > 0.3) hs.push(h);
   }
   hs.sort((a, b) => a - b);
-  const med = hs.length ? hs[Math.floor(hs.length * 0.3)] : 4;
-  site.level = Math.round(clamp(med, 3.5, site.isle >= 0 ? 16 : 18) * 10) / 10;
+  const med = hs.length ? hs[Math.floor(hs.length * (site.inland ? 0.5 : 0.3))] : 4;
+  const top = site.inland ? (site.isle >= 0 ? Math.max(16, isles[site.isle].height * 0.8) : 420)
+    : site.isle >= 0 ? 16 : 18;
+  site.level = Math.round(clamp(med, 3.5, top) * 10) / 10;
   site.seed = ask.seed;
+  return site;
+}
+
+/**
+ * A town on the spot asked for, on dry land: an island's or the coast's. It
+ * is turned to face the nearest sea, and is a harbour town after all only if
+ * the water comes up to its front.
+ */
+function siteAt(world, ask) {
+  const isles = world.islands || [];
+  const i = isles.length ? islandAt(world, ask.x, ask.z, 0) : null;
+  let site;
+  if (i) {
+    const off = Math.hypot(ask.x - i.x, ask.z - i.z);
+    const b = off > 1 ? Math.atan2(ask.x - i.x, ask.z - i.z) : Math.atan2(-i.x, -i.z);
+    site = {
+      x: ask.x, z: ask.z, rot: b,
+      W: clamp(i.r * 1.25, 200, 760), D: clamp(i.r * 0.8, 150, 460),
+      flat: 80, blend: 130, isle: isles.indexOf(i),
+    };
+  } else {
+    // Down the slope of the distance to the shore is the way to the sea.
+    const g = 300;
+    const gx = shoreDistance(world, ask.x + g, ask.z) - shoreDistance(world, ask.x - g, ask.z);
+    const gz = shoreDistance(world, ask.x, ask.z + g) - shoreDistance(world, ask.x, ask.z - g);
+    const b = Math.hypot(gx, gz) > 1 ? Math.atan2(-gx, -gz) : Math.atan2(-ask.x, -ask.z);
+    site = { x: ask.x, z: ask.z, rot: b, W: 760, D: 480, flat: 460, blend: 600, isle: -1 };
+  }
+  // A waterfront if the sea is at the front of it: under its front row, or
+  // just past it.
+  const front = [-0.3, 0, 0.3].some((f) => [0.42, 0.5, 0.6].some((t) => {
+    const p = cityToWorld(site, f * site.W, t * site.D);
+    return rawGround(world, p.x, p.z) <= 0.3;
+  }));
+  site.inland = !front;
   return site;
 }
 
@@ -267,16 +342,18 @@ export function worksGround(world, x, z, base) {
   const w = world.works;
   if (!w) return base;
   let h = base;
-  const c = w.city;
-  if (c && base > 0.3) {
-    const { u, v } = worldToCity(c, x, z);
-    const ou = Math.abs(u) - c.W / 2 - c.flat;
-    const ov = Math.abs(v) - c.D / 2 - c.flat;
-    const out = Math.max(ou, ov);
-    if (out < c.blend) {
-      const t = out <= 0 ? 1 : 1 - out / c.blend;
-      const e = t * t * (3 - 2 * t);
-      h = Math.max(0.35, base + (c.level - base) * e);
+  // Town by town, each levelled into what the ones before it left.
+  if (base > 0.3) {
+    for (const c of w.cities) {
+      const { u, v } = worldToCity(c, x, z);
+      const ou = Math.abs(u) - c.W / 2 - c.flat;
+      const ov = Math.abs(v) - c.D / 2 - c.flat;
+      const out = Math.max(ou, ov);
+      if (out < c.blend) {
+        const t = out <= 0 ? 1 : 1 - out / c.blend;
+        const e = t * t * (3 - 2 * t);
+        h = Math.max(0.35, h + (c.level - h) * e);
+      }
     }
   }
   if (w.walls.length) {
@@ -290,8 +367,7 @@ export function worksGround(world, x, z, base) {
 export function worksHard(world, x, z) {
   const w = world.works;
   if (!w) return false;
-  const c = w.city;
-  if (c) {
+  for (const c of w.cities) {
     const { u, v } = worldToCity(c, x, z);
     if (Math.abs(u) < c.W / 2 + c.flat && Math.abs(v) < c.D / 2 + c.flat) return true;
   }
@@ -304,7 +380,7 @@ export function worksCeiling(world) {
   if (!w) return 0;
   let top = 0;
   for (const r of w.walls) top = Math.max(top, r.top + PARAPET);
-  if (w.city) top = Math.max(top, w.city.level + 70);
+  for (const c of w.cities) top = Math.max(top, c.level + 70);
   return top;
 }
 
@@ -313,21 +389,46 @@ export function worksCeiling(world) {
 // ---------------------------------------------------------------------------
 
 /**
- * Lay the walls along the shore.
+ * Lay one stretch of walls along the shore, onto `runs`.
  *
  * On invented islands each wall follows the island's own rim, a metre and a
- * half inside it, round the side of the island that faces the battle -- and
- * round the town's waterfront if the town is on that island. On a real coast
- * it follows the shore as the coast is drawn: the contour of the terrain mesh
- * itself, traced triangle by triangle, so the wall's face is where the sea
- * meets the land on the screen and not a hundred metres either side of it.
+ * half inside it. On a real coast it follows the shore as the coast is drawn:
+ * the contour of the terrain mesh itself, traced triangle by triangle, so the
+ * wall's face is where the sea meets the land on the screen and not a hundred
+ * metres either side of it.
+ *
+ * Asked for at a spot, the wall is built along the shore nearest it: round
+ * the side of the nearest island that faces the spot, or along the stretch of
+ * coast closest to it. Left to itself, the k-th stretch walls the k-th town's
+ * waterfront, or the islands and the shore in front of the battle. Nothing is
+ * built over a wall that is already there.
  */
-function runWalls(world, seed) {
-  const rng = makeRng(seed ^ 0x5eaa11);
-  const runs = [];
+function runWalls(world, ask, k, runs) {
+  const rng = makeRng(ask.seed ^ 0x5eaa11);
   const isles = world.islands || [];
-  const city = world.works?.city;
-  if (isles.length) {
+  const cities = world.works?.cities || [];
+  const spot = Number.isFinite(ask.x) ? { x: ask.x, z: ask.z } : null;
+  const city = spot ? null : cities[k % Math.max(1, cities.length)] || null;
+  const taken = runs.slice();
+  const from = runs.length;
+  if (isles.length && spot) {
+    // The island whose shore is nearest the spot, walled round the side of
+    // it the spot is on.
+    let best = null;
+    for (const i of isles) {
+      if (i.r < 120) continue;
+      const a = Math.atan2(spot.x - i.x, spot.z - i.z);
+      const d = Math.abs(Math.hypot(spot.x - i.x, spot.z - i.z) - islandRadius(i, a));
+      if (!best || d < best.d) best = { i, d, a };
+    }
+    if (best) {
+      const { i, a } = best;
+      const off = Math.hypot(spot.x - i.x, spot.z - i.z);
+      const mid = off > 1 ? a : Math.atan2(-i.x, -i.z);
+      const span = clamp(1800 / i.r, 0.5, 1.6) * (0.85 + rng() * 0.3);
+      pushRun(world, runs, rimLine(i, mid, span), taken);
+    }
+  } else if (isles.length) {
     // The islands nearest the middle of the battle, biggest first among equals.
     const near = isles
       .filter((i) => i.r >= 200)
@@ -338,50 +439,82 @@ function runWalls(world, seed) {
       near.unshift({ i: isles[city.isle], d: 0 });
     }
     for (const { i } of near) {
-      const onCity = city && isles[city.isle] === i;
+      const onCity = city && isles[city.isle] === i && !city.inland;
       // Facing the battle, or the town's waterfront.
       const mid = onCity ? city.rot : Math.atan2(-i.x, -i.z) + (rng() - 0.5) * 0.8;
       const span = onCity
         ? Math.max(1.0, (city.W / i.r) * 0.85 + 0.5)
         : 0.9 + rng() * 0.9;
-      // The rim, finely, and its true outward normal at each point -- not the
-      // bearing from the island's middle, which is skewed to the shore
-      // wherever the island bulges -- and the wall's middle line set in from
-      // the rim along it.
-      const a0 = mid - span / 2;
-      const steps = Math.max(4, Math.round((span * i.r) / WALL_STEP));
-      const rim = (a) => {
-        const R = islandRadius(i, a);
-        return [i.x + Math.sin(a) * R, i.z + Math.cos(a) * R];
-      };
-      const pts = [];
-      const da = span / steps;
-      for (let k = 0; k <= steps; k++) {
-        const a = a0 + da * k;
-        const [x, z] = rim(a);
-        const [px, pz] = rim(a - da * 0.5);
-        const [qx, qz] = rim(a + da * 0.5);
-        let nx = qz - pz;
-        let nz = -(qx - px);
-        const L = Math.hypot(nx, nz) || 1;
-        nx /= L; nz /= L;
-        if (nx * Math.sin(a) + nz * Math.cos(a) < 0) { nx = -nx; nz = -nz; }
-        const back = 1.5 + WALL_WIDTH / 2;
-        pts.push([x - nx * back, z - nz * back, nx, nz]);
-      }
-      pushRun(world, runs, pts);
+      pushRun(world, runs, rimLine(i, mid, span), taken);
     }
   } else {
-    for (const line of coastLines(world, rng, city)) pushRun(world, runs, line);
+    const target = spot || (city ? cityToWorld(city, 0, city.D / 2) : { x: 0, z: 0 });
+    for (const line of coastLines(world, rng, target, !!spot)) pushRun(world, runs, line, taken);
   }
-  return runs;
+  // Which of the stretches asked for each run was built for.
+  for (let r = from; r < runs.length; r++) runs[r].set = k;
+}
+
+/**
+ * An island's rim from bearing `mid - span / 2` to `mid + span / 2`, finely,
+ * with its true outward normal at each point -- not the bearing from the
+ * island's middle, which is skewed to the shore wherever the island bulges --
+ * and the wall's middle line set in from the rim along it.
+ */
+function rimLine(i, mid, span) {
+  const a0 = mid - span / 2;
+  const steps = Math.max(4, Math.round((span * i.r) / WALL_STEP));
+  const rim = (a) => {
+    const R = islandRadius(i, a);
+    return [i.x + Math.sin(a) * R, i.z + Math.cos(a) * R];
+  };
+  const pts = [];
+  const da = span / steps;
+  for (let k = 0; k <= steps; k++) {
+    const a = a0 + da * k;
+    const [x, z] = rim(a);
+    const [px, pz] = rim(a - da * 0.5);
+    const [qx, qz] = rim(a + da * 0.5);
+    let nx = qz - pz;
+    let nz = -(qx - px);
+    const L = Math.hypot(nx, nz) || 1;
+    nx /= L; nz /= L;
+    if (nx * Math.sin(a) + nz * Math.cos(a) < 0) { nx = -nx; nz = -nz; }
+    const back = 1.5 + WALL_WIDTH / 2;
+    pts.push([x - nx * back, z - nz * back, nx, nz]);
+  }
+  return pts;
+}
+
+const BOXES = new WeakMap();
+
+/** Whether a point is within a wall's width of one of the runs already laid. */
+function onTaken(taken, x, z) {
+  const R = WALL_WIDTH * 1.1;
+  for (const run of taken) {
+    let b = BOXES.get(run);
+    if (!b) BOXES.set(run, b = boxOf(run.pts, R));
+    if (x < b[0] || x > b[1] || z < b[2] || z > b[3]) continue;
+    for (const p of run.pts) if (Math.abs(p[0] - x) < R && Math.abs(p[1] - z) < R && Math.hypot(p[0] - x, p[1] - z) < R) return true;
+  }
+  return false;
+}
+
+function boxOf(pts, pad) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of pts) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+  }
+  return [x0 - pad, x1 + pad, z0 - pad, z1 + pad];
 }
 
 /**
  * Cut a line of [x, z, nx, nz] (n pointing out to sea) into runs where the
- * ground will carry a wall, and give each run its height.
+ * ground will carry a wall and no wall stands already, and give each run its
+ * height.
  */
-function pushRun(world, runs, pts) {
+function pushRun(world, runs, pts, taken = []) {
   let cur = [];
   const flush = () => {
     if (cur.length >= 4) {
@@ -401,7 +534,8 @@ function pushRun(world, runs, pts) {
     // past the front.
     const ok = rawGround(world, x, z) > 0.2
       && rawGround(world, x - nx * (WALL_WIDTH / 2), z - nz * (WALL_WIDTH / 2)) > 0.3
-      && Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300;
+      && Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
+      && !onTaken(taken, x, z);
     if (ok) cur.push(p); else flush();
   }
   flush();
@@ -409,10 +543,10 @@ function pushRun(world, runs, pts) {
 
 /**
  * The shore of a real coast as it is drawn, traced off the terrain mesh, and
- * cut into the lines worth walling: near the town if there is one, and near
- * the middle of the battle otherwise. Each point carries the way out to sea.
+ * cut into the lines worth walling: those nearest `target` -- only the one
+ * nearest, when `single`. Each point carries the way out to sea.
  */
-function coastLines(world, rng, city) {
+function coastLines(world, rng, target, single = false) {
   const m = landMask(world);
   if (!m.any) return [];
   const cell = m.cell * COAST_STEP;
@@ -475,16 +609,14 @@ function coastLines(world, rng, city) {
     }
     lines.push(line);
   }
-  // Which part of the shore to wall: round the town, or in front of the
-  // battle. A window of shore about three kilometres long round the point
-  // of each line nearest the target.
-  const target = city ? cityToWorld(city, 0, city.D / 2) : { x: 0, z: 0 };
+  // Which part of the shore to wall: a window of shore about three
+  // kilometres long round the point of each line nearest the target.
   const scored = lines.map((l) => {
     let best = Infinity;
     let at = 0;
     l.forEach((p, k) => { const d = Math.hypot(p[0] - target.x, p[1] - target.z); if (d < best) { best = d; at = k; } });
     return { l, best, at };
-  }).filter((s) => s.l.length > 3).sort((a, b) => a.best - b.best).slice(0, 3);
+  }).filter((s) => s.l.length > 3).sort((a, b) => a.best - b.best).slice(0, single ? 1 : 3);
   const out = [];
   scored.forEach((s, rank) => {
     const reach = rank === 0 ? 1600 : 900 + rng() * 500;
@@ -667,16 +799,16 @@ export const BUILT = {
 const PLANS = new WeakMap();
 
 /**
- * The whole town, drawn up once from its site and kept: its streets, its
- * blocks, every building and every piece of street furniture. Every number
- * in it comes off the site's seed and the ground, so both ends of the wire
- * draw up the same one.
+ * A whole town -- the `i`-th -- drawn up once from its site and kept: its
+ * streets, its blocks, every building and every piece of street furniture.
+ * Every number in it comes off the site's seed and the ground, so both ends of
+ * the wire draw up the same one.
  *
  * Coordinates in the plan are the town's own, u across the front and v out to
  * sea, with the world's own copies on everything that stands anywhere.
  */
-export function cityPlan(world) {
-  const c = world.works?.city;
+export function cityPlan(world, i = 0) {
+  const c = world.works?.cities?.[i];
   if (!c) return null;
   const had = PLANS.get(c);
   if (had) return had;
@@ -686,6 +818,29 @@ export function cityPlan(world) {
   try { plan = drawUp(world, c); } finally { PRISTINE = was; }
   PLANS.set(c, plan);
   return plan;
+}
+
+const NO_PLANS = [];
+
+/** Every town's plan, in the order the towns were asked for. */
+export function cityPlans(world) {
+  const cs = world.works?.cities;
+  if (!cs?.length) return NO_PLANS;
+  return cs.map((_, i) => cityPlan(world, i));
+}
+
+/** A building in any of the towns, by its id. */
+export function buildingById(world, id) {
+  return cityPlan(world, Math.floor(id / CITY_IDS))?.byId.get(id) || null;
+}
+
+/** The town whose site a point is on, padded by `pad`, or null. */
+function planAt(world, x, z, pad = 0) {
+  for (const plan of cityPlans(world)) {
+    const { u, v } = worldToCity(plan.city, x, z);
+    if (Math.abs(u) <= plan.W / 2 + pad && Math.abs(v) <= plan.D / 2 + pad) return plan;
+  }
+  return null;
 }
 
 function drawUp(world, c) {
@@ -736,7 +891,8 @@ function drawUp(world, c) {
       if (u1 - u0 < 30 || v1 - v0 < 26) continue;
       blocks.push({
         id: blocks.length, u0, u1, v0, v1, kind: 'res',
-        front: j === vCuts.length - 2,
+        // The waterfront, if the town has one.
+        front: j === vCuts.length - 2 && !c.inland,
       });
     }
   }
@@ -753,7 +909,11 @@ function drawUp(world, c) {
   // island's mesh cell is on the level by construction (see worksGround).
   // So a coarse map of how far each point is from the sea comes first.
   const CC = 10;
-  const SAFE = c.isle >= 0 ? 70 : Infinity;
+  // Not where another town's levelling reaches into this one's: there the
+  // ground is at the other town's level, however far it is from the sea.
+  const crowded = (world.works?.cities || []).some((o) => o !== c
+    && Math.hypot(o.x - c.x, o.z - c.z) < Math.hypot(o.W, o.D) / 2 + o.flat + o.blend + Math.hypot(W, D) / 2);
+  const SAFE = c.isle >= 0 && !crowded ? 70 : Infinity;
   const cu = Math.ceil((W + 2 * SAFE) / CC) + 1 || 0;
   const cv = Math.ceil((D + 2 * SAFE) / CC) + 1 || 0;
   let far = null;
@@ -925,7 +1085,9 @@ function drawUp(world, c) {
     const roofH = spec.roof === 'flat' ? 0 : spec.roof === 'saw' ? 2.4
       : Math.min(spec.w, spec.d) * (spec.pitch || 0.32);
     const bld = {
-      id: b.id * 64 + slot,
+      id: c.base + b.id * 64 + slot,
+      city: c.index,
+      level: L,
       kind: spec.kind,
       x: Math.round(p.x * 100) / 100,
       z: Math.round(p.z * 100) / 100,
@@ -1173,7 +1335,12 @@ function drawUp(world, c) {
       if (at(u, v2) === SURF.yard && !inside(u, v2)) props.push({ t: 'bollard', u, v: v2, r: 0 });
     }
   }
-  // Into the world, every one of them numbered.
+  // Into the world, every one of them numbered -- but only those on the
+  // town's own paving: where another town has cut into this one, the
+  // fountain the square was to have had is not there to have.
+  const kept = props.filter((p) => at(p.u, p.v) !== SURF.none);
+  props.length = 0;
+  props.push(...kept);
   props.forEach((p, k) => {
     const w = cityToWorld(c, p.u, p.v);
     p.x = w.x;
@@ -1214,12 +1381,14 @@ function drawUp(world, c) {
   };
 }
 
-/** What a point in the world is on, as far as the town's surface goes. */
+/** What a point in the world is on, as far as the towns' surface goes. */
 export function surfaceAt(world, x, z) {
-  const plan = cityPlan(world);
-  if (!plan) return SURF.none;
-  const { u, v } = worldToCity(plan.city, x, z);
-  return plan.surfAt(u, v);
+  for (const plan of cityPlans(world)) {
+    const { u, v } = worldToCity(plan.city, x, z);
+    const t = plan.surfAt(u, v);
+    if (t !== SURF.none) return t;
+  }
+  return SURF.none;
 }
 
 /** The buildings filed near a point in the world. */
@@ -1287,11 +1456,11 @@ export function standingHeight(b, r) {
 
 /** The building standing at a point, if there is one, and how high it stands. */
 export function buildingAt(world, x, z, pad = 0) {
-  const plan = cityPlan(world);
-  if (!plan) return null;
-  for (const id of buildingsNear(plan, x, z)) {
-    const b = plan.byId.get(id);
-    if (inFootprint(b, x, z, pad)) return b;
+  for (const plan of cityPlans(world)) {
+    for (const id of buildingsNear(plan, x, z)) {
+      const b = plan.byId.get(id);
+      if (inFootprint(b, x, z, pad)) return b;
+    }
   }
   return null;
 }
@@ -1301,8 +1470,15 @@ export function buildingAt(world, x, z, pad = 0) {
  * struck: `{ b, x, y, z }` or null.
  */
 export function worksImpact(world, ax, ay, az, bx, by, bz) {
-  const plan = cityPlan(world);
-  if (!plan) return null;
+  let first = null;
+  for (const plan of cityPlans(world)) {
+    const hit = impactIn(world, plan, ax, ay, az, bx, by, bz);
+    if (hit && (!first || hit.f < first.f)) first = hit;
+  }
+  return first && { b: first.b, x: first.x, y: first.y, z: first.z };
+}
+
+function impactIn(world, plan, ax, ay, az, bx, by, bz) {
   const L = plan.level;
   // Nowhere near the town: the usual case, and the cheap one.
   const pa = worldToCity(plan.city, ax, az);
@@ -1322,7 +1498,7 @@ export function worksImpact(world, ax, ay, az, bx, by, bz) {
       const b = plan.byId.get(id);
       const top = L + standingHeight(b, ruinOf(world, id));
       if (y > top || !inFootprint(b, x, z)) continue;
-      return { b, x, y, z };
+      return { b, x, y, z, f };
     }
   }
   return null;
@@ -1345,8 +1521,10 @@ export function blastWorks(world, x, y, z, charge, filler, events, rng, direct =
   // How far a burst is felt by a building, in metres: a few for a destroyer's
   // round, getting on for forty for a battleship's.
   const reach = 4 + 6.5 * Math.cbrt(power);
-  const plan = w.city ? cityPlan(world) : null;
-  if (plan) {
+  for (const plan of cityPlans(world)) {
+    // Nowhere near this town: on to the next.
+    const { u, v } = worldToCity(plan.city, x, z);
+    if (Math.abs(u) > plan.W / 2 + reach + 40 || Math.abs(v) > plan.D / 2 + reach + 40) continue;
     const seen = new Set();
     for (let gx = -1; gx <= 1; gx++) {
       for (let gz = -1; gz <= 1; gz++) {
@@ -1447,15 +1625,14 @@ export function hurtWall(world, run, sec, share, events, at = null) {
  * light to whatever stands within a few metres of it, timber first.
  */
 export function stepWorks(world, dt, events, rng) {
-  const plan = world.works?.city ? cityPlan(world) : null;
-  if (!plan || !world.ruin) return;
+  if (!world.works?.cities?.length || !world.ruin) return;
   world._fireClock = (world._fireClock || 0) + dt;
   const spread = world._fireClock >= 2;
   if (spread) world._fireClock = 0;
   for (const key in world.ruin.b) {
     const r = world.ruin.b[key];
     if (!r.f) continue;
-    const b = plan.byId.get(Number(key));
+    const b = buildingById(world, Number(key));
     if (!b) continue;
     const was = stageOf(r.d);
     r.d = Math.min(1, r.d + BUILT[b.mat].rate * dt);
@@ -1465,7 +1642,7 @@ export function stepWorks(world, dt, events, rng) {
     if (stageOf(r.d) !== was || !r.f) ruinEvent(events, b, r);
     if (spread && r.f) {
       for (const nid of b.near) {
-        const o = plan.byId.get(nid);
+        const o = buildingById(world, nid);
         const ro = world.ruin.b[nid];
         if (ro && (ro.f || ro.c || ro.d >= 0.86)) continue;
         // A fire spreads by what is burning as much as by what is next to
@@ -1485,10 +1662,8 @@ export function stepWorks(world, dt, events, rng) {
  * pulled down before the battle, and the guns go in where they were.
  */
 export function clearForBattery(world, x, z, radius, events) {
-  const plan = world.works?.city ? cityPlan(world) : null;
-  if (!plan) return 0;
   let n = 0;
-  for (const b of plan.buildings) {
+  for (const b of cityPlans(world).flatMap((plan) => plan.buildings)) {
     if (Math.hypot(b.x - x, b.z - z) > radius + Math.hypot(b.w, b.d) / 2) continue;
     // Any part of it inside the circle.
     const dx = x - b.x;
@@ -1561,10 +1736,9 @@ export function siteOnWorks(world, x, z, span) {
     const off = clamp(on.across, -room, room);
     return { x: px + nx * off, z: pz + nz * off, wall: true };
   }
-  const plan = w.city ? cityPlan(world) : null;
+  const plan = planAt(world, x, z);
   if (!plan) return null;
   const { u, v } = worldToCity(plan.city, x, z);
-  if (Math.abs(u) > plan.W / 2 || Math.abs(v) > plan.D / 2) return null;
   for (let a = 0; a < 16; a++) {
     const th = (a / 16) * TAU;
     for (const k of [0.5, 1]) {
@@ -1575,12 +1749,11 @@ export function siteOnWorks(world, x, z, span) {
   return { x, z, wall: false };
 }
 
-/** The extra a man stands on over the ground at a point in the town -- a kerb, a lawn, a heap of rubble -- and whether a wall is in his way. */
+/** The extra a man stands on over the ground at a point in a town -- a kerb, a lawn, a heap of rubble -- and whether a wall is in his way. */
 export function worksFloor(world, x, z) {
-  const plan = world.works?.city ? cityPlan(world) : null;
+  const plan = planAt(world, x, z, 2);
   if (!plan) return { rise: 0, blocked: false };
   const { u, v } = worldToCity(plan.city, x, z);
-  if (Math.abs(u) > plan.W / 2 + 2 || Math.abs(v) > plan.D / 2 + 2) return { rise: 0, blocked: false };
   let rise = SURF_RISE[plan.surfAt(u, v)] || 0;
   for (const id of buildingsNear(plan, x, z)) {
     const b = plan.byId.get(id);

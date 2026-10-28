@@ -4274,7 +4274,7 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
   }
   // A gun put down in the town has the houses on its site pulled down first,
   // and the emplacement dug where they stood.
-  if (state.world?.works?.city) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
+  if (state.world?.works?.cities?.length) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
   state.batteries.push(bat);
   return bat;
 }
@@ -5302,7 +5302,7 @@ function stepShells(state, dt) {
     // Into a building: it goes off against the wall it met, or inside the
     // house if it came down through the roof. Sampled along the whole of this
     // tick's path, because a shell crosses a street in less than a tick.
-    if (state.world.works?.city && Math.min(py, sh.y) <= worksCeiling(state.world)) {
+    if (state.world.works?.cities?.length && Math.min(py, sh.y) <= worksCeiling(state.world)) {
       const hit = worksImpact(state.world, px, py, pz, sh.x, sh.y, sh.z);
       if (hit) {
         state.events.push({
@@ -13415,7 +13415,7 @@ export function step(state, dt = DT) {
   stepMidAir(state);
   stepFallers(state, dt);
   // The town burning.
-  if (state.world?.works?.city) stepWorks(state.world, dt, state.events, worksDice(state));
+  if (state.world?.works?.cities?.length) stepWorks(state.world, dt, state.events, worksDice(state));
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);
   const ev = state.events;

@@ -364,7 +364,7 @@ import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../s
 import { crewBattle } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
-  applyRuin, worksHard,
+  applyRuin, worksHard, cityPlans, buildingById, cleanAsk,
 } from '../shared/works.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
@@ -23787,8 +23787,7 @@ function battlefieldSeedOf(lon, lat) {
 }
 
 /** Every corner of every building, and every prop, on the ground as it is drawn. */
-function assertGrounded(world) {
-  const plan = cityPlan(world);
+function assertGrounded(world, plan = cityPlan(world)) {
   assert.ok(plan, 'no town was raised');
   assert.ok(plan.buildings.length > 40, `only ${plan.buildings.length} buildings`);
   for (const b of plan.buildings) {
@@ -23957,13 +23956,109 @@ check('the ruin of the town goes to every client, and a client puts it on its ow
   // And a room sends it to both sides whatever they can see.
   const room = new Room({ autoStart: false, mapId: 'coral_shelf', seed: 12345, half: 12000, works: TOWN_ASK });
   clearInterval(room.timer);
-  assert.ok(room.world.works?.city, 'the room raised no town');
+  assert.ok(room.world.works?.cities?.length, 'the room raised no town');
   let got = [];
   room.players.set(1, { id: 1, team: 0, send: (m) => got.push(m) });
   room.players.set(2, { id: 2, team: 1, send: (m) => got.push(m) });
   room.dispatchEvents([{ e: 'ruin', k: 'b', id: b.id, d: 0.5, f: 0, x: b.x, z: b.z }]);
   assert.equal(got.filter((m) => m.ev?.some((e) => e.e === 'ruin')).length, 2);
   room.close?.();
+});
+
+// Many towns, inland as well as on the water, and many stretches of wall.
+
+const coastSeed = battlefieldSeedOf(-4.55, 48.33);
+const coastWorld = (works) => generateWorld(coastSeed, 'north_atlantic', null, 8000,
+  { lon: -4.55, lat: 48.33 }, null, false, works);
+
+check('a town can be put down anywhere on land, miles from the sea, and stands level there', () => {
+  // The deepest inland spot on the chart.
+  const bare = coastWorld(null);
+  let deep = null;
+  for (let z = -6000; z <= 6000; z += 500) {
+    for (let x = -6000; x <= 6000; x += 500) {
+      const d = shoreDistance(bare, x, z);
+      if (!deep || d > deep.d) deep = { x, z, d };
+    }
+  }
+  assert.ok(deep.d > 2000, `no ground more than ${deep.d} m from the sea`);
+  const world = coastWorld({ cities: [{ seed: 5, x: deep.x, z: deep.z }] });
+  const plan = cityPlan(world);
+  assert.ok(plan, 'no town inland');
+  assert.ok(plan.city.inland, 'a town miles from the sea was given a waterfront');
+  assert.ok(Math.hypot(plan.city.x - deep.x, plan.city.z - deep.z) < 1, 'the town was moved off the spot it was put on');
+  assert.ok(plan.level > 30, `an inland town cut down to ${plan.level} m, near sea level`);
+  assert.ok(!plan.blocks.some((b) => b.kind === 'port'), 'warehouses and quays inland');
+  assertGrounded(world, plan);
+});
+
+check('a town put down in the middle of an island stands there, not on its shore', () => {
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isle = bare.islands.filter((i) => i.r > 400).sort((a, b) => b.r - a.r)[0];
+  const world = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false,
+    { cities: [{ seed: 6, x: isle.x, z: isle.z }] });
+  const plan = cityPlan(world);
+  assert.ok(Math.hypot(plan.city.x - isle.x, plan.city.z - isle.z) < 1, 'the town was not put where it was asked for');
+  assertGrounded(world, plan);
+});
+
+check('several towns and several stretches of wall can be raised in one battle, and every one of them is fought over', () => {
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isles = bare.islands.filter((i) => i.r > 400).sort((a, b) => b.r - a.r);
+  const ask = {
+    cities: [{ seed: 77 }, { seed: 6, x: isles[0].x, z: isles[0].z }, { seed: 8, x: isles[2].x, z: isles[2].z }],
+    walls: [{ seed: 9 }, { seed: 3, x: isles[3].x + isles[3].r, z: isles[3].z }],
+  };
+  const world = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, ask);
+  const plans = cityPlans(world);
+  assert.equal(plans.length, 3, `${plans.length} towns raised of three`);
+  for (const plan of plans) assertGrounded(world, plan);
+  // One list of ruins for all of them: no two buildings share an id.
+  const ids = new Set();
+  for (const plan of plans) {
+    for (const b of plan.buildings) {
+      assert.ok(!ids.has(b.id), `two buildings are both ${b.id}`);
+      ids.add(b.id);
+      assert.equal(buildingById(world, b.id), b);
+    }
+  }
+  // Both stretches of wall built, the second on the shore it was asked for,
+  // and none laid over another.
+  const sets = new Set(world.works.walls.map((r) => r.set));
+  assert.ok(sets.has(0) && sets.has(1), 'a stretch of wall was not built');
+  const second = world.works.walls.filter((r) => r.set === 1);
+  const near = Math.min(...second.flatMap((r) => r.pts.map(([x, z]) => Math.hypot(x - ask.walls[1].x, z - ask.walls[1].z))));
+  assert.ok(near < 300, `the wall was built ${Math.round(near)} m from where it was asked for`);
+  for (const r of second) {
+    for (const [x, z] of r.pts) {
+      for (const o of world.works.walls.filter((q) => q.set === 0)) {
+        for (const [ox, oz] of o.pts) assert.ok(Math.hypot(x - ox, z - oz) > 30, 'one wall built on top of another');
+      }
+    }
+  }
+  // A shell into the last town knocks that town about, and it burns.
+  const st = createState(world, {});
+  const last = plans[2];
+  const b = last.buildings.find((q) => q.kind === 'office' || q.kind === 'flats');
+  st.shells.push({
+    id: 1, owner: 999, team: 1, x: b.x, z: b.z, y: last.level + 200, vx: 0, vz: 0, vy: -500, g: 9.8,
+    spec: { ...SHIP_CLASSES.iowa.gun.shells.he, type: 'he' }, caliber: 406, life: 0,
+  });
+  for (let i = 0; i < 30; i++) step(st, DT);
+  assert.ok(world.ruin.b[b.id]?.d > 0.2, 'the building in the third town took no harm');
+  const house = last.buildings.find((q) => q.mat === 'wood' && q.near.length && !world.ruin.b[q.id]);
+  if (house) {
+    world.ruin.b[house.id] = { d: 0, f: 1 };
+    for (let i = 0; i < 30 * 20; i++) step(st, DT);
+    assert.ok(world.ruin.b[house.id].d > 0.2, 'a fire in the third town did not burn');
+  }
+});
+
+check('the board\'s old ask for one town and one wall is still read, as a list of one', () => {
+  const a = cleanAsk({ city: { seed: 1, x: 10.4, z: 20 }, walls: { seed: 2 } });
+  assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }] });
+  assert.equal(cleanAsk({ cities: [], walls: [] }), null);
+  assert.equal(cleanAsk({ cities: Array.from({ length: 40 }, (_, k) => ({ seed: k })) }).cities.length, 8);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

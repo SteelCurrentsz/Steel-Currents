@@ -45,7 +45,7 @@ import {
 } from '../../shared/math.js';
 import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 import {
-  applyRuin, cityPlan, cityToWorld, worksFloor, surfaceAt, wallAt, SURF,
+  applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF,
 } from '../../shared/works.js';
 
 // How far behind the server everybody else is drawn, in the server's own
@@ -1848,13 +1848,13 @@ export class Battle {
       image: planImage(plan),
       onShip: (x, z) => onPlan(map, x, z),
       describe: (x, z) => placeOn(cls.hull.length, cls.hull.beam, x, z),
-      town: !!w?.works?.city,
+      town: !!w?.works?.cities?.length,
       land: !!(w && ((w.islands || []).length || (w.land || []).length)),
     };
   }
 
   /**
-   * Put a man ashore: in the middle of the town, on its square, or on the
+   * Put a man ashore: in the middle of the nearest town, on its square, or on the
    * nearest dry land to her -- an island's beach, or the coast. He walks
    * there as he does anywhere off her, on the ground as the simulation has
    * it: kerbs, the walkway of a sea wall, the heaps where houses were.
@@ -1866,7 +1866,10 @@ export class Battle {
     if (!w || !ls) return;
     let at = null;
     if (where === 'town') {
-      const plan = cityPlan(w);
+      let plan = null;
+      for (const p of cityPlans(w)) {
+        if (!plan || Math.hypot(p.city.x - ls.x, p.city.z - ls.z) < Math.hypot(plan.city.x - ls.x, plan.city.z - ls.z)) plan = p;
+      }
       if (!plan) return;
       // The square if it is there, else the first open pavement near the middle.
       const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);

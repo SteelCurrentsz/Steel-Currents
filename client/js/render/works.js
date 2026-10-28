@@ -25,7 +25,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import {
-  cityPlan, ruinOf, stageOf, STAGE, standingHeight, SURF, SURF_RISE, SURF_CELL, cityToWorld,
+  cityPlans, buildingById, ruinOf, stageOf, STAGE, standingHeight, SURF, SURF_RISE, SURF_CELL, cityToWorld,
   wallSections, sectionSpan, WALL_WIDTH, PARAPET, worksFloor,
 } from '../../../shared/works.js';
 import { groundHeight, rawGround } from '../../../shared/world.js';
@@ -881,7 +881,7 @@ export class WorksView {
     this.group.name = 'works';
     scene.add(this.group);
     this.mats = this.materials();
-    this.plan = cityPlan(world);
+    this.plans = cityPlans(world);
     this.chunks = new Map();
     this.dirty = new Set();
     this.falling = [];
@@ -893,12 +893,14 @@ export class WorksView {
     // the event arrives.
     this.known = new Map();
     for (const id in world.ruin?.b || {}) this.known.set(Number(id), { ...world.ruin.b[id] });
-    if (this.plan) {
-      this.surface();
-      for (const b of this.plan.buildings) {
-        const k = this.chunkOf(b);
-        if (!this.chunks.has(k)) this.chunks.set(k, { list: [], group: null });
-        this.chunks.get(k).list.push(b);
+    if (this.plans.length) {
+      for (const plan of this.plans) {
+        this.surface(plan);
+        for (const b of plan.buildings) {
+          const k = this.chunkOf(b);
+          if (!this.chunks.has(k)) this.chunks.set(k, { list: [], group: null });
+          this.chunks.get(k).list.push(b);
+        }
       }
       for (const k of this.chunks.keys()) this.buildChunk(k);
       this.props();
@@ -932,7 +934,7 @@ export class WorksView {
   }
 
   chunkOf(b) {
-    return `${Math.floor(b.u / CHUNK)},${Math.floor(b.v / CHUNK)}`;
+    return `${b.city},${Math.floor(b.u / CHUNK)},${Math.floor(b.v / CHUNK)}`;
   }
 
   /** (Re)build one chunk of the town as it now stands. */
@@ -944,15 +946,14 @@ export class WorksView {
       ch.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
     const bufs = new Bufs();
-    for (const b of ch.list) buildingInto(bufs, b, this.plan.level, ruinOf(this.world, b.id));
+    for (const b of ch.list) buildingInto(bufs, b, b.level, ruinOf(this.world, b.id));
     ch.group = bufs.meshes(this.mats);
     this.group.add(ch.group);
   }
 
   // ---- the ground: streets, pavements and kerbs, lawns and paving
 
-  surface() {
-    const plan = this.plan;
+  surface(plan) {
     const { nu, nv, surf, W, D, level: L, city } = plan;
     const KIND = {
       [SURF.road]: 'asphalt', [SURF.walk]: 'slab', [SURF.lawn]: 'grass', [SURF.plaza]: 'setts',
@@ -1018,19 +1019,20 @@ export class WorksView {
     const g = bufs.meshes(this.mats);
     g.traverse((o) => { if (o.isMesh) o.renderOrder = 1; });
     this.group.add(g);
-    this.ground = g;
   }
 
   // ---- street furniture
 
   props() {
-    const plan = this.plan;
-    const L = plan.level;
     this.prop = [];
+    // Every town's furniture together, one instanced mesh to a kind of it,
+    // each piece with the town it stands in.
     const types = {};
-    for (const p of plan.props) {
-      const t = p.t === 'tree' && p.big ? 'bigtree' : p.t;
-      (types[t] || (types[t] = [])).push(p);
+    for (const plan of this.plans) {
+      for (const p of plan.props) {
+        const t = p.t === 'tree' && p.big ? 'bigtree' : p.t;
+        (types[t] || (types[t] = [])).push({ p, plan });
+      }
     }
     this.inst = {};
     for (const [t, list] of Object.entries(types)) {
@@ -1040,10 +1042,10 @@ export class WorksView {
         : this.mats.plain;
       const mesh = new THREE.InstancedMesh(buf.geometry(), mat, list.length);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      const entries = list.map((p, k) => {
+      const entries = list.map(({ p, plan }, k) => {
         const rise = SURF_RISE[plan.surfAt(p.u, p.v)] || 0;
         const e = {
-          p, t, k, mesh, x: p.x, y: L + 0.04 + rise, z: p.z, yaw: p.yaw,
+          p, t, k, mesh, x: p.x, y: plan.level + 0.04 + rise, z: p.z, yaw: p.yaw,
           tilt: 0, tiltDir: 0, spin: 0, roll: 0, gone: false, burnt: false, fallMax: 0,
         };
         this.prop.push(e);
@@ -1079,7 +1081,7 @@ export class WorksView {
     this.moving = new Set();
     // Anything standing where a building has already been cleared, or one is
     // already down, goes as it would have.
-    for (const b of plan.buildings) {
+    for (const b of this.plans.flatMap((plan) => plan.buildings)) {
       const r = ruinOf(this.world, b.id);
       if (r?.c) this.clearProps(b.x, b.z, Math.hypot(b.w, b.d) / 2 + 2);
     }
@@ -1435,7 +1437,7 @@ export class WorksView {
 
   /** A shell into a building: a burst on its face and pieces of it across the street. */
   hit(ev) {
-    const b = this.plan?.byId.get(ev.id);
+    const b = buildingById(this.world, ev.id);
     const pal = b ? col((WALLS[b.wall] || WALLS[0]).c) : [0.6, 0.55, 0.5];
     const n = Math.min(40, 6 + Math.round((ev.cal || 152) / 25));
     this.spray(ev.x, ev.y, ev.z, n, pal, 0.35 + (ev.cal || 152) / 900, 7 + (ev.cal || 152) / 40, 5);
@@ -1473,7 +1475,7 @@ export class WorksView {
       }
       return;
     }
-    const b = this.plan?.byId.get(ev.id);
+    const b = buildingById(this.world, ev.id);
     if (!b) return;
     const st = stageOf(ev.d, !!ev.c);
     const before = stageOf(was?.d || 0, !!was?.c);
@@ -1493,10 +1495,10 @@ export class WorksView {
 
   collapse(b, was) {
     const bufs = new Bufs();
-    buildingInto(bufs, b, this.plan.level, was || null);
+    buildingInto(bufs, b, b.level, was || null);
     const g = bufs.meshes(this.mats);
     // Re-centred on its own foot, so it can be sunk and tipped about it.
-    const L = this.plan.level;
+    const L = b.level;
     g.traverse((o) => { if (o.isMesh) { o.geometry.translate(-b.x, -L, -b.z); o.matrixAutoUpdate = true; } });
     g.position.set(b.x, L, b.z);
     this.group.add(g);
@@ -1531,12 +1533,12 @@ export class WorksView {
       // speed things fall.
       const e = s * s;
       f.g.scale.y = Math.max(0.02, 1 - e * 0.97);
-      f.g.position.y = this.plan.level - e * 0.4;
+      f.g.position.y = f.b.level - e * 0.4;
       f.g.setRotationFromAxisAngle(f.axis, f.lean * e);
       if (this.fx && Math.random() < dt * 6) {
         const a = Math.random() * Math.PI * 2;
         const R = Math.hypot(f.b.w, f.b.d) / 2;
-        this.fx.dust(f.b.x + Math.sin(a) * R, this.plan.level + f.h * (1 - e) * 0.5, f.b.z + Math.cos(a) * R, 2 + R / 10);
+        this.fx.dust(f.b.x + Math.sin(a) * R, f.b.level + f.h * (1 - e) * 0.5, f.b.z + Math.cos(a) * R, 2 + R / 10);
       }
       if (s >= 1) {
         this.group.remove(f.g);
@@ -1559,23 +1561,22 @@ export class WorksView {
     this.stepFalling(dt);
     this.stepProps(dt);
     this.stepDebris(dt);
-    if (!this.plan) return;
+    if (!this.plans.length) return;
     // Fire, in the burning buildings nearest the eye: flame out of the
     // windows and the roof, and the smoke of a town alight.
     const eye = camera?.position;
-    const L = this.plan.level;
     const burning = [];
     for (const key in this.world.ruin?.b || {}) {
       const r = this.world.ruin.b[key];
       if (!r.f) continue;
-      const b = this.plan.byId.get(Number(key));
+      const b = buildingById(this.world, Number(key));
       if (!b) continue;
       burning.push({ b, r, d: eye ? Math.hypot(b.x - eye.x, b.z - eye.z) : 0 });
     }
     burning.sort((a, b) => a.d - b.d);
     for (const { b, r } of burning.slice(0, 14)) {
       const h = standingHeight(b, r);
-      this.flames?.at(`town${b.id}`, b.x, L + Math.max(2, h * 0.7), b.z, 0.55 + r.d * 0.4, Math.min(28, Math.max(b.w, b.d) * 0.8));
+      this.flames?.at(`town${b.id}`, b.x, b.level + Math.max(2, h * 0.7), b.z, 0.55 + r.d * 0.4, Math.min(28, Math.max(b.w, b.d) * 0.8));
     }
     // And what has come down lately goes on smoking.
     this.smoulder -= dt;
@@ -1585,10 +1586,10 @@ export class WorksView {
         const left = t - 0.45;
         if (left <= 0) { this.recent.delete(id); continue; }
         this.recent.set(id, left);
-        const b = this.plan.byId.get(id);
+        const b = buildingById(this.world, id);
         if (!b || (eye && Math.hypot(b.x - eye.x, b.z - eye.z) > 4000)) continue;
         const h = standingHeight(b, ruinOf(this.world, id));
-        this.fx.wreckSmoke(b.x + (Math.random() - 0.5) * b.w * 0.5, L + h + 1, b.z + (Math.random() - 0.5) * b.d * 0.5, 0);
+        this.fx.wreckSmoke(b.x + (Math.random() - 0.5) * b.w * 0.5, b.level + h + 1, b.z + (Math.random() - 0.5) * b.d * 0.5, 0);
       }
     }
   }
