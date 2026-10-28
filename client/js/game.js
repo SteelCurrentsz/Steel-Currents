@@ -4597,7 +4597,7 @@ export class Battle {
       if (f.orphanAt > 180) { this.leaveFlight(true); return; }
       const sea = this.scene.ocean.heightAt(f.pilot.x, f.pilot.z);
       f.pilot.gale = galeOf(this.world, this.renderST ?? this.time);
-      f.pilot.step(dt, sea, this.solidLine());
+      f.pilot.step(dt, sea, this.solidLine?.());
       if (!f.pilot.alive) {
         // The sea, or the hill or the roof she came down on. She goes in
         // where she went in.
@@ -4707,7 +4707,7 @@ export class Battle {
     // flies her further each frame without flying her any less carefully.
     {
       const n = Math.max(1, Math.ceil(sdt / Math.max(1e-4, dt) - 1e-6));
-      const solid = this.solidLine();
+      const solid = this.solidLine?.();
       for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea, solid);
     }
     if (!p.alive) {
