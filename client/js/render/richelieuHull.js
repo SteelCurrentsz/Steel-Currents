@@ -24,7 +24,7 @@ import {
   RICHELIEU_HULL_B64, RICHELIEU_SURFACE, RICHELIEU_GUNS, RICHELIEU_MOUNTS, RICHELIEU_LINES,
 } from './richelieuHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, woodMap } from './textures.js';
+import { steelMap, woodMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -61,6 +61,8 @@ export function richelieuMaterials() {
       specular: 0x16181c, shininess: 5,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'wood');
   return mats;
 }
 

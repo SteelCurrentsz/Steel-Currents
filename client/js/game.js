@@ -35,6 +35,7 @@ import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
 import { PenCam } from './render/pencam.js';
+import { Lens } from './render/lens.js';
 import { buildBridge } from './render/bridgeroom.js';
 import {
   MAN, freshMan, stepDeck, stepWater, deckAt, onPlan, roughPlan, placeOn,
@@ -564,6 +565,14 @@ export class Battle {
     // A bomb arrives where the scene flew it to, so the scene is what says
     // when. See bombThrough.
     this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);
+    // Water on the glass the battle is watched through: thrown on it by
+    // splashes close aboard and by the weather. See lens.js.
+    this.lens = new Lens(document.getElementById('screen-battle'));
+    this.scene.effects.onSplash = (x, z, cal, opts) => this.splashOnGlass(x, z, cal, opts);
+    {
+      const wx = this.scene.wx || {};
+      this.lens.setRain(wx.fall === 'rain' ? 5 + 4 * (wx.drop || 1) : 0);
+    }
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
     this.hud.setSelected(shipId);
@@ -8235,11 +8244,43 @@ export class Battle {
     if (this.man && this.man.swimming) cam.position.y = sea + MAN.float;
     // Stood in her wheelhouse or her conning tower he is in a dry room,
     // whatever the sea outside it is doing.
-    this.scene.setUnderwater(cam.position.y < sea - 0.2 && !(this.man && this.man.room));
+    const under = cam.position.y < sea - 0.2 && !(this.man && this.man.room);
+    this.scene.setUnderwater(under);
+    // The glass: dry and out of the way on the chart, under the sea and
+    // through a man's own eyes; streaming for a moment after coming up.
+    if (this.lens) {
+      const glass = this.camMode !== 'tactical' && !this.man;
+      if (glass && this.wasUnder && !under) this.lens.sheet();
+      this.wasUnder = under;
+      this.lens.update(glass && !under);
+      this.lens.el?.parentElement?.classList.toggle('chart', this.camMode === 'tactical');
+    }
     this.scene.render();
   }
 
-  resize(w, h) { this.scene.resize(w, h); }
+  /**
+   * A splash, and whether any of it reaches the glass: how much does is how
+   * close it fell to the eye against how much water a round of that bore
+   * throws, and an eye high over the sea is above most of it.
+   */
+  splashOnGlass(x, z, cal = 152, opts = {}) {
+    if (!this.lens || this.camMode === 'tactical' || this.man) return;
+    const cam = this.scene.camera;
+    const dx = x - cam.position.x;
+    const dz = z - cam.position.z;
+    const d = Math.hypot(dx, dz);
+    const heavy = opts.kind === 'bomb' || opts.kind === 'torp' || opts.kind === 'dc' || opts.kind === 'break' ? 1.8 : 1;
+    const reach = (25 + Math.max(20, cal) * 0.22) * heavy;
+    const high = Math.max(0, cam.position.y - 12) / (reach * 0.6);
+    const amount = Math.pow(Math.max(0, 1 - d / reach), 1.4) * Math.max(0, 1 - high);
+    if (amount <= 0.02) return;
+    // Which side of the view it came from: the camera's right is its local x.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+    const side = dx * right.x + dz * right.z;
+    this.lens.spray(Math.min(1, amount), Math.abs(side) < d * 0.3 ? 0 : Math.sign(side));
+  }
+
+  resize(w, h) { this.scene.resize(w, h); this.lens?.resize(); }
 
   dispose() {
     this.director?.dispose();
@@ -8251,6 +8292,8 @@ export class Battle {
     // The battery's keys are the page's, and outlive the battle.
     this.leaveBattery(true, false);
     this.penCam?.el.remove();
+    this.lens?.dispose();
+    this.lens = null;
     this.off.forEach((f) => f());
     this.input.enabled = false;
     this.input.reset();

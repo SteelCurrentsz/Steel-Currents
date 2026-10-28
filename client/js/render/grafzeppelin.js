@@ -52,7 +52,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { mergeStatic, mergeMoving } from './merge.js';
-import { dressShip, steelMap, woodMap } from './textures.js';
+import { dressShip, steelMap, woodMap, finish } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { arm } from './mounts.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
@@ -134,6 +134,9 @@ export function grafZeppelinMaterials() {
       color: 0xa79f8c, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5,
     }),
   };
+  finish(mats.plating);
+  finish(mats.gunhouse);
+  finish(mats.deck, 'wood');
   return mats;
 }
 

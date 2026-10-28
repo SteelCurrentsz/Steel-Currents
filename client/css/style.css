@@ -256,6 +256,16 @@ input[type="range"] { accent-color: var(--red); }
 .battle.active { display: block; }
 .battle > * { pointer-events: none; }
 .battle button, .battle .clickable { pointer-events: auto; }
+/* The glass the battle is watched through (see lens.js), and the darkening
+   toward its edges that a real lens gives: it draws the eye to the middle of
+   the picture, where the fight is, and makes the view a view from somewhere.
+   Neither is on the chart, which is a plot and not a window. */
+.battle .lens { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.battle::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 48%, transparent 58%, rgba(4, 8, 12, 0.34) 100%);
+}
+.battle.chart::before, .battle.chart .lens { display: none; }
 
 .reticle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .ret-cross, .ret-lead { position: absolute; transform: translate(-50%, -50%); }

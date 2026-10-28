@@ -23,7 +23,7 @@ import {
   RODNEY_HULL_B64, RODNEY_SURFACE, RODNEY_TURRETS, RODNEY_SECONDARY, RODNEY_LINES,
 } from './rodneyHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, woodMap } from './textures.js';
+import { steelMap, woodMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -76,6 +76,8 @@ export function rodneyMaterials() {
       specular: 0x1a1814, shininess: 4,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'wood');
   return mats;
 }
 

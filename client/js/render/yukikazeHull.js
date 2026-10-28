@@ -24,7 +24,7 @@ import {
   YUKIKAZE_HULL_B64, YUKIKAZE_SURFACE, YUKIKAZE_GUNS, YUKIKAZE_MOUNTS, YUKIKAZE_LINES,
 } from './yukikazeHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, linoleumMap } from './textures.js';
+import { steelMap, linoleumMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -61,6 +61,8 @@ export function yukikazeMaterials() {
       specular: 0x1c1a18, shininess: 8, side: THREE.DoubleSide,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'lino');
   return mats;
 }
 

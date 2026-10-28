@@ -245,6 +245,8 @@ export class Effects {
     // stem breaks into. No sprite mist over it: a billboard puff over a
     // column of water reads as smoke.
     this.splashes.splash(x, z, caliber, opts);
+    // Whoever is watching may be close enough to wear some of it.
+    if (this.onSplash && !opts.child) this.onSplash(x, z, caliber, opts);
   }
 
   /** An aircraft's round into the sea. See Splashes.spout. */
