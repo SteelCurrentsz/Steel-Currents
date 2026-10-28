@@ -2556,6 +2556,13 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer;
 }
 .lamp-switch.on { background: rgba(255, 240, 200, 0.9); color: #10161c; box-shadow: 0 0 18px rgba(255, 236, 190, 0.7); }
+/* What the battery in hand is doing, under its name. */
+.bat-read {
+  position: absolute; left: 50%; top: calc(12vh + 1.3rem); transform: translateX(-50%); margin: 0;
+  max-width: calc(100vw - 32px); text-align: center;
+  font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--steel); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
 /* Two words on a key built for one: the lamp key is a little wider and its
    label sits on two lines. */
 #key-lamps { width: 70px; }

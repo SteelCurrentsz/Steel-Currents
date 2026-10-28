@@ -1299,6 +1299,107 @@ function buildGustav(g, b) {
   round_(g, bore, 0, 5.99, -11.0);
 }
 
+// -------------------------------------------------------------- the Karl --
+
+/**
+ * 60 cm Mörser Gerät 040, "Karl": a siege mortar on its own tracked carriage.
+ *
+ * Eleven road wheels a side under a low hull, the engine and driver up front,
+ * and the mortar trunnioned in two great cheeks over the back half of the
+ * hull, cocked up at sixty degrees -- it was fought high-angle and only ever
+ * came down to load. The whole vehicle trains, because the carriage gave the
+ * barrel four degrees either way and the driver slewed it on its tracks for
+ * the rest; so nothing here is marked to turn on its own.
+ */
+function buildKarl(g, b) {
+  const bore = b.caliber / 1000;
+  const HALF = 4.9;
+  const TX = 1.48;
+
+  for (const s of [-1, 1]) {
+    const x = s * TX;
+    // The track: its lower run on the ground, its upper run over the wheels,
+    // and its two ends wrapped round the idler and the sprocket.
+    box(g, MAT.dark, 0.56, 0.08, HALF * 2 - 0.6, x, 0.04, 0);
+    box(g, MAT.dark, 0.56, 0.08, HALF * 2 - 0.9, x, 1.2, -0.05);
+    for (const e of [-1, 1]) {
+      const cz = e * (HALF - 0.45);
+      shaft(g, MAT.camoDark, 0.5, 0.42, x, 0.62, cz, 18);
+      shaft(g, MAT.dark, 0.16, 0.6, x, 0.62, cz, 10);
+      for (let k = 0; k <= 6; k++) {
+        const a = -Math.PI / 2 + (k / 6) * Math.PI;
+        const seg = box(g, MAT.dark, 0.56, 0.08, 0.36,
+          x, 0.62 + Math.sin(a) * 0.58, cz + e * Math.cos(a) * 0.58);
+        seg.rotation.x = -e * a + Math.PI / 2;
+      }
+    }
+    // Eleven road wheels, each on an axle into the hull.
+    for (let w = 0; w < 11; w++) {
+      const z = -HALF + 1.15 + w * ((HALF * 2 - 2.3) / 10);
+      shaft(g, MAT.camoDark, 0.32, 0.36, x, 0.4, z, 16);
+      shaft(g, MAT.rubber, 0.34, 0.12, x + s * 0.13, 0.4, z, 16);
+      shaft(g, MAT.dark, 0.08, 0.62, s * (TX - 0.3), 0.4, z, 8);
+    }
+    // Return rollers under the upper run.
+    for (let w = 0; w < 4; w++) {
+      const z = -HALF + 2.2 + w * 2.0;
+      shaft(g, MAT.camoDark, 0.14, 0.3, x, 1.02, z, 12);
+      shaft(g, MAT.dark, 0.05, 0.5, s * (TX - 0.32), 1.02, z, 8);
+    }
+    // The track guard over it, and the stowage bins along it.
+    box(g, MAT.camo, 0.66, 0.05, HALF * 2 - 0.2, x, 1.27, 0);
+    for (let k = 0; k < 3; k++) box(g, MAT.camoDark, 0.42, 0.34, 1.1, x, 1.46, -2.6 + k * 2.6);
+  }
+
+  // The hull between the tracks, and the deck over all of it.
+  box(g, MAT.camo, 2.4, 0.9, HALF * 2 - 0.4, 0, 0.95, 0);
+  box(g, MAT.camo, 3.24, 0.5, HALF * 2 - 0.1, 0, 1.64, 0);
+  // Glacis, sloped down to the nose.
+  const gl = box(g, MAT.camo, 2.6, 0.12, 1.0, 0, 1.12, HALF - 0.1);
+  gl.rotation.x = 0.7;
+  // The engine deck up front: louvres, and the exhausts out to the side.
+  for (let k = 0; k < 6; k++) box(g, MAT.camoDark, 1.6, 0.05, 0.12, 0.2, 1.92, 1.6 + k * 0.32);
+  for (const s of [-1, 1]) {
+    tube(g, MAT.rust, 0.08, 0.08, 0.8, s * 1.35, 2.0, 2.4, 10);
+    box(g, MAT.dark, 0.12, 0.12, 0.12, s * 1.35, 1.94, 2.4);
+  }
+  // The driver's cab, front left, with its vision block.
+  box(g, MAT.camo, 1.0, 0.62, 1.3, -0.95, 2.2, 3.95);
+  box(g, MAT.glass, 0.5, 0.1, 0.05, -0.95, 2.28, 4.62);
+  box(g, MAT.camoDark, 0.7, 0.06, 0.9, -0.95, 2.54, 3.95);
+  // Grab rails and a towing eye at the nose.
+  railing(g, MAT.steel, 4.6, 1.5, 1.89, -2.0, 0, 0.6);
+  railing(g, MAT.steel, 4.6, -1.5, 1.89, -2.0, 0, 0.6);
+  for (const s of [-1, 1]) box(g, MAT.dark, 0.18, 0.3, 0.3, s * 0.8, 0.9, HALF - 0.05);
+
+  // The mounting: a bed on the deck and the two cheeks the trunnions sit in.
+  const TZ = -1.7;
+  const TY = 3.25;
+  box(g, MAT.camoDark, 2.4, 0.2, 3.6, 0, 1.99, TZ);
+  for (const s of [-1, 1]) {
+    box(g, MAT.camo, 0.4, TY - 1.9 + 0.4, 3.0, s * 0.98, (1.9 + TY + 0.4) / 2, TZ);
+    box(g, MAT.camoDark, 0.46, 0.2, 3.1, s * 0.98, TY + 0.4, TZ);
+    // The elevating gear housing on the left cheek, its handwheel outboard.
+    if (s < 0) {
+      box(g, MAT.camoDark, 0.36, 0.6, 0.7, -1.32, 2.6, TZ - 0.5);
+      handwheel(g, MAT.steel, 0.28, -1.56, 2.6, TZ - 0.5, 'x');
+    }
+  }
+  // A ladder up to the loader's step at the back.
+  ladder(g, MAT.steel, 1.9, 0, 0, -HALF + 0.05, Math.PI);
+  box(g, MAT.steel, 1.4, 0.06, 0.6, 0, 1.92, -HALF + 0.4);
+
+  const arm = new THREE.Group();
+  arm.position.set(0, TY, TZ);
+  // Sixty degrees: where it was fought, and where it stays on the screen.
+  arm.rotation.x = -1.05;
+  g.add(arm);
+  cradle(arm, bore, 2.6, { cylsAbove: 2, cylsBelow: 0, cylsSide: 0, front: 0.35 });
+  g.userData.guns.push(recoiling(arm, bore, b.calibers, {
+    breech: { screw: true, len: 0.55, tray: false },
+  }));
+}
+
 // ------------------------------------------------------------- the lorry --
 
 /** A box laid from one point to another: a strut, a brace, a leg. */
@@ -1749,6 +1850,7 @@ const BUILDERS = {
   drum: buildDrum,
   todt: buildTodt,
   townsley: buildTownsley,
+  karl: buildKarl,
   gustav: buildGustav,
 };
 

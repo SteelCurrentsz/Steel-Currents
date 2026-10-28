@@ -900,6 +900,13 @@ export class Battle {
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome(), mine);
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera(), mine);
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null), mine);
+    // The battery ashore in hand, if any: see takeBattery.
+    this.commandBat = null;
+    document.getElementById('bat-leave')?.addEventListener('click', () => this.leaveBattery(), mine);
+    document.getElementById('bat-fire')?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.fireBattery();
+    }, mine);
     // The penetration camera, over the whole battle screen.
     {
       const host = document.getElementById('screen-battle');
@@ -982,6 +989,13 @@ export class Battle {
         const what = m.k === 'ship' ? 'Fleet' : 'Squadron';
         this.hud.alert(m.split ? `${what} split up` : m.g ? `${what} formed`
           : `Pick two or more of your own ${m.k === 'ship' ? 'ships' : 'flights'}`);
+      }),
+      // A battery refusing: somebody else has its guns, or the pin was put
+      // further off than the mortar can throw.
+      this.net.on('nobat', (m) => {
+        this.hud.alert(m && m.why === 'range' ? 'Out of the mortar\'s range'
+          : 'Somebody else has those guns');
+        if (m && m.why === 'taken' && this.commandBat && this.commandBat.id === m.i) this.leaveBattery(true, false);
       }),
       this.net.on('nodc', () => {
         const own = this.ownSnap;
@@ -2534,7 +2548,13 @@ export class Battle {
           // A coast gun has no ship and no model to ask; so has a mounting the
           // scene has not built. Both fall back on where the simulation says
           // the muzzle is, which is the same point, less the roll.
-          if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
+          if (!lit && ev.battery && ev.up > 0.6) {
+            // A mortar cocked up at sixty degrees and more: the blast goes up
+            // the bore, out of the muzzle five metres over the carriage.
+            const c = Math.cos(ev.up);
+            const aim = { x: Math.sin(ev.b) * c, y: Math.sin(ev.up), z: Math.cos(ev.b) * c };
+            fx.muzzle(ev.x + aim.x * 5, (ev.y ?? 18) + aim.y * 3, ev.z + aim.z * 5, ev.b, ev.cal, aim);
+          } else if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
@@ -3578,6 +3598,11 @@ export class Battle {
     }
     // Standing at a gun, Space is the trigger as well as the FIRE key.
     if (this.gun && code === 'Space') { this.pullTrigger(); return; }
+    // And at a battery ashore, the same; Escape hands its guns back.
+    if (this.commandBat) {
+      if (code === 'Space') { this.fireBattery(); return; }
+      if (code === 'Escape') { this.leaveBattery(); return; }
+    }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3645,6 +3670,10 @@ export class Battle {
   toggleMap(want = !this.mapBig) {
     this.mapBig = want;
     this.hud.toggleMap(this.mapBig);
+    // The battery's own readout and keys would lie over the table; the pins
+    // on the table say what they would.
+    const bat = document.getElementById('bat-sight');
+    if (bat) bat.hidden = !this.commandBat || this.mapBig;
     if (this.mapBig) this.input.releaseLock();
     audio.click();
   }
@@ -3661,6 +3690,8 @@ export class Battle {
     // Forming a fleet or a squadron: a tap picks one of your own, or puts her
     // back, and does nothing else. See toggleGrouping.
     if (this.grouping) { this.pickForGroup(hit); return; }
+    // At the guns of a battery ashore the plot lays them. See workBattery.
+    if (this.commandBat) { this.workBattery(hit, at); return; }
     // Open water with one of your own flights under the camera sends her --
     // and the squadron she is in -- there.
     if (!hit && at && this.watching && this.watching.kind === 'plane') {
@@ -3826,6 +3857,9 @@ export class Battle {
     // Picked one of your own flights off the plot: offer to take her. This is
     // the only way into the cockpit, and it is one tap from the chart.
     this.hud.setFlyOffer(this.canTake());
+    // The camera taken off the battery in hand hands its guns back.
+    if (this.commandBat && !(this.watching && this.watching.kind === 'battery'
+      && this.watching.id === this.commandBat.id)) this.leaveBattery(true);
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
@@ -4213,6 +4247,13 @@ export class Battle {
     const w = this.watching;
     if (!w || w.id == null || this.flight) return false;
     const snap = this.snapshots[this.snapshots.length - 1];
+    // A battery of our own, still in action, whose guns nobody else has.
+    if (w.kind === 'battery') {
+      if (this.director || (this.commandBat && this.commandBat.id === w.id)) return false;
+      const g = snap && (snap.batteries || []).find((q) => q.i === w.id);
+      if (!g || g.tm !== this.team || !g.al) return false;
+      return !g.pc || g.pc === this.shipId;
+    }
     // A heavy squadron is taken the same way and on the same terms: her own
     // side, and nobody else already at the controls.
     if (w.kind === 'bomber') {
@@ -4242,6 +4283,7 @@ export class Battle {
   takeFlight() {
     if (!this.canTake()) return;
     if (this.watching.kind === 'bomber') { this.takeHeavy(); return; }
+    if (this.watching.kind === 'battery') { this.takeBattery(); return; }
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
@@ -4318,6 +4360,126 @@ export class Battle {
     this.hud.paintFlightDamage(null, PART_ORDER.map((k) => PART_NAME[k]));
     if (this.mapBig) this.toggleMap(false);
     audio.click();
+  }
+
+  /**
+   * Take a battery's guns.
+   *
+   * The camera stays where it is, on the battery, and the plot becomes its
+   * fire control: a gun or a launcher is laid on the enemy ship tapped on it
+   * and fires when FIRE is pressed; the mortar is laid on a pin put in the
+   * plot wherever it is tapped, fires at the pin every time it is loaded, and
+   * the pin comes out again on a double tap. The battery is still the
+   * simulation's -- still shot at, still loaded and trained at its own rate.
+   */
+  takeBattery() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const g = snap && (snap.batteries || []).find((q) => q.i === this.watching.id);
+    if (!g) return;
+    const b = BATTERIES[g.b] || {};
+    this.commandBat = { id: g.i, mortar: !!b.mortar, name: b.name || 'Battery', since: performance.now(), lastPinTap: 0 };
+    this.hud.commandBat = g.i;
+    this.net.send({ t: 'tbat', i: g.i });
+    this.hud.setFlyOffer(false);
+    const el = document.getElementById('bat-sight');
+    if (el) el.hidden = !!this.mapBig;
+    const name = document.getElementById('bat-name');
+    if (name) name.textContent = b.name || 'Battery';
+    // The mortar fires itself at its pin: it has no trigger.
+    const fire = document.getElementById('bat-fire');
+    if (fire) fire.hidden = !!b.mortar;
+    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it'
+      : 'Tap an enemy ship on the plot to lay on her');
+    audio.click();
+  }
+
+  /**
+   * Hand a battery's guns back to its crew. `quiet` leaves the camera where it
+   * is; `tell` says whether the battle service has to be told.
+   */
+  leaveBattery(quiet = false, tell = true) {
+    const c = this.commandBat;
+    if (!c) return;
+    this.commandBat = null;
+    this.hud.commandBat = null;
+    if (tell) this.net.send({ t: 'lbat', i: c.id });
+    const el = document.getElementById('bat-sight');
+    if (el) el.hidden = true;
+    if (!quiet) {
+      this.hud.setFlyOffer(this.canTake());
+      audio.click();
+    }
+  }
+
+  /** A tap on the plot at the guns of a battery. */
+  workBattery(hit, at) {
+    const c = this.commandBat;
+    if (c.mortar) {
+      // A double tap on the pin takes it out; a single one leaves it where
+      // it is, rather than moving it a few metres off a slip of the finger.
+      if (hit && hit.kind === 'pin') {
+        const now = performance.now();
+        if (now - c.lastPinTap < 450) {
+          this.net.send({ t: 'bpin', i: c.id, x: null, z: null });
+          this.hud.alert('Pin removed');
+          c.lastPinTap = 0;
+          audio.click();
+        } else c.lastPinTap = now;
+        return;
+      }
+      if (!at) return;
+      c.lastPinTap = 0;
+      this.net.send({ t: 'bpin', i: c.id, x: Math.round(at.x), z: Math.round(at.z) });
+      audio.click();
+      return;
+    }
+    if (hit && hit.kind === 'ship' && hit.team !== undefined && hit.team !== this.team) {
+      this.net.send({ t: 'btgt', i: c.id, target: hit.id });
+      this.hud.alert(`Laid on ${hit.name || 'the enemy'}`);
+      audio.click();
+      return;
+    }
+    this.hud.alert('Tap an enemy ship to lay on her');
+  }
+
+  /** The trigger of the battery in hand. */
+  fireBattery() {
+    const c = this.commandBat;
+    if (!c || c.mortar) return;
+    this.net.send({ t: 'bfire', i: c.id });
+    audio.click();
+  }
+
+  /** What the battery in hand is doing, off the snapshot, and whether it is still ours. */
+  stepBatteryCommand(snap) {
+    const c = this.commandBat;
+    const g = (snap.batteries || []).find((q) => q.i === c.id);
+    // Silenced, gone, or somebody else's now -- after a moment's grace for
+    // the battle service to hear that it is ours.
+    const late = performance.now() - c.since > 1500;
+    if (!g || !g.al || (late && g.pc !== this.shipId)) {
+      if (g && !g.al) this.hud.alert(`${c.name} silenced`);
+      this.leaveBattery(true, !!g && g.al);
+      return;
+    }
+    const parts = [];
+    if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
+    else parts.push('Loaded');
+    if (c.mortar) {
+      if (g.pn) {
+        const d = Math.hypot(g.pn[0] - g.x, g.pn[1] - g.z);
+        parts.push(`Pin at ${Math.round(d / 0.9144 / 50) * 50} yd`);
+      } else parts.push('No pin · tap the plot');
+      if (g.st) parts.push(`Bomb down in ${Math.ceil(g.st[2])} s`);
+    } else if (g.tg) {
+      const t = [...this.visibleShips(), ...(snap.contacts || [])].find((q) => q.i === g.tg);
+      parts.push(`Laid on ${(t && t.n) || 'contact'}`);
+    } else parts.push('No target · tap an enemy ship');
+    const read = document.getElementById('bat-read');
+    const txt = parts.join(' · ');
+    if (read && read.textContent !== txt) read.textContent = txt;
+    const fire = document.getElementById('bat-fire');
+    if (fire) fire.classList.toggle('spent', !g.tg || g.cd > 0);
   }
 
   /**
@@ -6187,6 +6349,7 @@ export class Battle {
     if (snap && this.plotDue <= 0) {
       this.plotDue = this.mapBig ? 1 / 30 : 1 / 20;
       this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
+      if (this.commandBat) this.stepBatteryCommand(snap);
     }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
@@ -8085,6 +8248,8 @@ export class Battle {
     // Off her bridge first: the cut round it is on materials the next
     // battle's ships are drawn with too.
     this.leaveMan(true);
+    // The battery's keys are the page's, and outlive the battle.
+    this.leaveBattery(true, false);
     this.penCam?.el.remove();
     this.off.forEach((f) => f());
     this.input.enabled = false;

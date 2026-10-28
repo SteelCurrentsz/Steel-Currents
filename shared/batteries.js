@@ -14,7 +14,7 @@
 /** The order they are stepped through, roughly by bore. */
 export const BATTERY_ORDER = [
   'flak88', 'merville', 'longues', 'katyusha', 'oscarsborg', 'drum',
-  'todt', 'townsley', 'gustav',
+  'todt', 'townsley', 'karl', 'gustav',
 ];
 
 /**
@@ -41,6 +41,9 @@ export const BATTERY_ORDER = [
  * @property {number} [salvo]     seconds from the first rocket of a ripple to the last
  * @property {number} [relay]     radians a second it can be swung onto a new
  *                                bearing, for a piece that can drive round
+ * @property {boolean} [mortar]   a siege mortar: it is laid on a point on the
+ *                                chart rather than on a ship, and throws its
+ *                                bomb up and over onto it -- see fireMortar
  */
 
 /** @type {Record<string, Battery>} */
@@ -192,6 +195,30 @@ export const BATTERIES = {
     weight: 400, reload: 60, range: 41150,
     crew: 70, span: 36,
   },
+  // Sixty centimetres of mortar on its own tracks: seven of them were built to
+  // break the Maginot Line, and they broke Brest-Litovsk, Sevastopol and the
+  // Warsaw Old Town instead. A short fat barrel that threw a two-tonne bomb
+  // high into the air and down through whatever was under it -- so it is not
+  // laid on a ship at all. Its crew plot where she is going to be when the
+  // bomb comes down, put a pin in the chart there, and fire at the pin.
+  karl: {
+    name: 'Karl-Gerät',
+    place: 'Brest-Litovsk, Sevastopol and Warsaw · Heer',
+    piece: '60 cm Mörser Gerät 040',
+    caliber: 600, bore: '600 mm', barrels: 1,
+    // A barrel five metres long on a sixty-centimetre bore.
+    calibers: 8.4,
+    mortar: true,
+    targets: 'ships',
+    // Four degrees either side on the carriage. Past that the driver slews the
+    // whole vehicle round on its tracks, slowly, on its own engine.
+    traverse: 8,
+    relay: 0.06,
+    mount: 'Tracked carriage, Daimler-Benz MB 503',
+    armour: 0,
+    weight: 124, reload: 120, range: 6640,
+    crew: 21, span: 14,
+  },
   // Eighty centimetres of bore on a gun that took two double railway tracks to
   // stand on, three days to assemble and half an hour to load. It fired
   // forty-eight rounds at Sevastopol and was never much use again.
@@ -288,6 +315,11 @@ export function batteryGun(id) {
     GUNS.set(id, g);
     return g;
   }
+  if (b.mortar) {
+    g = mortarGun(b);
+    GUNS.set(id, g);
+    return g;
+  }
   const velocity = 780;
   g = {
     caliber: mm,
@@ -355,6 +387,58 @@ function rocketGun(b) {
     traverse: 0.5,
     shells: { ap: he, he },
   };
+}
+
+/**
+ * A siege mortar's worth of firing solution.
+ *
+ * Nothing like a gun's. The bomb leaves the barrel slowly and very high -- the
+ * Gerät 040 fired between fifty-five and seventy degrees -- so it is a long
+ * time in the air and comes down nearly vertically, onto a deck rather than
+ * into a side. Two rounds, as there were: the heavy concrete-piercing bomb,
+ * which goes through a turret roof, and the light one, which is mostly
+ * explosive. `mortar` tells the battery to lay it on a point (see fireMortar);
+ * `velocity` here is only what the rest of the code reads off any shell.
+ */
+function mortarGun(b) {
+  const mm = b.caliber;
+  return {
+    caliber: mm,
+    reload: b.reload,
+    range: batteryReach(b),
+    // How widely it scatters, in metres at the fall of shot, as a floor and
+    // a share of the range. A high-angle bomb is thrown, not aimed down a
+    // line, and a sixty-centimetre one was not a precise instrument.
+    scatter: { base: 12, perM: 0.0012 },
+    sigma: 2.4,
+    mortar: true,
+    traverse: 0.08,
+    shells: {
+      ap: {
+        type: 'ap', caliber: mm, mortar: true,
+        damage: Math.round(apDamage(mm) * 0.8), pen: Math.round(apPen(mm) * 0.7), velocity: 283,
+        fuseArm: Math.round(mm / 8), fireChance: 0.04, drag: 0,
+      },
+      he: {
+        type: 'he', caliber: mm, mortar: true,
+        damage: Math.round(heDamage(mm) * 1.25), pen: Math.round(mm / 5), velocity: 283,
+        fuseArm: 0, fireChance: 0.22, drag: 0,
+      },
+    },
+  };
+}
+
+/**
+ * How long a mortar bomb is in the air on its way to a point `d` metres off.
+ *
+ * Shortened like everything else's here: the battlefield runs far past what
+ * the mortar could really reach, and a bomb that took the true time to come
+ * down from that height would be in the air for minutes. It still takes a
+ * great deal longer than a gun's shell, which is the whole problem its crew
+ * are solving when they put the pin in ahead of a ship.
+ */
+export function mortarFlight(d) {
+  return Math.max(10, Math.min(40, 8 + d / 1100));
 }
 
 /**

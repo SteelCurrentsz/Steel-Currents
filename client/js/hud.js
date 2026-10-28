@@ -513,7 +513,9 @@ class HudBase {
     // landing on yourself — which is the one answer that does nothing. Ranked
     // instead: a gun ashore, then somebody else's hull, then your own, and the
     // nearest inside each rank.
-    const rank = (m) => (m.kind === 'battery' || m.kind === 'plane'
+    // A pin of the player's own comes before everything: it is what a double
+    // tap is for, and it is usually sitting on top of the ship it is laid on.
+    const rank = (m) => (m.kind === 'pin' ? -1 : m.kind === 'battery' || m.kind === 'plane'
       || m.kind === 'bomber' || m.kind === 'torp' ? 0
       : m.id === this.selfId ? 2 : 1);
     let best = null;
@@ -2489,6 +2491,89 @@ class HudBase {
     }
   }
 
+  /**
+   * The pins our own batteries have put in the chart.
+   *
+   * A mortar is laid on a point, not a ship, and that point is drawn: the pin
+   * where the bomb is going, a dashed leg back to the ship it was plotted on
+   * when its crew put it there -- which is the lead they are giving her -- and
+   * a ring where the last bomb is still in the air, counting down to when it
+   * comes down. The pin of the battery the player has in hand is his own and
+   * is drawn in the chart's yellow; it is the one mark a double tap takes out.
+   * Our own side only: the snapshot carries nobody else's.
+   */
+  paintPins(ctx, marks, snap, ships, toX, toY, k, size) {
+    const MODE = { s: 'STILL', m: 'LEAD', t: 'TURN', h: '' };
+    for (const g of (snap && snap.batteries) || []) {
+      if (g.tm !== this.team || !g.al) continue;
+      const mine = this.commandBat === g.i;
+      if (g.st) {
+        const sx = toX(g.st[0]), sy = toY(g.st[1]);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(240,166,64,0.8)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2 * k, 2 * k]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 9 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (size > 200) {
+          ctx.fillStyle = 'rgba(240,166,64,0.95)';
+          ctx.font = `${Math.round(8.5 * k)}px ui-monospace, monospace`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${Math.ceil(g.st[2])}s`, sx + 11 * k, sy);
+        }
+        ctx.restore();
+      }
+      if (!g.pn) continue;
+      const [x0, z0, m, tid] = g.pn;
+      const x = toX(x0), y = toY(z0);
+      const tint = mine ? '#e6cf9c' : '#f0a640';
+      ctx.save();
+      // The leg the crew are leading her by.
+      if (tid) {
+        const t = ships.find((q) => q.i === tid) || ((snap && snap.contacts) || []).find((q) => q.i === tid);
+        if (t) {
+          ctx.strokeStyle = 'rgba(240,166,64,0.6)';
+          ctx.lineWidth = 1.1;
+          ctx.setLineDash([3 * k, 3 * k]);
+          ctx.beginPath();
+          ctx.moveTo(toX(t.x), toY(t.z));
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      // A map pin: a head on a point, the point on the spot.
+      const r = 4.2 * k;
+      const hy = y - 9 * k;
+      ctx.fillStyle = tint;
+      ctx.strokeStyle = 'rgba(8,24,42,0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - r * 0.8, hy + r * 0.5);
+      ctx.arc(x, hy, r, Math.PI * 0.8, Math.PI * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(8,24,42,0.9)';
+      ctx.beginPath();
+      ctx.arc(x, hy, r * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      if (MODE[m] && size > 200) {
+        ctx.fillStyle = tint;
+        ctx.font = `${Math.round(8 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(MODE[m], x + 7 * k, hy);
+      }
+      ctx.restore();
+      if (mine) marks.push({ kind: 'pin', id: g.i, x, y: hy, name: 'Pin', team: g.tm });
+    }
+  }
+
   /** What the plot draws under everything that moves. See paintPlot. */
   paintChart(ctx, store, size, toX, toY, H, scale) {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
@@ -2622,7 +2707,7 @@ class HudBase {
         ctx.lineTo(x + CHART_X * Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
-      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
+      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm });
     }
 
     // Everything afloat, wherever it is. A hull the lookouts have sighted is a
@@ -2718,6 +2803,8 @@ class HudBase {
       }
       marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm });
     }
+
+    this.paintPins(ctx, marks, snap, ships, toX, toY, k, size);
 
     // Aircraft, both sides. A squadron is over the map for a minute or two and
     // decides an action while it is there, so it belongs on the plot as much as

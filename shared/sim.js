@@ -24,7 +24,7 @@ import {
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
 import {
-  BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa,
+  BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight,
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
@@ -4649,6 +4649,10 @@ function stepBatteries(state, dt) {
       }
     }
 
+    // A battery a player has taken over, and the siege mortar, which is laid
+    // on a point on the chart rather than on a ship. See stepLaid.
+    if (bat.ctl || gun.mortar) { stepLaid(state, bat, b, gun, dt); continue; }
+
     const arc = batteryArc(b);
     // And a gun built to shoot upward puts its own rounds up at whatever is
     // over it -- the sum above is what they do; these are the rounds. An
@@ -4737,6 +4741,351 @@ function stepBatteries(state, dt) {
     }
     fireBattery(state, bat, b, gun, target);
   }
+}
+
+// ---------------------------------------------------------------------------
+// A battery laid by hand, and the siege mortar
+// ---------------------------------------------------------------------------
+//
+// A player who takes a battery's guns lays them himself. A gun or a launcher
+// is laid on the enemy ship he names off the plot and fires when he pulls the
+// trigger; the mortar is laid on the pin he puts in the chart and fires at it
+// every time it is loaded, until he takes the pin out again.
+//
+// Left to its own crew the mortar does the same thing a player does, the way
+// its real crew had to: a bomb that is twenty seconds and more in the air is
+// no use fired at where a ship is, so they watch her, work out whether she is
+// lying stopped, steaming straight, or under helm, and put the pin where she
+// will be when it comes down.
+
+/** How long the mortar's crew must watch a ship before they will plot her, in seconds. */
+export const PLOT_WATCH = 1.5;
+
+/** Slower than this, in metres a second, and she is lying stopped. */
+const STILL_SPEED = 1.2;
+
+/** Turning slower than this, in radians a second, and she is on a straight course. */
+const STRAIGHT_TURN = 0.004;
+
+/**
+ * Take a battery's guns, or hand them back.
+ *
+ * `by` is the player's ship id, the same id a flight flown by hand carries as
+ * its pilot. Nothing changes but who decides what it is laid on: it is still
+ * shot at, loaded and trained at the rate its own mounting allows.
+ */
+export function commandBattery(state, bat, by) {
+  if (!bat) return false;
+  if (by) {
+    if (!bat.alive || (bat.ctl && bat.ctl !== by)) return false;
+    bat.ctl = by;
+  } else bat.ctl = 0;
+  // Whatever it was doing for itself is done with, both ways.
+  bat.ctlTarget = 0;
+  bat.trigger = 0;
+  bat.pin = null;
+  bat.track = null;
+  return true;
+}
+
+/**
+ * Put the mortar's pin in the chart, or take it out again (a null point).
+ *
+ * A pin beyond what the mortar can reach is refused rather than moved, so the
+ * player is never firing at a point he did not choose.
+ */
+export function pinBattery(state, bat, x, z) {
+  if (!bat || !bat.alive) return false;
+  if (x === null || x === undefined || !Number.isFinite(x) || !Number.isFinite(z)) {
+    bat.pin = null;
+    return true;
+  }
+  const gun = batteryGun(bat.batteryId);
+  const d = dist(bat.x, bat.z, x, z);
+  if (d > gun.range || d < 300) return false;
+  bat.pin = { x, z, m: 'hand', tid: 0 };
+  return true;
+}
+
+/** Name an enemy ship for a battery laid by hand to lay on, or 0 for none. */
+export function layBattery(state, bat, shipId) {
+  if (!bat || !bat.alive) return false;
+  const ship = shipId ? state.ships.find((q) => q.id === shipId && q.alive && q.team !== bat.team) : null;
+  bat.ctlTarget = ship ? ship.id : 0;
+  return !!ship || !shipId;
+}
+
+/**
+ * Pull the trigger of a battery laid by hand.
+ *
+ * Held for a couple of seconds if it is still coming round or loading, so a
+ * player who fires a moment early is not ignored -- the same grace a manned
+ * gun aboard ship gets.
+ */
+export function triggerBattery(state, bat) {
+  if (!bat || !bat.alive) return false;
+  bat.trigger = state.t + 2.5;
+  return true;
+}
+
+/**
+ * The mortar's crew watching a ship: where she has been, sampled twice a
+ * second over the last six.
+ *
+ * What they work from is what they can see -- a position, and another half a
+ * second later -- and not her engine-room telegraph, so a ship that has just
+ * put her helm over is plotted on her old course until the plot catches up
+ * with her. That is what a target that is manoeuvring buys herself.
+ */
+function watchTarget(state, bat, ship) {
+  if (!bat.track || bat.track.id !== ship.id) bat.track = { id: ship.id, pts: [] };
+  const pts = bat.track.pts;
+  pts.push({ t: state.t, x: ship.x, z: ship.z });
+  while (pts.length > 12) pts.shift();
+}
+
+/**
+ * What the plot says she is doing: lying stopped, on a straight course, or
+ * turning -- with her speed, her course and how fast that course is swinging.
+ * Null until she has been watched long enough to say.
+ */
+export function readTrack(track) {
+  const pts = track && track.pts;
+  if (!pts || pts.length < 2) return null;
+  const a = pts[0], z = pts[pts.length - 1];
+  const span = z.t - a.t;
+  if (span < PLOT_WATCH - 1e-6) return null;
+  const vx = (z.x - a.x) / span, vz = (z.z - a.z) / span;
+  const speed = Math.hypot(vx, vz);
+  const last = { x: z.x, z: z.z, t: z.t };
+  if (speed < STILL_SPEED) return { m: 'still', speed: 0, course: 0, turn: 0, last };
+  // Her course over the first half of the watch and over the second: the
+  // difference, over the time between them, is how fast she is turning.
+  let turn = 0;
+  let course = Math.atan2(vx, vz);
+  if (pts.length >= 4) {
+    const mid = Math.floor(pts.length / 2);
+    const p = pts[0], q = pts[mid], r = pts[pts.length - 1];
+    const c1 = Math.atan2(q.x - p.x, q.z - p.z);
+    const c2 = Math.atan2(r.x - q.x, r.z - q.z);
+    const dt = ((r.t + q.t) - (q.t + p.t)) / 2;
+    if (dt > 0) turn = angleDelta(c1, c2) / dt;
+    // The course she is on now is the later of the two, carried on through
+    // the second half of the watch.
+    course = wrapAngle(c2 + turn * (r.t - q.t) / 2);
+  }
+  if (Math.abs(turn) < STRAIGHT_TURN) return { m: 'moving', speed, course, turn: 0, last };
+  return { m: 'turning', speed, course, turn: clamp(turn, -0.08, 0.08), last };
+}
+
+/**
+ * Where a ship read off the plot will be `T` seconds after she was last seen:
+ * where she is if she is stopped, down her course if she is steaming straight,
+ * and round the circle she is turning on if she is under helm.
+ */
+export function predictTrack(read, T) {
+  const { last, speed, course, turn } = read;
+  if (read.m === 'still') return { x: last.x, z: last.z };
+  if (read.m === 'moving' || !turn) {
+    return { x: last.x + Math.sin(course) * speed * T, z: last.z + Math.cos(course) * speed * T };
+  }
+  // No more than half a circle of it: past that the plot is guessing.
+  const sweep = clamp(turn * T, -Math.PI, Math.PI);
+  const w = sweep / Math.max(1e-6, T);
+  const R = speed / w;
+  return {
+    x: last.x + R * (Math.cos(course) - Math.cos(course + sweep)),
+    z: last.z + R * (Math.sin(course + sweep) - Math.sin(course)),
+  };
+}
+
+/**
+ * What the mortar's crew would rather plot.
+ *
+ * Not only what they can see from the gun. A mortar throws its bomb up and
+ * over whatever is in front of it -- that is what it is for -- and its crew
+ * lay off what the observers report. So a ship behind a headland is theirs as
+ * long as somebody on their side has her in sight, and the same preferences
+ * as any battery commander's decide between several.
+ */
+function mortarTarget(state, bat, gun) {
+  let best = null;
+  let bv = -Infinity;
+  for (const ship of state.ships) {
+    if (!ship.alive || ship.team === bat.team) continue;
+    const d = dist(bat.x, bat.z, ship.x, ship.z);
+    if (d > gun.range || d < 300) continue;
+    const v = ship.id === bat.orderTarget ? Infinity : batteryWants(state, bat, ship, d, gun);
+    if (v <= bv) continue;
+    // Reported by her own side, or in sight of the battery's own observation
+    // post -- which is the only report a battery out on its own has.
+    if (!inSight(ship, bat.team) && !state.world.arcade && d > 900) {
+      const eye = batteryEye(state, bat, headingTo(bat.x, bat.z, ship.x, ship.z));
+      if (blockedByLand(state.world, eye.x, eye.z, ship.x, ship.z, bat.own)) continue;
+    }
+    bv = v;
+    best = ship;
+  }
+  return best;
+}
+
+/**
+ * The mortar's crew putting their pin in the chart.
+ *
+ * The bomb's time in the air depends on how far it is going and how far it
+ * is going depends on where she will be, so it is worked out a few times
+ * over: where she will be in this long, how long it takes to get there, and
+ * round again. Four passes settle it to a few metres.
+ */
+function plotMortar(state, bat, b, gun) {
+  if (state.tick % 15 === bat.id % 15) {
+    let ship = bat.track ? state.ships.find((q) => q.id === bat.track.id && q.alive) : null;
+    if (ship && dist(bat.x, bat.z, ship.x, ship.z) > gun.range) ship = null;
+    // A new target only when the old one is gone, or the staff has named
+    // another, or something better has come along that is shelling the
+    // position: a crew that swaps targets every half-second plots none.
+    const want = mortarTarget(state, bat, gun);
+    if (!ship || (want && want.id !== ship.id && (want.id === bat.orderTarget || bat.hitBy === want.id))) {
+      ship = want;
+    }
+    if (!ship) { bat.track = null; bat.pin = null; return; }
+    watchTarget(state, bat, ship);
+  }
+  const read = readTrack(bat.track);
+  if (!read) { bat.pin = null; return; }
+  const since = state.t - read.last.t;
+  let at = predictTrack(read, since);
+  for (let k = 0; k < 4; k++) {
+    const d = clamp(dist(bat.x, bat.z, at.x, at.z), 300, gun.range);
+    at = predictTrack(read, since + mortarFlight(d));
+  }
+  bat.pin = { x: at.x, z: at.z, m: read.m, tid: bat.track.id };
+}
+
+/**
+ * One tick of a battery laid on something other than the ship its own crew
+ * would have picked: a player's target or pin, or the mortar's plot.
+ */
+function stepLaid(state, bat, b, gun, dt) {
+  const arc = batteryArc(b);
+  let target = null;
+  let aim = null;
+  if (gun.mortar) {
+    if (!bat.ctl) plotMortar(state, bat, b, gun);
+    aim = bat.pin;
+  } else {
+    target = bat.ctlTarget
+      ? state.ships.find((q) => q.id === bat.ctlTarget && q.alive && q.team !== bat.team) : null;
+    if (!target) bat.ctlTarget = 0;
+    aim = target;
+  }
+  if (aim && dist(bat.x, bat.z, aim.x, aim.z) > gun.range) aim = null;
+  // With nothing to lay on, back to the bearing it was laid on.
+  if (!aim) {
+    bat.angle = approachAngle(bat.angle, 0, gun.traverse * dt);
+    if (bat.salvo) stepRipple(state, bat, b, gun, null, dt);
+    bat.targetId = 0;
+    return;
+  }
+  bat.targetId = target ? target.id : (aim.tid || 0);
+  const bearing = headingTo(bat.x, bat.z, aim.x, aim.z);
+  // Past the stops, the whole mounting is brought round onto it, as fast as
+  // a mounting of its kind can be.
+  if (Math.abs(angleDelta(bat.heading, bearing)) > arc) {
+    const rate = relayRate(b) || 0.02;
+    bat.heading = approachAngle(bat.heading, bearing, rate * dt);
+  }
+  const want = clamp(angleDelta(bat.heading, bearing), -arc, arc);
+  bat.angle = approachAngle(bat.angle, want, gun.traverse * dt);
+  if (bat.salvo) { stepRipple(state, bat, b, gun, target, dt); return; }
+  if (bat.cooldown > 0) return;
+  if (Math.abs(angleDelta(wrapAngle(bat.heading + bat.angle), bearing)) > 0.02) return;
+  if (gun.mortar) { fireMortar(state, bat, b, gun, aim); return; }
+  if (!(bat.trigger > state.t)) return;
+  bat.trigger = 0;
+  if (gun.rocket) startRipple(state, bat, gun, target);
+  else fireBattery(state, bat, b, gun, target);
+}
+
+/**
+ * A mortar bomb into the water close aboard a ship.
+ *
+ * Two tonnes of bomb going off under the surface a few metres from her side
+ * is not a miss: it opens her plating along the waterline and sprays her
+ * upperworks. It does a fraction of what a hit does, falling away across the
+ * forty metres or so it reaches.
+ */
+function mortarMiss(state, sh) {
+  const reach = 40;
+  for (const q of state.ships) {
+    if (!q.alive || !mayHurt(state, sh.team, q)) continue;
+    const cls = getClass(q.classId);
+    const l = worldToLocal(sh.x - q.x, sh.z - q.z, q.heading);
+    // Distance to her side or her ends, not to her middle.
+    const dx = Math.max(0, Math.abs(l.x) - cls.hull.beam / 2);
+    const dz = Math.max(0, Math.abs(l.z) - cls.hull.length / 2);
+    const d = Math.hypot(dx, dz);
+    if (d > reach) continue;
+    const owner = shellOwner(state, sh);
+    damageShip(state, q, owner, (sh.spec?.damage || 0) * 0.28 * (1 - d / reach) ** 1.5, 'shell');
+  }
+}
+
+/**
+ * The mortar's bomb, thrown up and over onto the point it is laid on.
+ *
+ * High-angle fire: between sixty-two and sixty-eight degrees, the sector the
+ * Gerät 040 was fought in. The flight time is the mortar's own (see
+ * mortarFlight), and the throw that lands it on the point from this height
+ * in that time is worked out exactly, so where it comes down is the pin and
+ * the scatter and nothing else.
+ */
+function fireMortar(state, bat, b, gun, pin) {
+  const d0 = clamp(dist(bat.x, bat.z, pin.x, pin.z), 300, gun.range);
+  const bearing0 = headingTo(bat.x, bat.z, pin.x, pin.z);
+  // Scattered round the pin, a little more in range than across it.
+  const sc = gun.scatter.base + d0 * gun.scatter.perM;
+  const rng = clamp(gauss(state.rng), -2.4, 2.4) * sc;
+  const lat = clamp(gauss(state.rng), -2.4, 2.4) * sc * 0.7;
+  const ax = bat.x + Math.sin(bearing0) * (d0 + rng) + Math.cos(bearing0) * lat;
+  const az = bat.z + Math.cos(bearing0) * (d0 + rng) - Math.sin(bearing0) * lat;
+  const d = Math.max(200, dist(bat.x, bat.z, ax, az));
+  const bb = headingTo(bat.x, bat.z, ax, az);
+  // The heavy concrete-piercing bomb for anything armoured near the pin, the
+  // light one for anything else -- or for an empty stretch of sea.
+  let near = null;
+  for (const q of state.ships) {
+    if (!q.alive || q.team === bat.team) continue;
+    if (dist2(q.x, q.z, pin.x, pin.z) < 400 * 400) { near = q; break; }
+  }
+  const spec = near ? batteryShell(gun, near) : gun.shells.he;
+  const theta = 1.08 + state.rng() * 0.1;
+  const tof = mortarFlight(d);
+  const y0 = bat.y + 4;
+  const h = y0 - aimHeight(state, ax, az);
+  const v = d / (tof * Math.cos(theta));
+  const g = (2 * v * v * Math.cos(theta) ** 2 * (h + d * Math.tan(theta))) / (d * d);
+  const vh = v * Math.cos(theta);
+  fireShell(state, {
+    id: eid(),
+    owner: bat.id, team: bat.team, fromBattery: true, mortar: true,
+    x: bat.x, z: bat.z, y: y0,
+    vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: v * Math.sin(theta),
+    // Coming down nearly vertically and very fast, so its path is walked in
+    // short steps for whatever it might come down on.
+    g, steps: 16,
+    spec, caliber: gun.caliber,
+    classId: null,
+    life: 0,
+  });
+  bat.cooldown = gun.reload;
+  bat.lastFiredAt = state.t;
+  // Where the bomb is going to come down and when, for the plot.
+  bat.shot = { x: pin.x, z: pin.z, at: state.t + tof };
+  state.events.push({
+    e: 'muzzle', x: bat.x, z: bat.z, y: y0 + 2, b: bb,
+    cal: gun.caliber, battery: bat.id, up: Math.round(theta * 1000) / 1000,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -5359,7 +5708,7 @@ function stepShells(state, dt) {
       const halfBeam = cls.hull.beam * 0.5 + 2;
       const deck = 9 + cls.hull.superstructure * 14;
       if (dist2(sh.x, sh.z, target.x, target.z) > (halfLen + 260) * (halfLen + 260)) continue;
-      const steps = 4;
+      const steps = sh.steps || 4;
       for (let i = 1; i <= steps; i++) {
         const f = i / steps;
         const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
@@ -5397,7 +5746,7 @@ function stepShells(state, dt) {
       const b = BATTERIES[bat.batteryId];
       const reach = b.span * 0.6 + 6;
       if (dist2(sh.x, sh.z, bat.x, bat.z) > (reach + 240) * (reach + 240)) continue;
-      const steps = 4;
+      const steps = sh.steps || 4;
       for (let i = 1; i <= steps; i++) {
         const f = i / steps;
         const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
@@ -5454,6 +5803,7 @@ function stepShells(state, dt) {
           bomb: sh.bomb ? 1 : 0,
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
+        if (!ashore && sh.mortar) mortarMiss(state, sh);
         // Short of a sea wall, at its foot: the burst is against its face.
         if (!ashore && state.world.works?.walls?.length && wallAt(state.world, sh.x, sh.z, 8)) {
           landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',

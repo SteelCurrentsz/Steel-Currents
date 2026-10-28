@@ -26,10 +26,11 @@ import {
   createState, addShip, addBattery, step, fireGuns, fireTorpedoes, solveBallistic, orderGiven, ORDER_WINDUP,
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
+  commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
-  BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER,
+  BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
@@ -5733,6 +5734,134 @@ check('a battery mixes its arcs, so some shells come down on the deck', () => {
     `expected flat fire as well, got ${JSON.stringify(parts)}`);
   // Neither arc should be the only one it ever uses.
   assert.ok(parts.deck < total, 'and it should not be lobbing every salvo');
+});
+
+check('the Karl-Gerät comes just before Schwerer Gustav in the gun park', () => {
+  assert.ok(BATTERIES.karl && BATTERIES.karl.mortar, 'there is a Karl-Gerät, and it is a mortar');
+  assert.equal(BATTERY_ORDER[BATTERY_ORDER.indexOf('gustav') - 1], 'karl');
+});
+
+check('the mortar\'s plot tells a ship stopped from one steaming and one turning', () => {
+  const watch = (f) => {
+    const pts = [];
+    for (let t = 0; t <= 5.5; t += 0.5) pts.push({ t, ...f(t) });
+    return readTrack({ pts });
+  };
+  // Not enough of her yet to say anything.
+  assert.equal(readTrack({ pts: [{ t: 0, x: 0, z: 0 }, { t: 0.5, x: 0, z: 0 }] }), null);
+  assert.ok(PLOT_WATCH > 0.5);
+  const still = watch(() => ({ x: 100, z: 200 }));
+  assert.equal(still.m, 'still');
+  const p0 = predictTrack(still, 30);
+  assert.ok(Math.hypot(p0.x - 100, p0.z - 200) < 1e-6, 'a ship lying stopped is fired at where she lies');
+  // Steaming due east at twelve metres a second.
+  const run = watch((t) => ({ x: 12 * t, z: 0 }));
+  assert.equal(run.m, 'moving');
+  assert.ok(Math.abs(run.speed - 12) < 0.01 && Math.abs(run.course - Math.PI / 2) < 0.01);
+  const p1 = predictTrack(run, 20);
+  assert.ok(Math.abs(p1.x - (5.5 * 12 + 240)) < 0.5 && Math.abs(p1.z) < 0.5, `led to ${p1.x}, ${p1.z}`);
+  // Round a circle of six hundred metres at fifteen metres a second.
+  const R = 600, v = 15, w = v / R;
+  const circ = (t) => ({ x: R * (1 - Math.cos(w * t)), z: R * Math.sin(w * t) });
+  const turn = watch(circ);
+  assert.equal(turn.m, 'turning');
+  assert.ok(Math.abs(turn.turn - w) < w * 0.05, `turning at ${turn.turn}, not ${w}`);
+  const T = 25;
+  const p2 = predictTrack(turn, T);
+  const truth = circ(5.5 + T);
+  assert.ok(Math.hypot(p2.x - truth.x, p2.z - truth.z) < 15,
+    `a turning ship is led round her turn, off by ${Math.hypot(p2.x - truth.x, p2.z - truth.z)}`);
+  // And led down a straight line she would have missed by hundreds of metres.
+  const straight = predictTrack({ ...turn, m: 'moving', turn: 0 }, T);
+  assert.ok(Math.hypot(straight.x - truth.x, straight.z - truth.z) > 100);
+});
+
+check('the Karl-Gerät pins where a ship will be and throws its bomb onto the pin', () => {
+  for (const notch of [1, 5]) {
+    const { state, bat, ship } = shoot('karl', 12000);
+    ship.hp = 1e12; ship.maxHp = 1e12;
+    ship.notch = notch;
+    const modes = new Set();
+    const off = [];
+    let fired = 0;
+    let firstPin = null;
+    for (let i = 0; i < 30 * 300; i++) {
+      for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
+      if (bat.pin) {
+        modes.add(bat.pin.m);
+        if (!firstPin) firstPin = { t: state.t, ...bat.pin };
+      }
+      // Where the pin was, against where she is at the moment the bomb comes down.
+      if (bat.shot && Math.abs(bat.shot.at - state.t) < DT / 2) {
+        off.push(Math.hypot(bat.shot.x - ship.x, bat.shot.z - ship.z));
+      }
+    }
+    assert.ok(fired >= 2, `it should fire on its reload, fired ${fired}`);
+    assert.ok(firstPin.t >= PLOT_WATCH, 'it watches her before it puts a pin in');
+    if (notch === 1) {
+      assert.deepEqual([...modes], ['still'], 'a ship lying stopped is plotted as stopped');
+    } else {
+      assert.ok(modes.has('moving'), `a ship under way is plotted under way, got ${[...modes]}`);
+    }
+    assert.ok(off.length >= 2);
+    for (const d of off) assert.ok(d < 60, `the pin was ${Math.round(d)} m off where she was when the bomb came down`);
+  }
+});
+
+check('a mortar bomb comes down steeply, a long time after it is fired', () => {
+  const { state, bat } = shoot('karl', 12000);
+  for (let i = 0; i < 30 * 90 && !state.shells.some((sh) => sh.mortar); i++) step(state, DT);
+  const sh = state.shells.find((q) => q.mortar);
+  assert.ok(sh && sh.owner === bat.id, 'the mortar should have fired');
+  const vh = Math.hypot(sh.vx, sh.vz);
+  assert.ok(Math.atan2(sh.vy, vh) > 1.0, 'it goes up at better than fifty-seven degrees');
+  const d = Math.hypot(bat.shot.x - bat.x, bat.shot.z - bat.z);
+  assert.ok(bat.shot.at - state.t > mortarFlight(d) - 0.5, 'and is a mortar\'s time in the air');
+});
+
+check('a battery in a player\'s hands fires at what he lays it on and nothing else', () => {
+  // A gun: laid on the ship he names, and fired on his trigger.
+  {
+    const { state, bat, ship } = shoot('longues', 12000);
+    assert.ok(commandBattery(state, bat, 99));
+    assert.ok(!commandBattery(state, bat, 98), 'nobody else can take guns that are taken');
+    let fired = 0;
+    const run = (sec) => {
+      for (let i = 0; i < 30 * sec; i++) {
+        for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
+      }
+    };
+    run(20);
+    assert.equal(fired, 0, 'with nothing laid on, it does not choose a target of its own');
+    layBattery(state, bat, ship.id);
+    run(20);
+    assert.equal(fired, 0, 'laid on her, it waits for the trigger');
+    triggerBattery(state, bat);
+    run(5);
+    assert.equal(fired, 1, 'one pull, one salvo');
+    commandBattery(state, bat, 0);
+    run(30);
+    assert.ok(fired > 1, 'handed back, its own crew fight it again');
+  }
+  // The mortar: at the pin, every time it is loaded, until the pin comes out.
+  {
+    const { state, bat } = shoot('karl', 12000);
+    commandBattery(state, bat, 99);
+    assert.ok(!pinBattery(state, bat, 1e7, 0), 'a pin past its reach is refused');
+    assert.ok(pinBattery(state, bat, 2500, 4000));
+    let fired = 0;
+    for (let i = 0; i < 30 * 260; i++) {
+      for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
+    }
+    assert.ok(fired >= 2, `it should fire at the pin on every reload, fired ${fired}`);
+    assert.ok(Math.hypot(bat.shot.x - 2500, bat.shot.z - 4000) < 1, 'at the pin the player put in');
+    assert.ok(pinBattery(state, bat, null, null));
+    const was = fired;
+    for (let i = 0; i < 30 * 260; i++) {
+      for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
+    }
+    assert.equal(fired, was, 'with the pin out it does not fire');
+  }
 });
 
 // The order-of-battle chart is portable JS with no DOM in it above the

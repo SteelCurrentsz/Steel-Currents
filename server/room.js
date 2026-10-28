@@ -7,6 +7,7 @@ import {
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
+  commandBattery, pinBattery, layBattery, triggerBattery,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -203,6 +204,8 @@ export class Room {
     }
     const gone = this.players.get(playerId);
     if (gone) this.release(gone);
+    // The guns he had taken go back to their own crews.
+    for (const b of this.state.batteries) if (b.ctl && b.ctl === p.shipId) commandBattery(this.state, b, 0);
     this.players.delete(playerId);
     this.broadcastRoster();
     if (this.players.size === 0) this.close();
@@ -554,6 +557,28 @@ export class Room {
     }
     if (msg.t === 'vector') {
       vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z));
+      return;
+    }
+    // A battery of his own side taken over, laid and fired, and handed back.
+    // Like the orders above these are not his ship's, so a captain whose ship
+    // has gone down can still fight the guns ashore -- which is much of what
+    // there is left for him to do.
+    if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire') {
+      const bat = this.state.batteries.find((b) => b.id === msg.i);
+      if (!bat || bat.team !== ship.team) return;
+      if (msg.t === 'tbat') {
+        // One battery at a time: taking another hands the last one back.
+        for (const o of this.state.batteries) if (o !== bat && o.ctl === ship.id) commandBattery(this.state, o, 0);
+        if (!commandBattery(this.state, bat, ship.id)) player.send({ t: 'nobat', i: bat.id, why: 'taken' });
+        return;
+      }
+      if (bat.ctl !== ship.id) return;
+      if (msg.t === 'lbat') commandBattery(this.state, bat, 0);
+      else if (msg.t === 'bpin') {
+        const x = msg.x === null ? null : Number(msg.x);
+        if (!pinBattery(this.state, bat, x, Number(msg.z))) player.send({ t: 'nobat', i: bat.id, why: 'range' });
+      } else if (msg.t === 'btgt') layBattery(this.state, bat, typeof msg.target === 'number' ? msg.target : 0);
+      else triggerBattery(this.state, bat);
       return;
     }
     // A captain whose ship has gone down still has the con of whatever he has

@@ -543,6 +543,19 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     // and drops the cab shutters on the model.
     rl: b.rails ?? undefined,
     fs: b.salvo ? (b.salvo.wind > 0 ? 1 : 2) : undefined,
+    // Whose hands its guns are in, if a player has taken them.
+    pc: b.ctl || undefined,
+    // And what only its own side is told: the mortar's pin -- where it is,
+    // whose plot put it there ('h' a player's; 's', 'm' or 't' its crew's,
+    // for a ship stopped, steaming straight or turning) and on which ship --
+    // where the last bomb is coming down and in how long, what a battery laid
+    // by hand is laid on, and how long it has still to load.
+    pn: b.team === team && b.pin
+      ? [Math.round(b.pin.x), Math.round(b.pin.z), b.pin.m[0], b.pin.tid || 0] : undefined,
+    st: b.team === team && b.shot && b.shot.at > state.t
+      ? [Math.round(b.shot.x), Math.round(b.shot.z), r1(b.shot.at - state.t)] : undefined,
+    tg: b.team === team && b.ctl ? (b.ctlTarget || 0) : undefined,
+    cd: b.team === team && b.ctl ? r1(Math.max(0, b.cooldown)) : undefined,
   }));
 
   return {
