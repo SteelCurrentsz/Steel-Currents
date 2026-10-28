@@ -1977,8 +1977,12 @@ export function solidAt(world, x, y, z) {
  * The ground is walked in steps no longer than `step` near it and longer the
  * higher over it the line is, and the crossing found to a few centimetres;
  * the buildings are walked by worksImpact. Land under the sea does not count.
+ *
+ * `drawn` false takes the height field alone, without the mesh: what a round
+ * meets, since the pit a gun is dug into and the craters are in the field and
+ * finer than the mesh is drawn on.
  */
-export function solidHit(world, ax, ay, az, bx, by, bz, step = 4) {
+export function solidHit(world, ax, ay, az, bx, by, bz, step = 4, drawn = true) {
   const top = landCeiling(world);
   if (ay > top && by > top) return null;
   const L = Math.hypot(bx - ax, by - ay, bz - az);
@@ -1986,7 +1990,7 @@ export function solidHit(world, ax, ay, az, bx, by, bz, step = 4) {
   const under = (f) => {
     const [x, y, z] = at(f);
     if (y > top) return { in: false, gap: y - top + step };
-    const g = solidGround(world, x, z);
+    const g = drawn ? solidGround(world, x, z) : groundHeight(world, x, z);
     return { in: g > 0 && y <= g, gap: y - Math.max(0, g) };
   };
   let ground = null;

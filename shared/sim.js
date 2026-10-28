@@ -3314,9 +3314,9 @@ function stepBullets(state, dt) {
     // low enough to have met any.
     // Walked along the tick's path, not just its end: a round goes thirty
     // metres a tick and a ridge is narrower than that at its top.
-    const cross = Math.min(py, b.y) <= landCeiling(w) ? solidHit(w, px, py, pz, b.x, b.y, b.z, 6) : null;
+    const cross = Math.min(py, b.y) <= landCeiling(w) ? solidHit(w, px, py, pz, b.x, b.y, b.z, 6, false) : null;
     if (cross) { b.x = cross.x; b.y = cross.y; b.z = cross.z; }
-    const g = b.y <= landCeiling(w) ? solidGround(w, b.x, b.z) : 0;
+    const g = b.y <= landCeiling(w) ? Math.max(cross ? b.y : -Infinity, groundHeight(w, b.x, b.z)) : 0;
     if (b.y <= Math.max(0, g) || cross) {
       // On a sea wall: concrete chipped, a very little at a time.
       const on = g > 0.5 && w.works?.walls?.length ? wallAt(w, b.x, b.z) : null;
@@ -5438,7 +5438,12 @@ function stepShells(state, dt) {
     if (sh.y <= 0 || Math.min(py, sh.y) <= landCeiling(state.world)) {
       // The first of the land along this tick's path, so a round skimming a
       // headland goes into its crest and not on through it to the far side.
-      const cross = solidHit(state.world, px, py, pz, sh.x, sh.y, sh.z, 8);
+      // Not on a gun position's own ground, though: the lip of the pit it is
+      // dug into is its parapet, and what a round does there is the
+      // battery's business (see resolveBatteryHit and nearMiss).
+      let cross = solidHit(state.world, px, py, pz, sh.x, sh.y, sh.z, 8, false);
+      if (cross && !cross.b && state.batteries.some((bat) => bat.alive
+        && dist2(cross.x, cross.z, bat.x, bat.z) < (BATTERIES[bat.batteryId].span * 0.6 + 30) ** 2)) cross = null;
       if (cross && !cross.b) { sh.x = cross.x; sh.y = cross.y; sh.z = cross.z; }
       const g = cross && !cross.b ? Math.max(sh.y, groundHeight(state.world, sh.x, sh.z))
         : groundHeight(state.world, sh.x, sh.z);
