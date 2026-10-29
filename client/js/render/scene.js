@@ -42,7 +42,7 @@ import { renderCulled } from './pixelcull.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
-  isleRings, isleSpokes, isleVertex, COAST_STEP, drawnGround,
+  isleRings, isleSpokes, isleVertex, coastGrid, coastSplit, SHELF_DEEP, drawnGround,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { clamp } from '../../../shared/math.js';
@@ -120,88 +120,95 @@ function starField(count = 700) {
  *
  * Raised off the same grid the simulation runs its collision against, so what
  * is drawn and what a hull runs aground on are one thing rather than two that
- * agree most of the time. Every cell that is ashore, and a two-cell apron of
- * shallows round it, becomes a quad at the height the sim says the ground is;
- * the coast then falls out of the grid where the height crosses the waterline
+ * agree most of the time: a vertex at the middle of every cell of the mask
+ * (see coastGrid), at the height the sim says the ground is there, and every
+ * quad drawn that has any of it above the open seabed -- the land, and the
+ * apron of shallows round it that carries the beach down under the water. The
+ * coast then falls out of the grid where the height crosses the waterline
  * instead of being drawn as a separate line.
  *
- * One mesh for the lot: a coastal battlefield is fifty thousand cells of land
- * and that is not fifty thousand draw calls.
+ * Chosen quad by quad on the heights themselves, not on a sample of the mask:
+ * a sample missed whatever land lay between the points it was taken at, and
+ * the mesh ended there in mid-air with the sea showing through the hole.
+ *
+ * One mesh for the lot, its vertices shared between the quads that meet on
+ * them, so the hillsides shade as hills rather than as a field of facets.
  */
-/** Two greens and a sand, picked by height: beach, scrub, high ground. */
+/**
+ * Two greens and a sand, by height: beach, scrub, high ground. Run into each
+ * other rather than stepped, because the colour is laid on at the vertices and
+ * the first one ashore already stands a dozen metres up: stepped at six, the
+ * coast had no beach at all.
+ */
 function coastShade(h) {
-  if (h < 6) return [0.62, 0.58, 0.44];
-  if (h < 60) return [0.30, 0.35, 0.22];
-  return [0.24, 0.27, 0.20];
+  const SAND = [0.62, 0.58, 0.44];
+  const SCRUB = [0.30, 0.35, 0.22];
+  const HIGH = [0.24, 0.27, 0.20];
+  if (h < 8) return SAND;
+  if (h < 22) return mix(SAND, SCRUB, (h - 8) / 14);
+  if (h < 60) return SCRUB;
+  return mix(SCRUB, HIGH, Math.min(1, (h - 60) / 40));
 }
 
 function buildCoast(world, mat = null) {
-  const m = landMask(world);
-  if (!m.any) return null;
-  // Drawn at twice the cell the sim collides on. The coastline carries its
-  // detail at about seven hundred metres, so three hundred holds all of it,
-  // and it is a quarter of the triangles.
-  const cell = m.cell * COAST_STEP;
-  const n = Math.ceil((m.half * 2) / cell) + 1;
-  const half = m.half;
-  const at = (i, j) => {
-    const x = -half + (i + 0.5) * cell;
-    const z = -half + (j + 0.5) * cell;
-    const mi = Math.floor((x + half) / m.cell);
-    const mj = Math.floor((z + half) / m.cell);
-    if (mi < 0 || mj < 0 || mi >= m.n || mj >= m.n) return 0;
-    return m.grid[mj * m.n + mi];
-  };
-
-  // Height at a grid corner, cached: every corner is asked for by up to four
-  // quads and the shore distance behind it is the expensive part.
-  const hs = new Float32Array((n + 1) * (n + 1)).fill(NaN);
-  const height = (i, j) => {
-    const k = j * (n + 1) + i;
-    if (!Number.isNaN(hs[k])) return hs[k];
-    const x = -half + i * cell;
-    const z = -half + j * cell;
-    hs[k] = keelGround(world, x, z);
-    return hs[k];
-  };
-
-  const pos = [];
-  const col = [];
-  const shade = coastShade;
-
-  for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) {
-      // Land, or within two cells of it: the apron carries the beach down
-      // under the water so the shore does not end in a cliff.
-      let near = false;
-      for (let dj = -1; dj <= 1 && !near; dj++) {
-        for (let di = -1; di <= 1; di++) if (at(i + di, j + dj)) { near = true; break; }
-      }
-      if (!near) continue;
-
-      const x0 = -half + i * cell;
-      const z0 = -half + j * cell;
-      const h00 = height(i, j);
-      const h10 = height(i + 1, j);
-      const h11 = height(i + 1, j + 1);
-      const h01 = height(i, j + 1);
-      if (h00 < -20 && h10 < -20 && h11 < -20 && h01 < -20) continue;
-
-      // Wound anticlockwise seen from above, so the ground faces the sky.
-      pos.push(x0, h00, z0, x0 + cell, h11, z0 + cell, x0 + cell, h10, z0);
-      pos.push(x0, h00, z0, x0, h01, z0 + cell, x0 + cell, h11, z0 + cell);
-      const a = shade((h00 + h10 + h11 + h01) / 4);
-      for (let v = 0; v < 6; v++) col.push(a[0], a[1], a[2]);
+  const g = coastGrid(world);
+  if (!g.m.any) return null;
+  const { m, n, o, cell } = g;
+  const N = n + 1;
+  const hs = new Float32Array(N * N);
+  for (let j = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++) {
+      // Two cells and more out to sea it is the open seabed, and nothing
+      // built ashore or blown out of it reaches that far: no need to ask.
+      const mi = Math.min(m.n - 1, Math.max(0, i - 1));
+      const mj = Math.min(m.n - 1, Math.max(0, j - 1));
+      hs[j * N + i] = m.dist[mj * m.n + mi] <= -cell * 2
+        ? -SHELF_DEEP : keelGround(world, o + i * cell, o + j * cell);
     }
   }
-  if (!pos.length) return null;
+  // Deep enough that it is the open seabed and nothing need be drawn.
+  const DEEP = 0.5 - SHELF_DEEP;
+  const vid = new Int32Array(N * N).fill(-1);
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const vert = (i, j) => {
+    const k = j * N + i;
+    if (vid[k] < 0) {
+      vid[k] = pos.length / 3;
+      const h = hs[k];
+      pos.push(o + i * cell, h, o + j * cell);
+      const c = coastShade(h);
+      col.push(c[0], c[1], c[2]);
+    }
+    return vid[k];
+  };
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const h00 = hs[j * N + i];
+      const h10 = hs[j * N + i + 1];
+      const h11 = hs[(j + 1) * N + i + 1];
+      const h01 = hs[(j + 1) * N + i];
+      if (h00 < DEEP && h10 < DEEP && h11 < DEEP && h01 < DEEP) continue;
+      const a = vert(i, j);
+      const b = vert(i + 1, j);
+      const c = vert(i + 1, j + 1);
+      const d = vert(i, j + 1);
+      // Wound anticlockwise seen from above, so the ground faces the sky; and
+      // split the way the height field is.
+      if (coastSplit(h00, h10, h11, h01)) idx.push(a, c, b, a, d, c);
+      else idx.push(a, d, b, b, d, c);
+    }
+  }
+  if (!idx.length) return null;
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
   geo.computeVertexNormals();
   return new THREE.Mesh(geo, mat || new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+    vertexColors: true, roughness: 0.95, metalness: 0,
   }));
 }
 
@@ -2014,7 +2021,7 @@ export class BattleScene {
       vertexColors: true, roughness: 0.95, metalness: 0,
     }), this.scarU);
     this.coastMat = cutLand(new THREE.MeshStandardMaterial({
-      vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+      vertexColors: true, roughness: 0.95, metalness: 0,
     }), this.scarU);
     const isles = buildIslands(world, this.isleMat);
     if (isles) this.scene.add(isles);

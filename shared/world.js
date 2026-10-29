@@ -1023,7 +1023,7 @@ export function rawGround(world, x, z) {
 }
 
 /** How deep the open sea is off every coast, in metres. */
-const SHELF_DEEP = 40;
+export const SHELF_DEEP = 40;
 /** How many of its own lengths an island's shelf runs out before it is open sea. */
 const SHELF_OUT = 6.5;
 
@@ -1061,7 +1061,7 @@ function coastProfile(d) {
 }
 
 /**
- * The ground on a real coast: the coast's profile at the corners of the grid
+ * The ground on a real coast: the coast's profile at the vertices of the grid
  * it is drawn on, and flat between them, split the way the renderer splits it.
  *
  * It used to be the profile read straight off the collision mask, whose
@@ -1073,23 +1073,94 @@ function coastProfile(d) {
  * height of it. Now the ground is the ramp.
  */
 function coastBase(world, x, z) {
+  const g = coastGrid(world);
+  if (!g.m.any) return -SHELF_DEEP;
+  const fi = (x - g.o) / g.cell;
+  const fj = (z - g.o) / g.cell;
+  const i = Math.floor(fi);
+  const j = Math.floor(fj);
+  const at = (a, b) => coastVertex(world, g, a, b);
+  return coastLerp(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), fi - i, fj - j);
+}
+
+/**
+ * The grid a real coast is drawn on: a vertex at the middle of every cell of
+ * the land mask, and a ring of them round the outside.
+ *
+ * At the middle of the cells and not at their corners, and on every one of
+ * them rather than every other. Drawn every other cell, from the corners, the
+ * picture was a coarser thing than the mask the hulls run aground on: it stood
+ * half a cell off it, every land cell it missed was ground a ship hit and
+ * nobody could see, and a spit or an isthmus one cell wide came out as a row
+ * of islets with the sea showing through between them. A vertex in each cell
+ * is the mask exactly, and the shore falls where the land cells end.
+ *
+ * `o` is where vertex 0 stands, on both axes; `n` is the last vertex.
+ */
+export function coastGrid(world) {
   const m = landMask(world);
-  if (!m.any) return -SHELF_DEEP;
-  const cell = m.cell * COAST_STEP;
-  const i = Math.floor((x + m.half) / cell);
-  const j = Math.floor((z + m.half) / cell);
-  const x0 = -m.half + i * cell;
-  const z0 = -m.half + j * cell;
-  const at = (cx, cz) => coastProfile(shoreDistance(world, cx, cz));
-  const h00 = at(x0, z0);
-  const h10 = at(x0 + cell, z0);
-  const h11 = at(x0 + cell, z0 + cell);
-  const h01 = at(x0, z0 + cell);
-  const u = (x - x0) / cell;
-  const w = (z - z0) / cell;
-  return u >= w
-    ? h00 + u * (h10 - h00) + w * (h11 - h10)
-    : h00 + w * (h01 - h00) + u * (h11 - h01);
+  if (!m.coast) {
+    const n = m.n + 1;
+    // The distance to the shore at every vertex, kept with the mask: a
+    // lookup for every question asked of the ground rather than nine.
+    const d = new Float32Array((n + 1) * (n + 1));
+    const raw = (i, j) => {
+      const v = m.any ? m.dist[clampI(j - 1, m.n) * m.n + clampI(i - 1, m.n)] : -1e9;
+      // The distance is to the far side of the nearest cell of the other
+      // kind; the shore itself is the edge between the two, half a cell nearer.
+      return v > 0 ? v - m.cell / 2 : v + m.cell / 2;
+    };
+    // Eased a little across its neighbours, so the shore runs round in
+    // curves rather than in the hundred-and-fifty-metre steps of the cells
+    // it was rasterised on -- but never across the waterline: a vertex on a
+    // land cell stays land and one on a water cell stays water, so the
+    // coast is where the mask says it is to within a few tens of metres and
+    // a spit one cell wide is still a spit.
+    const keep = m.cell / 4;
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        let sum = 0;
+        for (let b = -1; b <= 1; b++) {
+          for (let a = -1; a <= 1; a++) sum += raw(i + a, j + b) * (a ? 1 : 2) * (b ? 1 : 2);
+        }
+        const v = sum / 16;
+        d[j * (n + 1) + i] = raw(i, j) > 0 ? Math.max(keep, v) : Math.min(-keep, v);
+      }
+    }
+    m.coast = { m, cell: m.cell, n, o: -m.half - m.cell / 2, d };
+  }
+  return m.coast;
+}
+
+function clampI(i, n) {
+  return i < 0 ? 0 : i >= n ? n - 1 : i;
+}
+
+/** The profile at vertex (i, j) of the coast's grid: the ground at the middle of its cell. */
+function coastVertex(world, g, i, j) {
+  return coastProfile(g.d[clampI(j, g.n + 1) * (g.n + 1) + clampI(i, g.n + 1)]);
+}
+
+/**
+ * Which way a quad of the coast's grid is split: true for the diagonal from
+ * (0, 0) to (1, 1). Along whichever diagonal stands higher, so where the land
+ * runs corner to corner between two cells the two are joined by a strip of
+ * ground rather than cut apart by a strip of sea.
+ */
+export function coastSplit(h00, h10, h11, h01) {
+  return h00 + h11 >= h10 + h01;
+}
+
+/** The height at (u, w) across a quad of the coast's grid, split as coastSplit splits it. */
+function coastLerp(h00, h10, h11, h01, u, w) {
+  if (coastSplit(h00, h10, h11, h01)) {
+    return u >= w
+      ? h00 + u * (h10 - h00) + w * (h11 - h10)
+      : h00 + w * (h01 - h00) + u * (h11 - h01);
+  }
+  return u + w <= 1
+    ? h00 + u * (h10 - h00) + w * (h01 - h00)
+    : h11 + (1 - u) * (h01 - h11) + (1 - w) * (h10 - h11);
 }
 
 /**
@@ -1150,7 +1221,7 @@ export function keelGround(world, x, z) {
 //
 // groundHeight is exact. The terrain on the screen is not: it is a mesh lofted
 // through that field, a radial one a hundred-odd metres between vertices on an
-// island and a grid three hundred metres across on a real coast, and between
+// island and a grid a hundred and fifty metres across on a real coast, and between
 // its vertices it is flat. On a hillside that can be metres off the true
 // height either way -- which is nothing to a ship and everything to a gun pit
 // forty metres across, cut to the true ground and drawn on the mesh: half of it
@@ -1205,9 +1276,6 @@ export function isleVertex(world, isle, spokes, i, j) {
   return [x, f > 1 ? Math.min(y, -0.3) : y, z];
 }
 
-/** The real coast's mesh is drawn on cells this many times the mask's. */
-export const COAST_STEP = 2;
-
 // Height inside triangle abc at (x, z), or NaN when the point is outside it.
 function inTri(a, b, c, x, z) {
   const d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
@@ -1261,23 +1329,14 @@ function isleDrawn(world, isle, x, z) {
 
 // The coast mesh's height at a point, or NaN where no quad is drawn.
 function coastDrawn(world, x, z) {
-  const m = landMask(world);
-  if (!m.any) return NaN;
-  const cell = m.cell * COAST_STEP;
-  const i = Math.floor((x + m.half) / cell);
-  const j = Math.floor((z + m.half) / cell);
-  const x0 = -m.half + i * cell;
-  const z0 = -m.half + j * cell;
-  const h00 = keelGround(world, x0, z0);
-  const h10 = keelGround(world, x0 + cell, z0);
-  const h11 = keelGround(world, x0 + cell, z0 + cell);
-  const h01 = keelGround(world, x0, z0 + cell);
-  const u = (x - x0) / cell;
-  const w = (z - z0) / cell;
-  // Split corner to corner from (x0, z0), as the renderer splits it.
-  return u >= w
-    ? h00 + u * (h10 - h00) + w * (h11 - h10)
-    : h00 + w * (h01 - h00) + u * (h11 - h01);
+  const g = coastGrid(world);
+  if (!g.m.any) return NaN;
+  const fi = (x - g.o) / g.cell;
+  const fj = (z - g.o) / g.cell;
+  const i = Math.floor(fi);
+  const j = Math.floor(fj);
+  const at = (a, b) => keelGround(world, g.o + a * g.cell, g.o + b * g.cell);
+  return coastLerp(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), fi - i, fj - j);
 }
 
 /**

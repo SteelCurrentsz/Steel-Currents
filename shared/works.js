@@ -29,7 +29,7 @@
 
 import { makeRng, clamp, TAU } from './math.js';
 import {
-  islandRadius, islandAt, landMask, shoreDistance, drawnGround, COAST_STEP, rawGround, groundHeight,
+  islandRadius, islandAt, landMask, shoreDistance, drawnGround, coastGrid, coastSplit, rawGround, groundHeight,
   landCeiling,
 } from './world.js';
 
@@ -237,8 +237,8 @@ function siteCity(world, ask, others = []) {
     const out = 0;
     site = {
       x: p.x + Math.sin(b) * out, z: p.z + Math.cos(b) * out, rot: b, W, D,
-      // The coast's mesh is drawn on three-hundred-metre cells: the level
-      // has to run on past the town by more than the diagonal of one.
+      // The coast's mesh is lofted on the mask's cells: the level has to
+      // run on past the town by more than the diagonal of a few of them.
       flat: 460, blend: 600, isle: -1,
     };
   }
@@ -519,7 +519,7 @@ function runWalls(world, ask, k, runs) {
       const off = Math.hypot(spot.x - i.x, spot.z - i.z);
       const mid = off > 1 ? a : Math.atan2(-i.x, -i.z);
       const span = clamp(1800 / i.r, 0.5, 1.6) * (0.85 + rng() * 0.3);
-      pushRun(world, runs, rimLine(i, mid, span), taken);
+      pushRun(world, runs, rimLine(i, mid, span), taken, true);
     }
   } else if (isles.length) {
     // The islands nearest the middle of the battle, biggest first among equals.
@@ -542,7 +542,7 @@ function runWalls(world, ask, k, runs) {
     }
   } else {
     const target = spot || (city ? cityToWorld(city, 0, city.D / 2) : { x: 0, z: 0 });
-    for (const line of coastLines(world, rng, target, !!spot)) pushRun(world, runs, line, taken);
+    for (const line of coastLines(world, rng, target, !!spot, !!spot)) pushRun(world, runs, line, taken, !!spot);
   }
   // Which of the stretches asked for each run was built for.
   for (let r = from; r < runs.length; r++) runs[r].set = k;
@@ -624,8 +624,13 @@ function boxOf(pts, pad) {
  * Cut a line of [x, z, nx, nz] (n pointing out to sea) into runs where the
  * ground will carry a wall and no wall stands already, and give each run its
  * height.
+ *
+ * `placed` is a wall the board put down at a spot of its own: that one is
+ * built through any town standing there, because a town put down after it
+ * must not take away the wall the captain asked for. The town is drawn up
+ * round it (see drawUp), its houses kept off the walkway.
  */
-function pushRun(world, runs, pts, taken = []) {
+function pushRun(world, runs, pts, taken = [], placed = false) {
   let cur = [];
   const flush = () => {
     if (cur.length >= 4) {
@@ -647,7 +652,7 @@ function pushRun(world, runs, pts, taken = []) {
   for (const p of pts) {
     const [x, z, nx, nz] = p;
     const free = Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
-      && !onTaken(taken, x, z) && !inTown(world, x, z);
+      && !onTaken(taken, x, z) && (placed || !inTown(world, x, z));
     // Ground under the back edge and the middle of it, and the sea not far
     // past the front.
     const ground = rawGround(world, x, z) > 0.2
@@ -670,21 +675,26 @@ function pushRun(world, runs, pts, taken = []) {
  * The shore of a real coast as it is drawn, traced off the terrain mesh, and
  * cut into the lines worth walling: those nearest `target` -- only the one
  * nearest, when `single`. Each point carries the way out to sea.
+ *
+ * `natural` traces the shore as it was before any town was levelled into it.
+ * A wall the board put down at a spot is traced so: it was laid along that
+ * shore before the town came, and an inland town's levelling, run down to the
+ * water, would otherwise move the shore out from under it and take it away.
  */
-function coastLines(world, rng, target, single = false) {
-  const m = landMask(world);
-  if (!m.any) return [];
-  const cell = m.cell * COAST_STEP;
-  const n = Math.floor((m.half * 2) / cell);
+function coastLines(world, rng, target, single = false, natural = false) {
+  const g = coastGrid(world);
+  if (!g.m.any) return [];
+  const { cell, n, o } = g;
   const H = new Float32Array((n + 1) * (n + 1));
+  const at = natural ? rawGround : groundHeight;
   for (let j = 0; j <= n; j++) {
     // The ground as it is drawn, the town's levelling and all: the walls
     // are run before there are any, so this is the shore the sea meets.
-    for (let i = 0; i <= n; i++) H[j * (n + 1) + i] = groundHeight(world, -m.half + i * cell, -m.half + j * cell);
+    for (let i = 0; i <= n; i++) H[j * (n + 1) + i] = at(world, o + i * cell, o + j * cell);
   }
   const LV = 1;
   const segs = [];
-  const P = (i, j) => [-m.half + i * cell, -m.half + j * cell, H[j * (n + 1) + i]];
+  const P = (i, j) => [o + i * cell, o + j * cell, H[j * (n + 1) + i]];
   const cut = (a, b) => {
     const t = (LV - a[2]) / (b[2] - a[2]);
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -700,9 +710,8 @@ function coastLines(world, rng, target, single = false) {
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), d = P(i, j + 1);
-      // The renderer splits each quad corner to corner from (x0, z0).
-      tri(a, b, c);
-      tri(a, c, d);
+      // Split the way the renderer splits it.
+      if (coastSplit(a[2], b[2], c[2], d[2])) { tri(a, b, c); tri(a, c, d); } else { tri(a, b, d); tri(b, c, d); }
     }
   }
   // Chained into lines by shared end points.

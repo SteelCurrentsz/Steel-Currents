@@ -1270,6 +1270,9 @@ export class LayoutMap {
         if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
       });
     };
+    // The towns first and the walls over them: a town's waterfront block is
+    // filled out to its edges, and drawn last it painted out the wall along it.
+    for (const plan of this.plans || []) this.drawTown(ctx, s, plan);
     for (const run of works.walls) {
       line(run.pts);
       ctx.lineCap = 'butt';
@@ -1281,7 +1284,6 @@ export class LayoutMap {
       ctx.lineWidth = Math.max(2.5, WALL_WIDTH * s);
       ctx.stroke();
     }
-    for (const plan of this.plans || []) this.drawTown(ctx, s, plan);
   }
 
   /** One town on the chart, and a ghost of it where it is being dragged. */

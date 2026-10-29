@@ -5073,6 +5073,29 @@ check('the mask the sim collides on matches the coastline it was cut from', () =
   assert.equal(agree, checked, `${checked - agree} of ${checked} points disagreed`);
 });
 
+check('a real coast is drawn where the land is: no ground a ship hits that nobody can see, and no holes in it', () => {
+  // The Dardanelles, the Gulf of Corinth and the strait: narrow water, and
+  // long shores running across the grid at a slant.
+  for (const [lon, lat] of [[26.4, 40.2], [23.5, 38.0], [-5.45, 36.0]]) {
+    const w = generateWorld(1, 'solomon_narrows', null, 12000, { lon, lat });
+    const m = landMask(w);
+    let land = 0;
+    for (let j = 0; j < m.n; j++) {
+      for (let i = 0; i < m.n; i++) {
+        const x = -m.half + (i + 0.5) * m.cell;
+        const z = -m.half + (j + 0.5) * m.cell;
+        if (Math.abs(x) > w.half || Math.abs(z) > w.half) continue;
+        const ashore = m.grid[j * m.n + i] === 1;
+        const g = drawnGround(w, x, z);
+        // Every cell of the mask is drawn on the side of the waterline it is on.
+        assert.equal(g > 0, ashore, `${lon},${lat}: the cell at ${x}, ${z} is ${ashore ? 'land' : 'sea'} but is drawn ${g.toFixed(1)} m`);
+        if (ashore) land++;
+      }
+    }
+    assert.ok(land > 500, `${lon},${lat}: expected a coast, got ${land} cells of land`);
+  }
+});
+
 check('a ship driven at the coast runs aground on it', () => {
   const w = strait();
   const state = createState(w, { mode: 'deathmatch' });
@@ -24463,6 +24486,37 @@ check('a town put down beside another, or on top of it, never takes the other\'s
       if (walls === null) walls = w.works.walls.length;
       assert.ok(w.works.walls.length >= 1, 'the sea wall went when a town was put down');
       before = [...now];
+    }
+  }
+});
+
+check('a town put down after a sea wall leaves the whole of the wall standing, and no house on it', () => {
+  const length = (w) => (w.works?.walls || []).filter((r) => r.set === 0).reduce((n, r) => n + r.pts.length, 0);
+  // On an island, the town tapped on the walled shore, inland of it and in the middle.
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const cases = [];
+  for (const i of bare.islands.filter((q) => q.r > 300).slice(0, 3)) {
+    const a = Math.atan2(-i.x, -i.z);
+    const at = (f) => ({ x: Math.round(i.x + Math.sin(a) * i.r * f), z: Math.round(i.z + Math.cos(a) * i.r * f) });
+    cases.push([(ask) => generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, ask),
+      at(1.1), [0.2, 0.5, 0.8, 0.95].map(at)]);
+  }
+  // On a real coast, the town a kilometre and more inland of the wall, whose
+  // levelling runs down to the water.
+  const shore = coastWorld({ cities: [], walls: [{ seed: 7 }] }).works.walls[0];
+  const [px, pz, nx, nz] = shore.pts[shore.pts.length >> 1];
+  cases.push([coastWorld, { x: Math.round(px), z: Math.round(pz) },
+    [1500, 1000, 600, 200].map((d) => ({ x: Math.round(px - nx * d), z: Math.round(pz - nz * d) }))]);
+  for (const [make, spot, towns] of cases) {
+    const wall = { seed: 7, ...spot };
+    const alone = length(make({ cities: [], walls: [wall] }));
+    if (!alone) continue;
+    for (const t of towns) {
+      const w = make({ cities: [{ seed: 9, ...t }], walls: [wall] });
+      assert.equal(length(w), alone, `a town at ${t.x}, ${t.z} took the wall from ${alone} points to ${length(w)}`);
+      for (const p of cityPlans(w)) {
+        for (const b of p.buildings) assert.ok(!wallAt(w, b.x, b.z), `the ${b.kind} ${b.id} stands on the wall`);
+      }
     }
   }
 });
