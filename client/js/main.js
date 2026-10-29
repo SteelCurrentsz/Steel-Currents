@@ -1309,7 +1309,12 @@ document.getElementById('result-replay')?.addEventListener('click', () => {
   startReplay();
 });
 
-net.on('start', () => toast('Enemy fleet sighted'));
+// A battle on this device starts in the same breath as it is joined, while the
+// fleet is still being built behind the loading screen: the toast then landed
+// on the order-of-battle chart, over its buttons. joinBattle says "Battle
+// stations" itself once the battle is up, so this is only for a room whose
+// lobby clock ran down after the captain was already aboard.
+net.on('start', () => { if (battle) toast('Enemy fleet sighted'); });
 net.on('countdown', (m) => { if (m.s > 0 && m.s <= 10) toast(`Battle begins in ${m.s}…`); });
 
 function endBattle(result) {
