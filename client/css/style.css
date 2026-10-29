@@ -1023,8 +1023,6 @@ input[type="range"] { accent-color: var(--red); }
 .ribbon.miss { color: rgba(154, 166, 178, 0.7); }
 @keyframes fadeout { 0% { opacity: 1; transform: translateY(6px); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-12px); } }
 
-.alerts { position: absolute; left: 50%; top: 22vh; transform: translateX(-50%); text-align: center; }
-.alert { font-size: 1.5rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--enemy); animation: fadeout 3s forwards; text-shadow: 0 2px 12px #000; }
 
 .scoreboard {
   position: absolute; inset: 12vh 20vw auto; background: rgba(8, 19, 31, 0.92);

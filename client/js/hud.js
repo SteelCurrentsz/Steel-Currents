@@ -9,7 +9,6 @@ import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
 import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
-import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -318,7 +317,7 @@ class HudBase {
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
-      ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
+      ribbons: $('ribbons'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
       hudRight: $('hud-right'), hudTop: $('hud-top'),
       bigPlot: $('minimap-big'), plotTable: $('plot-table'),
@@ -2452,15 +2451,11 @@ class HudBase {
     while (this.el.ribbons.children.length > 7) this.el.ribbons.firstChild.remove();
   }
 
-  alert(text) {
-    // A captain may turn the big red words off in the settings.
-    if (getSettings().alerts === false) return;
-    const el = document.createElement('div');
-    el.className = 'alert';
-    el.textContent = text;
-    this.el.alerts.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  }
+  // The big red words across the screen are gone from the game: what happens
+  // is seen on the ship, the plot and the ribbons. The game still says what it
+  // would have announced, to anything listening (the checks do), and draws
+  // nothing.
+  alert(_text) {}
 
   kill(killerName, killerTeam, victimName, victimTeam) {
     const el = document.createElement('div');

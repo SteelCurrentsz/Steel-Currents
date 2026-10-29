@@ -14689,6 +14689,14 @@ check('the web game keeps every file it can ask for on the device', () => {
     'the ships fetched on demand are left off the list');
 });
 
+check('no big red event text is drawn over the battle', () => {
+  // Taken out of the game: no box to put it in, no style for it, no switch.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(!/id="alerts"/.test(html) && !/opt-alerts/.test(html), 'the event text still has a place on the page');
+  const hud = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
+  assert.ok(/alert\(_text\) \{\}/.test(hud), 'the HUD still draws the event text');
+});
+
 check('a battle is never kept waiting on a hull the line cannot bring in', () => {
   // With no signal, or one too weak to bring five megabytes of sculpt down,
   // Sortie sat on "Bringing up the fleet" or said to check the connection.
