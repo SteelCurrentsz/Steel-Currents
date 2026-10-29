@@ -10,7 +10,9 @@
     "test": "node test/run.js",
     "build:world": "node build/genworld.mjs",
     "build": "node build/standalone.mjs --split --www",
-    "build:offline": "node build/standalone.mjs"
+    "build:offline": "node build/standalone.mjs",
+    "sync:ios": "npm run build && npx cap sync ios",
+    "open:ios": "npm run sync:ios && npx cap open ios"
   },
   "engines": {
     "node": ">=18"

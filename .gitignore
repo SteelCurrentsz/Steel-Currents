@@ -17,7 +17,6 @@ build/*.png
 # measured and photographed without starting a battle. Made as needed.
 client/__*.html
 www/
-ios/
 android/
 *.jks
 .gradle/

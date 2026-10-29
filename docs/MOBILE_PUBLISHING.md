@@ -60,10 +60,17 @@ connection (open it in any browser), `npm run build:offline` writes
 ### 2. iOS Setup
 
 #### Initial Setup
+The Xcode project is in the repository (`ios/App/App.xcodeproj`). On a Mac,
+from a fresh clone:
 ```bash
+npm install
 npm run open:ios
 ```
-This syncs assets and opens Xcode with the iOS project.
+This builds the game into `www/`, copies it into the app
+(`ios/App/App/public`, which is not tracked), and opens Xcode. Capacitor
+comes in through Swift Package Manager, so there is no `pod install`: Xcode
+fetches it the first time the project is opened. After any change to the
+game, `npm run sync:ios` copies the new build in.
 
 #### In Xcode
 1. Select "Steel Currents" project in Project Navigator
