@@ -551,12 +551,15 @@ export class Room {
     // own ship, so a captain whose ship has gone down can still give them.
     if (msg.t === 'group') {
       const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
-      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split);
+      // A squadron's heavies, named apart from its carrier flights.
+      const bids = Array.isArray(msg.bids) ? msg.bids.slice(0, 16) : [];
+      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split, bids);
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
       return;
     }
     if (msg.t === 'vector') {
-      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z));
+      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
+        msg.k === 'bomber' ? 'bomber' : 'plane');
       return;
     }
     // Units of his side picked off the plot and put, with everything they

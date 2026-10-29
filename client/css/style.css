@@ -2584,18 +2584,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--steel); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
-/* The battery's training keys, side by side beside FIRE where the same
-   thumb finds them: held, the mounting goes on round. */
-.bat-train {
-  position: absolute; bottom: 16vh;
-  width: 64px; height: 64px; border-radius: 50%;
-  background: rgba(8, 19, 31, 0.84); border: 2px solid var(--sand);
-  color: var(--sand); font-size: 1.2rem; cursor: pointer; touch-action: none;
-  user-select: none; -webkit-user-select: none;
-}
-.bat-train:active, .bat-train.on { background: rgba(230, 207, 156, 0.3); }
-.bat-train-l { right: calc(max(1.2rem, env(safe-area-inset-right)) + 184px); }
-.bat-train-r { right: calc(max(1.2rem, env(safe-area-inset-right)) + 110px); }
+/* Laid on something past the battery's reach: the sight goes red, the same
+   as a ship's gun sight on its stops. */
+.bat-sight.masked .gun-cross .gp { background: var(--enemy); }
+.bat-sight.masked .gun-cross .gt { background: rgba(226, 86, 79, 0.92); }
+.bat-sight.masked .gun-cross .gring { border-color: rgba(226, 86, 79, 0.5); }
 /* Two words on a key built for one: the lamp key is a little wider and its
    label sits on two lines. */
 #key-lamps { width: 70px; }

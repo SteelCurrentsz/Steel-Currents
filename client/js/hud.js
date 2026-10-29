@@ -579,13 +579,14 @@ class HudBase {
     if (!bar) return;
     bar.hidden = !pick;
     if (!pick) return;
-    const n = pick.ids.length;
-    const noun = pick.kind === 'plane' ? (n === 1 ? 'flight' : 'flights')
+    const nb = (pick.bids || []).length;
+    const n = pick.ids.length + nb;
+    const noun = pick.kind === 'plane' ? (n === 1 ? 'aircraft' : 'aircraft')
       : (n === 1 ? 'ship' : 'ships');
     if (what) {
       what.textContent = n
-        ? `${n} ${noun} picked · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
-        : 'Tap your own ships or flights';
+        ? `${n} ${noun} picked${nb ? ` (${nb} heavy)` : ''} · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
+        : 'Tap your own ships, flights or bombers';
     }
     const form = document.getElementById('group-form');
     const split = document.getElementById('group-split');
@@ -3065,6 +3066,40 @@ class HudBase {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(`x${bm.n}`, x + 11 * k, y - 7 * k);
+      }
+      // Her squadron, where it has been sent, and whether she is picked for
+      // one -- the same three marks a carrier flight gets.
+      if (bm.wg && bm.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`S${bm.wg}`, x + 11 * k, y + 8 * k);
+      }
+      if (bm.vx !== undefined && bm.vz !== undefined && bm.tm === this.team) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(111,211,160,0.5)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([2 * k, 4 * k]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(toX(bm.vx), toY(bm.vz));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(toX(bm.vx), toY(bm.vz), 4 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this.groupPick && this.groupPick.kind === 'plane' && (this.groupPick.bids || []).includes(bm.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 17 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
       }
       marks.push({
         kind: 'bomber', id: bm.i, x, y,

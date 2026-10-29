@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
-import { stepVector, wingTarget, wingLeader } from './groups.js';
+import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
 } from './aero.js';
@@ -2217,13 +2217,22 @@ export function orderAttack(state, team, kind, id, foeKind, targetId) {
     return n;
   }
 
-  if (kind === 'plane') {
-    const p = state.planes.find((q) => q.id === id && !q.dead && q.team === team);
-    if (!p) return 0;
-    if (!cease && works) return 0;
-    const all = p.wing ? state.planes.filter((q) => !q.dead && q.wing === p.wing) : [p];
-    for (const q of all) {
+  // Aircraft: a carrier flight or a heavy squadron, and every other machine
+  // of the squadron it is in, whichever kind they are.
+  if (kind === 'plane' || kind === 'bomber') {
+    const u = kind === 'plane'
+      ? state.planes.find((q) => q.id === id && !q.dead && q.team === team)
+      : (state.bombers || []).find((q) => q.id === id && q.alive && q.team === team);
+    if (!u) return 0;
+    const flights = u.wing ? state.planes.filter((q) => !q.dead && q.wing === u.wing)
+      : kind === 'plane' ? [u] : [];
+    const heavies = u.wing ? (state.bombers || []).filter((q) => q.alive && q.wing === u.wing)
+      : kind === 'bomber' ? [u] : [];
+    for (const q of flights) {
       if (cease) { q.order = null; n++; continue; }
+      // Carrier aircraft are not sent at the town; the heavies of the
+      // squadron are, and the flights carry on with their own business.
+      if (works) continue;
       // Going home empty, or in the circuit to land, is not turned round.
       if (q.phase !== 'outbound' && q.phase !== 'formup') continue;
       q.order = { k: foeKind, id: targetId };
@@ -2233,22 +2242,24 @@ export function orderAttack(state, team, kind, id, foeKind, targetId) {
       q.hunt = 0;
       n++;
     }
-    return n;
-  }
-
-  if (kind === 'bomber') {
-    const bm = (state.bombers || []).find((q) => q.id === id && q.alive && q.team === team);
-    if (!bm) return 0;
-    if (cease) { bm.order = null; return 1; }
-    if (air) return 0;
-    bm.order = { k: foeKind, id: targetId };
-    // Not off a run already begun: the sticks are going down where they are
-    // going down. The next run is on the new target.
-    if (bm.phase !== 'run') {
-      bm.aimX = foe.x; bm.aimZ = foe.z;
-      bm.targetId = foeKind === 'ship' ? foe.id : 0;
+    for (const bm of heavies) {
+      if (cease) { bm.order = null; n++; continue; }
+      // A heavy lays her bombs on the ground and the sea, not in the sky.
+      if (air) continue;
+      bm.order = { k: foeKind, id: targetId };
+      bm.vec = null;
+      // Not off a run already begun: the sticks are going down where they are
+      // going down. The next run is on the new target.
+      if (bm.phase !== 'run') {
+        bm.aimX = foe.x; bm.aimZ = foe.z;
+        bm.targetId = foeKind === 'ship' ? foe.id : 0;
+        // Coming off the last run with bombs still aboard: straight round
+        // onto the new one rather than out to sea first.
+        if (bm.phase === 'away' && bm.loads > 0) { bm.phase = 'inbound'; bm.hold = 0; bm.awayTo = 0; }
+      }
+      n++;
     }
-    return 1;
+    return n;
   }
 
   // A battery.
@@ -5333,11 +5344,12 @@ function stepLaid(state, bat, b, gun, dt) {
   if (bat.salvo) { stepRipple(state, bat, b, gun, target, dt); return; }
   if (bat.cooldown > 0) return;
   if (Math.abs(angleDelta(wrapAngle(bat.heading + bat.angle), bearing)) > 0.02) return;
-  if (gun.mortar) { fireMortar(state, bat, b, gun, aim); return; }
-  // A player fires when he pulls the trigger; a crew given a target off the
-  // plot fires every time it is loaded and laid.
+  // A player fires when he pulls the trigger -- the mortar as well, now that
+  // his sight is what lays it and the pin goes wherever he looks; a crew
+  // given a target off the plot fires every time it is loaded and laid.
   if (bat.ctl && !(bat.trigger > state.t)) return;
   bat.trigger = 0;
+  if (gun.mortar) { fireMortar(state, bat, b, gun, aim); return; }
   if (gun.rocket) startRipple(state, bat, gun, target);
   else fireBattery(state, bat, b, gun, target);
 }
@@ -5600,14 +5612,21 @@ function fireBattery(state, bat, b, gun, target) {
   const aimB = headingTo(bat.x, bat.z, ax, az);
   const spreadBase = (aimD * 0.0125) / gun.sigma;
   bat.lastRange = aimD;
+  // How far above what it is laid on the muzzle is. Solved for the sea, a
+  // round laid on a hillside, a house or a gun pit on a headland arrives at
+  // the height of the sea -- which is short of anything above it and, for
+  // the one below the gun, long of it.
+  const drop = bat.y + 6 - aimHeight(state, ax, az);
 
   // One arc for the whole salvo: the barrels of a battery are laid together.
-  const arc = loftedGun(state, gun, aimD);
+  // Up a hill is further for the gun than the map says: allowed for, or the
+  // solver runs out of reach and falls back on a forty-five degree lob.
+  const arc = loftedGun(state, gun, aimD + Math.max(0, -drop) * 1.5);
   for (let g = 0; g < b.barrels; g++) {
     const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
     const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
     const shotD = clamp(aimD + rng, 300, gun.range);
-    const sol = solveBallistic(arc, shotD, bat.y);
+    const sol = solveBallistic(arc, shotD, drop);
     const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
     const vh = sol.v * Math.cos(sol.elev);
     fireShell(state, {
@@ -12521,31 +12540,71 @@ function stepBombers(state, dt) {
       out.push(bm);
       continue;
     }
-    // Where she is going. Her orders if she has any, her own judgement if not.
-    if (!bm.aimX && !bm.aimZ) {
-      const pick = heavyOrder(state, bm) || heavyPicksTarget(state, bm);
+    // Where she is going. An order from her own side off the plot comes
+    // first, and is looked at again every tick, so nothing her staff thinks
+    // of later can take her off it. Then wherever she was sent, then what the
+    // rest of her squadron is going for, then her own judgement.
+    if (bm.phase !== 'run') {
+      const ord = heavyOrder(state, bm);
+      if (ord) {
+        bm.vec = null;
+        bm.aimX = ord.x; bm.aimZ = ord.z; bm.targetId = ord.id;
+      } else if (!bm.vec && bm.phase === 'inbound') {
+        const mate = heavyWingTarget(state, bm);
+        if (mate) { bm.aimX = mate.x; bm.aimZ = mate.z; bm.targetId = mate.id; }
+      }
+    }
+    // Sent somewhere off the plot: she flies there and lays nothing on the
+    // way, and takes up the bombing again once she is there.
+    if (bm.vec && (bm.phase === 'home' || dist(bm.x, bm.z, bm.vec.x, bm.vec.z) < VECTOR_REACHED)) {
+      bm.vec = null;
+    }
+    const vectored = !!bm.vec && bm.phase === 'inbound';
+    if (!vectored && !bm.aimX && !bm.aimZ) {
+      const pick = heavyPicksTarget(state, bm);
       if (pick) { bm.aimX = pick.x; bm.aimZ = pick.z; bm.targetId = pick.id; }
     }
-    // A target that moves is followed: the aim point is where she is now, not
-    // where she was when the staff wrote the order.
+    // How far forward of her a bomb lands, from her height over what it is
+    // going to land on: a town on a hill is a shorter fall than the sea.
+    const fallH = Math.max(50, bm.y - aimHeight(state, bm.aimX, bm.aimZ));
+    const throwFwd = bombThrow(fallH, bm.speed);
+    // A target that moves is followed, and led: the aim point is where she
+    // will be when the bombs get there, not where she was when the order was
+    // written -- the run-in and the fall together are the best part of a
+    // minute, and a ship at twenty knots is a third of a mile further on.
     if (bm.targetId) {
       const t = state.ships.find((s) => s.id === bm.targetId);
-      if (t && t.alive) { bm.aimX = t.x; bm.aimZ = t.z; }
-      else bm.targetId = 0;
+      if (t && t.alive) {
+        const toRelease = Math.max(0, dist(bm.x, bm.z, t.x, t.z) - throwFwd) / Math.max(1, bm.speed);
+        const lead = Math.min(90, (bm.phase === 'run' ? 0 : toRelease) + Math.sqrt((2 * fallH) / 9.81));
+        bm.aimX = t.x + Math.sin(t.heading || 0) * (t.speed || 0) * lead;
+        bm.aimZ = t.z + Math.cos(t.heading || 0) * (t.speed || 0) * lead;
+      } else bm.targetId = 0;
     }
 
     const toAim = dist(bm.x, bm.z, bm.aimX, bm.aimZ);
-    const throwFwd = bombThrow(bm.y, bm.speed);
     let want = bm.heading;
 
-    if (bm.phase === 'inbound') {
+    if (vectored) {
+      want = headingTo(bm.x, bm.z, bm.vec.x, bm.vec.z);
+    } else if (bm.phase === 'inbound') {
       // The release point: back along the run-in bearing by the forward throw.
       want = headingTo(bm.x, bm.z, bm.aimX, bm.aimZ);
-      if (toAim <= throwFwd + 140 && bm.loads > 0) {
-        bm.phase = 'run';
-        bm.stick = L.n;
-        bm.stickT = 0;
-        bm.err = aimError(state, bm);
+      if (bm.overshot) {
+        // Came up on it at an angle, too close to get onto it: open out on
+        // the course she has, then come round and make a proper run of it.
+        want = bm.heading;
+        if (toAim > throwFwd + HEAVY_OPEN_OUT) bm.overshot = false;
+      } else if (toAim <= throwFwd + 140 && bm.loads > 0) {
+        // Only lined up on it. A run begun with the target off to one side
+        // is a stick laid in the sea beside it -- which is what used to
+        // happen to a squadron that had been put on a new target close in.
+        if (Math.abs(angleDelta(bm.heading, want)) < 0.12) {
+          bm.phase = 'run';
+          bm.stick = L.n;
+          bm.stickT = 0;
+          bm.err = aimError(state, bm);
+        } else bm.overshot = true;
       }
     } else if (bm.phase === 'run') {
       // Straight and level. Nothing is allowed to move her off this course --
@@ -12625,6 +12684,13 @@ function stepBombers(state, dt) {
   }
   state.bombers = out;
 }
+
+/**
+ * How far past the release point a heavy that came up on her target at an
+ * angle flies before she turns back onto it: room for the turn, and for a
+ * straight run in after it.
+ */
+const HEAVY_OPEN_OUT = 5200;
 
 /** Simple constant-bearing intercept used by aircraft and bots. */
 export function leadPoint(fromX, fromZ, target, projSpeed) {

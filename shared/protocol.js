@@ -534,6 +534,10 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // What her own side ordered her onto off the plot. The staff's choice
       // stays off the wire (see above); a player's own order is his to see.
       ot: b.order && b.team === team ? b.order.id : undefined,
+      // Which squadron she is in, and where it has been sent, to her own side.
+      wg: b.wing && b.team === team ? b.wing : undefined,
+      vx: b.vec && b.team === team ? Math.round(b.vec.x) : undefined,
+      vz: b.vec && b.team === team ? Math.round(b.vec.z) : undefined,
       // And her leading machine's condition, for the damage board -- the same
       // nine numbers a flight sends, out of the same airframe model. Her own
       // side only: what a formation reports is not what the enemy can see.

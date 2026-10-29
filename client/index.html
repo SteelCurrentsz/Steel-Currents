@@ -776,16 +776,21 @@
     <button class="human-jump" id="human-jump" type="button">Jump</button>
     <button class="gun-leave" id="human-leave" type="button">Leave human view</button>
   </div>
-  <!-- At the guns of a battery ashore. A gun or a launcher is laid on the
-       enemy ship tapped on the plot and fired on its key; the mortar is laid on
-       a pin put in the plot, and fires at it every time it is loaded. -->
+  <!-- At the guns of a battery ashore. The view is the sight: drag it, and
+       the guns are laid on whatever is under the crosshair -- a ship by name,
+       anything else as a point -- and fired on the key. A ship, a town or a
+       wall tapped on the plot lays them as well, and swings the view onto it. -->
   <div class="lamp-sight bat-sight" id="bat-sight" hidden>
+    <div class="gun-cross" aria-hidden="true">
+      <i class="gp"></i>
+      <span class="gt gt-u"></span><span class="gt gt-d"></span>
+      <span class="gt gt-l"></span><span class="gt gt-r"></span>
+      <span class="gring"></span>
+    </div>
+    <p class="gun-read" id="bat-aim"></p>
     <p class="lamp-name" id="bat-name"></p>
     <p class="bat-read" id="bat-read"></p>
     <button class="gun-fire" id="bat-fire" type="button">Fire</button>
-    <!-- Training by hand: held, the guns go on round. A and D do the same. -->
-    <button class="bat-train bat-train-l" id="bat-left" type="button" aria-label="Train left">&#9664;</button>
-    <button class="bat-train bat-train-r" id="bat-right" type="button" aria-label="Train right">&#9654;</button>
     <button class="gun-leave" id="bat-leave" type="button">Leave battery</button>
   </div>
   <div class="gun-sight" id="gun-sight" hidden>

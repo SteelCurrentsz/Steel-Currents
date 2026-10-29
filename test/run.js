@@ -5868,17 +5868,22 @@ check('a battery in a player\'s hands fires at what he lays it on and nothing el
     run(30);
     assert.ok(fired > 1, 'handed back, its own crew fight it again');
   }
-  // The mortar: at the pin, every time it is loaded, until the pin comes out.
+  // The mortar: at the pin, on his trigger, until the pin comes out.
   {
     const { state, bat } = shoot('karl', 12000);
     commandBattery(state, bat, 99);
     assert.ok(!pinBattery(state, bat, 1e7, 0), 'a pin past its reach is refused');
     assert.ok(pinBattery(state, bat, 2500, 4000));
     let fired = 0;
-    for (let i = 0; i < 30 * 260; i++) {
+    for (let i = 0; i < 30 * 120; i++) {
       for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
     }
-    assert.ok(fired >= 2, `it should fire at the pin on every reload, fired ${fired}`);
+    assert.equal(fired, 0, 'pinned, it waits for the trigger');
+    for (let i = 0; i < 30 * 260; i++) {
+      if (i % 30 === 0) triggerBattery(state, bat);
+      for (const ev of step(state, DT)) if (ev.e === 'muzzle' && ev.battery === bat.id) fired++;
+    }
+    assert.ok(fired >= 2, `it should fire at the pin on every pull once loaded, fired ${fired}`);
     assert.ok(Math.hypot(bat.shot.x - 2500, bat.shot.z - 4000) < 1, 'at the pin the player put in');
     assert.ok(pinBattery(state, bat, null, null));
     const was = fired;
@@ -24999,6 +25004,108 @@ check('an attack ordered off the plot: a heavy squadron runs in on what it was g
   foe.x += 500;
   step(st, DT);
   assert.ok(Math.hypot(bm.aimX - foe.x, bm.aimZ - foe.z) < 50, 'and she follows it');
+});
+
+check('a heavy squadron ordered onto a ship stays on her whatever the staff would rather, and lays its stick on her', () => pinned(() => {
+  const world = generateWorld(7731, 'open_ocean');
+  world.islands = [];
+  world.land = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  // The ship she is sent at: a destroyer lying stopped off to one side.
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = 6000; foe.z = 0; foe.notch = 1;
+  // And the one her staff would much rather have: a battleship, stopped,
+  // right across her course.
+  const bait = addShip(st, { name: 'Bait', classId: 'iowa', team: 1, index: 1 });
+  bait.x = -6000; bait.z = 2000; bait.notch = 1;
+  const own = addShip(st, { name: 'Own', classId: 'fletcher', team: 0, index: 0 });
+  own.x = -12000; own.z = -14000; own.notch = 1;
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: -6000, z: -12000, heading: 0 });
+  const staff = createStaff(0);
+  assert.equal(orderAttack(st, 0, 'bomber', bm.id, 'ship', foe.id), 1);
+  let wrong = 0;
+  let runAt = null;
+  const fell = [];
+  const live = new Map();
+  for (let i = 0; i < 30 * 300 && bm.alive && (bm.loads === 2 || live.size); i++) {
+    stepStaff(st, staff, DT);
+    step(st, DT);
+    if (bm.targetId && bm.targetId !== foe.id) wrong++;
+    if (bm.phase === 'run' && !runAt) runAt = { x: bm.x, z: bm.z, h: bm.heading };
+    const now = new Set();
+    for (const q of st.shells) if (q.bomber === bm.id) { live.set(q.id, { x: q.x, z: q.z }); now.add(q.id); }
+    for (const [id, at] of live) if (!now.has(id)) { fell.push(at); live.delete(id); }
+  }
+  assert.equal(wrong, 0, 'the staff put her on another target');
+  assert.ok(runAt, 'she never began her run');
+  const off = Math.abs(angleDelta(runAt.h, Math.atan2(foe.x - runAt.x, foe.z - runAt.z)));
+  assert.ok(off < 0.15, `she began her run ${off.toFixed(2)} rad off the target`);
+  assert.ok(fell.length >= 4, `only ${fell.length} bombs came down`);
+  const near = Math.min(...fell.map((f) => Math.hypot(f.x - foe.x, f.z - foe.z)));
+  assert.ok(near < 400, `the nearest bomb of the stick fell ${near.toFixed(0)} m from her`);
+}));
+
+check('a squadron can be any aircraft: carrier flights and heavies formed, ordered and sent together', () => pinned(() => {
+  const world = generateWorld(4243, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'shinano', team: 0, index: 0, isBot: true });
+  const foe = addShip(st, { name: 'Foe', classId: 'iowa', team: 1, index: 0, isBot: true });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 30000;
+  for (let i = 0; i < 30 * 240 && st.planes.filter((p) => !p.dead).length < 1; i++) {
+    if (i % 30 === 0) { cv.aimX = foe.x; cv.aimZ = foe.z; launchStrike(st, cv); }
+    step(st, DT);
+  }
+  const flight = st.planes.find((p) => !p.dead && p.team === 0);
+  assert.ok(flight, 'nothing got off the deck');
+  const a = addBomber(st, { bomberId: 'lancaster', team: 0, x: -4000, z: 0 });
+  const b = addBomber(st, { bomberId: 'fortress', team: 0, x: 4000, z: 0 });
+  // Two heavies make a squadron by themselves.
+  const two = setGroup(st, 0, 'bomber', [a.id, b.id]);
+  assert.ok(two && a.wing === two && b.wing === two, 'two heavies would not form a squadron');
+  // And with a carrier flight in it as well.
+  const gid = setGroup(st, 0, 'plane', [flight.id], false, [a.id, b.id]);
+  assert.ok(gid, 'no squadron was formed');
+  assert.equal(flight.wing, gid);
+  assert.equal(a.wing, gid);
+  assert.equal(b.wing, gid);
+  assert.equal(membersOf(st, 'bomber', gid).length, 2);
+  assert.equal(buildSnapshot(st, 0, cv.id).bombers.find((q) => q.i === a.id).wg, gid, 'the snapshot does not say which squadron');
+  // The enemy's heavies are nobody's to group.
+  assert.equal(setGroup(st, 1, 'bomber', [a.id, b.id]), 0);
+  // An attack ordered on the flight is an attack by all of it.
+  assert.ok(orderAttack(st, 0, 'plane', flight.id, 'ship', foe.id) >= 2);
+  assert.equal(a.order && a.order.id, foe.id, 'the heavies of the squadron were not sent with it');
+  assert.equal(b.order && b.order.id, foe.id);
+  // And sent off somewhere, all of it goes.
+  assert.ok(vectorFlight(st, 0, a.id, -9000, 0, 'bomber') >= 2);
+  assert.ok(a.vec && b.vec, 'the heavies were not sent');
+  assert.ok(!a.order, 'sent somewhere is no longer sent at something');
+  if (flight.phase === 'outbound') assert.ok(flight.vec, 'the carrier flight of it was not sent');
+  // Split out, what is left of one is not a squadron.
+  setGroup(st, 0, 'plane', [flight.id], true, [a.id]);
+  assert.ok(!flight.wing && !a.wing && !b.wing, 'a squadron of one survived the split');
+}));
+
+check('a battery laid on a point puts its rounds down on the point, on the sea or up a hill', () => {
+  const { state, bat } = shoot('longues', 12000);
+  assert.ok(commandBattery(state, bat, 99));
+  const px = bat.x + 300;
+  const pz = bat.z + 9000;
+  assert.ok(pinBattery(state, bat, px, pz));
+  const fell = [];
+  const live = new Map();
+  for (let i = 0; i < 30 * 90 && fell.length < 8; i++) {
+    if (i % 30 === 0) triggerBattery(state, bat);
+    step(state, DT);
+    const now = new Set();
+    for (const q of state.shells) if (q.owner === bat.id) { live.set(q.id, { x: q.x, z: q.z }); now.add(q.id); }
+    for (const [id, at] of live) if (!now.has(id)) { fell.push(at); live.delete(id); }
+  }
+  assert.ok(fell.length >= 2, 'it never fired');
+  const mean = fell.reduce((m, f) => ({ x: m.x + f.x / fell.length, z: m.z + f.z / fell.length }), { x: 0, z: 0 });
+  const miss = Math.hypot(mean.x - px, mean.z - pz);
+  assert.ok(miss < 250, `the fall of shot was ${miss.toFixed(0)} m off the point`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
