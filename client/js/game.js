@@ -47,6 +47,7 @@ import {
 import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 import {
   applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
+  worksTarget, worksTargets, wallMiddle, isWorksTarget,
 } from '../../shared/works.js';
 
 // How far behind the server everybody else is drawn, in the server's own
@@ -599,9 +600,14 @@ export class Battle {
         this.hud.alert('A torpedo cannot be sent at a gun ashore');
         return;
       }
+      const works = target ? worksTarget(this.scene.world, target) : null;
+      if (works && works.kind === 'town' && t.kind === 'torp') {
+        this.hud.alert('A torpedo cannot be sent into a town');
+        return;
+      }
       this.net.send({ t: 'assign', ship: this.conned(), k: t.kind, i: t.i, target });
       audio.click();
-      const what = ashore ? BATTERIES[ashore.b]?.name : this.names.get(target);
+      const what = works ? works.name : ashore ? BATTERIES[ashore.b]?.name : this.names.get(target);
       if (target) this.hud.alert(`${t.label} on ${what || 'target'}`);
       else this.hud.alert(`${t.label} back to fire control`);
     });
@@ -1003,7 +1009,7 @@ export class Battle {
       // A battery refusing: somebody else has its guns, or the pin was put
       // further off than the mortar can throw.
       this.net.on('nobat', (m) => {
-        this.hud.alert(m && m.why === 'range' ? 'Out of the mortar\'s range'
+        this.hud.alert(m && m.why === 'range' ? 'Out of the battery\'s range'
           : 'Somebody else has those guns');
         if (m && m.why === 'taken' && this.commandBat && this.commandBat.id === m.i) this.leaveBattery(true, false);
       }),
@@ -3849,6 +3855,14 @@ export class Battle {
       }
       // A torpedo is watched from beside her, level, under the water.
       if (hit.kind === 'torp') this.watchEl = 0.04;
+      // The town and the walls from up and off, over the whole of them: there
+      // is nobody's head to stand in.
+      if (hit.kind === 'town' || hit.kind === 'wall') {
+        this.watchPov = false;
+        this.watchEl = 0.42;
+        this.watchDist = 2.6;
+        this.watchDistNow = 2.6;
+      }
     }
     // And the server is told, because it decides what this client is shown:
     // a ship nobody aboard has sighted is not in the snapshot at all, and
@@ -3878,8 +3892,37 @@ export class Battle {
     if (!quiet) audio.click();
   }
 
+  /** Where a town or a run of wall picked off the plot is, for the camera. */
+  worksPoint(hit) {
+    const world = this.scene.world;
+    if (hit.kind === 'town') {
+      const t = worksTarget(world, hit.id);
+      const plan = t && cityPlans(world)[t.i];
+      if (!plan) return null;
+      const c = plan.city;
+      return { x: c.x, y: plan.level, z: c.z, span: Math.max(c.W, c.D) * 0.35, eye: 30, still: true };
+    }
+    const t = worksTarget(world, hit.id);
+    const m = t && wallMiddle(world, t.i);
+    return m ? { x: m.x, y: m.y, z: m.z, span: Math.max(80, m.span * 0.3), eye: m.y + 4, still: true } : null;
+  }
+
   /** Which way the thing being watched is pointed, or null if we cannot tell. */
   headingOf(hit) {
+    if (hit && (hit.kind === 'town' || hit.kind === 'wall')) {
+      // Looking in from the sea: a town faces the water, and a wall's sea is
+      // on its left as it runs.
+      const world = this.scene.world;
+      const t = worksTarget(world, hit.id);
+      if (!t) return null;
+      if (hit.kind === 'town') {
+        const c = world.works?.cities?.[t.i];
+        return c ? wrapAngle(c.rot + Math.PI) : null;
+      }
+      const run = world.works?.walls?.[t.i];
+      const p = run && run.pts[Math.floor(run.pts.length / 2)];
+      return p ? Math.atan2(-p[2], -p[3]) : null;
+    }
     const snap = this.snapshots[this.snapshots.length - 1];
     if (!snap || !hit) return null;
     const from = hit.kind === 'battery' ? snap.batteries
@@ -3904,6 +3947,11 @@ export class Battle {
     if (this.watching.kind === 'battery') {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
       return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
+    }
+    // A town or a run of sea wall, picked off the plot: it does not move, so
+    // the camera stands off the middle of it and the wheel brings it in.
+    if (this.watching.kind === 'town' || this.watching.kind === 'wall') {
+      return this.worksPoint(this.watching);
     }
     if (this.watching.kind === 'shell') {
       // The round itself, wherever she has got to. Small and close, so the
@@ -4404,11 +4452,12 @@ export class Battle {
     if (el) el.hidden = !!this.mapBig;
     const name = document.getElementById('bat-name');
     if (name) name.textContent = b.name || 'Battery';
-    // The mortar fires itself at its pin: it has no trigger.
+    // Every battery has a trigger now: a gun laid on nothing fires down the
+    // bearing it is on. The mortar still fires itself at its pin.
     const fire = document.getElementById('bat-fire');
-    if (fire) fire.hidden = !!b.mortar;
-    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it'
-      : 'Tap an enemy ship on the plot to lay on her');
+    if (fire) fire.hidden = false;
+    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it · FIRE with no pin fires down the bearing'
+      : 'Tap a ship, a town or a wall to lay on it · tap anywhere else to lay on that point · FIRE with nothing laid fires down the bearing');
     audio.click();
   }
 
@@ -4430,41 +4479,58 @@ export class Battle {
     }
   }
 
-  /** A tap on the plot at the guns of a battery. */
+  /**
+   * A tap on the plot at the guns of a battery.
+   *
+   * A gun or a launcher is laid on an enemy ship, an enemy battery, the town
+   * or a sea wall tapped on the plot, or -- tapped anywhere else -- on that
+   * point, a pin in the chart like the mortar's. The mortar is only ever laid
+   * on a pin, so a town or a wall tapped for it puts the pin there.
+   */
   workBattery(hit, at) {
     const c = this.commandBat;
+    // A double tap on the pin takes it out; a single one leaves it where
+    // it is, rather than moving it a few metres off a slip of the finger.
+    if (hit && hit.kind === 'pin') {
+      const now = performance.now();
+      if (now - c.lastPinTap < 450) {
+        this.net.send({ t: 'bpin', i: c.id, x: null, z: null });
+        this.hud.alert('Pin removed');
+        c.lastPinTap = 0;
+        audio.click();
+      } else c.lastPinTap = now;
+      return;
+    }
+    c.lastPinTap = 0;
+    const works = hit && (hit.kind === 'town' || hit.kind === 'wall')
+      ? worksTarget(this.scene.world, hit.id) : null;
     if (c.mortar) {
-      // A double tap on the pin takes it out; a single one leaves it where
-      // it is, rather than moving it a few metres off a slip of the finger.
-      if (hit && hit.kind === 'pin') {
-        const now = performance.now();
-        if (now - c.lastPinTap < 450) {
-          this.net.send({ t: 'bpin', i: c.id, x: null, z: null });
-          this.hud.alert('Pin removed');
-          c.lastPinTap = 0;
-          audio.click();
-        } else c.lastPinTap = now;
-        return;
-      }
-      if (!at) return;
-      c.lastPinTap = 0;
-      this.net.send({ t: 'bpin', i: c.id, x: Math.round(at.x), z: Math.round(at.z) });
+      const p = works || at;
+      if (!p) return;
+      this.net.send({ t: 'bpin', i: c.id, x: Math.round(p.x), z: Math.round(p.z) });
+      if (works) this.hud.alert(`Pinned on ${works.name}`);
       audio.click();
       return;
     }
-    if (hit && hit.kind === 'ship' && hit.team !== undefined && hit.team !== this.team) {
+    const foe = hit && (hit.kind === 'ship' || hit.kind === 'battery')
+      && hit.team !== undefined && hit.team !== this.team;
+    if (foe || works) {
       this.net.send({ t: 'btgt', i: c.id, target: hit.id });
-      this.hud.alert(`Laid on ${hit.name || 'the enemy'}`);
+      this.hud.alert(`Laid on ${(works && works.name) || hit.name || 'the enemy'}`);
       audio.click();
       return;
     }
-    this.hud.alert('Tap an enemy ship to lay on her');
+    if (at) {
+      this.net.send({ t: 'bpin', i: c.id, x: Math.round(at.x), z: Math.round(at.z) });
+      this.hud.alert('Laid on that point · FIRE when ready');
+      audio.click();
+    }
   }
 
   /** The trigger of the battery in hand. */
   fireBattery() {
     const c = this.commandBat;
-    if (!c || c.mortar) return;
+    if (!c) return;
     this.net.send({ t: 'bfire', i: c.id });
     audio.click();
   }
@@ -4484,21 +4550,24 @@ export class Battle {
     const parts = [];
     if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
     else parts.push('Loaded');
+    const yd = (x, z) => Math.round(Math.hypot(x - g.x, z - g.z) / 0.9144 / 50) * 50;
     if (c.mortar) {
-      if (g.pn) {
-        const d = Math.hypot(g.pn[0] - g.x, g.pn[1] - g.z);
-        parts.push(`Pin at ${Math.round(d / 0.9144 / 50) * 50} yd`);
-      } else parts.push('No pin · tap the plot');
+      if (g.pn) parts.push(`Pin at ${yd(g.pn[0], g.pn[1])} yd`);
+      else parts.push('No pin · FIRE goes down the bearing');
       if (g.st) parts.push(`Bomb down in ${Math.ceil(g.st[2])} s`);
     } else if (g.tg) {
-      const t = [...this.visibleShips(), ...(snap.contacts || [])].find((q) => q.i === g.tg);
-      parts.push(`Laid on ${(t && t.n) || 'contact'}`);
-    } else parts.push('No target · tap an enemy ship');
+      const works = worksTarget(this.scene.world, g.tg);
+      const t = works ? null : [...this.visibleShips(), ...(snap.contacts || [])].find((q) => q.i === g.tg)
+        || (snap.batteries || []).find((q) => q.i === g.tg);
+      parts.push(`Laid on ${(works && works.name) || (t && (t.n || BATTERIES[t.b]?.name)) || 'contact'}`);
+    } else if (g.pn) {
+      parts.push(`Laid on a point at ${yd(g.pn[0], g.pn[1])} yd`);
+    } else parts.push('Nothing laid · FIRE goes down the bearing');
     const read = document.getElementById('bat-read');
     const txt = parts.join(' · ');
     if (read && read.textContent !== txt) read.textContent = txt;
     const fire = document.getElementById('bat-fire');
-    if (fire) fire.classList.toggle('spent', !g.tg || g.cd > 0);
+    if (fire) fire.classList.toggle('spent', g.cd > 0);
   }
 
   /**
@@ -6358,6 +6427,12 @@ export class Battle {
             .filter((g) => g.al && g.tm !== myTeam)
             .map((g) => ({ i: g.i, n: BATTERIES[g.b]?.name || 'Battery', c: null,
               d: Math.hypot(g.x - sx, g.z - sz) })))
+          // And the town and the sea walls, which anybody's guns may be put
+          // on: each is laid on the point of it that is still standing.
+          .concat(worksTargets(this.scene.world, snap.time || 0)
+            .filter((w) => w.alive)
+            .map((w) => ({ i: w.id, n: w.name, c: null, works: w.kind,
+              left: w.left, d: Math.hypot(w.x - sx, w.z - sz) })))
           .sort((p, q) => p.d - q.d);
         const dp = new Map(dpMounts(cls).map((m) => [m.i, m.gun.range]));
         const reach = (t) => (t.kind === 'main' ? cls.gun?.range : t.kind === 'sec' ? cls.secondary?.range

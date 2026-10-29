@@ -477,7 +477,8 @@ input[type="range"] { accent-color: var(--red); }
 }
 .target-gun.on { color: #10161c; background: #ffc94a; border-color: #ffc94a; }
 .target-wrap { cursor: grab; touch-action: none; }
-/* The enemy ships in sight, each a box her guns are dropped on. */
+/* The enemy ships in sight, each a box her guns are dropped on -- and the
+   towns and sea walls, which any gun may be put on. */
 .target-foes { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 .target-none { margin: 0.1rem 0 0.2rem; }
 .target-foe {
@@ -485,6 +486,8 @@ input[type="range"] { accent-color: var(--red); }
   background: rgba(60, 14, 18, 0.35); border: 1px solid rgba(226, 86, 79, 0.45);
   transition: border-color 0.12s, background 0.12s;
 }
+.target-foe.works { background: rgba(58, 48, 30, 0.4); border-color: rgba(230, 207, 156, 0.5); }
+.target-foe.works .tf-name { color: #e6cf9c; }
 .target-foe.drop { border-color: #ffc94a; background: rgba(255, 201, 74, 0.14); }
 .tf-head { display: flex; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.3rem; }
 .tf-name { color: var(--enemy); font-size: 0.78rem; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

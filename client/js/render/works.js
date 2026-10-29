@@ -26,7 +26,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import {
   cityPlans, buildingById, ruinOf, stageOf, STAGE, standingHeight, SURF, SURF_RISE, SURF_CELL, cityToWorld,
-  wallSections, sectionSpan, WALL_WIDTH, PARAPET, worksFloor,
+  wallSections, sectionSpan, WALL_WIDTH, PARAPET, worksFloor, wallAt,
 } from '../../../shared/works.js';
 import { groundHeight, rawGround } from '../../../shared/world.js';
 
@@ -290,6 +290,7 @@ const CHAR = [0.08, 0.07, 0.065];
 // comes out pale and grey.
 const lin = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const col = (hex, k = 1) => [lin(((hex >> 16) & 255) / 255) * k, lin(((hex >> 8) & 255) / 255) * k, lin((hex & 255) / 255) * k];
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // ---------------------------------------------------------------------------
@@ -906,6 +907,7 @@ export class WorksView {
       this.props();
     }
     this.walls = [];
+    this.wallDirty = new Set();
     this.wallTops = this.intactTops();
     (world.works?.walls || []).forEach((_, ri) => this.buildWall(ri));
     this.debris = this.debrisField();
@@ -919,6 +921,11 @@ export class WorksView {
     for (const k of Object.keys(FACADE)) m[k] = std(canvasTexture(`f-${k}`, FACADE[k]));
     m.roof = std(canvasTexture('g-roof', GROUND.roof));
     m.plain = std(null);
+    // The marks the battle leaves on the sea walls: laid over the faces they
+    // mark, seen from either side whichever way a run was traced.
+    m.scar = std(null, {
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+    });
     m.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
     const ground = (k) => std(canvasTexture(`g-${k}`, GROUND[k]), {
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
@@ -1299,7 +1306,10 @@ export class WorksView {
         const pa = prof(a);
         const pb = prof(b);
         for (let m = 0; m < pa.length - 1; m++) {
-          const cc = mixc([0.55, 0.53, 0.5], c, 0.4).map((v) => v * (0.75 + r() * 0.25));
+          // One shade for the slab, not one per channel: drawn per channel it
+          // came out pink and green.
+          const k = 0.75 + r() * 0.25;
+          const cc = mixc([0.55, 0.53, 0.5], c, 0.4).map((v) => v * k);
           rub.quad(P(a, pa[m][0], pa[m][1]), P(a, pa[m + 1][0], pa[m + 1][1]), P(b, pb[m + 1][0], pb[m + 1][1]), P(b, pb[m][0], pb[m][1]), null, cc);
         }
         // The faces of the sections either side, where they were broken off.
@@ -1337,9 +1347,175 @@ export class WorksView {
     const z1 = cross[cross.length - 1];
     if (dmg(0) < 1) this.wallEnd(conR, e0, W2, e0.x - e1.x, e0.z - e1.z, [0.85, 0.84, 0.8]);
     if (dmg(n - 1) < 1) this.wallEnd(conR, z1, W2, z1.x - z0.x, z1.z - z0.z, [0.85, 0.84, 0.8]);
+    this.wallScars(bufs.get('scar'), ri, cross, W2, n, dmg, secOf);
     const g = bufs.meshes(this.mats);
     this.walls[ri] = g;
     this.group.add(g);
+  }
+
+  /**
+   * What the battle has done to a run of wall that is still standing: where
+   * every hit it remembers went, and what the whole of a section looks like
+   * once it has had enough of them.
+   *
+   * A round on the walkway leaves a blast crater -- a scorched pit, broken
+   * slabs heaped round its lip, cracks running out from it -- and a round
+   * against the sea face a gouge out of the concrete, and the coping over it
+   * knocked off onto the walkway. A section knocked half to pieces is cracked
+   * right across; three-quarters gone, its face is spalling away to the
+   * steel. All of it is laid just over the faces it marks, so nothing has to
+   * be cut out of the wall to draw it.
+   */
+  wallScars(buf, ri, cross, W2, n, dmg, secOf) {
+    const world = this.world;
+    const run = world.works.walls[ri];
+    const ruin = world.ruin?.w || {};
+    const scorch = [0.11, 0.105, 0.1];
+    const char = [0.2, 0.19, 0.18];
+    const raw = [0.52, 0.5, 0.47];
+    const lerpQ = (a, b, t) => ({
+      x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t,
+      nx: a.nx + (b.nx - a.nx) * t, nz: a.nz + (b.nz - a.nz) * t,
+      T: a.T + (b.T - a.T) * t, foot: a.foot + (b.foot - a.foot) * t,
+      batter: a.batter + (b.batter - a.batter) * t,
+    });
+    // A point on the wall's own frame: `along` the run from point k, `off`
+    // out towards the sea, `y` up.
+    const P = (q, tx, tz, along, off, y) => [q.x + tx * along + q.nx * off, y, q.z + tz * along + q.nz * off];
+    const dirAt = (k) => {
+      const a = cross[Math.min(k, cross.length - 2)];
+      const b = cross[Math.min(k, cross.length - 2) + 1];
+      const L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      return [(b.x - a.x) / L, (b.z - a.z) / L];
+    };
+    // A heap of broken slab: tumbled blocks, each a box turned its own way.
+    const chunk = (cx, cy, cz, sz, rnd, color) => {
+      const yaw = rnd() * Math.PI;
+      const s = Math.sin(yaw);
+      const c = Math.cos(yaw);
+      const w = sz * (0.6 + rnd() * 0.8);
+      const d = sz * (0.5 + rnd() * 0.7);
+      const h = sz * (0.35 + rnd() * 0.5);
+      const F = (a, y, cc) => [cx + c * a + s * cc, cy + y, cz - s * a + c * cc];
+      const k = 0.8 + rnd() * 0.35;
+      boxInto(buf, F, -w / 2, w / 2, -h * 0.3, h, -d / 2, d / 2, color.map((v) => v * k));
+    };
+    for (let sec = 0; sec < n; sec++) {
+      const d = dmg(sec);
+      if (d >= 1) continue;
+      const rnd = rngOf(ri * 7919 + sec * 31 + 5);
+      const [k0, k1] = sectionSpan(run, sec);
+      // Cracked right across, and the more of it the further it has gone.
+      if (d >= 0.45) {
+        const cracks = Math.round(2 + (d - 0.45) * 10);
+        for (let m = 0; m < cracks; m++) {
+          const k = Math.min(k1 - 1, k0 + Math.floor(rnd() * Math.max(1, k1 - k0)));
+          const t = rnd();
+          const q = lerpQ(cross[k], cross[k + 1], t);
+          const [tx, tz] = dirAt(k);
+          const wob = (rnd() - 0.5) * 4;
+          const wide = 0.12 + d * 0.25;
+          const y = q.T + 0.03;
+          buf.quad(P(q, tx, tz, wob - wide, -W2, y), P(q, tx, tz, -wide, W2 - 1, y),
+            P(q, tx, tz, wide, W2 - 1, y), P(q, tx, tz, wob + wide, -W2, y), null, scorch);
+          // Down the sea face as well, from the coping towards the foot.
+          const yf = q.T + PARAPET;
+          const out = W2 + 0.04;
+          const deep = (yf - q.foot) * (0.25 + d * 0.5);
+          buf.quad(P(q, tx, tz, -wide, out, yf), P(q, tx, tz, wob * 0.5 - wide, out + q.batter * (deep / (yf - q.foot || 1)), yf - deep),
+            P(q, tx, tz, wob * 0.5 + wide, out + q.batter * (deep / (yf - q.foot || 1)), yf - deep), P(q, tx, tz, wide, out, yf), null, scorch);
+        }
+      }
+      // Spalling: the face coming away in sheets, raw concrete under it.
+      if (d >= 0.7) {
+        for (let k = k0; k < k1; k++) {
+          const a = cross[k];
+          const b = cross[k + 1];
+          const [tx, tz] = dirAt(k);
+          const L = Math.hypot(b.x - a.x, b.z - a.z);
+          for (let m = 0; m < 2; m++) {
+            const q = lerpQ(a, b, rnd());
+            const half = L * (0.1 + rnd() * 0.15);
+            const y1 = q.T + PARAPET * 0.5 - rnd() * 1.5;
+            const y0 = Math.max(q.foot + 1, y1 - 2 - rnd() * (q.T * 0.5));
+            const f = (y) => W2 + 0.06 + q.batter * ((q.T + PARAPET - y) / Math.max(1, q.T + PARAPET - q.foot));
+            buf.quad(P(q, tx, tz, -half, f(y1), y1), P(q, tx, tz, -half, f(y0), y0),
+              P(q, tx, tz, half, f(y0), y0), P(q, tx, tz, half, f(y1), y1), null, raw.map((v) => v * 0.85));
+          }
+        }
+      }
+      // And every hit it remembers.
+      for (const [x, z, r0] of ruin[ri * 1000 + sec]?.h || []) {
+        // A little bigger than the hole itself: the scorching round it is
+        // what is seen from a ship.
+        const r = r0 * 1.25;
+        const at = wallAt(world, x, z, 14);
+        if (!at || at.run !== ri) continue;
+        const k = at.seg;
+        const q = lerpQ(cross[k], cross[k + 1], at.t);
+        const [tx, tz] = dirAt(k);
+        const off = clamp(at.across, -W2 + r * 0.5, W2 + 2);
+        const rr = rngOf(Math.round(x * 13) ^ Math.round(z * 7));
+        if (off < W2 - 1 - r * 0.4) {
+          // On the walkway: a scorched pit, darkest in the middle, ragged at
+          // its edge, and the slabs it threw up lying round it.
+          const y = q.T + 0.05;
+          const ring = [];
+          const sides = 9;
+          for (let m = 0; m < sides; m++) {
+            const ang = (m / sides) * Math.PI * 2;
+            const rad = r * (0.75 + rr() * 0.45);
+            ring.push([Math.cos(ang) * rad, Math.sin(ang) * rad]);
+          }
+          const C = P(q, tx, tz, 0, off, y);
+          for (let m = 0; m < sides; m++) {
+            const [a0, c0] = ring[m];
+            const [a1, c1] = ring[(m + 1) % sides];
+            // The outer burn, and inside it the hole itself.
+            buf.tri(C, P(q, tx, tz, a1, off + c1, y), P(q, tx, tz, a0, off + c0, y), null, null, null, char);
+            buf.tri(P(q, tx, tz, 0, off, y + 0.01), P(q, tx, tz, a1 * 0.55, off + c1 * 0.55, y + 0.01),
+              P(q, tx, tz, a0 * 0.55, off + c0 * 0.55, y + 0.01), null, null, null, scorch);
+          }
+          // Cracks out from it across the slabs.
+          for (let m = 0; m < 3; m++) {
+            const ang = rr() * Math.PI * 2;
+            const len = r * (1.6 + rr() * 1.6);
+            const ca = Math.cos(ang), sa = Math.sin(ang);
+            const w = 0.09 + r * 0.02;
+            buf.quad(P(q, tx, tz, ca * r * 0.7 - sa * w, off + sa * r * 0.7 + ca * w, y + 0.005),
+              P(q, tx, tz, ca * r * 0.7 + sa * w, off + sa * r * 0.7 - ca * w, y + 0.005),
+              P(q, tx, tz, ca * len, off + sa * len, y + 0.005),
+              P(q, tx, tz, ca * len, off + sa * len, y + 0.005), null, scorch);
+          }
+          // The lip: broken slab heaped round it.
+          const pieces = Math.min(7, 2 + Math.round(r));
+          for (let m = 0; m < pieces; m++) {
+            const ang = rr() * Math.PI * 2;
+            const rad = r * (0.85 + rr() * 0.5);
+            const p = P(q, tx, tz, Math.cos(ang) * rad, off + Math.sin(ang) * rad, y);
+            chunk(p[0], p[1], p[2], 0.35 + r * 0.16, rr, raw);
+          }
+        } else {
+          // Against the sea face: a gouge out of it, and the coping over it
+          // knocked onto the walkway behind.
+          const yc = clamp(q.T - r * 0.4, q.foot + r, q.T + PARAPET);
+          const f = (y) => W2 + 0.08 + q.batter * ((q.T + PARAPET - y) / Math.max(1, q.T + PARAPET - q.foot));
+          const h = r * 0.9;
+          const w = r * 1.1;
+          buf.quad(P(q, tx, tz, -w, f(yc + h), Math.min(q.T + PARAPET, yc + h)), P(q, tx, tz, -w * 0.7, f(yc - h), yc - h),
+            P(q, tx, tz, w * 0.7, f(yc - h), yc - h), P(q, tx, tz, w, f(yc + h), Math.min(q.T + PARAPET, yc + h)), null, char);
+          buf.quad(P(q, tx, tz, -w * 0.5, f(yc + h * 0.5) + 0.01, yc + h * 0.5), P(q, tx, tz, -w * 0.4, f(yc - h * 0.6) + 0.01, yc - h * 0.6),
+            P(q, tx, tz, w * 0.4, f(yc - h * 0.6) + 0.01, yc - h * 0.6), P(q, tx, tz, w * 0.5, f(yc + h * 0.5) + 0.01, yc + h * 0.5), null, scorch);
+          if (yc + h > q.T) {
+            const pieces = Math.min(5, 1 + Math.round(r * 0.7));
+            for (let m = 0; m < pieces; m++) {
+              const p = P(q, tx, tz, (rr() - 0.5) * w * 2, W2 - 2 - rr() * 4, q.T);
+              chunk(p[0], p[1], p[2], 0.3 + r * 0.12, rr, raw);
+            }
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1465,7 +1641,10 @@ export class WorksView {
       this.known.set(ev.id, { d: ev.d, f: ev.f || 0, ...(ev.c ? { c: 1 } : {}) });
     }
     if (ev.k === 'w') {
-      this.buildWall(ev.run);
+      // Drawn again on the next frame, once for every hit that came in on it,
+      // rather than once for each of them: a wall under a battleship's
+      // broadside takes nine rounds in a second.
+      this.wallDirty.add(ev.run);
       const run = this.world.works.walls[ev.run];
       if (!run) return;
       const [k0, k1] = sectionSpan(run, ev.sec);
@@ -1565,6 +1744,10 @@ export class WorksView {
   }
 
   update(dt, camera) {
+    if (this.wallDirty.size) {
+      for (const ri of this.wallDirty) this.buildWall(ri);
+      this.wallDirty.clear();
+    }
     if (this.dirty.size) {
       for (const k of this.dirty) this.buildChunk(k);
       this.dirty.clear();
