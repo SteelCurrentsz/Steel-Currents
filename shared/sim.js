@@ -5615,8 +5615,10 @@ function fireBattery(state, bat, b, gun, target) {
   // How far above what it is laid on the muzzle is. Solved for the sea, a
   // round laid on a hillside, a house or a gun pit on a headland arrives at
   // the height of the sea -- which is short of anything above it and, for
-  // the one below the gun, long of it.
-  const drop = bat.y + 6 - aimHeight(state, ax, az);
+  // the one below the gun, long of it. Nothing is laid on lower than six
+  // metres, though: at sea that is a hull, not the waterline under it, and a
+  // round solved for the waterline comes down short of the ship.
+  const drop = bat.y + 6 - Math.max(6, aimHeight(state, ax, az));
 
   // One arc for the whole salvo: the barrels of a battery are laid together.
   // Up a hill is further for the gun than the map says: allowed for, or the
