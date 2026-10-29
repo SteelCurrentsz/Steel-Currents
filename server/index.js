@@ -130,6 +130,14 @@ function pageName(f) {
   return `/${rel.startsWith('client/') ? rel.slice('client/'.length) : rel}`;
 }
 const OFFLINE_FILES = [path.join(ROOT, 'client/css/style.css'), ...everyModule()];
+// What the worker has to have before it takes over: the page, everything it
+// imports before its first frame, and the aircraft, which no battle can be
+// joined without. A few megabytes, where the whole list is forty -- and a
+// worker that waited for all forty on a weak line never took over at all, so
+// nothing was ever kept. The hulls are kept afterwards, behind the game; a
+// battle joined before one is in draws her plain (see buildModel).
+const SHELL = ['/', ...[path.join(ROOT, 'client/css/style.css'), ...BOOT,
+  ...OFFLINE_FILES.filter((f) => /Model\.data\.js$/.test(f))].map(pageName)];
 
 function serveWorker(req, res) {
   let tags;
@@ -141,7 +149,7 @@ function serveWorker(req, res) {
     return notFound(res);
   }
   const version = crypto.createHash('sha1').update(tags).digest('hex').slice(0, 12);
-  const offline = { version, files: ['/', ...OFFLINE_FILES.map(pageName)] };
+  const offline = { version, shell: SHELL, files: ['/', ...OFFLINE_FILES.map(pageName)] };
   const data = Buffer.from(`const OFFLINE = ${JSON.stringify(offline)};\n${body}`);
   send(req, res, {
     'Content-Type': MIME['.js'],

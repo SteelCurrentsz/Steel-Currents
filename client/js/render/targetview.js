@@ -106,7 +106,7 @@ export class TargetingView {
   build(classId) {
     if (classId === this.classId) return;
     // Not fetched yet: asked for, and shown on a later frame once it is in.
-    if (!shipReady(classId)) { loadShips([classId]).catch(() => {}); return; }
+    if (!shipReady(classId)) { loadShips([classId], null, { quiet: true }).catch(() => {}); return; }
     if (this.shown) this.scene.remove(this.shown.group);
     let m = this.models.get(classId);
     if (!m) {

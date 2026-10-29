@@ -307,9 +307,18 @@ function staleBuild(e) {
 }
 
 // Every battle a captain starts carries his friendly fire setting with it.
-// And none is joined until every ship that could be in it has been fetched
-// (see loadShips): the room starts the moment it is joined, and a fleet that
-// cannot be drawn yet would leave the captain watching a battle he is not in.
+// And none is joined until the aircraft every battle builds to fly are in
+// (see loadShips): the room starts the moment it is joined. Its ships are
+// waited for too, but not forever: a hull the line cannot bring in -- no
+// signal, or one too weak to bring five megabytes in -- is drawn as the hull
+// generated off her class (see buildModel), and the battle goes ahead.
+//
+// How long, once the aircraft are in, a battle waits for its hulls before it
+// sails with stand-ins for the rest; and how long it waits for the aircraft,
+// which it cannot sail without, before telling the captain so rather than
+// leaving him at the loading screen.
+const HULL_GRACE = 8000;
+const PLANE_PATIENCE = 45000;
 {
   const send = net.send.bind(net);
   net.send = (m) => {
@@ -318,15 +327,31 @@ function staleBuild(e) {
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
     boot.show('Bringing up the fleet');
-    loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
-      .then(go, (e) => {
-        console.error('Steel Currents: the fleet would not load', e);
-        if (staleBuild(e)) return;
-        boot.done();
-        toast(navigator.onLine === false
-          ? 'The fleet is not on this device yet. Open the game once with a connection and it will be kept for offline play.'
-          : 'The fleet could not be fetched. Check the connection and try again.');
-      });
+    let settled = false;
+    const sail = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(patience);
+      if (!fleetReady(need)) toast('Some ships are drawn plain until their hulls finish downloading.');
+      go();
+    };
+    const fail = (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(patience);
+      console.error('Steel Currents: the aircraft would not load', e);
+      if (e && staleBuild(e)) return;
+      boot.done();
+      toast(navigator.onLine === false
+        ? 'The aircraft are not on this device yet. Open the game once with a connection and they will be kept for offline play.'
+        : 'The connection is too weak to bring the aircraft in yet. They are still coming down -- try again in a moment.');
+    };
+    const patience = setTimeout(() => fail(new Error('timed out')), PLANE_PATIENCE);
+    const ships = loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+      .catch((e) => { console.warn('Steel Currents: some hulls would not load', e); });
+    loadShips([]).then(() => {
+      Promise.race([ships, new Promise((r) => { setTimeout(r, HULL_GRACE); })]).then(sail);
+    }, fail);
   };
 }
 const input = new Input(canvas);
@@ -871,7 +896,11 @@ function renderYard() {
     loadShips([id]).then(() => {
       if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
     }, (e) => {
-      if (!staleBuild(e)) toast('That ship could not be fetched. Check the connection and try again.');
+      if (staleBuild(e)) return;
+      // Not coming down -- no signal, or too little of one: she is shown as
+      // the hull generated off her class, as a battle would draw her.
+      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      toast('Her hull has not downloaded yet, so she is drawn plain until it does.');
     });
   }
   // Her full name and pennant where there is room for it; the short one is what
@@ -1427,7 +1456,12 @@ net.connect();
 // file the game can ask for on this device (see client/sw.js). The apps and
 // the one-file build carry everything already, and have no /sw.js to ask for.
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
-  const keep = () => navigator.serviceWorker.register('/sw.js').catch(() => { /* online only */ });
+  // Once it has taken over, it is asked to keep the rest -- every hull and
+  // voice -- behind the game, and asked again whenever the line comes back.
+  const fill = () => navigator.serviceWorker.ready
+    .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
+  const keep = () => navigator.serviceWorker.register('/sw.js').then(fill, () => { /* online only */ });
+  window.addEventListener('online', fill);
   if (document.readyState === 'complete') keep();
   else window.addEventListener('load', keep, { once: true });
 }

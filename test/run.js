@@ -212,7 +212,7 @@ import { Debris } from '../client/js/render/debris.js';
 import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
-import { buildShip, buildShipModel, loadShips } from '../client/js/render/ships.js';
+import { buildShip, buildShipModel, buildStandIn, loadShips } from '../client/js/render/ships.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
@@ -14687,6 +14687,22 @@ check('the web game keeps every file it can ask for on the device', () => {
   // The list it keeps has to reach the ships, which only `import()` names.
   assert.ok(/const DYNAMIC = /.test(server) && /matchAll\(DYNAMIC\)/.test(server),
     'the ships fetched on demand are left off the list');
+});
+
+check('a battle is never kept waiting on a hull the line cannot bring in', () => {
+  // With no signal, or one too weak to bring five megabytes of sculpt down,
+  // Sortie sat on "Bringing up the fleet" or said to check the connection.
+  // A hull that is not in is drawn as the one generated off her class.
+  for (const id of SHIP_ORDER) {
+    const b = buildStandIn(id);
+    assert.ok(b.group && b.group.children.length, `${id} has no stand-in hull`);
+    assert.equal(b.turrets.length, SHIP_CLASSES[id].turrets.length, `${id}'s stand-in is short of turrets`);
+  }
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/HULL_GRACE/.test(main) && /PLANE_PATIENCE/.test(main), 'a battle still waits on the line for good');
+  // And the worker takes over once it has the shell, not all forty megabytes.
+  const sw = readFileSync(new URL('../client/sw.js', import.meta.url), 'utf8');
+  assert.ok(/OFFLINE\.shell/.test(sw) && /AbortController/.test(sw), 'the worker still waits on every file to take over');
 });
 
 check('a secondary mounting is laid on a bearing that is a number', () => {

@@ -70,6 +70,11 @@ const SCULPTED = {
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
 const fetched = new Map();
 const ready = new Set();
+// When each fetch last failed. With no signal every ask fails at once, and
+// the battle asks again every frame for a hull it is drawing as a stand-in:
+// one that failed is not asked for again until this has gone by.
+const failed = new Map();
+const RETRY = 15000;
 
 function sculptOf(classId) {
   const k = SCULPT_OF[classId] || classId;
@@ -97,15 +102,20 @@ export function fleetReady(classIds) {
 /**
  * Fetch whatever these classes need -- every sculpted ship, given none -- and
  * resolve when all of it is in. `onEach(done, of)` is told as each one lands.
- * A fetch that fails is forgotten, so the next ask tries it again.
+ * A fetch that fails is forgotten, so the next ask tries it again -- or, for
+ * an ask made `quiet` (a hull drawn as a stand-in, asked after every frame),
+ * the next one after RETRY.
  */
-export function loadShips(classIds = Object.keys(SCULPTED), onEach = null) {
+export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false } = {}) {
   const keys = [...new Set(['planes', ...classIds.flatMap(needs)])];
   let done = 0;
   return Promise.all(keys.map((k) => {
     if (!fetched.has(k)) {
-      fetched.set(k, SCULPTED[k]().then(() => { ready.add(k); },
-        (e) => { fetched.delete(k); throw e; }));
+      if (quiet && Date.now() - (failed.get(k) || -Infinity) < RETRY) {
+        return Promise.reject(new Error(`Steel Currents: ${k} could not be fetched`));
+      }
+      fetched.set(k, SCULPTED[k]().then(() => { ready.add(k); failed.delete(k); },
+        (e) => { fetched.delete(k); failed.set(k, Date.now()); throw e; }));
     }
     return fetched.get(k).then(() => { done++; onEach?.(done, keys.length); });
   }));
@@ -549,6 +559,16 @@ function handedOver(built) {
   return out;
 }
 
+/** A class drawn as her generated hull whether or not her sculpt is in: what
+ *  a battle joined before it landed draws her as. */
+export function buildStandIn(classId) {
+  const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
+  const built = buildGenerated(cls);
+  armTubes(built, cls);
+  weldLoose(built.group, handedOver(built));
+  return built;
+}
+
 export function buildShipModel(classId) {
   const built = buildModel(classId);
   armTubes(built, SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher);
@@ -573,9 +593,12 @@ function armTubes(built, cls) {
 
 function buildModel(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
-  if (!shipReady(cls.id)) {
-    throw new Error(`Steel Currents: ${cls.id} has not been fetched -- await loadShips() first`);
-  }
+  // A sculpt that has not come down -- no signal, or one too weak to bring
+  // five megabytes of hull in before the captain gives up waiting -- is no
+  // reason to keep him out of the battle. She is drawn as the hull generated
+  // off her class data instead: her length, her beam and her turrets where
+  // the simulation has them, which is all a battle needs of her.
+  if (!shipReady(cls.id)) return buildGenerated(cls);
   // The Big E is modelled rather than generated: a Yorktown's flight deck,
   // island, galleries and catwalks are not a shape a procedural hull can be
   // talked into, and she is the one ship in the game a captain can walk round.
@@ -963,6 +986,12 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
     };
   }
+  return buildGenerated(cls);
+}
+
+/** Her hull generated off her class data, for a class with no model of its
+ *  own or one whose sculpt has not been fetched. */
+function buildGenerated(cls) {
   const root = new THREE.Group();
   const { group: hull, freeboard, rings } = buildHull(cls);
   root.add(hull);
