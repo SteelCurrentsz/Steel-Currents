@@ -57,12 +57,14 @@ export const MAX_WALLS = 12;
  */
 const CITY_IDS = 100000;
 
-/** One town or one stretch of wall as asked for: `{ seed, x, z }`, the spot optional. */
+/** One town or one stretch of wall as asked for: `{ seed, x, z, n }`, the spot and the order optional. */
 function cleanOne(a) {
   if (!a || typeof a !== 'object' || !Number.isFinite(a.seed)) return null;
   return {
     seed: a.seed >>> 0,
     ...(Number.isFinite(a.x) && Number.isFinite(a.z) ? { x: Math.round(a.x), z: Math.round(a.z) } : {}),
+    // In what order the board put them down, towns and walls counted together.
+    ...(Number.isFinite(a.n) ? { n: Math.max(0, Math.round(a.n)) } : {}),
   };
 }
 
@@ -502,6 +504,10 @@ function runWalls(world, ask, k, runs) {
   const cities = world.works?.cities || [];
   const spot = Number.isFinite(ask.x) ? { x: ask.x, z: ask.z } : null;
   const city = spot ? null : cities[k % Math.max(1, cities.length)] || null;
+  // When the board put this one down: a wall it put down at a spot, before
+  // a town was put down there, is kept whole. One left to find its own
+  // shore keeps out of every town's streets.
+  const order = spot && Number.isFinite(ask.n) ? ask.n : Infinity;
   const taken = runs.slice();
   const from = runs.length;
   if (isles.length && spot) {
@@ -519,7 +525,7 @@ function runWalls(world, ask, k, runs) {
       const off = Math.hypot(spot.x - i.x, spot.z - i.z);
       const mid = off > 1 ? a : Math.atan2(-i.x, -i.z);
       const span = clamp(1800 / i.r, 0.5, 1.6) * (0.85 + rng() * 0.3);
-      pushRun(world, runs, rimLine(i, mid, span), taken, true);
+      pushRun(world, runs, rimLine(i, mid, span), taken, order);
     }
   } else if (isles.length) {
     // The islands nearest the middle of the battle, biggest first among equals.
@@ -542,7 +548,7 @@ function runWalls(world, ask, k, runs) {
     }
   } else {
     const target = spot || (city ? cityToWorld(city, 0, city.D / 2) : { x: 0, z: 0 });
-    for (const line of coastLines(world, rng, target, !!spot, !!spot)) pushRun(world, runs, line, taken, !!spot);
+    for (const line of coastLines(world, rng, target, !!spot, !!spot)) pushRun(world, runs, line, taken, order);
   }
   // Which of the stretches asked for each run was built for.
   for (let r = from; r < runs.length; r++) runs[r].set = k;
@@ -599,8 +605,12 @@ function onTaken(taken, x, z) {
  * shore that winds in behind the front row would take the wall through the
  * houses, and the town is drawn up round whatever wall there is.
  */
-function inTown(world, x, z) {
+function inTown(world, x, z, before = Infinity) {
+  const asked = world.works?.ask?.cities || [];
   for (const c of world.works?.cities || []) {
+    // A town put down after the wall was is built round the wall, and does
+    // not take it away: the houses are kept off its walkway (see drawUp).
+    if ((asked[c.ask]?.n ?? -1) > before) continue;
     const { u, v } = worldToCity(c, x, z);
     const pad = WALL_WIDTH / 2;
     if (Math.abs(u) > c.W / 2 + pad || Math.abs(v) > c.D / 2 + pad) continue;
@@ -625,12 +635,10 @@ function boxOf(pts, pad) {
  * ground will carry a wall and no wall stands already, and give each run its
  * height.
  *
- * `placed` is a wall the board put down at a spot of its own: that one is
- * built through any town standing there, because a town put down after it
- * must not take away the wall the captain asked for. The town is drawn up
- * round it (see drawUp), its houses kept off the walkway.
+ * `before` is when the board put the wall down, in the order it put the
+ * works down: a town put down after it does not take any of it away.
  */
-function pushRun(world, runs, pts, taken = [], placed = false) {
+function pushRun(world, runs, pts, taken = [], before = Infinity) {
   let cur = [];
   const flush = () => {
     if (cur.length >= 4) {
@@ -652,7 +660,7 @@ function pushRun(world, runs, pts, taken = [], placed = false) {
   for (const p of pts) {
     const [x, z, nx, nz] = p;
     const free = Math.abs(x) < world.half - 300 && Math.abs(z) < world.half - 300
-      && !onTaken(taken, x, z) && (placed || !inTown(world, x, z));
+      && !onTaken(taken, x, z) && !inTown(world, x, z, before);
     // Ground under the back edge and the middle of it, and the sea not far
     // past the front.
     const ground = rawGround(world, x, z) > 0.2

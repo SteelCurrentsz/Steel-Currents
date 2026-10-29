@@ -238,9 +238,12 @@ export class LayoutMap {
     const list = kind === 'city' ? this.works.cities : this.works.walls;
     const spot = at ? { x: Math.round(at.x), z: Math.round(at.z) } : {};
     let added = -1;
+    // Towns and walls are numbered together in the order they go down, so a
+    // town put down on a wall is built round it rather than taking it away.
+    const next = 1 + Math.max(-1, ...[...this.works.cities, ...this.works.walls].map((a) => a.n ?? -1));
     if (!on) list.pop();
-    else if (index >= 0 && list[index]) list[index] = { seed: list[index].seed, ...spot };
-    else { list.push({ seed, ...spot }); added = list.length - 1; }
+    else if (index >= 0 && list[index]) list[index] = { seed: list[index].seed, ...spot, n: list[index].n ?? next };
+    else { list.push({ seed, ...spot, n: next }); added = list.length - 1; }
     this.placing = null;
     this.raise();
     this.hintOnce = null;

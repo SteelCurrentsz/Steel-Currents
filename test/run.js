@@ -24344,6 +24344,8 @@ check('several towns and several stretches of wall can be raised in one battle, 
 check('the board\'s old ask for one town and one wall is still read, as a list of one', () => {
   const a = cleanAsk({ city: { seed: 1, x: 10.4, z: 20 }, walls: { seed: 2 } });
   assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }] });
+  assert.deepEqual(cleanAsk({ cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2, n: 'x' }] }),
+    { cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2 }] });
   assert.equal(cleanAsk({ cities: [], walls: [] }), null);
   assert.equal(cleanAsk({ cities: Array.from({ length: 40 }, (_, k) => ({ seed: k })) }).cities.length, 8);
 });
@@ -24507,12 +24509,13 @@ check('a town put down after a sea wall leaves the whole of the wall standing, a
   const [px, pz, nx, nz] = shore.pts[shore.pts.length >> 1];
   cases.push([coastWorld, { x: Math.round(px), z: Math.round(pz) },
     [1500, 1000, 600, 200].map((d) => ({ x: Math.round(px - nx * d), z: Math.round(pz - nz * d) }))]);
+  // The board numbers the works in the order they go down: the wall first.
   for (const [make, spot, towns] of cases) {
-    const wall = { seed: 7, ...spot };
+    const wall = { seed: 7, ...spot, n: 0 };
     const alone = length(make({ cities: [], walls: [wall] }));
     if (!alone) continue;
     for (const t of towns) {
-      const w = make({ cities: [{ seed: 9, ...t }], walls: [wall] });
+      const w = make({ cities: [{ seed: 9, ...t, n: 1 }], walls: [wall] });
       assert.equal(length(w), alone, `a town at ${t.x}, ${t.z} took the wall from ${alone} points to ${length(w)}`);
       for (const p of cityPlans(w)) {
         for (const b of p.buildings) assert.ok(!wallAt(w, b.x, b.z), `the ${b.kind} ${b.id} stands on the wall`);

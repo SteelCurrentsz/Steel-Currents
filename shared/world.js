@@ -1112,10 +1112,11 @@ export function coastGrid(world) {
     };
     // Eased a little across its neighbours, so the shore runs round in
     // curves rather than in the hundred-and-fifty-metre steps of the cells
-    // it was rasterised on -- but never across the waterline: a vertex on a
-    // land cell stays land and one on a water cell stays water, so the
-    // coast is where the mask says it is to within a few tens of metres and
-    // a spit one cell wide is still a spit.
+    // it was rasterised on -- but only ever out to sea, and never across the
+    // waterline. A vertex on a land cell keeps all its height, so every bit
+    // of ground a hull can run onto is drawn and a spit one cell wide is
+    // still a spit; one on a water cell is let up towards the land round it,
+    // which fills the shore's inside corners, and stays under the water.
     const keep = m.cell / 4;
     for (let j = 0; j <= n; j++) {
       for (let i = 0; i <= n; i++) {
@@ -1124,7 +1125,8 @@ export function coastGrid(world) {
           for (let a = -1; a <= 1; a++) sum += raw(i + a, j + b) * (a ? 1 : 2) * (b ? 1 : 2);
         }
         const v = sum / 16;
-        d[j * (n + 1) + i] = raw(i, j) > 0 ? Math.max(keep, v) : Math.min(-keep, v);
+        const r = raw(i, j);
+        d[j * (n + 1) + i] = r > 0 ? Math.max(r, v) : Math.min(-keep, v);
       }
     }
     m.coast = { m, cell: m.cell, n, o: -m.half - m.cell / 2, d };
