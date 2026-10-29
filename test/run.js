@@ -9324,7 +9324,8 @@ check('a bomber carries her weapon, and it comes out of her when she drops', () 
     b5n: ['prop', 'store', 'gun', 'gearL', 'gearR', 'gearT'],
   };
   for (const [kind, names] of Object.entries(want)) {
-    const parts = (models[kind].parts || []).map((q) => q.name).sort();
+    // Her dive brakes are a check of their own; see the one on her wings.
+    const parts = (models[kind].parts || []).filter((q) => !q.brake).map((q) => q.name).sort();
     assert.deepEqual(parts, [...names].sort(),
       `the ${kind} has moving parts ${parts.join(', ') || '(none)'}`);
     for (const q of models[kind].parts) {
