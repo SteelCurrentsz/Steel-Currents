@@ -452,9 +452,13 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // from a turn rate: she goes past the vertical and over on her back.
       bk: p.df || p.flown ? r3(p.bank || 0) : p.show !== undefined ? r3(p.show) : undefined,
       pt: p.df || p.flown ? r3(p.pitch || 0)
-        // A dive bomber rolling in over the top: the pitch of the path she
-        // is on, off her climb and her speed, for the bank to go with.
+        // A dive bomber in her attack -- rolling in over the top, down the
+        // dive and out of it at the bottom: the pitch of the path she is on,
+        // off her climb and her speed, for the bank to go with.
         : p.show !== undefined ? r3(Math.atan2(p.vy || 0, Math.max(1, p.speed || 0))) : undefined,
+      // How far her dive brakes are out, on a dive bomber in her attack or a
+      // pilot who has them selected: the client opens them on her wings.
+      db: p.brk > 0.01 ? Math.round(p.brk * 100) / 100 : undefined,
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
       // And which machine, where her ship flies one particular type. A

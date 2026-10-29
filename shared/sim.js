@@ -2793,6 +2793,19 @@ export function fishFall(p) {
 }
 
 /**
+ * How steady a dive bomber is when she lets go, by how far her brakes are out.
+ *
+ * A dive bomber with her brakes in is going too fast to hold the sight on
+ * anything: the ship goes through the ring rather than sitting in it, and a
+ * pilot who lets go then is guessing. Brakes out, she is the platform the
+ * attack is built round. Anything else is as steady as it is.
+ */
+function diveSteady(p) {
+  if (p.role !== 'dive') return 1;
+  return 0.75 + 0.25 * clamp(p.brk ?? 0, 0, 1);
+}
+
+/**
  * What a flight actually drops, and what it does when it arrives.
  *
  * One place, because two things call it: the flight's own attack run, and a
@@ -2843,7 +2856,7 @@ function deliverOrdnance(state, p, best, P) {
   // fly straight goes where the aeroplane was pointing, and that is not where
   // the ship is -- so a flight shot about on the way in misses, which is most
   // of what a close-range battery is actually for.
-  const aim = (p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1;
+  const aim = ((p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1) * diveSteady(p);
   for (let i = 0; i < (p.bomb || 0); i++) {
     const hit = state.rng() <= (P.bombHit ?? 0.4) * aim;
     // A miss is a miss you can see: it goes into the water short, over or off
@@ -3014,6 +3027,8 @@ export function flyPlane(state, ship, msg) {
   if (Number.isFinite(msg.p)) p.pitch = clamp(msg.p, -1.5, 1.5);
   // And her bank, which is all the way round now that she can be rolled.
   if (Number.isFinite(msg.bk)) p.bank = wrapAngle(msg.bk);
+  // And her dive brakes, as far as the pilot has them out.
+  p.brk = Number.isFinite(msg.br) ? clamp(msg.br, 0, 1) : 0;
   // Where her guns are laid, which is her nose and not her flight path, and
   // what she is doing through the air: the rounds go down the one at their
   // muzzle velocity plus the other.
@@ -3528,7 +3543,7 @@ function bombBattery(state, p, bat, P) {
   const each = (P.bombDamage ?? 3000) * 0.5;
   let hit = 0;
   for (let i = 0; i < (p.bomb || 1); i++) {
-    if (state.rng() > (P.bombHit ?? 0.4) * ((p.wear && p.wear.aim) ?? 1)) continue;
+    if (state.rng() > (P.bombHit ?? 0.4) * ((p.wear && p.wear.aim) ?? 1) * diveSteady(p)) continue;
     hurtBattery(state, bat, each);
     hit++;
   }
@@ -3558,7 +3573,7 @@ function freeBombs(state, p, P) {
   const v = Math.max(30, p.speed || 80);
   const vy = Number.isFinite(p.vy) ? p.vy : Math.sin(p.pitch || 0) * v;
   const flat = Math.sqrt(Math.max(0, v * v - vy * vy));
-  const aim = (p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1;
+  const aim = ((p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1) * diveSteady(p);
   const n = p.bomb || 1;
   for (let i = 0; i < n; i++) {
     // A little scatter off the rack, more from an aeroplane shot about.
@@ -8575,32 +8590,53 @@ const DIVE_AT = 170;           // and the range -- just inside the release
 /**
  * How she gets from the perch into the dive: not by pushing the stick
  * forward, which puts her crew on the canopy and her engine out of fuel, but
- * over on her back. She lifts her nose for a moment, rolls inverted, pulls the
- * nose down through the horizon onto her target and rolls upright again
- * with her brakes out, pointing at it -- a couple of seconds from level flight
- * to seventy degrees, and the one thing everybody who ever saw a dive bombing
- * attack remembers.
+ * over on her back. Brakes out first, on the level, so she is slowed and
+ * steady before anything else happens; then she rolls inverted, pulls the
+ * nose down through the horizon onto her target with the g on her the right
+ * way, and only once she is pointing well down at it does she roll upright
+ * again -- seventy degrees down with her brakes out and the ship in her sight.
+ *
+ * It used to be a clock. She rolled over and back in two seconds flat, came
+ * out of it upright and still only twenty degrees nose-down, and then pushed
+ * the rest of the way: a roll followed by a bunt, which is not how anybody
+ * ever went into a dive.
  */
-const DIVE_ROLL = 2.1;         // seconds, from the zoom to upright in the dive
+const DIVE_ANGLE = 1.22;       // seventy degrees: the dive she rolls out into
+const DIVE_OVER = 2.75;        // how far over she goes: a hundred and fifty-odd degrees
+const DIVE_ROLL_RATE = 2.6;    // radians a second, rolling in and rolling out
+const DIVE_ROLL_OUT = 0.9;     // and she starts back upright this far short of her angle
 /**
  * And how hard she pulls in each part of it, in gravities: the roll-in is a
  * hard pull with her on her back, and the pull-out at the bottom is the
  * hardest thing she does -- the bomb is gone, she is four hundred metres up
- * at two hundred and sixty knots and pointing at the sea.
+ * at two hundred and fifty knots and pointing at the sea.
  */
-const DIVE_PULL_IN = 4.2;
+const DIVE_PULL_IN = 3.4;
 const DIVE_PULL_OUT = 5.2;
 /**
- * And the speed she holds coming down, which is what the brakes are for.
+ * And the speed she settles at coming down, which is what the brakes are for.
  *
- * A dive bomber without her brakes out arrives too fast to aim and too fast
- * to pull out; with them she holds about two hundred and fifty knots all the
- * way down whatever the angle. So her speed through the air is the constant
- * and her speed over the ground is what is left of it once the vertical has
- * taken its share -- which is why a steep dive crosses the ground slowly and
- * why the flak gets a long look at her.
+ * She has an airspeed of her own through the attack, and it is flown: the
+ * engine pulls her, the air and her brakes hold her back, and gravity down
+ * her own flight path does the rest. With the brakes out the drag is sized so
+ * that seventy degrees down she runs up to about two hundred and forty knots
+ * and stops there; clean, the same dive would carry her on past twice that.
+ * Her speed over the ground is what is left of it once the vertical has taken
+ * its share, which is why a steep dive crosses the ground slowly and why the
+ * flak gets a long look at her.
+ *
+ * It used to be a constant: the instant she started down she was doing a
+ * hundred and forty metres a second through the air, twice her cruise, from
+ * a standing start -- she leapt forward at the top of the roll-in and then
+ * slowed down across the ground as she steepened, which is backwards.
  */
-const DIVE_SPEED = 140;
+const DIVE_SPEED = 125;
+/** What her engine pulls with, in metres a second squared, throttled back in the dive. */
+const DIVE_IDLE = 0.6;
+/** How long her brakes take to run out on their jacks, and in again. */
+const DIVE_BRAKE_RUN = 1.5;
+/** How many seconds short of her roll-in she puts them out. */
+const DIVE_BRAKE_LEAD = 5;
 /**
  * How far out each kind starts changing height, and where she has to be at it.
  *
@@ -8622,30 +8658,40 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
  *
  * `p.dv` is the stage: nothing on passage and on the climb to the perch;
  * `roll` from the moment she is over her push-over point until she is upright
- * in the dive; `dive` down the line to the release; `pull` from the release
- * until she is climbing again, after which the climb back up to cruising
- * height is the ordinary business of coming home. `p.show` is her bank while
- * she is rolling, which is more than the autopilot's own bank can ever be --
- * she goes right over on her back -- and is what the client draws.
+ * in the dive; `dive` down onto her target to the release; `pull` from the
+ * release until she is climbing again, after which the climb back up to
+ * cruising height is the ordinary business of coming home. Inside the roll
+ * `p.dvS` is which part of it she is in: `over` onto her back, `pull` the
+ * nose down through the horizon while she is there, and `out` upright again.
+ *
+ * `p.show` is her bank through all of it, which is more than the autopilot's
+ * own bank can ever be -- she goes right over on her back -- and is what the
+ * client draws. `p.brkWant` is whether she wants her brakes out; see
+ * diveAirspeed for what they do.
  *
  * Returns what the stage wants of her vertical speed and how hard she may
  * pull to get it, or null when it is her ordinary profile that decides.
  */
 function diveStage(state, p, dt) {
+  const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
+  const path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
   if (p.dv === 'pull') {
-    // Out of it: as hard as she will stand until the nose is above the
-    // horizon, and then the climb home.
-    if ((p.vy || 0) > 2) { p.dv = undefined; return null; }
+    // Out of it: brakes in, as hard as she will stand until the nose is
+    // above the horizon, and then the climb home. She comes out wings level,
+    // which is what is drawn.
+    p.brkWant = 0;
+    p.show = 0;
+    if ((p.vy || 0) > 2) { p.dv = undefined; p.dvS = undefined; p.show = undefined; return null; }
     return { vy: 30, g: DIVE_PULL_OUT };
   }
   if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
-    p.dv = undefined; p.show = undefined;
+    p.dv = undefined; p.dvS = undefined; p.show = undefined; p.brkWant = 0;
     return null;
   }
   const mark = p.targetBat
     ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
     : state.ships.find((q) => q.id === p.targetId && q.alive);
-  if (!mark) return null;
+  if (!mark) { p.brkWant = 0; return null; }
   const d = dist(p.x, p.z, mark.x, mark.z);
   if (!p.dv) {
     // Whatever height she has got up to is what she dives from, so long as
@@ -8653,20 +8699,27 @@ function diveStage(state, p, dt) {
     // climbing when it arrives over her, and a dive bomber that waited for
     // the full perch would never go down at all -- she lobbed it from level
     // flight instead, which is not what she is for.
-    // She rolls in where the height she has will make a steep dive of it: a
-    // fifty-five degree line from the roll-out to the release, and the couple
-    // of hundred metres the roll itself carries her on.
+    // She rolls in where the height she has will make a steep dive of it,
+    // with the target going under her wing: the roll and the pull through
+    // carry her on a couple of hundred metres more, and she comes out of it
+    // with the ship sixty-five or seventy degrees under her nose -- and stays
+    // there, because she flies the dive down her sight onto it.
     //
     // And whatever height that is. One that arrives over her target before
     // she has climbed to her perch does not go round it climbing for more:
     // she is there, the flak is on her, and she pushes over from where she is
     // and lets go lower down the dive instead -- see dropHeight.
-    const over = Math.max(0, (p.y ?? 0) - (mark.y || 0) - dropHeight(p, mark));
-    if (d > DIVE_AT + over / 1.45 + 220) return null;
+    const at = Math.max(0, (p.y ?? 0) - (mark.y || 0)) * 0.38 + 200;
+    // Brakes out a few seconds short of it, on the level, so that she is
+    // slowed and settled before she goes over.
+    p.brkWant = d < at + (p.speed || 60) * DIVE_BRAKE_LEAD ? 1 : 0;
+    if (d > at) return null;
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
+    p.dvS = 'over';
     p.dvT = 0;
+    p.show = 0;
     // Where the bomb leaves her, fixed for this dive at the height she has
     // to start it from.
     p.dropY = releaseFor((p.y ?? 0) - (mark.y || 0));
@@ -8674,33 +8727,98 @@ function diveStage(state, p, dt) {
     const off = angleDelta(p.heading, headingTo(p.x, p.z, mark.x, mark.z));
     p.dvSide = off >= 0 ? 1 : -1;
   }
+  p.brkWant = 1;
+  // How steep she wants to be: down her line of sight to the ship, which is
+  // what a pilot does with the sight on it, and never shallower than a dive
+  // bomber dives nor so steep she goes past the vertical.
+  const sight = Math.atan2(Math.max(1, (p.y ?? 0) - (mark.y || 0)), Math.max(1, d));
+  const steep = clamp(sight, 0.95, 1.4);
+  const down = -V * Math.sin(steep);
   if (p.dv === 'roll') {
     p.dvT += dt;
-    const t = p.dvT;
-    const k = (u) => u * u * (3 - 2 * u);
-    // Her bank: up and over onto her back, held there while she pulls the
-    // nose down through the horizon, and back upright with the target under
-    // her nose.
-    let bank;
-    if (t < 0.45) bank = 0.9 * k(t / 0.45);
-    else if (t < 1.25) bank = 0.9 + (2.75 - 0.9) * k((t - 0.45) / 0.8);
-    else bank = 2.75 * (1 - k(Math.min(1, (t - 1.25) / (DIVE_ROLL - 1.25))));
-    p.show = p.dvSide * bank;
-    if (t >= DIVE_ROLL) {
+    const bank = Math.abs(p.show || 0);
+    const roll = (want) => {
+      const err = want - bank;
+      // Eased in at the ends of each roll, so it starts and stops like an
+      // aeroplane and not like a switch.
+      const rate = DIVE_ROLL_RATE * Math.min(1, 0.3 + Math.abs(err) / 0.5);
+      return bank + clamp(err, -rate * dt, rate * dt);
+    };
+    // A dive that has gone wrong somewhere -- she was knocked about on the
+    // way over -- is still a dive: after eight seconds she is in it.
+    if (p.dvT > 8) p.dvS = 'out';
+    if (p.dvS === 'over') {
+      // Over onto her back, holding her height: a touch of back stick, no
+      // more, while the wings go round.
+      const b = roll(DIVE_OVER);
+      p.show = p.dvSide * b;
+      if (b >= DIVE_OVER - 0.04) p.dvS = 'pull';
+      return { vy: 3, g: 1.2 };
+    }
+    if (p.dvS === 'pull') {
+      // On her back and pulling: the nose comes down through the horizon
+      // and onto the ship. She is pulling toward her own canopy, which is
+      // toward the sea, so this is positive g and the pilot stays in his seat.
+      p.show = p.dvSide * DIVE_OVER;
+      if (path <= -(DIVE_ANGLE - DIVE_ROLL_OUT * 0.5)) p.dvS = 'out';
+      return { vy: down, g: DIVE_PULL_IN };
+    }
+    // And upright again, with the last of the pull going on as she rolls, so
+    // she arrives in the dive at her angle and pointing at it.
+    const b = roll(0);
+    p.show = p.dvSide * b;
+    if (b <= 0.02) {
       p.dv = 'dive';
-      p.show = undefined;
+      p.dvS = undefined;
+      p.show = 0;
       // The line she dives down starts where she is now, at the height she
-      // has now: the zoom and the roll have used some of both.
+      // has now: the roll and the pull through have used some of both.
       p.diveFrom = Math.max(DIVE_AT + 120, d);
       p.perch = Math.max((mark.y || 0) + dropHeight(p, mark) + 60, p.y);
-      return null;
     }
-    // The zoom first, nose up for the half second she is rolling into it,
-    // and then everything she has downward.
-    if (t < 0.45) return { vy: 12, g: 1.6 };
-    return { vy: -132, g: DIVE_PULL_IN };
+    return { vy: down, g: DIVE_PULL_IN };
   }
-  return null;
+  // In the dive: down her sight onto the ship, wings level, brakes out. She
+  // is drawn off her own path from here -- see protocol.js -- so the nose is
+  // where the dive is and not eased toward it.
+  p.show = 0;
+  return { vy: down, g: 1.6 };
+}
+
+/**
+ * Her airspeed through the attack, flown rather than written down.
+ *
+ * Gravity down her path against the drag of her airframe and her brakes, and
+ * whatever the engine is pulling: about her cruise on the level, throttled
+ * back to almost nothing once she is over on her back, and opened right up
+ * again for the pull-out and the climb away. Her brakes are open as far as
+ * they have run out on their jacks -- see DIVE_BRAKE_RUN -- and in again
+ * after the release, which is when every dive bomber pilot put them away.
+ *
+ * Returns her speed through the air, and keeps it on her as `p.as`.
+ */
+function diveAirspeed(p, cruise, dt) {
+  const want = p.brkWant ? 1 : 0;
+  p.brk = clamp((p.brk ?? 0) + clamp(want - (p.brk ?? 0), -dt / DIVE_BRAKE_RUN, dt / DIVE_BRAKE_RUN), 0, 1);
+  let V = p.as ?? Math.hypot(p.speed || cruise, p.vy || 0);
+  // Drag as a constant times the square of the speed, with the constant for
+  // her brakes out set by the speed they hold her to seventy degrees down,
+  // and the clean one set to let the same dive run on to twice as fast.
+  const sink = DIVE_IDLE + G * Math.sin(DIVE_ANGLE);
+  const kOut = sink / (DIVE_SPEED * DIVE_SPEED);
+  const kIn = sink / (4.4 * DIVE_SPEED * DIVE_SPEED);
+  const k = kIn + (kOut - kIn) * p.brk;
+  // The throttle. Open for the pull-out and the climb away; closed in the
+  // dive; on the level, as much as holds her at an approach speed a little
+  // under her cruise, whatever the brakes are doing.
+  const pull = p.dv === 'pull' || p.dropped;
+  const A = pull ? kIn * cruise * cruise + 2.2
+    : p.dv ? DIVE_IDLE
+      : k * (cruise * 0.88) ** 2;
+  V += (A - k * V * V - G * (p.vy || 0) / Math.max(20, V)) * dt;
+  V = clamp(V, 32, DIVE_SPEED * 2.2);
+  p.as = V;
+  return V;
 }
 
 /**
@@ -10574,7 +10692,14 @@ function stepPlanes(state, dt) {
       const stage = p.role === 'dive' ? diveStage(state, p, dt) : null;
       if (stage) {
         if (stage.vy !== undefined) askVy = stage.vy;
-        if (stage.g) pull = G * stage.g * dt;
+        // What she pulls turns her path, and her rate of climb is only the
+        // vertical part of that: going straight down, a hard pull hardly
+        // changes it at first. Held to the g as a rate of climb instead, she
+        // came out of a seventy degree dive at twelve g.
+        if (stage.g) {
+          const v = Math.hypot(p.speed || 0, p.vy || 0);
+          pull = G * stage.g * dt * Math.max(0.2, v > 1 ? (p.speed || 0) / v : 1);
+        }
       }
       // Down the slope: the rate it takes to stay on it, and a correction for
       // being off it, firm enough that she arrives at the deck and not above it.
@@ -10582,23 +10707,39 @@ function stepPlanes(state, dt) {
         askVy = clamp(guide.vy + (wantY - p.y) * 0.7, -frame.dive, rise);
       }
       p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -pull, pull);
+      // A dive bomber from the moment her brakes start out until they are
+      // in again is flown on an airspeed of her own -- see diveAirspeed --
+      // and cannot be going down faster than she is going.
+      const air = p.role === 'dive' && (p.dv || p.brkWant || (p.brk ?? 0) > 0)
+        ? diveAirspeed(p, P.cruiseSpeed * wear.speed, dt) : null;
+      if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
       p.y = Math.max(14, p.y + p.vy * dt);
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded
       // bomber climbing out is slow.
       //
-      // Except in the dive itself. There the brakes hold her airspeed and the
-      // ground speed is whatever is left over -- so the steeper she is, the
-      // slower she crosses the ground. Without that she went down at the same
-      // hundred and fifteen metres a second she cruised at and could not get
-      // her nose past thirty degrees: a fast shallow glide, not a dive.
-      if (p.role === 'dive' && p.vy < -12) {
-        speed = Math.sqrt(Math.max(400, DIVE_SPEED * DIVE_SPEED - p.vy * p.vy));
+      // Except in a dive bomber's attack. There her airspeed is her own and
+      // the ground speed is whatever is left over -- so the steeper she is,
+      // the slower she crosses the ground. Without that she went down at the
+      // same hundred and fifteen metres a second she cruised at and could not
+      // get her nose past thirty degrees: a fast shallow glide, not a dive.
+      if (air !== null) {
+        speed = Math.sqrt(Math.max((air * 0.12) ** 2, air * air - p.vy * p.vy));
+        p.dvOut = true;
       } else if (guide && guide.final) {
         // On the glide she is flown on the throttle to her approach speed.
       } else {
         speed *= 1 + clamp(-p.vy / 34, -0.16, 0.45);
+        // Out of the attack and back on the ordinary rule, she gets there on
+        // her engine and her drag rather than in one tick: the rule says
+        // cruise less the climb, and she came out of the bottom of the dive
+        // a good deal faster than that.
+        if (p.dvOut) {
+          const was = p.speed ?? speed;
+          if (Math.abs(speed - was) < 0.3) { p.dvOut = undefined; p.as = undefined; }
+          else speed = was + clamp(speed - was, -3 * dt, 2.5 * dt);
+        }
       }
 
       // Fresh off the deck she has not got her cruise yet, and builds it at

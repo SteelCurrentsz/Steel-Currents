@@ -749,6 +749,11 @@ input[type="range"] { accent-color: var(--red); }
 .fly-btn.drop:active { background: rgba(226, 86, 79, 0.34); }
 .fly-btn.drop.spent { opacity: 0.35; }
 .fly-btn.bombcam { font-size: 0.5rem; line-height: 1.25; }
+.fly-btn.brakes { font-size: 0.5rem; line-height: 1.25; }
+.fly-btn.brakes.on {
+  background: rgba(230, 207, 156, 0.24); border-color: rgba(230, 207, 156, 0.85);
+  color: var(--sand);
+}
 .fly-btn.bombcam:active, .fly-btn.bombcam.on {
   background: rgba(230, 207, 156, 0.24); border-color: rgba(230, 207, 156, 0.75);
   color: var(--sand);

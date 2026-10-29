@@ -884,6 +884,7 @@ export class Battle {
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
       bombCam: () => this.toggleShellCam(),
+      brakes: () => this.toggleBrakes(),
       move: (kind) => this.flyMove(kind),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
@@ -3587,6 +3588,8 @@ export class Battle {
     // In the cockpit the flying keys fly her (see stepFlight) and do nothing
     // to the ship she came off.
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
+    // Her dive brakes, out and in.
+    if (this.flight && !this.flight.heavy && code === 'KeyX') { this.toggleBrakes(); return; }
     // A heavy's bombs off the keyboard as well as the DROP key, and out of the
     // bomb bay without leaving the battle.
     if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
@@ -4348,6 +4351,13 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
+    // Her dive brakes, on a type that has them -- and out already, if the
+    // autopilot was half way down a dive with them when she was taken.
+    if (pl.db > 0) {
+      this.flight.pilot.brakes = pl.db;
+      this.flight.pilot.brakeCmd = pl.db > 0.5;
+    }
+    this.hud.setBrakes(!!aero.brake, this.flight.pilot.brakeCmd);
     // No set pieces any more: she is flown through them by the pilot, by
     // looking where he wants her to go.
     this.hud.setMoves(false);
@@ -4694,6 +4704,19 @@ export class Battle {
   }
 
   /**
+   * Her dive brakes, out or in: on the DIVE BRAKES key and on X. Out, she
+   * settles at a speed she can aim at and pull out from; a type without them
+   * has no key, and the key does nothing.
+   */
+  toggleBrakes() {
+    const f = this.flight;
+    if (!f || f.heavy || f.orphan || !f.pilot.a.brake) return;
+    f.pilot.brakeCmd = !f.pilot.brakeCmd;
+    this.hud.setBrakes(true, f.pilot.brakeCmd);
+    audio.click();
+  }
+
+  /**
    * Fly her for one frame.
    *
    * The stick and the throttle come off the cockpit; the aeroplane comes off
@@ -4983,6 +5006,9 @@ export class Battle {
         v: Math.round(p.v),
         // And her bank, all the way round, so a roll is seen to be a roll.
         bk: Math.round((p.bank || 0) * 1000) / 1000,
+        // And how far her dive brakes are out, which the simulation steadies
+        // her aim by and everybody else's screen draws on her wings.
+        br: p.brakes > 0 ? Math.round(p.brakes * 100) / 100 : undefined,
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
@@ -5507,6 +5533,11 @@ export class Battle {
     t.rate += (spin - t.rate) * (1 - Math.exp(-dt * 2.5));
     t.prop = (t.prop + dt * t.rate) % (Math.PI * 2);
     t.idle = t.rate < 12;
+    // Her dive brakes, as far as they are out: the pilot's own, under his
+    // hands, and otherwise off the wire. Eased, because the wire says it ten
+    // times a second and the jacks run them out smoothly.
+    const brakeWant = flyer && !flyer.heavy ? (flyer.pilot.brakes || 0) : (pl.db || 0);
+    t.brake = (t.brake ?? brakeWant) + (brakeWant - (t.brake ?? brakeWant)) * (1 - Math.exp(-dt * 8));
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
@@ -6972,6 +7003,7 @@ export class Battle {
         y: curve('y', 220),
         vy: lerp(pl.vy || 0, nx.vy || 0, t),
         s: lerp(pl.s || 0, nx.s || 0, t),
+        db: lerp(pl.db || 0, nx.db || 0, t),
       };
     });
     // Who has just left a deck, first: the frame an aeroplane first comes on

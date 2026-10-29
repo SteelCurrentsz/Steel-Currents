@@ -76,6 +76,10 @@ export const AERO = {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
     helix: 0.062, gLimit: 5.0,
+    // Her perforated split flaps, opened above and below the trailing edge
+    // together: the drag coefficient they add, on her own wing area. See
+    // brakeDrag.
+    brake: 0.090,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
@@ -142,6 +146,7 @@ export const AERO = {
     mass: 3650, wing: 23.6, span: 11.50, clMax: 1.48, cd0: 0.0255,
     thrust: 14800, vMax: 156, name: 'D4Y3',
     helix: 0.060, gLimit: 5.5,
+    brake: 0.110,
   },
   // The B5N: as big in the wing as an Avenger and a great deal lighter, on a
   // Sakae of a thousand horsepower, carrying one eighteen-inch Type 91 under
@@ -168,6 +173,8 @@ export const AERO = {
     mass: 5300, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0360,
     thrust: 15600, vMax: 106, name: 'Ju 87C-1',
     helix: 0.055, gLimit: 6.5,
+    // The slats under her outer wings, turned square to the air.
+    brake: 0.100,
   },
   // The Ju 87D with the aerial torpedo a carrier Stuka would have carried
   // instead: the later airframe and the more powerful Jumo, and a tonne more
@@ -176,6 +183,7 @@ export const AERO = {
     mass: 5900, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0380,
     thrust: 18500, vMax: 112, name: 'Ju 87D-4',
     helix: 0.050, gLimit: 5.5,
+    brake: 0.110,
   },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.
@@ -313,6 +321,21 @@ export function lift(a, v, cl) { return 0.5 * RHO * v * v * a.wing * cl; }
 export function drag(a, v, cl) {
   const cd = a.cd0 + (cl * cl) / (Math.PI * aspect(a) * 0.78);
   return 0.5 * RHO * v * v * a.wing * cd;
+}
+
+/**
+ * What her dive brakes cost her, in newtons, `out` of the way open.
+ *
+ * Nothing at all on a type that has none. On one that has, they are sized so
+ * that with them right out she settles at about two hundred and seventy knots
+ * in a seventy degree dive with the throttle back -- which is the whole
+ * point of them: slow enough to aim, to hold the dive steady, and to pull
+ * out of it at the bottom without folding the wings. Without them the same
+ * dive runs away to well over three hundred.
+ */
+export function brakeDrag(a, v, out) {
+  if (!a.brake || !(out > 0)) return 0;
+  return 0.5 * RHO * v * v * a.wing * a.brake * Math.min(1, out);
 }
 
 /** Thrust, in newtons. A propeller makes most of it standing still. */

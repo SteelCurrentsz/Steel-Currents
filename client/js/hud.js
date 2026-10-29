@@ -314,6 +314,7 @@ class HudBase {
       flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'), flyMoves: $('fly-moves'),
+      flyBrakes: $('fly-brakes'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -1075,6 +1076,7 @@ class HudBase {
     // ship carries -- and pressing a turret in it puts you in that turret.
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
+    if (el.flyBrakes) el.flyBrakes.onclick = () => this.flyFns.brakes?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
     // The gunner's seat, and his trigger: held down for as long as the thumb
     // is on it, the same as the cockpit's.
@@ -1217,6 +1219,17 @@ class HudBase {
   }
 
   /**
+   * Her dive brakes, on the key: there only on a type that has them, lit
+   * while they are selected out.
+   */
+  setBrakes(has, out = false) {
+    const b = this.el.flyBrakes;
+    if (!b) return;
+    b.hidden = !has;
+    b.classList.toggle('on', !!has && !!out);
+  }
+
+  /**
    * Who she is: her type in the bottom left corner, and the ship she came off
    * under it. A pilot flying one of the carrier's Avengers from a destroyer's
    * bridge has to be told which aeroplane he has.
@@ -1308,6 +1321,7 @@ class HudBase {
       this.releaseTriggers?.();
       if (this.el.flyHint) this.el.flyHint.classList.remove('gone');
       this.setSightHot(false);
+      this.setBrakes(false);
     }
   }
 

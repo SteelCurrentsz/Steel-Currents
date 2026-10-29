@@ -435,6 +435,8 @@ function suiseiFlightModel() {
       at: at(k), rot: suiseiRest(k), geo: geos[k], mats: [mat],
     });
   }
+  const br = BRAKES.suisei;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
   const segOf = suiseiSegOf;
   segOf.breaks = SUISEI.breaks;
   return { segs, parts, probe, segOf, cy: 1.3, geo: probe, mats: [mat] };
@@ -502,6 +504,141 @@ function bf109FlightModel() {
 }
 
 /**
+ * Dive brakes, hung on a sculpt's own wing.
+ *
+ * The sculpts have their wings in one skin with nothing cut out of it, so the
+ * brakes are made here: a thin plate per panel per surface, laid along the
+ * trailing edge or under the wing where the type had them, found off the
+ * panel's own points so they sit on the wing she actually has -- its taper,
+ * its dihedral and its sweep. Each swings on a hinge along its own edge, which
+ * is not quite square to her centreline once the wing has dihedral and taper,
+ * so the hinge carries its own axis.
+ *
+ * `plates` says where each plate goes, as fractions of the local chord
+ * forward of the trailing edge: from `a` to `b`, on the `lo` or `hi` surface
+ * and `drop` below it, hinged at `h`, and swung `open` radians when the
+ * brakes are all the way out, in `color` if it is not the colour of the
+ * underside. `always` is a brake that is part of her shape
+ * shut as well as open -- a Stuka's slats hang under her wing all the time.
+ */
+function brakeParts(geos, panels, plates, mat) {
+  // The trailing and leading edges of a panel at a station across it, and
+  // the height of its skin above and below at a point on its chord -- found
+  // by putting a line straight down through the panel, because a sculpt's
+  // points are where her curves are and not on any grid.
+  const edges = (geo, x) => {
+    const p = geo.attributes.position;
+    let te = Infinity, le = -Infinity, y = 0;
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(p.getX(i) - x) > 0.14) continue;
+      const z = p.getZ(i);
+      if (z < te) { te = z; y = p.getY(i); }
+      if (z > le) le = z;
+    }
+    return Number.isFinite(te) ? { te, le, y } : null;
+  };
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const probe = new Map();
+  const skin = (geo, x, z, side, fallback) => {
+    let mesh = probe.get(geo);
+    if (!mesh) {
+      mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+      probe.set(geo, mesh);
+    }
+    // A little in from the very edge, where a line can miss the skin.
+    for (const dz of [0, 0.04, -0.04, 0.1]) {
+      ray.set(new THREE.Vector3(x, 60, z + dz), down);
+      const hits = ray.intersectObject(mesh);
+      if (hits.length) return side === 'hi' ? hits[0].point.y : hits[hits.length - 1].point.y;
+    }
+    return fallback;
+  };
+  const parts = [];
+  for (const panel of panels) {
+    for (const side of [-1, 1]) {
+      const seg = `${panel.seg}${side < 0 ? 'L' : 'R'}`;
+      const geo = geos[seg];
+      if (!geo) continue;
+      const xs = [panel.x[0] * side, panel.x[1] * side].sort((u, v) => u - v);
+      const st = xs.map((x) => ({ x, e: edges(geo, x) }));
+      if (st.some((q) => !q.e)) continue;
+      for (const pl of plates) {
+        // The plate's four corners, inboard and outboard, fore and aft, and
+        // its hinge line, all on her own skin.
+        const at = (q, f) => {
+          const c = q.e.le - q.e.te;
+          const z = q.e.te + f * c;
+          return new THREE.Vector3(q.x, skin(geo, q.x, z, pl.side, q.e.y) - (pl.drop || 0), z);
+        };
+        const A = st.map((q) => at(q, pl.a));
+        const B = st.map((q) => at(q, pl.b));
+        const H = st.map((q) => at(q, pl.h));
+        const pivot = H[0].clone();
+        const axis = H[1].clone().sub(H[0]).normalize();
+        // Thickness, off the plate's own face.
+        const n = new THREE.Vector3().crossVectors(axis, B[0].clone().sub(A[0])).normalize()
+          .multiplyScalar(pl.side === 'hi' ? 0.022 : -0.022);
+        const c = [A[0], A[1], B[1], B[0]].map((v) => v.clone().sub(pivot));
+        const d = c.map((v) => v.clone().add(n));
+        const quads = [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]];
+        const v = [...c, ...d];
+        const pos = [];
+        for (const [i, j, k, l] of quads) {
+          for (const w of [i, j, k, i, k, l]) pos.push(v[w].x, v[w].y, v[w].z);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.computeVertexNormals();
+        parts.push({
+          name: `brake${parts.length}`, seg, brake: true, always: !!pl.always,
+          axis: 'x', axisV: axis, open: pl.open,
+          at: pivot, rot: new THREE.Quaternion(), geo: g, mats: [pl.color ? brakeMaterial(pl.color) : mat],
+        });
+      }
+    }
+  }
+  return parts;
+}
+
+/** The metal a dive brake is made of, painted the colour of the wing under it. */
+function brakeMaterial(color) {
+  return new THREE.MeshStandardMaterial({
+    color, roughness: 0.62, metalness: 0.25, side: THREE.DoubleSide,
+  });
+}
+
+/**
+ * Each dive bomber's brakes, as brakeParts lays them out.
+ *
+ * The SBD's are her split flaps: perforated plates along the trailing edge
+ * of her centre section and her outer panels as far as the ailerons, one
+ * opening up and one down, which is the shape everybody knows her by. The
+ * Suisei's are plates under the wing ahead of her flaps, and the Stuka's are
+ * the slatted bars under her outer wings, turned square to the air.
+ */
+const BRAKES = {
+  dauntless: {
+    color: 0x9fa6a9,
+    panels: [{ seg: 'wingIn', x: [0.9, 2.3] }, { seg: 'wingOut', x: [2.45, 4.3] }],
+    plates: [
+      { side: 'lo', a: 0.02, b: 0.24, h: 0.24, open: -1.05 },
+      { side: 'hi', a: 0.02, b: 0.24, h: 0.24, open: 1.05, color: 0x55687e },
+    ],
+  },
+  suisei: {
+    color: 0xa3a596,
+    panels: [{ seg: 'wingIn', x: [1.0, 3.1] }, { seg: 'wingOut', x: [3.45, 4.4] }],
+    plates: [{ side: 'lo', a: 0.30, b: 0.46, h: 0.30, open: 1.35 }],
+  },
+  ju87: {
+    color: 0x8fa6b6,
+    panels: [{ seg: 'wingOut', x: [2.4, 4.6] }],
+    plates: [{ side: 'lo', a: 0.69, b: 0.81, h: 0.75, drop: 0.16, open: -1.45, always: true }],
+  },
+};
+
+/**
  * A carrier Stuka: the owner's sculpt, in her pieces, with everything of her
  * that moves on its own hinge -- her airscrew and the gunner's guns, and for
  * the C her bomb doors, the SC 500 in her bay and an SC 250 under each wing,
@@ -535,6 +672,8 @@ function ju87FlightModel(variant) {
   }
   parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: ju87Rest('gun'),
     geo: geos.gun, mats: [mat] });
+  const br = BRAKES.ju87;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
   const segOf = ju87SegOf;
   segOf.breaks = JU87.breaks;
   return { segs, parts, probe, segOf, cy: JU87.cy, geo: probe, mats: [mat] };
@@ -604,6 +743,8 @@ function dauntlessFlightModel() {
       at: at(k), rot: dauntlessRest(k), geo: geos[k], mats: [mat],
     });
   }
+  const br = BRAKES.dauntless;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
   const segOf = dauntlessSegOf;
   segOf.breaks = DAUNTLESS.breaks;
   return { segs, parts, probe, segOf, cy: DAUNTLESS.cy, geo: probe, mats: [mat] };
@@ -1315,7 +1456,8 @@ export class Flights {
    * Draw one aeroplane's moving parts at the attitude her trim says they are
    * in: `bay` is how far the doors are open, 0 shut to 1 wide; `fall` is how
    * far the weapon has dropped clear of her, or null while it is still on the
-   * rack; `gear` is her legs, 0 down to 1 up, and up unless she says.
+   * rack; `gear` is her legs, 0 down to 1 up, and up unless she says;
+   * `brake` is how far her dive brakes are out, 0 in to 1 out.
    */
   trimParts(b, body, trim, cut = 0) {
     if (!b.parts.length) return;
@@ -1323,9 +1465,13 @@ export class Flights {
     const fall = trim && trim.fall !== undefined && trim.fall !== null ? trim.fall : null;
     const turn = trim && trim.prop ? trim.prop : 0;
     const gear = trim && trim.gear !== undefined ? Math.max(0, Math.min(1, trim.gear)) : 1;
+    const brake = trim && trim.brake ? Math.max(0, Math.min(1, trim.brake)) : 0;
     for (const q of b.parts) {
       if (q.n >= this.max) continue;
-      if (segGone(q.spec.name, cut)) continue;
+      // A dive brake goes with the wing panel it is hung on.
+      if (segGone(q.spec.seg || q.spec.name, cut)) continue;
+      // And one shut away inside the wing is not drawn at all.
+      if (q.spec.brake && !q.spec.always && brake < 0.02) continue;
       // A weapon that has gone is not drawn at all, and once it is clear of
       // her the simulation's own bomb or torpedo has taken it over.
       if (q.spec.fall && fall !== null && fall > 3.5) continue;
@@ -1333,8 +1479,11 @@ export class Flights {
       // falling: the one on the rack goes the same instant, or she is drawn
       // twice -- once leaving and once still hanging in the bay.
       if (q.spec.fall && trim && trim.handed) continue;
-      this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
-        q.spec.axis === 'z' ? 1 : 0);
+      if (q.spec.axisV) this.axis.copy(q.spec.axisV);
+      else {
+        this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
+          q.spec.axis === 'z' ? 1 : 0);
+      }
       // An airscrew is wound on rather than swung open: the angle is where it
       // has got to, and it goes round faster the faster she is going. A leg
       // is swung up on its hinge as far as it has got.
@@ -1342,6 +1491,7 @@ export class Flights {
       let tuck = 0;
       let slide = 0;
       if (q.spec.spin) ang = turn;
+      else if (q.spec.brake) ang = q.spec.open * brake * brake * (3 - 2 * brake);
       else if (q.spec.gear) {
         // Up, with the doors shut over it: not drawn. See planekit's gearRig.
         if (gear >= 0.985) continue;

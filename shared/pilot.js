@@ -12,11 +12,14 @@
 
 import {
   G, rollRate, rollTau, pitchTau, pitchRate, stallSpeed,
-  thrust, drag, clFor, alphaFor, wrapAngle,
+  thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle,
 } from './aero.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
 export const AGILITY = 1.6;
+
+/** How long her dive brakes take to run all the way out, or all the way in. */
+export const BRAKE_RUN = 1.5;
 
 /** The most the rudder will skid her flight path round, in radians a second. */
 const YAW_RATE = 0.24;
@@ -78,6 +81,12 @@ export class Pilot {
     this.bank = 0;
     this.v = speed === null ? aero.vMax * 0.75 : speed;
     this.throttle = 1;
+    // Her dive brakes, on a type that has them: whether the pilot has them
+    // selected, and how far out they have got. They take a second and a half
+    // to run out on their jacks and as long to come in, and nothing happens
+    // on a type built without them.
+    this.brakeCmd = false;
+    this.brakes = 0;
     // What the stick is asking for, -1 to 1: nose up positive, right roll
     // positive.
     this.stickPitch = 0;
@@ -311,7 +320,12 @@ export class Pilot {
     const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));
     const T = thrust(a, this.v, this.throttle);
     // A skid is draggy, which is the price of treading her round.
-    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25);
+    if (a.brake) {
+      const want = this.brakeCmd ? 1 : 0;
+      this.brakes += Math.max(-s / BRAKE_RUN, Math.min(s / BRAKE_RUN, want - this.brakes));
+    } else this.brakes = 0;
+    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25)
+      + brakeDrag(a, this.v, this.brakes);
     this.v += ((T - D) / a.mass - G * F.y) * s;
     this.v = Math.max(8, Math.min(a.vMax * 1.55, this.v));
 

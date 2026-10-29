@@ -22778,6 +22778,130 @@ check('a dive bomber climbs to her perch, rolls over into a steep dive and pulls
   assert.ok(Array.isArray(snap.planes), 'no planes on the wire');
 });
 
+check('a dive bomber puts her brakes out, rolls over, pulls through on her back and only then rolls upright', () => {
+  // She used to roll over and back on a two-second clock and come out of it
+  // upright and twenty degrees nose-down, then push the rest of the way -- and
+  // her speed through the air was a constant, so the instant she started down
+  // she leapt from her cruise to twice it. Now: brakes out on the level first,
+  // over on her back, the nose pulled down through the horizon while she is
+  // there, upright again only once she is well down, and an airspeed that
+  // builds in the dive and is held by the brakes.
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  let id = null, brakesAtRoll = null, pathOnBack = 0, pathAtUpright = null, wasRoll = false;
+  let worstJump = 0, fastest = 0, cruise = null, sawWire = false, steepest = 0, done = false;
+  let last = null;
+  for (let i = 0; i < 400 / DT && !done; i++) {
+    step(state, DT);
+    const p = id ? state.planes.find((q) => q.id === id) : state.planes.find((q) => q.role === 'dive' && !q.dead);
+    if (!p || p.dead) { if (id) break; continue; }
+    id = p.id;
+    if (p.phase === 'outbound' && !p.dv && !p.brkWant) cruise = p.speed;
+    if (p.dv === 'roll' && brakesAtRoll === null) brakesAtRoll = p.brk ?? 0;
+    const path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
+    // On her back -- banked past the vertical -- is where the nose comes down.
+    if (p.dv === 'roll' && Math.abs(p.show || 0) > 2.4) pathOnBack = Math.min(pathOnBack, path);
+    if (wasRoll && p.dv === 'dive' && pathAtUpright === null) pathAtUpright = path;
+    wasRoll = p.dv === 'roll';
+    if (p.dv === 'dive') steepest = Math.min(steepest, path);
+    // Her whole velocity, which turns as hard as she pulls and no harder:
+    // a jump in it is an aeroplane changing speed in one tick.
+    const vel = { x: Math.sin(p.heading) * p.speed, y: p.vy || 0, z: Math.cos(p.heading) * p.speed };
+    if (p.dv || p.dropped || p.brkWant) {
+      fastest = Math.max(fastest, p.as ?? 0);
+      if (last) worstJump = Math.max(worstJump, Math.hypot(vel.x - last.x, vel.y - last.y, vel.z - last.z));
+    }
+    last = vel;
+    if (p.dv === 'dive') {
+      const w = buildSnapshot(state, 0).planes.find((q) => q.i === p.id);
+      if (w && w.db > 0.9 && w.bk !== undefined && w.pt < -0.8) sawWire = true;
+    }
+    if (p.dropped && !p.dv && (p.vy || 0) > 0) done = true;
+  }
+  assert.ok(id, 'no dive bomber ever flew');
+  assert.ok(brakesAtRoll > 0.95, `her brakes were only ${(brakesAtRoll ?? 0).toFixed(2)} out when she rolled in`);
+  assert.ok(pathOnBack < -0.6,
+    `on her back she only got her nose ${(-pathOnBack * 57.3).toFixed(0)} degrees down: she rolled upright and pushed`);
+  assert.ok(pathAtUpright !== null && pathAtUpright < -0.85,
+    `she was upright again at ${pathAtUpright === null ? 'never' : (-pathAtUpright * 57.3).toFixed(0)} degrees down`);
+  assert.ok(steepest < -1.08, `her dive was only ${(-steepest * 57.3).toFixed(0)} degrees`);
+  // Her speed through the air is held by the brakes, and nothing jumps.
+  assert.ok(fastest < 135, `her brakes let her run up to ${fastest.toFixed(0)} m/s`);
+  assert.ok(fastest > (cruise ?? 0) * 1.2, `she never gathered speed in the dive (${fastest.toFixed(0)} m/s)`);
+  // Five and a bit g at the bottom is the hardest she pulls, with gravity and
+  // her engine along her path on top of it: under two and a half metres a
+  // second a tick at thirty ticks a second. The old roll-in jumped thirty.
+  assert.ok(worstJump < 2.4, `her velocity jumped ${worstJump.toFixed(1)} m/s in one tick`);
+  assert.ok(done, 'she never pulled out and climbed away');
+  // And the client is told the brakes and her attitude all the way down.
+  assert.ok(sawWire, 'the dive went out on the wire without her brakes or her pitch');
+});
+
+check('dive brakes hold a dive bomber to an aimable speed, and do nothing on a fighter', () => {
+  // Seventy degrees down from three thousand metres, throttled back, once
+  // with her brakes out and once clean.
+  const dive = (aero, out) => {
+    const p = new Pilot(aero, { y: 3500, speed: 70 });
+    p.throttle = 0.3;
+    p.brakeCmd = out;
+    // Point her down at seventy degrees and hold it there, as a pilot holds
+    // the sight on a ship.
+    let fast = 0;
+    for (let i = 0; i < 60 * 14; i++) {
+      p.pitch = -1.22;
+      p.bank = 0;
+      p.step(1 / 60);
+      fast = Math.max(fast, p.v);
+    }
+    return { v: p.v, fast, brakes: p.brakes };
+  };
+  const out = dive(AERO.dauntless, true);
+  const clean = dive(AERO.dauntless, false);
+  assert.ok(out.brakes > 0.99, 'her brakes never came out');
+  assert.ok(out.v > 110 && out.v < 150, `brakes out she settled at ${out.v.toFixed(0)} m/s`);
+  assert.ok(clean.v > out.v * 1.25, `clean she only reached ${clean.v.toFixed(0)} against ${out.v.toFixed(0)}`);
+  for (const k of ['suisei', 'ju87c', 'ju87d']) {
+    const b = dive(AERO[k], true);
+    assert.ok(b.v < 155, `a ${k} with her brakes out ran up to ${b.v.toFixed(0)} m/s`);
+  }
+  // A Hellcat has nothing to put out.
+  const hc = dive(AERO.hellcat, true);
+  assert.equal(hc.brakes, 0, 'a fighter put out dive brakes she has not got');
+});
+
+check('a dive bomber has brakes on her wings that open, and go with the wing', () => {
+  const models = flightModels();
+  for (const k of ['dauntless', 'suisei', 'ju87c', 'ju87d']) {
+    const b = models[k].parts.filter((q) => q.brake);
+    assert.ok(b.length >= 2, `a ${k} has no dive brakes`);
+    assert.ok(b.some((q) => q.seg.endsWith('L')) && b.some((q) => q.seg.endsWith('R')),
+      `a ${k} has brakes on one wing only`);
+    for (const q of b) {
+      assert.ok(Math.abs(q.axisV.x) > 0.9, `a ${k} brake swings about ${JSON.stringify(q.axisV)}, not her span`);
+      assert.ok(Math.abs(q.at.x) > 0.5, `a ${k} brake is hung on her fuselage`);
+    }
+  }
+  for (const k of ['hellcat', 'avenger', 'zero', 'b5n']) {
+    assert.ok(!(models[k].parts || []).some((q) => q.brake), `a ${k} has dive brakes`);
+  }
+  // Drawn only when they are out, and not on a wing that has been shot off.
+  const f = new Flights(new THREE.Scene(), 4);
+  const count = (trim, cut = 0) => {
+    f.begin();
+    f.one('dive', 0, 300, 0, 0, 0, 0, 0, 'dauntless', trim, null, 12, cut);
+    return f.batches.dauntless.parts.filter((q) => q.spec.brake).reduce((n, q) => n + q.n, 0);
+  };
+  assert.equal(count({ brake: 0 }), 0, 'her split flaps are drawn shut inside her wing');
+  const all = count({ brake: 1 });
+  assert.equal(all, 8, `she opened ${all} split flaps, not eight`);
+  assert.ok(count({ brake: 1 }, CUT.wingInR) < all, 'a brake flew on without its wing');
+});
+
 check('the Suisei is the owner\'s sculpt, with her legs, her bay, her bomb and her gun', () => {
   const geos = suiseiGeometries();
   for (const k of [...SUISEI_SEGS, ...SUISEI_PARTS, 'lod']) {
