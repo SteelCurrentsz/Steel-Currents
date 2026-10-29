@@ -1232,10 +1232,9 @@ if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked })
 
 // ------------------------------------------------------------------- net --
 
-// Every battle is hosted on this device, so there is no link whose state could
-// be worth reporting: the line that used to say whether the battle service was
-// up is taken off the title screen.
-document.getElementById('net-state')?.remove();
+// Every battle is hosted on this device, so there is no link whose state is
+// worth reporting. What the corner of the title screen says instead is whether
+// the game can be played with no signal at all -- see offlineState below.
 
 net.on('error', (m) => toast(m.msg || 'The signal was refused.'));
 
@@ -1455,12 +1454,56 @@ net.connect();
 // captain who lost his signal could not sortie. The service worker keeps every
 // file the game can ask for on this device (see client/sw.js). The apps and
 // the one-file build carry everything already, and have no /sw.js to ask for.
+// Whether the game will play with no signal, in the corner of the title
+// screen: the worker is asked what it has put away (see client/sw.js), and
+// asked again every few seconds until it has everything. The apps and the
+// one-file build carry every file already; a page served some other way, with
+// no worker to keep it, says nothing rather than guess.
+const offlineEl = document.getElementById('offline-state');
+function sayOffline(text, done) {
+  if (!offlineEl) return;
+  offlineEl.hidden = false;
+  offlineEl.textContent = text;
+  offlineEl.classList.toggle('online', done);
+}
+function askWorker() {
+  return navigator.serviceWorker.ready.then((reg) => new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 4000);
+    ch.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data); };
+    reg.active ? reg.active.postMessage({ t: 'status' }, [ch.port2]) : resolve(null);
+  }));
+}
+async function offlineState() {
+  if (offlineState.timer) return;
+  sayOffline('Saving for offline play…', false);
+  const poll = async () => {
+    let st = null;
+    try { st = await askWorker(); } catch { /* no worker */ }
+    offlineState.timer = null;
+    if (!st) { sayOffline('Saving for offline play…', false); }
+    else if (!st.shell) {
+      sayOffline(`Saving for offline play… ${Math.round(100 * st.shellHave / st.shellOf)}%`, false);
+    } else if (st.shipsHave < st.shipsOf) {
+      sayOffline(`Offline ready · ${st.shipsHave} of ${st.shipsOf} ship models saved`, true);
+      navigator.serviceWorker.controller?.postMessage({ t: 'fill' });
+    } else {
+      sayOffline('Offline ready · everything saved', true);
+      return;
+    }
+    offlineState.timer = setTimeout(poll, 5000);
+  };
+  poll();
+}
+if (window.Capacitor || location.protocol === 'file:') sayOffline('Offline ready', true);
+
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
   // Once it has taken over, it is asked to keep the rest -- every hull and
   // voice -- behind the game, and asked again whenever the line comes back.
   const fill = () => navigator.serviceWorker.ready
     .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
-  const keep = () => navigator.serviceWorker.register('/sw.js').then(fill, () => { /* online only */ });
+  const keep = () => navigator.serviceWorker.register('/sw.js')
+    .then(() => { fill(); offlineState(); }, () => { /* online only */ });
   window.addEventListener('online', fill);
   if (document.readyState === 'complete') keep();
   else window.addEventListener('load', keep, { once: true });

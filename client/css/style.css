@@ -143,6 +143,9 @@ html, body {
 }
 .net-state.online { color: var(--ally); }
 .net-state.offline { color: var(--enemy); }
+@media (max-width: 700px) {
+  .net-state { font-size: 0.66rem; letter-spacing: 0.08em; max-width: 78vw; }
+}
 
 /* ---------------------------- panels ----------------------------- */
 

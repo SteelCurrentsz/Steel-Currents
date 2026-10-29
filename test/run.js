@@ -14703,6 +14703,10 @@ check('a battle is never kept waiting on a hull the line cannot bring in', () =>
   // And the worker takes over once it has the shell, not all forty megabytes.
   const sw = readFileSync(new URL('../client/sw.js', import.meta.url), 'utf8');
   assert.ok(/OFFLINE\.shell/.test(sw) && /AbortController/.test(sw), 'the worker still waits on every file to take over');
+  // And the title screen says whether it is all here.
+  assert.ok(/t !== 'status'/.test(sw) && /shipsHave/.test(sw), 'the worker cannot say what it has kept');
+  assert.ok(/Offline ready/.test(main) && /id="offline-state"/.test(readFileSync(new URL('../client/index.html', import.meta.url), 'utf8')),
+    'the title screen does not say whether the game will play offline');
 });
 
 check('a secondary mounting is laid on a bearing that is a number', () => {

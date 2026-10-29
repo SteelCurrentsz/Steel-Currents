@@ -84,6 +84,27 @@ self.addEventListener('message', (e) => {
   e.waitUntil(filling);
 });
 
+// What is put away, for the line in the corner of the title screen: whether
+// the game will start with no signal (the shell), and how many of the hulls are
+// here to draw her ships with rather than the plain ones.
+self.addEventListener('message', (e) => {
+  if (!e.data || e.data.t !== 'status' || !e.ports[0]) return;
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    const count = async (files) => {
+      const hits = await Promise.all(files.map((f) => cache.match(f)));
+      return hits.filter(Boolean).length;
+    };
+    const shell = OFFLINE.shell || ['/'];
+    const ships = OFFLINE.files.filter((f) => /Hull\.data\.js$/.test(f));
+    const shellHave = await count(shell);
+    e.ports[0].postMessage({
+      shell: shellHave === shell.length, shellHave, shellOf: shell.length,
+      shipsHave: await count(ships), shipsOf: ships.length,
+    });
+  })());
+});
+
 function keyOf(req) {
   const url = new URL(req.url);
   if (req.mode === 'navigate' || url.pathname === '/index.html') return '/';
