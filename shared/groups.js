@@ -168,6 +168,8 @@ export function vectorFlight(state, team, id, x, z) {
     if (q.phase !== 'outbound' && q.phase !== 'formup') continue;
     q.phase = 'outbound';
     q.vec = { x, z };
+    // Sent somewhere is no longer sent at something.
+    q.order = null;
     q.targetId = 0; q.targetAir = 0; q.targetHeavy = 0; q.targetBat = 0;
     q.shieldFor = 0;
     q.tx = x; q.tz = z;

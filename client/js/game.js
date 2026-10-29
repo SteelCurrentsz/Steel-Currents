@@ -909,6 +909,11 @@ export class Battle {
       form: () => this.sendGroup(false),
       split: () => this.sendGroup(true),
     });
+    // And attacks, ordered off the same plot: see toggleAttack.
+    this.hud.bindAttack?.({
+      toggle: () => this.toggleAttack(),
+      cease: () => this.sendAttack(null),
+    });
     // The page's own buttons outlive the battle: what is put on them here
     // comes off again in dispose, all at once.
     this.abort = new AbortController();
@@ -923,6 +928,26 @@ export class Battle {
       e.preventDefault();
       this.fireBattery();
     }, mine);
+    // Its training keys, held: see trainBattery.
+    for (const [id, dir] of [['bat-left', -1], ['bat-right', 1]]) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const release = () => {
+        el.classList.remove('on');
+        if (this.commandBat && this.commandBat.hold === dir) this.commandBat.hold = 0;
+        this.trainBattery();
+      };
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        el.setPointerCapture?.(e.pointerId);
+        el.classList.add('on');
+        if (this.commandBat) this.commandBat.hold = dir;
+        this.trainBattery();
+      }, mine);
+      el.addEventListener('pointerup', release, mine);
+      el.addEventListener('pointercancel', release, mine);
+      el.addEventListener('lostpointercapture', release, mine);
+    }
     // The penetration camera, over the whole battle screen.
     {
       const host = document.getElementById('screen-battle');
@@ -999,6 +1024,12 @@ export class Battle {
       this.net.on('nomine', (m) => {
         this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
           : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
+      }),
+      // An attack ordered off the plot, and how many took it.
+      this.net.on('attacked', (m) => {
+        if (m.cease) this.hud.alert(m.n ? 'Ceased · back to their own officers' : 'Nothing to cease');
+        else this.hud.alert(m.n ? `Attacking · ${m.n} ${m.n === 1 ? 'unit' : 'units'} on it`
+          : 'None of those can attack that');
       }),
       // A fleet or a squadron formed, or broken up, off the plot.
       this.net.on('grouped', (m) => {
@@ -3572,6 +3603,10 @@ export class Battle {
     // battle in memory -- and answered every key pressed in the next one,
     // sending its orders into a fight it was no longer part of.
     this.off.push(this.input.on('key', (code) => this.onKey(code)));
+    // A and D let go stop a battery being trained by hand.
+    this.off.push(this.input.on('keyup', (code) => {
+      if (this.commandBat && (code === 'KeyA' || code === 'KeyD')) this.trainBattery();
+    }));
     this.off.push(this.input.on('scope', (on) => { this.scoped = on; }));
     this.off.push(this.input.on('wheel', (dir) => {
       // While the camera is off watching somebody else the wheel works that
@@ -3625,6 +3660,8 @@ export class Battle {
     if (this.commandBat) {
       if (code === 'Space') { this.fireBattery(); return; }
       if (code === 'Escape') { this.leaveBattery(); return; }
+      // A and D train it, for as long as they are held.
+      if (code === 'KeyA' || code === 'KeyD') { this.trainBattery(); return; }
     }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
@@ -3713,6 +3750,8 @@ export class Battle {
     // Forming a fleet or a squadron: a tap picks one of your own, or puts her
     // back, and does nothing else. See toggleGrouping.
     if (this.grouping) { this.pickForGroup(hit); return; }
+    // Ordering an attack: your own are picked, and an enemy is the target.
+    if (this.attacking) { this.pickForAttack(hit); return; }
     // At the guns of a battery ashore the plot lays them. See workBattery.
     if (this.commandBat) { this.workBattery(hit, at); return; }
     // Open water with one of your own flights under the camera sends her --
@@ -3754,6 +3793,7 @@ export class Battle {
    * squadron, or splits it out of the one it is in.
    */
   toggleGrouping(want = !this.grouping) {
+    if (want && this.attacking) this.toggleAttack(false);
     this.grouping = want;
     this.groupPick = { kind: null, ids: [] };
     this.hud.setGrouping(want ? this.groupPick : null);
@@ -3777,6 +3817,68 @@ export class Battle {
     P.kind = P.ids.length ? hit.kind : null;
     this.hud.setGrouping(P);
     audio.click();
+  }
+
+  /**
+   * Attack mode: the plot picks your own ships, flights, heavy squadrons and
+   * batteries -- whatever the camera is on to begin with -- and the next enemy
+   * tapped is what all of them go for, with everything they have. A ship in a
+   * fleet and a flight in a squadron take the rest of it with them.
+   */
+  toggleAttack(want = !this.attacking) {
+    if (want && this.grouping) this.toggleGrouping(false);
+    this.attacking = want;
+    const units = [];
+    const w = this.watching;
+    if (want && w && ['ship', 'plane', 'bomber', 'battery'].includes(w.kind) && this.ownUnit(w.kind, w.id)) {
+      units.push({ k: w.kind, i: w.id });
+    } else if (want && !w && this.ownUnit('ship', this.conned())) {
+      units.push({ k: 'ship', i: this.conned() });
+    }
+    this.attackPick = want ? { units } : null;
+    this.hud.setAttacking(this.attackPick);
+    audio.click();
+  }
+
+  /** Whether a unit off the snapshot is one of ours and still in it. */
+  ownUnit(kind, id) {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    if (!snap) return false;
+    const list = kind === 'ship' ? snap.ships : kind === 'plane' ? snap.planes
+      : kind === 'bomber' ? snap.bombers : kind === 'battery' ? snap.batteries : null;
+    const u = (list || []).find((q) => q.i === id);
+    return !!u && u.tm === this.team && (kind !== 'ship' || !!u.a) && (kind !== 'battery' || !!u.al);
+  }
+
+  /** A tap on the plot in attack mode. */
+  pickForAttack(hit) {
+    const P = this.attackPick;
+    if (!hit) { this.hud.alert('Tap your own to pick them, then an enemy'); return; }
+    const kinds = ['ship', 'plane', 'bomber', 'battery'];
+    if (kinds.includes(hit.kind) && hit.team === this.team) {
+      const at = P.units.findIndex((u) => u.k === hit.kind && u.i === hit.id);
+      if (at >= 0) P.units.splice(at, 1);
+      else if (P.units.length < 16) P.units.push({ k: hit.kind, i: hit.id });
+      this.hud.setAttacking(P);
+      audio.click();
+      return;
+    }
+    const foe = (kinds.includes(hit.kind) && hit.team !== this.team) || hit.kind === 'town' || hit.kind === 'wall';
+    if (!foe) return;
+    if (!P.units.length) { this.hud.alert('Pick your own ships, aircraft or batteries first'); return; }
+    this.sendAttack(hit);
+  }
+
+  /** Send what is picked at `hit`, or -- with none -- have them cease. */
+  sendAttack(hit) {
+    const P = this.attackPick;
+    if (!P || !P.units.length) { this.hud.alert('Nothing picked'); return; }
+    this.net.send({
+      t: 'attack', u: P.units.map((u) => ({ k: u.k, i: u.i })),
+      target: hit ? hit.id : 0, tk: hit ? hit.kind : undefined,
+    });
+    if (hit) this.hud.alert(`Attack on ${hit.name || 'the enemy'}`);
+    this.toggleAttack(false);
   }
 
   /** Form what is picked into a group, or split it out of the ones it is in. */
@@ -4461,8 +4563,8 @@ export class Battle {
     // bearing it is on. The mortar still fires itself at its pin.
     const fire = document.getElementById('bat-fire');
     if (fire) fire.hidden = false;
-    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it · FIRE with no pin fires down the bearing'
-      : 'Tap a ship, a town or a wall to lay on it · tap anywhere else to lay on that point · FIRE with nothing laid fires down the bearing');
+    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it · ◀ ▶ or A D to train · FIRE with no pin fires down the bearing'
+      : 'Tap a ship, a town or a wall to lay on it · tap anywhere else to lay on that point · ◀ ▶ or A D to train · FIRE with nothing laid fires down the bearing');
     audio.click();
   }
 
@@ -4532,6 +4634,20 @@ export class Battle {
     }
   }
 
+  /**
+   * Which way the battery in hand is being trained -- A and D, and the two
+   * keys beside FIRE -- sent the moment it changes.
+   */
+  trainBattery() {
+    const c = this.commandBat;
+    if (!c) return;
+    const keys = (this.input.down('KeyD') ? 1 : 0) - (this.input.down('KeyA') ? 1 : 0);
+    const dir = Math.max(-1, Math.min(1, keys + (c.hold || 0)));
+    if (dir === (c.train || 0)) return;
+    c.train = dir;
+    this.net.send({ t: 'btrain', i: c.id, d: dir });
+  }
+
   /** The trigger of the battery in hand. */
   fireBattery() {
     const c = this.commandBat;
@@ -4552,7 +4668,13 @@ export class Battle {
       this.leaveBattery(true, !!g && g.al);
       return;
     }
+    // And looked at again here, for a key let go while the window was not
+    // listening -- which would otherwise leave the guns going round.
+    this.trainBattery();
     const parts = [];
+    const brg = Math.round(((((g.h + g.a) * 180) / Math.PI) % 360 + 360) % 360);
+    parts.push(c.train ? `Training ${c.train < 0 ? 'left' : 'right'} · ${String(brg).padStart(3, '0')}°`
+      : `Bearing ${String(brg).padStart(3, '0')}°`);
     if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
     else parts.push('Loaded');
     const yd = (x, z) => Math.round(Math.hypot(x - g.x, z - g.z) / 0.9144 / 50) * 50;

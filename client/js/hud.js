@@ -593,6 +593,39 @@ class HudBase {
     if (split) split.disabled = n < 1;
   }
 
+  /** The Attack key and its bar's Cease key. */
+  bindAttack(on) {
+    const key = (id, fn) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); fn();
+    });
+    key('attack-key', () => on.toggle());
+    key('attack-cease', () => on.cease());
+    this.setAttacking(null);
+  }
+
+  /**
+   * What has been picked to attack with, `{ units: [{ k, i }] }`, or null
+   * when the plot is not picking for an attack. The plot rings what is picked.
+   */
+  setAttacking(pick) {
+    this.attackPick = pick;
+    const btn = document.getElementById('attack-key');
+    const bar = document.getElementById('attack-bar');
+    const what = document.getElementById('attack-what');
+    if (btn) btn.setAttribute('aria-pressed', pick ? 'true' : 'false');
+    if (!bar) return;
+    bar.hidden = !pick;
+    if (!pick) return;
+    const n = pick.units.length;
+    if (what) {
+      what.textContent = n
+        ? `${n} picked · now tap an enemy, a town or a wall`
+        : 'Tap your own ships, aircraft or batteries';
+    }
+    const cease = document.getElementById('attack-cease');
+    if (cease) cease.disabled = n < 1;
+  }
+
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
 
@@ -2815,7 +2848,7 @@ class HudBase {
         ctx.lineTo(x + CHART_X * Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
-      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm });
+      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm, ot: g.ot });
     }
 
     // Everything afloat, wherever it is. A hull the lookouts have sighted is a
@@ -2909,7 +2942,7 @@ class HudBase {
         ctx.arc(x, y, 11 * k, 0, Math.PI * 2);
         ctx.stroke();
       }
-      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm });
+      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm, ot: s.ot });
     }
 
     this.paintPins(ctx, marks, snap, ships, toX, toY, k, size);
@@ -2974,7 +3007,7 @@ class HudBase {
       }
       marks.push({
         kind: 'plane', id: pl.i, x, y,
-        name: `${pl.n} aircraft`, team: pl.tm,
+        name: `${pl.n} aircraft`, team: pl.tm, ot: pl.ot,
       });
     }
 
@@ -3036,9 +3069,44 @@ class HudBase {
       marks.push({
         kind: 'bomber', id: bm.i, x, y,
         name: `${bm.n} ${(BOMBERS[bm.b] && BOMBERS[bm.b].name) || 'bombers'}`,
-        team: bm.tm,
+        team: bm.tm, ot: bm.ot,
       });
     }
+
+    // What has been ordered onto what off the plot: a red line from each of
+    // your own units to the thing it was sent at, with a ring on the thing.
+    // An order you cannot see is an order you cannot tell you have given.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(226,86,79,0.75)';
+    ctx.lineWidth = 1.2;
+    for (const m of marks) {
+      if (!m.ot || m.team !== this.team) continue;
+      const t = marks.find((q) => q.id === m.ot && q.team !== this.team && q.kind !== 'pin' && q.kind !== 'torp');
+      if (!t) continue;
+      ctx.setLineDash([6 * k, 3 * k]);
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 9 * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // And what is picked for an attack not yet given: a broken red ring.
+    if (this.attackPick) {
+      ctx.strokeStyle = '#e2564f';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([3 * k, 3 * k]);
+      for (const u of this.attackPick.units) {
+        const m = marks.find((q) => q.kind === u.k && q.id === u.i);
+        if (!m) continue;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, 16 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
 
     // A ring round whatever the camera is looking at, so it is obvious where
     // the view has gone and what to tap to get out of it.

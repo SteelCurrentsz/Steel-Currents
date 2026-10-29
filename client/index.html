@@ -452,6 +452,14 @@
         <button class="watch-back" id="group-form" type="button">Form</button>
         <button class="watch-back" id="group-split" type="button">Split</button>
       </div>
+      <!-- An attack: your own ships, aircraft and batteries picked off the
+           plot, then an enemy tapped, and everything they have goes at it. -->
+      <button class="free-cam-key group-key attack-key" id="attack-key" type="button"
+              aria-pressed="false">Attack</button>
+      <div class="group-bar attack-bar" id="attack-bar" role="status" hidden>
+        <span class="group-what" id="attack-what"></span>
+        <button class="watch-back" id="attack-cease" type="button">Cease</button>
+      </div>
     </div>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
@@ -775,6 +783,9 @@
     <p class="lamp-name" id="bat-name"></p>
     <p class="bat-read" id="bat-read"></p>
     <button class="gun-fire" id="bat-fire" type="button">Fire</button>
+    <!-- Training by hand: held, the guns go on round. A and D do the same. -->
+    <button class="bat-train bat-train-l" id="bat-left" type="button" aria-label="Train left">&#9664;</button>
+    <button class="bat-train bat-train-r" id="bat-right" type="button" aria-label="Train right">&#9654;</button>
     <button class="gun-leave" id="bat-leave" type="button">Leave battery</button>
   </div>
   <div class="gun-sight" id="gun-sight" hidden>

@@ -142,6 +142,9 @@ export function shipSnapshot(ship, full, state = null) {
     if (ship.fleetSeq) s.fq = ship.fleetSeq;
     // Which of her mountings her captain has put on which ship by name.
     if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
+    // And what the whole of her was ordered onto off the plot, while any of
+    // her guns are still on it.
+    if (ship.ordered && ship.assign && Object.values(ship.assign).includes(ship.ordered)) s.ot = ship.ordered;
     // Which of them he has switched off, and which are gone for good -- the
     // same keys, so the panel can show both on the key for that mounting.
     if (ship.off && Object.keys(ship.off).length) s.of = Object.keys(ship.off);
@@ -438,6 +441,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       wg: p.wing && p.team === team ? p.wing : undefined,
       vx: p.vec && p.team === team ? Math.round(p.vec.x) : undefined,
       vz: p.vec && p.team === team ? Math.round(p.vec.z) : undefined,
+      // What she has been ordered to attack off the plot, to her own side.
+      ot: p.order && p.team === team ? p.order.id : undefined,
       // How high she is, and how fast she is going up or down. The client used
       // to work her height out from how long she had been up, which made every
       // aeroplane climb at the same rate to the same altitude whatever she was
@@ -526,6 +531,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       ld: b.loads || 0,
       // Who has her, so nobody takes a formation somebody else is flying.
       pi: b.pilot || 0,
+      // What her own side ordered her onto off the plot. The staff's choice
+      // stays off the wire (see above); a player's own order is his to see.
+      ot: b.order && b.team === team ? b.order.id : undefined,
       // And her leading machine's condition, for the damage board -- the same
       // nine numbers a flight sends, out of the same airframe model. Her own
       // side only: what a formation reports is not what the enemy can see.
@@ -559,6 +567,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     st: b.team === team && b.shot && b.shot.at > state.t
       ? [Math.round(b.shot.x), Math.round(b.shot.z), r1(b.shot.at - state.t)] : undefined,
     tg: b.team === team && b.ctl ? (b.ctlTarget || 0) : undefined,
+    // What it has been ordered onto off the plot, left to its own crew.
+    ot: b.team === team && !b.ctl && b.ordered ? b.ordered : undefined,
     cd: b.team === team && b.ctl ? r1(Math.max(0, b.cooldown)) : undefined,
   }));
 

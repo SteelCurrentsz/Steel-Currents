@@ -430,6 +430,8 @@ input[type="range"] { accent-color: var(--red); }
   font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sand-bright);
 }
 .group-bar .watch-back[disabled] { opacity: 0.4; cursor: default; }
+.attack-key[aria-pressed="true"] { color: var(--enemy); border-color: var(--enemy); }
+.attack-bar { border-left-color: var(--enemy); }
 
 /* ------------------------------------------------------------- the conn --
    A captain with his guns fought for him has three things left to do, so there
@@ -2582,6 +2584,18 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--steel); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
+/* The battery's training keys, side by side beside FIRE where the same
+   thumb finds them: held, the mounting goes on round. */
+.bat-train {
+  position: absolute; bottom: 16vh;
+  width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(8, 19, 31, 0.84); border: 2px solid var(--sand);
+  color: var(--sand); font-size: 1.2rem; cursor: pointer; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+}
+.bat-train:active, .bat-train.on { background: rgba(230, 207, 156, 0.3); }
+.bat-train-l { right: calc(max(1.2rem, env(safe-area-inset-right)) + 184px); }
+.bat-train-r { right: calc(max(1.2rem, env(safe-area-inset-right)) + 110px); }
 /* Two words on a key built for one: the lamp key is a little wider and its
    label sits on two lines. */
 #key-lamps { width: 70px; }

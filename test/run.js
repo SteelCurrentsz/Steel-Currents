@@ -27,6 +27,7 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
+  trainBattery, orderAttack,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -24860,6 +24861,144 @@ check('a battery in a player\'s hands fires with nothing laid on, at a point in 
       assert.ok(seen.size > 0, `${id} laid on ${mode} never fired`);
     }
   }
+});
+
+
+check('a battery in a player\'s hands trains round by hand, and past its stops shifts the mounting', () => {
+  // A casemate on a hundred and twenty degrees: the gun swings on its own
+  // mounting to the stop, and then the whole mounting comes round after it.
+  {
+    const { state, bat, ship } = shoot('longues', 12000);
+    const arc = batteryArc(BATTERIES.longues);
+    commandBattery(state, bat, 99);
+    layBattery(state, bat, ship.id);
+    assert.ok(!trainBattery(state, { ...bat, ctl: 0 }, 1), 'a battery nobody has cannot be trained by hand');
+    assert.ok(trainBattery(state, bat, 1));
+    const h0 = bat.heading;
+    for (let i = 0; i < 30 * 5; i++) step(state, DT);
+    assert.ok(bat.angle > 0.05, `it did not train right, angle ${bat.angle}`);
+    assert.equal(bat.ctlTarget, 0, 'trained by hand, it is off what it was laid on');
+    for (let i = 0; i < 30 * 10; i++) step(state, DT);
+    assert.ok(Math.abs(bat.angle - arc) < 1e-6, 'it stops at the stop');
+    assert.ok(angleDelta(h0, bat.heading) > 0.1, 'and past the stop the mounting is shifted round');
+    trainBattery(state, bat, 0);
+    const a = bat.angle, h = bat.heading;
+    for (let i = 0; i < 30 * 10; i++) step(state, DT);
+    assert.ok(Math.abs(angleDelta(a, bat.angle)) < 1e-9 && Math.abs(angleDelta(h, bat.heading)) < 1e-9,
+      'let go, it stays where it was left');
+    // And handed back, nothing is still holding the training gear over.
+    commandBattery(state, bat, 0);
+    assert.equal(bat.trainCmd, 0);
+  }
+  // A gun on a full circle simply goes on round, left as well as right.
+  {
+    const { state, bat } = shoot('flak88', 12000);
+    state.ships.length = 0;
+    commandBattery(state, bat, 99);
+    trainBattery(state, bat, -1);
+    let turned = 0;
+    let was = bat.angle;
+    for (let i = 0; i < 30 * 30; i++) {
+      step(state, DT);
+      turned += angleDelta(was, bat.angle);
+      was = bat.angle;
+    }
+    assert.ok(turned < -Math.PI * 1.2, `a pedestal gun should go on round, turned ${turned.toFixed(2)}`);
+    assert.equal(bat.heading, 0, 'without touching where it was laid');
+  }
+  // Trained off and fired, the round goes down the bearing it was left on.
+  {
+    const { state, bat } = shoot('longues', 12000);
+    state.ships.length = 0;
+    bat.cooldown = 0;
+    commandBattery(state, bat, 99);
+    trainBattery(state, bat, 1);
+    for (let i = 0; i < 30 * 20; i++) step(state, DT);
+    trainBattery(state, bat, 0);
+    const brg = bat.heading + bat.angle;
+    triggerBattery(state, bat);
+    for (let i = 0; i < 30 * 3 && !state.shells.length; i++) step(state, DT);
+    const sh = state.shells.find((q) => q.owner === bat.id);
+    assert.ok(sh, 'it did not fire');
+    assert.ok(Math.abs(angleDelta(Math.atan2(sh.vx, sh.vz), brg)) < 0.05, 'the round did not go down the bearing');
+  }
+});
+
+check('an attack ordered off the plot: a battery left to its crew fires on what it was given', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const site = siteBattery(world, 3000, 3000, BATTERIES.longues.span) || { x: 3000, z: 3000 };
+  const bat = addBattery(st, { batteryId: 'longues', team: 0, x: site.x, z: site.z });
+  bat.cooldown = 0;
+  const shot = () => st.shells.filter((q) => q.owner === bat.id).length;
+  for (let i = 0; i < 30 * 10; i++) step(st, DT);
+  assert.equal(shot(), 0, 'with no ship to shoot at its crew should hold their fire');
+  assert.equal(orderAttack(st, 1, 'battery', bat.id, 'town', townTargetId(0)), 0, 'the other side cannot order it');
+  assert.equal(orderAttack(st, 0, 'battery', bat.id, 'town', townTargetId(0)), 1);
+  let fired = 0;
+  for (let i = 0; i < 30 * 120 && !fired; i++) { step(st, DT); fired = shot(); }
+  assert.ok(fired > 0, 'ordered onto the town, it never fired');
+  // And ceased, it is its own crew's again.
+  assert.equal(orderAttack(st, 0, 'battery', bat.id, null, 0), 1);
+  assert.equal(bat.ordered, 0);
+  // Its own side is told what it was ordered onto; the other side is not.
+  orderAttack(st, 0, 'battery', bat.id, 'town', townTargetId(0));
+  const mine = buildSnapshot(st, 0).batteries.find((g) => g.i === bat.id);
+  const theirs = buildSnapshot(st, 1).batteries.find((g) => g.i === bat.id);
+  assert.equal(mine.ot, townTargetId(0));
+  assert.equal(theirs.ot, undefined);
+});
+
+check('an attack ordered off the plot: a ship and her fleet put every gun on the target', () => {
+  const st = createState(generateWorld(4243, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+  const b = addShip(st, { name: 'B', classId: 'fletcher', team: 0, index: 1 });
+  const c = addShip(st, { name: 'C', classId: 'cleveland', team: 0, index: 2 });
+  const foe = addShip(st, { name: 'Foe', classId: 'bismarck', team: 1, index: 0 });
+  a.fleet = 7; b.fleet = 7;
+  assert.equal(orderAttack(st, 0, 'ship', a.id, 'ship', foe.id), 2, 'both ships of the fleet take it');
+  const count = (s) => Object.values(s.assign || {}).filter((v) => v === foe.id).length;
+  const cls = SHIP_CLASSES.iowa;
+  assert.ok(count(a) >= cls.turrets.length + cls.secondary.mounts.length, 'not every gun of hers went on it');
+  assert.ok(Object.keys(b.assign).some((k) => k.startsWith('torp:')), 'the destroyer\'s tubes did not go on it');
+  assert.equal(count(c), 0, 'a ship outside the fleet was given it');
+  assert.equal(orderAttack(st, 0, 'ship', a.id, 'ship', b.id), 0, 'a ship of her own side is not a target');
+  assert.equal(shipSnapshot(a, true, st).ot, foe.id, 'her captain is not shown what she was ordered onto');
+  assert.equal(orderAttack(st, 0, 'ship', b.id, null, 0), 2);
+  assert.equal(count(a) + count(b), 0, 'ceased, they are back to their gunnery officers');
+});
+
+check('an attack ordered off the plot: a strike goes for the ship it was given, not the one it would pick', () => {
+  const st = createState(generateWorld(7720, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  cv.x = 0; cv.z = 0;
+  const near = addShip(st, { name: 'Near', classId: 'fletcher', team: 1, index: 0 });
+  near.x = 0; near.z = 6000; near.notch = 1;
+  const far = addShip(st, { name: 'Far', classId: 'fletcher', team: 1, index: 1 });
+  far.x = 9000; far.z = -9000; far.notch = 1;
+  cv.aimX = near.x; cv.aimZ = near.z;
+  assert.ok(launchStrike(st, cv));
+  for (let i = 0; i < 30 * 60 && !st.planes.some((p) => p.role !== 'fighter'); i++) step(st, DT);
+  const strike = st.planes.find((p) => p.role !== 'fighter');
+  assert.ok(strike, 'nothing but fighters went up');
+  assert.ok(orderAttack(st, 0, 'plane', strike.id, 'ship', far.id) >= 1);
+  for (let i = 0; i < 30 * 5; i++) step(st, DT);
+  assert.equal(strike.targetId, far.id, 'she went for the ship she would have picked herself');
+  assert.equal(buildSnapshot(st, 0).planes.find((q) => q.i === strike.id).ot, far.id);
+  assert.equal(orderAttack(st, 0, 'plane', strike.id, 'town', townTargetId(0)), 0, 'aircraft are not sent at the town');
+});
+
+check('an attack ordered off the plot: a heavy squadron runs in on what it was given', () => {
+  const st = createState(generateWorld(7721, 'open_ocean'), { mode: 'deathmatch' });
+  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
+  const bm = addBomber(st, { bomberId: 'lancaster', team: 0, x: -8000, z: -8000 });
+  assert.ok(bm, 'no heavies');
+  assert.equal(orderAttack(st, 0, 'bomber', bm.id, 'ship', foe.id), 1);
+  assert.equal(bm.targetId, foe.id);
+  assert.ok(Math.hypot(bm.aimX - foe.x, bm.aimZ - foe.z) < 1, 'she is not aimed at the ship');
+  foe.x += 500;
+  step(st, DT);
+  assert.ok(Math.hypot(bm.aimX - foe.x, bm.aimZ - foe.z) < 50, 'and she follows it');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
