@@ -21,7 +21,7 @@ export const BOMBER_ORDER = [
 ];
 
 /** How many squadrons one side may have on call. */
-export const BOMBER_MAX = 8;
+export const BOMBER_MAX = 15;
 
 /**
  * @typedef {object} Bomber

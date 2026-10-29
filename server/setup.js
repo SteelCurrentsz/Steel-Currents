@@ -13,6 +13,7 @@
 import { normaliseAirGroup } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
+import { BOMBER_MAX } from '../shared/bombers.js';
 
 /**
  * The berths off the order-of-battle chart, sanitised.
@@ -56,7 +57,7 @@ export function gunsFrom(v, cap) {
  * chart draws them in and the order the fleet is built in below.
  */
 export function crewBattle(room, req, seat, limits = {}) {
-  const { allies: maxA = 24, enemies: maxE = 25, guns: maxG = 12, bombers: maxB = 8 } = limits;
+  const { allies: maxA = 24, enemies: maxE = 25, guns: maxG = 12, bombers: maxB = BOMBER_MAX } = limits;
   const layout = req.layout || {};
   const allyAt = berthsFrom(layout.allies, maxA + 1);
   const enemyAt = berthsFrom(layout.enemies, maxE);
