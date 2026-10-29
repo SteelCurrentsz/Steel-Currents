@@ -1258,7 +1258,9 @@ export class WorksView {
       const T = tops[k];
       const F = [x + nx * W2, z + nz * W2];
       const B = [x - nx * W2, z - nz * W2];
-      const sea = rawGround(this.world, F[0] + nx * 5, F[1] + nz * 5);
+      // The bottom of the berth in front of it, dredged (see berthFloor):
+      // the face goes all the way down to it.
+      const sea = groundHeight(this.world, F[0] + nx * 5, F[1] + nz * 5);
       const foot = Math.max(-26, Math.min(sea, -0.6) - 2.5);
       const back = Math.min(T - 0.3, rawGround(this.world, B[0] - nx * 2, B[1] - nz * 2)) - 1.2;
       const batter = (T + PARAPET - foot) * 0.1;

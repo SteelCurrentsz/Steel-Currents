@@ -452,10 +452,91 @@ export function worksGround(world, x, z, base) {
     }
   }
   if (w.walls.length) {
+    // The berth along the face: dredged out, the way the water alongside a
+    // sea wall always is -- a wall is built where there is deep water to
+    // keep the sea off, and a quay is no use to a ship that grounds a
+    // hundred metres short of it. Only where there is sea already; the
+    // coast stays where it is.
+    if (h < 0) h = Math.min(h, berthFloor(world, x, z, h));
     const at = wallAt(world, x, z);
     if (at) h = wallTop(world, at, h);
   }
   return h;
+}
+
+/** How far out from a wall's face its berth is dredged, and how deep. */
+const BERTH = 110;
+const BERTH_FULL = 35;
+const BERTH_DEEP = 14;
+const BERTH_INDEX = new WeakMap();
+
+/** The walls' segments filed for their berths, which reach further than the walls do. */
+function berthIndex(world) {
+  const w = world.works;
+  let idx = BERTH_INDEX.get(w);
+  if (idx) return idx;
+  idx = new Map();
+  const reach = WALL_WIDTH / 2 + BERTH;
+  w.walls.forEach((run, ri) => {
+    for (let k = 0; k < run.pts.length - 1; k++) {
+      const [ax, az] = run.pts[k];
+      const [bx, bz] = run.pts[k + 1];
+      const x0 = Math.floor((Math.min(ax, bx) - reach) / WCELL);
+      const x1 = Math.floor((Math.max(ax, bx) + reach) / WCELL);
+      const z0 = Math.floor((Math.min(az, bz) - reach) / WCELL);
+      const z1 = Math.floor((Math.max(az, bz) + reach) / WCELL);
+      for (let gx = x0; gx <= x1; gx++) {
+        for (let gz = z0; gz <= z1; gz++) {
+          const kk = gx * 100003 + gz;
+          if (!idx.has(kk)) idx.set(kk, []);
+          idx.get(kk).push(ri, k);
+        }
+      }
+    }
+  });
+  BERTH_INDEX.set(w, idx);
+  return idx;
+}
+
+/**
+ * The bottom of a wall's berth under a point out in front of it, given the
+ * bottom there as it was: the full depth along the face, shoaling back to
+ * the natural bottom over the next seventy-odd metres. The natural bottom if
+ * the point is not in front of any wall.
+ */
+export function berthFloor(world, x, z, h) {
+  const list = berthIndex(world).get(Math.floor(x / WCELL) * 100003 + Math.floor(z / WCELL));
+  if (!list) return h;
+  let best = Infinity;
+  const runs = world.works.walls;
+  for (let q = 0; q < list.length; q += 2) {
+    const run = runs[list[q]];
+    const k = list[q + 1];
+    const [ax, az, anx, anz] = run.pts[k];
+    const [bx, bz, bnx, bnz] = run.pts[k + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const L2 = dx * dx + dz * dz || 1;
+    const t0 = ((x - ax) * dx + (z - az) * dz) / L2;
+    // Square at the two ends of the run, rounded between its segments: on
+    // the outside of a bend a point past the end of one segment and short of
+    // the next is still in front of the wall (see wallAt).
+    if ((t0 < 0 && k === 0) || (t0 > 1 && k === run.pts.length - 2)) continue;
+    const t = clamp(t0, 0, 1);
+    const nx = anx + (bnx - anx) * t;
+    const nz = anz + (bnz - anz) * t;
+    const ox = x - ax - dx * t;
+    const oz = z - az - dz * t;
+    // Out in front of it, not behind it.
+    if (ox * nx + oz * nz <= 0) continue;
+    const out = Math.hypot(ox, oz) - run.width / 2;
+    if (out < -1 || out > BERTH) continue;
+    best = Math.min(best, Math.max(0, out));
+  }
+  if (best === Infinity) return h;
+  const f = clamp((best - BERTH_FULL) / (BERTH - BERTH_FULL), 0, 1);
+  const e = f * f * (3 - 2 * f);
+  return -BERTH_DEEP + (h + BERTH_DEEP) * e;
 }
 
 /** Whether a point is paved -- on the town's level or on a wall -- so a shell digs no crater there. */

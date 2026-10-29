@@ -2798,6 +2798,11 @@ export class Battle {
           // A bank whose fish are drawn leaving it throws them out now.
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
+        case 'torpBeach':
+          // A fish run up onto the shore: a little white water where it left
+          // the sea, and no burst -- it does not go off on the sand.
+          fx.splash(ev.x, ev.z, 40, { kind: 'bow' });
+          break;
         case 'torpDud':
           // Struck her before its pistol had armed: a thump against her side
           // and a little white water, and nothing else.

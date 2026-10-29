@@ -24439,6 +24439,83 @@ check('a pilot lets his bombs go anywhere, with nothing in range, and they fall 
   assert.ok((world.ruin?.b?.[b.id]?.d || 0) > 0.2, 'the bomb did nothing to the building it fell on');
 });
 
+check('a machine shot down with her bomb still on goes into the town and the bomb goes off in it', () => {
+  const fall = (load) => {
+    const world = islandTown();
+    const st = createState(world, {});
+    const plan = cityPlans(world)[0];
+    const b = plan.buildings.slice().sort((p, q) => q.w * q.d - p.w * p.d)[0];
+    st.fallers.push({
+      id: 777, age: 5, team: 1, from: 0, owner: 0, role: 'dive', heavy: false,
+      x: b.x, y: plan.level + 60, z: b.z, vx: 0, vy: -60, vz: 0, mass: 3900, load,
+    });
+    for (let i = 0; i < 30 * 4; i++) step(st, DT);
+    return Object.values(world.ruin.b).reduce((a, r) => a + r.d, 0);
+  };
+  const empty = fall(0);
+  const armed = fall(2400);
+  assert.ok(empty > 0, 'an aeroplane into a building did it no harm');
+  assert.ok(armed > empty * 1.5, `her bomb going off with her did nothing more (${armed.toFixed(2)} against ${empty.toFixed(2)})`);
+});
+
+check('an aeroplane into a sea wall, or into the water at its foot, knocks a piece out of it', () => {
+  for (const off of [0, 1]) {
+    const world = islandTown();
+    const st = createState(world, {});
+    const run = world.works.walls[0];
+    const [x, z, nx, nz] = run.pts[Math.floor(run.pts.length / 2)];
+    const d = off ? run.width / 2 + 4 : 0;
+    st.fallers.push({
+      id: 778, age: 5, team: 1, from: 0, owner: 0, role: 'torpedo', heavy: false,
+      x: x + nx * d, y: run.top + 50, z: z + nz * d, vx: 0, vy: -70, vz: 0, mass: 4600, load: 4500,
+    });
+    for (let i = 0; i < 30 * 4; i++) step(st, DT);
+    const hurt = Object.values(world.ruin.w).reduce((a, r) => a + r.d, 0);
+    assert.ok(hurt > 0.05, `a machine into the wall ${off ? 'at its foot' : 'on its walkway'} did ${hurt}`);
+  }
+});
+
+check('a torpedo that runs up a beach stops there and does not go off', () => {
+  const world = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const st = createState(world, {});
+  const i = world.islands.slice().sort((a, b) => b.r - a.r)[0];
+  // From well out, straight at the middle of the island.
+  st.torps.push({
+    id: 91, owner: 0, team: 1, x: i.x + i.r * 2.2, z: i.z, heading: -Math.PI / 2,
+    speed: 25, range: 20000, travelled: 0, damage: 12000, age: 30, aerial: true,
+  });
+  const seen = [];
+  for (let k = 0; k < 30 * 120 && st.torps.length; k++) {
+    for (const e of step(st, DT)) seen.push(e.e);
+  }
+  assert.equal(st.torps.length, 0, 'the fish ran on through the island');
+  assert.ok(seen.includes('torpBeach'), 'it did not run up the beach');
+  assert.equal((world.craters || []).length, 0, 'it went off on the sand');
+  assert.ok(!seen.includes('landhit'), 'it burst ashore');
+});
+
+check('a ship driven into a sea wall stoves her bow in and knocks the wall about, and a battleship can get to it', () => {
+  for (const id of ['fletcher', 'iowa']) {
+    const world = islandTown();
+    const st = createState(world, {});
+    const run = world.works.walls[0];
+    const [x, z, nx, nz] = run.pts[Math.floor(run.pts.length / 2)];
+    // Deep water alongside the face, the whole way along it.
+    assert.ok(groundHeight(world, x + nx * (run.width / 2 + 20), z + nz * (run.width / 2 + 20)) < -12,
+      'there is no berth along the wall');
+    const ship = addShip(st, { classId: id, team: 0, index: 0 });
+    const len = SHIP_CLASSES[id].hull.length;
+    ship.x = x + nx * (len / 2 + 60); ship.z = z + nz * (len / 2 + 60);
+    ship.heading = Math.atan2(-nx, -nz);
+    ship.speed = 12;
+    const hp = ship.hp;
+    for (let k = 0; k < 30 * 12; k++) { applyInput(ship, { notch: MAX_NOTCH, rudder: 0 }); step(st, DT); }
+    const hurt = Object.values(world.ruin.w).reduce((a, r) => a + r.d, 0);
+    assert.ok(hurt > 0.2, `the ${id} rammed the wall and it took ${hurt.toFixed(3)}`);
+    assert.ok(ship.hp < hp * 0.93, `the ${id} drove into concrete and took ${(hp - ship.hp).toFixed(0)}`);
+  }
+});
+
 check('a torpedo run into a sea wall goes off against it', () => {
   const world = islandTown();
   const st = createState(world, {});

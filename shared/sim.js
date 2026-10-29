@@ -1098,7 +1098,14 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     const on = v > 1 && state.world.works?.walls?.length ? wallAt(state.world, wx, wz, 12) : null;
     if (on) {
       const bulk = cls.hull.length * cls.hull.beam * cls.hull.draft;
-      hurtWall(state.world, on.run, on.sec, (bulk * v * v) / 4e6, state.events, { x: wx, y: 0, z: wz });
+      hurtWall(state.world, on.run, on.sec, (bulk * v * v) / 4e6, state.events, { x: wx, y: 0, z: wz },
+        clamp(v * 0.5, 1.5, 9));
+      // And the wall gives back as good as it gets. Concrete does not part
+      // round a stem the way a reef's sand does: her bow is stove in, and the
+      // weaker her stem against the wall the worse it is.
+      const crush = clamp(v / 10, 0, 1.4) * clamp(60 / Math.max(10, stemStrength(cls)), 0.4, 2);
+      damageShip(state, ship, null, ship.maxHp * 0.05 * crush, 'grounding', where(now.at));
+      if (v > 3) openHull(state, ship, where(now.at), (v - 3) * 0.1, now.at >= 0 ? 1 : -1, T * 0.4);
     }
     // What she hit it with, which decides how far up it she goes.
     ship.groundV = v;
@@ -7025,12 +7032,22 @@ function stepTorpedoes(state, dt) {
     tp.x = nx; tp.z = nz;
     const bound = state.world.half || MAP_HALF;
     if (tp.travelled > tp.range || Math.abs(tp.x) > bound || Math.abs(tp.z) > bound) continue;
-    // Run into the shore or the face of a sea wall: the warhead goes off
-    // against it, and what is built there takes it like a heavy bomb.
+    // Run into the face of a sea wall: a sheer wall of concrete standing in
+    // deep water is what a contact pistol is made to fire on, and the warhead
+    // goes off against it like a heavy bomb.
     const onWall = !!(state.world.works?.walls?.length && wallAt(state.world, tp.x, tp.z, 2));
-    if (onWall || islandAt(state.world, tp.x, tp.z, 0)) {
+    if (onWall) {
       state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 });
       if (tp.age > TORP_ARM_TIME || tp.aerial) landStrike(state, tp.x, tp.z, 0.533, 'bomb', 1.4);
+      continue;
+    }
+    // Run up a beach or onto rocks it does not go off. The shore shelves:
+    // the fish runs out of water and noses into the sand or the shingle long
+    // before anything is hard enough, square enough, to fire the pistol --
+    // which is why a torpedo that missed was found on the beach afterwards,
+    // whole. It stops there.
+    if (islandAt(state.world, tp.x, tp.z, 0)) {
+      state.events.push({ e: 'torpBeach', x: r(tp.x), z: r(tp.z), i: tp.id });
       continue;
     }
 
@@ -9384,6 +9401,33 @@ function hurtBattery(state, bat, damage) {
 /** What the airframe alone is worth, by what sort of aeroplane it is. */
 const RAM_MASS = { fighter: 2600, dive: 3900, torpedo: 4600, scout: 3000 };
 
+/**
+ * An aeroplane going into the ground, a house or a sea wall, and what that
+ * does to them.
+ *
+ * Two things arrive. The airframe -- tonnes of it, at whatever speed it was
+ * making, which is a burst of its own against masonry -- and whatever was
+ * still on the rack, which goes off when it hits: a machine shot down on its
+ * run in is a bomb with an aeroplane round it. `mass` is the airframe in the
+ * units RAM_MASS keeps (a fighter's 2600 up to a heavy's 16000), `load` the
+ * damage of what it was carrying, and `inside` the building it went into.
+ * Into the open sea it does nothing here; at the foot of a sea wall,
+ * landStrike puts it into the wall's face.
+ */
+function crashInto(state, x, z, { mass, speed, load = 0 }, inside = null) {
+  const v = clamp(Math.sqrt(Math.max(1, speed || 80) / 110), 0.6, 1.4);
+  landStrike(state, x, z, 0.16 * (mass / 1000) ** 0.45 * v, 'crash', 1, inside);
+  if (load > 0) landStrike(state, x, z, clamp(0.24 * (load / 2000) ** (1 / 3), 0.18, 0.75), 'bomb', 1, inside);
+}
+
+/** What a flight still had on her, as damage, for crashInto. */
+function crashLoad(state, p) {
+  if (p.dropped || !((p.bomb ?? 0) > 0 || (p.torp ?? 0) > 0)) return 0;
+  const owner = state.ships.find((q) => q.id === p.owner) || null;
+  const P = owner ? shipClass(owner).planes : null;
+  return (p.torp ?? 0) > 0 ? (P?.torpDamage ?? 9000) * 0.5 : (P?.bombDamage ?? 4000) * 0.6;
+}
+
 /** Walk the line a piloted flight just flew; leave her where it first meets an enemy hull. */
 function sweepIntoShip(state, p, was) {
   const to = { x: p.x, y: p.y ?? 220, z: p.z };
@@ -9548,7 +9592,7 @@ function ramBattery(state, p, bat) {
     owner.damageDealt = (owner.damageDealt || 0) + dmg;
     if (was && !bat.alive) owner.kills = (owner.kills || 0) + 1;
   }
-  landStrike(state, p.x, p.z, armed ? 0.42 : 0.26, 'crash');
+  crashInto(state, p.x, p.z, { mass, speed, load: crashLoad(state, p) });
   state.events.push({
     e: 'ram', bat: bat.id, team: p.team, i: p.id,
     x: r(p.x), y: r(bat.y + 2), z: r(p.z), h: r(p.heading),
@@ -9799,8 +9843,9 @@ function fallInto(state, f, x0, y0, z0, air) {
   const g = f.y <= landCeiling(state.world) ? solidGround(state.world, f.x, f.z) : 0;
   const hb = f.y > Math.max(0, g) ? intoBuilding(state, f.x, f.y, f.z) : null;
   if (f.y <= Math.max(0, g) || hb) {
-    if (hb) landStrike(state, hb.x, hb.z, f.heavy ? 0.4 : 0.2, 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, f.x, f.z, f.heavy ? 0.4 : 0.2, 'crash');
+    const hit = { mass: f.mass || (f.heavy ? HEAVY_RAM : RAM_MASS.scout), speed: Math.hypot(f.vx || 0, f.vy || 0, f.vz || 0), load: f.load || 0 };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, f.x, f.z, hit);
     state.events.push({
       e: 'wreckIn', f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
       x: r(f.x), y: r(Math.max(0, g)), z: r(f.z), land: g > 0.5 ? 1 : 0, tk: state.tick,
@@ -9841,8 +9886,10 @@ function stepHeavyRam(state, bm) {
   const g = bm.y <= landCeiling(state.world) ? solidGround(state.world, bm.x, bm.z) : 0;
   const hb = bm.y > Math.max(0, g) + 4 ? intoBuilding(state, bm.x, bm.y - 4, bm.z) : null;
   if (bm.y <= Math.max(0, g) + 4 || hb) {
-    if (hb) landStrike(state, hb.x, hb.z, 0.5, 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, bm.x, bm.z, 0.5, 'crash');
+    const L = heavyLoad(bm);
+    const hit = { mass: HEAVY_RAM, speed: bm.speed || 80, load: bm.loads > 0 ? L.bombDamage * 2.5 : 0 };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, bm.x, bm.z, hit);
     state.events.push({
       e: 'planeCrash', i: bm.id, team: bm.team, heavy: 1,
       x: r(bm.x), z: r(bm.z), y: r(Math.max(0, g)), tk: state.tick,
@@ -9991,8 +10038,9 @@ function stepRam(state, p) {
   const hb = solid?.b ? { x: p.x, z: p.z, b: solid.b } : null;
   const g = hb ? y : solid ? solidGround(state.world, p.x, p.z) : 0;
   if (y <= 0 || solid) {
-    if (hb) landStrike(state, hb.x, hb.z, (p.dropped ? 0.26 : 0.42), 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
+    const hit = { mass: RAM_MASS[p.role] || RAM_MASS.scout, speed: p.speed, load: crashLoad(state, p) };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, p.x, p.z, hit);
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
       tk: state.tick,
@@ -14188,8 +14236,8 @@ export function step(state, dt = DT) {
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);
-  // The town burning.
-  if (state.world?.works?.cities?.length) stepWorks(state.world, dt, state.events, worksDice(state));
+  // The town burning, and the surf at the walls.
+  if (state.world?.works) stepWorks(state.world, dt, state.events, worksDice(state));
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);
   const ev = state.events;
