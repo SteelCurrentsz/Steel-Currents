@@ -18,6 +18,7 @@
 // module from a file:// path.
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,6 +148,19 @@ if (!SPLIT) {
     fs.copyFileSync(path.join(HULLS, f), out('split', f));
     console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
   }
+  // The offline keeper beside the page (client/sw.js), with the list it keeps
+  // written in, as the server writes it into its own: the page, its chunks and
+  // the aircraft to take over with, then the hulls and the voices behind them.
+  // A page put up anywhere as these files plays with no signal once opened.
+  const files = ['./', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
+  const shell = files.filter((f) => !/\.data\.js$/.test(f) || /Model\.data\.js$/.test(f));
+  const version = crypto.createHash('sha1')
+    .update(html).update(every).update(named.join()).digest('hex').slice(0, 12);
+  const worker = fs.readFileSync(path.join(ROOT, 'client/sw.js'), 'utf8');
+  fs.writeFileSync(out('split', 'sw.js'),
+    `const OFFLINE = ${JSON.stringify({ version, shell, files })};\n${worker}`);
+  console.log(`build/split/sw.js — ${files.length} files kept, ${shell.length} before it takes over`);
+
   // And the same files as the phone apps' web assets (capacitor.config.json's
   // `webDir`). Everything the game plays with is in them, so the app installed
   // from them plays with the phone in flight mode.

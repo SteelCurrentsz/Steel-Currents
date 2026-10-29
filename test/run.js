@@ -14679,7 +14679,7 @@ check('the web game keeps every file it can ask for on the device', () => {
   // fetched only when a battle wants them, so with the signal gone Sortie
   // said to check the connection. A service worker now keeps all of it.
   const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
-  assert.ok(/serviceWorker\.register\('\/sw\.js'\)/.test(main), 'the offline keeper is never registered');
+  assert.ok(/serviceWorker\.register\('\.\/sw\.js'\)/.test(main), 'the offline keeper is never registered');
   const sw = readFileSync(new URL('../client/sw.js', import.meta.url), 'utf8');
   assert.ok(/addEventListener\('fetch'/.test(sw) && /cache\.match/.test(sw), 'nothing is answered from the store');
   const server = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');

@@ -1496,8 +1496,13 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !wind
   // voice -- behind the game, and asked again whenever the line comes back.
   const fill = () => navigator.serviceWorker.ready
     .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
-  const keep = () => navigator.serviceWorker.register('/sw.js')
-    .then(() => { fill(); offlineState(); }, () => { /* online only */ });
+  // Beside the page: the server hands it out at the root, and the split build
+  // puts one in the folder with its page (build/standalone.mjs). A page shown
+  // somewhere that will not run one -- inside another site's frame, say --
+  // says so in the corner rather than leaving the captain to find out at sea.
+  const keep = () => navigator.serviceWorker.register('./sw.js')
+    .then(() => { fill(); offlineState(); },
+      () => sayOffline('Offline saving is not available here', false));
   window.addEventListener('online', fill);
   if (document.readyState === 'complete') keep();
   else window.addEventListener('load', keep, { once: true });

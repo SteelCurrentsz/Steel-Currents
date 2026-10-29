@@ -4,7 +4,10 @@
 // from here whenever the line is down or too weak to answer.
 //
 // The server writes `OFFLINE` (the version, the shell and the file list) above
-// this script as it serves /sw.js; a new list is a new worker. It takes over
+// this script as it serves /sw.js, and the split build writes it into the
+// sw.js it puts beside its page (build/standalone.mjs); a new list is a new
+// worker. The names are read against where this script is, so the same worker
+// keeps the game served from the root and the game served from a folder. It takes over
 // as soon as it has the shell -- the page, its boot modules and the aircraft,
 // a few megabytes -- rather than once it has all forty: a worker that waited
 // for everything on a weak line never took over, and so never kept anything.
@@ -21,8 +24,13 @@ const PATIENCE = 4000;
 // How long one file may take to come down while it is being put away. A
 // trickle that never finishes would otherwise hold the queue for good.
 const STALL = 90000;
+const at = (f) => new URL(f, self.location).pathname;
+// The page, as the folder it is served from.
+const HOME = at('./');
+const SHELL = (OFFLINE.shell || ['./']).map(at);
+const FILES = OFFLINE.files.map(at);
 // Where the store notes the version it has every file of.
-const FILLED = '/__filled';
+const FILLED = at('./__filled');
 
 async function keep(cache, f) {
   const ctl = new AbortController();
@@ -56,7 +64,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     // Whatever of the shell does not come down is fetched again the first
     // time the game asks for it; the worker takes over regardless.
-    await keepAll(OFFLINE.shell || ['/'], 4);
+    await keepAll(SHELL, 4);
     await self.skipWaiting();
   })());
 });
@@ -77,7 +85,7 @@ self.addEventListener('message', (e) => {
     // What the store has none of first, then the rest brought up to date.
     const missing = [];
     const have = [];
-    for (const f of OFFLINE.files) ((await cache.match(f)) ? have : missing).push(f);
+    for (const f of FILES) ((await cache.match(f)) ? have : missing).push(f);
     const all = await keepAll([...missing, ...have], 2);
     if (all) await cache.put(FILLED, new Response(OFFLINE.version));
   })().finally(() => { filling = null; });
@@ -95,8 +103,8 @@ self.addEventListener('message', (e) => {
       const hits = await Promise.all(files.map((f) => cache.match(f)));
       return hits.filter(Boolean).length;
     };
-    const shell = OFFLINE.shell || ['/'];
-    const ships = OFFLINE.files.filter((f) => /Hull\.data\.js$/.test(f));
+    const shell = SHELL;
+    const ships = FILES.filter((f) => /Hull\.data\.js$/.test(f));
     const shellHave = await count(shell);
     e.ports[0].postMessage({
       shell: shellHave === shell.length, shellHave, shellOf: shell.length,
@@ -107,7 +115,7 @@ self.addEventListener('message', (e) => {
 
 function keyOf(req) {
   const url = new URL(req.url);
-  if (req.mode === 'navigate' || url.pathname === '/index.html') return '/';
+  if (req.mode === 'navigate' || url.pathname === `${HOME}index.html`) return HOME;
   return url.pathname;
 }
 
@@ -116,7 +124,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  if (/^\/(ws|api|healthz|sw\.js|__filled)/.test(url.pathname)) return;
+  if (!url.pathname.startsWith(HOME)) return;
+  if (/^(ws|api|healthz|sw\.js|__filled)/.test(url.pathname.slice(HOME.length))) return;
   e.respondWith(answer(req, keyOf(req)));
 });
 
