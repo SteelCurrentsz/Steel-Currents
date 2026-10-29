@@ -228,7 +228,6 @@ uniform vec4 uHullAt[MAX_HULLS];   // xz of her middle, reach squared, how much 
 uniform vec4 uHullDim[MAX_HULLS];  // z of her after end, her length, how far out she is felt, easing
 uniform sampler2D uHullPlan;       // a row a hull: waterline half-breadth, deck edge, side under it
 uniform float uHoldLeak;           // how much of a sea standing over her deck comes aboard
-uniform float uHoldUp;             // how far the trough is held up to her sides, in a storm
 
 // What she is at a station, by z in her own frame.
 vec4 hullPlan(int i, float z, vec4 dim) {
@@ -276,19 +275,6 @@ float holdOff(inout vec3 wp) {
     float w = (1.0 - smoothstep(0.0, dim.z, hullOff(lp, pl, dim))) * at.w;
     float k = dim.w;
     float top = pl.g - ${HOLD_MARGIN.toFixed(3)};
-    // And held up to her, the other way: the trough under her does not open
-    // round her bottom. She sits in the sea rather than being stood on a
-    // crest with daylight under her, and the water at her sides is never let
-    // fall below a little under her waterline -- which is a metre up her
-    // frame, because every hull is floated a metre down.
-    // Only in a storm, and only partly: in any other sea she rides the
-    // water and there is no trough deep enough to open round her.
-    float floorY = 0.0;
-    float under = floorY - lp.y;
-    if (uHoldUp > 0.0 && w > 0.0 && under > 0.0) {
-      wp.y += under * w * uHoldUp;
-      continue;
-    }
     float over = lp.y - (top - k);
     if (w <= 0.0 || over <= 0.0) continue;
     float y = top - k + k * (1.0 - exp(-over / k));
@@ -367,6 +353,8 @@ uniform float uGlareSize;
 uniform float uStreak;
 uniform float uUnder;
 uniform float uChop;
+// How much of the surface a hard wind has streaked with foam, and which way
+// it is blowing. See setSeaState.
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying float vCrest;
@@ -912,7 +900,6 @@ export class Ocean {
         uHullDim: { value: Array.from({ length: MAX_HULLS }, () => new THREE.Vector4(0, 1, 1, 1)) },
         uHullPlan: { value: this.hullPlan },
         uHoldLeak: { value: 0.6 },
-        uHoldUp: { value: 0 },
         uTime: { value: 0 },
         uAmp: { value: p.amp },
         uCrest: { value: p.amp },
@@ -993,7 +980,6 @@ export class Ocean {
     // -- onto the deck and against the superstructure -- rather than being
     // shaved off at her deck edge.
     if (u.uHoldLeak) u.uHoldLeak.value = this.short ? 0.95 : 0.6;
-    if (u.uHoldUp) u.uHoldUp.value = this.short ? 0.55 : 0;
     const scale = waveScales(this.short);
     u.uWave.value.forEach((w, i) => { w.w = WAVES[i].amp * scale[i]; });
     // The crests whiten at the same share of the sea's height whatever is
@@ -1003,7 +989,12 @@ export class Ocean {
     if (u.uCrest) u.uCrest.value = u.uAmp.value * (now / was) * (this.short ? 0.9 : 1);
     // A calm sea is glassy and a rough one is not: the chop rides the state
     // rather than sitting at one strength whatever the weather.
-    u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.min(1.6, wx?.swell || 1);
+    // Not straight up with the storm, though: past a point more ripple is
+    // not a rougher sea but a sparkling one, and what a gale adds is foam --
+    // the streaks below -- rather than finer and finer chop.
+    u.uChop.value = 0.5 + Math.min(1.6, k) * 0.75 * Math.sqrt(Math.min(1.6, wx?.swell || 1));
+    // Spindrift: none in any ordinary sea, lanes of it in rough water, and
+    // the whole sea streaked white in a typhoon.
   }
 
   /** Run the sea on a clock of somebody else's -- the server's, in a battle. */
@@ -1060,6 +1051,19 @@ export class Ocean {
     if (c && c.amp === amp && c.steep === steep && c.short === short) return c;
     this.terms = waveTerms(amp, steep, short);
     return this.terms;
+  }
+
+  /**
+   * How far below the mean the deepest trough this sea can make goes: every
+   * wave in the train at the bottom of its own trough at once. Anything held
+   * below this is under water whatever the surface is doing.
+   */
+  deepest() {
+    const u = this.material.uniforms;
+    const W = this.waveTerms(u.uAmp.value, u.uSteep.value);
+    let d = 0;
+    for (let i = 0; i < W.n; i++) d += W.a[i];
+    return d;
   }
 
   /** Wave height at a world point. */

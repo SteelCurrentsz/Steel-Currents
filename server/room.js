@@ -6,13 +6,15 @@ import {
   steerToWaypoint,
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
-  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery,
+  dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
+  commandBattery, pinBattery, layBattery, triggerBattery,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
 import { getClass, SHIP_ORDER } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
+import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
 import { createStaff, stepStaff } from './command.js';
 import { createStage, stepStage, unitsOf, unitIds } from './stage.js';
@@ -50,7 +52,7 @@ export class Room {
     this.autoStart = opts.autoStart !== false;
     this.seed = opts.seed || ((Math.random() * 0xffffffff) >>> 0);
     this.world = generateWorld(this.seed, this.mapId, opts.time, opts.half, opts.place,
-      opts.weather, !!opts.fog);
+      opts.weather, !!opts.fog, opts.works || null);
     // Arcade rules ride on the world, which both the simulation and every
     // client are handed: see stepDetection.
     if (opts.arcade) this.world.arcade = true;
@@ -202,6 +204,8 @@ export class Room {
     }
     const gone = this.players.get(playerId);
     if (gone) this.release(gone);
+    // The guns he had taken go back to their own crews.
+    for (const b of this.state.batteries) if (b.ctl && b.ctl === p.shipId) commandBattery(this.state, b, 0);
     this.players.delete(playerId);
     this.broadcastRoster();
     if (this.players.size === 0) this.close();
@@ -353,10 +357,13 @@ export class Room {
         // captain keeps her guns, and her helm and telegraph are his.
         const brain = this.brains.get(ship.id);
         // In a staged battle every helm is the script's.
-        const conned = !ship.isBot || !!ship.heldBy || this.staged;
+        // And so is one steaming in company on a course given to her fleet.
+        const conned = !ship.isBot || !!ship.heldBy || this.staged || !!ship.fleetWay;
         if (brain) stepBot(this.state, ship, brain, DT, conned, this.staff[ship.team]);
         // And a course laid off on the chart is steered to, whoever gave it.
         if (conned) steerToWaypoint(this.state, ship);
+        // There: she is her own captain's again.
+        if (ship.fleetWay && ship.wayX == null) ship.fleetWay = false;
       }
       if (this.later.length) {
         const due = this.later.filter((q) => q.at <= this.state.t);
@@ -402,7 +409,10 @@ export class Room {
       // those is heard and seen from anywhere on the map whether or not the
       // ship it happened to was in sight -- that is the whole of what makes a
       // detonation different from every other explosion in the game.
-      if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate') global.push(ev);
+      if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate'
+        // What has been done to the town is the town's state, not a flash
+        // somebody may or may not have seen: every client keeps its copy.
+        || ev.e === 'ruin') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);
@@ -497,7 +507,8 @@ export class Room {
     ship.heldBy = 0;
     // Her own captain steers her his own way, not to the mark left on the
     // chart for her.
-    if (ship.isBot) { ship.wayX = null; ship.wayZ = null; }
+    // Unless she is steaming on a course her fleet was given.
+    if (ship.isBot && !ship.fleetWay) { ship.wayX = null; ship.wayZ = null; }
   }
 
   command(player, msg) {
@@ -535,6 +546,41 @@ export class Room {
     }
     const ship = this.shipOf(player);
     if (!ship) return;
+    // Forming a fleet or a squadron off the plot, or breaking one up, and
+    // sending a squadron somewhere. These are orders to his side, not to his
+    // own ship, so a captain whose ship has gone down can still give them.
+    if (msg.t === 'group') {
+      const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
+      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split);
+      player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
+      return;
+    }
+    if (msg.t === 'vector') {
+      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z));
+      return;
+    }
+    // A battery of his own side taken over, laid and fired, and handed back.
+    // Like the orders above these are not his ship's, so a captain whose ship
+    // has gone down can still fight the guns ashore -- which is much of what
+    // there is left for him to do.
+    if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire') {
+      const bat = this.state.batteries.find((b) => b.id === msg.i);
+      if (!bat || bat.team !== ship.team) return;
+      if (msg.t === 'tbat') {
+        // One battery at a time: taking another hands the last one back.
+        for (const o of this.state.batteries) if (o !== bat && o.ctl === ship.id) commandBattery(this.state, o, 0);
+        if (!commandBattery(this.state, bat, ship.id)) player.send({ t: 'nobat', i: bat.id, why: 'taken' });
+        return;
+      }
+      if (bat.ctl !== ship.id) return;
+      if (msg.t === 'lbat') commandBattery(this.state, bat, 0);
+      else if (msg.t === 'bpin') {
+        const x = msg.x === null ? null : Number(msg.x);
+        if (!pinBattery(this.state, bat, x, Number(msg.z))) player.send({ t: 'nobat', i: bat.id, why: 'range' });
+      } else if (msg.t === 'btgt') layBattery(this.state, bat, typeof msg.target === 'number' ? msg.target : 0);
+      else triggerBattery(this.state, bat);
+      return;
+    }
     // A captain whose ship has gone down still has the con of whatever he has
     // picked off the plot: orders that name another ship go to her.
     const other = typeof msg.ship === 'number' && msg.ship !== ship.id;
@@ -555,24 +601,47 @@ export class Room {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
+        // A ship of a fleet takes the rest of it with her. See fleetCourse.
+        const fleet = target.fleet && target.team === ship.team;
         // No point given is the order cancelled: she holds what she is on.
         if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
-          target.wayX = null;
-          target.wayZ = null;
-          target.rudderCmd = 0;
+          for (const s of fleet ? membersOf(this.state, 'ship', target.fleet) : [target]) {
+            if (s !== target && !s.fleetWay) continue;
+            s.wayX = null;
+            s.wayZ = null;
+            s.rudderCmd = 0;
+            s.fleetWay = false;
+            if (s !== target) s.fleetSeq = (s.fleetSeq || 0) + 1;
+          }
           break;
         }
-        target.wayX = msg.x;
-        target.wayZ = msg.z;
-        // Ordered somewhere and stopped: give her steerage way to get there.
-        if (target.notch <= 1) target.notch = 4;
+        const legs = fleet ? fleetCourse(this.state, target, msg.x, msg.z)
+          : [{ ship: target, x: msg.x, z: msg.z }];
+        for (const leg of legs) {
+          leg.ship.wayX = leg.x;
+          leg.ship.wayZ = leg.z;
+          // The rest of the fleet steer for their stations on it whoever
+          // their own captains are.
+          if (leg.ship !== target) leg.ship.fleetWay = true;
+          // Ordered somewhere and stopped: give her steerage way to get there.
+          if (leg.ship.notch <= 1) leg.ship.notch = 4;
+          // And a captain in one of them is told: his own helm and telegraph
+          // take up what the fleet was given (see Game.onSnapshot).
+          if (leg.ship !== target) leg.ship.fleetSeq = (leg.ship.fleetSeq || 0) + 1;
+        }
         break;
       }
       case 'notch': {
         const target = typeof msg.ship === 'number'
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
-        applyInput(target, { notch: msg.notch });
+        // A fleet rings up the same revolutions together.
+        const all = target.fleet && target.team === ship.team
+          ? membersOf(this.state, 'ship', target.fleet) : [target];
+        for (const s of all) {
+          applyInput(s, { notch: msg.notch });
+          if (s !== ship) s.fleetSeq = (s.fleetSeq || 0) + 1;
+        }
         break;
       }
       case 'fire': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'main', () => fireGuns(this.state, to)); break; }
@@ -587,6 +656,17 @@ export class Room {
         const only = Number.isInteger(msg.i) ? msg.i : null;
         if (!this.onWord(from, 'dc', () => dropCharges(this.state, from, only))
           && !orderPending(this.state, from, 'dc')) player.send({ t: 'nodc' });
+        break;
+      }
+      // The mine rails: let the next one go over the stern.
+      case 'mine': {
+        const from = this.conned(ship, msg);
+        if (!from) break;
+        if (!this.onWord(from, 'mine', () => layMine(this.state, from))
+          && !orderPending(this.state, from, 'mine')) {
+          const why = from.mnLeft <= 0 ? 'empty' : submerged(from) ? 'under' : 'wait';
+          player.send({ t: 'nomine', why });
+        }
         break;
       }
       case 'dcset': { const to = this.conned(ship, msg); if (to) setChargeDepth(to, msg.d); break; }
@@ -659,7 +739,8 @@ export class Room {
         gunTurret(this.state, ship, msg.i, Number(msg.y) || 0,
           Math.min(Math.PI, Math.max(0, Number(msg.a) || Math.PI)),
           Math.min(0.3, Math.max(0, msg.dt || 0)),
-          typeof msg.n === 'string' ? msg.n.slice(0, 16) : '');
+          typeof msg.n === 'string' ? msg.n.slice(0, 16) : '',
+          Number.isFinite(Number(msg.p)) ? Number(msg.p) : null);
         break;
       // A carrier bomber's back-seat gun, laid and fired by the man in it.
       case 'gunr':

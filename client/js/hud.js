@@ -9,7 +9,6 @@ import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
 import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
-import { getSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -56,6 +55,12 @@ const LAMP_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true" class="lamp-icon"
       </svg>`;
 
 const M_TO_YARDS = 1.09361;
+
+/** What each of a bomber's gun positions is called on the gunner's key. */
+const TURRET_LABEL = {
+  nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
+  tail: 'Tail', gondola: 'Ventral', rear: 'Rear',
+};
 
 /** The top of the throttle ladder: a tenth over full power, which is emergency power. */
 export const THROTTLE_MAX = 1.1;
@@ -226,6 +231,25 @@ export function arsenal(cls) {
       charges: true,
     });
   }
+  if (cls.mines) {
+    const N = cls.mines;
+    rows.push({
+      name: N.name,
+      caliber: null,
+      barrels: N.rails.length,
+      mounts: N.rails.length,
+      reload: N.reload,
+      // A mine has no range: it goes into the sea under her stern and waits
+      // there for whatever comes over it.
+      range: null,
+      role: N.role || 'surface',
+      pen: null,
+      band: 'Mines',
+      note: `${N.rails.length} rails, ${N.carried} carried`,
+      specs: N.rails.map((m) => ({ ...m, angle: Math.PI, arc: 0.45, guns: 1 })),
+      mines: true,
+    });
+  }
   return rows;
 }
 
@@ -274,7 +298,7 @@ class HudBase {
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
       flyTake: $('fly-take'), cockpit: $('cockpit'), hudLeft: $('hud-left'),
-      gunSeat: $('gun-seat'), gunFire: $('gun-fire'),
+      gunSeat: $('gun-seat'), gunnerFire: $('gunner-fire'),
       flySpeed: $('fly-speed'), flyAlt: $('fly-alt'), flyG: $('fly-g'),
       flyThr: $('fly-thr'), flyStall: $('fly-stall'),
       flyThrottle: $('fly-throttle'), flyThrottleFill: $('fly-throttle-fill'),
@@ -289,10 +313,11 @@ class HudBase {
       flyDamageParts: $('fly-damage-parts'),
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'), flyMoves: $('fly-moves'),
+      flyBrakes: $('fly-brakes'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
-      ribbons: $('ribbons'), alerts: $('alerts'), scoreboard: $('scoreboard'),
+      ribbons: $('ribbons'), scoreboard: $('scoreboard'),
       scoreTable: $('scoreboard-table'), minimap: $('minimap'), minimapWrap: $('minimap-wrap'),
       hudRight: $('hud-right'), hudTop: $('hud-top'),
       bigPlot: $('minimap-big'), plotTable: $('plot-table'),
@@ -488,7 +513,9 @@ class HudBase {
     // landing on yourself — which is the one answer that does nothing. Ranked
     // instead: a gun ashore, then somebody else's hull, then your own, and the
     // nearest inside each rank.
-    const rank = (m) => (m.kind === 'battery' || m.kind === 'plane'
+    // A pin of the player's own comes before everything: it is what a double
+    // tap is for, and it is usually sitting on top of the ship it is laid on.
+    const rank = (m) => (m.kind === 'pin' ? -1 : m.kind === 'battery' || m.kind === 'plane'
       || m.kind === 'bomber' || m.kind === 'torp' ? 0
       : m.id === this.selfId ? 2 : 1);
     let best = null;
@@ -520,6 +547,47 @@ class HudBase {
 
   /** Which ship the chart is conning, so she can be ringed. */
   setSelected(id) { this.selected = id ?? null; }
+
+  /**
+   * The fleets-and-squadrons key and its bar. `on` has `toggle`, `form` and
+   * `split`, each of which the battle answers.
+   */
+  bindGrouping(on) {
+    const key = (id, fn) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); fn();
+    });
+    key('group-key', () => on.toggle());
+    key('group-form', () => on.form());
+    key('group-split', () => on.split());
+    this.setGrouping(null);
+  }
+
+  /**
+   * What has been picked to form a group, `{ kind, ids }`, or null when the
+   * plot is not picking. The plot rings what is picked.
+   */
+  setGrouping(pick) {
+    this.groupPick = pick;
+    const btn = document.getElementById('group-key');
+    const bar = document.getElementById('group-bar');
+    const what = document.getElementById('group-what');
+    if (btn) btn.setAttribute('aria-pressed', pick ? 'true' : 'false');
+    if (!bar) return;
+    bar.hidden = !pick;
+    if (!pick) return;
+    const n = pick.ids.length;
+    const noun = pick.kind === 'plane' ? (n === 1 ? 'flight' : 'flights')
+      : (n === 1 ? 'ship' : 'ships');
+    if (what) {
+      what.textContent = n
+        ? `${n} ${noun} picked · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
+        : 'Tap your own ships or flights';
+    }
+    const form = document.getElementById('group-form');
+    const split = document.getElementById('group-split');
+    if (form) form.disabled = n < 2;
+    if (split) split.disabled = n < 1;
+  }
 
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
@@ -652,6 +720,18 @@ class HudBase {
       const frac = Math.max(0, Math.min(1, air / D.oxygen));
       const fill = document.getElementById('air-fill');
       if (fill) fill.style.width = `${(frac * 100).toFixed(1)}%`;
+      // And the gauge over the key, with the figure on it.
+      const pct = Math.round(frac * 100);
+      const gauge = document.getElementById('o2-gauge');
+      if (gauge && gauge.dataset.pct !== String(pct)) {
+        gauge.dataset.pct = String(pct);
+        gauge.setAttribute('aria-valuenow', String(pct));
+        gauge.classList.toggle('low', frac < 0.5);
+        const o2 = document.getElementById('o2-fill');
+        if (o2) o2.style.width = `${pct}%`;
+        const n = document.getElementById('o2-pct');
+        if (n) n.textContent = `${pct}%`;
+      }
       const depth = own.d || 0;
       const label = document.getElementById('dive-label');
       // What she is doing, not what the next press will do: an order already
@@ -995,12 +1075,13 @@ class HudBase {
     // ship carries -- and pressing a turret in it puts you in that turret.
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
+    if (el.flyBrakes) el.flyBrakes.onclick = () => this.flyFns.brakes?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
     // The gunner's seat, and his trigger: held down for as long as the thumb
     // is on it, the same as the cockpit's.
     if (el.gunSeat) el.gunSeat.onclick = () => this.flyFns.gunner?.();
-    if (el.gunFire) {
-      const btn = el.gunFire;
+    if (el.gunnerFire) {
+      const btn = el.gunnerFire;
       btn.addEventListener('pointerdown', (ev) => {
         btn.setPointerCapture(ev.pointerId);
         this.gunHeld = true;
@@ -1018,15 +1099,19 @@ class HudBase {
    * being watched, reading LEAVE GUN while somebody is in it, with the FIRE
    * key beside it when there is no cockpit on the glass to fire from.
    */
-  setGunner(offer, seated, fire) {
+  setGunner(offer, seated, fire, next = null, at = null) {
     const el = this.el;
     if (!el.gunSeat) return;
     const show = (!!offer || seated) && !this.flying;
     el.gunSeat.hidden = !show;
-    const label = seated ? 'LEAVE GUN' : offer === 'rear' ? 'REAR GUNNER' : 'TAIL GUNNER';
+    // What a press does: into the first seat, on to the next turret, or out.
+    const name = (k) => (TURRET_LABEL[k] || k || '').toUpperCase();
+    const label = seated
+      ? (next ? `${name(at)} ▸ ${name(next)}` : 'LEAVE GUN')
+      : offer === 'rear' ? 'REAR GUNNER' : `${name(offer)} GUNNER`;
     if (show && el.gunSeat.textContent !== label) el.gunSeat.firstElementChild.textContent = label;
-    el.gunFire.hidden = !fire;
-    if (!fire && this.gunHeld) { this.gunHeld = false; el.gunFire.classList.remove('held'); }
+    el.gunnerFire.hidden = !fire;
+    if (!fire && this.gunHeld) { this.gunHeld = false; el.gunnerFire.classList.remove('held'); }
   }
 
   /** Offer the set pieces, or not: a heavy bomber has none. */
@@ -1133,6 +1218,17 @@ class HudBase {
   }
 
   /**
+   * Her dive brakes, on the key: there only on a type that has them, lit
+   * while they are selected out.
+   */
+  setBrakes(has, out = false) {
+    const b = this.el.flyBrakes;
+    if (!b) return;
+    b.hidden = !has;
+    b.classList.toggle('on', !!has && !!out);
+  }
+
+  /**
    * Who she is: her type in the bottom left corner, and the ship she came off
    * under it. A pilot flying one of the carrier's Avengers from a destroyer's
    * bridge has to be told which aeroplane he has.
@@ -1224,6 +1320,7 @@ class HudBase {
       this.releaseTriggers?.();
       if (this.el.flyHint) this.el.flyHint.classList.remove('gone');
       this.setSightHot(false);
+      this.setBrakes(false);
     }
   }
 
@@ -1506,6 +1603,7 @@ class HudBase {
       // order to let go, and whether her own anti-submarine officer may attack
       // a sonar contact without being asked.
       if (w.charges) this.buildChargeControls(entry);
+      if (w.mines) this.buildMineControls(entry);
       // Press it and she appears underneath with that battery lit up on her.
       //
       // A list of guns tells you what she carries and not where any of it is,
@@ -1584,6 +1682,44 @@ class HudBase {
     box.appendChild(ping);
     entry.pingEl = ping;
     entry.row.appendChild(box);
+  }
+
+  /**
+   * The mine rails' one control: the word to let the next one go.
+   */
+  buildMineControls(entry) {
+    const box = document.createElement('div');
+    box.className = 'arms-dc';
+    const lay = document.createElement('button');
+    lay.type = 'button';
+    lay.className = 'arms-dc-fire';
+    lay.innerHTML = '<span>LAY MINE</span><b></b>';
+    lay.onclick = (e) => { e.stopPropagation(); this.onMineLay?.(); };
+    box.appendChild(lay);
+    entry.fireEl = lay;
+    entry.row.appendChild(box);
+  }
+
+  /** Say what pressing the lay-mine key does. */
+  onMines(fn) { this.onMineLay = fn; }
+
+  /** The mine row, every frame: what is left on the rails, and whether the next is aft. */
+  paintMines(entry, own) {
+    const N = this.shown.mines;
+    if (!N) return;
+    const left = own.mnl == null ? N.carried : own.mnl;
+    const wait = own.mnc || 0;
+    if (entry.el) {
+      entry.el.textContent = left <= 0
+        ? 'Rails empty'
+        : wait > 0 ? `Next mine aft in ${Math.ceil(wait)}s · ${left} left` : `${left} of ${N.carried} on the rails`;
+      entry.el.classList.toggle('masked', left <= 0);
+      entry.el.classList.toggle('part', left > 0 && wait > 0);
+    }
+    if (entry.fireEl) {
+      entry.fireEl.classList.toggle('spent', left <= 0 || wait > 0);
+      entry.fireEl.querySelector('b').textContent = left > 0 ? `${left}` : '';
+    }
   }
 
   /** Say what pressing a battery's AP or HE key does. */
@@ -1823,6 +1959,24 @@ class HudBase {
     up.textContent = 'Bridge';
     up.onclick = () => this.onHumanBridge?.();
     bar.appendChild(up);
+    // Off her altogether: into the town, if the battle has one, or onto the
+    // nearest land to her, island or coast.
+    if (info.town) {
+      const town = document.createElement('button');
+      town.type = 'button';
+      town.className = 'human-deploy human-bridge';
+      town.textContent = 'Town';
+      town.onclick = () => this.onHumanAshore?.('town');
+      bar.appendChild(town);
+    }
+    if (info.land) {
+      const land = document.createElement('button');
+      land.type = 'button';
+      land.className = 'human-deploy human-bridge';
+      land.textContent = 'Ashore';
+      land.onclick = () => this.onHumanAshore?.('land');
+      bar.appendChild(land);
+    }
     const said = document.createElement('span');
     said.className = 'human-said';
     said.textContent = 'No place picked';
@@ -1970,7 +2124,7 @@ class HudBase {
 
   setGunSight(gun) {
     const el = this.el.gunSight || (this.el.gunSight = document.getElementById('gun-sight'));
-    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    const fire = this.el.sightFire || (this.el.sightFire = document.getElementById('gun-fire'));
     if (!el) return;
     el.hidden = !gun;
     if (fire) fire.hidden = !gun || !!gun.auto;
@@ -2012,7 +2166,7 @@ class HudBase {
     }
     if (beyond) bits.push('OUT OF RANGE');
     read.textContent = bits.join('   ');
-    const fire = this.el.gunFire || (this.el.gunFire = document.getElementById('gun-fire'));
+    const fire = this.el.sightFire || (this.el.sightFire = document.getElementById('gun-fire'));
     if (fire && !gun.auto) {
       const i = gun.id ?? gun.index;
       const cd = gun.kind === 'main' ? own?.cd?.[i]
@@ -2041,6 +2195,7 @@ class HudBase {
       // The depth charge gear does not bear on anything: it is worked, not
       // laid, and its row reads what is loaded and what the sonar has.
       if (w.charges) { this.paintCharges(entry, own); continue; }
+      if (w.mines) { this.paintMines(entry, own); continue; }
       if (w.shell) {
         entry.shellOwn = w.shell === 'main' ? own.st : (own.ss || own.st);
         this.paintShell(entry, entry.shellOwn);
@@ -2296,15 +2451,11 @@ class HudBase {
     while (this.el.ribbons.children.length > 7) this.el.ribbons.firstChild.remove();
   }
 
-  alert(text) {
-    // A captain may turn the big red words off in the settings.
-    if (getSettings().alerts === false) return;
-    const el = document.createElement('div');
-    el.className = 'alert';
-    el.textContent = text;
-    this.el.alerts.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  }
+  // The big red words across the screen are gone from the game: what happens
+  // is seen on the ship, the plot and the ribbons. The game still says what it
+  // would have announced, to anything listening (the checks do), and draws
+  // nothing.
+  alert(_text) {}
 
   kill(killerName, killerTeam, victimName, victimTeam) {
     const el = document.createElement('div');
@@ -2346,6 +2497,89 @@ class HudBase {
     for (const plot of this.plots) {
       if (plot.cv.offsetParent === null && plot.cv !== this.el.minimap) { plot.marks = []; continue; }
       this.paintPlot(plot, own, ships, snap);
+    }
+  }
+
+  /**
+   * The pins our own batteries have put in the chart.
+   *
+   * A mortar is laid on a point, not a ship, and that point is drawn: the pin
+   * where the bomb is going, a dashed leg back to the ship it was plotted on
+   * when its crew put it there -- which is the lead they are giving her -- and
+   * a ring where the last bomb is still in the air, counting down to when it
+   * comes down. The pin of the battery the player has in hand is his own and
+   * is drawn in the chart's yellow; it is the one mark a double tap takes out.
+   * Our own side only: the snapshot carries nobody else's.
+   */
+  paintPins(ctx, marks, snap, ships, toX, toY, k, size) {
+    const MODE = { s: 'STILL', m: 'LEAD', t: 'TURN', h: '' };
+    for (const g of (snap && snap.batteries) || []) {
+      if (g.tm !== this.team || !g.al) continue;
+      const mine = this.commandBat === g.i;
+      if (g.st) {
+        const sx = toX(g.st[0]), sy = toY(g.st[1]);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(240,166,64,0.8)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2 * k, 2 * k]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 9 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (size > 200) {
+          ctx.fillStyle = 'rgba(240,166,64,0.95)';
+          ctx.font = `${Math.round(8.5 * k)}px ui-monospace, monospace`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${Math.ceil(g.st[2])}s`, sx + 11 * k, sy);
+        }
+        ctx.restore();
+      }
+      if (!g.pn) continue;
+      const [x0, z0, m, tid] = g.pn;
+      const x = toX(x0), y = toY(z0);
+      const tint = mine ? '#e6cf9c' : '#f0a640';
+      ctx.save();
+      // The leg the crew are leading her by.
+      if (tid) {
+        const t = ships.find((q) => q.i === tid) || ((snap && snap.contacts) || []).find((q) => q.i === tid);
+        if (t) {
+          ctx.strokeStyle = 'rgba(240,166,64,0.6)';
+          ctx.lineWidth = 1.1;
+          ctx.setLineDash([3 * k, 3 * k]);
+          ctx.beginPath();
+          ctx.moveTo(toX(t.x), toY(t.z));
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      // A map pin: a head on a point, the point on the spot.
+      const r = 4.2 * k;
+      const hy = y - 9 * k;
+      ctx.fillStyle = tint;
+      ctx.strokeStyle = 'rgba(8,24,42,0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - r * 0.8, hy + r * 0.5);
+      ctx.arc(x, hy, r, Math.PI * 0.8, Math.PI * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(8,24,42,0.9)';
+      ctx.beginPath();
+      ctx.arc(x, hy, r * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      if (MODE[m] && size > 200) {
+        ctx.fillStyle = tint;
+        ctx.font = `${Math.round(8 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(MODE[m], x + 7 * k, hy);
+      }
+      ctx.restore();
+      if (mine) marks.push({ kind: 'pin', id: g.i, x, y: hy, name: 'Pin', team: g.tm });
     }
   }
 
@@ -2482,7 +2716,7 @@ class HudBase {
         ctx.lineTo(x + CHART_X * Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
-      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery' });
+      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm });
     }
 
     // Everything afloat, wherever it is. A hull the lookouts have sighted is a
@@ -2549,6 +2783,25 @@ class HudBase {
         ctx.stroke();
         ctx.restore();
       }
+      // Her fleet, beside her, so a captain can see which ships go together.
+      if (s.fg && s.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`F${s.fg}`, x + 8 * k, y + 8 * k);
+      }
+      // Picked to go into a fleet: a broken ring, in the chart's own yellow.
+      if (this.groupPick && this.groupPick.kind === 'ship' && this.groupPick.ids.includes(s.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 15 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       // And a ring round the ship the chart is currently conning.
       if (s.i === this.selected) {
         ctx.strokeStyle = '#e6cf9c';
@@ -2559,6 +2812,8 @@ class HudBase {
       }
       marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm });
     }
+
+    this.paintPins(ctx, marks, snap, ships, toX, toY, k, size);
 
     // Aircraft, both sides. A squadron is over the map for a minute or two and
     // decides an action while it is there, so it belongs on the plot as much as
@@ -2585,9 +2840,42 @@ class HudBase {
         ctx.stroke();
       }
       ctx.restore();
+      // Her squadron, and where it has been sent.
+      if (pl.wg && pl.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`S${pl.wg}`, x + 8 * k, y + 8 * k);
+      }
+      if (pl.vx !== undefined && pl.vz !== undefined && pl.tm === this.team) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(111,211,160,0.5)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([2 * k, 4 * k]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(toX(pl.vx), toY(pl.vz));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(toX(pl.vx), toY(pl.vz), 4 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this.groupPick && this.groupPick.kind === 'plane' && this.groupPick.ids.includes(pl.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 14 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       marks.push({
         kind: 'plane', id: pl.i, x, y,
-        name: `${pl.n} aircraft`,
+        name: `${pl.n} aircraft`, team: pl.tm,
       });
     }
 

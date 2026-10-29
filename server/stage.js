@@ -13,7 +13,7 @@
 // that has been written in advance.
 
 import {
-  ASSIGN_KINDS, assignMount, setMountOff, fireTorpedoes, launchStrike, useSmoke,
+  ASSIGN_KINDS, assignMount, setMountOff, fireTorpedoes, launchStrike, useSmoke, layMine,
   startFire, startSinking, breakHer, detonate, openHull, applyInput,
 } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
@@ -120,6 +120,13 @@ function act(room, stage, cue) {
     case 'smoke':
       useSmoke(state, ship);
       break;
+    case 'mines':
+      // Her whole load, one after another as fast as the party can run them
+      // aft. A ship with no rails has nothing to do.
+      if (getClass(ship.classId).mines) {
+        stage.pending.push({ until: state.t + 120, kind: 'mines', ship, foe: null });
+      }
+      break;
     case 'burn':
       startFire(state, ship, 'works', 0.8);
       startFire(state, ship, 'mid', 0.6);
@@ -182,6 +189,11 @@ export function stepStage(room, stage) {
   }
   if (!stage.pending.length) return;
   stage.pending = stage.pending.filter((p) => {
+    if (p.kind === 'mines') {
+      if (!p.ship.alive || state.t > p.until || p.ship.mnLeft <= 0) return false;
+      layMine(state, p.ship);
+      return p.ship.mnLeft > 0;
+    }
     if (!p.ship.alive || !p.foe.alive || state.t > p.until) return false;
     if (p.kind === 'torp') return !(fireTorpedoes(state, p.ship, null, { assignedOnly: true }) > 0);
     // A strike goes where her fire control is: the target, wherever she is now.

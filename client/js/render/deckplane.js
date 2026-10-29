@@ -9,10 +9,11 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { AERO, launchProfile } from './aero.js';
 
-/** Which job is which kind, on each side of the Pacific. */
+/** Which job is which kind, on each side of the Pacific -- and on the one German carrier. */
 export const DECK_KINDS = {
-  usa: { fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger' },
+  usa: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger' },
   ijn: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
+  ger: { fighter: 'bf109', dive: 'ju87c', torpedo: 'ju87d' },
 };
 
 /**
@@ -123,4 +124,56 @@ export function deckProfiles(kinds, deckAhead) {
 export function rowSpeed(pr, i) {
   const r = pr.rows[Math.max(0, Math.min(pr.rows.length - 1, i))];
   return r[4] ?? 0;
+}
+
+/** How fast she is going over the deck as her hook takes a wire, in metres a second. */
+const TRAP_SPEED = 38;
+/** The most deck a wire pays out before it has her stopped. */
+const TRAP_RUN = 32;
+/** How fast she is taxied up the deck to the lift once the wire has let her go. */
+const TAXI_SPEED = 12;
+/** On the lift, wings going back, before it takes her down. */
+const ON_LIFT = 0.4;
+/** And the lift down the well into the hangar. */
+export const LAND_SINK = 3.4;
+
+/**
+ * Where an aeroplane just landed is on her deck, `k` seconds after her wheels
+ * went on at `landZ`, on her way to the lift at `liftZ`.
+ *
+ * She does not roll up the deck at a stroll. She arrives at the round-down at
+ * something like seventy knots over the deck, her hook takes a wire, and the
+ * wire has her stopped in thirty metres and a second and a half -- which is
+ * the whole point of an arrester. Then the wire is cleared, she is taxied
+ * forward onto the after lift with her wings going back as she goes, and the
+ * lift takes her down.
+ *
+ * Returns `{ z, lift, wings, turning, done }`: how far down the well the lift
+ * is, nought at the flight deck and one at the hangar; how far her wings are
+ * spread; how fast her airscrew is going round; and whether she is below.
+ */
+export function recoveryAt(k, landZ, liftZ) {
+  const room = Math.max(4, liftZ - landZ);
+  const run = Math.min(TRAP_RUN, room * 0.8);
+  const stop = (2 * run) / TRAP_SPEED;
+  const taxi = Math.max(1, (room - run) / TAXI_SPEED);
+  const fold = (u) => 1 - Math.max(0, Math.min(1, u));
+  if (k < stop) {
+    // On the wire: the speed coming off her evenly, which is what the
+    // arresting engine is built to do.
+    const u = k / stop;
+    return { z: landZ + run * (1 - (1 - u) * (1 - u)), lift: 0, wings: 1, turning: 30 * (1 - u) + 8, done: false };
+  }
+  if (k < stop + taxi) {
+    const u = (k - stop) / taxi;
+    const e = u * u * (3 - 2 * u);
+    return { z: landZ + run + (room - run) * e, lift: 0, wings: fold(u / 0.8), turning: 8, done: false };
+  }
+  if (k < stop + taxi + ON_LIFT) return { z: liftZ, lift: 0, wings: 0, turning: 4, done: false };
+  const t = k - stop - taxi - ON_LIFT;
+  if (t < LAND_SINK) {
+    const u = t / LAND_SINK;
+    return { z: liftZ, lift: u * u * (3 - 2 * u), wings: 0, turning: 0, done: false };
+  }
+  return { z: liftZ, lift: 1, wings: 0, turning: 0, done: true };
 }

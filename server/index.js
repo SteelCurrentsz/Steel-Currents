@@ -6,10 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { Room } from './room.js';
 import { scoreboard } from '../shared/protocol.js';
 import { MAP_PRESETS } from '../shared/world.js';
+import { cleanAsk } from '../shared/works.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { crewBattle } from './setup.js';
 
@@ -67,6 +69,7 @@ const server = http.createServer((req, res) => {
       }),
     });
   }
+  if (req.url.split('?')[0] === '/sw.js') return serveWorker(req, res);
   const file = safeResolve(req.url);
   if (!file) return notFound(res);
   serveFile(req, res, file);
@@ -101,6 +104,59 @@ const PRELOAD = BOOT.slice(1).map((f) => {
   return rel.startsWith('client/') ? rel.slice('client/'.length) : rel;
 });
 const STARTED = Date.now().toString(36);
+
+// Every file the game can ask for, as the page names it: what it imports
+// before its first frame, and what it fetches later -- each hull, the
+// aircraft, the voices -- through `import()`. The service worker (client/sw.js)
+// puts all of it away on the device, so a battle can be joined with no
+// connection at all once the game has been opened online.
+const DYNAMIC = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
+function everyModule() {
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file) || !fs.existsSync(file)) return;
+    seen.add(file);
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of [...src.matchAll(IMPORT), ...src.matchAll(DYNAMIC)]) {
+      const spec = m[1] || m[2];
+      if (spec.startsWith('.')) walk(path.resolve(path.dirname(file), spec));
+    }
+  };
+  walk(path.join(ROOT, 'client/js/main.js'));
+  return [...seen];
+}
+function pageName(f) {
+  const rel = path.relative(ROOT, f).split(path.sep).join('/');
+  return `/${rel.startsWith('client/') ? rel.slice('client/'.length) : rel}`;
+}
+const OFFLINE_FILES = [path.join(ROOT, 'client/css/style.css'), ...everyModule()];
+// What the worker has to have before it takes over: the page, everything it
+// imports before its first frame, and the aircraft, which no battle can be
+// joined without. A few megabytes, where the whole list is forty -- and a
+// worker that waited for all forty on a weak line never took over at all, so
+// nothing was ever kept. The hulls are kept afterwards, behind the game; a
+// battle joined before one is in draws her plain (see buildModel).
+const SHELL = ['/', ...[path.join(ROOT, 'client/css/style.css'), ...BOOT,
+  ...OFFLINE_FILES.filter((f) => /Model\.data\.js$/.test(f))].map(pageName)];
+
+function serveWorker(req, res) {
+  let tags;
+  let body;
+  try {
+    tags = [INDEX, ...OFFLINE_FILES].map((f) => tagOf(f, fs.statSync(f))).join('');
+    body = fs.readFileSync(path.join(ROOT, 'client/sw.js'), 'utf8');
+  } catch {
+    return notFound(res);
+  }
+  const version = crypto.createHash('sha1').update(tags).digest('hex').slice(0, 12);
+  const offline = { version, shell: SHELL, files: ['/', ...OFFLINE_FILES.map(pageName)] };
+  const data = Buffer.from(`const OFFLINE = ${JSON.stringify(offline)};\n${body}`);
+  send(req, res, {
+    'Content-Type': MIME['.js'],
+    'Cache-Control': 'no-cache',
+    Vary: 'Accept-Encoding',
+  }, { data, gz: zlib.gzipSync(data, { level: 6 }) });
+}
 
 function withPreloads(html) {
   const links = PRELOAD.map((href) => `<link rel="modulepreload" href="${href}" />`).join('\n');
@@ -297,6 +353,8 @@ function handle(player, msg) {
         half: Number.isFinite(msg.half) ? msg.half : undefined,
         place: (Number.isFinite(msg.lon) && Number.isFinite(msg.lat))
           ? { lon: msg.lon, lat: msg.lat } : undefined,
+        // The town and the sea walls the plotting board raised. See works.js.
+        works: cleanAsk(msg.layout?.works),
       });
       // The fleets, the guns ashore and the berths the captain gave them, all
       // out of setup.js -- the same code the standalone build runs, so a

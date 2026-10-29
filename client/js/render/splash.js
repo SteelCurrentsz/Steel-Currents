@@ -21,6 +21,7 @@
 // made spotting the fall of shot possible at all.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { noiseTexture, SKIES, SPRAY_TINT } from './muzzleblast.js';
 
 /** The reference bore all the scaling hangs off: a 5-inch destroyer gun. */
 const REF_BORE = 127;
@@ -323,11 +324,11 @@ function foamStreakTexture() {
     ctx.fillStyle = `rgba(${g - 12},${g - 4},${g},${0.18 + Math.random() * 0.3})`;
     ctx.fillRect(x, y, 1 + Math.random() * 3, 10 + Math.random() * 60);
   }
-  for (let i = 0; i < 500; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${0.4 + Math.random() * 0.6})`;
-    ctx.beginPath();
-    ctx.arc(Math.random() * 128, Math.random() * 256, 0.6 + Math.random() * 2.2, 0, Math.PI * 2);
-    ctx.fill();
+  // And the brighter threads between them. Streaks, not dots: a texture
+  // stippled with round flecks put polka dots on every column of water.
+  for (let i = 0; i < 220; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.5})`;
+    ctx.fillRect(Math.random() * 128, Math.random() * 256, 0.6 + Math.random() * 1.4, 6 + Math.random() * 30);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -376,7 +377,12 @@ function plumeMaterial(map) {
     float nz = pn(vObj * vec3(7.0, 13.0, 7.0)) * 0.65 + pn(vObj * vec3(19.0, 31.0, 19.0)) * 0.35;
     float top = smoothstep(0.6, 1.0, vObj.y);
     float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
-    float keep = 1.0 - top * 0.9 * nz - rim * rim * 0.85 * (0.4 + nz);
+    // And roped up its length: water driven up out of the sea goes up in
+    // strands, and it is the gaps between them at its edges that stop a
+    // column reading as a smooth glass tube.
+    float rope = pn(vObj * vec3(15.0, 1.6, 15.0) + vec3(0.0, 5.0, 0.0));
+    float keep = 1.0 - top * 0.9 * nz - rim * rim * 1.1 * (0.45 + nz)
+               - rim * 0.55 * smoothstep(0.4, 0.8, rope);
     diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0);
   }`);
   };
@@ -426,29 +432,174 @@ function makePuffGeometry() {
 
 const PUFFS = 1100;
 
-const DROP_VERT = /* glsl */`
-attribute float aSize;
-attribute float aAlpha;
-uniform float uScale;
-varying float vA;
+/**
+ * Spray and white water, as cards that face the eye.
+ *
+ * Two kinds share the one vertex stage. A drop is drawn out along the way it
+ * is going across the screen -- water in flight is a streak, never a dot --
+ * and a puff of white water is a soft card with no outline of its own: its
+ * shape is a threshold walked through noise, so its edge is torn and ragged
+ * and it comes apart into holes as it ages, which is what spray does and what
+ * a lit ball of geometry, however knobbled, never did.
+ */
+const CARD_VERT = /* glsl */`
+attribute vec4 iPos;     // where, and its half-width
+attribute vec4 iShape;   // height over width, opacity, seed, how far through its life
+attribute vec3 iVel;     // which way it is going, for a streak
+uniform float uStretch;  // how many seconds of its flight a streak is drawn
+uniform float uFogDensity;
+varying vec2 vUv;
+varying vec4 vShape;
+varying float vFog;
+varying float vThin;
+varying float vAspect;
+
 void main() {
-  vA = aAlpha;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = aSize * uScale / max(1.0, -mv.z);
+  vUv = position.xy * 2.0;
+  vShape = iShape;
+  vec4 mv = viewMatrix * vec4(iPos.xyz, 1.0);
+  vec3 vv = (viewMatrix * vec4(iVel, 0.0)).xyz;
+  float depth = min(mv.z, -0.5);
+  vec2 sv = vv.xy - mv.xy * (vv.z / depth);
+  float sl = length(sv) * uStretch;
+  vec2 ax = sl > 1e-4 ? normalize(sv) : vec2(0.0, 1.0);
+  vec2 pe = vec2(-ax.y, ax.x);
+  float R = iPos.w;
+  // Never less than about a pixel, and thinned in proportion rather than
+  // left to sparkle as it crosses the pixel grid.
+  float least = 0.0018 * -depth / projectionMatrix[1][1];
+  vThin = R < least ? (R * R) / (least * least) : 1.0;
+  R = max(R, least);
+  float along = R * iShape.x + 0.5 * sl;
+  vAspect = along / R;
+  mv.xy += ax * (position.y * 2.0 * along) + pe * (position.x * 2.0 * R);
+  // Not cut off by the eye going into it.
+  vThin *= smoothstep(0.4 * R, 2.0 * R + 0.8, -mv.z);
+  float fd = uFogDensity * length(mv.xyz);
+  vFog = 1.0 - exp(-fd * fd);
   gl_Position = projectionMatrix * mv;
 }
 `;
-const DROP_FRAG = /* glsl */`
-varying float vA;
+
+const CARD_FRAG = /* glsl */`
+uniform sampler2D uNoise;
+uniform vec3 uSunCol;
+uniform vec3 uSkyCol;
+uniform vec3 uFogColor;
+uniform vec3 uTint;
+uniform float uSunUp;
+varying vec2 vUv;
+varying vec4 vShape;
+varying float vFog;
+varying float vThin;
+varying float vAspect;
+
+float vn(vec3 x) {
+  vec3 p = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  vec2 uv = p.xy + vec2(37.0, 17.0) * p.z + f.xy;
+  vec2 rg = texture2D(uNoise, (uv + 0.5) / 256.0).xy;
+  return mix(rg.x, rg.y, f.z);
+}
+
 void main() {
-  vec2 c = gl_PointCoord - 0.5;
-  float d = length(c);
-  if (d > 0.5 || vA <= 0.0) discard;
-  // A clot of spray rather than a dot: dense in the middle, frayed at the edge.
-  float a = vA * smoothstep(0.5, 0.05, d) * (0.75 + 0.25 * sin(c.x * 23.0 + c.y * 17.0));
-  gl_FragColor = vec4(0.92, 0.96, 1.0, a);
+  vec2 p = vUv;
+  float seed = vShape.z;
+  float k = vShape.w;
+  float a;
+  float lit;
+#ifdef DROP
+  // A drop, or a little clot of them: a streak bright at its head and
+  // tapering off behind, frayed along its length.
+  float across = 1.0 - smoothstep(0.15, 1.0, abs(p.x));
+  float along = 1.0 - smoothstep(0.35, 1.0, abs(p.y));
+  float head = 0.45 + 0.55 * smoothstep(-0.9, 0.7, p.y);
+  float fray = vn(vec3(p.x * 2.5 + seed * 41.0, p.y * vAspect * 1.5 + seed * 13.0, seed * 7.0));
+  a = across * along * head * (0.55 + 0.7 * fray);
+  lit = 0.95 + 0.1 * fray;
+#else
+  // White water: thrown, torn and blowing apart.
+  float r = length(p);
+  vec3 s3 = vec3(p * 1.35 + seed * 37.0, seed * 9.0 + k * 1.2);
+  float f1 = vn(s3);
+  float f2 = vn(s3 * 2.3 + vec3(3.3, 1.7, 0.0));
+  float f3 = vn(vec3(p.x * 6.5 + seed * 11.0, p.y * 3.0 - k * 2.4, seed * 5.0 + 2.0));
+  float f = f1 * 0.52 + f2 * 0.3 + f3 * 0.18;
+  // The edge is the noise, not a circle: a soft falloff pushed in and out by
+  // the coarse octaves so no two are the same shape and none is round.
+  float f4 = vn(vec3(p * 4.2 + seed * 23.0, seed * 3.0 + k * 0.8));
+  float edge = r + (f1 - 0.5) * 1.1 + (f2 - 0.5) * 0.5 + (f4 - 0.5) * 0.35;
+  float env = 1.0 - smoothstep(0.22, 0.85, edge);
+  // Torn apart as it goes: the threshold climbs through the noise, so the
+  // thin places open into holes first and it ends as threads and nothing.
+  float thr = 0.26 + 0.55 * k;
+  float body = smoothstep(thr - 0.1, thr + 0.18, f * 0.8 + f4 * 0.2 + (1.0 - r) * 0.25);
+  // And under the body a faint haze of what it is shedding.
+  float haze = 0.22 * (1.0 - k) * env;
+  a = max(env * body, haze) * (0.8 + 0.35 * f3);
+  // Lit from above, and darker where it is thick: it has some body to it,
+  // rather than being flat white paper.
+  lit = mix(0.8, 1.06, smoothstep(-0.8, 0.9, p.y + (f2 - 0.5) * 0.6))
+      * mix(1.0, 0.86, smoothstep(0.55, 0.95, env * body));
+#endif
+  a *= vShape.y * vThin;
+  if (a < 0.003) discard;
+  vec3 sun = mix(uSunCol, vec3(dot(uSunCol, vec3(0.333))), 0.5);
+  vec3 col = uTint * (uSkyCol * 1.2 + sun * (0.62 + 0.38 * uSunUp)) * lit * 1.1;
+  col = mix(col, uFogColor, vFog);
+  gl_FragColor = vec4(col * a, a);
 }
 `;
+
+/** One pool of cards, puffs or drops, drawn in one call. */
+function cardMesh(scene, count, uniforms, drop) {
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(
+    [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  const attr = (name, n) => {
+    const a = new THREE.InstancedBufferAttribute(new Float32Array(count * n), n);
+    a.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute(name, a);
+    return a;
+  };
+  const out = { pos: attr('iPos', 4), shape: attr('iShape', 4), vel: attr('iVel', 3), geo };
+  geo.instanceCount = 0;
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: CARD_VERT,
+    fragmentShader: CARD_FRAG,
+    defines: drop ? { DROP: 1 } : {},
+    uniforms: { ...uniforms, uStretch: { value: drop ? 0.07 : 0 } },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+  mat.toneMapped = false;
+  out.mat = mat;
+  out.mesh = new THREE.Mesh(geo, mat);
+  out.mesh.frustumCulled = false;
+  out.mesh.renderOrder = drop ? 4 : 3;
+  scene.add(out.mesh);
+  return out;
+}
+
+/** Hand the first `n` written cards of a pool to the GPU. */
+function flush(c, n) {
+  c.geo.instanceCount = n;
+  c.mesh.visible = n > 0;
+  if (!n) return;
+  for (const [a, w] of [[c.pos, 4], [c.shape, 4], [c.vel, 3]]) {
+    a.clearUpdateRanges();
+    a.addUpdateRange(0, n * w);
+    a.needsUpdate = true;
+  }
+}
 
 /**
  * How each kind of thing that goes into the sea throws it up.
@@ -479,10 +630,12 @@ const KINDS = {
   drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0, maxH: 25 },
   // A sea broken against her bow: low and wide, thrown out and back along her
   // side rather than up, with no column in the middle of it.
-  bow: { tall: 0.5, wide: 1.6, stem: 0.12, side: [3, 5], head: 0, bloom: 2.0, surge: 0, reach: 0.7, drops: 2.2, delay: 0, maxH: 22, ring: 0, puffs: 0 },
+  // No spires: a sea is not a column, and thin plumes stood up beside her
+  // stem read as sticks. It goes up as torn sheets of white water (see sheet).
+  bow: { tall: 0.5, wide: 1.6, stem: 0.12, side: [3, 5], head: 0, bloom: 2.0, surge: 0, reach: 0.7, drops: 2.2, delay: 0, maxH: 22, ring: 0, puffs: 0, sheets: 14 },
   // Her bow coming down out of the air onto the back of a sea: a slab of
   // water flung out on both sides of her, wider than it is high.
-  slam: { tall: 0.42, wide: 2.1, stem: 0.1, side: [4, 6], head: 0, bloom: 2.3, surge: 0, reach: 0.8, drops: 2.6, delay: 0, maxH: 18, ring: 0, puffs: 0 },
+  slam: { tall: 0.42, wide: 2.1, stem: 0.1, side: [4, 6], head: 0, bloom: 2.3, surge: 0, reach: 0.8, drops: 2.6, delay: 0, maxH: 18, ring: 0, puffs: 0, sheets: 18 },
 };
 
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -568,17 +721,23 @@ export class Splashes {
     for (let i = 0; i < JETS; i++) this.jetMesh.setMatrixAt(i, zero);
     scene.add(this.jetMesh);
 
-    // The puffs: the base surge and the head, one draw call between them.
-    const puffGeo = makePuffGeometry();
-    this.puffFade = new THREE.InstancedBufferAttribute(new Float32Array(PUFFS), 1);
-    this.puffFade.setUsage(THREE.DynamicDrawUsage);
-    puffGeo.setAttribute('aFade', this.puffFade);
-    this.puffMesh = new THREE.InstancedMesh(puffGeo, plumeMaterial(this.jetMesh.material.map), PUFFS);
-    this.puffMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.puffMesh.frustumCulled = false;
-    this.puffMesh.renderOrder = 3;
-    for (let i = 0; i < PUFFS; i++) this.puffMesh.setMatrixAt(i, zero);
-    scene.add(this.puffMesh);
+    // The puffs -- the base surge, the head, and white water thrown off a
+    // ship -- and the spray: cards, one draw call each, lit by the sky (see
+    // setAtmosphere).
+    this.noise = noiseTexture();
+    this.fogColor = new THREE.Color(0, 0, 0);
+    this.cardU = {
+      uNoise: { value: this.noise },
+      uSunCol: { value: new THREE.Color() },
+      uSkyCol: { value: new THREE.Color() },
+      uFogColor: { value: this.fogColor },
+      uFogDensity: { value: 0 },
+      uTint: { value: new THREE.Color(...SPRAY_TINT) },
+      uSunUp: { value: 0.75 },
+    };
+    this.puffCards = cardMesh(scene, PUFFS, this.cardU, false);
+    this.dropCards = cardMesh(scene, DROPS, this.cardU, true);
+    this.setAtmosphere({});
     this.puffFree = [];
     for (let i = PUFFS - 1; i >= 0; i--) this.puffFree.push(i);
     this.puffs = [];
@@ -592,30 +751,12 @@ export class Splashes {
     this._p = new THREE.Vector3();
     this._s = new THREE.Vector3();
 
-    // The spray, as points: it is falling water, in clots.
-    const dg = new THREE.BufferGeometry();
+    // The spray: it is falling water, drawn as the streaks it makes.
     this.dropPos = new Float32Array(DROPS * 3);
     this.dropSize = new Float32Array(DROPS);
     this.dropAlpha = new Float32Array(DROPS);
-    dg.setAttribute('position', new THREE.BufferAttribute(this.dropPos, 3).setUsage(THREE.DynamicDrawUsage));
-    dg.setAttribute('aSize', new THREE.BufferAttribute(this.dropSize, 1).setUsage(THREE.DynamicDrawUsage));
-    dg.setAttribute('aAlpha', new THREE.BufferAttribute(this.dropAlpha, 1).setUsage(THREE.DynamicDrawUsage));
-    this.dropMat = new THREE.ShaderMaterial({
-      vertexShader: DROP_VERT, fragmentShader: DROP_FRAG,
-      uniforms: { uScale: { value: 600 } },
-      transparent: true, depthWrite: false,
-    });
-    this.dropPoints = new THREE.Points(dg, this.dropMat);
-    this.dropPoints.frustumCulled = false;
-    this.dropPoints.renderOrder = 4;
-    // Sized to the screen it is drawn on, so a clot of spray is metres across
-    // and not pixels.
-    this.dropPoints.onBeforeRender = (renderer, _s, camera) => {
-      const h = renderer.getDrawingBufferSize(this._sz || (this._sz = new THREE.Vector2())).y;
-      const fov = (camera.fov || 50) * Math.PI / 180;
-      this.dropMat.uniforms.uScale.value = h / (2 * Math.tan(fov / 2));
-    };
-    scene.add(this.dropPoints);
+    // The sea under each where it was thrown, which is where it goes back in.
+    this.dropBase = new Float32Array(DROPS);
     this.dropVel = new Float32Array(DROPS * 3);
     this.dropLife = new Float32Array(DROPS);
     // What landing does: 0 nothing, or the bore of the little splash it makes.
@@ -623,6 +764,32 @@ export class Splashes {
     this.dropFree = [];
     for (let i = DROPS - 1; i >= 0; i--) this.dropFree.push(i);
     this.dropsLive = [];
+  }
+
+  /**
+   * The hour and the cloud, as the gun smoke and the spray off the ships have
+   * them (see MuzzleBlasts.setAtmosphere): white water is lit by the sky.
+   */
+  setAtmosphere({ preset = 'day', overcast = 0, sunDir = null } = {}) {
+    const k = SKIES[preset] || SKIES.day;
+    const u = this.cardU;
+    const sun = new THREE.Color(...k.sun);
+    const sky = new THREE.Color(...k.sky);
+    const flat = (sun.r + sun.g + sun.b) / 3;
+    const grey = (sky.r + sky.g + sky.b) / 3 + flat * 0.4;
+    u.uSunCol.value.copy(sun).multiplyScalar(1 - 0.85 * overcast);
+    u.uSkyCol.value.copy(sky).lerp(new THREE.Color(grey, grey, grey + flat * 0.02), overcast);
+    if (sunDir) u.uSunUp.value = Math.min(1, Math.max(0, sunDir.y / (sunDir.length() || 1)));
+  }
+
+  /**
+   * Where the sea stands at a point. A splash goes up out of the water that is
+   * there, which in a heavy sea is metres above or below the mean -- stood on
+   * nought, a splash in a trough hung in the air and one on a crest was
+   * buried in it.
+   */
+  seaY(x, z) {
+    return this.sea ? this.sea.heightAt(x, z) : 0;
   }
 
   /** The sea the waves go into. See SplashRings. */
@@ -843,12 +1010,19 @@ export class Splashes {
     // metres is not as broad as the shell table's weight of water would be.
     const r = Math.min(radius, h * 0.22);
     this.thick = Math.min(1.6, 1 + 0.2 * Math.max(0, h / 23 - 1));
-    this.spires(x, z, h, r, kind, lean, bore);
-    this.surge(x, z, h, r, kind, opts.child);
-    this.crest(x, z, h, r, kind, lean, opts.child);
-    // The crown: water thrown up and out round the foot in torn sheets, which
-    // is what the edge of a real splash is -- not a ring of round heaps.
-    if (kind.surge > 0) this.crown(x, z, h, r, kind, opts.child);
+    // Everything below stands on the water that is actually there.
+    this.base = this.seaY(x, z);
+    if (kind.sheets) {
+      // A sea broken against a ship: sheets of white water, no column.
+      this.sheet(x, z, h, r, kind, lean);
+    } else {
+      this.spires(x, z, h, r, kind, lean, bore);
+      this.surge(x, z, h, r, kind, opts.child);
+      this.crest(x, z, h, r, kind, lean, opts.child);
+      // The crown: water thrown up and out round the foot in torn sheets, which
+      // is what the edge of a real splash is -- not a ring of round heaps.
+      if (kind.surge > 0) this.crown(x, z, h, r, kind, opts.child);
+    }
     // And the water coming back down out of the head, in clots, round the
     // stem and out past it.
     if (!opts.child) this.spray(x, z, h, r, kind, bore, lean);
@@ -892,6 +1066,7 @@ export class Splashes {
    * thirty.
    */
   spout(x, z, bore = 12.7) {
+    this.base = this.seaY(x, z);
     const k = Math.max(0.6, Math.min(2, bore / 12.7));
     const h = rnd(3.2, 5) * k;
     const w = rnd(0.4, 0.58) * Math.sqrt(k);
@@ -903,7 +1078,7 @@ export class Splashes {
       const hh = h * (i ? rnd(0.5, 0.75) : 1);
       const rise = 0.12 + hh * 0.02;
       this.jets.push({
-        slot, x: x + (i ? Math.sin(a) * w * 0.6 : 0), z: z + (i ? Math.cos(a) * w * 0.6 : 0),
+        y0: this.base || 0, slot, x: x + (i ? Math.sin(a) * w * 0.6 : 0), z: z + (i ? Math.cos(a) * w * 0.6 : 0),
         a, tilt: i ? rnd(0.1, 0.25) : rnd(0, 0.08),
         w: w * (i ? 0.6 : 1), h: hh, delay: 0, rise, ttl: rise + 0.55 + hh * 0.05, life: 0,
       });
@@ -934,6 +1109,7 @@ export class Splashes {
     if (sp < 1) return;
     const ux = vx / sp, uz = vz / sp;
     const d = Math.max(0.1, Math.min(2, depth));
+    this.base = this.seaY(x, z);
     // How much she throws goes with her speed and how deep she is in.
     const n = Math.min(10, Math.round((1 + sp * dt * 0.6) * (0.6 + d) * this.intensity));
     for (let i = 0; i < n; i++) {
@@ -946,7 +1122,8 @@ export class Splashes {
       const up = rnd(3, 8) * Math.sqrt(0.5 + d);
       const back = rnd(0, 1) * sp * dt;
       this.dropPos[s * 3] = x - ux * back + rnd(-0.3, 0.3);
-      this.dropPos[s * 3 + 1] = rnd(0.1, 0.4);
+      this.dropPos[s * 3 + 1] = this.base + rnd(0.1, 0.4);
+      this.dropBase[s] = this.base;
       this.dropPos[s * 3 + 2] = z - uz * back + rnd(-0.3, 0.3);
       this.dropVel[s * 3] = ux * sp * rnd(0.15, 0.4) - uz * side * out;
       this.dropVel[s * 3 + 1] = up;
@@ -974,7 +1151,7 @@ export class Splashes {
         const h = rnd(2, 4) * d;
         const rise = 0.15 + h * 0.02;
         this.jets.push({
-          slot, x: x - ux * 2, z: z - uz * 2, a: Math.atan2(-ux, -uz), tilt: rnd(0.3, 0.5),
+          y0: this.base || 0, slot, x: x - ux * 2, z: z - uz * 2, a: Math.atan2(-ux, -uz), tilt: rnd(0.3, 0.5),
           w: 0.5 + d * 0.4, h, delay: 0, rise, ttl: rise + 0.6, life: 0,
         });
       }
@@ -1002,7 +1179,7 @@ export class Splashes {
       const h = height * rnd(0.1, 0.3) * (kind.tall < 0.7 ? 1.3 : 1);
       const rise = 0.12 + h * 0.008;
       this.jets.push({
-        slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
+        y0: this.base || 0, slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Leaning well out, the way it is thrown.
         a, tilt: rnd(0.35, 0.95),
         w: radius * rnd(0.06, 0.13), h,
@@ -1028,7 +1205,7 @@ export class Splashes {
       const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.55, 0.85));
       const rise = (0.2 + h * 0.0065) * (stem ? 1 : rnd(0.9, 1.15));
       this.jets.push({
-        slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
+        y0: this.base || 0, slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Near vertical: what drives it up is under it.
         a, tilt: stem ? rnd(0, 0.04) : rnd(0.03, 0.1),
         w: radius * kind.stem * (this.thick || 1) * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
@@ -1043,10 +1220,11 @@ export class Splashes {
   puff(p) {
     const slot = this.puffFree.pop();
     if (slot === undefined) return;
-    this._e.set(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3);
-    p.q = new THREE.Quaternion().setFromEuler(this._e);
     p.slot = slot;
     p.life = 0;
+    p.seed = Math.random();
+    // Off the sea where it was thrown, unless it was put on a deck.
+    p.base = p.deck === undefined ? (this.base ?? this.seaY(p.x, p.z)) : 0;
     this.puffs.push(p);
   }
 
@@ -1107,6 +1285,30 @@ export class Splashes {
     }
   }
 
+  /**
+   * A sea broken against a ship: torn sheets of white water flung up and out
+   * along the way it was going, which climb, hang a moment and fall back --
+   * thrown, not grown, so they arc like the tons of water they are.
+   */
+  sheet(x, z, height, radius, kind, lean) {
+    const n = Math.round(kind.sheets * Math.max(0.6, this.intensity));
+    for (let i = 0; i < n; i++) {
+      // Fanned either side of the way it is thrown, most of it near the middle.
+      const a = lean + (Math.random() + Math.random() - 1) * 0.9;
+      const u = Math.random();
+      const up = Math.sqrt(2 * G * height * (0.25 + 0.75 * u));
+      const out = up * rnd(0.25, 0.6) * kind.wide * 0.6;
+      const size = radius * rnd(0.22, 0.42) * (0.7 + 0.5 * (1 - u));
+      this.puff({
+        x: x + Math.sin(a) * radius * rnd(0, 0.3), z: z + Math.cos(a) * radius * rnd(0, 0.3), y: size * 0.3,
+        vx: Math.sin(a) * out, vz: Math.cos(a) * out, vy: up * rnd(0.75, 1.0),
+        s0: size * 0.55, s1: size * rnd(1.6, 2.3), squash: rnd(0.75, 1.15),
+        delay: rnd(0, 0.12), ttl: rnd(1.3, 2.0) * Math.sqrt(height / 14),
+        peak: rnd(0.6, 0.85), spread: 0.3,
+      });
+    }
+  }
+
   /** The water thrown up out of it, which has to come down again somewhere. */
   spray(x, z, height, radius, kind, bore, lean) {
     const k = Math.max(0.35, bore / REF_BORE);
@@ -1124,12 +1326,13 @@ export class Splashes {
       // of the head and down past the stem, like rain off it.
       const out = rnd(0.07, 0.24) * v + rnd(0, 0.4) * Math.sqrt(G * radius);
       this.dropPos[s * 3] = x + Math.sin(a) * radius * kind.stem * rnd(0.2, 1.0);
-      this.dropPos[s * 3 + 1] = rnd(0.5, 2.5);
+      this.dropPos[s * 3 + 1] = (this.base || 0) + rnd(0.5, 2.5);
+      this.dropBase[s] = this.base || 0;
       this.dropPos[s * 3 + 2] = z + Math.cos(a) * radius * kind.stem * rnd(0.2, 1.0);
       this.dropVel[s * 3] = Math.sin(a) * out;
       this.dropVel[s * 3 + 1] = v * rnd(0.55, 0.95);
       this.dropVel[s * 3 + 2] = Math.cos(a) * out;
-      this.dropSize[s] = rnd(0.35, 1.0) * (0.7 + k * 0.35);
+      this.dropSize[s] = rnd(0.25, 0.7) * (0.7 + k * 0.35);
       this.dropAlpha[s] = 0;
       this.dropLife[s] = -(kind.delay + rnd(0, 0.25));
       let kick = 0;
@@ -1162,6 +1365,14 @@ export class Splashes {
   }
 
   update(dt) {
+    const fog = this.scene.fog;
+    if (fog && fog.isFogExp2) {
+      // Fog colours live in linear space; these shaders write display colours.
+      this.fogColor.copy(fog.color).convertLinearToSRGB();
+      this.cardU.uFogDensity.value = fog.density;
+    } else {
+      this.cardU.uFogDensity.value = 0;
+    }
     if (this.waves) this.waves.update(dt);
     this.refreshHulls();
     this.overtop(dt);
@@ -1295,7 +1506,7 @@ export class Splashes {
       const k = t / j.ttl;
       this._e.set(Math.cos(j.a) * (j.tilt + droop), 0, -Math.sin(j.a) * (j.tilt + droop));
       this._q.setFromEuler(this._e);
-      this._p.set(j.x, -j.h * 0.04 * Math.max(0, k - 0.4), j.z);
+      this._p.set(j.x, (j.y0 || 0) - j.h * 0.04 * Math.max(0, k - 0.4), j.z);
       this._s.set(j.w * spread, Math.max(0.3, j.h * f), j.w * spread);
       m.compose(this._p, this._q, this._s);
       this.jetMesh.setMatrixAt(j.slot, m);
@@ -1308,52 +1519,63 @@ export class Splashes {
   }
 
   stepPuffs(dt) {
-    if (!this.puffs.length) return;
-    const m = this._m;
+    const C = this.puffCards;
+    const P = C.pos.array, S = C.shape.array, V = C.vel.array;
+    let n = 0;
     for (let i = this.puffs.length - 1; i >= 0; i--) {
       const p = this.puffs[i];
       p.life += dt;
       const t = p.life - p.delay;
       if (t >= p.ttl) {
-        this.puffMesh.setMatrixAt(p.slot, m.makeScale(0, 0, 0));
-        this.puffFade.setX(p.slot, 0);
         this.puffFree.push(p.slot);
         this.puffs.splice(i, 1);
         continue;
       }
-      if (t < 0) {
-        this.puffMesh.setMatrixAt(p.slot, m.makeScale(0, 0, 0));
-        this.puffFade.setX(p.slot, 0);
-        continue;
-      }
+      if (t < 0) continue;
       const k = t / p.ttl;
-      // Thrown, then stopped by the air: most of the way out in the first
-      // third of its life.
-      const go = 1 - Math.pow(1 - k, 3);
       const size = p.s0 + (p.s1 - p.s0) * Math.pow(k, 0.5);
-      this._p.set(p.x + p.dx * go, Math.max(size * p.squash * 0.2, p.y + p.dy * k), p.z + p.dz * go);
+      let x, y, z, vy = 0;
+      if (p.vy !== undefined) {
+        // Thrown: it flies, and the air takes the way off it.
+        const drag = 1 - Math.exp(-t * 0.9);
+        x = p.x + p.vx * drag / 0.9;
+        z = p.z + p.vz * drag / 0.9;
+        y = p.base + p.y + p.vy * t - 0.5 * G * t * t;
+        vy = p.vy - G * t;
+        if (y < p.base) { y = p.base; vy = 0; }
+      } else {
+        // Thrown, then stopped by the air: most of the way out in the first
+        // third of its life.
+        const go = 1 - Math.pow(1 - k, 3);
+        x = p.x + p.dx * go;
+        z = p.z + p.dz * go;
+        y = p.base + Math.max(size * p.squash * 0.2, p.y + p.dy * k);
+      }
       // Surge running in under a ship goes up over her, not through her: it
       // comes aboard and across her deck.
       if (p.low) {
-        const at = this.hullAt(this._p.x, this._p.z);
+        const at = this.hullAt(x, z);
         if (at) {
           const deck = this.deckWorld(at.h, at.lx, at.lz) + size * p.squash * 0.3;
-          if (this._p.y < deck) this._p.y = deck;
+          if (y < deck) y = deck;
         }
       }
-      this._s.set(size * (1 + p.spread * k), size * p.squash, size * (1 + p.spread * k));
-      m.compose(this._p, p.q, this._s);
-      this.puffMesh.setMatrixAt(p.slot, m);
       // In quickly, and torn away to nothing as it goes.
       const tear = k < 0.35 ? 0 : (k - 0.35) / 0.65;
-      this.puffFade.setX(p.slot, p.peak * Math.min(1, t * 9) * (1 - tear * tear * (3 - 2 * tear)));
+      const fade = p.peak * Math.min(1, t * 9) * (1 - tear * tear * (3 - 2 * tear));
+      const o = n * 4;
+      // A card is soft to its edge, so it is drawn a little larger than the
+      // heap of geometry it replaces to cover the same water.
+      P[o] = x; P[o + 1] = y; P[o + 2] = z; P[o + 3] = size * (1 + p.spread * k) * 1.25;
+      S[o] = p.squash; S[o + 1] = fade; S[o + 2] = p.seed; S[o + 3] = k;
+      V[n * 3] = 0; V[n * 3 + 1] = 0; V[n * 3 + 2] = 0;
+      n++;
     }
-    this.puffMesh.instanceMatrix.needsUpdate = true;
-    this.puffFade.needsUpdate = true;
+    flush(C, n);
   }
 
   stepDrops(dt) {
-    if (!this.dropsLive.length) return;
+    if (!this.dropsLive.length) { flush(this.dropCards, 0); return; }
     const P = this.dropPos;
     const V = this.dropVel;
     const drag = Math.exp(-dt * 0.35);
@@ -1391,7 +1613,7 @@ export class Splashes {
           continue;
         }
       }
-      if (P[s * 3 + 1] <= 0 && V[s * 3 + 1] < 0) {
+      if (P[s * 3 + 1] <= this.dropBase[s] && V[s * 3 + 1] < 0) {
         // Back in the sea. A big enough clot of it makes a splash of its own,
         // and a ring of its own -- which is what the water round a heavy fall of
         // shot is doing for seconds after the columns have gone.
@@ -1403,9 +1625,20 @@ export class Splashes {
         this.dropsLive.splice(i, 1);
       }
     }
-    const g = this.dropPoints.geometry;
-    g.attributes.position.needsUpdate = true;
-    g.attributes.aSize.needsUpdate = true;
-    g.attributes.aAlpha.needsUpdate = true;
+    // And into the cards, drawn out along the way each is going.
+    const C = this.dropCards;
+    const CP = C.pos.array, CS = C.shape.array, CV = C.vel.array;
+    let n = 0;
+    for (const s of this.dropsLive) {
+      if (this.dropLife[s] < 0 || this.dropAlpha[s] <= 0) continue;
+      const o = n * 4;
+      CP[o] = P[s * 3]; CP[o + 1] = P[s * 3 + 1]; CP[o + 2] = P[s * 3 + 2];
+      // Half-width: a clot of spray is far narrower than it is long in flight.
+      CP[o + 3] = this.dropSize[s] * 0.3;
+      CS[o] = 1; CS[o + 1] = this.dropAlpha[s] * 1.3; CS[o + 2] = (s * 0.618) % 1; CS[o + 3] = 0;
+      CV[n * 3] = V[s * 3]; CV[n * 3 + 1] = V[s * 3 + 1]; CV[n * 3 + 2] = V[s * 3 + 2];
+      n++;
+    }
+    flush(C, n);
   }
 }

@@ -43,6 +43,13 @@ export function lampPlan(view, renderer = null) {
   const key = view.classId || cls?.id;
   if (PLANS.has(key)) return PLANS.get(key);
   let plan = null;
+  // A boat small enough that her one lamp is put where it stands by hand: on
+  // a hull this size the highest thing aboard is her mast, not her bridge.
+  if (cls && cls.lampSpots) {
+    plan = { lamps: cls.lampSpots.map((l) => ({ ...l })), map: null };
+    PLANS.set(key, plan);
+    return plan;
+  }
   if (renderer && view.group) {
     try { plan = measuredPlan(view, renderer); } catch { plan = null; }
   }

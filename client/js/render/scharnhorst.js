@@ -533,7 +533,7 @@ export function buildScharnhorst() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'scharnhorst';
-  g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes.launch);
+  g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

@@ -31,6 +31,11 @@ import * as THREE from '../../../vendor/three.module.js';
 import { zeroModel } from './zeroModel.js';
 import { suiseiModel } from './suiseiModel.js';
 import { b5nModel } from './b5nModel.js';
+import { bf109Model } from './bf109Model.js';
+import { ju87Model } from './ju87Model.js';
+import { hellcatModel } from './hellcatModel.js';
+import { dauntlessModel } from './dauntlessModel.js';
+import { avengerModel } from './avengerModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -360,6 +365,12 @@ export const P = {
   gerBottom: new THREE.MeshLambertMaterial({ color: 0x8fa2b3 }),
   black: new THREE.MeshLambertMaterial({ color: 0x1d2126 }),
   white: new THREE.MeshLambertMaterial({ color: 0xd4d8dc }),
+  // US Navy, 1943: non-specular sea blue over insignia white, the tri-colour
+  // scheme the carrier squadrons flew from that spring. The intermediate blue
+  // of her sides is the sculpts' (see hellcatModel.js); a machine built here
+  // has the two.
+  sea43: new THREE.MeshLambertMaterial({ color: 0x2c3a4f }),
+  white43: new THREE.MeshLambertMaterial({ color: 0xc9cdcb }),
   // US neutrality grey: one colour all over, which is what an OS2U wore.
   grey: new THREE.MeshLambertMaterial({ color: 0x8a929b }),
   greyDark: new THREE.MeshLambertMaterial({ color: 0x767e87 }),
@@ -453,6 +464,8 @@ const M = {
 const SCHEMES = {
   // US Navy 1942: blue-grey over light grey.
   usn: [P.top, P.bottom],
+  // US Navy 1943: sea blue over white.
+  usn43: [P.sea43, P.white43],
   // Kriegsmarine shipboard: Luftwaffe splinter green over pale blue.
   luftwaffe: [P.gerTop, P.gerBottom],
   // What an OS2U was still wearing when the war started: grey all over.
@@ -634,6 +647,11 @@ function animPart(p, name, node, o = {}) {
   list.push({
     name, node, axis: o.axis || 'z', open: o.open || 0,
     fall: !!o.fall, spin: !!o.spin,
+    // A leg, swung by her gear rather than her bay, and how far it rises and
+    // slides as it goes (see gearRig); a gun on a mounting that the gunner
+    // lays, and its muzzle in its own frame, laid aft.
+    gear: !!o.gear, tuck: o.tuck || 0, slide: o.slide || 0,
+    turret: !!o.turret, muzzle: o.muzzle || null,
   });
   return node;
 }
@@ -1641,6 +1659,25 @@ function insignia(p, x, y, z, r, up = true, fit = null) {
 }
 
 /**
+ * The US national insignia from the autumn of 1943: the star on its blue
+ * disc, a white bar out of either side of it and a blue border round the
+ * whole. The bars lie along the span on a wing and along her length on a
+ * fuselage. They are laid under the disc, so the fan each is drawn from --
+ * see conformPoly, which fans from the marking's centre -- is hidden by it.
+ */
+function starAndBar(p, x, y, z, r, up = true, fit = null) {
+  const m = insignia(p, x, y, z, r, up, fit);
+  const span = up !== false;
+  const rect = (a, b) => (span
+    ? [[-a, -b], [a, -b], [a, b], [-a, b]]
+    : [[-b, -a], [b, -a], [b, a], [-b, a]]);
+  const o = r * 0.125;
+  conformPoly(m, M.insignia, rect(r * 2 + o, r * 0.25 + o), 0.007, m.userData.sag, m.userData.radius);
+  conformPoly(m, M.star, rect(r * 2, r * 0.25), 0.010, m.userData.sag, m.userData.radius);
+  return m;
+}
+
+/**
  * The hinomaru: the Japanese national marking.
  *
  * A plain disc of red -- no star, no bars -- with the white surround the
@@ -1925,6 +1962,14 @@ function gearRig(p, mains, tail, fit) {
   const tl = tail ? { g: tail, rx: tail.rotation.x, y: tail.position.y, z: tail.position.z } : null;
   // What it was fitted to, for the fitting (build/fit-gear.mjs) to work on.
   p.userData.gearFit = fit;
+  // And the same stroke for an aeroplane flown in pieces, which lowers her
+  // legs on the approach: each leg is a moving part on its own hinge, swung
+  // and slid the way it is swung and slid here.
+  for (const l of legs) {
+    animPart(p, l.s < 0 ? 'gearL' : 'gearR', l.g,
+      { axis: 'z', open: -l.s * m[0], gear: true, tuck: m[1], slide: -l.s * m[2] });
+  }
+  if (tl) animPart(p, 'gearT', tl.g, { axis: 'x', open: t[0], gear: true, tuck: t[1], slide: t[2] });
   p.userData.gear = (u) => {
     const k = Math.max(0, Math.min(1, u));
     const e = k * k * (3 - 2 * k);
@@ -2011,8 +2056,8 @@ function foldWing(p, s, o) {
   // as long as it did because a folded aeroplane used to be drawn with her
   // spread panels showing through her folded ones, and the hinomaru on those
   // was the marking the eye found.
-  const mark = o.mark === 'hinomaru' ? hinomaru : insignia;
-  mark(w, s * o.span * 0.54, 0.16, -o.rootC * 0.5, o.star);
+  const mark = o.mark === 'hinomaru' ? hinomaru : o.mark === 'starbar' ? starAndBar : insignia;
+  if (o.star) mark(w, s * o.span * 0.54, 0.16, -o.rootC * 0.5, o.star);
   return w;
 }
 
@@ -2270,12 +2315,17 @@ function dauntless(g, x, y, z, ry, folded = false, opts = {}) {
   return p;
 }
 
-/** A TBF-1 Avenger: the ball turret is what names her at any range. */
+/**
+ * A TBF-1C Avenger: the ball turret is what names her at any range. In the
+ * 1943 sea blue over white the Hellcats and the Dauntlesses she flies with
+ * wear, with the star-and-bar.
+ */
 function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
+  paint('usn43');
   const cl = sitline(1.74, 0.12);
   // A deep body with the bomb bay in the belly of it -- she is a big aeroplane,
   // and the whole middle of her is the space a torpedo goes in.
@@ -2307,32 +2357,39 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   torpedo(fish, 4.3, 0.24);
   animPart(p, 'store', fish, { fall: true });
   greenhouse(p, 1.14, 0.80, cl(2.3) + 1.0, 1.05, 3.55, 4);
-  // The turret: a glazed ball on its ring with the fifty out of the side, and
-  // the one thing that names a TBF at any range. It was a drum with a dozen
-  // heavy bars round it; a ball turret is a dome, so it is turned as one.
+  // The turret: a glazed ball on its ring with the fifty out of the back of
+  // it, and the one thing that names a TBF at any range. The ring is hers; the
+  // ball turns on it, round in azimuth and up and down in elevation, and the
+  // gun goes with it -- a moving part, laid by whoever is in it (see
+  // planes.js's rearGunOf), built laid aft about the middle of the ball.
   const TY = cl(-0.5) + 0.86;
   lathe(p, M.planeTop, [[0.74, 0], [0.76, 0.1], [0.74, 0.2]], 0, TY, -0.5, 18);
-  lathe(p, M.glass, [
+  const BALL = 0.62;
+  const ball = new THREE.Group();
+  ball.position.set(0, TY + BALL, -0.5);
+  p.add(ball);
+  lathe(ball, M.glass, [
     [0.70, 0.18], [0.72, 0.36], [0.70, 0.62], [0.62, 0.86],
     [0.48, 1.04], [0.28, 1.16], [0, 1.20],
-  ], 0, TY, -0.5, 18);
+  ], 0, -BALL, 0, 18);
   // Four frames over the dome and a hoop round its waist -- what you actually
   // see of a turret, and no more of them than there were.
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    const f = box(p, M.planeTop, 0.05, 1.06, 0.05,
-      Math.sin(a) * 0.66, TY + 0.66, -0.5 + Math.cos(a) * 0.66);
+    const f = box(ball, M.planeTop, 0.05, 1.06, 0.05,
+      Math.sin(a) * 0.66, 0.66 - BALL, Math.cos(a) * 0.66);
     f.rotation.x = Math.cos(a) * 0.36;
     f.rotation.z = -Math.sin(a) * 0.36;
   }
-  lathe(p, M.planeTop, [[0.71, 0.60], [0.735, 0.64], [0.71, 0.68]], 0, TY, -0.5, 18);
-  lathe(p, M.planeTop, [[0.2, 1.17], [0.16, 1.24], [0, 1.26]], 0, TY, -0.5, 14);
-  const fifty = cyl(p, M.gunDark, 0.055, 0.055, 1.5, 0.34, TY + 0.66, 0.1, 6);
-  fifty.rotation.x = -0.32;
-  // The slot it traverses in, and the collar round the breech.
-  box(p, M.cave, 0.16, 0.5, 0.34, 0.62, TY + 0.62, -0.42);
-  cyl(p, M.planeTop, 0.13, 0.13, 0.26, 0.34, TY + 0.56, -0.20, 10)
-    .rotation.x = -0.32;
+  lathe(ball, M.planeTop, [[0.71, 0.60], [0.735, 0.64], [0.71, 0.68]], 0, -BALL, 0, 18);
+  lathe(ball, M.planeTop, [[0.2, 1.17], [0.16, 1.24], [0, 1.26]], 0, -BALL, 0, 14);
+  // The fifty, out of the back of the ball on the gunner's right, with the
+  // collar round its breech where it comes through the glazing.
+  const GUN_X = 0.24;
+  cyl(ball, M.gunDark, 0.05, 0.05, 1.3, GUN_X, 0.04, -1.0, 6).rotation.x = Math.PI / 2;
+  cyl(ball, M.gunDark, 0.075, 0.075, 0.3, GUN_X, 0.04, -0.62, 8).rotation.x = Math.PI / 2;
+  cyl(ball, M.planeTop, 0.13, 0.13, 0.12, GUN_X, 0.04, -0.66, 10).rotation.x = Math.PI / 2;
+  animPart(p, 'gun', ball, { axis: 'y', turret: true, muzzle: [GUN_X, 0.04, -1.65] });
   // The spine aft of her, and the tunnel gun under the tail.
   airframe(p, M.planeTop, [
     { z: -4.60, w: 0.30, h: 0.30, y: cl(-4.60) + 0.5 },
@@ -2361,8 +2418,8 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     });
     foldWing(stowed, s, {
       at: [s * 0.92, WY - 0.72, 2.8], skew: 0.09, lean: 0.05,
-      span: 6.0, rootC: 2.9, tipC: 1.5, sweep: 0.85, thick: 0.112, star: 0.72,
-      guns: [[2.0, 0.12]],
+      span: 6.0, rootC: 2.9, tipC: 1.5, sweep: 0.85, thick: 0.112,
+      star: s > 0 ? 0.72 : 0, mark: 'starbar', guns: [[2.0, 0.12]],
     });
     const w = new THREE.Group();
     w.position.set(s * 0.95, WY, 2.9);
@@ -2375,13 +2432,15 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
     ctrlSurface(w, M.planeTop, sw, 0.57, 0.88);                      // aileron
     ctrlSurface(w, M.planeTop, sw, 0.06, 0.47, 0.70);                // flap
     wingGun(w, sw, 1.5 / 7.25, 0.05, 0.28, 0.70);                    // wing fifty
-    insignia(w, s * 4.0, 0.16, -0.6, 0.72);
+    // The star on top of her port wing and under her starboard one.
+    if (s > 0) starAndBar(w, s * 4.0, 0.16, -0.6, 0.72);
+    else starAndBar(w, s * 4.0, -0.35, -0.6, 0.72, 'down');
   }
   stowed.visible = folded;
   spread.visible = !folded;
   p.userData.wings = { stowed, spread };
-  insignia(p, 0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
-  insignia(p, -0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
+  starAndBar(p, 0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
+  starAndBar(p, -0.48, cl(-2.6) + 0.10, -2.6, 0.46, false);
   const tail = empennage(p, 2.05, 1.7, 5.8, 1.3, cl(-5.2) + 0.46, -4.8);
   const legs = opts.gear === false ? []
     : [-1, 1].map((s) => ({ s, g: mainGear(p, s, s * 1.55, 2.3, 1.3, 0.46) }));
@@ -3372,6 +3431,110 @@ function jake(g, x, y, z, ry, folded = false, opts = {}) {
   mg.rotation.x = -0.45;
   aerial(p, 0, cl() + 0.81, 0.3, 0.5, tail.finTop);
   trueSize(p, 'jake');
+  return p;
+}
+
+// ------------------------------------------------------ the German ones --
+//
+// The Graf Zeppelin's group: the navalised Messerschmitt and the carrier
+// Stuka, off the owner's sculpts of them (see bf109Model.js and ju87Model.js),
+// in the Luftwaffe's 72 and 73 greens over 65 blue -- what the Trägergruppe
+// 186 that was formed to fly off her was painted in. Each folds her outer
+// panels -- the Messerschmitt's up over her, the Stuka's back along her sides
+// -- which is how she is struck below and ranged on a deck.
+
+/**
+ * A Bf 109T: the E stretched in the wing for a carrier deck, with a hook
+ * under the tail and catapult spools under the fuselage. Her legs swing out
+ * into her wings on their own hinges.
+ */
+function bf109(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = bf109Model({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * A Ju 87 for a carrier: the C, with an SC 500 in a bomb bay whose doors open
+ * for the dive and an SC 250 under each outer wing, or with `opts.torpedo`
+ * the D, with an aerial torpedo on a crutch under her keel. Both have the
+ * gunner's twin MG 81Z on a mounting that turns, and legs that never come up.
+ */
+function ju87(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = ju87Model({ variant: opts.torpedo ? 'd' : 'c', lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  p.userData.wings = null;
+  return p;
+}
+
+/** The C, with her bombs. */
+function ju87c(g, x, y, z, ry, folded = false, opts = {}) {
+  return ju87(g, x, y, z, ry, folded, { ...opts, torpedo: false });
+}
+
+/** The D, with a torpedo where the C carries her bombs. */
+function ju87d(g, x, y, z, ry, folded = false, opts = {}) {
+  return ju87(g, x, y, z, ry, folded, { ...opts, torpedo: true });
+}
+
+// ------------------------------------------------------ the American sculpts --
+//
+// The Enterprise's fighter and dive bomber, off the owner's sculpts of them
+// (see hellcatModel.js and dauntlessModel.js), in the US Navy's 1943 sea
+// blue, intermediate blue and white with the star-and-bar.
+
+/**
+ * An F6F Hellcat: Grumman's answer to the Zero, and the Enterprise's fighter
+ * from 1943. Her legs swing aft into her wings and her outer panels fold back
+ * along her sides on the sto-wing, the leading edge down.
+ */
+function hellcat(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = hellcatModel({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * An SBD Dauntless: the thousand-pounder on the displacing trapeze under her
+ * belly, a hundred-pounder under each wing, the gunner's twin thirties, and
+ * legs that swing in towards each other into her wing roots. She does not
+ * fold: `folded` is taken and ignored, the way her deck crews had to.
+ */
+function sbd(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = dauntlessModel({ lod: !!opts.lod });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * A TBF Avenger, off the owner's sculpt: the Mark 13 in her bomb bay behind
+ * two doors, the ball turret on her back with its fifty, legs that swing
+ * outboard into her wings, and outer panels that fold back along her sides on
+ * the sto-wing. Called the way the kit's `avenger` is: `spin` is taken and
+ * ignored, because her airscrew is always on its hub.
+ */
+function tbf(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
+  const p = avengerModel({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  if (p.userData.bay) p.userData.bay(0);
+  p.userData.wings = null;
   return p;
 }
 
@@ -4722,7 +4885,7 @@ function heavyBomber(kind) {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
-export { zero, suisei, b5n, jake };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

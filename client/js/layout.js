@@ -16,6 +16,14 @@ import { shipClearance, afloatAt } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
+import {
+  cityPlans, cityToWorld, worldToCity, siteOnWorks, WALL_WIDTH, MAX_CITIES, MAX_WALLS,
+} from '../../shared/works.js';
+
+// What each kind of block is drawn as on the chart.
+const BLOCK_INK = {
+  square: '#b8a98a', centre: '#8f8a80', mid: '#8a6f5c', res: '#6f7a58', park: '#4f7a45', port: '#6c675d',
+};
 
 // The counter a ship or a gun is drawn as when the chart is zoomed right out,
 // and the peg beside it you turn her by. Generous, because this has to work
@@ -80,6 +88,11 @@ export class LayoutMap {
     // Where the chart is looking: the metres at the middle of the screen, and
     // how far in. Zoom 1 is the whole battlefield across the shorter side.
     this.view = { x: 0, z: 0, zoom: 1 };
+    // The works ashore the captain asked for: `{ cities, walls }`, each a list
+    // of seeds and the spots they were put down at. See shared/works.js.
+    this.works = { cities: [], walls: [] };
+    // 'city' or 'walls' while the next tap on the chart puts one down.
+    this.placing = null;
     this.pointers = new Map();
     this.pinch = 0;
     this.bind();
@@ -101,10 +114,12 @@ export class LayoutMap {
     for (const t of this.tokens) kept.set(`${t.kind}:${t.classId}:${t.team}:${t.index}`, t);
 
     this.req = req;
-    this.world = generateWorld(req.seed, req.mapId, req.time, req.half,
-      Number.isFinite(req.lon) && Number.isFinite(req.lat)
-        ? { lon: req.lon, lat: req.lat } : null,
-      req.weather, !!req.fog);
+    // A town sited for one stretch of coast means nothing on another.
+    const where = `${req.mapId}|${req.seed}|${req.half}|${req.lon}|${req.lat}`;
+    if (this.worksSig !== where) this.works = { cities: [], walls: [] };
+    this.placing = null;
+    this.worksSig = where;
+    this.raise();
     this.half = this.world.half;
 
     // Team 0 is the captain's side and starts to the south, which is how the
@@ -158,6 +173,114 @@ export class LayoutMap {
   }
 
   /**
+   * Raise the battlefield, with whatever works are asked for on it: the same
+   * call, with the same numbers, the server makes. Called again whenever the
+   * town or the walls change, because they change the ground.
+   */
+  raise() {
+    const req = this.req;
+    const ask = this.works.cities.length || this.works.walls.length ? this.works : null;
+    this.world = generateWorld(req.seed, req.mapId, req.time, req.half,
+      Number.isFinite(req.lon) && Number.isFinite(req.lat)
+        ? { lon: req.lon, lat: req.lat } : null,
+      req.weather, !!req.fog, ask);
+    this.plans = cityPlans(this.world);
+    this.worksUi();
+  }
+
+  /** The town and wall buttons, as they stand. Out of sight of land there is nothing to build on. */
+  worksUi() {
+    if (typeof document === 'undefined') return;
+    const box = document.getElementById('lay-works');
+    if (box) box.hidden = isOpenSea(this.world);
+    const set = (id, on, label) => {
+      const b = document.getElementById(id);
+      const x = document.getElementById(`${id}-x`);
+      if (b) { b.textContent = label; b.classList.toggle('on', on); }
+      if (x) x.hidden = !on;
+    };
+    const n = this.works.cities.length;
+    const m = this.works.walls.length;
+    set('lay-city', this.placing === 'city', n ? `+ Town (${n})` : '+ Town');
+    set('lay-walls', this.placing === 'walls', m ? `+ Sea Walls (${m})` : '+ Sea Walls');
+    for (const [id, k] of [['lay-city-x', n], ['lay-walls-x', m]]) {
+      const x = document.getElementById(id);
+      if (x) x.hidden = !k;
+    }
+    const cb = document.getElementById('lay-city');
+    if (cb) cb.disabled = n >= MAX_CITIES;
+    const wb = document.getElementById('lay-walls');
+    if (wb) wb.disabled = m >= MAX_WALLS;
+  }
+
+  /**
+   * Press Town or Sea Walls and the next tap on the chart puts one down there;
+   * press it again and it is not put down after all.
+   */
+  startPlacing(kind) {
+    this.placing = this.placing === kind ? null : kind;
+    this.hintOnce = this.placing === 'city'
+      ? 'Tap the chart where the town should stand -- anywhere on land, or by the water for a harbour.'
+      : this.placing === 'walls' ? 'Tap the chart by the shore that should be walled.' : null;
+    this.worksUi();
+    this.dirty = true;
+    this.paint();
+  }
+
+  /**
+   * The works changed and the chart raised again for them. `at` puts a new
+   * town or stretch of wall down there; with `index` too, it moves that town
+   * instead. With `on` false the last one put down is taken away again.
+   */
+  setWorks(kind, on, at = null, index = -1) {
+    if (!this.req) return;
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const list = kind === 'city' ? this.works.cities : this.works.walls;
+    const spot = at ? { x: Math.round(at.x), z: Math.round(at.z) } : {};
+    let added = -1;
+    // Towns and walls are numbered together in the order they go down, so a
+    // town put down on a wall is built round it rather than taking it away.
+    const next = 1 + Math.max(-1, ...[...this.works.cities, ...this.works.walls].map((a) => a.n ?? -1));
+    if (!on) list.pop();
+    else if (index >= 0 && list[index]) list[index] = { seed: list[index].seed, ...spot, n: list[index].n ?? next };
+    else { list.push({ seed, ...spot, n: next }); added = list.length - 1; }
+    this.placing = null;
+    this.raise();
+    this.hintOnce = null;
+    // One that came to nothing is not kept: it would only be another press of
+    // the cross to get rid of something that is not there.
+    if (added >= 0) {
+      const built = kind === 'city'
+        ? (this.world.works?.cities || []).some((c) => c.ask === added)
+        : (this.world.works?.walls || []).some((r) => r.set === added);
+      if (!built) {
+        list.pop();
+        this.raise();
+        this.hintOnce = kind === 'city' ? 'There is no ground here with room for a town.'
+          : 'There is no shore here a wall could be built along that is not walled already.';
+      }
+    }
+    for (const t of this.tokens) this.check(t);
+    this.dirty = true;
+    this.paint();
+  }
+
+  /** Is this point on the screen inside a town? Returns a drag that moves it, or null. */
+  onTown(p) {
+    const w = this.fromScreen(p.x, p.y);
+    for (const plan of this.plans || []) {
+      const { u, v } = worldToCity(plan.city, w.x, w.z);
+      if (Math.abs(u) > plan.W / 2 || Math.abs(v) > plan.D / 2) continue;
+      // Moved by where it was asked for, so it lands where it is dropped.
+      const ask = this.works.cities[plan.city.ask];
+      const ax = Number.isFinite(ask?.x) ? ask.x : plan.city.x;
+      const az = Number.isFinite(ask?.z) ? ask.z : plan.city.z;
+      return { mode: 'town', plan, dx: w.x - ax, dz: w.z - az, at: null };
+    }
+    return null;
+  }
+
+  /**
    * Everything the captain needs to read off the chart: what is on it, and
    * whether it can sail. Written on every repaint, because every repaint
    * follows something moving.
@@ -188,10 +311,11 @@ export class LayoutMap {
       // Five lines of instructions on a phone is a paragraph over the chart, so
       // the narrow screens get the short version of the same thing.
       const tight = (this.canvas.clientWidth || 1200) < 560;
-      const text = why || (this.director?.active ? this.director.hint() : null) || (tight
+      const text = why || this.hintOnce || (this.director?.active ? this.director.hint() : null) || (tight
         ? 'Drag to move, the peg to turn. Ships afloat, guns ashore.'
         : 'Drag to move, the peg off the bow to turn, the water to pan. '
-          + 'Scroll or pinch to zoom. Ships on the water, guns ashore.');
+          + 'Scroll or pinch to zoom. Ships on the water, guns ashore'
+          + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it.' : '.'}`);
       if (text !== this._hint) {
         this.hint.textContent = text;
         this.hint.classList.toggle('bad', !!why);
@@ -434,6 +558,13 @@ export class LayoutMap {
       // summit and the flattest ground on it.
       out.push({ x: i.x, z: i.z, score: Math.min(i.r, 1800) + 400, taken: false });
     }
+    // The sea walls, which were built to put guns on: their walkway is level
+    // and looks straight out to sea.
+    for (const run of this.world.works?.walls || []) {
+      for (let k = 6; k < run.pts.length - 6; k += 14) {
+        out.push({ x: run.pts[k][0], z: run.pts[k][1], score: 2100, taken: false, wall: true });
+      }
+    }
     // And the ground itself, walked on a grid. Two hundred metres inland at
     // least: a cell on the beach is land the mask agrees is land and nowhere to
     // put a gun.
@@ -462,8 +593,10 @@ export class LayoutMap {
       if (kept.length >= want) break;
       if (!kept.includes(s)) kept.push(s);
     }
-    // And each of them walked to the middle of its own ground.
+    // And each of them walked to the middle of its own ground -- but a gun on
+    // a wall stays on the wall.
     for (const s of kept) {
+      if (s.wall) continue;
       const mid = this.inland(s.x, s.z);
       s.x = mid.x;
       s.z = mid.z;
@@ -489,7 +622,11 @@ export class LayoutMap {
       // All the chart asks of her is that she starts on the battlefield.
       t.ok = inside;
     } else {
-      t.ok = inside && !!islandAt(this.world, t.x, t.z, 0);
+      // Ashore, or on the town's paving or a sea wall's walkway -- which on a
+      // real coast can stand right at the water's edge, closer in than the
+      // land mask can tell.
+      t.ok = inside && (!!islandAt(this.world, t.x, t.z, 0)
+        || !!(this.world.works && siteOnWorks(this.world, t.x, t.z, BATTERIES[t.classId]?.span ?? 10)));
     }
     return t.ok;
   }
@@ -822,15 +959,26 @@ export class LayoutMap {
         e.preventDefault();
         return;
       }
+      // Putting a town or a wall down: a tap is where it goes, and a drag
+      // still pans the chart.
+      if (this.placing) {
+        this.drag = { mode: 'pan', from: p, start: p, place: this.placing };
+        el.classList.add('panning');
+        try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+        e.preventDefault();
+        return;
+      }
+      // A town, picked up by anywhere inside it.
+      const town = !hit ? this.onTown(p) : null;
       // Nothing under the finger: the chart itself is dragged instead.
-      this.drag = hit || { mode: 'pan', from: p };
+      this.drag = hit || town || { mode: 'pan', from: p };
       if (hit) {
         // The one being moved is drawn last, so it is on top of whatever it is
         // being dragged over.
         this.tokens.splice(this.tokens.indexOf(hit.t), 1);
         this.tokens.push(hit.t);
       }
-      el.classList.toggle('panning', !hit);
+      el.classList.toggle('panning', !hit && !town);
       try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
       this.dirty = true;
       e.preventDefault();
@@ -850,7 +998,12 @@ export class LayoutMap {
         return;
       }
       if (!this.drag) return;
-      if (this.drag.mode === 'pan') {
+      if (this.drag.mode === 'town') {
+        const w = this.fromScreen(p.x, p.y);
+        this.drag.at = { x: w.x - this.drag.dx, z: w.z - this.drag.dz };
+        this.drag.shift = { x: w.x, z: w.z };
+        this.hintOnce = 'Let go to raise the town here.';
+      } else if (this.drag.mode === 'pan') {
         const s = this.scale;
         this.view.x -= (CHART_X * (p.x - prev.x)) / s;
         this.view.z += (p.y - prev.y) / s;
@@ -878,9 +1031,24 @@ export class LayoutMap {
         const p = at(e);
         if (Math.hypot(p.x - d.start.x, p.y - d.start.y) < 7) this.director.tapSea(this.fromScreen(p.x, p.y));
       }
+      if (d && d.place && this.pointers.size === 1) {
+        const p = at(e);
+        if (Math.hypot(p.x - d.start.x, p.y - d.start.y) < 7) {
+          this.pointers.delete(e.pointerId);
+          this.drag = null;
+          el.classList.remove('panning');
+          try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+          this.setWorks(d.place, true, this.fromScreen(p.x, p.y));
+          return;
+        }
+      }
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = 0;
       this.drag = null;
+      if (d && d.mode === 'town') {
+        this.hintOnce = null;
+        if (d.at) this.setWorks('city', true, d.at, d.plan.city.ask);
+      }
       el.classList.remove('panning');
       try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
       this.dirty = true;
@@ -909,6 +1077,10 @@ export class LayoutMap {
     };
     window.addEventListener('keydown', this.onKey);
 
+    document.getElementById('lay-city')?.addEventListener('click', () => this.startPlacing('city'));
+    document.getElementById('lay-city-x')?.addEventListener('click', () => this.setWorks('city', false));
+    document.getElementById('lay-walls')?.addEventListener('click', () => this.startPlacing('walls'));
+    document.getElementById('lay-walls-x')?.addEventListener('click', () => this.setWorks('walls', false));
     if (this.backBtn) this.backBtn.onclick = () => this.onBack?.();
     if (this.autoBtn) {
       this.autoBtn.onclick = () => { this.auto(); this.dirty = true; this.paint(); };
@@ -1012,6 +1184,8 @@ export class LayoutMap {
       ctx.stroke();
     }
 
+    this.drawWorks(ctx, s);
+
     // A grid at a round number of metres, picked so the squares stay about a
     // finger apart however far the chart is zoomed in.
     const gridM = niceStep(150 / s);
@@ -1081,6 +1255,111 @@ export class LayoutMap {
     ctx.textAlign = 'left';
     ctx.font = '11px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.fillText(`${Math.round(barM / 0.9144 / 100) * 100} yd`, bx + bw + 8, by + 4);
+  }
+
+  /**
+   * The towns and the sea walls, as a chart shows them: the walls as a broad
+   * grey line along the shore, each town's blocks tinted by what they are,
+   * and -- zoomed in far enough to make them out -- every building on its
+   * own footprint.
+   */
+  drawWorks(ctx, s) {
+    const works = this.world.works;
+    if (!works) return;
+    const line = (pts) => {
+      ctx.beginPath();
+      pts.forEach(([x, z], k) => {
+        const q = this.toScreen(x, z);
+        if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      });
+    };
+    // The towns first and the walls over them: a town's waterfront block is
+    // filled out to its edges, and drawn last it painted out the wall along it.
+    for (const plan of this.plans || []) this.drawTown(ctx, s, plan);
+    for (const run of works.walls) {
+      line(run.pts);
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(30, 34, 38, 0.85)';
+      ctx.lineWidth = Math.max(4, WALL_WIDTH * s + 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#b9b4a6';
+      ctx.lineWidth = Math.max(2.5, WALL_WIDTH * s);
+      ctx.stroke();
+    }
+  }
+
+  /** One town on the chart, and a ghost of it where it is being dragged. */
+  drawTown(ctx, s, plan) {
+    const c = plan.city;
+    const quad = (u0, u1, v0, v1) => {
+      ctx.beginPath();
+      [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].forEach(([u, v], k) => {
+        const w = cityToWorld(c, u, v);
+        const q = this.toScreen(w.x, w.z);
+        if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      });
+      ctx.closePath();
+    };
+    // The streets: the town's paving, wherever it is on dry land.
+    ctx.fillStyle = 'rgba(58, 58, 54, 0.55)';
+    for (const b of plan.blocks) {
+      if (b.land <= 0.25) continue;
+      quad(b.u0 - 6, b.u1 + 6, b.v0 - 6, b.v1 + 6);
+      ctx.fill();
+    }
+    for (const b of plan.blocks) {
+      if (b.land <= 0.25) continue;
+      quad(b.u0, b.u1, b.v0, b.v1);
+      ctx.fillStyle = BLOCK_INK[b.kind] || BLOCK_INK.res;
+      ctx.globalAlpha = 0.5 + 0.5 * Math.min(1, b.land);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Buildings, once they are bigger than a pixel or two.
+    if (s > 0.35) {
+      ctx.fillStyle = 'rgba(28, 26, 24, 0.75)';
+      for (const b of plan.buildings) {
+        const sn = Math.sin(b.rot);
+        const cs = Math.cos(b.rot);
+        ctx.beginPath();
+        [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, e], k) => {
+          const x = b.x + cs * a * b.w / 2 + sn * e * b.d / 2;
+          const z = b.z - sn * a * b.w / 2 + cs * e * b.d / 2;
+          const q = this.toScreen(x, z);
+          if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // Its outline and its name, and a ghost of it where it is being dragged.
+    ctx.strokeStyle = 'rgba(230, 207, 156, 0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    quad(-plan.W / 2, plan.W / 2, -plan.D / 2, plan.D / 2);
+    ctx.stroke();
+    const d = this.drag;
+    if (d && d.mode === 'town' && d.at && d.plan === plan) {
+      const ask = this.works.cities[c.ask];
+      const ox = d.at.x - (Number.isFinite(ask?.x) ? ask.x : c.x);
+      const oz = d.at.z - (Number.isFinite(ask?.z) ? ask.z : c.z);
+      ctx.beginPath();
+      [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, e], k) => {
+        const w = cityToWorld(c, a * plan.W / 2, e * plan.D / 2);
+        const q = this.toScreen(w.x + ox, w.z + oz);
+        if (k === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+      });
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(255, 233, 180, 0.95)';
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const mid = this.toScreen(c.x, c.z);
+    ctx.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 240, 210, 0.85)';
+    ctx.fillText('TOWN', mid.x, mid.y - Math.max(10, (plan.D / 2) * s) - 6);
   }
 
   drawToken(ctx, t) {
@@ -1282,6 +1561,12 @@ export class LayoutMap {
       enemyGuns: pick('gun', 1),
       allyBombers: pick('air', 0),
       enemyBombers: pick('air', 1),
+      // The town and the walls, by their seeds: the server raises the same
+      // ones off the same numbers.
+      works: this.world?.works ? {
+        cities: this.works.cities.slice(),
+        walls: this.works.walls.slice(),
+      } : null,
     };
   }
 }

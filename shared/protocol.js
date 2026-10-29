@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask,
+  slotMask, machineSlot,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -128,8 +128,18 @@ export function shipSnapshot(ship, full, state = null) {
     s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
   }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
+  // The mines still on her rails, and how long until the next one is rolled
+  // aft. Anyone can count the mines on a boat's stern through a glass.
+  if (cls.mines) {
+    s.mnl = ship.mnLeft;
+    s.mnc = Math.max(0, Math.round((ship.mnCool || 0) * 10) / 10);
+  }
   if (full) {
     s.notch = ship.notch;
+    // The fleet she is in, if any, and how many orders it has given her: a
+    // captain whose helm was put over by an order to his fleet takes it up.
+    if (ship.fleet) s.fg = ship.fleet;
+    if (ship.fleetSeq) s.fq = ship.fleetSeq;
     // Which of her mountings her captain has put on which ship by name.
     if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
     // Which of them he has switched off, and which are gone for good -- the
@@ -297,7 +307,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // round of gunfire. A bomb has no gun and no ship behind it, so `o` is
       // nothing: without this there is no way to tell one squadron's stick
       // from another's, and no way for a camera to follow one down.
-      bm: sh.bomber || undefined,
+      bm: sh.bomber || sh.plane || undefined,
       // A rocket rather than a shell: drawn with fins and a motor burning.
       rk: sh.rocket ? 1 : undefined,
     });
@@ -310,6 +320,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Who let her go: the ship whose tubes she came out of, or whose
       // aeroplane dropped her.
       o: tp.owner,
+      // Which torpedo she is, so she is drawn as herself: see torpedoKind.
+      k: tp.kind || undefined,
       // Still aboard: in its tube or in the air off her side, which her model
       // draws (see fireTorpedoes) -- or falling from the aeroplane that let
       // it go, which the client draws off her rack. Nothing is in the water
@@ -325,6 +337,12 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   const charges = (state.charges || []).map((c) => ({
     i: c.id, x: r1(c.x), y: r1(c.y), z: r1(c.z), tm: c.team,
   }));
+  // The mines, to the side that laid them and nobody else. A mine on its
+  // mooring is under the sea and nobody can see it; the side that laid it
+  // knows where, because the boat that laid it wrote it down.
+  const mines = (state.mines || [])
+    .filter((m) => m.team === team || ended)
+    .map((m) => ({ i: m.id, x: r1(m.x), z: r1(m.z), tm: m.team, ar: m.age >= m.arming ? 1 : 0 }));
   /**
    * How the leading aeroplane of a flight has been knocked about.
    *
@@ -372,6 +390,30 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // Which stations of a formation are still flying, when that is not simply
   // the first so many: a machine shot out of the middle leaves a gap where she
   // was, and the gap is drawn as a gap.
+  /**
+   * Which machines are streaming fuel, and from where.
+   *
+   * Four numbers a machine: her station in the formation, and where on her
+   * the hole in her tank is, in the airframe's own normalised frame (see
+   * PART_BOX) in hundredths. The plume comes out of that hole, not out of the
+   * middle of the formation. A machine that is alight is not on it: hers is
+   * fire, not vapour. One whose tank has been holed without the hole being
+   * recorded -- a till that has not yet filled -- leaks from the middle of
+   * the tank on her right wing.
+   */
+  const leakReport = (p) => {
+    const out = [];
+    for (const a of p.machines || []) {
+      if (!a.alive || a.left || !(a.leak > 0.02) || a.fire > 0.05) continue;
+      let h = null;
+      for (const q of a.holes || []) if (q.k === 'tanks') h = q;
+      out.push(machineSlot(p, a),
+        Math.round((h ? h.x : 0.24) * 100), Math.round((h ? h.y : 0) * 100),
+        Math.round((h ? h.z : 0.18) * 100));
+    }
+    return out.length ? out : undefined;
+  };
+
   const gaps = (p) => {
     if (!(p.machines || []).length) return undefined;
     const m = slotMask(p);
@@ -391,6 +433,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life), sl: gaps(p),
+      // The squadron she was formed into off the plot, to her own side only,
+      // and where it has been sent.
+      wg: p.wing && p.team === team ? p.wing : undefined,
+      vx: p.vec && p.team === team ? Math.round(p.vec.x) : undefined,
+      vz: p.vec && p.team === team ? Math.round(p.vec.z) : undefined,
       // How high she is, and how fast she is going up or down. The client used
       // to work her height out from how long she had been up, which made every
       // aeroplane climb at the same rate to the same altitude whatever she was
@@ -405,9 +452,13 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // from a turn rate: she goes past the vertical and over on her back.
       bk: p.df || p.flown ? r3(p.bank || 0) : p.show !== undefined ? r3(p.show) : undefined,
       pt: p.df || p.flown ? r3(p.pitch || 0)
-        // A dive bomber rolling in over the top: the pitch of the path she
-        // is on, off her climb and her speed, for the bank to go with.
+        // A dive bomber in her attack -- rolling in over the top, down the
+        // dive and out of it at the bottom: the pitch of the path she is on,
+        // off her climb and her speed, for the bank to go with.
         : p.show !== undefined ? r3(Math.atan2(p.vy || 0, Math.max(1, p.speed || 0))) : undefined,
+      // How far her dive brakes are out, on a dive bomber in her attack or a
+      // pilot who has them selected: the client opens them on her wings.
+      db: p.brk > 0.01 ? Math.round(p.brk * 100) / 100 : undefined,
       // What she is: it decides what she is drawn as and what she is after.
       r: p.role || 'torpedo',
       // And which machine, where her ship flies one particular type. A
@@ -423,6 +474,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,
+      // Her wheels down and her hook out: in the groove coming in to land.
+      gd: p.land && (p.land.leg === 'final' || p.land.leg === 'base') ? 1 : undefined,
       // How she has been knocked about: how many of her machines are trailing
       // smoke, and how much aeroplane the flight has left. A formation coming
       // out of the flak with one of its number burning is the whole of what a
@@ -431,6 +484,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // bar and every machine in it was in identical condition by definition.
       sm: p.wear && p.wear.smoking ? p.wear.smoking : undefined,
       fb: p.wear && p.wear.burning ? p.wear.burning : undefined,
+      lp: leakReport(p),
       wr: p.wear && p.wear.speed < 0.995 ? r3(p.wear.speed) : undefined,
       // Which ship is flying her by hand, if anybody is. A flight has one
       // pilot: without this the plot could offer a squadron to two captains
@@ -462,6 +516,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // her that anybody watching can actually see.
       d: b.phase === 'run' ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
+      // Which of her are streaming fuel from a holed tank, and from where.
+      lp: leakReport(b),
       // Which of her gun positions have been shot out, one bit each in the
       // order of her `posts`.
       tg: (b.posts || []).reduce((m, g, k) => (g.hp <= 0 ? m | (1 << k) : m), 0) || undefined,
@@ -491,13 +547,26 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     // and drops the cab shutters on the model.
     rl: b.rails ?? undefined,
     fs: b.salvo ? (b.salvo.wind > 0 ? 1 : 2) : undefined,
+    // Whose hands its guns are in, if a player has taken them.
+    pc: b.ctl || undefined,
+    // And what only its own side is told: the mortar's pin -- where it is,
+    // whose plot put it there ('h' a player's; 's', 'm' or 't' its crew's,
+    // for a ship stopped, steaming straight or turning) and on which ship --
+    // where the last bomb is coming down and in how long, what a battery laid
+    // by hand is laid on, and how long it has still to load.
+    pn: b.team === team && b.pin
+      ? [Math.round(b.pin.x), Math.round(b.pin.z), b.pin.m[0], b.pin.tid || 0] : undefined,
+    st: b.team === team && b.shot && b.shot.at > state.t
+      ? [Math.round(b.shot.x), Math.round(b.shot.z), r1(b.shot.at - state.t)] : undefined,
+    tg: b.team === team && b.ctl ? (b.ctlTarget || 0) : undefined,
+    cd: b.team === team && b.ctl ? r1(Math.max(0, b.cooldown)) : undefined,
   }));
 
   return {
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, charges, planes, batteries, bombers,
+    ships, contacts, shells, torps, charges, mines, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

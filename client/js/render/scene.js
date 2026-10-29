@@ -8,12 +8,15 @@ import { buildShip } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Flames } from './flames.js';
+import { WorksView } from './works.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Rockets } from './rockets.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
+import { Mines } from './mines.js';
 import { Flights } from './planes.js';
 import { Contrails, GunFlashes } from './airfx.js';
+import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
@@ -22,7 +25,6 @@ import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
 import { holePlating, lineInside } from './shellholes.js';
-import { Inrush } from './inrush.js';
 import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
@@ -40,7 +42,7 @@ import { renderCulled } from './pixelcull.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
-  isleRings, isleSpokes, isleVertex, COAST_STEP, drawnGround,
+  isleRings, isleSpokes, isleVertex, coastGrid, coastSplit, SHELF_DEEP, drawnGround,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { clamp } from '../../../shared/math.js';
@@ -118,88 +120,95 @@ function starField(count = 700) {
  *
  * Raised off the same grid the simulation runs its collision against, so what
  * is drawn and what a hull runs aground on are one thing rather than two that
- * agree most of the time. Every cell that is ashore, and a two-cell apron of
- * shallows round it, becomes a quad at the height the sim says the ground is;
- * the coast then falls out of the grid where the height crosses the waterline
+ * agree most of the time: a vertex at the middle of every cell of the mask
+ * (see coastGrid), at the height the sim says the ground is there, and every
+ * quad drawn that has any of it above the open seabed -- the land, and the
+ * apron of shallows round it that carries the beach down under the water. The
+ * coast then falls out of the grid where the height crosses the waterline
  * instead of being drawn as a separate line.
  *
- * One mesh for the lot: a coastal battlefield is fifty thousand cells of land
- * and that is not fifty thousand draw calls.
+ * Chosen quad by quad on the heights themselves, not on a sample of the mask:
+ * a sample missed whatever land lay between the points it was taken at, and
+ * the mesh ended there in mid-air with the sea showing through the hole.
+ *
+ * One mesh for the lot, its vertices shared between the quads that meet on
+ * them, so the hillsides shade as hills rather than as a field of facets.
  */
-/** Two greens and a sand, picked by height: beach, scrub, high ground. */
+/**
+ * Two greens and a sand, by height: beach, scrub, high ground. Run into each
+ * other rather than stepped, because the colour is laid on at the vertices and
+ * the first one ashore already stands a dozen metres up: stepped at six, the
+ * coast had no beach at all.
+ */
 function coastShade(h) {
-  if (h < 6) return [0.62, 0.58, 0.44];
-  if (h < 60) return [0.30, 0.35, 0.22];
-  return [0.24, 0.27, 0.20];
+  const SAND = [0.62, 0.58, 0.44];
+  const SCRUB = [0.30, 0.35, 0.22];
+  const HIGH = [0.24, 0.27, 0.20];
+  if (h < 8) return SAND;
+  if (h < 22) return mix(SAND, SCRUB, (h - 8) / 14);
+  if (h < 60) return SCRUB;
+  return mix(SCRUB, HIGH, Math.min(1, (h - 60) / 40));
 }
 
 function buildCoast(world, mat = null) {
-  const m = landMask(world);
-  if (!m.any) return null;
-  // Drawn at twice the cell the sim collides on. The coastline carries its
-  // detail at about seven hundred metres, so three hundred holds all of it,
-  // and it is a quarter of the triangles.
-  const cell = m.cell * COAST_STEP;
-  const n = Math.ceil((m.half * 2) / cell) + 1;
-  const half = m.half;
-  const at = (i, j) => {
-    const x = -half + (i + 0.5) * cell;
-    const z = -half + (j + 0.5) * cell;
-    const mi = Math.floor((x + half) / m.cell);
-    const mj = Math.floor((z + half) / m.cell);
-    if (mi < 0 || mj < 0 || mi >= m.n || mj >= m.n) return 0;
-    return m.grid[mj * m.n + mi];
-  };
-
-  // Height at a grid corner, cached: every corner is asked for by up to four
-  // quads and the shore distance behind it is the expensive part.
-  const hs = new Float32Array((n + 1) * (n + 1)).fill(NaN);
-  const height = (i, j) => {
-    const k = j * (n + 1) + i;
-    if (!Number.isNaN(hs[k])) return hs[k];
-    const x = -half + i * cell;
-    const z = -half + j * cell;
-    hs[k] = keelGround(world, x, z);
-    return hs[k];
-  };
-
-  const pos = [];
-  const col = [];
-  const shade = coastShade;
-
-  for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) {
-      // Land, or within two cells of it: the apron carries the beach down
-      // under the water so the shore does not end in a cliff.
-      let near = false;
-      for (let dj = -1; dj <= 1 && !near; dj++) {
-        for (let di = -1; di <= 1; di++) if (at(i + di, j + dj)) { near = true; break; }
-      }
-      if (!near) continue;
-
-      const x0 = -half + i * cell;
-      const z0 = -half + j * cell;
-      const h00 = height(i, j);
-      const h10 = height(i + 1, j);
-      const h11 = height(i + 1, j + 1);
-      const h01 = height(i, j + 1);
-      if (h00 < -20 && h10 < -20 && h11 < -20 && h01 < -20) continue;
-
-      // Wound anticlockwise seen from above, so the ground faces the sky.
-      pos.push(x0, h00, z0, x0 + cell, h11, z0 + cell, x0 + cell, h10, z0);
-      pos.push(x0, h00, z0, x0, h01, z0 + cell, x0 + cell, h11, z0 + cell);
-      const a = shade((h00 + h10 + h11 + h01) / 4);
-      for (let v = 0; v < 6; v++) col.push(a[0], a[1], a[2]);
+  const g = coastGrid(world);
+  if (!g.m.any) return null;
+  const { m, n, o, cell } = g;
+  const N = n + 1;
+  const hs = new Float32Array(N * N);
+  for (let j = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++) {
+      // Two cells and more out to sea it is the open seabed, and nothing
+      // built ashore or blown out of it reaches that far: no need to ask.
+      const mi = Math.min(m.n - 1, Math.max(0, i - 1));
+      const mj = Math.min(m.n - 1, Math.max(0, j - 1));
+      hs[j * N + i] = m.dist[mj * m.n + mi] <= -cell * 2
+        ? -SHELF_DEEP : keelGround(world, o + i * cell, o + j * cell);
     }
   }
-  if (!pos.length) return null;
+  // Deep enough that it is the open seabed and nothing need be drawn.
+  const DEEP = 0.5 - SHELF_DEEP;
+  const vid = new Int32Array(N * N).fill(-1);
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const vert = (i, j) => {
+    const k = j * N + i;
+    if (vid[k] < 0) {
+      vid[k] = pos.length / 3;
+      const h = hs[k];
+      pos.push(o + i * cell, h, o + j * cell);
+      const c = coastShade(h);
+      col.push(c[0], c[1], c[2]);
+    }
+    return vid[k];
+  };
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const h00 = hs[j * N + i];
+      const h10 = hs[j * N + i + 1];
+      const h11 = hs[(j + 1) * N + i + 1];
+      const h01 = hs[(j + 1) * N + i];
+      if (h00 < DEEP && h10 < DEEP && h11 < DEEP && h01 < DEEP) continue;
+      const a = vert(i, j);
+      const b = vert(i + 1, j);
+      const c = vert(i + 1, j + 1);
+      const d = vert(i, j + 1);
+      // Wound anticlockwise seen from above, so the ground faces the sky; and
+      // split the way the height field is.
+      if (coastSplit(h00, h10, h11, h01)) idx.push(a, c, b, a, d, c);
+      else idx.push(a, d, b, b, d, c);
+    }
+  }
+  if (!idx.length) return null;
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
   geo.computeVertexNormals();
   return new THREE.Mesh(geo, mat || new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+    vertexColors: true, roughness: 0.95, metalness: 0,
   }));
 }
 
@@ -691,6 +700,8 @@ export class ShipView {
     // The outer doors of a submarine's tubes, if she has any. Nothing else in
     // the game has them.
     this.tubeCaps = built.tubeCaps || null;
+    // The mines on a minelayer's rails, which go one by one as she lays them.
+    this.mineRack = built.mineRack || null;
     // How deep she is, and how far her doors are open: both come off the wire
     // and both are eased toward rather than snapped to, so a boat rises and
     // falls instead of teleporting between snapshots.
@@ -752,7 +763,6 @@ export class ShipView {
     // The sea coming in through whichever of those holes it reaches. Made
     // when she is first holed; see opened.
     this.ocean = ocean;
-    this.inrush = null;
     this.wreck = wreck;
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
@@ -1253,36 +1263,10 @@ export class ShipView {
   /**
    * She has a hole in her at a point in her own frame, `r` across: line the
    * inside of her plating so the hole shows her inside rather than the sea
-   * through the other side (see lineInside), and let the sea in through it
-   * if it is low enough to take water (see Inrush).
+   * through the other side (see lineInside).
    */
   opened(x, y, z, r, n = null) {
     if (this.plating) lineInside(this.plating.parts);
-    if (!this.ocean) return;
-    if (!this.inrush) this.inrush = new Inrush(this.group, this.ocean);
-    // Which way the plate faces, when the caller did not know: off the
-    // plating itself, turned to face out of her -- up off a deck, outboard
-    // off a side.
-    if (!n && this.plating) {
-      const near = this.plating.nearest(x, y, z, Math.max(6, r * 2.5));
-      if (near) {
-        let [, , , nx, ny, nz] = near;
-        const out = Math.abs(ny) > 0.6 ? ny : nx * (x || near[0]);
-        if (out < 0) { nx = -nx; ny = -ny; nz = -nz; }
-        n = [nx, ny, nz];
-      }
-    }
-    this.inrush.add(x, y, z, r, n);
-  }
-
-  /**
-   * Once a frame, after she is posed: the sea pouring into whichever of her
-   * holes it reaches. Not once she is in two -- her holes are on a model
-   * that is not there any more as one thing -- or once she is out of sight.
-   */
-  stepInrush(dt) {
-    if (!this.inrush) return;
-    this.inrush.step(dt, this.group.visible && !this.halves && !this.rupture);
   }
 
   /** A collision too light to open her: her plating scraped for `len` metres. */
@@ -1723,8 +1707,21 @@ export class ShipView {
       up = Math.atan2((p.y ?? 220) - this.group.position.y, Math.sqrt(d2) || 1);
     }
     // A light gun swings fast, and the smaller it is the faster it swings.
+    const now = performance.now() / 1000;
+    const want0 = want;
+    const up0 = up;
     for (const m of this.aaMounts) {
       if (m.userData.laid === false) continue;
+      // A dual-purpose gun laid where it last fired (see holdLight), which on
+      // a ship is nowhere near the nearest aeroplane.
+      const hold = m.userData.hold;
+      if (hold && hold.until > now) {
+        want = hold.b - this.group.rotation.y;
+        up = hold.up ?? 0.03;
+      } else {
+        want = want0;
+        up = up0;
+      }
       const rate = m.userData.trainRate || 1.6;
       // A mounting that knows its own arc and stops -- surveyed off her
       // structure, in her own frame -- is laid inside them: onto the aeroplane
@@ -1786,6 +1783,18 @@ export class ShipView {
   }
 
   /**
+   * Hold one of her light mountings on a world bearing, and at an elevation
+   * (null for a surface shot), for `secs` -- what a dual-purpose gun of her
+   * light battery is laid on when it fires, which the simulation says and the
+   * nearest aeroplane does not.
+   */
+  holdLight(i, bearing, up, secs) {
+    const m = this.aaMounts && this.aaMounts[i];
+    if (!m || !Number.isFinite(bearing)) return;
+    m.userData.hold = { b: bearing, up, until: performance.now() / 1000 + secs };
+  }
+
+  /**
    * The world points the barrels of one of her batteries are pointing from.
    *
    * `kind` is 'turret', 'sec', 'aa' or 'torp'; `which` picks one mounting out
@@ -1839,7 +1848,6 @@ export class ShipView {
   }
 
   dispose(scene) {
-    if (this.inrush) this.inrush.dispose();
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     scene.remove(this.group);
@@ -2013,7 +2021,7 @@ export class BattleScene {
       vertexColors: true, roughness: 0.95, metalness: 0,
     }), this.scarU);
     this.coastMat = cutLand(new THREE.MeshStandardMaterial({
-      vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+      vertexColors: true, roughness: 0.95, metalness: 0,
     }), this.scarU);
     const isles = buildIslands(world, this.isleMat);
     if (isles) this.scene.add(isles);
@@ -2060,6 +2068,8 @@ export class BattleScene {
       });
       // The sea against the ships: kept off their decks, and thrown up their
       // sides as spray under the same sky and down the same wind.
+      // And the white water out of every splash, under the same sky.
+      this.effects.splashes.setAtmosphere({ preset, overcast, sunDir: p.lightDir });
       this.breakers = new Breakers(this.scene, this.ocean, { intensity: q.particles });
       this.breakers.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
@@ -2067,6 +2077,10 @@ export class BattleScene {
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
+    // The town and the sea walls, if the battle has them. See works.js.
+    this.worksView = world.works
+      ? new WorksView(this.scene, world, { effects: this.effects, flames: this.flames, time: this.time })
+      : null;
     // What a searchlight's beam has to light in the air: next to nothing on
     // a clear night, a great deal in rain, and a solid bar of light in fog.
     this.lampHaze = world.fog ? 1 : wx.fall === 'rain' ? 0.6 + 0.15 * (wx.drop || 1) / 2
@@ -2097,14 +2111,15 @@ export class BattleScene {
     // What the dive bombers let go of, on the way down.
     this.bombs = new Bombs(this.scene, 64);
 
-    // The fish in the water and the rope of bubbles behind each of them.
-    // See torpedo.js: the track is the weapon, as far as anybody conning a
-    // ship is concerned.
+    // The fish in the water, each drawn as the torpedo it is and running at
+    // its depth under the sea. See torpedo.js.
     this.torpedoes = new Torpedoes(this.scene, this.ocean, 48);
     // And the depth charges going down, which is the other half of the same
     // fight: the fish is what a boat does to a ship and this is what the ship
     // does back. See depthcharge.js.
     this.charges = new DepthCharges(this.scene, 48);
+    // And the mines this side has laid, on their moorings. See mines.js.
+    this.mines = new Mines(this.scene, 64);
 
     // The squadrons in the air: the same aircraft that sit on the Enterprise's
     // deck, in flight trim, as many of them as the flight actually has. See
@@ -2113,6 +2128,8 @@ export class BattleScene {
     // What they leave in the air: vapour off their tips and contrails off
     // their engines, and the flash of their guns, on them. See airfx.js.
     this.contrails = new Contrails(this.scene);
+    // And a ship making smoke: what comes out of her funnels. See smokescreen.js.
+    this.smokeScreens = new SmokeScreens(this.scene);
     this.gunFlashes = new GunFlashes(this.scene);
     // And the heavy squadrons, which are nobody's carrier aircraft: their own
     // batch, their own models and their own spacing. See heavies.js.
@@ -2272,6 +2289,8 @@ export class BattleScene {
         v.apron.geometry.dispose();
         v.apron.material.dispose();
       }
+      // In the town, the street furniture on the site went with the houses.
+      if (!v.apron) this.worksView?.clearProps(at.x, at.z, v.span * 0.8 + 3);
       v.apron = batteryApron(this.world, at, v.span, v.foot);
       v.group.add(v.apron);
       v.apronY = at.y;
@@ -2347,14 +2366,15 @@ export class BattleScene {
       this.flames.wind.x = w.x;
       this.flames.wind.z = w.z;
     }
+    this.worksView?.update(dt, this.camera);
     this.flames.update(dt);
     this.debris.update(dt);
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
-    this.torpedoes.update(dt, this.torpsNow || [],
-      (x, z) => this.ocean.heightAt(x, z));
+    this.torpedoes.update(dt, this.torpsNow || []);
     this.charges.update(dt, this.chargesNow || []);
+    this.mines.update(dt, this.minesNow || []);
     this.weather.update(dt, eye);
     this.oil.update(dt);
     // The lamps that are lit, for the few real lights and the sea's pools.

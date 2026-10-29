@@ -18,6 +18,8 @@ export const MAN = {
   step: 0.8,       // the most he goes up without thinking about it
   climb: 3.2,      // the most he can haul himself up, if he keeps at it
   climbHold: 0.35, // how long he has to keep at it
+  ladder: 30,      // the highest quay or sea wall he goes up its steps or ladder
+  ladderHold: 0.6, // and how long he has to keep at that
   gravity: 9.8,
   jump: 3.9,       // off the deck, a little under a metre up
   float: 0.22,     // his eye over the water, swimming
@@ -159,9 +161,11 @@ export function stepDeck(man, move, dt, map) {
 
 /**
  * One step of him off her: falling, swimming, or ashore. `env` is
- * { sea(x, z), ground(x, z), blocked(x, z) } -- the water's surface, the land
- * under it (very negative out at sea), and whether her hull is in the way --
- * all in the world's frame.
+ * { sea(x, z), ground(x, z), blocked(x, z), ladder(x, z) } -- the water's
+ * surface, the land under it (very negative out at sea), whether her hull is
+ * in the way, and whether there are steps or a ladder up to a point: a quay
+ * or a sea wall, which is a sheer face too high to climb but which every one
+ * of them has a way up -- all in the world's frame.
  */
 export function stepWater(man, move, dt, env) {
   const sea = env.sea(man.x, man.z);
@@ -174,18 +178,43 @@ export function stepWater(man, move, dt, env) {
   const k = mag > 1 ? 1 / mag : 1;
   const dx = d.x * k * speed * dt;
   const dz = d.z * k * speed * dt;
+  let up = null;
   if (dx || dz) {
+    let moved = false;
     for (const [tx, tz] of [[dx, dz], [dx, 0], [0, dz]]) {
       if (!tx && !tz) continue;
       const nx = man.x + tx, nz = man.z + tz;
       if (env.blocked(nx, nz)) continue;
       // Ashore he walks up a beach, not a cliff.
       const g = env.ground(nx, nz);
-      if (g > Math.max(man.y, env.sea(nx, nz) - MAN.wade) + MAN.step * 1.5) continue;
+      const from = Math.max(man.y, env.sea(nx, nz) - MAN.wade);
+      if (g > from + MAN.step * 1.5) {
+        // Up the face of a quay or a wall, by its steps, if he keeps at it.
+        if (!up && tx === dx && tz === dz && g - from <= MAN.ladder && env.ladder?.(nx, nz)) up = { x: nx, z: nz, g };
+        continue;
+      }
       man.x = nx; man.z = nz;
+      moved = true;
       break;
     }
+    if (moved) up = null;
   }
+  if (up) {
+    man.held = (man.held || 0) + dt;
+    if (man.held >= MAN.ladderHold) {
+      // Over the top and a step in from the edge, so he is on it and not
+      // balanced on its lip.
+      const L = Math.hypot(up.x - man.x, up.z - man.z) || 1;
+      const ix = up.x + ((up.x - man.x) / L) * 0.6;
+      const iz = up.z + ((up.z - man.z) / L) * 0.6;
+      const inner = env.blocked(ix, iz) ? up : { x: ix, z: iz, g: env.ground(ix, iz) };
+      man.x = inner.x; man.z = inner.z;
+      man.y = Math.max(up.g, inner.g);
+      man.vy = 0; man.held = 0;
+      man.swimming = false; man.grounded = true;
+      return 'climbed';
+    }
+  } else man.held = 0;
   const s2 = env.sea(man.x, man.z);
   const g2 = env.ground(man.x, man.z);
   // Where his feet would be: on the bottom if he can stand, and treading

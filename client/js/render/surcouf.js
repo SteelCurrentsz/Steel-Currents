@@ -1678,9 +1678,9 @@ function tubes(g) {
         node.add(hinge);
         caps.bow.push({ node: hinge, hand: side });
       }
-      // The muzzle this mount fires from, so the fish leaves the bow and not
-      // the middle of her.
-      arm(node, node, [[0, 0, 2.90]]);
+      // The muzzles this mount fires from, the four doors in her stem, so
+      // each fish leaves its own tube and not the middle of her.
+      arm(node, node, [[-0.66, 0.60, 1.02], [0.66, 0.60, 1.02], [-0.66, -0.58, 1.02], [0.66, -0.58, 1.02]]);
     } else {
       // A trainable external triple: the 55 cm on the centreline of the mount
       // with a 40 cm either side, all three on a ring that turns.

@@ -27,7 +27,7 @@ import {
   MUSASHI_HULL_B64, MUSASHI_SURFACE, MUSASHI_TURRETS, MUSASHI_GUNS, MUSASHI_MOUNTS, MUSASHI_LINES,
 } from './musashiHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, woodMap } from './textures.js';
+import { steelMap, woodMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -67,6 +67,8 @@ export function musashiMaterials() {
       specular: 0x16181c, shininess: 5,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'wood');
   return mats;
 }
 

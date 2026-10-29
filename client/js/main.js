@@ -285,10 +285,40 @@ function fleetOf(m) {
   }
   return SHIP_ORDER;
 }
+/**
+ * A page loaded before the game was last published asks for its ships by the
+ * names they had then, and once those are gone every battle with one of them
+ * in it fails to load. A module that will not import is that, far more often
+ * than it is the connection: so the page is reloaded onto the current build,
+ * once -- a second failure inside a minute is a real fault and is reported.
+ */
+function staleBuild(e) {
+  const msg = String((e && e.message) || e || '');
+  if (!/dynamically imported module|Importing a module script failed|error loading dynamically/i.test(msg)) {
+    return false;
+  }
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('steel-currents:reloaded') || 0); } catch { /* private */ }
+  if (Date.now() - last < 60000) return false;
+  try { sessionStorage.setItem('steel-currents:reloaded', String(Date.now())); } catch { /* private */ }
+  toast('The game has been updated. Reloading…');
+  setTimeout(() => location.reload(), 800);
+  return true;
+}
+
 // Every battle a captain starts carries his friendly fire setting with it.
-// And none is joined until every ship that could be in it has been fetched
-// (see loadShips): the room starts the moment it is joined, and a fleet that
-// cannot be drawn yet would leave the captain watching a battle he is not in.
+// And none is joined until the aircraft every battle builds to fly are in
+// (see loadShips): the room starts the moment it is joined. Its ships are
+// waited for too, but not forever: a hull the line cannot bring in -- no
+// signal, or one too weak to bring five megabytes in -- is drawn as the hull
+// generated off her class (see buildModel), and the battle goes ahead.
+//
+// How long, once the aircraft are in, a battle waits for its hulls before it
+// sails with stand-ins for the rest; and how long it waits for the aircraft,
+// which it cannot sail without, before telling the captain so rather than
+// leaving him at the loading screen.
+const HULL_GRACE = 8000;
+const PLANE_PATIENCE = 45000;
 {
   const send = net.send.bind(net);
   net.send = (m) => {
@@ -297,12 +327,31 @@ function fleetOf(m) {
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
     boot.show('Bringing up the fleet');
-    loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
-      .then(go, (e) => {
-        console.error('Steel Currents: the fleet would not load', e);
-        boot.done();
-        toast('The fleet could not be fetched. Check the connection and try again.');
-      });
+    let settled = false;
+    const sail = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(patience);
+      if (!fleetReady(need)) toast('Some ships are drawn plain until their hulls finish downloading.');
+      go();
+    };
+    const fail = (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(patience);
+      console.error('Steel Currents: the aircraft would not load', e);
+      if (e && staleBuild(e)) return;
+      boot.done();
+      toast(navigator.onLine === false
+        ? 'The aircraft are not on this device yet. Open the game once with a connection and they will be kept for offline play.'
+        : 'The connection is too weak to bring the aircraft in yet. They are still coming down -- try again in a moment.');
+    };
+    const patience = setTimeout(() => fail(new Error('timed out')), PLANE_PATIENCE);
+    const ships = loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+      .catch((e) => { console.warn('Steel Currents: some hulls would not load', e); });
+    loadShips([]).then(() => {
+      Promise.race([ships, new Promise((r) => { setTimeout(r, HULL_GRACE); })]).then(sail);
+    }, fail);
   };
 }
 const input = new Input(canvas);
@@ -453,7 +502,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'pvp', 'custom', 'options', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -516,7 +565,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
       case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
-      case 'premium': toast('Premium Equipment — coming soon'); break;
+      case 'premium': show('premium'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;
       default: break;
@@ -658,6 +707,7 @@ const briefing = new Briefing({
   onOpenBombers: (side) => openBombers(side),
   onEditWing: (side, i) => openRefit(side, i),
 });
+window.__briefing = briefing;   // a handle for the console, like __battle
 document.getElementById('fleet-back').onclick = () => { audio.click(); show('custom'); };
 
 // ------------------------------------------------------- deployment chart --
@@ -792,9 +842,10 @@ function renderAirGroup() {
   const types = SHIP_CLASSES[id]?.planes?.types || {};
   const NAMES = {
     zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
-    wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+    hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+    bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
   };
-  const ROLES = { fighters: ['fighter', 'Wildcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
+  const ROLES = { fighters: ['fighter', 'Hellcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
     torpedo: ['torpedo', 'Avenger', 'torpedoes'] };
   for (const k of AG_KINDS) {
     const [role, fallback, job] = ROLES[k];
@@ -844,7 +895,13 @@ function renderYard() {
   else {
     loadShips([id]).then(() => {
       if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
-    }, () => toast('That ship could not be fetched. Check the connection and try again.'));
+    }, (e) => {
+      if (staleBuild(e)) return;
+      // Not coming down -- no signal, or too little of one: she is shown as
+      // the hull generated off her class, as a battle would draw her.
+      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      toast('Her hull has not downloaded yet, so she is drawn plain until it does.');
+    });
   }
   // Her full name and pennant where there is room for it; the short one is what
   // the rosters and the plot use.
@@ -1133,7 +1190,6 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
-const optAlerts = document.getElementById('opt-alerts');
 const optVoices = document.getElementById('opt-voices');
 
 optName.value = settings.name;
@@ -1145,7 +1201,6 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
-if (optAlerts) optAlerts.checked = settings.alerts !== false;
 if (optVoices) optVoices.checked = settings.voices !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
@@ -1167,18 +1222,13 @@ optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optVoices) optVoices.onchange = () => setSettings({ voices: optVoices.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
-if (optAlerts) optAlerts.onchange = () => {
-  setSettings({ alerts: optAlerts.checked });
-  if (!optAlerts.checked) document.getElementById('alerts')?.replaceChildren();
-};
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --
 
-// Every battle is hosted on this device, so there is no link whose state could
-// be worth reporting: the line that used to say whether the battle service was
-// up is taken off the title screen.
-document.getElementById('net-state')?.remove();
+// Every battle is hosted on this device, so there is no link whose state is
+// worth reporting. What the corner of the title screen says instead is whether
+// the game can be played with no signal at all -- see offlineState below.
 
 net.on('error', (m) => toast(m.msg || 'The signal was refused.'));
 
@@ -1393,6 +1443,70 @@ gateNote();
 show(signedIn ? 'title' : 'gate');
 
 net.connect();
+
+// On the web the hulls are fetched only when a battle wants them, so a
+// captain who lost his signal could not sortie. The service worker keeps every
+// file the game can ask for on this device (see client/sw.js). The apps and
+// the one-file build carry everything already, and have no /sw.js to ask for.
+// Whether the game will play with no signal, in the corner of the title
+// screen: the worker is asked what it has put away (see client/sw.js), and
+// asked again every few seconds until it has everything. The apps and the
+// one-file build carry every file already; a page served some other way, with
+// no worker to keep it, says nothing rather than guess.
+const offlineEl = document.getElementById('offline-state');
+function sayOffline(text, done) {
+  if (!offlineEl) return;
+  offlineEl.hidden = false;
+  offlineEl.textContent = text;
+  offlineEl.classList.toggle('online', done);
+}
+function askWorker() {
+  return navigator.serviceWorker.ready.then((reg) => new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 4000);
+    ch.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data); };
+    reg.active ? reg.active.postMessage({ t: 'status' }, [ch.port2]) : resolve(null);
+  }));
+}
+async function offlineState() {
+  if (offlineState.timer) return;
+  sayOffline('Saving for offline play…', false);
+  const poll = async () => {
+    let st = null;
+    try { st = await askWorker(); } catch { /* no worker */ }
+    offlineState.timer = null;
+    if (!st) { sayOffline('Saving for offline play…', false); }
+    else if (!st.shell) {
+      sayOffline(`Saving for offline play… ${Math.round(100 * st.shellHave / st.shellOf)}%`, false);
+    } else if (st.shipsHave < st.shipsOf) {
+      sayOffline(`Offline ready · ${st.shipsHave} of ${st.shipsOf} ship models saved`, true);
+      navigator.serviceWorker.controller?.postMessage({ t: 'fill' });
+    } else {
+      sayOffline('Offline ready · everything saved', true);
+      return;
+    }
+    offlineState.timer = setTimeout(poll, 5000);
+  };
+  poll();
+}
+if (window.Capacitor || location.protocol === 'file:') sayOffline('Offline ready', true);
+
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
+  // Once it has taken over, it is asked to keep the rest -- every hull and
+  // voice -- behind the game, and asked again whenever the line comes back.
+  const fill = () => navigator.serviceWorker.ready
+    .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
+  // Beside the page: the server hands it out at the root, and the split build
+  // puts one in the folder with its page (build/standalone.mjs). A page shown
+  // somewhere that will not run one -- inside another site's frame, say --
+  // says so in the corner rather than leaving the captain to find out at sea.
+  const keep = () => navigator.serviceWorker.register('./sw.js')
+    .then(() => { fill(); offlineState(); },
+      () => sayOffline('Offline saving is not available here', false));
+  window.addEventListener('online', fill);
+  if (document.readyState === 'complete') keep();
+  else window.addEventListener('load', keep, { once: true });
+}
 requestAnimationFrame(frame);
 
 // The harbour, built behind the loading screen. Two frames of waiting first,

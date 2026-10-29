@@ -53,6 +53,18 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 // Fletcher was alongside an Iowa.
 const BIG = 1;
 
+// The Surcouf's trainable triples on her casing: a 55 cm tube on the centre of
+// the mount and a 40 cm either side (surcouf.js), each fish blown out over her
+// side. A 55 cm 1924V and a 40 cm 1926, each drawn to fit its own tube.
+const SURCOUF_TRIPLE = {
+  eject: 12, stagger: 0.35, lanes: [0, -0.72, 0.72], lie: -0.15, muzzle: 2.9,
+  fish: [
+    { len: 5.8, r: 0.28, kind: 'l3' },
+    { len: 5.15, r: 0.2, kind: 'mle26' },
+    { len: 5.15, r: 0.2, kind: 'mle26' },
+  ],
+};
+
 export const SHIP_CLASSES = {
   fletcher: {
     // Five single 5"/38 dual-purpose mounts, quick-training and unobstructed on a
@@ -64,7 +76,10 @@ export const SHIP_CLASSES = {
     typeName: 'Destroyer',
     nation: 'usa',
     blurb: 'Fast, invisible until it wants not to be, and carrying ten torpedo tubes. Dies to a stiff breeze.',
-    hull: { length: 114, beam: 12, draft: 5.5, superstructure: 0.9 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5.2, 14.8], [0, -11.4, 14]], length: 114, beam: 12, draft: 5.5, superstructure: 0.9 },
     hp: 15600,
     maxSpeed: 36.5 * KNOTS,
     reverseSpeed: 9 * KNOTS,
@@ -104,6 +119,16 @@ export const SHIP_CLASSES = {
       traverse: 0.30,
       reload: 62, damage: 12800, speed: 30 * KNOTS, range: 8500,
       detection: 1100, arming: 400, spread: 0.09, floodChance: 0.32,
+      // Each fish blown out of its tube along the bank, a third of a second
+      // apart, and over her side: five tubes, `lanes` across the bank, the
+      // fish's middle `lie` and the muzzle door `muzzle` ahead of the training
+      // ring, off the model's own tubes (fletcher.js). A Mk 15 is seven and a
+      // third metres long; drawn, seven, so it lies inside the sculpt's
+      // tubes. Each bank drops it from its own height (`my`).
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-1.56, -0.78, 0, 0.78, 1.56], lie: 0.2, muzzle: 3.82,
+        fish: { len: 7.0, r: 0.267, kind: 'mk15' },
+      },
     },
     // Her own five-inch is the anti-aircraft battery -- a Fletcher's main
     // armament is dual-purpose -- and the light guns are what she has left when
@@ -257,7 +282,10 @@ export const SHIP_CLASSES = {
     // hull on a broad waterplane, which rides the sea up and down as closely
     // as a ship can -- her heave on a stiffer spring than her length alone
     // would give her (see Seakeeping), or the sea would leave her screws.
-    hull: { length: 100, beam: 9.9, draft: 3.3, superstructure: 0.9, heavePeriod: 3.2 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5, 10.2], [0, -12.3, 10.3]], length: 100, beam: 9.9, draft: 3.3, superstructure: 0.9, heavePeriod: 3.2 },
     hp: 12600,
     // Twenty-seven knots and four fifths, on two shafts: slower than a fleet
     // destroyer and handier, a short ship on a big rudder.
@@ -322,7 +350,7 @@ export const SHIP_CLASSES = {
       // drawn, five and a half metres so it lies in the sculpt's tubes.
       launch: {
         eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 3.78,
-        fish: { len: 5.6, r: 0.24 },
+        fish: { len: 5.6, r: 0.24, kind: 'type93' },
       },
     },
     secondary: null,
@@ -445,7 +473,10 @@ export const SHIP_CLASSES = {
     // She draws three and three quarter metres on a hundred and sixteen-metre
     // waterline: a long, light hull on a fine waterplane, which heaves more
     // quickly than her length alone would make her (see Seakeeping).
-    hull: { length: 118.5, beam: 11.2, draft: 3.76, superstructure: 0.9, heavePeriod: 3.6 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 13.5, 10.2], [0, -2.5, 10]], length: 118.5, beam: 11.2, draft: 3.76, superstructure: 0.9, heavePeriod: 3.6 },
     hp: 15000,
     // Thirty-five knots on two shafts, fifty-two thousand horsepower.
     maxSpeed: 35 * KNOTS,
@@ -519,7 +550,7 @@ export const SHIP_CLASSES = {
       // drawn, five and a half metres so it lies in the sculpt's tubes.
       launch: {
         eject: 12, stagger: 0.35, lanes: [-0.856, -0.286, 0.286, 0.856], lie: 1.43, muzzle: 4.332, height: 4.38,
-        fish: { len: 5.6, r: 0.24 },
+        fish: { len: 5.6, r: 0.24, kind: 'type93' },
       },
     },
     secondary: null,
@@ -721,7 +752,10 @@ export const SHIP_CLASSES = {
     typeName: 'Light Cruiser',
     nation: 'usa',
     blurb: 'Twelve six-inch rifles on a fast reload. No torpedoes, but nothing lightly armoured survives its rain of HE.',
-    hull: { length: 186, beam: 20, draft: 7.5, superstructure: 1.15 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 2.5, 25.5], [0, -14.8, 24.6]], length: 186, beam: 20, draft: 7.5, superstructure: 1.15 },
     hp: 27800,
     maxSpeed: 32.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -853,7 +887,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'ger',
     blurb: 'Eight-inch guns, a hard-hitting torpedo broadside and enough belt to bully anything smaller.',
-    hull: { length: 203, beam: 21.5, draft: 7.7, superstructure: 1.2 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 10, 25]], length: 203, beam: 21.5, draft: 7.7, superstructure: 1.2 },
     hp: 34400,
     maxSpeed: 32 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -885,14 +922,21 @@ export const SHIP_CLASSES = {
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: -8, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
-        { id: 1, x: 8, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
+        { id: 0, x: -8.73, z: -4, angle: -Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
+        { id: 1, x: 8.73, z: -4, angle: Math.PI / 2, arc: 1.22, tubes: 3, my: 7.17 },
       ],
       name: 'G7a torpedo', role: 'surface', caliber: 533,
       reach: 4.55,
       traverse: 0.26,
       reload: 78, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      // Out of the tubes and over her side, off the model's own banks
+      // (hipper.js): three tubes eight and a half metres long, so a G7a goes
+      // in at its full seven metres.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.82, 0, 0.82], lie: 0.7, muzzle: 4.5,
+        fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+      },
     },
     // Six twin 10.5 cm on the beam: three a side, and none of them can fire
     // across her.
@@ -983,7 +1027,10 @@ export const SHIP_CLASSES = {
     typeName: 'Panzerschiff',
     nation: 'ger',
     blurb: 'Eleven-inch guns on a cruiser hull: she outranges anything that can catch her and outruns anything that can hurt her.',
-    hull: { length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 4.5, 19.4]], length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
     hp: 31600,
     maxSpeed: 28.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -1054,6 +1101,12 @@ export const SHIP_CLASSES = {
       traverse: 0.24,
       reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      // Out of the tubes and over her quarter, off the model's own banks
+      // (spee.js): four tubes side by side, long enough for a whole G7a.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-1.28, -0.43, 0.43, 1.28], lie: 0.7, muzzle: 4.5,
+        fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+      },
     },
     // Eight single 15 cm in open shielded mounts, four a side along her upper
     // deck. They are surface guns and nothing else: the mounting will not
@@ -1270,8 +1323,14 @@ export const SHIP_CLASSES = {
     // train. A Type VII is aimed by pointing the boat.
     torpedoes: {
       mounts: [
-        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.55 },
-        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -1.55 },
+        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.55,
+          // Out of the four bow doors, two over two (uboat.js), along the
+          // tube until the whole fish is clear of her stem.
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.691, 0.691, -0.346, 0.346], lie: -3.11, muzzle: 0.62, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -1.55,
+          launch: { eject: 9, stagger: 0, lanes: [0], lie: -3.11, muzzle: 0.62, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
       ],
       name: 'G7e torpedo', role: 'surface', caliber: 533,
       reach: 0.55,
@@ -1428,12 +1487,17 @@ export const SHIP_CLASSES = {
     torpedoes: {
       mounts: [
         // The bow four are inside the pressure hull and fire out of the stem.
-        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5 },
+        { id: 0, x: 0, z: 40.0, angle: 0, arc: 0.34, tubes: 4, my: -2.5,
+          // Out of the four doors in her stem, two over two (surcouf.js), a
+          // metre ahead of the axis and two-thirds of one either side of it.
+          reach: 1.21,
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.66, 0.66, -0.66, 0.66], lie: -3.27, muzzle: 1.02, wet: true, clear: 4.6,
+            fish: { len: 8.28, r: 0.275, kind: 'l3' } } },
         // The two aft are external mountings standing on the casing, and they
         // go over the side the way a destroyer's bank does -- which is what
         // `inHull: false` says, and why she needs to say it per mounting.
-        { id: 1, x: -1.55, z: -17.5, angle: -1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
-        { id: 2, x: 1.55, z: -17.5, angle: 1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false },
+        { id: 1, x: -1.55, z: -17.5, angle: -1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false, launch: SURCOUF_TRIPLE },
+        { id: 2, x: 1.55, z: -17.5, angle: 1.5708, arc: 1.22, tubes: 3, my: 1.55, inHull: false, launch: SURCOUF_TRIPLE },
       ],
       name: '550 mm 1924V', role: 'surface', caliber: 550,
       // Six 55 cm and four 40 cm, which is why she does not say twenty-one inch.
@@ -1556,6 +1620,143 @@ export const SHIP_CLASSES = {
     },
   },
 
+  sboat: {
+    // S-100, the name ship of the last and best of the Schnellboote: thirty-
+    // five metres of mahogany on light-alloy frames, three Daimler-Benz MB 501
+    // diesels and forty-three knots, two 53.3 cm tubes in the forecastle and
+    // the armoured Kalottenbrücke over her wheelhouse. The British called her
+    // an E-boat, and through four years in the Channel and the North Sea her
+    // flotillas sank more than a hundred ships between them -- with torpedoes
+    // on a dark night, and with the mines they laid across the convoy routes
+    // and were gone before anybody knew the sea had been closed.
+    //
+    // She fights unlike anything else here. She has nothing that will stop a
+    // shell, and every gun in this game goes through her; what she has is her
+    // speed, her size and her silhouette, which is barely above the sea, and a
+    // weapon nothing else carries. Six mines on rails over her quarters, rolled
+    // off the stern one after another into the path of whatever is chasing
+    // her -- and she draws so little water that her own mines pass under her.
+    //
+    // She is drawn from her own lines (see sboat.js).
+    id: 'sboat',
+    name: 'S-100',
+    fullName: 'S-100',
+    className: 'S-100',
+    type: 'DD',
+    typeName: 'Schnellboot',
+    nation: 'ger',
+    blurb: 'A Schnellboot: forty-three knots, two torpedo tubes in her forecastle and six mines on the rails over her stern.',
+    // Where her smoke comes from: the generator on her transom, which is what
+    // an S-boat laid her screen with.
+    hull: { funnels: [[0.9, -16.8, 2.3]], length: 34.94, beam: 5.28, draft: 1.67, superstructure: 0.5, heavePeriod: 2.4 },
+    hp: 2600,
+    // Forty-three and a half knots on three shafts, and the handiest thing in
+    // the game: a boat a third of a destroyer's length on three rudders.
+    maxSpeed: 43.6 * KNOTS,
+    reverseSpeed: 9 * KNOTS,
+    accel: 2.1,
+    turnRate: 0.21,
+    rudderShift: 1.4,
+    speedLossInTurn: 0.25,
+    // Low, small and dark: she is seen at very little more than the range a
+    // submarine on the surface is.
+    concealment: 3000,
+    fireDetectPenalty: 3200,
+    radarRange: 0,
+    repairCooldown: 70,
+    repairHeal: 0.10,
+    smokeCharges: 3,
+    // One searchlight, on her bridge: a destroyer's four would be most of her.
+    lampSpots: [{ x: 0, y: 4.35, z: 2.6, side: 0, name: 'Bridge' }],
+    // Wood. The only armour aboard is the twelve millimetres of the
+    // Kalottenbrücke over her wheelhouse.
+    armor: { belt: 6, deck: 6, citadel: 6, bow: 4, superstructure: 12 },
+    // The 3.7 cm Flak M42 aft, on its bandstand between the mine rails. It is
+    // her heaviest gun and an anti-aircraft gun first: what it does to a ship
+    // is knock her upperworks about.
+    turrets: [
+      { id: 0, name: 'Aft gun', x: 0, z: -12.6, angle: Math.PI, arc: 2.62, rest: Math.PI, guns: 1, my: 2.57,
+        open: true },
+    ],
+    gun: {
+      name: '3.7 cm Flak M42', role: 'dp',
+      elev: { min: -0.17, max: 1.48 },
+      reach: 2.5,
+      caliber: 37, reload: 0.9, traverse: 0.9, range: 6500, sigma: 1.1,
+      shells: shells(37, 210, 180, 30, 820, 0.04),
+    },
+    // Two 53.3 cm tubes side by side in the forecastle, firing over the bow.
+    // They do not train: an S-boat is aimed by pointing the boat, the way a
+    // U-boat is, and fires at speed from close in.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 11.9, angle: 0, arc: 0.30, tubes: 2, my: 1.75,
+          // Out of the two mouths in her bow, either side of the stem.
+          launch: { eject: 10, stagger: 0.5, lanes: [-0.82, 0.82], lie: 0, muzzle: 3.6, height: 1.75,
+            fish: { len: 7.0, r: 0.267, kind: 'g7a' } } },
+      ],
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '53.3 cm',
+      reach: 3.6,
+      inHull: true,
+      traverse: 0.0,
+      reload: 110, damage: 14200, speed: 40 * KNOTS, range: 7500,
+      detection: 900, arming: 300, spread: 0.04, floodChance: 0.38,
+    },
+    secondary: null,
+    // The 2 cm in the tub on her forecastle and the twin on the platform over
+    // her engine room. Each fights round to her beams and not across her
+    // bridge.
+    aa: {
+      range: 2200, dps: 9,
+      guns: [
+        { name: '2 cm C/38', caliber: 20, role: 'aa', reload: 0.26, range: 2200,
+          mounts: [
+            { x: 0, z: 8.6, angle: 0, arc: 2.36, rest: 0, guns: 1, my: 3.03 },
+          ] },
+        { name: '2 cm C/38 Zwilling', caliber: 20, role: 'aa', reload: 0.26, range: 2200,
+          mounts: [
+            { x: 0, z: -4.6, angle: Math.PI, arc: 2.53, rest: Math.PI, guns: 2, my: 3.04 },
+          ] },
+      ],
+    },
+    // The mines.
+    //
+    // Six UMB moored contact mines on two rails over her quarters, three a
+    // side, in place of her reload torpedoes. Each is rolled off the stern on
+    // its sinker, goes to the end of its mooring `set` metres under the
+    // surface and arms `arming` seconds later; from then on it goes off
+    // against any hull deep enough to touch its horns -- hers too, if she ever
+    // drew that much, which she does not.
+    mines: {
+      name: 'UMB moored mine', role: 'surface',
+      carried: 6,
+      // How long the party takes to run the next one aft to the stern.
+      reload: 5,
+      arming: 25,
+      set: 2.4,
+      reach: 1.2,
+      damage: 15000,
+      // The ends of the two rails at her transom, starboard first.
+      rails: [
+        { id: 0, x: 1.82, z: -17.4, my: 1.3 },
+        { id: 1, x: -1.82, z: -17.4, my: 1.3 },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 117,
+      aircraft: 0,
+      mainRounds: 1000,
+      // The two in the tubes: her reloads went ashore for the mines.
+      torpedoesCarried: 2,
+      secondary: null,
+      tertiary: [
+        { caliber: 20, label: '2cm', barrels: 3, rounds: 6000 },
+      ],
+    },
+  },
+
   richelieu: {
     // Richelieu, the first of the two: eight 380 mm in two quadruple turrets,
     // both of them forward of her tower, so that her whole main battery bore
@@ -1578,7 +1779,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'fra',
     blurb: 'Eight 380 mm guns in two quadruple turrets, all of them forward, on the fastest battleship of 1940.',
-    hull: { length: 247.85, beam: 33, draft: 9.6, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -38, 28.7]], length: 247.85, beam: 33, draft: 9.6, superstructure: 1.45 },
     hp: 74500,
     // Thirty-two knots on her trials, out of four shafts; a long, fine hull
     // that turned wide.
@@ -1957,7 +2161,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'Fast, low and wet: nine 28 cm guns at thirty-one knots. She sank Glorious, and it took Duke of York to catch her.',
-    hull: { length: 234.9, beam: 30, draft: 9.1, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -7, 17]], length: 234.9, beam: 30, draft: 9.1, superstructure: 1.4 },
     hp: 62400,
     // Thirty-one knots on trials out of three shafts; a fine hull that was
     // quick for a battleship, and wet forward until she was given her
@@ -2386,7 +2593,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'Eight 38 cm guns on the broadest, steadiest gun platform afloat. She sank Hood with her fifth salvo.',
-    hull: { length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -2, 25]], length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
     hp: 78400,
     // Thirty knots on her trials, out of three shafts; a broad hull that
     // rolled little and turned well for her size -- until her rudders jammed.
@@ -2897,7 +3107,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'ger',
     blurb: 'The Bismarck again, with two banks of four torpedo tubes on her deck: a battleship that can finish what her guns start.',
-    hull: { length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -2, 25]], length: 251, beam: 36, draft: 9.3, superstructure: 1.45 },
     hp: 78400,
     // Thirty knots on her trials, out of three shafts; a broad hull that
     // rolled little and turned well for her size -- until her rudders jammed.
@@ -3430,7 +3643,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'gbr',
     blurb: 'Nine sixteen-inch guns, every one of them forward of her bridge. She closed Bismarck to three miles and took her apart.',
-    hull: { length: 216.4, beam: 33.8, draft: 8.6, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -46, 26.2]], length: 216.4, beam: 33.8, draft: 8.6, superstructure: 1.45 },
     hp: 66800,
     // Twenty-three knots, and a tower like a sail on a short hull: she was a
     // handful at low speed and in a wind, and she turned like a block of flats.
@@ -3505,6 +3721,14 @@ export const SHIP_CLASSES = {
       // much less of a wake than a cold-air fish.
       reload: 150, damage: 15600, speed: 35 * KNOTS, range: 13700,
       detection: 1300, arming: 450, spread: 0.05, floodChance: 0.40,
+      // Under the water: the fish is pushed out along its tube, through the
+      // sluice in her side, and runs once it is clear of her (rnguns.js
+      // bowTube). The tube is eight metres long to her plating, and the fish
+      // drawn in it a little under.
+      launch: {
+        eject: 9, stagger: 0, lanes: [0], lie: 4.0, muzzle: 8.1, wet: true, clear: 4.5,
+        fish: { len: 7.8, r: 0.311, kind: 'mk1' },
+      },
     },
     // Twelve 6-inch in six twin turrets, three a side round her after
     // superstructure: the forward and after pair on her upper deck, the middle
@@ -3820,7 +4044,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'usa',
     blurb: 'Nine sixteen-inch guns and an inclined belt on a hull built short to carry them. Big Mamie fired the first and the last American sixteen-inch shells of the war.',
-    hull: { length: 207.26, beam: 28.1, draft: 9.0, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -17.3, 32.5]], length: 207.26, beam: 28.1, draft: 9.0, superstructure: 1.4 },
     hp: 66000,
     // Twenty-seven and a half knots, and a short hull that turned tighter than
     // anything else in the battle line.
@@ -4528,6 +4755,9 @@ export const SHIP_CLASSES = {
     nation: 'usa',
     blurb: 'Nine sixteen-inch guns behind a citadel that laughs at cruisers. Turns like a continent.',
     hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 15.5, 25.3], [0, -14.5, 24.9]],
       length: 270 * BIG, beam: 33 * BIG, draft: 11 * BIG, superstructure: 1.35,
     },
     hp: 76200,
@@ -4681,7 +4911,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battlecruiser',
     nation: 'jpn',
     blurb: 'A British battlecruiser rebuilt as a fast battleship: eight 35.6 cm and thirty knots.',
-    hull: { length: 222.05, beam: 31.0, draft: 9.7, superstructure: 1.4 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5.8, 20.8], [0, -17, 16.5]], length: 222.05, beam: 31.0, draft: 9.7, superstructure: 1.4 },
     hp: 64800,
     // Thirty knots and a quarter on her 1936 trials, on four shafts: lighter
     // and finer than the battleships she fought beside, and quicker on her
@@ -4987,7 +5220,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'jpn',
     blurb: 'Six twin turrets and a pagoda of a bridge: twelve 35.6 cm guns on a hull that was too small for them.',
-    hull: { length: 212.75, beam: 32.6, draft: 9.7, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -11, 26.4]], length: 212.75, beam: 32.6, draft: 9.7, superstructure: 1.45 },
     hp: 70400,
     // Twenty-five knots on her 1944 trials, on four shafts: a stiff, narrow
     // ship that had been lengthened and blistered until she turned like a
@@ -5342,7 +5578,10 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'jpn',
     blurb: 'Yamato\'s sister, with all four of her 15.5 cm turrets. It took nineteen torpedoes and seventeen bombs to sink her.',
-    hull: { length: 263, beam: 38.9, draft: 10.4, superstructure: 1.45 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -24, 29.5]], length: 263, beam: 38.9, draft: 10.4, superstructure: 1.45 },
     hp: 92400,
     maxSpeed: 27 * KNOTS,
     reverseSpeed: 6 * KNOTS,
@@ -5920,7 +6159,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'jpn',
     blurb: 'A castle of a bridge, ten eight-inch guns, and sixteen Long Lances that reach further than anything else afloat.',
-    hull: { length: 203.8, beam: 20.4, draft: 6.3, superstructure: 1.5 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 9, 20], [0, -4.4, 19.9]], length: 203.8, beam: 20.4, draft: 6.3, superstructure: 1.5 },
     hp: 33100,
     maxSpeed: 34.2 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -6010,6 +6252,14 @@ export const SHIP_CLASSES = {
       // No wake at all, which is the whole point of running one on oxygen:
       // the first anybody knew about a Long Lance was the hit.
       detection: 900, arming: 450, spread: 0.06, floodChance: 0.40,
+      // Out of the tubes, two over two, and out through the opening in her
+      // side (takao.js). The sculpt's tubes are eight and two fifths metres
+      // and narrow: the Type 93 is drawn eight metres long and slim enough
+      // to go in them.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.36, 0.36, -0.36, 0.36], lie: 1.15, muzzle: 5.3,
+        fish: { len: 8.0, r: 0.235, kind: 'type93' },
+      },
     },
     secondary: {
       name: '12.7 cm Type 89', role: 'dp',
@@ -6362,7 +6612,10 @@ export const SHIP_CLASSES = {
     typeName: 'Heavy Cruiser',
     nation: 'usa',
     blurb: 'Nine eight-inch rifles with super-heavy shells, radar-directed, and more 40 mm than a battleship. The treaty cruisers\' answer.',
-    hull: { length: 205.3, beam: 21.6, draft: 7.3, superstructure: 1.25 },
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 3, 24.4], [0, -15, 24.4]], length: 205.3, beam: 21.6, draft: 7.3, superstructure: 1.25 },
     hp: 35600,
     maxSpeed: 33 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -6995,6 +7248,10 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 3, perSquadron: 17, cruiseSpeed: 82, strikeRange: 15600,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -105, y: 20.2 },
       // What she flies: her own nation's machines, one to a role.
       types: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
       // Where her deck run leaves each of her three types, off the integrated
@@ -7030,6 +7287,309 @@ export const SHIP_CLASSES = {
       tertiary: [
         { caliber: 25, label: '25mm', barrels: 105, rounds: 315000 },
         { caliber: 120, label: '12cm rocket', barrels: 336, rounds: 4032 },
+      ],
+    },
+  },
+
+  grafzeppelin: {
+    // The only aircraft carrier Germany ever launched. Laid down at Kiel in
+    // 1936 to a design drawn without ever having seen a carrier at work --
+    // a cruiser's battery of 15 cm in casemates for fighting off destroyers,
+    // a heavy flak battery on the flight deck in line with the island, two
+    // compressed-air catapults forward and three lifts down the middle --
+    // she was never finished. Work stopped and started for six years, and in
+    // 1945 she was scuttled in the Oder estuary.
+    //
+    // She is drawn from the owner's sculpt of her (see grafzeppelin.js and
+    // build/prepare-grafzeppelin-hull.mjs): hull, island and galleries as
+    // the sculpt has them, her runway laid afresh over the outline of her
+    // own flight deck, and the 15 cm single and the 10.5 cm twin the owner
+    // sculpted for the Scharnhorst and the Bismarck.
+    id: 'grafzeppelin',
+    name: 'Graf Zeppelin',
+    fullName: 'KMS Graf Zeppelin',
+    className: 'Graf Zeppelin',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'ger',
+    blurb: 'A carrier with a cruiser\'s guns: Stukas off her catapults, Messerschmitts over them, and sixteen centimetres of answer for any destroyer that closes.',
+    // Her 262.5 m overall is the sculpt's length from her stem to the after
+    // end of her flight deck. She floats a metre deeper than her book's 8.5 m
+    // because that is where her own lines put her waterline: on the crown of
+    // her bulge, with her screws under it.
+    hull: { length: 262.5, beam: 31.5, draft: 9.6, superstructure: 0.55, flightDeck: true },
+    hp: 52400,
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.50,
+    turnRate: 0.056,
+    rudderShift: 11.5,
+    speedLossInTurn: 0.17,
+    concealment: 15000,
+    fireDetectPenalty: 5600,
+    radarRange: 12500,
+    repairCooldown: 95,
+    repairHeal: 0.11,
+    smokeCharges: 0,
+    // A cruiser's protection: a hundred millimetres of belt abreast her
+    // machinery and magazines, sixty forward, sixty of armoured deck over
+    // the citadel under her hangars, and twenty of flight deck -- enough to
+    // set off a bomb before it gets into the hangar, not to stop it.
+    armor: { belt: 100, deck: 60, citadel: 100, bow: 30, superstructure: 20 },
+    // Her 15 cm SK C/28, one gun to a station: two a side in the long
+    // casemate in her side under the forward end of her flight deck, and two
+    // a side on the sponson low on her quarter. Each fires outboard and on
+    // its own side only -- the hull is in the way of everything across her --
+    // and the casemate's own sides and head stop each short of her bow and
+    // her quarter.
+    turrets: [
+      { id: 0, name: 'S1', x: -9.9, z: 85.96, angle: -1.57, arc: 0.89, rest: -Math.PI / 2, guns: 1, my: 7.4 },
+      { id: 1, name: 'S2', x: -12.85, z: 78.3, angle: -1.57, arc: 0.89, rest: -Math.PI / 2, guns: 1, my: 7.4 },
+      { id: 2, name: 'S3', x: -14.2, z: -66.3, angle: -1.39, arc: 1.49, rest: -Math.PI / 2, guns: 1, my: 9.54,
+        lift: [[-1.86, -1.8, -0.008], [-1.81, -1.7, 0]],
+        mask: [[-1.85, -1.78, -0.008], [-1.79, -1.71, 0], [-0.01, 0.12]] },
+      { id: 3, name: 'S4', x: -14.2, z: -78.0, angle: -1.85, arc: 1.67, rest: -Math.PI / 2, guns: 1, my: 9.54,
+        mask: [[2.74, 2.98]] },
+      { id: 4, name: 'P1', x: 9.9, z: 85.96, angle: 1.57, arc: 0.89, rest: Math.PI / 2, guns: 1, my: 7.4 },
+      { id: 5, name: 'P2', x: 12.85, z: 78.3, angle: 1.57, arc: 0.89, rest: Math.PI / 2, guns: 1, my: 7.4 },
+      { id: 6, name: 'P3', x: 14.2, z: -66.3, angle: 1.39, arc: 1.49, rest: Math.PI / 2, guns: 1, my: 9.54,
+        lift: [[1.7, 1.81, 0], [1.8, 1.86, -0.008]],
+        mask: [[-0.12, 0.01], [1.71, 1.79, 0], [1.78, 1.85, -0.008]] },
+      { id: 7, name: 'P4', x: 14.2, z: -78.0, angle: 1.85, arc: 1.67, rest: Math.PI / 2, guns: 1, my: 9.54,
+        mask: [[-2.98, -2.74]] },
+    ],
+    gun: {
+      name: '15 cm SK C/28', role: 'surface',
+      // Ten below the horizontal to thirty-five up: a casemate's port lets a
+      // gun lay no higher than that.
+      elev: { min: -0.175, max: 0.611 },
+      reach: 7.9,
+      caliber: 150, reload: 7.5, traverse: 0.15, range: 14000, sigma: 1.35,
+      shells: shells(150, 2800, 2200, 140, 875, 0.10),
+    },
+    torpedoes: null,
+    // Her 15 cm are her main battery above; the rest of her guns are flak.
+    secondary: null,
+    aa: {
+      range: 6400, dps: 128,
+      guns: [
+        // Six 10.5 cm twins on her flight deck, on the starboard edge of it in
+        // line with her island: three forward of it and three abaft. A carrier
+        // is always short of guns on her disengaged side, and these could fire
+        // across her deck only over everything parked on it.
+        { name: '10.5 cm SK C/33', caliber: 105, role: 'dp', reload: 4.2, range: 6400,
+          elev: { min: -0.140, max: 1.396 },
+          mounts: [
+            { x: -11.2, z: 67.0, angle: 0, arc: 3.1, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              mask: [[-3.12, -3.06, 0.35], [-3.07, -3.04, 0.175], [-3.05, -3.01, 0.035], [-3.02, -2.99, 0.018],
+                [2.62, 2.79, -0.026], [2.78, 3.05, 0.018], [3.04, 3.07, 0.053], [3.06, 3.09, 0.262],
+                [3.08, 3.12, 0.35]] },
+            { x: -11.2, z: 56.5, angle: -0.01, arc: 3.09, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              mask: [[-3.12, -3.08, 0.699], [-3.09, -3.04, 0.35], [-3.05, -3.02, 0.262], [-3.03, -3.01, 0.088],
+                [-3.02, -2.97, 0.07], [-2.98, -2.94, 0.053], [-2.95, -2.92, 0.018], [-0.08, 0.01, 0],
+                [0, 0.03, -0.017], [0.02, 0.14, 0], [0.13, 0.36, 0.018], [0.35, 0.38, -0.026],
+                [2.64, 2.79, -0.026], [2.78, 3.02, 0.018], [3.01, 3.03, 0.035], [3.02, 3.05, 0.07],
+                [3.04, 3.07, 0.35], [3.06, 3.1, 0.699]] },
+            { x: -11.2, z: 46.0, angle: -0.01, arc: 3.06, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              lift: [[-3.09, -2.8, 0.35], [-2.81, -2.74, 0.262], [-2.75, -2.71, 0.21], [-2.72, -2.64, 0.175]],
+              mask: [[-3.09, -2.92, 0.437], [-2.93, -2.81, 0.35], [-2.82, -2.76, 0.262], [-2.77, -2.73, 0.21],
+                [-2.74, -2.66, 0.175], [-2.67, -2.64, 0.105], [-2.65, -2.6, -0.017], [-0.1, -0.02, 0.018],
+                [-0.03, 0.07, 0], [0.06, 0.36, 0.018], [0.35, 0.42, -0.026], [2.62, 2.74, -0.026],
+                [2.73, 2.77, -0.017], [2.76, 2.88, 0.018], [2.87, 2.93, 0.053], [2.92, 2.95, 0.07],
+                [2.94, 2.98, 0.088], [2.97, 3.02, 0.105], [3.01, 3.03, 0.175], [3.02, 3.07, 0.437]] },
+            { x: -12.0, z: -24.0, angle: 3.11, arc: 3.1, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              mask: [[-0.01, 0.07, 0.96], [0.06, 0.1, 0.611], [0.09, 0.17, 0.524], [0.16, 0.19, 0.437],
+                [0.18, 0.21, 0.105], [0.2, 0.24, 0.053], [0.23, 0.26, 0.035], [0.25, 0.38, 0.018],
+                [0.37, 0.54, -0.026], [1.17, 1.29, -0.026], [2.64, 2.7, -0.026], [2.69, 2.75, 0.018],
+                [2.74, 2.77, -0.017], [2.76, 2.79, -0.026], [2.78, 3.09, 0.018], [3.08, 3.12, 0],
+                [3.11, -3.02, 0.018], [-0.29, -0.27, -0.026], [-0.28, -0.25, 0.018], [-0.26, -0.2, 0.07],
+                [-0.21, -0.16, 0.262], [-0.17, -0.09, 0.437], [-0.1, -0.06, 1.048]] },
+            { x: -12.0, z: -35.0, angle: 3.12, arc: 3.1, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              mask: [[0, 0.05, 0.699], [0.04, 0.08, 0.524], [0.07, 0.12, 0.437], [0.11, 0.14, 0.35],
+                [0.13, 0.15, 0.088], [0.14, 0.35, 0.018], [0.34, 0.36, -0.017], [0.35, 0.54, -0.026],
+                [0.84, 0.94, -0.026], [2.5, 2.53, 0], [2.52, 2.58, 0.018], [2.57, 2.63, 0.035],
+                [2.62, 2.67, 0.018], [2.66, 2.74, -0.017], [2.73, 2.81, 0], [2.8, 3.03, 0.018], [3.02, 3.1, 0],
+                [3.09, 3.12, 0.018], [3.11, -3.08, 0.035], [-3.09, -3.01, 0.018], [-3.02, -2.99, -0.026],
+                [-0.19, -0.16, -0.017], [-0.17, -0.14, 0.018], [-0.15, -0.13, 0.035], [-0.14, -0.11, 0.123],
+                [-0.12, -0.09, 0.14], [-0.1, -0.07, 0.175], [-0.08, -0.04, 0.437]] },
+            { x: -12.0, z: -46.0, angle: 3.12, arc: 3.09, rest: -Math.PI / 2, guns: 2, my: 18.53,
+              mask: [[0, 0.1, 0.437], [0.09, 0.12, 0.21], [0.11, 0.35, 0.018], [0.34, 0.38, -0.017],
+                [0.37, 0.52, -0.026], [0.56, 0.62, -0.026], [0.63, 0.66, -0.026], [0.65, 0.71, -0.017],
+                [2.34, 2.42, -0.026], [2.43, 2.56, 0.018], [2.55, 2.61, -0.026], [2.64, 2.67, -0.017],
+                [2.66, 2.74, 0], [2.73, 2.79, -0.017], [2.78, 2.86, -0.026], [2.85, 2.91, -0.017],
+                [2.9, 3.07, -0.026], [3.06, 3.1, -0.017], [3.09, -3.06, 0.035], [-0.14, -0.11, 0.018],
+                [-0.12, -0.09, 0.035], [-0.1, -0.06, 0.088]] },
+          ] },
+        // Ten 3.7 cm twins on the sponsons down both her sides, five a side,
+        // from abreast her forward lift to her quarters: the two on the
+        // sponsons over her after 15 cm in the tubs the sculpt drew there.
+        { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.75, range: 3200,
+          elev: { min: -0.157, max: 1.484 },
+          mounts: [
+            { x: -16.5, z: 37.0, angle: -1.48, arc: 1.78, guns: 2, my: 11.46,
+              mask: [[3.01, 3.05, 0.786], [3.04, 3.1, 0.699], [3.09, 3.12, 0.611], [0.11, 0.15, 0.699],
+                [0.14, 0.19, 0.786], [0.18, 0.22, 0.873], [0.21, 0.26, 0.96], [0.25, 0.31, 1.048]] },
+            { x: 16.5, z: 37.0, angle: 1.48, arc: 1.78, guns: 2, my: 11.46,
+              mask: [[-0.31, -0.25, 1.048], [-0.26, -0.21, 0.96], [-0.22, -0.18, 0.873], [-0.19, -0.14, 0.786],
+                [-0.15, -0.11, 0.699], [-3.12, -3.09, 0.611], [-3.1, -3.04, 0.699], [-3.05, -3.01, 0.786]] },
+            { x: -16.4, z: -3.3, angle: -1.31, arc: 1.78, guns: 2, my: 13.56,
+              mask: [[0.04, 0.07, 0.699], [0.06, 0.08, 0.873], [0.07, 0.12, 0.96], [0.11, 0.19, 1.048],
+                [0.18, 0.22, 1.222], [0.21, 0.5, 1.397]] },
+            { x: 16.4, z: -3.3, angle: 1.31, arc: 1.78, guns: 2, my: 13.56,
+              mask: [[-0.5, -0.21, 1.397], [-0.22, -0.18, 1.222], [-0.19, -0.11, 1.048], [-0.12, -0.07, 0.96],
+                [-0.08, -0.06, 0.873], [-0.07, -0.04, 0.699]] },
+            { x: -16.75, z: -50.35, angle: -1.6, arc: 2.17, guns: 2, my: 14.42,
+              mask: [[2.5, 2.56, 0.699], [2.55, 2.58, 0.611], [2.57, 2.63, 0.524], [2.62, 2.91, 0.437],
+                [2.9, 2.96, 0.35], [2.95, 3.07, 0.262], [3.06, 3.09, 0.21], [3.08, 3.1, 0.07],
+                [3.09, 3.12, 0.044], [-0.07, 0.01, 0.437], [0, 0.07, 0.524], [0.06, 0.12, 0.699],
+                [0.11, 0.14, 0.611], [0.13, 0.26, 0.524], [0.25, 0.35, 0.437], [0.34, 0.38, 0.524],
+                [0.37, 0.43, 0.611], [0.42, 0.54, 0.524], [0.53, 0.59, 0.611]] },
+            { x: 16.75, z: -50.35, angle: 1.6, arc: 2.17, guns: 2, my: 14.42,
+              mask: [[-0.59, -0.53, 0.611], [-0.54, -0.42, 0.524], [-0.43, -0.37, 0.611],
+                [-0.38, -0.34, 0.524], [-0.35, -0.25, 0.437], [-0.26, -0.13, 0.524], [-0.14, -0.11, 0.611],
+                [-0.12, -0.06, 0.699], [-0.07, 0, 0.524], [-0.01, 0.07, 0.437], [-3.12, -3.09, 0.044],
+                [-3.1, -3.08, 0.07], [-3.09, -3.06, 0.21], [-3.07, -2.95, 0.262], [-2.96, -2.9, 0.35],
+                [-2.91, -2.62, 0.437], [-2.63, -2.57, 0.524], [-2.58, -2.55, 0.611], [-2.56, -2.5, 0.699]] },
+            { x: -15.5, z: -72.4, angle: -0.81, arc: 2.81, guns: 2, my: 14.99,
+              lift: [[0.47, 0.52, 0.262], [0.51, 0.85, 0.35], [0.84, 2.02, 0.437]],
+              mask: [[2.64, 2.68, 0.21], [2.67, 2.72, 0.175], [2.71, 2.75, 0.21], [2.74, 2.77, 0.262],
+                [2.76, 2.91, 0.96], [2.9, 2.98, 0.437], [2.97, 3.03, 0.35], [3.02, 3.05, 0.262],
+                [-0.12, -0.07, 0.044], [-0.08, 0, 0.07], [-0.01, 0.01, 0.21], [0, 0.1, 0.524],
+                [0.09, 0.12, 0.437], [0.11, 0.14, 0.21], [0.13, 0.26, 0.175], [0.25, 0.35, 0.35],
+                [0.34, 0.38, 0.262], [0.37, 0.43, 0.35], [0.42, 0.54, 0.262], [0.53, 0.87, 0.35],
+                [0.86, 1.83, 0.437], [1.82, 1.86, 0.524], [1.85, 2.02, 0.611]] },
+            { x: 15.5, z: -72.4, angle: 0.81, arc: 2.81, guns: 2, my: 14.99,
+              lift: [[-2.02, -0.84, 0.437], [-0.85, -0.51, 0.35], [-0.52, -0.47, 0.262]],
+              mask: [[-2.02, -1.85, 0.611], [-1.86, -1.82, 0.524], [-1.83, -0.86, 0.437], [-0.87, -0.53, 0.35],
+                [-0.54, -0.42, 0.262], [-0.43, -0.37, 0.35], [-0.38, -0.34, 0.262], [-0.35, -0.25, 0.35],
+                [-0.26, -0.13, 0.175], [-0.14, -0.11, 0.21], [-0.12, -0.09, 0.437], [-0.1, 0, 0.524],
+                [-0.01, 0.01, 0.21], [0, 0.08, 0.07], [0.07, 0.12, 0.044], [-3.05, -3.02, 0.262],
+                [-3.03, -2.97, 0.35], [-2.98, -2.9, 0.437], [-2.91, -2.76, 0.96], [-2.77, -2.74, 0.262],
+                [-2.75, -2.71, 0.21], [-2.72, -2.67, 0.175], [-2.68, -2.64, 0.21]] },
+            { x: -12.9, z: -115.85, angle: -1.66, arc: 1.85, guns: 2, my: 13.91,
+              mask: [[-0.1, -0.07, 0.044], [-0.08, -0.04, 0.088], [-0.05, 0.07, 0.437], [0.06, 0.17, 0.699],
+                [0.16, 0.21, 0.786]] },
+            { x: 12.9, z: -115.85, angle: 1.66, arc: 1.85, guns: 2, my: 13.91,
+              mask: [[-0.21, -0.16, 0.786], [-0.17, -0.06, 0.699], [-0.07, 0.05, 0.437], [0.04, 0.08, 0.088],
+                [0.07, 0.1, 0.044]] },
+          ] },
+        // And four 2 cm Flakvierling: a pair on her forecastle under the
+        // forward end of her flight deck, one on the after platform of her
+        // island, and one on the port deck edge abreast it.
+        { name: '2 cm Flakvierling 38', caliber: 20, role: 'aa', reload: 0.12, range: 1900,
+          elev: { min: -0.192, max: 1.571 },
+          mounts: [
+            { x: -3.4, z: 116.0, angle: -2.46, arc: 2.9, guns: 4, my: 10.59,
+              lift: [[0.91, 1.15, 0.14], [1.14, 1.22, 0.123], [1.21, 1.36, 0.105], [1.35, 1.38, 0.088],
+                [1.37, 1.39, 0.07], [-2.49, -2.46, 0.07], [-2.47, -2.38, 0.088], [-2.39, -2.27, 0.105],
+                [-2.28, -1.8, 0.123], [-1.81, -0.51, 0.14], [-0.52, -0.3, 0.123], [-0.31, -0.18, 0.105],
+                [-0.19, -0.13, 0.088], [-0.14, -0.11, 0.053]],
+              mask: [[0.91, 0.96, 0.524], [0.95, 1.32, 0.437], [1.31, 1.36, 0.21], [1.35, 1.39, 0.088],
+                [1.38, 1.58, 0.123], [1.57, 1.62, 0.105], [1.61, 1.67, 0.07], [1.66, 1.72, 0.053],
+                [1.71, 2.14, 0.018], [2.13, 2.2, 0.35], [2.19, 2.34, 0.437], [2.33, 2.35, 0.018],
+                [2.34, 2.37, 0.035], [2.36, 2.42, 0.437], [2.41, 2.49, 0.053], [2.48, 2.56, 0.035],
+                [2.55, 2.67, 0.018], [2.66, 2.72, 0.524], [2.71, 2.82, 0.611], [2.81, -2.88, 0.524],
+                [-2.89, -2.76, 0.018], [-2.77, -2.48, 0.035], [-2.49, -2.46, 0.053], [-2.47, -2.45, 0.07],
+                [-2.46, -2.36, 0.088], [-2.37, -2.26, 0.105], [-2.27, -1.78, 0.123], [-1.79, -0.53, 0.14],
+                [-0.54, -0.32, 0.123], [-0.33, -0.2, 0.105], [-0.21, -0.14, 0.088], [-0.15, -0.11, 0.053],
+                [-0.12, 0.08, 0.035], [0.07, 0.1, 0.018], [0.14, 0.17, 0], [0.16, 0.19, 0.035],
+                [0.18, 0.21, 0.053], [0.2, 0.22, 0.07], [0.21, 0.26, 0.088], [0.25, 0.31, 0.105],
+                [0.3, 0.35, 0.123], [0.34, 0.4, 0.14], [0.39, 0.42, 0.175], [0.41, 0.43, 0.262],
+                [0.42, 0.47, 0.35]] },
+            { x: 3.4, z: 116.0, angle: 2.46, arc: 2.9, guns: 4, my: 10.59,
+              lift: [[0.11, 0.14, 0.053], [0.13, 0.19, 0.088], [0.18, 0.31, 0.105], [0.3, 0.52, 0.123],
+                [0.51, 1.81, 0.14], [1.8, 2.28, 0.123], [2.27, 2.39, 0.105], [2.38, 2.47, 0.088],
+                [2.46, 2.49, 0.07], [-1.39, -1.37, 0.07], [-1.38, -1.35, 0.088], [-1.36, -1.21, 0.105],
+                [-1.22, -1.14, 0.123], [-1.15, -0.91, 0.14]],
+              mask: [[-0.47, -0.42, 0.35], [-0.43, -0.41, 0.262], [-0.42, -0.39, 0.175], [-0.4, -0.34, 0.14],
+                [-0.35, -0.3, 0.123], [-0.31, -0.25, 0.105], [-0.26, -0.21, 0.088], [-0.22, -0.2, 0.07],
+                [-0.21, -0.18, 0.053], [-0.19, -0.16, 0.035], [-0.17, -0.14, 0], [-0.1, -0.07, 0.018],
+                [-0.08, 0.12, 0.035], [0.11, 0.15, 0.053], [0.14, 0.21, 0.088], [0.2, 0.33, 0.105],
+                [0.32, 0.54, 0.123], [0.53, 1.79, 0.14], [1.78, 2.27, 0.123], [2.26, 2.37, 0.105],
+                [2.36, 2.46, 0.088], [2.45, 2.47, 0.07], [2.46, 2.49, 0.053], [2.48, 2.77, 0.035],
+                [2.76, 2.89, 0.018], [2.88, -2.81, 0.524], [-2.82, -2.71, 0.611], [-2.72, -2.66, 0.524],
+                [-2.67, -2.55, 0.018], [-2.56, -2.48, 0.035], [-2.49, -2.41, 0.053], [-2.42, -2.36, 0.437],
+                [-2.37, -2.34, 0.035], [-2.35, -2.33, 0.018], [-2.34, -2.19, 0.437], [-2.2, -2.13, 0.35],
+                [-2.14, -1.71, 0.018], [-1.72, -1.66, 0.053], [-1.67, -1.61, 0.07], [-1.62, -1.57, 0.105],
+                [-1.58, -1.38, 0.123], [-1.39, -1.35, 0.088], [-1.36, -1.31, 0.21], [-1.32, -0.95, 0.437],
+                [-0.96, -0.91, 0.524]] },
+            { x: -12.8, z: -15.2, angle: -3.14, arc: 3.05, guns: 4, my: 16.27, where: 'island',
+              mask: [[0.07, 0.22, 0.96], [0.21, 0.36, 0.873], [0.35, 0.45, 0.786], [0.44, 0.52, 0.699],
+                [0.51, 0.59, 0.611], [0.58, 0.66, 0.699], [0.65, 0.73, 0.873], [0.72, 0.76, 0.699],
+                [0.75, 0.82, 0.611], [0.81, 1.11, 0.524], [1.1, 1.17, 0.437], [1.16, 1.22, 0.524],
+                [1.21, 1.39, 0.262], [1.38, 1.41, 0.21], [1.4, 1.43, 0.123], [1.42, 1.48, 0.105],
+                [1.47, 1.5, 0.088], [1.49, 1.62, 0], [1.61, 1.72, -0.017], [1.71, 1.83, 0],
+                [1.82, 1.86, 0.053], [1.85, 1.9, 0.088], [1.89, 2, 0.105], [1.99, 2.02, 0.088],
+                [2.01, 2.04, 0.07], [2.03, 2.16, 0], [2.15, 2.18, 0.018], [2.17, 2.25, 0.07],
+                [2.24, 2.35, 0.088], [2.34, 2.37, 0.07], [2.36, 2.4, 0], [2.39, 2.42, 0.035],
+                [2.41, 2.47, 0.053], [2.46, 2.56, 0.07], [2.55, 2.58, 0.053], [2.57, 2.6, 0],
+                [2.59, 2.63, 0.018], [2.62, 2.65, 0.262], [2.64, -3.04, 0.35], [-3.05, -3.02, 0.175],
+                [-3.03, -2.99, 0.123], [-3, -2.97, 0.053], [-2.98, -2.94, 0], [-2.95, -2.83, -0.017],
+                [-2.84, -2.73, 0], [-2.74, -2.52, -0.026], [-1.1, -1.07, -0.026], [-1.08, -1.05, 0.088],
+                [-1.06, -0.96, 0.35], [-0.97, -0.95, -0.017], [-0.92, -0.86, 0.105], [-0.87, -0.81, 0.088],
+                [-0.76, -0.58, 0.524], [-0.59, -0.42, 0.611], [-0.43, -0.32, 0.699], [-0.33, -0.28, 0.786],
+                [-0.29, -0.13, 0.873], [-0.14, -0.07, 0.96]] },
+            { x: 12.8, z: -15.2, angle: 3.14, arc: 3.05, guns: 4, my: 16.69,
+              mask: [[0.07, 0.14, 0.96], [0.13, 0.29, 0.873], [0.28, 0.33, 0.786], [0.32, 0.43, 0.699],
+                [0.42, 0.59, 0.611], [0.58, 0.76, 0.524], [0.81, 0.87, 0.088], [0.86, 0.92, 0.105],
+                [0.95, 0.97, -0.017], [0.96, 1.06, 0.35], [1.05, 1.08, 0.088], [1.07, 1.1, -0.026],
+                [2.52, 2.74, -0.026], [2.73, 2.84, 0], [2.83, 2.95, -0.017], [2.94, 2.98, 0], [2.97, 3, 0.053],
+                [2.99, 3.03, 0.123], [3.02, 3.05, 0.175], [3.04, -2.64, 0.35], [-2.65, -2.62, 0.262],
+                [-2.63, -2.59, 0.018], [-2.6, -2.57, 0], [-2.58, -2.55, 0.053], [-2.56, -2.46, 0.07],
+                [-2.47, -2.41, 0.053], [-2.42, -2.39, 0.035], [-2.4, -2.36, 0], [-2.37, -2.34, 0.07],
+                [-2.35, -2.24, 0.088], [-2.25, -2.17, 0.07], [-2.18, -2.15, 0.018], [-2.16, -2.03, 0],
+                [-2.04, -2.01, 0.07], [-2.02, -1.99, 0.088], [-2, -1.89, 0.105], [-1.9, -1.85, 0.088],
+                [-1.86, -1.82, 0.053], [-1.83, -1.71, 0], [-1.72, -1.61, -0.017], [-1.62, -1.49, 0],
+                [-1.5, -1.47, 0.088], [-1.48, -1.42, 0.105], [-1.43, -1.4, 0.123], [-1.41, -1.38, 0.21],
+                [-1.39, -1.21, 0.262], [-1.22, -1.16, 0.524], [-1.17, -1.1, 0.437], [-1.11, -0.81, 0.524],
+                [-0.82, -0.75, 0.611], [-0.76, -0.72, 0.699], [-0.73, -0.65, 0.873], [-0.66, -0.58, 0.699],
+                [-0.59, -0.51, 0.611], [-0.52, -0.44, 0.699], [-0.45, -0.35, 0.786], [-0.36, -0.21, 0.873],
+                [-0.22, -0.07, 0.96]] },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 15, cruiseSpeed: 80, strikeRange: 13800,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -106, y: 15.7 },
+      // What she was to fly: the navalised Messerschmitt with a hook and
+      // longer wings, and the carrier Stuka -- the C with its 500 kg bomb,
+      // and the D carrying the aerial torpedo the C was never built to.
+      types: { fighter: 'bf109', dive: 'ju87c', torpedo: 'ju87d' },
+      // Where her deck run leaves each of her three types, off the integrated
+      // launch the model on her deck flies. She has no wind of her own to
+      // spare for a loaded Stuka, so all three start their run from right aft
+      // and use the whole of her deck; the Messerschmitt is off and away long
+      // before either Stuka has finished sagging off the bow.
+      runOut: { fighter: 284, dive: 245, torpedo: 252 },
+      runHeight: { fighter: 21.8, dive: 16.9, torpedo: 17.1 },
+      rearm: 42, torpDamage: 8200, torpSpeed: 33 * KNOTS, torpRange: 2400,
+      floodChance: 0.25, hp: 1350, dropSpread: 0.05,
+      // A Stuka's 500 kg SC 500 in a near-vertical dive: through a cruiser's
+      // deck to burst under it, and flattened on a battleship's.
+      bombDamage: 4600, bombHit: 0.46, bombFire: 0.34, bombPen: 96, bombBore: 0.36,
+      // Forty-four in her two hangars, split however her captain likes.
+      group: {
+        total: 44,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 44, dive: 44, torpedo: 44 },
+        minStrike: 0,
+        // Twenty Bf 109T, twelve Ju 87C and twelve Ju 87D: the group her
+        // captain was asked for.
+        default: { fighters: 20, dive: 12, torpedo: 12 },
+      },
+    },
+    datasheet: {
+      displacement: 33550,
+      aircraft: 0,
+      mainRounds: 3200,
+      secondary: { caliber: 150, label: '15cm', barrels: 8, rounds: 1600 },
+      tertiary: [
+        { caliber: 105, label: '10.5cm', barrels: 12, rounds: 4800 },
+        { caliber: 37, label: '37mm', barrels: 20, rounds: 40000 },
+        { caliber: 20, label: '20mm', barrels: 16, rounds: 32000 },
       ],
     },
   },
@@ -7154,6 +7714,13 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 4, perSquadron: 20, cruiseSpeed: 78, strikeRange: 14000,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -110, y: 17.3 },
+      // What she embarks in each role: by 1943 her fighting squadron flew
+      // Hellcats, with the Dauntlesses and Avengers they escorted.
+      types: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger' },
       // Where and how high her deck run leaves each of her three types,
       // measured off the integrated launch the model on her deck actually
       // flies -- so the aeroplane the simulation starts flying is the one that
@@ -7224,8 +7791,8 @@ export const HULL_TOUGHNESS = 1.8;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
-  'enterprise', 'shinano'];
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

@@ -107,7 +107,7 @@ export class Director {
       seek.oninput = () => { this.seeking = true; this.seekTo(Number(seek.value)); };
       seek.onchange = () => { this.seeking = false; };
     }
-    // The way back from a clean screen: the corner nothing is drawn in.
+    // The way back from a clean screen: the faint X in the bottom right corner.
     const peek = document.getElementById('director-peek');
     if (peek) peek.onclick = () => this.setClean(false);
   }

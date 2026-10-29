@@ -12,11 +12,14 @@
 
 import {
   G, rollRate, rollTau, pitchTau, pitchRate, stallSpeed,
-  thrust, drag, clFor, alphaFor, wrapAngle,
+  thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle,
 } from './aero.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
 export const AGILITY = 1.6;
+
+/** How long her dive brakes take to run all the way out, or all the way in. */
+export const BRAKE_RUN = 1.5;
 
 /** The most the rudder will skid her flight path round, in radians a second. */
 const YAW_RATE = 0.24;
@@ -78,6 +81,12 @@ export class Pilot {
     this.bank = 0;
     this.v = speed === null ? aero.vMax * 0.75 : speed;
     this.throttle = 1;
+    // Her dive brakes, on a type that has them: whether the pilot has them
+    // selected, and how far out they have got. They take a second and a half
+    // to run out on their jacks and as long to come in, and nothing happens
+    // on a type built without them.
+    this.brakeCmd = false;
+    this.brakes = 0;
     // What the stick is asking for, -1 to 1: nose up positive, right roll
     // positive.
     this.stickPitch = 0;
@@ -214,17 +223,22 @@ export class Pilot {
    * Sub-stepped, because a stick hard over at three hundred knots turns her
    * fast enough that a whole frame of it in one go is visibly wrong.
    */
-  step(dt, seaAt = 0) {
+  step(dt, seaAt = 0, solid = null) {
     const h = Math.min(dt, 1 / 60);
-    for (let n = 0, steps = Math.max(1, Math.ceil(dt / h - 1e-9)); n < steps; n++) {
+    for (let n = 0, steps = Math.max(1, Math.ceil(dt / h - 1e-9)); n < steps && this.alive; n++) {
       const s = Math.min(h, dt - n * h);
       if (s <= 0) break;
-      this.substep(s, seaAt);
+      this.substep(s, seaAt, solid);
     }
     return this;
   }
 
-  substep(s, seaAt) {
+  /**
+   * `solid`, if given, says whether the line she flew this substep went into
+   * anything hard ashore -- a hill, a house -- and where: she stops there,
+   * as she does on the sea.
+   */
+  substep(s, seaAt, solid = null) {
     const a = this.a;
     this.frame();
     const F = this.F, U = this.U;
@@ -306,7 +320,12 @@ export class Pilot {
     const cl = Math.min(a.clMax, clFor(a, this.v, Math.abs(this.g)));
     const T = thrust(a, this.v, this.throttle);
     // A skid is draggy, which is the price of treading her round.
-    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25);
+    if (a.brake) {
+      const want = this.brakeCmd ? 1 : 0;
+      this.brakes += Math.max(-s / BRAKE_RUN, Math.min(s / BRAKE_RUN, want - this.brakes));
+    } else this.brakes = 0;
+    const D = drag(a, this.v, cl) * (1 + this.stall * 2.2 + Math.abs(this.stickYaw) * 0.25)
+      + brakeDrag(a, this.v, this.brakes);
     this.v += ((T - D) / a.mass - G * F.y) * s;
     this.v = Math.max(8, Math.min(a.vMax * 1.55, this.v));
 
@@ -344,9 +363,18 @@ export class Pilot {
     }
     orthonormal(F, U);
 
+    const x0 = this.x, y0 = this.y, z0 = this.z;
     this.x += (F.x * this.v + gx) * s;
     this.z += (F.z * this.v + gz) * s;
     this.y += (F.y * this.v + gy) * s;
+    const hit = solid ? solid(x0, y0, z0, this.x, this.y, this.z) : null;
+    if (hit) {
+      this.x = hit.x; this.y = hit.y; this.z = hit.z;
+      this.alive = false;
+      this.struck = hit;
+      this.angles();
+      return;
+    }
     // The sea is hard.
     if (this.y < seaAt + 2) {
       this.y = seaAt + 2;

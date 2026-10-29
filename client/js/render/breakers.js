@@ -57,6 +57,8 @@ const WATCH = 28;
  * a sheet and the drops it breaks into, and now and then a puff of mist.
  */
 const BURST_RATE = 2.2;
+/** Where her forefoot is read for a slam, as fractions of her length from aft. */
+const BOW_AT = [0.82, 0.88, 0.93];
 
 function smooth(a, b, x) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -512,43 +514,59 @@ void main() {
     // edges, and everything that reads as water is in the fine noise inside
     // it. A card cut to a shape by coarse noise reads as a blob, however the
     // blob is drawn; a hundred soft ones overlapping read as a curtain.
+    //
+    // It used to be streaked hard along its way, fine across and long along,
+    // under a gaussian across and a cut along -- and a curtain of those read
+    // as a row of white posts stood up her side. Water thrown up is round:
+    // it billows, in lobes that each go on billowing, and its edge is torn
+    // into gouts and beads. So the envelope is a blob whose outline is
+    // pushed in and out by slow noise round it, the grain in it is only a
+    // little longer along its way than across, and the edge is the brightest,
+    // most broken part of it.
     float lead = p.y * 0.5 + 0.5;
-    // Streaked hard along its way: the grain is fine across and long along.
-    vec2 g = vec2(p.x * 1.5, q.y * 0.5);
-    float drift = age * 1.6;
-    vec3 s3 = vec3(g * 2.0 + seed * 31.0, seed * 7.0);
-    float f1 = vn(vec3(g.x * 3.0 + seed * 17.0, g.y * 2.0 - drift, seed * 3.0));
-    float f2 = vn(vec3(g.x * 7.0 + seed * 5.0, g.y * 4.0 - drift * 1.7, seed * 9.0 + 1.7));
-    float f3 = vn(vec3(g.x * 11.0 + seed * 11.0, g.y * 7.0 - drift * 2.5, seed * 13.0 + 4.1));
-    float f4 = vn(s3 * 1.2);
+    float drift = age * 1.2;
+    // Warp the card before anything is read off it, so no straight line in
+    // it -- its edges, its grain -- survives as a straight line.
+    vec2 w = p + 0.32 * vec2(
+      vn(vec3(p * 1.7 + seed * 23.0, age * 0.7 + seed * 3.0)) - 0.5,
+      vn(vec3(p * 1.7 + seed * 41.0 + 7.3, age * 0.7 + seed * 5.0)) - 0.5);
+    vec2 g = vec2(w.x * 1.15, w.y * mix(1.0, vAspect, 0.35) * 0.8);
+    float f1 = vn(vec3(g * 2.4 + seed * 17.0 - vec2(0.0, drift), seed * 3.0));
+    float f2 = vn(vec3(g * 5.0 + seed * 5.0 - vec2(0.0, drift * 1.6), seed * 9.0 + 1.7));
+    float f3 = vn(vec3(g * 10.0 + seed * 11.0 - vec2(0.0, drift * 2.4), seed * 13.0 + 4.1));
     float grain = f1 * 0.5 + f2 * 0.32 + f3 * 0.18;
-    // The envelope: a soft plume, narrow where it leaves her and fuller where
-    // it is going, with no edge anywhere -- a falloff, not a cut.
-    float wide = mix(0.42, 0.95, smoothstep(0.0, 0.9, lead)) * (0.88 + 0.24 * f4);
-    float ex = p.x / wide;
-    float ey = (p.y - 0.05) / 0.95;
-    // Its top is not a cap but fingers: ropes of water ending at different
-    // heights across it, each feathering out into what it sheds.
-    float fing = vn(vec3(p.x * 4.5 + seed * 19.0, seed * 3.0, age * 0.4));
-    float top = 0.45 + 0.5 * fing;
-    float env = exp(-2.6 * ex * ex) * smoothstep(-1.0, -0.7, p.y)
-              * (1.0 - smoothstep(top - 0.45, top + 0.05, p.y));
-    env *= 1.0 - smoothstep(0.8, 1.0, r);
-    // Coming apart as it climbs and ages: the threshold rises through the
-    // grain so the thin places open first and the ropes go last, leaving the
-    // top of the splash as threads and then as nothing. Soft both sides, so
-    // the holes open as a thinning rather than as cut-outs.
-    float thr = 0.2 + (0.1 + 0.55 * u) * (0.5 + 0.7 * lead);
-    float keep = smoothstep(thr - 0.14, thr + 0.3, grain + (1.0 - lead) * 0.15);
-    // And under the ropes, the fine spray they are shedding: a soft haze over
-    // the whole of the envelope, which is what makes the body of it one body
-    // of water rather than a tangle of threads. It thins out as it ages.
-    float haze = 0.3 * (1.0 - 0.6 * u) * (0.7 + 0.6 * f1);
-    float dens = env * max(haze, keep * (0.45 + 0.8 * grain));
-    a = dens * smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(0.45, 1.0, u));
-    // Thick water is a little darker than the threads at its edges, which the
-    // light goes through: some body to it, rather than flat white paper.
-    lit = mix(1.06, 0.84, smoothstep(0.35, 0.95, dens)) * (0.94 + 0.12 * f2);
+    // The outline: lobes round it, a few big ones and some small, turning
+    // slowly as it billows, and out of it the jets -- thin fingers of water
+    // shot out past the body, which are what make it water and not smoke.
+    // Fuller toward where it is going.
+    float ang = atan(w.y, w.x);
+    vec2 cs = vec2(cos(ang), sin(ang));
+    float lobe = vn(vec3(cs * 1.6 + seed * 29.0, age * 0.9 + seed * 7.0)) * 0.65
+               + vn(vec3(cs * 4.2 + seed * 13.0, age * 1.4 + seed * 2.0)) * 0.35;
+    float jet = smoothstep(0.58, 0.8, vn(vec3(cs * 4.5 + seed * 37.0, seed * 11.0)));
+    float rim = (0.46 + 0.4 * lobe) * mix(0.82, 1.0, smoothstep(-0.6, 0.6, w.y));
+    float rr = length(w) / rim;
+    float rj = length(w) / min(1.0, rim * (1.0 + 0.6 * jet));
+    // Hard enough at the edge to have one, broken enough not to be a line.
+    float body = 1.0 - smoothstep(0.8, 1.0, rr);
+    float fingers = jet * (1.0 - smoothstep(0.75, 1.0, rj)) * smoothstep(0.7, 1.0, rr);
+    float env = max(body, fingers * 0.85);
+    env *= 1.0 - smoothstep(0.85, 1.0, r);
+    // Foam: the lace of bubbles and threads through white water, the ridges
+    // of the noise rather than its hills.
+    float l1 = 1.0 - abs(2.0 * f2 - 1.0);
+    float l2 = 1.0 - abs(2.0 * f3 - 1.0);
+    float lace = l1 * l1 * 0.6 + l2 * l2 * l2 * 0.4;
+    // Coming apart as it climbs and ages, from the edge in: holes open in
+    // the thin places first and the lace goes last.
+    float edge = smoothstep(0.45, 1.0, rr);
+    float thr = 0.12 + (0.05 + 0.6 * u) * (0.5 + 0.7 * edge + 0.2 * lead);
+    float keep = smoothstep(thr - 0.08, thr + 0.14, grain * 0.7 + lace * 0.45);
+    float dens = env * keep * (0.4 + 0.45 * lace);
+    a = min(1.0, dens) * smoothstep(0.0, 0.06, age) * (1.0 - smoothstep(0.55, 1.0, u));
+    // Thick water is greyer than the foam on it, which is the white: body
+    // inside, lace over it, brightest where it is thinnest at the edge.
+    lit = mix(0.78, 1.15, clamp(lace * 0.8 + edge * 0.5, 0.0, 1.0)) * (0.94 + 0.1 * f1);
   } else if (kind < 1.5) {
     if (r > 1.0) discard;
     // A drop, drawn as the streak it makes in the moment the eye takes it in,
@@ -706,6 +724,10 @@ export class Breakers {
         over: new Float32Array(n), rise: new Float32Array(n),
         force: new Float32Array(n), sea: new Float32Array(n), push: new Float32Array(n),
         owed: new Float32Array(n),
+        // Her forefoot against the sea, for the slam: how deep it is, how
+        // fast it is going in, how far clear it has lately been, and how long
+        // until it can slam again.
+        bowSub: 0, bowRate: 0, bowDry: 0, bowCool: 0,
         m: new THREE.Matrix4(), primed: false,
         px: 0, pz: 0, vx: 0, vz: 0, strength: 0, dist: 0,
       };
@@ -865,6 +887,8 @@ export class Breakers {
       }
     }
 
+    this.watchBow(st, dt, fresh);
+
     // And what all that throws. Laid along her side between each pair of
     // stations, in proportion to how hard each was struck, so a wave that hit
     // a stretch of her throws spray along that stretch and nowhere else.
@@ -893,6 +917,155 @@ export class Breakers {
           st.owed[i] -= 1;
           this.burst(st, j, s ? 1 : -1, a, b);
         }
+      }
+    }
+  }
+
+  /**
+   * Her bow coming back down into the sea.
+   *
+   * A ship pitching in a seaway lifts her forefoot clear on the back of one
+   * sea and drops it into the face of the next, and what that does is not a
+   * wave climbing her side: it is the whole flare of her bow arriving in the
+   * water at once, which throws it out to both sides of her in two great
+   * wings and up over her forecastle. So the sea is read under her forefoot,
+   * on her centreline, and when it has been well clear and goes back in hard
+   * -- by her own pitch or the sea's rise, it is the same blow -- she slams.
+   */
+  watchBow(st, dt, fresh) {
+    const e = st.m.elements;
+    const plan = st.plan;
+    let sub = 0;
+    for (const t of BOW_AT) {
+      const z = plan.z0 + plan.span * t;
+      const wy = e[13] + e[5] * FLOAT_Y + e[9] * z;
+      const wx = e[12] + e[4] * FLOAT_Y + e[8] * z;
+      const wz = e[14] + e[6] * FLOAT_Y + e[10] * z;
+      sub += this.ocean.heightAt(wx, wz) - wy;
+    }
+    sub /= BOW_AT.length;
+    if (fresh) {
+      st.bowSub = sub;
+      st.bowRate = 0;
+      st.bowDry = 0;
+      st.bowCool = 1;
+      return;
+    }
+    st.bowRate += ((sub - st.bowSub) / dt - st.bowRate) * (1 - Math.exp(-dt / 0.08));
+    st.bowSub = sub;
+    st.bowDry = Math.max(st.bowDry * Math.exp(-dt / 1.6), -sub);
+    st.bowCool -= dt;
+    if (st.bowCool > 0 || sub < -0.35 || st.bowRate < 0.6 || st.bowDry < 0.25) return;
+    const speed = Math.hypot(st.vx, st.vz);
+    const f = Math.min(1, smooth(0.6, 2.6, st.bowRate) * (0.5 + 0.5 * smooth(0.25, 1.6, st.bowDry))
+      * (0.6 + 0.4 * smooth(2, 12, speed)) * 1.3) * st.strength;
+    st.bowDry = 0;
+    st.bowCool = 1.0;
+    if (f > 0.08) this.slam(st, f);
+  }
+
+  /** The water her bow throws when it comes down: see watchBow. */
+  slam(st, f) {
+    const e = st.m.elements;
+    const plan = st.plan;
+    const at = (lx, ly, lz) => ({
+      x: e[12] + e[0] * lx + e[4] * ly + e[8] * lz,
+      y: e[13] + e[1] * lx + e[5] * ly + e[9] * lz,
+      z: e[14] + e[2] * lx + e[6] * ly + e[10] * lz,
+    });
+    const way = (vx, vy, vz, share = 0.6) => ({
+      x: e[0] * vx + e[4] * vy + e[8] * vz + st.vx * share,
+      y: e[1] * vx + e[5] * vy + e[9] * vz,
+      z: e[2] * vx + e[6] * vy + e[10] * vz + st.vz * share,
+    });
+    const scale = Math.min(1.6, Math.max(0.8, Math.sqrt(plan.freeboard / 4)));
+    const fb = plan.freeboard;
+    const n = Math.max(0.35, this.intensity);
+    const row = {};
+    // Where her flare meets the sea: the forward part of her, not the very
+    // point of her stem, which is a knife and throws little.
+    const z0 = plan.z0 + plan.span * 0.8;
+    const z1 = plan.z0 + plan.span * 0.95;
+    const c = at(0, FLOAT_Y, plan.z0 + plan.span * 0.88);
+    const sea = this.ocean.heightAt(c.x, c.z);
+    for (const sign of [-1, 1]) {
+      // The wings: big gouts of water flung out and up off both bows,
+      // spreading as they go and falling back as a fan.
+      const wings = Math.round((10 + 18 * f) * n);
+      for (let k = 0; k < wings; k++) {
+        const z = z0 + (z1 - z0) * Math.pow(Math.random(), 0.7);
+        planAt(plan, z, row);
+        const side = Math.max(0.6, row.side);
+        const p = at(sign * (side + 0.2 + Math.random() * 0.8),
+          FLOAT_Y - 0.2 + Math.random() * fb * 0.55, z);
+        const out = (3 + 7 * f) * (0.5 + Math.random());
+        const up = (4 + 11 * f) * (0.55 + 0.6 * Math.random());
+        const v = way(sign * out, up, (Math.random() - 0.2) * (2 + 3 * f));
+        this.add({
+          kind: SHEET, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
+          r0: (0.7 + 0.9 * f) * scale,
+          r1: (2.2 + 3.8 * f) * (0.7 + 0.6 * Math.random()) * scale, rg: 1.4,
+          life: 1.7 + 1.2 * f + 0.6 * Math.random(),
+          drag: 0.45, grav: 1, windK: 0.35, stretch: 0.05,
+          op: 0.45 + 0.35 * f, base: sea, force: f,
+        });
+      }
+      // The skirt: the sea shoved out flat from under her, a low white wall
+      // running out from her bow along the water.
+      const skirt = Math.round((6 + 10 * f) * n);
+      for (let k = 0; k < skirt; k++) {
+        const z = z0 + (z1 - z0) * Math.random();
+        planAt(plan, z, row);
+        const side = Math.max(0.6, row.side);
+        const p = at(sign * (side + 0.4 + Math.random()), FLOAT_Y - 0.4, z);
+        const v = way(sign * (6 + 8 * f) * (0.6 + 0.6 * Math.random()), (1.5 + 3 * f) * (0.6 + 0.8 * Math.random()),
+          (Math.random() - 0.5) * 3);
+        this.add({
+          kind: SHEET, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
+          r0: (0.8 + 0.8 * f) * scale,
+          r1: (2.0 + 3.0 * f) * (0.7 + 0.6 * Math.random()) * scale, rg: 1.6,
+          life: 1.2 + 0.8 * f + 0.4 * Math.random(),
+          drag: 1.2, grav: 0.8, windK: 0.2, stretch: 0.04,
+          op: 0.5 + 0.3 * f, base: sea, force: f,
+        });
+      }
+      // And the drops it comes apart into, thrown harder than the gouts.
+      const drops = Math.round((18 + 34 * f) * n);
+      for (let k = 0; k < drops; k++) {
+        const z = z0 + (z1 - z0) * Math.random();
+        planAt(plan, z, row);
+        const side = Math.max(0.6, row.side);
+        const p = at(sign * (side + 0.2 + Math.random() * 0.8),
+          FLOAT_Y + Math.random() * fb * 0.6, z);
+        const v = way(sign * (4 + 9 * f) * (0.4 + Math.random()), (5 + 13 * f) * (0.5 + 0.7 * Math.random()),
+          (Math.random() - 0.3) * (3 + 4 * f));
+        const rad = (0.04 + 0.08 * Math.random()) * scale;
+        this.add({
+          kind: DROP, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
+          r0: rad, r1: rad, rg: 1,
+          life: 2.0 + 1.4 * Math.random(),
+          drag: 0.1, grav: 1, windK: 0.25, stretch: 0.1,
+          op: 0.55, base: sea, force: f,
+        });
+      }
+    }
+    // Up over her stem: what the flare could not throw aside goes up the
+    // middle and comes down on her forecastle.
+    if (f > 0.35) {
+      const plume = Math.round((4 + 8 * f) * n);
+      for (let k = 0; k < plume; k++) {
+        const z = plan.z0 + plan.span * (0.9 + 0.08 * Math.random());
+        const p = at((Math.random() - 0.5) * 2, FLOAT_Y + fb * (0.5 + 0.5 * Math.random()), z);
+        const v = way((Math.random() - 0.5) * 3, (6 + 10 * f) * (0.6 + 0.5 * Math.random()),
+          -(1 + 2 * Math.random()), 0.3);
+        this.add({
+          kind: SHEET, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
+          r0: (0.8 + 0.8 * f) * scale,
+          r1: (2.5 + 3 * f) * (0.7 + 0.6 * Math.random()) * scale, rg: 1.3,
+          life: 1.6 + f + 0.5 * Math.random(),
+          drag: 0.5, grav: 1, windK: 0.5, stretch: 0.05,
+          op: 0.4 + 0.3 * f, base: sea, force: f,
+        });
       }
     }
   }
@@ -936,18 +1109,20 @@ export class Breakers {
     // that climbed her side leaves it, going up and out away from her. Three
     // to a burst, smaller and fainter than one would be, a little apart along
     // her: soft cards overlapping are what make it one body of water.
+    // Thrown out as much as up, so the curtain leans away from her in a fan
+    // rather than standing up her side in posts.
     for (let k = 0; k < 3; k++) {
       const p = at(sign * (side + 0.15 + Math.random() * 0.4),
         deck - 0.2 - Math.random() * (0.5 + 0.6 * f), z + (Math.random() - 0.5) * 1.6);
       const up = (3.4 + 8.0 * f + shove) * (0.7 + 0.55 * Math.random());
-      const v = way(sign * (0.5 + 1.9 * f) * (0.5 + Math.random()), up,
-        (Math.random() - 0.5) * (0.8 + 1.6 * f));
+      const v = way(sign * (1.0 + 3.2 * f) * (0.5 + Math.random()), up,
+        (Math.random() - 0.5) * (1.2 + 2.2 * f));
       this.add({
         kind: SHEET, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z,
-        r0: (0.3 + 0.35 * f) * scale,
-        r1: (0.85 + 1.5 * f) * (0.8 + 0.4 * Math.random()) * scale, rg: 2.0,
+        r0: (0.35 + 0.4 * f) * scale,
+        r1: (1.0 + 1.7 * f) * (0.75 + 0.5 * Math.random()) * scale, rg: 1.8,
         life: 1.0 + 0.9 * f + 0.4 * Math.random(),
-        drag: 0.55, grav: 1, windK: 0.35, stretch: 0.16,
+        drag: 0.55, grav: 1, windK: 0.35, stretch: 0.06,
         op: 0.38 + 0.32 * f, base: sea, force: f,
       });
     }

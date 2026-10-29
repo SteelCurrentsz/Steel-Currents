@@ -11,6 +11,7 @@ import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
+import { buildSboat } from './sboat.js';
 import { buildShinano } from './shinano.js';
 import { buildInterior, bySection } from './interior.js';
 import { sectionAt } from '../../../shared/sim.js';
@@ -19,6 +20,12 @@ import { dressShip } from './textures.js';
 import { loadZero } from './zeroModel.js';
 import { loadSuisei } from './suiseiModel.js';
 import { loadB5n } from './b5nModel.js';
+import { fitTubes } from './tubes.js';
+import { loadBf109 } from './bf109Model.js';
+import { loadJu87 } from './ju87Model.js';
+import { loadHellcat } from './hellcatModel.js';
+import { loadAvenger } from './avengerModel.js';
+import { loadDauntless } from './dauntlessModel.js';
 
 /**
  * The ships built off the owner's sculpts, fetched when they are wanted.
@@ -32,13 +39,16 @@ import { loadB5n } from './b5nModel.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze;
+  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildGrafZeppelin;
 const SCULPTED = {
-  // Not a ship: the Japanese carrier aircraft, off the owner's sculpts. Every
-  // battle builds them to fly (planes.js) and the Shinano carries them, so
-  // whichever ships are waited for, these are too -- and they come first,
-  // ahead of the ships, when everything is fetched behind the title screen.
-  planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n()]),
+  // Not a ship: the Japanese, German and American carrier aircraft, off the
+  // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
+  // the Graf Zeppelin and the Enterprise carry them, so whichever ships are waited for, these
+  // are too -- and they come first, ahead of the ships, when everything is
+  // fetched behind the title screen.
+  planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
+    loadHellcat(), loadDauntless(), loadAvenger()]),
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
@@ -54,11 +64,17 @@ const SCULPTED = {
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
   richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
+  grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
 const fetched = new Map();
 const ready = new Set();
+// When each fetch last failed. With no signal every ask fails at once, and
+// the battle asks again every frame for a hull it is drawing as a stand-in:
+// one that failed is not asked for again until this has gone by.
+const failed = new Map();
+const RETRY = 15000;
 
 function sculptOf(classId) {
   const k = SCULPT_OF[classId] || classId;
@@ -86,15 +102,20 @@ export function fleetReady(classIds) {
 /**
  * Fetch whatever these classes need -- every sculpted ship, given none -- and
  * resolve when all of it is in. `onEach(done, of)` is told as each one lands.
- * A fetch that fails is forgotten, so the next ask tries it again.
+ * A fetch that fails is forgotten, so the next ask tries it again -- or, for
+ * an ask made `quiet` (a hull drawn as a stand-in, asked after every frame),
+ * the next one after RETRY.
  */
-export function loadShips(classIds = Object.keys(SCULPTED), onEach = null) {
+export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false } = {}) {
   const keys = [...new Set(['planes', ...classIds.flatMap(needs)])];
   let done = 0;
   return Promise.all(keys.map((k) => {
     if (!fetched.has(k)) {
-      fetched.set(k, SCULPTED[k]().then(() => { ready.add(k); },
-        (e) => { fetched.delete(k); throw e; }));
+      if (quiet && Date.now() - (failed.get(k) || -Infinity) < RETRY) {
+        return Promise.reject(new Error(`Steel Currents: ${k} could not be fetched`));
+      }
+      fetched.set(k, SCULPTED[k]().then(() => { ready.add(k); failed.delete(k); },
+        (e) => { fetched.delete(k); failed.set(k, Date.now()); throw e; }));
     }
     return fetched.get(k).then(() => { done++; onEach?.(done, keys.length); });
   }));
@@ -538,11 +559,46 @@ function handedOver(built) {
   return out;
 }
 
-export function buildShipModel(classId) {
+/** A class drawn as her generated hull whether or not her sculpt is in: what
+ *  a battle joined before it landed draws her as. */
+export function buildStandIn(classId) {
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
-  if (!shipReady(cls.id)) {
-    throw new Error(`Steel Currents: ${cls.id} has not been fetched -- await loadShips() first`);
-  }
+  const built = buildGenerated(cls);
+  armTubes(built, cls);
+  weldLoose(built.group, handedOver(built));
+  return built;
+}
+
+export function buildShipModel(classId) {
+  const built = buildModel(classId);
+  armTubes(built, SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher);
+  return built;
+}
+
+/**
+ * Give her tubes something to fire. A ship whose model has not already set up
+ * its own (the Tirpitz's, the Matsu's) has its banks fitted here, off the
+ * muzzles each was armed with and the launch her datasheet gives it, so every
+ * torpedo in the game is seen leaving the tube it was fired from.
+ */
+function armTubes(built, cls) {
+  const g = built.group;
+  const banks = built.torpMounts || [];
+  if (!cls.torpedoes || !banks.length || g.userData.fireTubes) return;
+  if (!cls.torpedoes.launch && !cls.torpedoes.mounts.some((m) => m.launch)) return;
+  const tubes = fitTubes(g, banks, cls.torpedoes);
+  const before = g.userData.step;
+  g.userData.step = before ? (t) => { before(t); tubes(t); } : tubes;
+}
+
+function buildModel(classId) {
+  const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher;
+  // A sculpt that has not come down -- no signal, or one too weak to bring
+  // five megabytes of hull in before the captain gives up waiting -- is no
+  // reason to keep him out of the battle. She is drawn as the hull generated
+  // off her class data instead: her length, her beam and her turrets where
+  // the simulation has them, which is all a battle needs of her.
+  if (!shipReady(cls.id)) return buildGenerated(cls);
   // The Big E is modelled rather than generated: a Yorktown's flight deck,
   // island, galleries and catwalks are not a shape a procedural hull can be
   // talked into, and she is the one ship in the game a captain can walk round.
@@ -813,6 +869,22 @@ export function buildShipModel(classId) {
     };
   }
 
+  // And the S-100: her own lines, her tubes in her forecastle and her mines
+  // on the rails over her stern.
+  if (cls.id === 'sboat') {
+    const built = buildSboat();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+      mineRack: built.mineRack,
+    };
+  }
+
   // And the Takao, whose castle of a bridge and three superfiring turrets
   // forward are the whole of what she looks like.
   if (cls.id === 'takao') {
@@ -870,6 +942,22 @@ export function buildShipModel(classId) {
     };
   }
 
+  // And the Graf Zeppelin: the owner's sculpt of her, her runway laid afresh
+  // over it, three lifts that run and two hangars under them.
+  if (cls.id === 'grafzeppelin') {
+    const built = buildGrafZeppelin();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
   // And the Shinano: an armoured flight deck on a battleship hull, with two
   // lifts that run and a hangar under them.
   if (cls.id === 'shinano') {
@@ -898,6 +986,12 @@ export function buildShipModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
     };
   }
+  return buildGenerated(cls);
+}
+
+/** Her hull generated off her class data, for a class with no model of its
+ *  own or one whose sculpt has not been fetched. */
+function buildGenerated(cls) {
   const root = new THREE.Group();
   const { group: hull, freeboard, rings } = buildHull(cls);
   root.add(hull);

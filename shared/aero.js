@@ -63,10 +63,23 @@ export const AERO = {
     // limit load factor her structure was stressed to.
     helix: 0.085, gLimit: 6.0,
   },
+  // The Hellcat that replaced her: two thousand horsepower, half as heavy
+  // again, faster than a Zero everywhere and as strong as the Grumman Iron
+  // Works ever built anything. She does not turn with a Zero -- nothing does
+  // -- but she climbs with one and dives away from it.
+  hellcat: {
+    mass: 5440, wing: 31.0, span: 13.06, clMax: 1.55, cd0: 0.0240,
+    thrust: 22500, vMax: 167, name: 'F6F-3',
+    helix: 0.080, gLimit: 7.0,
+  },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',
     helix: 0.062, gLimit: 5.0,
+    // Her perforated split flaps, opened above and below the trailing edge
+    // together: the drag coefficient they add, on her own wing area. See
+    // brakeDrag.
+    brake: 0.090,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
@@ -133,6 +146,7 @@ export const AERO = {
     mass: 3650, wing: 23.6, span: 11.50, clMax: 1.48, cd0: 0.0255,
     thrust: 14800, vMax: 156, name: 'D4Y3',
     helix: 0.060, gLimit: 5.5,
+    brake: 0.110,
   },
   // The B5N: as big in the wing as an Avenger and a great deal lighter, on a
   // Sakae of a thousand horsepower, carrying one eighteen-inch Type 91 under
@@ -142,6 +156,34 @@ export const AERO = {
     mass: 3800, wing: 37.7, span: 15.52, clMax: 1.55, cd0: 0.0295,
     thrust: 11900, vMax: 105, name: 'B5N2',
     helix: 0.052, gLimit: 4.5,
+  },
+  // And the German three, the Graf Zeppelin's group. The Bf 109T is an E with
+  // a longer wing to bring her landing speed down for a deck: a little slower
+  // than a Zero and a good deal heavier, she out-dives anything she meets and
+  // she rolls well until her ailerons stiffen at speed.
+  bf109: {
+    mass: 3080, wing: 17.5, span: 11.08, clMax: 1.55, cd0: 0.0235,
+    thrust: 15200, vMax: 158, name: 'Bf 109T-1',
+    helix: 0.075, gLimit: 7.0,
+  },
+  // The Ju 87C, the carrier Stuka: a B with a hook, folding wings and a
+  // 500 kg bomb under her. Slow, fixed-geared and draggy, and the steadiest
+  // platform there was to put a bomb on a ship from straight above it.
+  ju87c: {
+    mass: 5300, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0360,
+    thrust: 15600, vMax: 106, name: 'Ju 87C-1',
+    helix: 0.055, gLimit: 6.5,
+    // The slats under her outer wings, turned square to the air.
+    brake: 0.100,
+  },
+  // The Ju 87D with the aerial torpedo a carrier Stuka would have carried
+  // instead: the later airframe and the more powerful Jumo, and a tonne more
+  // of her to haul off the deck.
+  ju87d: {
+    mass: 5900, wing: 31.9, span: 13.80, clMax: 1.50, cd0: 0.0380,
+    thrust: 18500, vMax: 112, name: 'Ju 87D-4',
+    helix: 0.050, gLimit: 5.5,
+    brake: 0.110,
   },
   // The battleship's and the cruiser's scout: three seats, fifteen hours'
   // endurance, and two great floats that cost her every knot she has.
@@ -281,6 +323,21 @@ export function drag(a, v, cl) {
   return 0.5 * RHO * v * v * a.wing * cd;
 }
 
+/**
+ * What her dive brakes cost her, in newtons, `out` of the way open.
+ *
+ * Nothing at all on a type that has none. On one that has, they are sized so
+ * that with them right out she settles at about two hundred and seventy knots
+ * in a seventy degree dive with the throttle back -- which is the whole
+ * point of them: slow enough to aim, to hold the dive steady, and to pull
+ * out of it at the bottom without folding the wings. Without them the same
+ * dive runs away to well over three hundred.
+ */
+export function brakeDrag(a, v, out) {
+  if (!a.brake || !(out > 0)) return 0;
+  return 0.5 * RHO * v * v * a.wing * a.brake * Math.min(1, out);
+}
+
 /** Thrust, in newtons. A propeller makes most of it standing still. */
 export function thrust(a, v, throttle = 1) {
   return a.thrust * throttle * Math.max(0.28, 1 - 0.52 * (v / a.vMax));
@@ -393,7 +450,7 @@ export function turnFor(v, bank) {
 export function airframeOf(type, role) {
   if (type && AERO[type]) return AERO[type];
   const byRole = {
-    fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
+    fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
   };
   return AERO[byRole[role] || 'avenger'] || AERO.avenger;
 }

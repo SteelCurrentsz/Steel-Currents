@@ -62,14 +62,19 @@
 // starboard is -X, and y = 0 is the waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { wildcat, dauntless, avenger } from './planekit.js';
+import { wildcat, dauntless, avenger, hellcat, sbd, tbf } from './planekit.js';
+import { HELLCAT } from './hellcatModel.js';
+import { DAUNTLESS } from './dauntlessModel.js';
+import { AVENGER } from './avengerModel.js';
 import { arm as armMount } from './mounts.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { DECK_RUN } from '../../../shared/sim.js';
 import { engineStart } from './deckengine.js';
-import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
+import {
+  DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed, recoveryAt,
+} from './deckplane.js';
 import {
   box, cyl, tubeZ, tubeX, fairTable, ladder, sideLadder, loftShape, planHouse,
   strip, sheet, rail,
@@ -1008,10 +1013,14 @@ function hangarInterior(g) {
   // takes in the yaw she is parked at: a thirteen-metre aeroplane stood six
   // degrees off the fore-and-aft line reaches most of a metre and a half
   // further outboard than her span alone says.
+  //
+  // All three are the owner's sculpts, drawn coarse down here where nobody
+  // gets nearer them than the hangar side, and the Hellcat and the Avenger
+  // with their panels swung back along them: six metres across or under.
   const TYPES = {
-    avenger: { half: 2.90, nose: 6.42, tail: -6.63, build: avenger },
-    dauntless: { half: 6.16, nose: 5.27, tail: -5.67, build: dauntless },
-    wildcat: { half: 1.88, nose: 5.17, tail: -4.89, build: wildcat },
+    avenger: { half: 3.05, nose: 6.25, tail: -6.20, build: (gg, x, y, z, ry) => tbf(gg, x, y, z, ry, true, false, { lod: true }) },
+    dauntless: { half: 6.33, nose: 4.57, tail: -4.92, build: (gg, x, y, z, ry) => sbd(gg, x, y, z, ry, false, { lod: true }) },
+    hellcat: { half: 2.89, nose: 4.58, tail: -4.53, build: (gg, x, y, z, ry) => hellcat(gg, x, y, z, ry, true, { lod: true }) },
   };
   const parked = [];
   const spot = (kind, x, z, ry) => {
@@ -1040,7 +1049,7 @@ function hangarInterior(g) {
         && Math.abs(p.x - x) < p.halfW + halfW) return false;
     }
     parked.push({ x, z, len, halfW });
-    T.build(g, x, HANGAR + 0.6, z, ry, true);
+    T.build(g, x, HANGAR + 0.6, z, ry);
     return true;
   };
   // Torpedo bombers right aft, three abreast where the beam is still there for
@@ -1063,9 +1072,9 @@ function hangarInterior(g) {
     spot('dauntless', sgn * 5.85, 17.5 + i * 6.4, Math.PI + 0.03 * sgn);
   }
   for (let i = 0; i < 3; i++) {
-    const z = 42 + i * 9.0;
-    for (const x of [-8.4, 0, 8.4]) {
-      spot('wildcat', x, z, 0.05 * Math.sign(x || 1));
+    const z = 40 + i * 10.4;
+    for (const x of [-6.9, 0, 6.9]) {
+      spot('hellcat', x, z, 0.05 * Math.sign(x || 1));
     }
   }
 
@@ -2190,28 +2199,30 @@ function deckAircraft(g) {
   plane.userData.dynamic = true;
   g.add(plane);
   const kinds = {};
-  const make = (role, body) => {
+  // Her stacks, either side of the cowling behind the airscrew: off the
+  // sculpts where she is one, and off her hub where she is built here.
+  const make = (role, body, exhaust = null) => {
     const prop = body.userData.prop || null;
-    // Her stacks, either side of the cowling behind the airscrew.
     const at = prop ? prop.position : new THREE.Vector3(0, 1.6, 3.4);
     kinds[role] = {
       body, prop,
       wings: body.userData.wings || null,
+      fold: body.userData.fold || null,
       gear: body.userData.gear || null,
       blur: propBlur(prop),
-      exhaust: [[-0.62, at.y - 0.25, at.z - 1.5], [0.62, at.y - 0.25, at.z - 1.5]],
+      exhaust: exhaust || [[-0.62, at.y - 0.25, at.z - 1.5], [0.62, at.y - 0.25, at.z - 1.5]],
     };
   };
-  make('fighter', wildcat(plane, 0, 0, 0, 0, true, {}));
-  make('dive', dauntless(plane, 0, 0, 0, 0, false, {}));
-  make('torpedo', avenger(plane, 0, 0, 0, 0, true, true));
+  make('fighter', hellcat(plane, 0, 0, 0, 0, true, {}), HELLCAT.exhaust);
+  make('dive', sbd(plane, 0, 0, 0, 0, false, {}), DAUNTLESS.exhaust);
+  make('torpedo', tbf(plane, 0, 0, 0, 0, true, true), AVENGER.exhaust);
   const out = { group: plane, kinds, role: 'torpedo' };
   out.pick = (role) => {
     const r = kinds[role] ? role : 'torpedo';
     for (const [k, v] of Object.entries(kinds)) v.body.visible = k === r;
     const k = kinds[r];
     out.role = r;
-    out.prop = k.prop; out.wings = k.wings; out.gear = k.gear;
+    out.prop = k.prop; out.wings = k.wings; out.fold = k.fold; out.gear = k.gear;
     out.blur = k.blur; out.exhaust = k.exhaust;
   };
   out.pick('torpedo');
@@ -2226,10 +2237,9 @@ const DOWN = 1.2;       // the lift on its way to the hangar
 const UP = 3.6;         // and back to the flight deck, wings going out on the way
 const TAXIED = 8.6;     // taxied aft off the lift to the spot and lined up
 const ROLL = 10.0;      // run up against the brakes, and the flag
-// And coming home the other way: she picks up a wire at the round-down, rolls
-// up the deck to the after lift, and the lift takes her below.
-const LAND_ROLL = 3.0;  // up the deck from the round-down onto the lift
-const LAND_SINK = 3.4;  // and down the well into the hangar
+// And coming home the other way: she picks up a wire at the round-down, is
+// taxied up the deck to the after lift, and the lift takes her below. See
+// recoveryAt.
 /** Where she picks up a wire: a little way up the deck from the round-down. */
 function landZ() { return fdEndA(0) + 14; }
 
@@ -2329,10 +2339,14 @@ export function stepDeck(deck, t) {
   const AFT_Z = aft.group.position.z;
   // Wings spread or stowed. Folded she is struck below and rides the lift;
   // spread she is ready to go, and she cannot fly any other way.
+  // How far: nought folded to one out, or simply out or not.
   const wings = (out) => {
+    const u = Math.max(0, Math.min(1, +out));
+    // The Hellcat's panels on the sto-wing, swung out or back.
+    if (plane.fold) { plane.fold(1 - u); return; }
     if (!plane.wings) return;
-    plane.wings.spread.visible = out;
-    plane.wings.stowed.visible = !out;
+    plane.wings.spread.visible = u >= 0.5;
+    plane.wings.stowed.visible = u < 0.5;
   };
   const gear = (u) => { if (plane.gear) plane.gear(u); };
 
@@ -2381,29 +2395,18 @@ export function stepDeck(deck, t) {
     // what the lift is for, and it is why the launch begins with the lift
     // going down to fetch one.
     if (deck.landAt != null) {
-      const r = t - deck.landAt;
+      // Down on the wire, up the deck, and down the lift with her.
+      const at = recoveryAt(t - deck.landAt, landZ(), LIFT_Z0);
       gear(0);
       p.visible = true;
-      if (r < LAND_ROLL) {
-        // Up the deck under her own power, slowing, wings folding as she goes.
-        const k = ease(r / LAND_ROLL);
-        wings(r < LAND_ROLL * 0.55);
-        aft.group.position.y = FD;
-        const LAND_Z = landZ();
-        p.position.set(0, FD + 0.34, LAND_Z + (LIFT_Z0 - LAND_Z) * k);
-        p.rotation.set(0, 0.08 * k, 0);
-        if (plane.prop) plane.prop.rotation.z += (1 - k) * 0.6;
-        return;
-      }
-      if (r < LAND_ROLL + LAND_SINK) {
-        // Down the well with her, and she is below.
-        const k = ease((r - LAND_ROLL) / LAND_SINK);
-        wings(false);
-        const ly = FD - LIFT_DROP * k;
+      if (!at.done) {
+        wings(at.wings);
+        const ly = FD - LIFT_DROP * at.lift;
         aft.group.position.y = ly;
-        p.position.set(0, ly + 0.34, LIFT_Z0);
-        p.rotation.set(0, 0.08, 0);
-        if (plane.prop) plane.prop.rotation.z = 0;
+        p.position.set(0, ly + 0.34, at.z);
+        // Swinging onto the lift's mark as she taxies onto it.
+        p.rotation.set(0, 0.08 * Math.max(0, Math.min(1, (at.z - landZ()) / (LIFT_Z0 - landZ()))), 0);
+        if (plane.prop) plane.prop.rotation.z += at.turning * dt;
         return;
       }
       deck.landAt = null;
@@ -2720,7 +2723,9 @@ export function buildEnterprise() {
   // She is down: wheels on the planking at the round-down, hook in a wire.
   // What follows is the recovery -- up the deck to the after lift, wings
   // folding, and the lift down into the hangar -- and stepDeck flies it.
-  g.userData.recover = (t = deck.lastT ?? 0) => {
+  g.userData.recover = (t = deck.lastT ?? 0, role = null) => {
+    // The one that has just come down, not whichever went off last.
+    if (role) plane.pick(role);
     deck.airborne = false;
     deck.launchAt = null;
     deck.landAt = t;
@@ -2737,6 +2742,7 @@ export function buildEnterprise() {
     deck.stowed = true;
     below(deck, plane.group, lifts[lifts.length - 1]);
     if (plane.gear) plane.gear(0);
+    if (plane.fold) plane.fold(1);
     if (plane.wings) {
       plane.wings.spread.visible = false;
       plane.wings.stowed.visible = true;

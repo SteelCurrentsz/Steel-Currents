@@ -602,6 +602,16 @@ export function ordnanceSheet(b) {
       ['Range', distance(b.range)],
     ];
   }
+  // A mortar is laid on a point, high-angle, and that is the thing to know.
+  if (b.mortar) {
+    return [
+      ['Calibre', `${b.bore} L/${b.calibers}`],
+      ['Fire', 'High-angle · 55–70°'],
+      ['Laid on', 'A pin in the chart'],
+      ['Reload', interval(b.reload)],
+      ['Range', distance(b.range)],
+    ];
+  }
   const rows = [
     ['Calibre', `${b.bore} L/${b.calibers}`],
     ['Barrels', b.barrels === 1 ? 'Single' : b.barrels === 2 ? 'Twin' : `${b.barrels}`],

@@ -20,7 +20,7 @@ import {
   TAKAO_HULL_B64, TAKAO_SURFACE, TAKAO_TURRETS, TAKAO_OPENINGS, TAKAO_LINES,
 } from './takaoHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, linoleumMap } from './textures.js';
+import { steelMap, linoleumMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -72,6 +72,8 @@ function materials() {
       specular: 0x1c1a16, shininess: 6,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'lino');
   return mats;
 }
 

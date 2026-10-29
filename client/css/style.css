@@ -143,6 +143,9 @@ html, body {
 }
 .net-state.online { color: var(--ally); }
 .net-state.offline { color: var(--enemy); }
+@media (max-width: 700px) {
+  .net-state { font-size: 0.66rem; letter-spacing: 0.08em; max-width: 78vw; }
+}
 
 /* ---------------------------- panels ----------------------------- */
 
@@ -178,6 +181,21 @@ html, body {
   padding: 1.1rem 2rem; border-top: 1px solid var(--panel-line);
   display: flex; justify-content: space-between; gap: 1rem;
 }
+
+/* The store's departments: three doors in a row, stacked on a phone. */
+.premium-cats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.premium-cat {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem;
+  padding: 1.4rem 1.2rem; cursor: pointer; text-align: left;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--panel-line);
+  border-left: 3px solid var(--red); color: var(--sand); font-family: var(--ui);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.premium-cat b {
+  font-family: var(--stencil); font-size: 1.6rem; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.premium-cat span { color: var(--steel); font-size: 0.95rem; }
+.premium-cat:hover, .premium-cat:focus-visible { background: rgba(255, 255, 255, 0.09); transform: translateY(-1px); }
 
 .field { display: flex; flex-direction: column; gap: 0.4rem; font-size: 1rem; }
 .field > span {
@@ -241,6 +259,16 @@ input[type="range"] { accent-color: var(--red); }
 .battle.active { display: block; }
 .battle > * { pointer-events: none; }
 .battle button, .battle .clickable { pointer-events: auto; }
+/* The glass the battle is watched through (see lens.js), and the darkening
+   toward its edges that a real lens gives: it draws the eye to the middle of
+   the picture, where the fight is, and makes the view a view from somewhere.
+   Neither is on the chart, which is a plot and not a window. */
+.battle .lens { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.battle::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 48%, transparent 58%, rgba(4, 8, 12, 0.34) 100%);
+}
+.battle.chart::before, .battle.chart .lens { display: none; }
 
 .reticle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .ret-cross, .ret-lead { position: absolute; transform: translate(-50%, -50%); }
@@ -386,6 +414,23 @@ input[type="range"] { accent-color: var(--red); }
   color: var(--steel); opacity: 0.7;
 }
 
+/* Fleets and squadrons: the key under the plot, and the bar it raises. */
+.group-row { margin-top: 5px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.group-row .group-key { margin: 0; }
+.group-bar {
+  display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; justify-content: flex-end;
+  max-width: max(min(30vw, 42vh, 400px), 220px); min-width: 200px; box-sizing: border-box;
+  padding: 0.35rem 0.5rem; pointer-events: auto;
+  background: rgba(9, 20, 33, 0.86); border: 1px solid var(--panel-line);
+  border-left: 3px solid var(--sand);
+}
+.group-bar[hidden] { display: none; }
+.group-what {
+  flex: 1 1 100%; text-align: right;
+  font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sand-bright);
+}
+.group-bar .watch-back[disabled] { opacity: 0.4; cursor: default; }
+
 /* ------------------------------------------------------------- the conn --
    A captain with his guns fought for him has three things left to do, so there
    are three keys, small, along the bottom edge where a thumb finds them. Each
@@ -518,15 +563,15 @@ input[type="range"] { accent-color: var(--red); }
 .fly-take:hover { background: rgba(18, 44, 30, 0.96); }
 /* The gunner's seat sits above CONTROL, and his trigger under the right thumb. */
 .fly-take.gunner { bottom: calc(max(0.4vh, env(safe-area-inset-bottom)) + 2.6rem); }
-.gun-fire {
+.gunner-fire {
   position: absolute; right: max(1.2rem, env(safe-area-inset-right)); bottom: 22vh; z-index: 9;
   width: 4.6rem; height: 4.6rem; border-radius: 50%;
   background: rgba(60, 14, 10, 0.78); border: 2px solid #e0533c; color: #ffd9cf;
   font-family: var(--ui); font-size: 0.8rem; letter-spacing: 0.18em;
   pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
 }
-.gun-fire[hidden] { display: none; }
-.gun-fire.held { background: rgba(140, 30, 18, 0.9); }
+.gunner-fire[hidden] { display: none; }
+.gunner-fire.held { background: rgba(140, 30, 18, 0.9); }
 
 /* The cockpit: War Thunder Mobile's layout, which is the one everybody's
    thumbs already know. Drag anywhere to aim; a trigger under each thumb; the
@@ -707,6 +752,11 @@ input[type="range"] { accent-color: var(--red); }
 .fly-btn.drop:active { background: rgba(226, 86, 79, 0.34); }
 .fly-btn.drop.spent { opacity: 0.35; }
 .fly-btn.bombcam { font-size: 0.5rem; line-height: 1.25; }
+.fly-btn.brakes { font-size: 0.5rem; line-height: 1.25; }
+.fly-btn.brakes.on {
+  background: rgba(230, 207, 156, 0.24); border-color: rgba(230, 207, 156, 0.85);
+  color: var(--sand);
+}
 .fly-btn.bombcam:active, .fly-btn.bombcam.on {
   background: rgba(230, 207, 156, 0.24); border-color: rgba(230, 207, 156, 0.75);
   color: var(--sand);
@@ -973,8 +1023,6 @@ input[type="range"] { accent-color: var(--red); }
 .ribbon.miss { color: rgba(154, 166, 178, 0.7); }
 @keyframes fadeout { 0% { opacity: 1; transform: translateY(6px); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-12px); } }
 
-.alerts { position: absolute; left: 50%; top: 22vh; transform: translateX(-50%); text-align: center; }
-.alert { font-size: 1.5rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--enemy); animation: fadeout 3s forwards; text-shadow: 0 2px 12px #000; }
 
 .scoreboard {
   position: absolute; inset: 12vh 20vw auto; background: rgba(8, 19, 31, 0.92);
@@ -1065,7 +1113,7 @@ input[type="range"] { accent-color: var(--red); }
 .toast.show { opacity: 1; }
 
 @media (max-width: 760px) {
-  .panel-body.two-col, .grid-2 { grid-template-columns: 1fr; }
+  .panel-body.two-col, .grid-2, .premium-cats { grid-template-columns: 1fr; }
   .hud-left { width: 200px; }
   .minimap-wrap { width: min(36vw, 34vh, 230px); height: min(36vw, 34vh, 230px); }
 }
@@ -1952,7 +2000,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .hud-right.flying .free-cam-key,
 .hud-right.flying .plot-zoom-key,
 .hud-right.flying .minimap-hint,
-.hud-right.flying .watch-banner { display: none; }
+.hud-right.flying .watch-banner,
+.hud-right.flying .group-row { display: none; }
 #minimap {
   cursor: pointer;
   touch-action: manipulation;
@@ -1999,6 +2048,29 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   display: flex; gap: 0.7rem; flex-wrap: wrap; justify-content: center;
 }
 .lay-actions .btn { min-width: 8.5rem; }
+/* The town and the walls: down the left of the chart, out of the way of the
+   fleets, which form up across the middle. */
+.lay-works {
+  position: absolute;
+  left: max(1.2rem, env(safe-area-inset-left));
+  top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.lay-works[hidden] { display: none; }
+.lay-work { display: flex; gap: 0.3rem; align-items: stretch; }
+.lay-work .btn { min-width: 7.5rem; padding: 0.5rem 0.8rem; font-size: 0.85rem; }
+.lay-work .btn.on { border-color: var(--sand); color: var(--sand-bright); }
+.lay-x {
+  width: 34px;
+  background: rgba(9, 20, 33, 0.8);
+  border: 1px solid var(--panel-line);
+  color: var(--sand); font-size: 1.1rem; cursor: pointer;
+}
+.lay-x[hidden] { display: none; }
+@media (max-width: 560px) {
+  .lay-works { top: auto; transform: none; bottom: calc(max(1.2rem, env(safe-area-inset-bottom)) + 7.2rem); }
+  .lay-work .btn { min-width: 0; font-size: 0.78rem; }
+}
 /* A sortie that cannot be ordered still looks like the button it is, so the
    eye goes to the line of text above it rather than hunting for a control. */
 .lay-actions .btn[disabled] {
@@ -2373,6 +2445,31 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   transition: width 0.25s linear, background 0.3s ease;
 }
 .dive-key.gasping .air-bar b { background: var(--enemy); }
+/* The oxygen gauge, sat on top of the key: what is left as a bar and as a
+   figure. It rides the key, so it goes wherever the key goes and is not there
+   at all on anything that cannot dive. */
+.o2-gauge {
+  position: absolute; left: 50%; bottom: calc(100% + 5px);
+  transform: translateX(-50%);
+  width: 62px; padding: 3px 5px 4px;
+  display: flex; flex-direction: column; gap: 3px;
+  background: rgba(8, 19, 31, 0.86); border: 1px solid var(--panel-line);
+  color: var(--steel); pointer-events: none;
+  font-family: var(--ui); font-size: 0.58rem; letter-spacing: 0.06em;
+}
+.o2-head { display: flex; justify-content: space-between; align-items: baseline; }
+.o2-head b { color: var(--sand); font-weight: 700; }
+.o2-bar { display: block; height: 5px; background: rgba(154, 166, 178, 0.22); }
+.o2-bar b {
+  display: block; height: 100%; width: 100%; background: var(--ally);
+  transition: width 0.25s linear, background 0.3s ease;
+}
+/* On the surface she is breathing and the gauge says so quietly. */
+.dive-key:not(.under) .o2-gauge { opacity: 0.7; }
+.o2-gauge.low .o2-bar b { background: #e0a54a; }
+.dive-key.gasping .o2-gauge { border-color: rgba(226, 86, 79, 0.75); color: var(--enemy); }
+.dive-key.gasping .o2-gauge .o2-bar b { background: var(--enemy); }
+.dive-key.gasping .o2-head b { color: var(--enemy); }
 
 /* ------------------------------------------------------- the pilot's board --
    Who she is and how much of her is left.
@@ -2475,6 +2572,13 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer;
 }
 .lamp-switch.on { background: rgba(255, 240, 200, 0.9); color: #10161c; box-shadow: 0 0 18px rgba(255, 236, 190, 0.7); }
+/* What the battery in hand is doing, under its name. */
+.bat-read {
+  position: absolute; left: 50%; top: calc(12vh + 1.3rem); transform: translateX(-50%); margin: 0;
+  max-width: calc(100vw - 32px); text-align: center;
+  font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--steel); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
 /* Two words on a key built for one: the lamp key is a little wider and its
    label sits on two lines. */
 #key-lamps { width: 70px; }
@@ -2643,20 +2747,25 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 }
 
 /* A clean screen, for the shot: nothing on it but the picture. The one way
-   back is a key in the top left corner that is all but invisible until it is
-   touched. */
+   back is a small translucent X in the bottom right corner, faint enough to
+   stay out of the shot and bright when it is touched. */
 .director-peek { display: none; }
 .battle.director.clean > *:not(.director-peek) { display: none !important; }
 .battle.director.clean .director-peek {
-  display: block; position: absolute; top: 0; left: 0;
-  width: 64px; height: 44px; padding: 0;
-  background: transparent; border: 0; color: transparent;
-  font-family: var(--ui); font-size: 0.6rem; letter-spacing: 0.14em;
+  display: flex; align-items: center; justify-content: center;
+  position: absolute;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  width: 30px; height: 30px; padding: 0;
+  background: rgba(6, 16, 28, 0.22); border: 1px solid rgba(230, 207, 156, 0.22);
+  border-radius: 50%; color: rgba(230, 207, 156, 0.45);
+  font-family: var(--ui); font-size: 1.15rem; line-height: 1;
   cursor: pointer; pointer-events: auto; z-index: 20;
+  -webkit-tap-highlight-color: transparent;
 }
 .battle.director.clean .director-peek:hover,
 .battle.director.clean .director-peek:focus-visible {
-  color: var(--sand); background: rgba(6, 16, 28, 0.6);
+  color: var(--sand); background: rgba(6, 16, 28, 0.6); border-color: rgba(230, 207, 156, 0.6);
 }
 /* And what the page lays over every screen: the full-screen key and the toasts. */
 body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }

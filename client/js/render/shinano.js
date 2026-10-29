@@ -76,7 +76,9 @@ import { ZERO } from './zeroModel.js';
 import { SUISEI } from './suiseiModel.js';
 import { B5N } from './b5nModel.js';
 import { engineStart } from './deckengine.js';
-import { DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed } from './deckplane.js';
+import {
+  DECK_KINDS, propBlur, propRate, deckClock, deckProfiles, rowSpeed, recoveryAt,
+} from './deckplane.js';
 import {
   typeEightNine, triple25, rocket, rangefinder, director,
   typeTwentyOne, typeThirteen, cowl, boat, searchlight,
@@ -3356,22 +3358,15 @@ export function stepDeck(deck, t) {
   // Coming home: she picks up a wire at the round-down, rolls up the deck to
   // the after lift and the lift takes her below.
   if (deck.landAt != null) {
-    const k = t - deck.landAt;
-    if (k < 3.0) {
-      const u = ease(k / 3.0);
+    const at = recoveryAt(t - deck.landAt, landZ(), AFT_Z - 0.45);
+    if (!at.done) {
       p.visible = true;
-      wings(true);
-      aft.group.position.y = FD;
-      p.position.set(0, FD + 0.34, landZ() + (AFT_Z - landZ()) * u);
+      wings(at.wings);
+      const ly = FD - LIFT_DROP * at.lift;
+      aft.group.position.y = ly;
+      p.position.set(0, ly + 0.34, at.z);
       p.rotation.set(0, 0, 0);
-      return;
-    }
-    if (k < 6.4) {
-      const u = ease((k - 3.0) / 3.4);
-      wings(1 - Math.min(1, (k - 3.0) / 1.6));
-      aft.group.position.y = FD - LIFT_DROP * u;
-      p.position.set(0, FD - LIFT_DROP * u + 0.34, AFT_Z - 0.45);
-      p.visible = true;
+      if (plane.prop) plane.prop.rotation.z += at.turning * dt;
       return;
     }
     deck.landAt = null;
@@ -3558,7 +3553,9 @@ export function buildShinano() {
     deck.endPose = deck.endPoses[plane.role];
     plane.group.visible = true;
   };
-  g.userData.recover = (t = deck.lastT ?? 0) => {
+  g.userData.recover = (t = deck.lastT ?? 0, role = null) => {
+    // The one that has just come down, not whichever went off last.
+    if (role) plane.pick(role);
     deck.landAt = t;
     deck.launchAt = null;
     deck.stowed = false;

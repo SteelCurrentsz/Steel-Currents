@@ -25,7 +25,9 @@ import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
-  useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged,
+  useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
+  torpedoVisible, assignMount, mountBears, manGun, layGun, lightMounts, aaBattery,
+  applyInput, gunsDrowned, directParties,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -153,6 +155,28 @@ function hunt(state, ship, cls) {
 }
 
 /**
+ * A minelayer's captain, sowing.
+ *
+ * The mines go down where the enemy is going to be, and the one place a boat
+ * running at forty knots can be sure of that is her own wake: anything
+ * chasing her has to steam through it. So she lets one go whenever an enemy
+ * ship is astern of her and closing, and keeps her way on while she does it.
+ */
+function sowMines(state, ship, cls) {
+  if (!cls.mines || ship.mnLeft <= 0 || ship.mnCool > 0 || Math.abs(ship.speed) < 4) return;
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team || submerged(foe)) continue;
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    if (d > 3500 || d < 250) continue;
+    // Astern of her, give or take a couple of points.
+    const rel = wrapAngle(headingTo(ship.x, ship.z, foe.x, foe.z) - ship.heading);
+    if (Math.abs(rel) < 2.1) continue;
+    layMine(state, ship);
+    return;
+  }
+}
+
+/**
  * The mountings her captain has put on a ship by name, when her own gunnery
  * officer is not firing: his target is out of reach, or he has none, and a
  * turret or a bank laid on another ship has that ship inside its range. Only
@@ -197,11 +221,24 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // Fouled on another ship: getting clear comes before anything else she
   // might want to do with her helm.
   const clearing = !conned && (clearGround(state, ship, brain, dt) || clearFoul(state, ship, brain, dt));
+  // Fish in the water coming at her: combing them comes before her station,
+  // her target and her torpedo run.
+  const comb = !conned && !clearing ? torpedoThreat(state, ship, cls) : null;
+  // And shells falling round her: she does not hold a steady course for the
+  // enemy's gunnery officer.
+  evasion(state, ship, brain, cls, dt);
 
   // Damage control: put fires out once a couple are burning, or when badly hurt.
   if ((ship.fires >= 2 || ship.flooding >= 1 || ship.hp < ship.maxHp * 0.4) && ship.repairCd <= 0) {
     useRepair(state, ship);
   }
+  // And her parties, sent where they are wanted rather than left to find out.
+  if (state.tick % 30 === ship.id % 30) directParties(ship);
+  // Her guns and her depth, which are a captain's to work as much as her helm.
+  if (!conned) splitFire(state, ship, brain, cls, target);
+  manFlak(state, ship, cls, brain, conned);
+  workDive(state, ship, cls, brain, target, conned);
+  if (!conned && !ship.secShell && cls.secondary) ship.secShell = cls.secondary.shells.he ? 'he' : 'ap';
 
   // Badly hurt: below a third of her and making water. She used to fall out of
   // the line here, put her helm over a hundred and fifty degrees and run, which
@@ -217,12 +254,14 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   // Her aircraft go whether or not her guns have anything to shoot at: a
   // carrier's reach is her air group, not her five-inch.
   flyOff(state, ship, cls, staff, conned);
+  if (!conned) sowMines(state, ship, cls);
 
   if (!target) {
     // Nothing afloat to fight. He keeps his station and the fleet keeps
     // looking -- which is a great deal better than a dozen hulls each going
     // off to look on their own.
     if (clearing) { /* backing clear of a ship she is fouled on */ } else if (conned) layAhead(ship);
+    else if (comb) steerComb(state, ship, comb);
     else if (!keepStation(state, ship, brain, staff, dt)) patrol(state, ship, brain, dt);
     if (!conned && !clearing) avoidCollision(state, ship, cls, brain);
     shellShore(state, ship, brain, cls);
@@ -242,7 +281,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   ship.aimZ = lead.z + (Math.random() * 2 - 1) * err;
 
   if (!conned && !clearing) {
-    if (hunt(state, ship, cls)) {
+    if (comb) {
+      steerComb(state, ship, comb);
+    } else if (hunt(state, ship, cls)) {
       // A boat under her, and she is the only ship on the board that can do
       // anything about it. She comes off whatever else she was doing until the
       // contact is dead or lost: the racks fire themselves -- see
@@ -252,7 +293,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
       // Going down fighting, and going down closer. Twenty degrees off the
       // bearing so her broadside still bears rather than only her forward
       // turret, and everything the engine room has left.
-      steerToward(state, ship, wrapAngle(bearingToTarget + brain.kite * 0.35));
+      steerToward(state, ship, wrapAngle(bearingToTarget + brain.kite * 0.35 + brain.jinkOff));
       ship.notch = 5;
       brain.pressing = true;
     } else if (staff && staff.torpRun.has(ship.id) && cls.torpedoes) {
@@ -278,7 +319,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
         // closer to the enemy than she started it.
         const want = staff ? staff.course
           : wrapAngle(bearingToTarget + brain.kite * Math.PI * 0.42);
-        steerToward(state, ship, want);
+        steerToward(state, ship, wrapAngle(want + brain.jinkOff));
         // Closing is done at everything she has. A fleet that ambles up to the
         // action at three-quarter speed arrives after it.
         ship.notch = 5;
@@ -397,7 +438,9 @@ function keepStation(state, ship, brain, staff, dt) {
   const along = dx * fx + dz * fz;
   const want = headingTo(ship.x, ship.z, at.x + fx * LEAD, at.z + fz * LEAD);
   const off = clamp(angleDelta(gh, want), -Math.PI * 0.45, Math.PI * 0.45);
-  steerToward(state, ship, wrapAngle(gh + off));
+  // Zigzagging on her station when she is under fire, by half what a ship on
+  // her own would: enough to throw a salvo off, not enough to foul the line.
+  steerToward(state, ship, wrapAngle(gh + off + (brain.jinkOff || 0) * 0.5));
   // The flagship's speed, and the difference made up on it. A human flag may
   // be going astern or stopped; the fleet does not go astern after her, it
   // stops with her.
@@ -500,7 +543,8 @@ function shellShore(state, ship, brain, cls) {
     best = b;
     bestD = d;
   }
-  if (!best) return false;
+  if (!best) { ship.firingBat = 0; return false; }
+  ship.firingBat = best.id;
   ship.aimX = best.x;
   ship.aimZ = best.z;
   if (brain.fireTimer <= 0 && canFire(ship)) {
@@ -531,8 +575,24 @@ function pickTarget(state, ship) {
     if (!s.alive || s.team === ship.team || !s.spottedBy[ship.team]) continue;
     const d = dist(ship.x, ship.z, s.x, s.z);
     if (d > cls.gun.range * 1.1) continue;
+    const sc = getClass(s.classId);
     // Prefer close, hurt, and squishy.
-    const score = -d / 1000 + (1 - s.hp / s.maxHp) * 4 + (getClass(s.classId).type === 'CV' ? 5 : 0);
+    let score = -d / 1000 + (1 - s.hp / s.maxHp) * 4 + (sc.type === 'CV' ? 5 : 0);
+    // The ship shooting at her is the one she answers: that is the duel the
+    // whole of her gunnery is for.
+    if (s.targetId === ship.id) score += 2.5;
+    // A destroyer or a boat inside her own torpedo range is the most
+    // dangerous thing on the sea, whatever she looks like on the plot.
+    if (sc.torpedoes && d < sc.torpedoes.range * 0.9 && (sc.type === 'DD' || sc.type === 'SS')) score += 3;
+    // And one her guns can actually hurt: an armour-piercing shell that
+    // cannot beat a belt and a high-explosive one into a battleship's side
+    // are both wasted, so a cruiser does not spend the action on a battleship
+    // while a heavy cruiser is in reach.
+    const pen = cls.gun.shells.ap ? cls.gun.shells.ap.pen : 0;
+    if (pen < sc.armor.belt * 0.7 && sc.type === 'BB') score -= 2;
+    // And the ship she was on, so she is not swung between two ships of a
+    // line for the sake of a few hundred metres.
+    if (s.id === ship.targetId) score += 1.2;
     if (score > bestScore) { bestScore = score; best = s.id; }
   }
   return best;
@@ -558,6 +618,249 @@ function patrol(state, ship, brain, dt) {
   if (!goal) goal = { x: 0, z: 0 };
   steerToward(state, ship, headingTo(ship.x, ship.z, goal.x, goal.z));
   layAhead(ship);
+}
+
+// ---------------------------------------------------------------------------
+// What a captain does that a gunnery officer does not
+// ---------------------------------------------------------------------------
+
+/**
+ * The torpedo she has to do something about: the soonest of those her side
+ * can see that will pass inside her length on present courses, with time
+ * enough left in its run to get there. Null when there is none.
+ */
+const COMB_LOOK = 50;
+function torpedoThreat(state, ship, cls) {
+  if (!state.torps || !state.torps.length) return null;
+  if (cls.dive && submerged(ship)) return null;
+  let worst = null;
+  const v = Math.max(0, ship.speed || 0);
+  const svx = Math.sin(ship.heading) * v;
+  const svz = Math.cos(ship.heading) * v;
+  const close = cls.hull.length * 0.5 + 45;
+  for (const tp of state.torps) {
+    if (tp.team === ship.team) continue;
+    if (tp.aboard) continue;
+    const dx = tp.x - ship.x;
+    const dz = tp.z - ship.z;
+    if (dx * dx + dz * dz > 7000 * 7000) continue;
+    if (!torpedoVisible(state, tp, ship.team)) continue;
+    const sp = tp.speed || 0;
+    const left = Math.max(0, ((tp.range || 0) - (tp.travelled || 0)) / Math.max(1, sp));
+    const rvx = Math.sin(tp.heading) * sp - svx;
+    const rvz = Math.cos(tp.heading) * sp - svz;
+    const rv2 = rvx * rvx + rvz * rvz;
+    if (rv2 < 1e-3) continue;
+    const tc = -(dx * rvx + dz * rvz) / rv2;
+    if (tc < 0 || tc > Math.min(COMB_LOOK, left)) continue;
+    const cpa = Math.hypot(dx + rvx * tc, dz + rvz * tc);
+    if (cpa > close) continue;
+    if (!worst || tc < worst.tc) worst = { tp, tc, cpa };
+  }
+  return worst;
+}
+
+/**
+ * Comb the track: turn end-on to the fish, toward it or away from it,
+ * whichever is the smaller turn, at everything she has. End-on she is a few
+ * metres of target instead of the whole of her length, and a spread fired at
+ * her beam goes down either side.
+ */
+function steerComb(state, ship, comb) {
+  const h = comb.tp.heading;
+  const away = wrapAngle(h);
+  const into = wrapAngle(h + Math.PI);
+  const pick = Math.abs(angleDelta(ship.heading, away)) < Math.abs(angleDelta(ship.heading, into))
+    ? away : into;
+  steerToward(state, ship, pick);
+  ship.notch = 5;
+}
+
+/**
+ * Zigzag under fire.
+ *
+ * A gunnery officer lays his next salvo where his last one says she will be,
+ * and a ship that holds a steady course is giving him that. So when shells
+ * are coming down round her she alters every so often -- a few points one
+ * way, then the other -- which is what a captain chasing salvoes does. The
+ * offset is left on the brain (`jinkOff`) for whatever is steering her to add
+ * to its course.
+ */
+function evasion(state, ship, brain, cls, dt) {
+  brain.jinkOff = brain.jinkOff || 0;
+  if (state.tick % 10 === ship.id % 10) {
+    for (const sh of state.shells) {
+      if (sh.team === ship.team || sh.fuse || !sh.g) continue;
+      // Where it comes down, and where she will be by then.
+      const disc = sh.vy * sh.vy + 2 * sh.g * Math.max(0, sh.y);
+      const t = (sh.vy + Math.sqrt(disc)) / sh.g;
+      if (!(t > 0) || t > 60) continue;
+      const ix = sh.x + sh.vx * t;
+      const iz = sh.z + sh.vz * t;
+      const v = ship.speed || 0;
+      const px = ship.x + Math.sin(ship.heading) * v * t;
+      const pz = ship.z + Math.cos(ship.heading) * v * t;
+      if ((ix - px) ** 2 + (iz - pz) ** 2 < 420 * 420) { brain.fireAt = state.t; break; }
+    }
+  }
+  const hot = state.t - (brain.fireAt ?? -1e9) < 14;
+  // A destroyer swings hard and often; a battleship a few degrees, slowly.
+  const amp = { DD: 0.5, SS: 0.4, CL: 0.34, CA: 0.3, CV: 0.3, BB: 0.2 }[cls.type] ?? 0.3;
+  const period = { DD: 14, SS: 18, CL: 20, CA: 22, CV: 24, BB: 30 }[cls.type] ?? 22;
+  brain.jinkT = (brain.jinkT || 0) + dt;
+  const want = hot ? amp * brain.skill * (Math.sin((brain.jinkT / period) * Math.PI * 2) >= 0 ? 1 : -1) : 0;
+  // Eased onto, so the wheel is put over rather than snapped.
+  brain.jinkOff += clamp(want - brain.jinkOff, -0.25 * dt, 0.25 * dt);
+}
+
+/**
+ * Split her fire.
+ *
+ * A turret that cannot bear on the ship her gunnery officer is fighting --
+ * the after turrets with the enemy fine on the bow, say -- is put on the best
+ * other ship it can bear on, off the same targeting panel a captain uses, and
+ * given back the moment it can bear again. Only mountings she put on a ship
+ * herself are ever taken off one: whatever her captain has given a target is
+ * his. Not on a ship somebody is conning: her targeting panel is his.
+ */
+function splitFire(state, ship, brain, cls, target) {
+  if (state.tick % 30 !== ship.id % 30 || !ship.turrets.length) return;
+  if (gunsDrowned(ship)) return;
+  brain.split = brain.split || new Set();
+  const range = cls.gun.range * 0.95;
+  const tb = target ? headingTo(ship.x, ship.z, target.x, target.z) : 0;
+  const tIn = target && dist(ship.x, ship.z, target.x, target.z) < range;
+  for (const t of ship.turrets) {
+    const key = `main:${t.id}`;
+    const mine = brain.split.has(key);
+    if (ship.assign && ship.assign[key] && !mine) continue;
+    const spec = cls.turrets[t.id];
+    if (!target || (tIn && mountBears(ship, spec, tb))) {
+      if (mine) { assignMount(state, ship, 'main', t.id, 0); brain.split.delete(key); }
+      continue;
+    }
+    let best = null;
+    let bestV = -Infinity;
+    for (const s of state.ships) {
+      if (!s.alive || s.team === ship.team || !s.spottedBy[ship.team] || s.id === target.id) continue;
+      const d = dist(ship.x, ship.z, s.x, s.z);
+      if (d > range) continue;
+      if (!mountBears(ship, spec, headingTo(ship.x, ship.z, s.x, s.z))) continue;
+      if (!state.world?.arcade && blockedByLand(state.world, ship.x, ship.z, s.x, s.z)) continue;
+      const v = -d / 1000 + (1 - s.hp / s.maxHp) * 3;
+      if (v > bestV) { bestV = v; best = s; }
+    }
+    if (best) {
+      if (!ship.assign || ship.assign[key] !== best.id) assignMount(state, ship, 'main', t.id, best.id);
+      brain.split.add(key);
+    } else if (mine) {
+      assignMount(state, ship, 'main', t.id, 0);
+      brain.split.delete(key);
+    }
+  }
+}
+
+/**
+ * Go down to a close-range mounting when there are aeroplanes about.
+ *
+ * A pair of hands on a mounting walking its own tracer onto an aeroplane is
+ * worth more than the director's barrage (MANNED_AA in sim.js), and a captain
+ * who has nothing better to do with his own while a strike comes in goes and
+ * does it. He takes the heaviest automatic gun that bears on the nearest
+ * aeroplane coming at her, holds it on her, and gives it back when the sky is
+ * clear. Not on a ship somebody is conning: her guns are his to man.
+ */
+function manFlak(state, ship, cls, brain, conned) {
+  if (conned || !cls.aa) return;
+  if (ship.manned && ship.manned.k !== 'aa') return;
+  const lm = lightMounts(cls);
+  if (!lm.length || gunsDrowned(ship)) return;
+  let foe = null;
+  let foeV = Infinity;
+  for (const p of state.planes || []) {
+    if (p.dead || p.team === ship.team || p.phase === 'landing') continue;
+    const d = dist(ship.x, ship.z, p.x, p.z);
+    if (d > cls.aa.range) continue;
+    // The one coming for her, and the ones with something to drop, first.
+    const v = d - (p.targetId === ship.id ? 900 : 0) - ((p.torp || p.bomb) && !p.dropped ? 600 : 0);
+    if (v < foeV) { foeV = v; foe = p; }
+  }
+  if (!foe) {
+    if (brain.manning) { manGun(ship, {}); brain.manning = false; }
+    return;
+  }
+  const battery = aaBattery(cls);
+  const at = battery.length - lm.length;
+  const b = headingTo(ship.x, ship.z, foe.x, foe.z);
+  const d = dist(ship.x, ship.z, foe.x, foe.z);
+  const dp = new Set();
+  let n = 0;
+  for (const g of cls.aa.guns || []) {
+    for (let j = 0; j < g.mounts.length; j++) { if (g.role === 'dp') dp.add(n + j); }
+    n += g.mounts.length;
+  }
+  let pick = -1;
+  let pickV = -Infinity;
+  for (let i = 0; i < lm.length; i++) {
+    const m = battery[at + i];
+    if (!m || dp.has(i) || d > m.range || !mountBears(ship, m, b)) continue;
+    const v = m.caliber * m.guns;
+    if (v > pickV) { pickV = v; pick = i; }
+  }
+  if (pick < 0) {
+    if (brain.manning) { manGun(ship, {}); brain.manning = false; }
+    return;
+  }
+  if (!ship.manned || ship.manned.i !== pick) {
+    manGun(ship, { k: 'aa', i: pick });
+    // Her own captain at the gun, not a player: the tracer stays on the
+    // battery's rhythm rather than going out with every tick (see stepPlanes).
+    if (ship.manned) ship.manned.auto = true;
+  }
+  brain.manning = true;
+  layGun(ship, { x: foe.x, z: foe.z, y: foe.y ?? 200 });
+}
+
+/**
+ * A submarine captain's depth.
+ *
+ * Down to periscope depth to make an attack and to keep out of sight, deep
+ * the moment something that can hunt her -- a ship with depth charges, or an
+ * aeroplane -- is close, and up on the surface to charge her air and make
+ * her speed when there is nothing about. A boat that has come up for air
+ * stays up until she has most of it back, unless she is found.
+ */
+function workDive(state, ship, cls, brain, target, conned) {
+  if (!cls.dive || conned) return;
+  const D = cls.dive;
+  let asw = Infinity;
+  let near = Infinity;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === ship.team) continue;
+    const d = dist(ship.x, ship.z, s.x, s.z);
+    near = Math.min(near, d);
+    if (getClass(s.classId).depthCharges) asw = Math.min(asw, d);
+  }
+  let air = Infinity;
+  for (const p of state.planes || []) {
+    if (p.dead || p.team === ship.team) continue;
+    air = Math.min(air, dist(ship.x, ship.z, p.x, p.z));
+  }
+  const o2 = ship.oxygen / Math.max(1, D.oxygen);
+  const hunted = asw < 3500 || air < 3000;
+  if (brain.blowing && (o2 > 0.75 || asw < 2200 || air < 1800)) brain.blowing = false;
+  let want;
+  if (brain.blowing) want = 0;
+  else if (hunted) want = o2 > 0.06 ? D.max * 0.85 : 0;
+  else if (near < 10000 || (target && cls.torpedoes
+    && dist(ship.x, ship.z, target.x, target.z) < cls.torpedoes.range * 1.3)) {
+    want = o2 > 0.2 ? D.periscope : 0;
+  } else want = 0;
+  if (want === 0 && o2 < 0.3) brain.blowing = true;
+  if (ship.depthCmd !== want) applyInput(ship, { depth: want });
+  // Deep and being hunted: slow, because her own screws are what the set
+  // above her is listening for.
+  if (hunted && want > D.periscope && asw < 2500) ship.notch = Math.min(ship.notch, 3);
 }
 
 /** Nothing in sight: the guns train ahead and wait. */

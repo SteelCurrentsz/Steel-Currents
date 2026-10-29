@@ -19,7 +19,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
-  wildcat, dauntless, avenger, arado, kingfisher, besson, loire,
+  wildcat, arado, kingfisher, besson, loire,
   jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
@@ -31,6 +31,22 @@ import {
 import {
   B5N, B5N_SEGS, b5nGeometries, b5nMaterial, b5nSegOf, b5nRest, b5nHinge,
 } from './b5nModel.js';
+import {
+  BF109, BF109_SEGS, bf109Geometries, bf109Material, bf109SegOf, bf109Rest, bf109Hinge,
+} from './bf109Model.js';
+import {
+  JU87, JU87_SEGS, ju87Geometries, ju87Material, ju87SegOf, ju87Rest, ju87Hinge,
+} from './ju87Model.js';
+import {
+  HELLCAT, HELLCAT_SEGS, hellcatGeometries, hellcatMaterial, hellcatSegOf, hellcatRest, hellcatHinge,
+} from './hellcatModel.js';
+import {
+  DAUNTLESS, DAUNTLESS_SEGS, dauntlessGeometries, dauntlessMaterial, dauntlessSegOf, dauntlessRest,
+  dauntlessHinge,
+} from './dauntlessModel.js';
+import {
+  AVENGER, AVENGER_SEGS, avengerGeometries, avengerMaterial, avengerSegOf, avengerRest, avengerHinge,
+} from './avengerModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -263,6 +279,11 @@ function tipsOf(key, geo) {
   if (key === 'zero') return { tips: ZERO.tips, nose: [0, ZERO.prop[1] - 0.2, ZERO.prop[2] - 1.2] };
   if (key === 'suisei') return { tips: SUISEI.tips, nose: [0, SUISEI.prop[1] - 0.2, SUISEI.prop[2] - 1.2] };
   if (key === 'b5n') return { tips: B5N.tips, nose: [0, B5N.prop[1] - 0.2, B5N.prop[2] - 1.2] };
+  if (key === 'bf109') return { tips: BF109.tips, nose: [0, BF109.prop[1] - 0.2, BF109.prop[2] - 1.2] };
+  if (key === 'ju87c' || key === 'ju87d') return { tips: JU87.tips, nose: [0, JU87.prop[1] - 0.2, JU87.prop[2] - 1.2] };
+  if (key === 'hellcat') return { tips: HELLCAT.tips, nose: [0, HELLCAT.prop[1] - 0.2, HELLCAT.prop[2] - 1.2] };
+  if (key === 'avenger') return { tips: AVENGER.tips, nose: [0, AVENGER.prop[1] - 0.2, AVENGER.prop[2] - 1.2] };
+  if (key === 'dauntless') return { tips: DAUNTLESS.tips, nose: [0, DAUNTLESS.prop[1] - 0.2, DAUNTLESS.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -414,6 +435,8 @@ function suiseiFlightModel() {
       at: at(k), rot: suiseiRest(k), geo: geos[k], mats: [mat],
     });
   }
+  const br = BRAKES.suisei;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
   const segOf = suiseiSegOf;
   segOf.breaks = SUISEI.breaks;
   return { segs, parts, probe, segOf, cy: 1.3, geo: probe, mats: [mat] };
@@ -454,6 +477,323 @@ function b5nFlightModel() {
 }
 
 /**
+ * The Bf 109T: the owner's sculpt, in her pieces, with her airscrew and her
+ * two main legs on their own hinges. Her tail wheel never came up.
+ */
+function bf109FlightModel() {
+  const geos = bf109Geometries();
+  const mat = bf109Material();
+  const segs = {};
+  for (const k of BF109_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, BF109_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(bf109Hinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: bf109Rest('prop'),
+    geo: withDisc(geos.prop, BF109.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['gearL', 'gearR']) {
+    const spec = BF109[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: bf109Rest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = bf109SegOf;
+  segOf.breaks = BF109.breaks;
+  return { segs, parts, probe, segOf, cy: BF109.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * Dive brakes, hung on a sculpt's own wing.
+ *
+ * The sculpts have their wings in one skin with nothing cut out of it, so the
+ * brakes are made here: a thin plate per panel per surface, laid along the
+ * trailing edge or under the wing where the type had them, found off the
+ * panel's own points so they sit on the wing she actually has -- its taper,
+ * its dihedral and its sweep. Each swings on a hinge along its own edge, which
+ * is not quite square to her centreline once the wing has dihedral and taper,
+ * so the hinge carries its own axis.
+ *
+ * `plates` says where each plate goes, as fractions of the local chord
+ * forward of the trailing edge: from `a` to `b`, on the `lo` or `hi` surface
+ * and `drop` below it, hinged at `h`, and swung `open` radians when the
+ * brakes are all the way out, in `color` if it is not the colour of the
+ * underside. `always` is a brake that is part of her shape
+ * shut as well as open -- a Stuka's slats hang under her wing all the time.
+ */
+function brakeParts(geos, panels, plates, mat) {
+  // The trailing and leading edges of a panel at a station across it, and
+  // the height of its skin above and below at a point on its chord -- found
+  // by putting a line straight down through the panel, because a sculpt's
+  // points are where her curves are and not on any grid.
+  const edges = (geo, x) => {
+    const p = geo.attributes.position;
+    let te = Infinity, le = -Infinity, y = 0;
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(p.getX(i) - x) > 0.14) continue;
+      const z = p.getZ(i);
+      if (z < te) { te = z; y = p.getY(i); }
+      if (z > le) le = z;
+    }
+    return Number.isFinite(te) ? { te, le, y } : null;
+  };
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const probe = new Map();
+  const skin = (geo, x, z, side, fallback) => {
+    let mesh = probe.get(geo);
+    if (!mesh) {
+      mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+      probe.set(geo, mesh);
+    }
+    // A little in from the very edge, where a line can miss the skin.
+    for (const dz of [0, 0.04, -0.04, 0.1]) {
+      ray.set(new THREE.Vector3(x, 60, z + dz), down);
+      const hits = ray.intersectObject(mesh);
+      if (hits.length) return side === 'hi' ? hits[0].point.y : hits[hits.length - 1].point.y;
+    }
+    return fallback;
+  };
+  const parts = [];
+  for (const panel of panels) {
+    for (const side of [-1, 1]) {
+      const seg = `${panel.seg}${side < 0 ? 'L' : 'R'}`;
+      const geo = geos[seg];
+      if (!geo) continue;
+      const xs = [panel.x[0] * side, panel.x[1] * side].sort((u, v) => u - v);
+      const st = xs.map((x) => ({ x, e: edges(geo, x) }));
+      if (st.some((q) => !q.e)) continue;
+      for (const pl of plates) {
+        // The plate's four corners, inboard and outboard, fore and aft, and
+        // its hinge line, all on her own skin.
+        const at = (q, f) => {
+          const c = q.e.le - q.e.te;
+          const z = q.e.te + f * c;
+          return new THREE.Vector3(q.x, skin(geo, q.x, z, pl.side, q.e.y) - (pl.drop || 0), z);
+        };
+        const A = st.map((q) => at(q, pl.a));
+        const B = st.map((q) => at(q, pl.b));
+        const H = st.map((q) => at(q, pl.h));
+        const pivot = H[0].clone();
+        const axis = H[1].clone().sub(H[0]).normalize();
+        // Thickness, off the plate's own face.
+        const n = new THREE.Vector3().crossVectors(axis, B[0].clone().sub(A[0])).normalize()
+          .multiplyScalar(pl.side === 'hi' ? 0.022 : -0.022);
+        const c = [A[0], A[1], B[1], B[0]].map((v) => v.clone().sub(pivot));
+        const d = c.map((v) => v.clone().add(n));
+        const quads = [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]];
+        const v = [...c, ...d];
+        const pos = [];
+        for (const [i, j, k, l] of quads) {
+          for (const w of [i, j, k, i, k, l]) pos.push(v[w].x, v[w].y, v[w].z);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.computeVertexNormals();
+        parts.push({
+          name: `brake${parts.length}`, seg, brake: true, always: !!pl.always,
+          axis: 'x', axisV: axis, open: pl.open,
+          at: pivot, rot: new THREE.Quaternion(), geo: g, mats: [pl.color ? brakeMaterial(pl.color) : mat],
+        });
+      }
+    }
+  }
+  return parts;
+}
+
+/** The metal a dive brake is made of, painted the colour of the wing under it. */
+function brakeMaterial(color) {
+  return new THREE.MeshStandardMaterial({
+    color, roughness: 0.62, metalness: 0.25, side: THREE.DoubleSide,
+  });
+}
+
+/**
+ * Each dive bomber's brakes, as brakeParts lays them out.
+ *
+ * The SBD's are her split flaps: perforated plates along the trailing edge
+ * of her centre section and her outer panels as far as the ailerons, one
+ * opening up and one down, which is the shape everybody knows her by. The
+ * Suisei's are plates under the wing ahead of her flaps, and the Stuka's are
+ * the slatted bars under her outer wings, turned square to the air.
+ */
+const BRAKES = {
+  dauntless: {
+    color: 0x9fa6a9,
+    panels: [{ seg: 'wingIn', x: [0.9, 2.3] }, { seg: 'wingOut', x: [2.45, 4.3] }],
+    plates: [
+      { side: 'lo', a: 0.02, b: 0.24, h: 0.24, open: -1.05 },
+      { side: 'hi', a: 0.02, b: 0.24, h: 0.24, open: 1.05, color: 0x55687e },
+    ],
+  },
+  suisei: {
+    color: 0xa3a596,
+    panels: [{ seg: 'wingIn', x: [1.0, 3.1] }, { seg: 'wingOut', x: [3.45, 4.4] }],
+    plates: [{ side: 'lo', a: 0.30, b: 0.46, h: 0.30, open: 1.35 }],
+  },
+  ju87: {
+    color: 0x8fa6b6,
+    panels: [{ seg: 'wingOut', x: [2.4, 4.6] }],
+    plates: [{ side: 'lo', a: 0.69, b: 0.81, h: 0.75, drop: 0.16, open: -1.45, always: true }],
+  },
+};
+
+/**
+ * A carrier Stuka: the owner's sculpt, in her pieces, with everything of her
+ * that moves on its own hinge -- her airscrew and the gunner's guns, and for
+ * the C her bomb doors, the SC 500 in her bay and an SC 250 under each wing,
+ * which all go together; for the D the torpedo under her keel. Her legs are
+ * fixed, and go with her inner panels.
+ */
+function ju87FlightModel(variant) {
+  const geos = ju87Geometries(variant);
+  const mat = ju87Material();
+  const segs = {};
+  for (const k of JU87_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, JU87_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(ju87Hinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: ju87Rest('prop'),
+    geo: withDisc(geos.prop, JU87.propR), mats: [mat, discMaterial()],
+  }];
+  if (variant === 'c') {
+    for (const k of ['bayPort', 'bayStbd']) {
+      parts.push({ name: k, axis: 'z', open: JU87[k].open, at: at(k), rot: ju87Rest(k), geo: geos[k], mats: [mat] });
+    }
+    // The bomb in the bay first: it is the one the simulation's bomb is.
+    parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: ju87Rest('store'),
+      geo: geos.store, mats: [mat] });
+    for (const k of ['bombL', 'bombR']) {
+      parts.push({ name: k, axis: 'z', open: 0, fall: true, at: at(k), rot: ju87Rest(k), geo: geos[k], mats: [mat] });
+    }
+  } else {
+    parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('fish'), rot: ju87Rest('fish'),
+      geo: geos.fish, mats: [mat] });
+  }
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: ju87Rest('gun'),
+    geo: geos.gun, mats: [mat] });
+  const br = BRAKES.ju87;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
+  const segOf = ju87SegOf;
+  segOf.breaks = JU87.breaks;
+  return { segs, parts, probe, segOf, cy: JU87.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The F6F Hellcat: the owner's sculpt, in her pieces, with her airscrew and
+ * the three legs built for her on their own hinges -- the mains swinging aft
+ * into her wings, the tail wheel up into her.
+ */
+function hellcatFlightModel() {
+  const geos = hellcatGeometries();
+  const mat = hellcatMaterial();
+  const segs = {};
+  for (const k of HELLCAT_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, HELLCAT_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(hellcatHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: hellcatRest('prop'),
+    geo: withDisc(geos.prop, HELLCAT.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = HELLCAT[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: hellcatRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = hellcatSegOf;
+  segOf.breaks = HELLCAT.breaks;
+  return { segs, parts, probe, segOf, cy: HELLCAT.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The SBD Dauntless: the owner's sculpt, in her pieces, with everything of
+ * her that moves on its own hinge -- her airscrew, the displacing trapeze and
+ * the thousand-pounder on it, which swing down together as she dives and the
+ * bomb goes from the bottom of the swing, a hundred-pounder under each wing
+ * which goes with it, the gunner's twin thirties, and her two main legs. Her
+ * tail wheel is fixed, and goes with her tail.
+ */
+function dauntlessFlightModel() {
+  const geos = dauntlessGeometries();
+  const mat = dauntlessMaterial();
+  const segs = {};
+  for (const k of DAUNTLESS_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, DAUNTLESS_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(dauntlessHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: dauntlessRest('prop'),
+    geo: withDisc(geos.prop, DAUNTLESS.propR), mats: [mat, discMaterial()],
+  }];
+  parts.push({ name: 'trapeze', axis: 'x', open: DAUNTLESS.trapeze.open, at: at('trapeze'),
+    rot: dauntlessRest('trapeze'), geo: geos.trapeze, mats: [mat] });
+  // The bomb on the yoke first: it is the one the simulation's bomb is.
+  parts.push({ name: 'store', axis: 'x', open: DAUNTLESS.store.open, fall: true, at: at('store'),
+    rot: dauntlessRest('store'), geo: geos.store, mats: [mat] });
+  for (const k of ['bombL', 'bombR']) {
+    parts.push({ name: k, axis: 'z', open: 0, fall: true, at: at(k), rot: dauntlessRest(k), geo: geos[k], mats: [mat] });
+  }
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: dauntlessRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR']) {
+    const spec = DAUNTLESS[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: dauntlessRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const br = BRAKES.dauntless;
+  parts.push(...brakeParts(geos, br.panels, br.plates, brakeMaterial(br.color)));
+  const segOf = dauntlessSegOf;
+  segOf.breaks = DAUNTLESS.breaks;
+  return { segs, parts, probe, segOf, cy: DAUNTLESS.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The TBF Avenger: the owner's sculpt, in her pieces, with everything of her
+ * that moves on its own hinge -- her airscrew, the two doors of her bomb bay
+ * and the Mark 13 behind them, the ball turret with its fifty, and the three
+ * legs built for her, the mains swinging outboard into her wings.
+ */
+function avengerFlightModel() {
+  const geos = avengerGeometries();
+  const mat = avengerMaterial();
+  const segs = {};
+  for (const k of AVENGER_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, AVENGER_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(avengerHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: avengerRest('prop'),
+    geo: withDisc(geos.prop, AVENGER.propR), mats: [mat, discMaterial()],
+  }];
+  for (const k of ['bayPort', 'bayStbd']) {
+    parts.push({ name: k, axis: 'z', open: AVENGER[k].open, at: at(k), rot: avengerRest(k), geo: geos[k], mats: [mat] });
+  }
+  parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: avengerRest('store'),
+    geo: geos.store, mats: [mat] });
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: avengerRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR', 'gearT']) {
+    const spec = AVENGER[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: avengerRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = avengerSegOf;
+  segOf.breaks = AVENGER.breaks;
+  return { segs, parts, probe, segOf, cy: AVENGER.cy, geo: probe, mats: [mat] };
+}
+
+/**
+ * The gun on a mounting of a type built off the kit rather than a sculpt --
+ * the Avenger's ball turret -- read off her model when she is welded (see
+ * flightModels), in the shape rearGunOf answers with.
+ */
+const KIT_GUNS = {};
+
+/**
  * Where the gunner's gun is on a type that has one, in her own frame: its
  * pivot, the rotation it sits at, and its muzzle about the pivot laid aft.
  * Null for a type with nobody facing aft.
@@ -465,7 +805,16 @@ export function rearGunOf(kind) {
   if (kind === 'b5n') {
     return { at: B5N.gun.at, rot: b5nRest('gun'), muzzle: B5N.gun.muzzle };
   }
-  return null;
+  if (kind === 'ju87c' || kind === 'ju87d') {
+    return { at: JU87.gun.at, rot: ju87Rest('gun'), muzzle: JU87.gun.muzzle };
+  }
+  if (kind === 'avenger') {
+    return { at: AVENGER.gun.at, rot: avengerRest('gun'), muzzle: AVENGER.gun.muzzle };
+  }
+  if (kind === 'dauntless') {
+    return { at: DAUNTLESS.gun.at, rot: dauntlessRest('gun'), muzzle: DAUNTLESS.gun.muzzle };
+  }
+  return KIT_GUNS[kind] || null;
 }
 
 /**
@@ -475,13 +824,19 @@ export function rearGunOf(kind) {
  * tail, which is the arc the simulation gives him (see stepRearGunners). The
  * Avenger's is her ball turret, with her fifty in it.
  */
-// Functions, because the Suisei's and the B5N's are read off their sculpts,
+// Functions, because the Suisei's, the B5N's and the Stuka's are read off their sculpts,
 // which are fetched after this module is loaded (see loadShips).
 const REAR_SEATS = {
-  dauntless: () => ({ x: 0, y: 2.55, z: -2.0, cal: 0.0077, guns: 2 }),
+  // The SBD's gunner, behind the pilot under the after end of the greenhouse,
+  // with his twin thirties.
+  dauntless: () => ({ x: 0, y: DAUNTLESS.gun.at[1] + 0.45, z: DAUNTLESS.gun.at[2] + 0.4, cal: 0.0077, guns: 2 }),
   suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
-  avenger: () => ({ x: 0, y: 3.25, z: -0.5, cal: 0.0127, guns: 1 }),
+  // The Avenger's turret gunner, in the ball on her back with his fifty.
+  avenger: () => ({ x: 0, y: AVENGER.gun.at[1] + 0.4, z: AVENGER.gun.at[2], cal: 0.0127, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
+  // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
+  ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
+  ju87d: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
 };
 
 /** A carrier bomber's rear gun, in the shape a heavy's turrets are; or null. */
@@ -501,14 +856,16 @@ const STORES = {};
  * Where a type's bomb is when it is let go -- the middle of it, in her own
  * frame, with her bay open and her crutch swung out -- the way it is lying,
  * and how long and how fat it is. Null for a type with nothing on a rack.
+ *
+ * A type that lets more than one weapon go at once -- the Ju 87C's SC 500
+ * out of her bay and an SC 250 off each wing -- has the first as itself and
+ * the rest in `extra`, each the same shape and with its own `name`.
  */
 export function storeOf(kind) {
   return STORES[kind] || null;
 }
 
-function readStore(key, parts) {
-  const sp = parts.find((q) => q.fall);
-  if (!sp) return;
+function storeSpec(sp) {
   sp.geo.computeBoundingBox();
   const bb = sp.geo.boundingBox;
   const c = bb.getCenter(new THREE.Vector3());
@@ -516,12 +873,20 @@ function readStore(key, parts) {
   const axis = new THREE.Vector3(sp.axis === 'x' ? 1 : 0, sp.axis === 'y' ? 1 : 0, sp.axis === 'z' ? 1 : 0);
   const swing = new THREE.Quaternion().setFromAxisAngle(axis, sp.open || 0);
   const q = sp.rot.clone().multiply(swing);
-  STORES[key] = {
+  return {
+    name: sp.name,
     at: c.applyQuaternion(q).add(sp.at).toArray(),
     q, len: size.z, r: Math.max(size.x, size.y) * 0.5,
     // The type's own weapon: what falls is what hung in her.
     geo: sp.geo, mats: sp.mats, mid: bb.getCenter(new THREE.Vector3()),
   };
+}
+
+function readStore(key, parts) {
+  const falls = parts.filter((q) => q.fall);
+  if (!falls.length) return;
+  STORES[key] = storeSpec(falls[0]);
+  if (falls.length > 1) STORES[key].extra = falls.slice(1).map(storeSpec);
 }
 
 /** One of each type, in flight trim, welded, cut into her pieces and ready to instance. */
@@ -594,8 +959,10 @@ export function flightModels() {
       node.parent.remove(node);
       parts.push({
         name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
-        spin: spec.spin, at, rot, geo, mats,
+        spin: spec.spin, gear: spec.gear, tuck: spec.tuck, slide: spec.slide,
+        turret: spec.turret, at, rot, geo, mats,
       });
+      if (spec.turret) KIT_GUNS[key] = { at: at.toArray(), rot: rot.clone(), muzzle: spec.muzzle };
     }
     const { geo, mats } = weld(g);
     geo.computeBoundingBox();
@@ -606,8 +973,17 @@ export function flightModels() {
     readStore(key, parts);
   };
   make('wildcat', (g) => wildcat(g, 0, 0, 0, 0, false, { gear: false }));
-  make('dauntless', (g) => dauntless(g, 0, 0, 0, 0, false, { gear: false }));
-  make('avenger', (g) => avenger(g, 0, 0, 0, 0, false, true, { gear: false }));
+  // The Avenger, off the owner's sculpt, with her fish in her belly.
+  out.avenger = avengerFlightModel();
+  MUZZLES.avenger = AVENGER.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('avenger', out.avenger.parts);
+  // The American carrier's fighter and dive bomber, off the owner's sculpts:
+  // the Hellcat that took over from the Wildcat, and the Dauntless.
+  out.hellcat = hellcatFlightModel();
+  MUZZLES.hellcat = HELLCAT.guns.slice().sort((a, b) => a[0] - b[0]);
+  out.dauntless = dauntlessFlightModel();
+  MUZZLES.dauntless = DAUNTLESS.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('dauntless', out.dauntless.parts);
   // The two float planes fly as themselves. A cruiser's scout used to be
   // drawn as whatever the carrier had in the same role -- which is `dive` --
   // so a Dauntless dive bomber came off a battleship's quarterdeck, and the
@@ -631,6 +1007,17 @@ export function flightModels() {
   MUZZLES.b5n = [];
   readStore('b5n', out.b5n.parts);
   make('jake', (g) => jake(g, 0, 0, 0, 0, false, {}));
+  // And the Graf Zeppelin's three, off the owner's sculpts: the Messerschmitt,
+  // and the two Stukas -- the C with her bombs and the D with her torpedo,
+  // which are the one airframe.
+  out.bf109 = bf109FlightModel();
+  MUZZLES.bf109 = BF109.guns.slice().sort((a, b) => a[0] - b[0]);
+  for (const v of ['c', 'd']) {
+    const key = 'ju87' + v;
+    out[key] = ju87FlightModel(v);
+    MUZZLES[key] = JU87.guns.slice().sort((a, b) => a[0] - b[0]);
+    readStore(key, out[key].parts);
+  }
   return out;
 }
 
@@ -648,11 +1035,11 @@ export function breaksOf(models, kind) {
  * `typeOf`.
  */
 export const ROLE_TYPE = {
-  fighter: 'wildcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
+  fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake']);
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
+  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {
@@ -825,9 +1212,16 @@ export class HoleField {
     // In at her from outside. A wing and a tailplane are found from above or
     // below, a fuselage from the side -- which is also the direction the round
     // came from, so the hole ends up on the side it went in.
-    const flat = h.k === 'wings' || h.k === 'tail';
+    //
+    // A tank is in the wing, so it is found the way the wing is -- from below,
+    // which is where a holed tank drains. Found from the side, the way the
+    // fuselage is, the ray stopped at the first thing out on the wing it came
+    // to: a tank hole four metres out from her fuselage went on the outboard
+    // engine ten metres out, and the fuel poured out of that.
+    const flat = h.k === 'wings' || h.k === 'tail' || h.k === 'tanks';
+    const above = h.k !== 'tanks' && py >= cy;
     const reach = span * 1.2;
-    if (flat) this.dir.set(0, py >= cy ? -1 : 1, 0);
+    if (flat) this.dir.set(0, above ? -1 : 1, 0);
     else this.dir.set(px >= 0 ? -1 : 1, 0, 0);
     this.probe.far = reach * 2.4;
     // The point itself first, and then round about it.
@@ -850,7 +1244,7 @@ export class HoleField {
         const ox = ring * span * Math.cos(a);
         const oz = ring * span * Math.sin(a);
         // Offset across the two axes the ray is not travelling along.
-        if (flat) this.from.set(px + ox, py >= cy ? cy + reach : cy - reach, pz + oz);
+        if (flat) this.from.set(px + ox, above ? cy + reach : cy - reach, pz + oz);
         else this.from.set(px >= 0 ? reach : -reach, py + ox * 0.5, pz + oz);
         this.probe.set(this.from, this.dir);
         const hits = this.probe.intersectObject(probe, false);
@@ -1017,6 +1411,8 @@ export class Flights {
     // what is drawn on them afterwards: trails off their tips, flashes at
     // their guns.
     this.slotM = SLOTS.map(() => new THREE.Matrix4());
+    // Which station of the formation each of those is.
+    this.slotI = SLOTS.map(() => 0);
     this.slotN = 0;
   }
 
@@ -1024,6 +1420,24 @@ export class Flights {
   tips(kind) {
     const b = this.batches[kind];
     return b ? { tips: b.tips, nose: b.nose } : null;
+  }
+
+  /**
+   * Where a hole at `h` -- a part and a point in the airframe's normalised
+   * frame, as the simulation records one -- is in the world, on the machine
+   * at `station` of the flight just drawn. The same ray the hole itself is
+   * cut by finds it, so anything coming out of the hole comes out of the
+   * hole that can be seen. Null when that machine is not being drawn.
+   */
+  pointOn(kind, station, h, span, out) {
+    const b = this.batches[kind];
+    if (!b) return null;
+    const k = this.slotI.indexOf(station);
+    if (k < 0 || k >= this.slotN) return null;
+    const at = this.holes.snap(kind, b.probe, h, span, b.cy);
+    if (at) out.copy(at.p);
+    else out.set(h.x * span * 0.5, b.cy + h.y * span * 0.30, h.z * span * 0.36);
+    return out.applyMatrix4(this.slotM[k]);
   }
 
   /** Where on her each piece of this type breaks away, in her own frame. */
@@ -1042,7 +1456,8 @@ export class Flights {
    * Draw one aeroplane's moving parts at the attitude her trim says they are
    * in: `bay` is how far the doors are open, 0 shut to 1 wide; `fall` is how
    * far the weapon has dropped clear of her, or null while it is still on the
-   * rack; `gear` is her legs, 0 down to 1 up, and up unless she says.
+   * rack; `gear` is her legs, 0 down to 1 up, and up unless she says;
+   * `brake` is how far her dive brakes are out, 0 in to 1 out.
    */
   trimParts(b, body, trim, cut = 0) {
     if (!b.parts.length) return;
@@ -1050,9 +1465,13 @@ export class Flights {
     const fall = trim && trim.fall !== undefined && trim.fall !== null ? trim.fall : null;
     const turn = trim && trim.prop ? trim.prop : 0;
     const gear = trim && trim.gear !== undefined ? Math.max(0, Math.min(1, trim.gear)) : 1;
+    const brake = trim && trim.brake ? Math.max(0, Math.min(1, trim.brake)) : 0;
     for (const q of b.parts) {
       if (q.n >= this.max) continue;
-      if (segGone(q.spec.name, cut)) continue;
+      // A dive brake goes with the wing panel it is hung on.
+      if (segGone(q.spec.seg || q.spec.name, cut)) continue;
+      // And one shut away inside the wing is not drawn at all.
+      if (q.spec.brake && !q.spec.always && brake < 0.02) continue;
       // A weapon that has gone is not drawn at all, and once it is clear of
       // her the simulation's own bomb or torpedo has taken it over.
       if (q.spec.fall && fall !== null && fall > 3.5) continue;
@@ -1060,8 +1479,11 @@ export class Flights {
       // falling: the one on the rack goes the same instant, or she is drawn
       // twice -- once leaving and once still hanging in the bay.
       if (q.spec.fall && trim && trim.handed) continue;
-      this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
-        q.spec.axis === 'z' ? 1 : 0);
+      if (q.spec.axisV) this.axis.copy(q.spec.axisV);
+      else {
+        this.axis.set(q.spec.axis === 'x' ? 1 : 0, q.spec.axis === 'y' ? 1 : 0,
+          q.spec.axis === 'z' ? 1 : 0);
+      }
       // An airscrew is wound on rather than swung open: the angle is where it
       // has got to, and it goes round faster the faster she is going. A leg
       // is swung up on its hinge as far as it has got.
@@ -1069,6 +1491,7 @@ export class Flights {
       let tuck = 0;
       let slide = 0;
       if (q.spec.spin) ang = turn;
+      else if (q.spec.brake) ang = q.spec.open * brake * brake * (3 - 2 * brake);
       else if (q.spec.gear) {
         // Up, with the doors shut over it: not drawn. See planekit's gearRig.
         if (gear >= 0.985) continue;
@@ -1169,6 +1592,7 @@ export class Flights {
       d.updateMatrix();
       // Kept in the order drawn, gaps left out, for whatever wants each
       // machine that is actually there: the bombs off her racks, her trails.
+      this.slotI[this.slotN] = i;
       this.slotM[this.slotN++].copy(d.matrix);
       const c = i === cutSlot ? cut : 0;
       // What has been shot through her, cut out of her. The list is turned
@@ -1199,6 +1623,7 @@ export class Flights {
     d.scale.setScalar(1);
     d.updateMatrix();
     this.slotM[0].copy(d.matrix);
+    this.slotI[0] = 0;
     this.slotN = 1;
     const row = this.holesOn(d.matrix, holes, span, 0, b, key, cut);
     this.body(b, d.matrix, cut, row);

@@ -1,493 +1,602 @@
-// The torpedo, and the track it leaves on the water.
+// The torpedo.
 //
-// A torpedo used to be a grey box seven metres long sliding across the sea.
-// This is the weapon instead: a body, a rounded head, a tapered tail with the
-// control surfaces on it and a pair of contra-rotating screws, running at the
-// depth it was set to with only the top of it breaking the surface -- and,
-// behind it, the track.
+// A torpedo used to be one grey shape for every navy, running with its back
+// awash and riding every wave like a cork, with a rope of white water laid out
+// behind it. None of that is what a torpedo was. Each navy's was its own
+// weapon -- a Fletcher's Mk 15 and a Kagero's Type 93 are a metre and a half
+// and nearly a ton apart, and the Mk 13 an Avenger dropped looks like neither
+// -- and every one of them ran at the depth it was set to, under the sea and
+// not on it.
 //
-// The track is the whole point. A Mk 15 was a wet-heater torpedo: it burned
-// alcohol and air, and it put the exhaust out through the propeller boss. What
-// came up behind it was a rope of white bubbles standing out against the sea
-// for a minute or more, and that rope is the single most important thing in a
-// torpedo action. Ships were conned off torpedo tracks. Lookouts were posted
-// for nothing else. A torpedo you cannot see coming is not a weapon in a game,
-// it is an accident that happens to you -- so the track is modelled properly:
-// a ribbon of churned water laid in the world where the fish has been, riding
-// the same swell as everything else, plus the bubbles boiling up along it.
+// So each is drawn as itself here, to its own drawings: its own length and
+// diameter, the shape of its head, the joints between warhead, air flask and
+// afterbody, its guide stud and its starting lever, its tail cone, fins and
+// rudders, and its own pair of contra-rotating screws. And it runs at its
+// depth: a fixed distance under the deepest trough the sea is making, so no
+// wave ever uncovers it and none ever lifts it.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { WAVE_GLSL } from './ocean.js';
-
-// How far the fish runs between track points, how many are kept, and how long
-// a piece of track stands on the water before the sea takes it.
-const STEP_M = 7;
-const POINTS = 90;
-const LIFE = 42;
-// Half the width of the track, in metres. A torpedo's wake is a narrow thing:
-// this is a rope of bubbles, not a ship's wake.
-const HALF = 1.5;
 
 /**
- * One torpedo: body, head, tail cone, fins and screws.
+ * The torpedoes, each to its own drawings. Length and radius in metres.
  *
- * Built to the real thing's proportions -- a Mk 15 is 533 mm across and 7.3 m
- * long, which is a very slender object indeed -- and pointing down +Z so an
- * instance can be laid along its own course.
+ * `nose` is the shape of the head: `round` a hemisphere, `ogive` a long
+ * pointed head, `blunt` a flat face with a rounded edge. `fin` is how far the
+ * fins stand out from the axis as a share of the radius -- a fish fired from a
+ * tube carries them inside its own diameter, one dropped from an aeroplane
+ * does not have to -- and `ring` puts the shroud round them that the American
+ * aerial fish carried. `blades` is the screws, front and back. `stud` is the
+ * guide stud a tube-launched fish rides its tube on.
  */
-export function torpedoGeometry() {
-  const RINGS = [
-    // [z along the fish, radius]. Nose first: a rounded warhead, a long
-    // parallel body, and a tail cone back to the screws.
-    [3.65, 0.00], [3.58, 0.12], [3.45, 0.20], [3.25, 0.25], [2.90, 0.267],
-    [1.60, 0.267], [0.00, 0.267], [-1.30, 0.267], [-2.05, 0.25],
-    [-2.60, 0.20], [-3.05, 0.14], [-3.30, 0.10],
-  ];
-  const N = 12;
-  const pos = [];
-  const idx = [];
-  for (const [z, r] of RINGS) {
-    for (let i = 0; i < N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      pos.push(Math.cos(a) * r, Math.sin(a) * r, z);
-    }
+export const TORPEDO_KINDS = {
+  // The Fletcher's. Steam-driven, 21 inches across, and her warhead painted
+  // dark against a bright steel body.
+  mk15: {
+    len: 7.32, r: 0.267, nose: 'round', head: 0.27, flask: 0.36, cone: 4.2, fin: 0.98,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x34393f, flask: 0x8c949b, after: 0x7c848b, tail: 0x8a6c42, joint: 0x2a2e33, screw: 0xb48e55 },
+  },
+  // The Long Lance: 61 cm, nine metres, and black from end to end -- a long
+  // pointed head and slight fins on a very long body.
+  type93: {
+    len: 9.0, r: 0.305, nose: 'ogive', head: 0.2, flask: 0.42, cone: 4.6, fin: 0.9,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x26282b, flask: 0x1d1f22, after: 0x202326, tail: 0x2a2c2f, joint: 0x6d2a24, screw: 0xc39a52 },
+  },
+  // The German G7a: a blunt head, a short tail and a dull green warhead.
+  g7a: {
+    len: 7.18, r: 0.267, nose: 'blunt', head: 0.24, flask: 0.33, cone: 3.6, fin: 0.98,
+    blades: [4, 4], stud: true, pistol: true,
+    paint: { head: 0x47503f, flask: 0x9aa0a4, after: 0x8a9094, tail: 0x6f7478, joint: 0x2f3234, screw: 0xa98653 },
+  },
+  // The G7e: the same tube and the same length, but a battery in place of the
+  // air flask -- a rounder head and a smooth, light steel body.
+  g7e: {
+    len: 7.16, r: 0.267, nose: 'round', head: 0.24, flask: 0.42, cone: 3.4, fin: 0.98,
+    blades: [3, 3], stud: true, pistol: true,
+    paint: { head: 0x5a3330, flask: 0xb3b8bb, after: 0xa7acaf, tail: 0x8e9397, joint: 0x3a3d40, screw: 0x9aa1a6 },
+  },
+  // Rodney's 24.5-inch: the biggest torpedo any battleship carried, and
+  // enriched with oxygen to reach.
+  mk1: {
+    len: 8.15, r: 0.311, nose: 'ogive', head: 0.24, flask: 0.38, cone: 4.0, fin: 0.96,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x2f3337, flask: 0x6f7378, after: 0x656a6f, tail: 0x5b5f63, joint: 0x8a6b3a, screw: 0xb38b4f },
+  },
+  // The Surcouf's 55 cm 1924V: long, a round head and an olive warhead.
+  l3: {
+    len: 8.28, r: 0.275, nose: 'round', head: 0.25, flask: 0.38, cone: 4.0, fin: 0.98,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x4a4f3c, flask: 0x8b8f86, after: 0x7e827a, tail: 0x6b6f68, joint: 0x2c2e29, screw: 0xae8a54 },
+  },
+  // The Surcouf's 40 cm 1926, out of the outer tubes of her triples: short
+  // and thin beside the 55 cm on the centre of the mount.
+  mle26: {
+    len: 5.15, r: 0.2, nose: 'round', head: 0.26, flask: 0.36, cone: 4.0, fin: 0.98,
+    blades: [3, 3], stud: true,
+    paint: { head: 0x3f4536, flask: 0x969a90, after: 0x898d84, tail: 0x74786f, joint: 0x2c2e29, screw: 0xae8a54 },
+  },
+  // The Avenger's Mk 13: short and fat, and a ring round its tail that held
+  // it straight through the water once its wooden drop gear had gone.
+  mk13: {
+    aerial: true,
+    len: 4.09, r: 0.285, nose: 'blunt', head: 0.33, flask: 0.3, cone: 3.0, fin: 1.32, ring: true,
+    blades: [4, 4], pistol: true,
+    paint: { head: 0x2d3135, flask: 0x7a8187, after: 0x6f767c, tail: 0x5f666c, joint: 0x9a7a3c, screw: 0xb48e55, ring: 0x6a7076 },
+  },
+  // The Type 91: slender, 45 cm, with big fins and a stabiliser on each to
+  // hold it level after the long drop. Its wooden air tail is shed on entry.
+  type91: {
+    aerial: true,
+    len: 5.27, r: 0.225, nose: 'round', head: 0.27, flask: 0.33, cone: 4.2, fin: 1.7, plates: true,
+    blades: [4, 4],
+    paint: { head: 0x35352f, flask: 0x2a2d2f, after: 0x2e3133, tail: 0x34373a, joint: 0x7a6a3a, screw: 0xbe9750 },
+  },
+  // The Luftwaffe's F5b: 45 cm too, but light grey with a pointed head.
+  f5b: {
+    aerial: true,
+    len: 5.46, r: 0.225, nose: 'ogive', head: 0.25, flask: 0.34, cone: 3.8, fin: 1.45,
+    blades: [4, 4],
+    paint: { head: 0x4c5257, flask: 0xa8adb1, after: 0x9ca1a5, tail: 0x8d9296, joint: 0x2f3235, screw: 0xa5824f },
+  },
+  // The Swordfish's 18-inch Mk XII.
+  mk12: {
+    aerial: true,
+    len: 4.95, r: 0.229, nose: 'round', head: 0.28, flask: 0.34, cone: 3.8, fin: 1.4,
+    blades: [4, 4],
+    paint: { head: 0x3a3f36, flask: 0x8f9592, after: 0x848a87, tail: 0x767c79, joint: 0x2b2e2a, screw: 0xb08b52 },
+  },
+};
+
+const DEFAULT_KIND = 'mk15';
+const kindOf = (k) => (TORPEDO_KINDS[k] ? k : DEFAULT_KIND);
+
+// How deep a fish runs below the bottom of the deepest trough the sea is
+// making, and the least it runs at in a calm. A torpedo set shallow for a
+// destroyer ran at three or four metres.
+const RUN_DEPTH = 3.2;
+const UNDER_TROUGH = 1.4;
+// From the splash to its set depth: a fish goes in, dives, and levels off.
+const DIVE_TIME = 1.8;
+const ENTRY_DEPTH = 0.7;
+// How long a fish newly in the water waits for its own to leave the tube.
+const HOLD = 0.8;
+
+// --------------------------------------------------------------- building --
+
+const tmpColor = new THREE.Color();
+
+/** A geometry as flat triangles in one colour, ready to be put with others. */
+function painted(geo, color, matrix = null) {
+  if (matrix) geo.applyMatrix4(matrix);
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  const flat = geo.index ? geo.toNonIndexed() : geo;
+  if (flat !== geo) geo.dispose();
+  tmpColor.setHex(color);
+  const n = flat.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = tmpColor.r;
+    col[i * 3 + 1] = tmpColor.g;
+    col[i * 3 + 2] = tmpColor.b;
   }
-  for (let k = 0; k < RINGS.length - 1; k++) {
-    for (let i = 0; i < N; i++) {
-      const j = (i + 1) % N;
-      const a = k * N + i;
-      const b = k * N + j;
-      const c = (k + 1) * N + i;
-      const d = (k + 1) * N + j;
-      idx.push(a, c, d, a, d, b);
-    }
+  return { pos: flat.attributes.position.array, nrm: flat.attributes.normal.array, col };
+}
+
+/** Put painted parts together into one geometry. */
+function merged(parts) {
+  const total = parts.reduce((a, p) => a + p.pos.length, 0);
+  const pos = new Float32Array(total);
+  const nrm = new Float32Array(total);
+  const col = new Float32Array(total);
+  let at = 0;
+  for (const p of parts) {
+    pos.set(p.pos, at);
+    nrm.set(p.nrm, at);
+    col.set(p.col, at);
+    at += p.pos.length;
   }
-  const cap = (ringIndex, z, flip) => {
-    const hub = pos.length / 3;
-    const base = ringIndex * N;
-    pos.push(0, 0, z);
-    for (let i = 0; i < N; i++) {
-      const j = (i + 1) % N;
-      if (flip) idx.push(hub, base + j, base + i);
-      else idx.push(hub, base + i, base + j);
-    }
-  };
-  cap(RINGS.length - 1, RINGS[RINGS.length - 1][0] - 0.05, true);
-
-  // The four tail fins, on the diagonals where a Mk 15 carries them, and the
-  // upper vertical that shows above the surface.
-  const fin = (ang) => {
-    const c = Math.cos(ang);
-    const s = Math.sin(ang);
-    const base = pos.length / 3;
-    // A flat blade: root at the tail cone, tip out beyond the body.
-    const pts = [
-      [0.10, -1.15], [0.62, -1.15], [0.62, -3.05], [0.10, -3.05],
-    ];
-    for (const [r, z] of pts) pos.push(c * r, s * r, z);
-    for (const [r, z] of pts) pos.push(c * r * 0.98 - s * 0.03, s * r * 0.98 + c * 0.03, z);
-    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    idx.push(base + 4, base + 6, base + 5, base + 4, base + 7, base + 6);
-  };
-  for (const a of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) fin(a);
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeBoundingSphere();
+  return g;
 }
-
-/** The two contra-rotating screws on the tail, as one small blade disc. */
-function screwGeometry() {
-  const pos = [];
-  const idx = [];
-  let n = 0;
-  for (const [z, ang0] of [[-3.32, 0], [-3.52, Math.PI / 4]]) {
-    for (let b = 0; b < 4; b++) {
-      const a = ang0 + (b / 4) * Math.PI * 2;
-      const c = Math.cos(a);
-      const s = Math.sin(a);
-      const w = 0.05;
-      pos.push(c * 0.05 - s * w, s * 0.05 + c * w, z);
-      pos.push(c * 0.32 - s * w, s * 0.32 + c * w, z + 0.03);
-      pos.push(c * 0.32 + s * w, s * 0.32 - c * w, z - 0.03);
-      pos.push(c * 0.05 + s * w, s * 0.05 - c * w, z);
-      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
-      idx.push(n, n + 2, n + 1, n, n + 3, n + 2);
-      n += 4;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-// ------------------------------------------------------------- the track --
-
-const TRACK_VERT = /* glsl */`
-attribute float aAge;      // seconds since the fish churned this water
-attribute float aSide;     // -1 to port of the track, +1 to starboard
-attribute float aRun;      // how far astern of the fish, in metres
-varying float vAge;
-varying float vSide;
-varying float vRun;
-varying vec3 vWorld;
-varying vec3 vSea;
-varying float vDist;
-${WAVE_GLSL}
-
-void main() {
-  vAge = aAge;
-  vSide = aSide;
-  vRun = aRun;
-  // Lifted on to the swell, but not carried along it.
-  //
-  // A ship's wake ribbon is laid out in wave *parameter* space and displaced
-  // bodily, which is why it lands exactly on the water. A torpedo track cannot
-  // be: it is a record of where the weapon actually was, in world coordinates,
-  // and the fish herself is drawn at those coordinates too. Displace it
-  // bodily and the Gerstner term slides the rope ten metres sideways from the
-  // torpedo that laid it. So only the vertical part is taken -- the track
-  // rides up and down the swell with the sea, and stays under its own fish.
-  vec3 nrm;
-  float fold;
-  vec3 d = gerstner(position.xz, nrm, fold);
-  vec3 world = vec3(position.x, position.y + d.y, position.z);
-  float dist = length(world - cameraPosition);
-  // Clear of the surface by a hand's breadth, growing with range: far off, the
-  // ocean is a coarse mesh whose triangles cut chords under their own crests.
-  world.y += min(0.10 + dist * 0.0035, 5.0);
-  vWorld = world;
-  vSea = nrm;
-  vDist = dist;
-  gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
-}
-`;
-
-const TRACK_FRAG = /* glsl */`
-uniform float uLife;
-uniform vec3 uFoam;
-uniform vec3 uFogColor;
-uniform float uFogDensity;
-uniform float uTime;
-varying float vAge;
-varying float vSide;
-varying float vRun;
-varying vec3 vWorld;
-varying vec3 vSea;
-varying float vDist;
-
-float hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
-}
-float vnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash21(i), hash21(i + vec2(1, 0)), u.x),
-             mix(hash21(i + vec2(0, 1)), hash21(i + vec2(1, 1)), u.x), u.y);
-}
-float fbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.07; a *= 0.5; }
-  return v;
-}
-
-void main() {
-  float age = clamp(vAge / uLife, 0.0, 1.0);
-  // Across the track: full in the middle, gone at the edges. The rope widens
-  // and softens as it ages, which is the bubbles rising and spreading out.
-  float across = abs(vSide);
-  float spread = 0.42 + age * 0.58;
-  float band = 1.0 - smoothstep(spread * 0.45, spread, across);
-
-  // The bubbles themselves. Two scales of noise scrolling slowly astern: the
-  // boil right behind the screws, and the broken foam left further back.
-  vec2 p = vec2(vWorld.x, vWorld.z) * 0.55;
-  float boil = fbm(p + vec2(0.0, uTime * 0.35));
-  float broke = fbm(p * 0.34 - vec2(uTime * 0.11, 0.0));
-  float bubbles = smoothstep(0.34, 0.78, boil * 0.65 + broke * 0.45);
-
-  // The boil right behind her screws is solid white and churning; a few
-  // seconds astern it has already broken up into the rope of separate bubbles
-  // that a lookout actually sees, and the sea goes on taking that apart.
-  float fresh = 1.0 - smoothstep(0.0, 0.035, age);
-  float body = mix(bubbles, 1.0, fresh * 0.85);
-
-  float fade = pow(1.0 - age, 1.35);
-  float alpha = band * body * fade * 0.85;
-  // Right at the head of the track it is hidden under the fish herself.
-  alpha *= smoothstep(2.6, 5.0, vRun);
-  if (alpha < 0.004) discard;
-
-  // Foam is white, but white against a sunlit sea reads as a cut-out. Let the
-  // sea's own normal tip it a little the way the water beside it is tipped.
-  float lean = clamp(vSea.y, 0.0, 1.0);
-  vec3 col = uFoam * (0.72 + lean * 0.28);
-  float fog = 1.0 - exp(-uFogDensity * uFogDensity * vDist * vDist);
-  col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
-  gl_FragColor = vec4(col * alpha, alpha);
-}
-`;
 
 /**
- * Every torpedo in the water, and every track behind them.
+ * Turn a profile -- `[radius, z]` pairs, tail first -- about the fish's axis.
+ * A lathe turns about Y; laid down, its +Y is the fish's +Z, nose first.
+ */
+function lathe(profile, seg = 24) {
+  const g = new THREE.LatheGeometry(profile.map(([r, z]) => new THREE.Vector2(Math.max(r, 1e-4), z)), seg);
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+
+/** The radius of the case `d` metres aft of the tip of the nose. */
+function radiusAt(S, d) {
+  const R = S.r;
+  const L = caseLen(S);
+  const nose = noseLength(S);
+  const coneLen = R * S.cone;
+  if (d <= 0) return 0;
+  if (d < nose) {
+    const u = d / nose;
+    if (S.nose === 'ogive') {
+      // A tangent ogive: pointed, and meeting the body without a step.
+      const rho = (R * R + nose * nose) / (2 * R);
+      const x = nose - d;
+      return Math.sqrt(Math.max(0, rho * rho - x * x)) - (rho - R);
+    }
+    if (S.nose === 'blunt') {
+      // A flat face a little over half the diameter, rounded off to the body.
+      const face = 0.55;
+      return R * (face + (1 - face) * Math.sqrt(1 - (1 - u) * (1 - u)));
+    }
+    return R * Math.sqrt(1 - (1 - u) * (1 - u));
+  }
+  const fromTail = L - d;
+  if (fromTail < coneLen) {
+    const u = 1 - fromTail / coneLen;
+    return R - (R - R * 0.3) * Math.pow(u, 1.7);
+  }
+  return R;
+}
+
+// The case alone: `len` is the torpedo overall, pistol to the cap past her
+// after screw, as the drawings give it.
+function caseLen(S) { return S.len - 0.5; }
+
+function noseLength(S) {
+  if (S.nose === 'ogive') return S.r * 2.8;
+  if (S.nose === 'blunt') return S.r * 0.5;
+  return S.r;
+}
+
+/** A profile of the case from `d0` to `d1` metres aft of the nose, tail first. */
+function caseProfile(S, d0, d1, lift = 0) {
+  const nose = noseLength(S);
+  const coneAt = caseLen(S) - S.r * S.cone;
+  const ds = new Set([d0, d1]);
+  // Fine where the case curves, two points where it does not.
+  for (let i = 0; i <= 18; i++) ds.add(nose * (i / 18));
+  for (let i = 0; i <= 14; i++) ds.add(coneAt + (caseLen(S) - coneAt) * (i / 14));
+  const list = [...ds].filter((d) => d >= d0 - 1e-6 && d <= d1 + 1e-6).sort((a, b) => b - a);
+  const tip = caseLen(S) / 2;
+  return list.map((d) => [radiusAt(S, d) + lift, tip - d]);
+}
+
+/**
+ * A flat plate -- a fin, a rudder, a stabiliser -- standing out from the axis
+ * at angle `a`: a trapezoid in (along the fish, out from it), `t` thick.
+ * `hinge` and `swing` turn it about its own leading edge, for a rudder laid
+ * over a few degrees.
+ */
+function plate(a, [z0, z1, zt0, zt1], rIn, rOut, t, swing = 0) {
+  const shape = new THREE.Shape();
+  shape.moveTo(z0, rIn);
+  shape.lineTo(z1, rIn);
+  shape.lineTo(zt1, rOut);
+  shape.lineTo(zt0, rOut);
+  shape.closePath();
+  const g = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false });
+  g.translate(0, 0, -t / 2);
+  if (swing) {
+    const hinge = Math.max(z0, zt0);
+    g.translate(-hinge, 0, 0);
+    g.rotateY(swing);
+    g.translate(hinge, 0, 0);
+  }
+  // Shape x is along the fish, y out from it, z across the plate.
+  const m = new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(Math.cos(a), Math.sin(a), 0),
+    new THREE.Vector3(-Math.sin(a), Math.cos(a), 0),
+  );
+  g.applyMatrix4(m);
+  return g;
+}
+
+/** A small block, centred at (x, y, z). */
+function block(w, h, l, x, y, z) {
+  const g = new THREE.BoxGeometry(w, h, l);
+  g.translate(x, y, z);
+  return g;
+}
+
+/**
+ * The case of one torpedo, with everything on it that does not turn: warhead,
+ * air flask, afterbody and tail cone, the joints between them, the pistol, the
+ * guide stud and the starting lever, the fins and rudders, and the ring.
+ * Pointing down +Z, centred on its own middle.
+ */
+export function torpedoGeometry(kind = DEFAULT_KIND) {
+  const S = TORPEDO_KINDS[kindOf(kind)];
+  const P = S.paint;
+  const L = caseLen(S);
+  const R = S.r;
+  const tip = L / 2;
+  const coneAt = L - R * S.cone;
+  const head = L * S.head;
+  const flask = head + L * S.flask;
+  const parts = [];
+
+  // The case, in its four lengths and their own paint.
+  parts.push(painted(lathe(caseProfile(S, 0, head)), P.head));
+  parts.push(painted(lathe(caseProfile(S, head, flask)), P.flask));
+  parts.push(painted(lathe(caseProfile(S, flask, coneAt)), P.after));
+  parts.push(painted(lathe(caseProfile(S, coneAt, L)), P.tail));
+  // The joints: a band proud of the case where each length is bolted to the
+  // next.
+  for (const d of [head, flask, coneAt]) {
+    const r = radiusAt(S, d) + 0.006;
+    parts.push(painted(lathe([[r * 0.98, tip - d - 0.03], [r, tip - d - 0.02], [r, tip - d + 0.02], [r * 0.98, tip - d + 0.03]]), P.joint));
+  }
+  // The exercise band a third of the way down the flask: the colour each navy
+  // marked its fish with.
+  {
+    const d = head + (flask - head) * 0.12;
+    parts.push(painted(lathe([[R + 0.002, tip - d - 0.06], [R + 0.002, tip - d + 0.06]]), P.joint));
+  }
+
+  // The pistol in the nose, where the warhead is struck.
+  if (S.pistol || S.nose !== 'ogive') {
+    const r = S.nose === 'blunt' ? R * 0.2 : R * 0.12;
+    parts.push(painted(lathe([[r, tip - 0.01], [r * 0.9, tip + 0.06], [r * 0.4, tip + 0.08], [0, tip + 0.085]], 14), P.joint));
+  }
+  // Inspection plates and filling plugs along the flask.
+  for (const f of [0.3, 0.55, 0.8]) {
+    const z = tip - (head + (flask - head) * f);
+    parts.push(painted(block(0.12, 0.012, 0.18, 0, R + 0.002, z), P.joint));
+  }
+
+  // The guide stud a tube fish rides its tube on, and the starting lever that
+  // the tube trips as she goes -- both on her back.
+  if (S.stud) {
+    const z = tip - (head + (flask - head) * 0.5);
+    parts.push(painted(block(0.05, 0.05, 0.3, 0, R + 0.022, z), P.joint));
+    parts.push(painted(block(0.07, 0.015, 0.36, 0, R + 0.05, z), P.joint));
+    const zs = tip - (flask + (coneAt - flask) * 0.35);
+    parts.push(painted(block(0.04, 0.09, 0.05, 0, R + 0.04, zs), P.joint));
+  }
+
+  // The fins: a cross, upright and level, along the tail cone. A tube fish's
+  // stay within its own diameter; an aerial fish's stand out.
+  const zEnd = -tip;
+  const finOut = R * S.fin;
+  const finLen = R * S.cone * 0.62;
+  const finZ0 = zEnd + 0.12;
+  const finZ1 = finZ0 + finLen;
+  // The root on the case where it is thinnest, at the after end of the fin;
+  // forward of that it is buried in the cone.
+  const finIn = radiusAt(S, L - 0.12) * 0.9;
+  const finT = R * 0.07;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    // Fixed fin, swept at the leading edge.
+    parts.push(painted(plate(a, [finZ0 + finLen * 0.28, finZ1, finZ0 + finLen * 0.28, finZ0 + finLen * 0.55], finIn, finOut, finT), P.tail));
+    // The rudder or the elevator behind it, laid over a few degrees.
+    const swing = i % 2 === 0 ? 0.06 : -0.1;
+    parts.push(painted(plate(a, [finZ0, finZ0 + finLen * 0.28, finZ0, finZ0 + finLen * 0.28], finIn, finOut * 0.96, finT * 0.8, swing), P.after));
+    // The Type 91's stabiliser plates, across the tips of its big fins.
+    if (S.plates) {
+      const g = block(finOut * 0.42, finT * 0.8, finLen * 0.5, 0, 0, finZ0 + finLen * 0.6);
+      g.translate(0, finOut * 0.98, 0);
+      g.rotateZ(a - Math.PI / 2);
+      parts.push(painted(g, P.tail));
+    }
+  }
+  // The Mk 13's ring, round the tips of the fins.
+  if (S.ring) {
+    const r0 = finOut * 0.97;
+    const r1 = finOut * 1.03;
+    const z0 = finZ0 + finLen * 0.05;
+    const z1 = finZ0 + finLen * 0.62;
+    parts.push(painted(lathe([[r0, z0], [r1, z0 + 0.02], [r1, z1 - 0.03], [r0, z1], [r0 * 0.995, z0]], 28), P.ring));
+  }
+
+  // The screw shafts: a cone out of the tail to the after screw and a cap past
+  // it.
+  const hub = R * 0.3;
+  parts.push(painted(lathe([[0.001, zEnd - 0.42], [hub * 0.35, zEnd - 0.4], [hub * 0.55, zEnd - 0.3], [hub * 0.7, zEnd - 0.12], [hub, zEnd]], 14), P.joint));
+
+  return merged(parts);
+}
+
+/**
+ * One of the two screws, as blades round a boss at the axis. The two turn
+ * opposite ways -- that is what keeps the fish from rolling -- and the after
+ * one is pitched the other way to match.
+ */
+export function screwGeometry(kind = DEFAULT_KIND, which = 0) {
+  const S = TORPEDO_KINDS[kindOf(kind)];
+  const R = S.r;
+  const n = S.blades[which];
+  const z = -caseLen(S) / 2 - (which === 0 ? 0.1 : 0.3);
+  const span = R * (which === 0 ? 0.88 : 0.8);
+  const chord = R * 0.42;
+  const parts = [];
+  for (let b = 0; b < n; b++) {
+    const a = (b / n) * Math.PI * 2 + (which ? Math.PI / n : 0);
+    const g = new THREE.BoxGeometry(chord, span - R * 0.12, 0.014, 2, 3, 1);
+    // Twisted: steep at the root and flatter at the tip, as a screw is.
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      const u = (y + (span - R * 0.12) / 2) / (span - R * 0.12);
+      const pitch = (which ? -1 : 1) * (0.95 - u * 0.45);
+      const x = p.getX(i) * (1 - u * 0.25);
+      const zz = p.getZ(i);
+      p.setXYZ(i, x * Math.cos(pitch) - zz * Math.sin(pitch), y, x * Math.sin(pitch) + zz * Math.cos(pitch));
+    }
+    g.computeVertexNormals();
+    g.translate(0, R * 0.12 + (span - R * 0.12) / 2, 0);
+    // Laid round the boss, the chord across the shaft and pitched along it.
+    g.rotateZ(a);
+    g.translate(0, 0, z);
+    parts.push(painted(g, S.paint.screw));
+  }
+  const boss = new THREE.CylinderGeometry(R * 0.14, R * 0.16, 0.12, 12);
+  boss.rotateX(Math.PI / 2);
+  boss.translate(0, 0, z);
+  parts.push(painted(boss, S.paint.screw));
+  return merged(parts);
+}
+
+/**
+ * A whole fish, screws and all, stretched to `len` by `r` -- for a bank of
+ * tubes on a ship's model, which has to fit the tubes her sculpt has.
+ */
+const fitted = new Map();
+export function fishGeometry(kind, len = null, r = null) {
+  const k = kindOf(kind);
+  const key = `${k}/${len}/${r}`;
+  if (fitted.has(key)) return fitted.get(key);
+  const S = TORPEDO_KINDS[k];
+  const parts = [torpedoGeometry(k), screwGeometry(k, 0), screwGeometry(k, 1)];
+  const all = merged(parts.map((g) => ({
+    pos: g.attributes.position.array, nrm: g.attributes.normal.array, col: g.attributes.color.array,
+  })));
+  parts.forEach((g) => g.dispose());
+  if (len && r) {
+    const kr = r / S.r;
+    all.scale(kr, kr, len / S.len);
+  }
+  fitted.set(key, all);
+  return all;
+}
+
+/** The paint a torpedo is drawn in: its own colours, a little sheen of wet steel. */
+export function torpedoMaterial() {
+  return new THREE.MeshPhongMaterial({
+    vertexColors: true, shininess: 48, specular: 0x444a50,
+  });
+}
+
+// ----------------------------------------------------------------- the fish --
+
+/**
+ * Every torpedo in the water.
  *
- * One geometry for all the tracks and one instanced mesh for all the fish, so
- * a full ten-tube salvo costs two draw calls. A track is kept for a while
- * after its torpedo has gone -- it ran, and the water remembers it for a
- * minute whether or not the weapon is still there.
+ * One batch for each kind of fish that is running -- the case, and the two
+ * screws, each turning its own way -- built the first time one of that kind
+ * goes in, so a battle with nothing but Mk 15s in it pays for Mk 15s.
  */
 export class Torpedoes {
   constructor(scene, ocean = null, max = 48) {
     this.scene = scene;
     this.ocean = ocean;
     this.max = max;
-    this.tracks = new Map();   // id -> { pts, seen, dead }
+    this.kinds = new Map();   // kind -> { body, fore, aft, n }
+    this.runs = new Map();    // id -> { born, y0, y }
+    // Where fish have just left her tubes, for the running torpedo to be
+    // picked up from: see seed.
+    this.seeds = [];
     this.clock = 0;
-
-    const geo = torpedoGeometry();
-    // Torpedo bronze, gone dark with paint and seawater. Light enough to read
-    // against the sea, which a real one very deliberately was not.
-    this.mat = new THREE.MeshLambertMaterial({ color: 0x5a6169, emissive: 0x14171a });
-    this.mesh = new THREE.InstancedMesh(geo, this.mat, max);
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.frustumCulled = false;
-    scene.add(this.mesh);
-
-    this.screwMat = new THREE.MeshBasicMaterial({
-      color: 0xb9c2cb, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-    });
-    this.screws = new THREE.InstancedMesh(screwGeometry(), this.screwMat, max);
-    this.screws.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.screws.frustumCulled = false;
-    scene.add(this.screws);
-
+    this.mat = torpedoMaterial();
     this.dummy = new THREE.Object3D();
-    this.park(0);
-    this.buildTrack(scene);
+    this.dummy.rotation.order = 'YXZ';
   }
 
-  buildTrack(scene) {
-    const verts = this.max * POINTS * 2;
-    const pos = new Float32Array(verts * 3);
-    const age = new Float32Array(verts);
-    const side = new Float32Array(verts);
-    const run = new Float32Array(verts);
-    const idx = [];
-    for (let t = 0; t < this.max; t++) {
-      const base = t * POINTS * 2;
-      for (let i = 0; i < POINTS; i++) {
-        side[base + i * 2] = -1;
-        side[base + i * 2 + 1] = 1;
-      }
-      for (let i = 0; i < POINTS - 1; i++) {
-        const a = base + i * 2;
-        idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('aAge', new THREE.BufferAttribute(age, 1));
-    g.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
-    g.setAttribute('aRun', new THREE.BufferAttribute(run, 1));
-    g.setIndex(idx);
-    g.setDrawRange(0, 0);
-    this.trackGeo = g;
-
-    // The sea's own wave train and air, handed over rather than copied, so the
-    // track rides exactly the water everything else is riding.
-    const sea = this.ocean ? this.ocean.material.uniforms : null;
-    const borrow = (name, fallback) => (sea && sea[name] ? sea[name] : fallback);
-    this.trackMat = new THREE.ShaderMaterial({
-      vertexShader: TRACK_VERT,
-      fragmentShader: TRACK_FRAG,
-      uniforms: {
-        uTime: borrow('uTime', { value: 0 }),
-        uAmp: borrow('uAmp', { value: 2.9 }),
-        uSteep: borrow('uSteep', { value: 1 }),
-        uWave: borrow('uWave', { value: [] }),
-        uWaveB: borrow('uWaveB', { value: [] }),
-        uFogColor: borrow('uFogColor', { value: new THREE.Color(0x0b1a2b) }),
-        uFogDensity: borrow('uFogDensity', { value: 0.00005 }),
-        uLife: { value: LIFE },
-        uFoam: { value: new THREE.Color(0xe8f1fa) },
-      },
-      transparent: true,
-      depthWrite: false,
-      // Both sides. The ribbon is laid across the track by hand and its winding
-      // follows whichever way the fish happened to be running -- and a track
-      // is water anyway, which is as visible from under it as over it.
-      side: THREE.DoubleSide,
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-    });
-    this.track = new THREE.Mesh(g, this.trackMat);
-    this.track.frustumCulled = false;
-    this.track.renderOrder = 2;
-    scene.add(this.track);
+  batch(kind) {
+    let b = this.kinds.get(kind);
+    if (b) return b;
+    const make = (geo) => {
+      const m = new THREE.InstancedMesh(geo, this.mat, this.max);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.frustumCulled = false;
+      m.count = 0;
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    };
+    b = {
+      body: make(torpedoGeometry(kind)),
+      fore: make(screwGeometry(kind, 0)),
+      aft: make(screwGeometry(kind, 1)),
+      n: 0,
+    };
+    this.kinds.set(kind, b);
+    return b;
   }
 
   /**
-   * Nothing beyond `from` is running. Stop drawing it.
-   *
-   * An instanced batch draws every instance it is told it has, wherever the
-   * matrix has put it -- so a pool built for forty-eight fish drew forty-eight
-   * of them on a frame with none in the water, parked under the sea bed at a
-   * thousandth of their size with frustum culling off. `count` is the batch's
-   * own word for how many are real.
+   * How deep a fish runs, for the sea as it is: a fixed depth, under the
+   * bottom of the deepest trough this sea can make. It does not follow the
+   * waves -- a torpedo's depth engine holds it to its setting whatever the
+   * surface is doing -- and none of them ever uncovers it.
    */
-  park(from) {
-    this.mesh.count = from;
-    this.screws.count = from;
-    this.mesh.visible = from > 0;
-    this.screws.visible = from > 0;
-    if (from > 0) {
-      this.mesh.instanceMatrix.needsUpdate = true;
-      this.screws.instanceMatrix.needsUpdate = true;
-    }
+  runDepth() {
+    const deep = this.ocean && this.ocean.deepest ? this.ocean.deepest() : 0;
+    return Math.max(RUN_DEPTH, deep + UNDER_TROUGH);
   }
 
   /**
-   * Take this frame's torpedoes: `[{ i, x, z, h }]` in world coordinates.
-   *
-   * The track is laid here rather than in the shader because it is a record of
-   * where the weapon has been, and only the client that has been watching it
-   * knows that. Points go down every few metres of run, so a fish crossing the
-   * screen leaves a rope and one running away leaves a line.
+   * A fish has just gone into the sea at (x, y, z) off a ship's tubes: the
+   * torpedo the simulation is running from there starts at that depth -- the
+   * surface, for one dropped over her side, or her tube's depth for one pushed
+   * out under the water -- and goes to its own.
    */
-  update(dt, list, seaAt = null) {
+  seed(x, y, z) {
+    this.seeds.push({ x, y: Math.min(y, -0.3), z, t: this.clock });
+  }
+
+  /** Where torpedo `id` is running, as a height: for the camera that rides one. */
+  depthOf(id) {
+    const run = this.runs.get(id);
+    return run ? run.y : -this.runDepth();
+  }
+
+  /**
+   * Take this frame's torpedoes: `[{ i, x, z, h, k }]` in world coordinates.
+   */
+  update(dt, list) {
     this.clock += dt;
+    for (const b of this.kinds.values()) b.n = 0;
+    const depth = this.runDepth();
     const live = new Set();
-    let n = 0;
+    const d = this.dummy;
     for (const tp of list) {
-      // Not in the water yet: her model is drawing it leaving the tube.
+      // Not in the water yet: her model is drawing it leaving the tube, or the
+      // aeroplane's is drawing it falling.
       if (tp.a) continue;
       live.add(tp.i);
-      let tr = this.tracks.get(tp.i);
-      if (!tr) {
-        tr = { pts: [], slot: -1 };
-        this.tracks.set(tp.i, tr);
+      const kind = kindOf(tp.k);
+      let run = this.runs.get(tp.i);
+      if (!run) {
+        run = { born: this.clock, y0: -ENTRY_DEPTH, y: -ENTRY_DEPTH, seeded: false };
+        this.runs.set(tp.i, run);
       }
-      const last = tr.pts[tr.pts.length - 1];
-      if (!last || Math.hypot(tp.x - last.x, tp.z - last.z) >= STEP_M) {
-        tr.pts.push({ x: tp.x, z: tp.z, t: this.clock });
-        if (tr.pts.length > POINTS) tr.pts.shift();
+      if (!run.seeded) {
+        // Picked up from where it left her tube. The simulation and her model
+        // do not hand over on exactly the same frame, so a fish is held back
+        // for a moment for its own to come out of the tube, rather than drawn
+        // twice -- once in the tube, once in the sea.
+        let best = -1;
+        let bestD = 30;
+        this.seeds.forEach((sd, k) => {
+          const d = Math.hypot(sd.x - tp.x, sd.z - tp.z);
+          if (d < bestD) { bestD = d; best = k; }
+        });
+        if (best >= 0) {
+          run.y0 = run.y = this.seeds[best].y;
+          run.born = this.clock;
+          run.seeded = true;
+          this.seeds.splice(best, 1);
+        } else if (!TORPEDO_KINDS[kind].aerial && this.clock - run.born < HOLD) {
+          // (An aeroplane's fish has no tube: it is in the sea the moment it
+          // stops falling.)
+          continue;
+        } else {
+          run.seeded = true;
+          run.born = this.clock;
+        }
       }
-      tr.head = tp;
-      // The fish herself: running at set depth with the top of her awash, laid
-      // along her own course.
-      if (n < this.max) {
-        // Running just under the surface with her back awash. A torpedo set
-        // for a battleship ran ten or fifteen feet down and showed nothing but
-        // its track; one set for a destroyer ran shallow enough to see, and
-        // that is the one worth drawing.
-        const y = (seaAt ? seaAt(tp.x, tp.z) : 0) - 0.26;
-        const d = this.dummy;
-        d.position.set(tp.x, y, tp.z);
-        d.rotation.set(0, tp.h, 0);
-        d.scale.setScalar(1);
-        d.updateMatrix();
-        this.mesh.setMatrixAt(n, d.matrix);
-        // The screws, turning. At two hundred revolutions a minute nobody can
-        // see a blade, so this is a blur disc that spins slowly enough to read.
-        d.rotation.set(0, tp.h, this.clock * 9);
-        d.updateMatrix();
-        this.screws.setMatrixAt(n, d.matrix);
-        tr.slot = n;
-        n++;
+      const b = this.batch(kind);
+      if (b.n >= this.max) continue;
+      // From where she went in to her set depth, and level there; once she
+      // has it she holds it.
+      const u = Math.min(1, (this.clock - run.born) / DIVE_TIME);
+      const ease = u * u * (3 - 2 * u);
+      run.y = run.y0 + (-depth - run.y0) * ease;
+      const pitch = u < 1 ? Math.sin(u * Math.PI) * 0.12 * Math.sign(run.y0 + depth) : 0;
+      d.position.set(tp.x, run.y, tp.z);
+      d.scale.setScalar(1);
+      d.rotation.set(pitch, tp.h, 0);
+      d.updateMatrix();
+      b.body.setMatrixAt(b.n, d.matrix);
+      // The screws, contra-rotating. At several hundred revolutions a minute
+      // nobody can see a blade, so they turn slowly enough to read.
+      d.rotation.set(pitch, tp.h, this.clock * 11);
+      d.updateMatrix();
+      b.fore.setMatrixAt(b.n, d.matrix);
+      d.rotation.set(pitch, tp.h, -this.clock * 11);
+      d.updateMatrix();
+      b.aft.setMatrixAt(b.n, d.matrix);
+      b.n++;
+    }
+    for (const id of this.runs.keys()) if (!live.has(id)) this.runs.delete(id);
+    // A seed nobody picked up -- a fish this client is not being shown -- is
+    // forgotten after a few seconds.
+    this.seeds = this.seeds.filter((s) => this.clock - s.t < 4);
+    for (const b of this.kinds.values()) {
+      for (const m of [b.body, b.fore, b.aft]) {
+        m.count = b.n;
+        m.visible = b.n > 0;
+        if (b.n > 0) m.instanceMatrix.needsUpdate = true;
       }
     }
-    this.park(n);
-
-    // A track outlives its torpedo: she detonated or ran out of fuel, and the
-    // rope of bubbles she left is still on the water.
-    for (const [id, tr] of this.tracks) {
-      if (!live.has(id)) {
-        tr.head = null;
-        const last = tr.pts[tr.pts.length - 1];
-        if (!last || this.clock - last.t > LIFE) { this.tracks.delete(id); continue; }
-      }
-      while (tr.pts.length && this.clock - tr.pts[0].t > LIFE) tr.pts.shift();
-      if (!tr.pts.length && !tr.head) this.tracks.delete(id);
-    }
-    this.writeTracks();
-  }
-
-  writeTracks() {
-    const pos = this.trackGeo.attributes.position.array;
-    const age = this.trackGeo.attributes.aAge.array;
-    const run = this.trackGeo.attributes.aRun.array;
-    let slot = 0;
-    let used = 0;
-    for (const tr of this.tracks.values()) {
-      if (slot >= this.max) break;
-      // The live head counts as the newest point, so the rope starts at the
-      // screws instead of at whatever point was last laid down -- otherwise
-      // there is a gap of open water between the fish and her own track.
-      const pts = tr.head
-        ? [...tr.pts, { x: tr.head.x, z: tr.head.z, t: this.clock }]
-        : tr.pts;
-      if (pts.length < 2) { slot++; continue; }
-      const base = slot * POINTS * 2;
-      // Astern of the head first, so `aRun` counts backwards along the rope
-      // the way it does behind a ship.
-      const headX = tr.head ? tr.head.x : pts[pts.length - 1].x;
-      const headZ = tr.head ? tr.head.z : pts[pts.length - 1].z;
-      let acc = 0;
-      for (let i = 0; i < POINTS; i++) {
-        // Walk from the newest point back. Beyond the end of the track every
-        // remaining vertex is pinned to the oldest one, which collapses the
-        // spare quads to nothing rather than leaving them at the origin.
-        const k = Math.max(0, pts.length - 1 - i);
-        const p = pts[k];
-        const prev = pts[Math.max(0, k - 1)];
-        const nx = pts[Math.min(pts.length - 1, k + 1)];
-        // Which way the track is running here, so the ribbon can be laid
-        // across it.
-        let tx = nx.x - prev.x;
-        let tz = nx.z - prev.z;
-        const tl = Math.hypot(tx, tz) || 1;
-        tx /= tl; tz /= tl;
-        if (i > 0) acc += Math.hypot(p.x - pts[Math.min(pts.length - 1, k + 1)].x,
-          p.z - pts[Math.min(pts.length - 1, k + 1)].z);
-        const a = base + i * 2;
-        pos[a * 3] = p.x + tz * HALF;
-        pos[a * 3 + 1] = 0;
-        pos[a * 3 + 2] = p.z - tx * HALF;
-        pos[(a + 1) * 3] = p.x - tz * HALF;
-        pos[(a + 1) * 3 + 1] = 0;
-        pos[(a + 1) * 3 + 2] = p.z + tx * HALF;
-        const old = this.clock - p.t;
-        age[a] = old;
-        age[a + 1] = old;
-        const r = Math.hypot(p.x - headX, p.z - headZ);
-        run[a] = r;
-        run[a + 1] = r;
-      }
-      slot++;
-      used = slot;
-    }
-    this.trackGeo.setDrawRange(0, Math.max(0, used * (POINTS - 1) * 6));
-    this.trackGeo.attributes.position.needsUpdate = true;
-    this.trackGeo.attributes.aAge.needsUpdate = true;
-    this.trackGeo.attributes.aRun.needsUpdate = true;
   }
 
   dispose() {
-    this.scene.remove(this.mesh);
-    this.scene.remove(this.screws);
-    this.scene.remove(this.track);
-    this.mesh.geometry.dispose();
-    this.screws.geometry.dispose();
-    this.trackGeo.dispose();
+    for (const b of this.kinds.values()) {
+      for (const m of [b.body, b.fore, b.aft]) {
+        this.scene.remove(m);
+        m.geometry.dispose();
+      }
+    }
+    this.kinds.clear();
     this.mat.dispose();
-    this.screwMat.dispose();
-    this.trackMat.dispose();
   }
 }

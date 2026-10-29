@@ -15,6 +15,7 @@ import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
   from './render/aero.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
+import { VIC, vicAt } from '../../shared/formation.js';
 import {
   ROLE_TYPE, typeOf, slotAt, gunsOf, unpackHoles, CUT, storeOf, rearGunOf, rearSeatOf,
 } from './render/planes.js';
@@ -28,12 +29,13 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
 import { PenCam } from './render/pencam.js';
+import { Lens } from './render/lens.js';
 import { buildBridge } from './render/bridgeroom.js';
 import {
   MAN, freshMan, stepDeck, stepWater, deckAt, onPlan, roughPlan, placeOn,
@@ -43,6 +45,9 @@ import {
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
 import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
+import {
+  applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
+} from '../../shared/works.js';
 
 // How far behind the server everybody else is drawn, in the server's own
 // seconds. A little over two snapshots at fifteen a second, so one of them can
@@ -54,8 +59,17 @@ const INTERP_DELAY = 0.15;
  */
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
-  'planeCrash', 'ram',
+  'planeCrash', 'ram', 'trap',
 ]);
+// What the batsman saw, for a captain watching one of his own go round.
+const WAVE_OFF = {
+  launch: 'Aircraft waved off — launch on deck',
+  deck: 'Aircraft waved off — deck fouled',
+  fire: 'Aircraft waved off — fire on the flight deck',
+  holed: 'Aircraft waved off — flight deck holed',
+  lineup: 'Aircraft waved off — not lined up',
+  long: 'Aircraft waved off — too high, going round',
+};
 // And when one is later than that, how far a ship is carried on past the last
 // snapshot on her own course and speed before she is held where she is. She
 // is a ship: she does not stop dead in the water because a packet did.
@@ -144,6 +158,28 @@ const SKIM_P = new THREE.Vector3();
 const SKIM_PTS = [[0, 0.5, 0], [0, 1, -4.5]];
 const SKIM_M = new THREE.Matrix4();
 const SKIM_E = new THREE.Euler();
+// Where a heavy of the vic is, and her attitude, drawn the way heavies.js
+// draws her: heading first, then pitch, then bank.
+const HEAVY_AT = { x: 0, y: 0, z: 0 };
+const HEAVY_E = new THREE.Euler(0, 0, 0, 'YXZ');
+// A funnel top on a ship, carried into the world.
+const FUNNEL_P = new THREE.Vector3();
+
+/**
+ * Where a ship's funnels come out, as [across, along, up] in her own frame,
+ * metres. Off her datasheet (hull.funnels, measured off her model); a ship
+ * that has none -- a submarine runs on diesels -- makes what smoke she makes
+ * from a generator on her quarter.
+ */
+function funnelsOf(cls) {
+  const f = cls.hull.funnels;
+  if (f && f.length) return f;
+  return [[0, -cls.hull.length * 0.44, 3]];
+}
+
+// A hole off the wire, and where it is in the world.
+const LEAK_H = { k: 'tanks', x: 0, y: 0, z: 0 };
+const LEAK_P = new THREE.Vector3();
 const EYE_UP = new THREE.Vector3();
 const EYE_TOP = new THREE.Vector3();
 const EYE_BACK = new THREE.Vector3();
@@ -215,6 +251,7 @@ const SEABED = -34;
 
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
+  hellcat: 'her Hellcats',
   wildcat: 'her fighters',
   dauntless: 'her dive bombers',
   avenger: 'her torpedo bombers',
@@ -222,6 +259,9 @@ const FLIGHT_NAME = {
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
   loire: 'her Loires',
+  bf109: 'her Messerschmitts',
+  ju87c: 'her Stukas',
+  ju87d: 'her torpedo Stukas',
 };
 
 /** The order the parts come in on the wire and on the pilot's board. */
@@ -229,10 +269,11 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
-  wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
+  hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   zero: 'A6M Zero',
   suisei: 'D4Y Suisei', b5n: 'B5N2 Type 97', jake: 'E13A Jake',
+  bf109: 'Bf 109T', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
 };
 
 /** What she has been sent to do, as the plate in the corner says it. */
@@ -242,6 +283,7 @@ const ROLE_NAME = {
 
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
+  hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
   dauntless: 12.7,    // two in the cowling
   avenger: 12.7,      // one in each wing
@@ -256,6 +298,9 @@ const GUN_CALIBRE = {
   // the bow cockpit and one aft, and it is the one in the bow that fires on
   // what is ahead of her.
   loire: 7.5,
+  bf109: 20,          // two MG FF in the wings and two MG 17 over the engine
+  ju87c: 7.92,        // an MG 17 in each wing
+  ju87d: 7.92,
 };
 
 /**
@@ -269,8 +314,9 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
+  bf109: 4, ju87c: 2, ju87d: 2,
 };
 
 /**
@@ -452,6 +498,9 @@ function batteryKind(row) {
   // quarterdeck by a party with a pinch bar, and what the captain does is give
   // the word. See dropCharges.
   if (row.charges) return 'dc';
+  // And the mine rails, which are worked the same way: the word is given and
+  // the party rolls the next one over the stern.
+  if (row.mines) return 'mine';
   return null;
 }
 
@@ -516,6 +565,14 @@ export class Battle {
     // A bomb arrives where the scene flew it to, so the scene is what says
     // when. See bombThrough.
     this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);
+    // Water on the glass the battle is watched through: thrown on it by
+    // splashes close aboard and by the weather. See lens.js.
+    this.lens = new Lens(document.getElementById('screen-battle'));
+    this.scene.effects.onSplash = (x, z, cal, opts) => this.splashOnGlass(x, z, cal, opts);
+    {
+      const wx = this.scene.wx || {};
+      this.lens.setRain(wx.fall === 'rain' ? 5 + 4 * (wx.drop || 1) : 0);
+    }
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
     this.hud.setSelected(shipId);
@@ -566,7 +623,8 @@ export class Battle {
       // close-range mountings across the whole battery. See lightMounts.
       this.armsBoard.onPick((i) => (batteryKind(row) === 'dc'
         ? this.dropCharges(i)
-        : this.manGun(batteryKind(row), i, row)));
+        : batteryKind(row) === 'mine' ? this.layMine()
+          : this.manGun(batteryKind(row), i, row)));
     });
     // And an aeroplane's own armament: pressing a turret puts you in it, and
     // pressing the one you are in gets you out again.
@@ -587,6 +645,8 @@ export class Battle {
       this.hud.alert(`${battery === 'sec' ? 'Secondaries' : 'Main battery'} loading ${what}`);
       audio.click();
     });
+    // The mine rails: one order, let the next one go.
+    this.hud.onMines?.(() => this.layMine());
     this.hud.onDepthCharges?.((msg) => {
       const ship = this.conned();
       if (msg.k === 'drop') this.dropCharges(null);
@@ -721,15 +781,8 @@ export class Battle {
     // Which of our own the plot is conning. Your own hull until you say
     // otherwise, so the first course you lay off goes to her.
     this.selected = shipId;
-    // An aeroplane on the approach, coming back aboard after her sortie.
-    this.landing = null;
-    // Where each of our flights was last seen, and which of them were reported
-    // shot down rather than recovered. Between them they say which vanishing
-    // flight is a squadron coming home -- see comingHome.
-    this.lastFlights = new Map();
     // When each damaged flight last put up a puff of smoke.
     this.planeSmoke = new Map();
-    this.lostFlights = new Set();
     // Aeroplanes just off a deck, and how far the deck model was from where
     // the simulation put them. See flyLaunched.
     this.handover = new Map();
@@ -831,6 +884,7 @@ export class Battle {
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
       bombCam: () => this.toggleShellCam(),
+      brakes: () => this.toggleBrakes(),
       move: (kind) => this.flyMove(kind),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
@@ -843,6 +897,12 @@ export class Battle {
     this.hud.setTimeWarp?.(1);
     this.hud.bindTimeWarp?.(() => this.cycleWarp());
     this.hud.onToggleMap = () => this.toggleMap();
+    // Fleets and squadrons, formed off the plot.
+    this.hud.bindGrouping?.({
+      toggle: () => this.toggleGrouping(),
+      form: () => this.sendGroup(false),
+      split: () => this.sendGroup(true),
+    });
     // The page's own buttons outlive the battle: what is put on them here
     // comes off again in dispose, all at once.
     this.abort = new AbortController();
@@ -850,6 +910,13 @@ export class Battle {
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome(), mine);
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera(), mine);
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null), mine);
+    // The battery ashore in hand, if any: see takeBattery.
+    this.commandBat = null;
+    document.getElementById('bat-leave')?.addEventListener('click', () => this.leaveBattery(), mine);
+    document.getElementById('bat-fire')?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.fireBattery();
+    }, mine);
     // The penetration camera, over the whole battle screen.
     {
       const host = document.getElementById('screen-battle');
@@ -866,6 +933,7 @@ export class Battle {
     this.hud.onHumanPlan = () => this.humanPanel();
     this.hud.onHumanDeploy = (x, z) => this.deployMan(x, z);
     this.hud.onHumanBridge = () => this.deployBridge();
+    this.hud.onHumanAshore = (where) => this.deployAshore(where);
     this.hud.bindHumanStick(() => { this.jumpAsked = true; });
     document.getElementById('human-leave')?.addEventListener('click', () => this.leaveMan(), mine);
     const fireKey = document.getElementById('gun-fire');
@@ -922,6 +990,23 @@ export class Battle {
       // And the racks refusing. Either there is nothing left in the stowage or
       // the party has not finished reloading, and a captain who pressed the
       // key and saw nothing go over the stern is entitled to be told which.
+      this.net.on('nomine', (m) => {
+        this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
+          : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
+      }),
+      // A fleet or a squadron formed, or broken up, off the plot.
+      this.net.on('grouped', (m) => {
+        const what = m.k === 'ship' ? 'Fleet' : 'Squadron';
+        this.hud.alert(m.split ? `${what} split up` : m.g ? `${what} formed`
+          : `Pick two or more of your own ${m.k === 'ship' ? 'ships' : 'flights'}`);
+      }),
+      // A battery refusing: somebody else has its guns, or the pin was put
+      // further off than the mortar can throw.
+      this.net.on('nobat', (m) => {
+        this.hud.alert(m && m.why === 'range' ? 'Out of the mortar\'s range'
+          : 'Somebody else has those guns');
+        if (m && m.why === 'taken' && this.commandBat && this.commandBat.id === m.i) this.leaveBattery(true, false);
+      }),
       this.net.on('nodc', () => {
         const own = this.ownSnap;
         this.hud.alert(own && own.dcl <= 0 ? 'Depth charge stowage empty'
@@ -995,6 +1080,14 @@ export class Battle {
     const own = snap.ships.find((s) => s.i === this.shipId);
     if (own) {
       const ls = this.localShip;
+      // An order given to her fleet from another ship of it: her helm and her
+      // telegraph take it up, or her own prediction would steer against it.
+      if ((own.fq || 0) !== (this.fleetSeq || 0)) {
+        this.fleetSeq = own.fq || 0;
+        if (typeof own.notch === 'number') ls.notch = own.notch;
+        this.wayX = own.wx ?? null;
+        this.wayZ = own.wz ?? null;
+      }
       // Authority wins, but by being eased into rather than snapped to.
       this.correctOwn(own, st);
       ls.hp = own.hp;
@@ -1351,10 +1444,27 @@ export class Battle {
    */
   dropCharges(only = null) {
     const cls = getClass(this.shownShip()?.c || this.cls.id);
+    // A boat with mines on her stern and no depth charges lets a mine go on
+    // the same key: it is the one thing she drops over the stern.
+    if (!cls.depthCharges && cls.mines) { this.layMine(); return; }
     if (!cls.depthCharges) return;
     const msg = { t: 'dc', ship: this.conned() };
     if (Number.isInteger(only)) msg.i = only;
     this.net.send(msg);
+    audio.click();
+  }
+
+  /**
+   * Roll a mine off the rails.
+   *
+   * Like the depth charges, the order goes up the wire and nothing happens
+   * here: whether there is a mine left and whether the party has the next one
+   * aft are the simulation's to answer, and it says no by sending `nomine`.
+   */
+  layMine() {
+    const cls = getClass(this.shownShip()?.c || this.cls.id);
+    if (!cls.mines) return;
+    this.net.send({ t: 'mine', ship: this.conned() });
     audio.click();
   }
 
@@ -1389,6 +1499,16 @@ export class Battle {
     };
     const reach = Math.max(600, this.gun.range || 12000);
     const mine = this.conned();
+    // The land, and the town on it, are in the way of anything behind them:
+    // the line is followed out to where it first meets a hillside or a wall
+    // of a house, short of where it meets the water.
+    const w = this.scene?.world || this.world;
+    let sea = reach;
+    if (dir.y < -1e-4) sea = Math.min(reach, Math.max(1, eye.y / -dir.y));
+    const land = w ? solidHit(w, eye.x, eye.y, eye.z,
+      eye.x + dir.x * sea, eye.y + dir.y * sea, eye.z + dir.z * sea, 6) : null;
+    const landT = land ? land.f * sea : Infinity;
+    const landFlat = landT * cp;
     // The nearest hull the sight is on. Generous, because a ship at fifteen
     // thousand yards is a few pixels wide and a layer has a spotting glass:
     // half a degree of tolerance, widening with range so it is a ship's
@@ -1400,7 +1520,7 @@ export class Battle {
       const dx = sh.x - eye.x;
       const dz = sh.z - eye.z;
       const d = Math.hypot(dx, dz);
-      if (d < 200 || d > reach) continue;
+      if (d < 200 || d > reach || d > landFlat) continue;
       const off = Math.abs(angleDelta(Math.atan2(dx, dz), this.gunYaw));
       // A hull's own half-breadth, seen from here, plus a layer's allowance.
       const wide = Math.atan2(getClass(sh.c).hull.length * 0.32, d) + 0.006;
@@ -1411,6 +1531,13 @@ export class Battle {
       return {
         x: best.x, y: 4, z: best.z, range: bestD, onSea: true,
         on: best.i, name: best.n,
+      };
+    }
+    // The hill or the house the sight is on: laid on it, at its height.
+    if (land) {
+      return {
+        x: land.x, y: land.y, z: land.z, range: landT, onSea: true, land: true,
+        on: 0, name: land.b ? 'Town' : null,
       };
     }
     // Nothing under the sight: where the line meets the water, and the gun's
@@ -1756,12 +1883,82 @@ export class Battle {
     const plan = lampPlan(view, this.scene.renderer);
     const map = this.manPlan(view);
     const cls = this.cls;
+    const w = this.scene.world;
     return {
       halfX: map.halfX, halfZ: map.halfZ,
       image: planImage(plan),
       onShip: (x, z) => onPlan(map, x, z),
       describe: (x, z) => placeOn(cls.hull.length, cls.hull.beam, x, z),
+      town: !!w?.works?.cities?.length,
+      land: !!(w && ((w.islands || []).length || (w.land || []).length)),
     };
+  }
+
+  /**
+   * Put a man ashore: in the middle of the nearest town, on its square, or on the
+   * nearest dry land to her -- an island's beach, or the coast. He walks
+   * there as he does anywhere off her, on the ground as the simulation has
+   * it: kerbs, the walkway of a sea wall, the heaps where houses were.
+   */
+  deployAshore(where) {
+    const w = this.scene.world;
+    const view = this.scene.shipViews.get(this.shipId);
+    const ls = this.localShip;
+    if (!w || !ls) return;
+    let at = null;
+    if (where === 'town') {
+      // The nearest town first, and the next if there is nowhere in it to stand.
+      const plans = cityPlans(w).slice()
+        .sort((a, b) => Math.hypot(a.city.x - ls.x, a.city.z - ls.z) - Math.hypot(b.city.x - ls.x, b.city.z - ls.z));
+      if (!plans.length) { this.hud.alert('There is no town on this battlefield'); return; }
+      for (const plan of plans) {
+        at = standInTown(w, plan);
+        if (at) break;
+      }
+    } else {
+      // The nearest land to her, walked a few metres up the beach.
+      outer: for (let r = 40; r < 30000; r *= 1.12) {
+        const n = Math.max(16, Math.round(r / 30));
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2;
+          const x = ls.x + Math.sin(a) * r;
+          const z = ls.z + Math.cos(a) * r;
+          if (groundHeight(w, x, z) <= 0.8) continue;
+          // A little further in, off the waterline.
+          for (let s = 0; s < 60; s += 3) {
+            const qx = x + Math.sin(a) * s;
+            const qz = z + Math.cos(a) * s;
+            if (groundHeight(w, qx, qz) > 1.2 && !worksFloor(w, qx, qz).blocked) {
+              at = { x: qx, z: qz, yaw: a + Math.PI };
+              break outer;
+            }
+          }
+        }
+      }
+    }
+    if (!at) { this.hud.alert(where === 'town' ? 'Nowhere in the town to stand' : 'No land within reach'); return; }
+    // Seated the way he is on her, then put down ashore instead.
+    const map = view ? this.manPlan(view) : roughPlan(this.cls.hull.length, this.cls.hull.beam, freeboardOf(this.cls) + 1);
+    if (view) this.standMan(view, map, 0, 0, false);
+    else {
+      this.man = freshMan(map, 0, 0, 0);
+      this.man.map = map;
+      this.hud.setHumanSight({ where: '' });
+    }
+    const m = this.man;
+    m.aboard = false;
+    m.room = false;
+    m.x = at.x;
+    m.z = at.z;
+    m.y = groundHeight(w, at.x, at.z) + worksFloor(w, at.x, at.z).rise;
+    m.vy = 0;
+    m.yaw = at.yaw;
+    m.pitch = 0;
+    m.grounded = true;
+    m.swimming = false;
+    this.manSaid = null;
+    this.hud.setHumanSight({ where: this.manWhere() });
+    this.hud.alert(where === 'town' ? 'Ashore in the town -- stick or WASD to walk' : 'Ashore -- stick or WASD to walk');
   }
 
   /** Stand on her deck at (x, z) in her frame, facing her bow. */
@@ -1888,6 +2085,11 @@ export class Battle {
     }
     if (m.aboard) return placeOn(this.cls.hull.length, this.cls.hull.beam, m.x, m.z);
     if (m.swimming) return 'In the water';
+    if (this.scene.world?.works) {
+      const w = this.scene.world;
+      if (wallAt(w, m.x, m.z)) return 'On the sea wall';
+      if (surfaceAt(w, m.x, m.z) !== SURF.none) return 'In the town';
+    }
     if (m.grounded) return 'Ashore';
     return 'Overboard';
   }
@@ -1951,15 +2153,26 @@ export class Battle {
         const d = deckAt(map, local.x, local.z);
         return Number.isFinite(d) ? { x: local.x, z: local.z, rise: d - local.y, deck: d } : null;
       };
-      const ground = (x, z) => (this.world ? groundHeight(this.world, x, z) : -100);
+      // The ground, and on it whatever has been built: a kerb, a lawn, the
+      // heap a house came down into. A standing wall is in his way.
+      const works = this.world?.works;
+      const ground = (x, z) => (this.world
+        ? groundHeight(this.world, x, z) + (works ? worksFloor(this.world, x, z).rise : 0) : -100);
       const r = stepWater(m, move, dt, {
         sea: (x, z) => ocean.heightAt(x, z),
         ground,
         // Her side is a wall to a man in the water -- unless it is low enough
         // to haul himself up on, which a boat's is.
-        blocked: (x, z) => { const h = her(x, z); return !!h && h.rise > MAN.climb; },
+        blocked: (x, z) => {
+          if (works && worksFloor(this.world, x, z).blocked) return true;
+          const h = her(x, z); return !!h && h.rise > MAN.climb;
+        },
+        // A quay and a sea wall each have their steps and ladders: he can get
+        // up out of the sea, or off the beach, onto the town or the walkway.
+        ladder: (x, z) => !!works && worksHard(this.world, x, z),
       });
       if (r === 'splash') { audio.splash(60, null); this.hud.alert('In the water — swim'); }
+      if (r === 'climbed') this.hud.alert('Up the steps');
       const h = her(m.x, m.z);
       if (h && h.rise <= MAN.climb && (move.fwd || move.side)) {
         // Up her side and onto her deck.
@@ -2321,8 +2534,13 @@ export class Battle {
           let lit = false;
           let heard = null;
           if (view) {
-            const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : null;
-            const which = ev.t != null ? ev.t : ev.s;
+            // `dp` is a dual-purpose gun of her light battery, which the
+            // model holds with the rest of her light mountings.
+            const kind = ev.t != null ? 'turret' : ev.s != null ? 'sec' : ev.dp != null ? 'aa' : null;
+            const which = ev.t != null ? ev.t : ev.s != null ? ev.s : ev.dp;
+            // And it is laid where it fired, not on whatever aeroplane is
+            // nearest: a dual-purpose gun shooting at a ship points at her.
+            if (ev.dp != null) view.holdLight(ev.dp, ev.b, ev.up ?? null, 4);
             if (kind) {
               // And which way each barrel is laid, elevation and all: the
               // blast goes out along the bore, and a gun cocked up at twenty
@@ -2340,7 +2558,13 @@ export class Battle {
           // A coast gun has no ship and no model to ask; so has a mounting the
           // scene has not built. Both fall back on where the simulation says
           // the muzzle is, which is the same point, less the roll.
-          if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
+          if (!lit && ev.battery && ev.up > 0.6) {
+            // A mortar cocked up at sixty degrees and more: the blast goes up
+            // the bore, out of the muzzle five metres over the carriage.
+            const c = Math.cos(ev.up);
+            const aim = { x: Math.sin(ev.b) * c, y: Math.sin(ev.up), z: Math.cos(ev.b) * c };
+            fx.muzzle(ev.x + aim.x * 5, (ev.y ?? 18) + aim.y * 3, ev.z + aim.z * 5, ev.b, ev.cal, aim);
+          } else if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
           break;
@@ -2402,7 +2626,11 @@ export class Battle {
           if (view) {
             const bearing = Math.atan2(ev.tx - view.group.position.x,
               ev.tz - view.group.position.z);
-            mounts = view.bearingOn('aa', bearing, 0.85);
+            // The automatic guns only. A dual-purpose mounting fires its own
+            // rounds, a reload at a time, and they come on their own events.
+            const dpAt = new Set(dpMounts(view.cls).map((q) => q.i));
+            mounts = view.bearingOn('aa', bearing, 0.85)
+              .filter((m) => !dpAt.has(view.aaMounts.indexOf(m)));
             // How much of the burst each barrel is responsible for, so a ship
             // with eighty guns bearing does not send eighty times the tracer
             // of one with four -- the simulation has already decided how much
@@ -2431,13 +2659,41 @@ export class Battle {
 
           break;
         }
+        case 'airburst':
+          // A heavy round's time fuse running out in the sky.
+          fx.flakBurst(ev.x, ev.y, ev.z, ev.cal);
+          audio.explosion(Math.min(0.5, 0.12 + ev.cal / 600), { x: ev.x, y: ev.y, z: ev.z });
+          break;
         case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
         case 'landhit': {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
           fx.debris(ev.x, g + 3, ev.z, Math.max(6, ev.cal / 12));
+          // In the town: lamp-posts and trees knocked flat, cars thrown over.
+          this.scene.worksView?.blast(ev.x, ev.z, ev.cal);
           break;
         }
+        case 'bldghit':
+          // A round into a building: it bursts on the wall, and the wall comes
+          // out across the street.
+          fx.hit(ev.x, ev.y, ev.z, 'he', ev.cal);
+          fx.debris(ev.x, ev.y, ev.z, Math.max(6, ev.cal / 10));
+          audio.explosion(Math.min(0.7, 0.15 + ev.cal / 700), { x: ev.x, y: ev.y, z: ev.z });
+          this.scene.worksView?.hit(ev);
+          break;
+        case 'ruin':
+          // What has been done to the town and its walls: the state first,
+          // which is what the ground and the buildings are drawn from, and
+          // then the sight of it happening.
+          applyRuin(this.scene.world, ev);
+          this.scene.worksView?.ruin(ev);
+          if (ev.k === 'w' && ev.d >= 1) {
+            audio.explosion(1.2, { x: ev.x ?? 0, y: 4, z: ev.z ?? 0 });
+            if (this.hud) this.hud.ribbon('SEA WALL BREACHED', 'miss');
+          } else if (ev.k === 'b' && (ev.s === 3 || ev.s === 4)) {
+            audio.explosion(0.9, { x: ev.x, y: 6, z: ev.z });
+          }
+          break;
         case 'crater':
           // The hole it made. By its own number, so a standalone build -- where
           // the client is handed the very world the simulation is digging into
@@ -2648,6 +2904,27 @@ export class Battle {
         case 'cut':
           this.onCut(ev);
           break;
+        // A mine going over the stern: a splash under her counter, and on her
+        // own bridge the count of what is left on the rails.
+        case 'mineLay':
+          audio.splash(60, { x: ev.x, y: 1, z: ev.z });
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.n > 0 ? `Mine away — ${ev.n} left on the rails` : 'Last mine away');
+          }
+          break;
+        case 'mineHit': {
+          const v = this.scene.shipViews.get(ev.victim);
+          if (v) v.punch(ev.x, ev.y ?? -2, ev.z, holeRadius('torpedo', 1000), 0.4);
+          fx.splash(ev.x, ev.z, 680, { kind: 'torp' });
+          audio.torpHit({ x: ev.x, y: -1, z: ev.z });
+          if (ev.owner === this.shipId && ev.victim !== this.shipId) this.hud.ribbon('MINE HIT', 'cit');
+          if (ev.victim === this.shipId) {
+            this.hud.alert('Struck a mine');
+            audio.alarm();
+            this.markHole(ev.x, ev.y ?? -2, ev.z, 'torpedo');
+          }
+          break;
+        }
         case 'dcAttack':
           if (ev.ship === this.shipId) this.hud.ribbon('DEPTH CHARGE ATTACK');
           break;
@@ -2673,7 +2950,9 @@ export class Battle {
           break;
         case 'fire': if (ev.ship === this.shipId) this.hud.alert('Fire on deck'); break;
         case 'flood': if (ev.ship === this.shipId) { this.hud.alert('Flooding'); audio.alarm(); } break;
-        case 'smoke': fx.smokeScreen(ev.x, ev.z); break;
+        // Made out of her funnels for as long as she is making it, off the
+        // ship's own `sm` (see makeSmoke) -- not set down beside her once.
+        case 'smoke': break;
         case 'repair':
           if (ev.ship === bridge) audio.say('seal', navy);
           if (ev.ship === this.shipId) {
@@ -2881,6 +3160,26 @@ export class Battle {
           v.group.userData.launch?.(this.time, ev.r, ev.d);
           break;
         }
+        case 'trap': {
+          // One of hers down on the deck. The flight the simulation flew up
+          // the wake and onto the round-down is gone from the plot this
+          // instant, and the deck's own model of her picks up where it put
+          // its wheels: the wire, up the deck to the after lift, wings
+          // folding, and the lift down into the hangar.
+          const v = this.scene.shipViews.get(ev.ship);
+          if (!v || !v.group.userData.recover) break;
+          this.recallDeckPlane(v);
+          v.group.userData.recover(this.time, ev.r);
+          break;
+        }
+        case 'waveOff': {
+          // Waved off: the deck was not fit to land on, or she was not fit to
+          // land on it, and she goes round.
+          if (ev.ship === this.shipId) {
+            this.hud.alert(WAVE_OFF[ev.why] || 'Aircraft waved off — going round');
+          }
+          break;
+        }
         case 'airborne': {
           // Which flight the aeroplane that has just gone down the deck
           // became. The simulation says so, because it is the only thing that
@@ -2909,6 +3208,14 @@ export class Battle {
           // Off the rack it was hanging on, in the machine it was hanging in.
           const rel = this.releaseOf(ev.i);
           this.scene.bombs.drop(ev.x, y, ev.z, ev.tx, ev.tz, !!ev.hit, fx, 1.8, 108, rel);
+          // A Stuka's wing bombs go with it, and come down either side of it
+          // -- bursting on her if the big one does, alongside if it does not.
+          // The simulation's one bomb is the whole of the damage.
+          for (const x of (rel && rel.extra) || []) {
+            const ox = x.p.x - rel.p.x, oz = x.p.z - rel.p.z;
+            this.scene.bombs.drop(ev.x, y, ev.z, ev.tx + ox, ev.tz + oz, !!ev.hit, fx, 1.4, 108,
+              { ...x, quiet: true });
+          }
           break;
         }
         case 'airGuns': {
@@ -3136,14 +3443,10 @@ export class Battle {
           if (ev.team === this.team) this.hud.alert('Aircraft hit — turning back');
           break;
         case 'planesLost':
-          // Not a recovery: she is not coming home, so nobody is to look for
-          // her on the deck. See comingHome.
-          //
           // Nothing falls here. Every machine of her still in the air was
           // reported going down on her own just before this (see killFlight),
           // and making up wrecks for her again out of the last snapshot's
           // count was the squadron coming down twice.
-          this.lostFlights.add(ev.i);
           if (Number.isFinite(ev.tk)) this.goneAt.set(ev.i, ev.tk * DT);
           if (ev.why === 'crashed' && (ev.y ?? 0) < 60 && !this.crashSeen.has(ev.i)) {
             // Flown into the sea in a fight: there is nothing to fall.
@@ -3285,10 +3588,33 @@ export class Battle {
     // In the cockpit the flying keys fly her (see stepFlight) and do nothing
     // to the ship she came off.
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
+    // Her dive brakes, out and in.
+    if (this.flight && !this.flight.heavy && code === 'KeyX') { this.toggleBrakes(); return; }
     // A heavy's bombs off the keyboard as well as the DROP key, and out of the
     // bomb bay without leaving the battle.
     if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
     if (this.bombSight && code === 'Escape') { this.closeBombSight(); audio.click(); return; }
+    // Out of a turret before out of anything else.
+    if (this.turret && code === 'Escape') { this.manTurret({ turret: this.turret.name }); return; }
+    // A heavy's turrets by number, in the order her model has them -- nose
+    // to tail -- so a gunner can go straight to the one the fighter is
+    // coming in on rather than stepping through the others to get there.
+    if (/^Digit[1-9]$/.test(code)) {
+      const air = this.airInHand();
+      if (air && air.heavy) {
+        const names = this.heavyTurrets(air);
+        const name = names[Number(code.slice(5)) - 1];
+        if (name) this.manTurret({ turret: name });
+        return;
+      }
+    }
+    // Standing at a gun, Space is the trigger as well as the FIRE key.
+    if (this.gun && code === 'Space') { this.pullTrigger(); return; }
+    // And at a battery ashore, the same; Escape hands its guns back.
+    if (this.commandBat) {
+      if (code === 'Space') { this.fireBattery(); return; }
+      if (code === 'Escape') { this.leaveBattery(); return; }
+    }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
       if (code === 'Space') { this.jumpAsked = true; return; }
@@ -3356,6 +3682,10 @@ export class Battle {
   toggleMap(want = !this.mapBig) {
     this.mapBig = want;
     this.hud.toggleMap(this.mapBig);
+    // The battery's own readout and keys would lie over the table; the pins
+    // on the table say what they would.
+    const bat = document.getElementById('bat-sight');
+    if (bat) bat.hidden = !this.commandBat || this.mapBig;
     if (this.mapBig) this.input.releaseLock();
     audio.click();
   }
@@ -3369,6 +3699,23 @@ export class Battle {
    * enemy or a gun ashore puts the camera on it as it always did.
    */
   workPlot(hit, at) {
+    // Forming a fleet or a squadron: a tap picks one of your own, or puts her
+    // back, and does nothing else. See toggleGrouping.
+    if (this.grouping) { this.pickForGroup(hit); return; }
+    // At the guns of a battery ashore the plot lays them. See workBattery.
+    if (this.commandBat) { this.workBattery(hit, at); return; }
+    // Open water with one of your own flights under the camera sends her --
+    // and the squadron she is in -- there.
+    if (!hit && at && this.watching && this.watching.kind === 'plane') {
+      const snap = this.snapshots[this.snapshots.length - 1];
+      const pl = snap && (snap.planes || []).find((q) => q.i === this.watching.id);
+      if (pl && pl.tm === this.team && this.flight?.id !== pl.i) {
+        this.net.send({ t: 'vector', i: pl.i, x: Math.round(at.x), z: Math.round(at.z) });
+        this.hud.alert(pl.wg ? 'Squadron sent' : 'Flight sent');
+        audio.click();
+        return;
+      }
+    }
     // Any ship picked off the plot is the ship you are watching and the ship
     // you are conning, whichever side she is on. The two used to be different
     // things -- tapping your own division selected her for orders and tapping
@@ -3388,6 +3735,45 @@ export class Battle {
       return;
     }
     this.lookAt(hit);
+  }
+
+  /**
+   * Group mode: the plot picks your own ships or flights instead of watching
+   * them, and the bar under it forms what was picked into a fleet or a
+   * squadron, or splits it out of the one it is in.
+   */
+  toggleGrouping(want = !this.grouping) {
+    this.grouping = want;
+    this.groupPick = { kind: null, ids: [] };
+    this.hud.setGrouping(want ? this.groupPick : null);
+    audio.click();
+  }
+
+  /** A tap on the plot in group mode. */
+  pickForGroup(hit) {
+    const P = this.groupPick;
+    if (!hit || (hit.kind !== 'ship' && hit.kind !== 'plane') || hit.team !== this.team) {
+      this.hud.alert('Pick your own ships or flights');
+      return;
+    }
+    if (P.kind && P.kind !== hit.kind) {
+      this.hud.alert(P.kind === 'ship' ? 'A fleet is ships only' : 'A squadron is aircraft only');
+      return;
+    }
+    const at = P.ids.indexOf(hit.id);
+    if (at >= 0) P.ids.splice(at, 1);
+    else if (P.ids.length < 8) P.ids.push(hit.id);
+    P.kind = P.ids.length ? hit.kind : null;
+    this.hud.setGrouping(P);
+    audio.click();
+  }
+
+  /** Form what is picked into a group, or split it out of the ones it is in. */
+  sendGroup(split) {
+    const P = this.groupPick;
+    if (!P || !P.kind || !P.ids.length) { this.hud.alert('Nothing picked'); return; }
+    this.net.send({ t: 'group', k: P.kind, ids: [...P.ids], split: split ? 1 : 0 });
+    this.toggleGrouping(false);
   }
 
   /**
@@ -3446,7 +3832,7 @@ export class Battle {
       this.watchEl = 0.30;
       // An aeroplane close, the way her own pilot's chase camera has her: a
       // ship's three lengths off is a speck when the length is twelve metres.
-      const near = hit.kind === 'plane' ? 1.4 : 3.2;
+      const near = hit.kind === 'plane' ? 1.4 : hit.kind === 'torp' ? 0.9 : 3.2;
       this.watchDist = near;
       this.watchDistNow = near;
       this.watchFov = 52;
@@ -3461,6 +3847,8 @@ export class Battle {
         this.watchPov = false;
         this.watchEl = 0.18;
       }
+      // A torpedo is watched from beside her, level, under the water.
+      if (hit.kind === 'torp') this.watchEl = 0.04;
     }
     // And the server is told, because it decides what this client is shown:
     // a ship nobody aboard has sighted is not in the snapshot at all, and
@@ -3481,6 +3869,9 @@ export class Battle {
     // Picked one of your own flights off the plot: offer to take her. This is
     // the only way into the cockpit, and it is one tap from the chart.
     this.hud.setFlyOffer(this.canTake());
+    // The camera taken off the battery in hand hands its guns back.
+    if (this.commandBat && !(this.watching && this.watching.kind === 'battery'
+      && this.watching.id === this.commandBat.id)) this.leaveBattery(true);
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
@@ -3545,12 +3936,14 @@ export class Battle {
       };
     }
     if (this.watching.kind === 'torp') {
-      // The fish, running just under the surface: the camera rides close
-      // behind and above her, and the wake she leaves runs out under it.
+      // The fish, running at her depth: the camera goes down to her and
+      // rides close alongside, under the sea with her -- from above there is
+      // nothing of a running torpedo to see.
       const tp = (this.torpsNow || []).find((x) => x.i === this.watching.id);
       if (tp) {
         this.torpLast = { x: tp.x, z: tp.z, t: 3 };
-        return { x: tp.x, y: 0.5, z: tp.z, span: 10, eye: 1.2, close: true };
+        const y = tp.a ? 0.5 : this.scene.torpedoes.depthOf(tp.i);
+        return { x: tp.x, y, z: tp.z, span: 10, eye: tp.a ? 1.2 : 0.45, close: true, under: !tp.a };
       }
       // She has run her course or found her ship: hold on the spot a few
       // seconds, which is where the column goes up.
@@ -3805,6 +4198,11 @@ export class Battle {
       kind: air.kind,
     };
     this.hud.setAirGun(row.turret);
+    if (air.heavy) {
+      const n = this.heavyTurrets(air).length;
+      this.hud.alert(`${TURRET_NAME[row.turret] || row.turret} turret`
+        + (n > 1 ? ` — B or 1–${n} to change, Esc to leave` : ' — Esc to leave'));
+    }
     audio.click();
   }
 
@@ -3861,6 +4259,13 @@ export class Battle {
     const w = this.watching;
     if (!w || w.id == null || this.flight) return false;
     const snap = this.snapshots[this.snapshots.length - 1];
+    // A battery of our own, still in action, whose guns nobody else has.
+    if (w.kind === 'battery') {
+      if (this.director || (this.commandBat && this.commandBat.id === w.id)) return false;
+      const g = snap && (snap.batteries || []).find((q) => q.i === w.id);
+      if (!g || g.tm !== this.team || !g.al) return false;
+      return !g.pc || g.pc === this.shipId;
+    }
     // A heavy squadron is taken the same way and on the same terms: her own
     // side, and nobody else already at the controls.
     if (w.kind === 'bomber') {
@@ -3890,6 +4295,7 @@ export class Battle {
   takeFlight() {
     if (!this.canTake()) return;
     if (this.watching.kind === 'bomber') { this.takeHeavy(); return; }
+    if (this.watching.kind === 'battery') { this.takeBattery(); return; }
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
@@ -3945,6 +4351,13 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
+    // Her dive brakes, on a type that has them -- and out already, if the
+    // autopilot was half way down a dive with them when she was taken.
+    if (pl.db > 0) {
+      this.flight.pilot.brakes = pl.db;
+      this.flight.pilot.brakeCmd = pl.db > 0.5;
+    }
+    this.hud.setBrakes(!!aero.brake, this.flight.pilot.brakeCmd);
     // No set pieces any more: she is flown through them by the pilot, by
     // looking where he wants her to go.
     this.hud.setMoves(false);
@@ -3966,6 +4379,126 @@ export class Battle {
     this.hud.paintFlightDamage(null, PART_ORDER.map((k) => PART_NAME[k]));
     if (this.mapBig) this.toggleMap(false);
     audio.click();
+  }
+
+  /**
+   * Take a battery's guns.
+   *
+   * The camera stays where it is, on the battery, and the plot becomes its
+   * fire control: a gun or a launcher is laid on the enemy ship tapped on it
+   * and fires when FIRE is pressed; the mortar is laid on a pin put in the
+   * plot wherever it is tapped, fires at the pin every time it is loaded, and
+   * the pin comes out again on a double tap. The battery is still the
+   * simulation's -- still shot at, still loaded and trained at its own rate.
+   */
+  takeBattery() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const g = snap && (snap.batteries || []).find((q) => q.i === this.watching.id);
+    if (!g) return;
+    const b = BATTERIES[g.b] || {};
+    this.commandBat = { id: g.i, mortar: !!b.mortar, name: b.name || 'Battery', since: performance.now(), lastPinTap: 0 };
+    this.hud.commandBat = g.i;
+    this.net.send({ t: 'tbat', i: g.i });
+    this.hud.setFlyOffer(false);
+    const el = document.getElementById('bat-sight');
+    if (el) el.hidden = !!this.mapBig;
+    const name = document.getElementById('bat-name');
+    if (name) name.textContent = b.name || 'Battery';
+    // The mortar fires itself at its pin: it has no trigger.
+    const fire = document.getElementById('bat-fire');
+    if (fire) fire.hidden = !!b.mortar;
+    this.hud.alert(b.mortar ? 'Tap the plot to pin a target · double tap the pin to remove it'
+      : 'Tap an enemy ship on the plot to lay on her');
+    audio.click();
+  }
+
+  /**
+   * Hand a battery's guns back to its crew. `quiet` leaves the camera where it
+   * is; `tell` says whether the battle service has to be told.
+   */
+  leaveBattery(quiet = false, tell = true) {
+    const c = this.commandBat;
+    if (!c) return;
+    this.commandBat = null;
+    this.hud.commandBat = null;
+    if (tell) this.net.send({ t: 'lbat', i: c.id });
+    const el = document.getElementById('bat-sight');
+    if (el) el.hidden = true;
+    if (!quiet) {
+      this.hud.setFlyOffer(this.canTake());
+      audio.click();
+    }
+  }
+
+  /** A tap on the plot at the guns of a battery. */
+  workBattery(hit, at) {
+    const c = this.commandBat;
+    if (c.mortar) {
+      // A double tap on the pin takes it out; a single one leaves it where
+      // it is, rather than moving it a few metres off a slip of the finger.
+      if (hit && hit.kind === 'pin') {
+        const now = performance.now();
+        if (now - c.lastPinTap < 450) {
+          this.net.send({ t: 'bpin', i: c.id, x: null, z: null });
+          this.hud.alert('Pin removed');
+          c.lastPinTap = 0;
+          audio.click();
+        } else c.lastPinTap = now;
+        return;
+      }
+      if (!at) return;
+      c.lastPinTap = 0;
+      this.net.send({ t: 'bpin', i: c.id, x: Math.round(at.x), z: Math.round(at.z) });
+      audio.click();
+      return;
+    }
+    if (hit && hit.kind === 'ship' && hit.team !== undefined && hit.team !== this.team) {
+      this.net.send({ t: 'btgt', i: c.id, target: hit.id });
+      this.hud.alert(`Laid on ${hit.name || 'the enemy'}`);
+      audio.click();
+      return;
+    }
+    this.hud.alert('Tap an enemy ship to lay on her');
+  }
+
+  /** The trigger of the battery in hand. */
+  fireBattery() {
+    const c = this.commandBat;
+    if (!c || c.mortar) return;
+    this.net.send({ t: 'bfire', i: c.id });
+    audio.click();
+  }
+
+  /** What the battery in hand is doing, off the snapshot, and whether it is still ours. */
+  stepBatteryCommand(snap) {
+    const c = this.commandBat;
+    const g = (snap.batteries || []).find((q) => q.i === c.id);
+    // Silenced, gone, or somebody else's now -- after a moment's grace for
+    // the battle service to hear that it is ours.
+    const late = performance.now() - c.since > 1500;
+    if (!g || !g.al || (late && g.pc !== this.shipId)) {
+      if (g && !g.al) this.hud.alert(`${c.name} silenced`);
+      this.leaveBattery(true, !!g && g.al);
+      return;
+    }
+    const parts = [];
+    if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
+    else parts.push('Loaded');
+    if (c.mortar) {
+      if (g.pn) {
+        const d = Math.hypot(g.pn[0] - g.x, g.pn[1] - g.z);
+        parts.push(`Pin at ${Math.round(d / 0.9144 / 50) * 50} yd`);
+      } else parts.push('No pin · tap the plot');
+      if (g.st) parts.push(`Bomb down in ${Math.ceil(g.st[2])} s`);
+    } else if (g.tg) {
+      const t = [...this.visibleShips(), ...(snap.contacts || [])].find((q) => q.i === g.tg);
+      parts.push(`Laid on ${(t && t.n) || 'contact'}`);
+    } else parts.push('No target · tap an enemy ship');
+    const read = document.getElementById('bat-read');
+    const txt = parts.join(' · ');
+    if (read && read.textContent !== txt) read.textContent = txt;
+    const fire = document.getElementById('bat-fire');
+    if (fire) fire.classList.toggle('spent', !g.tg || g.cd > 0);
   }
 
   /**
@@ -4085,17 +4618,9 @@ export class Battle {
       audio.click();
       return;
     }
-    // Near enough to be dropping at something. Worked out here rather than
-    // waited for from the server, so the answer is on the screen the instant
-    // the key goes down.
-    const snap = this.snapshots[this.snapshots.length - 1];
-    const p = f.pilot;
-    let near = Infinity;
-    for (const s of ((snap && snap.ships) || [])) {
-      if (!s.a || s.tm === this.team) continue;
-      near = Math.min(near, Math.hypot(s.x - p.x, s.z - p.z));
-    }
-    if (near > f.load.near) { this.hud.alert('Nothing in range — press home'); return; }
+    // No range test: she lets go wherever the pilot says, at a ship, a town,
+    // a sea wall or nothing at all. Near a ship the fish are aimed off her
+    // and the bombs settled on her; anywhere else they fall where they fall.
     // Asked for, not done. The key goes dead while the answer is in flight so
     // a fast thumb cannot drop twice, and what is said afterwards is what
     // actually happened: "torpedoes away" when the simulation says the fish
@@ -4148,6 +4673,17 @@ export class Battle {
   }
 
   /** Hand her back to the autopilot and go back to the bridge. */
+  /**
+   * What an aeroplane flown by hand is tested against ashore, substep by
+   * substep: the ground as it is drawn and every building standing on it.
+   * The sea is the pilot's own business (see Pilot.substep).
+   */
+  solidLine() {
+    const w = this.scene?.world || this.world;
+    if (!w || (!(w.islands || []).length && !(w.land || []).length)) return null;
+    return (ax, ay, az, bx, by, bz) => solidHit(w, ax, ay, az, bx, by, bz, 2);
+  }
+
   leaveFlight(lost = false, crashed = false) {
     if (!this.flight) return;
     // `land` gives her back to the autopilot and drops the claim on her, so
@@ -4165,6 +4701,19 @@ export class Battle {
     this.hud.setAirGun(null);
     this.hud.setCockpit(false);
     if (lost) this.hud.alert(heavy ? 'The squadron is gone' : 'Aircraft down');
+  }
+
+  /**
+   * Her dive brakes, out or in: on the DIVE BRAKES key and on X. Out, she
+   * settles at a speed she can aim at and pull out from; a type without them
+   * has no key, and the key does nothing.
+   */
+  toggleBrakes() {
+    const f = this.flight;
+    if (!f || f.heavy || f.orphan || !f.pilot.a.brake) return;
+    f.pilot.brakeCmd = !f.pilot.brakeCmd;
+    this.hud.setBrakes(true, f.pilot.brakeCmd);
+    audio.click();
   }
 
   /**
@@ -4242,11 +4791,13 @@ export class Battle {
       if (f.orphanAt > 180) { this.leaveFlight(true); return; }
       const sea = this.scene.ocean.heightAt(f.pilot.x, f.pilot.z);
       f.pilot.gale = galeOf(this.world, this.renderST ?? this.time);
-      f.pilot.step(dt, sea);
+      f.pilot.step(dt, sea, this.solidLine?.());
       if (!f.pilot.alive) {
-        // The sea. She goes in where she went in.
+        // The sea, or the hill or the roof she came down on. She goes in
+        // where she went in.
         const fx = this.scene.effects;
-        fx.splash(f.pilot.x, f.pilot.z, 90);
+        if (f.pilot.struck) fx.explosion(f.pilot.x, f.pilot.y + 2, f.pilot.z, 1.2);
+        else fx.splash(f.pilot.x, f.pilot.z, 90);
         fx.debris(f.pilot.x, Math.max(2, f.pilot.y), f.pilot.z, 10);
         this.leaveFlight(true);
       }
@@ -4350,18 +4901,30 @@ export class Battle {
     // flies her further each frame without flying her any less carefully.
     {
       const n = Math.max(1, Math.ceil(sdt / Math.max(1e-4, dt) - 1e-6));
-      for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea);
+      const solid = this.solidLine?.();
+      for (let i = 0; i < n && p.alive; i++) p.step(sdt / n, sea, solid);
     }
     if (!p.alive) {
-      // She has gone into the sea, or into a ship at her waterline. The
-      // simulation is told where, at the waterline, so it can put her into
-      // whatever hull is there -- and she is not handed back to the
-      // autopilot, which would fly her out of the water again.
-      this.net.send({
-        t: 'fly', i: f.id,
-        x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
-        y: -1, p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
-      });
+      // She has gone into the sea, or into a ship at her waterline, or into
+      // a hillside or a house. The simulation is told where -- at the
+      // waterline, or at the very point of the hill or the roof she met --
+      // so it can put her into whatever is there, and she is not handed back
+      // to the autopilot, which would fly her out of it again.
+      const into = p.struck;
+      if (f.heavy) {
+        this.net.send({
+          t: 'flyb', i: f.id,
+          x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.heading * 1000) / 1000,
+          y: into ? Math.round(p.y * 10) / 10 : 20,
+        });
+      } else {
+        this.net.send({
+          t: 'fly', i: f.id,
+          x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, h: Math.round(p.heading * 1000) / 1000,
+          y: into ? Math.round((p.y - 0.5) * 10) / 10 : -1,
+          p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
+        });
+      }
       this.leaveFlight(true, true);
       return;
     }
@@ -4395,6 +4958,7 @@ export class Battle {
             this.net.send({
               t: 'gunb', i: f.id, n: t.name,
               y: Math.round(t.yaw * 1000) / 1000,
+              p: Math.round(t.pitch * 1000) / 1000,
               a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
               dt: Math.round(f.guns * 100) / 100,
             });
@@ -4442,6 +5006,9 @@ export class Battle {
         v: Math.round(p.v),
         // And her bank, all the way round, so a roll is seen to be a roll.
         bk: Math.round((p.bank || 0) * 1000) / 1000,
+        // And how far her dive brakes are out, which the simulation steadies
+        // her aim by and everybody else's screen draws on her wings.
+        br: p.brakes > 0 ? Math.round(p.brakes * 100) / 100 : undefined,
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
@@ -4899,6 +5466,18 @@ export class Battle {
           st.mats.length > 1 ? st.mats : st.mats[0]);
       }
     }
+    // And whatever else she lets go of with it -- a Ju 87C's SC 250s off her
+    // wings -- off its own rack, lying its own way, in its own shape.
+    const extra = (st && st.extra || []).map((x) => {
+      const key = `${d.kind}:${x.name}`;
+      this.scene.bombs.shape(key, x.geo.clone().translate(-x.mid.x, -x.mid.y, -x.mid.z),
+        x.mats.length > 1 ? x.mats : x.mats[0]);
+      return {
+        p: new THREE.Vector3().fromArray(x.at).applyMatrix4(m), v: d.v.clone(),
+        q: new THREE.Quaternion().setFromRotationMatrix(m).multiply(x.q),
+        len: x.len, r: x.r, shape: key,
+      };
+    });
     // The trim: the bomb is the falling one now, and the one on the rack is
     // not drawn again.
     const t = this.planeTrim.get(id);
@@ -4907,6 +5486,7 @@ export class Battle {
       p, v: d.v.clone(), q,
       len: st ? st.len : 1.75, r: st ? st.r : 0.2,
       shape: st && st.geo ? d.kind : null,
+      extra,
     };
   }
 
@@ -4937,7 +5517,9 @@ export class Battle {
       t.gear = (pl.y ?? 220) < 70 ? 0 : 1;
       this.planeTrim.set(pl.i, t);
     }
-    if (t.gear < 1 && (pl.y ?? 220) > 14) t.gear = Math.min(1, t.gear + dt / 2.8);
+    // And down again coming home, for the deck.
+    if (pl.gd) t.gear = Math.max(0, t.gear - dt / 2.8);
+    else if (t.gear < 1 && (pl.y ?? 220) > 14) t.gear = Math.min(1, t.gear + dt / 2.8);
     // The airscrew, wound on at a rate her engine decides: her throttle when
     // somebody has his hand on it, and otherwise her airspeed. Not her real
     // revolutions -- two thousand a minute at sixty frames a second is a
@@ -4951,6 +5533,11 @@ export class Battle {
     t.rate += (spin - t.rate) * (1 - Math.exp(-dt * 2.5));
     t.prop = (t.prop + dt * t.rate) % (Math.PI * 2);
     t.idle = t.rate < 12;
+    // Her dive brakes, as far as they are out: the pilot's own, under his
+    // hands, and otherwise off the wire. Eased, because the wire says it ten
+    // times a second and the jacks run them out smoothly.
+    const brakeWant = flyer && !flyer.heavy ? (flyer.pilot.brakes || 0) : (pl.db || 0);
+    t.brake = (t.brake ?? brakeWant) + (brakeWant - (t.brake ?? brakeWant)) * (1 - Math.exp(-dt * 8));
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);
@@ -5041,7 +5628,7 @@ export class Battle {
       // its tip with it: only the slot that lost it, the others are whole.
       // The engine's is laid as long as she has her airscrew.
       const c = i === 0 ? cut : 0;
-      if (d < 3000) {
+      if (d < 6000) {
         this.scene.contrails.lay(`${id}/${i}`, m, tp.tips, tp.nose, g, v, y,
           [!(c & (CUT.wingOutL | CUT.wingInL)), !(c & (CUT.wingOutR | CUT.wingInR))], !(c & CUT.prop));
       }
@@ -5200,7 +5787,7 @@ export class Battle {
   stepGunner(dt) {
     const t = this.turret;
     const flown = this.flight && this.flight.id === t?.id;
-    this.hud.setGunner?.(this.gunnerOffer(), !!t, !!t && !flown);
+    this.hud.setGunner?.(this.gunnerOffer(), !!t, !!t && !flown, this.nextGunner(), t ? t.name : null);
     if (!t || flown) { this.gunnerFire = null; return; }
     const g = this.gunnerFire || (this.gunnerFire = { guns: 0, tracer: 0 });
     const firing = this.input.down('Space') || !!this.hud.gunHeld;
@@ -5217,6 +5804,7 @@ export class Battle {
         this.net.send({
           t: 'gunb', i: t.id, n: t.name,
           y: Math.round(t.yaw * 1000) / 1000,
+          p: Math.round(t.pitch * 1000) / 1000,
           a: Math.round(((t.spec.arc ?? 180) * Math.PI) / 180 * 1000) / 1000,
           dt: Math.round(g.guns * 100) / 100,
         });
@@ -5228,6 +5816,16 @@ export class Battle {
   }
 
   /**
+   * A heavy's turrets, by name, in the order her model has them, less the
+   * ones that have been shot out.
+   */
+  heavyTurrets(air) {
+    const spec = HEAVY[air.kind] || HEAVY.lancaster;
+    const out = this.flight && this.flight.id === air.id ? (this.flight.gunsOut || []) : [];
+    return (spec.turrets || []).map((q) => q.name).filter((n) => !out.includes(n));
+  }
+
+  /**
    * Whether the aeroplane in hand has a gunner's seat to go to: a carrier
    * bomber's back seat, or a heavy's tail turret if it is still there. The
    * GUNNER key and B both go to it.
@@ -5236,19 +5834,33 @@ export class Battle {
     const air = this.airInHand();
     if (!air) return null;
     if (!air.heavy) return rearSeatOf(air.kind) ? 'rear' : null;
-    const spec = HEAVY[air.kind] || HEAVY.lancaster;
-    const names = (spec.turrets || []).map((q) => q.name);
-    const out = this.flight && this.flight.id === air.id ? (this.flight.gunsOut || []) : [];
-    const live = names.filter((n) => !out.includes(n));
+    const live = this.heavyTurrets(air);
     return live.includes('tail') ? 'tail' : live[live.length - 1] || null;
   }
 
-  /** Into the gunner's seat, or back out of it. */
+  /**
+   * Where the GUNNER key and B go next. On a heavy they step round all of
+   * her turrets, starting at the tail, and the press after the last one is
+   * back to the pilot's seat; a carrier bomber has the one gun. Null is out.
+   */
+  nextGunner() {
+    const offer = this.gunnerOffer();
+    if (!this.turret) return offer;
+    const air = this.airInHand();
+    if (!air || !air.heavy || !offer) return null;
+    const live = this.heavyTurrets(air);
+    const from = live.indexOf(offer);
+    const ring = live.slice(from).concat(live.slice(0, from));
+    const at = ring.indexOf(this.turret.name);
+    return at >= 0 && at + 1 < ring.length ? ring[at + 1] : null;
+  }
+
+  /** Into the gunner's seat, on to the next turret, or back out. */
   toggleGunner() {
-    if (this.turret) { this.manTurret({ turret: this.turret.name }); return; }
-    const name = this.gunnerOffer();
-    if (!name) return;
-    this.manTurret({ turret: name });
+    const next = this.nextGunner();
+    if (this.turret && !next) { this.manTurret({ turret: this.turret.name }); return; }
+    if (!next) return;
+    this.manTurret({ turret: next });
   }
 
   /**
@@ -5326,6 +5938,8 @@ export class Battle {
       this.net.send({ t: 'notch', ship: conned, notch: want });
       return;
     }
+    // In a fleet, the rest of it rings up the same: see the server's `notch`.
+    if (this.ownSnap && this.ownSnap.fg) this.net.send({ t: 'notch', ship: this.shipId, notch: want });
     if (this.localShip.notch === want) return;
     this.localShip.notch = want;
     this.net.send({ t: 'input', notch: want });
@@ -5775,6 +6389,7 @@ export class Battle {
     if (snap && this.plotDue <= 0) {
       this.plotDue = this.mapBig ? 1 / 30 : 1 / 20;
       this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
+      if (this.commandBat) this.stepBatteryCommand(snap);
     }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
@@ -5915,10 +6530,11 @@ export class Battle {
       seen.add(s.i);
       const prev = b ? b.ships.find((x) => x.i === s.i) : null;
       // A hull whose model has not come down yet -- a ship that joined the
-      // battle after it began, of a class nobody had asked for -- is fetched
-      // now and drawn from the frame it lands on, rather than stopping the
-      // picture until it does.
-      if (!shipReady(s.c)) { loadShips([s.c]).catch(() => {}); continue; }
+      // battle after it began, of a class nobody had asked for, or one the
+      // line was too weak or too dead to bring in -- is asked for again, and
+      // drawn meanwhile as the hull generated off her class (see buildModel),
+      // rather than left out of the picture until it lands.
+      if (!shipReady(s.c)) loadShips([s.c], null, { quiet: true }).catch(() => {});
       const view = this.scene.getShipView(s.i, s.c, s.tm, s.i === this.shipId);
       const isSelf = s.i === this.shipId;
       const pose = poseBetween(s, prev, t, ahead);
@@ -5973,6 +6589,12 @@ export class Battle {
       if (cls.dive) {
         view.setDive(isSelf ? this.localShip.depth : (s.d || 0), s.to || 0);
         view.stepDive(dt);
+      }
+      // The mines still on her rails: one fewer on the stern for each that
+      // has gone over it.
+      if (cls.mines && view.mineRack && s.mnl != null) {
+        const gone = cls.mines.carried - s.mnl;
+        view.mineRack.forEach((m, k) => { m.visible = k >= gone; });
       }
       view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0);
       view.group.rotation.x = sea.pitch + view.trimBy;
@@ -6035,13 +6657,16 @@ export class Battle {
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.time);
       // And anything it has dropped into the sea: a fish off her tubes going
-      // in alongside, in her own frame.
+      // in alongside, in her own frame -- a splash where it goes in, and the
+      // running torpedo picked up from that spot and that depth. One pushed
+      // out of a tube under the water makes no splash at all.
       const dropped = view.group.userData.dropped;
       if (dropped && dropped.length) {
         view.group.updateMatrixWorld(true);
         for (const p of dropped.splice(0)) {
           const w = view.group.localToWorld(p.clone());
-          this.scene.effects.splash(w.x, w.z, 120);
+          if (!p.wet) this.scene.effects.splash(w.x, w.z, 120);
+          this.scene.torpedoes.seed(w.x, p.wet ? w.y : 0, w.z);
         }
       }
 
@@ -6105,8 +6730,6 @@ export class Battle {
       // without it. The tear follows her from wherever she has been posed.
       if (s.ct && !view.severed) view.cutHer(s.ct[0], s.ct[1], null);
       view.stepCut(dt, this.scene.shipViews);
-      // The sea pouring into whichever of her holes it has reached.
-      view.stepInrush(dt);
       // What her magazine threw into the air, coming down into the sea.
       const fell = view.stepRupture(dt);
       if (fell) {
@@ -6130,12 +6753,21 @@ export class Battle {
       }
       view.marker.visible = !isSelf && this.camMode === 'tactical';
 
-      // Funnel smoke and burning damage.
+      // Funnel smoke and burning damage. Out of her own funnels, wherever
+      // they are on her (see hull.funnels), and carried with her as she
+      // rolls and pitches.
       view.smokeTimer -= dt;
-      if (view.smokeTimer <= 0 && s.a && getClass(s.c).type !== 'CV') {
+      if (s.a && s.sm && view.group.visible) {
+        this.makeSmoke(view, s, h, dt);
+      } else if (view.smokeTimer <= 0 && s.a && !['CV', 'SS'].includes(getClass(s.c).type)) {
+        // Not a carrier, whose uptakes are trunked out of the way of her deck,
+        // nor a boat, which runs on diesels and dives.
         view.smokeTimer = 0.25 + Math.random() * 0.3;
-        const l = getClass(s.c).hull.length;
-        this.scene.effects.funnelSmoke(x + Math.sin(h) * l * 0.02, 26, z + Math.cos(h) * l * 0.02, load);
+        view.group.updateMatrix();
+        for (const f of funnelsOf(getClass(s.c))) {
+          const p = FUNNEL_P.set(f[0], f[2], f[1]).applyMatrix4(view.group.matrix);
+          this.scene.effects.funnelSmoke(p.x, p.y, p.z, load);
+        }
       }
       // Fires burn where they are burning. A fire is a thing in a compartment
       // now, and the wire says which compartments are alight and how hard, so
@@ -6272,6 +6904,7 @@ export class Battle {
         a: tp.a,
         o: tp.o,
         tm: tp.tm,
+        k: tp.k,
       };
     });
     this.scene.torpsNow = this.torpsNow;
@@ -6279,6 +6912,8 @@ export class Battle {
     // And the depth charges, sinking. Interpolated the same way, because a
     // charge that stepped down five times a second would read as a thing
     // falling in a lift rather than a thing falling through water.
+    // The mines this side has laid. They do not move.
+    this.scene.minesNow = a.mines || [];
     this.scene.chargesNow = (a.charges || []).map((c) => {
       const prev = b ? (b.charges || []).find((x) => x.i === c.i) : null;
       return {
@@ -6369,6 +7004,7 @@ export class Battle {
         y: curve('y', 220),
         vy: lerp(pl.vy || 0, nx.vy || 0, t),
         s: lerp(pl.s || 0, nx.s || 0, t),
+        db: lerp(pl.db || 0, nx.db || 0, t),
       };
     });
     // Who has just left a deck, first: the frame an aeroplane first comes on
@@ -6499,6 +7135,9 @@ export class Battle {
           { x: Math.sin(pl.h) * gs, y: pl.vy || 0, z: Math.cos(pl.h) * gs },
           (this.airBursts.get(pl.i) || 0) > this.time ? Math.max(1, pl.n || 1) : 0, dt, cut);
       }
+      // Fuel out of every holed tank, from the hole, on the machine that has it.
+      this.leakFx(pl.i, pl.lp,
+        (station, h, out) => this.scene.flights.pointOn(kind, station, h, a.span, out));
       // The ones that have been hit and are still flying.
       //
       // A formation coming out of the flak with one of its number streaming
@@ -6532,6 +7171,7 @@ export class Battle {
     this.scene.flights.end();
     this.scene.gunFlashes.end(dt);
     this.scene.contrails.update(dt, this.scene.camera);
+    this.scene.smokeScreens.update(dt);
 
     // The heavy squadrons, four thousand feet over the lot of them. They are
     // not anybody's carrier aircraft and they are not drawn as any: their own
@@ -6579,6 +7219,7 @@ export class Battle {
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
         });
+        this.heavyAir(bm, mine.x, mine.y, mine.z, mine.heading, mine.bank, mine.attitude, mine.v, mask);
         // Her wingtips and her ends, against the sea, the same as a flight's.
         if (mine.y < 40) {
           const m = SKIM_M.makeRotationFromEuler(SKIM_E.set(-mine.attitude, mine.heading, -mine.bank))
@@ -6597,6 +7238,7 @@ export class Battle {
         Math.max(1, bm.n || 1), holes, hspan, mask,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
+      this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
     }
     // And the ones on their way down, each on her own.
     for (const w of this.wrecks) {
@@ -6634,9 +7276,6 @@ export class Battle {
     if (f && (ev.i === f.id || ev.a === f.id || ev.b === f.id || ev.air === f.id
       || (ev.f && ev.f === f.fallerId))) return false;
     if (ev.tk * DT <= this.renderST) return false;
-    // She is not coming home, whenever the picture gets to her: nobody is to
-    // take her vanishing for a recovery in the meantime.
-    if (ev.e === 'planesLost') this.lostFlights.add(ev.i);
     this.lateEvents.push({ ev, at: this.time });
     return true;
   }
@@ -6750,14 +7389,105 @@ export class Battle {
     const slots = [];
     const m = mask || (1 << Math.max(1, pl.n || 1)) - 1;
     for (let i = 5; i >= 0; i--) if ((m >> i) & 1) slots.push(i);
-    const n = Math.min(pl.sm, slots.length);
+    // The ones streaming fuel and not alight are drawn by leakFx, out of the
+    // hole in the tank; the rest of the hurt ones smoke.
+    const leaking = new Set();
+    const lp = pl.lp || [];
+    for (let k = 0; k + 3 < lp.length; k += 4) leaking.add(lp[k]);
+    const smokers = slots.filter((q) => !leaking.has(q));
+    const n = Math.min(Math.max(0, pl.sm - leaking.size), smokers.length);
     // The ones on fire, rather than only trailing oil or glycol.
     const fb = Math.min(pl.fb || 0, n);
     for (let i = 0; i < n; i++) {
-      const s = slotAt(slots[i], pl.h || 0);
-      const run = runs[slots[i]] || (runs[slots[i]] = {});
+      const s = slotAt(smokers[i], pl.h || 0);
+      const run = runs[smokers[i]] || (runs[smokers[i]] = {});
       this.scene.effects.smokeRun(run, pl.x + s.x + bx, y + s.y, pl.z + s.z + bz,
         { fire: i < fb ? 1 : 0 });
+    }
+  }
+
+  /**
+   * A ship making smoke: her burners starved of air and fuel oil going up her
+   * funnels unburnt, so what comes out of each of them is a thick black
+   * column that falls back along her track into a wall. See smokescreen.js.
+   */
+  makeSmoke(view, s, h, dt) {
+    const cls = getClass(s.c);
+    const eye = this.scene.camera.position;
+    if (Math.hypot(view.group.position.x - eye.x, view.group.position.z - eye.z) > 14000) return;
+    view.group.updateMatrix();
+    // A battleship's funnel is a good deal more funnel than a destroyer's.
+    const scale = clamp(cls.hull.beam / 12, 0.9, 1.8);
+    const vx = Math.sin(h) * (s.v || 0);
+    const vz = Math.cos(h) * (s.v || 0);
+    // Down the wind the simulation's bank goes down (see laySmoke), so what
+    // is drawn is where a ship hiding in it is hidden.
+    const w = windAt(this.world, this.renderST ?? this.time);
+    const wx = w.x * SMOKE_DRIFT;
+    const wz = w.z * SMOKE_DRIFT;
+    view.screenT = (view.screenT || 0) - dt;
+    // Never more than a few at once after a stall: a screen is laid steadily,
+    // not in lumps.
+    for (let n = 0; view.screenT <= 0 && n < 3; n++) {
+      view.screenT += 0.11;
+      for (const f of funnelsOf(cls)) {
+        const p = FUNNEL_P.set(f[0], f[2] + 0.5, f[1]).applyMatrix4(view.group.matrix);
+        this.scene.smokeScreens.puff(p.x, p.y, p.z, vx, vz, scale, wx, wz);
+      }
+    }
+    if (view.screenT < -0.5) view.screenT = 0;
+  }
+
+  /**
+   * Fuel streaming out of the holed tanks of a flight just drawn: out of the
+   * hole itself, on the machine that has it. `lp` is four numbers a machine
+   * off the wire -- her station, and where the hole is in her own frame in
+   * hundredths -- and `point(station, h, out)` finds that place in the world.
+   */
+  leakFx(id, lp, point) {
+    if (!lp) return;
+    const h = LEAK_H;
+    const p = LEAK_P;
+    for (let k = 0; k + 3 < lp.length; k += 4) {
+      h.x = lp[k + 1] / 100; h.y = lp[k + 2] / 100; h.z = lp[k + 3] / 100;
+      if (!point(lp[k], h, p)) continue;
+      this.scene.contrails.vent(`${id}/${lp[k]}`, p.x, p.y, p.z, 1);
+    }
+  }
+
+  /**
+   * What a heavy squadron leaves in the air: vapour off every wingtip and a
+   * contrail off each of her four engines, and fuel off the ones holed.
+   */
+  heavyAir(bm, x, y, z, heading, bank, pitch, v, mask) {
+    const eye = this.scene.camera.position;
+    const half = (HEAVY_AERO[bm.b] || HEAVY_AERO.lancaster).span / 2;
+    const tips = [[-half, 0, -1], [half, 0, -1]];
+    const engines = [[-half * 0.42, -0.6, -2], [-half * 0.2, -0.6, -2],
+      [half * 0.2, -0.6, -2], [half * 0.42, -0.6, -2]];
+    const m = SKIM_M;
+    const g = 1 / Math.max(0.25, Math.abs(Math.cos(bank || 0)));
+    const at = HEAVY_AT;
+    const n = Math.max(1, bm.n || 1);
+    for (let i = 0; i < VIC.length; i++) {
+      if (mask ? !((mask >> i) & 1) : i >= n) continue;
+      vicAt(i, heading, at);
+      if (Math.hypot(x + at.x - eye.x, y + at.y - eye.y, z + at.z - eye.z) > 6000) continue;
+      m.makeRotationFromEuler(HEAVY_E.set(-(pitch || 0), heading, -(bank || 0), 'YXZ'))
+        .setPosition(x + at.x, y + at.y, z + at.z);
+      this.scene.contrails.lay(`${bm.i}/h${i}`, m, tips, engines, g, v || 80, y + at.y);
+    }
+    // And fuel, out of the hole in each holed tank, on the machine that has it.
+    if (bm.lp) {
+      const kind = bm.b || 'lancaster';
+      this.leakFx(`${bm.i}/h`, bm.lp, (station, h, out) => {
+        if (mask ? !((mask >> station) & 1) : station >= n) return null;
+        if (!this.scene.heavies.pointOn(kind, h, half * 2, out)) return null;
+        vicAt(station, heading, at);
+        m.makeRotationFromEuler(HEAVY_E.set(-(pitch || 0), heading, -(bank || 0), 'YXZ'))
+          .setPosition(x + at.x, y + at.y, z + at.z);
+        return out.applyMatrix4(m);
+      });
     }
   }
 
@@ -7051,52 +7781,6 @@ export class Battle {
       deck.endMatrix = null;
       if (deck.launchAt === null) v.group.userData.stow?.();
     }
-    this.comingHome(planes);
-    this.flyApproach();
-  }
-
-  /**
-   * A squadron gets home, and there is an aeroplane to watch land.
-   *
-   * A flight that reaches its carrier simply stops being on the plot -- the
-   * simulation has struck it below and rearmed it. That is the right thing for
-   * the simulation to do and the wrong thing to look at: a squadron you sent
-   * out an hour ago comes back and nothing happens on the deck at all.
-   *
-   * So the last place each of our flights was seen is remembered, and one that
-   * vanishes within sight of the ship she flew off is taken as a recovery: her
-   * carrier's own model is put in the air where the flight was and flies the
-   * approach -- round onto the centreline, down the glide, over the round-down
-   * -- and the deck takes it from there, up to the lift and below.
-   */
-  comingHome(planes) {
-    const now = new Map();
-    for (const p of planes) now.set(p.i, p);
-    for (const [id, was] of this.lastFlights) {
-      if (now.has(id)) continue;
-      // Not one that has just been taken over by a pilot, and not one that was
-      // reported shot down -- those have their own endings.
-      if (this.flight && this.flight.id === id) continue;
-      if (this.lostFlights.has(id)) continue;
-      const v = this.scene.shipViews.get(was.o);
-      if (!v || !v.group.userData.deckPlane || this.landing) continue;
-      const d = Math.hypot(was.x - v.group.position.x, was.z - v.group.position.z);
-      if (d > 700) continue;
-      // Her own model, put in the air where her flight was, flying in.
-      const g = v.group.userData.deckPlane;
-      this.scene.scene.attach(g);
-      g.position.set(was.x, this.planeHeight(was), was.z);
-      g.rotation.set(0, was.h ?? v.group.rotation.y, 0);
-      g.visible = true;
-      const deck = v.group.userData.deck;
-      if (deck) { deck.airborne = false; deck.launchAt = null; }
-      this.landing = {
-        t0: this.time, view: v, group: g,
-        from: g.position.clone(), fromY: g.rotation.y,
-      };
-    }
-    this.lastFlights = now;
-    if (this.lostFlights.size > 60) this.lostFlights.clear();
   }
 
   /**
@@ -7179,61 +7863,6 @@ export class Battle {
   }
 
   /**
-   * The approach: she comes up the wake, over the round-down and onto the deck.
-   *
-   * Flown in the world, because that is where she is -- the carrier is moving
-   * under her, so the point she is aiming at moves too and is worked out fresh
-   * every frame from where the ship is now.
-   */
-  flyApproach() {
-    const L = this.landing;
-    if (!L) return;
-    const APPROACH = 7.5;
-    const k = Math.min(1, (this.time - L.t0) / APPROACH);
-    const v = L.view;
-    const g = L.group;
-    // Her ship has gone from the scene under her -- sunk, or the view
-    // disposed. There is nothing to land on and nothing owns the model any
-    // more, so it goes with her rather than being left hanging in the world.
-    if (!v.group.parent) {
-      g.visible = false;
-      v.group.attach(g);
-      this.landing = null;
-      return;
-    }
-    // Where she is going. A carrier's aeroplane comes home to the after end of
-    // the flight deck; a cruiser's alights alongside and is craned back on to
-    // the catapult she was shot off, so the ship says where if she has one.
-    const home = v.group.userData.landingSpot;
-    const deck = v.group.userData.flightDeckY ?? 17;
-    const spot = home
-      ? new THREE.Vector3(home[0], home[1], home[2])
-      : new THREE.Vector3(0, deck + 0.4, -(v.cls.hull.length * 0.42));
-    v.group.updateMatrixWorld(true);
-    spot.applyMatrix4(v.group.matrixWorld);
-    // Eased in, and dropping onto the deck late rather than sinking the whole
-    // way down: she flies level up the wake and then settles.
-    const e = k * k * (3 - 2 * k);
-    g.position.lerpVectors(L.from, spot, e);
-    g.position.y = L.from.y + (spot.y - L.from.y) * (e * e);
-    const want = v.group.rotation.y;
-    let d = want - L.fromY;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    g.rotation.set(0.06 * (1 - e), L.fromY + d * e, 0);
-    g.visible = true;
-    const prop = v.group.userData.deck?.plane?.prop;
-    if (prop) prop.rotation.z += 1.1 * (1 - e * 0.7);
-    if (k < 1) return;
-    // Down: the model goes back into the ship's own group, and the recovery
-    // takes it from there -- up the deck to the after lift, wings folding, and
-    // the lift down into the hangar she came out of.
-    v.group.attach(g);
-    v.group.userData.recover?.(this.time);
-    this.landing = null;
-  }
-
-  /**
    * Bring a carrier's own aeroplane back into her group, wherever she is.
    *
    * The model belongs to the ship; while she is flying she is parented to the
@@ -7244,10 +7873,6 @@ export class Battle {
   recallDeckPlane(v) {
     // Anything of hers still climbing out from an earlier run keeps flying:
     // those are copies, and the ship's own model is not out there with them.
-    if (this.landing && this.landing.view === v) {
-      v.group.attach(this.landing.group);
-      this.landing = null;
-    }
     const deck = v.group.userData.deck;
     if (deck) deck.flightId = 0;
     v.group.userData.stow?.();
@@ -7501,7 +8126,7 @@ export class Battle {
         this.watchEl = clamp(this.watchEl - m.y, -1.15, 1.28);
         const near = !!watch.close;
         const d = Math.max(near ? 3 : 8, watch.span * this.watchDistNow);
-        const rise = near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
+        const rise = watch.under ? 0.2 : near ? watch.span * 0.05 + 1.2 : watch.span * 0.25 + 6;
         const aim = watch.y + watch.span * (near ? 0.03 : 0.2);
         const flat = Math.cos(this.watchEl);
         cam.position.set(
@@ -7519,6 +8144,12 @@ export class Battle {
         const bed = Math.max(floor + 7, SEABED);
         if (cam.position.y < bed) {
           cam.position.y = bed;
+          cam.lookAt(watch.x, aim, watch.z);
+        }
+        // And a fish is watched from down where she is: an orbit lifted over
+        // her would only put the surface between the camera and her.
+        if (watch.under && cam.position.y > watch.y + 0.8) {
+          cam.position.y = watch.y + 0.8;
           cam.lookAt(watch.x, aim, watch.z);
         }
       }
@@ -7646,11 +8277,43 @@ export class Battle {
     if (this.man && this.man.swimming) cam.position.y = sea + MAN.float;
     // Stood in her wheelhouse or her conning tower he is in a dry room,
     // whatever the sea outside it is doing.
-    this.scene.setUnderwater(cam.position.y < sea - 0.2 && !(this.man && this.man.room));
+    const under = cam.position.y < sea - 0.2 && !(this.man && this.man.room);
+    this.scene.setUnderwater(under);
+    // The glass: dry and out of the way on the chart, under the sea and
+    // through a man's own eyes; streaming for a moment after coming up.
+    if (this.lens) {
+      const glass = this.camMode !== 'tactical' && !this.man;
+      if (glass && this.wasUnder && !under) this.lens.sheet();
+      this.wasUnder = under;
+      this.lens.update(glass && !under);
+      this.lens.el?.parentElement?.classList.toggle('chart', this.camMode === 'tactical');
+    }
     this.scene.render();
   }
 
-  resize(w, h) { this.scene.resize(w, h); }
+  /**
+   * A splash, and whether any of it reaches the glass: how much does is how
+   * close it fell to the eye against how much water a round of that bore
+   * throws, and an eye high over the sea is above most of it.
+   */
+  splashOnGlass(x, z, cal = 152, opts = {}) {
+    if (!this.lens || this.camMode === 'tactical' || this.man) return;
+    const cam = this.scene.camera;
+    const dx = x - cam.position.x;
+    const dz = z - cam.position.z;
+    const d = Math.hypot(dx, dz);
+    const heavy = opts.kind === 'bomb' || opts.kind === 'torp' || opts.kind === 'dc' || opts.kind === 'break' ? 1.8 : 1;
+    const reach = (25 + Math.max(20, cal) * 0.22) * heavy;
+    const high = Math.max(0, cam.position.y - 12) / (reach * 0.6);
+    const amount = Math.pow(Math.max(0, 1 - d / reach), 1.4) * Math.max(0, 1 - high);
+    if (amount <= 0.02) return;
+    // Which side of the view it came from: the camera's right is its local x.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+    const side = dx * right.x + dz * right.z;
+    this.lens.spray(Math.min(1, amount), Math.abs(side) < d * 0.3 ? 0 : Math.sign(side));
+  }
+
+  resize(w, h) { this.scene.resize(w, h); this.lens?.resize(); }
 
   dispose() {
     this.director?.dispose();
@@ -7659,7 +8322,11 @@ export class Battle {
     // Off her bridge first: the cut round it is on materials the next
     // battle's ships are drawn with too.
     this.leaveMan(true);
+    // The battery's keys are the page's, and outlive the battle.
+    this.leaveBattery(true, false);
     this.penCam?.el.remove();
+    this.lens?.dispose();
+    this.lens = null;
     this.off.forEach((f) => f());
     this.input.enabled = false;
     this.input.reset();
@@ -7680,4 +8347,47 @@ export class Battle {
     this.snapshots = [];
     this.entities?.clear?.();
   }
+}
+
+/**
+ * Somewhere in a town for a man to be put down: off to one side of its square,
+ * clear of the fountain and the monument down its middle, looking across it;
+ * else the open pavement nearest the middle of the town; else any paving in
+ * it at all, however much of it the guns or the sea walls have left. Null
+ * only if there is not a yard of street in the whole of it.
+ */
+export function standInTown(w, plan) {
+  const ok = (u, v) => {
+    const p = cityToWorld(plan.city, u, v);
+    if (surfaceAt(w, p.x, p.z) === SURF.none || worksFloor(w, p.x, p.z).blocked) return null;
+    return { x: p.x, z: p.z, yaw: plan.city.rot + Math.PI };
+  };
+  const sq = plan.blocks.find((b) => b.kind === 'square' && b.inner);
+  if (sq) {
+    const at = ok(sq.cu + (sq.inner.u1 - sq.inner.u0) * 0.22, sq.cv - (sq.inner.v1 - sq.inner.v0) * 0.05);
+    if (at) return at;
+  }
+  for (let r = 0; r < 300; r += 6) {
+    for (let a = 0; a < 12; a++) {
+      const at = ok(Math.cos(a / 2) * r, plan.D * 0.08 + Math.sin(a / 2) * r);
+      if (at) return at;
+    }
+  }
+  // Every cell of the town's surface, nearest its middle first.
+  const { nu, nv, surf, W, D } = plan;
+  const cells = [];
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      if (surf[j * nu + i] === SURF.none) continue;
+      const u = -W / 2 + (i + 0.5) * (W / nu);
+      const v = -D / 2 + (j + 0.5) * (D / nv);
+      cells.push([u * u + v * v, u, v]);
+    }
+  }
+  cells.sort((a, b) => a[0] - b[0]);
+  for (const [, u, v] of cells) {
+    const at = ok(u, v);
+    if (at) return at;
+  }
+  return null;
 }

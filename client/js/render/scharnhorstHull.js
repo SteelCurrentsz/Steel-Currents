@@ -23,7 +23,7 @@ import {
   SCHARNHORST_HULL_B64, SCHARNHORST_SURFACE, SCHARNHORST_GUNS, SCHARNHORST_MOUNTS, SCHARNHORST_LINES,
 } from './scharnhorstHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { steelMap, woodMap } from './textures.js';
+import { steelMap, woodMap, finish } from './textures.js';
 
 let cached = null;
 function slices() {
@@ -60,6 +60,8 @@ export function scharnhorstMaterials() {
       specular: 0x16181c, shininess: 5,
     }),
   };
+  finish(mats.plating);
+  finish(mats.deck, 'wood');
   return mats;
 }
 

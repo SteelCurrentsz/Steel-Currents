@@ -564,7 +564,7 @@ export function buildYukikaze() {
   mergeMoving(g);
   g.userData.classId = 'yukikaze';
   // Her tubes fire on the simulation's clock.
-  g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes.launch);
+  g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

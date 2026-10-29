@@ -245,6 +245,8 @@ export class Effects {
     // stem breaks into. No sprite mist over it: a billboard puff over a
     // column of water reads as smoke.
     this.splashes.splash(x, z, caliber, opts);
+    // Whoever is watching may be close enough to wear some of it.
+    if (this.onSplash && !opts.child) this.onSplash(x, z, caliber, opts);
   }
 
   /** An aircraft's round into the sea. See Splashes.spout. */
@@ -769,15 +771,6 @@ export class Effects {
         z: z + (Math.random() - 0.5) * 180 * s,
         vy: 3, size: 46 * s, grow: 34, ttl: 22, drag: 0.25, billow: true, lift: 0.8,
         color: 0x231f1c, opacity: 0.62,
-      });
-    }
-  }
-
-  smokeScreen(x, z) {
-    for (let i = 0; i < 3; i++) {
-      this.spawn({
-        x: x + (Math.random() - 0.5) * 120, y: 6 + Math.random() * 14, z: z + (Math.random() - 0.5) * 120,
-        vy: 1.2, size: 70, grow: 26, ttl: 22, color: 0xdfe6ec, opacity: 0.5, drag: 0.2,
       });
     }
   }

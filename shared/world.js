@@ -3,6 +3,7 @@
 
 import { makeRng, dist, TAU } from './math.js';
 import { coastFor } from './coast.js';
+import { raiseWorks, worksGround, worksHard, worksCeiling, pristine, wallAt } from './works.js';
 
 // Default half-width of the battlefield, in metres from centre to border. A
 // custom battle sets its own from the sea room where the pin was dropped; this
@@ -298,25 +299,36 @@ export const TIMES = ['dawn', 'day', 'dusk', 'night'];
  *   swell    how much taller every wave is than the sea state makes it, and
  *   short    how much more again the short, breaking sea is built up, which
  *            is the part of a storm that comes aboard (see shared/sea.js).
- *   ride     how much of the sea's rise and fall a hull takes up. In a storm
- *            she does not ride up every sea like a cork: she is a few
- *            thousand tons being driven into it, and the seas break over her
- *            rather than lifting her (see shared/sea.js rideOf).
+ *   ride     how much of the sea's rise and fall a hull takes up. Nearly all
+ *            of it, even in a typhoon: she goes up and down with the seas
+ *            and it is her weight -- see seakeeping.js -- that has her late
+ *            to each one, so she drives her bow into the next crest rather
+ *            than floating over it (see shared/sea.js rideOf).
+ *   swamp    false for a sea that is rough but no storm: it throws spray
+ *            over her and she pitches into it, but it never stands green
+ *            water over her guns.
  *   dark     what is left of the light after the sky has done with it, on
  *            top of the hour's own: a typhoon is dark at noon, and at night
  *            it is darker than night.
  */
-export const WEATHERS = ['sunny', 'cloudy', 'rain', 'thunder', 'typhoon', 'super_typhoon', 'snow'];
+export const WEATHERS = ['sunny', 'cloudy', 'rain', 'rough_seas', 'thunder', 'typhoon', 'super_typhoon', 'snow'];
 
 export const WEATHER = {
   sunny:   { name: 'Sunny',        sea: 0,   light: 1.00, fog: 1.0, sight: 1.00, fall: null,   drop: 0,    lightning: 0, wind: 4 },
   cloudy:  { name: 'Cloudy',       sea: 0.6, light: 0.70, fog: 1.5, sight: 0.90, fall: null,   drop: 0,    lightning: 0, wind: 7 },
   rain:    { name: 'Rain',         sea: 1.2, light: 0.48, fog: 3.0, sight: 0.62, fall: 'rain', drop: 1.0,  lightning: 0, wind: 10 },
+  // The day after the rain: the cloud has not lifted, but nothing is coming
+  // out of it any more, and the wind that brought the rain has left a big,
+  // short, steep sea behind it. Not a storm -- no lightning, no blinding rain
+  // -- but the seas are high enough to throw spray over a destroyer's bridge
+  // and to put a battleship's bow into them.
+  rough_seas: { name: 'Rough Seas', sea: 1.9, light: 0.62, fog: 1.9, sight: 0.84, fall: null, drop: 0, lightning: 0,
+    wind: 14, swell: 1.25, short: 1.6, steep: 1.08, ride: 1, swamp: false },
   thunder: { name: 'Thunderstorm', sea: 2.2, light: 0.34, fog: 4.2, sight: 0.48, fall: 'rain', drop: 1.6,  lightning: 9, wind: 16 },
   typhoon: { name: 'Typhoon',      sea: 3.2, light: 0.22, fog: 5.6, sight: 0.36, fall: 'rain', drop: 2.6,  lightning: 6,
-    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55, ride: 0.45 },
+    wind: 36, blow: 1, swell: 1.45, short: 3.6, steep: 1.15, dark: 0.55, ride: 0.85 },
   super_typhoon: { name: 'Super Typhoon', sea: 3.8, light: 0.12, fog: 7.4, sight: 0.26, fall: 'rain', drop: 3.8, lightning: 4,
-    wind: 62, blow: 1, swell: 1.6, short: 4.6, steep: 1.25, dark: 0.32, ride: 0.3 },
+    wind: 62, blow: 1, swell: 1.6, short: 4.6, steep: 1.25, dark: 0.32, ride: 0.8 },
   snow:    { name: 'Snow',         sea: 0.8, light: 0.55, fog: 3.4, sight: 0.55, fall: 'snow', drop: 1.0,  lightning: 0, wind: 9 },
 };
 
@@ -336,7 +348,7 @@ export function sightOf(world) {
 }
 
 export function generateWorld(seed, presetId, time = null, half = MAP_HALF, place = null,
-  weather = null, fog = false) {
+  weather = null, fog = false, works = null) {
   const preset = getPreset(presetId);
   const rng = makeRng(seed);
   const HALF = Math.max(MAP_HALF_MIN, Math.min(MAP_HALF_MAX, half));
@@ -388,6 +400,8 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
     // The theatre's own sea, plus whatever the weather is adding to it.
     sea: Math.max(0, Math.min(6, preset.sea + WEATHER[wx].sea)),
   };
+  // A town and sea walls, if the plotting board asked for them.
+  if (works) raiseWorks(world, works);
   return world;
 }
 
@@ -972,6 +986,13 @@ export function applyGouge(world, m) {
  * coastline or turn a hill into a lagoon that ships can sail into.
  */
 function baseGround(world, x, z) {
+  const b = rawGround(world, x, z);
+  // The town levelled into it and the sea walls along it: see works.js.
+  return world.works ? worksGround(world, x, z, b) : b;
+}
+
+/** The ground as nature made it, before anybody built on it. */
+export function rawGround(world, x, z) {
   // A real coastline is the grid it is drawn on: see coastBase.
   if (world.land?.length && !(world.islands || []).length) return coastBase(world, x, z);
   // An island's own relief, which is a shape rather than a distance field: a
@@ -1002,7 +1023,7 @@ function baseGround(world, x, z) {
 }
 
 /** How deep the open sea is off every coast, in metres. */
-const SHELF_DEEP = 40;
+export const SHELF_DEEP = 40;
 /** How many of its own lengths an island's shelf runs out before it is open sea. */
 const SHELF_OUT = 6.5;
 
@@ -1040,7 +1061,7 @@ function coastProfile(d) {
 }
 
 /**
- * The ground on a real coast: the coast's profile at the corners of the grid
+ * The ground on a real coast: the coast's profile at the vertices of the grid
  * it is drawn on, and flat between them, split the way the renderer splits it.
  *
  * It used to be the profile read straight off the collision mask, whose
@@ -1052,23 +1073,96 @@ function coastProfile(d) {
  * height of it. Now the ground is the ramp.
  */
 function coastBase(world, x, z) {
+  const g = coastGrid(world);
+  if (!g.m.any) return -SHELF_DEEP;
+  const fi = (x - g.o) / g.cell;
+  const fj = (z - g.o) / g.cell;
+  const i = Math.floor(fi);
+  const j = Math.floor(fj);
+  const at = (a, b) => coastVertex(world, g, a, b);
+  return coastLerp(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), fi - i, fj - j);
+}
+
+/**
+ * The grid a real coast is drawn on: a vertex at the middle of every cell of
+ * the land mask, and a ring of them round the outside.
+ *
+ * At the middle of the cells and not at their corners, and on every one of
+ * them rather than every other. Drawn every other cell, from the corners, the
+ * picture was a coarser thing than the mask the hulls run aground on: it stood
+ * half a cell off it, every land cell it missed was ground a ship hit and
+ * nobody could see, and a spit or an isthmus one cell wide came out as a row
+ * of islets with the sea showing through between them. A vertex in each cell
+ * is the mask exactly, and the shore falls where the land cells end.
+ *
+ * `o` is where vertex 0 stands, on both axes; `n` is the last vertex.
+ */
+export function coastGrid(world) {
   const m = landMask(world);
-  if (!m.any) return -SHELF_DEEP;
-  const cell = m.cell * COAST_STEP;
-  const i = Math.floor((x + m.half) / cell);
-  const j = Math.floor((z + m.half) / cell);
-  const x0 = -m.half + i * cell;
-  const z0 = -m.half + j * cell;
-  const at = (cx, cz) => coastProfile(shoreDistance(world, cx, cz));
-  const h00 = at(x0, z0);
-  const h10 = at(x0 + cell, z0);
-  const h11 = at(x0 + cell, z0 + cell);
-  const h01 = at(x0, z0 + cell);
-  const u = (x - x0) / cell;
-  const w = (z - z0) / cell;
-  return u >= w
-    ? h00 + u * (h10 - h00) + w * (h11 - h10)
-    : h00 + w * (h01 - h00) + u * (h11 - h01);
+  if (!m.coast) {
+    const n = m.n + 1;
+    // The distance to the shore at every vertex, kept with the mask: a
+    // lookup for every question asked of the ground rather than nine.
+    const d = new Float32Array((n + 1) * (n + 1));
+    const raw = (i, j) => {
+      const v = m.any ? m.dist[clampI(j - 1, m.n) * m.n + clampI(i - 1, m.n)] : -1e9;
+      // The distance is to the far side of the nearest cell of the other
+      // kind; the shore itself is the edge between the two, half a cell nearer.
+      return v > 0 ? v - m.cell / 2 : v + m.cell / 2;
+    };
+    // Eased a little across its neighbours, so the shore runs round in
+    // curves rather than in the hundred-and-fifty-metre steps of the cells
+    // it was rasterised on -- but only ever out to sea, and never across the
+    // waterline. A vertex on a land cell keeps all its height, so every bit
+    // of ground a hull can run onto is drawn and a spit one cell wide is
+    // still a spit; one on a water cell is let up towards the land round it,
+    // which fills the shore's inside corners, and stays under the water.
+    const keep = m.cell / 4;
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        let sum = 0;
+        for (let b = -1; b <= 1; b++) {
+          for (let a = -1; a <= 1; a++) sum += raw(i + a, j + b) * (a ? 1 : 2) * (b ? 1 : 2);
+        }
+        const v = sum / 16;
+        const r = raw(i, j);
+        d[j * (n + 1) + i] = r > 0 ? Math.max(r, v) : Math.min(-keep, v);
+      }
+    }
+    m.coast = { m, cell: m.cell, n, o: -m.half - m.cell / 2, d };
+  }
+  return m.coast;
+}
+
+function clampI(i, n) {
+  return i < 0 ? 0 : i >= n ? n - 1 : i;
+}
+
+/** The profile at vertex (i, j) of the coast's grid: the ground at the middle of its cell. */
+function coastVertex(world, g, i, j) {
+  return coastProfile(g.d[clampI(j, g.n + 1) * (g.n + 1) + clampI(i, g.n + 1)]);
+}
+
+/**
+ * Which way a quad of the coast's grid is split: true for the diagonal from
+ * (0, 0) to (1, 1). Along whichever diagonal stands higher, so where the land
+ * runs corner to corner between two cells the two are joined by a strip of
+ * ground rather than cut apart by a strip of sea.
+ */
+export function coastSplit(h00, h10, h11, h01) {
+  return h00 + h11 >= h10 + h01;
+}
+
+/** The height at (u, w) across a quad of the coast's grid, split as coastSplit splits it. */
+function coastLerp(h00, h10, h11, h01, u, w) {
+  if (coastSplit(h00, h10, h11, h01)) {
+    return u >= w
+      ? h00 + u * (h10 - h00) + w * (h11 - h10)
+      : h00 + w * (h01 - h00) + u * (h11 - h01);
+  }
+  return u + w <= 1
+    ? h00 + u * (h10 - h00) + w * (h01 - h00)
+    : h11 + (1 - u) * (h01 - h11) + (1 - w) * (h10 - h11);
 }
 
 /**
@@ -1087,6 +1181,9 @@ export function landCeiling(world) {
   // A real coastline has no island list to read: it climbs off the shore
   // distance field, and groundHeight tops out at four hundred and fifty.
   if (world.land && world.land.length) top = Math.max(top, 460);
+  // And what is built on it: a church spire on a low island stands higher
+  // than the island.
+  if (world.works) top = Math.max(top, worksCeiling(world));
   world._ceiling = top;
   return top;
 }
@@ -1114,6 +1211,9 @@ export function groundHeight(world, x, z) {
 export function keelGround(world, x, z) {
   const base = baseGround(world, x, z);
   if (base <= 0) return base;
+  // Paving and concrete take a shell as damage to what is built on them, not
+  // as a hole: see blastWorks.
+  if (world.works && (pristine() || worksHard(world, x, z))) return base;
   return Math.max(0.2, base - craterDrop(world, x, z));
 }
 
@@ -1123,7 +1223,7 @@ export function keelGround(world, x, z) {
 //
 // groundHeight is exact. The terrain on the screen is not: it is a mesh lofted
 // through that field, a radial one a hundred-odd metres between vertices on an
-// island and a grid three hundred metres across on a real coast, and between
+// island and a grid a hundred and fifty metres across on a real coast, and between
 // its vertices it is flat. On a hillside that can be metres off the true
 // height either way -- which is nothing to a ship and everything to a gun pit
 // forty metres across, cut to the true ground and drawn on the mesh: half of it
@@ -1178,9 +1278,6 @@ export function isleVertex(world, isle, spokes, i, j) {
   return [x, f > 1 ? Math.min(y, -0.3) : y, z];
 }
 
-/** The real coast's mesh is drawn on cells this many times the mask's. */
-export const COAST_STEP = 2;
-
 // Height inside triangle abc at (x, z), or NaN when the point is outside it.
 function inTri(a, b, c, x, z) {
   const d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
@@ -1234,23 +1331,14 @@ function isleDrawn(world, isle, x, z) {
 
 // The coast mesh's height at a point, or NaN where no quad is drawn.
 function coastDrawn(world, x, z) {
-  const m = landMask(world);
-  if (!m.any) return NaN;
-  const cell = m.cell * COAST_STEP;
-  const i = Math.floor((x + m.half) / cell);
-  const j = Math.floor((z + m.half) / cell);
-  const x0 = -m.half + i * cell;
-  const z0 = -m.half + j * cell;
-  const h00 = keelGround(world, x0, z0);
-  const h10 = keelGround(world, x0 + cell, z0);
-  const h11 = keelGround(world, x0 + cell, z0 + cell);
-  const h01 = keelGround(world, x0, z0 + cell);
-  const u = (x - x0) / cell;
-  const w = (z - z0) / cell;
-  // Split corner to corner from (x0, z0), as the renderer splits it.
-  return u >= w
-    ? h00 + u * (h10 - h00) + w * (h11 - h10)
-    : h00 + w * (h01 - h00) + u * (h11 - h01);
+  const g = coastGrid(world);
+  if (!g.m.any) return NaN;
+  const fi = (x - g.o) / g.cell;
+  const fj = (z - g.o) / g.cell;
+  const i = Math.floor(fi);
+  const j = Math.floor(fj);
+  const at = (a, b) => keelGround(world, g.o + a * g.cell, g.o + b * g.cell);
+  return coastLerp(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), fi - i, fj - j);
 }
 
 /**
@@ -1269,7 +1357,14 @@ export function drawnGround(world, x, z) {
     const h = coastDrawn(world, x, z);
     if (h > top) top = h;
   }
-  return top === -Infinity ? keelGround(world, x, z) : top;
+  if (top === -Infinity) top = keelGround(world, x, z);
+  // A sea wall is drawn as itself, not lofted on the terrain's coarse mesh:
+  // along its width the ground as drawn is its walkway.
+  if (world.works?.walls?.length) {
+    const on = wallAt(world, x, z);
+    if (on) top = Math.max(top, keelGround(world, x, z));
+  }
+  return top;
 }
 
 /** Signed distance to the shore in metres: positive inland, negative at sea.

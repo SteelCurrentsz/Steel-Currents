@@ -63,7 +63,7 @@
     </nav>
   </div>
   <div class="version">1.25</div>
-  <div class="net-state" id="net-state">connecting…</div>
+  <div class="net-state" id="offline-state" hidden></div>
 </section>
 
 <!-- ============================ GATE ============================= -->
@@ -156,6 +156,31 @@
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
       <button class="btn" id="acc-signout">Sign out</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ======================= PREMIUM EQUIPMENT ======================= -->
+<!-- The three departments of the store. None is open yet: each is a door
+     with nothing behind it until the store is stocked. -->
+<section id="screen-premium" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Premium Equipment</h2>
+      <p>Choose a department.</p>
+    </header>
+    <div class="panel-body">
+      <div class="premium-cats">
+        <button class="premium-cat" type="button" data-premium="ships">
+          <b>Ships</b><span>Premium hulls</span></button>
+        <button class="premium-cat" type="button" data-premium="equipment">
+          <b>Equipment</b><span>Fittings and upgrades</span></button>
+        <button class="premium-cat" type="button" data-premium="aircraft">
+          <b>Aircraft</b><span>Premium airframes</span></button>
+      </div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
     </footer>
   </div>
 </section>
@@ -337,7 +362,6 @@
         <label class="check"><input type="checkbox" id="opt-shadows" checked /> <span>Shadows</span></label>
         <label class="check"><input type="checkbox" id="opt-recoil" checked /> <span>Gunfire camera recoil</span></label>
         <label class="check"><input type="checkbox" id="opt-pencam" checked /> <span>Penetration camera</span></label>
-        <label class="check"><input type="checkbox" id="opt-alerts" checked /> <span>Big red event text</span></label>
         <label class="check"><input type="checkbox" id="opt-voices" checked /> <span>Bridge voice orders</span></label>
         <label class="check"><input type="checkbox" id="opt-ff" /> <span>Friendly fire</span></label>
         <p class="help">Off by default. With it on, your own side's shells, torpedoes,
@@ -416,6 +440,19 @@
       </button>
     </div>
     <p class="minimap-hint">Tap a ship, then the sea &middot; M for the big chart</p>
+    <!-- Fleets and squadrons. The key puts the plot into picking your own
+         ships or flights; the bar forms what was picked into one, or splits it
+         out of the one it is in. A course given to one ship of a fleet is
+         given to all of it, and a squadron flies and fights as one. -->
+    <div class="group-row" id="group-row">
+      <button class="free-cam-key group-key" id="group-key" type="button"
+              aria-pressed="false">Fleets &amp; squadrons</button>
+      <div class="group-bar" id="group-bar" role="status" hidden>
+        <span class="group-what" id="group-what"></span>
+        <button class="watch-back" id="group-form" type="button">Form</button>
+        <button class="watch-back" id="group-split" type="button">Split</button>
+      </div>
+    </div>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
     <div class="watch-banner" id="watch-banner" role="status" hidden>
@@ -447,7 +484,7 @@
        bomber's back seat or a heavy's tail turret. And his trigger, while he
        is sitting in it and nobody of ours is flying her. -->
   <button class="fly-take gunner" id="gun-seat" type="button" hidden><span>REAR GUNNER</span></button>
-  <button class="gun-fire" id="gun-fire" type="button" hidden>FIRE</button>
+  <button class="gunner-fire" id="gunner-fire" type="button" hidden>FIRE</button>
 
   <!-- The cockpit, laid out the way War Thunder Mobile lays one out, because
        that is the layout everybody's thumbs already know. There is no stick:
@@ -525,10 +562,13 @@
            target plate; a pilot needs his own, because the bridge's keys are
            not on screen while he is flying. -->
       <button class="fly-btn bombcam" id="fly-bombcam" type="button" hidden>BOMBS<br>AWAY</button>
+      <!-- Her dive brakes, on a type that has them: out for the dive, in for
+           everything else. X at a desk. -->
+      <button class="fly-btn brakes" id="fly-brakes" type="button" hidden>DIVE<br>BRAKES</button>
       <button class="fly-btn drop" id="fly-drop" type="button">DROP</button>
     </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
-    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll</p>
+    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes</p>
     <!-- Her name, and her condition along the bottom: which aeroplane this is
          and how much of her is left. -->
     <div class="fly-ident" id="fly-ident">
@@ -596,6 +636,13 @@
       </svg>
       <span id="dive-label">DIVE</span>
       <i class="air-bar" aria-hidden="true"><b id="air-fill"></b></i>
+      <!-- Her air, over the key: a gauge with the figure on it, where a
+           captain can read it at a glance without the key under his thumb. -->
+      <span class="o2-gauge" id="o2-gauge" role="meter" aria-label="Oxygen"
+            aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+        <span class="o2-head"><b>O&#8322;</b><span id="o2-pct">100%</span></span>
+        <i class="o2-bar" aria-hidden="true"><b id="o2-fill"></b></i>
+      </span>
     </button>
     <button class="conn-key" id="key-ship" type="button" data-panel="ship"
             aria-label="Damage control">
@@ -696,7 +743,6 @@
 
   <div class="killfeed" id="killfeed"></div>
   <div class="ribbons" id="ribbons"></div>
-  <div class="alerts" id="alerts"></div>
 
   <div class="scoreboard" id="scoreboard"><table id="scoreboard-table"></table></div>
 
@@ -721,6 +767,15 @@
     <p class="lamp-name" id="human-where"></p>
     <button class="human-jump" id="human-jump" type="button">Jump</button>
     <button class="gun-leave" id="human-leave" type="button">Leave human view</button>
+  </div>
+  <!-- At the guns of a battery ashore. A gun or a launcher is laid on the
+       enemy ship tapped on the plot and fired on its key; the mortar is laid on
+       a pin put in the plot, and fires at it every time it is loaded. -->
+  <div class="lamp-sight bat-sight" id="bat-sight" hidden>
+    <p class="lamp-name" id="bat-name"></p>
+    <p class="bat-read" id="bat-read"></p>
+    <button class="gun-fire" id="bat-fire" type="button">Fire</button>
+    <button class="gun-leave" id="bat-leave" type="button">Leave battery</button>
   </div>
   <div class="gun-sight" id="gun-sight" hidden>
     <div class="gun-cross" aria-hidden="true">
@@ -749,7 +804,7 @@
        thing left when the screen is cleared for a shot, in the corner nothing
        is drawn in. See director.js. -->
   <div class="director-bar" id="director-bar" hidden></div>
-  <button class="director-peek" id="director-peek" type="button" aria-label="Show the controls">Show HUD</button>
+  <button class="director-peek" id="director-peek" type="button" aria-label="Show the controls" title="Show HUD">&times;</button>
 </section>
 
 <!-- ============================ RESULT ============================ -->
@@ -798,6 +853,19 @@
     <button id="lay-in" type="button" aria-label="Zoom in">+</button>
     <button id="lay-out" type="button" aria-label="Zoom out">&minus;</button>
     <button id="lay-fit" type="button" aria-label="Fit the whole battlefield">&#9723;</button>
+  </div>
+  <!-- The works ashore: towns and sea walls, each raised off a seed. A press
+       and then a tap on the chart puts one down there, as many as are
+       wanted; the cross takes the last one away again. See shared/works.js. -->
+  <div class="lay-works" id="lay-works">
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-city" type="button" title="Put a town down: press, then tap anywhere on land">+ Town</button>
+      <button class="lay-x" id="lay-city-x" type="button" aria-label="Take away the last town" title="Take away the last town" hidden>&times;</button>
+    </div>
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-walls" type="button" title="Build sea walls: press, then tap by the shore">+ Sea Walls</button>
+      <button class="lay-x" id="lay-walls-x" type="button" aria-label="Take away the last sea walls" title="Take away the last sea walls" hidden>&times;</button>
+    </div>
   </div>
   <p id="lay-hint" class="deploy-hint"></p>
   <div class="lay-actions">
