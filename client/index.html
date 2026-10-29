@@ -452,6 +452,14 @@
         <button class="watch-back" id="group-form" type="button">Form</button>
         <button class="watch-back" id="group-split" type="button">Split</button>
       </div>
+      <!-- An attack: your own ships, aircraft and batteries picked off the
+           plot, then an enemy tapped, and everything they have goes at it. -->
+      <button class="free-cam-key group-key attack-key" id="attack-key" type="button"
+              aria-pressed="false">Attack</button>
+      <div class="group-bar attack-bar" id="attack-bar" role="status" hidden>
+        <span class="group-what" id="attack-what"></span>
+        <button class="watch-back" id="attack-cease" type="button">Cease</button>
+      </div>
     </div>
     <!-- Whose view the camera has gone to, and how to come back. Only up while
          the camera is somewhere other than your own bridge. -->
@@ -768,10 +776,18 @@
     <button class="human-jump" id="human-jump" type="button">Jump</button>
     <button class="gun-leave" id="human-leave" type="button">Leave human view</button>
   </div>
-  <!-- At the guns of a battery ashore. A gun or a launcher is laid on the
-       enemy ship tapped on the plot and fired on its key; the mortar is laid on
-       a pin put in the plot, and fires at it every time it is loaded. -->
+  <!-- At the guns of a battery ashore. The view is the sight: drag it, and
+       the guns are laid on whatever is under the crosshair -- a ship by name,
+       anything else as a point -- and fired on the key. A ship, a town or a
+       wall tapped on the plot lays them as well, and swings the view onto it. -->
   <div class="lamp-sight bat-sight" id="bat-sight" hidden>
+    <div class="gun-cross" aria-hidden="true">
+      <i class="gp"></i>
+      <span class="gt gt-u"></span><span class="gt gt-d"></span>
+      <span class="gt gt-l"></span><span class="gt gt-r"></span>
+      <span class="gring"></span>
+    </div>
+    <p class="gun-read" id="bat-aim"></p>
     <p class="lamp-name" id="bat-name"></p>
     <p class="bat-read" id="bat-read"></p>
     <button class="gun-fire" id="bat-fire" type="button">Fire</button>

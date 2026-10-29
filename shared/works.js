@@ -452,10 +452,91 @@ export function worksGround(world, x, z, base) {
     }
   }
   if (w.walls.length) {
+    // The berth along the face: dredged out, the way the water alongside a
+    // sea wall always is -- a wall is built where there is deep water to
+    // keep the sea off, and a quay is no use to a ship that grounds a
+    // hundred metres short of it. Only where there is sea already; the
+    // coast stays where it is.
+    if (h < 0) h = Math.min(h, berthFloor(world, x, z, h));
     const at = wallAt(world, x, z);
     if (at) h = wallTop(world, at, h);
   }
   return h;
+}
+
+/** How far out from a wall's face its berth is dredged, and how deep. */
+const BERTH = 110;
+const BERTH_FULL = 35;
+const BERTH_DEEP = 14;
+const BERTH_INDEX = new WeakMap();
+
+/** The walls' segments filed for their berths, which reach further than the walls do. */
+function berthIndex(world) {
+  const w = world.works;
+  let idx = BERTH_INDEX.get(w);
+  if (idx) return idx;
+  idx = new Map();
+  const reach = WALL_WIDTH / 2 + BERTH;
+  w.walls.forEach((run, ri) => {
+    for (let k = 0; k < run.pts.length - 1; k++) {
+      const [ax, az] = run.pts[k];
+      const [bx, bz] = run.pts[k + 1];
+      const x0 = Math.floor((Math.min(ax, bx) - reach) / WCELL);
+      const x1 = Math.floor((Math.max(ax, bx) + reach) / WCELL);
+      const z0 = Math.floor((Math.min(az, bz) - reach) / WCELL);
+      const z1 = Math.floor((Math.max(az, bz) + reach) / WCELL);
+      for (let gx = x0; gx <= x1; gx++) {
+        for (let gz = z0; gz <= z1; gz++) {
+          const kk = gx * 100003 + gz;
+          if (!idx.has(kk)) idx.set(kk, []);
+          idx.get(kk).push(ri, k);
+        }
+      }
+    }
+  });
+  BERTH_INDEX.set(w, idx);
+  return idx;
+}
+
+/**
+ * The bottom of a wall's berth under a point out in front of it, given the
+ * bottom there as it was: the full depth along the face, shoaling back to
+ * the natural bottom over the next seventy-odd metres. The natural bottom if
+ * the point is not in front of any wall.
+ */
+export function berthFloor(world, x, z, h) {
+  const list = berthIndex(world).get(Math.floor(x / WCELL) * 100003 + Math.floor(z / WCELL));
+  if (!list) return h;
+  let best = Infinity;
+  const runs = world.works.walls;
+  for (let q = 0; q < list.length; q += 2) {
+    const run = runs[list[q]];
+    const k = list[q + 1];
+    const [ax, az, anx, anz] = run.pts[k];
+    const [bx, bz, bnx, bnz] = run.pts[k + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const L2 = dx * dx + dz * dz || 1;
+    const t0 = ((x - ax) * dx + (z - az) * dz) / L2;
+    // Square at the two ends of the run, rounded between its segments: on
+    // the outside of a bend a point past the end of one segment and short of
+    // the next is still in front of the wall (see wallAt).
+    if ((t0 < 0 && k === 0) || (t0 > 1 && k === run.pts.length - 2)) continue;
+    const t = clamp(t0, 0, 1);
+    const nx = anx + (bnx - anx) * t;
+    const nz = anz + (bnz - anz) * t;
+    const ox = x - ax - dx * t;
+    const oz = z - az - dz * t;
+    // Out in front of it, not behind it.
+    if (ox * nx + oz * nz <= 0) continue;
+    const out = Math.hypot(ox, oz) - run.width / 2;
+    if (out < -1 || out > BERTH) continue;
+    best = Math.min(best, Math.max(0, out));
+  }
+  if (best === Infinity) return h;
+  const f = clamp((best - BERTH_FULL) / (BERTH - BERTH_FULL), 0, 1);
+  const e = f * f * (3 - 2 * f);
+  return -BERTH_DEEP + (h + BERTH_DEEP) * e;
 }
 
 /** Whether a point is paved -- on the town's level or on a wall -- so a shell digs no crater there. */
@@ -915,10 +996,31 @@ function wallTop(world, at, ground) {
 /** The structural strength of one section of wall, in the units a shell's damage comes in. */
 export function wallHp(run) {
   // Mass concrete, its own width deep and its own height high, twenty-four
-  // metres of it. Two sixteen-inch shells to breach, or a long morning of
-  // destroyer fire.
-  return (WALL_SECTION * WALL_STEP * run.width * run.top * 3.0) / 100;
+  // metres of it: three or four sixteen-inch shells on the walkway to breach,
+  // two or three heavy bombs, or thirty-odd rounds of destroyer fire. A taller
+  // wall is more of it, but not in proportion: what brings a section down is
+  // its crown and its face going, not the whole of it being pulverised.
+  return 45 + 2.5 * run.top;
 }
+
+/**
+ * What a burst is worth against the works: the bore in decimetres squared,
+ * times how much of a burst the round is.
+ *
+ * Not the cube of the bore, which is what the charge goes as and what digs a
+ * crater in open ground. Against masonry and concrete what counts is the
+ * area a burst shatters, and that goes nearer the square: a five-inch round
+ * is a tenth of a sixteen-inch one against a wall, not a thirtieth -- which
+ * is the difference between a destroyer's guns doing something to a town and
+ * a destroyer's guns being scenery.
+ */
+export function worksPower(charge, filler) {
+  const bore = Math.cbrt(Math.max(0, charge));
+  return bore * bore * filler;
+}
+
+/** How many of its hits a section of wall remembers, to be drawn. */
+export const WALL_SCARS = 12;
 
 // ---------------------------------------------------------------------------
 // Laying the town out
@@ -1257,7 +1359,12 @@ function drawUp(world, c) {
     };
     bld.top = L + bld.h + roofH + (bld.extra.spire || 0) + (bld.extra.clock || 0);
     const vol = bld.w * bld.d * (bld.h + roofH * 0.4);
-    bld.hp = Math.max(2, (vol * BUILT[mat].hp) / 100);
+    // Not in proportion to the volume: a block of offices five times the size
+    // of a terrace does not take five times the shells to bring down, because
+    // a shell bursting in it wrecks the floors round it, not one fifth as much
+    // of a bigger building. Linear, a concrete tower took a hundred and seventy
+    // destroyer rounds and three battleship ones and still stood.
+    bld.hp = Math.max(2, 3 * ((vol * BUILT[mat].hp) / 100) ** 0.62);
     buildings.push(bld);
     return bld;
   };
@@ -1687,10 +1794,12 @@ function impactIn(world, plan, ax, ay, az, bx, by, bz) {
 export function blastWorks(world, x, y, z, charge, filler, events, rng, direct = null) {
   const w = world.works;
   if (!w) return false;
-  const power = charge * filler;
+  // An armour-piercing round bursts inside what it hits after all, a little
+  // late: against a house that is worth rather more than its filling.
+  const hit = worksPower(charge, filler < 0.6 ? Math.max(0.35, filler) : filler);
   // How far a burst is felt by a building, in metres: a few for a destroyer's
   // round, getting on for forty for a battleship's.
-  const reach = 4 + 6.5 * Math.cbrt(power);
+  const reach = 4 + 6.5 * Math.cbrt(charge * filler);
   for (const plan of cityPlans(world)) {
     // Nowhere near this town: on to the next.
     const { u, v } = worldToCity(plan.city, x, z);
@@ -1706,7 +1815,7 @@ export function blastWorks(world, x, y, z, charge, filler, events, rng, direct =
       const r0 = ruinOf(world, id);
       if (r0?.c || (r0?.d || 0) >= 1) continue;
       let dmg;
-      if (direct && direct.id === id) dmg = power * 2.6;
+      if (direct && direct.id === id) dmg = hit * 3.8;
       else {
         // Distance to the building's nearest wall, not its middle.
         const dx = x - b.x;
@@ -1717,7 +1826,7 @@ export function blastWorks(world, x, y, z, charge, filler, events, rng, direct =
         const c = Math.max(0, Math.abs(s * dx + k * dz) - b.d / 2);
         const d = Math.hypot(a, c);
         if (d > reach) continue;
-        dmg = (power * 1.6) / (1 + (d / (reach * 0.3)) ** 2);
+        dmg = (hit * 2.4) / (1 + (d / (reach * 0.3)) ** 2);
       }
       hurtBuilding(world, b, dmg, events, rng, { x, z, he: filler >= 0.6 });
     }
@@ -1729,11 +1838,19 @@ export function blastWorks(world, x, y, z, charge, filler, events, rng, direct =
       hard = on.d <= WALL_WIDTH / 2;
       // Concrete takes an armour-piercing round better than a house does,
       // but the round gets into it and bursts there rather than passing
-      // through: the filling is worth more against a wall than a house.
-      const f = filler < 0.6 ? 0.6 : 1;
+      // through: the filling is worth more against a wall than a house. And a
+      // bomb's filling is worth all of what it is -- it used to be cut down to
+      // a shell's, so a thousand-pounder chipped the walkway.
+      const f = filler < 0.6 ? 0.6 : filler;
       const run = w.walls[on.run];
-      const dmg = charge * f * (hard ? 1.6 : 0.6);
-      hurtWall(world, on.run, on.sec, dmg / wallHp(run), events, { x, y, z });
+      // On the walkway the burst is tamped by the concrete under it; against
+      // the face, or in the water at its foot, a good deal of it goes into
+      // the sea -- the more of it the further down the face it went off.
+      const low = hard ? 1 : clamp(((y || 0) + 4) / Math.max(4, run.top + 4), 0, 1);
+      const dmg = worksPower(charge, f) * (hard ? 1.6 : 0.45 + 0.35 * low);
+      // How big a hole it leaves, in metres across the crown.
+      const scar = clamp(0.8 + Math.sqrt(dmg) * 0.75, 0.8, 9);
+      hurtWall(world, on.run, on.sec, dmg / wallHp(run), events, { x, y, z }, scar);
       // A heavy round on the joint between two sections shakes both.
       const n = wallSections(run);
       const frac = ((on.seg % WALL_SECTION) + on.t) / WALL_SECTION;
@@ -1769,22 +1886,72 @@ function ruinEvent(events, b, r, at) {
   });
 }
 
-/** Take a share of a wall section away. Returns true if that breached it. */
-export function hurtWall(world, run, sec, share, events, at = null) {
+/**
+ * Take a share of a wall section away. Returns true if that breached it.
+ *
+ * `scar` is how big a hole the hit left, in metres: a shell or a bomb leaves
+ * one, where it went off, and the section keeps the last few of them so they
+ * can be drawn on it. Every hit that leaves a scar goes out; the chipping of
+ * machine-gun fire goes out only every fifth of the way, as it adds up.
+ *
+ * A section that goes takes the ends of the two beside it with it: they were
+ * keyed into it, and the end of a sound section standing over a breach has
+ * nothing holding it on that side.
+ */
+export function hurtWall(world, run, sec, share, events, at = null, scar = 0) {
   const ruin = world.ruin || (world.ruin = { b: {}, w: {} });
   const id = wallId(run, sec);
   const r = ruin.w[id] || (ruin.w[id] = { d: 0 });
   if (r.d >= 1) return false;
   const before = r.d;
   r.d = Math.min(1, Math.round((r.d + share) * 1000) / 1000);
-  // Every fifth of the way, and the breach itself, goes out.
-  if (Math.floor(before * 5) === Math.floor(r.d * 5) && r.d < 1) return false;
-  if (r.d >= 1) world.groundRev = (world.groundRev || 0) + 1;
+  if (scar > 0 && at) {
+    const h = r.h || (r.h = []);
+    h.push([Math.round(at.x * 10) / 10, Math.round(at.z * 10) / 10, Math.round(scar * 10) / 10]);
+    if (h.length > WALL_SCARS) h.shift();
+  } else if (Math.floor(before * 5) === Math.floor(r.d * 5) && r.d < 1) return false;
+  const breached = r.d >= 1;
+  if (breached) world.groundRev = (world.groundRev || 0) + 1;
   events.push({
     e: 'ruin', k: 'w', id, run, sec, d: r.d,
+    ...(r.h ? { h: r.h.map((q) => q.slice()) } : {}),
     ...(at ? { x: Math.round(at.x), y: Math.round(at.y || 0), z: Math.round(at.z) } : {}),
   });
-  return r.d >= 1;
+  if (breached) {
+    const W = world.works?.walls?.[run];
+    const n = W ? wallSections(W) : 0;
+    for (const s of [sec - 1, sec + 1]) {
+      if (s < 0 || s >= n) continue;
+      hurtWall(world, run, s, 0.16, events, null);
+    }
+  }
+  return breached;
+}
+
+/**
+ * The sea at a wall that has been knocked about.
+ *
+ * Sound concrete stands the surf for a century. A section with its face
+ * cracked open and its crown broken up does not: every wave that comes in
+ * works at what is loose, and the more of it is loose the faster it goes.
+ * Slowly -- minutes, not seconds -- but a section left three-quarters gone
+ * falls in on its own before the battle is over.
+ */
+function erodeWalls(world, dt, events) {
+  const w = world.ruin?.w;
+  if (!w) return;
+  for (const key in w) {
+    const r = w[key];
+    if (!(r.d >= 0.5) || r.d >= 1) continue;
+    // Held until it is worth a step of the thousandths the damage is kept
+    // in, or a tick's worth of it would be rounded away every tick.
+    r.e = (r.e || 0) + (r.d - 0.45) * 0.0016 * dt;
+    if (r.e < 0.002) continue;
+    const id = Number(key);
+    const e = r.e;
+    r.e = 0;
+    hurtWall(world, Math.floor(id / 1000), id % 1000, e, events);
+  }
 }
 
 /**
@@ -1795,7 +1962,9 @@ export function hurtWall(world, run, sec, share, events, at = null) {
  * light to whatever stands within a few metres of it, timber first.
  */
 export function stepWorks(world, dt, events, rng) {
-  if (!world.works?.cities?.length || !world.ruin) return;
+  if (!world.ruin) return;
+  if (world.works?.walls?.length) erodeWalls(world, dt, events);
+  if (!world.works?.cities?.length) return;
   world._fireClock = (world._fireClock || 0) + dt;
   const spread = world._fireClock >= 2;
   if (spread) world._fireClock = 0;
@@ -1863,7 +2032,7 @@ export function applyRuin(world, ev) {
     ruin.b[ev.id] = { d: ev.d, f: ev.f || 0, ...(ev.c ? { c: 1 } : {}) };
   } else if (ev.k === 'w') {
     const was = ruin.w[ev.id]?.d || 0;
-    ruin.w[ev.id] = { d: ev.d };
+    ruin.w[ev.id] = { d: ev.d, ...(ev.h ? { h: ev.h.map((q) => q.slice()) } : {}) };
     if (ev.d >= 1 && was < 1) world.groundRev = (world.groundRev || 0) + 1;
   }
 }
@@ -2045,4 +2214,107 @@ export function solidHit(world, ax, ay, az, bx, by, bz, step = 4, drawn = true) 
   if (ground === null) return null;
   const [x, y, z] = at(ground);
   return { x, y, z, b: null, f: ground };
+}
+
+// ---------------------------------------------------------------------------
+// The works as something to shoot at
+// ---------------------------------------------------------------------------
+//
+// A ship's guns and a coast battery are laid on a ship by her id. A town and
+// a stretch of sea wall are laid on the same way, so they have ids of their
+// own: negative, so they can never be mistaken for anything afloat or ashore
+// that the battle numbers as it goes. What a gun is laid on is a point -- the
+// standing building nearest the middle of the town, or the section of the wall
+// that is furthest gone and still standing, which is where a gunnery officer
+// sent to knock a breach in it would go on putting his rounds -- and it is
+// worked out again as the town and the wall come down.
+
+/** The id a town is laid on by: -1001 for the first, -1002 for the next. */
+export const townTargetId = (i) => -1001 - i;
+/** And a run of sea wall. */
+export const wallTargetId = (k) => -3001 - k;
+/** Whether an id is one of these. */
+export const isWorksTarget = (id) => Number.isInteger(id) && id <= -1001 && id >= -3001 - MAX_WALLS * 40;
+
+/** How long a worked-out aim point stands before it is worked out again, in seconds of battle. */
+const AIM_HOLD = 1.5;
+const TARGETS = new WeakMap();
+
+/**
+ * Every town and every run of wall on the battlefield as a target:
+ * `{ id, kind, i, name, x, z, y, alive, left }`, with `left` the share of it
+ * still standing. `t` is the battle's clock, which is all the cache is keyed on.
+ */
+export function worksTargets(world, t = 0) {
+  if (!world?.works) return [];
+  const had = TARGETS.get(world);
+  if (had && Math.abs(t - had.t) < AIM_HOLD && had.ruin === world.ruin) return had.list;
+  const list = [];
+  const plans = cityPlans(world);
+  const many = plans.length > 1;
+  plans.forEach((plan, i) => {
+    const c = plan.city;
+    let best = null;
+    let bd = Infinity;
+    let left = 0;
+    let all = 0;
+    for (const b of plan.buildings) {
+      const r = ruinOf(world, b.id);
+      const st = stageOf(r?.d || 0, !!r?.c);
+      all += b.hp;
+      if (st >= STAGE.rubble) continue;
+      left += b.hp * (1 - (r?.d || 0));
+      const d = Math.hypot(b.x - c.x, b.z - c.z);
+      if (d < bd) { bd = d; best = b; }
+    }
+    const at = best || c;
+    list.push({
+      id: townTargetId(i), kind: 'town', i, name: many ? `Town ${i + 1}` : 'Town',
+      x: at.x, z: at.z, y: plan.level + (best ? Math.min(6, best.h / 2) : 0),
+      alive: !!best, left: all > 0 ? left / all : 0,
+      heading: 0, speed: 0, team: -1,
+    });
+  });
+  const runs = world.works.walls || [];
+  runs.forEach((run, k) => {
+    const n = wallSections(run);
+    let pick = -1;
+    let pd = -1;
+    let gone = 0;
+    for (let s = 0; s < n; s++) {
+      const d = wallDamage(world, k, s);
+      gone += d;
+      if (d >= 1) continue;
+      // The furthest gone; between equals the one nearest the middle.
+      const v = d - Math.abs(s - (n - 1) / 2) * 1e-4;
+      if (v > pd) { pd = v; pick = s; }
+    }
+    const sec = Math.max(0, pick);
+    const [k0, k1] = sectionSpan(run, sec);
+    const a = run.pts[k0];
+    const b = run.pts[k1];
+    list.push({
+      id: wallTargetId(k), kind: 'wall', i: k, sec,
+      name: runs.length > 1 ? `Sea wall ${k + 1}` : 'Sea wall',
+      x: (a[0] + b[0]) / 2, z: (a[1] + b[1]) / 2, y: run.top,
+      alive: pick >= 0, left: 1 - gone / n,
+      heading: 0, speed: 0, team: -1,
+    });
+  });
+  TARGETS.set(world, { t, ruin: world.ruin, list });
+  return list;
+}
+
+/** One of them by its id, or null. */
+export function worksTarget(world, id, t = 0) {
+  if (!isWorksTarget(id)) return null;
+  return worksTargets(world, t).find((q) => q.id === id) || null;
+}
+
+/** The middle of a run of wall, for a camera to stand off. */
+export function wallMiddle(world, k) {
+  const run = world?.works?.walls?.[k];
+  if (!run) return null;
+  const p = run.pts[Math.floor(run.pts.length / 2)];
+  return { x: p[0], z: p[1], y: run.top, span: Math.min(900, run.pts.length * WALL_STEP) };
 }

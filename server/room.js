@@ -7,7 +7,7 @@ import {
   launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
-  commandBattery, pinBattery, layBattery, triggerBattery,
+  commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -551,19 +551,37 @@ export class Room {
     // own ship, so a captain whose ship has gone down can still give them.
     if (msg.t === 'group') {
       const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
-      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split);
+      // A squadron's heavies, named apart from its carrier flights.
+      const bids = Array.isArray(msg.bids) ? msg.bids.slice(0, 16) : [];
+      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split, bids);
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
       return;
     }
     if (msg.t === 'vector') {
-      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z));
+      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
+        msg.k === 'bomber' ? 'bomber' : 'plane');
+      return;
+    }
+    // Units of his side picked off the plot and put, with everything they
+    // have, onto one target -- or, with no target, handed back to their own
+    // officers. See orderAttack.
+    if (msg.t === 'attack') {
+      const units = Array.isArray(msg.u) ? msg.u.slice(0, 16) : [];
+      const target = Number.isInteger(msg.target) ? msg.target : 0;
+      let n = 0;
+      for (const u of units) {
+        if (!u || typeof u.k !== 'string' || !Number.isInteger(u.i)) continue;
+        n += orderAttack(this.state, ship.team, u.k, u.i, msg.tk, target);
+      }
+      player.send({ t: 'attacked', n, cease: target ? 0 : 1 });
       return;
     }
     // A battery of his own side taken over, laid and fired, and handed back.
     // Like the orders above these are not his ship's, so a captain whose ship
     // has gone down can still fight the guns ashore -- which is much of what
     // there is left for him to do.
-    if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire') {
+    if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire'
+      || msg.t === 'btrain') {
       const bat = this.state.batteries.find((b) => b.id === msg.i);
       if (!bat || bat.team !== ship.team) return;
       if (msg.t === 'tbat') {
@@ -578,6 +596,7 @@ export class Room {
         const x = msg.x === null ? null : Number(msg.x);
         if (!pinBattery(this.state, bat, x, Number(msg.z))) player.send({ t: 'nobat', i: bat.id, why: 'range' });
       } else if (msg.t === 'btgt') layBattery(this.state, bat, typeof msg.target === 'number' ? msg.target : 0);
+      else if (msg.t === 'btrain') trainBattery(this.state, bat, Number(msg.d) || 0);
       else triggerBattery(this.state, bat);
       return;
     }

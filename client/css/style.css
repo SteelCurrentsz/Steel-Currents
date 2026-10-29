@@ -430,6 +430,8 @@ input[type="range"] { accent-color: var(--red); }
   font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sand-bright);
 }
 .group-bar .watch-back[disabled] { opacity: 0.4; cursor: default; }
+.attack-key[aria-pressed="true"] { color: var(--enemy); border-color: var(--enemy); }
+.attack-bar { border-left-color: var(--enemy); }
 
 /* ------------------------------------------------------------- the conn --
    A captain with his guns fought for him has three things left to do, so there
@@ -477,7 +479,8 @@ input[type="range"] { accent-color: var(--red); }
 }
 .target-gun.on { color: #10161c; background: #ffc94a; border-color: #ffc94a; }
 .target-wrap { cursor: grab; touch-action: none; }
-/* The enemy ships in sight, each a box her guns are dropped on. */
+/* The enemy ships in sight, each a box her guns are dropped on -- and the
+   towns and sea walls, which any gun may be put on. */
 .target-foes { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 .target-none { margin: 0.1rem 0 0.2rem; }
 .target-foe {
@@ -485,6 +488,8 @@ input[type="range"] { accent-color: var(--red); }
   background: rgba(60, 14, 18, 0.35); border: 1px solid rgba(226, 86, 79, 0.45);
   transition: border-color 0.12s, background 0.12s;
 }
+.target-foe.works { background: rgba(58, 48, 30, 0.4); border-color: rgba(230, 207, 156, 0.5); }
+.target-foe.works .tf-name { color: #e6cf9c; }
 .target-foe.drop { border-color: #ffc94a; background: rgba(255, 201, 74, 0.14); }
 .tf-head { display: flex; justify-content: space-between; gap: 0.4rem; margin-bottom: 0.3rem; }
 .tf-name { color: var(--enemy); font-size: 0.78rem; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2579,6 +2584,11 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--steel); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
+/* Laid on something past the battery's reach: the sight goes red, the same
+   as a ship's gun sight on its stops. */
+.bat-sight.masked .gun-cross .gp { background: var(--enemy); }
+.bat-sight.masked .gun-cross .gt { background: rgba(226, 86, 79, 0.92); }
+.bat-sight.masked .gun-cross .gring { border-color: rgba(226, 86, 79, 0.5); }
 /* Two words on a key built for one: the lamp key is a little wider and its
    label sits on two lines. */
 #key-lamps { width: 70px; }

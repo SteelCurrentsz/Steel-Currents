@@ -20,6 +20,7 @@
 import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js';
 import { getClass } from '../shared/ships.js';
 import { BATTERIES } from '../shared/batteries.js';
+import { heavyWingTarget } from '../shared/groups.js';
 
 /** How long a contact is worth anything after the last report of it. */
 const STALE = 45;
@@ -615,6 +616,11 @@ function orderHeavies(state, staff, seen) {
     // Only between runs: a squadron on the bombing run is not re-aimed, and a
     // squadron that has let go is on her way out.
     if (bm.phase !== 'inbound') continue;
+    // Nor one her own side has put on something off the plot, or sent
+    // somewhere, or that is going in with a squadron: those are orders the
+    // staff does not get to countermand. It used to, once a second, which is
+    // why a squadron sent at one target went for another.
+    if (bm.order || bm.vec || heavyWingTarget(state, bm)) continue;
     let best = aims[0];
     let score = -Infinity;
     for (const a of aims) {

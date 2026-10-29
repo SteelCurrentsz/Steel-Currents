@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
-import { stepVector, wingTarget, wingLeader } from './groups.js';
+import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
 } from './aero.js';
@@ -32,7 +32,7 @@ import {
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
-  wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit,
+  wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -1098,7 +1098,14 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
     const on = v > 1 && state.world.works?.walls?.length ? wallAt(state.world, wx, wz, 12) : null;
     if (on) {
       const bulk = cls.hull.length * cls.hull.beam * cls.hull.draft;
-      hurtWall(state.world, on.run, on.sec, (bulk * v * v) / 4e6, state.events, { x: wx, y: 0, z: wz });
+      hurtWall(state.world, on.run, on.sec, (bulk * v * v) / 4e6, state.events, { x: wx, y: 0, z: wz },
+        clamp(v * 0.5, 1.5, 9));
+      // And the wall gives back as good as it gets. Concrete does not part
+      // round a stem the way a reef's sand does: her bow is stove in, and the
+      // weaker her stem against the wall the worse it is.
+      const crush = clamp(v / 10, 0, 1.4) * clamp(60 / Math.max(10, stemStrength(cls)), 0.4, 2);
+      damageShip(state, ship, null, ship.maxHp * 0.05 * crush, 'grounding', where(now.at));
+      if (v > 3) openHull(state, ship, where(now.at), (v - 3) * 0.1, now.at >= 0 ? 1 : -1, T * 0.4);
     }
     // What she hit it with, which decides how far up it she goes.
     ship.groundV = v;
@@ -2101,9 +2108,12 @@ export function assignMount(state, ship, kind, i, targetId) {
   ship.assign = ship.assign || {};
   const key = `${kind}:${i}`;
   if (!targetId) { delete ship.assign[key]; return true; }
-  // A ship, or a gun ashore -- which a torpedo cannot be sent at.
+  // A ship, or a gun ashore -- which a torpedo cannot be sent at -- or the
+  // town or a sea wall, which a torpedo can be run into only if it is a wall.
+  const works = worksTarget(state.world, targetId, state.t);
   const foe = state.ships.find((s) => s.id === targetId)
-    || (kind !== 'torp' ? (state.batteries || []).find((b) => b.id === targetId) : null);
+    || (kind !== 'torp' ? (state.batteries || []).find((b) => b.id === targetId) : null)
+    || (works && (kind !== 'torp' || works.kind === 'wall') ? works : null);
   if (!foe || !foe.alive || foe.id === ship.id || !mayHurt(state, ship.team, foe)) return false;
   ship.assign[key] = foe.id;
   return true;
@@ -2128,6 +2138,175 @@ export function mountOff(ship, kind, i) {
   return !!(ship.off && ship.off[`${kind}:${i}`]);
 }
 
+// ---------------------------------------------------------------------------
+// One target for everything: an attack ordered off the plot
+// ---------------------------------------------------------------------------
+//
+// The targeting panel puts one mounting at a time on a ship. This is the order
+// a commander gives over the top of that: these units, everything they have,
+// on that. A ship puts every gun and every tube that can go on it there; a
+// flight -- and the squadron she is in -- goes for it instead of whatever she
+// would have found for herself; a battery is laid on it and fires as fast as
+// it is loaded; a heavy squadron runs in on it. A ship of a fleet takes the
+// rest of the fleet with her, the same as a course does.
+
+/** The unit kinds an attack can be ordered to. */
+export const ATTACK_KINDS = ['ship', 'plane', 'bomber', 'battery'];
+
+/** The kinds of thing an attack can be ordered on. */
+const FOE_KINDS = ['ship', 'battery', 'plane', 'bomber', 'town', 'wall'];
+
+/** The thing an attack is ordered on, alive, or null. */
+function attackFoe(state, kind, id) {
+  if (kind === 'town' || kind === 'wall') return worksTarget(state.world, id, state.t);
+  const foe = kind === 'ship' ? state.ships.find((s) => s.id === id)
+    : kind === 'battery' ? (state.batteries || []).find((b) => b.id === id)
+      : kind === 'plane' ? state.planes.find((p) => p.id === id && !p.dead)
+        : kind === 'bomber' ? (state.bombers || []).find((b) => b.id === id)
+          : null;
+  return foe && foe.alive !== false ? foe : null;
+}
+
+/** Every mounting of hers the targeting panel could put on something. */
+function everyMount(cls) {
+  const out = [];
+  (cls.turrets || []).forEach((_, i) => out.push(['main', i]));
+  if (cls.secondary) cls.secondary.mounts.forEach((_, i) => out.push(['sec', i]));
+  for (const d of dpMounts(cls)) out.push(['dp', d.i]);
+  if (cls.torpedoes) cls.torpedoes.mounts.forEach((_, i) => out.push(['torp', i]));
+  return out;
+}
+
+/**
+ * Order one unit of `team` -- and its fleet or squadron -- onto a target, or
+ * with `targetId` 0 hand it back to its own officers.
+ *
+ * `kind` is what the unit is (one of ATTACK_KINDS) and `foeKind` what the
+ * target is (a ship, a battery, a flight, a heavy squadron, the town or a
+ * sea wall). Not everything can go for everything: a ship's guns and a
+ * battery are not laid on aircraft here, and aeroplanes are not sent at the
+ * town. Returns how many units took the order.
+ */
+export function orderAttack(state, team, kind, id, foeKind, targetId) {
+  if (!ATTACK_KINDS.includes(kind)) return 0;
+  const cease = !targetId;
+  const foe = cease ? null : FOE_KINDS.includes(foeKind) ? attackFoe(state, foeKind, targetId) : null;
+  if (!cease && (!foe || !mayHurt(state, team, foe) || foe.team === team)) return 0;
+  const air = foeKind === 'plane' || foeKind === 'bomber';
+  const works = foeKind === 'town' || foeKind === 'wall';
+  let n = 0;
+
+  if (kind === 'ship') {
+    const ship = state.ships.find((s) => s.id === id && s.alive && s.team === team);
+    if (!ship) return 0;
+    if (!cease && air) return 0;
+    const all = ship.fleet ? state.ships.filter((s) => s.alive && s.fleet === ship.fleet) : [ship];
+    for (const s of all) {
+      if (cease) {
+        s.assign = {};
+        s.ordered = 0;
+        n++;
+        continue;
+      }
+      let took = 0;
+      for (const [k, i] of everyMount(shipClass(s))) {
+        if (assignMount(state, s, k, i, targetId)) took++;
+      }
+      if (took) { s.ordered = targetId; n++; }
+    }
+    return n;
+  }
+
+  // Aircraft: a carrier flight or a heavy squadron, and every other machine
+  // of the squadron it is in, whichever kind they are.
+  if (kind === 'plane' || kind === 'bomber') {
+    const u = kind === 'plane'
+      ? state.planes.find((q) => q.id === id && !q.dead && q.team === team)
+      : (state.bombers || []).find((q) => q.id === id && q.alive && q.team === team);
+    if (!u) return 0;
+    const flights = u.wing ? state.planes.filter((q) => !q.dead && q.wing === u.wing)
+      : kind === 'plane' ? [u] : [];
+    const heavies = u.wing ? (state.bombers || []).filter((q) => q.alive && q.wing === u.wing)
+      : kind === 'bomber' ? [u] : [];
+    for (const q of flights) {
+      if (cease) { q.order = null; n++; continue; }
+      // Carrier aircraft are not sent at the town; the heavies of the
+      // squadron are, and the flights carry on with their own business.
+      if (works) continue;
+      // Going home empty, or in the circuit to land, is not turned round.
+      if (q.phase !== 'outbound' && q.phase !== 'formup') continue;
+      q.order = { k: foeKind, id: targetId };
+      q.phase = 'outbound';
+      q.vec = null;
+      q.shieldFor = 0;
+      q.hunt = 0;
+      n++;
+    }
+    for (const bm of heavies) {
+      if (cease) { bm.order = null; n++; continue; }
+      // A heavy lays her bombs on the ground and the sea, not in the sky.
+      if (air) continue;
+      bm.order = { k: foeKind, id: targetId };
+      bm.vec = null;
+      // Not off a run already begun: the sticks are going down where they are
+      // going down. The next run is on the new target.
+      if (bm.phase !== 'run') {
+        bm.aimX = foe.x; bm.aimZ = foe.z;
+        bm.targetId = foeKind === 'ship' ? foe.id : 0;
+        // Coming off the last run with bombs still aboard: straight round
+        // onto the new one rather than out to sea first.
+        if (bm.phase === 'away' && bm.loads > 0) { bm.phase = 'inbound'; bm.hold = 0; bm.awayTo = 0; }
+      }
+      n++;
+    }
+    return n;
+  }
+
+  // A battery.
+  const bat = (state.batteries || []).find((b) => b.id === id && b.alive && b.team === team);
+  if (!bat) return 0;
+  if (cease) { bat.ordered = 0; return 1; }
+  if (air) return 0;
+  // In a player's hands, it is his to lay: the order lays it for him.
+  if (bat.ctl) return layBattery(state, bat, targetId) ? 1 : 0;
+  bat.ordered = targetId;
+  return 1;
+}
+
+/** What a flight has been ordered onto, as pickAirTarget would put it, or null. */
+function flightOrder(state, p) {
+  const o = p.order;
+  if (!o) return null;
+  const foe = attackFoe(state, o.k, o.id);
+  if (!foe) { p.order = null; return null; }
+  if (o.k === 'ship') return { ship: foe };
+  if (o.k === 'battery') return { battery: foe };
+  if (o.k === 'plane') return { air: foe };
+  if (o.k === 'bomber') return { heavy: foe };
+  p.order = null;
+  return null;
+}
+
+/** What a heavy squadron has been ordered onto, where it is now, or null. */
+function heavyOrder(state, bm) {
+  const o = bm.order;
+  if (!o) return null;
+  const foe = attackFoe(state, o.k, o.id);
+  if (!foe) { bm.order = null; return null; }
+  return { x: foe.x, z: foe.z, id: o.k === 'ship' ? foe.id : 0 };
+}
+
+/** What a battery left to its own crew has been ordered onto, or null. */
+function batteryOrder(state, bat) {
+  if (!bat.ordered) return null;
+  const id = bat.ordered;
+  const foe = state.ships.find((q) => q.id === id && q.alive)
+    || (state.batteries || []).find((q) => q.id === id && q.alive)
+    || worksTarget(state.world, id, state.t);
+  if (!foe || !foe.alive || foe.team === bat.team) { bat.ordered = 0; return null; }
+  return foe;
+}
+
 /**
  * Switched off for her own fire control. The switch on the targeting panel
  * takes a mounting off the director; it does not lock out the man who has
@@ -2145,7 +2324,8 @@ function assignedFoe(state, ship, kind, i) {
   const id = ship.assign && ship.assign[`${kind}:${i}`];
   if (!id) return null;
   const foe = state.ships.find((s) => s.id === id)
-    || (state.batteries || []).find((b) => b.id === id);
+    || (state.batteries || []).find((b) => b.id === id)
+    || worksTarget(state.world, id, state.t);
   if (!foe || !foe.alive) { delete ship.assign[`${kind}:${i}`]; return null; }
   return foe;
 }
@@ -3729,6 +3909,49 @@ function mannedLightOn(ship, cls, px, pz, py) {
 }
 
 /**
+ * A close-range mounting a captain has gone down to, laid on the town or a
+ * sea wall.
+ *
+ * The automatic guns are otherwise fought against aircraft in the aggregate
+ * and never touch anything ashore. A man at a Bofors who holds it on a house
+ * fires into the house, and it fires itself for as long as he holds it there,
+ * the same as it does at an aeroplane: a clip of forty-millimetre high
+ * explosive a few seconds through the same front does it a good deal of
+ * harm. An Oerlikon does it very much less.
+ */
+function stepLightOnWorks(state, ship, dt) {
+  if (!ship.manned || ship.manned.k !== 'aa' || !state.world.works || gunsDrowned(ship)) return;
+  const cls = shipClass(ship);
+  const battery = aaBattery(cls);
+  const n = lightMounts(cls).length;
+  const m = battery[battery.length - n + ship.manned.i];
+  if (!m) return;
+  const x = ship.manX, z = ship.manZ;
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+  if (dist(ship.x, ship.z, x, z) > m.range) return;
+  if (!mountBears(ship, m, headingTo(ship.x, ship.z, x, z))) return;
+  if (lightGunState(ship, cls, m) >= 3) return;
+  const w = state.world;
+  const g = Math.max(0, groundHeight(w, x, z));
+  const b = w.works.cities?.length ? buildingAt(w, x, z, 1) : null;
+  const on = !b && w.works.walls?.length ? wallAt(w, x, z, 4) : null;
+  if (!b && !on) return;
+  // In shell damage a second, for the whole mounting: the square of the bore
+  // against a forty-millimetre, as a gun's burst goes against the works.
+  const rate = ((m.caliber || 20) / 40) ** 2 * 0.3 * (m.guns || 1);
+  ship.lightWorks = (ship.lightWorks || 0) + rate * dt;
+  if (ship.lightWorks < 0.4) return;
+  const dmg = ship.lightWorks;
+  ship.lightWorks = 0;
+  if (b) hurtBuilding(w, b, dmg, state.events, worksDice(state), { x, z, he: (m.caliber || 20) >= 37 });
+  else {
+    hurtWall(w, on.run, on.sec, dmg / wallHp(w.works.walls[on.run]), state.events, { x, y: g, z },
+      (m.caliber || 20) >= 37 ? 0.8 : 0);
+  }
+  state.events.push({ e: 'airHit', x: r(x), y: r(g + 1), z: r(z), air: 0, land: 1 });
+}
+
+/**
  * The bore of the heaviest automatic gun aboard that reaches `d`, or 0 when
  * none of them does. The automatic guns are the light battery less its
  * dual-purpose mountings, which are not automatic and do not fire tracer.
@@ -4666,7 +4889,12 @@ function stepBatteries(state, dt) {
 
     // A battery a player has taken over, and the siege mortar, which is laid
     // on a point on the chart rather than on a ship. See stepLaid.
-    if (bat.ctl || gun.mortar) { stepLaid(state, bat, b, gun, dt); continue; }
+    // And one ordered onto something off the plot, which it is laid on
+    // whatever its commander would rather be shooting at -- while it is in
+    // reach; out of it, the crew find something they can reach.
+    const ord = !bat.ctl && batteryOrder(state, bat);
+    const laid = ord && dist(bat.x, bat.z, ord.x, ord.z) <= gun.range;
+    if (bat.ctl || gun.mortar || laid) { stepLaid(state, bat, b, gun, dt); continue; }
 
     const arc = batteryArc(b);
     // And a gun built to shoot upward puts its own rounds up at whatever is
@@ -4798,6 +5026,7 @@ export function commandBattery(state, bat, by) {
   // Whatever it was doing for itself is done with, both ways.
   bat.ctlTarget = 0;
   bat.trigger = 0;
+  bat.trainCmd = 0;
   bat.pin = null;
   bat.track = null;
   return true;
@@ -4819,15 +5048,80 @@ export function pinBattery(state, bat, x, z) {
   const d = dist(bat.x, bat.z, x, z);
   if (d > gun.range || d < 300) return false;
   bat.pin = { x, z, m: 'hand', tid: 0 };
+  // A gun laid on a point is not laid on a ship as well.
+  bat.ctlTarget = 0;
   return true;
 }
 
-/** Name an enemy ship for a battery laid by hand to lay on, or 0 for none. */
+/**
+ * Name an enemy ship for a battery laid by hand to lay on -- or the town, or
+ * a sea wall -- or 0 for none. Laid on something, it is off whatever point
+ * it was pinned on.
+ */
 export function layBattery(state, bat, shipId) {
   if (!bat || !bat.alive) return false;
-  const ship = shipId ? state.ships.find((q) => q.id === shipId && q.alive && q.team !== bat.team) : null;
-  bat.ctlTarget = ship ? ship.id : 0;
-  return !!ship || !shipId;
+  const ship = shipId ? state.ships.find((q) => q.id === shipId && q.alive && q.team !== bat.team)
+    || (state.batteries || []).find((q) => q.id === shipId && q.alive && q.team !== bat.team)
+    || worksTarget(state.world, shipId, state.t) : null;
+  // The mortar is only ever laid on a point: given the town or a wall, its
+  // pin goes in on what it was given.
+  if (ship && ship.alive && batteryGun(bat.batteryId).mortar) {
+    bat.ctlTarget = 0;
+    return pinBattery(state, bat, ship.x, ship.z);
+  }
+  bat.ctlTarget = ship && ship.alive ? ship.id : 0;
+  if (bat.ctlTarget) bat.pin = null;
+  return !!bat.ctlTarget || !shipId;
+}
+
+/** A pin in the chart as something a gun can be laid on: a point that does not move. */
+function pinPoint(pin) {
+  return { id: 0, x: pin.x, z: pin.z, heading: 0, speed: 0, point: true, alive: true };
+}
+
+/**
+ * Where a battery in a player's hands with nothing laid on goes when he fires
+ * it anyway: down the bearing its guns are on, at the range it last fired at,
+ * or a fifth of the way out to its reach if it has not fired yet.
+ */
+function freePoint(bat, gun) {
+  const bearing = wrapAngle(bat.heading + bat.angle);
+  const d = clamp(bat.lastRange || Math.min(gun.range * 0.2, 9000), 400, gun.range);
+  return {
+    id: 0, x: bat.x + Math.sin(bearing) * d, z: bat.z + Math.cos(bearing) * d,
+    heading: 0, speed: 0, point: true, alive: true,
+  };
+}
+
+/**
+ * Train a battery in a player's hands round by hand: `dir` -1 to the left, 1
+ * to the right, 0 to stop. Held, it goes on turning; trained, it is laid on
+ * nothing, and FIRE sends the round down the bearing it is left on.
+ */
+export function trainBattery(state, bat, dir) {
+  if (!bat || !bat.alive || !bat.ctl) return false;
+  bat.trainCmd = dir > 0 ? 1 : dir < 0 ? -1 : 0;
+  return true;
+}
+
+/**
+ * One tick of training by hand. The gun swings on its own mounting at the
+ * rate the mounting trains; at the stops the whole mounting is brought round
+ * after it, at the rate a mounting of its kind can be shifted. A gun on a
+ * full circle simply goes on round.
+ */
+function handTrain(bat, b, gun, dir, dt) {
+  const step = dir * gun.traverse * dt;
+  if ((b.traverse ?? 0) >= 360) {
+    bat.angle = wrapAngle(bat.angle + step);
+    return;
+  }
+  const arc = batteryArc(b);
+  const next = bat.angle + step;
+  bat.angle = clamp(next, -arc, arc);
+  if (Math.abs(next) > arc) {
+    bat.heading = wrapAngle(bat.heading + dir * (relayRate(b) || 0.02) * dt);
+  }
 }
 
 /**
@@ -4930,7 +5224,8 @@ function mortarTarget(state, bat, gun) {
     if (!ship.alive || ship.team === bat.team) continue;
     const d = dist(bat.x, bat.z, ship.x, ship.z);
     if (d > gun.range || d < 300) continue;
-    const v = ship.id === bat.orderTarget ? Infinity : batteryWants(state, bat, ship, d, gun);
+    const v = ship.id === bat.orderTarget || ship.id === bat.ordered
+      ? Infinity : batteryWants(state, bat, ship, d, gun);
     if (v <= bv) continue;
     // Reported by her own side, or in sight of the battery's own observation
     // post -- which is the only report a battery out on its own has.
@@ -4953,6 +5248,14 @@ function mortarTarget(state, bat, gun) {
  * round again. Four passes settle it to a few metres.
  */
 function plotMortar(state, bat, b, gun) {
+  // Ordered onto something that does not move -- a gun position, the town, a
+  // wall -- there is nothing to plot: the pin goes in on it.
+  const ord = batteryOrder(state, bat);
+  if (ord && !state.ships.includes(ord)) {
+    bat.track = null;
+    bat.pin = { x: ord.x, z: ord.z, m: 'still', tid: ord.id };
+    return;
+  }
   if (state.tick % 15 === bat.id % 15) {
     let ship = bat.track ? state.ships.find((q) => q.id === bat.track.id && q.alive) : null;
     if (ship && dist(bat.x, bat.z, ship.x, ship.z) > gun.range) ship = null;
@@ -4960,7 +5263,8 @@ function plotMortar(state, bat, b, gun) {
     // another, or something better has come along that is shelling the
     // position: a crew that swaps targets every half-second plots none.
     const want = mortarTarget(state, bat, gun);
-    if (!ship || (want && want.id !== ship.id && (want.id === bat.orderTarget || bat.hitBy === want.id))) {
+    if (!ship || (want && want.id !== ship.id && (want.id === bat.orderTarget
+      || want.id === bat.ordered || bat.hitBy === want.id))) {
       ship = want;
     }
     if (!ship) { bat.track = null; bat.pin = null; return; }
@@ -4983,6 +5287,13 @@ function plotMortar(state, bat, b, gun) {
  */
 function stepLaid(state, bat, b, gun, dt) {
   const arc = batteryArc(b);
+  // Trained round by hand: off whatever it was laid on, and swung as fast as
+  // the mounting goes. See trainBattery.
+  if (bat.ctl && bat.trainCmd) {
+    bat.ctlTarget = 0;
+    bat.pin = null;
+    handTrain(bat, b, gun, bat.trainCmd, dt);
+  }
   let target = null;
   let aim = null;
   if (gun.mortar) {
@@ -4990,16 +5301,34 @@ function stepLaid(state, bat, b, gun, dt) {
     aim = bat.pin;
   } else {
     target = bat.ctlTarget
-      ? state.ships.find((q) => q.id === bat.ctlTarget && q.alive && q.team !== bat.team) : null;
+      ? state.ships.find((q) => q.id === bat.ctlTarget && q.alive && q.team !== bat.team)
+        || (state.batteries || []).find((q) => q.id === bat.ctlTarget && q.alive && q.team !== bat.team)
+        || worksTarget(state.world, bat.ctlTarget, state.t)
+      : null;
+    if (target && !target.alive) target = null;
     if (!target) bat.ctlTarget = 0;
-    aim = target;
+    // Left to its crew, the target it was ordered onto off the plot.
+    if (!target && !bat.ctl) target = batteryOrder(state, bat);
+    // Laid on nothing by name, a gun in a player's hands is laid on the point
+    // he put in the chart, if he put one there.
+    aim = target || (bat.pin ? pinPoint(bat.pin) : null);
+    if (!target && bat.pin) target = aim;
   }
   if (aim && dist(bat.x, bat.z, aim.x, aim.z) > gun.range) aim = null;
-  // With nothing to lay on, back to the bearing it was laid on.
+  // With nothing to lay on, back to the bearing it was laid on -- unless a
+  // player has the guns, who keeps the bearing he left them on and may fire
+  // down it at whatever is there.
   if (!aim) {
-    bat.angle = approachAngle(bat.angle, 0, gun.traverse * dt);
-    if (bat.salvo) stepRipple(state, bat, b, gun, null, dt);
+    if (!bat.ctl) bat.angle = approachAngle(bat.angle, 0, gun.traverse * dt);
+    if (bat.salvo) { stepRipple(state, bat, b, gun, null, dt); return; }
     bat.targetId = 0;
+    if (bat.ctl && bat.cooldown <= 0 && bat.trigger > state.t) {
+      bat.trigger = 0;
+      const free = freePoint(bat, gun);
+      if (gun.mortar) fireMortar(state, bat, b, gun, free);
+      else if (gun.rocket) startRipple(state, bat, gun, free);
+      else fireBattery(state, bat, b, gun, free);
+    }
     return;
   }
   bat.targetId = target ? target.id : (aim.tid || 0);
@@ -5015,9 +5344,12 @@ function stepLaid(state, bat, b, gun, dt) {
   if (bat.salvo) { stepRipple(state, bat, b, gun, target, dt); return; }
   if (bat.cooldown > 0) return;
   if (Math.abs(angleDelta(wrapAngle(bat.heading + bat.angle), bearing)) > 0.02) return;
-  if (gun.mortar) { fireMortar(state, bat, b, gun, aim); return; }
-  if (!(bat.trigger > state.t)) return;
+  // A player fires when he pulls the trigger -- the mortar as well, now that
+  // his sight is what lays it and the pin goes wherever he looks; a crew
+  // given a target off the plot fires every time it is loaded and laid.
+  if (bat.ctl && !(bat.trigger > state.t)) return;
   bat.trigger = 0;
+  if (gun.mortar) { fireMortar(state, bat, b, gun, aim); return; }
   if (gun.rocket) startRipple(state, bat, gun, target);
   else fireBattery(state, bat, b, gun, target);
 }
@@ -5130,7 +5462,9 @@ function startRipple(state, bat, gun, target) {
     fired: 0,
     load: bat.rails,
     theta,
-    targetId: target.id,
+    // A ripple laid on a point holds the point, whatever the plot does.
+    point: target && target.point ? target : null,
+    targetId: target ? target.id : 0,
   };
   state.events.push({
     e: 'rippleWindup', x: bat.x, y: bat.y, z: bat.z, battery: bat.id,
@@ -5149,7 +5483,8 @@ function stepRipple(state, bat, b, gun, target, dt) {
   // see if she is gone. If there is nothing, the rest go down the last bearing
   // anyway -- once the handle is turning the rockets are going.
   const aim = target
-    || state.ships.find((q) => q.id === s.targetId && q.alive) || null;
+    || (s.targetId ? state.ships.find((q) => q.id === s.targetId && q.alive) : null)
+    || s.point || null;
   const gap = gun.salvo / Math.max(1, s.load - 1);
   s.next -= dt;
   while (s.next <= 0 && s.fired < s.load) {
@@ -5187,8 +5522,8 @@ function fireRocket(state, bat, gun, target, s) {
     const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
     const arc0 = { ...gun, range: Math.max(d / Math.max(0.08, Math.sin(2 * s.theta)), d * 1.02) };
     const lead = Math.min(solveBallistic(arc0, d, bat.y).tof, 60);
-    const ax = target.x + Math.sin(target.heading) * target.speed * lead;
-    const az = target.z + Math.cos(target.heading) * target.speed * lead;
+    const ax = target.x + Math.sin(target.heading || 0) * (target.speed || 0) * lead;
+    const az = target.z + Math.cos(target.heading || 0) * (target.speed || 0) * lead;
     aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
     aimB = headingTo(bat.x, bat.z, ax, az);
     s.lastD = aimD;
@@ -5271,19 +5606,29 @@ function fireBattery(state, bat, b, gun, target) {
   // shell is a good half-minute in the air, and a battery that leads by thirty
   // seconds of it lays every salvo astern of the target.
   const lead = Math.min(s2.tof, 60);
-  const ax = target.x + Math.sin(target.heading) * target.speed * lead;
-  const az = target.z + Math.cos(target.heading) * target.speed * lead;
+  const ax = target.x + Math.sin(target.heading || 0) * (target.speed || 0) * lead;
+  const az = target.z + Math.cos(target.heading || 0) * (target.speed || 0) * lead;
   const aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
   const aimB = headingTo(bat.x, bat.z, ax, az);
   const spreadBase = (aimD * 0.0125) / gun.sigma;
+  bat.lastRange = aimD;
+  // How far above what it is laid on the muzzle is. Solved for the sea, a
+  // round laid on a hillside, a house or a gun pit on a headland arrives at
+  // the height of the sea -- which is short of anything above it and, for
+  // the one below the gun, long of it. Nothing is laid on lower than six
+  // metres, though: at sea that is a hull, not the waterline under it, and a
+  // round solved for the waterline comes down short of the ship.
+  const drop = bat.y + 6 - Math.max(6, aimHeight(state, ax, az));
 
   // One arc for the whole salvo: the barrels of a battery are laid together.
-  const arc = loftedGun(state, gun, aimD);
+  // Up a hill is further for the gun than the map says: allowed for, or the
+  // solver runs out of reach and falls back on a forty-five degree lob.
+  const arc = loftedGun(state, gun, aimD + Math.max(0, -drop) * 1.5);
   for (let g = 0; g < b.barrels; g++) {
     const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
     const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
     const shotD = clamp(aimD + rng, 300, gun.range);
-    const sol = solveBallistic(arc, shotD, bat.y);
+    const sol = solveBallistic(arc, shotD, drop);
     const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
     const vh = sol.v * Math.cos(sol.elev);
     fireShell(state, {
@@ -5316,6 +5661,9 @@ function batteryShell(gun, target) {
   const he = gun.shells.he;
   const ap = gun.shells.ap;
   if (!he) return ap;
+  // A point in the chart, a town or a wall: high explosive, which is what
+  // knocks down what is built.
+  if (target && (target.point || target.kind === 'town' || target.kind === 'wall')) return he;
   const cls = target && target.classId ? getClass(target.classId) : null;
   if (cls && (cls.type === 'DD' || cls.type === 'CV' || cls.type === 'SS')) return he;
   return ap;
@@ -5709,6 +6057,17 @@ function stepShells(state, dt) {
     // heavy anti-aircraft fire ever fired. See dpAirSalvo.
     if (sh.fuse && sh.life >= sh.fuse) {
       state.events.push({ e: 'airburst', x: r(sh.x), y: r(sh.y), z: r(sh.z), cal: sh.caliber });
+      // Low over a town or a sea wall, what comes down out of it is splinters
+      // and blast on the roofs: a shrapnel burst was a field gun's answer to
+      // troops in the open, and a roof is a good deal less than that.
+      if (state.world.works) {
+        const g = Math.max(0, groundHeight(state.world, sh.x, sh.z));
+        const up = sh.y - g;
+        if (up < 40) {
+          blastWorks(state.world, sh.x, g, sh.z, (sh.caliber / 100) ** 3, 0.5 * (1 - Math.max(0, up) / 40),
+            state.events, worksDice(state));
+        }
+      }
       continue;
     }
 
@@ -6910,12 +7269,22 @@ function stepTorpedoes(state, dt) {
     tp.x = nx; tp.z = nz;
     const bound = state.world.half || MAP_HALF;
     if (tp.travelled > tp.range || Math.abs(tp.x) > bound || Math.abs(tp.z) > bound) continue;
-    // Run into the shore or the face of a sea wall: the warhead goes off
-    // against it, and what is built there takes it like a heavy bomb.
+    // Run into the face of a sea wall: a sheer wall of concrete standing in
+    // deep water is what a contact pistol is made to fire on, and the warhead
+    // goes off against it like a heavy bomb.
     const onWall = !!(state.world.works?.walls?.length && wallAt(state.world, tp.x, tp.z, 2));
-    if (onWall || islandAt(state.world, tp.x, tp.z, 0)) {
+    if (onWall) {
       state.events.push({ e: 'splash', x: tp.x, z: tp.z, cal: 200 });
       if (tp.age > TORP_ARM_TIME || tp.aerial) landStrike(state, tp.x, tp.z, 0.533, 'bomb', 1.4);
+      continue;
+    }
+    // Run up a beach or onto rocks it does not go off. The shore shelves:
+    // the fish runs out of water and noses into the sand or the shingle long
+    // before anything is hard enough, square enough, to fire the pistol --
+    // which is why a torpedo that missed was found on the beach afterwards,
+    // whole. It stops there.
+    if (islandAt(state.world, tp.x, tp.z, 0)) {
+      state.events.push({ e: 'torpBeach', x: r(tp.x), z: r(tp.z), i: tp.id });
       continue;
     }
 
@@ -9269,6 +9638,33 @@ function hurtBattery(state, bat, damage) {
 /** What the airframe alone is worth, by what sort of aeroplane it is. */
 const RAM_MASS = { fighter: 2600, dive: 3900, torpedo: 4600, scout: 3000 };
 
+/**
+ * An aeroplane going into the ground, a house or a sea wall, and what that
+ * does to them.
+ *
+ * Two things arrive. The airframe -- tonnes of it, at whatever speed it was
+ * making, which is a burst of its own against masonry -- and whatever was
+ * still on the rack, which goes off when it hits: a machine shot down on its
+ * run in is a bomb with an aeroplane round it. `mass` is the airframe in the
+ * units RAM_MASS keeps (a fighter's 2600 up to a heavy's 16000), `load` the
+ * damage of what it was carrying, and `inside` the building it went into.
+ * Into the open sea it does nothing here; at the foot of a sea wall,
+ * landStrike puts it into the wall's face.
+ */
+function crashInto(state, x, z, { mass, speed, load = 0 }, inside = null) {
+  const v = clamp(Math.sqrt(Math.max(1, speed || 80) / 110), 0.6, 1.4);
+  landStrike(state, x, z, 0.16 * (mass / 1000) ** 0.45 * v, 'crash', 1, inside);
+  if (load > 0) landStrike(state, x, z, clamp(0.24 * (load / 2000) ** (1 / 3), 0.18, 0.75), 'bomb', 1, inside);
+}
+
+/** What a flight still had on her, as damage, for crashInto. */
+function crashLoad(state, p) {
+  if (p.dropped || !((p.bomb ?? 0) > 0 || (p.torp ?? 0) > 0)) return 0;
+  const owner = state.ships.find((q) => q.id === p.owner) || null;
+  const P = owner ? shipClass(owner).planes : null;
+  return (p.torp ?? 0) > 0 ? (P?.torpDamage ?? 9000) * 0.5 : (P?.bombDamage ?? 4000) * 0.6;
+}
+
 /** Walk the line a piloted flight just flew; leave her where it first meets an enemy hull. */
 function sweepIntoShip(state, p, was) {
   const to = { x: p.x, y: p.y ?? 220, z: p.z };
@@ -9433,7 +9829,7 @@ function ramBattery(state, p, bat) {
     owner.damageDealt = (owner.damageDealt || 0) + dmg;
     if (was && !bat.alive) owner.kills = (owner.kills || 0) + 1;
   }
-  landStrike(state, p.x, p.z, armed ? 0.42 : 0.26, 'crash');
+  crashInto(state, p.x, p.z, { mass, speed, load: crashLoad(state, p) });
   state.events.push({
     e: 'ram', bat: bat.id, team: p.team, i: p.id,
     x: r(p.x), y: r(bat.y + 2), z: r(p.z), h: r(p.heading),
@@ -9684,8 +10080,9 @@ function fallInto(state, f, x0, y0, z0, air) {
   const g = f.y <= landCeiling(state.world) ? solidGround(state.world, f.x, f.z) : 0;
   const hb = f.y > Math.max(0, g) ? intoBuilding(state, f.x, f.y, f.z) : null;
   if (f.y <= Math.max(0, g) || hb) {
-    if (hb) landStrike(state, hb.x, hb.z, f.heavy ? 0.4 : 0.2, 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, f.x, f.z, f.heavy ? 0.4 : 0.2, 'crash');
+    const hit = { mass: f.mass || (f.heavy ? HEAVY_RAM : RAM_MASS.scout), speed: Math.hypot(f.vx || 0, f.vy || 0, f.vz || 0), load: f.load || 0 };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, f.x, f.z, hit);
     state.events.push({
       e: 'wreckIn', f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
       x: r(f.x), y: r(Math.max(0, g)), z: r(f.z), land: g > 0.5 ? 1 : 0, tk: state.tick,
@@ -9726,8 +10123,10 @@ function stepHeavyRam(state, bm) {
   const g = bm.y <= landCeiling(state.world) ? solidGround(state.world, bm.x, bm.z) : 0;
   const hb = bm.y > Math.max(0, g) + 4 ? intoBuilding(state, bm.x, bm.y - 4, bm.z) : null;
   if (bm.y <= Math.max(0, g) + 4 || hb) {
-    if (hb) landStrike(state, hb.x, hb.z, 0.5, 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, bm.x, bm.z, 0.5, 'crash');
+    const L = heavyLoad(bm);
+    const hit = { mass: HEAVY_RAM, speed: bm.speed || 80, load: bm.loads > 0 ? L.bombDamage * 2.5 : 0 };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, bm.x, bm.z, hit);
     state.events.push({
       e: 'planeCrash', i: bm.id, team: bm.team, heavy: 1,
       x: r(bm.x), z: r(bm.z), y: r(Math.max(0, g)), tk: state.tick,
@@ -9876,8 +10275,9 @@ function stepRam(state, p) {
   const hb = solid?.b ? { x: p.x, z: p.z, b: solid.b } : null;
   const g = hb ? y : solid ? solidGround(state.world, p.x, p.z) : 0;
   if (y <= 0 || solid) {
-    if (hb) landStrike(state, hb.x, hb.z, (p.dropped ? 0.26 : 0.42), 'crash', 1, hb.b);
-    else if (g > 0.5) landStrike(state, p.x, p.z, (p.dropped ? 0.26 : 0.42), 'crash');
+    const hit = { mass: RAM_MASS[p.role] || RAM_MASS.scout, speed: p.speed, load: crashLoad(state, p) };
+    if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
+    else crashInto(state, p.x, p.z, hit);
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
       tk: state.tick,
@@ -10457,8 +10857,10 @@ function stepPlanes(state, dt) {
       // In a squadron, a strike aircraft goes for the ship her leader has
       // gone for: a squadron that splits three ways over the enemy line is
       // three small attacks rather than one big one.
+      // And whatever she has been ordered onto off the plot comes before
+      // either: see orderAttack.
       const mate = wingTarget(state, p);
-      const want = mate ? { ship: mate } : pickAirTarget(state, p);
+      const want = flightOrder(state, p) || (mate ? { ship: mate } : pickAirTarget(state, p));
       if (want && want.battery) {
         p.targetBat = want.battery.id;
         p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;
@@ -12140,31 +12542,71 @@ function stepBombers(state, dt) {
       out.push(bm);
       continue;
     }
-    // Where she is going. Her orders if she has any, her own judgement if not.
-    if (!bm.aimX && !bm.aimZ) {
+    // Where she is going. An order from her own side off the plot comes
+    // first, and is looked at again every tick, so nothing her staff thinks
+    // of later can take her off it. Then wherever she was sent, then what the
+    // rest of her squadron is going for, then her own judgement.
+    if (bm.phase !== 'run') {
+      const ord = heavyOrder(state, bm);
+      if (ord) {
+        bm.vec = null;
+        bm.aimX = ord.x; bm.aimZ = ord.z; bm.targetId = ord.id;
+      } else if (!bm.vec && bm.phase === 'inbound') {
+        const mate = heavyWingTarget(state, bm);
+        if (mate) { bm.aimX = mate.x; bm.aimZ = mate.z; bm.targetId = mate.id; }
+      }
+    }
+    // Sent somewhere off the plot: she flies there and lays nothing on the
+    // way, and takes up the bombing again once she is there.
+    if (bm.vec && (bm.phase === 'home' || dist(bm.x, bm.z, bm.vec.x, bm.vec.z) < VECTOR_REACHED)) {
+      bm.vec = null;
+    }
+    const vectored = !!bm.vec && bm.phase === 'inbound';
+    if (!vectored && !bm.aimX && !bm.aimZ) {
       const pick = heavyPicksTarget(state, bm);
       if (pick) { bm.aimX = pick.x; bm.aimZ = pick.z; bm.targetId = pick.id; }
     }
-    // A target that moves is followed: the aim point is where she is now, not
-    // where she was when the staff wrote the order.
+    // How far forward of her a bomb lands, from her height over what it is
+    // going to land on: a town on a hill is a shorter fall than the sea.
+    const fallH = Math.max(50, bm.y - aimHeight(state, bm.aimX, bm.aimZ));
+    const throwFwd = bombThrow(fallH, bm.speed);
+    // A target that moves is followed, and led: the aim point is where she
+    // will be when the bombs get there, not where she was when the order was
+    // written -- the run-in and the fall together are the best part of a
+    // minute, and a ship at twenty knots is a third of a mile further on.
     if (bm.targetId) {
       const t = state.ships.find((s) => s.id === bm.targetId);
-      if (t && t.alive) { bm.aimX = t.x; bm.aimZ = t.z; }
-      else bm.targetId = 0;
+      if (t && t.alive) {
+        const toRelease = Math.max(0, dist(bm.x, bm.z, t.x, t.z) - throwFwd) / Math.max(1, bm.speed);
+        const lead = Math.min(90, (bm.phase === 'run' ? 0 : toRelease) + Math.sqrt((2 * fallH) / 9.81));
+        bm.aimX = t.x + Math.sin(t.heading || 0) * (t.speed || 0) * lead;
+        bm.aimZ = t.z + Math.cos(t.heading || 0) * (t.speed || 0) * lead;
+      } else bm.targetId = 0;
     }
 
     const toAim = dist(bm.x, bm.z, bm.aimX, bm.aimZ);
-    const throwFwd = bombThrow(bm.y, bm.speed);
     let want = bm.heading;
 
-    if (bm.phase === 'inbound') {
+    if (vectored) {
+      want = headingTo(bm.x, bm.z, bm.vec.x, bm.vec.z);
+    } else if (bm.phase === 'inbound') {
       // The release point: back along the run-in bearing by the forward throw.
       want = headingTo(bm.x, bm.z, bm.aimX, bm.aimZ);
-      if (toAim <= throwFwd + 140 && bm.loads > 0) {
-        bm.phase = 'run';
-        bm.stick = L.n;
-        bm.stickT = 0;
-        bm.err = aimError(state, bm);
+      if (bm.overshot) {
+        // Came up on it at an angle, too close to get onto it: open out on
+        // the course she has, then come round and make a proper run of it.
+        want = bm.heading;
+        if (toAim > throwFwd + HEAVY_OPEN_OUT) bm.overshot = false;
+      } else if (toAim <= throwFwd + 140 && bm.loads > 0) {
+        // Only lined up on it. A run begun with the target off to one side
+        // is a stick laid in the sea beside it -- which is what used to
+        // happen to a squadron that had been put on a new target close in.
+        if (Math.abs(angleDelta(bm.heading, want)) < 0.12) {
+          bm.phase = 'run';
+          bm.stick = L.n;
+          bm.stickT = 0;
+          bm.err = aimError(state, bm);
+        } else bm.overshot = true;
       }
     } else if (bm.phase === 'run') {
       // Straight and level. Nothing is allowed to move her off this course --
@@ -12244,6 +12686,13 @@ function stepBombers(state, dt) {
   }
   state.bombers = out;
 }
+
+/**
+ * How far past the release point a heavy that came up on her target at an
+ * angle flies before she turns back onto it: room for the turn, and for a
+ * straight run in after it.
+ */
+const HEAVY_OPEN_OUT = 5200;
 
 /** Simple constant-bearing intercept used by aircraft and bots. */
 export function leadPoint(fromX, fromZ, target, projSpeed) {
@@ -14050,6 +14499,7 @@ export function step(state, dt = DT) {
     stepTorpMounts(state, ship, dt);
     stepSecondary(state, ship, dt);
     stepTrigger(state, ship);
+    stepLightOnWorks(state, ship, dt);
     stepDpSurface(state, ship, dt);
     stepDamageOverTime(state, ship, dt);
     stepSinking(state, ship, dt);
@@ -14072,8 +14522,8 @@ export function step(state, dt = DT) {
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);
-  // The town burning.
-  if (state.world?.works?.cities?.length) stepWorks(state.world, dt, state.events, worksDice(state));
+  // The town burning, and the surf at the walls.
+  if (state.world?.works) stepWorks(state.world, dt, state.events, worksDice(state));
   if (state.tick % 3 === 0) stepDetection(state);
   if (!state.over) checkElimination(state);
   const ev = state.events;

@@ -14,6 +14,12 @@
 //
 // Both are no more than a number on each unit -- `fleet` on a ship, `wing` on
 // a flight -- shared by every member, and nought for none.
+//
+// A squadron is any aircraft at all: fighters, dive and torpedo bombers off
+// the carriers, and the heavies too, which carry the same `wing` number. The
+// heavies do not fly in the carrier flights' formation -- they are four
+// thousand feet higher and a hundred knots slower -- but an order to any of
+// the squadron is an order to all of it, and they go for what it goes for.
 
 import { dist, headingTo, wrapAngle } from './math.js';
 
@@ -37,19 +43,23 @@ function eligible(state, team, kind, ids) {
     seen.add(id);
     const u = kind === 'ship'
       ? state.ships.find((s) => s.id === id && s.alive && s.team === team)
-      : state.planes.find((p) => p.id === id && !p.dead && p.team === team);
+      : kind === 'bomber'
+        ? (state.bombers || []).find((b) => b.id === id && b.alive && b.team === team)
+        : state.planes.find((p) => p.id === id && !p.dead && p.team === team);
     if (u) out.push(u);
     if (out.length >= GROUP_MAX) break;
   }
   return out;
 }
 
-/** Every unit of a group, alive. */
+/** Every unit of a group, alive: ships, carrier flights or heavies. */
 export function membersOf(state, kind, gid) {
   if (!gid) return [];
   return kind === 'ship'
     ? state.ships.filter((s) => s.alive && s.fleet === gid)
-    : state.planes.filter((p) => !p.dead && p.wing === gid);
+    : kind === 'bomber'
+      ? (state.bombers || []).filter((b) => b.alive && b.wing === gid)
+      : state.planes.filter((p) => !p.dead && p.wing === gid);
 }
 
 /**
@@ -66,8 +76,11 @@ export function wingLeader(state, p) {
   return best;
 }
 
-/** Take units out of whatever group they were in, and dissolve what is left if it is one. */
-function leave(state, kind, units) {
+/**
+ * Take units out of whatever group they were in, and dissolve what is left if
+ * it is one. `heavies` are the heavy squadrons going with a list of flights.
+ */
+function leave(state, kind, units, heavies = []) {
   const key = kind === 'ship' ? 'fleet' : 'wing';
   const touched = new Set();
   for (const u of units) {
@@ -77,16 +90,29 @@ function leave(state, kind, units) {
     if (kind === 'ship') u.fleetWay = false;
     else { u.vec = null; u.lead = u.id; }
   }
+  for (const bm of heavies) {
+    if (!bm.wing) continue;
+    touched.add(bm.wing);
+    bm.wing = 0;
+    bm.vec = null;
+  }
   for (const gid of touched) {
-    const rest = membersOf(state, kind, gid);
-    // A group of one is not a group.
-    if (rest.length < 2) leave(state, kind, rest);
-    else if (kind === 'plane') formWing(state, rest, gid);
+    if (kind === 'ship') {
+      const rest = membersOf(state, 'ship', gid);
+      // A group of one is not a group.
+      if (rest.length < 2) leave(state, 'ship', rest);
+      continue;
+    }
+    const rest = membersOf(state, 'plane', gid);
+    const heavy = membersOf(state, 'bomber', gid);
+    if (rest.length + heavy.length < 2) leave(state, 'plane', rest, heavy);
+    else if (rest.length) formWing(state, rest, gid);
   }
 }
 
 /** Put a squadron in formation on its leader. */
 function formWing(state, flights, gid) {
+  if (!flights.length) return;
   const sorted = [...flights].sort((a, b) => a.id - b.id);
   const lead = sorted[0];
   sorted.forEach((p, i) => {
@@ -106,17 +132,27 @@ function formWing(state, flights, gid) {
  * Form a fleet or a squadron out of the units named, or -- `split` -- take
  * them out of the ones they are in.
  *
+ * For a squadron `ids` are carrier flights and `bids` heavy squadrons, and
+ * either may be empty: a squadron can be all fighters, all heavies, or any
+ * mixture of the lot.
+ *
  * Returns the group's number, or nought when nothing was formed.
  */
-export function setGroup(state, team, kind, ids, split = false) {
+export function setGroup(state, team, kind, ids, split = false, bids = []) {
+  if (kind === 'bomber') { bids = ids; ids = []; kind = 'plane'; }
   if (kind !== 'ship' && kind !== 'plane') return 0;
   const units = eligible(state, team, kind, ids);
-  if (split) { leave(state, kind, units); return 0; }
-  if (units.length < 2) return 0;
-  leave(state, kind, units);
+  const heavies = kind === 'plane'
+    ? eligible(state, team, 'bomber', bids).slice(0, Math.max(0, GROUP_MAX - units.length)) : [];
+  if (split) { leave(state, kind, units, heavies); return 0; }
+  if (units.length + heavies.length < 2) return 0;
+  leave(state, kind, units, heavies);
   const gid = nextGroup(state);
   if (kind === 'ship') for (const s of units) s.fleet = gid;
-  else formWing(state, units, gid);
+  else {
+    formWing(state, units, gid);
+    for (const bm of heavies) bm.wing = gid;
+  }
   return gid;
 }
 
@@ -159,15 +195,29 @@ export function fleetCourse(state, lead, x, z) {
  * They stop hunting until they are there, and then take up whatever they
  * find. Returns how many were sent.
  */
-export function vectorFlight(state, team, id, x, z) {
-  const p = state.planes.find((q) => q.id === id && !q.dead && q.team === team);
+export function vectorFlight(state, team, id, x, z, kind = 'plane') {
+  const p = kind === 'bomber'
+    ? (state.bombers || []).find((q) => q.id === id && q.alive && q.team === team)
+    : state.planes.find((q) => q.id === id && !q.dead && q.team === team);
   if (!p || !Number.isFinite(x) || !Number.isFinite(z)) return 0;
-  const flights = p.wing ? membersOf(state, 'plane', p.wing) : [p];
+  const flights = p.wing ? membersOf(state, 'plane', p.wing) : kind === 'bomber' ? [] : [p];
+  const heavies = p.wing ? membersOf(state, 'bomber', p.wing) : kind === 'bomber' ? [p] : [];
   let n = 0;
+  // The heavies of it fly there too, and lay nothing on the way. One already
+  // on her bombing run finishes it first; one with nothing left goes home.
+  for (const bm of heavies) {
+    if (bm.phase === 'home' || bm.flown) continue;
+    bm.vec = { x, z };
+    bm.order = null;
+    if (bm.phase !== 'run') { bm.aimX = 0; bm.aimZ = 0; bm.targetId = 0; }
+    n++;
+  }
   for (const q of flights) {
     if (q.phase !== 'outbound' && q.phase !== 'formup') continue;
     q.phase = 'outbound';
     q.vec = { x, z };
+    // Sent somewhere is no longer sent at something.
+    q.order = null;
     q.targetId = 0; q.targetAir = 0; q.targetHeavy = 0; q.targetBat = 0;
     q.shieldFor = 0;
     q.tx = x; q.tz = z;
@@ -200,6 +250,38 @@ export function stepVector(p) {
 export function wingTarget(state, p) {
   if (!p.wing || p.role === 'fighter' || p.dropped) return null;
   const lead = wingLeader(state, p);
-  if (!lead || lead === p || lead.role === 'fighter' || !lead.targetId) return null;
-  return state.ships.find((s) => s.id === lead.targetId && s.alive && s.team !== p.team) || null;
+  if (lead && lead !== p && lead.role !== 'fighter' && lead.targetId) {
+    return state.ships.find((s) => s.id === lead.targetId && s.alive && s.team !== p.team) || null;
+  }
+  // A squadron led by its fighters, or by nobody with a ship in mind, goes
+  // for whatever its heavies are running in on.
+  if (lead && lead !== p && lead.targetId) return null;
+  for (const bm of membersOf(state, 'bomber', p.wing)) {
+    if (!bm.targetId) continue;
+    const s = state.ships.find((q) => q.id === bm.targetId && q.alive && q.team !== p.team);
+    if (s) return s;
+  }
+  return null;
+}
+
+/**
+ * The ship a heavy squadron in a squadron with carrier flights should run in
+ * on: whatever its strike aircraft have gone for. Null when it is in no
+ * squadron, or nothing in it has picked a ship.
+ */
+export function heavyWingTarget(state, bm) {
+  if (!bm.wing) return null;
+  const flights = membersOf(state, 'plane', bm.wing).sort((a, b) => a.id - b.id);
+  const strike = flights.find((p) => p.role !== 'fighter' && p.targetId) || flights.find((p) => p.targetId);
+  if (strike) {
+    const s = state.ships.find((q) => q.id === strike.targetId && q.alive && q.team !== bm.team);
+    if (s) return s;
+  }
+  // Or the first of the other heavies in it that has one.
+  for (const q of membersOf(state, 'bomber', bm.wing)) {
+    if (q === bm || !q.targetId) continue;
+    const s = state.ships.find((t) => t.id === q.targetId && t.alive && t.team !== bm.team);
+    if (s) return s;
+  }
+  return null;
 }

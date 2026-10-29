@@ -9,6 +9,9 @@ import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
 import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
+import {
+  worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
+} from '../../shared/works.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -517,7 +520,8 @@ class HudBase {
     // tap is for, and it is usually sitting on top of the ship it is laid on.
     const rank = (m) => (m.kind === 'pin' ? -1 : m.kind === 'battery' || m.kind === 'plane'
       || m.kind === 'bomber' || m.kind === 'torp' ? 0
-      : m.id === this.selfId ? 2 : 1);
+      : m.kind === 'town' || m.kind === 'wall' ? 1.5
+        : m.id === this.selfId ? 2 : 1);
     let best = null;
     for (const mark of plot.marks) {
       const d = Math.hypot(mark.x - px, mark.y - py);
@@ -575,18 +579,52 @@ class HudBase {
     if (!bar) return;
     bar.hidden = !pick;
     if (!pick) return;
-    const n = pick.ids.length;
-    const noun = pick.kind === 'plane' ? (n === 1 ? 'flight' : 'flights')
+    const nb = (pick.bids || []).length;
+    const n = pick.ids.length + nb;
+    const noun = pick.kind === 'plane' ? (n === 1 ? 'aircraft' : 'aircraft')
       : (n === 1 ? 'ship' : 'ships');
     if (what) {
       what.textContent = n
-        ? `${n} ${noun} picked · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
-        : 'Tap your own ships or flights';
+        ? `${n} ${noun} picked${nb ? ` (${nb} heavy)` : ''} · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
+        : 'Tap your own ships, flights or bombers';
     }
     const form = document.getElementById('group-form');
     const split = document.getElementById('group-split');
     if (form) form.disabled = n < 2;
     if (split) split.disabled = n < 1;
+  }
+
+  /** The Attack key and its bar's Cease key. */
+  bindAttack(on) {
+    const key = (id, fn) => document.getElementById(id)?.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); fn();
+    });
+    key('attack-key', () => on.toggle());
+    key('attack-cease', () => on.cease());
+    this.setAttacking(null);
+  }
+
+  /**
+   * What has been picked to attack with, `{ units: [{ k, i }] }`, or null
+   * when the plot is not picking for an attack. The plot rings what is picked.
+   */
+  setAttacking(pick) {
+    this.attackPick = pick;
+    const btn = document.getElementById('attack-key');
+    const bar = document.getElementById('attack-bar');
+    const what = document.getElementById('attack-what');
+    if (btn) btn.setAttribute('aria-pressed', pick ? 'true' : 'false');
+    if (!bar) return;
+    bar.hidden = !pick;
+    if (!pick) return;
+    const n = pick.units.length;
+    if (what) {
+      what.textContent = n
+        ? `${n} picked · now tap an enemy, a town or a wall`
+        : 'Tap your own ships, aircraft or batteries';
+    }
+    const cease = document.getElementById('attack-cease');
+    if (cease) cease.disabled = n < 1;
   }
 
   /** Which contact the camera is watching, so the plot can ring it. */
@@ -1476,7 +1514,10 @@ class HudBase {
           guns: el.querySelector('.tf-guns'), sig: null };
         T.boxes.set(f.i, b);
       }
-      b.name.textContent = f.n;
+      // A town or a wall says how much of it is still standing.
+      const label = f.works ? `${f.n} · ${Math.round((f.left ?? 1) * 100)}% standing` : f.n;
+      if (b.name.textContent !== label) b.name.textContent = label;
+      b.el.classList.toggle('works', !!f.works);
       b.range.textContent = `${Math.round(f.d * M_TO_YARDS).toLocaleString()} yd`;
       // Her guns on this ship, in the order the bar has them.
       const on = keys.filter((k) => assign && assign[`${k.t.kind}:${k.t.i}`] === f.i);
@@ -2583,6 +2624,95 @@ class HudBase {
     }
   }
 
+  /**
+   * The towns and the sea walls, as the plot knows them: each town its block
+   * of streets, shaded by how much of it is still standing, and each wall its
+   * line along the shore, a section at a time -- grey and solid where it is
+   * sound, going over to red as it is knocked about, and broken where it has
+   * been breached. Each of them is a mark, so a tap on one watches it (and a
+   * tap on one at the guns of a battery lays them on it).
+   */
+  paintWorks(ctx, marks, toX, toY, k, size, snap) {
+    const world = this.world;
+    if (!world?.works) return;
+    const list = worksTargets(world, snap ? snap.time || 0 : 0);
+    const label = size > 200;
+    for (const c of world.works.cities || []) {
+      const t = list.find((q) => q.id === townTargetId(c.index ?? 0));
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => cityToWorld(c, (a * c.W) / 2, (b * c.D) / 2));
+      const left = t ? t.left : 1;
+      ctx.save();
+      ctx.beginPath();
+      corners.forEach((p, i) => (i ? ctx.lineTo(toX(p.x), toY(p.z)) : ctx.moveTo(toX(p.x), toY(p.z))));
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${Math.round(120 + 80 * left)},${Math.round(80 + 105 * left)},${Math.round(70 + 80 * left)},0.45)`;
+      ctx.fill();
+      ctx.strokeStyle = t && !t.alive ? 'rgba(140,140,140,0.8)' : 'rgba(230,207,156,0.9)';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([3 * k, 2 * k]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const x = toX(c.x), y = toY(c.z);
+      // A little block of houses, so it reads as a town at any zoom.
+      ctx.fillStyle = 'rgba(230,207,156,0.95)';
+      const r = 3.2 * k;
+      ctx.fillRect(x - r * 1.5, y - r * 0.2, r, r * 1.2);
+      ctx.fillRect(x - r * 0.3, y - r, r * 1.1, r * 2);
+      ctx.fillRect(x + r * 0.95, y - r * 0.5, r * 0.9, r * 1.5);
+      if (label && t) {
+        ctx.font = `${Math.round(8.5 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`${t.name.toUpperCase()} ${Math.round(left * 100)}%`, x, y + r * 1.6);
+      }
+      ctx.restore();
+      if (t) marks.push({ kind: 'town', id: t.id, x, y, name: t.name, team: -1 });
+    }
+    (world.works.walls || []).forEach((run, ri) => {
+      const n = wallSections(run);
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(2.2, 3 * k);
+      for (let s = 0; s < n; s++) {
+        const d = wallDamage(world, ri, s);
+        const [k0, k1] = sectionSpan(run, s);
+        if (d >= 1) {
+          ctx.strokeStyle = 'rgba(226,86,79,0.55)';
+          ctx.setLineDash([1.5 * k, 3 * k]);
+        } else {
+          ctx.strokeStyle = `rgba(${Math.round(190 + 50 * d)},${Math.round(190 - 120 * d)},${Math.round(180 - 120 * d)},0.95)`;
+          ctx.setLineDash([]);
+        }
+        ctx.beginPath();
+        for (let q = k0; q <= k1; q++) {
+          const px = toX(run.pts[q][0]), py = toY(run.pts[q][1]);
+          if (q === k0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      const t = list.find((q) => q.id === wallTargetId(ri));
+      const mid = run.pts[Math.floor(run.pts.length / 2)];
+      const x = toX(mid[0]), y = toY(mid[1]);
+      if (label && t) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(210,210,200,0.95)';
+        ctx.font = `${Math.round(8 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`${t.name.toUpperCase()} ${Math.round(t.left * 100)}%`, x, y - 4 * k);
+        ctx.restore();
+      }
+      if (t) {
+        marks.push({ kind: 'wall', id: t.id, x, y, name: t.name, team: -1 });
+        // And the ends, so the whole length of a long wall can be picked.
+        for (const q of [run.pts[0], run.pts[run.pts.length - 1]]) {
+          marks.push({ kind: 'wall', id: t.id, x: toX(q[0]), y: toY(q[1]), name: t.name, team: -1 });
+        }
+      }
+    });
+  }
+
   /** What the plot draws under everything that moves. See paintPlot. */
   paintChart(ctx, store, size, toX, toY, H, scale) {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
@@ -2696,6 +2826,9 @@ class HudBase {
     }
     this.selfId = own ? own.i : 0;
 
+    // The town and the sea walls, under everything else that is on the plot.
+    this.paintWorks(ctx, marks, toX, toY, k, size, snap);
+
     // The guns ashore, plotted as the fixed marks they are: a square, because
     // nothing on this plot that moves is drawn as one.
     for (const g of (snap && snap.batteries) || []) {
@@ -2716,7 +2849,7 @@ class HudBase {
         ctx.lineTo(x + CHART_X * Math.sin(g.h + g.a) * 14 * k, y - Math.cos(g.h + g.a) * 14 * k);
         ctx.stroke();
       }
-      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm });
+      marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm, ot: g.ot });
     }
 
     // Everything afloat, wherever it is. A hull the lookouts have sighted is a
@@ -2810,7 +2943,7 @@ class HudBase {
         ctx.arc(x, y, 11 * k, 0, Math.PI * 2);
         ctx.stroke();
       }
-      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm });
+      marks.push({ kind: 'ship', id: s.i, x, y, name: s.n || 'Contact', team: s.tm, ot: s.ot });
     }
 
     this.paintPins(ctx, marks, snap, ships, toX, toY, k, size);
@@ -2875,7 +3008,7 @@ class HudBase {
       }
       marks.push({
         kind: 'plane', id: pl.i, x, y,
-        name: `${pl.n} aircraft`, team: pl.tm,
+        name: `${pl.n} aircraft`, team: pl.tm, ot: pl.ot,
       });
     }
 
@@ -2934,12 +3067,81 @@ class HudBase {
         ctx.textBaseline = 'middle';
         ctx.fillText(`x${bm.n}`, x + 11 * k, y - 7 * k);
       }
+      // Her squadron, where it has been sent, and whether she is picked for
+      // one -- the same three marks a carrier flight gets.
+      if (bm.wg && bm.tm === this.team) {
+        ctx.fillStyle = '#6fd3a0';
+        ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`S${bm.wg}`, x + 11 * k, y + 8 * k);
+      }
+      if (bm.vx !== undefined && bm.vz !== undefined && bm.tm === this.team) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(111,211,160,0.5)';
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash([2 * k, 4 * k]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(toX(bm.vx), toY(bm.vz));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(toX(bm.vx), toY(bm.vz), 4 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this.groupPick && this.groupPick.kind === 'plane' && (this.groupPick.bids || []).includes(bm.i)) {
+        ctx.save();
+        ctx.strokeStyle = '#e6cf9c';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([3 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.arc(x, y, 17 * k, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       marks.push({
         kind: 'bomber', id: bm.i, x, y,
         name: `${bm.n} ${(BOMBERS[bm.b] && BOMBERS[bm.b].name) || 'bombers'}`,
-        team: bm.tm,
+        team: bm.tm, ot: bm.ot,
       });
     }
+
+    // What has been ordered onto what off the plot: a red line from each of
+    // your own units to the thing it was sent at, with a ring on the thing.
+    // An order you cannot see is an order you cannot tell you have given.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(226,86,79,0.75)';
+    ctx.lineWidth = 1.2;
+    for (const m of marks) {
+      if (!m.ot || m.team !== this.team) continue;
+      const t = marks.find((q) => q.id === m.ot && q.team !== this.team && q.kind !== 'pin' && q.kind !== 'torp');
+      if (!t) continue;
+      ctx.setLineDash([6 * k, 3 * k]);
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 9 * k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // And what is picked for an attack not yet given: a broken red ring.
+    if (this.attackPick) {
+      ctx.strokeStyle = '#e2564f';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([3 * k, 3 * k]);
+      for (const u of this.attackPick.units) {
+        const m = marks.find((q) => q.kind === u.k && q.id === u.i);
+        if (!m) continue;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, 16 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
 
     // A ring round whatever the camera is looking at, so it is obvious where
     // the view has gone and what to tap to get out of it.
