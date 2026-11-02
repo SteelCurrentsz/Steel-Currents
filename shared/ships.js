@@ -3623,6 +3623,147 @@ export const SHIP_CLASSES = {
     },
   },
 
+  hood: {
+    // HMS Hood, the last battlecruiser of the Royal Navy and for twenty years
+    // the largest warship in the world: eight 15-inch in four twin turrets,
+    // two forward and two aft, on a hull 262 metres long that made thirty-one
+    // knots on her trials. Twelve 5.5-inch along her superstructure, six a
+    // side; quadruple pom-poms abreast her bridge and her mainmast; and a
+    // bank of 21-inch tubes either side of her quarterdeck. She blew up in
+    // the Denmark Strait on 24 May 1941, at the sixth salvo from Bismarck.
+    //
+    // She is drawn from the owner's sculpts of her (see hood.js): her hull,
+    // her superstructure and every one of her guns, at her own length --
+    // 262.3 m -- and her own beam over her bulges, floated at 9.0 m.
+    id: 'hood',
+    name: 'Hood',
+    fullName: 'HMS Hood',
+    className: 'Admiral',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'gbr',
+    blurb: 'The Mighty Hood: eight fifteen-inch guns on the longest hull in the world, and fast enough to catch anything that could fight her.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 12.8, 25.6], [0, -5.0, 25.6]], length: 262.3, beam: 31.8, draft: 9.0, superstructure: 1.4 },
+    hp: 64800,
+    // Twenty-nine knots by 1941, her machinery tired and her stern low; a long
+    // ship that ran straight and turned wide, and wet aft at any speed.
+    maxSpeed: 29 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.38,
+    turnRate: 0.044,
+    rudderShift: 15,
+    speedLossInTurn: 0.16,
+    concealment: 16200,
+    fireDetectPenalty: 7000,
+    // Type 279 for aircraft and Type 284 for her main battery, by May 1941.
+    radarRange: 12000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Twelve inches of belt over her machinery and magazines, inclined twelve
+    // degrees, seven above it and five over her ends; but her decks were
+    // thin -- three inches at most over her magazines -- and a plunging shell
+    // at long range could go through them. Her turret faces were fifteen.
+    armor: { belt: 305, deck: 76, citadel: 305, bow: 51, superstructure: 25 },
+    turrets: [
+      // A and B forward, B superfiring over A; X and Y aft facing astern, X
+      // superfiring over Y from the step at the end of her forecastle deck.
+      // Arcs and sectors measured off the model by build/survey-arcs.mjs (see
+      // layFloor in sim.js).
+      { id: 0, name: 'A', x: 0, z: 70.82, angle: 0, arc: 2.6, guns: 2, my: 9.42 },
+      { id: 1, name: 'B', x: 0, z: 55.08, angle: 0, arc: 2.6, guns: 2, my: 13.0 },
+      { id: 2, name: 'X', x: 0, z: -76.21, angle: Math.PI, arc: 2.6, guns: 2, my: 9.97 },
+      { id: 3, name: 'Y', x: 0, z: -92.08, angle: Math.PI, arc: 2.6, guns: 2, my: 6.66 },
+    ],
+    gun: {
+      name: '15"/42 Mk I', role: 'surface',
+      // Five below the horizontal to thirty up in her Mk II turrets.
+      elev: { min: -0.087, max: 0.524 },
+      // Pivot to muzzle: the trunnions three and a half metres ahead of the
+      // pivot and the barrels thirteen out of them.
+      reach: 16.6,
+      caliber: 381, reload: 30, traverse: 0.05, range: 21500, sigma: 1.4,
+      // The 1,938 lb 4crh shell: 752 m/s.
+      shells: shells(381, 12300, 5600, 560, 752, 0.24),
+    },
+    // Two triple banks of 21-inch tubes on her quarterdeck, one a side,
+    // abreast the point of her after deck: each trains out on its own beam.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 10.3, z: -64, angle: 1.57, arc: 2.4, rest: 0, tubes: 3, my: 4.97 },
+        { id: 1, x: -10.3, z: -64, angle: -1.57, arc: 2.4, rest: 0, tubes: 3, my: 4.97 },
+      ],
+      name: '21" Mk IV torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '21"',
+      reach: 4.03,
+      traverse: 0.2,
+      reload: 150, damage: 13800, speed: 40 * KNOTS, range: 11000,
+      detection: 1300, arming: 400, spread: 0.06, floodChance: 0.36,
+      // Each fish blown out of its tube, the three a third of a second apart,
+      // from where it lies in the tube -- `lanes` across the bank, its middle
+      // `lie` and the muzzle `muzzle` ahead of the turntable -- and dropping the
+      // `height` from the tubes to the sea once it is out.
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-0.614, 0, 0.613], lie: 0.61, muzzle: 4.032, height: 4.97,
+        fish: { len: 7.0, r: 0.267, kind: 'mk15' },
+      },
+    },
+    // Twelve 5.5-inch singles in their shields, six a side: three in the bays
+    // under her shelter deck on her forecastle deck, and three on her shelter
+    // deck. Arcs and sectors surveyed off the model.
+    secondary: {
+      name: '5.5" BL Mk I', role: 'surface',
+      // Five below the horizontal to thirty up.
+      elev: { min: -0.087, max: 0.524 },
+      reach: 5.72,
+      caliber: 140, reload: 7, traverse: 0.14, range: 13500, sigma: 1.35,
+      shells: shells(140, 2500, 2000, 130, 850, 0.10),
+      mounts: [
+        { x: 9.7, z: 18.7, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
+        { x: -9.7, z: 18.7, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
+        { x: 12.1, z: 16.1, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: -12.1, z: 16.1, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: 11.0, z: 6.5, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
+        { x: -11.0, z: 6.5, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
+        { x: 12.4, z: -5.25, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: -12.4, z: -5.25, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: 11.75, z: -26.55, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: -11.75, z: -26.55, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
+        { x: 10.0, z: -36.0, angle: 2.0, arc: 2.2, rest: Math.PI, guns: 1, my: 11.5 },
+        { x: -10.0, z: -36.0, angle: -2.0, arc: 2.2, rest: -Math.PI, guns: 1, my: 11.5 },
+      ],
+    },
+    aa: {
+      range: 4000, dps: 52,
+      guns: [
+        // Her quadruple pom-poms: one a side abreast her bridge, at the foot
+        // of her tower, and one a side abreast her mainmast.
+        { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.5, range: 3400,
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+            { x: 5.3, z: 35.3, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 4, my: 15.2 },
+            { x: -5.3, z: 35.3, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 4, my: 15.2 },
+            { x: 7.0, z: -42.3, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 4, my: 12.9 },
+            { x: -7.0, z: -42.3, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 4, my: 12.9 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 42670,
+      aircraft: 0,
+      mainRounds: 960,
+      torpedoesCarried: 6,
+      secondary: { caliber: 140, label: '5.5"', barrels: 12, rounds: 2400 },
+      tertiary: [
+        { caliber: 40, label: '2-pdr', barrels: 16, rounds: 28800 },
+      ],
+    },
+  },
+
   rodney: {
     // HMS Rodney, the second of the two Nelsons: nine 16-inch in three
     // triples, all of them forward of her bridge -- the whole of her main
@@ -7791,7 +7932,7 @@ export const HULL_TOUGHNESS = 1.8;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'hood', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {

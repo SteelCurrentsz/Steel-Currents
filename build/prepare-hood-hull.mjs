@@ -35,7 +35,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  readGlb, bbox, fixWinding, boxCut, components,
+  readGlb, bbox, fixWinding, boxCut, components, closeHoles,
   recomputeNormals, weld, stations, hardEdges, shadePlating, boxUvs,
   paletteToLinear, paint, heightmap, heightBytes, pack, packPieceCompact, faceNormal,
 } from './sculpt.mjs';
@@ -150,6 +150,13 @@ for (const s of SCREWS.filter((q) => q.wing)) {
   console.log(`the screw on her centreline: ${r.cut} triangles cut`);
 }
 dropLoose(m, { maxArea: 3, maxDiag: 4 });
+// Every hole the sculpt and its decimation left in her -- where her shafts
+// leave her and along her bossings -- closed, each in its own plane. What is
+// over her decks of what this closes is cut off with the rest below.
+{
+  const st = closeHoles(m, new Uint8Array(m.T.length / 3).fill(1), () => null, { open: true });
+  console.log(`her holes: ${st.loops} closed with ${st.capped} triangles`);
+}
 
 // ---- her decks, laid again ------------------------------------------------------------
 // The sculpt's decks are lumpy -- its fittings melted into them, its rails
@@ -371,6 +378,17 @@ const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
   { x0: 10.6, x1: 14.4, y0: 7.3, y1: 9.9, z0: -6.95, z1: -0.85 },
   { x0: 10.1, x1: 13.6, y0: 7.3, y1: 9.9, z0: -28.3, z1: -22.2 },
 ];
+/**
+ * Her pom-pom tubs, port side: abreast her bridge on the platform at the
+ * foot of her tower, and abreast her mainmast on her shelter deck aft. The
+ * sculpt drew a melted gun in the one and two stubs in the other; tub and
+ * all are taken off down to the floor, and hood.js stands the owner's quad
+ * there on its own platform inside its own splinter shield.
+ */
+export const POMPOM_TUBS = [
+  { name: 'pom-pom bridge', x: 5.3, z: 35.3, r: 2.0, floor: 14.0 },
+  { name: 'pom-pom mainmast', x: 7.0, z: -42.3, r: 1.8, floor: 11.7 },
+];
 export const SUPER = {
   k: 0.135 / 0.3355, funnel: -0.249, hullFunnel: -0.104, low: -0.257, high: -0.194, sink: 0.15, side: 0.35,
 };
@@ -455,6 +473,15 @@ const sup = (() => {
       splitAlong(s, inside, { drop: true });
       s = subMesh(s, () => true);
       if (process.env.FREE) console.log(`gun at ${b.z0}..${b.z1} ${side}: ${before - s.T.length / 3} triangles`);
+    }
+  }
+  for (const tub of POMPOM_TUBS) {
+    for (const side of [-1, 1]) {
+      const inside = (x, y, z) => Math.min(tub.r + 0.35 - Math.hypot(x - side * tub.x, z - tub.z), y - (tub.floor + 0.08), tub.floor + 2.6 - y);
+      const before = s.T.length / 3;
+      splitAlong(s, inside, { drop: true });
+      s = subMesh(s, () => true);
+      console.log(`${tub.name} ${side > 0 ? 'port' : 'stbd'}: ${before - s.T.length / 3} triangles of tub cut away`);
     }
   }
   s.C = new Array(s.T.length / 3).fill(SUPER_GREY);
@@ -773,10 +800,36 @@ const TUBES = (() => {
   return { house, guns: { T: [] }, trunnion: [0, +y.toFixed(3), 0], muzzles: bores.map(([x, by, , z]) => [x, by, z]), roof: +roof.toFixed(3), bores };
 })();
 
+// Her 15-inch Mk II twin: 10.3 m a unit, which makes the barbette it trains
+// on -- the drum the sculpt stands it on -- nine and a half metres across,
+// as hers was. The sculpt's rocket launcher and its railed platform on the
+// roof are gone (see build/hood-source.mjs), and so is its drum, which
+// hood.js draws as each turret's barbette at that turret's own height: the
+// gunhouse is cut off square at its skirt. Its barrels, blast bags and all,
+// are lifted off at the face on to the cradle; the sculpt drew them half the
+// length of a 15-inch/42, so forward of the blast bags they are drawn out
+// to it.
+export const MAIN_SCALE = 10.3;
+const MAIN = gunPiece('hood-15.glb', {
+  scale: MAIN_SCALE, pivot: [0.30, 0], foot: -0.07, trunnion: [-0.05, 0.072], elev: -0.0095,
+  cradle: (u, v, z, x) => x < -0.19 && Math.min(Math.hypot(v, z - 0.1042), Math.hypot(v, z + 0.1042)) < 0.075,
+  muzzles: [[0.1042, 0, 0.9], [-0.1042, 0, 0.9]],
+});
+{
+  const bag = 3.1, STRETCH = 1.6;
+  let tip = 0;
+  for (let i = 2; i < MAIN.guns.P.length; i += 3) {
+    if (MAIN.guns.P[i] > bag) MAIN.guns.P[i] = bag + (MAIN.guns.P[i] - bag) * STRETCH;
+    tip = Math.max(tip, MAIN.guns.P[i]);
+  }
+  MAIN.muzzles = MAIN.muzzles.map(([x, y]) => [x, y, +tip.toFixed(3)]);
+  console.log(`hood-15.glb: barrels drawn out to ${tip.toFixed(2)} m from the trunnions`);
+}
+
 if (process.env.STAGE === 'guns') {
   const { writeGlb } = await import('./sculpt-source.mjs');
   const dir = process.env.PIECES || '.';
-  for (const [name, g] of Object.entries({ sec: SEC, pompom: POMPOM, tubes: TUBES })) {
+  for (const [name, g] of Object.entries({ main: MAIN, sec: SEC, pompom: POMPOM, tubes: TUBES })) {
     for (const [part, mesh] of [['house', g.house], ['guns', g.guns]]) {
       if (!mesh.T.length) continue;
       const paint = new Float32Array(mesh.P.length / 3);
@@ -793,3 +846,121 @@ if (process.env.STAGE === 'guns') {
   }
   process.exit(0);
 }
+
+// ---- where her guns stand ------------------------------------------------------------
+// Port side; the starboard ones are their mirrors. `y` is the deck each
+// stands on, `rest` which way it faces stowed.
+//
+// Her twelve 5.5-inch: three a side in the bays the sculpt cut under her
+// shelter deck, on her forecastle deck, where it stood its own; one on her
+// shelter deck abreast her fore funnel, where it stood another; and two more
+// on her shelter deck, abreast her second funnel and abaft it.
+export const SECONDARY = [
+  { name: '5.5 fwd upper', x: 9.7, z: 18.7, y: DECKS.shelter - SUPER.sink, rest: 0 },
+  { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: 0 },
+  { name: '5.5 shelter', x: 11.0, z: 6.5, y: DECKS.shelter - SUPER.sink, rest: 0 },
+  { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: 0 },
+  { name: '5.5 aft bay', x: 11.75, z: -26.55, y: DECKS.forecastle, rest: 0 },
+  { name: '5.5 aft upper', x: 10.0, z: -36.0, y: DECKS.shelter - SUPER.sink, rest: Math.PI },
+];
+// Her triple banks of 21-inch tubes, one a side on her quarterdeck abreast
+// the point of her after deck, stowed fore and aft.
+export const TORPEDO_BANKS = [
+  { name: 'tubes', x: 10.3, z: -64.0, rest: 0 },
+];
+
+// ---- her decks' paint ---------------------------------------------------------------
+// Her weather decks are teak (laid above); her superstructure's decks,
+// platforms and flats are steel, the dark grey of a deck that is walked on,
+// and its walls her grey.
+{
+  const { T, C } = m;
+  let steel = 0;
+  for (let t = 0; t < T.length / 3; t++) {
+    if (C[t] !== SUPER_GREY) continue;
+    const [nx, ny, nz] = faceNormal(m, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    const [, cy] = middle(m, t);
+    if (ny > 0.8 * Math.hypot(nx, ny, nz) && cy > DECKS.quarter + 0.3) { C[t] = STEEL; steel++; } else C[t] = GREY;
+  }
+  console.log(`decks: ${steel} faces of her superstructure's decks steel`);
+}
+
+// ---- the faces that face in, and her normals split at her creases --------------------
+console.log(`faces facing in: ${turnInward(m)} turned`);
+recomputeNormals(m);
+const st = stations(m, { length: REAL_LOA, beamCap: DECKS.forecastle - 0.2, edgeCap: 10.0, slice: true, beamFloor: 0 });
+let canon = weld(m);
+const thin = thinFaces(m, 0.5);
+const plating = hardEdges(m, canon, st, {
+  crease: 44 * Math.PI / 180, plateTilt: 35 * Math.PI / 180, foot: -4.0, smooth: thin,
+});
+shadePlating(m, plating, { along: 3.0, up: 0.5 });
+
+// ---- her surface, as a height map --------------------------------------------------
+const HM = { x0: -19, z0: -135, step: 0.5, nx: 77, nz: 541 };
+const hm = heightmap(m, HM);
+
+// ---- paint -----------------------------------------------------------------------------
+// The Home Fleet's medium grey she wore in May 1941, her teak, the dark grey
+// of her steel decks, her black boot topping and her red bottom.
+const PALETTE = [
+  [0x7a, 0x82, 0x89],
+  [0x9a, 0x8f, 0x74],
+  [0x55, 0x5c, 0x65],
+  [0x19, 0x1c, 0x20],
+  [0x8c, 0x3a, 0x2c],
+].map(paletteToLinear);
+const paintOfVertex = new Uint8Array(m.P.length / 3);
+for (let t = 0; t < m.T.length / 3; t++) for (let j = 0; j < 3; j++) paintOfVertex[m.T[t * 3 + j]] = m.C[t];
+const uvArr = boxUvs(m);
+const col = paint(m, (i) => PALETTE[paintOfVertex[i]]);
+
+function packPiece(mesh) {
+  if (!mesh.C) return packPieceCompact(mesh);
+  const byV = new Uint8Array(mesh.P.length / 3);
+  for (let t = 0; t < mesh.T.length / 3; t++) for (let j = 0; j < 3; j++) byV[mesh.T[t * 3 + j]] = mesh.C[t];
+  return packPieceCompact(mesh, (i) => PALETTE[byV[i]]);
+}
+
+// ---- her lines, as the sculpt has them --------------------------------------------
+// Off the round metre, so a plane through a station's points does not cut
+// each triangle there at a corner (see prepare-fuso-hull.mjs).
+const LINES = measureLines(m, st, { z0: -130.9963, dz: 1, nz: 262, y0: -10, dy: 0.5, ny: 48 }, DECKS.forecastle);
+
+// ---- slice, pack and write ------------------------------------------------------------
+const surfaceOf = (t) => (m.C[t] === DECK ? 1 : 0);
+const packed = pack(m, col, uvArr, { buckets: 64, length: REAL_LOA, surfaceOf, compact: true });
+console.log('buckets', packed.buckets, 'tris', packed.tris);
+const b64 = packed.blob.toString('base64');
+console.log('packed hull', packed.blob.length, 'bytes ->', b64.length, 'base64 chars');
+const piece = (g) => ({
+  trunnion: g.trunnion, muzzles: g.muzzles, roof: g.roof, ...(g.bores ? { bores: g.bores } : {}),
+  house: packPiece(g.house).toString('base64'), guns: g.guns.T.length ? packPiece(g.guns).toString('base64') : null,
+});
+const r6 = (v) => +v.toFixed(6);
+const mounts = {
+  turrets: TURRETS.map(({ name, x, z, rest, seat, deck }) => ({ name, x, z, rest: r6(rest), seat, deck })),
+  secondary: SECONDARY.map(({ name, x, z, y, rest }) => ({ name, x, z, y: +y.toFixed(3), rest: r6(rest) })),
+  pompom: POMPOM_TUBS.map(({ name, x, z, floor }) => ({ name, x, z, y: floor })),
+  tubes: TORPEDO_BANKS.map(({ name, x, z, rest }) => ({ name, x, z, y: +quarterAt(z).toFixed(3), rest: r6(rest) })),
+  afterDeck: { z0: AFTER_HOUSE.z0, z1: AFTER_HOUSE.z1, y: AFTER_HOUSE.y1 },
+  decks: DECKS,
+};
+writeFileSync(OUT_DATA,
+  `// Generated by build/prepare-hood-hull.mjs from the owner's sculpts.\n`
+  + `// Do not hand-edit -- regenerate from the source assets instead.\n`
+  + `export const HOOD_HULL_B64 = ${JSON.stringify(b64)};\n`
+  + `// Her surface height, in centimetres, every ${HM.step} m: see hoodSurfaceY.\n`
+  + `export const HOOD_SURFACE = ${JSON.stringify({ ...HM, b64: heightBytes(hm).toString('base64') })};\n`
+  + `// Her 15-inch twin, her 5.5-inch, her quadruple pom-pom and her triple bank\n`
+  + `// of tubes, as the owner sculpted them, each in the frame of its mounting.\n`
+  + `export const HOOD_GUNS = ${JSON.stringify({ main: piece(MAIN), sec: piece(SEC), pompom: piece(POMPOM), tubes: piece(TUBES) })};\n`
+  + `// Where her turrets, her 5.5-inch, her pom-poms and her tubes stand; port\n`
+  + `// side, the starboard ones their mirrors.\n`
+  + `export const HOOD_MOUNTS = ${JSON.stringify(mounts)};\n`
+  + `// Her four screws, on the ends of her shafts.\n`
+  + `export const SCREWS = ${JSON.stringify(SCREWS)};\n`
+  + `// Her lines as the sculpt has them: keel, the deck over her insides, and\n`
+  + `// her half-breadth at every half metre of height, a metre at a time.\n`
+  + `export const HOOD_LINES = ${JSON.stringify(LINES)};\n`);
+console.log('wrote', OUT_DATA);

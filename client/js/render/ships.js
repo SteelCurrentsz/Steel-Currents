@@ -38,7 +38,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+let buildSpee, buildTakao, buildHood, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin;
 const SCULPTED = {
@@ -51,6 +51,7 @@ const SCULPTED = {
     loadHellcat(), loadDauntless(), loadAvenger()]),
   spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
+  hood: () => import('./hood.js').then((m) => { buildHood = m.buildHood; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
   massachusetts: () => import('./massachusetts.js')
@@ -926,6 +927,21 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+
+  // And the Hood: the owner's sculpts of her hull, her superstructure and
+  // every gun and tube she carried.
+  if (cls.id === 'hood') {
+    const built = buildHood();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
     };
   }
 
