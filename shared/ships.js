@@ -3711,9 +3711,9 @@ export const SHIP_CLASSES = {
         fish: { len: 7.0, r: 0.267, kind: 'mk15' },
       },
     },
-    // Twelve 5.5-inch singles in their shields, six a side: three in the bays
-    // under her shelter deck on her forecastle deck, and three on her shelter
-    // deck. Arcs and sectors surveyed off the model.
+    // Twelve 5.5-inch singles in their shields, six a side: two on her
+    // forecastle deck abreast her bridge, three in the bays under her shelter
+    // deck, and one on her after deck. Arcs and sectors surveyed off the model.
     secondary: {
       name: '5.5" BL Mk I', role: 'surface',
       // Five below the horizontal to thirty up.
@@ -3722,18 +3722,18 @@ export const SHIP_CLASSES = {
       caliber: 140, reload: 7, traverse: 0.14, range: 13500, sigma: 1.35,
       shells: shells(140, 2500, 2000, 130, 850, 0.10),
       mounts: [
-        { x: 9.7, z: 18.7, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
-        { x: -9.7, z: 18.7, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
-        { x: 12.1, z: 16.1, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: -12.1, z: 16.1, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: 11.0, z: 6.5, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
-        { x: -11.0, z: 6.5, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 11.5 },
-        { x: 12.4, z: -5.25, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: -12.4, z: -5.25, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: 11.75, z: -26.55, angle: 1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: -11.75, z: -26.55, angle: -1.2, arc: 2.2, rest: 0, guns: 1, my: 8.89 },
-        { x: 10.0, z: -36.0, angle: 2.0, arc: 2.2, rest: Math.PI, guns: 1, my: 11.5 },
-        { x: -10.0, z: -36.0, angle: -2.0, arc: 2.2, rest: -Math.PI, guns: 1, my: 11.5 },
+        { x: 11.5, z: 39.5, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -11.5, z: 39.5, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
+        { x: 11.5, z: 31.0, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -11.5, z: 31.0, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
+        { x: 12.1, z: 16.1, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -12.1, z: 16.1, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
+        { x: 12.4, z: -5.25, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -12.4, z: -5.25, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
+        { x: 11.75, z: -26.55, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -11.75, z: -26.55, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
+        { x: 8.0, z: -56.0, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 11.48 },
+        { x: -8.0, z: -56.0, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 11.48 },
       ],
     },
     aa: {

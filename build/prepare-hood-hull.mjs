@@ -490,6 +490,68 @@ const sup = (() => {
     + `${hi[2].toFixed(1)} m along her, ${lo[0].toFixed(1)} to ${hi[0].toFixed(1)} across, ${hi[1].toFixed(1)} m up`);
   return s;
 })();
+// ---- her plating, in pieces short enough to measure -----------------------------
+// The decimation drew her side amidships as a few triangles tens of metres
+// long, and everything that reads her shape off her points -- the damage
+// board's lines, the stations her normals are split at -- finds most metres
+// of her with no point of her side in them, and takes her for narrower than
+// she is. Every edge of her longer than `MAX` is halved, and the halves
+// shared with the triangle across it, until none is.
+function splitLong(mesh, MAX) {
+  for (let pass = 0; pass < 12; pass++) {
+    const { P, N, T, C } = mesh;
+    const len = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+    const mids = new Map();
+    const key = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
+    const mid = (a, b) => {
+      const k = key(a, b);
+      let i = mids.get(k);
+      if (i !== undefined) return i;
+      i = P.length / 3;
+      for (let j = 0; j < 3; j++) P.push((P[a * 3 + j] + P[b * 3 + j]) / 2);
+      const n = [0, 1, 2].map((j) => N[a * 3 + j] + N[b * 3 + j]);
+      const l = Math.hypot(...n) || 1;
+      N.push(n[0] / l, n[1] / l, n[2] / l);
+      mids.set(k, i);
+      return i;
+    };
+    // Mark first, so both triangles on an edge split it.
+    const marked = new Set();
+    for (let t = 0; t < T.length; t += 3) {
+      for (let j = 0; j < 3; j++) {
+        const a = T[t + j], b = T[t + (j + 1) % 3];
+        if (len(a, b) > MAX) marked.add(key(a, b));
+      }
+    }
+    if (!marked.size) return;
+    const T2 = [], C2 = [];
+    for (let t = 0; t < T.length / 3; t++) {
+      const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
+      const m = [0, 1, 2].map((j) => (marked.has(key(v[j], v[(j + 1) % 3])) ? mid(v[j], v[(j + 1) % 3]) : -1));
+      const put = (a, b, c) => { T2.push(a, b, c); C2.push(C[t]); };
+      const n = m.filter((x) => x >= 0).length;
+      if (n === 0) { put(v[0], v[1], v[2]); continue; }
+      if (n === 3) {
+        put(v[0], m[0], m[2]); put(m[0], v[1], m[1]); put(m[2], m[1], v[2]); put(m[0], m[1], m[2]);
+        continue;
+      }
+      // Turned so the first split edge is v0-v1.
+      let r = m.findIndex((x) => x >= 0);
+      if (n === 2 && m[(r + 2) % 3] >= 0 && m[r] >= 0 && r === 0 && m[2] >= 0) r = 2;
+      const a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3];
+      const mab = m[r], mbc = m[(r + 1) % 3];
+      if (n === 1) { put(a, mab, c); put(mab, b, c); continue; }
+      // Two: a-b and b-c split (the run of split edges starts at r).
+      put(a, mab, c); put(mab, b, mbc); put(mab, mbc, c);
+    }
+    mesh.T = T2; mesh.C = C2;
+  }
+}
+{
+  const before = m.T.length / 3;
+  splitLong(m, 2.0);
+  console.log(`her plating: ${before} triangles split to ${m.T.length / 3}, none longer than 2 m along an edge`);
+}
 append(m, sup);
 
 // ---- her decks, laid ------------------------------------------------------------------
@@ -619,7 +681,9 @@ export const AFTER_HOUSE = {
   // Its own points, so it is shaded flat and its walls round.
   const top = outline.map(([x, z]) => vtx(x, y1, z, [0, 1, 0]));
   const mid = vtx(0, y1, (z0 + z1) / 2, [0, 1, 0]);
-  for (let k = 0; k < n; k++) { T.push(mid, top[k], top[(k + 1) % n]); C.push(SUPER_GREY); }
+  // Wound to face up: the outline runs down her starboard side and back up
+  // her port side, which seen from above is clockwise.
+  for (let k = 0; k < n; k++) { T.push(mid, top[(k + 1) % n], top[k]); C.push(SUPER_GREY); }
   console.log(`her after deck laid: ${(2 * half(z1)).toFixed(2)} m across at ${z1}, its point at ${z0}, `
     + `its nose ${(2 * r).toFixed(2)} m across ${L} m from it, ${y0.toFixed(2)} to ${y1}`);
 }
@@ -851,17 +915,19 @@ if (process.env.STAGE === 'guns') {
 // Port side; the starboard ones are their mirrors. `y` is the deck each
 // stands on, `rest` which way it faces stowed.
 //
-// Her twelve 5.5-inch: three a side in the bays the sculpt cut under her
-// shelter deck, on her forecastle deck, where it stood its own; one on her
-// shelter deck abreast her fore funnel, where it stood another; and two more
-// on her shelter deck, abreast her second funnel and abaft it.
+// Her twelve 5.5-inch, six a side: two on her forecastle deck abreast her
+// bridge, where it is open to her side; three in the bays the sculpt cut
+// under her shelter deck, where it stood its own; and one on her after deck.
+// Her shelter deck itself is all boats, davits and houses along her side, and
+// a gun there could not train. Each is stowed trained abeam: a gun stowed
+// fore and aft in a bay lies along the wall at the bay's end.
 export const SECONDARY = [
-  { name: '5.5 fwd upper', x: 9.7, z: 18.7, y: DECKS.shelter - SUPER.sink, rest: 0 },
-  { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: 0 },
-  { name: '5.5 shelter', x: 11.0, z: 6.5, y: DECKS.shelter - SUPER.sink, rest: 0 },
-  { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: 0 },
-  { name: '5.5 aft bay', x: 11.75, z: -26.55, y: DECKS.forecastle, rest: 0 },
-  { name: '5.5 aft upper', x: 10.0, z: -36.0, y: DECKS.shelter - SUPER.sink, rest: Math.PI },
+  { name: '5.5 bridge fwd', x: 11.5, z: 39.5, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 bridge aft', x: 11.5, z: 31.0, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 aft bay', x: 11.75, z: -26.55, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 after deck', x: 8.0, z: -56.0, y: DECKS.shelter - SUPER.sink - 0.02, rest: Math.PI / 2 },
 ];
 // Her triple banks of 21-inch tubes, one a side on her quarterdeck abreast
 // the point of her after deck, stowed fore and aft.
