@@ -18,8 +18,7 @@
 //     the guns it had cast in cut out, for hood.js stands her own there --
 //     and stand abaft it her after deck, the wedge the sculpt drew on her
 //     quarterdeck, its outline read off the sculpt and run smooth, teak on
-//     top, a pom-pom bandstand on it and a splinter-shielded gun position
-//     bulged out either side;
+//     top, a pom-pom bandstand on it;
 //   * paint her decks, split her normals at every crease;
 //   * read her surface off as a height map and her lines, which is what her
 //     interior and her armour are fitted under;
@@ -380,38 +379,60 @@ function closeSmallHoles(m, maxRim) {
       half.set(key(a, b), (half.get(key(a, b)) || 0) + 1);
     }
   }
-  // A rim edge is one with no twin: a -> b with no b -> a anywhere.
-  const next = new Map(), paintAt = new Map();
+  // A rim edge is one with no twin: a -> b with no b -> a anywhere. Where
+  // two rims pass one point it has two ways on; the shortest way round
+  // back to where it started is the hole.
+  const out = new Map(), paintAt = new Map();
   for (let t = 0; t < nTri; t++) {
     for (let e = 0; e < 3; e++) {
       const a = canon[T[t * 3 + e]], b = canon[T[t * 3 + (e + 1) % 3]];
       if (a === b || half.has(key(b, a)) || half.get(key(a, b)) !== 1) continue;
-      if (next.has(a)) { next.set(a, -1); continue; } // a point two rims pass: leave it
-      next.set(a, b);
-      paintAt.set(a, C[t]);
+      if (!out.has(a)) out.set(a, []);
+      out.get(a).push(b);
+      paintAt.set(key(a, b), C[t]);
     }
   }
-  const seen = new Set();
+  const used = new Set();
   let n = 0, tris = 0;
   const dist = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
-  for (const start of next.keys()) {
-    if (seen.has(start) || next.get(start) < 0) continue;
-    const loop = [start];
-    let len = 0, ok = false;
-    for (let v = start; loop.length < 400;) {
-      const w = next.get(v);
-      if (w === undefined || w < 0) break;
-      len += dist(v, w);
-      if (len > maxRim) break;
-      if (w === start) { ok = true; break; }
-      if (loop.includes(w)) break;
-      loop.push(w); v = w;
+  // The shortest way from b back to a along rim edges not yet closed over,
+  // no longer than maxRim less the edge a -> b itself.
+  const wayBack = (a, b) => {
+    const budget = maxRim - dist(a, b);
+    const best = new Map([[b, 0]]), from = new Map();
+    const open = [[0, b]];
+    while (open.length) {
+      open.sort((p, q) => q[0] - p[0]);
+      const [d, v] = open.pop();
+      if (d > best.get(v)) continue;
+      if (v === a) {
+        const loop = [];
+        for (let w = a; w !== b; w = from.get(w)) loop.push(w);
+        loop.push(b);
+        return loop.reverse();
+      }
+      for (const w of out.get(v) || []) {
+        if (used.has(key(v, w))) continue;
+        const dw = d + dist(v, w);
+        if (dw > budget || (best.has(w) && best.get(w) <= dw)) continue;
+        best.set(w, dw); from.set(w, v); open.push([dw, w]);
+      }
     }
-    for (const v of loop) seen.add(v);
-    if (!ok || loop.length < 3) continue;
+    return null;
+  };
+  for (const [a0, outs] of out) for (const b0 of outs) {
+    if (used.has(key(a0, b0))) continue;
+    const way = wayBack(a0, b0);
+    if (!way || way.length < 3 || way.length > 400) continue;
+    // way runs b0 ... a0; the loop is a0 then it.
+    const loop = [a0, ...way.slice(0, -1)];
+    for (let i = 0; i < loop.length; i++) used.add(key(loop[i], loop[(i + 1) % loop.length]));
     const mid = [0, 1, 2].map((k) => loop.reduce((s, v) => s + P[v * 3 + k], 0) / loop.length);
     const paints = new Map();
-    for (const v of loop) paints.set(paintAt.get(v), (paints.get(paintAt.get(v)) || 0) + 1);
+    for (let i = 0; i < loop.length; i++) {
+      const pa = paintAt.get(key(loop[i], loop[(i + 1) % loop.length]));
+      paints.set(pa, (paints.get(pa) || 0) + 1);
+    }
     const paintOf = [...paints].sort((a, b) => b[1] - a[1])[0][0];
     // Its normal: the rim's own winding, reversed (the patch runs against it).
     let nx = 0, ny = 0, nz = 0;
@@ -461,8 +482,6 @@ export const BRIDGE_BAY = {
 };
 /** The bandstand on her centreline at the after end of her after deck, her third pom-pom on it. */
 export const AFTER_PLATFORM = { z: -58.5, r: 2.6, floor: 11.25, shield: 1.0 };
-/** Her gun positions bulged out either side of her after deck, splinter shields and all. */
-export const AFTER_SPONSONS = { z: -60.0, r: 2.1, shield: 1.25 };
 /**
  * Her pom-pom tubs, port side: abreast her bridge on the platform at the
  * foot of her tower, and abreast her mainmast on her shelter deck aft. The
@@ -479,6 +498,15 @@ export const POMPOM_TUBS = [
   // laid on the roof laid in AFTER_HOUSE.
   { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 11.25, laid: true },
 ];
+/**
+ * Her funnel tops, read off the sculpt as laid: the oval of each (centre and
+ * half-breadths), the lower edge of what is plated again, her two bands and
+ * how far they stand out, her lip and her grating inside it.
+ */
+export const FUNNEL_TOPS = [
+  { x: -0.015, z: 14.29, a: 3.77, c: 4.63 },
+  { x: -0.015, z: -4.43, a: 3.77, c: 4.56 },
+].map((f) => ({ ...f, y0: 21.6, bands: [21.95, 22.95], bandH: 0.14, band: 0.08, lip: 24.04, thick: 0.2, grating: 23.2 }));
 export const SUPER = {
   k: 0.135 / 0.3355, funnel: -0.249, hullFunnel: -0.104, low: -0.257, high: -0.194, sink: 0.15, side: 0.35,
 };
@@ -505,6 +533,85 @@ const sup = (() => {
   {
     const { n, tris } = closeSmallHoles(s, 12.0);
     console.log(`her superstructure: ${n} pinholes closed, ${tris} triangles`);
+  }
+  // Her funnel tops: the decimation crumpled the two bands round each and
+  // the rolled lip over them into spikes, and tore the lip open. All of it
+  // from the lower band up is taken off and plated again round the funnel's
+  // own oval: her side carried up, the two bands, the lip, the inside of it
+  // down to the grating, and a plate under the grating where it was torn.
+  {
+    let cut = 0;
+    const keep = (t) => {
+      const [cx, cy, cz] = middle(s, t);
+      for (const f of FUNNEL_TOPS) {
+        const r = Math.hypot((cx - f.x) / f.a, (cz - f.z) / f.c);
+        if (!(cy > f.y0 && cy < f.lip + 0.3 && r > 0.8 && r < 1.045)) continue;
+        // Her grating, which runs out under the lip, stays.
+        const [nx, ny, nz] = faceNormal(s, s.T[t * 3], s.T[t * 3 + 1], s.T[t * 3 + 2]);
+        if (cy < f.grating + 0.1 && r < 0.97 && ny > 0.9 * Math.hypot(nx, ny, nz)) continue;
+        cut++; return false;
+      }
+      return true;
+    };
+    s = subMesh(s, keep);
+    const { P, N, T, C } = s;
+    const SEG = 120;
+    const vtx = (x, y, z, n) => { P.push(x, y, z); N.push(...n); return P.length / 3 - 1; };
+    for (const f of FUNNEL_TOPS) {
+      // A point on the oval at `grow` times its size, and the way out from it.
+      const at = (k, grow) => {
+        const t = (2 * Math.PI * k) / SEG;
+        const x = f.x + f.a * grow * Math.cos(t), z = f.z + f.c * grow * Math.sin(t);
+        const nx = Math.cos(t) / f.a, nz = Math.sin(t) / f.c, l = Math.hypot(nx, nz);
+        return [x, z, [nx / l, 0, nz / l]];
+      };
+      // A band of wall between two heights, each at its own size; facing out
+      // (or in). Round the oval with the angle running x to z, lo hi hi' lo'
+      // faces out.
+      const wall = (ya, ga, yb, gb, out) => {
+        for (let k = 0; k < SEG; k++) {
+          const [xa0, za0, na] = at(k, ga), [xb0, zb0, nb] = at(k + 1, ga);
+          const [xa1, za1] = at(k, gb), [xb1, zb1] = at(k + 1, gb);
+          const sn = (n) => (out ? n : n.map((v) => -v));
+          const q = [vtx(xa0, ya, za0, sn(na)), vtx(xa1, yb, za1, sn(na)), vtx(xb1, yb, zb1, sn(nb)), vtx(xb0, ya, zb0, sn(nb))];
+          if (out) T.push(q[0], q[1], q[2], q[0], q[2], q[3]); else T.push(q[3], q[2], q[1], q[3], q[1], q[0]);
+          C.push(SUPER_GREY, SUPER_GREY);
+        }
+      };
+      // A flat ring at height y between two sizes, facing up.
+      const ring = (y, g0, g1) => {
+        for (let k = 0; k < SEG; k++) {
+          const [xa0, za0] = at(k, g0), [xb0, zb0] = at(k + 1, g0), [xa1, za1] = at(k, g1), [xb1, zb1] = at(k + 1, g1);
+          const q = [vtx(xa0, y, za0, [0, 1, 0]), vtx(xa1, y, za1, [0, 1, 0]), vtx(xb1, y, zb1, [0, 1, 0]), vtx(xb0, y, zb0, [0, 1, 0])];
+          T.push(q[0], q[3], q[2], q[0], q[2], q[1]);
+          C.push(SUPER_GREY, SUPER_GREY);
+        }
+      };
+      // A ring facing down, under a band.
+      const under = (y, g0, g1) => {
+        for (let k = 0; k < SEG; k++) {
+          const [xa0, za0] = at(k, g0), [xb0, zb0] = at(k + 1, g0), [xa1, za1] = at(k, g1), [xb1, zb1] = at(k + 1, g1);
+          const q = [vtx(xa0, y, za0, [0, -1, 0]), vtx(xa1, y, za1, [0, -1, 0]), vtx(xb1, y, zb1, [0, -1, 0]), vtx(xb0, y, zb0, [0, -1, 0])];
+          T.push(q[0], q[1], q[2], q[0], q[2], q[3]);
+          C.push(SUPER_GREY, SUPER_GREY);
+        }
+      };
+      const g = 1.004, bandOut = 1 + f.band / Math.min(f.a, f.c), inner = 1 - f.thick / Math.min(f.a, f.c);
+      let y = f.y0 - 0.15;
+      for (const yb of f.bands) {
+        wall(y, g, yb, g, true);
+        under(yb, g, bandOut);
+        wall(yb, bandOut, yb + f.bandH, bandOut, true);
+        ring(yb + f.bandH, g, bandOut);
+        y = yb + f.bandH;
+      }
+      wall(y, g, f.lip, g, true);
+      ring(f.lip, inner, g);
+      wall(f.grating, inner, f.lip, inner, false);
+      // And a plate a hair under it, out to the lip, where it was torn.
+      ring(f.grating - 0.01, 0.5, inner);
+    }
+    console.log(`her funnel tops: ${cut} triangles of crumpled band and lip off, plated again round ${FUNNEL_TOPS.length} ovals`);
   }
   const before = s.T.length / 3;
   // Inside her side and abaft B's barbette; and not the slab's own deck, where
@@ -974,25 +1081,8 @@ export const AFTER_HOUSE = {
     ring(0, b.z, b.r - 0.1, 0, 2 * Math.PI, b.floor, b.floor + b.shield, false, SUPER_GREY);
     flat(0, b.z, b.r - 0.1, b.r, 0, 2 * Math.PI, b.floor + b.shield, SUPER_GREY);
   }
-  // And either side of it, her gun positions out over her side: a half-round
-  // of her wall bulged out from her quarterdeck to a man's chest over her
-  // after deck, its floor teak and open to the deck inboard -- the splinter
-  // shield is her wall, carried up and round.
-  for (const sx of [1, -1]) {
-    const b = AFTER_SPONSONS;
-    const cx = half(b.z) - 0.05;
-    // Her wall there runs in towards her centreline going aft: the half-round
-    // is turned square to it.
-    const lean = Math.atan2(half(b.z + 0.5) - half(b.z - 0.5), 1);
-    const face = -lean; // the way out from her wall, as an angle (x = cos, z = sin)
-    const a0 = face - Math.PI / 2, a1 = face + Math.PI / 2;
-    ring(cx, b.z, b.r, a0, a1, y0, y1 + b.shield, true, SUPER_GREY, sx);
-    ring(cx, b.z, b.r - 0.08, a0, a1, y1, y1 + b.shield, false, SUPER_GREY, sx);
-    flat(cx, b.z, b.r - 0.08, b.r, a0, a1, y1 + b.shield, SUPER_GREY, sx);
-    flat(cx, b.z, 0, b.r - 0.08, a0, a1, y1, DECK, sx);
-  }
   console.log(`her after deck: a bandstand ${(2 * AFTER_PLATFORM.r).toFixed(1)} m across at ${AFTER_PLATFORM.z}, `
-    + `its floor ${AFTER_PLATFORM.floor}; gun positions either side at ${AFTER_SPONSONS.z}, ${(2 * AFTER_SPONSONS.r).toFixed(1)} m across`);
+    + `its floor ${AFTER_PLATFORM.floor}`);
 }
 
 // ---- her paint, where the decimation smeared it ---------------------------------------

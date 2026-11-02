@@ -2634,6 +2634,31 @@ check('the Hood is commissioned before the Rodney, after the Tirpitz', () => {
   assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8, 'she does not carry eight 15-inch');
 });
 
+check("the Hood's funnels are whole, side and top", () => {
+  // Fired at from all round, at every height from her shelter deck up to the
+  // lip, each funnel has to stop the shot at its own plating, not let it
+  // through to see the inside of its far side (which is not drawn).
+  const built = buildHood();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const holes = [];
+  for (const f of [{ z: 14.29, a: 3.77, c: 4.63 }, { z: -4.43, a: 3.77, c: 4.56 }]) {
+    for (let y = 13; y <= 23.95; y += 0.15) {
+      for (let k = 0; k < 120; k++) {
+        const th = (2 * Math.PI * k) / 120, ex = f.a * Math.cos(th), ez = f.c * Math.sin(th);
+        ray.set(new THREE.Vector3(ex * 1.6, y, f.z + ez * 1.6), new THREE.Vector3(-ex, 0, -ez).normalize());
+        ray.far = 12;
+        const hit = ray.intersectObjects(meshes, false)[0];
+        const r = hit ? Math.hypot(hit.point.x / f.a, (hit.point.z - f.z) / f.c) : 0;
+        if (r < 0.85) holes.push(`funnel at ${f.z} y ${y.toFixed(2)} bearing ${(th * 180 / Math.PI).toFixed(0)}`);
+      }
+    }
+  }
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her funnels: ${holes[0]}`);
+});
+
 check("the Hood's shell has no holes in it", () => {
   // Her sides fired at from abeam at every height her own lines say she has
   // a side at, right up under her deck edge, have to stop at her near side --
