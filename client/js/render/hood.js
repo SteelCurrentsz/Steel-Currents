@@ -5,8 +5,8 @@
 // to catch anything that could fight her and armed to fight anything that
 // could catch her. Eight 15-inch in four twin turrets, two forward and two
 // aft; twelve 5.5-inch, six a side, along her superstructure; her pom-poms
-// abreast her bridge and her mainmast; and two submerged 21-inch tubes in her
-// bow.
+// abreast her bridge, her funnels and her mainmast; and two submerged 21-inch
+// tubes in her bow.
 //
 // Her hull and superstructure are the sculpts (see hoodHull.js and
 // build/prepare-hood-hull.mjs); every one of her guns is a sculpt. What is
@@ -15,10 +15,11 @@
 //   * her four 15-inch turrets, the sculpt's own gunhouse on a barbette, its
 //     barrels on a cradle that elevates -- A and B forward, B superfiring;
 //     X and Y aft, facing astern, X superfiring;
-//   * her twelve 5.5-inch in their shields, six a side: one abreast her
-//     bridge, four in the bays under her shelter deck and one on it;
-//   * her five quadruple pom-poms, in the tubs abreast her bridge and her
-//     mainmast, and on her centreline on a bandstand on her after deck;
+//   * her twelve 5.5-inch in their shields, six a side: five in the bays
+//     under her shelter deck and one on it;
+//   * her nine quadruple pom-poms, in the tubs abreast her bridge and her
+//     mainmast, at the edge of her shelter deck abreast each funnel, and on
+//     her centreline on a bandstand on her after deck;
 //   * her two submerged tubes, in her bow, and the doors in her side they
 //     fire through;
 //   * her four screws, which turn;

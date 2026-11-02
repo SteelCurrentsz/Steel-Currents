@@ -2767,9 +2767,10 @@ check('the Hood carries the guns she carried, each where it can be trained from'
     assert.ok(fires(m, beam, near), `the 5.5-inch at ${m.x}, ${m.z} cannot fire on her beam`);
   }
   // Her pom-poms: a pair abreast her bridge, a pair abreast her mainmast,
-  // and one on her centreline on her after deck, firing aft and abeam.
+  // a pair abreast each funnel at the edge of her shelter deck, and one on
+  // her centreline on her after deck, firing aft and abeam.
   const pp = cls.aa.guns[0].mounts;
-  assert.equal(pp.length, 5, 'she carries five quadruple pom-poms');
+  assert.equal(pp.length, 9, 'she carries nine quadruple pom-poms');
   const aft = pp.filter((m) => m.x === 0);
   assert.equal(aft.length, 1, 'she has no pom-pom on her centreline');
   assert.ok(aft[0].z < -50 && aft[0].arc > 2.5, 'her centreline pom-pom is not on her after deck, or cannot train');

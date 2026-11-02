@@ -498,14 +498,22 @@ export const BRIDGE_BAY = {
 export const AFTER_PLATFORM = { z: -58.5, r: 2.6, floor: 11.25, shield: 1.0 };
 /**
  * Her pom-pom tubs, port side: abreast her bridge on the platform at the
- * foot of her tower, and abreast her mainmast on her shelter deck aft. The
- * sculpt drew a melted gun in the one and two stubs in the other; tub and
- * all are taken off down to the floor, and hood.js stands the owner's quad
+ * foot of her tower, abreast her mainmast on her shelter deck aft, and
+ * abreast each funnel at the edge of her shelter deck. The sculpt drew a
+ * melted gun in the first and two stubs in the second; whatever stands in
+ * each is taken off down to the floor, and hood.js stands the owner's quad
  * there on its own platform inside its own splinter shield.
  */
 export const POMPOM_TUBS = [
   { name: 'pom-pom bridge', x: 5.3, z: 35.3, r: 2.0, floor: 14.0 },
   { name: 'pom-pom mainmast', x: 7.0, z: -42.3, r: 1.8, floor: 11.7 },
+  // And two more a side on her shelter deck at its edge, facing out: one
+  // abreast her fore funnel, abaft the 5.5-inch there, and one abreast the
+  // after end of her after funnel, between her boats and the deck's edge.
+  // What stood there -- a hatch, a winch, the head of a davit -- is cut off
+  // down to the deck like the rest.
+  { name: 'pom-pom fore funnel', x: 10.5, z: 12.6, r: 1.8, floor: 10.15 },
+  { name: 'pom-pom after funnel', x: 11.4, z: -10.0, r: 1.25, floor: 10.15 },
   // And one on her centreline on the roof of her after deck, abaft her
   // mainmast, where her third multiple pom-pom stood from 1937. Nothing of
   // the sculpt is there to cut: it stands on the bandstand (AFTER_PLATFORM)
@@ -1420,16 +1428,17 @@ if (process.env.STAGE === 'guns') {
 // Port side; the starboard ones are their mirrors. `y` is the deck each
 // stands on, `rest` which way it faces stowed.
 //
-// Her twelve 5.5-inch, six a side: one on her forecastle deck abreast her
-// bridge, under the platforms round it, and one in the empty bay under her
-// shelter deck just abaft it; three in the bays under her shelter deck
-// further aft, each where the sculpt cast one; and one on her shelter deck itself,
-// abreast her fore funnel at the deck's edge, where the sculpt cast one too.
-// Each is stowed trained abeam: a gun stowed fore and aft in a bay lies along
-// the wall at the bay's end.
+// Her twelve 5.5-inch, six a side: one in the bay under her shelter deck
+// abaft her bridge (BRIDGE_BAY), and one at the mouth of the bay just abaft
+// that, where the sculpt stowed a paravane, its back wall plated across;
+// three in the bays under her shelter deck further aft, each where the
+// sculpt cast one; and one on her shelter deck itself, abreast her fore
+// funnel at the deck's edge, where the sculpt cast one too. Each is stowed
+// trained abeam: a gun stowed fore and aft in a bay lies along the wall at
+// the bay's end.
 export const SECONDARY = [
-  { name: '5.5 bridge fwd', x: 11.5, z: 39.5, y: DECKS.forecastle, rest: Math.PI / 2 },
-  { name: '5.5 bridge aft', x: 9.4, z: 31.75, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 bridge bay', x: 9.4, z: 31.75, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 abaft bridge bay', x: 11.9, z: 26.5, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 shelter deck', x: 9.7, z: 17.8, y: 10.31, rest: Math.PI / 2 },
   { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: Math.PI / 2 },
