@@ -1,7 +1,6 @@
 // HMS Hood's hull, superstructure and after deck: the owner's sculpts of
 // them, painted as she was in May 1941, and her 15-inch turret, her 5.5-inch
-// gun, her quadruple pom-pom and her triple bank of tubes as the owner
-// sculpted each.
+// gun and her quadruple pom-pom as the owner sculpted each.
 //
 // build/hood-source.mjs decodes the owner's compressed sculpts and paints the
 // hull -- red bottom, boot topping, grey -- with every paint line cut straight
@@ -35,7 +34,7 @@ export const hoodSurfaceY = surface.surfaceY;
 /** Where a mounting stands, at (x, z): the median of her surface round it. */
 export const hoodSeatY = surface.seatY;
 
-/** Where her turrets, her 5.5-inch, her pom-poms and her tubes stand: see prepare-hood-hull.mjs. */
+/** Where her turrets, her 5.5-inch and her pom-poms stand: see prepare-hood-hull.mjs. */
 export const MOUNT_SEATS = HOOD_MOUNTS;
 
 /** Her lines, as the sculpt has them: what her interior and armour are fitted under. */
@@ -72,8 +71,8 @@ export function buildHoodHull(g) {
 const guns = new Map();
 /**
  * One of her guns as the owner sculpted it -- 'main' her 15-inch twin turret,
- * 'sec' her 5.5-inch in its shield, 'pompom' her quadruple 2-pounder,
- * 'tubes' her triple bank of 21-inch tubes -- decoded once, in the frame of its mounting: the pivot at
+ * 'sec' her 5.5-inch in its shield, 'pompom' her quadruple 2-pounder --
+ * decoded once, in the frame of its mounting: the pivot at
  * the origin, the foot of what trains at y = 0, the bore along +Z; and where
  * its trunnions and muzzles are.
  */
@@ -82,7 +81,7 @@ export function gunPiece(kind) {
     const p = HOOD_GUNS[kind];
     guns.set(kind, {
       house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null,
-      trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof, bores: p.bores || null,
+      trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof,
     });
   }
   return guns.get(kind);

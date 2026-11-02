@@ -5,8 +5,8 @@
 // to catch anything that could fight her and armed to fight anything that
 // could catch her. Eight 15-inch in four twin turrets, two forward and two
 // aft; twelve 5.5-inch, six a side, along her superstructure; her pom-poms
-// abreast her bridge and her mainmast; and a bank of 21-inch tubes either
-// side of her quarterdeck.
+// abreast her bridge and her mainmast; and two submerged 21-inch tubes in her
+// bow.
 //
 // Her hull and superstructure are the sculpts (see hoodHull.js and
 // build/prepare-hood-hull.mjs); every one of her guns is a sculpt. What is
@@ -15,11 +15,12 @@
 //   * her four 15-inch turrets, the sculpt's own gunhouse on a barbette, its
 //     barrels on a cradle that elevates -- A and B forward, B superfiring;
 //     X and Y aft, facing astern, X superfiring;
-//   * her twelve 5.5-inch in their shields, three a side in the bays under
-//     her shelter deck and three on it;
+//   * her twelve 5.5-inch in their shields, six a side: two abreast her
+//     bridge, three in the bays under her shelter deck and one on it;
 //   * her four quadruple pom-poms, in the tubs abreast her bridge and her
 //     mainmast;
-//   * her two triple banks of tubes, which train out on their own beam;
+//   * her two submerged tubes, in her bow, and the doors in her side they
+//     fire through;
 //   * her four screws, which turn;
 //
 // and, inside her, her armour and her interior, fitted to her own lines.
@@ -36,6 +37,7 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { fitTubes } from './tubes.js';
+import { bowTube } from './rnguns.js';
 import {
   buildHoodHull, hoodSurfaceY, MOUNT_SEATS, SCULPT_LINES, hoodMaterials, gunPiece,
 } from './hoodHull.js';
@@ -55,6 +57,7 @@ const P = {
   gunDark: 0x40464c,
   armour: 0x4a5158,
   brass: 0x8a7340,
+  glass: 0x25303a,
 };
 
 const MATS = {};
@@ -173,34 +176,56 @@ function secondaryRings(g) {
 const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
 const nearest = (list, x, z) => list.reduce((a, b) => (Math.hypot(b.x - Math.abs(x), b.z - z) < Math.hypot(a.x - Math.abs(x), a.z - z) ? b : a));
 
-/** Her bank of tubes: it trains whole on its ring on her deck, its three tubes level. */
-function torpedoBank(g, spec, seat) {
-  const piece = gunPiece('tubes');
-  const m = new THREE.Group();
-  m.position.set(spec.x, seat.y, spec.z);
-  m.rotation.y = spec.rest ?? spec.angle;
-  m.userData.rest = 0;
-  m.userData.dynamic = true;
-  m.userData.mounting = true;
-  m.userData.name = 'tubes';
-  m.userData.trainRate = CLS.torpedoes.traverse;
-  m.add(new THREE.Mesh(piece.house, hoodMaterials().plating));
-  // Nothing elevates: the cradle is where the tubes' axes are, so that the
-  // muzzles are read off the line the fish leave along.
-  const cradle = new THREE.Group();
-  cradle.position.set(...piece.trunnion);
-  m.add(cradle);
-  arm(m, cradle, piece.bores.map(([x, y, , zm]) => [x, y - piece.trunnion[1], zm]));
-  m.userData.bores = piece.bores;
-  g.add(m);
-  return m;
+/**
+ * How far from its breech a submerged tube runs before it reaches her side:
+ * along its own bearing, to where her plating is at the height of the tube.
+ */
+function tubeLength(m) {
+  const dx = Math.sin(m.angle), dz = Math.cos(m.angle);
+  for (let s = 0.5; s < 30; s += 0.05) {
+    const x = m.x + dx * s, z = m.z + dz * s;
+    if (Math.abs(x) >= shellAt((2 * z) / LOA, m.my) - 0.05) return s;
+  }
+  return 6;
 }
 
-/** The plate each bank trains on, on her quarterdeck. */
-function tubeRings(g) {
-  for (const spec of CLS.torpedoes.mounts) {
-    const seat = nearest(MOUNT_SEATS.tubes, spec.x, spec.z);
-    cyl(g, M.steelDark, 1.9, 2.0, 0.12, spec.x, seat.y + 0.03, spec.z, 28);
+/**
+ * The sluice door each tube fires through: a round plate let into her side
+ * three and a half metres under the water, lying on her plating where the
+ * tube's line comes out through it -- her bow is fine there, and a door
+ * square to the tube would stand half out of her.
+ */
+function tubeDoors(g) {
+  for (const m of CLS.torpedoes.mounts) {
+    const s = tubeLength(m);
+    const x = m.x + Math.sin(m.angle) * s, z = m.z + Math.cos(m.angle) * s;
+    // Her side there, and the way it faces: out, and as far forward as she
+    // narrows towards her stem.
+    const t = (2 * z) / LOA, dt = 1 / LOA;
+    const lean = (shellAt(t + dt, m.my) - shellAt(t - dt, m.my)) / 1.0;
+    const sgn = Math.sign(m.x);
+    const yaw = Math.atan2(sgn, -lean);
+    // Onto her plating itself: the sculpt is a hand fuller on one bow than
+    // the other, so the door is put where a line in along her side's normal
+    // meets it.
+    const out = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const at = new THREE.Vector3(sgn * shellAt(t, m.my), m.my, z);
+    g.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster(at.clone().addScaledVector(out, 3), out.clone().negate(), 0, 6);
+    const hit = ray.intersectObject(g, true)[0];
+    // And turned to it, flare and all: her bow leans out over the door.
+    const face = out.clone();
+    if (hit && hit.face) {
+      face.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+      if (face.dot(out) < 0) face.negate();
+    }
+    if (hit) at.copy(hit.point).addScaledVector(face, 0.015);
+    const door = new THREE.Group();
+    door.position.copy(at);
+    door.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), face);
+    cyl(door, M.gunDark, 0.62, 0.62, 0.06, 0, 0, 0.0, 20).rotation.x = Math.PI / 2;
+    cyl(door, M.glass, 0.44, 0.44, 0.06, 0, 0, 0.02, 20).rotation.x = Math.PI / 2;
+    g.add(door);
   }
 }
 
@@ -231,7 +256,16 @@ function mountings(g) {
     }
   }
   if (k !== lights.length) throw new Error('the Hood built a light battery her datasheet does not list');
-  const torp = CLS.torpedoes.mounts.map((spec) => torpedoBank(g, spec, nearest(MOUNT_SEATS.tubes, spec.x, spec.z)));
+  // Her submerged tubes, in her bow, and the doors they fire through. Built
+  // into her: each stays on its own line whatever gyro angle its fish is set
+  // to, so the scene leaves it where it is.
+  const torp = CLS.torpedoes.mounts.map((spec) => {
+    // The tube ends a little inside her plating, so its cap is under it.
+    const t = bowTube(g, M, spec.x, spec.my, spec.z, spec.angle, tubeLength(spec) - 1.5);
+    t.userData.rest = 0;
+    t.userData.laid = false;
+    return t;
+  });
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
   g.userData.torpMounts = torp;
@@ -330,7 +364,7 @@ const STATIC = [
   ['hullModel', buildHoodHull],
   ['barbettes', barbettes],
   ['secondaryRings', secondaryRings],
-  ['tubeRings', tubeRings],
+  ['tubeDoors', tubeDoors],
   ['armour', armour],
   ['screws', screws],
 ];

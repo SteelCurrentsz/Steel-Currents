@@ -45,11 +45,7 @@
 //     gunhouse, its rangefinder and its cupola, and the barbette under it;
 //   * the 5.5-inch: the great disc it was sculpted standing on goes, down to
 //     the ring under its shield;
-//   * the pom-pom: the ring that floated under its pedestal goes;
-//   * the tubes: the forward half of each, where the sculpt melted -- each
-//     tube is a trough there, open underneath, with the heads of the fish
-//     fused into it -- goes. build/prepare-hood-hull.mjs draws them again,
-//     whole and closed, from the round tubes the sculpt has abaft that.
+//   * the pom-pom: the ring that floated under its pedestal goes.
 //
 // Writes, into assets/models/:
 //
@@ -58,7 +54,6 @@
 //   hood-15.glb        her 15-inch twin, with its barbette
 //   hood-55.glb        her 5.5-inch
 //   hood-pompom.glb    the quadruple pom-pom
-//   hood-tubes.glb     the triple bank, from its breeches to where it was whole
 //
 // Coordinates here are each sculpt's own: length along X with her bow at -X,
 // Y up, beam along Z.
@@ -237,12 +232,4 @@ if (wanted('pompom')) {
   const raw = await readCompressed(asset('BritishQuadPomPom-compressed.glb'));
   const gun = dropSmall(compactOf(crop(raw, (x, y) => y > -0.56)), 2, 0.15, 20);
   writeGlb(asset('hood-pompom.glb'), decimate(gun, +(process.env.AA_RATIO || 0.012), 0.003, 0.02));
-}
-if (wanted('tubes')) {
-  // From the breeches forward to where the tubes are still round, a little
-  // abaft the flange at -0.36; build/prepare-hood-hull.mjs carries them on
-  // from there to their muzzles.
-  const raw = await readCompressed(asset('TripleBarrelTorpedo.glb'));
-  const bank = dropSmall(compactOf(crop(raw, (x) => x > -0.33)), 3.6, 0.2, 20);
-  writeGlb(asset('hood-tubes.glb'), decimate(bank, +(process.env.TUBE_RATIO || 0.03), 0.002, 0.02));
 }

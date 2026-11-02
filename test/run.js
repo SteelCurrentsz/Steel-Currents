@@ -2734,11 +2734,23 @@ check('the Hood carries the guns she carried, each where it can be trained from'
     assert.ok(fires(m, beam, near), `the 5.5-inch at ${m.x}, ${m.z} cannot fire on her beam`);
   }
   assert.equal(cls.aa.guns[0].mounts.length, 4, 'she carries four quadruple pom-poms');
-  assert.equal(cls.torpedoes.mounts.length, 2, 'she carries a bank of tubes a side');
-  for (const m of cls.torpedoes.mounts) assert.equal(m.tubes, 3, 'her banks are triples');
-  // No light gun or bank of tubes stands where a turret's gunhouse swings.
+  // Her tubes are her two submerged ones, in her bow under the water, each
+  // firing out off her bow; none stands on her deck.
+  assert.ok(cls.torpedoes.inHull, 'her tubes are not in her hull');
+  assert.equal(cls.torpedoes.mounts.length, 2, 'she carries two submerged tubes');
+  for (const m of cls.torpedoes.mounts) {
+    assert.equal(m.tubes, 1, 'a submerged tube is a single');
+    assert.ok(m.my < -2, `the tube at ${m.x}, ${m.z} is not under the water`);
+    assert.ok(m.z > HOOD_SEATS.turrets[0].z + 9, `the tube at ${m.x}, ${m.z} is not forward of A`);
+    assert.ok(Math.abs(m.angle) < 0.4 && Math.sign(m.angle) === Math.sign(m.x), `the tube at ${m.x}, ${m.z} does not fire out off her bow`);
+  }
+  // One of her 5.5-inch each side stands on her shelter deck, the rest on
+  // her forecastle deck.
+  const up = HOOD_SEATS.secondary.filter((s) => s.y > HOOD_SEATS.decks.forecastle + 1);
+  assert.equal(up.length, 1, 'one 5.5-inch a side on her shelter deck');
+  // No light gun stands where a turret's gunhouse swings.
   for (const t of cls.turrets) {
-    for (const m of [...sec, ...cls.aa.guns[0].mounts, ...cls.torpedoes.mounts]) {
+    for (const m of [...sec, ...cls.aa.guns[0].mounts]) {
       assert.ok(Math.hypot(m.x - t.x, m.z - t.z) > 9, `the mounting at ${m.x}, ${m.z} stands where ${t.name} trains`);
     }
   }
@@ -2749,7 +2761,7 @@ check("the Hood's guns are the owner's, cut clean", () => {
   // The 15-inch has no rocket launcher on its roof: nothing of it stands
   // more than a rangefinder's height over its roof plates. The 5.5-inch has
   // no disc under it, the pom-pom no ring: each stands no wider than its own
-  // shield or platform. The tubes are whole to their muzzles.
+  // shield or platform.
   const main = hoodGunPiece('main');
   main.house.computeBoundingBox();
   assert.ok(main.house.boundingBox.max.y < 3.9, `the 15-inch stands ${main.house.boundingBox.max.y.toFixed(2)} m high`);
@@ -2762,10 +2774,6 @@ check("the Hood's guns are the owner's, cut clean", () => {
   pp.house.computeBoundingBox();
   const pb = pp.house.boundingBox;
   assert.ok(pb.min.y > -0.01 && pb.max.x - pb.min.x < 4.2, 'the pom-pom still floats over its ring');
-  const tubes = hoodGunPiece('tubes');
-  assert.equal(tubes.bores.length, 3, 'the bank is not a triple');
-  tubes.house.computeBoundingBox();
-  assert.ok(tubes.house.boundingBox.max.z >= tubes.bores[0][3] - 0.05, 'the tubes do not reach their muzzles');
 });
 
 check('a layer standing at a Hood gun looks out over it, round its arc and nowhere else', () => {

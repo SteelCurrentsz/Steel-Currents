@@ -3701,33 +3701,36 @@ export const SHIP_CLASSES = {
       // The 1,938 lb 4crh shell: 752 m/s.
       shells: shells(381, 12300, 5600, 560, 752, 0.24),
     },
-    // Two triple banks of 21-inch tubes on her quarterdeck, one a side,
-    // abreast the point of her after deck: each trains out on its own beam.
     torpedoes: {
+      // Her two submerged 21-inch tubes, in her torpedo room forward of A's
+      // barbette, each angled out a little off her bow to a sluice door in
+      // her side three and a half metres under the water.
       mounts: [
-        { id: 0, x: 10.3, z: -64, angle: 0, arc: 3.1, rest: 0, tubes: 3, my: 4.97,
-          mask: [[-3.12, 0.35], [2.94, 3.12]] },
-        { id: 1, x: -10.3, z: -64, angle: 0, arc: 3.1, rest: 0, tubes: 3, my: 4.97,
-          mask: [[-3.12, -2.94], [-0.35, 3.12]] },
+        { id: 0, x: 2.4, z: 88.0, angle: 0.2, arc: 0.3, tubes: 1, my: -3.6 },
+        { id: 1, x: -2.4, z: 88.0, angle: -0.2, arc: 0.3, tubes: 1, my: -3.6 },
       ],
       name: '21" Mk IV torpedo', role: 'surface', caliber: 533,
       tubeLabel: '21"',
-      reach: 4.03,
-      traverse: 0.2,
+      // Breech to the end of the tube, a pace inside the sluice door in her
+      // side the fish leaves by.
+      reach: 6.25,
+      inHull: true,
+      // The tube does not train: the gyro angle set on the fish turns it a
+      // few degrees off the line of the tube once it is out.
+      traverse: 0.35,
       reload: 150, damage: 13800, speed: 40 * KNOTS, range: 11000,
       detection: 1300, arming: 400, spread: 0.06, floodChance: 0.36,
-      // Each fish blown out of its tube, the three a third of a second apart,
-      // from where it lies in the tube -- `lanes` across the bank, its middle
-      // `lie` and the muzzle `muzzle` ahead of the turntable -- and dropping the
-      // `height` from the tubes to the sea once it is out.
+      // Under the water: the fish is pushed out along its tube, through the
+      // sluice in her side, and runs once it is clear of her.
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-0.614, 0, 0.613], lie: 0.61, muzzle: 4.032, height: 4.97,
-        fish: { len: 7.0, r: 0.267, kind: 'mk15' },
+        eject: 9, stagger: 0, lanes: [0], lie: 3.1, muzzle: 6.25, wet: true, clear: 4.5,
+        fish: { len: 6.0, r: 0.267, kind: 'mk15' },
       },
     },
     // Twelve 5.5-inch singles in their shields, six a side: two on her
     // forecastle deck abreast her bridge, three in the bays under her shelter
-    // deck, and one on her after deck. Arcs and sectors surveyed off the model.
+    // deck, and one on her shelter deck abreast her fore funnel. Arcs and
+    // sectors surveyed off the model.
     secondary: {
       name: '5.5" BL Mk I', role: 'surface',
       // Five below the horizontal to thirty up.
@@ -3736,18 +3739,60 @@ export const SHIP_CLASSES = {
       caliber: 140, reload: 7, traverse: 0.14, range: 13500, sigma: 1.35,
       shells: shells(140, 2500, 2000, 130, 850, 0.10),
       mounts: [
-        { x: 11.5, z: 39.5, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
-        { x: -11.5, z: 39.5, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-        { x: 11.5, z: 31.0, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
-        { x: -11.5, z: 31.0, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-        { x: 12.1, z: 16.1, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
-        { x: -12.1, z: 16.1, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-        { x: 12.4, z: -5.25, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
-        { x: -12.4, z: -5.25, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-        { x: 11.75, z: -26.55, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 8.89 },
-        { x: -11.75, z: -26.55, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-        { x: 8.0, z: -56.0, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 11.48 },
-        { x: -8.0, z: -56.0, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 11.48 },
+        { x: 11.5, z: 39.5, angle: 1.13, arc: 2.16, rest: Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[-1.04, -1, 0.018], [-1.01, -0.96, 0], [-0.9, -0.82, 0.437], [-0.83, -0.58, 0.524],
+            [-0.59, -0.51, 0.437], [-0.52, -0.41, 0.35], [-0.42, -0.39, 0.21], [-0.4, -0.37, 0.175],
+            [-0.38, -0.25, 0.105], [-0.26, -0.21, 0.07], [-0.22, -0.14, 0.009], [-0.15, -0.09, 0.018],
+            [-0.1, -0.07, 0.009], [-0.08, -0.06, 0], [-0.07, -0.02, -0.008], [2.94, 2.96, 0.088],
+            [2.95, 2.98, 0.105], [2.97, 3.1, 0.14], [3.09, -3.13, 0.175], [-3.14, -3.09, 0.21],
+            [-3.1, -3.08, 0.262], [-3.09, -2.97, 0.524]] },
+        { x: -11.5, z: 39.5, angle: -1.13, arc: 2.16, rest: -Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[2.97, 3.09, 0.524], [3.08, 3.1, 0.262], [3.09, 3.14, 0.21], [3.13, -3.09, 0.175],
+            [-3.1, -2.97, 0.14], [-2.98, -2.95, 0.105], [-2.96, -2.94, 0.088], [0.02, 0.07, -0.008],
+            [0.06, 0.08, 0], [0.07, 0.1, 0.009], [0.09, 0.15, 0.018], [0.14, 0.22, 0.009],
+            [0.21, 0.26, 0.07], [0.25, 0.38, 0.105], [0.37, 0.4, 0.175], [0.39, 0.42, 0.21],
+            [0.41, 0.52, 0.35], [0.51, 0.59, 0.437], [0.58, 0.83, 0.524], [0.82, 0.9, 0.437],
+            [0.96, 1.01, 0], [1, 1.04, 0.018]] },
+        { x: 11.5, z: 31, angle: 1.2, arc: 1.96, rest: Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[-0.78, -0.58], [-0.59, -0.37, 0.35], [-0.38, -0.28, 0.262], [-0.29, -0.27, 0.21],
+            [-0.28, -0.25, 0.175], [-0.26, -0.21, 0.088], [-0.22, 0.05, 0.175], [0.04, 0.17, 0.14],
+            [0.16, 0.19, 0.105], [0.18, 0.21, 0.088], [2.97, 3, 0.088], [2.99, 3.03, 0.105],
+            [3.02, 3.14, 0.175], [3.13, -3.11, 0.21]] },
+        { x: -11.5, z: 31, angle: -1.2, arc: 1.96, rest: -Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[3.11, -3.13, 0.21], [-3.14, -3.02, 0.175], [-3.03, -2.99, 0.105], [-3, -2.97, 0.088],
+            [-0.21, -0.18, 0.088], [-0.19, -0.16, 0.105], [-0.17, -0.04, 0.14], [-0.05, 0.22, 0.175],
+            [0.21, 0.26, 0.088], [0.25, 0.28, 0.175], [0.27, 0.29, 0.21], [0.28, 0.38, 0.262],
+            [0.37, 0.59, 0.35], [0.58, 0.78]] },
+        { x: 9.7, z: 17.8, angle: 1.88, arc: 1.71, rest: Math.PI / 2, guns: 1, my: 11.59,
+          mask: [[2.76, 2.79, 0.009], [2.78, 2.98, 0.07], [2.97, -3.11, 0.175], [-3.12, -3.08, 0.14],
+            [-3.09, -3.01, 0.35], [-3.02, -2.99, 0.21], [-3, -2.94, 0.611], [-2.95, -2.9, 0.35],
+            [-2.91, -2.87, 0.611], [-2.88, -2.67]] },
+        { x: -9.7, z: 17.8, angle: -1.88, arc: 1.71, rest: -Math.PI / 2, guns: 1, my: 11.59,
+          mask: [[2.67, 2.88], [2.87, 2.91, 0.611], [2.9, 2.95, 0.35], [2.94, 3, 0.611],
+            [2.99, 3.02, 0.21], [3.01, 3.09, 0.35], [3.08, 3.12, 0.14], [3.11, -2.97, 0.175],
+            [-2.98, -2.78, 0.07], [-2.79, -2.76, 0.009]] },
+        { x: 12.1, z: 16.1, angle: 1.6, arc: 1.85, rest: Math.PI / 2, guns: 1, my: 8.89,
+          lift: [[2.83, -2.81, 0.175]],
+          mask: [[-0.28, -0.21], [-0.22, -0.2, 0.611], [-0.21, -0.18, 0.175], [-0.19, -0.04, 0.105],
+            [-0.05, 0.05, 0.088], [0.04, 0.07, 0.07], [0.06, 0.08, 0.044], [2.85, 3.03, 0.175],
+            [3.02, -3.08, 0.437], [-3.09, -3.04, 0.175], [-3.05, -3.02, 0.524], [-3.03, -3.01, 0.611],
+            [-3.02, -2.81]] },
+        { x: -12.1, z: 16.1, angle: -1.6, arc: 1.85, rest: -Math.PI / 2, guns: 1, my: 8.89,
+          lift: [[2.81, -2.83, 0.175]],
+          mask: [[2.81, 3.02], [3.01, 3.03, 0.611], [3.02, 3.05, 0.524], [3.04, 3.09, 0.175],
+            [3.08, -3.02, 0.437], [-3.03, -2.85, 0.175], [-0.08, -0.06, 0.044], [-0.07, -0.04, 0.07],
+            [-0.05, 0.05, 0.088], [0.04, 0.19, 0.105], [0.18, 0.21, 0.175], [0.2, 0.22, 0.611],
+            [0.21, 0.28]] },
+        { x: 12.4, z: -5.25, angle: 1.82, arc: 2.05, rest: Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[-0.24, -0.18, 0.524], [-0.19, -0.11, 0.437], [-0.12, -0.04, 0.35],
+            [-0.05, 0.12, 0.437], [0.11, 0.21, 0.35], [2.85, 2.93, 0.524], [2.92, 3.03, 0.262],
+            [3.02, 3.05, 0.437], [3.04, 3.07, 0.611], [3.06, -2.39]] },
+        { x: -12.4, z: -5.25, angle: -1.82, arc: 2.05, rest: -Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[2.39, -3.06], [-3.07, -3.04, 0.611], [-3.05, -3.02, 0.437], [-3.03, -2.92, 0.262],
+            [-2.93, -2.85, 0.524], [-0.21, -0.11, 0.35], [-0.12, 0.05, 0.437], [0.04, 0.12, 0.35],
+            [0.11, 0.19, 0.437], [0.18, 0.24, 0.524]] },
+        { x: 11.75, z: -26.55, angle: 1.71, arc: 1.27, rest: Math.PI / 2, guns: 1, my: 8.89 },
+        { x: -11.75, z: -26.55, angle: -1.71, arc: 1.27, rest: -Math.PI / 2, guns: 1, my: 8.89 },
       ],
     },
     aa: {
@@ -3814,7 +3859,7 @@ export const SHIP_CLASSES = {
       displacement: 42670,
       aircraft: 0,
       mainRounds: 960,
-      torpedoesCarried: 6,
+      torpedoesCarried: 10,
       secondary: { caliber: 140, label: '5.5"', barrels: 12, rounds: 2400 },
       tertiary: [
         { caliber: 40, label: '2-pdr', barrels: 16, rounds: 28800 },

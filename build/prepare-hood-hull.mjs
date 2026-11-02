@@ -1,7 +1,7 @@
 // Turn the owner's HMS Hood sculpts into what client/js/render/hoodHull.js
 // ships: her hull and her superstructure as one painted mesh, and her 15-inch
-// turret, her 5.5-inch, her quadruple pom-pom and her triple bank of tubes as
-// the owner sculpted them, cut so they train and elevate. In order:
+// turret, her 5.5-inch and her quadruple pom-pom as the owner sculpted them,
+// cut so they train and elevate. In order:
 //
 //   * calibrate the sculpt of her hull into this game's frame -- bow to +Z by
 //     a quarter turn, scaled to her 262.3 m and floated at 9.0 m -- and take
@@ -22,8 +22,7 @@
 //   * read her surface off as a height map and her lines, which is what her
 //     interior and her armour are fitted under;
 //   * take her guns off the owner's sculpts of them, each in the frame of its
-//     mounting with what elevates on a cradle of its own, and draw her tubes
-//     whole forward of where the sculpt of them melted;
+//     mounting with what elevates on a cradle of its own;
 //   * bucket the hull into length-wise slices and pack it all, base64'd, into
 //     a source file hoodHull.js decodes synchronously.
 //
@@ -442,6 +441,40 @@ const sup = (() => {
     s = subMesh(s, (t) => !drop[t]);
     console.log(`her superstructure: ${low} pieces lying on her deck and ${aloft} scraps of wire taken off it`);
   }
+  // And a wire strung aloft that the decimation flattened into a sliver --
+  // metres long and a finger or two wide -- is plating with one face: lying
+  // face down over her funnels it is not there from above. Each such sliver
+  // is given its other face, on points of its own; and so is every wire
+  // she has, which the eye looks along as often as across.
+  {
+    let n = 0;
+    const T = s.T.length / 3;
+    // A wire is a piece of her a hand across both ways, however long.
+    const wire = new Uint8Array(T);
+    for (const c of components(s)) {
+      const ext = [0, 1, 2].map((k) => c.hi[k] - c.lo[k]).sort((a, b) => a - b);
+      if (ext[1] < 0.35 && ext[2] > 1.0) for (const t of c.tris) wire[t] = 1;
+    }
+    for (let t = 0; t < T; t++) {
+      const ids = [0, 1, 2].map((k) => s.T[t * 3 + k]);
+      const v = ids.map((i) => [s.P[i * 3], s.P[i * 3 + 1], s.P[i * 3 + 2]]);
+      if (!wire[t] && Math.min(v[0][1], v[1][1], v[2][1]) < DECKS.shelter + 10) continue;
+      const e = [[0, 1], [1, 2], [2, 0]].map(([a, b]) => Math.hypot(...[0, 1, 2].map((k) => v[a][k] - v[b][k])));
+      const long = Math.max(...e);
+      const [ax, ay, az] = [0, 1, 2].map((k) => v[1][k] - v[0][k]), [bx, by, bz] = [0, 1, 2].map((k) => v[2][k] - v[0][k]);
+      const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+      const twice = Math.hypot(cx, cy, cz);
+      if (!wire[t] && !(long > 0.5 && twice / long < 0.15)) continue;
+      if (!twice) continue;
+      const nrm = [-cx / twice, -cy / twice, -cz / twice];
+      const base = s.P.length / 3;
+      for (const p of v) { s.P.push(...p); s.N.push(...nrm); }
+      s.T.push(base, base + 2, base + 1);
+      s.C.push(s.C[t]);
+      n++;
+    }
+    console.log(`her superstructure: ${n} slivers of wire aloft given their other face`);
+  }
   // What stands free along her sides between her forecastle deck and a deck
   // over her shelter deck -- the 5.5-inch guns the sculpt cast in, on her
   // forecastle deck in their bays and on her shelter deck, and the odd scrap
@@ -474,6 +507,50 @@ const sup = (() => {
       s = subMesh(s, () => true);
       if (process.env.FREE) console.log(`gun at ${b.z0}..${b.z1} ${side}: ${before - s.T.length / 3} triangles`);
     }
+  }
+  // The forward bay's cut went through the paravane stowed along her deck
+  // beside it, and left its forward half lying there with its end sheared
+  // off: that comes off too, down to her deck, short of the block it lay
+  // against.
+  for (const side of [-1, 1]) {
+    const b = { x0: 11.2, x1: 13.0, y0: 7.3, y1: 8.75, z0: 25.3, z1: 28.4 };
+    splitAlong(s, (x, y, z) => Math.min(side * x - b.x0, b.x1 - side * x, y - b.y0, b.y1 - y, z - b.z0, b.z1 - z), { drop: true });
+    s = subMesh(s, () => true);
+  }
+  // What the cuts opened is closed again. A bay under her shelter deck took
+  // its back wall with the gun that stood against it: it is plated across at
+  // the cut, from her forecastle deck up into the deck over it, and faces
+  // out. Where a gun stood on her shelter deck the cut went through the deck:
+  // it is plated over a hair above the cut, facing up.
+  {
+    const vtx = (x, y, z, n) => { s.P.push(x, y, z); s.N.push(...n); return s.P.length / 3 - 1; };
+    const face = (a, b, c, d) => { s.T.push(a, b, c, a, c, d); s.C.push(SUPER_GREY, SUPER_GREY); };
+    for (const b of SCULPT_GUNS) {
+      for (const side of [-1, 1]) {
+        if (b.y0 < DECKS.forecastle) {
+          const x = side * b.x0, y0 = DECKS.forecastle - 0.05, y1 = DECKS.shelter - SUPER.sink - 0.08, n = [side, 0, 0];
+          const q = [vtx(x, y0, b.z0, n), vtx(x, y1, b.z0, n), vtx(x, y1, b.z1, n), vtx(x, y0, b.z1, n)];
+          if (side > 0) face(...q); else face(q[3], q[2], q[1], q[0]);
+        } else {
+          const y = b.y0 + 0.01, n = [0, 1, 0];
+          const q = [vtx(side * b.x0, y, b.z0, n), vtx(side * b.x0, y, b.z1, n), vtx(side * b.x1, y, b.z1, n), vtx(side * b.x1, y, b.z0, n)];
+          if (side > 0) face(...q); else face(q[3], q[2], q[1], q[0]);
+        }
+      }
+    }
+  }
+  // And what the cuts left lying loose on her deck -- the end of a paravane
+  // whose other end stood in a bay -- comes off with the rest of what lay there.
+  {
+    const drop = new Uint8Array(s.T.length / 3);
+    let n = 0;
+    for (const c of components(s)) {
+      if (c.hi[1] >= DECKS.forecastle + 1.0 && Math.hypot(...[0, 1, 2].map((k) => c.hi[k] - c.lo[k])) >= 0.6) continue;
+      for (const t of c.tris) drop[t] = 1;
+      n++;
+    }
+    s = subMesh(s, (t) => !drop[t]);
+    console.log(`her superstructure: ${n} pieces the gun cuts left loose taken off`);
   }
   for (const tub of POMPOM_TUBS) {
     for (const side of [-1, 1]) {
@@ -815,55 +892,6 @@ const POMPOM = gunPiece('hood-pompom.glb', {
   muzzles: [[-0.14, 0.19, 0.81], [0.14, 0.19, 0.81], [-0.14, -0.11, 0.98], [0.14, -0.11, 0.98]],
 });
 
-// Her triple bank of 21-inch tubes. The sculpt of it is whole from its breech
-// to a little forward of its turntable; forward of that the bottom of every
-// tube had melted into a trough with the fish lying in it, and that is cut
-// off (see build/hood-source.mjs). Each tube is drawn on from there to its
-// muzzle, round and closed, on the sculpt's own axis and a hair over its own
-// thickness so it sleeves the end of what is kept: a flange over the joint,
-// another halfway, a muzzle ring and a door shut over the muzzle, and a strip
-// of rivets along the top.
-const TUBES = (() => {
-  const scale = 3.6, pivot = [0.17, 0], foot = -0.228;
-  const lanes = [-0.1706, 0, 0.1704], axisY = -0.0215, r = 0.071;
-  const joint = -0.34, muzzle = -0.95, breech = 0.951;
-  const raw = readGlb(ASSET('hood-tubes.glb'));
-  const P = [], N = [];
-  for (let i = 0; i < raw.pos.length; i += 3) {
-    P.push((raw.pos[i + 2] - pivot[1]) * scale, (raw.pos[i + 1] - foot) * scale, -(raw.pos[i] - pivot[0]) * scale);
-    N.push(raw.nrm[i + 2], raw.nrm[i + 1], -raw.nrm[i]);
-  }
-  const house = { P, N, T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(GREY) };
-  fixWinding(house);
-  dropLoose(house, { maxArea: 0.002 * scale * scale, maxDiag: 0.04 * scale });
-  const W = (x) => -(x - pivot[0]) * scale;
-  const y = (axisY - foot) * scale, R = r * scale;
-  const drawn = blank();
-  for (const l of lanes) {
-    const X = (l - pivot[1]) * scale;
-    tube(drawn, [X, y, W(joint + 0.012)], [X, y, W(muzzle)], R, R, 28, GREY);
-    for (const [at, w, k] of [[joint, 0.03, 1.2], [-0.62, 0.025, 1.15], [muzzle + 0.03, 0.03, 1.18]]) {
-      tube(drawn, [X, y, W(at + w / 2)], [X, y, W(at - w / 2)], R * k, R * k, 28, GREY);
-    }
-    // The muzzle door, shut: a hand proud of the ring, its hinge on top.
-    tube(drawn, [X, y, W(muzzle)], [X, y, W(muzzle - 0.008)], R * 1.05, R * 0.98, 28, GREY);
-    tube(drawn, [X - 0.06, y + R * 1.05, W(muzzle + 0.01)], [X + 0.06, y + R * 1.05, W(muzzle + 0.01)], 0.04, 0.04, 8, GREY);
-    // Rivets along its top, between the flanges.
-    for (let a = joint - 0.05; a > muzzle + 0.06; a -= 0.035) {
-      if (Math.abs(a + 0.62) < 0.03) continue;
-      tube(drawn, [X, y + R - 0.005, W(a)], [X, y + R + 0.012, W(a)], 0.013, 0.01, 6, GREY);
-    }
-  }
-  append(house, drawn);
-  creased(house, 40);
-  let roof = 0;
-  for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
-  const bores = lanes.map((l) => [+((l - pivot[1]) * scale).toFixed(3), +y.toFixed(3), +W(breech).toFixed(3), +W(muzzle).toFixed(3)]);
-  console.log(`hood-tubes.glb: ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; three tubes `
-    + `${(W(muzzle) - W(breech)).toFixed(2)} m long, ${y.toFixed(2)} m up, muzzles ${W(muzzle).toFixed(2)} m ahead of the pivot`);
-  return { house, guns: { T: [] }, trunnion: [0, +y.toFixed(3), 0], muzzles: bores.map(([x, by, , z]) => [x, by, z]), roof: +roof.toFixed(3), bores };
-})();
-
 // Her 15-inch Mk II twin: 10.3 m a unit, which makes the barbette it trains
 // on -- the drum the sculpt stands it on -- nine and a half metres across,
 // as hers was. The sculpt's rocket launcher and its railed platform on the
@@ -893,7 +921,7 @@ const MAIN = gunPiece('hood-15.glb', {
 if (process.env.STAGE === 'guns') {
   const { writeGlb } = await import('./sculpt-source.mjs');
   const dir = process.env.PIECES || '.';
-  for (const [name, g] of Object.entries({ main: MAIN, sec: SEC, pompom: POMPOM, tubes: TUBES })) {
+  for (const [name, g] of Object.entries({ main: MAIN, sec: SEC, pompom: POMPOM })) {
     for (const [part, mesh] of [['house', g.house], ['guns', g.guns]]) {
       if (!mesh.T.length) continue;
       const paint = new Float32Array(mesh.P.length / 3);
@@ -916,23 +944,18 @@ if (process.env.STAGE === 'guns') {
 // stands on, `rest` which way it faces stowed.
 //
 // Her twelve 5.5-inch, six a side: two on her forecastle deck abreast her
-// bridge, where it is open to her side; three in the bays the sculpt cut
-// under her shelter deck, where it stood its own; and one on her after deck.
-// Her shelter deck itself is all boats, davits and houses along her side, and
-// a gun there could not train. Each is stowed trained abeam: a gun stowed
-// fore and aft in a bay lies along the wall at the bay's end.
+// bridge, under the platforms round it; three in the bays under her shelter
+// deck, each where the sculpt cast one; and one on her shelter deck itself,
+// abreast her fore funnel at the deck's edge, where the sculpt cast one too.
+// Each is stowed trained abeam: a gun stowed fore and aft in a bay lies along
+// the wall at the bay's end.
 export const SECONDARY = [
   { name: '5.5 bridge fwd', x: 11.5, z: 39.5, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 bridge aft', x: 11.5, z: 31.0, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 shelter deck', x: 9.7, z: 17.8, y: 10.31, rest: Math.PI / 2 },
   { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 aft bay', x: 11.75, z: -26.55, y: DECKS.forecastle, rest: Math.PI / 2 },
-  { name: '5.5 after deck', x: 8.0, z: -56.0, y: DECKS.shelter - SUPER.sink - 0.02, rest: Math.PI / 2 },
-];
-// Her triple banks of 21-inch tubes, one a side on her quarterdeck abreast
-// the point of her after deck, stowed fore and aft.
-export const TORPEDO_BANKS = [
-  { name: 'tubes', x: 10.3, z: -64.0, rest: 0 },
 ];
 
 // ---- her decks' paint ---------------------------------------------------------------
@@ -1008,7 +1031,6 @@ const mounts = {
   turrets: TURRETS.map(({ name, x, z, rest, seat, deck }) => ({ name, x, z, rest: r6(rest), seat, deck })),
   secondary: SECONDARY.map(({ name, x, z, y, rest }) => ({ name, x, z, y: +y.toFixed(3), rest: r6(rest) })),
   pompom: POMPOM_TUBS.map(({ name, x, z, floor }) => ({ name, x, z, y: floor })),
-  tubes: TORPEDO_BANKS.map(({ name, x, z, rest }) => ({ name, x, z, y: +quarterAt(z).toFixed(3), rest: r6(rest) })),
   afterDeck: { z0: AFTER_HOUSE.z0, z1: AFTER_HOUSE.z1, y: AFTER_HOUSE.y1 },
   decks: DECKS,
 };
@@ -1018,10 +1040,10 @@ writeFileSync(OUT_DATA,
   + `export const HOOD_HULL_B64 = ${JSON.stringify(b64)};\n`
   + `// Her surface height, in centimetres, every ${HM.step} m: see hoodSurfaceY.\n`
   + `export const HOOD_SURFACE = ${JSON.stringify({ ...HM, b64: heightBytes(hm).toString('base64') })};\n`
-  + `// Her 15-inch twin, her 5.5-inch, her quadruple pom-pom and her triple bank\n`
-  + `// of tubes, as the owner sculpted them, each in the frame of its mounting.\n`
-  + `export const HOOD_GUNS = ${JSON.stringify({ main: piece(MAIN), sec: piece(SEC), pompom: piece(POMPOM), tubes: piece(TUBES) })};\n`
-  + `// Where her turrets, her 5.5-inch, her pom-poms and her tubes stand; port\n`
+  + `// Her 15-inch twin, her 5.5-inch and her quadruple pom-pom, as the owner\n`
+  + `// sculpted them, each in the frame of its mounting.\n`
+  + `export const HOOD_GUNS = ${JSON.stringify({ main: piece(MAIN), sec: piece(SEC), pompom: piece(POMPOM) })};\n`
+  + `// Where her turrets, her 5.5-inch and her pom-poms stand; port\n`
   + `// side, the starboard ones their mirrors.\n`
   + `export const HOOD_MOUNTS = ${JSON.stringify(mounts)};\n`
   + `// Her four screws, on the ends of her shafts.\n`
