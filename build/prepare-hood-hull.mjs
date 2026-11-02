@@ -437,7 +437,11 @@ append(m, sup);
 // forward of the step.
 // Its top a finger under her superstructure's deck, and run in under its
 // rounded after end, so the one goes on into the other.
-export const AFTER_HOUSE = { z0: +(STEP + 2.4).toFixed(2), z1: +(MIDDLE.z0 + 2.5).toFixed(2), y1: +(DECKS.shelter - SUPER.sink - 0.02).toFixed(3) };
+export const AFTER_HOUSE = {
+  z0: +(STEP + 1.6).toFixed(2), z1: +(MIDDLE.z0 + 2.5).toFixed(2), y1: +(DECKS.shelter - SUPER.sink - 0.02).toFixed(3),
+  /** How far abaft her superstructure its sides start to close in, and how broad its after end is either side. */
+  taper: 2.5, tip: 1.6,
+};
 {
   const H = 0.5, ACROSS = 10;
   const port = new Map(), stbd = new Map();
@@ -535,12 +539,19 @@ export const AFTER_HOUSE = { z0: +(STEP + 2.4).toFixed(2), z1: +(MIDDLE.z0 + 2.5
   }
   walls.sort((a, b) => a - b);
   const w = Math.min(walls[walls.length >> 1], Math.min(...zoneA) - 1.2);
+  // In plan it is her superstructure's breadth for a few metres abaft it,
+  // then its sides close in to a point over the step -- a wedge, its point
+  // aft, a narrow blunt end where it comes down to her forecastle deck.
   const { z0, z1, y1 } = AFTER_HOUSE, y0 = DECKS.forecastle - 0.1;
-  const c = [[-w, z0], [w, z0], [w, z1], [-w, z1]];
+  const zt = MIDDLE.z0 - AFTER_HOUSE.taper, tip = AFTER_HOUSE.tip;
+  const c = [[-w, z1], [-w, zt], [-tip, z0], [tip, z0], [w, zt], [w, z1]];
+  const n = c.length;
   const lo = c.map(([x, z]) => vtx(x, y0, z, [0, 0, 0])), hi = c.map(([x, z]) => vtx(x, y1, z, [0, 0, 0]));
-  for (let j = 0; j < 4; j++) quad(lo[j], lo[(j + 1) % 4], hi[(j + 1) % 4], hi[j], SUPER_GREY);
-  quad(hi[0], hi[1], hi[2], hi[3], SUPER_GREY);
-  console.log(`her after superstructure: ${(2 * w).toFixed(2)} m across, ${z0} to ${z1}, to ${y1}`);
+  for (let j = 0; j < n; j++) quad(lo[j], lo[(j + 1) % n], hi[(j + 1) % n], hi[j], SUPER_GREY);
+  // Its deck, a fan from its middle (it is convex).
+  const mid = vtx(0, y1, (z0 + z1) / 2, [0, 1, 0]);
+  for (let j = 0; j < n; j++) { T.push(mid, hi[(j + 1) % n], hi[j]); C.push(SUPER_GREY); }
+  console.log(`her after superstructure: ${(2 * w).toFixed(2)} m across, closing from ${zt.toFixed(2)} to ${(2 * tip).toFixed(1)} m at ${z0}, to ${y1}`);
 }
 
 // ---- her paint, where the decimation smeared it ---------------------------------------
