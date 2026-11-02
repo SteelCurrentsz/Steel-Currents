@@ -16,7 +16,8 @@
 //   * stand on her forecastle deck the finer sculpt of her bridge, conning
 //     tower, funnels, boat deck and mainmast, its funnels over hers -- with
 //     the guns it had cast in cut out, for hood.js stands her own there --
-//     and carry its shelter deck on aft over her after superstructure;
+//     and stand abaft it her after deck, the wedge the sculpt drew on her
+//     quarterdeck, its outline read off the sculpt and run smooth;
 //   * paint her decks, split her normals at every crease;
 //   * read her surface off as a height map and her lines, which is what her
 //     interior and her armour are fitted under;
@@ -222,7 +223,7 @@ const deckLine = (() => {
     const [nx, ny, nz] = faceNormal(m, T[t], T[t + 1], T[t + 2]);
     if (ny > 0.5 * Math.hypot(nx, ny, nz)) up.push(T[t] * 3, T[t + 1] * 3, T[t + 2] * 3);
   }
-  const lowest = (x, z) => {
+  const lowest = (x, z, lo = 2, hi = Infinity) => {
     let best = Infinity;
     for (let i = 0; i < up.length; i += 3) {
       const a = up[i], b = up[i + 1], c = up[i + 2];
@@ -233,7 +234,7 @@ const deckLine = (() => {
       const l3 = 1 - l1 - l2;
       if (l1 < 0 || l2 < 0 || l3 < 0) continue;
       const y = l1 * P[a + 1] + l2 * P[b + 1] + l3 * P[c + 1];
-      if (y > 2 && y < best) best = y;
+      if (y > lo && y < hi && y < best) best = y;
     }
     return best;
   };
@@ -263,8 +264,46 @@ const deckLine = (() => {
     const i = Math.min(Math.floor(f), fore.length - 2);
     return fore[i] + (fore[i + 1] - fore[i]) * (f - i);
   };
-  return { at, fore, z0 };
+  return { at, fore, z0, lowest };
 })();
+// ---- her after deck, as the sculpt drew it ---------------------------------------------
+// Abaft her superstructure the sculpt has her shelter deck carried aft as a
+// wedge standing on her quarterdeck: the breadth of her where it leaves her
+// superstructure, closing to a few metres across over the step. Its outline
+// is read off the sculpt -- how far out either side there is deck at the
+// height of her shelter deck, a metre at a time -- and a curve fitted through
+// it, so its sides run smooth where the sculpt's are melted; its point is
+// rounded off.
+export const AFTER_DECK = (() => {
+  const rows = [];
+  for (let z = Math.ceil(STEP + 0.5); z <= Math.floor(MIDDLE.z0); z++) {
+    let port = 0, stbd = 0;
+    for (let x = 0.25; x < 16; x += 0.25) {
+      if (Number.isFinite(deckLine.lowest(x, z, DECKS.shelter - 0.8, DECKS.shelter + 1.0))) port = x;
+      if (Number.isFinite(deckLine.lowest(-x, z, DECKS.shelter - 0.8, DECKS.shelter + 1.0))) stbd = x;
+    }
+    if (port > 1 && stbd > 1) rows.push([z, (port + stbd) / 2]);
+  }
+  // Least squares, a quadratic in z.
+  const n = rows.length, zm = rows.reduce((a, [z]) => a + z, 0) / n;
+  const S = [0, 0, 0, 0, 0], R = [0, 0, 0];
+  for (const [z, w] of rows) {
+    const u = z - zm;
+    for (let k = 0; k < 5; k++) S[k] += u ** k;
+    for (let k = 0; k < 3; k++) R[k] += w * u ** k;
+  }
+  const A = [[S[0], S[1], S[2]], [S[1], S[2], S[3]], [S[2], S[3], S[4]]];
+  const det = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+    + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  const D = det(A);
+  const c = [0, 1, 2].map((k) => det(A.map((row, i) => row.map((v, j) => (j === k ? R[i] : v)))) / D);
+  const half = (z) => c[0] + c[1] * (z - zm) + c[2] * (z - zm) ** 2;
+  const tip = rows[0][0];
+  console.log(`her after deck: read at ${n} stations, ${rows.map(([z, w]) => `${z}:${w.toFixed(1)}`).join(' ')}; `
+    + `fitted ${half(tip).toFixed(2)} m a side at ${tip} to ${half(MIDDLE.z0).toFixed(2)} at ${MIDDLE.z0}`);
+  return { half, tip };
+})();
+
 /** Her deck at z: her forecastle deck forward of the step, her quarterdeck abaft it. */
 const forecastleAt = (z) => Math.max(deckLine.at(Math.max(z, Math.ceil(STEP))), DECKS.forecastle);
 const quarterAt = (z) => deckLine.at(Math.min(z, Math.floor(STEP)));
@@ -429,18 +468,13 @@ append(m, sup);
 // ---- her decks, laid ------------------------------------------------------------------
 // Smooth and level across, along her own sheer: out to the edge of the cut
 // either side at each half-metre of her, and her deck edge carried down over
-// the cut. Abaft her superstructure, to the step, her forecastle deck stands
-// on a side drawn straight up from her quarterdeck; at the step a bulkhead
-// comes down across her to her quarterdeck. Over that, her after
-// superstructure: her shelter deck carried on aft from her superstructure's
-// own after end at its own breadth, a deck high, to a bulkhead a little
-// forward of the step.
-// Its top a finger under her superstructure's deck, and run in under its
-// rounded after end, so the one goes on into the other.
+// the cut. Her quarterdeck runs forward from her stern to the end of her
+// superstructure, where a bulkhead goes up across her to her forecastle deck;
+// from there forward a little way her forecastle deck stands on a side drawn
+// straight up from her quarterdeck, where the sculpt slumped it. On her
+// quarterdeck abaft her superstructure stands her after deck (AFTER_DECK).
 export const AFTER_HOUSE = {
-  z0: +(STEP + 1.6).toFixed(2), z1: +(MIDDLE.z0 + 2.5).toFixed(2), y1: +(DECKS.shelter - SUPER.sink - 0.02).toFixed(3),
-  /** How far abaft her superstructure its sides start to close in, and how broad its after end is either side. */
-  taper: 2.5, tip: 1.6,
+  z0: AFTER_DECK.tip, z1: +(MIDDLE.z0 + 0.4).toFixed(2), y1: +(DECKS.shelter - SUPER.sink - 0.02).toFixed(3),
 };
 {
   const H = 0.5, ACROSS = 10;
@@ -455,42 +489,45 @@ export const AFTER_HOUSE = {
   }
   const ks = [...new Set([...port.keys(), ...stbd.keys()])].sort((a, b) => a - b);
   // Each station: where it is, its breadth either side, its deck, and how far
-  // down its edge comes. The step and the end of her superstructure are
-  // stations twice over, so her deck steps there.
+  // down its edge comes. The end of her superstructure and the end of her new
+  // side are stations twice over, so her deck steps there.
   const st = [];
   const station = (z, bs, bp, deck, foot) => st.push({ z, bs, bp, deck, foot });
   const breadthAt = (k) => [stbd.get(k) || port.get(k), port.get(k) || stbd.get(k)];
-  // Over her new side its foot is her side at her quarterdeck, and its head
-  // is as much further out as her side flares between her quarterdeck and her
-  // forecastle deck where her old side takes over.
-  const Z1 = NEW_SIDE.z1;
+  const Z0 = MIDDLE.z0, Z1 = NEW_SIDE.z1;
   for (const k of ks) {
     const z = k * H;
     const [bs, bp] = breadthAt(k);
-    if (z > STEP && st.length && st[st.length - 1].z < STEP) {
-      // The step: her quarterdeck, then her forecastle deck, over the same breadth.
+    if (z > Z0 && st.length && st[st.length - 1].z < Z0) {
+      // Up from her quarterdeck to her forecastle deck, over the same breadth.
       const p = st[st.length - 1];
-      const foot = quarterAt(STEP) - EDGE;
-      station(STEP, p.bs, p.bp, quarterAt(STEP), foot);
-      station(STEP, p.bs, p.bp, forecastleAt(STEP), foot);
+      const foot = quarterAt(Z0) - EDGE;
+      station(Z0, p.bs, p.bp, quarterAt(Z0), foot);
+      station(Z0, p.bs, p.bp, forecastleAt(Z0), foot);
     }
     if (z > Z1 && st.length && st[st.length - 1].z < Z1) {
       const p = st[st.length - 1];
       station(Z1, p.bs, p.bp, forecastleAt(Z1), p.foot);
       station(Z1, bs, bp, forecastleAt(Z1), forecastleAt(Z1) - EDGE);
     }
-    if (z < STEP) station(z, bs, bp, quarterAt(z), quarterAt(z) - EDGE);
+    if (z < Z0) station(z, bs, bp, quarterAt(z), quarterAt(z) - EDGE);
     else if (z < Z1) station(z, bs, bp, forecastleAt(z), quarterAt(z) - EDGE);
     else station(z, bs, bp, forecastleAt(z), forecastleAt(z) - EDGE);
   }
+  // Over her new side its foot is her side at her quarterdeck, and its head
+  // is as much further out as her side flares between her quarterdeck and her
+  // forecastle deck where her old side takes over.
   for (const s of st) { s.fs = s.bs; s.fp = s.bp; }
   const j = st.findIndex((s, i) => s.z === Z1 && st[i + 1] && st[i + 1].z === Z1);
   const flare = [st[j + 1].bs - st[j].bs, st[j + 1].bp - st[j].bp].map((d) => Math.max(0, d));
   for (let i = 0; i <= j; i++) {
-    if (st[i].z < STEP || (st[i].z === STEP && st[i].deck < DECKS.forecastle)) continue;
+    if (st[i].z < Z0 || st[i].deck < DECKS.forecastle) continue;
     st[i].bs += flare[0]; st[i].bp += flare[1];
   }
-  const zoneA = [st[j].bs, st[j].bp];
+  const breadthAtZ = (z) => {
+    const s = st.reduce((b, q) => (Math.abs(q.z - z) < Math.abs(b.z - z) ? q : b));
+    return Math.min(s.fs, s.fp);
+  };
   const { P, N, T, C } = m;
   const vtx = (x, y, z, n) => { P.push(x, y, z); N.push(...n); return P.length / 3 - 1; };
   const quad = (a, b, c, d, paintOf) => { T.push(a, b, c, a, c, d); C.push(paintOf, paintOf); };
@@ -527,31 +564,37 @@ export const AFTER_HOUSE = {
     + [-120, STEP, -55, MIDDLE.z0, -42, -41, 0, 100].map((z) => `${z.toFixed(0)} ${at(z).bs.toFixed(2)}/${at(z).bp.toFixed(2)}`).join(', ')
     + `; her new side flares out ${flare.map((v) => v.toFixed(2)).join('/')}`);
 
-  // Her after superstructure, as broad as her superstructure is at its after end.
-  // Its sides run on aft from her superstructure's: the middle of where the
-  // walls of its after end stand, either side.
-  const walls = [];
-  for (let t = 0; t < sup.T.length / 3; t++) {
-    const [cx, cy, cz] = middle(sup, t);
-    if (cz > MIDDLE.z0 + 6 || cy < DECKS.forecastle + 0.6 || cy > AFTER_HOUSE.y1 - 0.4 || Math.abs(cx) < 8) continue;
-    const [nx, ny, nz] = faceNormal(sup, sup.T[t * 3], sup.T[t * 3 + 1], sup.T[t * 3 + 2]);
-    if (Math.abs(nx) > 0.8 * Math.hypot(nx, ny, nz)) walls.push(Math.abs(cx));
-  }
-  walls.sort((a, b) => a - b);
-  const w = Math.min(walls[walls.length >> 1], Math.min(...zoneA) - 1.2);
-  // In plan it is her superstructure's breadth for a few metres abaft it,
-  // then its sides close in to a point over the step -- a wedge, its point
-  // aft, a narrow blunt end where it comes down to her forecastle deck.
-  const { z0, z1, y1 } = AFTER_HOUSE, y0 = DECKS.forecastle - 0.1;
-  const zt = MIDDLE.z0 - AFTER_HOUSE.taper, tip = AFTER_HOUSE.tip;
-  const c = [[-w, z1], [-w, zt], [-tip, z0], [tip, z0], [w, zt], [w, z1]];
-  const n = c.length;
-  const lo = c.map(([x, z]) => vtx(x, y0, z, [0, 0, 0])), hi = c.map(([x, z]) => vtx(x, y1, z, [0, 0, 0]));
-  for (let j = 0; j < n; j++) quad(lo[j], lo[(j + 1) % n], hi[(j + 1) % n], hi[j], SUPER_GREY);
-  // Its deck, a fan from its middle (it is convex).
+  // Her after deck: the sculpt's wedge (AFTER_DECK), on her quarterdeck, its
+  // sides along the curve fitted to it -- never closer than a hand and a half
+  // to her side -- and its point rounded off in a half-circle as wide as the
+  // wedge is there. Its top a finger under her superstructure's deck, and run
+  // a hand in under its after end, so the one goes on into the other.
+  const { z0, z1, y1 } = AFTER_HOUSE, y0 = quarterAt(z0) - 0.1;
+  const half = (z) => Math.min(AFTER_DECK.half(z), breadthAtZ(z) - 0.35);
+  // Its point: a round nose over the last few metres, as broad as the wedge
+  // where it starts, its sides running on into the wedge's with the same lean.
+  const L = 3.0, nose = half(z0 + L);
+  const sideAt = (z) => (z >= z0 + L ? half(z) : nose * Math.sqrt(Math.max(0, z - z0) / L));
+  const zs = [];
+  for (let z = z1; z > z0 + L; z -= 0.5) zs.push(z);
+  for (let k = 12; k >= 0; k--) zs.push(z0 + L * (k / 12) ** 2);
+  const outline = [
+    ...zs.map((z) => [-sideAt(z), z]),
+    ...zs.slice(0, -1).reverse().map((z) => [sideAt(z), z]),
+  ];
+  const r = nose;
+  // Each side's points a little along the curve: what is between two is a
+  // flat of her wall, and the creases between them are shaded round.
+  const n = outline.length;
+  const lo = outline.map(([x, z]) => vtx(x, y0, z, [0, 0, 0])), hi = outline.map(([x, z]) => vtx(x, y1, z, [0, 0, 0]));
+  for (let k = 0; k < n; k++) quad(lo[k], hi[k], hi[(k + 1) % n], lo[(k + 1) % n], SUPER_GREY);
+  // Its deck, a fan from a point inside it: it is convex.
+  // Its own points, so it is shaded flat and its walls round.
+  const top = outline.map(([x, z]) => vtx(x, y1, z, [0, 1, 0]));
   const mid = vtx(0, y1, (z0 + z1) / 2, [0, 1, 0]);
-  for (let j = 0; j < n; j++) { T.push(mid, hi[(j + 1) % n], hi[j]); C.push(SUPER_GREY); }
-  console.log(`her after superstructure: ${(2 * w).toFixed(2)} m across, closing from ${zt.toFixed(2)} to ${(2 * tip).toFixed(1)} m at ${z0}, to ${y1}`);
+  for (let k = 0; k < n; k++) { T.push(mid, top[k], top[(k + 1) % n]); C.push(SUPER_GREY); }
+  console.log(`her after deck laid: ${(2 * half(z1)).toFixed(2)} m across at ${z1}, its point at ${z0}, `
+    + `its nose ${(2 * r).toFixed(2)} m across ${L} m from it, ${y0.toFixed(2)} to ${y1}`);
 }
 
 // ---- her paint, where the decimation smeared it ---------------------------------------
