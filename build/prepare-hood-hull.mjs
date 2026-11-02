@@ -460,9 +460,9 @@ export const BRIDGE_BAY = {
   mouth: (z) => 11.05 - (z - 29.6) * (11.05 - 7.55) / (33.9 - 29.6),
 };
 /** The bandstand on her centreline at the after end of her after deck, her third pom-pom on it. */
-export const AFTER_PLATFORM = { z: -58.5, r: 2.6, floor: 11.1, shield: 1.0 };
+export const AFTER_PLATFORM = { z: -58.5, r: 2.6, floor: 11.25, shield: 1.0 };
 /** Her gun positions bulged out either side of her after deck, splinter shields and all. */
-export const AFTER_SPONSONS = { z: -55.0, r: 2.1, shield: 1.25 };
+export const AFTER_SPONSONS = { z: -60.0, r: 2.1, shield: 1.25 };
 /**
  * Her pom-pom tubs, port side: abreast her bridge on the platform at the
  * foot of her tower, and abreast her mainmast on her shelter deck aft. The
@@ -477,7 +477,7 @@ export const POMPOM_TUBS = [
   // mainmast, where her third multiple pom-pom stood from 1937. Nothing of
   // the sculpt is there to cut: it stands on the bandstand (AFTER_PLATFORM)
   // laid on the roof laid in AFTER_HOUSE.
-  { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 11.1, laid: true },
+  { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 11.25, laid: true },
 ];
 export const SUPER = {
   k: 0.135 / 0.3355, funnel: -0.249, hullFunnel: -0.104, low: -0.257, high: -0.194, sink: 0.15, side: 0.35,
@@ -798,8 +798,13 @@ append(m, sup);
 // from there forward a little way her forecastle deck stands on a side drawn
 // straight up from her quarterdeck, where the sculpt slumped it. On her
 // quarterdeck abaft her superstructure stands her after deck (AFTER_DECK).
+// Its top is a centimetre under the deck the sculpt of her superstructure
+// has at its after end -- 10.345 m, read off it: the sculpt's deck stands a
+// little prouder than her shelter deck -- and runs a metre in under it, past
+// the rounded lip of that deck and the notches at its after corners, so the
+// one deck goes on into the other.
 export const AFTER_HOUSE = {
-  z0: AFTER_DECK.tip, z1: +(MIDDLE.z0 + 0.4).toFixed(2), y1: +(DECKS.shelter - SUPER.sink - 0.02).toFixed(3),
+  z0: AFTER_DECK.tip, z1: +(MIDDLE.z0 + 1.05).toFixed(2), y1: 10.335,
 };
 {
   const H = 0.5, ACROSS = 10;
@@ -893,10 +898,18 @@ export const AFTER_HOUSE = {
   // Her after deck: the sculpt's wedge (AFTER_DECK), on her quarterdeck, its
   // sides along the curve fitted to it -- never closer than a hand and a half
   // to her side -- and its point rounded off in a half-circle as wide as the
-  // wedge is there. Its top a finger under her superstructure's deck, and run
-  // a hand in under its after end, so the one goes on into the other.
+  // wedge is there. Over its forward FLARE metres its sides swing out to her
+  // own, so at the step down from her forecastle deck her side goes straight
+  // on up into its wall, with no ledge of quarterdeck between and no end of
+  // her forecastle deck's side standing out past it.
   const { z0, z1, y1 } = AFTER_HOUSE, y0 = quarterAt(z0) - 0.1;
-  const half = (z) => Math.min(AFTER_DECK.half(z), breadthAtZ(z) - 0.35);
+  const FLARE = 6.0, zf = MIDDLE.z0 - FLARE;
+  const half = (z) => {
+    const wedge = Math.min(AFTER_DECK.half(z), breadthAtZ(z) - 0.35);
+    if (z <= zf) return wedge;
+    const u = Math.min(1, (z - zf) / FLARE), w = u * u * (3 - 2 * u);
+    return wedge + (breadthAtZ(Math.min(z, MIDDLE.z0)) - 0.05 - wedge) * w;
+  };
   // Its point: a round nose over the last few metres, as broad as the wedge
   // where it starts, its sides running on into the wedge's with the same lean.
   const L = 3.0, nose = half(z0 + L);
