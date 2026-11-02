@@ -618,3 +618,178 @@ if (process.env.DUMP) {
   writeGlb(process.env.DUMP, { P: m.P, N: m.N, T: m.T, paint: paintOf }, 'dump');
   if (process.env.STAGE === 'merge') process.exit(0);
 }
+if (process.env.STAGE === 'guns') process.env.SKIP_HULL = '1';
+
+// ---- her guns, as the owner sculpted them ------------------------------------------
+// Each is put in the frame of its mounting: the pivot at the origin, the foot
+// of what trains at y = 0, the bore along +z. What elevates -- the barrels
+// and what carries them -- is lifted off it on to a cradle about its
+// trunnions, turned down level if it was sculpted laid up; what is left
+// trains. Every one of them points its barrels -x in the owner's sculpt.
+//
+//   file      the decimated sculpt (see build/hood-source.mjs)
+//   scale     metres a unit of the sculpt
+//   pivot     [x, z] of what it trains about, in the sculpt
+//   foot      the sculpt's y of its foot: it is cut off square there
+//   trunnion  [x, y] of its trunnions, in the sculpt
+//   elev      how far it was sculpted laid up, radians
+//   cradle    (u, v, z, x, y) => whether a point of the sculpt elevates: u
+//             along the bore from the trunnions, v square to it, up
+//   muzzles   [z, v, u] of each muzzle, in the sculpt's units off the trunnions
+function gunPiece(file, { scale, pivot, foot, trunnion, elev = 0, cradle, muzzles, ahead = -Infinity }) {
+  const raw = readGlb(ASSET(file));
+  const P = [], N = [];
+  for (let i = 0; i < raw.pos.length; i += 3) {
+    const x = raw.pos[i], y = raw.pos[i + 1], z = raw.pos[i + 2];
+    P.push((z - pivot[1]) * scale, (y - foot) * scale, -(x - pivot[0]) * scale);
+    N.push(raw.nrm[i + 2], raw.nrm[i + 1], -raw.nrm[i]);
+  }
+  const mesh = { P, N, T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(GREY) };
+  fixWinding(mesh);
+  // Off square at its foot, along the cut: nothing under it.
+  splitAlong(mesh, (x, y) => -y, { drop: true });
+  const c = Math.cos(elev), s = Math.sin(elev);
+  const [tx, ty] = trunnion;
+  const sculptOf = (X, Y, Z) => [pivot[0] - Z / scale, foot + Y / scale, pivot[1] + X / scale];
+  const lifts = (t) => {
+    const [X, Y, Z] = middle(mesh, t);
+    const [x, y, z] = sculptOf(X, Y, Z);
+    const u = (tx - x) * c + (y - ty) * s, v = -(tx - x) * s + (y - ty) * c;
+    return cradle(u, v, z, x, y);
+  };
+  // Nothing of what trains reaches further ahead than `ahead` in the sculpt:
+  // the shards the decimation left standing off a shield's face.
+  const forward = (t) => [0, 1, 2].some((j) => {
+    const v = mesh.T[t * 3 + j] * 3;
+    return sculptOf(mesh.P[v], mesh.P[v + 1], mesh.P[v + 2])[0] < ahead;
+  });
+  const house = subMesh(mesh, (t) => !lifts(t) && !forward(t));
+  dropLoose(house, { maxArea: 0.002 * scale * scale, maxDiag: 0.04 * scale });
+  for (let t = 0; t < house.T.length / 3; t++) {
+    const [nx, ny, nz] = faceNormal(house, house.T[t * 3], house.T[t * 3 + 1], house.T[t * 3 + 2]);
+    house.C[t] = ny > 0.9 * Math.hypot(nx, ny, nz) && middle(house, t)[1] < 0.6 ? STEEL : GREY;
+  }
+  creased(house, 40);
+  const guns = subMesh(mesh, lifts);
+  // Into the cradle's frame: origin on the trunnions, the bore along +z.
+  const T0 = [0, (ty - foot) * scale, -(tx - pivot[0]) * scale];
+  for (let i = 0; i < guns.P.length; i += 3) {
+    const y = guns.P[i + 1] - T0[1], z = guns.P[i + 2] - T0[2];
+    guns.P[i] -= T0[0];
+    guns.P[i + 1] = y * c - z * s; guns.P[i + 2] = y * s + z * c;
+    const ny = guns.N[i + 1], nz = guns.N[i + 2];
+    guns.N[i + 1] = ny * c - nz * s; guns.N[i + 2] = ny * s + nz * c;
+  }
+  if (guns.T.length) creased(guns, 40);
+  let roof = 0;
+  for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
+  const out = {
+    house, guns, trunnion: T0.map((v) => +v.toFixed(3)), roof: +roof.toFixed(3),
+    muzzles: muzzles.map(([z, v, u]) => [+(z * scale).toFixed(3), +(v * scale).toFixed(3), +(u * scale).toFixed(3)]),
+  };
+  console.log(`${file}: house ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; cradle ${guns.T.length / 3} `
+    + `triangles about trunnions ${T0[1].toFixed(2)} m up, ${T0[2].toFixed(2)} m ahead; muzzles ${out.muzzles.map((m) => m.join('/')).join(' ')}`);
+  return out;
+}
+
+// The 5.5-inch BL Mk I in its shield: 5.5 m a unit, which makes the shield
+// two and three quarter metres across. Sculpted laid up seven and a half
+// degrees. The decimation left its barrel in splinters, so everything of it
+// ahead of the shield's face within a barrel's thickness of the bore is taken
+// off, and the barrel drawn afresh on the cradle: from inside the shield to a
+// muzzle five metres out, tapered, with its swell at the muzzle.
+const SEC = gunPiece('hood-55.glb', {
+  scale: 5.5, pivot: [0.11, 0], foot: -0.135, trunnion: [0.0, 0.0976], elev: 0.131,
+  cradle: (u, v, z, x) => x < -0.15 && Math.hypot(v, z) < 0.1,
+  muzzles: [[0, 0, 0.93]], ahead: -0.19,
+});
+{
+  const len = 0.93 * 5.5;
+  const g = blank();
+  tube(g, [0, 0, -0.4], [0, 0, 1.0], 0.17, 0.15, 24, GREY);
+  tube(g, [0, 0, 1.0], [0, 0, len - 0.35], 0.135, 0.1, 24, GREY);
+  tube(g, [0, 0, len - 0.35], [0, 0, len - 0.05], 0.1, 0.118, 24, GREY);
+  tube(g, [0, 0, len - 0.05], [0, 0, len], 0.118, 0.112, 24, GREY);
+  creased(g, 40);
+  SEC.guns = g;
+  SEC.muzzles = [[0, 0, +len.toFixed(3)]];
+}
+// The quadruple 2-pounder Mk VII: 2.0 m a unit, which makes its platform and
+// splinter shield nearly four metres across, to stand in her tubs. Sculpted
+// laid up thirty degrees; its cradle is its four barrels, their breeches and
+// the ammunition boxes on them, and not the shield in front of it.
+const POMPOM = gunPiece('hood-pompom.glb', {
+  scale: 2.0, pivot: [-0.11, 0], foot: -0.46, trunnion: [-0.04, 0.14], elev: 0.52,
+  cradle: (u, v, z, x, y) => u > -0.25 && u < 1.05 && v > -0.27 && v < 0.3 && Math.abs(z) < 0.27 && (x > -0.48 || y > 0.3),
+  muzzles: [[-0.14, 0.19, 0.81], [0.14, 0.19, 0.81], [-0.14, -0.11, 0.98], [0.14, -0.11, 0.98]],
+});
+
+// Her triple bank of 21-inch tubes. The sculpt of it is whole from its breech
+// to a little forward of its turntable; forward of that the bottom of every
+// tube had melted into a trough with the fish lying in it, and that is cut
+// off (see build/hood-source.mjs). Each tube is drawn on from there to its
+// muzzle, round and closed, on the sculpt's own axis and a hair over its own
+// thickness so it sleeves the end of what is kept: a flange over the joint,
+// another halfway, a muzzle ring and a door shut over the muzzle, and a strip
+// of rivets along the top.
+const TUBES = (() => {
+  const scale = 3.6, pivot = [0.17, 0], foot = -0.228;
+  const lanes = [-0.1706, 0, 0.1704], axisY = -0.0215, r = 0.071;
+  const joint = -0.34, muzzle = -0.95, breech = 0.951;
+  const raw = readGlb(ASSET('hood-tubes.glb'));
+  const P = [], N = [];
+  for (let i = 0; i < raw.pos.length; i += 3) {
+    P.push((raw.pos[i + 2] - pivot[1]) * scale, (raw.pos[i + 1] - foot) * scale, -(raw.pos[i] - pivot[0]) * scale);
+    N.push(raw.nrm[i + 2], raw.nrm[i + 1], -raw.nrm[i]);
+  }
+  const house = { P, N, T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(GREY) };
+  fixWinding(house);
+  dropLoose(house, { maxArea: 0.002 * scale * scale, maxDiag: 0.04 * scale });
+  const W = (x) => -(x - pivot[0]) * scale;
+  const y = (axisY - foot) * scale, R = r * scale;
+  const drawn = blank();
+  for (const l of lanes) {
+    const X = (l - pivot[1]) * scale;
+    tube(drawn, [X, y, W(joint + 0.012)], [X, y, W(muzzle)], R, R, 28, GREY);
+    for (const [at, w, k] of [[joint, 0.03, 1.2], [-0.62, 0.025, 1.15], [muzzle + 0.03, 0.03, 1.18]]) {
+      tube(drawn, [X, y, W(at + w / 2)], [X, y, W(at - w / 2)], R * k, R * k, 28, GREY);
+    }
+    // The muzzle door, shut: a hand proud of the ring, its hinge on top.
+    tube(drawn, [X, y, W(muzzle)], [X, y, W(muzzle - 0.008)], R * 1.05, R * 0.98, 28, GREY);
+    tube(drawn, [X - 0.06, y + R * 1.05, W(muzzle + 0.01)], [X + 0.06, y + R * 1.05, W(muzzle + 0.01)], 0.04, 0.04, 8, GREY);
+    // Rivets along its top, between the flanges.
+    for (let a = joint - 0.05; a > muzzle + 0.06; a -= 0.035) {
+      if (Math.abs(a + 0.62) < 0.03) continue;
+      tube(drawn, [X, y + R - 0.005, W(a)], [X, y + R + 0.012, W(a)], 0.013, 0.01, 6, GREY);
+    }
+  }
+  append(house, drawn);
+  creased(house, 40);
+  let roof = 0;
+  for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
+  const bores = lanes.map((l) => [+((l - pivot[1]) * scale).toFixed(3), +y.toFixed(3), +W(breech).toFixed(3), +W(muzzle).toFixed(3)]);
+  console.log(`hood-tubes.glb: ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; three tubes `
+    + `${(W(muzzle) - W(breech)).toFixed(2)} m long, ${y.toFixed(2)} m up, muzzles ${W(muzzle).toFixed(2)} m ahead of the pivot`);
+  return { house, guns: { T: [] }, trunnion: [0, +y.toFixed(3), 0], muzzles: bores.map(([x, by, , z]) => [x, by, z]), roof: +roof.toFixed(3), bores };
+})();
+
+if (process.env.STAGE === 'guns') {
+  const { writeGlb } = await import('./sculpt-source.mjs');
+  const dir = process.env.PIECES || '.';
+  for (const [name, g] of Object.entries({ sec: SEC, pompom: POMPOM, tubes: TUBES })) {
+    for (const [part, mesh] of [['house', g.house], ['guns', g.guns]]) {
+      if (!mesh.T.length) continue;
+      const paint = new Float32Array(mesh.P.length / 3);
+      if (mesh.C) for (let t = 0; t < mesh.T.length / 3; t++) for (let j = 0; j < 3; j++) paint[mesh.T[t * 3 + j]] = mesh.C[t];
+      writeGlb(path.join(dir, `${name}-${part}.glb`), { P: mesh.P, N: mesh.N, T: mesh.T, paint }, 'piece');
+    }
+    // And the two together, the cradle level on its trunnions.
+    const all = { P: [...g.house.P], N: [...g.house.N], T: [...g.house.T], C: [...g.house.C] };
+    if (g.guns.T.length) {
+      const moved = { P: g.guns.P.map((v, i) => v + g.trunnion[i % 3]), N: g.guns.N, T: g.guns.T, C: g.guns.C };
+      append(all, moved);
+    }
+    writeGlb(path.join(dir, `${name}-all.glb`), { P: all.P, N: all.N, T: all.T }, 'piece');
+  }
+  process.exit(0);
+}
